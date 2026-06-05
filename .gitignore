@@ -1,0 +1,110 @@
+# ── Claude Code / agent harness ──────────────────────────────────────
+.claude/
+*.local.json
+
+# ── Secrets (Infisical is source of truth — never commit values) ──────
+# NOTE: docs2/infisical-secrets-guide.md is intentionally tracked; it
+# documents key NAMES only and contains no secret values.
+.env
+.env.*
+!.env.example
+*.env
+!*.env.example
+secrets/
+*.key
+*.pem
+*.pfx
+*.p12
+*.token
+*.cert
+*.crt
+credentials.json
+service-account*.json
+# Tauri updater signing keys (pulled at build time from the vault)
+*.updater.key
+tauri_updater_signing_key*
+
+# ── Rust / Cargo (Forge math runtime, Aster engine, API) ─────────────
+/target/
+**/target/
+**/*.rs.bk
+*.pdb
+# Cargo.lock is kept (binary/application — reproducible builds)
+
+# ── Python (FSV harness, test-data acquisition, MI/embedding tooling) ─
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.python-version
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# ── ML / model weights & embedder lenses (frozen, large — store off-VCS)
+*.safetensors
+*.gguf
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.npz
+*.npy
+models/
+checkpoints/
+lenses/
+
+# ── Data, datasets, on-disk DB state (Aster storage, ZFS-backed) ─────
+data/
+datasets/
+*.aster
+*.lsm
+*.sst
+*.wal
+*.parquet
+*.arrow
+*.duckdb
+*.sqlite
+*.sqlite3
+*.db
+db/
+storage/
+
+# ── Logs / temp / scratch (sitrep writes ./tmp) ──────────────────────
+*.log
+logs/
+tmp/
+.tmp/
+*.tmp
+.cache/
+
+# ── CUDA / GPU build artifacts ───────────────────────────────────────
+*.cubin
+*.ptx
+*.fatbin
+
+# ── Editors / IDE ────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.history/
+
+# ── OS cruft ─────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
