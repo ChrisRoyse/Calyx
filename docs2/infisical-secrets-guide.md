@@ -1,23 +1,43 @@
 # Infisical secrets guide — AI-agent operational reference
 
-> **Status as of 2026-06-03 (live vault readback):** authoritative
+> **Status as of 2026-06-06 (live vault readback):** authoritative
 > operational guide for working with the Leapable secrets vault. Infisical
 > (`leapable-aiwonder-prod`) is the single source of truth for every
 > Leapable production secret. This doc is intended for **AI agents and
 > operators** picking up the system fresh — it tells you what is in the
-> vault, how to read it safely, who consumes each key, and how to
-> add/rotate/verify slots.
+> vault, how to read it safely, who consumes each key, how to access it
+> **from this Windows workstation** (§2.5), what **aiwonder** is (§10), and
+> how to add/rotate/verify slots.
 >
-> **2026-06-03 reconciliation against the live `prod` environment (100
-> keys).** The catalog below was regenerated from a key-name readback of
-> the actual vault. Values are intentionally never recorded here. Big
-> drifts since the 2026-05-11 snapshot:
+> **2026-06-06 reconciliation against the live `prod` environment (98 keys
+> at `/`).** The catalog was re-verified by a key-name readback of the
+> actual vault via the Infisical REST API as `chrisroyseai@gmail.com` (org
+> **Leapable**). Values are intentionally never recorded here. Drift since
+> the 2026-06-03 snapshot:
 >
-> - **Postgres/pgbouncer backend ("backenddb") slots are now live and
+> - **`prod` is now 98 keys at the root path** (was 100). The two
+>   Cloudflare **tunnel** slots are gone: `cf_legacy_tunnel_provisioning_token`
+>   (the deprecated one the prior snapshot scheduled for removal — **removal
+>   now complete**) and `cf_tunnel_id`. Tunnel provisioning runs entirely on
+>   `cf_provisioner_api_token` now.
+> - **New folder namespaces appeared** (secrets now also live under
+>   sub-paths, not just `/`). `prod` has a `/polis` folder containing a
+>   `socialmedia2_com` sub-folder; `dev` has a `/social-media-2` folder
+>   holding a single `SM2_INFISICAL_README` marker. These look like a
+>   separate "social-media-2 / polis" workstream staged in the same project.
+>   Their contents are **not catalogued in §3** (which covers `prod` `/`);
+>   treat them as out-of-scope until the operator confirms ownership.
+> - **Access from this machine is now configured.** The Infisical CLI is
+>   installed (winget, v0.43.91) and this Windows user is connected via a
+>   persisted session token — see **§2.5** for how, the token expiry, and
+>   how to refresh it.
+> - Everything else from 2026-06-03 still holds — restated for the
+>   fresh reader:
+> - **Postgres/pgbouncer backend ("backenddb") slots are live and
 >   loader-rendered** — `aiwonder_postgres_*` and `aiwonder_pgbouncer_*`
->   (URLs, per-role passwords, observer DSN). The loader now materializes
->   **12** env files (was 8): `outbox-relay.env`, `postgres-exporter.env`,
->   `pgbouncer-exporter.env`, and `pgbouncer.env` are new.
+>   (URLs, per-role passwords, observer DSN). The loader materializes
+>   **12** env files: `outbox-relay.env`, `postgres-exporter.env`,
+>   `pgbouncer-exporter.env`, and `pgbouncer.env` are the newer ones.
 > - **Tauri updater signing keys** (`tauri_updater_signing_key`,
 >   `tauri_updater_signing_key_password`, `tauri_updater_pubkey`) are
 >   present and LIVE — pulled at build time by
@@ -42,13 +62,17 @@
 > is static marketplace config and must stay distinct from
 > `PLATFORM_URL=https://marketplace.leapable.ai`.
 >
-> **Source-of-truth docs (read these for deep architecture):**
+> **Source-of-truth docs (read these for deep architecture).** Note: this
+> guide lives in the **Calyx** repo; several referenced files live in the
+> sibling **`leapablememory`** repo and are prefixed accordingly:
 >
-> - `docs2/aiwonder-system.md §"Infisical secrets vault"` — canonical IDs,
->   bootstrap creds layout, REST/CLI/SDK examples, what lives outside
->   Infisical and why.
-> - `docs/datacenterrefactor/16_secrets_and_credentials.md` — full
->   per-category breakdown of every live secret with usage notes,
+> - `docs/dbprdplans/16_AIWONDER_DEPLOYMENT.md` (**this repo**) — hardware
+>   map, systemd, ZFS, GPU policy, and how `calyxd` deploys onto aiwonder.
+> - `leapablememory/docs2/aiwonder-system.md §"Infisical secrets vault"` —
+>   canonical IDs, bootstrap creds layout, REST/CLI/SDK examples, what lives
+>   outside Infisical and why.
+> - `leapablememory/docs/datacenterrefactor/16_secrets_and_credentials.md` —
+>   full per-category breakdown of every live secret with usage notes,
 >   rotation procedures, and known-compromised history.
 >
 > **This guide focuses on:** complete operational secret/config catalog with primary
@@ -104,18 +128,24 @@ are not.
 
 ```text
 Infisical site:           https://app.infisical.com
+API base URL:             https://app.infisical.com/api   (US Cloud)
 Org:                      Leapable (id 42ae02b8-1340-4f91-9268-125b1f540fdf)
 Project name:             leapable-aiwonder-prod
 Project id:               c2d7e44c-d7d1-4b27-aa23-2ed5a97fa0b5
-Environment:              prod (100 keys). dev holds 2 Gemini keys; staging empty.
-Secret path:              /
+Project slug:             leapable-aiwonder-prod-j-ejx
+Environments:             prod (98 keys at /), dev (2 keys at /), staging (empty)
+Secret path:              /   (plus newer folders: prod /polis, dev /social-media-2 — §intro)
 Machine identity:         aiwonder-prod
 Machine identity id:      24fcf8d6-947e-4bd8-a132-fbbd05abe32d
-Auth method:              Universal Auth
+Auth method:              Universal Auth (for aiwonder + automation)
 Universal Auth client_id: b652fa69-97a7-415c-b4aa-dab6bdb6029f
 Project role:             Admin
 Org role:                 No Access  (least-privilege at org scope)
 ```
+
+The three environment slugs are `dev`, `staging`, `prod` (their display
+names are Development / Staging / Production). Pass the **slug** to the CLI
+and REST API, not the display name.
 
 **Universal Auth client_secret location:** `/etc/leapable/secrets-loader.env`
 on aiwonder, mode `0400`, owner `root:root`, plus Bitwarden item
@@ -231,9 +261,98 @@ sudo systemctl restart leapable-marketplace.service leapable-worker-embed.servic
 # … plus any other dependent unit (see §4)
 ```
 
+### 2.5 This Windows workstation (PowerShell) — current setup
+
+This dev box (Windows 11, PowerShell) is **already connected** to the vault.
+Here is exactly how, so it can be reproduced or refreshed.
+
+**1. CLI install (done).** Installed with winget, not the Debian script:
+
+```powershell
+winget install --id infisical.infisical
+infisical --version   # 0.43.91
+```
+
+winget adds the package dir
+(`%LOCALAPPDATA%\Microsoft\WinGet\Packages\infisical.infisical_*\`) to the
+**user PATH**, so `infisical` resolves in any *new* terminal. (In an
+already-open shell that predates the install, call the full path or open a
+fresh terminal.)
+
+**2. Auth (done) — persisted user session token.** The normal
+`infisical login` browser flow **cannot complete from a non-interactive /
+agent shell**: it starts a localhost callback server that dies with
+`Login via browser failed. The handle is invalid` when there is no real
+console. So this box is instead connected via a persisted **user session
+token** (a Google-auth JWT captured from the browser login callback), stored
+as Windows **user environment variables**:
+
+```text
+INFISICAL_TOKEN        = <user session JWT>   # value never recorded here
+INFISICAL_PROJECT_ID   = c2d7e44c-d7d1-4b27-aa23-2ed5a97fa0b5
+INFISICAL_API_URL      = https://app.infisical.com/api
+```
+
+When `INFISICAL_TOKEN` is set, every `infisical …` command and REST call
+authenticates with it directly — no `infisical login` needed.
+
+> ⚠️ **This token expires 2026-06-16** (10-day user session, issued
+> 2026-06-06). After that, commands return `401`. It does **not** auto-refresh.
+> See "Refreshing / durable auth" below before relying on it long-term.
+
+**3. Use it (PowerShell).** With the env vars set, in a fresh terminal:
+
+```powershell
+# Names-only inventory of prod (SAFE — strips values before printing)
+infisical secrets --env=prod --projectId=$env:INFISICAL_PROJECT_ID --plain --silent |
+  ForEach-Object { ($_ -split '=')[0] } | Sort-Object
+
+# One secret value (prints the value — do NOT redirect to a repo/tmp file)
+infisical secrets get stripe_secret_key --env=prod --projectId=$env:INFISICAL_PROJECT_ID --plain
+
+# Inject every prod secret into a child process, nothing on disk
+infisical run --env=prod --projectId=$env:INFISICAL_PROJECT_ID -- node .\some-script.js
+```
+
+Pure REST (no CLI) works the same way — `Authorization: Bearer $env:INFISICAL_TOKEN`:
+
+```powershell
+$h = @{ Authorization = "Bearer $env:INFISICAL_TOKEN" }
+# names-only inventory
+$r = Invoke-RestMethod -Headers $h -Method Get `
+  "$env:INFISICAL_API_URL/v3/secrets/raw?workspaceId=$env:INFISICAL_PROJECT_ID&environment=prod&secretPath=/"
+$r.secrets | ForEach-Object { $_.secretKey } | Sort-Object
+```
+
+**Refreshing / durable auth (when the session token expires).** Pick one:
+
+- **Interactive refresh (simplest):** open a *real* terminal window (so the
+  browser callback works) and run `infisical login` → choose *Infisical Cloud
+  (US Region)* → approve in the browser. This stores a durable, auto-refreshing
+  session in the OS keyring and supersedes the env-var token. Then you can
+  clear `INFISICAL_TOKEN` from the user env if you prefer the keyring session.
+- **Machine-identity (recommended for automation / unattended use):** use the
+  `aiwonder-prod` Universal Auth identity (or a narrower new one) exactly like
+  the loader does — set `INFISICAL_UA_CLIENT_ID` / `INFISICAL_UA_CLIENT_SECRET`
+  and exchange them for a short-lived token:
+  ```powershell
+  $env:INFISICAL_TOKEN = infisical login --method=universal-auth `
+    --client-id=$env:INFISICAL_UA_CLIENT_ID `
+    --client-secret=$env:INFISICAL_UA_CLIENT_SECRET --plain --silent
+  ```
+  The UA `client_secret` is chicken-and-egg (Hard rule §0.3): it is **not** in
+  the vault — it lives on aiwonder at `/etc/leapable/secrets-loader.env`, in
+  Bitwarden (`Infisical aiwonder-prod loader`), and in the operator's
+  `~/.config/aiwonder.env`. It is not currently present on this Windows box.
+
+**Same Hard rules apply here (§0).** Never write a secret *value* into this
+repo, `tmp/`, chat, or a committed file; `--plain` prints values, so pipe to
+`($_ -split '=')[0]` for inventories. The token in `INFISICAL_TOKEN` is itself
+a live credential — do not echo it, commit it, or paste it anywhere.
+
 ---
 
-## 3. Complete secret/config catalog (live vault readback 2026-06-03)
+## 3. Complete secret/config catalog (live vault readback 2026-06-06)
 
 Columns:
 
@@ -247,10 +366,13 @@ Columns:
   `FUTURE` (provisioned for an integration not yet wired), `RETIRED`
   (orphan in vault, no code refs).
 
-The `prod` environment holds **100 keys** total. The loader consumes
-**39 secret ids** across **12 env files** (§3.1); the remainder are read
-directly via CLI/REST, used by humans, by the release pipeline, or by the
-marketing-fleet tenant (§3.2–§3.2.2).
+The `prod` environment holds **98 keys** at the root path `/` (down from
+100 — the two `cf_*` tunnel slots were removed; see §3.2). The loader
+consumes **39 secret ids** across **12 env files** (§3.1); the remainder are
+read directly via CLI/REST, used by humans, by the release pipeline, or by
+the marketing-fleet tenant (§3.2–§3.2.2). Newer `/polis` (prod) and
+`/social-media-2` (dev) folders hold a separate workstream's secrets and are
+**not** part of this `/`-path catalog (see the intro reconciliation).
 
 ### 3.1 Loader-consumed (39 secret ids → 12 env files)
 
@@ -327,7 +449,6 @@ ad-hoc validators. Not materialized into systemd env files.
 | Secret id                                     | Used by                                                                                                                                                                                       | Status                               |
 | --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
 | `cf_legacy_api_key`                           | **Active R2 + Pages + DNS token** (name is misleading). Used as `CLOUDFLARE_API_TOKEN` by `publish-sidecar.sh` / `publish-installer.sh`. See memory `feedback_cf_legacy_api_key_is_r2_token`. | LIVE (BUILD/CI)                      |
-| `cf_tunnel_id`                                | tunnel-provisioning code, validators, observability docs                                                                                                                                      | LIVE                                 |
 | `cf_zone_name`                                | DNS-record provisioning in `install-tunnel.ts`                                                                                                                                                | LIVE                                 |
 | `cf_team_domain`                              | CF Access policy lookups                                                                                                                                                                      | LIVE                                 |
 | `cf_access_aud_embed`                         | `embed.leapable.ai` JWT-aud validator                                                                                                                                                         | LIVE                                 |
@@ -341,7 +462,13 @@ ad-hoc validators. Not materialized into systemd env files.
 | `cf_idp_github_oauth_app_client_id`           | GitHub OAuth app backing CF Access GitHub IdP                                                                                                                                                 | LIVE                                 |
 | `cf_idp_github_oauth_app_client_secret`       | same — OAuth secret (note: `github_leapable_cf_token` is a stale duplicate of this value — see §3.3)                                                                                          | LIVE                                 |
 | `cf_policy_id_leapable_engineering`           | CF Access policy id for the `leapable-engineering` group                                                                                                                                      | LIVE                                 |
-| `cf_legacy_tunnel_provisioning_token`         | superseded by `cf_provisioner_api_token`                                                                                                                                                      | LIVE (DEPRECATED — schedule removal) |
+
+> **Removed since 2026-06-03:** `cf_tunnel_id` and
+> `cf_legacy_tunnel_provisioning_token` (the latter was superseded by
+> `cf_provisioner_api_token` and previously flagged for removal). Both are
+> gone from the live `prod` vault as of 2026-06-06. Tunnel creation/update
+> now runs entirely on `cf_provisioner_api_token` + `cf_account_id` +
+> `cf_zone_id` + `cf_zone_name`.
 
 #### Build / release pipeline (BUILD/CI)
 
@@ -629,8 +756,17 @@ Audit results from the live-vault readback that produced §3:
    R2 + Pages + DNS publishing token (`CLOUDFLARE_API_TOKEN` in
    `publish-sidecar.sh` / `publish-installer.sh`), not a deprecated global
    key. **Action: rename in a future sweep for clarity; do NOT delete.**
-   The genuinely deprecated CF slot is `cf_legacy_tunnel_provisioning_token`
-   (superseded by `cf_provisioner_api_token`).
+   The genuinely deprecated CF slot `cf_legacy_tunnel_provisioning_token`
+   (superseded by `cf_provisioner_api_token`) **has now been deleted**, along
+   with `cf_tunnel_id` — the prod root dropped 100 → 98 keys. No action.
+9. **New folder namespaces in the project (2026-06-06).** `prod` now has a
+   `/polis` folder (with a `socialmedia2_com` sub-folder) and `dev` a
+   `/social-media-2` folder (one `SM2_INFISICAL_README` marker). They appear
+   to be a separate "social-media-2 / polis" workstream sharing this project.
+   **Action: confirm ownership with the operator; if it is a distinct app,
+   give it its own Infisical project/environment rather than nesting folders
+   in `leapable-aiwonder-prod` (same least-privilege argument as the
+   marketing-fleet tenant, finding 5).**
 5. **Marketing-fleet (`MF_*`, 21 keys + `SLACK_WORKSPACE_ID`) shares the
    prod environment.** A second tenant's secrets live alongside Leapable's.
    **Action: consider moving them to their own Infisical project to restore
@@ -667,7 +803,9 @@ Audit results from the live-vault readback that produced §3:
 
 | Topic                                                                                 | Read                                                            |
 | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Deep architecture of the Infisical project                                            | `docs2/aiwonder-system.md §"Infisical secrets vault"`           |
+| What aiwonder is + this project's deployment onto it                                   | §10 above; `docs/dbprdplans/16_AIWONDER_DEPLOYMENT.md` (this repo) |
+| Access from this Windows workstation                                                   | §2.5 above                                                      |
+| Deep architecture of the Infisical project                                            | `leapablememory/docs2/aiwonder-system.md §"Infisical secrets vault"` |
 | Per-category secret breakdown + rotation procedures                                   | `docs/datacenterrefactor/16_secrets_and_credentials.md`         |
 | What lives outside Infisical                                                          | Same, §7                                                        |
 | Boot-time loading details                                                             | `16_secrets_and_credentials.md §4`                              |
@@ -707,3 +845,120 @@ Audit results from the live-vault readback that produced §3:
   aiwonder. They cannot live in Infisical itself. Locations:
   `/etc/leapable/secrets-loader.env` (on aiwonder, root-only) and
   `~/.config/aiwonder.env` (on the operator's laptop, mode `0600`).
+
+---
+
+## 10. aiwonder — what an AI agent needs to know
+
+This vault exists to serve one machine. If you are an agent picking up this
+system, read this before touching anything. Authoritative deployment detail:
+`docs/dbprdplans/16_AIWONDER_DEPLOYMENT.md` (this repo) and
+`leapablememory/docs2/aiwonder-system.md` (deep architecture). The summary
+below is grounded in those + the 2026-06-05/06 live readbacks.
+
+### 10.1 What "aiwonder" is
+
+**aiwonder is a single, self-hosted datacenter box** — the one physical
+machine that runs all of Leapable's production services. It is **not** a
+cloud account, a cluster, or an abstraction; it is one Ubuntu host on a
+VPN-only network. The retired-cloud posture is deliberate: no Fly, Tigris,
+B2, S3, or SeaweedFS — storage is **POSIX-on-ZFS** on local disks, and
+whole-host loss is an accepted risk mitigated by WAL + ZFS snapshots +
+restic, not by HA.
+
+| Resource (live) | Role |
+|---|---|
+| Ryzen 9 9950X, 16c/32t | app + workers, ingest batching, CPU SIMD fallback, graph/background jobs |
+| 128 GB DDR5 (~84 GiB free) | memtables, in-RAM indexes, host buffers |
+| RTX 5090 32 GB (Blackwell, `sm_120`) | embeddings (resident TEI) + GPU compute; **shared under a soft VRAM budget**, 600 W cap (`leapable-gpu-max-power.service`) |
+| `hotpool` NVMe ~1.5 TB → `/zfs/hot` | WAL, hot data, active indexes, online state. **No redundancy.** |
+| `archive` HDD mirror ~8.5 TB → `/zfs/archive` | cold data, retired slots, restic backup target |
+| PostgreSQL 18.4 + PgBouncer | **the control plane** — customers, billing, creators, queries, outbox |
+
+GPU hygiene gotcha: after unattended-upgrades, the NVIDIA driver/userspace
+can skew and `nvidia-smi` mismatches until a **reboot**. CUDA is 13.2 from
+the NVIDIA runfile (not the Ubuntu package). Health checks must probe CUDA
+init and **fail loud**, never silently CPU-fallback in server mode.
+
+### 10.2 Reaching the box
+
+SSH/VPN bootstrap creds live **only** in `~/.config/aiwonder.env` on the
+operator machine (mode `0600`, outside any repo): `AIWONDER_HOST` / `IP` /
+`SSH_PORT` / `USER`, `AIWONDER_SSH_PASSWORD`, `AIWONDER_SUDO_PASSWORD`, VPN
+creds, and the Infisical UA bootstrap (`INFISICAL_UA_CLIENT_ID` /
+`INFISICAL_UA_CLIENT_SECRET` / `INFISICAL_PROJECT_ID`). **This file is not
+present on this Windows workstation** — only the operator's primary
+machine/aiwonder have it. Everything beyond bootstrap is in Infisical.
+
+- VPN-only; UFW default-deny; SSH only from the current subnet.
+- **Never** change UFW/sshd without a second live session open (lockout risk).
+- **Never** copy a value from `aiwonder.env` (or any secret) into a repo,
+  issue, PR, or chat — reference env-var **names** only (Hard rule §0).
+
+### 10.3 How the box is organized (so secrets make sense)
+
+- **Everything is a `leapable-*` systemd unit.** Services run as the
+  `leapable` user from `/opt/leapable/…`, bind **loopback only**, and get
+  their config from `EnvironmentFile=/run/leapable/secrets/<file>.env`.
+- **`leapable-secrets-load.service`** is the bridge between this vault and
+  the running box: at boot it authenticates as the `aiwonder-prod` machine
+  identity, reads `secrets-map.json`, and renders the **12** `*.env` files
+  under `/run/leapable/secrets/` (mode `0400`). Service code never calls
+  Infisical directly — see §2.4 and §4.
+- **Ingress is Cloudflare Tunnel + Caddy** in front of the loopback
+  services. Public hostnames: `marketplace.leapable.ai` (app),
+  `embed.leapable.ai` (embeddings), `ops.leapable.ai` (Grafana),
+  `leapable.ai` (dashboard / Cloudflare Pages). `mcp.leapable.ai` is
+  intentionally **503** (no per-user public MCP).
+- **Resident GPU workloads:** three TEI containers (general / legal /
+  reranker) + dcgm-exporter are always up. Do **not** start throwaway
+  TEI/Redis/cloudflared — reuse the resident services.
+- **Observability:** Prometheus + Grafana + Alertmanager; restic timer +
+  ZFS auto-snapshots for backup; single-host, no off-machine replica today.
+
+### 10.4 The PostgreSQL control plane is off-limits
+
+PostgreSQL 18.4 + PgBouncer on the box is the **control plane** and stays
+**untouched** by new workloads. The `aiwonder_postgres_*` / `aiwonder_pgbouncer_*`
+secrets in this vault (§3.1) belong to the existing marketplace app and its
+exporters. A new service must not connect to PostgreSQL unless that is its
+explicit, reviewed job.
+
+### 10.5 "This project on aiwonder" — Calyx / `calyxd`
+
+This repo (**Calyx**) is an association database that deploys **onto**
+aiwonder as `calyxd`, alongside — not replacing — the existing stack:
+
+- **Shape:** a loopback `calyxd.service` (systemd) running as `leapable`
+  from `/opt/leapable/calyx/`. There is **no `rustc` on the box**, so
+  `calyxd` ships as a **cross-built static binary + `.deb`** (cross-built on
+  aiwonder or another host), synced to `/opt/leapable/calyx/`. Do not assume
+  host `cargo`.
+- **Storage:** Aster on ZFS — `/zfs/hot/calyx` (WAL, hot slots, ANN graphs)
+  and `/zfs/archive/calyx` (cold sidecars, restic source). Stage temp files
+  *inside* the destination dataset to avoid `EXDEV` on rename.
+- **GPU:** the Forge math runtime shares the RTX 5090 with the resident TEI
+  lenses under the **soft VRAM budget** and yields to them; target `sm_120`
+  cubin + PTX JIT fallback.
+- **Control plane:** `calyxd` **does not connect to PostgreSQL.** It hosts
+  published/Discover Vaults; the PostgreSQL control plane is left untouched.
+- **Secrets Calyx needs from this vault:** today, effectively **one** —
+  `hf_hub_token` (`HF_HUB_TOKEN` / `HF_TOKEN`) to pull/host embedder models
+  and gated HF datasets. It is already live in the vault (§3.1). When
+  `calyxd` lands it gets its own rendered `calyx.env` (the 13th loader
+  file): add a `calyx` entry to `secrets-loader/secrets-map.json` and a
+  `calyx.env` mapping. Add any future token (e.g. Kaggle) via the CLI
+  (`infisical secrets set kaggle_key=…`) — never a new value in the repo.
+
+### 10.6 Binding operating rules on the box
+
+1. **Verify the source of truth after every op** — `systemctl`, `zpool
+   status`, `nvidia-smi`, actual on-disk bytes. A `200`/return value is a
+   claim, not proof.
+2. **Fail closed.** No fallback that hides a failure (no `?? 'dummy'`
+   defaults, no silent CPU fallback in server mode).
+3. **Reuse resident services**; don't spin up throwaway TEI/Redis/cloudflared.
+4. **Don't reintroduce retired infra** (Fly/Tigris/B2/S3/SeaweedFS) — Aster
+   is POSIX-on-ZFS only.
+5. **Production synthetic test data** must be cleanup-tagged and provably
+   inert before the turn ends.
