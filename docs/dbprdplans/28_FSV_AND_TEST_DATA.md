@@ -33,7 +33,28 @@ For each: the synthetic FSV (mechanics) and the real-data FSV (intelligence). "R
 | **Universal data layer** (P4c, A19) | collections-as-any-model | synthetic per-paradigm fixtures (rows/docs/KV/TS/blob) | each paradigm's root op (point/range/join/aggregate/traverse) → read back; one cross-model txn spans modes atomically (read consistent seq) |
 | **Memory/GC** (P8b, A26) | reclaimers, watchdog | synthetic high-churn / long-reader / disk-pressure workloads | 1e7-op soak → RSS/VRAM bounded; tombstones reclaimed; long reader aborted on lease → old version GC'd (read disk/heap metrics) |
 
-Every row is proven by **reading the persisted bytes/numbers**, recording evidence in a GitHub issue (`AICodingAgentSuperPrompt.md` §3/§4); no harness asserts success.
+Every row is proven by **reading the persisted bytes/numbers** — perceived through Synapse (`§2c`: `reality_baseline`→act→`reality_audit`, `read_text`/`find` the real output, `audit_export_bundle` the evidence) — and recorded in a GitHub issue (`AICodingAgentSuperPrompt.md` §3/§4); no harness asserts success.
+
+## 2c. FSV with Synapse — full use of its abilities (binding)
+
+FSV is *perceptual*: the agent must see the actual source-of-truth, not a claimed return. **Synapse (`31`) is the perception+action substrate that makes every FSV step concrete and un-fakeable**, and FSV MUST use its full ability set — not just `read_text`. The 5-step FSV protocol (`19 §3`) mapped to Synapse:
+
+| FSV step | Synapse abilities | What it does |
+|---|---|---|
+| **0. Target** | `set_capture_target`, `set_perception_mode`, `health` | focus perception on the right terminal/window on aiwonder; confirm Synapse is live |
+| **1. Read SoT *before*** | `reality_baseline`, `act_run_shell` (readback cmd: `calyx readback` / `xxd` / `zfs list` / `psql` / `cat metric`), `read_text` (OCR the output), `find` (locate the exact row/number), `capture_screenshot` | snapshot the *actual* persisted bytes/numbers before acting — a baseline a harness can't forge |
+| **2. Act** | `act_run_shell` / `act_type` / `act_launch` / `act_combo` | execute the operation under test (ingest, `kill -9`, query, build, `cargo test`) in a real terminal |
+| **3. Read SoT *after*** | `observe`, `observe_delta`, `reality_audit`, `read_text`, `find`, `capture_screenshot` | perceive the new actual state; **`observe_delta`/`reality_audit` *is* the before→after delta**, computed from perceived reality vs the baseline |
+| **4. Inspect the delta** | `reality_audit` (drift flag), `find` (assert the expected value present / unexpected absent) | judge the delta against the expectation; drift = fail; this is the agent *seeing* the truth |
+| **5. Record evidence** | `capture_screenshot`, `replay_record`, `audit_export_bundle`, `audit_intelligence_query` | attach screenshots + a recorded session + an exported audit bundle to the `chrisroyse/calyx` GitHub issue — reproducible FSV evidence, not a green checkmark |
+
+**Reactive FSV (async operations):** for things that complete later (a 1e6-query soak, a build, a dataset download, a `calyxd` recovery), `reflex_register` fires on the observed completion/error condition (`reflex_history` audits what fired), so the agent FSVs the *real* end-state the moment it appears instead of polling blindly. `subscribe`/`observe_delta` stream live changes (e.g. watch Aster compaction, VRAM, the growth curve `J`).
+
+**Driving the work (`31 §4`):** when Synapse commands Claude/Codex worker agents to build a phase, the orchestrator FSVs each worker's result the same way — `read_text` the worker's real terminal output, `reality_audit` the Aster/Ledger bytes the worker changed, `audit_export_bundle` the evidence. A worker's "done" is a claim; Synapse-perceived bytes are the verdict.
+
+**Screenshot + AI-vision (use heavily, `31 §6c`):** `capture_screenshot` → the agent *looks at* the image to confirm the real state — Grafana charts, the `J` growth curve, GUI/error state, rendered output — catching what `read_text` can't. Combine `find` (locate) + `read_text` (exact numbers) + screenshot-vision (holistic "what's happening") for complete FSV perception.
+
+**Full-ability checklist (FSV/dev must exploit all of it):** perceive (`observe`/`observe_delta`/`capture_screenshot`/`read_text`/`find`) · act (`act_run_shell`/`act_type`/`act_launch`/`act_press`/`act_combo`/`act_scroll`/`act_clipboard`) · reality (`reality_baseline`/`reality_audit`) · reactive (`reflex_register`/`reflex_history`/`subscribe`) · evidence (`capture_screenshot`/`replay_record`/`audit_export_bundle`/`audit_intelligence_query`) · control/hygiene (`set_capture_target`/`set_perception_mode`/`health`/`release_all`/`storage_*`). If an FSV step could be satisfied by a return value instead of a Synapse-perceived byte, it is **not** FSV (`DOCTRINE §0`).
 
 ## 3. Datasets to gather (real) — the catalog
 
@@ -80,7 +101,37 @@ So the FSV loop in practice: author on WSL → sync/build on aiwonder → ingest
 
 ## 6. Verification maturity & edge audits (inherited)
 
-Aim for **L3+** verification (`AICodingAgentSuperPrompt.md` §4.7): not "it returned ok" but "the SoT changed exactly as specified, edges included." **≥3 edge audits per code path** (more for security/guard/dedup): e.g. dedup edges = identical content / near-threshold / conflicting-anchor / temporal-only-difference. When a test fails, **STOP and root-cause** (5 Whys to a structural cause), never patch the symptom.
+Aim for **L3+** verification (`AICodingAgentSuperPrompt.md` §4.7): not "it returned ok" but "the SoT changed exactly as specified, edges included." **≥3 edge audits per code path** (more for security/guard/dedup): e.g. dedup edges = identical content / near-threshold / conflicting-anchor / temporal-only-difference. Use Synapse (`31`) to read the *actual* terminal/test output (FSV's perception arm), not a claimed return. When a test fails, **STOP and root-cause** (5 Whys to a structural cause), never patch the symptom.
+
+## 6b. No CI pipeline — FSV is our CI
+
+**Calyx has no CI/CD pipeline.** A hosted pipeline would slow the build, cost money (A34), and is unnecessary: **FSV — manual source-of-truth readback on aiwonder — is our CI.** It is the gate that decides whether a change is right (`DOCTRINE §0`). Tests (`§6c`) are the *fast inner loop* (a passing test is a *claim*); FSV is the *truth gate* (reads the bytes). Both run **locally / on aiwonder, invoked by the agent** — never in a hosted pipeline. The per-merge checks (`cargo check`/`test`/`clippy -D warnings`, the ≤500-line gate `DOCTRINE §8`, bit-parity) are run on aiwonder before merge, not by a CI service.
+
+## 6c. What makes a test useful (Rust, tailored)
+
+Tests support FSV; they don't replace it. Every test must pass the **two questions**: *does it fail when the code is wrong, and pass when the code is right?* A test that passes on broken code is anti-knowledge. Rust-tailored discipline (from the test-usefulness doctrine, mapped to our stack):
+
+**FIRST + properties (binding):**
+- **Fast** — unit test < 100 ms; whole `cargo test` unit run in seconds. No DB/network/file/clock/RNG in unit tests; the full suite must stay fast enough to run constantly.
+- **Independent / parallel-safe** — `cargo test` runs in parallel by default; every test arranges its own world, no shared mutable global, no order dependence. Inject deps (traits), don't reach into statics.
+- **Repeatable / deterministic** — **seed all RNG** (`StdRng::seed_from_u64`), **inject the clock** (a `Clock` trait, never `SystemTime::now()` in logic), no wall-clock/locale/path dependence. (Matches the frozen-lens determinism probe, `05`.)
+- **Self-validating** — `assert!`/`assert_eq!` decide pass/fail; never "print and eyeball." Use `#[should_panic]`/`Result`-returning tests for error paths.
+- **Behavior, not implementation** — test through the public API; assert on the **observable outcome** (return value, the persisted Aster/Ledger bytes, the emitted error code), not private fields. A behavior-preserving refactor must keep tests green. Mock at the **boundary** (lens endpoint, disk), not internals.
+
+**Test types we use (all free OSS Rust — A34):**
+| Type | Rust tool | Where it earns its keep |
+|---|---|---|
+| Unit | `#[cfg(test)] mod tests` | pure logic: math kernels, dedup signature, kernel-graph, guard math, parsers |
+| Property-based | **`proptest`** | invariants: `decode(encode(x))==x` (Aster round-trip), quant round-trip within bound, MFVS on planted graphs, `cos` symmetry, dedup never merges conflicting anchors — ~50× the bug-catching of a unit test on algorithmic code |
+| Fuzz | **`cargo-fuzz`** (libFuzzer) | every untrusted-input boundary: Aster shard parser, query parser, lens-output decoder, wire format — finds the fail-open crashes |
+| Mutation | **`cargo-mutants`** (nightly, on diff) | proves the tests actually assert — a survived mutant = a test gap (file an issue); coverage is vanity, mutation score is truth |
+| Integration | `tests/` dir | several engines together against a real Aster vault on aiwonder (Testcontainers not needed — we own the box) |
+| Perf | **`criterion`** | latency budgets (`19 §4`); baseline + regression threshold, not "looks fast" |
+| FSV (the gate) | manual readback | the truth check — reads aiwonder's persisted bytes (`§2`); no harness asserts it |
+
+**Smells to refuse:** assertion roulette (unlabeled asserts); `sleep()` to wait (use polling-with-timeout / `tokio::time`); order-dependent / shared-state tests; mystery-guest fixtures (arrange inline, seeded, tagged synthetic data); over-mocking (prefer in-memory **fakes** + stubs over mock-with-expectations); `#[ignore]` that lingers (fix, file an issue with a date, or delete — ignored tests are lies that look like work); testing private internals via `pub(crate)` hacks.
+
+**Flakiness is the silent killer** — zero tolerance. A flaky test usually signals a *real* race/timeout bug in the engine (a P1, not "just rerun"). Determinism (seed+clock injection) + independence kills most flakes by construction. Treat test code as production code (clippy, same review bar). **Bug → write the failing regression test → fix → keep it (tagged with the issue).**
 
 ## 7. The data/FSV `BUILD_DONE` contribution
 

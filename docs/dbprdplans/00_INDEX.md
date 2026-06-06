@@ -18,10 +18,10 @@
 
 | # | Doc | Owns |
 |---|---|---|
-| — | `DOCTRINE.md` | **Canonical binding charter — read first, overrides everything.** Thesis, strict-Royse-theory rule, 24 axioms, universality + AGI + plug-in-lens mandates, FSV, anti-patterns |
+| — | `DOCTRINE.md` | **Canonical binding charter — read first, overrides everything.** Thesis, strict-Royse-theory rule, 34 axioms, universality + AGI + plug-in-lens mandates, FSV, anti-patterns |
 | 00 | `00_INDEX.md` | This index, glossary, `BUILD_DONE`, doc map |
 | 01 | `01_BRAND_AND_NAMING.md` | Name, rationale, glyph, color, voice, subsystem naming, alternates |
-| 02 | `02_VISION_AND_AXIOMS.md` | Calculus→DB primitive mapping, 18 design axioms, why-not-a-vector-DB |
+| 02 | `02_VISION_AND_AXIOMS.md` | Calculus→DB primitive mapping, 34 design axioms, why-not-a-vector-DB |
 | 03 | `03_DATA_MODEL.md` | Constellation/TCT logical model, slots, cross-terms, scalars, IDs |
 | 04 | `04_ASTER_STORAGE_FORMAT.md` | `Aster` on-disk columnar format, LSM, column families, tiering, ZFS layout, crash safety |
 | 05 | `05_EMBEDDER_REGISTRY.md` | Lenses as designable instruments, hot-swap, versioning, frozen contract, capability assay |
@@ -48,7 +48,9 @@
 | 26 | `26_ADVANCED_MATH_FRONTIERS.md` | Overlooked math + new capabilities: spectral structure of the association graph, energy/associative **pattern completion**, transfer-entropy temporal causality, total-correlation `n_eff`, Bayesian rate/consistency, the unified `complete()` (predict=abduce=impute), grounded label propagation, the frequency→bits decision |
 | 27 | `27_INTELLIGENCE_OBJECTIVE.md` | The drive (A32): maximize grounded intelligence — the measurable objective `J`, fastest-first growth, **the math self-adjusts its parameters online as new data arrives**, compression-without-loss + retrieval efficiency as facets, honesty/safety bounds |
 | 28 | `28_FSV_AND_TEST_DATA.md` | FSV per aspect at every step: synthetic-mechanics vs real-intelligence data, the dataset catalog (text/code/graph/audio/image/temporal/adversarial from HuggingFace/Kaggle), acquisition-as-FSV, secrets (HF token via Infisical), **everything built/run/stored/tested on aiwonder** |
-| 29 | `29_STATE_GITHUB_ISSUES.md` | Dev state via GitHub Issues: pinned `type:context` issues every agent reads each turn; how to keep them current (edit to truth, never append contradictions) and **prune every phase** so fresh-context agents see a true, tight snapshot — never a stale, confusing log |
+| 29 | `29_STATE_GITHUB_ISSUES.md` | Dev state via GitHub Issues (`chrisroyse/calyx`): pinned `type:context` issues every agent reads each turn; how to keep them current (edit to truth, never append contradictions) and **prune every phase** so fresh-context agents see a true, tight snapshot — never a stale, confusing log |
+| 30 | `30_SECURITY_PRIVACY_GOVERNANCE.md` | STRIDE threat model, hardening axes, authz/authn, encryption, tenant isolation; **privacy & right-to-erasure (crypto-shredding) resolving the A25 tension**; honest cold-start/bootstrap (A33) |
+| 31 | `31_SYNAPSE_COMPUTER_USE.md` | Synapse = the computer-use & agent-orchestration dev runtime: perceive/act on the real machine, open terminals & **command Claude/Codex agents** (preferred over subagents), reality-audit as FSV's perception arm |
 
 ---
 
@@ -121,7 +123,7 @@ BUILD_DONE :=
   CORE        ∧  // Constellation CRUD + Aster format round-trips byte-exact; crash-recovery proven
   LENS        ∧  // hot add/remove lens in < 1 panel-rebuild; frozen contract enforced; 3+ modalities
   DDA         ∧  // cross-terms materialize lazily; effective-rank cap honored; DPI bound respected
-  BITS        ∧  // Assay reports per-lens bits + pairwise corr; differentiation contract gated in CI
+  BITS        ∧  // Assay reports per-lens bits + pairwise corr; differentiation contract gated before merge (run on aiwonder; no CI pipeline — FSV is CI)
   KERNEL      ∧  // Lodestar finds a kernel on ≥3 real corpora; kernel-only recall ≥ 0.95·full recall
   GUARD       ∧  // Ward Gτ calibrated per domain; injection corpus blocked ≥ 99%; novelty path proven
   SEARCH      ∧  // multi-lens RRF beats single-lens recall@10 by ≥ measured Δ; provenance on every hit
@@ -138,6 +140,7 @@ BUILD_DONE :=
   LIVING      ∧  // the life-like properties are all operational: perceive(lenses)+metabolize(ingest)+remember(store)+differentiate(Assay)+heal/sleep(Anneal)+grow(Registry)+foresee(Oracle)+defend(Ward) — A31 = SELFOPT∧ORACLE∧GUARD∧RESOURCE∧LENS∧RECURRENCE in concert (DOCTRINE §1b)
   INTELLIGENCE∧  // J measured + growth_curve rises on a real corpus under the loop; math self-adjusts parameters online; compression-without-loss + retrieval efficiency as facets; Goodhart-defended, DPI-capped, no data deleted (27, A32)
   DATA        ∧  // datasets/MANIFEST.md: ≥1 verified real dataset per (modality × outcome); each aspect has synthetic-mechanics + real-intelligence FSV; all tests run on aiwonder against persisted state (28)
+  SECURITY    ∧  // STRIDE defenses FSV-proven; cross-vault read denied+audited; at-rest+in-transit encryption verified; erase() crypto-shreds (content unrecoverable incl backups+Ledger payload, tombstone remains); secret-scan clean (30, A33)
   PROVENANCE  ∧  // Ledger hash-chain verifies; every answer traces input→lens→vector→signal→verdict
   SELFOPT     ∧  // Anneal lowers p99 search latency ≥ X% over 1e6 queries with no recall regression
   MATH        ∧  // Forge matmul within Y% of cuBLAS on sm_120; CPU SIMD fallback bit-parity

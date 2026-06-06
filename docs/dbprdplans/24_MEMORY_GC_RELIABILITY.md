@@ -110,6 +110,21 @@ Each: hazard · mitigation · the FSV that proves it handled. (Durability/consis
 | 24 | **Whole-host loss (single box, no redundancy)** | WAL + ZFS snapshots + restic; accepted posture, documented | DR drill: restore + byte-verify (`16`) |
 | 25 | **Upgrade/format skew** | content-addressed immutable lens/codebook/panel; forward-append format; refuse unknown-major | migrate test: old shards readable, no silent reinterpret |
 
+## 7b. Build artifacts, logs & disk hygiene (no buildup)
+
+Beyond runtime garbage (§3), the *operational* footprint must not accumulate — old build data, logs, temp files, and stale datasets are reclaimed on a schedule (A26; binding). The single NVMe `hotpool` has no redundancy and finite space, so buildup = an outage.
+
+| Source | Hygiene |
+|---|---|
+| **Build artifacts** | `cargo` target dirs + old `.deb`/static binaries pruned — keep last N releases; `cargo clean` stale targets; never let `target/` accrue across versions on aiwonder; cross-build host caps its caches (`sccache`). |
+| **Logs** | structured logs rotate by size+age (`tracing-appender`/logrotate), zstd-compress then drop on TTL; bounded total log bytes per service; the Ledger (audit) is *not* a log — it archives to cold, never grows unbounded hot (`11`). |
+| **Temp / scratch** | staged temp files written **in the destination dataset** (avoid `EXDEV`, `16`), cleaned on commit/abort; synthetic FSV data cleanup-tagged + removed before the turn ends (`28`). |
+| **Datasets** | downloaded datasets (`28 §3`) live on cold `archive`; unused ones pruned per MANIFEST; raw kept only while a test needs it, else the parsed/quantized form. |
+| **WAL / SSTs / snapshots** | WAL recycled once durable (§3); ZFS snapshots pruned on a retention schedule (recent + restic); compaction keeps SST levels bounded. |
+| **Disk-pressure guard** | at a `hotpool` high-water mark, **stop accepting writes (fail closed)** + alert + spill cold to `archive` — never fill the NVMe to corruption (§6); a `disk_free` tripwire pages before that point. |
+
+Cadence: a bounded background **janitor** (Anneal/ops) runs the prunes on a timer, rate-limited below serving, reversible within the recovery window, Ledger-logged. **Nothing accumulates silently** — every reclaimer has a metric (§8) + alert threshold.
+
 ## 8. Observability for resource health (`16`)
 
 Prometheus metrics catching the above early: heap RSS, arena high-water, VRAM budget use + OOM-avoided count, compaction debt + write-amp, tombstone ratio, oldest-pinned-seq gap, WAL bytes, memtable flush latency, cache hit/evict rates, backpressure events, disk free on hotpool, lens timeout/breaker trips, Anneal A/B + rollback count, fsync p99, NaN-guard trips. Alert thresholds on each; a resource tripwire pages before an incident.

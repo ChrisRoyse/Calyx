@@ -16,7 +16,7 @@ Every Calyx operation is linear algebra over slot vectors: embedding projection,
 | **CPU SIMD** | embedded vaults (laptops), aiwonder fallback | `wide`/`std::simd` AVX-512/AVX2/NEON; `faer`/`gemm` Rust matmul |
 | **ONNX/candle** | running lens NNs locally | `candle` + ORT CUDA EP |
 
-Backend selection is per-op, per-shape, autotuned by Anneal and cached (`12 §4`). **Bit-parity contract (A13):** CPU and GPU paths must agree within a declared numerical tolerance on a golden set in CI — embedded vault and server must compute the same constellation.
+Backend selection is per-op, per-shape, autotuned by Anneal and cached (`12 §4`). **Bit-parity contract (A13):** CPU and GPU paths must agree within a declared numerical tolerance on a golden set (run on aiwonder; no CI pipeline) — embedded vault and server must compute the same constellation.
 
 ## 3. Operations Forge provides
 
@@ -53,7 +53,7 @@ Rust GPU is now credible: Burn's CubeCL matmul kernels match/beat cuBLAS in publ
 ## 6. Numerical correctness & determinism
 
 - Determinism mode for FSV/repro (`11`): fixed reduction order, no atomics-nondeterminism, so a replayed answer matches bit-for-bit within tolerance.
-- All distance/MI/quant kernels validated against a CPU reference on a golden corpus in CI (A13).
+- All distance/MI/quant kernels validated against a CPU reference on a golden corpus (run on aiwonder) (A13).
 - NaN/Inf guards on every kernel boundary → `CALYX_FORGE_NUMERICAL_INVARIANT` fail-closed (A16).
 
 ## 7. Forge API (internal; summary)

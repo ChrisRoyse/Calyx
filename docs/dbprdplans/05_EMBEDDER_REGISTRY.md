@@ -67,7 +67,7 @@ Enforced at register and every measure:
 - weights hash MUST match the registered fingerprint; mismatch → `CALYX_LENS_FROZEN_VIOLATION`.
 - output dim/dtype MUST equal `Slot.shape`; mismatch → `CALYX_LENS_DIM_MISMATCH`.
 - output MUST be finite (no NaN/Inf) and, if `normalize=L2`, unit-norm within tolerance; else `CALYX_LENS_NUMERICAL_INVARIANT`.
-- a lens MUST NOT be observed to change between two measurements of the same input (determinism probe in CI).
+- a lens MUST NOT be observed to change between two measurements of the same input (determinism probe run on aiwonder).
 - a frozen lens MUST NOT receive gradients (no training path touches it). (Inherits ContextGraph `frozen_target`/`grad_hook` guards.)
 
 ## 5. Capability assay — "what is this lens good for?" (fast)

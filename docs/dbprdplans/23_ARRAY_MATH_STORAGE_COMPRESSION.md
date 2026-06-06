@@ -75,6 +75,8 @@ The deepest compression is not numeric — it's the **grounding kernel** (`08`):
 
 > **Compression is a facet of the intelligence objective (A32, `27 §9`), not a competing goal.** An intelligent representation is already compact; Calyx **never deletes data** to compress — it compresses the *representation* (TurboQuant + MXFP4 + the kernel) to the most aggressive level that *measurably preserves intelligence* (§4.4), and the freed footprint/compute is spent growing `J`. Compressing past where bits degrade would *lower* `J`, so the objective forbids lossy-of-intelligence compression by construction.
 
+> **A25 forbids deleting-*to-compress*, never lawful/user deletion (A33, `30 §4`).** "Without losing anything" means: never drop data to save space — compress the *representation* instead. It does **not** forbid right-to-erasure, retention, or user-deletion, which are first-class crypto-shredding operations (`30`). No agent may refuse a lawful delete citing A25.
+
 ### 4.4 The intelligence-preservation contract (why Calyx can compress harder than anyone)
 A quantization/precision level for a slot is **accepted only if measured intelligence survives** — Assay computes before/after:
 

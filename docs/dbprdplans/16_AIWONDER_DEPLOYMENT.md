@@ -49,7 +49,7 @@ WantedBy=multi-user.target
 
 - Runs as `leapable` from `/opt/leapable/calyx/`; reads secrets from `/run/leapable/secrets/calyx.env` (add to `secrets-loader/secrets-map.json` → 13th file).
 - **Binds loopback only**; Cloudflare Tunnel + Caddy are the sole ingress (existing pattern). Add `calyx.env` to Infisical (`leapable-aiwonder-prod`).
-- **No `rustc` on box** (live readback): `calyxd` ships as a **cross-built static binary + `.deb`**, built in CI/another host, synced to `/opt/leapable/calyx/`. Do not assume host cargo.
+- **No `rustc` on box** (live readback): `calyxd` ships as a **cross-built static binary + `.deb`**, cross-built on aiwonder/another host, synced to `/opt/leapable/calyx/`. Do not assume host cargo.
 
 ## 3. Storage provisioning (ZFS)
 
@@ -89,7 +89,7 @@ All secrets are managed in **Infisical** (`leapable-aiwonder-prod`, project `c2d
 | `calyxd` metrics | Prometheus `/metrics` (loopback): ingest p95, search p99 per strategy, recall tripwire, guard FAR/FRR, n_eff, kernel recall ratio, Anneal A/Bs, VRAM budget use |
 | GPU | existing dcgm-exporter |
 | Health | `calyx healthcheck` → `/zfs/hot/logs/calyx-health/latest.json` (`.status` literal `"pass"`), wired into `leapable-aiwonder-healthcheck` |
-| Grafana | a Calyx dashboard (ingest/search/bits/kernel/anneal panels) in `infra/aiwonder/grafana/` |
+| Grafana | a Calyx dashboard (ingest/search/bits/kernel/anneal panels) in `infra/aiwonder/grafana/`. Agents open it (`ops.leapable.ai`) via a **new tab in the one main Chrome** (auto-authed, `31 §6b`) and read the panels with **screenshot + AI-vision** (`31 §6c`) — charts that `read_text` can't capture. |
 | Alerts | Alertmanager rules: tripwire breach, chain-verify failure, guard FAR drift, lens endpoint down, disk pressure on hotpool |
 
 ## 7. Backup & DR

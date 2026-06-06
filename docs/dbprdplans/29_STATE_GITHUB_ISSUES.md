@@ -2,7 +2,7 @@
 
 > **Living-system role:** shared working memory — the current, curated state every agent reads in before acting (A15/`DOCTRINE §0`)
 
-Development state for Calyx is managed in **the Calyx repository's GitHub Issues** — the single coordination + memory surface (`AICodingAgentSuperPrompt.md` §3; `DOCTRINE §8b`). This doc specifies the **context issues** every agent must read every turn, and the **pruning discipline** that keeps issues from confusing future agents who open them with a fresh context window.
+Development state for Calyx is managed in **the Calyx repo (`chrisroyse/calyx`) GitHub Issues** — the single coordination + memory surface (`AICodingAgentSuperPrompt.md` §3; `DOCTRINE §8b`). This doc specifies the **context issues** every agent must read every turn, and the **pruning discipline** that keeps issues from confusing future agents who open them with a fresh context window.
 
 ## 1. Why issues, and the cardinal rule
 
@@ -31,7 +31,7 @@ Rules for context issues:
 
 Every agent, every session, runs the read-state queries first (`AICodingAgentSuperPrompt.md` §3.3), Calyx-specific:
 ```bash
-REPO=<calyx-repo>
+REPO=chrisroyse/calyx
 gh issue list --repo $REPO --state open --label type:context --json number,title,body,updatedAt   # 1. pinned context — READ ALL
 gh issue list --repo $REPO --state open --label status:in-progress --json number,title,assignees    # 2. don't step on
 gh issue list --repo $REPO --state open --label status:blocked                                        # 3. unblockable?

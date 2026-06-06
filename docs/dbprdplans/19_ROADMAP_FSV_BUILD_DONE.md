@@ -14,7 +14,7 @@ Ship **a clear win at low risk** first, prove it by FSV, then take the next. Cal
 | **P1** | Forge | CUDA(sm_120) + SIMD matmul/distance/quantize; bit-parity golden tests | CPU↔GPU parity within tolerance on golden corpus; matmul within target of cuBLAS |
 | **P2** | Registry + multi-lens | hot add/retire lens, frozen contract, default panels, capability cards | add/retire with no re-embed (lazy backfill observed); 3+ modalities; frozen violation fails closed |
 | **P3** | Sextant | per-slot HNSW (embedded), RRF/WeightedRRF/SingleLens, provenance on hits | multi-lens recall@10 ≥ single-lens + Δ on a real corpus; every hit carries lineage |
-| **P4** | Loom + Assay | cross-terms (lazy), agreement graph, KSG/NMI MI, differentiation contract, n_eff, sufficiency | bits + pairwise corr computed; ≥0.05/≤0.6 gated in CI; DPI ceiling reported; `abundance_report` honest |
+| **P4** | Loom + Assay | cross-terms (lazy), agreement graph, KSG/NMI MI, differentiation contract, n_eff, sufficiency | bits + pairwise corr computed; ≥0.05/≤0.6 gated before merge (run on aiwonder; no CI pipeline — FSV is CI); DPI ceiling reported; `abundance_report` honest |
 | **P5** | Lodestar | directed-FVS kernel, kernel index, kernel_answer, grounding_gaps | kernel built on ≥3 real corpora; kernel-only recall ≥ 0.95·full; grounding gaps listed |
 | **P6** | Ward | Gτ calibration (conformal), per-slot τ, novelty→new-region | injection corpus blocked ≥99% at calibrated FAR; valid-novelty path proven; τ provenance stored |
 | **P7** | Ledger | hash-chain, merkle, reproduce(), audit | chain verifies; a real answer replays within tolerance; tamper breaks chain (detected) |
@@ -39,13 +39,13 @@ P0–P8 build the engine; P9–P10 productionize on the box; **P11 is the shippa
 
 Per-aspect FSV definitions, test-data strategy, and the real-dataset catalog are in **`28_FSV_AND_TEST_DATA.md`** (synthetic data proves mechanics; real datasets prove intelligence; everything built/run/tested on aiwonder).
 
-Every gate above is proven by **direct source-of-truth readback**, not a return value or a harness (Leapable §0, aiwonder §9):
+Every gate above is proven by **direct source-of-truth readback**, not a return value or a harness (Leapable §0, aiwonder §9), and **perceived via Synapse** — full step→ability mapping in `28 §2c`:
 
-1. Identify the bytes that prove the claim (the Aster CF rows, the WAL, the Ledger entry, the ZFS file, the Redis queue, the metric).
-2. Read them **before** the action.
-3. Execute the action.
-4. Read them **after**.
-5. Manually inspect the delta; record evidence (GitHub issue, per Leapable doctrine).
+1. Identify the bytes that prove the claim (the Aster CF rows, the WAL, the Ledger entry, the ZFS file, the metric). *(Synapse: `set_capture_target`, `health`.)*
+2. Read them **before** the action. *(Synapse: `reality_baseline` + `act_run_shell` readback + `read_text`/`find`/`capture_screenshot`.)*
+3. Execute the action. *(Synapse: `act_run_shell`/`act_type`/`act_launch`.)*
+4. Read them **after**. *(Synapse: `observe`/`observe_delta`/`reality_audit` + `read_text`/`find`.)*
+5. Inspect the delta; record evidence in a GitHub issue. *(Synapse: `reality_audit` drift flag + `capture_screenshot`/`replay_record`/`audit_export_bundle`.)* Async ops: `reflex_register` to catch the real end-state.
 
 **FSV scripts/harnesses are banned and cannot satisfy FSV.** Calyx may ship *readback tools* that print bytes for a human/agent to judge — never a green-checkmark harness that asserts success. Synthetic verification data on the box must be cleanup-tagged and provably inert before the turn ends.
 
@@ -77,7 +77,7 @@ BUILD_DONE :=
   CORE       := P0 gate ∧ P1 gate
   LENS       := P2 gate
   SEARCH     := P3 gate ∧ recall Δ ≥ 15%
-  DDA_BITS   := P4 gate ∧ contract gated in CI ∧ abundance_report shows DPI ceiling
+  DDA_BITS   := P4 gate ∧ contract gated before merge (run on aiwonder; no CI pipeline — FSV is CI) ∧ abundance_report shows DPI ceiling
   KERNEL     := P5 gate ∧ kernel-only recall ≥ 0.95·full on ≥3 corpora
   GUARD      := P6 gate ∧ injection block ≥ 99% @ calibrated FAR
   PROVENANCE := P7 gate ∧ reproduce() passes on a real answer ∧ tamper detected
@@ -88,7 +88,7 @@ BUILD_DONE :=
   UNIVERSAL  := P4c gate ∧ every paradigm root op served ∧ cross-model query in one txn (20)
   ORACLE     := P6b gate ∧ calibrated consequence prediction ∧ sufficiency-refusal ∧ reverse_query (21)
   KERNEL_ANY := P5b gate ∧ kernel built at ≥4 scopes, each with measured recall (08)
-  FORMULAS   := every Royse formula callable + self-tuning (22), exercised in CI
+  FORMULAS   := every Royse formula callable + self-tuning (22), exercised in tests run on aiwonder
   RESOURCE   := P8b gate ∧ 25-hazard register FSV-proven ∧ 1e7-op soak bounded, no leak (24, A26)
   TEMPORAL   := P2b gate ∧ E2/E3/E4 retrieval-only (AP-60) ∧ recurrence series ∧ next-occurrence sufficiency-gated (25, A27)
   DEDUP      := P2b gate ∧ content-slot Gτ dedup ∧ never merges conflicting anchors ∧ merges reversible+audited (25, A28)
@@ -101,14 +101,15 @@ BUILD_DONE :=
 
 BUILD_DONE := CORE ∧ LENS ∧ SEARCH ∧ DDA_BITS ∧ KERNEL ∧ GUARD ∧ PROVENANCE
             ∧ SELFOPT ∧ MATH ∧ ARRAYMATH ∧ COMPRESS ∧ UNIVERSAL ∧ ORACLE
-            ∧ KERNEL_ANY ∧ FORMULAS ∧ RESOURCE ∧ TEMPORAL ∧ DEDUP ∧ RECURRENCE ∧ INTELLIGENCE ∧ DATA ∧ DEPLOY ∧ SCALE ∧ LEAPABLE ∧ FSV
+            ∧ KERNEL_ANY ∧ FORMULAS ∧ RESOURCE ∧ TEMPORAL ∧ DEDUP ∧ RECURRENCE ∧ INTELLIGENCE ∧ DATA ∧ SECURITY ∧ DEPLOY ∧ SCALE ∧ LEAPABLE ∧ FSV
   // DATA := per-aspect FSV passing (synthetic mechanics + real intelligence) ∧ datasets/MANIFEST.md verified on aiwonder ∧ all tests run on aiwonder (28)
+  // SECURITY := STRIDE defenses FSV-proven ∧ cross-vault read denied+audited ∧ at-rest+in-transit encryption verified ∧ erase() crypto-shreds (content unrecoverable incl backups/Ledger payload; tombstone remains) ∧ secret-scan clean (30, A33)
 ```
 
 `LEAPABLE` is satisfied by the **Vault swap alone** (P11). No control-plane clause: PostgreSQL stays as the control plane by design (`15`), so Calyx is complete as a Vault engine — the PG layer is never part of `BUILD_DONE`.
 
 ## 6. Team / build notes
-- Cross-build `calyxd`/`calyx` (no `rustc` on the box, `16`); CI on a build host; sync `.deb`/static binary to `/opt/leapable/calyx/`.
+- Cross-build `calyxd`/`calyx` (no `rustc` on the box, `16`); cross-build on aiwonder or another host (no CI pipeline); sync `.deb`/static binary to `/opt/leapable/calyx/`.
 - Reuse, don't reinvent: lift `context-graph-mincut`/`-paths`/`-solver`/`-witness` and the `mejepa` Assay/kernel/guard logic as seeds of `calyx-mincut`/`-lodestar`/`-assay`/`-ledger`/`-ward`. Calyx is the *unification and hardening* of code that already works (`17 §2`).
 - One change at a time; plan before architectural/auth/storage changes; document failure as carefully as success (Leapable non-negotiables).
 
