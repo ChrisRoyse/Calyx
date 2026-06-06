@@ -1,0 +1,105 @@
+# Calyx — Implementation Plan (master README)
+
+This directory is the **build plan** for Calyx: how the system specified in
+`docs/dbprdplans/` (the PRD) and bound by `docs/dbprdplans/DOCTRINE.md` is
+actually constructed, phase by phase, **entirely on the aiwonder datacenter
+PC**. The PRD says *what* and *why*; this plan says *in what order, on what
+machine, proven how*.
+
+> **Read order:** `DOCTRINE.md` → this README → `01_AIWONDER_ENVIRONMENT.md`
+> → `02_WORKING_AGREEMENT.md` → `03_PHASE_MAP.md` → the stage files in order.
+> The first phase's granular, do-now task cards live in
+> `phase-1-tasks/` (a separate subdirectory).
+
+---
+
+## 1. The three non-negotiable framing facts
+
+1. **Everything happens on aiwonder.** This Windows/WSL repo **authors** plan +
+   code only. The project is **built, stored, run, and tested on aiwonder**
+   (`croyse@aiwonder.mst.com`, over the Cisco VPN). The source-of-truth bytes
+   that FSV reads live on aiwonder; a local run never counts (DOCTRINE §0/§8c,
+   PRD `28 §5`). Connection + secrets: `../../.env` (gitignored).
+2. **Calyx is self-contained on aiwonder.** All Calyx work lives under ONE root
+   — `CALYX_HOME=/home/croyse/calyx` (and its dedicated ZFS datasets once
+   provisioned). Nothing Calyx touches the existing `leapable`/`contextgraph`
+   projects, the PostgreSQL control plane, or any shared dotfile. Build output,
+   datasets, vaults, logs, HF cache — all under `CALYX_HOME`.
+3. **FSV is the gate.** Every phase below is "done" only when a clause is proven
+   by **reading the persisted bytes on aiwonder** (not a return value, not a
+   green harness). There is no CI; FSV is CI (PRD `28 §6b`).
+
+## 2. How the plan is organized
+
+| File | Owns |
+|---|---|
+| `00_README.md` | this — how to use the plan, conventions, the dependency spine |
+| `01_AIWONDER_ENVIRONMENT.md` | the **real** box (live readback), the self-contained Calyx layout, toolchain, GPU/CUDA, ZFS, services, secrets, the sudo constraint, the connect procedure |
+| `02_WORKING_AGREEMENT.md` | the per-phase discipline: FSV protocol, ≤500-line rule, GitHub issues, test taxonomy, definition-of-done, doctrine compliance checklist |
+| `03_PHASE_MAP.md` | the master table of **every** phase (PH00–PH72), its stage, dependencies, PRD/axiom mapping, exit gate, and the critical path |
+| `10_STAGE0_FOUNDATION.md` … `30_STAGE20_CRITICAL_CAPS.md` | one file per stage; each details its phases (objective · deps · deliverables · key tasks · FSV exit gate · axioms · risks) |
+| `phase-1-tasks/` | **separate subdir**: one `.md` task card per actionable item in the first phase (Stage 0) — the immediate, executable backlog |
+
+## 3. Numbering
+
+- **Phases** are `PH00`–`PH72`, globally ordered, grouped into **Stages**
+  `S0`–`S20`. Phase IDs are stable handles used in GitHub issues and commits.
+- Each phase cross-references the PRD's own roadmap phases (`P0`–`P12` and the
+  `Pxb` sub-phases in `dbprdplans/19`) and the axioms (`A1`–`A34`) it satisfies.
+- Phases are sized so each maps to a small set of ≤500-line crate modules and a
+  single FSV exit gate — i.e. a few days of agent work, not months.
+
+## 4. The dependency spine (critical path)
+
+```
+S0 Foundation ─▶ S1 Aster ─▶ S2 Forge ─▶ S3 Registry ─▶ S4 Sextant ─▶ S5 Loom/Assay
+                                                  │                         │
+                                                  ▼                         ▼
+                                            (lenses live)            S6 Lodestar ─▶ S8 Ward
+                                                                          │
+S7 Ledger threads through S1+ (provenance in group-commit) ───────────────┤
+                                                                          ▼
+S9 Temporal/Dedup ─▶ S10 Anneal+J ─▶ S11 Oracle/AGI                  (kernel + guard)
+S12 Universal data layer (parallel to S5–S8, needs S1)
+S13 Resource/GC + S14 Security (cross-cutting; harden continuously)
+S15 Interfaces (MCP/CLI) usable from S4 onward; S16 Server/Deploy after S8
+S17 Scale ▸ S18 Datasets/Intelligence-FSV ▸ S19 Leapable ▸ S20 Critical caps
+```
+
+The **recommended first demo** (PRD `19 §2`): `S0 → S1 → S2(CPU) → S3 → S4` +
+the migration shadow (`S15`/`S19-V0`) — a Calyx vault answering with multiple
+lenses + provenance. That alone justifies the project.
+
+## 5. Engine → crate → stage cheat sheet
+
+| Engine (PRD codename) | Crate | Stage |
+|---|---|---|
+| Aster (storage) | `calyx-aster` | S1 |
+| Forge (GPU/SIMD math) | `calyx-forge` | S2 |
+| Registry (lenses) | `calyx-registry` | S3 |
+| Sextant (search/nav) | `calyx-sextant` | S4 |
+| Loom (DDA) / Assay (bits) | `calyx-loom` / `calyx-assay` | S5 |
+| Lodestar (kernel) | `calyx-lodestar` + `calyx-mincut`/`-paths` | S6 |
+| Ledger (provenance) | `calyx-ledger` | S7 |
+| Ward (Gτ guard) | `calyx-ward` | S8 |
+| Temporal/Dedup | (in `aster`/`registry`/`loom`) | S9 |
+| Anneal (self-opt) + `J` | `calyx-anneal` | S10 |
+| Oracle/AGI | `calyx-oracle` | S11 |
+| Universal data layer | `calyx-aster` (layers) + `calyx-sextant` | S12 |
+| Resource/GC, Security | cross-cutting | S13, S14 |
+| MCP / CLI / Server | `calyx-mcp` / `calyx-cli` / `calyxd` | S15, S16 |
+
+## 6. What "ground truth" already exists on aiwonder (reuse, don't rebuild)
+
+Confirmed live (`01_AIWONDER_ENVIRONMENT.md`): RTX 5090 sm_120 + **CUDA 13.2**
+toolkit, **Rust via rustup** (so we build natively — the PRD's "no rustc on
+box" note is *superseded*), resident **TEI lenses** on :8088/:8089/:8090,
+Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. We lift
+the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
+`19 §6`). Missing and to be installed in userspace: `cmake`, `protoc`.
+
+## 7. Status
+
+This is a planning artifact. No code is written yet. Execution begins with
+`phase-1-tasks/` once the operator approves. Track live state in the
+`chrisroyse/calyx` GitHub `type:context` issues (doctrine §8d, PRD `29`).
