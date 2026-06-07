@@ -1,4 +1,7 @@
-use crate::quant::{QuantLevel, QuantizedVec, Quantizer, RotationSeed, apply_rotation};
+use crate::quant::qjl::{
+    append_qjl_section, dot_estimate_unbiased, encode_qjl_residual, read_qjl_section,
+};
+use crate::quant::{QuantLevel, QuantizedVec, Quantizer, RotationSeed, apply_rotation, new_seed};
 use crate::{ForgeError, Result};
 
 const BITS3P5_CODE_BITS: usize = 7;
@@ -9,6 +12,7 @@ const TURBOQUANT_LEVEL_DETAIL: &str = "TurboQuant only supports Bits3p5 and Bits
 #[derive(Clone, Debug)]
 pub struct TurboQuantCodec {
     seed: RotationSeed,
+    rademacher: RotationSeed,
     level: QuantLevel,
 }
 
@@ -34,7 +38,16 @@ impl TurboQuantCodec {
                 "rotation seed diagonal must contain only finite +/-1 signs",
             ));
         }
-        Ok(Self { seed, level })
+        let rademacher = derive_rademacher_seed(&seed);
+        Ok(Self {
+            seed,
+            rademacher,
+            level,
+        })
+    }
+
+    pub(crate) fn rademacher(&self) -> &RotationSeed {
+        &self.rademacher
     }
 }
 
@@ -55,12 +68,15 @@ impl Quantizer for TurboQuantCodec {
                 format!("non-finite input coefficient at index {idx}"),
             ));
         }
-        let (bytes, scale) = rotate_and_quantize_scalar(&self.seed, vec, self.level);
+        let scalar = rotate_quantize_scalar_parts(&self.seed, vec, self.level);
+        let residual = encode_qjl_residual(&scalar.rotated, &scalar.decoded, &self.rademacher);
+        let mut bytes = scalar.bytes;
+        append_qjl_section(&mut bytes, &residual);
         Ok(QuantizedVec {
             level: self.level,
             dim: self.seed.dim,
             bytes,
-            scale,
+            scale: scalar.scale,
             seed_id: self.seed.id,
         })
     }
@@ -95,27 +111,29 @@ impl Quantizer for TurboQuantCodec {
             ));
         }
         let expected_len = packed_len(qv.dim, qv.level);
-        if qv.bytes.len() != expected_len {
+        if qv.bytes.len() < expected_len {
             return Err(quant_error(
                 "decode",
                 qv.level,
                 format!(
-                    "encoded byte length mismatch: expected {expected_len} got {}",
+                    "encoded byte length mismatch: expected at least {expected_len} got {}",
                     qv.bytes.len()
                 ),
             ));
         }
-        Ok(dequantize_scalar(&qv.bytes, qv.scale, qv.dim, qv.level))
+        if qv.bytes.len() > expected_len {
+            read_qjl_section(&qv.bytes, expected_len, qv.dim)?;
+        }
+        Ok(dequantize_scalar(
+            &qv.bytes[..expected_len],
+            qv.scale,
+            qv.dim,
+            qv.level,
+        ))
     }
 
     fn dot_estimate(&self, a: &QuantizedVec, b: &QuantizedVec) -> Result<f32> {
-        let left = self.decode(a)?;
-        let right = self.decode(b)?;
-        Ok(left
-            .iter()
-            .zip(right.iter())
-            .map(|(a, b)| a * b)
-            .sum::<f32>())
+        dot_estimate_unbiased(self, a, b)
     }
 
     fn level(&self) -> QuantLevel {
@@ -127,11 +145,28 @@ impl Quantizer for TurboQuantCodec {
     }
 }
 
+struct ScalarQuantized {
+    bytes: Vec<u8>,
+    scale: f32,
+    rotated: Vec<f32>,
+    decoded: Vec<f32>,
+}
+
+#[allow(dead_code)]
 fn rotate_and_quantize_scalar(
     seed: &RotationSeed,
     vec: &[f32],
     level: QuantLevel,
 ) -> (Vec<u8>, f32) {
+    let scalar = rotate_quantize_scalar_parts(seed, vec, level);
+    (scalar.bytes, scalar.scale)
+}
+
+fn rotate_quantize_scalar_parts(
+    seed: &RotationSeed,
+    vec: &[f32],
+    level: QuantLevel,
+) -> ScalarQuantized {
     let mut rotated = vec.to_vec();
     apply_rotation(seed, &mut rotated);
     let scale = rotated
@@ -139,7 +174,14 @@ fn rotate_and_quantize_scalar(
         .map(|value| value.abs())
         .fold(0.0_f32, f32::max);
     let codes = quantize_codes(&rotated, scale, level);
-    (pack_codes(&codes, level), scale)
+    let bytes = pack_codes(&codes, level);
+    let decoded = dequantize_scalar(&bytes, scale, vec.len(), level);
+    ScalarQuantized {
+        bytes,
+        scale,
+        rotated,
+        decoded,
+    }
 }
 
 fn dequantize_scalar(bytes: &[u8], scale: f32, dim: usize, level: QuantLevel) -> Vec<f32> {
@@ -254,7 +296,7 @@ fn read_bits(bytes: &[u8], offset: usize, width: usize) -> u16 {
     value
 }
 
-fn packed_len(dim: usize, level: QuantLevel) -> usize {
+pub(crate) fn packed_len(dim: usize, level: QuantLevel) -> usize {
     match level {
         QuantLevel::Bits3p5 => (dim * BITS3P5_CODE_BITS).div_ceil(8),
         QuantLevel::Bits2p5 => dim.div_ceil(4) * 2,
@@ -287,179 +329,13 @@ fn quant_error(op: &str, level: QuantLevel, detail: impl Into<String>) -> ForgeE
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::quant::new_seed;
-    use proptest::prelude::*;
-
-    fn rotated(seed: &RotationSeed, vec: &[f32]) -> Vec<f32> {
-        let mut out = vec.to_vec();
-        apply_rotation(seed, &mut out);
-        out
-    }
-
-    fn max_abs_delta(left: &[f32], right: &[f32]) -> f32 {
-        left.iter()
-            .zip(right.iter())
-            .map(|(left, right)| (left - right).abs())
-            .fold(0.0_f32, f32::max)
-    }
-
-    fn bin_width(scale: f32, level: QuantLevel) -> f32 {
-        if scale == 0.0 {
-            return 0.0;
-        }
-        2.0 * scale / f32::from(level_steps(level) - 1)
-    }
-
-    #[test]
-    fn scalar_zero_roundtrip_bits3p5() {
-        let seed = new_seed(128, b"tq_zero");
-        let codec = TurboQuantCodec::new(seed, QuantLevel::Bits3p5).expect("codec");
-        let qv = codec.encode(&vec![0.0; 128]).expect("encode");
-        let decoded = codec.decode(&qv).expect("decode");
-        let max_err = decoded
-            .iter()
-            .map(|value| value.abs())
-            .fold(0.0_f32, f32::max);
-        assert!(max_err <= 1e-2, "{max_err}");
-        assert_eq!(qv.scale, 0.0);
-        assert_eq!(qv.bytes.len(), 112);
-        println!(
-            "scalar_zero_roundtrip_bits3p5 PASSED roundtrip max_err={max_err:.6} scale={:.6} len={}",
-            qv.scale,
-            qv.bytes.len()
-        );
-    }
-
-    #[test]
-    fn scalar_roundtrip_bits3p5() {
-        let seed = new_seed(128, b"tq_unit");
-        let codec = TurboQuantCodec::new(seed.clone(), QuantLevel::Bits3p5).expect("codec");
-        let mut input = vec![0.0; 128];
-        input[0] = 1.0;
-        let expected = rotated(&seed, &input);
-        let qv = codec.encode(&input).expect("encode");
-        let decoded = codec.decode(&qv).expect("decode");
-        let max_err = max_abs_delta(&decoded, &expected);
-        let limit = bin_width(qv.scale, QuantLevel::Bits3p5) * 1.5;
-        assert!(max_err <= limit, "max_err={max_err} limit={limit}");
-        println!(
-            "scalar_roundtrip_bits3p5 PASSED max_err={max_err:.8} bin_width={:.8} scale={:.8} len={}",
-            bin_width(qv.scale, QuantLevel::Bits3p5),
-            qv.scale,
-            qv.bytes.len()
-        );
-    }
-
-    #[test]
-    fn scalar_encode_len_deterministic() {
-        let seed = new_seed(128, b"tq_len");
-        let vec = vec![0.125; 128];
-        let bits3 = TurboQuantCodec::new(seed.clone(), QuantLevel::Bits3p5).expect("bits3");
-        let bits2 = TurboQuantCodec::new(seed, QuantLevel::Bits2p5).expect("bits2");
-        let first = bits3.encode(&vec).expect("encode first");
-        let second = bits3.encode(&vec).expect("encode second");
-        let low = bits2.encode(&vec).expect("encode bits2");
-        assert_eq!(first.bytes.len(), second.bytes.len());
-        assert_eq!(first.bytes.len(), 112);
-        assert_eq!(low.bytes.len(), 64);
-        println!(
-            "scalar_encode_len_deterministic PASSED bytes_len bits3p5={} bits2p5={}",
-            first.bytes.len(),
-            low.bytes.len()
-        );
-    }
-
-    #[test]
-    fn scalar_edges_dim1_dim1536_and_identical() {
-        let one_seed = new_seed(1, b"tq_dim1");
-        let one_codec = TurboQuantCodec::new(one_seed.clone(), QuantLevel::Bits3p5).expect("one");
-        let one_qv = one_codec.encode(&[2.0]).expect("one encode");
-        let one_decoded = one_codec.decode(&one_qv).expect("one decode");
-        assert!(max_abs_delta(&one_decoded, &rotated(&one_seed, &[2.0])) <= 1e-6);
-
-        let large_seed = new_seed(1536, b"tq_large");
-        let large_codec =
-            TurboQuantCodec::new(large_seed, QuantLevel::Bits3p5).expect("large codec");
-        let large_qv = large_codec.encode(&vec![0.0; 1536]).expect("large encode");
-        let large_decoded = large_codec.decode(&large_qv).expect("large decode");
-        assert!(large_decoded.iter().all(|value| value.is_finite()));
-        assert_eq!(large_qv.bytes.len(), 1344);
-
-        let same_seed = new_seed(128, b"tq_identical");
-        let same_codec =
-            TurboQuantCodec::new(same_seed.clone(), QuantLevel::Bits2p5).expect("same");
-        let same_vec = vec![0.25; 128];
-        let same_qv = same_codec.encode(&same_vec).expect("same encode");
-        let same_decoded = same_codec.decode(&same_qv).expect("same decode");
-        let same_err = max_abs_delta(&same_decoded, &rotated(&same_seed, &same_vec));
-        assert!(same_err <= bin_width(same_qv.scale, QuantLevel::Bits2p5) * 1.5 + 1e-6);
-        println!(
-            "scalar_edges PASSED dim1_len={} dim1536_len={} identical_bits2p5_len={} max_err={same_err:.8}",
-            one_qv.bytes.len(),
-            large_qv.bytes.len(),
-            same_qv.bytes.len()
-        );
-    }
-
-    #[test]
-    fn scalar_invalid_level_fails_closed() {
-        let err = TurboQuantCodec::new(new_seed(8, b"tq_invalid"), QuantLevel::F32)
-            .expect_err("F32 unsupported");
-        assert!(matches!(err, ForgeError::QuantError { .. }));
-        assert!(err.to_string().contains(TURBOQUANT_LEVEL_DETAIL));
-        println!("scalar_invalid_level PASSED {err}");
-    }
-
-    #[test]
-    fn scalar_rejects_non_finite_input() {
-        let codec =
-            TurboQuantCodec::new(new_seed(8, b"tq_nonfinite"), QuantLevel::Bits3p5).expect("codec");
-        let mut vec = vec![0.0; 8];
-        vec[3] = f32::NAN;
-        let err = codec.encode(&vec).expect_err("NaN must fail closed");
-        assert!(matches!(err, ForgeError::QuantError { .. }));
-        println!("scalar_non_finite PASSED {err}");
-    }
-
-    proptest! {
-        #[test]
-        fn scalar_bits3p5_random_unit_vectors_stay_within_bound(
-            mut values in proptest::collection::vec(-1.0f32..1.0, 128)
-        ) {
-            let norm = values.iter().map(|value| f64::from(*value) * f64::from(*value)).sum::<f64>().sqrt();
-            if norm <= f64::from(f32::EPSILON) {
-                values[0] = 1.0;
-            } else {
-                for value in &mut values {
-                    *value /= norm as f32;
-                }
-            }
-            let seed = new_seed(128, b"tq_prop_bound");
-            let codec = TurboQuantCodec::new(seed.clone(), QuantLevel::Bits3p5).expect("codec");
-            let expected = rotated(&seed, &values);
-            let qv = codec.encode(&values).expect("encode");
-            let decoded = codec.decode(&qv).expect("decode");
-            let max_err = max_abs_delta(&decoded, &expected);
-            let limit = qv.scale * 2.0 / (7.0 - 1.0);
-            prop_assert!(max_err <= limit + 1e-6, "max_err={max_err} limit={limit}");
-        }
-
-        #[test]
-        fn scalar_encoded_len_depends_only_on_dim_level(
-            dim in 1usize..257,
-            use_bits3p5 in any::<bool>()
-        ) {
-            let level = if use_bits3p5 { QuantLevel::Bits3p5 } else { QuantLevel::Bits2p5 };
-            let left = TurboQuantCodec::new(new_seed(dim, b"tq_len_left"), level).expect("left");
-            let right = TurboQuantCodec::new(new_seed(dim, b"tq_len_right"), level).expect("right");
-            let vec = vec![0.25; dim];
-            let left_qv = left.encode(&vec).expect("left encode");
-            let right_qv = right.encode(&vec).expect("right encode");
-            prop_assert_eq!(left_qv.bytes.len(), right_qv.bytes.len());
-            prop_assert_eq!(left_qv.bytes.len(), packed_len(dim, level));
-        }
-    }
+fn derive_rademacher_seed(seed: &RotationSeed) -> RotationSeed {
+    let mut entropy = Vec::with_capacity(42);
+    entropy.extend_from_slice(b"calyx-qjl-rademacher-v1");
+    entropy.extend_from_slice(&seed.id);
+    entropy.push(seed.version);
+    new_seed(seed.dim, &entropy)
 }
+
+#[cfg(test)]
+mod tests;

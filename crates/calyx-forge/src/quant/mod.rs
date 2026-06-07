@@ -1,3 +1,4 @@
+pub mod qjl;
 pub mod rotation;
 pub mod turboquant;
 
@@ -7,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::ForgeError;
 use crate::Result;
 
+pub use qjl::{QjlResidual, dot_estimate_unbiased, dot_qjl_correction, encode_qjl_residual};
 pub use rotation::{
     CURRENT_SEED_VERSION, RotationSeed, apply_rotation, apply_rotation_batch, new_seed, seed_id_hex,
 };
