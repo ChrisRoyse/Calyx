@@ -1,0 +1,190 @@
+mod defaults;
+
+use std::collections::BTreeMap;
+
+use calyx_core::{
+    Asymmetry, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState,
+    content_address,
+};
+use serde::{Deserialize, Serialize};
+
+pub use defaults::{civic_default, code_default, media_default, text_default};
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PanelSlotSpec {
+    pub name: String,
+    pub runtime: PanelLensRuntime,
+    pub output: SlotShape,
+    pub modality: Modality,
+    pub retrieval_only: bool,
+    pub excluded_from_dedup: bool,
+    pub required: bool,
+    pub asymmetry: Asymmetry,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PanelLensRuntime {
+    TeiHttp { endpoint: String },
+    Algorithmic { lens: AlgorithmicPanelLens },
+    ExternalCmd { name: String },
+    Placeholder { name: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AlgorithmicPanelLens {
+    ByteFeatures,
+    TemporalRecent,
+    TemporalPeriodic,
+    TemporalPositional,
+    Scalar,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PanelTemplate {
+    pub name: String,
+    pub slots: Vec<PanelSlotSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InstantiatedPanel {
+    pub template_name: String,
+    pub panel: Panel,
+    pub slot_specs: Vec<PanelSlotSpec>,
+}
+
+pub fn instantiate_panel(template: &PanelTemplate, created_at: u64) -> InstantiatedPanel {
+    let slots = template
+        .slots
+        .iter()
+        .enumerate()
+        .map(|(idx, spec)| {
+            let slot_id = SlotId::new(idx as u16);
+            Slot {
+                slot_id,
+                slot_key: SlotKey::new(slot_id, spec.name.clone()),
+                lens_id: slot_lens_id(&template.name, spec),
+                shape: spec.output,
+                modality: spec.modality,
+                asymmetry: spec.asymmetry,
+                quant: QuantPolicy::None,
+                axis: Some(spec.name.clone()),
+                bits_about: BTreeMap::new(),
+                state: SlotState::Active,
+                added_at_panel_version: (idx + 1) as u32,
+            }
+        })
+        .collect::<Vec<_>>();
+    InstantiatedPanel {
+        template_name: template.name.clone(),
+        panel: Panel {
+            version: slots.len() as u32,
+            slots,
+            created_at,
+            kernel_ref: None,
+            guard_ref: None,
+        },
+        slot_specs: template.slots.clone(),
+    }
+}
+
+impl PanelTemplate {
+    pub fn temporal_specs(&self) -> impl Iterator<Item = &PanelSlotSpec> {
+        self.slots
+            .iter()
+            .filter(|slot| slot.retrieval_only || slot.excluded_from_dedup)
+    }
+}
+
+impl PanelSlotSpec {
+    pub fn content(
+        name: impl Into<String>,
+        runtime: PanelLensRuntime,
+        output: SlotShape,
+        modality: Modality,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            runtime,
+            output,
+            modality,
+            retrieval_only: false,
+            excluded_from_dedup: false,
+            required: true,
+            asymmetry: Asymmetry::None,
+        }
+    }
+
+    pub fn temporal(
+        name: impl Into<String>,
+        lens: AlgorithmicPanelLens,
+        output: SlotShape,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            runtime: PanelLensRuntime::Algorithmic { lens },
+            output,
+            modality: Modality::Structured,
+            retrieval_only: true,
+            excluded_from_dedup: true,
+            required: false,
+            asymmetry: Asymmetry::None,
+        }
+    }
+
+    pub fn with_asymmetry(mut self, asymmetry: Asymmetry) -> Self {
+        self.asymmetry = asymmetry;
+        self
+    }
+}
+
+fn slot_lens_id(template: &str, spec: &PanelSlotSpec) -> LensId {
+    let spec_text = format!(
+        "{template}:{}:{:?}:{:?}:{:?}:{}:{}",
+        spec.name,
+        spec.runtime,
+        spec.output,
+        spec.modality,
+        spec.retrieval_only,
+        spec.excluded_from_dedup
+    );
+    LensId::from_bytes(content_address([spec_text.as_bytes()]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_default_instantiates_expected_temporal_tail() {
+        let template = text_default();
+        let panel = instantiate_panel(&template, 10);
+
+        assert_eq!(template.slots.len(), 8);
+        assert_eq!(panel.panel.version, 8);
+        assert_eq!(panel.panel.slots[5].slot_key.key(), "E2_recency");
+        assert!(template.slots[5..].iter().all(|slot| slot.retrieval_only));
+        assert!(
+            template.slots[5..]
+                .iter()
+                .all(|slot| slot.excluded_from_dedup)
+        );
+    }
+
+    #[test]
+    fn all_default_panels_include_temporal_slots_last() {
+        for template in [code_default(), civic_default(), media_default()] {
+            let names = template
+                .slots
+                .iter()
+                .map(|slot| slot.name.as_str())
+                .collect::<Vec<_>>();
+            assert!(names.ends_with(&["E2_recency", "E3_periodic", "E4_positional"]));
+            assert_eq!(template.temporal_specs().count(), 3);
+        }
+        assert!(code_default().slots.len() >= 15);
+        assert!(civic_default().slots.len() >= 24);
+        assert!(media_default().slots.len() >= 10);
+    }
+}
