@@ -1,9 +1,11 @@
 pub mod context;
+pub mod gemm;
 pub mod kernels;
 
 use crate::{Backend, DeviceInfo, ForgeError, Result};
 
 pub use context::{CudaContext, init_cuda, query_device_info};
+pub use gemm::{bench_gemm_cublas, bench_gemm_reference_cublas, gemm_cublas, probe_allocation};
 
 #[derive(Clone, Debug)]
 pub struct CudaBackend {
@@ -27,14 +29,14 @@ impl CudaBackend {
 impl Backend for CudaBackend {
     fn gemm(
         &self,
-        _a: &[f32],
-        _b: &[f32],
-        _m: usize,
-        _k: usize,
-        _n: usize,
-        _out: &mut [f32],
+        a: &[f32],
+        b: &[f32],
+        m: usize,
+        k: usize,
+        n: usize,
+        out: &mut [f32],
     ) -> Result<()> {
-        Err(unimplemented("cuda::gemm"))
+        gemm::gemm_host(&self.ctx, a, b, m, k, n, out)
     }
 
     fn cosine(&self, _a: &[f32], _b: &[f32], _dim: usize, _out: &mut [f32]) -> Result<()> {
