@@ -64,6 +64,13 @@ agent-invoked**: `cargo check`/`test`/`clippy -D warnings`, the ≤500-line gate
 bit-parity. A passing test is a *claim*; FSV (byte readback) is the *truth
 gate*. Everything free/OSS; storage POSIX-on-ZFS; no paid services/scanners.
 
+The canonical per-merge command is:
+```bash
+cd /home/croyse/calyx/repo
+source ./env.sh
+bash scripts/check.sh
+```
+
 ## 5. The ≤500-line gate (DOCTRINE §8)
 
 Every `.rs` source/test file ≤ 500 lines (docs unlimited). Modularize per
@@ -72,8 +79,7 @@ Every `.rs` source/test file ≤ 500 lines (docs unlimited). Modularize per
 Over-limit file → open a `type:task` issue, split, re-run the gate.
 ```bash
 # run on aiwonder before every merge
-find crates -name '*.rs' -exec wc -l {} + \
- | awk -v max=500 '$1>max && !/total/{print "❌",$0; v=1} END{if(!v)print "✅ all .rs ≤ 500 lines"}'
+bash scripts/linecount.sh
 ```
 
 ## 6. Code reuse (lift the proven seeds — PRD `19 §6`)
