@@ -12,7 +12,10 @@ pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
 pub use cuda::{CudaBackend, CudaContext, init_cuda, query_device_info};
 pub use error::ForgeError;
-pub use quant::{QuantLevel, QuantizedVec, Quantizer, SeedId};
+pub use quant::{
+    CURRENT_SEED_VERSION, QuantLevel, QuantizedVec, Quantizer, RotationSeed, SeedId,
+    apply_rotation, apply_rotation_batch, new_seed, seed_id_hex,
+};
 
 #[cfg(test)]
 mod tests {
