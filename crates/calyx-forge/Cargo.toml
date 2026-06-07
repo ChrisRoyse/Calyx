@@ -11,7 +11,7 @@ default = []
 cuda = ["dep:cudarc"]
 
 [dependencies]
-cudarc = { workspace = true, optional = true, features = ["std", "driver", "cublas", "dynamic-loading", "cuda-13020"] }
+cudarc = { workspace = true, optional = true, features = ["std", "driver", "cublas", "nvrtc", "dynamic-loading", "cuda-13020"] }
 serde.workspace = true
 tracing.workspace = true
 wide.workspace = true

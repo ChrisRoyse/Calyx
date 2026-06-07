@@ -364,6 +364,7 @@ mod tests {
 
     #[test]
     fn gemm_identity_gpu() -> Result<()> {
+        let _guard = crate::cuda::test_lock();
         let ctx = crate::init_cuda(0, false)?;
         let cpu = CpuBackend::new();
         let a = deterministic_values(16, 13, 0.25);
@@ -386,6 +387,7 @@ mod tests {
 
     #[test]
     fn bench_gemm_cublas_positive_gflops() -> Result<()> {
+        let _guard = crate::cuda::test_lock();
         let ctx = crate::init_cuda(0, false)?;
         let gflops = bench_gemm_cublas(&ctx, PERF_DIM, PERF_DIM, PERF_DIM, SMOKE_ITERS)?;
         println!("GEMM_BENCH forge_gflops={gflops:.3}");
@@ -396,6 +398,7 @@ mod tests {
 
     #[test]
     fn perf_vs_cublas() -> Result<()> {
+        let _guard = crate::cuda::test_lock();
         let ctx = crate::init_cuda(0, false)?;
         let _warmup = bench_gemm_reference_cublas(&ctx, PERF_DIM, PERF_DIM, PERF_DIM, SMOKE_ITERS)?;
         let forge = bench_gemm_cublas(&ctx, PERF_DIM, PERF_DIM, PERF_DIM, PERF_ITERS)?;
@@ -412,6 +415,7 @@ mod tests {
 
     #[test]
     fn gemm_edges_m_n_k_one_match_cpu() -> Result<()> {
+        let _guard = crate::cuda::test_lock();
         for (name, m, k, n) in [("m_one", 1, 3, 2), ("n_one", 3, 2, 1), ("k_one", 3, 1, 2)] {
             let a = deterministic_values(m * k, 11, 0.5);
             let b = deterministic_values(k * n, 7, 0.25);
@@ -431,6 +435,7 @@ mod tests {
 
     #[test]
     fn oom_probe_fails_closed_for_32_gib_request() -> Result<()> {
+        let _guard = crate::cuda::test_lock();
         let ctx = crate::init_cuda(0, false)?;
         let err = probe_allocation(&ctx, 32 * 1024 * 1024 * 1024)
             .expect_err("32 GiB request must fail closed when free VRAM is lower");
@@ -460,6 +465,7 @@ mod tests {
 
         #[test]
         fn gemm_matches_cpu_proptest((m, k, n, a, b) in matrix_case()) {
+            let _guard = crate::cuda::test_lock();
             let mut cpu_out = vec![0.0; m * n];
             let mut gpu_out = vec![0.0; m * n];
             CpuBackend::new()
