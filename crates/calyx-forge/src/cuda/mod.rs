@@ -4,12 +4,16 @@ pub mod distance;
 mod distance_tests;
 pub mod gemm;
 pub mod kernels;
+pub mod topk;
+#[cfg(test)]
+mod topk_tests;
 
 use crate::{Backend, DeviceInfo, ForgeError, Result};
 
 pub use context::{CudaContext, init_cuda, query_device_info};
 pub use distance::{cosine_batch_gpu, dot_batch_gpu, l2_batch_gpu};
 pub use gemm::{bench_gemm_cublas, bench_gemm_reference_cublas, gemm_cublas, probe_allocation};
+pub use topk::topk_gpu;
 
 #[derive(Clone, Debug)]
 pub struct CudaBackend {
@@ -59,8 +63,8 @@ impl Backend for CudaBackend {
         Err(unimplemented("cuda::normalize"))
     }
 
-    fn topk(&self, _scores: &[f32], _k: usize) -> Result<Vec<(usize, f32)>> {
-        Err(unimplemented("cuda::topk"))
+    fn topk(&self, scores: &[f32], k: usize) -> Result<Vec<(usize, f32)>> {
+        topk::topk_host(&self.ctx, scores, k)
     }
 
     fn device_info(&self) -> DeviceInfo {
