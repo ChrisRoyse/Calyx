@@ -4,9 +4,13 @@ use crate::cf::{ColumnFamily, SlotFamilyKind};
 use crate::sst::{SstReader, write_sst};
 use calyx_core::{CalyxError, Result, SlotId};
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 const DEFAULT_COMPACTION_TARGET_BYTES: u64 = 64 * 1024 * 1024;
 const WRITE_AMP_SCALE: u64 = 1_000;
@@ -53,6 +57,10 @@ impl CompactionSnapshot {
 
     pub fn shard_count(&self) -> usize {
         self.shards.len()
+    }
+
+    pub fn shard_count_for_cf(&self, cf: ColumnFamily) -> usize {
+        self.shards.iter().filter(|shard| shard.cf == cf).count()
     }
 }
 
@@ -110,6 +118,110 @@ impl CompactionCatalog {
         *self.active.write().expect("catalog lock") = Arc::new(next);
         Ok(CompactionResult::Compacted(report))
     }
+
+    pub fn shard_count_for_cf(&self, cf: ColumnFamily) -> usize {
+        self.pin_snapshot().shard_count_for_cf(cf)
+    }
+
+    pub fn debt_for_cf(&self, cf: ColumnFamily, target_bytes: u64) -> CompactionDebt {
+        let snapshot = self.pin_snapshot();
+        let inputs: Vec<_> = snapshot
+            .shards
+            .iter()
+            .filter(|shard| shard.cf == cf)
+            .cloned()
+            .collect();
+        CompactionDebt::measure(&inputs, target_bytes)
+    }
+
+    pub fn column_families(&self) -> Vec<ColumnFamily> {
+        let snapshot = self.pin_snapshot();
+        let mut cfs = Vec::new();
+        for shard in snapshot.shards.iter() {
+            if !cfs.contains(&shard.cf) {
+                cfs.push(shard.cf);
+            }
+        }
+        cfs
+    }
+}
+
+/// Background compaction cadence and anti-storm controls.
+#[derive(Debug, Clone)]
+pub struct CompactionSchedulerOptions {
+    pub interval_ms: u64,
+    pub debt_trigger_score_milli: u64,
+    pub max_write_amp_milli: u64,
+    pub backoff_factor: u64,
+    pub max_interval_ms: u64,
+    pub output_root: PathBuf,
+}
+
+impl Default for CompactionSchedulerOptions {
+    fn default() -> Self {
+        Self {
+            interval_ms: 10_000,
+            debt_trigger_score_milli: 1_000,
+            max_write_amp_milli: 2_000,
+            backoff_factor: 2,
+            max_interval_ms: 60_000,
+            output_root: env::temp_dir().join("calyx-compaction-scheduler"),
+        }
+    }
+}
+
+/// Background thread that compacts CFs whose debt crosses the configured trigger.
+#[derive(Debug)]
+pub struct CompactionScheduler {
+    stop: Arc<AtomicBool>,
+    thread: JoinHandle<()>,
+}
+
+impl CompactionScheduler {
+    pub fn start(catalog: Arc<CompactionCatalog>, options: CompactionSchedulerOptions) -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let thread_stop = stop.clone();
+        let thread = thread::spawn(move || {
+            let mut interval_ms = options.interval_ms.max(1);
+            let run_id = AtomicU64::new(0);
+            while !thread_stop.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(interval_ms));
+                if thread_stop.load(Ordering::Acquire) {
+                    break;
+                }
+                // FIXME(PH46): replace fixed cadence with Anneal adaptive hook.
+                for cf in catalog.column_families() {
+                    let debt = catalog.debt_for_cf(cf, DEFAULT_COMPACTION_TARGET_BYTES);
+                    if debt.score_milli < options.debt_trigger_score_milli {
+                        continue;
+                    }
+                    let output = scheduler_output_path(&options.output_root, cf, &run_id);
+                    match catalog.compact_cf(cf, output, CompactionThrottle::unlimited()) {
+                        Ok(CompactionResult::Compacted(report))
+                            if report.write_amp_milli > options.max_write_amp_milli =>
+                        {
+                            interval_ms = interval_ms
+                                .saturating_mul(options.backoff_factor.max(1))
+                                .min(options.max_interval_ms.max(1));
+                        }
+                        Ok(_) => {}
+                        Err(error) => eprintln!("calyx compaction scheduler error: {error}"),
+                    }
+                }
+            }
+        });
+        Self { stop, thread }
+    }
+
+    pub fn stop(self) -> thread::Result<()> {
+        self.stop.store(true, Ordering::Release);
+        self.thread.join()
+    }
+}
+
+fn scheduler_output_path(root: &Path, cf: ColumnFamily, run_id: &AtomicU64) -> PathBuf {
+    let id = run_id.fetch_add(1, Ordering::AcqRel) + 1;
+    root.join(cf.name()).join(format!("compacted-{id:020}.sst"))
 }
 
 /// Per-run throttle. `None` means no byte cap for the run.
@@ -284,8 +396,8 @@ impl TieringPolicy {
         current_panel_version: u32,
     ) -> Self {
         Self::new(
-            "/zfs/hot/calyx",
-            "/zfs/archive/calyx",
+            tier_root("/zfs/hot/calyx", "hot"),
+            tier_root("/zfs/archive/calyx", "archive"),
             active_slots,
             current_panel_version,
         )
@@ -331,7 +443,13 @@ impl TieringPolicy {
     }
 
     fn is_cold(&self, cf: ColumnFamily, panel_version: u32) -> bool {
-        if panel_version < self.current_panel_version || cf.is_raw_slot() {
+        if matches!(
+            cf,
+            ColumnFamily::Base | ColumnFamily::Ledger | ColumnFamily::Anchors
+        ) {
+            return false;
+        }
+        if cf.is_raw_slot() {
             return true;
         }
         matches!(
@@ -339,9 +457,20 @@ impl TieringPolicy {
             ColumnFamily::Slot {
                 slot,
                 kind: SlotFamilyKind::Quantized
-            } if !self.active_slots.contains(&slot)
+            } if panel_version < self.current_panel_version || !self.active_slots.contains(&slot)
         )
     }
+}
+
+fn tier_root(zfs_path: &str, fallback_dir: &str) -> PathBuf {
+    let zfs = PathBuf::from(zfs_path);
+    if zfs.exists() {
+        return zfs;
+    }
+    env::var_os("CALYX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/home/croyse/calyx"))
+        .join(fallback_dir)
 }
 
 /// Completed tiered SST write.

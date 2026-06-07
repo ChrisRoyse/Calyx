@@ -5,7 +5,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 
 pub(super) const MAGIC: u32 = u32::from_le_bytes(*b"CXW1");
 pub(super) const HEADER_LEN: usize = 20;
-const MAX_RECORD_BYTES: u32 = 64 * 1024 * 1024;
+pub(super) const MAX_RECORD_BYTES: u32 = 64 * 1024 * 1024;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum DecodeStatus {

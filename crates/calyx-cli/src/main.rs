@@ -1,5 +1,7 @@
 //! Calyx command-line entry point.
 
+mod ops;
+
 use std::env;
 use std::fs;
 use std::io;
@@ -24,6 +26,50 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
             readback_vault_tree(Path::new(value)).map_err(|error| error.to_string())
         }
+        [command, flag, cf, vault_flag, vault]
+            if command == "readback" && flag == "--cf" && vault_flag == "--vault" =>
+        {
+            ops::readback_cf(Path::new(vault), cf)
+        }
+        [command, flag, vault_flag, vault]
+            if command == "readback" && flag == "--wal" && vault_flag == "--vault" =>
+        {
+            ops::readback_wal(Path::new(vault))
+        }
+        [command, vault_flag, vault, cf_flag, cf]
+            if command == "compact" && vault_flag == "--vault" && cf_flag == "--cf" =>
+        {
+            ops::compact(Path::new(vault), cf)
+        }
+        [command, vault_flag, vault, duration_flag, duration]
+            if command == "compact-watch"
+                && vault_flag == "--vault"
+                && duration_flag == "--duration" =>
+        {
+            ops::compact_watch(Path::new(vault), ops::parse_duration(duration)?)
+        }
+        [command, vault_flag, vault, ops_flag, ops, threads_flag, threads]
+            if command == "soak"
+                && vault_flag == "--vault"
+                && ops_flag == "--ops"
+                && threads_flag == "--threads" =>
+        {
+            let ops = ops
+                .parse::<usize>()
+                .map_err(|error| format!("invalid --ops: {error}"))?;
+            let threads = threads
+                .parse::<usize>()
+                .map_err(|error| format!("invalid --threads: {error}"))?;
+            ops::soak(Path::new(vault), ops, threads)
+        }
+        [command, vault_flag, vault, cf_flag, cf, output_flag, output]
+            if command == "tier"
+                && vault_flag == "--vault"
+                && cf_flag == "--cf"
+                && output_flag == "--output" =>
+        {
+            ops::tier(Path::new(vault), cf, output)
+        }
         [] | [_]
             if args
                 .first()
@@ -32,7 +78,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             print_usage();
             Ok(())
         }
-        _ => Err("usage: calyx readback (--hex <file> | --vault-tree <dir>)".to_string()),
+        _ => Err(usage().to_string()),
     }
 }
 
@@ -116,8 +162,12 @@ fn normalize_path(path: &Path) -> String {
 }
 
 fn print_usage() {
-    println!("usage: calyx readback (--hex <file> | --vault-tree <dir>)");
+    println!("{}", usage());
     println!("prints source-of-truth bytes or listings for manual FSV inspection");
+}
+
+fn usage() -> &'static str {
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>"
 }
 
 #[cfg(test)]

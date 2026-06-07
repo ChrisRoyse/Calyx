@@ -83,6 +83,7 @@ dependencies = [
  "calyx-core",
  "crc32fast",
  "memmap2",
+ "proptest",
  "serde",
  "serde_json",
 ]
@@ -90,6 +91,10 @@ dependencies = [
 [[package]]
 name = "calyx-cli"
 version = "0.1.0"
+dependencies = [
+ "calyx-aster",
+ "calyx-core",
+]
 
 [[package]]
 name = "calyx-core"
