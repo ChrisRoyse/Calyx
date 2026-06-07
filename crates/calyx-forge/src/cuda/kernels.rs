@@ -1,12 +1,16 @@
 pub const DISTANCE_PTX: &[u8] = include_bytes!(env!("FORGE_DISTANCE_PTX_PATH"));
 pub const TOPK_PTX: &[u8] = include_bytes!(env!("FORGE_TOPK_PTX_PATH"));
+pub const MXFP4_GEMM_PTX: &[u8] = include_bytes!(env!("FORGE_MXFP4_GEMM_PTX_PATH"));
 pub const DISTANCE_CUBIN: &[u8] = include_bytes!(env!("FORGE_DISTANCE_CUBIN_PATH"));
 pub const TOPK_CUBIN: &[u8] = include_bytes!(env!("FORGE_TOPK_CUBIN_PATH"));
+pub const MXFP4_GEMM_CUBIN: &[u8] = include_bytes!(env!("FORGE_MXFP4_GEMM_CUBIN_PATH"));
 
 pub const DISTANCE_PTX_PATH: &str = env!("FORGE_DISTANCE_PTX_PATH");
 pub const TOPK_PTX_PATH: &str = env!("FORGE_TOPK_PTX_PATH");
+pub const MXFP4_GEMM_PTX_PATH: &str = env!("FORGE_MXFP4_GEMM_PTX_PATH");
 pub const DISTANCE_CUBIN_PATH: &str = env!("FORGE_DISTANCE_CUBIN_PATH");
 pub const TOPK_CUBIN_PATH: &str = env!("FORGE_TOPK_CUBIN_PATH");
+pub const MXFP4_GEMM_CUBIN_PATH: &str = env!("FORGE_MXFP4_GEMM_CUBIN_PATH");
 
 #[cfg(test)]
 mod tests {
@@ -36,19 +40,26 @@ mod tests {
         );
         assert!(contains_bytes(DISTANCE_PTX, b"cosine_batch_f32"));
         assert!(contains_bytes(TOPK_PTX, b"bitonic_topk_f32"));
+        assert!(contains_bytes(
+            MXFP4_GEMM_PTX,
+            b"gemm_mxfp4_fp32_accum_kernel"
+        ));
     }
 
     #[test]
     fn cubin_fast_path_artifacts_are_embedded() {
         println!(
-            "CUDA_KERNEL_CUBIN distance={} bytes={} topk={} bytes={}",
+            "CUDA_KERNEL_CUBIN distance={} bytes={} topk={} bytes={} mxfp4={} bytes={}",
             DISTANCE_CUBIN_PATH,
             DISTANCE_CUBIN.len(),
             TOPK_CUBIN_PATH,
-            TOPK_CUBIN.len()
+            TOPK_CUBIN.len(),
+            MXFP4_GEMM_CUBIN_PATH,
+            MXFP4_GEMM_CUBIN.len()
         );
         assert!(DISTANCE_CUBIN.len() > 1024);
         assert!(TOPK_CUBIN.len() > 1024);
+        assert!(MXFP4_GEMM_CUBIN.len() > 1024);
     }
 
     #[test]
@@ -58,6 +69,8 @@ mod tests {
             TOPK_PTX_PATH,
             DISTANCE_CUBIN_PATH,
             TOPK_CUBIN_PATH,
+            MXFP4_GEMM_PTX_PATH,
+            MXFP4_GEMM_CUBIN_PATH,
         ] {
             let metadata = std::fs::metadata(path).expect("kernel artifact exists in OUT_DIR");
             println!("CUDA_KERNEL_FILE path={path} bytes={}", metadata.len());
