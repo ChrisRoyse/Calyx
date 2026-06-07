@@ -1,3 +1,4 @@
+pub mod distance;
 pub mod gemm;
 
 use crate::{Backend, DeviceInfo, ForgeError, Result};
@@ -46,16 +47,16 @@ impl Backend for CpuBackend {
         gemm::gemm_f32(a, b, m, k, n, out)
     }
 
-    fn cosine(&self, _a: &[f32], _b: &[f32], _dim: usize, _out: &mut [f32]) -> Result<()> {
-        Err(unimplemented_op("cpu.cosine"))
+    fn cosine(&self, a: &[f32], b: &[f32], dim: usize, out: &mut [f32]) -> Result<()> {
+        distance::cosine_batch(a, b, dim, out)
     }
 
-    fn dot(&self, _a: &[f32], _b: &[f32], _dim: usize, _out: &mut [f32]) -> Result<()> {
-        Err(unimplemented_op("cpu.dot"))
+    fn dot(&self, a: &[f32], b: &[f32], dim: usize, out: &mut [f32]) -> Result<()> {
+        distance::dot_batch(a, b, dim, out)
     }
 
-    fn l2(&self, _a: &[f32], _b: &[f32], _dim: usize, _out: &mut [f32]) -> Result<()> {
-        Err(unimplemented_op("cpu.l2"))
+    fn l2(&self, a: &[f32], b: &[f32], dim: usize, out: &mut [f32]) -> Result<()> {
+        distance::l2_batch(a, b, dim, out)
     }
 
     fn normalize(&self, _vecs: &mut [f32], _dim: usize) -> Result<()> {
@@ -76,6 +77,7 @@ impl Backend for CpuBackend {
     }
 }
 
+pub use distance::{cosine_batch, dot_batch, l2_batch};
 pub use gemm::gemm_f32;
 
 fn unimplemented_op(op: &str) -> ForgeError {
