@@ -1,9 +1,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use calyx_core::{CalyxError, Input, Lens, LensId, Result, SlotShape, SlotVector, SparseEntry};
+use calyx_core::{
+    Asymmetry, CalyxError, Input, Lens, LensId, Result, SlotShape, SlotVector, SparseEntry,
+};
+use serde::{Deserialize, Serialize};
 
 use crate::frozen::FrozenLensContract;
+use crate::spec::{LensHealth, LensSpec};
 
 /// Runtime registry for frozen lens measurement instruments.
 #[derive(Clone, Default)]
@@ -15,6 +19,7 @@ pub struct Registry {
 struct RegistryEntry {
     lens: Arc<dyn Lens>,
     frozen: Option<FrozenLensContract>,
+    spec: Option<LensSpec>,
 }
 
 impl Registry {
@@ -30,7 +35,7 @@ impl Registry {
     {
         let id = lens.id();
         if self.lenses.contains_key(&id) {
-            return Err(CalyxError::lens_frozen_violation(format!(
+            return Err(CalyxError::registry_duplicate(format!(
                 "lens {id} is already registered"
             )));
         }
@@ -39,6 +44,29 @@ impl Registry {
             RegistryEntry {
                 lens: Arc::new(lens),
                 frozen: None,
+                spec: None,
+            },
+        );
+        Ok(id)
+    }
+
+    /// Registers a lens with structured registry metadata.
+    pub fn register_with_spec<L>(&mut self, lens: L, spec: LensSpec) -> Result<LensId>
+    where
+        L: Lens + 'static,
+    {
+        let id = lens.id();
+        if self.lenses.contains_key(&id) {
+            return Err(CalyxError::registry_duplicate(format!(
+                "lens {id} is already registered"
+            )));
+        }
+        self.lenses.insert(
+            id,
+            RegistryEntry {
+                lens: Arc::new(lens),
+                frozen: None,
+                spec: Some(spec),
             },
         );
         Ok(id)
@@ -49,7 +77,20 @@ impl Registry {
     where
         L: Lens + 'static,
     {
-        self.register_frozen_inner(lens, contract, None)
+        self.register_frozen_inner(lens, contract, None, None)
+    }
+
+    /// Registers a frozen lens with structured registry metadata.
+    pub fn register_frozen_with_spec<L>(
+        &mut self,
+        lens: L,
+        contract: FrozenLensContract,
+        spec: LensSpec,
+    ) -> Result<LensId>
+    where
+        L: Lens + 'static,
+    {
+        self.register_frozen_inner(lens, contract, None, Some(spec))
     }
 
     /// Registers a frozen lens after a deterministic two-pass probe.
@@ -62,7 +103,7 @@ impl Registry {
     where
         L: Lens + 'static,
     {
-        self.register_frozen_inner(lens, contract, Some(probe))
+        self.register_frozen_inner(lens, contract, Some(probe), None)
     }
 
     /// Returns true when a lens id is registered.
@@ -100,6 +141,31 @@ impl Registry {
         Ok(vectors)
     }
 
+    /// Measures both directions of an asymmetric dual lens.
+    pub fn measure_dual(&self, lens_id: LensId, input: &Input) -> Result<DualMeasurement> {
+        let entry = self.lookup(lens_id)?;
+        let asymmetry = entry
+            .spec
+            .as_ref()
+            .map(|spec| spec.asymmetry)
+            .unwrap_or(Asymmetry::None);
+        if !matches!(asymmetry, Asymmetry::Dual { .. }) {
+            return Err(CalyxError::lens_dim_mismatch(format!(
+                "lens {lens_id} is not registered as a dual-direction lens"
+            )));
+        }
+        let a = self.measure(lens_id, input)?;
+        let mut reversed = input.clone();
+        reversed.bytes.reverse();
+        let b = self.measure(lens_id, &reversed)?;
+        if serde_json::to_vec(&a).ok() == serde_json::to_vec(&b).ok() {
+            return Err(CalyxError::lens_numerical_invariant(format!(
+                "lens {lens_id} produced identical dual directions"
+            )));
+        }
+        Ok(DualMeasurement { a, b })
+    }
+
     /// Returns the frozen contract registered for a lens id.
     pub fn frozen_contract(&self, lens_id: LensId) -> Option<&FrozenLensContract> {
         self.lenses
@@ -107,11 +173,29 @@ impl Registry {
             .and_then(|entry| entry.frozen.as_ref())
     }
 
+    /// Returns structured metadata for a lens id, when registered.
+    pub fn lens_spec(&self, lens_id: LensId) -> Option<&LensSpec> {
+        self.lenses
+            .get(&lens_id)
+            .and_then(|entry| entry.spec.as_ref())
+    }
+
+    /// Probes runtime health for a registered lens.
+    pub fn health(&self, lens_id: LensId) -> Result<LensHealth> {
+        let entry = self.lookup(lens_id)?;
+        Ok(entry
+            .spec
+            .as_ref()
+            .map(LensSpec::health)
+            .unwrap_or(LensHealth::Loaded))
+    }
+
     fn register_frozen_inner<L>(
         &mut self,
         lens: L,
         contract: FrozenLensContract,
         probe: Option<&Input>,
+        spec: Option<LensSpec>,
     ) -> Result<LensId>
     where
         L: Lens + 'static,
@@ -122,7 +206,7 @@ impl Registry {
         }
         let id = lens.id();
         if self.lenses.contains_key(&id) {
-            return Err(CalyxError::lens_frozen_violation(format!(
+            return Err(CalyxError::registry_duplicate(format!(
                 "lens {id} is already registered"
             )));
         }
@@ -131,6 +215,7 @@ impl Registry {
             RegistryEntry {
                 lens: Arc::new(lens),
                 frozen: Some(contract),
+                spec,
             },
         );
         Ok(id)
@@ -155,6 +240,12 @@ impl Registry {
             CalyxError::lens_unreachable(format!("lens {lens_id} is not registered"))
         })
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DualMeasurement {
+    pub a: SlotVector,
+    pub b: SlotVector,
 }
 
 /// Verifies that an input matches a lens' declared modality.

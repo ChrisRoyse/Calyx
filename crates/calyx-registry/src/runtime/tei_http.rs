@@ -20,6 +20,7 @@ pub struct TeiHttpLens {
     modality: Modality,
     dim: u32,
     timeout: Duration,
+    max_batch: usize,
 }
 
 impl TeiHttpLens {
@@ -39,6 +40,7 @@ impl TeiHttpLens {
             modality,
             dim,
             timeout: Duration::from_secs(30),
+            max_batch: 32,
         }
     }
 
@@ -50,6 +52,12 @@ impl TeiHttpLens {
     /// Overrides the socket timeout.
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Overrides the maximum TEI request batch size.
+    pub fn with_max_batch(mut self, max_batch: usize) -> Self {
+        self.max_batch = max_batch.max(1);
         self
     }
 }
@@ -84,11 +92,14 @@ impl Lens for TeiHttpLens {
             texts.push(text_from_input(input)?);
         }
 
-        let body = serde_json::to_vec(&json!({ "inputs": texts })).map_err(|err| {
-            CalyxError::lens_unreachable(format!("TEI request encode failed: {err}"))
-        })?;
-        let raw = post_json(&self.endpoint, &body, self.timeout)?;
-        let vectors = parse_embedding_response(&raw)?;
+        let mut vectors = Vec::with_capacity(inputs.len());
+        for chunk in texts.chunks(self.max_batch) {
+            let body = serde_json::to_vec(&json!({ "inputs": chunk })).map_err(|err| {
+                CalyxError::lens_unreachable(format!("TEI request encode failed: {err}"))
+            })?;
+            let raw = post_json(&self.endpoint, &body, self.timeout)?;
+            vectors.extend(parse_embedding_response(&raw)?);
+        }
         if vectors.len() != inputs.len() {
             return Err(CalyxError::lens_dim_mismatch(format!(
                 "TEI returned {} vectors for {} inputs",

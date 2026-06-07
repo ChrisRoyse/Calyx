@@ -103,6 +103,9 @@ error_catalog! {
     LensUnreachable, lens_unreachable, "CALYX_LENS_UNREACHABLE",
     "runtime endpoint down", "restore lens service";
 
+    RegistryDuplicate, registry_duplicate, "CALYX_REGISTRY_DUPLICATE",
+    "lens id already registered", "reuse existing LensId or register a distinct frozen spec";
+
     AssayInsufficientSamples, assay_insufficient_samples, "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
     "< quorum (50) anchors", "anchor more outcomes";
 
@@ -171,6 +174,7 @@ mod tests {
         "CALYX_LENS_DIM_MISMATCH",
         "CALYX_LENS_NUMERICAL_INVARIANT",
         "CALYX_LENS_UNREACHABLE",
+        "CALYX_REGISTRY_DUPLICATE",
         "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
         "CALYX_ASSAY_LOW_SIGNAL",
         "CALYX_ASSAY_REDUNDANT",
@@ -209,20 +213,18 @@ mod tests {
             pairs[0],
             ("CALYX_LENS_FROZEN_VIOLATION", "re-register as new LensId")
         );
-        assert_eq!(
-            pairs[17],
-            (
-                "CALYX_ORACLE_INSUFFICIENT",
-                "add outcome/execution lens (propose_lens)"
-            )
-        );
-        assert_eq!(
-            pairs[22],
-            (
-                "CALYX_READER_LEASE_EXPIRED",
-                "re-issue with bounded-staleness snapshot"
-            )
-        );
+        assert!(pairs.contains(&(
+            "CALYX_REGISTRY_DUPLICATE",
+            "reuse existing LensId or register a distinct frozen spec"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_ORACLE_INSUFFICIENT",
+            "add outcome/execution lens (propose_lens)"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_READER_LEASE_EXPIRED",
+            "re-issue with bounded-staleness snapshot"
+        )));
     }
 
     #[test]
