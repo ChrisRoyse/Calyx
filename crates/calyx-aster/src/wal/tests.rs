@@ -146,8 +146,11 @@ fn torn_tail_in_early_segment_removes_later_segments() {
     let torn = record::encode(2, b"torn").expect("encode torn");
     let segment0 = dir.join("00000000000000000000.wal");
     let segment1 = dir.join("00000000000000000001.wal");
-    fs::write(&segment0, [&first[..], &torn[..record::HEADER_LEN + 1]].concat())
-        .expect("write segment 0");
+    fs::write(
+        &segment0,
+        [&first[..], &torn[..record::HEADER_LEN + 1]].concat(),
+    )
+    .expect("write segment 0");
     fs::write(&segment1, record::encode(3, b"discard").unwrap()).expect("write segment 1");
 
     let replay = replay_dir(&dir).expect("replay torn early segment");

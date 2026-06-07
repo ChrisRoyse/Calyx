@@ -1,10 +1,11 @@
 use crate::cf::ColumnFamily;
 use calyx_core::{
-    AbsentReason, Anchor, AnchorKind, AnchorValue, CalyxError, Constellation, CxFlags, CxId,
-    InputRef, LedgerRef, Modality, Result, SlotId, SlotVector, SparseEntry, VaultId,
+    AbsentReason, CalyxError, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, Result,
+    SlotId, SlotVector, SparseEntry, VaultId,
 };
 use std::collections::BTreeMap;
 
+pub use super::anchor_codec::{decode_anchor, encode_anchor};
 use super::cf_codec::{cf_tag, decode_cf};
 use super::cursor::Cursor;
 
@@ -245,33 +246,9 @@ pub fn decode_slot_vector(bytes: &[u8]) -> Result<SlotVector> {
     }
 }
 
-pub fn encode_anchor(anchor: &Anchor) -> Result<Vec<u8>> {
-    let mut out = Vec::new();
-    encode_anchor_kind(&anchor.kind, &mut out)?;
-    encode_anchor_value(&anchor.value, &mut out)?;
-    put_string(&mut out, &anchor.source)?;
-    out.extend_from_slice(&anchor.observed_at.to_be_bytes());
-    out.extend_from_slice(&anchor.confidence.to_bits().to_be_bytes());
-    Ok(out)
+pub fn encode_ledger_stub(_seq: u64) -> Vec<u8> {
+    vec![0_u8; 32]
 }
-
-pub fn decode_anchor(bytes: &[u8]) -> Result<Anchor> {
-    let mut cursor = Cursor::new(bytes);
-    let kind = decode_anchor_kind(&mut cursor)?;
-    let value = decode_anchor_value(&mut cursor)?;
-    let source = cursor.string()?;
-    let observed_at = cursor.u64()?;
-    let confidence = f32::from_bits(cursor.u32()?);
-    Ok(Anchor {
-        kind,
-        value,
-        source,
-        observed_at,
-        confidence,
-    })
-}
-
-pub fn encode_ledger_stub(_seq: u64) -> Vec<u8> { vec![0_u8; 32] }
 
 pub fn encode_write_batch(rows: &[WriteRow]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
@@ -355,81 +332,6 @@ fn decode_input_ref_tail(cursor: &mut Cursor<'_>, hash: [u8; 32]) -> Result<Inpu
     })
 }
 
-fn encode_anchor_kind(kind: &AnchorKind, out: &mut Vec<u8>) -> Result<()> {
-    match kind {
-        AnchorKind::TestPass => out.extend_from_slice(&0_u16.to_be_bytes()),
-        AnchorKind::TieFormed => out.extend_from_slice(&1_u16.to_be_bytes()),
-        AnchorKind::Thumbs => out.extend_from_slice(&2_u16.to_be_bytes()),
-        AnchorKind::Label(value) => {
-            out.extend_from_slice(&3_u16.to_be_bytes());
-            put_string(out, value)?;
-        }
-        AnchorKind::Reward => out.extend_from_slice(&4_u16.to_be_bytes()),
-        AnchorKind::SpeakerMatch => out.extend_from_slice(&5_u16.to_be_bytes()),
-        AnchorKind::StyleHold => out.extend_from_slice(&6_u16.to_be_bytes()),
-        AnchorKind::Recurrence => out.extend_from_slice(&7_u16.to_be_bytes()),
-    }
-    Ok(())
-}
-
-fn decode_anchor_kind(cursor: &mut Cursor<'_>) -> Result<AnchorKind> {
-    Ok(match cursor.u16()? {
-        0 => AnchorKind::TestPass,
-        1 => AnchorKind::TieFormed,
-        2 => AnchorKind::Thumbs,
-        3 => AnchorKind::Label(cursor.string()?),
-        4 => AnchorKind::Reward,
-        5 => AnchorKind::SpeakerMatch,
-        6 => AnchorKind::StyleHold,
-        7 => AnchorKind::Recurrence,
-        tag => return Err(CalyxError::aster_corrupt_shard(format!("unknown anchor kind {tag}"))),
-    })
-}
-
-fn encode_anchor_value(value: &AnchorValue, out: &mut Vec<u8>) -> Result<()> {
-    match value {
-        AnchorValue::Bool(value) => out.extend_from_slice(&[0, u8::from(*value)]),
-        AnchorValue::Enum(value) => {
-            out.push(1);
-            put_string(out, value)?;
-        }
-        AnchorValue::Number(value) => {
-            out.push(2);
-            out.extend_from_slice(&value.to_bits().to_be_bytes());
-        }
-        AnchorValue::OneHot(values) => {
-            out.push(3);
-            out.extend_from_slice(&(values.len() as u32).to_be_bytes());
-            for value in values {
-                put_string(out, value)?;
-            }
-        }
-        AnchorValue::Text(value) => {
-            out.push(4);
-            put_string(out, value)?;
-        }
-    }
-    Ok(())
-}
-
-fn decode_anchor_value(cursor: &mut Cursor<'_>) -> Result<AnchorValue> {
-    Ok(match cursor.u8()? {
-        0 => AnchorValue::Bool(cursor.u8()? != 0),
-        1 => AnchorValue::Enum(cursor.string()?),
-        2 => AnchorValue::Number(f64::from_bits(cursor.u64()?)),
-        3 => {
-            let count = cursor.u32()? as usize;
-            let mut values = Vec::with_capacity(count);
-            for _ in 0..count {
-                values.push(cursor.string()?);
-            }
-            AnchorValue::OneHot(values)
-        }
-        4 => AnchorValue::Text(cursor.string()?),
-        tag => return Err(CalyxError::aster_corrupt_shard(format!("unknown anchor value {tag}"))),
-    })
-}
-
 fn encode_absent_reason(reason: &AbsentReason, out: &mut Vec<u8>) -> Result<()> {
     match reason {
         AbsentReason::NotApplicable => out.push(0),
@@ -453,12 +355,24 @@ fn decode_absent_reason(cursor: &mut Cursor<'_>) -> Result<AbsentReason> {
         3 => AbsentReason::Deferred,
         4 => AbsentReason::LensInactive,
         5 => AbsentReason::Error(cursor.string()?),
-        tag => return Err(CalyxError::aster_corrupt_shard(format!("unknown absent tag {tag}"))),
+        tag => {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "unknown absent tag {tag}"
+            )));
+        }
     })
 }
 
 fn modality_tag(modality: Modality) -> u8 {
-    match modality { Modality::Text => 0, Modality::Code => 1, Modality::Image => 2, Modality::Audio => 3, Modality::Video => 4, Modality::Structured => 5, Modality::Mixed => 6 }
+    match modality {
+        Modality::Text => 0,
+        Modality::Code => 1,
+        Modality::Image => 2,
+        Modality::Audio => 3,
+        Modality::Video => 4,
+        Modality::Structured => 5,
+        Modality::Mixed => 6,
+    }
 }
 
 fn decode_modality(tag: u8) -> Result<Modality> {
@@ -475,11 +389,19 @@ fn decode_modality(tag: u8) -> Result<Modality> {
 }
 
 fn flags_bits(flags: CxFlags) -> u8 {
-    u8::from(flags.ungrounded) | (u8::from(flags.degraded) << 1) | (u8::from(flags.novel_region) << 2) | (u8::from(flags.redacted_input) << 3)
+    u8::from(flags.ungrounded)
+        | (u8::from(flags.degraded) << 1)
+        | (u8::from(flags.novel_region) << 2)
+        | (u8::from(flags.redacted_input) << 3)
 }
 
 fn decode_flags(bits: u8) -> CxFlags {
-    CxFlags { ungrounded: bits & 1 != 0, degraded: bits & 2 != 0, novel_region: bits & 4 != 0, redacted_input: bits & 8 != 0 }
+    CxFlags {
+        ungrounded: bits & 1 != 0,
+        degraded: bits & 2 != 0,
+        novel_region: bits & 4 != 0,
+        redacted_input: bits & 8 != 0,
+    }
 }
 
 fn put_string(out: &mut Vec<u8>, value: &str) -> Result<()> {

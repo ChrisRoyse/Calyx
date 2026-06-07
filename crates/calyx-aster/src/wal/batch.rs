@@ -20,11 +20,7 @@ pub struct GroupCommitBatcher {
 }
 
 impl GroupCommitBatcher {
-    pub fn new(
-        wal: Wal,
-        group_commit_window: Duration,
-        clock: Arc<dyn Clock>,
-    ) -> Result<Self> {
+    pub fn new(wal: Wal, group_commit_window: Duration, clock: Arc<dyn Clock>) -> Result<Self> {
         validate_window(group_commit_window)?;
         let (sender, receiver) = mpsc::channel();
         let wal = Arc::new(Mutex::new(wal));
@@ -170,7 +166,11 @@ mod tests {
         let replay = replay_dir(&dir).expect("replay");
         assert_eq!(replay.records.len(), 5);
         assert_eq!(
-            replay.records.iter().map(|record| record.seq).collect::<Vec<_>>(),
+            replay
+                .records
+                .iter()
+                .map(|record| record.seq)
+                .collect::<Vec<_>>(),
             vec![1, 2, 3, 4, 5]
         );
         assert_eq!(acks.len(), 5);
@@ -187,7 +187,11 @@ mod tests {
         let error = Wal::open(&dir, options).expect_err("window rejected");
 
         assert_eq!(error.code, "CALYX_DISK_PRESSURE");
-        assert!(error.message.contains("group_commit_window exceeds 2 ms limit"));
+        assert!(
+            error
+                .message
+                .contains("group_commit_window exceeds 2 ms limit")
+        );
         cleanup(dir);
     }
 
@@ -209,10 +213,8 @@ mod tests {
 
     fn test_dir(name: &str) -> PathBuf {
         let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-        let dir = std::env::temp_dir().join(format!(
-            "calyx-aster-{name}-{}-{id}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).expect("create test dir");
         dir

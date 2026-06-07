@@ -1,5 +1,6 @@
 //! Aster `VaultStore` implementation over the PH08 MVCC CF table.
 
+mod anchor_codec;
 mod cf_codec;
 mod cursor;
 mod durable;
@@ -135,7 +136,8 @@ where
             &base_key,
             &self.clock,
         )? {
-            if existing == base_bytes || encode::same_constellation_identity(&existing, &base_bytes)?
+            if existing == base_bytes
+                || encode::same_constellation_identity(&existing, &base_bytes)?
             {
                 return Ok(id);
             }
@@ -172,8 +174,10 @@ where
         if let Some(durable) = &self.durable {
             durable.write_batch(&rows)?;
         }
-        self.rows
-            .commit_batch(rows.iter().map(|row| (row.cf, row.key.clone(), row.value.clone())))?;
+        self.rows.commit_batch(
+            rows.iter()
+                .map(|row| (row.cf, row.key.clone(), row.value.clone())),
+        )?;
         Ok(id)
     }
 
@@ -223,8 +227,10 @@ where
         if let Some(durable) = &self.durable {
             durable.write_batch(&rows)?;
         }
-        self.rows
-            .commit_batch(rows.iter().map(|row| (row.cf, row.key.clone(), row.value.clone())))?;
+        self.rows.commit_batch(
+            rows.iter()
+                .map(|row| (row.cf, row.key.clone(), row.value.clone())),
+        )?;
         Ok(())
     }
 
@@ -426,8 +432,9 @@ mod tests {
     #[test]
     fn durable_vault_writes_wal_sst_manifest_and_cold_opens() {
         let dir = test_dir("durable");
-        let vault = AsterVault::new_durable(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
-            .expect("open durable");
+        let vault =
+            AsterVault::new_durable(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
+                .expect("open durable");
         let cx = sample_constellation(&AsterVault::with_clock(
             vault_id(),
             b"salt".to_vec(),
@@ -444,8 +451,9 @@ mod tests {
         assert!(dir.join("CURRENT").exists());
         assert_eq!(sst_count(dir.join("cf/base")), 1);
 
-        let reopened = AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
-            .expect("cold open");
+        let reopened =
+            AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
+                .expect("cold open");
         assert_eq!(reopened.snapshot(), 1);
         assert_eq!(reopened.get(id, reopened.snapshot()).unwrap(), cx);
         cleanup(dir);

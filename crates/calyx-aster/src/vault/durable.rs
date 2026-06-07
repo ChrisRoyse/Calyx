@@ -30,10 +30,7 @@ impl DurableVault {
             options.wal_options.group_commit_window,
             Arc::new(SystemClock),
         )?;
-        Ok(Self {
-            root,
-            batcher,
-        })
+        Ok(Self { root, batcher })
     }
 
     pub(super) fn replay_batches(root: impl AsRef<Path>) -> Result<Vec<Vec<WriteRow>>> {
@@ -93,7 +90,8 @@ fn ensure_manifest_assets(root: &Path) -> Result<(ImmutableRef, Vec<ImmutableRef
 
 fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|error| storage_error("create manifest asset dir", error))?;
+        fs::create_dir_all(parent)
+            .map_err(|error| storage_error("create manifest asset dir", error))?;
     }
     {
         let mut file =

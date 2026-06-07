@@ -4,7 +4,9 @@ use calyx_aster::compaction::{
 };
 use calyx_aster::sst::{SstReader, write_sst};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_aster::wal::{DEFAULT_GROUP_COMMIT_WINDOW, GroupCommitBatcher, Wal, WalOptions, replay_dir};
+use calyx_aster::wal::{
+    DEFAULT_GROUP_COMMIT_WINDOW, GroupCommitBatcher, Wal, WalOptions, replay_dir,
+};
 use calyx_core::{
     AbsentReason, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector,
     SystemClock, VaultId, VaultStore,
@@ -110,7 +112,12 @@ pub fn tier(vault: &Path, cf_name: &str, output: &str) -> Result<(), String> {
         _ => return Err("tier output must be hot or cold".to_string()),
     };
     let written = policy
-        .write_tiered_sst(cf, panel_version, "tiered.sst", [(b"k".as_slice(), b"tier".as_slice())])
+        .write_tiered_sst(
+            cf,
+            panel_version,
+            "tiered.sst",
+            [(b"k".as_slice(), b"tier".as_slice())],
+        )
         .map_err(|error| error.to_string())?;
     println!(
         "TIER_WRITE\tCF\t{}\tTIER\t{:?}\tPATH\t{}\tBYTES\t{}\tSTAGING_PARENT\t{}",
@@ -152,8 +159,8 @@ pub fn soak(vault: &Path, ops: usize, threads: usize) -> Result<(), String> {
             .map_err(|_| "soak worker panicked".to_string())??;
     }
 
-    let mut wal = Wal::open(vault.join("wal"), WalOptions::default())
-        .map_err(|error| error.to_string())?;
+    let mut wal =
+        Wal::open(vault.join("wal"), WalOptions::default()).map_err(|error| error.to_string())?;
     for op in 0..ops {
         wal.append(&soak_value(op, 0))
             .map_err(|error| error.to_string())?;
@@ -381,9 +388,7 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
 
 fn parse_slot_cf(value: &str) -> Result<ColumnFamily, String> {
     let raw = value.ends_with(".raw");
-    let slot_text = value
-        .trim_start_matches("slot_")
-        .trim_end_matches(".raw");
+    let slot_text = value.trim_start_matches("slot_").trim_end_matches(".raw");
     let slot = slot_text
         .parse::<u16>()
         .map_err(|error| format!("invalid slot id {slot_text}: {error}"))?;
@@ -425,7 +430,9 @@ fn unix_millis() -> u128 {
 }
 
 fn fd_count() -> usize {
-    fs::read_dir("/proc/self/fd").map(|entries| entries.count()).unwrap_or(0)
+    fs::read_dir("/proc/self/fd")
+        .map(|entries| entries.count())
+        .unwrap_or(0)
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
