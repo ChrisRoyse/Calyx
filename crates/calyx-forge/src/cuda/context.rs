@@ -18,6 +18,7 @@ pub struct CudaContext {
     total_mem_mib: u64,
     free_mem_mib_at_init: u64,
     distance_module: Arc<OnceLock<Arc<CudaModule>>>,
+    topk_module: Arc<OnceLock<Arc<CudaModule>>>,
 }
 
 impl CudaContext {
@@ -52,6 +53,10 @@ impl CudaContext {
     pub(crate) fn distance_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
         &self.distance_module
     }
+
+    pub(crate) fn topk_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
+        &self.topk_module
+    }
 }
 
 pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext> {
@@ -84,6 +89,7 @@ pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext> {
         total_mem_mib: bytes_to_mib(total_bytes),
         free_mem_mib_at_init: free_mem_mib,
         distance_module: Arc::new(OnceLock::new()),
+        topk_module: Arc::new(OnceLock::new()),
     })
 }
 
