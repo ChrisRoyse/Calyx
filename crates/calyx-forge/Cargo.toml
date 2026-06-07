@@ -6,7 +6,12 @@ rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+cuda = ["dep:cudarc"]
+
 [dependencies]
+cudarc = { workspace = true, optional = true, features = ["std", "driver", "dynamic-loading", "cuda-13020"] }
 serde.workspace = true
 tracing.workspace = true
 wide.workspace = true
