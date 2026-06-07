@@ -1,5 +1,6 @@
 //! Write-ahead log storage for Aster.
 
+mod batch;
 mod record;
 mod segment;
 
@@ -9,6 +10,8 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
+pub use batch::GroupCommitBatcher;
 
 /// Default group-commit window for PH05.
 pub const DEFAULT_GROUP_COMMIT_WINDOW: Duration = Duration::from_millis(2);
@@ -91,6 +94,7 @@ pub struct Wal {
 impl Wal {
     /// Opens a WAL directory, replaying and truncating any torn tail first.
     pub fn open(dir: impl AsRef<Path>, options: WalOptions) -> Result<Self> {
+        batch::validate_window(options.group_commit_window)?;
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir).map_err(|error| storage_error("create WAL directory", error))?;
         let replay = replay_dir(&dir)?;

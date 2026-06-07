@@ -1,12 +1,12 @@
 use super::encode::{WriteRow, decode_write_batch, encode_write_batch};
 use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest};
 use crate::sst::write_sst;
-use crate::wal::{Wal, WalOptions, replay_dir};
-use calyx_core::{CalyxError, Result};
+use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
+use calyx_core::{CalyxError, Result, SystemClock};
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Default)]
 pub struct VaultOptions {
@@ -16,7 +16,7 @@ pub struct VaultOptions {
 #[derive(Debug)]
 pub(super) struct DurableVault {
     root: PathBuf,
-    wal: Mutex<Wal>,
+    batcher: GroupCommitBatcher,
 }
 
 impl DurableVault {
@@ -24,10 +24,15 @@ impl DurableVault {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(root.join("cf"))
             .map_err(|error| storage_error("create durable CF root", error))?;
-        let wal = Wal::open(root.join("wal"), options.wal_options)?;
+        let wal = crate::wal::Wal::open(root.join("wal"), options.wal_options)?;
+        let batcher = GroupCommitBatcher::new(
+            wal,
+            options.wal_options.group_commit_window,
+            Arc::new(SystemClock),
+        )?;
         Ok(Self {
             root,
-            wal: Mutex::new(wal),
+            batcher,
         })
     }
 
@@ -42,18 +47,14 @@ impl DurableVault {
 
     pub(super) fn write_batch(&self, rows: &[WriteRow]) -> Result<u64> {
         let payload = encode_write_batch(rows)?;
-        let ack = self
-            .wal
-            .lock()
-            .expect("durable WAL lock poisoned")
-            .append(&payload)?;
+        let ack = self.batcher.submit(payload)?;
         self.write_rows(ack.seq, rows)?;
         self.write_manifest(ack.seq)?;
         Ok(ack.seq)
     }
 
     pub(super) fn flush(&self) -> Result<()> {
-        Ok(())
+        self.batcher.flush_sync()
     }
 
     fn write_rows(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {

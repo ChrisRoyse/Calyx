@@ -73,6 +73,16 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, vault_flag, vault] if command == "vault-demo" && vault_flag == "--vault" => {
             ops::vault_demo(Path::new(vault))
         }
+        [command, vault_flag, vault, requests_flag, requests]
+            if command == "wal-batch-demo"
+                && vault_flag == "--vault"
+                && requests_flag == "--requests" =>
+        {
+            let requests = requests
+                .parse::<usize>()
+                .map_err(|error| format!("invalid --requests: {error}"))?;
+            ops::wal_batch_demo(Path::new(vault), requests)
+        }
         [] | [_]
             if args
                 .first()
@@ -170,7 +180,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>"
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
 }
 
 #[cfg(test)]

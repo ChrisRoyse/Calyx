@@ -84,6 +84,7 @@ dependencies = [
  "crc32fast",
  "memmap2",
  "proptest",
+ "rand 0.8.6",
  "serde",
  "serde_json",
  "ulid",

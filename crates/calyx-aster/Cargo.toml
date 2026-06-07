@@ -17,3 +17,4 @@ ulid.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+rand.workspace = true
