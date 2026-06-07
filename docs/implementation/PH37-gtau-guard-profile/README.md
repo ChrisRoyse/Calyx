@@ -1,0 +1,70 @@
+# PH37 — Gτ Guard Math + GuardProfile
+
+**Stage:** S8 — Ward Gτ Guard  ·  **Crate:** `calyx-ward`  ·
+**PRD roadmap:** P6  ·  **Axioms:** A3, A12
+
+## Objective
+
+Implement the per-slot cosine gate `Gτ` with all-required (or KofN) pass logic.
+For every produced vector, Ward measures `cos(produced_k, matched_k) ≥ τ_k` on
+each required slot and emits a structured per-slot verdict `(cos, tau, pass)`.
+No flattened-vector path exists — the no-flatten rule (A3) is the only path.
+An output that passes the slot average but fails any single required slot is
+unconditionally rejected.
+
+## Dependencies
+
+- **Phases:** PH22 (slots/lenses — `SlotId`, panel structure, per-slot vectors),
+  PH13 (Forge cosine — CUDA sm_120 + CPU SIMD `cos(a,b)` with bit-parity ≤ 1e-3)
+- **Provides for:** PH38 (τ calibration builds on this gate), PH39 (identity-locked
+  generation calls `guard()`), PH41 (TCT dedup reuses the cosine gate)
+
+## Current state (build off what exists)
+
+`calyx-ward` is a 9-line stub crate (`lib.rs` re-exports nothing, `Cargo.toml`
+lists the crate); greenfield. Depends on slots/lenses (PH22) and Forge cosine
+(PH13) which are themselves not yet built — task cards here describe what Ward
+needs from those phases and stub-test accordingly with mock slot vectors.
+
+## Deliverables (file plan, each ≤500 lines)
+
+| File | Responsibility |
+|---|---|
+| `src/guard.rs` | `cos(produced_k, matched_k) ≥ τ_k` gate; per-slot verdict; `AllRequired`/`KofN` policy; `CALYX_GUARD_OOD` |
+| `src/profile.rs` | `GuardProfile` struct, `GuardPolicy` enum, `CalibrationMeta`, `NoveltyAction` enum, serde |
+| `src/verdict.rs` | `GuardVerdict` (pass flag + `Vec<SlotVerdict { slot, cos, tau, pass }>`) |
+| `src/lib.rs` | crate root; re-exports; module wiring |
+| `src/error.rs` | `WardError` enum wrapping `CALYX_GUARD_OOD`, `CALYX_GUARD_PROVISIONAL` |
+| `tests/guard_unit.rs` | deterministic unit + property tests for the gate |
+
+## Tasks (atomic — all must pass for the phase to be DONE)
+
+| Card | Title | Depends |
+|---|---|---|
+| T01 | `GuardProfile` struct + `GuardPolicy` + `NoveltyAction` + `CalibrationMeta` | — |
+| T02 | `SlotVerdict` + `GuardVerdict` types + `WardError` catalog | T01 |
+| T03 | `guard()` per-slot cosine gate — `AllRequired` policy | T02 |
+| T04 | `guard()` `KofN` policy + `CALYX_GUARD_OOD` fail-closed | T03 |
+| T05 | No-flatten enforcement + average-passing/slot-failing rejection | T04 |
+| T06 | FSV harness — per-slot verdict readback + anti-flatten smoke test | T05 |
+
+## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+An output that passes the slot-level cosine average but fails one required slot
+must be **rejected** with `CALYX_GUARD_OOD`. Prove by constructing a
+`GuardProfile` with two required slots where slot-1 scores 0.95 (passes τ=0.7)
+and slot-2 scores 0.50 (fails τ=0.7); call `guard()`; read the returned
+`GuardVerdict::per_slot` bytes and confirm `pass=false` for slot-2 and
+`overall_pass=false`. No flatten path must exist in the source (`grep -n flatten
+src/guard.rs` must return empty).
+
+## Risks / landmines
+
+- Forge cosine may not be ready at PH37 build time — use a test-double `cos_f32`
+  that calls `forge::cosine_cpu` directly; gate on PH13 being merged before
+  wire-up.
+- `SlotId` ordering across the `Map<SlotId,f32>` must be deterministic for
+  bit-parity tests; use a `BTreeMap` internally.
+- `KofN` with k > required_slots.len() must fail closed, not panic.
+- Per-slot `(cos, tau, pass)` must be in the verdict even on overall PASS — the
+  caller always gets full decomposition.

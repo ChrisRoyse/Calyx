@@ -1,0 +1,74 @@
+# PH26 · T05 — Planner `explain` enrichment
+
+| Field | Value |
+|---|---|
+| **Phase** | PH26 — Query planner + intent + explain |
+| **Stage** | S4 — Sextant Search & Navigation |
+| **Crate** | `calyx-sextant` |
+| **Files** | `crates/calyx-sextant/src/planner_explain.rs` (≤500) |
+| **Depends on** | T04 (this phase) · PH24 T06 (`ExplainHit`) |
+| **Axioms** | A15, A17 |
+| **PRD** | `dbprdplans/10 §1`, `dbprdplans/10 §5`, `dbprdplans/10 §7` |
+
+## Goal
+
+Extend `ExplainHit` with planner-level metadata: the detected intent label, the
+strategy chosen (and whether it was auto-selected or overridden), the cost
+estimate, and the timeout budget. This makes `explain=true` a full audit trail
+from intent classification through fusion to each hit's provenance — the
+complete picture an agent needs to trust a result.
+
+## Build (checklist of concrete, code-level steps)
+
+- [ ] `PlannerExplainHit` struct (wraps `ExplainHit`):
+  ```rust
+  pub struct PlannerExplainHit {
+      pub inner: ExplainHit,
+      pub intent: IntentLabel,
+      pub strategy_chosen: String,        // human-readable, e.g. "weighted_rrf:causal"
+      pub override_used: bool,
+      pub cost_estimate: CostEstimate,
+      pub timeout_budget_ms: u64,
+  }
+  ```
+- [ ] `fn planned_explain_search(query: &Query, map: &SlotIndexMap, embedder: &dyn EmbedQuery, ledger: &dyn LedgerProvider, clock: &dyn Clock, planner_config: &PlannerConfig) -> Result<Vec<PlannerExplainHit>, CalyxError>`:
+      1. `plan(query, map)` → `PlannerOutput` (includes cost, timeout, strategy)
+      2. Override `query.fusion` with `planner_output.strategy` if not overridden
+      3. Call `explain_search()` from PH24 T06 → `Vec<ExplainHit>`
+      4. For each `ExplainHit`, wrap into `PlannerExplainHit` with planner metadata
+- [ ] `PlannerExplainHit` derives `serde::Serialize` for JSON output
+- [ ] `strategy_chosen` string format: `"<strategy_name>[:<profile_name>]"` e.g.
+      `"weighted_rrf:causal"`, `"single_lens:slot_0"`, `"rrf"`, `"pipeline"`
+- [ ] `explain=false` path still goes through the planner (for cost-cap checking)
+      but returns plain `Vec<Hit>` from the fast `search()` path, not
+      `Vec<PlannerExplainHit>` — the explain enrichment is only built on demand
+
+## Tests (synthetic, deterministic — known input → known bytes/number)
+
+- [ ] unit: `planned_explain_search` with `explain=true` → all hits have
+      `intent` non-default, `strategy_chosen` non-empty, `cost_estimate.num_slots ≥ 1`
+- [ ] unit: code-intent query → `intent=Code strategy_chosen.starts_with("single_lens")` or `"rrf"` (fallback)
+- [ ] unit: explicit override → `override_used=true`
+- [ ] unit: `PlannerExplainHit` serializes to valid JSON (serde round-trip)
+- [ ] unit: `explain=false` path → returns `Vec<Hit>` (not `Vec<PlannerExplainHit>`);
+      confirm by checking return type at compile time
+- [ ] edge: empty result set → `Ok(vec![])` with no panic
+- [ ] fail-closed: plan rejection (from T03) propagates through
+      `planned_explain_search` → the error is returned, no partial hits
+
+## FSV (read the bytes on aiwonder — the truth gate)
+
+- **SoT:** test output of `cargo test -p calyx-sextant planner_explain -- --nocapture`
+- **Readback:** `cargo test -p calyx-sextant planner_explain -- --nocapture 2>&1`
+- **Prove:** test prints for each case:
+  `intent=Causal strategy=weighted_rrf:causal override=false cost_slots=N timeout=5000 explain_len=K`
+  where K matches the number of hits returned; one such line is captured as
+  FSV evidence
+
+## Done when
+
+- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [ ] file(s) ≤ 500 lines (line-count gate ✅)
+- [ ] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
+- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

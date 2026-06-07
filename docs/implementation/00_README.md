@@ -38,7 +38,8 @@ machine, proven how*.
 | `02_WORKING_AGREEMENT.md` | the per-phase discipline: FSV protocol, ≤500-line rule, GitHub issues, test taxonomy, definition-of-done, doctrine compliance checklist |
 | `03_PHASE_MAP.md` | the master table of **every** phase (PH00–PH72), its stage, dependencies, PRD/axiom mapping, exit gate, and the critical path |
 | `10_STAGE0_FOUNDATION.md` … `30_STAGE20_CRITICAL_CAPS.md` | one file per stage; each details its phases (objective · deps · deliverables · key tasks · FSV exit gate · axioms · risks) |
-| `phase-1-tasks/` | **separate subdir**: one `.md` task card per actionable item in the first phase (Stage 0) — the immediate, executable backlog |
+| `PHASE_TASKS_README.md` | **the per-phase task convention** — directory layout, the atomic task-card template, the README template, the binding rules every card inherits, and the coverage rule. Read before opening any phase subdir. |
+| `PH05-*/` … `PH72-*/` | **one subdir per phase** (Stage 1 → Stage 20). Each holds a `README.md` (phase overview) + one `.md` atomic task card per actionable unit (`T01-…`, `T02-…`). When every card in every subdir is done, `BUILD_DONE` holds. Stage 0 (PH00–PH04) is already built and intentionally has no subdir. |
 
 ## 3. Numbering
 
@@ -100,6 +101,11 @@ the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
 
 ## 7. Status
 
-This is a planning artifact. No code is written yet. Execution begins with
-`phase-1-tasks/` once the operator approves. Track live state in the
-`chrisroyse/calyx` GitHub `type:context` issues (doctrine §8d, PRD `29`).
+Stage 0 (PH00–PH04: `calyx-core` + the Aster scaffolding in `calyx-aster`) is
+built. The remaining phases **PH05–PH72** are fully laid out as atomic task
+cards in the per-phase subdirs (`PH05-*/` … `PH72-*/`), governed by
+`PHASE_TASKS_README.md` — 398 cards across 68 phases, each with a byte-level FSV
+exit gate. Execution proceeds down the dependency spine (§4); the recommended
+first demo is `S0 → S1 → S2(CPU) → S3 → S4` + the migration shadow. Track live
+state in the `chrisroyse/calyx` GitHub `type:context` issues (doctrine §8d,
+PRD `29`).
