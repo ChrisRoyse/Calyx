@@ -1,0 +1,5 @@
+[build]
+target-dir = "/home/croyse/calyx/target"
+
+[term]
+color = "auto"
