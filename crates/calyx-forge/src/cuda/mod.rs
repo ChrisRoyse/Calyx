@@ -10,6 +10,7 @@ mod topk_tests;
 
 use crate::{Backend, DeviceInfo, ForgeError, Result};
 
+pub use crate::mxfp4;
 pub use context::{CudaContext, init_cuda, query_device_info};
 pub use distance::{cosine_batch_gpu, dot_batch_gpu, l2_batch_gpu};
 pub use gemm::{bench_gemm_cublas, bench_gemm_reference_cublas, gemm_cublas, probe_allocation};
