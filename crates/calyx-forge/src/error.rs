@@ -31,6 +31,12 @@ pub enum ForgeError {
         detail: String,
         remediation: String,
     },
+    CacheError {
+        op: String,
+        path: String,
+        detail: String,
+        remediation: String,
+    },
     SeedVersionMismatch {
         expected: u8,
         got: u8,
@@ -45,6 +51,7 @@ impl ForgeError {
             Self::ShapeMismatch { .. } => "CALYX_FORGE_SHAPE_MISMATCH",
             Self::Unimplemented { .. } => "CALYX_FORGE_UNIMPLEMENTED",
             Self::QuantError { .. } => "CALYX_FORGE_QUANT_ERROR",
+            Self::CacheError { .. } => "CALYX_FORGE_CACHE_ERROR",
             Self::SeedVersionMismatch { .. } => "CALYX_FORGE_QUANT_SEED_VERSION",
         }
     }
@@ -55,7 +62,8 @@ impl ForgeError {
             | Self::DeviceUnavailable { remediation, .. }
             | Self::ShapeMismatch { remediation, .. }
             | Self::Unimplemented { remediation, .. }
-            | Self::QuantError { remediation, .. } => remediation,
+            | Self::QuantError { remediation, .. }
+            | Self::CacheError { remediation, .. } => remediation,
             Self::SeedVersionMismatch { .. } => SEED_VERSION_REMEDIATION,
         }
     }
@@ -84,6 +92,11 @@ impl fmt::Display for ForgeError {
                     level,
                     detail
                 )
+            }
+            Self::CacheError {
+                op, path, detail, ..
+            } => {
+                format!("{} op={} path={} detail={}", self.code(), op, path, detail)
             }
             Self::SeedVersionMismatch { expected, got } => {
                 format!("{} expected={} got={}", self.code(), expected, got)

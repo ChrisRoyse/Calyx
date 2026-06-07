@@ -98,6 +98,12 @@ pub mod tests {
                 detail: "invalid quantized payload".to_string(),
                 remediation: "Reject malformed quantized vectors".to_string(),
             },
+            ForgeError::CacheError {
+                op: "load".to_string(),
+                path: "/tmp/calyx-autotune.json".to_string(),
+                detail: "malformed JSON".to_string(),
+                remediation: "Discard the corrupt cache or rerun autotune".to_string(),
+            },
             ForgeError::SeedVersionMismatch {
                 expected: 1,
                 got: 2,

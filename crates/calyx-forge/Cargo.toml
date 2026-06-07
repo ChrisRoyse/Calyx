@@ -15,10 +15,10 @@ cudarc = { workspace = true, optional = true, features = ["std", "driver", "cubl
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sha2.workspace = true
 tracing.workspace = true
 wide.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-serde_json.workspace = true
