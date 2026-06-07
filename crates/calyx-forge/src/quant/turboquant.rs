@@ -104,7 +104,7 @@ impl Quantizer for TurboQuantCodec {
             });
         }
         if qv.seed_id != self.seed.id {
-            return Err(quant_error("decode", qv.level, "rotation seed id mismatch"));
+            return Err(quant_error("decode", qv.level, "seed_id mismatch"));
         }
         if !qv.scale.is_finite() || qv.scale < 0.0 {
             return Err(quant_error(

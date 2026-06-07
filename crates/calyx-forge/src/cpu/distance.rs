@@ -251,10 +251,10 @@ mod tests {
             let mut out = vec![0.0; 100];
             let result = dot_batch(&query, &candidates, 128, &mut out);
             prop_assert!(result.is_ok(), "dot failed: {:?}", result.err());
-            for row in 0..100 {
+            for (row, actual) in out.iter().enumerate().take(100) {
                 let start = row * 128;
                 let expected = scalar_dot(&query, &candidates[start..start + 128]);
-                prop_assert!((out[row] - expected).abs() <= 1e-5);
+                prop_assert!((*actual - expected).abs() <= 1e-5);
             }
         }
     }
