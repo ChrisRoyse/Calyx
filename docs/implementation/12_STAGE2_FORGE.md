@@ -1,13 +1,11 @@
 # Stage 2 — Forge Math Runtime (PH12–PH16)
 
-> **STATUS: ▶ ACTIVE — this is the next stage to build.** Stage 0 + Stage 1
-> (Aster core) are DONE and FSV-signed-off (`11_STAGE1_ASTER.md`), so the
-> dependencies for PH12 (PH04 `calyx-core`) and the downstream write path (PH09
-> `calyx-aster`) are satisfied. `calyx-forge` is currently a 9-line stub —
-> **start at `PH12-cpu-simd-backend/` (T01) and proceed PH12 → PH16.** PH12 is
-> CPU-only and depends only on PH04, so it can begin immediately; PH13 adds the
-> CUDA sm_120 path and bit-parity. Build natively on aiwonder (CUDA 13.2, RTX
-> 5090 sm_120) — no cross-build.
+> **STATUS: ▶ ACTIVE — PH12 is done; PH13 is the current next phase.** Stage 0
+> + Stage 1 (Aster core) are DONE and FSV-signed-off
+> (`11_STAGE1_ASTER.md`). PH12 built the CPU Forge backend and golden fixture
+> baseline, so continue at `PH13-cuda-sm120-bitparity/` (T01) for CUDA sm_120
+> context init and CPU/GPU bit-parity work. Build natively on aiwonder
+> (CUDA 13.2, RTX 5090 sm_120) — no cross-build.
 
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
@@ -19,6 +17,8 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 ---
 
 ## PH12 — CPU SIMD backend
+- **Status.** DONE via issues #71-#76; FSV roots are recorded in
+  `PH12-cpu-simd-backend/README.md`.
 - **Objective.** Reference + production CPU path: `gemm`, `cosine`/`dot`/`l2`,
   `normalize`, `topk` using `wide`/`std::simd` (AVX-512 on the Ryzen).
 - **Deps.** PH04.

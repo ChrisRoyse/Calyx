@@ -1,8 +1,8 @@
 # PH12 — CPU SIMD Backend
 
-> **▶ ACTIVE — this is the current phase to start (first phase of Stage 2).**
-> Deps (PH04 `calyx-core`) are satisfied; `calyx-forge` is a greenfield 9-line
-> stub. Begin at `T01-backend-trait-errors.md`.
+> **DONE — PH12 shipped on aiwonder.**
+> The Backend trait, CPU kernels, golden fixtures, and fail-closed guards are in
+> `calyx-forge`. Continue Stage 2 at PH13 (`PH13-cuda-sm120-bitparity/`).
 
 **Stage:** S2 — Forge Math Runtime  ·  **Crate:** `calyx-forge`  ·
 **PRD roadmap:** P1  ·  **Axioms:** A13, A16
@@ -26,12 +26,21 @@ truth all later phases must agree with.
   PH15 (MXFP4 grouped GEMM builds on CPU reference), PH16 (autotune microbench
   infrastructure), PH17 (lens runtime calls Forge CPU path on embedded vaults)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-forge` is a 9-line stub (`crates/calyx-forge/src/lib.rs`); greenfield.
-PH12 is the first real code in this crate. Build natively on aiwonder against
-CUDA 13.2 (CUDA path comes in PH13; PH12 is CPU-only). `calyx-core` IDs,
-enums, error catalog, and core structs are present from PH03/PH04.
+PH12 is implemented in `crates/calyx-forge`:
+
+- `Backend`, `BackendKind`, `BestConfig`, `DeviceInfo`, and `ForgeError` define
+  the Forge backend contract and typed fail-closed error surface.
+- `CpuBackend` implements deterministic CPU `gemm`, `cosine`, `dot`, `l2`,
+  `normalize`, and `topk`.
+- Shared CPU guards reject non-finite inputs and invalid norms with
+  `CALYX_FORGE_NUMERICAL_INVARIANT` plus remediation text.
+- Seeded numpy/scipy golden fixtures live under
+  `crates/calyx-forge/tests/golden/`; `tests/cpu_kernels.rs` validates the
+  kernels against those source-of-truth bytes.
+
+The CUDA path is intentionally deferred to PH13.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -79,6 +88,21 @@ xxd tests/golden/cosine_ref.bin | head -4   # first bytes of reference
 
 NaN input test must print `CALYX_FORGE_NUMERICAL_INVARIANT` in the error output
 (grep for it in the test output). No panics, no silent zeros.
+
+## Completion evidence
+
+PH12 closed through GitHub issues #71-#76:
+
+| Issue | Commit | FSV root on aiwonder |
+|---|---|---|
+| #71 Backend trait + error types | `fcb4d4e` | `/home/croyse/calyx/data/fsv-q71-20260607115027` |
+| #72 CPU GEMM kernel | `998000d` | `/home/croyse/calyx/data/fsv-q72-20260607115838` |
+| #73 CPU distance kernels | `df6ddf9` | `/home/croyse/calyx/data/fsv-q73-20260607120318` |
+| #74 CPU normalize + topk | `fb38a00` | `/home/croyse/calyx/data/fsv-q74-20260607120828` |
+| #75 Golden fixtures | `eb6e00d`, `545abff` | `/home/croyse/calyx/data/fsv-q75-20260607121521` |
+| #76 NaN/Inf guards | `807a2af` | `/home/croyse/calyx/data/fsv-q76-20260607122351` |
+
+The Stage 2 epic (#70) has PH12 checked off; PH13 is the next active phase.
 
 ## Risks / landmines
 
