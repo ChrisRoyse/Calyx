@@ -91,10 +91,17 @@ fn dot_f32x16(a: &[f32], b: &[f32], row: usize, col: usize, m: usize, k: usize) 
                 a_lane[lane] = a[col_major(row, d, m)];
                 b_lane[lane] = b[col_major(d, col, k)];
             }
-            // DETERMINISM: k advances monotonically by TILE_K and then by lane
-            // chunks; each f32x16 chunk contributes exactly one reduce_add()
-            // subtotal before later k values are accumulated.
-            sum += (f32x16::from(a_lane) * f32x16::from(b_lane)).reduce_add();
+            // DETERMINISM: keep the AVX512 lane multiply, then reduce as two
+            // explicit f32x8-compatible subtotals. A full f32x16 tree reduction
+            // drifts from cuBLAS in near-zero cancellation cells.
+            let products = (f32x16::from(a_lane) * f32x16::from(b_lane)).to_array();
+            for lane_chunk in products.chunks_exact(8) {
+                let mut subtotal = 0.0;
+                for product in lane_chunk {
+                    subtotal += *product;
+                }
+                sum += subtotal;
+            }
             depth += 16;
         }
         while depth < depth_end {
