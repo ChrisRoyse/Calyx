@@ -3,6 +3,7 @@ use crate::cf::ColumnFamily;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
+use std::time::{Duration, Instant};
 
 #[test]
 fn compaction_swaps_active_shards_without_breaking_pinned_reads() {
@@ -121,13 +122,17 @@ fn tiering_policy_places_hot_and_cold_cfs() {
     let active = policy.place_cf(ColumnFamily::slot(SlotId::new(0)), 7);
     let raw = policy.place_cf(ColumnFamily::slot_raw(SlotId::new(0)), 7);
     let retired = policy.place_cf(ColumnFamily::slot(SlotId::new(9)), 7);
-    let old_panel = policy.place_cf(ColumnFamily::Base, 6);
+    let old_panel = policy.place_cf(ColumnFamily::slot(SlotId::new(0)), 6);
+    let base = policy.place_cf(ColumnFamily::Base, 6);
+    let ledger = policy.place_cf(ColumnFamily::Ledger, 6);
 
     assert_eq!(active.tier, StorageTier::Hot);
     assert!(active.absolute_dir().starts_with(&hot));
     assert_eq!(raw.tier, StorageTier::Cold);
     assert_eq!(retired.tier, StorageTier::Cold);
     assert_eq!(old_panel.tier, StorageTier::Cold);
+    assert_eq!(base.tier, StorageTier::Hot);
+    assert_eq!(ledger.tier, StorageTier::Hot);
     assert!(raw.absolute_dir().starts_with(&cold));
     cleanup(dir);
 }
@@ -158,6 +163,57 @@ fn tiered_writer_uses_archive_parent_for_cold_raw_sidecar() {
             .len(),
         1
     );
+    cleanup(dir);
+}
+
+#[test]
+fn catalog_reports_shard_count_for_one_cf() {
+    let dir = test_dir("shard-count");
+    let base = dir.join("base.sst");
+    let ledger = dir.join("ledger.sst");
+    write_sst(&base, [(b"a".as_slice(), b"one".as_slice())]).expect("write base");
+    write_sst(&ledger, [(b"\0\0\0\0\0\0\0\x01".as_slice(), b"l".as_slice())])
+        .expect("write ledger");
+    let catalog = CompactionCatalog::new(vec![
+        SstShard::new(ColumnFamily::Base, &base, 0).unwrap(),
+        SstShard::new(ColumnFamily::Ledger, &ledger, 0).unwrap(),
+    ]);
+
+    assert_eq!(catalog.shard_count_for_cf(ColumnFamily::Base), 1);
+    assert_eq!(catalog.shard_count_for_cf(ColumnFamily::Anchors), 0);
+    cleanup(dir);
+}
+
+#[test]
+fn scheduler_compacts_debt_and_stops_cleanly() {
+    let dir = test_dir("scheduler");
+    let first = dir.join("l0-a.sst");
+    let second = dir.join("l0-b.sst");
+    write_sst(&first, [(b"a".as_slice(), b"one".as_slice())]).expect("write first");
+    write_sst(&second, [(b"b".as_slice(), b"two".as_slice())]).expect("write second");
+    let catalog = Arc::new(CompactionCatalog::new(vec![
+        SstShard::new(ColumnFamily::Base, &first, 0).unwrap(),
+        SstShard::new(ColumnFamily::Base, &second, 0).unwrap(),
+    ]));
+    let options = CompactionSchedulerOptions {
+        interval_ms: 1,
+        debt_trigger_score_milli: 0,
+        output_root: dir.join("scheduled"),
+        ..CompactionSchedulerOptions::default()
+    };
+
+    let scheduler = CompactionScheduler::start(catalog.clone(), options);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while catalog.shard_count_for_cf(ColumnFamily::Base) != 1 {
+        assert!(
+            Instant::now() < deadline,
+            "scheduler did not compact before deadline"
+        );
+        thread::yield_now();
+    }
+    scheduler.stop().expect("scheduler joins");
+
+    assert_eq!(catalog.shard_count_for_cf(ColumnFamily::Base), 1);
     cleanup(dir);
 }
 

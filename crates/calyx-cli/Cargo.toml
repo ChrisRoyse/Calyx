@@ -11,3 +11,5 @@ name = "calyx"
 path = "src/main.rs"
 
 [dependencies]
+calyx-aster = { path = "../calyx-aster" }
+calyx-core = { path = "../calyx-core" }

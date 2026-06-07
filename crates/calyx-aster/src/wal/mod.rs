@@ -155,7 +155,7 @@ impl Wal {
         }
 
         self.file
-            .sync_data()
+            .sync_all()
             .map_err(|error| storage_error("fsync WAL segment before rotation", error))?;
         self.active_index += 1;
         self.file = open_append_file(&self.active_path())?;
@@ -229,12 +229,26 @@ pub fn replay_dir(dir: impl AsRef<Path>) -> Result<ReplayOutcome> {
 }
 
 fn open_append_file(path: &Path) -> Result<File> {
-    OpenOptions::new()
+    let existed = path.exists();
+    let file = OpenOptions::new()
         .create(true)
         .read(true)
         .append(true)
         .open(path)
-        .map_err(|error| storage_error("open WAL segment", error))
+        .map_err(|error| storage_error("open WAL segment", error))?;
+    if !existed {
+        sync_parent(path)?;
+    }
+    Ok(file)
+}
+
+fn sync_parent(path: &Path) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| CalyxError::disk_pressure("WAL segment path has no parent"))?;
+    File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|error| storage_error("fsync WAL directory", error))
 }
 
 fn remove_later_segments(segments: &[(u64, PathBuf)]) -> Result<()> {
