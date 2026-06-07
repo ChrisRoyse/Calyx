@@ -252,6 +252,7 @@ version = "0.1.0"
 name = "calyx-registry"
 version = "0.1.0"
 dependencies = [
+ "calyx-aster",
  "calyx-core",
  "candle-core",
  "candle-nn",
@@ -259,6 +260,7 @@ dependencies = [
  "fastembed",
  "hf-hub",
  "ort",
+ "serde",
  "serde_json",
  "sha2",
  "tokenizers",

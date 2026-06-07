@@ -1,0 +1,432 @@
+use std::collections::BTreeMap;
+
+use calyx_core::{
+    Asymmetry, CalyxError, CxId, LensId, Modality, Panel, QuantPolicy, Result, Slot, SlotId,
+    SlotKey, SlotShape, SlotState, Ts,
+};
+use serde::{Deserialize, Serialize};
+
+/// Slot declaration supplied when a lens is hot-added to a panel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlotSpec {
+    pub key: String,
+    pub lens_id: LensId,
+    pub shape: SlotShape,
+    pub modality: Modality,
+    pub asymmetry: Asymmetry,
+    pub quant: QuantPolicy,
+    pub axis: Option<String>,
+}
+
+impl SlotSpec {
+    pub fn dense_text(key: impl Into<String>, lens_id: LensId, dim: u32) -> Self {
+        Self {
+            key: key.into(),
+            lens_id,
+            shape: SlotShape::Dense(dim),
+            modality: Modality::Text,
+            asymmetry: Asymmetry::None,
+            quant: QuantPolicy::None,
+            axis: None,
+        }
+    }
+}
+
+/// A constellation scheduled for lazy backfill.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackfillCandidate {
+    pub cx_id: CxId,
+    pub priority: u32,
+}
+
+/// Priority-ordered, resumable backfill queue.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackfillQueue {
+    next_seq: u64,
+    tasks: BTreeMap<BackfillTaskId, BackfillTask>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct BackfillTaskId(u64);
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackfillTask {
+    pub id: BackfillTaskId,
+    pub slot_id: SlotId,
+    pub lens_id: LensId,
+    pub cx_id: CxId,
+    pub priority: u32,
+    pub attempts: u16,
+    pub state: BackfillState,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BackfillState {
+    Pending,
+    InFlight,
+    Complete,
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexPlaceholder {
+    pub slot_id: SlotId,
+    pub lens_id: LensId,
+    pub ready: bool,
+    pub queued: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AddLensOutcome {
+    pub slot: Slot,
+    pub panel_version: u32,
+    pub index: IndexPlaceholder,
+    pub queued: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LifecycleOutcome {
+    pub slot_id: SlotId,
+    pub lens_id: LensId,
+    pub state: SlotState,
+    pub panel_version: u32,
+}
+
+/// Mutable lifecycle controller for one panel plus its lazy backfill queue.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SwapController {
+    panel: Panel,
+    queue: BackfillQueue,
+}
+
+impl SwapController {
+    pub fn new(panel: Panel) -> Self {
+        Self {
+            panel,
+            queue: BackfillQueue::default(),
+        }
+    }
+
+    pub const fn panel(&self) -> &Panel {
+        &self.panel
+    }
+
+    pub const fn queue(&self) -> &BackfillQueue {
+        &self.queue
+    }
+
+    pub fn queue_mut(&mut self) -> &mut BackfillQueue {
+        &mut self.queue
+    }
+
+    pub fn add_lens<I>(&mut self, spec: SlotSpec, candidates: I, now: Ts) -> Result<AddLensOutcome>
+    where
+        I: IntoIterator<Item = BackfillCandidate>,
+    {
+        ensure_unique_slot(&self.panel, &spec)?;
+        let slot_id = next_slot_id(&self.panel)?;
+        let version = self.bump_panel(now)?;
+        let slot = Slot {
+            slot_id,
+            slot_key: SlotKey::new(slot_id, spec.key),
+            lens_id: spec.lens_id,
+            shape: spec.shape,
+            modality: spec.modality,
+            asymmetry: spec.asymmetry,
+            quant: spec.quant,
+            axis: spec.axis,
+            bits_about: BTreeMap::new(),
+            state: SlotState::Active,
+            added_at_panel_version: version,
+        };
+        self.panel.slots.push(slot.clone());
+        let queued = self
+            .queue
+            .enqueue_many(slot.slot_id, slot.lens_id, candidates);
+        Ok(AddLensOutcome {
+            slot,
+            panel_version: version,
+            index: IndexPlaceholder {
+                slot_id,
+                lens_id: spec.lens_id,
+                ready: false,
+                queued,
+            },
+            queued,
+        })
+    }
+
+    pub fn park_lens(&mut self, slot_id: SlotId, now: Ts) -> Result<LifecycleOutcome> {
+        self.set_slot_state(slot_id, SlotState::Parked, now)
+    }
+
+    pub fn unpark_lens(&mut self, slot_id: SlotId, now: Ts) -> Result<LifecycleOutcome> {
+        self.set_slot_state(slot_id, SlotState::Active, now)
+    }
+
+    pub fn retire_lens(&mut self, slot_id: SlotId, now: Ts) -> Result<LifecycleOutcome> {
+        self.set_slot_state(slot_id, SlotState::Retired, now)
+    }
+
+    fn set_slot_state(
+        &mut self,
+        slot_id: SlotId,
+        state: SlotState,
+        now: Ts,
+    ) -> Result<LifecycleOutcome> {
+        let index = self.slot_index(slot_id)?;
+        let version = self.bump_panel(now)?;
+        self.panel.slots[index].state = state;
+        Ok(LifecycleOutcome {
+            slot_id,
+            lens_id: self.panel.slots[index].lens_id,
+            state,
+            panel_version: version,
+        })
+    }
+
+    fn slot_index(&self, slot_id: SlotId) -> Result<usize> {
+        self.panel
+            .slots
+            .iter()
+            .position(|slot| slot.slot_id == slot_id)
+            .ok_or_else(|| {
+                CalyxError::lens_frozen_violation(format!("slot {slot_id} is not in panel"))
+            })
+    }
+
+    fn bump_panel(&mut self, now: Ts) -> Result<u32> {
+        self.panel.version = self
+            .panel
+            .version
+            .checked_add(1)
+            .ok_or_else(|| CalyxError::lens_frozen_violation("panel version overflow"))?;
+        self.panel.created_at = now;
+        Ok(self.panel.version)
+    }
+}
+
+impl BackfillQueue {
+    pub fn enqueue_many<I>(&mut self, slot_id: SlotId, lens_id: LensId, candidates: I) -> usize
+    where
+        I: IntoIterator<Item = BackfillCandidate>,
+    {
+        let mut count = 0;
+        for candidate in candidates {
+            self.enqueue(slot_id, lens_id, candidate);
+            count += 1;
+        }
+        count
+    }
+
+    pub fn enqueue(
+        &mut self,
+        slot_id: SlotId,
+        lens_id: LensId,
+        candidate: BackfillCandidate,
+    ) -> BackfillTaskId {
+        let id = BackfillTaskId(self.next_seq);
+        self.next_seq += 1;
+        self.tasks.insert(
+            id,
+            BackfillTask {
+                id,
+                slot_id,
+                lens_id,
+                cx_id: candidate.cx_id,
+                priority: candidate.priority,
+                attempts: 0,
+                state: BackfillState::Pending,
+            },
+        );
+        id
+    }
+
+    pub fn claim_batch(&mut self, limit: usize) -> Vec<BackfillTask> {
+        let mut ids = self.pending_ids();
+        ids.truncate(limit);
+        ids.into_iter()
+            .filter_map(|id| {
+                let task = self.tasks.get_mut(&id)?;
+                task.state = BackfillState::InFlight;
+                Some(task.clone())
+            })
+            .collect()
+    }
+
+    pub fn complete(&mut self, id: BackfillTaskId) -> Result<()> {
+        let task = self.task_mut(id)?;
+        task.state = BackfillState::Complete;
+        Ok(())
+    }
+
+    pub fn retry(&mut self, id: BackfillTaskId) -> Result<()> {
+        let task = self.task_mut(id)?;
+        task.state = BackfillState::Pending;
+        task.attempts = task.attempts.saturating_add(1);
+        Ok(())
+    }
+
+    pub fn pending_len(&self) -> usize {
+        self.count_state(BackfillState::Pending)
+    }
+
+    pub fn completed_len(&self) -> usize {
+        self.count_state(BackfillState::Complete)
+    }
+
+    pub fn tasks(&self) -> impl Iterator<Item = &BackfillTask> {
+        self.tasks.values()
+    }
+
+    fn pending_ids(&self) -> Vec<BackfillTaskId> {
+        let mut tasks = self
+            .tasks
+            .values()
+            .filter(|task| task.state == BackfillState::Pending)
+            .collect::<Vec<_>>();
+        tasks.sort_by_key(|task| (std::cmp::Reverse(task.priority), task.id));
+        tasks.into_iter().map(|task| task.id).collect()
+    }
+
+    fn count_state(&self, state: BackfillState) -> usize {
+        self.tasks
+            .values()
+            .filter(|task| task.state == state)
+            .count()
+    }
+
+    fn task_mut(&mut self, id: BackfillTaskId) -> Result<&mut BackfillTask> {
+        self.tasks
+            .get_mut(&id)
+            .ok_or_else(|| CalyxError::stale_derived(format!("backfill task {} is missing", id.0)))
+    }
+}
+
+fn ensure_unique_slot(panel: &Panel, spec: &SlotSpec) -> Result<()> {
+    if panel
+        .slots
+        .iter()
+        .any(|slot| slot.slot_key.key() == spec.key)
+    {
+        return Err(CalyxError::lens_frozen_violation(format!(
+            "slot key {} already exists",
+            spec.key
+        )));
+    }
+    if panel
+        .slots
+        .iter()
+        .any(|slot| slot.lens_id == spec.lens_id && slot.state != SlotState::Retired)
+    {
+        return Err(CalyxError::lens_frozen_violation(format!(
+            "lens {} is already active or parked",
+            spec.lens_id
+        )));
+    }
+    Ok(())
+}
+
+fn next_slot_id(panel: &Panel) -> Result<SlotId> {
+    let next = panel
+        .slots
+        .iter()
+        .map(|slot| slot.slot_id.get())
+        .max()
+        .map_or(0, |id| id.saturating_add(1));
+    if next == u16::MAX && panel.slots.iter().any(|slot| slot.slot_id.get() == next) {
+        return Err(CalyxError::lens_frozen_violation("slot id overflow"));
+    }
+    Ok(SlotId::new(next))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_lens_bumps_panel_allocates_slot_and_queues_priority_backfill() {
+        let mut controller = SwapController::new(sample_panel());
+        let high = CxId::from_bytes([1; 16]);
+        let low = CxId::from_bytes([2; 16]);
+
+        let outcome = controller
+            .add_lens(
+                SlotSpec::dense_text("new-semantic", LensId::from_bytes([9; 16]), 3),
+                [
+                    BackfillCandidate {
+                        cx_id: low,
+                        priority: 10,
+                    },
+                    BackfillCandidate {
+                        cx_id: high,
+                        priority: 99,
+                    },
+                ],
+                42,
+            )
+            .unwrap();
+
+        assert_eq!(outcome.slot.slot_id, SlotId::new(1));
+        assert_eq!(controller.panel().version, 2);
+        assert_eq!(outcome.index.queued, 2);
+        let claimed = controller.queue_mut().claim_batch(1);
+        assert_eq!(claimed[0].cx_id, high);
+        controller.queue_mut().complete(claimed[0].id).unwrap();
+        assert_eq!(controller.queue().pending_len(), 1);
+        assert_eq!(controller.queue().completed_len(), 1);
+    }
+
+    #[test]
+    fn park_unpark_and_retire_preserve_slot_tombstone() {
+        let mut controller = SwapController::new(sample_panel());
+
+        let parked = controller.park_lens(SlotId::new(0), 43).unwrap();
+        let active = controller.unpark_lens(SlotId::new(0), 44).unwrap();
+        let retired = controller.retire_lens(SlotId::new(0), 45).unwrap();
+
+        assert_eq!(parked.state, SlotState::Parked);
+        assert_eq!(active.state, SlotState::Active);
+        assert_eq!(retired.state, SlotState::Retired);
+        assert_eq!(controller.panel().version, 4);
+        assert_eq!(controller.panel().slots[0].state, SlotState::Retired);
+    }
+
+    #[test]
+    fn duplicate_live_lens_fails_closed() {
+        let mut controller = SwapController::new(sample_panel());
+
+        let error = controller
+            .add_lens(
+                SlotSpec::dense_text("dupe", LensId::from_bytes([1; 16]), 3),
+                [],
+                42,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.code, "CALYX_LENS_FROZEN_VIOLATION");
+    }
+
+    fn sample_panel() -> Panel {
+        Panel {
+            version: 1,
+            slots: vec![Slot {
+                slot_id: SlotId::new(0),
+                slot_key: SlotKey::new(SlotId::new(0), "base-semantic"),
+                lens_id: LensId::from_bytes([1; 16]),
+                shape: SlotShape::Dense(2),
+                modality: Modality::Text,
+                asymmetry: Asymmetry::None,
+                quant: QuantPolicy::None,
+                axis: None,
+                bits_about: BTreeMap::new(),
+                state: SlotState::Active,
+                added_at_panel_version: 1,
+            }],
+            created_at: 1,
+            kernel_ref: None,
+            guard_ref: None,
+        }
+    }
+}
