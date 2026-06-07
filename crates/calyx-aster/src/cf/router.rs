@@ -105,6 +105,19 @@ impl CfRouter {
         self.levels.get(&cf).map_or(0, SstLevel::file_count)
     }
 
+    pub fn flush_pending(&mut self) -> Result<Vec<SstSummary>> {
+        let cfs = self
+            .memtables
+            .iter()
+            .filter_map(|(cf, table)| (!table.is_empty()).then_some(*cf))
+            .collect::<Vec<_>>();
+        let mut summaries = Vec::with_capacity(cfs.len());
+        for cf in cfs {
+            summaries.push(self.flush_cf(cf)?);
+        }
+        Ok(summaries)
+    }
+
     fn ensure_cf(&mut self, cf: ColumnFamily) -> Result<()> {
         fs::create_dir_all(self.cf_dir(cf))
             .map_err(|error| CalyxError::disk_pressure(format!("create CF dir: {error}")))?;

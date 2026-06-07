@@ -2,7 +2,12 @@ use calyx_aster::cf::{CfRouter, ColumnFamily};
 use calyx_aster::sst::arrow::{decode_column_chunk, encode_column_chunk};
 use calyx_aster::sst::level::SstLevel;
 use calyx_aster::sst::{SstReader, write_sst};
-use calyx_core::SlotId;
+use calyx_aster::vault::AsterVault;
+use calyx_core::{
+    AbsentReason, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector,
+    SystemClock, VaultId, VaultStore,
+};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -87,6 +92,33 @@ pub fn cf_demo(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn mvcc_demo(vault: &Path) -> Result<(), String> {
+    let vault_id = mvcc_vault_id()?;
+    let router = CfRouter::open(vault, 4096).map_err(|error| error.to_string())?;
+    let writer = AsterVault::with_clock_and_router(
+        vault_id,
+        b"calyx-mvcc-router-demo-salt".to_vec(),
+        SystemClock,
+        router,
+    );
+    let constellation = mvcc_constellation(vault_id);
+    let id = constellation.cx_id;
+    writer
+        .put(constellation)
+        .map_err(|error| error.to_string())?;
+    let summaries = writer.flush_all_cfs().map_err(|error| error.to_string())?;
+    let stale = writer.pin_stale_snapshot(3);
+    println!(
+        "MVCC_DEMO\tID\t{}\tSNAPSHOT\t{}\tSTALE_MAX_LAG\t3\tFLUSHED\t{}\tBASE_CF\t{}\tSLOT_CF\t{}",
+        id,
+        stale.seq(),
+        summaries.len(),
+        vault.join("cf/base").display(),
+        vault.join("cf/slot_00").display()
+    );
+    Ok(())
+}
+
 pub fn readback_level(cf_name: &str, level_dir: &Path) -> Result<(), String> {
     let cf = parse_cf(cf_name)?;
     let files = list_sst_files(level_dir)?;
@@ -142,6 +174,53 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
         "base" => Ok(ColumnFamily::Base),
         "slot_00" => Ok(ColumnFamily::slot(SlotId::new(0))),
         _ => Err(format!("unsupported FSV column family: {value}")),
+    }
+}
+
+fn mvcc_vault_id() -> Result<VaultId, String> {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        .parse()
+        .map_err(|error| format!("demo vault id parse: {error}"))
+}
+
+fn mvcc_constellation(vault_id: VaultId) -> Constellation {
+    let cx_id = calyx_core::CxId::from_bytes([0x88; 16]);
+    let mut slots = BTreeMap::new();
+    slots.insert(
+        SlotId::new(0),
+        SlotVector::Dense {
+            dim: 3,
+            data: vec![0.125, 0.25, 0.5],
+        },
+    );
+    slots.insert(
+        SlotId::new(1),
+        SlotVector::Absent {
+            reason: AbsentReason::Deferred,
+        },
+    );
+    Constellation {
+        cx_id,
+        vault_id,
+        panel_version: 22,
+        created_at: 1780822800,
+        input_ref: InputRef {
+            hash: [0x88; 32],
+            pointer: Some("synthetic://calyx-mvcc-router-demo".to_string()),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots,
+        scalars: BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: 1,
+            hash: [0x44; 32],
+        },
+        flags: CxFlags {
+            ungrounded: true,
+            ..CxFlags::default()
+        },
     }
 }
 

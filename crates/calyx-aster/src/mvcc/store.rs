@@ -1,7 +1,8 @@
 //! In-memory MVCC row table used to define the cross-CF snapshot contract.
 
-use crate::cf::ColumnFamily;
+use crate::cf::{CfRouter, ColumnFamily};
 use crate::mvcc::{Freshness, ReaderLease, SeqAllocator, Snapshot};
+use crate::sst::SstSummary;
 use calyx_core::{Clock, Result, Seq};
 use std::collections::HashMap;
 use std::sync::RwLock;
@@ -39,6 +40,7 @@ pub struct VersionedCfStore {
     seqs: SeqAllocator,
     next_lease_id: AtomicU64,
     rows: RwLock<RowTable>,
+    router: RwLock<Option<CfRouter>>,
 }
 
 impl VersionedCfStore {
@@ -47,12 +49,26 @@ impl VersionedCfStore {
             seqs: SeqAllocator::new(start_seq),
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(HashMap::new()),
+            router: RwLock::new(None),
+        }
+    }
+
+    pub fn new_with_router(start_seq: Seq, router: CfRouter) -> Self {
+        Self {
+            seqs: SeqAllocator::new(start_seq),
+            next_lease_id: AtomicU64::new(0),
+            rows: RwLock::new(HashMap::new()),
+            router: RwLock::new(Some(router)),
         }
     }
 
     /// Latest committed sequence.
     pub fn current_seq(&self) -> Seq {
         self.seqs.current()
+    }
+
+    pub fn set_start_seq(&self, seq: Seq) -> Result<()> {
+        self.seqs.set_start_seq(seq)
     }
 
     /// Pins a snapshot at the latest committed sequence.
@@ -84,6 +100,11 @@ impl VersionedCfStore {
         }
 
         let mut table = self.rows.write().expect("mvcc row table poisoned");
+        if let Some(router) = self.router.write().expect("mvcc router poisoned").as_mut() {
+            for (cf, key, value) in &rows {
+                router.put(*cf, key, value)?;
+            }
+        }
         let seq = self.seqs.allocate();
         for (cf, key, value) in rows {
             table
@@ -92,6 +113,14 @@ impl VersionedCfStore {
                 .push(VersionedValue { seq, value });
         }
         Ok(seq)
+    }
+
+    pub fn flush_all_cfs(&self) -> Result<Vec<SstSummary>> {
+        self.router
+            .write()
+            .expect("mvcc router poisoned")
+            .as_mut()
+            .map_or(Ok(Vec::new()), CfRouter::flush_pending)
     }
 
     /// Reads one CF/key at the pinned sequence.

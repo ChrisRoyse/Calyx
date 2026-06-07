@@ -1,12 +1,13 @@
 //! Sequence allocation, freshness, and reader lease handles.
 
 use calyx_core::{CalyxError, Clock, Result, Seq, Ts};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// Vault-wide monotonic sequence allocator.
 #[derive(Debug)]
 pub struct SeqAllocator {
     current: AtomicU64,
+    allocated: AtomicBool,
 }
 
 impl SeqAllocator {
@@ -14,17 +15,30 @@ impl SeqAllocator {
     pub const fn new(start: Seq) -> Self {
         Self {
             current: AtomicU64::new(start),
+            allocated: AtomicBool::new(false),
         }
     }
 
     /// Allocates the next write sequence.
     pub fn allocate(&self) -> Seq {
+        self.allocated.store(true, Ordering::Release);
         self.current.fetch_add(1, Ordering::AcqRel) + 1
     }
 
     /// Returns the latest committed sequence.
     pub fn current(&self) -> Seq {
         self.current.load(Ordering::Acquire)
+    }
+
+    /// Resets the recovered start sequence before any allocation in this process.
+    pub fn set_start_seq(&self, seq: Seq) -> Result<()> {
+        if self.allocated.load(Ordering::Acquire) {
+            return Err(CalyxError::backpressure(
+                "cannot reset MVCC start seq after allocation",
+            ));
+        }
+        self.current.store(seq, Ordering::Release);
+        Ok(())
     }
 }
 
@@ -102,7 +116,7 @@ impl ReaderLease {
     }
 
     pub fn is_expired(self, clock: &dyn Clock) -> bool {
-        clock.now() > self.expires_at()
+        clock.now() >= self.expires_at()
     }
 
     pub fn ensure_live(self, clock: &dyn Clock) -> Result<()> {
