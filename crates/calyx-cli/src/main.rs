@@ -135,6 +135,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, vault_flag, vault] if command == "recover" && vault_flag == "--vault" => {
             crash::recover(Path::new(vault))
         }
+        [command, vault_flag, vault, index_flag, index]
+            if command == "open-check" && vault_flag == "--vault" && index_flag == "--index" =>
+        {
+            let index = index
+                .parse::<u8>()
+                .map_err(|error| format!("invalid --index: {error}"))?;
+            crash::open_check(Path::new(vault), index)
+        }
         [command, vault_flag, vault, cf_flag, cf, offset_flag, offset]
             if command == "corrupt-shard"
                 && vault_flag == "--vault"
@@ -266,6 +274,7 @@ fn usage() -> &'static str {
        calyx wal-replay <wal-dir>
        calyx crash-drill --vault <dir> --point <before-wal-fsync|after-wal-before-commit|after-commit-before-manifest> [--pause-ms <n>]
        calyx recover --vault <dir>
+       calyx open-check --vault <dir> --index <n>
        calyx corrupt-shard --vault <dir> --cf <name> --byte-offset <n>
        calyx wal-batch-demo --vault <dir> --requests <n>"
 }
