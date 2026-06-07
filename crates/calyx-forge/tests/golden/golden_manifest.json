@@ -1,0 +1,16 @@
+{
+  "dim": 128,
+  "gemm_k": 64,
+  "gemm_layout": "column-major f32 little-endian",
+  "gemm_m": 128,
+  "gemm_n": 32,
+  "n_vecs": 64,
+  "numpy_version": "1.26.4",
+  "regeneration_policy": "never regenerate without bumping seed_version",
+  "scipy_version": "1.13.1",
+  "seed": "0xCALYX12",
+  "seed_numeric": 3555690089856333872,
+  "seed_version": 1,
+  "topk": 8,
+  "vectors_layout": "row-major f32 little-endian"
+}
