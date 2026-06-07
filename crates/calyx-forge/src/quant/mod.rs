@@ -1,4 +1,5 @@
 pub mod binary;
+pub mod mxfp4_codec;
 pub mod qjl;
 pub mod rotation;
 pub mod turboquant;
@@ -10,6 +11,7 @@ use crate::ForgeError;
 use crate::Result;
 
 pub use binary::{BinaryCodec, binary_prefilter, hamming_dot_estimate};
+pub use mxfp4_codec::{MxFp4Codec, assay_safety_check_placeholder};
 pub use qjl::{QjlResidual, dot_estimate_unbiased, dot_qjl_correction, encode_qjl_residual};
 pub use rotation::{
     CURRENT_SEED_VERSION, RotationSeed, apply_inverse_rotation, apply_rotation,
@@ -23,6 +25,7 @@ pub type SeedId = [u8; 32];
 pub enum QuantLevel {
     F32,
     Bits8,
+    Bits4Fp,
     Bits3p5,
     Bits2p5,
     Bits1,
@@ -33,6 +36,7 @@ impl QuantLevel {
         match self {
             Self::F32 => 32.0,
             Self::Bits8 => 8.0,
+            Self::Bits4Fp => 4.0,
             Self::Bits3p5 => 3.5,
             Self::Bits2p5 => 2.5,
             Self::Bits1 => 1.0,
@@ -106,6 +110,7 @@ mod tests {
         let levels = [
             QuantLevel::F32,
             QuantLevel::Bits8,
+            QuantLevel::Bits4Fp,
             QuantLevel::Bits3p5,
             QuantLevel::Bits2p5,
             QuantLevel::Bits1,

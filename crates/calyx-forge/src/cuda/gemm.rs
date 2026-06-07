@@ -6,6 +6,9 @@ use cudarc::driver::CudaSlice;
 use crate::cpu::{check_finite, check_shape_2d};
 use crate::{CudaContext, ForgeError, Result};
 
+mod mxfp4_path;
+pub use mxfp4_path::gemm_mxfp4_fp32_accum;
+
 const GEMM_REMEDIATION: &str =
     "Check CUDA/cuBLAS status, dimensions, and device memory; fail closed instead of CPU fallback";
 const DEVICE_REMEDIATION: &str = "Check CUDA 13.2, the RTX 5090 device, and free VRAM on aiwonder";

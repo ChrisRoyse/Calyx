@@ -25,6 +25,12 @@ const KERNELS: &[Kernel] = &[
         ptx_env: "FORGE_TOPK_PTX_PATH",
         cubin_env: "FORGE_TOPK_CUBIN_PATH",
     },
+    Kernel {
+        name: "mxfp4_gemm",
+        src: "src/cuda/kernels/mxfp4_gemm.cu",
+        ptx_env: "FORGE_MXFP4_GEMM_PTX_PATH",
+        cubin_env: "FORGE_MXFP4_GEMM_CUBIN_PATH",
+    },
 ];
 
 fn main() {

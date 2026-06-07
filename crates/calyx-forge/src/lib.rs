@@ -19,10 +19,10 @@ pub use mxfp4::{
     encode_mxfp4, encode_mxfp4_block,
 };
 pub use quant::{
-    BinaryCodec, CURRENT_SEED_VERSION, QjlResidual, QuantLevel, QuantizedVec, Quantizer,
-    RotationSeed, SeedId, TurboQuantCodec, apply_inverse_rotation, apply_rotation,
-    apply_rotation_batch, binary_prefilter, dot_estimate_unbiased, dot_qjl_correction,
-    encode_qjl_residual, hamming_dot_estimate, new_seed, seed_id_hex,
+    BinaryCodec, CURRENT_SEED_VERSION, MxFp4Codec, QjlResidual, QuantLevel, QuantizedVec,
+    Quantizer, RotationSeed, SeedId, TurboQuantCodec, apply_inverse_rotation, apply_rotation,
+    apply_rotation_batch, assay_safety_check_placeholder, binary_prefilter, dot_estimate_unbiased,
+    dot_qjl_correction, encode_qjl_residual, hamming_dot_estimate, new_seed, seed_id_hex,
 };
 
 #[cfg(test)]
