@@ -1,9 +1,11 @@
 //! Forge math runtime skeleton for CPU, CUDA, and quantized kernels.
 
 mod backend;
+pub mod cpu;
 mod error;
 
 pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
+pub use cpu::CpuBackend;
 pub use error::ForgeError;
 
 #[cfg(test)]

@@ -8,6 +8,8 @@ publish.workspace = true
 
 [dependencies]
 serde.workspace = true
+tracing.workspace = true
+wide.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
