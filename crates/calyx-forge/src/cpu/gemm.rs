@@ -1,6 +1,7 @@
 use wide::{f32x8, f32x16};
 
-use crate::{ForgeError, Result};
+use crate::Result;
+use crate::cpu::guard::{check_finite, check_shape_2d};
 
 pub const TILE_M: usize = 64;
 pub const TILE_K: usize = 64;
@@ -30,49 +31,12 @@ fn validate_gemm_inputs(
     n: usize,
     out: &[f32],
 ) -> Result<()> {
-    let a_expected = checked_len(m, k, "a")?;
-    let b_expected = checked_len(k, n, "b")?;
-    let out_expected = checked_len(m, n, "out")?;
-
-    if a.len() != a_expected || b.len() != b_expected || out.len() != out_expected {
-        return Err(ForgeError::ShapeMismatch {
-            expected: vec![a_expected, b_expected, out_expected],
-            got: vec![a.len(), b.len(), out.len()],
-            remediation: "pass column-major A[m*k], B[k*n], and C[m*n] buffers".to_string(),
-        });
-    }
-
-    if let Some((name, index, value)) = first_non_finite(a, b) {
-        return Err(ForgeError::NumericalInvariant {
-            op: "cpu.gemm".to_string(),
-            detail: format!("{name}[{index}] is non-finite: {value:?}"),
-            remediation: "reject NaN/Inf inputs before GEMM dispatch".to_string(),
-        });
-    }
-
+    check_shape_2d(a, m, k, "gemm A")?;
+    check_shape_2d(b, k, n, "gemm B")?;
+    check_shape_2d(out, m, n, "gemm output")?;
+    check_finite(a, "cpu.gemm")?;
+    check_finite(b, "cpu.gemm")?;
     Ok(())
-}
-
-fn checked_len(rows: usize, cols: usize, name: &str) -> Result<usize> {
-    rows.checked_mul(cols)
-        .ok_or_else(|| ForgeError::ShapeMismatch {
-            expected: vec![rows, cols],
-            got: vec![],
-            remediation: format!("{name} matrix dimensions overflow usize"),
-        })
-}
-
-fn first_non_finite<'a>(a: &'a [f32], b: &'a [f32]) -> Option<(&'static str, usize, &'a f32)> {
-    a.iter()
-        .enumerate()
-        .find(|(_, value)| !value.is_finite())
-        .map(|(index, value)| ("a", index, value))
-        .or_else(|| {
-            b.iter()
-                .enumerate()
-                .find(|(_, value)| !value.is_finite())
-                .map(|(index, value)| ("b", index, value))
-        })
 }
 
 fn gemm_tiled_f32x16(
@@ -175,7 +139,7 @@ fn col_major(row: usize, col: usize, rows: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Backend, CpuBackend};
+    use crate::{Backend, CpuBackend, ForgeError};
     use proptest::prelude::*;
 
     fn finite_f32() -> impl Strategy<Value = f32> {

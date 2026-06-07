@@ -1,19 +1,14 @@
 use std::cmp::{Ordering, Reverse};
 use std::collections::BinaryHeap;
 
-use crate::{ForgeError, Result};
+use crate::Result;
+use crate::cpu::guard::check_finite;
 
 pub fn topk_f32(scores: &[f32], k: usize) -> Result<Vec<(usize, f32)>> {
     if k == 0 || scores.is_empty() {
         return Ok(Vec::new());
     }
-    if let Some(index) = scores.iter().position(|score| score.is_nan()) {
-        return Err(ForgeError::NumericalInvariant {
-            op: "topk".to_string(),
-            detail: format!("NaN in score at index {index}"),
-            remediation: "remove NaN scores before topk dispatch".to_string(),
-        });
-    }
+    check_finite(scores, "topk")?;
 
     let mut heap: BinaryHeap<Reverse<RankedScore>> = BinaryHeap::with_capacity(k.min(scores.len()));
     for (index, score) in scores.iter().copied().enumerate() {
@@ -65,7 +60,7 @@ impl Ord for RankedScore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Backend, CpuBackend};
+    use crate::{Backend, CpuBackend, ForgeError};
     use proptest::prelude::*;
 
     #[test]
