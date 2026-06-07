@@ -3,6 +3,9 @@ pub mod distance;
 #[cfg(test)]
 mod distance_tests;
 pub mod gemm;
+pub mod grouped_gemm;
+#[cfg(test)]
+mod grouped_gemm_tests;
 pub mod kernels;
 pub mod topk;
 #[cfg(test)]
@@ -16,6 +19,9 @@ pub use distance::{cosine_batch_gpu, dot_batch_gpu, l2_batch_gpu};
 pub use gemm::{
     bench_gemm_cublas, bench_gemm_reference_cublas, gemm_cublas, gemm_mxfp4_fp32_accum,
     probe_allocation,
+};
+pub use grouped_gemm::{
+    GemmProblem, GroupedGemmPlan, build_grouped_gemm_plan, execute_grouped_gemm,
 };
 pub use topk::topk_gpu;
 
@@ -35,6 +41,10 @@ impl CudaBackend {
 
     pub fn context(&self) -> &CudaContext {
         &self.ctx
+    }
+
+    pub fn grouped_gemm(&self, plan: &mut GroupedGemmPlan) -> Result<()> {
+        grouped_gemm::execute_grouped_gemm(&self.ctx, plan)
     }
 }
 
