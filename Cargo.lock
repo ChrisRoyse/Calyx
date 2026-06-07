@@ -175,6 +175,7 @@ version = "0.1.0"
 dependencies = [
  "calyx-core",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

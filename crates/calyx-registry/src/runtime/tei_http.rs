@@ -6,6 +6,7 @@ use std::time::Duration;
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
 use serde_json::{Value, json};
 
+use crate::frozen::FrozenLensContract;
 use crate::lens::ensure_input_modality;
 
 /// Resident TEI endpoint on aiwonder.
@@ -31,13 +32,7 @@ impl TeiHttpLens {
     ) -> Self {
         let name = name.into();
         let endpoint = endpoint.into();
-        let shape = format!("dense:{dim}");
-        let id = LensId::from_parts(
-            &name,
-            endpoint.as_bytes(),
-            b"tei-http-runtime",
-            shape.as_bytes(),
-        );
+        let id = FrozenLensContract::tei_http(&name, &endpoint, modality, dim).lens_id();
         Self {
             id,
             endpoint,
