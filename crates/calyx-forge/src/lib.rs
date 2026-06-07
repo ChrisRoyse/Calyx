@@ -13,9 +13,10 @@ pub mod mxfp8;
 pub mod quant;
 
 pub use autotune::{
-    AutotuneCache, AutotuneKey, BenchCudaContext, BenchResult, EPSILON, Explorer, ExplorerPolicy,
-    MIN_PROMOTE_MARGIN, MIN_PROMOTE_TRIALS, microbench, next_candidate, promote_if_winner,
-    record_trial, should_promote,
+    AbHook, AutotuneCache, AutotuneKey, BenchCudaContext, BenchResult, EPSILON, Explorer,
+    ExplorerPolicy, MIN_PROMOTE_MARGIN, MIN_PROMOTE_TRIALS, PromotionAction, PromotionEvent,
+    autotune, log_promotion, microbench, next_candidate, promote_if_winner, record_trial,
+    rollback_promotion, should_promote, should_use_challenger,
 };
 pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
 pub use cpu::CpuBackend;
