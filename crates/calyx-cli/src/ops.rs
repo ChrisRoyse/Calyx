@@ -1,6 +1,7 @@
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::compaction::{
-    CompactionResult, CompactionThrottle, SstShard, StorageTier, TieringPolicy, compact_shards,
+    CompactionResult, CompactionScheduler, CompactionSchedulerOptions, CompactionThrottle,
+    SstShard, StorageTier, TieringPolicy, catalog_from_vault_dir, compact_shards,
 };
 use calyx_aster::sst::{SstReader, write_sst};
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -17,7 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SOAK_VALUE_BYTES: usize = 256;
 
@@ -94,11 +95,23 @@ pub fn compact(vault: &Path, cf_name: &str) -> Result<(), String> {
 }
 
 pub fn compact_watch(vault: &Path, duration: Duration) -> Result<(), String> {
-    let end = Instant::now() + duration;
-    while Instant::now() < end {
-        compact(vault, "base")?;
-        thread::sleep(Duration::from_millis(500));
-    }
+    let catalog = Arc::new(catalog_from_vault_dir(vault).map_err(|error| error.to_string())?);
+    let options = CompactionSchedulerOptions {
+        interval_ms: 1,
+        debt_trigger_score_milli: 0,
+        output_root: vault.join("cf"),
+        ..CompactionSchedulerOptions::default()
+    };
+    let scheduler = CompactionScheduler::start(catalog.clone(), options);
+    thread::sleep(duration);
+    scheduler
+        .stop()
+        .map_err(|_| "compaction scheduler panicked".to_string())?;
+    println!(
+        "COMPACT_WATCH_DONE\tVAULT\t{}\tBASE_SHARDS\t{}",
+        vault.display(),
+        catalog.shard_count_for_cf(ColumnFamily::Base)
+    );
     Ok(())
 }
 
