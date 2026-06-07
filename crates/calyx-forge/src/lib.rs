@@ -2,10 +2,14 @@
 
 mod backend;
 pub mod cpu;
+#[cfg(feature = "cuda")]
+pub mod cuda;
 mod error;
 
 pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
 pub use cpu::CpuBackend;
+#[cfg(feature = "cuda")]
+pub use cuda::{CudaBackend, CudaContext, init_cuda, query_device_info};
 pub use error::ForgeError;
 
 #[cfg(test)]

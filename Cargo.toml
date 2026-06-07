@@ -12,6 +12,7 @@ publish = false
 [workspace.dependencies]
 blake3 = "1"
 crc32fast = "1"
+cudarc = { version = "0.19.7", default-features = false }
 memmap2 = "0.9"
 proptest = "1"
 rand = "0.8"
