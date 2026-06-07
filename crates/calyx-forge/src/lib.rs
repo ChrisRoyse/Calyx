@@ -14,8 +14,8 @@ pub use cuda::{CudaBackend, CudaContext, init_cuda, query_device_info};
 pub use error::ForgeError;
 pub use quant::{
     CURRENT_SEED_VERSION, QjlResidual, QuantLevel, QuantizedVec, Quantizer, RotationSeed, SeedId,
-    TurboQuantCodec, apply_rotation, apply_rotation_batch, dot_estimate_unbiased,
-    dot_qjl_correction, encode_qjl_residual, new_seed, seed_id_hex,
+    TurboQuantCodec, apply_inverse_rotation, apply_rotation, apply_rotation_batch,
+    dot_estimate_unbiased, dot_qjl_correction, encode_qjl_residual, new_seed, seed_id_hex,
 };
 
 #[cfg(test)]

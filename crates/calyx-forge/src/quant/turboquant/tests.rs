@@ -2,12 +2,6 @@ use super::*;
 use crate::quant::new_seed;
 use proptest::prelude::*;
 
-fn rotated(seed: &RotationSeed, vec: &[f32]) -> Vec<f32> {
-    let mut out = vec.to_vec();
-    apply_rotation(seed, &mut out);
-    out
-}
-
 fn max_abs_delta(left: &[f32], right: &[f32]) -> f32 {
     left.iter()
         .zip(right.iter())
@@ -52,10 +46,9 @@ fn scalar_roundtrip_bits3p5() {
     let codec = TurboQuantCodec::new(seed.clone(), QuantLevel::Bits3p5).expect("codec");
     let mut input = vec![0.0; 128];
     input[0] = 1.0;
-    let expected = rotated(&seed, &input);
     let qv = codec.encode(&input).expect("encode");
     let decoded = codec.decode(&qv).expect("decode");
-    let max_err = max_abs_delta(&decoded, &expected);
+    let max_err = max_abs_delta(&decoded, &input);
     let limit = bin_width(qv.scale, QuantLevel::Bits3p5) * 1.5;
     assert!(max_err <= limit, "max_err={max_err} limit={limit}");
     println!(
@@ -91,7 +84,7 @@ fn scalar_edges_dim1_dim1536_and_identical() {
     let one_codec = TurboQuantCodec::new(one_seed.clone(), QuantLevel::Bits3p5).expect("one");
     let one_qv = one_codec.encode(&[2.0]).expect("one encode");
     let one_decoded = one_codec.decode(&one_qv).expect("one decode");
-    assert!(max_abs_delta(&one_decoded, &rotated(&one_seed, &[2.0])) <= 1e-6);
+    assert!(max_abs_delta(&one_decoded, &[2.0]) <= 1e-6);
 
     let large_seed = new_seed(1536, b"tq_large");
     let large_codec = TurboQuantCodec::new(large_seed, QuantLevel::Bits3p5).expect("large codec");
@@ -105,7 +98,7 @@ fn scalar_edges_dim1_dim1536_and_identical() {
     let same_vec = vec![0.25; 128];
     let same_qv = same_codec.encode(&same_vec).expect("same encode");
     let same_decoded = same_codec.decode(&same_qv).expect("same decode");
-    let same_err = max_abs_delta(&same_decoded, &rotated(&same_seed, &same_vec));
+    let same_err = max_abs_delta(&same_decoded, &same_vec);
     assert!(same_err <= bin_width(same_qv.scale, QuantLevel::Bits2p5) * 1.5 + 1e-6);
     println!(
         "scalar_edges PASSED dim1_len={} dim1536_len={} identical_bits2p5_len={} max_err={same_err:.8}",
@@ -131,7 +124,7 @@ fn scalar_rejects_non_finite_input() {
     let mut vec = vec![0.0; 8];
     vec[3] = f32::NAN;
     let err = codec.encode(&vec).expect_err("NaN must fail closed");
-    assert!(matches!(err, ForgeError::QuantError { .. }));
+    assert!(matches!(err, ForgeError::NumericalInvariant { .. }));
     println!("scalar_non_finite PASSED {err}");
 }
 
@@ -150,10 +143,9 @@ proptest! {
         }
         let seed = new_seed(128, b"tq_prop_bound");
         let codec = TurboQuantCodec::new(seed.clone(), QuantLevel::Bits3p5).expect("codec");
-        let expected = rotated(&seed, &values);
         let qv = codec.encode(&values).expect("encode");
         let decoded = codec.decode(&qv).expect("decode");
-        let max_err = max_abs_delta(&decoded, &expected);
+        let max_err = max_abs_delta(&decoded, &values);
         let limit = qv.scale * 2.0 / (7.0 - 1.0);
         prop_assert!(max_err <= limit + 1e-6, "max_err={max_err} limit={limit}");
     }

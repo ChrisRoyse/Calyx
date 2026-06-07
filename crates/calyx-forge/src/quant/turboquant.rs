@@ -1,7 +1,10 @@
 use crate::quant::qjl::{
     append_qjl_section, dot_estimate_unbiased, encode_qjl_residual, read_qjl_section,
 };
-use crate::quant::{QuantLevel, QuantizedVec, Quantizer, RotationSeed, apply_rotation, new_seed};
+use crate::quant::{
+    QuantLevel, QuantizedVec, Quantizer, RotationSeed, apply_inverse_rotation, apply_rotation,
+    new_seed,
+};
 use crate::{ForgeError, Result};
 
 const BITS3P5_CODE_BITS: usize = 7;
@@ -62,11 +65,11 @@ impl Quantizer for TurboQuantCodec {
             });
         }
         if let Some(idx) = vec.iter().position(|value| !value.is_finite()) {
-            return Err(quant_error(
-                "encode",
-                self.level,
-                format!("non-finite input coefficient at index {idx}"),
-            ));
+            return Err(ForgeError::NumericalInvariant {
+                op: "turboquant_encode".to_string(),
+                detail: format!("non-finite input coefficient at index {idx}"),
+                remediation: "Reject NaN/Inf vectors before quantization".to_string(),
+            });
         }
         let scalar = rotate_quantize_scalar_parts(&self.seed, vec, self.level);
         let residual = encode_qjl_residual(&scalar.rotated, &scalar.decoded, &self.rademacher);
@@ -124,12 +127,9 @@ impl Quantizer for TurboQuantCodec {
         if qv.bytes.len() > expected_len {
             read_qjl_section(&qv.bytes, expected_len, qv.dim)?;
         }
-        Ok(dequantize_scalar(
-            &qv.bytes[..expected_len],
-            qv.scale,
-            qv.dim,
-            qv.level,
-        ))
+        let mut decoded = dequantize_scalar(&qv.bytes[..expected_len], qv.scale, qv.dim, qv.level);
+        apply_inverse_rotation(&self.seed, &mut decoded);
+        Ok(decoded)
     }
 
     fn dot_estimate(&self, a: &QuantizedVec, b: &QuantizedVec) -> Result<f32> {

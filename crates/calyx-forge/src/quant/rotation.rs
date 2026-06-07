@@ -58,6 +58,20 @@ pub fn apply_rotation(seed: &RotationSeed, vec: &mut [f32]) {
     }
 }
 
+pub fn apply_inverse_rotation(seed: &RotationSeed, vec: &mut [f32]) {
+    assert_eq!(
+        vec.len(),
+        seed.dim,
+        "dimension mismatch: expected {} got {}",
+        seed.dim,
+        vec.len()
+    );
+    for (value, sign) in vec.iter_mut().zip(seed.diagonal.iter()) {
+        *value *= *sign;
+    }
+    apply_block_hadamard(vec);
+}
+
 pub fn apply_rotation_batch(seed: &RotationSeed, vecs: &mut [f32], n: usize) {
     let expected = n
         .checked_mul(seed.dim)
@@ -278,6 +292,22 @@ mod tests {
             "{message}"
         );
         println!("rotation_dimension_mismatch PASSED");
+    }
+
+    #[test]
+    fn inverse_rotation_roundtrips_dim8() {
+        let seed = new_seed(8, b"inverse");
+        let original = vec![1.0, -0.5, 0.25, 0.0, 0.75, -1.25, 0.5, -0.125];
+        let mut rotated = original.clone();
+        apply_rotation(&seed, &mut rotated);
+        apply_inverse_rotation(&seed, &mut rotated);
+        let max_err = original
+            .iter()
+            .zip(rotated.iter())
+            .map(|(left, right)| (left - right).abs())
+            .fold(0.0_f32, f32::max);
+        assert!(max_err <= 1e-6, "{max_err}");
+        println!("inverse_rotation_roundtrip PASSED max_err={max_err:.8}");
     }
 
     proptest! {
