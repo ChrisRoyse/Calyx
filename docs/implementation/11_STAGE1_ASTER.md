@@ -153,8 +153,10 @@ hardening), since they touch the recovery + compaction paths.
    catalog). Unify the write/flush/compaction paths.
 5. **Arrow slot columns not wired (PH06).** `sst/arrow.rs` (Arrow SoA column
    chunk) is implemented + demo-wired, but slot CF values are stored via
-   `vault/encode.rs::encode_slot_vector`, not `ArrowColumnChunk`. Deferred to the
-   Forge/array-bundle work (PRD `23 §2`).
+   `vault/encode.rs::encode_slot_vector`, not `ArrowColumnChunk`. **Explicit
+   deferral:** row-level slot vectors remain the CRUD/recovery format for Aster;
+   Arrow chunks belong to the later materialized array-bundle/slot-column work
+   where a batch of vectors can be stored as a true SoA column (PRD `23 §2`).
 6. **Inlined ledger stub (PH09).** The PH35 ledger-stub row is written in
    `vault/encode.rs::encode_ledger_stub`, not a dedicated `vault/ledger_stub.rs`;
    the real hash-chain lands in PH35.

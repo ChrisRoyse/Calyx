@@ -246,10 +246,6 @@ pub fn decode_slot_vector(bytes: &[u8]) -> Result<SlotVector> {
     }
 }
 
-pub fn encode_ledger_stub(_seq: u64) -> Vec<u8> {
-    vec![0_u8; 32]
-}
-
 pub fn encode_write_batch(rows: &[WriteRow]) -> Result<Vec<u8>> {
     let mut out = Vec::new();
     out.extend_from_slice(&(rows.len() as u32).to_be_bytes());

@@ -1,5 +1,6 @@
 use super::*;
 use crate::cf::ColumnFamily;
+use proptest::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
@@ -110,6 +111,34 @@ fn compaction_report_tracks_debt_and_write_amplification() {
     assert!(report.write_amp_milli > 0);
     assert_eq!(report.staging_parent, dir);
     cleanup(dir);
+}
+
+proptest! {
+    #[test]
+    fn compaction_debt_matches_scaled_pending_bytes(
+        bytes in proptest::collection::vec(0_u64..1_000_000, 0..64),
+        target_bytes in 0_u64..1_000_000,
+    ) {
+        let shards = bytes
+            .iter()
+            .map(|bytes| SstShard {
+                cf: ColumnFamily::Base,
+                path: PathBuf::from("synthetic.sst"),
+                level: 0,
+                bytes: *bytes,
+            })
+            .collect::<Vec<_>>();
+        let pending = bytes.iter().fold(0_u64, |sum, bytes| sum.saturating_add(*bytes));
+        let target = target_bytes.max(1);
+        let debt = CompactionDebt::measure(&shards, target_bytes);
+
+        prop_assert_eq!(debt.pending_bytes, pending);
+        prop_assert_eq!(debt.target_bytes, target);
+        prop_assert_eq!(
+            debt.score_milli,
+            pending.saturating_mul(WRITE_AMP_SCALE) / target
+        );
+    }
 }
 
 #[test]

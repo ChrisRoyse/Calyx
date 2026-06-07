@@ -3,9 +3,9 @@ use calyx_aster::cf::{ColumnFamily, base_key, ledger_key, slot_key};
 use calyx_aster::manifest::{ImmutableRef, ManifestStore, VaultManifest};
 use calyx_aster::sst::write_sst;
 use calyx_aster::vault::encode::{
-    WriteRow, decode_write_batch, encode_constellation_base, encode_ledger_stub,
-    encode_slot_vector, encode_write_batch,
+    WriteRow, decode_write_batch, encode_constellation_base, encode_slot_vector, encode_write_batch,
 };
+use calyx_aster::vault::ledger_stub;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::{Wal, WalOptions, replay_dir};
 use calyx_core::{
@@ -319,7 +319,7 @@ fn constellation_rows(cx: &Constellation) -> Result<Vec<WriteRow>, String> {
     rows.push(WriteRow {
         cf: ColumnFamily::Ledger,
         key: ledger_key(cx.provenance.seq),
-        value: encode_ledger_stub(cx.provenance.seq),
+        value: ledger_stub::encode(cx.provenance.seq),
     });
     Ok(rows)
 }

@@ -1,5 +1,7 @@
 //! Snapshot-safe SST compaction and hot/cold tier placement.
 
+mod scan;
+
 use crate::cf::{ColumnFamily, SlotFamilyKind};
 use crate::sst::{SstReader, write_sst};
 use calyx_core::{CalyxError, Result, SlotId};
@@ -14,6 +16,8 @@ use std::time::Duration;
 
 const DEFAULT_COMPACTION_TARGET_BYTES: u64 = 64 * 1024 * 1024;
 const WRITE_AMP_SCALE: u64 = 1_000;
+
+pub use scan::catalog_from_vault_dir;
 
 /// One immutable SST file in the active shard set.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,7 +297,7 @@ pub fn compact_shards(
     throttle: CompactionThrottle,
 ) -> Result<CompactionResult> {
     let debt_before = CompactionDebt::measure(inputs, DEFAULT_COMPACTION_TARGET_BYTES);
-    if inputs.is_empty() {
+    if inputs.len() < 2 {
         return Ok(CompactionResult::Skipped { debt: debt_before });
     }
     if let Some(max) = throttle.max_input_bytes

@@ -13,6 +13,7 @@ use std::sync::Arc;
 #[derive(Clone, Debug, Default)]
 pub struct VaultOptions {
     pub wal_options: WalOptions,
+    pub memtable_byte_cap: usize,
 }
 
 #[derive(Debug)]
@@ -80,24 +81,45 @@ impl DurableVault {
         })
     }
 
-    pub(super) fn write_batch(&self, rows: &[WriteRow]) -> Result<u64> {
+    pub(super) fn append_batch(&self, rows: &[WriteRow]) -> Result<u64> {
         let payload = encode_write_batch(rows)?;
         let ack = self.batcher.submit(payload)?;
-        self.write_rows(ack.seq, rows)?;
-        self.write_manifest(ack.seq)?;
         Ok(ack.seq)
+    }
+
+    pub(super) fn checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
+        self.write_rows(seq, rows)?;
+        self.write_manifest(seq)
     }
 
     pub(super) fn flush(&self) -> Result<()> {
         self.batcher.flush_sync()
     }
 
+    pub(super) fn root(&self) -> &Path {
+        &self.root
+    }
+
     fn write_rows(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
+        let mut by_cf = Vec::<(ColumnFamily, Vec<(usize, &WriteRow)>)>::new();
         for (index, row) in rows.iter().enumerate() {
-            let dir = self.root.join("cf").join(row.cf.name());
+            if let Some((_, group)) = by_cf.iter_mut().find(|(cf, _)| *cf == row.cf) {
+                group.push((index, row));
+            } else {
+                by_cf.push((row.cf, vec![(index, row)]));
+            }
+        }
+        by_cf.sort_by_key(|(cf, _)| cf.name());
+        for (cf, mut rows) in by_cf {
+            rows.sort_by(|(_, left), (_, right)| left.key.cmp(&right.key));
+            let first_index = rows.first().map_or(0, |(index, _)| *index);
+            let dir = self.root.join("cf").join(cf.name());
             fs::create_dir_all(&dir).map_err(|error| storage_error("create CF dir", error))?;
-            let path = dir.join(format!("{seq:020}-{index:04}.sst"));
-            write_sst(&path, [(row.key.as_slice(), row.value.as_slice())])?;
+            let path = dir.join(format!("{seq:020}-{first_index:04}.sst"));
+            let entries = rows
+                .iter()
+                .map(|(_, row)| (row.key.as_slice(), row.value.as_slice()));
+            write_sst(&path, entries)?;
         }
         Ok(())
     }

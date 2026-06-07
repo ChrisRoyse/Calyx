@@ -2,12 +2,15 @@
 
 mod anchor_codec;
 mod cf_codec;
+mod commit;
+mod compaction_bridge;
 mod cursor;
 mod durable;
 pub mod encode;
+pub mod ledger_stub;
 mod router_bridge;
 
-use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
+use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
 use crate::vault::durable::DurableVault;
 use calyx_core::{
@@ -17,6 +20,7 @@ use calyx_core::{
 use std::collections::BTreeMap;
 use std::path::Path;
 
+pub use compaction_bridge::VaultCompactionScheduler;
 pub use durable::VaultOptions;
 
 const DEFAULT_LEASE_MS: u64 = 5_000;
@@ -53,7 +57,8 @@ impl AsterVault<SystemClock> {
         options: VaultOptions,
     ) -> Result<Self> {
         let recovery = DurableVault::recover_batches(vault_dir.as_ref())?;
-        let rows = VersionedCfStore::default();
+        let router = CfRouter::open(vault_dir.as_ref(), options.memtable_byte_cap)?;
+        let rows = VersionedCfStore::new_with_router(recovery.last_recovered_seq, router);
         for batch in recovery.batches {
             let rows_at_seq = batch
                 .rows
@@ -118,6 +123,7 @@ where
         if let Some(durable) = &self.durable {
             durable.flush()?;
         }
+        self.rows.flush_all_cfs()?;
         Ok(())
     }
 }
@@ -176,15 +182,9 @@ where
         rows.push(encode::WriteRow {
             cf: ColumnFamily::Ledger,
             key: ledger_key(constellation.provenance.seq),
-            value: encode::encode_ledger_stub(constellation.provenance.seq),
+            value: ledger_stub::encode(constellation.provenance.seq),
         });
-        if let Some(durable) = &self.durable {
-            durable.write_batch(&rows)?;
-        }
-        self.rows.commit_batch(
-            rows.iter()
-                .map(|row| (row.cf, row.key.clone(), row.value.clone())),
-        )?;
+        self.commit_rows(&rows)?;
         Ok(id)
     }
 
@@ -231,13 +231,7 @@ where
             .into_iter()
             .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
             .collect::<Vec<_>>();
-        if let Some(durable) = &self.durable {
-            durable.write_batch(&rows)?;
-        }
-        self.rows.commit_batch(
-            rows.iter()
-                .map(|row| (row.cf, row.key.clone(), row.value.clone())),
-        )?;
+        self.commit_rows(&rows)?;
         Ok(())
     }
 
@@ -245,6 +239,9 @@ where
         self.latest_seq()
     }
 }
+
+#[cfg(test)]
+mod compaction_tests;
 
 #[cfg(test)]
 mod recovery_tests;
@@ -459,7 +456,7 @@ mod tests {
         let wal_bytes = fs::read(&wal).expect("read wal");
         assert_eq!(&wal_bytes[0..4], b"CXW1");
         assert!(dir.join("CURRENT").exists());
-        assert_eq!(sst_count(dir.join("cf/base")), 1);
+        assert_eq!(sst_count(dir.join("cf/base")), 2);
 
         let reopened =
             AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
