@@ -1,6 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
-use cudarc::driver::CudaContext as CudarcContext;
+use cudarc::driver::{CudaContext as CudarcContext, CudaModule};
 
 use crate::{BackendKind, DeviceInfo, ForgeError, Result};
 
@@ -17,6 +17,7 @@ pub struct CudaContext {
     compute_capability: (i32, i32),
     total_mem_mib: u64,
     free_mem_mib_at_init: u64,
+    distance_module: Arc<OnceLock<Arc<CudaModule>>>,
 }
 
 impl CudaContext {
@@ -46,6 +47,10 @@ impl CudaContext {
 
     pub fn free_mem_mib_at_init(&self) -> u64 {
         self.free_mem_mib_at_init
+    }
+
+    pub(crate) fn distance_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
+        &self.distance_module
     }
 }
 
@@ -78,6 +83,7 @@ pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext> {
         compute_capability,
         total_mem_mib: bytes_to_mib(total_bytes),
         free_mem_mib_at_init: free_mem_mib,
+        distance_module: Arc::new(OnceLock::new()),
     })
 }
 

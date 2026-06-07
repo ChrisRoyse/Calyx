@@ -1,51 +1,153 @@
 #include <math.h>
 
-extern "C" __global__ __launch_bounds__(256) void cosine_batch_f32(
-    const float *a,
-    const float *b,
-    int dim,
-    int pairs,
-    float *out) {
-    // DETERMINISM: block reduce with a fixed stride order, fixed 256-thread launch, no atomics.
-    __shared__ float dot_shared[256];
-    __shared__ float norm_a_shared[256];
-    __shared__ float norm_b_shared[256];
+__device__ __forceinline__ bool finite2(float a, float b) {
+    return isfinite(a) && isfinite(b);
+}
 
-    const int pair = blockIdx.x;
+__device__ __forceinline__ void reduce_sums(
+    float *sum0,
+    float *sum1,
+    int *bad,
+    int tid) {
+    for (int stride = 128; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            sum0[tid] += sum0[tid + stride];
+            sum1[tid] += sum1[tid + stride];
+            bad[tid] |= bad[tid + stride];
+        }
+        __syncthreads();
+    }
+}
+
+extern "C" __global__ __launch_bounds__(256) void cosine_batch_f32(
+    const float *query,
+    const float *candidates,
+    int dim,
+    int n_cands,
+    float *out) {
+    __shared__ float dot_shared[256];
+    __shared__ float norm_q_shared[256];
+    __shared__ float norm_c_shared[256];
+    __shared__ int bad_shared[256];
+
+    const int cand = blockIdx.x;
     const int tid = threadIdx.x;
-    if (pair >= pairs || dim <= 0) {
+    if (cand >= n_cands) {
         return;
     }
 
     float dot = 0.0f;
-    float norm_a = 0.0f;
-    float norm_b = 0.0f;
-    const int base = pair * dim;
+    float norm_q = 0.0f;
+    float norm_c = 0.0f;
+    int bad = dim <= 0;
+    const int base = cand * dim;
 
     for (int i = tid; i < dim; i += blockDim.x) {
-        const float av = a[base + i];
-        const float bv = b[base + i];
-        dot += av * bv;
-        norm_a += av * av;
-        norm_b += bv * bv;
+        const float q = query[i];
+        const float c = candidates[base + i];
+        bad |= !finite2(q, c);
+        dot += q * c;
+        norm_q += q * q;
+        norm_c += c * c;
     }
 
     dot_shared[tid] = dot;
-    norm_a_shared[tid] = norm_a;
-    norm_b_shared[tid] = norm_b;
+    norm_q_shared[tid] = norm_q;
+    norm_c_shared[tid] = norm_c;
+    bad_shared[tid] = bad;
     __syncthreads();
 
+    reduce_sums(dot_shared, norm_q_shared, bad_shared, tid);
     for (int stride = 128; stride > 0; stride >>= 1) {
         if (tid < stride) {
-            dot_shared[tid] += dot_shared[tid + stride];
-            norm_a_shared[tid] += norm_a_shared[tid + stride];
-            norm_b_shared[tid] += norm_b_shared[tid + stride];
+            norm_c_shared[tid] += norm_c_shared[tid + stride];
         }
         __syncthreads();
     }
 
     if (tid == 0) {
-        const float denom = sqrtf(norm_a_shared[0]) * sqrtf(norm_b_shared[0]);
-        out[pair] = denom > 0.0f ? dot_shared[0] / denom : 0.0f;
+        const float denom = sqrtf(norm_q_shared[0]) * sqrtf(norm_c_shared[0]);
+        if (bad_shared[0]) {
+            out[cand] = NAN;
+        } else {
+            out[cand] = denom > 0.0f ? dot_shared[0] / denom : -2.0f;
+        }
+    }
+}
+
+extern "C" __global__ __launch_bounds__(256) void dot_batch_f32(
+    const float *query,
+    const float *candidates,
+    int dim,
+    int n_cands,
+    float *out) {
+    __shared__ float dot_shared[256];
+    __shared__ float unused_shared[256];
+    __shared__ int bad_shared[256];
+
+    const int cand = blockIdx.x;
+    const int tid = threadIdx.x;
+    if (cand >= n_cands) {
+        return;
+    }
+
+    float dot = 0.0f;
+    int bad = dim < 0;
+    const int base = cand * dim;
+
+    for (int i = tid; i < dim; i += blockDim.x) {
+        const float q = query[i];
+        const float c = candidates[base + i];
+        bad |= !finite2(q, c);
+        dot += q * c;
+    }
+
+    dot_shared[tid] = dot;
+    unused_shared[tid] = 0.0f;
+    bad_shared[tid] = bad;
+    __syncthreads();
+    reduce_sums(dot_shared, unused_shared, bad_shared, tid);
+
+    if (tid == 0) {
+        out[cand] = bad_shared[0] ? NAN : dot_shared[0];
+    }
+}
+
+extern "C" __global__ __launch_bounds__(256) void l2_batch_f32(
+    const float *query,
+    const float *candidates,
+    int dim,
+    int n_cands,
+    float *out) {
+    __shared__ float l2_shared[256];
+    __shared__ float unused_shared[256];
+    __shared__ int bad_shared[256];
+
+    const int cand = blockIdx.x;
+    const int tid = threadIdx.x;
+    if (cand >= n_cands) {
+        return;
+    }
+
+    float l2 = 0.0f;
+    int bad = dim < 0;
+    const int base = cand * dim;
+
+    for (int i = tid; i < dim; i += blockDim.x) {
+        const float q = query[i];
+        const float c = candidates[base + i];
+        const float diff = q - c;
+        bad |= !finite2(q, c);
+        l2 += diff * diff;
+    }
+
+    l2_shared[tid] = l2;
+    unused_shared[tid] = 0.0f;
+    bad_shared[tid] = bad;
+    __syncthreads();
+    reduce_sums(l2_shared, unused_shared, bad_shared, tid);
+
+    if (tid == 0) {
+        out[cand] = bad_shared[0] ? NAN : l2_shared[0];
     }
 }
