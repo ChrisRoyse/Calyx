@@ -1,0 +1,247 @@
+//! Closed `CALYX_*` error catalog.
+
+use serde::Serialize;
+use thiserror::Error;
+
+/// Structured Calyx error payload for APIs, MCP, and agent remediation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Error)]
+#[error("{code}: {message}")]
+pub struct CalyxError {
+    /// Stable `CALYX_*` code.
+    pub code: &'static str,
+    /// Concrete failure details.
+    pub message: String,
+    /// Stable remediation text from PRD 18.
+    pub remediation: &'static str,
+}
+
+/// Calyx result alias.
+pub type Result<T> = std::result::Result<T, CalyxError>;
+
+impl CalyxError {
+    /// Builds an error from a catalog code and concrete message.
+    pub fn from_code(code: CalyxErrorCode, message: impl Into<String>) -> Self {
+        Self {
+            code: code.code(),
+            message: message.into(),
+            remediation: code.remediation(),
+        }
+    }
+}
+
+macro_rules! error_catalog {
+    ($(
+        $variant:ident,
+        $ctor:ident,
+        $code:literal,
+        $meaning:literal,
+        $remediation:literal;
+    )+) => {
+        /// Closed set of PRD 18 Calyx error codes.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum CalyxErrorCode {
+            $(
+                #[doc = $meaning]
+                $variant,
+            )+
+        }
+
+        /// All Calyx error codes in PRD 18 order.
+        pub const CALYX_ERROR_CODES: &[CalyxErrorCode] = &[
+            $(CalyxErrorCode::$variant,)+
+        ];
+
+        impl CalyxErrorCode {
+            /// Returns the stable wire code.
+            pub const fn code(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $code,)+
+                }
+            }
+
+            /// Returns the PRD 18 meaning.
+            pub const fn meaning(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $meaning,)+
+                }
+            }
+
+            /// Returns the PRD 18 remediation.
+            pub const fn remediation(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $remediation,)+
+                }
+            }
+
+            /// Builds a structured error with this code.
+            pub fn error(self, message: impl Into<String>) -> CalyxError {
+                CalyxError::from_code(self, message)
+            }
+        }
+
+        impl CalyxError {
+            $(
+                #[doc = concat!("Builds `", $code, "`.")]
+                pub fn $ctor(message: impl Into<String>) -> Self {
+                    CalyxErrorCode::$variant.error(message)
+                }
+            )+
+        }
+    };
+}
+
+error_catalog! {
+    LensFrozenViolation, lens_frozen_violation, "CALYX_LENS_FROZEN_VIOLATION",
+    "weights hash != registered", "re-register as new LensId";
+
+    LensDimMismatch, lens_dim_mismatch, "CALYX_LENS_DIM_MISMATCH",
+    "output dim != Slot.shape", "fix lens or slot shape";
+
+    LensNumericalInvariant, lens_numerical_invariant, "CALYX_LENS_NUMERICAL_INVARIANT",
+    "NaN/Inf/non-unit output", "check lens runtime/normalize";
+
+    LensUnreachable, lens_unreachable, "CALYX_LENS_UNREACHABLE",
+    "runtime endpoint down", "restore lens service";
+
+    AssayInsufficientSamples, assay_insufficient_samples, "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
+    "< quorum (50) anchors", "anchor more outcomes";
+
+    AssayLowSignal, assay_low_signal, "CALYX_ASSAY_LOW_SIGNAL",
+    "lens < 0.05 bits", "park/retire lens";
+
+    AssayRedundant, assay_redundant, "CALYX_ASSAY_REDUNDANT",
+    "pair corr > 0.6", "drop duplicate lens";
+
+    KernelUngrounded, kernel_ungrounded, "CALYX_KERNEL_UNGROUNDED",
+    "kernel over ungrounded graph", "add anchors (grounding_gaps)";
+
+    GuardProvisional, guard_provisional, "CALYX_GUARD_PROVISIONAL",
+    "tau not calibrated", "calibrate before high-stakes use";
+
+    GuardOod, guard_ood, "CALYX_GUARD_OOD",
+    "query/output outside trusted region", "new-region or reject per policy";
+
+    ForgeNumericalInvariant, forge_numerical_invariant, "CALYX_FORGE_NUMERICAL_INVARIANT",
+    "kernel NaN/Inf", "numerical fail-closed";
+
+    ForgeDeviceUnavailable, forge_device_unavailable, "CALYX_FORGE_DEVICE_UNAVAILABLE",
+    "CUDA init failed (server mode)", "fix driver (reboot per gotcha)";
+
+    AsterCorruptShard, aster_corrupt_shard, "CALYX_ASTER_CORRUPT_SHARD",
+    "base shard hash mismatch", "restore from restic/snapshot";
+
+    AsterTornWal, aster_torn_wal, "CALYX_ASTER_TORN_WAL",
+    "torn tail on recovery", "auto-discarded; logged";
+
+    LedgerChainBroken, ledger_chain_broken, "CALYX_LEDGER_CHAIN_BROKEN",
+    "hash-chain verify failed", "quarantine range, investigate";
+
+    VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
+    "cross-vault read without grant", "request grant";
+
+    StaleDerived, stale_derived, "CALYX_STALE_DERIVED",
+    "fresh required, rebuild pending", "retry or accept StaleOk";
+
+    OracleInsufficient, oracle_insufficient, "CALYX_ORACLE_INSUFFICIENT",
+    "I(panel;oracle) < H(Y) - panel can't predict",
+    "add outcome/execution lens (propose_lens)";
+
+    ForgeVramBudget, forge_vram_budget, "CALYX_FORGE_VRAM_BUDGET",
+    "dispatch exceeds VRAM budget", "split batch / raise budget / wait";
+
+    Backpressure, backpressure, "CALYX_BACKPRESSURE",
+    "write/query queue at high-water", "retry with backoff";
+
+    DiskPressure, disk_pressure, "CALYX_DISK_PRESSURE",
+    "hotpool near full", "free/spill to archive; writes fail-closed";
+
+    QuantIntelligenceLoss, quant_intelligence_loss, "CALYX_QUANT_INTELLIGENCE_LOSS",
+    "quant level would drop bits/cosine/FAR beyond bound", "use a gentler level (A25)";
+
+    ReaderLeaseExpired, reader_lease_expired, "CALYX_READER_LEASE_EXPIRED",
+    "long reader aborted to release MVCC version", "re-issue with bounded-staleness snapshot";
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const PRD_18_CODES: &[&str] = &[
+        "CALYX_LENS_FROZEN_VIOLATION",
+        "CALYX_LENS_DIM_MISMATCH",
+        "CALYX_LENS_NUMERICAL_INVARIANT",
+        "CALYX_LENS_UNREACHABLE",
+        "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
+        "CALYX_ASSAY_LOW_SIGNAL",
+        "CALYX_ASSAY_REDUNDANT",
+        "CALYX_KERNEL_UNGROUNDED",
+        "CALYX_GUARD_PROVISIONAL",
+        "CALYX_GUARD_OOD",
+        "CALYX_FORGE_NUMERICAL_INVARIANT",
+        "CALYX_FORGE_DEVICE_UNAVAILABLE",
+        "CALYX_ASTER_CORRUPT_SHARD",
+        "CALYX_ASTER_TORN_WAL",
+        "CALYX_LEDGER_CHAIN_BROKEN",
+        "CALYX_VAULT_ACCESS_DENIED",
+        "CALYX_STALE_DERIVED",
+        "CALYX_ORACLE_INSUFFICIENT",
+        "CALYX_FORGE_VRAM_BUDGET",
+        "CALYX_BACKPRESSURE",
+        "CALYX_DISK_PRESSURE",
+        "CALYX_QUANT_INTELLIGENCE_LOSS",
+        "CALYX_READER_LEASE_EXPIRED",
+    ];
+
+    #[test]
+    fn catalog_matches_prd_18_exactly() {
+        let actual: Vec<_> = CALYX_ERROR_CODES.iter().map(|code| code.code()).collect();
+        assert_eq!(actual, PRD_18_CODES);
+    }
+
+    #[test]
+    fn remediation_text_matches_prd_18() {
+        let pairs: Vec<_> = CALYX_ERROR_CODES
+            .iter()
+            .map(|code| (code.code(), code.remediation()))
+            .collect();
+
+        assert_eq!(
+            pairs[0],
+            ("CALYX_LENS_FROZEN_VIOLATION", "re-register as new LensId")
+        );
+        assert_eq!(
+            pairs[17],
+            (
+                "CALYX_ORACLE_INSUFFICIENT",
+                "add outcome/execution lens (propose_lens)"
+            )
+        );
+        assert_eq!(
+            pairs[22],
+            (
+                "CALYX_READER_LEASE_EXPIRED",
+                "re-issue with bounded-staleness snapshot"
+            )
+        );
+    }
+
+    #[test]
+    fn error_serializes_to_wire_shape() {
+        let error = CalyxError::lens_dim_mismatch("got 384, expected 768");
+        let bytes = serde_json::to_vec(&error).expect("serialize error");
+
+        assert_eq!(
+            bytes,
+            br#"{"code":"CALYX_LENS_DIM_MISMATCH","message":"got 384, expected 768","remediation":"fix lens or slot shape"}"#
+        );
+    }
+
+    #[test]
+    fn constructors_attach_prd_remediation() {
+        let error = CalyxError::forge_vram_budget("requested 40GiB, budget 24GiB");
+
+        assert_eq!(error.code, "CALYX_FORGE_VRAM_BUDGET");
+        assert_eq!(error.remediation, "split batch / raise budget / wait");
+        assert!(error.to_string().contains("requested 40GiB"));
+    }
+}
