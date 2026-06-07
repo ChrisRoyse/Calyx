@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::{BestConfig, ForgeError, Result};
 
+mod microbench;
+pub use microbench::{BenchCudaContext, BenchResult, microbench};
+
 const CACHE_REMEDIATION: &str = "Use a readable same-filesystem JSON cache path, or discard the corrupt cache and rerun autotune";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -215,5 +218,7 @@ fn cache_error(op: &str, path: &Path, detail: impl Into<String>) -> ForgeError {
     }
 }
 
+#[cfg(test)]
+mod microbench_tests;
 #[cfg(test)]
 mod tests;
