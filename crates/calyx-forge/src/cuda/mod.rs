@@ -1,4 +1,5 @@
 pub mod context;
+pub mod kernels;
 
 use crate::{Backend, DeviceInfo, ForgeError, Result};
 
