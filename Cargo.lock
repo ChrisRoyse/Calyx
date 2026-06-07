@@ -172,6 +172,10 @@ version = "0.1.0"
 [[package]]
 name = "calyx-registry"
 version = "0.1.0"
+dependencies = [
+ "calyx-core",
+ "serde_json",
+]
 
 [[package]]
 name = "calyx-sextant"
