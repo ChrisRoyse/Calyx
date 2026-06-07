@@ -3,8 +3,13 @@ use calyx_aster::compaction::{
     CompactionResult, CompactionThrottle, SstShard, StorageTier, TieringPolicy, compact_shards,
 };
 use calyx_aster::sst::{SstReader, write_sst};
+use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::{Wal, WalOptions, replay_dir};
-use calyx_core::SlotId;
+use calyx_core::{
+    AbsentReason, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector,
+    VaultId, VaultStore,
+};
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -166,6 +171,47 @@ pub fn soak(vault: &Path, ops: usize, threads: usize) -> Result<(), String> {
     Ok(())
 }
 
+pub fn vault_demo(vault: &Path) -> Result<(), String> {
+    let vault_id = demo_vault_id()?;
+    let writer = AsterVault::new_durable(
+        vault,
+        vault_id,
+        b"calyx-cli-demo-salt".to_vec(),
+        VaultOptions::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    let constellation = demo_constellation(&writer, vault_id);
+    let id = constellation.cx_id;
+
+    writer
+        .put(constellation.clone())
+        .map_err(|error| error.to_string())?;
+    writer.flush().map_err(|error| error.to_string())?;
+    let reopened = AsterVault::open(
+        vault,
+        vault_id,
+        b"calyx-cli-demo-salt".to_vec(),
+        VaultOptions::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    let got = reopened
+        .get(id, reopened.snapshot())
+        .map_err(|error| error.to_string())?;
+    if got != constellation {
+        return Err("cold-open constellation mismatch".to_string());
+    }
+
+    println!(
+        "VAULT_DEMO\tID\t{}\tSNAPSHOT\t{}\tWAL\t{}\tBASE_CF\t{}\tCURRENT\t{}",
+        id,
+        reopened.snapshot(),
+        vault.join("wal/00000000000000000000.wal").display(),
+        vault.join("cf/base").display(),
+        vault.join("CURRENT").display()
+    );
+    Ok(())
+}
+
 pub fn parse_duration(value: &str) -> Result<Duration, String> {
     if let Some(ms) = value.strip_suffix("ms") {
         return ms
@@ -207,6 +253,56 @@ fn soak_value(op: usize, worker: usize) -> Vec<u8> {
     let mut value = vec![worker as u8; SOAK_VALUE_BYTES];
     value[0..8].copy_from_slice(&(op as u64).to_be_bytes());
     value
+}
+
+fn demo_vault_id() -> Result<VaultId, String> {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        .parse()
+        .map_err(|error| format!("demo vault id parse: {error}"))
+}
+
+fn demo_constellation(vault: &AsterVault, vault_id: VaultId) -> Constellation {
+    let input = b"calyx durable cli demo";
+    let cx_id = vault.cx_id_for_input(input, 11);
+    let mut input_hash = [0_u8; 32];
+    input_hash[..input.len()].copy_from_slice(input);
+    let mut slots = BTreeMap::new();
+    slots.insert(
+        SlotId::new(0),
+        SlotVector::Dense {
+            dim: 3,
+            data: vec![0.125, 0.25, 0.5],
+        },
+    );
+    slots.insert(
+        SlotId::new(1),
+        SlotVector::Absent {
+            reason: AbsentReason::Deferred,
+        },
+    );
+    Constellation {
+        cx_id,
+        vault_id,
+        panel_version: 11,
+        created_at: 1780822800,
+        input_ref: InputRef {
+            hash: input_hash,
+            pointer: Some("synthetic://calyx-durable-cli-demo".to_string()),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots,
+        scalars: BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: 1,
+            hash: [7; 32],
+        },
+        flags: CxFlags {
+            ungrounded: true,
+            ..CxFlags::default()
+        },
+    }
 }
 
 fn shards_for(cf: ColumnFamily, files: &[PathBuf]) -> Result<Vec<SstShard>, String> {
