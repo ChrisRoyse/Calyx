@@ -10,11 +10,16 @@ use crate::{BestConfig, ForgeError, Result};
 
 mod explorer;
 mod microbench;
+mod promotion;
 pub use explorer::{
     EPSILON, Explorer, ExplorerPolicy, MIN_PROMOTE_MARGIN, MIN_PROMOTE_TRIALS, next_candidate,
     promote_if_winner, record_trial, should_promote,
 };
 pub use microbench::{BenchCudaContext, BenchResult, microbench};
+pub use promotion::{
+    AbHook, PromotionAction, PromotionEvent, autotune, log_promotion, rollback_promotion,
+    should_use_challenger,
+};
 
 const CACHE_REMEDIATION: &str = "Use a readable same-filesystem JSON cache path, or discard the corrupt cache and rerun autotune";
 
@@ -227,5 +232,7 @@ fn cache_error(op: &str, path: &Path, detail: impl Into<String>) -> ForgeError {
 mod explorer_tests;
 #[cfg(test)]
 mod microbench_tests;
+#[cfg(test)]
+mod promotion_tests;
 #[cfg(test)]
 mod tests;
