@@ -83,6 +83,8 @@ dependencies = [
  "calyx-core",
  "crc32fast",
  "memmap2",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
