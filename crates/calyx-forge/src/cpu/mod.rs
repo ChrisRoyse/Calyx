@@ -1,7 +1,9 @@
 pub mod distance;
 pub mod gemm;
+pub mod normalize;
+pub mod topk;
 
-use crate::{Backend, DeviceInfo, ForgeError, Result};
+use crate::{Backend, DeviceInfo, Result};
 
 #[derive(Clone, Debug)]
 pub struct CpuBackend {
@@ -59,12 +61,12 @@ impl Backend for CpuBackend {
         distance::l2_batch(a, b, dim, out)
     }
 
-    fn normalize(&self, _vecs: &mut [f32], _dim: usize) -> Result<()> {
-        Err(unimplemented_op("cpu.normalize"))
+    fn normalize(&self, vecs: &mut [f32], dim: usize) -> Result<()> {
+        normalize::normalize_f32(vecs, dim)
     }
 
-    fn topk(&self, _scores: &[f32], _k: usize) -> Result<Vec<(usize, f32)>> {
-        Err(unimplemented_op("cpu.topk"))
+    fn topk(&self, scores: &[f32], k: usize) -> Result<Vec<(usize, f32)>> {
+        topk::topk_f32(scores, k)
     }
 
     fn device_info(&self) -> DeviceInfo {
@@ -79,13 +81,8 @@ impl Backend for CpuBackend {
 
 pub use distance::{cosine_batch, dot_batch, l2_batch};
 pub use gemm::gemm_f32;
-
-fn unimplemented_op(op: &str) -> ForgeError {
-    ForgeError::Unimplemented {
-        op: op.to_string(),
-        remediation: "implement the PH12 kernel before dispatching this op".to_string(),
-    }
-}
+pub use normalize::normalize_f32;
+pub use topk::topk_f32;
 
 #[cfg(target_arch = "x86_64")]
 fn avx512_available() -> bool {
