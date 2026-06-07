@@ -95,6 +95,26 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, vault_flag, vault] if command == "mvcc-demo" && vault_flag == "--vault" => {
             fsv::mvcc_demo(Path::new(vault))
         }
+        [command, vault_flag, vault, records_flag, records]
+            if command == "wal-drill" && vault_flag == "--vault" && records_flag == "--records" =>
+        {
+            let records = records
+                .parse::<usize>()
+                .map_err(|error| format!("invalid --records: {error}"))?;
+            fsv::wal_drill(Path::new(vault), records)
+        }
+        [command, wal_dir] if command == "wal-replay" => fsv::wal_replay(Path::new(wal_dir)),
+        [command, vault_flag, vault, cf_flag, cf, offset_flag, offset]
+            if command == "corrupt-shard"
+                && vault_flag == "--vault"
+                && cf_flag == "--cf"
+                && offset_flag == "--byte-offset" =>
+        {
+            let offset = offset
+                .parse::<u64>()
+                .map_err(|error| format!("invalid --byte-offset: {error}"))?;
+            fsv::corrupt_shard(Path::new(vault), cf, offset)
+        }
         [command, vault_flag, vault, requests_flag, requests]
             if command == "wal-batch-demo"
                 && vault_flag == "--vault"
@@ -202,7 +222,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx arrow-demo --vault <dir>\n       calyx cf-demo --vault <dir>\n       calyx mvcc-demo --vault <dir>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx arrow-demo --vault <dir>\n       calyx cf-demo --vault <dir>\n       calyx mvcc-demo --vault <dir>\n       calyx wal-drill --vault <dir> --records <n>\n       calyx wal-replay <wal-dir>\n       calyx corrupt-shard --vault <dir> --cf <name> --byte-offset <n>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
 }
 
 #[cfg(test)]
