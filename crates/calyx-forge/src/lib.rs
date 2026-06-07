@@ -1,5 +1,6 @@
 //! Forge math runtime skeleton for CPU, CUDA, and quantized kernels.
 
+pub mod autotune;
 mod backend;
 pub mod cpu;
 #[cfg(feature = "cuda")]
@@ -11,6 +12,7 @@ pub mod mxfp4;
 pub mod mxfp8;
 pub mod quant;
 
+pub use autotune::{AutotuneCache, AutotuneKey};
 pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
