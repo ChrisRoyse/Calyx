@@ -52,10 +52,16 @@ impl AsterVault<SystemClock> {
         vault_salt: impl Into<Vec<u8>>,
         options: VaultOptions,
     ) -> Result<Self> {
+        let recovery = DurableVault::recover_batches(vault_dir.as_ref())?;
         let rows = VersionedCfStore::default();
-        for batch in DurableVault::replay_batches(vault_dir.as_ref())? {
-            rows.commit_batch(batch.into_iter().map(|row| (row.cf, row.key, row.value)))?;
+        for batch in recovery.batches {
+            let rows_at_seq = batch
+                .rows
+                .into_iter()
+                .map(|row| (row.cf, row.key, row.value));
+            rows.restore_batch(batch.seq, rows_at_seq)?;
         }
+        rows.set_start_seq(recovery.last_recovered_seq)?;
         let durable = DurableVault::open(vault_dir, &options)?;
         Ok(Self {
             vault_id,
@@ -239,6 +245,9 @@ where
         self.latest_seq()
     }
 }
+
+#[cfg(test)]
+mod recovery_tests;
 
 #[cfg(test)]
 mod tests {
@@ -457,16 +466,6 @@ mod tests {
                 .expect("cold open");
         assert_eq!(reopened.snapshot(), 1);
         assert_eq!(reopened.get(id, reopened.snapshot()).unwrap(), cx);
-        cleanup(dir);
-    }
-
-    #[test]
-    fn durable_open_empty_dir_starts_at_zero() {
-        let dir = test_dir("durable-empty");
-        let vault = AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
-            .expect("open empty durable");
-
-        assert_eq!(vault.snapshot(), 0);
         cleanup(dir);
     }
 

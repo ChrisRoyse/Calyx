@@ -1,8 +1,10 @@
 use super::encode::{WriteRow, decode_write_batch, encode_write_batch};
-use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest};
-use crate::sst::write_sst;
+use crate::cf::ColumnFamily;
+use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault};
+use crate::sst::{SstReader, write_sst};
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
-use calyx_core::{CalyxError, Result, SystemClock};
+use calyx_core::{CalyxError, Result, SlotId, SystemClock};
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -19,6 +21,16 @@ pub(super) struct DurableVault {
     batcher: GroupCommitBatcher,
 }
 
+pub(super) struct RecoveredBatch {
+    pub seq: u64,
+    pub rows: Vec<WriteRow>,
+}
+
+pub(super) struct RecoveredBatches {
+    pub batches: Vec<RecoveredBatch>,
+    pub last_recovered_seq: u64,
+}
+
 impl DurableVault {
     pub(super) fn open(root: impl AsRef<Path>, options: &VaultOptions) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
@@ -33,13 +45,39 @@ impl DurableVault {
         Ok(Self { root, batcher })
     }
 
-    pub(super) fn replay_batches(root: impl AsRef<Path>) -> Result<Vec<Vec<WriteRow>>> {
-        let replay = replay_dir(root.as_ref().join("wal"))?;
-        replay
+    pub(super) fn recover_batches(root: impl AsRef<Path>) -> Result<RecoveredBatches> {
+        let root = root.as_ref();
+        if root.join("CURRENT").exists() {
+            let recovery = recover_vault(root)?;
+            let mut batches = read_manifested_batches(root, recovery.manifest.durable_seq)?;
+            for record in recovery.wal_records {
+                batches.push(RecoveredBatch {
+                    seq: record.seq,
+                    rows: decode_write_batch(&record.payload)?,
+                });
+            }
+            return Ok(RecoveredBatches {
+                batches,
+                last_recovered_seq: recovery.last_recovered_seq,
+            });
+        }
+
+        let replay = replay_dir(root.join("wal"))?;
+        let last_recovered_seq = replay.records.last().map_or(0, |record| record.seq);
+        let batches = replay
             .records
             .iter()
-            .map(|record| decode_write_batch(&record.payload))
-            .collect()
+            .map(|record| {
+                Ok(RecoveredBatch {
+                    seq: record.seq,
+                    rows: decode_write_batch(&record.payload)?,
+                })
+            })
+            .collect::<Result<_>>()?;
+        Ok(RecoveredBatches {
+            batches,
+            last_recovered_seq,
+        })
     }
 
     pub(super) fn write_batch(&self, rows: &[WriteRow]) -> Result<u64> {
@@ -69,6 +107,98 @@ impl DurableVault {
         let manifest = VaultManifest::new(seq, seq, panel_ref, codebook_refs)?;
         ManifestStore::open(&self.root).write_current(&manifest)?;
         Ok(())
+    }
+}
+
+fn read_manifested_batches(root: &Path, durable_seq: u64) -> Result<Vec<RecoveredBatch>> {
+    let mut by_seq = BTreeMap::<u64, Vec<(usize, WriteRow)>>::new();
+    let cf_root = root.join("cf");
+    if durable_seq == 0 || !cf_root.exists() {
+        return Ok(Vec::new());
+    }
+    for entry in fs::read_dir(&cf_root).map_err(|error| storage_error("read CF root", error))? {
+        let cf_dir = entry.map_err(|error| storage_error("read CF entry", error))?;
+        if !cf_dir
+            .file_type()
+            .map_err(|error| storage_error("stat CF entry", error))?
+            .is_dir()
+        {
+            continue;
+        }
+        let cf_name = cf_dir.file_name().to_string_lossy().to_string();
+        let cf = parse_cf_name(&cf_name)?;
+        for file in
+            fs::read_dir(cf_dir.path()).map_err(|error| storage_error("read CF dir", error))?
+        {
+            let path = file
+                .map_err(|error| storage_error("read SST entry", error))?
+                .path();
+            if path.extension().and_then(|value| value.to_str()) != Some("sst") {
+                continue;
+            }
+            let Some((seq, index)) = durable_sst_identity(&path) else {
+                continue;
+            };
+            if seq > durable_seq {
+                continue;
+            }
+            let reader = SstReader::open(&path)?;
+            for (row_offset, row) in reader.iter()?.into_iter().enumerate() {
+                by_seq.entry(seq).or_default().push((
+                    index + row_offset,
+                    WriteRow {
+                        cf,
+                        key: row.key,
+                        value: row.value,
+                    },
+                ));
+            }
+        }
+    }
+
+    Ok(by_seq
+        .into_iter()
+        .map(|(seq, mut rows)| {
+            rows.sort_by_key(|(index, _)| *index);
+            RecoveredBatch {
+                seq,
+                rows: rows.into_iter().map(|(_, row)| row).collect(),
+            }
+        })
+        .collect())
+}
+
+fn durable_sst_identity(path: &Path) -> Option<(u64, usize)> {
+    let stem = path.file_stem()?.to_str()?;
+    let (seq, index) = stem.split_once('-')?;
+    Some((seq.parse().ok()?, index.parse().ok()?))
+}
+
+fn parse_cf_name(value: &str) -> Result<ColumnFamily> {
+    match value {
+        "base" => Ok(ColumnFamily::Base),
+        "anchors" => Ok(ColumnFamily::Anchors),
+        "ledger" => Ok(ColumnFamily::Ledger),
+        "online" => Ok(ColumnFamily::Online),
+        "scalars" => Ok(ColumnFamily::Scalars),
+        "xterm" => Ok(ColumnFamily::XTerm),
+        _ if value.starts_with("slot_") => parse_slot_cf(value),
+        _ => Err(CalyxError::aster_corrupt_shard(format!(
+            "unknown durable CF directory {value}"
+        ))),
+    }
+}
+
+fn parse_slot_cf(value: &str) -> Result<ColumnFamily> {
+    let raw = value.ends_with(".raw");
+    let slot_text = value.trim_start_matches("slot_").trim_end_matches(".raw");
+    let slot = slot_text.parse::<u16>().map_err(|error| {
+        CalyxError::aster_corrupt_shard(format!("invalid slot CF directory {value}: {error}"))
+    })?;
+    if raw {
+        Ok(ColumnFamily::slot_raw(SlotId::new(slot)))
+    } else {
+        Ok(ColumnFamily::slot(SlotId::new(slot)))
     }
 }
 

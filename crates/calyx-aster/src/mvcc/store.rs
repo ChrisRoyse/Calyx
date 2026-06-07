@@ -115,6 +115,27 @@ impl VersionedCfStore {
         Ok(seq)
     }
 
+    /// Restores one durable write group at its original sequence before live writes begin.
+    pub fn restore_batch<I, K, V>(&self, seq: Seq, rows: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (ColumnFamily, K, V)>,
+        K: Into<Vec<u8>>,
+        V: Into<Vec<u8>>,
+    {
+        let rows: Vec<_> = rows
+            .into_iter()
+            .map(|(cf, key, value)| (cf, key.into(), value.into()))
+            .collect();
+        let mut table = self.rows.write().expect("mvcc row table poisoned");
+        for (cf, key, value) in rows {
+            table
+                .entry((cf, key))
+                .or_default()
+                .push(VersionedValue { seq, value });
+        }
+        Ok(())
+    }
+
     pub fn flush_all_cfs(&self) -> Result<Vec<SstSummary>> {
         self.router
             .write()

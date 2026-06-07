@@ -156,6 +156,34 @@ pub fn recover(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
+pub fn open_check(vault: &Path, index: u8) -> Result<(), String> {
+    let vault_id = crash_vault_id()?;
+    let expected = synthetic_constellation(vault_id, index);
+    let id = expected.cx_id;
+    let opened = AsterVault::open(
+        vault,
+        vault_id,
+        b"calyx-crash-drill-salt",
+        VaultOptions::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    let snapshot = opened.snapshot();
+    let got = opened
+        .get(id, snapshot)
+        .map_err(|error| error.to_string())?;
+    if got != expected {
+        return Err(format!("open-check mismatch for index {index}"));
+    }
+    println!(
+        "OPEN_CHECK\tINDEX\t{}\tID\t{}\tSNAPSHOT\t{}\tVAULT\t{}",
+        index,
+        id,
+        snapshot,
+        vault.display()
+    );
+    Ok(())
+}
+
 fn ensure_empty_vault(vault: &Path) -> Result<(), String> {
     if !vault.exists() {
         return Ok(());
