@@ -70,6 +70,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         {
             ops::tier(Path::new(vault), cf, output)
         }
+        [command, vault_flag, vault] if command == "vault-demo" && vault_flag == "--vault" => {
+            ops::vault_demo(Path::new(vault))
+        }
         [] | [_]
             if args
                 .first()
@@ -167,7 +170,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>"
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>"
 }
 
 #[cfg(test)]

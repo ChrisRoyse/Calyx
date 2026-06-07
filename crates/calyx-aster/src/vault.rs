@@ -1,12 +1,21 @@
 //! Aster `VaultStore` implementation over the PH08 MVCC CF table.
 
+mod cf_codec;
+mod cursor;
+mod durable;
+pub mod encode;
+
 use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
+use crate::vault::durable::DurableVault;
 use calyx_core::{
     Anchor, CalyxError, Clock, Constellation, CxId, Result, Seq, SlotId, SystemClock, VaultId,
     VaultStore,
 };
 use std::collections::BTreeMap;
+use std::path::Path;
+
+pub use durable::VaultOptions;
 
 const DEFAULT_LEASE_MS: u64 = 5_000;
 
@@ -17,12 +26,42 @@ pub struct AsterVault<C = SystemClock> {
     vault_salt: Vec<u8>,
     clock: C,
     rows: VersionedCfStore,
+    durable: Option<DurableVault>,
 }
 
 impl AsterVault<SystemClock> {
     /// Creates a vault using the system clock.
     pub fn new(vault_id: VaultId, vault_salt: impl Into<Vec<u8>>) -> Self {
         Self::with_clock(vault_id, vault_salt, SystemClock)
+    }
+
+    pub fn new_durable(
+        vault_dir: impl AsRef<Path>,
+        vault_id: VaultId,
+        vault_salt: impl Into<Vec<u8>>,
+        options: VaultOptions,
+    ) -> Result<Self> {
+        Self::open(vault_dir, vault_id, vault_salt, options)
+    }
+
+    pub fn open(
+        vault_dir: impl AsRef<Path>,
+        vault_id: VaultId,
+        vault_salt: impl Into<Vec<u8>>,
+        options: VaultOptions,
+    ) -> Result<Self> {
+        let rows = VersionedCfStore::default();
+        for batch in DurableVault::replay_batches(vault_dir.as_ref())? {
+            rows.commit_batch(batch.into_iter().map(|row| (row.cf, row.key, row.value)))?;
+        }
+        let durable = DurableVault::open(vault_dir, &options)?;
+        Ok(Self {
+            vault_id,
+            vault_salt: vault_salt.into(),
+            clock: SystemClock,
+            rows,
+            durable: Some(durable),
+        })
     }
 }
 
@@ -37,6 +76,7 @@ where
             vault_salt: vault_salt.into(),
             clock,
             rows: VersionedCfStore::default(),
+            durable: None,
         }
     }
 
@@ -65,6 +105,13 @@ where
         let lease = ReaderLease::new(0, seq, self.clock.now(), DEFAULT_LEASE_MS);
         Snapshot::new(seq, Freshness::FreshDerived, lease)
     }
+
+    pub fn flush(&self) -> Result<()> {
+        if let Some(durable) = &self.durable {
+            durable.flush()?;
+        }
+        Ok(())
+    }
 }
 
 impl<C> VaultStore for AsterVault<C>
@@ -80,7 +127,7 @@ where
 
         let id = constellation.cx_id;
         let base_key = base_key(id);
-        let base_bytes = encode(&constellation, "base constellation")?;
+        let base_bytes = encode::encode_constellation_base(&constellation)?;
         let latest = self.snapshot();
         if let Some(existing) = self.rows.read_at(
             self.snapshot_handle(latest),
@@ -88,11 +135,8 @@ where
             &base_key,
             &self.clock,
         )? {
-            if existing == base_bytes {
-                return Ok(id);
-            }
-            let existing: Constellation = decode(&existing, "base constellation")?;
-            if same_ingest_identity(&existing, &constellation) {
+            if existing == base_bytes || encode::same_constellation_identity(&existing, &base_bytes)?
+            {
                 return Ok(id);
             }
             return Err(CalyxError::aster_corrupt_shard(
@@ -101,27 +145,35 @@ where
         }
 
         let mut rows = Vec::new();
-        rows.push((ColumnFamily::Base, base_key, base_bytes));
+        rows.push(encode::WriteRow {
+            cf: ColumnFamily::Base,
+            key: base_key,
+            value: base_bytes,
+        });
         for (slot, vector) in &constellation.slots {
-            rows.push((
-                ColumnFamily::slot(*slot),
-                slot_key(id),
-                encode(vector, "slot vector")?,
-            ));
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::slot(*slot),
+                key: slot_key(id),
+                value: encode::encode_slot_vector(vector)?,
+            });
         }
         for anchor in &constellation.anchors {
-            rows.push((
-                ColumnFamily::Anchors,
-                anchor_key(id, &anchor.kind),
-                encode(anchor, "anchor")?,
-            ));
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::Anchors,
+                key: anchor_key(id, &anchor.kind),
+                value: encode::encode_anchor(anchor)?,
+            });
         }
-        rows.push((
-            ColumnFamily::Ledger,
-            ledger_key(constellation.provenance.seq),
-            encode(&constellation.provenance, "ledger ref")?,
-        ));
-        self.rows.commit_batch(rows)?;
+        rows.push(encode::WriteRow {
+            cf: ColumnFamily::Ledger,
+            key: ledger_key(constellation.provenance.seq),
+            value: encode::encode_ledger_stub(constellation.provenance.seq),
+        });
+        if let Some(durable) = &self.durable {
+            durable.write_batch(&rows)?;
+        }
+        self.rows
+            .commit_batch(rows.iter().map(|row| (row.cf, row.key.clone(), row.value.clone())))?;
         Ok(id)
     }
 
@@ -131,7 +183,7 @@ where
             .rows
             .read_at(handle, ColumnFamily::Base, &base_key(id), &self.clock)?
             .ok_or_else(|| CalyxError::stale_derived("constellation missing at snapshot"))?;
-        let mut constellation: Constellation = decode(&base, "base constellation")?;
+        let mut constellation = encode::decode_constellation_base(&base)?;
         let slot_ids: Vec<SlotId> = constellation.slots.keys().copied().collect();
         let reads: Vec<_> = slot_ids
             .iter()
@@ -142,7 +194,7 @@ where
         for (slot, value) in slot_ids.into_iter().zip(values) {
             let value =
                 value.ok_or_else(|| CalyxError::aster_corrupt_shard("slot CF row missing"))?;
-            slots.insert(slot, decode(&value, "slot vector")?);
+            slots.insert(slot, encode::decode_slot_vector(&value)?);
         }
         constellation.slots = slots;
         Ok(constellation)
@@ -156,50 +208,29 @@ where
             (
                 ColumnFamily::Base,
                 base_key(id),
-                encode(&constellation, "base constellation")?,
+                encode::encode_constellation_base(&constellation)?,
             ),
             (
                 ColumnFamily::Anchors,
                 anchor_key(id, &anchor.kind),
-                encode(&anchor, "anchor")?,
+                encode::encode_anchor(&anchor)?,
             ),
         ];
-        self.rows.commit_batch(rows)?;
+        let rows = rows
+            .into_iter()
+            .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
+            .collect::<Vec<_>>();
+        if let Some(durable) = &self.durable {
+            durable.write_batch(&rows)?;
+        }
+        self.rows
+            .commit_batch(rows.iter().map(|row| (row.cf, row.key.clone(), row.value.clone())))?;
         Ok(())
     }
 
     fn snapshot(&self) -> Seq {
         self.latest_seq()
     }
-}
-
-fn encode<T>(value: &T, label: &str) -> Result<Vec<u8>>
-where
-    T: serde::Serialize,
-{
-    serde_json::to_vec(value)
-        .map_err(|error| CalyxError::aster_corrupt_shard(format!("encode {label}: {error}")))
-}
-
-fn decode<T>(bytes: &[u8], label: &str) -> Result<T>
-where
-    T: for<'de> serde::Deserialize<'de>,
-{
-    serde_json::from_slice(bytes)
-        .map_err(|error| CalyxError::aster_corrupt_shard(format!("decode {label}: {error}")))
-}
-
-fn same_ingest_identity(left: &Constellation, right: &Constellation) -> bool {
-    left.cx_id == right.cx_id
-        && left.vault_id == right.vault_id
-        && left.panel_version == right.panel_version
-        && left.created_at == right.created_at
-        && left.input_ref == right.input_ref
-        && left.modality == right.modality
-        && left.slots == right.slots
-        && left.scalars == right.scalars
-        && left.provenance == right.provenance
-        && left.flags == right.flags
 }
 
 #[cfg(test)]
@@ -210,6 +241,11 @@ mod tests {
         SlotVector,
     };
     use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
     fn vault_id() -> VaultId {
         "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
@@ -328,7 +364,7 @@ mod tests {
             .expect("anchor row");
 
         assert_eq!(got.anchors.as_slice(), std::slice::from_ref(&anchor));
-        assert_eq!(decode::<Anchor>(&anchor_bytes, "anchor").unwrap(), anchor);
+        assert_eq!(encode::decode_anchor(&anchor_bytes).unwrap(), anchor);
     }
 
     #[test]
@@ -352,5 +388,98 @@ mod tests {
 
         assert_eq!(vault.snapshot(), seq_after_anchor);
         assert_eq!(got.anchors.as_slice(), std::slice::from_ref(&anchor));
+    }
+
+    #[test]
+    fn binary_codecs_roundtrip_known_offsets_and_fail_closed() {
+        let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
+        let cx = sample_constellation(&vault);
+        let header = encode::encode_header(&cx);
+
+        assert_eq!(&header[0..16], cx.cx_id.as_bytes());
+        assert_eq!(&header[32..36], &7_u32.to_be_bytes());
+        assert_eq!(header.len(), encode::HEADER_LEN);
+        assert_eq!(encode::decode_header(&header).unwrap().cx_id, cx.cx_id);
+
+        let base = encode::encode_constellation_base(&cx).expect("encode base");
+        let decoded = encode::decode_constellation_base(&base).expect("decode base");
+        assert_eq!(decoded.cx_id, cx.cx_id);
+        assert_eq!(decoded.input_ref, cx.input_ref);
+        assert!(encode::decode_header(&header[..encode::HEADER_LEN - 1]).is_err());
+
+        for vector in cx.slots.values() {
+            let bytes = encode::encode_slot_vector(vector).expect("encode slot");
+            assert_eq!(encode::decode_slot_vector(&bytes).unwrap(), *vector);
+        }
+        let anchor = Anchor {
+            kind: AnchorKind::Label("axis".to_string()),
+            value: AnchorValue::Text("grounded".to_string()),
+            source: "unit-test".to_string(),
+            observed_at: 125,
+            confidence: 0.5,
+        };
+        let bytes = encode::encode_anchor(&anchor).expect("encode anchor");
+        assert_eq!(encode::decode_anchor(&bytes).unwrap(), anchor);
+        assert!(encode::decode_anchor(&bytes[..bytes.len() - 1]).is_err());
+    }
+
+    #[test]
+    fn durable_vault_writes_wal_sst_manifest_and_cold_opens() {
+        let dir = test_dir("durable");
+        let vault = AsterVault::new_durable(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
+            .expect("open durable");
+        let cx = sample_constellation(&AsterVault::with_clock(
+            vault_id(),
+            b"salt".to_vec(),
+            FixedClock::new(123),
+        ));
+        let id = cx.cx_id;
+
+        vault.put(cx.clone()).expect("durable put");
+        vault.flush().expect("flush durable");
+
+        let wal = dir.join("wal/00000000000000000000.wal");
+        let wal_bytes = fs::read(&wal).expect("read wal");
+        assert_eq!(&wal_bytes[0..4], b"CXW1");
+        assert!(dir.join("CURRENT").exists());
+        assert_eq!(sst_count(dir.join("cf/base")), 1);
+
+        let reopened = AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
+            .expect("cold open");
+        assert_eq!(reopened.snapshot(), 1);
+        assert_eq!(reopened.get(id, reopened.snapshot()).unwrap(), cx);
+        cleanup(dir);
+    }
+
+    #[test]
+    fn durable_open_empty_dir_starts_at_zero() {
+        let dir = test_dir("durable-empty");
+        let vault = AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
+            .expect("open empty durable");
+
+        assert_eq!(vault.snapshot(), 0);
+        cleanup(dir);
+    }
+
+    fn test_dir(name: &str) -> PathBuf {
+        let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "calyx-aster-vault-{name}-{}-{id}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create test dir");
+        dir
+    }
+
+    fn sst_count(dir: PathBuf) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter(|entry| entry.as_ref().unwrap().path().extension().unwrap() == "sst")
+            .count()
+    }
+
+    fn cleanup(dir: PathBuf) {
+        fs::remove_dir_all(dir).expect("cleanup test dir");
     }
 }
