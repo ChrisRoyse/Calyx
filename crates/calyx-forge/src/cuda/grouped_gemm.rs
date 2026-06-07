@@ -8,6 +8,7 @@ const GROUPED_REMEDIATION: &str =
     "Validate grouped GEMM slab offsets, dimensions, and cuBLAS grouped support";
 const DEVICE_REMEDIATION: &str =
     "Check CUDA 13.2/cuBLAS grouped GEMM support and the RTX 5090 on aiwonder";
+pub(crate) const ABSENT_SENTINEL: f32 = f32::NAN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct GemmProblem {
@@ -25,8 +26,17 @@ pub struct ActiveGemmProblem {
     pub problem: GemmProblem,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AbsentSlotSentinel {
+    pub flat_idx: usize,
+    pub c_offset: usize,
+    pub len: usize,
+}
+
 pub struct GroupedGemmPlan {
     pub problems: Vec<Option<GemmProblem>>,
+    pub slot_ids: Vec<Option<usize>>,
+    pub absent_sentinel_ranges: Vec<AbsentSlotSentinel>,
     pub active: Vec<ActiveGemmProblem>,
     pub a_slab: CudaSlice<f32>,
     pub b_slab: CudaSlice<f32>,
@@ -40,13 +50,38 @@ pub fn build_grouped_gemm_plan(
     b_host: &[f32],
     c_init: &[f32],
 ) -> Result<GroupedGemmPlan> {
+    let slot_ids = default_slot_ids(&problems);
+    build_grouped_gemm_plan_with_metadata(
+        ctx,
+        problems,
+        slot_ids,
+        Vec::new(),
+        a_host,
+        b_host,
+        c_init,
+    )
+}
+
+pub(crate) fn build_grouped_gemm_plan_with_metadata(
+    ctx: &CudaContext,
+    problems: Vec<Option<GemmProblem>>,
+    slot_ids: Vec<Option<usize>>,
+    absent_sentinel_ranges: Vec<AbsentSlotSentinel>,
+    a_host: &[f32],
+    b_host: &[f32],
+    c_init: &[f32],
+) -> Result<GroupedGemmPlan> {
     check_finite(a_host, "grouped_gemm A slab")?;
     check_finite(b_host, "grouped_gemm B slab")?;
-    check_finite(c_init, "grouped_gemm C slab")?;
+    if absent_sentinel_ranges.is_empty() {
+        check_finite(c_init, "grouped_gemm C slab")?;
+    }
     let active = sorted_active(&problems, a_host.len(), b_host.len(), c_init.len())?;
     let stream = ctx.inner().default_stream();
     Ok(GroupedGemmPlan {
         problems,
+        slot_ids,
+        absent_sentinel_ranges,
         active,
         a_slab: stream
             .clone_htod(a_host)
@@ -62,7 +97,7 @@ pub fn build_grouped_gemm_plan(
 
 pub fn execute_grouped_gemm(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Result<()> {
     if plan.active.is_empty() {
-        return Ok(());
+        return check_device_output(ctx, plan);
     }
     validate_active_again(plan)?;
     let stream = ctx.inner().default_stream();
@@ -87,7 +122,7 @@ pub fn execute_grouped_gemm(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Re
             .synchronize()
             .map_err(|err| device_unavailable(ctx, format!("grouped GEMM sync failed: {err}")))?;
     }
-    check_device_output(ctx, &plan.c_slab)
+    check_device_output(ctx, plan)
 }
 
 pub fn read_grouped_gemm_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<Vec<f32>> {
@@ -95,6 +130,14 @@ pub fn read_grouped_gemm_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Re
         .default_stream()
         .clone_dtoh(&plan.c_slab)
         .map_err(|err| device_unavailable(ctx, format!("read grouped C slab failed: {err}")))
+}
+
+fn default_slot_ids(problems: &[Option<GemmProblem>]) -> Vec<Option<usize>> {
+    problems
+        .iter()
+        .enumerate()
+        .map(|(idx, problem)| problem.as_ref().map(|_| idx))
+        .collect()
 }
 
 fn sorted_active(
@@ -274,19 +317,45 @@ fn launch_sequential(handle: sys::cublasHandle_t, data: &LaunchData) -> Result<(
     Ok(())
 }
 
-fn check_device_output(ctx: &CudaContext, out: &CudaSlice<f32>) -> Result<()> {
-    let values = read_device(ctx, out)?;
-    for (idx, value) in values.iter().enumerate() {
-        if !value.is_finite() {
-            return Err(ForgeError::NumericalInvariant {
-                op: "execute_grouped_gemm".to_string(),
-                detail: format!("non-finite output at index {idx}: {value}"),
-                remediation: GROUPED_REMEDIATION.to_string(),
-            });
+fn check_device_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<()> {
+    let values = read_device(ctx, &plan.c_slab)?;
+    for item in &plan.active {
+        let problem = item.problem;
+        let start = problem.c_offset;
+        let end = start + problem.m * problem.n;
+        for (rel_idx, value) in values[start..end].iter().enumerate() {
+            if !value.is_finite() {
+                return Err(ForgeError::NumericalInvariant {
+                    op: "execute_grouped_gemm".to_string(),
+                    detail: format!(
+                        "non-finite active output at slot {} index {}: {}",
+                        item.slot_idx, rel_idx, value
+                    ),
+                    remediation: GROUPED_REMEDIATION.to_string(),
+                });
+            }
         }
     }
+    debug_assert_absent_sentinels(&values, &plan.absent_sentinel_ranges);
     Ok(())
 }
+
+#[cfg(debug_assertions)]
+fn debug_assert_absent_sentinels(values: &[f32], sentinels: &[AbsentSlotSentinel]) {
+    for sentinel in sentinels {
+        let end = sentinel.c_offset + sentinel.len;
+        for value in &values[sentinel.c_offset..end] {
+            debug_assert!(
+                value.to_bits() == ABSENT_SENTINEL.to_bits(),
+                "absent slot {} output was written — grouped GEMM absent-slot skip violated",
+                sentinel.flat_idx
+            );
+        }
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn debug_assert_absent_sentinels(_values: &[f32], _sentinels: &[AbsentSlotSentinel]) {}
 
 fn read_device(ctx: &CudaContext, out: &CudaSlice<f32>) -> Result<Vec<f32>> {
     ctx.inner()
@@ -317,14 +386,26 @@ fn matrix_len(rows: usize, cols: usize, name: &str) -> Result<usize> {
 }
 
 fn checked_range(offset: usize, len: usize, total: usize, name: &str) -> Result<()> {
-    match offset.checked_add(len) {
-        Some(end) if end <= total => Ok(()),
-        _ => Err(ForgeError::ShapeMismatch {
+    let end = checked_end(offset, len, name)?;
+    if end <= total {
+        Ok(())
+    } else {
+        Err(ForgeError::ShapeMismatch {
             expected: vec![total],
             got: vec![offset, len],
             remediation: format!("{name} offset+length exceeds slab length"),
-        }),
+        })
     }
+}
+
+fn checked_end(offset: usize, len: usize, name: &str) -> Result<usize> {
+    offset
+        .checked_add(len)
+        .ok_or_else(|| ForgeError::ShapeMismatch {
+            expected: vec![usize::MAX],
+            got: vec![offset, len],
+            remediation: format!("{name} offset+length overflows usize"),
+        })
 }
 
 fn to_i32(value: usize, name: &str) -> Result<i32> {

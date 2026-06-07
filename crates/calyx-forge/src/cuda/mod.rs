@@ -7,6 +7,7 @@ pub mod grouped_gemm;
 #[cfg(test)]
 mod grouped_gemm_tests;
 pub mod kernels;
+pub mod ragged_gemm;
 pub mod topk;
 #[cfg(test)]
 mod topk_tests;
@@ -21,7 +22,12 @@ pub use gemm::{
     probe_allocation,
 };
 pub use grouped_gemm::{
-    GemmProblem, GroupedGemmPlan, build_grouped_gemm_plan, execute_grouped_gemm,
+    AbsentSlotSentinel, GemmProblem, GroupedGemmPlan, build_grouped_gemm_plan,
+    execute_grouped_gemm, read_grouped_gemm_output,
+};
+pub use ragged_gemm::{
+    RaggedBatch, build_ragged_batch, build_ragged_batch_from_slabs, extract_ragged_results,
+    try_extract_ragged_results,
 };
 pub use topk::topk_gpu;
 
