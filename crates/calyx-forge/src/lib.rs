@@ -12,7 +12,10 @@ pub mod quant;
 pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
-pub use cuda::{CudaBackend, CudaContext, init_cuda, query_device_info};
+pub use cuda::{
+    CudaBackend, CudaContext, GemmProblem, GroupedGemmPlan, build_grouped_gemm_plan,
+    execute_grouped_gemm, init_cuda, query_device_info,
+};
 pub use error::ForgeError;
 pub use mxfp4::{
     MXFP4_BLOCK_SIZE, MXFP4_PACKED_BYTES, MxFp4Block, decode_mxfp4, decode_mxfp4_block, e8m0_scale,
