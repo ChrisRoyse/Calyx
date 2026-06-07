@@ -172,8 +172,11 @@ fn catalog_reports_shard_count_for_one_cf() {
     let base = dir.join("base.sst");
     let ledger = dir.join("ledger.sst");
     write_sst(&base, [(b"a".as_slice(), b"one".as_slice())]).expect("write base");
-    write_sst(&ledger, [(b"\0\0\0\0\0\0\0\x01".as_slice(), b"l".as_slice())])
-        .expect("write ledger");
+    write_sst(
+        &ledger,
+        [(b"\0\0\0\0\0\0\0\x01".as_slice(), b"l".as_slice())],
+    )
+    .expect("write ledger");
     let catalog = CompactionCatalog::new(vec![
         SstShard::new(ColumnFamily::Base, &base, 0).unwrap(),
         SstShard::new(ColumnFamily::Ledger, &ledger, 0).unwrap(),

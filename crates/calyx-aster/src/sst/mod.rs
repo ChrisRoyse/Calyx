@@ -1,6 +1,8 @@
 //! Immutable SSTable writer and mmap reader.
 
+pub mod arrow;
 mod bloom;
+pub mod level;
 
 use bloom::BloomFilter;
 use calyx_core::{CalyxError, Result};

@@ -2,6 +2,7 @@
 
 mod family;
 mod key;
+mod router;
 
 pub use family::{ColumnFamily, SlotFamilyKind};
 pub use key::{
@@ -10,6 +11,7 @@ pub use key::{
     prefix_range, scalar_key, scalar_prefix_range, slot_key, verify_cx_hash_prefix, xterm_key,
     xterm_prefix_range,
 };
+pub use router::CfRouter;
 
 #[cfg(test)]
 mod tests;

@@ -1,5 +1,6 @@
 //! Calyx command-line entry point.
 
+mod fsv;
 mod ops;
 
 use std::env;
@@ -36,6 +37,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         {
             ops::readback_wal(Path::new(vault))
         }
+        [command, flag, cf, level_flag, level_dir]
+            if command == "readback" && flag == "--cf" && level_flag == "--level" =>
+        {
+            fsv::readback_level(cf, Path::new(level_dir))
+        }
         [command, vault_flag, vault, cf_flag, cf]
             if command == "compact" && vault_flag == "--vault" && cf_flag == "--cf" =>
         {
@@ -48,11 +54,18 @@ fn run(args: Vec<String>) -> Result<(), String> {
         {
             ops::compact_watch(Path::new(vault), ops::parse_duration(duration)?)
         }
-        [command, vault_flag, vault, ops_flag, ops, threads_flag, threads]
-            if command == "soak"
-                && vault_flag == "--vault"
-                && ops_flag == "--ops"
-                && threads_flag == "--threads" =>
+        [
+            command,
+            vault_flag,
+            vault,
+            ops_flag,
+            ops,
+            threads_flag,
+            threads,
+        ] if command == "soak"
+            && vault_flag == "--vault"
+            && ops_flag == "--ops"
+            && threads_flag == "--threads" =>
         {
             let ops = ops
                 .parse::<usize>()
@@ -72,6 +85,12 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, vault_flag, vault] if command == "vault-demo" && vault_flag == "--vault" => {
             ops::vault_demo(Path::new(vault))
+        }
+        [command, vault_flag, vault] if command == "arrow-demo" && vault_flag == "--vault" => {
+            fsv::arrow_demo(Path::new(vault))
+        }
+        [command, vault_flag, vault] if command == "cf-demo" && vault_flag == "--vault" => {
+            fsv::cf_demo(Path::new(vault))
         }
         [command, vault_flag, vault, requests_flag, requests]
             if command == "wal-batch-demo"
@@ -180,7 +199,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx arrow-demo --vault <dir>\n       calyx cf-demo --vault <dir>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
 }
 
 #[cfg(test)]
