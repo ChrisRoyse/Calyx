@@ -113,6 +113,11 @@ dependencies = [
 [[package]]
 name = "calyx-forge"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "calyx-ledger"
