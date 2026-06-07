@@ -2,6 +2,7 @@
 
 pub mod cf;
 pub mod memtable;
+pub mod mvcc;
 pub mod sst;
 pub mod wal;
 
