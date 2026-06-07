@@ -12,7 +12,11 @@ pub mod mxfp4;
 pub mod mxfp8;
 pub mod quant;
 
-pub use autotune::{AutotuneCache, AutotuneKey, BenchCudaContext, BenchResult, microbench};
+pub use autotune::{
+    AutotuneCache, AutotuneKey, BenchCudaContext, BenchResult, EPSILON, Explorer, ExplorerPolicy,
+    MIN_PROMOTE_MARGIN, MIN_PROMOTE_TRIALS, microbench, next_candidate, promote_if_winner,
+    record_trial, should_promote,
+};
 pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
