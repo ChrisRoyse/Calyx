@@ -4,6 +4,7 @@ pub mod cf;
 pub mod memtable;
 pub mod mvcc;
 pub mod sst;
+pub mod vault;
 pub mod wal;
 
 #[cfg(test)]
