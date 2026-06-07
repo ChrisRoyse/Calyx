@@ -80,6 +80,8 @@ storage/
 
 # ── Logs / temp / scratch (sitrep writes ./tmp) ──────────────────────
 *.log
+/crates/calyx-forge/tests/autotune_cache_fsv.json
+/crates/calyx-forge/tests/promotion_log.jsonl
 logs/
 tmp/
 .tmp/
