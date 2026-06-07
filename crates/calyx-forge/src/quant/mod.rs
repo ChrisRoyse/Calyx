@@ -1,8 +1,14 @@
+pub mod rotation;
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
 use crate::ForgeError;
 use crate::Result;
+
+pub use rotation::{
+    CURRENT_SEED_VERSION, RotationSeed, apply_rotation, apply_rotation_batch, new_seed, seed_id_hex,
+};
 
 pub type SeedId = [u8; 32];
 

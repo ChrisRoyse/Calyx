@@ -12,7 +12,10 @@ cuda = ["dep:cudarc"]
 
 [dependencies]
 cudarc = { workspace = true, optional = true, features = ["std", "driver", "cublas", "nvrtc", "dynamic-loading", "cuda-13020"] }
+rand.workspace = true
+rand_chacha.workspace = true
 serde.workspace = true
+sha2.workspace = true
 tracing.workspace = true
 wide.workspace = true
 
