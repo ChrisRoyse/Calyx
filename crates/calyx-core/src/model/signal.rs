@@ -2,8 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Monotonic server timestamp used in core API structs.
-pub type Ts = u64;
+use crate::time::Ts;
 
 /// Confidence interval for an estimated signal.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

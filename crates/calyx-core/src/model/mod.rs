@@ -6,9 +6,10 @@ pub mod signal;
 pub mod slot;
 pub mod vector;
 
+pub use crate::time::Ts;
 pub use anchor::{Anchor, AnchorValue};
 pub use constellation::Constellation;
-pub use signal::{ConfidenceInterval, CxFlags, InputRef, LedgerRef, Signal, Ts};
+pub use signal::{ConfidenceInterval, CxFlags, InputRef, LedgerRef, Signal};
 pub use slot::{Panel, Slot};
 pub use vector::{SlotVector, SparseEntry};
 
