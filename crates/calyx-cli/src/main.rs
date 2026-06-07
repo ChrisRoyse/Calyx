@@ -92,6 +92,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, vault_flag, vault] if command == "cf-demo" && vault_flag == "--vault" => {
             fsv::cf_demo(Path::new(vault))
         }
+        [command, vault_flag, vault] if command == "mvcc-demo" && vault_flag == "--vault" => {
+            fsv::mvcc_demo(Path::new(vault))
+        }
         [command, vault_flag, vault, requests_flag, requests]
             if command == "wal-batch-demo"
                 && vault_flag == "--vault"
@@ -199,7 +202,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx arrow-demo --vault <dir>\n       calyx cf-demo --vault <dir>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx arrow-demo --vault <dir>\n       calyx cf-demo --vault <dir>\n       calyx mvcc-demo --vault <dir>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
 }
 
 #[cfg(test)]

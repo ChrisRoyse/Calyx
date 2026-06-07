@@ -5,6 +5,7 @@ mod cf_codec;
 mod cursor;
 mod durable;
 pub mod encode;
+mod router_bridge;
 
 use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
