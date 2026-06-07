@@ -204,15 +204,15 @@ fn encode_anchor_kind(kind: &AnchorKind, out: &mut Vec<u8>) {
         AnchorKind::TestPass => out.extend_from_slice(&0_u16.to_be_bytes()),
         AnchorKind::TieFormed => out.extend_from_slice(&1_u16.to_be_bytes()),
         AnchorKind::Thumbs => out.extend_from_slice(&2_u16.to_be_bytes()),
+        AnchorKind::Reward => out.extend_from_slice(&3_u16.to_be_bytes()),
+        AnchorKind::SpeakerMatch => out.extend_from_slice(&4_u16.to_be_bytes()),
+        AnchorKind::StyleHold => out.extend_from_slice(&5_u16.to_be_bytes()),
+        AnchorKind::Recurrence => out.extend_from_slice(&6_u16.to_be_bytes()),
         AnchorKind::Label(value) => {
-            out.extend_from_slice(&3_u16.to_be_bytes());
+            out.extend_from_slice(&7_u16.to_be_bytes());
             let bytes = value.as_bytes();
             out.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
             out.extend_from_slice(bytes);
         }
-        AnchorKind::Reward => out.extend_from_slice(&4_u16.to_be_bytes()),
-        AnchorKind::SpeakerMatch => out.extend_from_slice(&5_u16.to_be_bytes()),
-        AnchorKind::StyleHold => out.extend_from_slice(&6_u16.to_be_bytes()),
-        AnchorKind::Recurrence => out.extend_from_slice(&7_u16.to_be_bytes()),
     }
 }
