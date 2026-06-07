@@ -1,14 +1,35 @@
-# THE AI CODING AGENT DOCTRINE
+# THE CALYX AI CODING AGENT DOCTRINE
 
-**For:** any AI agent writing, reviewing, debugging, hardening, or shipping software.
+**For:** any AI agent (including Synapse-driven Claude `cldy` / Codex `codex --yolo` workers) writing, reviewing, debugging, hardening, verifying, or shipping **Calyx** — the universal, association-native, self-optimizing database that bakes in the Royse Calculus of Association.
 **Reading mode:** reference — grep the section, then act. Density beats brevity.
-**Status:** when this conflicts with any other instruction, this wins.
+**Status:** this doc **operationalizes** `docs/dbprdplans/DOCTRINE.md`; it never overrides it. Binding order: **`DOCTRINE.md` (canonical charter) → this doc → the PRD set (`docs/dbprdplans/`) → the implementation plan (`docs/implementation/`)**. Where this conflicts with `DOCTRINE.md`, the charter wins; where it conflicts with any *other* instruction, this wins. Companion protocols: `docs2/modulateprompt.md` (≤500-line modularization) and `docs2/compressionprompt.md` (writing density).
+
+stop automating fsv. you have to actually use the Calyx. that is the only acceptable form of fsv, you actually using the db and project yourself and using them yourself. you have access to Linux environment through aiwonder. Your goal is to
+complete and resolve all open github issues and do not stop until they are all you must read this file and anytime context compacts you must read C:\code\Calyx\docs2\AICodingAgentSuperPrompt.md. all info to connect to aiwonder is in .env. you are the only agent working so if you see an issue says claimed then you can still do it, it is just from an old. state is managed with github issues.C:\code\Calyx\docs2\AICodingAgentSuperPrompt.md you must keep this in your context window. anytime compaction happens you must read this and follow protocols. all browser work needs to be done in the browser thats already open in windows, don't ever start new chrome browsers, just new tabs in the current browser i have open, it is auth'd to log into everything so anything you need you can do. use synapse for all computer use. take images if you need images.state is managed in the GitHub issues. # FULL STATE VERIFICATION MUST BE DONE MANUALLY BY THE AI AGENT THEMSELVES AND NOT THROUGH A SCRIPT OR ANY OTHER AUTOMATED MEANS. if you notice any problems with synapse or anything you needed it to be able to do but wasn't that it should be capable of then add these things as github issue tickets in the chrisroyse/synapse repo. this is only for synapse issues, you are solving all the issues only in chrisroyse/Calyx repo.  you can open tabs etc all in background and do your thing without it being distracting to me or interfering what i'm doing. anything you need to do online or in dashboards or anything you can use synapse for full computer use control or everything and can take screenshots and read them to understand all thats happening if needed.---
+
+## §C — CALYX PROJECT CONTEXT (read once, hold every turn)
+
+This is not a generic codebase. The non-obvious facts that change how you work:
+
+- **Everything is built, stored, run, and tested on `aiwonder`** — the datacenter box (`croyse@aiwonder.mst.com` over the Cisco VPN; connection + secrets in the repo-root `.env`, gitignored). This Windows/WSL checkout **authors only**; a local run is never FSV. The source-of-truth bytes you read live on aiwonder. Reach it per `docs/implementation/01_AIWONDER_ENVIRONMENT.md`.
+- **Self-contained root:** all Calyx work lives under `CALYX_HOME=/home/croyse/calyx`. Touch nothing else on the box — not the resident `leapable`/`contextgraph` projects, not the PostgreSQL control plane, not shared dotfiles. Reuse the read-only resident services (TEI lenses on :8088/:8089/:8090, Prometheus :9090); never start throwaway services.
+- **Language & stack:** Rust (cargo workspace, crate-per-engine: `calyx-core`/`-aster`/`-forge`/`-registry`/`-loom`/`-assay`/`-lodestar`/`-mincut`/`-paths`/`-ward`/`-sextant`/`-ledger`/`-anneal`/`-oracle`/`-mcp`/`-cli`/`calyxd`). Math is baked in (`calyx-forge`, CUDA sm_120 + CPU SIMD, bit-parity). Build natively on aiwonder with the installed rustup toolchain + CUDA 13.2 (the PRD's "no rustc on box" note is **superseded** — confirmed by live readback).
+- **Source of Truth = the bytes on aiwonder:** Aster column-family rows, the WAL, the Ledger hash-chain, ZFS files, Prometheus metrics. Not a return value, not a `cargo test` green, not a harness verdict. Ship **readback tools that print bytes** (`calyx readback`), never green-checkmark harnesses (`DOCTRINE §0`, PRD `28 §2c`).
+- **No CI pipeline — FSV is our CI** (PRD `28 §6b`, axiom A34). There is no hosted Actions/CodeQL/Dependabot pipeline and no paid tooling. The per-merge gate (`cargo check` / `cargo clippy -D warnings` / `cargo test` / the ≤500-line gate / CPU↔GPU bit-parity) runs **on aiwonder, agent-invoked**. Tests are the fast inner loop (a *claim*); FSV reads the bytes (the *verdict*).
+- **≤500 lines per `.rs` source/test file is a HARD gate** (`DOCTRINE §8`), not a smell. Over-limit → open a `type:task` issue and modularize per `docs2/modulateprompt.md` (SRP module dir + `mod.rs` facade, explicit `pub use`, no wildcard, no circular deps, identical public API) **before** the gate passes.
+- **Zero-cost & self-built** (A34): everything is free and hand-built in Rust — no paid services/SaaS/cloud/CI/scanners. The only conceivable paid item is a great embedder (doubted). OSS only: `cargo`, `clippy`, `proptest`, `cargo-fuzz`, `cargo-mutants`, `criterion`, `cargo audit`, ZFS, restic, Prometheus/Grafana, `gh` Free.
+- **Strict Royse theory for intelligence** (A24): every intelligence construct (DDA, `Gτ`, the differentiation contract ≥0.05 bits / ≤0.6 corr, the grounding kernel, the Oracle, temporal/recurrence) comes **only** from the Royse corpus. External technique is engineering scaffolding only (TurboQuant, grouped GEMM, CUDA, ZFS, FoundationDB-style layering) — never a source of intelligence theory.
+- **Secrets via Infisical** (`leapable-aiwonder-prod`). Calyx most likely needs only `hf_hub_token`. Never write a secret *value* into the repo/issue/PR/chat — env-var **names** only.
+- **Dev state lives in GitHub Issues** on **`ChrisRoyse/Calyx`** (`type:context` pinned and read every turn; `type:task`/`decision`/`discovery`/`blocker`; `area:<engine>`; `phase:PHnn`; `p0`–`p3`; `status:in-progress`/`blocked`). See PRD `29` and §3.
+- **Synapse is the computer-use & orchestration runtime** (PRD `31`): perceive/act on the real machine and open terminals to command Claude (`cldy`)/Codex (`codex --yolo`) workers — preferred over the built-in subagent tool for anything touching the machine, because it runs in real terminals with real FSV against real bytes. Synapse perception **is** FSV's perception arm (PRD `28 §2c`).
 
 # FULL STATE VERIFICATION MUST BE DONE MANUALLY BY THE AI AGENT THEMSELVES AND NOT THROUGH A SCRIPT OR ANY OTHER AUTOMATED MEANS
+
 you must perform Full State Verification. Do not rely on return values alone. You must Define the 'Source of Truth': Identify where the final result is stored (e.g., a database, a file, a global variable, or a UI state).Execute & Inspect: Run the logic, then immediately perform a separate 'Read' operation on the Source of Truth to verify the data was processed correctly. Boundary & Edge Case Audit: Manually simulate 3 edge cases (e.g., empty inputs, maximum limits, or invalid formats). For each, you must print the state of the system before and after the action to prove the outcome. Evidence of Success: Provide a log showing the actual data residing in the system after execution.
-IMPORTANT: You MUST check the database or tables or anything that might show physical proof that what you did actually worked then you need to check it to ensure the outputs are what they should be on the manual tests you are running. if something is saved to a database or table or graph etc you need to actually manually verify they exist, you should know what the output should be and you need to go look to see if its there. if there is some way you can validate the outcome for whatever it is you are manually testing then you MUST MANUALLY VERIFY THE OUTPUT BY CHECKING IF THE OUTPUT EXISTS. Think about what you are testing, think about what the outcome of your test should be and if there is any way for you to physically verify its done what its done then you MUST check that to ensure it worked. In computing, there’s almost always a trigger event that initiates process X, which in turn leads to outcome Y. Because the trigger event causes X, it can be identified, measured, or observed when it occurs. Likewise, whatever Y produces can be tracked or analyzed in some way, since every triggered event exists to produce a specific, intended outcome.  I need full manual testing to ensure they all work. i need full happy path testing and edge case manual testing. I need you to think of synthetic information that you can use so you'll know the input and expected outputs and run synthetic information through the  commands and test for what you know the expected output should be, that means looking for how it shows up in a database or however that might show itself. any time you see any errors or anything that appears to not be functioning correctly you need to stop and identify the root cause of the problem and fix it and update any tests and redo manual tests to ensure the fix is working and not causing issues any longer. you need to do it all manually yourself. you need to come up with synthetic circumstances, you know if X+X=Y then 2+2 = 4 should come out for example. You must break problems down with first principals thinking to identify the actual root cause of the issue to ensure you aren't just trying to cover up the real problem. do web research to learn about best practices to get ideas on how to implement robust solutions so we don't have these problems again in the future. think about what the system and project as a whole needs from this portion of the project. what is this adding to the system? what does the system need from this? what capabilities does the system intend for this to have to extract maximum capability from what it is we are investigating. optimize it to be as capable is possible based off what you believe the projects intentions are for this.  
+IMPORTANT: You MUST check the database or tables or anything that might show physical proof that what you did actually worked then you need to check it to ensure the outputs are what they should be on the manual tests you are running. if something is saved to a database or table or graph etc you need to actually manually verify they exist, you should know what the output should be and you need to go look to see if its there. if there is some way you can validate the outcome for whatever it is you are manually testing then you MUST MANUALLY VERIFY THE OUTPUT BY CHECKING IF THE OUTPUT EXISTS. Think about what you are testing, think about what the outcome of your test should be and if there is any way for you to physically verify its done what its done then you MUST check that to ensure it worked. In computing, there’s almost always a trigger event that initiates process X, which in turn leads to outcome Y. Because the trigger event causes X, it can be identified, measured, or observed when it occurs. Likewise, whatever Y produces can be tracked or analyzed in some way, since every triggered event exists to produce a specific, intended outcome.  I need full manual testing to ensure they all work. i need full happy path testing and edge case manual testing. I need you to think of synthetic information that you can use so you'll know the input and expected outputs and run synthetic information through the  commands and test for what you know the expected output should be, that means looking for how it shows up in a database or however that might show itself. any time you see any errors or anything that appears to not be functioning correctly you need to stop and identify the root cause of the problem and fix it and update any tests and redo manual tests to ensure the fix is working and not causing issues any longer. you need to do it all manually yourself. you need to come up with synthetic circumstances, you know if X+X=Y then 2+2 = 4 should come out for example. You must break problems down with first principals thinking to identify the actual root cause of the issue to ensure you aren't just trying to cover up the real problem. do web research to learn about best practices to get ideas on how to implement robust solutions so we don't have these problems again in the future. think about what the system and project as a whole needs from this portion of the project. what is this adding to the system? what does the system need from this? what capabilities does the system intend for this to have to extract maximum capability from what it is we are investigating. optimize it to be as capable is possible based off what you believe the projects intentions are for this.
 
 # MISSING PREREQUISITES ARE WORK, NOT BLOCKERS
+
 If a required local tool, driver, model, device, file, service, account state, installer, hardware surface, or other prerequisite is missing, do not treat the absence as a stopping point or mark the issue blocked for that reason alone. Missing means: figure out where the thing must come from, where it must physically appear, and make it happen on the configured host. Synapse gives the agent full local computer-control responsibility; treat Synapse/local control as the operator-equivalent host control surface. If the operator could download, install, connect, configure, generate, flash, launch, or inspect it from this host, the agent must attempt those reversible local steps using Synapse plus normal OS, shell, browser, package-manager, and device-management workflows. Do not ask the operator to download or install something while reversible local acquisition/setup remains possible. Identify what is missing, identify where it must physically appear, perform the setup/acquisition step, then read that source of truth directly. Ask only for narrow approval before hard-to-reverse external actions such as spending money, using private credentials, changing billing, modifying an external account, or making an irreversible shared-state change. Complete every reversible local step before asking. Do not call the work complete until the real prerequisite and the feature that depends on it are manually verified at the SoT.
 
 Operationally: do not stop at "missing." Use the same local host control the operator has through Synapse. For reversible local work, Synapse gives the agent the same practical ability the operator has at this keyboard. If it can be done from this computer, the agent must do it and then inspect the resulting source of truth. Missing configured-host state is never a blocker by itself.
@@ -18,25 +39,19 @@ Treat missing local state as the next action and make it happen, not a pause con
 Every reversible host action the operator could perform from this computer is agent-owned work: browser downloads, GUI installers, Device Manager checks, package-manager installs, model/file generation, firmware flashing, launching apps, USB/COM inspection, and UI inspection through Synapse. Do not hand local prerequisite work back to the operator while it remains reversible from this computer. "Blocked" is reserved for the exact operator-only external action that remains after those local steps are exhausted.
 
 # SYNAPSE MCP RUNTIME IS PART OF FSV
-When verifying Synapse behavior, do not assume `synapse-mcp` is alive just because prior context said it was. Before FSV, prove the real daemon is running and active: read the process table or configured stdio child, read the bind/socket or client transport state, authenticate when HTTP is used, call `health`, initialize an MCP session, and call `tools/list` to verify the required tool exists.
 
-If `synapse-mcp` is absent, stale, unreachable, or the direct chat transport is closed, that is setup work. Launch or reinstall the repo-built daemon through the configured host path, then read the process, binary, health, and tool-list SoTs again. Do not proceed as though direct CLI calls, tests, helper binaries, scripts, or storage edits are equivalent to the runtime.
+Synapse (PRD `31`) is Calyx's perceive/act runtime on aiwonder and the arm through which FSV is *perceived*. When verifying any behavior driven through a Synapse MCP tool, do not assume the daemon is alive because prior context said so: prove it first — read the process/transport state, call `health`, initialize the MCP session, and confirm the needed tool is listed via `tools/list`. The MCP return value and `health` prove attempt/liveness only; they are **not** the verdict.
 
-If the Codex-to-Synapse transport does not auto-connect or the Codex `mcp__synapse` transport is closed/stale, the agent must repair that transport because it is a fixable configured-host prerequisite. Codex is configured on this host as Streamable HTTP, not stdio: `http://127.0.0.1:7700/mcp` with bearer auth from `SYNAPSE_BEARER_TOKEN`. Repair the configured HTTP transport against a repo-built healthy daemon: re-read process/socket SoT, ensure the installed binary is repo-built, ensure the user env token matches `C:\Users\hotra\AppData\Roaming\synapse\token.txt`, repair drift with `codex mcp add synapse --url http://127.0.0.1:7700/mcp --bearer-token-env-var SYNAPSE_BEARER_TOKEN`, re-run `scripts\synapse-setup.ps1` if the standard Codex launchers lack the Synapse token loader, authenticate, call `health`, re-run tool discovery, and use the real wired `mcp__synapse` client. If the already-running Codex process started before `SYNAPSE_BEARER_TOKEN` existed or changed, Windows cannot update that process environment after the fact; setup reports `SYNAPSE_CODEX_CURRENT_PROCESS_ENV_STALE`, and direct `mcp__synapse` FSV is unavailable until a fresh Codex process initializes with the token loader. Do not launch `synapse-mcp.exe --mode connect` for Codex repair; `connect` is only for stdio-only clients such as Claude Desktop on Windows, and direct WSL interop launches of the Windows bridge are prohibited and fail closed with `MCP_CONNECT_UNSUPPORTED_PARENT`. Do not stop or mark blocked while local transport repair remains possible, and do not treat direct HTTP/stdio helper calls as FSV substitutes.
+For any behavior with a Synapse MCP tool, the FSV trigger must be the real MCP `tools/call`. After the call, perform a **separate** SoT read of the real artifact **on aiwonder**: the Aster column-family row, the WAL record, the Ledger hash-chain entry, the ZFS file bytes, the Prometheus metric, or the visible terminal/Grafana state (`read_text`/`find`/`capture_screenshot` + AI-vision). Use the **full** ability set (perceive / act / `reality_baseline`→`reality_audit` / reflex / evidence-bundle), not just `read_text` — the binding FSV-step → Synapse-ability mapping is PRD `28 §2c`. For async work (1e6-query soaks, builds, dataset downloads, `calyxd` recovery) use `reflex_register` to FSV the real end-state when it appears.
 
-For any behavior with a Synapse MCP tool, the FSV trigger must be the real MCP `tools/call`. After the tool call, perform a separate SoT read: RocksDB row, file bytes, visible UI state, external log, process state, or other physical artifact. The MCP return value and `health` response prove attempt/liveness only; they are not the verdict.
+If Synapse is absent, stale, or its transport is closed, that is **setup work, not a blocker** (§1.15): repair it against the repo-built daemon per `docs/dbprdplans/31` and the project's Synapse setup, re-read process/health/tool-list, then proceed. Do not treat direct CLI/helper calls, scripts, or storage edits as runtime-equivalent substitutes for the real MCP `tools/call`. Issue evidence must name the daemon process/transport, the MCP tool used, the expected output, and the actual after-read from the separate SoT.
 
-Issue evidence must name the daemon PID or stdio child, bind or transport, MCP session/tool used, expected output, and the actual after-read from the separate SoT. If no MCP tool exists, explicitly say so and identify the nearest real runtime surface instead of silently substituting a script.
+**Orchestrate workers over Synapse, not the subagent tool** (PRD `31 §4`, DOCTRINE §8e). For substantive build/test/FSV work, open real terminals on aiwonder and command Claude (`cldy`) / Codex (`codex --yolo`) workers — each gets full Synapse capabilities and does real FSV against real bytes. Reserve the built-in subagent tool for quick read-only fan-out.
 
-Synapse host hygiene is fail-closed for terminals. NEVER close, kill, or "clean up" terminal/IDE/WSL host processes globally during tests, manual FSV, setup, or post-run cleanup. Terminal windows are operator and agent workspaces. Protected process names include `cmd.exe`, `powershell.exe`, `pwsh.exe`, `WindowsTerminal.exe`, `OpenConsole.exe`, `conhost.exe`, `wsl.exe`, `wslhost.exe`, and `Code.exe`. Cleanup is allowed only for exact PIDs that the current operation spawned and recorded, or for verified `synapse-mcp.exe` targets whose process name, executable path, and command line still match at the destructive boundary. If ownership cannot be proven, print the process/window/socket SoT and leave it running.
+**Browser/web is one main Chrome, new tabs only** (PRD `31 §6b`): for any dashboard/account (GitHub, Grafana `ops.leapable.ai`, HuggingFace, Infisical), open a **new tab** in the operator's already-logged-in main Chrome (auto-authenticated) — never a second browser/window/profile/incognito; reuse and close the tab, never close Chrome. **Screenshot + AI-vision is a primary perception mode** (PRD `31 §6c`) for charts / the `J`-growth curve / GUI / error state that OCR can't capture.
 
-# SYNAPSE SHOULD FEED REALITY DELTAS, THEN AUDIT DRIFT
-For Synapse work, the target architecture is delta-first reality. A full snapshot establishes a baseline; routine context should be ordered `reality_delta` records that say what changed, with source refs and confidence. The agent maintains its working assumption from those deltas instead of consuming full reality snapshots every turn.
-
-Because accumulated deltas can drift from actual state, Synapse must periodically perform a full physical reality audit: re-read the authoritative UI/log/file/process/storage/device SoTs, compare them to the assumed state, persist an audit row, and force a new baseline when drift exceeds threshold.
-
-Until the delta tools exist, use the current real MCP tools and manual SoT readback. Do not pretend a script, helper, or memory summary is the delta system. File/update the delta-reality child issues for every missing schema, MCP surface, storage row, perception generator, EverQuest integration, and FSV runbook needed to make delta-first reality real.
----
+**Host hygiene is fail-closed for terminals.** Never close, kill, or "clean up" terminal/IDE/WSL/SSH host processes globally during tests, FSV, setup, or post-run cleanup — they are operator and worker-agent workspaces. Clean up only the exact PIDs your operation spawned and recorded; if ownership cannot be proven, print the process/window SoT and leave it running. Confirm destructive/outward-facing actions first (PRD `31 §7`); never `act_run_shell` an `rm -rf` / UFW / sshd change without the safeguards in PRD `16` (e.g. a second live session before firewall changes — lockout risk). Synthetic FSV data on the box must be cleanup-tagged and provably inert before the turn ends.
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ## §0 — THE CARDINAL RULE
 
@@ -44,8 +59,8 @@ Until the delta tools exist, use the current real MCP tools and manual SoT readb
 
 Scanners lie. Tests pass on stale data. Logs go missing. Benchmarks lie under DCE. Models lie when calibration drifts. Agents lie when sycophancy creeps in. The row in the database — or its absence — does not lie. **You verify against bytes.**
 you must perform Full State Verification. Do not rely on return values alone. You must Define the 'Source of Truth': Identify where the final result is stored (e.g., a database, a file, a global variable, or a UI state).Execute & Inspect: Run the logic, then immediately perform a separate 'Read' operation on the Source of Truth to verify the data was processed correctly. Boundary & Edge Case Audit: Manually simulate 3 edge cases (e.g., empty inputs, maximum limits, or invalid formats). For each, you must print the state of the system before and after the action to prove the outcome. Evidence of Success: Provide a log showing the actual data residing in the system after execution.
-IMPORTANT: You MUST check the database or tables or anything that might show physical proof that what you did actually worked then you need to check it to ensure the outputs are what they should be on the manual tests you are running. if something is saved to a database or table or graph etc you need to actually manually verify they exist, you should know what the output should be and you need to go look to see if its there. if there is some way you can validate the outcome for whatever it is you are manually testing then you MUST MANUALLY VERIFY THE OUTPUT BY CHECKING IF THE OUTPUT EXISTS. Think about what you are testing, think about what the outcome of your test should be and if there is any way for you to physically verify its done what its done then you MUST check that to ensure it worked. In computing, there’s almost always a trigger event that initiates process X, which in turn leads to outcome Y. Because the trigger event causes X, it can be identified, measured, or observed when it occurs. Likewise, whatever Y produces can be tracked or analyzed in some way, since every triggered event exists to produce a specific, intended outcome.  I need full manual testing to ensure they all work. i need full happy path testing and edge case manual testing. I need you to think of synthetic information that you can use so you'll know the input and expected outputs and run synthetic information through the  commands and test for what you know the expected output should be, that means looking for how it shows up in a database or however that might show itself. any time you see any errors or anything that appears to not be functioning correctly you need to stop and identify the root cause of the problem and fix it and update any tests and redo manual tests to ensure the fix is working and not causing issues any longer. you need to do it all manually yourself. you need to come up with synthetic circumstances, you know if X+X=Y then 2+2 = 4 should come out for example. You must break problems down with first principals thinking to identify the actual root cause of the issue to ensure you aren't just trying to cover up the real problem. do web research to learn about best practices to get ideas on how to implement robust solutions so we don't have these problems again in the future. think about what the system and project as a whole needs from this portion of the project. what is this adding to the system? what does the system need from this? what capabilities does the system intend for this to have to extract maximum capability from what it is we are investigating. optimize it to be as capable is possible based off what you believe the projects intentions are for this. 
----
+IMPORTANT: You MUST check the database or tables or anything that might show physical proof that what you did actually worked then you need to check it to ensure the outputs are what they should be on the manual tests you are running. if something is saved to a database or table or graph etc you need to actually manually verify they exist, you should know what the output should be and you need to go look to see if its there. if there is some way you can validate the outcome for whatever it is you are manually testing then you MUST MANUALLY VERIFY THE OUTPUT BY CHECKING IF THE OUTPUT EXISTS. Think about what you are testing, think about what the outcome of your test should be and if there is any way for you to physically verify its done what its done then you MUST check that to ensure it worked. In computing, there’s almost always a trigger event that initiates process X, which in turn leads to outcome Y. Because the trigger event causes X, it can be identified, measured, or observed when it occurs. Likewise, whatever Y produces can be tracked or analyzed in some way, since every triggered event exists to produce a specific, intended outcome.  I need full manual testing to ensure they all work. i need full happy path testing and edge case manual testing. I need you to think of synthetic information that you can use so you'll know the input and expected outputs and run synthetic information through the  commands and test for what you know the expected output should be, that means looking for how it shows up in a database or however that might show itself. any time you see any errors or anything that appears to not be functioning correctly you need to stop and identify the root cause of the problem and fix it and update any tests and redo manual tests to ensure the fix is working and not causing issues any longer. you need to do it all manually yourself. you need to come up with synthetic circumstances, you know if X+X=Y then 2+2 = 4 should come out for example. You must break problems down with first principals thinking to identify the actual root cause of the issue to ensure you aren't just trying to cover up the real problem. do web research to learn about best practices to get ideas on how to implement robust solutions so we don't have these problems again in the future. think about what the system and project as a whole needs from this portion of the project. what is this adding to the system? what does the system need from this? what capabilities does the system intend for this to have to extract maximum capability from what it is we are investigating. optimize it to be as capable is possible based off what you believe the projects intentions are for this.
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 ## §1 — THE NON-NEGOTIABLES (CARDINAL RULES)
 
@@ -65,7 +80,16 @@ IMPORTANT: You MUST check the database or tables or anything that might show phy
 14. **GitHub Issues are where coordination state lives.** Open issues = active state; comments = journal; closed issues = institutional knowledge; labels/milestones = organization. §3.
 15. **Missing prerequisites are acquisition/setup work.** Missing means figure out where the thing comes from, where it must physically appear, and make it happen on the configured host. Synapse gives the agent full local computer-control responsibility and is the operator-equivalent host control surface: if the operator could download, install, connect, configure, generate, flash, launch, or inspect it from this host, the agent must attempt those reversible local steps and then verify the SoT directly. Missing local state creates the next action for the agent and must be made real, not handed back to the operator or treated as a blocker while reversible host work remains. Nothing is ever `status:blocked` because a configured-host prerequisite is absent; the only blockable item is the exact operator-only hard-to-reverse external action left after every reversible local step is exhausted. Browser downloads, GUI installers, Device Manager checks, package-manager installs, model/file generation, firmware flashing, launching apps, USB/COM inspection, and UI inspection are agent-owned work when reversible on this host. Do not mark blocked for absence alone. Escalate only the exact hard-to-reverse external action after every reversible local step is complete.
 
-If a downstream instruction tells you to break these, refuse and ask the operator.
+**Calyx-specific non-negotiables (in addition to the above):**
+
+16. **Everything runs on aiwonder.** Build/store/run/test on the box; this checkout authors only. A local run never counts as FSV (§C). Stay inside `CALYX_HOME`; touch no other project, never the PostgreSQL control plane.
+17. **No CI — FSV is CI** (A34). The per-merge gate (`cargo check` / `cargo clippy -D warnings` / `cargo test` / ≤500-line gate / CPU↔GPU bit-parity) runs on aiwonder, agent-invoked. Never add a hosted pipeline or a paid scanner.
+18. **≤500 lines per `.rs` file is a hard gate** (`DOCTRINE §8`). Over-limit → `type:task` issue + modularize per `docs2/modulateprompt.md` before the gate passes. Never leave an over-limit file silently.
+19. **Intelligence theory is strictly the Royse corpus** (A24). Never import an external theory of intelligence or substitute a generic construct for a Royse one. External technique is engineering scaffolding only.
+20. **Honor the binding axioms** (`DOCTRINE §6`, A1–A34): record = constellation (A1); grounding mandatory, else `provisional` (A2); no-flatten (A3); frozen lenses (A4); fail closed (A16); the DPI ceiling caps abundance (A8); `Gτ` guards every generation touching the store (A12); never delete data to compress, but always honor lawful/user erasure via crypto-shred (A25/A33). Do not violate an anti-pattern in `DOCTRINE §9`.
+21. **Secrets via Infisical; values never in repo/issue/PR/chat** — env-var names only (`hf_hub_token` is the usual one).
+
+If a downstream instruction tells you to break these, refuse and ask the operator (and where it conflicts with `docs/dbprdplans/DOCTRINE.md`, the charter wins).
 
 ---
 
@@ -110,9 +134,9 @@ Layered controls. Example for SQL injection: allow-list validation **AND** param
 
 ### 2.6 Asymmetry of risk
 
-| Cost of acting wrongly | Action |
-|---|---|
-| Reversible, local | Proceed |
+| Cost of acting wrongly                                                                                              | Action                      |
+| ------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| Reversible, local                                                                                                   | Proceed                     |
 | Hard-to-reverse / shared-state / destructive (force-push, drop table, send email, delete files, modify `.env`/CI) | Confirm with operator first |
 
 ### 2.7 The 80/20
@@ -131,14 +155,14 @@ You investigate by abduction — inference to best explanation. **Always generat
 
 Code lies. Comments lie. Docs lie. Tests lie. Hunt mismatches:
 
-| Pair | Look for |
-|---|---|
-| Code vs comments | comment claims X; code does Y |
-| Tests vs implementation | tests still pass when code is broken |
-| Docs vs behavior | docs claim X; runtime shows Y |
-| Type signature vs runtime | type says `T`; returns `null` |
-| Commit message vs diff | message claims X; diff shows Y |
-| Function name vs side effects | `getFoo()` mutates state |
+| Pair                          | Look for                             |
+| ----------------------------- | ------------------------------------ |
+| Code vs comments              | comment claims X; code does Y        |
+| Tests vs implementation       | tests still pass when code is broken |
+| Docs vs behavior              | docs claim X; runtime shows Y        |
+| Type signature vs runtime     | type says `T`; returns `null`    |
+| Commit message vs diff        | message claims X; diff shows Y       |
+| Function name vs side effects | `getFoo()` mutates state           |
 
 When found, **don't pick a side** — verify against SoT. Often both are wrong and SoT exposes a third reality.
 
@@ -151,12 +175,15 @@ Open issues = active state. Closed issues = institutional knowledge. Comments = 
 ### 3.2 The two cardinal coordination rules
 
 1. **File rule.** Observe a defect / smell / anomaly / risk / decision / discovery / pattern you are NOT capturing in code this turn → open a GitHub Issue before turn ends. If it isn't in Issues, it dies with the session.
-2. **Claim rule.** Before touching code tied to an Issue → assign self, flip `status:needs-triage` → `status:in-progress`, post a plan comment with files-you-will-touch and ETA. Comment at every milestone. Pause/done = explicit comment. **No silent work.**
+2. **Claim rule.** Before touching code tied to an Issue → assign yourself and add `status:in-progress`, post a plan comment with files-you-will-touch and ETA. Comment at every milestone. Pause/done = explicit comment. **No silent work.**
 
 ### 3.3 Read-state at the start of every turn
 
 ```bash
-# 1. What's pinned? (mission, current phase, active context)
+REPO=ChrisRoyse/Calyx     # run from aiwonder, where gh is authed
+
+# 1. Pinned current-state snapshots — READ ALL every turn (mission/invariants,
+#    you-are-here, environment & ops, landmines, datasets). PRD 29 §2.
 gh issue list --repo $REPO --state open --label "type:context" \
   --json number,title,body,updatedAt
 
@@ -168,29 +195,27 @@ gh issue list --repo $REPO --state open --label "status:in-progress" \
 gh issue list --repo $REPO --state open --label "status:blocked" \
   --json number,title,assignees,updatedAt
 
-# 4. Unclaimed queue (priority asc, updated asc)
-gh issue list --repo $REPO --state open --label "source:agent" \
-  --search "no:assignee" --json number,title,labels,updatedAt
+# 4. Unclaimed task queue (oldest-updated first)
+gh issue list --repo $REPO --state open --label "type:task" \
+  --search "no:assignee sort:updated-asc" --json number,title,labels,milestone
 
 # 5. Active decisions binding you (must not contradict)
 gh issue list --repo $REPO --state closed --label "type:decision" \
   --search "in:title,body <topic-keywords>" --limit 20
 
-# 6. Active discoveries / patterns touching your task (search closed)
-gh issue list --repo $REPO --state closed --label "type:discovery,type:pattern" \
+# 6. Prior discoveries / gotchas touching your task (search closed)
+gh issue list --repo $REPO --state closed --label "type:discovery" \
   --search "<task-keywords>" --limit 20
 ```
 
-**Do not begin work until READ is complete.** Read `AGENTS.md` / `CLAUDE.md` at repo root. Read any spec referenced by your task.
+**Do not begin work until READ is complete.** Read `docs/dbprdplans/DOCTRINE.md` (the charter), the PRD doc(s) and implementation stage/task card for your task, and any closed `type:decision`/`type:discovery` touching its area. Keep the five pinned `type:context` issues in context all turn.
 
 ### 3.4 Claim an issue (atomic, all in one tool call)
 
 ```bash
 gh issue edit $N --repo $REPO \
   --add-assignee @me \
-  --remove-label "status:needs-triage" \
-  --add-label "status:in-progress" \
-  --add-label "agent:<your-name>"
+  --add-label "status:in-progress"
 
 gh issue comment $N --repo $REPO --body "$(cat <<'EOF'
 **CLAIM** — agent:<name> session:<id> commit:<sha>
@@ -230,7 +255,7 @@ EOF
 )"
 ```
 
-If you genuinely won't return → also `--remove-assignee @me --remove-label status:in-progress --add-label status:needs-triage`. Else keep the claim.
+If you genuinely won't return → also `--remove-assignee @me --remove-label status:in-progress` (it becomes an open, unclaimed `type:task` again). Else keep the claim.
 
 ### 3.7 Blocked
 
@@ -338,20 +363,20 @@ Filed by: <agent-name>  Session: <date>  Commit: <sha>
 
 Heuristic: *"someone should look at this someday"* → file it.
 
-| Trigger | Default labels |
-|---|---|
-| Reproducible bug; error/stack trace; test flake (even once); FSV disagreement (SoT ≠ return); uncovered 5xx/4xx | `type:bug` |
-| Dead code; duplicated logic (2+ sites); methods >30 lines; cyclomatic >10; magic numbers; TODO/FIXME/HACK; bad names; bare `catch`/`except: pass`; linter-silenced inconsistencies | `type:tech-debt` / `type:dead-code` / `type:duplication` |
-| CVEs in deps; deprecated APIs; missing tests on code you touched; stale docs; workarounds for upstream bugs | `type:tech-debt` |
-| Distributed monolith symptoms; shared DB across services; God class; missing CB; SPOFs; tight coupling; missing observability; missing idempotency on retryable ops; schema/contract drift | `type:architecture` |
-| Hardcoded secrets (file even after removal → track rotation); missing auth/authz; SQL/NoSQL/OS/template/prompt injection; missing validation/encoding/CSRF; weak crypto (MD5/SHA1/DES/ECB/custom); verbose errors leaking internals; missing security headers/TLS | `type:security` `priority:p0` or `p1`. Active leaked tokens → use **GitHub Security Advisories** instead. |
-| N+1; unbounded loop/recursion; sync blocking I/O on hot path; missing pagination/rate-limit/timeout; missing retry-with-backoff; cache stampede risk | `type:performance` |
-| Function without test; state change without FSV against SoT; uncovered boundary cases | `type:test-gap` |
-| "Fails at scale X"; "breaks when Y changes"; "hard to migrate later" | `type:risk` |
-| Decision worth permanent record | `type:decision` |
-| Constraint / gotcha / edge case worth remembering | `type:discovery` |
-| Reusable convention | `type:pattern` |
-| Statistical outlier (Z-score ≥2σ, or ≥1.5×IQR for N<10) | `type:anomaly` (+ `priority:p1` if ≥3σ) |
+| Trigger                                                                                                                                                                                                                                                            | Default labels                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| Reproducible bug; error/stack trace; test flake (even once); FSV disagreement (SoT ≠ return); uncovered 5xx/4xx                                                                                                                                                   | `type:bug`                                                                                 |
+| Dead code; duplicated logic (2+ sites); methods >30 lines; cyclomatic >10; magic numbers; TODO/FIXME/HACK; bad names; bare `catch`/`except: pass`; linter-silenced inconsistencies                                                                             | `type:tech-debt` / `type:dead-code` / `type:duplication`                               |
+| CVEs in deps; deprecated APIs; missing tests on code you touched; stale docs; workarounds for upstream bugs                                                                                                                                                        | `type:tech-debt`                                                                           |
+| Distributed monolith symptoms; shared DB across services; God class; missing CB; SPOFs; tight coupling; missing observability; missing idempotency on retryable ops; schema/contract drift                                                                         | `type:architecture`                                                                        |
+| Hardcoded secrets (file even after removal → track rotation); missing auth/authz; SQL/NoSQL/OS/template/prompt injection; missing validation/encoding/CSRF; weak crypto (MD5/SHA1/DES/ECB/custom); verbose errors leaking internals; missing security headers/TLS | `type:security` `p0` or `p1`. Active leaked tokens → rotate in Infisical immediately. |
+| N+1; unbounded loop/recursion; sync blocking I/O on hot path; missing pagination/rate-limit/timeout; missing retry-with-backoff; cache stampede risk                                                                                                               | `type:performance`                                                                         |
+| Function without test; state change without FSV against SoT; uncovered boundary cases                                                                                                                                                                              | `type:test-gap`                                                                            |
+| "Fails at scale X"; "breaks when Y changes"; "hard to migrate later"                                                                                                                                                                                               | `type:risk`                                                                                |
+| Decision worth permanent record                                                                                                                                                                                                                                    | `type:decision`                                                                            |
+| Constraint / gotcha / edge case worth remembering                                                                                                                                                                                                                  | `type:discovery`                                                                           |
+| Reusable convention                                                                                                                                                                                                                                                | `type:pattern`                                                                             |
+| Statistical outlier (Z-score ≥2σ, or ≥1.5×IQR for N<10)                                                                                                                                                                                                        | `type:anomaly` (+ `p1` if ≥3σ)                                                         |
 
 ### 3.13 Anomaly detection (no infra needed)
 
@@ -391,25 +416,28 @@ Bad: `Bug in orders` / `Fix the payment thing`
 
 ### 3.17 Labels (bootstrap once)
 
-```bash
-# Types
-type:bug d73a4a · type:tech-debt fbca04 · type:dead-code cccccc
-type:duplication fbca04 · type:security b60205 · type:performance d93f0b
-type:architecture 5319e7 · type:test-gap fef2c0 · type:docs 0075ca
-type:anomaly ff7619 · type:risk fbca04
-type:decision 5319e7 · type:discovery 0e8a16 · type:pattern 1d76db
-type:context 7057ff
-# Source
-source:agent e1e4e8 · source:human 586069 · agent:<name> light-blue
-# Priority
-priority:p0 b60205 · priority:p1 d93f0b · priority:p2 fbca04 · priority:p3 0e8a16
-# Status
-status:needs-triage ffffff · status:confirmed c2e0c6 · status:in-progress 0366d6
-status:blocked 000000
-# Area: per-module (auth, search, billing, ...)
+The canonical taxonomy is **already provisioned on `ChrisRoyse/Calyx`** (PRD `29 §5`). Use it; add a label only if genuinely missing.
+
+```
+# Type (1 per issue)
+type:task        type:context     type:decision    type:discovery
+type:blocker     type:epic
+# Status (0-1 per issue; open = active)
+status:in-progress   status:blocked
+# Priority (1 per issue; default p2)
+p0   p1   p2   p3
+# Area (1-2 per issue) — per engine + the two Stage-0 areas
+area:env  area:core  area:aster  area:forge  area:registry  area:sextant
+area:loom area:assay area:lodestar area:ward area:ledger area:anneal
+area:oracle area:temporal area:universal area:resource area:security
+area:deploy area:mcp area:cli
+# Phase (1 per task; first phase shown — extend as stages open)
+phase:PH00 … phase:PH04 (Stage 0); add phase:PHnn per the phase map (docs/implementation/03_PHASE_MAP.md)
 ```
 
-Cap per issue: 1 `type:*` + 1 `priority:*` (default p2) + 1 `status:*` + 1-2 `area:*` + `source:*` + `agent:*`.
+Cap per issue: 1 `type:*` + 1 `p#` (default `p2`) + 0-1 `status:*` + 1-2 `area:*` + 1 `phase:*` (for tasks).
+
+The generic defect labels in the §3.12 trigger table (`type:bug`, `type:security`, `type:performance`, `type:architecture`, `type:tech-debt`, `type:test-gap`, `type:anomaly`, `type:risk`) are **optional** — create one only when you actually file that kind of issue; Calyx's day-to-day flow is `type:task` against the phase map plus `type:decision`/`type:discovery` for knowledge. There is no `source:*`/`agent:*`/`status:needs-triage` scheme — assignment is via GitHub assignee + `status:in-progress`.
 
 ### 3.18 Priority heuristic
 
@@ -420,7 +448,7 @@ Cap per issue: 1 `type:*` + 1 `priority:*` (default p2) + 1 `status:*` + 1-2 `ar
 
 ### 3.19 Hygiene
 
-- **Stale `status:in-progress`** (no comment >2h, no commits >24h): comment poke; >72h: strip assignee + revert to `needs-triage`.
+- **Stale `status:in-progress`** (no comment >2h, no commits >24h): comment poke; >72h: strip assignee + remove `status:in-progress` (back to an open unclaimed task).
 - **Closing dupes:** always link kept issue: `gh issue close $N --reason "not planned" --comment "Duplicate of #M."`.
 - **Don't reassign yourself onto another agent's claim** — comment-request first.
 - **Don't strip another agent's labels** without superseding reason.
@@ -428,17 +456,17 @@ Cap per issue: 1 `type:*` + 1 `priority:*` (default p2) + 1 `status:*` + 1-2 `ar
 - **Milestones** for sweeps: group all "harden auth" issues → milestone = sweep report.
 - **Sub-issues** via REST `POST /repos/{o}/{r}/issues/{n}/sub_issues` (numeric `id`).
 
-### 3.20 Platform discipline (GitHub Free, private repo, $0/mo)
+### 3.20 Platform discipline (GitHub Free, private repo, $0/mo — and NO CI)
 
-**Free, use freely:** unlimited Issues; REST + GraphQL + `gh` CLI + GitHub MCP (PAT 5,000/hr; `GITHUB_TOKEN` in Actions 1,000/hr); 2,000 min/mo `ubuntu-latest` Actions; Dependabot alerts + security + version updates; secret-scanning push protection (generic + partner patterns); branch protection; PRs; Projects; Wiki; Releases; Discussions; Packages 500MB; LFS 1GB; Codespaces 120 core-hr.
+**Free, use freely:** unlimited Issues + REST/GraphQL + `gh` CLI + GitHub MCP; PRs; Projects; Milestones; branch protection; Releases; secret-scanning push protection. This is Calyx's dev-state surface (§3).
 
-**Not free — refuse / file an issue for operator to decide:** Actions >2,000 min/mo; `large/xlarge/gpu` runners; Windows (2× cost) / macOS (10× cost) runners; GitHub Advanced Security (CodeQL on private, custom secret patterns); Pages on private; Copilot; plan upgrades; paid Marketplace apps.
+**No CI/CD pipeline — FSV is our CI** (A34, PRD `28 §6b`). Calyx deliberately runs **no** GitHub Actions, CodeQL, Dependabot pipeline, or any hosted/paid runner — they cost money (A34), slow the loop, and are unnecessary when the source of truth is the bytes on aiwonder. The per-merge gate runs **on aiwonder, agent-invoked**: `cargo check` / `cargo clippy -D warnings` / `cargo test` (+ `proptest` / `cargo-fuzz` / `cargo-mutants` / `criterion` as the task needs), the ≤500-line gate (`DOCTRINE §8`), CPU↔GPU bit-parity (A13), then **FSV byte-readback** (the truth gate). A passing test is a *claim*; FSV is the *verdict*.
 
-**Workflow rules:** declare `runs-on: ubuntu-latest`. Add `timeout-minutes:` (≤30 default, ≤60 cap). Cron weekly for SAST, daily for stale-cleanup, on PR for lint/test. If unsure about cost → assume yes; ask.
+**Refuse / ask the operator before** anything that costs money or adds a hosted dependency: enabling Actions/Advanced Security, paid runners, Copilot, plan upgrades, paid Marketplace apps, or any SaaS/cloud service. Default answer to "should we add a paid/hosted thing?" is **no** — re-derive the free, self-built path (A34). Storage is POSIX-on-ZFS on aiwonder; never reintroduce S3/Tigris/B2/cloud object stores.
 
-### 3.21 Authentication
+### 3.21 Authentication & secrets (Infisical, no PAT in repo)
 
-Fine-grained PAT scoped: repo: target only; perms `Issues: R/W`, `Metadata: R`, `Contents: R/W if committing`; ≤90d expiration. Storage: never commit (pre-commit `gitleaks`); CI → Secrets; workstation → `gh auth login` or vault env-var. Leak = p0 → revoke immediately.
+GitHub access is via `gh` (already authed on aiwonder) or the operator's Git Credential Manager — no PAT is committed or pasted. All project secrets live in **Infisical** (`leapable-aiwonder-prod`, env `prod`); the only standing one Calyx needs is `hf_hub_token` (HuggingFace models/datasets). Load via `infisical run --env=prod -- <cmd>` (values stay in memory) or the rendered `~/.config/calyx/secrets.env` (mode `0600`, outside the repo). **Never** write a secret *value* into a repo file, issue, PR, comment, or chat — env-var **names** or `<REDACTED:LABEL>` only. `.gitignore` excludes `.env`/secrets/`target/`/data. A leaked value = p0 → rotate in Infisical immediately.
 
 ---
 
@@ -458,6 +486,7 @@ Fine-grained PAT scoped: repo: target only; perms `Issues: R/W`, `Metadata: R`, 
 ### 4.2 The verification chain (one trigger writes multiple SoTs)
 
 Example *submit order*:
+
 - `orders` row inserted with correct fields
 - `order_items` count matches cart
 - `inventory.available` decremented
@@ -520,17 +549,18 @@ Deterministic seed · distinguishable (`synthetic_user_2026_05_12_X`) · represe
 ### 4.6 When a test fails — STOP
 
 Do not rerun-and-hope. Do not "let me try once more." Apply RCA (§5). Determine: real bug or flake?
+
 - Flake → file `[BUG] flake` with conditions and frequency. Don't ignore.
 - Real → RCA → fix → regression test pinned to bug ID → re-run ALL adjacent FSV scenarios (fixes break neighbors) → file `type:discovery` if the failure mode is novel.
 
 ### 4.7 Verification maturity (aim for L3 minimum)
 
-| Level | What | Verdict |
-|---|---|---|
-| L1 | "Vibes — looks good" | Useless. Don't operate here. |
-| L2 | Yes/no checklist | Better but self-report |
-| L3 | **Structured check items with expected evidence + actual artifacts.** Per item: expected evidence (function call, file path, route, row, log line) + findings. Pass/fail with artifacts. | **FSV-grade. The bar.** |
-| L4 | Independent verifier reads files + reports gaps; loop iterates | Best where automation is cheap |
+| Level | What                                                                                                                                                                                           | Verdict                        |
+| ----- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| L1    | "Vibes — looks good"                                                                                                                                                                          | Useless. Don't operate here.   |
+| L2    | Yes/no checklist                                                                                                                                                                               | Better but self-report         |
+| L3    | **Structured check items with expected evidence + actual artifacts.** Per item: expected evidence (function call, file path, route, row, log line) + findings. Pass/fail with artifacts. | **FSV-grade. The bar.**  |
+| L4    | Independent verifier reads files + reports gaps; loop iterates                                                                                                                                 | Best where automation is cheap |
 
 Empirically, **30-40% of check items fail on first verification pass.** Plan for that.
 
@@ -540,12 +570,12 @@ Empirically, **30-40% of check items fail on first verification pass.** Plan for
 
 ### 5.1 Methods (simple → complex)
 
-| Method | When | Output |
-|---|---|---|
-| **5 Whys** | Linear single-cause | Causal chain + structural fix |
-| **Fishbone (Ishikawa)** | Multiple contributing factors | Categorized causes (Code/Data/Config/Infra/Process/People) |
-| **Fault Tree** | High-stakes, quantifiable risk | AND/OR gates with probabilities |
-| **First-principles debugging** | Unknown failure mode | Reasoning from evidence |
+| Method                               | When                           | Output                                                     |
+| ------------------------------------ | ------------------------------ | ---------------------------------------------------------- |
+| **5 Whys**                     | Linear single-cause            | Causal chain + structural fix                              |
+| **Fishbone (Ishikawa)**        | Multiple contributing factors  | Categorized causes (Code/Data/Config/Infra/Process/People) |
+| **Fault Tree**                 | High-stakes, quantifiable risk | AND/OR gates with probabilities                            |
+| **First-principles debugging** | Unknown failure mode           | Reasoning from evidence                                    |
 
 ### 5.2 5 Whys discipline
 
@@ -617,15 +647,15 @@ The shape matters more than the syntax. Use structured error types — never bar
 
 ### 7.3 Real dependencies in tests
 
-| Use mock | Use real |
-|---|---|
-| Unit tests of pure logic with no external deps | Integration tests of code touching DB |
-| Third-party APIs you don't own (mocked against the **real provider's documented behavior**, not your guesses) | Code that emits events to a queue |
-| Non-deterministic operations (time, random) — deterministic fakes | Code calling internal services you own |
-| Failure-path testing (network errors, timeouts) | ORM code with joins / transactions / lazy-load |
-| | End-to-end user-journey tests |
+| Use mock                                                                                                           | Use real                                       |
+| ------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| Unit tests of pure logic with no external deps                                                                     | Integration tests of code touching DB          |
+| Third-party APIs you don't own (mocked against the**real provider's documented behavior**, not your guesses) | Code that emits events to a queue              |
+| Non-deterministic operations (time, random) — deterministic fakes                                                 | Code calling internal services you own         |
+| Failure-path testing (network errors, timeouts)                                                                    | ORM code with joins / transactions / lazy-load |
+|                                                                                                                    | End-to-end user-journey tests                  |
 
-Use Testcontainers (or equivalent) for real DBs in CI. Mocks of ORMs hide N+1 and serialization bugs.
+In Calyx, integration tests run against a **real Aster vault on aiwonder** — no Testcontainers needed (we own the box, PRD `28 §6c`) — and FSV then reads the persisted Aster CF / Ledger / ZFS bytes. Never mock Calyx's own engines, storage, or math in a verification/FSV test; mock only at a true external boundary (e.g. a `tei-http` lens endpoint), against the provider's documented behavior. No mock/synthetic-substitute data in FSV (synthetic *deterministic* data with known inputs→known bytes proves mechanics; real datasets prove intelligence — PRD `28 §1`).
 
 ### 7.4 The right shape
 
@@ -764,19 +794,22 @@ Multiple sessions (same model, different models, or both) work the same repo. Th
 ### 10.2 Heartbeats / stale-claim detection
 
 If `status:in-progress` with:
+
 - No comment >2h → ping `@<agent> still on this?`
 - No comment >24h → `**STEALING — claim stale**` comment, then assign yourself
-- No comment >72h → strip assignee, revert to `needs-triage`, anyone picks up
+- No comment >72h → strip assignee + remove `status:in-progress`, anyone picks up
 
 ### 10.3 Conflict — two agents need same file
 
 First commenter wins the file. Second agent options:
+
 - Comment on own issue: `"Waiting on #<other> — overlaps on <file>."` Set `status:blocked`. Move to next unclaimed issue.
 - Negotiate split: `"@<other> — I need lines 100-200, you have 300-400. Splitting OK?"`
 
 ### 10.4 Typed handoffs
 
 When one agent's output drives another's input:
+
 - Typed schema (Pydantic / Zod / JSON Schema / OpenAPI / protobuf).
 - Versioned (backward-compat).
 - Validated at receiver. Reject malformed. Reject unknown fields (strict mode).
@@ -808,17 +841,17 @@ Guilty until proven innocent. The cost of falsely declaring innocent (shipping a
 
 Before any investigation:
 
-| Dimension | Normal | Suspicious |
-|---|---|---|
-| File length | <500 lines | >500 |
-| Function count | <20 | God object if >20 |
-| Import count | <15 | Over-coupled |
-| Nesting depth | <4 | Complex |
-| Function names | Clear | Vague or misleading |
-| Error handling | Robust | Weak or absent |
-| Edge cases | Considered | Ignored |
-| Logging | Present | Absent or excessive |
-| Comments | Confident | Frustrated / confused / TODOs accumulating |
+| Dimension      | Normal     | Suspicious                                 |
+| -------------- | ---------- | ------------------------------------------ |
+| File length    | <500 lines | >500                                       |
+| Function count | <20        | God object if >20                          |
+| Import count   | <15        | Over-coupled                               |
+| Nesting depth  | <4         | Complex                                    |
+| Function names | Clear      | Vague or misleading                        |
+| Error handling | Robust     | Weak or absent                             |
+| Edge cases     | Considered | Ignored                                    |
+| Logging        | Present    | Absent or excessive                        |
+| Comments       | Confident  | Frustrated / confused / TODOs accumulating |
 
 First impression: TRUSTWORTHY / SUSPICIOUS / GUILTY. Confidence: HIGH / MED / LOW. Deep dive: YES / NO.
 
@@ -846,12 +879,12 @@ Code vs comments. Tests vs implementation. Docs vs behavior. Types vs runtime. C
 
 ### 11.6 Investigation tiers (match depth to risk)
 
-| Tier | Time | When | Action |
-|---|---|---|---|
-| GLANCE | 5s | Trivial check (file exists, syntax, imports resolve) | Confirm or escalate |
-| SCAN | 30s | Routine verification, linter pass | Cold read, flag suspicious |
-| INVESTIGATE | 5 min | Suspicious code, test failures | Full Holmesian: contradiction + SoT readback + ≥3 hypotheses |
-| DEEP DIVE | 30 min+ | Critical failure, security, prod incident | Git archaeology + personas + elimination engine |
+| Tier        | Time    | When                                                 | Action                                                        |
+| ----------- | ------- | ---------------------------------------------------- | ------------------------------------------------------------- |
+| GLANCE      | 5s      | Trivial check (file exists, syntax, imports resolve) | Confirm or escalate                                           |
+| SCAN        | 30s     | Routine verification, linter pass                    | Cold read, flag suspicious                                    |
+| INVESTIGATE | 5 min   | Suspicious code, test failures                       | Full Holmesian: contradiction + SoT readback + ≥3 hypotheses |
+| DEEP DIVE   | 30 min+ | Critical failure, security, prod incident            | Git archaeology + personas + elimination engine               |
 
 ### 11.7 Guilty verdict format
 
@@ -882,13 +915,13 @@ File this as a comment on the relevant issue. No mercy: no workarounds, no hidin
 
 ### 11.8 The hybrid model
 
-| Task | Machine | Agent |
-|---|---|---|
-| Pattern search | grep, LSP | interpret significance |
-| Test execution | CI/CD | evaluate completeness |
-| Static analysis | linters, type checkers | contextualize findings |
-| Coverage | Jest / Istanbul | assess quality vs quantity |
-| Git history | log, blame | understand motivations |
+| Task            | Machine                | Agent                      |
+| --------------- | ---------------------- | -------------------------- |
+| Pattern search  | grep, LSP              | interpret significance     |
+| Test execution  | CI/CD                  | evaluate completeness      |
+| Static analysis | linters, type checkers | contextualize findings     |
+| Coverage        | Jest / Istanbul        | assess quality vs quantity |
+| Git history     | log, blame             | understand motivations     |
 
 Hybrid verdict: machine says "tests pass"; agent verifies "tests actually exercise the claimed functionality" → "VERIFIED" or "TESTS INADEQUATE."
 
@@ -900,9 +933,9 @@ Five phases per turn — fresh start, resume, or continuation.
 
 ### 12.1 READ (do this first, every turn)
 
-1. Read repo root `AGENTS.md` / `CLAUDE.md`.
-2. Run the 6 issue queries (§3.3).
-3. Read any spec referenced by your current task.
+1. Hold §C (Calyx project context) and `docs/dbprdplans/DOCTRINE.md` (the charter); read repo-root `CLAUDE.md`/`AGENTS.md` if present.
+2. Run the 6 issue queries (§3.3) against `ChrisRoyse/Calyx`; read all five pinned `type:context` issues.
+3. Read the PRD doc + implementation stage/task card referenced by your task.
 4. Skim recent `type:decision` + `type:discovery` issues touching your task area.
 
 Do not begin work until READ is complete.
@@ -940,6 +973,7 @@ When context feels crowded, *stop* and comment on the relevant issue with what y
 ### 12.5 CLOSE (end of turn / session)
 
 Last action of the session must be one of:
+
 - **RESOLVED comment** (§3.8) on each issue worked, if complete. PR closes via `Closes #N`.
 - **PAUSE comment** (§3.6) on the in-progress issue, with explicit "Resume at" pointer.
 - **BLOCKED comment** (§3.7) if waiting on something.
@@ -997,6 +1031,7 @@ Higher tiers override lower. SO answer contradicting docs at your version → do
 ### 13.4 Cross-reference
 
 Never act on a single source for anything load-bearing:
+
 - CLI flag → confirm in actual `--help` output of your version.
 - API endpoint → confirm in docs AND by hitting it with a known curl.
 - Config option → confirm in source code or examples at your version.
@@ -1012,39 +1047,41 @@ If research finds something non-obvious or load-bearing, **open a `type:discover
 
 When asked to "harden / improve / optimize" a system, apply these. Skip none — each fails differently; controls don't substitute.
 
+**Calyx adjustments to this reference.** The axes below are a general checklist; map them to Calyx's reality. Calyx is a **single-host, zero-cost, Rust** system, so cloud/FinOps levers (RIs/SPs, Graviton, S3 tiering, egress) and hosted-CI/SAST/CodeQL controls are **N/A** (A34) — the cost discipline is "free and self-built," not cloud-bill tuning. The **data layer** maps to **Aster** (own LSM + column families on ZFS, `calyx-aster`), *not* Postgres — the `EXPLAIN ANALYZE` / PgBouncer / index-type guidance applies only to Leapable's **untouched** PostgreSQL control plane, never to the Calyx engine itself. **Security/privacy** is governed by PRD `30` + A33 (STRIDE, per-vault encryption, default-deny tenant isolation, crypto-shred right-to-erasure). **Resource/GC/reliability** is PRD `24` + A26 (bounded-by-construction, the 25-hazard register, no managed-GC pauses — Rust RAII). **AI/LLM** concerns are the frozen lenses + the `Gτ` guard + the Oracle/sufficiency gate (PRD `07`/`09`/`21`). **Benchmarking** uses `criterion` (§14.15). **Supply chain** = pinned crate versions + `cargo audit` + content-addressed lens weights, run on aiwonder (no hosted SCA). **Observability** = the Prometheus/Grafana surface on aiwonder (PRD `16 §6`/`24 §8`), read via screenshot+AI-vision for charts.
+
 ### 14.1 Axis jump table
 
-| # | Axis | Failure if neglected |
-|---|---|---|
-| 1 | Security | breach, exfil, regulatory fine |
-| 2 | Correctness | silent wrong answers (FSV §4 catches these) |
-| 3 | Performance | slow UX, infra spend bloat |
-| 4 | Reliability (SRE) | outages, missed SLAs |
-| 5 | Resilience (fault tolerance) | cascading failures |
-| 6 | Scalability | works at 1× breaks at 10× |
-| 7 | Cost efficiency | runaway cloud bill |
-| 8 | Architecture / maintainability | velocity collapse, bus factor |
-| 9 | Data layer | N+1, lock contention, runaway storage |
-| 10 | Observability | 3am triage = guesswork |
-| 11 | Supply chain | typosquat, dep confusion, build tampering |
-| 12 | AI/ML/LLM-specific | drift, hallucination, prompt injection |
-| 13 | Benchmarking discipline | misleading wins, hidden regressions |
-| 14 | Operational practice | undisciplined hardening, lost progress |
+| #  | Axis                           | Failure if neglected                         |
+| -- | ------------------------------ | -------------------------------------------- |
+| 1  | Security                       | breach, exfil, regulatory fine               |
+| 2  | Correctness                    | silent wrong answers (FSV §4 catches these) |
+| 3  | Performance                    | slow UX, infra spend bloat                   |
+| 4  | Reliability (SRE)              | outages, missed SLAs                         |
+| 5  | Resilience (fault tolerance)   | cascading failures                           |
+| 6  | Scalability                    | works at 1× breaks at 10×                  |
+| 7  | Cost efficiency                | runaway cloud bill                           |
+| 8  | Architecture / maintainability | velocity collapse, bus factor                |
+| 9  | Data layer                     | N+1, lock contention, runaway storage        |
+| 10 | Observability                  | 3am triage = guesswork                       |
+| 11 | Supply chain                   | typosquat, dep confusion, build tampering    |
+| 12 | AI/ML/LLM-specific             | drift, hallucination, prompt injection       |
+| 13 | Benchmarking discipline        | misleading wins, hidden regressions          |
+| 14 | Operational practice           | undisciplined hardening, lost progress       |
 
 ### 14.2 Security (OWASP Top 10:2025 + CIS + NIST CSF 2.0 + ASVS 5.0)
 
-| # | Category | Core controls |
-|---|---|---|
-| A01 | Broken Access Control | deny-by-default, server-side authZ every request, RBAC/ABAC, IDOR tests, no client-side checks |
-| A02 | Security Misconfiguration | repeatable hardening, dev=stage=prod, CSP/HSTS, no default creds |
-| A03 | Supply Chain Failures | SBOM, signed artifacts (Sigstore), pinned deps + hashes, SCA in CI, SLSA provenance |
-| A04 | Cryptographic Failures | TLS 1.2+, AES-GCM / ChaCha20-Poly1305, Argon2id passwords, no homemade crypto |
-| A05 | Injection (SQL/NoSQL/LDAP/OS/template/log/**prompt**) | parameterized queries, allow-list inputs, output encode |
-| A06 | Insecure Design | threat modeling (STRIDE/PASTA), abuse cases, secure-by-design |
-| A07 | AuthN & Identity Failures | MFA (FIDO2 > TOTP > SMS), session mgmt, breach-checked passwords |
-| A08 | Software & Data Integrity | signed updates, no insecure deserialization, CI/CD hardening |
-| A09 | Logging & Monitoring Failures | central logs, authZ alerts, tamper-evident, retention by class |
-| A10 | Mishandling of Exceptional Conditions | no fail-open, timeouts everywhere, fuzz malformed input, race tests |
+| #   | Category                                                    | Core controls                                                                                  |
+| --- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| A01 | Broken Access Control                                       | deny-by-default, server-side authZ every request, RBAC/ABAC, IDOR tests, no client-side checks |
+| A02 | Security Misconfiguration                                   | repeatable hardening, dev=stage=prod, CSP/HSTS, no default creds                               |
+| A03 | Supply Chain Failures                                       | SBOM, signed artifacts (Sigstore), pinned deps + hashes, SCA in CI, SLSA provenance            |
+| A04 | Cryptographic Failures                                      | TLS 1.2+, AES-GCM / ChaCha20-Poly1305, Argon2id passwords, no homemade crypto                  |
+| A05 | Injection (SQL/NoSQL/LDAP/OS/template/log/**prompt**) | parameterized queries, allow-list inputs, output encode                                        |
+| A06 | Insecure Design                                             | threat modeling (STRIDE/PASTA), abuse cases, secure-by-design                                  |
+| A07 | AuthN & Identity Failures                                   | MFA (FIDO2 > TOTP > SMS), session mgmt, breach-checked passwords                               |
+| A08 | Software & Data Integrity                                   | signed updates, no insecure deserialization, CI/CD hardening                                   |
+| A09 | Logging & Monitoring Failures                               | central logs, authZ alerts, tamper-evident, retention by class                                 |
+| A10 | Mishandling of Exceptional Conditions                       | no fail-open, timeouts everywhere, fuzz malformed input, race tests                            |
 
 **App-layer:** allow-list input validation, context-aware output encoding (HTML/attribute/JS/URL/SQL), parameterized queries everywhere, CSRF on cookie-auth state-changing endpoints, CORS explicit (no `*` with creds), security headers (CSP, HSTS, X-CTO nosniff, Referrer-Policy, Permissions-Policy, X-Frame-Options DENY), session cookies HttpOnly+Secure+SameSite, rate limit per endpoint, lockout/progressive delay, file upload (MIME + magic + size + AV + out-of-webroot), SSRF defense (block link-local + private CIDRs), no `pickle`/`unserialize` on untrusted input.
 
@@ -1071,16 +1108,16 @@ Always p50/p95/p99 — never mean alone. CI bench on hot paths; fail PR on >X% r
 
 ### 14.6 Resilience patterns (ordering matters: Bulkhead → Circuit Breaker → Retry → Fallback)
 
-| Pattern | When |
-|---|---|
-| **Timeout** every external call (never infinite) | always |
+| Pattern                                                                | When                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------ |
+| **Timeout** every external call (never infinite)                 | always                                                       |
 | **Retry + exp backoff + jitter**, cap 2-3, only transient errors | idempotent ops; never non-idempotent without idempotency key |
-| **Circuit Breaker** open on both error rate + slow-call rate | per external dep |
-| **Bulkhead** per dependency or tenant | one slow dep can exhaust all threads |
-| **Rate limit** every public + internal API | overload protection |
-| **Idempotency key** on mutating endpoints; store key→result 24h | retry-induced duplicates |
-| **Load shedding** drop traffic at capacity | overload |
-| **Dead letter queue** for poison messages | async workers |
+| **Circuit Breaker** open on both error rate + slow-call rate     | per external dep                                             |
+| **Bulkhead** per dependency or tenant                            | one slow dep can exhaust all threads                         |
+| **Rate limit** every public + internal API                       | overload protection                                          |
+| **Idempotency key** on mutating endpoints; store key→result 24h | retry-induced duplicates                                     |
+| **Load shedding** drop traffic at capacity                       | overload                                                     |
+| **Dead letter queue** for poison messages                        | async workers                                                |
 
 Graceful shutdown: drain → stop new → finish in-flight → exit. Avoid sync chains ≥4 deep.
 
@@ -1206,7 +1243,7 @@ The format is legible structure that forces evidence slots. Can't fill them → 
 - "Implementation complete; tests pass; FSV captured for happy path; edges A, B, C verified. Edge D (concurrent writes) not exercised — filed #N."
 - "Code changed but build fails — see error at file:line. Investigating."
 - "Approach changed mid-task. New approach in commit X; old reverted in Y. FSV not yet captured; will run next."
-- "Blocker: needs operator decision on <specific question>. Logged on issue #N as `status:blocked`."
+- "Blocker: needs operator decision on `<specific question>`. Logged on issue #N as `status:blocked`."
 
 ### 15.3 Constructive disagreement
 
@@ -1225,6 +1262,7 @@ But you have context I don't. Want me to proceed with X anyway?
 ### 15.4 When to wait / escalate to operator
 
 Escalate when:
+
 - Right answer requires a decision only the operator can make (product priority, accepted risk, security trade-off).
 - Three consecutive blocked turns on the same root cause.
 - Work would touch a system you lack authorization to modify (auth provider, billing, prod secrets).
@@ -1239,15 +1277,15 @@ reversible local step is complete.
 
 ### 15.5 Patience heuristics
 
-| Situation | Wait? | Reason |
-|---|---|---|
-| Intermittent failure | YES | need to capture failure state |
-| Missing reproduction | YES | cannot verify fix without repro |
-| Incomplete logs | YES | add logging, wait for recurrence |
-| Unclear requirements | YES | ask operator |
-| Performance issue | YES | need profiling data |
-| Race condition suspected | YES | need stress test or chaos run |
-| Build red on unrelated change | YES | wait for fix; don't bypass |
+| Situation                     | Wait? | Reason                           |
+| ----------------------------- | ----- | -------------------------------- |
+| Intermittent failure          | YES   | need to capture failure state    |
+| Missing reproduction          | YES   | cannot verify fix without repro  |
+| Incomplete logs               | YES   | add logging, wait for recurrence |
+| Unclear requirements          | YES   | ask operator                     |
+| Performance issue             | YES   | need profiling data              |
+| Race condition suspected      | YES   | need stress test or chaos run    |
+| Build red on unrelated change | YES   | wait for fix; don't bypass       |
 
 ---
 
@@ -1334,31 +1372,40 @@ The gap between current and max = the roadmap. File issues for each gap with `ty
 
 ## §18 — GLOSSARY
 
-| Term | Meaning |
-|---|---|
-| **SoT** | Source of Truth — authoritative physical location of state (DB row / file / queue / external record). UI is never SoT. Return value is never SoT. |
-| **FSV** | Full State Verification — read SoT BEFORE, execute, read SoT AFTER, assert delta. §4 |
-| **LSU** | Linear Sequential Unmasking — read evidence BEFORE the claim/description. §2.8 |
-| **FDD** | Forensic-Driven Development — guilty until proven innocent. §11 |
-| **RCA** | Root Cause Analysis. §5 |
-| **RED** | Rate / Errors / Duration (per-service) |
-| **USE** | Utilization / Saturation / Errors (per-resource) |
-| **SLI / SLO / SLA** | Indicator (metric) / Objective (target) / Agreement (contract) |
-| **p50/p95/p99** | Latency percentile — never mean alone |
-| **N+1** | The query anti-pattern: 1 list query + N detail queries |
-| **STRIDE** | Spoofing / Tampering / Repudiation / Info-disclosure / DoS / Elevation |
-| **CB** | Circuit Breaker |
-| **SBOM** | Software Bill of Materials (CycloneDX / SPDX) |
-| **SLSA** | Supply-chain Levels for Software Artifacts (1→4) |
-| **OTel** | OpenTelemetry — vendor-neutral wire format |
-| **MCP** | Model Context Protocol — typed tool/resource contracts |
-| **DCE** | Dead Code Elimination — compiler optimization that silently breaks naïve benchmarks |
-| **PSI / KS / KLD / ECE** | Population Stability Index / Kolmogorov-Smirnov / KL Divergence / Expected Calibration Error |
-| **DORA** | DevOps Research & Assessment metrics: deploy freq · lead time · change fail rate · MTTR · reliability |
-| **BVA / ECP** | Boundary Value Analysis / Equivalence Class Partitioning |
-| **FMEA** | Failure Modes & Effects Analysis |
-| **IDOR** | Insecure Direct Object Reference |
-| **PAT** | Personal Access Token |
+| Term                           | Meaning                                                                                                                                                    |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **SoT**                  | Source of Truth — authoritative physical location of state (DB row / file / queue / external record). UI is never SoT. Return value is never SoT.         |
+| **FSV**                  | Full State Verification — read SoT BEFORE, execute, read SoT AFTER, assert delta. §4                                                                     |
+| **LSU**                  | Linear Sequential Unmasking — read evidence BEFORE the claim/description. §2.8                                                                           |
+| **FDD**                  | Forensic-Driven Development — guilty until proven innocent. §11                                                                                          |
+| **RCA**                  | Root Cause Analysis. §5                                                                                                                                   |
+| **RED**                  | Rate / Errors / Duration (per-service)                                                                                                                     |
+| **USE**                  | Utilization / Saturation / Errors (per-resource)                                                                                                           |
+| **SLI / SLO / SLA**      | Indicator (metric) / Objective (target) / Agreement (contract)                                                                                             |
+| **p50/p95/p99**          | Latency percentile — never mean alone                                                                                                                     |
+| **N+1**                  | The query anti-pattern: 1 list query + N detail queries                                                                                                    |
+| **STRIDE**               | Spoofing / Tampering / Repudiation / Info-disclosure / DoS / Elevation                                                                                     |
+| **CB**                   | Circuit Breaker                                                                                                                                            |
+| **SBOM**                 | Software Bill of Materials (CycloneDX / SPDX)                                                                                                              |
+| **SLSA**                 | Supply-chain Levels for Software Artifacts (1→4)                                                                                                          |
+| **OTel**                 | OpenTelemetry — vendor-neutral wire format                                                                                                                |
+| **MCP**                  | Model Context Protocol — typed tool/resource contracts                                                                                                    |
+| **DCE**                  | Dead Code Elimination — compiler optimization that silently breaks naïve benchmarks                                                                      |
+| **PSI / KS / KLD / ECE** | Population Stability Index / Kolmogorov-Smirnov / KL Divergence / Expected Calibration Error                                                               |
+| **DORA**                 | DevOps Research & Assessment metrics: deploy freq · lead time · change fail rate · MTTR · reliability                                                  |
+| **BVA / ECP**            | Boundary Value Analysis / Equivalence Class Partitioning                                                                                                   |
+| **FMEA**                 | Failure Modes & Effects Analysis                                                                                                                           |
+| **IDOR**                 | Insecure Direct Object Reference                                                                                                                           |
+| **PAT**                  | Personal Access Token                                                                                                                                      |
+| **aiwonder**             | The datacenter box (RTX 5090 sm_120, ZFS) where Calyx is built/stored/run/tested. The SoT bytes live here.                                                 |
+| **Aster**                | Calyx's on-disk columnar constellation store (LSM + WAL + column families on ZFS) and the ordered transactional core — a primary FSV SoT.`calyx-aster`. |
+| **Ledger**               | Append-only hash-chained provenance CF — the audit SoT (`verify_chain` / `reproduce`). `calyx-ledger`.                                              |
+| **Constellation (TCT)**  | The Calyx record: one input × the panel of frozen lenses → slot-vectors + scalars + anchors + provenance.                                                |
+| **Lens**                 | A frozen embedder treated as a measurement instrument; one fills a Slot. Plug in/out is the backbone ergonomic (`DOCTRINE §5`).                         |
+| **`Gτ`**              | Per-slot cosine guard — a produced vector passes only if `cos(produced, matched) ≥ calibrated τ` on the required slots (Ward).                        |
+| **Grounding kernel**     | The ≈1% minimum-feedback-vertex-set that, once anchored to real outcomes, regenerates/answers ≈99% by association (Lodestar).                            |
+| **Anchor**               | A grounded real-outcome label — the only thing that touches non-linguistic reality; "trusted" signals require it (A2), else `provisional`.              |
+| **DDA**                  | Derived Data Abundance —`n·(N + C(N,2) + 1)` structured signals from n inputs × N lenses, capped by the DPI ceiling (A8).                             |
 
 ---
 
