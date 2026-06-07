@@ -2,12 +2,17 @@
 
 pub mod frozen;
 pub mod lens;
+pub mod profile;
 pub mod runtime;
 pub mod swap;
 
 pub use calyx_core::{Input, Lens};
 pub use frozen::{FrozenLensContract, LensDType, NormPolicy};
 pub use lens::{Registry, ensure_input_modality, ensure_vector_shape};
+pub use profile::{
+    CapabilityCard, CostMetrics, CoverageMetrics, MetricSource, ProfileOptions, ProfileProbe,
+    Profiler, SeparationMetrics, SpreadMetrics, profile_lens,
+};
 pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};
 pub use runtime::candle::{CandleLens, CandleModelFiles, DEFAULT_CANDLE_MODEL};
 pub use runtime::onnx::{OnnxLens, OnnxModelFiles};
