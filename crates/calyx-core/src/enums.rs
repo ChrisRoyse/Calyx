@@ -61,7 +61,7 @@ pub enum QuantPolicy {
 }
 
 /// Grounded outcome axis for anchors and Assay bits.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AnchorKind {
     /// Deterministic test or oracle passed.
