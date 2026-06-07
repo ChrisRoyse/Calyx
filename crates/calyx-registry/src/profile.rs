@@ -5,6 +5,7 @@ use calyx_core::{CalyxError, Input, LensId, Result, SlotVector};
 use serde::{Deserialize, Serialize};
 
 use crate::lens::Registry;
+use crate::spec::LensHealth;
 
 /// One profiling probe, optionally labeled for silhouette separation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +40,7 @@ pub struct CapabilityCard {
     pub separation: SeparationMetrics,
     pub cost: CostMetrics,
     pub coverage: CoverageMetrics,
+    pub health: LensHealth,
     pub low_spread: bool,
 }
 
@@ -119,6 +121,7 @@ impl Profiler {
             ));
         }
 
+        let vram_before = vram_bytes();
         let started = Instant::now();
         let mut observations = Vec::new();
         let mut failed = 0_usize;
@@ -135,6 +138,7 @@ impl Profiler {
             }
         }
         let total_ms = started.elapsed().as_secs_f64() as f32 * 1000.0;
+        let vram_after = vram_bytes();
         if observations.is_empty() {
             return Err(CalyxError::assay_insufficient_samples(
                 "profile produced no measurable vectors",
@@ -153,7 +157,7 @@ impl Profiler {
         let cost = CostMetrics {
             total_ms,
             ms_per_input: total_ms / probes.len() as f32,
-            vram_bytes: 0,
+            vram_bytes: vram_before.max(vram_after),
         };
         let differentiation = separation.score;
         let signal = clamp01(
@@ -173,9 +177,27 @@ impl Profiler {
             separation,
             cost,
             coverage,
+            health: registry.health(lens_id)?,
             low_spread,
         })
     }
+}
+
+fn vram_bytes() -> u64 {
+    let output = std::process::Command::new("nvidia-smi")
+        .args(["--query-gpu=memory.used", "--format=csv,noheader,nounits"])
+        .output();
+    let Ok(output) = output else {
+        return 0;
+    };
+    if !output.status.success() {
+        return 0;
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().parse::<u64>().ok())
+        .map(|mib| mib * 1024 * 1024)
+        .sum()
 }
 
 pub fn profile_lens(

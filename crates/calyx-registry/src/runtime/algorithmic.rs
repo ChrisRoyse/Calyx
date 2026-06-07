@@ -1,6 +1,6 @@
 use calyx_core::{Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
 
-use crate::frozen::FrozenLensContract;
+use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::lens::ensure_input_modality;
 
 const BYTE_FEATURE_DIM: u32 = 16;
@@ -12,6 +12,12 @@ const FNV_PRIME: u64 = 0x100000001b3;
 pub enum AlgorithmicEncoder {
     /// Byte and character-class features for text/code/structured inputs.
     ByteFeatures,
+    /// Single scalar summary.
+    Scalar,
+    /// Hash-selected one-hot feature vector.
+    OneHot { buckets: u32 },
+    /// Small AST/code-style feature vector.
+    AstStyle,
 }
 
 impl AlgorithmicEncoder {
@@ -19,6 +25,15 @@ impl AlgorithmicEncoder {
     pub const fn dim(self) -> u32 {
         match self {
             Self::ByteFeatures => BYTE_FEATURE_DIM,
+            Self::Scalar => 1,
+            Self::OneHot { buckets } => {
+                if buckets == 0 {
+                    1
+                } else {
+                    buckets
+                }
+            }
+            Self::AstStyle => 8,
         }
     }
 }
@@ -37,14 +52,22 @@ impl AlgorithmicLens {
         Self::new(name, modality, AlgorithmicEncoder::ByteFeatures)
     }
 
+    pub fn scalar(name: impl Into<String>, modality: Modality) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::Scalar)
+    }
+
+    pub fn one_hot(name: impl Into<String>, modality: Modality, buckets: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::OneHot { buckets })
+    }
+
+    pub fn ast_style(name: impl Into<String>, modality: Modality) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::AstStyle)
+    }
+
     /// Creates an algorithmic lens from an encoder.
     pub fn new(name: impl Into<String>, modality: Modality, encoder: AlgorithmicEncoder) -> Self {
         let name = name.into();
-        let id = match encoder {
-            AlgorithmicEncoder::ByteFeatures => {
-                FrozenLensContract::algorithmic_byte_features(&name, modality).lens_id()
-            }
-        };
+        let id = algorithmic_contract(&name, modality, encoder).lens_id();
         Self {
             id,
             modality,
@@ -72,9 +95,32 @@ impl Lens for AlgorithmicLens {
             dim: self.encoder.dim(),
             data: match self.encoder {
                 AlgorithmicEncoder::ByteFeatures => byte_features(&input.bytes),
+                AlgorithmicEncoder::Scalar => scalar_features(&input.bytes),
+                AlgorithmicEncoder::OneHot { buckets } => one_hot_features(&input.bytes, buckets),
+                AlgorithmicEncoder::AstStyle => ast_style_features(&input.bytes),
             },
         })
     }
+}
+
+fn algorithmic_contract(
+    name: &str,
+    modality: Modality,
+    encoder: AlgorithmicEncoder,
+) -> FrozenLensContract {
+    if encoder == AlgorithmicEncoder::ByteFeatures {
+        return FrozenLensContract::algorithmic_byte_features(name, modality);
+    }
+    let encoder_text = format!("{encoder:?}:{}", encoder.dim());
+    FrozenLensContract::new(
+        name,
+        sha256_digest(&[b"algorithmic-runtime-v2", encoder_text.as_bytes()]),
+        sha256_digest(&[b"algorithmic-data-oblivious"]),
+        SlotShape::Dense(encoder.dim()),
+        modality,
+        LensDType::F32,
+        NormPolicy::None,
+    )
 }
 
 fn byte_features(bytes: &[u8]) -> Vec<f32> {
@@ -140,6 +186,40 @@ fn byte_features(bytes: &[u8]) -> Vec<f32> {
 
 fn hash_part(value: u32) -> f32 {
     (value as f32 / u32::MAX as f32) * 2.0 - 1.0
+}
+
+fn scalar_features(bytes: &[u8]) -> Vec<f32> {
+    if bytes.is_empty() {
+        return vec![0.0];
+    }
+    let mean = bytes.iter().map(|byte| f32::from(*byte)).sum::<f32>() / bytes.len() as f32;
+    vec![mean / 255.0]
+}
+
+fn one_hot_features(bytes: &[u8], buckets: u32) -> Vec<f32> {
+    let buckets = buckets.max(1);
+    let mut out = vec![0.0; buckets as usize];
+    let hash = bytes.iter().fold(FNV_OFFSET, |hash, byte| {
+        (hash ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
+    });
+    out[(hash % u64::from(buckets)) as usize] = 1.0;
+    out
+}
+
+fn ast_style_features(bytes: &[u8]) -> Vec<f32> {
+    let text = String::from_utf8_lossy(bytes);
+    let len = bytes.len().max(1) as f32;
+    let count = |needle: &str| text.matches(needle).count() as f32 / len;
+    vec![
+        count("fn"),
+        count("let"),
+        count("struct"),
+        count("impl"),
+        bytes.iter().filter(|b| matches!(b, b'{' | b'}')).count() as f32 / len,
+        bytes.iter().filter(|b| **b == b';').count() as f32 / len,
+        bytes.iter().filter(|b| **b == b'(').count() as f32 / len,
+        bytes.iter().filter(|b| **b == b'\n').count() as f32 / len,
+    ]
 }
 
 #[cfg(test)]

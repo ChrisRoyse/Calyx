@@ -1,10 +1,12 @@
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::lens::{ensure_input_modality, ensure_vector_shape};
 
 /// Runtime dtype declared by a frozen lens contract.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum LensDType {
     /// Dense/sparse/multi f32 vectors.
     F32,
@@ -19,8 +21,15 @@ impl LensDType {
 }
 
 /// Numerical invariant policy for emitted vectors.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum NormPolicy {
+    /// Values must be finite; unit length is not required.
+    None,
+    /// Values must be finite and each vector must be unit length.
+    L2 { tolerance: f32 },
+    /// Values must match the model-declared norm.
+    DeclaredByModel { declared_norm: f32, tolerance: f32 },
     /// Values must be finite; unit length is not required.
     Finite,
     /// Values must be finite and each vector must be unit length.
@@ -30,19 +39,33 @@ pub enum NormPolicy {
 impl NormPolicy {
     /// Unit norm with the PH18 default tolerance.
     pub const fn unit() -> Self {
-        Self::Unit { tolerance: 1.0e-3 }
+        Self::L2 { tolerance: 1.0e-3 }
+    }
+
+    /// Finite-only policy with no norm assertion.
+    pub const fn finite_only() -> Self {
+        Self::None
+    }
+
+    /// Model-declared norm policy.
+    pub const fn declared_by_model(declared_norm: f32, tolerance: f32) -> Self {
+        Self::DeclaredByModel {
+            declared_norm,
+            tolerance,
+        }
     }
 
     const fn fingerprint(self) -> &'static str {
         match self {
-            Self::Finite => "finite",
-            Self::Unit { .. } => "unit",
+            Self::None | Self::Finite => "finite",
+            Self::L2 { .. } | Self::Unit { .. } => "unit",
+            Self::DeclaredByModel { .. } => "declared-by-model",
         }
     }
 }
 
 /// Frozen instrument metadata used to content-address and validate a lens.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct FrozenLensContract {
     name: String,
     weights_sha256: [u8; 32],
@@ -148,6 +171,16 @@ impl FrozenLensContract {
         self.weights_sha256
     }
 
+    /// Returns the corpus/axis hash.
+    pub const fn corpus_hash(&self) -> [u8; 32] {
+        self.corpus_hash
+    }
+
+    /// Returns the stable lens name in the contract.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     /// Returns a copy with one byte of the weight hash changed.
     pub fn with_mutated_weight_hash(&self) -> Self {
         let mut changed = self.clone();
@@ -210,8 +243,14 @@ impl FrozenLensContract {
     pub fn verify_vector(&self, lens_id: LensId, vector: &SlotVector) -> Result<()> {
         ensure_vector_shape(lens_id, self.shape, vector)?;
         match self.norm {
-            NormPolicy::Finite => Ok(()),
-            NormPolicy::Unit { tolerance } => ensure_unit_norm(lens_id, vector, tolerance),
+            NormPolicy::None | NormPolicy::Finite => Ok(()),
+            NormPolicy::L2 { tolerance } | NormPolicy::Unit { tolerance } => {
+                ensure_unit_norm(lens_id, vector, tolerance)
+            }
+            NormPolicy::DeclaredByModel {
+                declared_norm,
+                tolerance,
+            } => ensure_declared_norm(lens_id, vector, declared_norm, tolerance),
         }
     }
 
@@ -243,24 +282,42 @@ fn shape_fingerprint(shape: SlotShape) -> String {
     }
 }
 
+fn ensure_declared_norm(
+    lens_id: LensId,
+    vector: &SlotVector,
+    declared_norm: f32,
+    tolerance: f32,
+) -> Result<()> {
+    if !declared_norm.is_finite() || declared_norm < 0.0 {
+        return Err(CalyxError::lens_numerical_invariant(
+            "invalid model-declared norm",
+        ));
+    }
+    ensure_norm(lens_id, vector, declared_norm as f64, tolerance)
+}
+
 fn ensure_unit_norm(lens_id: LensId, vector: &SlotVector, tolerance: f32) -> Result<()> {
+    ensure_norm(lens_id, vector, 1.0, tolerance)
+}
+
+fn ensure_norm(lens_id: LensId, vector: &SlotVector, target: f64, tolerance: f32) -> Result<()> {
     if !tolerance.is_finite() || tolerance < 0.0 {
         return Err(CalyxError::lens_numerical_invariant(
-            "invalid unit-norm tolerance",
+            "invalid norm tolerance",
         ));
     }
     match vector {
-        SlotVector::Dense { data, .. } => ensure_one_norm(lens_id, data, tolerance),
+        SlotVector::Dense { data, .. } => ensure_one_norm(lens_id, data, target, tolerance),
         SlotVector::Sparse { entries, .. } => {
             let sum = entries
                 .iter()
                 .map(|entry| f64::from(entry.val) * f64::from(entry.val))
                 .sum::<f64>();
-            ensure_norm_value(lens_id, sum.sqrt(), tolerance)
+            ensure_norm_value(lens_id, sum.sqrt(), target, tolerance)
         }
         SlotVector::Multi { tokens, .. } => {
             for token in tokens {
-                ensure_one_norm(lens_id, token, tolerance)?;
+                ensure_one_norm(lens_id, token, target, tolerance)?;
             }
             Ok(())
         }
@@ -268,20 +325,20 @@ fn ensure_unit_norm(lens_id: LensId, vector: &SlotVector, tolerance: f32) -> Res
     }
 }
 
-fn ensure_one_norm(lens_id: LensId, values: &[f32], tolerance: f32) -> Result<()> {
+fn ensure_one_norm(lens_id: LensId, values: &[f32], target: f64, tolerance: f32) -> Result<()> {
     let sum = values
         .iter()
         .map(|value| f64::from(*value) * f64::from(*value))
         .sum::<f64>();
-    ensure_norm_value(lens_id, sum.sqrt(), tolerance)
+    ensure_norm_value(lens_id, sum.sqrt(), target, tolerance)
 }
 
-fn ensure_norm_value(lens_id: LensId, norm: f64, tolerance: f32) -> Result<()> {
-    if (norm - 1.0).abs() <= f64::from(tolerance) {
+fn ensure_norm_value(lens_id: LensId, norm: f64, target: f64, tolerance: f32) -> Result<()> {
+    if (norm - target).abs() <= f64::from(tolerance) {
         return Ok(());
     }
     Err(CalyxError::lens_numerical_invariant(format!(
-        "lens {lens_id} norm {norm:.6} is outside unit tolerance {tolerance}"
+        "lens {lens_id} norm {norm:.6} is outside target {target:.6} tolerance {tolerance}"
     )))
 }
 
