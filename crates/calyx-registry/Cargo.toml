@@ -8,5 +8,12 @@ publish.workspace = true
 
 [dependencies]
 calyx-core = { path = "../calyx-core" }
+candle-core = "0.10.2"
+candle-nn = "0.10.2"
+candle-transformers = "0.10.2"
+fastembed = { version = "5.16.0", default-features = false, features = ["hf-hub-rustls-tls", "ort-download-binaries-rustls-tls"] }
+hf-hub = { version = "0.5.0", default-features = false, features = ["ureq", "rustls-tls"] }
+ort = { version = "=2.0.0-rc.12", default-features = false }
 serde_json.workspace = true
 sha2.workspace = true
+tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
