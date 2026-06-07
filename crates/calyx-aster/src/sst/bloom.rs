@@ -82,3 +82,83 @@ impl BloomFilter {
         self.bits[byte] & (1 << bit) != 0
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    use rand::rngs::StdRng;
+    use rand::{RngCore, SeedableRng};
+    use std::collections::HashSet;
+
+    #[test]
+    fn inserted_keys_have_no_false_negatives() {
+        let keys = [b"alpha".as_slice(), b"beta".as_slice(), b"gamma".as_slice()];
+        let filter = BloomFilter::from_keys(keys);
+
+        for key in keys {
+            assert!(filter.may_contain(key));
+        }
+        assert!(BloomFilter::from_keys(std::iter::empty()).bit_count >= 64);
+        assert!(BloomFilter::decode(b"").is_none());
+    }
+
+    #[test]
+    fn seeded_false_positive_rate_stays_below_one_percent() {
+        let mut rng = StdRng::seed_from_u64(0xDEAD_BEEF);
+        let mut inserted = HashSet::new();
+        while inserted.len() < 10_000 {
+            inserted.insert(next_key(&mut rng));
+        }
+        let inserted_vec: Vec<_> = inserted.iter().map(Vec::as_slice).collect();
+        let filter = BloomFilter::from_keys(inserted_vec);
+        let mut false_positives = 0_u64;
+        let mut probes = 0_u64;
+        while probes < 100_000 {
+            let key = next_key(&mut rng);
+            if inserted.contains(&key) {
+                continue;
+            }
+            probes += 1;
+            if filter.may_contain(&key) {
+                false_positives += 1;
+            }
+        }
+        let rate = false_positives as f64 / probes as f64;
+        println!("bloom fpr = {false_positives} / {probes} = {rate:.6}");
+        assert!(rate < 0.01);
+    }
+
+    proptest! {
+        #[test]
+        fn no_false_negatives_for_distinct_key_sets(mut keys in proptest::collection::vec(proptest::collection::vec(any::<u8>(), 1..32), 0..256)) {
+            keys.sort();
+            keys.dedup();
+            let refs: Vec<_> = keys.iter().map(Vec::as_slice).collect();
+            let filter = BloomFilter::from_keys(refs.clone());
+            for key in refs {
+                prop_assert!(filter.may_contain(key));
+            }
+        }
+
+        #[test]
+        fn encode_decode_preserves_inserted_keys(mut keys in proptest::collection::vec(proptest::collection::vec(any::<u8>(), 1..32), 0..128)) {
+            keys.sort();
+            keys.dedup();
+            let refs: Vec<_> = keys.iter().map(Vec::as_slice).collect();
+            let filter = BloomFilter::from_keys(refs.clone());
+            let mut bytes = Vec::new();
+            filter.encode(&mut bytes);
+            let decoded = BloomFilter::decode(&bytes).expect("decode bloom");
+            for key in refs {
+                prop_assert!(decoded.may_contain(key));
+            }
+        }
+    }
+
+    fn next_key(rng: &mut StdRng) -> Vec<u8> {
+        let mut key = vec![0_u8; 16];
+        rng.fill_bytes(&mut key);
+        key
+    }
+}

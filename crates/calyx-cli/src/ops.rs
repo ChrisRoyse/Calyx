@@ -4,15 +4,16 @@ use calyx_aster::compaction::{
 };
 use calyx_aster::sst::{SstReader, write_sst};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_aster::wal::{Wal, WalOptions, replay_dir};
+use calyx_aster::wal::{DEFAULT_GROUP_COMMIT_WINDOW, GroupCommitBatcher, Wal, WalOptions, replay_dir};
 use calyx_core::{
     AbsentReason, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector,
-    VaultId, VaultStore,
+    SystemClock, VaultId, VaultStore,
 };
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -209,6 +210,44 @@ pub fn vault_demo(vault: &Path) -> Result<(), String> {
         vault.join("cf/base").display(),
         vault.join("CURRENT").display()
     );
+    Ok(())
+}
+
+pub fn wal_batch_demo(vault: &Path, requests: usize) -> Result<(), String> {
+    fs::create_dir_all(vault.join("wal")).map_err(|error| error.to_string())?;
+    let wal = Wal::open(vault.join("wal"), WalOptions::default()).map_err(|e| e.to_string())?;
+    let batcher = Arc::new(
+        GroupCommitBatcher::new(wal, DEFAULT_GROUP_COMMIT_WINDOW, Arc::new(SystemClock))
+            .map_err(|error| error.to_string())?,
+    );
+    let mut handles = Vec::with_capacity(requests);
+    for index in 0..requests {
+        let batcher = batcher.clone();
+        handles.push(thread::spawn(move || {
+            batcher.submit(format!("batch-{index:04}").into_bytes())
+        }));
+    }
+    let mut acks = Vec::with_capacity(requests);
+    for handle in handles {
+        acks.push(
+            handle
+                .join()
+                .map_err(|_| "batch submitter panicked".to_string())?
+                .map_err(|error| error.to_string())?,
+        );
+    }
+    batcher.flush_sync().map_err(|error| error.to_string())?;
+    acks.sort_by_key(|ack| ack.seq);
+    for ack in &acks {
+        println!(
+            "WAL_BATCH_ACK\tSEQ\t{}\tFILE\t{}\tSTART\t{}\tEND\t{}",
+            ack.seq,
+            ack.segment_path.display(),
+            ack.start_offset,
+            ack.end_offset
+        );
+    }
+    println!("WAL_BATCH_DONE\tREQUESTS\t{}", acks.len());
     Ok(())
 }
 
