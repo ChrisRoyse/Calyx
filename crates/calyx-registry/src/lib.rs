@@ -1,9 +1,9 @@
-//! Lens registry skeleton for frozen embedders and capability cards.
+//! Registry runtimes for frozen Calyx lenses.
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_metadata_is_present() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "calyx-registry");
-    }
-}
+pub mod lens;
+pub mod runtime;
+
+pub use calyx_core::{Input, Lens};
+pub use lens::{Registry, ensure_input_modality, ensure_vector_shape};
+pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};
+pub use runtime::tei_http::{DEFAULT_TEI_ENDPOINT, TeiHttpLens};
