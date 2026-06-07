@@ -3,7 +3,7 @@ use calyx_aster::sst::arrow::{decode_column_chunk, encode_column_chunk};
 use calyx_aster::sst::level::SstLevel;
 use calyx_aster::sst::{SstReader, write_sst};
 use calyx_aster::vault::AsterVault;
-use calyx_aster::wal::{Wal, WalOptions, replay_dir};
+use calyx_aster::wal::{GroupCommitBatcher, Wal, WalOptions, replay_dir};
 use calyx_core::{
     AbsentReason, Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector,
     SystemClock, VaultId, VaultStore,
@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 pub fn arrow_demo(vault: &Path) -> Result<(), String> {
     let cf = ColumnFamily::slot(SlotId::new(0));
@@ -124,17 +125,21 @@ pub fn mvcc_demo(vault: &Path) -> Result<(), String> {
 pub fn wal_drill(vault: &Path, records: usize) -> Result<(), String> {
     let wal_dir = vault.join("wal");
     fs::create_dir_all(&wal_dir).map_err(|error| error.to_string())?;
-    let mut wal = Wal::open(&wal_dir, WalOptions::default()).map_err(|error| error.to_string())?;
+    let options = WalOptions::default();
+    let wal = Wal::open(&wal_dir, options).map_err(|error| error.to_string())?;
+    let batcher = GroupCommitBatcher::new(wal, options.group_commit_window, Arc::new(SystemClock))
+        .map_err(|error| error.to_string())?;
     let mut last_seq = 0;
     let mut last_end = 0;
     for index in 0..records {
-        let ack = wal
-            .append(format!("acked-{index:04}").as_bytes())
+        let ack = batcher
+            .submit(format!("acked-{index:04}").into_bytes())
             .map_err(|error| error.to_string())?;
         last_seq = ack.seq;
         last_end = ack.end_offset;
     }
-    drop(wal);
+    batcher.flush_sync().map_err(|error| error.to_string())?;
+    drop(batcher);
 
     let segment = wal_dir.join("00000000000000000000.wal");
     let torn_seq = last_seq + 1;
@@ -323,7 +328,7 @@ fn mvcc_constellation(vault_id: VaultId) -> Constellation {
     }
 }
 
-fn hex_bytes(bytes: &[u8]) -> String {
+pub(crate) fn hex_bytes(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         out.push(hex_digit(byte >> 4));
