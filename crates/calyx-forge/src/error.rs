@@ -46,39 +46,22 @@ impl ForgeError {
 
 impl fmt::Display for ForgeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NumericalInvariant { op, detail, .. } => write!(
-                f,
-                "{} op={} detail={} remediation={}",
-                self.code(),
-                op,
-                detail,
-                self.remediation()
-            ),
-            Self::DeviceUnavailable { device, detail, .. } => write!(
-                f,
-                "{} device={} detail={} remediation={}",
-                self.code(),
-                device,
-                detail,
-                self.remediation()
-            ),
-            Self::ShapeMismatch { expected, got, .. } => write!(
-                f,
-                "{} expected={:?} got={:?} remediation={}",
-                self.code(),
-                expected,
-                got,
-                self.remediation()
-            ),
-            Self::Unimplemented { op, .. } => write!(
-                f,
-                "{} op={} remediation={}",
-                self.code(),
-                op,
-                self.remediation()
-            ),
+        let first_line = match self {
+            Self::NumericalInvariant { op, detail, .. } => {
+                format!("{} op={} detail={}", self.code(), op, detail)
+            }
+            Self::DeviceUnavailable { device, detail, .. } => {
+                format!("{} device={} detail={}", self.code(), device, detail)
+            }
+            Self::ShapeMismatch { expected, got, .. } => {
+                format!("{} expected={expected:?} got={got:?}", self.code())
+            }
+            Self::Unimplemented { op, .. } => format!("{} op={op}", self.code()),
+        };
+        if matches!(self, Self::NumericalInvariant { .. }) {
+            debug_assert!(first_line.starts_with("CALYX_FORGE_NUMERICAL_INVARIANT"));
         }
+        write!(f, "{first_line}\nRemediation: {}", self.remediation())
     }
 }
 

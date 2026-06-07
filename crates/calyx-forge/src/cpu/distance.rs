@@ -1,6 +1,7 @@
 use wide::f32x16;
 
-use crate::{ForgeError, Result};
+use crate::Result;
+use crate::cpu::guard::{check_finite, check_norm_positive, check_shape_2d};
 
 pub fn cosine_batch(query: &[f32], candidates: &[f32], dim: usize, out: &mut [f32]) -> Result<()> {
     validate_batch("cosine_batch", query, candidates, dim, out)?;
@@ -8,19 +9,15 @@ pub fn cosine_batch(query: &[f32], candidates: &[f32], dim: usize, out: &mut [f3
         return Ok(());
     }
 
-    let query_norm_sq = sum_squares(query);
-    if query_norm_sq == 0.0 {
-        return Err(numerical("cosine_batch", "zero-norm vector"));
-    }
-    let query_norm = query_norm_sq.sqrt();
+    let query_norm = sum_squares(query).sqrt();
+    check_norm_positive(query_norm, "cosine_batch", 0)?;
 
     for (row, score) in out.iter_mut().enumerate() {
         let candidate = candidate_row(candidates, dim, row);
         let (dot, candidate_norm_sq) = dot_and_norm(query, candidate);
-        if candidate_norm_sq == 0.0 {
-            return Err(numerical("cosine_batch", "zero-norm vector"));
-        }
-        *score = dot / (query_norm * candidate_norm_sq.sqrt());
+        let candidate_norm = candidate_norm_sq.sqrt();
+        check_norm_positive(candidate_norm, "cosine_batch", row)?;
+        *score = dot / (query_norm * candidate_norm);
     }
     Ok(())
 }
@@ -48,31 +45,11 @@ fn validate_batch(
     dim: usize,
     out: &[f32],
 ) -> Result<()> {
-    let candidate_expected =
-        out.len()
-            .checked_mul(dim)
-            .ok_or_else(|| ForgeError::ShapeMismatch {
-                expected: vec![out.len(), dim],
-                got: vec![candidates.len()],
-                remediation: "candidate row count times dim overflowed usize".to_string(),
-            })?;
-
-    if query.len() != dim || candidates.len() != candidate_expected {
-        return Err(ForgeError::ShapeMismatch {
-            expected: vec![dim, candidate_expected, out.len()],
-            got: vec![query.len(), candidates.len(), out.len()],
-            remediation: "pass query[dim], candidates[out.len()*dim], and out[n_cands]".to_string(),
-        });
-    }
-
-    if first_non_finite(query).is_some() || first_non_finite(candidates).is_some() {
-        return Err(numerical(op, "input contains non-finite f32"));
-    }
+    check_shape_2d(query, 1, dim, "distance query")?;
+    check_shape_2d(candidates, out.len(), dim, "distance candidates")?;
+    check_finite(query, op)?;
+    check_finite(candidates, op)?;
     Ok(())
-}
-
-fn first_non_finite(values: &[f32]) -> Option<usize> {
-    values.iter().position(|value| !value.is_finite())
 }
 
 fn candidate_row(candidates: &[f32], dim: usize, row: usize) -> &[f32] {
@@ -152,18 +129,10 @@ fn load16(values: &[f32], offset: usize) -> f32x16 {
     f32x16::from(lanes)
 }
 
-fn numerical(op: &'static str, detail: &'static str) -> ForgeError {
-    ForgeError::NumericalInvariant {
-        op: op.to_string(),
-        detail: detail.to_string(),
-        remediation: "reject invalid inputs before CPU distance dispatch".to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Backend, CpuBackend};
+    use crate::{Backend, CpuBackend, ForgeError};
     use proptest::prelude::*;
 
     fn finite_f32() -> impl Strategy<Value = f32> {

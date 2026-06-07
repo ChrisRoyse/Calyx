@@ -1,5 +1,6 @@
 use wide::f32x16;
 
+use crate::cpu::guard::{check_finite, check_norm_positive, check_shape_2d};
 use crate::{ForgeError, Result};
 
 pub fn normalize_f32(vecs: &mut [f32], dim: usize) -> Result<()> {
@@ -20,20 +21,16 @@ pub fn normalize_f32(vecs: &mut [f32], dim: usize) -> Result<()> {
             remediation: "normalize input length must be an integer number of rows".to_string(),
         });
     }
-    if let Some(index) = vecs.iter().position(|value| !value.is_finite()) {
-        return Err(numerical(format!("input[{index}] is non-finite")));
-    }
+    let rows = vecs.len() / dim;
+    check_shape_2d(vecs, rows, dim, "normalize input")?;
+    check_finite(vecs, "normalize")?;
 
-    for row in 0..vecs.len() / dim {
+    for row in 0..rows {
         let start = row * dim;
         let end = start + dim;
         let norm_sq = sum_squares(&vecs[start..end]);
         let norm = norm_sq.sqrt();
-        if !norm.is_finite() || norm <= 0.0 {
-            return Err(numerical(format!(
-                "zero or non-finite L2 norm at row {row}"
-            )));
-        }
+        check_norm_positive(norm, "normalize", row)?;
         scale_row(&mut vecs[start..end], 1.0 / norm);
     }
     Ok(())
@@ -74,14 +71,6 @@ fn load16(values: &[f32], offset: usize) -> f32x16 {
     let mut lanes = [0.0; 16];
     lanes.copy_from_slice(&values[offset..offset + 16]);
     f32x16::from(lanes)
-}
-
-fn numerical(detail: String) -> ForgeError {
-    ForgeError::NumericalInvariant {
-        op: "normalize".to_string(),
-        detail,
-        remediation: "reject invalid rows before normalization".to_string(),
-    }
 }
 
 #[cfg(test)]
