@@ -3,10 +3,18 @@ use std::sync::Arc;
 
 use calyx_core::{CalyxError, Input, Lens, LensId, Result, SlotShape, SlotVector, SparseEntry};
 
+use crate::frozen::FrozenLensContract;
+
 /// Runtime registry for frozen lens measurement instruments.
 #[derive(Clone, Default)]
 pub struct Registry {
-    lenses: BTreeMap<LensId, Arc<dyn Lens>>,
+    lenses: BTreeMap<LensId, RegistryEntry>,
+}
+
+#[derive(Clone)]
+struct RegistryEntry {
+    lens: Arc<dyn Lens>,
+    frozen: Option<FrozenLensContract>,
 }
 
 impl Registry {
@@ -26,8 +34,35 @@ impl Registry {
                 "lens {id} is already registered"
             )));
         }
-        self.lenses.insert(id, Arc::new(lens));
+        self.lenses.insert(
+            id,
+            RegistryEntry {
+                lens: Arc::new(lens),
+                frozen: None,
+            },
+        );
         Ok(id)
+    }
+
+    /// Registers a lens and enforces its frozen content-addressed contract.
+    pub fn register_frozen<L>(&mut self, lens: L, contract: FrozenLensContract) -> Result<LensId>
+    where
+        L: Lens + 'static,
+    {
+        self.register_frozen_inner(lens, contract, None)
+    }
+
+    /// Registers a frozen lens after a deterministic two-pass probe.
+    pub fn register_frozen_with_probe<L>(
+        &mut self,
+        lens: L,
+        contract: FrozenLensContract,
+        probe: &Input,
+    ) -> Result<LensId>
+    where
+        L: Lens + 'static,
+    {
+        self.register_frozen_inner(lens, contract, Some(probe))
     }
 
     /// Returns true when a lens id is registered.
@@ -37,21 +72,21 @@ impl Registry {
 
     /// Measures one input with a registered lens.
     pub fn measure(&self, lens_id: LensId, input: &Input) -> Result<SlotVector> {
-        let lens = self.lookup(lens_id)?;
-        ensure_input_modality(lens.as_ref(), input)?;
-        let vector = lens.measure(input)?;
-        ensure_vector_shape(lens_id, lens.shape(), &vector)?;
+        let entry = self.lookup(lens_id)?;
+        ensure_input_modality(entry.lens.as_ref(), input)?;
+        let vector = entry.lens.measure(input)?;
+        self.validate_entry(lens_id, entry, &vector)?;
         Ok(vector)
     }
 
     /// Measures a batch with a registered lens and validates every result.
     pub fn measure_batch(&self, lens_id: LensId, inputs: &[Input]) -> Result<Vec<SlotVector>> {
-        let lens = self.lookup(lens_id)?;
+        let entry = self.lookup(lens_id)?;
         for input in inputs {
-            ensure_input_modality(lens.as_ref(), input)?;
+            ensure_input_modality(entry.lens.as_ref(), input)?;
         }
 
-        let vectors = lens.measure_batch(inputs)?;
+        let vectors = entry.lens.measure_batch(inputs)?;
         if vectors.len() != inputs.len() {
             return Err(CalyxError::lens_dim_mismatch(format!(
                 "lens {lens_id} returned {} vectors for {} inputs",
@@ -60,12 +95,62 @@ impl Registry {
             )));
         }
         for vector in &vectors {
-            ensure_vector_shape(lens_id, lens.shape(), vector)?;
+            self.validate_entry(lens_id, entry, vector)?;
         }
         Ok(vectors)
     }
 
-    fn lookup(&self, lens_id: LensId) -> Result<&Arc<dyn Lens>> {
+    /// Returns the frozen contract registered for a lens id.
+    pub fn frozen_contract(&self, lens_id: LensId) -> Option<&FrozenLensContract> {
+        self.lenses
+            .get(&lens_id)
+            .and_then(|entry| entry.frozen.as_ref())
+    }
+
+    fn register_frozen_inner<L>(
+        &mut self,
+        lens: L,
+        contract: FrozenLensContract,
+        probe: Option<&Input>,
+    ) -> Result<LensId>
+    where
+        L: Lens + 'static,
+    {
+        contract.verify_registration(&lens)?;
+        if let Some(probe) = probe {
+            contract.verify_determinism_probe(&lens, probe)?;
+        }
+        let id = lens.id();
+        if self.lenses.contains_key(&id) {
+            return Err(CalyxError::lens_frozen_violation(format!(
+                "lens {id} is already registered"
+            )));
+        }
+        self.lenses.insert(
+            id,
+            RegistryEntry {
+                lens: Arc::new(lens),
+                frozen: Some(contract),
+            },
+        );
+        Ok(id)
+    }
+
+    fn validate_entry(
+        &self,
+        lens_id: LensId,
+        entry: &RegistryEntry,
+        vector: &SlotVector,
+    ) -> Result<()> {
+        if let Some(contract) = &entry.frozen {
+            contract.verify_registration(entry.lens.as_ref())?;
+            contract.verify_vector(lens_id, vector)
+        } else {
+            ensure_vector_shape(lens_id, entry.lens.shape(), vector)
+        }
+    }
+
+    fn lookup(&self, lens_id: LensId) -> Result<&RegistryEntry> {
         self.lenses.get(&lens_id).ok_or_else(|| {
             CalyxError::lens_unreachable(format!("lens {lens_id} is not registered"))
         })

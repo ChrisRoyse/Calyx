@@ -1,5 +1,6 @@
 use calyx_core::{Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
 
+use crate::frozen::FrozenLensContract;
 use crate::lens::ensure_input_modality;
 
 const BYTE_FEATURE_DIM: u32 = 16;
@@ -18,12 +19,6 @@ impl AlgorithmicEncoder {
     pub const fn dim(self) -> u32 {
         match self {
             Self::ByteFeatures => BYTE_FEATURE_DIM,
-        }
-    }
-
-    const fn fingerprint(self) -> &'static [u8] {
-        match self {
-            Self::ByteFeatures => b"algorithmic-byte-features-v1",
         }
     }
 }
@@ -45,13 +40,11 @@ impl AlgorithmicLens {
     /// Creates an algorithmic lens from an encoder.
     pub fn new(name: impl Into<String>, modality: Modality, encoder: AlgorithmicEncoder) -> Self {
         let name = name.into();
-        let shape = format!("dense:{}", encoder.dim());
-        let id = LensId::from_parts(
-            &name,
-            encoder.fingerprint(),
-            b"algorithmic-data-oblivious",
-            shape.as_bytes(),
-        );
+        let id = match encoder {
+            AlgorithmicEncoder::ByteFeatures => {
+                FrozenLensContract::algorithmic_byte_features(&name, modality).lens_id()
+            }
+        };
         Self {
             id,
             modality,

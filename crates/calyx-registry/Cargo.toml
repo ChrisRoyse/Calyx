@@ -9,3 +9,4 @@ publish.workspace = true
 [dependencies]
 calyx-core = { path = "../calyx-core" }
 serde_json.workspace = true
+sha2.workspace = true
