@@ -1,5 +1,6 @@
 //! Calyx command-line entry point.
 
+mod crash;
 mod fsv;
 mod ops;
 
@@ -104,6 +105,36 @@ fn run(args: Vec<String>) -> Result<(), String> {
             fsv::wal_drill(Path::new(vault), records)
         }
         [command, wal_dir] if command == "wal-replay" => fsv::wal_replay(Path::new(wal_dir)),
+        [
+            command,
+            vault_flag,
+            vault,
+            point_flag,
+            point,
+            pause_flag,
+            pause_ms,
+        ] if command == "crash-drill"
+            && vault_flag == "--vault"
+            && point_flag == "--point"
+            && pause_flag == "--pause-ms" =>
+        {
+            let pause_ms = pause_ms
+                .parse::<u64>()
+                .map_err(|error| format!("invalid --pause-ms: {error}"))?;
+            crash::crash_drill(
+                Path::new(vault),
+                crash::CrashPoint::parse(point)?,
+                Some(pause_ms),
+            )
+        }
+        [command, vault_flag, vault, point_flag, point]
+            if command == "crash-drill" && vault_flag == "--vault" && point_flag == "--point" =>
+        {
+            crash::crash_drill(Path::new(vault), crash::CrashPoint::parse(point)?, None)
+        }
+        [command, vault_flag, vault] if command == "recover" && vault_flag == "--vault" => {
+            crash::recover(Path::new(vault))
+        }
         [command, vault_flag, vault, cf_flag, cf, offset_flag, offset]
             if command == "corrupt-shard"
                 && vault_flag == "--vault"
@@ -222,7 +253,21 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)\n       calyx compact --vault <dir> --cf <name>\n       calyx compact-watch --vault <dir> --duration <30s|500ms>\n       calyx soak --vault <dir> --ops <n> --threads <n>\n       calyx tier --vault <dir> --cf <name> --output <hot|cold>\n       calyx vault-demo --vault <dir>\n       calyx arrow-demo --vault <dir>\n       calyx cf-demo --vault <dir>\n       calyx mvcc-demo --vault <dir>\n       calyx wal-drill --vault <dir> --records <n>\n       calyx wal-replay <wal-dir>\n       calyx corrupt-shard --vault <dir> --cf <name> --byte-offset <n>\n       calyx wal-batch-demo --vault <dir> --requests <n>"
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)
+       calyx compact --vault <dir> --cf <name>
+       calyx compact-watch --vault <dir> --duration <30s|500ms>
+       calyx soak --vault <dir> --ops <n> --threads <n>
+       calyx tier --vault <dir> --cf <name> --output <hot|cold>
+       calyx vault-demo --vault <dir>
+       calyx arrow-demo --vault <dir>
+       calyx cf-demo --vault <dir>
+       calyx mvcc-demo --vault <dir>
+       calyx wal-drill --vault <dir> --records <n>
+       calyx wal-replay <wal-dir>
+       calyx crash-drill --vault <dir> --point <before-wal-fsync|after-wal-before-commit|after-commit-before-manifest> [--pause-ms <n>]
+       calyx recover --vault <dir>
+       calyx corrupt-shard --vault <dir> --cf <name> --byte-offset <n>
+       calyx wal-batch-demo --vault <dir> --requests <n>"
 }
 
 #[cfg(test)]
