@@ -9,6 +9,7 @@ mod durable;
 pub mod encode;
 pub mod ledger_stub;
 mod router_bridge;
+mod slot_backfill;
 
 use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};

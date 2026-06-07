@@ -3,6 +3,7 @@
 pub mod frozen;
 pub mod lens;
 pub mod runtime;
+pub mod swap;
 
 pub use calyx_core::{Input, Lens};
 pub use frozen::{FrozenLensContract, LensDType, NormPolicy};
@@ -11,3 +12,4 @@ pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};
 pub use runtime::candle::{CandleLens, CandleModelFiles, DEFAULT_CANDLE_MODEL};
 pub use runtime::onnx::{OnnxLens, OnnxModelFiles};
 pub use runtime::tei_http::{DEFAULT_TEI_ENDPOINT, TeiHttpLens};
+pub use swap::{BackfillCandidate, BackfillQueue, SlotSpec, SwapController};
