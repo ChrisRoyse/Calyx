@@ -3,10 +3,15 @@
 pub mod enums;
 pub mod error;
 pub mod ids;
+pub mod model;
 
 pub use enums::{AbsentReason, AnchorKind, Asymmetry, Modality, QuantPolicy, SlotShape, SlotState};
 pub use error::{CALYX_ERROR_CODES, CalyxError, CalyxErrorCode, Result};
 pub use ids::{CxId, LensId, ParseIdError, SlotId, SlotKey, VaultId, content_address};
+pub use model::{
+    Anchor, AnchorValue, ConfidenceInterval, Constellation, CxFlags, InputRef, LedgerRef, Panel,
+    Signal, Slot, SlotVector, SparseEntry, Ts,
+};
 
 #[cfg(test)]
 mod tests {
