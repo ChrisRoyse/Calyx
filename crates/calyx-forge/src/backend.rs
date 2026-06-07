@@ -74,8 +74,8 @@ pub mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    fn all_error_variants(op: String, detail: String, remediation: String) -> [ForgeError; 4] {
-        [
+    fn all_error_variants(op: String, detail: String, remediation: String) -> Vec<ForgeError> {
+        vec![
             ForgeError::NumericalInvariant {
                 op: op.clone(),
                 detail: detail.clone(),
@@ -92,6 +92,16 @@ pub mod tests {
                 remediation: remediation.clone(),
             },
             ForgeError::Unimplemented { op, remediation },
+            ForgeError::QuantError {
+                op: "quantize".to_string(),
+                level: "Bits3p5".to_string(),
+                detail: "invalid quantized payload".to_string(),
+                remediation: "Reject malformed quantized vectors".to_string(),
+            },
+            ForgeError::SeedVersionMismatch {
+                expected: 1,
+                got: 2,
+            },
         ]
     }
 

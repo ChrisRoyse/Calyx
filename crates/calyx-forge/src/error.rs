@@ -1,6 +1,9 @@
 use std::error::Error;
 use std::fmt;
 
+const SEED_VERSION_REMEDIATION: &str =
+    "Use the recorded rotation seed version or re-encode with the current quantizer seed";
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ForgeError {
     NumericalInvariant {
@@ -22,6 +25,16 @@ pub enum ForgeError {
         op: String,
         remediation: String,
     },
+    QuantError {
+        op: String,
+        level: String,
+        detail: String,
+        remediation: String,
+    },
+    SeedVersionMismatch {
+        expected: u8,
+        got: u8,
+    },
 }
 
 impl ForgeError {
@@ -31,6 +44,8 @@ impl ForgeError {
             Self::DeviceUnavailable { .. } => "CALYX_FORGE_DEVICE_UNAVAILABLE",
             Self::ShapeMismatch { .. } => "CALYX_FORGE_SHAPE_MISMATCH",
             Self::Unimplemented { .. } => "CALYX_FORGE_UNIMPLEMENTED",
+            Self::QuantError { .. } => "CALYX_FORGE_QUANT_ERROR",
+            Self::SeedVersionMismatch { .. } => "CALYX_FORGE_QUANT_SEED_VERSION",
         }
     }
 
@@ -39,7 +54,9 @@ impl ForgeError {
             Self::NumericalInvariant { remediation, .. }
             | Self::DeviceUnavailable { remediation, .. }
             | Self::ShapeMismatch { remediation, .. }
-            | Self::Unimplemented { remediation, .. } => remediation,
+            | Self::Unimplemented { remediation, .. }
+            | Self::QuantError { remediation, .. } => remediation,
+            Self::SeedVersionMismatch { .. } => SEED_VERSION_REMEDIATION,
         }
     }
 }
@@ -57,6 +74,20 @@ impl fmt::Display for ForgeError {
                 format!("{} expected={expected:?} got={got:?}", self.code())
             }
             Self::Unimplemented { op, .. } => format!("{} op={op}", self.code()),
+            Self::QuantError {
+                op, level, detail, ..
+            } => {
+                format!(
+                    "{} op={} level={} detail={}",
+                    self.code(),
+                    op,
+                    level,
+                    detail
+                )
+            }
+            Self::SeedVersionMismatch { expected, got } => {
+                format!("{} expected={} got={}", self.code(), expected, got)
+            }
         };
         if matches!(self, Self::NumericalInvariant { .. }) {
             debug_assert!(first_line.starts_with("CALYX_FORGE_NUMERICAL_INVARIANT"));
