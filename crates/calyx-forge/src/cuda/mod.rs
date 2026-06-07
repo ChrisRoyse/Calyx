@@ -19,7 +19,7 @@ pub use context::{CudaContext, init_cuda, query_device_info};
 pub use distance::{cosine_batch_gpu, dot_batch_gpu, l2_batch_gpu};
 pub use gemm::{
     bench_gemm_cublas, bench_gemm_reference_cublas, gemm_cublas, gemm_mxfp4_fp32_accum,
-    probe_allocation,
+    gemm_mxfp8_fp32_accum, probe_allocation,
 };
 pub use grouped_gemm::{
     AbsentSlotSentinel, GemmProblem, GroupedGemmPlan, build_grouped_gemm_plan,

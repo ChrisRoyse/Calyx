@@ -1,11 +1,12 @@
 use crate::mxfp4::{MXFP4_PACKED_BYTES, MxFp4Block, decode_mxfp4, encode_mxfp4};
+use crate::mxfp8::{MXFP8_BLOCK_BYTES, MxFp8Block, decode_mxfp8, encode_mxfp8};
 use crate::quant::{QuantLevel, QuantizedVec, Quantizer, SeedId};
 use crate::{ForgeError, Result};
 
 const MXFP4_BLOCK_BYTES: usize = MXFP4_PACKED_BYTES + 1;
 const ZERO_SEED: SeedId = [0; 32];
-const MXFP4_REMEDIATION: &str =
-    "Use finite vectors, matching dims, Bits4Fp bytes, and Assay-safe slots";
+const MXFP_REMEDIATION: &str =
+    "Use finite vectors, matching dims, Bits4Fp/Bits8Fp bytes, and Assay-safe slots";
 
 #[derive(Clone, Debug)]
 pub struct MxFp4Codec {
@@ -23,21 +24,25 @@ impl MxFp4Codec {
 
     pub fn encode_assay_checked(
         &self,
-        slot_id: &str,
+        _slot_id: &str,
         vec: &[f32],
         assay_safe: bool,
     ) -> Result<QuantizedVec> {
-        if !assay_safe {
-            return Err(quant_error(
-                "encode",
-                format!("slot {slot_id} not Assay-safe for FP4"),
-            ));
-        }
         if vec.len() != self.dim {
             return Err(ForgeError::ShapeMismatch {
                 expected: vec![self.dim],
                 got: vec![vec.len()],
                 remediation: "Encode MXFP4 vectors with the codec dimension".to_string(),
+            });
+        }
+        if !assay_safe {
+            let blocks = encode_mxfp8(vec)?;
+            return Ok(QuantizedVec {
+                level: QuantLevel::Bits8Fp,
+                dim: self.dim,
+                bytes: serialize_mxfp8_blocks(&blocks),
+                scale: 0.0,
+                seed_id: ZERO_SEED,
             });
         }
         let blocks = encode_mxfp4(vec)?;
@@ -58,8 +63,17 @@ impl Quantizer for MxFp4Codec {
 
     fn decode(&self, qv: &QuantizedVec) -> Result<Vec<f32>> {
         validate_quantized(qv, self.dim, "decode")?;
-        let blocks = deserialize_blocks(&qv.bytes)?;
-        Ok(decode_mxfp4(&blocks, qv.dim))
+        match qv.level {
+            QuantLevel::Bits4Fp => {
+                let blocks = deserialize_blocks(&qv.bytes)?;
+                Ok(decode_mxfp4(&blocks, qv.dim))
+            }
+            QuantLevel::Bits8Fp => {
+                let blocks = deserialize_mxfp8_blocks(&qv.bytes)?;
+                Ok(decode_mxfp8(&blocks, qv.dim))
+            }
+            _ => Err(quant_error("decode", "unsupported quant level")),
+        }
     }
 
     fn dot_estimate(&self, a: &QuantizedVec, b: &QuantizedVec) -> Result<f32> {
@@ -107,6 +121,15 @@ pub fn serialize_blocks(blocks: &[MxFp4Block]) -> Vec<u8> {
     bytes
 }
 
+pub fn serialize_mxfp8_blocks(blocks: &[MxFp8Block]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(blocks.len() * MXFP8_BLOCK_BYTES);
+    for block in blocks {
+        bytes.extend_from_slice(&block.codes);
+        bytes.push(block.scale_e8m0);
+    }
+    bytes
+}
+
 pub fn deserialize_blocks(bytes: &[u8]) -> Result<Vec<MxFp4Block>> {
     if !bytes.len().is_multiple_of(MXFP4_BLOCK_BYTES) {
         return Err(quant_error(
@@ -129,10 +152,39 @@ pub fn deserialize_blocks(bytes: &[u8]) -> Result<Vec<MxFp4Block>> {
     Ok(blocks)
 }
 
-fn validate_quantized(qv: &QuantizedVec, dim: usize, op: &str) -> Result<()> {
-    if qv.level != QuantLevel::Bits4Fp {
-        return Err(quant_error(op, "MxFp4Codec only supports Bits4Fp"));
+pub fn deserialize_mxfp8_blocks(bytes: &[u8]) -> Result<Vec<MxFp8Block>> {
+    if !bytes.len().is_multiple_of(MXFP8_BLOCK_BYTES) {
+        return Err(quant_error(
+            "decode",
+            format!(
+                "encoded byte length {} is not a multiple of {MXFP8_BLOCK_BYTES}",
+                bytes.len()
+            ),
+        ));
     }
+    let mut blocks = Vec::with_capacity(bytes.len() / MXFP8_BLOCK_BYTES);
+    for chunk in bytes.chunks_exact(MXFP8_BLOCK_BYTES) {
+        let mut codes = [0; crate::MXFP8_BLOCK_SIZE];
+        codes.copy_from_slice(&chunk[..crate::MXFP8_BLOCK_SIZE]);
+        blocks.push(MxFp8Block {
+            codes,
+            scale_e8m0: chunk[crate::MXFP8_BLOCK_SIZE],
+        });
+    }
+    Ok(blocks)
+}
+
+fn validate_quantized(qv: &QuantizedVec, dim: usize, op: &str) -> Result<()> {
+    let expected_len = match qv.level {
+        QuantLevel::Bits4Fp => qv.dim.div_ceil(crate::MXFP4_BLOCK_SIZE) * MXFP4_BLOCK_BYTES,
+        QuantLevel::Bits8Fp => qv.dim.div_ceil(crate::MXFP8_BLOCK_SIZE) * MXFP8_BLOCK_BYTES,
+        _ => {
+            return Err(quant_error(
+                op,
+                "MxFp4Codec only supports Bits4Fp and Bits8Fp",
+            ));
+        }
+    };
     if qv.dim != dim {
         return Err(ForgeError::ShapeMismatch {
             expected: vec![dim],
@@ -140,7 +192,6 @@ fn validate_quantized(qv: &QuantizedVec, dim: usize, op: &str) -> Result<()> {
             remediation: "Decode MXFP4 vectors with the codec dimension".to_string(),
         });
     }
-    let expected_len = qv.dim.div_ceil(crate::MXFP4_BLOCK_SIZE) * MXFP4_BLOCK_BYTES;
     if qv.bytes.len() != expected_len {
         return Err(quant_error(
             op,
@@ -164,7 +215,7 @@ fn quant_error(op: &str, detail: impl Into<String>) -> ForgeError {
         op: op.to_string(),
         level: "Bits4Fp".to_string(),
         detail: detail.into(),
-        remediation: MXFP4_REMEDIATION.to_string(),
+        remediation: MXFP_REMEDIATION.to_string(),
     }
 }
 
@@ -222,22 +273,29 @@ mod tests {
     }
 
     #[test]
-    fn mxfp4_codec_edges_fail_closed_and_large_dim() -> Result<()> {
+    fn mxfp8_fallback_edges_fail_closed_and_large_dim() -> Result<()> {
         let codec = MxFp4Codec::new(1536);
         let vec = unit_vec(1536);
         let qv = codec.encode(&vec)?;
         assert_eq!(codec.decode(&qv)?.len(), 1536);
 
-        let unsafe_err = codec
-            .encode_assay_checked("slot:unsafe", &vec, false)
-            .expect_err("unsafe slot must fail closed");
+        let fallback = codec.encode_assay_checked("slot:unsafe", &vec, false)?;
+        assert_eq!(fallback.level, QuantLevel::Bits8Fp);
+        let fallback_decoded = codec.decode(&fallback)?;
+        let fallback_cosine = cosine(&vec, &fallback_decoded);
+        assert!(fallback_cosine >= 0.99, "cosine={fallback_cosine}");
+
         let mut corrupt = qv.clone();
         corrupt.bytes.push(1);
         let corrupt_err = codec
             .decode(&corrupt)
             .expect_err("corrupt byte length must fail closed");
-        println!("mxfp4_codec_edges PASSED {unsafe_err} corrupt={corrupt_err}");
-        assert!(matches!(unsafe_err, ForgeError::QuantError { .. }));
+        println!(
+            "mxfp8_fallback PASSED level={:?} bits={} bytes={} cosine={fallback_cosine:.6} corrupt={corrupt_err}",
+            fallback.level,
+            fallback.level.bits_per_channel(),
+            fallback.bytes.len()
+        );
         assert!(matches!(corrupt_err, ForgeError::QuantError { .. }));
         Ok(())
     }

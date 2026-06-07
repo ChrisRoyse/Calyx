@@ -7,6 +7,8 @@ pub mod cuda;
 mod error;
 #[path = "cuda/mxfp4.rs"]
 pub mod mxfp4;
+#[path = "cuda/mxfp8.rs"]
+pub mod mxfp8;
 pub mod quant;
 
 pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
@@ -22,6 +24,10 @@ pub use error::ForgeError;
 pub use mxfp4::{
     MXFP4_BLOCK_SIZE, MXFP4_PACKED_BYTES, MxFp4Block, decode_mxfp4, decode_mxfp4_block, e8m0_scale,
     encode_mxfp4, encode_mxfp4_block,
+};
+pub use mxfp8::{
+    MXFP8_BLOCK_BYTES, MXFP8_BLOCK_SIZE, MxFp8Block, decode_mxfp8, decode_mxfp8_block,
+    encode_mxfp8, encode_mxfp8_block,
 };
 pub use quant::{
     BinaryCodec, CURRENT_SEED_VERSION, MxFp4Codec, QjlResidual, QuantLevel, QuantizedVec,

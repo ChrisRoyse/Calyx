@@ -25,6 +25,7 @@ pub type SeedId = [u8; 32];
 pub enum QuantLevel {
     F32,
     Bits8,
+    Bits8Fp,
     Bits4Fp,
     Bits3p5,
     Bits2p5,
@@ -36,6 +37,7 @@ impl QuantLevel {
         match self {
             Self::F32 => 32.0,
             Self::Bits8 => 8.0,
+            Self::Bits8Fp => 8.0,
             Self::Bits4Fp => 4.0,
             Self::Bits3p5 => 3.5,
             Self::Bits2p5 => 2.5,
@@ -87,10 +89,13 @@ mod tests {
     #[test]
     fn quant_level_bits_and_lossiness_are_declared() {
         assert_eq!(QuantLevel::Bits3p5.bits_per_channel(), 3.5);
+        assert_eq!(QuantLevel::Bits8Fp.bits_per_channel(), 8.0);
+        assert!(QuantLevel::Bits8Fp.is_lossy());
         assert!(QuantLevel::Bits1.is_lossy());
         println!(
-            "QUANT_LEVEL_BITS PASSED Bits3p5={} Bits1_lossy={}",
+            "QUANT_LEVEL_BITS PASSED Bits3p5={} Bits8Fp_lossy={} Bits1_lossy={}",
             QuantLevel::Bits3p5.bits_per_channel(),
+            QuantLevel::Bits8Fp.is_lossy(),
             QuantLevel::Bits1.is_lossy()
         );
     }
@@ -110,6 +115,7 @@ mod tests {
         let levels = [
             QuantLevel::F32,
             QuantLevel::Bits8,
+            QuantLevel::Bits8Fp,
             QuantLevel::Bits4Fp,
             QuantLevel::Bits3p5,
             QuantLevel::Bits2p5,
