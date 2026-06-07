@@ -109,7 +109,7 @@
 | Central DB today | PostgreSQL 18.4 + PgBouncer — **STAYS, UNTOUCHED** (customers, billing, creator metadata, queries, outbox). Calyx does not read, write, replace, or migrate it. |
 | Vault DB today | SQLite + `sqlite-vec` 768-d, bundled in Tauri sidecar — **this is the only thing Calyx replaces** |
 | Resident lenses today | TEI `gte-multilingual-base` 768-d (:8088), `legal` ModernBERT 768-d (:8090), GTE reranker (:8089) |
-| Toolchain gap | **No `rustc` on box** → Calyx ships as a cross-built static binary + `.deb`; do not assume host cargo |
+| Toolchain | **Rust via rustup IS installed on aiwonder** — build natively (CUDA 13.2, sm_120). *Superseded:* the earlier "no `rustc` → cross-built `.deb`" note no longer holds; cross-build is retained only as an optional minimal-deploy path. See `docs/implementation/01_AIWONDER_ENVIRONMENT.md`. |
 | Backup posture | Single-host; whole-host loss accepted; restic → `/zfs/archive/restic` |
 
 ---

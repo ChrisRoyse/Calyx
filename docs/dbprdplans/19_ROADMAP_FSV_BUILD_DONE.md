@@ -2,6 +2,16 @@
 
 Phased build, verification discipline, performance targets, mechanical completion predicate. Scope is **Vault-only** (`15`): Calyx replaces the SQLite/`sqlite-vec` Vaults; PostgreSQL is untouched, so there is no control-plane phase. Front-loads the durable-storage core before the customer-facing Vault swap.
 
+> **Current status (2026-06-07, commit `8dcddaa`): `CORE` / P0 is DONE.** The
+> Aster storage core (impl Stage 0 + Stage 1, PH00–PH11) is implemented and
+> FSV-signed-off on aiwonder — Constellation CRUD + Aster round-trips byte-exact,
+> crash-recovery proven (`kill -9` → last-acked; corrupt-shard fails closed),
+> idempotent ingest, MVCC snapshots, compaction/tiering. **Next: P1 (Forge /
+> MATH), impl Stage 2, PH12–PH16.** Live phase status:
+> `docs/implementation/03_PHASE_MAP.md`; tracked Stage-1 follow-ups:
+> `docs/implementation/11_STAGE1_ASTER.md`. (The detailed per-phase build plan
+> for the PRD roadmap below lives in `docs/implementation/`.)
+
 ## 1. Phasing principle
 
 Ship **a clear win at low risk** first, prove it by FSV, then take the next. Calyx is a multi-year systems effort; the roadmap guarantees usable value early and never bets the company on the riskiest step.
@@ -109,7 +119,7 @@ BUILD_DONE := CORE ∧ LENS ∧ SEARCH ∧ DDA_BITS ∧ KERNEL ∧ GUARD ∧ PRO
 `LEAPABLE` is satisfied by the **Vault swap alone** (P11). No control-plane clause: PostgreSQL stays as the control plane by design (`15`), so Calyx is complete as a Vault engine — the PG layer is never part of `BUILD_DONE`.
 
 ## 6. Team / build notes
-- Cross-build `calyxd`/`calyx` (no `rustc` on the box, `16`); cross-build on aiwonder or another host (no CI pipeline); sync `.deb`/static binary to `/opt/leapable/calyx/`.
+- Build `calyxd`/`calyx` **natively on aiwonder** (Rust via rustup is installed — the earlier "no `rustc` on the box" note is superseded; cross-build is retained only as an optional minimal-deploy path) under `CALYX_HOME=/home/croyse/calyx`; no CI pipeline.
 - Reuse, don't reinvent: lift `context-graph-mincut`/`-paths`/`-solver`/`-witness` and the `mejepa` Assay/kernel/guard logic as seeds of `calyx-mincut`/`-lodestar`/`-assay`/`-ledger`/`-ward`. Calyx is the *unification and hardening* of code that already works (`17 §2`).
 - One change at a time; plan before architectural/auth/storage changes; document failure as carefully as success (Leapable non-negotiables).
 

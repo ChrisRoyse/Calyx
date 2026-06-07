@@ -19,29 +19,19 @@ through.
   write path flushes memtable to SST), PH10 (manifest captures SST refs),
   PH11 (compaction merges SSTs)
 
-## Current state (build off what exists)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
 
-`memtable.rs` and `sst/mod.rs` (+ `sst/bloom.rs`) are already written and
-compile with tests. The memtable has bounded byte-cap enforcement with
-`CALYX_BACKPRESSURE` on overflow. The SST writer writes sorted key/value records
-with a block index and bloom filter; the reader uses mmap, binary search index,
-bloom probe for point lookups, and linear scan for range reads.
+Shipped in `calyx-aster`:
+- `memtable.rs` — bounded memtable, `CALYX_BACKPRESSURE` at cap, `freeze()`→`FrozenMemtable`, `needs_flush()` at 90%.
+- `sst/mod.rs` — `write_sst` (atomic `.sst.tmp`+rename), `SstReader` mmap + binary-search index + per-record crc, magic `CXS1`; corrupt crc / invalid offsets fail closed.
+- `sst/bloom.rs` — blake3 double-hash bloom; no false negatives; seeded FPR <1%.
+- `sst/arrow.rs` — Arrow SoA f32 column chunk (`CXA1`), bit-exact roundtrip.
+- `sst/level.rs` — multi-SST level, newest-wins point lookup + ordered range merge.
 
-**What remains:**
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
-- The SST format uses **little-endian** CRC and header offsets; the PRD requires
-  **big-endian-ordered keys** for range scans (`04 §4`). The key encoding is the
-  caller's responsibility (CF key layer), but the SST iterator must preserve the
-  exact byte order. This is already correct (BTreeMap is LE-byte-comparable only
-  by the caller's key bytes) — add a test that verifies big-endian multi-byte
-  keys sort lexicographically as expected through a flush/read cycle.
-- No Arrow-layout column-block writer yet for slot columns. Need a thin
-  `ArrowColumnChunk` writer/reader that packs `f32` vectors in SoA order (SIMD-
-  friendly) alongside the existing record format for non-vector CFs.
-- The memtable has no `freeze`/`rotate` API — flush and create a new empty one.
-  Add `Memtable::freeze() -> FrozenMemtable` to make the flush/rotate explicit.
-- No multi-SST read layer (needed for PH07 CF dispatch) — add a simple
-  `SstLevel` that queries a list of SSTs newest-first.
+### Tracked follow-up (non-blocking)
+- The Arrow column chunk (`sst/arrow.rs`) is implemented and demo-wired but the slot CF write path currently stores slot values via `vault/encode.rs::encode_slot_vector` (a byte-exact dense/sparse/multi codec), not `ArrowColumnChunk`. Wiring slot columns onto Arrow chunks is deferred (tracked for the Forge/array-bundle work, PRD `23 §2`).
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -64,6 +54,8 @@ bloom probe for point lookups, and linear scan for range reads.
 | T05 | Multi-SST level: newest-first point lookup + range merge | T02, T03 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
 
 Flush a known memtable to an SST on aiwonder; read back every key byte-exact:
 

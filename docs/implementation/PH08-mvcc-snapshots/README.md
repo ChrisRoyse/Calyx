@@ -17,28 +17,14 @@ The reader-lease watchdog scaffold is placed here (full lease expiry in PH58).
 - **Provides for:** PH09 (vault put/get uses MVCC-seq write groups),
   PH10 (recovery restores seq from WAL), PH58 (watchdog evicts expired leases)
 
-## Current state (build off what exists)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
 
-`mvcc/mod.rs`, `mvcc/store.rs`, `mvcc/lease.rs` are already written with:
-- `SeqAllocator`: monotonic `AtomicU64`, `allocate()` returns next seq.
-- `VersionedCfStore`: in-memory `RwLock<HashMap<(CF, key), Vec<VersionedValue>>>`.
-  `commit_batch` allocates one seq for the whole group. `read_at`/`read_batch`
-  filter by `seq <= snapshot.seq`. `pin_snapshot` with clock injection.
-- `Freshness::FreshDerived` / `StaleOk { max_lag }`.
-- `ReaderLease` with `max_age_ms` expiry; `ensure_live` checks lease age.
-- `Snapshot` combining seq + freshness + lease.
-- `mvcc/tests.rs` exists.
+Shipped in `calyx-aster`:
+- `mvcc/lease.rs` — `SeqAllocator` (atomic, monotonic; `set_start_seq` fails closed after first alloc); `ReaderLease` expiry → `CALYX_READER_LEASE_EXPIRED`.
+- `mvcc/store.rs` — `VersionedCfStore::commit_batch` allocates ONE seq under the write lock for the whole group, writes through `router.put`; `read_batch` resolves all CFs at one pinned seq; `Freshness::{FreshDerived,StaleOk}` → `CALYX_STALE_DERIVED`.
+- `mvcc/mod.rs` + `mvcc/tests/{allocator,freshness,isolation,router_bridge}.rs` — incl. `concurrent_reader_never_observes_partial_constellation` (1000 iters).
 
-**What remains:**
-- `VersionedCfStore` is purely in-memory. It needs a bridge to `CfRouter`: on
-  `commit_batch`, in addition to writing the in-memory version chain, also write
-  to the CF router (so writes land on disk). This is the main integration task.
-- Snapshot `pin_snapshot` in `AsterVault` (vault.rs) needs to use a proper
-  `SeqAllocator` whose value is recoverable from WAL replay after a crash (PH10
-  sets the start seq after recovery).
-- Concurrency test: concurrent writer + reader must never expose a partial
-  constellation (i.e., base CF row visible but slot CF rows not yet visible).
-- `read_batch` must guarantee atomicity at the pinned seq across all CF rows.
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -59,6 +45,8 @@ The reader-lease watchdog scaffold is placed here (full lease expiry in PH58).
 | T04 | MVCC+CfRouter write bridge: disk persistence under seq | T01, PH07 T03 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
 
 Run a concurrent writer+reader on aiwonder: writer puts N constellations; reader
 pins seq S mid-write and reads `base` + `slot_00` at seq S; assert reader sees

@@ -116,7 +116,7 @@ Beyond runtime garbage (§3), the *operational* footprint must not accumulate �
 
 | Source | Hygiene |
 |---|---|
-| **Build artifacts** | `cargo` target dirs + old `.deb`/static binaries pruned — keep last N releases; `cargo clean` stale targets; never let `target/` accrue across versions on aiwonder; cross-build host caps its caches (`sccache`). |
+| **Build artifacts** | `cargo` target dirs + old `.deb`/static binaries pruned — keep last N releases; `cargo clean` stale targets; never let `target/` accrue across versions on aiwonder; the build host caps its caches (e.g. `sccache`). |
 | **Logs** | structured logs rotate by size+age (`tracing-appender`/logrotate), zstd-compress then drop on TTL; bounded total log bytes per service; the Ledger (audit) is *not* a log — it archives to cold, never grows unbounded hot (`11`). |
 | **Temp / scratch** | staged temp files written **in the destination dataset** (avoid `EXDEV`, `16`), cleaned on commit/abort; synthetic FSV data cleanup-tagged + removed before the turn ends (`28`). |
 | **Datasets** | downloaded datasets (`28 §3`) live on cold `archive`; unused ones pruned per MANIFEST; raw kept only while a test needs it, else the parsed/quantized form. |

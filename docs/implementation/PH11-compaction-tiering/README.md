@@ -19,30 +19,17 @@ can run long-term without unbounded SST file proliferation.
 - **Provides for:** PH58 (GC reclaimers use the compaction snapshot for version
   expiry), PH35 (Ledger archive to cold tier)
 
-## Current state (build off what exists)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
 
-`compaction/mod.rs` is already written with:
-- `SstShard`, `CompactionCatalog` (atomic snapshot swap with `Arc<Vec<SstShard>>`).
-- `CompactionThrottle`, `CompactionDebt` (write-amp debt meter).
-- `compact_shards`: merges SSTs for one CF, writes output, returns metrics.
-- `TieringPolicy` with `hot_root = /zfs/hot/calyx`, `archive_root =
-  /zfs/archive/calyx`, active-slot aware, `place_cf`, `write_tiered_sst`.
-- `TierWrite`, `TierPlacement`, `StorageTier`.
-- `compaction/tests.rs` exists.
+Shipped in `calyx-aster`:
+- `compaction/mod.rs` — `CompactionDebt::measure` (score), `CompactionThrottle` (`max_input_bytes`), snapshot-safe `CompactionCatalog` (atomic `Arc<Vec<SstShard>>` swap; pinned readers survive), `TieringPolicy::place_cf`/`is_cold` (base/ledger/anchors hot; `*.raw`/retired/old-panel cold), `write_tiered_sst` (stages in destination dir; `aiwonder()` → `/zfs/hot|archive/calyx` with `CALYX_HOME` fallback), `CompactionScheduler` (background thread, debt trigger, write-amp backoff, `FIXME(PH46)` Anneal hook).
+- CLI: `tier`, `compact`, `compact-watch`, `soak`. FSV-proven: compacted base SST written; `slot_00` hot + `slot_00.raw` archive placement; `xxd` showed `CXS1`.
 
-**What remains:**
-- No background compaction thread. Need `CompactionScheduler` that runs compaction
-  on a timer (or on demand when `CompactionDebt` crosses a threshold), holds a
-  `CompactionCatalog`, and does not block readers.
-- No integration with the vault: `AsterVault` needs a method to trigger compaction
-  and to use `CompactionCatalog::pin_snapshot()` so reads do not fail during
-  a compaction swap.
-- No soak test verifying write-amp stays ≤ target.
-- The cold-tier write uses real `/zfs/archive/calyx`; on aiwonder without ZFS
-  provisioned, it should fall back to `CALYX_HOME/archive` — add a fallback path.
-- Staging temp files: `write_sst` already uses `path.with_extension("sst.tmp")`
-  in the same directory; confirm this is also used by tiered writes to avoid
-  `EXDEV`.
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
+
+### Tracked follow-ups (non-blocking)
+1. `CompactionScheduler`/`CompactionCatalog` are implemented but **not yet wired into `AsterVault`** — compaction is not vault-triggered (the durable vault doesn't register its SSTs in a catalog). Unify with the durable/router path (see PH10 follow-up #4).
+2. The compaction-debt meter has example-based unit tests but no `proptest` (the card specified one). Add a debt-meter property test.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -63,6 +50,8 @@ can run long-term without unbounded SST file proliferation.
 | T05 | Write-amp soak + cold-slot physical path FSV | T03, T04 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
 
 Run compaction with concurrent readers on aiwonder; verify no partial reads occur
 and cold slots are physically on the archive path:

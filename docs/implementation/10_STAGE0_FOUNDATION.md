@@ -1,13 +1,20 @@
 # Stage 0 — Foundation & Environment (PH00–PH04)
 
-Stand up the self-contained Calyx environment on aiwonder, the Rust workspace,
-the dev-state surface, and the dependency-free `calyx-core` types every other
-crate builds on. **This is the first phase of implementation**; its granular,
-do-now task cards are in `phase-1-tasks/`.
+> **STATUS: ✅ DONE** (2026-06-07, commit `8dcddaa`). The self-contained Calyx
+> environment is up on aiwonder, the workspace compiles, the five pinned
+> `type:context` issues are live (#22–#26), and `calyx-core` ships every ID,
+> enum, `CALYX_*` error code, model struct, trait, and the injected `Clock`.
+> This was the first stage built; it has no per-phase card subdir (cards cover
+> PH05→PH72, see `PHASE_TASKS_README.md`).
 
-Exit of Stage 0: an agent on aiwonder can `cargo test` a green workspace whose
-`calyx-core` defines every ID, enum, error code, core struct, and trait the PRD
-names — with the ≤500-line gate passing and the context issues live.
+Stood up the self-contained Calyx environment on aiwonder, the Rust workspace,
+the dev-state surface, and the dependency-free `calyx-core` types every other
+crate builds on.
+
+Exit of Stage 0 (achieved): an agent on aiwonder can `cargo test` a green
+workspace whose `calyx-core` defines every ID, enum, error code, core struct,
+and trait the PRD names — with the ≤500-line gate passing and the context issues
+live.
 
 ---
 
@@ -154,10 +161,10 @@ needed; the whole `calyx-core` test suite green on aiwonder.
 
 ---
 
-## Stage 0 exit checklist
-- [ ] `CALYX_HOME` self-contained; nothing written outside it (PH00).
-- [ ] Workspace compiles + lints + tests + ≤500-line gate green (PH01).
-- [ ] Five pinned context issues live; read-state query returns them (PH02).
-- [ ] `calyx-core` IDs/enums/errors/structs/traits done, proptest round-trips
+## Stage 0 exit checklist — ✅ all met
+- [x] `CALYX_HOME` self-contained; nothing written outside it (PH00).
+- [x] Workspace compiles + lints + tests + ≤500-line gate green (PH01).
+- [x] Five pinned context issues live; read-state query returns them (PH02, #22–#26).
+- [x] `calyx-core` IDs/enums/errors/structs/traits done, proptest round-trips
       byte-exact, error codes match `18 §6` (PH03–PH04).
-- [ ] Stage-0 sign-off issue closed with FSV evidence (readback output).
+- [x] Stage-0 sign-off recorded with FSV evidence (readback output).

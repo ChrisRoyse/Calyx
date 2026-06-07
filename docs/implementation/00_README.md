@@ -8,8 +8,9 @@ machine, proven how*.
 
 > **Read order:** `DOCTRINE.md` → this README → `01_AIWONDER_ENVIRONMENT.md`
 > → `02_WORKING_AGREEMENT.md` → `03_PHASE_MAP.md` → the stage files in order.
-> The first phase's granular, do-now task cards live in
-> `phase-1-tasks/` (a separate subdirectory).
+> Per-phase, do-now atomic task cards live in one subdir per phase
+> (`PH05-*/` … `PH72-*/`), governed by `PHASE_TASKS_README.md`. Stage 0
+> (PH00–PH04) is built and intentionally has no subdir.
 
 ---
 
@@ -99,13 +100,35 @@ Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. We lift
 the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
 `19 §6`). Missing and to be installed in userspace: `cmake`, `protoc`.
 
-## 7. Status
+## 7. Status (current: 2026-06-07, commit `8dcddaa`)
 
-Stage 0 (PH00–PH04: `calyx-core` + the Aster scaffolding in `calyx-aster`) is
-built. The remaining phases **PH05–PH72** are fully laid out as atomic task
-cards in the per-phase subdirs (`PH05-*/` … `PH72-*/`), governed by
-`PHASE_TASKS_README.md` — 398 cards across 68 phases, each with a byte-level FSV
-exit gate. Execution proceeds down the dependency spine (§4); the recommended
-first demo is `S0 → S1 → S2(CPU) → S3 → S4` + the migration shadow. Track live
-state in the `chrisroyse/calyx` GitHub `type:context` issues (doctrine §8d,
-PRD `29`).
+**DONE — Stage 0 + Stage 1 (PH00–PH11), FSV-signed-off on aiwonder:**
+- **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
+  catalog, the constellation model structs, engine traits, the injected `Clock`.
+- **Stage 1** (PH05–PH11): `calyx-aster` storage core — WAL + group-commit,
+  memtable + LSM SSTable, column families + key codecs, MVCC snapshots,
+  constellation CRUD + idempotent ingest, manifest + crash recovery, compaction
+  + hot/cold tiering. Plus `calyx-cli` readback/FSV/crash commands and
+  `calyx-testkit`. Proven by byte-level readback on aiwonder (87 `calyx-aster`
+  tests + 6 `calyx-cli` tests green; crash-drill recovered to last-acked seq;
+  corrupt-shard failed closed). Evidence: GitHub issue #23 (`[CONTEXT] You are
+  here`); FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
+  This satisfies PRD `CORE` (`dbprdplans/19 §5`).
+- **Stage-1 tracked follow-ups (non-blocking debt):** PH10 recovery diverges
+  from its card — `AsterVault::open` replays the full WAL instead of using the
+  manifest-anchored `recover_vault` + `set_start_seq`; `manifest/recovery.rs`
+  was not split out; `degraded_rebuildable` is never set (deferred to PH44); and
+  the durable-write / `CfRouter` / `CompactionScheduler` paths are not yet
+  unified. Recorded in `11_STAGE1_ASTER.md` and as GitHub `type:task` issues.
+
+**NEXT — Stage 2: Forge (PH12–PH16)** — the CPU SIMD + CUDA sm_120 math runtime
+(`calyx-forge`, currently a 9-line stub). Deps (PH04, PH09) are satisfied;
+start at `PH12-cpu-simd-backend/`. See `12_STAGE2_FORGE.md`.
+
+**Remaining:** every engine crate except `calyx-core`/`calyx-aster` is still a
+~9-line stub. Phases **PH12–PH72** are laid out as atomic task cards in the
+per-phase subdirs (`PH12-*/` … `PH72-*/`), governed by `PHASE_TASKS_README.md`,
+each with a byte-level FSV exit gate. Execution proceeds down the dependency
+spine (§4); the recommended first demo is `S0 → S1 → S2(CPU) → S3 → S4` + the
+migration shadow. Track live state in the `ChrisRoyse/Calyx` GitHub
+`type:context` issues (doctrine §8d, PRD `29`).

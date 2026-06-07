@@ -19,28 +19,16 @@ process restart, and the WAL is in the write path (not just in tests).
 - **Provides for:** PH10 (manifest captures the durable_seq after each write
   group), PH35 (Ledger real hash-chain replaces stub)
 
-## Current state (build off what exists)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
 
-`vault.rs` has `AsterVault<C>` implementing `VaultStore` with `put`, `get`,
-`anchor`, `snapshot`. It is well-tested but **entirely in-memory** —
-`VersionedCfStore` holds all rows in a `HashMap`, with `serde_json` encoding.
-The vault does NOT:
-- Wire through the WAL (`GroupCommitBatcher::submit` is not called).
-- Persist anything to disk (`CfRouter` is not used).
-- Use the CF key binary encodings for storage (uses serde_json).
-- Write to the `ledger` CF (writes a `LedgerRef` but the CF path is serde_json
-  in the in-memory store).
+Shipped in `calyx-aster`:
+- `vault.rs` — `AsterVault` implements `VaultStore`: `put`/`get(seq)`/`anchor`; content-addressed `CxId`; idempotent re-ingest (identical bytes → no-op `Ok(id)`; differing bytes under same CxId → `CALYX_ASTER_CORRUPT_SHARD`); explicit `Absent` slots (no zero-fill).
+- `vault/encode.rs` (header + `encode_slot_vector` + ledger-stub row), `vault/anchor_codec.rs`, `vault/cf_codec.rs`, `vault/cursor.rs` (fail-closed reader), `vault/durable.rs` (WAL-integrated write path), `vault/router_bridge.rs`. CLI: `vault-demo`.
 
-**What remains:**
-- Replace `serde_json` value encoding with the CF-native binary formats (base CF
-  value = `ConstellationHeader` packed struct or bincode; slot CF value =
-  `ArrowColumnChunk` for dense vectors; anchor CF value = packed `Anchor`).
-- Wire `commit_batch` through the `GroupCommitBatcher` (WAL append) before the
-  MVCC seq advances.
-- Wire `commit_batch` through `CfRouter` (disk persistence).
-- Prove idempotent re-ingest by reading from disk (not in-memory cache).
-- Write a Ledger stub entry in the `ledger` CF (seq-keyed, placeholder bytes —
-  real hash-chain in PH35).
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
+
+### Tracked follow-up (non-blocking)
+- The PH35 Ledger-stub row is written inside `vault/encode.rs::encode_ledger_stub` (a 32-byte placeholder per put), not in a dedicated `vault/ledger_stub.rs` module as the card sketched. Functionally equivalent; the real hash-chain lands in PH35.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -61,6 +49,8 @@ The vault does NOT:
 | T05 | Vault put/get/anchor FSV (byte-exact on disk) | T02, T03, T04 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
 
 Put N constellations; restart the vault process (kill and reopen);
 read each back byte-exact:

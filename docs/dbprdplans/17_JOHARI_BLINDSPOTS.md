@@ -45,7 +45,7 @@ Each: risk · severity · mitigation · the FSV that proves it's handled.
 - **Lens latency dominates ingest.** Sev: med. Mitigation: microbatching, resident lenses; a slow `external-cmd` lens bottlenecks. Surface per-lens cost in the capability card.
 
 ### 3.5 Build / process
-- **No `rustc` on aiwonder** → must cross-build + ship binary; a build-host dependency. Sev: low. Documented (`16`).
+- ~~**No `rustc` on aiwonder** → must cross-build + ship binary~~ **RESOLVED (2026-06):** Rust via rustup is installed on aiwonder; build natively. Cross-build retained only as an optional minimal-deploy path (`docs/implementation/01_AIWONDER_ENVIRONMENT.md`).
 - **Scope = "a real database."** Sev: high (project). A durable, concurrent storage engine is a multi-year systems effort even Vault-only. Mitigation: phased `BUILD_DONE` (`19`); ship the embedded multi-lens Vault (V0–V2) as the first and sufficient milestone. *Biggest risk is over-reach; with control-plane replacement removed, scope is a contained Vault engine, not an RDBMS.*
 - **FSV discipline at scale.** Sev: med. Manual SoT verification is slow but mandatory (banned harnesses). Mitigation: build readback *tools* (not FSV harnesses) that print bytes for a human/agent to judge.
 

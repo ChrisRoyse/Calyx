@@ -1,5 +1,9 @@
 # PH12 — CPU SIMD Backend
 
+> **▶ ACTIVE — this is the current phase to start (first phase of Stage 2).**
+> Deps (PH04 `calyx-core`) are satisfied; `calyx-forge` is a greenfield 9-line
+> stub. Begin at `T01-backend-trait-errors.md`.
+
 **Stage:** S2 — Forge Math Runtime  ·  **Crate:** `calyx-forge`  ·
 **PRD roadmap:** P1  ·  **Axioms:** A13, A16
 

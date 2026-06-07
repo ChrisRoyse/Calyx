@@ -17,29 +17,15 @@ is surfaced whenever replay encounters a torn tail.
 - **Provides for:** PH06 (memtable flush trigger), PH09 (write path integration),
   PH10 (manifest recovery ordering)
 
-## Current state (build off what exists)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
 
-`wal/mod.rs`, `wal/record.rs`, and `wal/segment.rs` are already written and
-compile. The WAL has:
-- Record framing: magic `CXW1` + seq (u64 LE) + len (u32 LE) + crc32 + payload.
-- `append_batch` with a single `sync_data()` after writing all records in the
-  batch (group-commit in intent; the batcher loop is not yet externally driven by
-  a time window).
-- `replay_dir` that truncates torn tails and removes later segments.
-- Segment rotation on byte cap (`max_segment_bytes`, default 64 MiB).
-- `DEFAULT_GROUP_COMMIT_WINDOW: Duration = Duration::from_millis(2)` is declared
-  but the caller (vault) drives batching; no dedicated timer thread yet.
+Shipped in `calyx-aster`:
+- `wal/record.rs` — framing `CXW1` + seq(LE) + len(LE) + crc32 + payload; `encode`/`decode_at`; torn detection; proptest roundtrip + golden edge cases.
+- `wal/mod.rs` — `append_batch` (single `sync_data` per batch), `replay_dir` truncates torn tail + removes later segments, segment rotation on byte cap with `sync_all` on rotate; `CALYX_ASTER_TORN_WAL` on torn tail.
+- `wal/batch.rs` — `GroupCommitBatcher`, ≤2 ms window driven by injected `Clock`; `validate_window` fails closed on >2 ms.
+- `wal/segment.rs`, `wal/tests.rs`. CLI: `wal-drill`, `wal-replay`, `wal-batch-demo`, `readback --wal`.
 
-**What remains:**
-- A `GroupCommitBatcher` that collects callers for ≤2 ms, then flushes as one
-  `append_batch` call. The current vault uses `commit_batch` against the in-memory
-  `VersionedCfStore`; the WAL is not yet wired into the vault write path.
-- A WAL integration test that proves `kill -9` durability by writing, crashing
-  the process (or simulating by truncating the file mid-byte), replaying, and
-  asserting bytes.
-- A property test that `decode(encode(seq, payload)) == (seq, payload)` for all
-  valid inputs.
-- FSV drill documented in the phase GitHub issue.
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -61,6 +47,8 @@ compile. The WAL has:
 | T04 | kill-9 crash drill + WAL FSV | T02, T03 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
 
 Run the vault write loop on aiwonder; issue `kill -9` mid-write batch; restart;
 replay the WAL directory. Proof:

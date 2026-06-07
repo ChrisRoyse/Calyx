@@ -28,6 +28,15 @@ VRAM coexistence: 3 resident TEI containers (general/legal/reranker) + dcgm-expo
 
 ## 2. systemd unit
 
+> **[SUPERSEDED — current dev path]** Rust (via rustup) and CUDA 13.2 are
+> installed on aiwonder; **build natively**. The project is self-contained under
+> `CALYX_HOME=/home/croyse/calyx` as user `croyse`. The `/opt/leapable/calyx`
+> paths, the `leapable` user, and the `/run/leapable/secrets` rendering shown
+> below were written for integration into the leapable box layout and are
+> **superseded** by the self-contained layout (`docs/implementation/01_AIWONDER_ENVIRONMENT.md`).
+> The unit below is illustrative; the production systemd install (S16 / PH66) is
+> sudo-gated and its final paths are TBD.
+
 ```
 # /etc/systemd/system/calyxd.service  (repo-owned, in infra/aiwonder/systemd/)
 [Unit]
@@ -49,7 +58,7 @@ WantedBy=multi-user.target
 
 - Runs as `leapable` from `/opt/leapable/calyx/`; reads secrets from `/run/leapable/secrets/calyx.env` (add to `secrets-loader/secrets-map.json` → 13th file).
 - **Binds loopback only**; Cloudflare Tunnel + Caddy are the sole ingress (existing pattern). Add `calyx.env` to Infisical (`leapable-aiwonder-prod`).
-- **No `rustc` on box** (live readback): `calyxd` ships as a **cross-built static binary + `.deb`**, cross-built on aiwonder/another host, synced to `/opt/leapable/calyx/`. Do not assume host cargo.
+- **Native build (superseded the "no `rustc`" note):** Rust via rustup is installed on aiwonder, so `calyxd`/`calyx` are **built natively** there (CUDA 13.2, sm_120). A cross-built static binary + `.deb` is retained only as an optional minimal-deploy artifact, not the dev path.
 
 ## 3. Storage provisioning (ZFS)
 
@@ -102,7 +111,7 @@ All secrets are managed in **Infisical** (`leapable-aiwonder-prod`, project `c2d
 ## 8. Rollout on the box (ordered)
 
 1. Provision ZFS datasets; add `calyx.env` to Infisical + secrets-map.
-2. Sync cross-built `calyxd` + `calyx` CLI to `/opt/leapable/calyx/`.
+2. Build `calyxd` + `calyx` CLI natively on aiwonder under `CALYX_HOME` (or sync a cross-built artifact for a minimal deploy); the final install location is sudo-gated/TBD (see the superseded-path note above).
 3. Install `calyxd.service` (loopback); `healthcheck` green; Prometheus target up.
 4. Run embedded-vault migration shadow (L0, `15`) against a real vault on the box.
 5. (Optional) Stand up `calyxd` as a published/Discover **Vault host** (V3, `15`) — serves Vaults only; **does not connect to PostgreSQL**, which remains the untouched control plane.

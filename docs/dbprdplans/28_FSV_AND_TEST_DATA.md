@@ -91,7 +91,7 @@ Model/dataset acquisition needs exactly one secret today: **`hf_hub_token`** (Hu
 ## 5. Build / run / store / test — all on aiwonder
 
 **Division of labor (binding):** this WSL dev box **authors** code; **`aiwonder` is where the project exists, runs, is tested, and stores its state.** Per `DOCTRINE §8c`:
-- **Build:** compile on aiwonder (it has the toolchain/GPU) or cross-build and sync the binary to `/opt/leapable/calyx/` (no `rustc` on box today → see `16`); the authoritative build artifact lives on aiwonder.
+- **Build:** compile natively on aiwonder under `CALYX_HOME=/home/croyse/calyx` (Rust via rustup + CUDA 13.2 are installed — the "no `rustc` on box / cross-build to `/opt/leapable/calyx/`" note is superseded; see `docs/implementation/01_AIWONDER_ENVIRONMENT.md`); the authoritative build artifact lives on aiwonder.
 - **Store:** Aster vaults + all datasets live on aiwonder ZFS (`/zfs/hot/calyx`, `/zfs/archive/calyx`); the source-of-truth bytes FSV reads are *there*.
 - **Run:** `calyxd` + the resident lens/TEI services run on aiwonder (the RTX 5090, sm_120).
 - **Test:** every test — synthetic mechanics and real-dataset intelligence — executes **on aiwonder**, reading aiwonder's persisted state. Local runs are for authoring only and never count as FSV.

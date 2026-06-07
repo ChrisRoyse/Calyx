@@ -6,6 +6,11 @@ for the structure under `docs/implementation/PHnn-*/`.
 
 > Stage 0 (PH00–PH04: `calyx-core` + Aster scaffolding) is **already built** and
 > is intentionally **not** covered here. These cards cover **PH05 → PH72**.
+>
+> **Current (2026-06-07):** Stage 1 (PH05–PH11, `calyx-aster`) is also **DONE**
+> and FSV-signed-off — those cards are complete (see each phase README's
+> "Status — DONE" and `11_STAGE1_ASTER.md`). **Active work starts at
+> `PH12-cpu-simd-backend/` (Stage 2, Forge).**
 
 ---
 

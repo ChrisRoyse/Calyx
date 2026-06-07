@@ -18,30 +18,21 @@ any point in the write path and recovers byte-exact to the last acked record.
 - **Provides for:** PH11 (compaction uses manifest to track SST files),
   PH35 (Ledger recovery via manifest), PH58 (GC uses manifest seq watermark)
 
-## Current state (build off what exists)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
 
-`manifest/mod.rs` is already written with:
-- `VaultManifest`: `version`, `manifest_seq`, `durable_seq`, `panel_ref`,
-  `codebook_refs`, `degraded_rebuildable`.
-- `ManifestStore::write_current` / `load_current`: atomic write via `write_atomic`
-  (temp + `rename()`).
-- `recover_vault`: loads MANIFEST, replays WAL past `durable_seq`, returns
-  `RecoveryOutcome`.
-- `read_base_shard`: fail-closed SST read with `CALYX_ASTER_CORRUPT_SHARD`.
-- `manifest/tests.rs` exists.
+Shipped in `calyx-aster`:
+- `manifest/mod.rs` — `VaultManifest` (version/manifest_seq/durable_seq/panel_ref/codebook_refs/degraded_rebuildable), `ManifestStore::write_current`/`load_current` via atomic temp+rename+`sync_parent`, `ManifestVersion::validate` (rejects bad major), `ImmutableRef` path-traversal guards, `recover_vault` (replays WAL past `durable_seq` → `RecoveryOutcome{wal_records,torn_tail,last_recovered_seq,degraded_rebuildable}`).
+- Corrupt base shard read fails closed → `CALYX_ASTER_CORRUPT_SHARD` + restic/snapshot restore guidance. CLI: `crash-drill` (3 points), `recover`, `corrupt-shard`.
+- FSV-proven: SIGKILL crash drill recovered to last-acked seq + reported `CALYX_ASTER_TORN_WAL` (WAL truncated 790→774 bytes); corrupt base SST failed closed exit 2.
 
-**What remains:**
-- `recover_vault` currently loads MANIFEST + replays WAL but does NOT apply the
-  WAL records to a `VersionedCfStore` or `CfRouter`. The recovery must reconstruct
-  the in-memory MVCC state from the WAL records (re-apply each write batch) so
-  the vault is ready to serve reads immediately after recovery.
-- The `AsterVault::open` constructor (for on-disk vaults) must call `recover_vault`,
-  set `SeqAllocator::set_start_seq(last_recovered_seq)`, and re-apply WAL writes.
-- A crash drill that tests `kill -9` at three specific points: (1) before WAL
-  fsync, (2) after WAL fsync but before `commit_batch`, (3) after `commit_batch`
-  but before manifest write.
-- Corrupt-base test: flip a byte in a base CF SST → read fails with
-  `CALYX_ASTER_CORRUPT_SHARD`.
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
+
+### Tracked follow-ups (functional gate passed; architectural debt to resolve)
+PH10 is FSV-signed-off as **functionally working** (crash recovery + corrupt-shard fail-closed proven via the CLI `recover` path), but it **diverges architecturally from this card**. Open these as `type:task` issues before/with Stage-13 resource work:
+1. `manifest/recovery.rs` was not created — recovery logic lives in `manifest/mod.rs::recover_vault`. (cosmetic; module placement)
+2. `AsterVault::open` recovers by replaying the **entire** WAL (`vault/durable.rs::replay_batches`), NOT via the manifest-anchored `recover_vault` + `set_start_seq(last_recovered_seq)`. Two parallel recovery paths exist; unify on the manifest-anchored one.
+3. `degraded_rebuildable` is a manifest field but is **never set true** on a corrupt derived CF; the self-heal/degrade path is deferred to PH44.
+4. `DurableVault::write_batch` writes one SST per row and rewrites the manifest on every put, bypassing the memtable/`CfRouter` flush model used elsewhere — durable and router write paths are not unified.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -61,6 +52,8 @@ any point in the write path and recovers byte-exact to the last acked record.
 | T04 | kill -9 crash drill (3 points) + corrupt-shard FSV | T03 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
 
 Run the crash drill: `kill -9` at each of 3 points → `calyx recover` →
 `calyx readback`. Prove byte-exact recovery to last acked record.

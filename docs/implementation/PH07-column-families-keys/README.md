@@ -20,27 +20,14 @@ into the on-disk SST CF directories so a write to CF `base` physically lands in
 - **Provides for:** PH08 (MVCC wraps CF dispatch), PH09 (vault write uses CF
   keys), PH10 (manifest lists CF SST files)
 
-## Current state (build off what exists)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
 
-`cf/mod.rs`, `cf/key.rs`, and `cf/family.rs` are already written with:
-- All CF variants: `Base`, `Slot { slot, kind }`, `XTerm`, `Scalars`, `Anchors`,
-  `Ledger`, `Online`.
-- Key encoders: `base_key`, `slot_key`, `xterm_key`, `scalar_key`, `anchor_key`,
-  `ledger_key`, `online_key` — all big-endian.
-- `KeyRange`, `prefix_range`, range helpers for each CF.
-- `full_content_hash`, `cx_id_from_full_hash`, `verify_cx_hash_prefix` (blake3
-  collision check returning `CALYX_ASTER_CORRUPT_SHARD`).
-- `cf/tests.rs` exists (noted in `cf/mod.rs`) but may lack full coverage.
+Shipped in `calyx-aster`:
+- `cf/key.rs` — big-endian codecs `base_key`/`slot_key`/`xterm_key`/`scalar_key`/`anchor_key`/`ledger_key`/`online_key` + `KeyRange`/`prefix_range`; `full_content_hash` (length-delimited blake3) + `cx_id_from_full_hash` + `verify_cx_hash_prefix` → `CALYX_ASTER_CORRUPT_SHARD`.
+- `cf/family.rs`, `cf/router.rs` — `CfRouter::open` (per-CF dir + `Memtable` + `SstLevel`), `put`/`get`/`range`/`flush_cf`, `load_existing` cold-reopen.
+- `cf/tests.rs` — proptests for key ordering + prefix containment. CLI: `cf-demo`, `readback --cf`, `corrupt-shard`.
 
-**What remains:**
-- A `CfRouter` (or `CfDiskLayout`) that maps `ColumnFamily` → a `SstLevel` rooted
-  at the correct on-disk directory (e.g., `vault/cf/base/`, `vault/cf/slot_00/`).
-- Per-CF `put` and `get` dispatch that uses `SstLevel` + a per-CF memtable, so
-  writes and reads go through actual files (not the in-memory `VersionedCfStore`).
-- Full proptest coverage of all key codecs: encode+decode round-trip; key
-  ordering; prefix range containment.
-- Integration test: write one row to each CF → read each back byte-exact;
-  verify key ordering supports range scans in the intended direction.
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -62,6 +49,8 @@ into the on-disk SST CF directories so a write to CF `base` physically lands in
 | T04 | CF round-trip + range-scan FSV | T02, T03 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
 
 Write one row per CF to the router; read each back:
 

@@ -17,7 +17,7 @@ A **small, curated set** of pinned `type:context` issues holds the critical, cru
 | **`[CONTEXT] Mission & invariants`** | the thesis pointer (`00`/`DOCTRINE`); the binding invariants (link `DOCTRINE` axioms A1–A32, do not duplicate); scope (universal DB + AGI; Leapable = Vault-only, PostgreSQL untouched) |
 | **`[CONTEXT] You are here`** | current phase (`19`), what's done/in-flight/next; the one or two things that matter *right now* |
 | **`[CONTEXT] Environment & ops`** | everything runs on aiwonder (`28 §5`/`16`); reach via `~/.config/aiwonder.env`; secrets = Infisical (`hf_hub_token`); build/test = on aiwonder |
-| **`[CONTEXT] Landmines`** | the gotchas that bite *every* agent (e.g. no `rustc` on box; ≤500-line rule; FSV reads bytes; never secret values in issues; dedup never merges conflicting anchors) |
+| **`[CONTEXT] Landmines`** | the gotchas that bite *every* agent (e.g. Rust IS installed on aiwonder — the old "no `rustc`" note is superseded; build under `/home/croyse/calyx`, never `/opt/leapable/calyx`; ≤500-line rule; FSV reads bytes; never secret values in issues; dedup never merges conflicting anchors) |
 | **`[CONTEXT] Datasets`** | which real datasets are acquired + verified on aiwonder (`28 §3`, `datasets/MANIFEST.md` pointer); what's still needed |
 
 Rules for context issues:

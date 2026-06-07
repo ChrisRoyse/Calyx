@@ -6,11 +6,26 @@ lives in the per-stage files (`10_…`–`30_…`). Phase IDs are stable handles
 
 Legend: **Dep** = phases that must be DONE first. **PRD** = `dbprdplans/19`
 roadmap phase. **Gate** = the byte-level proof of done (full version in the
-stage file).
+stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 
 ---
 
-## Stage 0 — Foundation & Environment  (`10_STAGE0_FOUNDATION.md`)
+## Current status (2026-06-07, commit `8dcddaa`)
+
+| Stage | Phases | Status |
+|---|---|---|
+| S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
+| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); PH10 carries tracked follow-ups (see `11_STAGE1_ASTER.md`) |
+| S2 Forge | PH12–PH16 | ▶ **ACTIVE / next** (`calyx-forge` is a stub; deps PH04/PH09 satisfied) |
+| S3–S20 | PH17–PH72 | · pending (all other engine crates are ~9-line stubs) |
+
+FSV evidence for S0+S1: GitHub issue #23 (`[CONTEXT] You are here`); root
+`/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`. This satisfies PRD
+`CORE` (`dbprdplans/19 §5`).
+
+---
+
+## Stage 0 — Foundation & Environment  (`10_STAGE0_FOUNDATION.md`) — ✅ DONE
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate (FSV) |
 |---|---|---|---|---|---|
@@ -20,7 +35,7 @@ stage file).
 | PH03 | calyx-core: IDs, enums, error catalog | PH01 | core | A1/A16 | unit+proptest green; `CALYX_*` codes enumerated; round-trip IDs byte-exact |
 | PH04 | calyx-core: core structs + traits | PH03 | core | A1/A4 | `Constellation`/`Slot`/`Anchor` + traits compile; serde round-trip byte-exact |
 
-## Stage 1 — Aster storage core  (`11_STAGE1_ASTER.md`)
+## Stage 1 — Aster storage core  (`11_STAGE1_ASTER.md`) — ✅ DONE (PH10 follow-ups tracked)
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate |
 |---|---|---|---|---|---|
@@ -32,7 +47,7 @@ stage file).
 | PH10 | Manifest + atomic swap + crash recovery | PH09 | aster | P0/A15 | crash drill: recover to last consistent seq, byte-exact; corrupt shard fails closed |
 | PH11 | Compaction + hot/cold tiering | PH10 | aster | `04 §6` | compaction snapshot-safe; cold slots on archive; write-amp bounded |
 
-## Stage 2 — Forge math runtime  (`12_STAGE2_FORGE.md`)
+## Stage 2 — Forge math runtime  (`12_STAGE2_FORGE.md`) — ▶ ACTIVE (next)
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate |
 |---|---|---|---|---|---|
@@ -205,7 +220,7 @@ stage file).
 ## BUILD_DONE mapping
 
 The PRD's mechanical `BUILD_DONE` predicate (`dbprdplans/19 §5`) is satisfied
-exactly when the corresponding gates above all pass: CORE=PH05–PH11,
+exactly when the corresponding gates above all pass: **CORE=PH05–PH11 ✅ (done)**,
 MATH/ARRAYMATH/COMPRESS=PH12–PH16, LENS=PH17–PH22, SEARCH=PH23–PH26,
 DDA_BITS=PH27–PH30, KERNEL/KERNEL_ANY=PH31–PH34, PROVENANCE=PH35–PH36,
 GUARD=PH37–PH39, TEMPORAL/DEDUP/RECURRENCE=PH40–PH42, SELFOPT/INTELLIGENCE=
