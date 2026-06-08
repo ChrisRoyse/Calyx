@@ -1,11 +1,12 @@
 //! Snapshot-safe SST compaction and hot/cold tier placement.
 
 mod scan;
+mod tiering;
 
-use crate::cf::{ColumnFamily, SlotFamilyKind};
+use crate::cf::ColumnFamily;
 use crate::sst::{SstReader, write_sst};
-use calyx_core::{CalyxError, Result, SlotId};
-use std::collections::{BTreeMap, BTreeSet};
+use calyx_core::{CalyxError, Result};
+use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,7 +18,8 @@ use std::time::Duration;
 const DEFAULT_COMPACTION_TARGET_BYTES: u64 = 64 * 1024 * 1024;
 const WRITE_AMP_SCALE: u64 = 1_000;
 
-pub use scan::catalog_from_vault_dir;
+pub use scan::{catalog_from_vault_dir, catalog_from_vault_tiers};
+pub use tiering::{StorageTier, TierPlacement, TierWrite, TieringPolicy};
 
 /// One immutable SST file in the active shard set.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -159,6 +161,7 @@ pub struct CompactionSchedulerOptions {
     pub backoff_factor: u64,
     pub max_interval_ms: u64,
     pub output_root: PathBuf,
+    pub tiering_policy: Option<TieringPolicy>,
 }
 
 impl Default for CompactionSchedulerOptions {
@@ -170,6 +173,7 @@ impl Default for CompactionSchedulerOptions {
             backoff_factor: 2,
             max_interval_ms: 60_000,
             output_root: env::temp_dir().join("calyx-compaction-scheduler"),
+            tiering_policy: None,
         }
     }
 }
@@ -199,7 +203,12 @@ impl CompactionScheduler {
                     if debt.score_milli < options.debt_trigger_score_milli {
                         continue;
                     }
-                    let output = scheduler_output_path(&options.output_root, cf, &run_id);
+                    let output = scheduler_output_path(
+                        &options.output_root,
+                        options.tiering_policy.as_ref(),
+                        cf,
+                        &run_id,
+                    );
                     match catalog.compact_cf(cf, output, CompactionThrottle::unlimited()) {
                         Ok(CompactionResult::Compacted(report))
                             if report.write_amp_milli > options.max_write_amp_milli =>
@@ -223,9 +232,19 @@ impl CompactionScheduler {
     }
 }
 
-fn scheduler_output_path(root: &Path, cf: ColumnFamily, run_id: &AtomicU64) -> PathBuf {
+fn scheduler_output_path(
+    root: &Path,
+    tiering_policy: Option<&TieringPolicy>,
+    cf: ColumnFamily,
+    run_id: &AtomicU64,
+) -> PathBuf {
     let id = run_id.fetch_add(1, Ordering::AcqRel) + 1;
-    root.join(cf.name()).join(format!("compacted-{id:020}.sst"))
+    let file_name = format!("compacted-{id:020}.sst");
+    if let Some(policy) = tiering_policy {
+        policy.place_current_cf(cf).absolute_dir().join(file_name)
+    } else {
+        root.join(cf.name()).join(file_name)
+    }
 }
 
 /// Per-run throttle. `None` means no byte cap for the run.
@@ -348,142 +367,6 @@ pub fn compact_shards(
         output_path,
         staging_parent: parent,
     }))
-}
-
-/// Hot/cold physical storage tier.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StorageTier {
-    Hot,
-    Cold,
-}
-
-/// Resolved destination for one CF write.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TierPlacement {
-    pub tier: StorageTier,
-    pub root: PathBuf,
-    pub cf_dir: PathBuf,
-}
-
-impl TierPlacement {
-    pub fn absolute_dir(&self) -> PathBuf {
-        self.root.join(&self.cf_dir)
-    }
-}
-
-/// PH11 tiering policy.
-#[derive(Debug, Clone)]
-pub struct TieringPolicy {
-    hot_root: PathBuf,
-    archive_root: PathBuf,
-    active_slots: BTreeSet<SlotId>,
-    current_panel_version: u32,
-}
-
-impl TieringPolicy {
-    pub fn new(
-        hot_root: impl Into<PathBuf>,
-        archive_root: impl Into<PathBuf>,
-        active_slots: impl IntoIterator<Item = SlotId>,
-        current_panel_version: u32,
-    ) -> Self {
-        Self {
-            hot_root: hot_root.into(),
-            archive_root: archive_root.into(),
-            active_slots: active_slots.into_iter().collect(),
-            current_panel_version,
-        }
-    }
-
-    pub fn aiwonder(
-        active_slots: impl IntoIterator<Item = SlotId>,
-        current_panel_version: u32,
-    ) -> Self {
-        Self::new(
-            tier_root("/zfs/hot/calyx", "hot"),
-            tier_root("/zfs/archive/calyx", "archive"),
-            active_slots,
-            current_panel_version,
-        )
-    }
-
-    pub fn place_cf(&self, cf: ColumnFamily, panel_version: u32) -> TierPlacement {
-        let cold = self.is_cold(cf, panel_version);
-        let root = if cold {
-            self.archive_root.clone()
-        } else {
-            self.hot_root.clone()
-        };
-        TierPlacement {
-            tier: if cold {
-                StorageTier::Cold
-            } else {
-                StorageTier::Hot
-            },
-            root,
-            cf_dir: PathBuf::from("cf").join(cf.name()),
-        }
-    }
-
-    pub fn write_tiered_sst<'a>(
-        &self,
-        cf: ColumnFamily,
-        panel_version: u32,
-        file_name: &str,
-        entries: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
-    ) -> Result<TierWrite> {
-        let placement = self.place_cf(cf, panel_version);
-        let dir = placement.absolute_dir();
-        fs::create_dir_all(&dir)
-            .map_err(|error| CalyxError::disk_pressure(format!("create tier dir: {error}")))?;
-        let path = dir.join(file_name);
-        let summary = write_sst(&path, entries)?;
-        Ok(TierWrite {
-            placement,
-            path: summary.path,
-            bytes: summary.bytes,
-            staging_parent: dir,
-        })
-    }
-
-    fn is_cold(&self, cf: ColumnFamily, panel_version: u32) -> bool {
-        if matches!(
-            cf,
-            ColumnFamily::Base | ColumnFamily::Ledger | ColumnFamily::Anchors
-        ) {
-            return false;
-        }
-        if cf.is_raw_slot() {
-            return true;
-        }
-        matches!(
-            cf,
-            ColumnFamily::Slot {
-                slot,
-                kind: SlotFamilyKind::Quantized
-            } if panel_version < self.current_panel_version || !self.active_slots.contains(&slot)
-        )
-    }
-}
-
-fn tier_root(zfs_path: &str, fallback_dir: &str) -> PathBuf {
-    let zfs = PathBuf::from(zfs_path);
-    if zfs.exists() {
-        return zfs;
-    }
-    env::var_os("CALYX_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/home/croyse/calyx"))
-        .join(fallback_dir)
-}
-
-/// Completed tiered SST write.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TierWrite {
-    pub placement: TierPlacement,
-    pub path: PathBuf,
-    pub bytes: u64,
-    pub staging_parent: PathBuf,
 }
 
 #[cfg(test)]

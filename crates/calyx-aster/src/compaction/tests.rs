@@ -1,5 +1,6 @@
 use super::*;
 use crate::cf::ColumnFamily;
+use calyx_core::SlotId;
 use proptest::prelude::*;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};

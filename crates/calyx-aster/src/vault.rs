@@ -57,8 +57,12 @@ impl AsterVault<SystemClock> {
         vault_salt: impl Into<Vec<u8>>,
         options: VaultOptions,
     ) -> Result<Self> {
-        let recovery = DurableVault::recover_batches(vault_dir.as_ref())?;
-        let router = CfRouter::open(vault_dir.as_ref(), options.memtable_byte_cap)?;
+        let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
+        let router = CfRouter::open_with_tiering(
+            vault_dir.as_ref(),
+            options.memtable_byte_cap,
+            options.tiering_policy.clone(),
+        )?;
         let rows = VersionedCfStore::new_with_router(recovery.last_recovered_seq, router);
         for batch in recovery.batches {
             let rows_at_seq = batch
