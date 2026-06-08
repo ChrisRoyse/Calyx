@@ -44,6 +44,11 @@
 > `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`, and SearchEngine fan-out is documented
 > as per-slot CPU/index-owned until a real Forge grouped fan-out path is wired.
 > FSV root: `/home/croyse/calyx/data/fsv-issue299-gpu-parity-fanout-20260608`.
+> Post-sweep hardening #322 makes PH25 varint postings fail closed: unsorted
+> doc IDs return `CALYX_SEXTANT_POSTINGS_NOT_SORTED`, malformed/truncated/overflow
+> bytes return `CALYX_SEXTANT_POSTINGS_CORRUPT`, and the Stage 4 readback records
+> exact bytes for the `[1,3,7] -> 010204` happy path.
+> FSV root: `/home/croyse/calyx/data/fsv-issue322-postings-fail-closed-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -113,8 +118,12 @@ attention.
   candidates and final scoring is restricted to that candidate set; zero sparse
   candidates or no selected sparse stage returns zero Pipeline hits rather than
   dense fallback (#290, #312).
+- **Post-sweep note.** Varint postings encoding now rejects unsorted input
+  before bytes are written, and decoding rejects malformed, truncated, overflow,
+  or delta-overflow blocks with explicit Sextant error codes (#322).
 - **FSV gate.** term match + BM25 ranking correct on a known corpus; sparse lens
-  participates in RRF/pipeline (read hits).
+  participates in RRF/pipeline (read hits); postings readback proves byte-exact
+  encoding plus fail-closed unsorted/corrupt edges.
 - **Axioms/PRD.** A19, `10 §2/§3`, `20 §2`.
 
 ## PH26 — Query planner + intent + explain

@@ -10,7 +10,8 @@ use calyx_sextant::fusion::pipeline::summarize_pipeline;
 use calyx_sextant::fusion::rrf::rrf_contribution;
 use calyx_sextant::index::tokenizer::{decode_varint_deltas, encode_varint_deltas, hex, tokenize};
 use calyx_sextant::{
-    CALYX_SEXTANT_PLAN_UNBOUNDED, DualIndex, FreshnessRequirement, FusionStrategy, HnswIndex,
+    CALYX_SEXTANT_PLAN_UNBOUNDED, CALYX_SEXTANT_POSTINGS_CORRUPT,
+    CALYX_SEXTANT_POSTINGS_NOT_SORTED, DualIndex, FreshnessRequirement, FusionStrategy, HnswIndex,
     IntentLabel, InvertedIndex, MaxSimIndex, PlanLimits, QuantConfig, Query, QueryPlanner,
     RerankRequest, RerankerClient, RrfProfile, SearchEngine, SextantIndex, SlotIndexMap,
     compare_lenses, define, neighbors, weighted_profiles,
@@ -20,9 +21,17 @@ use serde_json::json;
 #[test]
 fn tokenizer_varint_and_bm25_are_byte_exact() {
     assert_eq!(tokenize("Cat, hat! CAT"), ["cat", "hat", "cat"]);
-    let encoded = encode_varint_deltas(&[1, 3, 7]);
+    let encoded = encode_varint_deltas(&[1, 3, 7]).unwrap();
     assert_eq!(hex(&encoded), "010204");
-    assert_eq!(decode_varint_deltas(&encoded), Some(vec![1, 3, 7]));
+    assert_eq!(decode_varint_deltas(&encoded).unwrap(), vec![1, 3, 7]);
+    assert_eq!(
+        encode_varint_deltas(&[7, 3]).unwrap_err().code,
+        CALYX_SEXTANT_POSTINGS_NOT_SORTED
+    );
+    assert_eq!(
+        decode_varint_deltas(&[0x80]).unwrap_err().code,
+        CALYX_SEXTANT_POSTINGS_CORRUPT
+    );
 
     let (engine, ids) = sample_engine();
     let query = Query::new("cat hat")
@@ -285,6 +294,10 @@ fn stage4_full_stack_fsv() {
     });
 
     let latencies = measure_latencies(&engine, &dense_query);
+    let postings_encoded = encode_varint_deltas(&[1, 3, 7]).unwrap();
+    let postings_decoded = decode_varint_deltas(&postings_encoded).unwrap();
+    let postings_unsorted = encode_varint_deltas(&[7, 3]).unwrap_err();
+    let postings_corrupt = decode_varint_deltas(&[0x80]).unwrap_err();
     let readback = serde_json::json!({
         "hnsw_slots": engine.indexes.slots(),
         "single_lens_hits": single.len(),
@@ -315,7 +328,10 @@ fn stage4_full_stack_fsv() {
         "rrf6_p99_us": latencies.0,
         "pipeline_p99_us": latencies.1,
         "explain_delta_us": latencies.2,
-        "varint_hex": hex(&encode_varint_deltas(&[1,3,7])),
+        "varint_hex": hex(&postings_encoded),
+        "varint_decoded": postings_decoded,
+        "postings_unsorted_error": postings_unsorted.code,
+        "postings_corrupt_error": postings_corrupt.code,
     });
     let path = root.join("stage4-readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();
@@ -329,6 +345,14 @@ fn stage4_full_stack_fsv() {
     assert_eq!(readback["fresh_error"], "CALYX_STALE_DERIVED");
     assert_eq!(readback["unbounded"], CALYX_SEXTANT_PLAN_UNBOUNDED);
     assert_eq!(readback["varint_hex"], "010204");
+    assert_eq!(
+        readback["postings_unsorted_error"],
+        CALYX_SEXTANT_POSTINGS_NOT_SORTED
+    );
+    assert_eq!(
+        readback["postings_corrupt_error"],
+        CALYX_SEXTANT_POSTINGS_CORRUPT
+    );
 }
 
 fn sample_engine() -> (SearchEngine, Vec<CxId>) {

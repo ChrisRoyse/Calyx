@@ -31,7 +31,9 @@ BM25 participates in RRF, and post-sweep #290 wires `FusionStrategy::Pipeline`
 to use sparse/inverted results as the stage-1 candidate set before multi-lens
 scoring. Final Pipeline hits are constrained to that candidate set, and an
 empty sparse stage 1 returns no Pipeline hits instead of falling back to dense
-RRF.
+RRF. Post-sweep #322 hardens the varint postings codec: unsorted doc IDs fail
+closed before encoding, and malformed/truncated/overflow bytes fail closed on
+decode with cataloged Sextant errors.
 
 Compressed postings blocks and SPANN tiering are deferred to PH68; the current
 Stage 4 source of truth is the in-memory index plus byte-readback FSV artifacts.
@@ -67,15 +69,22 @@ Run the Stage 4 FSV on aiwonder. The readback JSON must include:
   back to dense-only hits.
 - `rrf_top_differs_from_single=true`, proving sparse/multi-lens fusion changes
   the result surface.
+- `varint_hex="010204"` and `varint_decoded=[1,3,7]`, proving the known postings
+  happy path is byte-exact.
+- `postings_unsorted_error="CALYX_SEXTANT_POSTINGS_NOT_SORTED"` and
+  `postings_corrupt_error="CALYX_SEXTANT_POSTINGS_CORRUPT"`, proving fail-closed
+  boundary handling.
 
 For #290 the readback root is
 `/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
+For #322 the readback root is
+`/home/croyse/calyx/data/fsv-issue322-postings-fail-closed-20260608`.
 
 ## Risks / landmines
 
 - **varint correctness**: off-by-one in delta encoding (d-gaps) corrupts all
-  postings; use a known-good test vector from a reference implementation and
-  assert byte-exact round-trip.
+  postings; the current codec asserts byte-exact `[1,3,7] -> 010204`, rejects
+  unsorted input, and rejects corrupt/truncated/overflow encoded bytes.
 - **compressed postings deferral**: zstd/SPANN persistence is PH68 work; do not
   describe the Stage 4 in-RAM sparse slot as disk-tiered or compressed.
 - **BM25 k1/b tuning**: defaults `b=0.75 k1=1.2` match Lucene and are the
