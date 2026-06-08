@@ -21,8 +21,8 @@ The harness is deterministic (seeded RNG), produces a `RecallReport`, and emits
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub struct RecallTestParams { held_out_fraction: f32, top_k: usize, rng_seed: u64, min_recall_ratio: f32 }` — defaults: `held_out_fraction=0.1`, `top_k=10`, `rng_seed=42`, `min_recall_ratio=0.95`.
-- [ ] `pub fn kernel_recall_test(kernel_index: &KernelIndex, full_index: &dyn AnnIndex, corpus: &dyn CorpusReader, params: &RecallTestParams) -> RecallReport`:
+- [x] `pub struct RecallTestParams { held_out_fraction: f32, top_k: usize, rng_seed: u64, min_recall_ratio: f32 }` — defaults: `held_out_fraction=0.1`, `top_k=10`, `rng_seed=42`, `min_recall_ratio=0.95`.
+- [x] `pub fn kernel_recall_test(kernel_index: &KernelIndex, full_index: &dyn AnnIndex, corpus: &dyn CorpusReader, params: &RecallTestParams) -> RecallReport`:
   1. Sample `held_out_fraction * corpus.len()` queries with `rng_seed`.
   2. For each query: run `kernel_search(query, top_k)` → kernel hits set;
      run `full_index.search(query, top_k)` → full hits set.
@@ -30,36 +30,39 @@ The harness is deterministic (seeded RNG), produces a `RecallReport`, and emits
   4. Aggregate: `kernel_only = mean(recall_at_k)`, `full = 1.0` (by definition).
   5. `ratio = kernel_only / full`; if `ratio < params.min_recall_ratio` →
      emit `CALYX_KERNEL_RECALL_BELOW_GATE` in `RecallReport.warning`.
-- [ ] `RecallReport` updated: add `recall_test_params`, `corpus_name`, `n_queries_tested`.
-- [ ] RNG must use the `Clock`-injected timestamp seed when `rng_seed = 0`; otherwise
+- [x] `RecallReport` updated: add `recall_test_params`, `corpus_name`, `n_queries_tested`.
+- [x] RNG must use the `Clock`-injected timestamp seed when `rng_seed = 0`; otherwise
   the provided seed exactly (never `thread_rng()`).
-- [ ] `corpus.len() == 0` → `CALYX_RECALL_EMPTY_CORPUS`.
+- [x] `corpus.len() == 0` → `CALYX_RECALL_EMPTY_CORPUS`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: 100-item corpus; kernel = top 10 items by embedding norm; held-out
+- [x] unit: 100-item corpus; kernel = top 10 items by embedding norm; held-out
   queries are the same 10 items (seed=42); `kernel_only == 1.0`; `ratio == 1.0`.
-- [ ] unit: kernel = 1 random item; queries are 10 diverse items → `recall_at_k`
+- [x] unit: kernel = 1 random item; queries are 10 diverse items → `recall_at_k`
   near 0.1 for `top_k=10`; `ratio < 0.95`; `warning = CALYX_KERNEL_RECALL_BELOW_GATE`.
-- [ ] unit: same `rng_seed=42` on same corpus → exactly same held-out set selected
+- [x] unit: same `rng_seed=42` on same corpus → exactly same held-out set selected
   (determinism check).
-- [ ] unit: `n_queries_tested` in report equals `ceil(0.1 * corpus.len())`.
-- [ ] edge: `held_out_fraction = 1.0` → all corpus items used as queries; no panic.
-- [ ] edge: `held_out_fraction = 0.0` → `CALYX_RECALL_EMPTY_CORPUS` (no queries to test).
-- [ ] fail-closed: `min_recall_ratio > 1.0` → `CALYX_RECALL_INVALID_PARAMS`.
+- [x] unit: `n_queries_tested` in report equals `ceil(0.1 * corpus.len())`.
+- [x] edge: `held_out_fraction = 1.0` → all corpus items used as queries; no panic.
+- [x] edge: `held_out_fraction = 0.0` → `CALYX_RECALL_EMPTY_CORPUS` (no queries to test).
+- [x] fail-closed: `min_recall_ratio > 1.0` → `CALYX_RECALL_INVALID_PARAMS`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `cargo test -p calyx-lodestar recall_test -- --nocapture` stdout.
-- **Readback:** `cargo test -p calyx-lodestar recall_test 2>&1 | tee /tmp/ph33_t04_fsv.txt && cat /tmp/ph33_t04_fsv.txt`.
+- **SoT:** `cargo test -p calyx-lodestar recall_test -- --nocapture` stdout plus JSON readbacks under `$CALYX_FSV_ROOT`.
+- **Readback:** aiwonder root `/home/croyse/calyx/data/fsv-ph33-t04-20260608`:
+  `recall-test-perfect.json`, `recall-test-degraded.json`,
+  `recall-test-deterministic.json`, `recall-test-edges.json`, and
+  `ph33-t04-gates-output.txt`.
 - **Prove:** unit test with perfect kernel prints `ratio = 1.0`; degraded-kernel
   test prints `CALYX_KERNEL_RECALL_BELOW_GATE`; determinism test prints identical
   held-out sets on two runs; output attached to PH33 GitHub issue.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH33 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH33 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

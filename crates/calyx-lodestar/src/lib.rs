@@ -10,6 +10,7 @@ pub mod kernel;
 pub mod kernel_answer;
 pub mod kernel_graph;
 pub mod kernel_index;
+pub mod recall_test;
 
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
@@ -27,4 +28,9 @@ pub use kernel_graph::{
 pub use kernel_index::{
     EmbeddingStore, FsKernelStore, KernelIndex, KernelStore, KernelVectorRow, build_kernel_index,
     kernel_search, load_kernel_index, write_kernel_index,
+};
+pub use recall_test::{
+    AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,
+    RecallQuery, RecallTestParams, RecallTestReport, kernel_recall_test,
+    kernel_recall_test_with_clock,
 };

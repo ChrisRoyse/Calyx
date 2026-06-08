@@ -35,6 +35,10 @@ pub enum LodestarError {
     },
     #[error("CALYX_KERNEL_SCORE_INVALID: {detail}")]
     KernelScoreInvalid { detail: String },
+    #[error("CALYX_RECALL_EMPTY_CORPUS: recall test has no held-out queries")]
+    RecallEmptyCorpus,
+    #[error("CALYX_RECALL_INVALID_PARAMS: {detail}")]
+    RecallInvalidParams { detail: String },
     #[error("CALYX_DFVS_VERIFICATION_FAILED: {detail}")]
     DfvsVerificationFailed { detail: String },
     #[error("CALYX_DFVS_GENUS_TOO_LARGE: genus {genus} exceeds supported bound")]
@@ -60,6 +64,8 @@ impl LodestarError {
             Self::KernelNoAnchoredNode => "CALYX_KERNEL_NO_ANCHORED_NODE",
             Self::KernelAnswerNoPath { .. } => "CALYX_KERNEL_ANSWER_NO_PATH",
             Self::KernelScoreInvalid { .. } => "CALYX_KERNEL_SCORE_INVALID",
+            Self::RecallEmptyCorpus => "CALYX_RECALL_EMPTY_CORPUS",
+            Self::RecallInvalidParams { .. } => "CALYX_RECALL_INVALID_PARAMS",
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
             Self::DfvsGenusTooLarge { .. } => "CALYX_DFVS_GENUS_TOO_LARGE",
             Self::Graph { code, .. } => code,

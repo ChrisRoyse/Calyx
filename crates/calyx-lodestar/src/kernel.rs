@@ -4,6 +4,7 @@ use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
 use crate::grounding_gaps::grounding_gaps_for_members;
+use crate::recall_test::RecallTestParams;
 use crate::{
     DfvsResult, KernelGraphParams, LpRoundParams, Result, dfvs_approx, lp_round_kernel_graph,
     select_kernel_graph,
@@ -21,6 +22,27 @@ pub struct RecallReport {
     pub full: f32,
     pub ratio: f32,
     pub approx_factor: f64,
+    pub recall_test_params: Option<RecallTestParams>,
+    pub corpus_name: Option<String>,
+    pub n_queries_tested: usize,
+    pub held_out: Vec<CxId>,
+    pub warning: Option<String>,
+}
+
+impl Default for RecallReport {
+    fn default() -> Self {
+        Self {
+            kernel_only: 0.0,
+            full: 0.0,
+            ratio: 0.0,
+            approx_factor: 1.0,
+            recall_test_params: None,
+            corpus_name: None,
+            n_queries_tested: 0,
+            held_out: Vec::new(),
+            warning: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -89,10 +111,8 @@ pub fn build_kernel_pipeline(
         kernel_graph,
         groundedness: groundedness_report(&dfvs.members, gap_report.gaps),
         recall: RecallReport {
-            kernel_only: 0.0,
-            full: 0.0,
-            ratio: 0.0,
             approx_factor: dfvs.approx_factor,
+            ..RecallReport::default()
         },
         built_at_millis: params.built_at_millis,
         estimator_provenance: provenance,
@@ -158,12 +178,7 @@ fn empty_kernel(params: &KernelParams) -> Kernel {
             reached_anchor: 1.0,
             unanchored_members: Vec::new(),
         },
-        recall: RecallReport {
-            kernel_only: 0.0,
-            full: 0.0,
-            ratio: 0.0,
-            approx_factor: 1.0,
-        },
+        recall: RecallReport::default(),
         built_at_millis: params.built_at_millis,
         estimator_provenance: "ph32::empty; trust=anchored".to_string(),
         warnings: Vec::new(),
