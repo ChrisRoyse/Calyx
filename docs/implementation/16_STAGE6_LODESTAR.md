@@ -1,12 +1,10 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
-> **STATUS: ▶ ACTIVE / READY TO START (current head `0ada102`).** Stages 1-5
-> are implemented, pushed, and FSV-signed-off. Required inputs are now present:
-> Aster anchors/CFs (PH09), Forge math (PH12-PH16), Registry panels/lenses
-> (PH17-PH22), Sextant search/provenance (PH23-PH26), and Loom agreement graph
-> + Assay bits/sufficiency (PH27-PH30). The implementation crates for Stage 6
-> (`calyx-paths`, `calyx-mincut`, `calyx-lodestar`) are still skeletons; start
-> with PH31 graph primitives and the ContextGraph seed lift.
+> **STATUS: ▶ ACTIVE (PH31 DONE / PH32 NEXT).** Stages 1-5 are implemented,
+> pushed, and FSV-signed-off. PH31 graph primitives are now implemented in
+> `calyx-paths` and `calyx-mincut` with aiwonder readback evidence under
+> `/home/croyse/calyx/data/fsv-ph31-20260608`. PH32 kernel-graph + DFVS is the
+> next Stage 6 implementation slice.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -17,6 +15,10 @@ identity.
 ---
 
 ## PH31 — mincut/paths: graph build + SCC + betweenness
+- **Status.** ✅ DONE / FSV-signed-off on aiwonder. Readbacks:
+  `ph31-paths-graph-readback.json`, `ph31-paths-traversal-readback.json`,
+  `ph31-scc-readback.json`, `ph31-betweenness-readback.json`,
+  `ph31-graph-builder-readback.json`, `ph31-lp-readback.json`.
 - **Objective.** The directed association graph + the graph primitives MFVS
   needs.
 - **Deps.** PH27 (agreement graph).
@@ -31,6 +33,7 @@ identity.
 - **Axioms/PRD.** `08 §2/§3`, A29, `19 §6` (reuse seeds).
 
 ## PH32 — Kernel-graph (~10%) + directed MFVS (~1%)
+- **Status.** ▶ NEXT.
 - **Objective.** The staged, approximate kernel discovery pipeline.
 - **Deps.** PH31.
 - **Deliverables.** `kernel_graph.rs` (high in/out-degree + betweenness + low

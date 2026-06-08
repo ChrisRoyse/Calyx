@@ -1,5 +1,11 @@
 # PH31 · T04 — Brandes betweenness centrality
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-mincut/src/betweenness.rs` with directed Brandes centrality,
+> f64 dependency accumulation, deterministic top-k, and empty-graph
+> fail-closed behavior. aiwonder FSV readback:
+> `ph31-betweenness-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

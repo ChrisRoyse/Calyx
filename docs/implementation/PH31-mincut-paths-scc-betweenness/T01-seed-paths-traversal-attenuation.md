@@ -1,5 +1,10 @@
 # PH31 · T01 — Seed + adapt calyx-paths traversal + hop-attenuation
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in `calyx-paths` with
+> `attenuate`, `deattenuate`, bounded `reach`, and `reach_scored`. aiwonder FSV
+> readbacks: `ph31-paths-traversal-readback.json` and path test stdout under
+> `/home/croyse/calyx/data/fsv-ph31-20260608`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

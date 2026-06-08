@@ -1,5 +1,10 @@
 # PH31 · T02 — Sparse AssocGraph with frequency-weighted nodes
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-paths/src/graph.rs` with deterministic CSR-style adjacency,
+> max-deduped parallel edges, self-loop support, and frequency node weights.
+> aiwonder FSV readback: `ph31-paths-graph-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

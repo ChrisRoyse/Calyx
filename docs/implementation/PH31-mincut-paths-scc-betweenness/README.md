@@ -21,13 +21,18 @@ directional-confidence edge model from PH27.
   LP scaffolding), PH33 (kernel index + answer traversal via hop-attenuation),
   PH34 (multi-scope build_kernel uses the same graph layer)
 
-## Current state (build off what exists)
+## Current state
 
-Both `calyx-paths` and `calyx-mincut` are 9-line stubs (greenfield). The
-ContextGraph project ships `context-graph-mincut`, `context-graph-paths`, and
-`context-graph-solver` crates; per `19 §6` / DOCTRINE reuse rule, their source is
-**copied** into `crates/calyx-paths/src/` and `crates/calyx-mincut/src/` as seeds,
-then adapted. Never link or import the live ContextGraph project.
+✅ **DONE / FSV-signed-off on aiwonder.** `calyx-paths` now owns `AssocGraph`,
+hop attenuation, and bounded reach/reach_scored traversal. `calyx-mincut` now
+owns Tarjan SCC condensation, directed Brandes betweenness, Loom-style
+agreement/citation graph building, and serializable LP scaffold types for PH32.
+
+FSV root: `/home/croyse/calyx/data/fsv-ph31-20260608`.
+
+The ContextGraph project remains an allowed seed source per `19 §6`, but PH31
+landed as Calyx-native Rust over `CxId` and `AssocGraph`; it does not link or
+import the live ContextGraph project.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -47,12 +52,12 @@ then adapted. Never link or import the live ContextGraph project.
 
 | Card | Title | Depends |
 |---|---|---|
-| T01 | Seed + adapt calyx-paths traversal + hop-attenuation | — |
-| T02 | Sparse AssocGraph with frequency-weighted nodes | T01 |
-| T03 | Tarjan SCC condensation | T02 |
-| T04 | Brandes betweenness centrality | T03 |
-| T05 | Association graph builder from Loom agreements | T02 |
-| T06 | LP scaffolding data types | T03 |
+| T01 | Seed + adapt calyx-paths traversal + hop-attenuation | — | ✅ FSV |
+| T02 | Sparse AssocGraph with frequency-weighted nodes | T01 | ✅ FSV |
+| T03 | Tarjan SCC condensation | T02 | ✅ FSV |
+| T04 | Brandes betweenness centrality | T03 | ✅ FSV |
+| T05 | Association graph builder from Loom agreements | T02 | ✅ FSV |
+| T06 | LP scaffolding data types | T03 | ✅ FSV |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -62,6 +67,17 @@ On a **planted graph** (known SCCs, known betweenness scores):
 2. Brandes betweenness scores on the same planted graph match a reference
    implementation within ε = 1e-6 (normalized); read both vectors and diff.
 3. Evidence (stdout + comparison table) attached to the PH31 GitHub issue.
+
+Readback hashes:
+
+| File | SHA-256 |
+|---|---|
+| `ph31-paths-graph-readback.json` | `50f76709717229941761aea13b2c1da8fa24303b9e7ca22173c376dbe913a6e6` |
+| `ph31-paths-traversal-readback.json` | `0f6aff06df14afe10ecb8b8b4e5aa6262b097a2c603e08289677051fffdc48d1` |
+| `ph31-scc-readback.json` | `328252fc7dd35aea7bd34f01fabbaf396f81266c1b9d9dfcb43a979ce7e5998a` |
+| `ph31-betweenness-readback.json` | `fd8d05ce36f723bf27dfbcb3c9901a0faf69f08d44883daf71d2d97aacd7b17d` |
+| `ph31-graph-builder-readback.json` | `13b97defa1e59d700c163a66ea3c5037a0bf083381cb545814b201e17eaa8313` |
+| `ph31-lp-readback.json` | `cf4d27c4de5d8e0c5f8ef6790afa0bf7d031ad30bdb3c2427f3c33183906e5d1` |
 
 ## Risks / landmines
 

@@ -1,5 +1,11 @@
 # PH31 · T05 — Association graph builder from Loom agreements
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-mincut/src/graph_builder.rs` with agreement × directional
+> confidence weights, recurrence frequency node weights, citation edge
+> max-merge at `1.0`, and graph-weight fail-closed validation. aiwonder FSV
+> readback: `ph31-graph-builder-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

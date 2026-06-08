@@ -1,5 +1,10 @@
 # PH31 · T03 — Tarjan SCC condensation
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-mincut/src/scc.rs` with Tarjan SCC partitioning, deterministic
+> component membership, condensation edges, DAG check, and graph-mismatch
+> fail-closed validation. aiwonder FSV readback: `ph31-scc-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

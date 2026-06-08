@@ -1,5 +1,10 @@
 # PH31 · T06 — LP scaffolding data types
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-mincut/src/lp_scaffold.rs` with serializable LP variables,
+> constraints, problems, solutions, validation, and PH32-ready MFVS relaxation
+> problem shape. aiwonder FSV readback: `ph31-lp-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |
