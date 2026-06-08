@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use calyx_core::{CxId, SlotId};
 
@@ -19,6 +20,26 @@ pub fn rrf_fuse(
 ) -> Vec<Hit> {
     let weights = results.keys().map(|slot| (*slot, 1.0)).collect();
     fuse_with_weights(results, context, &weights, 1.0)
+}
+
+pub fn rrf_fuse_restricted(
+    results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    context: &FusionContext,
+    candidates: &BTreeSet<CxId>,
+) -> Vec<Hit> {
+    let filtered = results
+        .iter()
+        .map(|(slot, hits)| {
+            (
+                *slot,
+                hits.iter()
+                    .filter(|hit| candidates.contains(&hit.cx_id))
+                    .cloned()
+                    .collect(),
+            )
+        })
+        .collect();
+    rrf_fuse(&filtered, context)
 }
 
 pub fn weighted_rrf_fuse(

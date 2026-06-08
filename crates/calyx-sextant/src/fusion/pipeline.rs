@@ -1,7 +1,15 @@
 //! Pipeline strategy helpers.
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use calyx_core::CxId;
+use calyx_core::SlotId;
 use zeroize::Zeroizing;
+
+use super::FusionContext;
+use super::rrf::{rrf_fuse, rrf_fuse_restricted};
+use crate::hit::Hit;
+use crate::index::IndexSearchHit;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PipelineOutput {
@@ -16,6 +24,29 @@ pub fn candidate_texts(texts: &[String]) -> Vec<Zeroizing<String>> {
     texts.iter().cloned().map(Zeroizing::new).collect()
 }
 
+pub fn pipeline_fuse(
+    results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    context: &FusionContext,
+) -> Vec<Hit> {
+    if context.stage1_slots.is_empty() {
+        return rrf_fuse(results, context);
+    }
+    let candidates = stage1_candidates(results, &context.stage1_slots);
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    let scoring_results = non_stage1_results(results, &context.stage1_slots);
+    if scoring_results.is_empty() {
+        return rrf_fuse_restricted(results, context, &candidates);
+    }
+    let scored = rrf_fuse_restricted(&scoring_results, context, &candidates);
+    if scored.is_empty() {
+        rrf_fuse_restricted(results, context, &candidates)
+    } else {
+        scored
+    }
+}
+
 pub fn summarize_pipeline(stage1: &[CxId], final_ids: &[CxId], texts: &[String]) -> PipelineOutput {
     let request_scoped = candidate_texts(texts);
     PipelineOutput {
@@ -25,4 +56,26 @@ pub fn summarize_pipeline(stage1: &[CxId], final_ids: &[CxId], texts: &[String])
         zeroizing_ok: request_scoped.len() == texts.len(),
         candidate_ids: final_ids.to_vec(),
     }
+}
+
+fn stage1_candidates(
+    results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    stage1_slots: &[SlotId],
+) -> BTreeSet<CxId> {
+    stage1_slots
+        .iter()
+        .filter_map(|slot| results.get(slot))
+        .flat_map(|hits| hits.iter().map(|hit| hit.cx_id))
+        .collect()
+}
+
+fn non_stage1_results(
+    results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    stage1_slots: &[SlotId],
+) -> BTreeMap<SlotId, Vec<IndexSearchHit>> {
+    results
+        .iter()
+        .filter(|(slot, _)| !stage1_slots.contains(slot))
+        .map(|(slot, hits)| (*slot, hits.clone()))
+        .collect()
 }

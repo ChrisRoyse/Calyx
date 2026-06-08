@@ -66,11 +66,22 @@ impl SearchEngine {
             per_slot.insert(*slot, hits);
         }
         let weights = strategy_weights(&strategy);
+        let stats = self.indexes.stats();
+        let stage1_slots = slots
+            .iter()
+            .filter(|slot| {
+                stats
+                    .iter()
+                    .any(|stats| stats.slot == **slot && stats.kind == "inverted")
+            })
+            .copied()
+            .collect();
         let context = FusionContext {
             k: query.k,
             explain: query.explain,
             strategy: strategy.clone(),
             weights,
+            stage1_slots,
         };
         let mut hits = fusion::fuse(&per_slot, &context);
         self.attach_provenance_and_freshness(&mut hits, &slots, &query.freshness);

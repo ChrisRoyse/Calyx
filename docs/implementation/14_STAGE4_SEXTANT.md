@@ -17,6 +17,10 @@
 > constellation provenance is attached, removes AP-60 temporal slots 20/21/22
 > from primary WeightedRRF profiles until PH40, and makes WeightedRRF skip slots
 > not explicitly named by its profile.
+> Post-sweep hardening #290 wires `FusionStrategy::Pipeline` to a real sparse
+> recall candidate subset, returns no Pipeline hits when sparse stage 1 has no
+> candidates, and makes reranker HTTP non-2xx responses fail closed.
+> FSV root: `/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -64,10 +68,14 @@ attention.
 - **Objective.** Full-text/keyword as a sparse lexical **lens** (subsumes
   Elasticsearch, A19): inverted lists + BM25.
 - **Deps.** PH24.
-- **Deliverables.** `index/inverted.rs` (postings, varint+zstd blocks), BM25
-  scorer, SPLADE/keyword lens slot wiring; SPANN tiering deferred to Stage 17.
+- **Deliverables.** `index/inverted.rs` (in-RAM postings with tokenizer/varint
+  readback), BM25 scorer, SPLADE/keyword lens slot wiring; compressed SPANN
+  tiering deferred to Stage 17.
 - **Key tasks.** term→postings; BM25; integrate as a slot in fusion + the
   `Pipeline` strategy (sparse recall → multi-lens score → rerank).
+- **Post-sweep note.** Pipeline now uses inverted/sparse slots as stage-1
+  candidates and final scoring is restricted to that candidate set; zero sparse
+  candidates returns zero Pipeline hits rather than dense fallback (#290).
 - **FSV gate.** term match + BM25 ranking correct on a known corpus; sparse lens
   participates in RRF/pipeline (read hits).
 - **Axioms/PRD.** A19, `10 §2/§3`, `20 §2`.
@@ -86,6 +94,9 @@ attention.
 - **Post-sweep note.** Planner-selected temporal profile currently routes
   through semantic slot 8 only; AP-60 temporal slots 20/21/22 are reserved for
   PH40 post-retrieval temporal boost rather than primary retrieval (#286).
+- **Post-sweep note.** Reranker requests now use the live TEI `texts` wire
+  schema, parse rank-array responses back into candidate order, and fail closed
+  on non-2xx status instead of returning mock scores (#290).
 - **FSV gate.** intent auto-selects the right strategy (verified per case);
   `explain=true` returns the per-lens + provenance breakdown; an unbounded plan
   is rejected.

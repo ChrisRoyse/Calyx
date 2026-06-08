@@ -6,7 +6,7 @@
 ## Objective
 
 Full-text/keyword search as a sparse lexical lens, subsuming Elasticsearch (A19):
-an inverted index with varint+zstd-compressed postings lists and a BM25 scorer.
+an in-RAM inverted index with tokenizer/varint readback and a BM25 scorer.
 The sparse lens wires into the existing fusion layer as a first-class slot, so
 `RRF` and `WeightedRRF` gain lexical recall automatically. The `Pipeline`
 strategy (sparse recall → multi-lens score → rerank) is also implemented here,
@@ -24,22 +24,27 @@ on aiwonder).
   boost applies after Pipeline), PH55 (universal query surface routes BM25
   through Sextant), PH68 (DiskANN/SPANN replaces in-RAM inverted index at scale)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-sextant` has HNSW (`SlotIndexMap`, `Index` trait) and fusion
-(`RRF`/`WeightedRRF`/`SingleLens`, `Hit`, `search()`) from PH23–PH24. The
-sparse slot is a no-op placeholder in the PH24 recall harness. This phase makes
-it real.
+PH25 is implemented and FSV-signed off. `InvertedIndex` is a real sparse slot,
+BM25 participates in RRF, and post-sweep #290 wires `FusionStrategy::Pipeline`
+to use sparse/inverted results as the stage-1 candidate set before multi-lens
+scoring. Final Pipeline hits are constrained to that candidate set, and an
+empty sparse stage 1 returns no Pipeline hits instead of falling back to dense
+RRF.
+
+Compressed postings blocks and SPANN tiering are deferred to PH68; the current
+Stage 4 source of truth is the in-memory index plus byte-readback FSV artifacts.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
-| `crates/calyx-sextant/src/index/inverted.rs` | in-RAM inverted index: posting lists, varint encoding, zstd block compression |
+| `crates/calyx-sextant/src/index/inverted.rs` | in-RAM inverted index: posting lists and term lookup |
 | `crates/calyx-sextant/src/index/bm25.rs` | BM25 scorer: IDF, TF normalization, `b=0.75 k1=1.2` defaults |
 | `crates/calyx-sextant/src/index/tokenizer.rs` | whitespace + punctuation tokenizer; lowercase; stopwords optional |
 | `crates/calyx-sextant/src/fusion/pipeline.rs` | `Pipeline` strategy: sparse recall → multi-lens score → rerank hook |
-| `crates/calyx-sextant/tests/sparse_bm25.rs` | BM25 ranking correctness + Pipeline recall on a known corpus |
+| `crates/calyx-sextant/tests/stage4_fsv.rs` | BM25 ranking correctness + Pipeline subset readback on a known corpus |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -54,22 +59,25 @@ it real.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-Run `cargo test -p calyx-sextant sparse_bm25 -- --nocapture` on aiwonder. The
-test must print:
-- `bm25_top1=<expected_doc_id>` matching the hand-labeled corpus answer
-- `pipeline_recall@10=NNN` where NNN ≥ the single-lens baseline
-- `rrf_with_sparse_recall@10=NNN` showing the sparse lens participates in RRF
+Run the Stage 4 FSV on aiwonder. The readback JSON must include:
+- `sparse_top=<expected_doc_id>` matching the hand-labeled corpus answer.
+- `pipeline_subset_ok=true`, proving final Pipeline hits came from sparse
+  stage-1 candidates.
+- `pipeline_empty_stage1_hits=0`, proving zero sparse candidates do not fall
+  back to dense-only hits.
+- `rrf_top_differs_from_single=true`, proving sparse/multi-lens fusion changes
+  the result surface.
 
-Screenshot or copy of these three lines attached to the PH25 GitHub issue.
+For #290 the readback root is
+`/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
 
 ## Risks / landmines
 
 - **varint correctness**: off-by-one in delta encoding (d-gaps) corrupts all
   postings; use a known-good test vector from a reference implementation and
   assert byte-exact round-trip.
-- **zstd at small block sizes**: the zstd compression ratio for very short
-  postings lists may expand rather than compress; document the threshold below
-  which raw varint is stored uncompressed.
+- **compressed postings deferral**: zstd/SPANN persistence is PH68 work; do not
+  describe the Stage 4 in-RAM sparse slot as disk-tiered or compressed.
 - **BM25 k1/b tuning**: defaults `b=0.75 k1=1.2` match Lucene and are the
   correct starting point; do not make them per-query-configurable yet — planner
   will handle this in PH26/PH46.

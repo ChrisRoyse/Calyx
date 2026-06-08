@@ -18,6 +18,15 @@ stage 3 optionally reranks via the `:8089` GTE reranker (candidate text
 request-scoped and never persisted — privacy requirement, `10 §7`). This is the
 maximum-precision path for the ContextGraph `E13→E1→E12` pattern.
 
+**Current implementation note (#290):** `FusionStrategy::Pipeline` is implemented
+through `FusionContext.stage1_slots`, which `SearchEngine` fills from
+inverted/sparse slot stats. `pipeline_fuse` derives the stage-1 candidate set
+from those slots and restricts final multi-lens scoring to that set. The
+zero-candidate edge returns zero Pipeline hits rather than falling back to
+dense-only scoring. The reranker hook is a separate `RerankerClient` step using
+the live TEI `texts` wire schema; HTTP non-2xx fails closed with
+`CALYX_SEXTANT_RERANKER_TIMEOUT`.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `PipelineStrategy` struct:
@@ -41,7 +50,7 @@ maximum-precision path for the ContextGraph `E13→E1→E12` pattern.
                returns reranked scores; update `hit.fused_score` with reranker
                score; candidate texts are request-scoped — zero them from memory
                after the HTTP call returns; never write to disk or WAL
-- [ ] HTTP call to reranker: use `ureq` (blocking, no async dep); timeout 5s;
+- [ ] HTTP call to reranker: blocking HTTP client; timeout 5s;
       `CALYX_SEXTANT_RERANKER_TIMEOUT` on failure; fail-closed (do not return
       unranked results silently — either rerank or error)
 - [ ] Privacy invariant enforced in code: `candidate_text` is a local variable
@@ -65,10 +74,11 @@ maximum-precision path for the ContextGraph `E13→E1→E12` pattern.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test output of `cargo test -p calyx-sextant pipeline -- --nocapture`
-- **Readback:** `cargo test -p calyx-sextant pipeline -- --nocapture 2>&1`
-- **Prove:** test without reranker prints `strategy=pipeline stage1_candidates=N
-  final_hits=K subset_ok=true`; privacy type check prints `zeroizing_ok=true`
+- **SoT:** Stage 4 readback JSON on aiwonder.
+- **Readback:** `cargo test -p calyx-sextant stage4_full_stack_fsv -- --ignored --nocapture`
+- **Prove:** readback contains `pipeline_subset_ok=true`, `pipeline_hits>0`,
+  `pipeline_empty_stage1_hits=0`, real `rerank.scores`, and
+  `zeroizing_ok=true`.
 
 ## Done when
 

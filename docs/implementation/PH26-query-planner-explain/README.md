@@ -31,6 +31,10 @@ Pipeline), `search()`, planner intent classification, planner cost caps,
 planner explain enrichment, reranker hooks, and `SlotIndexMap`. Post-sweep
 hardening #282 fixed the remaining fail-closed planner blind spots: `k=0`,
 no-lenses, ef/slot over-cap, and cost-cap overflow now return cataloged errors.
+Post-sweep hardening #290 fixed the reranker wire contract: Calyx sends the
+live TEI `texts` request field, parses `[{index, score}]` rank arrays back into
+candidate order, and fails closed on non-2xx HTTP status instead of returning
+mock scores.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -39,7 +43,7 @@ no-lenses, ef/slot over-cap, and cost-cap overflow now return cataloged errors.
 | `crates/calyx-sextant/src/planner.rs` | intent classifier → strategy selection; cost model + caps; timeout enforcement |
 | `crates/calyx-sextant/src/planner_explain.rs` | planner-enriched explain output: intent, strategy chosen, cost estimate |
 | `crates/calyx-sextant/src/reranker.rs` | reranker hook: HTTP call to :8089, request-scoped text, Zeroizing, timeout |
-| `crates/calyx-sextant/tests/planner_intent.rs` | intent→strategy correctness per case; unbounded plan rejection; explain output |
+| `crates/calyx-sextant/tests/stage4_fsv.rs` | intent/strategy, Pipeline, reranker, explain, and unbounded-plan FSV |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -54,16 +58,15 @@ no-lenses, ef/slot over-cap, and cost-cap overflow now return cataloged errors.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-Run `cargo test -p calyx-sextant planner_intent -- --nocapture` on aiwonder.
-Must print per-case lines:
-```
-intent=code strategy=single_lens:code_slot ok=true
-intent=causal strategy=weighted_rrf:causal ok=true
-intent=general strategy=rrf ok=true
-unbounded_plan rejected=CALYX_SEXTANT_PLAN_UNBOUNDED ok=true
-explain_breakdown non_empty=true intent_label_present=true
-```
-Screenshot or copy of all five lines attached to the PH26 GitHub issue.
+Run the Stage 4 FSV on aiwonder. The readback JSON must include:
+- `planner_intent="Causal"` and `planner_strategy="weighted_rrf:causal"`.
+- `unbounded="CALYX_SEXTANT_PLAN_UNBOUNDED"`.
+- `rerank.scores` from the resident `:8089` TEI reranker.
+- `pipeline_subset_ok=true`.
+- `pipeline_empty_stage1_hits=0`.
+
+For #290 the readback root is
+`/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
 
 ## Risks / landmines
 
