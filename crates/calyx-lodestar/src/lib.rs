@@ -43,7 +43,7 @@ pub use loom_assoc::{
     LoomAssocEdgeProvenance, LoomAssocGraphInput, LoomDirectionalConfidence, LoomSlotNode,
     build_assoc_graph_from_loom, loom_assoc_graph_input,
 };
-pub use multi_scope::{anchors_for_scope, build_kernel};
+pub use multi_scope::{anchors_for_scope, bridges, build_kernel, kernel_answer_scoped};
 pub use recall_test::{
     AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,
     RecallQuery, RecallTestParams, RecallTestReport, kernel_recall_test,

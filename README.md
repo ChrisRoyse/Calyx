@@ -6,12 +6,12 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-08; Stage 6 active through #236)
+## Status (2026-06-08; Stage 6 active through #237)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 is active: PH31 and PH32 are implemented, pushed, and FSV-signed-off;
-PH33 T01-T05 are implemented with real-corpora recall FSV; PH34 T01-T04 are
-implemented. The next implementable Stage 6 card is PH34 T05 (#237).
+PH33 T01-T05 are implemented with real-corpora recall FSV; PH34 T01-T05 are
+implemented. The next implementable Stage 6 card is PH34 T06 (#238).
 
 Implemented engine surfaces:
 
@@ -32,13 +32,14 @@ of truth is GitHub issue #23. Recent aiwonder FSV roots:
 `/home/croyse/calyx/data/fsv-ph31-20260608`, and
 `/home/croyse/calyx/data/fsv-ph32-20260608`. Current Lodestar FSV roots include
 `/home/croyse/calyx/fsv/ph33_*_20260608.*`,
-`/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`, and
+`/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`,
 `/home/croyse/calyx/data/fsv-issue234-scope-cache-20260608`,
-`/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`, and
-`/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`.
+`/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`,
+`/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`, and
+`/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`.
 
 Remaining major engine crates (`ledger`, `ward`, `anneal`, `oracle`, `mcp`,
-`calyxd`) are still pending. Stage 6 is not exit-complete until PH34 T05-T06,
+`calyxd`) are still pending. Stage 6 is not exit-complete until PH34 T06,
 PH33 Ledger provenance #239 (after real Stage 7 Ledger primitives), and S6 exit
 FSV #240 close with aiwonder readback evidence.
 
