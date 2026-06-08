@@ -19,6 +19,10 @@ as PH09 writes constellations.*
 - **Key tasks.** wire into PH09's group-commit; `kind ∈ {Ingest,Measure,Assay,
   Kernel,Guard,Answer,Anneal,Migrate,Admin,Erase}`; actor-stamped; server-
   stamped monotonic ts.
+- **Post-sweep note.** PH35 T01 (#242) is implemented in `calyx-ledger`:
+  stable `EntryKind` wire codes, `LedgerEntry`, `SubjectId`, `ActorId`,
+  length-delimited BLAKE3 `entry_hash`, and golden/tamper readbacks are
+  FSV-backed at `/home/croyse/calyx/data/fsv-issue242-ledger-entry-20260608`.
 - **FSV gate.** every constellation write has a chained ledger entry in the WAL
   group-commit (read the WAL + ledger CF); chain links verify; no entry stores a
   secret value.
