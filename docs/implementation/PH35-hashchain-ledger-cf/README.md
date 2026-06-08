@@ -29,10 +29,13 @@ lost on crash and can never be retroactively forged. This is the foundational
 `encode`/`decode`/`decode_header`, and `CALYX_LEDGER_CORRUPT` fail-closed decode
 errors. T01 evidence is at
 `/home/croyse/calyx/data/fsv-issue242-ledger-entry-20260608`; T02 evidence is at
-`/home/croyse/calyx/data/fsv-issue243-ledger-codec-20260608`. The remaining
-PH35 tasks build the appender, redaction policy, group-commit hook,
-actor/timestamp wiring, and WAL smoke FSV on top of those primitives. The
-following scaffolding already exists and must be reused:
+`/home/croyse/calyx/data/fsv-issue243-ledger-codec-20260608`. T03 (#244) adds
+`LedgerAppender`, recovered monotonic seq, hash-chain append, and append-only
+delete/tombstone rejection; evidence is at
+`/home/croyse/calyx/data/fsv-issue244-ledger-appender-20260608`. The remaining
+PH35 tasks build redaction policy, group-commit hook, actor/timestamp wiring,
+and WAL smoke FSV on top of those primitives. The following scaffolding already
+exists and must be reused:
 
 - `calyx-core/src/model/signal.rs`: `LedgerRef { seq: u64, hash: [u8; 32] }`
 - `calyx-aster/src/cf/key.rs`: `ledger_key(seq: u64) -> Vec<u8>` (big-endian
@@ -42,8 +45,8 @@ following scaffolding already exists and must be reused:
 - PH09 group-commit path in `calyx-aster`: hook points are the target wiring
   site; PH35 adds the ledger side
 
-The `kind` discriminant set and `entry_hash` formula are implemented; the
-append-only enforcement rule remains greenfield until T03.
+The `kind` discriminant set, `entry_hash` formula, binary codec, and appender
+are implemented. Aster group-commit integration remains T05.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -64,7 +67,7 @@ append-only enforcement rule remains greenfield until T03.
 |---|---|---|
 | T01 | `LedgerEntry` struct + `EntryKind` enum + `entry_hash` | — |
 | T02 | Binary codec (encode/decode) round-trip | T01 |
-| T03 | `LedgerAppender`: seq counter + append-only enforcement | T02 |
+| T03 | `LedgerAppender`: seq counter + append-only enforcement (done #244) | T02 |
 | T04 | Redaction policy: no secrets in payload | T03 |
 | T05 | Group-commit hook: ledger entry in same WAL batch as data write | T03 |
 | T06 | Actor-stamp + server-stamped monotonic timestamp wiring | T05 |

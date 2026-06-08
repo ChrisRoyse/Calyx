@@ -142,6 +142,9 @@ error_catalog! {
     LedgerCorrupt, ledger_corrupt, "CALYX_LEDGER_CORRUPT",
     "ledger CF integrity violation", "ledger CF integrity violation — run verify_chain to identify range";
 
+    LedgerAppendOnlyViolation, ledger_append_only_violation, "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
+    "ledger CF append-only invariant violated", "ledger CF is append-only; deletes and tombstones are forbidden";
+
     VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
     "cross-vault read without grant", "request grant";
 
@@ -190,6 +193,7 @@ mod tests {
         "CALYX_ASTER_TORN_WAL",
         "CALYX_LEDGER_CHAIN_BROKEN",
         "CALYX_LEDGER_CORRUPT",
+        "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
         "CALYX_VAULT_ACCESS_DENIED",
         "CALYX_STALE_DERIVED",
         "CALYX_ORACLE_INSUFFICIENT",
@@ -228,6 +232,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_READER_LEASE_EXPIRED",
             "re-issue with bounded-staleness snapshot"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
+            "ledger CF is append-only; deletes and tombstones are forbidden"
         )));
     }
 
