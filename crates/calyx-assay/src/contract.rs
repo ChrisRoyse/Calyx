@@ -39,6 +39,16 @@ fn decide(
     max_pairwise_corr: f32,
     stratified_override: bool,
 ) -> Result<AdmissionDecision> {
+    if !signal_bits.is_finite() {
+        return Err(CalyxError::assay_low_signal(
+            "lens signal bits must be finite",
+        ));
+    }
+    if !max_pairwise_corr.is_finite() {
+        return Err(CalyxError::assay_redundant(
+            "pairwise correlation must be finite",
+        ));
+    }
     if signal_bits < MIN_SIGNAL_BITS {
         return Err(CalyxError::assay_low_signal(format!(
             "lens signal {signal_bits:.4} bits below {MIN_SIGNAL_BITS:.4}"
@@ -55,4 +65,29 @@ fn decide(
         max_pairwise_corr,
         stratified_override,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admit_lens_rejects_non_finite_signal_and_corr() {
+        assert_eq!(
+            admit_lens(f32::NAN, 0.1).unwrap_err().code,
+            "CALYX_ASSAY_LOW_SIGNAL"
+        );
+        assert_eq!(
+            admit_lens(f32::INFINITY, 0.1).unwrap_err().code,
+            "CALYX_ASSAY_LOW_SIGNAL"
+        );
+        assert_eq!(
+            admit_lens(0.2, f32::NAN).unwrap_err().code,
+            "CALYX_ASSAY_REDUNDANT"
+        );
+        assert_eq!(
+            admit_lens(0.2, f32::NEG_INFINITY).unwrap_err().code,
+            "CALYX_ASSAY_REDUNDANT"
+        );
+    }
 }
