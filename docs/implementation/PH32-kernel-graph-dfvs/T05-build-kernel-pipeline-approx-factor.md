@@ -18,8 +18,9 @@
 
 ## Goal
 
-Wire the four pipeline stages (condense → kernel-graph → LP-round → MFVS) into
-`build_kernel_pipeline` and produce the complete `Kernel` struct (per PRD §6).
+Wire the pipeline stages (condense -> kernel-graph -> LP scaffold/fallback ->
+DFVS) into `build_kernel_pipeline` and produce the complete `Kernel` struct
+(per PRD section 6).
 The approx-factor is emitted in the struct so it is always auditable (`08 §7`:
 "MFVS approximation factor and the recall test are reported so the kernel's quality
 is auditable, not asserted"). The `Kernel` is serializable to the `idx/kernel/`
@@ -32,7 +33,7 @@ store (PH33 uses it as an index).
 - [ ] `pub struct RecallReport { kernel_only: f32, full: f32, ratio: f32, approx_factor: f64 }` — `approx_factor` from `DfvsResult`.
 - [ ] `pub fn build_kernel_pipeline(graph: &AssocGraph, anchors: &[CxId], params: &KernelParams) -> Result<Kernel, CalyxError>`:
   1. `tarjan_scc` → `condensate` (PH31).
-  2. `select_kernel_graph` + `lp_round_kernel_graph` (T01/T02).
+  2. `select_kernel_graph` + `lp_round_kernel_graph` scaffold/fallback (T01/T02).
   3. `dfvs_approx` on the kernel-graph (T03/T04).
   4. Anchor-reachability check: BFS from each `dfvs_approx` member to any anchor;
      unreachable → `unanchored_members`.

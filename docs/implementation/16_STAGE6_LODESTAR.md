@@ -14,9 +14,11 @@
 > `/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`;
 > PH34 scope-cache identity #328 is signed off under
 > `/home/croyse/calyx/data/fsv-issue328-scope-cache-identity-20260608`.
-> PH36 still owns trace/reproduce. Pre-exit follow-ups #329-#332 track
-> LP/DFVS solver-contract honesty, recall-gate fail-closed behavior,
-> raw-vs-tuned recall evidence, and anchor-aware `kernel_answer` search.
+> PH32 LP/DFVS contract honesty #329 is signed off under
+> `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`.
+> PH36 still owns trace/reproduce. Pre-exit follow-ups #330-#332 track
+> recall-gate fail-closed behavior, raw-vs-tuned recall evidence, and
+> anchor-aware `kernel_answer` search.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -49,14 +51,16 @@ identity.
   `ph32-kernel-graph-readback.json`, `ph32-lp-round-readback.json`,
   `ph32-dfvs-readback.json`, `ph32-specialized-dfvs-readback.json`,
   `ph32-kernel-pipeline-readback.json`, `ph32-incremental-readback.json`.
-  Follow-up #329 keeps LP/DFVS solver claims aligned with the actual
-  scaffold/fallback implementation until a real solver path exists.
+  Contract-hardening #329 is signed off under
+  `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`;
+  PH32 now explicitly documents the LP scaffold/fallback and exact/greedy DFVS
+  contract until a real solver path exists.
 - **Objective.** The staged, approximate kernel discovery pipeline.
 - **Deps.** PH31.
 - **Deliverables.** `kernel_graph.rs` (high in/out-degree + betweenness + low
-  groundedness-distance; LP-relaxation rounding), `dfvs.rs` (LP-relaxation
-  `O(log τ* log log τ*)` approx + local search; tournament 2-approx; bounded-
-  genus specializations), approx-factor reporting.
+  groundedness-distance; LP scaffold/fallback + injected-solution rounding),
+  `dfvs.rs` (exact/greedy local search; tournament 2-approx; bounded-genus
+  specializations), approx-factor and method reporting.
 - **Key tasks.** condense → kernel-graph → MFVS; incremental re-eval hook
   (Anneal); report the approximation factor (auditable, not asserted).
 - **FSV gate.** on a **synthetic graph with a planted MFVS**, the algorithm

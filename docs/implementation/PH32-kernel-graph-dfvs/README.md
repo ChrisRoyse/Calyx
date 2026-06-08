@@ -1,95 +1,86 @@
-# PH32 — Kernel-graph (~10%) + directed MFVS (~1%)
+# PH32 - Kernel-graph (~10%) + directed MFVS (~1%)
 
-**Stage:** S6 — Lodestar Kernel  ·  **Crate:** `calyx-lodestar`  ·
-**PRD roadmap:** P5  ·  **Axioms:** A10, A29
+**Stage:** S6 - Lodestar Kernel  |  **Crate:** `calyx-lodestar`  |
+**PRD roadmap:** P5  |  **Axioms:** A10, A29
 
 ## Objective
 
-Implement the staged approximate kernel-discovery pipeline inside `calyx-lodestar`:
-condense the association graph (PH31 SCC), select the ~10% kernel-graph (high
-in/out-degree + betweenness + low groundedness-distance + LP-relaxation rounding),
-then run directed MFVS to find the ~1% grounding kernel. The MFVS uses the
-LP-relaxation `O(log τ* log log τ*)`-approximation with local search, plus
-tournament 2-approx and bounded-genus `O(g)`-approx specializations. The
-approximation factor is reported (auditable, never asserted). An incremental
-re-evaluation hook is exposed for Anneal (PH43+).
+Implement the staged kernel-discovery pipeline inside `calyx-lodestar`: score
+the association graph, select the ~10% kernel-graph, optionally round a supplied
+LP solution, then run verified directed FVS selection to find the grounding
+kernel. The current LP path is intentionally a scaffold: no external LP solver is
+configured. Strict mode fails with `CALYX_KERNEL_LP_UNAVAILABLE`; fallback mode
+returns the heuristic kernel-graph with that warning. Generic DFVS uses exact
+search on small graphs or greedy local search on larger graphs, plus tournament
+2-approx and bounded-genus specializations.
 
 ## Dependencies
 
-- **Phases:** PH31 (SCC condensation, betweenness, LP scaffolding, `AssocGraph` —
-  all required before kernel-graph selection can run)
-- **Provides for:** PH33 (kernel index + kernel_answer uses the `~1%` member list),
-  PH34 (multi-scope build_kernel calls this pipeline per scope),
-  PH43 (Anneal's incremental re-eval hook)
+- **Phases:** PH31 (SCC condensation, betweenness, LP scaffold types, `AssocGraph`)
+- **Provides for:** PH33 (kernel index + `kernel_answer`), PH34 (multi-scope
+  `build_kernel`), PH43 (Anneal incremental re-eval)
 
 ## Current state
 
-✅ **DONE / FSV-signed-off on aiwonder.** `calyx-lodestar` now owns kernel-graph
-selection, LP-round handling with explicit `CALYX_KERNEL_LP_UNAVAILABLE`
-fallback warnings, DFVS verification/specializations, the serializable `Kernel`
-pipeline, and the incremental evaluation hook.
+DONE / FSV-signed-off on aiwonder. `calyx-lodestar` owns kernel-graph scoring,
+LP-round scaffold handling with explicit fallback warnings, verified DFVS
+members, specializations, the serializable `Kernel` pipeline, and the
+incremental evaluation hook.
 
-FSV root: `/home/croyse/calyx/data/fsv-ph32-20260608`.
+Base FSV root: `/home/croyse/calyx/data/fsv-ph32-20260608`.
+Contract-hardening FSV root:
+`/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`.
 
-The ContextGraph solver remains an allowed seed source per `19 §6`, but PH32
-landed as Calyx-native Rust over the PH31 `AssocGraph`, SCC, betweenness, and LP
-scaffold types. It does not link or import the live ContextGraph project.
+The ContextGraph solver remains an allowed seed source per `19 section 6`, but
+PH32 landed as Calyx-native Rust over PH31 graph/scaffold types. It does not
+link or import the live ContextGraph project.
 
-## Deliverables (file plan, each ≤500 lines)
+## Deliverables
 
 | File | Responsibility |
 |---|---|
 | `crates/calyx-lodestar/src/lib.rs` | crate root; re-exports `kernel_graph`, `dfvs`, `kernel`, `incremental` |
-| `crates/calyx-lodestar/src/kernel_graph.rs` | `select_kernel_graph(graph, scc, betweenness, anchors, params) -> KernelGraph`; high in/out-degree + betweenness + low groundedness-distance + LP-relaxation rounding; target ~10% |
-| `crates/calyx-lodestar/src/dfvs.rs` | `dfvs_approx(graph) -> DfvsResult`; LP-relaxation `O(log τ* log log τ*)`-approx + local search; `tournament_2approx(graph)`; `bounded_genus_approx(graph, genus)`; `approx_factor: f64` field |
-| `crates/calyx-lodestar/src/kernel.rs` | `Kernel` struct (per PRD §6); `build_kernel_pipeline(graph, anchors, params) -> Kernel`; wires condense→kernel-graph→MFVS |
-| `crates/calyx-lodestar/src/incremental.rs` | `IncrementalKernelEval`: delta-update hook for Anneal; accepts new/removed nodes/edges; re-runs only affected SCCs |
+| `crates/calyx-lodestar/src/kernel_graph.rs` | `select_kernel_graph(...) -> KernelGraph`; score-based top-fraction selection; LP-round scaffold/injected-solution adapter; strict unavailable or heuristic fallback when no solver is configured |
+| `crates/calyx-lodestar/src/dfvs.rs` | `dfvs_approx(...) -> DfvsResult`; exact-or-greedy local search for the generic path; `tournament_2approx`; `bounded_genus_approx`; verified members and auditable method/approx fields |
+| `crates/calyx-lodestar/src/kernel.rs` | `Kernel` struct; `build_kernel_pipeline(graph, anchors, params) -> Kernel`; wires selection -> LP scaffold/fallback -> DFVS |
+| `crates/calyx-lodestar/src/incremental.rs` | `IncrementalKernelEval`; delta-update hook for Anneal |
 
-## Tasks (atomic — all must pass for the phase to be DONE)
+## Tasks
 
 | Card | Title | Depends | Status |
 |---|---|---|---|
-| T01 | Kernel-graph selection: degree + betweenness + groundedness filter | — (needs PH31) | ✅ FSV |
-| T02 | LP-relaxation rounding for kernel-graph (~10%) | T01 | ✅ FSV |
-| T03 | MFVS LP-relaxation approx + local search (`dfvs_approx`) | T02 | ✅ FSV |
-| T04 | Tournament 2-approx + bounded-genus O(g) specializations | T03 | ✅ FSV |
-| T05 | `build_kernel_pipeline` wiring + `Kernel` struct + approx-factor reporting | T04 | ✅ FSV |
-| T06 | Incremental re-eval hook for Anneal | T05 | ✅ FSV |
+| T01 | Kernel-graph selection: degree + betweenness + groundedness filter | PH31 | FSV |
+| T02 | LP-round scaffold + injected-solution rounding | T01 | FSV / #329 hardened |
+| T03 | DFVS exact/greedy local search (`dfvs_approx`) | T02 | FSV / #329 hardened |
+| T04 | Tournament 2-approx + bounded-genus O(g) specializations | T03 | FSV |
+| T05 | `build_kernel_pipeline` wiring + `Kernel` struct + approx-factor reporting | T04 | FSV |
+| T06 | Incremental re-eval hook for Anneal | T05 | FSV |
+| T08 | LP/DFVS solver-contract honesty | T02, T03 | Done / #329 |
 
-## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+## FSV Exit Gate
 
-On a **synthetic graph with a planted MFVS** (known set of feedback-vertex nodes):
-1. `build_kernel_pipeline` on the synthetic graph finds the planted FVS members;
-   read the computed `members: Vec<CxId>` from the `Kernel` struct (debug print or
-   `calyx readback`).
-2. Every planted FVS node appears in the computed members list; no planted non-FVS
-   node appears (exact set recovery on small graphs, near-optimal on larger).
-3. `approx_factor` is printed and ≤ the theoretical `O(log τ* log log τ*)` bound
-   for the test graph size.
-4. Evidence (stdout + planted vs computed table) attached to the PH32 GitHub issue.
+On a synthetic graph with a planted FVS:
+1. `build_kernel_pipeline` finds the known FVS members.
+2. Removing computed members leaves an acyclic graph.
+3. The emitted method and approximation fields describe the actual algorithm
+   used; they do not claim a configured LP solver.
+4. LP scaffold FSV proves both strict fail-loud
+   `CALYX_KERNEL_LP_UNAVAILABLE` and heuristic fallback warning bytes.
 
-Readback hashes:
+Base readbacks live under `/home/croyse/calyx/data/fsv-ph32-20260608`.
+Issue #329 readbacks live under
+`/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`.
 
-| File | SHA-256 |
-|---|---|
-| `ph32-kernel-graph-readback.json` | `f9ba8f2734d2c2d1d2f261dd3f10223dd6cc24275bde8f00520e6d25c2e95abb` |
-| `ph32-lp-round-readback.json` | `5aad87bf409145913876342dcc41646264d4d2bd2c04bb07d2e890cde40c625c` |
-| `ph32-dfvs-readback.json` | `1c28b8e5a41a62bd4b9e2aa561c0a80fbb4b12c266efb5aced0f156df6ad7a7c` |
-| `ph32-specialized-dfvs-readback.json` | `fb0f9527558408381a73c88db2075fcc751fbcb4d796996e190c8435548003f8` |
-| `ph32-kernel-pipeline-readback.json` | `8c7a5ec496395ae81896aafa604d13ebf440ab0cd1fcdb7e00e5d83ec057258d` |
-| `ph32-incremental-readback.json` | `e183ce148daed3b626abd43d4d1d758d05e747b71efff6426b3f37f1945d9be8` |
+## Risks / Landmines
 
-## Risks / landmines
-
-- **LP solver dependency:** the LP relaxation requires an external LP solver
-  (e.g. `highs` via `good_lp`); pin the version and test on aiwonder where the
-  library must be available. If the solver is unavailable, fall back to the
-  greedy approximation with a `CALYX_KERNEL_LP_UNAVAILABLE` warning.
-- **Approximation factor ≠ constant:** `O(log τ* log log τ*)` grows with the
-  optimal FVS size τ*; report the actual factor for the corpus, never claim "2-approx"
-  for the LP path.
-- **kernel-graph size overshoot:** the ~10% target is a goal, not a hard cap;
-  log the actual fraction and surface it in `kernel_health`.
-- **Incremental correctness:** Anneal delta updates must not corrupt the SCC
-  component assignments; restrict incremental to edge-weight changes first,
-  then tackle topology changes.
+- **LP solver dependency:** no external LP solver is configured today. Strict
+  mode must fail loud; fallback must carry `CALYX_KERNEL_LP_UNAVAILABLE`.
+- **Injected LP solutions are test adapters:** `lp_round_kernel_graph_from_solution`
+  rounds a supplied `LpSolution`; it is not proof that Calyx solved LP
+  constraints.
+- **Approximation factor honesty:** generic exact/greedy local search reports an
+  auditable method and factor, not the PRD's future LP theoretical bound.
+- **kernel-graph size overshoot:** the ~10% target is a goal; log the actual
+  fraction and surface it in readbacks.
+- **Incremental correctness:** Anneal deltas must not corrupt SCC/component
+  assumptions; topology changes remain conservative.

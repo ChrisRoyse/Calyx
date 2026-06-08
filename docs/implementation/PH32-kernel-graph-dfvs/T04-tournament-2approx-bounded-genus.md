@@ -39,8 +39,8 @@ bound.
 - [ ] `pub fn bounded_genus_approx(graph: &AssocGraph, genus: usize) -> DfvsResult` —
   `O(g)`-approximation via face-enumeration on the embedded graph; `method = BoundedGenus`;
   `approx_factor ≤ genus + 1` (or a tighter constant derived from the embedding).
-- [ ] `dfvs_approx` dispatch: if `is_tournament` → call `tournament_2approx`;
-  else if `genus_estimate ≤ 2` → call `bounded_genus_approx`; else → LP+local-search.
+- [ ] `dfvs_approx` dispatch: if `is_tournament` -> call `tournament_2approx`;
+  else if `genus_estimate <= 2` -> call `bounded_genus_approx`; else -> exact/greedy local search.
 - [ ] All three methods set `approx_factor` to the method's theoretical bound
   multiplied by the actual ratio `|members|/tau_star_estimate`.
 

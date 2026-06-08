@@ -133,9 +133,11 @@ and FSV-backed (scope materialization, identity-aware cache, dispatch,
 hierarchical regions, bridge nodes, real multi-scope SciFact FSV, and
 scope-cache identity). Stage 6 remains open until the exit FSV (#240) and the
 remaining Lodestar readiness follow-ups are closed with aiwonder readback
-evidence. Additional Lodestar readiness blindspots found during the Stage 1-5
-sweep are tracked in #329-#332 (LP/DFVS solver contract, recall fail-closed
-gate, raw-vs-tuned recall evidence, and anchor-aware `kernel_answer` search).
+evidence. LP/DFVS solver-contract honesty #329 is FSV-backed under
+`/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`. Additional
+Lodestar readiness blindspots found during the Stage 1-5 sweep are tracked in
+#330-#332 (recall fail-closed gate, raw-vs-tuned recall evidence, and
+anchor-aware `kernel_answer` search).
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.

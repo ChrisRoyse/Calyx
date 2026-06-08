@@ -152,20 +152,43 @@ fn lp_round_selects_solution_values_and_fallback_warns() {
         lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &solution)
             .unwrap();
     let fallback = lp_round_kernel_graph(&heuristic, &LpRoundParams::default()).unwrap();
+    let strict_err = lp_round_kernel_graph(
+        &heuristic,
+        &LpRoundParams {
+            fallback_to_heuristic: false,
+            ..LpRoundParams::default()
+        },
+    )
+    .unwrap_err();
+    let fallback_is_heuristic = fallback.selected == heuristic.selected
+        && fallback.lp_fraction == Some(heuristic.source_fraction);
 
     println!(
-        "LP_ROUND_READBACK rounded={:?} fallback_warnings={:?}",
-        rounded.selected, fallback.warnings
+        "LP_ROUND_READBACK rounded={:?} strict_error={} fallback_warnings={:?}",
+        rounded.selected,
+        strict_err.code(),
+        fallback.warnings
     );
     write_readback(
         "ph32-lp-round-readback.json",
         json!({
+            "contract": "lp_solver_unconfigured_scaffold",
             "rounded": rounded.selected,
             "lp_fraction": rounded.lp_fraction,
-            "fallback_warnings": fallback.warnings,
+            "injected_solution_source": "test-provided LpSolution, not external solver output",
+            "strict_error": strict_err.code(),
+            "strict_error_message": strict_err.to_string(),
+            "heuristic_selected": heuristic.selected,
+            "heuristic_source_fraction": heuristic.source_fraction,
+            "fallback_selected": fallback.selected,
+            "fallback_lp_fraction": fallback.lp_fraction,
+            "fallback_is_heuristic": fallback_is_heuristic,
+            "fallback_warnings": fallback.warnings.clone(),
         }),
     );
     assert_eq!(rounded.selected, vec![cx(1), cx(3)]);
+    assert_eq!(strict_err.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
+    assert!(fallback_is_heuristic);
     assert!(
         fallback
             .warnings
@@ -205,8 +228,11 @@ fn dfvs_triangle_planted_and_dag_cases_are_verified() {
         json!({
             "triangle_members": triangle_kernel.members,
             "triangle_approx": triangle_kernel.recall.approx_factor,
+            "triangle_method": triangle_kernel.estimator_provenance,
             "planted_members": planted_kernel.members,
+            "planted_method": planted_kernel.estimator_provenance,
             "dag_members": dag_kernel.members,
+            "dag_method": dag_kernel.estimator_provenance,
         }),
     );
     assert!(triangle_kernel.recall.approx_factor <= 3.0);
