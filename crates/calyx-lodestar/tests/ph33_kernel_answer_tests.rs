@@ -100,27 +100,27 @@ fn kernel_answer_chain_scores_and_provenance_are_deterministic() {
 }
 
 #[test]
-fn kernel_answer_truncates_and_handles_query_already_at_anchor() {
+fn kernel_answer_max_hops_fails_closed_and_anchor_self_path_works() {
     let graph = chain_graph();
     let index = build_kernel_index(&kernel(vec![cx(10)]), &embeddings()).unwrap();
-    let truncated = kernel_answer(&index, &graph, cx(13), &[1.0, 0.0], &[cx(10)], 2).unwrap();
+    let max_hops = kernel_answer(&index, &graph, cx(13), &[1.0, 0.0], &[cx(10)], 2).unwrap_err();
     let anchored = kernel_answer(&index, &graph, cx(10), &[1.0, 0.0], &[cx(10)], 3).unwrap();
 
     println!(
-        "KERNEL_ANSWER_TRUNCATED hops={} anchored_total={}",
-        truncated.hops.len(),
+        "KERNEL_ANSWER_MAX_HOPS error={} anchored_total={}",
+        max_hops.code(),
         anchored.total_score
     );
     write_readback(
         "edges",
-        "kernel-answer-truncated.json",
+        "kernel-answer-max-hops.json",
         json!({
-            "truncated": truncated,
+            "max_hops_error": max_hops.code(),
             "anchored": anchored,
         }),
     );
 
-    assert_eq!(truncated.hops.len(), 2);
+    assert_eq!(max_hops.code(), "CALYX_PATHS_MAX_HOPS");
     assert_eq!(anchored.hops, Vec::new());
     assert_eq!(anchored.total_score, 1.0);
 }

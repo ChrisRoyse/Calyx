@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use calyx_core::{CxId, LedgerRef};
-use calyx_paths::{AssocGraph, attenuate, reach, reach_scored};
+use calyx_paths::{AssocGraph, attenuate, reach};
 use serde::{Deserialize, Serialize};
 
 use crate::{KernelIndex, LodestarError, Result, kernel_search};
@@ -60,13 +60,12 @@ pub fn kernel_answer(
         return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
     }
 
-    let _scored_reach = reach_scored(graph, anchor, max_hops)?;
     let path =
-        reach(graph, anchor, query_cx, usize::MAX)?.ok_or(LodestarError::KernelAnswerNoPath {
+        reach(graph, anchor, query_cx, max_hops)?.ok_or(LodestarError::KernelAnswerNoPath {
             from: anchor,
             to: query_cx,
         })?;
-    let hops = answer_hops(graph, &path, max_hops)?;
+    let hops = answer_hops(graph, &path)?;
     let total_score = hops.iter().map(|hop| hop.hop_score).sum();
     AnswerPath::checked(query_cx, anchor, hops, total_score)
 }
@@ -88,9 +87,8 @@ fn nearest_anchored_kernel_node(
         .ok_or(LodestarError::KernelNoAnchoredNode)
 }
 
-fn answer_hops(graph: &AssocGraph, path: &[CxId], max_hops: usize) -> Result<Vec<AnswerHop>> {
+fn answer_hops(graph: &AssocGraph, path: &[CxId]) -> Result<Vec<AnswerHop>> {
     path.windows(2)
-        .take(max_hops)
         .enumerate()
         .map(|(idx, pair)| {
             let from = pair[0];

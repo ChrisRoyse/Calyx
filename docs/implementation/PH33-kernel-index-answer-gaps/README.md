@@ -36,7 +36,7 @@ path is a new column family or ANN shard in the Aster store.
 | File | Responsibility |
 |---|---|
 | `crates/calyx-lodestar/src/kernel_index.rs` | write/load `idx/kernel/`; ANN over kernel `CxId` embeddings; `kernel_search(query_vec) -> Vec<(CxId, f32)>` |
-| `crates/calyx-lodestar/src/kernel_answer.rs` | `kernel_answer(query, anchor_kind) -> AnswerPath`; ground at nearest anchored kernel node → traverse via `reach_scored` (hop-attenuated 0.9^hop) → provenance-stamp each hop |
+| `crates/calyx-lodestar/src/kernel_answer.rs` | `kernel_answer(query, anchor_kind) -> AnswerPath`; ground at nearest anchored kernel node → bounded `reach` to the query → hop-attenuate with `0.9^hop` → provenance-stamp each hop |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
 | `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(kernel, corpus, held_out) -> RecallReport`; reconstruct held-out from kernel-only; ratio ≥ 0.95 is the gate |
 | Stage 7 Ledger integration | #239 replaces PH33 stub provenance with real `kind=Kernel` ledger entries once PH35/PH36 land |
@@ -73,6 +73,8 @@ path is a new column family or ANN shard in the Aster store.
   recall to full-corpus ANN recall on the same query set — both use the same ANN
   algorithm; the comparison is fair only if the same HNSW params are used.
 - **Answer traversal depth:** `0.9^hop` attenuation means answers beyond hop 10 have
-  score ≤ 0.35; document the practical max-hop budget in the code.
+  score ≤ 0.35; `max_hops` is a hard reachability bound, not a display limit.
+  If the query cannot be reached inside the bound, `kernel_answer` must return
+  `CALYX_PATHS_MAX_HOPS` rather than a truncated answer.
 - **Provenance stamp per hop:** PH33 fills structured provenance references; #239
   remains open until PH35/PH36 provide real Ledger appends and readback.

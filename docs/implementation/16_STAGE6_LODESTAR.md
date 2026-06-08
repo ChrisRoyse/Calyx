@@ -1,12 +1,12 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
-> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 NEXT).** Stages 1-5 are
+> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 ACTIVE).** Stages 1-5 are
 > implemented, pushed, and FSV-signed-off. PH31 graph primitives are implemented
 > in `calyx-paths` and `calyx-mincut`; PH32 kernel-graph + DFVS is implemented
 > in `calyx-lodestar`. aiwonder readbacks live under
 > `/home/croyse/calyx/data/fsv-ph31-20260608` and
 > `/home/croyse/calyx/data/fsv-ph32-20260608`. PH33 kernel index/answer/gaps is
-> the next Stage 6 implementation slice.
+> the current Stage 6 implementation slice.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -52,7 +52,9 @@ identity.
 - **Axioms/PRD.** A10, `08 §3`.
 
 ## PH33 — Kernel index + kernel_answer + grounding_gaps
-- **Status.** ▶ NEXT.
+- **Status.** ▶ ACTIVE. Follow-up #292 locks `kernel_answer` to fail closed when
+  `max_hops` cannot reach `query_cx`; truncated answer prefixes are not valid
+  answer paths.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
   cheapest grounding plan.
 - **Deps.** PH32, PH33 needs anchors (PH09) + search (PH24).
