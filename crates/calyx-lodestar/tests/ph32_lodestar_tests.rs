@@ -1,0 +1,433 @@
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::PathBuf;
+
+use calyx_core::CxId;
+use calyx_lodestar::{
+    DfvsMethod, IncrementalKernelEval, IncrementalResult, KernelGraphParams, KernelParams,
+    LodestarError, LpRoundParams, NodeAddEdge, bounded_genus_approx, build_kernel_pipeline,
+    dfvs_approx, genus_estimate, is_tournament, lp_round_kernel_graph,
+    lp_round_kernel_graph_from_solution, select_kernel_graph, tournament_2approx,
+};
+use calyx_mincut::{LpSolution, SolveStatus, betweenness, tarjan_scc};
+use calyx_paths::AssocGraph;
+use proptest::prelude::*;
+use serde_json::json;
+
+fn cx(seed: u8) -> CxId {
+    CxId::from_bytes([seed; 16])
+}
+
+fn write_readback(name: &str, value: serde_json::Value) {
+    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+        return;
+    };
+    let path = PathBuf::from(root).join(name);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).expect("create fsv root");
+    }
+    fs::write(&path, serde_json::to_vec_pretty(&value).expect("json")).expect("write readback");
+    println!("PH32_READBACK={}", path.display());
+}
+
+fn builder_with_nodes(seeds: &[u8]) -> calyx_paths::AssocGraphBuilder {
+    let mut builder = AssocGraph::builder();
+    for seed in seeds {
+        builder.add_node(cx(*seed), 1.0).unwrap();
+    }
+    builder
+}
+
+fn hub_graph() -> AssocGraph {
+    let mut builder = builder_with_nodes(&(1..=10).collect::<Vec<_>>());
+    for leaf in 3..=10 {
+        builder.add_edge(cx(1), cx(leaf), 1.0).unwrap();
+        builder.add_edge(cx(leaf), cx(1), 1.0).unwrap();
+        builder.add_edge(cx(2), cx(leaf), 0.9).unwrap();
+        builder.add_edge(cx(leaf), cx(2), 0.9).unwrap();
+    }
+    builder.add_edge(cx(1), cx(2), 1.0).unwrap();
+    builder.add_edge(cx(2), cx(1), 1.0).unwrap();
+    builder.build()
+}
+
+fn triangle_graph() -> AssocGraph {
+    let mut builder = builder_with_nodes(&[1, 2, 3]);
+    builder
+        .add_edge(cx(1), cx(2), 1.0)
+        .unwrap()
+        .add_edge(cx(2), cx(3), 1.0)
+        .unwrap()
+        .add_edge(cx(3), cx(1), 1.0)
+        .unwrap();
+    builder.build()
+}
+
+fn planted_graph() -> AssocGraph {
+    let mut builder = builder_with_nodes(&[1, 2, 3, 4, 5, 6]);
+    builder
+        .add_edge(cx(1), cx(2), 1.0)
+        .unwrap()
+        .add_edge(cx(2), cx(3), 1.0)
+        .unwrap()
+        .add_edge(cx(3), cx(1), 1.0)
+        .unwrap()
+        .add_edge(cx(4), cx(5), 1.0)
+        .unwrap()
+        .add_edge(cx(5), cx(6), 1.0)
+        .unwrap()
+        .add_edge(cx(6), cx(4), 1.0)
+        .unwrap()
+        .add_edge(cx(1), cx(4), 1.0)
+        .unwrap()
+        .add_edge(cx(4), cx(1), 1.0)
+        .unwrap();
+    builder.build()
+}
+
+fn kernel_params(target_fraction: f32) -> KernelParams {
+    KernelParams {
+        panel_version: 7,
+        anchor_kind: Some("synthetic_outcome".to_string()),
+        corpus_shard_hash: [9; 32],
+        built_at_millis: 12345,
+        kernel_graph: KernelGraphParams {
+            target_fraction,
+            max_groundedness_distance: 4,
+            ..KernelGraphParams::default()
+        },
+        lp_round: LpRoundParams::default(),
+    }
+}
+
+#[test]
+fn kernel_graph_selects_two_hubs_and_reports_fraction() {
+    let graph = hub_graph();
+    let scc = tarjan_scc(&graph);
+    let bet = betweenness(&graph).unwrap();
+    let params = KernelGraphParams {
+        target_fraction: 0.20,
+        ..KernelGraphParams::default()
+    };
+    let selected = select_kernel_graph(&graph, &scc, &bet, &[cx(1)], &params).unwrap();
+
+    println!(
+        "KERNEL_GRAPH_READBACK selected={:?} fraction={:.3}",
+        selected.selected, selected.source_fraction
+    );
+    write_readback(
+        "ph32-kernel-graph-readback.json",
+        json!({
+            "selected": selected.selected,
+            "source_fraction": selected.source_fraction,
+            "scores": selected.scores,
+        }),
+    );
+    assert_eq!(selected.selected, vec![cx(1), cx(2)]);
+    assert!((selected.source_fraction - 0.20).abs() <= 1e-6);
+}
+
+#[test]
+fn lp_round_selects_solution_values_and_fallback_warns() {
+    let graph = hub_graph();
+    let scc = tarjan_scc(&graph);
+    let bet = betweenness(&graph).unwrap();
+    let heuristic = select_kernel_graph(
+        &graph,
+        &scc,
+        &bet,
+        &[],
+        &KernelGraphParams {
+            target_fraction: 0.40,
+            ..KernelGraphParams::default()
+        },
+    )
+    .unwrap();
+    let solution = LpSolution {
+        values: vec![0.9, 0.3, 0.7, 0.1],
+        objective_value: 1.6,
+        status: SolveStatus::Optimal,
+    };
+    let rounded =
+        lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &solution)
+            .unwrap();
+    let fallback = lp_round_kernel_graph(&heuristic, &LpRoundParams::default()).unwrap();
+
+    println!(
+        "LP_ROUND_READBACK rounded={:?} fallback_warnings={:?}",
+        rounded.selected, fallback.warnings
+    );
+    write_readback(
+        "ph32-lp-round-readback.json",
+        json!({
+            "rounded": rounded.selected,
+            "lp_fraction": rounded.lp_fraction,
+            "fallback_warnings": fallback.warnings,
+        }),
+    );
+    assert_eq!(rounded.selected, vec![cx(1), cx(3)]);
+    assert!(
+        fallback
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("CALYX_KERNEL_LP_UNAVAILABLE"))
+    );
+}
+
+#[test]
+fn dfvs_triangle_planted_and_dag_cases_are_verified() {
+    let triangle = triangle_graph();
+    let triangle_kernel = build_kernel_pipeline(&triangle, &[cx(1)], &kernel_params(1.0)).unwrap();
+    assert_eq!(triangle_kernel.members.len(), 1);
+
+    let planted = planted_graph();
+    let planted_kernel =
+        build_kernel_pipeline(&planted, &[cx(2), cx(5)], &kernel_params(1.0)).unwrap();
+    let planted_members: BTreeSet<_> = planted_kernel.members.iter().copied().collect();
+
+    let dag = {
+        let mut builder = builder_with_nodes(&[1, 2, 3]);
+        builder
+            .add_edge(cx(1), cx(2), 1.0)
+            .unwrap()
+            .add_edge(cx(2), cx(3), 1.0)
+            .unwrap();
+        builder.build()
+    };
+    let dag_kernel = build_kernel_pipeline(&dag, &[cx(3)], &kernel_params(1.0)).unwrap();
+
+    println!(
+        "DFVS_READBACK triangle={:?} planted={:?} dag={:?}",
+        triangle_kernel.members, planted_kernel.members, dag_kernel.members
+    );
+    write_readback(
+        "ph32-dfvs-readback.json",
+        json!({
+            "triangle_members": triangle_kernel.members,
+            "triangle_approx": triangle_kernel.recall.approx_factor,
+            "planted_members": planted_kernel.members,
+            "dag_members": dag_kernel.members,
+        }),
+    );
+    assert!(triangle_kernel.recall.approx_factor <= 3.0);
+    assert!(planted_members.contains(&cx(1)));
+    assert!(planted_members.contains(&cx(4)));
+    assert!(dag_kernel.members.is_empty());
+}
+
+#[test]
+fn tournament_and_bounded_genus_specializations_dispatch() {
+    let triangle = triangle_graph();
+    assert!(is_tournament(&triangle));
+    let tournament = tournament_2approx(&triangle).unwrap();
+
+    let mut planar_builder = builder_with_nodes(&[1, 2, 3, 4]);
+    planar_builder
+        .add_edge(cx(1), cx(2), 1.0)
+        .unwrap()
+        .add_edge(cx(2), cx(3), 1.0)
+        .unwrap()
+        .add_edge(cx(3), cx(1), 1.0)
+        .unwrap()
+        .add_edge(cx(3), cx(4), 1.0)
+        .unwrap()
+        .add_edge(cx(4), cx(2), 1.0)
+        .unwrap();
+    let planar = planar_builder.build();
+    let genus = genus_estimate(&planar);
+    let bounded = bounded_genus_approx(&planar, genus).unwrap();
+
+    println!(
+        "SPECIALIZED_DFVS_READBACK tournament={:?} bounded={:?} genus={}",
+        tournament, bounded, genus
+    );
+    write_readback(
+        "ph32-specialized-dfvs-readback.json",
+        json!({ "tournament": tournament, "bounded": bounded, "genus": genus }),
+    );
+    assert_eq!(tournament.method, DfvsMethod::Tournament2Approx);
+    assert!(tournament.approx_factor <= 2.0);
+    assert_eq!(genus, 0);
+    assert_eq!(bounded.method, DfvsMethod::BoundedGenus);
+    assert_eq!(
+        bounded_genus_approx(&planar, 101).unwrap_err().code(),
+        "CALYX_DFVS_GENUS_TOO_LARGE"
+    );
+}
+
+#[test]
+fn kernel_pipeline_serializes_and_marks_ungrounded_provisional() {
+    let graph = triangle_graph();
+    let anchored = build_kernel_pipeline(&graph, &[cx(2)], &kernel_params(1.0)).unwrap();
+    let ungrounded = build_kernel_pipeline(&graph, &[], &kernel_params(1.0)).unwrap();
+    let json = serde_json::to_string(&anchored).unwrap();
+    let restored: calyx_lodestar::Kernel = serde_json::from_str(&json).unwrap();
+
+    println!(
+        "KERNEL_PIPELINE_READBACK anchored={:?} ungrounded={:?}",
+        anchored.members, ungrounded.warnings
+    );
+    write_readback(
+        "ph32-kernel-pipeline-readback.json",
+        json!({
+            "anchored": anchored,
+            "ungrounded": ungrounded,
+            "roundtrip": restored,
+        }),
+    );
+    assert_eq!(anchored, restored);
+    assert!(ungrounded.estimator_provenance.contains("provisional"));
+    assert!(
+        ungrounded
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("CALYX_KERNEL_UNGROUNDED"))
+    );
+}
+
+#[test]
+fn incremental_leaf_dirty_cycle_full_rebuild_and_member_remove() {
+    let graph = triangle_graph();
+    let params = kernel_params(1.0);
+    let kernel = build_kernel_pipeline(&graph, &[cx(2)], &params).unwrap();
+    let mut eval = IncrementalKernelEval::new(kernel.clone(), graph.clone(), vec![cx(2)], params);
+
+    let dirty = eval
+        .apply_edge_weight_change(cx(1), cx(2), 0.1)
+        .expect("dirty edge");
+    eval.rebuild_dirty().unwrap();
+    let leaf = eval
+        .apply_node_add(
+            cx(4),
+            1.0,
+            vec![NodeAddEdge::Out {
+                dst: cx(1),
+                weight: 1.0,
+            }],
+        )
+        .unwrap();
+    eval.rebuild_dirty().unwrap();
+    let full = eval
+        .apply_node_add(
+            cx(5),
+            1.0,
+            vec![
+                NodeAddEdge::Out {
+                    dst: cx(1),
+                    weight: 1.0,
+                },
+                NodeAddEdge::In {
+                    src: cx(2),
+                    weight: 1.0,
+                },
+            ],
+        )
+        .unwrap();
+    let removed = eval.apply_node_remove(kernel.members[0]).unwrap();
+
+    println!(
+        "INCREMENTAL_READBACK dirty={dirty:?} leaf={leaf:?} full={full:?} removed={removed:?}"
+    );
+    write_readback(
+        "ph32-incremental-readback.json",
+        json!({
+            "dirty": dirty,
+            "leaf": leaf,
+            "full": full,
+            "removed": removed,
+        }),
+    );
+    assert!(matches!(dirty, IncrementalResult::Dirty { .. }));
+    assert!(matches!(leaf, IncrementalResult::Dirty { .. }));
+    assert!(!eval.kernel.members.contains(&cx(4)));
+    assert!(matches!(
+        full,
+        IncrementalResult::FullRebuildRequired { .. }
+    ));
+    assert!(matches!(
+        removed,
+        IncrementalResult::KernelMemberRemoved { .. }
+    ));
+}
+
+#[test]
+fn fail_closed_edges_report_catalog_codes() {
+    let graph = triangle_graph();
+    let scc = tarjan_scc(&graph);
+    let bet = betweenness(&graph).unwrap();
+    assert_eq!(
+        select_kernel_graph(
+            &graph,
+            &scc,
+            &bet,
+            &[],
+            &KernelGraphParams {
+                target_fraction: 0.0,
+                ..KernelGraphParams::default()
+            },
+        )
+        .unwrap_err()
+        .code(),
+        "CALYX_KERNEL_INVALID_PARAMS"
+    );
+    let heuristic =
+        select_kernel_graph(&graph, &scc, &bet, &[], &KernelGraphParams::default()).unwrap();
+    let zeros = LpSolution {
+        values: vec![0.0],
+        objective_value: 0.0,
+        status: SolveStatus::Optimal,
+    };
+    assert!(matches!(
+        lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &zeros),
+        Err(LodestarError::KernelEmptyResult)
+    ));
+}
+
+proptest! {
+    #[test]
+    fn selected_count_stays_within_ceiling(n in 1u8..20) {
+        let mut builder = builder_with_nodes(&(1..=n).collect::<Vec<_>>());
+        for seed in 1..n {
+            builder.add_edge(cx(seed), cx(seed + 1), 1.0).unwrap();
+        }
+        let graph = builder.build();
+        let scc = tarjan_scc(&graph);
+        let bet = betweenness(&graph).unwrap();
+        let params = KernelGraphParams {
+            target_fraction: 0.25,
+            ..KernelGraphParams::default()
+        };
+        let selected = select_kernel_graph(&graph, &scc, &bet, &[], &params).unwrap();
+        prop_assert!(selected.selected.len() <= ((n as f32 * 0.25).ceil() as usize).max(1));
+    }
+
+    #[test]
+    fn tournament_approx_removes_cycles(bits in any::<u16>()) {
+        let mut builder = builder_with_nodes(&[1, 2, 3, 4]);
+        let mut bit = 0;
+        for a in 1..=4 {
+            for b in a + 1..=4 {
+                if (bits >> bit) & 1 == 0 {
+                    builder.add_edge(cx(a), cx(b), 1.0).unwrap();
+                } else {
+                    builder.add_edge(cx(b), cx(a), 1.0).unwrap();
+                }
+                bit += 1;
+            }
+        }
+        let graph = builder.build();
+        let result = tournament_2approx(&graph).unwrap();
+        let kernel = calyx_lodestar::KernelGraph {
+            graph,
+            selected: vec![cx(1), cx(2), cx(3), cx(4)],
+            source_fraction: 1.0,
+            lp_fraction: None,
+            params: KernelGraphParams::default(),
+            scores: Vec::new(),
+            warnings: Vec::new(),
+        };
+        let dfvs = dfvs_approx(&kernel).unwrap();
+        prop_assert_eq!(result.method, DfvsMethod::Tournament2Approx);
+        prop_assert_eq!(dfvs.method, DfvsMethod::Tournament2Approx);
+    }
+}

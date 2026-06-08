@@ -236,6 +236,16 @@ version = "0.1.0"
 [[package]]
 name = "calyx-lodestar"
 version = "0.1.0"
+dependencies = [
+ "blake3",
+ "calyx-core",
+ "calyx-mincut",
+ "calyx-paths",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
 
 [[package]]
 name = "calyx-loom"
