@@ -14,8 +14,9 @@ pub mod slot_index_map;
 mod util;
 
 pub use error::{
-    CALYX_SEXTANT_PLAN_UNBOUNDED, CALYX_SEXTANT_RERANKER_TIMEOUT, CALYX_SEXTANT_SLOT_MISSING,
-    sextant_error,
+    CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_PLAN_COST_EXCEEDED, CALYX_SEXTANT_PLAN_UNBOUNDED,
+    CALYX_SEXTANT_RERANKER_TIMEOUT, CALYX_SEXTANT_SLOT_ALREADY_REGISTERED,
+    CALYX_SEXTANT_SLOT_MISSING, sextant_error,
 };
 pub use fusion::{FusionContext, FusionStrategy, RrfProfile, WeightedProfile, weighted_profiles};
 pub use hit::{FreshnessTag, Hit, PerLensContribution};

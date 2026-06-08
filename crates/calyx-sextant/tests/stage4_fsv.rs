@@ -249,10 +249,10 @@ fn stage4_full_stack_fsv() {
 
 fn sample_engine() -> (SearchEngine, Vec<CxId>) {
     let map = SlotIndexMap::new();
-    map.register(HnswIndex::new(SlotId::new(8), 3, 42));
-    map.register(HnswIndex::new(SlotId::new(9), 3, 43));
-    map.register(InvertedIndex::new(SlotId::new(1)));
-    map.register(MaxSimIndex::new(SlotId::new(10), 2));
+    map.register(HnswIndex::new(SlotId::new(8), 3, 42)).unwrap();
+    map.register(HnswIndex::new(SlotId::new(9), 3, 43)).unwrap();
+    map.register(InvertedIndex::new(SlotId::new(1))).unwrap();
+    map.register(MaxSimIndex::new(SlotId::new(10), 2)).unwrap();
     let mut engine = SearchEngine::new(map);
     let ids = vec![cx(1), cx(2), cx(3)];
     let texts = ["dog log", "cat hat", "cat error cause"];

@@ -85,8 +85,8 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
 
 fn real_qrels_engine(corpus: &BTreeMap<String, String>) -> SearchEngine {
     let map = SlotIndexMap::new();
-    map.register(InvertedIndex::new(SlotId::new(1)));
-    map.register(HnswIndex::new(SlotId::new(8), 2, 42));
+    map.register(InvertedIndex::new(SlotId::new(1))).unwrap();
+    map.register(HnswIndex::new(SlotId::new(8), 2, 42)).unwrap();
     let mut engine = SearchEngine::new(map);
     for (idx, (doc_id, text)) in corpus.iter().enumerate() {
         let cx = cx_for(doc_id);

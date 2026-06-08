@@ -3,7 +3,10 @@
 use calyx_core::{Result, SlotId};
 use serde::{Deserialize, Serialize};
 
-use crate::error::{CALYX_SEXTANT_PLAN_UNBOUNDED, sextant_error};
+use crate::error::{
+    CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_PLAN_COST_EXCEEDED, CALYX_SEXTANT_PLAN_UNBOUNDED,
+    sextant_error,
+};
 use crate::fusion::{FusionStrategy, RrfProfile};
 use crate::query::Query;
 
@@ -116,8 +119,9 @@ impl QueryPlanner {
             .fusion
             .clone()
             .unwrap_or_else(|| self.strategy_for(intent, &query));
+        self.enforce_bounds(&query, index_size)?;
         let cost = self.estimate_cost(&query, index_size);
-        self.enforce(&query, cost)?;
+        self.enforce_cost(cost)?;
         query.fusion = Some(strategy.clone());
         Ok(PlannedQuery {
             query,
@@ -152,18 +156,41 @@ impl QueryPlanner {
 
     pub fn estimate_cost(&self, query: &Query, index_size: usize) -> u64 {
         let slots = query.slots.len().max(1) as u64;
-        let ef = query.ef.unwrap_or(64).max(1) as u64;
-        slots * ef * query.k.max(1) as u64 * index_size.max(1) as u64 / 100
+        let ef = query.ef.unwrap_or(64) as u64;
+        slots
+            .saturating_mul(ef)
+            .saturating_mul(query.k as u64)
+            .saturating_mul(index_size.max(1) as u64)
+            / 100
     }
 
-    fn enforce(&self, query: &Query, cost: u64) -> Result<()> {
+    fn enforce_bounds(&self, query: &Query, index_size: usize) -> Result<()> {
+        if query.k == 0 {
+            return Err(sextant_error(
+                CALYX_SEXTANT_PLAN_UNBOUNDED,
+                "k must be greater than zero",
+            ));
+        }
         if query.k > self.limits.max_k {
             return Err(sextant_error(
                 CALYX_SEXTANT_PLAN_UNBOUNDED,
                 "k exceeds max_k",
             ));
         }
-        if query.ef.unwrap_or(0) > self.limits.max_ef {
+        if query.slots.is_empty() && index_size == 0 {
+            return Err(sextant_error(
+                CALYX_SEXTANT_NO_LENSES,
+                "no registered lenses are available for the query",
+            ));
+        }
+        let ef = query.ef.unwrap_or(64);
+        if ef == 0 {
+            return Err(sextant_error(
+                CALYX_SEXTANT_PLAN_UNBOUNDED,
+                "ef must be greater than zero",
+            ));
+        }
+        if ef > self.limits.max_ef {
             return Err(sextant_error(
                 CALYX_SEXTANT_PLAN_UNBOUNDED,
                 "ef exceeds max_ef",
@@ -175,9 +202,13 @@ impl QueryPlanner {
                 "slot count exceeds max_slots",
             ));
         }
+        Ok(())
+    }
+
+    fn enforce_cost(&self, cost: u64) -> Result<()> {
         if cost > self.limits.max_cost {
             return Err(sextant_error(
-                CALYX_SEXTANT_PLAN_UNBOUNDED,
+                CALYX_SEXTANT_PLAN_COST_EXCEEDED,
                 "estimated cost exceeds cap",
             ));
         }
