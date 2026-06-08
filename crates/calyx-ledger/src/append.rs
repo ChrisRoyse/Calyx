@@ -10,6 +10,7 @@ use calyx_core::{CalyxError, Clock, LedgerRef, Result};
 use crate::codec::{decode, encode};
 use crate::entry::{ActorId, HASH_BYTES, LedgerEntry, SubjectId};
 use crate::kind::EntryKind;
+use crate::redaction::RedactionPolicy;
 
 const ROW_EXT: &str = "ledger";
 
@@ -46,6 +47,7 @@ pub struct LedgerAppender<S, C> {
     clock: C,
     next_seq: u64,
     prev_hash: [u8; HASH_BYTES],
+    redaction_policy: RedactionPolicy,
 }
 
 impl<S, C> LedgerAppender<S, C>
@@ -55,12 +57,18 @@ where
 {
     /// Opens an appender and recovers its tip from existing ledger rows.
     pub fn open(store: S, clock: C) -> Result<Self> {
+        Self::open_with_policy(store, clock, RedactionPolicy::default())
+    }
+
+    /// Opens an appender with an explicit redaction policy.
+    pub fn open_with_policy(store: S, clock: C, redaction_policy: RedactionPolicy) -> Result<Self> {
         let (next_seq, prev_hash) = recover_tip(&store)?;
         Ok(Self {
             store,
             clock,
             next_seq,
             prev_hash,
+            redaction_policy,
         })
     }
 
@@ -72,8 +80,10 @@ where
         payload: Vec<u8>,
         actor: ActorId,
     ) -> Result<LedgerRef> {
+        self.redaction_policy.check_payload_with_policy(&payload)?;
         self.verify_tip()?;
         let seq = self.next_seq;
+        let actor = self.redaction_policy.apply_to_actor(actor);
         let entry = LedgerEntry::new(
             seq,
             self.prev_hash,

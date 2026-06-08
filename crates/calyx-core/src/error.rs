@@ -145,6 +145,9 @@ error_catalog! {
     LedgerAppendOnlyViolation, ledger_append_only_violation, "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
     "ledger CF append-only invariant violated", "ledger CF is append-only; deletes and tombstones are forbidden";
 
+    LedgerSecretInPayload, ledger_secret_in_payload, "CALYX_LEDGER_SECRET_IN_PAYLOAD",
+    "ledger payload contains secret-like material", "ledger payload must store hashes/ids only — redact before writing";
+
     VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
     "cross-vault read without grant", "request grant";
 
@@ -194,6 +197,7 @@ mod tests {
         "CALYX_LEDGER_CHAIN_BROKEN",
         "CALYX_LEDGER_CORRUPT",
         "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
+        "CALYX_LEDGER_SECRET_IN_PAYLOAD",
         "CALYX_VAULT_ACCESS_DENIED",
         "CALYX_STALE_DERIVED",
         "CALYX_ORACLE_INSUFFICIENT",
@@ -236,6 +240,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
             "ledger CF is append-only; deletes and tombstones are forbidden"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_LEDGER_SECRET_IN_PAYLOAD",
+            "ledger payload must store hashes/ids only — redact before writing"
         )));
     }
 
