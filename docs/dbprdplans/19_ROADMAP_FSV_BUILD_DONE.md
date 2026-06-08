@@ -2,12 +2,13 @@
 
 Phased build, verification discipline, performance targets, mechanical completion predicate. Scope is **Vault-only** (`15`): Calyx replaces the SQLite/`sqlite-vec` Vaults; PostgreSQL is untouched, so there is no control-plane phase. Front-loads the durable-storage core before the customer-facing Vault swap.
 
-> **Current status (2026-06-08; Stage 6 active through #235): P0-P4 are DONE
+> **Current status (2026-06-08; Stage 6 active through #236): P0-P4 are DONE
 > and P5 is ACTIVE.** Stages 0-5 (PH00-PH30) are
 > implemented, pushed, and FSV-signed-off on aiwonder. Stage 6 Lodestar is
 > underway: PH31 graph primitives and PH32 kernel discovery are done; PH33
-> T01-T05 kernel index/answer/gaps/real-corpora recall are done; PH34 T01-T03
-> scope materialization/cache/dispatch are done. Next is PH34 T04 (#236). Live phase
+> T01-T05 kernel index/answer/gaps/real-corpora recall are done; PH34 T01-T04
+> scope materialization/cache/dispatch/hierarchical kernel-of-regions are done.
+> Next is PH34 T05 (#237). Live phase
 > status: `docs/implementation/03_PHASE_MAP.md` and GitHub context issue #23.
 > The detailed per-phase build plan below lives in `docs/implementation/`.
 

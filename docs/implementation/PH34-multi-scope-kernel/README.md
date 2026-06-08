@@ -43,6 +43,13 @@ PH34 T03 (#235) is implemented and FSV-signed-off on aiwonder: scoped
 provisional ungrounded tagging, empty intersect reporting, panel-version cache
 misses, and temporal fail-closed propagation with readbacks under
 `/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`.
+PH34 T04 (#236) is implemented and FSV-signed-off on aiwonder:
+`RegionStore`, `RegionDescriptor`, `HierarchicalKernelParams`, and
+`build_hierarchical_kernel` cover region-level kernels, deterministic
+region-node IDs, scoped anchor projection, cache-backed drilldowns, direct
+fallback when no regions exist, `all_members` union readback, single-region /
+`max_regions = 1` / `drill_radius = 0` edge cases, and PH34 gate commands with
+readbacks under `/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -61,9 +68,9 @@ misses, and temporal fail-closed propagation with readbacks under
 | T01 | `Scope` enum + `materialize_scope` for all 8 variants | — (needs PH33) | Done / #233 |
 | T02 | `ScopeCache`: `(scope_hash, panel_version)` LRU cache | T01 | Done / #234 |
 | T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 | Done / #235 |
-| T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Next / #236 |
-| T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Open |
-| T06 | FSV: ≥4 distinct scopes on a real corpus, each with measured recall | T05 | Open |
+| T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Done / #236 |
+| T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Next / #237 |
+| T06 | FSV: >=4 distinct scopes on a real corpus, each with measured recall | T05 | Open / #238 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

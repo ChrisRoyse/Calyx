@@ -7,8 +7,8 @@
 > `/home/croyse/calyx/data/fsv-ph31-20260608` and
 > `/home/croyse/calyx/data/fsv-ph32-20260608`. PH33 kernel index/answer/gaps
 > through real-corpora recall is signed off under
-> `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T03
-> are signed off; PH34 T04 (#236) is next. PH33 T06 (#239) remains open until
+> `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T04
+> are signed off; PH34 T05 (#237) is next. PH33 T06 (#239) remains open until
 > real Stage 7 Ledger primitives exist.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
@@ -82,8 +82,10 @@ identity.
   `ScopeCache` is implemented and FSV-signed-off under
   `/home/croyse/calyx/data/fsv-issue234-scope-cache-20260608`; T03 scoped
   dispatch/reporting is implemented and FSV-signed-off under
-  `/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`; T04-T06 remain
-  open.
+  `/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`; T04
+  hierarchical kernel-of-regions is implemented and FSV-signed-off under
+  `/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`; T05-T06 remain
+  open, with T05 tracked by #237.
 - **Objective.** Freedom of scope: kernel over all / collection / domain /
   subgraph / time-window / tenant / filter / union.
 - **Deps.** PH33.
