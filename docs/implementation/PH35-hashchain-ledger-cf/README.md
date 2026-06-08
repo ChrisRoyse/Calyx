@@ -36,10 +36,13 @@ delete/tombstone rejection; evidence is at
 adds `RedactionPolicy`, `PayloadBuilder`, `RedactedInput`,
 `CALYX_LEDGER_SECRET_IN_PAYLOAD`, and appender-side payload rejection before row
 encoding; evidence is at
-`/home/croyse/calyx/data/fsv-issue245-ledger-redaction-20260608`. The remaining
-PH35 tasks build the group-commit hook, actor/timestamp wiring, and WAL smoke
-FSV on top of those primitives. The following scaffolding already
-exists and must be reused:
+`/home/croyse/calyx/data/fsv-issue245-ledger-redaction-20260608`. T05 (#246)
+wires the group-commit hook through Aster so the ledger row shares the same WAL
+record as its data mutation; evidence is at
+`/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`. The
+remaining PH35 tasks build actor/timestamp wiring and the wider WAL smoke FSV
+on top of those primitives. The following scaffolding already exists and must
+be reused:
 
 - `calyx-core/src/model/signal.rs`: `LedgerRef { seq: u64, hash: [u8; 32] }`
 - `calyx-aster/src/cf/key.rs`: `ledger_key(seq: u64) -> Vec<u8>` (big-endian
@@ -49,8 +52,8 @@ exists and must be reused:
 - PH09 group-commit path in `calyx-aster`: hook points are the target wiring
   site; PH35 adds the ledger side
 
-The `kind` discriminant set, `entry_hash` formula, binary codec, and appender
-are implemented. Aster group-commit integration remains T05.
+The `kind` discriminant set, `entry_hash` formula, binary codec, appender,
+redaction policy, and Aster group-commit integration are implemented.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -73,7 +76,7 @@ are implemented. Aster group-commit integration remains T05.
 | T02 | Binary codec (encode/decode) round-trip | T01 |
 | T03 | `LedgerAppender`: seq counter + append-only enforcement (done #244) | T02 |
 | T04 | Redaction policy: no secrets in payload (done #245) | T03 |
-| T05 | Group-commit hook: ledger entry in same WAL batch as data write | T03 |
+| T05 | Group-commit hook: ledger entry in same WAL batch as data write (done #246) | T03 |
 | T06 | Actor-stamp + server-stamped monotonic timestamp wiring | T05 |
 | T07 | Integration smoke: PH09 constellation write → chained ledger entry in WAL | T05, T06 |
 
