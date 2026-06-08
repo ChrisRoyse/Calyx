@@ -1,9 +1,13 @@
-//! Path and graph traversal skeleton for Calyx association networks.
+#![deny(warnings)]
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_metadata_is_present() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "calyx-paths");
-    }
-}
+//! Path and graph traversal over Calyx association networks.
+
+pub mod attenuation;
+mod error;
+pub mod graph;
+pub mod traversal;
+
+pub use attenuation::{attenuate, deattenuate};
+pub use error::{PathsError, Result};
+pub use graph::{AssocGraph, AssocGraphBuilder, Edge, NodeEntry};
+pub use traversal::{reach, reach_scored};
