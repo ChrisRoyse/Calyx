@@ -36,6 +36,10 @@ an Aster column-family/ANN shard is a later storage integration seam, not the
 current PH33 T01 source of truth. Stage 6 consumers can treat Assay `trusted`
 bits as grounded-only after #294; any Assay output without grounded Anchor
 evidence is `provisional` and must not be used as a trusted kernel signal.
+Build-time `Kernel.groundedness` now uses the same bounded
+`KernelGraphParams.max_groundedness_distance` as the public `grounding_gaps`
+API (#298). FSV root:
+`/home/croyse/calyx/data/fsv-issue298-build-kernel-groundedness-bound-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -87,8 +91,8 @@ evidence is `provisional` and must not be used as a trusted kernel signal.
   If the query cannot be reached inside the bound, `kernel_answer` must return
   `CALYX_PATHS_MAX_HOPS` rather than a truncated answer.
 - **Groundedness distance:** `grounding_gaps` accepts a bounded anchor distance.
-  Build-pipeline groundedness currently has follow-up #298 to ensure the same
-  bound is enforced when reporting kernel groundedness.
+  Build-pipeline groundedness uses `KernelGraphParams.max_groundedness_distance`;
+  an anchor just beyond that bound remains in `unanchored_members` (#298).
 - **Assay trust handoff:** Lodestar may consume Assay `trusted` bits only from
   anchor-aware estimates/reports. No-anchor or ungrounded Assay results are
   intentionally `provisional` after #294 and cannot satisfy grounded kernel

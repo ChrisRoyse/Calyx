@@ -20,7 +20,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + capability cards + default panels + temporal E2/E3/E4) |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain); PH26 reranker/filter follow-ups tracked by #296/#297 |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 FSV-backed |
-| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 in-tree; groundedness bound #298 tracked) |
+| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 and groundedness bound #298 FSV-backed) |
 | S7–S20 | PH35–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -41,7 +41,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-ph31-20260608`,
   `/home/croyse/calyx/data/fsv-ph32-20260608`,
   `/home/croyse/calyx/data/fsv-issue292-kernel-answer-max-hops-20260608`,
-  `/home/croyse/calyx/data/fsv-issue293-loom-assoc-graph-20260608`
+  `/home/croyse/calyx/data/fsv-issue293-loom-assoc-graph-20260608`,
+  `/home/croyse/calyx/data/fsv-issue298-build-kernel-groundedness-bound-20260608`
 
 ---
 
@@ -106,8 +107,8 @@ Latest roots:
 > JSON. Closed during sweep hardening: PH31/PH33 real Loom association-graph
 > adapter #293 and PH30 grounded Assay trust #294. Remaining tracked
 > post-sweep work: PH11 durable tiering #295, PH26 reranker search-path ordering
-> #296, PH26 scalar/anchor/metadata filters #297, and PH33 bounded build-time
-> groundedness #298.
+> #296, and PH26 scalar/anchor/metadata filters #297. PH33 bounded build-time
+> groundedness #298 is now FSV-backed.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

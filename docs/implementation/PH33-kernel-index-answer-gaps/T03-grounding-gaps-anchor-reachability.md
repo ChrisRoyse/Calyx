@@ -44,6 +44,9 @@ ground the domain"). The function also computes `grounded_fraction` and emits
   `warning = CALYX_KERNEL_UNGROUNDED`.
 - [x] unit: anchor at distance `max_anchor_dist` exactly → grounded (inclusive).
   anchor at distance `max_anchor_dist + 1` → gap.
+- [x] pipeline: `build_kernel_pipeline` uses
+  `KernelGraphParams.max_groundedness_distance`; a DFVS member whose anchor is
+  just beyond the bound remains in `Kernel.groundedness.unanchored_members`.
 - [x] proptest: `gaps.len() + grounded_count == kernel.members.len()` for all inputs.
 - [x] edge: empty `kernel.members` → `gaps = []`; `grounded_fraction = 1.0`; no warning.
 - [x] fail-closed: `max_anchor_dist = 0` → only direct anchor nodes are grounded
@@ -53,9 +56,13 @@ ground the domain"). The function also computes `grounded_fraction` and emits
 
 - **SoT:** `cargo test -p calyx-lodestar grounding_gaps -- --nocapture` stdout.
 - **Readback:** `cargo test -p calyx-lodestar grounding_gaps 2>&1 | tee /tmp/ph33_t03_fsv.txt && cat /tmp/ph33_t03_fsv.txt`.
-- **Prove:** 4-member test prints `gaps = [<unreachable_cx>]` and `grounded_fraction = 0.75`;
-  no-anchor test prints `CALYX_KERNEL_UNGROUNDED`; proptest passes; output attached
-  to PH33 GitHub issue.
+- **#298 FSV root:** `/home/croyse/calyx/data/fsv-issue298-build-kernel-groundedness-bound-20260608`.
+- **Prove:** 4-member test prints `gaps = [<unreachable_cx>]` and
+  `grounded_fraction = 0.75`; no-anchor test prints
+  `CALYX_KERNEL_UNGROUNDED`; boundary readback shows pipeline
+  `max_groundedness_distance = 1` and `unanchored_members = [cx3]` when the
+  anchor is two hops away; proptest passes; output attached to PH33 GitHub
+  issue.
 
 ## Done when
 

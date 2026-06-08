@@ -96,7 +96,12 @@ pub fn build_kernel_pipeline(
     let heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
     let rounded = lp_round_kernel_graph(&heuristic, &params.lp_round)?;
     let dfvs = dfvs_approx(&rounded)?;
-    let gap_report = grounding_gaps_for_members(&dfvs.members, graph, anchors, usize::MAX)?;
+    let gap_report = grounding_gaps_for_members(
+        &dfvs.members,
+        graph,
+        anchors,
+        params.kernel_graph.max_groundedness_distance,
+    )?;
     let warnings = warnings(&rounded.warnings, &dfvs, &gap_report.gaps);
     let provenance = estimator_provenance(&dfvs, &warnings);
     let kernel_graph = rounded.selected.clone();
