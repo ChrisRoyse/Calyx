@@ -25,11 +25,16 @@ persists a `BackfillScheduler` request in the same API call. If scheduler
 enqueue fails, the controller and scheduler objects are restored to their
 pre-call state before the error is returned.
 
+Post-sweep #314: both add paths now require `&Registry` and verify the requested
+`LensId` has a frozen registered contract with matching slot shape/modality
+before any panel version, queue, or scheduler mutation. Unregistered or unfrozen
+lenses fail closed with `CALYX_LENS_FROZEN_VIOLATION`.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [x] `pub fn add_lens_durable(controller, spec, candidates, now, scheduler, priority) -> Result<AddLensOutcome>`:
-  1. `check_frozen_contract_at_register(&spec, lens.as_ref(), &probe_input)`.
-  2. `let id = compute_lens_id(&spec)`; if `registry.contains(id)` → `Ok(id)` (idempotent no-op).
+- [x] `pub fn add_lens_durable(controller, registry, spec, candidates, now, scheduler, priority) -> Result<AddLensOutcome>`:
+  1. `registry.frozen_contract(spec.lens_id)` must exist before mutation.
+  2. The frozen contract shape/modality must match `SlotSpec`.
   3. `let slot_id = registry.alloc_next_slot_id()`.
   4. `registry.lenses.insert(id, (spec.clone(), lens))`.
   5. `registry.slot_map.insert(slot_id, id)`.
@@ -58,13 +63,13 @@ pre-call state before the error is returned.
 - [ ] edge (≥3): (1) frozen contract violation on registration → no slot
   allocated, `panel_version` unchanged; (2) `slot_id` never wraps below
   previous maximum; (3) `backfill_queue` has one entry per successful add.
-- [ ] fail-closed: frozen contract failure → `CALYX_LENS_FROZEN_VIOLATION`,
-  no state mutation in `registry`.
+- [x] fail-closed: missing frozen contract → `CALYX_LENS_FROZEN_VIOLATION`,
+  no panel, queue, or durable scheduler mutation (#314).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `registry.panel_version` and `slot_map` in-memory state; Aster
-  `slot_*/HEADER` CF row (if store available)
+- **SoT:** `SwapController.panel`, in-memory backfill queue, durable
+  `backfill-watermark.json`, and Aster slot CF rows for the full PH20 FSV
 - **Readback:** `cargo test -p calyx-registry add_lens -- --nocapture 2>&1`
 - **Prove:** output shows `panel_version=1 slot_id=0` after first add;
   `panel_version=1` after idempotent second add; screenshot attached to PH20

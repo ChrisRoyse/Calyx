@@ -7,6 +7,7 @@ use calyx_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::backfill::{BackfillPriority, BackfillRequest, BackfillScheduler};
+use crate::lens::Registry;
 
 /// Slot declaration supplied when a lens is hot-added to a panel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -138,11 +139,18 @@ impl SwapController {
         &mut self.queue
     }
 
-    pub fn add_lens<I>(&mut self, spec: SlotSpec, candidates: I, now: Ts) -> Result<AddLensOutcome>
+    pub fn add_lens<I>(
+        &mut self,
+        registry: &Registry,
+        spec: SlotSpec,
+        candidates: I,
+        now: Ts,
+    ) -> Result<AddLensOutcome>
     where
         I: IntoIterator<Item = BackfillCandidate>,
     {
         ensure_unique_slot(&self.panel, &spec)?;
+        ensure_registered_lens(registry, &spec)?;
         let slot_id = next_slot_id(&self.panel)?;
         let version = self.bump_panel(now)?;
         let slot = Slot {
@@ -179,6 +187,7 @@ impl SwapController {
 
     pub fn add_lens_durable<I>(
         &mut self,
+        registry: &Registry,
         spec: SlotSpec,
         candidates: I,
         now: Ts,
@@ -192,7 +201,7 @@ impl SwapController {
         let panel_before = self.panel.clone();
         let queue_before = self.queue.clone();
         let scheduler_before = scheduler.clone();
-        let outcome = self.add_lens(spec, candidates.iter().copied(), now)?;
+        let outcome = self.add_lens(registry, spec, candidates.iter().copied(), now)?;
         let request = BackfillRequest {
             slot_id: outcome.slot.slot_id,
             lens_id: outcome.slot.lens_id,
@@ -379,6 +388,32 @@ fn ensure_unique_slot(panel: &Panel, spec: &SlotSpec) -> Result<()> {
     Ok(())
 }
 
+fn ensure_registered_lens(registry: &Registry, spec: &SlotSpec) -> Result<()> {
+    let contract = registry.frozen_contract(spec.lens_id).ok_or_else(|| {
+        CalyxError::lens_frozen_violation(format!(
+            "lens {} is not registered with a frozen contract",
+            spec.lens_id
+        ))
+    })?;
+    if contract.shape() != spec.shape {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "slot {} shape {:?} != frozen {:?}",
+            spec.key,
+            spec.shape,
+            contract.shape()
+        )));
+    }
+    if contract.modality() != spec.modality {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "slot {} modality {:?} != frozen {:?}",
+            spec.key,
+            spec.modality,
+            contract.modality()
+        )));
+    }
+    Ok(())
+}
+
 fn next_slot_id(panel: &Panel) -> Result<SlotId> {
     let next = panel
         .slots
@@ -393,93 +428,4 @@ fn next_slot_id(panel: &Panel) -> Result<SlotId> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn add_lens_bumps_panel_allocates_slot_and_queues_priority_backfill() {
-        let mut controller = SwapController::new(sample_panel());
-        let high = CxId::from_bytes([1; 16]);
-        let low = CxId::from_bytes([2; 16]);
-
-        let outcome = controller
-            .add_lens(
-                SlotSpec::dense_text("new-semantic", LensId::from_bytes([9; 16]), 3),
-                [
-                    BackfillCandidate {
-                        cx_id: low,
-                        priority: 10,
-                    },
-                    BackfillCandidate {
-                        cx_id: high,
-                        priority: 99,
-                    },
-                ],
-                42,
-            )
-            .unwrap();
-
-        assert_eq!(outcome.slot.slot_id, SlotId::new(1));
-        assert_eq!(controller.panel().version, 2);
-        assert_eq!(outcome.index.queued, 2);
-        let claimed = controller.queue_mut().claim_batch(1);
-        assert_eq!(claimed[0].cx_id, high);
-        controller.queue_mut().complete(claimed[0].id).unwrap();
-        assert_eq!(controller.queue().pending_len(), 1);
-        assert_eq!(controller.queue().completed_len(), 1);
-    }
-
-    #[test]
-    fn park_unpark_and_retire_preserve_slot_tombstone() {
-        let mut controller = SwapController::new(sample_panel());
-
-        let parked = controller.park_lens(SlotId::new(0), 43).unwrap();
-        let active = controller.unpark_lens(SlotId::new(0), 44).unwrap();
-        let retired = controller.retire_lens(SlotId::new(0), 45).unwrap();
-
-        assert_eq!(parked.state, SlotState::Parked);
-        assert_eq!(active.state, SlotState::Active);
-        assert_eq!(retired.state, SlotState::Retired);
-        assert_eq!(controller.panel().version, 4);
-        assert_eq!(controller.panel().slots[0].state, SlotState::Retired);
-    }
-
-    #[test]
-    fn duplicate_live_lens_fails_closed() {
-        let mut controller = SwapController::new(sample_panel());
-
-        let error = controller
-            .add_lens(
-                SlotSpec::dense_text("dupe", LensId::from_bytes([1; 16]), 3),
-                [],
-                42,
-            )
-            .unwrap_err();
-
-        assert_eq!(error.code, "CALYX_LENS_FROZEN_VIOLATION");
-    }
-
-    fn sample_panel() -> Panel {
-        Panel {
-            version: 1,
-            slots: vec![Slot {
-                slot_id: SlotId::new(0),
-                slot_key: SlotKey::new(SlotId::new(0), "base-semantic"),
-                lens_id: LensId::from_bytes([1; 16]),
-                shape: SlotShape::Dense(2),
-                modality: Modality::Text,
-                asymmetry: Asymmetry::None,
-                quant: QuantPolicy::None,
-                axis: None,
-                retrieval_only: false,
-                excluded_from_dedup: false,
-                bits_about: BTreeMap::new(),
-                state: SlotState::Active,
-                added_at_panel_version: 1,
-            }],
-            created_at: 1,
-            kernel_ref: None,
-            guard_ref: None,
-        }
-    }
-}
+mod tests;

@@ -28,6 +28,9 @@
 > `CALYX_LENS_FROZEN_VIOLATION`; runtime callers must use `register_frozen*`.
 > FSV root for #310:
 > `/home/croyse/calyx/data/fsv-issue310-registry-frozen-contract-20260608`.
+> Post-sweep hardening #314 makes hot-swap add paths require a frozen registered
+> lens before panel, queue, or durable scheduler mutation. FSV root for #314:
+> `/home/croyse/calyx/data/fsv-issue314-registered-hot-swap-20260608`.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth

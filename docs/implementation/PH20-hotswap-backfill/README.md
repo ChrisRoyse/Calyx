@@ -28,7 +28,10 @@ state. `calyx-aster` has PH09 constellation CRUD and slot column families, so
 PH20 FSV writes real slot vectors, flushes the vault, reopens it, and reads the
 slot CF rows back from disk. The old queue-only scheduler proof is superseded by
 #300; #311 wires durable scheduler enqueue into the public hot-swap API with
-`SwapController::add_lens_durable`.
+`SwapController::add_lens_durable`. #314 requires every hot-swap add path to
+receive a `Registry` and prove the lens id is registered with a frozen contract
+matching the requested slot shape/modality before panel, queue, or scheduler
+state can mutate.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env.
@@ -66,10 +69,16 @@ slot CF rows back from disk. The old queue-only scheduler proof is superseded by
 5. `retire_lens` → `SlotState::Retired`; historical constellations still
    readable from their slot columns; `panel_version` incremented. Reopen the
    durable Aster vault and read the backfilled slot CF rows again.
+6. Attempt `add_lens_durable` with an unregistered `LensId`; read panel version,
+   slot count, queue length, and scheduler JSON bytes before/after to prove no
+   mutation and `CALYX_LENS_FROZEN_VIOLATION`.
 
 Readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
 on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-watermark.json` and vault
 file readback. Evidence is attached to GitHub issue #311.
+
+#314 readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue314-registered-hot-swap-20260608 cargo test -p calyx-registry ph20_unregistered_hot_swap_fails_closed_aiwonder_fsv -- --ignored --nocapture`
+on aiwonder, followed by `cat $CALYX_FSV_ROOT/hot-swap-registered-readback.json`.
 
 ## Risks / landmines
 
