@@ -329,12 +329,13 @@ fn profile_explain_and_local_runtime_readback(out: &mut BTreeMap<&'static str, s
             b"candle stage3 atomic".to_vec(),
         ))
         .unwrap();
-    let onnx = OnnxLens::all_minilm_l6_v2("onnx-stage3-atomic").unwrap();
+    let onnx = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-stage3-atomic").unwrap();
     let onnx_vector = onnx
         .measure(&Input::new(Modality::Text, b"onnx stage3 atomic".to_vec()))
         .unwrap();
     out.insert("candle_vector", vector_summary(&candle_vector));
     out.insert("onnx_vector", vector_summary(&onnx_vector));
+    out.insert("onnx_provider_policy", json!(onnx.provider_policy()));
 }
 
 fn lens_spec(
