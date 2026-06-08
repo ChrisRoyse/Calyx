@@ -11,6 +11,7 @@ default = []
 candle-cuda = ["candle-core/cuda"]
 
 [dependencies]
+calyx-assay = { path = "../calyx-assay" }
 calyx-core = { path = "../calyx-core" }
 candle-core = "0.10.2"
 candle-nn = "0.10.2"

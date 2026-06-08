@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 use crate::lens::Registry;
 use crate::spec::LensHealth;
 
+mod assay;
+pub use assay::{apply_assay_metrics, profile_slot_with_assay};
+
 /// One profiling probe, optionally labeled for silhouette separation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfileProbe {
@@ -51,6 +54,7 @@ pub struct CapabilityCard {
 pub enum MetricSource {
     ProfileProxy,
     AssayPending,
+    AssayStore,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]

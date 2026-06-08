@@ -51,6 +51,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue315-backfill-atomic-persist-20260608`
 - Stage 3 PH20 durable scheduler rollback:
   `/home/croyse/calyx/data/fsv-issue321-durable-rollback-20260608`
+- Stage 3 PH21 capability cards with Assay-backed metrics:
+  `/home/croyse/calyx/data/fsv-issue334-ph21-assay-registry-20260608`
 - Stage 4 Sextant:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
 - Stage 4 Sextant GPU parity/fan-out hardening:

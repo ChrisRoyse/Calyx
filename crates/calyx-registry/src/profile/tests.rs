@@ -1,5 +1,10 @@
 use super::*;
-use calyx_core::{Lens, Modality, SlotShape};
+use calyx_assay::estimate::{EstimatorKind, MiEstimate, TrustTag};
+use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
+use calyx_core::{
+    AnchorKind, Asymmetry, Lens, Modality, QuantPolicy, Slot, SlotId, SlotKey, SlotShape,
+    SlotState, VaultId,
+};
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::algorithmic::AlgorithmicLens;
@@ -46,6 +51,46 @@ fn assay_owned_metrics_serialize_as_null_until_attached() {
     assert!(json["differentiation"].is_null());
     assert_eq!(json["differentiation_source"], "assay_pending");
     assert!(json["proxy_differentiation"].as_f64().unwrap().is_finite());
+}
+
+#[test]
+fn assay_rows_attach_signal_and_pair_gain_metrics() {
+    let mut registry = Registry::new();
+    let lens = AlgorithmicLens::byte_features("profile-assay-fields", Modality::Text);
+    let id = registry
+        .register_frozen(lens.clone(), lens.contract().clone())
+        .unwrap();
+    let slot = slot_for_lens(id, 0);
+    let cache_key = assay_key();
+    let mut store = AssayStore::default();
+    store.put(
+        cache_key.clone(),
+        AssaySubject::Lens { slot: slot.slot_id },
+        estimate(0.42, EstimatorKind::Ksg),
+        "unit lens signal",
+        10,
+    );
+    store.put(
+        cache_key.clone(),
+        AssaySubject::Pair {
+            a: slot.slot_id,
+            b: SlotId::new(9),
+        },
+        estimate(0.07, EstimatorKind::PairGain),
+        "unit pair gain",
+        11,
+    );
+
+    let card = profile_slot_with_assay(&registry, &slot, &profile_probes(), &store, &cache_key)
+        .expect("profile with assay");
+    let json = serde_json::to_value(&card).unwrap();
+
+    assert_eq!(card.signal, Some(0.42));
+    assert_eq!(card.signal_source, MetricSource::AssayStore);
+    assert_eq!(card.differentiation, Some(0.07));
+    assert_eq!(card.differentiation_source, MetricSource::AssayStore);
+    assert_eq!(json["signal_source"], "assay_store");
+    assert_eq!(json["differentiation_source"], "assay_store");
 }
 
 #[test]
@@ -103,6 +148,37 @@ fn profile_probes() -> Vec<ProfileProbe> {
             "digits",
         ),
     ]
+}
+
+fn slot_for_lens(lens_id: LensId, slot_id: u16) -> Slot {
+    let slot_id = SlotId::new(slot_id);
+    Slot {
+        slot_id,
+        slot_key: SlotKey::new(slot_id, format!("slot-{slot_id}")),
+        lens_id,
+        shape: SlotShape::Dense(4),
+        modality: Modality::Text,
+        asymmetry: Asymmetry::None,
+        quant: QuantPolicy::None,
+        axis: None,
+        retrieval_only: false,
+        excluded_from_dedup: false,
+        bits_about: Default::default(),
+        state: SlotState::Active,
+        added_at_panel_version: 1,
+    }
+}
+
+fn assay_key() -> AssayCacheKey {
+    AssayCacheKey::scoped(1, "profile-unit", vault_id(), AnchorKind::Reward)
+}
+
+fn estimate(bits: f32, estimator: EstimatorKind) -> MiEstimate {
+    MiEstimate::point(bits, 64, estimator, TrustTag::Trusted)
+}
+
+fn vault_id() -> VaultId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 #[derive(Clone)]

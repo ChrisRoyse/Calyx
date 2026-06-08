@@ -1,79 +1,68 @@
-# PH21 · T05 — Registry.profile() + collapsed-lens flag
+# PH21 T05 - Registry profile + Assay-backed capability metrics
 
 | Field | Value |
 |---|---|
-| **Phase** | PH21 — Capability cards / profile |
-| **Stage** | S3 — Registry / Lenses |
+| **Phase** | PH21 - Capability cards / profile |
+| **Stage** | S3 - Registry / Lenses |
 | **Crate** | `calyx-registry` |
-| **Files** | `crates/calyx-registry/src/profile.rs` (≤500) |
-| **Depends on** | T02, T03, T04 (this phase) |
+| **Files** | `crates/calyx-registry/src/profile.rs`, `src/profile/assay.rs`, `src/panel_ops.rs` |
+| **Depends on** | T02, T03, T04, Stage 5 Assay |
 | **Axioms** | A6, A17 |
-| **PRD** | `dbprdplans/05 §5`, `13_STAGE3_REGISTRY.md §PH21 FSV gate` |
+| **PRD** | `dbprdplans/05` section 5 |
+| **Status** | DONE / FSV-signed-off in #334 |
 
 ## Goal
 
-Implement `Registry.profile(lens_id, probe_set: Option<ProbeSet>) -> Result<CapabilityCard>`
-— the main public method that orchestrates spread, separation, and cost
-measurements into a single JSON card, and sets `collapsed = true` when
-`participation_ratio < COLLAPSE_THRESHOLD`. This is the PH21 FSV gate.
+Produce a capability card that keeps fast Registry probe metrics explicit as
+proxies while allowing grounded Stage 5 Assay rows to populate `signal`,
+`differentiation`, and panel `bits_about` when a scoped `AssayStore` is
+available.
 
-## Build (checklist of concrete, code-level steps)
+## Build
 
-- [ ] `pub fn profile(&self, lens_id: LensId, probe_set: Option<ProbeSet>) -> Result<CapabilityCard>`:
-  1. Look up spec; if absent → `CALYX_REGISTRY_LENS_NOT_FOUND`.
-  2. If `probe_set` is `None` → create a minimal built-in probe set:
-     8 short text inputs with 4 label pairs (`#[cfg(test)]` can use the
-     built-in; production callers should pass a real probe set).
-  3. Embed all probe inputs via `self.measure_batch(lens_id, &probe.inputs)`.
-  4. Collect successful `SlotVector::Dense.data` into `Vec<Vec<f32>>`.
-  5. `spread = spread_metrics(&embeddings)?`.
-  6. `separation = separation_metric(&embeddings, probe.labels.as_deref())?`.
-  7. `cost = measure_cost(self, lens_id, probe_set)?`.
-  8. `coverage = cost.coverage` (computed in `measure_cost`).
-  9. `collapsed = spread.participation_ratio < COLLAPSE_THRESHOLD`.
-  10. `signal = None; differentiation = None` (delegated to Assay PH29).
-  11. Keep Registry's probe-derived estimates only as explicit
-      `proxy_signal`/`proxy_differentiation` fields.
-  12. Return `CapabilityCard { lens_id, name, signal, differentiation,
-      proxy_signal, proxy_differentiation, spread, separation, cost, coverage,
-      collapsed }`.
-- [ ] `Registry` gains method `profile`; re-export from `lib.rs`.
-- [ ] Produce the card as a JSON string helper:
-  `pub fn profile_json(&self, lens_id: LensId, probe_set: Option<ProbeSet>) -> Result<String>`
-  wrapping `serde_json::to_string_pretty`.
+- [x] `profile_lens` profiles a registered lens with deterministic probe
+  vectors, coverage, spread, separation, cost, and low-spread detection.
+- [x] No-Assay callers get `signal:null`, `differentiation:null`,
+  `signal_source:"assay_pending"`, and `differentiation_source:"assay_pending"`.
+- [x] `profile_slot_with_assay` overlays scoped `AssayStore` lens rows as
+  `signal` and pair-gain rows as `differentiation`, both sourced as
+  `assay_store`.
+- [x] `list_panel` exposes already-stored `Slot.bits_about` values.
+- [x] `list_panel_with_assay` overlays scoped Assay lens rows as panel
+  `bits_about`.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests
 
-- [ ] unit: `profile` on an `AlgorithmicLens` with default probe set → returns
-  `CapabilityCard` with `coverage > 0.0`, `spread.participation_ratio > 0.0`,
-  `collapsed == false` (algorithmic lenses are not collapsed by design).
-- [ ] unit: `profile` on a mock "collapsed" lens (returns same vector for all
-  inputs) → `collapsed == true`, `participation_ratio < 0.05`.
-- [ ] unit: `profile_json` produces valid JSON parseable back to
-  `CapabilityCard`.
-- [ ] integration (`#[ignore]`): `profile` on `TeiHttpLens` at `:8088` with
-  32 real text probes → card has real numbers; printed to stdout.
-- [ ] edge (≥3): (1) probe_set with 0 inputs → card returned with
-  `coverage=0.0`, no panic; (2) all probes fail (wrong modality for lens) →
-  `coverage=0.0`, `collapsed=true` by fallback; (3) `CALYX_REGISTRY_LENS_NOT_FOUND`
-  for unknown id.
-- [ ] fail-closed: unknown lens id → `CALYX_REGISTRY_LENS_NOT_FOUND`.
+- [x] Algorithmic lens profile returns finite proxy/spread/separation/cost
+  metrics and pending Assay-owned fields.
+- [x] Assay rows attach `signal=0.42` and pair-gain differentiation `0.07`
+  in unit coverage.
+- [x] Panel listing reads stored slot bits and Assay overlay bits.
+- [x] Collapsed lens is flagged low-spread.
+- [x] Empty probes fail closed with `CALYX_ASSAY_INSUFFICIENT_SAMPLES`.
+- [x] Mixed-modality probes report partial coverage without inventing Assay
+  fields.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## FSV
 
-- **SoT:** JSON output of `profile_json` on aiwonder; collapsed-lens flag for
-  the mock degenerate lens
-- **Readback:**
-  `cargo test -p calyx-registry registry_profile -- --include-ignored --nocapture 2>&1`
-- **Prove:** output shows the full JSON card with
-  `"collapsed": false` for a healthy GTE lens and `"collapsed": true` for the
-  degenerate mock; `"signal": null` in both; screenshot attached to PH21
-  GitHub issue
+- **Evidence root:** `/home/croyse/calyx/data/fsv-issue334-ph21-assay-registry-20260608`
+- **Trigger:** `CALYX_FSV_ROOT=<root> cargo test -p calyx-registry ph21_profile_card_aiwonder_fsv -- --ignored --nocapture`
+- **Before readback:** `02-before-pending-card.out` shows `signal:null`,
+  `differentiation:null`, and both sources as `assay_pending`.
+- **After readback:** `03-assay-backed-card.out` shows `signal:0.42`,
+  `signal_source:"assay_store"`, `differentiation:0.08`, and
+  `differentiation_source:"assay_store"`.
+- **Panel readback:** `04-assay-backed-panel-listing.out` shows
+  `bits_about:0.42`.
+- **SoT bytes:** `05-assay-cf-json-readback.out` and `07-assay-sst-prefix.hex`
+  show the persisted Assay CF rows for the lens and pair subjects.
+- **Gates:** `final-gates/10-fmt-check.out` through `14-linecount.out` record
+  aiwonder fmt, check, test, clippy, and line-count gates.
 
-## Done when
+## Done
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder.
+- [x] File(s) <= 500 lines.
+- [x] FSV evidence attached to issue #334.
+- [x] No proxy metric is promoted to grounded Assay quality without a stored
+  scoped Assay row.

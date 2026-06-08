@@ -1,8 +1,15 @@
-use calyx_core::{Input, Lens, LensId, Modality, Result, SlotShape, SlotVector, content_address};
+use calyx_assay::estimate::{EstimatorKind, MiEstimate, TrustTag};
+use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
+use calyx_aster::cf::{CfRouter, ColumnFamily};
+use calyx_core::{
+    AnchorKind, Asymmetry, ConfidenceInterval, Input, Lens, LensId, Modality, Panel, QuantPolicy,
+    Result, Signal, Slot, SlotId, SlotKey, SlotShape, SlotState, SlotVector, VaultId,
+    content_address,
+};
 use calyx_registry::frozen::sha256_digest;
 use calyx_registry::{
     AlgorithmicLens, FrozenLensContract, LensDType, NormPolicy, ProfileProbe, Registry,
-    profile_lens,
+    list_panel_with_assay, profile_lens, profile_slot_with_assay,
 };
 use std::path::PathBuf;
 
@@ -65,6 +72,8 @@ fn ph21_profile_card_aiwonder_fsv() {
     );
     assert!(readback.proxy_differentiation.is_finite());
     assert!(readback.spread.participation_ratio > 0.0);
+
+    assay_backed_profile_readback(&root, &registry, algorithmic_id, &probes);
 
     let collapsed_lens = CollapsedLens::new();
     let collapsed_id = registry
@@ -133,6 +142,108 @@ fn ph21_profile_card_aiwonder_fsv() {
     assert!(mixed_readback.differentiation.is_none());
 }
 
+fn assay_backed_profile_readback(
+    root: &std::path::Path,
+    registry: &Registry,
+    lens_id: LensId,
+    probes: &[ProfileProbe],
+) {
+    let slot = slot_for_lens(lens_id);
+    let panel = panel_for_slot(slot.clone());
+    let cache_key = AssayCacheKey::scoped(
+        panel.version,
+        "ph21-assay-backed-profile",
+        vault_id(),
+        AnchorKind::Reward,
+    );
+    let mut store = AssayStore::default();
+    store.put(
+        cache_key.clone(),
+        AssaySubject::Lens { slot: slot.slot_id },
+        estimate(0.42, EstimatorKind::Ksg),
+        "ph21 lens signal",
+        70,
+    );
+    store.put(
+        cache_key.clone(),
+        AssaySubject::Pair {
+            a: slot.slot_id,
+            b: SlotId::new(7),
+        },
+        estimate(0.08, EstimatorKind::PairGain),
+        "ph21 pair gain",
+        71,
+    );
+
+    let assay_dir = root.join("assay-cf");
+    let mut router = CfRouter::open(&assay_dir, 1024).expect("open assay cf");
+    let before_rows = router
+        .iter_cf(ColumnFamily::Assay)
+        .expect("read before assay");
+    println!("PH21_ASSAY_CF_BEFORE_ROWS={}", before_rows.len());
+    assert!(before_rows.is_empty());
+    store
+        .persist_to_aster(&mut router)
+        .expect("persist assay rows");
+    let cf_rows = router.iter_cf(ColumnFamily::Assay).expect("read assay cf");
+    let cf_readback = cf_rows
+        .iter()
+        .map(|row| {
+            serde_json::json!({
+                "key": bytes_hex(&row.key),
+                "value": bytes_hex(&row.value),
+            })
+        })
+        .collect::<Vec<_>>();
+    let cf_path = root.join("assay-cf-readback.json");
+    std::fs::write(&cf_path, serde_json::to_vec_pretty(&cf_readback).unwrap())
+        .expect("write assay cf readback");
+    drop(router);
+
+    let reopened = CfRouter::open(&assay_dir, 1024).expect("reopen assay cf");
+    let loaded = AssayStore::load_from_aster(&reopened).expect("load assay rows");
+    let assay_card = profile_slot_with_assay(registry, &slot, probes, &loaded, &cache_key).unwrap();
+    let assay_card_path = root.join("assay-backed-card.json");
+    write_card(&assay_card_path, &assay_card);
+    let assay_card_bytes = std::fs::read(&assay_card_path).expect("read assay card");
+    let assay_readback: calyx_registry::CapabilityCard =
+        serde_json::from_slice(&assay_card_bytes).expect("parse assay card");
+    let listing = list_panel_with_assay(&panel, registry, &loaded, &cache_key);
+    let listing_path = root.join("assay-backed-panel-listing.json");
+    std::fs::write(&listing_path, serde_json::to_vec_pretty(&listing).unwrap())
+        .expect("write listing");
+    let listing_bytes = std::fs::read(&listing_path).expect("read listing");
+    let listing_readback: Vec<calyx_registry::PanelSlotListing> =
+        serde_json::from_slice(&listing_bytes).expect("parse listing");
+
+    println!("PH21_ASSAY_CF_READBACK={}", cf_path.display());
+    println!("PH21_ASSAY_CARD={}", assay_card_path.display());
+    println!("PH21_ASSAY_CARD_SHA={}", digest_hex(&assay_card_bytes));
+    println!("PH21_ASSAY_SIGNAL={:?}", assay_readback.signal);
+    println!(
+        "PH21_ASSAY_SIGNAL_SOURCE={:?}",
+        assay_readback.signal_source
+    );
+    println!(
+        "PH21_ASSAY_DIFFERENTIATION={:?}",
+        assay_readback.differentiation
+    );
+    println!("PH21_ASSAY_PANEL_LISTING={}", listing_path.display());
+    println!("PH21_ASSAY_PANEL_BITS={:?}", listing_readback[0].bits_about);
+    assert_eq!(assay_readback.signal, Some(0.42));
+    assert_eq!(
+        assay_readback.signal_source,
+        calyx_registry::MetricSource::AssayStore
+    );
+    assert_eq!(assay_readback.differentiation, Some(0.08));
+    assert_eq!(
+        assay_readback.differentiation_source,
+        calyx_registry::MetricSource::AssayStore
+    );
+    assert_eq!(listing_readback[0].bits_about, Some(0.42));
+    assert_eq!(cf_readback.len(), 2);
+}
+
 fn fsv_root() -> PathBuf {
     if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
         return PathBuf::from(root);
@@ -163,11 +274,66 @@ fn write_card(path: &std::path::Path, card: &calyx_registry::CapabilityCard) {
     std::fs::write(path, json).expect("write card");
 }
 
+fn slot_for_lens(lens_id: LensId) -> Slot {
+    let slot_id = SlotId::new(0);
+    let mut bits_about = std::collections::BTreeMap::new();
+    bits_about.insert(
+        AnchorKind::Reward,
+        Signal {
+            bits: 0.31,
+            ci: ConfidenceInterval {
+                low: 0.30,
+                high: 0.32,
+            },
+            n: 64,
+            estimator: "fsv-slot-cache".to_string(),
+            ts: 1,
+        },
+    );
+    Slot {
+        slot_id,
+        slot_key: SlotKey::new(slot_id, "ph21-assay-slot".to_string()),
+        lens_id,
+        shape: SlotShape::Dense(4),
+        modality: Modality::Text,
+        asymmetry: Asymmetry::None,
+        quant: QuantPolicy::None,
+        axis: None,
+        retrieval_only: false,
+        excluded_from_dedup: false,
+        bits_about,
+        state: SlotState::Active,
+        added_at_panel_version: 1,
+    }
+}
+
+fn panel_for_slot(slot: Slot) -> Panel {
+    Panel {
+        version: 1,
+        slots: vec![slot],
+        created_at: 1,
+        kernel_ref: None,
+        guard_ref: None,
+    }
+}
+
+fn estimate(bits: f32, estimator: EstimatorKind) -> MiEstimate {
+    MiEstimate::point(bits, 96, estimator, TrustTag::Trusted)
+}
+
+fn vault_id() -> VaultId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
+}
+
 fn digest_hex(bytes: &[u8]) -> String {
     content_address([bytes])
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+fn bytes_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[derive(Clone)]

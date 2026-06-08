@@ -135,21 +135,25 @@ differentiation.
 ## PH21 — Capability cards / profile
 - **Status.** ✅ FSV-signed-off (`profile.rs`: `CapabilityCard` with spread /
   separation-silhouette / cost / coverage probes; commit `d132310`). Stage 5
-  Assay now owns signal/redundancy measurements.
+  Assay-backed metric attachment is now wired through #334.
 - **Objective.** "What is this lens good for?" in seconds, without full ingest.
 - **Deps.** PH20.
-- **Deliverables.** `profile.rs` → `CapabilityCard { signal: None,
-  differentiation: None, proxy_signal, proxy_differentiation, spread,
-  separation, cost, coverage }` over a probe set. Assay owns the grounded
-  `signal`/`differentiation` values; Registry estimates stay explicitly
-  labeled as proxies.
+- **Deliverables.** `profile.rs` → `CapabilityCard { signal,
+  differentiation, proxy_signal, proxy_differentiation, spread, separation,
+  cost, coverage }` over a probe set. Without scoped Assay evidence, grounded
+  `signal`/`differentiation` remain JSON `null` with `assay_pending`; with a
+  scoped `AssayStore`, `profile_slot_with_assay` attaches stored lens signal
+  bits and pair-gain differentiation from Assay rows. Registry estimates stay
+  explicitly labeled as proxies.
 - **Key tasks.** participation-ratio/stable-rank spread; silhouette separation;
   cost (ms/input, VRAM). Signal/redundancy delegate to Assay (Stage 5) when up;
   until then spread/cost/coverage standalone.
-- **FSV gate.** profile a lens → a one-JSON card where Assay-owned
-  `signal`/`differentiation` read back as JSON `null`, proxy estimates and
-  spread/separation/cost/coverage read back as numbers, and a collapsed
-  (low-spread) lens is flagged.
+- **FSV gate.** profile a lens → a one-JSON card where no-Assay callers show
+  `signal`/`differentiation` as JSON `null`, scoped Assay callers read stored
+  `assay_store` values, `list_panel_with_assay` returns `bits_about`, proxy
+  estimates and spread/separation/cost/coverage read back as numbers, and a
+  collapsed (low-spread) lens is flagged. #334 evidence:
+  `/home/croyse/calyx/data/fsv-issue334-ph21-assay-registry-20260608`.
 - **Axioms/PRD.** A6, A17, `05 §5`.
 
 ## PH22 — Default panels + temporal lenses E2/E3/E4
