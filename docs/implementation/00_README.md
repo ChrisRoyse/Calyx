@@ -110,9 +110,12 @@ surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
-`calyx-lodestar`; PH33 kernel index/answer/gaps is next. Stage 6 remains open
-until PH33, PH34, the Ledger provenance blindspot (#239), and the exit FSV (#240)
-are closed with aiwonder readback evidence.
+`calyx-lodestar`; PH33 T01-T05 kernel index/answer/gaps/real-corpora recall are
+implemented and FSV-backed; PH34 T01-T02 scope materialization/cache are
+implemented and FSV-backed. The next implementable card is PH34 T03 (#235).
+Stage 6 remains open until PH34 T03-T06, the Ledger provenance blindspot (#239,
+after real Stage 7 Ledger primitives), and the exit FSV (#240) are closed with
+aiwonder readback evidence.
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
@@ -169,12 +172,18 @@ scoring/rounding, DFVS approximation and specializations, Kernel struct,
 anchored/provisional groundedness, and incremental re-eval hook. FSV root:
 `/home/croyse/calyx/data/fsv-ph32-20260608`.
 
-**NEXT — Stage 6 / PH33: Kernel index + answer + grounding gaps.** Build from
-`PH33-kernel-index-answer-gaps/` and `16_STAGE6_LODESTAR.md`. If required real
-corpora are missing, acquiring and verifying them on aiwonder is PH33 work; a
-synthetic-only run cannot close the FSV issue.
+**Stage 6 / PH33:** `calyx-lodestar` kernel index + answer + grounding gaps +
+real-corpora recall. T01-T05 are closed with aiwonder evidence, including
+kernel-only recall on SciFact text, live Calyx code, and Cora graph under
+`/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) remains
+open by design until PH35/PH36 provide real Ledger append/readback primitives.
 
-**Remaining:** Phases **PH33–PH72** are laid out as atomic task cards in the
+**NEXT — Stage 6 / PH34 T03: scoped kernel dispatch + reports.** Build from
+`PH34-multi-scope-kernel/` and `16_STAGE6_LODESTAR.md`. PH34 T01 scope
+materialization and T02 scope cache are already closed; T03-T06 remain the active
+path to `KERNEL_ANY`.
+
+**Remaining:** Open phases **PH34–PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
 FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
 state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,

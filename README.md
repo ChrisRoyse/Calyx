@@ -6,11 +6,12 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-08, commit `869ff57`)
+## Status (2026-06-08; Stage 6 active through #234 / commit `90b91cf`)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 is active: PH31 and PH32 are implemented, pushed, and FSV-signed-off;
-PH33 is the current implementation slice.
+PH33 T01-T05 are implemented with real-corpora recall FSV; PH34 T01-T02 are
+implemented. The next implementable Stage 6 card is PH34 T03 (#235).
 
 Implemented engine surfaces:
 
@@ -23,17 +24,21 @@ Implemented engine surfaces:
 | `calyx-sextant` | S4 | search/navigation: per-slot dense/sparse indexes, RRF/WeightedRRF/SingleLens fusion, provenance hits, planner/explain |
 | `calyx-loom` / `calyx-assay` | S5 | DDA + bits: lazy cross-terms, agreement graph, abundance reports, MI/NMI/logistic estimators, differentiation contract, n_eff, sufficiency, attribution, cache provenance |
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
-| `calyx-lodestar` | S6 PH32 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook |
+| `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
 `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`,
 `/home/croyse/calyx/data/fsv-ph31-20260608`, and
-`/home/croyse/calyx/data/fsv-ph32-20260608`.
+`/home/croyse/calyx/data/fsv-ph32-20260608`. Current Lodestar FSV roots include
+`/home/croyse/calyx/fsv/ph33_*_20260608.*`,
+`/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`, and
+`/home/croyse/calyx/data/fsv-issue234-scope-cache-20260608`.
 
 Remaining major engine crates (`ledger`, `ward`, `anneal`, `oracle`, `mcp`,
-`calyxd`) are still pending. **Next: Stage 6 PH33** (`calyx-lodestar` kernel
-index, `kernel_answer`, grounding gaps, and recall harness).
+`calyxd`) are still pending. Stage 6 is not exit-complete until PH34 T03-T06,
+PH33 Ledger provenance #239 (after real Stage 7 Ledger primitives), and S6 exit
+FSV #240 close with aiwonder readback evidence.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
