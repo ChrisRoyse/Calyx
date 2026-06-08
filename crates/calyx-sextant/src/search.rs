@@ -7,6 +7,7 @@ use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
 use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::hit::{FreshnessTag, Hit};
 use crate::query::{FreshnessRequirement, Query};
+use crate::reranker::{RerankRequest, RerankerClient};
 use crate::slot_index_map::SlotIndexMap;
 use crate::util::{hex32, stub_ledger};
 
@@ -33,6 +34,18 @@ impl SearchEngine {
     }
 
     pub fn search(&self, query: &Query) -> Result<Vec<Hit>> {
+        self.search_inner(query, None)
+    }
+
+    pub fn search_with_reranker(
+        &self,
+        query: &Query,
+        reranker: &RerankerClient,
+    ) -> Result<Vec<Hit>> {
+        self.search_inner(query, Some(reranker))
+    }
+
+    fn search_inner(&self, query: &Query, reranker: Option<&RerankerClient>) -> Result<Vec<Hit>> {
         let slots = if query.slots.is_empty() {
             self.indexes.slots()
         } else {
@@ -49,6 +62,12 @@ impl SearchEngine {
             .fusion
             .clone()
             .unwrap_or_else(|| default_strategy(&slots));
+        if reranker.is_some() && !matches!(strategy, FusionStrategy::Pipeline) {
+            return Err(crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
+                "reranker search requires Pipeline fusion",
+            ));
+        }
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
             let stats = self
@@ -67,7 +86,7 @@ impl SearchEngine {
         }
         let weights = strategy_weights(&strategy);
         let stats = self.indexes.stats();
-        let stage1_slots = slots
+        let stage1_slots: Vec<SlotId> = slots
             .iter()
             .filter(|slot| {
                 stats
@@ -81,11 +100,91 @@ impl SearchEngine {
             explain: query.explain,
             strategy: strategy.clone(),
             weights,
-            stage1_slots,
+            stage1_slots: stage1_slots.clone(),
         };
         let mut hits = fusion::fuse(&per_slot, &context);
         self.attach_provenance_and_freshness(&mut hits, &slots, &query.freshness);
+        if let Some(reranker) = reranker {
+            self.rerank_pipeline_hits(query, &mut hits, &stage1_slots, reranker)?;
+        }
         Ok(hits)
+    }
+
+    fn rerank_pipeline_hits(
+        &self,
+        query: &Query,
+        hits: &mut [Hit],
+        stage1_slots: &[SlotId],
+        reranker: &RerankerClient,
+    ) -> Result<()> {
+        if hits.is_empty() {
+            return Ok(());
+        }
+        let candidates = self.candidate_texts_for_hits(hits, stage1_slots)?;
+        let response = reranker.rerank(&RerankRequest {
+            query: query.text.clone(),
+            candidates,
+        })?;
+        if !response.zeroizing_ok {
+            return Err(crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
+                "reranker did not report request-scoped candidate handling",
+            ));
+        }
+        let mut scored = hits
+            .iter()
+            .cloned()
+            .zip(response.scores)
+            .enumerate()
+            .collect::<Vec<_>>();
+        scored.sort_by(
+            |(left_order, (_, left_score)), (right_order, (_, right_score))| {
+                right_score
+                    .total_cmp(left_score)
+                    .then_with(|| left_order.cmp(right_order))
+            },
+        );
+        for (rank, (_, (mut hit, score))) in scored.into_iter().enumerate() {
+            hit.score = score;
+            hit.rank = rank + 1;
+            if let Some(explain) = &mut hit.explain {
+                explain.strategy = "pipeline+rerank".to_string();
+                explain.per_lens_count = hit.per_lens.len();
+                explain.provenance_hex = hex32(&hit.provenance.hash);
+            }
+            hits[rank] = hit;
+        }
+        Ok(())
+    }
+
+    fn candidate_texts_for_hits(
+        &self,
+        hits: &[Hit],
+        stage1_slots: &[SlotId],
+    ) -> Result<Vec<String>> {
+        if stage1_slots.is_empty() {
+            return Err(crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
+                "pipeline rerank requires sparse stage-1 candidate text",
+            ));
+        }
+        let mut texts = Vec::with_capacity(hits.len());
+        for hit in hits {
+            let mut text = None;
+            for slot in stage1_slots {
+                if let Some(candidate) = self.indexes.candidate_text(*slot, hit.cx_id)? {
+                    text = Some(candidate);
+                    break;
+                }
+            }
+            texts.push(text.ok_or_else(|| {
+                crate::error::sextant_error(
+                    crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
+                    format!("candidate text missing for {}", hit.cx_id),
+                )
+            })?);
+        }
+        Ok(texts)
     }
 
     fn query_vector_for_slot(&self, query: &Query, slot: SlotId) -> Result<SlotVector> {

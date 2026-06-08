@@ -107,10 +107,10 @@ Latest roots:
 > provenance until Stage 7, and full user-facing Assay/abundance CLI commands
 > remain in PH62 while Stage 5 readback bytes are already exposed through FSV
 > JSON. Closed during sweep hardening: PH31/PH33 real Loom association-graph
-> adapter #293 and PH30 grounded Assay trust #294. Remaining tracked
-> post-sweep work: PH26 reranker search-path ordering #296 and PH26
-> scalar/anchor/metadata filters #297. PH11 durable tiering #295 and PH33
-> bounded build-time groundedness #298 are now FSV-backed.
+> adapter #293, PH30 grounded Assay trust #294, PH11 durable tiering #295, and
+> PH26 reranker search-path ordering #296. Remaining tracked post-sweep work:
+> PH26 scalar/anchor/metadata filters #297. PH33 bounded build-time
+> groundedness #298 is now FSV-backed.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

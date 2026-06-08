@@ -197,4 +197,8 @@ impl SextantIndex for InvertedIndex {
     fn search_text(&self, text: &str, k: usize) -> Result<Vec<IndexSearchHit>> {
         Ok(InvertedIndex::search_text(self, text, k))
     }
+
+    fn candidate_text(&self, cx_id: CxId) -> Option<String> {
+        self.docs.get(&cx_id).cloned()
+    }
 }

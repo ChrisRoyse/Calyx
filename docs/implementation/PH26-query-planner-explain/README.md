@@ -34,9 +34,12 @@ no-lenses, ef/slot over-cap, and cost-cap overflow now return cataloged errors.
 Post-sweep hardening #290 fixed the reranker wire contract: Calyx sends the
 live TEI `texts` request field, parses `[{index, score}]` rank arrays back into
 candidate order, and fails closed on non-2xx HTTP status instead of returning
-mock scores. Final reranker ordering in the primary Pipeline/SearchEngine path
-is tracked by #296. Scalar/anchor/metadata query filters from the PRD are tracked
-by #297 unless implemented earlier.
+mock scores. Post-sweep hardening #296 wires that client into
+`SearchEngine::search_with_reranker` for Pipeline result ordering; the path
+uses only request-scoped candidate text from the sparse stage-1 index and fails
+closed on non-2xx, mismatched score vectors, missing candidate text, or
+non-Pipeline reranker requests. Scalar/anchor/metadata query filters from the
+PRD are tracked by #297 unless implemented earlier.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -45,6 +48,7 @@ by #297 unless implemented earlier.
 | `crates/calyx-sextant/src/planner.rs` | intent classifier → strategy selection; cost model + caps; timeout enforcement |
 | `crates/calyx-sextant/src/planner_explain.rs` | planner-enriched explain output: intent, strategy chosen, cost estimate |
 | `crates/calyx-sextant/src/reranker.rs` | reranker hook: HTTP call to :8089, request-scoped text, Zeroizing, timeout |
+| `crates/calyx-sextant/tests/reranker_search_fsv.rs` | SearchEngine Pipeline reranker ordering and request/response readback |
 | `crates/calyx-sextant/tests/stage4_fsv.rs` | intent/strategy, Pipeline, reranker, explain, and unbounded-plan FSV |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -64,11 +68,15 @@ Run the Stage 4 FSV on aiwonder. The readback JSON must include:
 - `planner_intent="Causal"` and `planner_strategy="weighted_rrf:causal"`.
 - `unbounded="CALYX_SEXTANT_PLAN_UNBOUNDED"`.
 - `rerank.scores` from the resident `:8089` TEI reranker.
+- #296 `reranker-search-readback.json` showing baseline order, reranked order,
+  request `texts`, and `pipeline+rerank` strategy.
 - `pipeline_subset_ok=true`.
 - `pipeline_empty_stage1_hits=0`.
 
 For #290 the readback root is
 `/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
+For #296 the readback root is
+`/home/croyse/calyx/data/fsv-issue296-reranker-search-20260608`.
 
 ## Risks / landmines
 
