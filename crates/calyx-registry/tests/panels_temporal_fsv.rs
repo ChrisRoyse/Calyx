@@ -4,6 +4,7 @@ use calyx_registry::{
     E4PositionalConfig, E4PositionalLens, PeriodicOptions, SequenceOptions, TEMPORAL_FLAGS,
     civic_default, code_default, instantiate_panel, media_default, text_default,
 };
+use serde_json::json;
 use std::path::PathBuf;
 
 #[test]
@@ -19,6 +20,7 @@ fn ph22_panels_temporal_aiwonder_fsv() {
         media_default(),
     ];
     let mut panel_lines = Vec::new();
+    let mut flag_readback = Vec::new();
     for template in &templates {
         let instantiated = instantiate_panel(template, 22);
         let names = instantiated
@@ -40,9 +42,34 @@ fn ph22_panels_temporal_aiwonder_fsv() {
             "E3_periodic".to_string(),
             "E4_positional".to_string()
         ]));
+        let spec_flags = template
+            .slots
+            .iter()
+            .rev()
+            .take(3)
+            .all(|slot| slot.retrieval_only && slot.excluded_from_dedup);
+        let core_flags = instantiated
+            .panel
+            .slots
+            .iter()
+            .rev()
+            .take(3)
+            .all(|slot| slot.retrieval_only && slot.excluded_from_dedup);
+        flag_readback.push(json!({
+            "template": instantiated.template_name,
+            "spec_temporal_flags": spec_flags,
+            "core_slot_temporal_flags": core_flags,
+        }));
+        assert!(spec_flags);
+        assert!(core_flags);
     }
     std::fs::write(root.join("panel-readback.txt"), panel_lines.join("\n"))
         .expect("write panel readback");
+    std::fs::write(
+        root.join("temporal-core-flags-readback.json"),
+        serde_json::to_vec_pretty(&flag_readback).unwrap(),
+    )
+    .expect("write temporal flags readback");
 
     let e2 = E2RecencyLens::new(E2RecencyConfig {
         decay: DecayFunction::Linear {

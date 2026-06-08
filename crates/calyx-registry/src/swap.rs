@@ -16,6 +16,10 @@ pub struct SlotSpec {
     pub asymmetry: Asymmetry,
     pub quant: QuantPolicy,
     pub axis: Option<String>,
+    #[serde(default)]
+    pub retrieval_only: bool,
+    #[serde(default)]
+    pub excluded_from_dedup: bool,
 }
 
 impl SlotSpec {
@@ -28,7 +32,19 @@ impl SlotSpec {
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,
             axis: None,
+            retrieval_only: false,
+            excluded_from_dedup: false,
         }
+    }
+
+    pub const fn with_usage_flags(
+        mut self,
+        retrieval_only: bool,
+        excluded_from_dedup: bool,
+    ) -> Self {
+        self.retrieval_only = retrieval_only;
+        self.excluded_from_dedup = excluded_from_dedup;
+        self
     }
 }
 
@@ -136,6 +152,8 @@ impl SwapController {
             asymmetry: spec.asymmetry,
             quant: spec.quant,
             axis: spec.axis,
+            retrieval_only: spec.retrieval_only,
+            excluded_from_dedup: spec.excluded_from_dedup,
             bits_about: BTreeMap::new(),
             state: SlotState::Active,
             added_at_panel_version: version,
@@ -420,6 +438,8 @@ mod tests {
                 asymmetry: Asymmetry::None,
                 quant: QuantPolicy::None,
                 axis: None,
+                retrieval_only: false,
+                excluded_from_dedup: false,
                 bits_about: BTreeMap::new(),
                 state: SlotState::Active,
                 added_at_panel_version: 1,

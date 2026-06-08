@@ -70,6 +70,8 @@ pub fn instantiate_panel(template: &PanelTemplate, created_at: u64) -> Instantia
                 asymmetry: spec.asymmetry,
                 quant: QuantPolicy::None,
                 axis: Some(spec.name.clone()),
+                retrieval_only: spec.retrieval_only,
+                excluded_from_dedup: spec.excluded_from_dedup,
                 bits_about: BTreeMap::new(),
                 state: SlotState::Active,
                 added_at_panel_version: (idx + 1) as u32,
@@ -166,7 +168,17 @@ mod tests {
         assert_eq!(panel.panel.slots[5].slot_key.key(), "E2_recency");
         assert!(template.slots[5..].iter().all(|slot| slot.retrieval_only));
         assert!(
+            panel.panel.slots[5..]
+                .iter()
+                .all(|slot| slot.retrieval_only)
+        );
+        assert!(
             template.slots[5..]
+                .iter()
+                .all(|slot| slot.excluded_from_dedup)
+        );
+        assert!(
+            panel.panel.slots[5..]
                 .iter()
                 .all(|slot| slot.excluded_from_dedup)
         );

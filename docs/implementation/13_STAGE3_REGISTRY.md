@@ -10,6 +10,8 @@
 > Build/test on aiwonder against the resident TEI services (:8088/:8089/:8090).
 > Downstream Stage 4/5 FSV consumed Registry successfully; next active stage is
 > Lodestar (`16_STAGE6_LODESTAR.md`).
+> Post-sweep hardening #288 carries PH22 temporal `retrieval_only` and
+> `excluded_from_dedup` flags into core `Slot` rows, not only template specs.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
@@ -110,6 +112,9 @@ differentiation.
   (hour/day), E4 positional — closed-form, no weights, data-oblivious.
 - **Key tasks.** instantiate each default panel; E2/E3/E4 deterministic; mark
   them retrieval-only/excluded-from-dedup (used in Stage 9).
+- **Post-sweep note.** Temporal flags now persist on instantiated core
+  `Panel.slots` so downstream consumers do not need the original template spec
+  to enforce AP-60 retrieval/dedup boundaries (#288).
 - **FSV gate.** each default panel instantiates with its slots; E2/E3/E4 produce
   deterministic closed-form scores (verified against hand-computed values).
 - **Axioms/PRD.** A27, `05 §7`, `25 §2`.
