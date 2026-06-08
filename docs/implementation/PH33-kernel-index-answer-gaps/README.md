@@ -40,6 +40,11 @@ Build-time `Kernel.groundedness` now uses the same bounded
 `KernelGraphParams.max_groundedness_distance` as the public `grounding_gaps`
 API (#298). FSV root:
 `/home/croyse/calyx/data/fsv-issue298-build-kernel-groundedness-bound-20260608`.
+PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
+`0.9611112`, live Calyx code ratio `0.96111107`, and Cora graph ratio
+`0.9568264`, all non-exhaustive and warning-free. Reports live under
+`/home/croyse/calyx/fsv/ph33_recall_*_20260608.json`; summary SHA-256
+`b12ea6c3339cfce2dae34142d88419ffddf2371b9e9c38a85eaaa6ee4471b169`.
 
 ## Deliverables (file plan, each ≤500 lines)
 

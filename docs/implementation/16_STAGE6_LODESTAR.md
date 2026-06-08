@@ -6,7 +6,8 @@
 > in `calyx-lodestar`. aiwonder readbacks live under
 > `/home/croyse/calyx/data/fsv-ph31-20260608` and
 > `/home/croyse/calyx/data/fsv-ph32-20260608`. PH33 kernel index/answer/gaps is
-> the current Stage 6 implementation slice.
+> the current Stage 6 implementation slice; PH33 T05 real-corpora recall FSV is
+> signed off under `/home/croyse/calyx/fsv/ph33_*_20260608.*`.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -52,9 +53,11 @@ identity.
 - **Axioms/PRD.** A10, `08 §3`.
 
 ## PH33 — Kernel index + kernel_answer + grounding_gaps
-- **Status.** ▶ ACTIVE. Follow-up #292 locks `kernel_answer` to fail closed when
-  `max_hops` cannot reach `query_cx`; truncated answer prefixes are not valid
-  answer paths.
+- **Status.** ▶ ACTIVE. T05 real-corpora recall FSV is signed off on aiwonder:
+  SciFact text `0.9611112`, live Calyx code `0.96111107`, Cora graph
+  `0.9568264`, and exact direct-anchor `grounding_gaps` readback. Follow-up #292
+  locks `kernel_answer` to fail closed when `max_hops` cannot reach `query_cx`;
+  truncated answer prefixes are not valid answer paths.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
   cheapest grounding plan.
 - **Deps.** PH32, PH33 needs anchors (PH09) + search (PH24).
