@@ -18,7 +18,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, and #316 surfaces grouped GEMM execution mode with a strict fail-loud path |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, and durable rollback #321 are FSV-backed |
-| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, and PH23/PH24 GPU overclaim #299 now fails loud |
+| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, and NMI fail-closed #317 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T06 done/FSV-signed-off; #240 exit pending) |
 | S7–S20 | PH35–PH72 | · pending |
@@ -54,6 +54,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue322-postings-fail-closed-20260608`
 - Stage 4 PH25 sparse vector readback hardening:
   `/home/croyse/calyx/data/fsv-issue323-sparse-vector-readback-20260608`
+- Stage 4 PH25 Pipeline recall headroom:
+  `/home/croyse/calyx/data/fsv-issue324-pipeline-recall-headroom-20260608`
 - Stage 5 Loom + Assay:
   `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`,
   `/home/croyse/calyx/data/fsv-issue294-assay-grounded-trust-20260608`,

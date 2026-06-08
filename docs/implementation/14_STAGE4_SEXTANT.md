@@ -53,6 +53,10 @@
 > original non-contiguous sparse IDs and weights after insert and rebuild, while
 > text overwrites clear stale sparse-vector readback state.
 > FSV root: `/home/croyse/calyx/data/fsv-issue323-sparse-vector-readback-20260608`.
+> Post-sweep hardening #324 adds configurable Pipeline recall headroom through
+> `Query::recall_k`; Pipeline now recalls sparse candidates with `recall_k`
+> before dense scoring/rerank and only then truncates to final `query.k`.
+> FSV root: `/home/croyse/calyx/data/fsv-issue324-pipeline-recall-headroom-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -128,10 +132,16 @@ attention.
 - **Post-sweep note.** Sparse vector inserts now retain the original
   `SparseEntry` IDs and weights for `vector()` readback; rebuild preserves the
   stored sparse vector, and text inserts clear stale vector readback (#323).
+- **Post-sweep note.** Pipeline now uses configurable recall headroom
+  (`Query::recall_k`, default `k*10`) for sparse stage-1 candidates before dense
+  scoring and reranker request construction; final output remains capped at
+  `query.k` (#324).
 - **FSV gate.** term match + BM25 ranking correct on a known corpus; sparse lens
   participates in RRF/pipeline (read hits); postings readback proves byte-exact
   encoding plus fail-closed unsorted/corrupt edges; sparse vector readback
-  proves non-contiguous original IDs/weights survive insert and rebuild.
+  proves non-contiguous original IDs/weights survive insert and rebuild; recall
+  headroom proves a dense-preferred candidate outside sparse top-k is recovered
+  when inside `recall_k`.
 - **Axioms/PRD.** A19, `10 §2/§3`, `20 §2`.
 
 ## PH26 — Query planner + intent + explain

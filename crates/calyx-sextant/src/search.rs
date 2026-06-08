@@ -14,6 +14,8 @@ use crate::reranker::{RerankRequest, RerankerClient};
 use crate::slot_index_map::SlotIndexMap;
 use crate::util::{hex32, stub_ledger};
 
+const DEFAULT_PIPELINE_RECALL_MULTIPLIER: usize = 10;
+
 #[derive(Clone, Default)]
 pub struct SearchEngine {
     pub indexes: SlotIndexMap,
@@ -71,7 +73,7 @@ impl SearchEngine {
                 "reranker search requires Pipeline fusion",
             ));
         }
-        let search_k = self.candidate_window(&slots, query);
+        let search_k = self.candidate_window(&slots, query, &strategy);
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
             let stats = self
@@ -139,8 +141,18 @@ impl SearchEngine {
         });
     }
 
-    fn candidate_window(&self, slots: &[SlotId], query: &Query) -> usize {
+    fn candidate_window(
+        &self,
+        slots: &[SlotId],
+        query: &Query,
+        strategy: &FusionStrategy,
+    ) -> usize {
         if query.filters.is_empty() {
+            if matches!(strategy, FusionStrategy::Pipeline) {
+                return query
+                    .recall_k
+                    .unwrap_or_else(|| query.k.saturating_mul(DEFAULT_PIPELINE_RECALL_MULTIPLIER));
+            }
             return query.k;
         }
         self.indexes

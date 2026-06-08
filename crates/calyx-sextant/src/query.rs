@@ -22,6 +22,8 @@ pub struct Query {
     pub slots: Vec<SlotId>,
     pub k: usize,
     pub ef: Option<usize>,
+    #[serde(default)]
+    pub recall_k: Option<usize>,
     pub explain: bool,
     pub freshness: FreshnessRequirement,
     pub fusion: Option<FusionStrategy>,
@@ -37,6 +39,7 @@ impl Query {
             slots: Vec::new(),
             k: 10,
             ef: Some(64),
+            recall_k: None,
             explain: false,
             freshness: FreshnessRequirement::FreshDerived,
             fusion: None,
@@ -61,6 +64,11 @@ impl Query {
 
     pub fn with_filters(mut self, filters: QueryFilters) -> Self {
         self.filters = filters;
+        self
+    }
+
+    pub fn with_recall_k(mut self, recall_k: usize) -> Self {
+        self.recall_k = Some(recall_k);
         self
     }
 }

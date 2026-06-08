@@ -36,6 +36,9 @@ closed before encoding, and malformed/truncated/overflow bytes fail closed on
 decode with cataloged Sextant errors. Post-sweep #323 preserves original sparse
 vector IDs and weights for `vector()` readback after sparse-vector insert and
 rebuild, while text inserts clear stale vector readback.
+Post-sweep #324 adds configurable Pipeline recall headroom via `Query::recall_k`
+so sparse stage 1 can recall more than final `k` before dense scoring and
+reranker request construction; final results remain capped at `query.k`.
 
 Compressed postings blocks and SPANN tiering are deferred to PH68; the current
 Stage 4 source of truth is the in-memory index plus byte-readback FSV artifacts.
@@ -79,6 +82,9 @@ Run the Stage 4 FSV on aiwonder. The readback JSON must include:
 - `insert_preserves_sparse_ids=true`, `rebuild_preserves_sparse_ids=true`, and
   `text_overwrite_clears_stale_sparse_ids=true`, proving sparse vector readback
   preserves original non-contiguous IDs/weights and does not keep stale state.
+- `recovered_outside_sparse_top_k=true`, `wide_final_len=1`, and
+  `reranker_request_text_count=3`, proving `recall_k` headroom is used before
+  dense scoring/rerank while final output remains capped at `query.k`.
 
 For #290 the readback root is
 `/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
@@ -86,6 +92,8 @@ For #322 the readback root is
 `/home/croyse/calyx/data/fsv-issue322-postings-fail-closed-20260608`.
 For #323 the readback root is
 `/home/croyse/calyx/data/fsv-issue323-sparse-vector-readback-20260608`.
+For #324 the readback root is
+`/home/croyse/calyx/data/fsv-issue324-pipeline-recall-headroom-20260608`.
 
 ## Risks / landmines
 

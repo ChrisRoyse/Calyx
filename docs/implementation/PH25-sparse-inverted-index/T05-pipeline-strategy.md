@@ -27,6 +27,12 @@ dense-only scoring. The reranker hook is a separate `RerankerClient` step using
 the live TEI `texts` wire schema; HTTP non-2xx fails closed with
 `CALYX_SEXTANT_RERANKER_TIMEOUT`.
 
+**Current implementation note (#324):** `Query::recall_k` configures the sparse
+stage-1 window for Pipeline. If it is omitted, Pipeline uses `query.k * 10`.
+If it is set lower than `query.k`, stage 1 limits the result count. Dense
+scoring and reranker request construction run over the recall window, and final
+results are truncated to `query.k` afterward.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `PipelineStrategy` struct:
@@ -63,7 +69,9 @@ the live TEI `texts` wire schema; HTTP non-2xx fails closed with
       `per_lens` entries from both sparse and dense stages
 - [ ] unit: stage 1 candidates are a strict superset of the final top-k
       (pipeline never returns a hit that wasn't in stage 1)
-- [ ] unit: `recall_k=1, k=10` → returns at most 1 hit (stage 1 limits candidates)
+- [x] unit: `recall_k=1, k=10` returns at most 1 hit (stage 1 limits candidates)
+- [x] unit: `k=1, recall_k=3` can recover a dense-preferred candidate outside
+      sparse top-1 while the final result length remains 1
 - [ ] proptest: pipeline results are a subset of stage-1 candidates
 - [ ] edge: sparse slot returns 0 candidates (no term matches) → `Ok(vec![])`
 - [ ] edge: reranker endpoint unreachable → `CALYX_SEXTANT_RERANKER_TIMEOUT`,
@@ -79,6 +87,10 @@ the live TEI `texts` wire schema; HTTP non-2xx fails closed with
 - **Prove:** readback contains `pipeline_subset_ok=true`, `pipeline_hits>0`,
   `pipeline_empty_stage1_hits=0`, real `rerank.scores`, and
   `zeroizing_ok=true`.
+- **Post-sweep #324 SoT:**
+  `/home/croyse/calyx/data/fsv-issue324-pipeline-recall-headroom-20260608/pipeline-recall-headroom-readback.json`
+  proves `recovered_outside_sparse_top_k=true`, `wide_final_len=1`,
+  `reranker_request_text_count=3`, and `reranked_final_len=1`.
 
 ## Done when
 
