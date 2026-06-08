@@ -24,6 +24,10 @@
 > no-anchor estimators/report helpers are `provisional`; anchor-aware paths emit
 > `trusted` only for non-empty finite-confidence anchors. FSV root:
 > `/home/croyse/calyx/data/fsv-issue294-assay-grounded-trust-20260608`.
+> Post-sweep hardening #309 makes `AssayGate.min_samples` authoritative,
+> keeps Delta/Concat lazy while only qualifying Interaction is extra eager, and
+> reports `meaning_compression_yield` as materialized signals per input.
+> FSV root: `/home/croyse/calyx/data/fsv-issue309-stage5-gates-abundance-20260608`.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -48,6 +52,9 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   `CALYX_LOOM_ZERO_NORM_VECTOR`, `CALYX_LOOM_DIM_MISMATCH`,
   `CALYX_LOOM_NON_FINITE_VECTOR`, and `CALYX_LOOM_SLOT_MISSING`; agreement graph
   edges include raw cosine plus `agreement_weight = clamp(raw, 0, 1)` (#285).
+- **Post-sweep note.** Materialization is per kind: Agreement is eager, Delta
+  and Concat remain lazy, and only Interaction becomes eager when the Assay pair
+  gain clears 0.05 bits (#309).
 - **FSV gate.** agreement scalars eager + correct; a lazy pair computes on demand
   and matches; **materialized count ≪ C(N,2)** (read xterm CF size); blind-spot
   fires on a planted cross-lens disagreement.
@@ -66,7 +73,8 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   rows fail closed before persistence/load, and estimator sample matrices must
   be finite and rectangular (#291). KSG/logistic estimates are `provisional`
   without an Anchor; the `_with_anchor` variants emit `trusted` only for
-  grounded Anchor evidence (#294).
+  grounded Anchor evidence (#294). `AssayGate.min_samples` now controls the
+  logistic-probe quorum used by lens and pair signal calls (#309).
 - **FSV gate.** MI on a **planted-signal synthetic** is within CI of the known
   value; n<50 fails closed (no noisy point estimate).
 - **Axioms/PRD.** A2 (grounded only), A16, `07 §2`.
@@ -99,7 +107,9 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   vaults or anchors (#287), and persisted rows without vault scope are rejected
   with `CALYX_VAULT_ACCESS_DENIED` (#291). No-anchor report helpers downgrade
   requested `trusted` tags to `provisional`; use the anchor-aware helpers to
-  report grounded trusted bits (#294).
+  report grounded trusted bits (#294). `meaning_compression_yield` is now the
+  materialized cross-term count per input, with NaN for zero constellations
+  (#309).
 - **FSV gate.** `abundance_report` prints the four honest numbers; a known-
   insufficient panel (`I≪H`) is flagged with the per-slot deficit (read it);
   trusted bits only when grounded (else `provisional`).

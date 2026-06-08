@@ -46,7 +46,11 @@ impl AbundanceReport {
         derived_count: usize,
     ) -> Self {
         let c_n2 = n_lenses.saturating_mul(n_lenses.saturating_sub(1)) / 2;
-        let possible = c_n2.saturating_mul(n_constellations).max(1);
+        let meaning_compression_yield = if n_constellations == 0 {
+            f32::NAN
+        } else {
+            materialized as f32 / n_constellations as f32
+        };
         Self {
             n_lenses,
             c_n2_upper_bound: c_n2,
@@ -56,7 +60,7 @@ impl AbundanceReport {
             dpi_ceiling,
             measured_count,
             derived_count,
-            meaning_compression_yield: materialized as f32 / possible as f32,
+            meaning_compression_yield,
         }
     }
 }

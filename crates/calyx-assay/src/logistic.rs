@@ -26,14 +26,50 @@ pub fn logistic_probe_mi_with_anchor(
     logistic_probe_mi_with_trust(samples, labels, trust_for_anchor(Some(anchor)))
 }
 
+pub(crate) fn logistic_probe_mi_with_min_samples(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    min_samples: usize,
+) -> Result<LogisticProbeReport> {
+    logistic_probe_mi_with_trust_and_min_samples(
+        samples,
+        labels,
+        TrustTag::Provisional,
+        min_samples,
+    )
+}
+
+pub(crate) fn logistic_probe_mi_with_anchor_and_min_samples(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    anchor: &Anchor,
+    min_samples: usize,
+) -> Result<LogisticProbeReport> {
+    logistic_probe_mi_with_trust_and_min_samples(
+        samples,
+        labels,
+        trust_for_anchor(Some(anchor)),
+        min_samples,
+    )
+}
+
 fn logistic_probe_mi_with_trust(
     samples: &[Vec<f32>],
     labels: &[bool],
     trust: TrustTag,
 ) -> Result<LogisticProbeReport> {
-    if samples.len() != labels.len() || samples.len() < MIN_ASSAY_SAMPLES {
+    logistic_probe_mi_with_trust_and_min_samples(samples, labels, trust, MIN_ASSAY_SAMPLES)
+}
+
+fn logistic_probe_mi_with_trust_and_min_samples(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    trust: TrustTag,
+    min_samples: usize,
+) -> Result<LogisticProbeReport> {
+    if samples.len() != labels.len() || samples.len() < min_samples {
         return Err(CalyxError::assay_insufficient_samples(format!(
-            "need at least {MIN_ASSAY_SAMPLES} labeled samples"
+            "need at least {min_samples} labeled samples"
         )));
     }
     let dim = validate_rectangular_finite("logistic", samples)?;

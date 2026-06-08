@@ -14,9 +14,10 @@
 
 Implement the per-pair, per-anchor materialization policy that decides which
 cross-terms are stored eagerly in the xterm CF vs remain lazy (one matmul on
-demand). The policy is: Agreement = always eager (scalar, cheap); Delta /
-Interaction = eager only when `Assay.pair_gain(a,b|anchor) ≥ 0.05 bits`; Concat
-= eager only when Sextant has promoted the pair (query-pattern justification).
+demand). The policy is: Agreement = always eager (scalar, cheap); Delta =
+always lazy; Interaction = eager only when `Assay.pair_gain(a,b|anchor) ≥ 0.05
+bits`; Concat = lazy/on-demand until a later Sextant promoter wires real query-
+pattern justification.
 This is the mechanism that keeps storage `O(n·n_eff)` not `O(n·N²)`.
 
 ## Build (checklist of concrete, code-level steps)
@@ -27,7 +28,7 @@ This is the mechanism that keeps storage `O(n·n_eff)` not `O(n·N²)`.
   - enumerate `active_pairs(panel)` — slot pairs where both states are `Active`
   - for each pair `(a,b)`: Agreement → always `EagerStore`
   - for each pair `(a,b)`: if `assay_hook.pair_gain(a,b,anchor) >= 0.05` → Interaction = `EagerStore`; else `LazyCache`
-  - for each pair `(a,b)`: if `sextant_hook.promotes_concat(a,b)` → Concat = `EagerStore`; else `LazyCache`
+  - for each pair `(a,b)`: Concat = `LazyCache` until the later Sextant promotion hook is wired
   - Delta always `LazyCache` (directional contrast; materialized on demand only)
 - [ ] Stub `AssayGate` trait (returns `0.0` bits until PH28 wires the real implementation); wire `AssayGate` into PH28
 - [ ] Stub `SextantPromoter` trait (returns `false` until PH26 wires query-pattern data); note the hook point in code comments
@@ -37,7 +38,7 @@ This is the mechanism that keeps storage `O(n·n_eff)` not `O(n·N²)`.
 
 - [ ] unit: with stub `AssayGate` (0.0 bits always) and stub `SextantPromoter` (false always), only Agreement decisions are `EagerStore`; all Delta/Interaction/Concat are `LazyCache`; `materialized_count == n_active_pairs` (one Agreement per pair)
 - [ ] unit: with a mock `AssayGate` returning `0.06 bits` for pair `(a,b)` and `0.0` for all others, only `(a,b)` Interaction is `EagerStore`
-- [ ] proptest: `materialized_count(plan) <= active_pairs_count(panel)` always (never exceeds the number of active pairs, never reaches `C(N,2)` Agreement + Interaction unless all pairs pass the gate)
+- [ ] proptest: `materialized_count(plan) <= 2 * active_pairs_count(panel)` always (Agreement plus qualifying Interaction; Delta/Concat do not inflate eager storage)
 - [ ] edge: empty panel → `MaterializationPlan` with empty decisions; single-slot panel → zero active pairs; panel with all inactive slots → zero active pairs
 - [ ] fail-closed: `plan_cross_terms` with a `CxId` that has no slot data → `CALYX_ASTER_NOT_FOUND`
 
@@ -45,7 +46,7 @@ This is the mechanism that keeps storage `O(n·n_eff)` not `O(n·N²)`.
 
 - **SoT:** `materialized_count` in the plan for a planted panel (N=13 lenses, stub assay gate = all zeros bits)
 - **Readback:** run `cargo test materialization_plan_agreement_only -- --nocapture`; print plan summary showing `materialized_count = 78` (one Agreement scalar per pair, no Interaction), confirming storage is `78n` not `78n + more`
-- **Prove:** the plan log must not contain any `EagerStore` for `Interaction` or `Concat` when the stub gate returns 0.0 bits; confirm by running the test on aiwonder and capturing output.
+- **Prove:** the plan log must not contain any `EagerStore` for `Interaction` or `Concat` when the stub gate returns 0.0 bits; when the gate returns 0.06 bits for every pair, Agreement + Interaction are eager but Delta/Concat remain lazy.
 
 ## Done when
 

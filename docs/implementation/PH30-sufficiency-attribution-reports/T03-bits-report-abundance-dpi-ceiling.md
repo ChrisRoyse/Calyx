@@ -30,7 +30,7 @@ present, real, and non-fabricated. This closes the reporting layer of Stage 5.
   - replace `n_eff: NeffEstimate::Provisional(N)` with the real value from `n_eff_panel` (PH29 T03)
   - replace `dpi_ceiling_bits: DpiCeiling::Provisional` with `DpiCeiling::Computed { bits: i_panel, anchor: AnchorKind }` from `panel_sufficiency` (T01)
   - add `sufficiency_verdict: Sufficient | Insufficient { deficit_bits: f32 }` field
-  - add `meaning_compression_yield: f32` = `(N + cn2_upper_bound + 1) as f32` / per-input (formula from `06 §1`: `N + C(N,2) + 1`)
+  - add `meaning_compression_yield: f32` = `materialized_xterms as f32 / n_constellations as f32` (signals materialized per real input; `NaN` when `n_constellations = 0`)
 - [ ] Define `BitsReport`:
   ```rust
   pub struct BitsReport {

@@ -13,8 +13,9 @@ use calyx_aster::cf::{CfRouter, ColumnFamily};
 use calyx_core::AnchorKind;
 use calyx_loom::{
     AbundanceReport, CeilingEstimate, CrossTermKind, CrossTermValue, LoomStore,
-    MaterializationAction, NeffEstimate, Severity, StaticPairGainGate, agreement_batch_cpu,
-    agreement_batch_gpu, agreement_scalar, detect_blind_spot, plan_cross_terms,
+    MaterializationAction, MaterializationPlan, NeffEstimate, Severity, StaticPairGainGate,
+    agreement_batch_cpu, agreement_batch_gpu, agreement_scalar, detect_blind_spot,
+    plan_cross_terms,
 };
 use serde_json::json;
 
@@ -59,9 +60,31 @@ fn loom_cross_terms_materialization_and_reports_work() {
     );
 
     let high_gain = StaticPairGainGate { gain_bits: 0.08 };
+    let high_gain_plan = plan_cross_terms(&lens_slots, &high_gain);
+    assert_eq!(high_gain_plan.materialized_count(), 156);
     assert_eq!(
-        plan_cross_terms(&lens_slots, &high_gain).materialized_count(),
-        312
+        plan_count(
+            &high_gain_plan,
+            CrossTermKind::Interaction,
+            MaterializationAction::EagerStore
+        ),
+        78
+    );
+    assert_eq!(
+        plan_count(
+            &high_gain_plan,
+            CrossTermKind::Delta,
+            MaterializationAction::LazyCache
+        ),
+        78
+    );
+    assert_eq!(
+        plan_count(
+            &high_gain_plan,
+            CrossTermKind::Concat,
+            MaterializationAction::LazyCache
+        ),
+        78
     );
 
     let mut graph_store = LoomStore::new(16);
@@ -103,6 +126,20 @@ fn loom_cross_terms_materialization_and_reports_work() {
     assert_eq!(report.materialized, 3_900);
     assert_eq!(report.measured_count, 650);
     assert_eq!(report.derived_count, 3_900);
+    assert_eq!(report.meaning_compression_yield, 78.0);
+    assert!(
+        AbundanceReport::new(
+            13,
+            0,
+            0,
+            NeffEstimate::Provisional { value: 0.0 },
+            CeilingEstimate::Provisional { bits: 0.0 },
+            0,
+            0,
+        )
+        .meaning_compression_yield
+        .is_nan()
+    );
 }
 
 #[test]
@@ -187,6 +224,16 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     let gate = AssayGate::default();
     let signal = gate.lens_signal(&separable_samples, &labels).unwrap();
     assert!(signal.estimate.bits > 0.95);
+    let strict_gate = AssayGate {
+        min_samples: MIN_ASSAY_SAMPLES + 1,
+    };
+    assert_eq!(
+        strict_gate
+            .lens_signal(&separable_samples, &labels)
+            .unwrap_err()
+            .code,
+        "CALYX_ASSAY_INSUFFICIENT_SAMPLES"
+    );
     let pair_gain = gate
         .pair_gain(&separable_samples, &flat_samples, &labels)
         .unwrap();
@@ -263,6 +310,9 @@ fn stage5_full_stack_fsv() {
         "measured_tags": loom.measured_count(),
         "low_gain_materialized": low_gain_plan.materialized_count(),
         "high_gain_materialized": high_gain_plan.materialized_count(),
+        "high_gain_interaction_eager": plan_count(&high_gain_plan, CrossTermKind::Interaction, MaterializationAction::EagerStore),
+        "high_gain_delta_lazy": plan_count(&high_gain_plan, CrossTermKind::Delta, MaterializationAction::LazyCache),
+        "high_gain_concat_lazy": plan_count(&high_gain_plan, CrossTermKind::Concat, MaterializationAction::LazyCache),
         "low_gain_lazy": low_gain_plan.entries.iter().filter(|entry| entry.action == MaterializationAction::LazyCache).count(),
         "blind_spot": alert,
     });
@@ -277,6 +327,11 @@ fn stage5_full_stack_fsv() {
     let (left_pair, right_pair, pair_labels) = complementary_pair_samples();
     let gate = AssayGate::default();
     let signal = gate.lens_signal(&samples, &labels).unwrap();
+    let strict_min_samples_error = AssayGate {
+        min_samples: MIN_ASSAY_SAMPLES + 1,
+    }
+    .lens_signal(&samples, &labels)
+    .unwrap_err();
     let pair_gain = gate
         .pair_gain(&left_pair, &right_pair, &pair_labels)
         .unwrap();
@@ -352,6 +407,7 @@ fn stage5_full_stack_fsv() {
         "vault_scope": key.vault_id.as_ref().unwrap().to_string(),
         "anchor_scope": key.anchor.clone(),
         "logistic_bits": signal.estimate.bits,
+        "strict_min_samples_error": strict_min_samples_error.code,
         "pair_gain": pair_gain,
         "ksg": {"estimate": ksg, "known_bits": ksg_known, "known_inside_ci": ksg_known_inside_ci},
         "insufficient_samples_error": ksg_short.code,
@@ -387,10 +443,36 @@ fn stage5_full_stack_fsv() {
         loom.measured_count(),
         loom.xterm_count(),
     );
-    readback.insert("abundance_report", json!(abundance));
+    let zero_abundance = AbundanceReport::new(
+        13,
+        0,
+        0,
+        NeffEstimate::Provisional { value: 0.0 },
+        CeilingEstimate::Provisional { bits: 0.0 },
+        0,
+        0,
+    );
+    readback.insert(
+        "abundance_report",
+        json!({
+            "report": abundance,
+            "zero_constellation_yield_is_nan": zero_abundance.meaning_compression_yield.is_nan(),
+        }),
+    );
     let path = root.join("stage5-readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();
     println!("STAGE5_READBACK={}", path.display());
     println!("STAGE5_XTERM_ROWS={}", loom.xterm_count());
     println!("STAGE5_ASSAY_ROWS={}", loaded_assay.len());
+}
+
+fn plan_count(
+    plan: &MaterializationPlan,
+    kind: CrossTermKind,
+    action: MaterializationAction,
+) -> usize {
+    plan.entries
+        .iter()
+        .filter(|entry| entry.kind == kind && entry.action == action)
+        .count()
 }
