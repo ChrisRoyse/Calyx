@@ -13,6 +13,7 @@ pub mod kernel_index;
 pub mod loom_assoc;
 pub mod recall_test;
 pub mod scope;
+pub mod scope_cache;
 
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
@@ -43,3 +44,4 @@ pub use recall_test::{
 pub use scope::{
     AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, scope_hash,
 };
+pub use scope_cache::{CacheStats, ScopeCache, ScopeCacheKey};
