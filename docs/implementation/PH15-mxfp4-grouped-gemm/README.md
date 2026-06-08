@@ -15,7 +15,10 @@ PH15 claim.
 **Absent slots are skipped, never zero-filled** — a mixed-completeness batch
 produces the correct per-constellation result. The result of grouped GEMM must be
 **invariant to N** (adding a no-op lens does not change the result for the other
-lens projections).
+lens projections). #316 makes the launch mode part of the source-of-truth
+readback: ordinary execution records `grouped_batched`, `sequential_fallback`,
+or `no_active_problems`, and strict execution fails loud if true grouped cuBLAS
+launch is unavailable.
 
 ## Dependencies
 
@@ -31,7 +34,8 @@ lens projections).
 the PH15 MXFP4/MXFP8 codec plus grouped/ragged GEMM surfaces in-tree. Build and
 FSV run natively on aiwonder; sm_120 is required for the current MXFP4 CUDA path,
 with fallback/edge handling covered by PH15 tests. Native tensor-core/CUTLASS
-MXFP4 promotion remains a future optimization.
+MXFP4 promotion remains a future optimization. #316 records grouped GEMM launch
+mode under `/home/croyse/calyx/data/fsv-issue316-grouped-gemm-mode-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -71,6 +75,9 @@ matches per-matmul loop result element-wise within 1e-4); `mxfp4_within_bound` P
 (cosine error ≤ ε at fp4 precision for Assay-safe slots); absent-slot test PASSED
 (partial bundle → correct per-constellation result, no zero-fill).
 
+#316 readback prints the execution mode and proves strict grouped mode fails
+closed rather than silently accepting a sequential fallback.
+
 ## Risks / landmines
 
 - **MXFP4 Blackwell-only:** `sm_120` only. The MXFP4 path must be gated on a
@@ -79,6 +86,9 @@ matches per-matmul loop result element-wise within 1e-4); `mxfp4_within_bound` P
 - **`GemmGroupedBatchedEx` availability:** requires cuBLAS 12.5+, which ships with
   CUDA 13.x. Confirm with `cublasGetVersion()` at init; if not available → fall back
   to CUTLASS grouped or a host-side loop with a `cargo:warning`.
+  #316 supersedes warning-only behavior: ordinary execution exposes
+  `execution_mode = sequential_fallback`; strict execution fails loud when true
+  grouped launch is required.
 - **Ragged problem list:** each (microbatch × slot) entry has its own `m, k, n`;
   the problem list must be sorted by `(k, n)` for cuBLAS perf (documented in cuBLAS
   grouped GEMM guide); unsorted → no wrong answer but slower.

@@ -16,6 +16,10 @@
 > Post-sweep hardening #307 makes GEMM parity read back both relative and
 > absolute worst cases; near-zero cancellation cells may pass by a named
 > `<=1e-6` absolute floor while ordinary values still use `<=1e-3` relative.
+> Post-sweep hardening #316 adds a readback-visible grouped GEMM execution mode:
+> ordinary execution reports `grouped_batched`, `sequential_fallback`, or
+> `no_active_problems`; strict execution fails loud instead of accepting a
+> fallback when the one-launch contract is required.
 
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
@@ -78,7 +82,8 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 ## PH15 — MXFP4/microscaling + grouped GEMM
 - **Status.** ✅ FSV-signed-off (`quant/mxfp4_codec.rs`, `cuda/mxfp4`/`mxfp8`,
   `cuda/grouped_gemm.rs` + `ragged_gemm.rs`; N-invariance FSV tests + MXFP8
-  fallback, commits `13423a9`…`8933925`; aggregate evidence in #23).
+  fallback, commits `13423a9`…`8933925`; #316 execution-mode readback and
+  strict grouped launch hardening; aggregate evidence in #23).
 - **Objective.** Blackwell block-scaled compute (MXFP4/NVFP4, MXFP8 fallback,
   fp32 accumulate) and **grouped GEMM** so an N-lens panel projects/scores in
   one launch regardless of N.
@@ -88,8 +93,9 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 - **Key tasks.** variable-shape problem list per (microbatch×slot); FP4 only
   where Assay later proves quant-safe; mixed-completeness batches correct.
 - **FSV gate.** grouped GEMM result == per-matmul loop (read), and is **invariant
-  to N** (one launch); FP4 within bound on safe slots; partial-bundle batch →
-  correct per-constellation result.
+  to N**; execution mode is read from `GroupedGemmPlan` and strict grouped launch
+  fails loud if cuBLAS grouped mode is unsupported; FP4 within bound on safe
+  slots; partial-bundle batch → correct per-constellation result.
 - **Axioms/PRD.** `23 §3/§4.2`, A25, `17 §7.4`.
 
 ## PH16 — Autotune config cache
@@ -114,7 +120,7 @@ Forge does matmul/distance/quant/topk on both CPU and the RTX 5090 with proven
 bit-parity for the byte-readback golden set; CUDA top-k is exact for `k <= 1024`
 and fails loud above that until multi-pass exact merge work lands (#303).
 TurboQuant gives unbiased inner products, grouped GEMM makes panel math
-N-invariant, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
+N-invariant with readback-visible launch mode, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
 `COMPRESS` foundations. Implemented and FSV-signed-off; downstream Stage 5
 readbacks on aiwonder depend on these kernels and remain green. Stage 4 uses
 Sextant-owned CPU/index paths for HNSW/quant/fan-out until a future Forge

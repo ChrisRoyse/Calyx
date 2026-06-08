@@ -38,9 +38,29 @@ pub struct GroupedGemmPlan {
     pub slot_ids: Vec<Option<usize>>,
     pub absent_sentinel_ranges: Vec<AbsentSlotSentinel>,
     pub active: Vec<ActiveGemmProblem>,
+    pub execution_mode: GroupedGemmExecutionMode,
     pub a_slab: CudaSlice<f32>,
     pub b_slab: CudaSlice<f32>,
     pub c_slab: CudaSlice<f32>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroupedGemmExecutionMode {
+    NotRun,
+    NoActiveProblems,
+    GroupedBatched,
+    SequentialFallback,
+}
+
+impl GroupedGemmExecutionMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRun => "not_run",
+            Self::NoActiveProblems => "no_active_problems",
+            Self::GroupedBatched => "grouped_batched",
+            Self::SequentialFallback => "sequential_fallback",
+        }
+    }
 }
 
 pub fn build_grouped_gemm_plan(
@@ -83,6 +103,7 @@ pub(crate) fn build_grouped_gemm_plan_with_metadata(
         slot_ids,
         absent_sentinel_ranges,
         active,
+        execution_mode: GroupedGemmExecutionMode::NotRun,
         a_slab: stream
             .clone_htod(a_host)
             .map_err(|err| device_unavailable(ctx, format!("copy grouped A slab failed: {err}")))?,
@@ -96,7 +117,27 @@ pub(crate) fn build_grouped_gemm_plan_with_metadata(
 }
 
 pub fn execute_grouped_gemm(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Result<()> {
+    execute_grouped_gemm_with_policy(ctx, plan, FallbackPolicy::AllowSequential)
+}
+
+pub fn execute_grouped_gemm_strict(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Result<()> {
+    execute_grouped_gemm_with_policy(ctx, plan, FallbackPolicy::FailIfGroupedUnsupported)
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FallbackPolicy {
+    AllowSequential,
+    FailIfGroupedUnsupported,
+}
+
+fn execute_grouped_gemm_with_policy(
+    ctx: &CudaContext,
+    plan: &mut GroupedGemmPlan,
+    policy: FallbackPolicy,
+) -> Result<()> {
+    plan.execution_mode = GroupedGemmExecutionMode::NotRun;
     if plan.active.is_empty() {
+        plan.execution_mode = GroupedGemmExecutionMode::NoActiveProblems;
         return check_device_output(ctx, plan);
     }
     validate_active_again(plan)?;
@@ -116,7 +157,13 @@ pub fn execute_grouped_gemm(ctx: &CudaContext, plan: &mut GroupedGemmPlan) -> Re
                     "cublasSgemmGroupedBatched failed: {err}"
                 )));
             }
+            if policy == FallbackPolicy::FailIfGroupedUnsupported {
+                return Err(grouped_unsupported_error(err));
+            }
             launch_sequential(*blas.handle(), &launch)?;
+            plan.execution_mode = GroupedGemmExecutionMode::SequentialFallback;
+        } else {
+            plan.execution_mode = GroupedGemmExecutionMode::GroupedBatched;
         }
         stream
             .synchronize()
@@ -421,6 +468,16 @@ fn cublas_error(detail: String) -> ForgeError {
         op: "execute_grouped_gemm".to_string(),
         detail,
         remediation: GROUPED_REMEDIATION.to_string(),
+    }
+}
+
+fn grouped_unsupported_error(err: CublasError) -> ForgeError {
+    ForgeError::NumericalInvariant {
+        op: "execute_grouped_gemm_strict".to_string(),
+        detail: format!(
+            "cublasSgemmGroupedBatched unsupported and strict grouped launch requested: {err}"
+        ),
+        remediation: DEVICE_REMEDIATION.to_string(),
     }
 }
 

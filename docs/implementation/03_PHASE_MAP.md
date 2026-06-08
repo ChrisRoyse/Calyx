@@ -16,7 +16,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 |---|---|---|
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
-| S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, and #307 records GEMM near-zero parity by relative+absolute readback |
+| S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, and #316 surfaces grouped GEMM execution mode with a strict fail-loud path |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, and atomic backfill scheduler persistence #315 are FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, and NMI fail-closed #317 are FSV-backed |
@@ -34,6 +34,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-q76-20260607122351`
 - Stage 2 Forge CUDA top-k large-k hardening:
   `/home/croyse/calyx/data/fsv-issue303-cuda-topk-large-k-20260608`
+- Stage 2 Forge PH15 grouped GEMM execution mode:
+  `/home/croyse/calyx/data/fsv-issue316-grouped-gemm-mode-20260608`
 - Stage 3 atomic suite:
   `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`
 - Stage 3 PH20 durable backfill scheduler:
@@ -97,7 +99,7 @@ Latest roots:
 | PH12 | CPU SIMD backend (gemm/cosine/l2/normalize/topk) | PH04 | forge | P1/A13 | outputs match numpy/BLAS golden within tol | ✅ FSV (#71–#76) |
 | PH13 | CUDA sm_120 backend + bit-parity | PH12 | forge | P1/A13 | CPU↔GPU ≤1e-3; matmul within 10% cuBLAS on sm_120 | ✅ FSV |
 | PH14 | TurboQuant (rotate+scalar+QJL) | PH13 | forge | P4b/A25 | unbiased inner-product within distortion bound; re-quant with seed bit-identical | ✅ FSV |
-| PH15 | MXFP4/microscaling + grouped GEMM | PH14 | forge | P4b/`23` | grouped GEMM invariant to N ≥ batched-loop; FP4 within bound where Assay-safe | ✅ FSV |
+| PH15 | MXFP4/microscaling + grouped GEMM | PH14 | forge | P4b/`23` | grouped GEMM invariant to N ≥ batched-loop; execution mode read back; strict grouped launch fails loud if unsupported; FP4 within bound where Assay-safe | ✅ FSV |
 | PH16 | Autotune config cache | PH15 | forge | `12 §4` | best `(op,shape,dtype,device)` config cached + reused; A/B logged | ✅ FSV |
 
 ## Stage 3 — Registry / lenses  (`13_STAGE3_REGISTRY.md`) — ✅ DONE
@@ -138,9 +140,11 @@ Latest roots:
 > overclaim #303 now fails loud for `k > 1024` until exact multi-pass merge
 > exists. PH27/PH28/PH30 gate and abundance semantics #309 are now FSV-backed.
 > PH27 Loom GPU agreement #313 now fails loud in default builds and uses Forge
-> CUDA only behind the explicit `calyx-loom/cuda` feature.
-> PH33 bounded build-time groundedness #298 is now FSV-backed. No
-> pre-Lodestar Stage 1-5 implementation blocker remains from this sweep.
+> CUDA only behind the explicit `calyx-loom/cuda` feature. PH15 grouped GEMM
+> execution mode #316 is surfaced in readback and strict grouped launch fails
+> loud when unsupported. PH33 bounded build-time groundedness #298 is now
+> FSV-backed. Remaining post-sweep Stage 1-5 follow-ups are tracked in open
+> issue state instead of hidden in the phase map.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 
