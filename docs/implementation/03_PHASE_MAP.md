@@ -17,7 +17,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, and #307 records GEMM near-zero parity by relative+absolute readback |
-| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311 and frozen registered hot-swap guard #314 are FSV-backed |
+| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, and atomic backfill scheduler persistence #315 are FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, and NMI fail-closed #317 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T06 done/FSV-signed-off; #240 exit pending) |
@@ -40,6 +40,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608`
 - Stage 3 PH20 frozen registered hot-swap guard:
   `/home/croyse/calyx/data/fsv-issue314-registered-hot-swap-20260608`
+- Stage 3 PH20 atomic backfill scheduler persistence:
+  `/home/croyse/calyx/data/fsv-issue315-backfill-atomic-persist-20260608`
 - Stage 4 Sextant:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
 - Stage 4 Sextant GPU parity/fan-out hardening:

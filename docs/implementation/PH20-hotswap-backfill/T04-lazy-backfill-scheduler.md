@@ -40,6 +40,9 @@ watermark.
   when all candidates are filled, and persists `next_allowed_ms`.
 - [x] `BackfillScheduler::watermarks()`: exposes processed/pending/in-flight,
   completion, and last processed `CxId` for readback.
+- [x] #315: `BackfillScheduler::persist()` writes scheduler JSON through a
+  same-directory temp file, file fsync, atomic rename, and parent-directory fsync
+  on Unix. Corrupt persisted JSON fails closed with `CALYX_STALE_DERIVED`.
 - [x] `SwapController::add_lens_durable`: calls the hot-swap add path and
   persists the durable `BackfillRequest` in the same public API call; restores
   controller/scheduler objects before returning an enqueue error.
@@ -56,13 +59,18 @@ watermark.
   advancing the Aster snapshot.
 - [x] PH20 FSV: scheduler JSON is read after enqueue, after first complete, and
   after restart-resume completion.
+- [x] #315 FSV: valid scheduler JSON reopens with the expected watermark; corrupt
+  scheduler JSON returns `CALYX_STALE_DERIVED`; no temp files remain after
+  persist.
 - [x] PH20 FSV: the durable Aster vault is reopened and both backfilled slot CF
   rows are read after final flush.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608/backfill-watermark.json`
-  plus the durable Aster vault under the same root.
+  plus the durable Aster vault under the same root. #315 also uses
+  `/home/croyse/calyx/data/fsv-issue315-backfill-atomic-persist-20260608/backfill-atomic-readback.json`
+  and the good/corrupt scheduler JSON files under that root.
 - **Readback:** run
   `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`,
   then read `backfill-watermark.json`, vault files, and the printed reopened
@@ -70,6 +78,8 @@ watermark.
 - **Prove:** scheduler JSON shows priority, processed/pending/in-flight,
   throttle-resume, and final completion; reopened Aster reads show the expected
   dense slot vectors for both synthetic `CxId`s; old base rows remain byte-stable.
+  #315 proves the good scheduler file reopens, corrupt JSON fails closed, and the
+  atomic temp file is not left behind.
 
 ## Done when
 

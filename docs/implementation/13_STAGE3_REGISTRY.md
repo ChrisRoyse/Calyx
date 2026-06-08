@@ -31,6 +31,10 @@
 > Post-sweep hardening #314 makes hot-swap add paths require a frozen registered
 > lens before panel, queue, or durable scheduler mutation. FSV root for #314:
 > `/home/croyse/calyx/data/fsv-issue314-registered-hot-swap-20260608`.
+> Post-sweep hardening #315 persists backfill scheduler JSON through
+> temp-file/fsync/rename and fails closed on corrupt scheduler state. FSV root
+> for #315:
+> `/home/croyse/calyx/data/fsv-issue315-backfill-atomic-persist-20260608`.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
