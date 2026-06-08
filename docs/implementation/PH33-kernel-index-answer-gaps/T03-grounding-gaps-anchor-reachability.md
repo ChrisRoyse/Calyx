@@ -21,32 +21,32 @@ ground the domain"). The function also computes `grounded_fraction` and emits
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn grounding_gaps(kernel: &Kernel, graph: &AssocGraph, anchors: &[CxId], max_anchor_dist: usize) -> GroundingGapReport`.
-- [ ] `pub struct GroundingGapReport { gaps: Vec<CxId>, grounded_fraction: f32, max_anchor_dist: usize }`.
-- [ ] For each `cx_id` in `kernel.members`: BFS from `cx_id` in `graph`; if any
+- [x] `pub fn grounding_gaps(kernel: &Kernel, graph: &AssocGraph, anchors: &[CxId], max_anchor_dist: usize) -> Result<GroundingGapReport>`.
+- [x] `pub struct GroundingGapReport { gaps: Vec<CxId>, grounded_fraction: f32, grounded_count: usize, member_count: usize, max_anchor_dist: usize, warning: Option<String> }`.
+- [x] For each `cx_id` in `kernel.members`: BFS from `cx_id` in `graph`; if any
   node within `max_anchor_dist` hops is in `anchors` → grounded; else → gap.
-- [ ] `grounded_fraction = (members.len() - gaps.len()) / members.len()`;
+- [x] `grounded_fraction = (members.len() - gaps.len()) / members.len()`;
   empty kernel → `grounded_fraction = 1.0` (vacuously grounded).
-- [ ] `grounded_fraction == 0.0` AND `members.len() > 0` → emit
+- [x] `grounded_fraction == 0.0` AND `members.len() > 0` → emit
   `CALYX_KERNEL_UNGROUNDED` (structured error code in the return value
   `GroundingGapReport.warning`, not a panic or silent zero).
-- [ ] `gaps` list is sorted by `CxId` (deterministic output).
-- [ ] The `Kernel.groundedness.unanchored_members` field is populated from
+- [x] `gaps` list is sorted by `CxId` (deterministic output).
+- [x] The `Kernel.groundedness.unanchored_members` field is populated from
   `GroundingGapReport.gaps` during `build_kernel_pipeline`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: 4 kernel members; anchors reachable from 3 of them within 2 hops;
+- [x] unit: 4 kernel members; anchors reachable from 3 of them within 2 hops;
   1 unreachable → `gaps = [unreachable_cx_id]`; `grounded_fraction = 0.75`.
-- [ ] unit: all kernel members reachable → `gaps = []`; `grounded_fraction = 1.0`;
+- [x] unit: all kernel members reachable → `gaps = []`; `grounded_fraction = 1.0`;
   no `CALYX_KERNEL_UNGROUNDED` in `warning`.
-- [ ] unit: no anchors provided → all members are gaps; `grounded_fraction = 0.0`;
+- [x] unit: no anchors provided → all members are gaps; `grounded_fraction = 0.0`;
   `warning = CALYX_KERNEL_UNGROUNDED`.
-- [ ] unit: anchor at distance `max_anchor_dist` exactly → grounded (inclusive).
+- [x] unit: anchor at distance `max_anchor_dist` exactly → grounded (inclusive).
   anchor at distance `max_anchor_dist + 1` → gap.
-- [ ] proptest: `gaps.len() + grounded_count == kernel.members.len()` for all inputs.
-- [ ] edge: empty `kernel.members` → `gaps = []`; `grounded_fraction = 1.0`; no warning.
-- [ ] fail-closed: `max_anchor_dist = 0` → only direct anchor nodes are grounded
+- [x] proptest: `gaps.len() + grounded_count == kernel.members.len()` for all inputs.
+- [x] edge: empty `kernel.members` → `gaps = []`; `grounded_fraction = 1.0`; no warning.
+- [x] fail-closed: `max_anchor_dist = 0` → only direct anchor nodes are grounded
   (a kernel member is grounded iff it IS an anchor); no panic.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -59,8 +59,8 @@ ground the domain"). The function also computes `grounded_fraction` and emits
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH33 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH33 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

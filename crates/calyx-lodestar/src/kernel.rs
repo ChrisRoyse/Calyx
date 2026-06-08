@@ -1,8 +1,9 @@
 use calyx_core::{CxId, content_address};
 use calyx_mincut::{betweenness, tarjan_scc};
-use calyx_paths::{AssocGraph, reach};
+use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
+use crate::grounding_gaps::grounding_gaps_for_members;
 use crate::{
     DfvsResult, KernelGraphParams, LpRoundParams, Result, dfvs_approx, lp_round_kernel_graph,
     select_kernel_graph,
@@ -73,8 +74,8 @@ pub fn build_kernel_pipeline(
     let heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
     let rounded = lp_round_kernel_graph(&heuristic, &params.lp_round)?;
     let dfvs = dfvs_approx(&rounded)?;
-    let unanchored = unanchored_members(graph, anchors, &dfvs.members)?;
-    let warnings = warnings(&rounded.warnings, &dfvs, &unanchored);
+    let gap_report = grounding_gaps_for_members(&dfvs.members, graph, anchors, usize::MAX)?;
+    let warnings = warnings(&rounded.warnings, &dfvs, &gap_report.gaps);
     let provenance = estimator_provenance(&dfvs, &warnings);
     let kernel_graph = rounded.selected.clone();
     let kernel_id = kernel_id(params, &dfvs.members, &kernel_graph);
@@ -86,7 +87,7 @@ pub fn build_kernel_pipeline(
         corpus_shard_hash: params.corpus_shard_hash,
         members: dfvs.members.clone(),
         kernel_graph,
-        groundedness: groundedness_report(&dfvs.members, unanchored),
+        groundedness: groundedness_report(&dfvs.members, gap_report.gaps),
         recall: RecallReport {
             kernel_only: 0.0,
             full: 0.0,
@@ -97,25 +98,6 @@ pub fn build_kernel_pipeline(
         estimator_provenance: provenance,
         warnings,
     })
-}
-
-fn unanchored_members(graph: &AssocGraph, anchors: &[CxId], members: &[CxId]) -> Result<Vec<CxId>> {
-    if anchors.is_empty() {
-        return Ok(members.to_vec());
-    }
-    let mut unanchored = Vec::new();
-    for member in members {
-        let reaches_anchor = anchors.iter().any(|anchor| {
-            reach(graph, *member, *anchor, usize::MAX)
-                .ok()
-                .flatten()
-                .is_some()
-        });
-        if !reaches_anchor {
-            unanchored.push(*member);
-        }
-    }
-    Ok(unanchored)
 }
 
 fn groundedness_report(members: &[CxId], unanchored: Vec<CxId>) -> GroundednessReport {
