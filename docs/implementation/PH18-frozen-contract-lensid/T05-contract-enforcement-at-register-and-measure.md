@@ -13,8 +13,8 @@
 ## Goal
 
 Compose the four individual guards (weights hash, dim, finite+norm,
-determinism probe) into a single `check_frozen_contract` function and wire it
-into both `Registry::register` and `Registry::measure`. After this card,
+determinism probe) into the frozen registration path and wire validation into
+`Registry::measure`. After this card,
 no vector from any runtime can enter the vault without passing all four
 invariants; every violation returns a structured `CALYX_*` error with
 remediation.
@@ -30,10 +30,13 @@ remediation.
 - [ ] `pub fn check_frozen_contract_at_measure(vec: &SlotVector, spec: &LensSpec) -> Result<()>`:
   calls `check_output(vec, spec)` (dim + finite + norm); no determinism probe
   per-call (too expensive; probe runs at registration only).
-- [ ] Update `Registry::register(spec, lens)` to call
-  `check_frozen_contract_at_register` with a canonical probe input
-  (`Input::new(spec.modality, b"calyx-frozen-probe")` for text; each modality
-  has a type-appropriate probe).
+- [x] Keep `Registry::register` and `Registry::register_with_spec` as
+  fail-closed compatibility stubs: both return `CALYX_LENS_FROZEN_VIOLATION`
+  and do not insert.
+- [x] Use `register_frozen`, `register_frozen_with_spec`, or
+  `register_frozen_with_probe` for successful insertion. These paths verify
+  contract id/shape/modality, optional determinism probe, and then store the
+  `FrozenLensContract` beside the runtime lens.
 - [ ] Update `Registry::measure` and `Registry::measure_batch` to call
   `check_frozen_contract_at_measure` on every returned vector.
 - [ ] If either check fails, propagate the error; **no partial results**.
@@ -42,6 +45,8 @@ remediation.
 
 - [ ] integration: register a valid `AlgorithmicLens` → `Ok(())`; confirm
   subsequent `measure` calls pass the contract.
+- [ ] integration: plain `register` → `CALYX_LENS_FROZEN_VIOLATION` and
+  `Registry::contains(id) == false`.
 - [ ] integration: register with wrong `weights_sha256` → `CALYX_LENS_FROZEN_VIOLATION`.
 - [ ] integration: mock runtime returns wrong dim → `CALYX_LENS_DIM_MISMATCH`
   at `measure` time.
@@ -59,10 +64,12 @@ remediation.
 
 - **SoT:** end-to-end integration test output on aiwonder; Aster slot CF
   column never written on a failing measure
-- **Readback:** `cargo test -p calyx-registry contract -- --nocapture 2>&1`
-- **Prove:** output shows five distinct test cases: violation/mismatch/
-  numerical/determinism/pass — each producing the correct code or `Ok`;
-  screenshot attached to PH18 GitHub issue
+- **Readback:** `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue310-registry-frozen-contract-20260608 cargo test -p calyx-registry --test stage3_atomic_fsv -- --ignored --nocapture`
+- **Prove:** read
+  `/home/croyse/calyx/data/fsv-issue310-registry-frozen-contract-20260608/stage3-atomic-readback.json`;
+  it must contain `plain_register_error=CALYX_LENS_FROZEN_VIOLATION`,
+  `plain_register_inserted=false`, and successful `register_frozen*`
+  runtime/profile readbacks.
 
 ## Done when
 

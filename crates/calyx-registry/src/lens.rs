@@ -28,48 +28,24 @@ impl Registry {
         Self::default()
     }
 
-    /// Registers a lens by its stable frozen id.
-    pub fn register<L>(&mut self, lens: L) -> Result<LensId>
+    /// Fails closed: runtime lenses must be registered with a frozen contract.
+    pub fn register<L>(&mut self, _lens: L) -> Result<LensId>
     where
         L: Lens + 'static,
     {
-        let id = lens.id();
-        if self.lenses.contains_key(&id) {
-            return Err(CalyxError::registry_duplicate(format!(
-                "lens {id} is already registered"
-            )));
-        }
-        self.lenses.insert(
-            id,
-            RegistryEntry {
-                lens: Arc::new(lens),
-                frozen: None,
-                spec: None,
-            },
-        );
-        Ok(id)
+        Err(CalyxError::lens_frozen_violation(
+            "Registry::register requires register_frozen with a FrozenLensContract",
+        ))
     }
 
-    /// Registers a lens with structured registry metadata.
-    pub fn register_with_spec<L>(&mut self, lens: L, spec: LensSpec) -> Result<LensId>
+    /// Fails closed: structured metadata does not replace a frozen contract.
+    pub fn register_with_spec<L>(&mut self, _lens: L, _spec: LensSpec) -> Result<LensId>
     where
         L: Lens + 'static,
     {
-        let id = lens.id();
-        if self.lenses.contains_key(&id) {
-            return Err(CalyxError::registry_duplicate(format!(
-                "lens {id} is already registered"
-            )));
-        }
-        self.lenses.insert(
-            id,
-            RegistryEntry {
-                lens: Arc::new(lens),
-                frozen: None,
-                spec: Some(spec),
-            },
-        );
-        Ok(id)
+        Err(CalyxError::lens_frozen_violation(
+            "Registry::register_with_spec requires register_frozen_with_spec with a FrozenLensContract",
+        ))
     }
 
     /// Registers a lens and enforces its frozen content-addressed contract.
@@ -358,137 +334,4 @@ fn ensure_finite(lens_id: LensId, data: &[f32]) -> Result<()> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use calyx_core::{Modality, SlotShape};
-
-    #[test]
-    fn registry_measures_registered_lens() {
-        let mut registry = Registry::new();
-        let id = registry.register(OneDimLens).unwrap();
-        let input = Input::new(Modality::Text, b"abc".to_vec());
-
-        let vector = registry.measure(id, &input).unwrap();
-
-        assert_eq!(
-            vector,
-            SlotVector::Dense {
-                dim: 1,
-                data: vec![3.0]
-            }
-        );
-    }
-
-    #[test]
-    fn registry_rejects_wrong_modality() {
-        let mut registry = Registry::new();
-        let id = registry.register(OneDimLens).unwrap();
-        let input = Input::new(Modality::Image, vec![1, 2, 3]);
-
-        let error = registry.measure(id, &input).unwrap_err();
-
-        assert_eq!(error.code, "CALYX_LENS_DIM_MISMATCH");
-    }
-
-    #[test]
-    fn registry_rejects_mismatched_batch_count() {
-        let mut registry = Registry::new();
-        let id = registry.register(ShortBatchLens).unwrap();
-        let inputs = [
-            Input::new(Modality::Text, b"a".to_vec()),
-            Input::new(Modality::Text, b"b".to_vec()),
-        ];
-
-        let error = registry.measure_batch(id, &inputs).unwrap_err();
-
-        println!("MISMATCHED_BATCH_ERROR={}", error.code);
-        assert_eq!(error.code, "CALYX_LENS_DIM_MISMATCH");
-    }
-
-    #[test]
-    fn registry_rejects_non_finite_dense_values() {
-        let mut registry = Registry::new();
-        let id = registry.register(NanLens).unwrap();
-        let input = Input::new(Modality::Text, b"x".to_vec());
-
-        let error = registry.measure(id, &input).unwrap_err();
-
-        assert_eq!(error.code, "CALYX_LENS_NUMERICAL_INVARIANT");
-    }
-
-    struct OneDimLens;
-
-    impl Lens for OneDimLens {
-        fn id(&self) -> LensId {
-            LensId::from_bytes([1; 16])
-        }
-
-        fn shape(&self) -> SlotShape {
-            SlotShape::Dense(1)
-        }
-
-        fn modality(&self) -> Modality {
-            Modality::Text
-        }
-
-        fn measure(&self, input: &Input) -> Result<SlotVector> {
-            Ok(SlotVector::Dense {
-                dim: 1,
-                data: vec![input.bytes.len() as f32],
-            })
-        }
-    }
-
-    struct ShortBatchLens;
-
-    impl Lens for ShortBatchLens {
-        fn id(&self) -> LensId {
-            LensId::from_bytes([2; 16])
-        }
-
-        fn shape(&self) -> SlotShape {
-            SlotShape::Dense(1)
-        }
-
-        fn modality(&self) -> Modality {
-            Modality::Text
-        }
-
-        fn measure(&self, _input: &Input) -> Result<SlotVector> {
-            Ok(SlotVector::Dense {
-                dim: 1,
-                data: vec![1.0],
-            })
-        }
-
-        fn measure_batch(&self, _inputs: &[Input]) -> Result<Vec<SlotVector>> {
-            Ok(vec![SlotVector::Dense {
-                dim: 1,
-                data: vec![1.0],
-            }])
-        }
-    }
-
-    struct NanLens;
-
-    impl Lens for NanLens {
-        fn id(&self) -> LensId {
-            LensId::from_bytes([3; 16])
-        }
-
-        fn shape(&self) -> SlotShape {
-            SlotShape::Dense(1)
-        }
-
-        fn modality(&self) -> Modality {
-            Modality::Text
-        }
-
-        fn measure(&self, _input: &Input) -> Result<SlotVector> {
-            Ok(SlotVector::Dense {
-                dim: 1,
-                data: vec![f32::NAN],
-            })
-        }
-    }
-}
+mod tests;

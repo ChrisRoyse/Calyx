@@ -33,9 +33,22 @@ fn stage3_atomic_blindspots_aiwonder_fsv() {
 
 fn registry_spec_and_algorithmic_readback(out: &mut BTreeMap<&'static str, serde_json::Value>) {
     let mut registry = Registry::new();
+    let plain = AlgorithmicLens::scalar("plain-register-fsv", Modality::Text);
+    let plain_id = plain.id();
+    let plain_error = registry.register(plain).unwrap_err();
+    out.insert("plain_register_error", json!(plain_error.code));
+    out.insert(
+        "plain_register_inserted",
+        json!(registry.contains(plain_id)),
+    );
+
     let scalar = AlgorithmicLens::scalar("scalar-fsv", Modality::Text);
-    let scalar_id = registry.register(scalar.clone()).unwrap();
-    let duplicate = registry.register(scalar).unwrap_err();
+    let scalar_id = registry
+        .register_frozen(scalar.clone(), scalar.contract().clone())
+        .unwrap();
+    let duplicate = registry
+        .register_frozen(scalar.clone(), scalar.contract().clone())
+        .unwrap_err();
     out.insert("registry_duplicate", json!(duplicate.code));
 
     let spec = lens_spec(
@@ -160,7 +173,9 @@ fn norm_health_dual_and_drift_readback(out: &mut BTreeMap<&'static str, serde_js
             b: SlotId::new(0),
         },
     );
-    let dual_id = registry.register_with_spec(dual, spec).unwrap();
+    let dual_id = registry
+        .register_frozen_with_spec(dual.clone(), dual.contract().clone(), spec)
+        .unwrap();
     let measured = registry
         .measure_dual(
             dual_id,
@@ -251,7 +266,9 @@ fn panel_and_backfill_readback(root: &Path, out: &mut BTreeMap<&'static str, ser
     let mut registry = Registry::new();
     let first_slot = panel.slots[0].clone();
     let lens = AlgorithmicLens::byte_features("panel-health", first_slot.modality);
-    registry.register(lens).unwrap();
+    registry
+        .register_frozen(lens.clone(), lens.contract().clone())
+        .unwrap();
     let listing = list_panel(&panel, &registry);
     out.insert("swap_diff", json!(diff));
     out.insert(
@@ -305,7 +322,15 @@ fn profile_explain_and_local_runtime_readback(out: &mut BTreeMap<&'static str, s
         Modality::Text,
         Asymmetry::None,
     );
-    let lens_id = registry.register_with_spec(lens, spec).unwrap();
+    let contract = FrozenLensContract::tei_http(
+        "tei-profile-fsv",
+        "http://127.0.0.1:8088/embed",
+        Modality::Text,
+        768,
+    );
+    let lens_id = registry
+        .register_frozen_with_spec(lens, contract, spec)
+        .unwrap();
     let probes = (0..32)
         .map(|idx| {
             ProfileProbe::labeled(

@@ -1,5 +1,9 @@
 use calyx_core::{Input, Lens, LensId, Modality, Result, SlotShape, SlotVector, content_address};
-use calyx_registry::{AlgorithmicLens, ProfileProbe, Registry, profile_lens};
+use calyx_registry::frozen::sha256_digest;
+use calyx_registry::{
+    AlgorithmicLens, FrozenLensContract, LensDType, NormPolicy, ProfileProbe, Registry,
+    profile_lens,
+};
 use std::path::PathBuf;
 
 #[test]
@@ -9,11 +13,9 @@ fn ph21_profile_card_aiwonder_fsv() {
     std::fs::create_dir_all(&root).expect("create fsv root");
 
     let mut registry = Registry::new();
+    let algorithmic = AlgorithmicLens::byte_features("ph21-profile-fsv", Modality::Text);
     let algorithmic_id = registry
-        .register(AlgorithmicLens::byte_features(
-            "ph21-profile-fsv",
-            Modality::Text,
-        ))
+        .register_frozen(algorithmic.clone(), algorithmic.contract().clone())
         .expect("register algorithmic lens");
     let probes = probe_set();
     let card = profile_lens(&registry, algorithmic_id, &probes).expect("profile algorithmic");
@@ -64,8 +66,9 @@ fn ph21_profile_card_aiwonder_fsv() {
     assert!(readback.proxy_differentiation.is_finite());
     assert!(readback.spread.participation_ratio > 0.0);
 
+    let collapsed_lens = CollapsedLens::new();
     let collapsed_id = registry
-        .register(CollapsedLens)
+        .register_frozen(collapsed_lens.clone(), collapsed_lens.contract.clone())
         .expect("register collapsed");
     let collapsed = profile_lens(&registry, collapsed_id, &probes).expect("profile collapsed");
     let collapsed_path = root.join("collapsed-card.json");
@@ -167,11 +170,22 @@ fn digest_hex(bytes: &[u8]) -> String {
         .collect()
 }
 
-struct CollapsedLens;
+#[derive(Clone)]
+struct CollapsedLens {
+    contract: FrozenLensContract,
+}
+
+impl CollapsedLens {
+    fn new() -> Self {
+        Self {
+            contract: collapsed_contract("ph21-collapsed"),
+        }
+    }
+}
 
 impl Lens for CollapsedLens {
     fn id(&self) -> LensId {
-        LensId::from_bytes([0x21; 16])
+        self.contract.lens_id()
     }
 
     fn shape(&self) -> SlotShape {
@@ -188,4 +202,16 @@ impl Lens for CollapsedLens {
             data: vec![1.0, 0.0, 0.0, 0.0],
         })
     }
+}
+
+fn collapsed_contract(name: &str) -> FrozenLensContract {
+    FrozenLensContract::new(
+        name,
+        sha256_digest(&[name.as_bytes(), b"weights"]),
+        sha256_digest(&[name.as_bytes(), b"corpus"]),
+        SlotShape::Dense(4),
+        Modality::Text,
+        LensDType::F32,
+        NormPolicy::None,
+    )
 }

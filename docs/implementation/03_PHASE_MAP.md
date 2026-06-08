@@ -91,7 +91,7 @@ Latest roots:
 | PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
 |---|---|---|---|---|---|---|
 | PH17 | Lens trait + algorithmic + tei-http runtimes | PH12,PH09 | registry | P2/A4 | embed via :8088 twice → identical; algorithmic lens deterministic | ✅ FSV |
-| PH18 | Frozen contract + content-addressed LensId | PH17 | registry | P2/A4 | weights-hash mismatch → `CALYX_LENS_FROZEN_VIOLATION`; LensId stable across vaults | ✅ FSV |
+| PH18 | Frozen contract + content-addressed LensId | PH17 | registry | P2/A4 | plain `register*` fails closed; weights-hash mismatch → `CALYX_LENS_FROZEN_VIOLATION`; LensId stable across vaults | ✅ FSV (#310) |
 | PH19 | candle-local + onnx runtimes | PH18 | registry | P2/A4 | local + ONNX lens produce unit-norm finite vectors; dim guard fires | ✅ FSV |
 | PH20 | Hot-swap add/retire/park + lazy backfill | PH19 | registry | P2/A5 | add lens → no re-embed; backfill observed on slot columns; retire tombstones | ✅ FSV |
 | PH21 | Capability cards / profile | PH20 | registry | A6 | profile returns signal/spread/separation/cost without full ingest | ✅ FSV |

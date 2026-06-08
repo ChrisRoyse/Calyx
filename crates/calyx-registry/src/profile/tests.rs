@@ -1,16 +1,15 @@
 use super::*;
 use calyx_core::{Lens, Modality, SlotShape};
 
+use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::algorithmic::AlgorithmicLens;
 
 #[test]
 fn profiles_algorithmic_lens_with_real_numbers() {
     let mut registry = Registry::new();
+    let lens = AlgorithmicLens::byte_features("profile-test", Modality::Text);
     let id = registry
-        .register(AlgorithmicLens::byte_features(
-            "profile-test",
-            Modality::Text,
-        ))
+        .register_frozen(lens.clone(), lens.contract().clone())
         .unwrap();
     let probes = profile_probes();
 
@@ -33,11 +32,9 @@ fn profiles_algorithmic_lens_with_real_numbers() {
 #[test]
 fn assay_owned_metrics_serialize_as_null_until_attached() {
     let mut registry = Registry::new();
+    let lens = AlgorithmicLens::byte_features("profile-null-assay-fields", Modality::Text);
     let id = registry
-        .register(AlgorithmicLens::byte_features(
-            "profile-null-assay-fields",
-            Modality::Text,
-        ))
+        .register_frozen(lens.clone(), lens.contract().clone())
         .unwrap();
 
     let card = profile_lens(&registry, id, &profile_probes()).unwrap();
@@ -54,7 +51,10 @@ fn assay_owned_metrics_serialize_as_null_until_attached() {
 #[test]
 fn collapsed_lens_is_flagged_low_spread() {
     let mut registry = Registry::new();
-    let id = registry.register(CollapsedLens).unwrap();
+    let lens = CollapsedLens::new();
+    let id = registry
+        .register_frozen(lens.clone(), lens.contract.clone())
+        .unwrap();
 
     let card = profile_lens(&registry, id, &profile_probes()).unwrap();
 
@@ -66,11 +66,9 @@ fn collapsed_lens_is_flagged_low_spread() {
 #[test]
 fn wrong_modality_counts_as_failed_coverage() {
     let mut registry = Registry::new();
+    let lens = AlgorithmicLens::byte_features("profile-coverage", Modality::Text);
     let id = registry
-        .register(AlgorithmicLens::byte_features(
-            "profile-coverage",
-            Modality::Text,
-        ))
+        .register_frozen(lens.clone(), lens.contract().clone())
         .unwrap();
     let probes = vec![
         ProfileProbe::new(Input::new(Modality::Text, b"ok".to_vec())),
@@ -107,11 +105,22 @@ fn profile_probes() -> Vec<ProfileProbe> {
     ]
 }
 
-struct CollapsedLens;
+#[derive(Clone)]
+struct CollapsedLens {
+    contract: FrozenLensContract,
+}
+
+impl CollapsedLens {
+    fn new() -> Self {
+        Self {
+            contract: collapsed_contract("collapsed-profile-test"),
+        }
+    }
+}
 
 impl Lens for CollapsedLens {
     fn id(&self) -> LensId {
-        LensId::from_bytes([8; 16])
+        self.contract.lens_id()
     }
 
     fn shape(&self) -> SlotShape {
@@ -128,4 +137,16 @@ impl Lens for CollapsedLens {
             data: vec![1.0, 0.0, 0.0, 0.0],
         })
     }
+}
+
+fn collapsed_contract(name: &str) -> FrozenLensContract {
+    FrozenLensContract::new(
+        name,
+        sha256_digest(&[name.as_bytes(), b"weights"]),
+        sha256_digest(&[name.as_bytes(), b"corpus"]),
+        SlotShape::Dense(4),
+        Modality::Text,
+        LensDType::F32,
+        NormPolicy::None,
+    )
 }

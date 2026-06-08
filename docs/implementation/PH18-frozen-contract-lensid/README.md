@@ -21,9 +21,12 @@ vaults always receive the same `LensId`.
 
 ## Current state (build off what exists)
 
-`calyx-registry` has T01–T06 from PH17: `Registry`, `LensSpec`, all five
-`LensRuntime` variants declared, `AlgorithmicLens`, `TeiHttpLens`, error
-codes, and the determinism probe stub. Greenfield for `frozen.rs`.
+`calyx-registry` has T01–T06 implemented: `FrozenLensContract`,
+content-addressed `LensId`, finite/dim/norm guards, determinism probes,
+algorithmic/TEI/local runtimes, and registry enforcement. Post-sweep #310 made
+the boundary fail-closed: `Registry::register` and `register_with_spec` return
+`CALYX_LENS_FROZEN_VIOLATION` and do not insert; successful callers must use
+`register_frozen`, `register_frozen_with_spec`, or `register_frozen_with_probe`.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env.
@@ -32,9 +35,9 @@ codes, and the determinism probe stub. Greenfield for `frozen.rs`.
 
 | File | Responsibility |
 |---|---|
-| `crates/calyx-registry/src/frozen.rs` | `check_frozen`, `weights_sha256_verify`, `finite_norm_check`, `determinism_probe` (full impl) |
-| `crates/calyx-registry/src/lens_id.rs` | `LensId` content-addressing: `blake3(name‖weights_sha256‖corpus_hash‖output_shape)` |
-| `crates/calyx-registry/src/lib.rs` | updated `register` to call frozen contract checks |
+| `crates/calyx-registry/src/frozen.rs` | frozen contract construction, LensId derivation, finite/norm checks, determinism probe |
+| `crates/calyx-registry/src/lens.rs` | `register_frozen*` success paths; plain `register*` fail-closed without insertion |
+| `crates/calyx-registry/src/runtime/algorithmic.rs` | exposes the deterministic contract used to derive each algorithmic `LensId` |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -49,17 +52,20 @@ codes, and the determinism probe stub. Greenfield for `frozen.rs`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-1. Register a `TeiHttpLens`; swap its `weights_sha256` to a wrong value;
+1. Call plain `Registry::register`; read `CALYX_LENS_FROZEN_VIOLATION` and
+   confirm `Registry::contains(id) == false`.
+2. Register a `TeiHttpLens`; swap its `weights_sha256` to a wrong value;
    attempt measure → `CALYX_LENS_FROZEN_VIOLATION` returned, no vector produced.
-2. Register a lens declaring `SlotShape::Dense(128)`; runtime returns
+3. Register a lens declaring `SlotShape::Dense(128)`; runtime returns
    `Dense(768)` → `CALYX_LENS_DIM_MISMATCH`.
-3. Register the same `LensSpec` in two `Registry` instances (simulating two
+4. Register the same frozen contract in two `Registry` instances (simulating two
    vaults); `LensId` bytes are identical in both — read with
    `println!("{:x}", lens_id)` and confirm equality.
 
-Readback: `cargo test -p calyx-registry frozen -- --include-ignored --nocapture`
-on aiwonder; test output lines showing each CALYX_* code attached to PH18
-GitHub issue.
+Readback: #310 captured the Stage 3 atomic FSV JSON at
+`/home/croyse/calyx/data/fsv-issue310-registry-frozen-contract-20260608`.
+The JSON records `plain_register_error=CALYX_LENS_FROZEN_VIOLATION` and
+`plain_register_inserted=false`, plus frozen duplicate and runtime readbacks.
 
 ## Risks / landmines
 

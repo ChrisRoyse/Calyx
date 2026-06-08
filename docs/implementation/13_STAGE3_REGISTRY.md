@@ -19,6 +19,11 @@
 > Post-sweep hardening #300 replaces the PH20 synthetic queue-only FSV with
 > durable scheduler watermarks/throttle/restart-resume state. FSV root for #300:
 > `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`.
+> Post-sweep hardening #310 closes the PH18 unfrozen-registration bypass:
+> `Registry::register` and `register_with_spec` now fail with
+> `CALYX_LENS_FROZEN_VIOLATION`; runtime callers must use `register_frozen*`.
+> FSV root for #310:
+> `/home/croyse/calyx/data/fsv-issue310-registry-frozen-contract-20260608`.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
@@ -53,9 +58,12 @@ differentiation.
   shape)`.
 - **Key tasks.** fail-closed codes (`CALYX_LENS_FROZEN_VIOLATION`,
   `_DIM_MISMATCH`, `_NUMERICAL_INVARIANT`, `_UNREACHABLE`); content-addressing
-  so identical lens → identical id across vaults.
+  so identical lens → identical id across vaults. Plain `register` /
+  `register_with_spec` are fail-closed compatibility stubs; successful
+  registration requires `register_frozen*` with a `FrozenLensContract`.
 - **FSV gate.** mutate a weight → `FROZEN_VIOLATION`; wrong dim → `DIM_MISMATCH`;
-  same lens registered in two vaults → same `LensId` (read both).
+  plain registration → `FROZEN_VIOLATION` and no insert; same lens registered
+  in two vaults → same `LensId` (read both).
 - **Axioms/PRD.** A4, A16, `05 §4`, `03 §2`.
 
 ## PH19 — candle-local + onnx runtimes
