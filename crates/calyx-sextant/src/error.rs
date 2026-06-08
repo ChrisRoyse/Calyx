@@ -13,6 +13,8 @@ pub const CALYX_SEXTANT_EF_TOO_SMALL: &str = "CALYX_SEXTANT_EF_TOO_SMALL";
 pub const CALYX_SEXTANT_DIM_MISMATCH: &str = "CALYX_SEXTANT_DIM_MISMATCH";
 pub const CALYX_SEXTANT_VECTOR_SHAPE: &str = "CALYX_SEXTANT_VECTOR_SHAPE";
 pub const CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE: &str = "CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE";
+pub const CALYX_SEXTANT_POSTINGS_CORRUPT: &str = "CALYX_SEXTANT_POSTINGS_CORRUPT";
+pub const CALYX_SEXTANT_POSTINGS_NOT_SORTED: &str = "CALYX_SEXTANT_POSTINGS_NOT_SORTED";
 
 pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
@@ -31,6 +33,8 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE => {
             "wire a real Forge GPU path before claiming Sextant CPU/GPU parity"
         }
+        CALYX_SEXTANT_POSTINGS_CORRUPT => "discard/rebuild the sparse postings block",
+        CALYX_SEXTANT_POSTINGS_NOT_SORTED => "sort postings by increasing document id",
         _ => "inspect Sextant query/index state",
     };
     CalyxError {
