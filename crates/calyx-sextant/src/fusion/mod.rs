@@ -49,8 +49,7 @@ pub fn fuse(results: &BTreeMap<SlotId, Vec<IndexSearchHit>>, context: &FusionCon
     match &context.strategy {
         FusionStrategy::SingleLens { slot } => single_lens_fuse(*slot, results, context),
         FusionStrategy::Rrf => rrf_fuse(results, context),
-        FusionStrategy::WeightedRrf { .. } | FusionStrategy::Pipeline => {
-            weighted_rrf_fuse(results, context)
-        }
+        FusionStrategy::WeightedRrf { .. } => weighted_rrf_fuse(results, context),
+        FusionStrategy::Pipeline => rrf_fuse(results, context),
     }
 }

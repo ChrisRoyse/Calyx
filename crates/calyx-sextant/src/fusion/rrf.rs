@@ -18,24 +18,25 @@ pub fn rrf_fuse(
     context: &FusionContext,
 ) -> Vec<Hit> {
     let weights = results.keys().map(|slot| (*slot, 1.0)).collect();
-    fuse_with_weights(results, context, &weights)
+    fuse_with_weights(results, context, &weights, 1.0)
 }
 
 pub fn weighted_rrf_fuse(
     results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
     context: &FusionContext,
 ) -> Vec<Hit> {
-    fuse_with_weights(results, context, &context.weights)
+    fuse_with_weights(results, context, &context.weights, 0.0)
 }
 
 fn fuse_with_weights(
     results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
     context: &FusionContext,
     weights: &BTreeMap<SlotId, f32>,
+    default_weight: f32,
 ) -> Vec<Hit> {
     let mut fused = BTreeMap::<CxId, (f32, Vec<PerLensContribution>)>::new();
     for (slot, hits) in results {
-        let weight = *weights.get(slot).unwrap_or(&1.0);
+        let weight = *weights.get(slot).unwrap_or(&default_weight);
         if weight <= 0.0 {
             continue;
         }

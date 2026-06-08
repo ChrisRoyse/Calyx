@@ -13,6 +13,10 @@
 > handoff.
 > Post-sweep hardening #284 replaces the dense-index exact-scan shortcut with
 > native deterministic `ef` HNSW beam traversal and byte-readback recall FSV.
+> Post-sweep hardening #286 refreshes `explain.provenance_hex` after stored
+> constellation provenance is attached, removes AP-60 temporal slots 20/21/22
+> from primary WeightedRRF profiles until PH40, and makes WeightedRRF skip slots
+> not explicitly named by its profile.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -48,6 +52,9 @@ attention.
   profiles), `Hit { cx, score, per_lens[], provenance, freshness }`, `explain`.
 - **Key tasks.** rank fusion across chosen slots; per-lens contribution; attach
   `LedgerRef`; freshness (FreshDerived|StaleOk).
+- **Post-sweep note.** WeightedRRF now treats missing profile weights as
+  exclusion rather than implicit unit weight; plain RRF still assigns unit
+  weights across participating slots (#286).
 - **FSV gate.** multi-lens **recall@10 ≥ single-lens + Δ (≥15%)** on a real
   labeled corpus with qrels (BEIR/MS MARCO subset on aiwonder); every Hit
   carries a real provenance ref (read it).
@@ -76,6 +83,9 @@ attention.
   scoped, never persisted — privacy); bounded plans.
 - **Post-sweep note.** Planner bounds now reject `k=0`, no-lenses, ef/slot
   over-cap, and cost-cap cases with distinct catalog codes (#282).
+- **Post-sweep note.** Planner-selected temporal profile currently routes
+  through semantic slot 8 only; AP-60 temporal slots 20/21/22 are reserved for
+  PH40 post-retrieval temporal boost rather than primary retrieval (#286).
 - **FSV gate.** intent auto-selects the right strategy (verified per case);
   `explain=true` returns the per-lens + provenance breakdown; an unbounded plan
   is rejected.

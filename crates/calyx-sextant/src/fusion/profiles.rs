@@ -29,13 +29,21 @@ pub struct WeightedProfile {
     pub lexical_excludes_dense: bool,
 }
 
+/// AP-60 temporal slots remain post-retrieval-only until PH40 temporal boost.
+pub const AP60_TEMPORAL_PRIMARY_SLOTS: [SlotId; 3] =
+    [SlotId::new(20), SlotId::new(21), SlotId::new(22)];
+
+pub fn is_ap60_temporal_primary_slot(slot: SlotId) -> bool {
+    AP60_TEMPORAL_PRIMARY_SLOTS.contains(&slot)
+}
+
 pub fn weighted_profiles() -> Vec<WeightedProfile> {
     use RrfProfile::*;
     [
         (Causal, &[4, 8, 18][..], false),
         (Code, &[8, 9, 10, 11, 16][..], false),
         (Entity, &[3, 8, 18][..], false),
-        (Temporal, &[20, 21, 22][..], false),
+        (Temporal, &[8][..], false),
         (Speaker, &[5, 8][..], false),
         (Style, &[6, 8][..], false),
         (Civic, &[1, 2, 3, 8][..], false),
@@ -45,7 +53,7 @@ pub fn weighted_profiles() -> Vec<WeightedProfile> {
         (Semantic, &[8][..], false),
         (Lexical, &[1][..], true),
         (Multimodal, &[8, 9, 10, 11][..], false),
-        (General, &[1, 8, 18, 20][..], false),
+        (General, &[1, 8, 18][..], false),
     ]
     .into_iter()
     .map(|(profile, slots, lexical_excludes_dense)| WeightedProfile {

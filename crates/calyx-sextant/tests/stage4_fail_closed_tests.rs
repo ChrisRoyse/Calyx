@@ -1,11 +1,20 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{CxId, SlotId, SlotVector};
+use calyx_core::{
+    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId,
+    SlotVector, VaultId,
+};
+use calyx_sextant::fusion::{
+    profiles::{AP60_TEMPORAL_PRIMARY_SLOTS, is_ap60_temporal_primary_slot, lookup},
+    weighted_rrf_fuse,
+};
 use calyx_sextant::{
     CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_PLAN_COST_EXCEEDED, CALYX_SEXTANT_PLAN_UNBOUNDED,
-    CALYX_SEXTANT_SLOT_ALREADY_REGISTERED, CALYX_SEXTANT_SLOT_MISSING, HnswIndex, PlanLimits,
-    Query, QueryPlanner, SearchEngine, SlotIndexMap,
+    CALYX_SEXTANT_SLOT_ALREADY_REGISTERED, CALYX_SEXTANT_SLOT_MISSING, FusionContext,
+    FusionStrategy, HnswIndex, IndexSearchHit, PlanLimits, Query, QueryPlanner, RrfProfile,
+    SearchEngine, SlotIndexMap, weighted_profiles,
 };
 use serde_json::json;
 
@@ -21,6 +30,107 @@ fn write_readback(name: &str, value: serde_json::Value) {
     let path = root.join(name);
     fs::write(&path, serde_json::to_vec_pretty(&value).expect("json")).expect("write readback");
     println!("STAGE4_FAIL_CLOSED_READBACK={}", path.display());
+}
+
+#[test]
+fn explain_provenance_tracks_attached_constellation_provenance() {
+    let expected_hash = [0xab; 32];
+    let (hit_hash, explain_hash, per_lens_count) = provenance_probe(expected_hash);
+
+    println!(
+        "STAGE4_EXPLAIN_PROVENANCE hit={} explain={} per_lens={}",
+        hit_hash, explain_hash, per_lens_count
+    );
+    write_readback(
+        "stage4-explain-provenance-readback.json",
+        json!({
+            "hit_provenance_hex": hit_hash,
+            "explain_provenance_hex": explain_hash,
+            "expected_provenance_hex": hex32(&expected_hash),
+            "per_lens_count": per_lens_count,
+        }),
+    );
+
+    assert_eq!(hit_hash, hex32(&expected_hash));
+    assert_eq!(explain_hash, hex32(&expected_hash));
+    assert_eq!(per_lens_count, 1);
+}
+
+#[test]
+fn weighted_rrf_temporal_profiles_exclude_ap60_slots_and_skip_unlisted_slots() {
+    let temporal = lookup(RrfProfile::Temporal).expect("temporal profile");
+    let temporal_slots: Vec<_> = temporal.weights.keys().map(|slot| slot.get()).collect();
+    let profiles_temporal_free = weighted_profiles().iter().all(|profile| {
+        AP60_TEMPORAL_PRIMARY_SLOTS
+            .iter()
+            .all(|slot| !profile.weights.contains_key(slot))
+    });
+    let strict = weighted_rrf_strict_probe();
+
+    println!(
+        "STAGE4_TEMPORAL_GUARD slots={:?} temporal_free={} strict_hit={}",
+        temporal_slots, profiles_temporal_free, strict
+    );
+    write_readback(
+        "stage4-temporal-weighted-rrf-readback.json",
+        json!({
+            "temporal_profile_slots": temporal_slots,
+            "ap60_temporal_primary_slots": AP60_TEMPORAL_PRIMARY_SLOTS
+                .iter()
+                .map(|slot| slot.get())
+                .collect::<Vec<_>>(),
+            "profiles_temporal_free": profiles_temporal_free,
+            "slot_20_is_temporal_primary": is_ap60_temporal_primary_slot(SlotId::new(20)),
+            "weighted_rrf_strict_hit": strict.to_string(),
+        }),
+    );
+
+    assert_eq!(temporal.weights.len(), 1);
+    assert!(temporal.weights.contains_key(&SlotId::new(8)));
+    assert!(profiles_temporal_free);
+    assert_eq!(strict, _cx(8));
+}
+
+#[test]
+#[ignore = "aiwonder FSV writes source-of-truth artifacts"]
+fn stage4_provenance_temporal_guard_fsv() {
+    let expected_hash = [0xab; 32];
+    let (hit_hash, explain_hash, per_lens_count) = provenance_probe(expected_hash);
+    let temporal = lookup(RrfProfile::Temporal).expect("temporal profile");
+    let temporal_slots: Vec<_> = temporal.weights.keys().map(|slot| slot.get()).collect();
+    let profiles_temporal_free = weighted_profiles().iter().all(|profile| {
+        AP60_TEMPORAL_PRIMARY_SLOTS
+            .iter()
+            .all(|slot| !profile.weights.contains_key(slot))
+    });
+    let strict = weighted_rrf_strict_probe();
+
+    write_readback(
+        "stage4-provenance-temporal-guard-fsv.json",
+        json!({
+            "source_of_truth": "stored Sextant hit/explain readback JSON after search and fusion",
+            "hit_provenance_hex": hit_hash,
+            "explain_provenance_hex": explain_hash,
+            "expected_provenance_hex": hex32(&expected_hash),
+            "explain_matches_hit": hit_hash == explain_hash,
+            "per_lens_count": per_lens_count,
+            "temporal_profile_slots": temporal_slots,
+            "ap60_temporal_primary_slots": AP60_TEMPORAL_PRIMARY_SLOTS
+                .iter()
+                .map(|slot| slot.get())
+                .collect::<Vec<_>>(),
+            "profiles_temporal_free": profiles_temporal_free,
+            "weighted_rrf_strict_hit": strict.to_string(),
+            "weighted_rrf_skipped_slot_20": strict == _cx(8),
+        }),
+    );
+
+    assert_eq!(hit_hash, explain_hash);
+    assert_eq!(hit_hash, hex32(&expected_hash));
+    assert_eq!(per_lens_count, 1);
+    assert_eq!(temporal_slots, [8]);
+    assert!(profiles_temporal_free);
+    assert_eq!(strict, _cx(8));
 }
 
 #[test]
@@ -140,4 +250,101 @@ fn dense_vec(base: f32, dim: u32) -> SlotVector {
 
 fn _cx(value: u8) -> CxId {
     CxId::from_bytes([value; 16])
+}
+
+fn provenance_probe(expected_hash: [u8; 32]) -> (String, String, usize) {
+    let map = SlotIndexMap::new();
+    map.register(HnswIndex::new(SlotId::new(8), 3, 42)).unwrap();
+    let cx_id = _cx(0xa8);
+    map.insert(SlotId::new(8), cx_id, dense_vec(1.0, 3), 77)
+        .unwrap();
+    let mut engine = SearchEngine::new(map);
+    engine.put_constellation(sample_constellation(cx_id, 77, expected_hash));
+
+    let mut query = Query::new("explain provenance")
+        .with_vector(dense_vec(1.0, 3))
+        .with_slots(vec![SlotId::new(8)])
+        .explain(true);
+    query.k = 1;
+    query.ef = Some(4);
+    let hits = engine.search(&query).unwrap();
+    let hit = hits.first().expect("search hit");
+    let explain = hit.explain.as_ref().expect("explain");
+    (
+        hex32(&hit.provenance.hash),
+        explain.provenance_hex.clone(),
+        explain.per_lens_count,
+    )
+}
+
+fn weighted_rrf_strict_probe() -> CxId {
+    let mut results = BTreeMap::new();
+    results.insert(
+        SlotId::new(8),
+        vec![IndexSearchHit {
+            cx_id: _cx(8),
+            score: 1.0,
+            rank: 1,
+        }],
+    );
+    results.insert(
+        SlotId::new(20),
+        vec![IndexSearchHit {
+            cx_id: _cx(20),
+            score: 100.0,
+            rank: 1,
+        }],
+    );
+    let mut weights = BTreeMap::new();
+    weights.insert(SlotId::new(8), 1.0);
+    let hits = weighted_rrf_fuse(
+        &results,
+        &FusionContext {
+            k: 10,
+            explain: true,
+            strategy: FusionStrategy::WeightedRrf {
+                profile: RrfProfile::Semantic,
+            },
+            weights,
+        },
+    );
+    assert_eq!(hits.len(), 1);
+    hits[0].cx_id
+}
+
+fn sample_constellation(
+    cx_id: CxId,
+    seq: u64,
+    provenance_hash: [u8; 32],
+) -> calyx_core::Constellation {
+    calyx_core::Constellation {
+        cx_id,
+        vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap(),
+        panel_version: 1,
+        created_at: seq,
+        input_ref: InputRef {
+            hash: [seq as u8; 32],
+            pointer: Some(format!("zfs://calyx/stage4/{cx_id}")),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: BTreeMap::new(),
+        scalars: BTreeMap::new(),
+        anchors: vec![Anchor {
+            kind: AnchorKind::Label("stage4".to_string()),
+            value: AnchorValue::Text("ok".to_string()),
+            source: "stage4-provenance-fsv".to_string(),
+            observed_at: seq,
+            confidence: 1.0,
+        }],
+        provenance: LedgerRef {
+            seq,
+            hash: provenance_hash,
+        },
+        flags: CxFlags::default(),
+    }
+}
+
+fn hex32(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

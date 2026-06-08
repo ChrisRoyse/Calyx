@@ -51,6 +51,9 @@ we wire the data and the lookup.
 - [ ] `WeightedRrfStrategy` in `rrf.rs`: same as `RrfStrategy` but resolves
       per-slot weights from the profile by matching each slot's `SlotKind`;
       unmatched slots get weight 0.0 (excluded from fusion for that profile)
+- [x] Post-sweep #286 enforces this behavior in the current slot-id profile
+      implementation: missing weights are excluded for `WeightedRRF`, while
+      plain `RRF` keeps unit-weight participation for all result slots.
 - [ ] `FusionStrategy::WeightedRrf(String)` → look up profile → build weight map;
       `CALYX_SEXTANT_UNKNOWN_PROFILE` if name not found
 - [ ] `fn list_profiles() -> &'static [&'static str]` — used by `explain` and planner
@@ -69,6 +72,9 @@ we wire the data and the lookup.
       not an error (the fusion simply has fewer participants)
 - [ ] fail-closed: weight 0.0 slot never contributes to fused_score (assert
       `contribution == 0.0` in `per_lens` for the excluded slot)
+- [x] regression: AP-60 temporal slots 20/21/22 are absent from primary
+      profiles until PH40 and an unlisted temporal result is skipped by
+      `WeightedRRF`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
