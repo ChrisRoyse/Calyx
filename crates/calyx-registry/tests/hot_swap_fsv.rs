@@ -312,6 +312,8 @@ fn panel() -> Panel {
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,
             axis: None,
+            retrieval_only: false,
+            excluded_from_dedup: false,
             bits_about: BTreeMap::new(),
             state: SlotState::Active,
             added_at_panel_version: 1,

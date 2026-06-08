@@ -30,6 +30,12 @@ pub struct Slot {
     pub quant: QuantPolicy,
     /// Optional semantic axis/grouping tag.
     pub axis: Option<String>,
+    /// Slot participates only as a post-retrieval signal, not primary recall.
+    #[serde(default)]
+    pub retrieval_only: bool,
+    /// Slot must not drive deduplication decisions.
+    #[serde(default)]
+    pub excluded_from_dedup: bool,
     /// Assay signal by grounded outcome axis.
     #[serde(with = "anchor_signal_map")]
     pub bits_about: BTreeMap<AnchorKind, Signal>,
