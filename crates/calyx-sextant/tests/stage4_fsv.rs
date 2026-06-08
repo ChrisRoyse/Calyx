@@ -172,6 +172,15 @@ fn pipeline_and_reranker_keep_candidate_text_request_scoped() {
         })
         .unwrap();
     assert!(empty_stage1_hits.is_empty());
+    let no_stage1_hits = engine
+        .search(&Query {
+            fusion: Some(FusionStrategy::Pipeline),
+            ..Query::new("cat hat")
+                .with_vector(basis_vec(2))
+                .with_slots(vec![SlotId::new(8), SlotId::new(9)])
+        })
+        .unwrap();
+    assert!(no_stage1_hits.is_empty());
 }
 
 #[test]
@@ -231,6 +240,14 @@ fn stage4_full_stack_fsv() {
                 .with_slots(vec![SlotId::new(1), SlotId::new(8), SlotId::new(9)])
         })
         .unwrap();
+    let no_stage1_hits = engine
+        .search(&Query {
+            fusion: Some(FusionStrategy::Pipeline),
+            ..Query::new("cat hat")
+                .with_vector(basis_vec(2))
+                .with_slots(vec![SlotId::new(8), SlotId::new(9)])
+        })
+        .unwrap();
 
     engine.indexes.set_base_seq(SlotId::new(8), 500).unwrap();
     let fresh_error = engine.search(&dense_query).unwrap_err().code.to_string();
@@ -280,6 +297,7 @@ fn stage4_full_stack_fsv() {
             .iter()
             .all(|hit| pipeline_candidates.contains(&hit.cx_id)),
         "pipeline_empty_stage1_hits": empty_stage1_hits.len(),
+        "pipeline_no_stage1_hits": no_stage1_hits.len(),
         "all_provenanced": rrf.iter().all(|hit| hit.provenance.hash.iter().any(|byte| *byte != 0)),
         "fresh_error": fresh_error,
         "stale_ok_stale_by": stale_ok[0].freshness.stale_by,
@@ -307,6 +325,7 @@ fn stage4_full_stack_fsv() {
     assert!(rerank.is_ok(), "real reranker response required for FSV");
     assert_eq!(readback["pipeline_subset_ok"], true);
     assert_eq!(readback["pipeline_empty_stage1_hits"], 0);
+    assert_eq!(readback["pipeline_no_stage1_hits"], 0);
     assert_eq!(readback["fresh_error"], "CALYX_STALE_DERIVED");
     assert_eq!(readback["unbounded"], CALYX_SEXTANT_PLAN_UNBOUNDED);
     assert_eq!(readback["varint_hex"], "010204");

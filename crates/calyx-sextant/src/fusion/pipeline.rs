@@ -7,7 +7,7 @@ use calyx_core::SlotId;
 use zeroize::Zeroizing;
 
 use super::FusionContext;
-use super::rrf::{rrf_fuse, rrf_fuse_restricted};
+use super::rrf::rrf_fuse_restricted;
 use crate::hit::Hit;
 use crate::index::IndexSearchHit;
 
@@ -29,7 +29,7 @@ pub fn pipeline_fuse(
     context: &FusionContext,
 ) -> Vec<Hit> {
     if context.stage1_slots.is_empty() {
-        return rrf_fuse(results, context);
+        return Vec::new();
     }
     let candidates = stage1_candidates(results, &context.stage1_slots);
     if candidates.is_empty() {

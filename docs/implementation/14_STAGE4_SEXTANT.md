@@ -21,6 +21,10 @@
 > recall candidate subset, returns no Pipeline hits when sparse stage 1 has no
 > candidates, and makes reranker HTTP non-2xx responses fail closed.
 > FSV root: `/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
+> Post-sweep hardening #312 closes the no-stage-1 Pipeline blind spot: a
+> Pipeline query over dense-only slots now returns zero hits instead of falling
+> back to unrestricted RRF.
+> FSV root: `/home/croyse/calyx/data/fsv-issue312-pipeline-no-stage1-20260608`.
 > Post-sweep hardening #296 wires the reranker into
 > `SearchEngine::search_with_reranker` for final Pipeline ordering, with
 > request-scoped candidate text and fail-closed non-2xx/mismatch behavior.
@@ -107,7 +111,8 @@ attention.
   `Pipeline` strategy (sparse recall → multi-lens score → rerank).
 - **Post-sweep note.** Pipeline now uses inverted/sparse slots as stage-1
   candidates and final scoring is restricted to that candidate set; zero sparse
-  candidates returns zero Pipeline hits rather than dense fallback (#290).
+  candidates or no selected sparse stage returns zero Pipeline hits rather than
+  dense fallback (#290, #312).
 - **FSV gate.** term match + BM25 ranking correct on a known corpus; sparse lens
   participates in RRF/pipeline (read hits).
 - **Axioms/PRD.** A19, `10 §2/§3`, `20 §2`.
