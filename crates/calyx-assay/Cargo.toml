@@ -10,10 +10,8 @@ publish.workspace = true
 blake3.workspace = true
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-loom = { path = "../calyx-loom" }
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-
-[dev-dependencies]
-calyx-loom = { path = "../calyx-loom" }

@@ -7,6 +7,7 @@ pub mod estimate;
 pub mod gate;
 pub mod ksg;
 pub mod logistic;
+pub mod loom_adapter;
 pub mod n_eff;
 pub mod nmi;
 pub mod projection;
@@ -32,6 +33,7 @@ pub use ksg::{
     ksg_mi_continuous_discrete_with_anchor, ksg_mi_continuous_with_anchor,
 };
 pub use logistic::{LogisticProbeReport, logistic_probe_mi, logistic_probe_mi_with_anchor};
+pub use loom_adapter::AsterAssayMaterializationGate;
 pub use n_eff::{NeffReport, stable_rank};
 pub use nmi::{NmiReport, partitioned_histogram_nmi};
 pub use projection::{ProjectionReport, project_cpu, project_gpu, target_projection_dim};
