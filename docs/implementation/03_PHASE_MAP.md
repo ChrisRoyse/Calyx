@@ -156,9 +156,10 @@ Latest roots:
 > execution mode #316 is surfaced in readback and strict grouped launch fails
 > loud when unsupported. PH28 seeded bootstrap CI #318 now flows through KSG,
 > logistic-probe, AssayGate lens signal, PairGain, and persisted AssayStore
-> readback bytes. PH33 bounded build-time groundedness #298 is now FSV-backed.
-> Remaining post-sweep Stage 1-5 follow-ups are tracked in open issue state
-> instead of hidden in the phase map.
+> readback bytes. PH27/PH28 live Aster-backed PairGain materialization #319 now
+> feeds Loom planning and xterm CF materialization. PH33 bounded build-time
+> groundedness #298 is now FSV-backed. Remaining post-sweep Stage 1-5
+> follow-ups are tracked in open issue state instead of hidden in the phase map.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

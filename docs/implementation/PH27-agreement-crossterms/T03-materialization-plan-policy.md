@@ -20,6 +20,16 @@ bits`; Concat = lazy/on-demand until a later Sextant promoter wires real query-
 pattern justification.
 This is the mechanism that keeps storage `O(n·n_eff)` not `O(n·N²)`.
 
+## Implemented state
+
+Post-sweep #319 wires the PH28 live adapter:
+`calyx_assay::AsterAssayMaterializationGate` reads AsterVault slot vectors and
+grounded binary anchors, computes `AssayGate::pair_gain`, implements Loom's
+`PairGainGate`, and returns `0.0` with `last_error()` recorded when slot or
+anchor state is missing. `LoomStore::materialize_plan` now writes every eager
+plan entry into the xterm CF, so FSV reads kind counts from physical rows
+instead of trusting planner return values.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `PairDecision` enum: `EagerStore`, `LazyCache`, `Skip` (for fully redundant pairs already captured by another materialized form)
@@ -43,6 +53,16 @@ This is the mechanism that keeps storage `O(n·n_eff)` not `O(n·N²)`.
 - [ ] fail-closed: `plan_cross_terms` with a `CxId` that has no slot data → `CALYX_ASTER_NOT_FOUND`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
+
+> **Post-sweep #319 superseding readback:** Run:
+> ```
+> CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608 \
+>   cargo test -p calyx-assay aster_materialization_gate_aiwonder_fsv -- --ignored --nocapture --test-threads=1
+> ```
+> Then read `aster-materialization-gate-readback.json` plus the live and
+> missing-anchor xterm CF SST files. The live path must show Agreement and
+> Interaction xterm rows; missing anchor/slot paths must record fail-closed
+> errors and no eager Interaction materialization.
 
 - **SoT:** `materialized_count` in the plan for a planted panel (N=13 lenses, stub assay gate = all zeros bits)
 - **Readback:** run `cargo test materialization_plan_agreement_only -- --nocapture`; print plan summary showing `materialized_count = 78` (one Agreement scalar per pair, no Interaction), confirming storage is `78n` not `78n + more`

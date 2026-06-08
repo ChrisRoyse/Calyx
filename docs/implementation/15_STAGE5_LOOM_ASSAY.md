@@ -40,6 +40,11 @@
 > public KSG estimator, logistic-probe path, AssayGate lens signal, PairGain
 > estimate, and persisted AssayStore rows. FSV root:
 > `/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608`.
+> Post-sweep hardening #319 adds an Aster-backed Assay materialization gate for
+> Loom: slot/anchor rows are read from AsterVault, PairGain feeds
+> `plan_cross_terms`, and eager plan entries are physically materialized into
+> the Loom xterm CF. FSV root:
+> `/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608`.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -97,7 +102,9 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   logistic-probe quorum used by lens and pair signal calls (#309). Partitioned
   NMI shares the n>=50/malformed-input fail-closed contract (#317). KSG,
   logistic-probe, AssayGate lens signal, and PairGain estimates now attach
-  seeded bootstrap CI through the public paths before persistence (#318).
+  seeded bootstrap CI through the public paths before persistence (#318). The
+  Aster-backed Assay materialization gate now feeds real grounded PairGain into
+  Loom planning and xterm CF materialization (#319).
 - **FSV gate.** MI on a **planted-signal synthetic** is within CI of the known
   value; n<50 fails closed (no noisy point estimate).
 - **Axioms/PRD.** A2 (grounded only), A16, `07 §2`.

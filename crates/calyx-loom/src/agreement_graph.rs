@@ -12,6 +12,7 @@ use crate::cross_term::{
 };
 use crate::error::{CALYX_LOOM_SLOT_MISSING, loom_error};
 use crate::lru_cache::LruCache;
+use crate::materialization::{MaterializationAction, MaterializationPlan};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct XtermRow {
@@ -94,6 +95,45 @@ impl LoomStore {
         Ok(inserted)
     }
 
+    pub fn materialize_plan(
+        &mut self,
+        cx: CxId,
+        slots: &BTreeMap<SlotId, Vec<f32>>,
+        plan: &MaterializationPlan,
+    ) -> Result<usize> {
+        let mut inserted = 0;
+        for slot in slots.keys() {
+            self.tag_measured(cx, *slot);
+        }
+        for entry in plan
+            .entries
+            .iter()
+            .filter(|entry| entry.action == MaterializationAction::EagerStore)
+        {
+            let (a, b) = canonical_pair(entry.a, entry.b);
+            let key = CrossTermKey {
+                cx_id: cx,
+                a,
+                b,
+                kind: entry.kind,
+            };
+            if self.xterm_cf.contains_key(&key) {
+                continue;
+            }
+            let value = compute_cross_term(a, b, entry.kind, slots)?;
+            self.xterm_cf.insert(
+                key,
+                XtermRow {
+                    key,
+                    value,
+                    tag: SignalProvenanceTag::Derived,
+                },
+            );
+            inserted += 1;
+        }
+        Ok(inserted)
+    }
+
     pub fn cross_term(
         &mut self,
         cx: CxId,
@@ -115,18 +155,7 @@ impl LoomStore {
         if let Some(value) = self.cache.get(&key) {
             return Ok(value);
         }
-        let left = slots.get(&a).ok_or_else(|| {
-            loom_error(CALYX_LOOM_SLOT_MISSING, format!("slot {} missing", a.get()))
-        })?;
-        let right = slots.get(&b).ok_or_else(|| {
-            loom_error(CALYX_LOOM_SLOT_MISSING, format!("slot {} missing", b.get()))
-        })?;
-        let value = match kind {
-            CrossTermKind::Agreement => CrossTermValue::Scalar(agreement_scalar(left, right)?),
-            CrossTermKind::Delta => CrossTermValue::Vector(delta_vec(left, right)?),
-            CrossTermKind::Interaction => CrossTermValue::Vector(interaction_vec(left, right)?),
-            CrossTermKind::Concat => CrossTermValue::Vector(concat_vec(left, right)?),
-        };
+        let value = compute_cross_term(a, b, kind, slots)?;
         self.cache.put(key, value.clone());
         Ok(value)
     }
@@ -199,6 +228,26 @@ fn xterm_key(key: &CrossTermKey) -> Vec<u8> {
         CrossTermKind::Delta => 3,
     });
     out
+}
+
+fn compute_cross_term(
+    a: SlotId,
+    b: SlotId,
+    kind: CrossTermKind,
+    slots: &BTreeMap<SlotId, Vec<f32>>,
+) -> Result<CrossTermValue> {
+    let left = slots
+        .get(&a)
+        .ok_or_else(|| loom_error(CALYX_LOOM_SLOT_MISSING, format!("slot {} missing", a.get())))?;
+    let right = slots
+        .get(&b)
+        .ok_or_else(|| loom_error(CALYX_LOOM_SLOT_MISSING, format!("slot {} missing", b.get())))?;
+    match kind {
+        CrossTermKind::Agreement => Ok(CrossTermValue::Scalar(agreement_scalar(left, right)?)),
+        CrossTermKind::Delta => Ok(CrossTermValue::Vector(delta_vec(left, right)?)),
+        CrossTermKind::Interaction => Ok(CrossTermValue::Vector(interaction_vec(left, right)?)),
+        CrossTermKind::Concat => Ok(CrossTermValue::Vector(concat_vec(left, right)?)),
+    }
 }
 
 #[cfg(test)]

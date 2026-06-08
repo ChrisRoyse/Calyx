@@ -24,6 +24,12 @@ conservative CI derived from the left/right/pair bootstrap-backed estimates.
 The Aster Assay CF readback for #318 proves persisted `MiEstimate` rows include
 `ci_low`/`ci_high` bytes.
 
+Post-sweep #319 status: `AsterAssayMaterializationGate` reads AsterVault
+slot/anchor rows, computes grounded PairGain, implements Loom's `PairGainGate`,
+and records fail-closed `last_error()` state when vectors or anchors are
+missing. `LoomStore::materialize_plan` persists eager Agreement/Interaction rows
+to the xterm CF for byte readback.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Implement `AssayGateImpl` (the real impl of the `AssayGate` trait from PH27 T03):
@@ -58,6 +64,14 @@ The Aster Assay CF readback for #318 proves persisted `MiEstimate` rows include
 > Then read the Aster Assay CF raw `value_hex` and decoded rows in
 > `bootstrap-ci-readback.json`; each persisted public estimator/gate row must
 > carry `ci_low` and `ci_high` bytes.
+
+> **Post-sweep #319 materialization readback:** Run:
+> ```
+> CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608 \
+>   cargo test -p calyx-assay aster_materialization_gate_aiwonder_fsv -- --ignored --nocapture --test-threads=1
+> ```
+> Then read the source AsterVault CF counts and Loom xterm CF kind counts in
+> `aster-materialization-gate-readback.json`.
 
 - **SoT:** `Slot.bits_about` persisted to the assay CF for a planted-signal synthetic vault
 - **Readback:**

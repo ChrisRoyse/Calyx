@@ -53,6 +53,12 @@ logistic-probe estimator, AssayGate lens signal, PairGain estimate, and Aster
 Assay CF persistence/readback path. FSV root:
 `/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608`.
 
+Post-sweep #319 adds `AsterAssayMaterializationGate`, which reads AsterVault
+slot vectors and grounded binary anchors, computes PairGain, implements Loom's
+`PairGainGate`, and feeds `plan_cross_terms` before eager xterm materialization.
+FSV root:
+`/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608`.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
@@ -63,6 +69,7 @@ Assay CF persistence/readback path. FSV root:
 | `crates/calyx-assay/src/projection.rs` | Random-projection pre-step for high-d: JL lemma projection to `2·ceil(log2(n))` dims; seeded deterministically |
 | `crates/calyx-assay/src/bootstrap.rs` | Bootstrap CI engine: seeded 95% percentile-span envelope; configurable resamples (default 200) and seed (default 0) |
 | `crates/calyx-assay/src/gate.rs` | `AssayGate` impl that wires `pair_gain` into PH27 `MaterializationPlan`; `lens_signal` entry point |
+| `crates/calyx-assay/src/loom_adapter.rs` | AsterVault-backed adapter from grounded slot/anchor rows to Loom `PairGainGate` |
 | `crates/calyx-assay/src/logistic.rs` | Binary-outcome logistic-probe MI estimator |
 | `crates/calyx-assay/tests/stage5_fsv.rs` | Planted-synthetic FSV tests: known MI, known NMI, CI correctness, quorum enforcement, projection parity |
 
