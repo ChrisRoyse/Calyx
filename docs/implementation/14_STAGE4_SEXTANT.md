@@ -57,6 +57,10 @@
 > `Query::recall_k`; Pipeline now recalls sparse candidates with `recall_k`
 > before dense scoring/rerank and only then truncates to final `query.k`.
 > FSV root: `/home/croyse/calyx/data/fsv-issue324-pipeline-recall-headroom-20260608`.
+> Post-sweep hardening #325 makes `RerankRequest` own candidate strings as
+> `Zeroizing<String>` and keeps the serialized HTTP body in `Zeroizing<String>`;
+> FSV records the container types and captured wire request separately.
+> FSV root: `/home/croyse/calyx/data/fsv-issue325-reranker-candidate-privacy-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -165,6 +169,10 @@ attention.
   reranker scores to final Pipeline hit ordering using only candidate text from
   the sparse stage-1 index; it fails closed on non-Pipeline use, missing
   candidate text, non-2xx responses, or score-vector mismatch (#296).
+- **Post-sweep note.** Reranker candidate text is wrapped in
+  `Zeroizing<String>` as soon as `SearchEngine` pulls it from the sparse index,
+  and `RerankRequest` owns `Vec<Zeroizing<String>>`; `zeroizing_ok` is no longer
+  used as proof of candidate ownership (#325).
 - **Post-sweep note.** `QueryFilters` now executes scalar comparisons, anchor
   kind/value/source/confidence predicates, and built-in metadata predicates
   (vault, modality, panel version, created time, input redaction/pointer) against
@@ -177,7 +185,8 @@ attention.
 - **FSV gate.** intent auto-selects the right strategy (verified per case);
   `explain=true` returns the per-lens + provenance breakdown; an unbounded plan
   is rejected; Pipeline reranker readback shows baseline order, reranked order,
-  HTTP request text scope, and `pipeline+rerank` strategy; query filter readback
+  HTTP request text scope, zeroizing candidate container types, and
+  `pipeline+rerank` strategy; query filter readback
   shows unfiltered ids, filtered ids, provenance hashes, and excluded ids absent.
 - **Axioms/PRD.** A17, `10 §2/§7`, `17 §7.3` (planner cost caps).
 

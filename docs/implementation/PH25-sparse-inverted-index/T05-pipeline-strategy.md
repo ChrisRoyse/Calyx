@@ -59,8 +59,10 @@ results are truncated to `query.k` afterward.
 - [ ] HTTP call to reranker: blocking HTTP client; timeout 5s;
       `CALYX_SEXTANT_RERANKER_TIMEOUT` on failure; fail-closed (do not return
       unranked results silently — either rerank or error)
-- [ ] Privacy invariant enforced in code: `candidate_text` is a local variable
-      in the pipeline function scope; zeroize on drop via `zeroize::Zeroizing`
+- [x] Privacy invariant enforced in code: candidate text is wrapped as
+      `Zeroizing<String>` when it leaves the sparse index and
+      `RerankRequest.candidates` owns `Vec<Zeroizing<String>>`; the serialized
+      HTTP body is also `Zeroizing<String>` (#325)
 - [ ] Wire `FusionStrategy::Pipeline` in the dispatcher → `PipelineStrategy`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
@@ -91,6 +93,10 @@ results are truncated to `query.k` afterward.
   `/home/croyse/calyx/data/fsv-issue324-pipeline-recall-headroom-20260608/pipeline-recall-headroom-readback.json`
   proves `recovered_outside_sparse_top_k=true`, `wide_final_len=1`,
   `reranker_request_text_count=3`, and `reranked_final_len=1`.
+- **Post-sweep #325 SoT:**
+  `/home/croyse/calyx/data/fsv-issue325-reranker-candidate-privacy-20260608/reranker-search-readback.json`
+  proves `candidates_owned_by_zeroizing=true` and
+  `serialized_body_zeroizing=true`.
 
 ## Done when
 

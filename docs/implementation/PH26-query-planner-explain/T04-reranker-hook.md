@@ -15,8 +15,9 @@
 A production-quality reranker HTTP client that replaces the stub in PH25 T05.
 The GTE cross-encoder reranker at `:8089` on aiwonder is the resident model;
 ONNX cross-encoder is the embedded fallback. Candidate text handling is
-request-scoped, serialized request bytes are held in `Zeroizing<String>`, and
-candidate text is never written to WAL, disk, or any log. Hard timeout of
+request-scoped, candidate strings are owned as `Zeroizing<String>`, serialized
+request bytes are held in `Zeroizing<String>`, and candidate text is never
+written to WAL, disk, or any product log. Hard timeout of
 `rerank_timeout_ms` (default 5000ms); fail-closed on timeout or HTTP error.
 
 **Current implementation note (#290):** public `RerankRequest` keeps
@@ -25,6 +26,13 @@ to TEI's actual `{ "query": ..., "texts": [...] }` shape. TEI returns
 `[{ "index": usize, "score": f32 }]`; Calyx maps those rank entries back into
 candidate order and rejects non-2xx, malformed, duplicate, non-finite, or
 incomplete responses with `CALYX_SEXTANT_RERANKER_TIMEOUT`.
+
+**Current implementation note (#325):** `RerankRequest.candidates` is
+`Vec<Zeroizing<String>>`; `SearchEngine` wraps candidate text immediately after
+reading it from the sparse index. The FSV evidence records this container type
+separately from the captured synthetic HTTP request. `RerankResponse.zeroizing_ok`
+continues to represent the reranker/wire response claim, not proof that Calyx's
+candidate strings were zeroizing-owned.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -37,7 +45,7 @@ incomplete responses with `CALYX_SEXTANT_RERANKER_TIMEOUT`.
 
   pub struct RerankRequest {
       pub query: String,
-      pub candidates: Vec<String>,
+      pub candidates: Vec<Zeroizing<String>>,
   }
 
   pub struct RerankResponse {
@@ -53,7 +61,8 @@ incomplete responses with `CALYX_SEXTANT_RERANKER_TIMEOUT`.
       - Parse TEI response `[{ "index": 0, "score": 0.5 }, ...]` into
         candidate-order scores
       - Serialized request body is scoped through a `Zeroizing` value; candidate
-        strings are borrowed from the caller and never persisted or logged
+        strings are owned in `Zeroizing<String>` values and never persisted or
+        logged by the product path
 - [ ] Wire into `PipelineStrategy` (replace the stub from PH25 T05)
 - [ ] `RerankerClient::new_local()` → creates a client pointed at `127.0.0.1:8089`
 - [ ] malformed JSON/shape → `CALYX_SEXTANT_RERANKER_TIMEOUT`
@@ -69,6 +78,8 @@ incomplete responses with `CALYX_SEXTANT_RERANKER_TIMEOUT`.
 - [ ] edge (mock): mock server sleeps > timeout → `CALYX_SEXTANT_RERANKER_TIMEOUT`
 - [ ] edge: empty candidate list → `Ok(RerankResponse { scores: vec![] })`
 - [ ] fail-closed: malformed JSON from server → `CALYX_SEXTANT_RERANKER_TIMEOUT`
+- [x] privacy: `RerankRequest.candidates` type contains `Zeroizing<String>`;
+      serialized request body also uses `Zeroizing<String>`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -78,6 +89,12 @@ incomplete responses with `CALYX_SEXTANT_RERANKER_TIMEOUT`.
 - **Prove:** Stage 4 readback includes `rerank.scores` from live `:8089`,
   `zeroizing_ok=true`, and non-2xx unit coverage for
   `CALYX_SEXTANT_RERANKER_TIMEOUT`.
+- **Post-sweep #325 SoT:**
+  `/home/croyse/calyx/data/fsv-issue325-reranker-candidate-privacy-20260608/reranker-search-readback.json`
+  proves `candidates_owned_by_zeroizing=true`,
+  `serialized_body_zeroizing=true`, `request_text_count=2`, and
+  `dog_log_not_requested=true`; the captured `reranker-http-request.txt` is the
+  synthetic wire artifact used only for FSV.
 
 ## Done when
 

@@ -10,10 +10,19 @@ use zeroize::Zeroizing;
 
 use crate::error::{CALYX_SEXTANT_RERANKER_TIMEOUT, sextant_error};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RerankRequest {
     pub query: String,
-    pub candidates: Vec<String>,
+    pub candidates: Vec<Zeroizing<String>>,
+}
+
+impl RerankRequest {
+    pub fn new(query: impl Into<String>, candidates: Vec<String>) -> Self {
+        Self {
+            query: query.into(),
+            candidates: candidates.into_iter().map(Zeroizing::new).collect(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -31,7 +40,7 @@ struct WireRerankResponse {
 #[derive(Serialize)]
 struct WireRerankRequest<'a> {
     query: &'a str,
-    texts: &'a [String],
+    texts: Vec<&'a str>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,9 +81,14 @@ impl RerankerClient {
             .map_err(|_| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "connect timeout"))?;
         stream.set_read_timeout(Some(self.timeout)).ok();
         stream.set_write_timeout(Some(self.timeout)).ok();
+        let texts = request
+            .candidates
+            .iter()
+            .map(|candidate| candidate.as_str())
+            .collect();
         let wire_request = WireRerankRequest {
             query: &request.query,
-            texts: &request.candidates,
+            texts,
         };
         let body = Zeroizing::new(serde_json::to_string(&wire_request).map_err(|error| {
             sextant_error(
