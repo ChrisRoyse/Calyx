@@ -239,7 +239,9 @@ name = "calyx-lodestar"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "calyx-aster",
  "calyx-core",
+ "calyx-loom",
  "calyx-mincut",
  "calyx-paths",
  "calyx-sextant",

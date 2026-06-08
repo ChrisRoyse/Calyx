@@ -35,6 +35,27 @@ pub enum LodestarError {
     },
     #[error("CALYX_KERNEL_SCORE_INVALID: {detail}")]
     KernelScoreInvalid { detail: String },
+    #[error("CALYX_KERNEL_LOOM_SLOT_MAPPING_MISSING: no CxId mapping for {xterm_cx}/{slot}")]
+    KernelLoomSlotMappingMissing {
+        xterm_cx: calyx_core::CxId,
+        slot: calyx_core::SlotId,
+    },
+    #[error(
+        "CALYX_KERNEL_LOOM_DIRECTIONAL_CONFIDENCE_MISSING: no directional confidence for {xterm_cx}/{a}->{b}"
+    )]
+    KernelLoomDirectionalConfidenceMissing {
+        xterm_cx: calyx_core::CxId,
+        a: calyx_core::SlotId,
+        b: calyx_core::SlotId,
+    },
+    #[error("CALYX_KERNEL_LOOM_AGREEMENT_MISSING: no agreement xterm for {xterm_cx}/{a}<->{b}")]
+    KernelLoomAgreementMissing {
+        xterm_cx: calyx_core::CxId,
+        a: calyx_core::SlotId,
+        b: calyx_core::SlotId,
+    },
+    #[error("CALYX_KERNEL_LOOM_AGREEMENT_INVALID: {detail}")]
+    KernelLoomAgreementInvalid { detail: String },
     #[error("CALYX_RECALL_EMPTY_CORPUS: recall test has no held-out queries")]
     RecallEmptyCorpus,
     #[error("CALYX_RECALL_INVALID_PARAMS: {detail}")]
@@ -64,6 +85,12 @@ impl LodestarError {
             Self::KernelNoAnchoredNode => "CALYX_KERNEL_NO_ANCHORED_NODE",
             Self::KernelAnswerNoPath { .. } => "CALYX_KERNEL_ANSWER_NO_PATH",
             Self::KernelScoreInvalid { .. } => "CALYX_KERNEL_SCORE_INVALID",
+            Self::KernelLoomSlotMappingMissing { .. } => "CALYX_KERNEL_LOOM_SLOT_MAPPING_MISSING",
+            Self::KernelLoomDirectionalConfidenceMissing { .. } => {
+                "CALYX_KERNEL_LOOM_DIRECTIONAL_CONFIDENCE_MISSING"
+            }
+            Self::KernelLoomAgreementMissing { .. } => "CALYX_KERNEL_LOOM_AGREEMENT_MISSING",
+            Self::KernelLoomAgreementInvalid { .. } => "CALYX_KERNEL_LOOM_AGREEMENT_INVALID",
             Self::RecallEmptyCorpus => "CALYX_RECALL_EMPTY_CORPUS",
             Self::RecallInvalidParams { .. } => "CALYX_RECALL_INVALID_PARAMS",
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
