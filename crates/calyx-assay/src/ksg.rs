@@ -2,14 +2,32 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{CalyxError, Result};
+use calyx_core::{Anchor, CalyxError, Result};
 
-use crate::estimate::{EstimatorKind, MiEstimate, TrustTag};
+use crate::estimate::{EstimatorKind, MiEstimate, TrustTag, trust_for_anchor};
 use crate::samples::validate_rectangular_finite;
 
 pub const MIN_ASSAY_SAMPLES: usize = 50;
 
 pub fn ksg_mi_continuous(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<MiEstimate> {
+    ksg_mi_continuous_with_trust(x, y, k, TrustTag::Provisional)
+}
+
+pub fn ksg_mi_continuous_with_anchor(
+    x: &[Vec<f32>],
+    y: &[Vec<f32>],
+    k: usize,
+    anchor: &Anchor,
+) -> Result<MiEstimate> {
+    ksg_mi_continuous_with_trust(x, y, k, trust_for_anchor(Some(anchor)))
+}
+
+fn ksg_mi_continuous_with_trust(
+    x: &[Vec<f32>],
+    y: &[Vec<f32>],
+    k: usize,
+    trust: TrustTag,
+) -> Result<MiEstimate> {
     validate_samples(x, y, k)?;
     let n = x.len();
     let mut local_bits = Vec::with_capacity(n);
@@ -30,7 +48,7 @@ pub fn ksg_mi_continuous(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<MiE
         bits + band,
         n,
         EstimatorKind::Ksg,
-        TrustTag::Trusted,
+        trust,
     ))
 }
 
@@ -38,6 +56,24 @@ pub fn ksg_mi_continuous_discrete(
     x: &[Vec<f32>],
     labels: &[usize],
     k: usize,
+) -> Result<MiEstimate> {
+    ksg_mi_continuous_discrete_with_anchor_opt(x, labels, k, None)
+}
+
+pub fn ksg_mi_continuous_discrete_with_anchor(
+    x: &[Vec<f32>],
+    labels: &[usize],
+    k: usize,
+    anchor: &Anchor,
+) -> Result<MiEstimate> {
+    ksg_mi_continuous_discrete_with_anchor_opt(x, labels, k, Some(anchor))
+}
+
+fn ksg_mi_continuous_discrete_with_anchor_opt(
+    x: &[Vec<f32>],
+    labels: &[usize],
+    k: usize,
+    anchor: Option<&Anchor>,
 ) -> Result<MiEstimate> {
     validate_sample_counts(x.len(), labels.len(), k)?;
     validate_rectangular_finite("x", x)?;
@@ -54,7 +90,7 @@ pub fn ksg_mi_continuous_discrete(
             row
         })
         .collect();
-    ksg_mi_continuous(x, &y, k)
+    ksg_mi_continuous_with_trust(x, &y, k, trust_for_anchor(anchor))
 }
 
 fn validate_samples(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<()> {

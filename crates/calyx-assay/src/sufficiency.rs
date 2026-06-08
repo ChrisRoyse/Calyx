@@ -2,11 +2,11 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{AnchorKind, SlotId};
+use calyx_core::{Anchor, AnchorKind, SlotId};
 use serde::{Deserialize, Serialize};
 
 use crate::attribution::SlotAttribution;
-use crate::estimate::TrustTag;
+use crate::estimate::{TrustTag, provisional_without_anchor, trust_for_anchor};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -84,16 +84,63 @@ pub fn panel_sufficiency(
     slots: &[SlotAttribution],
     trust: TrustTag,
 ) -> PanelSufficiency {
-    panel_sufficiency_with_context(
+    panel_sufficiency_with_trust(
         panel_bits,
         anchor_entropy_bits,
         slots,
-        trust,
+        provisional_without_anchor(trust),
+        DeficitRoutingContext::default(),
+    )
+}
+
+pub fn panel_sufficiency_with_anchor(
+    panel_bits: f32,
+    anchor_entropy_bits: f32,
+    slots: &[SlotAttribution],
+    anchor: &Anchor,
+) -> PanelSufficiency {
+    panel_sufficiency_with_trust(
+        panel_bits,
+        anchor_entropy_bits,
+        slots,
+        trust_for_anchor(Some(anchor)),
         DeficitRoutingContext::default(),
     )
 }
 
 pub fn panel_sufficiency_with_context(
+    panel_bits: f32,
+    anchor_entropy_bits: f32,
+    slots: &[SlotAttribution],
+    trust: TrustTag,
+    context: DeficitRoutingContext,
+) -> PanelSufficiency {
+    panel_sufficiency_with_trust(
+        panel_bits,
+        anchor_entropy_bits,
+        slots,
+        provisional_without_anchor(trust),
+        context,
+    )
+}
+
+pub fn panel_sufficiency_with_anchor_and_context(
+    panel_bits: f32,
+    anchor_entropy_bits: f32,
+    slots: &[SlotAttribution],
+    anchor: &Anchor,
+    context: DeficitRoutingContext,
+) -> PanelSufficiency {
+    panel_sufficiency_with_trust(
+        panel_bits,
+        anchor_entropy_bits,
+        slots,
+        trust_for_anchor(Some(anchor)),
+        context,
+    )
+}
+
+fn panel_sufficiency_with_trust(
     panel_bits: f32,
     anchor_entropy_bits: f32,
     slots: &[SlotAttribution],
