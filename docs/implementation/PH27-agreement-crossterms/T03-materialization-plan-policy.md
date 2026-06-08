@@ -30,6 +30,11 @@ anchor state is missing. `LoomStore::materialize_plan` now writes every eager
 plan entry into the xterm CF, so FSV reads kind counts from physical rows
 instead of trusting planner return values.
 
+This implemented state supersedes the original stub-oriented checklist below:
+Stage 5 no longer depends on a dummy Assay gate for real materialization
+decisions. The remaining Sextant promotion hook is intentionally deferred;
+`Concat` stays lazy until query-pattern evidence is introduced.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `PairDecision` enum: `EagerStore`, `LazyCache`, `Skip` (for fully redundant pairs already captured by another materialized form)
@@ -40,14 +45,18 @@ instead of trusting planner return values.
   - for each pair `(a,b)`: if `assay_hook.pair_gain(a,b,anchor) >= 0.05` → Interaction = `EagerStore`; else `LazyCache`
   - for each pair `(a,b)`: Concat = `LazyCache` until the later Sextant promotion hook is wired
   - Delta always `LazyCache` (directional contrast; materialized on demand only)
-- [ ] Stub `AssayGate` trait (returns `0.0` bits until PH28 wires the real implementation); wire `AssayGate` into PH28
-- [ ] Stub `SextantPromoter` trait (returns `false` until PH26 wires query-pattern data); note the hook point in code comments
+- [x] Replace the original stub Assay path with the PH28/#319
+  `AsterAssayMaterializationGate` live adapter.
+- [x] Keep Sextant promotion deferred by policy; `Concat` remains lazy until a
+  later query-pattern promoter exists.
 - [ ] Expose `materialized_count(plan) -> usize` — count of `EagerStore` decisions; used by `abundance_report` to prove storage is not `C(N,2)`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: with stub `AssayGate` (0.0 bits always) and stub `SextantPromoter` (false always), only Agreement decisions are `EagerStore`; all Delta/Interaction/Concat are `LazyCache`; `materialized_count == n_active_pairs` (one Agreement per pair)
-- [ ] unit: with a mock `AssayGate` returning `0.06 bits` for pair `(a,b)` and `0.0` for all others, only `(a,b)` Interaction is `EagerStore`
+- [x] unit: with a static zero-gain gate, only Agreement decisions are
+  `EagerStore`; all Delta/Interaction/Concat are lazy.
+- [x] unit: with a positive-gain gate, qualifying Interaction rows are
+  `EagerStore`.
 - [ ] proptest: `materialized_count(plan) <= 2 * active_pairs_count(panel)` always (Agreement plus qualifying Interaction; Delta/Concat do not inflate eager storage)
 - [ ] edge: empty panel → `MaterializationPlan` with empty decisions; single-slot panel → zero active pairs; panel with all inactive slots → zero active pairs
 - [ ] fail-closed: `plan_cross_terms` with a `CxId` that has no slot data → `CALYX_ASTER_NOT_FOUND`
@@ -70,7 +79,8 @@ instead of trusting planner return values.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence attached via #319:
+  `/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608`
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

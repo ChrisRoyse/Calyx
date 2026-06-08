@@ -42,6 +42,13 @@ machine, proven how*.
 | `PHASE_TASKS_README.md` | **the per-phase task convention** — directory layout, the atomic task-card template, the README template, the binding rules every card inherits, and the coverage rule. Read before opening any phase subdir. |
 | `PH05-*/` … `PH72-*/` | **one subdir per phase** (Stage 1 → Stage 20). Each holds a `README.md` (phase overview) + one `.md` atomic task card per actionable unit (`T01-…`, `T02-…`). When every card in every subdir is done, `BUILD_DONE` holds. Stage 0 (PH00–PH04) is already built and intentionally has no subdir. |
 
+Completed-phase note: task-card checkboxes are implementation prompts and
+design-history acceptance criteria. The current status source is, in order,
+GitHub issue state/evidence comments, `03_PHASE_MAP.md`, the per-stage file,
+then the phase README. For Stages 0-5, open/closed state and aiwonder FSV
+evidence supersede any remaining unchecked historical checklist line inside a
+task card.
+
 ## 3. Numbering
 
 - **Phases** are `PH00`–`PH72`, globally ordered, grouped into **Stages**

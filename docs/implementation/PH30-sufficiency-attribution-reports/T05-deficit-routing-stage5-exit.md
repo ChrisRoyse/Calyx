@@ -19,10 +19,12 @@
 ## Goal
 
 Implement structured deficit routing so downstream consumers (Anneal PH47, CLI)
-can act on the sufficiency gap without parsing text. Verify the complete Stage 5
-exit gate: Calyx knows, in bits, what every lens is worth and whether the panel
-can answer the question, with DPI ceiling reported and the differentiation
-contract gated. This is the final card of Stage 5.
+can act on the sufficiency gap without parsing text. Stage 5 now emits deficits
+through `SufficiencyDeficitSink`; Anneal consumption is PH47 and the user-facing
+CLI is PH62. Verify the complete Stage 5 exit gate: Calyx knows, in bits, what
+every lens is worth and whether the panel can answer the question, with DPI
+ceiling reported and the differentiation contract gated. This is the final card
+of Stage 5.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -86,7 +88,8 @@ contract gated. This is the final card of Stage 5.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence attached under
+  `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

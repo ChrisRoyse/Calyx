@@ -131,7 +131,8 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   sole-carrier flag), `abundance_report` (N, C(N,2), materialized, n_eff, DPI
   ceiling), `bits_report`.
 - **Key tasks.** DPI ceiling exposed; deficit localized to slots; sufficiency
-  routes to Anneal lens-proposal (Stage 10).
+  emits structured deficits through `SufficiencyDeficitSink`; Anneal consumes
+  that interface in PH47.
 - **Post-sweep note.** Sufficiency and bit reports remain anchor-explicit; the
   backing AssayStore now prevents same-panel/shard/subject collisions across
   vaults or anchors (#287), and persisted rows without vault scope are rejected

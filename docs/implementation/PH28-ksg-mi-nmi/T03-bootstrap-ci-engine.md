@@ -28,6 +28,12 @@ seeded 95% percentile-span envelope with the public point estimate forced
 inside, which keeps the interval bootstrap-derived while covering the observed
 finite-sample KSG bias on the Stage 5 planted synthetic.
 
+This implemented state supersedes the original generic bootstrap API sketch
+below. The current public API is `bootstrap_mean_ci`,
+`bootstrap_mean_ci_with_config`, and `bootstrap_paired_ci`; public KSG,
+logistic-probe, AssayGate, PairGain, and persisted AssayStore rows all carry
+the seeded CI read back in #318.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `BootstrapConfig`: `{ n_bootstrap: usize, seed: u64, alpha: f32 }` — default `n_bootstrap=200`, `alpha=0.05` (95% CI), seed=0
@@ -69,7 +75,8 @@ finite-sample KSG bias on the Stage 5 planted synthetic.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH28 GitHub issue
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence attached via #318:
+  `/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608`
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

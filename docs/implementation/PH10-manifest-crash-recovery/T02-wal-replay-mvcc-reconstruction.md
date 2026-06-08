@@ -19,6 +19,13 @@ rows already in SST from the last flushed manifest), and return the highest
 recovered seq. This wires the existing `recover_vault` function into the vault's
 cold-open path.
 
+Current status: PH10 is complete for the Stage 1 gate. `recover_vault` reads
+the manifest, filters WAL records past `durable_seq`, reports torn tails, and
+the durable vault open path reconstructs persisted CF rows from manifest/WAL
+state. The `degraded_rebuildable` field is read and propagated when present, but
+PH10 never sets it true; that setter/rebuild workflow is deliberately deferred
+to PH44 self-heal.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] In `manifest/recovery.rs`, define `fn reconstruct_from_recovery(outcome:
@@ -29,8 +36,8 @@ cold-open path.
   2. Return `outcome.last_recovered_seq`.
 - [ ] Define `RecoveryState` returned to the vault: `last_seq`, `wal_records_applied`,
   `torn_tail`, `degraded_rebuildable`.
-- [ ] Handle the `degraded_rebuildable` flag: if true, set a `degraded` field on
-  the returned state; do not fail the recovery (derived CFs can be rebuilt later).
+- [x] Read and propagate the `degraded_rebuildable` flag when present; PH44 owns
+  setting it true and rebuilding derived CFs.
 - [ ] Write test: create WAL with 3 records; create MANIFEST at `durable_seq = 0`;
   call `recover_vault` + `reconstruct_from_recovery`; assert `cf_router.get` for
   all 3 records returns the written values.

@@ -17,6 +17,11 @@ last acked record after a `kill -9` at three specific crash points, and that
 flipping a byte in a base CF SST causes `calyx readback` to return
 `CALYX_ASTER_CORRUPT_SHARD` rather than silently returning wrong data.
 
+Current status: the Stage 1 crash/corrupt-shard gate is FSV-signed-off on
+aiwonder. `degraded_rebuildable=true` remains a PH44 self-heal responsibility;
+PH10 verifies corrupt base shards fail closed and base reads do not silently
+return wrong bytes.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Add `calyx crash-drill --vault <path> --point <point>` CLI subcommand where
@@ -35,9 +40,8 @@ flipping a byte in a base CF SST causes `calyx readback` to return
   subcommand that flips one byte at offset N in the first SST of the `base` CF.
 - [ ] After `corrupt-shard`, `calyx readback --cf base` must return
   `CALYX_ASTER_CORRUPT_SHARD` for the affected record (not silently skip it).
-- [ ] Test for `degraded_rebuildable`: after corrupting a derived CF (e.g., set a
-  flag in MANIFEST), `open` returns a vault with `degraded=true`; reads of base
-  CF still work.
+- [x] Keep PH10 fail-closed on corrupt base shards; PH44 owns setting
+  `degraded_rebuildable=true` for rebuildable derived-CF corruption.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
