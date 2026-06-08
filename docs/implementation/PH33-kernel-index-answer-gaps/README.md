@@ -45,6 +45,13 @@ PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
 `0.9568264`, all non-exhaustive and warning-free. Reports live under
 `/home/croyse/calyx/fsv/ph33_recall_*_20260608.json`; summary SHA-256
 `b12ea6c3339cfce2dae34142d88419ffddf2371b9e9c38a85eaaa6ee4471b169`.
+T06 (#239) adds PH35-backed Lodestar provenance APIs:
+`build_kernel_pipeline_with_ledger` writes one `kind=Kernel` entry and
+`kernel_answer_with_ledger` writes one `kind=Answer` entry per hop, with
+fail-closed `CALYX_LEDGER_*` error surfacing. Physical ledger row, decoded JSON,
+hex, and secret-scan readbacks are FSV-backed at
+`/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`.
+Full PH36 trace/reproduce remains in #252-#255.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -55,7 +62,7 @@ PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
 | `crates/calyx-lodestar/src/loom_assoc.rs` | read Loom XTerm CF agreement rows through `LoomStore`, require slot→CxId bindings + directional confidence, and emit CxId `AgreementEdge` inputs for Mincut/Lodestar |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
 | `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(kernel, corpus, held_out) -> RecallReport`; reconstruct held-out from kernel-only; ratio ≥ 0.95 is the gate |
-| Stage 7 Ledger integration | #239 replaces PH33 stub provenance with real `kind=Kernel` ledger entries once PH35/PH36 land |
+| `crates/calyx-lodestar/src/provenance.rs` | PH35-backed `kind=Kernel` / `kind=Answer` Ledger append helpers for build and answer paths (#239); PH36 trace/reproduce remains separate |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -66,7 +73,7 @@ PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
 | T03 | `grounding_gaps`: anchor-reachability BFS + gap list | T01 |
 | T04 | Recall test harness: kernel-only recall ≥ 0.95·full | T02, T03 |
 | T05 | FSV: run on ≥3 real corpora on aiwonder; measure + report recall | T04 |
-| T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`) | PH35/PH36 |
+| T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`) (done #239; PH36 trace/reproduce separate) | PH35 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -102,5 +109,7 @@ PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
   anchor-aware estimates/reports. No-anchor or ungrounded Assay results are
   intentionally `provisional` after #294 and cannot satisfy grounded kernel
   evidence requirements.
-- **Provenance stamp per hop:** PH33 fills structured provenance references; #239
-  remains open until PH35/PH36 provide real Ledger appends and readback.
+- **Provenance stamp per hop:** `kernel_answer_with_ledger` now appends real
+  Ledger rows per hop (#239). The legacy `kernel_answer` stub path is
+  compatibility-only and must not be counted as real Stage 6 exit provenance.
+  PH36 owns `get_answer_trace` and `reproduce`.

@@ -12,6 +12,7 @@ fsv = []
 [dependencies]
 blake3.workspace = true
 calyx-core = { path = "../calyx-core" }
+calyx-ledger = { path = "../calyx-ledger" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-mincut = { path = "../calyx-mincut" }
 calyx-paths = { path = "../calyx-paths" }

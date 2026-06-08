@@ -20,7 +20,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, durable rollback #321, and lifecycle idempotency/backfill-cancel #327 are FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, and Aster-backed Loom materialization gate #319 are FSV-backed |
-| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T06 done/FSV-signed-off; #240 exit plus #328-#332 readiness follow-ups pending) |
+| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T06 done/FSV-signed-off with PH36 trace/reproduce still separate; PH34 T01-T06 done/FSV-signed-off; #240 exit plus #328-#332 readiness follow-ups pending) |
 | S7 Ledger | PH35–PH36 | ▶ **ACTIVE** (PH35 T01-T07 done/FSV-signed-off; PH36 next) |
 | S8–S20 | PH37–PH72 | · pending |
 
@@ -83,6 +83,7 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue292-kernel-answer-max-hops-20260608`,
   `/home/croyse/calyx/data/fsv-issue293-loom-assoc-graph-20260608`,
   `/home/croyse/calyx/data/fsv-issue298-build-kernel-groundedness-bound-20260608`,
+  `/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`,
   `/home/croyse/calyx/fsv/ph33_*_20260608.*`
 - Stage 6 Lodestar PH34:
   `/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`,
@@ -211,7 +212,7 @@ Latest roots:
 |---|---|---|---|---|---|---|
 | PH31 | mincut/paths: graph build + SCC + betweenness | PH27 | mincut/paths | P5/`08` | SCC condensation + betweenness match reference on planted graph | ✅ FSV |
 | PH32 | Kernel-graph (~10%) + directed MFVS (~1%) | PH31 | lodestar | P5/A10 | algorithm finds planted feedback-vertex-set on synthetic graph | ✅ FSV |
-| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall ≥ 0.95·full on ≥3 real corpora; gaps listed | ✅ FSV for T01-T05; #239 Ledger provenance open until S7 |
+| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall ≥ 0.95·full on ≥3 real corpora; gaps listed | ✅ FSV for T01-T06; PH36 trace/reproduce remains separate |
 | PH34 | Multi-scope kernel | PH33 | lodestar | A21 | kernel built at ≥4 scopes, each measured recall reported | Done / FSV (#238) |
 
 ## Stage 7 — Ledger provenance  (`17_STAGE7_LEDGER.md`)

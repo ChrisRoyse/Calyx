@@ -1,9 +1,11 @@
 use std::collections::BTreeSet;
 
-use calyx_core::{CxId, LedgerRef};
+use calyx_core::{Clock, CxId, LedgerRef};
+use calyx_ledger::{LedgerAppender, LedgerCfStore};
 use calyx_paths::{AssocGraph, attenuate, reach};
 use serde::{Deserialize, Serialize};
 
+use crate::provenance::{AnswerHopEvidence, append_answer_hop_entry};
 use crate::{KernelIndex, LodestarError, Result, kernel_search};
 
 const CANDIDATE_K: usize = 10;
@@ -65,7 +67,55 @@ pub fn kernel_answer(
             from: anchor,
             to: query_cx,
         })?;
-    let hops = answer_hops(graph, &path)?;
+    let hops = answer_hops_with(graph, &path, |from, to, hop_index, _, _| {
+        Ok(stub_ledger_ref(from, to, hop_index))
+    })?;
+    let total_score = hops.iter().map(|hop| hop.hop_score).sum();
+    AnswerPath::checked(query_cx, anchor, hops, total_score)
+}
+
+pub fn kernel_answer_with_ledger<S, C>(
+    kernel_index: &KernelIndex,
+    graph: &AssocGraph,
+    query_cx: CxId,
+    query_vec: &[f32],
+    anchored_kernel_nodes: &[CxId],
+    max_hops: usize,
+    ledger: &mut LedgerAppender<S, C>,
+) -> Result<AnswerPath>
+where
+    S: LedgerCfStore,
+    C: Clock,
+{
+    let anchor = nearest_anchored_kernel_node(kernel_index, query_vec, anchored_kernel_nodes)?;
+    graph.require_node_index(anchor)?;
+    if query_cx == anchor {
+        return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
+    }
+
+    let path =
+        reach(graph, anchor, query_cx, max_hops)?.ok_or(LodestarError::KernelAnswerNoPath {
+            from: anchor,
+            to: query_cx,
+        })?;
+    let hops = answer_hops_with(
+        graph,
+        &path,
+        |from, to, hop_index, edge_weight, hop_score| {
+            append_answer_hop_entry(
+                ledger,
+                query_cx,
+                anchor,
+                AnswerHopEvidence {
+                    from,
+                    to,
+                    edge_weight,
+                    hop_index,
+                    hop_score,
+                },
+            )
+        },
+    )?;
     let total_score = hops.iter().map(|hop| hop.hop_score).sum();
     AnswerPath::checked(query_cx, anchor, hops, total_score)
 }
@@ -87,7 +137,14 @@ fn nearest_anchored_kernel_node(
         .ok_or(LodestarError::KernelNoAnchoredNode)
 }
 
-fn answer_hops(graph: &AssocGraph, path: &[CxId]) -> Result<Vec<AnswerHop>> {
+fn answer_hops_with<F>(
+    graph: &AssocGraph,
+    path: &[CxId],
+    mut ledger_ref: F,
+) -> Result<Vec<AnswerHop>>
+where
+    F: FnMut(CxId, CxId, u32, f32, f32) -> Result<LedgerRef>,
+{
     path.windows(2)
         .enumerate()
         .map(|(idx, pair)| {
@@ -97,13 +154,14 @@ fn answer_hops(graph: &AssocGraph, path: &[CxId]) -> Result<Vec<AnswerHop>> {
             let hop_index = idx as u32;
             let hop_score = attenuate(edge_weight, hop_index);
             validate_score(hop_score, "hop_score")?;
+            let ledger_ref = ledger_ref(from, to, hop_index, edge_weight, hop_score)?;
             Ok(AnswerHop {
                 from,
                 to,
                 edge_weight,
                 hop_index,
                 hop_score,
-                ledger_ref: stub_ledger_ref(from, to, hop_index),
+                ledger_ref,
             })
         })
         .collect()

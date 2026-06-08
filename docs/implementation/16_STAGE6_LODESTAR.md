@@ -1,6 +1,6 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
-> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 T01-T05 DONE / PH34 DONE).** Stages 1-5 are
+> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 T01-T06 DONE / PH34 DONE).** Stages 1-5 are
 > implemented, pushed, and FSV-signed-off. PH31 graph primitives are implemented
 > in `calyx-paths` and `calyx-mincut`; PH32 kernel-graph + DFVS is implemented
 > in `calyx-lodestar`. aiwonder readbacks live under
@@ -10,8 +10,9 @@
 > `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T06 are signed off,
 > including real multi-scope SciFact reports under
 > `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. PH33 T06 (#239)
-> remains open until real Stage 7 Ledger primitives exist. Pre-exit follow-ups
-> #328-#332 track scope-cache identity, LP/DFVS solver-contract honesty,
+> real Ledger stamping is signed off under
+> `/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`;
+> PH36 still owns trace/reproduce. Pre-exit follow-ups #328-#332 track scope-cache identity, LP/DFVS solver-contract honesty,
 > recall-gate fail-closed behavior, raw-vs-tuned recall evidence, and
 > anchor-aware `kernel_answer` search.
 
@@ -61,8 +62,9 @@ identity.
 - **Axioms/PRD.** A10, `08 §3`.
 
 ## PH33 — Kernel index + kernel_answer + grounding_gaps
-- **Status.** ✅ T01-T05 DONE / FSV-signed-off; T06 #239 deferred until Stage 7
-  Ledger primitives exist. T05 real-corpora recall FSV is signed off on aiwonder:
+- **Status.** ✅ T01-T06 DONE / FSV-signed-off. T06 #239 now writes real
+  PH35 Ledger rows for kernel build and answer hops; PH36 trace/reproduce
+  remains separate. T05 real-corpora recall FSV is signed off on aiwonder:
   SciFact text `0.9611112`, live Calyx code `0.96111107`, Cora graph
   `0.9568264`, and exact direct-anchor `grounding_gaps` readback. Follow-up #292
   locks `kernel_answer` to fail closed when `max_hops` cannot reach `query_cx`;
