@@ -11,9 +11,11 @@ pub mod kernel_answer;
 pub mod kernel_graph;
 pub mod kernel_index;
 pub mod loom_assoc;
+pub mod multi_scope;
 pub mod recall_test;
 pub mod scope;
 pub mod scope_cache;
+pub mod scope_report;
 
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
@@ -36,6 +38,7 @@ pub use loom_assoc::{
     LoomAssocEdgeProvenance, LoomAssocGraphInput, LoomDirectionalConfidence, LoomSlotNode,
     build_assoc_graph_from_loom, loom_assoc_graph_input,
 };
+pub use multi_scope::{anchors_for_scope, build_kernel};
 pub use recall_test::{
     AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,
     RecallQuery, RecallTestParams, RecallTestReport, kernel_recall_test,
@@ -45,3 +48,4 @@ pub use scope::{
     AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, scope_hash,
 };
 pub use scope_cache::{CacheStats, ScopeCache, ScopeCacheKey};
+pub use scope_report::{ScopeKernelReport, report_all_scopes};
