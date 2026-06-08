@@ -44,6 +44,7 @@ pub struct AlgorithmicLens {
     id: LensId,
     modality: Modality,
     encoder: AlgorithmicEncoder,
+    contract: FrozenLensContract,
 }
 
 impl AlgorithmicLens {
@@ -67,12 +68,19 @@ impl AlgorithmicLens {
     /// Creates an algorithmic lens from an encoder.
     pub fn new(name: impl Into<String>, modality: Modality, encoder: AlgorithmicEncoder) -> Self {
         let name = name.into();
-        let id = algorithmic_contract(&name, modality, encoder).lens_id();
+        let contract = algorithmic_contract(&name, modality, encoder);
+        let id = contract.lens_id();
         Self {
             id,
             modality,
             encoder,
+            contract,
         }
+    }
+
+    /// Returns the frozen contract that produced this lens id.
+    pub fn contract(&self) -> &FrozenLensContract {
+        &self.contract
     }
 }
 
