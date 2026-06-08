@@ -233,6 +233,12 @@ dependencies = [
 [[package]]
 name = "calyx-ledger"
 version = "0.1.0"
+dependencies = [
+ "blake3",
+ "calyx-core",
+ "proptest",
+ "serde",
+]
 
 [[package]]
 name = "calyx-lodestar"

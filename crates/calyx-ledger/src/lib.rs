@@ -1,4 +1,10 @@
-//! Ledger provenance skeleton for append-only hash-chain audit state.
+//! Append-only Ledger provenance primitives.
+
+pub mod entry;
+pub mod kind;
+
+pub use entry::{ActorId, LedgerEntry, SubjectId, compute_entry_hash};
+pub use kind::EntryKind;
 
 #[cfg(test)]
 mod tests {
