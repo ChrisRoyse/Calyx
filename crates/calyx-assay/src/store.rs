@@ -3,20 +3,41 @@
 use std::collections::BTreeMap;
 
 use calyx_aster::cf::{CfRouter, ColumnFamily};
-use calyx_core::{CalyxError, Result, SlotId};
+use calyx_core::{AnchorKind, CalyxError, Result, SlotId, VaultId};
 use serde::{Deserialize, Serialize};
 
 use crate::estimate::MiEstimate;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AssayCacheKey {
+    #[serde(default)]
+    pub vault_id: Option<VaultId>,
+    #[serde(default = "default_anchor")]
+    pub anchor: AnchorKind,
     pub panel_version: u32,
     pub corpus_shard: String,
 }
 
 impl AssayCacheKey {
+    /// Compatibility constructor for legacy tests and unscoped probes.
     pub fn new(panel_version: u32, corpus_shard: impl Into<String>) -> Self {
         Self {
+            vault_id: None,
+            anchor: default_anchor(),
+            panel_version,
+            corpus_shard: corpus_shard.into(),
+        }
+    }
+
+    pub fn scoped(
+        panel_version: u32,
+        corpus_shard: impl Into<String>,
+        vault_id: VaultId,
+        anchor: AnchorKind,
+    ) -> Self {
+        Self {
+            vault_id: Some(vault_id),
+            anchor,
             panel_version,
             corpus_shard: corpus_shard.into(),
         }
@@ -123,11 +144,17 @@ impl AssayStore {
 }
 
 fn assay_key(cache_key: &AssayCacheKey, subject: &AssaySubject) -> Vec<u8> {
+    let vault = cache_key
+        .vault_id
+        .map(|vault_id| vault_id.to_string())
+        .unwrap_or_else(|| "vault:unspecified".to_string());
     let shard = cache_key.corpus_shard.as_bytes();
-    let mut key = Vec::with_capacity(16 + shard.len());
+    let anchor = serde_json::to_vec(&cache_key.anchor).expect("anchor kind serializes");
+    let mut key = Vec::with_capacity(48 + vault.len() + anchor.len() + shard.len());
     key.extend_from_slice(&cache_key.panel_version.to_be_bytes());
-    key.extend_from_slice(&(shard.len() as u32).to_be_bytes());
-    key.extend_from_slice(shard);
+    push_len_prefixed(&mut key, vault.as_bytes());
+    push_len_prefixed(&mut key, &anchor);
+    push_len_prefixed(&mut key, shard);
     match subject {
         AssaySubject::Lens { slot } => {
             key.push(0);
@@ -143,10 +170,20 @@ fn assay_key(cache_key: &AssayCacheKey, subject: &AssaySubject) -> Vec<u8> {
     key
 }
 
+fn push_len_prefixed(key: &mut Vec<u8>, value: &[u8]) {
+    key.extend_from_slice(&(value.len() as u32).to_be_bytes());
+    key.extend_from_slice(value);
+}
+
+fn default_anchor() -> AnchorKind {
+    AnchorKind::Reward
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::estimate::{EstimatorKind, MiEstimate, TrustTag};
+    use calyx_core::{AnchorKind, VaultId};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -179,6 +216,66 @@ mod tests {
         cleanup(dir);
     }
 
+    #[test]
+    fn assay_store_keys_are_vault_and_anchor_scoped() {
+        let dir = test_dir("assay-scope");
+        let mut router = CfRouter::open(&dir, 1024).unwrap();
+        let mut store = AssayStore::default();
+        let subject = AssaySubject::Lens {
+            slot: SlotId::new(2),
+        };
+        let key_a = AssayCacheKey::scoped(7, "shared", vault_a(), AnchorKind::Reward);
+        let key_b = AssayCacheKey::scoped(7, "shared", vault_b(), AnchorKind::Reward);
+        let key_c = AssayCacheKey::scoped(
+            7,
+            "shared",
+            vault_a(),
+            AnchorKind::Label("gold".to_string()),
+        );
+
+        store.put(key_a.clone(), subject.clone(), estimate(0.31), "a", 1);
+        store.put(key_b.clone(), subject.clone(), estimate(0.32), "b", 2);
+        store.put(key_c.clone(), subject.clone(), estimate(0.33), "c", 3);
+        assert_eq!(store.len(), 3);
+        assert_eq!(store.persist_to_aster(&mut router).unwrap(), 3);
+
+        let loaded = AssayStore::load_from_aster(&router).unwrap();
+        assert_eq!(loaded.len(), 3);
+        assert_eq!(loaded.get(&key_a, &subject).unwrap().estimate.bits, 0.31);
+        assert_eq!(loaded.get(&key_b, &subject).unwrap().estimate.bits, 0.32);
+        assert_eq!(loaded.get(&key_c, &subject).unwrap().estimate.bits, 0.33);
+        cleanup(dir);
+    }
+
+    #[test]
+    fn assay_cf_key_mismatch_fails_closed() {
+        let dir = test_dir("assay-key-mismatch");
+        let mut router = CfRouter::open(&dir, 1024).unwrap();
+        let key = AssayCacheKey::scoped(7, "shared", vault_a(), AnchorKind::Reward);
+        let subject = AssaySubject::Lens {
+            slot: SlotId::new(2),
+        };
+        let row = AssayRow {
+            cache_key: key,
+            subject,
+            estimate: estimate(0.42),
+            provenance: "bad-key-test".to_string(),
+            written_at_seq: 9,
+        };
+        router
+            .put(
+                ColumnFamily::Assay,
+                b"wrong-assay-key",
+                &serde_json::to_vec(&row).unwrap(),
+            )
+            .unwrap();
+        router.flush_cf(ColumnFamily::Assay).unwrap();
+
+        let err = AssayStore::load_from_aster(&router).unwrap_err();
+        assert_eq!(err.code, "CALYX_ASTER_CORRUPT_SHARD");
+        cleanup(dir);
+    }
+
     fn estimate(bits: f32) -> MiEstimate {
         MiEstimate {
             bits,
@@ -201,5 +298,13 @@ mod tests {
 
     fn cleanup(dir: PathBuf) {
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn vault_a() -> VaultId {
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
+    }
+
+    fn vault_b() -> VaultId {
+        "01BX5ZZKBKACTAV9WEVGEMMVS0".parse().unwrap()
     }
 }
