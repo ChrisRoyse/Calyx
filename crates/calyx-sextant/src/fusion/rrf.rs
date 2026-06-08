@@ -1,0 +1,82 @@
+use std::collections::BTreeMap;
+
+use calyx_core::{CxId, SlotId};
+
+use super::FusionContext;
+use crate::hit::{FreshnessTag, Hit, PerLensContribution};
+use crate::index::IndexSearchHit;
+use crate::util::stub_ledger;
+
+const RRF_K: f32 = 60.0;
+
+pub fn rrf_contribution(weight: f32, rank: usize) -> f32 {
+    weight / (rank as f32 + RRF_K)
+}
+
+pub fn rrf_fuse(
+    results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    context: &FusionContext,
+) -> Vec<Hit> {
+    let weights = results.keys().map(|slot| (*slot, 1.0)).collect();
+    fuse_with_weights(results, context, &weights)
+}
+
+pub fn weighted_rrf_fuse(
+    results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    context: &FusionContext,
+) -> Vec<Hit> {
+    fuse_with_weights(results, context, &context.weights)
+}
+
+fn fuse_with_weights(
+    results: &BTreeMap<SlotId, Vec<IndexSearchHit>>,
+    context: &FusionContext,
+    weights: &BTreeMap<SlotId, f32>,
+) -> Vec<Hit> {
+    let mut fused = BTreeMap::<CxId, (f32, Vec<PerLensContribution>)>::new();
+    for (slot, hits) in results {
+        let weight = *weights.get(slot).unwrap_or(&1.0);
+        if weight <= 0.0 {
+            continue;
+        }
+        for hit in hits {
+            let contribution = rrf_contribution(weight, hit.rank);
+            let entry = fused.entry(hit.cx_id).or_default();
+            entry.0 += contribution;
+            entry.1.push(PerLensContribution {
+                slot: *slot,
+                rank: hit.rank,
+                raw_score: hit.score,
+                weight,
+                contribution,
+            });
+        }
+    }
+    let mut rows: Vec<_> = fused.into_iter().collect();
+    rows.sort_by(|a, b| {
+        b.1.0
+            .total_cmp(&a.1.0)
+            .then_with(|| a.0.to_string().cmp(&b.0.to_string()))
+    });
+    rows.truncate(context.k);
+    rows.into_iter()
+        .enumerate()
+        .map(|(idx, (cx_id, (score, per_lens)))| {
+            let mut hit = Hit {
+                cx_id,
+                score,
+                rank: idx + 1,
+                per_lens,
+                cross_terms_used: false,
+                guard: None,
+                provenance: stub_ledger(cx_id, idx as u64 + 1),
+                freshness: FreshnessTag::fresh(0),
+                explain: None,
+            };
+            if context.explain {
+                hit = hit.with_explain(context.strategy.name());
+            }
+            hit
+        })
+        .collect()
+}

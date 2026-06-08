@@ -1,0 +1,56 @@
+//! Fusion strategies for Sextant search.
+
+use std::collections::BTreeMap;
+
+use calyx_core::SlotId;
+use serde::{Deserialize, Serialize};
+
+use crate::hit::Hit;
+use crate::index::IndexSearchHit;
+
+pub mod pipeline;
+pub mod profiles;
+pub mod rrf;
+pub mod single;
+
+pub use profiles::{RrfProfile, WeightedProfile, weighted_profiles};
+pub use rrf::{rrf_fuse, weighted_rrf_fuse};
+pub use single::single_lens_fuse;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FusionStrategy {
+    SingleLens { slot: SlotId },
+    Rrf,
+    WeightedRrf { profile: RrfProfile },
+    Pipeline,
+}
+
+impl FusionStrategy {
+    pub fn name(&self) -> String {
+        match self {
+            Self::SingleLens { slot } => format!("single_lens:{slot}"),
+            Self::Rrf => "rrf".to_string(),
+            Self::WeightedRrf { profile } => format!("weighted_rrf:{profile:?}").to_lowercase(),
+            Self::Pipeline => "pipeline".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FusionContext {
+    pub k: usize,
+    pub explain: bool,
+    pub strategy: FusionStrategy,
+    pub weights: BTreeMap<SlotId, f32>,
+}
+
+pub fn fuse(results: &BTreeMap<SlotId, Vec<IndexSearchHit>>, context: &FusionContext) -> Vec<Hit> {
+    match &context.strategy {
+        FusionStrategy::SingleLens { slot } => single_lens_fuse(*slot, results, context),
+        FusionStrategy::Rrf => rrf_fuse(results, context),
+        FusionStrategy::WeightedRrf { .. } | FusionStrategy::Pipeline => {
+            weighted_rrf_fuse(results, context)
+        }
+    }
+}
