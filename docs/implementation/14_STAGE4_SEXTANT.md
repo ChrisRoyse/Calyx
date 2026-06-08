@@ -11,6 +11,8 @@
 > Post-sweep fail-closed hardening #282 adds duplicate-slot rejection,
 > no-lenses rejection, and distinct planner cost-cap errors for the Stage 6
 > handoff.
+> Post-sweep hardening #284 replaces the dense-index exact-scan shortcut with
+> native deterministic `ef` HNSW beam traversal and byte-readback recall FSV.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -31,6 +33,9 @@ attention.
   concurrent-read-safe; rebuildable from base (self-heal later).
 - **Post-sweep note.** `SlotIndexMap` now fails closed on duplicate slot
   registration with `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED` (#282).
+- **Post-sweep note.** `HnswIndex::search` now uses greedy descent plus
+  `ef`-bounded beam traversal, with fail-closed empty-index, `ef`, and dim
+  errors (#284). Brute force is retained only as a recall reference.
 - **FSV gate.** insert N + search → recall vs brute-force ≥ target; SingleLens
   p99 within budget on aiwonder (read measured latency).
 - **Axioms/PRD.** `10 §3`, `19 §4`.

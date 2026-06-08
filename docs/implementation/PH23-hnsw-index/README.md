@@ -1,11 +1,12 @@
 # PH23 — Per-slot HNSW index
 
-> **Status: DONE / FSV-signed-off as the Stage 4 dense-index seam.** Current
-> code is `crates/calyx-sextant/src/index/hnsw.rs`: deterministic layer
-> assignment, bounded neighbor metadata, rebuild, dual-index scaffold, quant
-> config lock, and exact dense search behind the HNSW-compatible API. Native
-> `ef` beam traversal is not required for Stage 6 Lodestar and is tracked as a
-> scale/performance refinement for later index-scale stages.
+> **Status: DONE / FSV-signed-off as the Stage 4 dense-index seam, with
+> post-sweep hardening.** Current code is
+> `crates/calyx-sextant/src/index/hnsw.rs`: deterministic layer assignment,
+> bounded bidirectional neighbor metadata, native `ef` beam traversal,
+> brute-force recall reference, rebuild, dual-index scaffold, quant config lock,
+> and fail-closed search edges. DiskANN/SPANN scale work remains deferred to
+> Stage 17, but Stage 6 no longer consumes an exact-scan placeholder.
 
 **Stage:** S4 — Sextant Search & Navigation  ·  **Crate:** `calyx-sextant`  ·
 **PRD roadmap:** P3  ·  **Axioms:** A15, A16, A26
@@ -27,14 +28,15 @@ must meet the target on aiwonder with SingleLens p99 < 5 ms at 1e6 cx (`10 §8`)
 ## Current state (build off what exists)
 
 `calyx-sextant` now provides the Stage 4 search stack. `HnswIndex` stores
-vectors in RAM with deterministic layer IDs and bounded neighbor metadata; its
-`search` path is currently an exact dense scan, so recall-vs-brute-force is
-1.0 while preserving the HNSW-compatible API (`slot`, `shape`, `insert`,
-`search`, `rebuild`, `stats`) that Stage 6 consumes. `ef` is accepted at the
-trait boundary and reserved for the later native beam traversal.
-Post-sweep hardening #282 fixed the T06 registry blind spot: duplicate slot
-registration now fails closed with `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED`
-instead of replacing the existing index.
+vectors in RAM with deterministic layer IDs and bounded bidirectional neighbor
+metadata; `search` performs greedy descent plus `ef`-bounded beam traversal
+instead of exact dense scan. Brute force remains a reference helper for recall
+readback only. Post-sweep hardening fixed the T06 registry blind spot (#282):
+duplicate slot registration now fails closed with
+`CALYX_SEXTANT_SLOT_ALREADY_REGISTERED` instead of replacing the existing index.
+Post-sweep hardening #284 added T03-native `ef` search fail-closed edges:
+`CALYX_SEXTANT_INDEX_EMPTY`, `CALYX_SEXTANT_EF_TOO_SMALL`, and
+`CALYX_SEXTANT_DIM_MISMATCH`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
