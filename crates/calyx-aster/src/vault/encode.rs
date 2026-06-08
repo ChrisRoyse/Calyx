@@ -285,6 +285,7 @@ fn header_without_anchor_count(mut header: ConstellationHeader) -> Constellation
 
 fn identity_hash(cx: &Constellation) -> Result<blake3::Hash> {
     let mut bytes = encode_header(cx);
+    bytes[50..58].copy_from_slice(&0_u64.to_be_bytes());
     bytes[48..50].copy_from_slice(&0_u16.to_be_bytes());
     for (slot, vector) in &cx.slots {
         bytes.extend_from_slice(&slot.get().to_be_bytes());
@@ -294,7 +295,7 @@ fn identity_hash(cx: &Constellation) -> Result<blake3::Hash> {
         put_string(&mut bytes, key)?;
         bytes.extend_from_slice(&value.to_bits().to_be_bytes());
     }
-    bytes.extend_from_slice(&cx.provenance.hash);
+    bytes.extend_from_slice(&[0_u8; 32]);
     Ok(blake3::hash(&bytes))
 }
 

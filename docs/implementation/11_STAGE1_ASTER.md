@@ -9,7 +9,11 @@
 > resolved in code** (commits `75975a9`, `3e6c03d`, plus the
 > `CompactionDebt::measure` proptest in `compaction/tests.rs`); the rest are
 > explicit deferrals or module-placement cosmetics — see "Stage-1 follow-ups" at
-> the bottom.
+> the bottom. Pre-Lodestar hardening #333 adds SST v2 full-body CRC validation,
+> parent-directory fsync after SST rename, manifest immutable-ref hash readback,
+> compacted-SST recovery, WAL-authoritative post-append commit semantics, and
+> real deadline-based WAL group-commit coalescing. Evidence root:
+> `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`.
 
 The on-disk substrate: WAL, LSM+columnar, column families, MVCC, constellation
 CRUD, crash recovery, compaction/tiering. Everything downstream stores through
@@ -33,6 +37,9 @@ provisioned). **Living-system role:** metabolism + memory.
   segment recycle), WAL record framing (len+crc), replay reader.
 - **Key tasks.** append+fsync with a bounded commit window; CRC per record;
   segment rotation; replay stops at first torn record.
+- **Post-sweep note.** #333 makes the group-commit batcher wait until the
+  configured deadline for near-following submissions instead of draining only
+  the queue that was already present.
 - **FSV gate.** `kill -9` mid-write on aiwonder → replay → **last-acked record
   present, un-acked absent, torn tail discarded** — proven by reading WAL bytes
   (`xxd`) before/after, not a return. `CALYX_ASTER_TORN_WAL` on torn tail.
@@ -47,6 +54,9 @@ provisioned). **Living-system role:** metabolism + memory.
   blocks for slot columns.
 - **Key tasks.** ordered insert; flush at byte cap; SST block index; bloom for
   point lookups; SIMD-friendly column layout.
+- **Post-sweep note.** #333 writes SST v2 files with a full-body CRC covering
+  record, index, and bloom sections; legacy v1 SSTs remain readable, and corrupt
+  v2 section bytes fail closed on open.
 - **FSV gate.** flush a known memtable → read the SST back **byte-exact**; range
   scan returns keys in big-endian order; bloom never false-negative.
 - **Axioms/PRD.** A26 (bounded), `04 §2/§8`, `23 §2` (SoA columns).
@@ -100,6 +110,10 @@ provisioned). **Living-system role:** metabolism + memory.
 - **Key tasks.** manifest versioning; recovery ordering (manifest→WAL replay);
   corrupt base → fail-closed read. Derived-CF degraded/rebuildable flags are
   explicitly deferred to PH44 self-heal and are not PH10 acceptance criteria.
+- **Post-sweep note.** #333 verifies immutable panel/codebook refs by content
+  hash while loading a manifest, treats compacted SSTs as durable recovery
+  inputs, and preserves WAL-authoritative success if a post-WAL checkpoint
+  fails after the durable append.
 - **FSV gate.** crash drill (`kill -9` at several points) → recover **byte-exact
   to last-acked**; flip a base-shard byte → read fails closed
   (`CALYX_ASTER_CORRUPT_SHARD`), points at restore.
@@ -116,6 +130,8 @@ provisioned). **Living-system role:** metabolism + memory.
   `VaultOptions::tiering_policy`.
 - **Key tasks.** concurrent-read-safe compaction; adaptive cadence hook (Anneal
   later); cold-tier writer to `/zfs/archive/calyx`.
+- **Post-sweep note.** #333 makes compacted `compacted-*.sst` files recoverable
+  even when original shard files are absent.
 - **FSV gate.** compaction runs with concurrent reads → no partial reads; cold
   slots physically on archive (verified by path); write-amp ≤ target on a soak.
 - **Axioms/PRD.** `04 §6`, `24 §3` (anti-storm), A26.
@@ -130,7 +146,9 @@ physically proved hot base/active-slot SSTs under `hot/cf`, inactive-slot and
 compacted SSTs under `archive/cf`, and no misplaced inactive-slot files under
 the vault root at `/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608`.
 This is PRD `CORE` (`19 §5`), satisfied at commit `8dcddaa` plus the #295
-post-sweep hardening commit.
+post-sweep hardening commit; #333 adds the pre-Lodestar durability hardening
+listed above, with aiwonder evidence at
+`/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`.
 
 ---
 

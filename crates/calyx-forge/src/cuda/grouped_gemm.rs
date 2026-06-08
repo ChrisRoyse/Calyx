@@ -383,26 +383,34 @@ fn check_device_output(ctx: &CudaContext, plan: &GroupedGemmPlan) -> Result<()> 
             }
         }
     }
-    debug_assert_absent_sentinels(&values, &plan.absent_sentinel_ranges);
-    Ok(())
+    check_absent_sentinels(&values, &plan.absent_sentinel_ranges)
 }
 
-#[cfg(debug_assertions)]
-fn debug_assert_absent_sentinels(values: &[f32], sentinels: &[AbsentSlotSentinel]) {
+fn check_absent_sentinels(values: &[f32], sentinels: &[AbsentSlotSentinel]) -> Result<()> {
     for sentinel in sentinels {
-        let end = sentinel.c_offset + sentinel.len;
-        for value in &values[sentinel.c_offset..end] {
-            debug_assert!(
-                value.to_bits() == ABSENT_SENTINEL.to_bits(),
-                "absent slot {} output was written — grouped GEMM absent-slot skip violated",
-                sentinel.flat_idx
-            );
+        let end = checked_end(sentinel.c_offset, sentinel.len, "absent sentinel C slab")?;
+        if end > values.len() {
+            return Err(ForgeError::ShapeMismatch {
+                expected: vec![values.len()],
+                got: vec![sentinel.c_offset, sentinel.len],
+                remediation: GROUPED_REMEDIATION.to_string(),
+            });
+        }
+        for (idx, value) in values[sentinel.c_offset..end].iter().enumerate() {
+            if value.to_bits() != ABSENT_SENTINEL.to_bits() {
+                return Err(ForgeError::NumericalInvariant {
+                    op: "execute_grouped_gemm".to_string(),
+                    detail: format!(
+                        "absent slot {} output was written at relative index {}",
+                        sentinel.flat_idx, idx
+                    ),
+                    remediation: GROUPED_REMEDIATION.to_string(),
+                });
+            }
         }
     }
+    Ok(())
 }
-
-#[cfg(not(debug_assertions))]
-fn debug_assert_absent_sentinels(_values: &[f32], _sentinels: &[AbsentSlotSentinel]) {}
 
 fn read_device(ctx: &CudaContext, out: &CudaSlice<f32>) -> Result<Vec<f32>> {
     ctx.inner()

@@ -21,7 +21,7 @@ pub const DEFAULT_GROUP_COMMIT_WINDOW: Duration = Duration::from_millis(2);
 pub struct WalOptions {
     /// Maximum bytes in one segment before the next append rotates.
     pub max_segment_bytes: u64,
-    /// Upper bound for future batch wait logic. PH05 writes explicit batches.
+    /// Upper bound for coalescing near-following requests into one fsync.
     pub group_commit_window: Duration,
 }
 

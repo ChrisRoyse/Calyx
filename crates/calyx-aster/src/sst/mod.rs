@@ -12,7 +12,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 const MAGIC: &[u8; 4] = b"CXS1";
-const VERSION: u32 = 1;
+const LEGACY_VERSION: u32 = 1;
+const VERSION: u32 = 2;
 const HEADER_LEN: usize = 32;
 const RECORD_HEADER_LEN: usize = 12;
 const INDEX_ENTRY_FIXED_LEN: usize = 12;
@@ -75,7 +76,14 @@ pub fn write_sst<'a>(
     write_index(&mut bytes, &index);
     let bloom_offset = bytes.len() as u64;
     BloomFilter::from_keys(entries.iter().map(|(key, _)| key.as_slice())).encode(&mut bytes);
-    write_header(&mut bytes, entries.len() as u32, index_offset, bloom_offset);
+    let body_crc = section_crc(&bytes[HEADER_LEN..]);
+    write_header(
+        &mut bytes,
+        entries.len() as u32,
+        index_offset,
+        bloom_offset,
+        body_crc,
+    );
 
     let tmp = path.with_extension("sst.tmp");
     {
@@ -86,6 +94,7 @@ pub fn write_sst<'a>(
             .map_err(|error| storage_error("fsync SST", error))?;
     }
     fs::rename(&tmp, path).map_err(|error| storage_error("rename SST", error))?;
+    sync_parent(path)?;
 
     Ok(SstSummary {
         path: path.to_path_buf(),
@@ -257,12 +266,19 @@ fn read_index(
     Ok(index)
 }
 
-fn write_header(bytes: &mut [u8], entries: u32, index_offset: u64, bloom_offset: u64) {
+fn write_header(
+    bytes: &mut [u8],
+    entries: u32,
+    index_offset: u64,
+    bloom_offset: u64,
+    body_crc: u32,
+) {
     bytes[0..4].copy_from_slice(MAGIC);
     bytes[4..8].copy_from_slice(&VERSION.to_le_bytes());
     bytes[8..12].copy_from_slice(&entries.to_le_bytes());
     bytes[12..20].copy_from_slice(&index_offset.to_le_bytes());
     bytes[20..28].copy_from_slice(&bloom_offset.to_le_bytes());
+    bytes[28..32].copy_from_slice(&body_crc.to_le_bytes());
 }
 
 fn read_header(bytes: &[u8]) -> Result<Header> {
@@ -273,7 +289,7 @@ fn read_header(bytes: &[u8]) -> Result<Header> {
         return Err(CalyxError::aster_corrupt_shard("SST magic mismatch"));
     }
     let version = u32::from_le_bytes(header[4..8].try_into().expect("version"));
-    if version != VERSION {
+    if version != VERSION && version != LEGACY_VERSION {
         return Err(CalyxError::aster_corrupt_shard(format!(
             "unsupported SST version {version}"
         )));
@@ -291,6 +307,19 @@ fn read_header(bytes: &[u8]) -> Result<Header> {
             "SST header offsets out of bounds",
         ));
     }
+    if version >= VERSION {
+        let expected_crc = u32::from_le_bytes(header[28..32].try_into().expect("body crc"));
+        let actual_crc = section_crc(
+            bytes
+                .get(HEADER_LEN..)
+                .ok_or_else(|| CalyxError::aster_corrupt_shard("SST body missing"))?,
+        );
+        if actual_crc != expected_crc {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "SST body crc mismatch: expected {expected_crc:08x}, got {actual_crc:08x}"
+            )));
+        }
+    }
     Ok(Header {
         entries,
         index_offset,
@@ -298,11 +327,34 @@ fn read_header(bytes: &[u8]) -> Result<Header> {
     })
 }
 
+fn section_crc(bytes: &[u8]) -> u32 {
+    let mut hasher = crc32fast::Hasher::new();
+    hasher.update(bytes);
+    hasher.finalize()
+}
+
 fn record_crc(key: &[u8], value: &[u8]) -> u32 {
     let mut hasher = crc32fast::Hasher::new();
     hasher.update(key);
     hasher.update(value);
     hasher.finalize()
+}
+
+#[cfg(unix)]
+fn sync_parent(path: &Path) -> Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| CalyxError::disk_pressure("SST path has no parent"))?;
+    File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|error| storage_error("fsync SST directory", error))
+}
+
+#[cfg(not(unix))]
+fn sync_parent(path: &Path) -> Result<()> {
+    path.parent()
+        .ok_or_else(|| CalyxError::disk_pressure("SST path has no parent"))?;
+    Ok(())
 }
 
 fn storage_error(context: &str, error: io::Error) -> CalyxError {
@@ -355,8 +407,7 @@ mod tests {
         let mut bytes = fs::read(&path).expect("read sst");
         bytes[HEADER_LEN + RECORD_HEADER_LEN] ^= 0xff;
         fs::write(&path, bytes).expect("write corrupt sst");
-        let reader = SstReader::open(&path).expect("open corrupt sst");
-        let error = reader.get(b"k01").expect_err("crc mismatch");
+        let error = SstReader::open(&path).expect_err("crc mismatch");
 
         assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
         cleanup(dir);
@@ -374,6 +425,44 @@ mod tests {
         bytes[20..28].copy_from_slice(&u64::MAX.to_le_bytes());
         fs::write(&path, bytes).expect("write bad header");
         let error = SstReader::open(&path).expect_err("bad header rejected");
+
+        assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+        cleanup(dir);
+    }
+
+    #[test]
+    fn corrupt_index_section_fails_closed_on_open() {
+        let dir = test_dir("sst-corrupt-index");
+        let path = dir.join("000001.sst");
+        let summary = write_sst(
+            &path,
+            [
+                (b"k01".as_slice(), b"one".as_slice()),
+                (b"k02".as_slice(), b"two".as_slice()),
+            ],
+        )
+        .expect("write sst");
+
+        let mut bytes = fs::read(&path).expect("read sst");
+        bytes[summary.index_offset as usize + INDEX_ENTRY_FIXED_LEN] ^= 0x01;
+        fs::write(&path, bytes).expect("write corrupt index");
+        let error = SstReader::open(&path).expect_err("index crc rejected");
+
+        assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+        cleanup(dir);
+    }
+
+    #[test]
+    fn corrupt_bloom_section_fails_closed_on_open() {
+        let dir = test_dir("sst-corrupt-bloom");
+        let path = dir.join("000001.sst");
+        let summary =
+            write_sst(&path, [(b"k01".as_slice(), b"one".as_slice())]).expect("write sst");
+
+        let mut bytes = fs::read(&path).expect("read sst");
+        bytes[summary.bloom_offset as usize] ^= 0x01;
+        fs::write(&path, bytes).expect("write corrupt bloom");
+        let error = SstReader::open(&path).expect_err("bloom crc rejected");
 
         assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
         cleanup(dir);

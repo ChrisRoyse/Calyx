@@ -10,7 +10,10 @@
 > `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T06 are signed off,
 > including real multi-scope SciFact reports under
 > `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. PH33 T06 (#239)
-> remains open until real Stage 7 Ledger primitives exist.
+> remains open until real Stage 7 Ledger primitives exist. Pre-exit follow-ups
+> #328-#332 track scope-cache identity, LP/DFVS solver-contract honesty,
+> recall-gate fail-closed behavior, raw-vs-tuned recall evidence, and
+> anchor-aware `kernel_answer` search.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -43,6 +46,8 @@ identity.
   `ph32-kernel-graph-readback.json`, `ph32-lp-round-readback.json`,
   `ph32-dfvs-readback.json`, `ph32-specialized-dfvs-readback.json`,
   `ph32-kernel-pipeline-readback.json`, `ph32-incremental-readback.json`.
+  Follow-up #329 keeps LP/DFVS solver claims aligned with the actual
+  scaffold/fallback implementation until a real solver path exists.
 - **Objective.** The staged, approximate kernel discovery pipeline.
 - **Deps.** PH31.
 - **Deliverables.** `kernel_graph.rs` (high in/out-degree + betweenness + low
@@ -61,7 +66,9 @@ identity.
   SciFact text `0.9611112`, live Calyx code `0.96111107`, Cora graph
   `0.9568264`, and exact direct-anchor `grounding_gaps` readback. Follow-up #292
   locks `kernel_answer` to fail closed when `max_hops` cannot reach `query_cx`;
-  truncated answer prefixes are not valid answer paths.
+  truncated answer prefixes are not valid answer paths. Follow-ups #330-#332
+  cover recall-gate fail-closed semantics, raw-vs-tuned recall evidence, and
+  anchor-aware answer search beyond a fixed top-k candidate window.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
   cheapest grounding plan.
 - **Deps.** PH32, PH33 needs anchors (PH09) + search (PH24).
@@ -89,7 +96,9 @@ identity.
   nodes are implemented and FSV-signed-off under
   `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`; T06 real
   multi-scope FSV is implemented and FSV-signed-off under
-  `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`.
+  `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. Follow-up #328 extends
+  cache identity beyond `(scope_hash, panel_version)` where anchors or corpus
+  shards can change kernel semantics.
 - **Objective.** Freedom of scope: kernel over all / collection / domain /
   subgraph / time-window / tenant / filter / union.
 - **Deps.** PH33.

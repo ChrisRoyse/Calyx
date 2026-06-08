@@ -15,12 +15,12 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | Stage | Phases | Status |
 |---|---|---|
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
-| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
-| S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, and #316 surfaces grouped GEMM execution mode with a strict fail-loud path |
+| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed; pre-Lodestar durability hardening #333 FSV-backed |
+| S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, #316 surfaces grouped GEMM execution mode with a strict fail-loud path, and #333 hardens absent-slot sentinel checks with release CUDA FSV |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, durable rollback #321, and lifecycle idempotency/backfill-cancel #327 are FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, and Aster-backed Loom materialization gate #319 are FSV-backed |
-| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T06 done/FSV-signed-off; #240 exit pending) |
+| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T06 done/FSV-signed-off; #240 exit plus #328-#332 readiness follow-ups pending) |
 | S7 Ledger | PH35–PH36 | ▶ **ACTIVE** (PH35 T01-T04 done/FSV-signed-off; T05 group-commit hook next) |
 | S8–S20 | PH37–PH72 | · pending |
 
@@ -30,6 +30,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`
 - Stage 1 Aster PH11 durable tiering:
   `/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608`
+- Stage 1-5 pre-Lodestar hardening (#333):
+  `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`
 - Stage 2 Forge PH12 CPU SIMD:
   `/home/croyse/calyx/data/fsv-q71-20260607115027` through
   `/home/croyse/calyx/data/fsv-q76-20260607122351`
@@ -139,7 +141,7 @@ Latest roots:
 | PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 
 > **Stage 1–5 audit note (2026-06-08):** Subagents and source readback found
-> the pre-Lodestar Stage 1–5 hardening set #282-#319 is implemented and
+> the pre-Lodestar Stage 1–5 hardening set #282-#333 is implemented and
 > FSV-backed. Follow-up gaps found during the sweep were tracked in GitHub
 > issues and closed with aiwonder readback evidence instead of hidden in docs.
 > PH19 ONNX CUDA registration fails loud instead of silently
@@ -173,7 +175,10 @@ Latest roots:
 > logistic-probe, AssayGate lens signal, PairGain, and persisted AssayStore
 > readback bytes. PH27/PH28 live Aster-backed PairGain materialization #319 now
 > feeds Loom planning and xterm CF materialization. PH33 bounded build-time
-> groundedness #298 is now FSV-backed. No remaining Stage 1-5 implementation
+> groundedness #298 is now FSV-backed. #333 adds SST body CRCs, manifest
+> immutable-ref hash verification, compacted-SST recovery, WAL-authoritative
+> post-append commit semantics, deadline-based group commit, and release-mode
+> absent-slot sentinel checks. No remaining Stage 1-5 implementation
 > blocker is hidden in the phase map; future work begins at the Stage 6/Stage 7
 > queue tracked in GitHub issues.
 

@@ -195,7 +195,9 @@ impl ManifestStore {
         }
         let bytes = fs::read(self.vault_dir.join(pointer))
             .map_err(|error| storage_error("read pointed MANIFEST", error))?;
-        decode_manifest(&bytes)
+        let manifest = decode_manifest(&bytes)?;
+        verify_immutable_refs(&self.vault_dir, &manifest)?;
+        Ok(manifest)
     }
 
     pub fn current_pointer(&self) -> Result<String> {
@@ -319,6 +321,33 @@ fn require_prefix(reference: &ImmutableRef, prefix: &str) -> Result<()> {
         return Err(CalyxError::aster_corrupt_shard(format!(
             "manifest ref {} must be under {prefix}",
             reference.logical_path
+        )));
+    }
+    Ok(())
+}
+
+fn verify_immutable_refs(vault_dir: &Path, manifest: &VaultManifest) -> Result<()> {
+    verify_immutable_ref(vault_dir, &manifest.panel_ref)?;
+    for reference in &manifest.codebook_refs {
+        verify_immutable_ref(vault_dir, reference)?;
+    }
+    Ok(())
+}
+
+fn verify_immutable_ref(vault_dir: &Path, reference: &ImmutableRef) -> Result<()> {
+    reference.validate()?;
+    let path = vault_dir.join(&reference.logical_path);
+    let bytes = fs::read(&path).map_err(|error| {
+        CalyxError::aster_corrupt_shard(format!(
+            "manifest immutable ref {} unreadable: {error}",
+            reference.logical_path
+        ))
+    })?;
+    let actual = blake3::hash(&bytes).to_hex().to_string();
+    if actual != reference.blake3_hex {
+        return Err(CalyxError::aster_corrupt_shard(format!(
+            "manifest immutable ref {} hash mismatch: expected {}, got {}",
+            reference.logical_path, reference.blake3_hex, actual
         )));
     }
     Ok(())

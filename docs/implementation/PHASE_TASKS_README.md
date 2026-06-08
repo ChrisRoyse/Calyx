@@ -8,10 +8,10 @@ for the structure under `docs/implementation/PHnn-*/`.
 > is intentionally **not** covered here. These cards cover **PH05 → PH72**.
 >
 > **Current (2026-06-08):** Stages 1–5 (PH05–PH30) are **DONE** and
-> FSV-signed-off on aiwonder, including post-sweep hardening through #327.
+> FSV-signed-off on aiwonder, including post-sweep hardening through #333.
 > Active implementation is tracked in GitHub issues: Stage 6 Lodestar remains
-> open only for Ledger-dependent #239/#240, while Stage 7 Ledger continues at
-> #244 after #242/#243.
+> open for Ledger-dependent #239/#240 plus readiness follow-ups #328-#332,
+> while Stage 7 Ledger continues at #246 after #242-#245.
 
 ---
 

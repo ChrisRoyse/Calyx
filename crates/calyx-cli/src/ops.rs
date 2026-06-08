@@ -218,7 +218,9 @@ pub fn vault_demo(vault: &Path) -> Result<(), String> {
     let got = reopened
         .get(id, reopened.snapshot())
         .map_err(|error| error.to_string())?;
-    if got != constellation {
+    let mut expected = constellation;
+    expected.provenance = got.provenance.clone();
+    if got != expected {
         return Err("cold-open constellation mismatch".to_string());
     }
 

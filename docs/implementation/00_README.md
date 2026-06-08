@@ -118,7 +118,12 @@ through KSG/logistic/AssayGate/PairGain/persisted AssayStore rows, and #319
 adds the Aster-backed Assay materialization gate that feeds grounded PairGain
 into Loom xterm CF materialization. Latest Stage 3/4 readiness hardening: #327
 makes PH20 lifecycle operations idempotent and prevents parked/retired slots
-from participating in Sextant search.
+from participating in Sextant search. Latest pre-Lodestar audit hardening #333
+adds Aster SST v2 full-body CRCs, manifest immutable-ref hash verification,
+compacted-SST recovery, post-WAL commit-success semantics, real group-commit
+window coalescing, and release-mode Forge grouped-GEMM absent-slot sentinel
+checks. Evidence root:
+`/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`.
 
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
@@ -127,7 +132,10 @@ implemented and FSV-backed; PH34 T01-T06 are implemented and FSV-backed (scope
 materialization, cache, dispatch, hierarchical regions, bridge nodes, and real
 multi-scope SciFact FSV). Stage 6 remains open until the Ledger provenance
 blindspot (#239, after real Stage 7 Ledger primitives) and the exit FSV (#240)
-are closed with aiwonder readback evidence.
+are closed with aiwonder readback evidence. Additional Lodestar readiness
+blindspots found during the Stage 1-5 sweep are tracked in #328-#332 (scope
+cache identity, LP/DFVS solver contract, recall fail-closed gate, raw-vs-tuned
+recall evidence, and anchor-aware `kernel_answer` search).
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
@@ -143,7 +151,13 @@ are closed with aiwonder readback evidence.
   resolved (`open` uses the manifest-anchored `recover_vault` + `set_start_seq`;
   durable-write / `CfRouter` / `CompactionScheduler` unified via
   `vault/compaction_bridge.rs`; dedicated `vault/ledger_stub.rs`;
-  `CompactionDebt::measure` proptest landed); remaining deferrals
+  `CompactionDebt::measure` proptest landed). #333 further hardens the storage
+  substrate with SST body CRCs, parent fsync after SST rename, manifest
+  immutable-ref hash verification, compacted-SST recovery, WAL-authoritative
+  post-append commit semantics, and group-commit deadline coalescing. Evidence
+  root:
+  `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`. Remaining
+  deferrals
   (`degraded_rebuildable`→PH44, Arrow slot columns) are tracked in
   `11_STAGE1_ASTER.md`.
 - **Stage 2** (PH12–PH16): `calyx-forge` math runtime — CPU SIMD backend
@@ -153,6 +167,8 @@ are closed with aiwonder readback evidence.
   the per-shape autotune cache (microbench + explorer + reversible promotion).
   Stage 2 is FSV-signed-off; PH12 roots are listed in
   `PH12-cpu-simd-backend/README.md`, and aggregate evidence is recorded in #23.
+  #333 promotes PH15 absent-slot sentinel protection from debug-only assertion
+  to release-mode `ForgeError` fail-closed behavior.
 - **Stage 3** (PH17–PH22): `calyx-registry` lens layer — uniform
   `Registry.measure` over algorithmic / TEI-HTTP / candle-local / ONNX runtimes,
   the frozen contract + content-addressed `LensId`, hot-swap add/retire/park with

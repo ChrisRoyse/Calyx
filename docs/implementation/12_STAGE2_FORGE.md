@@ -20,6 +20,11 @@
 > ordinary execution reports `grouped_batched`, `sequential_fallback`, or
 > `no_active_problems`; strict execution fails loud instead of accepting a
 > fallback when the one-launch contract is required.
+> Pre-Lodestar hardening #333 makes absent-slot sentinels a release-mode
+> fail-closed invariant: if a skipped grouped-GEMM slot is written, the runtime
+> returns `CALYX_FORGE_NUMERICAL_INVARIANT` instead of relying on debug-only
+> assertions. Evidence root:
+> `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`.
 
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
@@ -92,9 +97,15 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
   GEMM path, ragged-bundle handling (absent slots skipped, never zero-filled).
 - **Key tasks.** variable-shape problem list per (microbatch×slot); FP4 only
   where Assay later proves quant-safe; mixed-completeness batches correct.
+- **Post-sweep note.** #333 validates absent-slot sentinel ranges and values
+  after device execution in release builds, returning a structured Forge error
+  if a skipped slot is out of range or was overwritten; aiwonder release CUDA
+  readback evidence lives under
+  `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608/forge-absent`.
 - **FSV gate.** grouped GEMM result == per-matmul loop (read), and is **invariant
   to N**; execution mode is read from `GroupedGemmPlan` and strict grouped launch
-  fails loud if cuBLAS grouped mode is unsupported; FP4 within bound on safe
+  fails loud if cuBLAS grouped mode is unsupported; skipped slots keep their
+  sentinel bytes in release builds; FP4 within bound on safe
   slots; partial-bundle batch → correct per-constellation result.
 - **Axioms/PRD.** `23 §3/§4.2`, A25, `17 §7.4`.
 
