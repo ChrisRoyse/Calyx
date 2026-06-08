@@ -61,18 +61,28 @@ pub fn plan_cross_terms(slots: &[SlotId], gate: &dyn PairGainGate) -> Materializ
                 kind: CrossTermKind::Agreement,
                 action: MaterializationAction::EagerStore,
             });
-            let action = if gate.pair_gain_bits(a, b) >= 0.05 {
-                MaterializationAction::EagerStore
-            } else {
-                MaterializationAction::LazyCache
-            };
-            for kind in [
-                CrossTermKind::Delta,
-                CrossTermKind::Interaction,
-                CrossTermKind::Concat,
-            ] {
-                entries.push(MaterializationEntry { a, b, kind, action });
-            }
+            entries.push(MaterializationEntry {
+                a,
+                b,
+                kind: CrossTermKind::Delta,
+                action: MaterializationAction::LazyCache,
+            });
+            entries.push(MaterializationEntry {
+                a,
+                b,
+                kind: CrossTermKind::Interaction,
+                action: if gate.pair_gain_bits(a, b) >= 0.05 {
+                    MaterializationAction::EagerStore
+                } else {
+                    MaterializationAction::LazyCache
+                },
+            });
+            entries.push(MaterializationEntry {
+                a,
+                b,
+                kind: CrossTermKind::Concat,
+                action: MaterializationAction::LazyCache,
+            });
         }
     }
     MaterializationPlan { entries }

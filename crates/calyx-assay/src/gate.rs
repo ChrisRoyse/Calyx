@@ -4,7 +4,9 @@ use calyx_core::{Anchor, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::estimate::{EstimatorKind, MiEstimate, TrustTag};
-use crate::logistic::{logistic_probe_mi, logistic_probe_mi_with_anchor};
+use crate::logistic::{
+    logistic_probe_mi_with_anchor_and_min_samples, logistic_probe_mi_with_min_samples,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LensSignal {
@@ -33,7 +35,7 @@ impl Default for AssayGate {
 
 impl AssayGate {
     pub fn lens_signal(&self, samples: &[Vec<f32>], labels: &[bool]) -> Result<LensSignal> {
-        let report = logistic_probe_mi(samples, labels)?;
+        let report = logistic_probe_mi_with_min_samples(samples, labels, self.min_samples)?;
         Ok(LensSignal {
             estimate: report.estimate,
         })
@@ -45,7 +47,12 @@ impl AssayGate {
         labels: &[bool],
         anchor: &Anchor,
     ) -> Result<LensSignal> {
-        let report = logistic_probe_mi_with_anchor(samples, labels, anchor)?;
+        let report = logistic_probe_mi_with_anchor_and_min_samples(
+            samples,
+            labels,
+            anchor,
+            self.min_samples,
+        )?;
         Ok(LensSignal {
             estimate: report.estimate,
         })
