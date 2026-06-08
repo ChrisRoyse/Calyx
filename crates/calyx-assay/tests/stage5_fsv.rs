@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
 
 use calyx_assay::{
     AssayCacheKey, AssayGate, AssayStore, AssaySubject, DeficitRoutingContext, EstimatorKind,
@@ -11,13 +10,16 @@ use calyx_assay::{
     stratified_bits,
 };
 use calyx_aster::cf::{CfRouter, ColumnFamily};
-use calyx_core::{AnchorKind, CxId, SlotId};
+use calyx_core::AnchorKind;
 use calyx_loom::{
     AbundanceReport, CeilingEstimate, CrossTermKind, CrossTermValue, LoomStore,
     MaterializationAction, NeffEstimate, Severity, StaticPairGainGate, agreement_batch_cpu,
     agreement_batch_gpu, agreement_scalar, detect_blind_spot, plan_cross_terms,
 };
 use serde_json::json;
+
+mod stage5_helpers;
+use stage5_helpers::*;
 
 #[test]
 fn loom_cross_terms_materialization_and_reports_work() {
@@ -115,6 +117,10 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     );
     let short = ksg_mi_continuous(&x[..30], &y[..30], 3).unwrap_err();
     assert_eq!(short.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+    let (mut ragged_x, ragged_y) = correlated_samples(MIN_ASSAY_SAMPLES);
+    ragged_x[0].push(0.25);
+    let ragged = ksg_mi_continuous(&ragged_x, &ragged_y, 3).unwrap_err();
+    assert_eq!(ragged.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
 
     let projected = project_cpu(&high_dim_matrix(200, 1_536), 42);
     let gpu = project_gpu(&high_dim_matrix(200, 1_536), 42);
@@ -135,6 +141,10 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     let (flat_samples, flat_labels) = binary_samples(false);
     let flat = logistic_probe_mi(&flat_samples, &flat_labels).unwrap();
     assert!(flat.estimate.bits <= 0.01);
+    let (mut nonfinite_samples, nonfinite_labels) = binary_samples(true);
+    nonfinite_samples[0][0] = f32::NAN;
+    let nonfinite = logistic_probe_mi(&nonfinite_samples, &nonfinite_labels).unwrap_err();
+    assert_eq!(nonfinite.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
 
     assert_eq!(
         admit_lens(0.01, 0.1).unwrap_err().code,
@@ -188,7 +198,7 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     assert!(planted_gain.gain_bits > 0.05);
 
     let mut store = AssayStore::default();
-    let key = AssayCacheKey::new(5, "shard-a");
+    let key = AssayCacheKey::scoped(5, "shard-a", assay_vault(), AnchorKind::Reward);
     let subject = AssaySubject::Lens { slot: slot(2) };
     store.put(
         key.clone(),
@@ -275,6 +285,12 @@ fn stage5_full_stack_fsv() {
     let ksg_known = gaussian_mi_bits(&ksg_x, &ksg_y);
     let ksg_known_inside_ci = ksg.ci_low <= ksg_known && ksg_known <= ksg.ci_high;
     let ksg_short = ksg_mi_continuous(&ksg_x[..30], &ksg_y[..30], 3).unwrap_err();
+    let (mut ragged_x, ragged_y) = correlated_samples(MIN_ASSAY_SAMPLES);
+    ragged_x[0].push(0.25);
+    let ksg_ragged = ksg_mi_continuous(&ragged_x, &ragged_y, 3).unwrap_err();
+    let (mut nonfinite_samples, nonfinite_labels) = binary_samples(true);
+    nonfinite_samples[0][0] = f32::INFINITY;
+    let logistic_non_finite = logistic_probe_mi(&nonfinite_samples, &nonfinite_labels).unwrap_err();
     let matrix = high_dim_matrix(200, 1_536);
     let projected = project_cpu(&matrix, 42);
     let projected_gpu = project_gpu(&matrix, 42);
@@ -310,7 +326,12 @@ fn stage5_full_stack_fsv() {
     let mut sink = InMemoryDeficitSink::default();
     sufficiency.route_to(&mut sink);
     let mut assay_store = AssayStore::default();
-    let key = AssayCacheKey::new(5, "stage5-synthetic");
+    let key = AssayCacheKey::scoped(
+        5,
+        "stage5-synthetic",
+        assay_vault(),
+        AnchorKind::Label("stage5-passfail".to_string()),
+    );
     assay_store.put(
         key.clone(),
         AssaySubject::Lens { slot: slot(2) },
@@ -327,10 +348,15 @@ fn stage5_full_stack_fsv() {
         "sst_files": cf_router.level_file_count(ColumnFamily::Assay),
         "raw_cf_rows": cf_router.iter_cf(ColumnFamily::Assay).unwrap().len(),
         "cache_hit": loaded_assay.cache_hit(&key, &AssaySubject::Lens { slot: slot(2) }),
+        "all_rows_scoped": loaded_assay.rows().iter().all(|row| row.cache_key.vault_id.is_some()),
+        "vault_scope": key.vault_id.as_ref().unwrap().to_string(),
+        "anchor_scope": key.anchor.clone(),
         "logistic_bits": signal.estimate.bits,
         "pair_gain": pair_gain,
         "ksg": {"estimate": ksg, "known_bits": ksg_known, "known_inside_ci": ksg_known_inside_ci},
         "insufficient_samples_error": ksg_short.code,
+        "ragged_samples_error": ksg_ragged.code,
+        "non_finite_samples_error": logistic_non_finite.code,
         "projection": {"rows": projected.input_rows, "input_dim": projected.input_dim, "output_dim": projected.output_dim, "cpu_gpu_delta": projection_delta},
         "nmi": {"redundant": redundant_nmi, "independent": independent_nmi},
         "stratified": {"bits": strata, "admission": stratified_admission},
@@ -367,132 +393,4 @@ fn stage5_full_stack_fsv() {
     println!("STAGE5_READBACK={}", path.display());
     println!("STAGE5_XTERM_ROWS={}", loom.xterm_count());
     println!("STAGE5_ASSAY_ROWS={}", loaded_assay.len());
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-stage5-fsv"))
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
-}
-
-fn slot(value: u16) -> SlotId {
-    SlotId::new(value)
-}
-
-fn two_slot_map(a: Vec<f32>, b: Vec<f32>) -> BTreeMap<SlotId, Vec<f32>> {
-    BTreeMap::from([(slot(1), a), (slot(2), b)])
-}
-
-fn slot_map_13() -> BTreeMap<SlotId, Vec<f32>> {
-    (0..13)
-        .map(|index| {
-            let angle = index as f32 * 0.07;
-            (slot(index), vec![angle.cos(), angle.sin()])
-        })
-        .collect()
-}
-
-fn correlated_samples(n: usize) -> (Vec<Vec<f32>>, Vec<Vec<f32>>) {
-    let mut x = Vec::with_capacity(n);
-    let mut y = Vec::with_capacity(n);
-    for i in 0..n {
-        let t = (i as f32 - n as f32 / 2.0) / n as f32;
-        let noise = ((i * 17 % 11) as f32 - 5.0) * 0.002;
-        x.push(vec![t]);
-        y.push(vec![0.8 * t + noise]);
-    }
-    (x, y)
-}
-
-fn gaussian_mi_bits(x: &[Vec<f32>], y: &[Vec<f32>]) -> f32 {
-    let x_mean = x.iter().map(|row| row[0]).sum::<f32>() / x.len() as f32;
-    let y_mean = y.iter().map(|row| row[0]).sum::<f32>() / y.len() as f32;
-    let mut cov = 0.0;
-    let mut xv = 0.0;
-    let mut yv = 0.0;
-    for (left, right) in x.iter().zip(y) {
-        let dx = left[0] - x_mean;
-        let dy = right[0] - y_mean;
-        cov += dx * dy;
-        xv += dx * dx;
-        yv += dy * dy;
-    }
-    let r2 = (cov * cov / (xv * yv)).clamp(0.0, 0.999);
-    -0.5 * (1.0 - r2).log2()
-}
-
-fn high_dim_matrix(rows: usize, dim: usize) -> Vec<Vec<f32>> {
-    (0..rows)
-        .map(|row| {
-            (0..dim)
-                .map(|col| ((row * 31 + col * 17) % 23) as f32 / 23.0)
-                .collect()
-        })
-        .collect()
-}
-
-fn projection_max_delta(left: &[Vec<f32>], right: &[Vec<f32>]) -> f32 {
-    left.iter()
-        .zip(right)
-        .flat_map(|(a, b)| a.iter().zip(b).map(|(x, y)| (x - y).abs()))
-        .fold(0.0, f32::max)
-}
-
-fn binary_samples(separable: bool) -> (Vec<Vec<f32>>, Vec<bool>) {
-    let mut samples = Vec::with_capacity(MIN_ASSAY_SAMPLES);
-    let mut labels = Vec::with_capacity(MIN_ASSAY_SAMPLES);
-    for i in 0..MIN_ASSAY_SAMPLES {
-        let label = i % 2 == 0;
-        labels.push(label);
-        let value = if !separable {
-            0.0
-        } else if label {
-            1.0 + (i % 3) as f32 * 0.01
-        } else {
-            -1.0 - (i % 3) as f32 * 0.01
-        };
-        samples.push(vec![value]);
-    }
-    (samples, labels)
-}
-
-fn complementary_pair_samples() -> (Vec<Vec<f32>>, Vec<Vec<f32>>, Vec<bool>) {
-    let mut left = Vec::with_capacity(MIN_ASSAY_SAMPLES);
-    let mut right = Vec::with_capacity(MIN_ASSAY_SAMPLES);
-    let mut labels = Vec::with_capacity(MIN_ASSAY_SAMPLES);
-    for i in 0..MIN_ASSAY_SAMPLES {
-        let label = i % 2 == 0;
-        labels.push(label);
-        let left_value = if label {
-            if i % 4 == 0 { -0.2 } else { 1.0 }
-        } else if i % 4 == 1 {
-            0.2
-        } else {
-            -1.0
-        };
-        let right_value = if label {
-            if i % 4 == 2 { -0.2 } else { 1.0 }
-        } else if i % 4 == 3 {
-            0.2
-        } else {
-            -1.0
-        };
-        left.push(vec![left_value]);
-        right.push(vec![right_value]);
-    }
-    (left, right, labels)
-}
-
-fn block_redundancy_matrix(size: usize, block: usize) -> Vec<Vec<f32>> {
-    (0..size)
-        .map(|row| {
-            (0..size)
-                .map(|col| if row / block == col / block { 1.0 } else { 0.0 })
-                .collect()
-        })
-        .collect()
 }

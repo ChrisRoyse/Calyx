@@ -83,13 +83,14 @@ Latest roots:
 | PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 
 > **Stage 1–5 audit note (2026-06-08):** Subagents and source readback found
-> the pre-Lodestar Stage 1–5 hardening set #282-#290 is implemented and
+> the pre-Lodestar Stage 1–5 hardening set #282-#291 is implemented and
 > FSV-backed. PH19 ONNX CUDA registration fails loud instead of silently
 > falling back to CPU, with explicit CPU compatibility reported separately. PH23 now
 > uses native `ef` HNSW traversal, PH24 explain provenance is refreshed from
 > stored constellation provenance, WeightedRRF excludes unnamed and AP-60
 > temporal slots before PH40, PH27 Loom cross-terms fail closed, and PH28/PH30
-> Assay rows are vault/anchor scoped, PH25 Pipeline enforces sparse candidate
+> persisted Assay rows require vault/anchor scope, Assay estimators reject
+> ragged/non-finite sample matrices, PH25 Pipeline enforces sparse candidate
 > subsets, PH26 reranker non-2xx fails closed, and PH22 temporal flags persist
 > onto core Slot rows. The accepted seams are explicitly scoped:
 > synthetic `LedgerRef` fallback remains only for documents with no stored

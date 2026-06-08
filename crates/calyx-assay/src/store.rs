@@ -20,6 +20,7 @@ pub struct AssayCacheKey {
 
 impl AssayCacheKey {
     /// Compatibility constructor for legacy tests and unscoped probes.
+    #[deprecated(note = "Assay CF rows must use AssayCacheKey::scoped before persistence")]
     pub fn new(panel_version: u32, corpus_shard: impl Into<String>) -> Self {
         Self {
             vault_id: None,
@@ -41,6 +42,15 @@ impl AssayCacheKey {
             panel_version,
             corpus_shard: corpus_shard.into(),
         }
+    }
+
+    pub fn require_scoped(&self) -> Result<()> {
+        if self.vault_id.is_none() {
+            return Err(CalyxError::vault_access_denied(
+                "assay cache key must include explicit vault scope",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -106,6 +116,7 @@ impl AssayStore {
 
     pub fn persist_to_aster(&self, router: &mut CfRouter) -> Result<usize> {
         for row in self.rows.values() {
+            row.cache_key.require_scoped()?;
             let key = assay_key(&row.cache_key, &row.subject);
             let value = serde_json::to_vec(row)
                 .map_err(|error| CalyxError::disk_pressure(format!("encode assay row: {error}")))?;
@@ -121,6 +132,7 @@ impl AssayStore {
             let row: AssayRow = serde_json::from_slice(&entry.value).map_err(|error| {
                 CalyxError::aster_corrupt_shard(format!("decode assay row: {error}"))
             })?;
+            row.cache_key.require_scoped()?;
             let expected = assay_key(&row.cache_key, &row.subject);
             if entry.key != expected {
                 return Err(CalyxError::aster_corrupt_shard(
@@ -146,8 +158,8 @@ impl AssayStore {
 fn assay_key(cache_key: &AssayCacheKey, subject: &AssaySubject) -> Vec<u8> {
     let vault = cache_key
         .vault_id
-        .map(|vault_id| vault_id.to_string())
-        .unwrap_or_else(|| "vault:unspecified".to_string());
+        .expect("assay cache key scope validated before encoding")
+        .to_string();
     let shard = cache_key.corpus_shard.as_bytes();
     let anchor = serde_json::to_vec(&cache_key.anchor).expect("anchor kind serializes");
     let mut key = Vec::with_capacity(48 + vault.len() + anchor.len() + shard.len());
@@ -195,7 +207,7 @@ mod tests {
         let dir = test_dir("assay-store");
         let mut router = CfRouter::open(&dir, 1024).unwrap();
         let mut store = AssayStore::default();
-        let key = AssayCacheKey::new(7, "stage5-corpus");
+        let key = AssayCacheKey::scoped(7, "stage5-corpus", vault_a(), AnchorKind::Reward);
         let subject = AssaySubject::Lens {
             slot: SlotId::new(2),
         };
@@ -213,6 +225,54 @@ mod tests {
         let loaded = AssayStore::load_from_aster(&reopened).unwrap();
 
         assert_eq!(loaded.get(&key, &subject).unwrap().written_at_seq, 99);
+        cleanup(dir);
+    }
+
+    #[test]
+    fn assay_store_rejects_unscoped_rows_before_persistence() {
+        let dir = test_dir("assay-unscoped");
+        let mut router = CfRouter::open(&dir, 1024).unwrap();
+        let mut store = AssayStore::default();
+        #[allow(deprecated)]
+        let key = AssayCacheKey::new(7, "legacy-unscoped");
+        store.put(
+            key,
+            AssaySubject::Panel,
+            estimate(0.42),
+            "legacy unscoped row",
+            9,
+        );
+
+        let error = store.persist_to_aster(&mut router).unwrap_err();
+        assert_eq!(error.code, "CALYX_VAULT_ACCESS_DENIED");
+        assert_eq!(router.iter_cf(ColumnFamily::Assay).unwrap().len(), 0);
+        cleanup(dir);
+    }
+
+    #[test]
+    fn assay_store_rejects_unscoped_rows_on_load() {
+        let dir = test_dir("assay-unscoped-load");
+        let mut router = CfRouter::open(&dir, 1024).unwrap();
+        #[allow(deprecated)]
+        let key = AssayCacheKey::new(7, "legacy-unscoped");
+        let row = AssayRow {
+            cache_key: key,
+            subject: AssaySubject::Panel,
+            estimate: estimate(0.42),
+            provenance: "legacy unscoped row".to_string(),
+            written_at_seq: 9,
+        };
+        router
+            .put(
+                ColumnFamily::Assay,
+                b"legacy-unscoped-key",
+                &serde_json::to_vec(&row).unwrap(),
+            )
+            .unwrap();
+        router.flush_cf(ColumnFamily::Assay).unwrap();
+
+        let error = AssayStore::load_from_aster(&router).unwrap_err();
+        assert_eq!(error.code, "CALYX_VAULT_ACCESS_DENIED");
         cleanup(dir);
     }
 

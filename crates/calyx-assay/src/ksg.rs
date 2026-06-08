@@ -5,11 +5,12 @@ use std::collections::BTreeMap;
 use calyx_core::{CalyxError, Result};
 
 use crate::estimate::{EstimatorKind, MiEstimate, TrustTag};
+use crate::samples::validate_rectangular_finite;
 
 pub const MIN_ASSAY_SAMPLES: usize = 50;
 
 pub fn ksg_mi_continuous(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<MiEstimate> {
-    validate_samples(x.len(), y.len(), k)?;
+    validate_samples(x, y, k)?;
     let n = x.len();
     let mut local_bits = Vec::with_capacity(n);
     for i in 0..n {
@@ -38,7 +39,8 @@ pub fn ksg_mi_continuous_discrete(
     labels: &[usize],
     k: usize,
 ) -> Result<MiEstimate> {
-    validate_samples(x.len(), labels.len(), k)?;
+    validate_sample_counts(x.len(), labels.len(), k)?;
+    validate_rectangular_finite("x", x)?;
     let mut classes = BTreeMap::<usize, usize>::new();
     for label in labels {
         let next = classes.len();
@@ -55,7 +57,14 @@ pub fn ksg_mi_continuous_discrete(
     ksg_mi_continuous(x, &y, k)
 }
 
-fn validate_samples(left: usize, right: usize, k: usize) -> Result<()> {
+fn validate_samples(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<()> {
+    validate_sample_counts(x.len(), y.len(), k)?;
+    validate_rectangular_finite("x", x)?;
+    validate_rectangular_finite("y", y)?;
+    Ok(())
+}
+
+fn validate_sample_counts(left: usize, right: usize, k: usize) -> Result<()> {
     if left != right || left < MIN_ASSAY_SAMPLES || k == 0 || k >= left {
         return Err(CalyxError::assay_insufficient_samples(format!(
             "need at least {MIN_ASSAY_SAMPLES} paired anchors and 0 < k < n; got left={left}, right={right}, k={k}"

@@ -37,12 +37,18 @@ ceiling fields. Stage 5 FSV readback is the JSON source-of-truth emitted by
 commands are deferred to the Stage 18 CLI surface (PH62), not required for
 Lodestar.
 
+Post-sweep #291 requires persisted Assay CF rows to carry explicit vault scope
+and anchor scope. The FSV readback records `all_rows_scoped`, `vault_scope`, and
+`anchor_scope`, plus malformed-estimator edge codes for short, ragged, and
+non-finite samples.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
 | `crates/calyx-assay/src/sufficiency.rs` | `panel_sufficiency(anchor) -> { I_panel, H_anchor, deficit, per_slot_attribution }`; routes deficit to Anneal |
 | `crates/calyx-assay/src/attribution.rs` | Per-slot marginal bits: `I(panel;anchor) − I(panel∖k;anchor)`; sole-carrier flag; `bits_report` |
+| `crates/calyx-assay/src/samples.rs` | Shared finite rectangular sample-matrix guard for Assay estimators |
 | `crates/calyx-loom/src/abundance.rs` | Complete `abundance_report` with real n_eff + DPI ceiling (replaces PH27 stubs); `meaning_compression_yield` |
 | `crates/calyx-assay/src/tests.rs` | Planted-insufficient panel FSV; per-slot deficit FSV; trusted vs provisional tagging |
 

@@ -74,6 +74,11 @@ contract gated. This is the final card of Stage 5.
      - `Materialized xterms`: integer (Agreement scalars only → ≤ C(N,2) × n_constellations)
      - `n_eff`: `Computed { value: f32 }` (not `[provisional]`)
      - `DPI ceiling`: `Computed { bits: f32 }` (not `[provisional]`)
+     - Assay CF readback: `all_rows_scoped=true`, plus explicit `vault_scope`
+       and `anchor_scope`
+     - Assay estimator edge codes: `insufficient_samples_error`,
+       `ragged_samples_error`, and `non_finite_samples_error` all equal
+       `CALYX_ASSAY_INSUFFICIENT_SAMPLES`
   3. The `bits_report` JSON shows per-slot attribution with at least one
      `sole_carrier: true` if the planted sole-carrier is in the panel
   4. All evidence posted to PH30 GitHub issue

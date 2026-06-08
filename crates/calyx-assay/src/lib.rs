@@ -10,6 +10,7 @@ pub mod logistic;
 pub mod n_eff;
 pub mod nmi;
 pub mod projection;
+mod samples;
 pub mod store;
 pub mod stratified;
 pub mod sufficiency;

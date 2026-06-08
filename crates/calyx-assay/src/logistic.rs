@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::estimate::{EstimatorKind, MiEstimate, TrustTag};
 use crate::ksg::MIN_ASSAY_SAMPLES;
+use crate::samples::validate_rectangular_finite;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogisticProbeReport {
@@ -19,7 +20,7 @@ pub fn logistic_probe_mi(samples: &[Vec<f32>], labels: &[bool]) -> Result<Logist
             "need at least {MIN_ASSAY_SAMPLES} labeled samples"
         )));
     }
-    let dim = samples.first().map_or(0, Vec::len);
+    let dim = validate_rectangular_finite("logistic", samples)?;
     let (pos_mean, neg_mean) = class_means(samples, labels, dim);
     let direction: Vec<f32> = pos_mean
         .iter()

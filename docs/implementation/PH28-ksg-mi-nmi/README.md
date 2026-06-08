@@ -37,6 +37,12 @@ histogram NMI, logistic probe, AssayGate lens/pair signal, quorum guards, and
 Stage 5 FSV readbacks. Final FSV root:
 `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
 
+Post-sweep #291 adds a shared sample-matrix guard: KSG and logistic-probe inputs
+must be non-empty-dimensional, rectangular, and finite. Short sample count,
+ragged rows, and NaN/Inf values all fail closed with
+`CALYX_ASSAY_INSUFFICIENT_SAMPLES`; the Stage 5 FSV readback records those edge
+codes.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
@@ -72,9 +78,10 @@ Stage 5 FSV readbacks. Final FSV root:
    ```
    Test prints the CI; known value must be inside it.
 
-2. **Fails closed below quorum (n<50):** call `ksg_estimate` on a sample of
-   n=30 paired vectors; must return `Err(CALYX_ASSAY_INSUFFICIENT_SAMPLES)`,
-   not a noisy point estimate. Verify via:
+2. **Fails closed below quorum and malformed samples:** call `ksg_estimate` on
+   n=30 paired vectors, a ragged matrix, and a NaN/Inf-containing matrix; each
+   must return `Err(CALYX_ASSAY_INSUFFICIENT_SAMPLES)`, not a noisy point
+   estimate. Verify via:
    ```
    cargo test ksg_quorum_fail_closed -- --nocapture
    ```
