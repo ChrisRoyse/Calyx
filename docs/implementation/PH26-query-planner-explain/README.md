@@ -49,13 +49,16 @@ built-in metadata predicates over vault, modality, panel version, created time,
 and input redaction/pointer. Arbitrary user metadata maps are not claimed here
 because the core `Constellation` record does not yet expose a free-form metadata
 map.
+Post-sweep hardening #326 wires `PlannerExplain` into
+`SearchEngine::planned_explain_search`, so planner intent/strategy/cost/timeout
+and the executed provenanced hits are returned in one object.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
 | `crates/calyx-sextant/src/planner.rs` | intent classifier → strategy selection; cost model + caps; timeout enforcement |
-| `crates/calyx-sextant/src/planner_explain.rs` | planner-enriched explain output: intent, strategy chosen, cost estimate |
+| `crates/calyx-sextant/src/planner_explain.rs` | planner-enriched explain output: intent, strategy chosen, cost estimate, timeout, executed hits |
 | `crates/calyx-sextant/src/reranker.rs` | reranker hook: HTTP call to :8089, request-scoped text, zeroizing candidate ownership, timeout |
 | `crates/calyx-sextant/tests/query_filters_fsv.rs` | scalar/anchor/built-in metadata filter execution and readback |
 | `crates/calyx-sextant/tests/reranker_search_fsv.rs` | SearchEngine Pipeline reranker ordering and request/response readback |
@@ -84,6 +87,9 @@ Run the Stage 4 FSV on aiwonder. The readback JSON must include:
   `candidates_owned_by_zeroizing=true`, `serialized_body_zeroizing=true`,
   request text count/scope booleans, and `pipeline+rerank` strategy; the
   captured `reranker-http-request.txt` remains the separate synthetic wire SoT.
+- #326 `planner-explain-readback.json` showing `intent`, `strategy`,
+  `cost_estimate`, `timeout_ms`, `hit_explain_strategy`, and
+  `hit_provenance_hex` from the same executed planned-search path.
 - #297 `query-filter-readback.json` showing unfiltered ids, filtered ids,
   provenance hashes, and exclusion counts for scalar/anchor/metadata mismatches.
 - `pipeline_subset_ok=true`.
@@ -95,6 +101,8 @@ For #296 the readback root is
 `/home/croyse/calyx/data/fsv-issue296-reranker-search-20260608`.
 For #325 the readback root is
 `/home/croyse/calyx/data/fsv-issue325-reranker-candidate-privacy-20260608`.
+For #326 the readback root is
+`/home/croyse/calyx/data/fsv-issue326-planned-explain-path-20260608`.
 For #297 the readback root is
 `/home/croyse/calyx/data/fsv-issue297-query-filters-20260608`.
 

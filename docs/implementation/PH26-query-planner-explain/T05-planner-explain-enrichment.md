@@ -18,6 +18,15 @@ estimate, and the timeout budget. This makes `explain=true` a full audit trail
 from intent classification through fusion to each hit's provenance — the
 complete picture an agent needs to trust a result.
 
+## Current implementation note
+
+Post-sweep #326 implements this as `SearchEngine::planned_explain_search(query,
+planner) -> PlannerExplain`. It plans first, forces per-hit explain on the
+planned query, executes that planned query through `SearchEngine::search`, and
+returns one envelope containing intent, strategy, override flag, cost estimate,
+timeout, and the executed provenanced hits. `SearchEngine::planned_search`
+provides the planned non-envelope path for callers that only need `Vec<Hit>`.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `PlannerExplainHit` struct (wraps `ExplainHit`):
@@ -50,6 +59,9 @@ complete picture an agent needs to trust a result.
 - [ ] unit: code-intent query → `intent=Code strategy_chosen.starts_with("single_lens")` or `"rrf"` (fallback)
 - [ ] unit: explicit override → `override_used=true`
 - [ ] unit: `PlannerExplainHit` serializes to valid JSON (serde round-trip)
+- [x] unit: planned causal query returns `PlannerExplain` with
+      `intent=Causal`, `strategy=weighted_rrf:causal`, nonzero cost, timeout,
+      hit explain strategy, and nonzero provenance
 - [ ] unit: `explain=false` path → returns `Vec<Hit>` (not `Vec<PlannerExplainHit>`);
       confirm by checking return type at compile time
 - [ ] edge: empty result set → `Ok(vec![])` with no panic
@@ -64,6 +76,11 @@ complete picture an agent needs to trust a result.
   `intent=Causal strategy=weighted_rrf:causal override=false cost_slots=N timeout=5000 explain_len=K`
   where K matches the number of hits returned; one such line is captured as
   FSV evidence
+- **Post-sweep #326 SoT:**
+  `/home/croyse/calyx/data/fsv-issue326-planned-explain-path-20260608/planner-explain-readback.json`
+  proves `intent="Causal"`, `strategy="weighted_rrf:causal"`,
+  `timeout_ms=5000`, `hit_provenance_nonzero=true`, and
+  `planned_strategy_matches_hit_explain=true`.
 
 ## Done when
 

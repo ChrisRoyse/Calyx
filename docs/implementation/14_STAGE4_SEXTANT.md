@@ -61,6 +61,10 @@
 > `Zeroizing<String>` and keeps the serialized HTTP body in `Zeroizing<String>`;
 > FSV records the container types and captured wire request separately.
 > FSV root: `/home/croyse/calyx/data/fsv-issue325-reranker-candidate-privacy-20260608`.
+> Post-sweep hardening #326 adds `SearchEngine::planned_explain_search`, which
+> plans first, executes the planned query, and returns planner intent/strategy/
+> cost/timeout with the executed provenanced hits in one readback object.
+> FSV root: `/home/croyse/calyx/data/fsv-issue326-planned-explain-path-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -173,6 +177,10 @@ attention.
   `Zeroizing<String>` as soon as `SearchEngine` pulls it from the sparse index,
   and `RerankRequest` owns `Vec<Zeroizing<String>>`; `zeroizing_ok` is no longer
   used as proof of candidate ownership (#325).
+- **Post-sweep note.** `SearchEngine::planned_explain_search` now integrates
+  `QueryPlanner::plan` with the executed search path and returns a
+  `PlannerExplain` envelope containing intent, chosen strategy, override flag,
+  cost estimate, timeout, and provenanced hits (#326).
 - **Post-sweep note.** `QueryFilters` now executes scalar comparisons, anchor
   kind/value/source/confidence predicates, and built-in metadata predicates
   (vault, modality, panel version, created time, input redaction/pointer) against
@@ -186,7 +194,9 @@ attention.
   `explain=true` returns the per-lens + provenance breakdown; an unbounded plan
   is rejected; Pipeline reranker readback shows baseline order, reranked order,
   HTTP request text scope, zeroizing candidate container types, and
-  `pipeline+rerank` strategy; query filter readback
+  `pipeline+rerank` strategy; planned explain readback shows planner intent,
+  strategy, cost, timeout, and hit provenance in the same executed-path artifact;
+  query filter readback
   shows unfiltered ids, filtered ids, provenance hashes, and excluded ids absent.
 - **Axioms/PRD.** A17, `10 §2/§7`, `17 §7.3` (planner cost caps).
 

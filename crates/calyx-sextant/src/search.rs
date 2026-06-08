@@ -7,6 +7,8 @@ use zeroize::Zeroizing;
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::hit::{FreshnessTag, Hit};
+use crate::planner::QueryPlanner;
+use crate::planner_explain::PlannerExplain;
 use crate::query::{
     AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, ScalarOp,
     ScalarPredicate,
@@ -49,6 +51,24 @@ impl SearchEngine {
         reranker: &RerankerClient,
     ) -> Result<Vec<Hit>> {
         self.search_inner(query, Some(reranker))
+    }
+
+    pub fn planned_search(&self, query: Query, planner: &QueryPlanner) -> Result<Vec<Hit>> {
+        let index_size = self.planner_index_size(&query);
+        let plan = planner.plan(query, index_size)?;
+        self.search(&plan.query)
+    }
+
+    pub fn planned_explain_search(
+        &self,
+        mut query: Query,
+        planner: &QueryPlanner,
+    ) -> Result<PlannerExplain> {
+        query.explain = true;
+        let index_size = self.planner_index_size(&query);
+        let plan = planner.plan(query, index_size)?;
+        let hits = self.search(&plan.query)?;
+        Ok(PlannerExplain::new(&plan, hits))
     }
 
     fn search_inner(&self, query: &Query, reranker: Option<&RerankerClient>) -> Result<Vec<Hit>> {
@@ -140,6 +160,16 @@ impl SearchEngine {
                         .all(|filter| metadata_matches(cx, filter))
             })
         });
+    }
+
+    fn planner_index_size(&self, query: &Query) -> usize {
+        let stats = self.indexes.stats();
+        stats
+            .iter()
+            .filter(|stats| query.slots.is_empty() || query.slots.contains(&stats.slot))
+            .map(|stats| stats.len)
+            .max()
+            .unwrap_or(0)
     }
 
     fn candidate_window(
