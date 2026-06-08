@@ -5,8 +5,8 @@ use calyx_core::{
     SystemClock, VaultId, VaultStore, content_address,
 };
 use calyx_registry::{
-    BackfillCandidate, BackfillConfig, BackfillPriority, BackfillRequest, BackfillScheduler,
-    SlotSpec, SwapController,
+    BackfillCandidate, BackfillConfig, BackfillPriority, BackfillScheduler, SlotSpec,
+    SwapController,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -55,20 +55,31 @@ fn ph20_hot_swap_aiwonder_fsv() {
 
     let mut controller = SwapController::new(panel());
     let scheduler_path = root.join("backfill-watermark.json");
+    let mut scheduler = BackfillScheduler::open(
+        &scheduler_path,
+        BackfillConfig {
+            max_concurrent: 1,
+            batch_size: 1,
+            throttle_ms: 10,
+        },
+    )
+    .expect("open durable scheduler");
     let add = controller
-        .add_lens(
+        .add_lens_durable(
             SlotSpec::dense_text("semantic-v2", LensId::from_bytes([9; 16]), 2),
             [
-                BackfillCandidate {
-                    cx_id: first_id,
-                    priority: 5,
-                },
                 BackfillCandidate {
                     cx_id: second_id,
                     priority: 99,
                 },
+                BackfillCandidate {
+                    cx_id: first_id,
+                    priority: 5,
+                },
             ],
             30,
+            &mut scheduler,
+            BackfillPriority::Kernel,
         )
         .expect("add lens");
     let new_slot = add.slot.slot_id;
@@ -89,23 +100,6 @@ fn ph20_hot_swap_aiwonder_fsv() {
     assert_eq!(add.queued, 2);
     assert_eq!(first_base_before, first_base_after_add);
     assert_eq!(second_base_before, second_base_after_add);
-    let mut scheduler = BackfillScheduler::open(
-        &scheduler_path,
-        BackfillConfig {
-            max_concurrent: 1,
-            batch_size: 1,
-            throttle_ms: 10,
-        },
-    )
-    .expect("open durable scheduler");
-    scheduler
-        .enqueue(BackfillRequest {
-            slot_id: new_slot,
-            lens_id: add.slot.lens_id,
-            priority: BackfillPriority::Kernel,
-            candidates: vec![second_id, first_id],
-        })
-        .expect("enqueue durable backfill request");
     let scheduler_enqueued = std::fs::read(&scheduler_path).expect("read scheduler enqueue state");
     println!("PH20_SCHEDULER_PATH={}", scheduler_path.display());
     println!(

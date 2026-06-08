@@ -6,6 +6,8 @@ use calyx_core::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::backfill::{BackfillPriority, BackfillRequest, BackfillScheduler};
+
 /// Slot declaration supplied when a lens is hot-added to a panel.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SlotSpec {
@@ -173,6 +175,37 @@ impl SwapController {
             },
             queued,
         })
+    }
+
+    pub fn add_lens_durable<I>(
+        &mut self,
+        spec: SlotSpec,
+        candidates: I,
+        now: Ts,
+        scheduler: &mut BackfillScheduler,
+        priority: BackfillPriority,
+    ) -> Result<AddLensOutcome>
+    where
+        I: IntoIterator<Item = BackfillCandidate>,
+    {
+        let candidates = candidates.into_iter().collect::<Vec<_>>();
+        let panel_before = self.panel.clone();
+        let queue_before = self.queue.clone();
+        let scheduler_before = scheduler.clone();
+        let outcome = self.add_lens(spec, candidates.iter().copied(), now)?;
+        let request = BackfillRequest {
+            slot_id: outcome.slot.slot_id,
+            lens_id: outcome.slot.lens_id,
+            priority,
+            candidates: candidates.iter().map(|candidate| candidate.cx_id).collect(),
+        };
+        if let Err(error) = scheduler.enqueue(request) {
+            self.panel = panel_before;
+            self.queue = queue_before;
+            *scheduler = scheduler_before;
+            return Err(error);
+        }
+        Ok(outcome)
     }
 
     pub fn park_lens(&mut self, slot_id: SlotId, now: Ts) -> Result<LifecycleOutcome> {
