@@ -1,5 +1,10 @@
 # PH32 · T01 — Kernel-graph selection: degree + betweenness + groundedness filter
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-lodestar/src/kernel_graph.rs` with degree, betweenness, and
+> groundedness-distance scoring plus deterministic top-fraction selection.
+> aiwonder FSV readback: `ph32-kernel-graph-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH32 — Kernel-graph (~10%) + directed MFVS (~1%) |

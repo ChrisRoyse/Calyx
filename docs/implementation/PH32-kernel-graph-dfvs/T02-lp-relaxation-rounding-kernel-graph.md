@@ -1,5 +1,11 @@
 # PH32 · T02 — LP-relaxation rounding for kernel-graph (~10%)
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-lodestar/src/kernel_graph.rs` with inclusive threshold rounding
+> from `LpSolution`, empty-result fail-closed behavior, and explicit
+> `CALYX_KERNEL_LP_UNAVAILABLE` fallback warnings when no external solver is
+> configured. aiwonder FSV readback: `ph32-lp-round-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH32 — Kernel-graph (~10%) + directed MFVS (~1%) |

@@ -1,5 +1,10 @@
 # PH32 · T03 — MFVS LP-relaxation approx + local search (`dfvs_approx`)
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-lodestar/src/dfvs.rs` with verified DFVS members, local-search
+> shrink, planted-FVS recovery on the PH32 synthetic graph, and DAG/self-loop
+> edge handling. aiwonder FSV readback: `ph32-dfvs-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH32 — Kernel-graph (~10%) + directed MFVS (~1%) |

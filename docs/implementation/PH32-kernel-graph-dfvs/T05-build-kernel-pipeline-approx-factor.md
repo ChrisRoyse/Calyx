@@ -1,5 +1,11 @@
 # PH32 · T05 — `build_kernel_pipeline` wiring + `Kernel` struct + approx-factor reporting
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-lodestar/src/kernel.rs` with serializable `Kernel`,
+> deterministic `kernel_id`, groundedness/provisional reporting,
+> approximation-factor propagation, and serde roundtrip coverage. aiwonder FSV
+> readback: `ph32-kernel-pipeline-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH32 — Kernel-graph (~10%) + directed MFVS (~1%) |

@@ -1,10 +1,12 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
-> **STATUS: ▶ ACTIVE (PH31 DONE / PH32 NEXT).** Stages 1-5 are implemented,
-> pushed, and FSV-signed-off. PH31 graph primitives are now implemented in
-> `calyx-paths` and `calyx-mincut` with aiwonder readback evidence under
-> `/home/croyse/calyx/data/fsv-ph31-20260608`. PH32 kernel-graph + DFVS is the
-> next Stage 6 implementation slice.
+> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 NEXT).** Stages 1-5 are
+> implemented, pushed, and FSV-signed-off. PH31 graph primitives are implemented
+> in `calyx-paths` and `calyx-mincut`; PH32 kernel-graph + DFVS is implemented
+> in `calyx-lodestar`. aiwonder readbacks live under
+> `/home/croyse/calyx/data/fsv-ph31-20260608` and
+> `/home/croyse/calyx/data/fsv-ph32-20260608`. PH33 kernel index/answer/gaps is
+> the next Stage 6 implementation slice.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -33,7 +35,10 @@ identity.
 - **Axioms/PRD.** `08 §2/§3`, A29, `19 §6` (reuse seeds).
 
 ## PH32 — Kernel-graph (~10%) + directed MFVS (~1%)
-- **Status.** ▶ NEXT.
+- **Status.** ✅ DONE / FSV-signed-off on aiwonder. Readbacks:
+  `ph32-kernel-graph-readback.json`, `ph32-lp-round-readback.json`,
+  `ph32-dfvs-readback.json`, `ph32-specialized-dfvs-readback.json`,
+  `ph32-kernel-pipeline-readback.json`, `ph32-incremental-readback.json`.
 - **Objective.** The staged, approximate kernel discovery pipeline.
 - **Deps.** PH31.
 - **Deliverables.** `kernel_graph.rs` (high in/out-degree + betweenness + low
@@ -47,6 +52,7 @@ identity.
 - **Axioms/PRD.** A10, `08 §3`.
 
 ## PH33 — Kernel index + kernel_answer + grounding_gaps
+- **Status.** ▶ NEXT.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
   cheapest grounding plan.
 - **Deps.** PH32, PH33 needs anchors (PH09) + search (PH24).

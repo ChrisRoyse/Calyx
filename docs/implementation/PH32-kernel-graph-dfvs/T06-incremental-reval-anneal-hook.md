@@ -1,5 +1,11 @@
 # PH32 · T06 — Incremental re-eval hook for Anneal
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-lodestar/src/incremental.rs` with edge-weight dirty marking,
+> leaf-add handling, SCC-merge full-rebuild detection, kernel-member removal
+> signaling, and dirty rebuild. aiwonder FSV readback:
+> `ph32-incremental-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH32 — Kernel-graph (~10%) + directed MFVS (~1%) |

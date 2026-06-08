@@ -1,0 +1,189 @@
+use calyx_core::{CxId, content_address};
+use calyx_mincut::{betweenness, tarjan_scc};
+use calyx_paths::{AssocGraph, reach};
+use serde::{Deserialize, Serialize};
+
+use crate::{
+    DfvsResult, KernelGraphParams, LpRoundParams, Result, dfvs_approx, lp_round_kernel_graph,
+    select_kernel_graph,
+};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GroundednessReport {
+    pub reached_anchor: f32,
+    pub unanchored_members: Vec<CxId>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallReport {
+    pub kernel_only: f32,
+    pub full: f32,
+    pub ratio: f32,
+    pub approx_factor: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Kernel {
+    pub kernel_id: CxId,
+    pub panel_version: u64,
+    pub anchor_kind: Option<String>,
+    pub corpus_shard_hash: [u8; 32],
+    pub members: Vec<CxId>,
+    pub kernel_graph: Vec<CxId>,
+    pub groundedness: GroundednessReport,
+    pub recall: RecallReport,
+    pub built_at_millis: u64,
+    pub estimator_provenance: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct KernelParams {
+    pub panel_version: u64,
+    pub anchor_kind: Option<String>,
+    pub corpus_shard_hash: [u8; 32],
+    pub built_at_millis: u64,
+    pub kernel_graph: KernelGraphParams,
+    pub lp_round: LpRoundParams,
+}
+
+impl Default for KernelParams {
+    fn default() -> Self {
+        Self {
+            panel_version: 1,
+            anchor_kind: Some("synthetic".to_string()),
+            corpus_shard_hash: [0; 32],
+            built_at_millis: 0,
+            kernel_graph: KernelGraphParams::default(),
+            lp_round: LpRoundParams::default(),
+        }
+    }
+}
+
+pub fn build_kernel_pipeline(
+    graph: &AssocGraph,
+    anchors: &[CxId],
+    params: &KernelParams,
+) -> Result<Kernel> {
+    if graph.is_empty() {
+        return Ok(empty_kernel(params));
+    }
+    let scc = tarjan_scc(graph);
+    let bet = betweenness(graph)?;
+    let heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
+    let rounded = lp_round_kernel_graph(&heuristic, &params.lp_round)?;
+    let dfvs = dfvs_approx(&rounded)?;
+    let unanchored = unanchored_members(graph, anchors, &dfvs.members)?;
+    let warnings = warnings(&rounded.warnings, &dfvs, &unanchored);
+    let provenance = estimator_provenance(&dfvs, &warnings);
+    let kernel_graph = rounded.selected.clone();
+    let kernel_id = kernel_id(params, &dfvs.members, &kernel_graph);
+
+    Ok(Kernel {
+        kernel_id,
+        panel_version: params.panel_version,
+        anchor_kind: params.anchor_kind.clone(),
+        corpus_shard_hash: params.corpus_shard_hash,
+        members: dfvs.members.clone(),
+        kernel_graph,
+        groundedness: groundedness_report(&dfvs.members, unanchored),
+        recall: RecallReport {
+            kernel_only: 0.0,
+            full: 0.0,
+            ratio: 0.0,
+            approx_factor: dfvs.approx_factor,
+        },
+        built_at_millis: params.built_at_millis,
+        estimator_provenance: provenance,
+        warnings,
+    })
+}
+
+fn unanchored_members(graph: &AssocGraph, anchors: &[CxId], members: &[CxId]) -> Result<Vec<CxId>> {
+    if anchors.is_empty() {
+        return Ok(members.to_vec());
+    }
+    let mut unanchored = Vec::new();
+    for member in members {
+        let reaches_anchor = anchors.iter().any(|anchor| {
+            reach(graph, *member, *anchor, usize::MAX)
+                .ok()
+                .flatten()
+                .is_some()
+        });
+        if !reaches_anchor {
+            unanchored.push(*member);
+        }
+    }
+    Ok(unanchored)
+}
+
+fn groundedness_report(members: &[CxId], unanchored: Vec<CxId>) -> GroundednessReport {
+    let reached = members.len().saturating_sub(unanchored.len());
+    GroundednessReport {
+        reached_anchor: if members.is_empty() {
+            1.0
+        } else {
+            reached as f32 / members.len() as f32
+        },
+        unanchored_members: unanchored,
+    }
+}
+
+fn warnings(rounded_warnings: &[String], dfvs: &DfvsResult, unanchored: &[CxId]) -> Vec<String> {
+    let mut warnings = rounded_warnings.to_vec();
+    if !dfvs.members.is_empty() && unanchored.len() == dfvs.members.len() {
+        warnings.push("CALYX_KERNEL_UNGROUNDED: all kernel members are provisional".to_string());
+    }
+    warnings
+}
+
+fn estimator_provenance(dfvs: &DfvsResult, warnings: &[String]) -> String {
+    let trust = if warnings
+        .iter()
+        .any(|warning| warning.starts_with("CALYX_KERNEL_UNGROUNDED"))
+    {
+        "provisional"
+    } else {
+        "anchored"
+    };
+    format!(
+        "ph32::{:?}; approx_factor={:.6}; trust={trust}",
+        dfvs.method, dfvs.approx_factor
+    )
+}
+
+fn kernel_id(params: &KernelParams, members: &[CxId], kernel_graph: &[CxId]) -> CxId {
+    let mut parts = vec![
+        params.panel_version.to_be_bytes().to_vec(),
+        params.anchor_kind.clone().unwrap_or_default().into_bytes(),
+        params.corpus_shard_hash.to_vec(),
+    ];
+    parts.extend(members.iter().map(|id| id.as_bytes().to_vec()));
+    parts.extend(kernel_graph.iter().map(|id| id.as_bytes().to_vec()));
+    CxId::from_bytes(content_address(parts))
+}
+
+fn empty_kernel(params: &KernelParams) -> Kernel {
+    Kernel {
+        kernel_id: kernel_id(params, &[], &[]),
+        panel_version: params.panel_version,
+        anchor_kind: params.anchor_kind.clone(),
+        corpus_shard_hash: params.corpus_shard_hash,
+        members: Vec::new(),
+        kernel_graph: Vec::new(),
+        groundedness: GroundednessReport {
+            reached_anchor: 1.0,
+            unanchored_members: Vec::new(),
+        },
+        recall: RecallReport {
+            kernel_only: 0.0,
+            full: 0.0,
+            ratio: 0.0,
+            approx_factor: 1.0,
+        },
+        built_at_millis: params.built_at_millis,
+        estimator_provenance: "ph32::empty; trust=anchored".to_string(),
+        warnings: Vec::new(),
+    }
+}

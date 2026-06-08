@@ -22,12 +22,18 @@ re-evaluation hook is exposed for Anneal (PH43+).
   PH34 (multi-scope build_kernel calls this pipeline per scope),
   PH43 (Anneal's incremental re-eval hook)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-lodestar` is a 9-line stub (greenfield). PH31 delivers `AssocGraph`,
-`tarjan_scc`, `betweenness`, and `LpProblem`. This phase seeds `dfvs.rs` and
-`kernel_graph.rs` from the ContextGraph `context-graph-solver` source (copied into
-`crates/calyx-lodestar/src/`, never linked).
+✅ **DONE / FSV-signed-off on aiwonder.** `calyx-lodestar` now owns kernel-graph
+selection, LP-round handling with explicit `CALYX_KERNEL_LP_UNAVAILABLE`
+fallback warnings, DFVS verification/specializations, the serializable `Kernel`
+pipeline, and the incremental evaluation hook.
+
+FSV root: `/home/croyse/calyx/data/fsv-ph32-20260608`.
+
+The ContextGraph solver remains an allowed seed source per `19 §6`, but PH32
+landed as Calyx-native Rust over the PH31 `AssocGraph`, SCC, betweenness, and LP
+scaffold types. It does not link or import the live ContextGraph project.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -41,14 +47,14 @@ re-evaluation hook is exposed for Anneal (PH43+).
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
-| Card | Title | Depends |
-|---|---|---|
-| T01 | Kernel-graph selection: degree + betweenness + groundedness filter | — (needs PH31) |
-| T02 | LP-relaxation rounding for kernel-graph (~10%) | T01 |
-| T03 | MFVS LP-relaxation approx + local search (`dfvs_approx`) | T02 |
-| T04 | Tournament 2-approx + bounded-genus O(g) specializations | T03 |
-| T05 | `build_kernel_pipeline` wiring + `Kernel` struct + approx-factor reporting | T04 |
-| T06 | Incremental re-eval hook for Anneal | T05 |
+| Card | Title | Depends | Status |
+|---|---|---|---|
+| T01 | Kernel-graph selection: degree + betweenness + groundedness filter | — (needs PH31) | ✅ FSV |
+| T02 | LP-relaxation rounding for kernel-graph (~10%) | T01 | ✅ FSV |
+| T03 | MFVS LP-relaxation approx + local search (`dfvs_approx`) | T02 | ✅ FSV |
+| T04 | Tournament 2-approx + bounded-genus O(g) specializations | T03 | ✅ FSV |
+| T05 | `build_kernel_pipeline` wiring + `Kernel` struct + approx-factor reporting | T04 | ✅ FSV |
+| T06 | Incremental re-eval hook for Anneal | T05 | ✅ FSV |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -61,6 +67,17 @@ On a **synthetic graph with a planted MFVS** (known set of feedback-vertex nodes
 3. `approx_factor` is printed and ≤ the theoretical `O(log τ* log log τ*)` bound
    for the test graph size.
 4. Evidence (stdout + planted vs computed table) attached to the PH32 GitHub issue.
+
+Readback hashes:
+
+| File | SHA-256 |
+|---|---|
+| `ph32-kernel-graph-readback.json` | `f9ba8f2734d2c2d1d2f261dd3f10223dd6cc24275bde8f00520e6d25c2e95abb` |
+| `ph32-lp-round-readback.json` | `5aad87bf409145913876342dcc41646264d4d2bd2c04bb07d2e890cde40c625c` |
+| `ph32-dfvs-readback.json` | `1c28b8e5a41a62bd4b9e2aa561c0a80fbb4b12c266efb5aced0f156df6ad7a7c` |
+| `ph32-specialized-dfvs-readback.json` | `fb0f9527558408381a73c88db2075fcc751fbcb4d796996e190c8435548003f8` |
+| `ph32-kernel-pipeline-readback.json` | `8c7a5ec496395ae81896aafa604d13ebf440ab0cd1fcdb7e00e5d83ec057258d` |
+| `ph32-incremental-readback.json` | `e183ce148daed3b626abd43d4d1d758d05e747b71efff6426b3f37f1945d9be8` |
 
 ## Risks / landmines
 

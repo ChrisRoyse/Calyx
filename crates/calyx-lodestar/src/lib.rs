@@ -1,9 +1,21 @@
-//! Lodestar grounding-kernel skeleton for kernel graph operations.
+#![deny(warnings)]
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_metadata_is_present() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "calyx-lodestar");
-    }
-}
+//! Lodestar grounding-kernel discovery and maintenance.
+
+pub mod dfvs;
+mod error;
+pub mod incremental;
+pub mod kernel;
+pub mod kernel_graph;
+
+pub use dfvs::{
+    DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
+    tournament_2approx,
+};
+pub use error::{LodestarError, Result};
+pub use incremental::{IncrementalKernelEval, IncrementalResult, NodeAddEdge};
+pub use kernel::{GroundednessReport, Kernel, KernelParams, RecallReport, build_kernel_pipeline};
+pub use kernel_graph::{
+    KernelGraph, KernelGraphParams, LpRoundParams, NodeScore, groundedness_distance,
+    lp_round_kernel_graph, lp_round_kernel_graph_from_solution, select_kernel_graph,
+};

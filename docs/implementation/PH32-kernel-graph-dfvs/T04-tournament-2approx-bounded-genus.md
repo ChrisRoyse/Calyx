@@ -1,5 +1,11 @@
 # PH32 · T04 — Tournament 2-approx + bounded-genus O(g) specializations
 
+> **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
+> `crates/calyx-lodestar/src/dfvs.rs` with tournament detection,
+> `Tournament2Approx`, genus estimate, `BoundedGenus`, automatic dispatch, and
+> genus-too-large fail-closed behavior. aiwonder FSV readback:
+> `ph32-specialized-dfvs-readback.json`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH32 — Kernel-graph (~10%) + directed MFVS (~1%) |
