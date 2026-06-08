@@ -7,9 +7,11 @@ use std::time::Duration;
 
 use calyx_core::{CxId, SlotId, SlotVector};
 use calyx_sextant::{
-    FusionStrategy, HnswIndex, InvertedIndex, Query, RerankerClient, SearchEngine, SlotIndexMap,
+    FusionStrategy, HnswIndex, InvertedIndex, Query, RerankRequest, RerankerClient, SearchEngine,
+    SlotIndexMap,
 };
 use serde_json::json;
+use zeroize::Zeroizing;
 
 #[test]
 fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
@@ -84,6 +86,16 @@ fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
 }
 
 #[test]
+fn rerank_request_owns_zeroizing_candidate_text() {
+    let request = RerankRequest::new("cat", vec!["cat hat".to_string()]);
+    let candidate_type = std::any::type_name_of_val(&request.candidates);
+
+    assert!(candidate_type.contains("Zeroizing"));
+    assert_eq!(request.candidates.len(), 1);
+    assert_eq!(request.candidates[0].as_str(), "cat hat");
+}
+
+#[test]
 #[ignore = "aiwonder FSV writes reranker request/result source-of-truth artifacts"]
 fn search_with_reranker_aiwonder_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
@@ -110,14 +122,22 @@ fn search_with_reranker_aiwonder_fsv() {
     let request_body = request_body(&request);
     let request_texts = request_texts(request_body);
     let parsed_request = serde_json::from_str::<serde_json::Value>(request_body).unwrap();
+    let candidate_container_type = std::any::type_name::<Vec<Zeroizing<String>>>();
+    let serialized_container_type = std::any::type_name::<Zeroizing<String>>();
     let result = json!({
         "baseline_order": ids(&baseline),
         "reranked_order": ids(&reranked),
         "reranked_scores": reranked.iter().map(|hit| hit.score).collect::<Vec<_>>(),
-        "request_texts": request_texts,
+        "request_text_count": request_texts.len(),
+        "request_contains_cat_hat": request_texts.contains(&"cat hat".to_string()),
+        "request_contains_cat_error_cause": request_texts.contains(&"cat error cause".to_string()),
         "request_query": parsed_request["query"].clone(),
         "dog_log_not_requested": !request_body.contains("dog log"),
         "strategy": reranked[0].explain.as_ref().unwrap().strategy,
+        "candidate_container_type": candidate_container_type,
+        "serialized_body_container_type": serialized_container_type,
+        "candidates_owned_by_zeroizing": candidate_container_type.contains("Zeroizing"),
+        "serialized_body_zeroizing": serialized_container_type.contains("Zeroizing"),
     });
 
     fs::write(root.join("reranker-http-request.txt"), request).unwrap();
@@ -135,6 +155,8 @@ fn search_with_reranker_aiwonder_fsv() {
     assert_ne!(baseline[0].cx_id, reranked[0].cx_id);
     assert_eq!(result["dog_log_not_requested"], true);
     assert_eq!(result["strategy"], "pipeline+rerank");
+    assert_eq!(result["candidates_owned_by_zeroizing"], true);
+    assert_eq!(result["serialized_body_zeroizing"], true);
 }
 
 struct TestServer {

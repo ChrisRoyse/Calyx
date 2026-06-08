@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{Anchor, CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
+use zeroize::Zeroizing;
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::hit::{FreshnessTag, Hit};
@@ -216,7 +217,7 @@ impl SearchEngine {
         &self,
         hits: &[Hit],
         stage1_slots: &[SlotId],
-    ) -> Result<Vec<String>> {
+    ) -> Result<Vec<Zeroizing<String>>> {
         if stage1_slots.is_empty() {
             return Err(crate::error::sextant_error(
                 crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
@@ -232,12 +233,12 @@ impl SearchEngine {
                     break;
                 }
             }
-            texts.push(text.ok_or_else(|| {
+            texts.push(Zeroizing::new(text.ok_or_else(|| {
                 crate::error::sextant_error(
                     crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
                     format!("candidate text missing for {}", hit.cx_id),
                 )
-            })?);
+            })?));
         }
         Ok(texts)
     }

@@ -136,10 +136,7 @@ fn pipeline_and_reranker_keep_candidate_text_request_scoped() {
     assert!(summary.zeroizing_ok);
 
     let reranker = RerankerClient::new("http://127.0.0.1:9", Duration::from_millis(5));
-    let request = RerankRequest {
-        query: "cat".to_string(),
-        candidates: texts,
-    };
+    let request = RerankRequest::new("cat", texts);
     assert_eq!(
         reranker.rerank(&request).unwrap_err().code,
         "CALYX_SEXTANT_RERANKER_TIMEOUT"
@@ -288,10 +285,10 @@ fn stage4_full_stack_fsv() {
         compare_lenses(&engine, &compare_query, &[SlotId::new(8), SlotId::new(9)]).unwrap();
     let definition = define(&engine, ids[0], SlotId::new(8), 2).unwrap();
     let reranker = RerankerClient::new("http://127.0.0.1:8089", Duration::from_millis(500));
-    let rerank = reranker.rerank(&RerankRequest {
-        query: "cat".to_string(),
-        candidates: vec!["cat hat".to_string(), "dog log".to_string()],
-    });
+    let rerank = reranker.rerank(&RerankRequest::new(
+        "cat",
+        vec!["cat hat".to_string(), "dog log".to_string()],
+    ));
 
     let latencies = measure_latencies(&engine, &dense_query);
     let postings_encoded = encode_varint_deltas(&[1, 3, 7]).unwrap();
