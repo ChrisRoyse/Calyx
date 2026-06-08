@@ -18,9 +18,16 @@ registered, allocate the next `SlotId`, create an empty slot CF column and
 ANN index placeholder, bump `panel_version`, and schedule lazy backfill.
 No existing constellation is rewritten.
 
+Implementation note after #311: `SwapController::add_lens` remains the
+in-memory queue path for unit-level callers. Production/manual FSV uses
+`SwapController::add_lens_durable`, which performs the same panel mutation and
+persists a `BackfillScheduler` request in the same API call. If scheduler
+enqueue fails, the controller and scheduler objects are restored to their
+pre-call state before the error is returned.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn add_lens(registry: &mut Registry, spec: LensSpec, lens: Box<dyn Lens>, store: &dyn VaultStore) -> Result<LensId>`:
+- [x] `pub fn add_lens_durable(controller, spec, candidates, now, scheduler, priority) -> Result<AddLensOutcome>`:
   1. `check_frozen_contract_at_register(&spec, lens.as_ref(), &probe_input)`.
   2. `let id = compute_lens_id(&spec)`; if `registry.contains(id)` → `Ok(id)` (idempotent no-op).
   3. `let slot_id = registry.alloc_next_slot_id()`.
@@ -31,7 +38,7 @@ No existing constellation is rewritten.
      `slot_{slot_id}/HEADER = SlotState::Active + panel_version` via
      `store`). If `store` unavailable → record in `registry.pending_cf_creates`.
   8. Create empty ANN index placeholder (unit stub — real index in PH23).
-  9. Enqueue `BackfillRequest { slot_id, priority: BackfillPriority::Normal }`.
+  9. Enqueue persisted `BackfillRequest { slot_id, lens_id, priority, candidates }`.
   10. Return `Ok(id)`.
 - [ ] `SlotId` allocation: `registry.next_slot_id: SlotId` counter; increment
   atomically; never reuse a retired slot's id within a vault lifetime.

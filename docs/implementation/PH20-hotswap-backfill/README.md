@@ -27,7 +27,8 @@ contract, `swap.rs` hot-swap mechanics, and `backfill.rs` durable scheduler
 state. `calyx-aster` has PH09 constellation CRUD and slot column families, so
 PH20 FSV writes real slot vectors, flushes the vault, reopens it, and reads the
 slot CF rows back from disk. The old queue-only scheduler proof is superseded by
-#300.
+#300; #311 wires durable scheduler enqueue into the public hot-swap API with
+`SwapController::add_lens_durable`.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env.
@@ -36,7 +37,7 @@ slot CF rows back from disk. The old queue-only scheduler proof is superseded by
 
 | File | Responsibility |
 |---|---|
-| `crates/calyx-registry/src/swap.rs` | `add_lens`, `retire_lens`, `park_lens`, `unpark_lens`, `panel_version` bump |
+| `crates/calyx-registry/src/swap.rs` | `add_lens` in-memory queue path, `add_lens_durable` production scheduler path, `retire_lens`, `park_lens`, `unpark_lens`, `panel_version` bump |
 | `crates/calyx-registry/src/backfill.rs` | lazy backfill scheduler: kernel/hot/normal priority, persisted JSON watermarks, throttle, restart resume |
 | `crates/calyx-registry/src/slot_alloc.rs` | `SlotId` allocation, slot CF column creation stub (wires to Aster in PH23) |
 
@@ -56,16 +57,19 @@ slot CF rows back from disk. The old queue-only scheduler proof is superseded by
    pre-existing constellations); assert zero existing constellation is
    rewritten (`slot_*/` CF rows for old constellations are unchanged).
 2. The new slot is searchable immediately for a freshly ingested constellation.
-3. Run the durable backfill scheduler; read `backfill-watermark.json` after
+3. Call `add_lens_durable`; read `backfill-watermark.json` immediately after
+   add to prove durable scheduler enqueue happened inside the hot-swap API
+   call.
+4. Run the durable backfill scheduler; read `backfill-watermark.json` after
    enqueue, after first batch, and after restart-resume to prove priority order,
    throttle, and completion state.
-4. `retire_lens` → `SlotState::Retired`; historical constellations still
+5. `retire_lens` → `SlotState::Retired`; historical constellations still
    readable from their slot columns; `panel_version` incremented. Reopen the
    durable Aster vault and read the backfilled slot CF rows again.
 
-Readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
+Readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
 on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-watermark.json` and vault
-file readback. Evidence is attached to GitHub issue #300.
+file readback. Evidence is attached to GitHub issue #311.
 
 ## Risks / landmines
 

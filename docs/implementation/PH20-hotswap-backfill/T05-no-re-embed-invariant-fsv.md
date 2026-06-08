@@ -12,8 +12,8 @@
 
 ## Goal
 
-Prove the PH20 FSV gate on aiwonder: after `add_lens` on a populated durable
-vault, zero existing constellations are rewritten; durable scheduler state
+Prove the PH20 FSV gate on aiwonder: after `add_lens_durable` on a populated
+durable vault, zero existing constellations are rewritten; durable scheduler state
 orders, throttles, resumes, and completes lazy backfill; and `retire_lens`
 tombstones the slot while historical data remains readable.
 
@@ -22,8 +22,9 @@ tombstones the slot while historical data remains readable.
 - [x] The FSV creates a durable Aster vault under `CALYX_FSV_ROOT`, writes two
   seeded constellations, flushes them, and snapshots base CF bytes before
   `add_lens`.
-- [x] `add_lens` allocates the new slot, bumps `panel_version`, leaves the
-  placeholder index unready, and proves old base rows are unchanged.
+- [x] `add_lens_durable` allocates the new slot, bumps `panel_version`, leaves
+  the placeholder index unready, persists the scheduler request, and proves old
+  base rows are unchanged.
 - [x] Durable backfill state is stored in `backfill-watermark.json` via
   `BackfillScheduler::open/enqueue/claim_next_batch/complete_batch`.
 - [x] Backfill writes deterministic dense slot vectors for both synthetic
@@ -49,10 +50,10 @@ tombstones the slot while historical data remains readable.
 ## FSV (read the bytes on aiwonder - the truth gate)
 
 - **SoT:** durable Aster vault plus
-  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608/backfill-watermark.json`
+  `/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608/backfill-watermark.json`
   on aiwonder.
 - **Readback:**
-  `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
+  `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
   then `cat $CALYX_FSV_ROOT/backfill-watermark.json` and
   `find $CALYX_FSV_ROOT/vault -type f`.
 - **Prove:** output shows old base digests unchanged, scheduler
@@ -64,6 +65,6 @@ tombstones the slot while historical data remains readable.
 
 - [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [x] file(s) <=500 lines
-- [x] FSV evidence attached to GitHub issue #300
+- [x] FSV evidence attached to GitHub issue #311
 - [x] no anti-pattern: no flatten / no unbounded `C(N,2)` materialization /
   no "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

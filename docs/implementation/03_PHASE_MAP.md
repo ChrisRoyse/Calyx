@@ -17,7 +17,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, and #307 records GEMM near-zero parity by relative+absolute readback |
-| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); durable PH20 scheduler #300 FSV-backed |
+| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311 FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 and gate/abundance hardening #309 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 and groundedness bound #298 FSV-backed) |
@@ -37,7 +37,7 @@ Latest roots:
 - Stage 3 atomic suite:
   `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`
 - Stage 3 PH20 durable backfill scheduler:
-  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`
+  `/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608`
 - Stage 4 Sextant:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
 - Stage 4 Sextant GPU parity/fan-out hardening:
@@ -93,7 +93,7 @@ Latest roots:
 | PH17 | Lens trait + algorithmic + tei-http runtimes | PH12,PH09 | registry | P2/A4 | embed via :8088 twice → identical; algorithmic lens deterministic | ✅ FSV |
 | PH18 | Frozen contract + content-addressed LensId | PH17 | registry | P2/A4 | plain `register*` fails closed; weights-hash mismatch → `CALYX_LENS_FROZEN_VIOLATION`; LensId stable across vaults | ✅ FSV (#310) |
 | PH19 | candle-local + onnx runtimes | PH18 | registry | P2/A4 | local + ONNX lens produce unit-norm finite vectors; dim guard fires | ✅ FSV |
-| PH20 | Hot-swap add/retire/park + lazy backfill | PH19 | registry | P2/A5 | add lens → no re-embed; backfill observed on slot columns; retire tombstones | ✅ FSV |
+| PH20 | Hot-swap add/retire/park + lazy backfill | PH19 | registry | P2/A5 | durable add lens → scheduler JSON + no re-embed; backfill observed on slot columns; retire tombstones | ✅ FSV (#311) |
 | PH21 | Capability cards / profile | PH20 | registry | A6 | profile returns signal/spread/separation/cost without full ingest | ✅ FSV |
 | PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 

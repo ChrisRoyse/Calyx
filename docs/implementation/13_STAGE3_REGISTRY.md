@@ -19,6 +19,10 @@
 > Post-sweep hardening #300 replaces the PH20 synthetic queue-only FSV with
 > durable scheduler watermarks/throttle/restart-resume state. FSV root for #300:
 > `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`.
+> Post-sweep hardening #311 wires durable backfill enqueue into the hot-swap
+> API via `SwapController::add_lens_durable`; callers no longer need a separate
+> scheduler enqueue after add. FSV root for #311:
+> `/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608`.
 > Post-sweep hardening #310 closes the PH18 unfrozen-registration bypass:
 > `Registry::register` and `register_with_spec` now fail with
 > `CALYX_LENS_FROZEN_VIOLATION`; runtime callers must use `register_frozen*`.
@@ -94,9 +98,9 @@ differentiation.
 
 ## PH20 — Hot-swap add/retire/park + lazy backfill
 - **Status.** ✅ FSV-signed-off (`swap.rs`: SlotSpec injection, retire-tombstone,
-  park/unpark, priority `BackfillQueue`; `backfill.rs`: durable scheduler
-  watermarks/throttle/restart-resume; #300 FSV root
-  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`).
+  park/unpark, priority `BackfillQueue`; `add_lens_durable` persists
+  `BackfillScheduler` requests; #311 FSV root
+  `/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608`).
 - **Objective.** The core ergonomic: add/retire/park a lens with **no global
   re-embed**; lazy, priority-ordered backfill.
 - **Deps.** PH19.
@@ -156,5 +160,5 @@ A vault can add/retire/park real lenses (TEI/candle/ONNX/algorithmic) with no
 re-embed, enforce the frozen contract, profile a lens in seconds, and ship with
 default panels + temporal lenses — PRD `LENS`. The "nightmare every time" is one
 `add_lens` call. Implemented and FSV-signed-off; downstream Stage 4/5 readbacks
-on aiwonder depend on the registry/lens layer, and PH20's durable scheduler
-state is FSV-backed by #300.
+on aiwonder depend on the registry/lens layer, and PH20's durable add-lens
+scheduler path is FSV-backed by #311.
