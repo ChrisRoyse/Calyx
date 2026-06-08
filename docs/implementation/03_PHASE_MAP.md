@@ -83,12 +83,15 @@ Latest roots:
 | PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 
 > **Stage 1–5 audit note (2026-06-08):** Subagents and source readback found
-> no Stage 6 blocker. The accepted seams are explicitly scoped: PH23's
-> `HnswIndex` currently uses an exact dense scan behind the HNSW-compatible
-> seam, PH24 provenance falls back to synthetic `LedgerRef` until Stage 7 when a
-> document has no stored provenance, and PH30 report bytes are exposed through
-> the Stage 5 FSV JSON readback while full user-facing CLI commands remain in
-> PH62.
+> no remaining Stage 6 blocker after post-sweep hardening #282-#287. PH23 now
+> uses native `ef` HNSW traversal, PH24 explain provenance is refreshed from
+> stored constellation provenance, WeightedRRF excludes unnamed and AP-60
+> temporal slots before PH40, PH27 Loom cross-terms fail closed, and PH28/PH30
+> Assay rows are vault/anchor scoped. The accepted seams are explicitly scoped:
+> synthetic `LedgerRef` fallback remains only for documents with no stored
+> provenance until Stage 7, and full user-facing Assay/abundance CLI commands
+> remain in PH62 while Stage 5 readback bytes are already exposed through FSV
+> JSON.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

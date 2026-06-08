@@ -14,6 +14,9 @@
 > Post-sweep hardening #285 makes Loom cross-term math fail closed and adds an
 > explicit nonnegative `agreement_weight` beside raw cosine agreement for
 > Lodestar graph handoff.
+> Post-sweep hardening #287 scopes Assay cache/store rows by vault and anchor
+> so Stage 6 cannot consume signal bits measured for a different vault or
+> outcome axis.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -51,6 +54,8 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   histogram, streaming), bootstrap CI, random-projection pre-step for high-d.
 - **Key tasks.** KSG continuous↔discrete; quorum n≥50 → else
   `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; CI on every estimate.
+- **Post-sweep note.** Persisted Assay rows now include vault and anchor scope
+  in the cache key and in the physical Aster Assay CF key (#287).
 - **FSV gate.** MI on a **planted-signal synthetic** is within CI of the known
   value; n<50 fails closed (no noisy point estimate).
 - **Axioms/PRD.** A2 (grounded only), A16, `07 §2`.
@@ -78,6 +83,9 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   ceiling), `bits_report`.
 - **Key tasks.** DPI ceiling exposed; deficit localized to slots; sufficiency
   routes to Anneal lens-proposal (Stage 10).
+- **Post-sweep note.** Sufficiency and bit reports remain anchor-explicit; the
+  backing AssayStore now prevents same-panel/shard/subject collisions across
+  vaults or anchors (#287).
 - **FSV gate.** `abundance_report` prints the four honest numbers; a known-
   insufficient panel (`I≪H`) is flagged with the per-slot deficit (read it);
   trusted bits only when grounded (else `provisional`).
