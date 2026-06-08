@@ -19,6 +19,7 @@ pub struct Posting {
 pub struct InvertedIndex {
     slot: SlotId,
     docs: BTreeMap<CxId, String>,
+    vectors: BTreeMap<CxId, SlotVector>,
     postings: BTreeMap<String, Vec<Posting>>,
     doc_len: BTreeMap<CxId, usize>,
     built_at_seq: u64,
@@ -31,6 +32,7 @@ impl InvertedIndex {
         Self {
             slot,
             docs: BTreeMap::new(),
+            vectors: BTreeMap::new(),
             postings: BTreeMap::new(),
             doc_len: BTreeMap::new(),
             built_at_seq: 0,
@@ -55,13 +57,40 @@ impl InvertedIndex {
     }
 
     pub fn remove(&mut self, cx_id: CxId) -> bool {
+        self.remove_doc(cx_id, true)
+    }
+
+    fn remove_doc(&mut self, cx_id: CxId, remove_vector: bool) -> bool {
         let existed = self.docs.remove(&cx_id).is_some();
         self.doc_len.remove(&cx_id);
+        let vector_existed = if remove_vector {
+            self.vectors.remove(&cx_id).is_some()
+        } else {
+            false
+        };
         for postings in self.postings.values_mut() {
             postings.retain(|posting| posting.cx_id != cx_id);
         }
         self.postings.retain(|_, postings| !postings.is_empty());
-        existed
+        existed || vector_existed
+    }
+
+    fn index_text(&mut self, cx_id: CxId, text: &str, seq: u64) {
+        let terms = tokenize(text);
+        self.doc_len.insert(cx_id, terms.len());
+        self.docs.insert(cx_id, text.to_string());
+        let mut counts = BTreeMap::<String, usize>::new();
+        for term in terms {
+            *counts.entry(term).or_default() += 1;
+        }
+        for (term, tf) in counts {
+            self.postings
+                .entry(term)
+                .or_default()
+                .push(Posting { cx_id, tf });
+        }
+        self.built_at_seq = self.built_at_seq.max(seq);
+        self.base_seq = self.base_seq.max(seq);
     }
 
     pub fn search_text(&self, text: &str, k: usize) -> Vec<IndexSearchHit> {
@@ -100,7 +129,7 @@ impl SextantIndex for InvertedIndex {
     }
 
     fn insert(&mut self, cx_id: CxId, vector: SlotVector, seq: u64) -> Result<()> {
-        let SlotVector::Sparse { entries, .. } = vector else {
+        let SlotVector::Sparse { entries, .. } = &vector else {
             return Err(crate::error::sextant_error(
                 crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
                 "sparse index received non-sparse vector",
@@ -111,7 +140,10 @@ impl SextantIndex for InvertedIndex {
             .map(|entry| format!("t{}", entry.idx))
             .collect::<Vec<_>>()
             .join(" ");
-        self.insert_text(cx_id, &text, seq)
+        self.remove_doc(cx_id, true);
+        self.vectors.insert(cx_id, vector);
+        self.index_text(cx_id, &text, seq);
+        Ok(())
     }
 
     fn search(
@@ -139,13 +171,17 @@ impl SextantIndex for InvertedIndex {
         self.postings.clear();
         self.doc_len.clear();
         for (cx, text) in docs {
-            self.insert_text(cx, &text, self.base_seq)?;
+            self.remove_doc(cx, false);
+            self.index_text(cx, &text, self.base_seq);
         }
         self.built_at_seq = self.base_seq;
         Ok(())
     }
 
     fn vector(&self, cx_id: CxId) -> Option<SlotVector> {
+        if let Some(vector) = self.vectors.get(&cx_id) {
+            return Some(vector.clone());
+        }
         self.docs.get(&cx_id).map(|text| SlotVector::Sparse {
             dim: 1_000_000,
             entries: tokenize(text)
@@ -175,22 +211,8 @@ impl SextantIndex for InvertedIndex {
     }
 
     fn insert_text(&mut self, cx_id: CxId, text: &str, seq: u64) -> Result<()> {
-        self.remove(cx_id);
-        let terms = tokenize(text);
-        self.doc_len.insert(cx_id, terms.len());
-        self.docs.insert(cx_id, text.to_string());
-        let mut counts = BTreeMap::<String, usize>::new();
-        for term in terms {
-            *counts.entry(term).or_default() += 1;
-        }
-        for (term, tf) in counts {
-            self.postings
-                .entry(term)
-                .or_default()
-                .push(Posting { cx_id, tf });
-        }
-        self.built_at_seq = self.built_at_seq.max(seq);
-        self.base_seq = self.base_seq.max(seq);
+        self.remove_doc(cx_id, true);
+        self.index_text(cx_id, text, seq);
         Ok(())
     }
 
