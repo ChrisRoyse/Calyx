@@ -1,5 +1,6 @@
 use super::grouped_gemm::{
-    GemmProblem, build_grouped_gemm_plan, execute_grouped_gemm, read_grouped_gemm_output,
+    GemmProblem, GroupedGemmExecutionMode, build_grouped_gemm_plan, execute_grouped_gemm,
+    execute_grouped_gemm_strict, read_grouped_gemm_output,
 };
 use super::ragged_gemm::{
     build_ragged_batch, build_ragged_batch_from_slabs, extract_ragged_results,
@@ -122,11 +123,18 @@ fn grouped_gemm_one_matches_single_gemm() -> Result<()> {
     let mut c = Vec::new();
     append_case(&mut problems, &mut a, &mut b, &mut c, (2, 2, 2), 1);
     let mut plan = build_grouped_gemm_plan(&ctx, problems.clone(), &a, &b, &c)?;
-    execute_grouped_gemm(&ctx, &mut plan)?;
+    execute_grouped_gemm_strict(&ctx, &mut plan)?;
+    assert_eq!(
+        plan.execution_mode,
+        GroupedGemmExecutionMode::GroupedBatched
+    );
     let out = read_grouped_gemm_output(&ctx, &plan)?;
     let err = assert_outputs(&problems, &a, &b, &out)?;
     assert!(err <= 1e-5, "max_err={err}");
-    println!("grouped_gemm_one PASSED max_err={err:.3e}");
+    println!(
+        "grouped_gemm_one PASSED mode={} max_err={err:.3e}",
+        plan.execution_mode.as_str()
+    );
     Ok(())
 }
 
@@ -143,10 +151,17 @@ fn grouped_equals_per_loop() -> Result<()> {
     append_case(&mut problems, &mut a, &mut b, &mut c, (1, 5, 3), 13);
     let mut plan = build_grouped_gemm_plan(&ctx, problems.clone(), &a, &b, &c)?;
     execute_grouped_gemm(&ctx, &mut plan)?;
+    assert!(matches!(
+        plan.execution_mode,
+        GroupedGemmExecutionMode::GroupedBatched | GroupedGemmExecutionMode::SequentialFallback
+    ));
     let out = read_grouped_gemm_output(&ctx, &plan)?;
     let err = assert_outputs(&problems, &a, &b, &out)?;
     assert!(err <= 1e-4, "max_err={err}");
-    println!("grouped_equals_per_loop PASSED grouped=3 per_loop=3 max_err={err:.3e}");
+    println!(
+        "grouped_equals_per_loop PASSED grouped=3 per_loop=3 mode={} max_err={err:.3e}",
+        plan.execution_mode.as_str()
+    );
     Ok(())
 }
 
@@ -183,6 +198,10 @@ fn grouped_all_none_and_shape_mismatch_edges() -> Result<()> {
     let c = vec![SENTINEL; 3];
     let mut plan = build_grouped_gemm_plan(&ctx, vec![None, None], &[0.0], &[0.0], &c)?;
     execute_grouped_gemm(&ctx, &mut plan)?;
+    assert_eq!(
+        plan.execution_mode,
+        GroupedGemmExecutionMode::NoActiveProblems
+    );
     let out = read_grouped_gemm_output(&ctx, &plan)?;
     assert_eq!(out, c);
 

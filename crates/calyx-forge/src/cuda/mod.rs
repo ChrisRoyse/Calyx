@@ -22,8 +22,9 @@ pub use gemm::{
     gemm_mxfp8_fp32_accum, probe_allocation,
 };
 pub use grouped_gemm::{
-    AbsentSlotSentinel, GemmProblem, GroupedGemmPlan, build_grouped_gemm_plan,
-    execute_grouped_gemm, read_grouped_gemm_output,
+    AbsentSlotSentinel, GemmProblem, GroupedGemmExecutionMode, GroupedGemmPlan,
+    build_grouped_gemm_plan, execute_grouped_gemm, execute_grouped_gemm_strict,
+    read_grouped_gemm_output,
 };
 pub use ragged_gemm::{
     RaggedBatch, build_ragged_batch, build_ragged_batch_from_slabs, extract_ragged_results,
@@ -51,6 +52,10 @@ impl CudaBackend {
 
     pub fn grouped_gemm(&self, plan: &mut GroupedGemmPlan) -> Result<()> {
         grouped_gemm::execute_grouped_gemm(&self.ctx, plan)
+    }
+
+    pub fn grouped_gemm_strict(&self, plan: &mut GroupedGemmPlan) -> Result<()> {
+        grouped_gemm::execute_grouped_gemm_strict(&self.ctx, plan)
     }
 }
 
