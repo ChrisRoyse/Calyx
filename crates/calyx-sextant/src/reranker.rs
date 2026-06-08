@@ -54,23 +54,6 @@ impl RerankerClient {
         }
     }
 
-    pub fn mock_scores(&self, request: &RerankRequest) -> RerankResponse {
-        let scoped: Vec<Zeroizing<String>> = request
-            .candidates
-            .iter()
-            .cloned()
-            .map(Zeroizing::new)
-            .collect();
-        let scores = scoped
-            .iter()
-            .map(|candidate| lexical_overlap(&request.query, candidate))
-            .collect();
-        RerankResponse {
-            scores,
-            zeroizing_ok: scoped.len() == request.candidates.len(),
-        }
-    }
-
     pub fn rerank(&self, request: &RerankRequest) -> Result<RerankResponse> {
         if !self.endpoint.starts_with("http://") {
             return Err(sextant_error(
@@ -191,12 +174,6 @@ fn parse_tei_rank_response(body: &str, expected_scores: usize) -> Result<RerankR
         scores,
         zeroizing_ok: true,
     })
-}
-
-fn lexical_overlap(query: &str, candidate: &str) -> f32 {
-    let q = crate::index::tokenizer::tokenize(query);
-    let c = crate::index::tokenizer::tokenize(candidate);
-    q.iter().filter(|term| c.contains(term)).count() as f32
 }
 
 #[cfg(test)]

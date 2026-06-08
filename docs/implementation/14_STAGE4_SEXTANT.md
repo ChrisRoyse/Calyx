@@ -28,6 +28,9 @@
 > Post-sweep hardening #297 adds `QueryFilters` for scalar, anchor, and
 > built-in constellation metadata predicates in the SearchEngine path.
 > FSV root: `/home/croyse/calyx/data/fsv-issue297-query-filters-20260608`.
+> Post-sweep hardening #305 removes the last public mock reranker scoring
+> helper; PH26 reranking now either calls the request-scoped real HTTP reranker
+> or fails closed.
 > Post-sweep hardening #299 removes Sextant CPU-self GPU parity shims:
 > MaxSim/quant parity requests now fail loud with
 > `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`, and SearchEngine fan-out is documented

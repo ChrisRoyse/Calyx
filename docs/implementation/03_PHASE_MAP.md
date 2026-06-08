@@ -109,8 +109,9 @@ Latest roots:
 > and PH28/PH30
 > persisted Assay rows require vault/anchor scope, Assay estimators reject
 > ragged/non-finite sample matrices, PH25 Pipeline enforces sparse candidate
-> subsets, PH26 reranker non-2xx fails closed, and PH22 temporal flags persist
-> onto core Slot rows. The accepted seams are explicitly scoped:
+> subsets, PH26 reranker non-2xx fails closed with no public mock scoring
+> helper left in the API (#305), and PH22 temporal flags persist onto core Slot
+> rows. The accepted seams are explicitly scoped:
 > synthetic `LedgerRef` fallback remains only for documents with no stored
 > provenance until Stage 7, and full user-facing Assay/abundance CLI commands
 > remain in PH62 while Stage 5 readback bytes are already exposed through FSV
