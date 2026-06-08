@@ -118,9 +118,9 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     assert_eq!(projected.projected, gpu.projected);
 
     let redundant_x: Vec<f32> = (0..100).map(|i| (i % 10) as f32).collect();
-    let redundant = partitioned_histogram_nmi(&redundant_x, &redundant_x, 10);
+    let redundant = partitioned_histogram_nmi(&redundant_x, &redundant_x, 10).unwrap();
     let independent_y: Vec<f32> = (0..100).map(|i| (i / 10) as f32).collect();
-    let independent = partitioned_histogram_nmi(&redundant_x, &independent_y, 10);
+    let independent = partitioned_histogram_nmi(&redundant_x, &independent_y, 10).unwrap();
     assert!(redundant.nmi >= 0.8);
     assert!(independent.nmi <= 0.1);
 
@@ -265,8 +265,8 @@ fn stage5_full_stack_fsv() {
     let projection_delta = projection_max_delta(&projected.projected, &projected_gpu.projected);
     let redundant_x: Vec<f32> = (0..100).map(|i| (i % 10) as f32).collect();
     let independent_y: Vec<f32> = (0..100).map(|i| (i / 10) as f32).collect();
-    let redundant_nmi = partitioned_histogram_nmi(&redundant_x, &redundant_x, 10);
-    let independent_nmi = partitioned_histogram_nmi(&redundant_x, &independent_y, 10);
+    let redundant_nmi = partitioned_histogram_nmi(&redundant_x, &redundant_x, 10).unwrap();
+    let independent_nmi = partitioned_histogram_nmi(&redundant_x, &independent_y, 10).unwrap();
     let strata = stratified_bits(
         0.01,
         vec![StratumBits {

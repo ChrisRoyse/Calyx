@@ -229,7 +229,7 @@ fn generate_golden_seed() {
         std::fs::write(&path, expected.as_bytes()).expect("write golden seed");
     }
     let actual = std::fs::read_to_string(&path).expect("read committed golden seed");
-    assert_eq!(actual, expected);
+    assert_eq!(actual.replace("\r\n", "\n"), expected);
     println!(
         "generate_golden_seed PASSED golden_seed_bytes={} path={}",
         actual.len(),

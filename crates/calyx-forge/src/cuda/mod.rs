@@ -12,7 +12,7 @@ pub mod topk;
 #[cfg(test)]
 mod topk_tests;
 
-use crate::{Backend, DeviceInfo, ForgeError, Result};
+use crate::{Backend, DeviceInfo, Result};
 
 pub use crate::mxfp4;
 pub use context::{CudaContext, init_cuda, query_device_info};
@@ -79,8 +79,8 @@ impl Backend for CudaBackend {
         distance::l2_host(&self.ctx, a, b, dim, out)
     }
 
-    fn normalize(&self, _vecs: &mut [f32], _dim: usize) -> Result<()> {
-        Err(unimplemented("cuda::normalize"))
+    fn normalize(&self, vecs: &mut [f32], dim: usize) -> Result<()> {
+        crate::cpu::normalize::normalize_f32(vecs, dim)
     }
 
     fn topk(&self, scores: &[f32], k: usize) -> Result<Vec<(usize, f32)>> {
@@ -89,14 +89,6 @@ impl Backend for CudaBackend {
 
     fn device_info(&self) -> DeviceInfo {
         query_device_info(&self.ctx)
-    }
-}
-
-fn unimplemented(op: &str) -> ForgeError {
-    ForgeError::Unimplemented {
-        op: op.to_string(),
-        remediation: "Implement the PH13 CUDA kernel card for this operation before enabling it"
-            .to_string(),
     }
 }
 

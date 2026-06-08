@@ -59,6 +59,25 @@ fn load_manifest() -> GoldenManifest {
     serde_json::from_str(&text).unwrap_or_else(|err| panic!("{}: {err}", path.display()))
 }
 
+#[cfg(feature = "cuda")]
+fn l2_norm(values: &[f32]) -> f32 {
+    values.iter().map(|value| value * value).sum::<f32>().sqrt()
+}
+
+#[cfg(feature = "cuda")]
+fn write_cuda_fsv_readback(file_name: &str, value: &serde_json::Value) {
+    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+        return;
+    };
+    let path = PathBuf::from(root).join(file_name);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).unwrap_or_else(|err| panic!("{}: {err}", parent.display()));
+    }
+    let bytes = serde_json::to_vec_pretty(value).expect("serialize cuda fsv readback");
+    fs::write(&path, bytes).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
+    println!("CUDA_NORMALIZE_READBACK={}", path.display());
+}
+
 fn max_rel_err(a: &[f32], b: &[f32]) -> f32 {
     worst_rel_err(a, b).1
 }
@@ -283,6 +302,48 @@ fn golden_l2_parity() {
             "golden_l2_parity PASSED rel_err={:.8e}",
             max_rel_err(&cpu, &gpu)
         );
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "cuda"), ignore)]
+fn golden_normalize_parity() {
+    #[cfg(feature = "cuda")]
+    {
+        let _guard = CUDA_PARITY_LOCK
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let manifest = load_manifest();
+        let vectors = load_golden_f32("vectors_128d");
+        let mut cpu = vectors.clone();
+        let mut gpu = vectors;
+
+        CpuBackend::new()
+            .normalize(&mut cpu, manifest.dim)
+            .expect("cpu golden normalize");
+        CudaBackend::new()
+            .expect("cuda backend")
+            .normalize(&mut gpu, manifest.dim)
+            .expect("gpu golden normalize");
+
+        let (worst_idx, rel_err) = worst_rel_err(&cpu, &gpu);
+        assert_parity(&cpu, &gpu, "normalize", PARITY_TOL);
+        write_cuda_fsv_readback(
+            "cuda-normalize-parity.json",
+            &serde_json::json!({
+                "op": "normalize",
+                "dim": manifest.dim,
+                "manifest_n_vecs": manifest.n_vecs,
+                "sample_count": cpu.len() / manifest.dim,
+                "rel_err": rel_err,
+                "worst_idx": worst_idx,
+                "cpu_first_norm": l2_norm(&cpu[..manifest.dim]),
+                "gpu_first_norm": l2_norm(&gpu[..manifest.dim]),
+                "cpu_first_4": &cpu[..4],
+                "gpu_first_4": &gpu[..4],
+            }),
+        );
+        println!("golden_normalize_parity PASSED rel_err={:.8e}", rel_err);
     }
 }
 

@@ -108,8 +108,7 @@ impl Quantizer for MxFp4Codec {
 
 pub fn assay_safety_check_placeholder(slot_id: &str) -> bool {
     let _ = slot_id;
-    // TODO(PH29): replace with real Assay bits check (accept_quant §4.4).
-    true
+    false
 }
 
 pub fn serialize_blocks(blocks: &[MxFp4Block]) -> Vec<u8> {
@@ -241,17 +240,35 @@ mod tests {
     }
 
     #[test]
-    fn mxfp4_codec_encode_sets_bits4fp() -> Result<()> {
+    fn mxfp4_codec_encode_falls_back_to_bits8fp() -> Result<()> {
         let codec = MxFp4Codec::new(128);
         let qv = codec.encode(&unit_vec(128))?;
-        assert_eq!(qv.level, QuantLevel::Bits4Fp);
+        assert_eq!(qv.level, QuantLevel::Bits8Fp);
         assert_eq!(qv.scale, 0.0);
         assert_eq!(qv.seed_id, ZERO_SEED);
         println!(
-            "mxfp4_codec_encode PASSED level={:?} bytes={} bits={}",
+            "mxfp4_codec_encode_fail_closed PASSED level={:?} bytes={} bits={}",
             qv.level,
             qv.bytes.len(),
             qv.level.bits_per_channel()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn mxfp4_codec_explicit_assay_safe_sets_bits4fp() -> Result<()> {
+        let codec = MxFp4Codec::new(128);
+        let original = unit_vec(128);
+        let qv = codec.encode_assay_checked("slot:assay-safe", &original, true)?;
+        assert_eq!(qv.level, QuantLevel::Bits4Fp);
+        assert_eq!(qv.scale, 0.0);
+        assert_eq!(qv.seed_id, ZERO_SEED);
+        let decoded = codec.decode(&qv)?;
+        let cos = cosine(&original, &decoded);
+        assert!(cos >= 0.95, "cosine={cos}");
+        println!(
+            "mxfp4_codec_assay_safe PASSED cosine={cos:.6} bytes={}",
+            qv.bytes.len()
         );
         Ok(())
     }
@@ -261,9 +278,10 @@ mod tests {
         let codec = MxFp4Codec::new(128);
         let original = unit_vec(128);
         let qv = codec.encode_for_slot("slot:unit", &original)?;
+        assert_eq!(qv.level, QuantLevel::Bits8Fp);
         let decoded = codec.decode(&qv)?;
         let cos = cosine(&original, &decoded);
-        assert!(cos >= 0.95, "cosine={cos}");
+        assert!(cos >= 0.99, "cosine={cos}");
         println!(
             "mxfp4_codec_roundtrip PASSED cosine={cos:.6} dim={} bytes={}",
             decoded.len(),
@@ -306,7 +324,7 @@ mod tests {
         #[test]
         fn mxfp4_codec_roundtrip_preserves_sign(values in proptest::collection::vec(-1.0f32..1.0, 128)) {
             let codec = MxFp4Codec::new(128);
-            let qv = codec.encode(&values)?;
+            let qv = codec.encode_assay_checked("slot:proptest-safe", &values, true)?;
             let decoded = codec.decode(&qv)?;
             for (actual, expected) in decoded.iter().zip(values.iter()) {
                 if *expected > 0.0 {
