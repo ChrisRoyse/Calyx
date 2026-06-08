@@ -33,7 +33,9 @@ scoring. Final Pipeline hits are constrained to that candidate set, and an
 empty sparse stage 1 returns no Pipeline hits instead of falling back to dense
 RRF. Post-sweep #322 hardens the varint postings codec: unsorted doc IDs fail
 closed before encoding, and malformed/truncated/overflow bytes fail closed on
-decode with cataloged Sextant errors.
+decode with cataloged Sextant errors. Post-sweep #323 preserves original sparse
+vector IDs and weights for `vector()` readback after sparse-vector insert and
+rebuild, while text inserts clear stale vector readback.
 
 Compressed postings blocks and SPANN tiering are deferred to PH68; the current
 Stage 4 source of truth is the in-memory index plus byte-readback FSV artifacts.
@@ -74,17 +76,25 @@ Run the Stage 4 FSV on aiwonder. The readback JSON must include:
 - `postings_unsorted_error="CALYX_SEXTANT_POSTINGS_NOT_SORTED"` and
   `postings_corrupt_error="CALYX_SEXTANT_POSTINGS_CORRUPT"`, proving fail-closed
   boundary handling.
+- `insert_preserves_sparse_ids=true`, `rebuild_preserves_sparse_ids=true`, and
+  `text_overwrite_clears_stale_sparse_ids=true`, proving sparse vector readback
+  preserves original non-contiguous IDs/weights and does not keep stale state.
 
 For #290 the readback root is
 `/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
 For #322 the readback root is
 `/home/croyse/calyx/data/fsv-issue322-postings-fail-closed-20260608`.
+For #323 the readback root is
+`/home/croyse/calyx/data/fsv-issue323-sparse-vector-readback-20260608`.
 
 ## Risks / landmines
 
 - **varint correctness**: off-by-one in delta encoding (d-gaps) corrupts all
   postings; the current codec asserts byte-exact `[1,3,7] -> 010204`, rejects
   unsorted input, and rejects corrupt/truncated/overflow encoded bytes.
+- **sparse vector readback**: vector inserts and text inserts share the same
+  inverted text index, but `vector()` must return the original sparse IDs and
+  weights only when a sparse vector was actually inserted.
 - **compressed postings deferral**: zstd/SPANN persistence is PH68 work; do not
   describe the Stage 4 in-RAM sparse slot as disk-tiered or compressed.
 - **BM25 k1/b tuning**: defaults `b=0.75 k1=1.2` match Lucene and are the

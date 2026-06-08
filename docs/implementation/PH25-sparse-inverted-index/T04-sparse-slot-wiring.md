@@ -16,6 +16,11 @@ Wire `InvertedIndex` as a proper `Index` implementation so it can be registered
 in `SlotIndexMap` alongside the dense HNSW slots. RRF and WeightedRRF fusion
 must work without change: sparse and dense slots are peers in the fusion map.
 
+Post-sweep #323 adds a required readback invariant for this wiring: sparse
+vector inserts must preserve original non-contiguous `SparseEntry` IDs and
+weights through `SlotIndexMap::vector`, including after `rebuild`; text inserts
+must clear stale sparse-vector readback.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Implement `Index` for `InvertedIndex` (completing the stub from T02):
@@ -61,6 +66,8 @@ must work without change: sparse and dense slots are peers in the fusion map.
 - **SoT:** test output of `cargo test -p calyx-sextant sparse_slot_wiring -- --nocapture`
 - **Readback:** `cargo test -p calyx-sextant sparse_slot_wiring -- --nocapture 2>&1`
 - **Prove:** prints `rrf_hits=5 per_lens_len=2 lexical_profile_dense_excluded=true`
+- **Post-sweep #323 SoT:**
+  `/home/croyse/calyx/data/fsv-issue323-sparse-vector-readback-20260608/sparse-vector-readback.json`
 
 ## Done when
 

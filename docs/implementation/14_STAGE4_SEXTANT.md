@@ -49,6 +49,10 @@
 > bytes return `CALYX_SEXTANT_POSTINGS_CORRUPT`, and the Stage 4 readback records
 > exact bytes for the `[1,3,7] -> 010204` happy path.
 > FSV root: `/home/croyse/calyx/data/fsv-issue322-postings-fail-closed-20260608`.
+> Post-sweep hardening #323 makes PH25 sparse vector readback preserve the
+> original non-contiguous sparse IDs and weights after insert and rebuild, while
+> text overwrites clear stale sparse-vector readback state.
+> FSV root: `/home/croyse/calyx/data/fsv-issue323-sparse-vector-readback-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -121,9 +125,13 @@ attention.
 - **Post-sweep note.** Varint postings encoding now rejects unsorted input
   before bytes are written, and decoding rejects malformed, truncated, overflow,
   or delta-overflow blocks with explicit Sextant error codes (#322).
+- **Post-sweep note.** Sparse vector inserts now retain the original
+  `SparseEntry` IDs and weights for `vector()` readback; rebuild preserves the
+  stored sparse vector, and text inserts clear stale vector readback (#323).
 - **FSV gate.** term match + BM25 ranking correct on a known corpus; sparse lens
   participates in RRF/pipeline (read hits); postings readback proves byte-exact
-  encoding plus fail-closed unsorted/corrupt edges.
+  encoding plus fail-closed unsorted/corrupt edges; sparse vector readback
+  proves non-contiguous original IDs/weights survive insert and rebuild.
 - **Axioms/PRD.** A19, `10 §2/§3`, `20 §2`.
 
 ## PH26 — Query planner + intent + explain

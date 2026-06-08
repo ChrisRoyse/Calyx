@@ -17,6 +17,14 @@ document statistics (total docs, avg doc length, per-doc token counts) needed
 by BM25. Implements `Index` trait with text-based insert and term-lookup search.
 In-RAM only; SPANN disk tiering is Stage 17.
 
+## Current implementation note
+
+The shipped `InvertedIndex` stores text for BM25/candidate text and, for the
+`insert(SlotVector::Sparse)` path, also stores the original sparse vector for
+`vector()` readback. Post-sweep #323 proves non-contiguous sparse IDs and
+weights survive insert and rebuild, while a later `insert_text` overwrite clears
+the stale vector readback.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `PostingsList` struct:
@@ -61,6 +69,8 @@ In-RAM only; SPANN disk tiering is Stage 17.
 - [ ] unit: insert 3 docs, `lookup_term("foo")` → doc_ids contains the correct
       subset; `term_count()` returns the correct unique term count
 - [ ] unit: insert then remove a doc → `search("foo")` no longer returns that cx
+- [x] unit: sparse vector insert with non-contiguous IDs returns the original IDs
+      and weights from `vector(cx)`; rebuild preserves the same readback
 - [ ] unit: `total_docs` and `sum_doc_lengths` are updated correctly on each insert
 - [ ] proptest: for any set of docs, `lookup_term(t).doc_ids` is a subset of all
       inserted doc_ids
@@ -75,6 +85,10 @@ In-RAM only; SPANN disk tiering is Stage 17.
 - **Readback:** `cargo test -p calyx-sextant inverted_index -- --nocapture 2>&1`
 - **Prove:** prints `term_count=N total_docs=3 lookup_foo_len=M remove_ok=true`
   with N and M matching the expected values for the seeded test corpus
+- **Post-sweep #323 SoT:**
+  `/home/croyse/calyx/data/fsv-issue323-sparse-vector-readback-20260608/sparse-vector-readback.json`
+  proves `insert_preserves_sparse_ids=true`, `rebuild_preserves_sparse_ids=true`,
+  and `text_overwrite_clears_stale_sparse_ids=true`.
 
 ## Done when
 
