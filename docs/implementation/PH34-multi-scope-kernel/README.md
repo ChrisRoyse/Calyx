@@ -32,6 +32,11 @@ scope-cache layer. Hierarchical kernel-of-regions is new.
 PH34 T01 (#233) is implemented and FSV-signed-off on aiwonder: `Scope`,
 `AssocStore`, `scope_hash`, and `materialize_scope` cover all variants with
 readbacks under `/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`.
+PH34 T02 (#234) is implemented and FSV-signed-off on aiwonder: `ScopeCache`,
+`ScopeCacheKey`, and `CacheStats` cover bounded LRU reuse, panel-version
+invalidation, hit/miss stats, zero-capacity behavior, and `u64::MAX` panel
+versions with readbacks under
+`/home/croyse/calyx/data/fsv-issue234-scope-cache-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -45,14 +50,14 @@ readbacks under `/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
-| Card | Title | Depends |
-|---|---|---|
-| T01 | `Scope` enum + `materialize_scope` for all 8 variants | — (needs PH33) |
-| T02 | `ScopeCache`: `(scope_hash, panel_version)` LRU cache | T01 |
-| T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 |
-| T04 | Hierarchical kernel-of-regions for huge scopes | T03 |
-| T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 |
-| T06 | FSV: ≥4 distinct scopes on a real corpus, each with measured recall | T05 |
+| Card | Title | Depends | Status |
+|---|---|---|---|
+| T01 | `Scope` enum + `materialize_scope` for all 8 variants | — (needs PH33) | Done / #233 |
+| T02 | `ScopeCache`: `(scope_hash, panel_version)` LRU cache | T01 | Done / #234 |
+| T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 | Open |
+| T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Open |
+| T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Open |
+| T06 | FSV: ≥4 distinct scopes on a real corpus, each with measured recall | T05 | Open |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
