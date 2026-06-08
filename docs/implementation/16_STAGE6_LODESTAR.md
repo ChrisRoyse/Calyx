@@ -1,15 +1,16 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
-> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 T01-T05 DONE / PH34 ACTIVE).** Stages 1-5 are
+> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 T01-T05 DONE / PH34 DONE).** Stages 1-5 are
 > implemented, pushed, and FSV-signed-off. PH31 graph primitives are implemented
 > in `calyx-paths` and `calyx-mincut`; PH32 kernel-graph + DFVS is implemented
 > in `calyx-lodestar`. aiwonder readbacks live under
 > `/home/croyse/calyx/data/fsv-ph31-20260608` and
 > `/home/croyse/calyx/data/fsv-ph32-20260608`. PH33 kernel index/answer/gaps
 > through real-corpora recall is signed off under
-> `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T05
-> are signed off; PH34 T06 (#238) is next. PH33 T06 (#239) remains open until
-> real Stage 7 Ledger primitives exist.
+> `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T06 are signed off,
+> including real multi-scope SciFact reports under
+> `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. PH33 T06 (#239)
+> remains open until real Stage 7 Ledger primitives exist.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -76,7 +77,7 @@ identity.
 - **Axioms/PRD.** A10, A11, `08 §4/§7`, `19 §4`.
 
 ## PH34 — Multi-scope kernel
-- **Status.** ▶ ACTIVE. T01 scope enum/materialization is implemented and
+- **Status.** DONE / FSV-signed-off. T01 scope enum/materialization is implemented and
   FSV-signed-off on aiwonder under
   `/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`; T02
   `ScopeCache` is implemented and FSV-signed-off under
@@ -86,8 +87,9 @@ identity.
   hierarchical kernel-of-regions is implemented and FSV-signed-off under
   `/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`; T05 bridge
   nodes are implemented and FSV-signed-off under
-  `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`; T06 remains
-  open, tracked by #238.
+  `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`; T06 real
+  multi-scope FSV is implemented and FSV-signed-off under
+  `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`.
 - **Objective.** Freedom of scope: kernel over all / collection / domain /
   subgraph / time-window / tenant / filter / union.
 - **Deps.** PH33.

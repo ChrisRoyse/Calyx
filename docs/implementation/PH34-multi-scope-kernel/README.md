@@ -57,6 +57,12 @@ paths that cannot leak outside materialized scope edges, `AllAssociations`
 self-bridges, and a union-scope MFVS readback proving the union kernel is not a
 naive member union. Readbacks live under
 `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`.
+PH34 T06 (#238) is implemented and FSV-signed-off on aiwonder: the real SciFact
+corpus was measured at five scopes (`AllAssociations`, `Collection`,
+`TimeWindow`, `Domain`, and `Union`), each wrote a distinct
+`ScopeKernelReport`, recall gates passed, grounded fractions varied, bridge
+nodes were non-empty, and the union diagnostic proved `mfvs_not_naive_union`.
+Readbacks live under `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -77,7 +83,7 @@ naive member union. Readbacks live under
 | T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 | Done / #235 |
 | T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Done / #236 |
 | T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Done / #237 |
-| T06 | FSV: >=4 distinct scopes on a real corpus, each with measured recall | T05 | Next / #238 |
+| T06 | FSV: >=4 distinct scopes on a real corpus, each with measured recall | T05 | Done / #238 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

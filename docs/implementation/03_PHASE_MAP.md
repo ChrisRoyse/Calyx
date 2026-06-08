@@ -20,7 +20,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311 FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 and gate/abundance hardening #309 are FSV-backed |
-| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T05 done, T06 #238 next) |
+| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T06 done/FSV-signed-off; #240 exit pending) |
 | S7–S20 | PH35–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -57,7 +57,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue234-scope-cache-20260608`,
   `/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`,
   `/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`,
-  `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`
+  `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`,
+  `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`
 
 ---
 
@@ -158,7 +159,7 @@ Latest roots:
 | PH31 | mincut/paths: graph build + SCC + betweenness | PH27 | mincut/paths | P5/`08` | SCC condensation + betweenness match reference on planted graph | ✅ FSV |
 | PH32 | Kernel-graph (~10%) + directed MFVS (~1%) | PH31 | lodestar | P5/A10 | algorithm finds planted feedback-vertex-set on synthetic graph | ✅ FSV |
 | PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall ≥ 0.95·full on ≥3 real corpora; gaps listed | ✅ FSV for T01-T05; #239 Ledger provenance open until S7 |
-| PH34 | Multi-scope kernel | PH33 | lodestar | A21 | kernel built at ≥4 scopes, each measured recall reported | ▶ ACTIVE; T01-T05 done, T06 #238 next |
+| PH34 | Multi-scope kernel | PH33 | lodestar | A21 | kernel built at ≥4 scopes, each measured recall reported | Done / FSV (#238) |
 
 ## Stage 7 — Ledger provenance  (`17_STAGE7_LEDGER.md`)
 

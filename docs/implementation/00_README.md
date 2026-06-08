@@ -111,12 +111,11 @@ surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
 `calyx-lodestar`; PH33 T01-T05 kernel index/answer/gaps/real-corpora recall are
-implemented and FSV-backed; PH34 T01-T05 are implemented and FSV-backed (scope
-materialization, cache, dispatch, hierarchical regions, bridge nodes). The next
-implementable card is PH34 T06 (#238). Stage 6 remains open until PH34 T06, the
-Ledger provenance blindspot (#239,
-after real Stage 7 Ledger primitives), and the exit FSV (#240) are closed with
-aiwonder readback evidence.
+implemented and FSV-backed; PH34 T01-T06 are implemented and FSV-backed (scope
+materialization, cache, dispatch, hierarchical regions, bridge nodes, and real
+multi-scope SciFact FSV). Stage 6 remains open until the Ledger provenance
+blindspot (#239, after real Stage 7 Ledger primitives) and the exit FSV (#240)
+are closed with aiwonder readback evidence.
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
@@ -179,13 +178,14 @@ kernel-only recall on SciFact text, live Calyx code, and Cora graph under
 `/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) remains
 open by design until PH35/PH36 provide real Ledger append/readback primitives.
 
-**NEXT — Stage 6 / PH34 T06: >=4 distinct scopes on a real corpus.** Build from
-`PH34-multi-scope-kernel/` and `16_STAGE6_LODESTAR.md`. PH34 T01 scope
-materialization, T02 scope cache, T03 scoped dispatch/reports, T04 hierarchical
-kernel-of-regions, and T05 bridge nodes are already closed; T06 remains the
-active path to `KERNEL_ANY`.
+**Stage 6 / PH34 T06: >=4 distinct scopes on a real corpus is DONE.** PH34 T01
+scope materialization, T02 scope cache, T03 scoped dispatch/reports, T04
+hierarchical kernel-of-regions, T05 bridge nodes, and T06 real multi-scope FSV
+are closed with aiwonder readbacks under
+`/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. `KERNEL_ANY` is satisfied
+for PH34; remaining Stage 6 work is #239 and #240.
 
-**Remaining:** Open phases **PH34–PH72** are laid out as atomic task cards in the
+**Remaining:** Open phases **PH35–PH72** plus Stage 6 exits #239/#240 are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
 FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
 state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,
