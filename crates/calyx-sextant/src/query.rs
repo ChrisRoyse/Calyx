@@ -1,6 +1,6 @@
 //! Query request types and freshness policy.
 
-use calyx_core::{SlotId, SlotVector};
+use calyx_core::{AnchorKind, AnchorValue, Modality, SlotId, SlotVector, VaultId};
 use serde::{Deserialize, Serialize};
 
 use crate::fusion::FusionStrategy;
@@ -25,6 +25,8 @@ pub struct Query {
     pub explain: bool,
     pub freshness: FreshnessRequirement,
     pub fusion: Option<FusionStrategy>,
+    #[serde(default)]
+    pub filters: QueryFilters,
 }
 
 impl Query {
@@ -38,6 +40,7 @@ impl Query {
             explain: false,
             freshness: FreshnessRequirement::FreshDerived,
             fusion: None,
+            filters: QueryFilters::default(),
         }
     }
 
@@ -55,4 +58,69 @@ impl Query {
         self.explain = explain;
         self
     }
+
+    pub fn with_filters(mut self, filters: QueryFilters) -> Self {
+        self.filters = filters;
+        self
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct QueryFilters {
+    #[serde(default)]
+    pub scalars: Vec<ScalarPredicate>,
+    #[serde(default)]
+    pub anchors: Vec<AnchorPredicate>,
+    #[serde(default)]
+    pub metadata: Vec<MetadataPredicate>,
+}
+
+impl QueryFilters {
+    pub fn is_empty(&self) -> bool {
+        self.scalars.is_empty() && self.anchors.is_empty() && self.metadata.is_empty()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScalarOp {
+    Eq,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScalarPredicate {
+    pub name: String,
+    pub op: ScalarOp,
+    pub value: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AnchorPredicate {
+    pub kind: AnchorKind,
+    #[serde(default)]
+    pub value: Option<AnchorValue>,
+    #[serde(default)]
+    pub min_confidence: Option<f32>,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataPredicate {
+    Vault(VaultId),
+    Modality(Modality),
+    PanelVersion(u32),
+    CreatedAt {
+        #[serde(default)]
+        min: Option<u64>,
+        #[serde(default)]
+        max: Option<u64>,
+    },
+    InputRedacted(bool),
+    InputPointerContains(String),
 }
