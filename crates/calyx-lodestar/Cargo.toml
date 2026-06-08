@@ -11,7 +11,9 @@ blake3.workspace = true
 calyx-core = { path = "../calyx-core" }
 calyx-mincut = { path = "../calyx-mincut" }
 calyx-paths = { path = "../calyx-paths" }
+calyx-sextant = { path = "../calyx-sextant" }
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
