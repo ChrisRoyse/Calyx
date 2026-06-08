@@ -242,6 +242,7 @@ dependencies = [
  "calyx-core",
  "calyx-mincut",
  "calyx-paths",
+ "calyx-sextant",
  "proptest",
  "serde",
  "serde_json",
