@@ -32,6 +32,10 @@
 > build returns `CALYX_LOOM_FORGE_UNAVAILABLE` for `agreement_batch_gpu`, while
 > the `calyx-loom/cuda` feature calls the real Forge CUDA backend. FSV root:
 > `/home/croyse/calyx/data/fsv-issue313-loom-gpu-agreement-20260608`.
+> Post-sweep hardening #317 makes partitioned NMI fail closed before binning for
+> mismatched, empty, n<50, and NaN/Inf scalar streams, while accepting n=50
+> exactly. FSV root:
+> `/home/croyse/calyx/data/fsv-issue317-nmi-fail-closed-20260608`.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -86,7 +90,8 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   be finite and rectangular (#291). KSG/logistic estimates are `provisional`
   without an Anchor; the `_with_anchor` variants emit `trusted` only for
   grounded Anchor evidence (#294). `AssayGate.min_samples` now controls the
-  logistic-probe quorum used by lens and pair signal calls (#309).
+  logistic-probe quorum used by lens and pair signal calls (#309). Partitioned
+  NMI shares the n>=50/malformed-input fail-closed contract (#317).
 - **FSV gate.** MI on a **planted-signal synthetic** is within CI of the known
   value; n<50 fails closed (no noisy point estimate).
 - **Axioms/PRD.** A2 (grounded only), A16, `07 §2`.

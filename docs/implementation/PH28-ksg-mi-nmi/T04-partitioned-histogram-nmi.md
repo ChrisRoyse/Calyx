@@ -19,6 +19,10 @@ streaming (no full dataset in memory), used for large-n agreement-graph
 redundancy queries. Returns `NmiEstimate { nmi: f32, n_samples: usize, trust:
 Trusted | Provisional }`. Fails closed below quorum n≥50.
 
+Post-sweep #317: the implemented `partitioned_histogram_nmi` guard rejects
+mismatched, empty, n<50, and NaN/Inf scalar streams before binning, and accepts
+n=50 exactly. Stage 5 readback records the NMI edge error codes.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `NmiEstimate`: `{ nmi: f32, n_samples: usize, estimator: EstimatorKind::PartitionedHistogramNmi, trust: Trusted | Provisional }`
@@ -36,8 +40,8 @@ Trusted | Provisional }`. Fails closed below quorum n≥50.
 - [ ] unit: stream two identical `[0.0, 0.1, 0.2, …, 1.0]` sequences (n=100) → NMI = 1.0 ± 0.05
 - [ ] unit: two independent uniform random streams (n=500, seed=42) → NMI ≤ 0.1 (near-zero for independent variables)
 - [ ] unit: two streams with known NMI ≈ 0.7 (constructed from a known 2-cluster distribution, seed=42) → within 0.1 of 0.7
-- [ ] edge: n=30 → `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; n_bins=1 → degenerate (NMI=0.0, logged warning); streaming iterator yields no items → `CALYX_ASSAY_INSUFFICIENT_SAMPLES`
-- [ ] fail-closed: unequal-length iterators → `CALYX_ASSAY_MISMATCHED_SAMPLES` (detected when one iterator ends before the other)
+- [x] edge: n=30 → `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; streaming iterator yields no items → `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; n=50 exactly is accepted
+- [x] fail-closed: unequal-length inputs and NaN/Inf scalar streams → `CALYX_ASSAY_INSUFFICIENT_SAMPLES` before bin accumulation
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

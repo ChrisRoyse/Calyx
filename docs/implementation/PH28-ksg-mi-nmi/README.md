@@ -43,6 +43,11 @@ ragged rows, and NaN/Inf values all fail closed with
 `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; the Stage 5 FSV readback records those edge
 codes.
 
+Post-sweep #317 extends the same fail-closed contract to partitioned NMI:
+mismatched, empty, n<50, and NaN/Inf scalar streams fail before binning, while
+n=50 exactly is accepted. FSV root:
+`/home/croyse/calyx/data/fsv-issue317-nmi-fail-closed-20260608`.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
@@ -79,7 +84,8 @@ codes.
    Test prints the CI; known value must be inside it.
 
 2. **Fails closed below quorum and malformed samples:** call `ksg_estimate` on
-   n=30 paired vectors, a ragged matrix, and a NaN/Inf-containing matrix; each
+   n=30 paired vectors, a ragged matrix, and a NaN/Inf-containing matrix; call
+   `partitioned_histogram_nmi` on empty, n=30, and NaN/Inf scalar streams. Each
    must return `Err(CALYX_ASSAY_INSUFFICIENT_SAMPLES)`, not a noisy point
    estimate. Verify via:
    ```
