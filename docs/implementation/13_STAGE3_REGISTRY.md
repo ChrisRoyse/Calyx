@@ -85,12 +85,17 @@ differentiation.
   Assay now owns signal/redundancy measurements.
 - **Objective.** "What is this lens good for?" in seconds, without full ingest.
 - **Deps.** PH20.
-- **Deliverables.** `profile.rs` → `CapabilityCard { signal, differentiation,
-  spread, separation, cost, coverage }` over a probe set.
+- **Deliverables.** `profile.rs` → `CapabilityCard { signal: None,
+  differentiation: None, proxy_signal, proxy_differentiation, spread,
+  separation, cost, coverage }` over a probe set. Assay owns the grounded
+  `signal`/`differentiation` values; Registry estimates stay explicitly
+  labeled as proxies.
 - **Key tasks.** participation-ratio/stable-rank spread; silhouette separation;
   cost (ms/input, VRAM). Signal/redundancy delegate to Assay (Stage 5) when up;
   until then spread/cost/coverage standalone.
-- **FSV gate.** profile a lens → a one-JSON card with real numbers; a collapsed
+- **FSV gate.** profile a lens → a one-JSON card where Assay-owned
+  `signal`/`differentiation` read back as JSON `null`, proxy estimates and
+  spread/separation/cost/coverage read back as numbers, and a collapsed
   (low-spread) lens is flagged.
 - **Axioms/PRD.** A6, A17, `05 §5`.
 

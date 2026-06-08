@@ -26,7 +26,9 @@ fields are serializable to a stable JSON representation.
       pub lens_id: LensId,
       pub name: String,
       pub signal: Option<f32>,          // bits about anchors — None until Assay (PH29)
+      pub proxy_signal: f32,            // Registry probe estimate, never trusted as Assay
       pub differentiation: Option<f32>, // max pairwise corr vs panel — None until Assay
+      pub proxy_differentiation: f32,   // Registry probe estimate, never trusted as Assay
       pub spread: SpreadMetrics,
       pub separation: f32,              // silhouette score in [-1, 1]
       pub cost: CostMetrics,

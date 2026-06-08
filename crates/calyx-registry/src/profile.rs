@@ -32,10 +32,12 @@ impl ProfileProbe {
 pub struct CapabilityCard {
     pub lens_id: LensId,
     pub probe_count: usize,
-    pub signal: f32,
+    pub signal: Option<f32>,
     pub signal_source: MetricSource,
-    pub differentiation: f32,
+    pub proxy_signal: f32,
+    pub differentiation: Option<f32>,
     pub differentiation_source: MetricSource,
+    pub proxy_differentiation: f32,
     pub spread: SpreadMetrics,
     pub separation: SeparationMetrics,
     pub cost: CostMetrics,
@@ -159,9 +161,11 @@ impl Profiler {
             ms_per_input: total_ms / probes.len() as f32,
             vram_bytes: vram_before.max(vram_after),
         };
-        let differentiation = separation.score;
-        let signal = clamp01(
-            coverage.rate * spread.normalized_participation_ratio * differentiation.clamp(0.0, 1.0),
+        let proxy_differentiation = separation.score;
+        let proxy_signal = clamp01(
+            coverage.rate
+                * spread.normalized_participation_ratio
+                * proxy_differentiation.clamp(0.0, 1.0),
         );
         let low_spread = spread.normalized_participation_ratio < self.options.low_spread_threshold
             || spread.mean_pairwise_distance < self.options.low_distance_threshold;
@@ -169,10 +173,12 @@ impl Profiler {
         Ok(CapabilityCard {
             lens_id,
             probe_count: probes.len(),
-            signal,
-            signal_source: MetricSource::ProfileProxy,
-            differentiation,
-            differentiation_source: MetricSource::ProfileProxy,
+            signal: None,
+            signal_source: MetricSource::AssayPending,
+            proxy_signal,
+            differentiation: None,
+            differentiation_source: MetricSource::AssayPending,
+            proxy_differentiation,
             spread,
             separation,
             cost,

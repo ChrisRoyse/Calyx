@@ -25,9 +25,11 @@ it exists; until then, spread/cost/coverage are standalone.
 ## Current state (build off what exists)
 
 `calyx-registry` has PH17–PH20. Forge PH12 provides CPU GEMM/cosine. Assay
-(Stage 5) does not exist yet; `signal` and `differentiation` fields are
-computed from probe-set MI stubs that return 0.0 until Assay is wired in PH29.
-Greenfield `profile.rs`.
+(Stage 5) owns grounded `signal` and `differentiation`; Registry profile keeps
+those fields as `None`/JSON `null` until Assay attaches a real measurement. The
+fast probe-derived estimates remain available only as explicitly labeled
+`proxy_signal` and `proxy_differentiation`, so Stage 6+ callers cannot mistake
+Registry estimates for grounded Assay quality.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env.
@@ -53,10 +55,12 @@ Greenfield `profile.rs`.
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 1. `Registry.profile(gte_lens_id, probe_set)` returns a one-JSON
-   `CapabilityCard` with real numbers for spread/separation/cost/coverage.
+   `CapabilityCard` with `signal:null`, `differentiation:null`, explicit proxy
+   estimates, and real numbers for spread/separation/cost/coverage.
 2. A collapsed lens (probe embeddings that are nearly identical — manually
    constructed mock) is flagged in the card: `collapsed: true`.
-3. Print the card JSON to stdout and attach to PH21 GitHub issue.
+3. Print the card JSON to stdout and attach to PH21 GitHub issue; readback must
+   prove the Assay-owned fields are null rather than zero-filled.
 
 Readback: `cargo test -p calyx-registry profile -- --include-ignored --nocapture`
 on aiwonder; JSON card attached to issue.

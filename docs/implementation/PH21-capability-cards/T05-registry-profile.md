@@ -32,8 +32,11 @@ measurements into a single JSON card, and sets `collapsed = true` when
   8. `coverage = cost.coverage` (computed in `measure_cost`).
   9. `collapsed = spread.participation_ratio < COLLAPSE_THRESHOLD`.
   10. `signal = None; differentiation = None` (delegated to Assay PH29).
-  11. Return `CapabilityCard { lens_id, name, signal, differentiation, spread,
-       separation, cost, coverage, collapsed }`.
+  11. Keep Registry's probe-derived estimates only as explicit
+      `proxy_signal`/`proxy_differentiation` fields.
+  12. Return `CapabilityCard { lens_id, name, signal, differentiation,
+      proxy_signal, proxy_differentiation, spread, separation, cost, coverage,
+      collapsed }`.
 - [ ] `Registry` gains method `profile`; re-export from `lib.rs`.
 - [ ] Produce the card as a JSON string helper:
   `pub fn profile_json(&self, lens_id: LensId, probe_set: Option<ProbeSet>) -> Result<String>`
