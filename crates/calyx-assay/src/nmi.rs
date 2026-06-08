@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 use calyx_core::{CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::ksg::MIN_ASSAY_SAMPLES;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NmiReport {
     pub nmi: f32,
@@ -16,13 +18,7 @@ pub struct NmiReport {
 }
 
 pub fn partitioned_histogram_nmi(x: &[f32], y: &[f32], bins: usize) -> Result<NmiReport> {
-    if x.len() != y.len() {
-        return Err(CalyxError::assay_insufficient_samples(format!(
-            "NMI requires paired samples: x={} y={}",
-            x.len(),
-            y.len()
-        )));
-    }
+    validate_nmi_samples(x, y)?;
     let bins = bins.max(2);
     let xb = bin_values(x, bins);
     let yb = bin_values(y, bins);
@@ -44,6 +40,38 @@ pub fn partitioned_histogram_nmi(x: &[f32], y: &[f32], bins: usize) -> Result<Nm
         bins,
         n_samples: x.len(),
     })
+}
+
+fn validate_nmi_samples(x: &[f32], y: &[f32]) -> Result<()> {
+    if x.len() != y.len() {
+        return Err(CalyxError::assay_insufficient_samples(format!(
+            "NMI requires paired samples: x={} y={}",
+            x.len(),
+            y.len()
+        )));
+    }
+    if x.len() < MIN_ASSAY_SAMPLES {
+        return Err(CalyxError::assay_insufficient_samples(format!(
+            "NMI requires at least {MIN_ASSAY_SAMPLES} paired samples; got {}",
+            x.len()
+        )));
+    }
+    ensure_finite("x", x)?;
+    ensure_finite("y", y)?;
+    Ok(())
+}
+
+fn ensure_finite(name: &str, values: &[f32]) -> Result<()> {
+    if let Some((idx, _)) = values
+        .iter()
+        .enumerate()
+        .find(|(_, value)| !value.is_finite())
+    {
+        return Err(CalyxError::assay_insufficient_samples(format!(
+            "NMI {name} sample {idx} contains NaN or infinity"
+        )));
+    }
+    Ok(())
 }
 
 fn bin_values(values: &[f32], bins: usize) -> Vec<usize> {
@@ -104,5 +132,33 @@ mod tests {
 
         assert_eq!(err.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
         assert!(err.message.contains("x=2 y=1"));
+    }
+
+    #[test]
+    fn nmi_quorum_and_nonfinite_inputs_fail_closed() {
+        let empty =
+            partitioned_histogram_nmi(&[], &[], 10).expect_err("empty NMI input must fail closed");
+        assert_eq!(empty.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+        assert!(empty.message.contains("got 0"));
+
+        let short: Vec<f32> = (0..30).map(|value| value as f32).collect();
+        let err = partitioned_histogram_nmi(&short, &short, 10)
+            .expect_err("short NMI input must fail closed");
+        assert_eq!(err.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+        assert!(err.message.contains("got 30"));
+
+        let exact: Vec<f32> = (0..MIN_ASSAY_SAMPLES)
+            .map(|value| (value % 10) as f32)
+            .collect();
+        let report =
+            partitioned_histogram_nmi(&exact, &exact, 10).expect("n=50 should meet the NMI quorum");
+        assert_eq!(report.n_samples, MIN_ASSAY_SAMPLES);
+
+        let mut nonfinite = exact.clone();
+        nonfinite[7] = f32::NAN;
+        let err = partitioned_histogram_nmi(&nonfinite, &exact, 10)
+            .expect_err("NaN NMI input must fail closed");
+        assert_eq!(err.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+        assert!(err.message.contains("sample 7"));
     }
 }

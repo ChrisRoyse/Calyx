@@ -356,6 +356,18 @@ fn stage5_full_stack_fsv() {
     let independent_y: Vec<f32> = (0..100).map(|i| (i / 10) as f32).collect();
     let redundant_nmi = partitioned_histogram_nmi(&redundant_x, &redundant_x, 10).unwrap();
     let independent_nmi = partitioned_histogram_nmi(&redundant_x, &independent_y, 10).unwrap();
+    let nmi_exact_quorum = partitioned_histogram_nmi(
+        &redundant_x[..MIN_ASSAY_SAMPLES],
+        &redundant_x[..MIN_ASSAY_SAMPLES],
+        10,
+    )
+    .unwrap();
+    let nmi_empty = partitioned_histogram_nmi(&[], &[], 10).unwrap_err();
+    let nmi_short =
+        partitioned_histogram_nmi(&redundant_x[..30], &redundant_x[..30], 10).unwrap_err();
+    let mut nmi_nonfinite_x = redundant_x.clone();
+    nmi_nonfinite_x[7] = f32::NAN;
+    let nmi_nonfinite = partitioned_histogram_nmi(&nmi_nonfinite_x, &redundant_x, 10).unwrap_err();
     let strata = stratified_bits(
         0.01,
         vec![StratumBits {
@@ -416,7 +428,14 @@ fn stage5_full_stack_fsv() {
         "ragged_samples_error": ksg_ragged.code,
         "non_finite_samples_error": logistic_non_finite.code,
         "projection": {"rows": projected.input_rows, "input_dim": projected.input_dim, "output_dim": projected.output_dim, "cpu_gpu_delta": projection_delta},
-        "nmi": {"redundant": redundant_nmi, "independent": independent_nmi},
+        "nmi": {
+            "redundant": redundant_nmi,
+            "independent": independent_nmi,
+            "exact_quorum_samples": nmi_exact_quorum.n_samples,
+            "empty_error": nmi_empty.code,
+            "short_error": nmi_short.code,
+            "non_finite_error": nmi_nonfinite.code,
+        },
         "stratified": {"bits": strata, "admission": stratified_admission},
         "n_eff": rank,
         "bits_report": bits,
