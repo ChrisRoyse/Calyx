@@ -23,9 +23,10 @@ verified against hand-computed reference values.
 
 ## Current state (build off what exists)
 
-`calyx-registry` has PH17–PH21. `AlgorithmicLens` with `Scalar`, `OneHot`,
-`AstStyle` exists. Temporal lenses are new algorithmic lens kinds. Panel
-templates are new. Greenfield `panels/` and `temporal/` modules.
+`calyx-registry` has PH17–PH22 in-tree. `AlgorithmicLens` includes temporal
+closed-form lenses, `panels/` exposes default panel templates, and the temporal
+flags are persisted onto core `Slot` rows so downstream search and dedup can read
+`retrieval_only` and `excluded_from_dedup` without guessing.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env. E2/E3/E4

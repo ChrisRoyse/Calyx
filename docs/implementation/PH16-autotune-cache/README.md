@@ -24,8 +24,9 @@ shape, dtype, device) -> BestConfig` function is the Forge-facing surface.
 ## Current state (build off what exists)
 
 `calyx-forge` has the full CPU SIMD (PH12), CUDA sm_120 (PH13), TurboQuant (PH14),
-and MXFP4 + grouped GEMM (PH15). The `BestConfig` type was defined in PH12 T01.
-`autotune.rs` is greenfield.
+MXFP4 + grouped GEMM (PH15), and the PH16 autotune cache/microbench/explorer
+surfaces in-tree. Promotions are logged to the reversible PH16 stub file until
+PH35 replaces it with the real Ledger chain.
 
 ## Deliverables (file plan, each ≤500 lines)
 

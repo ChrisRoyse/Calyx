@@ -27,6 +27,8 @@ directional-confidence edge model from PH27.
 hop attenuation, and bounded reach/reach_scored traversal. `calyx-mincut` now
 owns Tarjan SCC condensation, directed Brandes betweenness, Loom-style
 agreement/citation graph building, and serializable LP scaffold types for PH32.
+The graph-builder core is proven from deterministic CxId edge inputs; real Loom
+xterm/agreement CF ingestion into those inputs is tracked by #293.
 
 FSV root: `/home/croyse/calyx/data/fsv-ph31-20260608`.
 

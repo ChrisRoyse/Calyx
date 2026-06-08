@@ -9,11 +9,11 @@ Full-text/keyword search as a sparse lexical lens, subsuming Elasticsearch (A19)
 an in-RAM inverted index with tokenizer/varint readback and a BM25 scorer.
 The sparse lens wires into the existing fusion layer as a first-class slot, so
 `RRF` and `WeightedRRF` gain lexical recall automatically. The `Pipeline`
-strategy (sparse recall → multi-lens score → rerank) is also implemented here,
-providing the maximum-precision path (`10 §2`). SPANN tiering is deferred to
-Stage 17 (PH68). The FSV gate is term-match + BM25 ranking correct on a known
-corpus, with the sparse lens participating in RRF and Pipeline (read the hits
-on aiwonder).
+strategy now enforces sparse stage-1 candidate subsets before multi-lens scoring;
+final reranker ordering through `SearchEngine` remains tracked by #296. SPANN
+tiering is deferred to Stage 17 (PH68). The FSV gate is term-match + BM25 ranking
+correct on a known corpus, with the sparse lens participating in RRF and Pipeline
+(read the hits on aiwonder).
 
 ## Dependencies
 
@@ -43,7 +43,7 @@ Stage 4 source of truth is the in-memory index plus byte-readback FSV artifacts.
 | `crates/calyx-sextant/src/index/inverted.rs` | in-RAM inverted index: posting lists and term lookup |
 | `crates/calyx-sextant/src/index/bm25.rs` | BM25 scorer: IDF, TF normalization, `b=0.75 k1=1.2` defaults |
 | `crates/calyx-sextant/src/index/tokenizer.rs` | whitespace + punctuation tokenizer; lowercase; stopwords optional |
-| `crates/calyx-sextant/src/fusion/pipeline.rs` | `Pipeline` strategy: sparse recall → multi-lens score → rerank hook |
+| `crates/calyx-sextant/src/fusion/pipeline.rs` | `Pipeline` strategy: sparse recall → multi-lens score over the bounded candidate subset; final rerank ordering tracked by #296 |
 | `crates/calyx-sextant/tests/stage4_fsv.rs` | BM25 ranking correctness + Pipeline subset readback on a known corpus |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -54,7 +54,7 @@ Stage 4 source of truth is the in-memory index plus byte-readback FSV artifacts.
 | T02 | Inverted index: build, insert, term lookup | T01 |
 | T03 | BM25 scorer | T02 |
 | T04 | Sparse `Index` impl + `SlotIndexMap` wiring | T03 |
-| T05 | `Pipeline` strategy (sparse → multi-lens → rerank hook) | T04 |
+| T05 | `Pipeline` strategy (sparse → multi-lens bounded candidate subset; rerank ordering follow-up #296) | T04 |
 | T06 | Sparse lens in RRF/Pipeline: FSV on known corpus | T05 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)

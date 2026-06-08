@@ -1,6 +1,6 @@
 # Stage 2 — Forge Math Runtime (PH12–PH16)
 
-> **STATUS: ✅ DONE (FSV-signed-off, current head `0ada102`).** All of PH12–PH16 are
+> **STATUS: ✅ DONE (FSV-signed-off; latest repo head tracked in #23).** All of PH12–PH16 are
 > implemented and committed in `calyx-forge` (~9.1k LOC): CPU SIMD backend,
 > CUDA sm_120 backend with a CPU↔GPU bit-parity suite, TurboQuant, MXFP4/MXFP8
 > microscaling + grouped/ragged GEMM, and the per-shape autotune cache. Stage 2
@@ -35,10 +35,10 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 ## PH13 — CUDA sm_120 backend + bit-parity
 - **Status.** ✅ FSV-signed-off (`cuda/` backend + `.cu` kernels + parity suite,
   commits `6b3c2d3`…`dd27885`; aggregate evidence in #23).
-- **Objective.** GPU kernels (cudarc/CubeCL + cuBLASLt for big matmul) targeting
+- **Objective.** GPU kernels (cudarc/CubeCL + cuBLAS for big matmul) targeting
   sm_120; **bit-parity** with the CPU path on a golden set.
 - **Deps.** PH12.
-- **Deliverables.** `cuda/` kernels (gemm via cuBLASLt, fused cosine/topk),
+- **Deliverables.** `cuda/` kernels (gemm via cudarc/cuBLAS, fused cosine/topk),
   ptx+cubin for sm_120 with JIT fallback, determinism mode (fixed reductions).
 - **Key tasks.** build against `/usr/local/cuda-13.2`; sm_120 codegen; pin
   reductions; `CALYX_FORGE_DEVICE_UNAVAILABLE` on CUDA init fail (no silent CPU
@@ -105,5 +105,5 @@ Forge does matmul/distance/quant/topk on both CPU and the RTX 5090 with proven
 bit-parity, TurboQuant gives unbiased inner products, grouped GEMM makes panel
 math N-invariant, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
 `COMPRESS` foundations. Implemented and FSV-signed-off; downstream Stage 4/5
-readbacks on aiwonder depend on these kernels and remain green at commit
-`0ada102`.
+readbacks on aiwonder depend on these kernels and remain green; current repo
+head is recorded in context issue #23.

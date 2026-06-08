@@ -25,9 +25,10 @@ lens projections).
 
 ## Current state (build off what exists)
 
-`calyx-forge` has CPU SIMD (PH12), CUDA backend (PH13), and TurboQuant (PH14).
-MXFP4 and grouped GEMM are greenfield. Build natively on aiwonder; sm_120 is
-required for MXFP4/NVFP4 tensor-core instructions (Blackwell-only).
+`calyx-forge` has CPU SIMD (PH12), CUDA backend (PH13), TurboQuant (PH14), and
+the PH15 MXFP4/MXFP8 codec plus grouped/ragged GEMM surfaces in-tree. Build and
+FSV run natively on aiwonder; sm_120 is required for MXFP4/NVFP4 tensor-core
+instructions (Blackwell-only), with fallback/edge handling covered by PH15 tests.
 
 ## Deliverables (file plan, each ≤500 lines)
 

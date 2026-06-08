@@ -45,9 +45,11 @@ anchored to reality" funnel described in `08 §4.1`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `cargo test -p calyx-lodestar kernel_index -- --nocapture` stdout +
-  written index file at `$CALYX_HOME/idx/kernel/<test_kernel_id>/`.
-- **Readback:** `cargo test -p calyx-lodestar kernel_index 2>&1 | tee /tmp/ph33_t01_fsv.txt` then `ls $CALYX_HOME/idx/kernel/`.
+- **SoT:** `FsKernelStore` JSON bytes at
+  `$CALYX_FSV_ROOT/idx/kernel/<test_kernel_id>/index.json`, plus stdout naming
+  the readback path.
+- **Readback:** run the PH33 kernel-index test with an explicit `CALYX_FSV_ROOT`,
+  then separately `ls` and `cat` the written `index.json`.
 - **Prove:** round-trip test prints identical top-k results before and after write/load;
   `ls` confirms the index file exists; dim-mismatch test prints `CALYX_KERNEL_DIM_MISMATCH`;
   output attached to PH33 GitHub issue.

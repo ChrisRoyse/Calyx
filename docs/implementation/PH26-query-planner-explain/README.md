@@ -34,7 +34,9 @@ no-lenses, ef/slot over-cap, and cost-cap overflow now return cataloged errors.
 Post-sweep hardening #290 fixed the reranker wire contract: Calyx sends the
 live TEI `texts` request field, parses `[{index, score}]` rank arrays back into
 candidate order, and fails closed on non-2xx HTTP status instead of returning
-mock scores.
+mock scores. Final reranker ordering in the primary Pipeline/SearchEngine path
+is tracked by #296. Scalar/anchor/metadata query filters from the PRD are tracked
+by #297 unless implemented earlier.
 
 ## Deliverables (file plan, each ≤500 lines)
 

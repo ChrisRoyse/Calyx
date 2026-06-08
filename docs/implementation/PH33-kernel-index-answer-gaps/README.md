@@ -27,9 +27,12 @@ corpora** acquired and verified on aiwonder.
 
 ## Current state (build off what exists)
 
-`calyx-lodestar` is partially built (PH32 delivers `Kernel` + pipeline). This phase
-adds the index write, the answer traversal, and the recall harness. The `idx/kernel/`
-path is a new column family or ANN shard in the Aster store.
+`calyx-lodestar` has PH32 plus PH33 T01-T04 in-tree: kernel index persistence,
+kernel search, `kernel_answer`, `grounding_gaps`, and the recall harness. The
+current `idx/kernel/` implementation is `FsKernelStore`, which writes
+`idx/kernel/<kernel_id>/index.json` under the configured root; moving this into
+an Aster column-family/ANN shard is a later storage integration seam, not the
+current PH33 T01 source of truth.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -76,5 +79,8 @@ path is a new column family or ANN shard in the Aster store.
   score ≤ 0.35; `max_hops` is a hard reachability bound, not a display limit.
   If the query cannot be reached inside the bound, `kernel_answer` must return
   `CALYX_PATHS_MAX_HOPS` rather than a truncated answer.
+- **Groundedness distance:** `grounding_gaps` accepts a bounded anchor distance.
+  Build-pipeline groundedness currently has follow-up #298 to ensure the same
+  bound is enforced when reporting kernel groundedness.
 - **Provenance stamp per hop:** PH33 fills structured provenance references; #239
   remains open until PH35/PH36 provide real Ledger appends and readback.

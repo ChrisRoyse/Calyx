@@ -15,12 +15,12 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | Stage | Phases | Status |
 |---|---|---|
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
-| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); follow-ups resolved or explicitly deferred (see `11_STAGE1_ASTER.md`) |
+| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 tiering integration follow-up tracked by #295 |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune) |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + capability cards + default panels + temporal E2/E3/E4) |
-| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain) |
-| S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency) |
-| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 next in `calyx-lodestar`) |
+| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain); PH26 reranker/filter follow-ups tracked by #296/#297 |
+| S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust follow-up tracked by #294 |
+| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 and groundedness bound #298 tracked) |
 | S7–S20 | PH35–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -36,6 +36,10 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
 - Stage 5 Loom + Assay:
   `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`
+- Stage 6 Lodestar PH31/PH32 and PH33 follow-up:
+  `/home/croyse/calyx/data/fsv-ph31-20260608`,
+  `/home/croyse/calyx/data/fsv-ph32-20260608`,
+  `/home/croyse/calyx/data/fsv-issue292-kernel-answer-max-hops-20260608`
 
 ---
 
@@ -83,8 +87,9 @@ Latest roots:
 | PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 
 > **Stage 1–5 audit note (2026-06-08):** Subagents and source readback found
-> the pre-Lodestar Stage 1–5 hardening set #282-#291 is implemented and
-> FSV-backed. PH19 ONNX CUDA registration fails loud instead of silently
+> the pre-Lodestar Stage 1–5 hardening set #282-#292 is implemented and
+> FSV-backed, with newly tracked follow-up gaps #293-#298 left open instead of
+> hidden in docs. PH19 ONNX CUDA registration fails loud instead of silently
 > falling back to CPU, with explicit CPU compatibility reported separately. PH23 now
 > uses native `ef` HNSW traversal, PH24 explain provenance is refreshed from
 > stored constellation provenance, WeightedRRF excludes unnamed and AP-60
@@ -96,7 +101,10 @@ Latest roots:
 > synthetic `LedgerRef` fallback remains only for documents with no stored
 > provenance until Stage 7, and full user-facing Assay/abundance CLI commands
 > remain in PH62 while Stage 5 readback bytes are already exposed through FSV
-> JSON.
+> JSON. Newly tracked post-sweep work: PH11 durable tiering #295, PH26 reranker
+> search-path ordering #296, PH26 scalar/anchor/metadata filters #297, PH30
+> grounded Assay trust #294, PH31/PH33 real Loom association-graph adapter #293,
+> and PH33 bounded build-time groundedness #298.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 
@@ -122,7 +130,7 @@ Latest roots:
 |---|---|---|---|---|---|---|
 | PH31 | mincut/paths: graph build + SCC + betweenness | PH27 | mincut/paths | P5/`08` | SCC condensation + betweenness match reference on planted graph | ✅ FSV |
 | PH32 | Kernel-graph (~10%) + directed MFVS (~1%) | PH31 | lodestar | P5/A10 | algorithm finds planted feedback-vertex-set on synthetic graph | ✅ FSV |
-| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall ≥ 0.95·full on ≥3 real corpora; gaps listed | ▶ NEXT |
+| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall ≥ 0.95·full on ≥3 real corpora; gaps listed | ▶ ACTIVE |
 | PH34 | Multi-scope kernel | PH33 | lodestar | A21 | kernel built at ≥4 scopes, each measured recall reported | · pending |
 
 ## Stage 7 — Ledger provenance  (`17_STAGE7_LEDGER.md`)

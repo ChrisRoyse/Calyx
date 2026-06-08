@@ -26,9 +26,12 @@ hot-swapped lens is immediately quantizable.
 
 ## Current state (build off what exists)
 
-`calyx-forge` has CPU SIMD + CUDA backends from PH12/PH13. `quant/` module is
-greenfield. Build natively on aiwonder. The rotation matrix is a random orthogonal
-matrix drawn from a seeded PRNG — the seed is the content-addressed handle.
+`calyx-forge` has CPU SIMD + CUDA backends from PH12/PH13 and the PH14 quant
+module is implemented. `TurboQuantCodec`, content-addressed rotation seeds,
+QJL residual handling, encode/decode, and seeded replay tests are in-tree.
+Build and FSV run natively on aiwonder. The rotation matrix is a random
+orthogonal matrix drawn from a seeded PRNG — the seed is the content-addressed
+handle.
 
 ## Deliverables (file plan, each ≤500 lines)
 

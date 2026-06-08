@@ -6,15 +6,20 @@ verdict.
 
 ## Readback Convention
 
-Every FSV gate should name the readback command that proves it. Current skeleton:
+Every FSV gate should name the readback command that proves it. Current readback
+surfaces include file bytes, vault trees, column-family rows, WAL records, and
+SST levels:
 
 ```bash
 calyx readback --hex <file>
 calyx readback --vault-tree <dir>
+calyx readback --cf <vault-root> <cf-name> [--prefix <hex-prefix>]
+calyx readback --wal <vault-root>
+calyx readback --level <vault-root> <cf-name>
 ```
 
-Later phases extend `readback` for Aster column-family rows, WAL records, Ledger
-entries, and metrics. The command stays observational: it prints bytes, rows, or
+Later phases extend `readback` for Ledger entries, metrics, and higher-level
+engine artifacts. The command stays observational: it prints bytes, rows, or
 listings and exits. The agent compares those bytes to the expected state and
 records evidence in the GitHub issue.
 
