@@ -24,6 +24,8 @@ pub enum ColumnFamily {
     Scalars,
     /// `(CxId, AnchorKind) -> AnchorValue + source + ts`.
     Anchors,
+    /// `(panel_version, corpus_shard, subject) -> AssayRow`.
+    Assay,
     /// `seq -> hash-chained provenance entry`.
     Ledger,
     /// Typed online/adaptation state.
@@ -32,11 +34,12 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 6] = [
+    pub const STATIC: [Self; 7] = [
         Self::Base,
         Self::XTerm,
         Self::Scalars,
         Self::Anchors,
+        Self::Assay,
         Self::Ledger,
         Self::Online,
     ];
@@ -72,6 +75,7 @@ impl ColumnFamily {
             Self::XTerm => "xterm".to_string(),
             Self::Scalars => "scalars".to_string(),
             Self::Anchors => "anchors".to_string(),
+            Self::Assay => "assay".to_string(),
             Self::Ledger => "ledger".to_string(),
             Self::Online => "online".to_string(),
         }

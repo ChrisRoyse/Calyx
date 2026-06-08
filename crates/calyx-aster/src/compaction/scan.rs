@@ -57,6 +57,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "xterm" => Some(ColumnFamily::XTerm),
         "scalars" => Some(ColumnFamily::Scalars),
         "anchors" => Some(ColumnFamily::Anchors),
+        "assay" => Some(ColumnFamily::Assay),
         "ledger" => Some(ColumnFamily::Ledger),
         "online" => Some(ColumnFamily::Online),
         _ if name.starts_with("slot_") => parse_slot_name(&name),

@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::mxfp4::{MXFP4_PACKED_BYTES, MxFp4Block, decode_mxfp4, encode_mxfp4};
 use crate::mxfp8::{MXFP8_BLOCK_BYTES, MxFp8Block, decode_mxfp8, encode_mxfp8};
 use crate::quant::{QuantLevel, QuantizedVec, Quantizer, SeedId};
@@ -11,15 +13,75 @@ const MXFP_REMEDIATION: &str =
 #[derive(Clone, Debug)]
 pub struct MxFp4Codec {
     dim: usize,
+    assay_safe_slots: BTreeMap<String, AssayQuantSafety>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssayQuantSafety {
+    pub baseline_bits: f32,
+    pub quantized_bits: f32,
+    pub cosine: f32,
+    pub far_delta: f32,
+}
+
+impl AssayQuantSafety {
+    pub const MIN_RETAINED_FRACTION: f32 = 0.95;
+    pub const MIN_COSINE: f32 = 0.99;
+    pub const MAX_FAR_DELTA: f32 = 0.01;
+
+    pub fn passes(&self) -> bool {
+        let retained = if self.baseline_bits <= 0.0 {
+            self.quantized_bits >= 0.0
+        } else {
+            self.quantized_bits / self.baseline_bits >= Self::MIN_RETAINED_FRACTION
+        };
+        retained
+            && self.cosine >= Self::MIN_COSINE
+            && self.far_delta <= Self::MAX_FAR_DELTA
+            && self.values_are_finite()
+    }
+
+    fn values_are_finite(&self) -> bool {
+        self.baseline_bits.is_finite()
+            && self.quantized_bits.is_finite()
+            && self.cosine.is_finite()
+            && self.far_delta.is_finite()
+    }
 }
 
 impl MxFp4Codec {
     pub fn new(dim: usize) -> Self {
-        Self { dim }
+        Self {
+            dim,
+            assay_safe_slots: BTreeMap::new(),
+        }
+    }
+
+    pub fn with_assay_safety(
+        dim: usize,
+        slots: impl IntoIterator<Item = (String, AssayQuantSafety)>,
+    ) -> Self {
+        let mut codec = Self::new(dim);
+        for (slot, safety) in slots {
+            codec.record_assay_safety(slot, safety);
+        }
+        codec
+    }
+
+    pub fn record_assay_safety(
+        &mut self,
+        slot_id: impl Into<String>,
+        safety: AssayQuantSafety,
+    ) -> bool {
+        if !safety.passes() {
+            return false;
+        }
+        self.assay_safe_slots.insert(slot_id.into(), safety);
+        true
     }
 
     pub fn encode_for_slot(&self, slot_id: &str, vec: &[f32]) -> Result<QuantizedVec> {
-        self.encode_assay_checked(slot_id, vec, assay_safety_check_placeholder(slot_id))
+        self.encode_assay_checked(slot_id, vec, self.assay_safe_slots.contains_key(slot_id))
     }
 
     pub fn encode_assay_checked(
@@ -104,11 +166,6 @@ impl Quantizer for MxFp4Codec {
     fn dim(&self) -> usize {
         self.dim
     }
-}
-
-pub fn assay_safety_check_placeholder(slot_id: &str) -> bool {
-    let _ = slot_id;
-    false
 }
 
 pub fn serialize_blocks(blocks: &[MxFp4Block]) -> Vec<u8> {
@@ -269,6 +326,36 @@ mod tests {
         println!(
             "mxfp4_codec_assay_safe PASSED cosine={cos:.6} bytes={}",
             qv.bytes.len()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn mxfp4_codec_assay_evidence_controls_slot_admission() -> Result<()> {
+        let safe = AssayQuantSafety {
+            baseline_bits: 1.0,
+            quantized_bits: 0.97,
+            cosine: 0.995,
+            far_delta: 0.005,
+        };
+        let unsafe_evidence = AssayQuantSafety {
+            baseline_bits: 1.0,
+            quantized_bits: 0.70,
+            cosine: 0.995,
+            far_delta: 0.005,
+        };
+        let mut codec = MxFp4Codec::new(128);
+        assert!(codec.record_assay_safety("slot:safe", safe));
+        assert!(!codec.record_assay_safety("slot:unsafe", unsafe_evidence));
+
+        let safe_qv = codec.encode_for_slot("slot:safe", &unit_vec(128))?;
+        let unsafe_qv = codec.encode_for_slot("slot:unsafe", &unit_vec(128))?;
+
+        assert_eq!(safe_qv.level, QuantLevel::Bits4Fp);
+        assert_eq!(unsafe_qv.level, QuantLevel::Bits8Fp);
+        println!(
+            "mxfp4_assay_evidence PASSED safe={:?} unsafe={:?}",
+            safe_qv.level, unsafe_qv.level
         );
         Ok(())
     }

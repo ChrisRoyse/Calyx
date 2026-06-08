@@ -48,6 +48,19 @@ impl SstLevel {
             .collect())
     }
 
+    pub fn iter(&self) -> Result<Vec<SstEntry>> {
+        let mut rows = BTreeMap::new();
+        for file in &self.files {
+            for entry in SstReader::open(file)?.iter()? {
+                rows.entry(entry.key).or_insert(entry.value);
+            }
+        }
+        Ok(rows
+            .into_iter()
+            .map(|(key, value)| SstEntry { key, value })
+            .collect())
+    }
+
     pub fn file_count(&self) -> usize {
         self.files.len()
     }

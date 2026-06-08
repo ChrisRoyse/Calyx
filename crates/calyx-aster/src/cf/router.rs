@@ -101,6 +101,24 @@ impl CfRouter {
             .collect())
     }
 
+    pub fn iter_cf(&self, cf: ColumnFamily) -> Result<Vec<SstEntry>> {
+        let mut rows = BTreeMap::new();
+        if let Some(level) = self.levels.get(&cf) {
+            for entry in level.iter()? {
+                rows.insert(entry.key, entry.value);
+            }
+        }
+        if let Some(table) = self.memtables.get(&cf) {
+            for (key, value) in table.iter() {
+                rows.insert(key.to_vec(), value.to_vec());
+            }
+        }
+        Ok(rows
+            .into_iter()
+            .map(|(key, value)| SstEntry { key, value })
+            .collect())
+    }
+
     pub fn level_file_count(&self, cf: ColumnFamily) -> usize {
         self.levels.get(&cf).map_or(0, SstLevel::file_count)
     }
@@ -197,6 +215,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "xterm" => Some(ColumnFamily::XTerm),
         "scalars" => Some(ColumnFamily::Scalars),
         "anchors" => Some(ColumnFamily::Anchors),
+        "assay" => Some(ColumnFamily::Assay),
         "ledger" => Some(ColumnFamily::Ledger),
         "online" => Some(ColumnFamily::Online),
         _ if name.starts_with("slot_") => parse_slot_name(&name),
@@ -276,17 +295,37 @@ mod tests {
     #[test]
     fn reopen_loads_existing_sst_files() {
         let dir = test_dir("reopen");
-        let mut router = CfRouter::open(&dir, 8).unwrap();
+        let mut router = CfRouter::open(&dir, 64).unwrap();
         router.put(ColumnFamily::Base, b"k", b"value").unwrap();
         router.flush_cf(ColumnFamily::Base).unwrap();
         drop(router);
 
-        let reopened = CfRouter::open(&dir, 8).unwrap();
+        let reopened = CfRouter::open(&dir, 64).unwrap();
 
         assert_eq!(
             reopened.get(ColumnFamily::Base, b"k").unwrap(),
             Some(b"value".to_vec())
         );
+        cleanup(dir);
+    }
+
+    #[test]
+    fn assay_cf_persists_and_reopens() {
+        let dir = test_dir("assay");
+        let mut router = CfRouter::open(&dir, 64).unwrap();
+        router
+            .put(ColumnFamily::Assay, b"panel-a", b"bits")
+            .unwrap();
+        router.flush_cf(ColumnFamily::Assay).unwrap();
+        drop(router);
+
+        let reopened = CfRouter::open(&dir, 64).unwrap();
+
+        assert_eq!(
+            reopened.get(ColumnFamily::Assay, b"panel-a").unwrap(),
+            Some(b"bits".to_vec())
+        );
+        assert_eq!(reopened.iter_cf(ColumnFamily::Assay).unwrap().len(), 1);
         cleanup(dir);
     }
 
