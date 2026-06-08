@@ -12,7 +12,7 @@ const EXACT_SEARCH_MAX_NODES: usize = 20;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DfvsMethod {
-    LpLocalSearch,
+    ExactOrGreedyLocalSearch,
     Tournament2Approx,
     BoundedGenus,
 }
@@ -28,7 +28,7 @@ pub struct DfvsResult {
 pub fn dfvs_approx(kernel_graph: &KernelGraph) -> Result<DfvsResult> {
     let graph = &kernel_graph.graph;
     if graph.is_empty() {
-        return Ok(empty_result(DfvsMethod::LpLocalSearch));
+        return Ok(empty_result(DfvsMethod::ExactOrGreedyLocalSearch));
     }
     if is_tournament(graph) {
         return tournament_2approx(graph);
@@ -37,7 +37,7 @@ pub fn dfvs_approx(kernel_graph: &KernelGraph) -> Result<DfvsResult> {
     if genus <= 2 {
         return bounded_genus_approx(graph, genus);
     }
-    solve_with_method(graph, DfvsMethod::LpLocalSearch, None)
+    solve_with_method(graph, DfvsMethod::ExactOrGreedyLocalSearch, None)
 }
 
 pub fn is_tournament(graph: &AssocGraph) -> bool {
