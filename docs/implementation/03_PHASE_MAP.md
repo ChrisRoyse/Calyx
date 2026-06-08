@@ -83,7 +83,9 @@ Latest roots:
 | PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 
 > **Stage 1–5 audit note (2026-06-08):** Subagents and source readback found
-> no remaining Stage 6 blocker after post-sweep hardening #282-#288. PH23 now
+> the pre-Lodestar Stage 1–5 hardening set #282-#289 is implemented and
+> FSV-backed. PH19 ONNX CUDA registration fails loud instead of silently
+> falling back to CPU, with explicit CPU compatibility reported separately. PH23 now
 > uses native `ef` HNSW traversal, PH24 explain provenance is refreshed from
 > stored constellation provenance, WeightedRRF excludes unnamed and AP-60
 > temporal slots before PH40, PH27 Loom cross-terms fail closed, and PH28/PH30

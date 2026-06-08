@@ -16,7 +16,23 @@ pub struct OnnxLens {
     dim: u32,
     contract: FrozenLensContract,
     files: OnnxModelFiles,
+    provider_policy: OnnxProviderPolicy,
     model: Mutex<TextEmbedding>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OnnxProviderPolicy {
+    CudaFailLoud,
+    CpuExplicit,
+}
+
+impl OnnxProviderPolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CudaFailLoud => "cuda:0,error_on_failure,no_cpu_fallback",
+            Self::CpuExplicit => "cpu_explicit,no_cuda",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -35,14 +51,49 @@ impl OnnxLens {
         Self::from_hf_cache(name, default_hf_cache_root())
     }
 
+    pub fn all_minilm_l6_v2_cpu_explicit(name: impl Into<String>) -> Result<Self> {
+        Self::from_hf_cache_with_policy(
+            name,
+            default_hf_cache_root(),
+            OnnxProviderPolicy::CpuExplicit,
+        )
+    }
+
     pub fn from_hf_cache(name: impl Into<String>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
-        Self::from_model(name, EmbeddingModel::AllMiniLML6V2, cache_dir.into())
+        Self::from_hf_cache_with_policy(name, cache_dir, OnnxProviderPolicy::CudaFailLoud)
+    }
+
+    pub fn from_hf_cache_with_policy(
+        name: impl Into<String>,
+        cache_dir: impl Into<PathBuf>,
+        provider_policy: OnnxProviderPolicy,
+    ) -> Result<Self> {
+        Self::from_model_with_policy(
+            name,
+            EmbeddingModel::AllMiniLML6V2,
+            cache_dir.into(),
+            provider_policy,
+        )
     }
 
     pub fn from_model(
         name: impl Into<String>,
         model_name: EmbeddingModel,
         cache_dir: PathBuf,
+    ) -> Result<Self> {
+        Self::from_model_with_policy(
+            name,
+            model_name,
+            cache_dir,
+            OnnxProviderPolicy::CudaFailLoud,
+        )
+    }
+
+    pub fn from_model_with_policy(
+        name: impl Into<String>,
+        model_name: EmbeddingModel,
+        cache_dir: PathBuf,
+        provider_policy: OnnxProviderPolicy,
     ) -> Result<Self> {
         let name = name.into();
         let info = TextEmbedding::get_model_info(&model_name).map_err(|err| {
@@ -53,7 +104,7 @@ impl OnnxLens {
                 .with_cache_dir(cache_dir.clone())
                 .with_show_download_progress(false)
                 .with_intra_threads(1)
-                .with_execution_providers(execution_providers()),
+                .with_execution_providers(execution_providers(provider_policy)),
         )
         .map_err(|err| CalyxError::lens_unreachable(format!("ONNX runtime init failed: {err}")))?;
         let effective_cache = fastembed_cache_root(&cache_dir);
@@ -88,6 +139,7 @@ impl OnnxLens {
             dim,
             contract,
             files,
+            provider_policy,
             model: Mutex::new(model),
         })
     }
@@ -98,6 +150,10 @@ impl OnnxLens {
 
     pub fn files(&self) -> &OnnxModelFiles {
         &self.files
+    }
+
+    pub fn provider_policy(&self) -> &'static str {
+        self.provider_policy.as_str()
     }
 }
 
@@ -162,14 +218,16 @@ impl Lens for OnnxLens {
     }
 }
 
-fn execution_providers() -> Vec<fastembed::ExecutionProviderDispatch> {
-    vec![
-        ep::CUDA::default()
-            .with_device_id(0)
-            .build()
-            .fail_silently(),
-        ep::CPU::default().build(),
-    ]
+fn execution_providers(policy: OnnxProviderPolicy) -> Vec<fastembed::ExecutionProviderDispatch> {
+    match policy {
+        OnnxProviderPolicy::CudaFailLoud => vec![
+            ep::CUDA::default()
+                .with_device_id(0)
+                .build()
+                .error_on_failure(),
+        ],
+        OnnxProviderPolicy::CpuExplicit => vec![ep::CPU::default().build()],
+    }
 }
 
 fn resolve_files(cache_dir: &Path, model_code: &str, model_file: &str) -> Result<OnnxModelFiles> {
@@ -200,22 +258,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn execution_provider_order_prefers_cuda_then_cpu() {
-        let providers = execution_providers();
+    fn execution_provider_policy_is_cuda_fail_loud() {
+        let providers = execution_providers(OnnxProviderPolicy::CudaFailLoud);
 
-        assert_eq!(providers.len(), 2);
+        assert_eq!(providers.len(), 1);
+        let provider = format!("{:?}", providers[0]);
+        assert!(provider.contains("CUDA"));
+        assert!(provider.contains("error_on_failure: true"));
+    }
+
+    #[test]
+    fn execution_provider_policy_can_be_explicit_cpu() {
+        let providers = execution_providers(OnnxProviderPolicy::CpuExplicit);
+
+        assert_eq!(providers.len(), 1);
+        let provider = format!("{:?}", providers[0]);
+        assert!(provider.contains("CPU"));
+        assert!(!provider.contains("CUDA"));
     }
 
     #[test]
     #[ignore = "requires aiwonder HF cache/network and downloads ONNX all-MiniLM"]
     fn onnx_all_minilm_aiwonder_fsv() {
-        let lens = OnnxLens::all_minilm_l6_v2("onnx-aiwonder-fsv").unwrap();
+        let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-aiwonder-fsv").unwrap();
         let input = Input::new(Modality::Text, b"Calyx PH19 ONNX local probe".to_vec());
         let vector = lens.measure(&input).unwrap();
 
         if let SlotVector::Dense { dim, data } = vector {
             println!("ONNX_FSV_CACHE={}", lens.files().cache_dir.display());
             println!("ONNX_FSV_MODEL={}", lens.files().model_file.display());
+            println!("ONNX_FSV_PROVIDER_POLICY={}", lens.provider_policy());
             println!("ONNX_FSV_DIM={dim}");
             println!("ONNX_FSV_FIRST3={:?}", &data[..3]);
             let norm = data.iter().map(|v| v * v).sum::<f32>().sqrt();
@@ -227,9 +299,50 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires aiwonder CUDA/ONNX stack; validates fail-loud GPU policy"]
+    fn onnx_cuda_fail_loud_aiwonder_fsv() {
+        let input = Input::new(Modality::Text, b"Calyx PH19 CUDA fail-loud probe".to_vec());
+        match OnnxLens::all_minilm_l6_v2("onnx-aiwonder-cuda-fail-loud") {
+            Ok(lens) => {
+                println!("ONNX_CUDA_PROVIDER_POLICY={}", lens.provider_policy());
+                match lens.measure(&input) {
+                    Ok(vector) => {
+                        println!("ONNX_CUDA_RESULT=success");
+                        if let SlotVector::Dense { dim, data } = vector {
+                            let norm = data.iter().map(|v| v * v).sum::<f32>().sqrt();
+                            println!("ONNX_CUDA_DIM={dim}");
+                            println!("ONNX_CUDA_NORM={norm:.8}");
+                            assert!((norm - 1.0).abs() < 1.0e-3);
+                        } else {
+                            panic!("expected dense ONNX vector");
+                        }
+                    }
+                    Err(error) => {
+                        println!("ONNX_CUDA_RESULT=fail_loud");
+                        println!("ONNX_CUDA_ERROR_CODE={}", error.code);
+                        println!("ONNX_CUDA_ERROR_MESSAGE={}", error.message);
+                        assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
+                        assert!(
+                            error.message.contains("CUDA")
+                                || error.message.contains("Execution Provider")
+                                || error.message.contains("kernel image")
+                        );
+                    }
+                }
+            }
+            Err(error) => {
+                println!("ONNX_CUDA_RESULT=fail_loud_init");
+                println!("ONNX_CUDA_ERROR_CODE={}", error.code);
+                println!("ONNX_CUDA_ERROR_MESSAGE={}", error.message);
+                assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
+            }
+        }
+    }
+
+    #[test]
     #[ignore = "requires aiwonder HF cache/network and downloads ONNX all-MiniLM"]
     fn onnx_dim_guard_aiwonder_fsv() {
-        let lens = OnnxLens::all_minilm_l6_v2("onnx-aiwonder-dim-guard").unwrap();
+        let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-aiwonder-dim-guard").unwrap();
         let error = lens
             .contract()
             .verify_vector(

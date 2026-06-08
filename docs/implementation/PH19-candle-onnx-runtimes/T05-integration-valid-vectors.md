@@ -28,8 +28,15 @@ gate test; all prior cards feed into it.
   - compute L2 norm; assert `(norm - 1.0).abs() < 1e-4`.
   - `println!("candle FSV: dim={} norm={:.6}", dim, norm)`.
 - [ ] Test `onnx_gte_fsv` (`#[ignore]`):
-  - same structure, using `OnnxLens::load` and the corresponding `.onnx` file.
-  - `println!("onnx FSV: dim={} norm={:.6}", dim, norm)`.
+  - same structure, using the explicit CPU `OnnxLens` policy and the
+    corresponding `.onnx` file.
+  - print `ONNX_FSV_PROVIDER_POLICY=cpu_explicit,no_cuda`,
+    `ONNX_FSV_DIM`, `ONNX_FSV_NORM`, and first floats.
+- [ ] Test `onnx_cuda_fail_loud_fsv` (`#[ignore]`):
+  - use default `OnnxLens` construction.
+  - print `ONNX_CUDA_PROVIDER_POLICY=cuda:0,error_on_failure,no_cpu_fallback`.
+  - assert either a finite unit-norm CUDA vector or
+    `CALYX_LENS_UNREACHABLE`; never accept silent CPU fallback.
 - [ ] Test `hf_cache_path_exists`:
   - `HfCacheConfig::from_env()`.
   - assert `config.root.exists()` and `config.root.is_dir()`.
@@ -41,7 +48,10 @@ gate test; all prior cards feed into it.
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [ ] `candle_gte_fsv` (integration, `#[ignore]`): passes on aiwonder.
-- [ ] `onnx_gte_fsv` (integration, `#[ignore]`): passes on aiwonder.
+- [ ] `onnx_gte_fsv` explicit CPU compatibility path (integration,
+  `#[ignore]`): passes on aiwonder and prints `cpu_explicit,no_cuda`.
+- [ ] `onnx_cuda_fail_loud_fsv` (integration, `#[ignore]`): CUDA succeeds or
+  fails loud with `CALYX_LENS_UNREACHABLE`; no CPU fallback.
 - [ ] `hf_cache_path_exists` (non-ignored if `CALYX_HOME` is set): passes.
 - [ ] `determinism_probe` called within each FSV test → `Ok(())`.
 - [ ] edge: both tests print the first 4 float values in hex for the record.
@@ -56,7 +66,10 @@ gate test; all prior cards feed into it.
   `cargo test -p calyx-registry -- --include-ignored --nocapture 2>&1 | grep -E 'FSV|norm|hf.cache'`
 - **Prove:** output shows:
   `candle FSV: dim=384 norm=1.000000` (or dim=768 depending on model);
-  `onnx FSV: dim=384 norm=1.000000`;
+  `ONNX_FSV_PROVIDER_POLICY=cpu_explicit,no_cuda`;
+  `ONNX_FSV_DIM=384`;
+  `ONNX_FSV_NORM=1.000...`;
+  `ONNX_CUDA_PROVIDER_POLICY=cuda:0,error_on_failure,no_cpu_fallback`;
   `hf-cache: $CALYX_HOME/.hf-cache/<model>/`;
   screenshot and the first-4-floats hex dump attached to PH19 GitHub issue
 

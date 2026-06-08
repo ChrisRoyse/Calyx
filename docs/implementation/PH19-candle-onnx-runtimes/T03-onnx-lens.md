@@ -25,7 +25,9 @@ the full frozen contract from PH18.
   - resolve `.onnx` path via `hf_cache::resolve`.
   - compute `sha256` of the file bytes; call `check_weights_sha256`.
   - build `ort::Session` with CUDA EP (`ExecutionProviderDispatch::Cuda(…)`)
-    falling back to CPU EP if CUDA unavailable (log warning, don't fail).
+    using `error_on_failure`; do not add implicit CPU fallback.
+  - expose an explicit CPU-only policy for compatibility FSV and require it to
+    print `cpu_explicit,no_cuda`.
   - store `dim = spec.output.dense_dim()`.
 - [ ] `measure(&self, input: &Input) -> Result<SlotVector>`:
   - tokenize `input.bytes` into `input_ids`, `attention_mask` as
@@ -48,19 +50,23 @@ the full frozen contract from PH18.
 - [ ] unit: wrong `weights_sha256` → `CALYX_LENS_FROZEN_VIOLATION` at load.
 - [ ] unit: declared `dim=128` but model outputs 768 → `CALYX_LENS_DIM_MISMATCH`
   at measure time.
-- [ ] edge (≥3): (1) CUDA EP unavailable → CPU fallback, no error; (2) ONNX
-  file missing → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`; (3) input too long for
-  model → truncated, no panic.
-- [ ] fail-closed: session creation failure → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`.
+- [ ] edge (≥3): (1) CUDA EP/kernel unsupported → `CALYX_LENS_UNREACHABLE`,
+  no CPU fallback; (2) explicit CPU policy → finite unit-norm vector and
+  `cpu_explicit,no_cuda`; (3) invalid UTF-8 or wrong modality →
+  `CALYX_LENS_DIM_MISMATCH`.
+- [ ] fail-closed: session creation or inference failure →
+  `CALYX_LENS_UNREACHABLE`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** integration test output + `.hf-cache/<model>/<model>.onnx` file on
   aiwonder
 - **Readback:** `cargo test -p calyx-registry onnx -- --include-ignored --nocapture 2>&1`
-- **Prove:** output shows `OnnxLens dim=768 norm=1.000±0.0001` with CUDA EP
-  active; `ls` of `.hf-cache/<model>/` shows `.onnx` file; attached to PH19
-  GitHub issue
+- **Prove:** output shows explicit CPU readback `dim=384 norm=1.000±0.001`
+  with `cpu_explicit,no_cuda`; default CUDA readback prints
+  `cuda:0,error_on_failure,no_cpu_fallback` and either a valid CUDA vector or a
+  fail-loud `CALYX_LENS_UNREACHABLE`; `ls`/`sha256sum` of the `.onnx` file is
+  attached to the GitHub issue.
 
 ## Done when
 

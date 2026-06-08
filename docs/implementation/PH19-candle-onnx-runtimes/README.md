@@ -19,17 +19,23 @@ finite, unit-norm where declared, correct dimension.
 - **Provides for:** PH20 (hot-swap can add candle/ONNX lenses), PH21
   (capability card costs measured against real local runtimes)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-registry` has PH17+PH18: Registry, five runtime variant types declared,
-frozen contract enforced. `runtime/candle.rs` and `runtime/onnx.rs` are empty
-stubs (their variant arms exist in `LensRuntime` but the impls are `unimplemented!()`).
-Greenfield fill-in.
+PH19 is implemented and FSV-signed off. `runtime/candle.rs` and
+`runtime/onnx.rs` are live runtimes that load Hugging Face model files,
+normalize outputs, and pass the frozen contract guards from PH18.
 
-**aiwonder:** `CALYX_HOME/.hf-cache` stores HF models. `CALYX_HF_TOKEN` in
-env. Candle with cudarc targets sm_120. ORT CUDA EP prebuilt for MSVC 14.44
-(see memory `synapse-mcp-build-windows.md` for toolchain notes — applicable
-to Windows dev; aiwonder is Linux/CUDA).
+Post-sweep hardening #289 changed the ONNX provider policy: default
+`OnnxLens` construction requests CUDA device 0 with `error_on_failure` and no
+implicit CPU fallback. CPU execution is available only through the explicit
+`CpuExplicit` policy, and FSV/readbacks must print `cpu_explicit,no_cuda` when
+that compatibility path is used.
+
+**aiwonder:** `CALYX_HOME/.hf-cache` stores HF models. `CALYX_HF_TOKEN` is read
+from env/Infisical, not stored in repo. Candle targets sm_120. The current ORT
+downloaded CUDA provider registers but fails loud on RTX 5090/sm_120 inference
+with `cudaErrorNoKernelImageForDevice`; this is captured as
+`CALYX_LENS_UNREACHABLE`, not a silent CPU fallback.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -54,11 +60,14 @@ to Windows dev; aiwonder is Linux/CUDA).
 1. `CandleLocalLens` loads a small real model from `.hf-cache`; measures a
    text input; returns `SlotVector::Dense` where all values are finite and L2
    norm ≈ 1.0 — print norm to stdout.
-2. `OnnxLens` does the same with an `.onnx` file from `.hf-cache`.
+2. `OnnxLens` explicit CPU compatibility path does the same with an `.onnx`
+   file from `.hf-cache`, while printing `cpu_explicit,no_cuda`.
 3. Declare a lens with `SlotShape::Dense(128)` but runtime returns `Dense(768)`
    → `CALYX_LENS_DIM_MISMATCH` fires — test output shows the code.
 4. `.hf-cache` directory existence confirmed:
    `ls $CALYX_HOME/.hf-cache/<model-id>/` shows the weight file.
+5. Default CUDA policy prints `cuda:0,error_on_failure,no_cpu_fallback` and
+   either produces a valid vector or fails loud with `CALYX_LENS_UNREACHABLE`.
 
 Readback: `cargo test -p calyx-registry -- --include-ignored --nocapture 2>&1
 | grep -E 'norm|MISMATCH|hf.cache'` on aiwonder; output attached to PH19
@@ -69,8 +78,9 @@ GitHub issue.
 - **sm_120 availability at test time:** candle tests that use the GPU are
   `#[ignore]` by default; run them explicitly on aiwonder with
   `--include-ignored`.
-- **ORT CUDA EP version pinning:** ORT binary must match the CUDA 13.2 on
-  aiwonder; pin the version in `Cargo.toml` and document it.
+- **ORT CUDA EP version pinning:** ORT binary support for RTX 5090/sm_120 must
+  be treated as runtime evidence, not assumed. The default path fails loud; use
+  explicit CPU only for separately reported compatibility FSV.
 - **HF download on first run:** the integration test may trigger an HF
   download if the model is not yet in `.hf-cache`; this is acceptable but
   must not block the build — guard with `#[ignore]` and a clear comment.

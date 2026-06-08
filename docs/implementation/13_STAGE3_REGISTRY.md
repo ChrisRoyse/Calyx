@@ -12,6 +12,10 @@
 > Lodestar (`16_STAGE6_LODESTAR.md`).
 > Post-sweep hardening #288 carries PH22 temporal `retrieval_only` and
 > `excluded_from_dedup` flags into core `Slot` rows, not only template specs.
+> Post-sweep hardening #289 makes PH19 ONNX CUDA execution-provider
+> registration fail loud instead of silently falling back to CPU.
+> FSV root for #289:
+> `/home/croyse/calyx/data/fsv-issue289-onnx-provider-20260608`.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
@@ -61,6 +65,9 @@ differentiation.
   `CALYX_HOME/.hf-cache` (HF token from env).
 - **Key tasks.** load a small real embedder from HF; produce unit-norm finite
   vectors; dim/normalize guards.
+- **Post-sweep note.** The ONNX runtime now uses CUDA device 0 with
+  `error_on_failure` and no implicit CPU fallback; a CPU-only path must be
+  explicit and separately reported (#289).
 - **FSV gate.** a candle + an ONNX lens each produce finite, unit-norm vectors;
   dim guard fires on mismatch; weights pulled into `.hf-cache` (verified path).
 - **Axioms/PRD.** A4, `05 §2`, `13 §2`.
