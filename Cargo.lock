@@ -306,6 +306,7 @@ dependencies = [
 name = "calyx-registry"
 version = "0.1.0"
 dependencies = [
+ "calyx-assay",
  "calyx-aster",
  "calyx-core",
  "candle-core",

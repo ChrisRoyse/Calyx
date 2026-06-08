@@ -27,14 +27,15 @@ pub use drift::{DriftDecision, RuntimeGolden};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};
 pub use frozen::{FrozenLensContract, LensDType, NormPolicy};
 pub use lens::{DualMeasurement, Registry, ensure_input_modality, ensure_vector_shape};
-pub use panel_ops::{PanelDiff, PanelSlotListing, list_panel, swap_panel};
+pub use panel_ops::{PanelDiff, PanelSlotListing, list_panel, list_panel_with_assay, swap_panel};
 pub use panels::{
     AlgorithmicPanelLens, InstantiatedPanel, PanelLensRuntime, PanelSlotSpec, PanelTemplate,
     civic_default, code_default, instantiate_panel, media_default, text_default,
 };
 pub use profile::{
     CapabilityCard, CostMetrics, CoverageMetrics, MetricSource, ProfileOptions, ProfileProbe,
-    Profiler, SeparationMetrics, SpreadMetrics, profile_lens,
+    Profiler, SeparationMetrics, SpreadMetrics, apply_assay_metrics, profile_lens,
+    profile_slot_with_assay,
 };
 pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};
 pub use runtime::candle::{CandleDevicePolicy, CandleLens, CandleModelFiles, DEFAULT_CANDLE_MODEL};

@@ -1,3 +1,4 @@
+use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
 use calyx_core::{LensId, Panel, Slot, SlotId, SlotKey, SlotState, Ts};
 use serde::{Deserialize, Serialize};
 
@@ -27,18 +28,27 @@ pub fn list_panel(panel: &Panel, registry: &Registry) -> Vec<PanelSlotListing> {
     panel
         .slots
         .iter()
-        .map(|slot| PanelSlotListing {
-            slot_id: slot.slot_id,
-            key: slot.slot_key.key().to_string(),
-            lens_id: slot.lens_id,
-            state: slot.state,
-            bits_about: None,
-            health: registry
-                .health(slot.lens_id)
-                .unwrap_or_else(|err| LensHealth::Failing {
-                    code: "CALYX_LENS_UNREACHABLE".to_string(),
-                    reason: err.message,
-                }),
+        .map(|slot| listing_for_slot(slot, registry))
+        .collect()
+}
+
+pub fn list_panel_with_assay(
+    panel: &Panel,
+    registry: &Registry,
+    assay_store: &AssayStore,
+    cache_key: &AssayCacheKey,
+) -> Vec<PanelSlotListing> {
+    panel
+        .slots
+        .iter()
+        .map(|slot| {
+            let mut listing = listing_for_slot(slot, registry);
+            if let Some(row) =
+                assay_store.get(cache_key, &AssaySubject::Lens { slot: slot.slot_id })
+            {
+                listing.bits_about = Some(row.estimate.bits);
+            }
+            listing
         })
         .collect()
 }
@@ -107,4 +117,131 @@ fn cloned_target_slot(target: &Slot, slot_id: SlotId) -> Slot {
     slot.slot_id = slot_id;
     slot.slot_key = SlotKey::new(slot_id, target.slot_key.key().to_string());
     slot
+}
+
+fn listing_for_slot(slot: &Slot, registry: &Registry) -> PanelSlotListing {
+    PanelSlotListing {
+        slot_id: slot.slot_id,
+        key: slot.slot_key.key().to_string(),
+        lens_id: slot.lens_id,
+        state: slot.state,
+        bits_about: slot_bits(slot),
+        health: registry
+            .health(slot.lens_id)
+            .unwrap_or_else(|err| LensHealth::Failing {
+                code: "CALYX_LENS_UNREACHABLE".to_string(),
+                reason: err.message,
+            }),
+    }
+}
+
+fn slot_bits(slot: &Slot) -> Option<f32> {
+    slot.bits_about
+        .values()
+        .map(|signal| signal.bits)
+        .max_by(|left, right| left.total_cmp(right))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use calyx_assay::estimate::{EstimatorKind, MiEstimate, TrustTag};
+    use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
+    use calyx_core::{
+        AnchorKind, Asymmetry, ConfidenceInterval, Modality, Panel, QuantPolicy, Signal, SlotShape,
+        VaultId,
+    };
+
+    use super::*;
+    use crate::runtime::algorithmic::AlgorithmicLens;
+
+    #[test]
+    fn list_panel_uses_stored_slot_bits() {
+        let (registry, lens_id) = registry_with_lens();
+        let panel = panel_with_slot(lens_id, Some(0.31));
+
+        let listing = list_panel(&panel, &registry);
+
+        assert_eq!(listing[0].bits_about, Some(0.31));
+    }
+
+    #[test]
+    fn list_panel_with_assay_overlays_scoped_assay_bits() {
+        let (registry, lens_id) = registry_with_lens();
+        let panel = panel_with_slot(lens_id, Some(0.31));
+        let cache_key = assay_key();
+        let mut store = AssayStore::default();
+        store.put(
+            cache_key.clone(),
+            AssaySubject::Lens {
+                slot: panel.slots[0].slot_id,
+            },
+            MiEstimate::point(0.47, 72, EstimatorKind::Ksg, TrustTag::Trusted),
+            "panel assay bits",
+            12,
+        );
+
+        let listing = list_panel_with_assay(&panel, &registry, &store, &cache_key);
+
+        assert_eq!(listing[0].bits_about, Some(0.47));
+    }
+
+    fn registry_with_lens() -> (Registry, LensId) {
+        let mut registry = Registry::new();
+        let lens = AlgorithmicLens::byte_features("panel-assay-list", Modality::Text);
+        let lens_id = registry
+            .register_frozen(lens.clone(), lens.contract().clone())
+            .unwrap();
+        (registry, lens_id)
+    }
+
+    fn panel_with_slot(lens_id: LensId, bits: Option<f32>) -> Panel {
+        let slot_id = SlotId::new(0);
+        let mut bits_about = BTreeMap::new();
+        if let Some(bits) = bits {
+            bits_about.insert(
+                AnchorKind::Reward,
+                Signal {
+                    bits,
+                    ci: ConfidenceInterval {
+                        low: bits - 0.01,
+                        high: bits + 0.01,
+                    },
+                    n: 64,
+                    estimator: "unit".to_string(),
+                    ts: 1,
+                },
+            );
+        }
+        Panel {
+            version: 1,
+            slots: vec![Slot {
+                slot_id,
+                slot_key: SlotKey::new(slot_id, "panel-assay".to_string()),
+                lens_id,
+                shape: SlotShape::Dense(4),
+                modality: Modality::Text,
+                asymmetry: Asymmetry::None,
+                quant: QuantPolicy::None,
+                axis: None,
+                retrieval_only: false,
+                excluded_from_dedup: false,
+                bits_about,
+                state: SlotState::Active,
+                added_at_panel_version: 1,
+            }],
+            created_at: 1,
+            kernel_ref: None,
+            guard_ref: None,
+        }
+    }
+
+    fn assay_key() -> AssayCacheKey {
+        AssayCacheKey::scoped(1, "panel-unit", vault_id(), AnchorKind::Reward)
+    }
+
+    fn vault_id() -> VaultId {
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
+    }
 }
