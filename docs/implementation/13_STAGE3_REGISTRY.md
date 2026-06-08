@@ -1,10 +1,10 @@
 # Stage 3 — Registry / Lenses (PH17–PH22)
 
-> **STATUS: ✅ DONE (FSV-signed-off, current head `0ada102`).** All of PH17–PH22 are
+> **STATUS: ✅ DONE (FSV-signed-off; latest pushed main tracked in #23).** All of PH17–PH22 are
 > implemented and committed in `calyx-registry` (~4.1k LOC): the uniform
 > `Registry.measure` dispatch over algorithmic / TEI-HTTP / candle-local / ONNX
 > runtimes, the frozen contract + content-addressed `LensId`, hot-swap
-> add/retire/park with a lazy backfill queue, capability-card profiling, and the
+> add/retire/park with a lazy durable backfill scheduler, capability-card profiling, and the
 > default panels + closed-form temporal lenses E2/E3/E4. Stage 3 atomic-suite
 > FSV root: `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`.
 > Build/test on aiwonder against the resident TEI services (:8088/:8089/:8090).
@@ -16,6 +16,9 @@
 > registration fail loud instead of silently falling back to CPU.
 > FSV root for #289:
 > `/home/croyse/calyx/data/fsv-issue289-onnx-provider-20260608`.
+> Post-sweep hardening #300 replaces the PH20 synthetic queue-only FSV with
+> durable scheduler watermarks/throttle/restart-resume state. FSV root for #300:
+> `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
@@ -83,18 +86,21 @@ differentiation.
 
 ## PH20 — Hot-swap add/retire/park + lazy backfill
 - **Status.** ✅ FSV-signed-off (`swap.rs`: SlotSpec injection, retire-tombstone,
-  park/unpark, priority `BackfillQueue`; commit `1db5ab0`).
+  park/unpark, priority `BackfillQueue`; `backfill.rs`: durable scheduler
+  watermarks/throttle/restart-resume; #300 FSV root
+  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`).
 - **Objective.** The core ergonomic: add/retire/park a lens with **no global
   re-embed**; lazy, priority-ordered backfill.
 - **Deps.** PH19.
 - **Deliverables.** `swap.rs` (add_lens/retire_lens/park/unpark), slot
-  allocation + panel_version bump, lazy backfill scheduler (kernel/hot first,
-  throttled, resumable).
+  allocation + panel_version bump, `backfill.rs` lazy scheduler (kernel/hot
+  first, persisted watermarks, throttle, restart resume).
 - **Key tasks.** new slot CF + index placeholder; backfill queue; retire =
   tombstone (keep columns for history).
 - **FSV gate.** add a lens on a populated vault → **no existing constellation
-  rewritten**, new slot searchable immediately, backfilled cx fill over time
-  (observe slot columns); retire tombstones, history still readable.
+  rewritten**, persisted scheduler JSON shows ordered/throttled/resumed
+  backfill, reopened Aster slot CF reads show both backfilled vectors, and
+  retire tombstones while history stays readable.
 - **Axioms/PRD.** A5, `05 §3`, `17 §7.4` (backfill storm bounded).
 
 ## PH21 — Capability cards / profile
@@ -142,5 +148,5 @@ A vault can add/retire/park real lenses (TEI/candle/ONNX/algorithmic) with no
 re-embed, enforce the frozen contract, profile a lens in seconds, and ship with
 default panels + temporal lenses — PRD `LENS`. The "nightmare every time" is one
 `add_lens` call. Implemented and FSV-signed-off; downstream Stage 4/5 readbacks
-on aiwonder depend on the registry/lens layer and remain green at commit
-`0ada102`.
+on aiwonder depend on the registry/lens layer, and PH20's durable scheduler
+state is FSV-backed by #300.

@@ -1,5 +1,6 @@
 //! Registry runtimes for frozen Calyx lenses.
 
+pub mod backfill;
 pub mod commission;
 pub mod drift;
 pub mod explain;
@@ -13,6 +14,10 @@ pub mod spec;
 pub mod swap;
 pub mod temporal;
 
+pub use backfill::{
+    BackfillBatch, BackfillConfig, BackfillPriority, BackfillRequest, BackfillScheduler,
+    BackfillWatermark,
+};
 pub use calyx_core::{Input, Lens};
 pub use commission::{
     CommissionRequest, CommissionedLens, CommissionedLensArtifact, commission_lens,

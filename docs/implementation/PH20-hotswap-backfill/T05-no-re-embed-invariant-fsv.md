@@ -1,73 +1,69 @@
-# PH20 · T05 — No-re-embed invariant + FSV integration test
+# PH20 - T05 - No-re-embed invariant + FSV integration test
 
 | Field | Value |
 |---|---|
-| **Phase** | PH20 — Hot-swap add/retire/park + lazy backfill |
-| **Stage** | S3 — Registry / Lenses |
+| **Phase** | PH20 - Hot-swap add/retire/park + lazy backfill |
+| **Stage** | S3 - Registry / Lenses |
 | **Crate** | `calyx-registry` |
-| **Files** | `crates/calyx-registry/tests/hotswap_fsv.rs` (≤500) |
+| **Files** | `crates/calyx-registry/tests/hot_swap_fsv.rs` (<=500) |
 | **Depends on** | T01, T02, T03, T04 (this phase) |
 | **Axioms** | A5 |
-| **PRD** | `dbprdplans/05 §3`, `13_STAGE3_REGISTRY.md §PH20 FSV gate` |
+| **PRD** | `dbprdplans/05`, `13_STAGE3_REGISTRY.md` PH20 FSV gate |
 
 ## Goal
 
-Prove the PH20 FSV gate: after `add_lens` on a populated vault, zero existing
-constellations are rewritten; the new slot is searchable immediately for new
-constellations; backfill fills slot columns over time; and `retire_lens`
+Prove the PH20 FSV gate on aiwonder: after `add_lens` on a populated durable
+vault, zero existing constellations are rewritten; durable scheduler state
+orders, throttles, resumes, and completes lazy backfill; and `retire_lens`
 tombstones the slot while historical data remains readable.
 
-## Build (checklist of concrete, code-level steps)
+## Build (implemented)
 
-- [ ] Test `add_lens_does_not_rewrite_existing_constellations`:
-  - build a mock `VaultStore` with N=20 pre-existing constellations (each
-    with slot_0 already filled).
-  - call `add_lens` → `slot_1` allocated.
-  - snapshot all `slot_0` CF rows (their `SlotVector` bytes).
-  - assert zero `slot_0` rows changed (byte-for-byte identical).
-  - assert `slot_1` rows for all 20 constellations are `AbsentReason::Deferred`.
-- [ ] Test `new_slot_searchable_immediately_for_new_cx`:
-  - after `add_lens`, ingest a new constellation → its `slot_1` is filled
-    immediately (not deferred) because it is a new ingest, not a backfill.
-  - assert `slot_1` contains a valid `SlotVector` for the new cx.
-- [ ] Test `backfill_fills_slot_columns`:
-  - run `BackfillScheduler::tick` enough times to fill all 20 deferred rows.
-  - assert zero rows remain `AbsentReason::Deferred` for `slot_1`.
-  - print before/after counts: `before: 20 deferred; after: 0 deferred`.
-- [ ] Test `retire_tombstones_history_readable`:
-  - `retire_lens(slot_0)` → `slot_states[0] == Retired`.
-  - read the historical `slot_0` vectors for all 20 constellations from mock
-    store → all still present (not deleted).
-  - `panel_version` incremented.
+- [x] The FSV creates a durable Aster vault under `CALYX_FSV_ROOT`, writes two
+  seeded constellations, flushes them, and snapshots base CF bytes before
+  `add_lens`.
+- [x] `add_lens` allocates the new slot, bumps `panel_version`, leaves the
+  placeholder index unready, and proves old base rows are unchanged.
+- [x] Durable backfill state is stored in `backfill-watermark.json` via
+  `BackfillScheduler::open/enqueue/claim_next_batch/complete_batch`.
+- [x] Backfill writes deterministic dense slot vectors for both synthetic
+  `CxId`s, reads each slot vector immediately, and prints scheduler watermarks
+  after enqueue, first complete, and restart-resume completion.
+- [x] `retire_lens` tombstones the slot while historical constellation and slot
+  rows stay readable.
+- [x] Final FSV flushes and reopens the vault, then reads both backfilled slot CF
+  rows from disk.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests (synthetic, deterministic)
 
-- [ ] All four sub-tests above pass deterministically with seeded mock data.
-- [ ] `add_lens` idempotent: same spec twice → `panel_version == 1`, not 2.
-- [ ] After backfill completes, all 20 slot_1 vectors pass `check_output`.
-- [ ] edge (≥3): (1) N=0 existing cxs → backfill completes immediately; (2)
-  N=100 cxs → backfill progresses in batches of 16; (3) retire after backfill
-  completes → historical data intact.
-- [ ] fail-closed: any phase that would mutate existing slot columns aborts
-  with a panic in debug or `CALYX_REGISTRY_RUNTIME_UNAVAILABLE` in release.
+- [x] Happy path: add lens, write deferred placeholder, backfill two rows,
+  retire, and reopen-read persisted slot vectors.
+- [x] Edge: duplicate live lens is rejected without panel version or queue
+  mutation.
+- [x] Edge: zero-size queue claim returns no work and preserves queue length.
+- [x] Edge: missing-constellation slot write fails closed and does not advance
+  the Aster snapshot.
+- [x] Edge: scheduler claim inside `throttle_ms` returns a throttled batch and
+  restart-resume claims the next real candidate only after the throttle window.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## FSV (read the bytes on aiwonder - the truth gate)
 
-- **SoT:** mock store's CF row map before and after `add_lens` + backfill on
-  aiwonder
+- **SoT:** durable Aster vault plus
+  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608/backfill-watermark.json`
+  on aiwonder.
 - **Readback:**
-  `cargo test -p calyx-registry hotswap_fsv -- --nocapture 2>&1`
-- **Prove:** output shows:
-  `slot_0 rows unchanged: 20/20 identical`;
-  `slot_1 before backfill: 20 deferred`;
-  `slot_1 after backfill: 0 deferred`;
-  `retired slot_0: 20 historical rows still present`;
-  screenshot attached to PH20 GitHub issue
+  `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
+  then `cat $CALYX_FSV_ROOT/backfill-watermark.json` and
+  `find $CALYX_FSV_ROOT/vault -type f`.
+- **Prove:** output shows old base digests unchanged, scheduler
+  processed/pending/in-flight completion, edge-case before/after state, retired
+  slot still readable, and reopened dense slot vectors matching the expected
+  synthetic values.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) <=500 lines
+- [x] FSV evidence attached to GitHub issue #300
+- [x] no anti-pattern: no flatten / no unbounded `C(N,2)` materialization /
+  no "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

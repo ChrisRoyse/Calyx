@@ -20,12 +20,14 @@ tombstone — history stays readable. Every operation bumps `panel_version`.
   slot state), PH23 (Sextant searches per-slot ANN indexes), PH40 (temporal
   lens fusion depends on slot state flags)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-registry` has PH17–PH19: Registry, all runtimes, frozen contract.
-`calyx-aster` has PH09: constellation CRUD, column families. Aster's
-`slot_*/` CFs exist. `panel_version` field lives in `Constellation` struct.
-Greenfield for `swap.rs` and backfill scheduler.
+`calyx-registry` has PH17-PH19 plus PH20: Registry, all runtimes, frozen
+contract, `swap.rs` hot-swap mechanics, and `backfill.rs` durable scheduler
+state. `calyx-aster` has PH09 constellation CRUD and slot column families, so
+PH20 FSV writes real slot vectors, flushes the vault, reopens it, and reads the
+slot CF rows back from disk. The old queue-only scheduler proof is superseded by
+#300.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env.
@@ -35,7 +37,7 @@ Greenfield for `swap.rs` and backfill scheduler.
 | File | Responsibility |
 |---|---|
 | `crates/calyx-registry/src/swap.rs` | `add_lens`, `retire_lens`, `park_lens`, `unpark_lens`, `panel_version` bump |
-| `crates/calyx-registry/src/backfill.rs` | lazy backfill scheduler: priority queue (kernel/hot first), throttle, resumable state |
+| `crates/calyx-registry/src/backfill.rs` | lazy backfill scheduler: kernel/hot/normal priority, persisted JSON watermarks, throttle, restart resume |
 | `crates/calyx-registry/src/slot_alloc.rs` | `SlotId` allocation, slot CF column creation stub (wires to Aster in PH23) |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -54,13 +56,16 @@ Greenfield for `swap.rs` and backfill scheduler.
    pre-existing constellations); assert zero existing constellation is
    rewritten (`slot_*/` CF rows for old constellations are unchanged).
 2. The new slot is searchable immediately for a freshly ingested constellation.
-3. Run the backfill scheduler; observe slot columns filling over time
-   (print before/after counts of `AbsentReason::Deferred` rows).
+3. Run the durable backfill scheduler; read `backfill-watermark.json` after
+   enqueue, after first batch, and after restart-resume to prove priority order,
+   throttle, and completion state.
 4. `retire_lens` → `SlotState::Retired`; historical constellations still
-   readable from their slot columns; `panel_version` incremented.
+   readable from their slot columns; `panel_version` incremented. Reopen the
+   durable Aster vault and read the backfilled slot CF rows again.
 
-Readback: `cargo test -p calyx-registry swap -- --include-ignored --nocapture`
-on aiwonder; slot column counts before/after attached to PH20 GitHub issue.
+Readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
+on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-watermark.json` and vault
+file readback. Evidence is attached to GitHub issue #300.
 
 ## Risks / landmines
 

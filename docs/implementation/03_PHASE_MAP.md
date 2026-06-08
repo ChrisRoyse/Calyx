@@ -17,7 +17,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud |
-| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off mechanics (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + capability cards + default panels + temporal E2/E3/E4); durable PH20 backfill scheduler #300 remains the Stage 1-5 blocker |
+| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); durable PH20 scheduler #300 FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 and groundedness bound #298 FSV-backed) |
@@ -36,6 +36,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue303-cuda-topk-large-k-20260608`
 - Stage 3 atomic suite:
   `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`
+- Stage 3 PH20 durable backfill scheduler:
+  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`
 - Stage 4 Sextant:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
 - Stage 4 Sextant GPU parity/fan-out hardening:
@@ -102,7 +104,9 @@ Latest roots:
 > falling back to CPU, with explicit CPU compatibility reported separately. PH23 now
 > uses native `ef` HNSW traversal, PH24 explain provenance is refreshed from
 > stored constellation provenance, WeightedRRF excludes unnamed and AP-60
-> temporal slots before PH40, PH27 Loom cross-terms fail closed, and PH28/PH30
+> temporal slots before PH40, PH20 durable backfill scheduler persists
+> watermarks/throttle/restart-resume state, PH27 Loom cross-terms fail closed,
+> and PH28/PH30
 > persisted Assay rows require vault/anchor scope, Assay estimators reject
 > ragged/non-finite sample matrices, PH25 Pipeline enforces sparse candidate
 > subsets, PH26 reranker non-2xx fails closed, and PH22 temporal flags persist
@@ -116,9 +120,8 @@ Latest roots:
 > filters #297. PH23/PH24 GPU parity/fan-out overclaim #299 now fails loud
 > instead of comparing CPU outputs to themselves. PH13 CUDA top-k large-k
 > overclaim #303 now fails loud for `k > 1024` until exact multi-pass merge
-> exists. PH33 bounded build-time groundedness #298 is now FSV-backed. The only
-> remaining pre-Lodestar Stage 1-5 implementation blocker is PH20 durable
-> backfill scheduler #300.
+> exists. PH33 bounded build-time groundedness #298 is now FSV-backed. No
+> pre-Lodestar Stage 1-5 implementation blocker remains from this sweep.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

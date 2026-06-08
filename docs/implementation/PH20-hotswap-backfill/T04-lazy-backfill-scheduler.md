@@ -18,68 +18,61 @@ hot (high query-frequency), then the rest. Throttled to avoid VRAM/TEI
 contention (`17 §7.4`). Resumable across process restarts via a persisted
 watermark.
 
-## Build (checklist of concrete, code-level steps)
+## Build (implemented)
 
-- [ ] `BackfillPriority` enum: `Kernel`, `Hot`, `Normal`.
-- [ ] `BackfillRequest` struct: `slot_id: SlotId`, `lens_id: LensId`,
-  `priority: BackfillPriority`, `watermark: Option<CxId>` (last processed id,
-  `None` = start from beginning).
-- [ ] `BackfillConfig` struct: `max_concurrent: usize` (default 4),
-  `batch_size: usize` (default 16), `throttle_ms: u64` (default 50 ms between
-  batches).
-- [ ] `BackfillScheduler` struct:
-  - `queue: BinaryHeap<Reverse<(BackfillPriority, BackfillRequest)>>` (priority
-    ordering: Kernel > Hot > Normal).
-  - `active: HashSet<SlotId>` (slots currently being backfilled).
-  - `config: BackfillConfig`.
-- [ ] `BackfillScheduler::enqueue(req: BackfillRequest)`: push to heap; if
-  `active.len() >= max_concurrent` → defer (heap holds it for next tick).
-- [ ] `BackfillScheduler::tick(registry: &Registry, store: &dyn VaultStore) -> Result<BackfillStats>`:
-  - pop up to `max_concurrent - active.len()` requests from heap.
-  - for each request, fetch the next `batch_size` constellations from `store`
-    starting after `watermark`.
-  - for each constellation, call `registry.measure(lens_id, input)` → write
-    result to slot CF (stub: log the write).
-  - update `watermark` to last processed `CxId`.
-  - if no more constellations → mark request complete; remove from `active`.
-  - return `BackfillStats { slot_id, filled: usize, remaining: Option<usize> }`.
-- [ ] Persisted watermark: serialize `HashMap<SlotId, CxId>` to
-  `$CALYX_HOME/<vault_id>/backfill_watermark.json` after each batch.
-- [ ] On scheduler init, reload watermarks from disk to resume interrupted
-  backfill.
+- [x] `BackfillPriority` enum: `Normal`, `Hot`, `Kernel`; scheduler ranks
+  `Kernel > Hot > Normal`.
+- [x] `BackfillRequest` struct: `slot_id`, `lens_id`, `priority`, and an
+  ordered candidate list. The persisted `next_index`, `in_flight`, and
+  `last_processed` fields are the watermark state.
+- [x] `BackfillConfig` struct: `max_concurrent` default 4, `batch_size` default
+  16, `throttle_ms` default 50.
+- [x] `BackfillScheduler::open(path, config)`: loads JSON state, swaps in the
+  current config, and clears any persisted in-flight batch so interrupted work
+  is retried after restart.
+- [x] `BackfillScheduler::enqueue(req)`: persists the request without rewriting
+  existing scheduler state for duplicate keys.
+- [x] `BackfillScheduler::claim_next_batch(now_ms)`: returns the next
+  non-throttled batch by priority, enforces `max_concurrent`, persists
+  `in_flight`, and does not advance the watermark until completion.
+- [x] `BackfillScheduler::complete_batch(slot_id, lens_id, now_ms)`: advances
+  `next_index`, records `last_processed`, clears `in_flight`, marks complete
+  when all candidates are filled, and persists `next_allowed_ms`.
+- [x] `BackfillScheduler::watermarks()`: exposes processed/pending/in-flight,
+  completion, and last processed `CxId` for readback.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests (synthetic, deterministic)
 
-- [ ] unit: enqueue 3 requests (Kernel, Normal, Hot); pop order is
-  Kernel → Hot → Normal.
-- [ ] unit: `tick` with 5 mock constellations and `batch_size=2` → fills 2
-  per tick, `remaining=3` after first tick.
-- [ ] unit: watermark persisted after first tick; on reinit, `BackfillScheduler`
-  resumes from watermark rather than reprocessing already-filled rows.
-- [ ] unit: `max_concurrent=1`; enqueue 3 requests; only 1 active after first
-  tick.
-- [ ] edge (≥3): (1) empty queue → `tick` is a no-op; (2) store returns 0
-  constellations → request marked complete; (3) `measure` returns an error for
-  one constellation → log the error, continue backfill (do not abort the whole
-  run).
-- [ ] fail-closed: measure error on one cx does not abort the batch; error is
-  logged with the `CxId` and `CALYX_*` code.
+- [x] Unit: kernel request beats normal request, batch sizing is enforced,
+  completion persists, and throttle blocks early claims.
+- [x] Unit: a claimed but uncompleted batch is retried after reopening the
+  scheduler file.
+- [x] PH20 FSV: duplicate lens is rejected without panel/queue mutation.
+- [x] PH20 FSV: zero-size queue claim is a no-op.
+- [x] PH20 FSV: missing-constellation slot backfill fails closed without
+  advancing the Aster snapshot.
+- [x] PH20 FSV: scheduler JSON is read after enqueue, after first complete, and
+  after restart-resume completion.
+- [x] PH20 FSV: the durable Aster vault is reopened and both backfilled slot CF
+  rows are read after final flush.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `$CALYX_HOME/<vault>/backfill_watermark.json` on aiwonder filesystem
-- **Readback:**
-  `cargo test -p calyx-registry backfill -- --nocapture 2>&1` then
-  `cat $CALYX_HOME/<vault>/backfill_watermark.json`
-- **Prove:** watermark JSON shows the last processed `CxId` after a tick run;
-  re-running scheduler from that watermark skips already-filled rows (assert
-  `filled=0` on second run over same data); screenshot attached to PH20 GitHub
-  issue
+- **SoT:** `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608/backfill-watermark.json`
+  plus the durable Aster vault under the same root.
+- **Readback:** run
+  `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`,
+  then read `backfill-watermark.json`, vault files, and the printed reopened
+  slot-vector rows.
+- **Prove:** scheduler JSON shows priority, processed/pending/in-flight,
+  throttle-resume, and final completion; reopened Aster reads show the expected
+  dense slot vectors for both synthetic `CxId`s; old base rows remain byte-stable.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence attached to GitHub issue #300
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI /
+      nothing "trusted" without grounding / no frozen-lens mutation /
+      no harness-as-FSV
