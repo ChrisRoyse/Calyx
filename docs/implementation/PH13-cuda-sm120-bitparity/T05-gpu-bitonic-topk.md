@@ -15,7 +15,9 @@
 Implement a GPU bitonic sort topk that is deterministic (tie-break by lower index
 wins, matching PH12 T04's CPU topk contract) and returns the same ranked indices
 as the CPU path within ≤ 1e-3 score rel for the golden set. This kernel is on the
-ANN rerank hot path.
+ANN rerank hot path. Current CUDA top-k is exact for global `k <= 1024`; larger
+`k` fails loud with `CALYX_FORGE_SHAPE_MISMATCH` until a multi-pass exact CUDA
+merge is implemented.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -32,6 +34,8 @@ ANN rerank hot path.
 - [ ] `impl Backend for CudaBackend`: `topk` delegates to `topk_gpu`
 - [ ] For k > n: return all n scores sorted (same contract as CPU topk)
 - [ ] For k == 0: return empty vec without kernel launch
+- [x] For global k > 1024: return `CALYX_FORGE_SHAPE_MISMATCH` instead of
+      merging non-exact per-chunk winners
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -54,7 +58,8 @@ ANN rerank hot path.
     | grep -E "PASSED|FAILED|index|tie"
   ```
 - **Prove:** tie-break test PASSED showing `[(1, 0.9), (3, 0.9)]`; proptest PASSED;
-  absent: any reversed tie-break, any panic
+  large-k fail-loud readback prints `CALYX_FORGE_SHAPE_MISMATCH`; absent: any
+  reversed tie-break, any panic, any silent non-exact large-k merge
 
 ## Done when
 

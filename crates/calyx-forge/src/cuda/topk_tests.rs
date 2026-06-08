@@ -76,6 +76,25 @@ fn topk_seed42_matches_cpu() -> Result<()> {
 }
 
 #[test]
+fn topk_large_k_fails_loud_when_exactness_not_guaranteed() -> Result<()> {
+    let _guard = test_lock();
+    let mut scores = vec![0.0; 2048];
+    for (idx, score) in scores.iter_mut().enumerate().take(1500) {
+        *score = 2_000.0 - idx as f32;
+    }
+    for (idx, score) in scores.iter_mut().enumerate().skip(1500) {
+        *score = 1.0 - (idx - 1500) as f32 * 0.001;
+    }
+
+    let err = CudaBackend::new()?
+        .topk(&scores, 1500)
+        .expect_err("global k > 1024 must fail loud until CUDA topk is multi-pass exact");
+    println!("CUDA_TOPK_LARGE_K_FAILS_LOUD {err}");
+    assert!(matches!(err, ForgeError::ShapeMismatch { .. }));
+    Ok(())
+}
+
+#[test]
 fn topk_nan_fails_closed() -> Result<()> {
     let _guard = test_lock();
     let err = CudaBackend::new()?
