@@ -1,7 +1,10 @@
 //! Durable lazy backfill scheduler state.
 
 use std::collections::BTreeMap;
-use std::fs;
+#[cfg(unix)]
+use std::fs::File;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, CxId, LensId, Result, SlotId};
@@ -222,7 +225,7 @@ impl BackfillScheduler {
         }
         let bytes = serde_json::to_vec_pretty(&self.state)
             .map_err(|err| CalyxError::stale_derived(err.to_string()))?;
-        fs::write(&self.path, bytes).map_err(|err| io_error(&self.path, err))
+        atomic_write(&self.path, &bytes)
     }
 
     pub fn path(&self) -> &Path {
@@ -258,6 +261,48 @@ impl BackfillScheduler {
 
 fn request_key(slot_id: SlotId, lens_id: LensId) -> String {
     format!("{slot_id}:{lens_id}")
+}
+
+fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let tmp = temp_path(path)?;
+    {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&tmp)
+            .map_err(|err| io_error(&tmp, err))?;
+        file.write_all(bytes).map_err(|err| io_error(&tmp, err))?;
+        file.sync_all().map_err(|err| io_error(&tmp, err))?;
+    }
+    if let Err(err) = fs::rename(&tmp, path) {
+        let _ = fs::remove_file(&tmp);
+        return Err(io_error(path, err));
+    }
+    sync_parent(parent)
+}
+
+fn temp_path(path: &Path) -> Result<PathBuf> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            CalyxError::stale_derived(format!("invalid scheduler path {}", path.display()))
+        })?;
+    Ok(path.with_file_name(format!(".{name}.tmp-{}", std::process::id())))
+}
+
+#[cfg(unix)]
+fn sync_parent(parent: &Path) -> Result<()> {
+    File::open(parent)
+        .and_then(|dir| dir.sync_all())
+        .map_err(|err| io_error(parent, err))
+}
+
+#[cfg(not(unix))]
+fn sync_parent(_parent: &Path) -> Result<()> {
+    Ok(())
 }
 
 fn io_error(path: &Path, err: std::io::Error) -> CalyxError {
@@ -328,6 +373,17 @@ mod tests {
         let mut reopened = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap();
         let retry = reopened.claim_next_batch(0).unwrap().unwrap();
         assert_eq!(retry.candidates, first.candidates);
+    }
+
+    #[test]
+    fn corrupt_scheduler_state_fails_closed() {
+        let path = test_path("corrupt_scheduler_state_fails_closed");
+        let _ = fs::remove_file(&path);
+        fs::write(&path, b"{").unwrap();
+
+        let error = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap_err();
+
+        assert_eq!(error.code, "CALYX_STALE_DERIVED");
     }
 
     fn request(slot: u16, priority: BackfillPriority, count: u8) -> BackfillRequest {
