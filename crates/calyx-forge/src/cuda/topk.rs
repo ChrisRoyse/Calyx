@@ -5,9 +5,9 @@ use cudarc::driver::{CudaModule, CudaSlice, LaunchConfig, PushKernelArg};
 use cudarc::nvrtc::Ptx;
 
 use crate::cuda::kernels::TOPK_PTX;
-use crate::{CudaContext, ForgeError, Result};
+use crate::{CUDA_EXACT_TOPK_MAX_K, CudaContext, ForgeError, Result};
 
-const TOPK_BLOCK: usize = 1024;
+const TOPK_BLOCK: usize = CUDA_EXACT_TOPK_MAX_K;
 const TOPK_REMEDIATION: &str =
     "Reject non-finite scores and keep deterministic score/index ordering";
 const DEVICE_REMEDIATION: &str =
@@ -28,7 +28,9 @@ pub fn topk_gpu(
         return Err(ForgeError::ShapeMismatch {
             expected: vec![TOPK_BLOCK],
             got: vec![k_eff],
-            remediation: "cuda topk is exact only for global k <= 1024; use CPU topk or add a multi-pass exact CUDA merge".to_string(),
+            remediation: format!(
+                "cuda topk is exact only for global k <= {CUDA_EXACT_TOPK_MAX_K}; use CPU topk or add a multi-pass exact CUDA merge"
+            ),
         });
     }
     let chunk_k = k_eff;

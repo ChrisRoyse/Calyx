@@ -38,6 +38,12 @@ SoA is the key decision: distance/normalize/MI over a slot are a **single stride
 
 Every Calyx operation reduces to array math, batched on Blackwell sm_120 tensor cores (Forge, `13`), with a bit-parity CPU SIMD path. Dominant patterns:
 
+Implementation honesty (#338): Stage 2 Forge ships the `Backend` contract for
+GEMM/grouped GEMM, cosine/dot/L2, normalize, top-k, and device info, plus
+quantization modules. Catalog rows for KSG k-NN, histograms/NMI, sparse ops,
+bilinear cross-terms, graph kernels, and ColBERT MaxSim are the target array
+math design, not current `Backend` trait methods.
+
 | Op | Math | Kernel strategy |
 |---|---|---|
 | **Lens projection** (embed) | `X · Wᵀ` per lens, different dims per lens | **Grouped GEMM** (cuBLAS 12.5 / CUTLASS): N differently-sized matmuls in **one launch** — the panel projects in one kernel regardless of N |
@@ -88,7 +94,7 @@ accept_quant(slot, level) iff
   kernel-only recall          unregressed     // the kernel still explains the corpus (08)
 ```
 
-Anneal **searches downward** for the most aggressive level that still passes, per slot, per workload, A/B'd on live traffic, reversible, Ledger-logged (`12`). Calyx is not guessing a bit-width — it **measures the floor where intelligence starts to degrade and sits just above it.** The literal implementation of "max compression without losing intelligence," possible only because Calyx has Assay's bits and Ward's FAR as ground truth.
+Anneal **searches downward** for the most aggressive level that still passes, per slot, per workload, A/B'd on live traffic, reversible, and ultimately Ledger-logged (`12`). PH16's current promotion surface is an append-only local JSONL audit stub, not a real Ledger chain entry; real Ledger-backed compression promotion belongs to later cross-engine Anneal/provenance wiring. Calyx is not guessing a bit-width — it **measures the floor where intelligence starts to degrade and sits just above it.** The literal implementation of "max compression without losing intelligence," possible only because Calyx has Assay's bits and Ward's FAR as ground truth.
 
 ### 4.5 The compression report
 `compression_report(vault)` exposes the honest numbers: bits/channel per slot, achieved distortion vs the TurboQuant lower bound, storage bytes saved, kernel compression ratio + kernel-only recall, meaning-compression yield, and the measured intelligence delta (bits/cosine/FAR) at the chosen level — compression auditable, never silent.

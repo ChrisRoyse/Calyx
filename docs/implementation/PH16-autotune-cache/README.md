@@ -7,11 +7,12 @@
 
 Implement the per-shape best-config cache keyed `(op, shape, dtype, device,
 recall_tgt)` → `BestConfig`, refreshed by a low-rate **ε-greedy / Thompson
-explorer**. The cache is persisted to disk (JSON), promotions are Ledger-logged
-(stub until PH35) and reversible. This is the seam that Anneal (PH43–PH48) later
-drives for end-to-end autotune loops — PH16 delivers the microbench infrastructure
-and the cache read/write/explore API that Anneal will call. The `autotune(op,
-shape, dtype, device) -> BestConfig` function is the Forge-facing surface.
+explorer**. The cache is persisted to disk (JSON), promotions are recorded in a
+local append-only JSONL audit stub and reversible. This is the seam that Anneal
+(PH43–PH48) later drives for end-to-end autotune loops — PH16 delivers the
+microbench infrastructure and the cache read/write/explore API that Anneal will
+call. The `autotune(op, shape, dtype, device) -> BestConfig` function is the
+Forge-facing surface.
 
 ## Dependencies
 
@@ -25,8 +26,10 @@ shape, dtype, device) -> BestConfig` function is the Forge-facing surface.
 
 `calyx-forge` has the full CPU SIMD (PH12), CUDA sm_120 (PH13), TurboQuant (PH14),
 MXFP4 + grouped GEMM (PH15), and the PH16 autotune cache/microbench/explorer
-surfaces in-tree. Promotions are logged to the reversible PH16 stub file until
-PH35 replaces it with the real Ledger chain.
+surfaces in-tree. Promotions are logged to the reversible PH16 JSONL stub file;
+after PH35 this remains a local Forge audit artifact because `calyx-forge` does
+not own the cross-engine Ledger append path. Real Ledger-backed promotion
+provenance belongs to later Anneal/provenance integration.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -44,7 +47,7 @@ PH35 replaces it with the real Ledger chain.
 | T01 | `AutotuneCache` key type + CRUD + persist/load | PH12 T01 (BestConfig) |
 | T02 | `microbench` harness (wall-clock, GFLOP/s) | PH13 T03 |
 | T03 | ε-greedy / Thompson explorer + promotion gate | T01, T02 |
-| T04 | A/B-on-live hook + Ledger stub + reversibility | T03 |
+| T04 | A/B-on-live hook + promotion audit stub + reversibility | T03 |
 | T05 | FSV: two shapes converge to two cached configs | T01, T02, T03, T04 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
@@ -75,9 +78,10 @@ shows the rollback.
   per shape is feasible in < 5 seconds. Set `MAX_EXPLORE_ITERS=20` as a constant.
 - **Persist race condition:** cache writes use a write-then-rename pattern (write to
   `.tmp` then rename atomically) to avoid torn writes; document this in `persist()`.
-- **Ledger stub:** PH16 writes to a plain `promotion_log.jsonl` append file (not the
-  real Ledger chain — that comes in PH35). The stub must be clearly marked with
-  `// TODO(PH35): replace with real Ledger chain entry` so PH35 can hook in.
+- **Promotion audit stub:** PH16 writes to a plain `promotion_log.jsonl` append
+  file, not the real Ledger chain. This remains acceptable after PH35 because
+  Forge is a math-runtime crate with no direct storage/Ledger dependency; real
+  Ledger-backed promotion provenance is future Anneal/provenance wiring.
 - **Clock injection:** the microbench must use `std::time::Instant` (wall clock for
   GPU timing after synchronization) — this is acceptable since microbench is not
   determinism-critical; however, the `Clock` trait from `calyx-core` must be used

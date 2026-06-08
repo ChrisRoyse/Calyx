@@ -7,6 +7,30 @@ use crate::ForgeError;
 
 pub type Result<T> = std::result::Result<T, ForgeError>;
 
+/// Backend operations implemented by the Stage 2 `Backend` trait.
+pub const FORGE_SHIPPED_BACKEND_OPS: &[&str] = &[
+    "gemm",
+    "cosine",
+    "dot",
+    "l2",
+    "normalize",
+    "topk",
+    "device_info",
+];
+
+/// PRD-listed Forge operations that are intentionally not part of the Stage 2 trait yet.
+pub const FORGE_DEFERRED_BACKEND_OPS: &[&str] = &[
+    "knn",
+    "histogram_nmi",
+    "spmm_sparse_ops",
+    "bilinear_cross_term",
+    "graph_ops",
+    "colbert_maxsim",
+];
+
+/// Exact CUDA `topk` is currently guaranteed only for global `k <= 1024`.
+pub const CUDA_EXACT_TOPK_MAX_K: usize = 1024;
+
 pub trait Backend: Send + Sync {
     fn gemm(
         &self,
@@ -109,6 +133,61 @@ pub mod tests {
                 got: 2,
             },
         ]
+    }
+
+    #[test]
+    fn backend_contract_lists_shipped_and_deferred_ops() -> Result<()> {
+        assert_eq!(
+            FORGE_SHIPPED_BACKEND_OPS,
+            [
+                "gemm",
+                "cosine",
+                "dot",
+                "l2",
+                "normalize",
+                "topk",
+                "device_info"
+            ]
+        );
+        assert_eq!(
+            FORGE_DEFERRED_BACKEND_OPS,
+            [
+                "knn",
+                "histogram_nmi",
+                "spmm_sparse_ops",
+                "bilinear_cross_term",
+                "graph_ops",
+                "colbert_maxsim"
+            ]
+        );
+        assert_eq!(CUDA_EXACT_TOPK_MAX_K, 1024);
+
+        let payload = serde_json::json!({
+            "issue": 338,
+            "crate": "calyx-forge",
+            "trait": "Backend",
+            "shipped_ops": FORGE_SHIPPED_BACKEND_OPS,
+            "deferred_ops": FORGE_DEFERRED_BACKEND_OPS,
+            "cuda_exact_topk_max_k": CUDA_EXACT_TOPK_MAX_K,
+            "deferred_ops_issue": "https://github.com/ChrisRoyse/Calyx/issues/338"
+        });
+        if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
+            let root = std::path::PathBuf::from(root);
+            std::fs::create_dir_all(&root).expect("create CALYX_FSV_ROOT");
+            let path = root.join("forge-backend-contract-readback.json");
+            let bytes = serde_json::to_vec_pretty(&payload).expect("serialize backend contract");
+            std::fs::write(&path, &bytes).expect("write backend contract readback");
+            let readback = std::fs::read_to_string(&path).expect("read backend contract readback");
+            let restored: serde_json::Value =
+                serde_json::from_str(&readback).expect("parse backend contract readback");
+            assert_eq!(restored, payload);
+            println!(
+                "FORGE_BACKEND_CONTRACT_READBACK path={} bytes={}",
+                path.display(),
+                readback.len()
+            );
+        }
+        Ok(())
     }
 
     #[test]

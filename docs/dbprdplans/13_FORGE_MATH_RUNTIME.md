@@ -20,16 +20,24 @@ Backend selection is per-op, per-shape, autotuned by Anneal and cached (`12 §4`
 
 ## 3. Operations Forge provides
 
+Implementation honesty (#338): the Stage 2 `Backend` trait currently ships
+`gemm`, `cosine`, `dot`, `l2`, `normalize`, `topk`, and `device_info`; the source
+contract is `FORGE_SHIPPED_BACKEND_OPS`. PRD catalog rows beyond that are design
+requirements for later engine integration and are tracked as deferred by
+`FORGE_DEFERRED_BACKEND_OPS` until their owning phases wire them into Forge.
+CUDA exact `topk` is public-contract bounded by `CUDA_EXACT_TOPK_MAX_K = 1024`;
+larger `k` fails loud rather than returning a non-exact merge.
+
 | Op | Use | Kernel notes |
 |---|---|---|
 | `gemm` / **grouped GEMM** | lens projection across N variable-dim lenses, scoring | **one launch for the whole panel regardless of N** (cuBLAS 12.5 `GemmGroupedBatchedEx` / CUTLASS grouped); MXFP4/MXFP8 microscaling on Blackwell tensor cores; cuBLASLt for large (`23 §3`) |
-| `normalize` (L2) | every dense slot | fused with write |
-| `cosine` / `dot` / `l2` distance | ANN, agreement, guard | fused, batched over candidate blocks |
-| `topk` | ANN rerank, kernel funnel | GPU bitonic / CPU heap |
+| `normalize` (L2) (shipped) | every dense slot | fused with write |
+| `cosine` / `dot` / `l2` distance (shipped) | ANN, agreement, guard | fused, batched over candidate blocks |
+| `topk` (shipped; CUDA exact for `k <= 1024`) | ANN rerank, kernel funnel | GPU bitonic / CPU heap; CUDA fails closed above `CUDA_EXACT_TOPK_MAX_K` |
 | `quantize` / `dequantize` (**TurboQuant** default, QJL, MXFP4, binary, PQ) | storage, prefilter, compute | **TurboQuant**: data-oblivious rotate→scalar-quant + 1-bit QJL residual = unbiased inner product, ~zero indexing (`23 §4`); MXFP4 block-scale for compute |
-| `knn` (for KSG MI) | Assay bits | reuse ANN graph; batched neighbor distances |
-| `histogram` / `nmi` | streaming redundancy | partitioned, GPU |
-| `spmm` / sparse ops | SPLADE/keyword lenses, inverted scoring | CSR on GPU/CPU |
+| `knn` (for KSG MI; deferred #338) | Assay bits | reuse ANN graph; batched neighbor distances |
+| `histogram` / `nmi` (deferred #338) | streaming redundancy | partitioned, GPU |
+| `spmm` / sparse ops (deferred #338) | SPLADE/keyword lenses, inverted scoring | CSR on GPU/CPU |
 | `bilinear` `v_aᵀW v_b` | cross-term interaction | small `W`, batched |
 | graph ops (SCC, betweenness, FVS LP) | Lodestar kernel | `calyx-mincut`/`-paths`/`-solver` (CPU, GPU-assisted LP) |
 | `colbert_maxsim` | late-interaction rerank | token-block GPU |
@@ -59,16 +67,19 @@ Rust GPU is now credible: Burn's CubeCL matmul kernels match/beat cuBLAS in publ
 ## 7. Forge API (internal; summary)
 
 ```
-gemm(a, b, opts) -> c
-batched_cosine(query, candidates_block) -> scores
-topk(scores, k) -> (idx, val)
-quantize(slot_sample) -> Codebook ; encode/decode(vec, codebook)
-knn(graph, points, k) -> neighbor dists           // for Assay
-maxsim(query_tokens, doc_tokens) -> score
-autotune(op, shape, dtype, device) -> BestConfig  // cached; driven by Anneal
-device_budget() -> {vram_free, sm_free}
+gemm(a, b, m, k, n, out)
+cosine(a, b, dim, out)
+dot(a, b, dim, out)
+l2(a, b, dim, out)
+normalize(vecs, dim)
+topk(scores, k) -> (idx, val)        // CUDA exact only for k <= 1024
+device_info() -> DeviceInfo
 ```
 
-**One sentence:** Forge is the database's own GPU/SIMD math engine — matmul, distance, quantization, MI, and graph kernels baked in, autotuned per shape, bit-parity across CPU and the RTX 5090, so Calyx needs no external math service and Anneal makes every kernel faster for the job it's actually doing.
+Deferred API surface: `knn`, histogram/NMI, sparse ops, bilinear cross-terms,
+graph kernels, and ColBERT MaxSim remain PRD requirements, not Stage 2
+`Backend` methods.
+
+**One sentence:** Forge is the database's own GPU/SIMD math engine for shipped Stage 2 matmul, distance, normalization, top-k, quantization, and grouped-GEMM foundations, with broader MI, sparse, graph, and late-interaction kernels tracked as explicit deferred work.
 
 Sources: [candle (Rust ML, CUDA kernels)](https://github.com/huggingface/candle) · [Burn/CubeCL matmul vs cuBLAS](https://www.phoronix.com/news/Burn-MATMUL-Kernels-CUDA) · [cuda-oxide Rust→PTX](https://www.marktechpost.com/2026/05/09/nvidia-ai-just-released-cuda-oxide-an-experimental-rust-to-cuda-compiler-backend-that-compiles-simt-gpu-kernels-directly-to-ptx/).

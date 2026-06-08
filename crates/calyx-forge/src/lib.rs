@@ -18,7 +18,10 @@ pub use autotune::{
     autotune, log_promotion, microbench, next_candidate, promote_if_winner, record_trial,
     rollback_promotion, should_promote, should_use_challenger,
 };
-pub use backend::{Backend, BackendKind, BestConfig, DeviceInfo, Result};
+pub use backend::{
+    Backend, BackendKind, BestConfig, CUDA_EXACT_TOPK_MAX_K, DeviceInfo,
+    FORGE_DEFERRED_BACKEND_OPS, FORGE_SHIPPED_BACKEND_OPS, Result,
+};
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
 pub use cuda::{

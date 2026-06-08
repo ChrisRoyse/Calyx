@@ -42,7 +42,7 @@ pub fn log_promotion(event: &PromotionEvent, log_path: &Path) -> Result<()> {
         )
     })?;
     line.push(b'\n');
-    // TODO(PH35): replace with a real Ledger chain entry.
+    // PH16 owns a local append-only audit stub; real Ledger wiring is cross-engine work.
     let write_result = (|| {
         let mut file = OpenOptions::new()
             .create(true)

@@ -25,6 +25,11 @@
 > returns `CALYX_FORGE_NUMERICAL_INVARIANT` instead of relying on debug-only
 > assertions. Evidence root:
 > `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`.
+> Contract-honesty hardening #338 makes the Stage 2 backend surface explicit:
+> source constants list shipped `Backend` ops versus deferred PRD catalog ops,
+> `CUDA_EXACT_TOPK_MAX_K = 1024` is the public exact CUDA top-k ceiling, and PH16
+> promotion provenance is documented as a local JSONL audit stub rather than a
+> real Ledger chain entry.
 
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
@@ -121,15 +126,21 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 - **Key tasks.** measure on real shapes; promote only on measured win; expose
   `autotune(op,shape,dtype,device)->BestConfig`.
 - **FSV gate.** the same op on two shapes converges to two cached configs
-  (read the cache); a promotion is logged + reversible.
+  (read the cache); a promotion is local-JSONL logged + reversible.
 - **Axioms/PRD.** A14, `12 §4`, `13 §7`.
 
 ---
 
 ## Stage 2 exit — ✅ achieved
 Forge does matmul/distance/quant/topk on both CPU and the RTX 5090 with proven
-bit-parity for the byte-readback golden set; CUDA top-k is exact for `k <= 1024`
-and fails loud above that until multi-pass exact merge work lands (#303).
+bit-parity for the byte-readback golden set; CUDA top-k is exact for
+`k <= CUDA_EXACT_TOPK_MAX_K` (`1024`) and fails loud above that until multi-pass
+exact merge work lands (#303). The current `Backend` trait ships
+`gemm`/`cosine`/`dot`/`l2`/`normalize`/`topk`/`device_info`; PRD catalog ops such
+as KSG k-NN, histograms/NMI, sparse ops, bilinear cross-terms, graph kernels, and
+ColBERT MaxSim remain explicit deferred work after #338. PH16 promotion
+provenance is an append-only local JSONL audit stub; real Ledger integration is
+future cross-engine Anneal/provenance work, not a hidden Stage 2 claim.
 TurboQuant gives unbiased inner products, grouped GEMM makes panel math
 N-invariant with readback-visible launch mode, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
 `COMPRESS` foundations. Implemented and FSV-signed-off; downstream Stage 5

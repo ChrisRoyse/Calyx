@@ -1,4 +1,4 @@
-# PH16 · T04 — A/B-on-live hook + Ledger stub + reversibility
+# PH16 · T04 — A/B-on-live hook + promotion audit stub + reversibility
 
 | Field | Value |
 |---|---|
@@ -13,10 +13,13 @@
 ## Goal
 
 Add the A/B-on-live hook (a callback invoked during live traffic to collect latency
-samples for the challenger config without disrupting the incumbent), the Ledger stub
-(append-only `promotion_log.jsonl` recording every promote/rollback event), and the
-`rollback_promotion(key)` API making every promotion reversible. This satisfies A14
-(Anneal contract: promotions are measured, A/B'd, reversible).
+samples for the challenger config without disrupting the incumbent), the promotion
+audit stub (append-only `promotion_log.jsonl` recording every promote/rollback
+event), and the `rollback_promotion(key)` API making every promotion reversible.
+This satisfies A14 (Anneal contract: promotions are measured, A/B'd, reversible).
+The stub is intentionally not a real Ledger chain entry after PH35 because Forge
+does not own the storage/Ledger append path; real Ledger-backed promotion
+provenance belongs to later cross-engine Anneal/provenance wiring.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -25,7 +28,7 @@ samples for the challenger config without disrupting the incumbent), the Ledger 
 - [ ] `pub fn log_promotion(event: &PromotionEvent, log_path: &Path) -> Result<(), ForgeError>`
   — append one JSON line (JSONL format) to `log_path`; create file if not exists;
   uses `OpenOptions::append(true)` + `create(true)`; each line ends with `\n`;
-  // TODO(PH35): replace with real Ledger chain entry
+  source comment states this is PH16's local append-only audit stub, not Ledger
 - [ ] `pub fn rollback_promotion(cache: &mut AutotuneCache, log: &Path, key: &AutotuneKey, clock: &dyn CalyxClock) -> Result<Option<BestConfig>, ForgeError>`
   — read the last `Promoted` event for `key` from `log_path` (scan JSONL from end);
   if found → `cache.rollback(key, event.old_config.clone())`; log a `RolledBack` event;
@@ -64,7 +67,9 @@ samples for the challenger config without disrupting the incumbent), the Ledger 
   ```
 - **Prove:** test PASSED; `/tmp/calyx_promotion_test.jsonl` contains at least one
   `"action":"Promoted"` line and one `"action":"RolledBack"` line; the final cache
-  entry for the key equals the `old_config` from the promotion event
+  entry for the key equals the `old_config` from the promotion event; #338 FSV
+  copies the JSONL bytes to `promotion-log-readback.jsonl` and writes
+  `promotion-provenance-summary-readback.json` with `ledger_chain_entry=false`
 
 ## Done when
 
