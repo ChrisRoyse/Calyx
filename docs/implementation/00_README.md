@@ -111,9 +111,9 @@ surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
 `calyx-lodestar`; PH33 T01-T05 kernel index/answer/gaps/real-corpora recall are
-implemented and FSV-backed; PH34 T01-T02 scope materialization/cache are
-implemented and FSV-backed. The next implementable card is PH34 T03 (#235).
-Stage 6 remains open until PH34 T03-T06, the Ledger provenance blindspot (#239,
+implemented and FSV-backed; PH34 T01-T03 scope materialization/cache/dispatch
+are implemented and FSV-backed. The next implementable card is PH34 T04 (#236).
+Stage 6 remains open until PH34 T04-T06, the Ledger provenance blindspot (#239,
 after real Stage 7 Ledger primitives), and the exit FSV (#240) are closed with
 aiwonder readback evidence.
 
@@ -178,10 +178,10 @@ kernel-only recall on SciFact text, live Calyx code, and Cora graph under
 `/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) remains
 open by design until PH35/PH36 provide real Ledger append/readback primitives.
 
-**NEXT — Stage 6 / PH34 T03: scoped kernel dispatch + reports.** Build from
+**NEXT — Stage 6 / PH34 T04: hierarchical kernel-of-regions.** Build from
 `PH34-multi-scope-kernel/` and `16_STAGE6_LODESTAR.md`. PH34 T01 scope
-materialization and T02 scope cache are already closed; T03-T06 remain the active
-path to `KERNEL_ANY`.
+materialization, T02 scope cache, and T03 scoped dispatch/reports are already
+closed; T04-T06 remain the active path to `KERNEL_ANY`.
 
 **Remaining:** Open phases **PH34–PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level

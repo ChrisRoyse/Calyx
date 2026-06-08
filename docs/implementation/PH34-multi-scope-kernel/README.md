@@ -37,6 +37,12 @@ PH34 T02 (#234) is implemented and FSV-signed-off on aiwonder: `ScopeCache`,
 invalidation, hit/miss stats, zero-capacity behavior, and `u64::MAX` panel
 versions with readbacks under
 `/home/croyse/calyx/data/fsv-issue234-scope-cache-20260608`.
+PH34 T03 (#235) is implemented and FSV-signed-off on aiwonder: scoped
+`build_kernel`, `anchors_for_scope`, `ScopeKernelReport`, and
+`report_all_scopes` cover cache dispatch, scoped anchors, per-scope report rows,
+provisional ungrounded tagging, empty intersect reporting, panel-version cache
+misses, and temporal fail-closed propagation with readbacks under
+`/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -54,8 +60,8 @@ versions with readbacks under
 |---|---|---|---|
 | T01 | `Scope` enum + `materialize_scope` for all 8 variants | — (needs PH33) | Done / #233 |
 | T02 | `ScopeCache`: `(scope_hash, panel_version)` LRU cache | T01 | Done / #234 |
-| T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 | Open |
-| T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Open |
+| T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 | Done / #235 |
+| T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Next / #236 |
 | T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Open |
 | T06 | FSV: ≥4 distinct scopes on a real corpus, each with measured recall | T05 | Open |
 
