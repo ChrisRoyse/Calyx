@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 use calyx_core::{CxId, SlotId};
 
 use super::FusionContext;
-use crate::hit::{FreshnessTag, Hit, PerLensContribution};
+use crate::hit::{FreshnessTag, Hit, PerLensContribution, ProvenanceSource};
 use crate::index::IndexSearchHit;
 use crate::util::stub_ledger;
 
@@ -92,6 +92,7 @@ fn fuse_with_weights(
                 cross_terms_used: false,
                 guard: None,
                 provenance: stub_ledger(cx_id, idx as u64 + 1),
+                provenance_source: ProvenanceSource::Stub,
                 freshness: FreshnessTag::fresh(0),
                 explain: None,
             };

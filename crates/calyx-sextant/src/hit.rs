@@ -49,6 +49,13 @@ pub struct ExplainBreakdown {
     pub provenance_hex: String,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProvenanceSource {
+    Stored,
+    Stub,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Hit {
     pub cx_id: CxId,
@@ -58,6 +65,7 @@ pub struct Hit {
     pub cross_terms_used: bool,
     pub guard: Option<String>,
     pub provenance: LedgerRef,
+    pub provenance_source: ProvenanceSource,
     pub freshness: FreshnessTag,
     pub explain: Option<ExplainBreakdown>,
 }

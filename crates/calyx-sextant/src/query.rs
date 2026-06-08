@@ -25,6 +25,8 @@ pub struct Query {
     #[serde(default)]
     pub recall_k: Option<usize>,
     pub explain: bool,
+    #[serde(default)]
+    pub require_stored_provenance: bool,
     pub freshness: FreshnessRequirement,
     pub fusion: Option<FusionStrategy>,
     #[serde(default)]
@@ -41,6 +43,7 @@ impl Query {
             ef: Some(64),
             recall_k: None,
             explain: false,
+            require_stored_provenance: false,
             freshness: FreshnessRequirement::FreshDerived,
             fusion: None,
             filters: QueryFilters::default(),
@@ -59,6 +62,11 @@ impl Query {
 
     pub fn explain(mut self, explain: bool) -> Self {
         self.explain = explain;
+        self
+    }
+
+    pub fn require_stored_provenance(mut self, required: bool) -> Self {
+        self.require_stored_provenance = required;
         self
     }
 

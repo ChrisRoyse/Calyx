@@ -26,3 +26,4 @@ tokenizers = { version = "0.22.2", default-features = false, features = ["onig"]
 
 [dev-dependencies]
 calyx-aster = { path = "../calyx-aster" }
+calyx-sextant = { path = "../calyx-sextant" }

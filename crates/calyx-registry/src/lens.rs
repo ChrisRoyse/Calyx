@@ -20,6 +20,14 @@ struct RegistryEntry {
     lens: Arc<dyn Lens>,
     frozen: Option<FrozenLensContract>,
     spec: Option<LensSpec>,
+    determinism: DeterminismProof,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeterminismProof {
+    ProbeVerified,
+    ContractOnlyExemption,
 }
 
 impl Registry {
@@ -156,6 +164,11 @@ impl Registry {
             .and_then(|entry| entry.spec.as_ref())
     }
 
+    /// Returns whether registration verified a deterministic probe or used an explicit exemption.
+    pub fn determinism_proof(&self, lens_id: LensId) -> Option<DeterminismProof> {
+        self.lenses.get(&lens_id).map(|entry| entry.determinism)
+    }
+
     /// Probes runtime health for a registered lens.
     pub fn health(&self, lens_id: LensId) -> Result<LensHealth> {
         let entry = self.lookup(lens_id)?;
@@ -180,6 +193,11 @@ impl Registry {
         if let Some(probe) = probe {
             contract.verify_determinism_probe(&lens, probe)?;
         }
+        let determinism = if probe.is_some() {
+            DeterminismProof::ProbeVerified
+        } else {
+            DeterminismProof::ContractOnlyExemption
+        };
         let id = lens.id();
         if self.lenses.contains_key(&id) {
             return Err(CalyxError::registry_duplicate(format!(
@@ -192,6 +210,7 @@ impl Registry {
                 lens: Arc::new(lens),
                 frozen: Some(contract),
                 spec,
+                determinism,
             },
         );
         Ok(id)
