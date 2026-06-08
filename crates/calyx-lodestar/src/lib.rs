@@ -4,6 +4,7 @@
 
 pub mod dfvs;
 mod error;
+pub mod grounding_gaps;
 pub mod incremental;
 pub mod kernel;
 pub mod kernel_answer;
@@ -15,6 +16,7 @@ pub use dfvs::{
     tournament_2approx,
 };
 pub use error::{LodestarError, Result};
+pub use grounding_gaps::{CALYX_KERNEL_UNGROUNDED, GroundingGapReport, grounding_gaps};
 pub use incremental::{IncrementalKernelEval, IncrementalResult, NodeAddEdge};
 pub use kernel::{GroundednessReport, Kernel, KernelParams, RecallReport, build_kernel_pipeline};
 pub use kernel_answer::{AnswerHop, AnswerPath, kernel_answer};
