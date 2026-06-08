@@ -116,9 +116,10 @@ surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 `calyx-testkit`. Latest Stage 5 hardening: #318 wires seeded bootstrap CI
 through KSG/logistic/AssayGate/PairGain/persisted AssayStore rows, and #319
 adds the Aster-backed Assay materialization gate that feeds grounded PairGain
-into Loom xterm CF materialization. Latest Stage 3/4 readiness hardening: #327
-makes PH20 lifecycle operations idempotent and prevents parked/retired slots
-from participating in Sextant search. Latest pre-Lodestar audit hardening #333
+into Loom xterm CF materialization. Latest Stage 3/4 readiness hardening: #339
+adds Registry determinism proof metadata, proves Registry->Aster backfill into
+Sextant stored-provenance search, and makes qrels search require stored
+provenance when requested. Latest pre-Lodestar audit hardening #333
 adds Aster SST v2 full-body CRCs, manifest immutable-ref hash verification,
 compacted-SST recovery, post-WAL commit-success semantics, real group-commit
 window coalescing, and release-mode Forge grouped-GEMM absent-slot sentinel
@@ -180,15 +181,19 @@ tracked in #331-#332 (raw-vs-tuned recall evidence and anchor-aware
   panels + closed-form temporal lenses E2/E3/E4. FSV root:
   `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`; durable
   PH20 scheduler hardening #300 root:
-  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`.
+  `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`; #339
+  Registry->Aster->Sextant integration root:
+  `/home/croyse/calyx/data/fsv-issue339-registry-sextant-integration-20260608`.
 - **Stage 4** (PH23–PH26): `calyx-sextant` search/navigation — per-slot dense
   and sparse indexes, RRF/WeightedRRF/SingleLens fusion with provenance,
   planner/explain/freshness, and real SciFact qrels evidence. #296 records the
   controlled SearchEngine reranker-ordering FSV and is separate from the
   resident `:8089` Stage 4 reranker readback. #299 records that
   Sextant GPU parity/fan-out is explicit fail-loud/unwired state, not a hidden
-  CPU-self comparison. FSV root:
-  `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`.
+  CPU-self comparison. #339 adds explicit stored/stub provenance source and
+  fail-closed stored-provenance queries. FSV root:
+  `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`; #339 root:
+  `/home/croyse/calyx/data/fsv-issue339-registry-sextant-integration-20260608`.
 - **Stage 5** (PH27–PH30): `calyx-loom` + `calyx-assay` DDA/bits — agreement
   graph, lazy cross-terms, abundance reports, KSG-style MI, random projection,
   bootstrap CI, partitioned NMI, logistic probe, AssayGate pair gain,

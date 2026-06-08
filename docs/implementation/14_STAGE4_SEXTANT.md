@@ -70,6 +70,19 @@
 > Post-sweep hardening #327 adds slot lifecycle state to `SlotIndexMap`: parked
 > or retired slots are excluded from default search, and explicit inactive-slot
 > search/insert/rebuild returns `CALYX_SEXTANT_SLOT_INACTIVE`.
+> Post-sweep hardening #339 adds `Hit.provenance_source` and
+> `Query::require_stored_provenance`; searches can now fail closed with
+> `CALYX_SEXTANT_PROVENANCE_MISSING` instead of silently returning stub lineage.
+> #339 also adds a Registry -> Aster backfill -> Sextant index/search FSV using
+> Registry-produced vectors. The SciFact qrels FSV now requires stored
+> provenance on returned hits and records the real-label RRF delta; resident
+> TEI-produced dense-vector qrels remain a later dataset/eval-phase extension.
+> FSV root for #339:
+> `/home/croyse/calyx/data/fsv-issue339-registry-sextant-integration-20260608`
+> (`registry-sextant-readback.json`
+> `2163eeb8397de004a8a1c39e04631ccc7aa3f68836a7aa713bca7a6911cf6708`,
+> `real-qrels-readback.json`
+> `b687d33525be9a32e46feebc333254a089fe7772f0195b6bd5bead2efc16a3ef`).
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -112,7 +125,8 @@ attention.
   carrying its lineage.
 - **Deps.** PH23, PH35 (Ledger stub for refs).
 - **Deliverables.** `fusion/` (SingleLens, RRF `Σ w/(rank+60)`, WeightedRRF
-  profiles), `Hit { cx, score, per_lens[], provenance, freshness }`, `explain`.
+  profiles), `Hit { cx, score, per_lens[], provenance, provenance_source,
+  freshness }`, `explain`.
 - **Key tasks.** rank fusion across chosen slots; per-lens contribution; attach
   `LedgerRef`; freshness (FreshDerived|StaleOk).
 - **Post-sweep note.** WeightedRRF now treats missing profile weights as
@@ -121,10 +135,16 @@ attention.
 - **Post-sweep note.** Top-level `SearchEngine::search` currently fan-outs by
   calling each slot index in sequence and then fusing results; #299 documents
   this as `per_slot_cpu_index_calls` rather than a Forge grouped GPU fan-out.
+- **Post-sweep note.** Hits now expose whether provenance came from a stored
+  constellation or a deterministic stub. `Query::require_stored_provenance(true)`
+  fails closed on missing stored rows (#339).
 - **FSV gate.** multi-lens **recall@10 ≥ single-lens + Δ (≥15%)** on a real
   labeled corpus with qrels (BEIR SciFact subset on aiwonder); every Hit carries
-  stored non-zero provenance when available, with deterministic stub fallback
-  until PH35 real Ledger.
+  stored non-zero provenance when required, with deterministic stub fallback
+  only when callers do not request stored provenance. The #339 SciFact readback
+  proves real labels, stored-provenance enforcement, and retrieval/fusion
+  mechanics; real resident-TEI dense-vector qrels are deferred to later
+  dataset/eval phases.
 - **Axioms/PRD.** A15, `10 §2/§5`, `19 §4`.
 
 ## PH25 — Sparse lens inverted index

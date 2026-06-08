@@ -17,8 +17,8 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed; pre-Lodestar durability hardening #333 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, #316 surfaces grouped GEMM execution mode with a strict fail-loud path, #333 hardens absent-slot sentinel checks with release CUDA FSV, and #338 documents shipped vs deferred Forge backend ops |
-| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, durable rollback #321, and lifecycle idempotency/backfill-cancel #327 are FSV-backed |
-| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, and PH23/PH24 GPU overclaim #299 now fails loud |
+| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, durable rollback #321, lifecycle idempotency/backfill-cancel #327, and Registry->Aster->Sextant integration/determinism proof #339 are FSV-backed |
+| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, PH23/PH24 GPU overclaim #299 now fails loud, and stored-provenance qrels/integration #339 is FSV-backed |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, Aster-backed Loom materialization gate #319, and Loom/Assay contract-hardening #340 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T07 done/FSV-signed-off with PH36 trace/reproduce still separate; PH34 T01-T07 done/FSV-signed-off; #240 exit plus #331-#332 readiness follow-ups pending) |
 | S7 Ledger | PH35–PH36 | ▶ **ACTIVE** (PH35 T01-T07 done/FSV-signed-off; PH36 next) |
@@ -55,6 +55,12 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue321-durable-rollback-20260608`
 - Stage 3 PH21 capability cards with Assay-backed metrics:
   `/home/croyse/calyx/data/fsv-issue334-ph21-assay-registry-20260608`
+- Stage 3/4 Registry->Aster->Sextant integration:
+  `/home/croyse/calyx/data/fsv-issue339-registry-sextant-integration-20260608`
+  (`registry-sextant-readback.json`
+  `2163eeb8397de004a8a1c39e04631ccc7aa3f68836a7aa713bca7a6911cf6708`,
+  `real-qrels-readback.json`
+  `b687d33525be9a32e46feebc333254a089fe7772f0195b6bd5bead2efc16a3ef`)
 - Stage 4 Sextant:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
 - Stage 4 Sextant GPU parity/fan-out hardening:

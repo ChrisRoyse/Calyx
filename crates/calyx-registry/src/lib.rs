@@ -26,7 +26,9 @@ pub use commission::{
 pub use drift::{DriftDecision, RuntimeGolden};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};
 pub use frozen::{FrozenLensContract, LensDType, NormPolicy};
-pub use lens::{DualMeasurement, Registry, ensure_input_modality, ensure_vector_shape};
+pub use lens::{
+    DeterminismProof, DualMeasurement, Registry, ensure_input_modality, ensure_vector_shape,
+};
 pub use panel_ops::{PanelDiff, PanelSlotListing, list_panel, list_panel_with_assay, swap_panel};
 pub use panels::{
     AlgorithmicPanelLens, InstantiatedPanel, PanelLensRuntime, PanelSlotSpec, PanelTemplate,

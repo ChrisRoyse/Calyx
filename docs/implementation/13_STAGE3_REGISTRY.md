@@ -43,6 +43,16 @@
 > appropriate: exact duplicate adds return the existing slot without mutation,
 > repeated park/unpark/retire calls do not keep bumping panel versions, and
 > park/retire cancels pending in-memory backfill for that slot.
+> Post-sweep hardening #339 records whether frozen registration used a
+> deterministic probe or an explicit contract-only exemption, and adds a
+> Registry -> Aster slot backfill -> Sextant index/search integration FSV.
+> FSV root for #339:
+> `/home/croyse/calyx/data/fsv-issue339-registry-sextant-integration-20260608`
+> (`registry-sextant-readback.json`
+> `2163eeb8397de004a8a1c39e04631ccc7aa3f68836a7aa713bca7a6911cf6708`).
+> Default panel instantiation remains template-only: `instantiate_panel` creates
+> core `Panel` rows from `PanelTemplate`; registry/store-backed activation of
+> those templates is a later product surface, not a hidden Stage 3 claim.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
@@ -80,6 +90,9 @@ differentiation.
   so identical lens → identical id across vaults. Plain `register` /
   `register_with_spec` are fail-closed compatibility stubs; successful
   registration requires `register_frozen*` with a `FrozenLensContract`.
+  `Registry::determinism_proof` reports `probe_verified` for
+  `register_frozen_with_probe` and `contract_only_exemption` for the explicit
+  no-probe path.
 - **FSV gate.** mutate a weight → `FROZEN_VIOLATION`; wrong dim → `DIM_MISMATCH`;
   plain registration → `FROZEN_VIOLATION` and no insert; same lens registered
   in two vaults → same `LensId` (read both).
@@ -129,7 +142,10 @@ differentiation.
   backfill, reopened Aster slot CF reads show both backfilled vectors, and
   retire tombstones while history stays readable. #327 adds lifecycle regression
   coverage for idempotent duplicate add, no-op repeated lifecycle calls, and
-  pending backfill cancellation on park/retire.
+  pending backfill cancellation on park/retire. #339 adds the cross-stage
+  product path: `add_lens_durable` -> durable scheduler batch -> Registry
+  measurement -> `AsterVault::put_slot_vector` -> Sextant `SlotIndexMap` insert
+  -> stored-provenance search readback.
 - **Axioms/PRD.** A5, `05 §3`, `17 §7.4` (backfill storm bounded).
 
 ## PH21 — Capability cards / profile
@@ -170,6 +186,10 @@ differentiation.
 - **Post-sweep note.** Temporal flags now persist on instantiated core
   `Panel.slots` so downstream consumers do not need the original template spec
   to enforce AP-60 retrieval/dedup boundaries (#288).
+- **Post-sweep note.** Default panel instantiation is template-only in Stage 3:
+  it does not register/store/activate runtime lenses. Registry/store-backed
+  activation remains a later product workflow; docs and FSV must not claim it
+  from `instantiate_panel` alone (#339).
 - **FSV gate.** each default panel instantiates with its slots; E2/E3/E4 produce
   deterministic closed-form scores (verified against hand-computed values).
 - **Axioms/PRD.** A27, `05 §7`, `25 §2`.

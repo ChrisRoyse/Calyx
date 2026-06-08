@@ -310,6 +310,7 @@ dependencies = [
  "calyx-assay",
  "calyx-aster",
  "calyx-core",
+ "calyx-sextant",
  "candle-core",
  "candle-nn",
  "candle-transformers",

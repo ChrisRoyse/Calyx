@@ -38,7 +38,8 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
             .search(
                 &Query::new(text)
                     .with_vector(query_vec())
-                    .with_slots(vec![SlotId::new(8)]),
+                    .with_slots(vec![SlotId::new(8)])
+                    .require_stored_provenance(true),
             )
             .unwrap();
         provenance_ok &= hits_have_stored_provenance(&engine, &single);
@@ -48,6 +49,7 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
                 ..Query::new(text)
                     .with_vector(query_vec())
                     .with_slots(vec![SlotId::new(1), SlotId::new(8)])
+                    .require_stored_provenance(true)
             })
             .unwrap();
         provenance_ok &= hits_have_stored_provenance(&engine, &rrf);
@@ -70,7 +72,8 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
         "rrf_recall_at_10": rrf_recall,
         "delta": delta,
         "meets_delta_15": delta >= 0.15,
-        "provenance_ok": provenance_ok
+        "provenance_ok": provenance_ok,
+        "provenance_source": "stored_required"
     });
     let path = fsv_root.join("real-qrels-readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();

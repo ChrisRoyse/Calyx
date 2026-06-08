@@ -36,6 +36,29 @@ fn registry_measures_registered_lens() {
 }
 
 #[test]
+fn registry_records_determinism_proof_or_exemption() {
+    let mut registry = Registry::new();
+    let exempt = OneDimLens::new("contract-only");
+    let exempt_id = registry
+        .register_frozen(exempt.clone(), exempt.contract.clone())
+        .unwrap();
+    let probed = OneDimLens::new("probe-verified");
+    let probe = Input::new(Modality::Text, b"deterministic-probe".to_vec());
+    let probed_id = registry
+        .register_frozen_with_probe(probed.clone(), probed.contract.clone(), &probe)
+        .unwrap();
+
+    assert_eq!(
+        registry.determinism_proof(exempt_id),
+        Some(DeterminismProof::ContractOnlyExemption)
+    );
+    assert_eq!(
+        registry.determinism_proof(probed_id),
+        Some(DeterminismProof::ProbeVerified)
+    );
+}
+
+#[test]
 fn registry_rejects_wrong_modality() {
     let mut registry = Registry::new();
     let lens = OneDimLens::new("wrong-modality");

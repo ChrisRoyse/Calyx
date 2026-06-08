@@ -6,7 +6,7 @@ use calyx_core::{Anchor, CalyxError, Constellation, CxId, Result, SlotId, SlotSt
 use zeroize::Zeroizing;
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
-use crate::hit::{FreshnessTag, Hit};
+use crate::hit::{FreshnessTag, Hit, ProvenanceSource};
 use crate::planner::QueryPlanner;
 use crate::planner_explain::PlannerExplain;
 use crate::query::{
@@ -136,7 +136,12 @@ impl SearchEngine {
         }
         hits.truncate(query.k);
         self.renumber_hits(&mut hits);
-        self.attach_provenance_and_freshness(&mut hits, &slots, &query.freshness);
+        self.attach_provenance_and_freshness(
+            &mut hits,
+            &slots,
+            &query.freshness,
+            query.require_stored_provenance,
+        )?;
         Ok(hits)
     }
 
@@ -338,7 +343,8 @@ impl SearchEngine {
         hits: &mut [Hit],
         slots: &[SlotId],
         freshness: &FreshnessRequirement,
-    ) {
+        require_stored: bool,
+    ) -> Result<()> {
         let stats = self.indexes.stats();
         let base = slots
             .iter()
@@ -347,11 +353,18 @@ impl SearchEngine {
                 (built.min(stats.built_at_seq), base.max(stats.base_seq))
             });
         for hit in hits {
-            hit.provenance = self
-                .docs
-                .get(&hit.cx_id)
-                .map(|cx| cx.provenance.clone())
-                .unwrap_or_else(|| stub_ledger(hit.cx_id, hit.rank as u64));
+            if let Some(cx) = self.docs.get(&hit.cx_id) {
+                hit.provenance = cx.provenance.clone();
+                hit.provenance_source = ProvenanceSource::Stored;
+            } else if require_stored {
+                return Err(crate::error::sextant_error(
+                    crate::error::CALYX_SEXTANT_PROVENANCE_MISSING,
+                    format!("stored constellation missing for hit {}", hit.cx_id),
+                ));
+            } else {
+                hit.provenance = stub_ledger(hit.cx_id, hit.rank as u64);
+                hit.provenance_source = ProvenanceSource::Stub;
+            }
             hit.freshness = match freshness {
                 FreshnessRequirement::FreshDerived => FreshnessTag::fresh(base.1),
                 FreshnessRequirement::StaleOk { .. } => FreshnessTag::stale_ok(base.0, base.1),
@@ -361,6 +374,7 @@ impl SearchEngine {
                 explain.per_lens_count = hit.per_lens.len();
             }
         }
+        Ok(())
     }
 }
 

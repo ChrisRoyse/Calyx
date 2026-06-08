@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use calyx_core::SlotId;
 
 use super::FusionContext;
-use crate::hit::{FreshnessTag, Hit, PerLensContribution};
+use crate::hit::{FreshnessTag, Hit, PerLensContribution, ProvenanceSource};
 use crate::index::IndexSearchHit;
 use crate::util::stub_ledger;
 
@@ -32,6 +32,7 @@ pub fn single_lens_fuse(
             cross_terms_used: false,
             guard: None,
             provenance: stub_ledger(item.cx_id, item.rank as u64),
+            provenance_source: ProvenanceSource::Stub,
             freshness: FreshnessTag::fresh(0),
             explain: None,
         })
