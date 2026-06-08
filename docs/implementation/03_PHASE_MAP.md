@@ -19,7 +19,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, and #307 records GEMM near-zero parity by relative+absolute readback |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311 FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, and PH23/PH24 GPU overclaim #299 now fails loud |
-| S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 and gate/abundance hardening #309 are FSV-backed |
+| S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294, gate/abundance hardening #309, and Loom GPU agreement fail-loud hardening #313 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T05 done/FSV-signed-off with #239 Ledger provenance deferred to Stage 7; PH34 T01-T06 done/FSV-signed-off; #240 exit pending) |
 | S7–S20 | PH35–PH72 | · pending |
 
@@ -44,7 +44,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue299-gpu-parity-fanout-20260608`
 - Stage 5 Loom + Assay:
   `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`,
-  `/home/croyse/calyx/data/fsv-issue294-assay-grounded-trust-20260608`
+  `/home/croyse/calyx/data/fsv-issue294-assay-grounded-trust-20260608`,
+  `/home/croyse/calyx/data/fsv-issue313-loom-gpu-agreement-20260608`
 - Stage 6 Lodestar PH31/PH32 and PH33 follow-up:
   `/home/croyse/calyx/data/fsv-ph31-20260608`,
   `/home/croyse/calyx/data/fsv-ph32-20260608`,
@@ -131,6 +132,8 @@ Latest roots:
 > instead of comparing CPU outputs to themselves. PH13 CUDA top-k large-k
 > overclaim #303 now fails loud for `k > 1024` until exact multi-pass merge
 > exists. PH27/PH28/PH30 gate and abundance semantics #309 are now FSV-backed.
+> PH27 Loom GPU agreement #313 now fails loud in default builds and uses Forge
+> CUDA only behind the explicit `calyx-loom/cuda` feature.
 > PH33 bounded build-time groundedness #298 is now FSV-backed. No
 > pre-Lodestar Stage 1-5 implementation blocker remains from this sweep.
 

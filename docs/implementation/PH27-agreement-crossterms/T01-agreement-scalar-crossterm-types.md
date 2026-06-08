@@ -6,7 +6,7 @@
 | **Stage** | S5 — Loom + Assay (DDA & Bits) |
 | **Crate** | `calyx-loom` |
 | **Files** | `crates/calyx-loom/src/cross_term.rs` (≤500), `crates/calyx-loom/src/lib.rs` (≤500) |
-| **Depends on** | PH13 (Forge batched cosine, CPU/GPU), PH24 (active slot vectors) |
+| **Depends on** | PH13 (Forge CUDA for the optional `calyx-loom/cuda` path), PH24 (active slot vectors) |
 | **Axioms** | A8, A9, A13, A31 |
 | **PRD** | `dbprdplans/06 §3`, `06 §4`, `06 §7` |
 
@@ -15,18 +15,21 @@
 Define the four cross-term kinds (`Agreement`, `Delta`, `Interaction`, `Concat`)
 as a typed enum and implement the cheapest, always-eager one: the agreement
 scalar `cos(v_a, v_b)`. This scalar is the foundation of the redundancy graph,
-the blind-spot detector, and n_eff, so it must be correct, normalized, and
-bit-parity tested on both CPU and GPU paths before any downstream work begins.
+the blind-spot detector, and n_eff, so it must be correct and normalized. The
+default build uses the CPU path; `agreement_batch_gpu` must fail closed unless
+the explicit `calyx-loom/cuda` feature is enabled and then dispatches through
+Forge CUDA.
 
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `CrossTermKind` enum: `Agreement`, `Delta`, `Interaction { low_rank: bool }`, `Concat`
 - [ ] Define `CrossTerm` value type: `{ kind: CrossTermKind, slot_a: SlotId, slot_b: SlotId, value: CrossTermValue, provenance: CrossTermProvenance }` where `CrossTermValue` is `Scalar(f32)` | `Vec(Vec<f32>)` | `LowRank { u: Vec<f32>, v: Vec<f32> }`
 - [ ] Define `CrossTermProvenance`: `{ cx_id: CxId, computed_at_seq: u64, source: Measured | Derived, estimator: AgreementCosine | Delta | Interaction | Concat }`
-- [ ] Implement `agreement_scalar(v_a: &[f32], v_b: &[f32], forge: &ForgeHandle) -> Result<f32, CalyxError>`:
-  - normalize both vectors via Forge (asserts non-zero); dispatch `batched_cosine` on GPU or CPU SIMD; return scalar
+- [ ] Implement `agreement_scalar(v_a: &[f32], v_b: &[f32]) -> Result<f32, CalyxError>`:
+  - normalize both vectors logically (asserts non-zero/non-finite); return scalar on the default CPU path
   - if either vector is zero-norm → `CALYX_LOOM_ZERO_NORM_VECTOR`
-- [ ] Implement `agreement_batch(pairs: &[(SlotId, SlotId)], slot_vecs: &SlotVecStore, forge: &ForgeHandle) -> Result<Vec<(SlotId, SlotId, f32)>, CalyxError>` — batched form used by `weave`
+- [ ] Implement `agreement_batch_cpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>, CalyxError>` — batched form used by `weave`
+- [ ] Implement `agreement_batch_gpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>, CalyxError>` — default build returns `CALYX_LOOM_FORGE_UNAVAILABLE`; `calyx-loom/cuda` uses Forge CUDA
 - [ ] Tag every returned `CrossTerm` with `source: Derived` (a cross-term of two measured lenses is itself derived, not a new external measurement)
 - [ ] Wire `CalyxError::LoomZeroNormVector` into the error catalog (`calyx-core/src/error.rs`)
 
@@ -39,14 +42,15 @@ bit-parity tested on both CPU and GPU paths before any downstream work begins.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** the agreement scalar returned by `agreement_batch` for a planted pair `(v_a, v_b)` where `v_a = [1,0,…]`, `v_b = [cos(θ), sin(θ), 0,…]` with θ=π/3
-- **Readback:** run the unit test with `--nocapture` on aiwonder; the printed scalar must be `0.5 ± 1e-4`; confirm GPU path used by checking Forge dispatch log
-- **Prove:** CPU path and GPU path both return the same value within ≤1e-3 (bit-parity check). Run `cargo test agreement_scalar_parity -- --nocapture` on aiwonder; confirm both paths printed.
+- **SoT:** the agreement scalar returned by `agreement_batch_cpu` for a planted pair `(v_a, v_b)` where `v_a = [1,0,…]`, `v_b = [cos(θ), sin(θ), 0,…]` with θ=π/3
+- **Readback:** run the unit test with `--nocapture` on aiwonder; the printed scalar must be `0.5 ± 1e-4`; default `agreement_batch_gpu` readback must show `CALYX_LOOM_FORGE_UNAVAILABLE`
+- **Prove:** when `calyx-loom/cuda` is enabled on aiwonder, the CUDA path executes through Forge and returns the same golden values within the accepted tolerance.
 
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the agreement scalar golden set
+- [ ] default GPU entrypoint fails closed with `CALYX_LOOM_FORGE_UNAVAILABLE`
+- [ ] `calyx-loom/cuda` executes the Forge CUDA path on the agreement scalar golden set
 - [ ] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

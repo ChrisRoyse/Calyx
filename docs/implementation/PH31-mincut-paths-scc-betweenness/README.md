@@ -29,7 +29,7 @@ owns Tarjan SCC condensation, directed Brandes betweenness, Loom-style
 agreement/citation graph building, and serializable LP scaffold types for PH32.
 The graph-builder core is proven from deterministic CxId edge inputs. The real
 Loom xterm/agreement CF adapter into those inputs lives in
-`crates/calyx-lodestar/src/loom_assoc.rs` and is tracked by #293.
+`crates/calyx-lodestar/src/loom_assoc.rs` and is FSV-backed by #293.
 
 FSV root: `/home/croyse/calyx/data/fsv-ph31-20260608`.
 

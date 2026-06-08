@@ -106,7 +106,9 @@ the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
 **DONE — Stages 0–5 (PH00–PH30), FSV-signed-off on aiwonder.** Implemented
 surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 `calyx-sextant`, `calyx-loom`, `calyx-assay`, plus `calyx-cli` and
-`calyx-testkit`.
+`calyx-testkit`. Latest Stage 5 hardening: #313 makes Loom GPU agreement fail
+closed by default and routes CUDA agreement only through the explicit
+`calyx-loom/cuda` Forge path.
 
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in

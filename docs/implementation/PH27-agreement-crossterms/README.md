@@ -23,7 +23,7 @@ Assay-gated pairs are persisted; every other pair remains one matmul away.
 
 - **Phases:** PH24 (RRF/WeightedRRF fusion + Sextant, which provides ANN slot
   vectors and active-pair info), PH13 (Forge CUDA sm_120 batched matmul + SIMD
-  CPU parity path used for agreement computation)
+  CPU parity path used for optional CUDA agreement computation)
 - **Provides for:** PH28 (KSG MI needs the agreement graph redundancy pairs),
   PH29 (n_eff uses the redundancy graph), PH30 (abundance_report), PH31
   (Lodestar takes the agreement graph as its kernel-graph seed)
@@ -43,6 +43,11 @@ retains `raw_mean_agreement`/`mean_agreement` for audit and exposes
 `agreement_weight = clamp(raw_mean_agreement, 0, 1)` for nonnegative Lodestar
 graph handoff; anti-agreement is preserved raw but not promoted as a positive
 edge weight.
+
+Post-sweep hardening #313 makes GPU agreement honest: default builds return
+`CALYX_LOOM_FORGE_UNAVAILABLE` from `agreement_batch_gpu` instead of silently
+aliasing CPU output; the `calyx-loom/cuda` feature dispatches through Forge CUDA
+and has aiwonder compile/execution evidence.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -105,9 +110,10 @@ Evidence (terminal output) attached to PH27 GitHub issue.
   honest numbers from day one; no stub that shows only C(N,2).
 - **LRU cache capacity:** default to `n_eff * N` entries max; do not grow
   unbounded. Bind the clock via the `Clock` trait for TTL, not `Instant::now()`.
-- **Forge dispatch:** `agreement_scalar` uses Forge `batched_cosine`; vectors
-  must be normalized before the call. The CPU SIMD fallback must be bit-parity
-  tested (≤1e-3 vs GPU) per A13.
+- **Forge dispatch:** `agreement_scalar`/`agreement_batch_cpu` are the default
+  agreement path. `agreement_batch_gpu` must fail closed unless
+  `calyx-loom/cuda` is enabled; with that feature it uses Forge CUDA and must
+  retain CPU/GPU parity evidence per A13.
 - **VRAM contention:** agreement batch jobs share the RTX 5090 with TEI. Use the
   Forge VRAM budgeter (PH57, or its stub) to avoid OOM.
 - **Signed vs unsigned cross-terms:** Delta `v_a − v_b` is directional; pair

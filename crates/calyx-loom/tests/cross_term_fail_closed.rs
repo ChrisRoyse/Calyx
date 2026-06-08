@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use calyx_aster::cf::{CfRouter, ColumnFamily};
 use calyx_core::{CxId, SlotId, content_address};
 use calyx_loom::{
-    CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_NON_FINITE_VECTOR, CALYX_LOOM_SLOT_MISSING,
-    CALYX_LOOM_ZERO_NORM_VECTOR, CrossTermKind, LoomStore, agreement_scalar, agreement_weight,
-    delta_vec, interaction_vec,
+    CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
+    CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_ZERO_NORM_VECTOR, CrossTermKind, LoomStore,
+    agreement_batch_gpu, agreement_scalar, agreement_weight, delta_vec, interaction_vec,
 };
 use serde_json::json;
 
@@ -23,6 +23,7 @@ fn cross_terms_fail_closed_on_invalid_vectors() {
     assert_eq!(mismatch.code, CALYX_LOOM_DIM_MISMATCH);
     let nonfinite = interaction_vec(&[f32::NAN], &[1.0]).unwrap_err();
     assert_eq!(nonfinite.code, CALYX_LOOM_NON_FINITE_VECTOR);
+    assert_gpu_path();
 
     let mut store = LoomStore::new(4);
     let missing = store
@@ -59,6 +60,7 @@ fn loom_cross_term_fail_closed_aiwonder_fsv() {
     let zero = agreement_scalar(&[0.0, 0.0], &[1.0, 0.0]).unwrap_err();
     let mismatch = delta_vec(&[1.0, 0.0], &[1.0]).unwrap_err();
     let nonfinite = interaction_vec(&[f32::INFINITY], &[1.0]).unwrap_err();
+    let gpu = gpu_readback_code();
     let missing = store
         .cross_term(cx(1), slot(1), slot(9), CrossTermKind::Delta, &slots)
         .unwrap_err();
@@ -74,6 +76,7 @@ fn loom_cross_term_fail_closed_aiwonder_fsv() {
             "zero_norm": zero.code,
             "dim_mismatch": mismatch.code,
             "non_finite": nonfinite.code,
+            "gpu": gpu,
             "missing_slot": missing.code,
         },
     });
@@ -100,6 +103,7 @@ fn loom_cross_term_fail_closed_aiwonder_fsv() {
         readback["errors"]["non_finite"],
         CALYX_LOOM_NON_FINITE_VECTOR
     );
+    assert_eq!(readback["errors"]["gpu"], expected_gpu_readback());
     assert_eq!(readback["errors"]["missing_slot"], CALYX_LOOM_SLOT_MISSING);
 }
 
@@ -113,6 +117,30 @@ fn cx(value: u8) -> CxId {
 
 fn slot(value: u16) -> SlotId {
     SlotId::new(value)
+}
+
+fn assert_gpu_path() {
+    let result = agreement_batch_gpu(&[(&[1.0, 0.0], &[0.0, 1.0])]);
+    if cfg!(feature = "cuda") {
+        assert!(result.unwrap()[0].abs() <= 1.0e-6);
+    } else {
+        assert_eq!(result.unwrap_err().code, CALYX_LOOM_FORGE_UNAVAILABLE);
+    }
+}
+
+fn gpu_readback_code() -> &'static str {
+    match agreement_batch_gpu(&[(&[1.0, 0.0], &[0.0, 1.0])]) {
+        Ok(_) => "forge_cuda",
+        Err(error) => error.code,
+    }
+}
+
+fn expected_gpu_readback() -> &'static str {
+    if cfg!(feature = "cuda") {
+        "forge_cuda"
+    } else {
+        CALYX_LOOM_FORGE_UNAVAILABLE
+    }
 }
 
 fn fsv_root() -> PathBuf {

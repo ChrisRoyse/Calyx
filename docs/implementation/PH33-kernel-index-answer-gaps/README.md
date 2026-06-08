@@ -27,9 +27,9 @@ corpora** acquired and verified on aiwonder.
 
 ## Current state (build off what exists)
 
-`calyx-lodestar` has PH32 plus PH33 T01-T04 in-tree: kernel index persistence,
+`calyx-lodestar` has PH32 plus PH33 T01-T05 in-tree: kernel index persistence,
 kernel search, `kernel_answer`, `grounding_gaps`, the recall harness, and the
-#293 Loom xterm CF to association-graph adapter. The current `idx/kernel/`
+FSV-backed #293 Loom xterm CF to association-graph adapter. The current `idx/kernel/`
 implementation is `FsKernelStore`, which writes
 `idx/kernel/<kernel_id>/index.json` under the configured root; moving this into
 an Aster column-family/ANN shard is a later storage integration seam, not the
@@ -88,9 +88,9 @@ PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
 - **ANN index vs. full search recall:** the `0.95` gate compares kernel-only ANN
   recall to full-corpus ANN recall on the same query set — both use the same ANN
   algorithm; the comparison is fair only if the same HNSW params are used.
-- **Loom graph handoff:** #293 requires real XTerm CF rows, explicit slot→CxId
-  bindings, and directional-confidence rows. Missing bindings/confidence fail
-  closed; synthetic graph-builder structs alone are not enough for PH33 FSV.
+- **Loom graph handoff:** #293 proved the real XTerm CF adapter with explicit
+  slot→CxId bindings and directional-confidence rows. Missing bindings/confidence
+  fail closed; synthetic graph-builder structs alone are not enough for PH33 FSV.
 - **Answer traversal depth:** `0.9^hop` attenuation means answers beyond hop 10 have
   score ≤ 0.35; `max_hops` is a hard reachability bound, not a display limit.
   If the query cannot be reached inside the bound, `kernel_answer` must return

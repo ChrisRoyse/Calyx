@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use calyx_assay::MIN_ASSAY_SAMPLES;
 use calyx_core::{CxId, SlotId, VaultId};
+use calyx_loom::agreement_batch_gpu;
+use serde_json::json;
 
 pub(crate) fn fsv_root() -> PathBuf {
     std::env::var("CALYX_FSV_ROOT")
@@ -79,6 +81,15 @@ pub(crate) fn projection_max_delta(left: &[Vec<f32>], right: &[Vec<f32>]) -> f32
         .zip(right)
         .flat_map(|(a, b)| a.iter().zip(b).map(|(x, y)| (x - y).abs()))
         .fold(0.0, f32::max)
+}
+
+pub(crate) fn agreement_gpu_readback() -> serde_json::Value {
+    let a = [1.0, 0.0];
+    let b = [0.5, 3.0_f32.sqrt() * 0.5];
+    match agreement_batch_gpu(&[(&a, &b)]) {
+        Ok(scores) => json!({"backend": "cuda", "scores": scores}),
+        Err(error) => json!({"error": error.code, "message": error.message}),
+    }
 }
 
 pub(crate) fn binary_samples(separable: bool) -> (Vec<Vec<f32>>, Vec<bool>) {

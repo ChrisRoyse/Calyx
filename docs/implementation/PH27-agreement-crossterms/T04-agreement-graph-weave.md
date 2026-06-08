@@ -6,7 +6,7 @@
 | **Stage** | S5 — Loom + Assay (DDA & Bits) |
 | **Crate** | `calyx-loom` |
 | **Files** | `crates/calyx-loom/src/agreement_graph.rs` (≤500) |
-| **Depends on** | T03 (MaterializationPlan) · T01 (agreement_scalar, agreement_batch) |
+| **Depends on** | T03 (MaterializationPlan) · T01 (agreement_scalar, agreement_batch_cpu) |
 | **Axioms** | A8, A9, A15, A31 |
 | **PRD** | `dbprdplans/06 §5`, `06 §8` |
 
@@ -59,6 +59,6 @@ require `[0,1]` edge weights.
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on `agreement_batch` golden set
+- [ ] default `agreement_batch_gpu` fails closed; `calyx-loom/cuda` executes the Forge CUDA golden path when enabled
 - [ ] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

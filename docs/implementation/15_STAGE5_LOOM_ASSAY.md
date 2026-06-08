@@ -28,6 +28,10 @@
 > keeps Delta/Concat lazy while only qualifying Interaction is extra eager, and
 > reports `meaning_compression_yield` as materialized signals per input.
 > FSV root: `/home/croyse/calyx/data/fsv-issue309-stage5-gates-abundance-20260608`.
+> Post-sweep hardening #313 removes the fake GPU agreement alias: the default
+> build returns `CALYX_LOOM_FORGE_UNAVAILABLE` for `agreement_batch_gpu`, while
+> the `calyx-loom/cuda` feature calls the real Forge CUDA backend. FSV root:
+> `/home/croyse/calyx/data/fsv-issue313-loom-gpu-agreement-20260608`.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -46,8 +50,11 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
 - **Deliverables.** `cross_term.rs` (Agreement eager scalar; Delta/Interaction/
   Concat lazy or Assay-gated eager), `agreement_graph.rs` (vault-wide), blind-
   spot detector.
-- **Key tasks.** agreement = batched normalized matmul (Forge); lazy xterm =
-  one matmul on demand + LRU cache; materialize only Assay-gated pairs.
+- **Key tasks.** agreement = normalized cosine on the CPU path by default;
+  explicit `agreement_batch_gpu` fails closed unless `calyx-loom/cuda` is
+  enabled, where it dispatches through Forge CUDA; lazy xterm = one compute on
+  demand + LRU cache; materialize Agreement eagerly, keep Delta/Concat lazy, and
+  materialize Interaction only for Assay-gated pairs.
 - **Post-sweep note.** Cross-term APIs now return `Result` with
   `CALYX_LOOM_ZERO_NORM_VECTOR`, `CALYX_LOOM_DIM_MISMATCH`,
   `CALYX_LOOM_NON_FINITE_VECTOR`, and `CALYX_LOOM_SLOT_MISSING`; agreement graph
@@ -55,9 +62,14 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
 - **Post-sweep note.** Materialization is per kind: Agreement is eager, Delta
   and Concat remain lazy, and only Interaction becomes eager when the Assay pair
   gain clears 0.05 bits (#309).
+- **Post-sweep note.** GPU agreement is no longer a CPU alias. Default builds
+  return `CALYX_LOOM_FORGE_UNAVAILABLE`; `calyx-loom/cuda` compiles and executes
+  the Forge CUDA path on aiwonder (#313).
 - **FSV gate.** agreement scalars eager + correct; a lazy pair computes on demand
-  and matches; **materialized count ≪ C(N,2)** (read xterm CF size); blind-spot
-  fires on a planted cross-lens disagreement.
+  and matches; persisted xterm rows show Agreement-only equals `C(N,2)` per
+  input while Delta/Concat stay lazy and Interaction is extra eager only when
+  Assay-gated (read xterm CF kind counts); blind-spot fires on a planted
+  cross-lens disagreement.
 - **Axioms/PRD.** A8, A9, `06 §3/§4/§5`.
 
 ## PH28 — KSG MI + partitioned NMI

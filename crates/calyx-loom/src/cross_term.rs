@@ -4,7 +4,8 @@ use calyx_core::{CxId, Result, SlotId};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{
-    CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_NON_FINITE_VECTOR, CALYX_LOOM_ZERO_NORM_VECTOR, loom_error,
+    CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
+    CALYX_LOOM_ZERO_NORM_VECTOR, loom_error,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -76,8 +77,20 @@ pub fn agreement_batch_cpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>> {
 }
 
 pub fn agreement_batch_gpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>> {
-    // Forge GPU dispatch seam: current non-cuda build uses the CPU-equivalent path.
-    agreement_batch_cpu(pairs)
+    if pairs.is_empty() {
+        return Ok(Vec::new());
+    }
+    #[cfg(feature = "cuda")]
+    {
+        agreement_batch_cuda(pairs)
+    }
+    #[cfg(not(feature = "cuda"))]
+    {
+        Err(loom_error(
+            CALYX_LOOM_FORGE_UNAVAILABLE,
+            "agreement_batch_gpu requires calyx-loom feature cuda",
+        ))
+    }
 }
 
 pub fn delta_vec(a: &[f32], b: &[f32]) -> Result<Vec<f32>> {
@@ -115,4 +128,31 @@ fn ensure_finite(values: &[f32]) -> Result<()> {
         CALYX_LOOM_NON_FINITE_VECTOR,
         "xterm vector contains NaN or infinity",
     ))
+}
+
+#[cfg(feature = "cuda")]
+fn agreement_batch_cuda(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>> {
+    use calyx_forge::{Backend, CudaBackend};
+
+    let backend = CudaBackend::new().map_err(|err| {
+        loom_error(
+            CALYX_LOOM_FORGE_UNAVAILABLE,
+            format!("Forge CUDA backend unavailable for Loom agreement: {err}"),
+        )
+    })?;
+    let mut out = Vec::with_capacity(pairs.len());
+    for (left, right) in pairs {
+        ensure_same_dim_finite(left, right)?;
+        let mut score = [0.0_f32];
+        backend
+            .cosine(left, right, left.len(), &mut score)
+            .map_err(|err| {
+                loom_error(
+                    CALYX_LOOM_FORGE_UNAVAILABLE,
+                    format!("Forge CUDA cosine failed for Loom agreement: {err}"),
+                )
+            })?;
+        out.push(score[0]);
+    }
+    Ok(out)
 }
