@@ -190,7 +190,7 @@ Latest roots:
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
 |---|---|---|---|---|---|---|
-| PH23 | Per-slot HNSW index | PH20 | sextant | P3/`10` | insert+search recall vs brute-force ≥ target; SingleLens p99 budget | ✅ FSV |
+| PH23 | Per-slot HNSW index | PH20 | sextant | P3/`10` | insert+search recall vs brute-force ≥ target on current 10k-row FSV; 1e6 SingleLens p99 remains future scale FSV | ✅ FSV |
 | PH24 | RRF/WeightedRRF/SingleLens fusion + provenance hits | PH23 | sextant | P3/`10` | multi-lens recall@10 ≥ single-lens +Δ on real qrels; every Hit carries LedgerRef | ✅ FSV |
 | PH25 | Sparse lens inverted index | PH24 | sextant | `10` | sparse lens term-match + BM25 correct; pipeline recall stage works | ✅ FSV |
 | PH26 | Query planner + intent + explain | PH25 | sextant | A17 | intent→strategy auto-select; `explain=true` returns per-lens breakdown | ✅ FSV |
@@ -339,7 +339,9 @@ Latest roots:
 
 The PRD's mechanical `BUILD_DONE` predicate (`dbprdplans/19 §5`) is satisfied
 exactly when the corresponding gates above all pass: **CORE=PH05–PH11 ✅ (done)**,
-**MATH/ARRAYMATH/COMPRESS=PH12–PH16 ✅**, **LENS=PH17–PH22 ✅**,
+**MATH/COMPRESS=PH12–PH16 ✅** with ARRAYMATH foundations in place and true
+co-located array-bundle/slot-column storage still explicitly deferred from the
+Stage 1 row-encoded slot CF format, **LENS=PH17–PH22 ✅**,
 **SEARCH=PH23–PH26 ✅**, **DDA_BITS=PH27–PH30 ✅**,
 KERNEL/KERNEL_ANY=PH31–PH34, PROVENANCE=PH35–PH36,
 GUARD=PH37–PH39, TEMPORAL/DEDUP/RECURRENCE=PH40–PH42, SELFOPT/INTELLIGENCE=

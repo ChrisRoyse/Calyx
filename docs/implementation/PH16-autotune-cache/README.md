@@ -53,7 +53,7 @@ Run on aiwonder:
 
 ```bash
 source $CALYX_HOME/repo/env.sh
-cargo test -p calyx-forge autotune -- --nocapture 2>&1 | tee /tmp/ph16_fsv.txt
+cargo test -p calyx-forge --features cuda autotune -- --nocapture 2>&1 | tee /tmp/ph16_fsv.txt
 
 grep -E "converged|promotion|reversed|two_shapes|PASSED|FAILED" /tmp/ph16_fsv.txt
 

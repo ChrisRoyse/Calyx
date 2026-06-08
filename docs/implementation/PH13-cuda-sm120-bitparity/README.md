@@ -63,7 +63,7 @@ Run on aiwonder (RTX 5090, sm_120, CUDA 13.2):
 
 ```bash
 source $CALYX_HOME/repo/env.sh
-cargo test -p calyx-forge cuda -- --nocapture 2>&1 | tee /tmp/ph13_fsv.txt
+cargo test -p calyx-forge --features cuda cuda -- --nocapture 2>&1 | tee /tmp/ph13_fsv.txt
 
 # Parity check:
 grep "parity\|rel_err\|PASSED\|FAILED" /tmp/ph13_fsv.txt
@@ -74,7 +74,8 @@ grep "cuBLAS\|forge_gemm\|ratio" /tmp/ph13_fsv.txt
 
 Proof: `cuda_parity::golden_cosine_parity` and `cuda_parity::golden_gemm_parity`
 PASSED with max rel error ≤ 1e-3 printed; `cuda_gemm::perf_vs_cublas` prints
-`forge_ratio = X.XX` where X.XX ≤ 1.10 (within 10%). `CALYX_FORGE_DEVICE_UNAVAILABLE`
+`ratio = X.XX` where X.XX ≥ 0.90 (Forge throughput is at least 90% of cuBLAS).
+`CALYX_FORGE_DEVICE_UNAVAILABLE`
 appears in the init-fail path test output.
 
 ## Risks / landmines
