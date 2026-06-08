@@ -6,8 +6,10 @@
 > microscaling + grouped/ragged GEMM, and the per-shape autotune cache. Stage 2
 > FSV evidence is recorded in the closed PH12-PH16 issues and context #23.
 > Build/test natively on aiwonder (CUDA 13.2, RTX 5090 sm_120) — no cross-build.
-> Downstream Stage 4 and Stage 5 FSV have consumed Forge successfully; next
-> active stage is Lodestar (`16_STAGE6_LODESTAR.md`).
+> Downstream Stage 5 consumes Forge where applicable. Stage 4 currently uses
+> Sextant-owned CPU/index paths for HNSW, quantization, and fan-out; #299 records
+> that no Forge GPU HNSW or grouped fan-out path is wired yet. Next active stage
+> is Lodestar (`16_STAGE6_LODESTAR.md`).
 
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
@@ -73,9 +75,8 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
   fp32 accumulate) and **grouped GEMM** so an N-lens panel projects/scores in
   one launch regardless of N.
 - **Deps.** PH14.
-- **Deliverables.** grouped-GEMM wrapper (cuBLAS `GemmGroupedBatchedEx` /
-  CUTLASS grouped), MXFP4 GEMM path, ragged-bundle handling (absent slots
-  skipped, never zero-filled).
+- **Deliverables.** in-tree grouped/ragged GEMM wrapper, MXFP4 fp32-accumulate
+  GEMM path, ragged-bundle handling (absent slots skipped, never zero-filled).
 - **Key tasks.** variable-shape problem list per (microbatch×slot); FP4 only
   where Assay later proves quant-safe; mixed-completeness batches correct.
 - **FSV gate.** grouped GEMM result == per-matmul loop (read), and is **invariant
@@ -102,8 +103,11 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 
 ## Stage 2 exit — ✅ achieved
 Forge does matmul/distance/quant/topk on both CPU and the RTX 5090 with proven
-bit-parity, TurboQuant gives unbiased inner products, grouped GEMM makes panel
-math N-invariant, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
-`COMPRESS` foundations. Implemented and FSV-signed-off; downstream Stage 4/5
-readbacks on aiwonder depend on these kernels and remain green; current repo
-head is recorded in context issue #23.
+bit-parity for the byte-readback golden set; CUDA top-k is exact for `k <= 1024`
+and fails loud above that until multi-pass exact merge work lands (#303).
+TurboQuant gives unbiased inner products, grouped GEMM makes panel math
+N-invariant, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
+`COMPRESS` foundations. Implemented and FSV-signed-off; downstream Stage 5
+readbacks on aiwonder depend on these kernels and remain green. Stage 4 uses
+Sextant-owned CPU/index paths for HNSW/quant/fan-out until a future Forge
+integration is wired; current repo head is recorded in context issue #23.

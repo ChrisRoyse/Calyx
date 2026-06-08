@@ -101,7 +101,7 @@ Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. Userspace
 the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
 `19 §6`).
 
-## 7. Status (current: 2026-06-08, commit `869ff57`)
+## 7. Status (current: 2026-06-08; latest pushed main tracked in #23)
 
 **DONE — Stages 0–5 (PH00–PH30), FSV-signed-off on aiwonder.** Implemented
 surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
@@ -143,10 +143,13 @@ are closed with aiwonder readback evidence.
   the frozen contract + content-addressed `LensId`, hot-swap add/retire/park with
   a lazy backfill queue, capability-card profiling, and the default panels +
   closed-form temporal lenses E2/E3/E4. FSV root:
-  `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`.
+  `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`. Post-sweep
+  blocker #300 tracks durable backfill scheduler watermarks/throttle/resume.
 - **Stage 4** (PH23–PH26): `calyx-sextant` search/navigation — per-slot dense
   and sparse indexes, RRF/WeightedRRF/SingleLens fusion with provenance,
-  planner/explain/freshness, and real SciFact qrels evidence. FSV root:
+  planner/explain/freshness, and real SciFact qrels evidence. #299 records that
+  Sextant GPU parity/fan-out is explicit fail-loud/unwired state, not a hidden
+  CPU-self comparison. FSV root:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`.
 - **Stage 5** (PH27–PH30): `calyx-loom` + `calyx-assay` DDA/bits — agreement
   graph, lazy cross-terms, abundance reports, KSG-style MI, random projection,

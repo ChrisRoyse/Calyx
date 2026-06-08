@@ -1,11 +1,11 @@
-# PH24 · T07 — Multi-lens recall FSV on real qrels (BEIR/MS MARCO)
+# PH24 · T07 — Multi-lens recall FSV on real qrels (BEIR SciFact)
 
 | Field | Value |
 |---|---|
 | **Phase** | PH24 — RRF/WeightedRRF/SingleLens fusion + provenance hits |
 | **Stage** | S4 — Sextant Search & Navigation |
 | **Crate** | `calyx-sextant` |
-| **Files** | `crates/calyx-sextant/tests/fusion_recall.rs` (≤500) |
+| **Files** | `crates/calyx-sextant/tests/stage4_real_qrels_fsv.rs` (≤500) |
 | **Depends on** | T06 (this phase) · PH17–PH22 (lens runtimes, TEI :8088) |
 | **Axioms** | A15, A16 |
 | **PRD** | `dbprdplans/10 §2`, `dbprdplans/14 §2`, `dbprdplans/19 §4` |
@@ -13,17 +13,16 @@
 ## Goal
 
 The PH24 exit gate: prove that multi-lens RRF recall@10 ≥ single-lens recall@10
-+ Δ where Δ ≥ 0.15 (15 percentage points) on a real labeled corpus (BEIR/MS MARCO
-subset on aiwonder). Every `Hit` returned must carry a non-zero `LedgerRef`.
++ Δ where Δ ≥ 0.15 (15 percentage points) on a real labeled corpus (BEIR
+SciFact subset on aiwonder). Every `Hit` returned must carry a non-zero
+`LedgerRef`; real hash-chain provenance remains PH35/Stage 7.
 This is also the recommended-first-demo checkpoint (`19 §2`): at this point Calyx
 can answer a real vault with multiple lenses and provenance.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `tests/fusion_recall.rs` harness:
-      1. Load the BEIR/MS MARCO qrels subset from
-         `$CALYX_HOME/datasets/msmarco_qrels_1k.jsonl` (1000 queries + relevant
-         doc IDs; created by PH69 or a synthetic stand-in for dev)
+- [x] `tests/stage4_real_qrels_fsv.rs` harness:
+      1. Load the BEIR SciFact qrels subset from `CALYX_QRELS_ROOT`
       2. Ingest the document set into an in-process vault using `calyx-aster`
          (two slots: dense GTE-small via :8088 + sparse BM25 placeholder via
          a no-op slot for this phase, real sparse in PH25)
@@ -38,7 +37,7 @@ can answer a real vault with multiple lenses and provenance.
          single_lens_recall@10=NNN rrf_recall@10=NNN delta=NNN provenance_ok=true
          ```
 - [ ] Mark test `#[ignore]` — requires aiwonder + TEI + dataset; not a unit test
-- [ ] If `$CALYX_HOME/datasets/msmarco_qrels_1k.jsonl` is absent, the test
+- [ ] If `CALYX_QRELS_ROOT` is absent, the test
       prints `SKIP: dataset not found` and exits with code 0 (not a failure on
       dev machines without the dataset)
 - [ ] Companion README note: "Completing PH24 + migration shadow = recommended
@@ -59,9 +58,11 @@ can answer a real vault with multiple lenses and provenance.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** stdout of `cargo test -p calyx-sextant fusion_recall -- --nocapture --ignored`
-  on aiwonder with the BEIR/MS MARCO subset in `$CALYX_HOME/datasets/`
-- **Readback:** `cargo test -p calyx-sextant fusion_recall -- --nocapture --ignored 2>&1 | grep -E 'recall|delta|provenance'`
+- **SoT:** stdout of
+  `cargo test -p calyx-sextant --test stage4_real_qrels_fsv beir_scifact_rrf_beats_single_lens_qrels -- --ignored --nocapture`
+  on aiwonder with the BEIR SciFact subset under `CALYX_QRELS_ROOT`
+- **Readback:** same command with output captured under
+  `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
 - **Prove:** must print `single_lens_recall@10=NNN rrf_recall@10=NNN delta=NNN provenance_ok=true`
   where delta ≥ 0.15 and provenance_ok=true; screenshot or copy of this line
   plus one `LedgerRef` hex value attached to the PH24 GitHub issue as FSV evidence

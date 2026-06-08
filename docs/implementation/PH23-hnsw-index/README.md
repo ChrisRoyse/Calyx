@@ -19,8 +19,10 @@ implements the `Index` trait, owns a local per-slot quant config, supports
 Forge CPU/CUDA kernels are proven in Stage 2, but Sextant does not claim a wired
 GPU HNSW or GPU quantization path until that integration exists. Each slot owns
 its index plus quant config (Qdrant-style per-vector config) so
-search cost is paid only on participating slots (`10 §3`). Recall-vs-brute-force
-must meet the target on aiwonder with SingleLens p99 < 5 ms at 1e6 cx (`10 §8`).
+search cost is paid only on participating slots (`10 §3`). Current PH23 FSV
+proves recall and p99 on a 10,000-row synthetic in-RAM HNSW corpus; the 1e6-cx
+SingleLens p99 target remains a future scale/performance FSV, not a Stage 4
+claim.
 
 ## Dependencies
 
@@ -52,7 +54,7 @@ documented as per-slot CPU/index-owned.
 | `crates/calyx-sextant/src/index/mod.rs` | `Index` trait definition |
 | `crates/calyx-sextant/src/index/hnsw.rs` | in-RAM HNSW implementation (insert, search, rebuild) |
 | `crates/calyx-sextant/src/index/dual.rs` | dual-index scaffold for asymmetric slots (a/b sub-indexes) |
-| `crates/calyx-sextant/src/index/quant_config.rs` | per-slot quant config binding (Forge TurboQuant params) |
+| `crates/calyx-sextant/src/index/quant_config.rs` | local per-slot quant config (`None`, `Scalar8`, `Binary`); no wired Forge TurboQuant/GPU path yet |
 | `crates/calyx-sextant/src/slot_index_map.rs` | `SlotId → Box<dyn Index>` registry with concurrent-read safety |
 | `tests/hnsw_recall.rs` | recall-vs-brute-force harness + SingleLens p99 measurement |
 
@@ -64,17 +66,17 @@ documented as per-slot CPU/index-owned.
 | T02 | HNSW insert + layer management | T01 |
 | T03 | HNSW `ef` search + brute-force recall harness | T02 |
 | T04 | Dual-index scaffold for asymmetric slots | T03 |
-| T05 | Per-slot quant config + Forge integration | T04 |
+| T05 | Per-slot quant config + explicit GPU-unavailable state | T04 |
 | T06 | `SlotIndexMap` concurrent-read-safe registry | T05 |
 | T07 | Rebuild-from-base + SingleLens p99 FSV | T06 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 Insert N vectors per slot, run `search` with calibrated `ef`, compare results to
-brute-force cosine scan; recall@10 ≥ target (read the measured number from the
-`tests/hnsw_recall.rs` output on aiwonder). Also run `calyx bench single-lens`
-and read the p99 latency printed to stdout — must be < 5 ms at 1e6 cx. Evidence
-attached to the PH23 GitHub issue.
+brute-force cosine scan; recall@10 is read from `tests/hnsw_recall.rs` output on
+aiwonder. Current byte-proven PH23 evidence is `hnsw_recall_aiwonder_fsv` over
+10,000 synthetic rows. A 1e6-cx SingleLens benchmark remains a separate future
+scale gate and is not claimed by current PH23 artifacts.
 
 ## Risks / landmines
 

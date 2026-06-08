@@ -13,9 +13,9 @@
 ## Goal
 
 Implement `rebuild()` on `HnswGraph` (re-inserts all stored vectors from
-scratch, used by self-heal and after crash recovery) and deliver the final
-SingleLens p99 FSV: the definitive byte-proven latency measurement on aiwonder
-that satisfies the PH23 exit gate. This is the card that closes PH23.
+scratch, used by self-heal and after crash recovery). Current PH23 readback
+uses `hnsw_recall_aiwonder_fsv` on a 10,000-row synthetic in-RAM HNSW corpus;
+the 1e6-cx `bench_single_lens` scale target remains future performance FSV.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -26,7 +26,7 @@ that satisfies the PH23 exit gate. This is the card that closes PH23.
 - [ ] `fn snapshot_vectors(&self) -> Vec<(CxId, Vec<f32>)>` — returns raw (or
       dequantized) vectors for Aster-backed rebuild; `#[cfg(not(test))]` path
       reads from `SlotIndexMap`; test path uses in-memory copy
-- [ ] Extend `tests/hnsw_recall.rs` with a `bench_single_lens` test:
+- [ ] Future scale FSV: extend `tests/hnsw_recall.rs` with a `bench_single_lens` test:
       - build `SlotIndexMap` with 1 slot, insert 1_000_000 synthetic unit vecs
         (seeded RNG, 128-dim)
       - run 1000 queries, record wall-clock `Instant` per query
@@ -50,13 +50,14 @@ that satisfies the PH23 exit gate. This is the card that closes PH23.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** stdout of `cargo test -p calyx-sextant bench_single_lens -- --nocapture --ignored`
-  on aiwonder (marked `#[ignore]` to skip in fast CI, run explicitly for FSV)
-- **Readback:** `cargo test -p calyx-sextant bench_single_lens -- --nocapture --ignored 2>&1 | grep -E 'recall|p99'`
-- **Prove:** must print a line matching `recall@10=0.9[5-9]+ p99_us=[0-9]+` where
-  p99_us < 5000; screenshot or copy of this line attached to the PH23 GitHub
-  issue as the final FSV evidence; additionally, the rebuild regression line
-  prints `post_rebuild_recall=0.9[5-9]+`
+- **SoT:** `hnsw-recall-readback.json` written by
+  `cargo test -p calyx-sextant hnsw_recall_aiwonder_fsv -- --ignored --nocapture`
+  on aiwonder
+- **Readback:** the JSON records `n=10000`, `stored_rows=10000`, `recall_at_10`,
+  `p99_us`, neighbor counts, layer histogram, and fail-closed edge codes
+- **Prove:** current PH23 evidence is the 10,000-row recall/p99 artifact; do not
+  claim a 1e6-cx `bench_single_lens` artifact until that test exists and is
+  byte-read back on aiwonder
 
 ## Done when
 

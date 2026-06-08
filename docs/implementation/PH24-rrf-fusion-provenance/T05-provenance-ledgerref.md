@@ -12,11 +12,11 @@
 
 ## Goal
 
-Every `Hit` must carry a real `LedgerRef` (input → lens → vector → answer
-provenance chain, A15) and a populated `FreshnessTag`. This card wires the
-top-level `search()` function that calls fusion, then enriches each `Hit` with
-provenance from the Ledger (stub until PH35) and freshness from the current
-MVCC seq. After this card, no `Hit` ever has a zero/default provenance.
+Every `Hit` must carry a non-zero `LedgerRef` and a populated `FreshnessTag`.
+Current Stage 4 code uses stored `Constellation.provenance` when present and a
+deterministic `stub_ledger` fallback for rows without stored provenance. The
+real input-to-lens-to-vector-to-answer hash-chain remains PH35/Stage 7. After
+this card, no `Hit` ever has a zero/default provenance.
 
 ## Build (checklist of concrete, code-level steps)
 

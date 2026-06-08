@@ -8,8 +8,10 @@
 Implement Blackwell block-scaled compute (MXFP4/NVFP4 with **32-element blocks,
 E8M0 power-of-2 scales, fp32 accumulate**; MXFP8 fallback) and **grouped GEMM**
 so an N-lens panel projects and scores in one kernel launch regardless of N.
-Grouped GEMM uses cuBLAS `GemmGroupedBatchedEx` (cuBLAS 12.5+) or CUTLASS grouped
-as the backend; the MXFP4 path uses Blackwell tensor-core instructions via CUDA 13.2.
+Grouped GEMM uses the in-tree Forge CUDA grouped/ragged surfaces; the current
+MXFP4 path uses embedded CUDA fp32 accumulation over MXFP4 blocks. CUTLASS or
+native tensor-core MXFP4 promotion is future optimization work, not a current
+PH15 claim.
 **Absent slots are skipped, never zero-filled** — a mixed-completeness batch
 produces the correct per-constellation result. The result of grouped GEMM must be
 **invariant to N** (adding a no-op lens does not change the result for the other
@@ -27,15 +29,16 @@ lens projections).
 
 `calyx-forge` has CPU SIMD (PH12), CUDA backend (PH13), TurboQuant (PH14), and
 the PH15 MXFP4/MXFP8 codec plus grouped/ragged GEMM surfaces in-tree. Build and
-FSV run natively on aiwonder; sm_120 is required for MXFP4/NVFP4 tensor-core
-instructions (Blackwell-only), with fallback/edge handling covered by PH15 tests.
+FSV run natively on aiwonder; sm_120 is required for the current MXFP4 CUDA path,
+with fallback/edge handling covered by PH15 tests. Native tensor-core/CUTLASS
+MXFP4 promotion remains a future optimization.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
 | `src/cuda/mxfp4.rs` | MXFP4/NVFP4 block quantization (32-elt blocks, E8M0 scales), encode/decode, fp32 accumulate |
-| `src/cuda/grouped_gemm.rs` | Grouped GEMM wrapper: cuBLAS `GemmGroupedBatchedEx` / CUTLASS; variable-shape problem list; absent-slot skip |
+| `src/cuda/grouped_gemm.rs` | Grouped GEMM wrapper and variable-shape problem list; absent-slot skip |
 | `src/quant/mxfp4_codec.rs` | `MxFp4Codec` implementing `Quantizer` trait; Assay-safety gate |
 | `tests/mxfp4_tests.rs` | MXFP4 encode/decode + fp32-accumulate parity tests |
 | `tests/grouped_gemm_tests.rs` | Grouped GEMM N-invariance + per-matmul-loop equivalence tests |

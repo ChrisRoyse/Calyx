@@ -61,8 +61,9 @@ attention.
 - **Post-sweep note.** MaxSim and quantization CPU/GPU delta helpers now return
   `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE` instead of comparing CPU output to
   itself; #299 readback records the explicit unavailable state.
-- **FSV gate.** insert N + search → recall vs brute-force ≥ target; SingleLens
-  p99 within budget on aiwonder (read measured latency).
+- **FSV gate.** insert N + search → recall vs brute-force ≥ target; current
+  byte-readback p99 evidence is the 10,000-row HNSW FSV. A 1e6-cx SingleLens
+  benchmark remains future scale FSV.
 - **Axioms/PRD.** `10 §3`, `19 §4`.
 
 ## PH24 — RRF/WeightedRRF/SingleLens fusion + provenance hits
@@ -80,8 +81,9 @@ attention.
   calling each slot index in sequence and then fusing results; #299 documents
   this as `per_slot_cpu_index_calls` rather than a Forge grouped GPU fan-out.
 - **FSV gate.** multi-lens **recall@10 ≥ single-lens + Δ (≥15%)** on a real
-  labeled corpus with qrels (BEIR/MS MARCO subset on aiwonder); every Hit
-  carries a real provenance ref (read it).
+  labeled corpus with qrels (BEIR SciFact subset on aiwonder); every Hit carries
+  stored non-zero provenance when available, with deterministic stub fallback
+  until PH35 real Ledger.
 - **Axioms/PRD.** A15, `10 §2/§5`, `19 §4`.
 
 ## PH25 — Sparse lens inverted index

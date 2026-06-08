@@ -35,10 +35,13 @@ fail loud with `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`.
 - [x] `fn quantize(&self, values: &[f32]) -> QuantizedVector` returns raw values
       for `None`, scalar bytes + approximate values for `Scalar8`, and sign bits
       for `Binary`
-- [x] Wire into `HnswIndex`: store `QuantConfig`; `insert` locks the config after
-      first insert and stores the quantized approximate vector for search
+- [x] Wire into `HnswIndex`: store `QuantConfig` and lock it after first insert;
+      current HNSW rows still store raw dense f32 vectors
 - [x] `cpu_gpu_delta` returns `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE` instead of a
       CPU-self comparison
+- [ ] Future integration: wire `QuantConfig::quantize` into HNSW insert/search,
+      prove quantized storage/search recall, and expose a distinct immutable-
+      config error if post-insert config mutation becomes user-controlled
 - [ ] Future integration: add a real Forge GPU quantization path, then replace
       the unavailable state with CPU/GPU byte-readback parity evidence
 - [ ] `CALYX_SEXTANT_QUANT_CONFIG_IMMUTABLE` if a second distinct config is
