@@ -88,6 +88,11 @@ impl SlotIndexMap {
         index.read().expect("index poisoned").search_text(text, k)
     }
 
+    pub fn candidate_text(&self, slot: SlotId, cx_id: CxId) -> Result<Option<String>> {
+        let index = self.get(slot)?;
+        Ok(index.read().expect("index poisoned").candidate_text(cx_id))
+    }
+
     pub fn vector(&self, slot: SlotId, cx_id: CxId) -> Result<Option<SlotVector>> {
         let index = self.get(slot)?;
         Ok(index.read().expect("index poisoned").vector(cx_id))

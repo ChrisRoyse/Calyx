@@ -61,6 +61,10 @@ pub trait SextantIndex: Send + Sync {
             "index does not search text",
         ))
     }
+
+    fn candidate_text(&self, _cx_id: CxId) -> Option<String> {
+        None
+    }
 }
 
 pub fn ranked(scored: Vec<(CxId, f32)>) -> Vec<IndexSearchHit> {
