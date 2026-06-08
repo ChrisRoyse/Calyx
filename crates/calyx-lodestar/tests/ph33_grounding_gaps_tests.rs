@@ -52,6 +52,23 @@ fn four_member_graph() -> AssocGraph {
     builder.build()
 }
 
+fn bounded_pipeline_graph() -> AssocGraph {
+    let mut builder = AssocGraph::builder();
+    for seed in [3, 4, 6, 10] {
+        builder.add_node(cx(seed), 1.0).unwrap();
+    }
+    builder
+        .add_edge(cx(3), cx(4), 1.0)
+        .unwrap()
+        .add_edge(cx(4), cx(3), 1.0)
+        .unwrap()
+        .add_edge(cx(3), cx(6), 1.0)
+        .unwrap()
+        .add_edge(cx(6), cx(10), 1.0)
+        .unwrap();
+    builder.build()
+}
+
 fn fsv_root(case: &str) -> PathBuf {
     let base = std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)
@@ -134,27 +151,24 @@ fn grounding_gaps_all_no_anchor_empty_and_zero_distance_edges() {
 
 #[test]
 fn grounding_gaps_boundary_and_pipeline_use_same_gap_logic() {
-    let graph = four_member_graph();
+    let graph = bounded_pipeline_graph();
     let member = kernel(vec![cx(3)]);
     let at_two = grounding_gaps(&member, &graph, &[cx(10)], 2).unwrap();
     let at_one = grounding_gaps(&member, &graph, &[cx(10)], 1).unwrap();
 
-    let pipeline = build_kernel_pipeline(
-        &graph,
-        &[cx(10)],
-        &calyx_lodestar::KernelParams {
-            kernel_graph: calyx_lodestar::KernelGraphParams {
-                target_fraction: 1.0,
-                ..calyx_lodestar::KernelGraphParams::default()
-            },
-            ..calyx_lodestar::KernelParams::default()
+    let params = calyx_lodestar::KernelParams {
+        kernel_graph: calyx_lodestar::KernelGraphParams {
+            target_fraction: 1.0,
+            max_groundedness_distance: 1,
+            ..calyx_lodestar::KernelGraphParams::default()
         },
-    )
-    .unwrap();
+        ..calyx_lodestar::KernelParams::default()
+    };
+    let pipeline = build_kernel_pipeline(&graph, &[cx(10)], &params).unwrap();
 
     println!(
-        "GROUNDING_GAPS_BOUNDARY at_two={:?} at_one={:?} pipeline_gaps={:?}",
-        at_two, at_one, pipeline.groundedness.unanchored_members
+        "GROUNDING_GAPS_BOUNDARY at_two={:?} at_one={:?} pipeline_groundedness={:?}",
+        at_two, at_one, pipeline.groundedness
     );
     write_readback(
         "boundary",
@@ -162,13 +176,16 @@ fn grounding_gaps_boundary_and_pipeline_use_same_gap_logic() {
         json!({
             "at_two": at_two,
             "at_one": at_one,
-            "pipeline_gaps": pipeline.groundedness.unanchored_members,
+            "pipeline_max_groundedness_distance": params.kernel_graph.max_groundedness_distance,
+            "pipeline_kernel": pipeline,
         }),
     );
 
     assert_eq!(at_two.gaps, Vec::new());
     assert_eq!(at_one.gaps, vec![cx(3)]);
-    assert_eq!(pipeline.groundedness.unanchored_members, Vec::<CxId>::new());
+    assert_eq!(pipeline.members, vec![cx(3)]);
+    assert_eq!(pipeline.groundedness.unanchored_members, vec![cx(3)]);
+    assert_eq!(pipeline.groundedness.reached_anchor, 0.0);
 }
 
 proptest! {
