@@ -73,6 +73,61 @@ fn read_events(path: &Path) -> Vec<PromotionEvent> {
         .collect()
 }
 
+fn fsv_error(op: &str, path: &Path, detail: impl ToString) -> ForgeError {
+    ForgeError::CacheError {
+        op: op.to_string(),
+        path: path.display().to_string(),
+        detail: detail.to_string(),
+        remediation: "repair CALYX_FSV_ROOT and rerun promotion provenance readback".to_string(),
+    }
+}
+
+fn write_promotion_fsv_readbacks(
+    log_path: &Path,
+    events: &[PromotionEvent],
+    demoted: Option<&BestConfig>,
+    cache_config: Option<&BestConfig>,
+) -> Result<()> {
+    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+        return Ok(());
+    };
+    let root = PathBuf::from(root);
+    fs::create_dir_all(&root).map_err(|err| fsv_error("fsv_mkdir", &root, err))?;
+
+    let log_dest = root.join("promotion-log-readback.jsonl");
+    let raw_log = fs::read(log_path).map_err(|err| fsv_error("fsv_read", log_path, err))?;
+    fs::write(&log_dest, &raw_log).map_err(|err| fsv_error("fsv_write", &log_dest, err))?;
+    let copied_log =
+        fs::read_to_string(&log_dest).map_err(|err| fsv_error("fsv_read", &log_dest, err))?;
+    assert_eq!(copied_log.lines().count(), events.len());
+
+    let summary = serde_json::json!({
+        "issue": 338,
+        "case": "promotion_logged_and_reversible",
+        "provenance_surface": "local_jsonl_audit_stub",
+        "ledger_chain_entry": false,
+        "event_count": events.len(),
+        "actions": events.iter().map(|event| format!("{:?}", event.action)).collect::<Vec<_>>(),
+        "demoted_tile": demoted.map(|cfg| cfg.tile_m),
+        "cache_tile": cache_config.map(|cfg| cfg.tile_m)
+    });
+    let summary_dest = root.join("promotion-provenance-summary-readback.json");
+    let bytes = serde_json::to_vec_pretty(&summary)
+        .map_err(|err| fsv_error("fsv_serialize", &summary_dest, err))?;
+    fs::write(&summary_dest, &bytes).map_err(|err| fsv_error("fsv_write", &summary_dest, err))?;
+    let readback =
+        fs::read(&summary_dest).map_err(|err| fsv_error("fsv_read", &summary_dest, err))?;
+    assert_eq!(readback, bytes);
+    println!(
+        "FORGE_PROMOTION_READBACK log_path={} log_bytes={} summary_path={} summary_bytes={}",
+        log_dest.display(),
+        raw_log.len(),
+        summary_dest.display(),
+        readback.len()
+    );
+    Ok(())
+}
+
 #[test]
 fn promotion_logged_and_reversible() -> Result<()> {
     let log_path = fsv_log_path();
@@ -101,9 +156,10 @@ fn promotion_logged_and_reversible() -> Result<()> {
     assert_eq!(events[1].old_config, new_config);
     assert_eq!(events[1].new_config, old_config);
     assert_eq!(events[1].timestamp_ns, 2_000_000_000);
+    write_promotion_fsv_readbacks(&log_path, &events, demoted.as_ref(), cache.get(&key))?;
     println!(
         "promotion_logged_and_reversible PASSED Promoted old_tile=64 new_tile=128 RolledBack demoted_tile={} cache_tile={} log_path={}",
-        demoted.unwrap().tile_m,
+        demoted.as_ref().map_or(0, |cfg| cfg.tile_m),
         cache.get(&key).map_or(0, |cfg| cfg.tile_m),
         log_path.display()
     );

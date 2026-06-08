@@ -1,7 +1,9 @@
 use super::test_lock;
-use crate::{Backend, CpuBackend, CudaBackend, ForgeError, Result};
+use crate::{Backend, CUDA_EXACT_TOPK_MAX_K, CpuBackend, CudaBackend, ForgeError, Result};
 use proptest::prelude::*;
 use proptest::test_runner::TestCaseError;
+use std::fs;
+use std::path::Path;
 
 fn seeded_scores(len: usize, seed: u32) -> Vec<f32> {
     let mut state = seed;
@@ -25,6 +27,40 @@ fn assert_sorted(result: &[(usize, f32)]) {
     }
 }
 
+fn fsv_error(op: &str, path: &Path, detail: impl ToString) -> ForgeError {
+    ForgeError::CacheError {
+        op: op.to_string(),
+        path: path.display().to_string(),
+        detail: detail.to_string(),
+        remediation: "repair CALYX_FSV_ROOT and rerun the Forge CUDA topk readback".to_string(),
+    }
+}
+
+fn write_fsv_readback(name: &str, payload: serde_json::Value) -> Result<()> {
+    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+        return Ok(());
+    };
+    let root = std::path::PathBuf::from(root);
+    fs::create_dir_all(&root).map_err(|err| fsv_error("fsv_mkdir", &root, err))?;
+    let path = root.join(name);
+    let bytes = serde_json::to_vec_pretty(&payload).map_err(|err| {
+        fsv_error(
+            "fsv_serialize",
+            &path,
+            format!("serialize JSON readback failed: {err}"),
+        )
+    })?;
+    fs::write(&path, &bytes).map_err(|err| fsv_error("fsv_write", &path, err))?;
+    let readback = fs::read(&path).map_err(|err| fsv_error("fsv_read", &path, err))?;
+    assert_eq!(readback, bytes);
+    println!(
+        "FORGE_CUDA_TOPK_READBACK path={} bytes={}",
+        path.display(),
+        readback.len()
+    );
+    Ok(())
+}
+
 #[test]
 fn topk_tie_break_gpu_matches_cpu() -> Result<()> {
     let _guard = test_lock();
@@ -44,6 +80,17 @@ fn topk_k_ge_n_returns_all_sorted() -> Result<()> {
     let result = CudaBackend::new()?.topk(&scores, 8)?;
     println!("CUDA_TOPK_ALL {:?}", result);
     assert_eq!(result, vec![(1, 0.9), (3, 0.9), (2, 0.5), (0, 0.1)]);
+    write_fsv_readback(
+        "cuda-topk-success-readback.json",
+        serde_json::json!({
+            "issue": 338,
+            "case": "k_ge_n_returns_all_sorted",
+            "input_scores": scores,
+            "requested_k": 8,
+            "cuda_exact_topk_max_k": CUDA_EXACT_TOPK_MAX_K,
+            "result": result
+        }),
+    )?;
     Ok(())
 }
 
@@ -91,6 +138,18 @@ fn topk_large_k_fails_loud_when_exactness_not_guaranteed() -> Result<()> {
         .expect_err("global k > 1024 must fail loud until CUDA topk is multi-pass exact");
     println!("CUDA_TOPK_LARGE_K_FAILS_LOUD {err}");
     assert!(matches!(err, ForgeError::ShapeMismatch { .. }));
+    write_fsv_readback(
+        "cuda-topk-large-k-fail-readback.json",
+        serde_json::json!({
+            "issue": 338,
+            "case": "large_k_fails_loud_when_exactness_not_guaranteed",
+            "input_len": scores.len(),
+            "requested_k": 1500,
+            "cuda_exact_topk_max_k": CUDA_EXACT_TOPK_MAX_K,
+            "error_code": err.code(),
+            "error": err.to_string()
+        }),
+    )?;
     Ok(())
 }
 
