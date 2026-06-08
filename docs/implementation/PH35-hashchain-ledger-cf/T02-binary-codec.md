@@ -18,36 +18,42 @@ back byte-exact. The codec must be stable across restarts: the same entry always
 encodes to the same bytes, which is required for `entry_hash` reproducibility
 and FSV readback with `xxd`.
 
+**Current implementation (#243, commit `9ff808e`):** codec logic is split into
+`crates/calyx-ledger/src/codec.rs` to keep `.rs` files below 500 lines. The
+crate re-exports `encode`, `decode`, and `decode_header`. The golden codec hex
+starts with `000000000000002a` (seq=42), has `prev_hash` at offsets 8-39 and
+kind wire code `01` at offset 40, and is read back with `xxd` in the FSV root.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `fn encode(entry: &LedgerEntry) -> Vec<u8>` — fixed-layout:
+- [x] `fn encode(entry: &LedgerEntry) -> Vec<u8>` — fixed-layout:
   `[seq(8)] [prev_hash(32)] [kind(1)] [subject_tag(1)] [subject_bytes(var, length-prefixed u16 BE)]
    [payload_len(4 BE)] [payload_bytes] [actor_tag(1)] [actor_bytes(var, length-prefixed u16 BE)]
    [ts(8)] [entry_hash(32)]`
   — no padding, no alignment gaps; total length deterministic given inputs.
-- [ ] `fn decode(bytes: &[u8]) -> Result<LedgerEntry>` — parse the fixed layout
+- [x] `fn decode(bytes: &[u8]) -> Result<LedgerEntry>` — parse the fixed layout
   above; return `CalyxError::LedgerCorrupt` (new structured error code
   `CALYX_LEDGER_CORRUPT`) if any length field extends past the buffer.
-- [ ] `fn decode_header(bytes: &[u8]) -> Result<(u64, [u8;32])>` — fast-path
+- [x] `fn decode_header(bytes: &[u8]) -> Result<(u64, [u8;32])>` — fast-path
   decode of only `seq` + `prev_hash` for chain-link verification without full
   decode (used by `verify_chain` in PH36).
-- [ ] After decode, re-verify `entry_hash` via `LedgerEntry::verify()`; if it
+- [x] After decode, re-verify `entry_hash` via `LedgerEntry::verify()`; if it
   fails return `CALYX_LEDGER_CORRUPT` with `seq` in the structured payload.
-- [ ] Add `CALYX_LEDGER_CORRUPT` to the `calyx-core` error catalog
+- [x] Add `CALYX_LEDGER_CORRUPT` to the `calyx-core` error catalog
   (`crates/calyx-core/src/error.rs`) with remediation string
   `"ledger CF integrity violation — run verify_chain to identify range"`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `decode(encode(entry)) == entry` for a fixed known entry (seq=42,
+- [x] unit: `decode(encode(entry)) == entry` for a fixed known entry (seq=42,
   kind=Measure, payload=b"synthetic"); assert byte-exact.
-- [ ] unit: encode a known entry and assert the output bytes match a hard-coded
+- [x] unit: encode a known entry and assert the output bytes match a hard-coded
   golden byte vector (regression test for codec stability).
-- [ ] proptest: `decode(encode(x)) == x` for arbitrary valid `LedgerEntry`
+- [x] proptest: `decode(encode(x)) == x` for arbitrary valid `LedgerEntry`
   values (round-trip invariant).
-- [ ] edge (≥3): zero-length payload; max-length `subject_bytes` (255 bytes);
+- [x] edge (≥3): zero-length payload; max-length `subject_bytes` (255 bytes);
   single-byte actor id; `seq=0` genesis entry.
-- [ ] fail-closed: truncated buffer (1 byte short of `payload_len`) →
+- [x] fail-closed: truncated buffer (1 byte short of `payload_len`) →
   `CALYX_LEDGER_CORRUPT`; entry with flipped `entry_hash` byte → `CALYX_LEDGER_CORRUPT`
   after decode re-verify; empty slice → `CALYX_LEDGER_CORRUPT`.
 
@@ -60,11 +66,15 @@ and FSV readback with `xxd`.
 - **Prove:** before: no codec exists; after: golden test passes and prints the
   same 32-byte `entry_hash` as T01; `decode(encode(x)) == x` proptest passes;
   truncated input returns `CALYX_LEDGER_CORRUPT` (not a panic).
+- **Post-implementation readback:** #243 FSV root
+  `/home/croyse/calyx/data/fsv-issue243-ledger-codec-20260608`; `codec_golden.xxd`
+  contains the golden codec bytes, `codec_fail_closed.txt` proves corrupt input
+  fails closed, and `codec_roundtrip.txt` proves the round-trip proptest.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH35 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence attached to #243
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

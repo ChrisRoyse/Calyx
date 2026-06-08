@@ -24,12 +24,14 @@ lost on crash and can never be retroactively forged. This is the foundational
 
 ## Current state (build off what exists)
 
-`calyx-ledger` now has PH35 T01 implemented: `EntryKind`, `LedgerEntry`,
-`SubjectId`, `ActorId`, and deterministic `entry_hash` primitives landed in
-commit `ef8e6f7` with aiwonder evidence at
-`/home/croyse/calyx/data/fsv-issue242-ledger-entry-20260608`. The remaining
-PH35 tasks build the binary codec, appender, redaction policy, group-commit
-hook, actor/timestamp wiring, and WAL smoke FSV on top of those primitives. The
+`calyx-ledger` now has PH35 T01-T02 implemented: `EntryKind`, `LedgerEntry`,
+`SubjectId`, `ActorId`, deterministic `entry_hash`, deterministic binary
+`encode`/`decode`/`decode_header`, and `CALYX_LEDGER_CORRUPT` fail-closed decode
+errors. T01 evidence is at
+`/home/croyse/calyx/data/fsv-issue242-ledger-entry-20260608`; T02 evidence is at
+`/home/croyse/calyx/data/fsv-issue243-ledger-codec-20260608`. The remaining
+PH35 tasks build the appender, redaction policy, group-commit hook,
+actor/timestamp wiring, and WAL smoke FSV on top of those primitives. The
 following scaffolding already exists and must be reused:
 
 - `calyx-core/src/model/signal.rs`: `LedgerRef { seq: u64, hash: [u8; 32] }`
@@ -47,7 +49,8 @@ append-only enforcement rule remains greenfield until T03.
 
 | File | Responsibility |
 |---|---|
-| `crates/calyx-ledger/src/entry.rs` | `LedgerEntry` struct; `SubjectId`/`ActorId`; `entry_hash` computation (`blake3`); serde (binary codec lands in T02) |
+| `crates/calyx-ledger/src/entry.rs` | `LedgerEntry` struct; `SubjectId`/`ActorId`; `entry_hash` computation (`blake3`); serde |
+| `crates/calyx-ledger/src/codec.rs` | deterministic binary `encode`/`decode`/`decode_header`; fail-closed `CALYX_LEDGER_CORRUPT` parsing |
 | `crates/calyx-ledger/src/append.rs` | `LedgerAppender`: seq-counter, `append(entry) -> LedgerRef`, append-only enforcement (no update/delete), tombstone prohibition |
 | `crates/calyx-ledger/src/kind.rs` | `EntryKind` enum with all 10 variants; `Display` / serde |
 | `crates/calyx-ledger/src/redaction.rs` | `RedactionPolicy`: ensure payloads carry hashes/ids only, never raw secret values; `check_no_secret` validator |

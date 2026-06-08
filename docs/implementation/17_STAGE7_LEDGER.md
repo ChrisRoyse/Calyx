@@ -23,6 +23,10 @@ as PH09 writes constellations.*
   stable `EntryKind` wire codes, `LedgerEntry`, `SubjectId`, `ActorId`,
   length-delimited BLAKE3 `entry_hash`, and golden/tamper readbacks are
   FSV-backed at `/home/croyse/calyx/data/fsv-issue242-ledger-entry-20260608`.
+- **Post-sweep note.** PH35 T02 (#243) adds deterministic binary
+  `encode`/`decode`/`decode_header` and `CALYX_LEDGER_CORRUPT`; golden `xxd`,
+  fail-closed decode, and round-trip proptest readbacks are FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue243-ledger-codec-20260608`.
 - **FSV gate.** every constellation write has a chained ledger entry in the WAL
   group-commit (read the WAL + ledger CF); chain links verify; no entry stores a
   secret value.
