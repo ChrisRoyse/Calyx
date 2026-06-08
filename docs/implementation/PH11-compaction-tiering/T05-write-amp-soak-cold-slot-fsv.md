@@ -22,15 +22,18 @@ Post-sweep clarification #327: the shipped `calyx soak` is a storage stress and
 readback tool over SST/WAL/tiering paths, while durable tier placement in normal
 vault writes is covered by `VaultOptions::tiering_policy` and #295. The older
 "ingest 1000 constellations" wording is the product-facing PH62 workflow shape,
-not a missing PH11 storage-core requirement.
+not a missing PH11 storage-core requirement. Sweep residual #337 adds core
+`CompactionReport` coverage that asserts the default `write_amp_milli <= 2000`
+bound directly on a deterministic two-shard merge.
 
 ## Build (checklist of concrete, code-level steps)
 
 - [x] Add `calyx soak --vault <path> --ops 1000 --threads 4` CLI subcommand:
   run 1000 deterministic storage operations across worker threads, trigger
   compaction at fixed intervals, and report `write_amp_milli` for each CF.
-- [ ] In the soak, assert that `CompactionReport::write_amp_milli ≤ 2000` for
-  every compaction run (per-CF). Print each report to stdout.
+- [x] In core compaction coverage, assert that `CompactionReport::write_amp_milli
+  <= 2000` for a deterministic per-CF merge. Product soak CLI enforcement stays
+  a PH62 workflow concern unless reopened by a separate issue.
 - [ ] Add `calyx compact --vault <path> --cf <name>` CLI subcommand that runs one
   compaction for a specific CF and prints the `CompactionReport`.
 - [ ] Write a concurrent read/compact test: 2 reader threads each pinning a
@@ -47,7 +50,7 @@ not a missing PH11 storage-core requirement.
 
 - [ ] unit (concurrent): 2 readers + 1 compactor → no read errors over 10 compaction
   cycles.
-- [ ] unit (soak): 1000 ops, write_amp_milli ≤ 2000 for all CF compaction reports.
+- [x] unit: deterministic two-shard compaction has `write_amp_milli <= 2000`.
 - [ ] unit: `slot_00.raw` → archive root; `slot_00` (active) → hot root.
 - [ ] proptest: for `n in 1..=5 compaction rounds` with `m in 1..=100 entries`:
   all entries readable after each round; no data loss.

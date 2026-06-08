@@ -14,6 +14,9 @@
 > compacted-SST recovery, WAL-authoritative post-append commit semantics, and
 > real deadline-based WAL group-commit coalescing. Evidence root:
 > `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`.
+> Sweep residual #337 adds normal-open torn-tail recovery diagnostics plus a
+> core compaction write-amp bound regression; evidence root:
+> `/home/croyse/calyx/data/fsv-issue337-aster-durability-residuals-20260608`.
 
 The on-disk substrate: WAL, LSM+columnar, column families, MVCC, constellation
 CRUD, crash recovery, compaction/tiering. Everything downstream stores through
@@ -113,7 +116,8 @@ provisioned). **Living-system role:** metabolism + memory.
 - **Post-sweep note.** #333 verifies immutable panel/codebook refs by content
   hash while loading a manifest, treats compacted SSTs as durable recovery
   inputs, and preserves WAL-authoritative success if a post-WAL checkpoint
-  fails after the durable append.
+  fails after the durable append. #337 exposes torn-tail diagnostics through
+  `AsterVault::recovery_report()` on normal cold open.
 - **FSV gate.** crash drill (`kill -9` at several points) → recover **byte-exact
   to last-acked**; flip a base-shard byte → read fails closed
   (`CALYX_ASTER_CORRUPT_SHARD`), points at restore.
@@ -131,7 +135,9 @@ provisioned). **Living-system role:** metabolism + memory.
 - **Key tasks.** concurrent-read-safe compaction; adaptive cadence hook (Anneal
   later); cold-tier writer to `/zfs/archive/calyx`.
 - **Post-sweep note.** #333 makes compacted `compacted-*.sst` files recoverable
-  even when original shard files are absent.
+  even when original shard files are absent. #337 adds direct compaction report
+  coverage that asserts the default write-amp ceiling (`<= 2000` milli) on a
+  deterministic two-shard merge.
 - **FSV gate.** compaction runs with concurrent reads → no partial reads; cold
   slots physically on archive (verified by path); write-amp ≤ target on a soak.
 - **Axioms/PRD.** `04 §6`, `24 §3` (anti-storm), A26.
@@ -187,7 +193,8 @@ cards; their current disposition follows. None block downstream stages.
    `vault/encode.rs::encode_slot_vector`. Row-level slot vectors remain the
    CRUD/recovery format for Aster; Arrow chunks belong to the later materialized
    array-bundle/slot-column work where a batch of vectors becomes a true SoA
-   column (PRD `23 §2`).
+   column (PRD `23 §2`; tracked by #337 until narrowed into its long-term
+   storage task).
 6. ✅ **RESOLVED — dedicated ledger stub (PH09).** The PH35 ledger-stub row now
    lives in a dedicated `vault/ledger_stub.rs` (commit `3e6c03d`); the real
    hash-chain still lands in PH35.

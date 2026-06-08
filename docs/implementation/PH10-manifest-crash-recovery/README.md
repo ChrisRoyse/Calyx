@@ -24,12 +24,14 @@ Shipped in `calyx-aster`:
 - `manifest/mod.rs` — `VaultManifest` (version/manifest_seq/durable_seq/panel_ref/codebook_refs/degraded_rebuildable), `ManifestStore::write_current`/`load_current` via atomic temp+rename+`sync_parent`, `ManifestVersion::validate` (rejects bad major), `ImmutableRef` path-traversal guards, `recover_vault` (replays WAL past `durable_seq` → `RecoveryOutcome{wal_records,torn_tail,last_recovered_seq,degraded_rebuildable}`).
 - Corrupt base shard read fails closed → `CALYX_ASTER_CORRUPT_SHARD` + restic/snapshot restore guidance. CLI: `crash-drill` (3 points), `recover`, `corrupt-shard`.
 - FSV-proven: SIGKILL crash drill recovered to last-acked seq + reported `CALYX_ASTER_TORN_WAL` (WAL truncated 790→774 bytes); corrupt base SST failed closed exit 2.
+- Sweep residual #337 adds `AsterVault::recovery_report()` so normal cold-open callers can inspect the same torn-tail diagnostic without going through the CLI-only recovery path.
 
 FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
 ### Follow-ups
 1. `manifest/recovery.rs` was not created — recovery logic lives in `manifest/mod.rs::recover_vault`. This is cosmetic module placement, not a behavior gap.
 2. ✅ `AsterVault::open` now uses manifest-anchored recovery through `recover_vault`, restores batches at their original seqs, and calls `set_start_seq(recovery.last_recovered_seq)`.
+2a. ✅ `AsterVault::open` now preserves recovery metadata in `VaultRecoveryReport`, including `last_recovered_seq` and optional `CALYX_ASTER_TORN_WAL` details.
 3. `degraded_rebuildable` is a manifest field but is **never set true** on a corrupt derived CF; the self-heal/degrade path is deferred to PH44.
 4. ✅ Durable writes, MVCC router flushes, compaction catalogs, and scheduler paths are unified through `vault/commit.rs`, `vault/compaction_bridge.rs`, and #295's `VaultOptions::tiering_policy` wiring.
 

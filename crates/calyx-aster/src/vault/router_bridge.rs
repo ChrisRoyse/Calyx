@@ -1,4 +1,4 @@
-use super::{AsterVault, DEFAULT_LEASE_MS};
+use super::{AsterVault, DEFAULT_LEASE_MS, VaultRecoveryReport};
 use crate::cf::CfRouter;
 use crate::mvcc::{Freshness, Snapshot, VersionedCfStore};
 use crate::sst::SstSummary;
@@ -21,6 +21,10 @@ where
             rows: VersionedCfStore::new_with_router(0, router),
             durable: None,
             ledger_hook: None,
+            recovery_report: VaultRecoveryReport {
+                last_recovered_seq: 0,
+                torn_tail: None,
+            },
         }
     }
 

@@ -16,6 +16,7 @@ use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_k
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
 use crate::vault::durable::DurableVault;
 use crate::vault::ledger_hook::AsterLedgerHook;
+use crate::wal::TornTail;
 use calyx_core::{
     Anchor, CalyxError, Clock, Constellation, CxId, Result, Seq, SlotId, SystemClock, VaultId,
     VaultStore,
@@ -37,6 +38,13 @@ pub struct AsterVault<C = SystemClock> {
     rows: VersionedCfStore,
     durable: Option<DurableVault>,
     ledger_hook: Option<AsterLedgerHook>,
+    recovery_report: VaultRecoveryReport,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VaultRecoveryReport {
+    pub last_recovered_seq: Seq,
+    pub torn_tail: Option<TornTail>,
 }
 
 impl AsterVault<SystemClock> {
@@ -62,6 +70,10 @@ impl AsterVault<SystemClock> {
     ) -> Result<Self> {
         let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
         let ledger_hook = ledger_hook::recover_hook(&recovery)?;
+        let recovery_report = VaultRecoveryReport {
+            last_recovered_seq: recovery.last_recovered_seq,
+            torn_tail: recovery.torn_tail.clone(),
+        };
         let router = CfRouter::open_with_tiering(
             vault_dir.as_ref(),
             options.memtable_byte_cap,
@@ -84,6 +96,7 @@ impl AsterVault<SystemClock> {
             rows,
             durable: Some(durable),
             ledger_hook: Some(ledger_hook),
+            recovery_report,
         })
     }
 }
@@ -101,6 +114,10 @@ where
             rows: VersionedCfStore::default(),
             durable: None,
             ledger_hook: None,
+            recovery_report: VaultRecoveryReport {
+                last_recovered_seq: 0,
+                torn_tail: None,
+            },
         }
     }
 
@@ -112,6 +129,10 @@ where
     /// Returns the latest committed vault sequence.
     pub fn latest_seq(&self) -> Seq {
         self.rows.current_seq()
+    }
+
+    pub fn recovery_report(&self) -> &VaultRecoveryReport {
+        &self.recovery_report
     }
 
     /// Reads one raw CF row at `snapshot`.

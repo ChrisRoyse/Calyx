@@ -108,9 +108,10 @@ ingest(input, panel) ->
   3. quantize per Slot.quant; keep raw in write buffer if cold-tier sidecar enabled
   4. Loom.plan_cross_terms(slots) -> {pairs to eager-materialize}   # most: lazy (06)
   5. WAL append {base, slot_*, anchors?, ledger entry}; fsync (group-commit window ≤ 2 ms)
-  6. apply to memtable; ack
+  6. apply to memtable; ack after the fsynced WAL sequence is visible in MVCC
   7. async: ANN insert per slot; xterm lazy; Ledger merkle update; Anneal counters
-  fail-closed at any step -> structured error, WAL not acked, no partial visible state
+  fail-closed before WAL fsync -> structured error, WAL not acked, no partial visible state
+  fail after WAL fsync -> WAL sequence is authoritative and must be restored or recovered
 ```
 
 Embedding dominates cost; step 2 batches all lenses for a constellation (and across a microbatch of constellations) into one GPU dispatch (`13`).
@@ -123,7 +124,7 @@ Embedding dominates cost; step 2 batches all lenses for a constellation (and acr
 
 ## 7. Crash safety & recovery
 
-- WAL is the source of truth for un-compacted writes; recovery replays WAL past the last durable manifest to the last fsync'd record, discards a torn tail.
+- WAL is the source of truth for un-compacted writes; recovery replays WAL past the last durable manifest to the last fsync'd record, discards a torn tail, and normal vault open exposes the torn-tail diagnostic.
 - Manifest swap is atomic (`rename()` of `CURRENT`). Codebooks and panel versions are immutable once referenced.
 - ANN/kernel/guard are **rebuildable** from base+slots, so a corrupt index is a `degraded` flag + background rebuild, never data loss (A16). A corrupt base shard fails the read closed and points the operator at restic/snapshot restore.
 - FSV for storage (A15): recovery is proven by killing `calyxd` mid-write and reading back the exact persisted constellations/anchors/ledger bytes — not by a harness asserting "recovered: true".
