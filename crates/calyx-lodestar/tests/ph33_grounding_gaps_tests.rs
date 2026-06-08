@@ -26,12 +26,7 @@ fn kernel(members: Vec<CxId>) -> Kernel {
             reached_anchor: 1.0,
             unanchored_members: Vec::new(),
         },
-        recall: RecallReport {
-            kernel_only: 0.0,
-            full: 0.0,
-            ratio: 0.0,
-            approx_factor: 1.0,
-        },
+        recall: RecallReport::default(),
         built_at_millis: 1,
         estimator_provenance: "test".to_string(),
         warnings: Vec::new(),
