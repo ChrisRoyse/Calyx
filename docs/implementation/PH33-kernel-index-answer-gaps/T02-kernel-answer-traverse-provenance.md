@@ -21,33 +21,32 @@ skeleton" from `08 §4.2`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub struct AnswerPath { query_cx: CxId, anchor_kernel_node: CxId, hops: Vec<AnswerHop>, total_score: f32, provenance: Vec<LedgerRef> }`.
-- [ ] `pub struct AnswerHop { from: CxId, to: CxId, edge_weight: f32, hop_score: f32, ledger_ref: LedgerRef }` — `hop_score = edge_weight * 0.9^hop_index`.
-- [ ] `pub fn kernel_answer(kernel_index: &KernelIndex, graph: &AssocGraph, query_cx: CxId, anchor_kind: Option<AnchorKind>, max_hops: usize) -> Result<AnswerPath, CalyxError>`:
-  1. `kernel_search(query_embedding, top_k=10)` → candidate kernel nodes.
-  2. Filter to anchored nodes only (BFS to nearest anchor ≤ max_anchor_dist);
-     if no anchored kernel node found → `CALYX_KERNEL_NO_ANCHORED_NODE`.
-  3. From the top anchored kernel node, `reach_scored(graph, kernel_node, max_hops)`.
-  4. Build `hops` list from the path; `ledger_ref` is a stub `LedgerRef::stub()` until PH35.
+- [x] `pub struct AnswerPath { query_cx: CxId, anchor_kernel_node: CxId, hops: Vec<AnswerHop>, total_score: f32, provenance: Vec<LedgerRef> }`.
+- [x] `pub struct AnswerHop { from: CxId, to: CxId, edge_weight: f32, hop_score: f32, ledger_ref: LedgerRef }` — `hop_score = edge_weight * 0.9^hop_index`.
+- [x] `pub fn kernel_answer(kernel_index: &KernelIndex, graph: &AssocGraph, query_cx: CxId, query_vec: &[f32], anchored_kernel_nodes: &[CxId], max_hops: usize) -> Result<AnswerPath, CalyxError>`:
+  1. `kernel_search(query_vec, top_k=10)` → candidate kernel nodes.
+  2. Filter to supplied anchored kernel nodes; if none found → `CALYX_KERNEL_NO_ANCHORED_NODE`.
+  3. From the top anchored kernel node, validate reachability with `reach_scored(graph, kernel_node, max_hops)`.
+  4. Build `hops` list from the path prefix; `ledger_ref` is a deterministic stub until PH35.
   5. Return `AnswerPath` with all hops and `total_score = Σ hop_scores`.
-- [ ] `total_score` is finite and ≥ 0.0; NaN/Inf → `CALYX_KERNEL_SCORE_INVALID`.
-- [ ] Provenance: each `LedgerRef::stub()` carries `(src_cx, dst_cx, hop_index, timestamp)`
+- [x] `total_score` is finite and ≥ 0.0; NaN/Inf → `CALYX_KERNEL_SCORE_INVALID`.
+- [x] Provenance: each stub `LedgerRef` hashes `(src_cx, dst_cx, hop_index)` and uses `seq = hop_index + 1`
   so PH35 can back-fill real entries.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: chain graph `K→A→B→C` where K is anchored kernel node, query_cx = C;
+- [x] unit: chain graph `K→A→B→C` where K is anchored kernel node, query_cx = C;
   `kernel_answer` returns path `[K→A→B→C]`; hop scores = `[0.9^0, 0.9^1, 0.9^2]`
   times edge weights; total_score correct to ε=1e-5.
-- [ ] unit: `kernel_answer` with `max_hops=2` on a depth-3 chain → stops at depth 2;
+- [x] unit: `kernel_answer` with `max_hops=2` on a depth-3 chain → stops at depth 2;
   `hops.len() == 2`.
-- [ ] unit: kernel with 0 anchored nodes → `CALYX_KERNEL_NO_ANCHORED_NODE`.
-- [ ] unit: every hop in `hops` has a non-None `ledger_ref` (even the stub) — stub
+- [x] unit: kernel with 0 anchored nodes → `CALYX_KERNEL_NO_ANCHORED_NODE`.
+- [x] unit: every hop in `hops` has a non-None `ledger_ref` (even the stub) — stub
   carries non-zero `hop_index` field.
-- [ ] edge: `query_cx` == `anchor_kernel_node` (query is already a kernel node) →
+- [x] edge: `query_cx` == `anchor_kernel_node` (query is already a kernel node) →
   `hops = []`; `total_score = 1.0`.
-- [ ] edge: dead-end path (reach returns None) → `CALYX_PATHS_MAX_HOPS` propagated.
-- [ ] fail-closed: `total_score` becomes NaN (zero-weight edge chain) →
+- [x] edge: missing query node propagates the `CALYX_PATHS_NODE_NOT_FOUND` graph error.
+- [x] fail-closed: `total_score` becomes NaN →
   `CALYX_KERNEL_SCORE_INVALID`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -60,8 +59,8 @@ skeleton" from `08 §4.2`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH33 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH33 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
