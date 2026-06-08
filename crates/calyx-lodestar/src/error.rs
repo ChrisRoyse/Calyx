@@ -26,6 +26,15 @@ pub enum LodestarError {
     KernelIndexCodec { detail: String },
     #[error("CALYX_KERNEL_INDEX_BUILD: {detail}")]
     KernelIndexBuild { detail: String },
+    #[error("CALYX_KERNEL_NO_ANCHORED_NODE: no anchored kernel node found")]
+    KernelNoAnchoredNode,
+    #[error("CALYX_KERNEL_ANSWER_NO_PATH: no path from {from} to {to}")]
+    KernelAnswerNoPath {
+        from: calyx_core::CxId,
+        to: calyx_core::CxId,
+    },
+    #[error("CALYX_KERNEL_SCORE_INVALID: {detail}")]
+    KernelScoreInvalid { detail: String },
     #[error("CALYX_DFVS_VERIFICATION_FAILED: {detail}")]
     DfvsVerificationFailed { detail: String },
     #[error("CALYX_DFVS_GENUS_TOO_LARGE: genus {genus} exceeds supported bound")]
@@ -48,6 +57,9 @@ impl LodestarError {
             Self::KernelIndexIo { .. } => "CALYX_KERNEL_INDEX_IO",
             Self::KernelIndexCodec { .. } => "CALYX_KERNEL_INDEX_CODEC",
             Self::KernelIndexBuild { .. } => "CALYX_KERNEL_INDEX_BUILD",
+            Self::KernelNoAnchoredNode => "CALYX_KERNEL_NO_ANCHORED_NODE",
+            Self::KernelAnswerNoPath { .. } => "CALYX_KERNEL_ANSWER_NO_PATH",
+            Self::KernelScoreInvalid { .. } => "CALYX_KERNEL_SCORE_INVALID",
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
             Self::DfvsGenusTooLarge { .. } => "CALYX_DFVS_GENUS_TOO_LARGE",
             Self::Graph { code, .. } => code,

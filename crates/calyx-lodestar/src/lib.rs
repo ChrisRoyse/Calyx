@@ -6,6 +6,7 @@ pub mod dfvs;
 mod error;
 pub mod incremental;
 pub mod kernel;
+pub mod kernel_answer;
 pub mod kernel_graph;
 pub mod kernel_index;
 
@@ -16,6 +17,7 @@ pub use dfvs::{
 pub use error::{LodestarError, Result};
 pub use incremental::{IncrementalKernelEval, IncrementalResult, NodeAddEdge};
 pub use kernel::{GroundednessReport, Kernel, KernelParams, RecallReport, build_kernel_pipeline};
+pub use kernel_answer::{AnswerHop, AnswerPath, kernel_answer};
 pub use kernel_graph::{
     KernelGraph, KernelGraphParams, LpRoundParams, NodeScore, groundedness_distance,
     lp_round_kernel_graph, lp_round_kernel_graph_from_solution, select_kernel_graph,
