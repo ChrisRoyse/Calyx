@@ -6,7 +6,7 @@ use calyx_core::{CxId, FixedClock};
 use calyx_lodestar::{
     CALYX_KERNEL_RECALL_BELOW_GATE, GroundednessReport, InMemoryAnnIndex, InMemoryCorpus, Kernel,
     LodestarError, RecallQuery, RecallReport, RecallTestParams, build_kernel_index,
-    kernel_recall_test, kernel_recall_test_with_clock,
+    kernel_recall_gate, kernel_recall_test, kernel_recall_test_with_clock,
 };
 use serde_json::json;
 
@@ -151,6 +151,57 @@ fn recall_test_degraded_kernel_emits_below_gate_warning() {
 }
 
 #[test]
+fn recall_gate_passes_and_fails_closed_on_below_gate() {
+    let rows = one_hot_rows(10);
+    let corpus = InMemoryCorpus::new("gate-synthetic", rows.clone());
+    let full = InMemoryAnnIndex::new(rows.clone()).unwrap();
+    let embeddings = embeddings(&rows);
+    let perfect = build_kernel_index(
+        &kernel(rows.iter().map(|query| query.cx_id).collect()),
+        &embeddings,
+    )
+    .unwrap();
+    let degraded = build_kernel_index(&kernel(vec![cx(1)]), &embeddings).unwrap();
+    let params = RecallTestParams {
+        held_out_fraction: 1.0,
+        top_k: 10,
+        min_recall_ratio: 0.95,
+        ..RecallTestParams::default()
+    };
+
+    let pass = kernel_recall_gate(&perfect, &full, &corpus, &params).unwrap();
+    let report_only = kernel_recall_test(&degraded, &full, &corpus, &params).unwrap();
+    let fail = kernel_recall_gate(&degraded, &full, &corpus, &params).unwrap_err();
+
+    println!(
+        "RECALL_GATE pass_ratio={} report_warning={:?} fail_code={}",
+        pass.ratio,
+        report_only.warning,
+        fail.code()
+    );
+    write_readback(
+        "gate",
+        "recall-gate-fail-closed.json",
+        json!({
+            "pass": pass,
+            "report_only_below_gate": report_only,
+            "gate_error": fail.code(),
+            "gate_error_message": fail.to_string(),
+        }),
+    );
+
+    assert_eq!(pass.warning, None);
+    assert!(
+        report_only
+            .warning
+            .as_deref()
+            .unwrap()
+            .starts_with(CALYX_KERNEL_RECALL_BELOW_GATE)
+    );
+    assert_eq!(fail.code(), CALYX_KERNEL_RECALL_BELOW_GATE);
+}
+
+#[test]
 fn recall_test_sampling_is_deterministic_and_ceil_counted() {
     let rows = small_rows(100);
     let corpus = InMemoryCorpus::new("sample-synthetic", rows.clone());
@@ -235,6 +286,8 @@ fn recall_test_edges_and_clock_seed_fail_closed() {
         },
     )
     .unwrap_err();
+    let empty_corpus = InMemoryCorpus::new("empty-synthetic", Vec::new());
+    let empty = kernel_recall_gate(&index, &full, &empty_corpus, &all_params).unwrap_err();
     let clock_params = RecallTestParams {
         held_out_fraction: 0.3,
         top_k: 3,
@@ -261,6 +314,7 @@ fn recall_test_edges_and_clock_seed_fail_closed() {
         json!({
             "all": all,
             "zero": zero.code(),
+            "empty_corpus": empty.code(),
             "invalid_ratio": invalid_ratio.code(),
             "invalid_top_k": invalid_top_k.code(),
             "clock_first": clock_first,
@@ -271,6 +325,7 @@ fn recall_test_edges_and_clock_seed_fail_closed() {
 
     assert_eq!(all.n_queries_tested, 10);
     assert!(matches!(zero, LodestarError::RecallEmptyCorpus));
+    assert!(matches!(empty, LodestarError::RecallEmptyCorpus));
     assert_eq!(invalid_ratio.code(), "CALYX_RECALL_INVALID_PARAMS");
     assert_eq!(invalid_top_k.code(), "CALYX_RECALL_INVALID_PARAMS");
     assert_eq!(clock_first.held_out, clock_second.held_out);

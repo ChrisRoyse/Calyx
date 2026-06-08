@@ -60,6 +60,8 @@ pub enum LodestarError {
     RecallEmptyCorpus,
     #[error("CALYX_RECALL_INVALID_PARAMS: {detail}")]
     RecallInvalidParams { detail: String },
+    #[error("CALYX_KERNEL_RECALL_BELOW_GATE: ratio={ratio:.6} min={min:.6}")]
+    RecallBelowGate { ratio: f32, min: f32 },
     #[error("CALYX_COLLECTION_NOT_FOUND: collection {id} was not found")]
     CollectionNotFound { id: String },
     #[error("CALYX_SCOPE_TEMPORAL_NOT_READY: time-window scope metadata is not initialized")]
@@ -103,6 +105,7 @@ impl LodestarError {
             Self::KernelLoomAgreementInvalid { .. } => "CALYX_KERNEL_LOOM_AGREEMENT_INVALID",
             Self::RecallEmptyCorpus => "CALYX_RECALL_EMPTY_CORPUS",
             Self::RecallInvalidParams { .. } => "CALYX_RECALL_INVALID_PARAMS",
+            Self::RecallBelowGate { .. } => "CALYX_KERNEL_RECALL_BELOW_GATE",
             Self::CollectionNotFound { .. } => "CALYX_COLLECTION_NOT_FOUND",
             Self::ScopeTemporalNotReady => "CALYX_SCOPE_TEMPORAL_NOT_READY",
             Self::ScopeDepthExceeded { .. } => "CALYX_SCOPE_DEPTH_EXCEEDED",
