@@ -1,6 +1,6 @@
 //! Canonical ledger entry structure and hash framing.
 
-use calyx_core::{CxId, LensId};
+use calyx_core::{CalyxError, CxId, LensId, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::kind::EntryKind;
@@ -13,6 +13,8 @@ pub(crate) const TAG_GUARD: u8 = 3;
 pub(crate) const TAG_QUERY: u8 = 4;
 pub(crate) const TAG_AGENT: u8 = 0;
 pub(crate) const TAG_SERVICE: u8 = 1;
+pub(crate) const TAG_SYSTEM: u8 = 2;
+const MAX_ACTOR_ID_BYTES: usize = 64;
 
 /// Tagged subject identifier for the ledger entry's primary object.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -53,6 +55,7 @@ impl SubjectId {
 pub enum ActorId {
     Agent(String),
     Service(String),
+    System,
 }
 
 impl ActorId {
@@ -60,12 +63,25 @@ impl ActorId {
         match self {
             Self::Agent(_) => TAG_AGENT,
             Self::Service(_) => TAG_SERVICE,
+            Self::System => TAG_SYSTEM,
         }
     }
 
     pub(crate) fn wire_bytes(&self) -> &[u8] {
         match self {
             Self::Agent(value) | Self::Service(value) => value.as_bytes(),
+            Self::System => &[],
+        }
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        let len = self.wire_bytes().len();
+        if len <= MAX_ACTOR_ID_BYTES {
+            Ok(())
+        } else {
+            Err(CalyxError::ledger_actor_too_long(format!(
+                "actor id has {len} UTF-8 bytes, max {MAX_ACTOR_ID_BYTES}"
+            )))
         }
     }
 
@@ -217,6 +233,7 @@ mod tests {
 
     fn actor_strategy() -> impl Strategy<Value = ActorId> {
         prop_oneof![
+            Just(ActorId::System),
             "[a-z0-9_-]{0,32}".prop_map(ActorId::Agent),
             "[a-z0-9_-]{0,32}".prop_map(ActorId::Service),
         ]

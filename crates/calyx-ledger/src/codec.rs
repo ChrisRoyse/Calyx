@@ -4,7 +4,7 @@ use calyx_core::{CalyxError, CxId, LensId, Result};
 
 use crate::entry::{
     ActorId, HASH_BYTES, LedgerEntry, SubjectId, TAG_AGENT, TAG_CX, TAG_GUARD, TAG_KERNEL,
-    TAG_LENS, TAG_QUERY, TAG_SERVICE,
+    TAG_LENS, TAG_QUERY, TAG_SERVICE, TAG_SYSTEM,
 };
 use crate::kind::EntryKind;
 
@@ -124,6 +124,8 @@ fn decode_actor(tag: u8, bytes: &[u8]) -> Result<ActorId> {
     match tag {
         TAG_AGENT => Ok(ActorId::Agent(value)),
         TAG_SERVICE => Ok(ActorId::Service(value)),
+        TAG_SYSTEM if bytes.is_empty() => Ok(ActorId::System),
+        TAG_SYSTEM => Err(corrupt("system actor must have zero actor bytes")),
         _ => Err(corrupt(format!("invalid actor tag {tag}"))),
     }
 }
@@ -258,6 +260,7 @@ mod tests {
 
     fn actor_strategy() -> impl Strategy<Value = ActorId> {
         prop_oneof![
+            Just(ActorId::System),
             "[a-z0-9_-]{0,32}".prop_map(ActorId::Agent),
             "[a-z0-9_-]{0,32}".prop_map(ActorId::Service),
         ]
@@ -296,6 +299,15 @@ mod tests {
                 vec![0],
                 ActorId::Service(String::new()),
                 u64::MAX,
+            ),
+            LedgerEntry::new(
+                8,
+                [2; HASH_BYTES],
+                EntryKind::Admin,
+                SubjectId::Guard(Vec::new()),
+                vec![1],
+                ActorId::System,
+                1,
             ),
         ];
         for entry in entries {
