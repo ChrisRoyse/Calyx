@@ -1,7 +1,8 @@
 use super::*;
 use calyx_core::{AbsentReason, CxFlags, InputRef, LedgerRef, Modality, SlotVector, VaultStore};
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -39,7 +40,76 @@ fn durable_open_empty_dir_starts_at_zero() {
         .expect("open empty durable");
 
     assert_eq!(vault.snapshot(), 0);
+    assert_eq!(vault.recovery_report().last_recovered_seq, 0);
+    assert_eq!(vault.recovery_report().torn_tail, None);
     cleanup(dir);
+}
+
+#[test]
+fn open_reports_torn_tail_through_recovery_report() {
+    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let dir = fsv_root.as_ref().map_or_else(
+        || test_dir("open-torn-tail-report"),
+        |root| {
+            let dir = root.join("open-torn-tail-report").join("vault");
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("create fsv vault");
+            dir
+        },
+    );
+    let vault = AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect("open durable");
+    let cx = sample_constellation();
+    let id = cx.cx_id;
+    vault.put(cx.clone()).expect("durable put");
+    vault.flush().expect("flush durable");
+    drop(vault);
+
+    let wal_path = dir.join("wal/00000000000000000000.wal");
+    let before_torn_bytes = fs::metadata(&wal_path).expect("wal metadata").len();
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&wal_path)
+        .expect("open wal for torn append");
+    file.write_all(b"CXW1partial").expect("write torn bytes");
+    file.sync_data().expect("fsync torn bytes");
+    drop(file);
+    let after_torn_bytes = fs::metadata(&wal_path).expect("wal metadata").len();
+
+    let reopened =
+        AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).expect("cold open");
+    let report = reopened.recovery_report();
+    let tail = report.torn_tail.as_ref().expect("torn tail reported");
+    let truncated_bytes = fs::metadata(&wal_path).expect("wal metadata").len();
+    let got = reopened
+        .get(id, reopened.snapshot())
+        .expect("get recovered");
+
+    assert_eq!(report.last_recovered_seq, 1);
+    assert_eq!(tail.code, "CALYX_ASTER_TORN_WAL");
+    assert_eq!(tail.offset, before_torn_bytes);
+    assert_eq!(truncated_bytes, before_torn_bytes);
+    assert!(after_torn_bytes > before_torn_bytes);
+    assert_eq!(got.cx_id, id);
+    if let Some(root) = fsv_root {
+        let readback = serde_json::json!({
+            "snapshot": reopened.snapshot(),
+            "last_recovered_seq": report.last_recovered_seq,
+            "torn_code": tail.code,
+            "torn_offset": tail.offset,
+            "before_torn_bytes": before_torn_bytes,
+            "after_torn_bytes": after_torn_bytes,
+            "truncated_bytes": truncated_bytes,
+            "cx_id": id.to_string(),
+        });
+        fs::write(
+            root.join("open-torn-tail-report-readback.json"),
+            serde_json::to_vec_pretty(&readback).unwrap(),
+        )
+        .unwrap();
+    } else {
+        cleanup(dir);
+    }
 }
 
 fn sample_constellation() -> Constellation {

@@ -33,6 +33,7 @@ pub(super) struct RecoveredBatch {
 pub(super) struct RecoveredBatches {
     pub batches: Vec<RecoveredBatch>,
     pub last_recovered_seq: u64,
+    pub torn_tail: Option<crate::wal::TornTail>,
 }
 
 impl DurableVault {
@@ -80,6 +81,7 @@ impl DurableVault {
             return Ok(RecoveredBatches {
                 batches,
                 last_recovered_seq: recovery.last_recovered_seq,
+                torn_tail: recovery.torn_tail,
             });
         }
 
@@ -98,6 +100,7 @@ impl DurableVault {
         Ok(RecoveredBatches {
             batches,
             last_recovered_seq,
+            torn_tail: replay.torn_tail,
         })
     }
 

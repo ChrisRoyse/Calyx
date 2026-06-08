@@ -89,8 +89,10 @@ fn compaction_report_tracks_debt_and_write_amplification() {
     let dir = test_dir("report");
     let first = dir.join("l0-a.sst");
     let second = dir.join("l0-b.sst");
-    write_sst(&first, [(b"a".as_slice(), b"one".as_slice())]).expect("write first");
-    write_sst(&second, [(b"b".as_slice(), b"two".as_slice())]).expect("write second");
+    let first_value = vec![b'a'; 8192];
+    let second_value = vec![b'b'; 8192];
+    write_sst(&first, [(b"a".as_slice(), first_value.as_slice())]).expect("write first");
+    write_sst(&second, [(b"b".as_slice(), second_value.as_slice())]).expect("write second");
     let shards = vec![
         SstShard::new(ColumnFamily::Base, &first, 0).unwrap(),
         SstShard::new(ColumnFamily::Base, &second, 0).unwrap(),
@@ -110,7 +112,25 @@ fn compaction_report_tracks_debt_and_write_amplification() {
     assert!(report.input_bytes > 0);
     assert!(report.output_bytes > 0);
     assert!(report.write_amp_milli > 0);
+    assert!(report.write_amp_milli <= CompactionSchedulerOptions::default().max_write_amp_milli);
     assert_eq!(report.staging_parent, dir);
+    if let Some(root) = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from) {
+        fs::write(
+            root.join("compaction-write-amp-readback.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "input_files": report.input_files,
+                "input_bytes": report.input_bytes,
+                "output_bytes": report.output_bytes,
+                "logical_bytes": report.logical_bytes,
+                "write_amp_milli": report.write_amp_milli,
+                "max_write_amp_milli": CompactionSchedulerOptions::default().max_write_amp_milli,
+                "within_bound": report.write_amp_milli
+                    <= CompactionSchedulerOptions::default().max_write_amp_milli,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
     cleanup(dir);
 }
 

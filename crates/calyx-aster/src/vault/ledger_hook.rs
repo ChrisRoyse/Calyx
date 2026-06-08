@@ -110,6 +110,7 @@ mod tests {
         let mut hook = recover_hook(&RecoveredBatches {
             batches: Vec::new(),
             last_recovered_seq: 0,
+            torn_tail: None,
         })
         .expect("recover empty hook");
         let ledger_ref = hook
