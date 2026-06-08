@@ -20,6 +20,10 @@
 > Post-sweep hardening #291 makes that scope mandatory for persisted Assay CF
 > rows and makes KSG/logistic estimators reject ragged or non-finite sample
 > matrices before computing bits.
+> Post-sweep hardening #294 gates Assay trust tags on grounded Anchor evidence:
+> no-anchor estimators/report helpers are `provisional`; anchor-aware paths emit
+> `trusted` only for non-empty finite-confidence anchors. FSV root:
+> `/home/croyse/calyx/data/fsv-issue294-assay-grounded-trust-20260608`.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -60,7 +64,9 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
 - **Post-sweep note.** Persisted Assay rows now include vault and anchor scope
   in the cache key and in the physical Aster Assay CF key (#287); unscoped
   rows fail closed before persistence/load, and estimator sample matrices must
-  be finite and rectangular (#291).
+  be finite and rectangular (#291). KSG/logistic estimates are `provisional`
+  without an Anchor; the `_with_anchor` variants emit `trusted` only for
+  grounded Anchor evidence (#294).
 - **FSV gate.** MI on a **planted-signal synthetic** is within CI of the known
   value; n<50 fails closed (no noisy point estimate).
 - **Axioms/PRD.** A2 (grounded only), A16, `07 §2`.
@@ -91,7 +97,9 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
 - **Post-sweep note.** Sufficiency and bit reports remain anchor-explicit; the
   backing AssayStore now prevents same-panel/shard/subject collisions across
   vaults or anchors (#287), and persisted rows without vault scope are rejected
-  with `CALYX_VAULT_ACCESS_DENIED` (#291).
+  with `CALYX_VAULT_ACCESS_DENIED` (#291). No-anchor report helpers downgrade
+  requested `trusted` tags to `provisional`; use the anchor-aware helpers to
+  report grounded trusted bits (#294).
 - **FSV gate.** `abundance_report` prints the four honest numbers; a known-
   insufficient panel (`I≪H`) is flagged with the per-slot deficit (read it);
   trusted bits only when grounded (else `provisional`).

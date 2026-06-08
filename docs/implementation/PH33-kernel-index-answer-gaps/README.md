@@ -33,7 +33,9 @@ kernel search, `kernel_answer`, `grounding_gaps`, the recall harness, and the
 implementation is `FsKernelStore`, which writes
 `idx/kernel/<kernel_id>/index.json` under the configured root; moving this into
 an Aster column-family/ANN shard is a later storage integration seam, not the
-current PH33 T01 source of truth.
+current PH33 T01 source of truth. Stage 6 consumers can treat Assay `trusted`
+bits as grounded-only after #294; any Assay output without grounded Anchor
+evidence is `provisional` and must not be used as a trusted kernel signal.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -87,5 +89,9 @@ current PH33 T01 source of truth.
 - **Groundedness distance:** `grounding_gaps` accepts a bounded anchor distance.
   Build-pipeline groundedness currently has follow-up #298 to ensure the same
   bound is enforced when reporting kernel groundedness.
+- **Assay trust handoff:** Lodestar may consume Assay `trusted` bits only from
+  anchor-aware estimates/reports. No-anchor or ungrounded Assay results are
+  intentionally `provisional` after #294 and cannot satisfy grounded kernel
+  evidence requirements.
 - **Provenance stamp per hop:** PH33 fills structured provenance references; #239
   remains open until PH35/PH36 provide real Ledger appends and readback.

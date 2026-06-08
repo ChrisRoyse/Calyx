@@ -1,9 +1,9 @@
 //! Binary outcome logistic-probe MI estimator.
 
-use calyx_core::{CalyxError, Result};
+use calyx_core::{Anchor, CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::estimate::{EstimatorKind, MiEstimate, TrustTag};
+use crate::estimate::{EstimatorKind, MiEstimate, TrustTag, trust_for_anchor};
 use crate::ksg::MIN_ASSAY_SAMPLES;
 use crate::samples::validate_rectangular_finite;
 
@@ -15,6 +15,22 @@ pub struct LogisticProbeReport {
 }
 
 pub fn logistic_probe_mi(samples: &[Vec<f32>], labels: &[bool]) -> Result<LogisticProbeReport> {
+    logistic_probe_mi_with_trust(samples, labels, TrustTag::Provisional)
+}
+
+pub fn logistic_probe_mi_with_anchor(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    anchor: &Anchor,
+) -> Result<LogisticProbeReport> {
+    logistic_probe_mi_with_trust(samples, labels, trust_for_anchor(Some(anchor)))
+}
+
+fn logistic_probe_mi_with_trust(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    trust: TrustTag,
+) -> Result<LogisticProbeReport> {
     if samples.len() != labels.len() || samples.len() < MIN_ASSAY_SAMPLES {
         return Err(CalyxError::assay_insufficient_samples(format!(
             "need at least {MIN_ASSAY_SAMPLES} labeled samples"
@@ -51,7 +67,7 @@ pub fn logistic_probe_mi(samples: &[Vec<f32>], labels: &[bool]) -> Result<Logist
             bits + 0.05,
             labels.len(),
             EstimatorKind::LogisticProbe,
-            TrustTag::Trusted,
+            trust,
         ),
         accuracy,
         selected_field: "logistic_probe",

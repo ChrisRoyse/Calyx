@@ -42,6 +42,13 @@ and anchor scope. The FSV readback records `all_rows_scoped`, `vault_scope`, and
 `anchor_scope`, plus malformed-estimator edge codes for short, ragged, and
 non-finite samples.
 
+Post-sweep #294 requires grounded Anchor evidence before Assay emits
+`TrustTag::Trusted`. No-anchor KSG/logistic/gate/report helpers return
+`Provisional` even if a caller requests `Trusted`; anchor-aware helpers return
+`Trusted` only when the Anchor has a non-empty source and finite confidence in
+`(0, 1]`. FSV root:
+`/home/croyse/calyx/data/fsv-issue294-assay-grounded-trust-20260608`.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
@@ -83,10 +90,11 @@ non-finite samples.
 
 3. **Trusted bits only when grounded:**
    ```
-   cargo test bits_trust_grounded_vs_provisional -- --nocapture
+   cargo test -p calyx-assay assay_trust -- --nocapture
    ```
-   Bits against a grounded anchor → `Trusted`; bits against an auto-labeled
-   anchor → `Provisional`; the distinction is byte-readable in the assay CF.
+   Bits against a grounded anchor -> `Trusted`; absent, empty-source, and
+   over-confident anchors -> `Provisional`; the distinction is byte-readable in
+   the assay CF and the report helper readback.
 
 Evidence (all three readbacks) attached to PH30 GitHub issue.
 

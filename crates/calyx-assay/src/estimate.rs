@@ -1,5 +1,6 @@
 //! Shared Assay estimate types.
 
+use calyx_core::{Anchor, CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,4 +57,33 @@ impl MiEstimate {
         let band = (bits.abs() * 0.15).max(0.02);
         Self::new(bits, bits - band, bits + band, n_samples, estimator, trust)
     }
+}
+
+pub fn trust_for_anchor(anchor: Option<&Anchor>) -> TrustTag {
+    if anchor.is_some_and(is_grounded_anchor) {
+        TrustTag::Trusted
+    } else {
+        TrustTag::Provisional
+    }
+}
+
+pub fn provisional_without_anchor(_requested: TrustTag) -> TrustTag {
+    TrustTag::Provisional
+}
+
+pub fn require_grounded_anchor(anchor: &Anchor) -> Result<TrustTag> {
+    if is_grounded_anchor(anchor) {
+        Ok(TrustTag::Trusted)
+    } else {
+        Err(CalyxError::assay_insufficient_samples(
+            "trusted assay estimates require grounded anchor evidence",
+        ))
+    }
+}
+
+fn is_grounded_anchor(anchor: &Anchor) -> bool {
+    !anchor.source.trim().is_empty()
+        && anchor.confidence.is_finite()
+        && anchor.confidence > 0.0
+        && anchor.confidence <= 1.0
 }

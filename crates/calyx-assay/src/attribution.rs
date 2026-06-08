@@ -1,9 +1,9 @@
 //! Per-sensor signal attribution and bits reports.
 
-use calyx_core::SlotId;
+use calyx_core::{Anchor, SlotId};
 use serde::{Deserialize, Serialize};
 
-use crate::estimate::TrustTag;
+use crate::estimate::{TrustTag, provisional_without_anchor, trust_for_anchor};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SlotAttribution {
@@ -38,6 +38,14 @@ pub fn per_sensor_attribution(
 }
 
 pub fn bits_report(slots: Vec<SlotAttribution>, trust: TrustTag) -> BitsReport {
+    bits_report_with_trust(slots, provisional_without_anchor(trust))
+}
+
+pub fn bits_report_with_anchor(slots: Vec<SlotAttribution>, anchor: &Anchor) -> BitsReport {
+    bits_report_with_trust(slots, trust_for_anchor(Some(anchor)))
+}
+
+fn bits_report_with_trust(slots: Vec<SlotAttribution>, trust: TrustTag) -> BitsReport {
     BitsReport {
         total_bits: slots.iter().map(|slot| slot.marginal_bits).sum(),
         slots,
