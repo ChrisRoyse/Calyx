@@ -109,7 +109,9 @@ surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 `calyx-testkit`. Latest Stage 5 hardening: #318 wires seeded bootstrap CI
 through KSG/logistic/AssayGate/PairGain/persisted AssayStore rows, and #319
 adds the Aster-backed Assay materialization gate that feeds grounded PairGain
-into Loom xterm CF materialization.
+into Loom xterm CF materialization. Latest Stage 3/4 readiness hardening: #327
+makes PH20 lifecycle operations idempotent and prevents parked/retired slots
+from participating in Sextant search.
 
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in

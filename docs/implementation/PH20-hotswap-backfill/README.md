@@ -7,10 +7,11 @@
 
 Implement the core ergonomic win: `add_lens`, `retire_lens`, `park_lens`,
 and `unpark_lens` with **no global re-embed** and **no existing constellation
-rewritten**. New lenses are searchable immediately for new constellations;
-existing constellations are backfilled lazily in priority order (kernel/hot
-first, then by query frequency, throttled, resumable). `retire_lens` is a
-tombstone — history stays readable. Every operation bumps `panel_version`.
+rewritten**. Successful state-changing operations bump `panel_version`; exact
+repeat adds and repeated lifecycle calls are idempotent no-ops. New lenses are
+searchable immediately for new constellations; existing constellations are
+backfilled lazily in priority order (kernel/hot first, then by query frequency,
+throttled, resumable). `retire_lens` is a tombstone — history stays readable.
 
 ## Dependencies
 
@@ -35,6 +36,11 @@ state can mutate. #315 persists scheduler JSON through temp-file/fsync/rename
 and fails closed on corrupt persisted scheduler state. #321 makes scheduler
 mutations transactional, so a persist failure after the scheduler rename restores
 the prior scheduler JSON before durable hot-swap rollback returns an error.
+#327 makes PH20 lifecycle semantics explicit: identical live `add_lens` calls
+return the existing slot without panel-version or backfill mutation; repeated
+park/unpark/retire calls are no-ops; park/retire cancels pending backfill for the
+slot; and Sextant excludes parked/retired slots from default search while
+returning `CALYX_SEXTANT_SLOT_INACTIVE` for explicit inactive-slot searches.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env.
@@ -70,8 +76,9 @@ the prior scheduler JSON before durable hot-swap rollback returns an error.
    enqueue, after first batch, and after restart-resume to prove priority order,
    throttle, and completion state.
 5. `retire_lens` → `SlotState::Retired`; historical constellations still
-   readable from their slot columns; `panel_version` incremented. Reopen the
-   durable Aster vault and read the backfilled slot CF rows again.
+   readable from their slot columns; `panel_version` increments only on the
+   first state-changing retire. Reopen the durable Aster vault and read the
+   backfilled slot CF rows again.
 6. Attempt `add_lens_durable` with an unregistered `LensId`; read panel version,
    slot count, queue length, and scheduler JSON bytes before/after to prove no
    mutation and `CALYX_LENS_FROZEN_VIOLATION`.
@@ -106,8 +113,9 @@ on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-atomic-readback.json`.
   scheduler JSON must fail closed, not fabricate an empty queue. Persist errors
   during mutation must restore previous scheduler bytes before caller rollback
   proceeds.
-- **panel_version monotonicity:** all four swap operations must bump the
-  version; assert monotone increase in tests.
+- **panel_version monotonicity:** all four swap operations must bump the version
+  only when they change state; idempotent repeats must leave the version
+  unchanged. Assert monotone/no-op behavior in tests.
 - **Retire ≠ delete:** columns for retired slots are kept until GC policy
   prunes them (PH58); fail loudly if any code path deletes slot CF data on
   retire.

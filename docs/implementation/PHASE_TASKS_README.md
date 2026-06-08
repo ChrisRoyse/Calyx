@@ -7,10 +7,11 @@ for the structure under `docs/implementation/PHnn-*/`.
 > Stage 0 (PH00–PH04: `calyx-core` + Aster scaffolding) is **already built** and
 > is intentionally **not** covered here. These cards cover **PH05 → PH72**.
 >
-> **Current (2026-06-07):** Stage 1 (PH05–PH11, `calyx-aster`) is also **DONE**
-> and FSV-signed-off — those cards are complete (see each phase README's
-> "Status — DONE" and `11_STAGE1_ASTER.md`). **Active work starts at
-> `PH12-cpu-simd-backend/` (Stage 2, Forge).**
+> **Current (2026-06-08):** Stages 1–5 (PH05–PH30) are **DONE** and
+> FSV-signed-off on aiwonder, including post-sweep hardening through #327.
+> Active implementation is tracked in GitHub issues: Stage 6 Lodestar remains
+> open only for Ledger-dependent #239/#240, while Stage 7 Ledger continues at
+> #244 after #242/#243.
 
 ---
 

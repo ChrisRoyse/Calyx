@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId,
-    SlotVector, VaultId,
+    SlotState, SlotVector, VaultId,
 };
 use calyx_sextant::fusion::{
     profiles::{AP60_TEMPORAL_PRIMARY_SLOTS, is_ap60_temporal_primary_slot, lookup},
@@ -12,9 +12,9 @@ use calyx_sextant::fusion::{
 };
 use calyx_sextant::{
     CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_PLAN_COST_EXCEEDED, CALYX_SEXTANT_PLAN_UNBOUNDED,
-    CALYX_SEXTANT_SLOT_ALREADY_REGISTERED, CALYX_SEXTANT_SLOT_MISSING, FusionContext,
-    FusionStrategy, HnswIndex, IndexSearchHit, PlanLimits, Query, QueryPlanner, RrfProfile,
-    SearchEngine, SlotIndexMap, weighted_profiles,
+    CALYX_SEXTANT_SLOT_ALREADY_REGISTERED, CALYX_SEXTANT_SLOT_INACTIVE, CALYX_SEXTANT_SLOT_MISSING,
+    FusionContext, FusionStrategy, HnswIndex, IndexSearchHit, PlanLimits, Query, QueryPlanner,
+    RrfProfile, SearchEngine, SlotIndexMap, weighted_profiles,
 };
 use serde_json::json;
 
@@ -166,6 +166,52 @@ fn slot_map_duplicate_registration_and_empty_search_fail_closed() {
     assert_eq!(duplicate.code, CALYX_SEXTANT_SLOT_ALREADY_REGISTERED);
     assert_eq!(missing.code, CALYX_SEXTANT_SLOT_MISSING);
     assert_eq!(no_lenses.code, CALYX_SEXTANT_NO_LENSES);
+}
+
+#[test]
+fn inactive_slots_are_excluded_and_fail_closed_when_explicit() {
+    let map = SlotIndexMap::new();
+    map.register(HnswIndex::new(SlotId::new(8), 3, 42)).unwrap();
+    let cx_id = _cx(0x44);
+    map.insert(SlotId::new(8), cx_id, dense_vec(1.0, 3), 1)
+        .unwrap();
+
+    map.set_slot_state(SlotId::new(8), SlotState::Parked)
+        .unwrap();
+    let direct = map
+        .search(SlotId::new(8), &dense_vec(1.0, 3), 1, Some(4))
+        .unwrap_err();
+    let default_search = SearchEngine::new(map.clone())
+        .search(&Query::new("parked slot").with_vector(dense_vec(1.0, 3)))
+        .unwrap_err();
+    let mut explicit = Query::new("parked slot")
+        .with_vector(dense_vec(1.0, 3))
+        .with_slots(vec![SlotId::new(8)]);
+    explicit.k = 1;
+    explicit.ef = Some(4);
+    let explicit_search = SearchEngine::new(map.clone())
+        .search(&explicit)
+        .unwrap_err();
+
+    println!(
+        "STAGE4_SLOT_INACTIVE direct={} default={} explicit={}",
+        direct.code, default_search.code, explicit_search.code
+    );
+    write_readback(
+        "stage4-slot-inactive-readback.json",
+        json!({
+            "registered_slots": map.registered_slots(),
+            "active_slots": map.slots(),
+            "slot_state": format!("{:?}", map.slot_state(SlotId::new(8)).unwrap()),
+            "direct_search": direct.code,
+            "default_search": default_search.code,
+            "explicit_search": explicit_search.code,
+        }),
+    );
+
+    assert_eq!(direct.code, CALYX_SEXTANT_SLOT_INACTIVE);
+    assert_eq!(default_search.code, CALYX_SEXTANT_NO_LENSES);
+    assert_eq!(explicit_search.code, CALYX_SEXTANT_SLOT_INACTIVE);
 }
 
 #[test]

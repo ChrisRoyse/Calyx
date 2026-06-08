@@ -18,12 +18,17 @@ constellations written through `put` land in `base` + `slot_*` + `anchors` +
 re-ingest of identical input is idempotent on disk. The `calyx ingest` and
 `calyx readback` commands are the verification tools.
 
+Post-sweep clarification #327: PH09's implementation and aiwonder FSV are
+complete through `AsterVault`, `vault-demo`, and byte readbacks. The fully
+polished `calyx ingest` / `calyx anchor` commands are tracked under PH62 CLI
+interfaces, so their absence is not a Stage 1 storage-core blocker.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `calyx ingest --vault <path> --input <text> --slot <dim> <f32...>`
+- [ ] PH62-owned interface: add `calyx ingest --vault <path> --input <text> --slot <dim> <f32...>`
   CLI subcommand: creates an `AsterVault`, calls `put` with a synthetic
   constellation (one dense slot with the specified values), prints `CxId: <hex>`.
-- [ ] Add `calyx anchor --vault <path> --cx-id <hex> --kind reward --value 1.0`
+- [ ] PH62-owned interface: add `calyx anchor --vault <path> --cx-id <hex> --kind reward --value 1.0`
   CLI subcommand: calls `vault.anchor(...)`.
 - [ ] Write an end-to-end test (spawns CLI processes or calls vault API directly)
   that exercises the full cycle: ingest → flush → cold-open → get → anchor → get.
@@ -49,7 +54,9 @@ re-ingest of identical input is idempotent on disk. The `calyx ingest` and
 
 - **SoT:** `vault/cf/base/`, `vault/cf/slot_00/`, `vault/cf/anchors/`,
   `vault/cf/ledger/` under `/home/croyse/calyx/test-vault/`.
-- **Readback:**
+- **Readback:** current Stage 1 evidence uses `vault-demo`, direct
+  `AsterVault` readbacks, `calyx readback`, and `xxd`. The command sketch below
+  is the PH62 product CLI shape, not a PH09 blocker:
   ```
   calyx ingest --vault /home/croyse/calyx/test-vault --input "fsv-test" --slot 4 0.1 0.2 0.3 0.4
   calyx readback --cf base --vault /home/croyse/calyx/test-vault
@@ -63,8 +70,8 @@ re-ingest of identical input is idempotent on disk. The `calyx ingest` and
   decoded value header shows `panel_version` and `modality` matching the input.
   `slot_00` SST contains the 4 f32 values (`0.1, 0.2, 0.3, 0.4`) as raw
   big-endian bytes. `ledger` SST has seq=1 row with 32 zero bytes. `anchors` SST
-  has the reward anchor after `calyx anchor`. Evidence screenshot posted to PH09
-  GitHub issue.
+  has the reward anchor after an anchor write. Evidence posted to PH09 GitHub
+  issue.
 
 ## Done when
 

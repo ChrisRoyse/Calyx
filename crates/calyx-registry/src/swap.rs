@@ -149,6 +149,20 @@ impl SwapController {
     where
         I: IntoIterator<Item = BackfillCandidate>,
     {
+        if let Some(slot) = identical_live_slot(&self.panel, &spec) {
+            ensure_registered_lens(registry, &spec)?;
+            return Ok(AddLensOutcome {
+                slot: slot.clone(),
+                panel_version: self.panel.version,
+                index: IndexPlaceholder {
+                    slot_id: slot.slot_id,
+                    lens_id: slot.lens_id,
+                    ready: true,
+                    queued: 0,
+                },
+                queued: 0,
+            });
+        }
         ensure_unique_slot(&self.panel, &spec)?;
         ensure_registered_lens(registry, &spec)?;
         let slot_id = next_slot_id(&self.panel)?;
@@ -202,6 +216,9 @@ impl SwapController {
         let queue_before = self.queue.clone();
         let scheduler_before = scheduler.clone();
         let outcome = self.add_lens(registry, spec, candidates.iter().copied(), now)?;
+        if outcome.index.ready && outcome.queued == 0 {
+            return Ok(outcome);
+        }
         let request = BackfillRequest {
             slot_id: outcome.slot.slot_id,
             lens_id: outcome.slot.lens_id,
@@ -236,8 +253,25 @@ impl SwapController {
         now: Ts,
     ) -> Result<LifecycleOutcome> {
         let index = self.slot_index(slot_id)?;
+        let current = self.panel.slots[index].state;
+        if current == state {
+            return Ok(LifecycleOutcome {
+                slot_id,
+                lens_id: self.panel.slots[index].lens_id,
+                state,
+                panel_version: self.panel.version,
+            });
+        }
+        if current == SlotState::Retired {
+            return Err(CalyxError::lens_frozen_violation(format!(
+                "slot {slot_id} is retired and cannot transition to {state:?}"
+            )));
+        }
         let version = self.bump_panel(now)?;
         self.panel.slots[index].state = state;
+        if state != SlotState::Active {
+            self.queue.cancel_slot(slot_id);
+        }
         Ok(LifecycleOutcome {
             slot_id,
             lens_id: self.panel.slots[index].lens_id,
@@ -336,6 +370,13 @@ impl BackfillQueue {
         self.count_state(BackfillState::Complete)
     }
 
+    pub fn cancel_slot(&mut self, slot_id: SlotId) -> usize {
+        let before = self.tasks.len();
+        self.tasks
+            .retain(|_, task| task.slot_id != slot_id || task.state == BackfillState::Complete);
+        before - self.tasks.len()
+    }
+
     pub fn tasks(&self) -> impl Iterator<Item = &BackfillTask> {
         self.tasks.values()
     }
@@ -362,6 +403,21 @@ impl BackfillQueue {
             .get_mut(&id)
             .ok_or_else(|| CalyxError::stale_derived(format!("backfill task {} is missing", id.0)))
     }
+}
+
+fn identical_live_slot<'a>(panel: &'a Panel, spec: &SlotSpec) -> Option<&'a Slot> {
+    panel.slots.iter().find(|slot| {
+        slot.state != SlotState::Retired
+            && slot.slot_key.key() == spec.key
+            && slot.lens_id == spec.lens_id
+            && slot.shape == spec.shape
+            && slot.modality == spec.modality
+            && slot.asymmetry == spec.asymmetry
+            && slot.quant == spec.quant
+            && slot.axis == spec.axis
+            && slot.retrieval_only == spec.retrieval_only
+            && slot.excluded_from_dedup == spec.excluded_from_dedup
+    })
 }
 
 fn ensure_unique_slot(panel: &Panel, spec: &SlotSpec) -> Result<()> {

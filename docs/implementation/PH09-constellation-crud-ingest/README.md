@@ -27,6 +27,11 @@ Shipped in `calyx-aster`:
 
 FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
+Post-sweep clarification #327: the Stage 1 FSV evidence uses the current
+`vault-demo`/readback paths plus direct `AsterVault` byte readbacks. The polished
+`calyx ingest` / `calyx anchor` user-facing commands are PH62 interface work and
+are not a PH09 implementation blocker.
+
 ### Resolved follow-up
 - The PH35 Ledger-stub row now lives in `vault/ledger_stub.rs`; the real hash-chain still lands in PH35.
 
@@ -55,12 +60,9 @@ FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root
 Put N constellations; restart the vault process (kill and reopen);
 read each back byte-exact:
 
-```
-calyx ingest --vault /home/croyse/calyx/test-vault --input "hello world"
-calyx readback --cf base --vault /home/croyse/calyx/test-vault
-calyx readback --cf slot_00 --vault /home/croyse/calyx/test-vault
-xxd /home/croyse/calyx/test-vault/cf/base/000001.sst | head -4
-```
+The original product-facing command sketch is `calyx ingest` + `calyx readback`;
+the implemented Stage 1 proof uses `vault-demo`, `calyx readback`, and `xxd` over
+the same vault CF bytes until PH62 expands the full CLI surface.
 
 Re-ingest the same input: the output CxId is identical; the SST does not grow.
 Anchors land in `anchors` CF. Evidence posted to PH09 GitHub issue.

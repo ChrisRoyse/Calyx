@@ -52,6 +52,9 @@ map.
 Post-sweep hardening #326 wires `PlannerExplain` into
 `SearchEngine::planned_explain_search`, so planner intent/strategy/cost/timeout
 and the executed provenanced hits are returned in one object.
+Post-sweep hardening #327 makes planner index-size estimation ignore inactive
+slots for default planned searches; parked/retired explicit slots still fail
+closed in execution with `CALYX_SEXTANT_SLOT_INACTIVE`.
 
 ## Deliverables (file plan, each ≤500 lines)
 

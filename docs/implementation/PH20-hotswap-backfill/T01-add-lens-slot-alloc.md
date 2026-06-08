@@ -30,6 +30,11 @@ Post-sweep #314: both add paths now require `&Registry` and verify the requested
 before any panel version, queue, or scheduler mutation. Unregistered or unfrozen
 lenses fail closed with `CALYX_LENS_FROZEN_VIOLATION`.
 
+Post-sweep #327: an identical live slot add is idempotent. It returns the
+existing slot, leaves `panel_version` unchanged, marks the index placeholder
+ready, and enqueues no duplicate backfill. Reusing the same live lens under a
+different slot key still fails closed.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [x] `pub fn add_lens_durable(controller, registry, spec, candidates, now, scheduler, priority) -> Result<AddLensOutcome>`:
@@ -45,17 +50,17 @@ lenses fail closed with `CALYX_LENS_FROZEN_VIOLATION`.
   8. Create empty ANN index placeholder (unit stub — real index in PH23).
   9. Enqueue persisted `BackfillRequest { slot_id, lens_id, priority, candidates }`.
   10. Return `Ok(id)`.
-- [ ] `SlotId` allocation: `registry.next_slot_id: SlotId` counter; increment
-  atomically; never reuse a retired slot's id within a vault lifetime.
-- [ ] `Registry` gains fields: `slot_map: HashMap<SlotId, LensId>`,
-  `panel_version: u32`, `next_slot_id: SlotId`, `backfill_queue: VecDeque<BackfillRequest>`.
+- [x] `SwapController` allocates `SlotId` from the current panel max and never
+  reuses a retired slot id within the panel lifetime.
+- [x] `SwapController` owns `Panel.version` plus the in-memory `BackfillQueue`;
+  `add_lens_durable` also persists the `BackfillScheduler` request.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [ ] unit: `add_lens` on a fresh registry → `panel_version` goes from 0 to 1;
   `slot_map` has one entry; `lenses` has one entry.
-- [ ] unit: `add_lens` same spec twice → second call returns same `LensId`;
-  `panel_version` stays at 1 (idempotent).
+- [x] unit: `add_lens` same spec twice → second call returns the same slot,
+  `panel_version` is unchanged, and no duplicate backfill is queued (#327).
 - [ ] unit: `add_lens` two different specs → `panel_version == 2`, two distinct
   `SlotId`s allocated.
 - [ ] proptest: `panel_version` after N `add_lens` calls (all unique specs) ==

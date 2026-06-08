@@ -29,7 +29,7 @@ estimate drives the cap enforcement in T03. The mapping is overridable per A17.
       Civic     → WeightedRRF("civic")
       Media     → WeightedRRF("media")
       Bridge    → WeightedRRF("bridge")
-      Kernel    → FusionStrategy::KernelFirst  (deferred to PH33; stub returns Rrf)
+      Kernel    → WeightedRRF("kernel")  (true KernelFirst traversal lands in PH33/PH68)
       Semantic  → Rrf
       Lexical   → WeightedRRF("lexical")
       Multimodal→ WeightedRRF("multimodal")
@@ -63,8 +63,9 @@ estimate drives the cap enforcement in T03. The mapping is overridable per A17.
 - [ ] unit: `plan` with explicit `query.fusion = Rrf` → `override_used=true`,
       `strategy=Rrf` regardless of query text
 - [ ] proptest: `estimate_cost` is non-negative for any valid inputs
-- [ ] edge: `intent_to_strategy(Kernel, map)` → `Rrf` stub (KernelFirst not yet
-      available; document "deferred to PH33")
+- [x] edge: `intent_to_strategy(Kernel, map)` → `WeightedRrf { profile: Kernel }`;
+      true KernelFirst traversal is not claimed by PH26 and is owned by
+      Lodestar/scale phases.
 - [ ] edge: `map.slots()` is empty → `CALYX_SEXTANT_NO_LENSES`
 - [ ] fail-closed: `plan` with a query that has no text and no anchor and no
       explicit slots → `CALYX_SEXTANT_NO_LENSES`

@@ -39,6 +39,10 @@
 > failure after the scheduler rename restores the previous scheduler JSON before
 > `add_lens_durable` rolls back panel and queue state. FSV root for #321:
 > `/home/croyse/calyx/data/fsv-issue321-durable-rollback-20260608`.
+> Post-sweep hardening #327 makes PH20 lifecycle operations idempotent where
+> appropriate: exact duplicate adds return the existing slot without mutation,
+> repeated park/unpark/retire calls do not keep bumping panel versions, and
+> park/retire cancels pending in-memory backfill for that slot.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
@@ -123,7 +127,9 @@ differentiation.
 - **FSV gate.** add a lens on a populated vault → **no existing constellation
   rewritten**, persisted scheduler JSON shows ordered/throttled/resumed
   backfill, reopened Aster slot CF reads show both backfilled vectors, and
-  retire tombstones while history stays readable.
+  retire tombstones while history stays readable. #327 adds lifecycle regression
+  coverage for idempotent duplicate add, no-op repeated lifecycle calls, and
+  pending backfill cancellation on park/retire.
 - **Axioms/PRD.** A5, `05 §3`, `17 §7.4` (backfill storm bounded).
 
 ## PH21 — Capability cards / profile

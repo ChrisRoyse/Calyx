@@ -67,6 +67,9 @@
 > plans first, executes the planned query, and returns planner intent/strategy/
 > cost/timeout with the executed provenanced hits in one readback object.
 > FSV root: `/home/croyse/calyx/data/fsv-issue326-planned-explain-path-20260608`.
+> Post-sweep hardening #327 adds slot lifecycle state to `SlotIndexMap`: parked
+> or retired slots are excluded from default search, and explicit inactive-slot
+> search/insert/rebuild returns `CALYX_SEXTANT_SLOT_INACTIVE`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -100,7 +103,8 @@ attention.
   itself; #299 readback records the explicit unavailable state.
 - **FSV gate.** insert N + search → recall vs brute-force ≥ target; current
   byte-readback p99 evidence is the 10,000-row HNSW FSV. A 1e6-cx SingleLens
-  benchmark remains future scale FSV.
+  benchmark remains future scale FSV. #327 proves parked/retired slots are not
+  searched by default and fail closed when explicitly requested.
 - **Axioms/PRD.** `10 §3`, `19 §4`.
 
 ## PH24 — RRF/WeightedRRF/SingleLens fusion + provenance hits

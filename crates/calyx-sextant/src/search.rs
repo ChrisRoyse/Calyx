@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{Anchor, CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
+use calyx_core::{Anchor, CalyxError, Constellation, CxId, Result, SlotId, SlotState, SlotVector};
 use zeroize::Zeroizing;
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
@@ -166,7 +166,13 @@ impl SearchEngine {
         let stats = self.indexes.stats();
         stats
             .iter()
-            .filter(|stats| query.slots.is_empty() || query.slots.contains(&stats.slot))
+            .filter(|stats| {
+                if query.slots.contains(&stats.slot) {
+                    return true;
+                }
+                query.slots.is_empty()
+                    && matches!(self.indexes.slot_state(stats.slot), Ok(SlotState::Active))
+            })
             .map(|stats| stats.len)
             .max()
             .unwrap_or(0)

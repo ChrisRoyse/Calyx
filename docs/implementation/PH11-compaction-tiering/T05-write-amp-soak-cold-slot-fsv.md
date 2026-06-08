@@ -18,11 +18,17 @@ physically exist under the archive path, and (3) write-amp stays ≤ 2× (score_
 ≤ 2000) on a 1000-op soak. This is the final proof that the storage core is
 production-ready for PH12+.
 
+Post-sweep clarification #327: the shipped `calyx soak` is a storage stress and
+readback tool over SST/WAL/tiering paths, while durable tier placement in normal
+vault writes is covered by `VaultOptions::tiering_policy` and #295. The older
+"ingest 1000 constellations" wording is the product-facing PH62 workflow shape,
+not a missing PH11 storage-core requirement.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `calyx soak --vault <path> --ops 1000 --threads 4` CLI subcommand:
-  concurrently ingest 1000 constellations across 4 threads; trigger compaction at
-  100-op intervals; after the soak, report `write_amp_milli` for each CF.
+- [x] Add `calyx soak --vault <path> --ops 1000 --threads 4` CLI subcommand:
+  run 1000 deterministic storage operations across worker threads, trigger
+  compaction at fixed intervals, and report `write_amp_milli` for each CF.
 - [ ] In the soak, assert that `CompactionReport::write_amp_milli ≤ 2000` for
   every compaction run (per-CF). Print each report to stdout.
 - [ ] Add `calyx compact --vault <path> --cf <name>` CLI subcommand that runs one
@@ -64,8 +70,8 @@ production-ready for PH12+.
   ```
 - **Prove:** Soak output shows `write_amp_milli ≤ 2000` for each CF compaction
   report line. Archive path contains ≥1 `.sst` file for cold CFs (e.g.,
-  `slot_00.raw`). `calyx readback --cf base` returns all 1000 ingested
-  constellations without error. No temp files (`*.sst.tmp`) remain in any CF dir.
+  `slot_00.raw`). `calyx readback --cf base` returns the persisted soak rows
+  without error. No temp files (`*.sst.tmp`) remain in any CF dir.
   Screenshot of soak report and archive directory listing posted to PH11 GitHub
   issue. This is the Stage 1 exit proof.
 

@@ -16,46 +16,50 @@ Implement `park_lens(slot_id)` and `unpark_lens(slot_id)`. Parked means: keep
 the slot and its data, do not measure it on new constellations, do not include
 it in search — low-signal / suspended. Unparking restores it to `Active` and
 re-enqueues backfill for any constellations added while it was parked. Both
-operations bump `panel_version`.
+state-changing operations bump `panel_version`; repeated no-op calls do not.
+
+Post-sweep #327: `SwapController::park_lens` and `unpark_lens` are idempotent
+when the slot is already in the requested state. `park_lens` cancels pending
+in-memory backfill for the slot; `unpark_lens` restores the state to Active
+without fabricating a synthetic backfill request. Full rescan/watermark backfill
+after unpark remains a later scheduler-policy extension. The current core error
+catalog uses `CALYX_LENS_FROZEN_VIOLATION` for unknown or retired lifecycle
+requests; a registry-specific not-found code would be a later catalog expansion.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn park_lens(registry: &mut Registry, slot_id: SlotId, store: &dyn VaultStore) -> Result<()>`:
-  1. Look up slot; if absent → `CALYX_REGISTRY_LENS_NOT_FOUND`.
-  2. If `Retired` → `CALYX_REGISTRY_LENS_NOT_FOUND` (cannot park a tombstone;
+- [x] `pub fn park_lens(&mut self, slot_id: SlotId, now: Ts) -> Result<LifecycleOutcome>`:
+  1. Look up slot; if absent → core lifecycle fail-closed error.
+  2. If `Retired` → core lifecycle fail-closed error (cannot park a tombstone;
      use descriptive remediation: "lens is retired; park is only valid for
      active or previously-parked lenses").
   3. If already `Parked` → no-op, `Ok(())`.
-  4. `registry.slot_states.insert(slot_id, SlotState::Parked)`.
-  5. Write CF header update (stub via `store`).
-  6. `registry.panel_version += 1`.
-  7. Cancel pending backfill for this slot (do not waste resources).
-- [ ] `pub fn unpark_lens(registry: &mut Registry, slot_id: SlotId, store: &dyn VaultStore) -> Result<()>`:
-  1. Look up slot; if absent or `Retired` → `CALYX_REGISTRY_LENS_NOT_FOUND`.
+  4. `panel.slots[index].state = SlotState::Parked`.
+  5. `panel.version += 1` only for the state change.
+  6. Cancel pending backfill for this slot (do not waste resources).
+- [x] `pub fn unpark_lens(&mut self, slot_id: SlotId, now: Ts) -> Result<LifecycleOutcome>`:
+  1. Look up slot; if absent or `Retired` → core lifecycle fail-closed error.
   2. If already `Active` → no-op, `Ok(())`.
-  3. `registry.slot_states.insert(slot_id, SlotState::Active)`.
-  4. Write CF header update.
-  5. `registry.panel_version += 1`.
-  6. Enqueue backfill for all constellations added since the slot was parked
-     (re-scan watermark: records with `AbsentReason::LensInactive` for this
-     slot). Stub: enqueue a full-scan `BackfillRequest` with `priority = Normal`.
-- [ ] `Registry::measure` already checks `SlotState::Parked` → returns
-  `AbsentReason::LensInactive` (from T02 implementation).
+  3. `panel.slots[index].state = SlotState::Active`.
+  4. `panel.version += 1` only for the state change.
+- [x] `SlotIndexMap` checks `SlotState::Parked` / `Retired` for search and
+  insert paths and returns `CALYX_SEXTANT_SLOT_INACTIVE` (#327).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [ ] unit: `add_lens` → `park_lens` → `slot_states[slot_id] == Parked`,
   `panel_version == 2`.
-- [ ] unit: `park_lens` already-parked → no-op, `panel_version` unchanged.
-- [ ] unit: `park_lens` on retired slot → `CALYX_REGISTRY_LENS_NOT_FOUND`.
-- [ ] unit: `park_lens` then `unpark_lens` → `slot_states == Active`,
-  `panel_version == 3`; backfill queue has new entry.
-- [ ] unit: `unpark_lens` already-active slot → no-op, `panel_version`
+- [x] unit: `park_lens` already-parked → no-op, `panel_version` unchanged.
+- [x] unit: `park_lens`/`unpark_lens` on retired slot →
+  `CALYX_LENS_FROZEN_VIOLATION` in the current core catalog (#327).
+- [x] unit: `park_lens` then `unpark_lens` → `slot.state == Active`,
+  `panel_version == 3`; queue mutation is not fabricated on unpark.
+- [x] unit: `unpark_lens` already-active slot → no-op, `panel_version`
   unchanged.
 - [ ] edge (≥3): (1) park → measure returns `LensInactive`; (2) unpark →
   measure returns a real vector; (3) `panel_version` sequence for
   add+park+unpark is strictly 1, 2, 3.
-- [ ] fail-closed: park on unknown slot → `CALYX_REGISTRY_LENS_NOT_FOUND`.
+- [ ] fail-closed: park on unknown slot → exact core lifecycle error.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

@@ -65,10 +65,9 @@ written record's bytes absent (segment truncated to last good record boundary).
 ## Risks / landmines
 
 - `sync_data()` vs `sync_all()`: on Linux metadata updates (file length after
-  rotation) must be flushed with `sync_all` or a parent-dir fsync; use
-  `sync_all()` on segment open/rotate. Current code uses `sync_data()` for
-  batch appends (correct) and `sync_data()` before rotation (should be
-  `sync_all()`).
+  rotation) must be flushed with `sync_all` or a parent-dir fsync. Current code
+  uses `sync_data()` for ordinary batch appends and `sync_all()` on segment
+  rotation, matching the PH05 durability boundary.
 - `EXDEV` if staging WAL temp files cross ZFS dataset boundaries — stage temp
   files inside the WAL directory (same dataset) to avoid this.
 - Group-commit timer: use the `Clock` trait for the deadline, not

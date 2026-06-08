@@ -18,11 +18,19 @@ in searches, but keep its columns and historical vectors for interpretability
 until GC policy (PH58) prunes them. Bump `panel_version`. Never delete data
 on retire.
 
+Post-sweep #327: `SwapController::retire_lens` is idempotent for an already
+retired slot, cancels pending in-memory backfill for the slot on the first
+retire, and leaves historical slot rows intact. Sextant now exposes the
+search-side inactive-slot gate. The current core error catalog uses
+`CALYX_LENS_FROZEN_VIOLATION` for invalid lifecycle transitions; a
+registry-specific `CALYX_REGISTRY_LENS_NOT_FOUND` code would be a later catalog
+expansion.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `pub fn retire_lens(registry: &mut Registry, slot_id: SlotId, store: &dyn VaultStore) -> Result<()>`:
-  1. Look up `slot_id` in `registry.slot_map`; if absent →
-     `CALYX_REGISTRY_LENS_NOT_FOUND`.
+  1. Look up `slot_id` in the panel; if absent →
+     core lifecycle fail-closed error.
   2. Look up `LensId` → `LensSpec`; if already `Retired` → no-op, `Ok(())`.
   3. Update `registry.slot_states.insert(slot_id, SlotState::Retired)`.
   4. Do **not** remove the `lens` from `registry.lenses` (keep for historical
@@ -32,11 +40,11 @@ on retire.
   6. `registry.panel_version += 1`.
   7. Cancel any pending backfill for this slot.
   8. Return `Ok(())`.
-- [ ] `Registry` gains: `slot_states: HashMap<SlotId, SlotState>`.
-- [ ] `Registry::measure` checks `slot_states`: if `Retired` or `Parked` →
-  return `AbsentReason::LensInactive` wrapped in an `Ok(absent)` response
-  rather than calling the runtime (parked/retired slots do not produce new
-  vectors for new constellations).
+- [x] `SwapController` stores `Slot.state` inside the versioned `Panel`; no
+  separate `Registry.slot_states` map is used in the current model.
+- [x] `SlotIndexMap` tracks `SlotState`; parked/retired slots are excluded from
+  default search and explicit inactive-slot search returns
+  `CALYX_SEXTANT_SLOT_INACTIVE` (#327).
 - [ ] Guard: assert no code path calls `self.slot_states.remove(slot_id)`
   (tombstone is permanent until GC).
 
@@ -44,18 +52,20 @@ on retire.
 
 - [ ] unit: `add_lens` → `retire_lens` → `slot_states[slot_id] == Retired`;
   `panel_version == 2`.
-- [ ] unit: `retire_lens` on already-retired slot → `Ok(())`, `panel_version`
-  not incremented again.
-- [ ] unit: `retire_lens` on unknown `slot_id` → `CALYX_REGISTRY_LENS_NOT_FOUND`.
+- [x] unit: `retire_lens` on already-retired slot → `Ok(())`, `panel_version`
+  not incremented again (#327).
+- [ ] unit: `retire_lens` on unknown `slot_id` → `CALYX_LENS_FROZEN_VIOLATION`
+  in the current core catalog.
 - [ ] unit: after `retire_lens`, `Registry::measure` for that slot returns
   `AbsentReason::LensInactive` (not a hard error, not a zero vector).
 - [ ] unit: the `lenses` map still contains the retired lens entry (history
   preserved).
+- [x] edge: pending backfill queue no longer contains active work for the
+  retired slot (#327).
 - [ ] edge (≥3): (1) retire then `add_lens` same spec → new `SlotId` allocated
   (retired id not reused), new slot active; (2) retired slot's CF rows are NOT
-  deleted (assert row still present in mock store); (3) backfill queue no
-  longer contains retired slot.
-- [ ] fail-closed: unknown slot id → exact `CALYX_REGISTRY_LENS_NOT_FOUND`.
+  deleted (assert row still present in mock store).
+- [ ] fail-closed: unknown slot id → exact core lifecycle error.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
