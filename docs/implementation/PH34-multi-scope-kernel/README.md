@@ -50,6 +50,13 @@ region-node IDs, scoped anchor projection, cache-backed drilldowns, direct
 fallback when no regions exist, `all_members` union readback, single-region /
 `max_regions = 1` / `drill_radius = 0` edge cases, and PH34 gate commands with
 readbacks under `/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`.
+PH34 T05 (#237) is implemented and FSV-signed-off on aiwonder:
+`bridges`, `kernel_answer_scoped`, and `ScopeKernelReport.bridge_count` cover
+frequency-sorted bridge nodes, disjoint/empty bridge results, scoped answer
+paths that cannot leak outside materialized scope edges, `AllAssociations`
+self-bridges, and a union-scope MFVS readback proving the union kernel is not a
+naive member union. Readbacks live under
+`/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -69,8 +76,8 @@ readbacks under `/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`.
 | T02 | `ScopeCache`: `(scope_hash, panel_version)` LRU cache | T01 | Done / #234 |
 | T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 | Done / #235 |
 | T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Done / #236 |
-| T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Next / #237 |
-| T06 | FSV: >=4 distinct scopes on a real corpus, each with measured recall | T05 | Open / #238 |
+| T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Done / #237 |
+| T06 | FSV: >=4 distinct scopes on a real corpus, each with measured recall | T05 | Next / #238 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
