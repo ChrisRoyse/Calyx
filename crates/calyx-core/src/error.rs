@@ -139,6 +139,9 @@ error_catalog! {
     LedgerChainBroken, ledger_chain_broken, "CALYX_LEDGER_CHAIN_BROKEN",
     "hash-chain verify failed", "quarantine range, investigate";
 
+    LedgerCorrupt, ledger_corrupt, "CALYX_LEDGER_CORRUPT",
+    "ledger CF integrity violation", "ledger CF integrity violation — run verify_chain to identify range";
+
     VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
     "cross-vault read without grant", "request grant";
 
@@ -186,6 +189,7 @@ mod tests {
         "CALYX_ASTER_CORRUPT_SHARD",
         "CALYX_ASTER_TORN_WAL",
         "CALYX_LEDGER_CHAIN_BROKEN",
+        "CALYX_LEDGER_CORRUPT",
         "CALYX_VAULT_ACCESS_DENIED",
         "CALYX_STALE_DERIVED",
         "CALYX_ORACLE_INSUFFICIENT",
