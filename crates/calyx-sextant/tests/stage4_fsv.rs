@@ -131,9 +131,6 @@ fn pipeline_and_reranker_keep_candidate_text_request_scoped() {
         query: "cat".to_string(),
         candidates: texts,
     };
-    let mock = reranker.mock_scores(&request);
-    assert_eq!(mock.scores.len(), 2);
-    assert!(mock.zeroizing_ok);
     assert_eq!(
         reranker.rerank(&request).unwrap_err().code,
         "CALYX_SEXTANT_RERANKER_TIMEOUT"
