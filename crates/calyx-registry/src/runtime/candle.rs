@@ -20,6 +20,7 @@ pub struct CandleLens {
     dim: u32,
     contract: FrozenLensContract,
     files: CandleModelFiles,
+    device_policy: CandleDevicePolicy,
     max_tokens: usize,
     tokenizer: Tokenizer,
     model: Mutex<BertModel>,
@@ -34,17 +35,49 @@ pub struct CandleModelFiles {
     pub weights: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CandleDevicePolicy {
+    CpuExplicit,
+    CudaFailLoud { ordinal: usize },
+}
+
+impl CandleDevicePolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CpuExplicit => "cpu_explicit,no_cuda",
+            Self::CudaFailLoud { .. } => "cuda,error_on_failure,no_cpu_fallback",
+        }
+    }
+}
+
 impl CandleLens {
     pub fn all_minilm_l6_v2(name: impl Into<String>) -> Result<Self> {
         Self::from_hf_cache(name, default_hf_cache_root())
     }
 
+    pub fn all_minilm_l6_v2_cuda_fail_loud(name: impl Into<String>) -> Result<Self> {
+        Self::from_hf_cache_with_device_policy(
+            name,
+            default_hf_cache_root(),
+            CandleDevicePolicy::CudaFailLoud { ordinal: 0 },
+        )
+    }
+
     pub fn from_hf_cache(name: impl Into<String>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
+        Self::from_hf_cache_with_device_policy(name, cache_dir, CandleDevicePolicy::CpuExplicit)
+    }
+
+    pub fn from_hf_cache_with_device_policy(
+        name: impl Into<String>,
+        cache_dir: impl Into<PathBuf>,
+        device_policy: CandleDevicePolicy,
+    ) -> Result<Self> {
         Self::from_model(
             name,
             DEFAULT_CANDLE_MODEL,
             cache_dir.into(),
             DEFAULT_MAX_TOKENS,
+            device_policy,
         )
     }
 
@@ -53,13 +86,14 @@ impl CandleLens {
         model_id: impl Into<String>,
         cache_dir: PathBuf,
         max_tokens: usize,
+        device_policy: CandleDevicePolicy,
     ) -> Result<Self> {
         let name = name.into();
         let model_id = model_id.into();
         let files = fetch_files(&cache_dir, &model_id)?;
         let config = read_config(&files.config)?;
         let tokenizer = read_tokenizer(&files.tokenizer, max_tokens)?;
-        let model = read_model(&files.weights, &config)?;
+        let model = read_model(&files.weights, &config, device_policy)?;
         let weights_sha256 = hash_files(&[
             files.config.clone(),
             files.tokenizer.clone(),
@@ -92,6 +126,7 @@ impl CandleLens {
             dim,
             contract,
             files,
+            device_policy,
             max_tokens,
             tokenizer,
             model: Mutex::new(model),
@@ -104,6 +139,10 @@ impl CandleLens {
 
     pub fn files(&self) -> &CandleModelFiles {
         &self.files
+    }
+
+    pub const fn device_policy(&self) -> CandleDevicePolicy {
+        self.device_policy
     }
 
     pub const fn max_tokens(&self) -> usize {
@@ -209,12 +248,36 @@ fn read_tokenizer(path: &Path, max_tokens: usize) -> Result<Tokenizer> {
     Ok(tokenizer)
 }
 
-fn read_model(weights: &Path, config: &Config) -> Result<BertModel> {
-    let device = Device::Cpu;
+fn read_model(
+    weights: &Path,
+    config: &Config,
+    device_policy: CandleDevicePolicy,
+) -> Result<BertModel> {
+    let device = candle_device(device_policy)?;
     let paths = [weights];
     let vb = unsafe { VarBuilder::from_mmaped_safetensors(&paths, DType::F32, &device) }
         .map_err(candle_error)?;
     BertModel::load(vb, config).map_err(candle_error)
+}
+
+fn candle_device(policy: CandleDevicePolicy) -> Result<Device> {
+    match policy {
+        CandleDevicePolicy::CpuExplicit => Ok(Device::Cpu),
+        CandleDevicePolicy::CudaFailLoud { ordinal } => candle_cuda_device(ordinal),
+    }
+}
+
+#[cfg(feature = "candle-cuda")]
+fn candle_cuda_device(ordinal: usize) -> Result<Device> {
+    Device::new_cuda(ordinal)
+        .map_err(|err| CalyxError::lens_unreachable(format!("candle CUDA init failed: {err}")))
+}
+
+#[cfg(not(feature = "candle-cuda"))]
+fn candle_cuda_device(_ordinal: usize) -> Result<Device> {
+    Err(CalyxError::lens_unreachable(
+        "candle CUDA requested but calyx-registry was built without feature `candle-cuda`",
+    ))
 }
 
 fn mean_pool(tokens: &[Vec<f32>], mask: &[u32], dim: usize) -> Result<Vec<f32>> {
@@ -254,6 +317,9 @@ fn candle_error(err: candle_core::Error) -> CalyxError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
+    use std::fs;
+    use std::path::Path;
 
     #[test]
     fn mean_pool_uses_attention_mask() {
@@ -272,9 +338,59 @@ mod tests {
     }
 
     #[test]
+    fn candle_device_policy_reports_cpu_and_cuda_truth() {
+        assert_eq!(
+            CandleDevicePolicy::CpuExplicit.as_str(),
+            "cpu_explicit,no_cuda"
+        );
+        assert!(matches!(
+            candle_device(CandleDevicePolicy::CpuExplicit).unwrap(),
+            Device::Cpu
+        ));
+        let cuda_feature = cfg!(feature = "candle-cuda");
+        let cuda_result = candle_device(CandleDevicePolicy::CudaFailLoud { ordinal: 0 });
+        let cuda_error = if cuda_feature {
+            assert!(
+                cuda_result.is_ok() || cuda_result.as_ref().unwrap_err().message.contains("CUDA")
+            );
+            cuda_result.err()
+        } else {
+            let error = cuda_result.expect_err("cuda feature is not compiled by default");
+            assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
+            assert!(error.message.contains("without feature `candle-cuda`"));
+            Some(error)
+        };
+
+        if let Some(root) = std::env::var_os("CALYX_FSV_ROOT") {
+            write_device_policy_readback(Path::new(&root), cuda_feature, cuda_error);
+        }
+    }
+
+    fn write_device_policy_readback(
+        root: &Path,
+        cuda_feature: bool,
+        cuda_error: Option<CalyxError>,
+    ) {
+        fs::create_dir_all(root).unwrap();
+        let readback = json!({
+            "default_policy": CandleDevicePolicy::CpuExplicit.as_str(),
+            "cuda_policy": CandleDevicePolicy::CudaFailLoud { ordinal: 0 }.as_str(),
+            "candle_cuda_feature_compiled": cuda_feature,
+            "cuda_fail_loud_error_code": cuda_error.as_ref().map(|error| error.code),
+            "cuda_fail_loud_error_message": cuda_error.as_ref().map(|error| error.message.as_str()),
+        });
+        fs::write(
+            root.join("candle-device-policy-readback.json"),
+            serde_json::to_vec_pretty(&readback).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
     #[ignore = "requires aiwonder HF cache/network and downloads all-MiniLM weights"]
     fn candle_all_minilm_aiwonder_fsv() {
         let lens = CandleLens::all_minilm_l6_v2("candle-aiwonder-fsv").unwrap();
+        println!("CANDLE_FSV_DEVICE_POLICY={}", lens.device_policy().as_str());
         let input = Input::new(Modality::Text, b"Calyx PH19 candle local probe".to_vec());
         let vector = lens.measure(&input).unwrap();
 

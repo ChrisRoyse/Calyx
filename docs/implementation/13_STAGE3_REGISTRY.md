@@ -57,9 +57,11 @@ differentiation.
 
 ## PH19 — candle-local + onnx runtimes
 - **Status.** ✅ FSV-signed-off (`runtime/candle.rs`, `runtime/onnx.rs`, HF-cache
-  resolver, dim guards; commit `4616ce7`).
-- **Objective.** Run lens NNs locally (candle on sm_120, ORT CUDA EP) for
-  embedded vaults / bespoke lenses.
+  resolver, dim guards; commit `4616ce7`; post-sweep Candle device-policy
+  truth #301 FSV-backed on aiwonder).
+- **Objective.** Run lens NNs locally (Candle CPU-explicit by default, optional
+  fail-loud Candle CUDA behind `calyx-registry/candle-cuda`, ORT CUDA EP
+  fail-loud by default) for embedded vaults / bespoke lenses.
 - **Deps.** PH18.
 - **Deliverables.** `runtime/candle.rs`, `runtime/onnx.rs`; weight loading from
   `CALYX_HOME/.hf-cache` (HF token from env).
@@ -67,9 +69,16 @@ differentiation.
   vectors; dim/normalize guards.
 - **Post-sweep note.** The ONNX runtime now uses CUDA device 0 with
   `error_on_failure` and no implicit CPU fallback; a CPU-only path must be
-  explicit and separately reported (#289).
-- **FSV gate.** a candle + an ONNX lens each produce finite, unit-norm vectors;
-  dim guard fires on mismatch; weights pulled into `.hf-cache` (verified path).
+  explicit and separately reported (#289). Candle now reports device policy
+  explicitly: default `cpu_explicit,no_cuda`; requesting Candle CUDA without the
+  optional `candle-cuda` feature fails loud instead of silently claiming GPU;
+  the optional `candle-cuda` build was separately verified on aiwonder device 0
+  (RTX 5090, compute capability 12.0).
+- **FSV gate.** a Candle CPU-explicit + an ONNX CUDA lens each produce finite,
+  unit-norm vectors; dim guard fires on mismatch; weights pulled into
+  `.hf-cache` (verified path). Optional Candle CUDA must be separately run with
+  `--features candle-cuda` before it can be claimed; #301 readback root:
+  `/home/croyse/calyx/data/fsv-issue301-candle-device-policy-20260608`.
 - **Axioms/PRD.** A4, `05 §2`, `13 §2`.
 
 ## PH20 — Hot-swap add/retire/park + lazy backfill
