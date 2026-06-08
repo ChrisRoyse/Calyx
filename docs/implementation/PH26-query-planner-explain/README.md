@@ -80,9 +80,13 @@ and the executed provenanced hits are returned in one object.
 Run the Stage 4 FSV on aiwonder. The readback JSON must include:
 - `planner_intent="Causal"` and `planner_strategy="weighted_rrf:causal"`.
 - `unbounded="CALYX_SEXTANT_PLAN_UNBOUNDED"`.
-- `rerank.scores` from the resident `:8089` TEI reranker.
-- #296 `reranker-search-readback.json` showing baseline order, reranked order,
-  request text scope, and `pipeline+rerank` strategy.
+- `rerank.scores` from the resident `:8089` TEI reranker in the Stage 4
+  full-stack FSV readback.
+- #296 `reranker-search-readback.json` is the controlled SearchEngine reranker
+  FSV: it proves baseline order, reranked order, request text scope, and
+  `pipeline+rerank` strategy through the real Calyx search path, but its
+  captured request/response files are synthetic wire artifacts, not the
+  resident `:8089` model readback.
 - #325 `reranker-search-readback.json` showing
   `candidates_owned_by_zeroizing=true`, `serialized_body_zeroizing=true`,
   request text count/scope booleans, and `pipeline+rerank` strategy; the

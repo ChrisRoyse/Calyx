@@ -27,7 +27,9 @@
 > FSV root: `/home/croyse/calyx/data/fsv-issue312-pipeline-no-stage1-20260608`.
 > Post-sweep hardening #296 wires the reranker into
 > `SearchEngine::search_with_reranker` for final Pipeline ordering, with
-> request-scoped candidate text and fail-closed non-2xx/mismatch behavior.
+> request-scoped candidate text and fail-closed non-2xx/mismatch behavior. This
+> is a controlled SearchEngine wire FSV and is distinct from the Stage 4
+> resident `:8089` reranker-score readback.
 > FSV root: `/home/croyse/calyx/data/fsv-issue296-reranker-search-20260608`.
 > Post-sweep hardening #297 adds `QueryFilters` for scalar, anchor, and
 > built-in constellation metadata predicates in the SearchEngine path.

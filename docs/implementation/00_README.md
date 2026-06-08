@@ -106,9 +106,10 @@ the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
 **DONE — Stages 0–5 (PH00–PH30), FSV-signed-off on aiwonder.** Implemented
 surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 `calyx-sextant`, `calyx-loom`, `calyx-assay`, plus `calyx-cli` and
-`calyx-testkit`. Latest Stage 5 hardening: #313 makes Loom GPU agreement fail
-closed by default and routes CUDA agreement only through the explicit
-`calyx-loom/cuda` Forge path.
+`calyx-testkit`. Latest Stage 5 hardening: #318 wires seeded bootstrap CI
+through KSG/logistic/AssayGate/PairGain/persisted AssayStore rows, and #319
+adds the Aster-backed Assay materialization gate that feeds grounded PairGain
+into Loom xterm CF materialization.
 
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
@@ -153,7 +154,9 @@ are closed with aiwonder readback evidence.
   `/home/croyse/calyx/data/fsv-issue300-backfill-scheduler-20260608`.
 - **Stage 4** (PH23–PH26): `calyx-sextant` search/navigation — per-slot dense
   and sparse indexes, RRF/WeightedRRF/SingleLens fusion with provenance,
-  planner/explain/freshness, and real SciFact qrels evidence. #299 records that
+  planner/explain/freshness, and real SciFact qrels evidence. #296 records the
+  controlled SearchEngine reranker-ordering FSV and is separate from the
+  resident `:8089` Stage 4 reranker readback. #299 records that
   Sextant GPU parity/fan-out is explicit fail-loud/unwired state, not a hidden
   CPU-self comparison. FSV root:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`.
@@ -163,6 +166,8 @@ are closed with aiwonder readback evidence.
   differentiation contract, stratified bits, n_eff, sufficiency, attribution,
   and assay provenance cache. FSV root:
   `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
+  Post-sweep roots #318 and #319 record seeded bootstrap CI and live
+  Aster-backed Assay/Loom materialization evidence, respectively.
 
 **Stage 6 / PH31:** `calyx-paths` + `calyx-mincut` graph primitives — sparse
 association graph, 0.9^hop traversal, SCC condensation, Brandes betweenness,

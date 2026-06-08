@@ -89,6 +89,13 @@ candidate strings were zeroizing-owned.
 - **Prove:** Stage 4 readback includes `rerank.scores` from live `:8089`,
   `zeroizing_ok=true`, and non-2xx unit coverage for
   `CALYX_SEXTANT_RERANKER_TIMEOUT`.
+- **Post-sweep #296 SoT:**
+  `/home/croyse/calyx/data/fsv-issue296-reranker-search-20260608/reranker-search-readback.json`
+  proves the real `SearchEngine::search_with_reranker` path reorders Pipeline
+  hits using request-scoped sparse candidate text. Its companion
+  `reranker-http-request.txt` and `reranker-http-response.json` are controlled
+  synthetic wire artifacts used to prove ordering, scoping, and fail-closed
+  handling; they are not the resident `:8089` model readback.
 - **Post-sweep #325 SoT:**
   `/home/croyse/calyx/data/fsv-issue325-reranker-candidate-privacy-20260608/reranker-search-readback.json`
   proves `candidates_owned_by_zeroizing=true`,

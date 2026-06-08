@@ -98,7 +98,8 @@ provisioned). **Living-system role:** metabolism + memory.
 - **Deliverables.** `MANIFEST` + `CURRENT` atomic `rename()`; recovery routine;
   immutable codebook/panel references.
 - **Key tasks.** manifest versioning; recovery ordering (manifest→WAL replay);
-  degraded-flag for rebuildable derived; corrupt base → fail-closed read.
+  corrupt base → fail-closed read. Derived-CF degraded/rebuildable flags are
+  explicitly deferred to PH44 self-heal and are not PH10 acceptance criteria.
 - **FSV gate.** crash drill (`kill -9` at several points) → recover **byte-exact
   to last-acked**; flip a base-shard byte → read fails closed
   (`CALYX_ASTER_CORRUPT_SHARD`), points at restore.

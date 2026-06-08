@@ -21,15 +21,15 @@ remediation.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn check_frozen_contract_at_register(spec: &LensSpec, lens: &dyn Lens, probe_input: &Input) -> Result<()>`:
-  1. `check_weights_sha256(actual, spec)` — actual is the computed hash from
-     the lens runtime's loaded weights (or spec hash for TEI-http trust-anchor).
-  2. Run `determinism_probe(lens, probe_input)` (two measure calls → equal).
-  3. On the probe result, call `check_output(v, spec)`.
+- [x] Registration enforces `FrozenLensContract::verify_registration`; optional
+  `register_frozen_with_probe` also runs `verify_determinism_probe`:
+  1. Verify weights hash/content-addressed contract against the runtime lens.
+  2. Run the determinism probe when a probe input is supplied.
+  3. On the probe result, verify the output vector.
   4. Return first error encountered, or `Ok(())`.
-- [ ] `pub fn check_frozen_contract_at_measure(vec: &SlotVector, spec: &LensSpec) -> Result<()>`:
-  calls `check_output(vec, spec)` (dim + finite + norm); no determinism probe
-  per-call (too expensive; probe runs at registration only).
+- [x] Measurement validation is wired through `Registry::validate_entry`, which
+  calls `FrozenLensContract::verify_vector` on every returned vector (dim +
+  finite + norm); determinism remains a registration probe.
 - [x] Keep `Registry::register` and `Registry::register_with_spec` as
   fail-closed compatibility stubs: both return `CALYX_LENS_FROZEN_VIOLATION`
   and do not insert.
@@ -37,27 +37,27 @@ remediation.
   `register_frozen_with_probe` for successful insertion. These paths verify
   contract id/shape/modality, optional determinism probe, and then store the
   `FrozenLensContract` beside the runtime lens.
-- [ ] Update `Registry::measure` and `Registry::measure_batch` to call
-  `check_frozen_contract_at_measure` on every returned vector.
-- [ ] If either check fails, propagate the error; **no partial results**.
+- [x] `Registry::measure` and `Registry::measure_batch` validate every returned
+  vector before returning it.
+- [x] If either check fails, the error is propagated; **no partial results**.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] integration: register a valid `AlgorithmicLens` → `Ok(())`; confirm
+- [x] integration: register a valid `AlgorithmicLens` → `Ok(())`; confirm
   subsequent `measure` calls pass the contract.
-- [ ] integration: plain `register` → `CALYX_LENS_FROZEN_VIOLATION` and
+- [x] integration: plain `register` → `CALYX_LENS_FROZEN_VIOLATION` and
   `Registry::contains(id) == false`.
-- [ ] integration: register with wrong `weights_sha256` → `CALYX_LENS_FROZEN_VIOLATION`.
-- [ ] integration: mock runtime returns wrong dim → `CALYX_LENS_DIM_MISMATCH`
+- [x] integration: register with wrong `weights_sha256` → `CALYX_LENS_FROZEN_VIOLATION`.
+- [x] integration: mock runtime returns wrong dim → `CALYX_LENS_DIM_MISMATCH`
   at `measure` time.
-- [ ] integration: mock runtime returns NaN → `CALYX_LENS_NUMERICAL_INVARIANT`
+- [x] integration: mock runtime returns NaN → `CALYX_LENS_NUMERICAL_INVARIANT`
   at `measure` time.
-- [ ] integration: mock non-deterministic runtime fails at registration →
+- [x] integration: mock non-deterministic runtime fails at registration →
   `CALYX_LENS_NUMERICAL_INVARIANT` from determinism probe.
-- [ ] edge (≥3): (1) `AlgorithmicLens` passes all four checks end-to-end;
+- [x] edge (≥3): (1) `AlgorithmicLens` passes all four checks end-to-end;
   (2) `TeiHttpLens` (mocked) passes all four checks; (3) a lens that passes
   registration but later returns NaN for a real input → fails at measure time.
-- [ ] fail-closed: no code path in `Registry` returns a vector after a
+- [x] fail-closed: no code path in `Registry` returns a vector after a
   contract failure; grep the source for any `unwrap` on `check_*` calls.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -73,8 +73,9 @@ remediation.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH18 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence attached in #310 with readback root
+      `/home/croyse/calyx/data/fsv-issue310-registry-frozen-contract-20260608`
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -126,9 +126,10 @@ Latest roots:
 | PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 
 > **Stage 1–5 audit note (2026-06-08):** Subagents and source readback found
-> the pre-Lodestar Stage 1–5 hardening set #282-#292 is implemented and
-> FSV-backed, with newly tracked follow-up gaps #293-#298 left open instead of
-> hidden in docs. PH19 ONNX CUDA registration fails loud instead of silently
+> the pre-Lodestar Stage 1–5 hardening set #282-#319 is implemented and
+> FSV-backed. Follow-up gaps found during the sweep were tracked in GitHub
+> issues and closed with aiwonder readback evidence instead of hidden in docs.
+> PH19 ONNX CUDA registration fails loud instead of silently
 > falling back to CPU, with explicit CPU compatibility reported separately. PH23 now
 > uses native `ef` HNSW traversal, PH24 explain provenance is refreshed from
 > stored constellation provenance, WeightedRRF excludes unnamed and AP-60
@@ -145,7 +146,8 @@ Latest roots:
 > remain in PH62 while Stage 5 readback bytes are already exposed through FSV
 > JSON. Closed during sweep hardening: PH31/PH33 real Loom association-graph
 > adapter #293, PH30 grounded Assay trust #294, PH11 durable tiering #295, PH26
-> reranker search-path ordering #296, and PH26 scalar/anchor/built-in metadata
+> reranker search-path ordering #296 (controlled SearchEngine wire FSV, distinct
+> from the resident `:8089` Stage 4 readback), and PH26 scalar/anchor/built-in metadata
 > filters #297, filtered searches no longer use a fixed `k*8` candidate window,
 > and HNSW duplicate vector inserts rebuild neighbor links (#308). PH23/PH24 GPU parity/fan-out overclaim #299 now fails loud
 > instead of comparing CPU outputs to themselves. PH13 CUDA top-k large-k
@@ -158,8 +160,9 @@ Latest roots:
 > logistic-probe, AssayGate lens signal, PairGain, and persisted AssayStore
 > readback bytes. PH27/PH28 live Aster-backed PairGain materialization #319 now
 > feeds Loom planning and xterm CF materialization. PH33 bounded build-time
-> groundedness #298 is now FSV-backed. Remaining post-sweep Stage 1-5
-> follow-ups are tracked in open issue state instead of hidden in the phase map.
+> groundedness #298 is now FSV-backed. No remaining Stage 1-5 implementation
+> blocker is hidden in the phase map; future work begins at the Stage 6/Stage 7
+> queue tracked in GitHub issues.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

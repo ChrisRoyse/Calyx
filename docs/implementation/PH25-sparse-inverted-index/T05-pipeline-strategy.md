@@ -33,6 +33,14 @@ If it is set lower than `query.k`, stage 1 limits the result count. Dense
 scoring and reranker request construction run over the recall window, and final
 results are truncated to `query.k` afterward.
 
+**Current implementation note (#296/#325):** final Pipeline reranker ordering is
+implemented through `SearchEngine::search_with_reranker`. It builds candidate
+text only from sparse stage-1 hits, calls the request-scoped HTTP reranker, and
+rewrites final hit order/rank on success. Non-Pipeline use, missing candidate
+text, HTTP non-2xx, malformed response, and score-vector mismatch fail closed.
+Candidate text is owned as `Vec<Zeroizing<String>>` once it leaves the sparse
+index, and serialized request bytes are also zeroizing-owned.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `PipelineStrategy` struct:
@@ -97,6 +105,11 @@ results are truncated to `query.k` afterward.
   `/home/croyse/calyx/data/fsv-issue325-reranker-candidate-privacy-20260608/reranker-search-readback.json`
   proves `candidates_owned_by_zeroizing=true` and
   `serialized_body_zeroizing=true`.
+- **Post-sweep #296 SoT:**
+  `/home/croyse/calyx/data/fsv-issue296-reranker-search-20260608/reranker-search-readback.json`
+  proves final Pipeline hit order changes from baseline order
+  `03..03, 02..02` to reranked order `02..02, 03..03`, with
+  `strategy=pipeline+rerank` and no non-candidate text in the request.
 
 ## Done when
 
