@@ -6,14 +6,14 @@
 | **Stage** | S6 — Lodestar Kernel |
 | **Crate** | `calyx-lodestar` |
 | **Files** | `crates/calyx-lodestar/tests/fsv_recall_real_corpora.rs` (≤500) |
-| **Depends on** | T04 (recall test harness complete), PH69 (dataset catalog on aiwonder) |
+| **Depends on** | T04 (recall test harness complete), real corpus paths verified on aiwonder |
 | **Axioms** | A10, A11 |
 | **PRD** | `dbprdplans/08 §3` (Stage 5), `08 §7` |
 
 ## Goal
 
-Run the `kernel_recall_test` on at least 3 real corpora from the dataset catalog
-on aiwonder (one each of text, code, and graph modality), prove that
+Run the `kernel_recall_test` on at least 3 real corpora on aiwonder (one each of
+text, code, and graph modality), prove that
 **kernel-only recall ≥ 0.95·full** on each, and attach the evidence to the PH33
 GitHub issue. Also verify that `grounding_gaps` lists exactly the unanchored kernel
 members on a corpus where the anchor set is known. This is the byte-level FSV gate
@@ -23,8 +23,9 @@ for PH33 (not a unit test — a real on-device integration run).
 
 - [ ] Create `tests/fsv_recall_real_corpora.rs`; gated with `#[cfg(feature = "fsv")]`
   so it does not run in CI (aiwonder-only).
-- [ ] Load each corpus from the dataset catalog path (`$CALYX_HOME/datasets/<name>/`);
-  verify checksum (PH69 MANIFEST) before use.
+- [ ] Load each corpus from a verified aiwonder path (`$CALYX_HOME/datasets/<name>/`
+  or `$CALYX_HOME/data/datasets/<name>/`); if a required corpus is missing,
+  acquire it, record its source/checksum, and read the files back before use.
 - [ ] For each corpus: build or load the `Kernel` (via `build_kernel_pipeline`);
   build the `KernelIndex` and a full HNSW reference index; run `kernel_recall_test`
   with `rng_seed=42`, `top_k=10`, `held_out_fraction=0.10`.
@@ -33,7 +34,8 @@ for PH33 (not a unit test — a real on-device integration run).
   print the gap list; manually cross-check at least 3 reported gaps.
 - [ ] Write the three `RecallReport` JSONs and the gap list to
   `$CALYX_HOME/fsv/ph33_recall_<corpus_name>_<date>.json`; attach to GitHub issue.
-- [ ] Corpora to use (names from PH69 MANIFEST; use available at run time):
+- [ ] Corpora to use (verified on aiwonder at run time; no synthetic substitute
+  can close this issue):
   - Text: e.g. `nq-open` or `wikipedia-sections`
   - Code: e.g. `codeparrot-clean` or `the-stack-python`
   - Graph: e.g. `ogbn-arxiv` or `cora` (citation graph → AssocGraph nodes)
@@ -47,7 +49,7 @@ for PH33 (not a unit test — a real on-device integration run).
 - [ ] `#[test] #[cfg(feature = "fsv")] fn fsv_grounding_gaps_text()` — loads text corpus
   with known anchors; asserts `gaps` list matches hand-verified set.
 - [ ] edge: checksum mismatch on corpus file → `CALYX_DATASET_CHECKSUM_MISMATCH`;
-  test is skipped with a `println!` explaining why (not a hard fail on corrupt input).
+  corrupt input is rejected and the issue stays open until a valid corpus is read.
 - [ ] fail-closed: `ratio < 0.95` on any corpus → test fails with a message including
   the exact `ratio` value and corpus name (not just `assert_eq!(true, false)`).
 

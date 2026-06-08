@@ -11,7 +11,7 @@ use crate::ForgeError;
 use crate::Result;
 
 pub use binary::{BinaryCodec, binary_prefilter, hamming_dot_estimate};
-pub use mxfp4_codec::{MxFp4Codec, assay_safety_check_placeholder};
+pub use mxfp4_codec::{AssayQuantSafety, MxFp4Codec};
 pub use qjl::{QjlResidual, dot_estimate_unbiased, dot_qjl_correction, encode_qjl_residual};
 pub use rotation::{
     CURRENT_SEED_VERSION, RotationSeed, apply_inverse_rotation, apply_rotation,

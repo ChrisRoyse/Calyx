@@ -2,15 +2,13 @@
 
 Phased build, verification discipline, performance targets, mechanical completion predicate. Scope is **Vault-only** (`15`): Calyx replaces the SQLite/`sqlite-vec` Vaults; PostgreSQL is untouched, so there is no control-plane phase. Front-loads the durable-storage core before the customer-facing Vault swap.
 
-> **Current status (2026-06-07, commit `8dcddaa`): `CORE` / P0 is DONE.** The
-> Aster storage core (impl Stage 0 + Stage 1, PH00–PH11) is implemented and
-> FSV-signed-off on aiwonder — Constellation CRUD + Aster round-trips byte-exact,
-> crash-recovery proven (`kill -9` → last-acked; corrupt-shard fails closed),
-> idempotent ingest, MVCC snapshots, compaction/tiering. **Next: P1 (Forge /
-> MATH), impl Stage 2, PH12–PH16.** Live phase status:
-> `docs/implementation/03_PHASE_MAP.md`; tracked Stage-1 follow-ups:
-> `docs/implementation/11_STAGE1_ASTER.md`. (The detailed per-phase build plan
-> for the PRD roadmap below lives in `docs/implementation/`.)
+> **Current status (2026-06-08, commit `869ff57`): P0-P4 are DONE and P5 is
+> ACTIVE.** Stages 0-5 (PH00-PH30) are implemented, pushed, and
+> FSV-signed-off on aiwonder. Stage 6 Lodestar is underway: PH31 graph
+> primitives and PH32 kernel discovery are done; PH33 kernel index/answer/gaps
+> is next. Live phase status: `docs/implementation/03_PHASE_MAP.md` and GitHub
+> context issue #23. The detailed per-phase build plan below lives in
+> `docs/implementation/`.
 
 ## 1. Phasing principle
 

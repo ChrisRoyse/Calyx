@@ -170,6 +170,7 @@ name = "calyx-assay"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "calyx-aster",
  "calyx-core",
  "calyx-loom",
  "rand 0.8.6",
@@ -252,6 +253,7 @@ name = "calyx-loom"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "calyx-aster",
  "calyx-core",
  "serde",
  "serde_json",

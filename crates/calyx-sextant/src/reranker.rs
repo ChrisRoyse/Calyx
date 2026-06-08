@@ -22,6 +22,12 @@ pub struct RerankResponse {
     pub zeroizing_ok: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct WireRerankResponse {
+    scores: Vec<f32>,
+    zeroizing_ok: Option<bool>,
+}
+
 #[derive(Clone, Debug)]
 pub struct RerankerClient {
     endpoint: String,
@@ -86,12 +92,60 @@ impl RerankerClient {
         if !response.starts_with("HTTP/1.1 2") && !response.starts_with("HTTP/1.0 2") {
             return Ok(self.mock_scores(request));
         }
-        Ok(self.mock_scores(request))
+        parse_http_rerank_response(&response, request.candidates.len())
     }
+}
+
+fn parse_http_rerank_response(response: &str, expected_scores: usize) -> Result<RerankResponse> {
+    let body = response.split("\r\n\r\n").nth(1).ok_or_else(|| {
+        sextant_error(
+            CALYX_SEXTANT_RERANKER_TIMEOUT,
+            "reranker response missing HTTP body",
+        )
+    })?;
+    let wire: WireRerankResponse = serde_json::from_str(body).map_err(|error| {
+        sextant_error(
+            CALYX_SEXTANT_RERANKER_TIMEOUT,
+            format!("invalid reranker JSON: {error}"),
+        )
+    })?;
+    if wire.scores.len() != expected_scores || wire.scores.iter().any(|score| !score.is_finite()) {
+        return Err(sextant_error(
+            CALYX_SEXTANT_RERANKER_TIMEOUT,
+            "reranker returned invalid score vector",
+        ));
+    }
+    Ok(RerankResponse {
+        scores: wire.scores,
+        zeroizing_ok: wire.zeroizing_ok.unwrap_or(true),
+    })
 }
 
 fn lexical_overlap(query: &str, candidate: &str) -> f32 {
     let q = crate::index::tokenizer::tokenize(query);
     let c = crate::index::tokenizer::tokenize(candidate);
     q.iter().filter(|term| c.contains(term)).count() as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_real_reranker_scores_from_http_body() {
+        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"scores\":[0.25,0.75],\"zeroizing_ok\":true}";
+        let parsed = parse_http_rerank_response(response, 2).unwrap();
+
+        assert_eq!(parsed.scores, vec![0.25, 0.75]);
+        assert!(parsed.zeroizing_ok);
+    }
+
+    #[test]
+    fn rejects_mismatched_reranker_scores() {
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"scores\":[0.25]}";
+        let err = parse_http_rerank_response(response, 2).unwrap_err();
+
+        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_TIMEOUT);
+    }
 }

@@ -27,8 +27,9 @@ pub use projection::{ProjectionReport, project_cpu, project_gpu, target_projecti
 pub use store::{AssayCacheKey, AssayRow, AssayStore, AssaySubject};
 pub use stratified::{StratifiedBits, StratumBits, stratified_bits};
 pub use sufficiency::{
-    InMemoryDeficitSink, PanelSufficiency, SufficiencyDeficit, SufficiencyDeficitSink,
-    entropy_bits, panel_sufficiency,
+    DeficitRoutingContext, DeficitSuggestedAction, InMemoryDeficitSink, PanelSufficiency,
+    SufficiencyDeficit, SufficiencyDeficitSink, entropy_bits, panel_sufficiency,
+    panel_sufficiency_with_context,
 };
 
 #[cfg(test)]

@@ -2,7 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{CxId, SlotId};
+use calyx_aster::cf::{CfRouter, ColumnFamily};
+use calyx_core::{CalyxError, CxId, Result, SlotId};
 use serde::{Deserialize, Serialize};
 
 use crate::cross_term::{
@@ -138,5 +139,94 @@ impl LoomStore {
                 n,
             })
             .collect()
+    }
+
+    pub fn xterm_rows(&self) -> Vec<XtermRow> {
+        self.xterm_cf.values().cloned().collect()
+    }
+
+    pub fn persist_xterms_to_aster(&self, router: &mut CfRouter) -> Result<usize> {
+        for row in self.xterm_cf.values() {
+            let key = xterm_key(&row.key);
+            let value = serde_json::to_vec(row)
+                .map_err(|error| CalyxError::disk_pressure(format!("encode xterm row: {error}")))?;
+            router.put(ColumnFamily::XTerm, &key, &value)?;
+        }
+        router.flush_cf(ColumnFamily::XTerm)?;
+        Ok(self.xterm_cf.len())
+    }
+
+    pub fn load_xterms_from_aster(router: &CfRouter, cache_capacity: usize) -> Result<Self> {
+        let mut store = Self::new(cache_capacity);
+        for entry in router.iter_cf(ColumnFamily::XTerm)? {
+            let row: XtermRow = serde_json::from_slice(&entry.value).map_err(|error| {
+                CalyxError::aster_corrupt_shard(format!("decode xterm row: {error}"))
+            })?;
+            if entry.key != xterm_key(&row.key) {
+                return Err(CalyxError::aster_corrupt_shard(
+                    "xterm CF key does not match row key",
+                ));
+            }
+            store.xterm_cf.insert(row.key, row);
+        }
+        Ok(store)
+    }
+}
+
+fn xterm_key(key: &CrossTermKey) -> Vec<u8> {
+    let mut out = Vec::with_capacity(21);
+    out.extend_from_slice(key.cx_id.as_bytes());
+    out.extend_from_slice(&key.a.get().to_be_bytes());
+    out.extend_from_slice(&key.b.get().to_be_bytes());
+    out.push(match key.kind {
+        CrossTermKind::Concat => 0,
+        CrossTermKind::Interaction => 1,
+        CrossTermKind::Agreement => 2,
+        CrossTermKind::Delta => 3,
+    });
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn xterms_roundtrip_through_aster_cf() {
+        let dir = test_dir("xterm");
+        let mut router = CfRouter::open(&dir, 1024).unwrap();
+        let mut store = LoomStore::new(8);
+        let slots = BTreeMap::from([
+            (SlotId::new(1), vec![1.0, 0.0]),
+            (SlotId::new(2), vec![0.0, 1.0]),
+        ]);
+        store.weave(CxId::from_bytes([1; 16]), &slots);
+
+        assert_eq!(store.persist_xterms_to_aster(&mut router).unwrap(), 1);
+        drop(router);
+        let reopened = CfRouter::open(&dir, 1024).unwrap();
+        let loaded = LoomStore::load_xterms_from_aster(&reopened, 8).unwrap();
+
+        assert_eq!(loaded.xterm_count(), 1);
+        assert_eq!(loaded.agreement_graph()[0].n, 1);
+        cleanup(dir);
+    }
+
+    fn test_dir(name: &str) -> PathBuf {
+        let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+        let dir =
+            std::env::temp_dir().join(format!("calyx-loom-{name}-{}-{id}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn cleanup(dir: PathBuf) {
+        fs::remove_dir_all(dir).unwrap();
     }
 }

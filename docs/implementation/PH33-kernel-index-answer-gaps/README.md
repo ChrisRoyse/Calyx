@@ -13,7 +13,7 @@ query by grounding at the nearest anchored kernel node then traversing associati
 edges with `0.9^hop` attenuation, fully provenanced; (3) `grounding_gaps` — list
 exactly which kernel members cannot reach any anchor (the cheapest grounding plan).
 The phase closes with a recall test: **kernel-only recall ≥ 0.95·full on ≥3 real
-corpora** from the dataset catalog on aiwonder.
+corpora** acquired and verified on aiwonder.
 
 ## Dependencies
 
@@ -39,6 +39,7 @@ path is a new column family or ANN shard in the Aster store.
 | `crates/calyx-lodestar/src/kernel_answer.rs` | `kernel_answer(query, anchor_kind) -> AnswerPath`; ground at nearest anchored kernel node → traverse via `reach_scored` (hop-attenuated 0.9^hop) → provenance-stamp each hop |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
 | `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(kernel, corpus, held_out) -> RecallReport`; reconstruct held-out from kernel-only; ratio ≥ 0.95 is the gate |
+| Stage 7 Ledger integration | #239 replaces PH33 stub provenance with real `kind=Kernel` ledger entries once PH35/PH36 land |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -49,11 +50,12 @@ path is a new column family or ANN shard in the Aster store.
 | T03 | `grounding_gaps`: anchor-reachability BFS + gap list | T01 |
 | T04 | Recall test harness: kernel-only recall ≥ 0.95·full | T02, T03 |
 | T05 | FSV: run on ≥3 real corpora on aiwonder; measure + report recall | T04 |
+| T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`) | PH35/PH36 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-1. `kernel_recall_test` run on **≥3 real corpora** (text/code/graph from the
-   dataset catalog on aiwonder); each corpus produces a `RecallReport` with
+1. `kernel_recall_test` run on **≥3 real corpora** (text/code/graph acquired and
+   verified on aiwonder); each corpus produces a `RecallReport` with
    `ratio ≥ 0.95`.
 2. `grounding_gaps` on the same corpora lists exactly the unanchored kernel members
    (cross-check by manual inspection of a small corpus).
@@ -64,14 +66,13 @@ path is a new column family or ANN shard in the Aster store.
 
 ## Risks / landmines
 
-- **Recall test depends on real data:** aiwonder must have ≥3 datasets loaded
-  (PH69 target); if datasets aren't ready, use synthetic held-out first and flag
-  as `synthetic_only` in the report.
+- **Recall test depends on real data:** aiwonder must have ≥3 real corpora
+  available. Missing corpora are acquisition/verification work for PH33, not a
+  reason to close with synthetic-only evidence.
 - **ANN index vs. full search recall:** the `0.95` gate compares kernel-only ANN
   recall to full-corpus ANN recall on the same query set — both use the same ANN
   algorithm; the comparison is fair only if the same HNSW params are used.
 - **Answer traversal depth:** `0.9^hop` attenuation means answers beyond hop 10 have
   score ≤ 0.35; document the practical max-hop budget in the code.
-- **Provenance stamp per hop:** every hop in `kernel_answer` writes a Ledger entry
-  (stub until PH35; real after PH35 lands); the provenance field must be populated
-  even as a stub to avoid silent data loss.
+- **Provenance stamp per hop:** PH33 fills structured provenance references; #239
+  remains open until PH35/PH36 provide real Ledger appends and readback.

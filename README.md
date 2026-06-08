@@ -6,10 +6,13 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-08, commit `0ada102`)
+## Status (2026-06-08, commit `869ff57`)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
-Six engine surfaces are implemented:
+Stage 6 is active: PH31 and PH32 are implemented, pushed, and FSV-signed-off;
+PH33 is the current implementation slice.
+
+Implemented engine surfaces:
 
 | Crate | Stage | What it is |
 |---|---|---|
@@ -19,15 +22,18 @@ Six engine surfaces are implemented:
 | `calyx-registry` | S3 | lenses: algorithmic/TEI/candle/ONNX runtimes, frozen contract + `LensId`, hot-swap+backfill, capability cards, default panels + temporal lenses |
 | `calyx-sextant` | S4 | search/navigation: per-slot dense/sparse indexes, RRF/WeightedRRF/SingleLens fusion, provenance hits, planner/explain |
 | `calyx-loom` / `calyx-assay` | S5 | DDA + bits: lazy cross-terms, agreement graph, abundance reports, MI/NMI/logistic estimators, differentiation contract, n_eff, sufficiency, attribution, cache provenance |
+| `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
+| `calyx-lodestar` | S6 PH32 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
-of truth is GitHub issue #23. Latest Stage 5 FSV root on aiwonder:
-`/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
+of truth is GitHub issue #23. Recent aiwonder FSV roots:
+`/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`,
+`/home/croyse/calyx/data/fsv-ph31-20260608`, and
+`/home/croyse/calyx/data/fsv-ph32-20260608`.
 
-Remaining engine crates (`lodestar`, `mincut`, `paths`, `ledger`, `ward`,
-`anneal`, `oracle`, `mcp`, `calyxd`) are still skeletons. **Next: Stage 6
-Lodestar kernel (PH31-PH34)**, starting with `calyx-paths`/`calyx-mincut`
-graph primitives and then `calyx-lodestar`.
+Remaining major engine crates (`ledger`, `ward`, `anneal`, `oracle`, `mcp`,
+`calyxd`) are still pending. **Next: Stage 6 PH33** (`calyx-lodestar` kernel
+index, `kernel_answer`, grounding gaps, and recall harness).
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{CxId, SlotId, SlotVector};
+use calyx_core::{CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId};
 use calyx_sextant::{FusionStrategy, HnswIndex, InvertedIndex, Query, SearchEngine, SlotIndexMap};
 use serde_json::Value;
 
@@ -30,6 +30,7 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
 
     let mut single_hits = 0;
     let mut rrf_hits = 0;
+    let mut provenance_ok = true;
     for qid in &query_ids {
         let text = queries.get(qid).unwrap();
         let relevant = qrels.get(qid).unwrap();
@@ -40,6 +41,7 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
                     .with_slots(vec![SlotId::new(8)]),
             )
             .unwrap();
+        provenance_ok &= hits_have_stored_provenance(&engine, &single);
         let rrf = engine
             .search(&Query {
                 fusion: Some(FusionStrategy::Rrf),
@@ -48,6 +50,7 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
                     .with_slots(vec![SlotId::new(1), SlotId::new(8)])
             })
             .unwrap();
+        provenance_ok &= hits_have_stored_provenance(&engine, &rrf);
         if single.iter().any(|hit| relevant.contains(&hit.cx_id)) {
             single_hits += 1;
         }
@@ -67,32 +70,72 @@ fn beir_scifact_rrf_beats_single_lens_qrels() {
         "rrf_recall_at_10": rrf_recall,
         "delta": delta,
         "meets_delta_15": delta >= 0.15,
-        "provenance_ok": true
+        "provenance_ok": provenance_ok
     });
     let path = fsv_root.join("real-qrels-readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();
     println!("real_qrels_readback={}", path.display());
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
     assert!(delta >= 0.15, "RRF delta {delta} must be >= 0.15");
+    assert!(
+        provenance_ok,
+        "hits must carry stored constellation provenance"
+    );
 }
 
 fn real_qrels_engine(corpus: &BTreeMap<String, String>) -> SearchEngine {
     let map = SlotIndexMap::new();
     map.register(InvertedIndex::new(SlotId::new(1)));
     map.register(HnswIndex::new(SlotId::new(8), 2, 42));
-    let engine = SearchEngine::new(map);
+    let mut engine = SearchEngine::new(map);
     for (idx, (doc_id, text)) in corpus.iter().enumerate() {
         let cx = cx_for(doc_id);
+        let seq = idx as u64 + 1;
         engine
             .indexes
-            .insert_text(SlotId::new(1), cx, text, idx as u64 + 1)
+            .insert_text(SlotId::new(1), cx, text, seq)
             .unwrap();
         engine
             .indexes
-            .insert(SlotId::new(8), cx, weak_dense(doc_id), idx as u64 + 1)
+            .insert(SlotId::new(8), cx, weak_dense(doc_id), seq)
             .unwrap();
+        engine.put_constellation(real_qrels_constellation(cx, doc_id, seq));
     }
     engine
+}
+
+fn hits_have_stored_provenance(engine: &SearchEngine, hits: &[calyx_sextant::Hit]) -> bool {
+    hits.iter().all(|hit| {
+        engine
+            .constellation(hit.cx_id)
+            .is_some_and(|cx| cx.provenance == hit.provenance)
+    })
+}
+
+fn real_qrels_constellation(cx_id: CxId, doc_id: &str, seq: u64) -> calyx_core::Constellation {
+    let hash = blake3::hash(doc_id.as_bytes());
+    let mut input_hash = [0_u8; 32];
+    input_hash.copy_from_slice(hash.as_bytes());
+    calyx_core::Constellation {
+        cx_id,
+        vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap(),
+        panel_version: 4,
+        created_at: seq,
+        input_ref: InputRef {
+            hash: input_hash,
+            pointer: Some(format!("beir-scifact:{doc_id}")),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots: BTreeMap::new(),
+        scalars: BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq,
+            hash: input_hash,
+        },
+        flags: CxFlags::default(),
+    }
 }
 
 fn load_corpus(path: PathBuf) -> BTreeMap<String, String> {

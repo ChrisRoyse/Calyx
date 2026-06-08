@@ -15,6 +15,7 @@ use calyx_sextant::{
     RerankRequest, RerankerClient, RrfProfile, SearchEngine, SextantIndex, SlotIndexMap,
     compare_lenses, define, neighbors, weighted_profiles,
 };
+use serde_json::json;
 
 #[test]
 fn tokenizer_varint_and_bm25_are_byte_exact() {
@@ -203,17 +204,10 @@ fn stage4_full_stack_fsv() {
         compare_lenses(&engine, &compare_query, &[SlotId::new(8), SlotId::new(9)]).unwrap();
     let definition = define(&engine, ids[0], SlotId::new(8), 2).unwrap();
     let reranker = RerankerClient::new("http://127.0.0.1:8089", Duration::from_millis(500));
-    let rerank = reranker
-        .rerank(&RerankRequest {
-            query: "cat".to_string(),
-            candidates: vec!["cat hat".to_string(), "dog log".to_string()],
-        })
-        .unwrap_or_else(|_| {
-            reranker.mock_scores(&RerankRequest {
-                query: "cat".to_string(),
-                candidates: vec!["cat hat".to_string(), "dog log".to_string()],
-            })
-        });
+    let rerank = reranker.rerank(&RerankRequest {
+        query: "cat".to_string(),
+        candidates: vec!["cat hat".to_string(), "dog log".to_string()],
+    });
 
     let latencies = measure_latencies(&engine, &dense_query);
     let readback = serde_json::json!({
@@ -231,8 +225,12 @@ fn stage4_full_stack_fsv() {
         "unbounded": unbounded,
         "compare_lenses_differ": compared[0].hits[0].cx_id != compared[1].hits[0].cx_id,
         "define_slot_count": definition.slots.len(),
-        "rerank_scores_len": rerank.scores.len(),
-        "zeroizing_ok": rerank.zeroizing_ok,
+        "rerank": rerank
+            .as_ref()
+            .map(|response| {
+                json!({"scores": response.scores.clone(), "zeroizing_ok": response.zeroizing_ok})
+            })
+            .unwrap_or_else(|error| json!({"error": error.code})),
         "rrf6_p99_us": latencies.0,
         "pipeline_p99_us": latencies.1,
         "explain_delta_us": latencies.2,
@@ -243,6 +241,7 @@ fn stage4_full_stack_fsv() {
     println!("stage4_fsv_readback={}", path.display());
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
 
+    assert!(rerank.is_ok(), "real reranker response required for FSV");
     assert_eq!(readback["fresh_error"], "CALYX_STALE_DERIVED");
     assert_eq!(readback["unbounded"], CALYX_SEXTANT_PLAN_UNBOUNDED);
     assert_eq!(readback["varint_hex"], "010204");

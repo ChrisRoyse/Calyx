@@ -101,13 +101,18 @@ Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. Userspace
 the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
 `19 §6`).
 
-## 7. Status (current: 2026-06-08, commit `0ada102`)
+## 7. Status (current: 2026-06-08, commit `869ff57`)
 
 **DONE — Stages 0–5 (PH00–PH30), FSV-signed-off on aiwonder.** Implemented
 surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
 `calyx-sextant`, `calyx-loom`, `calyx-assay`, plus `calyx-cli` and
-`calyx-testkit`. `calyx-lodestar`, `calyx-mincut`, and `calyx-paths` are still
-skeletons and are the Stage 6 starting point.
+`calyx-testkit`.
+
+**ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
+`calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
+`calyx-lodestar`; PH33 kernel index/answer/gaps is next. Stage 6 remains open
+until PH33, PH34, the Ledger provenance blindspot (#239), and the exit FSV (#240)
+are closed with aiwonder readback evidence.
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
@@ -150,12 +155,22 @@ skeletons and are the Stage 6 starting point.
   and assay provenance cache. FSV root:
   `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
 
-**NEXT — Stage 6: Lodestar kernel (PH31–PH34)** — `calyx-paths` +
-`calyx-mincut` graph primitives and `calyx-lodestar` kernel discovery/answering.
-Deps are satisfied by Stage 5's agreement graph and Stage 4 search. Start at
-`PH31-mincut-paths-scc-betweenness/` and `16_STAGE6_LODESTAR.md`.
+**Stage 6 / PH31:** `calyx-paths` + `calyx-mincut` graph primitives — sparse
+association graph, 0.9^hop traversal, SCC condensation, Brandes betweenness,
+Loom graph builder, and LP scaffolding. FSV root:
+`/home/croyse/calyx/data/fsv-ph31-20260608`.
 
-**Remaining:** Phases **PH31–PH72** are laid out as atomic task cards in the
+**Stage 6 / PH32:** `calyx-lodestar` kernel discovery pipeline — kernel-graph
+scoring/rounding, DFVS approximation and specializations, Kernel struct,
+anchored/provisional groundedness, and incremental re-eval hook. FSV root:
+`/home/croyse/calyx/data/fsv-ph32-20260608`.
+
+**NEXT — Stage 6 / PH33: Kernel index + answer + grounding gaps.** Build from
+`PH33-kernel-index-answer-gaps/` and `16_STAGE6_LODESTAR.md`. If required real
+corpora are missing, acquiring and verifying them on aiwonder is PH33 work; a
+synthetic-only run cannot close the FSV issue.
+
+**Remaining:** Phases **PH33–PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
 FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
 state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,

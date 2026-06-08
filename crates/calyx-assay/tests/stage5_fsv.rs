@@ -3,13 +3,15 @@ use std::fs;
 use std::path::PathBuf;
 
 use calyx_assay::{
-    AssayCacheKey, AssayGate, AssayStore, AssaySubject, EstimatorKind, InMemoryDeficitSink,
-    MIN_ASSAY_SAMPLES, StratumBits, TrustTag, admit_lens, admit_lens_with_strata, bits_report,
-    bootstrap_mean_ci, entropy_bits, ksg_mi_continuous, logistic_probe_mi, panel_sufficiency,
+    AssayCacheKey, AssayGate, AssayStore, AssaySubject, DeficitRoutingContext, EstimatorKind,
+    InMemoryDeficitSink, MIN_ASSAY_SAMPLES, StratumBits, TrustTag, admit_lens,
+    admit_lens_with_strata, bits_report, bootstrap_mean_ci, entropy_bits, ksg_mi_continuous,
+    logistic_probe_mi, panel_sufficiency, panel_sufficiency_with_context,
     partitioned_histogram_nmi, per_sensor_attribution, project_cpu, project_gpu, stable_rank,
     stratified_bits,
 };
-use calyx_core::{CxId, SlotId};
+use calyx_aster::cf::{CfRouter, ColumnFamily};
+use calyx_core::{AnchorKind, CxId, SlotId};
 use calyx_loom::{
     AbundanceReport, CeilingEstimate, CrossTermKind, CrossTermValue, LoomStore,
     MaterializationAction, NeffEstimate, Severity, StaticPairGainGate, agreement_batch_cpu,
@@ -166,6 +168,9 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     let mut sink = InMemoryDeficitSink::default();
     sufficiency.route_to(&mut sink);
     assert_eq!(sink.routed.len(), 2);
+    assert_eq!(sink.routed[0].panel_id, "panel:unspecified");
+    assert_eq!(sink.routed[0].computed_at_seq, 0);
+    assert!(!sink.routed[0].per_slot_gaps.is_empty());
 
     let gate = AssayGate::default();
     let signal = gate.lens_signal(&separable_samples, &labels).unwrap();
@@ -212,6 +217,9 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
 fn stage5_full_stack_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
+    let cf_root = root.join("stage5-aster-cf");
+    let _ = fs::remove_dir_all(&cf_root);
+    let mut cf_router = CfRouter::open(&cf_root, 1_048_576).unwrap();
     let mut readback = BTreeMap::new();
 
     let mut loom = LoomStore::new(32);
@@ -227,13 +235,19 @@ fn stage5_full_stack_fsv() {
     let lazy_value = loom
         .cross_term(cx(1), slot(1), slot(2), CrossTermKind::Delta, &slots)
         .unwrap();
+    let xterm_persisted = loom.persist_xterms_to_aster(&mut cf_router).unwrap();
+    let persisted_loom = LoomStore::load_xterms_from_aster(&cf_router, 32).unwrap();
     let xterm = json!({
-        "xterm_rows": loom.xterm_count(),
+        "cf_root": cf_root.join("cf/xterm").display().to_string(),
+        "xterm_rows": persisted_loom.xterm_count(),
+        "persisted_rows": xterm_persisted,
+        "sst_files": cf_router.level_file_count(ColumnFamily::XTerm),
+        "raw_cf_rows": cf_router.iter_cf(ColumnFamily::XTerm).unwrap().len(),
         "lazy_before_rows": lazy_before,
-        "lazy_after_rows": loom.xterm_count(),
+        "lazy_after_rows": persisted_loom.xterm_count(),
         "lazy_cache_rows": loom.cache_count(),
         "lazy_delta": lazy_value,
-        "agreement_edges": loom.agreement_graph(),
+        "agreement_edges": persisted_loom.agreement_graph(),
         "measured_tags": loom.measured_count(),
         "low_gain_materialized": low_gain_plan.materialized_count(),
         "high_gain_materialized": high_gain_plan.materialized_count(),
@@ -280,7 +294,17 @@ fn stage5_full_stack_fsv() {
     let rank = stable_rank(&block_redundancy_matrix(9, 3));
     let attributions = per_sensor_attribution(&[(slot(1), 0.04), (slot(2), 0.42)], 0.10);
     let bits = bits_report(attributions.clone(), TrustTag::Provisional);
-    let sufficiency = panel_sufficiency(0.45, 1.0, &attributions, TrustTag::Provisional);
+    let sufficiency = panel_sufficiency_with_context(
+        0.45,
+        1.0,
+        &attributions,
+        TrustTag::Provisional,
+        DeficitRoutingContext {
+            panel_id: "stage5-panel-v1".to_string(),
+            anchor: AnchorKind::Label("stage5-passfail".to_string()),
+            computed_at_seq: 101,
+        },
+    );
     let mut sink = InMemoryDeficitSink::default();
     sufficiency.route_to(&mut sink);
     let mut assay_store = AssayStore::default();
@@ -292,9 +316,15 @@ fn stage5_full_stack_fsv() {
         "FSV planted binary anchor",
         100,
     );
+    let assay_persisted = assay_store.persist_to_aster(&mut cf_router).unwrap();
+    let loaded_assay = AssayStore::load_from_aster(&cf_router).unwrap();
     let assay = json!({
-        "rows": assay_store.rows(),
-        "cache_hit": assay_store.cache_hit(&key, &AssaySubject::Lens { slot: slot(2) }),
+        "cf_root": cf_root.join("cf/assay").display().to_string(),
+        "rows": loaded_assay.rows(),
+        "persisted_rows": assay_persisted,
+        "sst_files": cf_router.level_file_count(ColumnFamily::Assay),
+        "raw_cf_rows": cf_router.iter_cf(ColumnFamily::Assay).unwrap().len(),
+        "cache_hit": loaded_assay.cache_hit(&key, &AssaySubject::Lens { slot: slot(2) }),
         "logistic_bits": signal.estimate.bits,
         "pair_gain": pair_gain,
         "ksg": {"estimate": ksg, "known_bits": ksg_known, "known_inside_ci": ksg_known_inside_ci},
@@ -334,7 +364,7 @@ fn stage5_full_stack_fsv() {
     fs::write(&path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();
     println!("STAGE5_READBACK={}", path.display());
     println!("STAGE5_XTERM_ROWS={}", loom.xterm_count());
-    println!("STAGE5_ASSAY_ROWS={}", assay_store.len());
+    println!("STAGE5_ASSAY_ROWS={}", loaded_assay.len());
 }
 
 fn fsv_root() -> PathBuf {

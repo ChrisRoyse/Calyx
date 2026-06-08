@@ -14,7 +14,9 @@ fn column_family_names_match_prd_layout() {
         .collect();
     assert_eq!(
         static_names,
-        ["base", "xterm", "scalars", "anchors", "ledger", "online"]
+        [
+            "base", "xterm", "scalars", "anchors", "assay", "ledger", "online",
+        ]
     );
 
     let slot = ColumnFamily::slot(SlotId::new(7));
