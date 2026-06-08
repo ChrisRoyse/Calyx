@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use calyx_core::{CxId, FixedClock};
 use calyx_ledger::{
     ActorId, DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, LedgerEntry,
-    LedgerRow, MemoryLedgerStore, SubjectId, decode, encode,
+    LedgerRow, MemoryLedgerStore, PayloadBuilder, RedactionPolicy, SubjectId, decode, encode,
 };
 use proptest::prelude::*;
 use serde_json::json;
@@ -69,6 +69,23 @@ fn delete_and_tombstone_fail_closed() {
         store.tombstone(0).unwrap_err().code,
         "CALYX_LEDGER_APPEND_ONLY_VIOLATION"
     );
+}
+
+#[test]
+fn appender_rejects_secret_payload_without_writing_row() {
+    let mut appender = LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(1))
+        .expect("open appender");
+    let error = appender
+        .append(
+            EntryKind::Ingest,
+            SubjectId::Cx(CxId::from_bytes([1; 16])),
+            br#"{"token":"abc123"}"#.to_vec(),
+            ActorId::Service("ledger-fsv".to_string()),
+        )
+        .unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LEDGER_SECRET_IN_PAYLOAD");
+    assert_eq!(appender.scan_entries().unwrap().len(), 0);
 }
 
 proptest! {
@@ -155,6 +172,121 @@ fn ph35_ledger_appender_aiwonder_fsv() {
         "CALYX_LEDGER_APPEND_ONLY_VIOLATION"
     );
     assert_eq!(readback["tombstone_marker_files"], 0);
+}
+
+#[test]
+#[ignore = "manual aiwonder FSV for PH35 ledger redaction policy disk rows"]
+fn ph35_ledger_redaction_aiwonder_fsv() {
+    let root = fsv_root().join("redaction-policy");
+    fs::create_dir_all(&root).expect("create fsv root");
+    let ledger_dir = root.join("ledger-cf");
+    reset_child_dir(&root, &ledger_dir);
+
+    let policy = RedactionPolicy::default();
+    let input_ref = calyx_core::InputRef {
+        hash: [0xab; 32],
+        pointer: Some("file:///vault/raw/password-token-secret.txt".to_string()),
+        redacted: false,
+    };
+    let redacted_input = policy.redact_input_ref(&input_ref);
+    let mut builder = PayloadBuilder::default();
+    builder
+        .insert_str("cx_id", "0123456789abcdef0123456789abcdef")
+        .insert_str("lens_id", "abcdef0123456789abcdef0123456789")
+        .insert_str(
+            "input_hash",
+            "abababababababababababababababababababababababababababababababab",
+        )
+        .insert_str(
+            "weights_sha256",
+            "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+        )
+        .insert_value("input_ref", serde_json::to_value(&redacted_input).unwrap())
+        .insert_str("raw_bytes", "raw password token should not persist")
+        .insert_str("password", "hunter2")
+        .insert_u64("ts", 55);
+    let sanitized_payload = policy.apply_to_payload(&builder);
+    let sanitized_json: serde_json::Value = serde_json::from_slice(&sanitized_payload).unwrap();
+
+    let before_rows = DirectoryLedgerStore::open(&ledger_dir)
+        .expect("open before store")
+        .scan()
+        .expect("scan before")
+        .len();
+    let mut appender = LedgerAppender::open(
+        DirectoryLedgerStore::open(&ledger_dir).unwrap(),
+        FixedClock::new(77),
+    )
+    .expect("open disk appender");
+    let accepted_ref = appender
+        .append(
+            EntryKind::Ingest,
+            SubjectId::Cx(CxId::from_bytes([3; 16])),
+            sanitized_payload,
+            ActorId::Service("ledger-redaction-fsv".to_string()),
+        )
+        .expect("append sanitized payload");
+    let after_accept_rows = appender.scan_entries().expect("scan accepted").len();
+    let password_error = appender
+        .append(
+            EntryKind::Ingest,
+            SubjectId::Cx(CxId::from_bytes([4; 16])),
+            br#"{"password":"hunter2"}"#.to_vec(),
+            ActorId::Service("ledger-redaction-fsv".to_string()),
+        )
+        .unwrap_err();
+    let token_error = appender
+        .append(
+            EntryKind::Ingest,
+            SubjectId::Cx(CxId::from_bytes([5; 16])),
+            b"Bearer a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8s9T0".to_vec(),
+            ActorId::Service("ledger-redaction-fsv".to_string()),
+        )
+        .unwrap_err();
+    let after_reject_rows = appender.scan_entries().expect("scan rejected").len();
+    drop(appender);
+
+    let store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
+    let rows = store.scan().expect("scan rows");
+    let entry = decode(&rows[0].bytes).expect("decode ledger row");
+    let stored_payload: serde_json::Value =
+        serde_json::from_slice(&entry.payload).expect("parse stored payload");
+    let stored_payload_text = serde_json::to_string(&stored_payload).unwrap();
+    let readback = json!({
+        "before_rows": before_rows,
+        "accepted_ref_seq": accepted_ref.seq,
+        "after_accept_rows": after_accept_rows,
+        "after_reject_rows": after_reject_rows,
+        "row_files": rows.iter().map(|row| format!("{:016x}.ledger", row.seq)).collect::<Vec<_>>(),
+        "stored_payload": stored_payload,
+        "sanitized_payload": sanitized_json,
+        "stored_payload_has_password": stored_payload_text.contains("password"),
+        "stored_payload_has_token": stored_payload_text.contains("token"),
+        "stored_payload_has_secret": stored_payload_text.contains("secret"),
+        "stored_payload_has_raw": stored_payload_text.contains("raw"),
+        "stored_payload_has_pointer_path": stored_payload_text.contains("password-token-secret"),
+        "password_error": password_error.code,
+        "token_error": token_error.code,
+        "entry_hash": hex(&entry.entry_hash),
+    });
+    let json_path = root.join("ledger-redaction-readback.json");
+    fs::write(&json_path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();
+
+    println!("PH35_REDACTION_FSV_ROOT={}", root.display());
+    println!("PH35_REDACTION_READBACK={}", json_path.display());
+    println!("{}", serde_json::to_string_pretty(&readback).unwrap());
+
+    assert_eq!(before_rows, 0);
+    assert_eq!(accepted_ref.seq, 0);
+    assert_eq!(after_accept_rows, 1);
+    assert_eq!(after_reject_rows, 1);
+    assert_eq!(readback["stored_payload_has_password"], false);
+    assert_eq!(readback["stored_payload_has_token"], false);
+    assert_eq!(readback["stored_payload_has_secret"], false);
+    assert_eq!(readback["stored_payload_has_raw"], false);
+    assert_eq!(readback["stored_payload_has_pointer_path"], false);
+    assert_eq!(readback["password_error"], "CALYX_LEDGER_SECRET_IN_PAYLOAD");
+    assert_eq!(readback["token_error"], "CALYX_LEDGER_SECRET_IN_PAYLOAD");
 }
 
 fn append_sample_entries<S, C>(

@@ -32,9 +32,13 @@ errors. T01 evidence is at
 `/home/croyse/calyx/data/fsv-issue243-ledger-codec-20260608`. T03 (#244) adds
 `LedgerAppender`, recovered monotonic seq, hash-chain append, and append-only
 delete/tombstone rejection; evidence is at
-`/home/croyse/calyx/data/fsv-issue244-ledger-appender-20260608`. The remaining
-PH35 tasks build redaction policy, group-commit hook, actor/timestamp wiring,
-and WAL smoke FSV on top of those primitives. The following scaffolding already
+`/home/croyse/calyx/data/fsv-issue244-ledger-appender-20260608`. T04 (#245)
+adds `RedactionPolicy`, `PayloadBuilder`, `RedactedInput`,
+`CALYX_LEDGER_SECRET_IN_PAYLOAD`, and appender-side payload rejection before row
+encoding; evidence is at
+`/home/croyse/calyx/data/fsv-issue245-ledger-redaction-20260608`. The remaining
+PH35 tasks build the group-commit hook, actor/timestamp wiring, and WAL smoke
+FSV on top of those primitives. The following scaffolding already
 exists and must be reused:
 
 - `calyx-core/src/model/signal.rs`: `LedgerRef { seq: u64, hash: [u8; 32] }`
@@ -56,7 +60,7 @@ are implemented. Aster group-commit integration remains T05.
 | `crates/calyx-ledger/src/codec.rs` | deterministic binary `encode`/`decode`/`decode_header`; fail-closed `CALYX_LEDGER_CORRUPT` parsing |
 | `crates/calyx-ledger/src/append.rs` | `LedgerAppender`: seq-counter, `append(entry) -> LedgerRef`, append-only enforcement (no update/delete), tombstone prohibition |
 | `crates/calyx-ledger/src/kind.rs` | `EntryKind` enum with all 10 variants; `Display` / serde |
-| `crates/calyx-ledger/src/redaction.rs` | `RedactionPolicy`: ensure payloads carry hashes/ids only, never raw secret values; `check_no_secret` validator |
+| `crates/calyx-ledger/src/redaction.rs` | `RedactionPolicy`: ensure payloads carry hashes/ids only, never raw secret values; `check_payload` validator |
 | `crates/calyx-ledger/src/group_commit.rs` | `LedgerGroupCommitHook`: trait impl wiring a ledger append into PH09's group-commit batch so the ledger entry and the data write share one WAL record |
 | `crates/calyx-ledger/src/lib.rs` | Crate root; re-exports |
 | `crates/calyx-ledger/src/tests/` | Unit + proptest + FSV-support tests (may be split into `entry_tests.rs`, `append_tests.rs`, `group_commit_tests.rs`) |
@@ -68,7 +72,7 @@ are implemented. Aster group-commit integration remains T05.
 | T01 | `LedgerEntry` struct + `EntryKind` enum + `entry_hash` | — |
 | T02 | Binary codec (encode/decode) round-trip | T01 |
 | T03 | `LedgerAppender`: seq counter + append-only enforcement (done #244) | T02 |
-| T04 | Redaction policy: no secrets in payload | T03 |
+| T04 | Redaction policy: no secrets in payload (done #245) | T03 |
 | T05 | Group-commit hook: ledger entry in same WAL batch as data write | T03 |
 | T06 | Actor-stamp + server-stamped monotonic timestamp wiring | T05 |
 | T07 | Integration smoke: PH09 constellation write → chained ledger entry in WAL | T05, T06 |

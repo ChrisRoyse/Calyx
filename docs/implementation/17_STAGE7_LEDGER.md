@@ -31,6 +31,11 @@ as PH09 writes constellations.*
   monotonic seq, hash-chain append, and append-only delete/tombstone rejection;
   disk row readbacks are FSV-backed at
   `/home/croyse/calyx/data/fsv-issue244-ledger-appender-20260608`.
+- **Post-sweep note.** PH35 T04 (#245) adds `RedactionPolicy`,
+  `PayloadBuilder`, `RedactedInput`, `CALYX_LEDGER_SECRET_IN_PAYLOAD`, and
+  appender-side fail-closed payload scanning before row encoding. Disk row
+  payload readbacks and forbidden-string scans are FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue245-ledger-redaction-20260608`.
 - **FSV gate.** every constellation write has a chained ledger entry in the WAL
   group-commit (read the WAL + ledger CF); chain links verify; no entry stores a
   secret value.
