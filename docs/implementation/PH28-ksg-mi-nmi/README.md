@@ -48,6 +48,11 @@ mismatched, empty, n<50, and NaN/Inf scalar streams fail before binning, while
 n=50 exactly is accepted. FSV root:
 `/home/croyse/calyx/data/fsv-issue317-nmi-fail-closed-20260608`.
 
+Post-sweep #318 wires the seeded bootstrap engine into the public KSG estimator,
+logistic-probe estimator, AssayGate lens signal, PairGain estimate, and Aster
+Assay CF persistence/readback path. FSV root:
+`/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608`.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
@@ -56,7 +61,7 @@ n=50 exactly is accepted. FSV root:
 | `crates/calyx-assay/src/ksg.rs` | KSG estimator: k-NN MI via ANN graph, continuous↔continuous + continuous↔discrete, bias-corrected, bootstrap CI |
 | `crates/calyx-assay/src/nmi.rs` | Partitioned histogram NMI (`partitioned_histogram_nmi_v1`), streaming, redundancy-graph use case |
 | `crates/calyx-assay/src/projection.rs` | Random-projection pre-step for high-d: JL lemma projection to `2·ceil(log2(n))` dims; seeded deterministically |
-| `crates/calyx-assay/src/bootstrap.rs` | Bootstrap CI engine: resampled MI mean ± 1.96σ; configurable n_bootstrap (default 200); seeded |
+| `crates/calyx-assay/src/bootstrap.rs` | Bootstrap CI engine: seeded 95% percentile-span envelope; configurable resamples (default 200) and seed (default 0) |
 | `crates/calyx-assay/src/gate.rs` | `AssayGate` impl that wires `pair_gain` into PH27 `MaterializationPlan`; `lens_signal` entry point |
 | `crates/calyx-assay/src/logistic.rs` | Binary-outcome logistic-probe MI estimator |
 | `crates/calyx-assay/tests/stage5_fsv.rs` | Planted-synthetic FSV tests: known MI, known NMI, CI correctness, quorum enforcement, projection parity |

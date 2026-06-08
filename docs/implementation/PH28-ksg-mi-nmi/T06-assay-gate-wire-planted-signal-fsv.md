@@ -18,6 +18,12 @@ as the public entry point for per-lens signal measurement. Run the planted-signa
 FSV: MI on a planted-signal synthetic is within the CI of the known value; n<50
 fails closed. This card closes PH28.
 
+Post-sweep #318 status: current `AssayGate::lens_signal` uses the logistic-probe
+public estimator with seeded bootstrap CI, and `pair_gain_estimate` carries a
+conservative CI derived from the left/right/pair bootstrap-backed estimates.
+The Aster Assay CF readback for #318 proves persisted `MiEstimate` rows include
+`ci_low`/`ci_high` bytes.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Implement `AssayGateImpl` (the real impl of the `AssayGate` trait from PH27 T03):
@@ -43,6 +49,15 @@ fails closed. This card closes PH28.
 - [ ] fail-closed: Aster read failure on slot vectors → `CALYX_ASTER_NOT_FOUND` propagated; never returns a fabricated 0.0 MI when data is missing
 
 ## FSV (read the bytes on aiwonder — the truth gate)
+
+> **Post-sweep #318 superseding readback:** Run:
+> ```
+> CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608 \
+>   cargo test -p calyx-assay bootstrap_ci_aiwonder_fsv -- --ignored --nocapture --test-threads=1
+> ```
+> Then read the Aster Assay CF raw `value_hex` and decoded rows in
+> `bootstrap-ci-readback.json`; each persisted public estimator/gate row must
+> carry `ci_low` and `ci_high` bytes.
 
 - **SoT:** `Slot.bits_about` persisted to the assay CF for a planted-signal synthetic vault
 - **Readback:**

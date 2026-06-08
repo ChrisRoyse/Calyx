@@ -36,6 +36,10 @@
 > mismatched, empty, n<50, and NaN/Inf scalar streams, while accepting n=50
 > exactly. FSV root:
 > `/home/croyse/calyx/data/fsv-issue317-nmi-fail-closed-20260608`.
+> Post-sweep hardening #318 wires deterministic seeded bootstrap CI into the
+> public KSG estimator, logistic-probe path, AssayGate lens signal, PairGain
+> estimate, and persisted AssayStore rows. FSV root:
+> `/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608`.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -91,7 +95,9 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   without an Anchor; the `_with_anchor` variants emit `trusted` only for
   grounded Anchor evidence (#294). `AssayGate.min_samples` now controls the
   logistic-probe quorum used by lens and pair signal calls (#309). Partitioned
-  NMI shares the n>=50/malformed-input fail-closed contract (#317).
+  NMI shares the n>=50/malformed-input fail-closed contract (#317). KSG,
+  logistic-probe, AssayGate lens signal, and PairGain estimates now attach
+  seeded bootstrap CI through the public paths before persistence (#318).
 - **FSV gate.** MI on a **planted-signal synthetic** is within CI of the known
   value; n<50 fails closed (no noisy point estimate).
 - **Axioms/PRD.** A2 (grounded only), A16, `07 §2`.

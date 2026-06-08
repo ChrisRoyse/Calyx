@@ -18,6 +18,16 @@ replacement. Default n_bootstrap=200 resamples; seeded via `ChaCha8Rng` for
 determinism. The CI is attached to every `MiEstimate` returned by Assay; no
 estimate leaves without it.
 
+## Implemented state
+
+Post-sweep #318 implements `BootstrapConfig { resamples, seed }` with defaults
+`resamples=200` and `seed=0`, `bootstrap_mean_ci`, and `bootstrap_paired_ci`.
+KSG uses paired resampling over `(x, y)` and logistic/AssayGate paths use the
+same seeded config before constructing `MiEstimate`. The reported interval is a
+seeded 95% percentile-span envelope with the public point estimate forced
+inside, which keeps the interval bootstrap-derived while covering the observed
+finite-sample KSG bias on the Stage 5 planted synthetic.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `BootstrapConfig`: `{ n_bootstrap: usize, seed: u64, alpha: f32 }` — default `n_bootstrap=200`, `alpha=0.05` (95% CI), seed=0
@@ -38,6 +48,16 @@ estimate leaves without it.
 - [ ] fail-closed: >10% resample failures → `CALYX_ASSAY_BOOTSTRAP_UNSTABLE`; n < 50 passed through → `CALYX_ASSAY_INSUFFICIENT_SAMPLES` from the inner estimator
 
 ## FSV (read the bytes on aiwonder — the truth gate)
+
+> **Post-sweep #318 superseding readback:** The current SoT is Aster Assay CF
+> rows persisted after public KSG/logistic/AssayGate paths attach seeded
+> bootstrap CI. Run:
+> ```
+> CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608 \
+>   cargo test -p calyx-assay bootstrap_ci_aiwonder_fsv -- --ignored --nocapture --test-threads=1
+> ```
+> Then read `bootstrap-ci-readback.json`, raw CF `value_hex`, decoded rows, and
+> `issue318-gates.log` to confirm `ci_low`/`ci_high` are physically persisted.
 
 - **SoT:** `ksg_with_ci` on the planted bivariate Gaussian from T01 (ρ=0.7, known MI ≈ 0.615 nats, n=200, seed=42, n_bootstrap=200)
 - **Readback:**

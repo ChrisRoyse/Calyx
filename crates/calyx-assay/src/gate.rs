@@ -19,6 +19,8 @@ pub struct PairGain {
     pub right_bits: f32,
     pub pair_bits: f32,
     pub gain_bits: f32,
+    pub ci_low: f32,
+    pub ci_high: f32,
     pub n_samples: usize,
 }
 
@@ -64,21 +66,19 @@ impl AssayGate {
         right: &[Vec<f32>],
         labels: &[bool],
     ) -> Result<PairGain> {
-        let left_bits = self.lens_signal(left, labels)?.estimate.bits;
-        let right_bits = self.lens_signal(right, labels)?.estimate.bits;
+        let left_signal = self.lens_signal(left, labels)?.estimate;
+        let right_signal = self.lens_signal(right, labels)?.estimate;
         let combined: Vec<Vec<f32>> = left
             .iter()
             .zip(right)
             .map(|(a, b)| a.iter().chain(b).copied().collect())
             .collect();
-        let pair_bits = self.lens_signal(&combined, labels)?.estimate.bits;
-        Ok(PairGain {
-            left_bits,
-            right_bits,
-            pair_bits,
-            gain_bits: (pair_bits - left_bits.max(right_bits)).max(0.0),
-            n_samples: labels.len(),
-        })
+        let pair_signal = self.lens_signal(&combined, labels)?.estimate;
+        Ok(pair_gain_from_estimates(
+            &left_signal,
+            &right_signal,
+            &pair_signal,
+        ))
     }
 
     pub fn pair_gain_with_anchor(
@@ -88,30 +88,23 @@ impl AssayGate {
         labels: &[bool],
         anchor: &Anchor,
     ) -> Result<PairGain> {
-        let left_bits = self
-            .lens_signal_with_anchor(left, labels, anchor)?
-            .estimate
-            .bits;
-        let right_bits = self
+        let left_signal = self.lens_signal_with_anchor(left, labels, anchor)?.estimate;
+        let right_signal = self
             .lens_signal_with_anchor(right, labels, anchor)?
-            .estimate
-            .bits;
+            .estimate;
         let combined: Vec<Vec<f32>> = left
             .iter()
             .zip(right)
             .map(|(a, b)| a.iter().chain(b).copied().collect())
             .collect();
-        let pair_bits = self
+        let pair_signal = self
             .lens_signal_with_anchor(&combined, labels, anchor)?
-            .estimate
-            .bits;
-        Ok(PairGain {
-            left_bits,
-            right_bits,
-            pair_bits,
-            gain_bits: (pair_bits - left_bits.max(right_bits)).max(0.0),
-            n_samples: labels.len(),
-        })
+            .estimate;
+        Ok(pair_gain_from_estimates(
+            &left_signal,
+            &right_signal,
+            &pair_signal,
+        ))
     }
 
     pub fn pair_gain_estimate(&self, gain: &PairGain) -> MiEstimate {
@@ -125,11 +118,28 @@ impl AssayGate {
     fn pair_gain_estimate_with_trust(&self, gain: &PairGain, trust: TrustTag) -> MiEstimate {
         MiEstimate::new(
             gain.gain_bits,
-            (gain.gain_bits - 0.02).max(0.0),
-            gain.gain_bits + 0.02,
+            gain.ci_low,
+            gain.ci_high,
             gain.n_samples,
             EstimatorKind::PairGain,
             trust,
         )
+    }
+}
+
+fn pair_gain_from_estimates(left: &MiEstimate, right: &MiEstimate, pair: &MiEstimate) -> PairGain {
+    let baseline_low = left.ci_low.max(right.ci_low);
+    let baseline_high = left.ci_high.max(right.ci_high);
+    let gain_bits = (pair.bits - left.bits.max(right.bits)).max(0.0);
+    let ci_low = (pair.ci_low - baseline_high).max(0.0);
+    let ci_high = (pair.ci_high - baseline_low).max(gain_bits);
+    PairGain {
+        left_bits: left.bits,
+        right_bits: right.bits,
+        pair_bits: pair.bits,
+        gain_bits,
+        ci_low,
+        ci_high,
+        n_samples: pair.n_samples,
     }
 }

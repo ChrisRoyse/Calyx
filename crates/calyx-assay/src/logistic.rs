@@ -3,9 +3,15 @@
 use calyx_core::{Anchor, CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::bootstrap::{
+    BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED, bootstrap_paired_ci,
+};
 use crate::estimate::{EstimatorKind, MiEstimate, TrustTag, trust_for_anchor};
 use crate::ksg::MIN_ASSAY_SAMPLES;
 use crate::samples::validate_rectangular_finite;
+
+const LOGISTIC_BOOTSTRAP_CONFIG: BootstrapConfig =
+    BootstrapConfig::new(DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LogisticProbeReport {
@@ -73,6 +79,38 @@ fn logistic_probe_mi_with_trust_and_min_samples(
         )));
     }
     let dim = validate_rectangular_finite("logistic", samples)?;
+    let summary = logistic_summary(samples, labels, dim);
+    let ci = bootstrap_paired_ci(
+        samples,
+        labels,
+        summary.bits,
+        LOGISTIC_BOOTSTRAP_CONFIG,
+        |sampled_samples, sampled_labels| {
+            let dim = validate_rectangular_finite("logistic", sampled_samples)?;
+            Ok(logistic_summary(sampled_samples, sampled_labels, dim).bits)
+        },
+    )?
+    .ok_or_else(|| CalyxError::assay_insufficient_samples("bootstrap CI requires samples"))?;
+    Ok(LogisticProbeReport {
+        estimate: MiEstimate::new(
+            summary.bits,
+            ci.ci_low,
+            ci.ci_high,
+            labels.len(),
+            EstimatorKind::LogisticProbe,
+            trust,
+        ),
+        accuracy: summary.accuracy,
+        selected_field: "logistic_probe",
+    })
+}
+
+struct LogisticSummary {
+    bits: f32,
+    accuracy: f32,
+}
+
+fn logistic_summary(samples: &[Vec<f32>], labels: &[bool], dim: usize) -> LogisticSummary {
     let (pos_mean, neg_mean) = class_means(samples, labels, dim);
     let direction: Vec<f32> = pos_mean
         .iter()
@@ -96,18 +134,7 @@ fn logistic_probe_mi_with_trust_and_min_samples(
         .count() as f32
         / labels.len() as f32;
     let bits = binary_mi(labels, &predictions);
-    Ok(LogisticProbeReport {
-        estimate: MiEstimate::new(
-            bits,
-            (bits - 0.05).max(0.0),
-            bits + 0.05,
-            labels.len(),
-            EstimatorKind::LogisticProbe,
-            trust,
-        ),
-        accuracy,
-        selected_field: "logistic_probe",
-    })
+    LogisticSummary { bits, accuracy }
 }
 
 fn class_means(samples: &[Vec<f32>], labels: &[bool], dim: usize) -> (Vec<f32>, Vec<f32>) {
