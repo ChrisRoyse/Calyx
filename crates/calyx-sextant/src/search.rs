@@ -71,11 +71,7 @@ impl SearchEngine {
                 "reranker search requires Pipeline fusion",
             ));
         }
-        let search_k = if query.filters.is_empty() {
-            query.k
-        } else {
-            query.k.saturating_mul(8).max(query.k)
-        };
+        let search_k = self.candidate_window(&slots, query);
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
             let stats = self
@@ -141,6 +137,20 @@ impl SearchEngine {
                         .all(|filter| metadata_matches(cx, filter))
             })
         });
+    }
+
+    fn candidate_window(&self, slots: &[SlotId], query: &Query) -> usize {
+        if query.filters.is_empty() {
+            return query.k;
+        }
+        self.indexes
+            .stats()
+            .into_iter()
+            .filter(|stats| slots.contains(&stats.slot))
+            .map(|stats| stats.len)
+            .max()
+            .unwrap_or(query.k)
+            .max(query.k)
     }
 
     fn rerank_pipeline_hits(

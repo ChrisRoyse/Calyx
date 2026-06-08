@@ -28,6 +28,10 @@
 > Post-sweep hardening #297 adds `QueryFilters` for scalar, anchor, and
 > built-in constellation metadata predicates in the SearchEngine path.
 > FSV root: `/home/croyse/calyx/data/fsv-issue297-query-filters-20260608`.
+> Post-sweep hardening #308 makes filtered searches use the full indexed
+> candidate set before applying predicates, and rebuilds HNSW neighbor links
+> when an existing `CxId` is reinserted with a new vector.
+> FSV root: `/home/croyse/calyx/data/fsv-issue308-sextant-filter-hnsw-20260608`.
 > Post-sweep hardening #305 removes the last public mock reranker scoring
 > helper; PH26 reranking now either calls the request-scoped real HTTP reranker
 > or fails closed.
@@ -61,6 +65,9 @@ attention.
 - **Post-sweep note.** `HnswIndex::search` now uses greedy descent plus
   `ef`-bounded beam traversal, with fail-closed empty-index, `ef`, and dim
   errors (#284). Brute force is retained only as a recall reference.
+- **Post-sweep note.** Re-inserting an existing `CxId` updates the stored vector
+  and rebuilds in-memory neighbor links so searches do not use stale topology
+  after the vector moves (#308).
 - **Post-sweep note.** MaxSim and quantization CPU/GPU delta helpers now return
   `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE` instead of comparing CPU output to
   itself; #299 readback records the explicit unavailable state.
@@ -131,6 +138,10 @@ attention.
   (vault, modality, panel version, created time, input redaction/pointer) against
   stored constellations; rows without stored constellation metadata are excluded
   fail-closed (#297).
+- **Post-sweep note.** Filtered queries now request all indexed candidates for
+  the selected slots before applying predicates and final `k` truncation; the
+  former fixed widening window could miss valid lower-ranked filtered matches
+  (#308).
 - **FSV gate.** intent auto-selects the right strategy (verified per case);
   `explain=true` returns the per-lens + provenance breakdown; an unbounded plan
   is rejected; Pipeline reranker readback shows baseline order, reranked order,

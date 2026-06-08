@@ -56,6 +56,20 @@ fn hnsw_search_edges_fail_closed() {
 }
 
 #[test]
+fn hnsw_duplicate_insert_reconnects_updated_vector() {
+    let mut index = build_index(128, 8);
+    let moved = cx(0);
+    let target = unit_vector(127, 8);
+    index.insert(moved, dense(target.clone()), 999).unwrap();
+
+    let got = index.search(&dense(target), 1, Some(32)).unwrap();
+
+    assert_eq!(got[0].cx_id, moved);
+    assert_eq!(index.stats().base_seq, 999);
+    assert_eq!(index.stats().built_at_seq, 999);
+}
+
+#[test]
 #[ignore = "aiwonder FSV writes PH23 HNSW recall source-of-truth artifacts"]
 fn hnsw_recall_aiwonder_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
@@ -97,6 +111,15 @@ fn hnsw_recall_aiwonder_fsv() {
         .unwrap_err()
         .code
         .to_string();
+    let mut update_index = build_index(128, dim);
+    let moved = cx(0);
+    let update_target = unit_vector(127, dim);
+    update_index
+        .insert(moved, dense(update_target.clone()), 999)
+        .unwrap();
+    let update_hit = update_index
+        .search(&dense(update_target), 1, Some(32))
+        .unwrap();
 
     let report = json!({
         "n": n,
@@ -112,6 +135,9 @@ fn hnsw_recall_aiwonder_fsv() {
         "edge_empty": empty_error,
         "edge_ef_too_small": ef_error,
         "edge_dim_mismatch": dim_error,
+        "duplicate_update_top_id": update_hit[0].cx_id.to_string(),
+        "duplicate_update_base_seq": update_index.stats().base_seq,
+        "duplicate_update_built_at_seq": update_index.stats().built_at_seq,
     });
     let path = root.join("hnsw-recall-readback.json");
     fs::write(&path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
@@ -130,6 +156,9 @@ fn hnsw_recall_aiwonder_fsv() {
     assert_eq!(readback["edge_empty"], CALYX_SEXTANT_INDEX_EMPTY);
     assert_eq!(readback["edge_ef_too_small"], CALYX_SEXTANT_EF_TOO_SMALL);
     assert_eq!(readback["edge_dim_mismatch"], CALYX_SEXTANT_DIM_MISMATCH);
+    assert_eq!(readback["duplicate_update_top_id"], moved.to_string());
+    assert_eq!(readback["duplicate_update_base_seq"], 999);
+    assert_eq!(readback["duplicate_update_built_at_seq"], 999);
 }
 
 fn build_index(n: usize, dim: usize) -> HnswIndex {

@@ -18,7 +18,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, and #307 records GEMM near-zero parity by relative+absolute readback |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); durable PH20 scheduler #300 FSV-backed |
-| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed and PH23/PH24 GPU overclaim #299 now fails loud |
+| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 and groundedness bound #298 FSV-backed) |
 | S7–S20 | PH35–PH72 | · pending |
@@ -118,7 +118,8 @@ Latest roots:
 > JSON. Closed during sweep hardening: PH31/PH33 real Loom association-graph
 > adapter #293, PH30 grounded Assay trust #294, PH11 durable tiering #295, PH26
 > reranker search-path ordering #296, and PH26 scalar/anchor/built-in metadata
-> filters #297. PH23/PH24 GPU parity/fan-out overclaim #299 now fails loud
+> filters #297, filtered searches no longer use a fixed `k*8` candidate window,
+> and HNSW duplicate vector inserts rebuild neighbor links (#308). PH23/PH24 GPU parity/fan-out overclaim #299 now fails loud
 > instead of comparing CPU outputs to themselves. PH13 CUDA top-k large-k
 > overclaim #303 now fails loud for `k > 1024` until exact multi-pass merge
 > exists. PH33 bounded build-time groundedness #298 is now FSV-backed. No

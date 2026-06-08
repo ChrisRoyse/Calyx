@@ -281,9 +281,12 @@ impl SextantIndex for HnswIndex {
             ));
         }
         self.quant.lock_after_first_insert();
-        if let Some(row) = self.rows.iter_mut().find(|row| row.cx_id == cx_id) {
-            row.vector = values.to_vec();
-            row.seq = seq;
+        if let Some(index) = self.rows.iter().position(|row| row.cx_id == cx_id) {
+            self.rows[index].vector = values.to_vec();
+            self.rows[index].seq = seq;
+            self.base_seq = self.base_seq.max(seq);
+            self.rebuild()?;
+            return Ok(());
         } else {
             let level = self.level_for(cx_id, self.rows.len());
             self.rows.push(Row {
