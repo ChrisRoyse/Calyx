@@ -128,18 +128,17 @@ impl BackfillScheduler {
     }
 
     pub fn enqueue(&mut self, request: BackfillRequest) -> Result<()> {
-        let key = request_key(request.slot_id, request.lens_id);
-        self.state
-            .requests
-            .entry(key)
-            .or_insert_with(|| RequestState {
+        self.mutate_and_persist(|state| {
+            let key = request_key(request.slot_id, request.lens_id);
+            state.requests.entry(key).or_insert_with(|| RequestState {
                 request,
                 next_index: 0,
                 in_flight: Vec::new(),
                 last_processed: None,
                 complete: false,
             });
-        self.persist()
+            Ok(())
+        })
     }
 
     pub fn claim_next_batch(&mut self, now_ms: u64) -> Result<Option<BackfillBatch>> {
@@ -157,46 +156,43 @@ impl BackfillScheduler {
         let Some(key) = self.next_request_key() else {
             return Ok(None);
         };
-        let state = self
-            .state
-            .requests
-            .get_mut(&key)
-            .expect("key selected from map");
-        let start = state.next_index;
-        let end = (start + self.state.config.batch_size.max(1)).min(state.request.candidates.len());
-        if start >= end {
-            state.complete = true;
-            self.persist()?;
-            return Ok(None);
-        }
-        state.in_flight = state.request.candidates[start..end].to_vec();
-        let batch = BackfillBatch {
-            slot_id: state.request.slot_id,
-            lens_id: state.request.lens_id,
-            candidates: state.in_flight.clone(),
-            throttled: false,
-        };
-        self.persist()?;
-        Ok(Some(batch))
+        let batch_size = self.state.config.batch_size.max(1);
+        self.mutate_and_persist(|state| {
+            let state = state.requests.get_mut(&key).expect("key selected from map");
+            let start = state.next_index;
+            let end = (start + batch_size).min(state.request.candidates.len());
+            if start >= end {
+                state.complete = true;
+                return Ok(None);
+            }
+            state.in_flight = state.request.candidates[start..end].to_vec();
+            Ok(Some(BackfillBatch {
+                slot_id: state.request.slot_id,
+                lens_id: state.request.lens_id,
+                candidates: state.in_flight.clone(),
+                throttled: false,
+            }))
+        })
     }
 
     pub fn complete_batch(&mut self, slot_id: SlotId, lens_id: LensId, now_ms: u64) -> Result<()> {
-        let key = request_key(slot_id, lens_id);
-        let state =
-            self.state.requests.get_mut(&key).ok_or_else(|| {
+        self.mutate_and_persist(|state| {
+            let key = request_key(slot_id, lens_id);
+            let request = state.requests.get_mut(&key).ok_or_else(|| {
                 CalyxError::stale_derived(format!("backfill request {key} missing"))
             })?;
-        if state.in_flight.is_empty() {
-            return Err(CalyxError::stale_derived(format!(
-                "backfill request {key} has no in-flight batch"
-            )));
-        }
-        state.next_index += state.in_flight.len();
-        state.last_processed = state.in_flight.last().copied();
-        state.in_flight.clear();
-        state.complete = state.next_index >= state.request.candidates.len();
-        self.state.next_allowed_ms = now_ms.saturating_add(self.state.config.throttle_ms);
-        self.persist()
+            if request.in_flight.is_empty() {
+                return Err(CalyxError::stale_derived(format!(
+                    "backfill request {key} has no in-flight batch"
+                )));
+            }
+            request.next_index += request.in_flight.len();
+            request.last_processed = request.in_flight.last().copied();
+            request.in_flight.clear();
+            request.complete = request.next_index >= request.request.candidates.len();
+            state.next_allowed_ms = now_ms.saturating_add(state.config.throttle_ms);
+            Ok(())
+        })
     }
 
     pub fn watermarks(&self) -> Vec<BackfillWatermark> {
@@ -230,6 +226,30 @@ impl BackfillScheduler {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    fn mutate_and_persist<T>(
+        &mut self,
+        mutate: impl FnOnce(&mut PersistedScheduler) -> Result<T>,
+    ) -> Result<T> {
+        let before = self.state.clone();
+        let output = match mutate(&mut self.state) {
+            Ok(output) => output,
+            Err(error) => {
+                self.state = before;
+                return Err(error);
+            }
+        };
+        if let Err(error) = self.persist() {
+            self.state = before;
+            if let Err(rollback_error) = self.persist() {
+                return Err(CalyxError::stale_derived(format!(
+                    "scheduler persist failed: {error}; rollback persist failed: {rollback_error}"
+                )));
+            }
+            return Err(error);
+        }
+        Ok(output)
     }
 
     fn active_count(&self) -> usize {
@@ -280,6 +300,7 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
         let _ = fs::remove_file(&tmp);
         return Err(io_error(path, err));
     }
+    injected_post_rename_failure(path)?;
     sync_parent(parent)
 }
 
@@ -302,6 +323,35 @@ fn sync_parent(parent: &Path) -> Result<()> {
 
 #[cfg(not(unix))]
 fn sync_parent(_parent: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+fn injected_post_rename_failure(path: &Path) -> Result<()> {
+    let marker = post_rename_failure_marker(path)?;
+    if !marker.exists() {
+        return Ok(());
+    }
+    fs::remove_file(&marker).map_err(|err| io_error(&marker, err))?;
+    Err(CalyxError::stale_derived(format!(
+        "{}: injected post-rename persist failure",
+        path.display()
+    )))
+}
+
+#[cfg(debug_assertions)]
+fn post_rename_failure_marker(path: &Path) -> Result<PathBuf> {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| {
+            CalyxError::stale_derived(format!("invalid scheduler path {}", path.display()))
+        })?;
+    Ok(path.with_file_name(format!(".{name}.fail-after-rename-once")))
+}
+
+#[cfg(not(debug_assertions))]
+fn injected_post_rename_failure(_path: &Path) -> Result<()> {
     Ok(())
 }
 
@@ -384,6 +434,30 @@ mod tests {
         let error = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap_err();
 
         assert_eq!(error.code, "CALYX_STALE_DERIVED");
+    }
+
+    #[test]
+    fn post_rename_persist_failure_rolls_back_file_and_state() {
+        let path = test_path("post_rename_persist_failure_rolls_back_file_and_state");
+        let _ = fs::remove_file(&path);
+        let mut scheduler = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap();
+        scheduler
+            .enqueue(request(1, BackfillPriority::Normal, 1))
+            .unwrap();
+        let before_bytes = fs::read(&path).unwrap();
+        let before_marks = scheduler.watermarks();
+        fs::write(post_rename_failure_marker(&path).unwrap(), b"fail-once").unwrap();
+
+        let error = scheduler
+            .enqueue(request(2, BackfillPriority::Kernel, 2))
+            .unwrap_err();
+        let after_bytes = fs::read(&path).unwrap();
+        let reopened = BackfillScheduler::open(&path, BackfillConfig::default()).unwrap();
+
+        assert_eq!(error.code, "CALYX_STALE_DERIVED");
+        assert_eq!(scheduler.watermarks(), before_marks);
+        assert_eq!(reopened.watermarks(), before_marks);
+        assert_eq!(after_bytes, before_bytes);
     }
 
     fn request(slot: u16, priority: BackfillPriority, count: u8) -> BackfillRequest {

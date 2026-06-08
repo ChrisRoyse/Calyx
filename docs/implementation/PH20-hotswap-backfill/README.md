@@ -32,7 +32,9 @@ slot CF rows back from disk. The old queue-only scheduler proof is superseded by
 receive a `Registry` and prove the lens id is registered with a frozen contract
 matching the requested slot shape/modality before panel, queue, or scheduler
 state can mutate. #315 persists scheduler JSON through temp-file/fsync/rename
-and fails closed on corrupt persisted scheduler state.
+and fails closed on corrupt persisted scheduler state. #321 makes scheduler
+mutations transactional, so a persist failure after the scheduler rename restores
+the prior scheduler JSON before durable hot-swap rollback returns an error.
 
 **aiwonder runtime endpoints:** `:8088` general GTE 768-d, `:8089` reranker,
 `:8090` legal. `CALYX_HOME/.hf-cache`, `CALYX_HF_TOKEN` from env.
@@ -76,6 +78,10 @@ and fails closed on corrupt persisted scheduler state.
 7. Persist a backfill scheduler request, reopen it, then try to open a corrupt
    scheduler JSON file; read the good/corrupt file bytes and error artifact to
    prove atomic-state readback and fail-closed corruption handling.
+8. Inject a post-rename scheduler persist failure during `add_lens_durable`;
+   read panel version, slot count, queue length, scheduler JSON bytes, reopened
+   watermarks, marker file state, and temp files to prove disk and memory rollback
+   stay consistent.
 
 Readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue311-durable-add-lens-20260608 cargo test -p calyx-registry ph20_hot_swap_aiwonder_fsv -- --ignored --nocapture`
 on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-watermark.json` and vault
@@ -87,6 +93,9 @@ on aiwonder, followed by `cat $CALYX_FSV_ROOT/hot-swap-registered-readback.json`
 #315 readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue315-backfill-atomic-persist-20260608 cargo test -p calyx-registry ph20_backfill_atomic_persist_aiwonder_fsv -- --ignored --nocapture`
 on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-atomic-readback.json`.
 
+#321 readback: `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue321-durable-rollback-20260608 cargo test -p calyx-registry ph20_backfill_atomic_persist_aiwonder_fsv -- --ignored --nocapture`
+on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-atomic-readback.json`.
+
 ## Risks / landmines
 
 - **Backfill storm:** if the scheduler is not throttled, adding a lens to a
@@ -94,7 +103,9 @@ on aiwonder, followed by `cat $CALYX_FSV_ROOT/backfill-atomic-readback.json`.
   (default 4) and `batch_size` (default 16) in `BackfillConfig`.
 - **Resumable state:** backfill state must survive a process restart; persist
   the watermark (last `CxId` processed) to Aster or an atomic JSON file. Corrupt
-  scheduler JSON must fail closed, not fabricate an empty queue.
+  scheduler JSON must fail closed, not fabricate an empty queue. Persist errors
+  during mutation must restore previous scheduler bytes before caller rollback
+  proceeds.
 - **panel_version monotonicity:** all four swap operations must bump the
   version; assert monotone increase in tests.
 - **Retire ≠ delete:** columns for retired slots are kept until GC policy

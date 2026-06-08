@@ -35,6 +35,10 @@
 > temp-file/fsync/rename and fails closed on corrupt scheduler state. FSV root
 > for #315:
 > `/home/croyse/calyx/data/fsv-issue315-backfill-atomic-persist-20260608`.
+> Post-sweep hardening #321 makes scheduler mutations transactional: a persist
+> failure after the scheduler rename restores the previous scheduler JSON before
+> `add_lens_durable` rolls back panel and queue state. FSV root for #321:
+> `/home/croyse/calyx/data/fsv-issue321-durable-rollback-20260608`.
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
