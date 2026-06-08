@@ -6,6 +6,10 @@ rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+candle-cuda = ["candle-core/cuda"]
+
 [dependencies]
 calyx-core = { path = "../calyx-core" }
 candle-core = "0.10.2"
