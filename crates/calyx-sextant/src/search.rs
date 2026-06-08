@@ -8,7 +8,7 @@ use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::hit::{FreshnessTag, Hit};
 use crate::query::{FreshnessRequirement, Query};
 use crate::slot_index_map::SlotIndexMap;
-use crate::util::stub_ledger;
+use crate::util::{hex32, stub_ledger};
 
 #[derive(Clone, Default)]
 pub struct SearchEngine {
@@ -148,6 +148,10 @@ impl SearchEngine {
                 FreshnessRequirement::FreshDerived => FreshnessTag::fresh(base.1),
                 FreshnessRequirement::StaleOk { .. } => FreshnessTag::stale_ok(base.0, base.1),
             };
+            if let Some(explain) = &mut hit.explain {
+                explain.provenance_hex = hex32(&hit.provenance.hash);
+                explain.per_lens_count = hit.per_lens.len();
+            }
         }
     }
 }
