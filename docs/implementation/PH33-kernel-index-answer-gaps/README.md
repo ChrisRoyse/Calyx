@@ -28,8 +28,9 @@ corpora** acquired and verified on aiwonder.
 ## Current state (build off what exists)
 
 `calyx-lodestar` has PH32 plus PH33 T01-T04 in-tree: kernel index persistence,
-kernel search, `kernel_answer`, `grounding_gaps`, and the recall harness. The
-current `idx/kernel/` implementation is `FsKernelStore`, which writes
+kernel search, `kernel_answer`, `grounding_gaps`, the recall harness, and the
+#293 Loom xterm CF to association-graph adapter. The current `idx/kernel/`
+implementation is `FsKernelStore`, which writes
 `idx/kernel/<kernel_id>/index.json` under the configured root; moving this into
 an Aster column-family/ANN shard is a later storage integration seam, not the
 current PH33 T01 source of truth.
@@ -40,6 +41,7 @@ current PH33 T01 source of truth.
 |---|---|
 | `crates/calyx-lodestar/src/kernel_index.rs` | write/load `idx/kernel/`; ANN over kernel `CxId` embeddings; `kernel_search(query_vec) -> Vec<(CxId, f32)>` |
 | `crates/calyx-lodestar/src/kernel_answer.rs` | `kernel_answer(query, anchor_kind) -> AnswerPath`; ground at nearest anchored kernel node → bounded `reach` to the query → hop-attenuate with `0.9^hop` → provenance-stamp each hop |
+| `crates/calyx-lodestar/src/loom_assoc.rs` | read Loom XTerm CF agreement rows through `LoomStore`, require slot→CxId bindings + directional confidence, and emit CxId `AgreementEdge` inputs for Mincut/Lodestar |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
 | `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(kernel, corpus, held_out) -> RecallReport`; reconstruct held-out from kernel-only; ratio ≥ 0.95 is the gate |
 | Stage 7 Ledger integration | #239 replaces PH33 stub provenance with real `kind=Kernel` ledger entries once PH35/PH36 land |
@@ -75,6 +77,9 @@ current PH33 T01 source of truth.
 - **ANN index vs. full search recall:** the `0.95` gate compares kernel-only ANN
   recall to full-corpus ANN recall on the same query set — both use the same ANN
   algorithm; the comparison is fair only if the same HNSW params are used.
+- **Loom graph handoff:** #293 requires real XTerm CF rows, explicit slot→CxId
+  bindings, and directional-confidence rows. Missing bindings/confidence fail
+  closed; synthetic graph-builder structs alone are not enough for PH33 FSV.
 - **Answer traversal depth:** `0.9^hop` attenuation means answers beyond hop 10 have
   score ≤ 0.35; `max_hops` is a hard reachability bound, not a display limit.
   If the query cannot be reached inside the bound, `kernel_answer` must return

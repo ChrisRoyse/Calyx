@@ -10,6 +10,7 @@ pub mod kernel;
 pub mod kernel_answer;
 pub mod kernel_graph;
 pub mod kernel_index;
+pub mod loom_assoc;
 pub mod recall_test;
 
 pub use dfvs::{
@@ -28,6 +29,10 @@ pub use kernel_graph::{
 pub use kernel_index::{
     EmbeddingStore, FsKernelStore, KernelIndex, KernelStore, KernelVectorRow, build_kernel_index,
     kernel_search, load_kernel_index, write_kernel_index,
+};
+pub use loom_assoc::{
+    LoomAssocEdgeProvenance, LoomAssocGraphInput, LoomDirectionalConfidence, LoomSlotNode,
+    build_assoc_graph_from_loom, loom_assoc_graph_input,
 };
 pub use recall_test::{
     AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,

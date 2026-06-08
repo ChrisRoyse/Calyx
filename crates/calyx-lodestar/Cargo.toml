@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 blake3.workspace = true
 calyx-core = { path = "../calyx-core" }
+calyx-loom = { path = "../calyx-loom" }
 calyx-mincut = { path = "../calyx-mincut" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-sextant = { path = "../calyx-sextant" }
@@ -17,5 +18,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+calyx-aster = { path = "../calyx-aster" }
 proptest.workspace = true
 serde_json.workspace = true

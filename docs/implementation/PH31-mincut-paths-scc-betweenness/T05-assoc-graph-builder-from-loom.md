@@ -5,8 +5,9 @@
 > `crates/calyx-mincut/src/graph_builder.rs` with agreement × directional
 > confidence weights, recurrence frequency node weights, citation edge
 > max-merge at `1.0`, and graph-weight fail-closed validation. aiwonder FSV
-> readback: `ph31-graph-builder-readback.json`. Real Loom xterm CF ingestion into
-> Lodestar/Mincut is tracked separately by #293.
+> readback: `ph31-graph-builder-readback.json`. The real Loom xterm CF adapter
+> into Lodestar/Mincut is implemented in
+> `crates/calyx-lodestar/src/loom_assoc.rs` for #293.
 
 | Field | Value |
 |---|---|
@@ -32,7 +33,7 @@ graph has edge weight = agreement × directional_confidence.
   `AgreementEdge { src: CxId, dst: CxId, agreement: f32, directional_confidence: f32 }`,
   `FrequencyEntry { cx_id: CxId, frequency: f32 }`,
   `CitationEdge { src: CxId, dst: CxId }`.
-- [ ] Wire real Loom xterm/agreement CF output into these CxId edge inputs (#293).
+- [x] Wire real Loom xterm/agreement CF output into these CxId edge inputs (#293).
 - [x] `pub fn build_assoc_graph(agreements: &[AgreementEdge], frequencies: &[FrequencyEntry], citations: &[CitationEdge]) -> Result<AssocGraph, CalyxError>`.
 - [x] For each `AgreementEdge`: `edge_weight = agreement * directional_confidence`;
   both values must be in `[0.0, 1.0]` or return `CALYX_GRAPH_INVALID_WEIGHT`.
@@ -61,11 +62,16 @@ graph has edge weight = agreement × directional_confidence.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `cargo test -p calyx-mincut graph_builder -- --nocapture` stdout.
-- **Readback:** `cargo test -p calyx-mincut graph_builder 2>&1 | tee /tmp/ph31_t05_fsv.txt && cat /tmp/ph31_t05_fsv.txt`.
+- **SoT:** graph-builder core readback `ph31-graph-builder-readback.json`, plus
+  #293 Loom adapter JSON readbacks under
+  `/home/croyse/calyx/data/fsv-issue293-loom-assoc-graph-20260608`.
+- **Readback:** run `cargo test -p calyx-lodestar loom_assoc -- --nocapture`
+  with an explicit `CALYX_FSV_ROOT`, then separately `cat`
+  `happy/loom-assoc-graph.json` and `edges/loom-assoc-errors.json`.
 - **Prove:** unit test prints the three edge weights `0.72, 0.42, 1.0` for the
-  triangle; citation-merge test prints final weight `1.0`; all tests pass;
-  output attached to PH31 GitHub issue.
+  triangle; citation-merge test prints final weight `1.0`; #293 readback shows
+  persisted XTerm CF bytes, CxId edge provenance, and fail-closed missing mapping
+  / missing directional-confidence codes.
 
 ## Done when
 
