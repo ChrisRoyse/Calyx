@@ -267,4 +267,7 @@ mod recovery_tests;
 mod ledger_timestamp_tests;
 
 #[cfg(test)]
+mod ledger_integration_tests;
+
+#[cfg(test)]
 mod tests;

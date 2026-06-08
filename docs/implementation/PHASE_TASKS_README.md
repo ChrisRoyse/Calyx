@@ -11,7 +11,7 @@ for the structure under `docs/implementation/PHnn-*/`.
 > FSV-signed-off on aiwonder, including post-sweep hardening through #333.
 > Active implementation is tracked in GitHub issues: Stage 6 Lodestar remains
 > open for Ledger-dependent #239/#240 plus readiness follow-ups #328-#332,
-> while Stage 7 Ledger continues at #248 after #242-#247.
+> while Stage 7 Ledger continues at PH36/#249 after PH35 #242-#248.
 
 ---
 

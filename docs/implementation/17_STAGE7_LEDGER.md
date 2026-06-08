@@ -45,6 +45,12 @@ as PH09 writes constellations.*
   recovery of `last_ts` and Aster ingest readback of non-empty service actors.
   Ledger-CF, WAL, SST byte, and compact `jq` row readbacks are FSV-backed at
   `/home/croyse/calyx/data/fsv-issue247-ledger-actor-ts-20260608`.
+- **Post-sweep note.** PH35 T07 (#248) adds the PH09-to-ledger integration
+  smoke: 100 unique `AsterVault::put` constellation writes, 100 chained ledger
+  CF rows, 100 WAL records with ledger/base co-location, ledger-before-base
+  ordering, and an empty ledger secret scan. Ledger-CF, WAL, SST byte, JSON,
+  and grep readbacks are FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue248-ledger-integration-smoke-20260608`.
 - **FSV gate.** every constellation write has a chained ledger entry in the WAL
   group-commit (read the WAL + ledger CF); chain links verify; no entry stores a
   secret value.

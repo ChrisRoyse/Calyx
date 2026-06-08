@@ -42,9 +42,14 @@ record as its data mutation; evidence is at
 `/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`. T06 (#247)
 adds actor validation plus server-stamped monotonic timestamps, with restart
 recovery of `last_ts`; evidence is at
-`/home/croyse/calyx/data/fsv-issue247-ledger-actor-ts-20260608`. The remaining
-PH35 task is the wider WAL smoke FSV on top of those primitives. The following
-scaffolding already exists and must be reused:
+`/home/croyse/calyx/data/fsv-issue247-ledger-actor-ts-20260608`. T07 (#248)
+adds the wider PH09-to-ledger WAL smoke: 100 unique constellation writes through
+`AsterVault::put`, 100 chained ledger CF rows, 100 WAL records with ledger and
+base rows co-located, ledger-before-base ordering, and an empty secret scan.
+Evidence is at
+`/home/croyse/calyx/data/fsv-issue248-ledger-integration-smoke-20260608`. PH35
+is complete; PH36 is next. The following scaffolding already exists and must be
+reused:
 
 - `calyx-core/src/model/signal.rs`: `LedgerRef { seq: u64, hash: [u8; 32] }`
 - `calyx-aster/src/cf/key.rs`: `ledger_key(seq: u64) -> Vec<u8>` (big-endian
@@ -81,7 +86,7 @@ are implemented.
 | T04 | Redaction policy: no secrets in payload (done #245) | T03 |
 | T05 | Group-commit hook: ledger entry in same WAL batch as data write (done #246) | T03 |
 | T06 | Actor-stamp + server-stamped monotonic timestamp wiring (done #247) | T05 |
-| T07 | Integration smoke: PH09 constellation write → chained ledger entry in WAL | T05, T06 |
+| T07 | Integration smoke: PH09 constellation write → chained ledger entry in WAL (done #248) | T05, T06 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -89,6 +94,8 @@ Every constellation write has a corresponding chained ledger entry **in the
 same WAL group-commit record** as the data it describes (read the WAL bytes
 with `xxd`); the chain links verify (`prev_hash` of entry N matches
 `entry_hash` of entry N-1); no entry's payload contains a raw secret value.
+PH35 T07 proves this at
+`/home/croyse/calyx/data/fsv-issue248-ledger-integration-smoke-20260608`.
 
 Exact readback sequence on aiwonder:
 1. `calyx readback --vault <vault> --cf ledger --range 0..10` → prints seq,
