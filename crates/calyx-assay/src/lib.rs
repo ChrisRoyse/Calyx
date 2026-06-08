@@ -18,7 +18,10 @@ pub mod sufficiency;
 pub use attribution::{
     BitsReport, SlotAttribution, bits_report, bits_report_with_anchor, per_sensor_attribution,
 };
-pub use bootstrap::{BootstrapCi, bootstrap_mean_ci};
+pub use bootstrap::{
+    BootstrapCi, BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED,
+    bootstrap_mean_ci, bootstrap_mean_ci_with_config, bootstrap_paired_ci,
+};
 pub use contract::{AdmissionDecision, admit_lens, admit_lens_with_strata};
 pub use estimate::{
     EstimatorKind, MiEstimate, TrustTag, require_grounded_anchor, trust_for_anchor,

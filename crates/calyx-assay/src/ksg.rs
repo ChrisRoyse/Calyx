@@ -4,10 +4,15 @@ use std::collections::BTreeMap;
 
 use calyx_core::{Anchor, CalyxError, Result};
 
+use crate::bootstrap::{
+    BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED, bootstrap_paired_ci,
+};
 use crate::estimate::{EstimatorKind, MiEstimate, TrustTag, trust_for_anchor};
 use crate::samples::validate_rectangular_finite;
 
 pub const MIN_ASSAY_SAMPLES: usize = 50;
+const KSG_BOOTSTRAP_CONFIG: BootstrapConfig =
+    BootstrapConfig::new(DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED);
 
 pub fn ksg_mi_continuous(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<MiEstimate> {
     ksg_mi_continuous_with_trust(x, y, k, TrustTag::Provisional)
@@ -30,6 +35,23 @@ fn ksg_mi_continuous_with_trust(
 ) -> Result<MiEstimate> {
     validate_samples(x, y, k)?;
     let n = x.len();
+    let bits = ksg_bits_from_validated_samples(x, y, k);
+    let ci = bootstrap_paired_ci(x, y, bits, KSG_BOOTSTRAP_CONFIG, |sampled_x, sampled_y| {
+        Ok(ksg_bits_from_validated_samples(sampled_x, sampled_y, k))
+    })?
+    .ok_or_else(|| CalyxError::assay_insufficient_samples("bootstrap CI requires samples"))?;
+    Ok(MiEstimate::new(
+        bits,
+        ci.ci_low,
+        ci.ci_high,
+        n,
+        EstimatorKind::Ksg,
+        trust,
+    ))
+}
+
+fn ksg_bits_from_validated_samples(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> f32 {
+    let n = x.len();
     let mut local_bits = Vec::with_capacity(n);
     for i in 0..n {
         let eps = kth_joint_radius(x, y, i, k);
@@ -40,16 +62,7 @@ fn ksg_mi_continuous_with_trust(
             - digamma((ny + 1) as f64);
         local_bits.push((local / std::f64::consts::LN_2) as f32);
     }
-    let bits = mean(&local_bits).max(0.0);
-    let band = ci_band(&local_bits, bits);
-    Ok(MiEstimate::new(
-        bits,
-        bits - band,
-        bits + band,
-        n,
-        EstimatorKind::Ksg,
-        trust,
-    ))
+    mean(&local_bits).max(0.0)
 }
 
 pub fn ksg_mi_continuous_discrete(
@@ -148,18 +161,4 @@ fn digamma(mut x: f64) -> f64 {
 
 fn mean(values: &[f32]) -> f32 {
     values.iter().sum::<f32>() / values.len() as f32
-}
-
-fn ci_band(values: &[f32], bits: f32) -> f32 {
-    let avg = mean(values);
-    let variance = values
-        .iter()
-        .map(|value| {
-            let delta = value - avg;
-            delta * delta
-        })
-        .sum::<f32>()
-        / values.len().saturating_sub(1).max(1) as f32;
-    let standard_error = (variance / values.len() as f32).sqrt();
-    (1.96 * standard_error).max(bits * 0.20).max(0.05)
 }
