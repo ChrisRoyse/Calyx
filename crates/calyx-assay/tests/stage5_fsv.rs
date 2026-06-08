@@ -23,15 +23,15 @@ use serde_json::json;
 fn loom_cross_terms_materialization_and_reports_work() {
     let a = vec![1.0, 0.0];
     let b = vec![0.5, 3.0_f32.sqrt() * 0.5];
-    let agreement = agreement_scalar(&a, &b);
+    let agreement = agreement_scalar(&a, &b).unwrap();
     assert!((agreement - 0.5).abs() < 1.0e-4);
-    let cpu = agreement_batch_cpu(&[(&a, &b)]);
-    let gpu = agreement_batch_gpu(&[(&a, &b)]);
+    let cpu = agreement_batch_cpu(&[(&a, &b)]).unwrap();
+    let gpu = agreement_batch_gpu(&[(&a, &b)]).unwrap();
     assert!((cpu[0] - gpu[0]).abs() <= 1.0e-3);
 
     let mut store = LoomStore::new(8);
     let slots = two_slot_map(a.clone(), b.clone());
-    store.weave(cx(1), &slots);
+    store.weave(cx(1), &slots).unwrap();
     assert_eq!(store.xterm_count(), 1);
     assert_eq!(store.cache_count(), 0);
     let lazy = store
@@ -64,10 +64,12 @@ fn loom_cross_terms_materialization_and_reports_work() {
 
     let mut graph_store = LoomStore::new(16);
     for i in 0..50 {
-        graph_store.weave(
-            cx(i as u8),
-            &two_slot_map(vec![1.0, 0.0], vec![0.75, 0.661_437_8]),
-        );
+        graph_store
+            .weave(
+                cx(i as u8),
+                &two_slot_map(vec![1.0, 0.0], vec![0.75, 0.661_437_8]),
+            )
+            .unwrap();
     }
     let graph = graph_store.agreement_graph();
     assert_eq!(graph[0].n, 50);
@@ -80,7 +82,7 @@ fn loom_cross_terms_materialization_and_reports_work() {
     let mut abundance_store = LoomStore::new(16);
     let slots_13 = slot_map_13();
     for i in 0..50 {
-        abundance_store.weave(cx(i as u8), &slots_13);
+        abundance_store.weave(cx(i as u8), &slots_13).unwrap();
     }
     let report = AbundanceReport::new(
         13,
@@ -225,7 +227,7 @@ fn stage5_full_stack_fsv() {
     let mut loom = LoomStore::new(32);
     let slots = slot_map_13();
     for i in 0..50 {
-        loom.weave(cx(i as u8), &slots);
+        loom.weave(cx(i as u8), &slots).unwrap();
     }
     let lens_slots: Vec<_> = (0..13).map(slot).collect();
     let low_gain_plan = plan_cross_terms(&lens_slots, &StaticPairGainGate { gain_bits: 0.0 });
