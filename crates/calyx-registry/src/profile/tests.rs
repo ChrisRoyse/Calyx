@@ -21,7 +21,34 @@ fn profiles_algorithmic_lens_with_real_numbers() {
     assert_eq!(card.coverage.failed, 0);
     assert!(card.spread.participation_ratio > 0.0);
     assert!(card.spread.normalized_participation_ratio > 0.0);
+    assert_eq!(card.signal, None);
+    assert_eq!(card.signal_source, MetricSource::AssayPending);
+    assert!(card.proxy_signal.is_finite());
+    assert_eq!(card.differentiation, None);
+    assert_eq!(card.differentiation_source, MetricSource::AssayPending);
+    assert!(card.proxy_differentiation.is_finite());
     assert!(card.cost.ms_per_input >= 0.0);
+}
+
+#[test]
+fn assay_owned_metrics_serialize_as_null_until_attached() {
+    let mut registry = Registry::new();
+    let id = registry
+        .register(AlgorithmicLens::byte_features(
+            "profile-null-assay-fields",
+            Modality::Text,
+        ))
+        .unwrap();
+
+    let card = profile_lens(&registry, id, &profile_probes()).unwrap();
+    let json = serde_json::to_value(&card).unwrap();
+
+    assert!(json["signal"].is_null());
+    assert_eq!(json["signal_source"], "assay_pending");
+    assert!(json["proxy_signal"].as_f64().unwrap().is_finite());
+    assert!(json["differentiation"].is_null());
+    assert_eq!(json["differentiation_source"], "assay_pending");
+    assert!(json["proxy_differentiation"].as_f64().unwrap().is_finite());
 }
 
 #[test]

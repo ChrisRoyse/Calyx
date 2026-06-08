@@ -26,8 +26,21 @@ fn ph21_profile_card_aiwonder_fsv() {
     println!("PH21_FSV_ROOT={}", root.display());
     println!("PH21_ALGORITHMIC_CARD={}", card_path.display());
     println!("PH21_ALGORITHMIC_CARD_SHA={}", digest_hex(&card_bytes));
-    println!("PH21_SIGNAL={:.8}", readback.signal);
-    println!("PH21_DIFFERENTIATION={:.8}", readback.differentiation);
+    println!("PH21_SIGNAL_NULL={}", readback.signal.is_none());
+    println!("PH21_SIGNAL_SOURCE={:?}", readback.signal_source);
+    println!("PH21_PROXY_SIGNAL={:.8}", readback.proxy_signal);
+    println!(
+        "PH21_DIFFERENTIATION_NULL={}",
+        readback.differentiation.is_none()
+    );
+    println!(
+        "PH21_DIFFERENTIATION_SOURCE={:?}",
+        readback.differentiation_source
+    );
+    println!(
+        "PH21_PROXY_DIFFERENTIATION={:.8}",
+        readback.proxy_differentiation
+    );
     println!("PH21_SPREAD_PR={:.8}", readback.spread.participation_ratio);
     println!(
         "PH21_SPREAD_NORM={:.8}",
@@ -37,6 +50,18 @@ fn ph21_profile_card_aiwonder_fsv() {
     println!("PH21_COST_MS_PER_INPUT={:.8}", readback.cost.ms_per_input);
     println!("PH21_COVERAGE_RATE={:.8}", readback.coverage.rate);
     assert_eq!(readback.coverage.failed, 0);
+    assert!(readback.signal.is_none());
+    assert_eq!(
+        readback.signal_source,
+        calyx_registry::MetricSource::AssayPending
+    );
+    assert!(readback.proxy_signal.is_finite());
+    assert!(readback.differentiation.is_none());
+    assert_eq!(
+        readback.differentiation_source,
+        calyx_registry::MetricSource::AssayPending
+    );
+    assert!(readback.proxy_differentiation.is_finite());
     assert!(readback.spread.participation_ratio > 0.0);
 
     let collapsed_id = registry
@@ -60,23 +85,49 @@ fn ph21_profile_card_aiwonder_fsv() {
     );
     assert!(collapsed_readback.low_spread);
     assert_eq!(collapsed_readback.spread.participation_ratio, 0.0);
+    assert!(collapsed_readback.signal.is_none());
+    assert!(collapsed_readback.differentiation.is_none());
 
     let empty_error = profile_lens(&registry, algorithmic_id, &[]).expect_err("empty rejected");
+    let empty_error_path = root.join("edge-empty-error.txt");
+    std::fs::write(&empty_error_path, empty_error.code.as_bytes()).expect("write empty error");
+    let empty_error_bytes = std::fs::read(&empty_error_path).expect("read empty error");
     println!("PH21_EDGE_EMPTY_PROBES_ERROR={}", empty_error.code);
+    println!(
+        "PH21_EDGE_EMPTY_PROBES_ERROR_FILE={}",
+        empty_error_path.display()
+    );
+    println!(
+        "PH21_EDGE_EMPTY_PROBES_ERROR_SHA={}",
+        digest_hex(&empty_error_bytes)
+    );
     assert_eq!(empty_error.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
+    assert_eq!(
+        String::from_utf8(empty_error_bytes).expect("empty error utf8"),
+        "CALYX_ASSAY_INSUFFICIENT_SAMPLES"
+    );
 
     let mixed = vec![
         ProfileProbe::new(Input::new(Modality::Text, b"valid".to_vec())),
         ProfileProbe::new(Input::new(Modality::Image, vec![1, 2, 3])),
     ];
     let mixed_card = profile_lens(&registry, algorithmic_id, &mixed).expect("mixed coverage");
+    let mixed_path = root.join("edge-mixed-coverage-card.json");
+    write_card(&mixed_path, &mixed_card);
+    let mixed_bytes = std::fs::read(&mixed_path).expect("read mixed card");
+    let mixed_readback: calyx_registry::CapabilityCard =
+        serde_json::from_slice(&mixed_bytes).expect("parse mixed readback");
+    println!("PH21_EDGE_MIXED_CARD={}", mixed_path.display());
+    println!("PH21_EDGE_MIXED_CARD_SHA={}", digest_hex(&mixed_bytes));
     println!(
         "PH21_EDGE_MIXED_COVERAGE_RATE={:.8}",
-        mixed_card.coverage.rate
+        mixed_readback.coverage.rate
     );
-    println!("PH21_EDGE_MIXED_FAILED={}", mixed_card.coverage.failed);
-    assert_eq!(mixed_card.coverage.measured, 1);
-    assert_eq!(mixed_card.coverage.failed, 1);
+    println!("PH21_EDGE_MIXED_FAILED={}", mixed_readback.coverage.failed);
+    assert_eq!(mixed_readback.coverage.measured, 1);
+    assert_eq!(mixed_readback.coverage.failed, 1);
+    assert!(mixed_readback.signal.is_none());
+    assert!(mixed_readback.differentiation.is_none());
 }
 
 fn fsv_root() -> PathBuf {
