@@ -54,6 +54,13 @@ specifies two slots only touches those two indexes.
 - **Prove:** concurrent-read test prints `threads=4 all_ok=true`; slot isolation
   test prints `slot_a_results ≠ slot_b_results` (different random vecs inserted)
 
+## Post-sweep hardening
+
+- [x] #282: `SlotIndexMap::register` returns `Result<()>` and fails closed on a
+      duplicate `SlotId` with `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED`.
+- [x] #282: empty search surfaces fail closed with `CALYX_SEXTANT_NO_LENSES`
+      rather than returning a misleading empty success.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder

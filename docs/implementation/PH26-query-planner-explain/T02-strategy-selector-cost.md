@@ -76,6 +76,13 @@ estimate drives the cap enforcement in T03. The mapping is overridable per A17.
 - **Prove:** prints `code_strategy=single_lens fallback_ok=true cost_2slot=NNN
   override_used=true`
 
+## Post-sweep hardening
+
+- [x] #282: no executable lenses now fails closed with
+      `CALYX_SEXTANT_NO_LENSES` in planner/search paths.
+- [x] #282: planner retains the current API while using `index_size == 0` plus
+      no explicit slots as the no-lenses signal.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder

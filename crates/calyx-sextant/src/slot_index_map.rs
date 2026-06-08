@@ -5,7 +5,9 @@ use std::sync::{Arc, RwLock};
 
 use calyx_core::{CxId, Result, SlotId, SlotVector};
 
-use crate::error::{CALYX_SEXTANT_SLOT_MISSING, sextant_error};
+use crate::error::{
+    CALYX_SEXTANT_SLOT_ALREADY_REGISTERED, CALYX_SEXTANT_SLOT_MISSING, sextant_error,
+};
 use crate::index::{IndexSearchHit, IndexStats, SextantIndex};
 
 type SharedIndex = Arc<RwLock<Box<dyn SextantIndex>>>;
@@ -20,14 +22,20 @@ impl SlotIndexMap {
         Self::default()
     }
 
-    pub fn register<I>(&self, index: I)
+    pub fn register<I>(&self, index: I) -> Result<()>
     where
         I: SextantIndex + 'static,
     {
-        self.indexes
-            .write()
-            .expect("slot map poisoned")
-            .insert(index.slot(), Arc::new(RwLock::new(Box::new(index))));
+        let slot = index.slot();
+        let mut indexes = self.indexes.write().expect("slot map poisoned");
+        if indexes.contains_key(&slot) {
+            return Err(sextant_error(
+                CALYX_SEXTANT_SLOT_ALREADY_REGISTERED,
+                format!("slot {slot} is already registered"),
+            ));
+        }
+        indexes.insert(slot, Arc::new(RwLock::new(Box::new(index))));
+        Ok(())
     }
 
     pub fn slots(&self) -> Vec<SlotId> {

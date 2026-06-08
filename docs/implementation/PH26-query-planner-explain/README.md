@@ -27,8 +27,10 @@ an unbounded plan is rejected (`10 §7`, `17 §7.3`).
 ## Current state (build off what exists)
 
 `calyx-sextant` has all four fusion strategies (SingleLens, RRF, WeightedRRF,
-Pipeline), `search()`, `explain_search()`, and `SlotIndexMap`. The planner and
-intent classifier are greenfield additions in this phase.
+Pipeline), `search()`, planner intent classification, planner cost caps,
+planner explain enrichment, reranker hooks, and `SlotIndexMap`. Post-sweep
+hardening #282 fixed the remaining fail-closed planner blind spots: `k=0`,
+no-lenses, ef/slot over-cap, and cost-cap overflow now return cataloged errors.
 
 ## Deliverables (file plan, each ≤500 lines)
 

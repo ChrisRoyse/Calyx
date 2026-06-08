@@ -32,6 +32,9 @@ vectors in RAM with deterministic layer IDs and bounded neighbor metadata; its
 1.0 while preserving the HNSW-compatible API (`slot`, `shape`, `insert`,
 `search`, `rebuild`, `stats`) that Stage 6 consumes. `ef` is accepted at the
 trait boundary and reserved for the later native beam traversal.
+Post-sweep hardening #282 fixed the T06 registry blind spot: duplicate slot
+registration now fails closed with `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED`
+instead of replacing the existing index.
 
 ## Deliverables (file plan, each ≤500 lines)
 

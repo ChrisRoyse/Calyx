@@ -66,6 +66,13 @@ and enforce per-query execution timeouts. An unbounded plan (e.g. `k=u32::MAX`,
 - **Prove:** test prints:
   `k_too_large=CALYX_SEXTANT_PLAN_UNBOUNDED ef_too_large=CALYX_SEXTANT_PLAN_UNBOUNDED cost_exceeded=CALYX_SEXTANT_PLAN_COST_EXCEEDED valid_ok=true`
 
+## Post-sweep hardening
+
+- [x] #282: `k=0` and `ef=0` fail closed with
+      `CALYX_SEXTANT_PLAN_UNBOUNDED`.
+- [x] #282: cost caps now fail with `CALYX_SEXTANT_PLAN_COST_EXCEEDED`, distinct
+      from structural unbounded-plan errors.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder

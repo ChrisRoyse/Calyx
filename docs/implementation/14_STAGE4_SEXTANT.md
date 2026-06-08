@@ -8,6 +8,9 @@
 > hash `796b4812a3e2ac47a6ace81934be5799514d94f7e42b28b45b265386a98b6db8`.
 > Stage 5 has consumed Sextant successfully; next active stage is Lodestar
 > (`16_STAGE6_LODESTAR.md`).
+> Post-sweep fail-closed hardening #282 adds duplicate-slot rejection,
+> no-lenses rejection, and distinct planner cost-cap errors for the Stage 6
+> handoff.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -26,6 +29,8 @@ attention.
   search with `ef`; dual-index scaffold for asymmetric slots.
 - **Key tasks.** quantized vectors via Forge; recall vs brute-force harness;
   concurrent-read-safe; rebuildable from base (self-heal later).
+- **Post-sweep note.** `SlotIndexMap` now fails closed on duplicate slot
+  registration with `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED` (#282).
 - **FSV gate.** insert N + search → recall vs brute-force ≥ target; SingleLens
   p99 within budget on aiwonder (read measured latency).
 - **Axioms/PRD.** `10 §3`, `19 §4`.
@@ -64,6 +69,8 @@ attention.
   output, cost caps + timeouts.
 - **Key tasks.** intent→strategy map; rerank stage (candidate text request-
   scoped, never persisted — privacy); bounded plans.
+- **Post-sweep note.** Planner bounds now reject `k=0`, no-lenses, ef/slot
+  over-cap, and cost-cap cases with distinct catalog codes (#282).
 - **FSV gate.** intent auto-selects the right strategy (verified per case);
   `explain=true` returns the per-lens + provenance breakdown; an unbounded plan
   is rejected.

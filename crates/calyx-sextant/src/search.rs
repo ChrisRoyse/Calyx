@@ -38,6 +38,12 @@ impl SearchEngine {
         } else {
             query.slots.clone()
         };
+        if slots.is_empty() {
+            return Err(crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_NO_LENSES,
+                "no registered slot indexes are available for search",
+            ));
+        }
         self.enforce_freshness(&slots, &query.freshness)?;
         let strategy = query
             .fusion
