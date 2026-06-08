@@ -10,8 +10,9 @@ Expose the kernel as a first-class parameterized operation over any data slice:
 `Domain`, `Subgraph`, `TimeWindow`, `Tenant`, `Filter`, and `Union/Intersect`.
 Each scope materializes its own subgraph, runs the full MFVS pipeline, and
 reports its own measured kernel size, kernel-only recall, and grounded fraction —
-never an assumed 1%. Scope results are cached by `(scope_hash, panel_version)` for
-incremental reuse (Anneal). Hierarchical kernel-of-regions handles huge scopes.
+never an assumed 1%. Scope results are cached by
+`(scope_hash, panel_version, anchor_identity, corpus_identity)` for incremental
+reuse (Anneal). Hierarchical kernel-of-regions handles huge scopes.
 Per `08 §4b`: "calculate the kernel on many levels as a first-class, parameterized
 operation — the same MFVS machinery, any slice of the data, any depth."
 
@@ -63,13 +64,18 @@ corpus was measured at five scopes (`AllAssociations`, `Collection`,
 `ScopeKernelReport`, recall gates passed, grounded fractions varied, bridge
 nodes were non-empty, and the union diagnostic proved `mfvs_not_naive_union`.
 Readbacks live under `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`.
+PH34 T07 (#328) is implemented and FSV-signed-off on aiwonder: `ScopeCacheKey`
+now includes anchor-set identity and corpus/store shard identity, with the real
+`build_kernel` path proving same scope+panel+anchors hits and changed
+anchor/corpus identity misses. Readbacks live under
+`/home/croyse/calyx/data/fsv-issue328-scope-cache-identity-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
 | `crates/calyx-lodestar/src/scope.rs` | `Scope` enum (all 8 variants); `scope_hash(scope) -> [u8;32]`; `materialize_scope(scope, store) -> AssocGraph` |
-| `crates/calyx-lodestar/src/scope_cache.rs` | `ScopeCache`: stores `(scope_hash, panel_version) -> Kernel`; LRU eviction; `cache_hit / cache_miss` counters |
+| `crates/calyx-lodestar/src/scope_cache.rs` | `ScopeCache`: stores `(scope_hash, panel_version, anchor_identity, corpus_identity) -> Kernel`; LRU eviction; `cache_hit / cache_miss` counters |
 | `crates/calyx-lodestar/src/multi_scope.rs` | `build_kernel(vault, scope, anchor_kind?, params?) -> Kernel`; dispatches through scope-cache; calls `build_kernel_pipeline` on miss |
 | `crates/calyx-lodestar/src/hierarchical.rs` | `build_hierarchical_kernel(vault, scope, params) -> HierarchicalKernel`; kernel-of-regions first, then drill-down |
 | `crates/calyx-lodestar/src/scope_report.rs` | `ScopeKernelReport { scope, kernel_size, kernel_only_recall, grounded_fraction, approx_factor }`; `report_all_scopes` |
@@ -79,11 +85,12 @@ Readbacks live under `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`.
 | Card | Title | Depends | Status |
 |---|---|---|---|
 | T01 | `Scope` enum + `materialize_scope` for all 8 variants | — (needs PH33) | Done / #233 |
-| T02 | `ScopeCache`: `(scope_hash, panel_version)` LRU cache | T01 | Done / #234 |
+| T02 | `ScopeCache`: identity-aware LRU cache | T01 | Done / #234 |
 | T03 | `build_kernel(scope, ...)` dispatch + per-scope recall + grounded-fraction | T02 | Done / #235 |
 | T04 | Hierarchical kernel-of-regions for huge scopes | T03 | Done / #236 |
 | T05 | `Union`/`Intersect` composable scopes + bridge nodes | T04 | Done / #237 |
 | T06 | FSV: >=4 distinct scopes on a real corpus, each with measured recall | T05 | Done / #238 |
+| T07 | Scope-cache identity includes anchors and corpus/store shard | T03 | Done / #328 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

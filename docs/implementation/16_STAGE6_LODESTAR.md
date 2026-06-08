@@ -7,14 +7,16 @@
 > `/home/croyse/calyx/data/fsv-ph31-20260608` and
 > `/home/croyse/calyx/data/fsv-ph32-20260608`. PH33 kernel index/answer/gaps
 > through real-corpora recall is signed off under
-> `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T06 are signed off,
+> `/home/croyse/calyx/fsv/ph33_*_20260608.*`. PH34 T01-T07 are signed off,
 > including real multi-scope SciFact reports under
 > `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. PH33 T06 (#239)
 > real Ledger stamping is signed off under
 > `/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`;
-> PH36 still owns trace/reproduce. Pre-exit follow-ups #328-#332 track scope-cache identity, LP/DFVS solver-contract honesty,
-> recall-gate fail-closed behavior, raw-vs-tuned recall evidence, and
-> anchor-aware `kernel_answer` search.
+> PH34 scope-cache identity #328 is signed off under
+> `/home/croyse/calyx/data/fsv-issue328-scope-cache-identity-20260608`.
+> PH36 still owns trace/reproduce. Pre-exit follow-ups #329-#332 track
+> LP/DFVS solver-contract honesty, recall-gate fail-closed behavior,
+> raw-vs-tuned recall evidence, and anchor-aware `kernel_answer` search.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -98,14 +100,14 @@ identity.
   nodes are implemented and FSV-signed-off under
   `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`; T06 real
   multi-scope FSV is implemented and FSV-signed-off under
-  `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. Follow-up #328 extends
-  cache identity beyond `(scope_hash, panel_version)` where anchors or corpus
-  shards can change kernel semantics.
+  `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`; T07 scope-cache identity
+  is implemented and FSV-signed-off under
+  `/home/croyse/calyx/data/fsv-issue328-scope-cache-identity-20260608`.
 - **Objective.** Freedom of scope: kernel over all / collection / domain /
   subgraph / time-window / tenant / filter / union.
 - **Deps.** PH33.
 - **Deliverables.** `build_kernel(scope, anchor?, params?)`, scope cache
-  `(scope_hash, panel_version)`, hierarchical kernel-of-regions for huge scopes,
+  `(scope_hash, panel_version, anchor_identity, corpus_identity)`, hierarchical kernel-of-regions for huge scopes,
   per-scope recall/grounded-fraction reporting.
 - **Key tasks.** scope param → subgraph → MFVS; incremental update; composable
   answering; union/intersect for bridges.

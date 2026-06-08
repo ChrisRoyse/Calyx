@@ -6,7 +6,8 @@ use calyx_paths::AssocGraph;
 use crate::grounding_gaps::CALYX_KERNEL_UNGROUNDED;
 use crate::{
     AnswerPath, AssocStore, Kernel, KernelIndex, KernelParams, Result, Scope, ScopeCache,
-    ScopeCacheKey, build_kernel_pipeline, kernel_answer, materialize_scope, scope_hash,
+    ScopeCacheKey, build_kernel_pipeline, kernel_answer, materialize_scope,
+    scope_cache_anchor_identity, scope_hash,
 };
 
 const UNGROUNDED_EPSILON: f32 = 0.01;
@@ -18,19 +19,21 @@ pub fn build_kernel(
     params: KernelParams,
     cache: &mut ScopeCache,
 ) -> Result<Kernel> {
-    let key = ScopeCacheKey {
-        scope_hash: scope_hash(&scope),
-        panel_version: params.panel_version,
-    };
-    if let Some(kernel) = cache.get(&key) {
-        return Ok(kernel.clone());
-    }
-
     // IMPORTANT: Union kernel != members_a ∪ members_b. Union scopes materialize
     // a graph here, then run the same MFVS pipeline as every other scope.
     let graph = materialize_scope(&scope, store)?;
     let anchor_kinds = anchor_kinds_for_scope(&scope, anchor_kind.as_ref());
     let anchors = anchors_for_graph(&graph, store, &anchor_kinds)?;
+    let key = ScopeCacheKey::new(
+        scope_hash(&scope),
+        params.panel_version,
+        scope_cache_anchor_identity(&anchor_kinds, &anchors),
+        params.corpus_shard_hash,
+    );
+    if let Some(kernel) = cache.get(&key) {
+        return Ok(kernel.clone());
+    }
+
     let mut scoped_params = params;
     if let Some(kind) = anchor_kind.or_else(|| anchor_kinds.first().cloned()) {
         scoped_params.anchor_kind = Some(anchor_kind_name(&kind));
