@@ -76,13 +76,6 @@ pub(crate) fn high_dim_matrix(rows: usize, dim: usize) -> Vec<Vec<f32>> {
         .collect()
 }
 
-pub(crate) fn projection_max_delta(left: &[Vec<f32>], right: &[Vec<f32>]) -> f32 {
-    left.iter()
-        .zip(right)
-        .flat_map(|(a, b)| a.iter().zip(b).map(|(x, y)| (x - y).abs()))
-        .fold(0.0, f32::max)
-}
-
 pub(crate) fn agreement_gpu_readback() -> serde_json::Value {
     let a = [1.0, 0.0];
     let b = [0.5, 3.0_f32.sqrt() * 0.5];

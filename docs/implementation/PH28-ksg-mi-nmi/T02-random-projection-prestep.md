@@ -18,12 +18,18 @@ curse of dimensionality. The projection matrix is seeded deterministically from
 `(slot_a_id, slot_b_id, n_samples)` so results are reproducible. The target
 dimension is `min(d, 2·ceil(log2(n)))` per the Johnson–Lindenstrauss lemma.
 
+Post-sweep #340 honesty: the implemented Assay projection path is CPU-only.
+`project_gpu` no longer aliases CPU output; it returns
+`CALYX_FORGE_DEVICE_UNAVAILABLE` until a real Forge-backed projection kernel is
+implemented with parity evidence.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Implement `jl_project(x: &[Vec<f32>], target_dim: usize, seed: u64, forge: &ForgeHandle) -> Result<Vec<Vec<f32>>, CalyxError>`:
   - generate a `d × target_dim` Gaussian random matrix `R` with entries `N(0, 1/target_dim)` using `ChaCha8Rng::seed_from_u64(seed)`
-  - apply `X_proj = X · R` via Forge batched matmul (GPU path on aiwonder; CPU SIMD fallback)
-  - result is `n × target_dim` matrix; bit-parity tested CPU↔GPU ≤ 1e-3
+  - current implementation applies `X_proj = X · R` on CPU deterministically
+  - GPU projection is not shipped in PH28; `project_gpu` fails loud with
+    `CALYX_FORGE_DEVICE_UNAVAILABLE` until a real Forge-backed projection lands
 - [ ] Implement `projection_seed(slot_a: SlotId, slot_b: SlotId, n: usize) -> u64`: deterministic seed combining slot IDs and sample count via a simple hash (`slot_a_id XOR (slot_b_id << 32) XOR (n as u64 * 6364136223846793005)`)
 - [ ] Implement `auto_target_dim(d: usize, n: usize) -> usize`: `min(d, 2 * (n as f32).log2().ceil() as usize).max(1)`; documents the JL connection
 - [ ] Expose `project_pair_for_ksg(x: &[Vec<f32>], y: &[Vec<f32>], slot_a: SlotId, slot_b: SlotId) -> Result<(Vec<Vec<f32>>, Vec<Vec<f32>>), CalyxError>`:
@@ -45,13 +51,16 @@ dimension is `min(d, 2·ceil(log2(n)))` per the Johnson–Lindenstrauss lemma.
   ```
   cargo test projection_shape_deterministic -- --nocapture
   ```
-  Output: shape `200×16`, identical on both runs (seed=42), CPU↔GPU within 1e-3.
-- **Prove:** after projection, call KSG on the projected vectors and confirm MI estimate is not degenerate (within CI of the known value for the planted Gaussian from T01). This proves the projection does not destroy the MI signal.
+  Output: shape `200×16`, identical on both runs (seed=42), with
+  `gpu_error = CALYX_FORGE_DEVICE_UNAVAILABLE` until the Forge-backed projection
+  path lands.
+- **Prove:** after projection, call KSG on the projected vectors and confirm MI estimate is not degenerate (within CI of the known value for the planted Gaussian from T01). This proves the CPU projection does not destroy the MI signal. GPU projection currently proves fail-loud honesty via `CALYX_FORGE_DEVICE_UNAVAILABLE`.
 
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the projection matrix golden set
+- [ ] CPU projection deterministic; GPU projection returns
+      `CALYX_FORGE_DEVICE_UNAVAILABLE` until real Forge-backed projection lands
 - [ ] FSV evidence (readback output / screenshot) attached to the PH28 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

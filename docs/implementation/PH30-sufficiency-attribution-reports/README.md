@@ -37,6 +37,14 @@ ceiling fields. Stage 5 FSV readback is the JSON source-of-truth emitted by
 commands are deferred to the Stage 18 CLI surface (PH62), not required for
 Lodestar.
 
+Post-sweep #340 adds real labeled-classification FSV using the UCI Iris dataset:
+the ignored `real_iris_classification_assay_loom_fsv` test reads the dataset
+bytes, asserts the pinned UCI BLAKE3 hash, records the row count, derives anchor
+entropy from the loaded labels, persists Assay rows to the Assay CF, and
+persists Loom agreement xterms to the xterm CF. Current abundance, sufficiency,
+attribution, and blind-spot APIs remain helper/report surfaces; vault-backed
+CLI/MCP product entry points are PH62/PH63 work, not hidden Stage 5 claims.
+
 Post-sweep #291 requires persisted Assay CF rows to carry explicit vault scope
 and anchor scope. The FSV readback records `all_rows_scoped`, `vault_scope`, and
 `anchor_scope`, plus malformed-estimator edge codes for short, ragged, and
@@ -97,6 +105,19 @@ Post-sweep #294 requires grounded Anchor evidence before Assay emits
    the assay CF and the report helper readback.
 
 Evidence (all three readbacks) attached to PH30 GitHub issue.
+
+4. **Real labeled-classification readback (#340):**
+   ```
+   CALYX_STAGE5_CLASSIFICATION_CSV=/home/croyse/calyx/datasets/uci-iris/iris.data \
+   CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue340-loom-assay-hardening-20260608 \
+     cargo test -p calyx-assay real_iris_classification_assay_loom_fsv -- --ignored --nocapture
+   ```
+   Read `real-classification-assay-cf-readback.json`,
+   `real-classification-xterm-cf-readback.json`, and
+   `real-classification-summary-readback.json`; they must show the pinned UCI
+   dataset hash, 150 rows, derived anchor entropy, non-empty Assay CF rows,
+   non-empty xterm CF rows, and petal/panel signal behavior for the setosa
+   classification anchor.
 
 ## Risks / landmines
 

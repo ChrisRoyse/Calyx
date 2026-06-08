@@ -9,7 +9,7 @@ use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality,
     SlotId, SlotVector, VaultId, VaultStore,
 };
-use calyx_loom::{CrossTermKind, LoomStore, MaterializationAction, PairGainGate, plan_cross_terms};
+use calyx_loom::{CrossTermKind, LoomStore, MaterializationAction};
 use serde_json::json;
 
 #[allow(dead_code)]
@@ -31,8 +31,8 @@ fn aster_gate_drives_live_materialization_policy() {
         AnchorKind::Label("issue319-passfail".to_string()),
     );
 
-    let gain_bits = gate.pair_gain_bits(slot(1), slot(2));
-    let plan = plan_cross_terms(&[slot(1), slot(2)], &gate);
+    let gain_bits = gate.pair_gain(slot(1), slot(2)).unwrap().gain_bits;
+    let plan = gate.materialization_plan(&[slot(1), slot(2)]).unwrap();
 
     assert!(gain_bits > 0.05);
     assert_eq!(
@@ -48,12 +48,42 @@ fn aster_gate_drives_live_materialization_policy() {
 }
 
 #[test]
+fn aster_gate_errors_are_observable_by_default() {
+    let root = fsv_root().join(format!("error-default-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    fs::create_dir_all(&root).unwrap();
+    let (vault, cx_ids, _) = write_sample_vault(&root.join("vault"), false, false, true);
+    let gate = AsterAssayMaterializationGate::new(
+        &vault,
+        cx_ids,
+        AnchorKind::Label("issue319-passfail".to_string()),
+    );
+
+    let err = gate.materialization_plan(&[slot(1), slot(2)]).unwrap_err();
+
+    assert_eq!(err.code, "CALYX_STALE_DERIVED");
+    assert_eq!(gate.last_error().unwrap().code, "CALYX_STALE_DERIVED");
+    assert_eq!(gate.pair_gain_bits_fail_safe_lazy(slot(1), slot(2)), 0.0);
+    let fallback_plan = gate.materialization_plan_fail_safe_lazy(&[slot(1), slot(2)]);
+    assert_eq!(
+        plan_count(
+            &fallback_plan,
+            CrossTermKind::Agreement,
+            MaterializationAction::EagerStore
+        ),
+        1
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 #[ignore = "manual aiwonder FSV writes Aster-backed Loom materialization readbacks"]
 fn aster_materialization_gate_aiwonder_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
     let _ = fs::remove_dir_all(root.join("source-vault"));
     let _ = fs::remove_dir_all(root.join("missing-anchor-vault"));
+    let _ = fs::remove_dir_all(root.join("missing-slot-vault"));
     let _ = fs::remove_dir_all(root.join("xterm-live-cf"));
     let _ = fs::remove_dir_all(root.join("xterm-missing-anchor-cf"));
 
@@ -65,8 +95,8 @@ fn aster_materialization_gate_aiwonder_fsv() {
         cx_ids.clone(),
         AnchorKind::Label("issue319-passfail".to_string()),
     );
-    let live_gain = gate.pair_gain_bits(slot(1), slot(2));
-    let live_plan = plan_cross_terms(&[slot(1), slot(2)], &gate);
+    let live_gain = gate.pair_gain(slot(1), slot(2)).unwrap().gain_bits;
+    let live_plan = gate.materialization_plan(&[slot(1), slot(2)]).unwrap();
     let live_xterms = materialize_samples(&sample_slots, &live_plan);
     let live_cf = persist_and_reload(&root.join("xterm-live-cf"), &live_xterms);
 
@@ -78,8 +108,12 @@ fn aster_materialization_gate_aiwonder_fsv() {
         missing_anchor_ids,
         AnchorKind::Label("issue319-passfail".to_string()),
     );
-    let missing_anchor_gain = missing_anchor_gate.pair_gain_bits(slot(1), slot(2));
-    let missing_anchor_plan = plan_cross_terms(&[slot(1), slot(2)], &missing_anchor_gate);
+    let missing_anchor_error = missing_anchor_gate
+        .materialization_plan(&[slot(1), slot(2)])
+        .unwrap_err();
+    let missing_anchor_gain = missing_anchor_gate.pair_gain_bits_fail_safe_lazy(slot(1), slot(2));
+    let missing_anchor_plan =
+        missing_anchor_gate.materialization_plan_fail_safe_lazy(&[slot(1), slot(2)]);
     let missing_anchor_xterms = materialize_samples(&missing_anchor_slots, &missing_anchor_plan);
     let missing_anchor_cf = persist_and_reload(
         &root.join("xterm-missing-anchor-cf"),
@@ -93,7 +127,12 @@ fn aster_materialization_gate_aiwonder_fsv() {
         missing_slot_ids,
         AnchorKind::Label("issue319-passfail".to_string()),
     );
-    let missing_slot_gain = missing_slot_gate.pair_gain_bits(slot(1), slot(2));
+    let missing_slot_error = missing_slot_gate
+        .materialization_plan(&[slot(1), slot(2)])
+        .unwrap_err();
+    let missing_slot_gain = missing_slot_gate.pair_gain_bits_fail_safe_lazy(slot(1), slot(2));
+    let missing_slot_plan =
+        missing_slot_gate.materialization_plan_fail_safe_lazy(&[slot(1), slot(2)]);
 
     let readback = json!({
         "source_of_truth": "AsterVault slot/anchor CF rows feeding AsterAssayMaterializationGate and persisted Loom xterm CF rows",
@@ -108,12 +147,15 @@ fn aster_materialization_gate_aiwonder_fsv() {
         "missing_anchor": {
             "source_cf_counts": missing_anchor_source_counts,
             "pair_gain_bits": missing_anchor_gain,
+            "default_error": missing_anchor_error.code,
             "plan_counts": plan_counts(&missing_anchor_plan),
             "gate_last_error": missing_anchor_gate.last_error().map(|error| error.code),
             "xterm_cf": missing_anchor_cf,
         },
         "missing_slot": {
             "pair_gain_bits": missing_slot_gain,
+            "default_error": missing_slot_error.code,
+            "fallback_plan_counts": plan_counts(&missing_slot_plan),
             "gate_last_error": missing_slot_gate.last_error().map(|error| error.code),
         },
     });

@@ -24,10 +24,15 @@ This is the mechanism that keeps storage `O(n·n_eff)` not `O(n·N²)`.
 
 Post-sweep #319 wires the PH28 live adapter:
 `calyx_assay::AsterAssayMaterializationGate` reads AsterVault slot vectors and
-grounded binary anchors, computes `AssayGate::pair_gain`, implements Loom's
-`PairGainGate`, and returns `0.0` with `last_error()` recorded when slot or
-anchor state is missing. `LoomStore::materialize_plan` now writes every eager
-plan entry into the xterm CF, so FSV reads kind counts from physical rows
+grounded binary anchors and computes `AssayGate::pair_gain`. Post-sweep #340
+makes this adapter fail closed by default: callers use
+`AsterAssayMaterializationGate::materialization_plan` and receive the underlying
+slot/anchor error instead of silently getting `0.0`; the explicit
+`materialization_plan_fail_safe_lazy` helper is the opt-in path when a caller
+wants to keep Agreement eager, park Interaction as lazy, and inspect
+`last_error()`. `pair_gain_bits_fail_safe_lazy` is the lower-level per-pair
+helper used by that planner. `LoomStore::materialize_plan` now writes every
+eager plan entry into the xterm CF, so FSV reads kind counts from physical rows
 instead of trusting planner return values.
 
 This implemented state supersedes the original stub-oriented checklist below:
@@ -47,6 +52,8 @@ decisions. The remaining Sextant promotion hook is intentionally deferred;
   - Delta always `LazyCache` (directional contrast; materialized on demand only)
 - [x] Replace the original stub Assay path with the PH28/#319
   `AsterAssayMaterializationGate` live adapter.
+- [x] Make Aster-backed materialization gate errors observable by default (#340);
+  fail-safe lazy fallback is explicit and preserves eager Agreement planning.
 - [x] Keep Sextant promotion deferred by policy; `Concat` remains lazy until a
   later query-pattern promoter exists.
 - [ ] Expose `materialized_count(plan) -> usize` — count of `EagerStore` decisions; used by `abundance_report` to prove storage is not `C(N,2)`
@@ -70,8 +77,9 @@ decisions. The remaining Sextant promotion hook is intentionally deferred;
 > ```
 > Then read `aster-materialization-gate-readback.json` plus the live and
 > missing-anchor xterm CF SST files. The live path must show Agreement and
-> Interaction xterm rows; missing anchor/slot paths must record fail-closed
-> errors and no eager Interaction materialization.
+> Interaction xterm rows; missing anchor/slot paths must return fail-closed
+> default errors, and the explicit fail-safe lazy readback must show Agreement
+> remains eager while Interaction has no eager materialization.
 
 - **SoT:** `materialized_count` in the plan for a planted panel (N=13 lenses, stub assay gate = all zeros bits)
 - **Readback:** run `cargo test materialization_plan_agreement_only -- --nocapture`; print plan summary showing `materialized_count = 78` (one Agreement scalar per pair, no Interaction), confirming storage is `78n` not `78n + more`

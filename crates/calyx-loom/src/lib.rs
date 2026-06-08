@@ -23,6 +23,7 @@ pub use error::{
 pub use lru_cache::LruCache;
 pub use materialization::{
     MaterializationAction, MaterializationPlan, PairGainGate, StaticPairGainGate, plan_cross_terms,
+    plan_cross_terms_checked,
 };
 
 #[cfg(test)]

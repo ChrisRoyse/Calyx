@@ -161,9 +161,9 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
     assert_eq!(ragged.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
 
     let projected = project_cpu(&high_dim_matrix(200, 1_536), 42);
-    let gpu = project_gpu(&high_dim_matrix(200, 1_536), 42);
+    let gpu = project_gpu(&high_dim_matrix(200, 1_536), 42).unwrap_err();
     assert_eq!(projected.output_dim, 16);
-    assert_eq!(projected.projected, gpu.projected);
+    assert_eq!(gpu.code, "CALYX_FORGE_DEVICE_UNAVAILABLE");
 
     let redundant_x: Vec<f32> = (0..100).map(|i| (i % 10) as f32).collect();
     let redundant = partitioned_histogram_nmi(&redundant_x, &redundant_x, 10).unwrap();
@@ -350,8 +350,7 @@ fn stage5_full_stack_fsv() {
     let logistic_non_finite = logistic_probe_mi(&nonfinite_samples, &nonfinite_labels).unwrap_err();
     let matrix = high_dim_matrix(200, 1_536);
     let projected = project_cpu(&matrix, 42);
-    let projected_gpu = project_gpu(&matrix, 42);
-    let projection_delta = projection_max_delta(&projected.projected, &projected_gpu.projected);
+    let projected_gpu_error = project_gpu(&matrix, 42).unwrap_err();
     let redundant_x: Vec<f32> = (0..100).map(|i| (i % 10) as f32).collect();
     let independent_y: Vec<f32> = (0..100).map(|i| (i / 10) as f32).collect();
     let redundant_nmi = partitioned_histogram_nmi(&redundant_x, &redundant_x, 10).unwrap();
@@ -427,7 +426,7 @@ fn stage5_full_stack_fsv() {
         "insufficient_samples_error": ksg_short.code,
         "ragged_samples_error": ksg_ragged.code,
         "non_finite_samples_error": logistic_non_finite.code,
-        "projection": {"rows": projected.input_rows, "input_dim": projected.input_dim, "output_dim": projected.output_dim, "cpu_gpu_delta": projection_delta},
+        "projection": {"rows": projected.input_rows, "input_dim": projected.input_dim, "output_dim": projected.output_dim, "gpu_error": projected_gpu_error.code},
         "nmi": {
             "redundant": redundant_nmi,
             "independent": independent_nmi,
@@ -443,6 +442,8 @@ fn stage5_full_stack_fsv() {
         "deficit_routing": sink.routed,
         "low_signal_error": admit_lens(0.01, 0.1).unwrap_err().code,
         "redundant_error": admit_lens(0.2, 0.7).unwrap_err().code,
+        "non_finite_signal_error": admit_lens(f32::NAN, 0.1).unwrap_err().code,
+        "non_finite_corr_error": admit_lens(0.2, f32::INFINITY).unwrap_err().code,
     });
     fs::write(
         root.join("assay-cf-readback.json"),

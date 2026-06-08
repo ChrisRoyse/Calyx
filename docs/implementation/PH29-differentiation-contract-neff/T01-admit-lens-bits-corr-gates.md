@@ -30,6 +30,9 @@ are the paper's verbatim values (`0.05`, `0.6`) and are load-bearing.
   pub enum RejectReason { LowSignal, Redundant }
   ```
 - [ ] Wire error codes: `CALYX_ASSAY_LOW_SIGNAL` maps to `RejectReason::LowSignal`; `CALYX_ASSAY_REDUNDANT` maps to `RejectReason::Redundant`
+- [x] Post-sweep #340: reject non-finite `signal_bits` with
+  `CALYX_ASSAY_LOW_SIGNAL` and non-finite `max_pairwise_corr` with
+  `CALYX_ASSAY_REDUNDANT` before threshold comparisons.
 - [ ] Implement `admit_lens(candidate: SlotId, anchor: AnchorKind, panel: &Panel, vault, forge, clock) -> Result<AdmitResult, CalyxError>`:
   ```
   bits = lens_signal(candidate, anchor, vault, forge, clock)?
@@ -54,6 +57,8 @@ are the paper's verbatim values (`0.05`, `0.6`) and are load-bearing.
 - [ ] proptest: `Admit` iff `bits >= 0.05 AND max_corr <= 0.6` (or NMI ≤ 0.6 in borderline); the compound condition is total (no missing cases)
 - [ ] edge: panel with zero members → `max_corr = 0.0`; single-element panel → check only against that one slot; candidate with n < 50 labeled samples → `bits = CALYX_ASSAY_INSUFFICIENT_SAMPLES` propagated (not silently coerced to 0.0)
 - [ ] fail-closed: missing slot data for a panel member → `CALYX_ASTER_NOT_FOUND`; never returns `Admit` on missing data
+- [x] fail-closed: NaN/Inf signal bits or pairwise correlation cannot admit a
+  lens (#340).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

@@ -1,6 +1,6 @@
 //! Cross-term materialization policy.
 
-use calyx_core::SlotId;
+use calyx_core::{Result, SlotId};
 use serde::{Deserialize, Serialize};
 
 use crate::cross_term::CrossTermKind;
@@ -50,11 +50,23 @@ impl PairGainGate for StaticPairGainGate {
 }
 
 pub fn plan_cross_terms(slots: &[SlotId], gate: &dyn PairGainGate) -> MaterializationPlan {
+    plan_cross_terms_checked(slots, |a, b| Ok(gate.pair_gain_bits(a, b)))
+        .expect("infallible PairGainGate adapter")
+}
+
+pub fn plan_cross_terms_checked<F>(
+    slots: &[SlotId],
+    mut pair_gain: F,
+) -> Result<MaterializationPlan>
+where
+    F: FnMut(SlotId, SlotId) -> Result<f32>,
+{
     let mut entries = Vec::new();
     for i in 0..slots.len() {
         for j in i + 1..slots.len() {
             let a = slots[i];
             let b = slots[j];
+            let gain_bits = pair_gain(a, b)?;
             entries.push(MaterializationEntry {
                 a,
                 b,
@@ -71,7 +83,7 @@ pub fn plan_cross_terms(slots: &[SlotId], gate: &dyn PairGainGate) -> Materializ
                 a,
                 b,
                 kind: CrossTermKind::Interaction,
-                action: if gate.pair_gain_bits(a, b) >= 0.05 {
+                action: if gain_bits >= 0.05 {
                     MaterializationAction::EagerStore
                 } else {
                     MaterializationAction::LazyCache
@@ -85,5 +97,5 @@ pub fn plan_cross_terms(slots: &[SlotId], gate: &dyn PairGainGate) -> Materializ
             });
         }
     }
-    MaterializationPlan { entries }
+    Ok(MaterializationPlan { entries })
 }

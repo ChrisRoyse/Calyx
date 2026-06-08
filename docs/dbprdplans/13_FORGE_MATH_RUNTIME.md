@@ -12,7 +12,7 @@ Every Calyx operation is linear algebra over slot vectors: embedding projection,
 
 | Backend | Target | Built on |
 |---|---|---|
-| **CUDA / sm_120** | aiwonder RTX 5090 (Blackwell GB202, 32 GB), driver 595.71, CUDA 13.2 | `cudarc` + CubeCL-style autotuned kernels; cuBLAS/cuBLASLt for big matmul; custom fused kernels for distance/MI/quantize |
+| **CUDA / sm_120** | aiwonder RTX 5090 (Blackwell GB202, 32 GB), driver 595.71, CUDA 13.2 | `cudarc` + CubeCL-style autotuned kernels; cuBLAS/cuBLASLt for big matmul; shipped custom distance/normalization/top-k kernels; MI/NMI and broader PRD kernels are deferred |
 | **CPU SIMD** | embedded vaults (laptops), aiwonder fallback | `wide`/`std::simd` AVX-512/AVX2/NEON; `faer`/`gemm` Rust matmul |
 | **ONNX/candle** | running lens NNs locally | `candle` + ORT CUDA EP |
 
@@ -61,7 +61,10 @@ Rust GPU is now credible: Burn's CubeCL matmul kernels match/beat cuBLAS in publ
 ## 6. Numerical correctness & determinism
 
 - Determinism mode for FSV/repro (`11`): fixed reduction order, no atomics-nondeterminism, so a replayed answer matches bit-for-bit within tolerance.
-- All distance/MI/quant kernels validated against a CPU reference on a golden corpus (run on aiwonder) (A13).
+- Shipped distance, normalization, top-k, and matmul paths are validated against
+  CPU references on a golden corpus (run on aiwonder) (A13). MI/NMI, sparse,
+  graph, and late-interaction kernels remain deferred until their owning phases
+  wire them into Forge with their own parity evidence.
 - NaN/Inf guards on every kernel boundary → `CALYX_FORGE_NUMERICAL_INVARIANT` fail-closed (A16).
 
 ## 7. Forge API (internal; summary)
@@ -80,6 +83,6 @@ Deferred API surface: `knn`, histogram/NMI, sparse ops, bilinear cross-terms,
 graph kernels, and ColBERT MaxSim remain PRD requirements, not Stage 2
 `Backend` methods.
 
-**One sentence:** Forge is the database's own GPU/SIMD math engine for shipped Stage 2 matmul, distance, normalization, top-k, quantization, and grouped-GEMM foundations, with broader MI, sparse, graph, and late-interaction kernels tracked as explicit deferred work.
+**One sentence:** Forge is the database's own GPU/SIMD math engine for shipped Stage 2 matmul, distance, normalization, top-k, and grouped-GEMM foundations, with quantization storage/compression work and broader MI, sparse, graph, and late-interaction kernels tracked as explicit deferred PRD work.
 
 Sources: [candle (Rust ML, CUDA kernels)](https://github.com/huggingface/candle) · [Burn/CubeCL matmul vs cuBLAS](https://www.phoronix.com/news/Burn-MATMUL-Kernels-CUDA) · [cuda-oxide Rust→PTX](https://www.marktechpost.com/2026/05/09/nvidia-ai-just-released-cuda-oxide-an-experimental-rust-to-cuda-compiler-backend-that-compiles-simt-gpu-kernels-directly-to-ptx/).

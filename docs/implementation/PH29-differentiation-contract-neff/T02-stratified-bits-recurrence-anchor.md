@@ -19,6 +19,12 @@ stratum (the sole-carrier check). Implement the recurrence anchor
 `AnchorKind::Recurrence` (Bayesian rate). Add the no-raw-frequency-multiplier
 regression test. This refines A7 without changing the threshold.
 
+Post-sweep #340 tracking note: Stage 5 implements stratified bits and the
+no-frequency-multiplier invariant, but typed recurrence anchor/rate/CI semantics
+are not complete in PH29. They are tracked as PH42 grounded-recurrence wiring
+(`docs/implementation/PH42-grounded-recurrence-wiring/T01-assay-oracle-self-consistency.md`)
+and must be FSV-proven there against recurrence series data.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `StratifiedBits`: `{ strata: Vec<StratumResult>, sole_carrier_flag: bool }` where `StratumResult = { stratum: AnchorStratum, bits: MiEstimate, n_samples: usize }`

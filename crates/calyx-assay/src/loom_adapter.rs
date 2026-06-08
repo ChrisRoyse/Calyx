@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CalyxError, CxId, Result, Seq, SlotId, SlotVector, VaultStore,
 };
-use calyx_loom::PairGainGate;
+use calyx_loom::{MaterializationPlan, plan_cross_terms_checked};
 
 use crate::gate::{AssayGate, PairGain};
 
@@ -54,6 +54,28 @@ where
         self.assay.pair_gain(&left, &right, &labels)
     }
 
+    pub fn materialization_plan(&self, slots: &[SlotId]) -> Result<MaterializationPlan> {
+        plan_cross_terms_checked(slots, |a, b| {
+            self.pair_gain(a, b).map(|gain| gain.gain_bits)
+        })
+        .inspect_err(|error| self.record_error(error.clone()))
+    }
+
+    pub fn materialization_plan_fail_safe_lazy(&self, slots: &[SlotId]) -> MaterializationPlan {
+        plan_cross_terms_checked(slots, |a, b| Ok(self.pair_gain_bits_fail_safe_lazy(a, b)))
+            .expect("fail-safe lazy materialization planner is infallible")
+    }
+
+    pub fn pair_gain_bits_fail_safe_lazy(&self, a: SlotId, b: SlotId) -> f32 {
+        match self.pair_gain(a, b) {
+            Ok(gain) => gain.gain_bits,
+            Err(error) => {
+                self.record_error(error);
+                0.0
+            }
+        }
+    }
+
     pub fn last_error(&self) -> Option<CalyxError> {
         self.last_error
             .lock()
@@ -95,21 +117,6 @@ where
             labels.push(anchor_bool(anchor)?);
         }
         Ok((left, right, labels))
-    }
-}
-
-impl<S> PairGainGate for AsterAssayMaterializationGate<'_, S>
-where
-    S: VaultStore + ?Sized,
-{
-    fn pair_gain_bits(&self, a: SlotId, b: SlotId) -> f32 {
-        match self.pair_gain(a, b) {
-            Ok(gain) => gain.gain_bits,
-            Err(error) => {
-                self.record_error(error);
-                0.0
-            }
-        }
     }
 }
 

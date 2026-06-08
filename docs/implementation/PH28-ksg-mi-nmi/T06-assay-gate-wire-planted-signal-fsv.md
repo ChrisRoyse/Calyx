@@ -25,17 +25,20 @@ The Aster Assay CF readback for #318 proves persisted `MiEstimate` rows include
 `ci_low`/`ci_high` bytes.
 
 Post-sweep #319 status: `AsterAssayMaterializationGate` reads AsterVault
-slot/anchor rows, computes grounded PairGain, implements Loom's `PairGainGate`,
-and records fail-closed `last_error()` state when vectors or anchors are
-missing. `LoomStore::materialize_plan` persists eager Agreement/Interaction rows
-to the xterm CF for byte readback.
+slot/anchor rows, computes grounded PairGain, and drives Loom materialization
+planning. Post-sweep #340 makes missing vectors or anchors observable by
+default: `materialization_plan` returns `CALYX_STALE_DERIVED` and records
+`last_error()`. Returning `0.0` for lazy interaction storage is available only
+through the explicit `materialization_plan_fail_safe_lazy` opt-in, which keeps
+Agreement eager and parks Interaction lazy.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `AssayGateImpl` (the real impl of the `AssayGate` trait from PH27 T03):
+- [ ] Implement `AssayGateImpl` (the real Assay adapter used by PH27 planning):
   - `pair_gain(slot_a, slot_b, anchor, vault, forge, clock) -> Result<f32, CalyxError>`:
     - load the slot vectors for `(slot_a, slot_b)` and the anchor labels from Aster
-    - if n < 50 → return `Ok(0.0)` (fail safe: don't gate on noise; log the quorum miss)
+    - if n < 50 or required rows are missing → return a fail-closed error by
+      default; lazy `0.0` materialization is an explicit fallback call
     - call `ksg_with_ci` for `I(slot_a, slot_b ; anchor) − max(I(slot_a ; anchor), I(slot_b ; anchor))`
     - return the cross-term gain in bits; if negative (no synergy) → return 0.0
 - [ ] Implement `lens_signal(slot: SlotId, anchor: AnchorKind, vault, forge, clock) -> Result<MiEstimate, CalyxError>`:

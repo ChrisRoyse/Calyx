@@ -45,6 +45,13 @@
 > `plan_cross_terms`, and eager plan entries are physically materialized into
 > the Loom xterm CF. FSV root:
 > `/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608`.
+> Contract-honesty hardening #340 adds real UCI Iris labeled-classification FSV
+> with pinned dataset hash, derived anchor entropy, Assay CF readback, and xterm
+> CF readback; makes Assay `project_gpu` fail loud instead of aliasing CPU
+> projection; adds finite guards to `admit_lens`; makes Aster-backed
+> materialization planning return errors by default; and documents that
+> abundance/sufficiency/blind-spot APIs are helper/report surfaces until PH62
+> CLI/MCP vault-backed product entry points land.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -75,6 +82,12 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
 - **Post-sweep note.** Materialization is per kind: Agreement is eager, Delta
   and Concat remain lazy, and only Interaction becomes eager when the Assay pair
   gain clears 0.05 bits (#309).
+- **Post-sweep note.** The Aster-backed materialization gate no longer hides
+  missing slot/anchor errors behind a default `0.0` pair gain. Use
+  `AsterAssayMaterializationGate::materialization_plan` for fail-closed
+  planning; `materialization_plan_fail_safe_lazy` is the explicit opt-in
+  fallback for callers that want to keep Agreement eager, park Interaction lazy,
+  and inspect `last_error` (#340).
 - **Post-sweep note.** GPU agreement is no longer a CPU alias. Default builds
   return `CALYX_LOOM_FORGE_UNAVAILABLE`; `calyx-loom/cuda` compiles and executes
   the Forge CUDA path on aiwonder (#313).
@@ -104,7 +117,11 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   logistic-probe, AssayGate lens signal, and PairGain estimates now attach
   seeded bootstrap CI through the public paths before persistence (#318). The
   Aster-backed Assay materialization gate now feeds real grounded PairGain into
-  Loom planning and xterm CF materialization (#319).
+  Loom planning and xterm CF materialization (#319). Assay `project_gpu` is no
+  longer a CPU alias; it returns `CALYX_FORGE_DEVICE_UNAVAILABLE` until a real
+  Forge-backed projection path exists (#340). Real-data FSV now runs on the UCI
+  Iris labeled classification dataset and writes pinned dataset hash, row count,
+  derived anchor entropy, Assay CF readback, and xterm CF readback (#340).
 - **FSV gate.** MI on a **planted-signal synthetic** is within CI of the known
   value; n<50 fails closed (no noisy point estimate).
 - **Axioms/PRD.** A2 (grounded only), A16, `07 §2`.
@@ -114,10 +131,13 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   pairwise correlation; compute effective rank.
 - **Deps.** PH28.
 - **Deliverables.** `contract.rs` (`admit_lens` → Admit|Reject{reason}),
-  `n_eff.rs` (stable rank of the redundancy graph), stratified bits + recurrence
-  anchor (refines A7, `26 §9`).
+  `n_eff.rs` (stable rank of the redundancy graph), stratified bits +
+  no-frequency-multiplier invariant (refines A7, `26 §9`); typed recurrence
+  rate/CI semantics are PH42 work (#340).
 - **Key tasks.** `CALYX_ASSAY_LOW_SIGNAL` / `_REDUNDANT`; per-stratum bits so a
   rare-class sole carrier isn't lost; **no raw-frequency multiplier on bits**.
+- **Post-sweep note.** `admit_lens` rejects NaN/Inf `signal_bits` and
+  `max_pairwise_corr` before threshold comparisons (#340).
 - **FSV gate.** a **planted-redundant** lens (corr>0.6) is REJECTED; a <0.05-bit
   lens is REJECTED; `n_eff` matches the known rank of a planted panel (read the
   stored decision rows).
@@ -141,6 +161,11 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   report grounded trusted bits (#294). `meaning_compression_yield` is now the
   materialized cross-term count per input, with NaN for zero constellations
   (#309).
+- **Post-sweep note.** Current abundance, sufficiency, attribution, and
+  blind-spot surfaces are library helpers/reports used by tests and later
+  engines. Vault-backed user-facing commands/tools are deferred to PH62/PH63;
+  this Stage 5 contract is the measured report data and CF persistence, not a
+  complete CLI/MCP product surface (#340).
 - **FSV gate.** `abundance_report` prints the four honest numbers; a known-
   insufficient panel (`I≪H`) is flagged with the per-slot deficit (read it);
   trusted bits only when grounded (else `provisional`).

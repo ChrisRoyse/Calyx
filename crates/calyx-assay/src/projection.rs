@@ -1,5 +1,6 @@
 //! Deterministic random projection pre-step for high-dimensional Assay inputs.
 
+use calyx_core::{CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -49,8 +50,10 @@ pub fn project_cpu(matrix: &[Vec<f32>], seed: u64) -> ProjectionReport {
     }
 }
 
-pub fn project_gpu(matrix: &[Vec<f32>], seed: u64) -> ProjectionReport {
-    project_cpu(matrix, seed)
+pub fn project_gpu(_matrix: &[Vec<f32>], _seed: u64) -> Result<ProjectionReport> {
+    Err(CalyxError::forge_device_unavailable(
+        "Assay random projection has no Forge-backed GPU implementation; use project_cpu until PH28 GPU projection is implemented",
+    ))
 }
 
 fn sign(seed: u64, in_col: usize, out_col: usize) -> f32 {

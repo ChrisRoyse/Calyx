@@ -11,9 +11,10 @@ is ≤ **0.6**. Lenses failing the first gate return `CALYX_ASSAY_LOW_SIGNAL`;
 lenses failing the second return `CALYX_ASSAY_REDUNDANT`. Compute `n_eff` as the
 stable rank of the redundancy graph (the effective number of non-redundant
 lenses). Implement stratified bits — compute MI per outcome stratum so a
-rare-class sole carrier is not lost — and the recurrence anchor. The
-differentiation contract is enforced at admission and re-checked by Anneal as
-the corpus grows (PH47).
+rare-class sole carrier is not lost. Typed recurrence anchor rate/CI semantics
+are not complete in PH29; they are tracked to PH42 grounded recurrence wiring.
+The differentiation contract is enforced at admission and re-checked by Anneal
+as the corpus grows (PH47).
 
 > **Binding honesty rules (from `07 §3c`):**
 > - **No raw-frequency multiplier on bits.** Bits stay = MI. Multiplying by raw
@@ -21,9 +22,9 @@ the corpus grows (PH47).
 > - **Stratified bits:** admit a lens if it clears ≥ 0.05 bits on **some**
 >   grounded stratum, even if aggregate MI < 0.05, so the rare-class sole carrier
 >   is not silently discarded.
-> - **Recurrence is a first-class anchor:** `AnchorKind::Recurrence` (the
->   Bayesian rate from `26 §6`) is a valid target for `I(lens; rate)`; the
->   contract is unchanged.
+> - **Recurrence tracking:** the plain `AnchorKind::Recurrence` enum variant is
+>   present, but typed recurrence rate/CI semantics are PH42 work. PH29 must not
+>   claim trusted recurrence-rate bits until PH42 FSV proves the series wiring.
 
 ## Dependencies
 
@@ -44,7 +45,7 @@ is available from PH27 T04 `agreement_graph`.
 | File | Responsibility |
 |---|---|
 | `crates/calyx-assay/src/contract.rs` | `admit_lens` function: bits gate ≥ 0.05, corr gate ≤ 0.6; `AdmitResult::Admit | Reject { reason }` |
-| `crates/calyx-assay/src/stratified.rs` | Per-stratum bits: `I(lens; outcome)` per outcome class; sole-carrier flag; recurrence anchor support |
+| `crates/calyx-assay/src/stratified.rs` | Per-stratum bits: `I(lens; outcome)` per outcome class; sole-carrier flag; no-frequency-multiplier invariant |
 | `crates/calyx-assay/src/n_eff.rs` | `n_eff` = stable rank of the redundancy graph (spectral approach: ratio of squared sum to sum of squares of agreement eigenvalues); replaces PH27 provisional placeholder |
 | `crates/calyx-assay/src/tests.rs` | Planted-synthetic FSV: planted-redundant lens REJECTED, planted-signal within CI, known n_eff |
 
@@ -53,7 +54,7 @@ is available from PH27 T04 `agreement_graph`.
 | Card | Title | Depends |
 |---|---|---|
 | T01 | `admit_lens`: bits gate + corr gate + error codes | — |
-| T02 | Stratified bits + recurrence anchor + no-multiplier invariant | T01 |
+| T02 | Stratified bits + recurrence tracking note + no-multiplier invariant | T01 |
 | T03 | `n_eff` stable rank of redundancy graph | T01 |
 | T04 | Planted-synthetic FSV: redundant REJECTED, signal admitted, n_eff correct | T01, T02, T03 |
 

@@ -16,10 +16,10 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 |---|---|---|
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed; pre-Lodestar durability hardening #333 FSV-backed |
-| S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, #316 surfaces grouped GEMM execution mode with a strict fail-loud path, and #333 hardens absent-slot sentinel checks with release CUDA FSV |
+| S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, #316 surfaces grouped GEMM execution mode with a strict fail-loud path, #333 hardens absent-slot sentinel checks with release CUDA FSV, and #338 documents shipped vs deferred Forge backend ops |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, durable rollback #321, and lifecycle idempotency/backfill-cancel #327 are FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, and PH23/PH24 GPU overclaim #299 now fails loud |
-| S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, and Aster-backed Loom materialization gate #319 are FSV-backed |
+| S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, Aster-backed Loom materialization gate #319, and Loom/Assay contract-hardening #340 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 T01-T07 done/FSV-signed-off with PH36 trace/reproduce still separate; PH34 T01-T07 done/FSV-signed-off; #240 exit plus #331-#332 readiness follow-ups pending) |
 | S7 Ledger | PH35–PH36 | ▶ **ACTIVE** (PH35 T01-T07 done/FSV-signed-off; PH36 next) |
 | S8–S20 | PH37–PH72 | · pending |
@@ -41,6 +41,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue307-cuda-gemm-parity-20260608`
 - Stage 2 Forge PH15 grouped GEMM execution mode:
   `/home/croyse/calyx/data/fsv-issue316-grouped-gemm-mode-20260608`
+- Stage 2 Forge backend contract honesty:
+  `/home/croyse/calyx/data/fsv-issue338-forge-contract-honesty-20260608`
 - Stage 3 atomic suite:
   `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`
 - Stage 3 PH20 durable backfill scheduler:
@@ -76,7 +78,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue313-loom-gpu-agreement-20260608`,
   `/home/croyse/calyx/data/fsv-issue317-nmi-fail-closed-20260608`,
   `/home/croyse/calyx/data/fsv-issue318-bootstrap-ci-20260608`,
-  `/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608`
+  `/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608`,
+  `/home/croyse/calyx/data/fsv-issue340-loom-assay-hardening-20260608`
 - Stage 6 Lodestar PH31/PH32 and PH33 follow-up:
   `/home/croyse/calyx/data/fsv-ph31-20260608`,
   `/home/croyse/calyx/data/fsv-ph32-20260608`,
