@@ -27,12 +27,11 @@ Shipped in `calyx-aster`:
 
 FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
-### Tracked follow-ups (functional gate passed; architectural debt to resolve)
-PH10 is FSV-signed-off as **functionally working** (crash recovery + corrupt-shard fail-closed proven via the CLI `recover` path), but it **diverges architecturally from this card**. Open these as `type:task` issues before/with Stage-13 resource work:
-1. `manifest/recovery.rs` was not created — recovery logic lives in `manifest/mod.rs::recover_vault`. (cosmetic; module placement)
-2. `AsterVault::open` recovers by replaying the **entire** WAL (`vault/durable.rs::replay_batches`), NOT via the manifest-anchored `recover_vault` + `set_start_seq(last_recovered_seq)`. Two parallel recovery paths exist; unify on the manifest-anchored one.
+### Follow-ups
+1. `manifest/recovery.rs` was not created — recovery logic lives in `manifest/mod.rs::recover_vault`. This is cosmetic module placement, not a behavior gap.
+2. ✅ `AsterVault::open` now uses manifest-anchored recovery through `recover_vault`, restores batches at their original seqs, and calls `set_start_seq(recovery.last_recovered_seq)`.
 3. `degraded_rebuildable` is a manifest field but is **never set true** on a corrupt derived CF; the self-heal/degrade path is deferred to PH44.
-4. `DurableVault::write_batch` writes one SST per row and rewrites the manifest on every put, bypassing the memtable/`CfRouter` flush model used elsewhere — durable and router write paths are not unified.
+4. ✅ Durable writes, MVCC router flushes, compaction catalogs, and scheduler paths are unified through `vault/commit.rs`, `vault/compaction_bridge.rs`, and #295's `VaultOptions::tiering_policy` wiring.
 
 ## Deliverables (file plan, each ≤500 lines)
 

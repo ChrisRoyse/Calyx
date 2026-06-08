@@ -1,34 +1,43 @@
-use super::{CompactionCatalog, SstShard};
+use super::{CompactionCatalog, SstShard, TieringPolicy};
 use crate::cf::ColumnFamily;
 use calyx_core::{CalyxError, Result, SlotId};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 pub fn catalog_from_vault_dir(vault_dir: impl AsRef<Path>) -> Result<CompactionCatalog> {
-    let cf_root = vault_dir.as_ref().join("cf");
+    catalog_from_vault_tiers(vault_dir, None)
+}
+
+pub fn catalog_from_vault_tiers(
+    vault_dir: impl AsRef<Path>,
+    tiering_policy: Option<&TieringPolicy>,
+) -> Result<CompactionCatalog> {
     let mut shards = Vec::new();
-    if !cf_root.exists() {
-        return Ok(CompactionCatalog::new(shards));
-    }
-    for entry in fs::read_dir(&cf_root)
-        .map_err(|error| CalyxError::disk_pressure(format!("read compaction CF root: {error}")))?
-    {
-        let path = entry
-            .map_err(|error| {
-                CalyxError::disk_pressure(format!("read compaction CF entry: {error}"))
-            })?
-            .path();
-        if !path.is_dir() {
+    for cf_root in tiered_cf_roots(vault_dir.as_ref(), tiering_policy) {
+        if !cf_root.exists() {
             continue;
         }
-        let Some(cf) = parse_cf_dir(&path) else {
-            continue;
-        };
-        for sst in list_ssts(&path)? {
-            shards.push(SstShard::new(cf, sst, 0)?);
+        for entry in fs::read_dir(&cf_root).map_err(|error| {
+            CalyxError::disk_pressure(format!("read compaction CF root: {error}"))
+        })? {
+            let path = entry
+                .map_err(|error| {
+                    CalyxError::disk_pressure(format!("read compaction CF entry: {error}"))
+                })?
+                .path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(cf) = parse_cf_dir(&path) else {
+                continue;
+            };
+            for sst in list_ssts(&path)? {
+                shards.push(SstShard::new(cf, sst, 0)?);
+            }
         }
     }
     shards.sort_by(|left, right| left.path.cmp(&right.path));
+    shards.dedup_by(|left, right| left.path == right.path);
     Ok(CompactionCatalog::new(shards))
 }
 
@@ -77,4 +86,17 @@ fn parse_slot_name(name: &str) -> Option<ColumnFamily> {
     } else {
         ColumnFamily::slot(SlotId::new(slot))
     })
+}
+
+fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<PathBuf> {
+    let mut roots = vec![root.join("cf")];
+    if let Some(policy) = tiering_policy {
+        for tier_root in policy.tier_roots() {
+            let cf_root = tier_root.join("cf");
+            if !roots.contains(&cf_root) {
+                roots.push(cf_root);
+            }
+        }
+    }
+    roots
 }

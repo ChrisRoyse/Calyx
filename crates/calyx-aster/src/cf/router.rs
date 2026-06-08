@@ -1,4 +1,5 @@
 use super::ColumnFamily;
+use crate::compaction::TieringPolicy;
 use crate::memtable::Memtable;
 use crate::sst::level::SstLevel;
 use crate::sst::{SstEntry, SstSummary};
@@ -12,6 +13,7 @@ const DEFAULT_MEMTABLE_BYTES: usize = 8 * 1024 * 1024;
 #[derive(Debug)]
 pub struct CfRouter {
     vault_dir: PathBuf,
+    tiering_policy: Option<TieringPolicy>,
     memtables: HashMap<ColumnFamily, Memtable>,
     levels: HashMap<ColumnFamily, SstLevel>,
     next_file: HashMap<ColumnFamily, u64>,
@@ -20,6 +22,14 @@ pub struct CfRouter {
 
 impl CfRouter {
     pub fn open(vault_dir: impl AsRef<Path>, memtable_byte_cap: usize) -> Result<Self> {
+        Self::open_with_tiering(vault_dir, memtable_byte_cap, None)
+    }
+
+    pub fn open_with_tiering(
+        vault_dir: impl AsRef<Path>,
+        memtable_byte_cap: usize,
+        tiering_policy: Option<TieringPolicy>,
+    ) -> Result<Self> {
         let vault_dir = vault_dir.as_ref().to_path_buf();
         let memtable_byte_cap = if memtable_byte_cap == 0 {
             DEFAULT_MEMTABLE_BYTES
@@ -28,8 +38,16 @@ impl CfRouter {
         };
         fs::create_dir_all(vault_dir.join("cf"))
             .map_err(|error| CalyxError::disk_pressure(format!("create CF root: {error}")))?;
+        if let Some(policy) = &tiering_policy {
+            for tier_root in policy.tier_roots() {
+                fs::create_dir_all(tier_root.join("cf")).map_err(|error| {
+                    CalyxError::disk_pressure(format!("create tiered CF root: {error}"))
+                })?;
+            }
+        }
         let mut router = Self {
             vault_dir,
+            tiering_policy,
             memtables: HashMap::new(),
             levels: HashMap::new(),
             next_file: HashMap::new(),
@@ -148,24 +166,33 @@ impl CfRouter {
     }
 
     fn load_existing(&mut self) -> Result<()> {
-        let cf_root = self.vault_dir.join("cf");
-        for entry in fs::read_dir(cf_root)
-            .map_err(|error| CalyxError::disk_pressure(format!("read CF root: {error}")))?
-        {
-            let path = entry
-                .map_err(|error| CalyxError::disk_pressure(format!("read CF entry: {error}")))?
-                .path();
-            if !path.is_dir() {
+        let mut by_cf = HashMap::<ColumnFamily, Vec<PathBuf>>::new();
+        for cf_root in self.cf_roots() {
+            if !cf_root.exists() {
                 continue;
             }
-            let Some(cf) = parse_cf_dir(&path) else {
-                continue;
-            };
-            let mut files = list_sst_files(&path)?;
+            for entry in fs::read_dir(cf_root)
+                .map_err(|error| CalyxError::disk_pressure(format!("read CF root: {error}")))?
+            {
+                let path = entry
+                    .map_err(|error| CalyxError::disk_pressure(format!("read CF entry: {error}")))?
+                    .path();
+                if !path.is_dir() {
+                    continue;
+                }
+                let Some(cf) = parse_cf_dir(&path) else {
+                    continue;
+                };
+                by_cf.entry(cf).or_default().extend(list_sst_files(&path)?);
+            }
+        }
+        for (cf, mut files) in by_cf {
             files.sort();
+            files.dedup();
             let next = files
-                .last()
-                .and_then(|file| file.file_stem()?.to_string_lossy().parse::<u64>().ok())
+                .iter()
+                .filter_map(|file| file.file_stem()?.to_string_lossy().parse::<u64>().ok())
+                .max()
                 .unwrap_or(0)
                 + 1;
             self.ensure_cf(cf)?;
@@ -189,7 +216,23 @@ impl CfRouter {
     }
 
     fn cf_dir(&self, cf: ColumnFamily) -> PathBuf {
-        self.vault_dir.join("cf").join(cf.name())
+        self.tiering_policy.as_ref().map_or_else(
+            || self.vault_dir.join("cf").join(cf.name()),
+            |policy| policy.place_current_cf(cf).absolute_dir(),
+        )
+    }
+
+    fn cf_roots(&self) -> Vec<PathBuf> {
+        let mut roots = vec![self.vault_dir.join("cf")];
+        if let Some(policy) = &self.tiering_policy {
+            for tier_root in policy.tier_roots() {
+                let cf_root = tier_root.join("cf");
+                if !roots.contains(&cf_root) {
+                    roots.push(cf_root);
+                }
+            }
+        }
+        roots
     }
 }
 

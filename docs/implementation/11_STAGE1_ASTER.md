@@ -104,13 +104,15 @@ provisioned). **Living-system role:** metabolism + memory.
   (`CALYX_ASTER_CORRUPT_SHARD`), points at restore.
 - **Axioms/PRD.** A15, A16, `04 §7`.
 
-## PH11 — Compaction + hot/cold tiering — ✅ DONE (scheduler unified; debt proptest landed)
+## PH11 — Compaction + hot/cold tiering — ✅ DONE (durable tiering wired; debt proptest landed)
 - **Objective.** Background, snapshot-safe compaction; tiering hot (NVMe) vs
   cold (archive HDD); raw-f32 sidecars cold.
 - **Deps.** PH10.
 - **Deliverables.** leveled/tiered compaction (throttled, debt-metered),
   tiering policy (active slots hot, `*.raw`/retired/old-panels cold), staging
-  inside the destination dataset (avoid `EXDEV`).
+  inside the destination dataset (avoid `EXDEV`), plus durable/router flush,
+  recovery, catalog scan, and compaction output paths routed through
+  `VaultOptions::tiering_policy`.
 - **Key tasks.** concurrent-read-safe compaction; adaptive cadence hook (Anneal
   later); cold-tier writer to `/zfs/archive/calyx`.
 - **FSV gate.** compaction runs with concurrent reads → no partial reads; cold
@@ -122,8 +124,12 @@ provisioned). **Living-system role:** metabolism + memory.
 ## Stage 1 exit — ✅ achieved
 Aster round-trips byte-exact, survives `kill -9` to last-acked, serves
 consistent MVCC snapshots, ingests idempotently, and tiers hot/cold — all proven
-by reading the persisted bytes on aiwonder. This is PRD `CORE` (`19 §5`),
-satisfied at commit `8dcddaa`.
+by reading the persisted bytes on aiwonder. Durable tiering follow-up #295
+physically proved hot base/active-slot SSTs under `hot/cf`, inactive-slot and
+compacted SSTs under `archive/cf`, and no misplaced inactive-slot files under
+the vault root at `/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608`.
+This is PRD `CORE` (`19 §5`), satisfied at commit `8dcddaa` plus the #295
+post-sweep hardening commit.
 
 ---
 
@@ -153,6 +159,10 @@ cards; their current disposition follows. None block downstream stages.
    `vault/commit.rs`; durable SSTs are registered in a `CompactionCatalog` and
    the scheduler triggers on debt. Fixed in commit `3e6c03d` ("Resolve Aster
    durable compaction follow-up"), with `vault/compaction_tests.rs` coverage.
+   Post-sweep #295 extends this through `VaultOptions::tiering_policy`: durable
+   checkpoint SSTs, router flush SSTs, manifest recovery scans, vault catalog
+   discovery, one-shot compaction output, and scheduler output all resolve hot
+   vs archive roots through the same policy.
 5. ◻ **Explicit deferral (PH06).** `sst/arrow.rs` (Arrow SoA column chunk) is
    implemented + demo-wired, but slot CF values stay row-encoded via
    `vault/encode.rs::encode_slot_vector`. Row-level slot vectors remain the

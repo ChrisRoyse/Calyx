@@ -19,25 +19,29 @@ can run long-term without unbounded SST file proliferation.
 - **Provides for:** PH58 (GC reclaimers use the compaction snapshot for version
   expiry), PH35 (Ledger archive to cold tier)
 
-## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07, commit 8dcddaa)
+## Status — DONE ✅ (Stage 1; FSV-signed-off 2026-06-07; durable tiering post-sweep FSV 2026-06-08)
 
 Shipped in `calyx-aster`:
-- `compaction/mod.rs` — `CompactionDebt::measure` (score), `CompactionThrottle` (`max_input_bytes`), snapshot-safe `CompactionCatalog` (atomic `Arc<Vec<SstShard>>` swap; pinned readers survive), `TieringPolicy::place_cf`/`is_cold` (base/ledger/anchors hot; `*.raw`/retired/old-panel cold), `write_tiered_sst` (stages in destination dir; `aiwonder()` → `/zfs/hot|archive/calyx` with `CALYX_HOME` fallback), `CompactionScheduler` (background thread, debt trigger, write-amp backoff, `FIXME(PH46)` Anneal hook).
+- `compaction/mod.rs` + `compaction/tiering.rs` — `CompactionDebt::measure` (score), `CompactionThrottle` (`max_input_bytes`), snapshot-safe `CompactionCatalog` (atomic `Arc<Vec<SstShard>>` swap; pinned readers survive), `TieringPolicy::place_cf`/`is_cold` (base/ledger/anchors hot; `*.raw`/retired/old-panel cold), `write_tiered_sst` (stages in destination dir; `aiwonder()` → `/zfs/hot|archive/calyx` with `CALYX_HOME` fallback), `CompactionScheduler` (background thread, debt trigger, write-amp backoff, `FIXME(PH46)` Anneal hook).
+- `vault/durable.rs`, `cf/router.rs`, `compaction/scan.rs`, `vault/compaction_bridge.rs` — `VaultOptions::tiering_policy` wires the policy into normal durable checkpoint SSTs, MVCC router flush SSTs, manifest recovery scans across tier roots, vault compaction catalogs, one-shot compaction output, and background scheduler output.
 - CLI: `tier`, `compact`, `compact-watch`, `soak`. FSV-proven: compacted base SST written; `slot_00` hot + `slot_00.raw` archive placement; `xxd` showed `CXS1`.
 
-FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
+FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`; durable tiering follow-up root `/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608`.
 
-### Tracked follow-ups (non-blocking)
-1. `CompactionScheduler`/`CompactionCatalog` are implemented but **not yet wired into `AsterVault`** — compaction is not vault-triggered (the durable vault doesn't register its SSTs in a catalog). Unify with the durable/router path (see PH10 follow-up #4).
-2. The compaction-debt meter has example-based unit tests but no `proptest` (the card specified one). Add a debt-meter property test.
+### Resolved follow-ups
+1. `CompactionScheduler`/`CompactionCatalog` are wired into `AsterVault`; #295 extends that wiring through hot/archive tier roots so cold CFs are not duplicated under the hot vault root.
+2. The compaction-debt meter has generated coverage in `compaction/tests.rs::compaction_debt_matches_scaled_pending_bytes`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
-| `src/compaction/mod.rs` | `SstShard`, `CompactionCatalog`, `TieringPolicy`, `compact_shards` |
-| `src/compaction/scheduler.rs` | `CompactionScheduler`: background thread, debt-metered cadence, anti-storm |
-| `src/compaction/tests.rs` | Snapshot-safe concurrent test, write-amp soak, tiering placement test |
+| `src/compaction/mod.rs` | `SstShard`, `CompactionCatalog`, `compact_shards`, scheduler facade |
+| `src/compaction/tiering.rs` | `TieringPolicy`, placement, destination-dataset SST writer |
+| `src/compaction/scan.rs` | vault/tier SST catalog discovery |
+| `src/vault/durable.rs` / `src/cf/router.rs` | normal durable and router flushes routed through `TieringPolicy` |
+| `src/vault/compaction_bridge.rs` | vault compaction catalog/output/scheduler bridge |
+| `src/compaction/tests.rs` / `src/vault/compaction_tests.rs` | snapshot-safe, debt, tier placement, durable tier readback |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -51,7 +55,7 @@ FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`).
+> ✅ **Achieved** — byte-proven on aiwonder; evidence in GitHub issue #23 (Stage-1 FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`) and #295 (`/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608`).
 
 Run compaction with concurrent readers on aiwonder; verify no partial reads occur
 and cold slots are physically on the archive path:

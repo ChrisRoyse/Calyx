@@ -23,12 +23,12 @@ process restart, and the WAL is in the write path (not just in tests).
 
 Shipped in `calyx-aster`:
 - `vault.rs` — `AsterVault` implements `VaultStore`: `put`/`get(seq)`/`anchor`; content-addressed `CxId`; idempotent re-ingest (identical bytes → no-op `Ok(id)`; differing bytes under same CxId → `CALYX_ASTER_CORRUPT_SHARD`); explicit `Absent` slots (no zero-fill).
-- `vault/encode.rs` (header + `encode_slot_vector` + ledger-stub row), `vault/anchor_codec.rs`, `vault/cf_codec.rs`, `vault/cursor.rs` (fail-closed reader), `vault/durable.rs` (WAL-integrated write path), `vault/router_bridge.rs`. CLI: `vault-demo`.
+- `vault/encode.rs` (header + `encode_slot_vector`), `vault/ledger_stub.rs` (fixed-width PH35 placeholder row), `vault/anchor_codec.rs`, `vault/cf_codec.rs`, `vault/cursor.rs` (fail-closed reader), `vault/durable.rs` (WAL-integrated write path), `vault/router_bridge.rs`. CLI: `vault-demo`.
 
 FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
-### Tracked follow-up (non-blocking)
-- The PH35 Ledger-stub row is written inside `vault/encode.rs::encode_ledger_stub` (a 32-byte placeholder per put), not in a dedicated `vault/ledger_stub.rs` module as the card sketched. Functionally equivalent; the real hash-chain lands in PH35.
+### Resolved follow-up
+- The PH35 Ledger-stub row now lives in `vault/ledger_stub.rs`; the real hash-chain still lands in PH35.
 
 ## Deliverables (file plan, each ≤500 lines)
 

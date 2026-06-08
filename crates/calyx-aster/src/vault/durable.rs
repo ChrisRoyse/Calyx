@@ -1,5 +1,6 @@
 use super::encode::{WriteRow, decode_write_batch, encode_write_batch};
 use crate::cf::ColumnFamily;
+use crate::compaction::TieringPolicy;
 use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault};
 use crate::sst::{SstReader, write_sst};
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
@@ -14,12 +15,14 @@ use std::sync::Arc;
 pub struct VaultOptions {
     pub wal_options: WalOptions,
     pub memtable_byte_cap: usize,
+    pub tiering_policy: Option<TieringPolicy>,
 }
 
 #[derive(Debug)]
 pub(super) struct DurableVault {
     root: PathBuf,
     batcher: GroupCommitBatcher,
+    tiering_policy: Option<TieringPolicy>,
 }
 
 pub(super) struct RecoveredBatch {
@@ -37,20 +40,37 @@ impl DurableVault {
         let root = root.as_ref().to_path_buf();
         fs::create_dir_all(root.join("cf"))
             .map_err(|error| storage_error("create durable CF root", error))?;
+        if let Some(policy) = &options.tiering_policy {
+            for tier_root in policy.tier_roots() {
+                fs::create_dir_all(tier_root.join("cf"))
+                    .map_err(|error| storage_error("create tiered durable CF root", error))?;
+            }
+        }
         let wal = crate::wal::Wal::open(root.join("wal"), options.wal_options)?;
         let batcher = GroupCommitBatcher::new(
             wal,
             options.wal_options.group_commit_window,
             Arc::new(SystemClock),
         )?;
-        Ok(Self { root, batcher })
+        Ok(Self {
+            root,
+            batcher,
+            tiering_policy: options.tiering_policy.clone(),
+        })
     }
 
-    pub(super) fn recover_batches(root: impl AsRef<Path>) -> Result<RecoveredBatches> {
+    pub(super) fn recover_batches(
+        root: impl AsRef<Path>,
+        options: &VaultOptions,
+    ) -> Result<RecoveredBatches> {
         let root = root.as_ref();
         if root.join("CURRENT").exists() {
             let recovery = recover_vault(root)?;
-            let mut batches = read_manifested_batches(root, recovery.manifest.durable_seq)?;
+            let mut batches = read_manifested_batches(
+                root,
+                options.tiering_policy.as_ref(),
+                recovery.manifest.durable_seq,
+            )?;
             for record in recovery.wal_records {
                 batches.push(RecoveredBatch {
                     seq: record.seq,
@@ -100,6 +120,14 @@ impl DurableVault {
         &self.root
     }
 
+    pub(super) fn tiering_policy(&self) -> Option<&TieringPolicy> {
+        self.tiering_policy.as_ref()
+    }
+
+    pub(super) fn compaction_output_path(&self, cf: ColumnFamily, seq: u64) -> PathBuf {
+        self.cf_dir(cf).join(format!("compacted-{seq:020}.sst"))
+    }
+
     fn write_rows(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
         let mut by_cf = Vec::<(ColumnFamily, Vec<(usize, &WriteRow)>)>::new();
         for (index, row) in rows.iter().enumerate() {
@@ -113,7 +141,7 @@ impl DurableVault {
         for (cf, mut rows) in by_cf {
             rows.sort_by(|(_, left), (_, right)| left.key.cmp(&right.key));
             let first_index = rows.first().map_or(0, |(index, _)| *index);
-            let dir = self.root.join("cf").join(cf.name());
+            let dir = self.cf_dir(cf);
             fs::create_dir_all(&dir).map_err(|error| storage_error("create CF dir", error))?;
             let path = dir.join(format!("{seq:020}-{first_index:04}.sst"));
             let entries = rows
@@ -124,6 +152,13 @@ impl DurableVault {
         Ok(())
     }
 
+    fn cf_dir(&self, cf: ColumnFamily) -> PathBuf {
+        self.tiering_policy.as_ref().map_or_else(
+            || self.root.join("cf").join(cf.name()),
+            |policy| policy.place_current_cf(cf).absolute_dir(),
+        )
+    }
+
     fn write_manifest(&self, seq: u64) -> Result<()> {
         let (panel_ref, codebook_refs) = ensure_manifest_assets(&self.root)?;
         let manifest = VaultManifest::new(seq, seq, panel_ref, codebook_refs)?;
@@ -132,48 +167,56 @@ impl DurableVault {
     }
 }
 
-fn read_manifested_batches(root: &Path, durable_seq: u64) -> Result<Vec<RecoveredBatch>> {
+fn read_manifested_batches(
+    root: &Path,
+    tiering_policy: Option<&TieringPolicy>,
+    durable_seq: u64,
+) -> Result<Vec<RecoveredBatch>> {
     let mut by_seq = BTreeMap::<u64, Vec<(usize, WriteRow)>>::new();
-    let cf_root = root.join("cf");
-    if durable_seq == 0 || !cf_root.exists() {
+    if durable_seq == 0 {
         return Ok(Vec::new());
     }
-    for entry in fs::read_dir(&cf_root).map_err(|error| storage_error("read CF root", error))? {
-        let cf_dir = entry.map_err(|error| storage_error("read CF entry", error))?;
-        if !cf_dir
-            .file_type()
-            .map_err(|error| storage_error("stat CF entry", error))?
-            .is_dir()
-        {
+    for cf_root in tiered_cf_roots(root, tiering_policy) {
+        if !cf_root.exists() {
             continue;
         }
-        let cf_name = cf_dir.file_name().to_string_lossy().to_string();
-        let cf = parse_cf_name(&cf_name)?;
-        for file in
-            fs::read_dir(cf_dir.path()).map_err(|error| storage_error("read CF dir", error))?
-        {
-            let path = file
-                .map_err(|error| storage_error("read SST entry", error))?
-                .path();
-            if path.extension().and_then(|value| value.to_str()) != Some("sst") {
+        for entry in fs::read_dir(&cf_root).map_err(|error| storage_error("read CF root", error))? {
+            let cf_dir = entry.map_err(|error| storage_error("read CF entry", error))?;
+            if !cf_dir
+                .file_type()
+                .map_err(|error| storage_error("stat CF entry", error))?
+                .is_dir()
+            {
                 continue;
             }
-            let Some((seq, index)) = durable_sst_identity(&path) else {
-                continue;
-            };
-            if seq > durable_seq {
-                continue;
-            }
-            let reader = SstReader::open(&path)?;
-            for (row_offset, row) in reader.iter()?.into_iter().enumerate() {
-                by_seq.entry(seq).or_default().push((
-                    index + row_offset,
-                    WriteRow {
-                        cf,
-                        key: row.key,
-                        value: row.value,
-                    },
-                ));
+            let cf_name = cf_dir.file_name().to_string_lossy().to_string();
+            let cf = parse_cf_name(&cf_name)?;
+            for file in
+                fs::read_dir(cf_dir.path()).map_err(|error| storage_error("read CF dir", error))?
+            {
+                let path = file
+                    .map_err(|error| storage_error("read SST entry", error))?
+                    .path();
+                if path.extension().and_then(|value| value.to_str()) != Some("sst") {
+                    continue;
+                }
+                let Some((seq, index)) = durable_sst_identity(&path) else {
+                    continue;
+                };
+                if seq > durable_seq {
+                    continue;
+                }
+                let reader = SstReader::open(&path)?;
+                for (row_offset, row) in reader.iter()?.into_iter().enumerate() {
+                    by_seq.entry(seq).or_default().push((
+                        index + row_offset,
+                        WriteRow {
+                            cf,
+                            key: row.key,
+                            value: row.value,
+                        },
+                    ));
+                }
             }
         }
     }
@@ -188,6 +231,19 @@ fn read_manifested_batches(root: &Path, durable_seq: u64) -> Result<Vec<Recovere
             }
         })
         .collect())
+}
+
+fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<PathBuf> {
+    let mut roots = vec![root.join("cf")];
+    if let Some(policy) = tiering_policy {
+        for tier_root in policy.tier_roots() {
+            let cf_root = tier_root.join("cf");
+            if !roots.contains(&cf_root) {
+                roots.push(cf_root);
+            }
+        }
+    }
+    roots
 }
 
 fn durable_sst_identity(path: &Path) -> Option<(u64, usize)> {
