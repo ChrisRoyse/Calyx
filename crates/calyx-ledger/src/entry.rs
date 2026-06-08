@@ -5,34 +5,46 @@ use serde::{Deserialize, Serialize};
 
 use crate::kind::EntryKind;
 
-const HASH_BYTES: usize = 32;
-const TAG_CX: u8 = 0;
-const TAG_LENS: u8 = 1;
-const TAG_KERNEL: u8 = 2;
-const TAG_GUARD: u8 = 3;
-const TAG_QUERY: u8 = 4;
-const TAG_AGENT: u8 = 0;
-const TAG_SERVICE: u8 = 1;
+pub(crate) const HASH_BYTES: usize = 32;
+pub(crate) const TAG_CX: u8 = 0;
+pub(crate) const TAG_LENS: u8 = 1;
+pub(crate) const TAG_KERNEL: u8 = 2;
+pub(crate) const TAG_GUARD: u8 = 3;
+pub(crate) const TAG_QUERY: u8 = 4;
+pub(crate) const TAG_AGENT: u8 = 0;
+pub(crate) const TAG_SERVICE: u8 = 1;
 
 /// Tagged subject identifier for the ledger entry's primary object.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SubjectId {
     Cx(CxId),
     Lens(LensId),
-    Kernel([u8; HASH_BYTES]),
-    Guard([u8; HASH_BYTES]),
-    Query([u8; HASH_BYTES]),
+    Kernel(Vec<u8>),
+    Guard(Vec<u8>),
+    Query(Vec<u8>),
 }
 
 impl SubjectId {
-    fn canonical_bytes(&self) -> Vec<u8> {
+    pub(crate) fn wire_tag(&self) -> u8 {
         match self {
-            Self::Cx(id) => tagged_fixed(TAG_CX, id.as_bytes()),
-            Self::Lens(id) => tagged_fixed(TAG_LENS, id.as_bytes()),
-            Self::Kernel(hash) => tagged_fixed(TAG_KERNEL, hash),
-            Self::Guard(hash) => tagged_fixed(TAG_GUARD, hash),
-            Self::Query(hash) => tagged_fixed(TAG_QUERY, hash),
+            Self::Cx(_) => TAG_CX,
+            Self::Lens(_) => TAG_LENS,
+            Self::Kernel(_) => TAG_KERNEL,
+            Self::Guard(_) => TAG_GUARD,
+            Self::Query(_) => TAG_QUERY,
         }
+    }
+
+    pub(crate) fn wire_bytes(&self) -> Vec<u8> {
+        match self {
+            Self::Cx(id) => id.as_bytes().to_vec(),
+            Self::Lens(id) => id.as_bytes().to_vec(),
+            Self::Kernel(bytes) | Self::Guard(bytes) | Self::Query(bytes) => bytes.clone(),
+        }
+    }
+
+    fn canonical_bytes(&self) -> Vec<u8> {
+        tagged_slice(self.wire_tag(), &self.wire_bytes())
     }
 }
 
@@ -44,11 +56,21 @@ pub enum ActorId {
 }
 
 impl ActorId {
-    fn canonical_bytes(&self) -> Vec<u8> {
+    pub(crate) fn wire_tag(&self) -> u8 {
         match self {
-            Self::Agent(value) => tagged_var(TAG_AGENT, value.as_bytes()),
-            Self::Service(value) => tagged_var(TAG_SERVICE, value.as_bytes()),
+            Self::Agent(_) => TAG_AGENT,
+            Self::Service(_) => TAG_SERVICE,
         }
+    }
+
+    pub(crate) fn wire_bytes(&self) -> &[u8] {
+        match self {
+            Self::Agent(value) | Self::Service(value) => value.as_bytes(),
+        }
+    }
+
+    fn canonical_bytes(&self) -> Vec<u8> {
+        tagged_var(self.wire_tag(), self.wire_bytes())
     }
 }
 
@@ -130,8 +152,8 @@ fn frame(hasher: &mut blake3::Hasher, bytes: &[u8]) {
     hasher.update(bytes);
 }
 
-fn tagged_fixed<const N: usize>(tag: u8, bytes: &[u8; N]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(1 + N);
+fn tagged_slice(tag: u8, bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(1 + bytes.len());
     out.push(tag);
     out.extend_from_slice(bytes);
     out
@@ -187,9 +209,9 @@ mod tests {
         prop_oneof![
             any::<[u8; 16]>().prop_map(|bytes| SubjectId::Cx(CxId::from_bytes(bytes))),
             any::<[u8; 16]>().prop_map(|bytes| SubjectId::Lens(LensId::from_bytes(bytes))),
-            any::<[u8; HASH_BYTES]>().prop_map(SubjectId::Kernel),
-            any::<[u8; HASH_BYTES]>().prop_map(SubjectId::Guard),
-            any::<[u8; HASH_BYTES]>().prop_map(SubjectId::Query),
+            prop::collection::vec(any::<u8>(), 0..64).prop_map(SubjectId::Kernel),
+            prop::collection::vec(any::<u8>(), 0..64).prop_map(SubjectId::Guard),
+            prop::collection::vec(any::<u8>(), 0..64).prop_map(SubjectId::Query),
         ]
     }
 
@@ -215,7 +237,7 @@ mod tests {
                 0,
                 [0; HASH_BYTES],
                 EntryKind::Admin,
-                SubjectId::Query([0; HASH_BYTES]),
+                SubjectId::Query(vec![0; HASH_BYTES]),
                 Vec::new(),
                 ActorId::Service("svc".to_string()),
                 0,
@@ -224,7 +246,7 @@ mod tests {
                 u64::MAX,
                 [9; HASH_BYTES],
                 EntryKind::Erase,
-                SubjectId::Guard([7; HASH_BYTES]),
+                SubjectId::Guard(vec![7; HASH_BYTES]),
                 "snowman-utf8".as_bytes().to_vec(),
                 ActorId::Agent("agent_max".to_string()),
                 u64::MAX,
@@ -233,7 +255,7 @@ mod tests {
                 42,
                 [3; HASH_BYTES],
                 EntryKind::Kernel,
-                SubjectId::Kernel([4; HASH_BYTES]),
+                SubjectId::Kernel(vec![4; HASH_BYTES]),
                 vec![0, 255, 10, 13],
                 ActorId::Service(String::new()),
                 1,
