@@ -1,6 +1,4 @@
 use std::sync::Mutex;
-#[cfg(feature = "cuda")]
-use std::{fs, path::PathBuf};
 
 #[cfg(feature = "cuda")]
 use calyx_forge::{
@@ -8,13 +6,14 @@ use calyx_forge::{
     cuda::{bench_gemm_cublas, bench_gemm_reference_cublas},
     init_cuda,
 };
+mod cuda_parity_support;
+#[cfg(feature = "cuda")]
+use cuda_parity_support::{
+    PARITY_ABS_TOL, l2_norm, load_golden_f32, load_manifest, parity_report, write_cuda_fsv_readback,
+};
+use cuda_parity_support::{PARITY_TOL, assert_parity, max_rel_err};
 use proptest::prelude::*;
-#[cfg(feature = "cuda")]
-use serde::Deserialize;
 
-#[cfg(feature = "cuda")]
-const GOLDEN_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/golden");
-const PARITY_TOL: f32 = 1e-3;
 #[cfg(feature = "cuda")]
 const PERF_DIM: usize = 512;
 #[cfg(feature = "cuda")]
@@ -22,95 +21,6 @@ const PERF_ITERS: u32 = 5;
 #[cfg(feature = "cuda")]
 static CUDA_PARITY_LOCK: Mutex<()> = Mutex::new(());
 static PANIC_HOOK_LOCK: Mutex<()> = Mutex::new(());
-
-#[cfg(feature = "cuda")]
-#[derive(Debug, Deserialize)]
-struct GoldenManifest {
-    n_vecs: usize,
-    dim: usize,
-    gemm_m: usize,
-    gemm_k: usize,
-    gemm_n: usize,
-    topk: usize,
-}
-
-#[cfg(feature = "cuda")]
-fn golden_path(name: &str) -> PathBuf {
-    PathBuf::from(GOLDEN_DIR).join(format!("{name}.bin"))
-}
-
-#[cfg(feature = "cuda")]
-fn load_golden_f32(name: &str) -> Vec<f32> {
-    let path = golden_path(name);
-    let bytes = fs::read(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
-    if !bytes.len().is_multiple_of(4) {
-        panic!("{name}: unexpected EOF in f32 little-endian bytes");
-    }
-    bytes
-        .chunks_exact(4)
-        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
-        .collect()
-}
-
-#[cfg(feature = "cuda")]
-fn load_manifest() -> GoldenManifest {
-    let path = PathBuf::from(GOLDEN_DIR).join("golden_manifest.json");
-    let text = fs::read_to_string(&path).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|err| panic!("{}: {err}", path.display()))
-}
-
-#[cfg(feature = "cuda")]
-fn l2_norm(values: &[f32]) -> f32 {
-    values.iter().map(|value| value * value).sum::<f32>().sqrt()
-}
-
-#[cfg(feature = "cuda")]
-fn write_cuda_fsv_readback(file_name: &str, value: &serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
-        return;
-    };
-    let path = PathBuf::from(root).join(file_name);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).unwrap_or_else(|err| panic!("{}: {err}", parent.display()));
-    }
-    let bytes = serde_json::to_vec_pretty(value).expect("serialize cuda fsv readback");
-    fs::write(&path, bytes).unwrap_or_else(|err| panic!("{}: {err}", path.display()));
-    println!("CUDA_NORMALIZE_READBACK={}", path.display());
-}
-
-fn max_rel_err(a: &[f32], b: &[f32]) -> f32 {
-    worst_rel_err(a, b).1
-}
-
-fn assert_parity(cpu: &[f32], gpu: &[f32], op: &str, tol: f32) {
-    assert_eq!(
-        cpu.len(),
-        gpu.len(),
-        "PARITY FAIL op={op} len cpu={} gpu={}",
-        cpu.len(),
-        gpu.len()
-    );
-    let (worst_idx, err) = worst_rel_err(cpu, gpu);
-    println!("PARITY op={op} rel_err={err:.8e} worst_idx={worst_idx}");
-    if err > tol {
-        panic!(
-            "PARITY FAIL op={op} max_rel_err={err:.2e} > tol={tol:.2e} at index {worst_idx} cpu={} gpu={}",
-            cpu[worst_idx], gpu[worst_idx]
-        );
-    }
-}
-
-fn worst_rel_err(a: &[f32], b: &[f32]) -> (usize, f32) {
-    a.iter()
-        .zip(b.iter())
-        .enumerate()
-        .map(|(index, (left, right))| {
-            let err = (left - right).abs() / (right.abs() + 1e-8);
-            (index, err)
-        })
-        .max_by(|left, right| left.1.total_cmp(&right.1))
-        .unwrap_or((0, 0.0))
-}
 
 #[test]
 #[cfg_attr(not(feature = "cuda"), ignore)]
@@ -151,6 +61,7 @@ fn parity_edges_one_near_zero_and_topk_tie() {
     let near_zero = max_rel_err(&[1e-9], &[0.0]);
     println!("PARITY edge_near_zero rel_err={near_zero:.8e}");
     assert!((near_zero - 0.1).abs() <= 1e-6, "{near_zero}");
+    assert_parity(&[1e-8], &[0.0], "edge_near_zero_abs_floor", PARITY_TOL);
 
     #[cfg(feature = "cuda")]
     {
@@ -204,10 +115,28 @@ fn golden_gemm_parity() {
             )
             .expect("gpu golden gemm");
 
+        let report = parity_report(&cpu, &gpu);
         assert_parity(&cpu, &gpu, "gemm", PARITY_TOL);
+        write_cuda_fsv_readback(
+            "cuda-gemm-parity.json",
+            &serde_json::json!({
+                "op": "gemm",
+                "relative_tolerance": PARITY_TOL,
+                "absolute_tolerance": PARITY_ABS_TOL,
+                "max_rel_err": report.max_rel_err,
+                "worst_rel_idx": report.worst_rel_idx,
+                "worst_rel_cpu": cpu[report.worst_rel_idx],
+                "worst_rel_gpu": gpu[report.worst_rel_idx],
+                "max_abs_err": report.max_abs_err,
+                "worst_abs_idx": report.worst_abs_idx,
+                "worst_abs_cpu": cpu[report.worst_abs_idx],
+                "worst_abs_gpu": gpu[report.worst_abs_idx],
+                "passed_by": if report.max_rel_err <= PARITY_TOL { "relative" } else { "absolute_near_zero" },
+            }),
+        );
         println!(
-            "golden_gemm_parity PASSED rel_err={:.8e}",
-            max_rel_err(&cpu, &gpu)
+            "golden_gemm_parity PASSED rel_err={:.8e} abs_err={:.8e}",
+            report.max_rel_err, report.max_abs_err
         );
     }
 }
@@ -326,24 +255,82 @@ fn golden_normalize_parity() {
             .normalize(&mut gpu, manifest.dim)
             .expect("gpu golden normalize");
 
-        let (worst_idx, rel_err) = worst_rel_err(&cpu, &gpu);
+        let report = parity_report(&cpu, &gpu);
         assert_parity(&cpu, &gpu, "normalize", PARITY_TOL);
         write_cuda_fsv_readback(
             "cuda-normalize-parity.json",
             &serde_json::json!({
                 "op": "normalize",
+                "backend_path": "CudaBackend::normalize",
+                "gpu_kernel": "normalize_rows_f32",
                 "dim": manifest.dim,
                 "manifest_n_vecs": manifest.n_vecs,
                 "sample_count": cpu.len() / manifest.dim,
-                "rel_err": rel_err,
-                "worst_idx": worst_idx,
+                "rel_err": report.max_rel_err,
+                "worst_idx": report.worst_rel_idx,
+                "abs_err": report.max_abs_err,
+                "worst_abs_idx": report.worst_abs_idx,
                 "cpu_first_norm": l2_norm(&cpu[..manifest.dim]),
                 "gpu_first_norm": l2_norm(&gpu[..manifest.dim]),
                 "cpu_first_4": &cpu[..4],
                 "gpu_first_4": &gpu[..4],
             }),
         );
-        println!("golden_normalize_parity PASSED rel_err={:.8e}", rel_err);
+        println!(
+            "golden_normalize_parity PASSED rel_err={:.8e} abs_err={:.8e}",
+            report.max_rel_err, report.max_abs_err
+        );
+    }
+}
+
+#[test]
+#[cfg_attr(not(feature = "cuda"), ignore)]
+fn cuda_normalize_fail_closed_edges() {
+    #[cfg(feature = "cuda")]
+    {
+        let _guard = CUDA_PARITY_LOCK
+            .lock()
+            .unwrap_or_else(|err| err.into_inner());
+        let backend = CudaBackend::new().expect("cuda backend");
+
+        let mut zero = vec![0.0, 0.0];
+        let zero_err = backend
+            .normalize(&mut zero, 2)
+            .expect_err("zero vector must fail closed");
+        assert!(
+            zero_err
+                .to_string()
+                .starts_with("CALYX_FORGE_NUMERICAL_INVARIANT")
+        );
+        assert_eq!(zero, vec![0.0, 0.0]);
+
+        let mut non_finite = vec![1.0, f32::INFINITY];
+        let non_finite_err = backend
+            .normalize(&mut non_finite, 2)
+            .expect_err("non-finite vector must fail closed");
+        assert!(
+            non_finite_err
+                .to_string()
+                .starts_with("CALYX_FORGE_NUMERICAL_INVARIANT")
+        );
+        assert_eq!(non_finite, vec![1.0, f32::INFINITY]);
+
+        let mut bad_shape = vec![1.0, 2.0, 3.0];
+        let shape_err = backend
+            .normalize(&mut bad_shape, 2)
+            .expect_err("ragged rows must fail closed");
+        assert!(
+            shape_err
+                .to_string()
+                .starts_with("CALYX_FORGE_SHAPE_MISMATCH")
+        );
+
+        println!(
+            "cuda_normalize_fail_closed_edges PASSED zero={} non_finite={} shape={}",
+            zero_err.code(),
+            non_finite_err.code(),
+            shape_err.code()
+        );
     }
 }
 

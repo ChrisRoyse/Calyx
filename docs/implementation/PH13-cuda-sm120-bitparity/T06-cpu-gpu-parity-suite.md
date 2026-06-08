@@ -20,6 +20,11 @@ FSV gate for PH13 — no other evidence suffices.
 
 ## Build (checklist of concrete, code-level steps)
 
+Post-sweep #307 clarification: parity uses `<= 1e-3` relative error as the
+primary gate and a named `<= 1e-6` absolute floor for near-zero cancellation
+cells. The FSV readback must persist both worst relative and worst absolute
+locations so this is visible, not a hidden tolerance change.
+
 - [ ] `tests/cuda_parity.rs`: import `calyx_forge::{CpuBackend, CudaBackend, Backend}`;
   load golden fixtures via `load_golden_f32` (same helper as PH12 T05)
 - [ ] `fn max_rel_err(a: &[f32], b: &[f32]) -> f32` — element-wise
@@ -67,6 +72,10 @@ FSV gate for PH13 — no other evidence suffices.
   line; the file `/tmp/ph13_parity_fsv.txt` is attached to the PH13 GitHub issue
 
 ## Done when
+
+#307 adds one required readback artifact here: `cuda-gemm-parity.json` records
+worst relative and worst absolute GEMM deltas plus the pass reason (`relative`
+or `absolute_near_zero`).
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)

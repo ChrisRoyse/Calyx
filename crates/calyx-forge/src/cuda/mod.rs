@@ -16,7 +16,7 @@ use crate::{Backend, DeviceInfo, Result};
 
 pub use crate::mxfp4;
 pub use context::{CudaContext, init_cuda, query_device_info};
-pub use distance::{cosine_batch_gpu, dot_batch_gpu, l2_batch_gpu};
+pub use distance::{cosine_batch_gpu, dot_batch_gpu, l2_batch_gpu, normalize_rows_gpu};
 pub use gemm::{
     bench_gemm_cublas, bench_gemm_reference_cublas, gemm_cublas, gemm_mxfp4_fp32_accum,
     gemm_mxfp8_fp32_accum, probe_allocation,
@@ -80,7 +80,7 @@ impl Backend for CudaBackend {
     }
 
     fn normalize(&self, vecs: &mut [f32], dim: usize) -> Result<()> {
-        crate::cpu::normalize::normalize_f32(vecs, dim)
+        distance::normalize_host(&self.ctx, vecs, dim)
     }
 
     fn topk(&self, scores: &[f32], k: usize) -> Result<Vec<(usize, f32)>> {

@@ -151,3 +151,52 @@ extern "C" __global__ __launch_bounds__(256) void l2_batch_f32(
         out[cand] = bad_shared[0] ? NAN : l2_shared[0];
     }
 }
+
+extern "C" __global__ __launch_bounds__(256) void normalize_rows_f32(
+    float *vecs,
+    int dim,
+    int rows) {
+    __shared__ float norm_shared[256];
+    __shared__ int bad_shared[256];
+    __shared__ float scale_shared;
+
+    const int row = blockIdx.x;
+    const int tid = threadIdx.x;
+    if (row >= rows) {
+        return;
+    }
+
+    const int base = row * dim;
+    float norm_sq = 0.0f;
+    int bad = dim <= 0;
+
+    for (int i = tid; i < dim; i += blockDim.x) {
+        const float value = vecs[base + i];
+        bad |= !isfinite(value);
+        norm_sq += value * value;
+    }
+
+    norm_shared[tid] = norm_sq;
+    bad_shared[tid] = bad;
+    __syncthreads();
+
+    for (int stride = 128; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            norm_shared[tid] += norm_shared[tid + stride];
+            bad_shared[tid] |= bad_shared[tid + stride];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        const float norm = sqrtf(norm_shared[0]);
+        scale_shared = (bad_shared[0] || !(norm > 0.0f) || !isfinite(norm))
+            ? NAN
+            : 1.0f / norm;
+    }
+    __syncthreads();
+
+    for (int i = tid; i < dim; i += blockDim.x) {
+        vecs[base + i] = isfinite(scale_shared) ? vecs[base + i] * scale_shared : NAN;
+    }
+}

@@ -39,6 +39,7 @@ mod tests {
             TOPK_PTX.len()
         );
         assert!(contains_bytes(DISTANCE_PTX, b"cosine_batch_f32"));
+        assert!(contains_bytes(DISTANCE_PTX, b"normalize_rows_f32"));
         assert!(contains_bytes(TOPK_PTX, b"bitonic_topk_f32"));
         assert!(contains_bytes(
             MXFP4_GEMM_PTX,

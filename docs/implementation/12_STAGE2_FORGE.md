@@ -10,6 +10,12 @@
 > Sextant-owned CPU/index paths for HNSW, quantization, and fan-out; #299 records
 > that no Forge GPU HNSW or grouped fan-out path is wired yet. Next active stage
 > is Lodestar (`16_STAGE6_LODESTAR.md`).
+> Post-sweep hardening #306 routes `CudaBackend::normalize` through the
+> `normalize_rows_f32` CUDA kernel instead of CPU delegation; CUDA claims remain
+> tied to aiwonder `--features cuda` gates.
+> Post-sweep hardening #307 makes GEMM parity read back both relative and
+> absolute worst cases; near-zero cancellation cells may pass by a named
+> `<=1e-6` absolute floor while ordinary values still use `<=1e-3` relative.
 
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
@@ -37,6 +43,8 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 ## PH13 — CUDA sm_120 backend + bit-parity
 - **Status.** ✅ FSV-signed-off (`cuda/` backend + `.cu` kernels + parity suite,
   commits `6b3c2d3`…`dd27885`; aggregate evidence in #23).
+- **Post-sweep note.** #306 adds the real `normalize_rows_f32` device kernel to
+  the distance PTX artifact and routes `CudaBackend::normalize` through it.
 - **Objective.** GPU kernels (cudarc/CubeCL + cuBLAS for big matmul) targeting
   sm_120; **bit-parity** with the CPU path on a golden set.
 - **Deps.** PH12.

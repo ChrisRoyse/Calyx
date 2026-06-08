@@ -131,6 +131,39 @@ pub fn l2_host(
     )
 }
 
+pub fn normalize_rows_gpu(
+    ctx: &CudaContext,
+    vecs: &mut CudaSlice<f32>,
+    rows: usize,
+    dim: usize,
+) -> Result<()> {
+    check_device_shape(vecs.len(), rows, dim, "cuda normalize input")?;
+    if rows == 0 {
+        return Ok(());
+    }
+    launch_normalize(ctx, vecs, rows, dim)?;
+    check_device_output(ctx, "normalize_rows_gpu", vecs, false)
+}
+
+pub fn normalize_host(ctx: &CudaContext, vecs: &mut [f32], dim: usize) -> Result<()> {
+    let rows = validate_normalize_host_inputs(vecs, dim)?;
+    if vecs.is_empty() {
+        return Ok(());
+    }
+
+    let stream = ctx.inner().default_stream();
+    let mut vecs_dev = stream
+        .clone_htod(vecs)
+        .map_err(|err| device_unavailable(ctx, format!("normalize input copy failed: {err}")))?;
+    normalize_rows_gpu(ctx, &mut vecs_dev, rows, dim)?;
+    let result = stream
+        .clone_dtoh(&vecs_dev)
+        .map_err(|err| device_unavailable(ctx, format!("normalize output copy failed: {err}")))?;
+    check_finite(&result, "cuda normalize")?;
+    vecs.copy_from_slice(&result);
+    Ok(())
+}
+
 type DistanceKernel = fn(
     &CudaContext,
     &CudaSlice<f32>,
@@ -235,6 +268,39 @@ fn launch_distance(
     Ok(())
 }
 
+fn launch_normalize(
+    ctx: &CudaContext,
+    vecs: &mut CudaSlice<f32>,
+    rows: usize,
+    dim: usize,
+) -> Result<()> {
+    let rows_i32 = to_i32(rows, "rows")?;
+    let rows_u32 = u32::try_from(rows).map_err(|_| ForgeError::ShapeMismatch {
+        expected: vec![u32::MAX as usize],
+        got: vec![rows],
+        remediation: "cuda normalize row count exceeds grid dimension limit".to_string(),
+    })?;
+    let dim_i32 = to_i32(dim, "dim")?;
+    let module = distance_module(ctx)?;
+    let func = module
+        .load_function("normalize_rows_f32")
+        .map_err(|err| device_unavailable(ctx, format!("normalize load function failed: {err}")))?;
+    let stream = ctx.inner().default_stream();
+    let cfg = LaunchConfig {
+        grid_dim: (rows_u32, 1, 1),
+        block_dim: (BLOCK_THREADS, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    let mut launch = stream.launch_builder(&func);
+    unsafe { launch.arg(vecs).arg(&dim_i32).arg(&rows_i32).launch(cfg) }
+        .map_err(|err| device_unavailable(ctx, format!("normalize kernel launch failed: {err}")))?;
+    stream
+        .synchronize()
+        .map_err(|err| device_unavailable(ctx, format!("normalize stream sync failed: {err}")))?;
+    Ok(())
+}
+
 fn distance_module(ctx: &CudaContext) -> Result<Arc<CudaModule>> {
     if let Some(module) = ctx.distance_module_cache().get() {
         return Ok(module.clone());
@@ -289,6 +355,30 @@ fn validate_host_inputs(
     check_finite(query, op)?;
     check_finite(candidates, op)?;
     Ok(())
+}
+
+fn validate_normalize_host_inputs(vecs: &[f32], dim: usize) -> Result<usize> {
+    if dim == 0 {
+        if vecs.is_empty() {
+            return Ok(0);
+        }
+        return Err(ForgeError::ShapeMismatch {
+            expected: vec![0],
+            got: vec![vecs.len()],
+            remediation: "dim=0 is valid only for an empty matrix".to_string(),
+        });
+    }
+    if !vecs.len().is_multiple_of(dim) {
+        return Err(ForgeError::ShapeMismatch {
+            expected: vec![dim],
+            got: vec![vecs.len()],
+            remediation: "normalize input length must be an integer number of rows".to_string(),
+        });
+    }
+    let rows = vecs.len() / dim;
+    check_shape_2d(vecs, rows, dim, "cuda normalize input")?;
+    check_finite(vecs, "cuda normalize")?;
+    Ok(rows)
 }
 
 fn check_device_shape(len: usize, rows: usize, cols: usize, name: &str) -> Result<()> {
