@@ -1,5 +1,6 @@
 //! Per-slot quantization policy for Sextant indexes.
 
+use calyx_core::Result;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -89,13 +90,10 @@ impl QuantConfig {
         }
     }
 
-    pub fn cpu_gpu_delta(&self, values: &[f32]) -> f32 {
-        let cpu = self.quantize(values);
-        let gpu = self.quantize(values);
-        cpu.approx
-            .iter()
-            .zip(gpu.approx.iter())
-            .map(|(a, b)| (a - b).abs())
-            .fold(0.0, f32::max)
+    pub fn cpu_gpu_delta(&self, _values: &[f32]) -> Result<f32> {
+        Err(crate::error::sextant_error(
+            crate::error::CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE,
+            "QuantConfig has no wired Forge GPU quantization path; CPU/GPU delta is unavailable",
+        ))
     }
 }

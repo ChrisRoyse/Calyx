@@ -12,6 +12,7 @@ pub const CALYX_SEXTANT_INDEX_EMPTY: &str = "CALYX_SEXTANT_INDEX_EMPTY";
 pub const CALYX_SEXTANT_EF_TOO_SMALL: &str = "CALYX_SEXTANT_EF_TOO_SMALL";
 pub const CALYX_SEXTANT_DIM_MISMATCH: &str = "CALYX_SEXTANT_DIM_MISMATCH";
 pub const CALYX_SEXTANT_VECTOR_SHAPE: &str = "CALYX_SEXTANT_VECTOR_SHAPE";
+pub const CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE: &str = "CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE";
 
 pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
@@ -27,6 +28,9 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         CALYX_SEXTANT_EF_TOO_SMALL => "set ef greater than or equal to requested result count",
         CALYX_SEXTANT_DIM_MISMATCH => "submit a query vector matching the slot dimension",
         CALYX_SEXTANT_VECTOR_SHAPE => "submit a vector matching the slot index shape",
+        CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE => {
+            "wire a real Forge GPU path before claiming Sextant CPU/GPU parity"
+        }
         _ => "inspect Sextant query/index state",
     };
     CalyxError {

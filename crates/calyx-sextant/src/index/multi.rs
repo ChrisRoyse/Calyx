@@ -36,8 +36,11 @@ impl MaxSimIndex {
             .sum()
     }
 
-    pub fn cpu_gpu_delta(query: &[Vec<f32>], doc: &[Vec<f32>]) -> f32 {
-        (Self::maxsim(query, doc) - Self::maxsim(query, doc)).abs()
+    pub fn cpu_gpu_delta(_query: &[Vec<f32>], _doc: &[Vec<f32>]) -> Result<f32> {
+        Err(crate::error::sextant_error(
+            crate::error::CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE,
+            "MaxSimIndex has no wired Forge GPU MaxSim path; CPU/GPU delta is unavailable",
+        ))
     }
 }
 
