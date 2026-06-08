@@ -4,7 +4,10 @@ use calyx_core::{
     Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState, SlotVector,
     SystemClock, VaultId, VaultStore, content_address,
 };
-use calyx_registry::{BackfillCandidate, SlotSpec, SwapController};
+use calyx_registry::{
+    BackfillCandidate, BackfillConfig, BackfillPriority, BackfillRequest, BackfillScheduler,
+    SlotSpec, SwapController,
+};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -51,6 +54,7 @@ fn ph20_hot_swap_aiwonder_fsv() {
     );
 
     let mut controller = SwapController::new(panel());
+    let scheduler_path = root.join("backfill-watermark.json");
     let add = controller
         .add_lens(
             SlotSpec::dense_text("semantic-v2", LensId::from_bytes([9; 16]), 2),
@@ -85,6 +89,29 @@ fn ph20_hot_swap_aiwonder_fsv() {
     assert_eq!(add.queued, 2);
     assert_eq!(first_base_before, first_base_after_add);
     assert_eq!(second_base_before, second_base_after_add);
+    let mut scheduler = BackfillScheduler::open(
+        &scheduler_path,
+        BackfillConfig {
+            max_concurrent: 1,
+            batch_size: 1,
+            throttle_ms: 10,
+        },
+    )
+    .expect("open durable scheduler");
+    scheduler
+        .enqueue(BackfillRequest {
+            slot_id: new_slot,
+            lens_id: add.slot.lens_id,
+            priority: BackfillPriority::Kernel,
+            candidates: vec![second_id, first_id],
+        })
+        .expect("enqueue durable backfill request");
+    let scheduler_enqueued = std::fs::read(&scheduler_path).expect("read scheduler enqueue state");
+    println!("PH20_SCHEDULER_PATH={}", scheduler_path.display());
+    println!(
+        "PH20_SCHEDULER_ENQUEUED_DIGEST={}",
+        digest_hex(&scheduler_enqueued)
+    );
 
     let duplicate_before_version = controller.panel().version;
     let duplicate_before_pending = controller.queue().pending_len();
@@ -167,9 +194,11 @@ fn ph20_hot_swap_aiwonder_fsv() {
     );
     assert_eq!(placeholder_read, placeholder);
 
-    let first_task = controller.queue_mut().claim_batch(1);
-    assert_eq!(first_task.len(), 1);
-    assert_eq!(first_task[0].cx_id, second_id);
+    let first_batch = scheduler
+        .claim_next_batch(1000)
+        .expect("claim first durable batch")
+        .expect("first durable batch");
+    assert_eq!(first_batch.candidates, vec![second_id]);
     let second_dense = SlotVector::Dense {
         dim: 2,
         data: vec![0.25, 0.75],
@@ -177,13 +206,14 @@ fn ph20_hot_swap_aiwonder_fsv() {
     let second_slot_seq = vault
         .put_slot_vector(second_id, new_slot, &second_dense)
         .expect("write second dense");
-    controller
-        .queue_mut()
-        .complete(first_task[0].id)
-        .expect("complete first task");
+    scheduler
+        .complete_batch(first_batch.slot_id, first_batch.lens_id, 1000)
+        .expect("complete first durable batch");
+    let scheduler_after_first =
+        std::fs::read(&scheduler_path).expect("read scheduler after first complete");
     println!(
         "PH20_BACKFILL_FIRST_TASK_CX={}",
-        hex16(first_task[0].cx_id.as_bytes())
+        hex16(first_batch.candidates[0].as_bytes())
     );
     println!("PH20_BACKFILL_FIRST_SLOT_SEQ={second_slot_seq}");
     println!(
@@ -196,17 +226,33 @@ fn ph20_hot_swap_aiwonder_fsv() {
         )
     );
     println!(
-        "PH20_QUEUE_PENDING_AFTER_ONE={}",
-        controller.queue().pending_len()
+        "PH20_SCHEDULER_AFTER_FIRST_DIGEST={}",
+        digest_hex(&scheduler_after_first)
     );
     println!(
-        "PH20_QUEUE_DONE_AFTER_ONE={}",
-        controller.queue().completed_len()
+        "PH20_SCHEDULER_AFTER_FIRST={}",
+        serde_json::to_string(&scheduler.watermarks()).unwrap()
     );
 
-    let second_task = controller.queue_mut().claim_batch(1);
-    assert_eq!(second_task.len(), 1);
-    assert_eq!(second_task[0].cx_id, first_id);
+    let mut scheduler = BackfillScheduler::open(
+        &scheduler_path,
+        BackfillConfig {
+            max_concurrent: 1,
+            batch_size: 1,
+            throttle_ms: 10,
+        },
+    )
+    .expect("reopen durable scheduler");
+    let throttled = scheduler
+        .claim_next_batch(1005)
+        .expect("claim inside throttle")
+        .expect("throttle result");
+    assert!(throttled.throttled);
+    let second_batch = scheduler
+        .claim_next_batch(1010)
+        .expect("claim resumed durable batch")
+        .expect("second durable batch");
+    assert_eq!(second_batch.candidates, vec![first_id]);
     let first_dense = SlotVector::Dense {
         dim: 2,
         data: vec![0.6, 0.8],
@@ -214,17 +260,16 @@ fn ph20_hot_swap_aiwonder_fsv() {
     let first_slot_seq = vault
         .put_slot_vector(first_id, new_slot, &first_dense)
         .expect("write first dense");
-    controller
-        .queue_mut()
-        .complete(second_task[0].id)
-        .expect("complete second task");
+    scheduler
+        .complete_batch(second_batch.slot_id, second_batch.lens_id, 1010)
+        .expect("complete resumed durable batch");
     let first_dense_read = vault
         .read_slot_vector_at(first_slot_seq, first_id, new_slot)
         .expect("read first dense")
         .expect("first dense row");
     println!(
         "PH20_BACKFILL_SECOND_TASK_CX={}",
-        hex16(second_task[0].cx_id.as_bytes())
+        hex16(second_batch.candidates[0].as_bytes())
     );
     println!("PH20_BACKFILL_SECOND_SLOT_SEQ={first_slot_seq}");
     println!(
@@ -232,16 +277,16 @@ fn ph20_hot_swap_aiwonder_fsv() {
         slot_vector_summary(&first_dense_read)
     );
     println!(
-        "PH20_QUEUE_PENDING_FINAL={}",
-        controller.queue().pending_len()
+        "PH20_SCHEDULER_FINAL={}",
+        serde_json::to_string(&scheduler.watermarks()).unwrap()
     );
+    let scheduler_final = std::fs::read(&scheduler_path).expect("read final scheduler state");
     println!(
-        "PH20_QUEUE_DONE_FINAL={}",
-        controller.queue().completed_len()
+        "PH20_SCHEDULER_FINAL_DIGEST={}",
+        digest_hex(&scheduler_final)
     );
     assert_eq!(first_dense_read, first_dense);
-    assert_eq!(controller.queue().pending_len(), 0);
-    assert_eq!(controller.queue().completed_len(), 2);
+    assert!(scheduler.watermarks().iter().all(|mark| mark.complete));
 
     let retired = controller
         .retire_lens(new_slot, 34)
@@ -284,6 +329,35 @@ fn ph20_hot_swap_aiwonder_fsv() {
     assert_eq!(first_base_before, first_base_final);
     assert_eq!(second_base_before, second_base_final);
     vault.flush().expect("flush final state");
+    drop(vault);
+
+    let reopened = AsterVault::open(
+        &vault_dir,
+        vault_id(),
+        b"ph20-hot-swap-salt".to_vec(),
+        VaultOptions::default(),
+    )
+    .expect("reopen durable vault");
+    let reopened_seq = reopened.snapshot();
+    let reopened_first_slot = reopened
+        .read_slot_vector_at(reopened_seq, first_id, new_slot)
+        .expect("read reopened first slot")
+        .expect("reopened first slot row");
+    let reopened_second_slot = reopened
+        .read_slot_vector_at(reopened_seq, second_id, new_slot)
+        .expect("read reopened second slot")
+        .expect("reopened second slot row");
+    println!("PH20_REOPENED_SEQ={reopened_seq}");
+    println!(
+        "PH20_REOPENED_FIRST_SLOT_READ={}",
+        slot_vector_summary(&reopened_first_slot)
+    );
+    println!(
+        "PH20_REOPENED_SECOND_SLOT_READ={}",
+        slot_vector_summary(&reopened_second_slot)
+    );
+    assert_eq!(reopened_first_slot, first_dense);
+    assert_eq!(reopened_second_slot, second_dense);
 }
 
 fn fsv_root() -> PathBuf {
