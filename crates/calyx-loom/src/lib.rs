@@ -17,8 +17,8 @@ pub use cross_term::{
     interaction_vec,
 };
 pub use error::{
-    CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_NON_FINITE_VECTOR, CALYX_LOOM_SLOT_MISSING,
-    CALYX_LOOM_ZERO_NORM_VECTOR, loom_error,
+    CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
+    CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_ZERO_NORM_VECTOR, loom_error,
 };
 pub use lru_cache::LruCache;
 pub use materialization::{

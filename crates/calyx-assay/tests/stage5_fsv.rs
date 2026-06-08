@@ -12,10 +12,10 @@ use calyx_assay::{
 use calyx_aster::cf::{CfRouter, ColumnFamily};
 use calyx_core::AnchorKind;
 use calyx_loom::{
-    AbundanceReport, CeilingEstimate, CrossTermKind, CrossTermValue, LoomStore,
-    MaterializationAction, MaterializationPlan, NeffEstimate, Severity, StaticPairGainGate,
-    agreement_batch_cpu, agreement_batch_gpu, agreement_scalar, detect_blind_spot,
-    plan_cross_terms,
+    AbundanceReport, CALYX_LOOM_FORGE_UNAVAILABLE, CeilingEstimate, CrossTermKind, CrossTermValue,
+    LoomStore, MaterializationAction, MaterializationPlan, NeffEstimate, Severity,
+    StaticPairGainGate, agreement_batch_cpu, agreement_batch_gpu, agreement_scalar,
+    detect_blind_spot, plan_cross_terms,
 };
 use serde_json::json;
 
@@ -29,8 +29,9 @@ fn loom_cross_terms_materialization_and_reports_work() {
     let agreement = agreement_scalar(&a, &b).unwrap();
     assert!((agreement - 0.5).abs() < 1.0e-4);
     let cpu = agreement_batch_cpu(&[(&a, &b)]).unwrap();
-    let gpu = agreement_batch_gpu(&[(&a, &b)]).unwrap();
-    assert!((cpu[0] - gpu[0]).abs() <= 1.0e-3);
+    let gpu = agreement_batch_gpu(&[(&a, &b)]).unwrap_err();
+    assert_eq!(gpu.code, CALYX_LOOM_FORGE_UNAVAILABLE);
+    assert!((cpu[0] - agreement).abs() <= 1.0e-6);
 
     let mut store = LoomStore::new(8);
     let slots = two_slot_map(a.clone(), b.clone());
@@ -314,6 +315,7 @@ fn stage5_full_stack_fsv() {
         "high_gain_delta_lazy": plan_count(&high_gain_plan, CrossTermKind::Delta, MaterializationAction::LazyCache),
         "high_gain_concat_lazy": plan_count(&high_gain_plan, CrossTermKind::Concat, MaterializationAction::LazyCache),
         "low_gain_lazy": low_gain_plan.entries.iter().filter(|entry| entry.action == MaterializationAction::LazyCache).count(),
+        "agreement_gpu": agreement_gpu_readback(),
         "blind_spot": alert,
     });
     fs::write(
