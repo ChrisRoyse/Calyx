@@ -5,8 +5,8 @@ use calyx_core::{
     SystemClock, VaultId, VaultStore, content_address,
 };
 use calyx_registry::{
-    BackfillCandidate, BackfillConfig, BackfillPriority, BackfillScheduler, SlotSpec,
-    SwapController,
+    AlgorithmicLens, BackfillCandidate, BackfillConfig, BackfillPriority, BackfillScheduler,
+    Registry, SlotSpec, SwapController,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -54,6 +54,11 @@ fn ph20_hot_swap_aiwonder_fsv() {
     );
 
     let mut controller = SwapController::new(panel());
+    let mut registry = Registry::new();
+    let lens = AlgorithmicLens::one_hot("semantic-v2", Modality::Text, 2);
+    let lens_id = registry
+        .register_frozen(lens.clone(), lens.contract().clone())
+        .expect("register frozen hot-swap lens");
     let scheduler_path = root.join("backfill-watermark.json");
     let mut scheduler = BackfillScheduler::open(
         &scheduler_path,
@@ -66,7 +71,8 @@ fn ph20_hot_swap_aiwonder_fsv() {
     .expect("open durable scheduler");
     let add = controller
         .add_lens_durable(
-            SlotSpec::dense_text("semantic-v2", LensId::from_bytes([9; 16]), 2),
+            &registry,
+            SlotSpec::dense_text("semantic-v2", lens_id, 2),
             [
                 BackfillCandidate {
                     cx_id: second_id,
@@ -111,7 +117,8 @@ fn ph20_hot_swap_aiwonder_fsv() {
     let duplicate_before_pending = controller.queue().pending_len();
     let duplicate_error = controller
         .add_lens(
-            SlotSpec::dense_text("semantic-v2-dupe", LensId::from_bytes([9; 16]), 2),
+            &registry,
+            SlotSpec::dense_text("semantic-v2-dupe", lens_id, 2),
             [],
             31,
         )
