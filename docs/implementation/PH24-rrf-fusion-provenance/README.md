@@ -28,8 +28,11 @@ Note this in every demo-prep step.
 
 ## Current state (build off what exists)
 
-`calyx-sextant` has a `SlotIndexMap` and `Index` trait from PH23; greenfield for
-fusion. `LedgerRef` is a stub in `calyx-core` (real Ledger comes at PH35).
+`calyx-sextant` has a `SlotIndexMap` and `Index` trait from PH23 plus the
+completed fusion stack. `LedgerRef` is a stub in `calyx-core` until PH35. The
+top-level `SearchEngine::search` currently fan-outs by calling each selected
+slot index and then fusing results; #299 records this as
+`per_slot_cpu_index_calls`, not a Forge grouped GPU fan-out.
 
 ## Deliverables (file plan, each ≤500 lines)
 

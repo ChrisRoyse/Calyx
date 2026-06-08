@@ -14,9 +14,11 @@
 ## Objective
 
 Build an in-RAM HNSW index per dense slot (DiskANN deferred to Stage 17) that
-implements the `Index` trait, accepts quantized vectors from Forge, supports
+implements the `Index` trait, owns a local per-slot quant config, supports
 `ef`-controlled search, and provides a dual-index scaffold for asymmetric slots.
-Each slot owns its index plus quant config (Qdrant-style per-vector config) so
+Forge CPU/CUDA kernels are proven in Stage 2, but Sextant does not claim a wired
+GPU HNSW or GPU quantization path until that integration exists. Each slot owns
+its index plus quant config (Qdrant-style per-vector config) so
 search cost is paid only on participating slots (`10 §3`). Recall-vs-brute-force
 must meet the target on aiwonder with SingleLens p99 < 5 ms at 1e6 cx (`10 §8`).
 
@@ -36,7 +38,11 @@ duplicate slot registration now fails closed with
 `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED` instead of replacing the existing index.
 Post-sweep hardening #284 added T03-native `ef` search fail-closed edges:
 `CALYX_SEXTANT_INDEX_EMPTY`, `CALYX_SEXTANT_EF_TOO_SMALL`, and
-`CALYX_SEXTANT_DIM_MISMATCH`.
+`CALYX_SEXTANT_DIM_MISMATCH`. Post-sweep hardening #299 removed CPU-self GPU
+parity shims: `MaxSimIndex::cpu_gpu_delta` and
+`QuantConfig::cpu_gpu_delta` now fail loud with
+`CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`, and top-level search fan-out is
+documented as per-slot CPU/index-owned.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -78,8 +84,9 @@ attached to the PH23 GitHub issue.
 - **Concurrent reads**: `RwLock<HnswGraph>` with many readers is fine; writer
   starvation on high-read workloads — use `parking_lot::RwLock` and document the
   choice.
-- **VRAM contention**: Forge distance kernels share the RTX 5090 sm_120 with TEI
-  on :8088/:8089/:8090; ensure the recall harness does not exceed VRAM budget
-  (PH57 will add the budgeter; for now, cap batch size at a documented constant).
+- **GPU overclaim risk**: Forge distance/quant kernels are proven in Stage 2,
+  but Sextant PH23 currently uses CPU/index-owned search paths. Any Sextant
+  CPU/GPU parity request must return `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`
+  until a real Forge GPU integration is wired and byte-proven on aiwonder.
 - **DiskANN deferral**: code must leave a clean `trait Index` seam so Stage 17
   can swap in DiskANN without touching PH24+ fusion code.

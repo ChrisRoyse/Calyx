@@ -18,7 +18,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune) |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + capability cards + default panels + temporal E2/E3/E4) |
-| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed |
+| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed and PH23/PH24 GPU overclaim #299 now fails loud |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 and groundedness bound #298 FSV-backed) |
 | S7–S20 | PH35–PH72 | · pending |
@@ -36,6 +36,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`
 - Stage 4 Sextant:
   `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
+- Stage 4 Sextant GPU parity/fan-out hardening:
+  `/home/croyse/calyx/data/fsv-issue299-gpu-parity-fanout-20260608`
 - Stage 5 Loom + Assay:
   `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`,
   `/home/croyse/calyx/data/fsv-issue294-assay-grounded-trust-20260608`
@@ -109,7 +111,9 @@ Latest roots:
 > JSON. Closed during sweep hardening: PH31/PH33 real Loom association-graph
 > adapter #293, PH30 grounded Assay trust #294, PH11 durable tiering #295, PH26
 > reranker search-path ordering #296, and PH26 scalar/anchor/built-in metadata
-> filters #297. PH33 bounded build-time groundedness #298 is now FSV-backed.
+> filters #297. PH23/PH24 GPU parity/fan-out overclaim #299 now fails loud
+> instead of comparing CPU outputs to themselves. PH33 bounded build-time
+> groundedness #298 is now FSV-backed.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

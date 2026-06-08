@@ -28,6 +28,11 @@
 > Post-sweep hardening #297 adds `QueryFilters` for scalar, anchor, and
 > built-in constellation metadata predicates in the SearchEngine path.
 > FSV root: `/home/croyse/calyx/data/fsv-issue297-query-filters-20260608`.
+> Post-sweep hardening #299 removes Sextant CPU-self GPU parity shims:
+> MaxSim/quant parity requests now fail loud with
+> `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`, and SearchEngine fan-out is documented
+> as per-slot CPU/index-owned until a real Forge grouped fan-out path is wired.
+> FSV root: `/home/croyse/calyx/data/fsv-issue299-gpu-parity-fanout-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -44,13 +49,18 @@ attention.
 - **Deps.** PH20 (lenses), PH13 (distance).
 - **Deliverables.** `index/hnsw.rs` implementing `Index`; insert on ingest;
   search with `ef`; dual-index scaffold for asymmetric slots.
-- **Key tasks.** quantized vectors via Forge; recall vs brute-force harness;
-  concurrent-read-safe; rebuildable from base (self-heal later).
+- **Key tasks.** per-slot quant config; recall vs brute-force harness;
+  concurrent-read-safe; rebuildable from base (self-heal later). Forge CUDA
+  kernels are validated in Forge; Sextant does not claim a wired GPU HNSW or
+  quantization path until that integration exists.
 - **Post-sweep note.** `SlotIndexMap` now fails closed on duplicate slot
   registration with `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED` (#282).
 - **Post-sweep note.** `HnswIndex::search` now uses greedy descent plus
   `ef`-bounded beam traversal, with fail-closed empty-index, `ef`, and dim
   errors (#284). Brute force is retained only as a recall reference.
+- **Post-sweep note.** MaxSim and quantization CPU/GPU delta helpers now return
+  `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE` instead of comparing CPU output to
+  itself; #299 readback records the explicit unavailable state.
 - **FSV gate.** insert N + search → recall vs brute-force ≥ target; SingleLens
   p99 within budget on aiwonder (read measured latency).
 - **Axioms/PRD.** `10 §3`, `19 §4`.
@@ -66,6 +76,9 @@ attention.
 - **Post-sweep note.** WeightedRRF now treats missing profile weights as
   exclusion rather than implicit unit weight; plain RRF still assigns unit
   weights across participating slots (#286).
+- **Post-sweep note.** Top-level `SearchEngine::search` currently fan-outs by
+  calling each slot index in sequence and then fusing results; #299 documents
+  this as `per_slot_cpu_index_calls` rather than a Forge grouped GPU fan-out.
 - **FSV gate.** multi-lens **recall@10 ≥ single-lens + Δ (≥15%)** on a real
   labeled corpus with qrels (BEIR/MS MARCO subset on aiwonder); every Hit
   carries a real provenance ref (read it).

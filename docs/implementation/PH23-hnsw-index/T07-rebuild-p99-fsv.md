@@ -62,7 +62,10 @@ that satisfies the PH23 exit gate. This is the card that closes PH23.
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (Forge distance path)
+- [ ] Sextant HNSW rebuild/search remains CPU/index-owned; any Sextant CPU/GPU
+      parity request fails loud with `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`
+      until a real Forge GPU search path is wired. Forge PH13 covers kernel
+      parity separately.
 - [ ] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
