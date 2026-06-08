@@ -29,6 +29,9 @@ operation — the same MFVS machinery, any slice of the data, any depth."
 `calyx-lodestar` has `build_kernel_pipeline`, `kernel_answer`, `grounding_gaps`,
 and the recall test (PH33). This phase wraps them in the `Scope` enum and the
 scope-cache layer. Hierarchical kernel-of-regions is new.
+PH34 T01 (#233) is implemented and FSV-signed-off on aiwonder: `Scope`,
+`AssocStore`, `scope_hash`, and `materialize_scope` cover all variants with
+readbacks under `/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`.
 
 ## Deliverables (file plan, each ≤500 lines)
 

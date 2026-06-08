@@ -73,6 +73,10 @@ identity.
 - **Axioms/PRD.** A10, A11, `08 §4/§7`, `19 §4`.
 
 ## PH34 — Multi-scope kernel
+- **Status.** ▶ ACTIVE. T01 scope enum/materialization is implemented and
+  FSV-signed-off on aiwonder under
+  `/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`; T02-T06
+  remain open.
 - **Objective.** Freedom of scope: kernel over all / collection / domain /
   subgraph / time-window / tenant / filter / union.
 - **Deps.** PH33.

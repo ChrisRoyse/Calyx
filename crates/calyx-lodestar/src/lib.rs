@@ -12,6 +12,7 @@ pub mod kernel_graph;
 pub mod kernel_index;
 pub mod loom_assoc;
 pub mod recall_test;
+pub mod scope;
 
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
@@ -38,4 +39,7 @@ pub use recall_test::{
     AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,
     RecallQuery, RecallTestParams, RecallTestReport, kernel_recall_test,
     kernel_recall_test_with_clock,
+};
+pub use scope::{
+    AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, scope_hash,
 };

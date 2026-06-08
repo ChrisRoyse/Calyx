@@ -60,6 +60,14 @@ pub enum LodestarError {
     RecallEmptyCorpus,
     #[error("CALYX_RECALL_INVALID_PARAMS: {detail}")]
     RecallInvalidParams { detail: String },
+    #[error("CALYX_COLLECTION_NOT_FOUND: collection {id} was not found")]
+    CollectionNotFound { id: String },
+    #[error("CALYX_SCOPE_TEMPORAL_NOT_READY: time-window scope metadata is not initialized")]
+    ScopeTemporalNotReady,
+    #[error("CALYX_SCOPE_DEPTH_EXCEEDED: depth {depth} exceeds max {max}")]
+    ScopeDepthExceeded { depth: usize, max: usize },
+    #[error("CALYX_SCOPE_TENANT_NOT_FOUND: tenant {id} was not found")]
+    ScopeTenantNotFound { id: String },
     #[error("CALYX_DFVS_VERIFICATION_FAILED: {detail}")]
     DfvsVerificationFailed { detail: String },
     #[error("CALYX_DFVS_GENUS_TOO_LARGE: genus {genus} exceeds supported bound")]
@@ -93,6 +101,10 @@ impl LodestarError {
             Self::KernelLoomAgreementInvalid { .. } => "CALYX_KERNEL_LOOM_AGREEMENT_INVALID",
             Self::RecallEmptyCorpus => "CALYX_RECALL_EMPTY_CORPUS",
             Self::RecallInvalidParams { .. } => "CALYX_RECALL_INVALID_PARAMS",
+            Self::CollectionNotFound { .. } => "CALYX_COLLECTION_NOT_FOUND",
+            Self::ScopeTemporalNotReady => "CALYX_SCOPE_TEMPORAL_NOT_READY",
+            Self::ScopeDepthExceeded { .. } => "CALYX_SCOPE_DEPTH_EXCEEDED",
+            Self::ScopeTenantNotFound { .. } => "CALYX_SCOPE_TENANT_NOT_FOUND",
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
             Self::DfvsGenusTooLarge { .. } => "CALYX_DFVS_GENUS_TOO_LARGE",
             Self::Graph { code, .. } => code,
