@@ -51,8 +51,8 @@ pub use provenance::{
 };
 pub use recall_test::{
     AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,
-    RecallQuery, RecallTestParams, RecallTestReport, kernel_recall_test,
-    kernel_recall_test_with_clock,
+    RecallQuery, RecallTestParams, RecallTestReport, enforce_recall_gate, kernel_recall_gate,
+    kernel_recall_gate_with_clock, kernel_recall_test, kernel_recall_test_with_clock,
 };
 pub use scope::{
     AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, scope_hash,

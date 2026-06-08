@@ -145,6 +145,26 @@ pub fn kernel_recall_test(
     kernel_recall_test_with_clock(kernel_index, full_index, corpus, params, &SystemClock)
 }
 
+pub fn kernel_recall_gate(
+    kernel_index: &KernelIndex,
+    full_index: &dyn AnnIndex,
+    corpus: &dyn CorpusReader,
+    params: &RecallTestParams,
+) -> Result<RecallTestReport> {
+    kernel_recall_gate_with_clock(kernel_index, full_index, corpus, params, &SystemClock)
+}
+
+pub fn kernel_recall_gate_with_clock(
+    kernel_index: &KernelIndex,
+    full_index: &dyn AnnIndex,
+    corpus: &dyn CorpusReader,
+    params: &RecallTestParams,
+    clock: &dyn Clock,
+) -> Result<RecallTestReport> {
+    let report = kernel_recall_test_with_clock(kernel_index, full_index, corpus, params, clock)?;
+    enforce_recall_gate(report, params.min_recall_ratio)
+}
+
 pub fn kernel_recall_test_with_clock(
     kernel_index: &KernelIndex,
     full_index: &dyn AnnIndex,
@@ -194,6 +214,20 @@ pub fn kernel_recall_test_with_clock(
         held_out,
         warning: recall_warning(ratio, params.min_recall_ratio),
     })
+}
+
+pub fn enforce_recall_gate(
+    report: RecallTestReport,
+    min_recall_ratio: f32,
+) -> Result<RecallTestReport> {
+    if report.ratio < min_recall_ratio {
+        Err(LodestarError::RecallBelowGate {
+            ratio: report.ratio,
+            min: min_recall_ratio,
+        })
+    } else {
+        Ok(report)
+    }
 }
 
 fn validate_params(params: &RecallTestParams) -> Result<()> {

@@ -1,110 +1,85 @@
-# PH33 · T05 — FSV: kernel-only recall ≥ 0.95·full on ≥3 real corpora (aiwonder)
+# PH33 T05 - FSV: kernel recall gate on real corpora
 
 | Field | Value |
 |---|---|
-| **Phase** | PH33 — Kernel index + kernel_answer + grounding_gaps |
-| **Stage** | S6 — Lodestar Kernel |
+| **Phase** | PH33 - Kernel index + kernel_answer + grounding_gaps |
+| **Stage** | S6 - Lodestar Kernel |
 | **Crate** | `calyx-lodestar` |
-| **Files** | `crates/calyx-lodestar/tests/fsv_recall_real_corpora.rs` (≤500) |
-| **Depends on** | T04 (recall test harness complete), real corpus paths verified on aiwonder |
+| **Files** | `crates/calyx-lodestar/tests/fsv_recall_real_corpora.rs` (<=500) |
+| **Depends on** | T04 recall harness and gate API |
 | **Axioms** | A10, A11 |
-| **PRD** | `dbprdplans/08 §3` (Stage 5), `08 §7` |
+| **PRD** | `dbprdplans/08`, `dbprdplans/28` |
 
 ## Status
 
-DONE / FSV-signed-off on aiwonder (2026-06-08). The aiwonder run uses one
-ignored FSV test, `fsv_recall_real_corpora_aiwonder`, because the three corpus
-recall checks and the grounding-gap exactness check share the same real-corpus
-setup. Static third-party corpora fail closed on fixed content-address mismatch
-before rows are loaded; the live Calyx code corpus is hashed as a source
-readback because it intentionally changes with the repo.
+DONE / FSV-signed-off on aiwonder. Issue #330 tightened the final acceptance
+path so the real-corpora FSV uses `kernel_recall_gate`, not warning-only
+`kernel_recall_test`. The report-only function remains available only for
+tuning and diagnostics before the final gate.
 
 Evidence at `$CALYX_HOME=/home/croyse/calyx`:
 
 | Artifact | SHA-256 |
 |---|---|
 | `fsv/ph33_recall_scifact_text_20260608.json` | `c26d13fd96880b9df47d0de099dbc63638365533780a3f08ff09d4b30fbaf18c` |
-| `fsv/ph33_recall_calyx_code_20260608.json` | `705cd5897dde71efdbdfe1aeee60e9088296fee3242380c32b268a02090be117` |
+| `fsv/ph33_recall_calyx_code_20260608.json` | `b7114058e50b99cd8b49f79516fd8b4eb1b161e6a5b534416bb8944f90cd7fe5` |
 | `fsv/ph33_recall_cora_graph_20260608.json` | `64b2bf4654caaa98d30274bb1ec938da4fca78f58b6f5f1dd587690f27f26d9b` |
 | `fsv/ph33_grounding_gaps_scifact_text_20260608.json` | `987cc4c28c757c7184e03ef19713603b8b489dce7342e770a205cce8a1405716` |
-| `fsv/ph33_real_corpora_summary_20260608.json` | `b12ea6c3339cfce2dae34142d88419ffddf2371b9e9c38a85eaaa6ee4471b169` |
-| `fsv/ph33_t05_fsv_20260608.log` | `618bb0c03c0a2160dc6e29a8597f511b09ff9bc331fbf5a71cf4b3b899e4268d` |
+| `fsv/ph33_real_corpora_summary_20260608.json` | `1b0a6c0e1045de2a3230b326dd782f5767772dd6b5a9f4138543e65c5cdbe714` |
+| `data/fsv-issue330-recall-gate-fail-closed-20260608/10-real-corpora-gate-test.out` | `74394affa43b2481a013151dbfd9a47a7e95ec9427792a29de7a747501f0b2b8` |
 
 Readback ratios:
 
-| Corpus | Modality | Rows | Final kernel members | Ratio | Exhaustive | Warning |
-|---|---:|---:|---:|---:|---|---|
-| `scifact_text` | text | 180 | 158 | `0.9611112` | false | none |
-| `calyx_code` | code | 180 | 162 | `0.96111107` | false | none |
-| `cora_graph` | graph | 2708 | 2377 | `0.9568264` | false | none |
+| Corpus | Modality | Rows | Final kernel members | Ratio | Warning |
+|---|---:|---:|---:|---:|---|
+| `scifact_text` | text | 180 | 158 | `0.9611112` | none |
+| `calyx_code` | code | 180 | 169 | `0.9777778` | none |
+| `cora_graph` | graph | 2708 | 2377 | `0.9568264` | none |
 
 `grounding_gaps` readback: `max_anchor_dist=0`, `expected_gap_count=4`,
 `report_gap_count=4`, exact independent reachability match = `true`.
 
 ## Goal
 
-Run the `kernel_recall_test` on at least 3 real corpora on aiwonder (one each of
-text, code, and graph modality), prove that
-**kernel-only recall ≥ 0.95·full** on each, and attach the evidence to the PH33
-GitHub issue. Also verify that `grounding_gaps` lists exactly the unanchored kernel
-members on a corpus where the anchor set is known. This is the byte-level FSV gate
-for PH33 (not a unit test — a real on-device integration run).
+Run the recall gate on at least three real corpora on aiwonder: text, code, and
+graph. Each corpus must pass `ratio >= 0.95` through `kernel_recall_gate`. Any
+below-gate corpus must fail closed with `CALYX_KERNEL_RECALL_BELOW_GATE`.
 
-## Build (checklist of concrete, code-level steps)
+## Build
 
-- [x] Create `tests/fsv_recall_real_corpora.rs`; gated with `#[cfg(feature = "fsv")]`
-  so it does not run in CI (aiwonder-only).
-- [x] Load each corpus from a verified aiwonder path (`$CALYX_HOME/datasets/<name>/`
-  or `$CALYX_HOME/data/datasets/<name>/`); if a required corpus is missing,
-  acquire it, record its source/checksum, and read the files back before use.
-- [x] For each corpus: build or load the `Kernel` (via `build_kernel_pipeline`);
-  build the `KernelIndex` and a full exact `InMemoryAnnIndex` reference; run
-  `kernel_recall_test` with `rng_seed=42`, `top_k=10`, `held_out_fraction=0.10`.
-- [x] Assert `ratio >= 0.95` for each corpus; print the full `RecallReport` JSON.
-- [x] Run `grounding_gaps` on the text corpus with known SciFact qrel anchors;
-  print the gap list; manually cross-check at least 3 reported direct-anchor gaps.
-- [x] Write the three `RecallReport` JSONs and the gap list to
-  `$CALYX_HOME/fsv/ph33_recall_<corpus_name>_<date>.json`; attach to GitHub issue.
-- [x] Corpora to use (verified on aiwonder at run time; no synthetic substitute
-  can close this issue):
-  - Text: `beir-scifact/scifact`
-  - Code: live Calyx repo under `/home/croyse/calyx/repo/crates`
-  - Graph: `cora` citation graph -> AssocGraph nodes
+- [x] `tests/fsv_recall_real_corpora.rs` is gated behind the `fsv` feature and
+  runs only on aiwonder.
+- [x] Static corpora are content-address checked before rows load.
+- [x] The live Calyx code corpus is hashed at run time because it changes with
+  the repository.
+- [x] Each corpus builds a kernel index and exact full reference index.
+- [x] Tuning may call `kernel_recall_test` to inspect report warnings.
+- [x] Final acceptance calls `kernel_recall_gate` so a below-gate ratio returns
+  an error instead of a warning-only report.
+- [x] `grounding_gaps` is verified against an independent reachability scan.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## FSV
 
-- [x] `#[test] #[cfg(feature = "fsv")] fn fsv_recall_real_corpora_aiwonder()` loads
-  text/code/graph corpora, asserts each `recall_report.ratio >= 0.95`, and prints JSON.
-- [x] The same ignored FSV test loads text with known anchors and asserts `gaps`
-  matches an independent reachability scan.
-- [x] edge: checksum mismatch on corpus file -> `CALYX_DATASET_CHECKSUM_MISMATCH`;
-  corrupt input is rejected and the issue stays open until a valid corpus is read.
-- [x] fail-closed: `ratio < 0.95` on any corpus -> test fails with a message including
-  the exact `ratio` value and corpus name (not just `assert_eq!(true, false)`).
+- **SoT:** JSON report files at
+  `$CALYX_HOME/fsv/ph33_recall_<corpus>_20260608.json`, the summary JSON, and
+  captured stdout.
+- **Command:**
 
-## FSV (read the bytes on aiwonder — the truth gate)
-
-- **SoT:** JSON report files at `$CALYX_HOME/fsv/ph33_recall_<corpus>_<date>.json`;
-  printed test output.
-- **Readback:**
-  ```
+  ```bash
   CALYX_HOME=/home/croyse/calyx cargo test -p calyx-lodestar --features fsv \
     fsv_recall_real_corpora_aiwonder -- --ignored --nocapture \
-    2>&1 | tee /home/croyse/calyx/fsv/ph33_t05_fsv_20260608.log
-  cat $CALYX_HOME/fsv/ph33_recall_*.json
+    2>&1 | tee /home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608/10-real-corpora-gate-test.out
   ```
-- **Prove:** each JSON contains `ratio >= 0.95`; three distinct `corpus_name` values
-  (text, code, graph); `grounding_gaps` JSON lists the expected gaps;
-  the ignored aiwonder FSV test passes; output and JSON files attached to PH33
-  GitHub issue.
+
+- **Issue #330 readback root:**
+  `/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
+- **Prove:** three distinct corpora pass gate mode with no warning, and the
+  PH33 synthetic degraded corpus proves below-gate recall now errors.
 
 ## Done when
 
-- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [x] file(s) ≤ 500 lines (line-count gate ✅)
-- [x] FSV evidence (readback output / screenshot) attached to the PH33 GitHub issue
-- [x] Three `RecallReport` JSON files at `$CALYX_HOME/fsv/ph33_recall_*.json`
-      with `ratio >= 0.95` each; attached to PH33 GitHub issue
-- [x] `grounding_gaps` gap list for text corpus attached, cross-checked
-- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check`, `clippy -D warnings`, and `test` pass on aiwonder.
+- [x] `.rs` files remain <=500 lines.
+- [x] Three real-corpus recall JSON files show `ratio >= 0.95`.
+- [x] Below-gate synthetic FSV proves the gate is fail-closed.
+- [x] `grounding_gaps` output matches the independent reachability scan.

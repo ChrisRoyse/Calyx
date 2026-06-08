@@ -1,6 +1,6 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
-> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 T01-T06 DONE / PH34 DONE).** Stages 1-5 are
+> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 T01-T07 DONE / PH34 DONE).** Stages 1-5 are
 > implemented, pushed, and FSV-signed-off. PH31 graph primitives are implemented
 > in `calyx-paths` and `calyx-mincut`; PH32 kernel-graph + DFVS is implemented
 > in `calyx-lodestar`. aiwonder readbacks live under
@@ -16,9 +16,10 @@
 > `/home/croyse/calyx/data/fsv-issue328-scope-cache-identity-20260608`.
 > PH32 LP/DFVS contract honesty #329 is signed off under
 > `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`.
-> PH36 still owns trace/reproduce. Pre-exit follow-ups #330-#332 track
-> recall-gate fail-closed behavior, raw-vs-tuned recall evidence, and
-> anchor-aware `kernel_answer` search.
+> PH33 recall-gate fail-closed behavior #330 is signed off under
+> `/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
+> PH36 still owns trace/reproduce. Pre-exit follow-ups #331-#332 track
+> raw-vs-tuned recall evidence and anchor-aware `kernel_answer` search.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -68,15 +69,17 @@ identity.
 - **Axioms/PRD.** A10, `08 §3`.
 
 ## PH33 — Kernel index + kernel_answer + grounding_gaps
-- **Status.** ✅ T01-T06 DONE / FSV-signed-off. T06 #239 now writes real
+- **Status.** ✅ T01-T07 DONE / FSV-signed-off. T06 #239 now writes real
   PH35 Ledger rows for kernel build and answer hops; PH36 trace/reproduce
   remains separate. T05 real-corpora recall FSV is signed off on aiwonder:
-  SciFact text `0.9611112`, live Calyx code `0.96111107`, Cora graph
+  SciFact text `0.9611112`, live Calyx code `0.9777778`, Cora graph
   `0.9568264`, and exact direct-anchor `grounding_gaps` readback. Follow-up #292
   locks `kernel_answer` to fail closed when `max_hops` cannot reach `query_cx`;
-  truncated answer prefixes are not valid answer paths. Follow-ups #330-#332
-  cover recall-gate fail-closed semantics, raw-vs-tuned recall evidence, and
-  anchor-aware answer search beyond a fixed top-k candidate window.
+  truncated answer prefixes are not valid answer paths. T07 #330 makes recall
+  acceptance fail closed with `CALYX_KERNEL_RECALL_BELOW_GATE`; FSV root:
+  `/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
+  Follow-ups #331-#332 cover raw-vs-tuned recall evidence and anchor-aware
+  answer search beyond a fixed top-k candidate window.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
   cheapest grounding plan.
 - **Deps.** PH32, PH33 needs anchors (PH09) + search (PH24).
@@ -85,10 +88,11 @@ identity.
   attenuated, provenanced), `grounding_gaps` (kernel members not reaching an
   anchor), recall test.
 - **Key tasks.** kernel-first funnel; anchor-reachability check; recall test
-  (reconstruct held-out from kernel-only).
+  (reconstruct held-out from kernel-only); fail-closed `kernel_recall_gate`.
 - **FSV gate.** **kernel-only recall ≥ 0.95·full** on **≥3 real corpora**
   (text/code/graph from the dataset catalog, run on aiwonder); `grounding_gaps`
-  lists exactly the unanchored members (read both).
+  lists exactly the unanchored members (read both); below-gate recall returns
+  `CALYX_KERNEL_RECALL_BELOW_GATE`.
 - **Axioms/PRD.** A10, A11, `08 §4/§7`, `19 §4`.
 
 ## PH34 — Multi-scope kernel

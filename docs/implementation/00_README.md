@@ -127,17 +127,19 @@ checks. Evidence root:
 
 **ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
-`calyx-lodestar`; PH33 T01-T06 kernel index/answer/gaps/real-corpora recall and
+`calyx-lodestar`; PH33 T01-T07 kernel index/answer/gaps/real-corpora recall and
 Ledger provenance are implemented and FSV-backed; PH34 T01-T07 are implemented
 and FSV-backed (scope materialization, identity-aware cache, dispatch,
 hierarchical regions, bridge nodes, real multi-scope SciFact FSV, and
 scope-cache identity). Stage 6 remains open until the exit FSV (#240) and the
 remaining Lodestar readiness follow-ups are closed with aiwonder readback
 evidence. LP/DFVS solver-contract honesty #329 is FSV-backed under
-`/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`. Additional
-Lodestar readiness blindspots found during the Stage 1-5 sweep are tracked in
-#330-#332 (recall fail-closed gate, raw-vs-tuned recall evidence, and
-anchor-aware `kernel_answer` search).
+`/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`. Recall gate
+fail-closed behavior #330 is FSV-backed under
+`/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
+Additional Lodestar readiness blindspots found during the Stage 1-5 sweep are
+tracked in #331-#332 (raw-vs-tuned recall evidence and anchor-aware
+`kernel_answer` search).
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.

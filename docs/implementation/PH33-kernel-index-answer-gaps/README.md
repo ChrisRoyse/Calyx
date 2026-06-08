@@ -41,10 +41,10 @@ Build-time `Kernel.groundedness` now uses the same bounded
 API (#298). FSV root:
 `/home/croyse/calyx/data/fsv-issue298-build-kernel-groundedness-bound-20260608`.
 PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
-`0.9611112`, live Calyx code ratio `0.96111107`, and Cora graph ratio
+`0.9611112`, live Calyx code ratio `0.9777778`, and Cora graph ratio
 `0.9568264`, all non-exhaustive and warning-free. Reports live under
 `/home/croyse/calyx/fsv/ph33_recall_*_20260608.json`; summary SHA-256
-`b12ea6c3339cfce2dae34142d88419ffddf2371b9e9c38a85eaaa6ee4471b169`.
+`1b0a6c0e1045de2a3230b326dd782f5767772dd6b5a9f4138543e65c5cdbe714`.
 T06 (#239) adds PH35-backed Lodestar provenance APIs:
 `build_kernel_pipeline_with_ledger` writes one `kind=Kernel` entry and
 `kernel_answer_with_ledger` writes one `kind=Answer` entry per hop, with
@@ -61,7 +61,7 @@ Full PH36 trace/reproduce remains in #252-#255.
 | `crates/calyx-lodestar/src/kernel_answer.rs` | `kernel_answer(query, anchor_kind) -> AnswerPath`; ground at nearest anchored kernel node → bounded `reach` to the query → hop-attenuate with `0.9^hop` → provenance-stamp each hop |
 | `crates/calyx-lodestar/src/loom_assoc.rs` | read Loom XTerm CF agreement rows through `LoomStore`, require slot→CxId bindings + directional confidence, and emit CxId `AgreementEdge` inputs for Mincut/Lodestar |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
-| `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(kernel, corpus, held_out) -> RecallReport`; reconstruct held-out from kernel-only; ratio ≥ 0.95 is the gate |
+| `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(...) -> RecallReport` for report-only warning bytes; `kernel_recall_gate(...) -> RecallReport` for fail-closed acceptance when ratio < 0.95 |
 | `crates/calyx-lodestar/src/provenance.rs` | PH35-backed `kind=Kernel` / `kind=Answer` Ledger append helpers for build and answer paths (#239); PH36 trace/reproduce remains separate |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -74,10 +74,11 @@ Full PH36 trace/reproduce remains in #252-#255.
 | T04 | Recall test harness: kernel-only recall ≥ 0.95·full | T02, T03 |
 | T05 | FSV: run on ≥3 real corpora on aiwonder; measure + report recall | T04 |
 | T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`) (done #239; PH36 trace/reproduce separate) | PH35 |
+| T07 | Recall below gate fails closed for acceptance flows (done #330) | T04 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-1. `kernel_recall_test` run on **≥3 real corpora** (text/code/graph acquired and
+1. `kernel_recall_gate` run on **≥3 real corpora** (text/code/graph acquired and
    verified on aiwonder); each corpus produces a `RecallReport` with
    `ratio ≥ 0.95`.
 2. `grounding_gaps` on the same corpora lists exactly the unanchored kernel members

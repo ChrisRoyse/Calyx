@@ -6,7 +6,7 @@ use calyx_core::{CxId, content_address};
 use calyx_lodestar::{
     AnnIndex, InMemoryAnnIndex, InMemoryCorpus, Kernel, KernelGraphParams, KernelParams,
     RecallQuery, RecallReport, RecallTestParams, build_kernel_index, build_kernel_pipeline,
-    grounding_gaps, kernel_recall_test,
+    grounding_gaps, kernel_recall_gate, kernel_recall_test,
 };
 use calyx_paths::AssocGraph;
 use serde::Serialize;
@@ -94,7 +94,7 @@ pub fn run_case(case: &CorpusCase) -> CorpusReport {
     let (final_kernel, tuned_member_count, exhaustive_expansion) =
         tune_kernel_to_gate(initial.clone(), &full, case, &params);
     let final_index = build_kernel_index(&final_kernel, &embeddings).expect("final kernel index");
-    let final_recall = kernel_recall_test(
+    let final_recall = kernel_recall_gate(
         &final_index,
         &full,
         &InMemoryCorpus::new(case.name, case.rows.clone()),
