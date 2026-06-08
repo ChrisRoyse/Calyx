@@ -11,6 +11,9 @@
 > `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`; readback
 > hashes are recorded in GitHub #23 and #189. Next active stage is Lodestar
 > (`16_STAGE6_LODESTAR.md`).
+> Post-sweep hardening #285 makes Loom cross-term math fail closed and adds an
+> explicit nonnegative `agreement_weight` beside raw cosine agreement for
+> Lodestar graph handoff.
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -31,6 +34,10 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   spot detector.
 - **Key tasks.** agreement = batched normalized matmul (Forge); lazy xterm =
   one matmul on demand + LRU cache; materialize only Assay-gated pairs.
+- **Post-sweep note.** Cross-term APIs now return `Result` with
+  `CALYX_LOOM_ZERO_NORM_VECTOR`, `CALYX_LOOM_DIM_MISMATCH`,
+  `CALYX_LOOM_NON_FINITE_VECTOR`, and `CALYX_LOOM_SLOT_MISSING`; agreement graph
+  edges include raw cosine plus `agreement_weight = clamp(raw, 0, 1)` (#285).
 - **FSV gate.** agreement scalars eager + correct; a lazy pair computes on demand
   and matches; **materialized count ≪ C(N,2)** (read xterm CF size); blind-spot
   fires on a planted cross-lens disagreement.

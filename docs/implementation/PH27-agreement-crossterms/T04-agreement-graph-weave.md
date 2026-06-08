@@ -16,8 +16,10 @@ Implement `weave(cx_id)` — the per-constellation entry point that computes the
 agreement vector for all active pairs and executes the materialization plan —
 and `agreement_graph(vault, since_seq?)` — the vault-wide sparse adjacency over
 active pairs used by Lodestar (kernel-graph seed, PH31) and Assay (redundancy
-graph, n_eff). The graph's edge weight is the mean agreement scalar across all
-constellations that activated both slots.
+graph, n_eff). The graph retains the raw mean agreement scalar across all
+constellations that activated both slots and exposes a separate nonnegative
+`agreement_weight = clamp(raw_mean_agreement, 0, 1)` for graph consumers that
+require `[0,1]` edge weights.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -28,7 +30,7 @@ constellations that activated both slots.
   - call `plan_cross_terms` with stub assay/sextant hooks
   - persist `EagerStore` Agreement scalars to xterm CF (write via WAL group-commit, tagged `source: Derived`)
   - return both (allows caller to further materialize Interaction/Concat if gated)
-- [ ] Define `AgreementGraph`: sparse adjacency `{ edges: HashMap<(SlotId, SlotId), f32>, panel_version: u64, computed_at_seq: u64 }`; edge weight = mean agreement over all constellations touching both slots
+- [ ] Define `AgreementGraph`: sparse adjacency `{ edges: HashMap<(SlotId, SlotId), raw_mean_agreement, agreement_weight>, panel_version: u64, computed_at_seq: u64 }`; edge raw value = mean agreement over all constellations touching both slots; edge handoff weight is clamped to `[0,1]`
 - [ ] Implement `agreement_graph(vault, since_seq: Option<u64>, forge) -> Result<AgreementGraph, CalyxError>`:
   - stream all constellations (optionally since a sequence number for incremental updates)
   - accumulate mean agreement scalars per pair using online mean (Welford)

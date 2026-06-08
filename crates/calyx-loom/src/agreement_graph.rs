@@ -8,8 +8,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::cross_term::{
     CrossTermKey, CrossTermKind, CrossTermValue, SignalProvenanceTag, agreement_scalar,
-    canonical_pair, concat_vec, delta_vec, interaction_vec,
+    agreement_weight, canonical_pair, concat_vec, delta_vec, interaction_vec,
 };
+use crate::error::{CALYX_LOOM_SLOT_MISSING, loom_error};
 use crate::lru_cache::LruCache;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -23,7 +24,9 @@ pub struct XtermRow {
 pub struct AgreementEdge {
     pub a: SlotId,
     pub b: SlotId,
+    pub raw_mean_agreement: f32,
     pub mean_agreement: f32,
+    pub agreement_weight: f32,
     pub n: usize,
 }
 
@@ -60,7 +63,8 @@ impl LoomStore {
         self.cache.len()
     }
 
-    pub fn weave(&mut self, cx: CxId, slots: &BTreeMap<SlotId, Vec<f32>>) {
+    pub fn weave(&mut self, cx: CxId, slots: &BTreeMap<SlotId, Vec<f32>>) -> Result<usize> {
+        let mut inserted = 0;
         for slot in slots.keys() {
             self.tag_measured(cx, *slot);
         }
@@ -69,7 +73,7 @@ impl LoomStore {
             for j in i + 1..ids.len() {
                 let a = ids[i];
                 let b = ids[j];
-                let value = agreement_scalar(&slots[&a], &slots[&b]);
+                let value = agreement_scalar(&slots[&a], &slots[&b])?;
                 let key = CrossTermKey {
                     cx_id: cx,
                     a,
@@ -84,8 +88,10 @@ impl LoomStore {
                         tag: SignalProvenanceTag::Derived,
                     },
                 );
+                inserted += 1;
             }
         }
+        Ok(inserted)
     }
 
     pub fn cross_term(
@@ -95,7 +101,7 @@ impl LoomStore {
         b: SlotId,
         kind: CrossTermKind,
         slots: &BTreeMap<SlotId, Vec<f32>>,
-    ) -> Option<CrossTermValue> {
+    ) -> Result<CrossTermValue> {
         let (a, b) = canonical_pair(a, b);
         let key = CrossTermKey {
             cx_id: cx,
@@ -104,21 +110,25 @@ impl LoomStore {
             kind,
         };
         if let Some(row) = self.xterm_cf.get(&key) {
-            return Some(row.value.clone());
+            return Ok(row.value.clone());
         }
         if let Some(value) = self.cache.get(&key) {
-            return Some(value);
+            return Ok(value);
         }
-        let left = slots.get(&a)?;
-        let right = slots.get(&b)?;
+        let left = slots.get(&a).ok_or_else(|| {
+            loom_error(CALYX_LOOM_SLOT_MISSING, format!("slot {} missing", a.get()))
+        })?;
+        let right = slots.get(&b).ok_or_else(|| {
+            loom_error(CALYX_LOOM_SLOT_MISSING, format!("slot {} missing", b.get()))
+        })?;
         let value = match kind {
-            CrossTermKind::Agreement => CrossTermValue::Scalar(agreement_scalar(left, right)),
-            CrossTermKind::Delta => CrossTermValue::Vector(delta_vec(left, right)),
-            CrossTermKind::Interaction => CrossTermValue::Vector(interaction_vec(left, right)),
-            CrossTermKind::Concat => CrossTermValue::Vector(concat_vec(left, right)),
+            CrossTermKind::Agreement => CrossTermValue::Scalar(agreement_scalar(left, right)?),
+            CrossTermKind::Delta => CrossTermValue::Vector(delta_vec(left, right)?),
+            CrossTermKind::Interaction => CrossTermValue::Vector(interaction_vec(left, right)?),
+            CrossTermKind::Concat => CrossTermValue::Vector(concat_vec(left, right)?),
         };
         self.cache.put(key, value.clone());
-        Some(value)
+        Ok(value)
     }
 
     pub fn agreement_graph(&self) -> Vec<AgreementEdge> {
@@ -130,15 +140,19 @@ impl LoomStore {
                 entry.1 += 1;
             }
         }
-        edges
-            .into_iter()
-            .map(|((a, b), (sum, n))| AgreementEdge {
+        let mut out = Vec::new();
+        for ((a, b), (sum, n)) in edges {
+            let raw = sum / n.max(1) as f32;
+            out.push(AgreementEdge {
                 a,
                 b,
-                mean_agreement: sum / n.max(1) as f32,
+                raw_mean_agreement: raw,
+                mean_agreement: raw,
+                agreement_weight: agreement_weight(raw).unwrap_or(0.0),
                 n,
-            })
-            .collect()
+            });
+        }
+        out
     }
 
     pub fn xterm_rows(&self) -> Vec<XtermRow> {
@@ -205,7 +219,7 @@ mod tests {
             (SlotId::new(1), vec![1.0, 0.0]),
             (SlotId::new(2), vec![0.0, 1.0]),
         ]);
-        store.weave(CxId::from_bytes([1; 16]), &slots);
+        store.weave(CxId::from_bytes([1; 16]), &slots).unwrap();
 
         assert_eq!(store.persist_xterms_to_aster(&mut router).unwrap(), 1);
         drop(router);

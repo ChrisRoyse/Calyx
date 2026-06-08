@@ -4,6 +4,7 @@ pub mod abundance;
 pub mod agreement_graph;
 pub mod blind_spot;
 pub mod cross_term;
+pub mod error;
 pub mod lru_cache;
 pub mod materialization;
 
@@ -12,7 +13,12 @@ pub use agreement_graph::{AgreementEdge, LoomStore};
 pub use blind_spot::{BlindSpotAlert, Severity, detect_blind_spot};
 pub use cross_term::{
     CrossTermKey, CrossTermKind, CrossTermValue, SignalProvenanceTag, agreement_batch_cpu,
-    agreement_batch_gpu, agreement_scalar, concat_vec, delta_vec, interaction_vec,
+    agreement_batch_gpu, agreement_scalar, agreement_weight, concat_vec, delta_vec,
+    interaction_vec,
+};
+pub use error::{
+    CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_NON_FINITE_VECTOR, CALYX_LOOM_SLOT_MISSING,
+    CALYX_LOOM_ZERO_NORM_VECTOR, loom_error,
 };
 pub use lru_cache::LruCache;
 pub use materialization::{

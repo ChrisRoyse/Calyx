@@ -36,6 +36,14 @@ Assay-gated pairs are persisted; every other pair remains one matmul away.
 that controls eager non-agreement materialization. Final FSV root:
 `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
 
+Post-sweep hardening #285 makes Loom cross-term math fail closed: zero-norm,
+non-finite, mismatched-dimension, and missing-slot inputs now return cataloged
+errors instead of silent `0.0`/truncated `zip` results. Agreement graph readback
+retains `raw_mean_agreement`/`mean_agreement` for audit and exposes
+`agreement_weight = clamp(raw_mean_agreement, 0, 1)` for nonnegative Lodestar
+graph handoff; anti-agreement is preserved raw but not promoted as a positive
+edge weight.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
