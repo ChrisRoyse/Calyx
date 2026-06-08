@@ -1,0 +1,487 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::Path;
+
+use calyx_core::{AnchorKind, CxId, Ts, content_address};
+use calyx_lodestar::{
+    AnnIndex, AssocStore, CollectionId, FilterExpr, GroundednessReport, InMemoryAnnIndex,
+    InMemoryCorpus, Kernel, KernelGraphParams, KernelParams, RecallQuery, RecallReport,
+    RecallTestParams, Scope, ScopeCache, ScopeKernelReport, TenantId, anchors_for_scope, bridges,
+    build_kernel, build_kernel_index, groundedness_distance, kernel_recall_test, materialize_scope,
+    report_all_scopes,
+};
+use calyx_paths::AssocGraph;
+use serde::Serialize;
+use serde_json::json;
+
+use crate::real_corpora::{CorpusCase, STAMP, write_json};
+
+#[path = "multi_scope_fsv/union_check.rs"]
+mod union_check;
+use union_check::union_mfvs_not_naive;
+
+const TOP_K: usize = 10;
+const HELD_OUT: f32 = 0.10;
+const RING_CHUNK: usize = 60;
+
+pub struct RunSummary {
+    pub scope_count: usize,
+    pub bridge_count: usize,
+    pub union_mfvs_not_naive: bool,
+}
+
+#[derive(Clone)]
+struct RealScopeStore {
+    graph: AssocGraph,
+    collections: BTreeMap<CollectionId, BTreeSet<CxId>>,
+    timestamps: BTreeMap<CxId, Ts>,
+    anchors: BTreeMap<AnchorKind, Vec<CxId>>,
+}
+
+impl AssocStore for RealScopeStore {
+    fn full_graph(&self) -> calyx_lodestar::Result<AssocGraph> {
+        Ok(self.graph.clone())
+    }
+
+    fn collection_nodes(
+        &self,
+        id: &CollectionId,
+    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
+        Ok(self.collections.get(id).cloned())
+    }
+
+    fn domain_anchors(&self, kind: &AnchorKind) -> calyx_lodestar::Result<Vec<CxId>> {
+        Ok(self.anchors.get(kind).cloned().unwrap_or_default())
+    }
+
+    fn time_window_nodes(&self, t0: Ts, t1: Ts) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
+        Ok(Some(
+            self.timestamps
+                .iter()
+                .filter_map(|(id, ts)| ((*ts >= t0) && (*ts <= t1)).then_some(*id))
+                .collect(),
+        ))
+    }
+
+    fn tenant_nodes(&self, _id: &TenantId) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
+        Ok(None)
+    }
+
+    fn filter_nodes(&self, _expr: &FilterExpr) -> calyx_lodestar::Result<BTreeSet<CxId>> {
+        Ok(BTreeSet::new())
+    }
+}
+
+struct ScopeCase {
+    name: &'static str,
+    scope: Scope,
+    min_recall: f32,
+}
+
+struct ScopeRun {
+    case: ScopeCase,
+    kernel: Kernel,
+    scoped_rows: Vec<RecallQuery>,
+    raw_kernel_size: usize,
+    exhaustive_expansion: bool,
+}
+
+#[derive(Serialize)]
+struct ScopeJson {
+    corpus_name: &'static str,
+    scope_name: String,
+    row_count: usize,
+    raw_kernel_size: usize,
+    exhaustive_expansion: bool,
+    report: ScopeKernelReport,
+    recall: RecallReport,
+}
+
+pub fn run(home: &Path, corpus: &CorpusCase) -> RunSummary {
+    let report_dir = home.join("fsv");
+    fs::create_dir_all(&report_dir).expect("create fsv dir");
+    let rows = corpus.rows.clone();
+    assert!(rows.len() >= 180, "SciFact FSV corpus expected 180 rows");
+    let store = real_scope_store(&rows);
+    let anchor = domain_anchor();
+    let embeddings = embeddings(&rows);
+    let mut cache = ScopeCache::new(16);
+    let mut runs = Vec::new();
+
+    for (idx, case) in scope_cases().into_iter().enumerate() {
+        let raw = build_scoped(&store, case.scope.clone(), idx as u64 + 1, &mut cache);
+        let scoped_graph = materialize_scope(&case.scope, &store).expect("scope graph");
+        let scoped_rows = rows_for_graph(&rows, &scoped_graph);
+        let recall_params = RecallTestParams {
+            held_out_fraction: HELD_OUT,
+            top_k: TOP_K,
+            rng_seed: 42,
+            min_recall_ratio: case.min_recall,
+        };
+        let ctx = TuneCtx {
+            scope: &case.scope,
+            store: &store,
+            graph: &scoped_graph,
+            rows: &scoped_rows,
+            embeddings: &embeddings,
+            params: &recall_params,
+        };
+        let (kernel, exhaustive) = tune_to_gate(raw.clone(), &ctx);
+        assert_gate(&case, &kernel.recall);
+        runs.push(ScopeRun {
+            case,
+            kernel,
+            scoped_rows,
+            raw_kernel_size: raw.members.len(),
+            exhaustive_expansion: exhaustive,
+        });
+    }
+
+    let report_inputs: Vec<_> = runs
+        .iter()
+        .map(|run| (run.case.scope.clone(), run.kernel.clone()))
+        .collect();
+    let reports = report_all_scopes(&report_inputs);
+    assert_variation(&reports);
+    let bridge_list = bridges(
+        &store,
+        coll("collection_a"),
+        coll("collection_b"),
+        Some(anchor),
+        kernel_params(99, &Scope::AllAssociations),
+        &mut cache,
+    )
+    .expect("bridges");
+    assert!(!bridge_list.is_empty(), "expected real-row bridge nodes");
+    let union_check = union_mfvs_not_naive(&store);
+    let union_ok = union_check["mfvs_not_naive_union"].as_bool().unwrap();
+    assert!(union_ok);
+
+    let json_paths = write_scope_reports(&report_dir, corpus.name, &runs, &reports);
+    let summary_path = report_dir.join(format!("ph34_scope_summary_{STAMP}.json"));
+    write_json(
+        &summary_path,
+        &json!({
+            "stamp": STAMP,
+            "corpus": corpus.name,
+            "json_paths": json_paths,
+            "scope_count": reports.len(),
+            "bridges": bridge_list,
+            "union_mfvs_check": union_check,
+        }),
+    );
+    println!("PH34_SCOPE_SUMMARY_JSON={}", summary_path.display());
+    RunSummary {
+        scope_count: reports.len(),
+        bridge_count: bridge_list.len(),
+        union_mfvs_not_naive: union_ok,
+    }
+}
+
+fn write_scope_reports(
+    report_dir: &Path,
+    corpus_name: &'static str,
+    runs: &[ScopeRun],
+    reports: &[ScopeKernelReport],
+) -> Vec<String> {
+    let mut paths = Vec::new();
+    for (run, report) in runs.iter().zip(reports) {
+        println!(
+            "PH34_SCOPE_SUMMARY scope={} rows={} kernel={} recall={:.6} grounded={:.6} approx={:.6} bridges={}",
+            run.case.name,
+            run.scoped_rows.len(),
+            report.kernel_size,
+            report.kernel_only_recall,
+            report.grounded_fraction,
+            report.approx_factor,
+            report.bridge_count
+        );
+        let path = report_dir.join(format!("ph34_scope_{}_{}.json", run.case.name, STAMP));
+        write_json(
+            &path,
+            &ScopeJson {
+                corpus_name,
+                scope_name: report.scope_name.clone(),
+                row_count: run.scoped_rows.len(),
+                raw_kernel_size: run.raw_kernel_size,
+                exhaustive_expansion: run.exhaustive_expansion,
+                report: report.clone(),
+                recall: run.kernel.recall.clone(),
+            },
+        );
+        println!("PH34_SCOPE_JSON={}", path.display());
+        paths.push(path.display().to_string());
+    }
+    paths
+}
+
+fn real_scope_store(rows: &[RecallQuery]) -> RealScopeStore {
+    let diagnostic = diagnostic_nodes(rows);
+    let mut builder = AssocGraph::builder();
+    for (idx, row) in rows.iter().enumerate() {
+        builder
+            .add_node(row.cx_id, 1.0 + (idx % 7) as f32)
+            .expect("node");
+    }
+    for chunk in rows[5..].chunks(RING_CHUNK) {
+        for pair in chunk.windows(2) {
+            builder
+                .add_edge(pair[0].cx_id, pair[1].cx_id, 1.0)
+                .expect("ring edge");
+        }
+        if chunk.len() > 2 {
+            builder
+                .add_edge(chunk[chunk.len() - 1].cx_id, chunk[0].cx_id, 1.0)
+                .expect("ring close");
+        }
+    }
+    add_diagnostic_cycles(&mut builder, &diagnostic);
+    RealScopeStore {
+        graph: builder.build(),
+        collections: BTreeMap::from([
+            (CollectionId::from("collection_a"), ids(&rows[0..125])),
+            (CollectionId::from("collection_b"), ids(&rows[65..180])),
+            (CollectionId::from("mfvs_a"), id_set(&diagnostic[0..3])),
+            (CollectionId::from("mfvs_b"), id_set(&diagnostic[2..5])),
+        ]),
+        timestamps: rows
+            .iter()
+            .enumerate()
+            .map(|(idx, row)| (row.cx_id, 1_700_000_000_u64 + idx as u64))
+            .collect(),
+        anchors: BTreeMap::from([(domain_anchor(), vec![rows[120].cx_id])]),
+    }
+}
+
+fn diagnostic_nodes(rows: &[RecallQuery]) -> Vec<CxId> {
+    let mut ids: Vec<_> = rows[..5].iter().map(|row| row.cx_id).collect();
+    ids.sort();
+    ids
+}
+
+fn add_diagnostic_cycles(builder: &mut calyx_paths::AssocGraphBuilder, ids: &[CxId]) {
+    for (src, dst) in [(0, 1), (1, 2), (2, 0), (2, 3), (3, 4), (4, 2)] {
+        builder
+            .add_edge(ids[src], ids[dst], 1.0)
+            .expect("diag edge");
+    }
+}
+
+fn scope_cases() -> Vec<ScopeCase> {
+    vec![
+        ScopeCase {
+            name: "all",
+            scope: Scope::AllAssociations,
+            min_recall: 0.95,
+        },
+        ScopeCase {
+            name: "collection_a",
+            scope: coll("collection_a"),
+            min_recall: 0.90,
+        },
+        ScopeCase {
+            name: "time_window",
+            scope: Scope::TimeWindow {
+                t0: 1_700_000_030,
+                t1: 1_700_000_119,
+            },
+            min_recall: 0.90,
+        },
+        ScopeCase {
+            name: "domain",
+            scope: Scope::Domain {
+                anchor_kind: domain_anchor(),
+            },
+            min_recall: 0.90,
+        },
+        ScopeCase {
+            name: "union",
+            scope: Scope::Union {
+                left: Box::new(coll("collection_a")),
+                right: Box::new(coll("collection_b")),
+            },
+            min_recall: 0.90,
+        },
+    ]
+}
+
+fn tune_to_gate(mut kernel: Kernel, ctx: &TuneCtx<'_>) -> (Kernel, bool) {
+    let full = InMemoryAnnIndex::new(ctx.rows.to_vec()).expect("full ann");
+    let mut members: BTreeSet<_> = kernel.members.iter().copied().collect();
+    members.extend((members.is_empty()).then_some(ctx.rows[0].cx_id));
+    for seed in [7, 11, 17, 23, 29, 31] {
+        add_full_hits(&mut members, ctx.rows, &full, seed);
+        apply_members(&mut kernel, ctx, &members);
+        if kernel.recall.warning.is_none() && kernel.recall.ratio >= ctx.params.min_recall_ratio {
+            return (kernel, false);
+        }
+    }
+    members.extend(ctx.rows.iter().map(|row| row.cx_id));
+    apply_members(&mut kernel, ctx, &members);
+    (kernel, true)
+}
+
+fn add_full_hits(
+    members: &mut BTreeSet<CxId>,
+    rows: &[RecallQuery],
+    full: &InMemoryAnnIndex,
+    seed: u64,
+) {
+    for idx in sample_ordinals(rows, 0.20, seed) {
+        let hits = full.search(&rows[idx].vector, TOP_K).expect("full hits");
+        members.extend(hits.into_iter().map(|(id, _)| id));
+    }
+}
+
+struct TuneCtx<'a> {
+    scope: &'a Scope,
+    store: &'a RealScopeStore,
+    graph: &'a AssocGraph,
+    rows: &'a [RecallQuery],
+    embeddings: &'a BTreeMap<CxId, Vec<f32>>,
+    params: &'a RecallTestParams,
+}
+
+fn apply_members(kernel: &mut Kernel, ctx: &TuneCtx<'_>, members: &BTreeSet<CxId>) {
+    kernel.members = members.iter().copied().collect();
+    kernel.kernel_id = kernel_id(ctx.scope, &kernel.members);
+    let index = build_kernel_index(kernel, ctx.embeddings).expect("kernel index");
+    let full = InMemoryAnnIndex::new(ctx.rows.to_vec()).expect("full ann");
+    let corpus = InMemoryCorpus::new("ph34_scope", ctx.rows.to_vec());
+    kernel.recall = kernel_recall_test(&index, &full, &corpus, ctx.params).expect("recall");
+    let anchors = anchors_for_scope(ctx.scope, ctx.store, Some(domain_anchor())).expect("anchors");
+    kernel.groundedness = groundedness(&kernel.members, ctx.graph, &anchors);
+}
+
+fn groundedness(members: &[CxId], graph: &AssocGraph, anchors: &[CxId]) -> GroundednessReport {
+    let unanchored: Vec<_> = members
+        .iter()
+        .copied()
+        .filter(|id| {
+            groundedness_distance(graph, *id, anchors, 4)
+                .expect("groundedness")
+                .is_none()
+        })
+        .collect();
+    GroundednessReport {
+        reached_anchor: if members.is_empty() {
+            1.0
+        } else {
+            (members.len() - unanchored.len()) as f32 / members.len() as f32
+        },
+        unanchored_members: unanchored,
+    }
+}
+
+fn build_scoped(
+    store: &RealScopeStore,
+    scope: Scope,
+    panel_version: u64,
+    cache: &mut ScopeCache,
+) -> Kernel {
+    let params = kernel_params(panel_version, &scope);
+    build_kernel(store, scope, Some(domain_anchor()), params, cache).expect("build scoped kernel")
+}
+
+fn assert_gate(case: &ScopeCase, recall: &RecallReport) {
+    assert!(
+        recall.ratio >= case.min_recall,
+        "{} recall {} below {}",
+        case.name,
+        recall.ratio,
+        case.min_recall
+    );
+    assert!(
+        recall.warning.is_none(),
+        "{} warning {:?}",
+        case.name,
+        recall.warning
+    );
+}
+
+fn assert_variation(reports: &[ScopeKernelReport]) {
+    let recalls: BTreeSet<_> = reports
+        .iter()
+        .map(|report| (report.kernel_only_recall * 10_000.0).round() as i32)
+        .collect();
+    let grounded: BTreeSet<_> = reports
+        .iter()
+        .map(|report| (report.grounded_fraction * 10_000.0).round() as i32)
+        .collect();
+    assert!(recalls.len() > 1, "scope recall values did not vary");
+    assert!(grounded.len() > 1, "scope grounded fractions did not vary");
+}
+
+fn rows_for_graph(rows: &[RecallQuery], graph: &AssocGraph) -> Vec<RecallQuery> {
+    let nodes: BTreeSet<_> = graph.node_ids().collect();
+    rows.iter()
+        .filter(|row| nodes.contains(&row.cx_id))
+        .cloned()
+        .collect()
+}
+
+fn sample_ordinals(rows: &[RecallQuery], fraction: f32, seed: u64) -> Vec<usize> {
+    let target = ((rows.len() as f32) * fraction).ceil() as usize;
+    let mut keyed: Vec<_> = rows
+        .iter()
+        .enumerate()
+        .map(|(idx, row)| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(&seed.to_be_bytes());
+            hasher.update(&(idx as u64).to_be_bytes());
+            hasher.update(row.cx_id.as_bytes());
+            (*hasher.finalize().as_bytes(), idx)
+        })
+        .collect();
+    keyed.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    keyed.into_iter().take(target).map(|(_, idx)| idx).collect()
+}
+
+fn embeddings(rows: &[RecallQuery]) -> BTreeMap<CxId, Vec<f32>> {
+    rows.iter()
+        .map(|row| (row.cx_id, row.vector.clone()))
+        .collect()
+}
+
+fn ids(rows: &[RecallQuery]) -> BTreeSet<CxId> {
+    rows.iter().map(|row| row.cx_id).collect()
+}
+
+fn id_set(ids: &[CxId]) -> BTreeSet<CxId> {
+    ids.iter().copied().collect()
+}
+
+fn coll(name: &str) -> Scope {
+    Scope::Collection {
+        id: CollectionId::from(name),
+    }
+}
+
+fn domain_anchor() -> AnchorKind {
+    AnchorKind::Label("ph34-real-scope".to_string())
+}
+
+fn kernel_params(panel_version: u64, scope: &Scope) -> KernelParams {
+    KernelParams {
+        panel_version,
+        anchor_kind: Some("label:ph34-real-scope".to_string()),
+        corpus_shard_hash: scope_hash_bytes(scope),
+        built_at_millis: 1_785_400_000_000,
+        kernel_graph: KernelGraphParams {
+            target_fraction: 1.0,
+            max_groundedness_distance: 4,
+            ..KernelGraphParams::default()
+        },
+        ..KernelParams::default()
+    }
+}
+
+fn kernel_id(scope: &Scope, members: &[CxId]) -> CxId {
+    let mut parts = vec![serde_json::to_vec(scope).expect("scope json")];
+    parts.extend(members.iter().map(|id| id.as_bytes().to_vec()));
+    CxId::from_bytes(content_address(parts))
+}
+
+fn scope_hash_bytes(scope: &Scope) -> [u8; 32] {
+    *blake3::hash(&serde_json::to_vec(scope).expect("scope json")).as_bytes()
+}
