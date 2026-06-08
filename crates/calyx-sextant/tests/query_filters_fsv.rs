@@ -91,6 +91,14 @@ fn query_filters_apply_scalars_anchors_and_metadata() {
 }
 
 #[test]
+fn query_filters_scan_full_candidate_set_when_needed() {
+    let filtered = late_filter_hits();
+
+    assert_eq!(ids(&filtered), vec![cx(10).to_string()]);
+    assert_eq!(filtered[0].rank, 1);
+}
+
+#[test]
 #[ignore = "aiwonder FSV writes filter rows and result/provenance source-of-truth artifacts"]
 fn query_filters_aiwonder_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
@@ -110,6 +118,7 @@ fn query_filters_aiwonder_fsv() {
                 .with_filters(filters.clone()),
         )
         .unwrap();
+    let late_filtered = late_filter_hits();
     let metadata_mismatch = engine
         .search(
             &Query::new("cat")
@@ -151,6 +160,8 @@ fn query_filters_aiwonder_fsv() {
     let readback = json!({
         "unfiltered_ids": ids(&unfiltered),
         "filtered_ids": ids(&filtered),
+        "late_filter_ids": ids(&late_filtered),
+        "late_filter_rank": late_filtered.first().map(|hit| hit.rank),
         "filtered_provenance_hashes": filtered
             .iter()
             .map(|hit| hex(&hit.provenance.hash))
@@ -168,10 +179,49 @@ fn query_filters_aiwonder_fsv() {
     .unwrap();
 
     assert_eq!(ids(&filtered), vec![rows[0].cx_id.to_string()]);
+    assert_eq!(ids(&late_filtered), vec![cx(10).to_string()]);
     assert_eq!(readback["metadata_mismatch_count"], 0);
     assert_eq!(readback["anchor_mismatch_count"], 0);
     assert_eq!(readback["excluded_ids_absent"], true);
     assert_eq!(readback["rank_renumbered"], true);
+}
+
+fn late_filter_hits() -> Vec<calyx_sextant::Hit> {
+    let map = SlotIndexMap::new();
+    map.register(InvertedIndex::new(SlotId::new(1))).unwrap();
+    let mut engine = SearchEngine::new(map);
+    for value in 1..=10 {
+        let row = row(RowSpec {
+            value,
+            text: "cat same",
+            quality: if value == 10 { 1.0 } else { 0.0 },
+            topic: "science",
+            confidence: 0.90,
+            pointer_fragment: "late-filter-match",
+            modality: Modality::Text,
+            panel_version: 7,
+            created_at: value as u64,
+        });
+        let text = row.input_ref.pointer.as_ref().unwrap();
+        engine
+            .indexes
+            .insert_text(SlotId::new(1), row.cx_id, text, row.created_at)
+            .unwrap();
+        engine.put_constellation(row);
+    }
+
+    let mut query = Query::new("cat")
+        .with_slots(vec![SlotId::new(1)])
+        .with_filters(QueryFilters {
+            scalars: vec![ScalarPredicate {
+                name: "quality".to_string(),
+                op: ScalarOp::Eq,
+                value: 1.0,
+            }],
+            ..QueryFilters::default()
+        });
+    query.k = 1;
+    engine.search(&query).unwrap()
 }
 
 fn filter_engine() -> (SearchEngine, Vec<calyx_core::Constellation>) {
