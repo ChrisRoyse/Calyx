@@ -40,6 +40,11 @@ as PH09 writes constellations.*
   a real `LedgerEntry` row before the base/slot data rows in the same Aster WAL
   batch. WAL, ledger-CF, and SST byte readbacks are FSV-backed at
   `/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`.
+- **Post-sweep note.** PH35 T06 (#247) adds actor validation plus
+  server-stamped monotonic timestamps in `LedgerAppender`, including restart
+  recovery of `last_ts` and Aster ingest readback of non-empty service actors.
+  Ledger-CF, WAL, SST byte, and compact `jq` row readbacks are FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue247-ledger-actor-ts-20260608`.
 - **FSV gate.** every constellation write has a chained ledger entry in the WAL
   group-commit (read the WAL + ledger CF); chain links verify; no entry stores a
   secret value.

@@ -62,6 +62,7 @@ impl RedactionPolicy {
         match actor {
             ActorId::Agent(_) => ActorId::Agent("redacted".to_string()),
             ActorId::Service(_) => ActorId::Service("redacted".to_string()),
+            ActorId::System => ActorId::System,
         }
     }
 }

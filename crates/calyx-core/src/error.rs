@@ -148,6 +148,9 @@ error_catalog! {
     LedgerSecretInPayload, ledger_secret_in_payload, "CALYX_LEDGER_SECRET_IN_PAYLOAD",
     "ledger payload contains secret-like material", "ledger payload must store hashes/ids only — redact before writing";
 
+    LedgerActorTooLong, ledger_actor_too_long, "CALYX_LEDGER_ACTOR_TOO_LONG",
+    "ledger actor id exceeds 64 UTF-8 bytes", "actor id must be <= 64 bytes UTF-8";
+
     LedgerGroupCommitFailed, ledger_group_commit_failed, "CALYX_LEDGER_GROUP_COMMIT_FAILED",
     "ledger hook failed during group commit", "ledger hook failed — group-commit rolled back; retry the write";
 
@@ -201,6 +204,7 @@ mod tests {
         "CALYX_LEDGER_CORRUPT",
         "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
         "CALYX_LEDGER_SECRET_IN_PAYLOAD",
+        "CALYX_LEDGER_ACTOR_TOO_LONG",
         "CALYX_LEDGER_GROUP_COMMIT_FAILED",
         "CALYX_VAULT_ACCESS_DENIED",
         "CALYX_STALE_DERIVED",
@@ -248,6 +252,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_LEDGER_SECRET_IN_PAYLOAD",
             "ledger payload must store hashes/ids only — redact before writing"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_LEDGER_ACTOR_TOO_LONG",
+            "actor id must be <= 64 bytes UTF-8"
         )));
         assert!(pairs.contains(&(
             "CALYX_LEDGER_GROUP_COMMIT_FAILED",

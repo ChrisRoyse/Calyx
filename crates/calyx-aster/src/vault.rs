@@ -264,4 +264,7 @@ mod compaction_tests;
 mod recovery_tests;
 
 #[cfg(test)]
+mod ledger_timestamp_tests;
+
+#[cfg(test)]
 mod tests;

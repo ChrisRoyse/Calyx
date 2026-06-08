@@ -1,72 +1,75 @@
-# PH35 · T06 — Actor-stamp + server-stamped monotonic timestamp wiring
+# PH35 T06 - Actor-stamp + server-stamped monotonic timestamp wiring
 
 | Field | Value |
 |---|---|
-| **Phase** | PH35 — Hash-chain append-only CF (in group-commit) |
-| **Stage** | S7 — Ledger Provenance |
+| **Phase** | PH35 - Hash-chain append-only CF (in group-commit) |
+| **Stage** | S7 - Ledger Provenance |
 | **Crate** | `calyx-ledger` |
-| **Files** | `crates/calyx-ledger/src/append.rs` (≤500) |
-| **Depends on** | T05 (this phase) · PH04 (`Clock` trait in `calyx-core`) |
+| **Files** | `crates/calyx-ledger/src/append.rs` (<=500) |
+| **Depends on** | T05 (this phase), PH04 (`Clock` trait in `calyx-core`) |
 | **Axioms** | A15, A16 |
-| **PRD** | `dbprdplans/11 §2` |
+| **PRD** | `dbprdplans/11` section 2 |
+| **Status** | DONE / FSV-signed-off in #247 |
 
 ## Goal
 
 Ensure every `LedgerEntry` carries a verifiable `actor` (who or what caused
 the mutation) and a server-stamped, monotonically increasing `ts` (never
-client-supplied). The `actor` field identifies the `AgentId` or `ServiceId`
-responsible; the `ts` comes from the `Clock` trait injected at startup (not
-`SystemTime::now()` in logic). Monotonicity is enforced at the appender level
-so sequence ordering and timestamp ordering are consistent.
+client-supplied). The `actor` field identifies the `AgentId`, `ServiceId`, or
+system actor responsible; the `ts` comes from the injected `Clock` trait, not
+`SystemTime::now()` in ledger logic. Monotonicity is enforced at the appender
+level so sequence ordering and timestamp ordering are consistent.
 
-## Build (checklist of concrete, code-level steps)
+## Build
 
-- [ ] `ActorId` in `entry.rs`: tagged enum
-  `AgentId(String)` | `ServiceId(String)` | `System`; max 64-byte UTF-8 for
-  the inner string; return `CALYX_LEDGER_ACTOR_TOO_LONG` if over limit.
-- [ ] Add `CALYX_LEDGER_ACTOR_TOO_LONG` to error catalog with remediation
-  `"actor id must be ≤64 bytes UTF-8"`.
-- [ ] `LedgerAppender` stores `last_ts: u64` (nanoseconds, server-stamped);
-  `fn stamp_ts(&mut self) -> u64` — calls `self.clock.now_ns()`; if result
-  ≤ `self.last_ts`, returns `self.last_ts + 1` (monotonic clamp, not panic);
-  updates `last_ts`.
-- [ ] `fn append` uses `stamp_ts()` for `ts`; the caller provides `actor` but
-  never provides `ts` (it is server-stamped).
-- [ ] On `LedgerAppender::open`, recover `last_ts` from the last row's `ts`
-  field so monotonicity survives restarts.
-- [ ] `ActorId::validate(&self) -> Result<()>` — checks UTF-8 byte length ≤ 64.
+- [x] `ActorId` in `entry.rs`: tagged enum `AgentId(String)` |
+  `ServiceId(String)` | `System`; max 64-byte UTF-8 for the inner string;
+  return `CALYX_LEDGER_ACTOR_TOO_LONG` if over limit.
+- [x] Add `CALYX_LEDGER_ACTOR_TOO_LONG` to the error catalog with remediation
+  `"actor id must be <= 64 bytes UTF-8"`.
+- [x] `LedgerAppender` stores `last_ts: u64` and uses
+  `next_ts(&self) -> Result<u64>` to call the injected `Clock::now()`. If the
+  clock value is `<= self.last_ts`, the appender uses `self.last_ts + 1` and
+  fails closed only on timestamp exhaustion.
+- [x] `append` computes `ts`; callers provide `actor` but never provide `ts`.
+- [x] `LedgerAppender::open` recovers `last_ts` from the last row's `ts` so
+  monotonicity survives restarts.
+- [x] `ActorId::validate(&self) -> Result<()>` checks UTF-8 byte length `<= 64`.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests
 
-- [ ] unit: inject a `MockClock` that returns 1000, 1000, 1001 on successive
-  calls; append 3 entries; assert `ts` values are 1000, 1001, 1002 (monotonic
-  clamp fires on the second call).
-- [ ] unit: restart appender with last recovered `ts=5000`; inject clock
-  returning 4999; assert first new entry has `ts=5001` (monotonic clamp across
-  restart).
-- [ ] proptest: for any sequence of clock values (possibly non-monotone),
-  `entry[i].ts <= entry[i+1].ts` always holds.
-- [ ] edge (≥3): `actor = AgentId("")` (empty string) → `Ok(())` (empty is
-  valid); `actor = AgentId("x".repeat(64))` → `Ok(())`; `actor =
-  AgentId("x".repeat(65))` → `CALYX_LEDGER_ACTOR_TOO_LONG`.
-- [ ] fail-closed: `ts` field in recovered last row is corrupted (0) → appender
-  sets `last_ts=0` and monotonicity still holds going forward (no panic).
+- [x] Unit: injected clock returns 1000, 1000, 1001; three appends produce
+  timestamps 1000, 1001, 1002.
+- [x] Unit: appender restarts after recovered `ts=5000`; injected clock returns
+  4999; first new entry has `ts=5001`.
+- [x] Proptest: any generated clock sequence preserves strictly increasing
+  ledger entry timestamps.
+- [x] Edge cases: empty actor string passes, 64-byte actor string passes,
+  65-byte actor string returns `CALYX_LEDGER_ACTOR_TOO_LONG` and writes no row.
+- [x] Fail-closed recovery edge: recovered `ts=0` still clamps forward to `1`
+  on the next append.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## FSV
 
-- **SoT:** `ledger` CF rows — `ts` and `actor` fields in each entry
-- **Readback:** `calyx scan --cf ledger --range 0..10 | jq '[.seq, .ts, .actor]'`
-  — prints a table; confirm `ts[i] <= ts[i+1]` for all i; confirm `actor`
-  field is present and non-empty on every row.
-- **Prove:** before: no `actor` or monotonic `ts` enforcement; after: scan
-  output shows non-decreasing `ts`; `actor` field contains `ServiceId("calyx-aster")`
-  (or the configured service id) on ingest entries; injected-clock test
-  proves `SystemTime::now()` is never called in logic (grep confirms absence).
+- **SoT:** `ledger` CF rows, the Aster WAL, and ledger SST bytes on aiwonder.
+- **Evidence root:** `/home/croyse/calyx/data/fsv-issue247-ledger-actor-ts-20260608`
+- **Trigger:** `CALYX_FSV_ROOT=<root> cargo test -p calyx-aster ph35_actor_monotonic_ts_aiwonder_fsv -- --ignored --nocapture`
+- **Readback:** `actor-monotonic-ts/ledger-actor-ts-readback.json` shows the
+  pre-read ledger row absent, rows 0..2 decoded with actor
+  `ServiceId("calyx-aster")`, `actors_non_empty=true`, and
+  `timestamps_strictly_increase=true`.
+- **Issue scan:** `actor-monotonic-ts/09-issue-scan-jq.out` records compact
+  `[seq, ts, actor]` rows matching the #247 acceptance wording.
+- **Byte proof:** `actor-monotonic-ts/03-ledger-cf-readback.out`,
+  `04-wal-readback.out`, `06-wal-prefix.hex`, and `07-ledger-sst-prefix.hex`
+  contain the physical ledger CF, WAL, and SST bytes.
+- **Gates:** `final-gates/10-fmt-check.out` through `14-linecount.out` record
+  aiwonder fmt, check, test, clippy, and line-count gates.
 
-## Done when
+## Done
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH35 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder.
+- [x] File(s) <= 500 lines.
+- [x] FSV evidence attached to issue #247.
+- [x] No anti-pattern: no flattening, no `C(N,2)` past DPI, no ungrounded
+  trusted claim, no frozen-lens mutation, and no harness-as-FSV.

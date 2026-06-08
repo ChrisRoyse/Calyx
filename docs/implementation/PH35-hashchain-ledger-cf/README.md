@@ -39,10 +39,12 @@ encoding; evidence is at
 `/home/croyse/calyx/data/fsv-issue245-ledger-redaction-20260608`. T05 (#246)
 wires the group-commit hook through Aster so the ledger row shares the same WAL
 record as its data mutation; evidence is at
-`/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`. The
-remaining PH35 tasks build actor/timestamp wiring and the wider WAL smoke FSV
-on top of those primitives. The following scaffolding already exists and must
-be reused:
+`/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`. T06 (#247)
+adds actor validation plus server-stamped monotonic timestamps, with restart
+recovery of `last_ts`; evidence is at
+`/home/croyse/calyx/data/fsv-issue247-ledger-actor-ts-20260608`. The remaining
+PH35 task is the wider WAL smoke FSV on top of those primitives. The following
+scaffolding already exists and must be reused:
 
 - `calyx-core/src/model/signal.rs`: `LedgerRef { seq: u64, hash: [u8; 32] }`
 - `calyx-aster/src/cf/key.rs`: `ledger_key(seq: u64) -> Vec<u8>` (big-endian
@@ -53,7 +55,8 @@ be reused:
   site; PH35 adds the ledger side
 
 The `kind` discriminant set, `entry_hash` formula, binary codec, appender,
-redaction policy, and Aster group-commit integration are implemented.
+redaction policy, Aster group-commit integration, and actor/timestamp stamping
+are implemented.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -77,7 +80,7 @@ redaction policy, and Aster group-commit integration are implemented.
 | T03 | `LedgerAppender`: seq counter + append-only enforcement (done #244) | T02 |
 | T04 | Redaction policy: no secrets in payload (done #245) | T03 |
 | T05 | Group-commit hook: ledger entry in same WAL batch as data write (done #246) | T03 |
-| T06 | Actor-stamp + server-stamped monotonic timestamp wiring | T05 |
+| T06 | Actor-stamp + server-stamped monotonic timestamp wiring (done #247) | T05 |
 | T07 | Integration smoke: PH09 constellation write → chained ledger entry in WAL | T05, T06 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
