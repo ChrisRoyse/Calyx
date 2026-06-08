@@ -28,7 +28,10 @@ pub use index::{
 pub use navigation::{LensComparison, compare_lenses, define, neighbors};
 pub use planner::{IntentLabel, PlanLimits, PlannedQuery, QueryPlanner};
 pub use planner_explain::PlannerExplain;
-pub use query::{FreshnessRequirement, Query};
+pub use query::{
+    AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, ScalarOp,
+    ScalarPredicate,
+};
 pub use reranker::{RerankRequest, RerankerClient};
 pub use search::SearchEngine;
 pub use slot_index_map::SlotIndexMap;

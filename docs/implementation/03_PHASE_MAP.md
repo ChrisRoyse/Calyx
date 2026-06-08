@@ -18,7 +18,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune) |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + capability cards + default panels + temporal E2/E3/E4) |
-| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain); PH26 reranker/filter follow-ups tracked by #296/#297 |
+| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust hardening #294 FSV-backed |
 | S6 Lodestar | PH31–PH34 | ▶ **ACTIVE** (PH31-PH32 done/FSV-signed-off; PH33 active in `calyx-lodestar`; real Loom adapter #293 and groundedness bound #298 FSV-backed) |
 | S7–S20 | PH35–PH72 | · pending |
@@ -107,10 +107,9 @@ Latest roots:
 > provenance until Stage 7, and full user-facing Assay/abundance CLI commands
 > remain in PH62 while Stage 5 readback bytes are already exposed through FSV
 > JSON. Closed during sweep hardening: PH31/PH33 real Loom association-graph
-> adapter #293, PH30 grounded Assay trust #294, PH11 durable tiering #295, and
-> PH26 reranker search-path ordering #296. Remaining tracked post-sweep work:
-> PH26 scalar/anchor/metadata filters #297. PH33 bounded build-time
-> groundedness #298 is now FSV-backed.
+> adapter #293, PH30 grounded Assay trust #294, PH11 durable tiering #295, PH26
+> reranker search-path ordering #296, and PH26 scalar/anchor/built-in metadata
+> filters #297. PH33 bounded build-time groundedness #298 is now FSV-backed.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

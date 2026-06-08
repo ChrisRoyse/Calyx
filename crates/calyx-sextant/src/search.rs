@@ -2,11 +2,14 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
+use calyx_core::{Anchor, CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::hit::{FreshnessTag, Hit};
-use crate::query::{FreshnessRequirement, Query};
+use crate::query::{
+    AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, ScalarOp,
+    ScalarPredicate,
+};
 use crate::reranker::{RerankRequest, RerankerClient};
 use crate::slot_index_map::SlotIndexMap;
 use crate::util::{hex32, stub_ledger};
@@ -68,6 +71,11 @@ impl SearchEngine {
                 "reranker search requires Pipeline fusion",
             ));
         }
+        let search_k = if query.filters.is_empty() {
+            query.k
+        } else {
+            query.k.saturating_mul(8).max(query.k)
+        };
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
             let stats = self
@@ -77,10 +85,10 @@ impl SearchEngine {
                 .find(|stats| stats.slot == *slot)
                 .ok_or_else(|| SlotIndexMap::missing_slot_error(*slot))?;
             let hits = if stats.kind == "inverted" {
-                self.indexes.search_text(*slot, &query.text, query.k)?
+                self.indexes.search_text(*slot, &query.text, search_k)?
             } else {
                 let vector = self.query_vector_for_slot(query, *slot)?;
-                self.indexes.search(*slot, &vector, query.k, query.ef)?
+                self.indexes.search(*slot, &vector, search_k, query.ef)?
             };
             per_slot.insert(*slot, hits);
         }
@@ -96,18 +104,43 @@ impl SearchEngine {
             .copied()
             .collect();
         let context = FusionContext {
-            k: query.k,
+            k: search_k,
             explain: query.explain,
             strategy: strategy.clone(),
             weights,
             stage1_slots: stage1_slots.clone(),
         };
         let mut hits = fusion::fuse(&per_slot, &context);
-        self.attach_provenance_and_freshness(&mut hits, &slots, &query.freshness);
+        self.apply_filters(&mut hits, &query.filters);
         if let Some(reranker) = reranker {
             self.rerank_pipeline_hits(query, &mut hits, &stage1_slots, reranker)?;
         }
+        hits.truncate(query.k);
+        self.renumber_hits(&mut hits);
+        self.attach_provenance_and_freshness(&mut hits, &slots, &query.freshness);
         Ok(hits)
+    }
+
+    fn apply_filters(&self, hits: &mut Vec<Hit>, filters: &QueryFilters) {
+        if filters.is_empty() {
+            return;
+        }
+        hits.retain(|hit| {
+            self.docs.get(&hit.cx_id).is_some_and(|cx| {
+                filters
+                    .scalars
+                    .iter()
+                    .all(|filter| scalar_matches(cx, filter))
+                    && filters
+                        .anchors
+                        .iter()
+                        .all(|filter| anchor_filter_matches(cx, filter))
+                    && filters
+                        .metadata
+                        .iter()
+                        .all(|filter| metadata_matches(cx, filter))
+            })
+        });
     }
 
     fn rerank_pipeline_hits(
@@ -187,6 +220,12 @@ impl SearchEngine {
         Ok(texts)
     }
 
+    fn renumber_hits(&self, hits: &mut [Hit]) {
+        for (idx, hit) in hits.iter_mut().enumerate() {
+            hit.rank = idx + 1;
+        }
+    }
+
     fn query_vector_for_slot(&self, query: &Query, slot: SlotId) -> Result<SlotVector> {
         let stats = self
             .indexes
@@ -263,6 +302,71 @@ impl SearchEngine {
                 explain.per_lens_count = hit.per_lens.len();
             }
         }
+    }
+}
+
+fn scalar_matches(cx: &Constellation, filter: &ScalarPredicate) -> bool {
+    cx.scalars
+        .get(&filter.name)
+        .is_some_and(|actual| compare_scalar(*actual, filter.op, filter.value))
+}
+
+fn compare_scalar(actual: f64, op: ScalarOp, expected: f64) -> bool {
+    if !actual.is_finite() || !expected.is_finite() {
+        return false;
+    }
+    match op {
+        ScalarOp::Eq => actual == expected,
+        ScalarOp::Gt => actual > expected,
+        ScalarOp::Gte => actual >= expected,
+        ScalarOp::Lt => actual < expected,
+        ScalarOp::Lte => actual <= expected,
+    }
+}
+
+fn anchor_filter_matches(cx: &Constellation, filter: &AnchorPredicate) -> bool {
+    cx.anchors
+        .iter()
+        .any(|anchor| anchor_matches(anchor, filter))
+}
+
+fn anchor_matches(anchor: &Anchor, filter: &AnchorPredicate) -> bool {
+    if anchor.kind != filter.kind {
+        return false;
+    }
+    if let Some(value) = &filter.value
+        && &anchor.value != value
+    {
+        return false;
+    }
+    if let Some(min_confidence) = filter.min_confidence
+        && (!min_confidence.is_finite() || anchor.confidence < min_confidence)
+    {
+        return false;
+    }
+    if let Some(source) = &filter.source
+        && &anchor.source != source
+    {
+        return false;
+    }
+    true
+}
+
+fn metadata_matches(cx: &Constellation, filter: &MetadataPredicate) -> bool {
+    match filter {
+        MetadataPredicate::Vault(vault) => &cx.vault_id == vault,
+        MetadataPredicate::Modality(modality) => &cx.modality == modality,
+        MetadataPredicate::PanelVersion(panel_version) => cx.panel_version == *panel_version,
+        MetadataPredicate::CreatedAt { min, max } => {
+            min.is_none_or(|value| cx.created_at >= value)
+                && max.is_none_or(|value| cx.created_at <= value)
+        }
+        MetadataPredicate::InputRedacted(redacted) => cx.input_ref.redacted == *redacted,
+        MetadataPredicate::InputPointerContains(fragment) => cx
+            .input_ref
+            .pointer
+            .as_ref()
+            .is_some_and(|pointer| pointer.contains(fragment)),
     }
 }
 

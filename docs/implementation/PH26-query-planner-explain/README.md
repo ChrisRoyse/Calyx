@@ -39,7 +39,12 @@ mock scores. Post-sweep hardening #296 wires that client into
 uses only request-scoped candidate text from the sparse stage-1 index and fails
 closed on non-2xx, mismatched score vectors, missing candidate text, or
 non-Pipeline reranker requests. Scalar/anchor/metadata query filters from the
-PRD are tracked by #297 unless implemented earlier.
+PRD are implemented by #297 as `QueryFilters`: scalar comparisons over
+`Constellation.scalars`, anchor kind/value/source/confidence predicates, and
+built-in metadata predicates over vault, modality, panel version, created time,
+and input redaction/pointer. Arbitrary user metadata maps are not claimed here
+because the core `Constellation` record does not yet expose a free-form metadata
+map.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -48,6 +53,7 @@ PRD are tracked by #297 unless implemented earlier.
 | `crates/calyx-sextant/src/planner.rs` | intent classifier → strategy selection; cost model + caps; timeout enforcement |
 | `crates/calyx-sextant/src/planner_explain.rs` | planner-enriched explain output: intent, strategy chosen, cost estimate |
 | `crates/calyx-sextant/src/reranker.rs` | reranker hook: HTTP call to :8089, request-scoped text, Zeroizing, timeout |
+| `crates/calyx-sextant/tests/query_filters_fsv.rs` | scalar/anchor/built-in metadata filter execution and readback |
 | `crates/calyx-sextant/tests/reranker_search_fsv.rs` | SearchEngine Pipeline reranker ordering and request/response readback |
 | `crates/calyx-sextant/tests/stage4_fsv.rs` | intent/strategy, Pipeline, reranker, explain, and unbounded-plan FSV |
 
@@ -70,6 +76,8 @@ Run the Stage 4 FSV on aiwonder. The readback JSON must include:
 - `rerank.scores` from the resident `:8089` TEI reranker.
 - #296 `reranker-search-readback.json` showing baseline order, reranked order,
   request `texts`, and `pipeline+rerank` strategy.
+- #297 `query-filter-readback.json` showing unfiltered ids, filtered ids,
+  provenance hashes, and exclusion counts for scalar/anchor/metadata mismatches.
 - `pipeline_subset_ok=true`.
 - `pipeline_empty_stage1_hits=0`.
 
@@ -77,6 +85,8 @@ For #290 the readback root is
 `/home/croyse/calyx/data/fsv-issue290-sextant-pipeline-reranker-20260608`.
 For #296 the readback root is
 `/home/croyse/calyx/data/fsv-issue296-reranker-search-20260608`.
+For #297 the readback root is
+`/home/croyse/calyx/data/fsv-issue297-query-filters-20260608`.
 
 ## Risks / landmines
 

@@ -25,6 +25,9 @@
 > `SearchEngine::search_with_reranker` for final Pipeline ordering, with
 > request-scoped candidate text and fail-closed non-2xx/mismatch behavior.
 > FSV root: `/home/croyse/calyx/data/fsv-issue296-reranker-search-20260608`.
+> Post-sweep hardening #297 adds `QueryFilters` for scalar, anchor, and
+> built-in constellation metadata predicates in the SearchEngine path.
+> FSV root: `/home/croyse/calyx/data/fsv-issue297-query-filters-20260608`.
 
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
@@ -105,10 +108,16 @@ attention.
   reranker scores to final Pipeline hit ordering using only candidate text from
   the sparse stage-1 index; it fails closed on non-Pipeline use, missing
   candidate text, non-2xx responses, or score-vector mismatch (#296).
+- **Post-sweep note.** `QueryFilters` now executes scalar comparisons, anchor
+  kind/value/source/confidence predicates, and built-in metadata predicates
+  (vault, modality, panel version, created time, input redaction/pointer) against
+  stored constellations; rows without stored constellation metadata are excluded
+  fail-closed (#297).
 - **FSV gate.** intent auto-selects the right strategy (verified per case);
   `explain=true` returns the per-lens + provenance breakdown; an unbounded plan
   is rejected; Pipeline reranker readback shows baseline order, reranked order,
-  HTTP request text scope, and `pipeline+rerank` strategy.
+  HTTP request text scope, and `pipeline+rerank` strategy; query filter readback
+  shows unfiltered ids, filtered ids, provenance hashes, and excluded ids absent.
 - **Axioms/PRD.** A17, `10 §2/§7`, `17 §7.3` (planner cost caps).
 
 ---
