@@ -1,5 +1,11 @@
 # PH30 · T03 — `bits_report` + complete `abundance_report` with DPI ceiling
 
+> **Status: DONE in Stage 5 core.** `crates/calyx-loom/src/abundance.rs` and
+> `crates/calyx-assay/src/attribution.rs` implement the report structs and the
+> Stage 5 FSV readback writes `stage5-readback.json` under the FSV root. The
+> standalone `calyx abundance` and `calyx bits-report` UX commands are deferred
+> to PH62, where the CLI surface is built.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH30 — Panel sufficiency + attribution + reports |
@@ -43,7 +49,11 @@ present, real, and non-fabricated. This closes the reporting layer of Stage 5.
   - assembles `BitsReport`; tags `trust: Trusted` iff anchor is grounded (A2)
   - persists to the assay CF: keyed `(panel_id, anchor_kind, shard_hash, ts)`
 - [ ] `Display` impl for both `AbundanceReport` and `BitsReport` that prints all fields; marks `[provisional]` only when trust is `Provisional`; never hides `C(N,2)` or the DPI ceiling
-- [ ] CLI integration: `calyx abundance --vault <path>` prints `AbundanceReport`; `calyx bits-report --panel <id> --anchor <kind>` prints `BitsReport`
+- [x] Core report integration: `stage5_full_stack_fsv` writes `AbundanceReport`
+  and `BitsReport` JSON readbacks under the Stage 5 FSV root.
+- [ ] CLI integration deferred to PH62: `calyx abundance --vault <path>` prints
+  `AbundanceReport`; `calyx bits-report --panel <id> --anchor <kind>` prints
+  `BitsReport`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -58,7 +68,8 @@ present, real, and non-fabricated. This closes the reporting layer of Stage 5.
 - **SoT:** the printed `abundance_report` for a test vault on aiwonder with N=13 lenses, real n_eff, and a grounded anchor
 - **Readback:**
   ```
-  calyx abundance --vault /home/croyse/calyx/test-vault
+  CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final \
+    cargo test -p calyx-assay stage5_full_stack_fsv -- --ignored --nocapture
   ```
   Expected output format (exact fields required):
   ```
@@ -70,7 +81,9 @@ present, real, and non-fabricated. This closes the reporting layer of Stage 5.
   Sufficiency verdict:      Sufficient | Insufficient (deficit: <f32> bits)
   Meaning compression:      <f32> signals/input
   ```
-- **Prove:** run on aiwonder; screenshot the output; confirm all four honest numbers are present and not `[provisional]`. Post evidence to PH30 GitHub issue.
+- **Prove:** run on aiwonder; read `stage5-readback.json`,
+  `xterm-cf-readback.json`, and `assay-cf-readback.json`; confirm all honest
+  numbers are present and not fabricated. Post evidence to PH30 GitHub issue.
 
 ## Done when
 

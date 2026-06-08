@@ -37,7 +37,7 @@ on read.
   - compute `cadence_secs` = median of consecutive `t_k` gaps (if ≥2 occurrences)
   - return `RecurrenceSeries` with occurrences sorted ascending by `t_k`
 - [ ] Implement `SeriesStore::occurrence_count(cx_id: CxId) -> Result<u64, CalyxError>` — O(1) from `frequency` field in base CF
-- [ ] `calyx-loom` is a greenfield stub; initialize `lib.rs` with the `recurrence` module and re-export
+- [ ] `calyx-loom` exists from Stage 5; add a `recurrence` module and re-export it from the existing `lib.rs`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 

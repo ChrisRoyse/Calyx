@@ -43,7 +43,9 @@ inverted-list posting infrastructure in `calyx-sextant`. PH53 (T02–T07) will
 have added paradigm-layer CF write paths. What does NOT yet exist: any
 secondary-index infrastructure — no `index/btree.rs`, no `index/inverted.rs`,
 no index-maintenance hooks in the write path, no `index_rebuild`.
-`calyx-sextant` is a 9-line stub for query; PH54 does not touch it.
+`calyx-sextant` already contains Stage 4 search/query-planner surfaces; PH54
+does not modify Sextant, but its Aster index outputs will be consumed by later
+universal query work.
 
 ## Deliverables (file plan, each ≤500 lines)
 

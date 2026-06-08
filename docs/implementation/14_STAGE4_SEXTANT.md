@@ -1,5 +1,14 @@
 # Stage 4 — Sextant Search & Navigation (PH23–PH26)
 
+> **STATUS: ✅ DONE (FSV-signed-off, commit `9dc197c`).** `calyx-sextant`
+> implements dense/sparse slot indexes, RRF/WeightedRRF/SingleLens fusion with
+> provenance and freshness, planner/explain/navigation, tokenizer/varint/BM25,
+> and real SciFact qrels evidence. FSV root:
+> `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`; final evidence
+> hash `796b4812a3e2ac47a6ace81934be5799514d94f7e42b28b45b265386a98b6db8`.
+> Stage 5 has consumed Sextant successfully; next active stage is Lodestar
+> (`16_STAGE6_LODESTAR.md`).
+
 The query engine: per-slot ANN, multi-lens fusion (RRF), provenance on every
 hit, sparse/lexical search, and a planner that picks strategy by intent. The
 payoff of the constellation architecture — many lenses, many ways to search.
@@ -62,7 +71,7 @@ attention.
 
 ---
 
-## Stage 4 exit
+## Stage 4 exit — ✅ achieved
 Multi-lens search beats single-lens on a real corpus, every hit is provenanced
 and explainable, lexical search is just a lens, and the planner picks strategy
 by intent — PRD `SEARCH`. With Stage 0–4 + a migration shadow, Calyx answers a

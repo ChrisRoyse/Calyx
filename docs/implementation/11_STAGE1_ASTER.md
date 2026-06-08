@@ -5,8 +5,11 @@
 > last-acked seq with `CALYX_ASTER_TORN_WAL`; corrupt-shard failed closed with
 > `CALYX_ASTER_CORRUPT_SHARD`). Satisfies PRD `CORE` (`19 §5`). Evidence: GitHub
 > issue #23; FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
-> PH05–PH09 and PH11 are clean; **PH10 is functionally complete but diverges
-> architecturally from its card — see "Stage-1 follow-ups" at the bottom.**
+> All seven Stage-1 follow-ups have since been triaged: **#1, #4, #6, and #7 are
+> resolved in code** (commits `75975a9`, `3e6c03d`, plus the
+> `CompactionDebt::measure` proptest in `compaction/tests.rs`); the rest are
+> explicit deferrals or module-placement cosmetics — see "Stage-1 follow-ups" at
+> the bottom.
 
 The on-disk substrate: WAL, LSM+columnar, column families, MVCC, constellation
 CRUD, crash recovery, compaction/tiering. Everything downstream stores through
@@ -88,7 +91,7 @@ provisioned). **Living-system role:** metabolism + memory.
   land in the `anchors` CF.
 - **Axioms/PRD.** A1, A15, `03 §3`, `04 §5`.
 
-## PH10 — Manifest + atomic swap + crash recovery — ✅ DONE (follow-ups tracked)
+## PH10 — Manifest + atomic swap + crash recovery — ✅ DONE (recovery unified; minor deferrals)
 - **Objective.** Atomic manifest pointer; recovery replays WAL past the last
   durable manifest to the last fsync'd record; corrupt base fails closed.
 - **Deps.** PH09.
@@ -101,7 +104,7 @@ provisioned). **Living-system role:** metabolism + memory.
   (`CALYX_ASTER_CORRUPT_SHARD`), points at restore.
 - **Axioms/PRD.** A15, A16, `04 §7`.
 
-## PH11 — Compaction + hot/cold tiering — ✅ DONE (follow-ups tracked)
+## PH11 — Compaction + hot/cold tiering — ✅ DONE (scheduler unified; debt proptest landed)
 - **Objective.** Background, snapshot-safe compaction; tiering hot (NVMe) vs
   cold (archive HDD); raw-f32 sidecars cold.
 - **Deps.** PH10.
@@ -126,39 +129,40 @@ satisfied at commit `8dcddaa`.
 
 ## Stage-1 follow-ups (functional gate passed; architectural debt to resolve)
 
-Stage 1 is **functionally complete and FSV-signed-off**, but a forensic
-code-vs-card audit (2026-06-07) found real divergences from the PH10/PH11 cards.
-These are **non-blocking** for starting Stage 2 (Forge), but are tracked as
-GitHub `type:task` issues and should be resolved before/with Stage 13 (resource
-hardening), since they touch the recovery + compaction paths.
+Stage 1 is **functionally complete and FSV-signed-off**. A forensic
+code-vs-card audit (2026-06-07) found seven divergences from the PH10/PH11
+cards; their current disposition follows. None block downstream stages.
 
-1. **Two parallel recovery paths (PH10).** `AsterVault::open` recovers by
-   replaying the **entire** WAL (`vault/durable.rs::replay_batches`) and
-   re-committing every batch — it does **not** consult the manifest's
-   `durable_seq` or call the manifest-anchored `recover_vault` +
-   `set_start_seq(last_recovered_seq)`. The manifest-anchored path exists
-   (`manifest/mod.rs::recover_vault`) and is exercised only by the CLI `recover`
-   command + tests. **Unify `open` onto the manifest-anchored recovery.**
-2. **`manifest/recovery.rs` not split out (PH10).** Recovery logic lives in
-   `manifest/mod.rs::recover_vault`; cosmetic module-placement divergence from
-   the card.
-3. **`degraded_rebuildable` never set (PH10).** The manifest field exists but no
-   code path sets it true on a corrupt derived CF; the degrade/self-heal path is
-   deferred to PH44 (Anneal self-heal).
-4. **Durable / `CfRouter` / `CompactionScheduler` not unified (PH09/PH10/PH11).**
-   `DurableVault::write_batch` writes one SST per row and rewrites the manifest
-   per put, bypassing the memtable/`CfRouter` flush model; `CompactionScheduler`
-   /`CompactionCatalog` are implemented but **not wired into `AsterVault`** (no
-   vault method triggers compaction, durable SSTs aren't registered in a
-   catalog). Unify the write/flush/compaction paths.
-5. **Arrow slot columns not wired (PH06).** `sst/arrow.rs` (Arrow SoA column
-   chunk) is implemented + demo-wired, but slot CF values are stored via
-   `vault/encode.rs::encode_slot_vector`, not `ArrowColumnChunk`. **Explicit
-   deferral:** row-level slot vectors remain the CRUD/recovery format for Aster;
-   Arrow chunks belong to the later materialized array-bundle/slot-column work
-   where a batch of vectors can be stored as a true SoA column (PRD `23 §2`).
-6. **Inlined ledger stub (PH09).** The PH35 ledger-stub row is written in
-   `vault/encode.rs::encode_ledger_stub`, not a dedicated `vault/ledger_stub.rs`;
-   the real hash-chain lands in PH35.
-7. **Missing debt-meter proptest (PH11).** `CompactionDebt` has example-based
-   unit tests but no `proptest` as the card specified.
+1. ✅ **RESOLVED — recovery paths unified (PH10).** `AsterVault::open` now
+   recovers through the manifest-anchored `recover_vault` and calls
+   `set_start_seq(recovery.last_recovered_seq)` (`vault/durable.rs::open` →
+   `manifest::recover_vault`, `vault.rs` → `set_start_seq`), so WAL replay is
+   bounded by the manifest's `durable_seq` instead of replaying the whole log.
+   Fixed in commit `75975a9` ("Unify Aster vault manifest recovery"), with new
+   `vault/recovery_tests.rs` coverage.
+2. ◻ **Deferred (cosmetic, PH10).** Recovery logic still lives in
+   `manifest/mod.rs::recover_vault` rather than a split-out `manifest/recovery.rs`
+   — module placement only; no behavioural impact.
+3. ◻ **Deferred to PH44 (PH10).** `degraded_rebuildable` still has no code path
+   that sets it true on a corrupt derived CF; the degrade/self-heal path lands
+   with Anneal self-heal (PH44).
+4. ✅ **RESOLVED — durable / `CfRouter` / `CompactionScheduler` unified
+   (PH09/PH10/PH11).** The write/flush/compaction paths are now wired together
+   via `vault/compaction_bridge.rs` (`VaultCompactionScheduler`) plus
+   `compaction/scan.rs` (`catalog_from_vault_dir` SST discovery) and
+   `vault/commit.rs`; durable SSTs are registered in a `CompactionCatalog` and
+   the scheduler triggers on debt. Fixed in commit `3e6c03d` ("Resolve Aster
+   durable compaction follow-up"), with `vault/compaction_tests.rs` coverage.
+5. ◻ **Explicit deferral (PH06).** `sst/arrow.rs` (Arrow SoA column chunk) is
+   implemented + demo-wired, but slot CF values stay row-encoded via
+   `vault/encode.rs::encode_slot_vector`. Row-level slot vectors remain the
+   CRUD/recovery format for Aster; Arrow chunks belong to the later materialized
+   array-bundle/slot-column work where a batch of vectors becomes a true SoA
+   column (PRD `23 §2`).
+6. ✅ **RESOLVED — dedicated ledger stub (PH09).** The PH35 ledger-stub row now
+   lives in a dedicated `vault/ledger_stub.rs` (commit `3e6c03d`); the real
+   hash-chain still lands in PH35.
+7. ✅ **RESOLVED — debt-meter proptest (PH11).** `compaction/tests.rs` contains
+   `compaction_debt_matches_scaled_pending_bytes`, a proptest that verifies
+   `CompactionDebt::measure` tracks pending bytes, target bytes, and scaled debt
+   over generated shard byte sizes.

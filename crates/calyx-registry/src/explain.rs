@@ -44,8 +44,8 @@ pub fn explain_lens_from_card(
         corpus_hash,
         axis: spec.and_then(|spec| spec.axis.clone()),
         runtime: spec.map(|spec| spec.runtime.clone()),
-        bits: "provisional (Assay pending)".to_string(),
-        redundancy: "provisional (Assay pending)".to_string(),
+        bits: "provisional (Assay report not attached)".to_string(),
+        redundancy: "provisional (Assay report not attached)".to_string(),
         cost_ms_per_input: card.cost.ms_per_input,
         vram_bytes: card.cost.vram_bytes,
     })

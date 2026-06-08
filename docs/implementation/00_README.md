@@ -96,39 +96,67 @@ lenses + provenance. That alone justifies the project.
 Confirmed live (`01_AIWONDER_ENVIRONMENT.md`): RTX 5090 sm_120 + **CUDA 13.2**
 toolkit, **Rust via rustup** (so we build natively — the PRD's "no rustc on
 box" note is *superseded*), resident **TEI lenses** on :8088/:8089/:8090,
-Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. We lift
+Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. Userspace
+`cmake` and `protoc` are installed under `/home/croyse/calyx/bin`. Stage 6 lifts
 the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
-`19 §6`). Missing and to be installed in userspace: `cmake`, `protoc`.
+`19 §6`).
 
-## 7. Status (current: 2026-06-07, commit `8dcddaa`)
+## 7. Status (current: 2026-06-08, commit `0ada102`)
 
-**DONE — Stage 0 + Stage 1 (PH00–PH11), FSV-signed-off on aiwonder:**
+**DONE — Stages 0–5 (PH00–PH30), FSV-signed-off on aiwonder.** Implemented
+surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
+`calyx-sextant`, `calyx-loom`, `calyx-assay`, plus `calyx-cli` and
+`calyx-testkit`. `calyx-lodestar`, `calyx-mincut`, and `calyx-paths` are still
+skeletons and are the Stage 6 starting point.
+
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
 - **Stage 1** (PH05–PH11): `calyx-aster` storage core — WAL + group-commit,
   memtable + LSM SSTable, column families + key codecs, MVCC snapshots,
   constellation CRUD + idempotent ingest, manifest + crash recovery, compaction
   + hot/cold tiering. Plus `calyx-cli` readback/FSV/crash commands and
-  `calyx-testkit`. Proven by byte-level readback on aiwonder (87 `calyx-aster`
-  tests + 6 `calyx-cli` tests green; crash-drill recovered to last-acked seq;
-  corrupt-shard failed closed). Evidence: GitHub issue #23 (`[CONTEXT] You are
-  here`); FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
-  This satisfies PRD `CORE` (`dbprdplans/19 §5`).
-- **Stage-1 tracked follow-ups (non-blocking debt):** PH10 recovery diverges
-  from its card — `AsterVault::open` replays the full WAL instead of using the
-  manifest-anchored `recover_vault` + `set_start_seq`; `manifest/recovery.rs`
-  was not split out; `degraded_rebuildable` is never set (deferred to PH44); and
-  the durable-write / `CfRouter` / `CompactionScheduler` paths are not yet
-  unified. Recorded in `11_STAGE1_ASTER.md` and as GitHub `type:task` issues.
+  `calyx-testkit`. **FSV-signed-off on aiwonder** by byte-level readback (87+
+  `calyx-aster` tests, 6 `calyx-cli` tests; crash-drill recovered to last-acked
+  seq; corrupt-shard failed closed). Evidence: GitHub issue #23 (`[CONTEXT] You
+  are here`); FSV root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
+  Satisfies PRD `CORE` (`dbprdplans/19 §5`). Most Stage-1 follow-ups are now
+  resolved (`open` uses the manifest-anchored `recover_vault` + `set_start_seq`;
+  durable-write / `CfRouter` / `CompactionScheduler` unified via
+  `vault/compaction_bridge.rs`; dedicated `vault/ledger_stub.rs`;
+  `CompactionDebt::measure` proptest landed); remaining deferrals
+  (`degraded_rebuildable`→PH44, Arrow slot columns) are tracked in
+  `11_STAGE1_ASTER.md`.
+- **Stage 2** (PH12–PH16): `calyx-forge` math runtime — CPU SIMD backend
+  (gemm/cosine/l2/normalize/topk, AVX-512), CUDA sm_120 backend with CPU↔GPU
+  bit-parity suite (`cuda/` + `.cu` kernels), TurboQuant (rotation + scalar +
+  QJL + binary prefilter), MXFP4/MXFP8 microscaling + grouped/ragged GEMM, and
+  the per-shape autotune cache (microbench + explorer + reversible promotion).
+  Stage 2 is FSV-signed-off; PH12 roots are listed in
+  `PH12-cpu-simd-backend/README.md`, and aggregate evidence is recorded in #23.
+- **Stage 3** (PH17–PH22): `calyx-registry` lens layer — uniform
+  `Registry.measure` over algorithmic / TEI-HTTP / candle-local / ONNX runtimes,
+  the frozen contract + content-addressed `LensId`, hot-swap add/retire/park with
+  a lazy backfill queue, capability-card profiling, and the default panels +
+  closed-form temporal lenses E2/E3/E4. FSV root:
+  `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`.
+- **Stage 4** (PH23–PH26): `calyx-sextant` search/navigation — per-slot dense
+  and sparse indexes, RRF/WeightedRRF/SingleLens fusion with provenance,
+  planner/explain/freshness, and real SciFact qrels evidence. FSV root:
+  `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`.
+- **Stage 5** (PH27–PH30): `calyx-loom` + `calyx-assay` DDA/bits — agreement
+  graph, lazy cross-terms, abundance reports, KSG-style MI, random projection,
+  bootstrap CI, partitioned NMI, logistic probe, AssayGate pair gain,
+  differentiation contract, stratified bits, n_eff, sufficiency, attribution,
+  and assay provenance cache. FSV root:
+  `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
 
-**NEXT — Stage 2: Forge (PH12–PH16)** — the CPU SIMD + CUDA sm_120 math runtime
-(`calyx-forge`, currently a 9-line stub). Deps (PH04, PH09) are satisfied;
-start at `PH12-cpu-simd-backend/`. See `12_STAGE2_FORGE.md`.
+**NEXT — Stage 6: Lodestar kernel (PH31–PH34)** — `calyx-paths` +
+`calyx-mincut` graph primitives and `calyx-lodestar` kernel discovery/answering.
+Deps are satisfied by Stage 5's agreement graph and Stage 4 search. Start at
+`PH31-mincut-paths-scc-betweenness/` and `16_STAGE6_LODESTAR.md`.
 
-**Remaining:** every engine crate except `calyx-core`/`calyx-aster` is still a
-~9-line stub. Phases **PH12–PH72** are laid out as atomic task cards in the
-per-phase subdirs (`PH12-*/` … `PH72-*/`), governed by `PHASE_TASKS_README.md`,
-each with a byte-level FSV exit gate. Execution proceeds down the dependency
-spine (§4); the recommended first demo is `S0 → S1 → S2(CPU) → S3 → S4` + the
-migration shadow. Track live state in the `ChrisRoyse/Calyx` GitHub
-`type:context` issues (doctrine §8d, PRD `29`).
+**Remaining:** Phases **PH31–PH72** are laid out as atomic task cards in the
+per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
+FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
+state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,
+PRD `29`).

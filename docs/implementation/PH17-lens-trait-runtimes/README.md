@@ -1,5 +1,10 @@
 # PH17 — Lens trait + algorithmic + tei-http runtimes
 
+> **Status: DONE / FSV-signed-off.** `calyx-registry` now implements the
+> uniform lens runtime layer, algorithmic and TEI-HTTP runtimes, and downstream
+> PH18–PH22 surfaces. See `13_STAGE3_REGISTRY.md` for the current Stage 3
+> readback root.
+
 **Stage:** S3 — Registry / Lenses  ·  **Crate:** `calyx-registry`  ·
 **PRD roadmap:** P2  ·  **Axioms:** A4, A6
 
@@ -21,10 +26,10 @@ math (PH12) is already available for normalisation helpers.
 
 ## Current state (build off what exists)
 
-`calyx-registry` is a 9-line stub (Cargo.toml + `lib.rs` with a placeholder).
-Greenfield. The `Lens` trait, `Input`, `SlotShape`, `SlotVector`, `LensId`,
-`Modality` types already exist in `calyx-core/src/traits.rs` and `lib.rs` —
-implement against those; do not redefine them.
+`calyx-registry` is implemented and no longer a stub. The `Lens` trait,
+`Input`, `SlotShape`, `SlotVector`, `LensId`, and `Modality` types live in
+`calyx-core`; the Registry runtime layer builds against those shared types and
+does not redefine them.
 
 **aiwonder runtime endpoints (build/test there only):**
 - `:8088` — general GTE 768-d (`BAAI/bge-m3` or equivalent resident model)

@@ -1,5 +1,17 @@
 # Stage 5 — Loom + Assay (DDA & Bits) (PH27–PH30)
 
+> **STATUS: ✅ DONE (FSV-signed-off, commit `0ada102`).** `calyx-loom` implements
+> cross-term kinds, eager agreement, lazy Delta/Interaction/Concat with LRU,
+> materialization policy, agreement graph, blind-spot detection, signal
+> provenance tags, and honest abundance reporting. `calyx-assay` implements
+> KSG-style MI, deterministic projection, bootstrap CI, partitioned NMI,
+> logistic-probe MI, AssayGate lens/pair signal, differentiation contract,
+> stratified bits, n_eff stable rank, sufficiency, attribution, and assay
+> cache/store provenance. FSV root:
+> `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`; readback
+> hashes are recorded in GitHub #23 and #189. Next active stage is Lodestar
+> (`16_STAGE6_LODESTAR.md`).
+
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
 enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
@@ -66,7 +78,7 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
 
 ---
 
-## Stage 5 exit
+## Stage 5 exit — ✅ achieved
 Calyx knows, in bits, what every lens is worth and whether the panel can even
 answer the question, with the DPI ceiling reported and the differentiation
 contract gated before merge — PRD `DDA_BITS`. Feeds Lodestar (kernel) and Anneal

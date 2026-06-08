@@ -102,7 +102,10 @@ PH12 closed through GitHub issues #71-#76:
 | #75 Golden fixtures | `eb6e00d`, `545abff` | `/home/croyse/calyx/data/fsv-q75-20260607121521` |
 | #76 NaN/Inf guards | `807a2af` | `/home/croyse/calyx/data/fsv-q76-20260607122351` |
 
-The Stage 2 epic (#70) has PH12 checked off; PH13 is the next active phase.
+The Stage 2 epic (#70) is complete and FSV-signed-off. PH12 evidence is listed
+above; the aggregate Stage 2 status is tracked in #23 and
+`12_STAGE2_FORGE.md`. Stages 3-5 have since consumed Forge successfully. The
+next active phase is PH31 (Stage 6 — Lodestar graph primitives).
 
 ## Risks / landmines
 

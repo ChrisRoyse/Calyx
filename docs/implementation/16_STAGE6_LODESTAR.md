@@ -1,5 +1,13 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
+> **STATUS: ▶ ACTIVE / READY TO START (current head `0ada102`).** Stages 1-5
+> are implemented, pushed, and FSV-signed-off. Required inputs are now present:
+> Aster anchors/CFs (PH09), Forge math (PH12-PH16), Registry panels/lenses
+> (PH17-PH22), Sextant search/provenance (PH23-PH26), and Loom agreement graph
+> + Assay bits/sufficiency (PH27-PH30). The implementation crates for Stage 6
+> (`calyx-paths`, `calyx-mincut`, `calyx-lodestar`) are still skeletons; start
+> with PH31 graph primitives and the ContextGraph seed lift.
+
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
 other store has it. Lands in `calyx-lodestar` + the graph crates

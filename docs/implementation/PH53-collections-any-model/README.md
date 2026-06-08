@@ -31,10 +31,11 @@ tenant isolation are set at creation and immutable thereafter.
 r/w), `cf/` (`CfRouter`, `CfFamily`, key encoding), `mvcc/` (MVCC sequence
 numbers + snapshot reads), `vault.rs` (`AsterVault<C>` implementing
 `VaultStore`), `manifest/`, `compaction/`. The vault is wired end-to-end for
-Constellation CRUD (PH09). What does **not** yet exist is the `Collection`
-abstraction and the paradigm-specific key-encoding layers (relational, document,
-KV, time-series, blob) that sit above the CF layer. `calyx-sextant` is a
-9-line stub; greenfield for this phase's `query` surface.
+Constellation CRUD (PH09). `calyx-sextant` now has the Stage 4
+search/navigation stack. What does **not** yet exist is the `Collection`
+abstraction, the paradigm-specific key-encoding layers (relational, document,
+KV, time-series, blob), and the collection query surface that sits above the CF
+layer.
 
 ## Deliverables (file plan, each ≤500 lines)
 

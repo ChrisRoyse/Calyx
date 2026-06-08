@@ -30,8 +30,9 @@ anchors MUST NOT be merged. All merges are reversible and Ledger-logged. The
 `calyx-aster` has partial implementation: WAL, memtable, SSTable, column
 families, MVCC, constellation CRUD, manifest, and compaction are in place (PH05–
 PH11). The `ingest` path exists in `crates/calyx-aster/src/vault.rs`. The `Gτ`
-guard (PH37) will be in `calyx-ward`. `calyx-loom` is a 9-line stub; greenfield
-for the recurrence series store.
+guard (PH37) will be in `calyx-ward`. `calyx-loom` now exists from Stage 5
+(cross-terms/agreement/abundance); PH41 should add a new `recurrence` module
+under that crate rather than initialize the crate from scratch.
 
 ## Deliverables (file plan, each ≤500 lines)
 

@@ -10,18 +10,32 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 
 ---
 
-## Current status (2026-06-07, commit `8dcddaa`)
+## Current status (2026-06-08, commit `0ada102`)
 
 | Stage | Phases | Status |
 |---|---|---|
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
-| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); PH10 carries tracked follow-ups (see `11_STAGE1_ASTER.md`) |
-| S2 Forge | PH12–PH16 | ▶ **ACTIVE / next** (`calyx-forge` is a stub; deps PH04/PH09 satisfied) |
-| S3–S20 | PH17–PH72 | · pending (all other engine crates are ~9-line stubs) |
+| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); follow-ups resolved or explicitly deferred (see `11_STAGE1_ASTER.md`) |
+| S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune) |
+| S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + capability cards + default panels + temporal E2/E3/E4) |
+| S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain) |
+| S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency) |
+| S6 Lodestar | PH31–PH34 | ▶ **ACTIVE / next** (`calyx-lodestar`, `calyx-mincut`, and `calyx-paths` are skeletons; deps PH27/PH30 satisfied) |
+| S7–S20 | PH35–PH72 | · pending |
 
-FSV evidence for S0+S1: GitHub issue #23 (`[CONTEXT] You are here`); root
-`/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`. This satisfies PRD
-`CORE` (`dbprdplans/19 §5`).
+FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
+Latest roots:
+- Stage 1 Aster:
+  `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`
+- Stage 2 Forge PH12 CPU SIMD:
+  `/home/croyse/calyx/data/fsv-q71-20260607115027` through
+  `/home/croyse/calyx/data/fsv-q76-20260607122351`
+- Stage 3 atomic suite:
+  `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`
+- Stage 4 Sextant:
+  `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`
+- Stage 5 Loom + Assay:
+  `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`
 
 ---
 
@@ -47,46 +61,54 @@ FSV evidence for S0+S1: GitHub issue #23 (`[CONTEXT] You are here`); root
 | PH10 | Manifest + atomic swap + crash recovery | PH09 | aster | P0/A15 | crash drill: recover to last consistent seq, byte-exact; corrupt shard fails closed |
 | PH11 | Compaction + hot/cold tiering | PH10 | aster | `04 §6` | compaction snapshot-safe; cold slots on archive; write-amp bounded |
 
-## Stage 2 — Forge math runtime  (`12_STAGE2_FORGE.md`) — ▶ ACTIVE (next)
+## Stage 2 — Forge math runtime  (`12_STAGE2_FORGE.md`) — ✅ DONE
 
-| PH | Title | Dep | Crate | PRD/Ax | Gate |
-|---|---|---|---|---|---|
-| PH12 | CPU SIMD backend (gemm/cosine/l2/normalize/topk) | PH04 | forge | P1/A13 | outputs match numpy/BLAS golden within tol |
-| PH13 | CUDA sm_120 backend + bit-parity | PH12 | forge | P1/A13 | CPU↔GPU ≤1e-3; matmul within 10% cuBLAS on sm_120 |
-| PH14 | TurboQuant (rotate+scalar+QJL) | PH13 | forge | P4b/A25 | unbiased inner-product within distortion bound; re-quant with seed bit-identical |
-| PH15 | MXFP4/microscaling + grouped GEMM | PH14 | forge | P4b/`23` | grouped GEMM invariant to N ≥ batched-loop; FP4 within bound where Assay-safe |
-| PH16 | Autotune config cache | PH15 | forge | `12 §4` | best `(op,shape,dtype,device)` config cached + reused; A/B logged |
+| PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
+|---|---|---|---|---|---|---|
+| PH12 | CPU SIMD backend (gemm/cosine/l2/normalize/topk) | PH04 | forge | P1/A13 | outputs match numpy/BLAS golden within tol | ✅ FSV (#71–#76) |
+| PH13 | CUDA sm_120 backend + bit-parity | PH12 | forge | P1/A13 | CPU↔GPU ≤1e-3; matmul within 10% cuBLAS on sm_120 | ✅ FSV |
+| PH14 | TurboQuant (rotate+scalar+QJL) | PH13 | forge | P4b/A25 | unbiased inner-product within distortion bound; re-quant with seed bit-identical | ✅ FSV |
+| PH15 | MXFP4/microscaling + grouped GEMM | PH14 | forge | P4b/`23` | grouped GEMM invariant to N ≥ batched-loop; FP4 within bound where Assay-safe | ✅ FSV |
+| PH16 | Autotune config cache | PH15 | forge | `12 §4` | best `(op,shape,dtype,device)` config cached + reused; A/B logged | ✅ FSV |
 
-## Stage 3 — Registry / lenses  (`13_STAGE3_REGISTRY.md`)
+## Stage 3 — Registry / lenses  (`13_STAGE3_REGISTRY.md`) — ✅ DONE
 
-| PH | Title | Dep | Crate | PRD/Ax | Gate |
-|---|---|---|---|---|---|
-| PH17 | Lens trait + algorithmic + tei-http runtimes | PH12,PH09 | registry | P2/A4 | embed via :8088 twice → identical; algorithmic lens deterministic |
-| PH18 | Frozen contract + content-addressed LensId | PH17 | registry | P2/A4 | weights-hash mismatch → `CALYX_LENS_FROZEN_VIOLATION`; LensId stable across vaults |
-| PH19 | candle-local + onnx runtimes | PH18 | registry | P2/A4 | local + ONNX lens produce unit-norm finite vectors; dim guard fires |
-| PH20 | Hot-swap add/retire/park + lazy backfill | PH19 | registry | P2/A5 | add lens → no re-embed; backfill observed on slot columns; retire tombstones |
-| PH21 | Capability cards / profile | PH20 | registry | A6 | profile returns signal/spread/separation/cost without full ingest |
-| PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic |
+| PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
+|---|---|---|---|---|---|---|
+| PH17 | Lens trait + algorithmic + tei-http runtimes | PH12,PH09 | registry | P2/A4 | embed via :8088 twice → identical; algorithmic lens deterministic | ✅ FSV |
+| PH18 | Frozen contract + content-addressed LensId | PH17 | registry | P2/A4 | weights-hash mismatch → `CALYX_LENS_FROZEN_VIOLATION`; LensId stable across vaults | ✅ FSV |
+| PH19 | candle-local + onnx runtimes | PH18 | registry | P2/A4 | local + ONNX lens produce unit-norm finite vectors; dim guard fires | ✅ FSV |
+| PH20 | Hot-swap add/retire/park + lazy backfill | PH19 | registry | P2/A5 | add lens → no re-embed; backfill observed on slot columns; retire tombstones | ✅ FSV |
+| PH21 | Capability cards / profile | PH20 | registry | A6 | profile returns signal/spread/separation/cost without full ingest | ✅ FSV |
+| PH22 | Default panels + temporal lenses E2/E3/E4 | PH21 | registry | A27 | text/code/civic/media panels instantiate; E2/E3/E4 closed-form deterministic | ✅ FSV |
 
-## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`)
+> **Stage 1–5 audit note (2026-06-08):** Subagents and source readback found
+> no Stage 6 blocker. The accepted seams are explicitly scoped: PH23's
+> `HnswIndex` currently uses an exact dense scan behind the HNSW-compatible
+> seam, PH24 provenance falls back to synthetic `LedgerRef` until Stage 7 when a
+> document has no stored provenance, and PH30 report bytes are exposed through
+> the Stage 5 FSV JSON readback while full user-facing CLI commands remain in
+> PH62.
 
-| PH | Title | Dep | Crate | PRD/Ax | Gate |
-|---|---|---|---|---|---|
-| PH23 | Per-slot HNSW index | PH20 | sextant | P3/`10` | insert+search recall vs brute-force ≥ target; SingleLens p99 budget |
-| PH24 | RRF/WeightedRRF/SingleLens fusion + provenance hits | PH23 | sextant | P3/`10` | multi-lens recall@10 ≥ single-lens +Δ on real qrels; every Hit carries LedgerRef |
-| PH25 | Sparse lens inverted index | PH24 | sextant | `10` | sparse lens term-match + BM25 correct; pipeline recall stage works |
-| PH26 | Query planner + intent + explain | PH25 | sextant | A17 | intent→strategy auto-select; `explain=true` returns per-lens breakdown |
+## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 
-## Stage 5 — Loom + Assay (DDA & bits)  (`15_STAGE5_LOOM_ASSAY.md`)
+| PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
+|---|---|---|---|---|---|---|
+| PH23 | Per-slot HNSW index | PH20 | sextant | P3/`10` | insert+search recall vs brute-force ≥ target; SingleLens p99 budget | ✅ FSV |
+| PH24 | RRF/WeightedRRF/SingleLens fusion + provenance hits | PH23 | sextant | P3/`10` | multi-lens recall@10 ≥ single-lens +Δ on real qrels; every Hit carries LedgerRef | ✅ FSV |
+| PH25 | Sparse lens inverted index | PH24 | sextant | `10` | sparse lens term-match + BM25 correct; pipeline recall stage works | ✅ FSV |
+| PH26 | Query planner + intent + explain | PH25 | sextant | A17 | intent→strategy auto-select; `explain=true` returns per-lens breakdown | ✅ FSV |
 
-| PH | Title | Dep | Crate | PRD/Ax | Gate |
-|---|---|---|---|---|---|
-| PH27 | Agreement graph + cross-terms (lazy) | PH24 | loom | P4/A8 | agreement scalars eager; lazy xterm = one matmul; storage O(n·n_eff) |
-| PH28 | KSG MI + partitioned NMI | PH27 | assay | P4/`07` | MI on planted-signal synthetic within CI; fails closed below quorum (n<50) |
-| PH29 | Differentiation contract + n_eff | PH28 | assay | P4/A7 | planted-redundant lens REJECTED (≤0.6); <0.05-bit lens REJECTED; n_eff correct |
-| PH30 | Panel sufficiency + attribution + reports | PH29 | assay/loom | A8 | `abundance_report` shows N/C(N,2)/materialized/n_eff/DPI ceiling; per-sensor bits |
+## Stage 5 — Loom + Assay (DDA & bits)  (`15_STAGE5_LOOM_ASSAY.md`) — ✅ DONE
 
-## Stage 6 — Lodestar kernel  (`16_STAGE6_LODESTAR.md`)
+| PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
+|---|---|---|---|---|---|---|
+| PH27 | Agreement graph + cross-terms (lazy) | PH24 | loom | P4/A8 | agreement scalars eager; lazy xterm = one matmul; storage O(n·n_eff) | ✅ FSV |
+| PH28 | KSG MI + partitioned NMI | PH27 | assay | P4/`07` | MI on planted-signal synthetic within CI; fails closed below quorum (n<50) | ✅ FSV |
+| PH29 | Differentiation contract + n_eff | PH28 | assay | P4/A7 | planted-redundant lens REJECTED (≤0.6); <0.05-bit lens REJECTED; n_eff correct | ✅ FSV |
+| PH30 | Panel sufficiency + attribution + reports | PH29 | assay/loom | A8 | `abundance_report` shows N/C(N,2)/materialized/n_eff/DPI ceiling; per-sensor bits | ✅ FSV |
+
+## Stage 6 — Lodestar kernel  (`16_STAGE6_LODESTAR.md`) — ▶ ACTIVE (next)
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate |
 |---|---|---|---|---|---|
@@ -221,8 +243,9 @@ FSV evidence for S0+S1: GitHub issue #23 (`[CONTEXT] You are here`); root
 
 The PRD's mechanical `BUILD_DONE` predicate (`dbprdplans/19 §5`) is satisfied
 exactly when the corresponding gates above all pass: **CORE=PH05–PH11 ✅ (done)**,
-MATH/ARRAYMATH/COMPRESS=PH12–PH16, LENS=PH17–PH22, SEARCH=PH23–PH26,
-DDA_BITS=PH27–PH30, KERNEL/KERNEL_ANY=PH31–PH34, PROVENANCE=PH35–PH36,
+**MATH/ARRAYMATH/COMPRESS=PH12–PH16 ✅**, **LENS=PH17–PH22 ✅**,
+**SEARCH=PH23–PH26 ✅**, **DDA_BITS=PH27–PH30 ✅**,
+KERNEL/KERNEL_ANY=PH31–PH34, PROVENANCE=PH35–PH36,
 GUARD=PH37–PH39, TEMPORAL/DEDUP/RECURRENCE=PH40–PH42, SELFOPT/INTELLIGENCE=
 PH43–PH48, ORACLE=PH49–PH52, UNIVERSAL=PH53–PH55, RESOURCE=PH56–PH59,
 SECURITY=PH60–PH61, DEPLOY=PH65–PH67, SCALE=PH68, DATA=PH69–PH70,

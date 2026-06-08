@@ -1,5 +1,10 @@
 # PH29 · T04 — Planted-synthetic FSV: redundant REJECTED, signal admitted, n_eff correct
 
+> **Status: DONE in Stage 5 core.** The planted redundant/low-signal/n_eff
+> cases are covered by the Stage 5 assay tests and the final JSON readback
+> under `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
+> User-facing report commands are deferred to PH62.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH29 — Differentiation contract + n_eff |
@@ -57,7 +62,7 @@ FSV (not harness-level unit tests).
   cargo test test_planted_low_signal_lens_rejected -- --nocapture
   cargo test test_n_eff_planted_panel -- --nocapture
   calyx readback --cf assay --decisions --since 0
-  calyx abundance --vault /home/croyse/calyx/test-vault
+  cat /home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final/stage5-readback.json
   ```
 - **Prove:**
   - CF rows show `Rejected(Redundant)` and `Rejected(LowSignal)` for the respective planted lenses

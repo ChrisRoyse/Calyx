@@ -29,11 +29,13 @@ slots. This is the first real signal measurement; it wires into Loom's
 - **Provides for:** PH29 (differentiation contract, n_eff), PH30 (panel
   sufficiency, bits_report), PH27 T03 (live AssayGate wire-up)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-assay` is a 9-line stub; greenfield. Forge ANN k-NN indices are complete
-from PH13; Aster slot/anchor CF reads are complete from PH09; the `AssayGate`
-trait stub from PH27 T03 provides the hook point.
+✅ **DONE / FSV-signed-off in Stage 5** (`0ada102`). `calyx-assay` now provides
+the KSG-style estimator, deterministic projection, bootstrap CI, partitioned
+histogram NMI, logistic probe, AssayGate lens/pair signal, quorum guards, and
+Stage 5 FSV readbacks. Final FSV root:
+`/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -45,7 +47,8 @@ trait stub from PH27 T03 provides the hook point.
 | `crates/calyx-assay/src/projection.rs` | Random-projection pre-step for high-d: JL lemma projection to `2·ceil(log2(n))` dims; seeded deterministically |
 | `crates/calyx-assay/src/bootstrap.rs` | Bootstrap CI engine: resampled MI mean ± 1.96σ; configurable n_bootstrap (default 200); seeded |
 | `crates/calyx-assay/src/gate.rs` | `AssayGate` impl that wires `pair_gain` into PH27 `MaterializationPlan`; `lens_signal` entry point |
-| `crates/calyx-assay/src/tests.rs` | Planted-synthetic FSV tests: known MI, known NMI, CI correctness, quorum enforcement |
+| `crates/calyx-assay/src/logistic.rs` | Binary-outcome logistic-probe MI estimator |
+| `crates/calyx-assay/tests/stage5_fsv.rs` | Planted-synthetic FSV tests: known MI, known NMI, CI correctness, quorum enforcement, projection parity |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 

@@ -14,9 +14,9 @@ vault, committed at one MVCC sequence number. Single-writer-per-vault
 serialization guarantees no partial read and no deadlock. An unbounded
 cross-model write (no declared isolation or cost cap) is rejected.
 
-**Universal query surface (Sextant):** the `calyx-sextant` crate receives its
-first real implementation. A `UniversalQuery` struct expresses, in one
-statement: typed relational predicates + document subtree filters + KV point
+**Universal query surface (Sextant):** extend the existing Stage 4
+`calyx-sextant` search/planner stack. A `UniversalQuery` struct expresses, in
+one statement: typed relational predicates + document subtree filters + KV point
 lookups + time-series range + graph traversal (association graph hop) + multi-lens
 vector/FTS fusion (RRF, from PH24/PH25) + OLAP aggregate + `ASK` (multi-lens +
 `kernel_answer` + Oracle, grounded + provenanced). The planner enforces a
@@ -35,13 +35,13 @@ One query pass returns one provenanced result set.
 
 ## Current state (build off what exists)
 
-`calyx-sextant` is a 9-line stub; greenfield. `calyx-aster` has all paradigm
-layers (PH53) and secondary indexes (PH54). PH26 added a query planner with
-`intent` classification and `explain` output. PH24 added RRF fusion. PH25 added
-inverted posting lists. PH33 added `kernel_answer`. The universal query surface
-stitches these together and adds the cross-model txn guarantee. Sextant is
-declared as `calyx-aster`'s peer — it imports from `calyx-aster` (the storage
-layers) and from `calyx-lodestar`, `calyx-registry`; no circular dep.
+`calyx-sextant` already contains Stage 4 dense/sparse search, RRF fusion,
+freshness/provenance, and the PH26 intent/explain planner. `calyx-aster` has
+the PH53 paradigm layers and PH54 secondary indexes by the time this phase
+starts. PH33 adds `kernel_answer`. The universal query surface stitches these
+together and adds the cross-model txn guarantee. Sextant is declared as
+`calyx-aster`'s peer — it imports from `calyx-aster` (the storage layers) and
+from `calyx-lodestar`, `calyx-registry`; no circular dep.
 
 ## Deliverables (file plan, each ≤500 lines)
 

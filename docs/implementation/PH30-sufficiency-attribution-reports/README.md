@@ -28,10 +28,14 @@ grounded; else `provisional` (A2). The honest dashboard closes Stage 5.
 
 ## Current state (build off what exists)
 
-`calyx-assay` has the contract (PH29) and MI estimators (PH28). `calyx-loom`
-has the `abundance_report` skeleton with n_eff `Provisional` and DPI ceiling
-`Provisional` from PH27 T06. This phase fills both in with real computed values
-and adds `bits_report` + `panel_sufficiency` + per-sensor attribution.
+`calyx-assay` now has MI estimators, logistic-probe lens/pair signal,
+`AssayGate`, differentiation gates, stratified bits, stable-rank n_eff,
+panel sufficiency, attribution, `bits_report`, and an assay cache/store with
+provenance. `calyx-loom` now has `AbundanceReport` with computed n_eff and DPI
+ceiling fields. Stage 5 FSV readback is the JSON source-of-truth emitted by
+`stage5_full_stack_fsv`; user-facing `calyx abundance` and `calyx bits-report`
+commands are deferred to the Stage 18 CLI surface (PH62), not required for
+Lodestar.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -54,12 +58,14 @@ and adds `bits_report` + `panel_sufficiency` + per-sensor attribution.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-1. **`abundance_report` prints the four honest numbers:**
+1. **`abundance_report` emits the four honest numbers:**
    ```
-   calyx abundance --vault /home/croyse/calyx/test-vault
+   CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final \
+     cargo test -p calyx-assay stage5_full_stack_fsv -- --ignored --nocapture
    ```
    Output must contain: N (integer), C(N,2) (= N*(N-1)/2), materialized (count),
-   n_eff (Computed, not [provisional]), DPI ceiling (I(panel;anchor) in bits, Computed).
+   n_eff (Computed, not [provisional]), DPI ceiling (I(panel;anchor) in bits,
+   Computed). The byte readback lives in `stage5-readback.json`.
 
 2. **Known-insufficient panel flagged with per-slot deficit:**
    ```

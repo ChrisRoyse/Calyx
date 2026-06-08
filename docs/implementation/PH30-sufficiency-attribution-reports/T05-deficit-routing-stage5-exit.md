@@ -1,5 +1,11 @@
 # PH30 · T05 — Deficit routing to Anneal + Stage 5 exit gate
 
+> **Status: DONE in Stage 5 core.** `calyx-assay` emits structured
+> sufficiency deficits to `SufficiencyDeficitSink`; the Stage 5 exit evidence is
+> the ignored `stage5_full_stack_fsv` readback under the aiwonder FSV root.
+> Anneal consumes this interface in PH47, and the human CLI commands are
+> deferred to PH62.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH30 — Panel sufficiency + attribution + reports |
@@ -51,22 +57,25 @@ contract gated. This is the final card of Stage 5.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** the Stage 5 end-to-end test on aiwonder + the final `calyx abundance` output + `calyx bits-report` output
+- **SoT:** the Stage 5 end-to-end test on aiwonder plus the final
+  `stage5-readback.json`, `xterm-cf-readback.json`, and
+  `assay-cf-readback.json` files under the FSV root.
 - **Readback:**
   ```
-  cargo test test_stage5_dda_bits_done -- --nocapture
-  calyx abundance --vault /home/croyse/calyx/test-vault
-  calyx bits-report --panel default --anchor grounded_outcome
+  CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final \
+    cargo test -p calyx-assay stage5_full_stack_fsv -- --ignored --nocapture
+  cat /home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final/stage5-readback.json
   ```
 - **Prove:**
-  1. `test_stage5_dda_bits_done` passes on aiwonder (no failures, no panics, no `[provisional]` in reports)
-  2. `calyx abundance` shows:
+  1. `stage5_full_stack_fsv` passes on aiwonder (no failures or panics)
+  2. `stage5-readback.json` shows:
      - `N`: integer ≥ 1
      - `C(N,2)`: `N*(N-1)/2` exact
      - `Materialized xterms`: integer (Agreement scalars only → ≤ C(N,2) × n_constellations)
      - `n_eff`: `Computed { value: f32 }` (not `[provisional]`)
      - `DPI ceiling`: `Computed { bits: f32 }` (not `[provisional]`)
-  3. `calyx bits-report` shows per-slot attribution with at least one `sole_carrier: true` if the planted sole-carrier is in the panel
+  3. The `bits_report` JSON shows per-slot attribution with at least one
+     `sole_carrier: true` if the planted sole-carrier is in the panel
   4. All evidence posted to PH30 GitHub issue
   5. Stage 5 predicate `DDA_BITS` is satisfied in the BUILD_DONE map (`03 §BUILD_DONE`)
 

@@ -1,5 +1,12 @@
 # PH23 — Per-slot HNSW index
 
+> **Status: DONE / FSV-signed-off as the Stage 4 dense-index seam.** Current
+> code is `crates/calyx-sextant/src/index/hnsw.rs`: deterministic layer
+> assignment, bounded neighbor metadata, rebuild, dual-index scaffold, quant
+> config lock, and exact dense search behind the HNSW-compatible API. Native
+> `ef` beam traversal is not required for Stage 6 Lodestar and is tracked as a
+> scale/performance refinement for later index-scale stages.
+
 **Stage:** S4 — Sextant Search & Navigation  ·  **Crate:** `calyx-sextant`  ·
 **PRD roadmap:** P3  ·  **Axioms:** A15, A16, A26
 
@@ -19,9 +26,12 @@ must meet the target on aiwonder with SingleLens p99 < 5 ms at 1e6 cx (`10 §8`)
 
 ## Current state (build off what exists)
 
-`calyx-sextant` is a 9-line stub; greenfield. No index, no search, no types.
-`calyx-forge` (PH13) provides distance kernels. `calyx-registry` (PH20) provides
-`SlotId`, `Lens` trait, and quant configs.
+`calyx-sextant` now provides the Stage 4 search stack. `HnswIndex` stores
+vectors in RAM with deterministic layer IDs and bounded neighbor metadata; its
+`search` path is currently an exact dense scan, so recall-vs-brute-force is
+1.0 while preserving the HNSW-compatible API (`slot`, `shape`, `insert`,
+`search`, `rebuild`, `stats`) that Stage 6 consumes. `ef` is accepted at the
+trait boundary and reserved for the later native beam traversal.
 
 ## Deliverables (file plan, each ≤500 lines)
 

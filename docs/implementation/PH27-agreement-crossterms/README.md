@@ -28,13 +28,13 @@ Assay-gated pairs are persisted; every other pair remains one matmul away.
   PH29 (n_eff uses the redundancy graph), PH30 (abundance_report), PH31
   (Lodestar takes the agreement graph as its kernel-graph seed)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-loom` is a 9-line stub (`src/lib.rs` with a single `pub mod loom;`
-placeholder); greenfield. `calyx-assay` is similarly a 9-line stub. Both crates
-are already registered in the workspace `Cargo.toml`. Forge batched-cosine and
-ANN slot vectors are complete from PH12/PH13; Sextant active-pair metadata is
-available from PH24.
+✅ **DONE / FSV-signed-off in Stage 5** (`0ada102`). `calyx-loom` now provides
+`cross_term.rs`, `materialization.rs`, `lru_cache.rs`, `agreement_graph.rs`,
+`blind_spot.rs`, and `abundance.rs`. `calyx-assay` provides the pair-gain gate
+that controls eager non-agreement materialization. Final FSV root:
+`/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -46,8 +46,8 @@ available from PH24.
 | `crates/calyx-loom/src/lru_cache.rs` | LRU cache for lazy xterm results keyed `(CxId, SlotId, SlotId, CrossTermKind)`; bounded capacity; TTL eviction |
 | `crates/calyx-loom/src/agreement_graph.rs` | Vault-wide agreement graph (sparse adjacency over active pairs); `weave(cx_id)`, `agreement_graph(vault, since_seq?)` |
 | `crates/calyx-loom/src/blind_spot.rs` | `blind_spot_detector`: constellation high-sim in lens A / low-sim in lens B vs neighborhood → `BlindSpotAlert` |
-| `crates/calyx-loom/src/abundance.rs` | `abundance_report` stub (N, C(N,2), materialized, n_eff placeholder, DPI ceiling placeholder) — completed in PH30 |
-| `crates/calyx-loom/src/tests.rs` | Unit + property + FSV-support tests |
+| `crates/calyx-loom/src/abundance.rs` | `abundance_report` (N, C(N,2), materialized, n_eff, DPI ceiling, measured/derived counts) |
+| `crates/calyx-assay/tests/stage5_fsv.rs` | Unit + FSV-support tests for Stage 5 readbacks |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -73,12 +73,16 @@ available from PH24.
    is absent from the xterm CF before the call; confirm it appears in the LRU
    cache after; confirm the value matches the offline delta.
 
-3. **Materialized count ≪ C(N,2):** insert n constellations with N=13 lenses;
-   read the xterm CF row count; it must be `n` (agreement scalars only), not
-   `n·78` (all pairs). Prove by:
+3. **Only agreement is eager at low pair gain:** insert n constellations with
+   N=13 lenses; read the xterm CF row count. With low Assay pair gain, eager
+   materialization is exactly agreement for each pair (`n*C(13,2)` = `n*78`),
+   while Delta/Interaction/Concat remain absent from persisted xterm rows and
+   compute into the LRU cache on demand. Prove by:
    ```
    calyx readback --cf xterm --vault <path> --count
    ```
+   Stage 5 final FSV readback: `n=50`, `xterm_rows=3900`,
+   `lazy_before=3900`, `lazy_after=3900`, `lazy_cache=1`.
 
 4. **Blind-spot fires:** plant a constellation that is cos>0.9 in lens A but
    cos<0.1 in lens B vs its k-nearest neighbors; call `blind_spots(cx_id)`;

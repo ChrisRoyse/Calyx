@@ -1,11 +1,13 @@
 # Stage 2 — Forge Math Runtime (PH12–PH16)
 
-> **STATUS: ▶ ACTIVE — PH12 is done; PH13 is the current next phase.** Stage 0
-> + Stage 1 (Aster core) are DONE and FSV-signed-off
-> (`11_STAGE1_ASTER.md`). PH12 built the CPU Forge backend and golden fixture
-> baseline, so continue at `PH13-cuda-sm120-bitparity/` (T01) for CUDA sm_120
-> context init and CPU/GPU bit-parity work. Build natively on aiwonder
-> (CUDA 13.2, RTX 5090 sm_120) — no cross-build.
+> **STATUS: ✅ DONE (FSV-signed-off, current head `0ada102`).** All of PH12–PH16 are
+> implemented and committed in `calyx-forge` (~9.1k LOC): CPU SIMD backend,
+> CUDA sm_120 backend with a CPU↔GPU bit-parity suite, TurboQuant, MXFP4/MXFP8
+> microscaling + grouped/ragged GEMM, and the per-shape autotune cache. Stage 2
+> FSV evidence is recorded in the closed PH12-PH16 issues and context #23.
+> Build/test natively on aiwonder (CUDA 13.2, RTX 5090 sm_120) — no cross-build.
+> Downstream Stage 4 and Stage 5 FSV have consumed Forge successfully; next
+> active stage is Lodestar (`16_STAGE6_LODESTAR.md`).
 
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
@@ -31,6 +33,8 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 - **Axioms/PRD.** A13, A16, `13 §3`.
 
 ## PH13 — CUDA sm_120 backend + bit-parity
+- **Status.** ✅ FSV-signed-off (`cuda/` backend + `.cu` kernels + parity suite,
+  commits `6b3c2d3`…`dd27885`; aggregate evidence in #23).
 - **Objective.** GPU kernels (cudarc/CubeCL + cuBLASLt for big matmul) targeting
   sm_120; **bit-parity** with the CPU path on a golden set.
 - **Deps.** PH12.
@@ -44,6 +48,9 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 - **Axioms/PRD.** A13, `13 §2/§4/§6`, `19 §4`.
 
 ## PH14 — TurboQuant (rotate + scalar + QJL)
+- **Status.** ✅ FSV-signed-off (`quant/turboquant.rs`, `rotation.rs`, `qjl.rs`,
+  `binary.rs`; seed-replay + operating-point FSV tests in-tree, commits
+  `b9c7267`…`4db91c2`; aggregate evidence in #23).
 - **Objective.** Default slot quantizer: random rotation → per-coord scalar
   quant + 1-bit QJL residual = **unbiased inner product**, data-oblivious,
   ~zero indexing.
@@ -59,6 +66,9 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 - **Axioms/PRD.** A25, `23 §4.1`, `13 §3`.
 
 ## PH15 — MXFP4/microscaling + grouped GEMM
+- **Status.** ✅ FSV-signed-off (`quant/mxfp4_codec.rs`, `cuda/mxfp4`/`mxfp8`,
+  `cuda/grouped_gemm.rs` + `ragged_gemm.rs`; N-invariance FSV tests + MXFP8
+  fallback, commits `13423a9`…`8933925`; aggregate evidence in #23).
 - **Objective.** Blackwell block-scaled compute (MXFP4/NVFP4, MXFP8 fallback,
   fp32 accumulate) and **grouped GEMM** so an N-lens panel projects/scores in
   one launch regardless of N.
@@ -74,6 +84,9 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 - **Axioms/PRD.** `23 §3/§4.2`, A25, `17 §7.4`.
 
 ## PH16 — Autotune config cache
+- **Status.** ✅ FSV-signed-off (`autotune/` cache + microbench + explorer +
+  reversible promotion; two-shape convergence FSV test, commits
+  `5029978`…`6eff08f`; aggregate evidence in #23).
 - **Objective.** Per-shape best-config cache `(op,shape,dtype,device,recall_tgt)`
   → params, refreshed by a low-rate explorer; the seam Anneal later drives.
 - **Deps.** PH15.
@@ -87,8 +100,10 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 
 ---
 
-## Stage 2 exit
+## Stage 2 exit — ✅ achieved
 Forge does matmul/distance/quant/topk on both CPU and the RTX 5090 with proven
 bit-parity, TurboQuant gives unbiased inner products, grouped GEMM makes panel
 math N-invariant, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
-`COMPRESS` foundations.
+`COMPRESS` foundations. Implemented and FSV-signed-off; downstream Stage 4/5
+readbacks on aiwonder depend on these kernels and remain green at commit
+`0ada102`.

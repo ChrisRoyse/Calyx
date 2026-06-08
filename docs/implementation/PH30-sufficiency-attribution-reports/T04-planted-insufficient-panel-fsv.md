@@ -1,5 +1,10 @@
 # PH30 · T04 — Planted-insufficient panel FSV + trusted/provisional tagging
 
+> **Status: DONE in Stage 5 core.** The planted sufficiency, attribution, trust,
+> and abundance-report paths are covered by `stage5_full_stack_fsv`; byte
+> readback is the JSON artifact under the Stage 5 FSV root. Human CLI commands
+> are deferred to PH62.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH30 — Panel sufficiency + attribution + reports |
@@ -37,7 +42,7 @@ bytes from the assay CF and the CLI output, not harness assertions only.
   - read back both from assay CF; confirm the `trust` field byte is different
 - [ ] Implement `test_abundance_report_four_honest_numbers`:
   - ingest 50 constellations into a test vault with N=5 lenses, grounded anchor
-  - run `calyx abundance --vault <path>` and capture stdout
+  - run `stage5_full_stack_fsv` and read `stage5-readback.json`
   - assert all five fields present: N=5, C(N,2)=10, materialized count, n_eff (Computed), DPI ceiling (Computed)
   - assert `[provisional]` does NOT appear in the output
 - [ ] All tests: seeded RNG, injected `FixedClock`, no `Instant::now()`, no `thread_rng()`
@@ -52,7 +57,8 @@ bytes from the assay CF and the CLI output, not harness assertions only.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** the assay CF rows and `calyx abundance` stdout for the planted-insufficient panel vault
+- **SoT:** the assay JSON readback and `stage5-readback.json` for the
+  planted-insufficient panel case.
 - **Readback:**
   ```
   cargo test test_panel_insufficiency_planted -- --nocapture
@@ -60,13 +66,13 @@ bytes from the assay CF and the CLI output, not harness assertions only.
   cargo test test_bits_trust_grounded_vs_provisional -- --nocapture
   cargo test test_abundance_report_four_honest_numbers -- --nocapture
   calyx readback --cf assay --panel <id> --anchor grounded
-  calyx abundance --vault /home/croyse/calyx/test-vault
+  cat /home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final/stage5-readback.json
   ```
 - **Prove:**
   - `panel_insufficiency` CF row shows `deficit_bits > 0.8`
   - `bits_report` CF row identifies slot_b and slot_c as deficit slots
   - `trust: Trusted` in CF row for grounded anchor; `trust: Provisional` for auto-labeled
-  - `calyx abundance` stdout contains all four honest numbers without `[provisional]`
+  - `stage5-readback.json` contains all four honest numbers without fabricated values
   - All tests pass deterministically on 3 consecutive runs
   - Evidence (terminal screenshots + CF readback) posted to PH30 GitHub issue
 

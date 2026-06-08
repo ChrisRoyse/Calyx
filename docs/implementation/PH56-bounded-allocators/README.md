@@ -22,12 +22,13 @@ Cross-cutting hardening from Stage 1, finalized here.
 
 ## Current state (build off what exists)
 
-`calyx-aster` has scaffolded WAL, memtable, SSTable, MVCC, and manifest modules from
-Stages 1–2 (PH05–PH11). None of these modules yet enforce hard byte caps or arena
-discipline — memtable is unbounded, caches are absent or `HashMap` without LRU/TTL,
-no arena/slab allocators exist. `calyx-core` is a 9-line stub beyond IDs/enums/errors.
-Greenfield for bounded-allocation infrastructure. Single-NVMe `hotpool` has no redundancy;
-buildup = an outage.
+`calyx-aster` has the Stage 1 storage core (WAL, memtable, SSTable, MVCC,
+manifest, compaction, and vault CRUD). None of these modules yet enforce the
+hard allocation discipline PH56 introduces — bounded memtables are partial,
+caches are absent or local maps without a shared LRU/TTL policy, and no
+arena/slab allocator module exists. `calyx-core` has the shared IDs, enums,
+error catalog, traits, and engine data types; PH56 adds allocator/cache
+primitives there. Single-NVMe `hotpool` has no redundancy; buildup = an outage.
 
 ## Deliverables (file plan, each ≤500 lines)
 

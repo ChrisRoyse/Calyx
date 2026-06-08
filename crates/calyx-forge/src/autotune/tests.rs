@@ -203,27 +203,22 @@ fn rollback_missing_key_inserts_previous() -> Result<()> {
 }
 
 #[test]
-fn persist_read_only_directory_fails_closed() -> Result<()> {
-    let dir = unique_path("persist_read_only_dir");
-    fs::create_dir(&dir).expect("create read-only test dir");
-    let original_permissions = fs::metadata(&dir)
-        .expect("read test dir metadata")
-        .permissions();
-    let mut readonly = original_permissions.clone();
-    readonly.set_readonly(true);
-    fs::set_permissions(&dir, readonly).expect("make test dir read-only");
-
-    let path = dir.join("cache.json");
-    let mut cache = AutotuneCache::load(&path)?;
+fn persist_parent_file_fails_closed() -> Result<()> {
+    let parent = unique_path("persist_parent_file");
+    fs::write(&parent, b"not a directory").expect("create parent file");
+    let path = parent.join("cache.json");
+    let mut cache = AutotuneCache {
+        entries: HashMap::new(),
+        path,
+    };
     cache.insert(key(0.95), config(16));
     let result = cache.persist();
 
-    fs::set_permissions(&dir, original_permissions).expect("restore test dir permissions");
-    fs::remove_dir_all(&dir).expect("remove read-only test dir");
+    fs::remove_file(&parent).expect("remove parent file");
 
-    let err = result.expect_err("read-only directory must fail closed");
+    let err = result.expect_err("file parent must fail closed");
     assert!(matches!(err, ForgeError::CacheError { .. }));
     assert!(err.to_string().contains("CALYX_FORGE_CACHE_ERROR"));
-    println!("autotune_persist_read_only PASSED {err}");
+    println!("autotune_persist_parent_file PASSED {err}");
     Ok(())
 }

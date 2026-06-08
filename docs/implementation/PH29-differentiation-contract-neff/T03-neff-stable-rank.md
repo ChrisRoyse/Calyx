@@ -1,5 +1,10 @@
 # PH29 · T03 — `n_eff` stable rank of redundancy graph
 
+> **Status: DONE in Stage 5 core.** `crates/calyx-assay/src/n_eff.rs` computes
+> stable-rank n_eff and the Stage 5 FSV readback records the computed value in
+> `stage5-readback.json`. The human `calyx abundance` command is deferred to
+> PH62.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH29 — Differentiation contract + n_eff |
@@ -48,7 +53,7 @@ described in A9 and `06 §2`.
   Printed `NeffEstimate { value: f32, ci_low, ci_high }` must have `value ∈ [2.5, 4.0]`.
   Also:
   ```
-  calyx abundance --vault /home/croyse/calyx/test-vault
+  cat /home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final/stage5-readback.json
   ```
   The `n_eff` line must now show `Computed { value: f32 }` not `[provisional]`.
 - **Prove:** run on aiwonder; capture output; confirm the planted panel's n_eff is in the expected range. Confirm the `abundance_report` no longer shows `[provisional]` for n_eff after this card is merged.

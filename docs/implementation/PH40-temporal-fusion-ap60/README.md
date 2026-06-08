@@ -1,5 +1,10 @@
 # PH40 — Temporal Fusion + AP-60 Post-Retrieval Boost
 
+> **Status: future Stage 9 work; dependencies now exist.** `calyx-sextant`
+> (PH23–PH26) and Registry temporal lenses (PH22) are implemented and
+> FSV-signed-off. PH40 should add temporal post-retrieval boost modules to the
+> existing Sextant stack rather than starting from a stub.
+
 **Stage:** S9 — Temporal & Dedup  ·  **Crate:** `calyx-sextant`  ·
 **PRD roadmap:** A27  ·  **Axioms:** A27
 
@@ -24,10 +29,11 @@ distorting in-window ranking.
 
 ## Current state (build off what exists)
 
-`calyx-sextant` is a 9-line stub (`crates/calyx-sextant/src/lib.rs`);
-greenfield. PH24 (which lands in sextant) has not yet been implemented either —
-PH40 depends on PH24 being done first. E2/E3/E4 lens math lands in
-`calyx-registry` at PH22 (closed-form, deterministic, no trained weights).
+`calyx-sextant` now contains the Stage 4 search stack (dense/sparse indexes,
+fusion, provenance, freshness, planner/explain). PH40 depends on those existing
+modules and should wire AP-60 as a post-retrieval stage. E2/E3/E4 lens math is
+already in `calyx-registry` from PH22 (closed-form, deterministic, no trained
+weights).
 
 ## Deliverables (file plan, each ≤500 lines)
 

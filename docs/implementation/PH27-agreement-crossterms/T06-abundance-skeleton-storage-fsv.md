@@ -1,5 +1,10 @@
 # PH27 · T06 — `abundance_report` skeleton + storage O(n·n_eff) FSV
 
+> **Status: superseded by final Stage 5 implementation.** The PH27 skeleton
+> landed first; PH29/PH30 then replaced provisional `n_eff` and DPI ceiling
+> fields with computed report data. Final byte readback is recorded under
+> `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH27 — Agreement graph + cross-terms (lazy) |
@@ -63,7 +68,7 @@ proves that materialized count is ≪ C(N,2) at rest.
 - **SoT:** `abundance_report` output for a test vault with N=13 lenses and 50 constellations ingested
 - **Readback:**
   ```
-  calyx abundance --vault /home/croyse/calyx/test-vault
+  cat /home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final/stage5-readback.json
   ```
   Expected output:
   ```
