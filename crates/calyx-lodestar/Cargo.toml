@@ -6,6 +6,9 @@ rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+fsv = []
+
 [dependencies]
 blake3.workspace = true
 calyx-core = { path = "../calyx-core" }
