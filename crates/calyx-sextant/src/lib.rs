@@ -1,4 +1,35 @@
-//! Sextant search and navigation skeleton for Calyx retrieval.
+//! Sextant search and navigation for Calyx retrieval.
+
+pub mod error;
+pub mod fusion;
+pub mod hit;
+pub mod index;
+pub mod navigation;
+pub mod planner;
+pub mod planner_explain;
+pub mod query;
+pub mod reranker;
+pub mod search;
+pub mod slot_index_map;
+mod util;
+
+pub use error::{
+    CALYX_SEXTANT_PLAN_UNBOUNDED, CALYX_SEXTANT_RERANKER_TIMEOUT, CALYX_SEXTANT_SLOT_MISSING,
+    sextant_error,
+};
+pub use fusion::{FusionContext, FusionStrategy, RrfProfile, WeightedProfile, weighted_profiles};
+pub use hit::{FreshnessTag, Hit, PerLensContribution};
+pub use index::{
+    DualIndex, HnswIndex, IndexSearchHit, IndexStats, InvertedIndex, MaxSimIndex, QuantConfig,
+    QuantKind, SextantIndex,
+};
+pub use navigation::{LensComparison, compare_lenses, define, neighbors};
+pub use planner::{IntentLabel, PlanLimits, PlannedQuery, QueryPlanner};
+pub use planner_explain::PlannerExplain;
+pub use query::{FreshnessRequirement, Query};
+pub use reranker::{RerankRequest, RerankerClient};
+pub use search::SearchEngine;
+pub use slot_index_map::SlotIndexMap;
 
 #[cfg(test)]
 mod tests {
