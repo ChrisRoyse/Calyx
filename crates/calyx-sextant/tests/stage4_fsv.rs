@@ -138,6 +138,43 @@ fn pipeline_and_reranker_keep_candidate_text_request_scoped() {
         reranker.rerank(&request).unwrap_err().code,
         "CALYX_SEXTANT_RERANKER_TIMEOUT"
     );
+
+    let (engine, _) = sample_engine();
+    let sparse_candidates = engine
+        .indexes
+        .search_text(SlotId::new(1), "cat hat", 3)
+        .unwrap()
+        .into_iter()
+        .map(|hit| hit.cx_id)
+        .collect::<Vec<_>>();
+    let pipeline_hits = engine
+        .search(&Query {
+            fusion: Some(FusionStrategy::Pipeline),
+            ..Query::new("cat hat")
+                .with_vector(basis_vec(2))
+                .with_slots(vec![SlotId::new(1), SlotId::new(8), SlotId::new(9)])
+                .explain(true)
+        })
+        .unwrap();
+    assert!(!pipeline_hits.is_empty());
+    assert!(
+        pipeline_hits
+            .iter()
+            .all(|hit| sparse_candidates.contains(&hit.cx_id))
+    );
+    assert_eq!(
+        pipeline_hits[0].explain.as_ref().unwrap().strategy,
+        "pipeline"
+    );
+    let empty_stage1_hits = engine
+        .search(&Query {
+            fusion: Some(FusionStrategy::Pipeline),
+            ..Query::new("absent-stage-one-token")
+                .with_vector(basis_vec(2))
+                .with_slots(vec![SlotId::new(1), SlotId::new(8), SlotId::new(9)])
+        })
+        .unwrap();
+    assert!(empty_stage1_hits.is_empty());
 }
 
 #[test]
@@ -172,6 +209,30 @@ fn stage4_full_stack_fsv() {
     let multi = engine
         .indexes
         .search(SlotId::new(10), &multi_vec(&[[1.0, 0.0]]), 2, None)
+        .unwrap();
+    let pipeline_candidates = engine
+        .indexes
+        .search_text(SlotId::new(1), "cat hat", 3)
+        .unwrap()
+        .into_iter()
+        .map(|hit| hit.cx_id)
+        .collect::<Vec<_>>();
+    let pipeline_hits = engine
+        .search(&Query {
+            fusion: Some(FusionStrategy::Pipeline),
+            ..Query::new("cat hat")
+                .with_vector(basis_vec(2))
+                .with_slots(vec![SlotId::new(1), SlotId::new(8), SlotId::new(9)])
+                .explain(true)
+        })
+        .unwrap();
+    let empty_stage1_hits = engine
+        .search(&Query {
+            fusion: Some(FusionStrategy::Pipeline),
+            ..Query::new("absent-stage-one-token")
+                .with_vector(basis_vec(2))
+                .with_slots(vec![SlotId::new(1), SlotId::new(8), SlotId::new(9)])
+        })
         .unwrap();
 
     engine.indexes.set_base_seq(SlotId::new(8), 500).unwrap();
@@ -217,6 +278,11 @@ fn stage4_full_stack_fsv() {
         "rrf_top_differs_from_single": rrf[0].cx_id != single[0].cx_id || rrf[0].per_lens.len() > 1,
         "sparse_top": sparse[0].cx_id.to_string(),
         "multi_top": multi[0].cx_id.to_string(),
+        "pipeline_hits": pipeline_hits.len(),
+        "pipeline_subset_ok": pipeline_hits
+            .iter()
+            .all(|hit| pipeline_candidates.contains(&hit.cx_id)),
+        "pipeline_empty_stage1_hits": empty_stage1_hits.len(),
         "all_provenanced": rrf.iter().all(|hit| hit.provenance.hash.iter().any(|byte| *byte != 0)),
         "fresh_error": fresh_error,
         "stale_ok_stale_by": stale_ok[0].freshness.stale_by,
@@ -242,6 +308,8 @@ fn stage4_full_stack_fsv() {
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
 
     assert!(rerank.is_ok(), "real reranker response required for FSV");
+    assert_eq!(readback["pipeline_subset_ok"], true);
+    assert_eq!(readback["pipeline_empty_stage1_hits"], 0);
     assert_eq!(readback["fresh_error"], "CALYX_STALE_DERIVED");
     assert_eq!(readback["unbounded"], CALYX_SEXTANT_PLAN_UNBOUNDED);
     assert_eq!(readback["varint_hex"], "010204");

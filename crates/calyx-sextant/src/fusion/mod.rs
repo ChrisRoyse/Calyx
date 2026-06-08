@@ -13,6 +13,7 @@ pub mod profiles;
 pub mod rrf;
 pub mod single;
 
+pub use pipeline::pipeline_fuse;
 pub use profiles::{RrfProfile, WeightedProfile, weighted_profiles};
 pub use rrf::{rrf_fuse, weighted_rrf_fuse};
 pub use single::single_lens_fuse;
@@ -43,6 +44,7 @@ pub struct FusionContext {
     pub explain: bool,
     pub strategy: FusionStrategy,
     pub weights: BTreeMap<SlotId, f32>,
+    pub stage1_slots: Vec<SlotId>,
 }
 
 pub fn fuse(results: &BTreeMap<SlotId, Vec<IndexSearchHit>>, context: &FusionContext) -> Vec<Hit> {
@@ -50,6 +52,6 @@ pub fn fuse(results: &BTreeMap<SlotId, Vec<IndexSearchHit>>, context: &FusionCon
         FusionStrategy::SingleLens { slot } => single_lens_fuse(*slot, results, context),
         FusionStrategy::Rrf => rrf_fuse(results, context),
         FusionStrategy::WeightedRrf { .. } => weighted_rrf_fuse(results, context),
-        FusionStrategy::Pipeline => rrf_fuse(results, context),
+        FusionStrategy::Pipeline => pipeline_fuse(results, context),
     }
 }

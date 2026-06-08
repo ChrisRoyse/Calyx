@@ -306,6 +306,7 @@ fn weighted_rrf_strict_probe() -> CxId {
                 profile: RrfProfile::Semantic,
             },
             weights,
+            stage1_slots: Vec::new(),
         },
     );
     assert_eq!(hits.len(), 1);
