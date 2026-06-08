@@ -6,10 +6,7 @@ use calyx_lodestar::{GroundednessReport, Kernel, RecallReport, ScopeCache, Scope
 use serde_json::json;
 
 fn key(seed: u8, panel_version: u64) -> ScopeCacheKey {
-    ScopeCacheKey {
-        scope_hash: [seed; 32],
-        panel_version,
-    }
+    ScopeCacheKey::new([seed; 32], panel_version, [0; 32], [0; 32])
 }
 
 fn cx(seed: u8) -> CxId {
@@ -149,10 +146,7 @@ fn scope_cache_zero_capacity_and_max_panel_version_are_safe() {
     let zero_stats = zero.stats();
 
     let mut max_panel = ScopeCache::new(1);
-    let max_key = ScopeCacheKey {
-        scope_hash: [254; 32],
-        panel_version: u64::MAX,
-    };
+    let max_key = ScopeCacheKey::new([254; 32], u64::MAX, [1; 32], [2; 32]);
     max_panel.insert(max_key, kernel(9, u64::MAX));
     let max_present = max_panel.get(&max_key).is_some();
     let max_stats = max_panel.stats();
@@ -175,6 +169,16 @@ fn scope_cache_zero_capacity_and_max_panel_version_are_safe() {
     assert_eq!(zero_stats.current_size, 0);
     assert!(max_present);
     assert_eq!(max_stats.current_size, 1);
+}
+
+#[test]
+fn scope_cache_key_includes_anchor_and_corpus_identity() {
+    let base = ScopeCacheKey::new([1; 32], 7, [2; 32], [3; 32]);
+    let changed_anchor = ScopeCacheKey::new([1; 32], 7, [4; 32], [3; 32]);
+    let changed_corpus = ScopeCacheKey::new([1; 32], 7, [2; 32], [5; 32]);
+
+    assert_ne!(base, changed_anchor);
+    assert_ne!(base, changed_corpus);
 }
 
 fn assert_send_sync<T: Send + Sync>() {}

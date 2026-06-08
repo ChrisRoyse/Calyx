@@ -57,5 +57,5 @@ pub use recall_test::{
 pub use scope::{
     AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, scope_hash,
 };
-pub use scope_cache::{CacheStats, ScopeCache, ScopeCacheKey};
+pub use scope_cache::{CacheStats, ScopeCache, ScopeCacheKey, scope_cache_anchor_identity};
 pub use scope_report::{ScopeKernelReport, report_all_scopes};

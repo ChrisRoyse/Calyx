@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use calyx_core::{AnchorKind, CxId};
 use serde::{Deserialize, Serialize};
 
 use crate::Kernel;
@@ -10,6 +11,24 @@ const DEFAULT_MAX_ENTRIES: usize = 128;
 pub struct ScopeCacheKey {
     pub scope_hash: [u8; 32],
     pub panel_version: u64,
+    pub anchor_identity: [u8; 32],
+    pub corpus_identity: [u8; 32],
+}
+
+impl ScopeCacheKey {
+    pub const fn new(
+        scope_hash: [u8; 32],
+        panel_version: u64,
+        anchor_identity: [u8; 32],
+        corpus_identity: [u8; 32],
+    ) -> Self {
+        Self {
+            scope_hash,
+            panel_version,
+            anchor_identity,
+            corpus_identity,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,10 +127,30 @@ impl Default for ScopeCache {
 
 fn log_eviction(key: &ScopeCacheKey, reason: &str) {
     eprintln!(
-        "CALYX_SCOPE_CACHE_EVICT reason={reason} scope_hash={} panel_version={}",
+        "CALYX_SCOPE_CACHE_EVICT reason={reason} scope_hash={} panel_version={} anchor_identity={} corpus_identity={}",
         hex32(&key.scope_hash),
-        key.panel_version
+        key.panel_version,
+        hex32(&key.anchor_identity),
+        hex32(&key.corpus_identity)
     );
+}
+
+pub fn scope_cache_anchor_identity(anchor_kinds: &[AnchorKind], anchors: &[CxId]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"calyx-lodestar-scope-anchor-identity-v1");
+    for kind in anchor_kinds {
+        let bytes = serde_json::to_vec(kind).expect("anchor kind serializes");
+        frame(&mut hasher, &bytes);
+    }
+    for anchor in anchors {
+        frame(&mut hasher, anchor.as_bytes());
+    }
+    *hasher.finalize().as_bytes()
+}
+
+fn frame(hasher: &mut blake3::Hasher, bytes: &[u8]) {
+    hasher.update(&(bytes.len() as u64).to_be_bytes());
+    hasher.update(bytes);
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {
