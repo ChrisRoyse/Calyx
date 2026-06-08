@@ -21,9 +21,14 @@ fn open_recovers_manifested_rows_from_ssts_when_wal_history_is_absent() {
 
     let reopened =
         AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).expect("cold open");
+    let got = reopened.get(id, reopened.snapshot()).unwrap();
+    let mut expected = cx;
+    expected.provenance = got.provenance.clone();
 
     assert_eq!(reopened.snapshot(), 1);
-    assert_eq!(reopened.get(id, reopened.snapshot()).unwrap(), cx);
+    assert_eq!(got.provenance.seq, 0);
+    assert_ne!(got.provenance.hash, [0x51; 32]);
+    assert_eq!(got, expected);
     cleanup(dir);
 }
 

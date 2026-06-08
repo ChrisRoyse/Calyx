@@ -36,8 +36,8 @@ fn durable_vault_flushes_router_ssts_alongside_manifest_checkpoint() {
             .iter()
             .any(|name| name == "00000000000000000001.sst")
     );
-    assert!(base_names.iter().any(|name| name.contains("-0000.sst")));
-    assert_eq!(reopened.get(id, reopened.snapshot()).unwrap(), cx);
+    assert!(base_names.iter().any(|name| name.contains("-0001.sst")));
+    assert_recovered_matches(cx, reopened.get(id, reopened.snapshot()).unwrap());
     cleanup(dir);
 }
 
@@ -77,8 +77,60 @@ fn vault_compaction_scheduler_compacts_flushed_cf_catalog() {
             .iter()
             .any(|name| { name.starts_with("compacted-") && name.ends_with(".sst") })
     );
-    assert_eq!(reopened.get(id, reopened.snapshot()).unwrap(), cx);
+    assert_recovered_matches(cx, reopened.get(id, reopened.snapshot()).unwrap());
     cleanup(dir);
+}
+
+#[test]
+fn compacted_ssts_recover_after_original_shards_are_absent() {
+    let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
+    let dir = fsv_root.as_ref().map_or_else(
+        || test_dir("compacted-recovery"),
+        |root| {
+            let dir = root.join("compacted-recovery").join("vault");
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            dir
+        },
+    );
+    let vault =
+        AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    let cx = sample_constellation(0x54);
+    let id = cx.cx_id;
+    let base_dir = dir.join("cf/base");
+    let slot_dir = dir.join("cf/slot_00");
+
+    vault.put(cx.clone()).unwrap();
+    vault.flush().unwrap();
+    vault
+        .compact_cf_once(ColumnFamily::Base)
+        .unwrap()
+        .expect("base compacted");
+    vault
+        .compact_cf_once(ColumnFamily::slot(SlotId::new(0)))
+        .unwrap()
+        .expect("slot compacted");
+    let base_before_removal = sst_names(&base_dir);
+    let slot_before_removal = sst_names(&slot_dir);
+    remove_non_compacted_ssts(&base_dir);
+    remove_non_compacted_ssts(&slot_dir);
+
+    let reopened = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    let got = reopened.get(id, reopened.snapshot()).unwrap();
+
+    assert_recovered_matches(cx, got.clone());
+    if let Some(root) = fsv_root {
+        write_compacted_recovery_readback(
+            &root,
+            &dir,
+            &base_before_removal,
+            &slot_before_removal,
+            reopened.snapshot(),
+            &got,
+        );
+    } else {
+        cleanup(dir);
+    }
 }
 
 #[test]
@@ -138,10 +190,10 @@ fn tiered_vault_flush_recovery_and_compaction_use_hot_archive_roots() {
     );
 
     let reopened = AsterVault::open(&vault_root, vault_id(), b"salt", options).unwrap();
-    assert_eq!(reopened.get(first_id, reopened.snapshot()).unwrap(), first);
-    assert_eq!(
+    assert_recovered_matches(first, reopened.get(first_id, reopened.snapshot()).unwrap());
+    assert_recovered_matches(
+        second,
         reopened.get(second_id, reopened.snapshot()).unwrap(),
-        second
     );
     if let Some(root) = fsv_root {
         write_tiered_readback(
@@ -201,6 +253,15 @@ fn add_inactive_slot(cx: &mut calyx_core::Constellation, seed: u8) {
     );
 }
 
+fn assert_recovered_matches(
+    mut expected: calyx_core::Constellation,
+    got: calyx_core::Constellation,
+) {
+    expected.provenance = got.provenance.clone();
+    assert_ne!(got.provenance.hash, [0; 32]);
+    assert_eq!(got, expected);
+}
+
 fn tiered_options(hot: &Path, archive: &Path) -> VaultOptions {
     VaultOptions {
         tiering_policy: Some(TieringPolicy::new(hot, archive, [SlotId::new(0)], 7)),
@@ -229,6 +290,16 @@ fn maybe_sst_names(dir: &Path) -> Vec<String> {
     sst_names(dir)
 }
 
+fn remove_non_compacted_ssts(dir: &Path) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().to_string();
+        if name.ends_with(".sst") && !name.starts_with("compacted-") {
+            fs::remove_file(path).unwrap();
+        }
+    }
+}
+
 fn write_tiered_readback(
     root: &Path,
     vault_root: &Path,
@@ -251,6 +322,37 @@ fn write_tiered_readback(
     });
     fs::write(
         root.join("tiered-vault-readback.json"),
+        serde_json::to_vec_pretty(&readback).unwrap(),
+    )
+    .unwrap();
+}
+
+fn write_compacted_recovery_readback(
+    root: &Path,
+    vault_root: &Path,
+    base_before_removal: &[String],
+    slot_before_removal: &[String],
+    cold_open_snapshot: u64,
+    got: &calyx_core::Constellation,
+) {
+    fs::create_dir_all(root).unwrap();
+    let current_manifest = fs::read(vault_root.join("CURRENT")).unwrap();
+    let readback = serde_json::json!({
+        "vault_root": vault_root,
+        "current_manifest": String::from_utf8_lossy(&current_manifest),
+        "base_ssts_before_removal": base_before_removal,
+        "slot_ssts_before_removal": slot_before_removal,
+        "base_ssts_after_removal": sst_names(&vault_root.join("cf/base")),
+        "slot_ssts_after_removal": sst_names(&vault_root.join("cf/slot_00")),
+        "cold_open_snapshot": cold_open_snapshot,
+        "cx_id": got.cx_id.to_string(),
+        "input_pointer": got.input_ref.pointer.clone(),
+        "slot_count": got.slots.len(),
+        "provenance_seq": got.provenance.seq,
+        "provenance_hash_is_nonzero": got.provenance.hash != [0; 32],
+    });
+    fs::write(
+        root.join("compacted-recovery-readback.json"),
         serde_json::to_vec_pretty(&readback).unwrap(),
     )
     .unwrap();

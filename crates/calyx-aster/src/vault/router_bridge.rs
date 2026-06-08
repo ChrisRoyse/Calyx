@@ -20,6 +20,7 @@ where
             clock,
             rows: VersionedCfStore::new_with_router(0, router),
             durable: None,
+            ledger_hook: None,
         }
     }
 

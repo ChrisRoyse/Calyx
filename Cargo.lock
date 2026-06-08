@@ -185,6 +185,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "calyx-core",
+ "calyx-ledger",
  "crc32fast",
  "memmap2",
  "proptest",

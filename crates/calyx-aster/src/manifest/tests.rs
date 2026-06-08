@@ -3,7 +3,7 @@ use crate::sst::write_sst;
 use crate::wal::{Wal, WalOptions};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
@@ -11,6 +11,7 @@ static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 #[test]
 fn manifest_swap_uses_current_pointer_atomically() {
     let dir = test_dir("manifest-swap");
+    write_manifest_assets(&dir);
     let store = ManifestStore::open(&dir);
     let first = manifest(1, 10);
     let second = manifest(2, 20);
@@ -36,6 +37,7 @@ fn manifest_swap_uses_current_pointer_atomically() {
 #[test]
 fn recovery_replays_wal_after_manifest_durable_seq() {
     let dir = test_dir("recover-after-manifest");
+    write_manifest_assets(&dir);
     fs::create_dir_all(dir.join("wal")).expect("wal dir");
     let mut wal = Wal::open(dir.join("wal"), WalOptions::default()).expect("open wal");
     wal.append(b"already-in-manifest-1").expect("append 1");
@@ -59,6 +61,7 @@ fn recovery_replays_wal_after_manifest_durable_seq() {
 #[test]
 fn recovery_discards_torn_tail_but_keeps_last_acked_bytes() {
     let dir = test_dir("recover-torn-tail");
+    write_manifest_assets(&dir);
     fs::create_dir_all(dir.join("wal")).expect("wal dir");
     let mut wal = Wal::open(dir.join("wal"), WalOptions::default()).expect("open wal");
     let acked = wal.append(b"acked-after-manifest").expect("append acked");
@@ -118,6 +121,24 @@ fn invalid_mutable_refs_fail_closed() {
 }
 
 #[test]
+fn manifest_ref_hash_mismatch_fails_closed() {
+    let dir = test_dir("manifest-ref-corrupt");
+    write_manifest_assets(&dir);
+    ManifestStore::open(&dir)
+        .write_current(&manifest(1, 1))
+        .expect("write manifest");
+    fs::write(dir.join("panel/panel-0001.json"), b"panel-corrupt").expect("corrupt panel ref");
+
+    let error = ManifestStore::open(&dir)
+        .load_current()
+        .expect_err("corrupt manifest ref rejected");
+
+    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(error.message.contains("manifest immutable ref"));
+    cleanup(dir);
+}
+
+#[test]
 fn corrupt_base_shard_read_fails_closed_with_restore_guidance() {
     let dir = test_dir("base-corrupt");
     let path = dir.join("cf").join("base").join("base.sst");
@@ -150,6 +171,13 @@ fn manifest(manifest_seq: u64, durable_seq: u64) -> VaultManifest {
         vec![ImmutableRef::from_bytes("codebooks/slot_00.cb", b"codebook").unwrap()],
     )
     .unwrap()
+}
+
+fn write_manifest_assets(dir: &Path) {
+    fs::create_dir_all(dir.join("panel")).expect("panel dir");
+    fs::create_dir_all(dir.join("codebooks")).expect("codebook dir");
+    fs::write(dir.join("panel/panel-0001.json"), b"panel").expect("panel bytes");
+    fs::write(dir.join("codebooks/slot_00.cb"), b"codebook").expect("codebook bytes");
 }
 
 fn test_dir(name: &str) -> PathBuf {

@@ -248,6 +248,9 @@ fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<P
 
 fn durable_sst_identity(path: &Path) -> Option<(u64, usize)> {
     let stem = path.file_stem()?.to_str()?;
+    if let Some(seq) = stem.strip_prefix("compacted-") {
+        return Some((seq.parse().ok()?, 0));
+    }
     let (seq, index) = stem.split_once('-')?;
     Some((seq.parse().ok()?, index.parse().ok()?))
 }

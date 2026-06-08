@@ -1,6 +1,6 @@
 use super::{AppendAck, Wal};
 use calyx_core::{CalyxError, Clock, Result};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -73,16 +73,20 @@ fn run_batcher(
     wal: Arc<Mutex<Wal>>,
     receiver: Receiver<BatchRequest>,
     group_commit_window: Duration,
-    clock: Arc<dyn Clock>,
+    _clock: Arc<dyn Clock>,
 ) {
     while let Ok(first) = receiver.recv() {
-        let start = clock.now();
         let mut requests = vec![first];
-        while elapsed_ms(start, clock.now()) <= group_commit_window.as_millis() as u64 {
-            match receiver.try_recv() {
+        let deadline = std::time::Instant::now() + group_commit_window;
+        loop {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                break;
+            }
+            match receiver.recv_timeout(deadline.saturating_duration_since(now)) {
                 Ok(request) => requests.push(request),
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => break,
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => break,
             }
         }
         flush_requests(&wal, requests);
@@ -121,10 +125,6 @@ fn flush_requests(wal: &Mutex<Wal>, requests: Vec<BatchRequest>) {
             }
         }
     }
-}
-
-fn elapsed_ms(start: u64, now: u64) -> u64 {
-    now.saturating_sub(start)
 }
 
 #[cfg(test)]

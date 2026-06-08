@@ -148,6 +148,9 @@ error_catalog! {
     LedgerSecretInPayload, ledger_secret_in_payload, "CALYX_LEDGER_SECRET_IN_PAYLOAD",
     "ledger payload contains secret-like material", "ledger payload must store hashes/ids only — redact before writing";
 
+    LedgerGroupCommitFailed, ledger_group_commit_failed, "CALYX_LEDGER_GROUP_COMMIT_FAILED",
+    "ledger hook failed during group commit", "ledger hook failed — group-commit rolled back; retry the write";
+
     VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
     "cross-vault read without grant", "request grant";
 
@@ -198,6 +201,7 @@ mod tests {
         "CALYX_LEDGER_CORRUPT",
         "CALYX_LEDGER_APPEND_ONLY_VIOLATION",
         "CALYX_LEDGER_SECRET_IN_PAYLOAD",
+        "CALYX_LEDGER_GROUP_COMMIT_FAILED",
         "CALYX_VAULT_ACCESS_DENIED",
         "CALYX_STALE_DERIVED",
         "CALYX_ORACLE_INSUFFICIENT",
@@ -244,6 +248,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_LEDGER_SECRET_IN_PAYLOAD",
             "ledger payload must store hashes/ids only — redact before writing"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_LEDGER_GROUP_COMMIT_FAILED",
+            "ledger hook failed — group-commit rolled back; retry the write"
         )));
     }
 

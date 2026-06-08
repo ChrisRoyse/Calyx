@@ -3,6 +3,7 @@
 pub mod append;
 pub mod codec;
 pub mod entry;
+pub mod group_commit;
 pub mod kind;
 pub mod redaction;
 
@@ -12,6 +13,10 @@ pub use append::{
 };
 pub use codec::{decode, decode_header, encode};
 pub use entry::{ActorId, LedgerEntry, SubjectId, compute_entry_hash};
+pub use group_commit::{
+    DefaultLedgerHook, LedgerBatchRow, LedgerGroupCommitHook, LedgerWriteBatch, WriteBatch,
+    WriteOp, ingest_kind_for, ledger_batch_key,
+};
 pub use kind::EntryKind;
 pub use redaction::{PayloadBuilder, RedactedInput, RedactionPolicy};
 
