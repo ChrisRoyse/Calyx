@@ -24,14 +24,14 @@ pub fn topk_gpu(
         return Ok(Vec::new());
     }
     let k_eff = k.min(n);
-    let chunk_k = k_eff.min(TOPK_BLOCK);
-    if k_eff > TOPK_BLOCK && n <= TOPK_BLOCK {
+    if k_eff > TOPK_BLOCK {
         return Err(ForgeError::ShapeMismatch {
             expected: vec![TOPK_BLOCK],
             got: vec![k_eff],
-            remediation: "cuda topk supports exact k up to 1024 per chunk".to_string(),
+            remediation: "cuda topk is exact only for global k <= 1024; use CPU topk or add a multi-pass exact CUDA merge".to_string(),
         });
     }
+    let chunk_k = k_eff;
 
     let chunks = n.div_ceil(TOPK_BLOCK);
     let out_len = chunks
