@@ -13,26 +13,38 @@
 ## Status
 
 DONE / FSV-signed-off on aiwonder for #249, with range-binding hardening #347
-FSV-signed-off. Implemented in
+and real Aster `--vault` hardening #348 FSV-signed-off. Implemented in
 `crates/calyx-ledger/src/merkle.rs` plus `calyx merkle-root` in
 `crates/calyx-cli/src/merkle.rs`. Evidence root:
-`/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`.
+`/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`; hardening
+roots:
+`/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`
+and
+`/home/croyse/calyx/data/fsv-issue348-merkle-vault-real-aster-cf-20260609`.
 
 Readback facts:
 - 4-row synthetic ledger CF writes rows `0..4` after a before-read of zero rows.
 - `root_0_4` = `c7e306ce6a90128afebd835f75e71f96485e12ea7a8dff5abaee40ecdebdb4da`.
 - 4-hash golden root = `522a628f043f5aaebab28ea89a73cc0597d209943e8b984c09213852b3afe814`.
-- `calyx merkle-root --ledger <dir> --range 0..4`, `--vault <dir>`, and
-  `CALYX_LEDGER_DIR=<dir> calyx merkle-root --range 0..4` all print the JSON
-  root byte-for-byte.
+- `calyx merkle-root --ledger <dir> --range 0..4` and
+  `CALYX_LEDGER_DIR=<dir> calyx merkle-root --range 0..4` print the standalone
+  ledger root byte-for-byte.
+- `calyx merkle-root --vault <aster-vault> --range 0..1` now reads real Aster
+  `cf/ledger` SST rows plus WAL batches and prints
+  `a666d0311a7aa2909f8cc49188bff7d55a281650f69d9c1658045909852857b2`, matching
+  direct CF and direct WAL readback.
 - Ed25519 signature verification round-trips, tampered roots fail verification,
   and a missing row fails closed with `CALYX_LEDGER_CORRUPT`.
+- #348 edge readbacks: empty range prints the zero root, missing `0..2` fails
+  with `CALYX_LEDGER_CORRUPT`, an empty non-Aster directory fails closed, and no
+  side `ledger` or `ledger-cf` directory is created.
 
 Post-sweep follow-ups:
 - #347: DONE / FSV-signed-off; `range_start` and `range_end` are bound into
   the signed Merkle export payload.
-- #348: make `calyx merkle-root --vault` read the real Aster Ledger CF, or fail
-  closed instead of creating/reading a side ledger directory.
+- #348: DONE / FSV-signed-off; `calyx merkle-root --vault` reads the real Aster
+  Ledger CF/WAL state and fails closed instead of creating/reading a side ledger
+  directory.
 
 ## Goal
 
@@ -82,14 +94,18 @@ API from `11 §5`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** compiled test binary + a synthetic ledger CF with 4 known entries
+- **SoT:** compiled test binary + a synthetic ledger CF with 4 known entries;
+  for #348, a durable Aster vault with physical `cf/ledger` SST files and WAL
+  segment bytes.
 - **Readback:** `cargo test -p calyx-ledger -- --nocapture merkle_golden 2>&1`
   prints the 32-byte Merkle root; assert equals the hard-coded golden constant.
   `calyx merkle-root --vault test --range 0..4` prints the same 32-byte hex;
   confirm byte-exact match.
 - **Prove:** before: no Merkle function; after: golden test passes; flipping one
   entry's `entry_hash` byte changes the root; `verify_signature` round-trip
-  succeeds with known seed.
+  succeeds with known seed. #348 readback proves `--vault` does not create
+  side `ledger`/`ledger-cf` directories and that CLI/direct CF/direct WAL roots
+  are byte-identical.
 
 ## Done when
 

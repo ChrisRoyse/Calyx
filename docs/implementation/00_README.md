@@ -109,7 +109,7 @@ Prometheus on :9090, Docker, Infisical, HF cache, ZFS hot+cold pools. Userspace
 the ContextGraph `mincut`/`paths`/`witness`/`mejepa` logic as seeds (PRD
 `19 §6`).
 
-## 7. Status (current: 2026-06-08; latest pushed main tracked in #23)
+## 7. Status (current: 2026-06-09; latest pushed main tracked in #23)
 
 **DONE — Stages 0–5 (PH00–PH30), FSV-signed-off on aiwonder.** Implemented
 surfaces: `calyx-core`, `calyx-aster`, `calyx-forge`, `calyx-registry`,
@@ -228,6 +228,16 @@ hierarchical kernel-of-regions, T05 bridge nodes, and T06 real multi-scope FSV
 are closed with aiwonder readbacks under
 `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. `KERNEL_ANY` is satisfied
 for PH34. Stage 6 exit #240 is signed off.
+
+**Stage 7 / PH35-PH36 current:** PH35 #242-#248 plus hardening #345 are
+FSV-signed-off. PH36 T01 #249, range-bound signature hardening #347, and real
+Aster `calyx merkle-root --vault` hardening #348 are FSV-signed-off under
+`/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`,
+`/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`,
+and
+`/home/croyse/calyx/data/fsv-issue348-merkle-vault-real-aster-cf-20260609`.
+PH36 verify_chain, checkpoint scheduling, reproduce, and audit surfaces remain
+tracked in #250-#256.
 
 **Remaining:** Open phases **PH36-PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level

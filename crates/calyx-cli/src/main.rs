@@ -52,8 +52,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, vault_flag, vault, range_flag, range]
             if command == "merkle-root" && vault_flag == "--vault" && range_flag == "--range" =>
         {
-            let ledger = merkle::ledger_dir_from_vault(Path::new(vault));
-            merkle::print_root(&ledger, merkle::parse_range(range)?)
+            merkle::print_root_from_vault(Path::new(vault), merkle::parse_range(range)?)
         }
         [command, range_flag, range] if command == "merkle-root" && range_flag == "--range" => {
             merkle::print_root_from_env(merkle::parse_range(range)?)
@@ -273,6 +272,7 @@ fn normalize_path(path: &Path) -> String {
 fn print_usage() {
     println!("{}", usage());
     println!("prints source-of-truth bytes or listings for manual FSV inspection");
+    println!("merkle-root --vault reads Aster cf/ledger plus wal; no side ledger dir is created");
 }
 
 fn usage() -> &'static str {

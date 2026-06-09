@@ -208,6 +208,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-ledger",
+ "serde_json",
 ]
 
 [[package]]

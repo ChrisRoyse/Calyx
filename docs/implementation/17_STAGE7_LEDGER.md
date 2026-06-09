@@ -78,6 +78,14 @@ as PH09 writes constellations.*
   signature round-trip/tamper, and missing-row fail-closed readbacks are
   FSV-backed at
   `/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`.
+- **Post-sweep note.** PH36 hardening #347 binds `range_start`/`range_end` into
+  Merkle export signatures, preventing wrong-range replay. PH36 hardening #348
+  makes `calyx merkle-root --vault` read real Aster `cf/ledger` SST rows plus
+  WAL batches, fail closed for non-Aster directories, and avoid side
+  `ledger`/`ledger-cf` directories. Aiwonder FSV is backed at
+  `/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`
+  and
+  `/home/croyse/calyx/data/fsv-issue348-merkle-vault-real-aster-cf-20260609`.
 - **FSV gate.** flip one ledger byte → `verify_chain` detects the break **at the
   right seq**; `reproduce(answer)` on a real answer is **bit-parity within
   tolerance** (read both).
