@@ -2,6 +2,7 @@
 
 mod crash;
 mod fsv;
+mod merkle;
 mod ops;
 
 use std::env;
@@ -42,6 +43,20 @@ fn run(args: Vec<String>) -> Result<(), String> {
             if command == "readback" && flag == "--cf" && level_flag == "--level" =>
         {
             fsv::readback_level(cf, Path::new(level_dir))
+        }
+        [command, ledger_flag, ledger, range_flag, range]
+            if command == "merkle-root" && ledger_flag == "--ledger" && range_flag == "--range" =>
+        {
+            merkle::print_root(Path::new(ledger), merkle::parse_range(range)?)
+        }
+        [command, vault_flag, vault, range_flag, range]
+            if command == "merkle-root" && vault_flag == "--vault" && range_flag == "--range" =>
+        {
+            let ledger = merkle::ledger_dir_from_vault(Path::new(vault));
+            merkle::print_root(&ledger, merkle::parse_range(range)?)
+        }
+        [command, range_flag, range] if command == "merkle-root" && range_flag == "--range" => {
+            merkle::print_root_from_env(merkle::parse_range(range)?)
         }
         [command, vault_flag, vault, cf_flag, cf]
             if command == "compact" && vault_flag == "--vault" && cf_flag == "--cf" =>
@@ -262,6 +277,8 @@ fn print_usage() {
 
 fn usage() -> &'static str {
     "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)
+       calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
+       CALYX_LEDGER_DIR=<dir> calyx merkle-root --range <a..b>
        calyx compact --vault <dir> --cf <name>
        calyx compact-watch --vault <dir> --duration <30s|500ms>
        calyx soak --vault <dir> --ops <n> --threads <n>

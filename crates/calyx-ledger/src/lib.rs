@@ -5,6 +5,7 @@ pub mod codec;
 pub mod entry;
 pub mod group_commit;
 pub mod kind;
+pub mod merkle;
 pub mod redaction;
 
 pub use append::{
@@ -18,6 +19,10 @@ pub use group_commit::{
     WriteOp, ingest_kind_for, ledger_batch_key,
 };
 pub use kind::EntryKind;
+pub use merkle::{
+    MERKLE_EMPTY_ROOT, MERKLE_SIGNING_DOMAIN, MerkleExportBundle, combine_hash, leaf_hash,
+    merkle_root, merkle_root_of_hashes, sign_root, verify_signature,
+};
 pub use redaction::{PayloadBuilder, RedactedInput, RedactionPolicy};
 
 #[cfg(test)]
