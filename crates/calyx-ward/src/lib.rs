@@ -11,6 +11,7 @@ pub mod profile;
 pub mod query;
 pub mod required;
 pub mod speaker_lens;
+pub mod style_lens;
 pub mod verdict;
 
 pub use calibrate::{
@@ -53,6 +54,10 @@ pub use required::{
 pub use speaker_lens::{
     DEFAULT_WAVLM_MODEL_PATH, SpeakerEmbeddingBackend, SpeakerLens, SpeakerProviderPolicy,
     WAVLM_DIM, WAVLM_SAMPLE_RATE,
+};
+pub use style_lens::{
+    DEFAULT_STYLE_MODEL_PATH, DEFAULT_STYLE_TOKENIZER_PATH, STYLE_DIM, STYLE_MAX_TOKENS,
+    StyleEmbeddingBackend, StyleLens, StyleProviderPolicy,
 };
 pub use verdict::{GuardVerdict, SlotVerdict};
 
