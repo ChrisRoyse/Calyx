@@ -8,6 +8,7 @@ pub mod group_commit;
 pub mod kind;
 pub mod merkle;
 pub mod redaction;
+pub mod reproduce;
 pub mod verify;
 
 pub use append::{
@@ -30,6 +31,12 @@ pub use merkle::{
     merkle_root, merkle_root_of_hashes, sign_root, verify_signature,
 };
 pub use redaction::{PayloadBuilder, RedactedInput, RedactionPolicy};
+pub use reproduce::{
+    ForgeBackend, InlineInputResolver, QueryId, RecordedSlot, RemeasuredSlot, ReproduceContext,
+    ReproduceInputResolver, ReproduceLensRegistry, activate_forge_determinism,
+    build_reproduce_context, lookup_frozen_lens, remeasure_slots,
+    remeasure_slots_with_input_resolver,
+};
 pub use verify::{VerifyResult, verify_chain};
 
 #[cfg(test)]

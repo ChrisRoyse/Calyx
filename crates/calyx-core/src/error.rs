@@ -154,6 +154,9 @@ error_catalog! {
     LedgerGroupCommitFailed, ledger_group_commit_failed, "CALYX_LEDGER_GROUP_COMMIT_FAILED",
     "ledger hook failed during group commit", "ledger hook failed — group-commit rolled back; retry the write";
 
+    ReproduceNondeterministic, reproduce_nondeterministic, "CALYX_REPRODUCE_NONDETERMINISTIC",
+    "reproduce ledger entry lacks determinism seed", "no determinism seed in ledger entry - cannot guarantee reproduce fidelity";
+
     VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
     "cross-vault read without grant", "request grant";
 
@@ -206,6 +209,7 @@ mod tests {
         "CALYX_LEDGER_SECRET_IN_PAYLOAD",
         "CALYX_LEDGER_ACTOR_TOO_LONG",
         "CALYX_LEDGER_GROUP_COMMIT_FAILED",
+        "CALYX_REPRODUCE_NONDETERMINISTIC",
         "CALYX_VAULT_ACCESS_DENIED",
         "CALYX_STALE_DERIVED",
         "CALYX_ORACLE_INSUFFICIENT",
@@ -260,6 +264,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_LEDGER_GROUP_COMMIT_FAILED",
             "ledger hook failed — group-commit rolled back; retry the write"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_REPRODUCE_NONDETERMINISTIC",
+            "no determinism seed in ledger entry - cannot guarantee reproduce fidelity"
         )));
     }
 
