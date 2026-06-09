@@ -1,10 +1,9 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
-atomic tasks are #258-#279. PH37 core T01-T07 (#258-#263, #275) and PH38 T01
-(#264) are FSV-signed-off. PH37 T08 (#277) Assay-derived required-slot
-derivation is also FSV-signed-off; PH37 blindspot #278 remains open before the
-Ward exit can claim PH37 complete.
+atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
+PH38 T01 (#264) are FSV-signed-off. PH37 is complete; PH38 T02+ remains before
+the Ward exit can claim Stage 8 complete.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -48,8 +47,11 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   0.05-bit load-bearing threshold, with explicit manual override and durable
   aiwonder evidence under
   `/home/croyse/calyx/data/fsv-issue277-ph37-t08-20260609-e75ade1`.
-- **Post-sweep note.** PH37 blindspot #278 Lodestar kernel-near guard priority
-  remains open.
+- **Post-sweep note.** PH37 T09 (#278) adds kernel-first query guarding:
+  Lodestar `kernel_search` can feed kernel-near regions, Ward evaluates those
+  before peripheral regions, and the source-marked verdict records
+  `kernel_near` or `peripheral`. Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue278-ph37-t09-20260609-c2d3e30`.
 - **Deliverables.** `guard.rs` (`cos(produced_k, matched_k) ≥ τ_k`),
   `GuardProfile { tau: Map<SlotId,f32>, required_slots, policy, calibration,
   novelty_action }`, per-slot verdict breakdown.

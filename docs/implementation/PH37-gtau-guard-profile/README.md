@@ -36,9 +36,9 @@ average-pass/slot-fail rejection readback. PH37 T06 (#263) adds the phase FSV
 readback harness and signs off the PH37 core path. PH37 T07 (#275) adds the
 incoming-query `guard_query` OOD gate and is FSV-signed-off. PH37 T08 (#277)
 adds Assay-derived required-slot selection from load-bearing `Slot.bits_about`
-entries and is FSV-signed-off. Post-sweep PH37 blindspot #278 remains open
-before the Ward exit can claim the whole PH37 surface complete. PH38 conformal
-tau calibration T01 (#264) is also FSV-signed-off.
+entries and is FSV-signed-off. PH37 T09 (#278) adds Lodestar-fed kernel-near
+guard priority with source-marked verdicts and is FSV-signed-off. PH37 is
+covered; PH38 conformal tau calibration T01 (#264) is also FSV-signed-off.
 
 Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
 (PH22) and Forge cosine (PH13); those dependency surfaces are already Stage 1-2
@@ -51,6 +51,7 @@ non-existent helper.
 |---|---|
 | `src/guard.rs` | `cos(produced_k, matched_k) ≥ τ_k` gate; per-slot verdict; `AllRequired`/`KofN` policy; `CALYX_GUARD_OOD` |
 | `src/query.rs` | incoming-query `guard_query` gate over trusted regions; `Pass`/`Ood { nearest_cx, gap }` verdict |
+| `src/query.rs` | `guard_query_kernel_first` kernel-near priority and source-marked verdicts |
 | `src/required.rs` | required-slot derivation from Assay `bits_about` using the inclusive 0.05-bit threshold; manual override |
 | `src/profile.rs` | `GuardProfile` struct, `GuardPolicy` enum, `CalibrationMeta`, `NoveltyAction` enum, serde |
 | `src/verdict.rs` | `GuardVerdict` (pass flag + `Vec<SlotVerdict { slot, cos, tau, pass }>`) |
