@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-09; Stage 7 active at PH36 post-#254)
+## Status (2026-06-09; Stage 7 active at PH36 post-#255)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -16,7 +16,9 @@ Stage 7 Ledger is active at PH36 checkpoint/reproduce work after PH35
 range-bound signature hardening #347, and real Aster `merkle-root --vault`
 hardening #348, verify_chain/quarantine #250, and checkpoint scheduler #251.
 PH36 reproduce re-measure #252, fusion replay/drift #253, and audit query
-surface #254 are also FSV-signed-off on aiwonder.
+surface #254 are also FSV-signed-off on aiwonder. PH36 exit FSV integration
+#255 is signed off with flip-byte tamper detection at seq 11 and reproduce
+bit-parity readback.
 
 Implemented engine surfaces:
 
@@ -53,8 +55,9 @@ and
 and
 `/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`,
 `/home/croyse/calyx/data/fsv-issue252-reproduce-remeasure-20260609`,
-`/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`, and
-`/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`.
+`/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`,
+`/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`, and
+`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`.
 
 Remaining major engine crates (`ward`, `anneal`, `oracle`, `mcp`, `calyxd`)
 are still pending. Ledger PH35 is FSV-signed-off, including the #345
@@ -62,7 +65,8 @@ failure-atomic staging hardening; PH36 Merkle root export #249,
 range-bound signing #347, and real Aster `merkle-root --vault` #348 are signed
 off. PH36 verify_chain/quarantine #250, checkpoint scheduler #251, reproduce
 re-measure #252, reproduce fusion replay #253, and audit query surface #254
-are signed off. Stage 7 exit integration continues in #255-#256.
+are signed off. PH36 exit FSV integration #255 is signed off. Stage 7 exit
+rollup continues in #256.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
