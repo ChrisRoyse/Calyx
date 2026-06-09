@@ -13,22 +13,22 @@ use crate::verdict::GuardVerdict;
 
 pub const DEFAULT_DRIFT_WINDOW: usize = 500;
 pub const DEFAULT_DRIFT_CHANNEL_CAPACITY: usize = 32;
-pub const FAR_DRIFT_MULTIPLIER: f32 = 1.5;
+pub const REJECTION_RATE_DRIFT_MULTIPLIER: f32 = 1.5;
 
 /// Event sent to Anneal when a slot's rolling rejection rate creeps upward.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DriftEvent {
     pub guard_id: GuardId,
     pub slot: SlotId,
-    pub current_far: f32,
-    pub calibrated_far: f32,
+    pub current_rejection_rate: f32,
+    pub calibrated_far_bound: f32,
 }
 
 /// Snapshot returned by `guard_health()`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GuardHealth {
     pub guard_id: GuardId,
-    pub per_slot_far: BTreeMap<SlotId, f32>,
+    pub per_slot_rejection_rate: BTreeMap<SlotId, f32>,
     pub per_slot_frr: BTreeMap<SlotId, f32>,
     pub drift: bool,
     pub last_calibrated: i64,
@@ -37,7 +37,13 @@ pub struct GuardHealth {
 
 /// Object-safe hook used until Anneal's PH48 queue is live.
 pub trait AnnealHook: Send + Sync + 'static {
-    fn on_far_drift(&self, guard_id: GuardId, slot: SlotId, current_far: f32, calibrated_far: f32);
+    fn on_rejection_rate_drift(
+        &self,
+        guard_id: GuardId,
+        slot: SlotId,
+        current_rejection_rate: f32,
+        calibrated_far_bound: f32,
+    );
 }
 
 /// Rolling drift monitor for one calibrated guard profile.
@@ -45,7 +51,7 @@ pub struct DriftMonitor {
     guard_id: GuardId,
     window_size: usize,
     per_slot_results: BTreeMap<SlotId, VecDeque<bool>>,
-    calibrated_far: BTreeMap<SlotId, f32>,
+    calibrated_far_bound: BTreeMap<SlotId, f32>,
     calibrated_frr: BTreeMap<SlotId, f32>,
     drift_slots: BTreeSet<SlotId>,
     last_calibrated: i64,
@@ -77,16 +83,16 @@ impl DriftMonitor {
         channel_capacity: usize,
         anneal_hook: Arc<dyn AnnealHook>,
     ) -> Self {
-        let (calibrated_far, calibrated_frr, last_calibrated) = calibration_maps(profile);
+        let (calibrated_far_bound, calibrated_frr, last_calibrated) = calibration_maps(profile);
         let (sender, receiver) = mpsc::sync_channel::<DriftEvent>(channel_capacity);
         let worker_hook = Arc::clone(&anneal_hook);
         let worker = thread::spawn(move || {
             while let Ok(event) = receiver.recv() {
-                worker_hook.on_far_drift(
+                worker_hook.on_rejection_rate_drift(
                     event.guard_id,
                     event.slot,
-                    event.current_far,
-                    event.calibrated_far,
+                    event.current_rejection_rate,
+                    event.calibrated_far_bound,
                 );
             }
         });
@@ -95,7 +101,7 @@ impl DriftMonitor {
             guard_id: profile.guard_id,
             window_size: window_size.max(1),
             per_slot_results: BTreeMap::new(),
-            calibrated_far,
+            calibrated_far_bound,
             calibrated_frr,
             drift_slots: BTreeSet::new(),
             last_calibrated,
@@ -127,18 +133,18 @@ impl DriftMonitor {
     }
 
     fn check_slot(&mut self, slot: SlotId) {
-        let Some(calibrated_far) = self.calibrated_far.get(&slot).copied() else {
+        let Some(calibrated_far_bound) = self.calibrated_far_bound.get(&slot).copied() else {
             return;
         };
-        let current_far = self.rolling_far(slot);
-        let drift = current_far > calibrated_far * FAR_DRIFT_MULTIPLIER;
+        let current_rejection_rate = self.rolling_rejection_rate(slot);
+        let drift = current_rejection_rate > calibrated_far_bound * REJECTION_RATE_DRIFT_MULTIPLIER;
 
         if drift && self.drift_slots.insert(slot) {
             let event = DriftEvent {
                 guard_id: self.guard_id,
                 slot,
-                current_far,
-                calibrated_far,
+                current_rejection_rate,
+                calibrated_far_bound,
             };
             if let Some(sender) = &self.hook_channel {
                 match sender.try_send(event) {
@@ -152,27 +158,27 @@ impl DriftMonitor {
         }
     }
 
-    fn rolling_far(&self, slot: SlotId) -> f32 {
+    fn rolling_rejection_rate(&self, slot: SlotId) -> f32 {
         self.per_slot_results
             .get(&slot)
-            .map(failure_fraction)
+            .map(rejection_fraction)
             .unwrap_or(0.0)
     }
 
     fn health(&self) -> GuardHealth {
-        let mut per_slot_far = BTreeMap::new();
-        for slot in self.calibrated_far.keys() {
-            per_slot_far.insert(*slot, self.rolling_far(*slot));
+        let mut per_slot_rejection_rate = BTreeMap::new();
+        for slot in self.calibrated_far_bound.keys() {
+            per_slot_rejection_rate.insert(*slot, self.rolling_rejection_rate(*slot));
         }
         for slot in self.per_slot_results.keys() {
-            per_slot_far
+            per_slot_rejection_rate
                 .entry(*slot)
-                .or_insert_with(|| self.rolling_far(*slot));
+                .or_insert_with(|| self.rolling_rejection_rate(*slot));
         }
 
         GuardHealth {
             guard_id: self.guard_id,
-            per_slot_far,
+            per_slot_rejection_rate,
             per_slot_frr: self.calibrated_frr.clone(),
             drift: !self.drift_slots.is_empty(),
             last_calibrated: self.last_calibrated,
@@ -197,7 +203,7 @@ pub fn guard_health(monitor: &DriftMonitor, guard_id: GuardId) -> GuardHealth {
     } else {
         GuardHealth {
             guard_id,
-            per_slot_far: BTreeMap::new(),
+            per_slot_rejection_rate: BTreeMap::new(),
             per_slot_frr: BTreeMap::new(),
             drift: false,
             last_calibrated: 0,
@@ -210,16 +216,16 @@ fn calibration_maps(profile: &GuardProfile) -> (BTreeMap<SlotId, f32>, BTreeMap<
     let far = profile.calibration.as_ref().map_or(0.0, |meta| meta.far);
     let frr = profile.calibration.as_ref().map_or(0.0, |meta| meta.frr);
     let last_calibrated = profile.calibration.as_ref().map_or(0, |meta| meta.ts);
-    let mut calibrated_far = BTreeMap::new();
+    let mut calibrated_far_bound = BTreeMap::new();
     let mut calibrated_frr = BTreeMap::new();
     for slot in profile.tau.keys() {
-        calibrated_far.insert(*slot, far);
+        calibrated_far_bound.insert(*slot, far);
         calibrated_frr.insert(*slot, frr);
     }
-    (calibrated_far, calibrated_frr, last_calibrated)
+    (calibrated_far_bound, calibrated_frr, last_calibrated)
 }
 
-fn failure_fraction(window: &VecDeque<bool>) -> f32 {
+fn rejection_fraction(window: &VecDeque<bool>) -> f32 {
     if window.is_empty() {
         0.0
     } else {

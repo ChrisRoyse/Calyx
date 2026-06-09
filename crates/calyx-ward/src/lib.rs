@@ -16,7 +16,7 @@ pub use calibrate::{
 };
 pub use drift::{
     AnnealHook, DEFAULT_DRIFT_CHANNEL_CAPACITY, DEFAULT_DRIFT_WINDOW, DriftEvent, DriftMonitor,
-    FAR_DRIFT_MULTIPLIER, GuardHealth, guard_health,
+    GuardHealth, REJECTION_RATE_DRIFT_MULTIPLIER, guard_health,
 };
 pub use error::{
     CALYX_GUARD_ID_MISMATCH, CALYX_GUARD_MISSING_SLOT, CALYX_GUARD_NOT_A_FAILURE,

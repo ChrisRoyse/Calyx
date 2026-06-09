@@ -14,7 +14,7 @@ const OTHER_GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c102";
 const CALIBRATED_FAR: f32 = 0.05;
 
 #[test]
-fn rolling_far_matches_known_ratio() {
+fn rolling_rejection_rate_matches_known_ratio() {
     let hook = RecordingHook::default();
     let mut monitor = monitor_with_slots(1, 500, Arc::new(hook));
 
@@ -22,7 +22,22 @@ fn rolling_far_matches_known_ratio() {
     record_repeated(&mut monitor, slot(1), false, 50);
 
     let health = guard_health(&monitor, guard_id());
-    assert_close(*health.per_slot_far.get(&slot(1)).unwrap(), 0.10);
+    assert_close(*health.per_slot_rejection_rate.get(&slot(1)).unwrap(), 0.10);
+}
+
+#[test]
+fn rejection_rate_is_not_reported_as_calibration_far() {
+    let hook = RecordingHook::default();
+    let mut monitor = monitor_with_slots(1, 500, Arc::new(hook));
+
+    record_repeated(&mut monitor, slot(1), true, 80);
+    record_repeated(&mut monitor, slot(1), false, 20);
+
+    let health = guard_health(&monitor, guard_id());
+    let rejection_rate = *health.per_slot_rejection_rate.get(&slot(1)).unwrap();
+
+    assert_close(rejection_rate, 0.20);
+    assert!(rejection_rate > CALIBRATED_FAR * 3.0);
 }
 
 #[test]
@@ -39,11 +54,12 @@ fn injected_drift_sets_health_and_fires_hook_once() {
     let events = hook_readback.events();
 
     assert!(health.drift);
-    assert_close(*health.per_slot_far.get(&slot(1)).unwrap(), 0.10);
+    assert_close(*health.per_slot_rejection_rate.get(&slot(1)).unwrap(), 0.10);
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].guard_id, guard_id());
     assert_eq!(events[0].slot, slot(1));
-    assert!(events[0].current_far >= CALIBRATED_FAR * 1.5);
+    assert!(events[0].current_rejection_rate >= CALIBRATED_FAR * 1.5);
+    assert_eq!(events[0].calibrated_far_bound, CALIBRATED_FAR);
 }
 
 #[test]
@@ -59,7 +75,7 @@ fn all_pass_window_recovers_from_drift() {
 
     let health = guard_health(&monitor, guard_id());
 
-    assert_close(*health.per_slot_far.get(&slot(1)).unwrap(), 0.0);
+    assert_close(*health.per_slot_rejection_rate.get(&slot(1)).unwrap(), 0.0);
     assert!(!health.drift);
 }
 
@@ -71,7 +87,7 @@ fn window_size_one_overwrites_previous_verdict() {
     monitor.record_verdict(&verdict(slot(1), false));
     assert_close(
         *guard_health(&monitor, guard_id())
-            .per_slot_far
+            .per_slot_rejection_rate
             .get(&slot(1))
             .unwrap(),
         1.0,
@@ -80,7 +96,7 @@ fn window_size_one_overwrites_previous_verdict() {
     monitor.record_verdict(&verdict(slot(1), true));
     assert_close(
         *guard_health(&monitor, guard_id())
-            .per_slot_far
+            .per_slot_rejection_rate
             .get(&slot(1))
             .unwrap(),
         0.0,
@@ -112,7 +128,7 @@ fn unknown_guard_health_returns_zero_snapshot() {
     let health = guard_health(&monitor, other_guard_id());
 
     assert_eq!(health.guard_id, other_guard_id());
-    assert!(health.per_slot_far.is_empty());
+    assert!(health.per_slot_rejection_rate.is_empty());
     assert!(health.per_slot_frr.is_empty());
     assert!(!health.drift);
     assert_eq!(health.last_calibrated, 0);
@@ -149,21 +165,23 @@ fn drift_monitor_fsv_fixture_writes_readback_artifacts() {
         &json!({
             "before_drift": before.drift,
             "after_drift": after_drift.drift,
-            "after_drift_far": after_drift.per_slot_far.get(&slot(1)),
-            "calibrated_far": CALIBRATED_FAR,
-            "required_far": CALIBRATED_FAR * 1.5,
+            "runtime_metric": "rejection_rate",
+            "calibration_metric": "false_accept_rate_bound",
+            "after_drift_rejection_rate": after_drift.per_slot_rejection_rate.get(&slot(1)),
+            "calibrated_far_bound": CALIBRATED_FAR,
+            "required_rejection_rate": CALIBRATED_FAR * 1.5,
             "hook_event_count": events.len(),
             "after_recovery_drift": after_recovery.drift,
-            "after_recovery_far": after_recovery.per_slot_far.get(&slot(1)),
-            "unknown_guard_slots": unknown.per_slot_far.len(),
+            "after_recovery_rejection_rate": after_recovery.per_slot_rejection_rate.get(&slot(1)),
+            "unknown_guard_slots": unknown.per_slot_rejection_rate.len(),
         }),
     );
 
     println!(
-        "FSV_PH38_T04 drift_before={} drift_after={} far_after={:?} hook_events={} recovery_drift={}",
+        "FSV_PH38_T04 drift_before={} drift_after={} rejection_rate_after={:?} hook_events={} recovery_drift={}",
         before.drift,
         after_drift.drift,
-        after_drift.per_slot_far.get(&slot(1)),
+        after_drift.per_slot_rejection_rate.get(&slot(1)),
         events.len(),
         after_recovery.drift,
     );
@@ -181,12 +199,18 @@ impl RecordingHook {
 }
 
 impl AnnealHook for RecordingHook {
-    fn on_far_drift(&self, guard_id: GuardId, slot: SlotId, current_far: f32, calibrated_far: f32) {
+    fn on_rejection_rate_drift(
+        &self,
+        guard_id: GuardId,
+        slot: SlotId,
+        current_rejection_rate: f32,
+        calibrated_far_bound: f32,
+    ) {
         self.events.lock().expect("events lock").push(DriftEvent {
             guard_id,
             slot,
-            current_far,
-            calibrated_far,
+            current_rejection_rate,
+            calibrated_far_bound,
         });
     }
 }
@@ -215,12 +239,18 @@ impl BlockingHook {
 }
 
 impl AnnealHook for BlockingHook {
-    fn on_far_drift(&self, guard_id: GuardId, slot: SlotId, current_far: f32, calibrated_far: f32) {
+    fn on_rejection_rate_drift(
+        &self,
+        guard_id: GuardId,
+        slot: SlotId,
+        current_rejection_rate: f32,
+        calibrated_far_bound: f32,
+    ) {
         self.events.lock().expect("events lock").push(DriftEvent {
             guard_id,
             slot,
-            current_far,
-            calibrated_far,
+            current_rejection_rate,
+            calibrated_far_bound,
         });
         let (started_lock, started_cvar) = &*self.started;
         *started_lock.lock().expect("started lock") = true;
