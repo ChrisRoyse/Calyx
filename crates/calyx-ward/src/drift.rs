@@ -29,6 +29,7 @@ pub struct DriftEvent {
 pub struct GuardHealth {
     pub guard_id: GuardId,
     pub per_slot_rejection_rate: BTreeMap<SlotId, f32>,
+    #[serde(default)]
     pub per_slot_calibrated_far_bound: BTreeMap<SlotId, f32>,
     pub per_slot_frr: BTreeMap<SlotId, f32>,
     pub drift: bool,
