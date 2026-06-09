@@ -16,14 +16,15 @@ Prove on aiwonder that a prompt injection designed to break persona lands outsid
 τ on the style slots and is quarantined — not silently accepted. The test must
 use at least one real injection prompt from the on-disk injection corpus, not
 only synthetic vectors. The `NoveltyRecord` with `status: Quarantined` must be
-readable from the in-memory vault sink, confirming the routing.
+readable from the durable aiwonder novelty/vault evidence, confirming the
+routing at the source of truth.
 
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Write `#[test] fn fsv_injection_breaks_style_quarantined`:
       - Load the style `IdentityProfile` with calibrated τ on the style slot
         (from `/home/croyse/calyx/data/identity_fsv/style_profile.json` on
-        aiwonder; skip gracefully if absent)
+        aiwonder; absence is setup failure, not a passing skip)
       - Load matched style vector from
         `/home/croyse/calyx/data/identity_fsv/matched_style.npy`
       - Load one real injection text from
@@ -45,10 +46,13 @@ readable from the in-memory vault sink, confirming the routing.
       - Print per-slot verdicts; assert all `pass == true`
 - [ ] Write `#[test] fn fsv_quarantine_record_in_sink`:
       - Confirm `NoveltyRecord` is written to the `VaultSink`; call
-        `novel_regions(since=0)` on the in-memory sink
+        `novel_regions(since=0)` against the durable sink/readback used by the
+        aiwonder fixture
       - Assert record present with `status: Quarantined`; print as JSON
       - `novel_id` is a non-nil UUID; `guard_id` matches the profile
-- [ ] All tests: skip gracefully if data files absent (non-aiwonder dev)
+- [ ] Missing aiwonder data files fail the manual fixture with a clear setup
+      error. Non-aiwonder dev coverage may use ignored tests/mocks, but it must
+      not produce a successful FSV artifact.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 

@@ -34,8 +34,12 @@ before being accepted.
       input: &GenerateInput, speaker_lens: &dyn Lens,
       style_lens: &dyn Lens, novelty_handler: &NoveltyHandler,
       high_stakes: bool) -> Result<GenerateOutput, WardError>`:
-      - Embed `candidate_audio` via `speaker_lens.embed()` → `produced["speaker"]`
-      - Embed `candidate_text` via `style_lens.embed()` → `produced["style"]`
+      - Reject an empty `IdentityProfile.identity_slots` before lens execution;
+        T01 allows the inert schema value, but generation must fail closed
+      - Embed `candidate_audio` via `speaker_lens.measure()` for the numeric
+        speaker identity slot
+      - Embed `candidate_text` via `style_lens.measure()` for the numeric style
+        identity slot
       - Retrieve `matched_slot_cache` from `identity_profile` (pre-computed;
         no re-embed of the grounded constellation)
       - Call `guard(identity_profile.guard_profile, produced, matched, high_stakes)`
@@ -47,10 +51,13 @@ before being accepted.
           Guard verdict.
         - Return `Ok(GenerateOutput::Accepted { verdict, provenance_tag: "guarded:pass".into() })`
       - On `Ok(verdict)` where `overall_pass == false` (can happen with non-high-stakes
-        uncalibrated profile per PH38 T02 path):
+        uncalibrated profile per PH38 T02 path, or an OOD candidate when using
+        the detailed verdict API):
         - Call `novelty_handler.handle()`; return `Novel` or `Rejected`
-      - On `Err(WardError::Ood { .. })`: call `novelty_handler.handle()`; return
-        `Novel { record }` or `Rejected { verdict: from error }`
+      - If the implementation uses `guard_result()` instead of `guard()`, map
+        `Err(WardError::Ood { .. })` into the same novelty/reject path. Do not
+        wait for `guard()` itself to return `WardError::Ood`; that is not its
+        current contract.
       - On `Err(WardError::Provisional)`: propagate as-is (fail closed)
 - [ ] `guard_generate` must never call `guard()` with a flattened multi-slot
       vector; each slot embedded separately by its own lens
@@ -66,14 +73,16 @@ before being accepted.
       `NewRegion` policy; returns `Novel { record }` with
       `status: AwaitingGrounding`
 - [ ] unit: `RejectClosed` policy + out-of-region → returns `Rejected { .. }`;
-      `WardError::Ood` embedded
+      detailed failing verdict preserved
 - [ ] unit: uncalibrated profile + `high_stakes=true` → `Err(Provisional)`;
       no lens embeddings computed (early return)
+- [ ] unit: empty `IdentityProfile.identity_slots` → fail closed before any
+      lens is called
 - [ ] proptest: for any in-region input (cos ≥ τ on all slots), `guard_generate`
       always returns `Accepted`; for any out-of-region (cos < τ on any required
       slot), never returns `Accepted`
-- [ ] edge: `candidate_audio = None` when speaker slot is required → lenses
-      called with `LensInput::None` → `WardError::MissingSlot` from guard
+- [ ] edge: `candidate_audio = None` when speaker slot is required → no speaker
+      vector is produced and the guard path returns `WardError::MissingSlot`
 - [ ] fail-closed: `novelty_handler.handle()` fails (vault write error) →
       error propagated; `Accepted` not returned for a failing candidate
 

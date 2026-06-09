@@ -30,7 +30,8 @@ mean WavLM speaker-similarity (encoder-matched)."
         (the target speaker's grounded embedding from the vault)
       - Load N ≥ 20 in-region TTS audio files from
         `/home/croyse/calyx/data/identity_fsv/tts_samples/` (wav, 16kHz)
-      - Skip gracefully if directory absent
+      - Missing directory or fewer than 20 valid samples is setup failure, not a
+        passing skip
       - For each sample:
         - `embed_speaker(audio_pcm)` via `SpeakerLens`
         - Compute `cos_k = cosine(produced_speaker_vec, matched_speaker_vec)`
@@ -69,10 +70,11 @@ mean WavLM speaker-similarity (encoder-matched)."
       all assert `overall_pass == false`; print per-slot verdicts
 - [ ] unit: `fsv_stage8_exit_summary` — prints full summary table; all 4 checks
       `PASS`; exit code 0
-- [ ] edge: TTS samples directory has 0 files → test prints
-      `"SKIP: no TTS samples at ..."` and returns (not panic or assertion fail)
-- [ ] edge: one sample in the batch has NaN embedding (bad audio) → excluded
-      from mean; warning printed; rest of batch processed
+- [ ] edge: TTS samples directory has 0 files → fail closed with a setup error
+      before writing a PASS summary
+- [ ] edge: one sample in the batch has NaN embedding (bad audio) → fail closed
+      or quarantine the sample explicitly; never exclude it silently from the
+      mean used for the 0.961 claim
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

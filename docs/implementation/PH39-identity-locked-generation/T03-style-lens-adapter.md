@@ -26,8 +26,9 @@ generalizably (`09 §5b`).
 - [ ] Define `StyleLens` struct:
       `model_path: PathBuf` (pinned at
       `/home/croyse/calyx/models/style/style-embed-v1.onnx` or candle path),
-      `runtime: StyleRuntime` (enum: `Onnx(Arc<ort::Session>)` |
-      `Candle(Arc<candle_nn::VarBuilder>)` — use whatever PH19 exposes),
+      `runtime: StyleRuntime` (for ONNX, wrap `ort::Session` in `Mutex` because
+      `Session::run` requires `&mut self`; for Candle, use the PH19 frozen
+      runtime handle),
       `dim: usize`,
       `lens_id: LensId`
 - [ ] Implement `StyleLens::new(model_path: &Path, clock: &dyn Clock)
@@ -38,8 +39,9 @@ generalizably (`09 §5b`).
       - Run forward pass; extract style/register embedding; L2-normalize
       - Return unit-norm vec; assert `len() == dim`
 - [ ] Implement `Lens` trait (PH17) for `StyleLens`:
-      `fn embed(&self, input: &LensInput) -> Result<Vec<f32>, LensError>`
-      wrapping `embed_style`; slot = `SlotId("style")`
+      `fn measure(&self, input: &Input) -> calyx_core::Result<SlotVector>`
+      wrapping `embed_style`. Calyx `SlotId` values are numeric; the caller's
+      panel maps the style identity slot to the lens output.
 - [ ] **Frozen contract:** no mutable state after construction; `// FROZEN: A4`
 - [ ] Add `embed_style_batch(texts: &[&str]) -> Result<Vec<Vec<f32>>, WardError>`
       for the injection batch test (T05)
@@ -69,9 +71,11 @@ generalizably (`09 §5b`).
   artifacts with `xxd`, `sha256sum`, and parsed JSON. On aiwonder, the real
   style model directory must be read and hash-pinned before the fixture passes.
 - **Prove:** durable readback shows norm approximately 1.0; the mock injection
-  verdict has cos=0.38 < tau=0.7 and fails on the style slot;
+  unit verdict has cos=0.38 < tau=0.7 and fails on the style slot;
   `CALYX_WARD_MODEL_NOT_FOUND` appears for a missing model; the real-model
-  embedding readback has expected dimensionality.
+  embedding readback has expected dimensionality. Real injection/persona
+  separation is proved in #273 and must not be treated as satisfied by the mock
+  unit verdict alone.
 
 ## Done when
 

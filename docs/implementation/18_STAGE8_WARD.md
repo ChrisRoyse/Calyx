@@ -215,3 +215,15 @@ load-bearing axis, making injection defense, drift detection, and continual
 learning one calibrated cosine gate, plus injection-proof identity-locked
 generation — PRD `GUARD`. Also powers TCT dedup (Stage 9) and Anneal's mistake-
 closure.
+
+Exit issue #280 may only close after a fresh aiwonder readback proves the full
+Ward surface, not just individual task comments:
+- PH37 no-flatten/per-slot guard behavior still rejects average-pass slot-fail
+  candidates.
+- PH38 calibration, novelty, drift, Sextant query guarding, and Ledger Guard
+  provenance all read back from their durable aiwonder evidence roots.
+- PH39 speaker/style identity generation has real model hashes, required
+  identity slots, `guard_generate()` accepted/reject/novel paths, durable
+  quarantine/provenance readbacks, and the #274 speaker-similarity target.
+- Missing models, datasets, TTS samples, or injection corpora are setup failures
+  to resolve before #280, never skip/pass conditions.

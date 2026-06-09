@@ -24,7 +24,8 @@ must not mutate the model.
 - [ ] Define `SpeakerLens` struct:
       `model_path: PathBuf` (pinned at
       `/home/croyse/calyx/models/wavlm/wavlm-base-plus-sv.onnx`),
-      `session: Arc<ort::Session>` (ONNX Runtime via PH19 onnx runtime),
+      `session: Mutex<ort::Session>` (ONNX Runtime via PH19 pattern; ORT
+      `Session::run` requires `&mut self`),
       `dim: usize` (WavLM-base-plus speaker-embedding dim = 256),
       `lens_id: LensId` (content-addressed from model hash, PH18 pattern)
 - [ ] Implement `SpeakerLens::new(model_path: &Path, clock: &dyn Clock)
@@ -32,7 +33,9 @@ must not mutate the model.
       - Load ONNX session via PH19 runtime; fail loud if model absent
         (`WardError::ModelNotFound { path }` → `CALYX_WARD_MODEL_NOT_FOUND`)
       - Verify model output dim == 256; fail closed if mismatch
-      - `lens_id = LensId::from_file_hash(model_path)` (SHA-256 of file bytes)
+      - `lens_id = LensId::from_parts(...)` using the model SHA-256, pinned
+        source revision, and dense audio output shape; do not invent a
+        nonexistent `LensId::from_file_hash` helper
 - [ ] Implement `embed_speaker(audio_pcm: &[f32], sample_rate: u32) -> Vec<f32>`:
       - Resample to 16 kHz if needed (simple linear interp; not a quality path —
         correctness only for the FSV test set)
@@ -40,8 +43,9 @@ must not mutate the model.
       - L2-normalize to unit norm; assert `len() == 256`
       - Return the embedding
 - [ ] Implement `Lens` trait (PH17) for `SpeakerLens`:
-      `fn embed(&self, input: &LensInput) -> Result<Vec<f32>, LensError>`
-      wrapping `embed_speaker`; slot = `SlotId("speaker")`
+      `fn measure(&self, input: &Input) -> calyx_core::Result<SlotVector>`
+      wrapping `embed_speaker`. Calyx `SlotId` values are numeric; the caller's
+      panel maps the speaker identity slot to the lens output.
 - [ ] **Frozen contract:** `SpeakerLens` fields are all `Arc` or `PathBuf`;
       no mutable state after construction; assert with `// FROZEN: A4` comment
 - [ ] `lens_id()` returns the content-addressed ID (no re-hash at call time)
@@ -71,7 +75,9 @@ must not mutate the model.
   WavLM model directory must be read and hash-pinned before the fixture passes.
 - **Prove:** durable readback shows norm approximately 1.0, deterministic
   duplicate embeddings, `CALYX_WARD_MODEL_NOT_FOUND` for a missing model, and a
-  real-model 1-second silence embedding with expected dimensionality.
+  real-model 1-second silence embedding with expected dimensionality. Semantic
+  same-speaker/cross-speaker proof belongs to #274 unless this card also
+  captures a small same/different speaker sanity fixture.
 
 ## Done when
 
