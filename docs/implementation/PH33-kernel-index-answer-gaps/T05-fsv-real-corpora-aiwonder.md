@@ -28,6 +28,17 @@ Evidence at `$CALYX_HOME=/home/croyse/calyx`:
 | `fsv/ph33_real_corpora_summary_20260608.json` | `1b0a6c0e1045de2a3230b326dd782f5767772dd6b5a9f4138543e65c5cdbe714` |
 | `data/fsv-issue330-recall-gate-fail-closed-20260608/10-real-corpora-gate-test.out` | `74394affa43b2481a013151dbfd9a47a7e95ec9427792a29de7a747501f0b2b8` |
 
+Additional #331 raw-vs-tuned acceptance evidence at
+`/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`:
+
+| Artifact | SHA-256 |
+|---|---|
+| `real-corpora/ph33_recall_scifact_text_20260608.json` | `6bf0f2989930996b44d3201b2075d3d911e0fff1a12399434db68b38927cabab` |
+| `real-corpora/ph33_recall_calyx_code_20260608.json` | `84571e9fe745cef519ab7c036510c5903872ef699ddd31be1b273de61b3ce7ba` |
+| `real-corpora/ph33_recall_cora_graph_20260608.json` | `e0d41fd76bbbaea7fb1bf28c05d214ce783de7c787365a7592368b5da20bb41a` |
+| `real-corpora/ph33_real_corpora_summary_20260608.json` | `3091ef593f6ab9c062097420c6fd21dfc84a1c5b9a9c831aa7c577b9730f595b` |
+| `root_manifest.sha256` | `acd84fcf82e08a43788ad7331bbc7290ebe783cde0b8b880548bb060464494df` |
+
 Readback ratios:
 
 | Corpus | Modality | Rows | Final kernel members | Ratio | Warning |
@@ -35,6 +46,14 @@ Readback ratios:
 | `scifact_text` | text | 180 | 158 | `0.9611112` | none |
 | `calyx_code` | code | 180 | 169 | `0.9777778` | none |
 | `cora_graph` | graph | 2708 | 2377 | `0.9568264` | none |
+
+#331 tuned-recall readback:
+
+| Corpus | Raw ratio | Tuned ratio | Added members | Pass mode |
+|---|---:|---:|---:|---|
+| `scifact_text` | `0.08333334` | `0.9611112` | 154 | tuned |
+| `calyx_code` | `0.09444446` | `0.96666664` | 153 | tuned |
+| `cora_graph` | `0.064206704` | `0.9568264` | 2242 | tuned |
 
 `grounding_gaps` readback: `max_anchor_dist=0`, `expected_gap_count=4`,
 `report_gap_count=4`, exact independent reachability match = `true`.

@@ -221,16 +221,16 @@ Latest roots:
 | PH29 | Differentiation contract + n_eff | PH28 | assay | P4/A7 | planted-redundant lens REJECTED (≤0.6); <0.05-bit lens REJECTED; n_eff correct | ✅ FSV |
 | PH30 | Panel sufficiency + attribution + reports | PH29 | assay/loom | A8 | `abundance_report` shows N/C(N,2)/materialized/n_eff/DPI ceiling; per-sensor bits | ✅ FSV |
 
-## Stage 6 — Lodestar kernel  (`16_STAGE6_LODESTAR.md`) — ▶ ACTIVE
+## Stage 6 - Lodestar kernel (`16_STAGE6_LODESTAR.md`) - DONE / FSV
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
 |---|---|---|---|---|---|---|
 | PH31 | mincut/paths: graph build + SCC + betweenness | PH27 | mincut/paths | P5/`08` | SCC condensation + betweenness match reference on planted graph | ✅ FSV |
 | PH32 | Kernel-graph (~10%) + directed MFVS (~1%) | PH31 | lodestar | P5/A10 | algorithm finds planted feedback-vertex-set on synthetic graph | ✅ FSV |
-| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall ≥ 0.95·full on ≥3 real corpora; gaps listed; below-gate recall fails closed | ✅ FSV for T01-T07; PH36 trace/reproduce remains separate |
+| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall >= 0.95*full on >=3 real corpora; gaps listed; below-gate recall fails closed | FSV, including #331/#332; PH36 trace/reproduce remains separate |
 | PH34 | Multi-scope kernel | PH33 | lodestar | A21 | kernel built at ≥4 scopes, each measured recall reported | Done / FSV (#238) |
 
-## Stage 7 — Ledger provenance  (`17_STAGE7_LEDGER.md`)
+## Stage 7 - Ledger provenance (`17_STAGE7_LEDGER.md`) - ACTIVE
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate |
 |---|---|---|---|---|---|

@@ -7,12 +7,15 @@ for the structure under `docs/implementation/PHnn-*/`.
 > Stage 0 (PH00–PH04: `calyx-core` + Aster scaffolding) is **already built** and
 > is intentionally **not** covered here. These cards cover **PH05 → PH72**.
 >
-> **Current (2026-06-08):** Stages 1–5 (PH05–PH30) are **DONE** and
+> **Current (2026-06-09):** Stages 1–5 (PH05–PH30) are **DONE** and
 > FSV-signed-off on aiwonder, including post-sweep hardening through #340 and
 > Registry/Sextant integration #339.
-> Active implementation is tracked in GitHub issues: Stage 6 Lodestar remains
-> open for #240 plus readiness follow-ups #331-#332,
-> while Stage 7 Ledger continues at PH36/#249 after PH35 #242-#248.
+> Active implementation is tracked in GitHub issues: Stage 6 Lodestar is closed
+> through #240 plus readiness follow-ups #331-#332, while Stage 7 Ledger
+> continues at PH36/#249 after PH35 #242-#248.
+> Stage 6 card-level unchecked checklist rows are historical prompts unless
+> contradicted by code/readback; the authoritative completion state is #240 and
+> the per-card `STATUS: DONE / FSV-signed-off` notes.
 > #336 archives PH05-PH30 task cards: their checked boxes are historical
 > prompts resolved or superseded by `STAGE1_5_EVIDENCE_MANIFEST.md`; any new
 > unchecked PH05-PH30 box must point to an open GitHub issue.

@@ -140,7 +140,7 @@ Done on aiwonder under
 The exit readback summary hash is
 `167bcb0db5691fae29749dec458da1b5e2469fc166cad96f51c982fbdb26baa0`;
 the root manifest hash is
-`8eba7aef03d2b8cdf510d472daf375b29c8e67f3cdc65001e058466519c985f6`.
+`065558c3697d155c9a7cd299b91d93fb86733a3d903145cfb8b822aeb658f322`.
 
 The Stage 6 exit readback proves Lodestar finds the grounded ≈1% of any slice
 and uses it as index + reasoning path, with measured (never assumed) recall and

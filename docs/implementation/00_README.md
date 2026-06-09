@@ -229,7 +229,7 @@ are closed with aiwonder readbacks under
 `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. `KERNEL_ANY` is satisfied
 for PH34. Stage 6 exit #240 is signed off.
 
-**Remaining:** Open phases **PH35–PH72** are laid out as atomic task cards in the
+**Remaining:** Open phases **PH36-PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
 FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
 state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,
