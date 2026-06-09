@@ -60,7 +60,10 @@ identity.
   Contract-hardening #329 is signed off under
   `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`;
   PH32 now explicitly documents the LP scaffold/fallback and exact/greedy DFVS
-  contract until a real solver path exists.
+  contract until a real solver path exists. #346 corrects the incremental hook
+  wording and behavior: dirty rebuild is a conservative full-pipeline rebuild,
+  and non-kernel node removal now marks the evaluator stale instead of returning
+  an empty dirty set.
 - **Objective.** The staged, approximate kernel discovery pipeline.
 - **Deps.** PH31.
 - **Deliverables.** `kernel_graph.rs` (high in/out-degree + betweenness + low

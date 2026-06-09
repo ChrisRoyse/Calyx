@@ -333,6 +333,10 @@ fn incremental_leaf_dirty_cycle_full_rebuild_and_member_remove() {
         )
         .unwrap();
     eval.rebuild_dirty().unwrap();
+    let non_member_removed = eval.apply_node_remove(cx(4)).unwrap();
+    assert!(eval.stale);
+    eval.rebuild_dirty().unwrap();
+    assert!(!eval.stale);
     let full = eval
         .apply_node_add(
             cx(5),
@@ -352,13 +356,14 @@ fn incremental_leaf_dirty_cycle_full_rebuild_and_member_remove() {
     let removed = eval.apply_node_remove(kernel.members[0]).unwrap();
 
     println!(
-        "INCREMENTAL_READBACK dirty={dirty:?} leaf={leaf:?} full={full:?} removed={removed:?}"
+        "INCREMENTAL_READBACK dirty={dirty:?} leaf={leaf:?} non_member_removed={non_member_removed:?} full={full:?} removed={removed:?}"
     );
     write_readback(
         "ph32-incremental-readback.json",
         json!({
             "dirty": dirty,
             "leaf": leaf,
+            "non_member_removed": non_member_removed,
             "full": full,
             "removed": removed,
         }),
@@ -366,6 +371,10 @@ fn incremental_leaf_dirty_cycle_full_rebuild_and_member_remove() {
     assert!(matches!(dirty, IncrementalResult::Dirty { .. }));
     assert!(matches!(leaf, IncrementalResult::Dirty { .. }));
     assert!(!eval.kernel.members.contains(&cx(4)));
+    assert!(matches!(
+        non_member_removed,
+        IncrementalResult::FullRebuildRequired { .. }
+    ));
     assert!(matches!(
         full,
         IncrementalResult::FullRebuildRequired { .. }
