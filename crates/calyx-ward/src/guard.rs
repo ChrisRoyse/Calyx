@@ -14,6 +14,7 @@ pub const DEFAULT_TAU: f32 = 0.7;
 pub type ProducedSlots = BTreeMap<SlotId, Vec<f32>>;
 pub type MatchedSlots = BTreeMap<SlotId, Vec<f32>>;
 
+// INVARIANT A3: required slots are scored independently; no aggregate vector gate.
 /// Evaluates every required slot independently under the profile policy.
 ///
 /// Missing required slots fail closed with `WardError::MissingSlot`. Slots with
