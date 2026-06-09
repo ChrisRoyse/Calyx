@@ -1,10 +1,11 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
-atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
-PH38 T01-T07 (#264-#268, #276, #279) are FSV-signed-off. PH37 is complete; PH38
-post-T06 hardening #355/#356/#359 and PH36 audit hardening #349 are signed off.
-PH39 remains before the Ward exit can claim Stage 8 complete. #357
+atomic tasks are #258-#280. PH37 T01-T09 (#258-#263, #275, #277, #278),
+PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01 (#269) are
+FSV-signed-off. PH37 is complete; PH38 post-T06 hardening #355/#356/#359 and
+PH36 audit hardening #349 are signed off. PH39 T02-T06 (#270-#274) remain
+before the Ward exit can claim Stage 8 complete. #357
 timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
 injection split hardening,
 #354 per-slot calibration health hardening, and #358 GuardHealth serde
@@ -188,6 +189,14 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
 - **Objective.** Pin a generator (voice/style/persona) to a grounded
   constellation; every output must stay inside the `Gτ` ball on identity slots.
 - **Deps.** PH38, PH19 (speaker/style lenses).
+- **Post-sweep note.** PH39 T01 (#269) adds
+  `calyx-ward::IdentityProfile`, `IdentitySlotConfig`, and
+  `CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED`. `calyx-core` already exposed the
+  `SpeakerMatch` and `StyleHold` anchor variants; T01 validates required-slot
+  coverage, identity anchor kinds, effective tau, matched-vector presence,
+  normalized cached matched vectors, and JSON deserialization invariants.
+  Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue269-identity-profile-20260609`.
 - **Deliverables.** `SpeakerMatch`/`StyleHold` anchor handling; identity-slot
   required-set; integration with `guard_generate`.
 - **Key tasks.** commission a WavLM speaker lens + a style lens (HF); require

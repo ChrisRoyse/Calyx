@@ -30,13 +30,17 @@ profile, verdict, and error surfaces, and PH37 T03 (#260) adds the first
 `guard()` math slice before PH38 calibration and PH39 identity work build on
 it. PH19 (candle/ONNX runtimes) is required for the WavLM and style lenses;
 stub with mock lens outputs for unit tests; integrate real models on aiwonder
-for the FSV run.
+for the FSV run. PH39 T01 (#269) is signed off: `calyx-core` already exposed
+`SpeakerMatch` and `StyleHold`, and `calyx-ward::IdentityProfile::new()`
+builds a constructor-validated/deserializer-validated identity profile with
+cached normalized matched-slot vectors. Durable evidence:
+`/home/croyse/calyx/data/fsv-issue269-identity-profile-20260609`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
-| `src/identity.rs` | `SpeakerMatch` + `StyleHold` anchor kinds; identity-slot required-set; `IdentityProfile` wrapper; `build_identity_profile()` |
+| `src/identity.rs` | `SpeakerMatch` + `StyleHold` anchor handling; identity-slot required-set; `IdentityProfile` wrapper; `IdentityProfile::new()` |
 | `src/generate.rs` | `guard_generate()` loop: produce → embed → guard → route; provenance "guarded:pass" tag |
 | `src/speaker_lens.rs` | WavLM speaker lens adapter (calls PH19 ONNX runtime); `embed_speaker(audio) -> Vec<f32>` |
 | `src/style_lens.rs` | Style lens adapter (HF candle or ONNX); `embed_style(text) -> Vec<f32>` |
@@ -44,14 +48,14 @@ for the FSV run.
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
-| Card | Title | Depends |
-|---|---|---|
-| T01 | `SpeakerMatch` + `StyleHold` anchor kinds + `IdentityProfile` | — |
-| T02 | WavLM speaker lens adapter (`embed_speaker`) | T01 · PH19 |
-| T03 | Style lens adapter (`embed_style`) | T01 · PH19 |
-| T04 | `guard_generate()` integration loop + provenance tag | T03 |
-| T05 | Identity-slot injection → quarantine FSV | T04 |
-| T06 | Speaker similarity target FSV (0.961 mean WavLM cos) | T05 |
+| Card | Title | Depends | Status |
+|---|---|---|---|
+| T01 | `SpeakerMatch` + `StyleHold` anchor kinds + `IdentityProfile` | — | DONE / FSV #269 |
+| T02 | WavLM speaker lens adapter (`embed_speaker`) | T01 · PH19 | open #270 |
+| T03 | Style lens adapter (`embed_style`) | T01 · PH19 | open #271 |
+| T04 | `guard_generate()` integration loop + provenance tag | T03 | open #272 |
+| T05 | Identity-slot injection → quarantine FSV | T04 | open #273 |
+| T06 | Speaker similarity target FSV (0.961 mean WavLM cos) | T05 | open #274 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -80,5 +84,5 @@ Both durable readbacks and their hashes are attached to the PH39 GitHub issue.
   injection prompt from the corpus, not only synthetic vectors.
 - `guard_generate()` must not re-embed the matched constellation on each call;
   cache the matched-slot vectors in `IdentityProfile` at construction time.
-- `SpeakerMatch` / `StyleHold` anchor kinds must be added to the shared
-  `AnchorKind` enum in `calyx-core` (PH04 type) — coordinate the schema change.
+- Missing identity fixtures, style profiles, TTS samples, or model data are setup
+  work, not a successful skip. T05/T06 must prove durable aiwonder readback.
