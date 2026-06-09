@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, and no-average/no-flatten enforcement are active: #258-#262 are FSV-signed-off; #263 is the next PH37 readback harness |
+| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, and PH37 readback harness are active: #258-#263 are FSV-signed-off; #264 starts PH38 conformal tau calibration |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -67,8 +67,9 @@ and
 `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`, and
 `/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`,
 `/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`, and
-`/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`, and
-`/home/croyse/calyx/data/fsv-issue262-ph37-t05-20260609-3dbe1a6`.
+`/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`,
+`/home/croyse/calyx/data/fsv-issue262-ph37-t05-20260609-3dbe1a6`, and
+`/home/croyse/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -79,7 +80,7 @@ off. PH36 verify_chain/quarantine #250, checkpoint scheduler #251, reproduce
 re-measure #252, reproduce fusion replay #253, and audit query surface #254
 are signed off. PH36 exit FSV integration #255 and Stage 7 exit rollup #256
 are signed off; residual PH36 audit-query quarantine filter hardening is
-tracked in #349. Stage 8 Ward has #258-#262 signed off and continues at #263
+tracked in #349. Stage 8 Ward has #258-#263 signed off and continues at #264
 under epic #257, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
