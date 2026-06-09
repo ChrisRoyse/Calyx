@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, and Sextant InRegionOnly guarded search are active: #258-#268, #275-#278, #350, #353, #357, #351, and #352 are FSV-signed-off; PH38 blindspot #279 remains before Ward exit |
+| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, and Sextant InRegionOnly guarded search are active: #258-#268, #275-#278, #350, #353, #357, #351, #352, and #354 are FSV-signed-off; PH38 blindspot #279 remains before Ward exit |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -89,7 +89,9 @@ and
 and
 `/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`,
 and
-`/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`.
+`/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`,
+and
+`/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -105,9 +107,10 @@ rows and typed `cx` mention matching. Stage 8 Ward has #258-#268,
 #275/#276/#277/#278, #350, and #353 signed off; PH37 is complete, PH38 T05 is
 proven against the real aiwonder injection corpus, PH38 T06 proves Sextant
 InRegionOnly guarded search, and #350 hardens novelty guard-id provenance.
-PH38 timestamp hardening #357, drift metric semantics hardening #351, and
-held-out injection split reporting #352 are also signed off. Remaining Ward
-frontier work is PH38 hardening #354/#355/#356, PH36 audit-query
+PH38 timestamp hardening #357, drift metric semantics hardening #351,
+held-out injection split reporting #352, and per-slot calibration health #354
+are also signed off. Remaining Ward frontier work is PH38 hardening #355/#356,
+PH36 audit-query
 hardening #349, Ledger guard provenance #279, then PH39, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`

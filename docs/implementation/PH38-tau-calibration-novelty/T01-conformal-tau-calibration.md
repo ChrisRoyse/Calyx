@@ -20,6 +20,9 @@ DONE / FSV-signed-off on aiwonder for #264. Implemented in
 Post-#357 timestamp hardening normalizes `CalibrationMeta.ts` to Unix
 milliseconds, matching `calyx_core::Ts`, with evidence at
 `/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`.
+Post-#354 per-slot calibration hardening preserves slot-level FAR/FRR metadata
+under `CalibrationMeta.per_slot`, with evidence at
+`/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
 
 Readback facts:
 - `identity-style-comparison.json` shows
@@ -34,6 +37,9 @@ Readback facts:
 - `zero-target-far.json` shows `tau_above_max_bad=true` and `far=0.0`.
 - `loose-identity-error.json` shows `CALYX_GUARD_PROVISIONAL` when an identity
   slot asks for a looser FAR than the slot-kind cap.
+- #354 `case-summary.json` shows slot 1 FAR `0.009999999776482582`, slot 2 FAR
+  `0.05000000074505806`, slot 1 FRR `1.0`, slot 2 FRR `0.0`, and matching
+  health readback values.
 
 ## Goal
 
@@ -72,14 +78,16 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
         deterministic)
       - `estimator = "conformal_quantile_v1"`
       - Return `(tau, CalibrationMeta { corpus_hash, estimator, far, frr,
-        confidence, ts: clock-derived Unix millisecond timestamp })`
+        confidence, ts: clock-derived Unix millisecond timestamp, per_slot:
+        empty for single-slot metadata })`
 - [x] Implement `calibrate(profile_template: GuardProfile,
       inputs: Vec<CalibrationInput>, alpha: f32, clock: &dyn Clock)
       -> Result<GuardProfile, WardError>`:
       - Call `calibrate_slot` for each slot in `inputs`
       - Update `profile_template.tau` with calibrated values
-      - Set `profile_template.calibration = Some(...)` using the first slot's
-        meta (or a merged hash of all slots' corpus_hashes)
+      - Set `profile_template.calibration = Some(...)` using a merged hash of
+        all slots' corpus hashes; profile-level FAR/FRR summarize with `max()`,
+        while `CalibrationMeta.per_slot` preserves each slot's own metadata.
       - Return updated profile
 - [x] Cold-start constant `TAU_COLD_START: f32 = 0.7` — used only in
       `GuardProfile::tau_for()` fallback; never the output of `calibrate()`
@@ -102,6 +110,8 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
       division by zero
 - [x] fail-closed: slot kind FAR caps reject loose identity calibration with
       `CALYX_GUARD_PROVISIONAL`.
+- [x] regression: calibrating identity and stylistic slots with distinct target
+      FAR/FRR keeps those distinct bounds in `CalibrationMeta.per_slot`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -114,7 +124,8 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
 - **Prove:** durable JSON shows `"estimator": "conformal_quantile_v1"`,
   identity-slot FAR <= 0.01, `tau` in the expected range, identity-slot tau >
   stylistic-slot tau, and edge-case files for quorum failure, all-high bad
-  scores, quantile ties, zero target FAR, and loose identity FAR.
+  scores, quantile ties, zero target FAR, loose identity FAR, and #354 per-slot
+  FAR/FRR preservation through health/readback.
 
 ## Done when
 

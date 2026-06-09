@@ -15,7 +15,8 @@ receives a callback on each rejection-rate drift event while comparing against
 the calibrated FAR bound. Default cold-start τ ≈ 0.7 but the calibrated value
 governs.
 The runtime drift metric is rejection/OOD rate; `CalibrationMeta.far` remains
-the calibrated false-accept-rate bound.
+the profile-level calibrated false-accept-rate summary, while
+`CalibrationMeta.per_slot` preserves each slot's own FAR/FRR bounds.
 
 ## Dependencies
 
@@ -61,9 +62,12 @@ preserving the calibrated FAR bound and is FSV-signed-off at
 #352 makes the injection FSV report held-out `test` split block rate separately
 from train-split calibration FAR and is FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`.
-Post-T06 hardening remains tracked in #354 (per-slot calibration FAR/FRR
-health), #355 (drift hook retry after backpressure), and #356 (Sextant
-multi-slot query guarding).
+#354 preserves per-slot calibration FAR/FRR through `CalibrationMeta.per_slot`,
+`guard_health().per_slot_calibrated_far_bound`, and drift hook comparisons, with
+FSV evidence at
+`/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+Post-T06 hardening remains tracked in #355 (drift hook retry after backpressure)
+and #356 (Sextant multi-slot query guarding).
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -71,9 +75,9 @@ treated as fully closed.
 
 | File | Responsibility |
 |---|---|
-| `src/calibrate.rs` | conformal τ calibration per slot; empirical FAR is measured with Ward's `cos >= tau` predicate; slot-kind FAR caps; `CalibrationMeta` with `corpus_hash`, `estimator`, `far`, `frr`, `confidence`, `ts`; provisional errors for invalid/insufficient calibration |
+| `src/calibrate.rs` | conformal τ calibration per slot; empirical FAR is measured with Ward's `cos >= tau` predicate; slot-kind FAR caps; `CalibrationMeta` with `corpus_hash`, `estimator`, profile-summary `far`/`frr`, `confidence`, `ts`, and per-slot FAR/FRR in `per_slot`; provisional errors for invalid/insufficient calibration |
 | `src/novelty.rs` | `NoveltyHandler`: route FAIL to `NewRegion` / `Quarantine` / `RejectClosed`; write novel constellation to the PH09-backed Aster vault CF |
-| `src/drift.rs` | `DriftMonitor`: track rolling rejection/OOD rate per slot; fire Anneal hook when runtime rejection rate creeps above the calibrated FAR bound; `guard_health()` |
+| `src/drift.rs` | `DriftMonitor`: track rolling rejection/OOD rate per slot; fire Anneal hook when runtime rejection rate creeps above that slot's calibrated FAR bound; `guard_health()` exposes rejection rate, per-slot calibrated FAR bounds, FRR, drift flag, and last calibration timestamp |
 | `src/lib.rs` | wire new modules; re-export `calibrate`, `novelty`, `drift` |
 | `tests/calibrate_unit.rs` | deterministic calibration tests and manual aiwonder FSV fixture |
 | `tests/novelty_handler.rs` | deterministic novelty routing tests and manual aiwonder FSV fixture |
@@ -131,6 +135,12 @@ injection block rate separately (`60/60` blocked, `block_rate=1.0`). Evidence
 root:
 `/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`.
 
+**Per-slot calibration health:** #354 proves `CalibrationMeta.per_slot` preserves
+slot 1 FAR `0.01` / FRR `1.0` and slot 2 FAR `0.05` / FRR `0.0`; `guard_health`
+reads those same per-slot FAR/FRR values; the drift hook event fires for slot 1
+using the slot 1 FAR bound. Evidence root:
+`/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.
 
@@ -139,8 +149,9 @@ the real Ledger and read them back via PH36 audit/provenance before PH38 exit.
 - Conformal calibration requires an `n ≥ 50` held-out calibration set (mirrors
   PH28's quorum rule); below quorum `calibrate()` must return `Err` with
   `CALYX_GUARD_PROVISIONAL` rather than an uncalibrated τ — fail closed.
-- The merged profile-level calibration FAR is the max across calibrated slots;
-  identity-slot FAR is separately proven <=0.01 in T01 readback.
+- The merged profile-level calibration FAR/FRR are summaries; callers that need
+  slot-specific health or drift comparison must read `CalibrationMeta.per_slot`
+  and `GuardHealth.per_slot_calibrated_far_bound`.
 - The injection corpus on aiwonder must be a real set (aiwonder at
   `/home/croyse/calyx/data/injection_corpus/`); synthetic random vectors do
   not satisfy the FSV gate.

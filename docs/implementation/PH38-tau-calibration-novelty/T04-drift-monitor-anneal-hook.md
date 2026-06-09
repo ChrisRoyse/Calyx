@@ -11,17 +11,18 @@
 | **PRD** | `dbprdplans/09 S3`, `09 S6` |
 
 > STATUS: DONE / FSV-signed-off in #267; metric semantics hardening signed off
-> in #351. Latest implementation commit: `c6a2ccc`. Durable aiwonder evidence:
-> `/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`.
+> in #351; per-slot calibration-bound hardening signed off in #354. Latest
+> implementation commit: `f672547`. Durable aiwonder evidence:
+> `/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
 
 ## Goal
 
 Track rolling rejection/OOD rate per slot over a sliding window of recent guard
-calls; when the rejection rate creeps above the calibrated `CalibrationMeta.far`
-bound, fire the Anneal recalibration hook and emit a structured alert.
-`guard_health()` returns current rejection rate, calibration FRR, drift flag, and
-`last_calibrated` timestamp per guard. The drift monitor must not block the guard
-hot path: it receives verdicts through a bounded channel.
+calls; when the rejection rate creeps above that slot's calibrated FAR bound,
+fire the Anneal recalibration hook and emit a structured alert. `guard_health()`
+returns current rejection rate, per-slot calibrated FAR bound, calibration FRR,
+drift flag, and `last_calibrated` timestamp per guard. The drift monitor must
+not block the guard hot path: it receives verdicts through a bounded channel.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -52,6 +53,7 @@ hot path: it receives verdicts through a bounded channel.
 - [x] Implement `guard_health(monitor: &DriftMonitor, guard_id: GuardId)
       -> GuardHealth`:
       `GuardHealth { guard_id, per_slot_rejection_rate: BTreeMap<SlotId,f32>,
+      per_slot_calibrated_far_bound: BTreeMap<SlotId,f32>,
       per_slot_frr: BTreeMap<SlotId,f32>, drift: bool, last_calibrated: i64 }`
       where `drift = any slot's rolling_rejection_rate >
       calibrated_far_bound * 1.5`.
@@ -73,6 +75,8 @@ hot path: it receives verdicts through a bounded channel.
       (no panic, no block).
 - [x] fail-closed: `guard_health()` on an unknown `guard_id` returns all zeros;
       does not panic.
+- [x] regression: health exposes distinct per-slot calibrated FAR bounds and
+      drift hook comparison uses each slot's own bound.
 
 ## FSV (read the bytes on aiwonder: the truth gate)
 
@@ -86,6 +90,9 @@ hot path: it receives verdicts through a bounded channel.
   scenario, a recorded hook event,
   `runtime_rejection_rate >= calibrated_far_bound * 1.5`, and `drift=false`
   after a full window of passes.
+- **Per-slot-bound evidence:** #354 readback shows
+  `per_slot_calibrated_far_bound = {"1":0.01,"2":0.05}`, per-slot FRR
+  `{"1":1.0,"2":0.0}`, and a hook event for slot 1 using the slot 1 FAR bound.
 - **Evidence:** `case-summary.json`
   `805d5d32accb704caa2b22c5f268621e38f8fbd42f2bbb770d8b0501189b6c52`,
   `before-health.json`
