@@ -14,7 +14,7 @@ pub const DEFAULT_TAU: f32 = 0.7;
 pub type ProducedSlots = BTreeMap<SlotId, Vec<f32>>;
 pub type MatchedSlots = BTreeMap<SlotId, Vec<f32>>;
 
-/// Evaluates every required slot independently under `GuardPolicy::AllRequired`.
+/// Evaluates every required slot independently under the profile policy.
 ///
 /// Missing required slots fail closed with `WardError::MissingSlot`. Slots with
 /// invalid vectors produce a failed slot verdict instead of panicking, preserving
@@ -24,16 +24,19 @@ pub fn guard(
     produced: &ProducedSlots,
     matched: &MatchedSlots,
 ) -> Result<GuardVerdict, WardError> {
-    if let GuardPolicy::KofN { k } = profile.policy {
+    let required = required_slots(profile);
+    if let GuardPolicy::KofN { k } = profile.policy
+        && k > required.len()
+    {
         return Err(WardError::PolicyViolation {
             k,
-            n_required: required_slots(profile).len(),
+            n_required: required.len(),
         });
     }
 
     let backend = CpuBackend::new();
     let mut per_slot = Vec::new();
-    for slot in required_slots(profile) {
+    for slot in required {
         let produced_vec = produced.get(&slot).ok_or(WardError::MissingSlot { slot })?;
         let matched_vec = matched.get(&slot).ok_or(WardError::MissingSlot { slot })?;
         let tau = profile.tau_for(&slot).unwrap_or(DEFAULT_TAU);
@@ -47,7 +50,11 @@ pub fn guard(
         });
     }
 
-    let overall_pass = per_slot.iter().all(|slot| slot.pass);
+    let pass_count = per_slot.iter().filter(|slot| slot.pass).count();
+    let overall_pass = match profile.policy {
+        GuardPolicy::AllRequired => pass_count == per_slot.len(),
+        GuardPolicy::KofN { k } => pass_count >= k,
+    };
     let action = (!overall_pass).then(|| profile.novelty_action.clone());
     Ok(GuardVerdict {
         guard_id: profile.guard_id,
@@ -55,6 +62,28 @@ pub fn guard(
         per_slot,
         action,
     })
+}
+
+/// Runs `guard()` and returns `WardError::Ood` when the verdict does not pass.
+pub fn guard_result(
+    profile: &GuardProfile,
+    produced: &ProducedSlots,
+    matched: &MatchedSlots,
+) -> Result<GuardVerdict, WardError> {
+    let verdict = guard(profile, produced, matched)?;
+    if verdict.overall_pass {
+        Ok(verdict)
+    } else {
+        Err(WardError::Ood {
+            guard_id: verdict.guard_id,
+            failing: verdict
+                .per_slot
+                .iter()
+                .filter(|slot| !slot.pass)
+                .cloned()
+                .collect(),
+        })
+    }
 }
 
 fn required_slots(profile: &GuardProfile) -> Vec<SlotId> {
@@ -221,24 +250,6 @@ mod tests {
         let error = guard(&profile, &produced, &matched).expect_err("missing slot");
 
         assert_eq!(error, WardError::MissingSlot { slot: slot(1) });
-    }
-
-    #[test]
-    fn kofn_policy_is_reserved_for_t04() {
-        let mut profile = sample_profile(vec![(slot(1), 0.70)]);
-        profile.policy = GuardPolicy::KofN { k: 1 };
-        let produced = slot_vectors(&[(slot(1), vec![1.0, 0.0])]);
-        let matched = slot_vectors(&[(slot(1), vec![1.0, 0.0])]);
-
-        let error = guard(&profile, &produced, &matched).expect_err("reserved policy");
-
-        assert_eq!(
-            error,
-            WardError::PolicyViolation {
-                k: 1,
-                n_required: 1
-            }
-        );
     }
 
     proptest! {
