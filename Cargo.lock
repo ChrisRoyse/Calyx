@@ -368,6 +368,7 @@ dependencies = [
  "calyx-core",
  "calyx-forge",
  "calyx-ledger",
+ "ort",
  "proptest",
  "serde",
  "serde_json",

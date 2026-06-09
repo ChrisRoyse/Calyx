@@ -10,6 +10,7 @@ pub mod novelty;
 pub mod profile;
 pub mod query;
 pub mod required;
+pub mod speaker_lens;
 pub mod verdict;
 
 pub use calibrate::{
@@ -23,7 +24,8 @@ pub use drift::{
 pub use error::{
     CALYX_GUARD_ID_MISMATCH, CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED, CALYX_GUARD_MISSING_SLOT,
     CALYX_GUARD_NOT_A_FAILURE, CALYX_GUARD_NOVELTY_SINK, CALYX_GUARD_OOD,
-    CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, WardError,
+    CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, CALYX_WARD_INVALID_INPUT,
+    CALYX_WARD_MODEL_DIM_MISMATCH, CALYX_WARD_MODEL_NOT_FOUND, CALYX_WARD_RUNTIME_ERROR, WardError,
 };
 pub use guard::{
     DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
@@ -47,6 +49,10 @@ pub use query::{
 pub use required::{
     LOAD_BEARING_MIN_BITS, RequiredSlotDerivation, RequiredSlotEvidence, derive_required_profile,
     derive_required_slots,
+};
+pub use speaker_lens::{
+    DEFAULT_WAVLM_MODEL_PATH, SpeakerEmbeddingBackend, SpeakerLens, SpeakerProviderPolicy,
+    WAVLM_DIM, WAVLM_SAMPLE_RATE,
 };
 pub use verdict::{GuardVerdict, SlotVerdict};
 
