@@ -49,10 +49,13 @@ is signed off at
 `/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`.
 #353 also re-exports the stable novelty error constants from the `calyx-ward`
 crate root for public callers.
-Post-T06 hardening remains tracked in #357 (Ward timestamp units), #351
-(drift rejection-rate/FAR semantics), #352 (held-out injection split), #354
-(per-slot calibration FAR/FRR health), #355 (drift hook retry after backpressure),
-and #356 (Sextant multi-slot query guarding).
+#357 normalizes Ward calibration, novelty, and `guard_health.last_calibrated`
+timestamps to Unix milliseconds and is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`.
+Post-T06 hardening remains tracked in #351 (drift rejection-rate/FAR semantics),
+#352 (held-out injection split), #354 (per-slot calibration FAR/FRR health),
+#355 (drift hook retry after backpressure), and #356 (Sextant multi-slot query
+guarding).
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -102,6 +105,12 @@ hits are readable from the guarded-search report/explain payload. Evidence root:
 empty, while the same fixture re-reads the normal `NewRegion`, `Quarantine`,
 and `RejectClosed` records. Evidence root:
 `/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`.
+
+**Timestamp units:** #357 proves `CalibrationMeta.ts`, `NoveltyRecord.ts`, and
+`guard_health.last_calibrated` all use the same injected Unix millisecond clock
+value, with zero/max/overflow timestamp edge cases read back from JSON. Evidence
+root:
+`/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

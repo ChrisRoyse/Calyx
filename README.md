@@ -83,7 +83,9 @@ and
 `/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`,
 `/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`,
 and
-`/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`.
+`/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`,
+and
+`/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -99,9 +101,9 @@ rows and typed `cx` mention matching. Stage 8 Ward has #258-#268,
 #275/#276/#277/#278, #350, and #353 signed off; PH37 is complete, PH38 T05 is
 proven against the real aiwonder injection corpus, PH38 T06 proves Sextant
 InRegionOnly guarded search, and #350 hardens novelty guard-id provenance.
-Remaining Ward frontier work is PH38 timestamp hardening #357, PH38 guard/FAR
-hardening #351/#352/#354/#355/#356, PH36 audit-query hardening #349, Ledger
-guard provenance #279, then PH39, with exit #280.
+PH38 timestamp hardening #357 is also signed off. Remaining Ward frontier work
+is PH38 guard/FAR hardening #351/#352/#354/#355/#356, PH36 audit-query
+hardening #349, Ledger guard provenance #279, then PH39, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

@@ -17,6 +17,9 @@ DONE / FSV-signed-off on aiwonder for #264. Implemented in
 `crates/calyx-ward/tests/calibrate_unit.rs`. Final implementation commit:
 `f95c817eff6f`. Evidence root:
 `/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`.
+Post-#357 timestamp hardening normalizes `CalibrationMeta.ts` to Unix
+milliseconds, matching `calyx_core::Ts`, with evidence at
+`/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`.
 
 Readback facts:
 - `identity-style-comparison.json` shows
