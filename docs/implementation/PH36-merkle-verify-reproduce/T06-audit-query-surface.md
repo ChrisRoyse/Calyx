@@ -1,80 +1,69 @@
-# PH36 · T06 — Audit query surface: `get_provenance`, `get_answer_trace`, `audit(filter)`
+# PH36 T06 - Audit query surface: `get_provenance`, `get_answer_trace`, `audit(filter)`
 
 | Field | Value |
 |---|---|
-| **Phase** | PH36 — Merkle checkpoints + verify_chain + reproduce() |
-| **Stage** | S7 — Ledger Provenance |
+| **Phase** | PH36 - Merkle checkpoints + verify_chain + reproduce() |
+| **Stage** | S7 - Ledger Provenance |
 | **Crate** | `calyx-ledger` |
-| **Files** | `crates/calyx-ledger/src/lib.rs` (≤500, re-exports + thin wrappers) |
+| **Files** | `crates/calyx-ledger/src/audit.rs`, `crates/calyx-ledger/src/lib.rs`, `crates/calyx-cli/src/provenance.rs` |
 | **Depends on** | T02 (this phase) |
 | **Axioms** | A15, A16 |
-| **PRD** | `dbprdplans/11 §5`, `11 §7` |
+| **PRD** | `dbprdplans/11 section 5`, `11 section 7` |
 
 ## Goal
 
-Expose the full public audit API defined in `11 §5` so that calyx-mcp, calyx-cli,
-and downstream crates (PH61, PH62, PH63) have a stable, typed surface to query
+Expose the public audit API defined in `11 section 5` so calyx-mcp, calyx-cli, and
+downstream crates (PH61, PH62, PH63) have a stable, typed surface to query
 ledger provenance. Every function that returns results from a quarantined range
-must return `CALYX_LEDGER_CHAIN_BROKEN` (fail-closed). Every "trusted" result
-that cannot be traced to a ledger entry must be tagged `unprovenanced`.
+returns `CALYX_LEDGER_CHAIN_BROKEN` (fail-closed). Every result that cannot be
+traced to a complete ledger entry is tagged `CalyxWarning::Unprovenanced` and is
+not trusted.
 
-## Build (checklist of concrete, code-level steps)
+## Build
 
-- [ ] `pub fn get_provenance(cf_reader, cx_id: CxId) -> Result<Vec<LedgerEntry>>` —
-  returns all entries whose `subject` matches `cx_id` (Ingest → Measure →
-  Assay → Guard → Answer chain); checks quarantine before returning.
-- [ ] `pub fn get_answer_trace(cf_reader, answer_id: QueryId) -> Result<AnswerTrace>` —
-  `AnswerTrace = { answer_entry, path: Vec<(CxId, hop: u32, score: f32, lens_id)>, fusion_weights, guard_result, freshness_ts }`;
-  decoded from the `Answer` and linked `Guard`/`Kernel` entries; checks quarantine.
-- [ ] `pub fn verify_chain(cf_reader, manifest, range: KeyRange) -> Result<VerifyResult>` —
-  re-export from `verify.rs` (T02); included here for the stable public API.
-- [ ] `pub fn merkle_root(cf_reader, range: KeyRange) -> Result<[u8;32]>` —
-  re-export from `merkle.rs` (T01).
-- [ ] `pub fn reproduce(cf_reader, registry, forge, answer_id) -> Result<ReproduceResult>` —
-  re-export from `reproduce.rs` (T05).
-- [ ] `pub fn audit(cf_reader, filter: AuditFilter) -> Result<Vec<LedgerEntry>>` —
-  `AuditFilter = { kind: Option<EntryKind>, actor: Option<ActorId>, ts_range: Option<(u64,u64)>, seq_range: Option<(u64,u64)> }`;
-  iterates ledger CF with filter applied; skips quarantined ranges with a log
-  warning (does not silently include them).
-- [ ] All six functions check quarantine via `is_quarantined` before serving
-  results; return `CALYX_LEDGER_CHAIN_BROKEN` if any requested seq falls in a
-  quarantined range.
-- [ ] `unprovenanced` tagging: add `CalyxWarning::Unprovenanced { surface: String }`
-  (non-fatal) to `calyx-core` for callers that need to label results lacking
-  a ledger entry.
+- [x] `pub fn get_provenance(cf_reader, quarantine, cx_id: CxId) -> Result<Vec<LedgerEntry>>` returns all entries whose subject or payload references `cx_id` (Ingest -> Measure -> Assay -> Guard -> Answer chain), and checks quarantine before returning any row.
+- [x] `pub fn get_answer_trace(cf_reader, quarantine, answer_id: QueryId) -> Result<AnswerTrace>` returns `answer_entry`, linked `kernel_entry` and `guard_entry`, ordered path hops, fusion weights, guard result, freshness timestamp, completeness, and warnings.
+- [x] `get_answer_trace` is all-or-nothing for trusted answer provenance: only an explicit `complete: true` Answer summary with a canonical path can be trusted; per-hop rows or unmarked paths are returned with `Unprovenanced`.
+- [x] `verify_chain`, `merkle_root`, and `reproduce` remain re-exported from their PH36 modules for the stable public API.
+- [x] `pub fn audit(cf_reader, quarantine, filter: AuditFilter) -> Result<Vec<LedgerEntry>>` filters by kind, actor, timestamp range, and sequence range, and fails closed on quarantined rows/ranges.
+- [x] `CalyxWarning::Unprovenanced { surface: String }` is available from `calyx-core`.
+- [x] CLI commands added: `calyx get-provenance --vault <dir> --cx <cx-id>`, `calyx get-answer-trace --vault <dir> --answer <answer-id-or-hex>`, and `calyx audit --vault <dir> --kind <kind>`.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests
 
-- [ ] unit: ingest 3 constellations → `get_provenance(cx_id[0])` returns
-  exactly the Ingest entry for `cx_id[0]`; no entries from other cx_ids.
-- [ ] unit: write an Answer entry with a known path → `get_answer_trace(answer_id)`
-  returns the correct hop count and fusion_weights byte-exact.
-- [ ] unit: `audit(AuditFilter { kind: Some(Ingest), .. })` over 10 entries
-  (5 Ingest, 5 Measure) returns exactly 5 entries.
-- [ ] edge (≥3): `get_provenance` for a cx_id with no entries → `Ok(vec![])`;
-  `get_answer_trace` for a quarantined seq → `CALYX_LEDGER_CHAIN_BROKEN`;
-  `audit` with `ts_range` that excludes all entries → `Ok(vec![])`.
-- [ ] fail-closed: `get_provenance` with any requested seq in a quarantined range
-  → `CALYX_LEDGER_CHAIN_BROKEN` (not a partial result); `audit` with a
-  quarantined range in `seq_range` → same error, not a silent skip.
+- [x] Unit: 3 constellations -> `get_provenance(cx_id[0])` returns only that cx's provenance rows.
+- [x] Unit: known complete Answer row -> `get_answer_trace(answer_id)` returns exact hop count, fusion weights, linked Kernel row, linked Guard row, and no warnings.
+- [x] Unit: `audit(AuditFilter { kind: Some(Ingest), .. })` over 10 entries (5 Ingest, 5 Measure) returns exactly 5 entries.
+- [x] Edges: missing cx returns `Ok(vec![])`; quarantined answer returns `CALYX_LEDGER_CHAIN_BROKEN`; excluded timestamp range returns `Ok(vec![])`; unmarked path rows are `Unprovenanced`.
+- [x] Fail-closed: `get_provenance`, `get_answer_trace`, and `audit` refuse quarantined rows/ranges rather than returning partial data.
+- [x] Post-Stage-5 addendum: injected `kernel_answer_with_ledger` mid-hop append failure leaves only partial hop rows, and `get_answer_trace` refuses them as complete/trusted.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## FSV
 
-- **SoT:** `calyx` CLI commands on aiwonder after a real ingest + answer run
-- **Readback:**
-  1. `calyx get-provenance --vault test --cx <cx_id>` → prints the Ingest
-     entry and any Measure/Assay/Guard entries for that cx_id.
-  2. `calyx get-answer-trace --vault test --answer <answer_id>` → prints the
-     ordered path with cx_ids, hops, scores, lens_ids, and fusion_weights.
-  3. `calyx audit --vault test --kind Ingest | wc -l` → matches the number of
-     ingested constellations.
-- **Prove:** provenance chain printed covers ingest → measure → answer with no
-  gaps; quarantined-range query returns `CALYX_LEDGER_CHAIN_BROKEN` immediately.
+**SoT:** aiwonder bytes under
+`/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`.
+
+**Readback artifacts:**
+
+- `audit-query-surface/audit-query-readback.json`
+  - SHA-256: `c72fd19bb132533ffdf613d6ca4563e97e458bd54ac4074937f07fea1c94c09d`
+- `ph36-audit-mid-hop-failure/ph36-audit-mid-hop-failure-readback.json`
+  - SHA-256: `5948a107fff864195659b9cffe89ae4475a21d04afb943efcc438860fb731c25`
+
+**Proven outcomes:**
+
+- `get-provenance` returned 5 rows covering Ingest, Measure, Assay, Guard, and Answer provenance for the synthetic cx.
+- `get-answer-trace` returned `complete=true`, 2 ordered hops, linked Kernel and Guard rows, fusion weights, and `warnings=[]`.
+- `audit --kind ingest` returned exactly 3 rows.
+- The manifest-quarantined Answer seq 8 returned `CALYX_LEDGER_CHAIN_BROKEN` immediately.
+- Partial per-hop Answer rows returned `complete=false` and `Unprovenanced`.
+- Injected `kernel_answer_with_ledger` mid-hop failure wrote 2 disk rows (Kernel + one Answer hop), returned `CALYX_LEDGER_CHAIN_BROKEN`, and `get_answer_trace` read `trace_complete=false`, `trace_trusted=false`, `trace_path_len=1`, and `Unprovenanced { surface: "answer_trace.partial_or_unmarked" }`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH36 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` green on aiwonder.
+- [x] `cargo clippy -D warnings` green on aiwonder.
+- [x] `cargo test` green on aiwonder.
+- [x] File line-count gate passed (`.rs` files <= 500 lines).
+- [x] FSV evidence attached to GitHub issue #254.
+- [x] No PH36 anti-pattern: no partial answer trace is labeled trusted, no quarantined row is served, and CLI output includes payload hex for byte evidence.

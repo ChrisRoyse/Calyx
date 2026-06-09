@@ -36,10 +36,12 @@ reproduce is called; PH36 depends on that contract existing.
 `merkle.rs` is implemented and FSV-signed-off through #249/#347/#348.
 `verify.rs` is implemented and FSV-signed-off through #250 with Aster manifest
 quarantine. `checkpoint.rs` is implemented and FSV-signed-off through #251 with
-same-WAL-batch Admin checkpoint rows. `reproduce.rs` now covers the
+same-WAL-batch Admin checkpoint rows. `reproduce.rs` covers the
 content-addressed lens lookup, Forge determinism activation, input-hash
 verification, slot re-measure half through #252, and fusion replay/drift result
-assembly through #253.
+assembly through #253. `audit.rs` is implemented and FSV-signed-off through
+#254 with quarantine-aware provenance, answer trace, audit filtering, linked
+Kernel/Guard trace rows, and unprovenanced partial answer protection.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -61,7 +63,7 @@ assembly through #253.
 | T03 | Checkpoint scheduler: periodic Merkle root written as Admin entry (done #251) | T01 |
 | T04 | `reproduce.rs`: content-addressed lens lookup + re-measure + Forge determinism (done #252) | T02 |
 | T05 | `reproduce.rs`: re-run fusion + drift assertion + `ReproduceResult` (done #253) | T04 |
-| T06 | Audit query surface: `get_provenance`, `get_answer_trace`, `audit(filter)` | T02 |
+| T06 | Audit query surface: `get_provenance`, `get_answer_trace`, `audit(filter)` (done #254) | T02 |
 | T07 | FSV integration: flip-byte tamper test + reproduce bit-parity test | T05, T06 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
@@ -83,7 +85,20 @@ Latest reproduce evidence (#253): ledger API FSV at
 `happy-ledger-cf/0000000000000003.ledger` with payload tag `reproduce_v1`,
 `reproduced=true`, `max_drift=0.0`, and intact chain readback. Readback JSON
 SHA-256: `97dd9a65f4b1c4421b437247b1b2fb89d99975eae720be4521615713702bd994`.
-CLI surfacing remains in T06/T07.
+CLI surfacing for provenance/answer-trace/audit is covered by #254; the final
+tamper + reproduce integration bundle remains in T07.
+
+Latest audit-query evidence (#254): CLI and Lodestar FSV at
+`/home/croyse/calyx/data/fsv-issue254-audit-query-20260609` wrote:
+`audit-query-surface/audit-query-readback.json` with SHA-256
+`c72fd19bb132533ffdf613d6ca4563e97e458bd54ac4074937f07fea1c94c09d`, and
+`ph36-audit-mid-hop-failure/ph36-audit-mid-hop-failure-readback.json` with
+SHA-256 `5948a107fff864195659b9cffe89ae4475a21d04afb943efcc438860fb731c25`.
+Readback proved provenance count 5, answer trace `complete=true` with linked
+Kernel/Guard rows and no warnings, audit ingest count 3, quarantined Answer seq
+8 fail-closed with `CALYX_LEDGER_CHAIN_BROKEN`, partial hop rows
+`complete=false`, and injected mid-hop failure leaving one Answer row that
+`get_answer_trace` marks `Unprovenanced` and not trusted.
 
 ## Risks / landmines
 

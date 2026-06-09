@@ -2,9 +2,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CxId, FixedClock};
+use calyx_core::{CalyxError, CalyxWarning, CxId, FixedClock, Result as CalyxResult};
 use calyx_ledger::{
-    DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, MemoryLedgerStore, decode,
+    DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, LedgerRow, MemoryLedgerStore,
+    QuarantineSet, decode, get_answer_trace,
 };
 use calyx_lodestar::{
     Kernel, KernelGraphParams, KernelParams, build_kernel_index, build_kernel_pipeline_with_ledger,
@@ -139,6 +140,56 @@ fn ledger_append_failures_are_reported_as_calyx_codes() {
 }
 
 #[test]
+fn mid_hop_append_failure_leaves_untrusted_partial_trace() {
+    let graph = ring_graph();
+    let store = FailOnSeqStore::new(MemoryLedgerStore::default(), 2);
+    let mut appender = LedgerAppender::open(store, FixedClock::new(3_000)).expect("open ledger");
+    let receipt =
+        build_kernel_pipeline_with_ledger(&graph, &[cx(10)], &params(), 44, &mut appender)
+            .expect("build kernel");
+    let anchor = receipt.kernel.members[0];
+    let query = third_query(anchor);
+    let index = build_kernel_index(&receipt.kernel, &embeddings(&receipt.kernel, anchor))
+        .expect("build index");
+
+    let error = kernel_answer_with_ledger(
+        &index,
+        &graph,
+        query,
+        &[1.0, 0.0],
+        &[anchor],
+        3,
+        &mut appender,
+    )
+    .unwrap_err();
+    let trace = get_answer_trace(
+        appender.store(),
+        &QuarantineSet::default(),
+        query.as_bytes(),
+    )
+    .expect("trace partial answer");
+    let answer_rows = appender
+        .store()
+        .scan()
+        .unwrap()
+        .into_iter()
+        .filter(|row| decode(&row.bytes).unwrap().kind == EntryKind::Answer)
+        .count();
+
+    assert_eq!(error.code(), "CALYX_LEDGER_CHAIN_BROKEN");
+    assert_eq!(answer_rows, 1);
+    assert_eq!(trace.path.len(), 1);
+    assert!(!trace.complete);
+    assert!(!trace.is_trusted());
+    assert_eq!(
+        trace.warnings,
+        vec![CalyxWarning::unprovenanced(
+            "answer_trace.partial_or_unmarked"
+        )]
+    );
+}
+
+#[test]
 #[ignore = "manual aiwonder FSV for PH33 kernel/answer ledger provenance"]
 fn ph33_kernel_ledger_provenance_aiwonder_fsv() {
     let root = fsv_root().join("ph33-ledger-provenance");
@@ -210,6 +261,80 @@ fn ph33_kernel_ledger_provenance_aiwonder_fsv() {
     assert!(payloads_secret_free(&entries));
 }
 
+#[test]
+#[ignore = "manual aiwonder FSV for PH36 T06 mid-hop append failure"]
+fn ph36_audit_mid_hop_failure_aiwonder_fsv() {
+    let root = fsv_root().join("ph36-audit-mid-hop-failure");
+    reset_dir(&root);
+    let ledger_dir = root.join("ledger-cf");
+    let before_rows = DirectoryLedgerStore::open(&ledger_dir)
+        .expect("open before ledger")
+        .scan()
+        .expect("scan before");
+    let store = FailOnSeqStore::new(
+        DirectoryLedgerStore::open(&ledger_dir).expect("open ledger"),
+        2,
+    );
+    let mut appender =
+        LedgerAppender::open(store, FixedClock::new(1_785_600_000)).expect("open appender");
+    let graph = ring_graph();
+    let receipt =
+        build_kernel_pipeline_with_ledger(&graph, &[cx(10)], &params(), 44, &mut appender)
+            .expect("build kernel");
+    let anchor = receipt.kernel.members[0];
+    let query = third_query(anchor);
+    let index = build_kernel_index(&receipt.kernel, &embeddings(&receipt.kernel, anchor))
+        .expect("build index");
+
+    let answer_error = kernel_answer_with_ledger(
+        &index,
+        &graph,
+        query,
+        &[1.0, 0.0],
+        &[anchor],
+        3,
+        &mut appender,
+    )
+    .unwrap_err();
+    drop(appender);
+    let disk_store = DirectoryLedgerStore::open(&ledger_dir).expect("reopen ledger");
+    let after_rows = disk_store.scan().expect("scan after");
+    let after_entries = after_rows
+        .iter()
+        .map(|row| decode(&row.bytes).unwrap())
+        .collect::<Vec<_>>();
+    let trace = get_answer_trace(&disk_store, &QuarantineSet::default(), query.as_bytes())
+        .expect("trace partial");
+    let readback = json!({
+        "before_rows": before_rows.len(),
+        "after_rows": after_rows.len(),
+        "answer_error_code": answer_error.code(),
+        "answer_entry_count": after_entries.iter().filter(|entry| entry.kind == EntryKind::Answer).count(),
+        "trace_complete": trace.complete,
+        "trace_trusted": trace.is_trusted(),
+        "trace_warnings": trace.warnings,
+        "trace_path_len": trace.path.len(),
+        "ledger_dir": ledger_dir,
+    });
+    let readback_path = root.join("ph36-audit-mid-hop-failure-readback.json");
+    fs::write(
+        &readback_path,
+        serde_json::to_vec_pretty(&readback).unwrap(),
+    )
+    .unwrap();
+    write_decoded_rows(&root, &after_entries);
+
+    println!("PH36_AUDIT_MID_HOP_FSV_ROOT={}", root.display());
+    println!("PH36_AUDIT_MID_HOP_READBACK={}", readback_path.display());
+    println!("{}", serde_json::to_string_pretty(&readback).unwrap());
+
+    assert_eq!(before_rows.len(), 0);
+    assert_eq!(after_entries.len(), 2);
+    assert_eq!(answer_error.code(), "CALYX_LEDGER_CHAIN_BROKEN");
+    assert!(!trace.complete);
+    assert!(!trace.is_trusted());
+}
+
 fn third_query(anchor: CxId) -> CxId {
     match anchor {
         value if value == cx(10) => cx(13),
@@ -257,6 +382,33 @@ fn write_decoded_rows(root: &Path, entries: &[calyx_ledger::LedgerEntry]) {
         .collect::<Vec<_>>();
     let path = root.join("ph33-ledger-decoded-rows.json");
     fs::write(path, serde_json::to_vec_pretty(&rows).unwrap()).unwrap();
+}
+
+#[derive(Debug)]
+struct FailOnSeqStore<S> {
+    inner: S,
+    fail_seq: u64,
+}
+
+impl<S> FailOnSeqStore<S> {
+    const fn new(inner: S, fail_seq: u64) -> Self {
+        Self { inner, fail_seq }
+    }
+}
+
+impl<S: LedgerCfStore> LedgerCfStore for FailOnSeqStore<S> {
+    fn scan(&self) -> CalyxResult<Vec<LedgerRow>> {
+        self.inner.scan()
+    }
+
+    fn put_new(&mut self, seq: u64, bytes: &[u8]) -> CalyxResult<()> {
+        if seq == self.fail_seq {
+            return Err(CalyxError::ledger_chain_broken(
+                "injected mid-hop append failure",
+            ));
+        }
+        self.inner.put_new(seq, bytes)
+    }
 }
 
 fn fsv_root() -> PathBuf {

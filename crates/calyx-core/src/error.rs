@@ -1,6 +1,6 @@
 //! Closed `CALYX_*` error catalog.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Structured Calyx error payload for APIs, MCP, and agent remediation.
@@ -17,6 +17,21 @@ pub struct CalyxError {
 
 /// Calyx result alias.
 pub type Result<T> = std::result::Result<T, CalyxError>;
+
+/// Non-fatal API warning for surfaces that must not be labeled trusted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "snake_case")]
+pub enum CalyxWarning {
+    Unprovenanced { surface: String },
+}
+
+impl CalyxWarning {
+    pub fn unprovenanced(surface: impl Into<String>) -> Self {
+        Self::Unprovenanced {
+            surface: surface.into(),
+        }
+    }
+}
 
 impl CalyxError {
     /// Builds an error from a catalog code and concrete message.
