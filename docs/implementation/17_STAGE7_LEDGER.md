@@ -86,6 +86,12 @@ as PH09 writes constellations.*
   `/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`
   and
   `/home/croyse/calyx/data/fsv-issue348-merkle-vault-real-aster-cf-20260609`.
+- **Post-sweep note.** PH36 T02 (#250) adds `verify_chain(range)`, exact
+  `CALYX_LEDGER_CHAIN_BROKEN at seq=<n>` CLI reporting, and fail-closed Aster
+  manifest quarantine records. Aiwonder FSV flipped seq 7 in the physical
+  Ledger SSTs, wrote a manifest quarantine for `0..20`, and proved a seq 8
+  read fails closed at
+  `/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`.
 - **FSV gate.** flip one ledger byte → `verify_chain` detects the break **at the
   right seq**; `reproduce(answer)` on a real answer is **bit-parity within
   tolerance** (read both).

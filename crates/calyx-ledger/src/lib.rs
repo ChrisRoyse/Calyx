@@ -7,6 +7,7 @@ pub mod group_commit;
 pub mod kind;
 pub mod merkle;
 pub mod redaction;
+pub mod verify;
 
 pub use append::{
     DirectoryLedgerStore, LedgerAppender, LedgerCfStore, LedgerRow, MemoryLedgerStore,
@@ -24,6 +25,7 @@ pub use merkle::{
     merkle_root, merkle_root_of_hashes, sign_root, verify_signature,
 };
 pub use redaction::{PayloadBuilder, RedactedInput, RedactionPolicy};
+pub use verify::{VerifyResult, verify_chain};
 
 #[cfg(test)]
 mod tests {

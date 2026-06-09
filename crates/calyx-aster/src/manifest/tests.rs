@@ -139,6 +139,30 @@ fn manifest_ref_hash_mismatch_fails_closed() {
 }
 
 #[test]
+fn quarantine_records_roundtrip_and_match_ranges() {
+    let dir = test_dir("quarantine");
+    write_manifest_assets(&dir);
+    let store = ManifestStore::open(&dir);
+    store
+        .write_current(&manifest(1, 10))
+        .expect("write manifest");
+    let record = QuarantineRecord::new(5, 10, 7, 123).expect("quarantine record");
+
+    let updated = store
+        .append_quarantine(record.clone())
+        .expect("append quarantine");
+    let loaded = store.load_current().expect("load quarantined manifest");
+
+    assert_eq!(updated.manifest_seq, 2);
+    assert_eq!(loaded.quarantines, vec![record]);
+    assert!(is_quarantined(&loaded, 5));
+    assert!(is_quarantined(&loaded, 9));
+    assert!(!is_quarantined(&loaded, 10));
+    assert!(is_vault_seq_quarantined(&dir, 7).unwrap());
+    cleanup(dir);
+}
+
+#[test]
 fn corrupt_base_shard_read_fails_closed_with_restore_guidance() {
     let dir = test_dir("base-corrupt");
     let path = dir.join("cf").join("base").join("base.sst");

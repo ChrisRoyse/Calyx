@@ -33,7 +33,9 @@ these make Calyx auditable to the byte (PRD `PROVENANCE` predicate, `11 §3/§5`
 `calyx-registry` will have frozen, content-addressed lenses (PH18) by the time
 reproduce is called; PH36 depends on that contract existing.
 `calyx-forge` (PH13) provides the CUDA determinism mode required by reproduce.
-`merkle.rs`, `verify.rs`, and `reproduce.rs` are greenfield.
+`merkle.rs` is implemented and FSV-signed-off through #249/#347/#348.
+`verify.rs` is implemented and FSV-signed-off through #250 with Aster manifest
+quarantine. `reproduce.rs` remains greenfield.
 
 ## Deliverables (file plan, each ≤500 lines)
 

@@ -12,6 +12,26 @@
 
 ## Goal
 
+STATUS: DONE / FSV-signed-off on aiwonder for #250. Implemented in
+`crates/calyx-ledger/src/verify.rs`, `crates/calyx-aster/src/manifest/mod.rs`,
+and `calyx verify-chain` / quarantined ledger readback paths in `calyx-cli`.
+Evidence root:
+`/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`.
+
+Readback facts:
+- A 20-entry durable Aster vault was flushed to physical `cf/ledger` SST files;
+  WAL segments were removed after manifest durability to make the Ledger CF the
+  verification source.
+- Seq 7 was tampered in the physical Ledger SSTs
+  `00000000000000000001.sst` and `00000000000000000008-0000.sst`.
+- `calyx verify-chain --vault <vault> --range 0..20` failed with
+  `CALYX_LEDGER_CHAIN_BROKEN at seq=7`.
+- `MANIFEST` advanced to `manifest_seq=21`, `durable_seq=20`, and contains one
+  quarantine record: `range_start=0`, `range_end=20`, `broken_at_seq=7`.
+- `calyx readback --cf ledger --vault <vault> --seq 8` fails closed with
+  `CALYX_LEDGER_CHAIN_BROKEN: ledger seq 8 is quarantined`.
+- Empty range `0..0` remains `CHAIN_INTACT count=0`.
+
 Implement `verify_chain(vault, range)` — the tamper detection path. It walks
 every ledger entry in `[seq_a, seq_b)`, re-verifies `entry_hash = blake3(seq ‖ prev_hash ‖ kind ‖ subject ‖ payload ‖ actor ‖ ts)` and checks each `prev_hash`
 equals the previous entry's `entry_hash`. On the first discrepancy it returns
