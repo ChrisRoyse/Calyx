@@ -4,6 +4,7 @@ pub mod calibrate;
 pub mod error;
 pub mod guard;
 pub mod profile;
+pub mod query;
 pub mod verdict;
 
 pub use calibrate::{
@@ -16,6 +17,7 @@ pub use error::{
 };
 pub use guard::{DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_result};
 pub use profile::{CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction};
+pub use query::{QueryVerdict, TrustedRegion, guard_query};
 pub use verdict::{GuardVerdict, SlotVerdict};
 
 #[cfg(test)]
