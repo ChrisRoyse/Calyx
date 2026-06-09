@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH39 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, Ledger-backed calibration/guard-verdict provenance, and PH39 identity-profile, WavLM speaker lens, style lens, and `guard_generate()` construction are active: #258-#272, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is PH39 #273-#274 and exit #280 |
+| `calyx-ward` | S8 PH37-PH39 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, Ledger-backed calibration/guard-verdict provenance, and PH39 identity-profile, WavLM speaker lens, style lens, `guard_generate()`, and identity injection quarantine construction are active: #258-#273, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is PH39 #274 and exit #280 |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -108,7 +108,8 @@ and
 `/home/croyse/calyx/data/fsv-issue269-identity-profile-20260609`,
 `/home/croyse/calyx/data/fsv-issue270-speaker-lens-20260609-ef729f8-ort126-sm120`,
 `/home/croyse/calyx/data/fsv-issue271-style-lens-20260609-a43e546-ort126-sm120`,
-and `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`.
+`/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`,
+and `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -121,7 +122,7 @@ are signed off. PH36 exit FSV integration #255 and Stage 7 exit rollup #256
 are signed off; PH36 audit-query quarantine filter hardening #349 is signed off,
 covering filtered audit queries around unrelated quarantined rows, typed `cx`
 mention matching, physical row-key mismatch fail-closed behavior, and durable
-Ledger SST readbacks. Stage 8 Ward has #258-#272,
+Ledger SST readbacks. Stage 8 Ward has #258-#273,
 #275/#276/#277/#278, #350, and #353 signed off; PH37 is complete, PH38 T05 is
 proven against the real aiwonder injection corpus, PH38 T06 proves Sextant
 InRegionOnly guarded search, and #350 hardens novelty guard-id provenance.
@@ -137,9 +138,10 @@ Ledger `kind=Guard` rows for Ward calibration and guard verdicts, then read
 those rows back through PH36 audit/provenance while preserving the #349
 quarantine contract. #269 adds the PH39 `IdentityProfile` construction and
 identity-anchor fail-closed surface with durable JSON and SHA manifest readback.
-#270 adds the pinned WavLM speaker lens, #271 adds the pinned style lens, and
-#272 adds `guard_generate()` plus accepted/novel/rejected/provisional readbacks.
-Remaining Ward frontier work is PH39 #273-#274, with exit #280.
+#270 adds the pinned WavLM speaker lens, #271 adds the pinned style lens, #272
+adds `guard_generate()` plus accepted/novel/rejected/provisional readbacks, and
+#273 proves real prompt-injection quarantine on the numeric style slot.
+Remaining Ward frontier work is PH39 #274, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
