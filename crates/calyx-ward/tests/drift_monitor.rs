@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 
 use calyx_core::{FixedClock, SlotId};
 use calyx_ward::{
-    AnnealHook, CalibrationMeta, DriftEvent, DriftMonitor, GuardId, GuardPolicy, GuardProfile,
-    GuardVerdict, NoveltyAction, SlotVerdict, guard_health,
+    AnnealHook, CalibrationInput, CalibrationMeta, DriftEvent, DriftMonitor, GuardId, GuardPolicy,
+    GuardProfile, GuardVerdict, NoveltyAction, SlotKind, SlotVerdict, calibrate, guard_health,
 };
 use serde_json::json;
 
@@ -38,6 +38,49 @@ fn rejection_rate_is_not_reported_as_calibration_far() {
 
     assert_close(rejection_rate, 0.20);
     assert!(rejection_rate > CALIBRATED_FAR * 3.0);
+}
+
+#[test]
+fn guard_health_retains_distinct_per_slot_calibration_bounds() {
+    let hook = RecordingHook::default();
+    let profile = calibrated_profile_with_distinct_slot_bounds();
+    let monitor = DriftMonitor::new(&profile, 100, Arc::new(hook));
+    let health = guard_health(&monitor, guard_id());
+    let meta = profile.calibration.as_ref().expect("profile calibration");
+    let identity = meta.per_slot.get(&slot(1)).expect("identity slot");
+    let stylistic = meta.per_slot.get(&slot(2)).expect("style slot");
+
+    assert!(identity.far < stylistic.far);
+    assert!(identity.frr > stylistic.frr);
+    assert_eq!(
+        health.per_slot_calibrated_far_bound.get(&slot(1)),
+        Some(&identity.far)
+    );
+    assert_eq!(
+        health.per_slot_calibrated_far_bound.get(&slot(2)),
+        Some(&stylistic.far)
+    );
+    assert_eq!(health.per_slot_frr.get(&slot(1)), Some(&identity.frr));
+    assert_eq!(health.per_slot_frr.get(&slot(2)), Some(&stylistic.frr));
+}
+
+#[test]
+fn drift_uses_each_slots_own_calibrated_far_bound() {
+    let hook = RecordingHook::default();
+    let hook_readback = hook.clone();
+    let profile = calibrated_profile_with_distinct_slot_bounds();
+    let mut monitor = DriftMonitor::new(&profile, 100, Arc::new(hook));
+
+    record_repeated(&mut monitor, slot(1), true, 98);
+    record_repeated(&mut monitor, slot(1), false, 2);
+    record_repeated(&mut monitor, slot(2), true, 98);
+    record_repeated(&mut monitor, slot(2), false, 2);
+    wait_for_events(&hook_readback, 1);
+
+    let events = hook_readback.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].slot, slot(1));
+    assert_close(events[0].calibrated_far_bound, 0.01);
 }
 
 #[test]
@@ -129,6 +172,7 @@ fn unknown_guard_health_returns_zero_snapshot() {
 
     assert_eq!(health.guard_id, other_guard_id());
     assert!(health.per_slot_rejection_rate.is_empty());
+    assert!(health.per_slot_calibrated_far_bound.is_empty());
     assert!(health.per_slot_frr.is_empty());
     assert!(!health.drift);
     assert_eq!(health.last_calibrated, 0);
@@ -184,6 +228,61 @@ fn drift_monitor_fsv_fixture_writes_readback_artifacts() {
         after_drift.per_slot_rejection_rate.get(&slot(1)),
         events.len(),
         after_recovery.drift,
+    );
+}
+
+#[test]
+#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_PER_SLOT_CALIBRATION_FSV_DIR"]
+fn per_slot_calibration_fsv_fixture_writes_readback_artifacts() {
+    let root = std::env::var("CALYX_WARD_PER_SLOT_CALIBRATION_FSV_DIR")
+        .expect("CALYX_WARD_PER_SLOT_CALIBRATION_FSV_DIR is required");
+    std::fs::create_dir_all(&root).expect("create fsv root");
+    let hook = RecordingHook::default();
+    let hook_readback = hook.clone();
+    let profile = calibrated_profile_with_distinct_slot_bounds();
+    let mut monitor = DriftMonitor::new(&profile, 100, Arc::new(hook));
+
+    record_repeated(&mut monitor, slot(1), true, 98);
+    record_repeated(&mut monitor, slot(1), false, 2);
+    record_repeated(&mut monitor, slot(2), true, 98);
+    record_repeated(&mut monitor, slot(2), false, 2);
+    wait_for_events(&hook_readback, 1);
+    let health = guard_health(&monitor, guard_id());
+    let events = hook_readback.events();
+    let calibration = profile.calibration.as_ref().expect("calibration");
+
+    write_json(&root, "calibrated-profile.json", &profile);
+    write_json(&root, "guard-health.json", &health);
+    write_json(&root, "hook-events.json", &events);
+    write_json(
+        &root,
+        "case-summary.json",
+        &json!({
+            "profile_far_summary": calibration.far,
+            "profile_frr_summary": calibration.frr,
+            "slot1_far": calibration.per_slot.get(&slot(1)).map(|meta| meta.far),
+            "slot2_far": calibration.per_slot.get(&slot(2)).map(|meta| meta.far),
+            "slot1_frr": calibration.per_slot.get(&slot(1)).map(|meta| meta.frr),
+            "slot2_frr": calibration.per_slot.get(&slot(2)).map(|meta| meta.frr),
+            "health_slot1_far": health.per_slot_calibrated_far_bound.get(&slot(1)),
+            "health_slot2_far": health.per_slot_calibrated_far_bound.get(&slot(2)),
+            "health_slot1_frr": health.per_slot_frr.get(&slot(1)),
+            "health_slot2_frr": health.per_slot_frr.get(&slot(2)),
+            "hook_event_count": events.len(),
+            "hook_event_slot": events.first().map(|event| event.slot),
+            "hook_event_far_bound": events.first().map(|event| event.calibrated_far_bound),
+        }),
+    );
+
+    println!(
+        "FSV_PH38_PER_SLOT slot1_far={:?} slot2_far={:?} slot1_frr={:?} slot2_frr={:?} health_slot1_far={:?} health_slot2_far={:?} hook_events={}",
+        calibration.per_slot.get(&slot(1)).map(|meta| meta.far),
+        calibration.per_slot.get(&slot(2)).map(|meta| meta.far),
+        calibration.per_slot.get(&slot(1)).map(|meta| meta.frr),
+        calibration.per_slot.get(&slot(2)).map(|meta| meta.frr),
+        health.per_slot_calibrated_far_bound.get(&slot(1)),
+        health.per_slot_calibrated_far_bound.get(&slot(2)),
+        events.len(),
     );
 }
 
@@ -293,6 +392,43 @@ fn profile_with_slots(slot_count: u16, far: f32, frr: f32) -> GuardProfile {
             0.95,
             &FixedClock::new(1_786_233_600),
         )),
+        novelty_action: NoveltyAction::Quarantine,
+    }
+}
+
+fn calibrated_profile_with_distinct_slot_bounds() -> GuardProfile {
+    let mut identity = calibration_input(slot(1), SlotKind::Identity, 0.01);
+    let mut stylistic = calibration_input(slot(2), SlotKind::Stylistic, 0.05);
+    identity.good_scores = vec![0.59; 100];
+    stylistic.good_scores = vec![0.59; 100];
+    calibrate(
+        profile_template(),
+        vec![identity, stylistic],
+        0.05,
+        &FixedClock::new(1_786_233_600),
+    )
+    .expect("calibrate profile")
+}
+
+fn calibration_input(slot: SlotId, slot_kind: SlotKind, target_far: f32) -> CalibrationInput {
+    CalibrationInput {
+        slot,
+        good_scores: (0..100).map(|i| 0.80 + i as f32 * 0.001).collect(),
+        bad_scores: (0..100).map(|i| 0.30 + i as f32 * 0.003).collect(),
+        slot_kind,
+        target_far,
+    }
+}
+
+fn profile_template() -> GuardProfile {
+    GuardProfile {
+        guard_id: guard_id(),
+        panel_version: 42,
+        domain: "synthetic-drift".to_string(),
+        tau: BTreeMap::new(),
+        required_slots: Vec::new(),
+        policy: GuardPolicy::AllRequired,
+        calibration: None,
         novelty_action: NoveltyAction::Quarantine,
     }
 }

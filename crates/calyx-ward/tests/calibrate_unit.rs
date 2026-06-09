@@ -177,6 +177,33 @@ fn calibrate_updates_profile_with_merged_provenance() {
 }
 
 #[test]
+fn calibrate_preserves_distinct_per_slot_bounds() {
+    let clock = FixedClock::new(1_785_400_000);
+    let mut identity_input = calibration_input(slot(1), SlotKind::Identity, 0.01);
+    let mut stylistic_input = calibration_input(slot(2), SlotKind::Stylistic, 0.05);
+    identity_input.good_scores = vec![0.59; 100];
+    stylistic_input.good_scores = vec![0.59; 100];
+    let calibrated = calibrate(
+        profile_template(),
+        vec![identity_input, stylistic_input],
+        0.05,
+        &clock,
+    )
+    .expect("calibrate profile");
+
+    let meta = calibrated.calibration.as_ref().expect("profile meta");
+    let identity = meta.per_slot.get(&slot(1)).expect("identity slot meta");
+    let stylistic = meta.per_slot.get(&slot(2)).expect("style slot meta");
+
+    assert!(identity.far < stylistic.far);
+    assert!(identity.frr > stylistic.frr);
+    assert_eq!(meta.far, stylistic.far);
+    assert_eq!(meta.frr, identity.frr);
+    assert_eq!(identity.estimator, ESTIMATOR);
+    assert_eq!(stylistic.ts, 1_785_400_000);
+}
+
+#[test]
 #[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_CALIBRATE_FSV_DIR"]
 fn calibrate_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_CALIBRATE_FSV_DIR")
@@ -236,6 +263,16 @@ fn calibrate_fsv_fixture_writes_readback_artifacts() {
             "identity_far": identity_meta.far,
             "style_tau": style_tau,
             "style_far": style_meta.far,
+            "profile_slot1_far": calibrated
+                .calibration
+                .as_ref()
+                .and_then(|meta| meta.per_slot.get(&slot(1)))
+                .map(|meta| meta.far),
+            "profile_slot2_far": calibrated
+                .calibration
+                .as_ref()
+                .and_then(|meta| meta.per_slot.get(&slot(2)))
+                .map(|meta| meta.far),
             "identity_tau_gt_style_tau": identity_tau > style_tau,
         }),
     );

@@ -1,12 +1,14 @@
 //! Per-slot conformal tau calibration for Ward guard profiles.
 
+use std::collections::BTreeMap;
+
 use calyx_core::{Clock, SlotId};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::WardError;
 use crate::guard::DEFAULT_TAU;
-use crate::profile::{CalibrationMeta, GuardProfile};
+use crate::profile::{CalibrationMeta, GuardProfile, SlotCalibrationMeta};
 
 pub const TAU_COLD_START: f32 = DEFAULT_TAU;
 pub const MIN_BAD_SCORES: usize = 50;
@@ -193,23 +195,20 @@ fn merge_meta(
     let mut hasher = Sha256::new();
     let mut far = 0.0_f32;
     let mut frr = 0.0_f32;
+    let mut per_slot = BTreeMap::new();
     for (slot, meta) in metas {
         hasher.update(slot.get().to_be_bytes());
         hasher.update(meta.corpus_hash);
         far = far.max(meta.far);
         frr = frr.max(meta.frr);
+        per_slot.insert(*slot, SlotCalibrationMeta::from_calibration(meta));
     }
     let hash = hasher.finalize();
     let mut corpus_hash = [0_u8; 32];
     corpus_hash.copy_from_slice(&hash);
-    Ok(CalibrationMeta::new(
-        corpus_hash,
-        ESTIMATOR,
-        far,
-        frr,
-        1.0 - alpha,
-        clock,
-    ))
+    let mut merged = CalibrationMeta::new(corpus_hash, ESTIMATOR, far, frr, 1.0 - alpha, clock);
+    merged.per_slot = per_slot;
+    Ok(merged)
 }
 
 fn corpus_hash(

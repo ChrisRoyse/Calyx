@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use calyx_core::SlotId;
 use calyx_ward::{
     CalibrationMeta, DEFAULT_TAU, GuardId, GuardPolicy, GuardProfile, MatchedSlots, NoveltyAction,
@@ -183,6 +185,7 @@ fn calibration() -> CalibrationMeta {
         frr: 0.02,
         confidence: 0.99,
         ts: 1_786_233_600,
+        per_slot: BTreeMap::new(),
     }
 }
 
