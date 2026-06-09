@@ -5,9 +5,9 @@ use std::path::{Path, PathBuf};
 use calyx_aster::manifest::ManifestStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    AbsentReason, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD,
-    CALYX_TEMPORAL_WEIGHT_SUM, Constellation, CxFlags, FusionWeights, InputRef, LedgerRef,
-    Modality, PeriodicOptions, SlotId, SlotVector, TemporalPolicy, VaultId, VaultStore,
+    AbsentReason, BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD,
+    CALYX_TEMPORAL_WEIGHT_SUM, Constellation, CxFlags, DecayFunction, FusionWeights, InputRef,
+    LedgerRef, Modality, PeriodicOptions, SlotId, SlotVector, TemporalPolicy, VaultId, VaultStore,
 };
 use serde_json::json;
 
@@ -74,6 +74,38 @@ fn temporal_manifest_fsv_writes_vault_manifest_readbacks() {
     let invalid_weight = FusionWeights::new(0.0, 0.0, 0.0).expect_err("zero weights fail closed");
     let invalid_period =
         PeriodicOptions::new(Some(24), None).expect_err("invalid hour fails closed");
+    let invalid_alpha = BoostConfig::new(0.11, 1.10, 0.85).expect_err("alpha cap fails closed");
+    let custom_policy = custom_policy();
+    let custom_dir = root.join("custom-policy-vault");
+    let custom_vault = AsterVault::new_durable(
+        &custom_dir,
+        vault_id(),
+        b"temporal-custom-policy-salt",
+        VaultOptions {
+            temporal_policy: Some(custom_policy),
+            ..VaultOptions::default()
+        },
+    )
+    .expect("custom policy vault");
+    let custom_cx = sample_constellation(&custom_vault);
+    custom_vault
+        .put(custom_cx)
+        .expect("put custom constellation");
+    custom_vault.flush().expect("flush custom policy");
+    let custom_first_manifest = ManifestStore::open(&custom_dir)
+        .load_current()
+        .expect("load custom manifest");
+    let custom_reopened = AsterVault::open(
+        &custom_dir,
+        vault_id(),
+        b"temporal-custom-policy-salt",
+        VaultOptions::default(),
+    )
+    .expect("cold open custom policy vault");
+    custom_reopened.flush().expect("second flush custom policy");
+    let custom_after_second_flush = ManifestStore::open(&custom_dir)
+        .load_current()
+        .expect("load custom after second flush");
 
     let readback = json!({
         "before_current_exists": before_current_exists,
@@ -105,6 +137,15 @@ fn temporal_manifest_fsv_writes_vault_manifest_readbacks() {
         "invalid_period": {
             "error_code": invalid_period.code,
             "expected_error_code": CALYX_TEMPORAL_INVALID_PERIOD
+        },
+        "invalid_alpha": {
+            "error_code": invalid_alpha.code,
+            "expected_error_code": CALYX_TEMPORAL_AP60_VIOLATION
+        },
+        "custom_policy_cold_open": {
+            "first_manifest_policy": custom_first_manifest.temporal_policy,
+            "after_second_flush_policy": custom_after_second_flush.temporal_policy,
+            "persisted_policy_survived_reopen": custom_after_second_flush.temporal_policy == Some(custom_policy)
         }
     });
     write_json(&root.join("temporal-manifest-readback.json"), &readback);
@@ -125,6 +166,12 @@ fn temporal_manifest_fsv_writes_vault_manifest_readbacks() {
     );
     assert_eq!(invalid_create_error.code, CALYX_TEMPORAL_AP60_VIOLATION);
     assert!(!invalid_dir.join("CURRENT").exists());
+    assert_eq!(invalid_alpha.code, CALYX_TEMPORAL_AP60_VIOLATION);
+    assert_eq!(custom_first_manifest.temporal_policy, Some(custom_policy));
+    assert_eq!(
+        custom_after_second_flush.temporal_policy,
+        Some(custom_policy)
+    );
 
     if !keep_root {
         fs::remove_dir_all(root).expect("cleanup temp root");
@@ -133,6 +180,21 @@ fn temporal_manifest_fsv_writes_vault_manifest_readbacks() {
 
 fn default_options() -> VaultOptions {
     VaultOptions::default()
+}
+
+fn custom_policy() -> TemporalPolicy {
+    TemporalPolicy::new(
+        true,
+        DecayFunction::Linear {
+            max_age_secs: 7_200,
+        },
+        PeriodicOptions::new(Some(14), Some(1)).expect("periodic"),
+        Default::default(),
+        FusionWeights::default(),
+        BoostConfig::new(0.05, 1.10, 0.85).expect("boost"),
+        true,
+    )
+    .expect("custom temporal policy")
 }
 
 fn read_manifest_policy(vault_dir: &Path) -> Option<TemporalPolicy> {

@@ -48,7 +48,8 @@ pub use slot_index_map::SlotIndexMap;
 pub use temporal::{
     BoostConfig, DecayFunction, FixedClock as TemporalFixedClock, FusionWeights, MultiAnchorMode,
     PeriodicOptions, SequenceDirection, SequenceOptions, SystemClock as TemporalSystemClock,
-    TemporalPolicy, TimeWindow, filter_hits_by_window,
+    TemporalPolicy, TemporalScores, TimeWindow, apply_temporal_boost, filter_hits_by_window,
+    fuse_temporal, score_e2_recency, score_e3_periodic, score_e4_sequence,
 };
 
 #[cfg(test)]

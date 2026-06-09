@@ -93,7 +93,9 @@ impl AsterVault<SystemClock> {
             rows.restore_batch(batch.seq, rows_at_seq)?;
         }
         rows.set_start_seq(recovery.last_recovered_seq)?;
-        let durable = DurableVault::open(vault_dir, &options)?;
+        let mut durable_options = options.clone();
+        durable_options.temporal_policy = recovery.temporal_policy;
+        let durable = DurableVault::open(vault_dir, &durable_options)?;
         Ok(Self {
             vault_id,
             vault_salt: vault_salt.into(),

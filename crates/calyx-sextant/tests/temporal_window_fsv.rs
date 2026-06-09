@@ -102,6 +102,7 @@ fn hit_without_time(seed: u8) -> Hit {
         score: 0.0,
         rank: seed as usize,
         event_time_secs: None,
+        temporal_scores: None,
         per_lens: Vec::new(),
         cross_terms_used: false,
         guard: None,
