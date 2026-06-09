@@ -56,6 +56,7 @@ pub struct DriftMonitor {
     calibrated_far_bound: BTreeMap<SlotId, f32>,
     calibrated_frr: BTreeMap<SlotId, f32>,
     drift_slots: BTreeSet<SlotId>,
+    notified_drift_slots: BTreeSet<SlotId>,
     last_calibrated: i64,
     _anneal_hook: Arc<dyn AnnealHook>,
     hook_channel: Option<SyncSender<DriftEvent>>,
@@ -106,6 +107,7 @@ impl DriftMonitor {
             calibrated_far_bound,
             calibrated_frr,
             drift_slots: BTreeSet::new(),
+            notified_drift_slots: BTreeSet::new(),
             last_calibrated,
             _anneal_hook: anneal_hook,
             hook_channel: Some(sender),
@@ -141,7 +143,11 @@ impl DriftMonitor {
         let current_rejection_rate = self.rolling_rejection_rate(slot);
         let drift = current_rejection_rate > calibrated_far_bound * REJECTION_RATE_DRIFT_MULTIPLIER;
 
-        if drift && self.drift_slots.insert(slot) {
+        if drift {
+            self.drift_slots.insert(slot);
+            if self.notified_drift_slots.contains(&slot) {
+                return;
+            }
             let event = DriftEvent {
                 guard_id: self.guard_id,
                 slot,
@@ -150,13 +156,16 @@ impl DriftMonitor {
             };
             if let Some(sender) = &self.hook_channel {
                 match sender.try_send(event) {
-                    Ok(()) => {}
+                    Ok(()) => {
+                        self.notified_drift_slots.insert(slot);
+                    }
                     Err(TrySendError::Full(_)) => self.dropped_events += 1,
                     Err(TrySendError::Disconnected(_)) => self.dropped_events += 1,
                 }
             }
         } else if !drift {
             self.drift_slots.remove(&slot);
+            self.notified_drift_slots.remove(&slot);
         }
     }
 
