@@ -71,6 +71,19 @@ pub struct CalibrationMeta {
     pub frr: f32,
     pub confidence: f32,
     pub ts: i64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub per_slot: BTreeMap<SlotId, SlotCalibrationMeta>,
+}
+
+/// Per-slot calibration bounds preserved under a profile-level summary.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SlotCalibrationMeta {
+    pub corpus_hash: [u8; 32],
+    pub estimator: String,
+    pub far: f32,
+    pub frr: f32,
+    pub confidence: f32,
+    pub ts: i64,
 }
 
 impl CalibrationMeta {
@@ -90,6 +103,20 @@ impl CalibrationMeta {
             frr,
             confidence,
             ts: clock_ts_i64(clock),
+            per_slot: BTreeMap::new(),
+        }
+    }
+}
+
+impl SlotCalibrationMeta {
+    pub fn from_calibration(meta: &CalibrationMeta) -> Self {
+        Self {
+            corpus_hash: meta.corpus_hash,
+            estimator: meta.estimator.clone(),
+            far: meta.far,
+            frr: meta.frr,
+            confidence: meta.confidence,
+            ts: meta.ts,
         }
     }
 }
@@ -174,6 +201,7 @@ mod tests {
                     frr,
                     confidence,
                     ts: 1_785_400_000,
+                    per_slot: BTreeMap::new(),
                 }),
                 novelty_action: NoveltyAction::Quarantine,
             };

@@ -29,6 +29,7 @@ pub struct DriftEvent {
 pub struct GuardHealth {
     pub guard_id: GuardId,
     pub per_slot_rejection_rate: BTreeMap<SlotId, f32>,
+    pub per_slot_calibrated_far_bound: BTreeMap<SlotId, f32>,
     pub per_slot_frr: BTreeMap<SlotId, f32>,
     pub drift: bool,
     pub last_calibrated: i64,
@@ -179,6 +180,7 @@ impl DriftMonitor {
         GuardHealth {
             guard_id: self.guard_id,
             per_slot_rejection_rate,
+            per_slot_calibrated_far_bound: self.calibrated_far_bound.clone(),
             per_slot_frr: self.calibrated_frr.clone(),
             drift: !self.drift_slots.is_empty(),
             last_calibrated: self.last_calibrated,
@@ -204,6 +206,7 @@ pub fn guard_health(monitor: &DriftMonitor, guard_id: GuardId) -> GuardHealth {
         GuardHealth {
             guard_id,
             per_slot_rejection_rate: BTreeMap::new(),
+            per_slot_calibrated_far_bound: BTreeMap::new(),
             per_slot_frr: BTreeMap::new(),
             drift: false,
             last_calibrated: 0,
@@ -213,14 +216,20 @@ pub fn guard_health(monitor: &DriftMonitor, guard_id: GuardId) -> GuardHealth {
 }
 
 fn calibration_maps(profile: &GuardProfile) -> (BTreeMap<SlotId, f32>, BTreeMap<SlotId, f32>, i64) {
-    let far = profile.calibration.as_ref().map_or(0.0, |meta| meta.far);
-    let frr = profile.calibration.as_ref().map_or(0.0, |meta| meta.frr);
-    let last_calibrated = profile.calibration.as_ref().map_or(0, |meta| meta.ts);
+    let profile_meta = profile.calibration.as_ref();
+    let far = profile_meta.map_or(0.0, |meta| meta.far);
+    let frr = profile_meta.map_or(0.0, |meta| meta.frr);
+    let last_calibrated = profile_meta.map_or(0, |meta| meta.ts);
     let mut calibrated_far_bound = BTreeMap::new();
     let mut calibrated_frr = BTreeMap::new();
     for slot in profile.tau.keys() {
-        calibrated_far_bound.insert(*slot, far);
-        calibrated_frr.insert(*slot, frr);
+        if let Some(slot_meta) = profile_meta.and_then(|meta| meta.per_slot.get(slot)) {
+            calibrated_far_bound.insert(*slot, slot_meta.far);
+            calibrated_frr.insert(*slot, slot_meta.frr);
+        } else {
+            calibrated_far_bound.insert(*slot, far);
+            calibrated_frr.insert(*slot, frr);
+        }
     }
     (calibrated_far_bound, calibrated_frr, last_calibrated)
 }

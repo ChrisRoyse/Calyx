@@ -30,7 +30,9 @@ pub use guard::{
 pub use novelty::{
     NovelId, NoveltyHandler, NoveltyRecord, NoveltyStatus, VaultSink, novel_regions,
 };
-pub use profile::{CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction};
+pub use profile::{
+    CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction, SlotCalibrationMeta,
+};
 pub use query::{
     KernelFirstQueryVerdict, QueryVerdict, RegionSource, TrustedRegion, guard_query,
     guard_query_kernel_first,

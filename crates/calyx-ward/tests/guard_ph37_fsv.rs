@@ -314,6 +314,7 @@ fn calibrated_profile() -> GuardProfile {
         frr: 0.05,
         confidence: 0.99,
         ts: 1_776_742_400,
+        per_slot: BTreeMap::new(),
     });
     profile.novelty_action = NoveltyAction::Quarantine;
     profile
