@@ -138,13 +138,16 @@ bit-parity for the byte-readback golden set; CUDA top-k is exact for
 exact merge work lands (#303). The current `Backend` trait ships
 `gemm`/`cosine`/`dot`/`l2`/`normalize`/`topk`/`device_info`; PRD catalog ops such
 as KSG k-NN, histograms/NMI, sparse ops, bilinear cross-terms, graph kernels, and
-ColBERT MaxSim remain explicit deferred work after #338, owned by #342 until
-split into narrower later-phase issues. PH16 promotion
-provenance is an append-only local JSONL audit stub; real Ledger integration is
-future cross-engine Anneal/provenance work, not a hidden Stage 2 claim.
+ColBERT MaxSim remain explicit deferred work after #338. Their owners are the
+later phase cards that consume those kernels: PH27/PH28 for Assay/Loom math,
+PH31/PH32/PH52 for graph and spectral math, and PH68/PH70 for scale/index
+validation. PH16 promotion provenance is an append-only local JSONL audit stub;
+real Ledger integration is PH43 T05/T06 plus PH46 T05/T06, not a hidden Stage 2
+claim.
 TurboQuant gives unbiased inner products, grouped GEMM makes panel math
 N-invariant with readback-visible launch mode, and configs autotune per shape — PRD `MATH`/`ARRAYMATH`/
 `COMPRESS` foundations. Implemented and FSV-signed-off; downstream Stage 5
 readbacks on aiwonder depend on these kernels and remain green. Stage 4 uses
 Sextant-owned CPU/index paths for HNSW/quant/fan-out until a future Forge
-integration is wired (#342); current repo head is recorded in context issue #23.
+integration is wired by PH46/PH68 and validated by PH70; current repo head is
+recorded in context issue #23.

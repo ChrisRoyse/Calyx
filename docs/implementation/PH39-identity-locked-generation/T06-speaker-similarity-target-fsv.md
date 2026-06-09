@@ -58,7 +58,7 @@ mean WavLM speaker-similarity (encoder-matched)."
         ```
         PH37 no-flatten gate:     PASS
         PH38 injection block:     0.9952 >= 0.99 PASS
-        PH39 speaker sim:         0.9634 >= 0.961 PASS
+        PH39 speaker sim:         0.9882728457450867 >= 0.9610000252723694 PASS
         PH39 style quarantine:    PASS
         Stage 8 Ward exit:        PASS
         ```
@@ -66,7 +66,8 @@ mean WavLM speaker-similarity (encoder-matched)."
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [x] unit: `fsv_stage8_speaker_similarity_target_writes_readbacks` — asserts mean_cos ≥ 0.961 on
-      aiwonder TTS samples; prints `mean_wavlm_speaker_similarity: 0.9xxx`
+      aiwonder TTS samples; prints
+      `mean_wavlm_speaker_similarity: 0.9882728457450867`
 - [x] unit: cross-speaker cos < τ;
       all assert `overall_pass == false`; print per-slot verdicts
 - [x] unit: Stage 8 summary readback — all 4 checks
@@ -95,10 +96,11 @@ mean WavLM speaker-similarity (encoder-matched)."
   xxd -g 1 "$root/stage8-summary-readback.json" | head -32
   sha256sum "$root"/* | sort
   ```
-- **Prove:** `mean_wavlm_speaker_similarity: 0.9xxx` ≥ 0.961; `Stage 8 Ward
-  exit: PASS`; all 4 per-phase checks `PASS`; cross-speaker all `overall_pass:
-  false`; attach the root path, hashes, and durable JSON readback excerpts to
-  PH39 and the Stage 8 exit issue as evidence
+- **Prove:** `mean_wavlm_speaker_similarity: 0.9882728457450867` ≥
+  `0.9610000252723694`; `Stage 8 Ward exit: PASS`; all 4 per-phase checks
+  `PASS`; cross-speaker all `overall_pass: false`; attach the root path,
+  hashes, and durable JSON readback excerpts to PH39 and the Stage 8 exit issue
+  as evidence
 
 ## FSV evidence (2026-06-09)
 

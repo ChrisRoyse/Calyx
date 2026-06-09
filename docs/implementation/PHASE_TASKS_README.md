@@ -9,7 +9,11 @@ for the structure under `docs/implementation/PHnn-*/`.
 >
 > **Current (2026-06-09):** Stages 1–5 (PH05–PH30) are **DONE** and
 > FSV-signed-off on aiwonder, including post-sweep hardening through #340 and
-> Registry/Sextant integration #339.
+> Registry/Sextant integration #339. Post-sweep PH06 slot-column SoA hardening
+> is FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58`, and
+> Stage 1-5 future seams are mapped to concrete phase/card owners in
+> `STAGE1_5_EVIDENCE_MANIFEST.md`.
 > Active implementation is tracked in GitHub issues: Stage 6 Lodestar is closed
 > through #240 plus readiness follow-ups #331-#332. Stage 7 Ledger is closed
 > through #256 after PH35 #242-#248, PH35 failure-atomicity hardening #345,

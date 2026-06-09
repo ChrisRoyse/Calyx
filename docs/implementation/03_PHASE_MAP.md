@@ -35,8 +35,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`
 - Stage 1-5 evidence manifest cleanup (#336):
   `/home/croyse/calyx/data/fsv-issue336-stage1-5-evidence-manifest-20260608`
-- Stage 1 Aster derived slot-column materialization (#341):
-  `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`
+- Stage 1 Aster derived slot-column SoA materialization (#341 + post-sweep hardening):
+  `/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence
@@ -247,9 +247,9 @@ Latest roots:
 > groundedness #298 is now FSV-backed. #333 adds SST body CRCs, manifest
 > immutable-ref hash verification, compacted-SST recovery, WAL-authoritative
 > post-append commit semantics, deadline-based group commit, and release-mode
-> absent-slot sentinel checks. No remaining Stage 1-5 implementation
-> blocker is hidden in the phase map; future work begins at the Stage 6/Stage 7
-> queue tracked in GitHub issues.
+> absent-slot sentinel checks. No remaining Stage 1-5 implementation blocker is
+> hidden in the phase map; future seams are mapped to concrete later phase/card
+> owners, and the active implementation frontier moves to Stage 9 / PH40.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 

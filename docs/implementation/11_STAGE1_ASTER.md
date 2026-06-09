@@ -174,9 +174,9 @@ cards; their current disposition follows. None block downstream stages.
 2. **Accepted non-work (cosmetic, PH10).** Recovery logic still lives in
    `manifest/mod.rs::recover_vault` rather than a split-out `manifest/recovery.rs`
    — module placement only; no behavioural impact and no live issue required.
-3. **Deferred to PH44 (PH10), owner #342.** `degraded_rebuildable` still has no code path
-   that sets it true on a corrupt derived CF; the degrade/self-heal path lands
-   with Anneal self-heal (PH44).
+3. **Deferred to PH44 T01/T03/T06 (PH10).** `degraded_rebuildable` still has no
+   code path that sets it true on a corrupt derived CF; the degrade/self-heal
+   path lands with Anneal self-heal, background rebuild, and corrupt-index FSV.
 4. ✅ **RESOLVED — durable / `CfRouter` / `CompactionScheduler` unified
    (PH09/PH10/PH11).** The write/flush/compaction paths are now wired together
    via `vault/compaction_bridge.rs` (`VaultCompactionScheduler`) plus
@@ -190,12 +190,13 @@ cards; their current disposition follows. None block downstream stages.
    vs archive roots through the same policy.
 5. ✅ **RESOLVED — derived materialized slot-column sidecar (PH06), #341.**
    `sst/arrow.rs` remains the `CXA1` Arrow-compatible dense chunk primitive, and
-   #341 adds `vault/slot_column.rs` to materialize dense `slot_NN` row-CF bytes
-   into a separate `slot-column.cxa1` plus `slot-column-manifest.json` sidecar.
+   #341 plus the post-sweep SoA hardening adds `vault/slot_column.rs` to
+   materialize dense `slot_NN` row-CF bytes into a separate dimension-contiguous
+   column-major `slot-column.cxa1` plus `slot-column-manifest.json` sidecar.
    Live slot CF values intentionally stay row-encoded via
    `vault/encode.rs::encode_slot_vector`; row-level slot vectors remain the
    CRUD/recovery source of truth for Aster. Evidence root:
-   `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`.
+   `/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58`.
 6. ✅ **RESOLVED — dedicated ledger stub (PH09).** The PH35 ledger-stub row now
    lives in a dedicated `vault/ledger_stub.rs` (commit `3e6c03d`); the real
    hash-chain still lands in PH35.

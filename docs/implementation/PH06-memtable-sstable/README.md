@@ -34,12 +34,13 @@ FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root
 - The live slot CF write path intentionally stores slot values via
   `vault/encode.rs::encode_slot_vector` (a byte-exact dense/sparse/multi codec);
   those row bytes remain Aster's CRUD/recovery source of truth.
-- #341 adds a derived dense sidecar materializer in `vault/slot_column.rs`: it
-  scans visible row-encoded `slot_NN` CF values at a pinned snapshot, validates
-  dense equal-dim rows, writes `slot-column.cxa1` (`CXA1`) plus
+- #341 plus post-sweep SoA hardening adds a derived dense sidecar materializer
+  in `vault/slot_column.rs`: it scans visible row-encoded `slot_NN` CF values at
+  a pinned snapshot, validates dense equal-dim rows, writes dimension-contiguous
+  column-major f32 payload bytes to `slot-column.cxa1` (`CXA1`) plus
   `slot-column-manifest.json` (`CXSC1`), and reads the artifact back with hash
   verification. Evidence root:
-  `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`.
+  `/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58`.
 
 ## Deliverables (file plan, each ≤500 lines)
 

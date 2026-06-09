@@ -77,7 +77,7 @@
 > Registry-produced vectors. The SciFact qrels FSV now requires stored
 > provenance on returned hits and records the real-label RRF delta; resident
 > TEI-produced dense-vector qrels remain a later dataset/eval-phase extension
-> owned by #342.
+> owned by PH69 T02/T03 and PH70 T01.
 > FSV root for #339:
 > `/home/croyse/calyx/data/fsv-issue339-registry-sextant-integration-20260608`
 > (`registry-sextant-readback.json`
@@ -96,7 +96,7 @@ attention.
 
 ## PH23 — Per-slot HNSW index
 - **Objective.** An in-RAM HNSW per dense slot; DiskANN is deferred to Stage 17
-  (#342). Each slot owns its index + quant config.
+  (PH68 T01/T02/T04/T06). Each slot owns its index + quant config.
 - **Deps.** PH20 (lenses), PH13 (distance).
 - **Deliverables.** `index/hnsw.rs` implementing `Index`; insert on ingest;
   search with `ef`; dual-index scaffold for asymmetric slots.
@@ -117,8 +117,9 @@ attention.
   itself; #299 readback records the explicit unavailable state.
 - **FSV gate.** insert N + search → recall vs brute-force ≥ target; current
   byte-readback p99 evidence is the 10,000-row HNSW FSV. A 1e6-cx SingleLens
-  benchmark remains future scale FSV (#342). #327 proves parked/retired slots are not
-  searched by default and fail closed when explicitly requested.
+  benchmark remains future scale FSV in PH68 T06 and PH70 T01. #327 proves
+  parked/retired slots are not searched by default and fail closed when
+  explicitly requested.
 - **Axioms/PRD.** `10 §3`, `19 §4`.
 
 ## PH24 — RRF/WeightedRRF/SingleLens fusion + provenance hits
@@ -144,8 +145,8 @@ attention.
   stored non-zero provenance when required, with deterministic stub fallback
   only when callers do not request stored provenance. The #339 SciFact readback
   proves real labels, stored-provenance enforcement, and retrieval/fusion
-  mechanics; real resident-TEI dense-vector qrels are deferred to later
-  dataset/eval phases (#342).
+  mechanics; real resident-TEI dense-vector qrels are deferred to PH69 T02/T03
+  and PH70 T01.
 - **Axioms/PRD.** A15, `10 §2/§5`, `19 §4`.
 
 ## PH25 — Sparse lens inverted index
@@ -154,7 +155,7 @@ attention.
 - **Deps.** PH24.
 - **Deliverables.** `index/inverted.rs` (in-RAM postings with tokenizer/varint
   readback), BM25 scorer, SPLADE/keyword lens slot wiring; compressed SPANN
-  tiering deferred to Stage 17 (#342).
+  tiering deferred to Stage 17 (PH68 T03/T06).
 - **Key tasks.** term→postings; BM25; integrate as a slot in fusion + the
   `Pipeline` strategy (sparse recall → multi-lens score → rerank).
 - **Post-sweep note.** Pipeline now uses inverted/sparse slots as stage-1

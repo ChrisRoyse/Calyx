@@ -162,11 +162,12 @@ and `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
   immutable-ref hash verification, compacted-SST recovery, WAL-authoritative
   post-append commit semantics, and group-commit deadline coalescing. Evidence
   root:
-  `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`. #341 adds
-  derived dense slot-column materialization (`slot-column.cxa1` + `CXSC1`
-  manifest) while preserving row-encoded slot CF bytes as the CRUD/recovery
+  `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`. #341 plus
+  post-sweep SoA hardening adds derived dense slot-column materialization
+  (`slot-column.cxa1` + `CXSC1` manifest) with dimension-contiguous column-major
+  payload bytes while preserving row-encoded slot CF bytes as the CRUD/recovery
   source of truth; evidence root:
-  `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`.
+  `/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58`.
   Remaining `degraded_rebuildable` self-heal work is tracked to PH44.
 - **Stage 2** (PH12–PH16): `calyx-forge` math runtime — CPU SIMD backend
   (gemm/cosine/l2/normalize/topk, AVX-512), CUDA sm_120 backend with CPU↔GPU
@@ -258,9 +259,10 @@ the Stage 8 exit readback under
 manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
-**Remaining:** Open post-Ward work starts at **PH40-PH72** plus tracked
-deferral-owner issues,
-laid out as atomic task cards in the per-phase subdirs, governed by
-`PHASE_TASKS_README.md`, each with a byte-level FSV exit gate. Execution proceeds
-down the dependency spine (§4). Track live state in the `ChrisRoyse/Calyx`
-GitHub `type:context` issues (doctrine §8d, PRD `29`).
+**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH40** and
+then PH41-PH72. Stage 1-5 future seams are mapped to concrete phase/card owners
+in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella placeholders. The post-sweep
+Aster slot-column SoA hardening is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58`. Track
+live state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine
+§8d, PRD `29`).

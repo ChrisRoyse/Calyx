@@ -23,7 +23,7 @@ root.
 | PH11 | #295 | `/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608` | durable tiering FSV and gates | root_manifest_sha256 `6f40840b016efd7669ac14a8e512b6170e95a003602bff0f0675407a8bedb6cf` | Hot/cold tier policy writes and manifest/vault readbacks prove the tiered vault path. |
 | PH05-PH11 | #333 | `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608` | pre-Lodestar hardening FSV | root_manifest_sha256 `00cb83b756ca015bb7cef18f10f72c85e73a5c886c1513e293181f422bc20925` | SST body CRCs, manifest ref-hash verification, compacted-SST recovery, WAL-authoritative commit semantics, and deadline group commit are read back. |
 | PH05-PH11 | #337 | `/home/croyse/calyx/data/fsv-issue337-aster-durability-residuals-20260608` | Aster durability residual FSV | root_manifest_sha256 `824edabcb161eccdc7e66374207e40ec3326e86903df766328d6d42e6d725fb3` | Torn-tail diagnostics, compaction write-amp bound, and post-WAL router failure behavior are read back from aiwonder artifacts. |
-| PH06 | #341 | `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12` | derived slot-column materialization FSV | full_manifest_sha256 `14c3c08c7673ec9df81ae854df2a1ba10e714545b7bf877877ef0458f4cb7cd3` | Live `slot_06` row CF SST bytes read back as row codec (`CXS1` SST + dense tag `00`, not `CXA1`); derived `slot-column.cxa1` begins `CXA1`, manifest `CXSC1` lists 3 `CxId`s at dim 4, chunk SHA-256 matches, and empty/non-dense/corrupt edges fail closed. |
+| PH06 | #341 + post-sweep SoA hardening | `/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58` | derived slot-column SoA materialization FSV | full_manifest_sha256 `6a49f56ab4f87da1e3259d1f8920281cac80d1f2d03ab60600ac8e12eb7e6e3b` | Live `slot_06` row CF SST bytes read back as row codec (`CXS1` SST + dense tag `00`, not `CXA1`); derived `slot-column.cxa1` begins `CXA1`, stores dimension-contiguous column-major f32 values by manifest `CxId` order, manifest `CXSC1` lists 3 `CxId`s at dim 4, chunk SHA-256 matches, recursive `SHA256SUMS.txt` covers nested vault/materialized files, and empty/non-dense/corrupt/path-traversal edges fail closed. |
 
 ## Stage 2 - Forge (PH12-PH16)
 
@@ -68,9 +68,17 @@ root.
 These are not Stage 1-5 blockers and must not appear as stray unchecked
 PH05-PH30 checklist lines.
 
-| Deferral | Owner issue | Notes |
+| Deferral | Owner phase/card | Notes |
 |---|---|---|
-| Other Stage 1-5 future seams: degraded self-heal, deferred Forge catalog ops, store-backed panel activation, Sextant scale/eval/temporal/GPU fan-out extensions, and Stage 5 user-facing tooling/deficit-routing seams | #342 | Must be split before implementation; no Stage 1-5 doc should claim these are shipped without aiwonder readback. |
+| Derived-CF degraded/self-heal and rebuildable-index recovery | PH44 T01/T03/T06 | Stage 1 owns durable source bytes; corrupt derived state must degrade and rebuild under Anneal self-heal before any shipped claim. |
+| Forge catalog math beyond the current `Backend` trait: advanced KSG/NMI paths, bilinear/cross-term kernels, graph kernels, and spectral math | PH27/PH28, PH31/PH32, PH52, PH70 T02 | Stage 2 ships core Forge kernels; later math phases own each consumer-facing advanced operation and its readback. |
+| Forge/Sextant scale integrations: sparse GPU ops, ColBERT MaxSim/grouped fan-out, DiskANN/SPANN, and 1e6+ scale validation | PH46 T02/T03/T06, PH68 T01-T06, PH70 T01 | Current Sextant fan-out is CPU/index-owned and documented as such until scale/index phases wire and validate the real integrations. |
+| PH16 promotion provenance upgrade from local JSONL to reversible Ledgered Anneal events | PH43 T05/T06, PH46 T05/T06 | JSONL is the Stage 2 stub; Ledger `kind=Anneal` promotion/revert rows are later Anneal work. |
+| Store-backed default-panel/runtime activation from templates | PH62 T02/T03/T08, PH63 T02/T03/T08, PH71 T05/T06 | Stage 3 `instantiate_panel` is template-only; CLI/MCP and Leapable swap phases own product activation. |
+| Resident-TEI dense-vector qrels and broader real dataset validation | PH69 T01-T03, PH70 T01 | Stage 4 SciFact proves stored-provenance mechanics; dataset acquisition and real-corpora validation own the expanded qrels. |
+| Temporal boost, dedup recurrence series, and grounded recurrence wiring | PH40 T01-T06, PH41 T01-T08, PH42 T01-T07, PH72 | Stage 1-5 temporal lenses and reports exist; cross-engine temporal/recurrence behavior is Stage 9 and streaming work. |
+| Stage 5 user-facing intelligence commands/tools | PH62 T05/T07/T08, PH63 T06/T08 | Stage 5 ships helper/report APIs and CF persistence, not final CLI/MCP product surfaces. |
+| Sufficiency-deficit routing into Anneal lens proposal | PH47 T01-T05 | Stage 5 emits structured deficits; Anneal owns proposal, gate, hot-add, remeasure, and Ledger evidence. |
 
 ## Task-Card Cleanup Rule
 
