@@ -87,6 +87,8 @@ pub struct Hit {
     pub rank: usize,
     #[serde(default)]
     pub event_time_secs: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_scores: Option<crate::temporal::TemporalScores>,
     pub per_lens: Vec<PerLensContribution>,
     pub cross_terms_used: bool,
     pub guard: Option<HitGuardEvidence>,

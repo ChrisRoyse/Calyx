@@ -1,7 +1,12 @@
 //! Temporal search policy types for AP-60 post-retrieval boosting.
 
+mod boost;
 mod window;
 
+pub use boost::{
+    TemporalScores, apply_temporal_boost, fuse_temporal, score_e2_recency, score_e3_periodic,
+    score_e4_sequence,
+};
 pub use calyx_core::{
     BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD,
     CALYX_TEMPORAL_INVALID_WINDOW, CALYX_TEMPORAL_WEIGHT_SUM, DecayFunction, FusionWeights,
@@ -87,6 +92,7 @@ mod tests {
             SequenceOptions::default(),
             FusionWeights::default(),
             BoostConfig {
+                post_retrieval_alpha: 0.10,
                 causal_high_mult: 0.0,
                 causal_low_mult: 0.85,
             },

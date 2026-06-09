@@ -241,6 +241,7 @@ mod tests {
             score: 1.0 - f32::from(seed) * 0.001,
             rank: seed as usize + 1,
             event_time_secs,
+            temporal_scores: None,
             per_lens: Vec::new(),
             cross_terms_used: false,
             guard: None,

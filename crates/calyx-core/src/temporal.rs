@@ -10,6 +10,8 @@ pub const CALYX_TEMPORAL_WEIGHT_SUM: &str = "CALYX_TEMPORAL_WEIGHT_SUM";
 
 const WEIGHT_SUM_EPSILON: f32 = 1.0e-6;
 const DEFAULT_HALF_LIFE_SECS: u64 = 3_600;
+const DEFAULT_POST_RETRIEVAL_ALPHA: f32 = 0.10;
+const MAX_POST_RETRIEVAL_ALPHA: f32 = 0.10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -194,18 +196,77 @@ impl<'de> Deserialize<'de> for FusionWeights {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct BoostConfig {
+    pub post_retrieval_alpha: f32,
     pub causal_high_mult: f32,
     pub causal_low_mult: f32,
+}
+
+impl BoostConfig {
+    pub fn new(
+        post_retrieval_alpha: f32,
+        causal_high_mult: f32,
+        causal_low_mult: f32,
+    ) -> Result<Self> {
+        let config = Self {
+            post_retrieval_alpha,
+            causal_high_mult,
+            causal_low_mult,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        if !self.post_retrieval_alpha.is_finite()
+            || !(0.0..=MAX_POST_RETRIEVAL_ALPHA).contains(&self.post_retrieval_alpha)
+        {
+            return Err(temporal_error(
+                CALYX_TEMPORAL_AP60_VIOLATION,
+                format!(
+                    "post_retrieval_alpha must be finite and in 0.0..={MAX_POST_RETRIEVAL_ALPHA}"
+                ),
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for BoostConfig {
     fn default() -> Self {
         Self {
+            post_retrieval_alpha: DEFAULT_POST_RETRIEVAL_ALPHA,
             causal_high_mult: 1.10,
             causal_low_mult: 0.85,
         }
+    }
+}
+
+const fn default_post_retrieval_alpha() -> f32 {
+    DEFAULT_POST_RETRIEVAL_ALPHA
+}
+
+impl<'de> Deserialize<'de> for BoostConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            #[serde(default = "default_post_retrieval_alpha")]
+            post_retrieval_alpha: f32,
+            causal_high_mult: f32,
+            causal_low_mult: f32,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Self::new(
+            wire.post_retrieval_alpha,
+            wire.causal_high_mult,
+            wire.causal_low_mult,
+        )
+        .map_err(de::Error::custom)
     }
 }
 
@@ -251,7 +312,8 @@ impl TemporalPolicy {
             ));
         }
         self.periodic.validate()?;
-        self.fusion_weights.validate()
+        self.fusion_weights.validate()?;
+        self.boost.validate()
     }
 }
 
