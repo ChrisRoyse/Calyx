@@ -11,6 +11,7 @@ mod ledger_hook;
 pub mod ledger_stub;
 mod router_bridge;
 mod slot_backfill;
+mod slot_column;
 
 use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
@@ -26,6 +27,10 @@ use std::path::Path;
 
 pub use compaction_bridge::VaultCompactionScheduler;
 pub use durable::VaultOptions;
+pub use slot_column::{
+    SlotColumnManifest, SlotColumnMaterialization, SlotColumnReadback, SlotColumnRow,
+    read_materialized_slot_column,
+};
 
 const DEFAULT_LEASE_MS: u64 = 5_000;
 
