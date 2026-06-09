@@ -98,6 +98,7 @@ impl IncrementalKernelEval {
         let node_component = scc.component_of[&id];
         let component_size = scc.components[node_component].len();
         if component_size > 1 {
+            self.graph = candidate;
             self.stale = true;
             return Ok(IncrementalResult::FullRebuildRequired {
                 reason: "node addition merged an SCC".to_string(),
