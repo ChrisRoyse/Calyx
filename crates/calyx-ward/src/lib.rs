@@ -4,6 +4,7 @@ pub mod calibrate;
 pub mod drift;
 pub mod error;
 pub mod guard;
+pub mod ledger;
 pub mod novelty;
 pub mod profile;
 pub mod query;
@@ -26,6 +27,10 @@ pub use error::{
 pub use guard::{
     DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
     guard_result_with_stakes,
+};
+pub use ledger::{
+    WardLedgerError, WardLedgerResult, append_calibration_provenance, append_guard_verdict,
+    calibrate_with_ledger, guard_with_ledger,
 };
 pub use novelty::{
     NovelId, NoveltyHandler, NoveltyRecord, NoveltyStatus, VaultSink, novel_regions,
