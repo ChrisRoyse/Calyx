@@ -74,6 +74,9 @@ evidence at `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
 #356 makes Sextant multi-slot InRegionOnly guarding slot-aware through
 `Query.guard_vectors`, with FSV evidence at
 `/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`.
+#359 supplements #356 by reading back the actual query `guard_vectors` bytes,
+candidate slot-vector bytes, and missing/sparse vector error edges at
+`/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`.
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -92,6 +95,7 @@ treated as fully closed.
 | `calyx-sextant/src/query.rs` | `Query.guard_vectors` slot-aware produced vectors for multi-slot guards |
 | `calyx-sextant/src/guarded.rs` | PH38 T06 InRegionOnly candidate filtering, dropped-hit readback, and #356 multi-slot fail-closed guard vector handling |
 | `calyx-sextant/tests/guarded_search.rs` | PH38 T06 deterministic + manual aiwonder FSV fixture, including #356 multi-slot guard-vector readback |
+| `calyx-sextant/tests/guarded_multislot_readback.rs` | #359 supplemental FSV for query guard-vector bytes, candidate slot-vector bytes, and missing/sparse guard-vector fail-closed edges |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -166,6 +170,12 @@ mismatch `05050505050505050505050505050505`, and returns
 `CALYX_SEXTANT_VECTOR_SHAPE` when a multi-slot guarded query omits
 `guard_vectors`. Evidence root:
 `/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`.
+#359 adds direct byte readback of `guard-query.json` and
+`candidate-slot-readback.json`: query slot 8 is dense `[1.0, 0.0]`, query slot 9
+is dense `[0.0, 1.0, 0.0]`, candidate `0404...` has the matching slot 9 vector,
+candidate `0505...` has `[1.0, 0.0, 0.0]`, and missing/sparse guard-vector edges
+both return `CALYX_SEXTANT_VECTOR_SHAPE`. Evidence root:
+`/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

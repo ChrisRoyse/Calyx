@@ -172,6 +172,7 @@ pub struct Query {
   fusion: Fusion,                          // SingleLens | Rrf | WeightedRrf(Profile) | KernelFirst | Pipeline
   filters: Vec<Predicate>,
   guard: GuardMode,                        // Off | InRegionOnly(GuardId)
+  guard_vectors: Map<SlotId, SlotVector>,   // multi-slot InRegionOnly produced vectors
   freshness: Freshness,                    // FreshDerived | StaleOk(SeqLag)
   k: usize, rerank: Option<RerankSpec>, explain: bool,
 }

@@ -249,9 +249,9 @@ and
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, and
 `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`.
 Stage 8 Ward is the active frontier: #258-#268, #275-#278, #350, #353, #357,
-#351, #352, #354, #358, #355, and #356 are FSV-signed-off, so PH37 is covered
+#351, #352, #354, #358, #355, #356, and #359 are FSV-signed-off, so PH37 is covered
 and PH38 T01-T06 plus the current drift/novelty/timestamp/injection-split/per-
-slot-calibration/serde/retry/Sextant multi-slot guard hardening are signed off.
+slot-calibration/serde/retry/Sextant multi-slot guard/readback hardening are signed off.
 PH36 #349, blindspot #279, and PH39 remain under epic #257, and exit remains
 #280.
 

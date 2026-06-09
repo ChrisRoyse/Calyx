@@ -32,11 +32,16 @@ Query {
   fusion: RRF | WeightedRRF(profile) | KernelFirst | SingleLens(slot) | Pipeline,
   filters: scalar/anchor/metadata predicates,
   guard: Off | InRegionOnly(GuardProfile),  // restrict to Gτ-passing regions
+  guard_vectors: Map<SlotId, SlotVector>,    // required for multi-slot InRegionOnly
   freshness: FreshDerived | StaleOk(seq_lag),
   k, rerank: Option<RerankSpec>,
   explain: bool,                       // attach per-lens + provenance breakdown
 }
 ```
+
+Multi-slot `InRegionOnly` is fail-closed without slot-aware `guard_vectors`.
+The legacy top-level dense query vector is accepted only for single-slot guard
+profiles.
 
 ## 2. Fusion strategies (batteries included)
 

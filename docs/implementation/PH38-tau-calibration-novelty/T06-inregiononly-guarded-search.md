@@ -70,6 +70,15 @@ contains before unguarded hits `04040404040404040404040404040404` and
 `05050505050505050505050505050505` with slot 8 passing and slot 9 failing; the
 missing-guard-vectors edge returns `CALYX_SEXTANT_VECTOR_SHAPE`.
 
+**Supplemental #359 readback:** evidence root
+`/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`
+adds the missing source bytes. `guard-query.json` contains `guard_vectors` keys
+`8` and `9`; slot 8 is dense `[1.0, 0.0]`, slot 9 is dense
+`[0.0, 1.0, 0.0]`. `candidate-slot-readback.json` contains both candidate rows:
+`0404...` has matching slot 8 and slot 9 vectors, while `0505...` has the
+style-slot mismatch `[1.0, 0.0, 0.0]`. Edge readback proves partial and sparse
+slot-aware guard-vector maps return `CALYX_SEXTANT_VECTOR_SHAPE`.
+
 ## Done When
 
 - [x] focused + workspace cargo gates pass on aiwonder
@@ -77,4 +86,6 @@ missing-guard-vectors edge returns `CALYX_SEXTANT_VECTOR_SHAPE`.
 - [x] manual FSV before/trigger/after readback is attached to #276
 - [x] manual #356 FSV proves slot-aware multi-slot guard vectors and fail-closed
       missing-vector behavior
+- [x] manual #359 FSV reads back query guard-vector bytes, candidate slot-vector
+      bytes, and missing/sparse slot-aware guard-vector edge errors
 - [x] PH38/Stage 8 rollups and epic #257 point to the next active task

@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, and Sextant InRegionOnly guarded search are active: #258-#268, #275-#278, #350, #353, #357, #351, #352, #354, #358, #355, and #356 are FSV-signed-off; remaining Ward queue is PH36 #349, Ledger guard provenance #279, then PH39 and exit #280 |
+| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, and Sextant InRegionOnly guarded search are active: #258-#268, #275-#278, #350, #353, #357, #351, #352, #354, #358, #355, #356, and #359 are FSV-signed-off; remaining Ward queue is PH36 #349, Ledger guard provenance #279, then PH39 and exit #280 |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -97,7 +97,9 @@ and
 and
 `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`,
 and
-`/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`.
+`/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`,
+and
+`/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -118,7 +120,8 @@ held-out injection split reporting #352, and per-slot calibration health #354
 are also signed off; #358 preserves legacy `GuardHealth` JSON compatibility after
 #354, #355 preserves Anneal notification retry after hook backpressure, and
 #356 requires slot-aware `Query.guard_vectors` for multi-slot InRegionOnly
-guarding. Remaining Ward frontier work is PH36 audit-query hardening #349,
+guarding. #359 adds direct readback of those query vectors and the candidate
+slot vectors. Remaining Ward frontier work is PH36 audit-query hardening #349,
 Ledger guard provenance #279, then PH39, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
