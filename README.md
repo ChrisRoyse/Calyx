@@ -112,7 +112,8 @@ and
 and `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`.
 
 Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is active under
-S9 epic #361, with T01 #373 FSV-signed-off and the remaining PH40 queue #374-#378.
+S9 epic #361, with T01 #373 and T02 #374 FSV-signed-off and the remaining PH40
+queue #375-#378.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -147,6 +148,9 @@ identity profile storage, and #280 closes the full Stage 8 Ward exit. PH40 T01
 #373 stores the default temporal policy in Aster's durable vault manifest with
 aiwonder readback at
 `/home/croyse/calyx/data/fsv-issue373-temporal-policy-manifest-20260609-9ca0a93`.
+PH40 T02 #374 adds `TimeWindow` helpers and stable-order temporal hit filtering
+with aiwonder readback at
+`/home/croyse/calyx/data/fsv-issue374-time-window-20260609-d872c7c`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

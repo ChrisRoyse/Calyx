@@ -70,6 +70,15 @@ weights).
   attempted vault and returns `CALYX_TEMPORAL_AP60_VIOLATION`; zero weights
   return `CALYX_TEMPORAL_WEIGHT_SUM`; invalid hour returns
   `CALYX_TEMPORAL_INVALID_PERIOD`.
+- T02 #374 commit: `d872c7c`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue374-time-window-20260609-d872c7c`
+- Source of truth: `temporal-window-input.json`,
+  `temporal-window-readback.json`, and `BLAKE3SUMS.txt` under the FSV root.
+  Readback keeps only hit IDs 01 and 03 for window `[992800, 1000000)`, proving
+  the out-of-window hit 02 is absent and retained order is unchanged. Edge
+  proofs cover empty input, all-window retention of missing timestamps, and
+  `CALYX_TEMPORAL_INVALID_WINDOW` for zero, reversed, and overflow windows.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
