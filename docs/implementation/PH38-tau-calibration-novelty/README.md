@@ -24,10 +24,12 @@ the calibrated value governs.
 
 ## Current state (build off what exists)
 
-`calyx-ward` is a 9-line stub; PH37 (guard.rs, profile.rs, verdict.rs) will be
-built first. PH28 (KSG MI / grounded outcomes) is not yet built — calibrate.rs
-stubs the `AnchoredSet` input type and integrates when PH28 lands. All
-calibration math is self-contained (conformal quantile over a score array).
+`calyx-ward` is active, not a stub: PH37 T01/T02 (#258/#259) shipped the
+profile, verdict, and error surfaces, and PH37 T03 (#260) adds the first
+`guard()` math slice. PH28 (KSG MI / grounded outcomes) is not yet built, so
+`calibrate.rs` stubs the `AnchoredSet` input type and integrates when PH28
+lands. All calibration math is self-contained (conformal quantile over a score
+array).
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -51,12 +53,14 @@ calibration math is self-contained (conformal quantile over a score array).
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-**Injection corpus blocked ≥99% at the calibrated FAR:** on aiwonder, run the
+**Injection corpus blocked >=99% at the calibrated FAR:** on aiwonder, run the
 real prompt-injection test set through `guard()` with the calibrated profile;
-print the block rate; assert ≥ 0.99. **Valid-novelty → new region:** present a
-vector outside all existing τ balls; assert `NoveltyAction::NewRegion` fires
-and the novel constellation record is written to the vault CF; read it back
-with `xxd` or `calyx readback`. Both results attached to PH38 GitHub issue.
+write the block-rate and per-slot verdict summary to durable JSON and assert
+`block_rate >= 0.99`. **Valid-novelty -> new region:** present a vector outside
+all existing tau balls; assert `NoveltyAction::NewRegion` fires and the novel
+constellation record is written to the vault CF. Read both artifacts back with
+`xxd` or `calyx readback`, attach hashes, and treat stdout only as a captured
+log.
 
 ## Risks / landmines
 

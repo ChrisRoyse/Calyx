@@ -75,13 +75,15 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `CalibrationMeta` written to stdout via `serde_json::to_string_pretty`
-  in test output
-- **Readback:**
-  `cargo test -p calyx-ward calibrate_slot -- --nocapture 2>&1 | grep -E "far|tau|estimator"`
-- **Prove:** output shows `"estimator": "conformal_quantile_v1"`, `"far"` value
-  ≤ 0.01, `"tau"` in the expected range; identity slot τ > stylistic slot τ;
-  all tests `ok`
+- **SoT:** durable aiwonder evidence root containing calibration JSON,
+  identity/style tau comparison JSON, edge-case error JSON, and a SHA-256
+  manifest.
+- **Readback:** run the manual FSV fixture with
+  `CALYX_WARD_CALIBRATE_FSV_DIR=$root`, then separately inspect the JSON files
+  with `xxd`, `sha256sum`, and parsed JSON.
+- **Prove:** durable JSON shows `"estimator": "conformal_quantile_v1"`, `far`
+  value <= 0.01, `tau` in the expected range, and identity-slot tau >
+  stylistic-slot tau.
 
 ## Done when
 

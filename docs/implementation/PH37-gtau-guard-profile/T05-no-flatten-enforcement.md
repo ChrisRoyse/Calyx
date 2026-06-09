@@ -20,9 +20,10 @@ at once."
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `#[deny(flatten)]` lint comment block in `guard.rs` documenting that
-      slot vectors must never be concatenated; add `// INVARIANT: no flatten —
-      A3` comment at the top of `guard()`
+- [ ] Add a module-level invariant comment in `guard.rs` documenting that slot
+      vectors must never be concatenated; add `// INVARIANT: no flatten - A3`
+      at the top of `guard()`. Do not invent a Rust lint for this invariant;
+      enforce it with source-readback tests.
 - [ ] Implement `average_cosine_would_pass(profile: &GuardProfile,
       per_slot: &[SlotVerdict]) -> bool`: computes the mean of all per-slot cos
       values; returns `true` if mean ≥ mean of all τ values. This function is
@@ -60,13 +61,16 @@ at once."
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test output for the `guard_no_flatten` test in `tests/guard_unit.rs`
-- **Readback:**
-  `cargo test -p calyx-ward no_flatten -- --nocapture 2>&1` and
-  `grep -n flatten crates/calyx-ward/src/guard.rs`
-- **Prove:** test output shows `overall_pass: false` + `average_would_pass: true`
-  in the canonical attack scenario; `grep` returns zero lines (no flatten in
-  source); the guard.rs line count is printed and ≤ 500
+- **SoT:** durable aiwonder evidence root containing the no-flatten attack
+  verdict JSON, the source-readback result for `guard.rs`, and a SHA-256
+  manifest.
+- **Readback:** run the manual FSV fixture with
+  `CALYX_WARD_NO_FLATTEN_FSV_DIR=$root`, then separately inspect the JSON and
+  source-readback files with `xxd`, `sha256sum`, and `grep`.
+- **Prove:** durable JSON shows `overall_pass=false` and
+  `average_would_pass=true` in the canonical attack scenario; the source
+  readback shows no non-comment concatenated-slot path; `guard.rs` line count
+  is <=500.
 
 ## Done when
 

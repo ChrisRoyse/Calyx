@@ -40,7 +40,9 @@ before being accepted.
         no re-embed of the grounded constellation)
       - Call `guard(identity_profile.guard_profile, produced, matched, high_stakes)`
       - On `Ok(verdict)` where `overall_pass == true`:
-        - Write provenance tag `"guarded:pass"` (Ledger stub until PH35)
+        - Write provenance tag `"guarded:pass"` using the real Ledger
+          provenance path from PH35/PH36, or the Guard-specific bridge added
+          by #279 if the tag needs `EntryKind::Guard` semantics.
         - Return `Ok(GenerateOutput::Accepted { verdict, provenance_tag: "guarded:pass".into() })`
       - On `Ok(verdict)` where `overall_pass == false` (can happen with non-high-stakes
         uncalibrated profile per PH38 T02 path):
@@ -75,12 +77,16 @@ before being accepted.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `GenerateOutput` printed as `{:?}` in test stdout
-- **Readback:**
-  `cargo test -p calyx-ward guard_generate -- --nocapture 2>&1 | grep -E "Accepted|Novel|Rejected|guarded:pass"`
-- **Prove:** `Accepted { provenance_tag: "guarded:pass" }` in in-region test;
-  `Novel { .. AwaitingGrounding .. }` in out-of-region `NewRegion` test;
-  `Err(Provisional)` in high-stakes uncalibrated test; all tests `ok`
+- **SoT:** durable aiwonder evidence root containing `GenerateOutput` JSON,
+  Ledger provenance readback for `"guarded:pass"`, novelty/reject readbacks,
+  and a SHA-256 manifest.
+- **Readback:** run the manual FSV fixture with
+  `CALYX_WARD_GENERATE_FSV_DIR=$root`, then separately inspect the output JSON,
+  Ledger rows, and novelty/reject artifacts with `xxd`, `sha256sum`, and
+  `calyx readback` where a vault/ledger CF is involved.
+- **Prove:** durable readback shows accepted in-region output with
+  `"guarded:pass"` provenance, out-of-region `NewRegion` output, and
+  high-stakes uncalibrated `Err(Provisional)`.
 
 ## Done when
 

@@ -62,13 +62,16 @@ must not mutate the model.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `embed_speaker` output vectors printed as `{:?}` in test; norm
-  assertions in stdout
-- **Readback:**
-  `cargo test -p calyx-ward speaker_lens -- --nocapture 2>&1 | grep -E "norm|embed|CALYX_WARD"`
-- **Prove:** `norm ≈ 1.0` appears; deterministic embedding test shows two
-  identical vectors; `ModelNotFound` test shows `CALYX_WARD_MODEL_NOT_FOUND`;
-  on aiwonder with real model: embed a 1-second silence → print 256-dim vec norm
+- **SoT:** durable aiwonder evidence root containing speaker embedding JSON,
+  norm/determinism JSON, model-missing error JSON/log, real-model checksum
+  readback, and a SHA-256 manifest.
+- **Readback:** run the manual FSV fixture with
+  `CALYX_WARD_SPEAKER_LENS_FSV_DIR=$root`, then separately inspect the JSON/log
+  artifacts with `xxd`, `sha256sum`, and parsed JSON. On aiwonder, the real
+  WavLM model directory must be read and hash-pinned before the fixture passes.
+- **Prove:** durable readback shows norm approximately 1.0, deterministic
+  duplicate embeddings, `CALYX_WARD_MODEL_NOT_FOUND` for a missing model, and a
+  real-model 1-second silence embedding with expected dimensionality.
 
 ## Done when
 

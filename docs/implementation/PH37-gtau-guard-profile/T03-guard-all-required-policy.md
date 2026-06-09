@@ -32,8 +32,12 @@ Implement the core `guard()` function: iterate over each required slot in the
         determinism):
         - Look up `produced.get(slot)` → `WardError::MissingSlot` if absent
         - Look up `matched.get(slot)` → `WardError::MissingSlot` if absent
-        - Normalize both vectors to unit length (inline, not via flatten)
-        - `cos_val = forge::cosine_f32(produced_vec, matched_vec)`
+        - Normalize both vectors to unit length per slot; never concatenate
+          required-slot vectors
+        - `cos_val` is computed with the actual Forge backend API
+          (`calyx_forge::Backend::cosine`, e.g. `CpuBackend`, or a local Ward
+          wrapper over that API). There is no direct Ward-specific cosine
+          helper to call.
         - `tau_val = profile.tau_for(slot).unwrap_or(0.7_f32)` (cold-start
           prior; calibrated governs per `09 §3`)
         - `pass = cos_val >= tau_val`
@@ -43,9 +47,10 @@ Implement the core `guard()` function: iterate over each required slot in the
         `!overall_pass`; `None` when pass
       - Return `Ok(GuardVerdict { overall_pass, per_slot, action,
         guard_id: profile.guard_id })`
-      - If `overall_pass == false`, additionally return
-        `Err(WardError::Ood { guard_id, failing })` — but the verdict is
-        embedded in the `Ood` variant so callers get full decomposition on error
+      - For T03, slot failures return `Ok(GuardVerdict { overall_pass: false,
+        ... })` so callers and FSV can inspect the complete per-slot
+        decomposition. T04 adds the fail-closed `WardError::Ood` ergonomic
+        wrapper path using the failing slot details defined in T02.
 - [ ] **No flatten path:** the function must never concatenate slot vectors into
       a single vector; each slot is evaluated independently
 - [ ] Add `/// CALYX_GUARD_OOD` doc comment on the error return path
@@ -63,21 +68,26 @@ Implement the core `guard()` function: iterate over each required slot in the
 - [ ] proptest: for any two unit-norm vectors and τ in `[0.0, 1.0]`, the verdict
       `pass` matches `cosine(a,b) >= τ`
 - [ ] edge: `required_slots` is empty → `overall_pass = true`, `per_slot` empty
-- [ ] edge: produced vector for a required slot is the zero vector → normalize
-      returns error or zero-vec; test that `CALYX_GUARD_OOD` is still returned
-      (not a panic)
+- [ ] edge: produced vector for a required slot is the zero vector -> normalize
+      cannot produce a valid unit vector; test that `guard()` returns a
+      fail verdict with the configured novelty action (not a panic). T04 wraps
+      this fail verdict into `CALYX_GUARD_OOD` for callers that use `?`.
 - [ ] fail-closed: missing slot in `produced` → `WardError::MissingSlot` (not
       a default cos=0.0)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `GuardVerdict` returned by `guard()` in the unit test
-- **Readback:** `cargo test -p calyx-ward guard_allrequired -- --nocapture 2>&1`
-  — print the full `GuardVerdict` via `{:?}` in the test; inspect per-slot
-  `(cos, tau, pass)` values
-- **Prove:** test output shows the two-slot verdict with `overall_pass: false`
-  when slot-2 cos=0.55 < τ=0.70; the `failing_slots` vec shows slot-2 only;
-  grep output confirms no concatenation of slot vecs in `guard.rs`
+- **SoT:** durable aiwonder evidence root, e.g.
+  `/home/croyse/calyx/data/fsv-issue260-ph37-t03-YYYYMMDD`, containing the
+  `GuardVerdict` JSON bytes and source readback artifacts.
+- **Readback:** run the ignored/manual FSV fixture with
+  `CALYX_WARD_GUARD_FSV_DIR=$root`, then separately inspect the written files
+  with `xxd`, `sha256sum`, JSON parsing, and a source readback of
+  `crates/calyx-ward/src/guard.rs`.
+- **Prove:** durable JSON shows the two-slot verdict with
+  `overall_pass=false` when slot-2 cos=0.55 < tau=0.70; the failing-slots
+  readback identifies slot 2 only; source readback confirms no concatenated
+  slot-vector path in `guard.rs`.
 
 ## Done when
 

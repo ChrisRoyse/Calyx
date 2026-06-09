@@ -67,13 +67,15 @@ silent accept.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `NoveltyRecord` written to in-memory test sink; printed as JSON
-- **Readback:**
-  `cargo test -p calyx-ward novelty -- --nocapture 2>&1 | grep -E "AwaitingGrounding|Quarantined|Rejected"`
-- **Prove:** all three status variants appear in test output; `novel_id` is a
-  UUID string; `RejectClosed` test shows `WardError::Ood` returned alongside
-  the written tombstone; `NewRegion` test shows written record with
-  `status: AwaitingGrounding`
+- **SoT:** durable aiwonder evidence root containing `NoveltyRecord` JSON for
+  `AwaitingGrounding`, `Quarantined`, and `Rejected`, plus tombstone/error JSON
+  and a SHA-256 manifest.
+- **Readback:** run the manual FSV fixture with `CALYX_WARD_NOVELTY_FSV_DIR=$root`,
+  then separately inspect the JSON files with `xxd`, `sha256sum`, and parsed
+  JSON.
+- **Prove:** durable readback contains all three status variants; `novel_id` is
+  a UUID string; `RejectClosed` records `WardError::Ood` alongside the
+  tombstone; `NewRegion` records `status: AwaitingGrounding`.
 
 ## Done when
 

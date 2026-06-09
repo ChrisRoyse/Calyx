@@ -1,8 +1,8 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
-atomic tasks are #258-#279. PH37 T01 (#258) is implemented in
-`calyx-ward::profile`; guard verdicts and guard math start at #259/#260.
+atomic tasks are #258-#279. PH37 T01/T02 (#258/#259) are implemented in
+`calyx-ward::{profile,verdict,error}`; guard math is active at #260.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -20,13 +20,17 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `GuardProfile`, with deterministic serde round-trip tests and aiwonder JSON
   readback evidence under
   `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`.
+- **Post-sweep note.** PH37 T02 (#259) adds `SlotVerdict`, `GuardVerdict`, and
+  `WardError` with durable aiwonder JSON/log readback evidence under
+  `/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`.
 - **Deliverables.** `guard.rs` (`cos(produced_k, matched_k) ≥ τ_k`),
   `GuardProfile { tau: Map<SlotId,f32>, required_slots, policy, calibration,
   novelty_action }`, per-slot verdict breakdown.
 - **Key tasks.** require **every** required slot to pass (no flattened vector,
   A3); `CALYX_GUARD_OOD` on fail; verdict carries per-slot `(cos,tau,pass)`.
 - **FSV gate.** an output passing the average but failing one required slot is
-  **rejected** (read per-slot verdict); no-flatten path is the only path.
+  **rejected**; read durable per-slot verdict JSON and source-readback artifacts
+  from aiwonder. No concatenated-slot path is allowed.
 - **Axioms/PRD.** A12, A3, `09 §1/§2/§4`.
 
 ## PH38 — τ calibration (conformal) + novelty→new-region

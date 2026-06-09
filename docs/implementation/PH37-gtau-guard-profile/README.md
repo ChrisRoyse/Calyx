@@ -27,13 +27,13 @@ through `lib.rs`, use `calyx_core::SlotId`, and serde round-trip
 deterministically. aiwonder FSV wrote and read back JSON artifacts under
 `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`.
 PH37 T02 (#259) adds `SlotVerdict`, `GuardVerdict`, and `WardError` with typed
-fail-closed codes in `calyx-ward::{verdict,error}`. Guard math remains pending
-in T03-T06.
+fail-closed codes in `calyx-ward::{verdict,error}`. Guard math is active at
+T03 (#260) and remains pending for T04-T06.
 
-Before #258, `calyx-ward` was a 9-line stub crate (`lib.rs` re-exported nothing,
-`Cargo.toml` listed the crate). Depends on slots/lenses (PH22) and Forge cosine
-(PH13) which are themselves not yet built — task cards here describe what Ward
-needs from those phases and stub-test accordingly with mock slot vectors.
+Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
+(PH22) and Forge cosine (PH13); those dependency surfaces are already Stage 1-2
+signed off, and #260 must call the actual Forge backend API rather than a
+non-existent helper.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -69,9 +69,9 @@ src/guard.rs` must return empty).
 
 ## Risks / landmines
 
-- Forge cosine may not be ready at PH37 build time — use a test-double `cos_f32`
-  that calls `forge::cosine_cpu` directly; gate on PH13 being merged before
-  wire-up.
+- Forge cosine is available through the `calyx-forge` backend API; do not name
+  or implement a parallel Ward-only cosine helper unless it is only a thin
+  wrapper over `Backend::cosine`.
 - `SlotId` ordering across the `Map<SlotId,f32>` must be deterministic for
   bit-parity tests; use a `BTreeMap` internally.
 - `KofN` with k > required_slots.len() must fail closed, not panic.

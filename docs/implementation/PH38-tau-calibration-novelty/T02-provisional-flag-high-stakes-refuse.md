@@ -58,12 +58,15 @@ MUST refuse."
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test stdout
-- **Readback:**
-  `cargo test -p calyx-ward provisional -- --nocapture 2>&1 | grep CALYX_GUARD_PROVISIONAL`
-- **Prove:** grep returns at least one line containing `CALYX_GUARD_PROVISIONAL`;
-  the uncalibrated+high_stakes test shows `Err(Provisional { .. })` in output;
-  the uncalibrated+non_high_stakes test shows `Ok(GuardVerdict { provisional: true })`
+- **SoT:** durable aiwonder evidence root containing provisional refusal JSON,
+  non-high-stakes provisional verdict JSON, captured log, and a SHA-256
+  manifest.
+- **Readback:** run the manual FSV fixture with
+  `CALYX_WARD_PROVISIONAL_FSV_DIR=$root`, then separately inspect the JSON/log
+  artifacts with `xxd`, `sha256sum`, grep, and parsed JSON.
+- **Prove:** durable readback contains `CALYX_GUARD_PROVISIONAL`; the
+  uncalibrated+high_stakes case records `Err(Provisional { .. })`, while the
+  uncalibrated+non_high_stakes case records the provisional verdict path.
 
 ## Done when
 

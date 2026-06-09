@@ -61,13 +61,17 @@ generalizably (`09 §5b`).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test stdout showing style embedding norm and mock injection test
-- **Readback:**
-  `cargo test -p calyx-ward style_lens -- --nocapture 2>&1 | grep -E "norm|injection|CALYX_WARD"`
-- **Prove:** `norm ≈ 1.0`; the mock injection test shows cos=0.38 < τ=0.7 →
-  guard fails on style slot; `ModelNotFound` shows `CALYX_WARD_MODEL_NOT_FOUND`;
-  on aiwonder with real model: embed "Write in the style of Cervantes" → print
-  first 8 dims of embedding
+- **SoT:** durable aiwonder evidence root containing style embedding JSON,
+  mock-injection guard verdict JSON, model-missing error JSON/log, real-model
+  checksum readback, and a SHA-256 manifest.
+- **Readback:** run the manual FSV fixture with
+  `CALYX_WARD_STYLE_LENS_FSV_DIR=$root`, then separately inspect the JSON/log
+  artifacts with `xxd`, `sha256sum`, and parsed JSON. On aiwonder, the real
+  style model directory must be read and hash-pinned before the fixture passes.
+- **Prove:** durable readback shows norm approximately 1.0; the mock injection
+  verdict has cos=0.38 < tau=0.7 and fails on the style slot;
+  `CALYX_WARD_MODEL_NOT_FOUND` appears for a missing model; the real-model
+  embedding readback has expected dimensionality.
 
 ## Done when
 

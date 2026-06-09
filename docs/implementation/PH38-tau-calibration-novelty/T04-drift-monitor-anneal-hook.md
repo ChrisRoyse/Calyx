@@ -67,12 +67,15 @@ bounded channel.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test stdout showing `GuardHealth` struct output
-- **Readback:**
-  `cargo test -p calyx-ward drift -- --nocapture 2>&1 | grep -E "drift|far|hook"`
-- **Prove:** output shows `drift: true` after the injected drift scenario;
-  hook was called; `far` value ≥ calibrated bound * 1.5; after full window
-  of passes, `drift: false`
+- **SoT:** durable aiwonder evidence root containing `GuardHealth` JSON before
+  drift, after injected drift, after recovery, hook event readback JSON, and a
+  SHA-256 manifest.
+- **Readback:** run the manual FSV fixture with `CALYX_WARD_DRIFT_FSV_DIR=$root`,
+  then separately inspect the JSON/log artifacts with `xxd`, `sha256sum`, and
+  parsed JSON.
+- **Prove:** durable readback shows `drift=true` after the injected drift
+  scenario, a recorded hook event, `far >= calibrated_bound * 1.5`, and
+  `drift=false` after a full window of passes.
 
 ## Done when
 

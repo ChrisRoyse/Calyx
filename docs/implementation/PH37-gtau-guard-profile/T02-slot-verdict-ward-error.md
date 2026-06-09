@@ -73,23 +73,15 @@ breakdown.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** unit test output printed to stdout; `WardError::Ood` formatted to
-  a temp string
-- **Readback:** `cargo test -p calyx-ward -- --nocapture 2>&1 | grep CALYX_GUARD`
-  — all three `CALYX_GUARD_*` codes must appear in test output
-- **Prove:** test stdout shows `CALYX_GUARD_OOD`, `CALYX_GUARD_PROVISIONAL`,
-  `CALYX_GUARD_MISSING_SLOT` emitted by the respective error variants; no
-  variant silently swallows the code
-
-**Binding FSV update after #259 implementation:** stdout is only a captured
-artifact. The SoT is a durable aiwonder evidence root
-`/home/croyse/calyx/data/fsv-issue259-ph37-t02-<date>/` containing
-`verdict.json`, `errors.json`, the captured cargo log, and SHA-256 manifest.
-Read the JSON bytes with `xxd`, parse them back, and attach the root path,
-hashes, and readback excerpts to the GitHub issue. The durable `errors.json`
-must contain `CALYX_GUARD_OOD`, `CALYX_GUARD_PROVISIONAL`,
-`CALYX_GUARD_MISSING_SLOT`, and `CALYX_GUARD_POLICY_VIOLATION`; `verdict.json`
-must contain the full per-slot pass/fail breakdown.
+- **SoT:** durable aiwonder evidence root
+  `/home/croyse/calyx/data/fsv-issue259-ph37-t02-<date>/` containing
+  `verdict.json`, `errors.json`, the captured cargo log, and SHA-256 manifest.
+- **Readback:** read the JSON bytes with `xxd`, `sha256sum`, grep, and parsed
+  JSON; stdout is only a captured artifact.
+- **Prove:** durable `errors.json` contains `CALYX_GUARD_OOD`,
+  `CALYX_GUARD_PROVISIONAL`, `CALYX_GUARD_MISSING_SLOT`, and
+  `CALYX_GUARD_POLICY_VIOLATION`; `verdict.json` contains the full per-slot
+  pass/fail breakdown.
 
 ## Done when
 

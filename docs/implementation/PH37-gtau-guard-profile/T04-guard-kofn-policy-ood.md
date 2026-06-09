@@ -32,10 +32,11 @@ a panic). All-slot per-slot verdicts are still returned in every case.
 - [ ] `action` set to `Some(profile.novelty_action.clone())` when
       `!overall_pass`; `None` when pass (same as T03)
 - [ ] Add integration helper `guard_result(profile, produced, matched) ->
-      Result<GuardVerdict, WardError>`: same as `guard()` but wraps the OOD
-      verdict into `Err(WardError::Ood { guard_id, failing })` for ergonomic
-      `?` propagation — the `GuardVerdict` is still available from the error
-      variant
+      Result<GuardVerdict, WardError>`: same slot math as `guard()`, but wraps
+      a non-passing verdict into `Err(WardError::Ood { guard_id, failing })`
+      for ergonomic `?` propagation. Callers that need the complete
+      pass-and-fail breakdown call `guard()` directly; `WardError::Ood`
+      carries the failing slots only.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -55,13 +56,13 @@ a panic). All-slot per-slot verdicts are still returned in every case.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test output for the KofN 3-slot 2-of-3 case
-- **Readback:**
-  `cargo test -p calyx-ward guard_kofn -- --nocapture 2>&1`
-  — print `GuardVerdict` via `{:?}`; inspect `overall_pass`, `per_slot`
-- **Prove:** `k=2, pass_count=2` → `overall_pass: true` in output; `k=3,
-  pass_count=2` → `overall_pass: false`; `k=4, n=3` → error variant printed
-  with `CALYX_GUARD_POLICY_VIOLATION`
+- **SoT:** durable aiwonder evidence root containing KofN verdict JSON,
+  policy-violation error JSON/log, and a SHA-256 manifest.
+- **Readback:** run the manual FSV fixture with `CALYX_WARD_KOFN_FSV_DIR=$root`,
+  then separately inspect the files with `xxd`, `sha256sum`, and JSON parsing.
+- **Prove:** readback shows `k=2, pass_count=2 -> overall_pass=true`;
+  `k=3, pass_count=2 -> overall_pass=false`; `k=4, n=3` produces
+  `CALYX_GUARD_POLICY_VIOLATION`.
 
 ## Done when
 

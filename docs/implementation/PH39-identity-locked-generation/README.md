@@ -25,10 +25,12 @@ measured value, `09 §5b`).
 
 ## Current state (build off what exists)
 
-`calyx-ward` is a 9-line stub; PH37 and PH38 build the guard and calibration
-machinery first. PH19 (candle/ONNX runtimes) is required for the WavLM and
-style lenses; stub with mock lens outputs for unit tests; integrate real models
-on aiwonder for the FSV run.
+`calyx-ward` is active, not a stub: PH37 T01/T02 (#258/#259) shipped the
+profile, verdict, and error surfaces, and PH37 T03 (#260) adds the first
+`guard()` math slice before PH38 calibration and PH39 identity work build on
+it. PH19 (candle/ONNX runtimes) is required for the WavLM and style lenses;
+stub with mock lens outputs for unit tests; integrate real models on aiwonder
+for the FSV run.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -57,15 +59,16 @@ Two proofs on aiwonder:
 
 1. **Speaker identity locked:** a target-speaker constellation guards TTS
    output; `guard_generate()` returns verdicts showing in-region WavLM cos ≥
-   calibrated τ on the `speaker` slot; mean over the test set ≥ 0.961. Read
-   per-slot verdicts from stdout.
+   calibrated τ on the `speaker` slot; mean over the test set ≥ 0.961. Write
+   per-slot verdict JSON to a durable aiwonder evidence root and read the bytes
+   back with `xxd` or `calyx readback`; stdout is only a captured artifact.
 
 2. **Style injection quarantined:** an injection prompt designed to break
    persona lands outside τ on the style slots; `NoveltyHandler` routes to
    `Quarantine`; `NoveltyRecord.status == Quarantined` readable from vault CF.
    Read via `calyx readback` or `xxd`.
 
-Both outputs attached to PH39 GitHub issue.
+Both durable readbacks and their hashes are attached to the PH39 GitHub issue.
 
 ## Risks / landmines
 

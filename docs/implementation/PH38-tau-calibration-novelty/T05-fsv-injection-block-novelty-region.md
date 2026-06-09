@@ -24,8 +24,9 @@ results are the evidence attached to the PH38 GitHub issue.
 - [ ] Write `#[test] fn fsv_injection_corpus_block_rate`:
       - Load injection corpus from
         `/home/croyse/calyx/data/injection_corpus/vectors.jsonl` (each line:
-        `{"slot": "content", "vec": [...]}`) — test skips with `eprintln!` if
-        file absent (non-aiwonder environments)
+        `{"slot": "content", "vec": [...]}`). On aiwonder this file is a
+        required prerequisite: if absent, the task is setup work and the FSV
+        fails with a clear missing-corpus error.
       - Load a calibrated `GuardProfile` from
         `/home/croyse/calyx/data/injection_corpus/guard_profile.json`
         (pre-built by calibrate() against the corpus)
@@ -57,14 +58,14 @@ results are the evidence attached to the PH38 GitHub issue.
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [ ] unit: `fsv_injection_corpus_block_rate` — asserts `block_rate ≥ 0.99`;
-      prints rate to stdout; skips gracefully on non-aiwonder
+      writes block-rate JSON to the durable evidence root
 - [ ] unit: `fsv_valid_novelty_opens_new_region` — asserts `AwaitingGrounding`,
       record in sink, `novel_id` UUID non-nil
 - [ ] unit: `fsv_calibration_provenance_complete` — all 5 CalibrationMeta fields
       correct; JSON printed
-- [ ] edge: injection corpus file absent → test prints
-      `"SKIP: injection corpus not found at /home/croyse/..."` and exits with
-      `return` (not panic; CI/dev machines pass)
+- [ ] edge: injection corpus file absent on aiwonder -> fail with a typed
+      missing-prerequisite error and record the missing path in the evidence
+      root; acquire/pin/hash the corpus before claiming FSV success
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

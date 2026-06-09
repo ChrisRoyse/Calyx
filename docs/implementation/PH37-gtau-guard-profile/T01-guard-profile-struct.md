@@ -65,12 +65,14 @@ back separately with `xxd`, `sha256sum`, grep, and parsed JSON output.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `GuardProfile` written to a temp file via `serde_json::to_writer`
-- **Readback:** `xxd /tmp/guard_profile_fsv.json | head -4` — confirm JSON bytes
-  contain `"tau"`, `"required_slots"`, `"policy"`, `"calibration"`,
-  `"novelty_action"` keys; `"guard_id"` is a UUID string
-- **Prove:** round-trip test output shows `original == deserialized` in stdout;
-  `tau_for` correct values in assertion output; no field is silently dropped
+- **SoT:** durable aiwonder evidence root
+  `/home/croyse/calyx/data/fsv-issue258-ph37-t01-<date>/` containing
+  `GuardProfile` JSON readback artifacts and a SHA-256 manifest.
+- **Readback:** write the fixture JSON through Ward serde, then separately read
+  those files with `xxd`, `sha256sum`, grep, and parsed JSON.
+- **Prove:** durable JSON contains `"tau"`, `"required_slots"`, `"policy"`,
+  `"calibration"`, `"novelty_action"`, and UUID `"guard_id"` bytes; parsed
+  readback confirms `tau_for` values and no field is silently dropped.
 
 ## Done when
 

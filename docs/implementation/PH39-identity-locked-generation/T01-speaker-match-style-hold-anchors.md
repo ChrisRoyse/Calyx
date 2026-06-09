@@ -63,12 +63,15 @@ This is the schema foundation for `guard_generate()` in T04.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test stdout showing `IdentityProfile` JSON and `AnchorKind` serde
-- **Readback:**
-  `cargo test -p calyx-ward identity -- --nocapture 2>&1 | grep -E "SpeakerMatch|StyleHold|IdentityProfile"`
-- **Prove:** `SpeakerMatch` and `StyleHold` appear in serialized JSON output;
-  `IdentityProfile` construction succeeds with correct slot counts; error
-  variant contains `CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED`
+- **SoT:** durable aiwonder evidence root containing `IdentityProfile` JSON,
+  `AnchorKind` serde JSON, identity-slot error JSON/log, and a SHA-256
+  manifest.
+- **Readback:** run the manual FSV fixture with `CALYX_WARD_IDENTITY_FSV_DIR=$root`,
+  then separately inspect the JSON/log artifacts with `xxd`, `sha256sum`, grep,
+  and parsed JSON.
+- **Prove:** durable readback contains `SpeakerMatch`, `StyleHold`,
+  `IdentityProfile`, the expected slot counts, and
+  `CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED`.
 
 ## Done when
 
