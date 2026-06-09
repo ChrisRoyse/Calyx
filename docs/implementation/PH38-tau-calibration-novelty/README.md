@@ -39,6 +39,8 @@ T03 (#266) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`.
 T04 (#267) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue267-ph38-t04-20260609-912b707`.
+T05 (#268) is implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -51,6 +53,7 @@ T04 (#267) is implemented and FSV-signed-off at
 | `tests/calibrate_unit.rs` | deterministic calibration tests and manual aiwonder FSV fixture |
 | `tests/novelty_handler.rs` | deterministic novelty routing tests and manual aiwonder FSV fixture |
 | `tests/drift_monitor.rs` | deterministic drift-window/hook tests and manual aiwonder FSV fixture |
+| `tests/ph38_injection_fsv.rs` | real injection corpus block-rate FSV and valid-novelty file-backed readback |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -60,18 +63,16 @@ T04 (#267) is implemented and FSV-signed-off at
 | T02 | `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse | DONE / FSV #265 |
 | T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | DONE / FSV #266 |
 | T04 | `DriftMonitor` + Anneal hook + `guard_health()` | DONE / FSV #267 |
-| T05 | FSV: injection corpus blocked ≥99% at calibrated FAR + valid-novelty → new region | T04 / NEXT #268 |
+| T05 | FSV: injection corpus blocked >=99% at calibrated FAR + valid-novelty -> new region | DONE / FSV #268 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-**Injection corpus blocked >=99% at the calibrated FAR:** on aiwonder, run the
-real prompt-injection test set through `guard()` with the calibrated profile;
-write the block-rate and per-slot verdict summary to durable JSON and assert
-`block_rate >= 0.99`. **Valid-novelty -> new region:** present a vector outside
-all existing tau balls; assert `NoveltyAction::NewRegion` fires and the novel
-constellation record is written to the vault CF. Read both artifacts back with
-`xxd` or `calyx readback`, attach hashes, and treat stdout only as a captured
-log.
+**Injection corpus blocked >=99% at the calibrated FAR:** signed off in #268 on
+aiwonder with `block_rate=0.99239546` over 263 prompt-injection rows from the
+pinned `/home/croyse/calyx/data/injection_corpus` corpus. **Valid-novelty -> new
+region:** the FSV fixture writes a file-backed novelty row and reads it back as
+`AwaitingGrounding`. Evidence root:
+`/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
 
 ## Risks / landmines
 

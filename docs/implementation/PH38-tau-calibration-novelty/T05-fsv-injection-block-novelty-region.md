@@ -10,6 +10,10 @@
 | **Axioms** | A2, A12, A16 |
 | **PRD** | `dbprdplans/09 §2`, `09 §3` |
 
+**STATUS:** DONE / FSV-signed-off in #268. Implementation commit:
+`ff20d0a5bdd4c695fab31c60e0b11cd23a91955f`. Evidence root:
+`/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
+
 ## Goal
 
 Provide the PH38 exit-gate FSV harness: run the real prompt-injection corpus
@@ -21,7 +25,7 @@ results are the evidence attached to the PH38 GitHub issue.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Write ignored aiwonder FSV fixture `ph38_t05_fsv_fixture_writes_readback_artifacts`:
+- [x] Write ignored aiwonder FSV fixture `ph38_t05_fsv_fixture_writes_readback_artifacts`:
       - Load injection corpus from
         `/home/croyse/calyx/data/injection_corpus/vectors.jsonl` (each line has
         `id`, `split`, `row_idx`, `label`, `slot`, `text_sha256`, and `vec`).
@@ -38,7 +42,7 @@ results are the evidence attached to the PH38 GitHub issue.
       - `println!("injection_block_rate: {:.4}", block_rate)`
       - `assert!(block_rate >= 0.99,
           "FAIL: injection block rate {:.4} < 0.99 required", block_rate)`
-- [ ] In the same FSV fixture verify valid novelty:
+- [x] In the same FSV fixture verify valid novelty:
       - Construct a vector with cos = 0.30 to all known-good anchors (well
         outside τ ≈ 0.7); use seed=42 to generate
       - `guard()` returns `overall_pass = false`
@@ -49,20 +53,20 @@ results are the evidence attached to the PH38 GitHub issue.
       - Write to a file-backed `VaultSink` under the durable FSV root; call
         `novel_regions(since=0)` -> assert the record appears
       - `println!("novel_constellation: {}", serde_json::to_string_pretty(&record))`
-- [ ] Write non-ignored edge/unit tests for deterministic novelty-vector
+- [x] Write non-ignored edge/unit tests for deterministic novelty-vector
       construction, missing-corpus typed error, and file-backed novelty sink
       readback.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] FSV fixture: injection corpus block rate - asserts `block_rate >= 0.99`;
+- [x] FSV fixture: injection corpus block rate - asserts `block_rate >= 0.99`;
       writes block-rate JSON to the durable evidence root
-- [ ] FSV fixture: valid novelty opens new region - asserts `AwaitingGrounding`,
+- [x] FSV fixture: valid novelty opens new region - asserts `AwaitingGrounding`,
       record in sink, `novel_id` UUID non-nil
-- [ ] FSV fixture: calibration provenance complete - `estimator`, `target_far`,
+- [x] FSV fixture: calibration provenance complete - `estimator`, `target_far`,
       achieved `far`, `frr`, confidence, tau, profile JSON, and vectors SHA-256
       are written to durable JSON
-- [ ] edge: injection corpus file absent on aiwonder -> fail with a typed
+- [x] edge: injection corpus file absent on aiwonder -> fail with a typed
       missing-prerequisite error and record the missing path in the evidence
       root; acquire/pin/hash the corpus before claiming FSV success
 
@@ -93,10 +97,15 @@ results are the evidence attached to the PH38 GitHub issue.
   durable JSON bytes; attach the root path, hashes, and readback excerpts to
   the PH38 GitHub issue
 
+**Actual #268 readback:** `block_rate=0.99239546`, `blocked=261`,
+`injection_total=263`, `tau=0.76665336`,
+`estimator=conformal_quantile_v1`, `novel_status=AwaitingGrounding`,
+`vectors_sha256=d8ec5f1b2bd117be8c4dd1a0915d75236629d12d22b11146692b1a395468dbad`.
+
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH38 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) <= 500 lines (line-count gate)
+- [x] FSV evidence (readback output / screenshot) attached to the PH38 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

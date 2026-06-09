@@ -248,9 +248,9 @@ and
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, and
 `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`.
-Stage 8 Ward is the active frontier: #258-#267 and #275/#277/#278 are
-FSV-signed-off, so PH37 is covered and PH38 T01-T04 are signed off. PH38 T05
-continues under epic #257, and exit remains #280.
+Stage 8 Ward is the active frontier: #258-#268 and #275/#277/#278 are
+FSV-signed-off, so PH37 is covered and PH38 T01-T05 are signed off. PH38
+blindspots #276/#279 and PH39 remain under epic #257, and exit remains #280.
 
 **Remaining:** Open Stage 8+ work includes **PH38-PH72**,
 laid out as atomic task cards in the per-phase subdirs, governed by
