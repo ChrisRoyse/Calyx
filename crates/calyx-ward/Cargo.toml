@@ -14,5 +14,6 @@ sha2.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+calyx-lodestar = { path = "../calyx-lodestar" }
 proptest.workspace = true
 serde_json.workspace = true
