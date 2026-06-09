@@ -3,8 +3,8 @@ use super::encode::WriteRow;
 use crate::cf::ColumnFamily;
 use calyx_core::{CalyxError, Constellation, LedgerRef, Result, SystemClock};
 use calyx_ledger::{
-    ActorId, DefaultLedgerHook, EntryKind, LedgerAppender, MemoryLedgerStore, PayloadBuilder,
-    StagedLedgerRow, SubjectId,
+    ActorId, CheckpointConfig, DefaultLedgerHook, EntryKind, LedgerAppender, MemoryLedgerStore,
+    PayloadBuilder, StagedLedgerRow, SubjectId,
 };
 use serde_json::json;
 use std::sync::{Mutex, MutexGuard};
@@ -13,7 +13,10 @@ pub(super) type AsterLedgerHook = Mutex<DefaultLedgerHook<MemoryLedgerStore, Sys
 pub(super) type AsterLedgerHookGuard<'a> =
     MutexGuard<'a, DefaultLedgerHook<MemoryLedgerStore, SystemClock>>;
 
-pub(super) fn recover_hook(recovery: &RecoveredBatches) -> Result<AsterLedgerHook> {
+pub(super) fn recover_hook(
+    recovery: &RecoveredBatches,
+    checkpoint: Option<CheckpointConfig>,
+) -> Result<AsterLedgerHook> {
     let mut store = MemoryLedgerStore::default();
     for batch in &recovery.batches {
         for row in &batch.rows {
@@ -23,7 +26,11 @@ pub(super) fn recover_hook(recovery: &RecoveredBatches) -> Result<AsterLedgerHoo
         }
     }
     let appender = LedgerAppender::open(store, SystemClock)?;
-    Ok(Mutex::new(DefaultLedgerHook::new(appender)))
+    let hook = match checkpoint {
+        Some(config) => DefaultLedgerHook::with_checkpoint_config(appender, config)?,
+        None => DefaultLedgerHook::new(appender),
+    };
+    Ok(Mutex::new(hook))
 }
 
 pub(super) fn lock_hook(hook: &AsterLedgerHook) -> Result<AsterLedgerHookGuard<'_>> {
@@ -35,26 +42,35 @@ pub(super) fn stage_ingest(
     hook: &DefaultLedgerHook<MemoryLedgerStore, SystemClock>,
     rows: &mut Vec<WriteRow>,
     constellation: &Constellation,
-) -> Result<StagedLedgerRow> {
-    let staged = hook.stage(
+) -> Result<Vec<StagedLedgerRow>> {
+    let staged = hook.stage_with_checkpoints(
         EntryKind::Ingest,
         SubjectId::Cx(constellation.cx_id),
         ingest_payload(constellation),
         ActorId::Service("calyx-aster".to_string()),
     )?;
-    rows.push(WriteRow {
-        cf: ColumnFamily::Ledger,
-        key: staged.key().to_vec(),
-        value: staged.value().to_vec(),
-    });
+    for row in &staged {
+        rows.push(WriteRow {
+            cf: ColumnFamily::Ledger,
+            key: row.key().to_vec(),
+            value: row.value().to_vec(),
+        });
+    }
     Ok(staged)
 }
 
 pub(super) fn commit_staged(
     hook: &mut DefaultLedgerHook<MemoryLedgerStore, SystemClock>,
-    staged: &StagedLedgerRow,
+    staged: &[StagedLedgerRow],
 ) -> Result<LedgerRef> {
-    hook.commit_staged(staged)
+    let data_ref = staged
+        .first()
+        .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+        .ledger_ref();
+    for row in staged {
+        hook.commit_staged(row)?;
+    }
+    Ok(data_ref)
 }
 
 fn ingest_payload(constellation: &Constellation) -> Vec<u8> {
@@ -108,16 +124,19 @@ mod tests {
     #[test]
     fn recovered_hook_continues_existing_ledger_sequence() {
         let mut rows = Vec::new();
-        let mut hook = recover_hook(&RecoveredBatches {
-            batches: Vec::new(),
-            last_recovered_seq: 0,
-            torn_tail: None,
-        })
+        let mut hook = recover_hook(
+            &RecoveredBatches {
+                batches: Vec::new(),
+                last_recovered_seq: 0,
+                torn_tail: None,
+            },
+            None,
+        )
         .expect("recover empty hook");
         let guard = hook.get_mut().unwrap();
         let first = stage_ingest(guard, &mut rows, &sample_constellation()).expect("stage first");
 
-        assert_eq!(first.ledger_ref().seq, 0);
+        assert_eq!(first[0].ledger_ref().seq, 0);
         assert_eq!(guard.appender().next_seq(), 0);
         assert!(guard.appender().store().scan().unwrap().is_empty());
         assert_eq!(decode(&rows[0].value).unwrap().kind, EntryKind::Ingest);

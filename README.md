@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-09; Stage 7 active at PH36 post-#348)
+## Status (2026-06-09; Stage 7 active at PH36 post-#251)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -14,7 +14,7 @@ including PH33 raw-vs-tuned recall #331 and kernel_answer anchor search #332.
 Stage 7 Ledger is active at PH36 checkpoint/reproduce work after PH35
 #242-#248, PH35 failure-atomicity hardening #345, PH36 T01 #249,
 range-bound signature hardening #347, and real Aster `merkle-root --vault`
-hardening #348, and verify_chain/quarantine #250.
+hardening #348, verify_chain/quarantine #250, and checkpoint scheduler #251.
 
 Implemented engine surfaces:
 
@@ -47,14 +47,17 @@ of truth is GitHub issue #23. Recent aiwonder FSV roots:
 and
 `/home/croyse/calyx/data/fsv-issue348-merkle-vault-real-aster-cf-20260609`,
 and
-`/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`.
+`/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`,
+and
+`/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`.
 
 Remaining major engine crates (`ward`, `anneal`, `oracle`, `mcp`, `calyxd`)
 are still pending. Ledger PH35 is FSV-signed-off, including the #345
 failure-atomic staging hardening; PH36 Merkle root export #249,
 range-bound signing #347, and real Aster `merkle-root --vault` #348 are signed
 off. PH36 verify_chain/quarantine #250 is also signed off. Checkpoint
-scheduling, reproduce, and audit surfaces continue in #251-#256.
+scheduler #251 is signed off. Reproduce and audit surfaces continue in
+#252-#256.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

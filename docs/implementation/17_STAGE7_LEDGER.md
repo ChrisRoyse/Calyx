@@ -92,6 +92,15 @@ as PH09 writes constellations.*
   Ledger SSTs, wrote a manifest quarantine for `0..20`, and proved a seq 8
   read fails closed at
   `/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`.
+- **Post-sweep note.** PH36 T03 (#251) adds `checkpoint.rs`,
+  `CheckpointScheduler`, `CheckpointPayload`, Aster `VaultOptions`
+  checkpoint cadence, and `calyx scan --cf ledger --vault` decoded readback.
+  Aiwonder FSV wrote three signed `kind=Admin` `checkpoint_v1` rows at seq
+  3, 7, and 11; each payload root matched an independent
+  `calyx merkle-root --vault` read over its range, and WAL readback proved
+  the checkpoint rows were in the same group-commit batch as the triggering
+  ingest rows at
+  `/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`.
 - **FSV gate.** flip one ledger byte → `verify_chain` detects the break **at the
   right seq**; `reproduce(answer)` on a real answer is **bit-parity within
   tolerance** (read both).

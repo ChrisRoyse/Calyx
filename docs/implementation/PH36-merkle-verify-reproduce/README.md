@@ -35,7 +35,8 @@ reproduce is called; PH36 depends on that contract existing.
 `calyx-forge` (PH13) provides the CUDA determinism mode required by reproduce.
 `merkle.rs` is implemented and FSV-signed-off through #249/#347/#348.
 `verify.rs` is implemented and FSV-signed-off through #250 with Aster manifest
-quarantine. `reproduce.rs` remains greenfield.
+quarantine. `checkpoint.rs` is implemented and FSV-signed-off through #251 with
+same-WAL-batch Admin checkpoint rows. `reproduce.rs` remains greenfield.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -54,7 +55,7 @@ quarantine. `reproduce.rs` remains greenfield.
 |---|---|---|
 | T01 | `merkle.rs`: range root + leaf hashing + Ed25519-signed export | — |
 | T02 | `verify.rs`: `verify_chain(range)` + `CALYX_LEDGER_CHAIN_BROKEN` + quarantine | T01 |
-| T03 | Checkpoint scheduler: periodic Merkle root written as Admin entry | T01 |
+| T03 | Checkpoint scheduler: periodic Merkle root written as Admin entry (done #251) | T01 |
 | T04 | `reproduce.rs`: content-addressed lens lookup + re-measure + Forge determinism | T02 |
 | T05 | `reproduce.rs`: re-run fusion + drift assertion + `ReproduceResult` | T04 |
 | T06 | Audit query surface: `get_provenance`, `get_answer_trace`, `audit(filter)` | T02 |

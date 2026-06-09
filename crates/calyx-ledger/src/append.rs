@@ -36,6 +36,14 @@ impl PreparedLedgerEntry {
         self.entry.entry_hash
     }
 
+    pub const fn prev_hash(&self) -> [u8; HASH_BYTES] {
+        self.entry.prev_hash
+    }
+
+    pub const fn ts(&self) -> u64 {
+        self.entry.ts
+    }
+
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -65,6 +73,13 @@ pub trait LedgerCfStore {
     fn tombstone(&mut self, seq: u64) -> Result<()> {
         reject_tombstone(seq)
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PreparePosition {
+    seq: u64,
+    prev_hash: [u8; HASH_BYTES],
+    last_ts: u64,
 }
 
 /// The single write path for the hash-chained append-only ledger.
@@ -121,14 +136,68 @@ where
         payload: Vec<u8>,
         actor: ActorId,
     ) -> Result<PreparedLedgerEntry> {
+        self.prepare_at(
+            PreparePosition {
+                seq: self.next_seq,
+                prev_hash: self.prev_hash,
+                last_ts: self.last_ts,
+            },
+            kind,
+            subject,
+            payload,
+            actor,
+        )
+    }
+
+    /// Builds the row that must follow an uncommitted staged ledger row.
+    pub fn prepare_after(
+        &self,
+        predecessor: &PreparedLedgerEntry,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<PreparedLedgerEntry> {
+        let seq = predecessor
+            .seq()
+            .checked_add(1)
+            .ok_or_else(|| CalyxError::ledger_chain_broken("ledger sequence exhausted"))?;
+        self.prepare_at(
+            PreparePosition {
+                seq,
+                prev_hash: predecessor.entry_hash(),
+                last_ts: predecessor.ts(),
+            },
+            kind,
+            subject,
+            payload,
+            actor,
+        )
+    }
+
+    fn prepare_at(
+        &self,
+        position: PreparePosition,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<PreparedLedgerEntry> {
         self.redaction_policy.check_payload_with_policy(&payload)?;
         self.verify_tip()?;
-        let seq = self.next_seq;
         actor.validate()?;
         let actor = self.redaction_policy.apply_to_actor(actor);
         actor.validate()?;
-        let ts = self.next_ts()?;
-        let entry = LedgerEntry::new(seq, self.prev_hash, kind, subject, payload, actor, ts);
+        let ts = self.next_ts_after(position.last_ts)?;
+        let entry = LedgerEntry::new(
+            position.seq,
+            position.prev_hash,
+            kind,
+            subject,
+            payload,
+            actor,
+            ts,
+        );
         let bytes = encode(&entry);
         Ok(PreparedLedgerEntry { entry, bytes })
     }
@@ -195,10 +264,10 @@ where
         )))
     }
 
-    fn next_ts(&self) -> Result<u64> {
+    fn next_ts_after(&self, last_ts: u64) -> Result<u64> {
         let clock_ts = self.clock.now();
-        Ok(if clock_ts <= self.last_ts {
-            self.last_ts
+        Ok(if clock_ts <= last_ts {
+            last_ts
                 .checked_add(1)
                 .ok_or_else(|| CalyxError::ledger_chain_broken("ledger timestamp exhausted"))?
         } else {

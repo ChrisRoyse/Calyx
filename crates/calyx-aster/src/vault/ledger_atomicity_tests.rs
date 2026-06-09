@@ -163,11 +163,14 @@ fn ph35_group_commit_atomicity_aiwonder_fsv() {
 
 fn router_failure_vault(dir: &Path) -> AsterVault<FixedClock> {
     let router = CfRouter::open(dir, 1).unwrap();
-    let ledger_hook = ledger_hook::recover_hook(&durable::RecoveredBatches {
-        batches: Vec::new(),
-        last_recovered_seq: 0,
-        torn_tail: None,
-    })
+    let ledger_hook = ledger_hook::recover_hook(
+        &durable::RecoveredBatches {
+            batches: Vec::new(),
+            last_recovered_seq: 0,
+            torn_tail: None,
+        },
+        None,
+    )
     .unwrap();
     AsterVault {
         vault_id: vault_id(),

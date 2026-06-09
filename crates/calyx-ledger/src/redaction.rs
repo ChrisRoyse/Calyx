@@ -196,7 +196,14 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
     let Some(field) = field else {
         return false;
     };
-    if !field_allows_stable_identifier(field) || token.len() > MAX_HASH_OR_ID_LEN {
+    let field = normalized_field(field);
+    if field == "signature" {
+        return token.len() == 128 && is_hex(token);
+    }
+    if is_public_key_field(&field) {
+        return token.len() == MAX_HASH_OR_ID_LEN && is_hex(token);
+    }
+    if !field_allows_stable_identifier(&field) || token.len() > MAX_HASH_OR_ID_LEN {
         return false;
     }
     is_hex(token) || is_base58(token) || is_uuid(token)
@@ -206,7 +213,10 @@ fn field_allows_stable_identifier(field: &str) -> bool {
     let field = normalized_field(field);
     field == "hash"
         || field == "input_hash"
+        || field == "root"
+        || field == "signature"
         || field == "weights_sha256"
+        || is_public_key_field(&field)
         || field.ends_with("_hash")
         || field.ends_with("_id")
         || field.ends_with("_sha256")
@@ -215,6 +225,9 @@ fn field_allows_stable_identifier(field: &str) -> bool {
 
 fn is_secret_field(field: &str) -> bool {
     let field = normalized_field(field);
+    if is_public_key_field(&field) {
+        return false;
+    }
     matches!(
         field.as_str(),
         "password" | "passwd" | "token" | "secret" | "key"
@@ -223,6 +236,10 @@ fn is_secret_field(field: &str) -> bool {
         || field.ends_with("_token")
         || field.ends_with("_secret")
         || field.ends_with("_key")
+}
+
+fn is_public_key_field(field: &str) -> bool {
+    matches!(field, "signer_pubkey" | "public_key" | "verifying_key")
 }
 
 fn normalized_field(field: &str) -> String {
@@ -335,6 +352,22 @@ mod tests {
         let bytes = serde_json::to_vec(&payload).unwrap();
 
         assert!(RedactionPolicy::check_payload(&bytes).is_ok());
+    }
+
+    #[test]
+    fn check_payload_allows_public_checkpoint_signature_fields() {
+        let payload = json!({
+            "tag": "checkpoint_v1",
+            "root": INPUT_HASH,
+            "signature": "a".repeat(128),
+            "signer_pubkey": INPUT_HASH,
+        });
+        let bytes = serde_json::to_vec(&payload).unwrap();
+
+        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
+
+        let secret_key = serde_json::to_vec(&json!({"api_key": INPUT_HASH})).unwrap();
+        assert_secret(secret_key);
     }
 
     #[test]
