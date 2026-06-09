@@ -71,7 +71,9 @@ without `per_slot_calibrated_far_bound`, with FSV evidence at
 `/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
 #355 adds retry semantics after bounded Anneal hook backpressure, with FSV
 evidence at `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
-Post-T06 hardening remains tracked in #356 (Sextant multi-slot query guarding).
+#356 makes Sextant multi-slot InRegionOnly guarding slot-aware through
+`Query.guard_vectors`, with FSV evidence at
+`/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`.
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -87,8 +89,9 @@ treated as fully closed.
 | `tests/novelty_handler.rs` | deterministic novelty routing tests and manual aiwonder FSV fixture |
 | `tests/drift_monitor.rs` | deterministic drift-window/hook tests and manual aiwonder FSV fixture |
 | `tests/ph38_injection_fsv.rs` | real injection corpus block-rate FSV and valid-novelty file-backed readback |
-| `calyx-sextant/src/guarded.rs` | PH38 T06 InRegionOnly candidate filtering and dropped-hit readback |
-| `calyx-sextant/tests/guarded_search.rs` | PH38 T06 deterministic + manual aiwonder FSV fixture |
+| `calyx-sextant/src/query.rs` | `Query.guard_vectors` slot-aware produced vectors for multi-slot guards |
+| `calyx-sextant/src/guarded.rs` | PH38 T06 InRegionOnly candidate filtering, dropped-hit readback, and #356 multi-slot fail-closed guard vector handling |
+| `calyx-sextant/tests/guarded_search.rs` | PH38 T06 deterministic + manual aiwonder FSV fixture, including #356 multi-slot guard-vector readback |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -154,6 +157,15 @@ map to empty, and reserializes with the new field present. Evidence root:
 keeps the slot in drift, and retries notification after recovery. Slot 3 is
 absent before retry and present after retry. Evidence root:
 `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
+
+**Sextant multi-slot guard vectors:** #356 proves multi-slot InRegionOnly no
+longer clones one dense query vector into every required slot. Queries with
+`Query.guard_vectors` use each required slot's own vector; the readback keeps the
+two-slot survivor `04040404040404040404040404040404`, drops the style-slot
+mismatch `05050505050505050505050505050505`, and returns
+`CALYX_SEXTANT_VECTOR_SHAPE` when a multi-slot guarded query omits
+`guard_vectors`. Evidence root:
+`/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

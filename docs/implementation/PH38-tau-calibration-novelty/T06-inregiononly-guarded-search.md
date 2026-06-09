@@ -52,9 +52,29 @@ structured reason; surviving hits carry the full `GuardVerdict`.
 plus missing-constellation `03030303030303030303030303030303`. Non-dense edge
 returns `CALYX_SEXTANT_VECTOR_SHAPE`.
 
+## Post-T06 Hardening
+
+#356 is signed off at implementation commit
+`cfea3acedd83390c48eba12d4104de6a982a6c2e`. `Query` now has optional
+`guard_vectors: BTreeMap<SlotId, SlotVector>` for slot-aware produced vectors.
+For multi-slot `QueryGuard::InRegionOnly`, Sextant requires a dense vector for
+each required guard slot, uses the matching query vector per slot, and fails
+closed with `CALYX_SEXTANT_VECTOR_SHAPE` if those vectors are absent. The
+single-slot compatibility path still accepts the legacy dense `Query.vector`.
+
+**Actual #356 readback:** evidence root
+`/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`
+contains before unguarded hits `04040404040404040404040404040404` and
+`05050505050505050505050505050505`; after guarded hits keep only
+`04040404040404040404040404040404`; dropped guard hits contain
+`05050505050505050505050505050505` with slot 8 passing and slot 9 failing; the
+missing-guard-vectors edge returns `CALYX_SEXTANT_VECTOR_SHAPE`.
+
 ## Done When
 
 - [x] focused + workspace cargo gates pass on aiwonder
 - [x] all `.rs` files remain <=500 lines
 - [x] manual FSV before/trigger/after readback is attached to #276
+- [x] manual #356 FSV proves slot-aware multi-slot guard vectors and fail-closed
+      missing-vector behavior
 - [x] PH38/Stage 8 rollups and epic #257 point to the next active task

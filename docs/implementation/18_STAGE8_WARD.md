@@ -3,9 +3,10 @@
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
 PH38 T01-T06 (#264-#268, #276) are FSV-signed-off. PH37 is complete; PH38
-post-T06 hardening #355/#356, Ledger guard provenance #279, and PH39 remain
-before the Ward exit can claim Stage 8 complete. #357 timestamp unit hardening,
-#351 drift metric semantics hardening, #352 held-out injection split hardening,
+post-T06 hardening #355/#356 is signed off. PH36 #349, Ledger guard provenance
+#279, and PH39 remain before the Ward exit can claim Stage 8 complete. #357
+timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
+injection split hardening,
 #354 per-slot calibration health hardening, and #358 GuardHealth serde
 compatibility hardening are signed off. #355 drift notification retry hardening
 is signed off.
@@ -136,7 +137,12 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   but keeps retrying until the slot is actually notified. Durable aiwonder
   evidence:
   `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
-  Close #356 to tighten Sextant multi-slot guard behavior before PH38 exit.
+- **Post-sweep hardening.** #356 adds slot-aware Sextant query guard vectors:
+  multi-slot `QueryGuard::InRegionOnly` uses `Query.guard_vectors` keyed by
+  required `SlotId`, drops candidates whose own slot fails, and fails closed with
+  `CALYX_SEXTANT_VECTOR_SHAPE` when a multi-slot profile lacks those query-side
+  vectors. Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
   slot; provenance: corpus_hash, estimator, FAR/FRR, ts, plus
   `CalibrationMeta.per_slot`), `novelty.rs`
@@ -156,6 +162,9 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   **Drift hook retry** is signed off in #355 with before/after event readback
   proving slot 3 is absent before channel recovery and present after retry while
   drift remains true.
+  **Sextant multi-slot guard hardening** is signed off in #356 with readback
+  proving a two-slot survivor remains, a style-slot mismatch is dropped, and a
+  multi-slot query without `guard_vectors` returns `CALYX_SEXTANT_VECTOR_SHAPE`.
 - **Axioms/PRD.** A12, A2, `09 §3`, `19 §4`.
 
 ## PH39 — Identity-locked generation (speaker/style)
