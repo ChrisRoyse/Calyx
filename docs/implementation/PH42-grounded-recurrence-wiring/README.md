@@ -29,10 +29,10 @@ surprise term `−log p` for anomaly scoring is defined but may never inflate bi
 
 ## Current state (build off what exists)
 
-`calyx-assay`, `calyx-loom`, `calyx-lodestar`, `calyx-ward`, `calyx-sextant`
-are stubs or partially implemented (PH27–PH34 not yet done at the time PH42 is
-attempted; PH42 depends on PH41, PH28, PH33 being complete). `calyx-loom` gets
-its first real content in PH41 (recurrence series); this phase adds cross-terms.
+`calyx-assay`, `calyx-loom`, `calyx-lodestar`, `calyx-ward`, and
+`calyx-sextant` have their prerequisite Stage 5-8 surfaces implemented and
+FSV-signed-off. PH42 now waits on PH41's recurrence series/frequency field, then
+wires those grounded recurrence signals into the already-built engine surfaces.
 This is primarily a wiring + API-surface phase — each engine gets a small,
 well-defined interface to the recurrence signals stored in the base CF.
 
@@ -72,5 +72,7 @@ Two gates:
 
 - **Surprise `−log p` definition:** the surprise term is the negative log probability of the event given its recurrence rate — `−log(frequency / total_events)`. It must NEVER increase the stored bits for a high-frequency event; anomaly scoring is additive to retrieval scoring only (never stored as a lens weight). Audit every call site.
 - **Cross-crate circular dependencies:** wiring seven crates creates potential cycles. All recurrence signals flow from `calyx-aster` (the data source) through `calyx-loom` (the transformer) to consumers. No consumer crate imports another consumer crate.
-- **PH28/PH33 readiness:** PH42 is blocked on PH41 + PH28 (Assay MI) + PH33 (kernel). If those are incomplete, PH42 tasks T01/T03 must use stub interfaces that are replaced when the deps land.
+- **PH41 readiness:** PH42 is blocked on PH41's recurrence series and frequency
+  field. PH28 Assay MI and PH33 Lodestar kernel surfaces are already
+  FSV-signed-off and should be reused directly rather than stubbed.
 - **Grounded anchor immutability:** frequency is a grounded anchor (A2) — a count of what happened. It must be read from the `frequency` field in the base CF (written by PH41), never recomputed from the series on every call (O(1), not O(N)).

@@ -1,9 +1,9 @@
 # PH40 — Temporal Fusion + AP-60 Post-Retrieval Boost
 
-> **Status: future Stage 9 work; dependencies now exist.** `calyx-sextant`
-> (PH23–PH26) and Registry temporal lenses (PH22) are implemented and
-> FSV-signed-off. PH40 should add temporal post-retrieval boost modules to the
-> existing Sextant stack rather than starting from a stub.
+> **Status: active Stage 9 work.** `calyx-sextant` (PH23–PH26) and Registry
+> temporal lenses (PH22) are implemented and FSV-signed-off. PH40 adds temporal
+> post-retrieval boost modules to the existing Sextant stack rather than
+> starting from a stub.
 
 **Stage:** S9 — Temporal & Dedup  ·  **Crate:** `calyx-sextant`  ·
 **PRD roadmap:** A27  ·  **Axioms:** A27
@@ -39,7 +39,9 @@ weights).
 
 | File | Responsibility |
 |---|---|
-| `crates/calyx-sextant/src/temporal/mod.rs` | `TemporalPolicy`, `FusionWeights`, `TimeWindow`, `BoostConfig`; AP-60 invariant enforced |
+| `crates/calyx-core/src/temporal.rs` | shared `TemporalPolicy`, `FusionWeights`, `DecayFunction`, `PeriodicOptions`, `SequenceOptions`, `BoostConfig`; AP-60 invariant enforced at serde/write/read boundaries |
+| `crates/calyx-sextant/src/temporal/mod.rs` | Sextant-facing re-export and PH40 T01 deterministic tests |
+| `crates/calyx-aster/tests/temporal_manifest_fsv.rs` | T01 durable vault manifest FSV readback |
 | `crates/calyx-sextant/src/temporal/boost.rs` | `apply_temporal_boost(hits, policy, query_time, clock)` — post-retrieval reranker |
 | `crates/calyx-sextant/src/temporal/window.rs` | `last_hours(n)` / `last_days(n)` constructors + window filter |
 | `crates/calyx-sextant/src/temporal/causal_gate.rs` | causal-confidence gate (high-conf ×1.10, low ×0.85) |
@@ -49,12 +51,25 @@ weights).
 
 | Card | Title | Depends |
 |---|---|---|
-| T01 | TemporalPolicy + FusionWeights types | — |
-| T02 | TimeWindow helpers (`last_hours`/`last_days`) | T01 |
-| T03 | `apply_temporal_boost` post-retrieval reranker | T02 |
-| T04 | Causal confidence gate (×1.10 / ×0.85) | T03 |
-| T05 | AP-60 invariant enforcement + `temporal_search` integration | T04 |
-| T06 | FSV: temporal-never-dominant + boost-reorder proof | T05 |
+| T01 #373 | TemporalPolicy + FusionWeights types | — |
+| T02 #374 | TimeWindow helpers (`last_hours`/`last_days`) | T01 |
+| T03 #375 | `apply_temporal_boost` post-retrieval reranker | T02 |
+| T04 #376 | Causal confidence gate (×1.10 / ×0.85) | T03 |
+| T05 #377 | AP-60 invariant enforcement + `temporal_search` integration | T04 |
+| T06 #378 | FSV: temporal-never-dominant + boost-reorder proof | T05 |
+
+## Completed PH40 Evidence
+
+- T01 #373 commit: `9ca0a93`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue373-temporal-policy-manifest-20260609-9ca0a93`
+- Source of truth: Aster durable vault `CURRENT`, immutable
+  `manifest-00000000000000000001.json`, and mirror `MANIFEST`; all contain
+  `temporal_policy.never_dominant = true`.
+- Edge proofs: invalid `never_dominant=false` leaves no `CURRENT` in the
+  attempted vault and returns `CALYX_TEMPORAL_AP60_VIOLATION`; zero weights
+  return `CALYX_TEMPORAL_WEIGHT_SUM`; invalid hour returns
+  `CALYX_TEMPORAL_INVALID_PERIOD`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

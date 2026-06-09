@@ -50,5 +50,5 @@ causal anchor is unverified or contested.
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH40 GitHub issue
+- [ ] FSV evidence (readback output / screenshot) attached to GitHub issue #376
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

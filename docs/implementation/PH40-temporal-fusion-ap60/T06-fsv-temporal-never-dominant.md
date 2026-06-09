@@ -42,12 +42,12 @@ These tests are the formal FSV harness for the phase gate.
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `cargo test -p calyx-sextant temporal::tests` output on aiwonder
-- **Readback:** run `cargo test -p calyx-sextant temporal::tests -- --nocapture 2>&1` on aiwonder; paste terminal output to PH40 GitHub issue
+- **Readback:** run `cargo test -p calyx-sextant temporal::tests -- --nocapture 2>&1` on aiwonder; paste terminal output to GitHub issue #378
 - **Prove:** all 8 tests pass; the `fsv_temporal_never_dominant` test output explicitly prints "content-miss score after boost: 0.0" confirming the AP-60 invariant; the `fsv_boost_reorders_content_matches` output prints pre- and post-boost scores showing the reordering
 
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH40 GitHub issue
+- [ ] FSV evidence (readback output / screenshot) attached to GitHub issue #378
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

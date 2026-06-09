@@ -61,5 +61,5 @@ Fusion weighting: 50% recency (E2) / 35% sequence (E4) / 15% periodic (E3).
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH40 GitHub issue
+- [ ] FSV evidence (readback output / screenshot) attached to GitHub issue #375
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
