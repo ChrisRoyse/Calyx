@@ -21,6 +21,9 @@ the style slot, enabling quarantine. The paper's result: emergent zero-shot
 transfer to Golden-Age Spanish demonstrates the lens measures voice/register
 generalizably (`09 §5b`).
 
+**Status:** DONE / FSV #271. Durable aiwonder evidence:
+`/home/croyse/calyx/data/fsv-issue271-style-lens-20260609-a43e546-ort126-sm120`.
+
 ## Pinned aiwonder style model
 
 Selected model: `AnnaWegmann/Style-Embedding`, revision
@@ -106,11 +109,39 @@ sm_120 provider with no silent CPU fallback. The durable source manifest is
   separation is proved in #273 and must not be treated as satisfied by the mock
   unit verdict alone.
 
+### #271 readback summary
+
+FSV root:
+`/home/croyse/calyx/data/fsv-issue271-style-lens-20260609-a43e546-ort126-sm120`.
+The root was absent before the trigger. The ignored fixture wrote
+`model-readback.json`, `style-embedding.json`, `norm-determinism.json`,
+`mock-injection-guard-verdict.json`, `model-missing-error.json`,
+`issue271-fsv.log`, `SHA256SUMS.txt`, and `SHA256SUMS.full.txt`. Separate
+readback confirmed:
+
+- model SHA-256:
+  `fc3c80ead2e4ceef693fa67756f2e0f920fee7df326a565286b34d68d7a170af`
+- tokenizer SHA-256:
+  `82139106e603ee4e1d5bc99d056ccbed5a92bc24848b1b5a7137c26e00d0dbf6`
+- source revision: `d7d0f5ca829316a8f5695e49dfce80b86db5e76c`
+- input tensors: `input_ids`, `attention_mask`; output tensor:
+  `last_hidden_state`
+- lens id: `3a9aac62c199488e6ef9f233b54ef816`
+- embedding dim: 768; norm: `1.0000003576278687`
+- deterministic max abs diff: `0.0`
+- CPU/CUDA max abs diff: `0.00016807019710540771`
+- mock injection style slot: cos `0.3799999952316284` < tau
+  `0.699999988079071`, `overall_pass=false`, action `Quarantine`
+- missing model error: `CALYX_WARD_MODEL_NOT_FOUND`
+
+Full evidence manifest SHA-256:
+`f505efa94e13745fa6cc3068b531efefdfe047ecfcff83fba7cae196800bf452`.
+
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 (Forge-touching via ONNX/candle backend)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH39 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 (Forge-touching via ONNX/candle backend)
+- [x] FSV evidence (readback output / screenshot) attached to the PH39 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

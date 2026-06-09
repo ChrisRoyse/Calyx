@@ -37,6 +37,10 @@ cached normalized matched-slot vectors. Durable evidence:
 `/home/croyse/calyx/data/fsv-issue269-identity-profile-20260609`. PH39 T02
 (#270) is signed off with durable WavLM/ORT readbacks under
 `/home/croyse/calyx/data/fsv-issue270-speaker-lens-20260609-ef729f8-ort126-sm120`.
+PH39 T03 (#271) is signed off with the pinned
+`AnnaWegmann/Style-Embedding` ONNX style lens under
+`/home/croyse/calyx/models/style/` and durable readbacks under
+`/home/croyse/calyx/data/fsv-issue271-style-lens-20260609-a43e546-ort126-sm120`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -54,7 +58,7 @@ cached normalized matched-slot vectors. Durable evidence:
 |---|---|---|---|
 | T01 | `SpeakerMatch` + `StyleHold` anchor kinds + `IdentityProfile` | — | DONE / FSV #269 |
 | T02 | WavLM speaker lens adapter (`embed_speaker`) | T01 · PH19 | DONE / FSV #270 |
-| T03 | Style lens adapter (`embed_style`) | T01 · PH19 | open #271 |
+| T03 | Style lens adapter (`embed_style`) | T01 · PH19 | DONE / FSV #271 |
 | T04 | `guard_generate()` integration loop + provenance tag | T03 | open #272 |
 | T05 | Identity-slot injection → quarantine FSV | T04 | open #273 |
 | T06 | Speaker similarity target FSV (0.961 mean WavLM cos) | T05 | open #274 |

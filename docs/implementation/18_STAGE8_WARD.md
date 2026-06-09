@@ -2,9 +2,9 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#280. PH37 T01-T09 (#258-#263, #275, #277, #278),
-PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T02 (#269/#270) are
+PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T03 (#269-#271) are
 FSV-signed-off. PH37 is complete; PH38 post-T06 hardening #355/#356/#359 and
-PH36 audit hardening #349 are signed off. PH39 T03-T06 (#271-#274) remain
+PH36 audit hardening #349 are signed off. PH39 T04-T06 (#272-#274) remain
 before the Ward exit can claim Stage 8 complete. #357
 timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
 injection split hardening,
@@ -203,6 +203,16 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `22a38bdd854a11db171357cb997156511697d2f2c621d1262c82ba91b873d08b`, the
   real `embeddings` output dim is 512, and the custom aiwonder ORT CUDA provider
   hash is `36172645abd04656263112e557ce8a150ce827ff6391a0027a151ffa5a09ad71`.
+  PH39 T03 (#271) adds the pinned ONNX `StyleLens` adapter for
+  `AnnaWegmann/Style-Embedding`, revision
+  `d7d0f5ca829316a8f5695e49dfce80b86db5e76c`, with durable readback evidence
+  under
+  `/home/croyse/calyx/data/fsv-issue271-style-lens-20260609-a43e546-ort126-sm120`.
+  The runtime model SHA-256 is
+  `fc3c80ead2e4ceef693fa67756f2e0f920fee7df326a565286b34d68d7a170af`, the
+  tokenizer SHA-256 is
+  `82139106e603ee4e1d5bc99d056ccbed5a92bc24848b1b5a7137c26e00d0dbf6`, output
+  dim is 768, and CPU/CUDA max abs diff is `0.00016807019710540771`.
 - **Deliverables.** `SpeakerMatch`/`StyleHold` anchor handling; identity-slot
   required-set; integration with `guard_generate`.
 - **Key tasks.** commission a WavLM speaker lens + a style lens (HF); require
