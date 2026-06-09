@@ -37,6 +37,9 @@ pub enum WardError {
     InvalidCalibrationInput {
         reason: &'static str,
     },
+    InvalidRequiredSlotDerivation {
+        reason: &'static str,
+    },
 }
 
 impl WardError {
@@ -45,9 +48,9 @@ impl WardError {
         match self {
             Self::Ood { .. } => CALYX_GUARD_OOD,
             Self::Provisional { .. } => CALYX_GUARD_PROVISIONAL,
-            Self::InsufficientCalibrationData { .. } | Self::InvalidCalibrationInput { .. } => {
-                CALYX_GUARD_PROVISIONAL
-            }
+            Self::InsufficientCalibrationData { .. }
+            | Self::InvalidCalibrationInput { .. }
+            | Self::InvalidRequiredSlotDerivation { .. } => CALYX_GUARD_PROVISIONAL,
             Self::MissingSlot { .. } => CALYX_GUARD_MISSING_SLOT,
             Self::PolicyViolation { .. } => CALYX_GUARD_POLICY_VIOLATION,
         }
@@ -85,6 +88,10 @@ impl fmt::Display for WardError {
             Self::InvalidCalibrationInput { reason } => write!(
                 f,
                 "{CALYX_GUARD_PROVISIONAL}: invalid calibration input: {reason}"
+            ),
+            Self::InvalidRequiredSlotDerivation { reason } => write!(
+                f,
+                "{CALYX_GUARD_PROVISIONAL}: invalid required-slot derivation: {reason}"
             ),
         }
     }
@@ -160,6 +167,18 @@ mod tests {
     }
 
     #[test]
+    fn invalid_required_slot_derivation_uses_provisional_code() {
+        let error = WardError::InvalidRequiredSlotDerivation {
+            reason: "no load-bearing slots for anchor",
+        };
+        let formatted = error.to_string();
+
+        assert_eq!(error.code(), CALYX_GUARD_PROVISIONAL);
+        assert!(formatted.contains(CALYX_GUARD_PROVISIONAL));
+        assert!(formatted.contains("required-slot derivation"));
+    }
+
+    #[test]
     #[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_ERROR_FSV_DIR"]
     fn ward_error_fsv_fixture_writes_readback_artifacts() {
         let root = std::env::var("CALYX_WARD_ERROR_FSV_DIR")
@@ -188,6 +207,9 @@ mod tests {
                 n_required: 3,
             },
             WardError::InsufficientCalibrationData { n: 49, min: 50 },
+            WardError::InvalidRequiredSlotDerivation {
+                reason: "no load-bearing slots for anchor",
+            },
         ];
         let error_readback: Vec<_> = errors
             .iter()
