@@ -68,17 +68,26 @@ results are the evidence attached to the PH38 GitHub issue.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** stdout of `cargo test -p calyx-ward fsv -- --nocapture 2>&1` on
-  aiwonder with the real injection corpus present
+- **SoT:** durable aiwonder evidence root
+  `/home/croyse/calyx/data/fsv-issue268-ph38-t05-<date>/` containing the
+  captured cargo log, block-rate JSON, calibration provenance JSON,
+  novel-region vault/CF readback, and SHA-256 manifest. Stdout is only one
+  captured artifact, not the verdict.
 - **Readback:**
   ```
-  cargo test -p calyx-ward fsv -- --nocapture 2>&1 | tee /tmp/ph38_fsv.txt
-  grep -E "injection_block_rate|novel_constellation|estimator|AwaitingGrounding" /tmp/ph38_fsv.txt
+  root=/home/croyse/calyx/data/fsv-issue268-ph38-t05-<date>
+  mkdir -p "$root"
+  cargo test -p calyx-ward fsv -- --nocapture 2>&1 | tee "$root/ph38-fsv.log"
+  grep -E "injection_block_rate|novel_constellation|estimator|AwaitingGrounding" "$root/ph38-fsv.log"
+  xxd -g 1 "$root/block-rate.json" | head -32
+  xxd -g 1 "$root/novel-region-readback.json" | head -32
+  sha256sum "$root"/* | sort
   ```
 - **Prove:** `injection_block_rate: 0.99xx` (≥ 0.99); `novel_constellation`
   JSON shows `"status": "AwaitingGrounding"` and a UUID `novel_id`;
-  `estimator: "conformal_quantile_v1"`; all tests `ok`; attach
-  `/tmp/ph38_fsv.txt` to PH38 GitHub issue
+  `estimator: "conformal_quantile_v1"`; all tests `ok`; `xxd` proves the
+  durable JSON bytes; attach the root path, hashes, and readback excerpts to
+  the PH38 GitHub issue
 
 ## Done when
 

@@ -1,7 +1,8 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
-**Status:** pending. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
-atomic tasks are #258-#279.
+**Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
+atomic tasks are #258-#279. PH37 T01 (#258) is implemented in
+`calyx-ward::profile`; guard verdicts and guard math start at #259/#260.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -14,6 +15,11 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
 - **Objective.** Per-slot cosine gate with all-required (or KofN) pass logic;
   no-flatten enforced.
 - **Deps.** PH22 (slots/lenses), PH13 (cosine).
+- **Post-sweep note.** PH37 T01 (#258) adds the canonical profile/config types:
+  `GuardId`, `GuardPolicy`, `NoveltyAction`, `CalibrationMeta`, and
+  `GuardProfile`, with deterministic serde round-trip tests and aiwonder JSON
+  readback evidence under
+  `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`.
 - **Deliverables.** `guard.rs` (`cos(produced_k, matched_k) ≥ τ_k`),
   `GuardProfile { tau: Map<SlotId,f32>, required_slots, policy, calibration,
   novelty_action }`, per-slot verdict breakdown.

@@ -63,16 +63,27 @@ readable from the in-memory vault sink, confirming the routing.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** test stdout on aiwonder; `NoveltyRecord` JSON in in-memory sink
+- **SoT:** durable aiwonder evidence root
+  `/home/croyse/calyx/data/fsv-issue273-ph39-t05-<date>/` containing the
+  captured cargo log, failing style-slot verdict JSON, quarantine
+  `NoveltyRecord` readback JSON, accepted in-persona verdict JSON, and
+  SHA-256 manifest. Stdout and in-memory state are claims; the durable JSON
+  readback files are the verdict.
 - **Readback:**
   ```
-  cargo test -p calyx-ward fsv_injection -- --nocapture 2>&1 | tee /tmp/ph39_inject_fsv.txt
-  grep -E "Quarantined|style|cos|tau|pass|guarded:pass" /tmp/ph39_inject_fsv.txt
+  root=/home/croyse/calyx/data/fsv-issue273-ph39-t05-<date>
+  mkdir -p "$root"
+  cargo test -p calyx-ward fsv_injection -- --nocapture 2>&1 | tee "$root/ph39-injection-fsv.log"
+  grep -E "Quarantined|style|cos|tau|pass|guarded:pass" "$root/ph39-injection-fsv.log"
+  xxd -g 1 "$root/quarantine-record-readback.json" | head -32
+  xxd -g 1 "$root/in-persona-accepted-readback.json" | head -32
+  sha256sum "$root"/* | sort
   ```
 - **Prove:** `Quarantined` appears with a `style` slot where `pass: false`;
   `cos` value < `tau` value printed for the injection case; `guarded:pass`
   appears for the in-persona case; `NoveltyRecord` JSON shows valid UUID;
-  attach `/tmp/ph39_inject_fsv.txt` to PH39 GitHub issue
+  attach the root path, hashes, and durable JSON readback excerpts to the PH39
+  GitHub issue
 
 ## Done when
 

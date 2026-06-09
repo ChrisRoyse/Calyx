@@ -76,17 +76,25 @@ mean WavLM speaker-similarity (encoder-matched)."
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** stdout of `cargo test -p calyx-ward fsv_speaker -- --nocapture 2>&1`
-  on aiwonder with real TTS samples and WavLM model loaded
+- **SoT:** durable aiwonder evidence root
+  `/home/croyse/calyx/data/fsv-issue274-ph39-t06-<date>/` containing the
+  captured cargo log, per-sample speaker verdict JSON, mean-similarity summary
+  JSON, cross-speaker rejection readback JSON, Stage 8 summary JSON, and
+  SHA-256 manifest. Stdout is only one captured artifact, not the verdict.
 - **Readback:**
   ```
-  cargo test -p calyx-ward fsv_stage8 -- --nocapture 2>&1 | tee /tmp/ph39_speaker_fsv.txt
-  grep -E "mean_wavlm|Stage 8 Ward exit|speaker sim|PASS|FAIL" /tmp/ph39_speaker_fsv.txt
+  root=/home/croyse/calyx/data/fsv-issue274-ph39-t06-<date>
+  mkdir -p "$root"
+  cargo test -p calyx-ward fsv_stage8 -- --nocapture 2>&1 | tee "$root/ph39-speaker-fsv.log"
+  grep -E "mean_wavlm|Stage 8 Ward exit|speaker sim|PASS|FAIL" "$root/ph39-speaker-fsv.log"
+  xxd -g 1 "$root/mean-speaker-sim-readback.json" | head -32
+  xxd -g 1 "$root/stage8-summary-readback.json" | head -32
+  sha256sum "$root"/* | sort
   ```
 - **Prove:** `mean_wavlm_speaker_similarity: 0.9xxx` ≥ 0.961; `Stage 8 Ward
   exit: PASS`; all 4 per-phase checks `PASS`; cross-speaker all `overall_pass:
-  false`; attach `/tmp/ph39_speaker_fsv.txt` to PH39 GitHub issue as Stage 8
-  exit evidence
+  false`; attach the root path, hashes, and durable JSON readback excerpts to
+  PH39 and the Stage 8 exit issue as evidence
 
 ## Done when
 

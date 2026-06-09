@@ -21,8 +21,15 @@ unconditionally rejected.
 
 ## Current state (build off what exists)
 
-`calyx-ward` is a 9-line stub crate (`lib.rs` re-exports nothing, `Cargo.toml`
-lists the crate); greenfield. Depends on slots/lenses (PH22) and Forge cosine
+PH37 T01 (#258) is implemented in `calyx-ward::profile`: `GuardId`,
+`GuardPolicy`, `NoveltyAction`, `CalibrationMeta`, and `GuardProfile` are wired
+through `lib.rs`, use `calyx_core::SlotId`, and serde round-trip
+deterministically. aiwonder FSV wrote and read back JSON artifacts under
+`/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`. Guard verdict types
+and guard math remain pending in T02-T06.
+
+Before #258, `calyx-ward` was a 9-line stub crate (`lib.rs` re-exported nothing,
+`Cargo.toml` listed the crate). Depends on slots/lenses (PH22) and Forge cosine
 (PH13) which are themselves not yet built — task cards here describe what Ward
 needs from those phases and stub-test accordingly with mock slot vectors.
 

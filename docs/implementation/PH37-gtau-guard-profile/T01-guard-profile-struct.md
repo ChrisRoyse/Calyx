@@ -17,6 +17,15 @@ along with its enums `GuardPolicy`, `NoveltyAction`, and the nested
 `CalibrationMeta` struct. This is the configuration object that every guard
 call reads; getting it right first prevents downstream type churn.
 
+## Post-implementation note
+
+Implemented in `crates/calyx-ward/src/profile.rs` and re-exported from
+`crates/calyx-ward/src/lib.rs`. aiwonder FSV root:
+`/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`. Readback artifacts:
+`happy.json`, `edge-kofn0.json`, `edge-calibrated.json`, and
+`edge-empty-required.json`; each round-trips through `serde_json` and was read
+back separately with `xxd`, `sha256sum`, grep, and parsed JSON output.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `GuardPolicy` enum: `AllRequired` | `KofN { k: usize }` — serde,

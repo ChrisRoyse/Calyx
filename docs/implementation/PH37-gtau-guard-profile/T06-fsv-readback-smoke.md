@@ -63,16 +63,24 @@ attached to the PH37 GitHub issue.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** stdout of `cargo test -p calyx-ward -- --nocapture 2>&1`
+- **SoT:** durable aiwonder evidence root
+  `/home/croyse/calyx/data/fsv-issue263-ph37-t06-<date>/` containing the
+  captured cargo log, per-slot verdict JSON, anti-flatten source-check readback,
+  and SHA-256 manifest. Stdout is only one captured artifact, not the verdict.
 - **Readback:**
   ```
-  cargo test -p calyx-ward -- --nocapture 2>&1 | tee /tmp/ph37_fsv.txt
-  grep -E "CALYX_GUARD_OOD|overall_pass|per_slot|average_would_pass" /tmp/ph37_fsv.txt
+  root=/home/croyse/calyx/data/fsv-issue263-ph37-t06-<date>
+  mkdir -p "$root"
+  cargo test -p calyx-ward -- --nocapture 2>&1 | tee "$root/ph37-fsv.log"
+  grep -E "CALYX_GUARD_OOD|overall_pass|per_slot|average_would_pass" "$root/ph37-fsv.log"
+  xxd -g 1 "$root/per-slot-verdict.json" | head -32
+  sha256sum "$root"/* | sort
   wc -l crates/calyx-ward/src/guard.rs
   ```
 - **Prove:** grep output contains `CALYX_GUARD_OOD`, `overall_pass: false`,
   `average_would_pass: true`; `wc -l` shows ≤ 500; all tests marked `ok` in
-  cargo output; attach `/tmp/ph37_fsv.txt` to PH37 GitHub issue
+  cargo output; `xxd` shows durable JSON bytes with per-slot `(cos,tau,pass)`;
+  attach the root path, hashes, and readback excerpts to the PH37 GitHub issue
 
 ## Done when
 
