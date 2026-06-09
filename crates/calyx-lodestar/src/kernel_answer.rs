@@ -1,5 +1,3 @@
-use std::collections::BTreeSet;
-
 use calyx_core::{Clock, CxId, LedgerRef};
 use calyx_ledger::{LedgerAppender, LedgerCfStore};
 use calyx_paths::{AssocGraph, attenuate, reach};
@@ -7,8 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::provenance::{AnswerHopEvidence, append_answer_hop_entry};
 use crate::{KernelIndex, LodestarError, Result, kernel_search};
-
-const CANDIDATE_K: usize = 10;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AnswerPath {
@@ -128,12 +124,11 @@ fn nearest_anchored_kernel_node(
     if anchored_nodes.is_empty() {
         return Err(LodestarError::KernelNoAnchoredNode);
     }
-    let anchored: BTreeSet<_> = anchored_nodes.iter().copied().collect();
-    let candidates = kernel_search(index, query_vec, CANDIDATE_K)?;
+    let candidates = kernel_search(index, query_vec, index.rows().len())?;
     candidates
         .into_iter()
         .map(|(cx_id, _)| cx_id)
-        .find(|cx_id| anchored.contains(cx_id))
+        .find(|cx_id| anchored_nodes.contains(cx_id))
         .ok_or(LodestarError::KernelNoAnchoredNode)
 }
 
