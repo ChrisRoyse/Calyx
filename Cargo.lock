@@ -198,6 +198,7 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "serde_json",
+ "sha2",
  "ulid",
 ]
 

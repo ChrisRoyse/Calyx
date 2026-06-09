@@ -177,6 +177,28 @@ impl VersionedCfStore {
             })
             .collect())
     }
+
+    /// Scans visible rows for one CF at the pinned sequence, ordered by key.
+    pub fn scan_cf_at(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        clock: &dyn Clock,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        snapshot.ensure_live(clock)?;
+        let table = self.rows.read().expect("mvcc row table poisoned");
+        let mut rows = table
+            .iter()
+            .filter_map(|((row_cf, key), versions)| {
+                if *row_cf != cf {
+                    return None;
+                }
+                visible_value(versions, snapshot.seq()).map(|value| (key.clone(), value))
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        Ok(rows)
+    }
 }
 
 impl Default for VersionedCfStore {
