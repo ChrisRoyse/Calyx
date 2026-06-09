@@ -10,6 +10,23 @@
 | **Axioms** | A15, A16 |
 | **PRD** | `dbprdplans/11 §2`, `11 §5` |
 
+## Status
+
+DONE / FSV-signed-off on aiwonder for #249. Implemented in
+`crates/calyx-ledger/src/merkle.rs` plus `calyx merkle-root` in
+`crates/calyx-cli/src/merkle.rs`. Evidence root:
+`/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`.
+
+Readback facts:
+- 4-row synthetic ledger CF writes rows `0..4` after a before-read of zero rows.
+- `root_0_4` = `c7e306ce6a90128afebd835f75e71f96485e12ea7a8dff5abaee40ecdebdb4da`.
+- 4-hash golden root = `522a628f043f5aaebab28ea89a73cc0597d209943e8b984c09213852b3afe814`.
+- `calyx merkle-root --ledger <dir> --range 0..4`, `--vault <dir>`, and
+  `CALYX_LEDGER_DIR=<dir> calyx merkle-root --range 0..4` all print the JSON
+  root byte-for-byte.
+- Ed25519 signature verification round-trips, tampered roots fail verification,
+  and a missing row fails closed with `CALYX_LEDGER_CORRUPT`.
+
 ## Goal
 
 Build a Merkle tree over a contiguous range of ledger entries `[seq_a, seq_b)`.

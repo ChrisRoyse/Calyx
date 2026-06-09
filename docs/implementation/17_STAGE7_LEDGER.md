@@ -66,6 +66,12 @@ as PH09 writes constellations.*
 - **Key tasks.** checkpoint cadence; `CALYX_LEDGER_CHAIN_BROKEN` quarantines the
   range (fail-closed); reproduce uses content-addressed frozen lenses +
   determinism mode (Forge).
+- **Post-sweep note.** PH36 T01 (#249) adds `calyx-ledger::merkle` range roots,
+  domain-separated BLAKE3 leaves/nodes, Ed25519 signed export bundles, and the
+  `calyx merkle-root` CLI path. Synthetic ledger-CF rows, CLI root equivalence,
+  signature round-trip/tamper, and missing-row fail-closed readbacks are
+  FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`.
 - **FSV gate.** flip one ledger byte → `verify_chain` detects the break **at the
   right seq**; `reproduce(answer)` on a real answer is **bit-parity within
   tolerance** (read both).
