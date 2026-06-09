@@ -2,10 +2,10 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#280. PH37 T01-T09 (#258-#263, #275, #277, #278),
-PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T05 (#269-#273) are
+PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T06 (#269-#274) are
 FSV-signed-off. PH37 is complete; PH38 post-T06 hardening #355/#356/#359 and
-PH36 audit hardening #349 are signed off. PH39 T06 (#274) remains
-before the Ward exit can claim Stage 8 complete. #357
+PH36 audit hardening #349 are signed off. Ward exit issue #280 remains as the
+fresh rollup proof before Stage 8 can close. #357
 timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
 injection split hardening,
 #354 per-slot calibration health hardening, and #358 GuardHealth serde
@@ -227,6 +227,15 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`
   show injection cos `0.5983942747116089` < tau `0.9900000095367432`, status
   `Quarantined`, and in-persona `guarded:pass`.
+  PH39 T06 (#274) proves the speaker-similarity target with deterministic
+  eSpeak v2 fixtures under
+  `/home/croyse/calyx/data/identity_fsv/speaker_tts_espeak_ng_20260609_v2`;
+  durable readbacks under
+  `/home/croyse/calyx/data/fsv-issue274-ph39-t06-20260609-8e29b51-v2-cpu-ort126`
+  show mean WavLM speaker similarity `0.9882728457450867` >= target
+  `0.9610000252723694`, in-region min `0.9850643873214722`, five
+  cross-speaker records with status `Rejected`, and Stage 8 summary
+  `stage8_ward_exit: true`.
 - **Deliverables.** `SpeakerMatch`/`StyleHold` anchor handling; identity-slot
   required-set; integration with `guard_generate`.
 - **Key tasks.** commission a WavLM speaker lens + a style lens (HF); require

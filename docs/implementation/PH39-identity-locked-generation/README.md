@@ -47,6 +47,14 @@ paths and Ledger Guard provenance readback under
 PH39 T05 (#273) is signed off with a real `deepset/prompt-injections` corpus row
 quarantined on numeric style slot `9` under
 `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`.
+PH39 T06 (#274) is signed off with deterministic eSpeak v2 target-speaker
+fixtures under `/home/croyse/calyx/data/identity_fsv/speaker_tts_espeak_ng_20260609_v2`
+and durable readbacks under
+`/home/croyse/calyx/data/fsv-issue274-ph39-t06-20260609-8e29b51-v2-cpu-ort126`:
+mean WavLM speaker similarity is `0.9882728457450867` against the
+`0.9610000252723694` target, in-region min is `0.9850643873214722`, five
+cross-speaker samples are `Rejected`, and the Stage 8 summary JSON reports all
+PH37/PH38/PH39 checks passing.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -67,7 +75,7 @@ quarantined on numeric style slot `9` under
 | T03 | Style lens adapter (`embed_style`) | T01 · PH19 | DONE / FSV #271 |
 | T04 | `guard_generate()` integration loop + provenance tag | T03 | DONE / FSV #272 |
 | T05 | Identity-slot injection → quarantine FSV | T04 | DONE / FSV #273 |
-| T06 | Speaker similarity target FSV (0.961 mean WavLM cos) | T05 | open #274 |
+| T06 | Speaker similarity target FSV (0.961 mean WavLM cos) | T05 | DONE / FSV #274 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

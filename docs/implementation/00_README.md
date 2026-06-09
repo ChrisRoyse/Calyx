@@ -249,13 +249,13 @@ and
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`,
 `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`, and
 `/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.
-Stage 8 Ward is the active frontier: #258-#273, #275-#279, #350, #353, #357,
+Stage 8 Ward is the active frontier: #258-#274, #275-#279, #350, #353, #357,
 #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off, so PH37
 is covered, PH38 T01-T07 plus the current drift/novelty/timestamp/injection-
 split/per-slot-calibration/serde/retry/Sextant multi-slot guard/readback/audit-
-query hardening plus Ledger guard provenance are signed off, and PH39 T01-T05
+query hardening plus Ledger guard provenance are signed off, and PH39 T01-T06
 identity-profile, speaker lens, style lens, `guard_generate()`, and identity
-injection quarantine work is signed off. PH39 #274 remains under epic #257, and
+injection quarantine plus speaker-similarity target work is signed off. Stage 8
 exit remains #280.
 
 **Remaining:** Open Stage 8+ work includes **PH39-PH72**,
