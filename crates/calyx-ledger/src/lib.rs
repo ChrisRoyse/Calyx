@@ -1,6 +1,7 @@
 //! Append-only Ledger provenance primitives.
 
 pub mod append;
+pub mod audit;
 pub mod checkpoint;
 pub mod codec;
 pub mod entry;
@@ -14,6 +15,10 @@ pub mod verify;
 pub use append::{
     DirectoryLedgerStore, LedgerAppender, LedgerCfStore, LedgerRow, MemoryLedgerStore,
     PreparedLedgerEntry, reject_delete, reject_tombstone,
+};
+pub use audit::{
+    AnswerTrace, AnswerTraceHop, AuditFilter, QuarantineLookup, QuarantineSet, audit,
+    get_answer_trace, get_provenance,
 };
 pub use checkpoint::{
     CHECKPOINT_TAG, CheckpointConfig, CheckpointPayload, CheckpointScheduler,

@@ -199,10 +199,10 @@ fn inspect_wal(vault: &Path) -> Value {
         if ledger_indexes.len() == 2 {
             records_with_two_ledger_rows += 1;
         }
-        if let (Some(first), Some(base)) = (ledger_indexes.first(), base_index) {
-            if *first < base {
-                ledger_rows_before_base += 1;
-            }
+        if let (Some(first), Some(base)) = (ledger_indexes.first(), base_index)
+            && *first < base
+        {
+            ledger_rows_before_base += 1;
         }
     }
     serde_json::json!({

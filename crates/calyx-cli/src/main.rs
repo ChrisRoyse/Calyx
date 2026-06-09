@@ -5,6 +5,7 @@ mod fsv;
 mod ledger_store;
 mod merkle;
 mod ops;
+mod provenance;
 mod scan;
 mod verify;
 
@@ -88,6 +89,23 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 && vault_flag == "--vault" =>
         {
             scan::scan_ledger_vault(Path::new(vault))
+        }
+        [command, vault_flag, vault, cx_flag, cx]
+            if command == "get-provenance" && vault_flag == "--vault" && cx_flag == "--cx" =>
+        {
+            provenance::get_provenance(Path::new(vault), cx)
+        }
+        [command, vault_flag, vault, answer_flag, answer]
+            if command == "get-answer-trace"
+                && vault_flag == "--vault"
+                && answer_flag == "--answer" =>
+        {
+            provenance::get_answer_trace(Path::new(vault), answer)
+        }
+        [command, vault_flag, vault, kind_flag, kind]
+            if command == "audit" && vault_flag == "--vault" && kind_flag == "--kind" =>
+        {
+            provenance::audit(Path::new(vault), kind)
         }
         [command, vault_flag, vault, cf_flag, cf]
             if command == "compact" && vault_flag == "--vault" && cf_flag == "--cf" =>
@@ -312,6 +330,9 @@ fn usage() -> &'static str {
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>
+       calyx get-provenance --vault <dir> --cx <cx-id>
+       calyx get-answer-trace --vault <dir> --answer <answer-id-or-hex>
+       calyx audit --vault <dir> --kind <kind>
        CALYX_LEDGER_DIR=<dir> calyx merkle-root --range <a..b>
        calyx compact --vault <dir> --cf <name>
        calyx compact-watch --vault <dir> --duration <30s|500ms>
