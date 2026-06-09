@@ -2,9 +2,9 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#280. PH37 T01-T09 (#258-#263, #275, #277, #278),
-PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01 (#269) are
+PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T02 (#269/#270) are
 FSV-signed-off. PH37 is complete; PH38 post-T06 hardening #355/#356/#359 and
-PH36 audit hardening #349 are signed off. PH39 T02-T06 (#270-#274) remain
+PH36 audit hardening #349 are signed off. PH39 T03-T06 (#271-#274) remain
 before the Ward exit can claim Stage 8 complete. #357
 timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
 injection split hardening,
@@ -197,6 +197,12 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   normalized cached matched vectors, and JSON deserialization invariants.
   Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue269-identity-profile-20260609`.
+  PH39 T02 (#270) adds the WavLM speaker lens adapter and is signed off under
+  `/home/croyse/calyx/data/fsv-issue270-speaker-lens-20260609-ef729f8-ort126-sm120`;
+  the pinned model SHA-256 is
+  `22a38bdd854a11db171357cb997156511697d2f2c621d1262c82ba91b873d08b`, the
+  real `embeddings` output dim is 512, and the custom aiwonder ORT CUDA provider
+  hash is `36172645abd04656263112e557ce8a150ce827ff6391a0027a151ffa5a09ad71`.
 - **Deliverables.** `SpeakerMatch`/`StyleHold` anchor handling; identity-slot
   required-set; integration with `guard_generate`.
 - **Key tasks.** commission a WavLM speaker lens + a style lens (HF); require

@@ -10,6 +10,23 @@
 | **Axioms** | A12, A4 |
 | **PRD** | `dbprdplans/09 §5b`, `05 §7` |
 
+## Status
+
+DONE / FSV-signed-off at implementation commits `06a52d7` and `f91e5e8`, with
+post-stage-5 contract/registry refresh `d4155e0`. Durable aiwonder evidence:
+`/home/croyse/calyx/data/fsv-issue270-speaker-lens-20260609-ef729f8-ort126-sm120`.
+
+Readback summary:
+- WavLM model SHA-256:
+  `22a38bdd854a11db171357cb997156511697d2f2c621d1262c82ba91b873d08b`.
+- Custom aiwonder ORT CUDA provider SHA-256:
+  `36172645abd04656263112e557ce8a150ce827ff6391a0027a151ffa5a09ad71`.
+- `input_names == ["input_values"]`; `output_names == ["logits", "embeddings"]`.
+- speaker embedding dim 512; norm `0.9999998211860657`.
+- duplicate CPU max abs diff `0.0`; CPU/CUDA max abs diff
+  `0.0009525101631879807`.
+- missing model path returns `CALYX_WARD_MODEL_NOT_FOUND`.
+
 ## Goal
 
 Implement the WavLM speaker lens adapter: load the WavLM ONNX model from the
