@@ -25,10 +25,15 @@ routing at the source of truth.
       - Load the style `IdentityProfile` with calibrated τ on the style slot
         (from `/home/croyse/calyx/data/identity_fsv/style_profile.json` on
         aiwonder; absence is setup failure, not a passing skip)
-      - Load matched style vector from
-        `/home/croyse/calyx/data/identity_fsv/matched_style.npy`
-      - Load one real injection text from
-        `/home/croyse/calyx/data/injection_corpus/style_injection_01.txt`
+      - Load in-persona text from
+        `/home/croyse/calyx/data/identity_fsv/in_persona_01.txt`, embed it with
+        the pinned `StyleLens`, and write `matched-style-readback.json` into the
+        evidence root. Ward has no NPY reader in this crate; do not claim
+        `matched_style.npy` unless a reader or documented conversion is added.
+      - Load one real injection text copied from the on-disk
+        `/home/croyse/calyx/data/injection_corpus/raw.jsonl` corpus into
+        `/home/croyse/calyx/data/identity_fsv/injection_01.txt`, with the source
+        row and SHA recorded in `injection_source_*.json`
       - Use `StyleLens` (real model on aiwonder; mock on dev)
       - Call `guard_generate()` with `novelty_action: Quarantine`,
         `high_stakes: false`
