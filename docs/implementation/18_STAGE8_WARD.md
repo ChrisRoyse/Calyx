@@ -80,6 +80,12 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `novel_regions()` routing for `NewRegion`, `Quarantine`, and `RejectClosed`.
   Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`.
+- **Post-sweep hardening.** #350 makes `NoveltyHandler` fail closed with
+  `CALYX_GUARD_ID_MISMATCH` when `GuardProfile.guard_id` and
+  `GuardVerdict.guard_id` differ, before any sink write. #353 re-exports the
+  novelty error constants from the `calyx-ward` crate root. Durable aiwonder
+  evidence:
+  `/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`.
 - **Post-sweep note.** PH38 T04 (#267) adds `DriftMonitor`, `AnnealHook`,
   bounded non-blocking drift events, `guard_health()`, and recovery/unknown-guard
   health snapshots. Durable aiwonder evidence:

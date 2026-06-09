@@ -43,6 +43,12 @@ T05 (#268) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
 T06 (#276) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`.
+#350 hardens T03 by failing closed when the supplied `GuardProfile.guard_id`
+does not match `GuardVerdict.guard_id`, before any novelty sink write. That FSV
+is signed off at
+`/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`.
+#353 also re-exports the stable novelty error constants from the `calyx-ward`
+crate root for public callers.
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -86,6 +92,12 @@ region:** the FSV fixture writes a file-backed novelty row and reads it back as
 an OOD candidate is excluded, surviving hits carry the Ward verdict, and dropped
 hits are readable from the guarded-search report/explain payload. Evidence root:
 `/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`.
+
+**Novelty guard-id integrity:** #350 proves a mismatched `profile.guard_id` /
+`verdict.guard_id` returns `CALYX_GUARD_ID_MISMATCH` and leaves the novelty sink
+empty, while the same fixture re-reads the normal `NewRegion`, `Quarantine`,
+and `RejectClosed` records. Evidence root:
+`/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.
