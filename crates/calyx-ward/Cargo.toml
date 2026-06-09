@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 calyx-core = { path = "../calyx-core" }
+calyx-forge = { path = "../calyx-forge" }
 serde.workspace = true
 uuid.workspace = true
 
