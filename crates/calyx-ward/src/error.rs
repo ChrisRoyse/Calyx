@@ -30,6 +30,13 @@ pub enum WardError {
         k: usize,
         n_required: usize,
     },
+    InsufficientCalibrationData {
+        n: usize,
+        min: usize,
+    },
+    InvalidCalibrationInput {
+        reason: &'static str,
+    },
 }
 
 impl WardError {
@@ -38,6 +45,9 @@ impl WardError {
         match self {
             Self::Ood { .. } => CALYX_GUARD_OOD,
             Self::Provisional { .. } => CALYX_GUARD_PROVISIONAL,
+            Self::InsufficientCalibrationData { .. } | Self::InvalidCalibrationInput { .. } => {
+                CALYX_GUARD_PROVISIONAL
+            }
             Self::MissingSlot { .. } => CALYX_GUARD_MISSING_SLOT,
             Self::PolicyViolation { .. } => CALYX_GUARD_POLICY_VIOLATION,
         }
@@ -67,6 +77,14 @@ impl fmt::Display for WardError {
             Self::PolicyViolation { k, n_required } => write!(
                 f,
                 "{CALYX_GUARD_POLICY_VIOLATION}: KofN k={k} exceeds required slot count n_required={n_required}"
+            ),
+            Self::InsufficientCalibrationData { n, min } => write!(
+                f,
+                "{CALYX_GUARD_PROVISIONAL}: insufficient calibration data n={n} min={min}"
+            ),
+            Self::InvalidCalibrationInput { reason } => write!(
+                f,
+                "{CALYX_GUARD_PROVISIONAL}: invalid calibration input: {reason}"
             ),
         }
     }
@@ -131,6 +149,17 @@ mod tests {
     }
 
     #[test]
+    fn insufficient_calibration_data_uses_provisional_code() {
+        let error = WardError::InsufficientCalibrationData { n: 49, min: 50 };
+        let formatted = error.to_string();
+
+        assert_eq!(error.code(), CALYX_GUARD_PROVISIONAL);
+        assert!(formatted.contains(CALYX_GUARD_PROVISIONAL));
+        assert!(formatted.contains("n=49"));
+        assert!(formatted.contains("min=50"));
+    }
+
+    #[test]
     #[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_ERROR_FSV_DIR"]
     fn ward_error_fsv_fixture_writes_readback_artifacts() {
         let root = std::env::var("CALYX_WARD_ERROR_FSV_DIR")
@@ -158,6 +187,7 @@ mod tests {
                 k: 5,
                 n_required: 3,
             },
+            WardError::InsufficientCalibrationData { n: 49, min: 50 },
         ];
         let error_readback: Vec<_> = errors
             .iter()

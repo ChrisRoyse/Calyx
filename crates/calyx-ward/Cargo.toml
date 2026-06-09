@@ -10,6 +10,7 @@ publish.workspace = true
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }
 serde.workspace = true
+sha2.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
