@@ -6,7 +6,7 @@
 | **Stage** | S8 — Ward Gτ Guard |
 | **Crate** | `calyx-ward` |
 | **Files** | `crates/calyx-ward/tests/ph38_injection_fsv.rs` (<=500) |
-| **Depends on** | T04 (this phase — all of PH38) |
+| **Depends on** | T04 (PH38 core); blindspots T06/T07 are tracked separately |
 | **Axioms** | A2, A12, A16 |
 | **PRD** | `dbprdplans/09 §2`, `09 §3` |
 

@@ -41,6 +41,9 @@ T04 (#267) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue267-ph38-t04-20260609-912b707`.
 T05 (#268) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
+T06 (#276) is the active Sextant guarded-search blindspot. T07 (#279) remains
+open for Ledger `kind=Guard` provenance before PH38 can be treated as fully
+closed.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -54,6 +57,8 @@ T05 (#268) is implemented and FSV-signed-off at
 | `tests/novelty_handler.rs` | deterministic novelty routing tests and manual aiwonder FSV fixture |
 | `tests/drift_monitor.rs` | deterministic drift-window/hook tests and manual aiwonder FSV fixture |
 | `tests/ph38_injection_fsv.rs` | real injection corpus block-rate FSV and valid-novelty file-backed readback |
+| `calyx-sextant/src/guarded.rs` | PH38 T06 InRegionOnly candidate filtering and dropped-hit readback |
+| `calyx-sextant/tests/guarded_search.rs` | PH38 T06 deterministic + manual aiwonder FSV fixture |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -64,6 +69,8 @@ T05 (#268) is implemented and FSV-signed-off at
 | T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | DONE / FSV #266 |
 | T04 | `DriftMonitor` + Anneal hook + `guard_health()` | DONE / FSV #267 |
 | T05 | FSV: injection corpus blocked >=99% at calibrated FAR + valid-novelty -> new region | DONE / FSV #268 |
+| T06 | Sextant `QueryGuard::InRegionOnly(GuardProfile)` filters hits to trusted regions | ACTIVE #276 |
+| T07 | Ledger provenance wiring: calibration + guard verdicts as `kind=Guard` | OPEN #279 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -73,6 +80,13 @@ pinned `/home/croyse/calyx/data/injection_corpus` corpus. **Valid-novelty -> new
 region:** the FSV fixture writes a file-backed novelty row and reads it back as
 `AwaitingGrounding`. Evidence root:
 `/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
+
+**Sextant guarded search:** #276 must prove a before/after search hit set where
+an OOD candidate is excluded, surviving hits carry the Ward verdict, and dropped
+hits are readable from the guarded-search report/explain payload.
+
+**Guard provenance:** #279 must write calibration and guard verdict entries to
+the real Ledger and read them back via PH36 audit/provenance before PH38 exit.
 
 ## Risks / landmines
 

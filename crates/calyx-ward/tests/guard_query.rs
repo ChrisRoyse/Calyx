@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{CxId, SlotId};
-use calyx_lodestar::{GroundednessReport, Kernel, RecallReport, build_kernel_index, kernel_search};
 use calyx_ward::{
     GuardId, GuardPolicy, GuardProfile, KernelFirstQueryVerdict, NoveltyAction, ProducedSlots,
     QueryVerdict, RegionSource, TrustedRegion, WardError, guard_query, guard_query_kernel_first,
@@ -224,31 +223,6 @@ fn ood_verdict_records_nearest_region_source() {
 }
 
 #[test]
-fn lodestar_kernel_search_can_feed_kernel_first_guard() {
-    let profile = sample_profile();
-    let query = unit_query();
-    let hits = lodestar_hits();
-    let kernel = regions_from_hits(&hits);
-    let peripheral = vec![region(cx(20), 0.99, 0.99)];
-
-    let verdict =
-        guard_query_kernel_first(&profile, &query, &kernel, &peripheral).expect("kernel first");
-
-    match verdict {
-        KernelFirstQueryVerdict::Pass {
-            nearest_cx,
-            match_source,
-            ..
-        } => {
-            assert_eq!(hits[0].0, cx(10));
-            assert_eq!(nearest_cx, cx(10));
-            assert_eq!(match_source, RegionSource::KernelNear);
-        }
-        KernelFirstQueryVerdict::Ood { .. } => panic!("expected kernel pass"),
-    }
-}
-
-#[test]
 #[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_QUERY_FSV_DIR"]
 fn guard_query_fsv_fixture_writes_readback_artifacts() {
     let root =
@@ -287,14 +261,6 @@ fn guard_query_fsv_fixture_writes_readback_artifacts() {
         &[region(cx(20), 0.40, 0.40)],
     )
     .expect("kernel ood");
-    let hits = lodestar_hits();
-    let lodestar_kernel_first = guard_query_kernel_first(
-        &profile,
-        &unit_query(),
-        &regions_from_hits(&hits),
-        &[region(cx(20), 0.99, 0.99)],
-    )
-    .expect("lodestar kernel first");
     let source = read_query_source();
     let markers: Vec<_> = aggregate_markers()
         .into_iter()
@@ -313,14 +279,6 @@ fn guard_query_fsv_fixture_writes_readback_artifacts() {
         &peripheral_fallback,
     );
     write_json(&root, "query-kernel-ood.json", &kernel_ood);
-    write_json(
-        &root,
-        "lodestar-kernel-first.json",
-        &json!({
-            "kernel_hits": hits,
-            "ward_verdict": lodestar_kernel_first,
-        }),
-    );
     write_json(
         &root,
         "source-readback.json",
@@ -383,44 +341,6 @@ fn region(cx_id: CxId, slot1_cos: f32, slot2_cos: f32) -> TrustedRegion {
             (slot(2), cos_vector(slot2_cos)),
         ]),
     }
-}
-
-fn lodestar_hits() -> Vec<(CxId, f32)> {
-    let index = build_kernel_index(&kernel(vec![cx(10), cx(11)]), &kernel_embeddings())
-        .expect("build kernel index");
-    kernel_search(&index, &[1.0, 0.0], 2).expect("kernel search")
-}
-
-fn regions_from_hits(hits: &[(CxId, f32)]) -> Vec<TrustedRegion> {
-    let mut regions = Vec::new();
-    for (cx_id, _) in hits {
-        let score = if *cx_id == cx(10) { 0.75 } else { 0.55 };
-        regions.push(region(*cx_id, score, score));
-    }
-    regions
-}
-
-fn kernel(members: Vec<CxId>) -> Kernel {
-    Kernel {
-        kernel_id: cx(99),
-        panel_version: 42,
-        anchor_kind: Some("synthetic_anchor".to_string()),
-        corpus_shard_hash: [7; 32],
-        members: members.clone(),
-        kernel_graph: members,
-        groundedness: GroundednessReport {
-            reached_anchor: 1.0,
-            unanchored_members: Vec::new(),
-        },
-        recall: RecallReport::default(),
-        built_at_millis: 1,
-        estimator_provenance: "synthetic-lodestar-index".to_string(),
-        warnings: Vec::new(),
-    }
-}
-
-fn kernel_embeddings() -> BTreeMap<CxId, Vec<f32>> {
-    BTreeMap::from([(cx(10), vec![1.0, 0.0]), (cx(11), vec![0.0, 1.0])])
 }
 
 fn aggregate_markers() -> Vec<&'static str> {

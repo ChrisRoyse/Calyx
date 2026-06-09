@@ -2,6 +2,7 @@
 
 pub mod error;
 pub mod fusion;
+pub mod guarded;
 pub mod hit;
 pub mod index;
 pub mod navigation;
@@ -23,7 +24,11 @@ pub use error::{
     sextant_error,
 };
 pub use fusion::{FusionContext, FusionStrategy, RrfProfile, WeightedProfile, weighted_profiles};
-pub use hit::{FreshnessTag, Hit, PerLensContribution, ProvenanceSource};
+pub use guarded::GuardedSearchReport;
+pub use hit::{
+    DroppedGuardHit, FreshnessTag, Hit, HitGuardEvidence, HitGuardMode, PerLensContribution,
+    ProvenanceSource,
+};
 pub use index::{
     DualIndex, HnswIndex, IndexSearchHit, IndexStats, InvertedIndex, MaxSimIndex, QuantConfig,
     QuantKind, SextantIndex,
@@ -32,8 +37,8 @@ pub use navigation::{LensComparison, compare_lenses, define, neighbors};
 pub use planner::{IntentLabel, PlanLimits, PlannedQuery, QueryPlanner};
 pub use planner_explain::PlannerExplain;
 pub use query::{
-    AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, ScalarOp,
-    ScalarPredicate,
+    AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, QueryGuard,
+    ScalarOp, ScalarPredicate,
 };
 pub use reranker::{RerankRequest, RerankerClient};
 pub use search::SearchEngine;

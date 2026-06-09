@@ -17,6 +17,11 @@ provenance-carrying) and `Query` (the full lens-aware query model). These types
 are the stable API surface that PH25–PH26 and all downstream crates depend on;
 get them right here so later phases only add, never restructure.
 
+> Post-stage correction: PH24 reserved the guarded-search surface, but the real
+> `InRegionOnly(GuardProfile)` implementation was deferred to Ward blindspot
+> #276. Stage 4 did not ship final guarded search; PH38 T06 owns the live code
+> and FSV.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [x] `crates/calyx-sextant/src/hit.rs`:
@@ -71,7 +76,8 @@ get them right here so later phases only add, never restructure.
       pub explain: bool,
   }
   ```
-- [x] `GuardMode` enum: `Off | InRegionOnly(GuardProfile)` (mirrors `10 §1`)
+- [x] Historical placeholder only: final `InRegionOnly(GuardProfile)` guarded
+      search is PH38 T06 / #276, not PH24 FSV evidence
 - [x] `Predicate` type: opaque for now (`pub struct Predicate(pub String)`) —
       full predicate parser is Stage 12; this stub compiles and round-trips
 - [x] Derive `Debug`, `Clone`, `serde::Serialize`, `serde::Deserialize` on all

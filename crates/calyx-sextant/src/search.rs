@@ -6,6 +6,7 @@ use calyx_core::{Anchor, CalyxError, Constellation, CxId, Result, SlotId, SlotSt
 use zeroize::Zeroizing;
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
+use crate::guarded::{GuardedSearchReport, apply_query_guard};
 use crate::hit::{FreshnessTag, Hit, ProvenanceSource};
 use crate::planner::QueryPlanner;
 use crate::planner_explain::PlannerExplain;
@@ -42,7 +43,7 @@ impl SearchEngine {
     }
 
     pub fn search(&self, query: &Query) -> Result<Vec<Hit>> {
-        self.search_inner(query, None)
+        Ok(self.search_inner(query, None)?.hits)
     }
 
     pub fn search_with_reranker(
@@ -50,7 +51,11 @@ impl SearchEngine {
         query: &Query,
         reranker: &RerankerClient,
     ) -> Result<Vec<Hit>> {
-        self.search_inner(query, Some(reranker))
+        Ok(self.search_inner(query, Some(reranker))?.hits)
+    }
+
+    pub fn search_with_guard_report(&self, query: &Query) -> Result<GuardedSearchReport> {
+        self.search_inner(query, None)
     }
 
     pub fn planned_search(&self, query: Query, planner: &QueryPlanner) -> Result<Vec<Hit>> {
@@ -71,7 +76,11 @@ impl SearchEngine {
         Ok(PlannerExplain::new(&plan, hits))
     }
 
-    fn search_inner(&self, query: &Query, reranker: Option<&RerankerClient>) -> Result<Vec<Hit>> {
+    fn search_inner(
+        &self,
+        query: &Query,
+        reranker: Option<&RerankerClient>,
+    ) -> Result<GuardedSearchReport> {
         let slots = if query.slots.is_empty() {
             self.indexes.slots()
         } else {
@@ -134,6 +143,7 @@ impl SearchEngine {
         if let Some(reranker) = reranker {
             self.rerank_pipeline_hits(query, &mut hits, &stage1_slots, reranker)?;
         }
+        let dropped_guard_hits = apply_query_guard(&self.docs, query, &mut hits)?;
         hits.truncate(query.k);
         self.renumber_hits(&mut hits);
         self.attach_provenance_and_freshness(
@@ -142,7 +152,10 @@ impl SearchEngine {
             &query.freshness,
             query.require_stored_provenance,
         )?;
-        Ok(hits)
+        Ok(GuardedSearchReport {
+            hits,
+            dropped_guard_hits,
+        })
     }
 
     fn apply_filters(&self, hits: &mut Vec<Hit>, filters: &QueryFilters) {
@@ -189,6 +202,12 @@ impl SearchEngine {
         query: &Query,
         strategy: &FusionStrategy,
     ) -> usize {
+        if query.guard.is_some() && query.filters.is_empty() {
+            return query
+                .recall_k
+                .unwrap_or_else(|| query.k.saturating_mul(DEFAULT_PIPELINE_RECALL_MULTIPLIER))
+                .max(query.k);
+        }
         if query.filters.is_empty() {
             if matches!(strategy, FusionStrategy::Pipeline) {
                 return query

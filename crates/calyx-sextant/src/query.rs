@@ -1,6 +1,7 @@
 //! Query request types and freshness policy.
 
 use calyx_core::{AnchorKind, AnchorValue, Modality, SlotId, SlotVector, VaultId};
+use calyx_ward::GuardProfile;
 use serde::{Deserialize, Serialize};
 
 use crate::fusion::FusionStrategy;
@@ -13,6 +14,12 @@ pub enum FreshnessRequirement {
     StaleOk {
         seq_lag: u64,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryGuard {
+    InRegionOnly(GuardProfile),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -31,6 +38,8 @@ pub struct Query {
     pub fusion: Option<FusionStrategy>,
     #[serde(default)]
     pub filters: QueryFilters,
+    #[serde(default)]
+    pub guard: Option<QueryGuard>,
 }
 
 impl Query {
@@ -47,6 +56,7 @@ impl Query {
             freshness: FreshnessRequirement::FreshDerived,
             fusion: None,
             filters: QueryFilters::default(),
+            guard: None,
         }
     }
 
@@ -77,6 +87,11 @@ impl Query {
 
     pub fn with_recall_k(mut self, recall_k: usize) -> Self {
         self.recall_k = Some(recall_k);
+        self
+    }
+
+    pub fn with_guard(mut self, guard: QueryGuard) -> Self {
+        self.guard = Some(guard);
         self
     }
 }
