@@ -38,6 +38,13 @@ fn builder_with_nodes(seeds: &[u8]) -> calyx_paths::AssocGraphBuilder {
     builder
 }
 
+fn has_edge(graph: &AssocGraph, src: CxId, dst: CxId) -> bool {
+    graph
+        .edges()
+        .iter()
+        .any(|edge| graph.edge_endpoints(*edge) == (src, dst))
+}
+
 fn hub_graph() -> AssocGraph {
     let mut builder = builder_with_nodes(&(1..=10).collect::<Vec<_>>());
     for leaf in 3..=10 {
@@ -353,10 +360,17 @@ fn incremental_leaf_dirty_cycle_full_rebuild_and_member_remove() {
             ],
         )
         .unwrap();
+    let full_add_stored_candidate = eval.graph.require_node_index(cx(5)).is_ok()
+        && has_edge(&eval.graph, cx(5), cx(1))
+        && has_edge(&eval.graph, cx(2), cx(5));
+    eval.rebuild_dirty().unwrap();
+    let full_rebuild_retained_candidate = eval.graph.require_node_index(cx(5)).is_ok()
+        && has_edge(&eval.graph, cx(5), cx(1))
+        && has_edge(&eval.graph, cx(2), cx(5));
     let removed = eval.apply_node_remove(kernel.members[0]).unwrap();
 
     println!(
-        "INCREMENTAL_READBACK dirty={dirty:?} leaf={leaf:?} non_member_removed={non_member_removed:?} full={full:?} removed={removed:?}"
+        "INCREMENTAL_READBACK dirty={dirty:?} leaf={leaf:?} non_member_removed={non_member_removed:?} full={full:?} full_add_stored_candidate={full_add_stored_candidate} full_rebuild_retained_candidate={full_rebuild_retained_candidate} removed={removed:?}"
     );
     write_readback(
         "ph32-incremental-readback.json",
@@ -365,6 +379,8 @@ fn incremental_leaf_dirty_cycle_full_rebuild_and_member_remove() {
             "leaf": leaf,
             "non_member_removed": non_member_removed,
             "full": full,
+            "full_add_stored_candidate": full_add_stored_candidate,
+            "full_rebuild_retained_candidate": full_rebuild_retained_candidate,
             "removed": removed,
         }),
     );
@@ -379,6 +395,8 @@ fn incremental_leaf_dirty_cycle_full_rebuild_and_member_remove() {
         full,
         IncrementalResult::FullRebuildRequired { .. }
     ));
+    assert!(full_add_stored_candidate);
+    assert!(full_rebuild_retained_candidate);
     assert!(matches!(
         removed,
         IncrementalResult::KernelMemberRemoved { .. }
