@@ -22,17 +22,17 @@ silent accept.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `NoveltyRecord` struct:
+- [x] Define `NoveltyRecord` struct:
       `novel_id: NovelId` (new UUID), `guard_id: GuardId`,
       `produced_slots: ProducedSlots`, `failing_verdicts: Vec<SlotVerdict>`,
       `action_taken: NoveltyAction`, `ts: i64`, `status: NoveltyStatus`
-- [ ] Define `NoveltyStatus` enum: `AwaitingGrounding | Quarantined | Rejected`
-- [ ] Define `NovelId` newtype wrapping `uuid::Uuid`
-- [ ] Define `VaultSink` trait (sync, object-safe):
+- [x] Define `NoveltyStatus` enum: `AwaitingGrounding | Quarantined | Rejected`
+- [x] Define `NovelId` newtype wrapping `uuid::Uuid`
+- [x] Define `VaultSink` trait (sync, object-safe):
       `fn write_novel(&self, record: &NoveltyRecord) -> Result<(), WardError>`
       — the real impl writes to the vault's `novel_regions` CF (PH09); the
       test impl writes to an in-memory `Vec<NoveltyRecord>`
-- [ ] Implement `NoveltyHandler`:
+- [x] Implement `NoveltyHandler`:
       ```
       struct NoveltyHandler { vault: Arc<dyn VaultSink>, clock: Arc<dyn Clock> }
       fn handle(&self, profile: &GuardProfile, verdict: &GuardVerdict,
@@ -45,24 +45,24 @@ silent accept.
         - `Quarantine` → build with `status: Quarantined`; write; return `Ok`
         - `RejectClosed` → build with `status: Rejected`; write tombstone
           (write then return `Err(WardError::Ood { .. })`); fail closed
-- [ ] `novel_regions(vault, since_ts) -> Vec<NoveltyRecord>` — query the CF for
+- [x] `novel_regions(vault, since_ts) -> Vec<NoveltyRecord>` — query the CF for
       records with `ts ≥ since_ts` and `status: AwaitingGrounding`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `NewRegion` action → `NoveltyRecord` written to in-memory sink;
+- [x] unit: `NewRegion` action → `NoveltyRecord` written to in-memory sink;
       `status == AwaitingGrounding`; `novel_id` is a valid UUID; `action_taken
       == NewRegion`
-- [ ] unit: `Quarantine` action → `status == Quarantined`; record written; not
+- [x] unit: `Quarantine` action → `status == Quarantined`; record written; not
       served as trusted (no `Ok(GuardVerdict { overall_pass: true })`)
-- [ ] unit: `RejectClosed` action → `status == Rejected`; `Err(WardError::Ood)`
+- [x] unit: `RejectClosed` action → `status == Rejected`; `Err(WardError::Ood)`
       returned after tombstone write; tombstone in sink
-- [ ] proptest: for any `NoveltyAction`, `handle()` always writes exactly one
+- [x] proptest: for any `NoveltyAction`, `handle()` always writes exactly one
       `NoveltyRecord` to the sink (no duplicate writes)
-- [ ] edge: `vault.write_novel()` returns an error → `RejectClosed` still
+- [x] edge: `vault.write_novel()` returns an error → `RejectClosed` still
       returns the error; `NewRegion` propagates the vault error (not swallowed)
-- [ ] edge: `novel_regions(since=i64::MAX)` → empty vec; no panic
-- [ ] fail-closed: calling `handle()` on a passing verdict (`overall_pass=true`)
+- [x] edge: `novel_regions(since=i64::MAX)` → empty vec; no panic
+- [x] fail-closed: calling `handle()` on a passing verdict (`overall_pass=true`)
       → `Err(WardError::NotAFailure)` — misuse guard
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -77,10 +77,20 @@ silent accept.
   a UUID string; `RejectClosed` records `WardError::Ood` alongside the
   tombstone; `NewRegion` records `status: AwaitingGrounding`.
 
+**Completed for #266:** implementation commit
+`fa0c263fc702aa56c74c7fb5f54bf9741b5676da`; durable aiwonder evidence root
+`/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`.
+`SHA256SUMS` includes `new-region-record.json`
+`0e5d4ceb21c654e84f3f5fa40e34b1d0773c7eb0ed4d4613e44ddd1ede9c0ea3`,
+`reject-tombstone-record.json`
+`c4a47249e3676520e0c6fbc832fdc9abb4c461d333ed2f35856d767ec03d44a7`,
+and `not-failure-error.json`
+`e29a0425c14925f774cf1ce9dacdf23b6f103dce266a6c33edc609e0c5452fd2`.
+
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH38 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH38 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

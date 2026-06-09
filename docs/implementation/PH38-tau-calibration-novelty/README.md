@@ -35,6 +35,8 @@ implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`. T02 (#265)
 is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
+T03 (#266) is implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -52,7 +54,7 @@ is implemented and FSV-signed-off at
 |---|---|---|
 | T01 | Conformal τ calibration per slot — ROC + quantile | DONE / FSV #264 |
 | T02 | `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse | DONE / FSV #265 |
-| T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | T01 |
+| T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | DONE / FSV #266 |
 | T04 | `DriftMonitor` + Anneal hook + `guard_health()` | T03 |
 | T05 | FSV: injection corpus blocked ≥99% at calibrated FAR + valid-novelty → new region | T04 |
 

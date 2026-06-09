@@ -2,7 +2,7 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
-PH38 T01-T02 (#264-#265) are FSV-signed-off. PH37 is complete; PH38 T03+
+PH38 T01-T03 (#264-#266) are FSV-signed-off. PH37 is complete; PH38 T04+
 remains before the Ward exit can claim Stage 8 complete.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
@@ -75,6 +75,11 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `CALYX_GUARD_PROVISIONAL` refusal for uncalibrated high-stakes calls.
   Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
+- **Post-sweep note.** PH38 T03 (#266) adds `NoveltyHandler`, `NovelId`,
+  `NoveltyRecord`, `NoveltyStatus`, the object-safe `VaultSink`, and
+  `novel_regions()` routing for `NewRegion`, `Quarantine`, and `RejectClosed`.
+  Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
   slot; provenance: corpus_hash, estimator, FAR/FRR, ts), `novelty.rs`
   (NewRegion|Quarantine|RejectClosed), drift monitor hook (Anneal).
