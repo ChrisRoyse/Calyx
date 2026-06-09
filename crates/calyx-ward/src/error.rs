@@ -15,6 +15,7 @@ pub const CALYX_GUARD_POLICY_VIOLATION: &str = "CALYX_GUARD_POLICY_VIOLATION";
 pub const CALYX_GUARD_NOT_A_FAILURE: &str = "CALYX_GUARD_NOT_A_FAILURE";
 pub const CALYX_GUARD_NOVELTY_SINK: &str = "CALYX_GUARD_NOVELTY_SINK";
 pub const CALYX_GUARD_ID_MISMATCH: &str = "CALYX_GUARD_ID_MISMATCH";
+pub const CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED: &str = "CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED";
 
 /// Fail-closed errors emitted by Ward guard policy checks.
 #[derive(Clone, Debug, PartialEq)]
@@ -50,6 +51,9 @@ pub enum WardError {
         profile_guard_id: GuardId,
         verdict_guard_id: GuardId,
     },
+    IdentitySlotNotRequired {
+        slot: SlotId,
+    },
     NoveltySink {
         reason: String,
     },
@@ -68,6 +72,7 @@ impl WardError {
             Self::PolicyViolation { .. } => CALYX_GUARD_POLICY_VIOLATION,
             Self::NotAFailure { .. } => CALYX_GUARD_NOT_A_FAILURE,
             Self::GuardIdMismatch { .. } => CALYX_GUARD_ID_MISMATCH,
+            Self::IdentitySlotNotRequired { .. } => CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED,
             Self::NoveltySink { .. } => CALYX_GUARD_NOVELTY_SINK,
         }
     }
@@ -119,6 +124,10 @@ impl fmt::Display for WardError {
             } => write!(
                 f,
                 "{CALYX_GUARD_ID_MISMATCH}: profile guard {profile_guard_id} does not match verdict guard {verdict_guard_id}"
+            ),
+            Self::IdentitySlotNotRequired { slot } => write!(
+                f,
+                "{CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED}: identity slot {slot} is not present in guard_profile.required_slots"
             ),
             Self::NoveltySink { reason } => {
                 write!(f, "{CALYX_GUARD_NOVELTY_SINK}: {reason}")
@@ -220,6 +229,7 @@ mod tests {
         let sink = WardError::NoveltySink {
             reason: "synthetic write failure".to_string(),
         };
+        let identity_slot = WardError::IdentitySlotNotRequired { slot: slot(9) };
 
         assert_eq!(not_failure.code(), CALYX_GUARD_NOT_A_FAILURE);
         assert!(not_failure.to_string().contains("novelty handling"));
@@ -227,6 +237,8 @@ mod tests {
         assert!(mismatch.to_string().starts_with(CALYX_GUARD_ID_MISMATCH));
         assert_eq!(sink.code(), CALYX_GUARD_NOVELTY_SINK);
         assert!(sink.to_string().contains("synthetic write failure"));
+        assert_eq!(identity_slot.code(), CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED);
+        assert!(identity_slot.to_string().contains("identity slot 9"));
     }
 
     #[test]
@@ -269,6 +281,7 @@ mod tests {
                 profile_guard_id: guard_id(),
                 verdict_guard_id: other_guard_id(),
             },
+            WardError::IdentitySlotNotRequired { slot: slot(9) },
             WardError::NoveltySink {
                 reason: "synthetic write failure".to_string(),
             },

@@ -4,6 +4,7 @@ pub mod calibrate;
 pub mod drift;
 pub mod error;
 pub mod guard;
+pub mod identity;
 pub mod ledger;
 pub mod novelty;
 pub mod profile;
@@ -20,14 +21,15 @@ pub use drift::{
     GuardHealth, REJECTION_RATE_DRIFT_MULTIPLIER, guard_health,
 };
 pub use error::{
-    CALYX_GUARD_ID_MISMATCH, CALYX_GUARD_MISSING_SLOT, CALYX_GUARD_NOT_A_FAILURE,
-    CALYX_GUARD_NOVELTY_SINK, CALYX_GUARD_OOD, CALYX_GUARD_POLICY_VIOLATION,
-    CALYX_GUARD_PROVISIONAL, WardError,
+    CALYX_GUARD_ID_MISMATCH, CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED, CALYX_GUARD_MISSING_SLOT,
+    CALYX_GUARD_NOT_A_FAILURE, CALYX_GUARD_NOVELTY_SINK, CALYX_GUARD_OOD,
+    CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, WardError,
 };
 pub use guard::{
     DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
     guard_result_with_stakes,
 };
+pub use identity::{IdentityProfile, IdentitySlotConfig};
 pub use ledger::{
     WardLedgerError, WardLedgerResult, append_calibration_provenance, append_guard_verdict,
     calibrate_with_ledger, guard_with_ledger,
