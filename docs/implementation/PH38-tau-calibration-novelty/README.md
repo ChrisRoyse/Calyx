@@ -41,9 +41,10 @@ T04 (#267) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue267-ph38-t04-20260609-912b707`.
 T05 (#268) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
-T06 (#276) is the active Sextant guarded-search blindspot. T07 (#279) remains
-open for Ledger `kind=Guard` provenance before PH38 can be treated as fully
-closed.
+T06 (#276) is implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`.
+T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
+treated as fully closed.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -69,7 +70,7 @@ closed.
 | T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | DONE / FSV #266 |
 | T04 | `DriftMonitor` + Anneal hook + `guard_health()` | DONE / FSV #267 |
 | T05 | FSV: injection corpus blocked >=99% at calibrated FAR + valid-novelty -> new region | DONE / FSV #268 |
-| T06 | Sextant `QueryGuard::InRegionOnly(GuardProfile)` filters hits to trusted regions | ACTIVE #276 |
+| T06 | Sextant `QueryGuard::InRegionOnly(GuardProfile)` filters hits to trusted regions | DONE / FSV #276 |
 | T07 | Ledger provenance wiring: calibration + guard verdicts as `kind=Guard` | OPEN #279 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
@@ -83,7 +84,8 @@ region:** the FSV fixture writes a file-backed novelty row and reads it back as
 
 **Sextant guarded search:** #276 must prove a before/after search hit set where
 an OOD candidate is excluded, surviving hits carry the Ward verdict, and dropped
-hits are readable from the guarded-search report/explain payload.
+hits are readable from the guarded-search report/explain payload. Evidence root:
+`/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

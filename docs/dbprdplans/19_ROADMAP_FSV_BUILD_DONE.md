@@ -6,8 +6,8 @@ Phased build, verification discipline, performance targets, mechanical completio
 > and P6 is ACTIVE.** Stages 0-7 (PH00-PH36) are implemented, pushed, and
 > FSV-signed-off on aiwonder. Stage 6 Lodestar is closed through #240 plus
 > readiness follow-ups #331/#332; Stage 7 Ledger is closed through #256; Stage
-> 8 Ward has #258-#268 and #275/#277/#278 signed off; PH37 is complete and
-> PH38 T05 is signed off. PH38 blindspots #276/#279 and PH39 remain before
+> 8 Ward has #258-#268 and #275-#278 signed off; PH37 is complete and
+> PH38 T06 is signed off. PH38 blindspot #279 and PH39 remain before
 > Ward exit #280. Live phase status:
 > `docs/implementation/03_PHASE_MAP.md` and
 > GitHub context issue #23.

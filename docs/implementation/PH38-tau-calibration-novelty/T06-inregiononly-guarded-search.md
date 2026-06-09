@@ -9,7 +9,9 @@
 | **Depends on** | PH37 guard math, PH38 calibrated `GuardProfile`, PH24 search hits |
 | **PRD** | `09 §6`, `10 §1` |
 
-**STATUS:** ACTIVE in #276 until aiwonder FSV is attached.
+**STATUS:** DONE / FSV-signed-off in #276. Implementation commit:
+`c0b5d7f1c5348b8914f2b2aa41ce0061564096d6`. Evidence root:
+`/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`.
 
 ## Goal
 
@@ -42,9 +44,17 @@ structured reason; surviving hits carry the full `GuardVerdict`.
   surviving hit has `mode=in_region_only` and `overall_pass=true`; dropped
   evidence includes the OOD verdict and missing-constellation reason.
 
+**Actual #276 readback:** before unguarded hits =
+`02020202020202020202020202020202`, `01010101010101010101010101010101`,
+`03030303030303030303030303030303`; after guarded hits =
+`01010101010101010101010101010101`; dropped guard hits = OOD
+`02020202020202020202020202020202` with `cos=0.0`, `tau=0.7`, `pass=false`,
+plus missing-constellation `03030303030303030303030303030303`. Non-dense edge
+returns `CALYX_SEXTANT_VECTOR_SHAPE`.
+
 ## Done When
 
-- [ ] focused + workspace cargo gates pass on aiwonder
-- [ ] all `.rs` files remain <=500 lines
-- [ ] manual FSV before/trigger/after readback is attached to #276
-- [ ] PH38/Stage 8 rollups and epic #257 point to the next active task
+- [x] focused + workspace cargo gates pass on aiwonder
+- [x] all `.rs` files remain <=500 lines
+- [x] manual FSV before/trigger/after readback is attached to #276
+- [x] PH38/Stage 8 rollups and epic #257 point to the next active task

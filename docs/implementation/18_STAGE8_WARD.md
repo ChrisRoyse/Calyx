@@ -2,8 +2,8 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
-PH38 T01-T05 (#264-#268) are FSV-signed-off. PH37 is complete; PH38 blindspots
-#276/#279 and PH39 remain before the Ward exit can claim Stage 8 complete.
+PH38 T01-T06 (#264-#268, #276) are FSV-signed-off. PH37 is complete; PH38
+blindspot #279 and PH39 remain before the Ward exit can claim Stage 8 complete.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -91,6 +91,12 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   evidence: `/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`
   proves `block_rate=0.99239546`, `estimator=conformal_quantile_v1`, and
   valid novelty -> `AwaitingGrounding`.
+- **Post-sweep note.** PH38 T06 (#276) adds Sextant
+  `QueryGuard::InRegionOnly(GuardProfile)`: candidate hits are filtered through
+  Ward, surviving hits carry `GuardVerdict`, and dropped OOD/missing-doc hits
+  are recorded in the guarded-search report/explain payload. Durable aiwonder
+  evidence:
+  `/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
   slot; provenance: corpus_hash, estimator, FAR/FRR, ts), `novelty.rs`
   (NewRegion|Quarantine|RejectClosed), drift monitor hook (Anneal).
@@ -99,6 +105,8 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
 - **FSV gate.** **injection corpus blocked >=99% at the calibrated FAR** is
   signed off in #268 on the real prompt-injection set on aiwonder; valid novelty
   writes a durable file-backed novelty row and reads back as `AwaitingGrounding`.
+  **Sextant InRegionOnly** is signed off in #276 with a before/after hit-set
+  readback proving OOD exclusion and surviving-hit guard verdicts.
 - **Axioms/PRD.** A12, A2, `09 §3`, `19 §4`.
 
 ## PH39 — Identity-locked generation (speaker/style)
