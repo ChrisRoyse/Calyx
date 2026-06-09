@@ -19,11 +19,11 @@ use crate::error::WardError;
 pub const DEFAULT_WAVLM_MODEL_PATH: &str =
     "/home/croyse/calyx/models/wavlm/wavlm-base-plus-sv.onnx";
 pub const WAVLM_SAMPLE_RATE: u32 = 16_000;
-pub const WAVLM_DIM: usize = 256;
+pub const WAVLM_DIM: usize = 512;
 const SPEAKER_LENS_NAME: &str = "wavlm-base-plus-sv";
 const WAVLM_SOURCE_REPO: &str = "Xenova/wavlm-base-plus-sv";
 const WAVLM_SOURCE_REVISION: &str = "e61029603001bd11295c36d878698708bf59190f";
-const OUTPUT_SHAPE: &[u8] = b"dense:f32:audio:speaker:256";
+const OUTPUT_SHAPE: &[u8] = b"dense:f32:audio:speaker:512";
 
 /// ONNX execution-provider policy for the WavLM speaker adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
