@@ -4,7 +4,7 @@ use calyx_core::CxId;
 use serde::{Deserialize, Serialize};
 
 use crate::error::WardError;
-use crate::guard::{MatchedSlots, ProducedSlots, guard};
+use crate::guard::{MatchedSlots, ProducedSlots, guard_non_high_stakes};
 use crate::profile::{GuardProfile, NoveltyAction};
 use crate::verdict::SlotVerdict;
 
@@ -161,7 +161,7 @@ fn evaluate_regions(
     let mut best_ood = None;
 
     for region in trusted_regions {
-        let verdict = guard(profile, query_slots, &region.slots)?;
+        let verdict = guard_non_high_stakes(profile, query_slots, &region.slots)?;
         let margin = nearest_margin(&verdict.per_slot);
         let candidate = Candidate {
             cx_id: region.cx_id,

@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use calyx_core::SlotId;
 use calyx_ward::{
     GuardId, GuardPolicy, GuardProfile, MatchedSlots, NoveltyAction, ProducedSlots, WardError,
-    guard, guard_result,
+    guard_non_high_stakes as guard, guard_result,
 };
 use serde_json::json;
 

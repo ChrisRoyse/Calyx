@@ -19,6 +19,8 @@ pub struct SlotVerdict {
 pub struct GuardVerdict {
     pub guard_id: GuardId,
     pub overall_pass: bool,
+    #[serde(default)]
+    pub provisional: bool,
     pub per_slot: Vec<SlotVerdict>,
     pub action: Option<NoveltyAction>,
 }
@@ -59,6 +61,7 @@ mod tests {
         let verdict = GuardVerdict {
             guard_id: guard_id(),
             overall_pass: false,
+            provisional: false,
             per_slot: vec![pass.clone(), fail.clone()],
             action: Some(NoveltyAction::Quarantine),
         };
@@ -94,6 +97,7 @@ mod tests {
         let verdict = GuardVerdict {
             guard_id: guard_id(),
             overall_pass: true,
+            provisional: true,
             per_slot: Vec::new(),
             action: None,
         };
@@ -101,6 +105,7 @@ mod tests {
         let decoded: GuardVerdict = serde_json::from_str(&json).expect("deserialize empty verdict");
 
         assert_eq!(decoded, verdict);
+        assert!(decoded.provisional);
         assert!(decoded.failing_slots().is_empty());
         assert!(decoded.all_slot_details().is_empty());
     }
