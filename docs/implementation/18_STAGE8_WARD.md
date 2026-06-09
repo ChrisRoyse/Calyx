@@ -2,8 +2,9 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 core T01-T07 (#258-#263, #275) and PH38 T01
-(#264) are FSV-signed-off. PH37 blindspot hardening #277/#278 remains open and
-must be handled before the Ward exit can claim PH37 complete.
+(#264) are FSV-signed-off. PH37 T08 (#277) Assay-derived required-slot
+derivation is also FSV-signed-off; PH37 blindspot #278 remains open before the
+Ward exit can claim PH37 complete.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -42,9 +43,13 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `guard_query(profile, query_slots, trusted_regions)` incoming-query OOD gate,
   with durable aiwonder evidence under
   `/home/croyse/calyx/data/fsv-issue275-ph37-t07-20260609-8b71024`.
-- **Post-sweep note.** PH37 blindspot tasks still open after #275: #277
-  required-slot derivation from Assay load-bearing bits, and #278 Lodestar
-  kernel-near guard priority.
+- **Post-sweep note.** PH37 T08 (#277) adds storage-agnostic required-slot
+  derivation from `Panel.slots[*].bits_about[anchor]` using the inclusive
+  0.05-bit load-bearing threshold, with explicit manual override and durable
+  aiwonder evidence under
+  `/home/croyse/calyx/data/fsv-issue277-ph37-t08-20260609-e75ade1`.
+- **Post-sweep note.** PH37 blindspot #278 Lodestar kernel-near guard priority
+  remains open.
 - **Deliverables.** `guard.rs` (`cos(produced_k, matched_k) ≥ τ_k`),
   `GuardProfile { tau: Map<SlotId,f32>, required_slots, policy, calibration,
   novelty_action }`, per-slot verdict breakdown.
