@@ -101,6 +101,41 @@ as PH09 writes constellations.*
   the checkpoint rows were in the same group-commit batch as the triggering
   ingest rows at
   `/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`.
+- **Post-sweep note.** PH36 T04 (#252) adds content-addressed reproduce
+  re-measure plumbing: recorded lens identity, input-hash validation, Forge
+  determinism activation, and fail-closed mismatch handling. Aiwonder FSV is
+  backed at
+  `/home/croyse/calyx/data/fsv-issue252-reproduce-20260609`.
+- **Post-sweep note.** PH36 T05 (#253) adds fusion replay/drift assertion and
+  `ReproduceResult` assembly. Aiwonder FSV wrote a `reproduce_v1` ledger row
+  with `reproduced=true`, `max_drift=0.0`, and intact chain readback at
+  `/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`.
+- **Post-sweep note.** PH36 T06 (#254) adds quarantine-aware
+  `get_provenance`, `get_answer_trace`, and `audit(filter)` surfaces. Aiwonder
+  FSV proved complete Kernel/Guard/Answer traces, unprovenanced partial traces,
+  and quarantined range fail-closed behavior at
+  `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`.
+- **Post-sweep note.** PH36 T07 (#255) integrates flip-byte tamper detection
+  and reproduce bit-parity in one PH36 exit bundle. Aiwonder FSV flipped ledger
+  seq 11, wrote manifest quarantine `0..20`, denied readback for seq 11, and
+  reproduced answer score bytes exactly at
+  `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`.
+- **Post-sweep note.** Stage 7 exit #256 rolls PH35-PH36 into one evidence
+  bundle. Aiwonder readback at
+  `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock` proves 100
+  Aster writes with 100 chained ledger rows, failure-atomic group commit,
+  all 10 `EntryKind` values, append-only delete/tombstone rejection,
+  physical redaction grep clean, three Admin checkpoint rows, seq 11
+  quarantine after tamper, reproduce `max_drift=0.0` through real
+  `calyx-registry` lenses and `calyx-forge` TurboQuant determinism, and
+  complete/partial audit trace behavior. Key hashes: `stage7-exit.log`
+  `3c9b2e9d5ca2c925bca52f6d0d0f3fcf0377900e56728c0c85f3c2e81505ad5e`,
+  `ledger-appender-readback.json`
+  `f6bc6713f91eb93be892c468c09deaa57678ece07f1ffcea77018758e9b72299`,
+  `ph36-fsv-integration-readback.json`
+  `c53bda82248727fe8f79334a2cf180890082929153e429bebae2ab1ce779af57`,
+  and `audit-query-readback.json`
+  `153aab69eabd70801d7d7c7a542dc46178a189c1ec340487a6dd9dfef51a52f2`.
 - **FSV gate.** flip one ledger byte → `verify_chain` detects the break **at the
   right seq**; `reproduce(answer)` on a real answer is **bit-parity within
   tolerance** (read both).
@@ -113,3 +148,6 @@ Calyx is auditable to the byte — every vector/bit/kernel/guard/answer traces t
 its grounded source and replays to prove it was measured, not made up — PRD
 `PROVENANCE`. Every "trusted" surface elsewhere must be backed by a Ledger entry
 or it is tagged `unprovenanced`.
+
+**Status:** DONE / FSV-signed-off through #256. Stage 8 Ward is the active
+frontier.

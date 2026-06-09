@@ -121,7 +121,7 @@ fn ph35_ledger_appender_aiwonder_fsv() {
         FixedClock::new(55),
     )
     .expect("open disk appender");
-    append_sample_entries(&mut appender, 5);
+    append_sample_entries(&mut appender, EntryKind::ALL.len());
     let after_append = appender.scan_entries().expect("scan after append");
     drop(appender);
 
@@ -150,7 +150,7 @@ fn ph35_ledger_appender_aiwonder_fsv() {
     );
     let json_path = root.join("ledger-appender-readback.json");
     fs::write(&json_path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();
-    let range_path = root.join("ledger-range-0-5.txt");
+    let range_path = root.join("ledger-range-0-10.txt");
     fs::write(&range_path, range_text(&rows)).unwrap();
 
     println!("PH35_APPENDER_FSV_ROOT={}", root.display());
@@ -159,10 +159,11 @@ fn ph35_ledger_appender_aiwonder_fsv() {
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
 
     assert_eq!(before_rows, 0);
-    assert_eq!(after_append.len(), 5);
-    assert_eq!(reopened_entries.len(), 5);
-    assert_eq!(rows.len(), 5);
+    assert_eq!(after_append.len(), EntryKind::ALL.len());
+    assert_eq!(reopened_entries.len(), EntryKind::ALL.len());
+    assert_eq!(rows.len(), EntryKind::ALL.len());
     assert_eq!(readback["chain_ok"], true);
+    assert_eq!(readback["all_kinds_present"], true);
     assert_eq!(
         readback["delete_error"],
         "CALYX_LEDGER_APPEND_ONLY_VIOLATION"
@@ -324,13 +325,7 @@ fn sample_entry(seq: u64, prev_hash: [u8; 32], kind: EntryKind) -> LedgerEntry {
 }
 
 fn sample_kind(index: usize) -> EntryKind {
-    match index % 5 {
-        0 => EntryKind::Ingest,
-        1 => EntryKind::Measure,
-        2 => EntryKind::Assay,
-        3 => EntryKind::Kernel,
-        _ => EntryKind::Admin,
-    }
+    EntryKind::ALL[index % EntryKind::ALL.len()]
 }
 
 fn build_readback(
@@ -348,6 +343,7 @@ fn build_readback(
         "reopened_rows": reopened_entries.len(),
         "row_files": rows.iter().map(|row| format!("{:016x}.ledger", row.seq)).collect::<Vec<_>>(),
         "seqs": rows.iter().map(|row| row.seq).collect::<Vec<_>>(),
+        "kinds": reopened_entries.iter().map(|entry| entry.kind.as_str()).collect::<Vec<_>>(),
         "rows": reopened_entries.iter().enumerate().map(|(index, entry)| {
             json!({
                 "seq": entry.seq,
@@ -359,6 +355,7 @@ fn build_readback(
             })
         }).collect::<Vec<_>>(),
         "chain_ok": chain_ok(reopened_entries),
+        "all_kinds_present": all_kinds_present(reopened_entries),
         "delete_error": delete_error,
         "tombstone_error": tombstone_error,
         "tombstone_marker_files": tombstone_marker_files,
@@ -370,6 +367,12 @@ fn chain_ok(entries: &[LedgerEntry]) -> bool {
         index == 0 && entry.prev_hash == [0; 32]
             || index > 0 && entry.prev_hash == entries[index - 1].entry_hash
     })
+}
+
+fn all_kinds_present(entries: &[LedgerEntry]) -> bool {
+    EntryKind::ALL
+        .iter()
+        .all(|kind| entries.iter().any(|entry| entry.kind == *kind))
 }
 
 fn range_text(rows: &[LedgerRow]) -> String {

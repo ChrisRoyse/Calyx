@@ -45,6 +45,9 @@ Kernel/Guard trace rows, and unprovenanced partial answer protection.
 The PH36 exit FSV integration bundle is implemented and FSV-signed-off through
 #255 with flip-byte tamper detection at seq 11, manifest quarantine, and
 reproduce bit-parity readback.
+Stage 7 exit rollup #256 is also FSV-signed-off, covering PH35-PH36 end to end
+with group-commit atomicity, all 10 `EntryKind` values, redaction, Admin
+checkpoints, tamper quarantine, reproduce bit-parity, and audit trace readback.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -115,6 +118,21 @@ Readback proved `CALYX_LEDGER_CHAIN_BROKEN at seq=11`, manifest quarantine
 `0..20` with `broken_at_seq=11`, denied readback for ledger seq 11, and
 reproduce `reproduced=true`, `max_drift=0.0`, identical original/reproduced
 score bytes `4f71c93c` and `8c31c63c`, with an intact four-row reproduce ledger.
+
+Latest Stage 7 exit rollup evidence (#256): aiwonder FSV at
+`/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock` wrote
+`stage7-exit.log` with SHA-256
+`3c9b2e9d5ca2c925bca52f6d0d0f3fcf0377900e56728c0c85f3c2e81505ad5e`,
+`ledger-appender-readback.json` with SHA-256
+`f6bc6713f91eb93be892c468c09deaa57678ece07f1ffcea77018758e9b72299`,
+`ph36-exit-fsv/ph36-fsv-integration-readback.json` with SHA-256
+`c53bda82248727fe8f79334a2cf180890082929153e429bebae2ab1ce779af57`,
+and `audit-query-surface/audit-query-readback.json` with SHA-256
+`153aab69eabd70801d7d7c7a542dc46178a189c1ec340487a6dd9dfef51a52f2`.
+Manual physical readback also captured appender ledger row `xxd`, reproduce
+Admin row `xxd`, real `calyx-registry` lens IDs, real `calyx-forge`
+TurboQuant deterministic seed IDs, group-commit SST/WAL `xxd`, clean redaction
+grep, and seq 11 readback failure with `CALYX_LEDGER_CHAIN_BROKEN`.
 
 ## Risks / landmines
 

@@ -51,7 +51,7 @@ T06 (#239) adds PH35-backed Lodestar provenance APIs:
 fail-closed `CALYX_LEDGER_*` error surfacing. Physical ledger row, decoded JSON,
 hex, and secret-scan readbacks are FSV-backed at
 `/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`.
-Full PH36 trace/reproduce remains in #252-#255.
+Full PH36 trace/reproduce is closed in #252-#255.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -62,7 +62,7 @@ Full PH36 trace/reproduce remains in #252-#255.
 | `crates/calyx-lodestar/src/loom_assoc.rs` | read Loom XTerm CF agreement rows through `LoomStore`, require slot→CxId bindings + directional confidence, and emit CxId `AgreementEdge` inputs for Mincut/Lodestar |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
 | `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(...) -> RecallReport` for report-only warning bytes; `kernel_recall_gate(...) -> RecallReport` for fail-closed acceptance when ratio < 0.95 |
-| `crates/calyx-lodestar/src/provenance.rs` | PH35-backed `kind=Kernel` / `kind=Answer` Ledger append helpers for build and answer paths (#239); PH36 trace/reproduce remains separate |
+| `crates/calyx-lodestar/src/provenance.rs` | PH35-backed `kind=Kernel` / `kind=Answer` Ledger append helpers for build and answer paths (#239); PH36 trace/reproduce is closed separately in Stage 7 |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 

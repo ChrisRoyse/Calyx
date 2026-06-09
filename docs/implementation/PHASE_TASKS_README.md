@@ -11,11 +11,10 @@ for the structure under `docs/implementation/PHnn-*/`.
 > FSV-signed-off on aiwonder, including post-sweep hardening through #340 and
 > Registry/Sextant integration #339.
 > Active implementation is tracked in GitHub issues: Stage 6 Lodestar is closed
-> through #240 plus readiness follow-ups #331-#332, while Stage 7 Ledger
-> continues at PH36 reproduce/audit work after PH35 #242-#248, PH35
-> failure-atomicity hardening #345, PH36 T01 #249, range-bound signature
-> hardening #347, real Aster `merkle-root --vault` hardening #348, and
-> verify_chain/quarantine #250, and checkpoint scheduler #251.
+> through #240 plus readiness follow-ups #331-#332. Stage 7 Ledger is closed
+> through #256 after PH35 #242-#248, PH35 failure-atomicity hardening #345,
+> PH36 #249-#255, and the Stage 7 exit rollup. Stage 8 Ward starts at #258
+> under epic #257, with exit #280.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

@@ -109,12 +109,11 @@ mod tests {
 
     #[test]
     fn aster_batch_uses_big_endian_ledger_keys() {
-        let mut rows = Vec::new();
-        rows.push(WriteRow {
+        let rows = [WriteRow {
             cf: ColumnFamily::Ledger,
             key: ledger_key(7),
             value: b"entry".to_vec(),
-        });
+        }];
 
         assert_eq!(rows[0].cf, ColumnFamily::Ledger);
         assert_eq!(rows[0].key, ledger_key(7));

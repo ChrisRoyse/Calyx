@@ -18,7 +18,7 @@ evidence row containing `kernel_id`, `members_hash`, MFVS approximation factor,
 recall ratio, and graph sequence. `kernel_answer_with_ledger` stamps every hop
 with a real `LedgerRef` from an appended `kind=Answer` row.
 
-Full audit query and reproduce surfaces remain PH36 work (#252-#255); this card
+Full audit query and reproduce surfaces are closed in PH36 work (#252-#255); this card
 does not claim PH36 trace/reproduce completion.
 
 ## Build

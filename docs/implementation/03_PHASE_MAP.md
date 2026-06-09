@@ -20,9 +20,10 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, durable rollback #321, lifecycle idempotency/backfill-cancel #327, and Registry->Aster->Sextant integration/determinism proof #339 are FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, PH23/PH24 GPU overclaim #299 now fails loud, and stored-provenance qrels/integration #339 is FSV-backed |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, Aster-backed Loom materialization gate #319, and Loom/Assay contract-hardening #340 are FSV-backed |
-| S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce remains Stage 7) |
-| S7 Ledger | PH35–PH36 | ▶ **ACTIVE** (PH35 T01-T07 done/FSV-signed-off; PH36 next) |
-| S8–S20 | PH37–PH72 | · pending |
+| S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
+| S7 Ledger | PH35–PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256) |
+| S8 Ward | PH37–PH39 | ▶ **ACTIVE** (next issue #258 under epic #257; exit #280) |
+| S9–S20 | PH40–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
 Latest roots:
@@ -115,6 +116,17 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`,
   `/home/croyse/calyx/data/fsv-issue247-ledger-actor-ts-20260608`,
   `/home/croyse/calyx/data/fsv-issue248-ledger-integration-smoke-20260608`
+- Stage 7 Ledger PH36 and exit:
+  `/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`,
+  `/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`,
+  `/home/croyse/calyx/data/fsv-issue348-merkle-vault-real-aster-cf-20260609`,
+  `/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`,
+  `/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`,
+  `/home/croyse/calyx/data/fsv-issue252-reproduce-20260609`,
+  `/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`,
+  `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
+  `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`,
+  `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`
 
 ---
 
@@ -227,17 +239,17 @@ Latest roots:
 |---|---|---|---|---|---|---|
 | PH31 | mincut/paths: graph build + SCC + betweenness | PH27 | mincut/paths | P5/`08` | SCC condensation + betweenness match reference on planted graph | ✅ FSV |
 | PH32 | Kernel-graph (~10%) + directed MFVS (~1%) | PH31 | lodestar | P5/A10 | algorithm finds planted feedback-vertex-set on synthetic graph | ✅ FSV |
-| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall >= 0.95*full on >=3 real corpora; gaps listed; below-gate recall fails closed | FSV, including #331/#332; PH36 trace/reproduce remains separate |
+| PH33 | Kernel index + kernel_answer + grounding_gaps | PH32 | lodestar | P5/A11 | kernel-only recall >= 0.95*full on >=3 real corpora; gaps listed; below-gate recall fails closed | FSV, including #331/#332; PH36 trace/reproduce closed separately in Stage 7 |
 | PH34 | Multi-scope kernel | PH33 | lodestar | A21 | kernel built at ≥4 scopes, each measured recall reported | Done / FSV (#238) |
 
-## Stage 7 - Ledger provenance (`17_STAGE7_LEDGER.md`) - ACTIVE
+## Stage 7 - Ledger provenance (`17_STAGE7_LEDGER.md`) - DONE / FSV
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate |
 |---|---|---|---|---|---|
 | PH35 | Hash-chain append-only CF (in group-commit) | PH09 | ledger | P7/A15 | every mutation writes a chained entry in the WAL group-commit; chain verifies |
 | PH36 | Merkle checkpoints + verify_chain + reproduce() | PH35 | ledger | P7 | flip a byte → `verify_chain` detects break at right seq; `reproduce` bit-parity |
 
-## Stage 8 — Ward guard  (`18_STAGE8_WARD.md`)
+## Stage 8 — Ward guard  (`18_STAGE8_WARD.md`) - ACTIVE
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate |
 |---|---|---|---|---|---|

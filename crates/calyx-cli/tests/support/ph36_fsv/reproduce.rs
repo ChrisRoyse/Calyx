@@ -1,27 +1,35 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use calyx_core::{FixedClock, Input, LensId, Modality, SlotId, SlotVector};
+use calyx_core::{CalyxError, FixedClock, Input, LensId, Modality, SlotId, SlotVector};
+use calyx_forge::{QuantLevel, Quantizer, TurboQuantCodec, new_seed, seed_id_hex};
 use calyx_ledger::{
     ActorId, DirectoryLedgerStore, EntryKind, ForgeBackend, FusionMode, FusionWeights, HitRef,
-    LedgerAppender, LedgerCfStore, LedgerRow, QueryId, RecordedSlot, ReproduceInputResolver,
-    ReproduceLensRegistry, SlotWeight, SubjectId, VerifyResult, decode,
-    reproduce_with_input_resolver, verify_chain,
+    LedgerAppender, LedgerCfStore, LedgerRow, QueryId, RecordedSlot, RemeasuredSlot,
+    ReproduceInputResolver, ReproduceLensRegistry, SlotWeight, SubjectId, VerifyResult, decode,
+    reproduce_with_input_resolver, rerun_fusion, verify_chain,
 };
+use calyx_registry::{AlgorithmicLens, Registry};
 use serde_json::{Value, json};
 
-use super::common::{cx, dense, hex, hit, reset_dir};
+use super::common::{cx, hex, reset_dir};
 
 pub fn run_reproduce_fsv(root: &Path) -> Value {
     let ledger_dir = root.join("reproduce-ledger-cf");
     reset_dir(&ledger_dir);
-    let (slots, answer_id, fusion, original_hits) = scenario();
+    let scenario = scenario();
     let before_rows = DirectoryLedgerStore::open(&ledger_dir)
         .unwrap()
         .scan()
         .unwrap()
         .len();
-    write_answer_ledger(&ledger_dir, &slots, &answer_id, &fusion, &original_hits);
+    write_answer_ledger(
+        &ledger_dir,
+        &scenario.slots,
+        &scenario.answer_id,
+        &scenario.fusion,
+        &scenario.original_hits,
+    );
     let before_reproduce_rows = DirectoryLedgerStore::open(&ledger_dir)
         .unwrap()
         .scan()
@@ -29,12 +37,17 @@ pub fn run_reproduce_fsv(root: &Path) -> Value {
         .len();
 
     let mut store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
-    let registry = MockRegistry::from_slots(&slots);
-    let resolver = Resolver::from_slots(&slots);
-    let mut forge = MockForge::default();
-    let result =
-        reproduce_with_input_resolver(&mut store, &registry, &mut forge, &resolver, &answer_id)
-            .unwrap();
+    let registry = scenario.registry;
+    let resolver = Resolver::from_slots(&scenario.slots);
+    let mut forge = DeterministicForge::default();
+    let result = reproduce_with_input_resolver(
+        &mut store,
+        &registry,
+        &mut forge,
+        &resolver,
+        &scenario.answer_id,
+    )
+    .unwrap();
     let rows = store.scan().unwrap();
     let admin = decode(&rows[3].bytes).unwrap();
     let admin_payload: Value = serde_json::from_slice(&admin.payload).unwrap();
@@ -44,14 +57,23 @@ pub fn run_reproduce_fsv(root: &Path) -> Value {
         "before_rows": before_rows,
         "before_reproduce_rows": before_reproduce_rows,
         "after_reproduce_rows": rows.len(),
-        "answer_id_hex": hex(&answer_id),
+        "answer_id_hex": hex(&scenario.answer_id),
         "result": result,
         "admin_payload": admin_payload,
         "original_score_bytes_hex": score_bytes_hex(&result.original_hits),
         "reproduced_score_bytes_hex": score_bytes_hex(&result.reproduced_hits),
         "row_hashes": row_hashes(&rows),
         "chain": chain_readback(&store, rows.len() as u64),
-        "forge_seeds": forge.seeds,
+        "registry": {
+            "kind": "calyx-registry",
+            "lens_ids": registry_lens_ids(&scenario.slots),
+            "weights_sha256": registry_weight_hashes(&scenario.slots),
+        },
+        "forge": {
+            "kind": "calyx-forge-turboquant-determinism",
+            "seeds": forge.seeds,
+            "seed_ids": forge.seed_ids,
+        },
     })
 }
 
@@ -109,52 +131,80 @@ where
 }
 
 #[derive(Default)]
-struct MockForge {
+struct DeterministicForge {
     seeds: Vec<u64>,
+    seed_ids: Vec<String>,
 }
 
-impl ForgeBackend for MockForge {
+impl ForgeBackend for DeterministicForge {
     fn activate_determinism(&mut self, seed: u64) -> calyx_core::Result<()> {
+        let rotation = new_seed(16, &seed.to_le_bytes());
+        let codec =
+            TurboQuantCodec::new(rotation.clone(), QuantLevel::Bits3p5).map_err(map_forge)?;
+        let vector = deterministic_vector(seed);
+        let encoded = codec.encode(&vector).map_err(map_forge)?;
+        let decoded = codec.decode(&encoded).map_err(map_forge)?;
+        if decoded.len() != vector.len() {
+            return Err(CalyxError::forge_numerical_invariant(format!(
+                "decoded determinism vector len {} != {}",
+                decoded.len(),
+                vector.len()
+            )));
+        }
+        let replay = TurboQuantCodec::new(rotation, QuantLevel::Bits3p5).map_err(map_forge)?;
+        let encoded_again = replay.encode(&vector).map_err(map_forge)?;
+        if encoded != encoded_again {
+            return Err(CalyxError::forge_numerical_invariant(
+                "TurboQuant deterministic seed replay changed encoded bytes",
+            ));
+        }
         self.seeds.push(seed);
+        self.seed_ids.push(seed_id_hex(&encoded.seed_id));
         Ok(())
     }
 }
 
-#[derive(Default)]
-struct MockRegistry {
-    weights: BTreeMap<LensId, [u8; 32]>,
-    vectors: BTreeMap<LensId, SlotVector>,
+struct FrozenRegistry {
+    inner: Registry,
 }
 
-impl MockRegistry {
-    fn from_slots(slots: &[RecordedSlot]) -> Self {
+impl FrozenRegistry {
+    fn new() -> Self {
         Self {
-            weights: slots
-                .iter()
-                .map(|slot| (slot.lens_id, slot.weights_sha256))
-                .collect(),
-            vectors: slots
-                .iter()
-                .map(|slot| (slot.lens_id, vector_for_slot(slot.slot_id)))
-                .collect(),
+            inner: Registry::new(),
         }
     }
-}
 
-impl ReproduceLensRegistry for MockRegistry {
-    fn frozen_weights_sha256(&self, lens_id: LensId) -> calyx_core::Result<[u8; 32]> {
-        self.weights.get(&lens_id).copied().ok_or_else(|| {
-            calyx_core::CalyxError::lens_frozen_violation(format!(
-                "lens {lens_id} has no frozen snapshot"
-            ))
-        })
+    fn register_algorithmic(&mut self, name: String, input: &Input) -> (LensId, [u8; 32]) {
+        let lens = AlgorithmicLens::byte_features(name, Modality::Text);
+        let contract = lens.contract().clone();
+        let lens_id = contract.lens_id();
+        let weights_sha256 = contract.weights_sha256();
+        self.inner
+            .register_frozen_with_probe(lens, contract, input)
+            .unwrap();
+        (lens_id, weights_sha256)
     }
 
-    fn measure_frozen(&self, lens_id: LensId, _input: &Input) -> calyx_core::Result<SlotVector> {
-        self.vectors
-            .get(&lens_id)
-            .cloned()
-            .ok_or_else(|| calyx_core::CalyxError::lens_unreachable("missing vector"))
+    fn measure(&self, lens_id: LensId, input: &Input) -> SlotVector {
+        self.inner.measure(lens_id, input).unwrap()
+    }
+}
+
+impl ReproduceLensRegistry for FrozenRegistry {
+    fn frozen_weights_sha256(&self, lens_id: LensId) -> calyx_core::Result<[u8; 32]> {
+        self.inner
+            .frozen_contract(lens_id)
+            .map(|contract| contract.weights_sha256())
+            .ok_or_else(|| {
+                calyx_core::CalyxError::lens_frozen_violation(format!(
+                    "lens {lens_id} has no frozen snapshot"
+                ))
+            })
+    }
+
+    fn measure_frozen(&self, lens_id: LensId, input: &Input) -> calyx_core::Result<SlotVector> {
+        self.inner.measure(lens_id, input)
     }
 }
 
@@ -182,42 +232,61 @@ impl ReproduceInputResolver for Resolver {
     }
 }
 
-fn scenario() -> (Vec<RecordedSlot>, QueryId, FusionWeights, Vec<HitRef>) {
-    let candidates = vec![cx(1), cx(2)];
-    let slots = vec![recorded_slot(0), recorded_slot(1)];
+struct Scenario {
+    registry: FrozenRegistry,
+    slots: Vec<RecordedSlot>,
+    answer_id: QueryId,
+    fusion: FusionWeights,
+    original_hits: Vec<HitRef>,
+}
+
+fn scenario() -> Scenario {
+    let mut registry = FrozenRegistry::new();
+    let slots = (0..2)
+        .map(|slot| recorded_slot(slot, &mut registry))
+        .collect::<Vec<_>>();
+    let candidates = (1..=16).map(cx).collect::<Vec<_>>();
     let fusion = FusionWeights {
         mode: FusionMode::WeightedRrf,
         k: 2,
-        candidates: candidates.clone(),
+        candidates,
         weights: vec![slot_weight(0, 1.0), slot_weight(1, 0.5)],
         single_slot: None,
     };
-    let original_hits = vec![
-        hit(candidates[0], rrf(1.0, 1) + rrf(0.5, 1)),
-        hit(candidates[1], rrf(1.0, 2) + rrf(0.5, 2)),
-    ];
-    (slots, b"ph36-fsv-answer".to_vec(), fusion, original_hits)
+    let remeasured = slots
+        .iter()
+        .map(|slot| RemeasuredSlot {
+            cx_id: slot.cx_id,
+            slot_id: slot.slot_id,
+            lens_id: slot.lens_id,
+            input_hash: slot.input_hash,
+            forge_seed: slot.forge_seed,
+            vector: registry.measure(slot.lens_id, slot.input.as_ref().unwrap()),
+        })
+        .collect::<Vec<_>>();
+    let original_hits = rerun_fusion(&remeasured, &fusion).unwrap();
+    Scenario {
+        registry,
+        slots,
+        answer_id: b"ph36-fsv-answer".to_vec(),
+        fusion,
+        original_hits,
+    }
 }
 
-fn recorded_slot(slot: u16) -> RecordedSlot {
+fn recorded_slot(slot: u16, registry: &mut FrozenRegistry) -> RecordedSlot {
     let input = Input::new(Modality::Text, format!("ph36-fsv-slot-{slot}").into_bytes());
+    let (lens_id, weights_sha256) =
+        registry.register_algorithmic(format!("ph36-fsv-algorithmic-{slot}"), &input);
     RecordedSlot {
         cx_id: cx((slot + 10) as u8),
         slot_id: SlotId::new(slot),
-        lens_id: LensId::from_bytes([0xa0 | slot as u8; 16]),
-        weights_sha256: [0x40 | slot as u8; 32],
+        lens_id,
+        weights_sha256,
         input_hash: *blake3::hash(&input.bytes).as_bytes(),
         corpus_shard_hash: None,
         forge_seed: 0xDEAD_BEEF,
         input: Some(input),
-    }
-}
-
-fn vector_for_slot(slot: SlotId) -> SlotVector {
-    match slot.get() {
-        0 => dense(&[0.9, 0.7]),
-        1 => dense(&[0.8, 0.6]),
-        _ => dense(&[]),
     }
 }
 
@@ -250,6 +319,23 @@ fn slot_weight(slot: u16, weight: f32) -> SlotWeight {
     }
 }
 
-fn rrf(weight: f32, rank: usize) -> f32 {
-    weight / (rank as f32 + 60.0)
+fn registry_lens_ids(slots: &[RecordedSlot]) -> Vec<String> {
+    slots.iter().map(|slot| slot.lens_id.to_string()).collect()
+}
+
+fn registry_weight_hashes(slots: &[RecordedSlot]) -> Vec<String> {
+    slots.iter().map(|slot| hex(&slot.weights_sha256)).collect()
+}
+
+fn deterministic_vector(seed: u64) -> Vec<f32> {
+    (0..16)
+        .map(|idx| {
+            let byte = seed.rotate_left(idx as u32).to_le_bytes()[0];
+            (f32::from(byte) + 1.0) / 257.0
+        })
+        .collect()
+}
+
+fn map_forge(error: calyx_forge::ForgeError) -> CalyxError {
+    CalyxError::forge_numerical_invariant(error.to_string())
 }

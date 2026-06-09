@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CxId, SlotVector, VaultId};
+use calyx_core::{CxId, VaultId};
 use calyx_ledger::HitRef;
 
 pub fn reset_dir(dir: &Path) {
@@ -17,13 +17,6 @@ pub fn fsv_root() -> PathBuf {
 
 pub(super) fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
-}
-
-pub(super) fn dense(scores: &[f32]) -> SlotVector {
-    SlotVector::Dense {
-        dim: scores.len() as u32,
-        data: scores.to_vec(),
-    }
 }
 
 pub fn hit(cx_id: CxId, score: f32) -> HitRef {

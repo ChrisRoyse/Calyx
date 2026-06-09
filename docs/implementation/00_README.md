@@ -218,9 +218,9 @@ anchored/provisional groundedness, and incremental re-eval hook. FSV root:
 real-corpora recall. T01-T05 are closed with aiwonder evidence, including
 kernel-only recall on SciFact text, live Calyx code, and Cora graph under
 `/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) is
-closed with PH35 Ledger append/readback evidence; PH36 trace/reproduce work
-remains tracked in Stage 7 (#249-#256). T08 #331 and T09 #332 are signed off
-with aiwonder evidence under the issue roots above.
+closed with PH35 Ledger append/readback evidence; PH36 trace/reproduce work is
+closed in Stage 7 (#249-#256). T08 #331 and T09 #332 are signed off with
+aiwonder evidence under the issue roots above.
 
 **Stage 6 / PH34 T06: >=4 distinct scopes on a real corpus is DONE.** PH34 T01
 scope materialization, T02 scope cache, T03 scoped dispatch/reports, T04
@@ -229,10 +229,12 @@ are closed with aiwonder readbacks under
 `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. `KERNEL_ANY` is satisfied
 for PH34. Stage 6 exit #240 is signed off.
 
-**Stage 7 / PH35-PH36 current:** PH35 #242-#248 plus hardening #345 are
+**DONE — Stage 7 Ledger (PH35-PH36).** PH35 #242-#248 plus hardening #345 are
 FSV-signed-off. PH36 T01 #249, range-bound signature hardening #347, real
 Aster `calyx merkle-root --vault` hardening #348, verify_chain/quarantine
-#250, and checkpoint scheduler #251 are FSV-signed-off under
+#250, checkpoint scheduler #251, reproduce re-measure #252, reproduce fusion
+#253, audit query surface #254, PH36 integration #255, and Stage 7 exit #256
+are FSV-signed-off under
 `/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`,
 `/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`,
 and
@@ -240,10 +242,15 @@ and
 and
 `/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`,
 and
-`/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`.
-PH36 reproduce and audit surfaces remain tracked in #252-#256.
+`/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`,
+`/home/croyse/calyx/data/fsv-issue252-reproduce-20260609`,
+`/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`,
+`/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
+`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, and
+`/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`. Stage 8 Ward is
+the active frontier: start at #258 under epic #257; exit #280.
 
-**Remaining:** Open phases **PH36-PH72** are laid out as atomic task cards in the
+**Remaining:** Open phases **PH37-PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
 FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
 state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,
