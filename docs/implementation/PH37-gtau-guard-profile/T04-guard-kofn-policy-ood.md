@@ -17,6 +17,24 @@ least `k` of the required slots individually pass their `τ`. When `k >
 required_slots.len()`, fail closed with `CALYX_GUARD_POLICY_VIOLATION` (not
 a panic). All-slot per-slot verdicts are still returned in every case.
 
+## Post-implementation note
+
+Implemented in `crates/calyx-ward/src/guard.rs` and
+`crates/calyx-ward/tests/guard_kofn.rs` in commit
+`bd35e1e40a02b14ff20d9b287620d6e1aa761207`. `guard()` now supports
+`GuardPolicy::KofN { k }`, returns `WardError::PolicyViolation` when `k` exceeds
+the unique required-slot count, and keeps full per-slot verdicts for pass/fail
+policy outcomes. `guard_result()` is exported from `calyx-ward` and wraps any
+non-passing verdict in `WardError::Ood` with the failing slot details.
+
+aiwonder FSV root:
+`/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`. Readback
+artifacts include `kofn-k2-pass-verdict.json`, `kofn-k3-fail-verdict.json`,
+`kofn-k0-pass-verdict.json`, `guard-result-ood-error.json`,
+`policy-violation-error.json`, and `kofn-fsv.log`. Separate readback used
+`xxd`, `sha256sum`, parsed JSON, and source inspection of
+`crates/calyx-ward/src/guard.rs` and `crates/calyx-ward/tests/guard_kofn.rs`.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] In `guard()`, after computing per-slot verdicts, branch on

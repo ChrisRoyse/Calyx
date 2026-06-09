@@ -29,8 +29,9 @@ deterministically. aiwonder FSV wrote and read back JSON artifacts under
 PH37 T02 (#259) adds `SlotVerdict`, `GuardVerdict`, and `WardError` with typed
 fail-closed codes in `calyx-ward::{verdict,error}`. PH37 T03 (#260) adds
 `calyx-ward::guard` with `ProducedSlots`, `MatchedSlots`, `DEFAULT_TAU`, and
-the `AllRequired` per-slot Forge cosine gate. KofN/OOD wrapper and no-average
-enforcement remain pending for T04-T06.
+the `AllRequired` per-slot Forge cosine gate. PH37 T04 (#261) adds `KofN`
+policy handling and `guard_result()` OOD wrapping. No-average enforcement and
+the phase FSV harness remain pending for T05-T06.
 
 Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
 (PH22) and Forge cosine (PH13); those dependency surfaces are already Stage 1-2
