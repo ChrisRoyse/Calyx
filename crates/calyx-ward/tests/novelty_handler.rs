@@ -115,6 +115,15 @@ fn passing_verdict_is_not_a_novelty_failure() {
 }
 
 #[test]
+fn guard_id_mismatch_fails_before_sink_write() {
+    let sink = MemorySink::default();
+    let error = guard_id_mismatch_error(&sink);
+
+    assert_eq!(error.code(), "CALYX_GUARD_ID_MISMATCH");
+    assert!(sink.records().is_empty());
+}
+
+#[test]
 #[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_NOVELTY_FSV_DIR"]
 fn novelty_handler_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_NOVELTY_FSV_DIR")
@@ -137,6 +146,8 @@ fn novelty_handler_fsv_fixture_writes_readback_artifacts() {
         handle_action(&FailingSink, NoveltyAction::RejectClosed).expect_err("reject sink error");
     let not_failure_sink = MemorySink::default();
     let not_failure_error = passing_verdict_error(&not_failure_sink);
+    let mismatch_sink = MemorySink::default();
+    let mismatch_error = guard_id_mismatch_error(&mismatch_sink);
 
     write_json(&root, "new-region-record.json", &awaiting);
     write_json(&root, "quarantine-record.json", &quarantined);
@@ -164,6 +175,14 @@ fn novelty_handler_fsv_fixture_writes_readback_artifacts() {
     );
     write_json(
         &root,
+        "guard-id-mismatch-error.json",
+        &json!({
+            "records_after": mismatch_sink.records().len(),
+            "error": error_json(&mismatch_error),
+        }),
+    );
+    write_json(
+        &root,
         "case-summary.json",
         &json!({
             "new_region_status": awaiting.status,
@@ -176,6 +195,8 @@ fn novelty_handler_fsv_fixture_writes_readback_artifacts() {
             "sink_reject_error_code": sink_reject_error.code(),
             "not_failure_error_code": not_failure_error.code(),
             "not_failure_records_after": not_failure_sink.records().len(),
+            "guard_id_mismatch_error_code": mismatch_error.code(),
+            "guard_id_mismatch_records_after": mismatch_sink.records().len(),
             "new_region_uuid": awaiting.novel_id.to_string(),
         }),
     );
@@ -275,6 +296,16 @@ fn passing_verdict_error(sink: &MemorySink) -> WardError {
         .expect_err("not a failure")
 }
 
+fn guard_id_mismatch_error(sink: &MemorySink) -> WardError {
+    let (profile, produced, matched) = scenario(NoveltyAction::NewRegion);
+    let mut verdict = guard(&profile, &produced, &matched, false).expect("failing verdict");
+    verdict.guard_id = other_guard_id();
+
+    handler_for(sink.clone())
+        .handle(&profile, &verdict, &produced)
+        .expect_err("guard id mismatch")
+}
+
 fn error_json(error: &WardError) -> serde_json::Value {
     json!({
         "code": error.code(),
@@ -290,6 +321,12 @@ fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
 
 fn guard_id() -> GuardId {
     GUARD_UUID.parse().expect("guard id")
+}
+
+fn other_guard_id() -> GuardId {
+    "118f48a4-9a79-74d2-8a5c-9ad7f6b8c101"
+        .parse()
+        .expect("other guard id")
 }
 
 const fn slot(value: u16) -> SlotId {
