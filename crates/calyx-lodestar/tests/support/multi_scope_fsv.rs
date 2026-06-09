@@ -14,7 +14,11 @@ use calyx_paths::AssocGraph;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::real_corpora::{CorpusCase, STAMP, write_json};
+use crate::real_corpora::{
+    CorpusCase, STAMP,
+    recall_tuning::{RecallTuningReport, tuning_report},
+    write_json,
+};
 
 #[path = "multi_scope_fsv/union_check.rs"]
 mod union_check;
@@ -82,7 +86,8 @@ struct ScopeRun {
     case: ScopeCase,
     kernel: Kernel,
     scoped_rows: Vec<RecallQuery>,
-    raw_kernel_size: usize,
+    raw_members: Vec<CxId>,
+    raw_recall: RecallReport,
     exhaustive_expansion: bool,
 }
 
@@ -95,6 +100,7 @@ struct ScopeJson {
     exhaustive_expansion: bool,
     report: ScopeKernelReport,
     recall: RecallReport,
+    recall_tuning: RecallTuningReport,
 }
 
 pub fn run(home: &Path, corpus: &CorpusCase) -> RunSummary {
@@ -109,7 +115,7 @@ pub fn run(home: &Path, corpus: &CorpusCase) -> RunSummary {
     let mut runs = Vec::new();
 
     for (idx, case) in scope_cases().into_iter().enumerate() {
-        let raw = build_scoped(&store, case.scope.clone(), idx as u64 + 1, &mut cache);
+        let mut raw = build_scoped(&store, case.scope.clone(), idx as u64 + 1, &mut cache);
         let scoped_graph = materialize_scope(&case.scope, &store).expect("scope graph");
         let scoped_rows = rows_for_graph(&rows, &scoped_graph);
         let recall_params = RecallTestParams {
@@ -126,13 +132,17 @@ pub fn run(home: &Path, corpus: &CorpusCase) -> RunSummary {
             embeddings: &embeddings,
             params: &recall_params,
         };
+        let mut raw_members: BTreeSet<_> = raw.members.iter().copied().collect();
+        raw_members.extend((raw_members.is_empty()).then_some(scoped_rows[0].cx_id));
+        apply_members(&mut raw, &ctx, &raw_members);
         let (kernel, exhaustive) = tune_to_gate(raw.clone(), &ctx);
         assert_gate(&case, &kernel.recall);
         runs.push(ScopeRun {
             case,
             kernel,
             scoped_rows,
-            raw_kernel_size: raw.members.len(),
+            raw_members: raw.members.clone(),
+            raw_recall: raw.recall.clone(),
             exhaustive_expansion: exhaustive,
         });
     }
@@ -203,10 +213,17 @@ fn write_scope_reports(
                 corpus_name,
                 scope_name: report.scope_name.clone(),
                 row_count: run.scoped_rows.len(),
-                raw_kernel_size: run.raw_kernel_size,
+                raw_kernel_size: run.raw_members.len(),
                 exhaustive_expansion: run.exhaustive_expansion,
                 report: report.clone(),
                 recall: run.kernel.recall.clone(),
+                recall_tuning: tuning_report(
+                    Some(&run.raw_recall),
+                    &run.kernel.recall,
+                    &run.raw_members,
+                    &run.kernel.members,
+                    run.case.min_recall,
+                ),
             },
         );
         println!("PH34_SCOPE_JSON={}", path.display());
@@ -384,19 +401,8 @@ fn build_scoped(
 }
 
 fn assert_gate(case: &ScopeCase, recall: &RecallReport) {
-    assert!(
-        recall.ratio >= case.min_recall,
-        "{} recall {} below {}",
-        case.name,
-        recall.ratio,
-        case.min_recall
-    );
-    assert!(
-        recall.warning.is_none(),
-        "{} warning {:?}",
-        case.name,
-        recall.warning
-    );
+    assert!(recall.ratio >= case.min_recall);
+    assert!(recall.warning.is_none());
 }
 
 fn assert_variation(reports: &[ScopeKernelReport]) {
