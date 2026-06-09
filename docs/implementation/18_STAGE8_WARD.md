@@ -84,7 +84,8 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
 - **Post-sweep note.** PH38 T03 (#266) adds `NoveltyHandler`, `NovelId`,
   `NoveltyRecord`, `NoveltyStatus`, the object-safe `VaultSink`, and
-  `novel_regions()` routing for `NewRegion`, `Quarantine`, and `RejectClosed`.
+  `novel_regions()` readback for `AwaitingGrounding` new-region records.
+  Quarantine and reject evidence must use durable `novel_records()` readback.
   Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`.
 - **Post-sweep hardening.** #350 makes `NoveltyHandler` fail closed with

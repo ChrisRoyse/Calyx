@@ -78,8 +78,8 @@ Two proofs on aiwonder:
 
 2. **Style injection quarantined:** an injection prompt designed to break
    persona lands outside τ on the style slots; `NoveltyHandler` routes to
-   `Quarantine`; `NoveltyRecord.status == Quarantined` readable from vault CF.
-   Read via `calyx readback` or `xxd`.
+   `Quarantine`; `NoveltyRecord.status == Quarantined` is readable from the
+   durable sink's `novel_records()` output. Read via `calyx readback` or `xxd`.
 
 Both durable readbacks and their hashes are attached to the PH39 GitHub issue.
 
