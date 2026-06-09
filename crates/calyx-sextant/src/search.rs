@@ -373,6 +373,7 @@ impl SearchEngine {
             });
         for hit in hits {
             if let Some(cx) = self.docs.get(&hit.cx_id) {
+                hit.event_time_secs = i64::try_from(cx.created_at).ok();
                 hit.provenance = cx.provenance.clone();
                 hit.provenance_source = ProvenanceSource::Stored;
             } else if require_stored {

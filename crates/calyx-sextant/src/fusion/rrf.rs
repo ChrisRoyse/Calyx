@@ -88,6 +88,7 @@ fn fuse_with_weights(
                 cx_id,
                 score,
                 rank: idx + 1,
+                event_time_secs: None,
                 per_lens,
                 cross_terms_used: false,
                 guard: None,

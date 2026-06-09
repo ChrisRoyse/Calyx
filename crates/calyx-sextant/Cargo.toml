@@ -15,3 +15,6 @@ rand_chacha.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 zeroize = "1"
+
+[dev-dependencies]
+proptest.workspace = true

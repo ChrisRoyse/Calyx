@@ -85,6 +85,8 @@ pub struct Hit {
     pub cx_id: CxId,
     pub score: f32,
     pub rank: usize,
+    #[serde(default)]
+    pub event_time_secs: Option<i64>,
     pub per_lens: Vec<PerLensContribution>,
     pub cross_terms_used: bool,
     pub guard: Option<HitGuardEvidence>,
