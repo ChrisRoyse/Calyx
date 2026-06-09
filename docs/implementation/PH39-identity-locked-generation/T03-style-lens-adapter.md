@@ -21,48 +21,73 @@ the style slot, enabling quarantine. The paper's result: emergent zero-shot
 transfer to Golden-Age Spanish demonstrates the lens measures voice/register
 generalizably (`09 §5b`).
 
+## Pinned aiwonder style model
+
+Selected model: `AnnaWegmann/Style-Embedding`, revision
+`d7d0f5ca829316a8f5695e49dfce80b86db5e76c`. This is the published
+content-independent style representation model (RoBERTa + sentence-transformer
+mean pooling), not a generic semantic-only placeholder. Runtime files are pinned
+on aiwonder under `/home/croyse/calyx/models/style/`.
+
+| Artifact | SHA-256 |
+|---|---|
+| `style-embed-v1.onnx` | `fc3c80ead2e4ceef693fa67756f2e0f920fee7df326a565286b34d68d7a170af` |
+| `tokenizer.json` | `82139106e603ee4e1d5bc99d056ccbed5a92bc24848b1b5a7137c26e00d0dbf6` |
+| `config.json` | `2ed20b6297d7f5652f3a381221ce42cc592b7ebde6b61e3604df385904224311` |
+| `tokenizer_config.json` | `72824f8b68a49929f38b29c0d2e6f7664ea68846b5447791fc83bf1ad1778127` |
+| `vocab.json` | `ed19656ea1707df69134c4af35c8ceda2cc9860bf2c3495026153a133670ab5e` |
+| `merges.txt` | `fe36cab26d4f4421ed725e10a2e9ddb7f799449c603a96e7f29b5a3c82a95862` |
+| `special_tokens_map.json` | `378eb3bf733eb16e65792d7e3fda5b8a4631387ca04d2015199c4d4f22ae554d` |
+
+Source weight readback: `source/pytorch_model.bin` SHA-256
+`3186cd80660a7169a911bace4d54416cf5771a319a22f84c3a79a961ecb0c6f5`.
+Runtime tensor contract: inputs `input_ids:int64[batch,sequence]` and
+`attention_mask:int64[batch,sequence]`; output
+`last_hidden_state:f32[batch,sequence,768]`; adapter applies attention-mask mean
+pooling then L2 normalization. Max tokens: 512. Provider plan: CPU explicit for
+deterministic fallback/readback; CUDA fail-loud through the custom aiwonder ORT
+sm_120 provider with no silent CPU fallback. The durable source manifest is
+`/home/croyse/calyx/models/style/SOURCE.json`.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Before implementation, select and pin the real aiwonder style model:
+- [x] Before implementation, select and pin the real aiwonder style model:
       source/repo, revision, model/tokenizer file hashes, input/output tensor
       names, expected embedding dim, and CPU/GPU provider plan. Placeholder
       paths are not acceptable FSV evidence.
-- [ ] Define `StyleLens` struct:
-      `model_path: PathBuf` (pinned at
-      `/home/croyse/calyx/models/style/style-embed-v1.onnx` or candle path),
-      `runtime: StyleRuntime` (for ONNX, wrap `ort::Session` in `Mutex` because
-      `Session::run` requires `&mut self`; for Candle, use the PH19 frozen
-      runtime handle),
-      `dim: usize`,
-      `lens_id: LensId`
-- [ ] Implement `StyleLens::new(model_path: &Path, clock: &dyn Clock)
-      -> Result<Self, WardError>` — same pattern as `SpeakerLens::new`; fail
-      loud on missing model (`CALYX_WARD_MODEL_NOT_FOUND`)
-- [ ] Implement `embed_style(text: &str) -> Result<Vec<f32>, WardError>`:
+- [x] Define `StyleLens` struct:
+      `model_path: PathBuf`, `tokenizer_path: PathBuf`, frozen `lens_id`, dim,
+      and a backend seam; production backend wraps an `ort::Session` in
+      `Mutex` because `Session::run` requires mutable access.
+- [x] Implement `StyleLens::new(model_path: &Path) -> Result<Self, WardError>`
+      — same pattern as `SpeakerLens::new`; fail loud on missing model or
+      tokenizer (`CALYX_WARD_MODEL_NOT_FOUND`).
+- [x] Implement `embed_style(text: &str) -> Result<Vec<f32>, WardError>`:
       - Tokenize with a bundled BPE vocab (or call PH19 tokenizer); max 512 tokens
       - Run forward pass; extract style/register embedding; L2-normalize
       - Return unit-norm vec; assert `len() == dim`
-- [ ] Implement `Lens` trait (PH17) for `StyleLens`:
+- [x] Implement `Lens` trait (PH17) for `StyleLens`:
       `fn measure(&self, input: &Input) -> calyx_core::Result<SlotVector>`
       wrapping `embed_style`. Calyx `SlotId` values are numeric; the caller's
       panel maps the style identity slot to the lens output.
-- [ ] **Frozen contract:** no mutable state after construction; `// FROZEN: A4`
-- [ ] Add `embed_style_batch(texts: &[&str]) -> Result<Vec<Vec<f32>>, WardError>`
+- [x] **Frozen contract:** no mutable state after construction except the
+      runtime session mutex required by ORT.
+- [x] Add `embed_style_batch(texts: &[&str]) -> Result<Vec<Vec<f32>>, WardError>`
       for the injection batch test (T05)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: mock runtime returning a fixed dim-vec (seed=42); `embed_style`
+- [x] unit: mock runtime returning a fixed dim-vec (seed=42); `embed_style`
       returns unit-norm; assert `norm ≈ 1.0 ± 1e-5`
-- [ ] unit: same text embedded twice → identical vectors (determinism)
-- [ ] unit: in-persona text vs injection text — with a mock runtime that returns
+- [x] unit: same text embedded twice → identical vectors (determinism)
+- [x] unit: in-persona text vs injection text — with a mock runtime that returns
       close (0.92) vs far (0.38) vectors — assert cosine below τ=0.7 triggers
       a guard fail when passed to `guard()` on the style slot
-- [ ] proptest: output always unit-norm for any non-empty ASCII text
-- [ ] edge: empty text `""` → `WardError::InvalidInput` (not unit-zero vec)
-- [ ] edge: text > 512 tokens → truncated silently to 512; no panic; embedding
+- [x] proptest: output always unit-norm for any non-empty ASCII text
+- [x] edge: empty text `""` → `WardError::InvalidInput` (not unit-zero vec)
+- [x] edge: text > 512 tokens → truncated silently to 512; no panic; embedding
       returned
-- [ ] fail-closed: model absent → `WardError::ModelNotFound` containing
+- [x] fail-closed: model absent → `WardError::ModelNotFound` containing
       `CALYX_WARD_MODEL_NOT_FOUND`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
