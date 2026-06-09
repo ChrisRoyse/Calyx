@@ -14,6 +14,7 @@ pub const CALYX_GUARD_MISSING_SLOT: &str = "CALYX_GUARD_MISSING_SLOT";
 pub const CALYX_GUARD_POLICY_VIOLATION: &str = "CALYX_GUARD_POLICY_VIOLATION";
 pub const CALYX_GUARD_NOT_A_FAILURE: &str = "CALYX_GUARD_NOT_A_FAILURE";
 pub const CALYX_GUARD_NOVELTY_SINK: &str = "CALYX_GUARD_NOVELTY_SINK";
+pub const CALYX_GUARD_ID_MISMATCH: &str = "CALYX_GUARD_ID_MISMATCH";
 
 /// Fail-closed errors emitted by Ward guard policy checks.
 #[derive(Clone, Debug, PartialEq)]
@@ -45,6 +46,10 @@ pub enum WardError {
     NotAFailure {
         guard_id: GuardId,
     },
+    GuardIdMismatch {
+        profile_guard_id: GuardId,
+        verdict_guard_id: GuardId,
+    },
     NoveltySink {
         reason: String,
     },
@@ -62,6 +67,7 @@ impl WardError {
             Self::MissingSlot { .. } => CALYX_GUARD_MISSING_SLOT,
             Self::PolicyViolation { .. } => CALYX_GUARD_POLICY_VIOLATION,
             Self::NotAFailure { .. } => CALYX_GUARD_NOT_A_FAILURE,
+            Self::GuardIdMismatch { .. } => CALYX_GUARD_ID_MISMATCH,
             Self::NoveltySink { .. } => CALYX_GUARD_NOVELTY_SINK,
         }
     }
@@ -106,6 +112,13 @@ impl fmt::Display for WardError {
             Self::NotAFailure { guard_id } => write!(
                 f,
                 "{CALYX_GUARD_NOT_A_FAILURE}: guard {guard_id} verdict already passed; novelty handling requires a failed verdict"
+            ),
+            Self::GuardIdMismatch {
+                profile_guard_id,
+                verdict_guard_id,
+            } => write!(
+                f,
+                "{CALYX_GUARD_ID_MISMATCH}: profile guard {profile_guard_id} does not match verdict guard {verdict_guard_id}"
             ),
             Self::NoveltySink { reason } => {
                 write!(f, "{CALYX_GUARD_NOVELTY_SINK}: {reason}")
@@ -200,12 +213,18 @@ mod tests {
         let not_failure = WardError::NotAFailure {
             guard_id: guard_id(),
         };
+        let mismatch = WardError::GuardIdMismatch {
+            profile_guard_id: guard_id(),
+            verdict_guard_id: other_guard_id(),
+        };
         let sink = WardError::NoveltySink {
             reason: "synthetic write failure".to_string(),
         };
 
         assert_eq!(not_failure.code(), CALYX_GUARD_NOT_A_FAILURE);
         assert!(not_failure.to_string().contains("novelty handling"));
+        assert_eq!(mismatch.code(), CALYX_GUARD_ID_MISMATCH);
+        assert!(mismatch.to_string().starts_with(CALYX_GUARD_ID_MISMATCH));
         assert_eq!(sink.code(), CALYX_GUARD_NOVELTY_SINK);
         assert!(sink.to_string().contains("synthetic write failure"));
     }
@@ -246,6 +265,10 @@ mod tests {
             WardError::NotAFailure {
                 guard_id: guard_id(),
             },
+            WardError::GuardIdMismatch {
+                profile_guard_id: guard_id(),
+                verdict_guard_id: other_guard_id(),
+            },
             WardError::NoveltySink {
                 reason: "synthetic write failure".to_string(),
             },
@@ -273,6 +296,12 @@ mod tests {
 
     fn guard_id() -> GuardId {
         GUARD_UUID.parse().expect("guard id")
+    }
+
+    fn other_guard_id() -> GuardId {
+        "118f48a4-9a79-74d2-8a5c-9ad7f6b8c101"
+            .parse()
+            .expect("other guard id")
     }
 
     fn slot_verdict(slot_id: u16, cos: f32, tau: f32, pass: bool) -> SlotVerdict {

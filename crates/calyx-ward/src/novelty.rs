@@ -81,6 +81,12 @@ impl NoveltyHandler {
         verdict: &GuardVerdict,
         produced: &ProducedSlots,
     ) -> Result<NoveltyRecord, WardError> {
+        if verdict.guard_id != profile.guard_id {
+            return Err(WardError::GuardIdMismatch {
+                profile_guard_id: profile.guard_id,
+                verdict_guard_id: verdict.guard_id,
+            });
+        }
         if verdict.overall_pass {
             return Err(WardError::NotAFailure {
                 guard_id: verdict.guard_id,
