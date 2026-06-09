@@ -1,6 +1,7 @@
 //! Provenanced search hit types.
 
 use calyx_core::{CxId, LedgerRef, SlotId};
+use calyx_ward::GuardVerdict;
 use serde::{Deserialize, Serialize};
 
 use crate::util::hex32;
@@ -47,6 +48,29 @@ pub struct ExplainBreakdown {
     pub strategy: String,
     pub per_lens_count: usize,
     pub provenance_hex: String,
+    #[serde(default)]
+    pub guard_dropped: Vec<DroppedGuardHit>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HitGuardMode {
+    InRegionOnly,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HitGuardEvidence {
+    pub mode: HitGuardMode,
+    pub verdict: GuardVerdict,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DroppedGuardHit {
+    pub cx_id: CxId,
+    pub mode: HitGuardMode,
+    pub reason: String,
+    #[serde(default)]
+    pub verdict: Option<GuardVerdict>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -63,7 +87,7 @@ pub struct Hit {
     pub rank: usize,
     pub per_lens: Vec<PerLensContribution>,
     pub cross_terms_used: bool,
-    pub guard: Option<String>,
+    pub guard: Option<HitGuardEvidence>,
     pub provenance: LedgerRef,
     pub provenance_source: ProvenanceSource,
     pub freshness: FreshnessTag,
@@ -76,6 +100,7 @@ impl Hit {
             strategy: strategy.into(),
             per_lens_count: self.per_lens.len(),
             provenance_hex: hex32(&self.provenance.hash),
+            guard_dropped: Vec::new(),
         });
         self
     }

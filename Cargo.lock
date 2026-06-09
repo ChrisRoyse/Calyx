@@ -266,6 +266,7 @@ dependencies = [
  "calyx-mincut",
  "calyx-paths",
  "calyx-sextant",
+ "calyx-ward",
  "proptest",
  "serde",
  "serde_json",
@@ -341,6 +342,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "calyx-core",
+ "calyx-ward",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "serde",
@@ -365,7 +367,6 @@ version = "0.1.0"
 dependencies = [
  "calyx-core",
  "calyx-forge",
- "calyx-lodestar",
  "proptest",
  "serde",
  "serde_json",
