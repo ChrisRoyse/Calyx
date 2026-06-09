@@ -43,11 +43,12 @@ impl MerkleExportBundle {
         signing_key: &[u8; HASH_BYTES],
     ) -> Self {
         let key = SigningKey::from_bytes(signing_key);
+        let signature = sign_root(range.clone(), &root, signing_key);
         Self {
             range_start: range.start,
             range_end: range.end,
             root,
-            signature: Some(sign_root(&root, signing_key)),
+            signature: Some(signature),
             signer_pubkey: Some(key.verifying_key().to_bytes()),
         }
     }
@@ -125,9 +126,13 @@ pub fn merkle_root(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<[u8; 
     Ok(merkle_root_of_hashes(&hashes))
 }
 
-pub fn sign_root(root: &[u8; HASH_BYTES], signing_key: &[u8; HASH_BYTES]) -> [u8; SIGNATURE_BYTES] {
+pub fn sign_root(
+    range: Range<u64>,
+    root: &[u8; HASH_BYTES],
+    signing_key: &[u8; HASH_BYTES],
+) -> [u8; SIGNATURE_BYTES] {
     let key = SigningKey::from_bytes(signing_key);
-    let signature: Signature = key.sign(&signing_message(root));
+    let signature: Signature = key.sign(&signing_message(range, root));
     signature.to_bytes()
 }
 
@@ -139,13 +144,18 @@ pub fn verify_signature(bundle: &MerkleExportBundle) -> bool {
         return false;
     };
     let signature = Signature::from_bytes(signature);
-    key.verify(&signing_message(&bundle.root), &signature)
-        .is_ok()
+    key.verify(
+        &signing_message(bundle.range_start..bundle.range_end, &bundle.root),
+        &signature,
+    )
+    .is_ok()
 }
 
-fn signing_message(root: &[u8; HASH_BYTES]) -> Vec<u8> {
-    let mut message = Vec::with_capacity(MERKLE_SIGNING_DOMAIN.len() + HASH_BYTES);
+fn signing_message(range: Range<u64>, root: &[u8; HASH_BYTES]) -> Vec<u8> {
+    let mut message = Vec::with_capacity(MERKLE_SIGNING_DOMAIN.len() + 16 + HASH_BYTES);
     message.extend_from_slice(MERKLE_SIGNING_DOMAIN);
+    message.extend_from_slice(&range.start.to_be_bytes());
+    message.extend_from_slice(&range.end.to_be_bytes());
     message.extend_from_slice(root);
     message
 }

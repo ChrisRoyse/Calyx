@@ -12,7 +12,8 @@
 
 ## Status
 
-DONE / FSV-signed-off on aiwonder for #249. Implemented in
+DONE / FSV-signed-off on aiwonder for #249, with range-binding hardening tracked
+by #347. Implemented in
 `crates/calyx-ledger/src/merkle.rs` plus `calyx merkle-root` in
 `crates/calyx-cli/src/merkle.rs`. Evidence root:
 `/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`.
@@ -54,11 +55,12 @@ API from `11 §5`.
   from PH35-T02 plus an `entry_hash` offset decode); returns the Merkle root.
 - [ ] `struct MerkleExportBundle { range_start: u64, range_end: u64, root: [u8; 32], signature: Option<[u8; 64]>, signer_pubkey: Option<[u8; 32]> }` —
   serialise to canonical JSON (serde).
-- [ ] `fn sign_root(root: &[u8; 32], signing_key: &[u8; 32]) -> [u8; 64]` —
-  Ed25519 signature over `b"calyx-ledger-root-v1" ‖ root` using the `ed25519-dalek`
-  crate; `signing_key` is a 32-byte seed.
+- [x] `fn sign_root(range: Range<u64>, root: &[u8; 32], signing_key: &[u8; 32]) -> [u8; 64]` —
+  Ed25519 signature over `b"calyx-ledger-root-v1" ‖ range_start ‖ range_end ‖ root`
+  using the `ed25519-dalek` crate; `signing_key` is a 32-byte seed.
 - [ ] `fn verify_signature(bundle: &MerkleExportBundle) -> bool` — re-derive
-  verifying key from stored `signer_pubkey`; verify signature over `root`.
+  verifying key from stored `signer_pubkey`; verify signature over the exact
+  range metadata plus `root`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -68,8 +70,9 @@ API from `11 §5`.
   `combine_hash(leaf_hash([0;32]), leaf_hash([0;32]))`.
 - [ ] unit: 4-entry range with known `entry_hash` values → assert Merkle root
   matches a hard-coded golden constant (regression test for tree stability).
-- [ ] unit: sign a root with a fixed 32-byte seed → verify round-trip;
-  assert `verify_signature` returns `true`; flip one root byte → `false`.
+- [x] unit: sign a root with a fixed 32-byte seed → verify round-trip;
+  assert `verify_signature` returns `true`; flip one root byte, `range_start`,
+  or `range_end` → `false`.
 - [ ] edge (≥3): empty range → root `[0u8;32]`; single entry; 3 entries (odd
   — padding required); 1000 entries (performance must be sub-second on aiwonder).
 - [ ] fail-closed: `verify_signature` with `signature=None` → returns `false`
