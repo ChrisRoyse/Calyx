@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-09; Stage 8 active after Stage 7 #256)
+## Status (2026-06-09; Stage 8 active after #279)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, and Sextant InRegionOnly guarded search are active: #258-#268, #275-#278, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is Ledger guard provenance #279, then PH39 and exit #280 |
+| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, and Ledger-backed calibration/guard-verdict provenance are active: #258-#268, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is PH39 and exit #280 |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -101,7 +101,9 @@ and
 and
 `/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`,
 and
-`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.
+`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`,
+and
+`/home/croyse/calyx/data/fsv-issue279-ward-ledger-provenance-20260609-55fc1da`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -124,8 +126,11 @@ are also signed off; #358 preserves legacy `GuardHealth` JSON compatibility afte
 #354, #355 preserves Anneal notification retry after hook backpressure, and
 #356 requires slot-aware `Query.guard_vectors` for multi-slot InRegionOnly
 guarding. #359 adds direct readback of those query vectors and the candidate
-slot vectors. #349 hardens PH36 audit query quarantine filtering. Remaining Ward
-frontier work is Ledger guard provenance #279, then PH39, with exit #280.
+slot vectors. #349 hardens PH36 audit query quarantine filtering. #279 adds
+`calibrate_with_ledger()` and `guard_with_ledger()` wrappers that append durable
+Ledger `kind=Guard` rows for Ward calibration and guard verdicts, then read
+those rows back through PH36 audit/provenance while preserving the #349
+quarantine contract. Remaining Ward frontier work is PH39, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

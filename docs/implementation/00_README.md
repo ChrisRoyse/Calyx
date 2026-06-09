@@ -249,14 +249,14 @@ and
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`,
 `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`, and
 `/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.
-Stage 8 Ward is the active frontier: #258-#268, #275-#278, #350, #353, #357,
+Stage 8 Ward is the active frontier: #258-#268, #275-#279, #350, #353, #357,
 #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off, so PH37 is covered
 and PH38 T01-T06 plus the current drift/novelty/timestamp/injection-split/per-
 slot-calibration/serde/retry/Sextant multi-slot guard/readback/audit-query
-hardening are signed off. Blindspot #279 and PH39 remain under epic #257, and
-exit remains #280.
+hardening plus Ledger guard provenance are signed off. PH39 remains under epic
+#257, and exit remains #280.
 
-**Remaining:** Open Stage 8+ work includes **PH38-PH72**,
+**Remaining:** Open Stage 8+ work includes **PH39-PH72**,
 laid out as atomic task cards in the per-phase subdirs, governed by
 `PHASE_TASKS_README.md`, each with a byte-level FSV exit gate. Execution proceeds
 down the dependency spine (§4). Track live state in the `ChrisRoyse/Calyx`

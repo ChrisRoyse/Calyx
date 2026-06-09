@@ -77,8 +77,12 @@ evidence at `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
 #359 supplements #356 by reading back the actual query `guard_vectors` bytes,
 candidate slot-vector bytes, and missing/sparse vector error edges at
 `/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`.
-T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
-treated as fully closed.
+T07 (#279) is implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue279-ward-ledger-provenance-20260609-55fc1da`.
+It adds `calibrate_with_ledger()` and `guard_with_ledger()` wrappers that append
+Ledger `EntryKind::Guard` rows for calibration and guard verdicts, then read
+those rows back through PH36 audit/provenance while preserving the #349
+quarantine contract.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -107,7 +111,7 @@ treated as fully closed.
 | T04 | `DriftMonitor` + Anneal hook + `guard_health()` | DONE / FSV #267 |
 | T05 | FSV: injection corpus blocked >=99% at calibrated FAR + valid-novelty -> new region | DONE / FSV #268 |
 | T06 | Sextant `QueryGuard::InRegionOnly(GuardProfile)` filters hits to trusted regions | DONE / FSV #276 |
-| T07 | Ledger provenance wiring: calibration + guard verdicts as `kind=Guard` | OPEN #279 |
+| T07 | Ledger provenance wiring: calibration + guard verdicts as `kind=Guard` | DONE / FSV #279 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -177,8 +181,15 @@ candidate `0505...` has `[1.0, 0.0, 0.0]`, and missing/sparse guard-vector edges
 both return `CALYX_SEXTANT_VECTOR_SHAPE`. Evidence root:
 `/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`.
 
-**Guard provenance:** #279 must write calibration and guard verdict entries to
-the real Ledger and read them back via PH36 audit/provenance before PH38 exit.
+**Guard provenance:** #279 writes calibration and guard verdict entries to the
+real Ledger and reads them back via PH36 audit/provenance before PH38 exit. This
+is signed off at
+`/home/croyse/calyx/data/fsv-issue279-ward-ledger-provenance-20260609-55fc1da`:
+the FSV after-read lists physical `.ledger` rows `0`, `1`, and `2`, with row
+`0` tagged `ward_calibration_v1`, row `2` tagged `ward_guard_verdict_v1`,
+`audit(kind=Guard)` returning `[0,2]`, `get_provenance(cx1)` returning `[2]`,
+and a matching quarantined Guard row failing closed with
+`CALYX_LEDGER_CHAIN_BROKEN`.
 
 ## Risks / landmines
 

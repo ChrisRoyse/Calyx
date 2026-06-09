@@ -41,8 +41,10 @@ before being accepted.
       - Call `guard(identity_profile.guard_profile, produced, matched, high_stakes)`
       - On `Ok(verdict)` where `overall_pass == true`:
         - Write provenance tag `"guarded:pass"` using the real Ledger
-          provenance path from PH35/PH36, or the Guard-specific bridge added
-          by #279 if the tag needs `EntryKind::Guard` semantics.
+          provenance path from PH35/PH36 and the #279 Ward/Ledger wrapper
+          semantics (`guard_with_ledger()` / `append_guard_verdict()` with
+          `EntryKind::Guard`) when the accepted output should be auditable as a
+          Guard verdict.
         - Return `Ok(GenerateOutput::Accepted { verdict, provenance_tag: "guarded:pass".into() })`
       - On `Ok(verdict)` where `overall_pass == false` (can happen with non-high-stakes
         uncalibrated profile per PH38 T02 path):

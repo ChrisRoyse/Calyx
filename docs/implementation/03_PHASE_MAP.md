@@ -22,7 +22,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, Aster-backed Loom materialization gate #319, and Loom/Assay contract-hardening #340 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35-PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening #349 signed off) |
-| S8 Ward | PH37-PH39 | ▶ **ACTIVE** (#258-#268, #275-#278, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 signed off; PH37 complete; PH38 T06 and post-T06 hardening done; Ledger guard provenance #279, PH39, then exit #280 remain) |
+| S8 Ward | PH37-PH39 | ▶ **ACTIVE** (#258-#268, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 signed off; PH37 complete; PH38 T07 and post-T06 hardening done; PH39 then exit #280 remain) |
 | S9–S20 | PH40–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).

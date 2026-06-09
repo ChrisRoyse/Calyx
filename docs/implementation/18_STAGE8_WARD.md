@@ -2,10 +2,9 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
-PH38 T01-T06 (#264-#268, #276) are FSV-signed-off. PH37 is complete; PH38
+PH38 T01-T07 (#264-#268, #276, #279) are FSV-signed-off. PH37 is complete; PH38
 post-T06 hardening #355/#356/#359 and PH36 audit hardening #349 are signed off.
-Ledger guard provenance #279 and PH39 remain before the Ward exit can claim Stage
-8 complete. #357
+PH39 remains before the Ward exit can claim Stage 8 complete. #357
 timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
 injection split hardening,
 #354 per-slot calibration health hardening, and #358 GuardHealth serde
@@ -149,6 +148,13 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `candidate-slot-readback.json` with stored slot vectors, and edge errors for
   missing and sparse slot-aware vectors. Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`.
+- **Post-sweep note.** PH38 T07 (#279) adds Ledger provenance wrappers:
+  `calibrate_with_ledger()` appends Ward calibration provenance and
+  `guard_with_ledger()` appends `EntryKind::Guard` verdict rows for a `cx_id`.
+  PH36 audit/provenance readback lists the Guard rows while the #349 quarantine
+  contract still ignores unrelated quarantined rows and fails closed on matching
+  quarantined rows. Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue279-ward-ledger-provenance-20260609-55fc1da`.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
   slot; provenance: corpus_hash, estimator, FAR/FRR, ts, plus
   `CalibrationMeta.per_slot`), `novelty.rs`
@@ -172,7 +178,10 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   proving a two-slot survivor remains, a style-slot mismatch is dropped, and a
   multi-slot query without `guard_vectors` returns `CALYX_SEXTANT_VECTOR_SHAPE`.
   #359 supplements that proof by reading the query `guard_vectors` bytes and
-  candidate slot-vector bytes directly.
+  candidate slot-vector bytes directly. **Guard provenance** is signed off in
+  #279 with physical `.ledger` row readback, `audit(kind=Guard)` returning seqs
+  `[0,2]`, `get_provenance(cx1)` returning `[2]`, and matching quarantined Guard
+  rows failing closed with `CALYX_LEDGER_CHAIN_BROKEN`.
 - **Axioms/PRD.** A12, A2, `09 §3`, `19 §4`.
 
 ## PH39 — Identity-locked generation (speaker/style)
