@@ -9,8 +9,8 @@
 > stratified bits, n_eff stable rank, sufficiency, attribution, and assay
 > cache/store provenance. FSV root:
 > `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`; readback
-> hashes are recorded in GitHub #23 and #189. Next active stage is Lodestar
-> (`16_STAGE6_LODESTAR.md`).
+> hashes are recorded in GitHub #23 and #189. Later stage FSV has consumed
+> Stage 5 successfully; current active frontier is tracked in `03_PHASE_MAP.md`.
 > Post-sweep hardening #285 makes Loom cross-term math fail closed and adds an
 > explicit nonnegative `agreement_weight` beside raw cosine agreement for
 > Lodestar graph handoff.

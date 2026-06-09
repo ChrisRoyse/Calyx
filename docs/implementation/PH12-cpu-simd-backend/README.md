@@ -104,8 +104,8 @@ PH12 closed through GitHub issues #71-#76:
 
 The Stage 2 epic (#70) is complete and FSV-signed-off. PH12 evidence is listed
 above; the aggregate Stage 2 status is tracked in #23 and
-`12_STAGE2_FORGE.md`. Stages 3-5 have since consumed Forge successfully. The
-next active phase is PH31 (Stage 6 — Lodestar graph primitives).
+`12_STAGE2_FORGE.md`. Later stages have since consumed Forge successfully; the
+current active frontier is tracked in `../03_PHASE_MAP.md`.
 
 ## Risks / landmines
 

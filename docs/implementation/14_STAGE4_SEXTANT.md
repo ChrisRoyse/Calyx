@@ -6,8 +6,8 @@
 > and real SciFact qrels evidence. FSV root:
 > `/home/croyse/calyx/data/fsv-stage4-sextant-20260608003414`; final evidence
 > hash `796b4812a3e2ac47a6ace81934be5799514d94f7e42b28b45b265386a98b6db8`.
-> Stage 5 has consumed Sextant successfully; next active stage is Lodestar
-> (`16_STAGE6_LODESTAR.md`).
+> Later stage FSV has consumed Sextant successfully; current active frontier is
+> tracked in `03_PHASE_MAP.md`.
 > Post-sweep fail-closed hardening #282 adds duplicate-slot rejection,
 > no-lenses rejection, and distinct planner cost-cap errors for the Stage 6
 > handoff.

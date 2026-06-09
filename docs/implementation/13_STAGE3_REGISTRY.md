@@ -8,8 +8,8 @@
 > default panels + closed-form temporal lenses E2/E3/E4. Stage 3 atomic-suite
 > FSV root: `/home/croyse/calyx/data/fsv-stage3-atomic-suite-20260607231752`.
 > Build/test on aiwonder against the resident TEI services (:8088/:8089/:8090).
-> Downstream Stage 4/5 FSV consumed Registry successfully; next active stage is
-> Lodestar (`16_STAGE6_LODESTAR.md`).
+> Downstream Stage 4/5/6 FSV consumed Registry successfully; current active
+> frontier is tracked in `03_PHASE_MAP.md`.
 > Post-sweep hardening #288 carries PH22 temporal `retrieval_only` and
 > `excluded_from_dedup` flags into core `Slot` rows, not only template specs.
 > Post-sweep hardening #289 makes PH19 ONNX CUDA execution-provider
