@@ -12,6 +12,8 @@ pub const CALYX_GUARD_OOD: &str = "CALYX_GUARD_OOD";
 pub const CALYX_GUARD_PROVISIONAL: &str = "CALYX_GUARD_PROVISIONAL";
 pub const CALYX_GUARD_MISSING_SLOT: &str = "CALYX_GUARD_MISSING_SLOT";
 pub const CALYX_GUARD_POLICY_VIOLATION: &str = "CALYX_GUARD_POLICY_VIOLATION";
+pub const CALYX_GUARD_NOT_A_FAILURE: &str = "CALYX_GUARD_NOT_A_FAILURE";
+pub const CALYX_GUARD_NOVELTY_SINK: &str = "CALYX_GUARD_NOVELTY_SINK";
 
 /// Fail-closed errors emitted by Ward guard policy checks.
 #[derive(Clone, Debug, PartialEq)]
@@ -40,6 +42,12 @@ pub enum WardError {
     InvalidRequiredSlotDerivation {
         reason: &'static str,
     },
+    NotAFailure {
+        guard_id: GuardId,
+    },
+    NoveltySink {
+        reason: String,
+    },
 }
 
 impl WardError {
@@ -53,6 +61,8 @@ impl WardError {
             | Self::InvalidRequiredSlotDerivation { .. } => CALYX_GUARD_PROVISIONAL,
             Self::MissingSlot { .. } => CALYX_GUARD_MISSING_SLOT,
             Self::PolicyViolation { .. } => CALYX_GUARD_POLICY_VIOLATION,
+            Self::NotAFailure { .. } => CALYX_GUARD_NOT_A_FAILURE,
+            Self::NoveltySink { .. } => CALYX_GUARD_NOVELTY_SINK,
         }
     }
 }
@@ -93,6 +103,13 @@ impl fmt::Display for WardError {
                 f,
                 "{CALYX_GUARD_PROVISIONAL}: invalid required-slot derivation: {reason}"
             ),
+            Self::NotAFailure { guard_id } => write!(
+                f,
+                "{CALYX_GUARD_NOT_A_FAILURE}: guard {guard_id} verdict already passed; novelty handling requires a failed verdict"
+            ),
+            Self::NoveltySink { reason } => {
+                write!(f, "{CALYX_GUARD_NOVELTY_SINK}: {reason}")
+            }
         }
     }
 }
@@ -179,6 +196,21 @@ mod tests {
     }
 
     #[test]
+    fn novelty_errors_have_stable_codes() {
+        let not_failure = WardError::NotAFailure {
+            guard_id: guard_id(),
+        };
+        let sink = WardError::NoveltySink {
+            reason: "synthetic write failure".to_string(),
+        };
+
+        assert_eq!(not_failure.code(), CALYX_GUARD_NOT_A_FAILURE);
+        assert!(not_failure.to_string().contains("novelty handling"));
+        assert_eq!(sink.code(), CALYX_GUARD_NOVELTY_SINK);
+        assert!(sink.to_string().contains("synthetic write failure"));
+    }
+
+    #[test]
     #[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_ERROR_FSV_DIR"]
     fn ward_error_fsv_fixture_writes_readback_artifacts() {
         let root = std::env::var("CALYX_WARD_ERROR_FSV_DIR")
@@ -210,6 +242,12 @@ mod tests {
             WardError::InsufficientCalibrationData { n: 49, min: 50 },
             WardError::InvalidRequiredSlotDerivation {
                 reason: "no load-bearing slots for anchor",
+            },
+            WardError::NotAFailure {
+                guard_id: guard_id(),
+            },
+            WardError::NoveltySink {
+                reason: "synthetic write failure".to_string(),
             },
         ];
         let error_readback: Vec<_> = errors
