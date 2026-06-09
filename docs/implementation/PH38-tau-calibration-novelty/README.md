@@ -37,6 +37,8 @@ is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
 T03 (#266) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`.
+T04 (#267) is implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue267-ph38-t04-20260609-912b707`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -46,7 +48,9 @@ T03 (#266) is implemented and FSV-signed-off at
 | `src/novelty.rs` | `NoveltyHandler`: route FAIL to `NewRegion` / `Quarantine` / `RejectClosed`; write novel constellation to the PH09-backed Aster vault CF |
 | `src/drift.rs` | `DriftMonitor`: track rolling FAR per slot; fire Anneal hook when FAR creeps above calibrated bound; `guard_health()` |
 | `src/lib.rs` | wire new modules; re-export `calibrate`, `novelty`, `drift` |
-| `tests/calibrate_unit.rs` | deterministic calibration tests and manual aiwonder FSV fixture; novelty/drift tests land with T03/T04 |
+| `tests/calibrate_unit.rs` | deterministic calibration tests and manual aiwonder FSV fixture |
+| `tests/novelty_handler.rs` | deterministic novelty routing tests and manual aiwonder FSV fixture |
+| `tests/drift_monitor.rs` | deterministic drift-window/hook tests and manual aiwonder FSV fixture |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -55,8 +59,8 @@ T03 (#266) is implemented and FSV-signed-off at
 | T01 | Conformal τ calibration per slot — ROC + quantile | DONE / FSV #264 |
 | T02 | `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse | DONE / FSV #265 |
 | T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | DONE / FSV #266 |
-| T04 | `DriftMonitor` + Anneal hook + `guard_health()` | T03 |
-| T05 | FSV: injection corpus blocked ≥99% at calibrated FAR + valid-novelty → new region | T04 |
+| T04 | `DriftMonitor` + Anneal hook + `guard_health()` | DONE / FSV #267 |
+| T05 | FSV: injection corpus blocked ≥99% at calibrated FAR + valid-novelty → new region | T04 / NEXT #268 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

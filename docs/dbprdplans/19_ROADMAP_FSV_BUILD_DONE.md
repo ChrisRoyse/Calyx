@@ -2,12 +2,12 @@
 
 Phased build, verification discipline, performance targets, mechanical completion predicate. Scope is **Vault-only** (`15`): Calyx replaces the SQLite/`sqlite-vec` Vaults; PostgreSQL is untouched, so there is no control-plane phase. Front-loads the durable-storage core before the customer-facing Vault swap.
 
-> **Current status (2026-06-09; Stage 8 Ward active after #266): P0-P5 are DONE
+> **Current status (2026-06-09; Stage 8 Ward active after #267): P0-P5 are DONE
 > and P6 is ACTIVE.** Stages 0-7 (PH00-PH36) are implemented, pushed, and
 > FSV-signed-off on aiwonder. Stage 6 Lodestar is closed through #240 plus
 > readiness follow-ups #331/#332; Stage 7 Ledger is closed through #256; Stage
-> 8 Ward has #258-#266 and #275/#277/#278 signed off; PH37 is complete and
-> PH38 T04+ remains before Ward exit #280. Live phase status:
+> 8 Ward has #258-#267 and #275/#277/#278 signed off; PH37 is complete and
+> PH38 T05 remains before Ward exit #280. Live phase status:
 > `docs/implementation/03_PHASE_MAP.md` and
 > GitHub context issue #23.
 > The detailed per-phase build plan below lives in `docs/implementation/`.
