@@ -99,10 +99,10 @@ fn inspect_wal(dir: &Path) -> WalInspection {
         if ledger_indexes.len() == 2 {
             out.records_with_two_ledger_rows += 1;
         }
-        if let (Some(first_ledger), Some(base)) = (ledger_indexes.first(), base_index) {
-            if *first_ledger < base {
-                out.ledger_rows_before_base += 1;
-            }
+        if let (Some(first_ledger), Some(base)) = (ledger_indexes.first(), base_index)
+            && *first_ledger < base
+        {
+            out.ledger_rows_before_base += 1;
         }
     }
     out

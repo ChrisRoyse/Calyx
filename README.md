@@ -6,19 +6,21 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-09; Stage 7 active at PH36 post-#255)
+## Status (2026-06-09; Stage 8 active after Stage 7 #256)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
 including PH33 raw-vs-tuned recall #331 and kernel_answer anchor search #332.
-Stage 7 Ledger is active at PH36 checkpoint/reproduce work after PH35
+Stage 7 Ledger (PH35-PH36) is closed and FSV-signed-off after PH35
 #242-#248, PH35 failure-atomicity hardening #345, PH36 T01 #249,
 range-bound signature hardening #347, and real Aster `merkle-root --vault`
 hardening #348, verify_chain/quarantine #250, and checkpoint scheduler #251.
 PH36 reproduce re-measure #252, fusion replay/drift #253, and audit query
 surface #254 are also FSV-signed-off on aiwonder. PH36 exit FSV integration
 #255 is signed off with flip-byte tamper detection at seq 11 and reproduce
-bit-parity readback.
+bit-parity readback. Stage 7 exit rollup #256 is signed off with all 10
+`EntryKind`s, group-commit atomicity, redaction, checkpoints, tamper
+quarantine, reproduce bit-parity, and audit trace readback.
 
 Implemented engine surfaces:
 
@@ -32,6 +34,7 @@ Implemented engine surfaces:
 | `calyx-loom` / `calyx-assay` | S5 | DDA + bits: lazy cross-terms, agreement graph, abundance reports, MI/NMI/logistic estimators, differentiation contract, n_eff, sufficiency, attribution, cache provenance |
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
+| `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -54,10 +57,11 @@ and
 `/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`,
 and
 `/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`,
-`/home/croyse/calyx/data/fsv-issue252-reproduce-remeasure-20260609`,
+`/home/croyse/calyx/data/fsv-issue252-reproduce-20260609`,
 `/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`,
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`, and
-`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`.
+`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, plus
+`/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`.
 
 Remaining major engine crates (`ward`, `anneal`, `oracle`, `mcp`, `calyxd`)
 are still pending. Ledger PH35 is FSV-signed-off, including the #345
@@ -65,8 +69,8 @@ failure-atomic staging hardening; PH36 Merkle root export #249,
 range-bound signing #347, and real Aster `merkle-root --vault` #348 are signed
 off. PH36 verify_chain/quarantine #250, checkpoint scheduler #251, reproduce
 re-measure #252, reproduce fusion replay #253, and audit query surface #254
-are signed off. PH36 exit FSV integration #255 is signed off. Stage 7 exit
-rollup continues in #256.
+are signed off. PH36 exit FSV integration #255 and Stage 7 exit rollup #256
+are signed off. Stage 8 Ward starts at #258 under epic #257, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
