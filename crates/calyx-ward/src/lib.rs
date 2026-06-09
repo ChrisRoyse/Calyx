@@ -1,4 +1,8 @@
-//! Ward guard skeleton for per-slot cosine gates and policy enforcement.
+//! Ward guard profile types for per-slot cosine policy enforcement.
+
+pub mod profile;
+
+pub use profile::{CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction};
 
 #[cfg(test)]
 mod tests {
