@@ -48,8 +48,11 @@ answer through `reproduce_with_input_resolver` and proves score byte parity.
 - [x] Unit edge: flipping a seq 0 row reports `Broken { at_seq: 0 }`.
 - [x] Unit edge: flipping the final `entry_hash` field at seq 11 reports
       `Broken { at_seq: 11 }`.
-- [x] Ledger audit regression: quarantined rows are checked before decode, so
-      tampered quarantined bytes do not surface as public audit/provenance data.
+- [x] Ledger audit regression: provenance/answer-trace check quarantine before
+      returning rows, and #349 makes filtered `audit()` result-set-aware:
+      explicit `seq_range` overlap or matching/relevant quarantined rows fail
+      closed, while unrelated quarantined rows outside the filtered result set
+      do not poison the query.
 - [x] Ignored aiwonder FSV: flip-byte tamper at seq 11.
 - [x] Ignored aiwonder FSV: reproduce bit-parity with fixed `0xDEAD_BEEF`
       Forge seed and `max_drift=0.0`.

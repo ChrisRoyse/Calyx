@@ -48,12 +48,12 @@ reproduce bit-parity readback.
 Stage 7 exit rollup #256 is also FSV-signed-off, covering PH35-PH36 end to end
 with group-commit atomicity, all 10 `EntryKind` values, redaction, Admin
 checkpoints, tamper quarantine, reproduce bit-parity, and audit trace readback.
-Residual PH36 audit-query quarantine filter hardening is tracked separately in
-#349; it does not reopen the #249-#256 FSV closeouts. #349 is open and covers
-audit filters that should ignore unrelated quarantined rows while still
-failing closed for requested ranges or matching/relevant quarantined rows, plus
-typed `cx` mention matching and durable aiwonder readback of ledger rows,
-manifest quarantine records, audit request/result JSON, and a SHA-256 manifest.
+#349 signs off the residual PH36 audit-query quarantine filter hardening without
+reopening the #249-#256 FSV closeouts. Filtered audit queries ignore unrelated
+quarantined rows outside the requested result set, still fail closed for
+requested ranges or matching/relevant quarantined rows, reject physical ledger
+row-key mismatches, and use typed `cx` provenance fields instead of arbitrary
+payload string matching.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -100,7 +100,7 @@ SHA-256: `97dd9a65f4b1c4421b437247b1b2fb89d99975eae720be4521615713702bd994`.
 CLI surfacing for provenance/answer-trace/audit is covered by #254; the final
 tamper + reproduce integration bundle is covered by #255.
 
-Latest audit-query evidence (#254): CLI and Lodestar FSV at
+Latest audit-query evidence (#254, #349): CLI and Lodestar FSV at
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609` wrote:
 `audit-query-surface/audit-query-readback.json` with SHA-256
 `c72fd19bb132533ffdf613d6ca4563e97e458bd54ac4074937f07fea1c94c09d`, and
@@ -111,6 +111,13 @@ Kernel/Guard rows and no warnings, audit ingest count 3, quarantined Answer seq
 8 fail-closed with `CALYX_LEDGER_CHAIN_BROKEN`, partial hop rows
 `complete=false`, and injected mid-hop failure leaving one Answer row that
 `get_answer_trace` marks `Unprovenanced` and not trusted.
+#349 adds filter-aware audit quarantine hardening at
+`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`:
+durable Ledger SST rows were read back with seqs `[0,1,2,3,4]`; manifest
+quarantine readback proved `1..2`; `audit --kind ingest` returned seqs `[0,2]`;
+`audit --kind measure` failed with `CALYX_LEDGER_CHAIN_BROKEN`; and
+`get-provenance` returned typed/explicit cx rows `[0,4]` while ignoring arbitrary
+comment/note strings. The same root contains `sha256-manifest.txt`.
 
 Latest PH36 exit integration evidence (#255): aiwonder FSV at
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609` wrote

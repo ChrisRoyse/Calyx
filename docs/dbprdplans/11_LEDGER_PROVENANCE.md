@@ -68,6 +68,18 @@ reproduce(answer_id) -> {reproduced: bool, max_drift}                  // replay
 audit(filter) -> [LedgerEntry]                                        // who/what/when
 ```
 
+Filtered audit quarantine contract (#349): explicit `seq_range` overlap and any
+matching/relevant result row inside a quarantined range fail closed with
+`CALYX_LEDGER_CHAIN_BROKEN`; unrelated quarantined rows outside the filtered
+result set do not poison the query. Audit/provenance readers must reject
+physical ledger row keys whose sequence does not match the encoded
+`LedgerEntry.seq`.
+
+`get_provenance(cx_id)` matches typed `SubjectId::Cx(cx_id)` and explicit cx
+payload fields (`cx_id`, `from_id`, `to_id`, `source_cx_id`, `target_cx_id`,
+`nearest_cx`, `matched_cx_id`, `query_id`, `anchor_kernel_node_id`). Arbitrary
+payload strings such as comments or notes are not provenance references.
+
 ## 6. Cost & placement
 
 - Ledger is append-only and compresses well (zstd); hot recent entries on `hotpool`, archived ranges + Merkle checkpoints to `archive` cold tier and into restic.

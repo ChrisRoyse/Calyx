@@ -3,8 +3,9 @@
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
 PH38 T01-T06 (#264-#268, #276) are FSV-signed-off. PH37 is complete; PH38
-post-T06 hardening #355/#356/#359 is signed off. PH36 #349, Ledger guard provenance
-#279, and PH39 remain before the Ward exit can claim Stage 8 complete. #357
+post-T06 hardening #355/#356/#359 and PH36 audit hardening #349 are signed off.
+Ledger guard provenance #279 and PH39 remain before the Ward exit can claim Stage
+8 complete. #357
 timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
 injection split hardening,
 #354 per-slot calibration health hardening, and #358 GuardHealth serde

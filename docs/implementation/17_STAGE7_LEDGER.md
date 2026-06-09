@@ -149,10 +149,10 @@ its grounded source and replays to prove it was measured, not made up — PRD
 `PROVENANCE`. Every "trusted" surface elsewhere must be backed by a Ledger entry
 or it is tagged `unprovenanced`.
 
-**Status:** DONE / FSV-signed-off through #256. Stage 8 Ward is the active
-frontier. Residual PH36 audit-query quarantine filter hardening is tracked
-separately in #349: filtered audit queries must not fail on unrelated
-quarantined rows outside the requested result set, must still fail closed for
-requested ranges or matching/relevant quarantined rows, and must byte-prove the
-ledger rows, quarantine manifest, audit request/result JSON, and SHA-256
-manifest on aiwonder.
+**Status:** DONE / FSV-signed-off through #256 plus post-exit PH36 hardening
+#349. Stage 8 Ward is the active frontier. #349 proves filtered audit queries
+ignore unrelated quarantined rows outside the requested result set, still fail
+closed for requested ranges or matching/relevant quarantined rows, reject
+physical ledger row-key mismatches, and use typed `cx` provenance fields instead
+of arbitrary payload string matching. Evidence root:
+`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.

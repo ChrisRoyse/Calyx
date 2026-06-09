@@ -233,8 +233,8 @@ for PH34. Stage 6 exit #240 is signed off.
 FSV-signed-off. PH36 T01 #249, range-bound signature hardening #347, real
 Aster `calyx merkle-root --vault` hardening #348, verify_chain/quarantine
 #250, checkpoint scheduler #251, reproduce re-measure #252, reproduce fusion
-#253, audit query surface #254, PH36 integration #255, and Stage 7 exit #256
-are FSV-signed-off under
+#253, audit query surface #254, PH36 integration #255, Stage 7 exit #256, and
+audit-query quarantine filter hardening #349 are FSV-signed-off under
 `/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`,
 `/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`,
 and
@@ -246,14 +246,15 @@ and
 `/home/croyse/calyx/data/fsv-issue252-reproduce-20260609`,
 `/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`,
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
-`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, and
-`/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`.
+`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`,
+`/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`, and
+`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.
 Stage 8 Ward is the active frontier: #258-#268, #275-#278, #350, #353, #357,
-#351, #352, #354, #358, #355, #356, and #359 are FSV-signed-off, so PH37 is covered
+#351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off, so PH37 is covered
 and PH38 T01-T06 plus the current drift/novelty/timestamp/injection-split/per-
-slot-calibration/serde/retry/Sextant multi-slot guard/readback hardening are signed off.
-PH36 #349, blindspot #279, and PH39 remain under epic #257, and exit remains
-#280.
+slot-calibration/serde/retry/Sextant multi-slot guard/readback/audit-query
+hardening are signed off. Blindspot #279 and PH39 remain under epic #257, and
+exit remains #280.
 
 **Remaining:** Open Stage 8+ work includes **PH38-PH72**,
 laid out as atomic task cards in the per-phase subdirs, governed by

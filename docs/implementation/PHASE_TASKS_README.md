@@ -14,9 +14,9 @@ for the structure under `docs/implementation/PHnn-*/`.
 > through #240 plus readiness follow-ups #331-#332. Stage 7 Ledger is closed
 > through #256 after PH35 #242-#248, PH35 failure-atomicity hardening #345,
 > PH36 #249-#255, and the Stage 7 exit rollup. Stage 8 Ward has #258-#268,
-> #275/#276/#277/#278, #350, #353, #357, #351, #352, #354, #358, #355, #356, and #359
-> signed off; PH37 is complete and PH38 T06 plus post-T06 hardening through #359
-> are done. PH36 #349, blindspot #279, and PH39 remain under epic #257, with
+> #275/#276/#277/#278, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359,
+> and #349 signed off; PH37 is complete and PH38 T06 plus post-T06 hardening
+> through #349 are done. Blindspot #279 and PH39 remain under epic #257, with
 > exit #280.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and

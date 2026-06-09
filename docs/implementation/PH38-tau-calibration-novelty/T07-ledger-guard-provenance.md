@@ -24,7 +24,9 @@ reproducible. This is not satisfied by `CalibrationMeta` alone.
 - [ ] `guard()` / guarded call sites append `kind=Guard` verdict entries with
       guard id, candidate id, per-slot cosines, tau, pass/fail, timestamp.
 - [ ] Entries are retrievable through PH36 `get_provenance` / `audit`.
-- [ ] Guard/Ledger FSV accounts for PH36 audit filter hardening tracked in #349.
+- [ ] Guard/Ledger FSV uses the #349-signed-off audit contract: unrelated
+      quarantined rows are ignored by filtered audit, while relevant/matching
+      quarantined Guard rows still fail closed.
 
 ## FSV
 

@@ -21,11 +21,11 @@ not trusted.
 
 ## Build
 
-- [x] `pub fn get_provenance(cf_reader, quarantine, cx_id: CxId) -> Result<Vec<LedgerEntry>>` returns all entries whose subject or payload references `cx_id` (Ingest -> Measure -> Assay -> Guard -> Answer chain), and checks quarantine before returning any row.
+- [x] `pub fn get_provenance(cf_reader, quarantine, cx_id: CxId) -> Result<Vec<LedgerEntry>>` returns all entries whose typed subject or explicit cx payload fields reference `cx_id` (for example `cx_id`, `from_id`, `to_id`, `source_cx_id`, `target_cx_id`, `nearest_cx`, `matched_cx_id`, `query_id`, `anchor_kernel_node_id`), ignores arbitrary comment/note/string matches, and checks quarantine before returning any row.
 - [x] `pub fn get_answer_trace(cf_reader, quarantine, answer_id: QueryId) -> Result<AnswerTrace>` returns `answer_entry`, linked `kernel_entry` and `guard_entry`, ordered path hops, fusion weights, guard result, freshness timestamp, completeness, and warnings.
 - [x] `get_answer_trace` is all-or-nothing for trusted answer provenance: only an explicit `complete: true` Answer summary with a canonical path can be trusted; per-hop rows or unmarked paths are returned with `Unprovenanced`.
 - [x] `verify_chain`, `merkle_root`, and `reproduce` remain re-exported from their PH36 modules for the stable public API.
-- [x] `pub fn audit(cf_reader, quarantine, filter: AuditFilter) -> Result<Vec<LedgerEntry>>` filters by kind, actor, timestamp range, and sequence range, and fails closed on quarantined rows/ranges.
+- [x] `pub fn audit(cf_reader, quarantine, filter: AuditFilter) -> Result<Vec<LedgerEntry>>` filters by kind, actor, timestamp range, and sequence range. Explicit `seq_range` overlap and matching/relevant result rows fail closed on quarantine; unrelated quarantined rows outside the filtered result set do not poison the query. Physical ledger row-key/encoded-seq mismatches fail closed.
 - [x] `CalyxWarning::Unprovenanced { surface: String }` is available from `calyx-core`.
 - [x] CLI commands added: `calyx get-provenance --vault <dir> --cx <cx-id>`, `calyx get-answer-trace --vault <dir> --answer <answer-id-or-hex>`, and `calyx audit --vault <dir> --kind <kind>`.
 
@@ -35,7 +35,7 @@ not trusted.
 - [x] Unit: known complete Answer row -> `get_answer_trace(answer_id)` returns exact hop count, fusion weights, linked Kernel row, linked Guard row, and no warnings.
 - [x] Unit: `audit(AuditFilter { kind: Some(Ingest), .. })` over 10 entries (5 Ingest, 5 Measure) returns exactly 5 entries.
 - [x] Edges: missing cx returns `Ok(vec![])`; quarantined answer returns `CALYX_LEDGER_CHAIN_BROKEN`; excluded timestamp range returns `Ok(vec![])`; unmarked path rows are `Unprovenanced`.
-- [x] Fail-closed: `get_provenance`, `get_answer_trace`, and `audit` refuse quarantined rows/ranges rather than returning partial data.
+- [x] Fail-closed: `get_provenance` and `get_answer_trace` refuse quarantined rows/ranges before returning data; filtered `audit` refuses explicit `seq_range` overlap and matching/relevant quarantined rows while ignoring unrelated quarantined rows outside the result set.
 - [x] Post-Stage-5 addendum: injected `kernel_answer_with_ledger` mid-hop append failure leaves only partial hop rows, and `get_answer_trace` refuses them as complete/trusted.
 
 ## FSV
@@ -58,6 +58,7 @@ not trusted.
 - The manifest-quarantined Answer seq 8 returned `CALYX_LEDGER_CHAIN_BROKEN` immediately.
 - Partial per-hop Answer rows returned `complete=false` and `Unprovenanced`.
 - Injected `kernel_answer_with_ledger` mid-hop failure wrote 2 disk rows (Kernel + one Answer hop), returned `CALYX_LEDGER_CHAIN_BROKEN`, and `get_answer_trace` read `trace_complete=false`, `trace_trusted=false`, `trace_path_len=1`, and `Unprovenanced { surface: "answer_trace.partial_or_unmarked" }`.
+- #349 addendum: `/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553` proved a filtered `audit --kind ingest` ignores unrelated quarantined seq `1` and returns seqs `[0,2]`; `audit --kind measure` fails closed on that matching quarantined row; `get-provenance` returns typed/explicit cx rows `[0,4]` and ignores arbitrary comment/note strings; durable Ledger SST rows and `sha256-manifest.txt` were read back from aiwonder.
 
 ## Done when
 
