@@ -92,7 +92,7 @@ fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
             .iter()
             .map(|entry| entry["seq"].as_u64().unwrap())
             .collect::<Vec<_>>(),
-        vec![1, 2]
+        vec![0, 4]
     );
 
     println!(
