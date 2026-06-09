@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use calyx_core::{FixedClock, SlotId};
 use calyx_ward::{
-    GuardId, GuardPolicy, GuardProfile, MatchedSlots, NoveltyAction, NoveltyHandler, NoveltyRecord,
+    CALYX_GUARD_ID_MISMATCH, CALYX_GUARD_NOT_A_FAILURE, CALYX_GUARD_NOVELTY_SINK, GuardId,
+    GuardPolicy, GuardProfile, MatchedSlots, NoveltyAction, NoveltyHandler, NoveltyRecord,
     NoveltyStatus, ProducedSlots, VaultSink, WardError, guard, novel_regions,
 };
 use proptest::prelude::*;
@@ -83,8 +84,8 @@ fn sink_error_is_propagated_for_new_region_and_reject_closed() {
     let new_region = handle_action(&sink, NoveltyAction::NewRegion).expect_err("new region error");
     let reject = handle_action(&sink, NoveltyAction::RejectClosed).expect_err("reject error");
 
-    assert_eq!(new_region.code(), "CALYX_GUARD_NOVELTY_SINK");
-    assert_eq!(reject.code(), "CALYX_GUARD_NOVELTY_SINK");
+    assert_eq!(new_region.code(), CALYX_GUARD_NOVELTY_SINK);
+    assert_eq!(reject.code(), CALYX_GUARD_NOVELTY_SINK);
 }
 
 #[test]
@@ -110,7 +111,7 @@ fn passing_verdict_is_not_a_novelty_failure() {
         .handle(&profile, &verdict, &produced)
         .expect_err("not a failure");
 
-    assert_eq!(error.code(), "CALYX_GUARD_NOT_A_FAILURE");
+    assert_eq!(error.code(), CALYX_GUARD_NOT_A_FAILURE);
     assert!(sink.records().is_empty());
 }
 
@@ -119,8 +120,15 @@ fn guard_id_mismatch_fails_before_sink_write() {
     let sink = MemorySink::default();
     let error = guard_id_mismatch_error(&sink);
 
-    assert_eq!(error.code(), "CALYX_GUARD_ID_MISMATCH");
+    assert_eq!(error.code(), CALYX_GUARD_ID_MISMATCH);
     assert!(sink.records().is_empty());
+}
+
+#[test]
+fn novelty_error_constants_are_exported_from_crate_root() {
+    assert_eq!(CALYX_GUARD_NOT_A_FAILURE, "CALYX_GUARD_NOT_A_FAILURE");
+    assert_eq!(CALYX_GUARD_NOVELTY_SINK, "CALYX_GUARD_NOVELTY_SINK");
+    assert_eq!(CALYX_GUARD_ID_MISMATCH, "CALYX_GUARD_ID_MISMATCH");
 }
 
 #[test]
