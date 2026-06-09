@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use calyx_core::{CxId, LedgerRef};
 use calyx_lodestar::{
     AnswerHop, AnswerPath, GroundednessReport, Kernel, RecallReport, build_kernel_index,
-    kernel_answer,
+    kernel_answer, kernel_search,
 };
 use calyx_paths::AssocGraph;
 use serde_json::json;
@@ -37,6 +37,15 @@ fn embeddings() -> BTreeMap<CxId, Vec<f32>> {
     BTreeMap::from([(cx(9), vec![0.99, 0.01]), (cx(10), vec![1.0, 0.0])])
 }
 
+fn ranked_anchor_embeddings() -> BTreeMap<CxId, Vec<f32>> {
+    let mut embeddings = BTreeMap::new();
+    for seed in 1..=12 {
+        embeddings.insert(cx(seed), vec![1.0, seed as f32 * 0.001]);
+    }
+    embeddings.insert(cx(13), vec![0.0, 1.0]);
+    embeddings
+}
+
 fn chain_graph() -> AssocGraph {
     let mut builder = AssocGraph::builder();
     for seed in [10, 11, 12, 13] {
@@ -49,6 +58,14 @@ fn chain_graph() -> AssocGraph {
         .unwrap()
         .add_edge(cx(12), cx(13), 1.0)
         .unwrap();
+    builder.build()
+}
+
+fn far_rank_anchor_graph() -> AssocGraph {
+    let mut builder = AssocGraph::builder();
+    builder.add_node(cx(13), 1.0).unwrap();
+    builder.add_node(cx(200), 1.0).unwrap();
+    builder.add_edge(cx(13), cx(200), 1.0).unwrap();
     builder.build()
 }
 
@@ -123,6 +140,43 @@ fn kernel_answer_max_hops_fails_closed_and_anchor_self_path_works() {
     assert_eq!(max_hops.code(), "CALYX_PATHS_MAX_HOPS");
     assert_eq!(anchored.hops, Vec::new());
     assert_eq!(anchored.total_score, 1.0);
+}
+
+#[test]
+fn kernel_answer_finds_anchor_ranked_beyond_old_top10_window() {
+    let graph = far_rank_anchor_graph();
+    let members: Vec<_> = (1..=13).map(cx).collect();
+    let index = build_kernel_index(&kernel(members), &ranked_anchor_embeddings()).unwrap();
+    let query_vec = [1.0, 0.0];
+    let all_hits = kernel_search(&index, &query_vec, index.rows().len()).unwrap();
+    let anchor_rank = all_hits
+        .iter()
+        .position(|(cx_id, _)| *cx_id == cx(13))
+        .map(|idx| idx + 1)
+        .expect("anchor should be present in exhausted search");
+    let answer = kernel_answer(&index, &graph, cx(200), &query_vec, &[cx(13)], 1).unwrap();
+
+    println!(
+        "KERNEL_ANSWER_ANCHOR_RANK anchor_rank={} anchor={} hops={}",
+        anchor_rank,
+        answer.anchor_kernel_node,
+        answer.hops.len()
+    );
+    write_readback(
+        "anchor-rank",
+        "kernel-answer-anchor-rank.json",
+        json!({
+            "anchor_rank": anchor_rank,
+            "old_candidate_window": 10,
+            "answer": answer,
+            "hit_count": all_hits.len(),
+        }),
+    );
+
+    assert!(anchor_rank > 10);
+    assert_eq!(answer.anchor_kernel_node, cx(13));
+    assert_eq!(answer.hops.len(), 1);
+    assert_eq!(answer.hops[0].to, cx(200));
 }
 
 #[test]
