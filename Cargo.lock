@@ -365,6 +365,7 @@ version = "0.1.0"
 dependencies = [
  "calyx-core",
  "calyx-forge",
+ "calyx-lodestar",
  "proptest",
  "serde",
  "serde_json",
