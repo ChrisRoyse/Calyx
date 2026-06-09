@@ -19,6 +19,16 @@ catalog that provides `CALYX_GUARD_OOD` and `CALYX_GUARD_PROVISIONAL` as typed,
 fail-closed codes. Downstream callers always receive full decomposition even on
 an overall pass.
 
+## Post-implementation note
+
+Implemented in `crates/calyx-ward/src/verdict.rs` and
+`crates/calyx-ward/src/error.rs`, with re-exports from
+`crates/calyx-ward/src/lib.rs`. aiwonder FSV root:
+`/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`. Readback artifacts:
+`verdict.json`, `errors.json`, and `ward-error-fsv.log`; the durable JSON
+readback proves all Ward error codes and the complete per-slot verdict
+breakdown.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `SlotVerdict` struct:
@@ -70,6 +80,16 @@ an overall pass.
 - **Prove:** test stdout shows `CALYX_GUARD_OOD`, `CALYX_GUARD_PROVISIONAL`,
   `CALYX_GUARD_MISSING_SLOT` emitted by the respective error variants; no
   variant silently swallows the code
+
+**Binding FSV update after #259 implementation:** stdout is only a captured
+artifact. The SoT is a durable aiwonder evidence root
+`/home/croyse/calyx/data/fsv-issue259-ph37-t02-<date>/` containing
+`verdict.json`, `errors.json`, the captured cargo log, and SHA-256 manifest.
+Read the JSON bytes with `xxd`, parse them back, and attach the root path,
+hashes, and readback excerpts to the GitHub issue. The durable `errors.json`
+must contain `CALYX_GUARD_OOD`, `CALYX_GUARD_PROVISIONAL`,
+`CALYX_GUARD_MISSING_SLOT`, and `CALYX_GUARD_POLICY_VIOLATION`; `verdict.json`
+must contain the full per-slot pass/fail breakdown.
 
 ## Done when
 
