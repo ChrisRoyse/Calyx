@@ -31,7 +31,9 @@ fail-closed codes in `calyx-ward::{verdict,error}`. PH37 T03 (#260) adds
 `calyx-ward::guard` with `ProducedSlots`, `MatchedSlots`, `DEFAULT_TAU`, and
 the `AllRequired` per-slot Forge cosine gate. PH37 T04 (#261) adds `KofN`
 policy handling and `guard_result()` OOD wrapping. No-average enforcement and
-the phase FSV harness remain pending for T05-T06.
+PH37 T05 (#262) adds no-average/no-flatten source enforcement plus
+average-pass/slot-fail rejection readback. The phase FSV harness remains
+pending for T06.
 
 Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
 (PH22) and Forge cosine (PH13); those dependency surfaces are already Stage 1-2
@@ -47,7 +49,7 @@ non-existent helper.
 | `src/verdict.rs` | `GuardVerdict` (pass flag + `Vec<SlotVerdict { slot, cos, tau, pass }>`) |
 | `src/lib.rs` | crate root; re-exports; module wiring |
 | `src/error.rs` | `WardError` enum wrapping `CALYX_GUARD_OOD`, `CALYX_GUARD_PROVISIONAL` |
-| `tests/guard_unit.rs` | deterministic unit + property tests for the gate |
+| `tests/guard_no_flatten.rs` | deterministic unit + property tests for the no-flatten gate |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -77,6 +79,7 @@ src/guard.rs` must return empty).
   wrapper over `Backend::cosine`.
 - `SlotId` ordering across the `Map<SlotId,f32>` must be deterministic for
   bit-parity tests; use a `BTreeMap` internally.
-- `KofN` with k > required_slots.len() must fail closed, not panic.
+- `KofN` with k greater than the unique required-slot count must fail closed,
+  not panic.
 - Per-slot `(cos, tau, pass)` must be in the verdict even on overall PASS — the
   caller always gets full decomposition.

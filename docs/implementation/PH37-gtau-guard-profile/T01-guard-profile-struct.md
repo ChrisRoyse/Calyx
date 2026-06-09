@@ -10,6 +10,10 @@
 | **Axioms** | A3, A12 |
 | **PRD** | `dbprdplans/09 §4` |
 
+**STATUS:** DONE / FSV-signed-off in #258. The unchecked checklist rows below
+are historical build prompts; the authoritative evidence is the #258 closeout
+and `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`.
+
 ## Goal
 
 Define the canonical `GuardProfile` struct exactly as specified in `09 §4`,

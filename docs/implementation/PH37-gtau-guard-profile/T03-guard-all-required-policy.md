@@ -10,6 +10,10 @@
 | **Axioms** | A3, A12 |
 | **PRD** | `dbprdplans/09 §1`, `09 §2`, `09 §4` |
 
+**STATUS:** DONE / FSV-signed-off in #260. The unchecked checklist rows below
+are historical build prompts; the authoritative evidence is the #260 closeout
+and `/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`.
+
 ## Goal
 
 Implement the core `guard()` function: iterate over each required slot in the

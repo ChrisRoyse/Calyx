@@ -10,11 +10,15 @@
 | **Axioms** | A12, A16 |
 | **PRD** | `dbprdplans/09 §4` |
 
+**STATUS:** DONE / FSV-signed-off in #261. The unchecked checklist rows below
+are historical build prompts; the authoritative evidence is the #261 closeout
+and `/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`.
+
 ## Goal
 
 Extend `guard()` with `KofN { k }` policy: the constellation passes only if at
-least `k` of the required slots individually pass their `τ`. When `k >
-required_slots.len()`, fail closed with `CALYX_GUARD_POLICY_VIOLATION` (not
+least `k` of the unique required slots individually pass their `τ`. When `k >
+unique_required_slots.len()`, fail closed with `CALYX_GUARD_POLICY_VIOLATION` (not
 a panic). All-slot per-slot verdicts are still returned in every case.
 
 ## Post-implementation note
@@ -39,11 +43,11 @@ artifacts include `kofn-k2-pass-verdict.json`, `kofn-k3-fail-verdict.json`,
 
 - [ ] In `guard()`, after computing per-slot verdicts, branch on
       `profile.policy`:
-      - `AllRequired` (already in T03): `pass_count == required_slots.len()`
+      - `AllRequired` (already in T03): `pass_count == unique required slots`
       - `KofN { k }`:
-        - Guard: if `k > profile.required_slots.len()` →
+        - Guard: if `k > unique required slots` →
           `return Err(WardError::PolicyViolation { k, n_required:
-          profile.required_slots.len() })`
+          unique_required_slots.len() })`
         - `overall_pass = pass_count >= k`
 - [ ] `pass_count: usize` computed as `per_slot.iter().filter(|v| v.pass).count()`
       before the policy branch (shared for both policies)

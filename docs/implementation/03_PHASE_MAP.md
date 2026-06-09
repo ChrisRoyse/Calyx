@@ -21,8 +21,8 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, PH23/PH24 GPU overclaim #299 now fails loud, and stored-provenance qrels/integration #339 is FSV-backed |
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, Aster-backed Loom materialization gate #319, and Loom/Assay contract-hardening #340 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
-| S7 Ledger | PH35–PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256) |
-| S8 Ward | PH37-PH39 | ▶ **ACTIVE** (#258-#261 signed off; next task #262 under epic #257; exit #280) |
+| S7 Ledger | PH35–PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening tracked separately in #349) |
+| S8 Ward | PH37-PH39 | ▶ **ACTIVE** (#258-#262 signed off; next task #263 under epic #257; exit #280) |
 | S9–S20 | PH40–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -127,6 +127,12 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
   `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`,
   `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`
+- Stage 8 Ward PH37:
+  `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`,
+  `/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`,
+  `/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`,
+  `/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`,
+  `/home/croyse/calyx/data/fsv-issue262-ph37-t05-20260609-3dbe1a6`
 
 ---
 

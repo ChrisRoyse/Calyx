@@ -10,6 +10,10 @@
 | **Axioms** | A12, A16 |
 | **PRD** | `dbprdplans/09 §1`, `09 §8` |
 
+**STATUS:** DONE / FSV-signed-off in #259. The unchecked checklist rows below
+are historical build prompts; the authoritative evidence is the #259 closeout
+and `/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`.
+
 ## Goal
 
 Define the structured output types that every `guard()` call returns — a

@@ -150,4 +150,5 @@ its grounded source and replays to prove it was measured, not made up — PRD
 or it is tagged `unprovenanced`.
 
 **Status:** DONE / FSV-signed-off through #256. Stage 8 Ward is the active
-frontier.
+frontier. Residual PH36 audit-query quarantine filter hardening is tracked
+separately in #349.

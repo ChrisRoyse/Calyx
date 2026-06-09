@@ -5,7 +5,7 @@
 | **Phase** | PH37 — Gτ Guard Math + GuardProfile |
 | **Stage** | S8 — Ward Gτ Guard |
 | **Crate** | `calyx-ward` |
-| **Files** | `crates/calyx-ward/tests/guard_unit.rs` (≤500) |
+| **Files** | `crates/calyx-ward/tests/guard_ph37_fsv.rs` (≤500) |
 | **Depends on** | T05 (this phase) |
 | **Axioms** | A3, A12, A16 |
 | **PRD** | `dbprdplans/09 §1`, `09 §2`, `09 §4` |
@@ -20,7 +20,7 @@ attached to the PH37 GitHub issue.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Write `tests/guard_unit.rs` with `#[test] fn fsv_per_slot_verdict_readback`
+- [ ] Write `tests/guard_ph37_fsv.rs` with `#[test] fn fsv_per_slot_verdict_readback`
       that:
       - Constructs a `GuardProfile` with slots `["content", "style"]`,
         τ = `{"content": 0.72, "style": 0.65}`, policy `AllRequired`,
@@ -40,8 +40,9 @@ attached to the PH37 GitHub issue.
       assert the formatted string contains `"CALYX_GUARD_OOD"`
 - [ ] Write `#[test] fn fsv_no_flatten_source_check` — read
       `concat!(env!("CARGO_MANIFEST_DIR"), "/src/guard.rs")` as a string;
-      assert no non-comment line contains `"flatten"` (case-insensitive);
-      print line count; assert ≤ 500
+      require the `INVARIANT A3` marker and assert no non-comment line contains
+      aggregate-vector gate markers (`concat`, `extend_from_slice`, `.append(`,
+      `flat_map`); print line count; assert ≤ 500
 - [ ] Write `#[test] fn fsv_guard_profile_serde_roundtrip` — construct full
       `GuardProfile` with `CalibrationMeta` populated; round-trip via
       `serde_json`; assert equality; print JSON to stdout
@@ -56,8 +57,9 @@ attached to the PH37 GitHub issue.
       `overall_pass=false` and `average_would_pass=true` to stdout
 - [ ] unit: `fsv_ood_code_emitted` — formatted error string contains
       `CALYX_GUARD_OOD`
-- [ ] unit: `fsv_no_flatten_source_check` — guard.rs ≤ 500 lines; `"flatten"`
-      not present in non-comment source lines
+- [ ] unit: `fsv_no_flatten_source_check` — guard.rs ≤ 500 lines; `INVARIANT
+      A3` present; aggregate-vector gate markers absent in non-comment source
+      lines
 - [ ] unit: `fsv_guard_profile_serde_roundtrip` — original == deserialized;
       JSON printed includes all required keys
 
