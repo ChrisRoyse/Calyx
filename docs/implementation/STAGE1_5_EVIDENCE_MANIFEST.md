@@ -23,6 +23,7 @@ root.
 | PH11 | #295 | `/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608` | durable tiering FSV and gates | root_manifest_sha256 `6f40840b016efd7669ac14a8e512b6170e95a003602bff0f0675407a8bedb6cf` | Hot/cold tier policy writes and manifest/vault readbacks prove the tiered vault path. |
 | PH05-PH11 | #333 | `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608` | pre-Lodestar hardening FSV | root_manifest_sha256 `00cb83b756ca015bb7cef18f10f72c85e73a5c886c1513e293181f422bc20925` | SST body CRCs, manifest ref-hash verification, compacted-SST recovery, WAL-authoritative commit semantics, and deadline group commit are read back. |
 | PH05-PH11 | #337 | `/home/croyse/calyx/data/fsv-issue337-aster-durability-residuals-20260608` | Aster durability residual FSV | root_manifest_sha256 `824edabcb161eccdc7e66374207e40ec3326e86903df766328d6d42e6d725fb3` | Torn-tail diagnostics, compaction write-amp bound, and post-WAL router failure behavior are read back from aiwonder artifacts. |
+| PH06 | #341 | `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12` | derived slot-column materialization FSV | full_manifest_sha256 `14c3c08c7673ec9df81ae854df2a1ba10e714545b7bf877877ef0458f4cb7cd3` | Live `slot_06` row CF SST bytes read back as row codec (`CXS1` SST + dense tag `00`, not `CXA1`); derived `slot-column.cxa1` begins `CXA1`, manifest `CXSC1` lists 3 `CxId`s at dim 4, chunk SHA-256 matches, and empty/non-dense/corrupt edges fail closed. |
 
 ## Stage 2 - Forge (PH12-PH16)
 
@@ -69,7 +70,6 @@ PH05-PH30 checklist lines.
 
 | Deferral | Owner issue | Notes |
 |---|---|---|
-| Arrow/SoA slot-column or array-bundle storage replacing row-encoded slot CF as an additional materialized format | #341 | Stage 1 keeps row-encoded slot vectors as the CRUD/recovery format. |
 | Other Stage 1-5 future seams: degraded self-heal, deferred Forge catalog ops, store-backed panel activation, Sextant scale/eval/temporal/GPU fan-out extensions, and Stage 5 user-facing tooling/deficit-routing seams | #342 | Must be split before implementation; no Stage 1-5 doc should claim these are shipped without aiwonder readback. |
 
 ## Task-Card Cleanup Rule

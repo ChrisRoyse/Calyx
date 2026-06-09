@@ -188,12 +188,14 @@ cards; their current disposition follows. None block downstream stages.
    checkpoint SSTs, router flush SSTs, manifest recovery scans, vault catalog
    discovery, one-shot compaction output, and scheduler output all resolve hot
    vs archive roots through the same policy.
-5. **Explicit deferral (PH06), owner #341.** `sst/arrow.rs` (Arrow SoA column chunk) is
-   implemented + demo-wired, but slot CF values stay row-encoded via
-   `vault/encode.rs::encode_slot_vector`. Row-level slot vectors remain the
-   CRUD/recovery format for Aster; Arrow chunks belong to the later materialized
-   array-bundle/slot-column work where a batch of vectors becomes a true SoA
-   column (PRD `23 §2`).
+5. ✅ **RESOLVED — derived materialized slot-column sidecar (PH06), #341.**
+   `sst/arrow.rs` remains the `CXA1` Arrow-compatible dense chunk primitive, and
+   #341 adds `vault/slot_column.rs` to materialize dense `slot_NN` row-CF bytes
+   into a separate `slot-column.cxa1` plus `slot-column-manifest.json` sidecar.
+   Live slot CF values intentionally stay row-encoded via
+   `vault/encode.rs::encode_slot_vector`; row-level slot vectors remain the
+   CRUD/recovery source of truth for Aster. Evidence root:
+   `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`.
 6. ✅ **RESOLVED — dedicated ledger stub (PH09).** The PH35 ledger-stub row now
    lives in a dedicated `vault/ledger_stub.rs` (commit `3e6c03d`); the real
    hash-chain still lands in PH35.

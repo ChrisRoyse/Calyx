@@ -51,16 +51,21 @@ all vectors with a single pointer. This enables the SIMD-scan path in Sextant
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** Arrow column chunk bytes embedded in an SST record value.
+- **SoT:** live slot CF row bytes remain row-encoded Aster CRUD/recovery bytes;
+  the derived materialized sidecar is `slot-column.cxa1` plus
+  `slot-column-manifest.json`.
 - **Readback:**
   ```
-  xxd /home/croyse/calyx/test-vault/cf/slot_00/000001.sst | head -4
-  calyx readback --cf slot_00 --sst /home/croyse/calyx/test-vault/cf/slot_00/000001.sst
+  xxd /home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12/vault/cf/slot_06/*.sst | head -6
+  xxd /home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12/materialized/slot_06/slot-column.cxa1 | head -4
+  cat /home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12/slot-column-readback.json
   ```
-- **Prove:** The value bytes for a slot vector key begin with `43 58 41 31`
-  (`CXA1`), followed by `01 00 00 00` (version=1 LE), followed by n_rows and dim
-  as u32 LE, followed by the raw f32 bytes. `calyx readback` prints the decoded
-  vector values matching the original input.
+- **Prove:** the live `slot_06` SST value contains dense row-codec tag `00` and
+  not `CXA1`; the derived materialized chunk begins `43 58 41 31` (`CXA1`) with
+  version `01 00 00 00`, `rows=3`, `dim=4`; the manifest is `CXSC1`, lists the
+  exact `CxId` order, and its chunk SHA-256 matches the bytes. Edges read back
+  empty slot and non-dense slot as `CALYX_STALE_DERIVED`, and corrupted chunk
+  bytes as `CALYX_ASTER_CORRUPT_SHARD`.
 
 ## Done when
 

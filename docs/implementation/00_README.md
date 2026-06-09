@@ -162,10 +162,12 @@ and `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
   immutable-ref hash verification, compacted-SST recovery, WAL-authoritative
   post-append commit semantics, and group-commit deadline coalescing. Evidence
   root:
-  `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`. Remaining
-  deferrals
-  (`degraded_rebuildable`→PH44, Arrow slot columns) are tracked in
-  `11_STAGE1_ASTER.md`.
+  `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`. #341 adds
+  derived dense slot-column materialization (`slot-column.cxa1` + `CXSC1`
+  manifest) while preserving row-encoded slot CF bytes as the CRUD/recovery
+  source of truth; evidence root:
+  `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`.
+  Remaining `degraded_rebuildable` self-heal work is tracked to PH44.
 - **Stage 2** (PH12–PH16): `calyx-forge` math runtime — CPU SIMD backend
   (gemm/cosine/l2/normalize/topk, AVX-512), CUDA sm_120 backend with CPU↔GPU
   bit-parity suite (`cuda/` + `.cu` kernels), TurboQuant (rotation + scalar +

@@ -15,7 +15,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | Stage | Phases | Status |
 |---|---|---|
 | S0 Foundation | PH00–PH04 | ✅ DONE (`calyx-core`) |
-| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed; pre-Lodestar durability hardening #333 FSV-backed |
+| S1 Aster | PH05–PH11 | ✅ DONE, FSV-signed-off (`calyx-aster`); post-sweep PH11 durable tiering #295 FSV-backed; pre-Lodestar durability hardening #333 FSV-backed; #341 derived dense slot-column materialization FSV-backed |
 | S2 Forge | PH12–PH16 | ✅ DONE, FSV-signed-off (`calyx-forge`: CPU SIMD + CUDA sm_120 + TurboQuant + MXFP4/grouped GEMM + autotune); CUDA top-k large-k overclaim #303 now fails loud, CUDA normalize now uses the #306 `normalize_rows_f32` device kernel, #307 records GEMM near-zero parity by relative+absolute readback, #316 surfaces grouped GEMM execution mode with a strict fail-loud path, #333 hardens absent-slot sentinel checks with release CUDA FSV, and #338 documents shipped vs deferred Forge backend ops |
 | S3 Registry | PH17–PH22 | ✅ DONE, FSV-signed-off (`calyx-registry`: lens runtimes + frozen contract + candle/ONNX + hot-swap/backfill + durable scheduler + capability cards + default panels + temporal E2/E3/E4); PH20 durable add-lens scheduler #311, frozen registered hot-swap guard #314, atomic backfill scheduler persistence #315, durable rollback #321, lifecycle idempotency/backfill-cancel #327, and Registry->Aster->Sextant integration/determinism proof #339 are FSV-backed |
 | S4 Sextant | PH23–PH26 | ✅ DONE, FSV-signed-off (`calyx-sextant`: dense/sparse indexes + RRF/provenance + planner/explain + PH26 query filters); PH26 reranker/filter follow-ups #296/#297 are FSV-backed, #308 removes filtered-window and HNSW-update blind spots, #312 makes dense-only Pipeline fail closed, PH25 postings #322 fail closed, PH25 sparse vector readback #323 preserves original sparse IDs, PH25 Pipeline recall headroom #324 is configurable, PH26 reranker candidates #325 are zeroizing-owned, PH26 planned explain #326 integrates planner metadata with executed hits, PH20 inactive-slot gate #327 excludes parked/retired slots from search, PH23/PH24 GPU overclaim #299 now fails loud, and stored-provenance qrels/integration #339 is FSV-backed |
@@ -35,6 +35,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`
 - Stage 1-5 evidence manifest cleanup (#336):
   `/home/croyse/calyx/data/fsv-issue336-stage1-5-evidence-manifest-20260608`
+- Stage 1 Aster derived slot-column materialization (#341):
+  `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence
@@ -403,8 +405,9 @@ Latest roots:
 The PRD's mechanical `BUILD_DONE` predicate (`dbprdplans/19 §5`) is satisfied
 exactly when the corresponding gates above all pass: **CORE=PH05–PH11 ✅ (done)**,
 **MATH/COMPRESS=PH12–PH16 ✅** with ARRAYMATH foundations in place and true
-co-located array-bundle/slot-column storage still explicitly deferred from the
-Stage 1 row-encoded slot CF format, **LENS=PH17–PH22 ✅**,
+derived dense slot-column materialization shipped as a sidecar while Stage 1
+row-encoded slot CF bytes remain the CRUD/recovery source of truth,
+**LENS=PH17–PH22 ✅**,
 **SEARCH=PH23–PH26 ✅**, **DDA_BITS=PH27–PH30 ✅**,
 KERNEL/KERNEL_ANY=PH31–PH34, PROVENANCE=PH35–PH36,
 GUARD=PH37–PH39, TEMPORAL/DEDUP/RECURRENCE=PH40–PH42, SELFOPT/INTELLIGENCE=

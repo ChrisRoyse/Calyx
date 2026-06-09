@@ -30,8 +30,16 @@ Shipped in `calyx-aster`:
 
 FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root `/home/croyse/calyx/data/fsv-stage1-exit-20260607105216`.
 
-### Tracked follow-up (non-blocking)
-- The Arrow column chunk (`sst/arrow.rs`) is implemented and demo-wired but the slot CF write path currently stores slot values via `vault/encode.rs::encode_slot_vector` (a byte-exact dense/sparse/multi codec), not `ArrowColumnChunk`. Wiring slot columns onto Arrow chunks is deferred (tracked for the Forge/array-bundle work, PRD `23 §2`).
+### Post-sweep slot-column materialization
+- The live slot CF write path intentionally stores slot values via
+  `vault/encode.rs::encode_slot_vector` (a byte-exact dense/sparse/multi codec);
+  those row bytes remain Aster's CRUD/recovery source of truth.
+- #341 adds a derived dense sidecar materializer in `vault/slot_column.rs`: it
+  scans visible row-encoded `slot_NN` CF values at a pinned snapshot, validates
+  dense equal-dim rows, writes `slot-column.cxa1` (`CXA1`) plus
+  `slot-column-manifest.json` (`CXSC1`), and reads the artifact back with hash
+  verification. Evidence root:
+  `/home/croyse/calyx/data/fsv-issue341-slot-column-materialization-20260609-f515c12`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -42,6 +50,7 @@ FSV evidence: GitHub issue #23 (`[CONTEXT] You are here`); Stage-1 evidence root
 | `src/sst/bloom.rs` | Bloom filter (already present; harden with proptest) |
 | `src/sst/arrow.rs` | Arrow-layout `f32` column chunk writer/reader (SoA, ≤500 L) |
 | `src/sst/level.rs` | Multi-SST level: newest-first point lookup + ordered range merge |
+| `src/vault/slot_column.rs` | Derived dense slot-column materialization sidecar + readback |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
