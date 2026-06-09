@@ -69,7 +69,7 @@ impl AsterVault<SystemClock> {
         options: VaultOptions,
     ) -> Result<Self> {
         let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
-        let ledger_hook = ledger_hook::recover_hook(&recovery)?;
+        let ledger_hook = ledger_hook::recover_hook(&recovery, options.ledger_checkpoint.clone())?;
         let recovery_report = VaultRecoveryReport {
             last_recovered_seq: recovery.last_recovered_seq,
             torn_tail: recovery.torn_tail.clone(),
@@ -199,7 +199,10 @@ where
         };
         let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
             let staged = ledger_hook::stage_ingest(hook, &mut rows, &constellation)?;
-            constellation.provenance = staged.ledger_ref();
+            constellation.provenance = staged
+                .first()
+                .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+                .ledger_ref();
             Some(staged)
         } else {
             rows.push(encode::WriteRow {
@@ -302,6 +305,9 @@ mod ledger_integration_tests;
 
 #[cfg(test)]
 mod ledger_atomicity_tests;
+
+#[cfg(test)]
+mod ledger_checkpoint_tests;
 
 #[cfg(test)]
 mod tests;

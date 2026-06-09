@@ -5,6 +5,7 @@ mod fsv;
 mod ledger_store;
 mod merkle;
 mod ops;
+mod scan;
 mod verify;
 
 use std::env;
@@ -79,6 +80,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
             if command == "verify-chain" && vault_flag == "--vault" && range_flag == "--range" =>
         {
             verify::verify_vault(Path::new(vault), verify::parse_verify_range(range)?)
+        }
+        [command, cf_flag, cf, vault_flag, vault]
+            if command == "scan"
+                && cf_flag == "--cf"
+                && cf == "ledger"
+                && vault_flag == "--vault" =>
+        {
+            scan::scan_ledger_vault(Path::new(vault))
         }
         [command, vault_flag, vault, cf_flag, cf]
             if command == "compact" && vault_flag == "--vault" && cf_flag == "--cf" =>
@@ -302,6 +311,7 @@ fn usage() -> &'static str {
     "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
+       calyx scan --cf ledger --vault <dir>
        CALYX_LEDGER_DIR=<dir> calyx merkle-root --range <a..b>
        calyx compact --vault <dir> --cf <name>
        calyx compact-watch --vault <dir> --duration <30s|500ms>

@@ -5,17 +5,30 @@ use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault}
 use crate::sst::{SstReader, write_sst};
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
 use calyx_core::{CalyxError, Result, SlotId, SystemClock};
+use calyx_ledger::CheckpointConfig;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct VaultOptions {
     pub wal_options: WalOptions,
     pub memtable_byte_cap: usize,
     pub tiering_policy: Option<TieringPolicy>,
+    pub ledger_checkpoint: Option<CheckpointConfig>,
+}
+
+impl Default for VaultOptions {
+    fn default() -> Self {
+        Self {
+            wal_options: WalOptions::default(),
+            memtable_byte_cap: 0,
+            tiering_policy: None,
+            ledger_checkpoint: Some(CheckpointConfig::default()),
+        }
+    }
 }
 
 #[derive(Debug)]

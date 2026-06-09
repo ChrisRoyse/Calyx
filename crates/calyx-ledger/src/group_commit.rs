@@ -3,6 +3,7 @@
 use calyx_core::{CalyxError, Clock, LedgerRef, Result};
 
 use crate::append::{LedgerAppender, LedgerCfStore, MemoryLedgerStore, PreparedLedgerEntry};
+use crate::checkpoint::{CheckpointConfig, CheckpointScheduler, OverlayLedgerStore};
 use crate::entry::{ActorId, SubjectId};
 use crate::kind::EntryKind;
 
@@ -56,6 +57,7 @@ pub struct StagedLedgerRow {
     value: Vec<u8>,
     ledger_ref: LedgerRef,
     prepared: PreparedLedgerEntry,
+    checkpoint_range_end: Option<u64>,
 }
 
 impl StagedLedgerRow {
@@ -76,6 +78,7 @@ impl StagedLedgerRow {
 #[derive(Debug)]
 pub struct DefaultLedgerHook<S = MemoryLedgerStore, C = calyx_core::SystemClock> {
     appender: LedgerAppender<S, C>,
+    checkpoint: Option<CheckpointScheduler>,
 }
 
 impl<S, C> DefaultLedgerHook<S, C>
@@ -84,11 +87,39 @@ where
     C: Clock,
 {
     pub const fn new(appender: LedgerAppender<S, C>) -> Self {
-        Self { appender }
+        Self {
+            appender,
+            checkpoint: None,
+        }
+    }
+
+    pub fn with_checkpoint_config(
+        appender: LedgerAppender<S, C>,
+        config: CheckpointConfig,
+    ) -> Result<Self> {
+        let checkpoint = CheckpointScheduler::recover(config, appender.store())?;
+        Ok(Self {
+            appender,
+            checkpoint: Some(checkpoint),
+        })
+    }
+
+    pub const fn with_checkpoint_scheduler(
+        appender: LedgerAppender<S, C>,
+        checkpoint: CheckpointScheduler,
+    ) -> Self {
+        Self {
+            appender,
+            checkpoint: Some(checkpoint),
+        }
     }
 
     pub const fn appender(&self) -> &LedgerAppender<S, C> {
         &self.appender
+    }
+
+    pub const fn checkpoint(&self) -> Option<&CheckpointScheduler> {
+        self.checkpoint.as_ref()
     }
 
     pub fn stage(
@@ -107,13 +138,64 @@ where
             value: prepared.bytes().to_vec(),
             ledger_ref: prepared.ledger_ref(),
             prepared,
+            checkpoint_range_end: None,
         })
     }
 
+    pub fn stage_with_checkpoints(
+        &self,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<Vec<StagedLedgerRow>> {
+        let first = self.stage(kind, subject, payload, actor)?;
+        let range_end = first
+            .ledger_ref
+            .seq
+            .checked_add(1)
+            .ok_or_else(|| CalyxError::ledger_chain_broken("ledger sequence exhausted"))?;
+        let mut staged = vec![first];
+
+        if let Some(checkpoint) = &self.checkpoint
+            && checkpoint.should_checkpoint(range_end)
+        {
+            let overlay = OverlayLedgerStore::new(
+                self.appender.store(),
+                staged.iter().map(|row| row.prepared.clone()),
+            )?;
+            let predecessor = &staged.last().expect("staged data row").prepared;
+            let prepared = checkpoint.prepare_checkpoint_after(
+                &self.appender,
+                &overlay,
+                predecessor,
+                range_end,
+            )?;
+            staged.push(StagedLedgerRow {
+                key: ledger_batch_key(prepared.seq()),
+                value: prepared.bytes().to_vec(),
+                ledger_ref: prepared.ledger_ref(),
+                prepared,
+                checkpoint_range_end: Some(range_end),
+            });
+        }
+
+        Ok(staged)
+    }
+
     pub fn commit_staged(&mut self, staged: &StagedLedgerRow) -> Result<LedgerRef> {
-        self.appender
+        let ledger_ref = self
+            .appender
             .commit_prepared(&staged.prepared)
-            .map_err(group_commit_failed)
+            .map_err(group_commit_failed)?;
+        if let (Some(checkpoint), Some(range_end)) =
+            (self.checkpoint.as_mut(), staged.checkpoint_range_end)
+        {
+            checkpoint
+                .advance_after_checkpoint(range_end)
+                .map_err(group_commit_failed)?;
+        }
+        Ok(ledger_ref)
     }
 }
 
@@ -130,11 +212,17 @@ where
         payload: Vec<u8>,
         actor: ActorId,
     ) -> Result<LedgerRef> {
-        let staged = self.stage(kind, subject, payload, actor)?;
-        batch
-            .put_ledger_row(staged.key.clone(), staged.value.clone())
-            .map_err(group_commit_failed)?;
-        self.commit_staged(&staged)
+        let staged = self.stage_with_checkpoints(kind, subject, payload, actor)?;
+        let data_ref = staged[0].ledger_ref.clone();
+        for row in &staged {
+            batch
+                .put_ledger_row(row.key.clone(), row.value.clone())
+                .map_err(group_commit_failed)?;
+        }
+        for row in &staged {
+            self.commit_staged(row)?;
+        }
+        Ok(data_ref)
     }
 }
 
