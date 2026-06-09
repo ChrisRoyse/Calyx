@@ -96,14 +96,44 @@ fn guard_candidate(
 }
 
 fn produced_guard_slots(query: &Query, profile: &GuardProfile) -> Result<ProducedSlots> {
+    let slots = required_slots(profile);
+    let mut produced = ProducedSlots::new();
+
+    if !query.guard_vectors.is_empty() {
+        for slot in slots {
+            let vector = query.guard_vectors.get(&slot).ok_or_else(|| {
+                crate::error::sextant_error(
+                    crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                    format!("InRegionOnly guard missing slot-aware query vector:{slot}"),
+                )
+            })?;
+            let data = dense_data(Some(vector), "query").map_err(|reason| {
+                crate::error::sextant_error(
+                    crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                    format!(
+                        "InRegionOnly guard requires dense query vector for slot {slot}: {reason}"
+                    ),
+                )
+            })?;
+            produced.insert(slot, data.to_vec());
+        }
+        return Ok(produced);
+    }
+
+    if slots.len() > 1 {
+        return Err(crate::error::sextant_error(
+            crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+            "InRegionOnly guard requires slot-aware query guard vectors for multi-slot profiles",
+        ));
+    }
+
     let data = dense_data(query.vector.as_ref(), "query").map_err(|reason| {
         crate::error::sextant_error(
             crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
             format!("InRegionOnly guard requires dense query vector: {reason}"),
         )
     })?;
-    let mut produced = ProducedSlots::new();
-    for slot in required_slots(profile) {
+    for slot in slots {
         produced.insert(slot, data.to_vec());
     }
     Ok(produced)
