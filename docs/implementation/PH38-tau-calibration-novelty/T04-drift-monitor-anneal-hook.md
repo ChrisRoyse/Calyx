@@ -12,9 +12,9 @@
 
 > STATUS: DONE / FSV-signed-off in #267; metric semantics hardening signed off
 > in #351; per-slot calibration-bound hardening signed off in #354; legacy health
-> JSON serde compatibility signed off in #358. Latest implementation commit:
-> `b298497`. Durable aiwonder evidence:
-> `/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
+> JSON serde compatibility signed off in #358; retry after hook backpressure
+> signed off in #355. Latest implementation commit: `bd544a5`. Durable aiwonder
+> evidence: `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
 
 ## Goal
 
@@ -97,6 +97,9 @@ not block the guard hot path: it receives verdicts through a bounded channel.
 - **Serde compatibility evidence:** #358 readback shows legacy health JSON
   without `per_slot_calibrated_far_bound` deserializes with an empty bound map
   and reserializes with the new field present.
+- **Retry evidence:** #355 readback shows `dropped_before_retry=1`,
+  `slot3_notified_before_retry=false`, `slot3_notified_after_retry=true`, and
+  drift true both before and after retry.
 - **Evidence:** `case-summary.json`
   `805d5d32accb704caa2b22c5f268621e38f8fbd42f2bbb770d8b0501189b6c52`,
   `before-health.json`

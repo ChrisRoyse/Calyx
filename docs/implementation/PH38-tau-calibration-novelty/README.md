@@ -69,8 +69,9 @@ FSV evidence at
 #358 adds backwards-compatible serde defaulting for legacy `GuardHealth` JSON
 without `per_slot_calibrated_far_bound`, with FSV evidence at
 `/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
-Post-T06 hardening remains tracked in #355 (drift hook retry after backpressure)
-and #356 (Sextant multi-slot query guarding).
+#355 adds retry semantics after bounded Anneal hook backpressure, with FSV
+evidence at `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
+Post-T06 hardening remains tracked in #356 (Sextant multi-slot query guarding).
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -148,6 +149,11 @@ using the slot 1 FAR bound. Evidence root:
 without `per_slot_calibrated_far_bound` deserializes successfully, defaults that
 map to empty, and reserializes with the new field present. Evidence root:
 `/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
+
+**Drift hook retry:** #355 proves a full hook channel records one dropped event,
+keeps the slot in drift, and retries notification after recovery. Slot 3 is
+absent before retry and present after retry. Evidence root:
+`/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

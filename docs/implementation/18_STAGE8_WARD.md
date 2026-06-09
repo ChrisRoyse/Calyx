@@ -7,7 +7,8 @@ post-T06 hardening #355/#356, Ledger guard provenance #279, and PH39 remain
 before the Ward exit can claim Stage 8 complete. #357 timestamp unit hardening,
 #351 drift metric semantics hardening, #352 held-out injection split hardening,
 #354 per-slot calibration health hardening, and #358 GuardHealth serde
-compatibility hardening are signed off.
+compatibility hardening are signed off. #355 drift notification retry hardening
+is signed off.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -130,8 +131,12 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   that field still deserializes and reserializes with an empty bound map.
   Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
-  Close #355/#356 to tighten PH38 hook retry and Sextant multi-slot guard
-  behavior before PH38 exit.
+- **Post-sweep hardening.** #355 separates active drift state from successful
+  Anneal notification state, so a full hook channel increments `dropped_events`
+  but keeps retrying until the slot is actually notified. Durable aiwonder
+  evidence:
+  `/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`.
+  Close #356 to tighten Sextant multi-slot guard behavior before PH38 exit.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
   slot; provenance: corpus_hash, estimator, FAR/FRR, ts, plus
   `CalibrationMeta.per_slot`), `novelty.rs`
@@ -148,6 +153,9 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `1.0`, slot 2 FRR `0.0`, and hook comparison against slot 1's own bound.
   **GuardHealth serde compatibility** is signed off in #358 with legacy JSON
   readback proving the new per-slot bound map defaults to empty when absent.
+  **Drift hook retry** is signed off in #355 with before/after event readback
+  proving slot 3 is absent before channel recovery and present after retry while
+  drift remains true.
 - **Axioms/PRD.** A12, A2, `09 §3`, `19 §4`.
 
 ## PH39 — Identity-locked generation (speaker/style)
