@@ -48,7 +48,7 @@ proptest! {
     #[test]
     fn achieved_far_never_exceeds_target(
         mut bad_scores in proptest::collection::vec(0.0f32..1.0, MIN_BAD_SCORES..100),
-        target_far in 0.0f32..0.50,
+        target_far in 0.0f32..0.03,
     ) {
         bad_scores.sort_by(|left, right| left.total_cmp(right));
         let input = CalibrationInput {
@@ -141,6 +141,16 @@ fn ties_at_quantile_do_not_underreport_false_acceptance() {
 }
 
 #[test]
+fn identity_slot_rejects_looser_than_default_far() {
+    let input = calibration_input(slot(1), SlotKind::Identity, 0.05);
+
+    let error = calibrate_slot(&input, 0.05, &FixedClock::new(1)).expect_err("loose far");
+
+    assert_eq!(error.code(), "CALYX_GUARD_PROVISIONAL");
+    assert!(error.to_string().contains("target_far exceeds slot_kind"));
+}
+
+#[test]
 fn calibrate_updates_profile_with_merged_provenance() {
     let clock = FixedClock::new(1_785_400_000);
     let profile = profile_template();
@@ -205,6 +215,9 @@ fn calibrate_fsv_fixture_writes_readback_artifacts() {
         .max_by(|a, b| a.total_cmp(b))
         .expect("max bad score");
     let (zero_far_tau, zero_far_meta) = calibrate_slot(&zero_far, 0.05, &clock).expect("zero far");
+    let loose_identity = calibration_input(slot(7), SlotKind::Identity, 0.05);
+    let loose_identity_error =
+        calibrate_slot(&loose_identity, 0.05, &clock).expect_err("loose identity");
 
     write_json(
         &root,
@@ -258,16 +271,22 @@ fn calibrate_fsv_fixture_writes_readback_artifacts() {
             "far": zero_far_meta.far,
         }),
     );
+    write_json(
+        &root,
+        "loose-identity-error.json",
+        &error_json(&loose_identity_error),
+    );
 
     println!(
-        "FSV_CALIBRATE estimator={} identity_tau={:.6} style_tau={:.6} identity_far={:.6} tie_far={:.6} zero_far={:.6} insufficient_code={}",
+        "FSV_CALIBRATE estimator={} identity_tau={:.6} style_tau={:.6} identity_far={:.6} tie_far={:.6} zero_far={:.6} insufficient_code={} loose_identity_code={}",
         ESTIMATOR,
         identity_tau,
         style_tau,
         identity_meta.far,
         tie_meta.far,
         zero_far_meta.far,
-        insufficient_error.code()
+        insufficient_error.code(),
+        loose_identity_error.code()
     );
 }
 

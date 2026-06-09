@@ -138,6 +138,11 @@ fn validate_input(input: &CalibrationInput, alpha: f32) -> Result<(), WardError>
             reason: "target_far must be finite and in [0,1]",
         });
     }
+    if input.target_far > input.slot_kind.default_target_far() {
+        return Err(WardError::InvalidCalibrationInput {
+            reason: "target_far exceeds slot_kind maximum",
+        });
+    }
     Ok(())
 }
 
