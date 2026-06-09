@@ -58,9 +58,12 @@ timestamps to Unix milliseconds and is FSV-signed-off at
 #351 renames runtime drift health/event surfaces to rejection/OOD rate while
 preserving the calibrated FAR bound and is FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`.
-Post-T06 hardening remains tracked in #352 (held-out injection split), #354
-(per-slot calibration FAR/FRR health), #355 (drift hook retry after
-backpressure), and #356 (Sextant multi-slot query guarding).
+#352 makes the injection FSV report held-out `test` split block rate separately
+from train-split calibration FAR and is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`.
+Post-T06 hardening remains tracked in #354 (per-slot calibration FAR/FRR
+health), #355 (drift hook retry after backpressure), and #356 (Sextant
+multi-slot query guarding).
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -121,6 +124,12 @@ root:
 readback report runtime `rejection_rate`, while `CalibrationMeta.far` remains a
 calibrated false-accept-rate bound. Evidence root:
 `/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`.
+
+**Held-out injection split:** #352 proves PH38 T05 calibration uses the
+`train` split (`343` benign, `203` injection) and reports held-out `test`
+injection block rate separately (`60/60` blocked, `block_rate=1.0`). Evidence
+root:
+`/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

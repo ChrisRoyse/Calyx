@@ -3,9 +3,10 @@
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
 PH38 T01-T06 (#264-#268, #276) are FSV-signed-off. PH37 is complete; PH38
-post-T06 hardening #352/#354/#355/#356, Ledger guard provenance #279, and PH39
+post-T06 hardening #354/#355/#356, Ledger guard provenance #279, and PH39
 remain before the Ward exit can claim Stage 8 complete. #357 timestamp unit
-hardening and #351 drift metric semantics hardening are signed off.
+hardening, #351 drift metric semantics hardening, and #352 held-out injection
+split hardening are signed off.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -113,9 +114,13 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   rejection/OOD rate while preserving the calibrated FAR bound as the comparison
   threshold. Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`.
-  Close #352/#354/#355/#356 to tighten PH38 injection split reporting, per-slot
-  calibration health, hook retry, and Sextant multi-slot guard behavior before
-  PH38 exit.
+- **Post-sweep hardening.** #352 makes the PH38 T05 injection FSV calibrate on
+  the corpus `train` split and report held-out `test` injection block rate
+  separately from calibration FAR and whole-corpus block rate. Durable aiwonder
+  evidence:
+  `/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`.
+  Close #354/#355/#356 to tighten PH38 per-slot calibration health, hook retry,
+  and Sextant multi-slot guard behavior before PH38 exit.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
   slot; provenance: corpus_hash, estimator, FAR/FRR, ts), `novelty.rs`
   (NewRegion|Quarantine|RejectClosed), drift monitor hook (Anneal).
