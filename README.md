@@ -99,8 +99,9 @@ rows and typed `cx` mention matching. Stage 8 Ward has #258-#268,
 #275/#276/#277/#278, #350, and #353 signed off; PH37 is complete, PH38 T05 is
 proven against the real aiwonder injection corpus, PH38 T06 proves Sextant
 InRegionOnly guarded search, and #350 hardens novelty guard-id provenance.
-Remaining Ward frontier work is PH38 hardening #351/#352, Ledger guard
-provenance #279, then PH39, with exit #280.
+Remaining Ward frontier work is PH38 timestamp hardening #357, PH38 guard/FAR
+hardening #351/#352/#354/#355/#356, PH36 audit-query hardening #349, Ledger
+guard provenance #279, then PH39, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
