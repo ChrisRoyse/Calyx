@@ -69,7 +69,7 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
         deterministic)
       - `estimator = "conformal_quantile_v1"`
       - Return `(tau, CalibrationMeta { corpus_hash, estimator, far, frr,
-        confidence, ts: clock-derived microsecond timestamp })`
+        confidence, ts: clock-derived Unix millisecond timestamp })`
 - [x] Implement `calibrate(profile_template: GuardProfile,
       inputs: Vec<CalibrationInput>, alpha: f32, clock: &dyn Clock)
       -> Result<GuardProfile, WardError>`:

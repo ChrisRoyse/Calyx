@@ -83,16 +83,19 @@ impl CalibrationMeta {
         confidence: f32,
         clock: &dyn Clock,
     ) -> Self {
-        let ts_us = clock.now().saturating_mul(1_000);
         Self {
             corpus_hash,
             estimator: estimator.into(),
             far,
             frr,
             confidence,
-            ts: i64::try_from(ts_us).unwrap_or(i64::MAX),
+            ts: clock_ts_i64(clock),
         }
     }
+}
+
+fn clock_ts_i64(clock: &dyn Clock) -> i64 {
+    i64::try_from(clock.now()).unwrap_or(i64::MAX)
 }
 
 /// Configuration object read by Ward guard calls.
@@ -202,6 +205,7 @@ mod tests {
         let decoded = roundtrip(&profile);
 
         assert!(decoded.is_calibrated());
+        assert_eq!(calibration.ts, 1_785_400_000);
         assert_eq!(decoded.calibration, Some(calibration));
     }
 

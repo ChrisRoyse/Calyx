@@ -313,7 +313,7 @@ fn calibrated_profile() -> GuardProfile {
         far: 0.01,
         frr: 0.05,
         confidence: 0.99,
-        ts: 1_776_742_400_000_000,
+        ts: 1_776_742_400,
     });
     profile.novelty_action = NoveltyAction::Quarantine;
     profile

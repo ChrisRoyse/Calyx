@@ -88,14 +88,7 @@ pub fn calibrate_slot(
 
     Ok((
         tau,
-        CalibrationMeta {
-            corpus_hash,
-            estimator: ESTIMATOR.to_string(),
-            far,
-            frr,
-            confidence: 1.0 - alpha,
-            ts: clock_ts_us(clock),
-        },
+        CalibrationMeta::new(corpus_hash, ESTIMATOR, far, frr, 1.0 - alpha, clock),
     ))
 }
 
@@ -209,14 +202,14 @@ fn merge_meta(
     let hash = hasher.finalize();
     let mut corpus_hash = [0_u8; 32];
     corpus_hash.copy_from_slice(&hash);
-    Ok(CalibrationMeta {
+    Ok(CalibrationMeta::new(
         corpus_hash,
-        estimator: ESTIMATOR.to_string(),
+        ESTIMATOR,
         far,
         frr,
-        confidence: 1.0 - alpha,
-        ts: clock_ts_us(clock),
-    })
+        1.0 - alpha,
+        clock,
+    ))
 }
 
 fn corpus_hash(
@@ -259,9 +252,4 @@ fn next_above(value: f32) -> f32 {
     } else {
         f32::from_bits(value.to_bits() - 1)
     }
-}
-
-fn clock_ts_us(clock: &dyn Clock) -> i64 {
-    let ts_us = clock.now().saturating_mul(1_000);
-    i64::try_from(ts_us).unwrap_or(i64::MAX)
 }
