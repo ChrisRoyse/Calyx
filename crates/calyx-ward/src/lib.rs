@@ -3,6 +3,7 @@
 pub mod calibrate;
 pub mod drift;
 pub mod error;
+pub mod generate;
 pub mod guard;
 pub mod identity;
 pub mod ledger;
@@ -27,6 +28,9 @@ pub use error::{
     CALYX_GUARD_NOT_A_FAILURE, CALYX_GUARD_NOVELTY_SINK, CALYX_GUARD_OOD,
     CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, CALYX_WARD_INVALID_INPUT,
     CALYX_WARD_MODEL_DIM_MISMATCH, CALYX_WARD_MODEL_NOT_FOUND, CALYX_WARD_RUNTIME_ERROR, WardError,
+};
+pub use generate::{
+    GUARDED_PASS_TAG, GenerateInput, GenerateOutput, guard_generate, guard_generate_with_ledger,
 };
 pub use guard::{
     DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
