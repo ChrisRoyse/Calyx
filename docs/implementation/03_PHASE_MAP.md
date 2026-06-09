@@ -22,7 +22,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, Aster-backed Loom materialization gate #319, and Loom/Assay contract-hardening #340 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35-PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening #349 signed off) |
-| S8 Ward | PH37-PH39 | ▶ **ACTIVE** (#258-#274, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 signed off; PH37 complete; PH38 T07 and post-T06 hardening done; PH39 T01-T06 done; exit #280 remains) |
+| S8 Ward | PH37-PH39 | ✅ DONE, FSV-signed-off (#258-#280, #349, #350, #351, #352, #353, #354, #355, #356, #357, #358, and #359 signed off; exit #280 read back the full Ward surface) |
 | S9–S20 | PH40–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -127,7 +127,7 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
   `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`,
   `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`
-- Stage 8 Ward PH37:
+- Stage 8 Ward PH37-PH38:
   `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`,
   `/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`,
   `/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`,
@@ -159,6 +159,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`
   `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`
   `/home/croyse/calyx/data/fsv-issue274-ph39-t06-20260609-8e29b51-v2-cpu-ort126`
+- Stage 8 Ward exit:
+  `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`
 
 ---
 
@@ -281,7 +283,7 @@ Latest roots:
 | PH35 | Hash-chain append-only CF (in group-commit) | PH09 | ledger | P7/A15 | every mutation writes a chained entry in the WAL group-commit; chain verifies |
 | PH36 | Merkle checkpoints + verify_chain + reproduce() | PH35 | ledger | P7 | flip a byte → `verify_chain` detects break at right seq; `reproduce` bit-parity |
 
-## Stage 8 — Ward guard  (`18_STAGE8_WARD.md`) - ACTIVE
+## Stage 8 — Ward guard  (`18_STAGE8_WARD.md`) - DONE / FSV
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate |
 |---|---|---|---|---|---|

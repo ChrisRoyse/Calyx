@@ -13,11 +13,10 @@ for the structure under `docs/implementation/PHnn-*/`.
 > Active implementation is tracked in GitHub issues: Stage 6 Lodestar is closed
 > through #240 plus readiness follow-ups #331-#332. Stage 7 Ledger is closed
 > through #256 after PH35 #242-#248, PH35 failure-atomicity hardening #345,
-> PH36 #249-#255, and the Stage 7 exit rollup. Stage 8 Ward has #258-#274,
-> #275/#276/#277/#278/#279, #350, #353, #357, #351, #352, #354, #358, #355,
-> #356, #359, and #349 signed off; PH37 is complete, PH38 T07 plus post-T06
-> hardening through #349 are done, and PH39 T01-T06 are done. Stage 8 exit
-> remains #280 under epic #257.
+> PH36 #249-#255, and the Stage 7 exit rollup. Stage 8 Ward is closed through
+> #280 after #258-#274, #275/#276/#277/#278/#279, #349, #350, #351, #352, #353,
+> #354, #355, #356, #357, #358, and #359. The #280 exit root is
+> `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

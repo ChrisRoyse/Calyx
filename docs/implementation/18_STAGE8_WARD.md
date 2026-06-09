@@ -1,16 +1,15 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
-**Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
+**Status:** DONE / FSV-signed-off. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#280. PH37 T01-T09 (#258-#263, #275, #277, #278),
 PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T06 (#269-#274) are
 FSV-signed-off. PH37 is complete; PH38 post-T06 hardening #355/#356/#359 and
-PH36 audit hardening #349 are signed off. Ward exit issue #280 remains as the
-fresh rollup proof before Stage 8 can close. #357
-timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
-injection split hardening,
-#354 per-slot calibration health hardening, and #358 GuardHealth serde
-compatibility hardening are signed off. #355 drift notification retry hardening
-is signed off.
+PH36 audit hardening #349 are signed off. Ward exit issue #280 is signed off
+under `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
+#357 timestamp unit hardening, #351 drift metric semantics hardening, #352
+held-out injection split hardening, #354 per-slot calibration health hardening,
+#358 GuardHealth serde compatibility hardening, and #355 drift notification
+retry hardening are signed off.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -255,14 +254,22 @@ learning one calibrated cosine gate, plus injection-proof identity-locked
 generation — PRD `GUARD`. Also powers TCT dedup (Stage 9) and Anneal's mistake-
 closure.
 
-Exit issue #280 may only close after a fresh aiwonder readback proves the full
-Ward surface, not just individual task comments:
-- PH37 no-flatten/per-slot guard behavior still rejects average-pass slot-fail
-  candidates.
-- PH38 calibration, novelty, drift, Sextant query guarding, and Ledger Guard
-  provenance all read back from their durable aiwonder evidence roots.
+Exit issue #280 closed with a fresh aiwonder readback proving the full Ward
+surface, not just individual task comments. Durable exit root:
+`/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
+`stage8-exit-readback.json` reports all clauses passing:
+- PH37 no-flatten/per-slot guard behavior rejects average-pass slot-fail
+  candidates, and AllRequired/KofN behavior is read back from #260/#261/#263.
+- Required slots derive from Assay bits and kernel-near query regions are
+  prioritized, read back from #277/#278.
+- PH38 calibration, provisional high-stakes refusal, injection blocking,
+  valid-novelty, drift health, per-slot health, Sextant query guarding, and
+  multi-slot guard-vector behavior all read back from #264/#265/#267/#268/#352/
+  #354/#275/#276/#356/#359.
+- Ledger Guard provenance and audit hardening read back from #279/#349 with
+  Guard audit seqs `[0,2]` and provenance seq `[2]`.
 - PH39 speaker/style identity generation has real model hashes, required
   identity slots, `guard_generate()` accepted/reject/novel paths, durable
   quarantine/provenance readbacks, and the #274 speaker-similarity target.
-- Missing models, datasets, TTS samples, or injection corpora are setup failures
-  to resolve before #280, never skip/pass conditions.
+- Full #280 manifest SHA-256:
+  `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.

@@ -150,7 +150,7 @@ its grounded source and replays to prove it was measured, not made up — PRD
 or it is tagged `unprovenanced`.
 
 **Status:** DONE / FSV-signed-off through #256 plus post-exit PH36 hardening
-#349. Stage 8 Ward is the active frontier. #349 proves filtered audit queries
+#349. Stage 8 Ward is also signed off through #280. #349 proves filtered audit queries
 ignore unrelated quarantined rows outside the requested result set, still fail
 closed for requested ranges or matching/relevant quarantined rows, reject
 physical ledger row-key mismatches, and use typed `cx` provenance fields instead

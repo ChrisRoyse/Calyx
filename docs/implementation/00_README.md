@@ -249,16 +249,15 @@ and
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`,
 `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`, and
 `/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.
-Stage 8 Ward is the active frontier: #258-#274, #275-#279, #350, #353, #357,
-#351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off, so PH37
-is covered, PH38 T01-T07 plus the current drift/novelty/timestamp/injection-
-split/per-slot-calibration/serde/retry/Sextant multi-slot guard/readback/audit-
-query hardening plus Ledger guard provenance are signed off, and PH39 T01-T06
-identity-profile, speaker lens, style lens, `guard_generate()`, and identity
-injection quarantine plus speaker-similarity target work is signed off. Stage 8
-exit remains #280.
+**DONE - Stage 8 Ward (PH37-PH39).** #258-#280 plus #349, #350, #351, #352,
+#353, #354, #355, #356, #357, #358, and #359 are FSV-signed-off. #280 records
+the Stage 8 exit readback under
+`/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`, with full
+manifest SHA-256
+`5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
-**Remaining:** Open Stage 8+ work includes **PH39-PH72**,
+**Remaining:** Open post-Ward work starts at **PH40-PH72** plus tracked
+deferral-owner issues,
 laid out as atomic task cards in the per-phase subdirs, governed by
 `PHASE_TASKS_README.md`, each with a byte-level FSV exit gate. Execution proceeds
 down the dependency spine (§4). Track live state in the `ChrisRoyse/Calyx`
