@@ -27,6 +27,11 @@ Readback facts:
 - Ed25519 signature verification round-trips, tampered roots fail verification,
   and a missing row fails closed with `CALYX_LEDGER_CORRUPT`.
 
+Post-sweep follow-ups:
+- #347: bind `range_start` and `range_end` into the signed Merkle export payload.
+- #348: make `calyx merkle-root --vault` read the real Aster Ledger CF, or fail
+  closed instead of creating/reading a side ledger directory.
+
 ## Goal
 
 Build a Merkle tree over a contiguous range of ledger entries `[seq_a, seq_b)`.
