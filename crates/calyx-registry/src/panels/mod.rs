@@ -211,4 +211,16 @@ mod tests {
         assert_eq!(speaker.output, SlotShape::Dense(512));
         assert_eq!(speaker.modality, Modality::Audio);
     }
+
+    #[test]
+    fn media_default_matches_pinned_style_lens_contract() {
+        let style = media_default()
+            .slots
+            .into_iter()
+            .find(|slot| slot.name == "style_register")
+            .expect("media default should include style register slot");
+
+        assert_eq!(style.output, SlotShape::Dense(768));
+        assert_eq!(style.modality, Modality::Text);
+    }
 }

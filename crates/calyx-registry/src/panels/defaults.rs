@@ -85,7 +85,7 @@ pub fn media_default() -> PanelTemplate {
         external("audio_emotion", SlotShape::Dense(128), Modality::Audio),
         external("speaker_wavlm", SlotShape::Dense(512), Modality::Audio),
         tei("transcript", SlotShape::Dense(768), Modality::Text),
-        external("style_register", SlotShape::Dense(256), Modality::Mixed),
+        external("style_register", SlotShape::Dense(768), Modality::Text),
     ];
     append_temporal(&mut slots);
     PanelTemplate {
