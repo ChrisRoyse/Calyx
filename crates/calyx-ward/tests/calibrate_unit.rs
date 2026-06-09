@@ -189,6 +189,22 @@ fn calibrate_fsv_fixture_writes_readback_artifacts() {
         target_far: 0.01,
     };
     let (all_high_tau, all_high_meta) = calibrate_slot(&all_high, 0.05, &clock).expect("all high");
+    let tie_boundary = CalibrationInput {
+        slot: slot(5),
+        good_scores: vec![0.9; 100],
+        bad_scores: (0..98).map(|_| 0.10).chain([0.90, 0.90]).collect(),
+        slot_kind: SlotKind::Identity,
+        target_far: 0.01,
+    };
+    let (tie_tau, tie_meta) = calibrate_slot(&tie_boundary, 0.05, &clock).expect("tie boundary");
+    let zero_far = calibration_input(slot(6), SlotKind::Identity, 0.0);
+    let zero_far_max_bad = zero_far
+        .bad_scores
+        .iter()
+        .copied()
+        .max_by(|a, b| a.total_cmp(b))
+        .expect("max bad score");
+    let (zero_far_tau, zero_far_meta) = calibrate_slot(&zero_far, 0.05, &clock).expect("zero far");
 
     write_json(
         &root,
@@ -222,13 +238,35 @@ fn calibrate_fsv_fixture_writes_readback_artifacts() {
             "far": all_high_meta.far,
         }),
     );
+    write_json(
+        &root,
+        "quantile-ties.json",
+        &json!({
+            "tie_score": 0.90,
+            "tau": tie_tau,
+            "tau_above_tie_score": tie_tau > 0.90,
+            "far": tie_meta.far,
+        }),
+    );
+    write_json(
+        &root,
+        "zero-target-far.json",
+        &json!({
+            "max_bad": zero_far_max_bad,
+            "tau": zero_far_tau,
+            "tau_above_max_bad": zero_far_tau > zero_far_max_bad,
+            "far": zero_far_meta.far,
+        }),
+    );
 
     println!(
-        "FSV_CALIBRATE estimator={} identity_tau={:.6} style_tau={:.6} identity_far={:.6} insufficient_code={}",
+        "FSV_CALIBRATE estimator={} identity_tau={:.6} style_tau={:.6} identity_far={:.6} tie_far={:.6} zero_far={:.6} insufficient_code={}",
         ESTIMATOR,
         identity_tau,
         style_tau,
         identity_meta.far,
+        tie_meta.far,
+        zero_far_meta.far,
         insufficient_error.code()
     );
 }
