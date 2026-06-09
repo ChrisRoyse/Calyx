@@ -13,6 +13,9 @@ use crate::entry::{ActorId, LedgerEntry, SubjectId};
 use crate::kind::EntryKind;
 use crate::reproduce::FusionWeights;
 
+mod mentions;
+use mentions::entry_mentions_cx;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditFilter {
     pub kind: Option<EntryKind>,
@@ -217,8 +220,16 @@ pub fn audit(
         ensure_range_not_quarantined(quarantine, start..end)?;
     }
     let mut out = Vec::new();
-    for entry in decode_entries(cf_reader, quarantine)? {
+    for row in cf_reader.scan()? {
+        if !filter
+            .seq_range
+            .is_none_or(|(start, end)| start <= row.seq && row.seq < end)
+        {
+            continue;
+        }
+        let entry = decode(&row.bytes)?;
         if filter_matches(&entry, &filter) {
+            ensure_seq_not_quarantined(quarantine, entry.seq)?;
             out.push(entry);
         }
     }
@@ -271,21 +282,6 @@ fn ensure_range_not_quarantined(
 
 fn ranges_overlap(left: &Range<u64>, right: &Range<u64>) -> bool {
     left.start < right.end && right.start < left.end
-}
-
-fn entry_mentions_cx(entry: &LedgerEntry, cx_id: CxId) -> bool {
-    entry.subject == SubjectId::Cx(cx_id)
-        || payload_value(entry)
-            .is_some_and(|payload| value_mentions_cx(&payload, &cx_id.to_string()))
-}
-
-fn value_mentions_cx(value: &Value, needle: &str) -> bool {
-    match value {
-        Value::String(value) => value == needle,
-        Value::Array(values) => values.iter().any(|value| value_mentions_cx(value, needle)),
-        Value::Object(map) => map.values().any(|value| value_mentions_cx(value, needle)),
-        _ => false,
-    }
 }
 
 fn answer_subject_matches(entry: &LedgerEntry, answer_id: &[u8]) -> bool {

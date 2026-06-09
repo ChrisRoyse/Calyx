@@ -170,6 +170,103 @@ fn audit_filters_by_kind_and_time_range() {
 }
 
 #[test]
+fn audit_filter_skips_unmatched_quarantined_rows_but_fails_for_matching_rows() {
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(350)).unwrap();
+    append_json(
+        &mut appender,
+        EntryKind::Ingest,
+        SubjectId::Cx(cx(1)),
+        json!({"cx_id": cx(1).to_string()}),
+    );
+    append_json(
+        &mut appender,
+        EntryKind::Measure,
+        SubjectId::Cx(cx(2)),
+        json!({"cx_id": cx(2).to_string()}),
+    );
+    append_json(
+        &mut appender,
+        EntryKind::Ingest,
+        SubjectId::Cx(cx(3)),
+        json!({"cx_id": cx(3).to_string()}),
+    );
+    let store = appender.into_store();
+    let quarantine = QuarantineSet::from_ranges(std::iter::once(1..2)).unwrap();
+
+    let ingest = audit(
+        &store,
+        &quarantine,
+        AuditFilter {
+            kind: Some(EntryKind::Ingest),
+            ..AuditFilter::default()
+        },
+    )
+    .unwrap();
+    let matching_error = audit(
+        &store,
+        &quarantine,
+        AuditFilter {
+            kind: Some(EntryKind::Measure),
+            ..AuditFilter::default()
+        },
+    )
+    .unwrap_err();
+    let range_error = audit(
+        &store,
+        &quarantine,
+        AuditFilter {
+            seq_range: Some((1, 2)),
+            ..AuditFilter::default()
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(
+        ingest.iter().map(|entry| entry.seq).collect::<Vec<_>>(),
+        vec![0, 2]
+    );
+    assert_eq!(matching_error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+    assert_eq!(range_error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+}
+
+#[test]
+fn provenance_ignores_untyped_payload_strings_but_keeps_explicit_cx_fields() {
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(375)).unwrap();
+    append_json(
+        &mut appender,
+        EntryKind::Measure,
+        SubjectId::Lens(lens(9)),
+        json!({
+            "comment": cx(1).to_string(),
+            "nested": {"note": cx(1).to_string()},
+            "array": [cx(1).to_string()]
+        }),
+    );
+    append_json(
+        &mut appender,
+        EntryKind::Answer,
+        SubjectId::Query(b"answer-with-path".to_vec()),
+        json!({"path": [{"from_id": cx(1).to_string(), "to_id": cx(2).to_string()}]}),
+    );
+    append_json(
+        &mut appender,
+        EntryKind::Guard,
+        SubjectId::Cx(cx(1)),
+        json!({"comment": "subject match is typed"}),
+    );
+    let store = appender.into_store();
+
+    let found = get_provenance(&store, &QuarantineSet::default(), cx(1)).unwrap();
+
+    assert_eq!(
+        found.iter().map(|entry| entry.seq).collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+}
+
+#[test]
 fn quarantine_is_fail_closed_for_all_query_surfaces() {
     let mut appender =
         LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(400)).unwrap();
