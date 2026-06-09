@@ -121,6 +121,16 @@ fn lens_trait_rejects_wrong_modality() {
     assert_eq!(error.code, "CALYX_WARD_INVALID_INPUT");
 }
 
+#[test]
+fn lens_trait_rejects_malformed_pcm_bytes() {
+    let lens = mock_lens(WAVLM_DIM);
+    let error = lens
+        .measure(&Input::new(Modality::Audio, vec![0, 1, 2]))
+        .unwrap_err();
+
+    assert_eq!(error.code, "CALYX_WARD_INVALID_INPUT");
+}
+
 proptest! {
     #[test]
     fn proptest_embeddings_are_unit_norm(samples in prop::collection::vec(-1.0f32..1.0, 1..128)) {
