@@ -2,6 +2,7 @@
 
 use std::error::Error;
 use std::fmt;
+use std::path::PathBuf;
 
 use calyx_core::SlotId;
 
@@ -16,6 +17,10 @@ pub const CALYX_GUARD_NOT_A_FAILURE: &str = "CALYX_GUARD_NOT_A_FAILURE";
 pub const CALYX_GUARD_NOVELTY_SINK: &str = "CALYX_GUARD_NOVELTY_SINK";
 pub const CALYX_GUARD_ID_MISMATCH: &str = "CALYX_GUARD_ID_MISMATCH";
 pub const CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED: &str = "CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED";
+pub const CALYX_WARD_MODEL_NOT_FOUND: &str = "CALYX_WARD_MODEL_NOT_FOUND";
+pub const CALYX_WARD_INVALID_INPUT: &str = "CALYX_WARD_INVALID_INPUT";
+pub const CALYX_WARD_MODEL_DIM_MISMATCH: &str = "CALYX_WARD_MODEL_DIM_MISMATCH";
+pub const CALYX_WARD_RUNTIME_ERROR: &str = "CALYX_WARD_RUNTIME_ERROR";
 
 /// Fail-closed errors emitted by Ward guard policy checks.
 #[derive(Clone, Debug, PartialEq)]
@@ -54,6 +59,19 @@ pub enum WardError {
     IdentitySlotNotRequired {
         slot: SlotId,
     },
+    ModelNotFound {
+        path: PathBuf,
+    },
+    InvalidInput {
+        reason: String,
+    },
+    ModelDimMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    Runtime {
+        reason: String,
+    },
     NoveltySink {
         reason: String,
     },
@@ -73,6 +91,10 @@ impl WardError {
             Self::NotAFailure { .. } => CALYX_GUARD_NOT_A_FAILURE,
             Self::GuardIdMismatch { .. } => CALYX_GUARD_ID_MISMATCH,
             Self::IdentitySlotNotRequired { .. } => CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED,
+            Self::ModelNotFound { .. } => CALYX_WARD_MODEL_NOT_FOUND,
+            Self::InvalidInput { .. } => CALYX_WARD_INVALID_INPUT,
+            Self::ModelDimMismatch { .. } => CALYX_WARD_MODEL_DIM_MISMATCH,
+            Self::Runtime { .. } => CALYX_WARD_RUNTIME_ERROR,
             Self::NoveltySink { .. } => CALYX_GUARD_NOVELTY_SINK,
         }
     }
@@ -129,6 +151,21 @@ impl fmt::Display for WardError {
                 f,
                 "{CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED}: identity slot {slot} is not present in guard_profile.required_slots"
             ),
+            Self::ModelNotFound { path } => write!(
+                f,
+                "{CALYX_WARD_MODEL_NOT_FOUND}: Ward model not found at {}",
+                path.display()
+            ),
+            Self::InvalidInput { reason } => {
+                write!(f, "{CALYX_WARD_INVALID_INPUT}: {reason}")
+            }
+            Self::ModelDimMismatch { expected, actual } => write!(
+                f,
+                "{CALYX_WARD_MODEL_DIM_MISMATCH}: model output dim {actual} != expected {expected}"
+            ),
+            Self::Runtime { reason } => {
+                write!(f, "{CALYX_WARD_RUNTIME_ERROR}: {reason}")
+            }
             Self::NoveltySink { reason } => {
                 write!(f, "{CALYX_GUARD_NOVELTY_SINK}: {reason}")
             }
@@ -230,6 +267,19 @@ mod tests {
             reason: "synthetic write failure".to_string(),
         };
         let identity_slot = WardError::IdentitySlotNotRequired { slot: slot(9) };
+        let model_missing = WardError::ModelNotFound {
+            path: "/missing/wavlm.onnx".into(),
+        };
+        let invalid_input = WardError::InvalidInput {
+            reason: "empty audio".to_string(),
+        };
+        let dim_mismatch = WardError::ModelDimMismatch {
+            expected: 256,
+            actual: 128,
+        };
+        let runtime = WardError::Runtime {
+            reason: "ONNX init failed".to_string(),
+        };
 
         assert_eq!(not_failure.code(), CALYX_GUARD_NOT_A_FAILURE);
         assert!(not_failure.to_string().contains("novelty handling"));
@@ -239,6 +289,11 @@ mod tests {
         assert!(sink.to_string().contains("synthetic write failure"));
         assert_eq!(identity_slot.code(), CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED);
         assert!(identity_slot.to_string().contains("identity slot 9"));
+        assert_eq!(model_missing.code(), CALYX_WARD_MODEL_NOT_FOUND);
+        assert!(model_missing.to_string().contains("/missing/wavlm.onnx"));
+        assert_eq!(invalid_input.code(), CALYX_WARD_INVALID_INPUT);
+        assert_eq!(dim_mismatch.code(), CALYX_WARD_MODEL_DIM_MISMATCH);
+        assert_eq!(runtime.code(), CALYX_WARD_RUNTIME_ERROR);
     }
 
     #[test]
@@ -282,6 +337,19 @@ mod tests {
                 verdict_guard_id: other_guard_id(),
             },
             WardError::IdentitySlotNotRequired { slot: slot(9) },
+            WardError::ModelNotFound {
+                path: "/missing/wavlm.onnx".into(),
+            },
+            WardError::InvalidInput {
+                reason: "empty audio".to_string(),
+            },
+            WardError::ModelDimMismatch {
+                expected: 256,
+                actual: 128,
+            },
+            WardError::Runtime {
+                reason: "synthetic ONNX failure".to_string(),
+            },
             WardError::NoveltySink {
                 reason: "synthetic write failure".to_string(),
             },
