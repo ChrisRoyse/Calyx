@@ -12,8 +12,11 @@ use calyx_paths::AssocGraph;
 use serde::Serialize;
 use serde_json::json;
 
+pub mod recall_tuning;
 mod sources;
 pub use sources::{calyx_code, cora_graph, scifact_text};
+
+use recall_tuning::{RecallTuningReport, tuning_report};
 
 pub const STAMP: &str = "20260608";
 const DIM: usize = 64;
@@ -64,6 +67,7 @@ pub struct CorpusReport {
     exhaustive_expansion: bool,
     initial_recall: Option<RecallReport>,
     pub final_recall: RecallReport,
+    pub recall_tuning: RecallTuningReport,
     warning: Option<String>,
 }
 
@@ -101,6 +105,13 @@ pub fn run_case(case: &CorpusCase) -> CorpusReport {
         &params,
     )
     .expect("final recall");
+    let recall_tuning = tuning_report(
+        initial_recall.as_ref(),
+        &final_recall,
+        &initial.members,
+        &final_kernel.members,
+        params.min_recall_ratio,
+    );
 
     CorpusReport {
         corpus_name: case.name.to_string(),
@@ -119,6 +130,7 @@ pub fn run_case(case: &CorpusCase) -> CorpusReport {
         warning: final_recall.warning.clone(),
         initial_recall,
         final_recall,
+        recall_tuning,
     }
 }
 
