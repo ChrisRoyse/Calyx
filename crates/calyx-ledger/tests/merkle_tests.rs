@@ -72,12 +72,26 @@ fn merkle_signed_export_round_trips_and_detects_tamper() {
     let seed = [42; 32];
     let bundle = MerkleExportBundle::signed(0..3, root, &seed);
 
-    assert_eq!(bundle.signature, Some(sign_root(&root, &seed)));
+    assert_eq!(bundle.signature, Some(sign_root(0..3, &root, &seed)));
     assert!(verify_signature(&bundle));
 
-    let mut tampered = bundle.clone();
-    tampered.root[0] ^= 0xff;
-    assert!(!verify_signature(&tampered));
+    let mut tampered_root = bundle.clone();
+    tampered_root.root[0] ^= 0xff;
+    assert!(!verify_signature(&tampered_root));
+
+    let mut tampered_start = bundle.clone();
+    tampered_start.range_start = 1;
+    assert!(!verify_signature(&tampered_start));
+
+    let mut tampered_end = bundle.clone();
+    tampered_end.range_end = 4;
+    assert!(!verify_signature(&tampered_end));
+
+    let mut replayed_range = bundle.clone();
+    replayed_range.range_start = 10;
+    replayed_range.range_end = 13;
+    assert!(!verify_signature(&replayed_range));
+
     assert!(!verify_signature(&MerkleExportBundle::unsigned(0..3, root)));
 }
 
@@ -112,8 +126,15 @@ fn ph36_merkle_root_ed25519_aiwonder_fsv() {
     let root_0_4 = merkle_root(&store, 0..4).unwrap();
     let root_0_3 = merkle_root(&store, 0..3).unwrap();
     let signed = MerkleExportBundle::signed(0..4, root_0_4, &[42; 32]);
-    let mut tampered = signed.clone();
-    tampered.root[31] ^= 0x55;
+    let mut tampered_root = signed.clone();
+    tampered_root.root[31] ^= 0x55;
+    let mut tampered_start = signed.clone();
+    tampered_start.range_start = 1;
+    let mut tampered_end = signed.clone();
+    tampered_end.range_end = 5;
+    let mut replayed_range = signed.clone();
+    replayed_range.range_start = 10;
+    replayed_range.range_end = 14;
     let missing_error = merkle_root(&store, 0..5).unwrap_err();
 
     let readback = json!({
@@ -126,7 +147,17 @@ fn ph36_merkle_root_ed25519_aiwonder_fsv() {
         "golden_four_hash_root": hex(&FOUR_HASH_GOLDEN),
         "root_matches_expected": root_0_4 == expected,
         "signature_round_trip": verify_signature(&signed),
-        "signature_tamper_detected": !verify_signature(&tampered),
+        "signature_root_tamper_detected": !verify_signature(&tampered_root),
+        "signature_range_start_tamper_detected": !verify_signature(&tampered_start),
+        "signature_range_end_tamper_detected": !verify_signature(&tampered_end),
+        "signature_wrong_range_replay_detected": !verify_signature(&replayed_range),
+        "signed_bundle": {
+            "range_start": signed.range_start,
+            "range_end": signed.range_end,
+            "root": hex(&signed.root),
+            "signature": hex(&signed.signature.expect("signature")),
+            "signer_pubkey": hex(&signed.signer_pubkey.expect("pubkey")),
+        },
         "missing_row_error": missing_error.code,
         "ledger_dir": ledger_dir,
     });
@@ -141,7 +172,10 @@ fn ph36_merkle_root_ed25519_aiwonder_fsv() {
     assert_eq!(rows.len(), 4);
     assert_eq!(root_0_4, expected);
     assert!(verify_signature(&signed));
-    assert!(!verify_signature(&tampered));
+    assert!(!verify_signature(&tampered_root));
+    assert!(!verify_signature(&tampered_start));
+    assert!(!verify_signature(&tampered_end));
+    assert!(!verify_signature(&replayed_range));
     assert_eq!(missing_error.code, "CALYX_LEDGER_CORRUPT");
 }
 
