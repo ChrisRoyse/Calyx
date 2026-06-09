@@ -14,3 +14,6 @@ path = "src/main.rs"
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
+
+[dev-dependencies]
+serde_json.workspace = true
