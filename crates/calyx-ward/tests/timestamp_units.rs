@@ -176,12 +176,12 @@ impl VaultSink for MemorySink {
 struct NoopHook;
 
 impl AnnealHook for NoopHook {
-    fn on_far_drift(
+    fn on_rejection_rate_drift(
         &self,
         _guard_id: GuardId,
         _slot: SlotId,
-        _current_far: f32,
-        _calibrated_far: f32,
+        _current_rejection_rate: f32,
+        _calibrated_far_bound: f32,
     ) {
     }
 }
