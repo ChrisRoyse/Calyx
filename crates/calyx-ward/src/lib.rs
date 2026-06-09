@@ -1,6 +1,7 @@
 //! Ward guard profile types for per-slot cosine policy enforcement.
 
 pub mod calibrate;
+pub mod drift;
 pub mod error;
 pub mod guard;
 pub mod novelty;
@@ -12,6 +13,10 @@ pub mod verdict;
 pub use calibrate::{
     CalibrationInput, ESTIMATOR, MIN_BAD_SCORES, SlotKind, TAU_COLD_START, calibrate,
     calibrate_slot,
+};
+pub use drift::{
+    AnnealHook, DEFAULT_DRIFT_CHANNEL_CAPACITY, DEFAULT_DRIFT_WINDOW, DriftEvent, DriftMonitor,
+    FAR_DRIFT_MULTIPLIER, GuardHealth, guard_health,
 };
 pub use error::{
     CALYX_GUARD_MISSING_SLOT, CALYX_GUARD_OOD, CALYX_GUARD_POLICY_VIOLATION,
