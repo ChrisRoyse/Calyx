@@ -5,7 +5,7 @@ use std::process::{Command, Output};
 use calyx_aster::manifest::{
     ImmutableRef, ManifestStore, QuarantineRecord, VaultManifest, is_vault_seq_quarantined,
 };
-use calyx_aster::sst::write_sst;
+use calyx_aster::sst::{SstReader, write_sst};
 use calyx_core::{CxId, FixedClock, LensId};
 use calyx_ledger::{
     ActorId, EntryKind, LedgerAppender, LedgerCfStore, MemoryLedgerStore, SubjectId,
@@ -23,6 +23,8 @@ fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
     let cx_vault = root.join("cx-vault");
     let audit_rows = write_issue349_vault(&audit_vault, true);
     let cx_rows = write_issue349_vault(&cx_vault, false);
+    let durable_audit_rows = read_durable_ledger_rows(&audit_vault);
+    let durable_cx_rows = read_durable_ledger_rows(&cx_vault);
 
     let audit_request = json!({"command": "audit", "kind": "ingest"});
     let matching_quarantine_request = json!({"command": "audit", "kind": "measure"});
@@ -43,6 +45,8 @@ fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
         "cx_vault": cx_vault,
         "audit_ledger_rows": audit_rows,
         "cx_ledger_rows": cx_rows,
+        "durable_audit_ledger_rows": durable_audit_rows,
+        "durable_cx_ledger_rows": durable_cx_rows,
         "quarantine_manifest": manifest,
         "quarantined_seq_1": is_vault_seq_quarantined(root.join("audit-vault"), 1).unwrap(),
         "audit_request": audit_request,
@@ -83,6 +87,14 @@ fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
     assert!(!audit_measure.status.success());
     assert_success(&provenance);
     assert_eq!(readback["quarantined_seq_1"], true);
+    assert_eq!(
+        row_seqs(&readback["durable_audit_ledger_rows"]),
+        vec![0, 1, 2, 3, 4]
+    );
+    assert_eq!(
+        row_seqs(&readback["durable_cx_ledger_rows"]),
+        vec![0, 1, 2, 3, 4]
+    );
     assert_eq!(readback["audit_ingest_stdout"].as_array().unwrap().len(), 2);
     assert!(stderr(&audit_measure).contains("CALYX_LEDGER_CHAIN_BROKEN"));
     assert_eq!(
@@ -102,6 +114,37 @@ fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
         readback["provenance_stdout"].as_array().unwrap().len(),
         audit_measure.status.code(),
     );
+}
+
+fn read_durable_ledger_rows(vault: &Path) -> Value {
+    let path = vault
+        .join("cf")
+        .join("ledger")
+        .join("00000000000000000001.sst");
+    let rows = SstReader::open(&path)
+        .unwrap()
+        .iter()
+        .unwrap()
+        .into_iter()
+        .map(|entry| {
+            let key: [u8; 8] = entry.key.as_slice().try_into().unwrap();
+            json!({
+                "seq": u64::from_be_bytes(key),
+                "key_hex": hex(&entry.key),
+                "value_hex": hex(&entry.value),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({"sst": path, "rows": rows})
+}
+
+fn row_seqs(value: &Value) -> Vec<u64> {
+    value["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["seq"].as_u64().unwrap())
+        .collect()
 }
 
 fn write_issue349_vault(vault: &Path, quarantine: bool) -> Value {

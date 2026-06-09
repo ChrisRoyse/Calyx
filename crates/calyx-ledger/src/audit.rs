@@ -7,7 +7,7 @@ use calyx_core::{CalyxError, CalyxWarning, CxId, LensId, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::append::LedgerCfStore;
+use crate::append::{LedgerCfStore, LedgerRow};
 use crate::codec::decode;
 use crate::entry::{ActorId, LedgerEntry, SubjectId};
 use crate::kind::EntryKind;
@@ -227,9 +227,9 @@ pub fn audit(
         {
             continue;
         }
-        let entry = decode(&row.bytes)?;
+        let entry = decode_physical_row(&row)?;
         if filter_matches(&entry, &filter) {
-            ensure_seq_not_quarantined(quarantine, entry.seq)?;
+            ensure_seq_not_quarantined(quarantine, row.seq)?;
             out.push(entry);
         }
     }
@@ -243,9 +243,20 @@ fn decode_entries(
     let mut entries = Vec::new();
     for row in cf_reader.scan()? {
         ensure_seq_not_quarantined(quarantine, row.seq)?;
-        entries.push(decode(&row.bytes)?);
+        entries.push(decode_physical_row(&row)?);
     }
     Ok(entries)
+}
+
+fn decode_physical_row(row: &LedgerRow) -> Result<LedgerEntry> {
+    let entry = decode(&row.bytes)?;
+    if entry.seq != row.seq {
+        return Err(CalyxError::ledger_chain_broken(format!(
+            "ledger row key {} does not match encoded seq {}",
+            row.seq, entry.seq
+        )));
+    }
+    Ok(entry)
 }
 
 fn filter_matches(entry: &LedgerEntry, filter: &AuditFilter) -> bool {
