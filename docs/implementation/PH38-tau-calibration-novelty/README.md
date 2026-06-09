@@ -49,6 +49,10 @@ is signed off at
 `/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`.
 #353 also re-exports the stable novelty error constants from the `calyx-ward`
 crate root for public callers.
+Post-T06 hardening remains tracked in #357 (Ward timestamp units), #351
+(drift rejection-rate/FAR semantics), #352 (held-out injection split), #354
+(per-slot calibration FAR/FRR health), #355 (drift hook retry after backpressure),
+and #356 (Sextant multi-slot query guarding).
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
