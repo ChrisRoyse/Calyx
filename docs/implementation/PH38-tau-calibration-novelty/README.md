@@ -11,8 +11,11 @@ prediction: bound the false-accept rate (FAR) at a chosen confidence level
 An uncalibrated `τ` is tagged `provisional` and high-stakes domains must refuse
 (fail closed). A FAIL under a calibrated guard opens a new safe region
 (`NewRegion`) rather than silently accepting; the drift monitor hook (Anneal)
-receives a callback on each FAR-creep event. Default cold-start τ ≈ 0.7 but
-the calibrated value governs.
+receives a callback on each rejection-rate drift event while comparing against
+the calibrated FAR bound. Default cold-start τ ≈ 0.7 but the calibrated value
+governs.
+The runtime drift metric is rejection/OOD rate; `CalibrationMeta.far` remains
+the calibrated false-accept-rate bound.
 
 ## Dependencies
 
@@ -52,10 +55,12 @@ crate root for public callers.
 #357 normalizes Ward calibration, novelty, and `guard_health.last_calibrated`
 timestamps to Unix milliseconds and is FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`.
-Post-T06 hardening remains tracked in #351 (drift rejection-rate/FAR semantics),
-#352 (held-out injection split), #354 (per-slot calibration FAR/FRR health),
-#355 (drift hook retry after backpressure), and #356 (Sextant multi-slot query
-guarding).
+#351 renames runtime drift health/event surfaces to rejection/OOD rate while
+preserving the calibrated FAR bound and is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`.
+Post-T06 hardening remains tracked in #352 (held-out injection split), #354
+(per-slot calibration FAR/FRR health), #355 (drift hook retry after
+backpressure), and #356 (Sextant multi-slot query guarding).
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
 treated as fully closed.
 
@@ -65,7 +70,7 @@ treated as fully closed.
 |---|---|
 | `src/calibrate.rs` | conformal τ calibration per slot; empirical FAR is measured with Ward's `cos >= tau` predicate; slot-kind FAR caps; `CalibrationMeta` with `corpus_hash`, `estimator`, `far`, `frr`, `confidence`, `ts`; provisional errors for invalid/insufficient calibration |
 | `src/novelty.rs` | `NoveltyHandler`: route FAIL to `NewRegion` / `Quarantine` / `RejectClosed`; write novel constellation to the PH09-backed Aster vault CF |
-| `src/drift.rs` | `DriftMonitor`: track rolling FAR per slot; fire Anneal hook when FAR creeps above calibrated bound; `guard_health()` |
+| `src/drift.rs` | `DriftMonitor`: track rolling rejection/OOD rate per slot; fire Anneal hook when runtime rejection rate creeps above the calibrated FAR bound; `guard_health()` |
 | `src/lib.rs` | wire new modules; re-export `calibrate`, `novelty`, `drift` |
 | `tests/calibrate_unit.rs` | deterministic calibration tests and manual aiwonder FSV fixture |
 | `tests/novelty_handler.rs` | deterministic novelty routing tests and manual aiwonder FSV fixture |
@@ -111,6 +116,11 @@ and `RejectClosed` records. Evidence root:
 value, with zero/max/overflow timestamp edge cases read back from JSON. Evidence
 root:
 `/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`.
+
+**Drift metric semantics:** #351 proves `guard_health()` and drift hook event
+readback report runtime `rejection_rate`, while `CalibrationMeta.far` remains a
+calibrated false-accept-rate bound. Evidence root:
+`/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

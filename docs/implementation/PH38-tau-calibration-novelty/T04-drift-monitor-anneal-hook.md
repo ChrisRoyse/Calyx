@@ -10,9 +10,9 @@
 | **Axioms** | A12, A14 |
 | **PRD** | `dbprdplans/09 S3`, `09 S6` |
 
-> STATUS: DONE / FSV-signed-off in #267. Implementation commit:
-> `912b7072e56a679182ac77c9da6fc83bd5c25385`. Durable aiwonder evidence:
-> `/home/croyse/calyx/data/fsv-issue267-ph38-t04-20260609-912b707`.
+> STATUS: DONE / FSV-signed-off in #267; metric semantics hardening signed off
+> in #351. Latest implementation commit: `c6a2ccc`. Durable aiwonder evidence:
+> `/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`.
 
 ## Goal
 
@@ -87,15 +87,19 @@ hot path: it receives verdicts through a bounded channel.
   `runtime_rejection_rate >= calibrated_far_bound * 1.5`, and `drift=false`
   after a full window of passes.
 - **Evidence:** `case-summary.json`
-  `5b924a6349c0de34d88fc0611a70579fe42dc399e020bbdaeb97af9386b34403`,
+  `805d5d32accb704caa2b22c5f268621e38f8fbd42f2bbb770d8b0501189b6c52`,
+  `before-health.json`
+  `32db9e8167c45e3a840d5fe1f93d165a31663d6988f4438aeef160b9967f6a50`,
   `after-drift-health.json`
-  `3e28fcbf7a8af325accb7164064a7c7773f7473521575839e01d6423bd1947b1`,
+  `6c92a79d98e42a51fe7af1c03c8b8305f526899f54168eb3c5a7619f49c881ee`,
   `after-recovery-health.json`
-  `c690b561f2ea22b3948607866c1dabe6c65a7809ee41c38a1288ad6548ab9b1d`,
+  `32db9e8167c45e3a840d5fe1f93d165a31663d6988f4438aeef160b9967f6a50`,
   `hook-events.json`
-  `24941d0652d162550757cde449cc3191606875adf14940b3c685dde9e4a5a6b0`,
+  `3ccc7666288288316718c909729ab6b02a5b89822f884452654efc0fe8b123af`,
   `unknown-guard-health.json`
-  `d39a56612a692ad30b861a9e5c43be8028ad9c52f015457bf50659105028db22`.
+  `4dc50a1e951fb81db402cb9ae7677e187cd442ba59a8e8b8b73d9108e5b527f3`,
+  log
+  `48f8c27c7798f930a897e5f134833860b9dd452adc80d7de59a33ad2e70a1899`.
 
 ## Done when
 
