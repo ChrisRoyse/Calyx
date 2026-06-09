@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-09; Stage 8 active after #272)
+## Status (2026-06-09; Stage 9 active after #280)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH39 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, Ledger-backed calibration/guard-verdict provenance, and PH39 identity-profile, WavLM speaker lens, style lens, `guard_generate()`, and identity injection quarantine construction are active: #258-#273, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is PH39 #274 and exit #280 |
+| `calyx-ward` | S8 PH37-PH39 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, Ledger-backed calibration/guard-verdict provenance, and PH39 identity-profile, WavLM speaker lens, style lens, `guard_generate()`, identity injection quarantine construction, identity profile store hardening, and Stage 8 exit are FSV-signed-off through #280 |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -111,8 +111,10 @@ and
 `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`,
 and `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`.
 
-Ward is now the active engine frontier. Remaining major engine crates
-(`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
+Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is active under
+S9 epic #361, with T01 #373 FSV-signed-off and the remaining PH40 queue #374-#378.
+Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
+pending. Ledger PH35 is
 FSV-signed-off, including the #345
 failure-atomic staging hardening; PH36 Merkle root export #249,
 range-bound signing #347, and real Aster `merkle-root --vault` #348 are signed
@@ -139,9 +141,12 @@ those rows back through PH36 audit/provenance while preserving the #349
 quarantine contract. #269 adds the PH39 `IdentityProfile` construction and
 identity-anchor fail-closed surface with durable JSON and SHA manifest readback.
 #270 adds the pinned WavLM speaker lens, #271 adds the pinned style lens, #272
-adds `guard_generate()` plus accepted/novel/rejected/provisional readbacks, and
-#273 proves real prompt-injection quarantine on the numeric style slot.
-Remaining Ward frontier work is PH39 #274, with exit #280.
+adds `guard_generate()` plus accepted/novel/rejected/provisional readbacks, #273
+proves real prompt-injection quarantine on the numeric style slot, #274 hardens
+identity profile storage, and #280 closes the full Stage 8 Ward exit. PH40 T01
+#373 stores the default temporal policy in Aster's durable vault manifest with
+aiwonder readback at
+`/home/croyse/calyx/data/fsv-issue373-temporal-policy-manifest-20260609-9ca0a93`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
