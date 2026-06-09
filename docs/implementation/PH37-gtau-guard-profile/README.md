@@ -27,8 +27,10 @@ through `lib.rs`, use `calyx_core::SlotId`, and serde round-trip
 deterministically. aiwonder FSV wrote and read back JSON artifacts under
 `/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`.
 PH37 T02 (#259) adds `SlotVerdict`, `GuardVerdict`, and `WardError` with typed
-fail-closed codes in `calyx-ward::{verdict,error}`. Guard math is active at
-T03 (#260) and remains pending for T04-T06.
+fail-closed codes in `calyx-ward::{verdict,error}`. PH37 T03 (#260) adds
+`calyx-ward::guard` with `ProducedSlots`, `MatchedSlots`, `DEFAULT_TAU`, and
+the `AllRequired` per-slot Forge cosine gate. KofN/OOD wrapper and no-average
+enforcement remain pending for T04-T06.
 
 Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
 (PH22) and Forge cosine (PH13); those dependency surfaces are already Stage 1-2

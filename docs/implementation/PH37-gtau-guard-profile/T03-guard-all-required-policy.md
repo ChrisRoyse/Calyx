@@ -19,6 +19,26 @@ Implement the core `guard()` function: iterate over each required slot in the
 `overall_pass = false` with `CALYX_GUARD_OOD`. This is the exact mechanism from
 `09 §1`: `s = cos(produced_slot_vec, matched_cx.slot_k)`.
 
+## Post-implementation note
+
+Implemented in `crates/calyx-ward/src/guard.rs` and re-exported from
+`crates/calyx-ward/src/lib.rs` in commit
+`20a2a3486a142e328b7ef449737459d7ba1a9b30`. Ward now exposes
+`ProducedSlots`, `MatchedSlots`, `DEFAULT_TAU`, and `guard()`. The
+implementation evaluates sorted/deduplicated required slots independently, uses
+the actual `calyx-forge` backend cosine API, applies `DEFAULT_TAU = 0.7` when a
+slot has no calibrated tau, returns `WardError::MissingSlot` for absent required
+inputs, and returns a full `GuardVerdict` with `overall_pass=false` for invalid
+vectors or below-tau slots.
+
+aiwonder FSV root:
+`/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`. Readback
+artifacts include `allrequired-fail-verdict.json`,
+`allrequired-pass-verdict.json`, `edge-empty-required-verdict.json`,
+`edge-zero-vector-verdict.json`, `missing-slot-error.json`, and
+`guard-fsv.log`. Separate readback used `xxd`, `sha256sum`, parsed JSON, and
+source inspection of `crates/calyx-ward/src/guard.rs`.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `ProducedSlots` type alias: `BTreeMap<SlotId, Vec<f32>>` (the

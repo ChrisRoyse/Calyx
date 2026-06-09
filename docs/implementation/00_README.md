@@ -248,8 +248,8 @@ and
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, and
 `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`.
-Stage 8 Ward is the active frontier: #258/#259 are FSV-signed-off, #260 is
-the current active task under epic #257, and exit remains #280.
+Stage 8 Ward is the active frontier: #258-#260 are FSV-signed-off, #261 is the
+next task under epic #257, and exit remains #280.
 
 **Remaining:** Open phases **PH37-PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level

@@ -1,8 +1,9 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
-atomic tasks are #258-#279. PH37 T01/T02 (#258/#259) are implemented in
-`calyx-ward::{profile,verdict,error}`; guard math is active at #260.
+atomic tasks are #258-#279. PH37 T01-T03 (#258-#260) are implemented in
+`calyx-ward::{profile,verdict,error,guard}`; KofN/OOD wrapper and no-average
+enforcement continue at #261-#263.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -23,6 +24,9 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
 - **Post-sweep note.** PH37 T02 (#259) adds `SlotVerdict`, `GuardVerdict`, and
   `WardError` with durable aiwonder JSON/log readback evidence under
   `/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`.
+- **Post-sweep note.** PH37 T03 (#260) adds the `AllRequired` guard in
+  `calyx-ward::guard`, with durable aiwonder readback evidence under
+  `/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`.
 - **Deliverables.** `guard.rs` (`cos(produced_k, matched_k) ≥ τ_k`),
   `GuardProfile { tau: Map<SlotId,f32>, required_slots, policy, calibration,
   novelty_action }`, per-slot verdict breakdown.
