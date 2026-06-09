@@ -4,6 +4,7 @@ pub mod enums;
 pub mod error;
 pub mod ids;
 pub mod model;
+pub mod temporal;
 pub mod time;
 pub mod traits;
 
@@ -13,6 +14,11 @@ pub use ids::{CxId, LensId, ParseIdError, SlotId, SlotKey, VaultId, content_addr
 pub use model::{
     Anchor, AnchorValue, ConfidenceInterval, Constellation, CxFlags, InputRef, LedgerRef, Panel,
     Signal, Slot, SlotVector, SparseEntry,
+};
+pub use temporal::{
+    BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD,
+    CALYX_TEMPORAL_WEIGHT_SUM, DecayFunction, FusionWeights, MultiAnchorMode, PeriodicOptions,
+    SequenceDirection, SequenceOptions, TemporalPolicy,
 };
 pub use time::{Clock, FixedClock, Seq, SystemClock, Ts};
 pub use traits::{Estimator, Index, Input, Lens, VaultStore};

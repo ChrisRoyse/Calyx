@@ -12,6 +12,7 @@ pub mod query;
 pub mod reranker;
 pub mod search;
 pub mod slot_index_map;
+pub mod temporal;
 mod util;
 
 pub use error::{
@@ -21,6 +22,7 @@ pub use error::{
     CALYX_SEXTANT_POSTINGS_NOT_SORTED, CALYX_SEXTANT_PROVENANCE_MISSING,
     CALYX_SEXTANT_RERANKER_TIMEOUT, CALYX_SEXTANT_SLOT_ALREADY_REGISTERED,
     CALYX_SEXTANT_SLOT_INACTIVE, CALYX_SEXTANT_SLOT_MISSING, CALYX_SEXTANT_VECTOR_SHAPE,
+    CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_WEIGHT_SUM,
     sextant_error,
 };
 pub use fusion::{FusionContext, FusionStrategy, RrfProfile, WeightedProfile, weighted_profiles};
@@ -43,6 +45,10 @@ pub use query::{
 pub use reranker::{RerankRequest, RerankerClient};
 pub use search::SearchEngine;
 pub use slot_index_map::SlotIndexMap;
+pub use temporal::{
+    BoostConfig, DecayFunction, FusionWeights, MultiAnchorMode, PeriodicOptions, SequenceDirection,
+    SequenceOptions, TemporalPolicy,
+};
 
 #[cfg(test)]
 mod tests {

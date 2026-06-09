@@ -1,6 +1,9 @@
 //! Sextant-local fail-closed error helpers.
 
 use calyx_core::CalyxError;
+pub use calyx_core::{
+    CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_WEIGHT_SUM,
+};
 
 pub const CALYX_SEXTANT_PLAN_UNBOUNDED: &str = "CALYX_SEXTANT_PLAN_UNBOUNDED";
 pub const CALYX_SEXTANT_PLAN_COST_EXCEEDED: &str = "CALYX_SEXTANT_PLAN_COST_EXCEEDED";
@@ -17,7 +20,6 @@ pub const CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE: &str = "CALYX_SEXTANT_GPU_PARITY
 pub const CALYX_SEXTANT_POSTINGS_CORRUPT: &str = "CALYX_SEXTANT_POSTINGS_CORRUPT";
 pub const CALYX_SEXTANT_POSTINGS_NOT_SORTED: &str = "CALYX_SEXTANT_POSTINGS_NOT_SORTED";
 pub const CALYX_SEXTANT_PROVENANCE_MISSING: &str = "CALYX_SEXTANT_PROVENANCE_MISSING";
-
 pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
         CALYX_SEXTANT_PLAN_UNBOUNDED => "tighten k/ef/slot limits or raise operator cap",
@@ -41,6 +43,11 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         CALYX_SEXTANT_PROVENANCE_MISSING => {
             "attach the stored constellation before requiring provenance"
         }
+        CALYX_TEMPORAL_AP60_VIOLATION => {
+            "keep temporal signals post-retrieval only and never dominant"
+        }
+        CALYX_TEMPORAL_INVALID_PERIOD => "set target_hour 0..=23 and day_of_week 0..=6",
+        CALYX_TEMPORAL_WEIGHT_SUM => "normalize recency + sequence + periodic to exactly 1.0",
         _ => "inspect Sextant query/index state",
     };
     CalyxError {
