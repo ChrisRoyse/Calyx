@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use calyx_core::SlotId;
 use calyx_ward::{
     GuardId, GuardPolicy, GuardProfile, GuardVerdict, MatchedSlots, NoveltyAction, ProducedSlots,
-    guard,
+    WardError, guard, guard_result,
 };
 use proptest::prelude::*;
 use serde_json::json;
@@ -22,6 +22,27 @@ fn average_passing_slot_failing_attack_is_rejected() {
     assert!(verdict.per_slot[0].pass);
     assert_eq!(verdict.per_slot[1].slot, slot(2));
     assert!(!verdict.per_slot[1].pass);
+}
+
+#[test]
+fn average_passing_slot_failing_attack_returns_ood_from_guard_result() {
+    let (profile, produced, matched) = scenario(GuardPolicy::AllRequired, &[0.95, 0.45]);
+
+    let error = guard_result(&profile, &produced, &matched).expect_err("attack is OOD");
+
+    assert_eq!(
+        error,
+        WardError::Ood {
+            guard_id: guard_id(),
+            failing: vec![calyx_ward::SlotVerdict {
+                slot: slot(2),
+                cos: 0.45,
+                tau: 0.7,
+                pass: false,
+            }]
+        }
+    );
+    assert!(error.to_string().contains("CALYX_GUARD_OOD"));
 }
 
 #[test]
@@ -112,6 +133,8 @@ fn guard_no_flatten_fsv_fixture_writes_readback_artifacts() {
     let (attack_profile, attack_produced, attack_matched) =
         scenario(GuardPolicy::AllRequired, &[0.95, 0.45]);
     let attack = guard(&attack_profile, &attack_produced, &attack_matched).expect("attack verdict");
+    let attack_ood =
+        guard_result(&attack_profile, &attack_produced, &attack_matched).expect_err("attack OOD");
     let (_, three_produced, three_matched) =
         scenario(GuardPolicy::AllRequired, &[0.93, 0.60, 0.60]);
     let all_required = guard(
@@ -133,6 +156,11 @@ fn guard_no_flatten_fsv_fixture_writes_readback_artifacts() {
         &root,
         "average-attack-verdict.json",
         &verdict_with_average(&attack),
+    );
+    write_json(
+        &root,
+        "average-attack-ood-error.json",
+        &error_json(&attack_ood),
     );
     write_json(
         &root,
@@ -198,7 +226,16 @@ fn verdict_with_average(verdict: &GuardVerdict) -> serde_json::Value {
 }
 
 fn aggregate_vector_gate_markers(source: &str) -> Vec<String> {
-    let markers = ["concat", "extend_from_slice", ".append(", "flat_map"];
+    let markers = [
+        "flatten",
+        "concat",
+        "extend_from_slice",
+        ".append(",
+        ".extend(",
+        ".chain(",
+        "flat_map",
+        "collect::<Vec",
+    ];
     source
         .lines()
         .enumerate()
@@ -220,6 +257,13 @@ fn guard_source() -> String {
         .join("src")
         .join("guard.rs");
     std::fs::read_to_string(path).expect("read guard.rs")
+}
+
+fn error_json(error: &WardError) -> serde_json::Value {
+    json!({
+        "code": error.code(),
+        "message": error.to_string(),
+    })
 }
 
 fn scenario(
