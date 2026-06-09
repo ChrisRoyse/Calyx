@@ -12,8 +12,8 @@
 
 ## Status
 
-DONE / FSV-signed-off on aiwonder for #249, with range-binding hardening tracked
-by #347. Implemented in
+DONE / FSV-signed-off on aiwonder for #249, with range-binding hardening #347
+FSV-signed-off. Implemented in
 `crates/calyx-ledger/src/merkle.rs` plus `calyx merkle-root` in
 `crates/calyx-cli/src/merkle.rs`. Evidence root:
 `/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`.
@@ -29,7 +29,8 @@ Readback facts:
   and a missing row fails closed with `CALYX_LEDGER_CORRUPT`.
 
 Post-sweep follow-ups:
-- #347: bind `range_start` and `range_end` into the signed Merkle export payload.
+- #347: DONE / FSV-signed-off; `range_start` and `range_end` are bound into
+  the signed Merkle export payload.
 - #348: make `calyx merkle-root --vault` read the real Aster Ledger CF, or fail
   closed instead of creating/reading a side ledger directory.
 
