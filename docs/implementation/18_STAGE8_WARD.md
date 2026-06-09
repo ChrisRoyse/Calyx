@@ -6,7 +6,8 @@ PH38 T01-T06 (#264-#268, #276) are FSV-signed-off. PH37 is complete; PH38
 post-T06 hardening #355/#356, Ledger guard provenance #279, and PH39 remain
 before the Ward exit can claim Stage 8 complete. #357 timestamp unit hardening,
 #351 drift metric semantics hardening, #352 held-out injection split hardening,
-and #354 per-slot calibration health hardening are signed off.
+#354 per-slot calibration health hardening, and #358 GuardHealth serde
+compatibility hardening are signed off.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -124,6 +125,11 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   through `GuardHealth.per_slot_calibrated_far_bound`, and makes drift monitoring
   compare each slot against its own calibrated bound. Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+- **Post-sweep hardening.** #358 adds serde-default compatibility for
+  `GuardHealth.per_slot_calibrated_far_bound`, so pre-#354 health JSON without
+  that field still deserializes and reserializes with an empty bound map.
+  Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
   Close #355/#356 to tighten PH38 hook retry and Sextant multi-slot guard
   behavior before PH38 exit.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
@@ -140,6 +146,8 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   **Per-slot calibration health** is signed off in #354 with profile, health,
   and hook-event JSON proving slot 1 FAR `0.01`, slot 2 FAR `0.05`, slot 1 FRR
   `1.0`, slot 2 FRR `0.0`, and hook comparison against slot 1's own bound.
+  **GuardHealth serde compatibility** is signed off in #358 with legacy JSON
+  readback proving the new per-slot bound map defaults to empty when absent.
 - **Axioms/PRD.** A12, A2, `09 §3`, `19 §4`.
 
 ## PH39 — Identity-locked generation (speaker/style)

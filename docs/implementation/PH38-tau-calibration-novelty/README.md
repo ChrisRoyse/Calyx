@@ -66,6 +66,9 @@ from train-split calibration FAR and is FSV-signed-off at
 `guard_health().per_slot_calibrated_far_bound`, and drift hook comparisons, with
 FSV evidence at
 `/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+#358 adds backwards-compatible serde defaulting for legacy `GuardHealth` JSON
+without `per_slot_calibrated_far_bound`, with FSV evidence at
+`/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
 Post-T06 hardening remains tracked in #355 (drift hook retry after backpressure)
 and #356 (Sextant multi-slot query guarding).
 T07 (#279) remains open for Ledger `kind=Guard` provenance before PH38 can be
@@ -140,6 +143,11 @@ slot 1 FAR `0.01` / FRR `1.0` and slot 2 FAR `0.05` / FRR `0.0`; `guard_health`
 reads those same per-slot FAR/FRR values; the drift hook event fires for slot 1
 using the slot 1 FAR bound. Evidence root:
 `/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+
+**GuardHealth serde compatibility:** #358 proves pre-#354 `GuardHealth` JSON
+without `per_slot_calibrated_far_bound` deserializes successfully, defaults that
+map to empty, and reserializes with the new field present. Evidence root:
+`/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
 
 **Guard provenance:** #279 must write calibration and guard verdict entries to
 the real Ledger and read them back via PH36 audit/provenance before PH38 exit.

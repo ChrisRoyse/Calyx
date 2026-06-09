@@ -11,9 +11,10 @@
 | **PRD** | `dbprdplans/09 S3`, `09 S6` |
 
 > STATUS: DONE / FSV-signed-off in #267; metric semantics hardening signed off
-> in #351; per-slot calibration-bound hardening signed off in #354. Latest
-> implementation commit: `f672547`. Durable aiwonder evidence:
-> `/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+> in #351; per-slot calibration-bound hardening signed off in #354; legacy health
+> JSON serde compatibility signed off in #358. Latest implementation commit:
+> `b298497`. Durable aiwonder evidence:
+> `/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`.
 
 ## Goal
 
@@ -93,6 +94,9 @@ not block the guard hot path: it receives verdicts through a bounded channel.
 - **Per-slot-bound evidence:** #354 readback shows
   `per_slot_calibrated_far_bound = {"1":0.01,"2":0.05}`, per-slot FRR
   `{"1":1.0,"2":0.0}`, and a hook event for slot 1 using the slot 1 FAR bound.
+- **Serde compatibility evidence:** #358 readback shows legacy health JSON
+  without `per_slot_calibrated_far_bound` deserializes with an empty bound map
+  and reserializes with the new field present.
 - **Evidence:** `case-summary.json`
   `805d5d32accb704caa2b22c5f268621e38f8fbd42f2bbb770d8b0501189b6c52`,
   `before-health.json`
