@@ -26,13 +26,15 @@ must not mutate the model.
       `/home/croyse/calyx/models/wavlm/wavlm-base-plus-sv.onnx`),
       `session: Mutex<ort::Session>` (ONNX Runtime via PH19 pattern; ORT
       `Session::run` requires `&mut self`),
-      `dim: usize` (WavLM-base-plus speaker-embedding dim = 256),
+      `dim: usize` (pinned WavLM-base-plus ONNX `embeddings` output dim = 512),
       `lens_id: LensId` (content-addressed from model hash, PH18 pattern)
 - [ ] Implement `SpeakerLens::new(model_path: &Path, clock: &dyn Clock)
       -> Result<Self, WardError>`:
       - Load ONNX session via PH19 runtime; fail loud if model absent
         (`WardError::ModelNotFound { path }` → `CALYX_WARD_MODEL_NOT_FOUND`)
-      - Verify model output dim == 256; fail closed if mismatch
+      - Verify model `embeddings` output dim == 512; fail closed if mismatch.
+        The post-sweep aiwonder readback corrected the old 256-dim assumption:
+        the pinned ONNX model exposes the real speaker x-vector dim.
       - `lens_id = LensId::from_parts(...)` using the model SHA-256, pinned
         source revision, and dense audio output shape; do not invent a
         nonexistent `LensId::from_file_hash` helper
@@ -40,7 +42,7 @@ must not mutate the model.
       - Resample to 16 kHz if needed (simple linear interp; not a quality path —
         correctness only for the FSV test set)
       - Run ONNX session forward pass; extract speaker embedding tensor
-      - L2-normalize to unit norm; assert `len() == 256`
+      - L2-normalize to unit norm; assert `len() == 512`
       - Return the embedding
 - [ ] Implement `Lens` trait (PH17) for `SpeakerLens`:
       `fn measure(&self, input: &Input) -> calyx_core::Result<SlotVector>`
@@ -52,7 +54,7 @@ must not mutate the model.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: mock ONNX session returning a fixed 256-dim vector (seed=42);
+- [ ] unit: mock ONNX session returning a fixed 512-dim vector (seed=42);
       `embed_speaker` returns unit-norm vec; assert `norm ≈ 1.0 ± 1e-5`
 - [ ] unit: two identical audio buffers → identical embeddings (deterministic)
 - [ ] unit: two zero-padded buffers of different length but same speech segment
