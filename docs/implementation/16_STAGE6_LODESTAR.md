@@ -74,7 +74,7 @@ identity.
 - **Axioms/PRD.** A10, `08 §3`.
 
 ## PH33 — Kernel index + kernel_answer + grounding_gaps
-- **Status.** ✅ T01-T07,T09 DONE / FSV-signed-off. T06 #239 now writes real
+- **Status.** ✅ T01-T09 DONE / FSV-signed-off. T06 #239 now writes real
   PH35 Ledger rows for kernel build and answer hops; PH36 trace/reproduce
   remains separate. T05 real-corpora recall FSV is signed off on aiwonder:
   SciFact text `0.9611112`, live Calyx code `0.9777778`, Cora graph

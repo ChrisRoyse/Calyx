@@ -49,7 +49,11 @@ Stage 7 exit rollup #256 is also FSV-signed-off, covering PH35-PH36 end to end
 with group-commit atomicity, all 10 `EntryKind` values, redaction, Admin
 checkpoints, tamper quarantine, reproduce bit-parity, and audit trace readback.
 Residual PH36 audit-query quarantine filter hardening is tracked separately in
-#349; it does not reopen the #249-#256 FSV closeouts.
+#349; it does not reopen the #249-#256 FSV closeouts. #349 is open and covers
+audit filters that should ignore unrelated quarantined rows while still
+failing closed for requested ranges or matching/relevant quarantined rows, plus
+typed `cx` mention matching and durable aiwonder readback of ledger rows,
+manifest quarantine records, audit request/result JSON, and a SHA-256 manifest.
 
 ## Deliverables (file plan, each ≤500 lines)
 

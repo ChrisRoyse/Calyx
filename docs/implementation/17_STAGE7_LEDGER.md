@@ -151,4 +151,8 @@ or it is tagged `unprovenanced`.
 
 **Status:** DONE / FSV-signed-off through #256. Stage 8 Ward is the active
 frontier. Residual PH36 audit-query quarantine filter hardening is tracked
-separately in #349.
+separately in #349: filtered audit queries must not fail on unrelated
+quarantined rows outside the requested result set, must still fail closed for
+requested ranges or matching/relevant quarantined rows, and must byte-prove the
+ledger rows, quarantine manifest, audit request/result JSON, and SHA-256
+manifest on aiwonder.

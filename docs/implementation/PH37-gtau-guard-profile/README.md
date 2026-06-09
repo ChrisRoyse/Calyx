@@ -33,8 +33,10 @@ the `AllRequired` per-slot Forge cosine gate. PH37 T04 (#261) adds `KofN`
 policy handling and `guard_result()` OOD wrapping. No-average enforcement and
 PH37 T05 (#262) adds no-average/no-flatten source enforcement plus
 average-pass/slot-fail rejection readback. PH37 T06 (#263) adds the phase FSV
-readback harness and signs off PH37; PH38 conformal tau calibration starts at
-#264.
+readback harness and signs off the PH37 core path. Post-sweep PH37 blindspot
+tasks #275, #277, and #278 remain open before the Ward exit can claim the whole
+PH37 surface complete. PH38 conformal tau calibration T01 (#264) is also
+FSV-signed-off.
 
 Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
 (PH22) and Forge cosine (PH13); those dependency surfaces are already Stage 1-2

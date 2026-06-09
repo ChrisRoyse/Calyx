@@ -32,6 +32,10 @@ Readback facts:
   `CALYX_LEDGER_CHAIN_BROKEN: ledger seq 8 is quarantined`.
 - Empty range `0..0` remains `CHAIN_INTACT count=0`.
 
+The unchecked Build/Tests/Done rows below are preserved as the original
+implementation prompt. The status block and evidence root above are the
+authoritative closeout state for #250.
+
 Implement `verify_chain(vault, range)` — the tamper detection path. It walks
 every ledger entry in `[seq_a, seq_b)`, re-verifies `entry_hash = blake3(seq ‖ prev_hash ‖ kind ‖ subject ‖ payload ‖ actor ‖ ts)` and checks each `prev_hash`
 equals the previous entry's `entry_hash`. On the first discrepancy it returns

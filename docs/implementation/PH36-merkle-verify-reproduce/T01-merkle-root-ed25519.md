@@ -46,6 +46,10 @@ Post-sweep follow-ups:
   Ledger CF/WAL state and fails closed instead of creating/reading a side ledger
   directory.
 
+The unchecked Build/Tests/Done rows below are preserved as the original
+implementation prompt. The status block and evidence roots above are the
+authoritative closeout state for #249/#347/#348.
+
 ## Goal
 
 Build a Merkle tree over a contiguous range of ledger entries `[seq_a, seq_b)`.

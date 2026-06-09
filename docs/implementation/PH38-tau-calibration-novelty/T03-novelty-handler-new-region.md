@@ -6,7 +6,7 @@
 | **Stage** | S8 — Ward Gτ Guard |
 | **Crate** | `calyx-ward` |
 | **Files** | `crates/calyx-ward/src/novelty.rs` (≤500) |
-| **Depends on** | T01 (this phase) · PH37 T03 · PH09 (vault CF write — stub until live) |
+| **Depends on** | T01 (this phase) · PH37 T03 · PH09 (live Aster vault CF write) |
 | **Axioms** | A12, A2 |
 | **PRD** | `dbprdplans/09 §1`, `09 §5` |
 

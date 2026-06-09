@@ -24,28 +24,29 @@ the calibrated value governs.
 
 ## Current state (build off what exists)
 
-`calyx-ward` is active, not a stub: PH37 T01/T02 (#258/#259) shipped the
-profile, verdict, and error surfaces, and PH37 T03 (#260) adds the first
-`guard()` math slice. PH28 (KSG MI / grounded outcomes) is not yet built, so
-`calibrate.rs` stubs the `AnchoredSet` input type and integrates when PH28
-lands. All calibration math is self-contained (conformal quantile over a score
-array).
+`calyx-ward` is active, not a stub: PH37 T01-T06 (#258-#263) shipped the
+profile, verdict, error, AllRequired/KofN guard math, no-flatten enforcement,
+and PH37 readback harness. PH28 is FSV-backed, so PH38 T01 (#264) accepts
+grounded known-good / known-bad cosine score arrays today and can later receive
+those arrays directly from `AnchoredSet` adapters without changing the
+calibration math. T01 is implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
-| `src/calibrate.rs` | conformal τ calibration per slot; bound FAR at confidence `1−α`; `CalibrationProvenance` with `corpus_hash`, `estimator`, `far`, `frr`, `confidence`, `ts`; `provisional` flag |
-| `src/novelty.rs` | `NoveltyHandler`: route FAIL to `NewRegion` / `Quarantine` / `RejectClosed`; write novel constellation to vault (stub CF until PH09 live) |
+| `src/calibrate.rs` | conformal τ calibration per slot; empirical FAR is measured with Ward's `cos >= tau` predicate; slot-kind FAR caps; `CalibrationMeta` with `corpus_hash`, `estimator`, `far`, `frr`, `confidence`, `ts`; provisional errors for invalid/insufficient calibration |
+| `src/novelty.rs` | `NoveltyHandler`: route FAIL to `NewRegion` / `Quarantine` / `RejectClosed`; write novel constellation to the PH09-backed Aster vault CF |
 | `src/drift.rs` | `DriftMonitor`: track rolling FAR per slot; fire Anneal hook when FAR creeps above calibrated bound; `guard_health()` |
 | `src/lib.rs` | wire new modules; re-export `calibrate`, `novelty`, `drift` |
-| `tests/calibrate_unit.rs` | deterministic calibration + novelty + drift tests |
+| `tests/calibrate_unit.rs` | deterministic calibration tests and manual aiwonder FSV fixture; novelty/drift tests land with T03/T04 |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
 | Card | Title | Depends |
 |---|---|---|
-| T01 | Conformal τ calibration per slot — ROC + quantile | — |
+| T01 | Conformal τ calibration per slot — ROC + quantile | DONE / FSV #264 |
 | T02 | `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse | T01 |
 | T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | T01 |
 | T04 | `DriftMonitor` + Anneal hook + `guard_health()` | T03 |
@@ -67,6 +68,8 @@ log.
 - Conformal calibration requires an `n ≥ 50` held-out calibration set (mirrors
   PH28's quorum rule); below quorum `calibrate()` must return `Err` with
   `CALYX_GUARD_PROVISIONAL` rather than an uncalibrated τ — fail closed.
+- The merged profile-level calibration FAR is the max across calibrated slots;
+  identity-slot FAR is separately proven <=0.01 in T01 readback.
 - The injection corpus on aiwonder must be a real set (aiwonder at
   `/home/croyse/calyx/data/injection_corpus/`); synthetic random vectors do
   not satisfy the FSV gate.
