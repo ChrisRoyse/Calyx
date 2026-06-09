@@ -18,7 +18,10 @@ pub use error::{
 };
 pub use guard::{DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_result};
 pub use profile::{CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction};
-pub use query::{QueryVerdict, TrustedRegion, guard_query};
+pub use query::{
+    KernelFirstQueryVerdict, QueryVerdict, RegionSource, TrustedRegion, guard_query,
+    guard_query_kernel_first,
+};
 pub use required::{
     LOAD_BEARING_MIN_BITS, RequiredSlotDerivation, RequiredSlotEvidence, derive_required_profile,
     derive_required_slots,
