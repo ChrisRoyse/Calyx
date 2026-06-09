@@ -12,7 +12,8 @@ for the structure under `docs/implementation/PHnn-*/`.
 > Registry/Sextant integration #339.
 > Active implementation is tracked in GitHub issues: Stage 6 Lodestar is closed
 > through #240 plus readiness follow-ups #331-#332, while Stage 7 Ledger
-> continues at PH36/#249 after PH35 #242-#248.
+> continues at PH36/#250 after PH35 #242-#248, PH35 failure-atomicity hardening
+> #345, and PH36 T01 #249.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

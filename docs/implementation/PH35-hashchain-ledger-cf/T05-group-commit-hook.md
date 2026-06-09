@@ -18,8 +18,9 @@ data it describes. Provenance can therefore never be "added later" and can never
 be lost on a crash between the data write and the ledger write — the WAL either
 contains both or neither.
 
-**Status:** DONE / FSV-backed by #246. Evidence root:
-`/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`.
+**Status:** DONE / FSV-backed by #246 and hardening #345. Evidence roots:
+`/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608` and
+`/home/croyse/calyx/data/fsv-issue345-ledger-group-commit-atomicity-20260609`.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -36,18 +37,20 @@ contains both or neither.
       ) -> Result<LedgerRef>;
   }
   ```
-- [x] `struct DefaultLedgerHook { appender: LedgerAppender }` — impl of the
-  trait: calls `self.appender.append(kind, subject, payload, actor)`, adds the
-  encoded bytes to `batch` under the `ledger` CF key `ledger_key(seq)`.
+- [x] `struct DefaultLedgerHook { appender: LedgerAppender }` impl stages the
+  next entry with `LedgerAppender::prepare`, adds the encoded bytes to the
+  batch under the `ledger` CF key `ledger_key(seq)`, then advances the appender
+  only through `commit_staged` after the storage batch accepts the row.
 - [x] Integrate into PH09's `IngestWriter` (or equivalent group-commit
-  coordinator in `calyx-aster`): add an optional `Box<dyn LedgerGroupCommitHook>`
-  field; before `batch.commit()` call `hook.on_commit(...)` to add the ledger
-  write to the same batch.
+  coordinator in `calyx-aster`): stage the ledger row before base/slot rows,
+  call `commit_rows(...)`, and commit the staged hook state only after the Aster
+  batch returns success.
 - [x] `kind = EntryKind::Ingest` for constellation creates;
   `kind = EntryKind::Admin` for vault-level operations;
   mapping is defined in `group_commit.rs` as a `const fn ingest_kind_for(op: WriteOp) -> EntryKind`.
-- [x] On hook failure, the entire group-commit fails atomically (the WAL is not
-  fsynced); return `CALYX_LEDGER_GROUP_COMMIT_FAILED` (add to error catalog).
+- [x] On hook or storage-batch failure, the entire group-commit fails
+  atomically: the WAL/data rows are not committed and the in-memory ledger
+  appender tip is not advanced.
 - [x] `CALYX_LEDGER_GROUP_COMMIT_FAILED` remediation:
   `"ledger hook failed — group-commit rolled back; retry the write"`.
 
@@ -68,6 +71,9 @@ contains both or neither.
 - [x] fail-closed: hook returns an error mid-batch → `CALYX_LEDGER_GROUP_COMMIT_FAILED`;
   assert the WAL is not advanced (batch not committed); assert no ledger row
   appears in the CF.
+- [x] fail-closed: Aster commit fails after staging a ledger row → exact
+  `CALYX_BACKPRESSURE`; assert no logical Ledger CF row, no decoded physical
+  ledger row, `snapshot=0`, and hook `next_seq=0`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -90,6 +96,16 @@ contains both or neither.
 stored constellation provenance equal to the ledger `entry_hash`. Separate SoT
 reads are saved as `04-wal-readback.out`, `05-ledger-cf-readback.out`,
 `06-wal-prefix.hex`, and `07-ledger-sst-prefix.hex`.
+
+**Readback captured for #345:** `group-commit-atomicity-readback.json` proves
+the injected failure path leaves `before_ledger_row_present=false`,
+`after_ledger_row_present=false`, `physical_ledger_rows_after=0`,
+`snapshot_after=0`, and hook `next_seq=0`/`store_rows=0`. The success path
+proves `ledger_cf_matches_wal_row=true`, `ledger_row_index=0`,
+`base_row_index=1`, `ledger_before_base=true`, stored constellation provenance
+equals the ledger `entry_hash`, and hook `next_seq=1`/`store_rows=1`. The
+aiwonder root manifest is
+`f5756e3ed3ab564d013247f8341fde9d56dfe0c690f18572ae9167d9d1d89d0b`.
 
 ## Done when
 

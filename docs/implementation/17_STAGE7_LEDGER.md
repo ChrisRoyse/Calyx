@@ -40,6 +40,12 @@ as PH09 writes constellations.*
   a real `LedgerEntry` row before the base/slot data rows in the same Aster WAL
   batch. WAL, ledger-CF, and SST byte readbacks are FSV-backed at
   `/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608`.
+- **Post-sweep note.** PH35 hardening #345 changes the hook to prepare the
+  ledger bytes without advancing the appender, adds them to the storage batch,
+  and commits the appender tip only after the Aster batch commit succeeds.
+  Failure-injected aiwonder readbacks prove no leaked row, no `next_seq`
+  advance, and no visible Ledger CF row at
+  `/home/croyse/calyx/data/fsv-issue345-ledger-group-commit-atomicity-20260609`.
 - **Post-sweep note.** PH35 T06 (#247) adds actor validation plus
   server-stamped monotonic timestamps in `LedgerAppender`, including restart
   recovery of `last_ts` and Aster ingest readback of non-empty service actors.
