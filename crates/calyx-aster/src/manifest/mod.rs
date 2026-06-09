@@ -2,7 +2,7 @@
 
 use crate::sst::SstReader;
 use crate::wal::{ReplayRecord, TornTail, replay_dir};
-use calyx_core::{CalyxError, Result};
+use calyx_core::{CalyxError, Result, TemporalPolicy};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::fs::{self, File};
@@ -140,13 +140,15 @@ impl QuarantineRecord {
 }
 
 /// Durable Aster vault manifest.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VaultManifest {
     pub version: ManifestVersion,
     pub manifest_seq: u64,
     pub durable_seq: u64,
     pub panel_ref: ImmutableRef,
     pub codebook_refs: Vec<ImmutableRef>,
+    #[serde(default)]
+    pub temporal_policy: Option<TemporalPolicy>,
     pub degraded_rebuildable: bool,
     #[serde(default)]
     pub quarantines: Vec<QuarantineRecord>,
@@ -159,12 +161,29 @@ impl VaultManifest {
         panel_ref: ImmutableRef,
         codebook_refs: Vec<ImmutableRef>,
     ) -> Result<Self> {
+        Self::new_with_temporal_policy(
+            manifest_seq,
+            durable_seq,
+            panel_ref,
+            codebook_refs,
+            Some(TemporalPolicy::default()),
+        )
+    }
+
+    pub fn new_with_temporal_policy(
+        manifest_seq: u64,
+        durable_seq: u64,
+        panel_ref: ImmutableRef,
+        codebook_refs: Vec<ImmutableRef>,
+        temporal_policy: Option<TemporalPolicy>,
+    ) -> Result<Self> {
         let manifest = Self {
             version: ManifestVersion::current(),
             manifest_seq,
             durable_seq,
             panel_ref,
             codebook_refs,
+            temporal_policy,
             degraded_rebuildable: false,
             quarantines: Vec::new(),
         };
@@ -193,6 +212,9 @@ impl VaultManifest {
         }
         for quarantine in &self.quarantines {
             quarantine.validate()?;
+        }
+        if let Some(policy) = &self.temporal_policy {
+            policy.validate()?;
         }
         Ok(())
     }
@@ -281,7 +303,7 @@ pub struct ManifestWrite {
 }
 
 /// Recovery result after loading MANIFEST first, then replaying WAL past it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RecoveryOutcome {
     pub manifest: VaultManifest,
     pub wal_records: Vec<ReplayRecord>,

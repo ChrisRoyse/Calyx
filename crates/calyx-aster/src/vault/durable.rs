@@ -4,7 +4,7 @@ use crate::compaction::TieringPolicy;
 use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault};
 use crate::sst::{SstReader, write_sst};
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
-use calyx_core::{CalyxError, Result, SlotId, SystemClock};
+use calyx_core::{CalyxError, Result, SlotId, SystemClock, TemporalPolicy};
 use calyx_ledger::CheckpointConfig;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -18,6 +18,7 @@ pub struct VaultOptions {
     pub memtable_byte_cap: usize,
     pub tiering_policy: Option<TieringPolicy>,
     pub ledger_checkpoint: Option<CheckpointConfig>,
+    pub temporal_policy: Option<TemporalPolicy>,
 }
 
 impl Default for VaultOptions {
@@ -27,6 +28,7 @@ impl Default for VaultOptions {
             memtable_byte_cap: 0,
             tiering_policy: None,
             ledger_checkpoint: Some(CheckpointConfig::default()),
+            temporal_policy: Some(TemporalPolicy::default()),
         }
     }
 }
@@ -36,6 +38,7 @@ pub(super) struct DurableVault {
     root: PathBuf,
     batcher: GroupCommitBatcher,
     tiering_policy: Option<TieringPolicy>,
+    temporal_policy: Option<TemporalPolicy>,
 }
 
 pub(super) struct RecoveredBatch {
@@ -52,6 +55,9 @@ pub(super) struct RecoveredBatches {
 impl DurableVault {
     pub(super) fn open(root: impl AsRef<Path>, options: &VaultOptions) -> Result<Self> {
         let root = root.as_ref().to_path_buf();
+        if let Some(policy) = &options.temporal_policy {
+            policy.validate()?;
+        }
         fs::create_dir_all(root.join("cf"))
             .map_err(|error| storage_error("create durable CF root", error))?;
         if let Some(policy) = &options.tiering_policy {
@@ -70,6 +76,7 @@ impl DurableVault {
             root,
             batcher,
             tiering_policy: options.tiering_policy.clone(),
+            temporal_policy: options.temporal_policy,
         })
     }
 
@@ -177,7 +184,13 @@ impl DurableVault {
 
     fn write_manifest(&self, seq: u64) -> Result<()> {
         let (panel_ref, codebook_refs) = ensure_manifest_assets(&self.root)?;
-        let manifest = VaultManifest::new(seq, seq, panel_ref, codebook_refs)?;
+        let manifest = VaultManifest::new_with_temporal_policy(
+            seq,
+            seq,
+            panel_ref,
+            codebook_refs,
+            self.temporal_policy,
+        )?;
         ManifestStore::open(&self.root).write_current(&manifest)?;
         Ok(())
     }
