@@ -76,6 +76,9 @@ impl std::fmt::Display for CorpusError {
 
 #[derive(serde::Serialize)]
 pub struct BlockRateReadback {
+    pub metric: String,
+    pub evaluation_split: String,
+    pub evaluation_row_count: usize,
     pub dataset: serde_json::Value,
     pub vectors_sha256: String,
     pub target_far: f32,
@@ -174,29 +177,6 @@ pub fn load_corpus(root: &Path) -> Result<Corpus, CorpusError> {
     })
 }
 
-pub fn benign_centroid(items: &[VectorRow]) -> Result<Vec<f32>, CorpusError> {
-    let mut count = 0_usize;
-    let mut sum = vec![0.0; items[0].vec.len()];
-    for item in items.iter().filter(|item| item.label == 0) {
-        count += 1;
-        for (acc, value) in sum.iter_mut().zip(&item.vec) {
-            *acc += *value;
-        }
-    }
-    for value in &mut sum {
-        *value /= count as f32;
-    }
-    normalize(&sum).ok_or_else(|| invalid("benign centroid has zero norm"))
-}
-
-pub fn scores_for_label(items: &[VectorRow], centroid: &[f32], label: u8) -> Vec<f32> {
-    items
-        .iter()
-        .filter(|item| item.label == label)
-        .map(|item| cosine(&item.vec, centroid).expect("validated vector"))
-        .collect()
-}
-
 pub fn block_rate(
     profile: &GuardProfile,
     corpus: &Corpus,
@@ -217,6 +197,9 @@ pub fn block_rate(
     let injection_total = blocked + passed_ids.len();
     let meta = profile.calibration.as_ref().expect("calibrated profile");
     Ok(BlockRateReadback {
+        metric: "whole_corpus_injection_block_rate".to_string(),
+        evaluation_split: "all".to_string(),
+        evaluation_row_count: corpus.items.len(),
         dataset: corpus.manifest["dataset"].clone(),
         vectors_sha256: corpus.vectors_sha256.clone(),
         target_far: TARGET_FAR,
