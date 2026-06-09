@@ -131,12 +131,37 @@ fn novelty_handler_fsv_fixture_writes_readback_artifacts() {
     let rejected = reject_sink.records().remove(0);
     let listed = novel_regions(&new_sink, Some(0)).expect("novel regions");
     let max_since = novel_regions(&new_sink, Some(i64::MAX)).expect("max since");
+    let sink_new_region_error =
+        handle_action(&FailingSink, NoveltyAction::NewRegion).expect_err("new region sink error");
+    let sink_reject_error =
+        handle_action(&FailingSink, NoveltyAction::RejectClosed).expect_err("reject sink error");
+    let not_failure_sink = MemorySink::default();
+    let not_failure_error = passing_verdict_error(&not_failure_sink);
 
     write_json(&root, "new-region-record.json", &awaiting);
     write_json(&root, "quarantine-record.json", &quarantined);
     write_json(&root, "reject-tombstone-record.json", &rejected);
     write_json(&root, "reject-error.json", &error_json(&rejected_error));
     write_json(&root, "novel-regions.json", &listed);
+    write_json(&root, "novel-regions-max-since.json", &max_since);
+    write_json(
+        &root,
+        "sink-error-new-region.json",
+        &error_json(&sink_new_region_error),
+    );
+    write_json(
+        &root,
+        "sink-error-reject-closed.json",
+        &error_json(&sink_reject_error),
+    );
+    write_json(
+        &root,
+        "not-failure-error.json",
+        &json!({
+            "records_after": not_failure_sink.records().len(),
+            "error": error_json(&not_failure_error),
+        }),
+    );
     write_json(
         &root,
         "case-summary.json",
@@ -147,6 +172,10 @@ fn novelty_handler_fsv_fixture_writes_readback_artifacts() {
             "reject_error_code": rejected_error.code(),
             "listed_count": listed.len(),
             "max_since_count": max_since.len(),
+            "sink_new_region_error_code": sink_new_region_error.code(),
+            "sink_reject_error_code": sink_reject_error.code(),
+            "not_failure_error_code": not_failure_error.code(),
+            "not_failure_records_after": not_failure_sink.records().len(),
             "new_region_uuid": awaiting.novel_id.to_string(),
         }),
     );
@@ -233,6 +262,17 @@ fn scenario(action: NoveltyAction) -> (GuardProfile, ProducedSlots, MatchedSlots
     let produced = BTreeMap::from([(slot(1), vec![1.0, 0.0])]);
     let matched = BTreeMap::from([(slot(1), vec![0.45, (1.0_f32 - 0.45 * 0.45).sqrt()])]);
     (profile, produced, matched)
+}
+
+fn passing_verdict_error(sink: &MemorySink) -> WardError {
+    let (mut profile, produced, mut matched) = scenario(NoveltyAction::NewRegion);
+    profile.tau.insert(slot(1), 0.70);
+    matched.insert(slot(1), vec![1.0, 0.0]);
+    let verdict = guard(&profile, &produced, &matched, false).expect("passing verdict");
+
+    handler_for(sink.clone())
+        .handle(&profile, &verdict, &produced)
+        .expect_err("not a failure")
 }
 
 fn error_json(error: &WardError) -> serde_json::Value {
