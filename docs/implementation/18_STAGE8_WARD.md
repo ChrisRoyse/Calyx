@@ -2,9 +2,9 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#280. PH37 T01-T09 (#258-#263, #275, #277, #278),
-PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T03 (#269-#271) are
+PH38 T01-T07 (#264-#268, #276, #279), and PH39 T01-T04 (#269-#272) are
 FSV-signed-off. PH37 is complete; PH38 post-T06 hardening #355/#356/#359 and
-PH36 audit hardening #349 are signed off. PH39 T04-T06 (#272-#274) remain
+PH36 audit hardening #349 are signed off. PH39 T05-T06 (#273-#274) remain
 before the Ward exit can claim Stage 8 complete. #357
 timestamp unit hardening, #351 drift metric semantics hardening, #352 held-out
 injection split hardening,
@@ -213,6 +213,13 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   tokenizer SHA-256 is
   `82139106e603ee4e1d5bc99d056ccbed5a92bc24848b1b5a7137c26e00d0dbf6`, output
   dim is 768, and CPU/CUDA max abs diff is `0.00016807019710540771`.
+  PH39 T04 (#272) adds `guard_generate()` plus
+  `guard_generate_with_ledger()`, with accepted `"guarded:pass"`,
+  `NewRegion`, `RejectClosed`, and high-stakes provisional paths read back
+  under
+  `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`.
+  The accepted path writes a physical Ledger Guard row at
+  `ledger-cf/0000000000000000.ledger`.
 - **Deliverables.** `SpeakerMatch`/`StyleHold` anchor handling; identity-slot
   required-set; integration with `guard_generate`.
 - **Key tasks.** commission a WavLM speaker lens + a style lens (HF); require

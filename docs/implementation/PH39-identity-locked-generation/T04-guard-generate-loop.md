@@ -19,18 +19,21 @@ to `NoveltyHandler`. This is the database primitive that makes identity-locked
 generation work: every AI output is checked against the grounded constellation
 before being accepted.
 
+**Status:** DONE / FSV #272. Durable aiwonder evidence:
+`/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `GenerateInput` struct:
+- [x] Define `GenerateInput` struct:
       `candidate_audio: Option<Vec<f32>>` (for speaker),
       `candidate_text: Option<String>` (for style/content),
       `sample_rate: u32`,
       `matched_cx_id: CxId` (the grounded anchor to gate against)
-- [ ] Define `GenerateOutput` enum:
-      `Accepted { verdict: GuardVerdict, provenance_tag: String }` |
+- [x] Define `GenerateOutput` enum:
+      `Accepted { verdict: GuardVerdict, provenance_tag: String, ledger_ref: Option<LedgerRef> }` |
       `Novel { record: NoveltyRecord }` |
       `Rejected { verdict: GuardVerdict }` (for `RejectClosed`)
-- [ ] Implement `guard_generate(identity_profile: &IdentityProfile,
+- [x] Implement `guard_generate(identity_profile: &IdentityProfile,
       input: &GenerateInput, speaker_lens: &dyn Lens,
       style_lens: &dyn Lens, novelty_handler: &NoveltyHandler,
       high_stakes: bool) -> Result<GenerateOutput, WardError>`:
@@ -51,7 +54,7 @@ before being accepted.
           semantics (`guard_with_ledger()` / `append_guard_verdict()` with
           `EntryKind::Guard`) when the accepted output should be auditable as a
           Guard verdict.
-        - Return `Ok(GenerateOutput::Accepted { verdict, provenance_tag: "guarded:pass".into() })`
+        - Return `Ok(GenerateOutput::Accepted { verdict, provenance_tag: "guarded:pass".into(), ledger_ref: None })`
       - On `Ok(verdict)` where `overall_pass == false` (can happen with non-high-stakes
         uncalibrated profile per PH38 T02 path, or an OOD candidate when using
         the detailed verdict API):
@@ -61,31 +64,34 @@ before being accepted.
         wait for `guard()` itself to return `WardError::Ood`; that is not its
         current contract.
       - On `Err(WardError::Provisional)`: propagate as-is (fail closed)
-- [ ] `guard_generate` must never call `guard()` with a flattened multi-slot
+- [x] `guard_generate` must never call `guard()` with a flattened multi-slot
       vector; each slot embedded separately by its own lens
-- [ ] Add `/// CALYX_GUARD_OOD` doc on the OOD path; `/// guarded:pass` on
+- [x] Add `/// CALYX_GUARD_OOD` doc on the OOD path; `/// guarded:pass` on
       the accept path
+- [x] Add `guard_generate_with_ledger(...)` wrapper that appends the accepted
+      `GuardVerdict` through the #279 `append_guard_verdict()` path and returns
+      `ledger_ref` for auditable accepted output.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: mock lenses returning in-region vecs (cos=0.85 on both slots);
+- [x] unit: mock lenses returning in-region vecs (cos=0.85 on both slots);
       calibrated profile; `guard_generate()` returns
       `Accepted { provenance_tag: "guarded:pass" }`
-- [ ] unit: mock lenses returning out-of-region vecs (cos=0.40 on style slot);
+- [x] unit: mock lenses returning out-of-region vecs (cos=0.40 on style slot);
       `NewRegion` policy; returns `Novel { record }` with
       `status: AwaitingGrounding`
-- [ ] unit: `RejectClosed` policy + out-of-region → returns `Rejected { .. }`;
+- [x] unit: `RejectClosed` policy + out-of-region → returns `Rejected { .. }`;
       detailed failing verdict preserved
-- [ ] unit: uncalibrated profile + `high_stakes=true` → `Err(Provisional)`;
+- [x] unit: uncalibrated profile + `high_stakes=true` → `Err(Provisional)`;
       no lens embeddings computed (early return)
-- [ ] unit: empty `IdentityProfile.identity_slots` → fail closed before any
+- [x] unit: empty `IdentityProfile.identity_slots` → fail closed before any
       lens is called
-- [ ] proptest: for any in-region input (cos ≥ τ on all slots), `guard_generate`
+- [x] proptest: for any in-region input (cos ≥ τ on all slots), `guard_generate`
       always returns `Accepted`; for any out-of-region (cos < τ on any required
       slot), never returns `Accepted`
-- [ ] edge: `candidate_audio = None` when speaker slot is required → no speaker
+- [x] edge: `candidate_audio = None` when speaker slot is required → no speaker
       vector is produced and the guard path returns `WardError::MissingSlot`
-- [ ] fail-closed: `novelty_handler.handle()` fails (vault write error) →
+- [x] fail-closed: `novelty_handler.handle()` fails (vault write error) →
       error propagated; `Accepted` not returned for a failing candidate
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -101,11 +107,37 @@ before being accepted.
   `"guarded:pass"` provenance, out-of-region `NewRegion` output, and
   high-stakes uncalibrated `Err(Provisional)`.
 
+### #272 readback summary
+
+FSV root:
+`/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`.
+The root was absent before the trigger. The ignored fixture wrote
+`accepted-output.json`, `ledger-readback.json`, the physical
+`ledger-cf/0000000000000000.ledger` row, `novel-output.json`,
+`novelty-new-region-readback.json`, `rejected-output.json`,
+`novelty-reject-readback.json`, `provisional-error.json`, `issue272-fsv.log`,
+`SHA256SUMS.txt`, and `SHA256SUMS.full.txt`. Separate readback confirmed:
+
+- accepted path: `provenance_tag="guarded:pass"`, `overall_pass=true`,
+  `ledger_ref.seq=0`
+- Ledger SoT: `before_rows=0`, `after_rows=1`, entry kind `guard`,
+  payload `ward_provenance="ward_guard_verdict_v1"`, payload
+  `overall_pass=true`
+- `NewRegion` path: `NoveltyStatus::AwaitingGrounding`, failing style
+  slot `9`, file-backed novelty readback count `1`
+- `RejectClosed` path: rejected verdict `overall_pass=false`, file-backed
+  novelty record status `Rejected`
+- high-stakes uncalibrated path: `CALYX_GUARD_PROVISIONAL`
+- full manifest SHA-256:
+  `d07cda0a0edc7ca0521b5d503456879afe6fb93d8de3e6ebf15e1b0b07866aed`
+
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 (lens embed is Forge-touching)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH39 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity for the required real lenses is covered by #270
+      (speaker) and #271 (style); #272 adds orchestration over frozen `Lens`
+      outputs and no new GPU kernel.
+- [x] FSV evidence (readback output / screenshot) attached to the PH39 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
