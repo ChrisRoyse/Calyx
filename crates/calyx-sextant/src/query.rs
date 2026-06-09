@@ -1,5 +1,7 @@
 //! Query request types and freshness policy.
 
+use std::collections::BTreeMap;
+
 use calyx_core::{AnchorKind, AnchorValue, Modality, SlotId, SlotVector, VaultId};
 use calyx_ward::GuardProfile;
 use serde::{Deserialize, Serialize};
@@ -26,6 +28,8 @@ pub enum QueryGuard {
 pub struct Query {
     pub text: String,
     pub vector: Option<SlotVector>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub guard_vectors: BTreeMap<SlotId, SlotVector>,
     pub slots: Vec<SlotId>,
     pub k: usize,
     pub ef: Option<usize>,
@@ -47,6 +51,7 @@ impl Query {
         Self {
             text: text.into(),
             vector: None,
+            guard_vectors: BTreeMap::new(),
             slots: Vec::new(),
             k: 10,
             ef: Some(64),
@@ -62,6 +67,11 @@ impl Query {
 
     pub fn with_vector(mut self, vector: SlotVector) -> Self {
         self.vector = Some(vector);
+        self
+    }
+
+    pub fn with_guard_vectors(mut self, guard_vectors: BTreeMap<SlotId, SlotVector>) -> Self {
+        self.guard_vectors = guard_vectors;
         self
     }
 

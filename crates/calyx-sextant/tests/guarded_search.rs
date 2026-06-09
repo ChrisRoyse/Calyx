@@ -91,6 +91,52 @@ fn non_dense_guarded_query_fails_closed() {
 }
 
 #[test]
+fn multi_slot_guard_requires_slot_aware_query_vectors() {
+    let engine = multi_slot_guarded_engine();
+    let err = engine
+        .search_with_guard_report(&multi_slot_query_without_guard_vectors())
+        .expect_err("multi-slot guard without slot-aware vectors fails");
+
+    assert_eq!(err.code, CALYX_SEXTANT_VECTOR_SHAPE);
+    assert!(err.message.contains("slot-aware query guard vectors"));
+}
+
+#[test]
+fn multi_slot_guard_uses_distinct_query_vectors() {
+    let engine = multi_slot_guarded_engine();
+    let before = engine.search(&multi_slot_base_query(2)).expect("before");
+    let report = engine
+        .search_with_guard_report(&multi_slot_guarded_query(2, true))
+        .expect("guarded multi-slot search");
+
+    assert_eq!(ids(&before), vec![cx(4), cx(5)]);
+    assert_eq!(ids(&report.hits), vec![cx(4)]);
+    assert_eq!(report.dropped_guard_hits.len(), 1);
+    assert_eq!(report.dropped_guard_hits[0].cx_id, cx(5));
+    assert_eq!(report.dropped_guard_hits[0].reason, "ood");
+    let dropped_verdict = report.dropped_guard_hits[0]
+        .verdict
+        .as_ref()
+        .expect("dropped verdict");
+    assert!(
+        dropped_verdict
+            .per_slot
+            .iter()
+            .any(|slot| slot.slot == slot_style() && !slot.pass)
+    );
+    let survivor = report.hits[0].guard.as_ref().expect("survivor guard");
+    assert!(survivor.verdict.overall_pass);
+    assert_eq!(survivor.verdict.per_slot.len(), 2);
+    assert!(
+        survivor
+            .verdict
+            .per_slot
+            .iter()
+            .any(|slot| slot.slot == slot_style() && slot.pass)
+    );
+}
+
+#[test]
 #[ignore = "manual aiwonder FSV fixture; set CALYX_SEXTANT_PH38_T06_FSV_DIR"]
 fn ph38_t06_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_SEXTANT_PH38_T06_FSV_DIR")
@@ -140,6 +186,71 @@ fn ph38_t06_fsv_fixture_writes_readback_artifacts() {
     );
 }
 
+#[test]
+#[ignore = "manual aiwonder FSV fixture; set CALYX_SEXTANT_PH38_T06_MULTISLOT_FSV_DIR"]
+fn ph38_t06_multi_slot_fsv_fixture_writes_readback_artifacts() {
+    let root = std::env::var("CALYX_SEXTANT_PH38_T06_MULTISLOT_FSV_DIR")
+        .expect("CALYX_SEXTANT_PH38_T06_MULTISLOT_FSV_DIR is required");
+    std::fs::create_dir_all(&root).expect("create fsv root");
+
+    let engine = multi_slot_guarded_engine();
+    let before = engine.search(&multi_slot_base_query(2)).expect("before");
+    let missing_guard_vectors = engine
+        .search_with_guard_report(&multi_slot_query_without_guard_vectors())
+        .expect_err("missing slot-aware query guard vectors");
+    let guarded = engine
+        .search_with_guard_report(&multi_slot_guarded_query(2, true))
+        .expect("guarded multi-slot search");
+
+    write_json(&root, "before-unguarded-hits.json", &before);
+    write_json(
+        &root,
+        "missing-guard-vectors-error.json",
+        &json!({
+            "code": missing_guard_vectors.code,
+            "message": missing_guard_vectors.message,
+        }),
+    );
+    write_json(&root, "after-guarded-hits.json", &guarded.hits);
+    write_json(
+        &root,
+        "dropped-guard-hits.json",
+        &guarded.dropped_guard_hits,
+    );
+    write_json(
+        &root,
+        "case-summary.json",
+        &json!({
+            "before_ids": ids(&before),
+            "after_ids": ids(&guarded.hits),
+            "dropped_ids": ids_from_dropped(&guarded.dropped_guard_hits),
+            "missing_guard_vectors_error_code": missing_guard_vectors.code,
+            "missing_guard_vectors_message": missing_guard_vectors.message,
+            "survivor_per_slot_count": guarded
+                .hits
+                .first()
+                .and_then(|hit| hit.guard.as_ref())
+                .map(|guard| guard.verdict.per_slot.len()),
+            "dropped_style_slot_failed": guarded
+                .dropped_guard_hits
+                .first()
+                .and_then(|dropped| dropped.verdict.as_ref())
+                .map(|verdict| verdict
+                    .per_slot
+                    .iter()
+                    .any(|slot| slot.slot == slot_style() && !slot.pass)),
+        }),
+    );
+
+    println!(
+        "FSV_SEXTANT_INREGION_MULTISLOT before={} after={} dropped={} missing_code={}",
+        before.len(),
+        guarded.hits.len(),
+        guarded.dropped_guard_hits.len(),
+        missing_guard_vectors.code,
+    );
+}
+
 fn guarded_engine(include_missing_doc_candidate: bool) -> SearchEngine {
     let map = SlotIndexMap::new();
     map.register(HnswIndex::new(slot(), 2, 42)).unwrap();
@@ -151,6 +262,31 @@ fn guarded_engine(include_missing_doc_candidate: bool) -> SearchEngine {
     }
     engine.put_constellation(row(cx(2), dense(vec![0.0, 1.0]), 2));
     engine.put_constellation(row(cx(1), dense(vec![1.0, 0.0]), 1));
+    engine
+}
+
+fn multi_slot_guarded_engine() -> SearchEngine {
+    let map = SlotIndexMap::new();
+    map.register(HnswIndex::new(slot(), 2, 42)).unwrap();
+    let mut engine = SearchEngine::new(map);
+    insert(&engine, cx(4), dense(vec![1.0, 0.0]), 4);
+    insert(&engine, cx(5), dense(vec![0.95, 0.05]), 5);
+    engine.put_constellation(row_with_slots(
+        cx(4),
+        vec![
+            (slot(), dense(vec![1.0, 0.0])),
+            (slot_style(), dense(vec![0.0, 1.0, 0.0])),
+        ],
+        4,
+    ));
+    engine.put_constellation(row_with_slots(
+        cx(5),
+        vec![
+            (slot(), dense(vec![1.0, 0.0])),
+            (slot_style(), dense(vec![1.0, 0.0, 0.0])),
+        ],
+        5,
+    ));
     engine
 }
 
@@ -176,6 +312,28 @@ fn guarded_query(k: usize, recall_k: usize, explain: bool) -> Query {
     query
 }
 
+fn multi_slot_base_query(k: usize) -> Query {
+    let mut query = Query::new("guarded multi-slot")
+        .with_slots(vec![slot()])
+        .with_vector(dense(vec![1.0, 0.0]));
+    query.k = k;
+    query
+}
+
+fn multi_slot_query_without_guard_vectors() -> Query {
+    multi_slot_base_query(2).with_guard(QueryGuard::InRegionOnly(multi_slot_profile()))
+}
+
+fn multi_slot_guarded_query(k: usize, explain: bool) -> Query {
+    multi_slot_base_query(k)
+        .with_guard(QueryGuard::InRegionOnly(multi_slot_profile()))
+        .with_guard_vectors(BTreeMap::from([
+            (slot(), dense(vec![1.0, 0.0])),
+            (slot_style(), dense(vec![0.0, 1.0, 0.0])),
+        ]))
+        .explain(explain)
+}
+
 fn profile() -> GuardProfile {
     let mut tau = BTreeMap::new();
     tau.insert(slot(), 0.70);
@@ -191,9 +349,32 @@ fn profile() -> GuardProfile {
     }
 }
 
+fn multi_slot_profile() -> GuardProfile {
+    let mut tau = BTreeMap::new();
+    tau.insert(slot(), 0.70);
+    tau.insert(slot_style(), 0.70);
+    GuardProfile {
+        guard_id: guard_id(),
+        panel_version: 42,
+        domain: "synthetic-sextant-multislot".to_string(),
+        tau,
+        required_slots: vec![slot(), slot_style()],
+        policy: GuardPolicy::AllRequired,
+        calibration: None,
+        novelty_action: NoveltyAction::Quarantine,
+    }
+}
+
 fn row(cx_id: CxId, vector: SlotVector, seq: u64) -> calyx_core::Constellation {
-    let mut slots = BTreeMap::new();
-    slots.insert(slot(), vector);
+    row_with_slots(cx_id, vec![(slot(), vector)], seq)
+}
+
+fn row_with_slots(
+    cx_id: CxId,
+    slot_vectors: Vec<(SlotId, SlotVector)>,
+    seq: u64,
+) -> calyx_core::Constellation {
+    let slots = slot_vectors.into_iter().collect();
     calyx_core::Constellation {
         cx_id,
         vault_id: vault(),
@@ -226,8 +407,15 @@ fn ids(hits: &[calyx_sextant::Hit]) -> Vec<CxId> {
     hits.iter().map(|hit| hit.cx_id).collect()
 }
 
+fn ids_from_dropped(hits: &[calyx_sextant::DroppedGuardHit]) -> Vec<CxId> {
+    hits.iter().map(|hit| hit.cx_id).collect()
+}
+
 fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense { dim: 2, data }
+    SlotVector::Dense {
+        dim: data.len() as u32,
+        data,
+    }
 }
 
 fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
@@ -250,4 +438,8 @@ fn vault() -> VaultId {
 
 const fn slot() -> SlotId {
     SlotId::new(8)
+}
+
+const fn slot_style() -> SlotId {
+    SlotId::new(9)
 }
