@@ -22,7 +22,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S5 Loom + Assay | PH27–PH30 | ✅ DONE, FSV-signed-off (`calyx-loom` + `calyx-assay`: DDA cross-terms + bits/differentiation/sufficiency); grounded-trust #294, gate/abundance #309, Loom GPU fail-loud #313, NMI fail-closed #317, seeded bootstrap CI #318, Aster-backed Loom materialization gate #319, and Loom/Assay contract-hardening #340 are FSV-backed |
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35–PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening tracked separately in #349) |
-| S8 Ward | PH37-PH39 | ▶ **ACTIVE** (#258-#264 and #275/#277/#278 signed off; PH37 complete; PH38 T02+ next under epic #257; exit #280) |
+| S8 Ward | PH37-PH39 | ▶ **ACTIVE** (#258-#265 and #275/#277/#278 signed off; PH37 complete; PH38 T03+ next under epic #257; exit #280) |
 | S9–S20 | PH40–PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -133,7 +133,12 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`,
   `/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`,
   `/home/croyse/calyx/data/fsv-issue262-ph37-t05-20260609-3dbe1a6`,
-  `/home/croyse/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7`
+  `/home/croyse/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7`,
+  `/home/croyse/calyx/data/fsv-issue275-ph37-t07-20260609-8b71024`,
+  `/home/croyse/calyx/data/fsv-issue277-ph37-t08-20260609-e75ade1`,
+  `/home/croyse/calyx/data/fsv-issue278-ph37-t09-20260609-c2d3e30`,
+  `/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`,
+  `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`
 
 ---
 

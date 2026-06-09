@@ -2,8 +2,8 @@
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
 atomic tasks are #258-#279. PH37 T01-T09 (#258-#263, #275, #277, #278) and
-PH38 T01 (#264) are FSV-signed-off. PH37 is complete; PH38 T02+ remains before
-the Ward exit can claim Stage 8 complete.
+PH38 T01-T02 (#264-#265) are FSV-signed-off. PH37 is complete; PH38 T03+
+remains before the Ward exit can claim Stage 8 complete.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
@@ -70,6 +70,11 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `calibrate_slot`, slot-kind FAR caps, quantile-tie handling that matches
   Ward's `cos >= tau` predicate, and aiwonder readback evidence under
   `/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`.
+- **Post-sweep note.** PH38 T02 (#265) adds the `high_stakes` guard parameter,
+  `GuardVerdict.provisional`, `guard_non_high_stakes`, and fail-closed
+  `CALYX_GUARD_PROVISIONAL` refusal for uncalibrated high-stakes calls.
+  Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
 - **Deliverables.** `calibrate.rs` (conformal: bound FAR at confidence 1−α; per-
   slot; provenance: corpus_hash, estimator, FAR/FRR, ts), `novelty.rs`
   (NewRegion|Quarantine|RejectClosed), drift monitor hook (Anneal).

@@ -70,6 +70,8 @@ non-existent helper.
 | T05 | No-flatten enforcement + average-passing/slot-failing rejection | T04 |
 | T06 | FSV harness — per-slot verdict readback + anti-flatten smoke test | T05 |
 | T07 | `guard_query` incoming-query OOD gate | T06 |
+| T08 | Required-slot set derived from Assay load-bearing bits | T07 |
+| T09 | Kernel-near guard priority for Lodestar-fed queries | T08 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

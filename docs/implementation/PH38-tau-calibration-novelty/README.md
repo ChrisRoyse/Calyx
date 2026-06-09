@@ -24,13 +24,17 @@ the calibrated value governs.
 
 ## Current state (build off what exists)
 
-`calyx-ward` is active, not a stub: PH37 T01-T06 (#258-#263) shipped the
-profile, verdict, error, AllRequired/KofN guard math, no-flatten enforcement,
-and PH37 readback harness. PH28 is FSV-backed, so PH38 T01 (#264) accepts
-grounded known-good / known-bad cosine score arrays today and can later receive
-those arrays directly from `AnchoredSet` adapters without changing the
-calibration math. T01 is implemented and FSV-signed-off at
-`/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`.
+`calyx-ward` is active, not a stub: PH37 T01-T09 (#258-#263, #275,
+#277, #278) shipped the profile, verdict, error, AllRequired/KofN guard math,
+no-flatten enforcement, PH37 readback harness, incoming-query OOD gating,
+Assay-derived required slots, and Lodestar kernel-near priority. PH28 is
+FSV-backed, so PH38 T01 (#264) accepts grounded known-good / known-bad cosine
+score arrays today and can later receive those arrays directly from
+`AnchoredSet` adapters without changing the calibration math. T01 is
+implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`. T02 (#265)
+is implemented and FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -47,7 +51,7 @@ calibration math. T01 is implemented and FSV-signed-off at
 | Card | Title | Depends |
 |---|---|---|
 | T01 | Conformal τ calibration per slot — ROC + quantile | DONE / FSV #264 |
-| T02 | `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse | T01 |
+| T02 | `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse | DONE / FSV #265 |
 | T03 | `NoveltyHandler` — `NewRegion` / `Quarantine` / `RejectClosed` routing | T01 |
 | T04 | `DriftMonitor` + Anneal hook + `guard_health()` | T03 |
 | T05 | FSV: injection corpus blocked ≥99% at calibrated FAR + valid-novelty → new region | T04 |
