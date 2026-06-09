@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, and PH38 conformal tau calibration T01 are active: #258-#264 and #275 are FSV-signed-off; PH37 blindspot #277/#278 remain open before Ward exit |
+| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, and PH38 conformal tau calibration T01 are active: #258-#264, #275, and #277 are FSV-signed-off; PH37 blindspot #278 remains open before Ward exit |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -70,8 +70,9 @@ and
 `/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`,
 `/home/croyse/calyx/data/fsv-issue262-ph37-t05-20260609-3dbe1a6`,
 `/home/croyse/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7`,
-`/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`, and
-`/home/croyse/calyx/data/fsv-issue275-ph37-t07-20260609-8b71024`.
+`/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`,
+`/home/croyse/calyx/data/fsv-issue275-ph37-t07-20260609-8b71024`, and
+`/home/croyse/calyx/data/fsv-issue277-ph37-t08-20260609-e75ade1`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -83,8 +84,8 @@ re-measure #252, reproduce fusion replay #253, and audit query surface #254
 are signed off. PH36 exit FSV integration #255 and Stage 7 exit rollup #256
 are signed off; residual PH36 audit-query quarantine filter hardening is
 tracked in #349, covering filtered audit queries around unrelated quarantined
-rows and typed `cx` mention matching. Stage 8 Ward has #258-#264 and #275
-signed off and must clear PH37 blindspot #277/#278 before the Ward exit claim
+rows and typed `cx` mention matching. Stage 8 Ward has #258-#264, #275, and
+#277 signed off and must clear PH37 blindspot #278 before the Ward exit claim
 under epic #257, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
