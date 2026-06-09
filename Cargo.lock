@@ -344,6 +344,7 @@ dependencies = [
  "blake3",
  "calyx-core",
  "calyx-ward",
+ "proptest",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
  "serde",

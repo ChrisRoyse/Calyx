@@ -5,6 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize, de};
 
 pub const CALYX_TEMPORAL_AP60_VIOLATION: &str = "CALYX_TEMPORAL_AP60_VIOLATION";
 pub const CALYX_TEMPORAL_INVALID_PERIOD: &str = "CALYX_TEMPORAL_INVALID_PERIOD";
+pub const CALYX_TEMPORAL_INVALID_WINDOW: &str = "CALYX_TEMPORAL_INVALID_WINDOW";
 pub const CALYX_TEMPORAL_WEIGHT_SUM: &str = "CALYX_TEMPORAL_WEIGHT_SUM";
 
 const WEIGHT_SUM_EPSILON: f32 = 1.0e-6;
@@ -304,6 +305,7 @@ fn temporal_error(code: &'static str, message: impl Into<String>) -> CalyxError 
             "keep temporal signals post-retrieval only and never dominant"
         }
         CALYX_TEMPORAL_INVALID_PERIOD => "set target_hour 0..=23 and day_of_week 0..=6",
+        CALYX_TEMPORAL_INVALID_WINDOW => "set a non-empty temporal window within i64 bounds",
         CALYX_TEMPORAL_WEIGHT_SUM => "normalize recency + sequence + periodic to exactly 1.0",
         _ => "inspect temporal policy",
     };

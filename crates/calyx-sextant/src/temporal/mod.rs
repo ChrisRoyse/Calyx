@@ -1,10 +1,13 @@
 //! Temporal search policy types for AP-60 post-retrieval boosting.
 
+mod window;
+
 pub use calyx_core::{
     BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD,
-    CALYX_TEMPORAL_WEIGHT_SUM, DecayFunction, FusionWeights, MultiAnchorMode, PeriodicOptions,
-    SequenceDirection, SequenceOptions, TemporalPolicy,
+    CALYX_TEMPORAL_INVALID_WINDOW, CALYX_TEMPORAL_WEIGHT_SUM, DecayFunction, FusionWeights,
+    MultiAnchorMode, PeriodicOptions, SequenceDirection, SequenceOptions, TemporalPolicy,
 };
+pub use window::{Clock, FixedClock, SystemClock, TimeWindow, filter_hits_by_window};
 
 #[cfg(test)]
 mod tests {

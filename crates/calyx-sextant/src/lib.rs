@@ -22,8 +22,8 @@ pub use error::{
     CALYX_SEXTANT_POSTINGS_NOT_SORTED, CALYX_SEXTANT_PROVENANCE_MISSING,
     CALYX_SEXTANT_RERANKER_TIMEOUT, CALYX_SEXTANT_SLOT_ALREADY_REGISTERED,
     CALYX_SEXTANT_SLOT_INACTIVE, CALYX_SEXTANT_SLOT_MISSING, CALYX_SEXTANT_VECTOR_SHAPE,
-    CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_WEIGHT_SUM,
-    sextant_error,
+    CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_INVALID_WINDOW,
+    CALYX_TEMPORAL_WEIGHT_SUM, sextant_error,
 };
 pub use fusion::{FusionContext, FusionStrategy, RrfProfile, WeightedProfile, weighted_profiles};
 pub use guarded::GuardedSearchReport;
@@ -46,8 +46,9 @@ pub use reranker::{RerankRequest, RerankerClient};
 pub use search::SearchEngine;
 pub use slot_index_map::SlotIndexMap;
 pub use temporal::{
-    BoostConfig, DecayFunction, FusionWeights, MultiAnchorMode, PeriodicOptions, SequenceDirection,
-    SequenceOptions, TemporalPolicy,
+    BoostConfig, DecayFunction, FixedClock as TemporalFixedClock, FusionWeights, MultiAnchorMode,
+    PeriodicOptions, SequenceDirection, SequenceOptions, SystemClock as TemporalSystemClock,
+    TemporalPolicy, TimeWindow, filter_hits_by_window,
 };
 
 #[cfg(test)]

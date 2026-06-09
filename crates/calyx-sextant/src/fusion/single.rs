@@ -22,6 +22,7 @@ pub fn single_lens_fuse(
             cx_id: item.cx_id,
             score: item.score,
             rank: item.rank,
+            event_time_secs: None,
             per_lens: vec![PerLensContribution {
                 slot,
                 rank: item.rank,
