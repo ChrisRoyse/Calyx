@@ -364,6 +364,7 @@ name = "calyx-ward"
 version = "0.1.0"
 dependencies = [
  "calyx-core",
+ "calyx-forge",
  "proptest",
  "serde",
  "serde_json",
