@@ -1,5 +1,8 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
+**Status:** pending. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
+atomic tasks are #258-#279.
+
 Teleological Constellation Training at query/write time: the panel is a frozen
 alignment target and every model-produced vector is gated by a per-output cosine
 guard `Gτ`. Stops drift + prompt injection; turns novelty into a new safe region.

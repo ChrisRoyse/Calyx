@@ -217,17 +217,19 @@ anchored/provisional groundedness, and incremental re-eval hook. FSV root:
 **Stage 6 / PH33:** `calyx-lodestar` kernel index + answer + grounding gaps +
 real-corpora recall. T01-T05 are closed with aiwonder evidence, including
 kernel-only recall on SciFact text, live Calyx code, and Cora graph under
-`/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) remains
-open by design until PH35/PH36 provide real Ledger append/readback primitives.
+`/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) is
+closed with PH35 Ledger append/readback evidence; PH36 trace/reproduce work
+remains tracked in Stage 7 (#249-#256). The live PH33 readiness blockers are
+#331 raw-vs-tuned recall evidence and #332 anchor-aware `kernel_answer` search.
 
 **Stage 6 / PH34 T06: >=4 distinct scopes on a real corpus is DONE.** PH34 T01
 scope materialization, T02 scope cache, T03 scoped dispatch/reports, T04
 hierarchical kernel-of-regions, T05 bridge nodes, and T06 real multi-scope FSV
 are closed with aiwonder readbacks under
 `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. `KERNEL_ANY` is satisfied
-for PH34; remaining Stage 6 work is #239 and #240.
+for PH34; remaining Stage 6 work is #331, #332, and the #240 exit FSV.
 
-**Remaining:** Open phases **PH35–PH72** plus Stage 6 exits #239/#240 are laid out as atomic task cards in the
+**Remaining:** Open phases **PH35–PH72** plus Stage 6 blockers #331/#332/#240 are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
 FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
 state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,
