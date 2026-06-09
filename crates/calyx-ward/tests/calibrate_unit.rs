@@ -21,7 +21,7 @@ fn calibrates_identity_slot_with_bounded_far() {
     assert!(meta.far <= 0.01);
     assert_eq!(meta.estimator, ESTIMATOR);
     assert_eq!(meta.confidence, 0.95);
-    assert_eq!(meta.ts, 1_785_400_000_000);
+    assert_eq!(meta.ts, 1_785_400_000);
 }
 
 #[test]
@@ -173,6 +173,7 @@ fn calibrate_updates_profile_with_merged_provenance() {
         calibrated.calibration.as_ref().unwrap().estimator,
         ESTIMATOR
     );
+    assert_eq!(calibrated.calibration.as_ref().unwrap().ts, 1_785_400_000);
 }
 
 #[test]

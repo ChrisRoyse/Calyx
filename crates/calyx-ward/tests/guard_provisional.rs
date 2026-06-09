@@ -182,7 +182,7 @@ fn calibration() -> CalibrationMeta {
         far: 0.01,
         frr: 0.02,
         confidence: 0.99,
-        ts: 1_786_233_600_000_000,
+        ts: 1_786_233_600,
     }
 }
 
