@@ -5,7 +5,7 @@
 | **Phase** | PH38 — τ Calibration (Conformal) + Novelty → New Region |
 | **Stage** | S8 — Ward Gτ Guard |
 | **Crate** | `calyx-ward` |
-| **Files** | `crates/calyx-ward/tests/calibrate_unit.rs` (≤500) |
+| **Files** | `crates/calyx-ward/tests/ph38_injection_fsv.rs` (<=500) |
 | **Depends on** | T04 (this phase — all of PH38) |
 | **Axioms** | A2, A12, A16 |
 | **PRD** | `dbprdplans/09 §2`, `09 §3` |
@@ -21,15 +21,16 @@ results are the evidence attached to the PH38 GitHub issue.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Write `#[test] fn fsv_injection_corpus_block_rate`:
+- [ ] Write ignored aiwonder FSV fixture `ph38_t05_fsv_fixture_writes_readback_artifacts`:
       - Load injection corpus from
-        `/home/croyse/calyx/data/injection_corpus/vectors.jsonl` (each line:
-        `{"slot": "content", "vec": [...]}`). On aiwonder this file is a
-        required prerequisite: if absent, the task is setup work and the FSV
-        fails with a clear missing-corpus error.
-      - Load a calibrated `GuardProfile` from
-        `/home/croyse/calyx/data/injection_corpus/guard_profile.json`
-        (pre-built by calibrate() against the corpus)
+        `/home/croyse/calyx/data/injection_corpus/vectors.jsonl` (each line has
+        `id`, `split`, `row_idx`, `label`, `slot`, `text_sha256`, and `vec`).
+        On aiwonder this file is a required prerequisite: if absent, the task is
+        setup work and the FSV writes a clear missing-corpus error.
+      - Read `/home/croyse/calyx/data/injection_corpus/manifest.json` and verify
+        the pinned corpus/hash/model provenance before scoring.
+      - Calibrate a `GuardProfile` in the fixture with `calibrate()` against the
+        real corpus scores; the profile is not prebuilt or hand-edited.
       - For each injection vector, call `guard(profile, produced={content: vec},
         matched=grounded_content_vec, high_stakes=false)`
       - Count `blocked = verdicts where overall_pass == false`
@@ -37,7 +38,7 @@ results are the evidence attached to the PH38 GitHub issue.
       - `println!("injection_block_rate: {:.4}", block_rate)`
       - `assert!(block_rate >= 0.99,
           "FAIL: injection block rate {:.4} < 0.99 required", block_rate)`
-- [ ] Write `#[test] fn fsv_valid_novelty_opens_new_region`:
+- [ ] In the same FSV fixture verify valid novelty:
       - Construct a vector with cos = 0.30 to all known-good anchors (well
         outside τ ≈ 0.7); use seed=42 to generate
       - `guard()` returns `overall_pass = false`
@@ -45,24 +46,22 @@ results are the evidence attached to the PH38 GitHub issue.
         `NoveltyRecord { status: AwaitingGrounding }`
       - Print `NoveltyRecord` as JSON; assert `novel_id` non-nil;
         assert `action_taken == NewRegion`
-      - Write to in-memory `VaultSink`; call `novel_regions(since=0)` →
-        assert the record appears
+      - Write to a file-backed `VaultSink` under the durable FSV root; call
+        `novel_regions(since=0)` -> assert the record appears
       - `println!("novel_constellation: {}", serde_json::to_string_pretty(&record))`
-- [ ] Write `#[test] fn fsv_calibration_provenance_complete`:
-      - Run `calibrate()` on 200-sample synthetic data (seed=42);
-        assert `CalibrationMeta` fields: `estimator == "conformal_quantile_v1"`,
-        `far ≤ 0.01`, `confidence == 0.95`, `corpus_hash` is 32 non-zero bytes,
-        `ts > 0`
-      - Print `CalibrationMeta` as JSON
+- [ ] Write non-ignored edge/unit tests for deterministic novelty-vector
+      construction, missing-corpus typed error, and file-backed novelty sink
+      readback.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `fsv_injection_corpus_block_rate` — asserts `block_rate ≥ 0.99`;
+- [ ] FSV fixture: injection corpus block rate - asserts `block_rate >= 0.99`;
       writes block-rate JSON to the durable evidence root
-- [ ] unit: `fsv_valid_novelty_opens_new_region` — asserts `AwaitingGrounding`,
+- [ ] FSV fixture: valid novelty opens new region - asserts `AwaitingGrounding`,
       record in sink, `novel_id` UUID non-nil
-- [ ] unit: `fsv_calibration_provenance_complete` — all 5 CalibrationMeta fields
-      correct; JSON printed
+- [ ] FSV fixture: calibration provenance complete - `estimator`, `target_far`,
+      achieved `far`, `frr`, confidence, tau, profile JSON, and vectors SHA-256
+      are written to durable JSON
 - [ ] edge: injection corpus file absent on aiwonder -> fail with a typed
       missing-prerequisite error and record the missing path in the evidence
       root; acquire/pin/hash the corpus before claiming FSV success
@@ -70,16 +69,20 @@ results are the evidence attached to the PH38 GitHub issue.
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** durable aiwonder evidence root
-  `/home/croyse/calyx/data/fsv-issue268-ph38-t05-<date>/` containing the
+  `/home/croyse/calyx/data/fsv-issue268-ph38-t05-<date>-<commit>/` containing the
   captured cargo log, block-rate JSON, calibration provenance JSON,
-  novel-region vault/CF readback, and SHA-256 manifest. Stdout is only one
-  captured artifact, not the verdict.
+  corpus readback JSON, novel-region vault/CF readback, missing-corpus edge JSON,
+  and SHA-256 manifest. Stdout is only one captured artifact, not the verdict.
 - **Readback:**
   ```
-  root=/home/croyse/calyx/data/fsv-issue268-ph38-t05-<date>
-  mkdir -p "$root"
-  cargo test -p calyx-ward fsv -- --nocapture 2>&1 | tee "$root/ph38-fsv.log"
-  grep -E "injection_block_rate|novel_constellation|estimator|AwaitingGrounding" "$root/ph38-fsv.log"
+  root=/home/croyse/calyx/data/fsv-issue268-ph38-t05-<date>-<commit>
+  test ! -e "$root"
+  CALYX_WARD_PH38_T05_FSV_DIR="$root" \
+    CALYX_WARD_INJECTION_CORPUS_DIR=/home/croyse/calyx/data/injection_corpus \
+    cargo test -p calyx-ward --test ph38_injection_fsv \
+      -- --ignored --nocapture ph38_t05_fsv_fixture_writes_readback_artifacts \
+    2>&1 | tee "$root.ph38-fsv.log"
+  grep -E "injection_block_rate|estimator|AwaitingGrounding" "$root.ph38-fsv.log"
   xxd -g 1 "$root/block-rate.json" | head -32
   xxd -g 1 "$root/novel-region-readback.json" | head -32
   sha256sum "$root"/* | sort
