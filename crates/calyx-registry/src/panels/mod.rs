@@ -199,4 +199,16 @@ mod tests {
         assert!(civic_default().slots.len() >= 24);
         assert!(media_default().slots.len() >= 10);
     }
+
+    #[test]
+    fn media_default_matches_pinned_wavlm_speaker_dim() {
+        let speaker = media_default()
+            .slots
+            .into_iter()
+            .find(|slot| slot.name == "speaker_wavlm")
+            .expect("media default should include WavLM speaker slot");
+
+        assert_eq!(speaker.output, SlotShape::Dense(512));
+        assert_eq!(speaker.modality, Modality::Audio);
+    }
 }
