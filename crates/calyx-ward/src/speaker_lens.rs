@@ -179,6 +179,7 @@ impl Lens for SpeakerLens {
             }));
         }
         let audio = pcm_f32_le(&input.bytes).map_err(ward_as_calyx)?;
+        // Generic Input carries bytes only; this lens expects 16 kHz f32 PCM here.
         let data = self
             .embed_speaker(&audio, WAVLM_SAMPLE_RATE)
             .map_err(ward_as_calyx)?;

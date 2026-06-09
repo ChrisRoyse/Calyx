@@ -25,7 +25,7 @@ before being accepted.
       `candidate_audio: Option<Vec<f32>>` (for speaker),
       `candidate_text: Option<String>` (for style/content),
       `sample_rate: u32`,
-      `matched_cx_id: ConstellationId` (the grounded anchor to gate against)
+      `matched_cx_id: CxId` (the grounded anchor to gate against)
 - [ ] Define `GenerateOutput` enum:
       `Accepted { verdict: GuardVerdict, provenance_tag: String }` |
       `Novel { record: NoveltyRecord }` |
@@ -36,8 +36,10 @@ before being accepted.
       high_stakes: bool) -> Result<GenerateOutput, WardError>`:
       - Reject an empty `IdentityProfile.identity_slots` before lens execution;
         T01 allows the inert schema value, but generation must fail closed
-      - Embed `candidate_audio` via `speaker_lens.measure()` for the numeric
-        speaker identity slot
+      - Embed `candidate_audio` for the numeric speaker identity slot. If using
+        the generic `Lens::measure()` path, resample to 16 kHz little-endian f32
+        PCM first; otherwise call the typed `SpeakerLens::embed_speaker(audio,
+        sample_rate)` path before constructing the produced slot vector.
       - Embed `candidate_text` via `style_lens.measure()` for the numeric style
         identity slot
       - Retrieve `matched_slot_cache` from `identity_profile` (pre-computed;

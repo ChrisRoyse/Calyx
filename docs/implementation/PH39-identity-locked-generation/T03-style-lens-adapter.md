@@ -23,6 +23,10 @@ generalizably (`09 §5b`).
 
 ## Build (checklist of concrete, code-level steps)
 
+- [ ] Before implementation, select and pin the real aiwonder style model:
+      source/repo, revision, model/tokenizer file hashes, input/output tensor
+      names, expected embedding dim, and CPU/GPU provider plan. Placeholder
+      paths are not acceptable FSV evidence.
 - [ ] Define `StyleLens` struct:
       `model_path: PathBuf` (pinned at
       `/home/croyse/calyx/models/style/style-embed-v1.onnx` or candle path),

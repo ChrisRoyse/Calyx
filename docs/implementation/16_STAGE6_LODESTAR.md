@@ -24,7 +24,10 @@
 > `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
 > Stage 6 exit #240 is signed off under
 > `/home/croyse/calyx/data/fsv-issue240-stage6-exit-lodestar-20260609`.
-> PH36 still owns Ledger trace/reproduce.
+> PH36 still owns Ledger trace/reproduce. Post-stage-5 delta issue #360 is
+> open against PH32 incremental add/full-rebuild behavior: do not rely on
+> SCC-merge `apply_node_add() -> FullRebuildRequired -> rebuild_dirty()`
+> preserving the pending candidate graph until #360 is fixed and FSV-read back.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -63,7 +66,9 @@ identity.
   contract until a real solver path exists. #346 corrects the incremental hook
   wording and behavior: dirty rebuild is a conservative full-pipeline rebuild,
   and non-kernel node removal now marks the evaluator stale instead of returning
-  an empty dirty set.
+  an empty dirty set. #360 remains open for the sibling SCC-merge add path where
+  a full rebuild must retain the pending candidate graph before stale state is
+  cleared.
 - **Objective.** The staged, approximate kernel discovery pipeline.
 - **Deps.** PH31.
 - **Deliverables.** `kernel_graph.rs` (high in/out-degree + betweenness + low

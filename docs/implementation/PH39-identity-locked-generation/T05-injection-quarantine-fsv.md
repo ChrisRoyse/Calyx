@@ -36,7 +36,9 @@ routing at the source of truth.
         `record.status == Quarantined` and `record.action_taken == Quarantine`
       - Print `record.failing_verdicts` — show per-slot `(cos, tau, pass)` on
         the style slot
-      - Assert `record.failing_verdicts.iter().any(|v| v.slot == "style" && !v.pass)`
+      - Assert `record.failing_verdicts.iter().any(|v| v.slot == style_slot_id && !v.pass)`;
+        Calyx `SlotId` values are numeric, so `style_slot_id` must come from
+        the configured identity profile/panel mapping, not a string literal.
 - [ ] Write `#[test] fn fsv_in_persona_text_accepted`:
       - Load an in-persona text sample from
         `/home/croyse/calyx/data/identity_fsv/in_persona_01.txt`
@@ -45,9 +47,11 @@ routing at the source of truth.
       - Assert `GenerateOutput::Accepted { provenance_tag: "guarded:pass" }`
       - Print per-slot verdicts; assert all `pass == true`
 - [ ] Write `#[test] fn fsv_quarantine_record_in_sink`:
-      - Confirm `NoveltyRecord` is written to the `VaultSink`; call
-        `novel_regions(since=0)` against the durable sink/readback used by the
-        aiwonder fixture
+      - Confirm `NoveltyRecord` is written to the `VaultSink`; read
+        `vault.novel_records()` or a dedicated quarantine readback from the
+        durable sink used by the aiwonder fixture. Do not use
+        `novel_regions(since=0)` for quarantine proof: that API only returns
+        `AwaitingGrounding` records, not `Quarantined` records.
       - Assert record present with `status: Quarantined`; print as JSON
       - `novel_id` is a non-nil UUID; `guard_id` matches the profile
 - [ ] Missing aiwonder data files fail the manual fixture with a clear setup

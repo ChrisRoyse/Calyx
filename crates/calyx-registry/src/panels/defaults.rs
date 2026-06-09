@@ -83,7 +83,7 @@ pub fn media_default() -> PanelTemplate {
         external("image_clip", SlotShape::Dense(512), Modality::Image),
         external("audio_wave", SlotShape::Dense(256), Modality::Audio),
         external("audio_emotion", SlotShape::Dense(128), Modality::Audio),
-        external("speaker_wavlm", SlotShape::Dense(768), Modality::Audio),
+        external("speaker_wavlm", SlotShape::Dense(512), Modality::Audio),
         tei("transcript", SlotShape::Dense(768), Modality::Text),
         external("style_register", SlotShape::Dense(256), Modality::Mixed),
     ];

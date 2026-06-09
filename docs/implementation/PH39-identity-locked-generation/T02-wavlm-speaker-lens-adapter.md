@@ -28,9 +28,10 @@ must not mutate the model.
       `Session::run` requires `&mut self`),
       `dim: usize` (pinned WavLM-base-plus ONNX `embeddings` output dim = 512),
       `lens_id: LensId` (content-addressed from model hash, PH18 pattern)
-- [ ] Implement `SpeakerLens::new(model_path: &Path, clock: &dyn Clock)
-      -> Result<Self, WardError>`:
-      - Load ONNX session via PH19 runtime; fail loud if model absent
+- [ ] Implement `SpeakerLens::new(model_path: &Path)
+      -> Result<Self, WardError>` plus explicit CPU construction for local FSV:
+      - Load ONNX session through the direct `ort` dependency in `calyx-ward`;
+        fail loud if model absent
         (`WardError::ModelNotFound { path }` → `CALYX_WARD_MODEL_NOT_FOUND`)
       - Verify model `embeddings` output dim == 512; fail closed if mismatch.
         The post-sweep aiwonder readback corrected the old 256-dim assumption:
@@ -46,8 +47,12 @@ must not mutate the model.
       - Return the embedding
 - [ ] Implement `Lens` trait (PH17) for `SpeakerLens`:
       `fn measure(&self, input: &Input) -> calyx_core::Result<SlotVector>`
-      wrapping `embed_speaker`. Calyx `SlotId` values are numeric; the caller's
-      panel maps the speaker identity slot to the lens output.
+      wrapping `embed_speaker`. The generic `Input` contract for this lens is
+      little-endian f32 PCM already normalized to `WAVLM_SAMPLE_RATE` (16 kHz);
+      callers with arbitrary-rate audio must use `embed_speaker(audio, sample_rate)`
+      or resample before constructing `Input`. Calyx `SlotId` values are
+      numeric; the caller's panel maps the speaker identity slot to the lens
+      output.
 - [ ] **Frozen contract:** `SpeakerLens` fields are all `Arc` or `PathBuf`;
       no mutable state after construction; assert with `// FROZEN: A4` comment
 - [ ] `lens_id()` returns the content-addressed ID (no re-hash at call time)
@@ -86,7 +91,9 @@ must not mutate the model.
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
 - [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden speaker-embedding set (ONNX on
-      CPU vs GPU — PH19 parity contract)
+      CPU vs GPU — requires an ORT CUDA provider built for aiwonder `sm_120`;
+      the downloaded Pyke/`ort` provider that only contains kernels through
+      `compute_90a` is not acceptable evidence)
 - [ ] FSV evidence (readback output / screenshot) attached to the PH39 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

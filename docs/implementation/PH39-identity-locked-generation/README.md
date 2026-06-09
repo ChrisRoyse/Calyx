@@ -42,7 +42,7 @@ cached normalized matched-slot vectors. Durable evidence:
 |---|---|
 | `src/identity.rs` | `SpeakerMatch` + `StyleHold` anchor handling; identity-slot required-set; `IdentityProfile` wrapper; `IdentityProfile::new()` |
 | `src/generate.rs` | `guard_generate()` loop: produce → embed → guard → route; provenance "guarded:pass" tag |
-| `src/speaker_lens.rs` | WavLM speaker lens adapter (calls PH19 ONNX runtime); `embed_speaker(audio) -> Vec<f32>` |
+| `src/speaker_lens.rs` | WavLM speaker lens adapter using `ort` with pinned aiwonder model bytes; `embed_speaker(audio, sample_rate) -> Vec<f32>` |
 | `src/style_lens.rs` | Style lens adapter (HF candle or ONNX); `embed_style(text) -> Vec<f32>` |
 | `tests/identity_fsv.rs` | Deterministic FSV tests: speaker similarity target, style-hold injection quarantine |
 
