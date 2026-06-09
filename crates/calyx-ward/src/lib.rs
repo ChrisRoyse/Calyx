@@ -16,7 +16,10 @@ pub use error::{
     CALYX_GUARD_MISSING_SLOT, CALYX_GUARD_OOD, CALYX_GUARD_POLICY_VIOLATION,
     CALYX_GUARD_PROVISIONAL, WardError,
 };
-pub use guard::{DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_result};
+pub use guard::{
+    DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
+    guard_result_with_stakes,
+};
 pub use profile::{CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction};
 pub use query::{
     KernelFirstQueryVerdict, QueryVerdict, RegionSource, TrustedRegion, guard_query,

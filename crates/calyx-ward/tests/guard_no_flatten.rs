@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use calyx_core::SlotId;
 use calyx_ward::{
     GuardId, GuardPolicy, GuardProfile, GuardVerdict, MatchedSlots, NoveltyAction, ProducedSlots,
-    WardError, guard, guard_result,
+    WardError, guard_non_high_stakes as guard, guard_result,
 };
 use proptest::prelude::*;
 use serde_json::json;
@@ -87,6 +87,7 @@ fn empty_average_is_safe_and_non_panicking() {
     let verdict = GuardVerdict {
         guard_id: guard_id(),
         overall_pass: true,
+        provisional: false,
         per_slot: Vec::new(),
         action: None,
     };

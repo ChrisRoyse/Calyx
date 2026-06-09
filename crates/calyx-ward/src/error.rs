@@ -69,7 +69,7 @@ impl fmt::Display for WardError {
             }
             Self::Provisional { guard_id } => write!(
                 f,
-                "{CALYX_GUARD_PROVISIONAL}: guard {guard_id} is provisional; calibrate before high-stakes use"
+                "{CALYX_GUARD_PROVISIONAL}: guard {guard_id} is uncalibrated; calibrate before high-stakes use -- run calibrate() with an anchored set >=50 examples"
             ),
             Self::MissingSlot { slot } => {
                 write!(
@@ -190,6 +190,7 @@ mod tests {
         let verdict = GuardVerdict {
             guard_id: guard_id(),
             overall_pass: false,
+            provisional: false,
             per_slot: vec![pass, fail.clone()],
             action: Some(NoveltyAction::Quarantine),
         };

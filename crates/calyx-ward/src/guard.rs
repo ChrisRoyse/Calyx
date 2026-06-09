@@ -24,7 +24,14 @@ pub fn guard(
     profile: &GuardProfile,
     produced: &ProducedSlots,
     matched: &MatchedSlots,
+    high_stakes: bool,
 ) -> Result<GuardVerdict, WardError> {
+    if high_stakes && !profile.is_calibrated() {
+        return Err(WardError::Provisional {
+            guard_id: profile.guard_id,
+        });
+    }
+
     let required = required_slots(profile);
     if let GuardPolicy::KofN { k } = profile.policy
         && k > required.len()
@@ -62,9 +69,19 @@ pub fn guard(
     Ok(GuardVerdict {
         guard_id: profile.guard_id,
         overall_pass,
+        provisional: !profile.is_calibrated(),
         per_slot,
         action,
     })
+}
+
+/// Runs `guard()` for non-critical embeddings that may use provisional profiles.
+pub fn guard_non_high_stakes(
+    profile: &GuardProfile,
+    produced: &ProducedSlots,
+    matched: &MatchedSlots,
+) -> Result<GuardVerdict, WardError> {
+    guard(profile, produced, matched, false)
 }
 
 /// Runs `guard()` and returns `WardError::Ood` when the verdict does not pass.
@@ -73,7 +90,17 @@ pub fn guard_result(
     produced: &ProducedSlots,
     matched: &MatchedSlots,
 ) -> Result<GuardVerdict, WardError> {
-    let verdict = guard(profile, produced, matched)?;
+    guard_result_with_stakes(profile, produced, matched, false)
+}
+
+/// Runs `guard()` with the caller's stake level and wraps non-pass as OOD.
+pub fn guard_result_with_stakes(
+    profile: &GuardProfile,
+    produced: &ProducedSlots,
+    matched: &MatchedSlots,
+    high_stakes: bool,
+) -> Result<GuardVerdict, WardError> {
+    let verdict = guard(profile, produced, matched, high_stakes)?;
     if verdict.overall_pass {
         Ok(verdict)
     } else {
@@ -134,6 +161,14 @@ mod tests {
     use crate::{GuardId, NoveltyAction};
 
     const GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101";
+
+    fn guard(
+        profile: &GuardProfile,
+        produced: &ProducedSlots,
+        matched: &MatchedSlots,
+    ) -> Result<GuardVerdict, WardError> {
+        super::guard(profile, produced, matched, false)
+    }
 
     #[test]
     fn all_required_passes_when_every_required_slot_meets_tau() {
