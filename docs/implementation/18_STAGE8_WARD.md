@@ -221,6 +221,12 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`.
   The accepted path writes a physical Ledger Guard row at
   `ledger-cf/0000000000000000.ledger`.
+  PH39 T05 (#273) proves a real prompt-injection row from
+  `deepset/prompt-injections` is quarantined through `guard_generate()` on
+  numeric style slot `9`; durable readbacks under
+  `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`
+  show injection cos `0.5983942747116089` < tau `0.9900000095367432`, status
+  `Quarantined`, and in-persona `guarded:pass`.
 - **Deliverables.** `SpeakerMatch`/`StyleHold` anchor handling; identity-slot
   required-set; integration with `guard_generate`.
 - **Key tasks.** commission a WavLM speaker lens + a style lens (HF); require

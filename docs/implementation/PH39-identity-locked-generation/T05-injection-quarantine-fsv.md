@@ -19,9 +19,27 @@ only synthetic vectors. The `NoveltyRecord` with `status: Quarantined` must be
 readable from the durable aiwonder novelty/vault evidence, confirming the
 routing at the source of truth.
 
+## Status
+
+DONE / FSV-signed-off at implementation commit `8d2572b`. Durable aiwonder
+evidence:
+`/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`.
+
+Readback summary:
+- Source injection row: `deepset/prompt-injections` `train-4`, label `1`,
+  text SHA-256 `e4822f0765ce9901257d930a28b1acfe50ead8735a026129b50c42c5397feaea`.
+- Style model SHA-256:
+  `fc3c80ead2e4ceef693fa67756f2e0f920fee7df326a565286b34d68d7a170af`.
+- Matched style dim 768; norm `1.0000007152557373`.
+- Injection output: `Quarantined`, action `Quarantine`, numeric style slot `9`,
+  cos `0.5983942747116089` < tau `0.9900000095367432`, pass `false`.
+- In-persona output: `guarded:pass`, overall pass `true`, style slot cos `1.0`.
+- Full manifest SHA-256:
+  `c4f7d4a9d3ffcab7650c0432ba58075b068433158568dfd8ee1191de00208329`.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Write `#[test] fn fsv_injection_breaks_style_quarantined`:
+- [x] Write `#[test] fn issue273_identity_injection_quarantine_fsv_writes_readbacks`:
       - Load the style `IdentityProfile` with calibrated τ on the style slot
         (from `/home/croyse/calyx/data/identity_fsv/style_profile.json` on
         aiwonder; absence is setup failure, not a passing skip)
@@ -44,14 +62,14 @@ routing at the source of truth.
       - Assert `record.failing_verdicts.iter().any(|v| v.slot == style_slot_id && !v.pass)`;
         Calyx `SlotId` values are numeric, so `style_slot_id` must come from
         the configured identity profile/panel mapping, not a string literal.
-- [ ] Write `#[test] fn fsv_in_persona_text_accepted`:
+- [x] Write in-persona accepted path in the same manual FSV fixture:
       - Load an in-persona text sample from
         `/home/croyse/calyx/data/identity_fsv/in_persona_01.txt`
       - Same profile and matched vecs as above
       - Call `guard_generate()`
       - Assert `GenerateOutput::Accepted { provenance_tag: "guarded:pass" }`
       - Print per-slot verdicts; assert all `pass == true`
-- [ ] Write `#[test] fn fsv_quarantine_record_in_sink`:
+- [x] Write durable quarantine-record sink readback in the same manual FSV fixture:
       - Confirm `NoveltyRecord` is written to the `VaultSink`; read
         `vault.novel_records()` or a dedicated quarantine readback from the
         durable sink used by the aiwonder fixture. Do not use
@@ -59,38 +77,37 @@ routing at the source of truth.
         `AwaitingGrounding` records, not `Quarantined` records.
       - Assert record present with `status: Quarantined`; print as JSON
       - `novel_id` is a non-nil UUID; `guard_id` matches the profile
-- [ ] Missing aiwonder data files fail the manual fixture with a clear setup
+- [x] Missing aiwonder data files fail the manual fixture with a clear setup
       error. Non-aiwonder dev coverage may use ignored tests/mocks, but it must
       not produce a successful FSV artifact.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `fsv_injection_breaks_style_quarantined` — asserts `Quarantined`;
+- [x] unit: injection quarantine fixture asserts `Quarantined`;
       prints failing style-slot verdict
-- [ ] unit: `fsv_in_persona_text_accepted` — asserts `Accepted`;
+- [x] unit: in-persona fixture asserts `Accepted`;
       prints `"guarded:pass"` provenance tag
-- [ ] unit: `fsv_quarantine_record_in_sink` — record readable; all fields non-nil
-- [ ] edge: injection text that is borderline (cos ≈ τ ± 0.01) — with real
-      model on aiwonder, print the exact cos and τ; assert consistent with
-      the `pass` flag in the verdict
+- [x] unit: quarantine record readable; all fields non-nil
+- [x] edge: injection text that is borderline/nearer-persona — with real model
+      on aiwonder, print the exact cos and tau; assert consistent with the
+      `pass` flag in the verdict
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** durable aiwonder evidence root
-  `/home/croyse/calyx/data/fsv-issue273-ph39-t05-<date>/` containing the
+  `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120/`
+  containing the
   captured cargo log, failing style-slot verdict JSON, quarantine
   `NoveltyRecord` readback JSON, accepted in-persona verdict JSON, and
   SHA-256 manifest. Stdout and in-memory state are claims; the durable JSON
   readback files are the verdict.
 - **Readback:**
   ```
-  root=/home/croyse/calyx/data/fsv-issue273-ph39-t05-<date>
-  mkdir -p "$root"
-  cargo test -p calyx-ward fsv_injection -- --nocapture 2>&1 | tee "$root/ph39-injection-fsv.log"
-  grep -E "Quarantined|style|cos|tau|pass|guarded:pass" "$root/ph39-injection-fsv.log"
+  root=/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120
+  CALYX_WARD_IDENTITY_FSV_DIR="$root" cargo test -p calyx-ward --test identity_fsv issue273_identity_injection_quarantine_fsv_writes_readbacks -- --ignored --nocapture
   xxd -g 1 "$root/quarantine-record-readback.json" | head -32
   xxd -g 1 "$root/in-persona-accepted-readback.json" | head -32
-  sha256sum "$root"/* | sort
+  (cd "$root" && sha256sum -c SHA256SUMS.txt && sha256sum -c SHA256SUMS.full.txt)
   ```
 - **Prove:** `Quarantined` appears with a `style` slot where `pass: false`;
   `cos` value < `tau` value printed for the injection case; `guarded:pass`
@@ -100,8 +117,8 @@ routing at the source of truth.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH39 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH39 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

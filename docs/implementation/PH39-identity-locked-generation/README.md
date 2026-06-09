@@ -44,6 +44,9 @@ PH39 T03 (#271) is signed off with the pinned
 PH39 T04 (#272) is signed off with `guard_generate()` accepted/novel/rejected
 paths and Ledger Guard provenance readback under
 `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`.
+PH39 T05 (#273) is signed off with a real `deepset/prompt-injections` corpus row
+quarantined on numeric style slot `9` under
+`/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -63,7 +66,7 @@ paths and Ledger Guard provenance readback under
 | T02 | WavLM speaker lens adapter (`embed_speaker`) | T01 · PH19 | DONE / FSV #270 |
 | T03 | Style lens adapter (`embed_style`) | T01 · PH19 | DONE / FSV #271 |
 | T04 | `guard_generate()` integration loop + provenance tag | T03 | DONE / FSV #272 |
-| T05 | Identity-slot injection → quarantine FSV | T04 | open #273 |
+| T05 | Identity-slot injection → quarantine FSV | T04 | DONE / FSV #273 |
 | T06 | Speaker similarity target FSV (0.961 mean WavLM cos) | T05 | open #274 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
