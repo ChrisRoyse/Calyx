@@ -24,15 +24,16 @@ Done on aiwonder on 2026-06-08 for #238. The manual FSV trigger used the real
 SciFact corpus from `$CALYX_HOME/datasets/` and wrote source-of-truth JSON files
 under `$CALYX_HOME/fsv/`.
 
-Readback hashes:
+Readback hashes below are current after #331 added explicit `recall_tuning`
+fields to the PH34 real-corpus reports:
 
 | SoT file | SHA-256 |
 |---|---|
-| `/home/croyse/calyx/fsv/ph34_scope_all_20260608.json` | `af9206ca0fc38d3f54aad462c49c5526a49e4f972bdcc54b35b010a0debacec8` |
-| `/home/croyse/calyx/fsv/ph34_scope_collection_a_20260608.json` | `93cde5dd910473c36c029e9693b49a501613ab57a1e852495464082e30bc7c3f` |
-| `/home/croyse/calyx/fsv/ph34_scope_time_window_20260608.json` | `5477fe158e2e8704b43ae48f4c21bcf918453d395b5823690f450c56ac5a0c00` |
-| `/home/croyse/calyx/fsv/ph34_scope_domain_20260608.json` | `9ae41f2b18683b797ec9b63c62ce5833a79aaaa91a853d68ffb9a305077ebb40` |
-| `/home/croyse/calyx/fsv/ph34_scope_union_20260608.json` | `203e69f850b18cca815015e450bb8263c38b197532ea8b824e121e2ed349db46` |
+| `/home/croyse/calyx/fsv/ph34_scope_all_20260608.json` | `41d85bebe87602ec478f86ac77b4930593e1a91b9502e4465f2e531d456978eb` |
+| `/home/croyse/calyx/fsv/ph34_scope_collection_a_20260608.json` | `d43523c4168c45ba2931048a850d7c5c4cdbcb6a4f0675ac812e5fa9886cbe3a` |
+| `/home/croyse/calyx/fsv/ph34_scope_time_window_20260608.json` | `d50e208178a3d0b9c9c53557e8c640283323428b472cb27b3c47223bddf8d104` |
+| `/home/croyse/calyx/fsv/ph34_scope_domain_20260608.json` | `a6b503c1da1301641f811ac1b0378e00222781d42df50e33dcbc9dd878b70043` |
+| `/home/croyse/calyx/fsv/ph34_scope_union_20260608.json` | `66ff7f5d29a2e32457e7cfc04b28b5b1c99687e848180d385d397eed46763aa1` |
 | `/home/croyse/calyx/fsv/ph34_scope_summary_20260608.json` | `9ede67ec5866ee0c8345d3b26600276c4e42cb9bc74faf0105a61008f4d779af` |
 | `/home/croyse/calyx/fsv/ph34_t06_fsv_20260608.log` | `57587c7c36ed74ef31b2636587aac724db610cc8875a7d6353e84c48c7217ee2` |
 

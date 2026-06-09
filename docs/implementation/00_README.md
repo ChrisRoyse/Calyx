@@ -127,22 +127,21 @@ window coalescing, and release-mode Forge grouped-GEMM absent-slot sentinel
 checks. Evidence root:
 `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`.
 
-**ACTIVE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
+**DONE — Stage 6 Lodestar (PH31–PH34).** PH31 graph primitives are built in
 `calyx-paths`/`calyx-mincut`; PH32 kernel discovery is built in
-`calyx-lodestar`; PH33 T01-T07 kernel index/answer/gaps/real-corpora recall and
+`calyx-lodestar`; PH33 T01-T09 kernel index/answer/gaps/real-corpora recall and
 Ledger provenance are implemented and FSV-backed; PH34 T01-T07 are implemented
 and FSV-backed (scope materialization, identity-aware cache, dispatch,
 hierarchical regions, bridge nodes, real multi-scope SciFact FSV, and
-scope-cache identity). Stage 6 remains open until the exit FSV (#240) and the
-remaining Lodestar readiness follow-ups are closed with aiwonder readback
-evidence. LP/DFVS solver-contract honesty #329 is FSV-backed under
+scope-cache identity). Stage 6 exit #240 is FSV-backed under
+`/home/croyse/calyx/data/fsv-issue240-stage6-exit-lodestar-20260609`.
+LP/DFVS solver-contract honesty #329 is FSV-backed under
 `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`. Recall gate
 fail-closed behavior #330 is FSV-backed under
 `/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
-Additional Lodestar readiness blindspots found during the Stage 1-5 sweep are
-tracked in #331 after #332 was signed off under
-`/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`;
-#331 must expose raw-vs-tuned recall evidence before the Stage 6 exit.
+Raw-vs-tuned recall evidence #331 and anchor-aware answer search #332 are
+FSV-backed under `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`
+and `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
@@ -220,17 +219,17 @@ real-corpora recall. T01-T05 are closed with aiwonder evidence, including
 kernel-only recall on SciFact text, live Calyx code, and Cora graph under
 `/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) is
 closed with PH35 Ledger append/readback evidence; PH36 trace/reproduce work
-remains tracked in Stage 7 (#249-#256). The live PH33 readiness blocker is
-#331 raw-vs-tuned recall evidence.
+remains tracked in Stage 7 (#249-#256). T08 #331 and T09 #332 are signed off
+with aiwonder evidence under the issue roots above.
 
 **Stage 6 / PH34 T06: >=4 distinct scopes on a real corpus is DONE.** PH34 T01
 scope materialization, T02 scope cache, T03 scoped dispatch/reports, T04
 hierarchical kernel-of-regions, T05 bridge nodes, and T06 real multi-scope FSV
 are closed with aiwonder readbacks under
 `/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`. `KERNEL_ANY` is satisfied
-for PH34; remaining Stage 6 work is #331 and the #240 exit FSV.
+for PH34. Stage 6 exit #240 is signed off.
 
-**Remaining:** Open phases **PH35–PH72** plus Stage 6 blockers #331/#240 are laid out as atomic task cards in the
+**Remaining:** Open phases **PH35–PH72** are laid out as atomic task cards in the
 per-phase subdirs, governed by `PHASE_TASKS_README.md`, each with a byte-level
 FSV exit gate. Execution proceeds down the dependency spine (§4). Track live
 state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine §8d,

@@ -1,6 +1,6 @@
 # Stage 6 — Lodestar Kernel (PH31–PH34)
 
-> **STATUS: ▶ ACTIVE (PH31-PH32 DONE / PH33 T01-T07,T09 DONE / PH34 DONE).** Stages 1-5 are
+> **STATUS: ✅ DONE / FSV-signed-off (PH31-PH34, Stage 6 exit #240).** Stages 1-5 are
 > implemented, pushed, and FSV-signed-off. PH31 graph primitives are implemented
 > in `calyx-paths` and `calyx-mincut`; PH32 kernel-graph + DFVS is implemented
 > in `calyx-lodestar`. aiwonder readbacks live under
@@ -18,8 +18,13 @@
 > `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`.
 > PH33 recall-gate fail-closed behavior #330 is signed off under
 > `/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
-> PH36 still owns trace/reproduce. Pre-exit follow-up #331 tracks
-> raw-vs-tuned recall evidence.
+> PH33 raw-vs-tuned recall evidence #331 is signed off under
+> `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`;
+> anchor-aware answer search #332 is signed off under
+> `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
+> Stage 6 exit #240 is signed off under
+> `/home/croyse/calyx/data/fsv-issue240-stage6-exit-lodestar-20260609`.
+> PH36 still owns Ledger trace/reproduce.
 
 Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
 use it as both an index and an answer-path — the most novel DB capability, no
@@ -80,7 +85,8 @@ identity.
   `/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
   T09 #332 is signed off under
   `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
-  Follow-up #331 covers raw-vs-tuned recall evidence.
+  T08 #331 raw-vs-tuned recall evidence is signed off under
+  `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
   cheapest grounding plan.
 - **Deps.** PH32, PH33 needs anchors (PH09) + search (PH24).
@@ -129,7 +135,14 @@ identity.
 ---
 
 ## Stage 6 exit
-Lodestar finds the grounded ≈1% of any slice and uses it as index + reasoning
-path, with measured (never assumed) recall and an actionable grounding plan —
-PRD `KERNEL` + `KERNEL_ANY`. The semantic compressor and the AGI substrate's
-kernel half.
+Done on aiwonder under
+`/home/croyse/calyx/data/fsv-issue240-stage6-exit-lodestar-20260609`.
+The exit readback summary hash is
+`167bcb0db5691fae29749dec458da1b5e2469fc166cad96f51c982fbdb26baa0`;
+the root manifest hash is
+`8eba7aef03d2b8cdf510d472daf375b29c8e67f3cdc65001e058466519c985f6`.
+
+The Stage 6 exit readback proves Lodestar finds the grounded ≈1% of any slice
+and uses it as index + reasoning path, with measured (never assumed) recall and
+an actionable grounding plan — PRD `KERNEL` + `KERNEL_ANY`. The semantic
+compressor and the AGI substrate's kernel half.
