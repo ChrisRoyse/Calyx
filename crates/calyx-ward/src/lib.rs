@@ -3,6 +3,7 @@
 pub mod calibrate;
 pub mod error;
 pub mod guard;
+pub mod novelty;
 pub mod profile;
 pub mod query;
 pub mod required;
@@ -19,6 +20,9 @@ pub use error::{
 pub use guard::{
     DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
     guard_result_with_stakes,
+};
+pub use novelty::{
+    NovelId, NoveltyHandler, NoveltyRecord, NoveltyStatus, VaultSink, novel_regions,
 };
 pub use profile::{CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction};
 pub use query::{
