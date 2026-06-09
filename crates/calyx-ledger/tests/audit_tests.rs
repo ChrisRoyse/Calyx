@@ -231,6 +231,39 @@ fn audit_filter_skips_unmatched_quarantined_rows_but_fails_for_matching_rows() {
 }
 
 #[test]
+fn audit_rejects_mismatched_physical_row_key_even_when_embedded_seq_is_clean() {
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(360)).unwrap();
+    append_json(
+        &mut appender,
+        EntryKind::Ingest,
+        SubjectId::Cx(cx(1)),
+        json!({"cx_id": cx(1).to_string()}),
+    );
+    let row = appender.into_store().scan().unwrap().remove(0);
+    let mut store = MemoryLedgerStore::default();
+    store.insert_raw(9, row.bytes);
+    let quarantine = QuarantineSet::from_ranges(std::iter::once(9..10)).unwrap();
+
+    let error = audit(
+        &store,
+        &quarantine,
+        AuditFilter {
+            kind: Some(EntryKind::Ingest),
+            ..AuditFilter::default()
+        },
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+    assert!(
+        error
+            .message
+            .contains("ledger row key 9 does not match encoded seq 0")
+    );
+}
+
+#[test]
 fn provenance_ignores_untyped_payload_strings_but_keeps_explicit_cx_fields() {
     let mut appender =
         LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(375)).unwrap();
@@ -347,6 +380,7 @@ fn partial_answer_hop_rows_are_unprovenanced_not_trusted() {
         SubjectId::Query(answer_id.clone()),
         json!({
             "query_id": cx(40).to_string(),
+            "anchor_kernel_node_id": cx(41).to_string(),
             "from_id": cx(10).to_string(),
             "to_id": cx(11).to_string(),
             "hop_index": 0,
@@ -359,6 +393,7 @@ fn partial_answer_hop_rows_are_unprovenanced_not_trusted() {
         SubjectId::Query(answer_id.clone()),
         json!({
             "query_id": cx(40).to_string(),
+            "anchor_kernel_node_id": cx(41).to_string(),
             "from_id": cx(11).to_string(),
             "to_id": cx(12).to_string(),
             "hop_index": 1,
@@ -368,8 +403,24 @@ fn partial_answer_hop_rows_are_unprovenanced_not_trusted() {
     let store = appender.into_store();
 
     let trace = get_answer_trace(&store, &QuarantineSet::default(), &answer_id).unwrap();
+    let query_provenance = get_provenance(&store, &QuarantineSet::default(), cx(40)).unwrap();
+    let anchor_provenance = get_provenance(&store, &QuarantineSet::default(), cx(41)).unwrap();
 
     assert_eq!(trace.path.len(), 2);
+    assert_eq!(
+        query_provenance
+            .iter()
+            .map(|entry| entry.seq)
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
+    assert_eq!(
+        anchor_provenance
+            .iter()
+            .map(|entry| entry.seq)
+            .collect::<Vec<_>>(),
+        vec![0, 1]
+    );
     assert!(!trace.complete);
     assert!(!trace.is_trusted());
     assert_eq!(

@@ -48,5 +48,7 @@ fn is_cx_payload_field(key: &str) -> bool {
             | "target_cx_id"
             | "nearest_cx"
             | "matched_cx_id"
+            | "query_id"
+            | "anchor_kernel_node_id"
     )
 }
