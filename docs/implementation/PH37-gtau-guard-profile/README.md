@@ -33,9 +33,10 @@ the `AllRequired` per-slot Forge cosine gate. PH37 T04 (#261) adds `KofN`
 policy handling and `guard_result()` OOD wrapping. No-average enforcement and
 PH37 T05 (#262) adds no-average/no-flatten source enforcement plus
 average-pass/slot-fail rejection readback. PH37 T06 (#263) adds the phase FSV
-readback harness and signs off the PH37 core path. Post-sweep PH37 blindspot
-tasks #275, #277, and #278 remain open before the Ward exit can claim the whole
-PH37 surface complete. PH38 conformal tau calibration T01 (#264) is also
+readback harness and signs off the PH37 core path. PH37 T07 (#275) adds the
+incoming-query `guard_query` OOD gate and is FSV-signed-off. Post-sweep PH37
+blindspot tasks #277 and #278 remain open before the Ward exit can claim the
+whole PH37 surface complete. PH38 conformal tau calibration T01 (#264) is also
 FSV-signed-off.
 
 Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
@@ -48,6 +49,7 @@ non-existent helper.
 | File | Responsibility |
 |---|---|
 | `src/guard.rs` | `cos(produced_k, matched_k) ≥ τ_k` gate; per-slot verdict; `AllRequired`/`KofN` policy; `CALYX_GUARD_OOD` |
+| `src/query.rs` | incoming-query `guard_query` gate over trusted regions; `Pass`/`Ood { nearest_cx, gap }` verdict |
 | `src/profile.rs` | `GuardProfile` struct, `GuardPolicy` enum, `CalibrationMeta`, `NoveltyAction` enum, serde |
 | `src/verdict.rs` | `GuardVerdict` (pass flag + `Vec<SlotVerdict { slot, cos, tau, pass }>`) |
 | `src/lib.rs` | crate root; re-exports; module wiring |
@@ -64,6 +66,7 @@ non-existent helper.
 | T04 | `guard()` `KofN` policy + `CALYX_GUARD_OOD` fail-closed | T03 |
 | T05 | No-flatten enforcement + average-passing/slot-failing rejection | T04 |
 | T06 | FSV harness — per-slot verdict readback + anti-flatten smoke test | T05 |
+| T07 | `guard_query` incoming-query OOD gate | T06 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

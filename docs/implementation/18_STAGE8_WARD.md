@@ -1,8 +1,8 @@
 # Stage 8 — Ward Gτ Guard (PH37–PH39)
 
 **Status:** active. Tracked by Stage 8 epic #257 and exit issue #280; PH37-PH39
-atomic tasks are #258-#279. PH37 core T01-T06 (#258-#263) and PH38 T01 (#264)
-are FSV-signed-off. PH37 blindspot hardening #275/#277/#278 remains open and
+atomic tasks are #258-#279. PH37 core T01-T07 (#258-#263, #275) and PH38 T01
+(#264) are FSV-signed-off. PH37 blindspot hardening #277/#278 remains open and
 must be handled before the Ward exit can claim PH37 complete.
 
 Teleological Constellation Training at query/write time: the panel is a frozen
@@ -38,9 +38,13 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   per-slot verdict JSON, average-pass rejection, OOD emission, source-marker
   smoke, profile roundtrip, and invalid-vector fail-closed evidence under
   `/home/croyse/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7`.
-- **Post-sweep note.** PH37 blindspot tasks remain open after the core signoff:
-  #275 (`guard_query` incoming-query OOD), #277 required-slot derivation from
-  Assay load-bearing bits, and #278 Lodestar kernel-near guard priority.
+- **Post-sweep note.** PH37 T07 (#275) adds the storage-agnostic
+  `guard_query(profile, query_slots, trusted_regions)` incoming-query OOD gate,
+  with durable aiwonder evidence under
+  `/home/croyse/calyx/data/fsv-issue275-ph37-t07-20260609-8b71024`.
+- **Post-sweep note.** PH37 blindspot tasks still open after #275: #277
+  required-slot derivation from Assay load-bearing bits, and #278 Lodestar
+  kernel-near guard priority.
 - **Deliverables.** `guard.rs` (`cos(produced_k, matched_k) ≥ τ_k`),
   `GuardProfile { tau: Map<SlotId,f32>, required_slots, policy, calibration,
   novelty_action }`, per-slot verdict breakdown.

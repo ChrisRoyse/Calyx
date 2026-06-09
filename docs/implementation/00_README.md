@@ -248,12 +248,13 @@ and
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`,
 `/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, and
 `/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`.
-Stage 8 Ward is the active frontier: #258-#264 are FSV-signed-off. PH37
-blindspot #275/#277/#278 remain open before the Ward exit can claim PH37 fully
+Stage 8 Ward is the active frontier: #258-#264 and #275 are FSV-signed-off.
+PH37 blindspot #277/#278 remain open before the Ward exit can claim PH37 fully
 covered; PH38 T02+ continues after those blindspots under epic #257, and exit
 remains #280.
 
-**Remaining:** Open Stage 8+ work includes PH37 blindspots plus **PH38-PH72**,
+**Remaining:** Open Stage 8+ work includes PH37 blindspots #277/#278 plus
+**PH38-PH72**,
 laid out as atomic task cards in the per-phase subdirs, governed by
 `PHASE_TASKS_README.md`, each with a byte-level FSV exit gate. Execution proceeds
 down the dependency spine (§4). Track live state in the `ChrisRoyse/Calyx`
