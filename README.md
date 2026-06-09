@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-09; Stage 8 active after #279)
+## Status (2026-06-09; Stage 8 active after #269)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, and Ledger-backed calibration/guard-verdict provenance are active: #258-#268, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is PH39 and exit #280 |
+| `calyx-ward` | S8 PH37-PH39 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, Ledger-backed calibration/guard-verdict provenance, and PH39 identity-profile construction are active: #258-#269, #275-#279, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is PH39 #270-#274 and exit #280 |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -103,7 +103,9 @@ and
 and
 `/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`,
 and
-`/home/croyse/calyx/data/fsv-issue279-ward-ledger-provenance-20260609-55fc1da`.
+`/home/croyse/calyx/data/fsv-issue279-ward-ledger-provenance-20260609-55fc1da`,
+and
+`/home/croyse/calyx/data/fsv-issue269-identity-profile-20260609`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -116,7 +118,7 @@ are signed off. PH36 exit FSV integration #255 and Stage 7 exit rollup #256
 are signed off; PH36 audit-query quarantine filter hardening #349 is signed off,
 covering filtered audit queries around unrelated quarantined rows, typed `cx`
 mention matching, physical row-key mismatch fail-closed behavior, and durable
-Ledger SST readbacks. Stage 8 Ward has #258-#268,
+Ledger SST readbacks. Stage 8 Ward has #258-#269,
 #275/#276/#277/#278, #350, and #353 signed off; PH37 is complete, PH38 T05 is
 proven against the real aiwonder injection corpus, PH38 T06 proves Sextant
 InRegionOnly guarded search, and #350 hardens novelty guard-id provenance.
@@ -130,7 +132,9 @@ slot vectors. #349 hardens PH36 audit query quarantine filtering. #279 adds
 `calibrate_with_ledger()` and `guard_with_ledger()` wrappers that append durable
 Ledger `kind=Guard` rows for Ward calibration and guard verdicts, then read
 those rows back through PH36 audit/provenance while preserving the #349
-quarantine contract. Remaining Ward frontier work is PH39, with exit #280.
+quarantine contract. #269 adds the PH39 `IdentityProfile` construction and
+identity-anchor fail-closed surface with durable JSON and SHA manifest readback.
+Remaining Ward frontier work is PH39 #270-#274, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
