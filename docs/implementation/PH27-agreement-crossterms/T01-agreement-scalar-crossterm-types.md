@@ -22,23 +22,23 @@ Forge CUDA.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `CrossTermKind` enum: `Agreement`, `Delta`, `Interaction { low_rank: bool }`, `Concat`
-- [ ] Define `CrossTerm` value type: `{ kind: CrossTermKind, slot_a: SlotId, slot_b: SlotId, value: CrossTermValue, provenance: CrossTermProvenance }` where `CrossTermValue` is `Scalar(f32)` | `Vec(Vec<f32>)` | `LowRank { u: Vec<f32>, v: Vec<f32> }`
-- [ ] Define `CrossTermProvenance`: `{ cx_id: CxId, computed_at_seq: u64, source: Measured | Derived, estimator: AgreementCosine | Delta | Interaction | Concat }`
-- [ ] Implement `agreement_scalar(v_a: &[f32], v_b: &[f32]) -> Result<f32, CalyxError>`:
+- [x] Define `CrossTermKind` enum: `Agreement`, `Delta`, `Interaction { low_rank: bool }`, `Concat`
+- [x] Define `CrossTerm` value type: `{ kind: CrossTermKind, slot_a: SlotId, slot_b: SlotId, value: CrossTermValue, provenance: CrossTermProvenance }` where `CrossTermValue` is `Scalar(f32)` | `Vec(Vec<f32>)` | `LowRank { u: Vec<f32>, v: Vec<f32> }`
+- [x] Define `CrossTermProvenance`: `{ cx_id: CxId, computed_at_seq: u64, source: Measured | Derived, estimator: AgreementCosine | Delta | Interaction | Concat }`
+- [x] Implement `agreement_scalar(v_a: &[f32], v_b: &[f32]) -> Result<f32, CalyxError>`:
   - normalize both vectors logically (asserts non-zero/non-finite); return scalar on the default CPU path
   - if either vector is zero-norm → `CALYX_LOOM_ZERO_NORM_VECTOR`
-- [ ] Implement `agreement_batch_cpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>, CalyxError>` — batched form used by `weave`
-- [ ] Implement `agreement_batch_gpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>, CalyxError>` — default build returns `CALYX_LOOM_FORGE_UNAVAILABLE`; `calyx-loom/cuda` uses Forge CUDA
-- [ ] Tag every returned `CrossTerm` with `source: Derived` (a cross-term of two measured lenses is itself derived, not a new external measurement)
-- [ ] Wire `CalyxError::LoomZeroNormVector` into the error catalog (`calyx-core/src/error.rs`)
+- [x] Implement `agreement_batch_cpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>, CalyxError>` — batched form used by `weave`
+- [x] Implement `agreement_batch_gpu(pairs: &[(&[f32], &[f32])]) -> Result<Vec<f32>, CalyxError>` — default build returns `CALYX_LOOM_FORGE_UNAVAILABLE`; `calyx-loom/cuda` uses Forge CUDA
+- [x] Tag every returned `CrossTerm` with `source: Derived` (a cross-term of two measured lenses is itself derived, not a new external measurement)
+- [x] Wire `CalyxError::LoomZeroNormVector` into the error catalog (`calyx-core/src/error.rs`)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: two orthogonal unit vectors → agreement scalar = 0.0 ± 1e-6; two identical unit vectors → 1.0 ± 1e-6; two antipodal → -1.0 ± 1e-6
-- [ ] proptest: `agreement_scalar(v, v) == 1.0` for any non-zero `v`; agreement is commutative: `agreement_scalar(a, b) == agreement_scalar(b, a)` for all non-zero `a`, `b`
-- [ ] edge: zero-norm vector `a` → `CALYX_LOOM_ZERO_NORM_VECTOR`; single-element vectors → correct cosine; vectors of length 1536 (TEI output dim) → within 1e-4 of numpy reference
-- [ ] fail-closed: `NaN`-containing vector → `CALYX_LOOM_ZERO_NORM_VECTOR` or `CALYX_FORGE_INVALID_INPUT` (not silent NaN propagation)
+- [x] unit: two orthogonal unit vectors → agreement scalar = 0.0 ± 1e-6; two identical unit vectors → 1.0 ± 1e-6; two antipodal → -1.0 ± 1e-6
+- [x] proptest: `agreement_scalar(v, v) == 1.0` for any non-zero `v`; agreement is commutative: `agreement_scalar(a, b) == agreement_scalar(b, a)` for all non-zero `a`, `b`
+- [x] edge: zero-norm vector `a` → `CALYX_LOOM_ZERO_NORM_VECTOR`; single-element vectors → correct cosine; vectors of length 1536 (TEI output dim) → within 1e-4 of numpy reference
+- [x] fail-closed: `NaN`-containing vector → `CALYX_LOOM_ZERO_NORM_VECTOR` or `CALYX_FORGE_INVALID_INPUT` (not silent NaN propagation)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -48,9 +48,9 @@ Forge CUDA.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] default GPU entrypoint fails closed with `CALYX_LOOM_FORGE_UNAVAILABLE`
-- [ ] `calyx-loom/cuda` executes the Forge CUDA path on the agreement scalar golden set
-- [ ] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] default GPU entrypoint fails closed with `CALYX_LOOM_FORGE_UNAVAILABLE`
+- [x] `calyx-loom/cuda` executes the Forge CUDA path on the agreement scalar golden set
+- [x] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

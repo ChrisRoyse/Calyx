@@ -21,33 +21,33 @@ missing test coverage.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add test: `write_current(manifest)` produces three files: `CURRENT`,
+- [x] Add test: `write_current(manifest)` produces three files: `CURRENT`,
   `MANIFEST`, `manifest-<seq>.json`; `load_current()` returns the same manifest.
-- [ ] Add test: two sequential `write_current` calls with `manifest_seq = 1` then
+- [x] Add test: two sequential `write_current` calls with `manifest_seq = 1` then
   `manifest_seq = 2`; `load_current()` returns seq=2; both `manifest-*.json` files
   exist (old one not deleted — immutable artifact).
-- [ ] Add test: `VaultManifest` with `version.major = 2` (unknown major) fails
+- [x] Add test: `VaultManifest` with `version.major = 2` (unknown major) fails
   `validate()` with `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] Add test: `load_current()` when `CURRENT` file is absent →
+- [x] Add test: `load_current()` when `CURRENT` file is absent →
   `CALYX_DISK_PRESSURE` (not found).
-- [ ] Add test: `load_current()` when `CURRENT` points at a non-existent
+- [x] Add test: `load_current()` when `CURRENT` points at a non-existent
   `manifest-*.json` → `CALYX_DISK_PRESSURE`.
-- [ ] Add test: `CURRENT` file containing arbitrary garbage (not a valid manifest
+- [x] Add test: `CURRENT` file containing arbitrary garbage (not a valid manifest
   filename) → `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] Add test: `ImmutableRef::new` with path containing `../` → `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] Add test: `ImmutableRef::new` with path starting with `/` →
+- [x] Add test: `ImmutableRef::new` with path containing `../` → `CALYX_ASTER_CORRUPT_SHARD`.
+- [x] Add test: `ImmutableRef::new` with path starting with `/` →
   `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] Add proptest: for any valid `VaultManifest`, `encode_manifest` +
+- [x] Add proptest: for any valid `VaultManifest`, `encode_manifest` +
   `decode_manifest` round-trips byte-exact.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: two-write sequence; `load_current` returns latest.
-- [ ] unit: bad major version → `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] proptest: encode/decode round-trip.
-- [ ] edge (≥3): (1) CURRENT absent → Err; (2) CURRENT points at missing file →
+- [x] unit: two-write sequence; `load_current` returns latest.
+- [x] unit: bad major version → `CALYX_ASTER_CORRUPT_SHARD`.
+- [x] proptest: encode/decode round-trip.
+- [x] edge (≥3): (1) CURRENT absent → Err; (2) CURRENT points at missing file →
   Err; (3) path traversal in ImmutableRef → Err.
-- [ ] fail-closed: corrupt MANIFEST JSON bytes → `CALYX_ASTER_CORRUPT_SHARD` on
+- [x] fail-closed: corrupt MANIFEST JSON bytes → `CALYX_ASTER_CORRUPT_SHARD` on
   `decode_manifest`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -64,8 +64,8 @@ missing test coverage.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

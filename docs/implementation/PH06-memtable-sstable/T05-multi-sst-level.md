@@ -20,34 +20,34 @@ wins). This is the per-CF read layer used by PH07 and PH09.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `SstLevel { files: Vec<PathBuf> }` where `files[0]` is the newest
+- [x] Define `SstLevel { files: Vec<PathBuf> }` where `files[0]` is the newest
   (most recently flushed) SST.
-- [ ] `SstLevel::push(&mut self, path: PathBuf)` appends the newest SST at the
+- [x] `SstLevel::push(&mut self, path: PathBuf)` appends the newest SST at the
   front (`files.insert(0, path)`).
-- [ ] `SstLevel::get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>`: iterate
+- [x] `SstLevel::get(&self, key: &[u8]) -> Result<Option<Vec<u8>>>`: iterate
   `files` newest-to-oldest; open reader and check bloom; on bloom hit do index
   lookup; return first value found. If no file returns Some, return Ok(None).
-- [ ] `SstLevel::range(&self, start: &[u8], end: &[u8]) -> Result<Vec<SstEntry>>`:
+- [x] `SstLevel::range(&self, start: &[u8], end: &[u8]) -> Result<Vec<SstEntry>>`:
   collect all matching entries from all files, deduplicate by key keeping newest,
   return sorted ascending by key.
-- [ ] `SstLevel::file_count(&self) -> usize`.
-- [ ] Ensure `SstLevel::get` opens each `SstReader` lazily per call (no persistent
+- [x] `SstLevel::file_count(&self) -> usize`.
+- [x] Ensure `SstLevel::get` opens each `SstReader` lazily per call (no persistent
   mmap handles in `SstLevel`) — the compaction catalog (`CompactionCatalog`) holds
   the production lifetime; `SstLevel` is the per-CF thin query layer for PH07.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: 2 SSTs, key `b"k1"` exists in both; `get(b"k1")` returns the value
+- [x] unit: 2 SSTs, key `b"k1"` exists in both; `get(b"k1")` returns the value
   from the newer SST (file 0).
-- [ ] unit: 3 SSTs with ranges `[k1,k3]`, `[k2,k4]`, `[k5,k6]`; `range(k1,k7)`
+- [x] unit: 3 SSTs with ranges `[k1,k3]`, `[k2,k4]`, `[k5,k6]`; `range(k1,k7)`
   returns k1..k6 deduplicated in ascending order with newest version for k2,k3,k4.
-- [ ] proptest: for any non-empty set of `(key,value)` pairs split across 1..=4
+- [x] proptest: for any non-empty set of `(key,value)` pairs split across 1..=4
   SSTs with deterministic seed: `SstLevel::get` returns the latest value for
   every key; `range(min, max)` returns all keys sorted.
-- [ ] edge (≥3): (1) empty level → `get` returns Ok(None), `range` returns empty
+- [x] edge (≥3): (1) empty level → `get` returns Ok(None), `range` returns empty
   vec; (2) single SST with 1 entry → `get` round-trips; (3) key present only in
   oldest SST (bloom miss in newer ones) → `get` still finds it.
-- [ ] fail-closed: corrupt SST in level → `get` returns `CALYX_ASTER_CORRUPT_SHARD`
+- [x] fail-closed: corrupt SST in level → `get` returns `CALYX_ASTER_CORRUPT_SHARD`
   (not silently skips).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -66,8 +66,8 @@ wins). This is the per-CF read layer used by PH07 and PH09.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH06 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH06 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

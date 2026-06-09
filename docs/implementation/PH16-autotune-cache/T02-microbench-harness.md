@@ -20,34 +20,34 @@ runs) on aiwonder to be promotable.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub struct BenchResult { pub gflops: f64, pub elapsed_ms: f64, pub cv_pct: f64 }`
+- [x] `pub struct BenchResult { pub gflops: f64, pub elapsed_ms: f64, pub cv_pct: f64 }`
   — `cv_pct` is the coefficient of variation across `iters` runs: `std_dev / mean * 100`
-- [ ] `pub fn microbench(op: &str, config: &BestConfig, shape: &[usize], ctx: Option<&CudaContext>, iters: u32) -> Result<BenchResult, ForgeError>`
+- [x] `pub fn microbench(op: &str, config: &BestConfig, shape: &[usize], ctx: Option<&CudaContext>, iters: u32) -> Result<BenchResult, ForgeError>`
   — dispatch on `op`:
   `"gemm"` → run `CudaBackend.gemm` (or `CpuBackend.gemm`) `iters` times on random f32 data of the given shape; record elapsed via `std::time::Instant` + GPU sync after last call
   `"cosine"` → `cosine_batch` iters times
   `"grouped_gemm"` → `execute_grouped_gemm` iters times
   `"turboquant_encode"` → `TurboQuantCodec.encode` iters times
   unknown op → `ForgeError::Unimplemented { op: op.to_string() }`
-- [ ] Warm-up: run op once before timing to avoid JIT/paging on first call; warm-up
+- [x] Warm-up: run op once before timing to avoid JIT/paging on first call; warm-up
   is not counted in elapsed
-- [ ] `cv_pct` computed across `iters` individual timings; if `cv_pct > 20.0` → include
+- [x] `cv_pct` computed across `iters` individual timings; if `cv_pct > 20.0` → include
   a `cargo:warning="microbench CV {cv_pct:.1}% > 20% for op={op}; result may be noisy"`
   but still return the result (the explorer decides whether to trust it)
-- [ ] For GPU ops, call `ctx.inner.synchronize()` before stopping the timer (not just
+- [x] For GPU ops, call `ctx.inner.synchronize()` before stopping the timer (not just
   after the last call — GPU work may be queued)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit `#[cfg(feature="cuda")]`: `microbench("gemm", &default_config, &[512,512,512], Some(&ctx), 5)`
+- [x] unit `#[cfg(feature="cuda")]`: `microbench("gemm", &default_config, &[512,512,512], Some(&ctx), 5)`
   → `gflops > 0.0` and `elapsed_ms > 0.0` and `elapsed_ms < 10000.0` (sanity range)
-- [ ] unit: `microbench("cosine", &default_config, &[1000, 128], Some(&ctx), 5)` → `BenchResult` with positive values
-- [ ] unit: `microbench("unknown_op", ...)` → `ForgeError::Unimplemented`
-- [ ] proptest: running `microbench` twice on the same op/shape → both results positive
+- [x] unit: `microbench("cosine", &default_config, &[1000, 128], Some(&ctx), 5)` → `BenchResult` with positive values
+- [x] unit: `microbench("unknown_op", ...)` → `ForgeError::Unimplemented`
+- [x] proptest: running `microbench` twice on the same op/shape → both results positive
   and within 2× of each other (hardware stability bound)
-- [ ] edge (≥3): (1) `iters=1` (single run, CV=0); (2) CPU path (`ctx=None`, op="gemm")
+- [x] edge (≥3): (1) `iters=1` (single run, CV=0); (2) CPU path (`ctx=None`, op="gemm")
   works without CUDA; (3) shape `[1,1,1]` (trivial matmul)
-- [ ] fail-closed: unknown op → `CALYX_FORGE_UNIMPLEMENTED` (via `ForgeError::Unimplemented` Display)
+- [x] fail-closed: unknown op → `CALYX_FORGE_UNIMPLEMENTED` (via `ForgeError::Unimplemented` Display)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -63,10 +63,10 @@ runs) on aiwonder to be promotable.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (microbench doesn't check parity
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (microbench doesn't check parity
       but the op it measures was validated in PH12–PH15)
-- [ ] FSV evidence (gflops + cv_pct output) attached to PH16 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] FSV evidence (gflops + cv_pct output) attached to PH16 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

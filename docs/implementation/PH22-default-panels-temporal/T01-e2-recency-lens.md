@@ -21,16 +21,16 @@ or Step). Output: `SlotVector::Dense { dim: 1, data: [score] }` where
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `DecayFunction` enum:
+- [x] `DecayFunction` enum:
   - `Linear { max_age_secs: i64 }` → `score = 1.0 − age / max_age`; clamp to [0,1].
   - `Exponential { half_life_secs: i64 }` → `score = exp(−age * 0.693 / half_life)`.
   - `Step` → `score = if age < 3600 { 0.8 } else if age < 86400 { 0.5 } else { 0.1 }`.
     (Exact thresholds from `25 §2`: `<1h: 0.8`, `<1d: 0.5`, `≥1d: 0.1`.)
-- [ ] `E2RecencyConfig` struct: `decay: DecayFunction`, `reference_time: i64`
+- [x] `E2RecencyConfig` struct: `decay: DecayFunction`, `reference_time: i64`
   (the "now" timestamp for computing age — injected, never read from system
   clock in `measure`; this is how DOCTRINE `Clock` trait is respected for
   algorithmic lenses).
-- [ ] `E2RecencyLens` struct implementing `calyx_core::Lens`:
+- [x] `E2RecencyLens` struct implementing `calyx_core::Lens`:
   - `id()` → `compute_lens_id` from a canonical spec for E2.
   - `shape()` → `SlotShape::Dense(1)`.
   - `modality()` → `Modality::Structured`.
@@ -40,25 +40,25 @@ or Step). Output: `SlotVector::Dense { dim: 1, data: [score] }` where
       negative — future events score as maximally fresh).
     - apply `self.config.decay` formula.
     - return `SlotVector::Dense { dim: 1, data: vec![score] }`.
-- [ ] Input error: `input.bytes.len() < 8` → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
+- [x] Input error: `input.bytes.len() < 8` → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
   with remediation "E2 expects 8-byte little-endian i64 timestamp".
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit `linear_decay`: `reference=1000, event=0, max_age=1000` →
+- [x] unit `linear_decay`: `reference=1000, event=0, max_age=1000` →
   `age=1000`, `score = 1.0 − 1000/1000 = 0.0`. Assert exact.
-- [ ] unit `linear_decay_recent`: `reference=1000, event=900, max_age=1000` →
+- [x] unit `linear_decay_recent`: `reference=1000, event=900, max_age=1000` →
   `score = 0.1`. Assert exact.
-- [ ] unit `exponential_decay`: `reference=86400, event=0, half_life=86400` →
+- [x] unit `exponential_decay`: `reference=86400, event=0, half_life=86400` →
   `score = exp(−0.693) ≈ 0.500`. Assert within 1e-4.
-- [ ] unit `step_decay`: `age=1800` (30 min) → `score = 0.8` exactly.
+- [x] unit `step_decay`: `age=1800` (30 min) → `score = 0.8` exactly.
   `age=43200` (12 h) → `score = 0.5`. `age=172800` (2 d) → `score = 0.1`.
-- [ ] proptest: `score ∈ [0.0, 1.0]` for any non-negative age and any
+- [x] proptest: `score ∈ [0.0, 1.0]` for any non-negative age and any
   `DecayFunction`.
-- [ ] edge (≥3): (1) future event (`age < 0`) → clamped to `age = 0`, score
+- [x] edge (≥3): (1) future event (`age < 0`) → clamped to `age = 0`, score
   = max fresh; (2) `max_age=0` → score = 0.0 (clamp); (3) `half_life=0` →
   score = 0.0 (avoid divide-by-zero; document as degenerate).
-- [ ] fail-closed: `input.bytes.len() < 8` → exact
+- [x] fail-closed: `input.bytes.len() < 8` → exact
   `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -71,8 +71,8 @@ or Step). Output: `SlotVector::Dense { dim: 1, data: [score] }` where
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

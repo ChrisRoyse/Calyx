@@ -20,28 +20,28 @@ partial-bundle (ragged) batch produces correct per-constellation results.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Test `grouped_equals_per_loop`: N=5 problems of varied shapes; run grouped;
+- [x] Test `grouped_equals_per_loop`: N=5 problems of varied shapes; run grouped;
   run per-loop (sequential `gemm_cublas` per problem); `assert_parity(grouped[i], loop[i], "grouped_gemm", 1e-4)` for all i; print max_err
-- [ ] Test `grouped_gemm_n_invariant`: create a 3-lens panel; compute result; add
+- [x] Test `grouped_gemm_n_invariant`: create a 3-lens panel; compute result; add
   2 more lens slots that are identity projections (A=I, so output = input);
   rerun grouped on 5 lenses; assert that the first 3 lens outputs are identical
   to the 3-lens run (within 1e-5); print `n_invariant_max_delta=X.XXe-Y`
-- [ ] Test `mxfp4_within_bound`: for Assay-safe slots, run fp4 GEMM vs f32 GEMM;
+- [x] Test `mxfp4_within_bound`: for Assay-safe slots, run fp4 GEMM vs f32 GEMM;
   assert `max |fp4_result[i] - f32_result[i]| / |f32_result[i]| ≤ 0.05`
   (5% relative bound on quant-safe slots); print `fp4_within_bound=X.XXe-Y`
-- [ ] Test `partial_bundle_correct`: `RaggedBatch` with 4 constellations × 3 slots,
+- [x] Test `partial_bundle_correct`: `RaggedBatch` with 4 constellations × 3 slots,
   where constellation 2 has slot 1 absent; run batch; verify that constellations
   0, 1, 3 and constellation 2's slots 0, 2 match per-loop results within 1e-4
-- [ ] All tests `#[cfg_attr(not(feature="cuda"), ignore)]`
+- [x] All tests `#[cfg_attr(not(feature="cuda"), ignore)]`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] All inputs seeded via `ChaCha8Rng(seed=0xCALYX15)` for full determinism
-- [ ] `grouped_equals_per_loop`: assert all 5 problems' parity within 1e-4; print per-problem max_err
-- [ ] `grouped_gemm_n_invariant`: assert `n_invariant_max_delta < 1e-5` (exact invariance
+- [x] All inputs seeded via `ChaCha8Rng(seed=0xCALYX15)` for full determinism
+- [x] `grouped_equals_per_loop`: assert all 5 problems' parity within 1e-4; print per-problem max_err
+- [x] `grouped_gemm_n_invariant`: assert `n_invariant_max_delta < 1e-5` (exact invariance
   within floating-point round-off)
-- [ ] edge (≥3): (1) N=1 (degenerate group); (2) N=32 (large group); (3) mixed fp4 and f32 problems in same batch → fp4 problems within 5%, f32 within 1e-4
-- [ ] fail-closed: mismatched output buffer for a `None` slot → debug_assert fires
+- [x] edge (≥3): (1) N=1 (degenerate group); (2) N=32 (large group); (3) mixed fp4 and f32 problems in same batch → fp4 problems within 5%, f32 within 1e-4
+- [x] fail-closed: mismatched output buffer for a `None` slot → debug_assert fires
   (see T04); in release build, output is `None` (not zero)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -62,13 +62,13 @@ partial-bundle (ragged) batch produces correct per-constellation results.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] **Grouped GEMM result == per-matmul loop** (T05 `grouped_equals_per_loop` is the proof)
-- [ ] **N-invariant** (`grouped_gemm_n_invariant` is the proof)
-- [ ] **FP4 within bound on safe slots** (`mxfp4_within_bound` is the proof)
-- [ ] **Partial-bundle batch correct** (`partial_bundle_correct` is the proof)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set
-- [ ] FSV evidence (`/tmp/ph15_fsv.txt`) attached to PH15 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] **Grouped GEMM result == per-matmul loop** (T05 `grouped_equals_per_loop` is the proof)
+- [x] **N-invariant** (`grouped_gemm_n_invariant` is the proof)
+- [x] **FP4 within bound on safe slots** (`mxfp4_within_bound` is the proof)
+- [x] **Partial-bundle batch correct** (`partial_bundle_correct` is the proof)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set
+- [x] FSV evidence (`/tmp/ph15_fsv.txt`) attached to PH15 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

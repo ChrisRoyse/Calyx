@@ -22,37 +22,37 @@ configurable.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `CompactionSchedulerOptions`:
+- [x] Define `CompactionSchedulerOptions`:
   - `interval_ms: u64` (default 10_000)
   - `debt_trigger_score_milli: u64` (default 1000 = 1× write-amp)
   - `max_write_amp_milli: u64` (default 2000 = 2× write-amp)
   - `backoff_factor: u64` (default 2)
   - `max_interval_ms: u64` (default 60_000)
-- [ ] Define `CompactionScheduler`:
+- [x] Define `CompactionScheduler`:
   - `catalog: Arc<CompactionCatalog>`
   - `options: CompactionSchedulerOptions`
   - `thread: JoinHandle<()>`
-- [ ] `CompactionScheduler::start(catalog, options) -> Self`: spawns a thread that
+- [x] `CompactionScheduler::start(catalog, options) -> Self`: spawns a thread that
   loops: sleep `interval_ms`, check debt for each CF, compact if debt ≥ trigger,
   adjust interval on high write-amp.
-- [ ] `CompactionScheduler::stop(self)` signals the thread to exit and joins.
-- [ ] The scheduler thread does NOT hold any lock during the `compact_cf` call
+- [x] `CompactionScheduler::stop(self)` signals the thread to exit and joins.
+- [x] The scheduler thread does NOT hold any lock during the `compact_cf` call
   (the catalog's own lock is sufficient).
-- [ ] Use `Clock` trait for the sleep timer (injectable for tests — a
+- [x] Use `Clock` trait for the sleep timer (injectable for tests — a
   `ManualClock` that returns instants on demand).
-- [ ] Add `// FIXME(PH46): replace fixed cadence with Anneal adaptive hook` comment.
+- [x] Add `// FIXME(PH46): replace fixed cadence with Anneal adaptive hook` comment.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit (with injected clock): scheduler fires after `interval_ms`; debt above
+- [x] unit (with injected clock): scheduler fires after `interval_ms`; debt above
   trigger → `compact_cf` called; debt below trigger → skipped.
-- [ ] unit: write-amp > `max_write_amp_milli` → interval doubled; write-amp ≤ →
+- [x] unit: write-amp > `max_write_amp_milli` → interval doubled; write-amp ≤ →
   interval unchanged.
-- [ ] unit: `stop()` exits the thread cleanly without panic.
-- [ ] edge (≥3): (1) scheduler with 0 CFs → no compaction, no panic; (2) interval
+- [x] unit: `stop()` exits the thread cleanly without panic.
+- [x] edge (≥3): (1) scheduler with 0 CFs → no compaction, no panic; (2) interval
   backed off to `max_interval_ms` and stays there; (3) compaction error during
   scheduler run → logged, scheduler continues (does not exit).
-- [ ] fail-closed: compaction error in background → does not propagate to callers
+- [x] fail-closed: compaction error in background → does not propagate to callers
   (background error → log + continue); catalog unchanged after failed compact.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -69,8 +69,8 @@ configurable.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

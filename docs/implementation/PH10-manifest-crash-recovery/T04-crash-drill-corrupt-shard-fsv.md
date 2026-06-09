@@ -24,39 +24,39 @@ return wrong bytes.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `calyx crash-drill --vault <path> --point <point>` CLI subcommand where
+- [x] Add `calyx crash-drill --vault <path> --point <point>` CLI subcommand where
   `<point>` is one of: (1) `before-wal-fsync` — write WAL bytes but return before
   `sync_data()`; (2) `after-wal-before-commit` — WAL fsynced but
   `commit_batch` not yet called; (3) `after-commit-before-manifest` — `commit_batch`
   done, manifest write not yet started. Each point simulates the crash by
   exiting the process with `std::process::exit(1)` at the correct location.
-- [ ] For each crash point, the drill:
+- [x] For each crash point, the drill:
   1. Puts N known constellations (N-1 fully acked, the Nth mid-flight).
   2. Hits the crash point.
   3. Spawns `AsterVault::open` (recovery).
   4. `get` all N-1 constellations: byte-exact.
   5. `get` the Nth: must return Err (not found or stale derived).
-- [ ] Add `calyx corrupt-shard --vault <path> --cf base --byte-offset <N>` CLI
+- [x] Add `calyx corrupt-shard --vault <path> --cf base --byte-offset <N>` CLI
   subcommand that flips one byte at offset N in the first SST of the `base` CF.
-- [ ] After `corrupt-shard`, `calyx readback --cf base` must return
+- [x] After `corrupt-shard`, `calyx readback --cf base` must return
   `CALYX_ASTER_CORRUPT_SHARD` for the affected record (not silently skip it).
 - [x] Keep PH10 fail-closed on corrupt base shards; PH44 owns setting
   `degraded_rebuildable=true` for rebuildable derived-CF corruption.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit (subprocess): crash at point 1 → recovery → N-1 records found, Nth absent.
-- [ ] unit (subprocess): crash at point 2 → recovery → N-1 records found (WAL
+- [x] unit (subprocess): crash at point 1 → recovery → N-1 records found, Nth absent.
+- [x] unit (subprocess): crash at point 2 → recovery → N-1 records found (WAL
   record for Nth exists but is orphaned — re-apply returns idempotent if committed,
   or absent if not).
-- [ ] unit (subprocess): crash at point 3 → recovery → all N records found (WAL
+- [x] unit (subprocess): crash at point 3 → recovery → all N records found (WAL
   record was fsynced and includes the Nth; commit_batch was called; manifest not
   yet written but WAL replay re-applies).
-- [ ] unit: corrupt SST byte → `CALYX_ASTER_CORRUPT_SHARD` on `calyx readback`.
-- [ ] edge (≥3): (1) crash with empty WAL → empty recovery, no error; (2) crash
+- [x] unit: corrupt SST byte → `CALYX_ASTER_CORRUPT_SHARD` on `calyx readback`.
+- [x] edge (≥3): (1) crash with empty WAL → empty recovery, no error; (2) crash
   after manifest write → all N records durable; (3) corrupt byte in index section
   of SST → corrupt shard on open (not on read).
-- [ ] fail-closed: corrupt shard → `code == "CALYX_ASTER_CORRUPT_SHARD"`;
+- [x] fail-closed: corrupt shard → `code == "CALYX_ASTER_CORRUPT_SHARD"`;
   `points_at_restore == true` or message contains `"restore"`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -84,8 +84,8 @@ return wrong bytes.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

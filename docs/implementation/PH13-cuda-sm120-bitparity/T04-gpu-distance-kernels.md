@@ -20,31 +20,31 @@ detected on-device → `CALYX_FORGE_NUMERICAL_INVARIANT` returned.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `distance.cu` `cosine_batch_f32` kernel: each thread handles one candidate;
+- [x] `distance.cu` `cosine_batch_f32` kernel: each thread handles one candidate;
   loads query and candidate vectors from global memory in coalesced 128-bit loads
   (float4); computes dot and norms in registers; warp-shuffle reduces to thread 0;
   writes cosine to `out[cand_idx]`; if norm is zero → writes `-2.0f` as sentinel
   (host-side checks for sentinel and returns `CALYX_FORGE_NUMERICAL_INVARIANT`)
-- [ ] `distance.cu` `dot_batch_f32` and `l2_batch_f32`: same structure, no norm division
-- [ ] `src/cuda/distance.rs`: `pub fn cosine_batch_gpu(ctx: &CudaContext, query: &CudaSlice<f32>, candidates: &CudaSlice<f32>, dim: usize, n_cands: usize, out: &mut CudaSlice<f32>) -> Result<(), ForgeError>`
+- [x] `distance.cu` `dot_batch_f32` and `l2_batch_f32`: same structure, no norm division
+- [x] `src/cuda/distance.rs`: `pub fn cosine_batch_gpu(ctx: &CudaContext, query: &CudaSlice<f32>, candidates: &CudaSlice<f32>, dim: usize, n_cands: usize, out: &mut CudaSlice<f32>) -> Result<(), ForgeError>`
   — load PTX via `ctx.inner.load_ptx(DISTANCE_PTX_BYTES, "distance", &["cosine_batch_f32"])`
   on first call (cached in `CudaContext`); launch with grid=(n_cands+255)/256, block=256
-- [ ] Sentinel check: after `dtoh_sync_copy`, scan `out` for values ≤ -1.5 → if found
+- [x] Sentinel check: after `dtoh_sync_copy`, scan `out` for values ≤ -1.5 → if found
   → `ForgeError::NumericalInvariant { op: "cosine_batch_gpu", detail: "zero-norm candidate at index {i}" }`
-- [ ] `impl Backend for CudaBackend`: `cosine`, `dot`, `l2` delegate to the GPU functions
+- [x] `impl Backend for CudaBackend`: `cosine`, `dot`, `l2` delegate to the GPU functions
   (copy host→device, dispatch, copy device→host)
-- [ ] `CALYX_FORGE_NUMERICAL_INVARIANT` returned (not logged-and-silenced) on any
+- [x] `CALYX_FORGE_NUMERICAL_INVARIANT` returned (not logged-and-silenced) on any
   non-finite detected output (post-compute `check_finite` on the result buffer)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: GPU cosine of orthogonal dim-128 vectors → `0.0` (within 1e-5)
-- [ ] unit: GPU cosine of identical unit vectors → `1.0` (within 1e-5)
-- [ ] unit: `l2_batch_gpu` with `q=[0,0]`, `c=[[3,4]]` → `25.0` (within 1e-4)
-- [ ] proptest: GPU cosine agrees with CPU cosine within 1e-3 rel for random dim-128
+- [x] unit: GPU cosine of orthogonal dim-128 vectors → `0.0` (within 1e-5)
+- [x] unit: GPU cosine of identical unit vectors → `1.0` (within 1e-5)
+- [x] unit: `l2_batch_gpu` with `q=[0,0]`, `c=[[3,4]]` → `25.0` (within 1e-4)
+- [x] proptest: GPU cosine agrees with CPU cosine within 1e-3 rel for random dim-128
   vectors, 100 candidates, seed=42
-- [ ] edge (≥3): (1) `n_cands=1`; (2) `dim=1536`; (3) zero-norm candidate → `CALYX_FORGE_NUMERICAL_INVARIANT`
-- [ ] fail-closed: kernel launch on uninitialized context → `DeviceUnavailable`
+- [x] edge (≥3): (1) `n_cands=1`; (2) `dim=1536`; (3) zero-norm candidate → `CALYX_FORGE_NUMERICAL_INVARIANT`
+- [x] fail-closed: kernel launch on uninitialized context → `DeviceUnavailable`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -61,9 +61,9 @@ detected on-device → `CALYX_FORGE_NUMERICAL_INVARIANT` returned.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
-- [ ] FSV evidence (readback output / screenshot) attached to PH13 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
+- [x] FSV evidence (readback output / screenshot) attached to PH13 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

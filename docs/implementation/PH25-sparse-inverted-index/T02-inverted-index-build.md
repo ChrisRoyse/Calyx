@@ -27,7 +27,7 @@ the stale vector readback.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `PostingsList` struct:
+- [x] `PostingsList` struct:
   ```rust
   pub struct PostingsList {
       pub doc_ids: Vec<u32>,          // sorted, delta-encoded on disk
@@ -35,7 +35,7 @@ the stale vector readback.
       pub compressed: Option<Vec<u8>>,// None = use doc_ids directly (small list)
   }
   ```
-- [ ] `InvertedIndex` struct:
+- [x] `InvertedIndex` struct:
   ```rust
   pub struct InvertedIndex {
       terms: HashMap<String, PostingsList>,
@@ -47,12 +47,12 @@ the stale vector readback.
       tokenizer_config: TokenizerConfig,
   }
   ```
-- [ ] `fn insert_document(&mut self, id: CxId, text: &str) -> Result<(), CalyxError>`:
+- [x] `fn insert_document(&mut self, id: CxId, text: &str) -> Result<(), CalyxError>`:
       assign internal doc_id, tokenize, update `PostingsList` per term,
       record `doc_lengths`
-- [ ] `fn lookup_term(&self, term: &str) -> Option<&PostingsList>`
-- [ ] `fn term_count(&self) -> usize` — number of unique terms
-- [ ] Implement `Index` trait:
+- [x] `fn lookup_term(&self, term: &str) -> Option<&PostingsList>`
+- [x] `fn term_count(&self) -> usize` — number of unique terms
+- [x] Implement `Index` trait:
       - `insert` expects the caller to pass a pre-embedded "vector" that is
         actually the raw text encoded as UTF-8 bytes in a `Vec<f32>` (via a
         newtype or a text_as_vec helper); alternatively, add a separate
@@ -66,17 +66,17 @@ the stale vector readback.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: insert 3 docs, `lookup_term("foo")` → doc_ids contains the correct
+- [x] unit: insert 3 docs, `lookup_term("foo")` → doc_ids contains the correct
       subset; `term_count()` returns the correct unique term count
-- [ ] unit: insert then remove a doc → `search("foo")` no longer returns that cx
+- [x] unit: insert then remove a doc → `search("foo")` no longer returns that cx
 - [x] unit: sparse vector insert with non-contiguous IDs returns the original IDs
       and weights from `vector(cx)`; rebuild preserves the same readback
-- [ ] unit: `total_docs` and `sum_doc_lengths` are updated correctly on each insert
-- [ ] proptest: for any set of docs, `lookup_term(t).doc_ids` is a subset of all
+- [x] unit: `total_docs` and `sum_doc_lengths` are updated correctly on each insert
+- [x] proptest: for any set of docs, `lookup_term(t).doc_ids` is a subset of all
       inserted doc_ids
-- [ ] edge: insert empty text → 0 tokens, doc_length=0, still tracked in `total_docs`
-- [ ] edge: remove non-existent cx → `Ok(false)` (idempotent)
-- [ ] fail-closed: text passed to `insert` via the wrong vector encoding path →
+- [x] edge: insert empty text → 0 tokens, doc_length=0, still tracked in `total_docs`
+- [x] edge: remove non-existent cx → `Ok(false)` (idempotent)
+- [x] fail-closed: text passed to `insert` via the wrong vector encoding path →
       `CALYX_SEXTANT_WRONG_INDEX_KIND` with remediation hint
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -92,8 +92,8 @@ the stale vector readback.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

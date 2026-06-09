@@ -34,28 +34,28 @@ Agreement eager and parks Interaction lazy.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `AssayGateImpl` (the real Assay adapter used by PH27 planning):
+- [x] Implement `AssayGateImpl` (the real Assay adapter used by PH27 planning):
   - `pair_gain(slot_a, slot_b, anchor, vault, forge, clock) -> Result<f32, CalyxError>`:
     - load the slot vectors for `(slot_a, slot_b)` and the anchor labels from Aster
     - if n < 50 or required rows are missing → return a fail-closed error by
       default; lazy `0.0` materialization is an explicit fallback call
     - call `ksg_with_ci` for `I(slot_a, slot_b ; anchor) − max(I(slot_a ; anchor), I(slot_b ; anchor))`
     - return the cross-term gain in bits; if negative (no synergy) → return 0.0
-- [ ] Implement `lens_signal(slot: SlotId, anchor: AnchorKind, vault, forge, clock) -> Result<MiEstimate, CalyxError>`:
+- [x] Implement `lens_signal(slot: SlotId, anchor: AnchorKind, vault, forge, clock) -> Result<MiEstimate, CalyxError>`:
   - load slot vectors + anchor labels; call `ksg_with_ci(slot_vecs, anchor_labels, k=5, bootstrap_config, forge)`
   - tag result `trust: Trusted` iff anchor is grounded (A2); else `Provisional`
   - persist `Slot.bits_about[anchor]` to Aster (the `assay` CF, keyed `(slot_id, anchor_kind, shard_hash, ts)`)
-- [ ] Implement `pair_redundancy(slot_a, slot_b, vault, clock) -> Result<NmiEstimate, CalyxError>`:
+- [x] Implement `pair_redundancy(slot_a, slot_b, vault, clock) -> Result<NmiEstimate, CalyxError>`:
   - calls `pair_redundancy_nmi` from T04 on the Agreement scalar stream for this pair
-- [ ] Wire `AssayGateImpl` into `MaterializationPlan::plan_cross_terms` — now a live gate, not a stub
+- [x] Wire `AssayGateImpl` into `MaterializationPlan::plan_cross_terms` — now a live gate, not a stub
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] integration: planted-signal test: 100 constellations, slot_a vectors correlated with a binary anchor (known MI ≈ 0.3 bits, n=100, seed=42) → `lens_signal` returns `MiEstimate` with the known value inside `[ci_low, ci_high]`; tagged `trust: Trusted`
-- [ ] integration: `pair_gain` > 0.05 bits for a planted synergistic pair → materialization plan marks the pair `EagerStore`; pair_gain ≤ 0.0 for an independent pair → `LazyCache`
-- [ ] unit: ungrounded anchor (auto-labeled) → `lens_signal` returns `trust: Provisional`; grounded anchor → `Trusted`
-- [ ] edge: slot with zero non-NaN values → `CALYX_LOOM_ZERO_NORM_VECTOR` propagated; anchor with fewer than 50 grounded labels → `CALYX_ASSAY_INSUFFICIENT_SAMPLES` from inner estimator
-- [ ] fail-closed: Aster read failure on slot vectors → `CALYX_ASTER_NOT_FOUND` propagated; never returns a fabricated 0.0 MI when data is missing
+- [x] integration: planted-signal test: 100 constellations, slot_a vectors correlated with a binary anchor (known MI ≈ 0.3 bits, n=100, seed=42) → `lens_signal` returns `MiEstimate` with the known value inside `[ci_low, ci_high]`; tagged `trust: Trusted`
+- [x] integration: `pair_gain` > 0.05 bits for a planted synergistic pair → materialization plan marks the pair `EagerStore`; pair_gain ≤ 0.0 for an independent pair → `LazyCache`
+- [x] unit: ungrounded anchor (auto-labeled) → `lens_signal` returns `trust: Provisional`; grounded anchor → `Trusted`
+- [x] edge: slot with zero non-NaN values → `CALYX_LOOM_ZERO_NORM_VECTOR` propagated; anchor with fewer than 50 grounded labels → `CALYX_ASSAY_INSUFFICIENT_SAMPLES` from inner estimator
+- [x] fail-closed: Aster read failure on slot vectors → `CALYX_ASTER_NOT_FOUND` propagated; never returns a fabricated 0.0 MI when data is missing
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -86,7 +86,7 @@ Agreement eager and parks Interaction lazy.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH28 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH28 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

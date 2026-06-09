@@ -19,7 +19,7 @@ the registry.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] In `error.rs`, define constructor fns on `CalyxError` (or a
+- [x] In `error.rs`, define constructor fns on `CalyxError` (or a
   `RegistryError` newtype that maps to `CalyxError`):
   - `lens_not_found(lens_id: LensId) -> CalyxError` → code
     `"CALYX_REGISTRY_LENS_NOT_FOUND"`, remediation `"register the lens with
@@ -32,29 +32,29 @@ the registry.
   - `numerical_invariant(detail: &str) -> CalyxError` → code
     `"CALYX_LENS_NUMERICAL_INVARIANT"`, remediation includes `detail`.
     (This code is shared with PH18; define it here so PH18 can reuse it.)
-- [ ] Ensure `CalyxError` carries `code: String` and `remediation: String`
+- [x] Ensure `CalyxError` carries `code: String` and `remediation: String`
   fields (or extend `calyx-core` error type if not already present; coordinate
   with PH03 error catalog).
-- [ ] All error constructors are `#[inline]` and produce `const`-friendly
+- [x] All error constructors are `#[inline]` and produce `const`-friendly
   string slices where possible.
-- [ ] Audit every `?` or `unwrap` in `runtime/algorithmic.rs` and
+- [x] Audit every `?` or `unwrap` in `runtime/algorithmic.rs` and
   `runtime/tei_http.rs` (T02/T03) to confirm they propagate one of these codes
   rather than a generic `anyhow` or `Box<dyn Error>`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `lens_not_found` → `error.code == "CALYX_REGISTRY_LENS_NOT_FOUND"`
+- [x] unit: `lens_not_found` → `error.code == "CALYX_REGISTRY_LENS_NOT_FOUND"`
   and `!error.remediation.is_empty()`.
-- [ ] unit: `runtime_unavailable("connection refused")` → code
+- [x] unit: `runtime_unavailable("connection refused")` → code
   `"CALYX_REGISTRY_RUNTIME_UNAVAILABLE"` and remediation contains
   `"connection refused"`.
-- [ ] unit: `numerical_invariant("determinism probe")` → code
+- [x] unit: `numerical_invariant("determinism probe")` → code
   `"CALYX_LENS_NUMERICAL_INVARIANT"` and remediation non-empty.
-- [ ] edge (≥3): (1) `duplicate_lens` error serde round-trips correctly;
+- [x] edge (≥3): (1) `duplicate_lens` error serde round-trips correctly;
   (2) all four error constructors produce distinct `code` strings; (3) a
   `runtime_unavailable` with an empty `detail` still has a non-empty
   remediation from the template.
-- [ ] fail-closed: calling `Registry::measure` on unregistered id → error code
+- [x] fail-closed: calling `Registry::measure` on unregistered id → error code
   is exactly `"CALYX_REGISTRY_LENS_NOT_FOUND"` (no fallback, no zero vector).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -67,8 +67,8 @@ the registry.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

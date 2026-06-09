@@ -43,7 +43,7 @@ index, and serialized request bytes are also zeroizing-owned.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `PipelineStrategy` struct:
+- [x] `PipelineStrategy` struct:
   ```rust
   pub struct PipelineStrategy {
       pub sparse_slot: SlotId,          // stage 1 recall
@@ -53,7 +53,7 @@ index, and serialized request bytes are also zeroizing-owned.
       pub rrf_config: Bm25Config,       // BM25 params for sparse recall
   }
   ```
-- [ ] `fn fuse(&self, ctx: &FusionContext) -> Result<Vec<Hit>, CalyxError>`:
+- [x] `fn fuse(&self, ctx: &FusionContext) -> Result<Vec<Hit>, CalyxError>`:
       Stage 1: `sparse_slot.search(query, recall_k, ef=0)` → candidate `CxId` set
       Stage 2: for each candidate, compute multi-lens RRF score using only the
                candidate subset (not the full index — this is the efficiency win);
@@ -64,29 +64,29 @@ index, and serialized request bytes are also zeroizing-owned.
                returns reranked scores; update `hit.fused_score` with reranker
                score; candidate texts are request-scoped — zero them from memory
                after the HTTP call returns; never write to disk or WAL
-- [ ] HTTP call to reranker: blocking HTTP client; timeout 5s;
+- [x] HTTP call to reranker: blocking HTTP client; timeout 5s;
       `CALYX_SEXTANT_RERANKER_TIMEOUT` on failure; fail-closed (do not return
       unranked results silently — either rerank or error)
 - [x] Privacy invariant enforced in code: candidate text is wrapped as
       `Zeroizing<String>` when it leaves the sparse index and
       `RerankRequest.candidates` owns `Vec<Zeroizing<String>>`; the serialized
       HTTP body is also `Zeroizing<String>` (#325)
-- [ ] Wire `FusionStrategy::Pipeline` in the dispatcher → `PipelineStrategy`
+- [x] Wire `FusionStrategy::Pipeline` in the dispatcher → `PipelineStrategy`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: pipeline with `rerank=None` → returns top-k hits with correct
+- [x] unit: pipeline with `rerank=None` → returns top-k hits with correct
       `per_lens` entries from both sparse and dense stages
-- [ ] unit: stage 1 candidates are a strict superset of the final top-k
+- [x] unit: stage 1 candidates are a strict superset of the final top-k
       (pipeline never returns a hit that wasn't in stage 1)
 - [x] unit: `recall_k=1, k=10` returns at most 1 hit (stage 1 limits candidates)
 - [x] unit: `k=1, recall_k=3` can recover a dense-preferred candidate outside
       sparse top-1 while the final result length remains 1
-- [ ] proptest: pipeline results are a subset of stage-1 candidates
-- [ ] edge: sparse slot returns 0 candidates (no term matches) → `Ok(vec![])`
-- [ ] edge: reranker endpoint unreachable → `CALYX_SEXTANT_RERANKER_TIMEOUT`,
+- [x] proptest: pipeline results are a subset of stage-1 candidates
+- [x] edge: sparse slot returns 0 candidates (no term matches) → `Ok(vec![])`
+- [x] edge: reranker endpoint unreachable → `CALYX_SEXTANT_RERANKER_TIMEOUT`,
       not a silent fallback to un-reranked results
-- [ ] fail-closed: candidate text variable is `Zeroizing<String>` — assert via
+- [x] fail-closed: candidate text variable is `Zeroizing<String>` — assert via
       `std::mem::size_of_val` test that the type is the right newtype (not a plain
       `String`); this is a code-pattern check, not a runtime assertion
 
@@ -113,8 +113,8 @@ index, and serialized request bytes are also zeroizing-owned.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

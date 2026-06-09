@@ -22,36 +22,36 @@ range scans and prefix reads depend on.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add proptest for `base_key`/`slot_key`: for any two `CxId` values `a < b`
+- [x] Add proptest for `base_key`/`slot_key`: for any two `CxId` values `a < b`
   (lexicographic on their 16 bytes), `base_key(a) < base_key(b)`.
-- [ ] Add proptest for `ledger_key`: `seq1 < seq2` → `ledger_key(seq1) <
+- [x] Add proptest for `ledger_key`: `seq1 < seq2` → `ledger_key(seq1) <
   ledger_key(seq2)` (big-endian u64 ordering).
-- [ ] Add proptest for `scalar_key`: `(s1, cx1) < (s2, cx2)` in the natural
+- [x] Add proptest for `scalar_key`: `(s1, cx1) < (s2, cx2)` in the natural
   product order → `scalar_key(s1, cx1) < scalar_key(s2, cx2)`.
-- [ ] Add proptest for `xterm_key`: for fixed `CxId`, `(a1,b1,kind1) <
+- [x] Add proptest for `xterm_key`: for fixed `CxId`, `(a1,b1,kind1) <
   (a2,b2,kind2)` in the natural tuple order → `xterm_key(cx, a1, b1, kind1) <
   xterm_key(cx, a2, b2, kind2)`.
-- [ ] Add test for `anchor_key`: `AnchorKind::TestPass` sorts before
+- [x] Add test for `anchor_key`: `AnchorKind::TestPass` sorts before
   `AnchorKind::Label("z")` for the same `CxId`.
-- [ ] Add proptest for `prefix_range` / `KeyRange::contains`: for any `prefix` of
+- [x] Add proptest for `prefix_range` / `KeyRange::contains`: for any `prefix` of
   length 1..=16, all keys starting with `prefix` satisfy `range.contains(key)`;
   a key with the next byte after the prefix does not.
-- [ ] Add test for `ledger_range(0, 10)`: contains keys `[0,9]`, does not contain
+- [x] Add test for `ledger_range(0, 10)`: contains keys `[0,9]`, does not contain
   key `10` or `u64::MAX`.
-- [ ] Add test: `cx_prefix_range(cx_id)` contains `base_key(cx_id)` and
+- [x] Add test: `cx_prefix_range(cx_id)` contains `base_key(cx_id)` and
   `slot_key(cx_id)`, and does not contain `base_key` of a CxId whose first 16
   bytes are the prefix upper bound.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `ledger_key(1) == [0,0,0,0,0,0,0,1]` (big-endian u64 1); `ledger_key
+- [x] unit: `ledger_key(1) == [0,0,0,0,0,0,0,1]` (big-endian u64 1); `ledger_key
   (u64::MAX) == [0xff; 8]`.
-- [ ] proptest: all ordering properties for all CF key types (see above).
-- [ ] edge (≥3): (1) `CxId` with all-zero bytes: `base_key` is 16 zero bytes;
+- [x] proptest: all ordering properties for all CF key types (see above).
+- [x] edge (≥3): (1) `CxId` with all-zero bytes: `base_key` is 16 zero bytes;
   `prefix_range` is `[start=[0;16], end=Some([0,0,..,0,1])]`; (2) `CxId` with
   all-`0xff` bytes: `prefix_range.end == None` (unbounded); (3) `AnchorKind::Label`
   with empty string sorts after all fixed-width kinds.
-- [ ] fail-closed: `verify_cx_hash_prefix` with mismatching hash → error code is
+- [x] fail-closed: `verify_cx_hash_prefix` with mismatching hash → error code is
   `"CALYX_ASTER_CORRUPT_SHARD"`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -63,8 +63,8 @@ range scans and prefix reads depend on.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH07 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH07 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -25,29 +25,29 @@ interfaces, so their absence is not a Stage 1 storage-core blocker.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] PH62-owned interface: add `calyx ingest --vault <path> --input <text> --slot <dim> <f32...>`
+- [x] PH62-owned interface: add `calyx ingest --vault <path> --input <text> --slot <dim> <f32...>`
   CLI subcommand: creates an `AsterVault`, calls `put` with a synthetic
   constellation (one dense slot with the specified values), prints `CxId: <hex>`.
-- [ ] PH62-owned interface: add `calyx anchor --vault <path> --cx-id <hex> --kind reward --value 1.0`
+- [x] PH62-owned interface: add `calyx anchor --vault <path> --cx-id <hex> --kind reward --value 1.0`
   CLI subcommand: calls `vault.anchor(...)`.
-- [ ] Write an end-to-end test (spawns CLI processes or calls vault API directly)
+- [x] Write an end-to-end test (spawns CLI processes or calls vault API directly)
   that exercises the full cycle: ingest → flush → cold-open → get → anchor → get.
-- [ ] Assert in the test: `get` after cold-open returns the same struct as before
+- [x] Assert in the test: `get` after cold-open returns the same struct as before
   the process boundary; anchor CF row is present and byte-exact.
-- [ ] Assert: re-ingest same input returns same CxId; WAL segment size unchanged.
-- [ ] Document the exact `xxd` and `calyx readback` commands in the test output.
+- [x] Assert: re-ingest same input returns same CxId; WAL segment size unchanged.
+- [x] Document the exact `xxd` and `calyx readback` commands in the test output.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit (end-to-end): put 3 constellations; flush; cold-open; get all 3
+- [x] unit (end-to-end): put 3 constellations; flush; cold-open; get all 3
   byte-exact; anchor one; get anchored → anchors present.
-- [ ] unit: idempotent re-ingest after cold-open: WAL count unchanged, CxId same.
-- [ ] proptest: for any `n in 1..=10` distinct constellations (seeded RNG), put all
+- [x] unit: idempotent re-ingest after cold-open: WAL count unchanged, CxId same.
+- [x] proptest: for any `n in 1..=10` distinct constellations (seeded RNG), put all
   + flush + cold-open + get all → byte-exact for each.
-- [ ] edge (≥3): (1) constellation with 0 slots (only base row); (2) constellation
+- [x] edge (≥3): (1) constellation with 0 slots (only base row); (2) constellation
   with 15 slots; (3) anchor written after cold-open (anchor is appended to
   existing base row + anchors CF).
-- [ ] fail-closed: `get` on non-existent CxId after cold-open → `CALYX_STALE_DERIVED`
+- [x] fail-closed: `get` on non-existent CxId after cold-open → `CALYX_STALE_DERIVED`
   (missing row), not panic.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -75,8 +75,8 @@ interfaces, so their absence is not a Stage 1 storage-core blocker.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

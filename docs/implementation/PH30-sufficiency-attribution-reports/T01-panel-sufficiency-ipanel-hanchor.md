@@ -21,7 +21,7 @@ outcome regardless of model complexity — expose as a red flag with deficit.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `PanelSufficiency`:
+- [x] Define `PanelSufficiency`:
   ```rust
   pub struct PanelSufficiency {
       pub i_panel: MiEstimate,       // I(panel; anchor)
@@ -34,27 +34,27 @@ outcome regardless of model complexity — expose as a red flag with deficit.
       pub trust: Trusted | Provisional,
   }
   ```
-- [ ] Define `EntropyEstimate`: `{ bits: f32, n_samples: usize, ci_low: f32, ci_high: f32 }`
-- [ ] Implement `estimate_anchor_entropy(anchor_labels: &[u32], n_classes: usize) -> Result<EntropyEstimate, CalyxError>`:
+- [x] Define `EntropyEstimate`: `{ bits: f32, n_samples: usize, ci_low: f32, ci_high: f32 }`
+- [x] Implement `estimate_anchor_entropy(anchor_labels: &[u32], n_classes: usize) -> Result<EntropyEstimate, CalyxError>`:
   - compute frequency counts per class; `H = −Σ p_k · log2(p_k)` (with Laplace smoothing +0.5 per class)
   - bootstrap CI (200 resamples, seed=0)
   - if n < 50 → `CALYX_ASSAY_INSUFFICIENT_SAMPLES`
-- [ ] Implement `panel_mi(panel: &Panel, anchor_labels: &[u32], vault, forge, clock) -> Result<MiEstimate, CalyxError>`:
+- [x] Implement `panel_mi(panel: &Panel, anchor_labels: &[u32], vault, forge, clock) -> Result<MiEstimate, CalyxError>`:
   - if N ≤ 5: concatenate all slot vectors and call `ksg_with_ci` on the concatenated panel vector after random projection
   - if N > 5: chain rule approximation `I(panel;Y) ≈ Σ I(slot_k;Y) − Σ pairwise_redundancy_nmi/2` (an approximation; document as such; for exact, promote to the full joint KSG which is expensive)
   - tag `trust: Trusted` iff anchor is grounded (A2)
-- [ ] Implement `panel_sufficiency(anchor, panel, vault, forge, clock) -> Result<PanelSufficiency, CalyxError>`:
+- [x] Implement `panel_sufficiency(anchor, panel, vault, forge, clock) -> Result<PanelSufficiency, CalyxError>`:
   - calls `panel_mi` and `estimate_anchor_entropy`; computes `deficit = h_anchor.bits − i_panel.bits`; `ratio = i_panel.bits / h_anchor.bits`
   - `verdict: Insufficient` iff `deficit > 0.1 bits` (configurable; default 0.1)
   - `per_slot_attribution` left empty (filled by T02)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: planted sufficient panel — 5 slots each with MI ≈ 0.2 bits (correlated with a binary anchor, n=300, seed=42) → `ratio ≥ 0.8`; `verdict: Sufficient`
-- [ ] unit: planted insufficient panel — 5 slots all uncorrelated with the anchor (MI ≈ 0.0 bits, n=300, seed=43) → `deficit ≈ H(anchor) ≈ 1.0 bit`; `verdict: Insufficient { deficit_bits ≈ 1.0 }`
-- [ ] unit: `estimate_anchor_entropy` for a balanced binary anchor (50% Pass, 50% Fail, n=200) → `H ≈ 1.0 bit ± 0.1`
-- [ ] proptest: `deficit = h_anchor.bits − i_panel.bits ≥ 0.0` always (DPI: panel MI cannot exceed anchor entropy)
-- [ ] edge: n=30 labeled samples → `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; anchor with a single class (H=0) → `deficit=0.0, verdict: Sufficient` (trivially); panel with zero active slots → `i_panel=0.0, verdict: Insufficient`
+- [x] unit: planted sufficient panel — 5 slots each with MI ≈ 0.2 bits (correlated with a binary anchor, n=300, seed=42) → `ratio ≥ 0.8`; `verdict: Sufficient`
+- [x] unit: planted insufficient panel — 5 slots all uncorrelated with the anchor (MI ≈ 0.0 bits, n=300, seed=43) → `deficit ≈ H(anchor) ≈ 1.0 bit`; `verdict: Insufficient { deficit_bits ≈ 1.0 }`
+- [x] unit: `estimate_anchor_entropy` for a balanced binary anchor (50% Pass, 50% Fail, n=200) → `H ≈ 1.0 bit ± 0.1`
+- [x] proptest: `deficit = h_anchor.bits − i_panel.bits ≥ 0.0` always (DPI: panel MI cannot exceed anchor entropy)
+- [x] edge: n=30 labeled samples → `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; anchor with a single class (H=0) → `deficit=0.0, verdict: Sufficient` (trivially); panel with zero active slots → `i_panel=0.0, verdict: Insufficient`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -68,7 +68,7 @@ outcome regardless of model complexity — expose as a red flag with deficit.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

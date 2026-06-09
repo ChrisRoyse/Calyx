@@ -19,36 +19,36 @@ the central data model that every subsequent card in PH17 extends.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `LensRuntime` enum with five variants:
+- [x] `LensRuntime` enum with five variants:
   `Algorithmic`, `TeiHttp { endpoint: Url }`, `CandleLocal { model_path: PathBuf }`,
   `Onnx { model_path: PathBuf }`, `ExternalCmd { cmd: String, args: Vec<String> }`.
-- [ ] `NormPolicy` enum: `L2`, `None`, `DeclaredByModel`.
-- [ ] `LensCost` struct: `ms_per_input: f32`, `vram_mb: u32`, `batch_ceiling: u32`.
-- [ ] `LensHealth` enum: `Loaded`, `Cold`, `Failing(String)`.
-- [ ] `LensSpec` struct mirroring `05 §2` fields:
+- [x] `NormPolicy` enum: `L2`, `None`, `DeclaredByModel`.
+- [x] `LensCost` struct: `ms_per_input: f32`, `vram_mb: u32`, `batch_ceiling: u32`.
+- [x] `LensHealth` enum: `Loaded`, `Cold`, `Failing(String)`.
+- [x] `LensSpec` struct mirroring `05 §2` fields:
   `lens_id: LensId`, `name: String`, `weights_sha256: [u8;32]`, `corpus_hash: [u8;32]`,
   `runtime: LensRuntime`, `output: SlotShape`, `modality: Modality`,
   `asymmetry: Option<Asymmetry>`, `normalize: NormPolicy`, `quant_default: QuantPolicy`,
   `cost: LensCost`, `health: LensHealth`.
-- [ ] `Registry` struct: `lenses: HashMap<LensId, (LensSpec, Box<dyn Lens>)>`.
+- [x] `Registry` struct: `lenses: HashMap<LensId, (LensSpec, Box<dyn Lens>)>`.
   Methods: `register(spec, lens)`, `get_spec(id) -> Option<&LensSpec>`,
   `list() -> Vec<LensId>`.
-- [ ] `error.rs`: define `CALYX_REGISTRY_LENS_NOT_FOUND`,
+- [x] `error.rs`: define `CALYX_REGISTRY_LENS_NOT_FOUND`,
   `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`, `CALYX_REGISTRY_DUPLICATE` as
   `CalyxError` constructors with remediation strings.
-- [ ] Wire `Cargo.toml` deps: `calyx-core`, `serde`, `serde_json`, `thiserror`.
+- [x] Wire `Cargo.toml` deps: `calyx-core`, `serde`, `serde_json`, `thiserror`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `register` then `get_spec` returns identical `LensSpec` fields
+- [x] unit: `register` then `get_spec` returns identical `LensSpec` fields
   (name, weights_sha256, output shape, modality all match byte-for-byte).
-- [ ] proptest: `LensSpec` serde round-trip: `deserialize(serialize(spec)) == spec`
+- [x] proptest: `LensSpec` serde round-trip: `deserialize(serialize(spec)) == spec`
   for arbitrary `name`, `weights_sha256`, `SlotShape::Dense(d)`.
-- [ ] edge (≥3): (1) `register` same `LensId` twice → `CALYX_REGISTRY_DUPLICATE`;
+- [x] edge (≥3): (1) `register` same `LensId` twice → `CALYX_REGISTRY_DUPLICATE`;
   (2) `get_spec` on unknown id → `CALYX_REGISTRY_LENS_NOT_FOUND`;
   (3) `LensSpec` with `SlotShape::Multi { token_dim: 0 }` constructs without
   panic (shape validity is enforced in PH18, not here).
-- [ ] fail-closed: missing id → exact `CALYX_REGISTRY_LENS_NOT_FOUND` code in
+- [x] fail-closed: missing id → exact `CALYX_REGISTRY_LENS_NOT_FOUND` code in
   `CalyxError`, remediation string non-empty.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -62,8 +62,8 @@ the central data model that every subsequent card in PH17 extends.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

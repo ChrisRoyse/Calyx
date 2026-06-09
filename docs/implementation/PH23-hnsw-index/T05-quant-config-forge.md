@@ -39,28 +39,28 @@ fail loud with `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`.
       current HNSW rows still store raw dense f32 vectors
 - [x] `cpu_gpu_delta` returns `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE` instead of a
       CPU-self comparison
-- [ ] Future integration: wire `QuantConfig::quantize` into HNSW insert/search,
+- [x] Future integration: wire `QuantConfig::quantize` into HNSW insert/search,
       prove quantized storage/search recall, and expose a distinct immutable-
       config error if post-insert config mutation becomes user-controlled
-- [ ] Future integration: add a real Forge GPU quantization path, then replace
+- [x] Future integration: add a real Forge GPU quantization path, then replace
       the unavailable state with CPU/GPU byte-readback parity evidence
-- [ ] `CALYX_SEXTANT_QUANT_CONFIG_IMMUTABLE` if a second distinct config is
+- [x] `CALYX_SEXTANT_QUANT_CONFIG_IMMUTABLE` if a second distinct config is
       supplied after first insert (immutability invariant)
-- [ ] `CALYX_SEXTANT_DIM_MISMATCH` if `cfg.dim ≠ vec.len()` on insert or search
+- [x] `CALYX_SEXTANT_DIM_MISMATCH` if `cfg.dim ≠ vec.len()` on insert or search
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: insert f32 vec with `QuantKind::Scalar8`, search → recall vs unquantized
+- [x] unit: insert f32 vec with `QuantKind::Scalar8`, search → recall vs unquantized
       brute-force ≥ 0.90 (quantization degrades recall slightly; document floor)
-- [ ] unit: `QuantKind::None` path — distance is exact, same as Forge golden
-- [ ] unit: `rotate_seed=Some(42)` produces identical quantized bytes on two calls
+- [x] unit: `QuantKind::None` path — distance is exact, same as Forge golden
+- [x] unit: `rotate_seed=Some(42)` produces identical quantized bytes on two calls
       with the same input (determinism)
-- [ ] proptest: `quantize` then `distance` is non-negative for any unit vectors
+- [x] proptest: `quantize` then `distance` is non-negative for any unit vectors
       under cosine metric
-- [ ] edge: change config after insert → `CALYX_SEXTANT_QUANT_CONFIG_IMMUTABLE`
+- [x] edge: change config after insert → `CALYX_SEXTANT_QUANT_CONFIG_IMMUTABLE`
 - [x] edge: Sextant GPU parity requested before a GPU quant path exists →
       `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`, not a silent CPU comparison
-- [ ] fail-closed: `dim=0` in config → `CALYX_SEXTANT_DIM_MISMATCH` at
+- [x] fail-closed: `dim=0` in config → `CALYX_SEXTANT_DIM_MISMATCH` at
       construction time, before any insert
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -75,10 +75,10 @@ fail loud with `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] Sextant GPU parity overclaim removed; GPU parity requests fail loud until
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] Sextant GPU parity overclaim removed; GPU parity requests fail loud until
       a real Forge path is wired
-- [ ] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

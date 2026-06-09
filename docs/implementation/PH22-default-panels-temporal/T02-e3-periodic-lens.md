@@ -20,14 +20,14 @@ Output: `SlotVector::Dense { dim: 2, data: [hour_score, dow_score] }`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `PeriodicOptions` struct (from `25 §2`):
+- [x] `PeriodicOptions` struct (from `25 §2`):
   `target_hour: Option<u8>` (0–23),
   `target_day_of_week: Option<u8>` (0–6, Mon=0),
   `use_now: bool` (if true, use the injected `reference_time` as the current
   moment and score how close the event time's hour/dow is to that moment's
   hour/dow — for "is this event typical for this time of day?" queries).
-- [ ] `E3PeriodicConfig` struct: `options: PeriodicOptions`, `reference_time: i64`.
-- [ ] `E3PeriodicLens` implementing `calyx_core::Lens`:
+- [x] `E3PeriodicConfig` struct: `options: PeriodicOptions`, `reference_time: i64`.
+- [x] `E3PeriodicLens` implementing `calyx_core::Lens`:
   - `shape()` → `SlotShape::Dense(2)`.
   - `modality()` → `Modality::Structured`.
   - `measure(&self, input: &Input) -> Result<SlotVector>`:
@@ -46,19 +46,19 @@ Output: `SlotVector::Dense { dim: 2, data: [hour_score, dow_score] }`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `target_hour=14`, event at 14:00 → `hour_score = 1.0`.
-- [ ] unit: `target_hour=14`, event at 02:00 → circular dist = min(12,12) = 12
+- [x] unit: `target_hour=14`, event at 14:00 → `hour_score = 1.0`.
+- [x] unit: `target_hour=14`, event at 02:00 → circular dist = min(12,12) = 12
   → `hour_score = 0.0`.
-- [ ] unit: `target_hour=14`, event at 08:00 → circular dist = 6 →
+- [x] unit: `target_hour=14`, event at 08:00 → circular dist = 6 →
   `hour_score = 0.5`.
-- [ ] unit: `target_day_of_week=1` (Tuesday), event on a Tuesday → `dow_score = 1.0`.
-- [ ] unit: `target_day_of_week=1`, event on a Friday (4) → circular dist =
+- [x] unit: `target_day_of_week=1` (Tuesday), event on a Tuesday → `dow_score = 1.0`.
+- [x] unit: `target_day_of_week=1`, event on a Friday (4) → circular dist =
   min(3,4) = 3 → `dow_score = 1.0 − 3/3.5 ≈ 0.143`.
-- [ ] proptest: both scores ∈ [0.0, 1.0] for any timestamp.
-- [ ] edge (≥3): (1) Unix timestamp 0 (1970-01-01 00:00 UTC Thu=3) → scores
+- [x] proptest: both scores ∈ [0.0, 1.0] for any timestamp.
+- [x] edge (≥3): (1) Unix timestamp 0 (1970-01-01 00:00 UTC Thu=3) → scores
   match expected; (2) no `target_hour` and no `use_now` → `hour_score = 1.0`;
   (3) `input.bytes.len() < 8` → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`.
-- [ ] fail-closed: bad input bytes → exact error code.
+- [x] fail-closed: bad input bytes → exact error code.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -69,8 +69,8 @@ Output: `SlotVector::Dense { dim: 2, data: [hour_score, dow_score] }`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -19,7 +19,7 @@ card makes that path wire-complete and verified.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `crates/calyx-sextant/src/explain.rs`:
+- [x] `crates/calyx-sextant/src/explain.rs`:
   ```rust
   pub struct ExplainHit {
       pub hit: Hit,
@@ -36,27 +36,27 @@ card makes that path wire-complete and verified.
       clock: &dyn Clock,
   ) -> Result<Vec<ExplainHit>, CalyxError>;
   ```
-- [ ] `ExplainHit` wraps `Hit` — the `per_lens` field is always fully populated
+- [x] `ExplainHit` wraps `Hit` — the `per_lens` field is always fully populated
       when explain=true (already true from prior cards; assert it here with a check)
-- [ ] When `explain=false`, `search()` calls the fast path (T05); when `explain=true`,
+- [x] When `explain=false`, `search()` calls the fast path (T05); when `explain=true`,
       calls `explain_search()` which adds the metadata fields above
-- [ ] The overhead test: run 100 queries with explain=false, record p50 latency;
+- [x] The overhead test: run 100 queries with explain=false, record p50 latency;
       run same 100 queries with explain=true, assert `explain_p50 ≤ base_p50 + 3000 µs`
-- [ ] `ExplainHit` derives `serde::Serialize` for JSON output via CLI (PH62)
+- [x] `ExplainHit` derives `serde::Serialize` for JSON output via CLI (PH62)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `explain=true` → every `ExplainHit.hit.per_lens` is non-empty
-- [ ] unit: `explain=true` → `fusion_strategy` string is non-empty and matches the
+- [x] unit: `explain=true` → every `ExplainHit.hit.per_lens` is non-empty
+- [x] unit: `explain=true` → `fusion_strategy` string is non-empty and matches the
       strategy variant (e.g. starts with "rrf" for `FusionStrategy::Rrf`)
-- [ ] unit: `explain=true` and `explain=false` return the same `Hit.cx_id` list
+- [x] unit: `explain=true` and `explain=false` return the same `Hit.cx_id` list
       (the breakdown is additive, not order-changing)
-- [ ] unit: `slots_searched` contains exactly the slots that contributed to fusion
-- [ ] proptest: `ExplainHit` serializes to valid JSON for any valid `Hit`
-- [ ] edge: `explain=true` on empty result → returns `Ok(vec![])` with no panic
-- [ ] edge: overhead test — measured on aiwonder: explain latency delta ≤ 3 ms
+- [x] unit: `slots_searched` contains exactly the slots that contributed to fusion
+- [x] proptest: `ExplainHit` serializes to valid JSON for any valid `Hit`
+- [x] edge: `explain=true` on empty result → returns `Ok(vec![])` with no panic
+- [x] edge: overhead test — measured on aiwonder: explain latency delta ≤ 3 ms
       (this is an integration-style test; mark `#[ignore]` for CI, run for FSV)
-- [ ] fail-closed: `ExplainHit` with a zero `LedgerRef` → test asserts this is
+- [x] fail-closed: `ExplainHit` with a zero `LedgerRef` → test asserts this is
       unreachable (provenance is always set, from T05)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -68,8 +68,8 @@ card makes that path wire-complete and verified.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

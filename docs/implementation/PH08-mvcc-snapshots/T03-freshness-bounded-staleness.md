@@ -20,32 +20,32 @@ their build-seq and let callers choose to wait for fresh or accept stale.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add test: `Freshness::FreshDerived.ensure(pinned_seq=10, derived_seq=10)`
+- [x] Add test: `Freshness::FreshDerived.ensure(pinned_seq=10, derived_seq=10)`
   → Ok.
-- [ ] Add test: `Freshness::FreshDerived.ensure(pinned_seq=10, derived_seq=9)`
+- [x] Add test: `Freshness::FreshDerived.ensure(pinned_seq=10, derived_seq=9)`
   → `Err(code == "CALYX_STALE_DERIVED")`.
-- [ ] Add test: `Freshness::StaleOk { max_lag: 5 }.ensure(10, 5)` → Ok;
+- [x] Add test: `Freshness::StaleOk { max_lag: 5 }.ensure(10, 5)` → Ok;
   `ensure(10, 4)` → Err.
-- [ ] Add test: `Freshness::StaleOk { max_lag: 0 }.ensure(10, 10)` → Ok;
+- [x] Add test: `Freshness::StaleOk { max_lag: 0 }.ensure(10, 10)` → Ok;
   `ensure(10, 9)` → Err.
-- [ ] Add proptest: for any `(pinned, derived, max_lag)` triple,
+- [x] Add proptest: for any `(pinned, derived, max_lag)` triple,
   `StaleOk { max_lag }.ensure(pinned, derived)` is Ok if and only if
   `derived >= pinned || pinned - derived <= max_lag`.
-- [ ] Add test: `VersionedCfStore::pin_snapshot` with `Freshness::StaleOk {
+- [x] Add test: `VersionedCfStore::pin_snapshot` with `Freshness::StaleOk {
   max_lag: 3 }` stores the freshness on the snapshot; calling
   `snapshot.freshness().ensure(...)` enforces the correct policy.
-- [ ] Verify `Freshness` is used correctly in `AsterVault::snapshot_handle`
+- [x] Verify `Freshness` is used correctly in `AsterVault::snapshot_handle`
   (currently uses `FreshDerived`); add a `vault.pin_stale_snapshot(max_lag)`
   convenience that creates a `StaleOk` snapshot for ANN search paths.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: all four `FreshDerived`/`StaleOk` boundary cases (see above).
-- [ ] proptest: `StaleOk` iff `pinned - derived <= max_lag`.
-- [ ] edge (≥3): (1) `derived_seq > pinned_seq` (derived is newer) → always Ok
+- [x] unit: all four `FreshDerived`/`StaleOk` boundary cases (see above).
+- [x] proptest: `StaleOk` iff `pinned - derived <= max_lag`.
+- [x] edge (≥3): (1) `derived_seq > pinned_seq` (derived is newer) → always Ok
   for any freshness; (2) `max_lag = u64::MAX` → always Ok; (3) `pinned = 0` →
   always Ok (no writes yet).
-- [ ] fail-closed: `FreshDerived` with derived behind pinned → `CALYX_STALE_DERIVED`.
+- [x] fail-closed: `FreshDerived` with derived behind pinned → `CALYX_STALE_DERIVED`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -57,8 +57,8 @@ their build-seq and let callers choose to wait for fresh or accept stale.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH08 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH08 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

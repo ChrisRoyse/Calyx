@@ -18,10 +18,10 @@ swap in DiskANN without touching fusion code above it.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `calyx-sextant` to workspace `Cargo.toml`; add deps `calyx-core`,
+- [x] Add `calyx-sextant` to workspace `Cargo.toml`; add deps `calyx-core`,
       `calyx-registry` (for `SlotId`, `LensId`), `calyx-forge` (for
       `DistanceMetric`), `parking_lot`, `thiserror`
-- [ ] Create `crates/calyx-sextant/src/index/mod.rs` with:
+- [x] Create `crates/calyx-sextant/src/index/mod.rs` with:
   ```rust
   pub trait Index: Send + Sync {
       fn insert(&mut self, id: CxId, vec: &[f32]) -> Result<(), CalyxError>;
@@ -33,21 +33,21 @@ swap in DiskANN without touching fusion code above it.
       fn dim(&self) -> usize;
   }
   ```
-- [ ] `CalyxError` variants for this phase: `CALYX_SEXTANT_DIM_MISMATCH`,
+- [x] `CalyxError` variants for this phase: `CALYX_SEXTANT_DIM_MISMATCH`,
       `CALYX_SEXTANT_INDEX_EMPTY`, `CALYX_SEXTANT_EF_TOO_SMALL` (all fail-closed
       per A16, each carrying a `remediation: String` field)
-- [ ] `crates/calyx-sextant/src/lib.rs`: `pub mod index; pub use index::Index;`
+- [x] `crates/calyx-sextant/src/lib.rs`: `pub mod index; pub use index::Index;`
       + crate-level doc comment citing `10 §3`
-- [ ] `cargo check` + `clippy -D warnings` green with empty stub impls
+- [x] `cargo check` + `clippy -D warnings` green with empty stub impls
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `Index` is object-safe — `let _: Box<dyn Index>;` compiles
-- [ ] unit: error variants carry `remediation` string — assert non-empty on each
+- [x] unit: `Index` is object-safe — `let _: Box<dyn Index>;` compiles
+- [x] unit: error variants carry `remediation` string — assert non-empty on each
       new `CalyxError` arm
-- [ ] edge: zero-dim vector → `CALYX_SEXTANT_DIM_MISMATCH`
-- [ ] edge: `search` on empty index → `CALYX_SEXTANT_INDEX_EMPTY`
-- [ ] fail-closed: passing `ef=0` to a stub impl → `CALYX_SEXTANT_EF_TOO_SMALL`
+- [x] edge: zero-dim vector → `CALYX_SEXTANT_DIM_MISMATCH`
+- [x] edge: `search` on empty index → `CALYX_SEXTANT_INDEX_EMPTY`
+- [x] fail-closed: passing `ef=0` to a stub impl → `CALYX_SEXTANT_EF_TOO_SMALL`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -58,8 +58,8 @@ swap in DiskANN without touching fusion code above it.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

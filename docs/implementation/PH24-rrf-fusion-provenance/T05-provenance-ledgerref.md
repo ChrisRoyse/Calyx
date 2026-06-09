@@ -20,7 +20,7 @@ this card, no `Hit` ever has a zero/default provenance.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `crates/calyx-sextant/src/search.rs`:
+- [x] `crates/calyx-sextant/src/search.rs`:
   ```rust
   pub fn search(
       query: &Query,
@@ -30,30 +30,30 @@ this card, no `Hit` ever has a zero/default provenance.
       clock: &dyn Clock,
   ) -> Result<Vec<Hit>, CalyxError>
   ```
-- [ ] `EmbedQuery` trait in `search.rs`:
+- [x] `EmbedQuery` trait in `search.rs`:
       `fn embed(&self, input: &QueryInput, slot: SlotId) -> Result<Vec<f32>, CalyxError>`
       (calls the registered Lens via PH20 registry, or uses a pre-supplied vector)
-- [ ] `LedgerProvider` trait: `fn ref_for(&self, cx_id: CxId) -> LedgerRef`
+- [x] `LedgerProvider` trait: `fn ref_for(&self, cx_id: CxId) -> LedgerRef`
       — in the stub, returns `LedgerRef::stub(cx_id, current_seq)`;
       real implementation after PH35
-- [ ] After fusion returns raw `Hit`s, iterate and set:
+- [x] After fusion returns raw `Hit`s, iterate and set:
       - `hit.provenance = ledger.ref_for(hit.cx_id)`
       - `hit.freshness.built_at_seq = current_seq` (from `clock` or Aster snapshot)
       - `hit.freshness.stale_by = None` (FreshDerived) or computed from lag
-- [ ] `FreshnessPolicy::StaleOk { seq_lag }` in `Query` → set
+- [x] `FreshnessPolicy::StaleOk { seq_lag }` in `Query` → set
       `stale_by = Some(built_at_seq + seq_lag)` on each `Hit`
-- [ ] `CALYX_SEXTANT_EMBED_FAILED` if `EmbedQuery::embed` returns error
-- [ ] `CALYX_SEXTANT_LEDGER_UNAVAILABLE` if `LedgerProvider` returns a fatal error
+- [x] `CALYX_SEXTANT_EMBED_FAILED` if `EmbedQuery::embed` returns error
+- [x] `CALYX_SEXTANT_LEDGER_UNAVAILABLE` if `LedgerProvider` returns a fatal error
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `search()` with stub ledger → every `Hit` has `provenance ≠ LedgerRef::zero()`
-- [ ] unit: `FreshnessPolicy::FreshDerived` → `hit.freshness.stale_by == None`
-- [ ] unit: `FreshnessPolicy::StaleOk { seq_lag: 100 }` → `hit.freshness.stale_by == Some(built_at_seq + 100)`
-- [ ] unit: two different cx_ids → two different `LedgerRef`s (stub encodes cx_id)
-- [ ] proptest: for any query, all returned hits have `provenance != LedgerRef::zero()`
-- [ ] edge: `EmbedQuery` returns error → `CALYX_SEXTANT_EMBED_FAILED`, no partial hits returned
-- [ ] fail-closed: empty fusion result → `Ok(vec![])`, not an error (valid empty answer)
+- [x] unit: `search()` with stub ledger → every `Hit` has `provenance ≠ LedgerRef::zero()`
+- [x] unit: `FreshnessPolicy::FreshDerived` → `hit.freshness.stale_by == None`
+- [x] unit: `FreshnessPolicy::StaleOk { seq_lag: 100 }` → `hit.freshness.stale_by == Some(built_at_seq + 100)`
+- [x] unit: two different cx_ids → two different `LedgerRef`s (stub encodes cx_id)
+- [x] proptest: for any query, all returned hits have `provenance != LedgerRef::zero()`
+- [x] edge: `EmbedQuery` returns error → `CALYX_SEXTANT_EMBED_FAILED`, no partial hits returned
+- [x] fail-closed: empty fusion result → `Ok(vec![])`, not an error (valid empty answer)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -66,8 +66,8 @@ this card, no `Hit` ever has a zero/default provenance.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

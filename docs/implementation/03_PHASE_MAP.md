@@ -32,9 +32,12 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue295-tiered-vault-20260608`
 - Stage 1-5 pre-Lodestar hardening (#333):
   `/home/croyse/calyx/data/fsv-issue333-stage1-5-hardening-20260608`
+- Stage 1-5 evidence manifest cleanup (#336):
+  `/home/croyse/calyx/data/fsv-issue336-stage1-5-evidence-manifest-20260608`
 - Stage 2 Forge PH12 CPU SIMD:
-  `/home/croyse/calyx/data/fsv-q71-20260607115027` through
-  `/home/croyse/calyx/data/fsv-q76-20260607122351`
+  representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
+  and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence
+  covers #71-#76.
 - Stage 2 Forge CUDA top-k large-k hardening:
   `/home/croyse/calyx/data/fsv-issue303-cuda-topk-large-k-20260608`
 - Stage 2 Forge CUDA normalize/GEMM parity hardening:

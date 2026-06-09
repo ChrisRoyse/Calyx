@@ -18,7 +18,7 @@ variance across many dimensions) or collapsed (all variance in one direction)?"
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn participation_ratio(embeddings: &[Vec<f32>]) -> f32`:
+- [x] `pub fn participation_ratio(embeddings: &[Vec<f32>]) -> f32`:
   - build N×D matrix `X`.
   - compute covariance `C = X^T X / N` (or centre first for unit-normed vecs:
     since unit-normed, `X^T X / N` ≈ correlation matrix).
@@ -27,28 +27,28 @@ variance across many dimensions) or collapsed (all variance in one direction)?"
   - `participation_ratio = (sum(λ))^2 / sum(λ^2)` — normalised effective dim.
   - scale to `[0, 1]` by dividing by D: `pr = participation_ratio / D`.
   - return the scaled value.
-- [ ] `pub fn stable_rank(embeddings: &[Vec<f32>]) -> f32`:
+- [x] `pub fn stable_rank(embeddings: &[Vec<f32>]) -> f32`:
   - compute singular values `σ_i` of X (via SVD or `σ_i = sqrt(λ_i)`).
   - `stable_rank = (sum(σ))^2 / sum(σ^2) / D` (same normalization).
-- [ ] `pub fn spread_metrics(embeddings: &[Vec<f32>]) -> Result<SpreadMetrics>`:
+- [x] `pub fn spread_metrics(embeddings: &[Vec<f32>]) -> Result<SpreadMetrics>`:
   - if `embeddings.len() < 2` → `Err(CalyxError::…)` with remediation
     "need at least 2 probe embeddings for spread computation".
   - call both functions; return `SpreadMetrics { participation_ratio, stable_rank }`.
-- [ ] For D > 1024: use a randomized PCA (top-k singular values, k=64) to
+- [x] For D > 1024: use a randomized PCA (top-k singular values, k=64) to
   avoid O(D^2) cost; document approximation in comment.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: N=10 embeddings that are all equal (rank-1 matrix) →
+- [x] unit: N=10 embeddings that are all equal (rank-1 matrix) →
   `participation_ratio ≈ 0.0` (well below `COLLAPSE_THRESHOLD = 0.05`).
-- [ ] unit: N=100 isotropic unit Gaussian embeddings (seeded RNG) in D=64 →
+- [x] unit: N=100 isotropic unit Gaussian embeddings (seeded RNG) in D=64 →
   `participation_ratio` is close to 1.0 (within 0.2 of 1.0).
-- [ ] unit: `stable_rank >= participation_ratio` always (since stable rank ≥ PR
+- [x] unit: `stable_rank >= participation_ratio` always (since stable rank ≥ PR
   by definition of these normalizations).
-- [ ] proptest: for any N≥2, D≥1 matrix, both metrics ∈ [0.0, 1.0].
-- [ ] edge (≥3): (1) N=2, D=768 → no panic; (2) all-zero matrix → PR≈0 (no
+- [x] proptest: for any N≥2, D≥1 matrix, both metrics ∈ [0.0, 1.0].
+- [x] edge (≥3): (1) N=2, D=768 → no panic; (2) all-zero matrix → PR≈0 (no
   signal); (3) D=1 → PR=1.0 (only one dimension, fully occupied).
-- [ ] fail-closed: N<2 → named error with non-empty remediation.
+- [x] fail-closed: N<2 → named error with non-empty remediation.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -60,8 +60,8 @@ variance across many dimensions) or collapsed (all variance in one direction)?"
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

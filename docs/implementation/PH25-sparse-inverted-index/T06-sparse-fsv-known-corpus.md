@@ -20,7 +20,7 @@ This closes the "subsumes Elasticsearch" claim (A19).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `tests/sparse_bm25.rs` — always-runs corpus test (small corpus, no external
+- [x] `tests/sparse_bm25.rs` — always-runs corpus test (small corpus, no external
       dataset required):
       - Corpus (20 hand-written documents covering: programming, history, cooking,
         science — seeded, locked in the test file as string constants):
@@ -38,22 +38,22 @@ This closes the "subsumes Elasticsearch" claim (A19).
         least one position change in top-5)
       - Pipeline test: run Pipeline with sparse_slot + dense_slot, recall_k=50,
         rerank=None; assert top-10 is non-empty and contains the expected docs
-- [ ] Print at end:
+- [x] Print at end:
       ```
       bm25_top1=doc2_ok=true rrf_differs_from_sparse_only=true pipeline_top10_nonempty=true
       ```
-- [ ] Mark the RRF-with-dense test `#[ignore]` only if TEI is required; since
+- [x] Mark the RRF-with-dense test `#[ignore]` only if TEI is required; since
       dense vecs here are random (not embedded), it always runs
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] integration (always runs): `"programming language"` → doc0 or doc1 in top-2
-- [ ] integration (always runs): `"revolution 1789"` → doc2 in top-1
-- [ ] integration: RRF with sparse+dense → result differs from sparse-only
-- [ ] integration: Pipeline top-10 is a subset of sparse recall candidates
-- [ ] unit: `compute_recall_at_k` re-used from PH24 harness — import, do not copy
-- [ ] edge: query with no matching terms → `Ok(vec![])`, no panic
-- [ ] fail-closed: corpus load failure (missing constant) → compile error, not
+- [x] integration (always runs): `"programming language"` → doc0 or doc1 in top-2
+- [x] integration (always runs): `"revolution 1789"` → doc2 in top-1
+- [x] integration: RRF with sparse+dense → result differs from sparse-only
+- [x] integration: Pipeline top-10 is a subset of sparse recall candidates
+- [x] unit: `compute_recall_at_k` re-used from PH24 harness — import, do not copy
+- [x] edge: query with no matching terms → `Ok(vec![])`, no panic
+- [x] fail-closed: corpus load failure (missing constant) → compile error, not
       runtime panic (constants are inline in the test file)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -67,8 +67,8 @@ This closes the "subsumes Elasticsearch" claim (A19).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

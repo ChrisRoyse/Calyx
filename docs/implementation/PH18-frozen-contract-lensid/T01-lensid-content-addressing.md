@@ -20,7 +20,7 @@ frozen contract depends on.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn compute_lens_id(spec: &LensSpec) -> LensId`:
+- [x] `pub fn compute_lens_id(spec: &LensSpec) -> LensId`:
   - start a `blake3::Hasher`.
   - feed `spec.name.as_bytes()` (no length prefix; name uniqueness is the
     caller's responsibility).
@@ -30,26 +30,26 @@ frozen contract depends on.
     — this pins the canonical encoding of `SlotShape`.
   - finalize to 32 bytes; take the first 16 bytes as the `LensId` (matching
     `LensId::from_bytes([u8; 16])`).
-- [ ] `LensSpec::compute_id(&self) -> LensId` convenience wrapper.
-- [ ] Expose `compute_lens_id` from `calyx_registry::lens_id`.
-- [ ] Document the exact concatenation order in a `# Canonical form` doc
+- [x] `LensSpec::compute_id(&self) -> LensId` convenience wrapper.
+- [x] Expose `compute_lens_id` from `calyx_registry::lens_id`.
+- [x] Document the exact concatenation order in a `# Canonical form` doc
   comment so it cannot be silently changed.
-- [ ] Add a compile-time static test vector: `name = "test"`, all-zero hashes,
+- [x] Add a compile-time static test vector: `name = "test"`, all-zero hashes,
   `SlotShape::Dense(768)` → known 16-byte `LensId` (pre-compute and hard-code
   in test).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `compute_lens_id` on the static test vector produces the exact
+- [x] unit: `compute_lens_id` on the static test vector produces the exact
   pre-computed 16-byte `LensId` (byte-exact assertion).
-- [ ] unit: changing `name` by one byte → different `LensId`.
-- [ ] unit: changing `weights_sha256[0]` by one bit → different `LensId`.
-- [ ] proptest: `compute_lens_id(spec) == compute_lens_id(spec)` for arbitrary
+- [x] unit: changing `name` by one byte → different `LensId`.
+- [x] unit: changing `weights_sha256[0]` by one bit → different `LensId`.
+- [x] proptest: `compute_lens_id(spec) == compute_lens_id(spec)` for arbitrary
   specs (pure function, deterministic).
-- [ ] edge (≥3): (1) empty `name` string → `LensId` still computes without
+- [x] edge (≥3): (1) empty `name` string → `LensId` still computes without
   panic; (2) `SlotShape::Sparse(0)` → stable serialization; (3) two specs
   differing only in `corpus_hash` → different `LensId` values.
-- [ ] fail-closed: N/A — this function is total and infallible; assert in test
+- [x] fail-closed: N/A — this function is total and infallible; assert in test
   that it never panics on any input.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -62,8 +62,8 @@ frozen contract depends on.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH18 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH18 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -20,7 +20,7 @@ traversal mode (`10 §4`).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `DualHnswIndex` struct:
+- [x] `DualHnswIndex` struct:
   ```rust
   pub struct DualHnswIndex {
       a: HnswGraph,   // e.g. cause-side
@@ -29,7 +29,7 @@ traversal mode (`10 §4`).
       boost_b: f32,
   }
   ```
-- [ ] Implement `Index` for `DualHnswIndex`:
+- [x] Implement `Index` for `DualHnswIndex`:
       - `insert` routes by a caller-supplied `Direction` enum
         (`Direction::A | Direction::B`); insert into the appropriate sub-index
       - `search` takes a `Direction` hint embedded in the query (or defaults to
@@ -38,21 +38,21 @@ traversal mode (`10 §4`).
       - `len` returns `a.len() + b.len()` (may count duplicates if the same cx
         is in both; document this)
       - `dim` asserts `a.dim == b.dim`, returns either
-- [ ] `Direction` enum in `index/mod.rs` (not a separate file — small)
-- [ ] `CALYX_SEXTANT_DIRECTION_MISMATCH` error for `dim` conflict between a and b
-- [ ] Config struct `DualHnswConfig { m, ef_construction, boost_a, boost_b, dim }`
+- [x] `Direction` enum in `index/mod.rs` (not a separate file — small)
+- [x] `CALYX_SEXTANT_DIRECTION_MISMATCH` error for `dim` conflict between a and b
+- [x] Config struct `DualHnswConfig { m, ef_construction, boost_a, boost_b, dim }`
       with a `Default` impl (m=16, ef=200, boosts=1.0)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: insert 10 nodes into side A, 10 into side B → `len() == 20`
-- [ ] unit: search Direction::A returns only side-A cx ids
-- [ ] unit: search Direction::B with `boost_b=2.0` → scores are ×2 vs baseline
-- [ ] proptest: `remove` from a dual index never panics for any valid `CxId`
-- [ ] edge: construct with mismatched dims → `CALYX_SEXTANT_DIRECTION_MISMATCH`
-- [ ] edge: insert with `Direction::A` then search `Direction::B` on side with no
+- [x] unit: insert 10 nodes into side A, 10 into side B → `len() == 20`
+- [x] unit: search Direction::A returns only side-A cx ids
+- [x] unit: search Direction::B with `boost_b=2.0` → scores are ×2 vs baseline
+- [x] proptest: `remove` from a dual index never panics for any valid `CxId`
+- [x] edge: construct with mismatched dims → `CALYX_SEXTANT_DIRECTION_MISMATCH`
+- [x] edge: insert with `Direction::A` then search `Direction::B` on side with no
       insertions → `CALYX_SEXTANT_INDEX_EMPTY`
-- [ ] fail-closed: `boost_a = 0.0` → search still runs, scores are 0.0, no NaN,
+- [x] fail-closed: `boost_a = 0.0` → search still runs, scores are 0.0, no NaN,
       no panic (zero-boost is valid — PH26 planner may set it)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -65,8 +65,8 @@ traversal mode (`10 §4`).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

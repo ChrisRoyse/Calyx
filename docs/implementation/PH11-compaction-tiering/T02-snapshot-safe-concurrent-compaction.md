@@ -20,33 +20,33 @@ after `compact_cf` returns, new `pin_snapshot` calls see only the compacted shar
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Write concurrent test: 4 SST shards for CF `Base`; a reader thread pins a
+- [x] Write concurrent test: 4 SST shards for CF `Base`; a reader thread pins a
   snapshot; a writer thread calls `catalog.compact_cf(Base, output_path,
   unlimited)` concurrently; after the writer returns, the reader still reads all
   entries from its pinned snapshot without error.
-- [ ] Write test: after `compact_cf` completes, `catalog.pin_snapshot().shard_count()`
+- [x] Write test: after `compact_cf` completes, `catalog.pin_snapshot().shard_count()`
   for CF `Base` is 1 (not 4); all entries from the 4 input shards are in the
   output; the output SST is sorted.
-- [ ] Write test: `compact_cf` with a corrupt input SST → `CALYX_ASTER_CORRUPT_SHARD`
+- [x] Write test: `compact_cf` with a corrupt input SST → `CALYX_ASTER_CORRUPT_SHARD`
   from `SstReader::iter()`; the catalog is NOT modified (old shards remain).
-- [ ] Ensure `compact_cf` does not hold the catalog `write` lock during the
+- [x] Ensure `compact_cf` does not hold the catalog `write` lock during the
   multi-SST merge (which may take seconds for large CFs); it only holds the lock
   for the pointer swap at the end.
-- [ ] Add `CompactionCatalog::shard_count_for_cf(&self, cf: ColumnFamily) -> usize`
+- [x] Add `CompactionCatalog::shard_count_for_cf(&self, cf: ColumnFamily) -> usize`
   helper for tests.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] concurrent: pin snapshot → compact → reader gets all entries (no partial read,
+- [x] concurrent: pin snapshot → compact → reader gets all entries (no partial read,
   no error).
-- [ ] unit: 4 shards → 1 after compact; all entries merged; sorted.
-- [ ] unit: corrupt shard → compact returns Err; catalog unchanged.
-- [ ] proptest: for `n in 1..=8 shards`, each with `m in 1..=10 entries`:
+- [x] unit: 4 shards → 1 after compact; all entries merged; sorted.
+- [x] unit: corrupt shard → compact returns Err; catalog unchanged.
+- [x] proptest: for `n in 1..=8 shards`, each with `m in 1..=10 entries`:
   compact → output has all unique keys (newest version for duplicates).
-- [ ] edge (≥3): (1) single shard → trivially compacted to copy (same entries);
+- [x] edge (≥3): (1) single shard → trivially compacted to copy (same entries);
   (2) two shards with same keys → newest shard's value wins; (3) all shards for
   the CF but none for another CF → other CF unchanged.
-- [ ] fail-closed: corrupt input SST during compact → `CALYX_ASTER_CORRUPT_SHARD`;
+- [x] fail-closed: corrupt input SST during compact → `CALYX_ASTER_CORRUPT_SHARD`;
   original shards unmodified.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -65,8 +65,8 @@ after `compact_cf` returns, new `pin_snapshot` calls see only the compacted shar
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

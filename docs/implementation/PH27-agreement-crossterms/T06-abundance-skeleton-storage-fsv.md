@@ -31,7 +31,7 @@ proves that materialized count is ≪ C(N,2) at rest.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `AbundanceReport`:
+- [x] Define `AbundanceReport`:
   ```rust
   pub struct AbundanceReport {
       pub vault_id: VaultId,
@@ -44,24 +44,24 @@ proves that materialized count is ≪ C(N,2) at rest.
       pub computed_at_seq: u64,
   }
   ```
-- [ ] Define `NeffEstimate`: `Provisional(f32)` | `Computed { value: f32, ci_low: f32, ci_high: f32 }`
-- [ ] Define `DpiCeiling`: `Provisional` | `Computed { bits: f32, anchor: AnchorKind }`
-- [ ] Implement `abundance_report(vault, forge, clock) -> Result<AbundanceReport, CalyxError>`:
+- [x] Define `NeffEstimate`: `Provisional(f32)` | `Computed { value: f32, ci_low: f32, ci_high: f32 }`
+- [x] Define `DpiCeiling`: `Provisional` | `Computed { bits: f32, anchor: AnchorKind }`
+- [x] Implement `abundance_report(vault, forge, clock) -> Result<AbundanceReport, CalyxError>`:
   - count active lenses from the registry panel
   - compute `C(N,2)` exactly: `N*(N-1)/2` as `u64`
   - count materialized xterm CF rows (Agreement + any Interaction/Concat eagerly stored)
   - set n_eff to `Provisional(N as f32)` with a comment `// refined in PH29`
   - set dpi_ceiling_bits to `Provisional` with a comment `// refined in PH28/PH30`
   - compute `meaning_compression_yield = materialized_xterms as f32 / n_constellations as f32`
-- [ ] `Display` impl for `AbundanceReport` that prints all four numbers clearly, marks provisional values with `[provisional]`, and never hides `C(N,2)`
+- [x] `Display` impl for `AbundanceReport` that prints all four numbers clearly, marks provisional values with `[provisional]`, and never hides `C(N,2)`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: vault with N=13 active lenses, 100 constellations, all Agreement scalars only → `cn2_upper_bound = 78`, `materialized_xterms = 7800` (78 per constellation × 100); `n_eff = Provisional(13.0)`
-- [ ] unit: vault with 0 active lenses → `cn2_upper_bound = 0`, `materialized_xterms = 0`; no panic
-- [ ] proptest: `materialized_xterms <= cn2_upper_bound * n_constellations` always (materialized never exceeds the upper bound)
-- [ ] edge: `meaning_compression_yield` is `f32::NAN` when `n_constellations = 0` (no panic, just NaN in the output)
-- [ ] fail-closed: vault with corrupted xterm CF → `CALYX_ASTER_CORRUPTION` propagated; never returns a silent zero
+- [x] unit: vault with N=13 active lenses, 100 constellations, all Agreement scalars only → `cn2_upper_bound = 78`, `materialized_xterms = 7800` (78 per constellation × 100); `n_eff = Provisional(13.0)`
+- [x] unit: vault with 0 active lenses → `cn2_upper_bound = 0`, `materialized_xterms = 0`; no panic
+- [x] proptest: `materialized_xterms <= cn2_upper_bound * n_constellations` always (materialized never exceeds the upper bound)
+- [x] edge: `meaning_compression_yield` is `f32::NAN` when `n_constellations = 0` (no panic, just NaN in the output)
+- [x] fail-closed: vault with corrupted xterm CF → `CALYX_ASTER_CORRUPTION` propagated; never returns a silent zero
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -82,7 +82,7 @@ proves that materialized count is ≪ C(N,2) at rest.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

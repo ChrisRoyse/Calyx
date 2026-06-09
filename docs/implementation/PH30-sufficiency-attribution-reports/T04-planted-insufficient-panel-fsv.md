@@ -25,35 +25,35 @@ bytes from the assay CF and the CLI output, not harness assertions only.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `test_panel_insufficiency_planted`:
+- [x] Implement `test_panel_insufficiency_planted`:
   - create a test vault with N=5 slots; slot vectors are random (independent of anchor); 300 labeled samples (binary anchor, balanced, seed=42)
   - known: `H(anchor) ≈ 1.0 bit`, `I(panel; anchor) ≈ 0.0–0.1 bits`
   - call `panel_sufficiency(anchor, panel, vault, forge, clock)`
   - assert `verdict: Insufficient { deficit_bits > 0.8 }`
   - read the assay CF: `calyx readback --cf assay --panel <id> --anchor grounded` → confirm `deficit_bits > 0.8`
-- [ ] Implement `test_per_slot_deficit_identified`:
+- [x] Implement `test_per_slot_deficit_identified`:
   - create a panel where slot_a has MI=0.3 bits, slot_b has MI=0.0 bits (random noise), slot_c has MI=0.0 bits
   - call `bits_report(panel, anchor, ...)`
   - assert `slot_b.marginal_bits ≈ 0.0` and `slot_c.marginal_bits ≈ 0.0`; `slot_a.marginal_bits ≈ 0.3`
   - the report identifies slot_b and slot_c as the deficit slots
-- [ ] Implement `test_bits_trust_grounded_vs_provisional`:
+- [x] Implement `test_bits_trust_grounded_vs_provisional`:
   - grounded anchor (`AnchorKind::Binary { source: Grounded }`) → `MiEstimate { trust: Trusted }`
   - provisional anchor (`AnchorKind::Binary { source: AutoLabeled }`) → `MiEstimate { trust: Provisional }`
   - read back both from assay CF; confirm the `trust` field byte is different
-- [ ] Implement `test_abundance_report_four_honest_numbers`:
+- [x] Implement `test_abundance_report_four_honest_numbers`:
   - ingest 50 constellations into a test vault with N=5 lenses, grounded anchor
   - run `stage5_full_stack_fsv` and read `stage5-readback.json`
   - assert all five fields present: N=5, C(N,2)=10, materialized count, n_eff (Computed), DPI ceiling (Computed)
   - assert `[provisional]` does NOT appear in the output
-- [ ] All tests: seeded RNG, injected `FixedClock`, no `Instant::now()`, no `thread_rng()`
+- [x] All tests: seeded RNG, injected `FixedClock`, no `Instant::now()`, no `thread_rng()`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] test_panel_insufficiency_planted → `deficit_bits > 0.8` (assertion in test + CF readback)
-- [ ] test_per_slot_deficit_identified → slot_b and slot_c `marginal_bits < 0.02`; slot_a `marginal_bits > 0.25`
-- [ ] test_bits_trust_grounded_vs_provisional → `Trusted` and `Provisional` tags present in CF rows
-- [ ] test_abundance_report_four_honest_numbers → all four fields non-provisional in stdout
-- [ ] regression: all four tests are deterministic across 3 consecutive runs on aiwonder
+- [x] test_panel_insufficiency_planted → `deficit_bits > 0.8` (assertion in test + CF readback)
+- [x] test_per_slot_deficit_identified → slot_b and slot_c `marginal_bits < 0.02`; slot_a `marginal_bits > 0.25`
+- [x] test_bits_trust_grounded_vs_provisional → `Trusted` and `Provisional` tags present in CF rows
+- [x] test_abundance_report_four_honest_numbers → all four fields non-provisional in stdout
+- [x] regression: all four tests are deterministic across 3 consecutive runs on aiwonder
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -78,7 +78,7 @@ bytes from the assay CF and the CLI output, not harness assertions only.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

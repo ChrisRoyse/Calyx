@@ -21,36 +21,36 @@ version seeds remain decodable after an algorithm upgrade.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `src/quant/rotation.rs`: `pub struct RotationSeed { pub id: SeedId, pub version: u8, pub dim: usize, pub diagonal: Vec<f32> }`
+- [x] `src/quant/rotation.rs`: `pub struct RotationSeed { pub id: SeedId, pub version: u8, pub dim: usize, pub diagonal: Vec<f32> }`
   — `diagonal` is the random Rademacher diagonal (`±1.0` drawn from the seed);
   the rotation is `R = H_d · diag(diagonal)` where `H_d` is the Walsh-Hadamard
   transform of dimension `d` (applied in-place, O(d log d), no stored matrix)
-- [ ] `pub fn new_seed(dim: usize, entropy: &[u8]) -> RotationSeed`
+- [x] `pub fn new_seed(dim: usize, entropy: &[u8]) -> RotationSeed`
   — `entropy` can be any bytes (e.g. `SystemTime` or an explicit caller-supplied
   value for tests); derive `diagonal` via `ChaCha8Rng::from_seed(sha256(entropy || dim_le_u64))`
   → sample `dim` values of `±1.0`; `id = sha256(diagonal_bytes || version_u8 || dim_le_u64)`
-- [ ] `pub fn apply_rotation(seed: &RotationSeed, vec: &mut [f32])` — apply
+- [x] `pub fn apply_rotation(seed: &RotationSeed, vec: &mut [f32])` — apply
   Walsh-Hadamard transform in-place (butterfly O(d log d)); then elementwise
   multiply by `seed.diagonal`; asserts `vec.len() == seed.dim` else panics with dim message
-- [ ] `pub fn apply_rotation_batch(seed: &RotationSeed, vecs: &mut [f32], n: usize)` —
+- [x] `pub fn apply_rotation_batch(seed: &RotationSeed, vecs: &mut [f32], n: usize)` —
   applies `apply_rotation` to each row of an `n × dim` matrix in-place
-- [ ] `pub const CURRENT_SEED_VERSION: u8 = 1;` — bump this if the construction
+- [x] `pub const CURRENT_SEED_VERSION: u8 = 1;` — bump this if the construction
   algorithm changes; decoders must check and return `ForgeError::SeedVersionMismatch` on mismatch
-- [ ] `serde::{Serialize, Deserialize}` on `RotationSeed`; `id` serializes as hex string
+- [x] `serde::{Serialize, Deserialize}` on `RotationSeed`; `id` serializes as hex string
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `new_seed(128, b"test_entropy_1")` produces a deterministic `id`
+- [x] unit: `new_seed(128, b"test_entropy_1")` produces a deterministic `id`
   (same call twice → identical `id` bytes); print first 8 hex chars of id
-- [ ] unit: `apply_rotation` on dim-4 vector `[1,0,0,0]` produces a vector with
+- [x] unit: `apply_rotation` on dim-4 vector `[1,0,0,0]` produces a vector with
   `‖result‖ ≈ 1.0` (rotation is isometric, within 1e-5)
-- [ ] proptest: `apply_rotation` preserves L2 norm (within 1e-5) for random dim-32 vectors
-- [ ] proptest: `new_seed(d, entropy1) != new_seed(d, entropy2)` for distinct entropy
+- [x] proptest: `apply_rotation` preserves L2 norm (within 1e-5) for random dim-32 vectors
+- [x] proptest: `new_seed(d, entropy1) != new_seed(d, entropy2)` for distinct entropy
   bytes (with overwhelming probability — assert ids differ)
-- [ ] edge (≥3): (1) `dim=1` (trivial rotation — diagonal = ±1); (2) `dim=768` (real
+- [x] edge (≥3): (1) `dim=1` (trivial rotation — diagonal = ±1); (2) `dim=768` (real
   embedding dim — no panic, runs in < 1 ms); (3) `version` mismatch on deserialized
   seed → `ForgeError::SeedVersionMismatch`
-- [ ] fail-closed: `apply_rotation` with `vec.len() != seed.dim` → panic with
+- [x] fail-closed: `apply_rotation` with `vec.len() != seed.dim` → panic with
   `"dimension mismatch: expected {dim} got {n}"` (this is a programming error, not a user error)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -67,9 +67,9 @@ version seeds remain decodable after an algorithm upgrade.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
-- [ ] FSV evidence attached to PH14 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
+- [x] FSV evidence attached to PH14 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

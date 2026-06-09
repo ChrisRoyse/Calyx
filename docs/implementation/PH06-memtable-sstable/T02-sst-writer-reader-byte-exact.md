@@ -21,35 +21,35 @@ adds the missing big-endian ordering test and proptest coverage.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add a proptest: for any sorted `Vec<(Vec<u8>, Vec<u8>)>` with distinct keys,
+- [x] Add a proptest: for any sorted `Vec<(Vec<u8>, Vec<u8>)>` with distinct keys,
   `write_sst` + `SstReader::iter()` returns the exact same (key, value) pairs in
   the same order.
-- [ ] Add a test: write an SST with keys `[0x00_01_00_00u32, 0x00_02_00_00u32,
+- [x] Add a test: write an SST with keys `[0x00_01_00_00u32, 0x00_02_00_00u32,
   0xFF_00_00_00u32]` encoded as 4-byte big-endian; assert `range` from
   `0x00_00_00_00` to `0xFF_FF_FF_FF` returns keys in ascending numeric order
   (big-endian byte order is lexicographically consistent with numeric order for
   unsigned integers).
-- [ ] Add a test: `SstReader::get` for a key that exists but is not in the bloom
+- [x] Add a test: `SstReader::get` for a key that exists but is not in the bloom
   (impossible by construction) — confirm bloom is always loaded correctly by
   checking all written keys pass `bloom_may_contain`.
-- [ ] Add a test: empty SST (zero entries) writes and reads back with 0 entries
+- [x] Add a test: empty SST (zero entries) writes and reads back with 0 entries
   and an empty range scan.
-- [ ] Verify `write_sst` uses `File::create(tmp)` + `write_all` + `sync_all` +
+- [x] Verify `write_sst` uses `File::create(tmp)` + `write_all` + `sync_all` +
   `fs::rename(tmp, path)` (already implemented; confirm `sync_all` not
   `sync_data` is used so the directory entry is flushed).
-- [ ] Add a `SstReader::entry_count() -> usize` method that returns
+- [x] Add a `SstReader::entry_count() -> usize` method that returns
   `self.index.len()` for FSV reporting.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: flush known 3-entry memtable; open SST; `iter()` returns exactly those
+- [x] unit: flush known 3-entry memtable; open SST; `iter()` returns exactly those
   3 entries byte-for-byte; file magic at offset 0 is `[0x43, 0x58, 0x53, 0x31]`.
-- [ ] proptest: `∀ sorted distinct-key entries`: round-trip through write/read is
+- [x] proptest: `∀ sorted distinct-key entries`: round-trip through write/read is
   byte-exact; entry count preserved.
-- [ ] edge (≥3): (1) zero-entry SST → valid file, 0 range scan results; (2)
+- [x] edge (≥3): (1) zero-entry SST → valid file, 0 range scan results; (2)
   single entry SST → point lookup finds it, range scan finds it; (3) big-endian
   u32 keys sort correctly through range scan.
-- [ ] fail-closed: flip byte in record body → `CALYX_ASTER_CORRUPT_SHARD` on
+- [x] fail-closed: flip byte in record body → `CALYX_ASTER_CORRUPT_SHARD` on
   `get`; flip header offset field → `CALYX_ASTER_CORRUPT_SHARD` on `open`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -66,8 +66,8 @@ adds the missing big-endian ordering test and proptest coverage.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH06 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH06 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -20,36 +20,36 @@ against real files in `tempdir`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Fix `rotate_if_needed`: replace `sync_data()` before rotation with
+- [x] Fix `rotate_if_needed`: replace `sync_data()` before rotation with
   `sync_all()` so file length metadata is flushed to disk before the new segment
   is opened.
-- [ ] Write integration test: open a `Wal` with `max_segment_bytes = 64`, append
+- [x] Write integration test: open a `Wal` with `max_segment_bytes = 64`, append
   three records that sum to > 64 bytes; assert that two segment files exist in
   the WAL directory (`00…0.wal`, `00…1.wal`).
-- [ ] Write integration test: `Wal::open` on an existing directory with two
+- [x] Write integration test: `Wal::open` on an existing directory with two
   segments resumes with `next_seq` equal to `last_replayed_seq + 1`.
-- [ ] Write integration test: `replay_dir` across two segments returns records in
+- [x] Write integration test: `replay_dir` across two segments returns records in
   ascending seq order.
-- [ ] Write integration test: inject a torn tail by truncating the last segment to
+- [x] Write integration test: inject a torn tail by truncating the last segment to
   mid-record (remove last 4 bytes of the final encoded record); call `replay_dir`;
   assert `torn_tail.is_some()`, that the torn-tail `code == "CALYX_ASTER_TORN_WAL"`,
   and that the last replayed record seq is the one *before* the torn record.
-- [ ] Write integration test: two segments exist; torn record is in segment 0;
+- [x] Write integration test: two segments exist; torn record is in segment 0;
   assert segment 1 is deleted by `replay_dir` and only segment 0 (truncated) remains.
-- [ ] Ensure `open_append_file` uses `sync_all()` after creating a new segment
+- [x] Ensure `open_append_file` uses `sync_all()` after creating a new segment
   (so the directory entry is flushed).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: write 3 records fitting in one 4096-byte cap segment → 1 segment file.
-- [ ] unit: write 3 records that overflow a 64-byte cap → exactly 2 segment files;
+- [x] unit: write 3 records fitting in one 4096-byte cap segment → 1 segment file.
+- [x] unit: write 3 records that overflow a 64-byte cap → exactly 2 segment files;
   replay returns all 3 records in seq order.
-- [ ] proptest: `∀ n in 1..=20 records`: after `append` × n and `replay_dir`,
+- [x] proptest: `∀ n in 1..=20 records`: after `append` × n and `replay_dir`,
   recovered seqs == `[1..=n]`.
-- [ ] edge (≥3): (1) WAL dir does not exist on `open` → created; (2) empty WAL
+- [x] edge (≥3): (1) WAL dir does not exist on `open` → created; (2) empty WAL
   dir replays to 0 records, no torn tail; (3) torn record mid-segment 0 of 2 →
   segment 1 removed, segment 0 truncated.
-- [ ] fail-closed: torn tail `code` field == `"CALYX_ASTER_TORN_WAL"`;
+- [x] fail-closed: torn tail `code` field == `"CALYX_ASTER_TORN_WAL"`;
   `TornTail::error().code == "CALYX_ASTER_TORN_WAL"`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -69,8 +69,8 @@ against real files in `tempdir`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH05 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH05 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

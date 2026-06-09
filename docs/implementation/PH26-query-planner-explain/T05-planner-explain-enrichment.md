@@ -29,7 +29,7 @@ provides the planned non-envelope path for callers that only need `Vec<Hit>`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `PlannerExplainHit` struct (wraps `ExplainHit`):
+- [x] `PlannerExplainHit` struct (wraps `ExplainHit`):
   ```rust
   pub struct PlannerExplainHit {
       pub inner: ExplainHit,
@@ -40,32 +40,32 @@ provides the planned non-envelope path for callers that only need `Vec<Hit>`.
       pub timeout_budget_ms: u64,
   }
   ```
-- [ ] `fn planned_explain_search(query: &Query, map: &SlotIndexMap, embedder: &dyn EmbedQuery, ledger: &dyn LedgerProvider, clock: &dyn Clock, planner_config: &PlannerConfig) -> Result<Vec<PlannerExplainHit>, CalyxError>`:
+- [x] `fn planned_explain_search(query: &Query, map: &SlotIndexMap, embedder: &dyn EmbedQuery, ledger: &dyn LedgerProvider, clock: &dyn Clock, planner_config: &PlannerConfig) -> Result<Vec<PlannerExplainHit>, CalyxError>`:
       1. `plan(query, map)` → `PlannerOutput` (includes cost, timeout, strategy)
       2. Override `query.fusion` with `planner_output.strategy` if not overridden
       3. Call `explain_search()` from PH24 T06 → `Vec<ExplainHit>`
       4. For each `ExplainHit`, wrap into `PlannerExplainHit` with planner metadata
-- [ ] `PlannerExplainHit` derives `serde::Serialize` for JSON output
-- [ ] `strategy_chosen` string format: `"<strategy_name>[:<profile_name>]"` e.g.
+- [x] `PlannerExplainHit` derives `serde::Serialize` for JSON output
+- [x] `strategy_chosen` string format: `"<strategy_name>[:<profile_name>]"` e.g.
       `"weighted_rrf:causal"`, `"single_lens:slot_0"`, `"rrf"`, `"pipeline"`
-- [ ] `explain=false` path still goes through the planner (for cost-cap checking)
+- [x] `explain=false` path still goes through the planner (for cost-cap checking)
       but returns plain `Vec<Hit>` from the fast `search()` path, not
       `Vec<PlannerExplainHit>` — the explain enrichment is only built on demand
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `planned_explain_search` with `explain=true` → all hits have
+- [x] unit: `planned_explain_search` with `explain=true` → all hits have
       `intent` non-default, `strategy_chosen` non-empty, `cost_estimate.num_slots ≥ 1`
-- [ ] unit: code-intent query → `intent=Code strategy_chosen.starts_with("single_lens")` or `"rrf"` (fallback)
-- [ ] unit: explicit override → `override_used=true`
-- [ ] unit: `PlannerExplainHit` serializes to valid JSON (serde round-trip)
+- [x] unit: code-intent query → `intent=Code strategy_chosen.starts_with("single_lens")` or `"rrf"` (fallback)
+- [x] unit: explicit override → `override_used=true`
+- [x] unit: `PlannerExplainHit` serializes to valid JSON (serde round-trip)
 - [x] unit: planned causal query returns `PlannerExplain` with
       `intent=Causal`, `strategy=weighted_rrf:causal`, nonzero cost, timeout,
       hit explain strategy, and nonzero provenance
-- [ ] unit: `explain=false` path → returns `Vec<Hit>` (not `Vec<PlannerExplainHit>`);
+- [x] unit: `explain=false` path → returns `Vec<Hit>` (not `Vec<PlannerExplainHit>`);
       confirm by checking return type at compile time
-- [ ] edge: empty result set → `Ok(vec![])` with no panic
-- [ ] fail-closed: plan rejection (from T03) propagates through
+- [x] edge: empty result set → `Ok(vec![])` with no panic
+- [x] fail-closed: plan rejection (from T03) propagates through
       `planned_explain_search` → the error is returned, no partial hits
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -84,8 +84,8 @@ provides the planned non-envelope path for callers that only need `Vec<Hit>`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

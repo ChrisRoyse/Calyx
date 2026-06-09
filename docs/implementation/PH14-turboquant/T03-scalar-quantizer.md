@@ -21,37 +21,37 @@ statistics — fully data-oblivious.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `src/quant/turboquant.rs`: `pub struct TurboQuantCodec { seed: RotationSeed, level: QuantLevel }`
-- [ ] `pub fn new(seed: RotationSeed, level: QuantLevel) -> Result<Self, ForgeError>`
+- [x] `src/quant/turboquant.rs`: `pub struct TurboQuantCodec { seed: RotationSeed, level: QuantLevel }`
+- [x] `pub fn new(seed: RotationSeed, level: QuantLevel) -> Result<Self, ForgeError>`
   — only `Bits3p5` and `Bits2p5` are valid levels (others → `ForgeError::QuantError
   { detail: "TurboQuant only supports Bits3p5 and Bits2p5" }`)
-- [ ] `fn rotate_and_quantize_scalar(seed: &RotationSeed, vec: &[f32], level: QuantLevel) -> (Vec<u8>, f32)`
+- [x] `fn rotate_and_quantize_scalar(seed: &RotationSeed, vec: &[f32], level: QuantLevel) -> (Vec<u8>, f32)`
   — applies `apply_rotation` on a copy; computes global scale `s = max(|rotated[i]|)`;
   maps each rotated coord to an integer code in `[0, 2^bits)` via `round((x/s + 1) * (2^bits-1)/2)`
   clipped to range; packs into bytes; returns `(codes_bytes, scale=s)`
-- [ ] For `Bits3p5`: 7 codes per 7 bits; pack 8 values into 7 bytes (bit-packing, not
+- [x] For `Bits3p5`: 7 codes per 7 bits; pack 8 values into 7 bytes (bit-packing, not
   byte-per-value); document the bit layout explicitly in a comment
-- [ ] For `Bits2p5`: 5 codes per 2.5 bits → 4 values packed into 10 bits = 2 bytes
+- [x] For `Bits2p5`: 5 codes per 2.5 bits → 4 values packed into 10 bits = 2 bytes
   (document layout)
-- [ ] `fn dequantize_scalar(bytes: &[u8], scale: f32, dim: usize, level: QuantLevel) -> Vec<f32>`
+- [x] `fn dequantize_scalar(bytes: &[u8], scale: f32, dim: usize, level: QuantLevel) -> Vec<f32>`
   — unpack codes and map back: `x = code * 2s / (2^bits - 1) - s`
-- [ ] `impl Quantizer for TurboQuantCodec`: `encode` calls `rotate_and_quantize_scalar`
+- [x] `impl Quantizer for TurboQuantCodec`: `encode` calls `rotate_and_quantize_scalar`
   (+ QJL in T04); `decode` calls `dequantize_scalar`; `level()` returns the configured level
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: round-trip encode→decode a dim-128 all-zeros vector: decoded output
+- [x] unit: round-trip encode→decode a dim-128 all-zeros vector: decoded output
   ≈ zeros within 1e-2 (scale clamp behavior)
-- [ ] unit: round-trip encode→decode a unit vector at `QuantLevel::Bits3p5`:
+- [x] unit: round-trip encode→decode a unit vector at `QuantLevel::Bits3p5`:
   `max |decoded[i] - original_rotated[i]| ≤ 2 * scale / (2^3.5_rounded - 1) * 1.5`
   (quantization error ≤ 1.5 bin widths)
-- [ ] proptest: for random unit f32 vectors dim=128, seed fixed:
+- [x] proptest: for random unit f32 vectors dim=128, seed fixed:
   `max |decoded[i] - rotated[i]| ≤ scale * 2.0 / (7.0 - 1.0)` (Bits3p5 bin width)
-- [ ] proptest: `encoded.bytes.len()` is deterministic given `(dim, level)` — same
+- [x] proptest: `encoded.bytes.len()` is deterministic given `(dim, level)` — same
   dim same level → same byte length
-- [ ] edge (≥3): (1) `dim=1` (trivial); (2) `dim=1536` (large embedding); (3) all-
+- [x] edge (≥3): (1) `dim=1` (trivial); (2) `dim=1536` (large embedding); (3) all-
   identical input vector (degenerate scale)
-- [ ] fail-closed: `new(seed, QuantLevel::F32)` → `ForgeError::QuantError`
+- [x] fail-closed: `new(seed, QuantLevel::F32)` → `ForgeError::QuantError`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -66,9 +66,9 @@ statistics — fully data-oblivious.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
-- [ ] FSV evidence attached to PH14 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
+- [x] FSV evidence attached to PH14 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

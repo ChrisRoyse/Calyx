@@ -19,7 +19,7 @@ delivers the insert path only; search is T03.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `HnswGraph` struct:
+- [x] `HnswGraph` struct:
   ```rust
   pub struct HnswGraph {
       dim: usize,
@@ -32,31 +32,31 @@ delivers the insert path only; search is T03.
       rng_seed: u64,      // injected; never SystemTime::now()
   }
   ```
-- [ ] `HnswNode { id: CxId, vec: Vec<f32>, layers: Vec<Vec<usize>> }` — layer
+- [x] `HnswNode { id: CxId, vec: Vec<f32>, layers: Vec<Vec<usize>> }` — layer
       list stores neighbor node indices (internal), not `CxId`, for O(1) access
-- [ ] `fn assign_layer(rng_seed: u64, node_idx: usize, ml: f64) -> usize` —
+- [x] `fn assign_layer(rng_seed: u64, node_idx: usize, ml: f64) -> usize` —
       deterministic from seed+index, no global state
-- [ ] `fn insert(&mut self, id: CxId, vec: &[f32]) -> Result<(), CalyxError>`:
+- [x] `fn insert(&mut self, id: CxId, vec: &[f32]) -> Result<(), CalyxError>`:
       dim check → layer assign → greedy search from entry to insertion layer →
       select M neighbors with simple heuristic → bidirectional link → update
       entry if new layer is higher
-- [ ] Neighbor pruning: when `|neighbors| > m` (or `m_max0` at layer 0) after
+- [x] Neighbor pruning: when `|neighbors| > m` (or `m_max0` at layer 0) after
       linking, prune to closest M by the configured `DistanceMetric` — call
       `calyx-forge` CPU distance (no GPU alloc inside insert)
-- [ ] `CalyxError::CALYX_SEXTANT_DIM_MISMATCH` on vec.len() ≠ self.dim
+- [x] `CalyxError::CALYX_SEXTANT_DIM_MISMATCH` on vec.len() ≠ self.dim
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: insert 1 node → `entry_point == Some(0)`, `len() == 1`
-- [ ] unit: insert 10 nodes with seed=42 → neighbor count of node 0 is exactly
+- [x] unit: insert 1 node → `entry_point == Some(0)`, `len() == 1`
+- [x] unit: insert 10 nodes with seed=42 → neighbor count of node 0 is exactly
       the expected value (compute once on aiwonder, lock as golden constant)
-- [ ] proptest: `insert(id, vec)` then `len()` increases by 1 for any valid vec
+- [x] proptest: `insert(id, vec)` then `len()` increases by 1 for any valid vec
       (dim=4, values in [-1,1])
-- [ ] edge: insert dim-0 vector → `CALYX_SEXTANT_DIM_MISMATCH`
-- [ ] edge: insert 1 then remove then insert same `CxId` → `len() == 1`
-- [ ] edge: insert `usize::MAX` neighbors scenario never reached — assert
+- [x] edge: insert dim-0 vector → `CALYX_SEXTANT_DIM_MISMATCH`
+- [x] edge: insert 1 then remove then insert same `CxId` → `len() == 1`
+- [x] edge: insert `usize::MAX` neighbors scenario never reached — assert
       neighbor list never exceeds `m_max0` after every insert in a 1000-node run
-- [ ] fail-closed: `dim=0` at construction → `CALYX_SEXTANT_DIM_MISMATCH`
+- [x] fail-closed: `dim=0` at construction → `CALYX_SEXTANT_DIM_MISMATCH`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -67,8 +67,8 @@ delivers the insert path only; search is T03.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

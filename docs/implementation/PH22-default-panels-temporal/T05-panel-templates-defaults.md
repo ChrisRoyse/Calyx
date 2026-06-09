@@ -21,16 +21,16 @@ not instantiate real HF models — they build `LensSpec` descriptor lists that
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `PanelSlotSpec` struct: `name: String`, `runtime: LensRuntime`,
+- [x] `PanelSlotSpec` struct: `name: String`, `runtime: LensRuntime`,
   `output: SlotShape`, `modality: Modality`, `retrieval_only: bool`,
   `excluded_from_dedup: bool`, `required: bool`.
-- [ ] `PanelTemplate` struct: `name: String`, `slots: Vec<PanelSlotSpec>`.
-- [ ] `pub fn instantiate_panel(template: &PanelTemplate, registry: &mut Registry, store: &dyn VaultStore) -> Result<Vec<LensId>>`:
+- [x] `PanelTemplate` struct: `name: String`, `slots: Vec<PanelSlotSpec>`.
+- [x] `pub fn instantiate_panel(template: &PanelTemplate, registry: &mut Registry, store: &dyn VaultStore) -> Result<Vec<LensId>>`:
   - for each `PanelSlotSpec`: build a `LensSpec` (with stub `weights_sha256`
     and `corpus_hash` = all zeros for TEI runtimes — operator fills these in
     before production deployment), then call `add_lens`.
   - return vec of allocated `LensId`s.
-- [ ] `pub fn text_default() -> PanelTemplate`: slots per `05 §7`:
+- [x] `pub fn text_default() -> PanelTemplate`: slots per `05 §7`:
   1. `E1 semantic (GTE)` — `TeiHttp { endpoint: "127.0.0.1:8088" }`, Dense(768)
   2. `keyword/SPLADE` — `Algorithmic(OneHot { vocab_size: 30522 })`, Sparse(30522)
   3. `paraphrase` — `TeiHttp { endpoint: "127.0.0.1:8088" }`, Dense(768)
@@ -41,33 +41,33 @@ not instantiate real HF models — they build `LensSpec` descriptor lists that
      excluded_from_dedup=true`
   7. `E3_periodic` — `Algorithmic(E3)`, Dense(2), same flags
   8. `E4_positional` — `Algorithmic(E4)`, Dense(4), same flags
-- [ ] `pub fn code_default() -> PanelTemplate`: slots from `05 §7`
+- [x] `pub fn code_default() -> PanelTemplate`: slots from `05 §7`
   `code-default` list (semantic, AST, CFG, dataflow, type-graph, trace, diff,
   oracle-anchor, static-analysis, runtime, reasoning, scalars + E2/E3/E4).
   Use `Algorithmic` placeholders for code-specific slots that have no real
   model yet.
-- [ ] `pub fn civic_default() -> PanelTemplate`: `05 §7` civic slots (the
+- [x] `pub fn civic_default() -> PanelTemplate`: `05 §7` civic slots (the
   21-slot Polis Constellation — stub with 21 `Algorithmic(Scalar)` placeholders
   + E2/E3/E4).
-- [ ] `pub fn media_default() -> PanelTemplate`: `05 §7` media slots (semantic,
+- [x] `pub fn media_default() -> PanelTemplate`: `05 §7` media slots (semantic,
   image-CLIP, audio-wave, audio-emotion, speaker-WavLM, transcript,
   style-register + E2/E3/E4). Use `ExternalCmd` stubs for modalities that need
   separate processes.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `text_default()` has exactly 8 slots; E2/E3/E4 are slots 6,7,8;
+- [x] unit: `text_default()` has exactly 8 slots; E2/E3/E4 are slots 6,7,8;
   all three have `retrieval_only=true`.
-- [ ] unit: `code_default()` slot count ≥ 12+3=15 (code slots + temporal).
-- [ ] unit: `civic_default()` slot count ≥ 21+3=24.
-- [ ] unit: `media_default()` slot count ≥ 7+3=10.
-- [ ] unit: `instantiate_panel` on `text_default()` with a mock `Registry` and
+- [x] unit: `code_default()` slot count ≥ 12+3=15 (code slots + temporal).
+- [x] unit: `civic_default()` slot count ≥ 21+3=24.
+- [x] unit: `media_default()` slot count ≥ 7+3=10.
+- [x] unit: `instantiate_panel` on `text_default()` with a mock `Registry` and
   mock `store` → returns 8 `LensId`s; `registry.panel_version == 8`.
-- [ ] edge (≥3): (1) calling `instantiate_panel` twice on same template →
+- [x] edge (≥3): (1) calling `instantiate_panel` twice on same template →
   idempotent (same LensIds returned, version not double-bumped); (2) a slot
   with a broken spec fails closed (frozen violation) and does not corrupt the
   rest of the panel; (3) temporal slots always appear last.
-- [ ] fail-closed: a slot with frozen violation → that slot's `add_lens`
+- [x] fail-closed: a slot with frozen violation → that slot's `add_lens`
   returns the violation error; panel instantiation continues for remaining
   slots but reports which slots failed.
 
@@ -83,8 +83,8 @@ not instantiate real HF models — they build `LensSpec` descriptor lists that
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

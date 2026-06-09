@@ -22,38 +22,38 @@ resident service (`05 §2` gotcha).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `TeiHttpLens` struct: `id: LensId`, `endpoint: Url`, `dim: u32`,
+- [x] `TeiHttpLens` struct: `id: LensId`, `endpoint: Url`, `dim: u32`,
   `modality: Modality`, `batch_ceiling: usize` (default 32).
-- [ ] HTTP client: use `reqwest` (blocking feature) or `ureq`; POST to
+- [x] HTTP client: use `reqwest` (blocking feature) or `ureq`; POST to
   `{endpoint}/embed` with body `{"inputs": ["text1", "text2", …]}`.
-- [ ] Parse response: `[[f32; dim]; n]` JSON array; fail-closed with
+- [x] Parse response: `[[f32; dim]; n]` JSON array; fail-closed with
   `CALYX_REGISTRY_RUNTIME_UNAVAILABLE` if connection refused, timeout, or
   non-200.
-- [ ] `measure(&self, input: &Input) -> Result<SlotVector>`:
+- [x] `measure(&self, input: &Input) -> Result<SlotVector>`:
   - decode `input.bytes` as UTF-8; error if not valid UTF-8.
   - single-item POST; parse first embedding row.
   - return `SlotVector::Dense { dim, data }`.
-- [ ] `measure_batch(&self, inputs: &[Input]) -> Result<Vec<SlotVector>>`:
+- [x] `measure_batch(&self, inputs: &[Input]) -> Result<Vec<SlotVector>>`:
   - chunk inputs into `batch_ceiling`-sized groups.
   - POST each chunk; flatten responses maintaining order.
   - return `Vec<SlotVector>` with same len as inputs.
-- [ ] Implement `calyx_core::Lens` trait for `TeiHttpLens`.
-- [ ] `#[cfg(feature = "tei-integration")]` gate all network calls so unit tests
+- [x] Implement `calyx_core::Lens` trait for `TeiHttpLens`.
+- [x] `#[cfg(feature = "tei-integration")]` gate all network calls so unit tests
   compile without a live TEI; integration tests marked `#[ignore]` by default.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit (mock): construct `TeiHttpLens` pointing at a local mock server
+- [x] unit (mock): construct `TeiHttpLens` pointing at a local mock server
   that returns a known 768-d unit-norm vector; `measure` returns
   `SlotVector::Dense { dim: 768, data }` with the expected values.
-- [ ] unit (mock): `measure_batch` with 70 inputs → two POST calls (32 + 32 + 6);
+- [x] unit (mock): `measure_batch` with 70 inputs → two POST calls (32 + 32 + 6);
   result length equals 70 and order is preserved.
-- [ ] edge (≥3): (1) server returns HTTP 500 → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`;
+- [x] edge (≥3): (1) server returns HTTP 500 → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`;
   (2) connection refused → same error code; (3) response array shorter than
   inputs → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE` with remediation.
-- [ ] fail-closed: non-UTF-8 input bytes → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
+- [x] fail-closed: non-UTF-8 input bytes → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
   with remediation "TEI runtime requires UTF-8 text input".
-- [ ] integration (`#[ignore]`): POST to `:8088` with `"hello world"` →
+- [x] integration (`#[ignore]`): POST to `:8088` with `"hello world"` →
   `SlotVector::Dense { dim: 768 }`; all values finite.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -67,8 +67,8 @@ resident service (`05 §2` gotcha).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

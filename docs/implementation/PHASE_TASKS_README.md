@@ -8,10 +8,14 @@ for the structure under `docs/implementation/PHnn-*/`.
 > is intentionally **not** covered here. These cards cover **PH05 → PH72**.
 >
 > **Current (2026-06-08):** Stages 1–5 (PH05–PH30) are **DONE** and
-> FSV-signed-off on aiwonder, including post-sweep hardening through #333.
+> FSV-signed-off on aiwonder, including post-sweep hardening through #340 and
+> Registry/Sextant integration #339.
 > Active implementation is tracked in GitHub issues: Stage 6 Lodestar remains
 > open for #240 plus readiness follow-ups #331-#332,
 > while Stage 7 Ledger continues at PH36/#249 after PH35 #242-#248.
+> #336 archives PH05-PH30 task cards: their checked boxes are historical
+> prompts resolved or superseded by `STAGE1_5_EVIDENCE_MANIFEST.md`; any new
+> unchecked PH05-PH30 box must point to an open GitHub issue.
 
 ---
 

@@ -19,7 +19,7 @@ for the recall comparison that drives the PH24 FSV gate. It also defines the
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `crates/calyx-sextant/src/fusion/mod.rs`:
+- [x] `crates/calyx-sextant/src/fusion/mod.rs`:
   ```rust
   pub trait FusionImpl: Send + Sync {
       fn fuse(&self, ctx: &FusionContext) -> Result<Vec<Hit>, CalyxError>;
@@ -33,7 +33,7 @@ for the recall comparison that drives the PH24 FSV gate. It also defines the
   }
   pub fn fuse(strategy: &FusionStrategy, ctx: &FusionContext) -> Result<Vec<Hit>, CalyxError>;
   ```
-- [ ] `crates/calyx-sextant/src/fusion/single.rs`: `SingleLensStrategy`:
+- [x] `crates/calyx-sextant/src/fusion/single.rs`: `SingleLensStrategy`:
       - calls `map.search(slot, query_vec, k, ef)`
       - converts each `(CxId, raw_score)` to a `Hit` with:
         - `fused_score = raw_score`
@@ -44,20 +44,20 @@ for the recall comparison that drives the PH24 FSV gate. It also defines the
         - `freshness = FreshnessTag { built_at_seq: 0, stale_by: None }` (real in T05)
         - if `explain=false`, `per_lens` may be populated regardless — it is cheap
       - `CALYX_SEXTANT_SLOT_NOT_FOUND` if the requested slot is not in the map
-- [ ] Wire `FusionStrategy::SingleLens(slot)` in `fuse()` dispatcher to call
+- [x] Wire `FusionStrategy::SingleLens(slot)` in `fuse()` dispatcher to call
       `SingleLensStrategy::fuse()`
-- [ ] `CALYX_SEXTANT_NO_LENSES` error variant: returned when `query_vecs` is empty
+- [x] `CALYX_SEXTANT_NO_LENSES` error variant: returned when `query_vecs` is empty
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: insert 20 vecs into slot A, run SingleLens search k=5 → returns
+- [x] unit: insert 20 vecs into slot A, run SingleLens search k=5 → returns
       exactly 5 `Hit`s; each `hit.fused_score == hit.per_lens[0].raw_score`
-- [ ] unit: `hit.per_lens.len() == 1` for every hit from SingleLens strategy
-- [ ] unit: hits are ordered by `fused_score` descending
-- [ ] proptest: for any k ≤ n, SingleLens returns exactly k results
-- [ ] edge: slot not in map → `CALYX_SEXTANT_SLOT_NOT_FOUND`
-- [ ] edge: empty `query_vecs` → `CALYX_SEXTANT_NO_LENSES`
-- [ ] fail-closed: `k=0` → `CALYX_SEXTANT_EF_TOO_SMALL` propagated from `HnswGraph`
+- [x] unit: `hit.per_lens.len() == 1` for every hit from SingleLens strategy
+- [x] unit: hits are ordered by `fused_score` descending
+- [x] proptest: for any k ≤ n, SingleLens returns exactly k results
+- [x] edge: slot not in map → `CALYX_SEXTANT_SLOT_NOT_FOUND`
+- [x] edge: empty `query_vecs` → `CALYX_SEXTANT_NO_LENSES`
+- [x] fail-closed: `k=0` → `CALYX_SEXTANT_EF_TOO_SMALL` propagated from `HnswGraph`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -68,8 +68,8 @@ for the recall comparison that drives the PH24 FSV gate. It also defines the
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

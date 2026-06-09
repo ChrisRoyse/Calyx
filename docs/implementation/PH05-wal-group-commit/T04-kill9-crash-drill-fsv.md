@@ -19,38 +19,38 @@ byte-exact, the un-acked record is absent, and the torn tail is discarded with
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add a `calyx wal-drill` CLI subcommand (in `calyx-cli`) that:
+- [x] Add a `calyx wal-drill` CLI subcommand (in `calyx-cli`) that:
   1. Opens a `Wal` in a temp directory under `CALYX_HOME`.
   2. Appends N records (default 10) via `GroupCommitBatcher::submit`.
   3. Writes record N+1's bytes to the segment **without calling fsync**
      (simulate by writing directly to the underlying file after bypassing the
      batcher), then returns — leaving a partial record on disk.
   4. Prints `LAST_ACKED_SEQ=<n>` and `WAL_DIR=<path>` to stdout.
-- [ ] Add a `calyx wal-replay <dir>` CLI subcommand that calls `replay_dir` and
+- [x] Add a `calyx wal-replay <dir>` CLI subcommand that calls `replay_dir` and
   prints each record's seq, payload hex, and `torn_tail` (if any) to stdout.
-- [ ] In tests: spawn `calyx wal-drill` as a subprocess; then spawn
+- [x] In tests: spawn `calyx wal-drill` as a subprocess; then spawn
   `calyx wal-replay <dir>`; parse stdout and assert last recovered seq ==
   `LAST_ACKED_SEQ` and no record with seq > `LAST_ACKED_SEQ` is present.
-- [ ] Add a `kill -9` variant: spawn the drill subprocess and send `SIGKILL`
+- [x] Add a `kill -9` variant: spawn the drill subprocess and send `SIGKILL`
   mid-append (after the group-commit window but before fsync returns) using
   `std::os::unix::process::CommandExt::kill`. Replay and assert invariants.
-- [ ] Verify `torn_tail.code == "CALYX_ASTER_TORN_WAL"` in the `wal-replay` output.
-- [ ] Document the exact `xxd` commands to read before/after in the phase GitHub
+- [x] Verify `torn_tail.code == "CALYX_ASTER_TORN_WAL"` in the `wal-replay` output.
+- [x] Document the exact `xxd` commands to read before/after in the phase GitHub
   issue (see FSV section below).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit (subprocess): drill + replay round-trip: all N acked records present;
+- [x] unit (subprocess): drill + replay round-trip: all N acked records present;
   no record at seq N+1; torn tail reported.
-- [ ] unit (subprocess): `kill -9` during append batch: replay returns exactly the
+- [x] unit (subprocess): `kill -9` during append batch: replay returns exactly the
   records whose fsync completed before the kill; torn tail present.
-- [ ] proptest: for `n in 1..=8`: drill with n records, then manual truncate to
+- [x] proptest: for `n in 1..=8`: drill with n records, then manual truncate to
   mid-record, then replay — exactly `n-0` or `n-1` records depending on which
   was acked; never more than n.
-- [ ] edge (≥3): (1) empty WAL + truncate → 0 records, torn tail; (2) last record
+- [x] edge (≥3): (1) empty WAL + truncate → 0 records, torn tail; (2) last record
   complete but no further write → n records, no torn tail; (3) two segments, torn
   in segment 1 → segment 0 fully replayed, segment 2 deleted.
-- [ ] fail-closed: corrupt magic in segment 0 → `replay_dir` returns
+- [x] fail-closed: corrupt magic in segment 0 → `replay_dir` returns
   `torn_tail.code == "CALYX_ASTER_TORN_WAL"` at offset 0, 0 records.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -77,8 +77,8 @@ byte-exact, the un-acked record is absent, and the torn tail is discarded with
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH05 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH05 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

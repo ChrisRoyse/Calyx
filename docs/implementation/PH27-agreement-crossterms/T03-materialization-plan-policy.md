@@ -42,9 +42,9 @@ decisions. The remaining Sextant promotion hook is intentionally deferred;
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `PairDecision` enum: `EagerStore`, `LazyCache`, `Skip` (for fully redundant pairs already captured by another materialized form)
-- [ ] Define `MaterializationPlan`: `{ cx_id: CxId, pair_decisions: HashMap<(SlotId, SlotId), HashMap<CrossTermKind, PairDecision>> }`
-- [ ] Implement `plan_cross_terms(cx_id, panel, assay_hook: &dyn AssayGate, sextant_hook: &dyn SextantPromoter, clock: &dyn Clock) -> MaterializationPlan`:
+- [x] Define `PairDecision` enum: `EagerStore`, `LazyCache`, `Skip` (for fully redundant pairs already captured by another materialized form)
+- [x] Define `MaterializationPlan`: `{ cx_id: CxId, pair_decisions: HashMap<(SlotId, SlotId), HashMap<CrossTermKind, PairDecision>> }`
+- [x] Implement `plan_cross_terms(cx_id, panel, assay_hook: &dyn AssayGate, sextant_hook: &dyn SextantPromoter, clock: &dyn Clock) -> MaterializationPlan`:
   - enumerate `active_pairs(panel)` — slot pairs where both states are `Active`
   - for each pair `(a,b)`: Agreement → always `EagerStore`
   - for each pair `(a,b)`: if `assay_hook.pair_gain(a,b,anchor) >= 0.05` → Interaction = `EagerStore`; else `LazyCache`
@@ -56,7 +56,7 @@ decisions. The remaining Sextant promotion hook is intentionally deferred;
   fail-safe lazy fallback is explicit and preserves eager Agreement planning.
 - [x] Keep Sextant promotion deferred by policy; `Concat` remains lazy until a
   later query-pattern promoter exists.
-- [ ] Expose `materialized_count(plan) -> usize` — count of `EagerStore` decisions; used by `abundance_report` to prove storage is not `C(N,2)`
+- [x] Expose `materialized_count(plan) -> usize` — count of `EagerStore` decisions; used by `abundance_report` to prove storage is not `C(N,2)`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -64,9 +64,9 @@ decisions. The remaining Sextant promotion hook is intentionally deferred;
   `EagerStore`; all Delta/Interaction/Concat are lazy.
 - [x] unit: with a positive-gain gate, qualifying Interaction rows are
   `EagerStore`.
-- [ ] proptest: `materialized_count(plan) <= 2 * active_pairs_count(panel)` always (Agreement plus qualifying Interaction; Delta/Concat do not inflate eager storage)
-- [ ] edge: empty panel → `MaterializationPlan` with empty decisions; single-slot panel → zero active pairs; panel with all inactive slots → zero active pairs
-- [ ] fail-closed: `plan_cross_terms` with a `CxId` that has no slot data → `CALYX_ASTER_NOT_FOUND`
+- [x] proptest: `materialized_count(plan) <= 2 * active_pairs_count(panel)` always (Agreement plus qualifying Interaction; Delta/Concat do not inflate eager storage)
+- [x] edge: empty panel → `MaterializationPlan` with empty decisions; single-slot panel → zero active pairs; panel with all inactive slots → zero active pairs
+- [x] fail-closed: `plan_cross_terms` with a `CxId` that has no slot data → `CALYX_ASTER_NOT_FOUND`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -91,4 +91,4 @@ decisions. The remaining Sextant promotion hook is intentionally deferred;
 - [x] file(s) ≤ 500 lines (line-count gate ✅)
 - [x] FSV evidence attached via #319:
   `/home/croyse/calyx/data/fsv-issue319-aster-materialization-gate-20260608`
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

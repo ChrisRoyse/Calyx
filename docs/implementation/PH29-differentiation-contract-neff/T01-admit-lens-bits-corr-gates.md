@@ -21,7 +21,7 @@ are the paper's verbatim values (`0.05`, `0.6`) and are load-bearing.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `AdmitResult`:
+- [x] Define `AdmitResult`:
   ```rust
   pub enum AdmitResult {
       Admit { bits: MiEstimate },
@@ -29,11 +29,11 @@ are the paper's verbatim values (`0.05`, `0.6`) and are load-bearing.
   }
   pub enum RejectReason { LowSignal, Redundant }
   ```
-- [ ] Wire error codes: `CALYX_ASSAY_LOW_SIGNAL` maps to `RejectReason::LowSignal`; `CALYX_ASSAY_REDUNDANT` maps to `RejectReason::Redundant`
+- [x] Wire error codes: `CALYX_ASSAY_LOW_SIGNAL` maps to `RejectReason::LowSignal`; `CALYX_ASSAY_REDUNDANT` maps to `RejectReason::Redundant`
 - [x] Post-sweep #340: reject non-finite `signal_bits` with
   `CALYX_ASSAY_LOW_SIGNAL` and non-finite `max_pairwise_corr` with
   `CALYX_ASSAY_REDUNDANT` before threshold comparisons.
-- [ ] Implement `admit_lens(candidate: SlotId, anchor: AnchorKind, panel: &Panel, vault, forge, clock) -> Result<AdmitResult, CalyxError>`:
+- [x] Implement `admit_lens(candidate: SlotId, anchor: AnchorKind, panel: &Panel, vault, forge, clock) -> Result<AdmitResult, CalyxError>`:
   ```
   bits = lens_signal(candidate, anchor, vault, forge, clock)?
   if bits.bits < 0.05 -> return Reject { reason: LowSignal, bits, max_corr: 0.0 }
@@ -46,17 +46,17 @@ are the paper's verbatim values (`0.05`, `0.6`) and are load-bearing.
           return Reject { reason: Redundant, bits, max_corr }
   return Admit { bits }
   ```
-- [ ] Persist the decision to the assay CF: `(slot_id, anchor, result: Admit|Reject, ts, seq)` — these are the "stored decision rows" read in the FSV
-- [ ] `linear_corr(a: &[f32], b: &[f32]) -> f32`: Pearson r on the flat slot vectors; fast (no KSG needed for this gate)
-- [ ] Thresholds `0.05` and `0.6` as named constants `ASSAY_MIN_SIGNAL_BITS: f32 = 0.05` and `ASSAY_MAX_CORR: f32 = 0.6`; config-overridable per vault but default = verbatim paper values
+- [x] Persist the decision to the assay CF: `(slot_id, anchor, result: Admit|Reject, ts, seq)` — these are the "stored decision rows" read in the FSV
+- [x] `linear_corr(a: &[f32], b: &[f32]) -> f32`: Pearson r on the flat slot vectors; fast (no KSG needed for this gate)
+- [x] Thresholds `0.05` and `0.6` as named constants `ASSAY_MIN_SIGNAL_BITS: f32 = 0.05` and `ASSAY_MAX_CORR: f32 = 0.6`; config-overridable per vault but default = verbatim paper values
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: candidate with `bits = 0.04` → `Reject { reason: LowSignal }`; with `bits = 0.06` and `max_corr = 0.3` → `Admit`
-- [ ] unit: candidate with `bits = 0.2` but `max_corr = 0.7` → `Reject { reason: Redundant }`; corr = 0.55 (borderline) + NMI = 0.7 → `Reject`; corr = 0.55 + NMI = 0.4 → `Admit`
-- [ ] proptest: `Admit` iff `bits >= 0.05 AND max_corr <= 0.6` (or NMI ≤ 0.6 in borderline); the compound condition is total (no missing cases)
-- [ ] edge: panel with zero members → `max_corr = 0.0`; single-element panel → check only against that one slot; candidate with n < 50 labeled samples → `bits = CALYX_ASSAY_INSUFFICIENT_SAMPLES` propagated (not silently coerced to 0.0)
-- [ ] fail-closed: missing slot data for a panel member → `CALYX_ASTER_NOT_FOUND`; never returns `Admit` on missing data
+- [x] unit: candidate with `bits = 0.04` → `Reject { reason: LowSignal }`; with `bits = 0.06` and `max_corr = 0.3` → `Admit`
+- [x] unit: candidate with `bits = 0.2` but `max_corr = 0.7` → `Reject { reason: Redundant }`; corr = 0.55 (borderline) + NMI = 0.7 → `Reject`; corr = 0.55 + NMI = 0.4 → `Admit`
+- [x] proptest: `Admit` iff `bits >= 0.05 AND max_corr <= 0.6` (or NMI ≤ 0.6 in borderline); the compound condition is total (no missing cases)
+- [x] edge: panel with zero members → `max_corr = 0.0`; single-element panel → check only against that one slot; candidate with n < 50 labeled samples → `bits = CALYX_ASSAY_INSUFFICIENT_SAMPLES` propagated (not silently coerced to 0.0)
+- [x] fail-closed: missing slot data for a panel member → `CALYX_ASTER_NOT_FOUND`; never returns `Admit` on missing data
 - [x] fail-closed: NaN/Inf signal bits or pairwise correlation cannot admit a
   lens (#340).
 
@@ -72,7 +72,7 @@ are the paper's verbatim values (`0.05`, `0.6`) and are load-bearing.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

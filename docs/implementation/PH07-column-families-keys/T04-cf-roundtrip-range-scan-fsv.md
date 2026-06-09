@@ -20,36 +20,36 @@ ascending order. `CALYX_ASTER_CORRUPT_SHARD` is returned on hash mismatch.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `calyx readback` CLI subcommand with flags `--cf <name>`, `--vault
+- [x] Add `calyx readback` CLI subcommand with flags `--cf <name>`, `--vault
   <path>`, `--sst <path>`. Prints each key (hex) and value (hex) in the CF.
-- [ ] Write an integration test that opens a `CfRouter`, writes one known key/value
+- [x] Write an integration test that opens a `CfRouter`, writes one known key/value
   to each CF, flushes all CFs, then reads back each via `CfRouter::get` and asserts
   byte-exact equality.
-- [ ] Write a range-scan test: write 5 `ledger` rows with seqs 3,1,5,2,4 (inserted
+- [x] Write a range-scan test: write 5 `ledger` rows with seqs 3,1,5,2,4 (inserted
   out of order); flush; `range(ledger_key(1), ledger_key(6))` returns seqs in
   order `[1,2,3,4,5]` (big-endian sort).
-- [ ] Write a range-scan test: write 5 `base` rows with known `CxId` values;
+- [x] Write a range-scan test: write 5 `base` rows with known `CxId` values;
   flush; `range(b"\x00".repeat(16), b"\xff".repeat(16))` returns all 5 in
   lexicographic key order.
-- [ ] Add the `verify_cx_hash_prefix` call in `CfRouter::get` for `CF::Base`: when
+- [x] Add the `verify_cx_hash_prefix` call in `CfRouter::get` for `CF::Base`: when
   a row is read from SST, verify that the key (CxId bytes) matches the stored
   `full_hash` if the value contains a blake3 digest. (Caller responsibility if
   value encodes the full hash; at minimum, exercise the `verify_cx_hash_prefix`
   error path in the test.)
-- [ ] Document the `xxd` readback commands in the phase GitHub issue.
+- [x] Document the `xxd` readback commands in the phase GitHub issue.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: one row per CF round-trips byte-exact via `CfRouter::put` + `flush_cf`
+- [x] unit: one row per CF round-trips byte-exact via `CfRouter::put` + `flush_cf`
   + `CfRouter::get`.
-- [ ] unit: `ledger` range scan returns seqs `[1..5]` in ascending order after
+- [x] unit: `ledger` range scan returns seqs `[1..5]` in ascending order after
   out-of-order inserts and flush.
-- [ ] proptest: `∀ n in 1..=20 (key, value) pairs` in any CF: after put+flush,
+- [x] proptest: `∀ n in 1..=20 (key, value) pairs` in any CF: after put+flush,
   `range(min, max)` returns all n pairs sorted.
-- [ ] edge (≥3): (1) empty range scan → empty vec; (2) range that spans two SST
+- [x] edge (≥3): (1) empty range scan → empty vec; (2) range that spans two SST
   files returns merged deduped result; (3) key present in both memtable and SST →
   memtable value wins.
-- [ ] fail-closed: corrupt SST key in `base` CF → `get` returns
+- [x] fail-closed: corrupt SST key in `base` CF → `get` returns
   `CALYX_ASTER_CORRUPT_SHARD` (not silently returns None).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -70,8 +70,8 @@ ascending order. `CALYX_ASTER_CORRUPT_SHARD` is returned on hash mismatch.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH07 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH07 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

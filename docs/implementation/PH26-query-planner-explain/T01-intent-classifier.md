@@ -20,7 +20,7 @@ text keywords and structural cues (slot selection, anchor type).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `IntentLabel` enum:
+- [x] `IntentLabel` enum:
   ```rust
   pub enum IntentLabel {
       Code, Causal, Entity, Temporal, Speaker, Style,
@@ -28,7 +28,7 @@ text keywords and structural cues (slot selection, anchor type).
   }
   ```
   (14 variants matching the 14 profiles from PH24 T04)
-- [ ] `fn classify_intent(query: &Query) -> IntentLabel`:
+- [x] `fn classify_intent(query: &Query) -> IntentLabel`:
       Rule priority (first match wins):
       1. If `query.lenses == Explicit([single_slot])` and that slot's `SlotKind`
          implies a specific intent (Code → `IntentLabel::Code`, Speaker →
@@ -46,23 +46,23 @@ text keywords and structural cues (slot selection, anchor type).
          - `"style of"` or `"write like"` → `Style`
       3. If `query.input` is `QueryInput::Anchor(_)` → `Semantic` (anchor-to-anchor)
       4. Default: `General`
-- [ ] `classify_intent` is pure (no I/O, no side effects); `#[must_use]`
-- [ ] If `query.fusion` is already an explicit non-Auto strategy, the planner
+- [x] `classify_intent` is pure (no I/O, no side effects); `#[must_use]`
+- [x] If `query.fusion` is already an explicit non-Auto strategy, the planner
       skips classification — document this as the A17 override path
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `"def foo(x: int) -> str:"` → `IntentLabel::Code`
-- [ ] unit: `"why did the Roman Empire fall"` → `IntentLabel::Causal`
-- [ ] unit: `"who founded Apple"` → `IntentLabel::Entity`
-- [ ] unit: `"events in 1789"` → `IntentLabel::Temporal`
-- [ ] unit: `"summarize this document"` → `IntentLabel::General` (no specific cue)
-- [ ] unit: anchor input → `IntentLabel::Semantic`
-- [ ] unit: explicit single-slot Code kind → `IntentLabel::Code` regardless of text
-- [ ] proptest: classifier never panics for any `&str` input
-- [ ] edge: empty text → `IntentLabel::General`
-- [ ] edge: text matching multiple rules → first rule wins (Code > Causal in priority)
-- [ ] fail-closed: `query.fusion = FusionStrategy::Rrf` (explicit) → classifier
+- [x] unit: `"def foo(x: int) -> str:"` → `IntentLabel::Code`
+- [x] unit: `"why did the Roman Empire fall"` → `IntentLabel::Causal`
+- [x] unit: `"who founded Apple"` → `IntentLabel::Entity`
+- [x] unit: `"events in 1789"` → `IntentLabel::Temporal`
+- [x] unit: `"summarize this document"` → `IntentLabel::General` (no specific cue)
+- [x] unit: anchor input → `IntentLabel::Semantic`
+- [x] unit: explicit single-slot Code kind → `IntentLabel::Code` regardless of text
+- [x] proptest: classifier never panics for any `&str` input
+- [x] edge: empty text → `IntentLabel::General`
+- [x] edge: text matching multiple rules → first rule wins (Code > Causal in priority)
+- [x] fail-closed: `query.fusion = FusionStrategy::Rrf` (explicit) → classifier
       is not called; planner uses `Rrf` directly (test by asserting
       `classify_intent` is not called when fusion is explicit — use a call counter)
 
@@ -75,8 +75,8 @@ text keywords and structural cues (slot selection, anchor type).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

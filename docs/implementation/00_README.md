@@ -38,16 +38,17 @@ machine, proven how*.
 | `01_AIWONDER_ENVIRONMENT.md` | the **real** box (live readback), the self-contained Calyx layout, toolchain, GPU/CUDA, ZFS, services, secrets, the sudo constraint, the connect procedure |
 | `02_WORKING_AGREEMENT.md` | the per-phase discipline: FSV protocol, ≤500-line rule, GitHub issues, test taxonomy, definition-of-done, doctrine compliance checklist |
 | `03_PHASE_MAP.md` | the master table of **every** phase (PH00–PH72), its stage, dependencies, PRD/axiom mapping, exit gate, and the critical path |
+| `STAGE1_5_EVIDENCE_MANIFEST.md` | the Stage 1-5 audit index: PH05-PH30 evidence roots, commands, artifact hashes, source-of-truth summaries, and live deferral-owner issues |
 | `10_STAGE0_FOUNDATION.md` … `30_STAGE20_CRITICAL_CAPS.md` | one file per stage; each details its phases (objective · deps · deliverables · key tasks · FSV exit gate · axioms · risks) |
 | `PHASE_TASKS_README.md` | **the per-phase task convention** — directory layout, the atomic task-card template, the README template, the binding rules every card inherits, and the coverage rule. Read before opening any phase subdir. |
 | `PH05-*/` … `PH72-*/` | **one subdir per phase** (Stage 1 → Stage 20). Each holds a `README.md` (phase overview) + one `.md` atomic task card per actionable unit (`T01-…`, `T02-…`). When every card in every subdir is done, `BUILD_DONE` holds. Stage 0 (PH00–PH04) is already built and intentionally has no subdir. |
 
 Completed-phase note: task-card checkboxes are implementation prompts and
 design-history acceptance criteria. The current status source is, in order,
-GitHub issue state/evidence comments, `03_PHASE_MAP.md`, the per-stage file,
-then the phase README. For Stages 0-5, open/closed state and aiwonder FSV
-evidence supersede any remaining unchecked historical checklist line inside a
-task card.
+GitHub issue state/evidence comments, `STAGE1_5_EVIDENCE_MANIFEST.md` for
+PH05-PH30, `03_PHASE_MAP.md`, the per-stage file, then the phase README. For
+Stages 0-5, open/closed state and aiwonder FSV evidence supersede historical
+task-card checklist prompts.
 
 ## 3. Numbering
 

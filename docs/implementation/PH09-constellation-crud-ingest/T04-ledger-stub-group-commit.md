@@ -21,31 +21,31 @@ this with a real blake3 hash-chain entry. This satisfies DOCTRINE A15
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] In `vault/ledger_stub.rs`: define `fn write_ledger_stub(seq: Seq) ->
+- [x] In `vault/ledger_stub.rs`: define `fn write_ledger_stub(seq: Seq) ->
   (ColumnFamily, Vec<u8>, Vec<u8>)` returning `(CF::Ledger, ledger_key(seq),
   [0u8; 32].to_vec())`.
-- [ ] In `AsterVault::put`, after building the CF row list and before calling
+- [x] In `AsterVault::put`, after building the CF row list and before calling
   `commit_batch`, append the ledger stub row to the batch.
-- [ ] The WAL payload must include the ledger stub row (so recovery in PH10 also
+- [x] The WAL payload must include the ledger stub row (so recovery in PH10 also
   sees it).
-- [ ] Write a test: `put(cx)` → `flush_all_cfs()` → `CfRouter::get(Ledger,
+- [x] Write a test: `put(cx)` → `flush_all_cfs()` → `CfRouter::get(Ledger,
   ledger_key(seq))` returns `Some([0u8; 32])`.
-- [ ] Write a test: ledger seq matches the MVCC seq of the write: after one put,
+- [x] Write a test: ledger seq matches the MVCC seq of the write: after one put,
   `ledger` CF contains exactly one row at `seq = 1`; after a second put, at `seq = 2`.
-- [ ] Add a `// FIXME(PH35): replace stub with blake3 hash-chain entry` comment.
+- [x] Add a `// FIXME(PH35): replace stub with blake3 hash-chain entry` comment.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: put N constellations → ledger CF has N rows, seqs [1..N], all values
+- [x] unit: put N constellations → ledger CF has N rows, seqs [1..N], all values
   are `[0u8; 32]`.
-- [ ] unit: ledger row is included in WAL payload (decode the WAL record and
+- [x] unit: ledger row is included in WAL payload (decode the WAL record and
   confirm the ledger CF tag is present in the write batch encoding).
-- [ ] unit: cold-open vault → ledger CF readable from SST.
-- [ ] edge (≥3): (1) idempotent put → ledger CF row count unchanged; (2) anchor
+- [x] unit: cold-open vault → ledger CF readable from SST.
+- [x] edge (≥3): (1) idempotent put → ledger CF row count unchanged; (2) anchor
   write (no new constellation seq) → ledger CF row count unchanged (anchor does
   not write a new ledger entry at this stage); (3) ledger key ordering: seq 100
   sorts after seq 99.
-- [ ] fail-closed: if `write_ledger_stub` panics or returns Err, the whole
+- [x] fail-closed: if `write_ledger_stub` panics or returns Err, the whole
   `commit_batch` is aborted (no partial write).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -62,8 +62,8 @@ this with a real blake3 hash-chain entry. This satisfies DOCTRINE A15
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

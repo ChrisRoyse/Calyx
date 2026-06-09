@@ -21,7 +21,7 @@ we wire the data and the lookup.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `crates/calyx-sextant/src/fusion/profiles.rs`:
+- [x] `crates/calyx-sextant/src/fusion/profiles.rs`:
   ```rust
   pub struct FusionProfile {
       pub name: &'static str,
@@ -46,31 +46,31 @@ we wire the data and the lookup.
   ];
   pub fn lookup_profile(name: &str) -> Option<&'static FusionProfile>;
   ```
-- [ ] `SlotKind` enum in `query.rs` or `fusion/mod.rs` (Dense | Sparse | Temporal |
+- [x] `SlotKind` enum in `query.rs` or `fusion/mod.rs` (Dense | Sparse | Temporal |
       Code | Speaker | Style | Media | Kernel — add more as lenses are added)
-- [ ] `WeightedRrfStrategy` in `rrf.rs`: same as `RrfStrategy` but resolves
+- [x] `WeightedRrfStrategy` in `rrf.rs`: same as `RrfStrategy` but resolves
       per-slot weights from the profile by matching each slot's `SlotKind`;
       unmatched slots get weight 0.0 (excluded from fusion for that profile)
 - [x] Post-sweep #286 enforces this behavior in the current slot-id profile
       implementation: missing weights are excluded for `WeightedRRF`, while
       plain `RRF` keeps unit-weight participation for all result slots.
-- [ ] `FusionStrategy::WeightedRrf(String)` → look up profile → build weight map;
+- [x] `FusionStrategy::WeightedRrf(String)` → look up profile → build weight map;
       `CALYX_SEXTANT_UNKNOWN_PROFILE` if name not found
-- [ ] `fn list_profiles() -> &'static [&'static str]` — used by `explain` and planner
+- [x] `fn list_profiles() -> &'static [&'static str]` — used by `explain` and planner
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `lookup_profile("general")` returns `Some`; `lookup_profile("unknown")` returns `None`
-- [ ] unit: `PROFILES.len() == 14` — assert exact count
-- [ ] unit: WeightedRRF with "lexical" profile excludes dense slot (weight 0.0) —
+- [x] unit: `lookup_profile("general")` returns `Some`; `lookup_profile("unknown")` returns `None`
+- [x] unit: `PROFILES.len() == 14` — assert exact count
+- [x] unit: WeightedRRF with "lexical" profile excludes dense slot (weight 0.0) —
       confirm dense-slot cx do not appear in top results when lexical score is 0
-- [ ] unit: WeightedRRF with "semantic" profile → results identical to RRF with
+- [x] unit: WeightedRRF with "semantic" profile → results identical to RRF with
       single dense slot at weight 1.0
-- [ ] proptest: all 14 profiles are non-empty (at least one slot_weight entry)
-- [ ] edge: `FusionStrategy::WeightedRrf("unknown")` → `CALYX_SEXTANT_UNKNOWN_PROFILE`
-- [ ] edge: profile with a slot kind not present in the vault → graceful skip,
+- [x] proptest: all 14 profiles are non-empty (at least one slot_weight entry)
+- [x] edge: `FusionStrategy::WeightedRrf("unknown")` → `CALYX_SEXTANT_UNKNOWN_PROFILE`
+- [x] edge: profile with a slot kind not present in the vault → graceful skip,
       not an error (the fusion simply has fewer participants)
-- [ ] fail-closed: weight 0.0 slot never contributes to fused_score (assert
+- [x] fail-closed: weight 0.0 slot never contributes to fused_score (assert
       `contribution == 0.0` in `per_lens` for the excluded slot)
 - [x] regression: AP-60 temporal slots 20/21/22 are absent from primary
       profiles until PH40 and an unlisted temporal result is skipped by
@@ -84,8 +84,8 @@ we wire the data and the lookup.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

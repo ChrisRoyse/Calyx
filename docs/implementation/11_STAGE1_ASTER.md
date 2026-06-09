@@ -171,10 +171,10 @@ cards; their current disposition follows. None block downstream stages.
    bounded by the manifest's `durable_seq` instead of replaying the whole log.
    Fixed in commit `75975a9` ("Unify Aster vault manifest recovery"), with new
    `vault/recovery_tests.rs` coverage.
-2. ◻ **Deferred (cosmetic, PH10).** Recovery logic still lives in
+2. **Accepted non-work (cosmetic, PH10).** Recovery logic still lives in
    `manifest/mod.rs::recover_vault` rather than a split-out `manifest/recovery.rs`
-   — module placement only; no behavioural impact.
-3. ◻ **Deferred to PH44 (PH10).** `degraded_rebuildable` still has no code path
+   — module placement only; no behavioural impact and no live issue required.
+3. **Deferred to PH44 (PH10), owner #342.** `degraded_rebuildable` still has no code path
    that sets it true on a corrupt derived CF; the degrade/self-heal path lands
    with Anneal self-heal (PH44).
 4. ✅ **RESOLVED — durable / `CfRouter` / `CompactionScheduler` unified
@@ -188,13 +188,12 @@ cards; their current disposition follows. None block downstream stages.
    checkpoint SSTs, router flush SSTs, manifest recovery scans, vault catalog
    discovery, one-shot compaction output, and scheduler output all resolve hot
    vs archive roots through the same policy.
-5. ◻ **Explicit deferral (PH06).** `sst/arrow.rs` (Arrow SoA column chunk) is
+5. **Explicit deferral (PH06), owner #341.** `sst/arrow.rs` (Arrow SoA column chunk) is
    implemented + demo-wired, but slot CF values stay row-encoded via
    `vault/encode.rs::encode_slot_vector`. Row-level slot vectors remain the
    CRUD/recovery format for Aster; Arrow chunks belong to the later materialized
    array-bundle/slot-column work where a batch of vectors becomes a true SoA
-   column (PRD `23 §2`; tracked by #337 until narrowed into its long-term
-   storage task).
+   column (PRD `23 §2`).
 6. ✅ **RESOLVED — dedicated ledger stub (PH09).** The PH35 ledger-stub row now
    lives in a dedicated `vault/ledger_stub.rs` (commit `3e6c03d`); the real
    hash-chain still lands in PH35.

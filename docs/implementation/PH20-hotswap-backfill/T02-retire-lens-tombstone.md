@@ -28,7 +28,7 @@ expansion.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn retire_lens(registry: &mut Registry, slot_id: SlotId, store: &dyn VaultStore) -> Result<()>`:
+- [x] `pub fn retire_lens(registry: &mut Registry, slot_id: SlotId, store: &dyn VaultStore) -> Result<()>`:
   1. Look up `slot_id` in the panel; if absent →
      core lifecycle fail-closed error.
   2. Look up `LensId` → `LensSpec`; if already `Retired` → no-op, `Ok(())`.
@@ -45,27 +45,27 @@ expansion.
 - [x] `SlotIndexMap` tracks `SlotState`; parked/retired slots are excluded from
   default search and explicit inactive-slot search returns
   `CALYX_SEXTANT_SLOT_INACTIVE` (#327).
-- [ ] Guard: assert no code path calls `self.slot_states.remove(slot_id)`
+- [x] Guard: assert no code path calls `self.slot_states.remove(slot_id)`
   (tombstone is permanent until GC).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `add_lens` → `retire_lens` → `slot_states[slot_id] == Retired`;
+- [x] unit: `add_lens` → `retire_lens` → `slot_states[slot_id] == Retired`;
   `panel_version == 2`.
 - [x] unit: `retire_lens` on already-retired slot → `Ok(())`, `panel_version`
   not incremented again (#327).
-- [ ] unit: `retire_lens` on unknown `slot_id` → `CALYX_LENS_FROZEN_VIOLATION`
+- [x] unit: `retire_lens` on unknown `slot_id` → `CALYX_LENS_FROZEN_VIOLATION`
   in the current core catalog.
-- [ ] unit: after `retire_lens`, `Registry::measure` for that slot returns
+- [x] unit: after `retire_lens`, `Registry::measure` for that slot returns
   `AbsentReason::LensInactive` (not a hard error, not a zero vector).
-- [ ] unit: the `lenses` map still contains the retired lens entry (history
+- [x] unit: the `lenses` map still contains the retired lens entry (history
   preserved).
 - [x] edge: pending backfill queue no longer contains active work for the
   retired slot (#327).
-- [ ] edge (≥3): (1) retire then `add_lens` same spec → new `SlotId` allocated
+- [x] edge (≥3): (1) retire then `add_lens` same spec → new `SlotId` allocated
   (retired id not reused), new slot active; (2) retired slot's CF rows are NOT
   deleted (assert row still present in mock store).
-- [ ] fail-closed: unknown slot id → exact core lifecycle error.
+- [x] fail-closed: unknown slot id → exact core lifecycle error.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -78,8 +78,8 @@ expansion.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

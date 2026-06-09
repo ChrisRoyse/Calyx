@@ -20,36 +20,36 @@ of the full contract chain.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] In `candle.rs`: after mean-pooling, compute `actual_dim = data.len()`;
+- [x] In `candle.rs`: after mean-pooling, compute `actual_dim = data.len()`;
   if `actual_dim != self.dim as usize` → return `CALYX_LENS_DIM_MISMATCH`
   before L2 normalization (catches model config errors early).
-- [ ] In `onnx.rs`: same check after extracting the flat `Vec<f32>`.
-- [ ] Shared helper `runtime_normalize_checked(data: Vec<f32>, expected_dim: u32, norm_policy: NormPolicy) -> Result<SlotVector>`:
+- [x] In `onnx.rs`: same check after extracting the flat `Vec<f32>`.
+- [x] Shared helper `runtime_normalize_checked(data: Vec<f32>, expected_dim: u32, norm_policy: NormPolicy) -> Result<SlotVector>`:
   - check len == expected_dim → `CALYX_LENS_DIM_MISMATCH` if not.
   - L2-normalize in place if `norm_policy == NormPolicy::L2`.
   - call `check_finite` → `CALYX_LENS_NUMERICAL_INVARIANT` if not.
   - call `check_unit_norm(…, tol=1e-4)` → `CALYX_LENS_NUMERICAL_INVARIANT` if not.
   - return `SlotVector::Dense { dim: expected_dim, data }`.
-- [ ] Both `CandleLocalLens::measure` and `OnnxLens::measure` call
+- [x] Both `CandleLocalLens::measure` and `OnnxLens::measure` call
   `runtime_normalize_checked` as their final step.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `runtime_normalize_checked` on a 3-vector `[3.0, 4.0, 0.0]`
+- [x] unit: `runtime_normalize_checked` on a 3-vector `[3.0, 4.0, 0.0]`
   with `expected_dim=3`, `L2` → norm ≈ 1.0 (`[0.6, 0.8, 0.0]`), no error.
-- [ ] unit: `runtime_normalize_checked` on 4 values but `expected_dim=3` →
+- [x] unit: `runtime_normalize_checked` on 4 values but `expected_dim=3` →
   `CALYX_LENS_DIM_MISMATCH`.
-- [ ] unit: `runtime_normalize_checked` on `[f32::NAN, 0.0, 0.0]` →
+- [x] unit: `runtime_normalize_checked` on `[f32::NAN, 0.0, 0.0]` →
   `CALYX_LENS_NUMERICAL_INVARIANT` (post-normalize NaN).
-- [ ] integration (`#[ignore]`): `CandleLocalLens` on aiwonder returns dim=768,
+- [x] integration (`#[ignore]`): `CandleLocalLens` on aiwonder returns dim=768,
   norm ∈ [0.9999, 1.0001].
-- [ ] integration (`#[ignore]`): `OnnxLens` on aiwonder returns dim=768,
+- [x] integration (`#[ignore]`): `OnnxLens` on aiwonder returns dim=768,
   norm ∈ [0.9999, 1.0001].
-- [ ] edge (≥3): (1) all-zero vector → after L2-normalize with zero norm →
+- [x] edge (≥3): (1) all-zero vector → after L2-normalize with zero norm →
   `CALYX_LENS_NUMERICAL_INVARIANT` (zero norm is non-finite after division);
   (2) dim=1 vector → normalizes to ±1.0; (3) very large values (1e30) →
   normalize produces unit-norm finite vector.
-- [ ] fail-closed: any dim mismatch or non-finite value → named CALYX_* error.
+- [x] fail-closed: any dim mismatch or non-finite value → named CALYX_* error.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -62,8 +62,8 @@ of the full contract chain.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH19 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH19 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

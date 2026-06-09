@@ -21,7 +21,7 @@ the demo that justifies the project.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `tests/planner_intent.rs` — always-runs test suite (no external dataset):
+- [x] `tests/planner_intent.rs` — always-runs test suite (no external dataset):
       Build a `SlotIndexMap` with:
       - one dense HNSW slot (128-dim, 100 random vecs, seed=42)
       - one sparse InvertedIndex slot (same 100 constellations, text from the
@@ -40,17 +40,17 @@ the demo that justifies the project.
       ```
       For each: call `plan()`, assert `intent` matches, assert `strategy_chosen`
       starts with the expected prefix
-- [ ] Unbounded plan test:
+- [x] Unbounded plan test:
       - Create `query` with `k = usize::MAX` → assert `plan()` returns
         `Err(CalyxError::CALYX_SEXTANT_PLAN_UNBOUNDED)`
       - Create `query` with `ef` via `Query.rerank.top_k_candidates = usize::MAX`
         equivalent → same error
-- [ ] Explain test:
+- [x] Explain test:
       - Run `planned_explain_search` with `explain=true` on a "causal" query →
         assert: `hits[0].inner.hit.per_lens.len() >= 1`,
         `hits[0].intent == IntentLabel::Causal`,
         `hits[0].inner.hit.provenance != LedgerRef::zero()`
-- [ ] Print summary line at end:
+- [x] Print summary line at end:
       ```
       intent=code strategy=single_lens ok=true
       intent=causal strategy=weighted_rrf:causal ok=true
@@ -63,13 +63,13 @@ the demo that justifies the project.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] integration (always runs): all 6 intent cases pass strategy check
-- [ ] integration: unbounded plan rejected (2 variants)
-- [ ] integration: explain breakdown has correct fields for causal query
-- [ ] unit: `LedgerRef::zero()` is a defined constant and differs from any stub ref
-- [ ] edge: `plan()` on a query with `lenses = Explicit([])` (empty slot list) →
+- [x] integration (always runs): all 6 intent cases pass strategy check
+- [x] integration: unbounded plan rejected (2 variants)
+- [x] integration: explain breakdown has correct fields for causal query
+- [x] unit: `LedgerRef::zero()` is a defined constant and differs from any stub ref
+- [x] edge: `plan()` on a query with `lenses = Explicit([])` (empty slot list) →
       `CALYX_SEXTANT_NO_LENSES`
-- [ ] fail-closed: any case where `plan()` returns `Err` causes the entire search
+- [x] fail-closed: any case where `plan()` returns `Err` causes the entire search
       to abort — assert no partial hits are returned
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -83,8 +83,8 @@ the demo that justifies the project.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

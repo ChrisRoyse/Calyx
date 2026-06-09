@@ -23,45 +23,45 @@ This is the gate that closes Stage 3 (the Registry / Lenses stage).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Test `all_default_panels_instantiate`:
+- [x] Test `all_default_panels_instantiate`:
   - for each of `text_default()`, `code_default()`, `civic_default()`,
     `media_default()`: call `instantiate_panel` with a mock registry+store.
   - print `"{panel_name}: {slot_count} slots"`.
   - assert `text_default` has ≥ 8 slots; code ≥ 15; civic ≥ 24; media ≥ 10.
   - assert all four panels contain at least one slot with each of `E2_recency`,
     `E3_periodic`, `E4_positional` names.
-- [ ] Test `e2_hand_computed_linear`:
+- [x] Test `e2_hand_computed_linear`:
   - reference time = 1_000_000 (Unix secs), event time = 900_000, max_age = 200_000.
   - expected: `age = 100_000`, `score = 1.0 - 100000/200000 = 0.5`. Assert `score == 0.5`.
-- [ ] Test `e2_hand_computed_exponential`:
+- [x] Test `e2_hand_computed_exponential`:
   - reference = 86400, event = 0, half_life = 86400.
   - expected: `score = exp(-0.693147) ≈ 0.5000`. Assert within 1e-4.
-- [ ] Test `e3_hand_computed_hour`:
+- [x] Test `e3_hand_computed_hour`:
   - timestamp representing 14:30 UTC; `target_hour=14`.
   - expected: `hour_score = 1.0 - 0/12 = 1.0` (exact match). Assert `hour_score == 1.0`.
-- [ ] Test `e3_hand_computed_dow`:
+- [x] Test `e3_hand_computed_dow`:
   - timestamp for a Monday (dow=0); `target_day_of_week=3` (Thursday).
   - circular dist = min(3, 4) = 3; `dow_score = 1.0 - 3/3.5 ≈ 0.1429`. Assert within 1e-4.
-- [ ] Test `e4_hand_computed_midpoint`:
+- [x] Test `e4_hand_computed_midpoint`:
   - `position=50, total=100` → `pos_ratio=0.5` →
     `[sin(π/2)=1.0, cos(π/2)=0.0, sin(π/2)=1.0, cos(π/2)=0.0]`. Assert each within 1e-6.
-- [ ] Test `temporal_flags_on_all_three`:
+- [x] Test `temporal_flags_on_all_three`:
   - assert all three temporal lens specs in the text_default panel have
     `retrieval_only=true` and `excluded_from_dedup=true`.
-- [ ] Test `determinism_all_temporal`:
+- [x] Test `determinism_all_temporal`:
   - call `determinism_probe` (PH17 T04) on each of E2, E3, E4 with the
     canonical probe input → assert `Ok(())` for each.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] All seven sub-tests above are non-`#[ignore]` (no network needed).
-- [ ] Each reference value is hard-coded as a constant in the test with a
+- [x] All seven sub-tests above are non-`#[ignore]` (no network needed).
+- [x] Each reference value is hard-coded as a constant in the test with a
   comment showing the hand computation.
-- [ ] proptest: run all three temporal lenses on 100 seeded random timestamps
+- [x] proptest: run all three temporal lenses on 100 seeded random timestamps
   → all outputs finite, all within declared ranges.
-- [ ] edge: `e4_hand_computed` at `position=0` and `position=total` (boundary
+- [x] edge: `e4_hand_computed` at `position=0` and `position=total` (boundary
   values) produce the exact expected sinusoidal values.
-- [ ] fail-closed: if any sub-test panics, the panic message includes the lens
+- [x] fail-closed: if any sub-test panics, the panic message includes the lens
   name and the failing value.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -86,8 +86,8 @@ This is the gate that closes Stage 3 (the Registry / Lenses stage).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

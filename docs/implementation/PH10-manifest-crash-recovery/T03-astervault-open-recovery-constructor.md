@@ -21,7 +21,7 @@ vault usable across process restarts.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] In `AsterVault`, add `open(vault_dir: PathBuf, vault_salt: Vec<u8>,
+- [x] In `AsterVault`, add `open(vault_dir: PathBuf, vault_salt: Vec<u8>,
   options: VaultOptions) -> Result<Self>`:
   - Create `CfRouter::open(vault_dir.clone(), options.memtable_byte_cap)`.
   - If `CURRENT` exists: `recover_vault(&vault_dir)?` → `reconstruct_from_recovery
@@ -30,24 +30,24 @@ vault usable across process restarts.
   - Build `VersionedCfStore::new_with_router(start_seq, cf_router)`.
   - Wire `GroupCommitBatcher` for WAL writes.
   - Return the vault.
-- [ ] Add `VaultOptions`: `memtable_byte_cap`, `wal_options`, `clock` (injectable).
-- [ ] After `open`, the vault's `snapshot()` returns `last_recovered_seq` (not 0).
-- [ ] Write test: put N constellations; flush; call `AsterVault::open` on the same
+- [x] Add `VaultOptions`: `memtable_byte_cap`, `wal_options`, `clock` (injectable).
+- [x] After `open`, the vault's `snapshot()` returns `last_recovered_seq` (not 0).
+- [x] Write test: put N constellations; flush; call `AsterVault::open` on the same
   vault dir; `snapshot()` == N; `get` all N constellations byte-exact.
-- [ ] Write test: `open` on a directory with a manifest but no WAL records after
+- [x] Write test: `open` on a directory with a manifest but no WAL records after
   `durable_seq` → vault starts at `durable_seq`, reads SST data correctly.
-- [ ] Write test: `open` on an empty directory (first launch) → no error;
+- [x] Write test: `open` on an empty directory (first launch) → no error;
   `snapshot() == 0`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: put+flush → open → get: byte-exact.
-- [ ] unit: open on empty dir → no error, snapshot=0.
-- [ ] unit: open with WAL records after durable_seq → snapshot = last_recovered_seq.
-- [ ] edge (≥3): (1) open twice on same dir sequentially (no crash) → second open
+- [x] unit: put+flush → open → get: byte-exact.
+- [x] unit: open on empty dir → no error, snapshot=0.
+- [x] unit: open with WAL records after durable_seq → snapshot = last_recovered_seq.
+- [x] edge (≥3): (1) open twice on same dir sequentially (no crash) → second open
   recovers cleanly; (2) open with torn WAL tail → recovers to last acked; (3)
   corrupt MANIFEST → `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] fail-closed: corrupt MANIFEST → `CALYX_ASTER_CORRUPT_SHARD` on `open`.
+- [x] fail-closed: corrupt MANIFEST → `CALYX_ASTER_CORRUPT_SHARD` on `open`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -65,8 +65,8 @@ vault usable across process restarts.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -19,33 +19,33 @@ specifies two slots only touches those two indexes.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `SlotIndexMap` struct backed by `DashMap<SlotId, RwLock<Box<dyn Index>>>`
+- [x] `SlotIndexMap` struct backed by `DashMap<SlotId, RwLock<Box<dyn Index>>>`
       or `parking_lot::RwLock<HashMap<SlotId, Box<dyn Index>>>` (choose and
       document; the latter is simpler and preferred for embedded use)
-- [ ] `fn register(&mut self, slot: SlotId, index: Box<dyn Index>) -> Result<(), CalyxError>`:
+- [x] `fn register(&mut self, slot: SlotId, index: Box<dyn Index>) -> Result<(), CalyxError>`:
       fail if slot already registered with a different dim →
       `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED`
-- [ ] `fn insert(&self, slot: SlotId, id: CxId, vec: &[f32]) -> Result<(), CalyxError>`:
+- [x] `fn insert(&self, slot: SlotId, id: CxId, vec: &[f32]) -> Result<(), CalyxError>`:
       acquires write lock for the slot; `CALYX_SEXTANT_SLOT_NOT_FOUND` if absent
-- [ ] `fn search(&self, slot: SlotId, query: &[f32], k: usize, ef: usize) -> Result<Vec<(CxId, f32)>, CalyxError>`:
+- [x] `fn search(&self, slot: SlotId, query: &[f32], k: usize, ef: usize) -> Result<Vec<(CxId, f32)>, CalyxError>`:
       acquires read lock; `CALYX_SEXTANT_SLOT_NOT_FOUND` if absent
-- [ ] `fn slots(&self) -> Vec<SlotId>` — lists registered slots (for planner)
-- [ ] `fn rebuild_slot(&self, slot: SlotId) -> Result<(), CalyxError>`:
+- [x] `fn slots(&self) -> Vec<SlotId>` — lists registered slots (for planner)
+- [x] `fn rebuild_slot(&self, slot: SlotId) -> Result<(), CalyxError>`:
       acquires write lock, calls `index.rebuild()`; used by Anneal self-heal (PH44)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: register two slots, insert 5 vecs each, search each slot → results
+- [x] unit: register two slots, insert 5 vecs each, search each slot → results
       are independent (no cross-slot contamination)
-- [ ] unit: `slots()` returns both registered slots, in deterministic order
-- [ ] proptest: concurrent reads from N threads (N=4) on the same slot all succeed
+- [x] unit: `slots()` returns both registered slots, in deterministic order
+- [x] proptest: concurrent reads from N threads (N=4) on the same slot all succeed
       and return identical results for the same query
-- [ ] edge: `insert` to unregistered slot → `CALYX_SEXTANT_SLOT_NOT_FOUND`
-- [ ] edge: `register` same slot twice with different dim →
+- [x] edge: `insert` to unregistered slot → `CALYX_SEXTANT_SLOT_NOT_FOUND`
+- [x] edge: `register` same slot twice with different dim →
       `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED`
-- [ ] edge: `search` after `rebuild_slot` returns same results as before rebuild
+- [x] edge: `search` after `rebuild_slot` returns same results as before rebuild
       (recall@5 == 1.0 on small set)
-- [ ] fail-closed: `search` on empty map → `CALYX_SEXTANT_SLOT_NOT_FOUND`
+- [x] fail-closed: `search` on empty map → `CALYX_SEXTANT_SLOT_NOT_FOUND`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -63,8 +63,8 @@ specifies two slots only touches those two indexes.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

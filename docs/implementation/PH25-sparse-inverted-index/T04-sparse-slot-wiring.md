@@ -23,7 +23,7 @@ must clear stale sparse-vector readback.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `Index` for `InvertedIndex` (completing the stub from T02):
+- [x] Implement `Index` for `InvertedIndex` (completing the stub from T02):
       - `insert(id: CxId, vec: &[f32])` — see T02 note on text encoding; add a
         parallel `insert_text(id: CxId, text: &str)` method that the ingest path
         calls directly when it knows the slot is sparse; the `vec` path decodes
@@ -36,29 +36,29 @@ must clear stale sparse-vector readback.
       - `dim()` — returns 0 (sparse index has no fixed dimension; callers must
         check `SlotKind` before calling dim-dependent operations)
       - `len()` — returns `total_docs` minus tombstone count
-- [ ] Update `SlotIndexMap::register` to accept `SlotKind` alongside the index;
+- [x] Update `SlotIndexMap::register` to accept `SlotKind` alongside the index;
       add `fn kind_of(&self, slot: SlotId) -> Option<SlotKind>` for planner use
-- [ ] `SlotKind::Sparse` variant added to the enum from PH24 T04; assert that
+- [x] `SlotKind::Sparse` variant added to the enum from PH24 T04; assert that
       `WeightedRRF("lexical")` profile's `slot_weights` now matches `SlotKind::Sparse`
-- [ ] Ingest path: when adding a constellation to a vault, the registry calls
+- [x] Ingest path: when adding a constellation to a vault, the registry calls
       `insert_text` for sparse slots and `insert` (float vec) for dense slots —
       this routing lives in `search.rs` near the `EmbedQuery` trait
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: register one HNSW slot + one InvertedIndex slot in `SlotIndexMap`;
+- [x] unit: register one HNSW slot + one InvertedIndex slot in `SlotIndexMap`;
       insert the same 5 constellations with both text and float vecs; `RRF` search
       returns hits with `per_lens.len() == 2` (both slots contribute)
-- [ ] unit: `kind_of(sparse_slot) == Some(SlotKind::Sparse)`,
+- [x] unit: `kind_of(sparse_slot) == Some(SlotKind::Sparse)`,
       `kind_of(dense_slot) == Some(SlotKind::Dense)`
-- [ ] unit: `WeightedRRF("lexical")` search on a two-slot map → only the sparse
+- [x] unit: `WeightedRRF("lexical")` search on a two-slot map → only the sparse
       slot contributes (dense weight=0.0)
-- [ ] unit: `dim()` on `InvertedIndex` returns 0; dense search guarded by
+- [x] unit: `dim()` on `InvertedIndex` returns 0; dense search guarded by
       `SlotKind` check does not call `dim()` on sparse slots
-- [ ] edge: `search` on InvertedIndex with empty query text → `Ok(vec![])` (no
+- [x] edge: `search` on InvertedIndex with empty query text → `Ok(vec![])` (no
       query tokens → no candidates, not an error)
-- [ ] edge: `insert_text` on a dense slot → `CALYX_SEXTANT_WRONG_INDEX_KIND`
-- [ ] fail-closed: registering two sparse slots with the same `SlotId` →
+- [x] edge: `insert_text` on a dense slot → `CALYX_SEXTANT_WRONG_INDEX_KIND`
+- [x] fail-closed: registering two sparse slots with the same `SlotId` →
       `CALYX_SEXTANT_SLOT_ALREADY_REGISTERED`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -71,8 +71,8 @@ must clear stale sparse-vector readback.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH25 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

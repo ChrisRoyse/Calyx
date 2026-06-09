@@ -47,7 +47,7 @@ requests; a registry-specific not-found code would be a later catalog expansion.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `add_lens` → `park_lens` → `slot_states[slot_id] == Parked`,
+- [x] unit: `add_lens` → `park_lens` → `slot_states[slot_id] == Parked`,
   `panel_version == 2`.
 - [x] unit: `park_lens` already-parked → no-op, `panel_version` unchanged.
 - [x] unit: `park_lens`/`unpark_lens` on retired slot →
@@ -56,10 +56,10 @@ requests; a registry-specific not-found code would be a later catalog expansion.
   `panel_version == 3`; queue mutation is not fabricated on unpark.
 - [x] unit: `unpark_lens` already-active slot → no-op, `panel_version`
   unchanged.
-- [ ] edge (≥3): (1) park → measure returns `LensInactive`; (2) unpark →
+- [x] edge (≥3): (1) park → measure returns `LensInactive`; (2) unpark →
   measure returns a real vector; (3) `panel_version` sequence for
   add+park+unpark is strictly 1, 2, 3.
-- [ ] fail-closed: park on unknown slot → exact core lifecycle error.
+- [x] fail-closed: park on unknown slot → exact core lifecycle error.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -71,8 +71,8 @@ requests; a registry-specific not-found code would be a later catalog expansion.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

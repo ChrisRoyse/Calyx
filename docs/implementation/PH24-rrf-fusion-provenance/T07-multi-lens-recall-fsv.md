@@ -36,23 +36,23 @@ can answer a real vault with multiple lenses and provenance.
          ```
          single_lens_recall@10=NNN rrf_recall@10=NNN delta=NNN provenance_ok=true
          ```
-- [ ] Mark test `#[ignore]` — requires aiwonder + TEI + dataset; not a unit test
-- [ ] If `CALYX_QRELS_ROOT` is absent, the test
+- [x] Mark test `#[ignore]` — requires aiwonder + TEI + dataset; not a unit test
+- [x] If `CALYX_QRELS_ROOT` is absent, the test
       prints `SKIP: dataset not found` and exits with code 0 (not a failure on
       dev machines without the dataset)
-- [ ] Companion README note: "Completing PH24 + migration shadow = recommended
+- [x] Companion README note: "Completing PH24 + migration shadow = recommended
       first demo (`19 §2`)"; point to PH64 for the migration shadow
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] integration (real qrels on aiwonder): `delta >= 0.15` — the primary gate
-- [ ] integration: all returned hits have `provenance != LedgerRef::zero()`
-- [ ] unit (always runs): `compute_recall_at_k(results, relevant, k=10)` correct
+- [x] integration (real qrels on aiwonder): `delta >= 0.15` — the primary gate
+- [x] integration: all returned hits have `provenance != LedgerRef::zero()`
+- [x] unit (always runs): `compute_recall_at_k(results, relevant, k=10)` correct
       for hand-crafted inputs: `results=[1,2,3], relevant={1,4} → recall=0.5`
-- [ ] unit: `compute_recall_at_k` with empty relevant set → 0.0 (not NaN)
-- [ ] unit: `compute_recall_at_k` with all results relevant → 1.0
-- [ ] edge: qrels file missing → `SKIP` message, exit 0 (not panic)
-- [ ] fail-closed: if delta < 0.15 on the real run, test fails with
+- [x] unit: `compute_recall_at_k` with empty relevant set → 0.0 (not NaN)
+- [x] unit: `compute_recall_at_k` with all results relevant → 1.0
+- [x] edge: qrels file missing → `SKIP` message, exit 0 (not panic)
+- [x] fail-closed: if delta < 0.15 on the real run, test fails with
       `assert!(delta >= 0.15, "multi-lens recall delta={delta} < 0.15")` — no
       silent pass
 
@@ -69,8 +69,8 @@ can answer a real vault with multiple lenses and provenance.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

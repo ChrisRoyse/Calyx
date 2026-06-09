@@ -20,33 +20,33 @@ This is the foundation all other PH13 cards build on.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `src/cuda/context.rs`: `pub struct CudaContext { inner: Arc<cudarc::driver::CudaDevice>, determinism: bool }`
-- [ ] `pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext, ForgeError>`
+- [x] `src/cuda/context.rs`: `pub struct CudaContext { inner: Arc<cudarc::driver::CudaDevice>, determinism: bool }`
+- [x] `pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext, ForgeError>`
   — call `cudarc::driver::CudaDevice::new(device_idx)`; on `Err` → `ForgeError::DeviceUnavailable
   { device: format!("cuda:{device_idx}"), detail: format!("{err}"), remediation: "Check that CUDA 13.2 is installed at /usr/local/cuda-13.2 and nvidia-smi shows the RTX 5090 available".to_string() }`
-- [ ] `pub fn query_device_info(ctx: &CudaContext) -> DeviceInfo` — populates
+- [x] `pub fn query_device_info(ctx: &CudaContext) -> DeviceInfo` — populates
   `DeviceInfo { kind: BackendKind::Cuda, name: <device name string>, avx512: false, vram_mib: Some(<total_mem / 1024 / 1024>) }`
-- [ ] VRAM soft-cap check: if `cuMemGetInfo` shows free VRAM < 4096 MiB at init time
+- [x] VRAM soft-cap check: if `cuMemGetInfo` shows free VRAM < 4096 MiB at init time
   → `ForgeError::DeviceUnavailable { detail: "less than 4 GiB VRAM free; TEI containers may be using GPU memory" }` (server mode guard)
-- [ ] `src/cuda/mod.rs`: `pub struct CudaBackend { ctx: CudaContext }`;
+- [x] `src/cuda/mod.rs`: `pub struct CudaBackend { ctx: CudaContext }`;
   `impl CudaBackend { pub fn new() -> Result<Self, ForgeError> { init_cuda(0, false).map(|ctx| Self { ctx }) } }`
-- [ ] `impl Backend for CudaBackend`: stub all methods returning `ForgeError::Unimplemented`
+- [x] `impl Backend for CudaBackend`: stub all methods returning `ForgeError::Unimplemented`
   until T03–T05 fill them; `device_info()` delegates to `query_device_info`
-- [ ] Feature-gate entire `cuda` module: `#[cfg(feature = "cuda")]` in `lib.rs`
+- [x] Feature-gate entire `cuda` module: `#[cfg(feature = "cuda")]` in `lib.rs`
   so `cargo check` (without the feature) passes on Windows dev machine
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit `#[cfg(feature="cuda")]`: `CudaBackend::new()` succeeds on aiwonder;
+- [x] unit `#[cfg(feature="cuda")]`: `CudaBackend::new()` succeeds on aiwonder;
   `device_info().name` contains `"5090"` or `"RTX"` (case-insensitive); `vram_mib >= 30000`
-- [ ] unit `#[cfg(feature="cuda")]`: `query_device_info` returns `kind == BackendKind::Cuda`
-- [ ] unit (mock path): `init_cuda` with a bad device index → `ForgeError::DeviceUnavailable`;
+- [x] unit `#[cfg(feature="cuda")]`: `query_device_info` returns `kind == BackendKind::Cuda`
+- [x] unit (mock path): `init_cuda` with a bad device index → `ForgeError::DeviceUnavailable`;
   `Display` starts with `"CALYX_FORGE_DEVICE_UNAVAILABLE"`
-- [ ] proptest: any `ForgeError::DeviceUnavailable` Display output contains both
+- [x] proptest: any `ForgeError::DeviceUnavailable` Display output contains both
   `"CALYX_FORGE_DEVICE_UNAVAILABLE"` and `"Remediation:"`
-- [ ] edge (≥3): (1) device_idx=99 (non-existent) → `DeviceUnavailable`; (2) `new()` called
+- [x] edge (≥3): (1) device_idx=99 (non-existent) → `DeviceUnavailable`; (2) `new()` called
   twice → second call succeeds (no double-init panic); (3) `device_info()` on a valid backend → all fields non-empty
-- [ ] fail-closed: on any `cudarc` error the returned `ForgeError::DeviceUnavailable`
+- [x] fail-closed: on any `cudarc` error the returned `ForgeError::DeviceUnavailable`
   must NOT contain the raw CUDA error number alone — it must include a human remediation string
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -64,10 +64,10 @@ This is the foundation all other PH13 cards build on.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] `cargo check` (no `--features cuda`) passes on any machine (feature gate works)
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (not yet — proven in T06)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH13 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] `cargo check` (no `--features cuda`) passes on any machine (feature gate works)
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (not yet — proven in T06)
+- [x] FSV evidence (readback output / screenshot) attached to the PH13 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

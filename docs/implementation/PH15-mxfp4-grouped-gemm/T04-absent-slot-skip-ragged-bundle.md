@@ -21,35 +21,35 @@ slot, that is a programmer error detected by a debug assertion.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Extend `GroupedGemmPlan` with `pub slot_ids: Vec<Option<usize>>` — maps each
+- [x] Extend `GroupedGemmPlan` with `pub slot_ids: Vec<Option<usize>>` — maps each
   problem position back to the slot index in the output; `None` entries are absent
   slots whose output buffers must not be written
-- [ ] `pub struct RaggedBatch { pub n_constellations: usize, pub n_slots: usize, pub plan: GroupedGemmPlan }`
+- [x] `pub struct RaggedBatch { pub n_constellations: usize, pub n_slots: usize, pub plan: GroupedGemmPlan }`
   — represents one microbatch of `n_constellations × n_slots` problems where any
   slot in any constellation may be absent
-- [ ] `pub fn build_ragged_batch(ctx: &CudaContext, problems: Vec<Vec<Option<GemmProblem>>>) -> Result<RaggedBatch, ForgeError>`
+- [x] `pub fn build_ragged_batch(ctx: &CudaContext, problems: Vec<Vec<Option<GemmProblem>>>) -> Result<RaggedBatch, ForgeError>`
   — flattens the 2D `problems[cx][slot]` into the 1D plan; `None` → `None` problem;
   verifies that the total number of `Some` entries ≤ the slab capacity
-- [ ] After `execute_grouped_gemm`, verify (in debug builds via `debug_assert!`) that
+- [x] After `execute_grouped_gemm`, verify (in debug builds via `debug_assert!`) that
   output buffer bytes at `None` slot offsets equal their initial sentinel value (a
   per-element `f32::NAN` written before dispatch); if any sentinel was overwritten →
   `debug_assert` fires with message `"absent slot {i} output was written — grouped GEMM absent-slot skip violated"`
-- [ ] `pub fn extract_ragged_results(batch: &RaggedBatch) -> Vec<Vec<Option<Vec<f32>>>>`
+- [x] `pub fn extract_ragged_results(batch: &RaggedBatch) -> Vec<Vec<Option<Vec<f32>>>>`
   — returns the output as a 2D `[cx][slot]` structure; `None` slot → `None` in output
   (never fabricated zeros)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `RaggedBatch` with cx=2, slot=3, one absent slot in cx=0 slot=1:
+- [x] unit: `RaggedBatch` with cx=2, slot=3, one absent slot in cx=0 slot=1:
   results for present slots correct (within 1e-4); `result[0][1]` is `None`
-- [ ] unit: all-absent batch (all `None`) → no kernel launch; `extract_ragged_results`
+- [x] unit: all-absent batch (all `None`) → no kernel launch; `extract_ragged_results`
   returns all `None`; no panic
-- [ ] unit: all-present batch → same result as `grouped_equals_per_loop` (T03)
-- [ ] proptest: for random 4×4 batch with 50% absent slots (seed=42):
+- [x] unit: all-present batch → same result as `grouped_equals_per_loop` (T03)
+- [x] proptest: for random 4×4 batch with 50% absent slots (seed=42):
   present slots' results match per-loop; absent slots' results are `None`
-- [ ] edge (≥3): (1) cx=1, all slots absent; (2) cx=100, all slots present;
+- [x] edge (≥3): (1) cx=1, all slots absent; (2) cx=100, all slots present;
   (3) absent slot at position 0 (first in list)
-- [ ] fail-closed: attempting to read output from a `None` slot → caller gets `None`,
+- [x] fail-closed: attempting to read output from a `None` slot → caller gets `None`,
   not a zero vector (checked by the type system — `Option<Vec<f32>>`)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -67,9 +67,9 @@ slot, that is a programmer error detected by a debug assertion.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set
-- [ ] FSV evidence attached to PH15 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set
+- [x] FSV evidence attached to PH15 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

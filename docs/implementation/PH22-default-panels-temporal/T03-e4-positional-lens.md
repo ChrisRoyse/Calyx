@@ -22,12 +22,12 @@ the sinusoidal positional signal.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `SequenceDirection` enum (from `25 §2`): `Forward`, `Backward`, `Both`.
-- [ ] `MultiAnchorMode` enum: `First`, `Last`, `All`.
-- [ ] `SequenceOptions` struct: `direction: SequenceDirection`,
+- [x] `SequenceDirection` enum (from `25 §2`): `Forward`, `Backward`, `Both`.
+- [x] `MultiAnchorMode` enum: `First`, `Last`, `All`.
+- [x] `SequenceOptions` struct: `direction: SequenceDirection`,
   `multi_anchor: MultiAnchorMode`.
-- [ ] `E4PositionalConfig` struct: `options: SequenceOptions`.
-- [ ] `E4PositionalLens` implementing `calyx_core::Lens`:
+- [x] `E4PositionalConfig` struct: `options: SequenceOptions`.
+- [x] `E4PositionalLens` implementing `calyx_core::Lens`:
   - `shape()` → `SlotShape::Dense(4)`.
   - `modality()` → `Modality::Structured`.
   - `measure(&self, input: &Input) -> Result<SlotVector>`:
@@ -51,18 +51,18 @@ the sinusoidal positional signal.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `position=0, total=10` → `pos_ratio=0.0`;
+- [x] unit: `position=0, total=10` → `pos_ratio=0.0`;
   `[sin(0)=0.0, cos(0)=1.0, sin(π)≈0.0, cos(π)=-1.0]`; assert to 1e-6.
-- [ ] unit: `position=5, total=10` → `pos_ratio=0.5`;
+- [x] unit: `position=5, total=10` → `pos_ratio=0.5`;
   `[sin(π/2)=1.0, cos(π/2)=0.0, sin(π/2)=1.0, cos(π/2)=0.0]`; assert to 1e-6.
-- [ ] unit: `position=10, total=10` → `pos_ratio=1.0`;
+- [x] unit: `position=10, total=10` → `pos_ratio=1.0`;
   `[sin(π)≈0.0, cos(π)=-1.0, sin(0)=0.0, cos(0)=1.0]`; assert to 1e-5.
-- [ ] unit: `direction=Forward` → `data[2..4] == [0.0, 0.0]`.
-- [ ] proptest: all 4 values finite for any `(position, total)` pair.
-- [ ] edge (≥3): (1) `total=0` → no panic (clamp to 1); (2) `position > total`
+- [x] unit: `direction=Forward` → `data[2..4] == [0.0, 0.0]`.
+- [x] proptest: all 4 values finite for any `(position, total)` pair.
+- [x] edge (≥3): (1) `total=0` → no panic (clamp to 1); (2) `position > total`
   → `pos_ratio` clamped to 1.0; (3) `position=u64::MAX, total=u64::MAX` → no
   overflow; ratio = 1.0.
-- [ ] fail-closed: `input.bytes.len() < 16` → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
+- [x] fail-closed: `input.bytes.len() < 16` → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
   with remediation "E4 expects 16 bytes: (u64 position ‖ u64 total) little-endian".
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -74,8 +74,8 @@ the sinusoidal positional signal.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH22 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

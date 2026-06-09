@@ -52,7 +52,7 @@
 > `2163eeb8397de004a8a1c39e04631ccc7aa3f68836a7aa713bca7a6911cf6708`).
 > Default panel instantiation remains template-only: `instantiate_panel` creates
 > core `Panel` rows from `PanelTemplate`; registry/store-backed activation of
-> those templates is a later product surface, not a hidden Stage 3 claim.
+> those templates is a later product surface, not a hidden Stage 3 claim (#342).
 
 The backbone (DOCTRINE §5): make plugging embedders in/out, reading their bits,
 and using their associations as easy as possible. A lens is one call; its worth
@@ -189,7 +189,7 @@ differentiation.
 - **Post-sweep note.** Default panel instantiation is template-only in Stage 3:
   it does not register/store/activate runtime lenses. Registry/store-backed
   activation remains a later product workflow; docs and FSV must not claim it
-  from `instantiate_panel` alone (#339).
+  from `instantiate_panel` alone (#339, owner #342).
 - **FSV gate.** each default panel instantiates with its slots; E2/E3/E4 produce
   deterministic closed-form scores (verified against hand-computed values).
 - **Axioms/PRD.** A27, `05 §7`, `25 §2`.

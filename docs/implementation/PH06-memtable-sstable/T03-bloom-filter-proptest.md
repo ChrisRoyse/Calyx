@@ -20,30 +20,30 @@ invariant that guards the SST point-lookup fast path.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Verify current `BloomFilter` uses ≥10 bits per key; if it does not,
+- [x] Verify current `BloomFilter` uses ≥10 bits per key; if it does not,
   increase the default bit density to 10 bits/key.
-- [ ] Add proptest: for any `Vec<Vec<u8>>` of keys (distinct, up to 1000),
+- [x] Add proptest: for any `Vec<Vec<u8>>` of keys (distinct, up to 1000),
   `BloomFilter::from_keys(keys)` → `may_contain(k) == true` for every `k` in
   keys (no false negatives, zero tolerance).
-- [ ] Add empirical FPR test: insert 10,000 random keys (seeded RNG,
+- [x] Add empirical FPR test: insert 10,000 random keys (seeded RNG,
   `rand::SeedableRng::seed_from_u64(0xDEAD_BEEF)`), generate 100,000 random
   probe keys that are guaranteed not in the insert set, assert FPR < 1%.
-- [ ] Add proptest: `BloomFilter::encode` + `BloomFilter::decode` round-trips: the
+- [x] Add proptest: `BloomFilter::encode` + `BloomFilter::decode` round-trips: the
   re-decoded filter `may_contain` all originally inserted keys.
-- [ ] Add test: `BloomFilter::from_keys([])` (empty) → `may_contain(b"any_key")`
+- [x] Add test: `BloomFilter::from_keys([])` (empty) → `may_contain(b"any_key")`
   may be true or false but must not panic.
-- [ ] Add fail-closed test: `BloomFilter::decode` on a 0-byte slice returns `None`
+- [x] Add fail-closed test: `BloomFilter::decode` on a 0-byte slice returns `None`
   (not a panic).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: insert keys `[b"alpha", b"beta", b"gamma"]`; all three return `true`
+- [x] unit: insert keys `[b"alpha", b"beta", b"gamma"]`; all three return `true`
   from `may_contain`; `b"delta"` may return true or false but must not return
   false for any inserted key.
-- [ ] proptest: `∀ distinct key sets`: no false negatives (zero tolerance).
-- [ ] edge (≥3): (1) empty key set → no panic; (2) single key → `may_contain`
+- [x] proptest: `∀ distinct key sets`: no false negatives (zero tolerance).
+- [x] edge (≥3): (1) empty key set → no panic; (2) single key → `may_contain`
   returns true; (3) encode/decode with max 10,000 keys → lossless.
-- [ ] fail-closed: `decode(b"")` → `None` (not panic, not corrupt filter).
+- [x] fail-closed: `decode(b"")` → `None` (not panic, not corrupt filter).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -55,8 +55,8 @@ invariant that guards the SST point-lookup fast path.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH06 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH06 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

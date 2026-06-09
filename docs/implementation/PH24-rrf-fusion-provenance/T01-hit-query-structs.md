@@ -19,7 +19,7 @@ get them right here so later phases only add, never restructure.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `crates/calyx-sextant/src/hit.rs`:
+- [x] `crates/calyx-sextant/src/hit.rs`:
   ```rust
   pub struct PerLensEntry {
       pub slot: SlotId,
@@ -51,7 +51,7 @@ get them right here so later phases only add, never restructure.
       pub freshness: FreshnessTag,
   }
   ```
-- [ ] `crates/calyx-sextant/src/query.rs`:
+- [x] `crates/calyx-sextant/src/query.rs`:
   ```rust
   pub enum QueryInput { Text(String), Vector(Vec<f32>), Anchor(CxId) }
   pub enum LensSelection { Auto, Explicit(Vec<SlotId>) }
@@ -71,23 +71,23 @@ get them right here so later phases only add, never restructure.
       pub explain: bool,
   }
   ```
-- [ ] `GuardMode` enum: `Off | InRegionOnly(GuardProfile)` (mirrors `10 §1`)
-- [ ] `Predicate` type: opaque for now (`pub struct Predicate(pub String)`) —
+- [x] `GuardMode` enum: `Off | InRegionOnly(GuardProfile)` (mirrors `10 §1`)
+- [x] `Predicate` type: opaque for now (`pub struct Predicate(pub String)`) —
       full predicate parser is Stage 12; this stub compiles and round-trips
-- [ ] Derive `Debug`, `Clone`, `serde::Serialize`, `serde::Deserialize` on all
+- [x] Derive `Debug`, `Clone`, `serde::Serialize`, `serde::Deserialize` on all
       public structs
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `Hit` serde round-trip — serialize to JSON, deserialize, assert all
+- [x] unit: `Hit` serde round-trip — serialize to JSON, deserialize, assert all
       fields equal (use a hand-crafted `Hit` with known `LedgerRef::stub`)
-- [ ] unit: `Query` serde round-trip for each `FusionStrategy` variant
-- [ ] unit: `PerLensEntry` contribution formula: for RRF, `contribution == weight
+- [x] unit: `Query` serde round-trip for each `FusionStrategy` variant
+- [x] unit: `PerLensEntry` contribution formula: for RRF, `contribution == weight
       * 1.0 / (rank as f32 + 60.0)` — assert with f32 tolerance 1e-6
-- [ ] edge: `Hit` with empty `per_lens` compiles and serializes without panic
-- [ ] edge: `FreshnessPolicy::StaleOk { seq_lag: 0 }` is distinct from
+- [x] edge: `Hit` with empty `per_lens` compiles and serializes without panic
+- [x] edge: `FreshnessPolicy::StaleOk { seq_lag: 0 }` is distinct from
       `FreshDerived` (not unified)
-- [ ] fail-closed: deserializing a `Hit` JSON with a missing `provenance` field →
+- [x] fail-closed: deserializing a `Hit` JSON with a missing `provenance` field →
       serde returns `Err`, not a zero/default `LedgerRef`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -99,8 +99,8 @@ get them right here so later phases only add, never restructure.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

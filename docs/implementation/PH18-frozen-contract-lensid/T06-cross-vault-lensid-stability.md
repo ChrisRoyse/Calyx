@@ -20,7 +20,7 @@ instrument in another vault without a lookup service.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Test `cross_vault_same_lensid`:
+- [x] Test `cross_vault_same_lensid`:
   - build `LensSpec` with fixed `name = "test-gte-768"`, fixed
     `weights_sha256 = [0xab; 32]`, fixed `corpus_hash = [0xcd; 32]`,
     `output = SlotShape::Dense(768)`.
@@ -29,27 +29,27 @@ instrument in another vault without a lookup service.
   - register the identical spec + a mock lens in both.
   - assert `r1.get_spec(id1).unwrap().lens_id == r2.get_spec(id2).unwrap().lens_id`.
   - print both ids with `println!("{:x?}", id)`.
-- [ ] Test `cross_vault_different_weights_different_id`:
+- [x] Test `cross_vault_different_weights_different_id`:
   - build two specs differing only in `weights_sha256`; register in separate
     registries; assert `id1 != id2`.
-- [ ] Test `lensid_is_deterministic_across_process_restarts`:
+- [x] Test `lensid_is_deterministic_across_process_restarts`:
   - hard-code the expected bytes from a previous run of `compute_lens_id` with
     the canonical test vector; assert equality on every run.
-- [ ] Assert that `LensId` derives `PartialEq`, `Eq`, `Hash`, `Debug`, and
+- [x] Assert that `LensId` derives `PartialEq`, `Eq`, `Hash`, `Debug`, and
   `serde::{Serialize, Deserialize}` (compile-time check).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: two independent registries produce identical `LensId` for identical
+- [x] unit: two independent registries produce identical `LensId` for identical
   spec (assertion is byte-for-byte equality).
-- [ ] unit: specs differing by one bit in `weights_sha256` → different `LensId`.
-- [ ] unit: canonical test vector → expected pre-committed 16-byte hex value
+- [x] unit: specs differing by one bit in `weights_sha256` → different `LensId`.
+- [x] unit: canonical test vector → expected pre-committed 16-byte hex value
   (from T01).
-- [ ] edge (≥3): (1) registering in different order in each registry does not
+- [x] edge (≥3): (1) registering in different order in each registry does not
   affect `LensId` computation; (2) `corpus_hash` all-ones vs all-zeros → two
   distinct ids; (3) two specs with same name but different `output` shape →
   different ids.
-- [ ] fail-closed: N/A — `compute_lens_id` is total; assert no panic on any
+- [x] fail-closed: N/A — `compute_lens_id` is total; assert no panic on any
   spec.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -62,8 +62,8 @@ instrument in another vault without a lookup service.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH18 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH18 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

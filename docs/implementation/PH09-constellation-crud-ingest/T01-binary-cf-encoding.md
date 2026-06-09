@@ -21,37 +21,37 @@ struct.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `ConstellationHeader`: `cx_id (16B) | vault_id (16B) | panel_version
+- [x] Define `ConstellationHeader`: `cx_id (16B) | vault_id (16B) | panel_version
   (u32 BE) | created_at (u64 BE) | modality (u8) | flags_bits (u8) | n_slots (u16
   BE) | n_anchors (u16 BE) | ledger_seq (u64 BE) | input_hash (32B)` = 102 bytes
   fixed. (Variable-length fields like `scalars` map are encoded as separate CF rows.)
-- [ ] Implement `encode_header(cx: &Constellation) -> Vec<u8>` and
+- [x] Implement `encode_header(cx: &Constellation) -> Vec<u8>` and
   `decode_header(bytes: &[u8]) -> Result<ConstellationHeader>`. On decode, fail
   closed with `CALYX_ASTER_CORRUPT_SHARD` if bytes.len() < 102.
-- [ ] Define `AnchorEncoding`: `kind_tag (u16 BE) | kind_extra (var) |
+- [x] Define `AnchorEncoding`: `kind_tag (u16 BE) | kind_extra (var) |
   value_tag (u8) | value_bytes (var) | source_len (u32 BE) | source_utf8 (var) |
   observed_at (u64 BE) | confidence_bits (u64 BE as f64 raw)`.
-- [ ] Implement `encode_anchor(anchor: &Anchor) -> Vec<u8>` and
+- [x] Implement `encode_anchor(anchor: &Anchor) -> Vec<u8>` and
   `decode_anchor(bytes: &[u8]) -> Result<Anchor>`.
-- [ ] Define `SlotVectorEncoding`: `tag (u8) { 0=Dense, 1=Absent, 2=Sparse }`;
+- [x] Define `SlotVectorEncoding`: `tag (u8) { 0=Dense, 1=Absent, 2=Sparse }`;
   for Dense: `dim (u32 BE) | data (dim * 4B f32 BE)`; for Absent: `reason (u8)`;
   for Sparse: `n_terms (u32 BE) | [(term_id: u32 BE, weight: f32 BE), ...]`.
-- [ ] Implement `encode_slot_vector(sv: &SlotVector) -> Vec<u8>` and
+- [x] Implement `encode_slot_vector(sv: &SlotVector) -> Vec<u8>` and
   `decode_slot_vector(bytes: &[u8]) -> Result<SlotVector>`.
-- [ ] Add `encode_ledger_stub(seq: Seq) -> Vec<u8>`: returns `[0u8; 32]` (32 zero
+- [x] Add `encode_ledger_stub(seq: Seq) -> Vec<u8>`: returns `[0u8; 32]` (32 zero
   bytes — PH35 replaces with real hash-chain entry).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `encode_header` on a known `Constellation` produces bytes with
+- [x] unit: `encode_header` on a known `Constellation` produces bytes with
   `cx_id` bytes at offset 0..16 and `panel_version` BE at offset 32..36.
-- [ ] proptest: `decode_header(encode_header(cx)) == ConstellationHeader { .. }`.
-- [ ] proptest: `decode_anchor(encode_anchor(a)) == a`.
-- [ ] proptest: `decode_slot_vector(encode_slot_vector(sv)) == sv` for all three
+- [x] proptest: `decode_header(encode_header(cx)) == ConstellationHeader { .. }`.
+- [x] proptest: `decode_anchor(encode_anchor(a)) == a`.
+- [x] proptest: `decode_slot_vector(encode_slot_vector(sv)) == sv` for all three
   variants.
-- [ ] edge (≥3): (1) `Absent` with each `AbsentReason` variant; (2) `Dense` with
+- [x] edge (≥3): (1) `Absent` with each `AbsentReason` variant; (2) `Dense` with
   dim=0 → error or empty data; (3) `Sparse` with 0 terms.
-- [ ] fail-closed: truncate encoded bytes by 1 → `CALYX_ASTER_CORRUPT_SHARD` on decode.
+- [x] fail-closed: truncate encoded bytes by 1 → `CALYX_ASTER_CORRUPT_SHARD` on decode.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -63,8 +63,8 @@ struct.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

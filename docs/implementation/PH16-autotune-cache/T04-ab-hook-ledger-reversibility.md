@@ -23,36 +23,36 @@ provenance belongs to later cross-engine Anneal/provenance wiring.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub struct PromotionEvent { pub key: AutotuneKey, pub old_config: BestConfig, pub new_config: BestConfig, pub timestamp_ns: u64, pub action: PromotionAction }`
+- [x] `pub struct PromotionEvent { pub key: AutotuneKey, pub old_config: BestConfig, pub new_config: BestConfig, pub timestamp_ns: u64, pub action: PromotionAction }`
   `pub enum PromotionAction { Promoted, RolledBack }`; serde, Clone, Debug
-- [ ] `pub fn log_promotion(event: &PromotionEvent, log_path: &Path) -> Result<(), ForgeError>`
+- [x] `pub fn log_promotion(event: &PromotionEvent, log_path: &Path) -> Result<(), ForgeError>`
   — append one JSON line (JSONL format) to `log_path`; create file if not exists;
   uses `OpenOptions::append(true)` + `create(true)`; each line ends with `\n`;
   source comment states this is PH16's local append-only audit stub, not Ledger
-- [ ] `pub fn rollback_promotion(cache: &mut AutotuneCache, log: &Path, key: &AutotuneKey, clock: &dyn CalyxClock) -> Result<Option<BestConfig>, ForgeError>`
+- [x] `pub fn rollback_promotion(cache: &mut AutotuneCache, log: &Path, key: &AutotuneKey, clock: &dyn CalyxClock) -> Result<Option<BestConfig>, ForgeError>`
   — read the last `Promoted` event for `key` from `log_path` (scan JSONL from end);
   if found → `cache.rollback(key, event.old_config.clone())`; log a `RolledBack` event;
   return `Some(new_config)` (the demoted config); if no prior promotion → return `None`
-- [ ] `pub struct AbHook { pub rate: f64 }` — `rate` fraction of live dispatches that
+- [x] `pub struct AbHook { pub rate: f64 }` — `rate` fraction of live dispatches that
   run the challenger instead; `pub fn should_use_challenger(hook: &AbHook, rng: &mut ChaCha8Rng) -> bool`
   → `rng.gen::<f64>() < hook.rate`
-- [ ] `pub fn autotune(cache: &AutotuneCache, key: &AutotuneKey) -> BestConfig`
+- [x] `pub fn autotune(cache: &AutotuneCache, key: &AutotuneKey) -> BestConfig`
   — public API; if key found in cache → return clone; else return `BestConfig::default_for(key)`
   where `default_for` chooses `BackendKind::Cuda` if CUDA feature enabled, else `Cpu`,
   with default tile sizes
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `log_promotion` writes one JSONL line; re-read and deserialize → `PromotionEvent` equal
-- [ ] unit: `rollback_promotion` after a `Promoted` event → cache entry = old config; log
+- [x] unit: `log_promotion` writes one JSONL line; re-read and deserialize → `PromotionEvent` equal
+- [x] unit: `rollback_promotion` after a `Promoted` event → cache entry = old config; log
   contains a `RolledBack` event
-- [ ] unit: `autotune` on an absent key → returns default config (not an error)
-- [ ] proptest: `AbHook { rate: 0.1 }` → over 1000 calls (seeded), `should_use_challenger`
+- [x] unit: `autotune` on an absent key → returns default config (not an error)
+- [x] proptest: `AbHook { rate: 0.1 }` → over 1000 calls (seeded), `should_use_challenger`
   rate ≈ 10% (within ±2%)
-- [ ] edge (≥3): (1) `rollback_promotion` on key with no prior promotion → `None`, no error;
+- [x] edge (≥3): (1) `rollback_promotion` on key with no prior promotion → `None`, no error;
   (2) log file in non-existent directory → `CacheError` with path in detail;
   (3) two promotions for same key → rollback only reverts the most recent one
-- [ ] fail-closed: malformed JSONL line in log → `CacheError` with line number and content
+- [x] fail-closed: malformed JSONL line in log → `CacheError` with line number and content
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -73,8 +73,8 @@ provenance belongs to later cross-engine Anneal/provenance wiring.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (JSONL log content) attached to PH16 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (JSONL log content) attached to PH16 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

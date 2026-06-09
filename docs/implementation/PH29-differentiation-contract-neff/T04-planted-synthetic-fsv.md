@@ -26,32 +26,32 @@ FSV (not harness-level unit tests).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `test_planted_redundant_lens_rejected`:
+- [x] Implement `test_planted_redundant_lens_rejected`:
   - create a test vault with a base panel containing one admitted lens `slot_a` with vectors drawn from `N(0,I)` (seed=1)
   - create candidate `slot_b` = `slot_a + N(0, 0.01·I)` (noise-perturbed copy; corr ≈ 0.99)
   - call `admit_lens(slot_b, anchor, panel)`
   - assert `AdmitResult::Reject { reason: Redundant }` with `max_corr > 0.6`
   - read the decision row from the assay CF: `calyx readback --cf assay --slot slot_b --decisions` must show `Rejected(Redundant)`
-- [ ] Implement `test_planted_low_signal_lens_rejected`:
+- [x] Implement `test_planted_low_signal_lens_rejected`:
   - candidate `slot_c` = random vectors uncorrelated with the anchor (MI ≈ 0.0 nats, seed=2)
   - call `admit_lens(slot_c, grounded_anchor, panel)` with n=200 labeled samples
   - assert `AdmitResult::Reject { reason: LowSignal }` with `bits < 0.05`
   - read the decision row: `Rejected(LowSignal)`
-- [ ] Implement `test_n_eff_planted_panel`:
+- [x] Implement `test_n_eff_planted_panel`:
   - create planted panel: 5 near-identical lenses (corr ≈ 0.92, seed=3) + 3 independent lenses (corr ≈ 0.0, seed=4); N=8
   - call `n_eff_panel(panel, vault, forge, clock)`
   - assert `n_eff ∈ [2.5, 4.0]` (known stable rank ≈ 3–4 for this construction)
   - read the abundance report: confirm n_eff shows `Computed { value ∈ [2.5, 4.0] }`
-- [ ] All three tests: seeded RNG only (`ChaCha8Rng`); no `thread_rng()`; no `Instant::now()`; use injected `FixedClock`
-- [ ] Add `#[test]` attribute and `#[cfg(test)]` module; tests run via `cargo test` not a custom harness
+- [x] All three tests: seeded RNG only (`ChaCha8Rng`); no `thread_rng()`; no `Instant::now()`; use injected `FixedClock`
+- [x] Add `#[test]` attribute and `#[cfg(test)]` module; tests run via `cargo test` not a custom harness
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] test_planted_redundant_lens_rejected → `Reject { reason: Redundant, max_corr > 0.6 }` (assertion in the test body)
-- [ ] test_planted_low_signal_lens_rejected → `Reject { reason: LowSignal, bits < 0.05 }` (assertion in the test body)
-- [ ] test_n_eff_planted_panel → `n_eff ∈ [2.5, 4.0]` (assertion in the test body)
-- [ ] regression: all three tests are deterministic across runs (run each test 3× on aiwonder; results identical)
-- [ ] edge: each test fails loudly if the vault setup step fails (no silent skip; `unwrap` with a clear message)
+- [x] test_planted_redundant_lens_rejected → `Reject { reason: Redundant, max_corr > 0.6 }` (assertion in the test body)
+- [x] test_planted_low_signal_lens_rejected → `Reject { reason: LowSignal, bits < 0.05 }` (assertion in the test body)
+- [x] test_n_eff_planted_panel → `n_eff ∈ [2.5, 4.0]` (assertion in the test body)
+- [x] regression: all three tests are deterministic across runs (run each test 3× on aiwonder; results identical)
+- [x] edge: each test fails loudly if the vault setup step fails (no silent skip; `unwrap` with a clear message)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -72,7 +72,7 @@ FSV (not harness-level unit tests).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

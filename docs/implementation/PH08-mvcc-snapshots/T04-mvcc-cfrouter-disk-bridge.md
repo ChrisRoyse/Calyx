@@ -21,36 +21,36 @@ committed seq) and from the on-disk SST (after a `flush_cf`). The vault's
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `VersionedCfStore::new_with_router(start_seq, cf_router: CfRouter)`:
+- [x] Add `VersionedCfStore::new_with_router(start_seq, cf_router: CfRouter)`:
   stores the router; in `commit_batch`, after inserting into the in-memory row
   table, also calls `cf_router.put(cf, key, value)` for each row.
-- [ ] Add `VersionedCfStore::set_start_seq(&self, seq: Seq)`: atomically stores
+- [x] Add `VersionedCfStore::set_start_seq(&self, seq: Seq)`: atomically stores
   the seq allocator's current value (for post-recovery reset by PH10). Only
   callable before any allocations in the current session.
-- [ ] Add `VersionedCfStore::flush_all_cfs(&mut self) -> Result<()>`: calls
+- [x] Add `VersionedCfStore::flush_all_cfs(&mut self) -> Result<()>`: calls
   `cf_router.flush_cf(cf)` for every CF that has a non-empty memtable.
-- [ ] Update `AsterVault::with_clock` to accept an optional `CfRouter`; when
+- [x] Update `AsterVault::with_clock` to accept an optional `CfRouter`; when
   provided, use `VersionedCfStore::new_with_router`.
-- [ ] Write integration test: `AsterVault::put(cx)` → `flush_all_cfs()` → confirm
+- [x] Write integration test: `AsterVault::put(cx)` → `flush_all_cfs()` → confirm
   SST files exist in `vault_dir/cf/base/` and `vault_dir/cf/slot_00/`; open
   `CfRouter::get(Base, base_key(cx.cx_id))` independently and confirm the value
   is present.
-- [ ] Write test: after `flush_all_cfs()`, a new `VersionedCfStore` (cold open)
+- [x] Write test: after `flush_all_cfs()`, a new `VersionedCfStore` (cold open)
   initialized with the same `CfRouter` from the vault dir can read back the rows
   (testing that disk is the SoT, not in-memory).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: put one constellation; flush; assert SST file exists at expected path
+- [x] unit: put one constellation; flush; assert SST file exists at expected path
   and contains the expected key bytes.
-- [ ] unit: cold-open vault (new store, same dir): get the constellation back via
+- [x] unit: cold-open vault (new store, same dir): get the constellation back via
   `CfRouter::get` byte-exact.
-- [ ] unit: `set_start_seq(recovered_seq)` sets the allocator; next `commit_batch`
+- [x] unit: `set_start_seq(recovered_seq)` sets the allocator; next `commit_batch`
   allocates `recovered_seq + 1`.
-- [ ] edge (≥3): (1) put + no flush → data in memtable but not in SST; (2)
+- [x] edge (≥3): (1) put + no flush → data in memtable but not in SST; (2)
   flush twice → second SST file created; (3) cold open on empty vault dir →
   no error, empty store.
-- [ ] fail-closed: `set_start_seq` called after an allocation panics (or returns
+- [x] fail-closed: `set_start_seq` called after an allocation panics (or returns
   Err) — document the constraint.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -69,8 +69,8 @@ committed seq) and from the on-disk SST (after a `flush_cf`). The vault's
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH08 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH08 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

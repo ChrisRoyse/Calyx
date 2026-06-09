@@ -18,7 +18,7 @@ field of `CapabilityCard` so operators can make budget decisions.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn measure_cost(registry: &Registry, lens_id: LensId, probe_set: &ProbeSet) -> Result<CostMetrics>`:
+- [x] `pub fn measure_cost(registry: &Registry, lens_id: LensId, probe_set: &ProbeSet) -> Result<CostMetrics>`:
   - warm-up: call `registry.measure_batch(lens_id, &probe_set.inputs[..min(8, n)])` once
     (discard result; this warms GPU/JIT).
   - timing run: call `measure_batch` on all probe inputs; measure wall time via
@@ -30,23 +30,23 @@ field of `CapabilityCard` so operators can make budget decisions.
   - populate `CostMetrics { ms_per_input, vram_mb_estimated, batch_ceiling:
     spec.cost.batch_ceiling }`.
   - return `Ok(cost)`.
-- [ ] If NVML is unavailable (CPU-only build) → `vram_mb_estimated = 0`.
-- [ ] Use `#[cfg(feature = "nvml")]` for the VRAM measurement path; compile
+- [x] If NVML is unavailable (CPU-only build) → `vram_mb_estimated = 0`.
+- [x] Use `#[cfg(feature = "nvml")]` for the VRAM measurement path; compile
   without it for non-CUDA environments.
-- [ ] `coverage` metric (also in this function):
+- [x] `coverage` metric (also in this function):
   - count probe inputs where `measure` returns a valid `SlotVector` (not an
     error); `coverage = valid_count / total_count`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit (mock lens): `measure_cost` on a mock lens that returns immediately;
+- [x] unit (mock lens): `measure_cost` on a mock lens that returns immediately;
   `ms_per_input > 0.0` and `< 1000.0` (sanity bounds).
-- [ ] unit: if all probes return errors → `coverage = 0.0`.
-- [ ] unit: if all probes succeed → `coverage = 1.0`.
-- [ ] edge (≥3): (1) probe set of 1 input → `ms_per_input` is the time for
+- [x] unit: if all probes return errors → `coverage = 0.0`.
+- [x] unit: if all probes succeed → `coverage = 1.0`.
+- [x] edge (≥3): (1) probe set of 1 input → `ms_per_input` is the time for
   one call; (2) probe set of 0 inputs → `coverage = 0.0`, `ms_per_input = 0.0`
   (no timing run); (3) NVML unavailable → `vram_mb_estimated = 0`, no panic.
-- [ ] fail-closed: NVML error is logged and swallowed; function returns
+- [x] fail-closed: NVML error is logged and swallowed; function returns
   `vram_mb_estimated = 0`, not an error.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -61,8 +61,8 @@ field of `CapabilityCard` so operators can make budget decisions.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

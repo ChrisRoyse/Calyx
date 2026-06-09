@@ -20,9 +20,9 @@ and must not be configurable here.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `RrfStrategy` struct with `weights: HashMap<SlotId, f32>` (default weight
+- [x] `RrfStrategy` struct with `weights: HashMap<SlotId, f32>` (default weight
       1.0 if slot not in map)
-- [ ] `fn fuse(&self, ctx: &FusionContext) -> Result<Vec<Hit>, CalyxError>`:
+- [x] `fn fuse(&self, ctx: &FusionContext) -> Result<Vec<Hit>, CalyxError>`:
       1. For each slot in `ctx.query_vecs`, call `map.search(slot, vec, k * OVER_FETCH, ef)`
          where `OVER_FETCH = 3` (retrieve 3× to give RRF enough candidates)
       2. Assign ranks: rank 0 = highest raw_score for that slot
@@ -31,24 +31,24 @@ and must not be configurable here.
       4. Sort final `HashMap<CxId, (f32, Vec<PerLensEntry>)>` by fused_score desc
       5. Take top-k, construct `Hit` for each
       6. If `ctx.explain`, keep full `per_lens`; if not, keep it anyway (cheap)
-- [ ] `CALYX_SEXTANT_NO_LENSES` if `ctx.query_vecs` is empty
-- [ ] Hits that appear in only 1 slot are still valid (partial participation)
-- [ ] Wire `FusionStrategy::Rrf` in dispatcher → `RrfStrategy` with uniform weights
+- [x] `CALYX_SEXTANT_NO_LENSES` if `ctx.query_vecs` is empty
+- [x] Hits that appear in only 1 slot are still valid (partial participation)
+- [x] Wire `FusionStrategy::Rrf` in dispatcher → `RrfStrategy` with uniform weights
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: 2 slots, 10 vecs each, query → confirm a cx that ranks #1 in both
+- [x] unit: 2 slots, 10 vecs each, query → confirm a cx that ranks #1 in both
       slots has the highest fused score (= `1/(1+60) + 1/(1+60) = 0.0328...`)
-- [ ] unit: cx that appears in only 1 slot ranks lower than one appearing in
+- [x] unit: cx that appears in only 1 slot ranks lower than one appearing in
       both (all else equal)
-- [ ] unit: `per_lens` entries have correct `contribution = weight / (rank+60)`
+- [x] unit: `per_lens` entries have correct `contribution = weight / (rank+60)`
       for each slot, within f32 tolerance 1e-6
-- [ ] proptest: fused_score is non-negative for any inputs
-- [ ] proptest: result list is sorted descending by fused_score
-- [ ] edge: only 1 slot → results match SingleLens with weight=1.0 (up to
+- [x] proptest: fused_score is non-negative for any inputs
+- [x] proptest: result list is sorted descending by fused_score
+- [x] edge: only 1 slot → results match SingleLens with weight=1.0 (up to
       OVER_FETCH ordering differences; assert same top-1)
-- [ ] edge: query_vecs empty → `CALYX_SEXTANT_NO_LENSES`
-- [ ] fail-closed: a slot returns an error → propagated as
+- [x] edge: query_vecs empty → `CALYX_SEXTANT_NO_LENSES`
+- [x] fail-closed: a slot returns an error → propagated as
       `CALYX_SEXTANT_SLOT_NOT_FOUND`, fusion aborts (not partial)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -60,8 +60,8 @@ and must not be configurable here.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH24 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

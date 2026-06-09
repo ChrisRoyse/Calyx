@@ -20,7 +20,7 @@ artifact: an agent reads it and knows exactly which lens to add or cut.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `SlotAttribution`:
+- [x] Define `SlotAttribution`:
   ```rust
   pub struct SlotAttribution {
       pub slot_id: SlotId,
@@ -31,24 +31,24 @@ artifact: an agent reads it and knows exactly which lens to add or cut.
       pub trust: Trusted | Provisional,
   }
   ```
-- [ ] Implement `slot_marginal_bits(slot_k: SlotId, panel: &Panel, anchor_labels: &[u32], panel_mi_total: f32, vault, forge, clock) -> Result<f32, CalyxError>`:
+- [x] Implement `slot_marginal_bits(slot_k: SlotId, panel: &Panel, anchor_labels: &[u32], panel_mi_total: f32, vault, forge, clock) -> Result<f32, CalyxError>`:
   - compute `I(panel∖k; anchor)` by re-running `panel_mi` on the panel minus `slot_k`
   - `marginal = panel_mi_total − I(panel∖k; anchor)`
   - for N > 8: use the approximation `marginal ≈ I(slot_k; anchor) − Σ_{j≠k} pairwise_redundancy_nmi(slot_k, slot_j) / (N-1)` (cheaper; documented)
-- [ ] Implement `attribute_panel(panel, anchor_labels, panel_mi_total, vault, forge, clock) -> Result<Vec<SlotAttribution>, CalyxError>`:
+- [x] Implement `attribute_panel(panel, anchor_labels, panel_mi_total, vault, forge, clock) -> Result<Vec<SlotAttribution>, CalyxError>`:
   - for each active slot `k`: call `slot_marginal_bits`, `lens_signal` (individual bits), compute redundancy fraction
   - set `sole_carrier = marginal_bits > individual_bits * 0.9` (slot carries signal not captured by others)
   - tag `trust: Trusted` iff anchor is grounded (A2)
-- [ ] Wire `attribute_panel` into `PanelSufficiency.per_slot_attribution` (fill the empty vec from T01)
-- [ ] `marginal_value(slot_k, anchor) -> Result<f32, CalyxError>`: public API matching `07 §8`
+- [x] Wire `attribute_panel` into `PanelSufficiency.per_slot_attribution` (fill the empty vec from T01)
+- [x] `marginal_value(slot_k, anchor) -> Result<f32, CalyxError>`: public API matching `07 §8`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: panel of 3 slots where slot_a carries all the signal, slot_b and slot_c are noise → `slot_a.sole_carrier = true`, `slot_a.marginal_bits ≈ I(panel;anchor)`, `slot_b.marginal_bits ≈ 0.0`, `slot_c.marginal_bits ≈ 0.0`
-- [ ] unit: panel of 3 slots with equal signal (each carries 1/3 of the bits) → no sole carriers; all `marginal_bits ≈ I_total/3`
-- [ ] proptest: `Σ marginal_bits ≤ panel_mi_total * 1.1` (attributions don't exceed total MI by more than 10% due to approximation)
-- [ ] edge: panel with 1 slot → that slot is trivially the sole carrier; marginal_bits = I(panel;anchor); panel with 0 slots → empty attribution vec
-- [ ] fail-closed: slot missing from Aster → `CALYX_ASTER_NOT_FOUND` propagated; never returns a fabricated 0.0 marginal for missing data
+- [x] unit: panel of 3 slots where slot_a carries all the signal, slot_b and slot_c are noise → `slot_a.sole_carrier = true`, `slot_a.marginal_bits ≈ I(panel;anchor)`, `slot_b.marginal_bits ≈ 0.0`, `slot_c.marginal_bits ≈ 0.0`
+- [x] unit: panel of 3 slots with equal signal (each carries 1/3 of the bits) → no sole carriers; all `marginal_bits ≈ I_total/3`
+- [x] proptest: `Σ marginal_bits ≤ panel_mi_total * 1.1` (attributions don't exceed total MI by more than 10% due to approximation)
+- [x] edge: panel with 1 slot → that slot is trivially the sole carrier; marginal_bits = I(panel;anchor); panel with 0 slots → empty attribution vec
+- [x] fail-closed: slot missing from Aster → `CALYX_ASTER_NOT_FOUND` propagated; never returns a fabricated 0.0 marginal for missing data
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -62,7 +62,7 @@ artifact: an agent reads it and knows exactly which lens to add or cut.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -26,22 +26,22 @@ described in A9 and `06 §2`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `n_eff_from_agreement_graph(graph: &AgreementGraph, forge: &ForgeHandle) -> Result<NeffEstimate, CalyxError>`:
+- [x] Implement `n_eff_from_agreement_graph(graph: &AgreementGraph, forge: &ForgeHandle) -> Result<NeffEstimate, CalyxError>`:
   - construct the `N×N` agreement matrix `A[i][j] = mean agreement scalar for pair (i,j)` from the sparse adjacency (fill missing pairs with 0.0)
   - compute the eigenvalues of `A` using the power method / Lanczos (Forge sparse eigensolver; N is small ≤ ~30 for shipped panels, so dense fallback is acceptable)
   - `stable_rank = (Σ λ_i)² / Σ λ_i²` — the standard stable rank formula; sum over all eigenvalues
   - return `NeffEstimate::Computed { value: stable_rank, ci_low, ci_high }` where CI is from a bootstrap over the agreement scalars (200 resamples, seed=0)
-- [ ] Implement `n_eff_panel(panel: &Panel, vault, forge, clock) -> Result<NeffEstimate, CalyxError>`: convenience wrapper that calls `agreement_graph` then `n_eff_from_agreement_graph`
-- [ ] Wire updated `n_eff` into `AbundanceReport` (replace `Provisional(N as f32)` from PH27 T06 with `Computed { … }`)
-- [ ] Wire `n_eff` into `LruXtermCache` capacity: `max(n_eff_value.ceil() as usize * N, MIN_CACHE_CAPACITY)` where `MIN_CACHE_CAPACITY = 256`
+- [x] Implement `n_eff_panel(panel: &Panel, vault, forge, clock) -> Result<NeffEstimate, CalyxError>`: convenience wrapper that calls `agreement_graph` then `n_eff_from_agreement_graph`
+- [x] Wire updated `n_eff` into `AbundanceReport` (replace `Provisional(N as f32)` from PH27 T06 with `Computed { … }`)
+- [x] Wire `n_eff` into `LruXtermCache` capacity: `max(n_eff_value.ceil() as usize * N, MIN_CACHE_CAPACITY)` where `MIN_CACHE_CAPACITY = 256`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: planted panel with N=5, 5 near-identical lenses (corr ≈ 0.9) → `n_eff ≈ 1.0 ± 0.3` (all redundant → rank ≈ 1)
-- [ ] unit: planted panel with N=5, 5 orthogonal lenses (corr ≈ 0.0) → `n_eff ≈ 5.0 ± 0.5` (all independent → rank = N)
-- [ ] unit: planted panel with 5 near-identical + 3 independent lenses (N=8) → `n_eff ≈ 3.0 ± 0.8` (known rank ≈ 3+1 = ~4 but stable rank ≈ 3 due to partial redundancy overlap)
-- [ ] proptest: `1.0 ≤ n_eff ≤ N` always (stable rank is bounded by 1 and N)
-- [ ] edge: N=1 → `n_eff = 1.0` exactly (trivially); N=0 → `n_eff = 0.0`, no panic; all pairs with agreement = 0.0 → `n_eff = N` (fully independent)
+- [x] unit: planted panel with N=5, 5 near-identical lenses (corr ≈ 0.9) → `n_eff ≈ 1.0 ± 0.3` (all redundant → rank ≈ 1)
+- [x] unit: planted panel with N=5, 5 orthogonal lenses (corr ≈ 0.0) → `n_eff ≈ 5.0 ± 0.5` (all independent → rank = N)
+- [x] unit: planted panel with 5 near-identical + 3 independent lenses (N=8) → `n_eff ≈ 3.0 ± 0.8` (known rank ≈ 3+1 = ~4 but stable rank ≈ 3 due to partial redundancy overlap)
+- [x] proptest: `1.0 ≤ n_eff ≤ N` always (stable rank is bounded by 1 and N)
+- [x] edge: N=1 → `n_eff = 1.0` exactly (trivially); N=0 → `n_eff = 0.0`, no panic; all pairs with agreement = 0.0 → `n_eff = N` (fully independent)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -60,7 +60,7 @@ described in A9 and `06 §2`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

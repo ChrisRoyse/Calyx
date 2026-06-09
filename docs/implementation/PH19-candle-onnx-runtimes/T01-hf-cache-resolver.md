@@ -19,32 +19,32 @@ hard-coding paths. Token is read from `CALYX_HF_TOKEN` env var.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub struct HfCacheConfig { pub root: PathBuf }` — default from
+- [x] `pub struct HfCacheConfig { pub root: PathBuf }` — default from
   `env::var("CALYX_HOME").map(|p| PathBuf::from(p).join(".hf-cache"))`.
-- [ ] `pub fn resolve(config: &HfCacheConfig, model_id: &str, filename: &str) -> Result<PathBuf>`:
+- [x] `pub fn resolve(config: &HfCacheConfig, model_id: &str, filename: &str) -> Result<PathBuf>`:
   - sanitize `model_id` (replace `/` with `--` following HF hub convention).
   - build path `root/<sanitized_model_id>/<filename>`.
   - if file does not exist → `Err(CalyxError::runtime_unavailable(format!("weight
     file not found: {}; run HF Hub download or set CALYX_HOME correctly", path.display())))`.
   - return the `PathBuf`.
-- [ ] `pub fn hf_token() -> Option<String>`: reads `CALYX_HF_TOKEN` from env;
+- [x] `pub fn hf_token() -> Option<String>`: reads `CALYX_HF_TOKEN` from env;
   returns `None` if absent (public models work without a token).
-- [ ] `HfCacheConfig::from_env() -> Result<Self>`: reads `CALYX_HOME`;
+- [x] `HfCacheConfig::from_env() -> Result<Self>`: reads `CALYX_HOME`;
   returns `CALYX_REGISTRY_RUNTIME_UNAVAILABLE` if `CALYX_HOME` not set.
-- [ ] All paths constructed with `PathBuf::from` / `.join`; no string
+- [x] All paths constructed with `PathBuf::from` / `.join`; no string
   concatenation with `/`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `resolve` with a tmpdir as root + a pre-created dummy file →
+- [x] unit: `resolve` with a tmpdir as root + a pre-created dummy file →
   returns the expected `PathBuf`.
-- [ ] unit: `resolve` when file does not exist → `Err` with
+- [x] unit: `resolve` when file does not exist → `Err` with
   `"CALYX_REGISTRY_RUNTIME_UNAVAILABLE"` and path in message.
-- [ ] unit: model id `"BAAI/bge-m3"` sanitizes to `"BAAI--bge-m3"`.
-- [ ] edge (≥3): (1) `CALYX_HOME` not set → `from_env` fails with clear error;
+- [x] unit: model id `"BAAI/bge-m3"` sanitizes to `"BAAI--bge-m3"`.
+- [x] edge (≥3): (1) `CALYX_HOME` not set → `from_env` fails with clear error;
   (2) `filename` with path separators sanitized or rejected; (3) model id
   with multiple slashes → correct double-dash encoding.
-- [ ] fail-closed: missing weight file → exact `"CALYX_REGISTRY_RUNTIME_UNAVAILABLE"`.
+- [x] fail-closed: missing weight file → exact `"CALYX_REGISTRY_RUNTIME_UNAVAILABLE"`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -57,8 +57,8 @@ hard-coding paths. Token is read from `CALYX_HF_TOKEN` env var.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH19 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH19 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

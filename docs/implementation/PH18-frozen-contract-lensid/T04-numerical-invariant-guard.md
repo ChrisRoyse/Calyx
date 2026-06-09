@@ -19,42 +19,42 @@ they enter the vault.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn check_finite(vec: &SlotVector) -> Result<()>`:
+- [x] `pub fn check_finite(vec: &SlotVector) -> Result<()>`:
   - iterate all `f32` values in `SlotVector::Dense.data` (and Sparse entries).
   - if any `f32::is_nan(v)` or `f32::is_infinite(v)` → `Err(numerical_invariant(…))`.
   - `CalyxError::numerical_invariant` constructor: code
     `"CALYX_LENS_NUMERICAL_INVARIANT"`, remediation `"the lens runtime produced
     a non-finite value; check for training damage, overflow, or misconfigured
     normalization"`.
-- [ ] `pub fn check_unit_norm(vec: &SlotVector, norm_policy: NormPolicy, tol: f32) -> Result<()>`:
+- [x] `pub fn check_unit_norm(vec: &SlotVector, norm_policy: NormPolicy, tol: f32) -> Result<()>`:
   - if `norm_policy != NormPolicy::L2` → `Ok(())` (skip check).
   - compute `norm = sqrt(sum(v^2))` over Dense data.
   - if `(norm - 1.0).abs() > tol` → `Err(numerical_invariant("L2 norm out of
     tolerance"))`.
   - recommended `tol = 1e-4`.
-- [ ] `pub fn check_not_unreachable(vec: &SlotVector) -> Result<()>`:
+- [x] `pub fn check_not_unreachable(vec: &SlotVector) -> Result<()>`:
   - if `SlotVector::Dense.data` is empty → `Err(lens_unreachable(…))`.
   - `CalyxError::lens_unreachable`: code `"CALYX_LENS_UNREACHABLE"`, remediation
     `"the lens runtime returned an empty vector; confirm the runtime is loaded
     and the input modality is supported"`.
-- [ ] Compose into `pub fn check_output(vec: &SlotVector, spec: &LensSpec) -> Result<()>`:
+- [x] Compose into `pub fn check_output(vec: &SlotVector, spec: &LensSpec) -> Result<()>`:
   calls `check_not_unreachable`, `check_dim`, `check_finite`, `check_unit_norm`
   in that order; returns the first error encountered.
-- [ ] Hook `check_output` into `Registry::measure` after every runtime call.
+- [x] Hook `check_output` into `Registry::measure` after every runtime call.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `check_finite` on `Dense { data: vec![0.1, 0.2, 0.3] }` → `Ok(())`.
-- [ ] unit: `check_finite` on `Dense { data: vec![f32::NAN] }` → `Err` with
+- [x] unit: `check_finite` on `Dense { data: vec![0.1, 0.2, 0.3] }` → `Ok(())`.
+- [x] unit: `check_finite` on `Dense { data: vec![f32::NAN] }` → `Err` with
   `"CALYX_LENS_NUMERICAL_INVARIANT"`.
-- [ ] unit: `check_unit_norm` on a 3-vector `[1/sqrt(3); 3]` with `NormPolicy::L2`
+- [x] unit: `check_unit_norm` on a 3-vector `[1/sqrt(3); 3]` with `NormPolicy::L2`
   and `tol=1e-4` → `Ok(())`.
-- [ ] unit: `check_unit_norm` on `[0.0, 0.0, 0.5]` with L2 → `Err` (norm ≈
+- [x] unit: `check_unit_norm` on `[0.0, 0.0, 0.5]` with L2 → `Err` (norm ≈
   0.5, out of tolerance).
-- [ ] unit: `check_not_unreachable` on empty Dense → `CALYX_LENS_UNREACHABLE`.
-- [ ] edge (≥3): (1) `f32::INFINITY` → `CALYX_LENS_NUMERICAL_INVARIANT`;
+- [x] unit: `check_not_unreachable` on empty Dense → `CALYX_LENS_UNREACHABLE`.
+- [x] edge (≥3): (1) `f32::INFINITY` → `CALYX_LENS_NUMERICAL_INVARIANT`;
   (2) `f32::NEG_INFINITY` → same; (3) norm exactly 1.0 → `Ok(())`.
-- [ ] fail-closed: NaN input → exact `"CALYX_LENS_NUMERICAL_INVARIANT"`.
+- [x] fail-closed: NaN input → exact `"CALYX_LENS_NUMERICAL_INVARIANT"`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -65,8 +65,8 @@ they enter the vault.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH18 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH18 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

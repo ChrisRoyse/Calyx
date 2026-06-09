@@ -19,7 +19,7 @@ fields are serializable to a stable JSON representation.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `CapabilityCard` struct (derive `Debug`, `Clone`, `Serialize`,
+- [x] `CapabilityCard` struct (derive `Debug`, `Clone`, `Serialize`,
   `Deserialize`):
   ```
   pub struct CapabilityCard {
@@ -36,32 +36,32 @@ fields are serializable to a stable JSON representation.
       pub collapsed: bool,              // true if participation_ratio < COLLAPSE_THRESHOLD
   }
   ```
-- [ ] `SpreadMetrics` struct: `participation_ratio: f32`, `stable_rank: f32`.
-- [ ] `CostMetrics` struct: `ms_per_input: f32`, `vram_mb_estimated: u32`,
+- [x] `SpreadMetrics` struct: `participation_ratio: f32`, `stable_rank: f32`.
+- [x] `CostMetrics` struct: `ms_per_input: f32`, `vram_mb_estimated: u32`,
   `batch_ceiling: u32`.
-- [ ] `COLLAPSE_THRESHOLD: f32 = 0.05` — a lens with `participation_ratio < 0.05`
+- [x] `COLLAPSE_THRESHOLD: f32 = 0.05` — a lens with `participation_ratio < 0.05`
   is considered collapsed (empirically from ContextGraph embedder probe suite).
-- [ ] `ProbeSet` struct: `inputs: Vec<Input>`, `labels: Option<Vec<String>>`
+- [x] `ProbeSet` struct: `inputs: Vec<Input>`, `labels: Option<Vec<String>>`
   (labels needed for silhouette and signal; if None, silhouette is skipped,
   signal is None).
-- [ ] `ProbeSet::min_size() -> usize { 50 }` — document as minimum for
+- [x] `ProbeSet::min_size() -> usize { 50 }` — document as minimum for
   meaningful spread metrics.
-- [ ] Serde test: `CapabilityCard` with known values round-trips to/from JSON
+- [x] Serde test: `CapabilityCard` with known values round-trips to/from JSON
   byte-exactly.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: construct a `CapabilityCard` with all fields populated; serialize
+- [x] unit: construct a `CapabilityCard` with all fields populated; serialize
   to JSON; deserialize; assert equality.
-- [ ] unit: `collapsed` field is `true` when `participation_ratio < 0.05`,
+- [x] unit: `collapsed` field is `true` when `participation_ratio < 0.05`,
   `false` when `≥ 0.05`.
-- [ ] unit: `signal: None` serializes as `"signal": null` in JSON (not absent
+- [x] unit: `signal: None` serializes as `"signal": null` in JSON (not absent
   key, not 0.0).
-- [ ] edge (≥3): (1) `ProbeSet` with 0 inputs is valid to construct (but
+- [x] edge (≥3): (1) `ProbeSet` with 0 inputs is valid to construct (but
   `profile` will return a coverage=0.0 card); (2) `SpreadMetrics` with both
   fields = 0.0 → `collapsed=true`; (3) `CostMetrics` with vram_mb_estimated=0
   (CPU-only lens).
-- [ ] fail-closed: N/A — struct is pure data; no error paths here.
+- [x] fail-closed: N/A — struct is pure data; no error paths here.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -73,8 +73,8 @@ fields are serializable to a stable JSON representation.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

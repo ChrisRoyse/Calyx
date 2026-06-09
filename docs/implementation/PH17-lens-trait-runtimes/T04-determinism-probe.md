@@ -19,7 +19,7 @@ Also confirm `AlgorithmicLens` is bit-identical across runs.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn determinism_probe(lens: &dyn Lens, input: &Input) -> Result<()>`:
+- [x] `pub fn determinism_probe(lens: &dyn Lens, input: &Input) -> Result<()>`:
   - call `lens.measure(input)` → `v1`.
   - call `lens.measure(input)` → `v2`.
   - compare `v1 == v2` element-for-element (f32 bitwise equality via
@@ -27,29 +27,29 @@ Also confirm `AlgorithmicLens` is bit-identical across runs.
     `CALYX_LENS_NUMERICAL_INVARIANT` with remediation
     "lens failed determinism probe: two measurements of identical input differ".
   - on success → `Ok(())`.
-- [ ] Expose `determinism_probe` from `calyx_registry::frozen` (stub module for
+- [x] Expose `determinism_probe` from `calyx_registry::frozen` (stub module for
   now; PH18 will fill it out fully).
-- [ ] Integration test `determinism_tei_8088` (`#[ignore]`): construct
+- [x] Integration test `determinism_tei_8088` (`#[ignore]`): construct
   `TeiHttpLens` at `127.0.0.1:8088`; call `determinism_probe` with
   `Input::new(Modality::Text, b"the quick brown fox")` → assert `Ok(())`.
-- [ ] Unit test `determinism_algorithmic`: `AlgorithmicLens::AstStyle` on
+- [x] Unit test `determinism_algorithmic`: `AlgorithmicLens::AstStyle` on
   `b"fn main"` → probe returns `Ok(())`; assert in non-ignored test.
-- [ ] `Registry` calls `determinism_probe` on every lens at `register()` time
+- [x] `Registry` calls `determinism_probe` on every lens at `register()` time
   (one probe pair per registration); if probe fails, registration fails with
   `CALYX_LENS_NUMERICAL_INVARIANT`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: mock lens that returns different vectors on second call →
+- [x] unit: mock lens that returns different vectors on second call →
   `determinism_probe` returns `Err` with exact code
   `CALYX_LENS_NUMERICAL_INVARIANT`.
-- [ ] unit: `AlgorithmicLens::Scalar` determinism probe → `Ok(())` on seeded
+- [x] unit: `AlgorithmicLens::Scalar` determinism probe → `Ok(())` on seeded
   known input.
-- [ ] edge (≥3): (1) probe on zero-length vector → OK (trivially equal);
+- [x] edge (≥3): (1) probe on zero-length vector → OK (trivially equal);
   (2) probe on single-element vector with value `0.0` → OK; (3) mock lens
   that returns `NaN` → probe returns `CALYX_LENS_NUMERICAL_INVARIANT` because
   `NaN != NaN` bitwise (caught by the bit-equality check).
-- [ ] fail-closed: any difference in bit pattern → exact
+- [x] fail-closed: any difference in bit pattern → exact
   `CALYX_LENS_NUMERICAL_INVARIANT` with non-empty remediation string.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -64,8 +64,8 @@ Also confirm `AlgorithmicLens` is bit-identical across runs.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

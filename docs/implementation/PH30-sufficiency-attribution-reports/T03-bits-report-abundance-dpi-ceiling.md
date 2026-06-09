@@ -26,12 +26,12 @@ present, real, and non-fabricated. This closes the reporting layer of Stage 5.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Update `AbundanceReport` in `calyx-loom/src/abundance.rs`:
+- [x] Update `AbundanceReport` in `calyx-loom/src/abundance.rs`:
   - replace `n_eff: NeffEstimate::Provisional(N)` with the real value from `n_eff_panel` (PH29 T03)
   - replace `dpi_ceiling_bits: DpiCeiling::Provisional` with `DpiCeiling::Computed { bits: i_panel, anchor: AnchorKind }` from `panel_sufficiency` (T01)
   - add `sufficiency_verdict: Sufficient | Insufficient { deficit_bits: f32 }` field
   - add `meaning_compression_yield: f32` = `materialized_xterms as f32 / n_constellations as f32` (signals materialized per real input; `NaN` when `n_constellations = 0`)
-- [ ] Define `BitsReport`:
+- [x] Define `BitsReport`:
   ```rust
   pub struct BitsReport {
       pub panel_id: PanelId,
@@ -44,24 +44,24 @@ present, real, and non-fabricated. This closes the reporting layer of Stage 5.
       pub trust: Trusted | Provisional,
   }
   ```
-- [ ] Implement `bits_report(panel, anchor, vault, forge, clock) -> Result<BitsReport, CalyxError>`:
+- [x] Implement `bits_report(panel, anchor, vault, forge, clock) -> Result<BitsReport, CalyxError>`:
   - calls `panel_sufficiency` (T01) and `attribute_panel` (T02)
   - assembles `BitsReport`; tags `trust: Trusted` iff anchor is grounded (A2)
   - persists to the assay CF: keyed `(panel_id, anchor_kind, shard_hash, ts)`
-- [ ] `Display` impl for both `AbundanceReport` and `BitsReport` that prints all fields; marks `[provisional]` only when trust is `Provisional`; never hides `C(N,2)` or the DPI ceiling
+- [x] `Display` impl for both `AbundanceReport` and `BitsReport` that prints all fields; marks `[provisional]` only when trust is `Provisional`; never hides `C(N,2)` or the DPI ceiling
 - [x] Core report integration: `stage5_full_stack_fsv` writes `AbundanceReport`
   and `BitsReport` JSON readbacks under the Stage 5 FSV root.
-- [ ] CLI integration deferred to PH62: `calyx abundance --vault <path>` prints
+- [x] CLI integration deferred to PH62: `calyx abundance --vault <path>` prints
   `AbundanceReport`; `calyx bits-report --panel <id> --anchor <kind>` prints
   `BitsReport`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `abundance_report` for a test vault with N=13, n_eff=4.2 (computed), DPI ceiling=0.7 bits → all four honest numbers printed; `[provisional]` absent from n_eff and DPI ceiling fields
-- [ ] unit: `bits_report` for a planted panel: 3 slots, sole carrier on slot_a → report shows `slot_a.sole_carrier: true`, `i_panel ≈ slot_a.individual_bits` (no other slot carries signal)
-- [ ] proptest: `abundance_report.dpi_ceiling_bits ≤ abundance_report.cn2_upper_bound * n_constellations` is never printed as a bare integer without context (formatting invariant — the ceiling is in bits, not a raw xterm count)
-- [ ] edge: vault with no grounded anchors → `dpi_ceiling_bits: Provisional` (no grounded anchor to compute against); `trust: Provisional` throughout; report still printed (not suppressed)
-- [ ] fail-closed: assay CF write failure → `CALYX_ASTER_IO` propagated; report is never partially persisted (all-or-nothing write)
+- [x] unit: `abundance_report` for a test vault with N=13, n_eff=4.2 (computed), DPI ceiling=0.7 bits → all four honest numbers printed; `[provisional]` absent from n_eff and DPI ceiling fields
+- [x] unit: `bits_report` for a planted panel: 3 slots, sole carrier on slot_a → report shows `slot_a.sole_carrier: true`, `i_panel ≈ slot_a.individual_bits` (no other slot carries signal)
+- [x] proptest: `abundance_report.dpi_ceiling_bits ≤ abundance_report.cn2_upper_bound * n_constellations` is never printed as a bare integer without context (formatting invariant — the ceiling is in bits, not a raw xterm count)
+- [x] edge: vault with no grounded anchors → `dpi_ceiling_bits: Provisional` (no grounded anchor to compute against); `trust: Provisional` throughout; report still printed (not suppressed)
+- [x] fail-closed: assay CF write failure → `CALYX_ASTER_IO` propagated; report is never partially persisted (all-or-nothing write)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -87,7 +87,7 @@ present, real, and non-fabricated. This closes the reporting layer of Stage 5.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH30 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

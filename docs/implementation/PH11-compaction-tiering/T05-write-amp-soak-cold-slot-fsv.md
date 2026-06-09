@@ -34,31 +34,31 @@ bound directly on a deterministic two-shard merge.
 - [x] In core compaction coverage, assert that `CompactionReport::write_amp_milli
   <= 2000` for a deterministic per-CF merge. Product soak CLI enforcement stays
   a PH62 workflow concern unless reopened by a separate issue.
-- [ ] Add `calyx compact --vault <path> --cf <name>` CLI subcommand that runs one
+- [x] Add `calyx compact --vault <path> --cf <name>` CLI subcommand that runs one
   compaction for a specific CF and prints the `CompactionReport`.
-- [ ] Write a concurrent read/compact test: 2 reader threads each pinning a
+- [x] Write a concurrent read/compact test: 2 reader threads each pinning a
   snapshot and reading 1000 keys; 1 compaction thread running `compact_cf` 10
   times concurrently; assert all reader reads return consistent values (no
   `CALYX_ASTER_CORRUPT_SHARD`, no wrong values).
-- [ ] Write a tiering test that uses `TieringPolicy::new` with temp-dir hot and
+- [x] Write a tiering test that uses `TieringPolicy::new` with temp-dir hot and
   archive roots; writes a `slot_00.raw` CF SST; asserts the file exists under the
   archive root, not the hot root.
-- [ ] Verify the soak does not leak file descriptors: count open fds before and
+- [x] Verify the soak does not leak file descriptors: count open fds before and
   after on aiwonder via `/proc/self/fd`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit (concurrent): 2 readers + 1 compactor → no read errors over 10 compaction
+- [x] unit (concurrent): 2 readers + 1 compactor → no read errors over 10 compaction
   cycles.
 - [x] unit: deterministic two-shard compaction has `write_amp_milli <= 2000`.
-- [ ] unit: `slot_00.raw` → archive root; `slot_00` (active) → hot root.
-- [ ] proptest: for `n in 1..=5 compaction rounds` with `m in 1..=100 entries`:
+- [x] unit: `slot_00.raw` → archive root; `slot_00` (active) → hot root.
+- [x] proptest: for `n in 1..=5 compaction rounds` with `m in 1..=100 entries`:
   all entries readable after each round; no data loss.
-- [ ] edge (≥3): (1) soak with 0 compactions (all below debt trigger) → write-amp
+- [x] edge (≥3): (1) soak with 0 compactions (all below debt trigger) → write-amp
   metric still reported (1× = 1000 score_milli); (2) soak with forced compaction
   every op → write-amp bounded; (3) cold-tier path does not exist →
   `CALYX_DISK_PRESSURE`.
-- [ ] fail-closed: `write_tiered_sst` to a non-existent and uncreateable path →
+- [x] fail-closed: `write_tiered_sst` to a non-existent and uncreateable path →
   `CALYX_DISK_PRESSURE`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -80,8 +80,8 @@ bound directly on a deterministic two-shard merge.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

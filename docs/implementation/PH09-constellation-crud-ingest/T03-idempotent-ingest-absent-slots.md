@@ -21,36 +21,36 @@ panel_version ‖ salt)[0..16]; if exists → idempotent return`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] In `AsterVault::put`, the dedup check must read from `CfRouter::get(Base,
+- [x] In `AsterVault::put`, the dedup check must read from `CfRouter::get(Base,
   base_key(cx_id))` (disk), not only from the in-memory version chain. This
   handles cold-open dedup (vault was restarted between two identical ingest calls).
-- [ ] On dedup hit: compare `ConstellationHeader` decoded from the stored bytes to
+- [x] On dedup hit: compare `ConstellationHeader` decoded from the stored bytes to
   the incoming constellation; if they match (same ingest identity — same cx_id,
   panel_version, modality, input_hash), return `Ok(cx_id)` without touching the
   WAL or MVCC seq.
-- [ ] On hash collision (same CxId, different ingest identity): return
+- [x] On hash collision (same CxId, different ingest identity): return
   `CALYX_ASTER_CORRUPT_SHARD` (unchanged from current behavior).
-- [ ] Write a test: `put(cx)` where `cx.slots` contains an `Absent { reason:
+- [x] Write a test: `put(cx)` where `cx.slots` contains an `Absent { reason:
   LensUnavailable }` for slot 3; `get` returns `Absent { reason:
   LensUnavailable }` for slot 3 from disk (not None).
-- [ ] Write a test: idempotent re-ingest reads from disk: put → flush → new vault
+- [x] Write a test: idempotent re-ingest reads from disk: put → flush → new vault
   (cold open) → put same bytes again → returns same CxId; WAL has exactly 1
   record; SST unchanged.
-- [ ] Write a test: idempotent re-ingest without flush (dedup from in-memory
+- [x] Write a test: idempotent re-ingest without flush (dedup from in-memory
   cache): put → put same → seq unchanged.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `Absent` slot round-trips through flush + cold-open + `get`.
-- [ ] unit: cold-open idempotent ingest: WAL record count unchanged on second put.
-- [ ] unit: warm (in-memory) idempotent ingest: seq unchanged.
-- [ ] proptest: for any constellation, `put(cx); put(cx)` → seq after second put
+- [x] unit: `Absent` slot round-trips through flush + cold-open + `get`.
+- [x] unit: cold-open idempotent ingest: WAL record count unchanged on second put.
+- [x] unit: warm (in-memory) idempotent ingest: seq unchanged.
+- [x] proptest: for any constellation, `put(cx); put(cx)` → seq after second put
   == seq after first put.
-- [ ] edge (≥3): (1) all slots Absent → constellation still stored and retrieved;
+- [x] edge (≥3): (1) all slots Absent → constellation still stored and retrieved;
   (2) hot-add a real slot value after Absent in a second put → not idempotent
   (seq advances, new row written); (3) same CxId, different modality → collision →
   `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] fail-closed: `CALYX_ASTER_CORRUPT_SHARD` on hash collision.
+- [x] fail-closed: `CALYX_ASTER_CORRUPT_SHARD` on hash collision.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -68,8 +68,8 @@ panel_version ‖ salt)[0..16]; if exists → idempotent return`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

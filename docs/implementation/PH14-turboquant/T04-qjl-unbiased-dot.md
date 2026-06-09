@@ -21,37 +21,37 @@ on quantized codes without dequantization.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `src/quant/qjl.rs`: `pub struct QjlResidual { pub bits: Vec<u8>, pub rademacher_seed: SeedId }`
+- [x] `src/quant/qjl.rs`: `pub struct QjlResidual { pub bits: Vec<u8>, pub rademacher_seed: SeedId }`
   — `bits` packs one bit per rotated coordinate (sign of residual after scalar quant);
   `rademacher_seed` is a separate seeded Rademacher matrix stored as a diagonal (±1)
   vector (same `RotationSeed` construction, but independent draw)
-- [ ] `pub fn encode_qjl_residual(rotated: &[f32], scalar_decoded: &[f32], rademacher: &RotationSeed) -> QjlResidual`
+- [x] `pub fn encode_qjl_residual(rotated: &[f32], scalar_decoded: &[f32], rademacher: &RotationSeed) -> QjlResidual`
   — residual `r_i = rotated[i] - scalar_decoded[i]`; apply the rademacher diagonal:
   `r_i' = r_i * rademacher.diagonal[i]`; `bits[i] = (r_i' > 0) as u8`; pack into bytes
-- [ ] `pub fn dot_qjl_correction(qa: &QjlResidual, qb: &QjlResidual, rademacher: &RotationSeed, scale_a: f32, scale_b: f32) -> f32`
+- [x] `pub fn dot_qjl_correction(qa: &QjlResidual, qb: &QjlResidual, rademacher: &RotationSeed, scale_a: f32, scale_b: f32) -> f32`
   — `correction = (1/d) * scale_a * scale_b * Σ_i (2*bit_a[i]-1)(2*bit_b[i]-1)`
   (bipolar decoding); this is the bias-correction term added to the scalar dot estimate
-- [ ] `pub fn dot_estimate_unbiased(codec: &TurboQuantCodec, qv_a: &QuantizedVec, qv_b: &QuantizedVec) -> Result<f32, ForgeError>`
+- [x] `pub fn dot_estimate_unbiased(codec: &TurboQuantCodec, qv_a: &QuantizedVec, qv_b: &QuantizedVec) -> Result<f32, ForgeError>`
   — scalar dot estimate (from dequantized codes) + QJL correction; returns the
   unbiased estimate; mismatched `seed_id` between a and b → `ForgeError::QuantError { detail: "seed_id mismatch in dot_estimate" }`
-- [ ] Update `TurboQuantCodec::encode` (T03): after scalar quant, encode QJL residual
+- [x] Update `TurboQuantCodec::encode` (T03): after scalar quant, encode QJL residual
   and store `QjlResidual` serialized bytes appended to `QuantizedVec::bytes` (with a
   1-byte tag `0x01` to distinguish scalar from QJL sections)
-- [ ] Update `TurboQuantCodec::dot_estimate`: calls `dot_estimate_unbiased`
+- [x] Update `TurboQuantCodec::dot_estimate`: calls `dot_estimate_unbiased`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `dot_estimate_unbiased` on a vector with itself → estimate ≈ 1.0
+- [x] unit: `dot_estimate_unbiased` on a vector with itself → estimate ≈ 1.0
   (within 0.05 at Bits3p5 for dim=128) since it's the cosine of a unit vector with itself
-- [ ] unit: orthogonal unit vectors → estimate ≈ 0.0 (within 0.05 at Bits3p5)
-- [ ] proptest: over 1000 random unit-vector pairs (seed=42), mean of
+- [x] unit: orthogonal unit vectors → estimate ≈ 0.0 (within 0.05 at Bits3p5)
+- [x] proptest: over 1000 random unit-vector pairs (seed=42), mean of
   `|dot_estimate_unbiased(a,b) - true_dot(a,b)|` ≤ 0.05 at `Bits3p5` dim=128
   (unbiasedness: E[error] ≈ 0)
-- [ ] proptest: the same 1000-pair test at `Bits2p5` → mean error ≤ 0.10
+- [x] proptest: the same 1000-pair test at `Bits2p5` → mean error ≤ 0.10
   (higher distortion at lower bits, but still bounded)
-- [ ] edge (≥3): (1) parallel vectors → estimate ≈ 1.0; (2) anti-parallel → ≈ -1.0;
+- [x] edge (≥3): (1) parallel vectors → estimate ≈ 1.0; (2) anti-parallel → ≈ -1.0;
   (3) mismatched `seed_id` → `ForgeError::QuantError`
-- [ ] fail-closed: `dot_estimate_unbiased` with `seed_id` mismatch → `CALYX_FORGE_QUANT_ERROR`
+- [x] fail-closed: `dot_estimate_unbiased` with `seed_id` mismatch → `CALYX_FORGE_QUANT_ERROR`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -67,9 +67,9 @@ on quantized codes without dequantization.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
-- [ ] FSV evidence (mean_err values + test output) attached to PH14 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set (enforced in T06)
+- [x] FSV evidence (mean_err values + test output) attached to PH14 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -21,35 +21,35 @@ prove that `write_tiered_sst` stages temp files inside the destination dataset
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add test: `TieringPolicy::aiwonder(active_slots=[0,1], panel_version=3)
+- [x] Add test: `TieringPolicy::aiwonder(active_slots=[0,1], panel_version=3)
   .place_cf(CF::slot(SlotId(0)), 3).tier == StorageTier::Hot`.
-- [ ] Add test: `place_cf(CF::slot(SlotId(0)), 2).tier == StorageTier::Cold`
+- [x] Add test: `place_cf(CF::slot(SlotId(0)), 2).tier == StorageTier::Cold`
   (old panel version).
-- [ ] Add test: `place_cf(CF::slot_raw(SlotId(0)), 3).tier == StorageTier::Cold`
+- [x] Add test: `place_cf(CF::slot_raw(SlotId(0)), 3).tier == StorageTier::Cold`
   (`*.raw` is always cold).
-- [ ] Add test: `place_cf(CF::slot(SlotId(2)), 3).tier == StorageTier::Cold`
+- [x] Add test: `place_cf(CF::slot(SlotId(2)), 3).tier == StorageTier::Cold`
   (slot 2 not in active_slots).
-- [ ] Add test: `place_cf(CF::Base, 3).tier == StorageTier::Hot`.
-- [ ] Add test: `place_cf(CF::Ledger, 3).tier == StorageTier::Hot`.
-- [ ] Add proptest: for any `(cf, panel_version, active_slots)` combination, the
+- [x] Add test: `place_cf(CF::Base, 3).tier == StorageTier::Hot`.
+- [x] Add test: `place_cf(CF::Ledger, 3).tier == StorageTier::Hot`.
+- [x] Add proptest: for any `(cf, panel_version, active_slots)` combination, the
   returned `TierPlacement.absolute_dir()` starts with the correct root path.
-- [ ] Verify `write_tiered_sst` calls `write_sst` which uses
+- [x] Verify `write_tiered_sst` calls `write_sst` which uses
   `path.with_extension("sst.tmp")` in the same directory as the output — confirm
   the temp file is created in `placement.absolute_dir()` (not in `/tmp`).
-- [ ] Add fallback for missing ZFS paths: if `/zfs/hot/calyx` or
+- [x] Add fallback for missing ZFS paths: if `/zfs/hot/calyx` or
   `/zfs/archive/calyx` do not exist, fall back to
   `$CALYX_HOME/hot/cf/` and `$CALYX_HOME/archive/cf/` respectively; log a
   warning.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: 6 placement cases above.
-- [ ] proptest: `absolute_dir` starts with correct root.
-- [ ] unit: `write_tiered_sst` creates a file at `placement.absolute_dir() /
+- [x] unit: 6 placement cases above.
+- [x] proptest: `absolute_dir` starts with correct root.
+- [x] unit: `write_tiered_sst` creates a file at `placement.absolute_dir() /
   <filename>` (in a tempdir); no `EXDEV` because temp file is in the same dir.
-- [ ] edge (≥3): (1) no active slots → all slot CFs cold; (2) all slot CFs
+- [x] edge (≥3): (1) no active slots → all slot CFs cold; (2) all slot CFs
   active → all hot; (3) `panel_version = current_panel_version - 1` → cold.
-- [ ] fail-closed: `write_tiered_sst` on a read-only directory → `CALYX_DISK_PRESSURE`.
+- [x] fail-closed: `write_tiered_sst` on a read-only directory → `CALYX_DISK_PRESSURE`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -66,8 +66,8 @@ prove that `write_tiered_sst` stages temp files inside the destination dataset
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH11 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

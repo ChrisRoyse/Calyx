@@ -20,35 +20,35 @@ This is the FSV gate for PH14 at `24 §7 row 11`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Test `seed_replay_bit_identical`: given a fixed `RotationSeed` (from
+- [x] Test `seed_replay_bit_identical`: given a fixed `RotationSeed` (from
   `new_seed(128, b"replay_test_seed")`), construct two independent `TurboQuantCodec`
   instances from that seed; encode the same 128-dim vector `v` with both; assert
   `codec1.encode(v).bytes == codec2.encode(v).bytes` (exact byte equality);
   print first 16 bytes as hex with label `seed_replay_bytes=XXXXXXXX...`
-- [ ] Test `seed_id_is_stable_across_reconstruction`: serialize `seed` to JSON,
+- [x] Test `seed_id_is_stable_across_reconstruction`: serialize `seed` to JSON,
   deserialize into a new `RotationSeed`, construct a codec, encode `v`; assert
   bytes == original encode bytes (JSON serde does not alter the seed)
-- [ ] Test `different_seeds_produce_different_encodings`: two seeds from different entropy
+- [x] Test `different_seeds_produce_different_encodings`: two seeds from different entropy
   → `encode(v).bytes != encode(v).bytes` (with overwhelming probability for random v;
   assert they differ on at least 1 byte)
-- [ ] Test `cosine_error_within_epsilon`: same 1000-pair trial as T05 but now reads the
+- [x] Test `cosine_error_within_epsilon`: same 1000-pair trial as T05 but now reads the
   `SeedId` from a persisted file `tests/golden/turboquant_seed_v1.json` (generated once,
   committed); ensures the FSV result is stable across code changes — if the seed format
   changes, the file must be regenerated and the issue updated
-- [ ] Ensure `tests/golden/turboquant_seed_v1.json` is generated and committed as part
+- [x] Ensure `tests/golden/turboquant_seed_v1.json` is generated and committed as part
   of this card: run `cargo test generate_golden_seed -- --nocapture` once on aiwonder,
   commit the output file
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] `seed_replay_bit_identical` asserts exact byte equality (not approximate)
-- [ ] proptest: `encode(encode_input, seed).bytes.len()` is stable across 100 runs
+- [x] `seed_replay_bit_identical` asserts exact byte equality (not approximate)
+- [x] proptest: `encode(encode_input, seed).bytes.len()` is stable across 100 runs
   with the same seed (no non-determinism in byte packing)
-- [ ] proptest: different input vectors → different encoded bytes (with same seed)
+- [x] proptest: different input vectors → different encoded bytes (with same seed)
   for random non-identical f32 vectors
-- [ ] edge (≥3): (1) seed version bumped → `SeedVersionMismatch`; (2) `seed_id` from
+- [x] edge (≥3): (1) seed version bumped → `SeedVersionMismatch`; (2) `seed_id` from
   JSON matches original id bytes exactly; (3) dim=768 replay bit-identical
-- [ ] fail-closed: decoding with a different seed (wrong `seed_id`) → `ForgeError::QuantError
+- [x] fail-closed: decoding with a different seed (wrong `seed_id`) → `ForgeError::QuantError
   { detail: "seed_id mismatch" }` (never silently produces wrong output)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -69,11 +69,11 @@ This is the FSV gate for PH14 at `24 §7 row 11`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] **CPU↔GPU bit-parity ≤ 1e-3 on the golden set** — TurboQuant encode uses
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] **CPU↔GPU bit-parity ≤ 1e-3 on the golden set** — TurboQuant encode uses
       `CpuBackend.gemm` (rotation); if GPU path is used, parity must hold
-- [ ] **re-quant with the recorded seed is bit-identical** — `seed_replay_bit_identical` is the proof
-- [ ] FSV evidence (seed_replay_bytes hex + test output) attached to PH14 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] **re-quant with the recorded seed is bit-identical** — `seed_replay_bit_identical` is the proof
+- [x] FSV evidence (seed_replay_bytes hex + test output) attached to PH14 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

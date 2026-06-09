@@ -21,12 +21,12 @@ reproducible for the same input on any run.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `AlgorithmicKind` enum:
+- [x] `AlgorithmicKind` enum:
   `Scalar { fields: Vec<ScalarField> }`,
   `OneHot { vocab_size: u32 }`,
   `AstStyle { hash_dim: u32 }`.
-- [ ] `ScalarField` struct: `name: String`, `scale: f32`, `offset: f32`.
-- [ ] `AlgorithmicLens` struct implementing `calyx_core::Lens`:
+- [x] `ScalarField` struct: `name: String`, `scale: f32`, `offset: f32`.
+- [x] `AlgorithmicLens` struct implementing `calyx_core::Lens`:
   - `id()` → pre-computed `LensId` from spec.
   - `shape()` → `SlotShape::Dense(n)` where `n` matches the encoder config.
   - `modality()` → declared at construction.
@@ -39,25 +39,25 @@ reproducible for the same input on any run.
     - `AstStyle`: split `input.bytes` on whitespace; for each token compute
       `blake3(token)[0..4]` as u32; map to `hash_dim` bins via `% hash_dim`;
       accumulate bin counts; L2-normalize; return `SlotVector::Dense`.
-- [ ] All three variants produce **no non-finite values** by construction
+- [x] All three variants produce **no non-finite values** by construction
   (document invariant in code comment).
-- [ ] `measure_batch` uses the default iterator path (correctness); no special
+- [x] `measure_batch` uses the default iterator path (correctness); no special
   batching needed for algorithmic lenses.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `Scalar` on `{"x": 2.0, "y": -1.0}` with `scale=0.5, offset=0.0`
+- [x] unit: `Scalar` on `{"x": 2.0, "y": -1.0}` with `scale=0.5, offset=0.0`
   → known float vector; re-measure same bytes → identical bits.
-- [ ] unit: `OneHot` on `b"hello"` → `SlotVector::Sparse` with exactly one
+- [x] unit: `OneHot` on `b"hello"` → `SlotVector::Sparse` with exactly one
   non-zero entry equal to 1.0.
-- [ ] unit: `AstStyle` on `b"fn foo bar"` → `SlotVector::Dense`; same input
+- [x] unit: `AstStyle` on `b"fn foo bar"` → `SlotVector::Dense`; same input
   twice → bit-identical output.
-- [ ] proptest: for any non-empty byte slice, `AstStyle` output is finite
+- [x] proptest: for any non-empty byte slice, `AstStyle` output is finite
   (no NaN/Inf) and L2-norm ≈ 1.0 (within 1e-5).
-- [ ] edge (≥3): (1) empty `input.bytes` for `Scalar` → all-zeros vector, no
+- [x] edge (≥3): (1) empty `input.bytes` for `Scalar` → all-zeros vector, no
   panic; (2) `OneHot` on max-size input (64 KiB) → still one entry, no alloc
   explosion; (3) `AstStyle` on single-token input → single occupied bin, norm 1.
-- [ ] fail-closed: `Scalar` on non-UTF-8 bytes → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
+- [x] fail-closed: `Scalar` on non-UTF-8 bytes → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`
   with remediation "input must be valid UTF-8 JSON for Scalar algorithmic lens".
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -70,8 +70,8 @@ reproducible for the same input on any run.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH17 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -28,35 +28,35 @@ to PH44 self-heal.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] In `manifest/recovery.rs`, define `fn reconstruct_from_recovery(outcome:
+- [x] In `manifest/recovery.rs`, define `fn reconstruct_from_recovery(outcome:
   RecoveryOutcome, cf_router: &mut CfRouter) -> Result<Seq>`:
   1. For each `ReplayRecord` in `outcome.wal_records`:
      a. `decode_write_batch(&record.payload)?` to get CF rows.
      b. For each row: `cf_router.put(cf, key, value)?`.
   2. Return `outcome.last_recovered_seq`.
-- [ ] Define `RecoveryState` returned to the vault: `last_seq`, `wal_records_applied`,
+- [x] Define `RecoveryState` returned to the vault: `last_seq`, `wal_records_applied`,
   `torn_tail`, `degraded_rebuildable`.
 - [x] Read and propagate the `degraded_rebuildable` flag when present; PH44 owns
   setting it true and rebuilding derived CFs.
-- [ ] Write test: create WAL with 3 records; create MANIFEST at `durable_seq = 0`;
+- [x] Write test: create WAL with 3 records; create MANIFEST at `durable_seq = 0`;
   call `recover_vault` + `reconstruct_from_recovery`; assert `cf_router.get` for
   all 3 records returns the written values.
-- [ ] Write test: MANIFEST at `durable_seq = 2` with 3 WAL records; only the
+- [x] Write test: MANIFEST at `durable_seq = 2` with 3 WAL records; only the
   record at seq=3 is re-applied (seq 1 and 2 are already durable in SST).
-- [ ] Write test: torn WAL tail — recovery applies records before the torn record
+- [x] Write test: torn WAL tail — recovery applies records before the torn record
   and stops; returns `torn_tail.is_some()`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: 3-record WAL + durable_seq=0 → all 3 re-applied; `last_recovered_seq=3`.
-- [ ] unit: 3-record WAL + durable_seq=2 → only seq=3 re-applied.
-- [ ] unit: torn tail at record 3 → seqs 1+2 applied; torn_tail reported; no panic.
-- [ ] proptest: for any `n in 1..=20` WAL records with `durable_seq in 0..=n`:
+- [x] unit: 3-record WAL + durable_seq=0 → all 3 re-applied; `last_recovered_seq=3`.
+- [x] unit: 3-record WAL + durable_seq=2 → only seq=3 re-applied.
+- [x] unit: torn tail at record 3 → seqs 1+2 applied; torn_tail reported; no panic.
+- [x] proptest: for any `n in 1..=20` WAL records with `durable_seq in 0..=n`:
   exactly `n - durable_seq` records are re-applied.
-- [ ] edge (≥3): (1) `durable_seq = n` (all durable) → 0 re-applied, no error;
+- [x] edge (≥3): (1) `durable_seq = n` (all durable) → 0 re-applied, no error;
   (2) empty WAL → 0 records, no error; (3) `degraded_rebuildable = true` in
   MANIFEST → recovery completes without error, flag propagated.
-- [ ] fail-closed: `decode_write_batch` on a corrupt WAL payload →
+- [x] fail-closed: `decode_write_batch` on a corrupt WAL payload →
   `CALYX_ASTER_CORRUPT_SHARD`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -74,8 +74,8 @@ to PH44 self-heal.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH10 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

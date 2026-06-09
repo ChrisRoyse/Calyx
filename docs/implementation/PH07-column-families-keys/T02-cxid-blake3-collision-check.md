@@ -21,21 +21,21 @@ hash; read verifies the stored CxId matches; any mismatch returns
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Write a test that `full_content_hash([b"input", &7u32.to_be_bytes(),
+- [x] Write a test that `full_content_hash([b"input", &7u32.to_be_bytes(),
   b"salt"])` produces a stable 32-byte hex digest (compute the expected value once
   and hard-code it as the golden).
-- [ ] Write a test that `cx_id_from_full_hash(&full_hash).as_bytes() ==
+- [x] Write a test that `cx_id_from_full_hash(&full_hash).as_bytes() ==
   &full_hash[0..16]`.
-- [ ] Write a test that `verify_cx_hash_prefix(cx_id, &full_hash)` returns `Ok(())`
+- [x] Write a test that `verify_cx_hash_prefix(cx_id, &full_hash)` returns `Ok(())`
   when the first 16 bytes match, and returns
   `Err(code == "CALYX_ASTER_CORRUPT_SHARD")` when they don't.
-- [ ] Add a proptest: for any `(input, panel_version, salt)`, computing the hash
+- [x] Add a proptest: for any `(input, panel_version, salt)`, computing the hash
   twice with the same inputs produces the same `CxId` (deterministic).
-- [ ] Add a test proving idempotent ingest: the same `input_bytes` + `panel_version`
+- [x] Add a test proving idempotent ingest: the same `input_bytes` + `panel_version`
   + `vault_salt` always produces the same `CxId`; two different `input_bytes`
   produce different `CxId` values with overwhelming probability (seed RNG, use
   two distinct 32-byte random inputs).
-- [ ] Verify `full_content_hash` uses length-delimited encoding:
+- [x] Verify `full_content_hash` uses length-delimited encoding:
   `hasher.update(&(part.len() as u64).to_be_bytes()); hasher.update(part);`
   for each part — this is already implemented; add a test that confirms
   `hash([b"ab", b"c"]) != hash([b"a", b"bc"])` (length-prefix prevents extension
@@ -43,15 +43,15 @@ hash; read verifies the stored CxId matches; any mismatch returns
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `full_content_hash([b"hello"])` == known 32-byte hex golden (compute
+- [x] unit: `full_content_hash([b"hello"])` == known 32-byte hex golden (compute
   once and assert; seed: the input itself is deterministic).
-- [ ] unit: `verify_cx_hash_prefix` with matching prefix → Ok; with first byte
+- [x] unit: `verify_cx_hash_prefix` with matching prefix → Ok; with first byte
   flipped → `CALYX_ASTER_CORRUPT_SHARD`.
-- [ ] proptest: determinism — same inputs always same `CxId`.
-- [ ] edge (≥3): (1) empty part list → valid hash (all-zero extension); (2) parts
+- [x] proptest: determinism — same inputs always same `CxId`.
+- [x] edge (≥3): (1) empty part list → valid hash (all-zero extension); (2) parts
   of length 0 contribute length prefix only; (3) extension ambiguity test:
   `hash([b"ab", b"c"]) != hash([b"a", b"bc"])`.
-- [ ] fail-closed: `verify_cx_hash_prefix(cx_id, full_hash)` with any single-byte
+- [x] fail-closed: `verify_cx_hash_prefix(cx_id, full_hash)` with any single-byte
   mutation in `full_hash[0..16]` → `CALYX_ASTER_CORRUPT_SHARD`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -67,8 +67,8 @@ hash; read verifies the stored CxId matches; any mismatch returns
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH07 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH07 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

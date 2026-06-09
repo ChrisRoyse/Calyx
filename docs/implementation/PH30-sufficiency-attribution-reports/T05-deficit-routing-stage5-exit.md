@@ -28,7 +28,7 @@ of Stage 5.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `SufficiencyDeficit`:
+- [x] Define `SufficiencyDeficit`:
   ```rust
   pub struct SufficiencyDeficit {
       pub panel_id: PanelId,
@@ -40,22 +40,22 @@ of Stage 5.
   }
   pub struct SlotGap { pub slot_id: SlotId, pub missing_bits: f32, pub is_sole_carrier_gap: bool }
   ```
-- [ ] Update `panel_sufficiency` to return `Option<SufficiencyDeficit>` when verdict is `Insufficient`:
+- [x] Update `panel_sufficiency` to return `Option<SufficiencyDeficit>` when verdict is `Insufficient`:
   - populate `per_slot_gaps` from the attribution table (slots sorted by `individual_bits` ascending = the weakest slots first)
   - `suggested_action: LensProposal` iff there exist outcomes with grounded anchors; `InsufficientData` iff n < 50 labeled samples; `DeepGrounding` iff the anchor itself is `Provisional`
-- [ ] Implement the `SufficiencyDeficitSink` trait: `fn receive_deficit(&self, deficit: SufficiencyDeficit)` — the interface PH47 (Anneal) implements; stub impl in this crate just logs the deficit to the Ledger
-- [ ] Wire the stub `SufficiencyDeficitSink` into `panel_sufficiency` so the deficit is emitted to the sink (not just returned)
-- [ ] Stage 5 exit integration test `test_stage5_dda_bits_done`:
+- [x] Implement the `SufficiencyDeficitSink` trait: `fn receive_deficit(&self, deficit: SufficiencyDeficit)` — the interface PH47 (Anneal) implements; stub impl in this crate just logs the deficit to the Ledger
+- [x] Wire the stub `SufficiencyDeficitSink` into `panel_sufficiency` so the deficit is emitted to the sink (not just returned)
+- [x] Stage 5 exit integration test `test_stage5_dda_bits_done`:
   - run `weave` + `ksg_with_ci` + `admit_lens` + `panel_sufficiency` + `bits_report` + `abundance_report` on a single vault end-to-end (seeded synthetic, N=5, 100 constellations, 100 grounded labels)
   - assert: agreement scalars computed; lazy xterm on demand; admission decision made; n_eff computed; bits_report generated; abundance_report has all four honest numbers; no `[provisional]` where grounded
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `SufficiencyDeficit` for a 3-slot panel where slot_c is the weakest → `per_slot_gaps[0].slot_id == slot_c` (worst first); `suggested_action: LensProposal`
-- [ ] unit: sink receives deficit when `panel_sufficiency` finds `Insufficient` panel; does not receive anything for `Sufficient` panel
-- [ ] integration: `test_stage5_dda_bits_done` passes end-to-end on aiwonder (all Stage 5 components wired)
-- [ ] proptest: deficit `per_slot_gaps` sum of `missing_bits` ≤ `deficit_bits * 1.1` (attributable gap does not exceed total gap by more than 10%)
-- [ ] edge: all-sufficient panel → `SufficiencyDeficit` not emitted to sink; single-slot panel → one gap entry or none
+- [x] unit: `SufficiencyDeficit` for a 3-slot panel where slot_c is the weakest → `per_slot_gaps[0].slot_id == slot_c` (worst first); `suggested_action: LensProposal`
+- [x] unit: sink receives deficit when `panel_sufficiency` finds `Insufficient` panel; does not receive anything for `Sufficient` panel
+- [x] integration: `test_stage5_dda_bits_done` passes end-to-end on aiwonder (all Stage 5 components wired)
+- [x] proptest: deficit `per_slot_gaps` sum of `missing_bits` ≤ `deficit_bits * 1.1` (attributable gap does not exceed total gap by more than 10%)
+- [x] edge: all-sufficient panel → `SufficiencyDeficit` not emitted to sink; single-slot panel → one gap entry or none
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -92,4 +92,4 @@ of Stage 5.
 - [x] file(s) ≤ 500 lines (line-count gate ✅)
 - [x] FSV evidence attached under
   `/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

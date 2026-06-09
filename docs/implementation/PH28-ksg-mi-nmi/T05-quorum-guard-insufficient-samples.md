@@ -20,21 +20,21 @@ point estimate when n < 50.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `AssayInsufficientSamples { n_actual: usize, n_required: usize }` as a variant in `CalyxError`; error code `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; remediation message: `"Provide at least {n_required} grounded samples; only {n_actual} available"`
-- [ ] Implement `quorum_guard(n: usize, required: usize) -> Result<(), CalyxError>`:
+- [x] Define `AssayInsufficientSamples { n_actual: usize, n_required: usize }` as a variant in `CalyxError`; error code `CALYX_ASSAY_INSUFFICIENT_SAMPLES`; remediation message: `"Provide at least {n_required} grounded samples; only {n_actual} available"`
+- [x] Implement `quorum_guard(n: usize, required: usize) -> Result<(), CalyxError>`:
   - if `n < required` → `Err(CalyxError::AssayInsufficientSamples { n_actual: n, n_required: required })`
   - else `Ok(())`
-- [ ] `ASSAY_DEFAULT_QUORUM: usize = 50` constant in `calyx-assay/src/lib.rs`; all estimators call `quorum_guard(n, ASSAY_DEFAULT_QUORUM)` at entry; quorum is config-overridable per vault but default = 50 (No-Compress List)
-- [ ] Wire `quorum_guard` into `ksg_estimate_continuous`, `ksg_estimate_discrete_y`, and `partitioned_histogram_nmi_v1` as the first step
-- [ ] Add `n_samples: usize` field to `CalyxError::AssayInsufficientSamples` for downstream consumers to read the actual count without parsing the message string
+- [x] `ASSAY_DEFAULT_QUORUM: usize = 50` constant in `calyx-assay/src/lib.rs`; all estimators call `quorum_guard(n, ASSAY_DEFAULT_QUORUM)` at entry; quorum is config-overridable per vault but default = 50 (No-Compress List)
+- [x] Wire `quorum_guard` into `ksg_estimate_continuous`, `ksg_estimate_discrete_y`, and `partitioned_histogram_nmi_v1` as the first step
+- [x] Add `n_samples: usize` field to `CalyxError::AssayInsufficientSamples` for downstream consumers to read the actual count without parsing the message string
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `quorum_guard(49, 50)` → `Err(AssayInsufficientSamples { n_actual: 49, n_required: 50 })`
-- [ ] unit: `quorum_guard(50, 50)` → `Ok(())`; `quorum_guard(51, 50)` → `Ok(())`
-- [ ] unit: `ksg_estimate_continuous` with n=49 pairs → returns `CALYX_ASSAY_INSUFFICIENT_SAMPLES` without computing any k-NN distances
-- [ ] unit: `partitioned_histogram_nmi_v1` with n=30 → returns `CALYX_ASSAY_INSUFFICIENT_SAMPLES` before any bin accumulation
-- [ ] edge: n=0 → `CALYX_ASSAY_INSUFFICIENT_SAMPLES { n_actual: 0 }`; n=50 exactly → not rejected; `required=0` (overridden) → always passes (edge case for testing)
+- [x] unit: `quorum_guard(49, 50)` → `Err(AssayInsufficientSamples { n_actual: 49, n_required: 50 })`
+- [x] unit: `quorum_guard(50, 50)` → `Ok(())`; `quorum_guard(51, 50)` → `Ok(())`
+- [x] unit: `ksg_estimate_continuous` with n=49 pairs → returns `CALYX_ASSAY_INSUFFICIENT_SAMPLES` without computing any k-NN distances
+- [x] unit: `partitioned_histogram_nmi_v1` with n=30 → returns `CALYX_ASSAY_INSUFFICIENT_SAMPLES` before any bin accumulation
+- [x] edge: n=0 → `CALYX_ASSAY_INSUFFICIENT_SAMPLES { n_actual: 0 }`; n=50 exactly → not rejected; `required=0` (overridden) → always passes (edge case for testing)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -48,7 +48,7 @@ point estimate when n < 50.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH28 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH28 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

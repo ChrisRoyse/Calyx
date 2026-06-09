@@ -18,7 +18,7 @@ estimate drives the cap enforcement in T03. The mapping is overridable per A17.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `fn intent_to_strategy(label: IntentLabel, map: &SlotIndexMap) -> FusionStrategy`:
+- [x] `fn intent_to_strategy(label: IntentLabel, map: &SlotIndexMap) -> FusionStrategy`:
       ```
       Code      → SingleLens(code_slot)   if code_slot registered, else General fallback
       Causal    → WeightedRRF("causal")
@@ -37,7 +37,7 @@ estimate drives the cap enforcement in T03. The mapping is overridable per A17.
       ```
       If a required slot is absent, fall back to the next best strategy and log
       a structured warning (not an error — the query still executes)
-- [ ] `CostEstimate` struct:
+- [x] `CostEstimate` struct:
   ```rust
   pub struct CostEstimate {
       pub num_slots: usize,
@@ -47,27 +47,27 @@ estimate drives the cap enforcement in T03. The mapping is overridable per A17.
       pub estimated_ms: f32,      // rough: num_slots * 2.0 + ef_factor * 0.5 + if has_rerank { 20.0 } else { 0.0 }
   }
   ```
-- [ ] `fn estimate_cost(strategy: &FusionStrategy, map: &SlotIndexMap, ef: usize, has_rerank: bool) -> CostEstimate`
-- [ ] `PlannerOutput` struct: `{ strategy: FusionStrategy, intent: IntentLabel, cost: CostEstimate, override_used: bool }`
-- [ ] `fn plan(query: &Query, map: &SlotIndexMap) -> Result<PlannerOutput, CalyxError>`:
+- [x] `fn estimate_cost(strategy: &FusionStrategy, map: &SlotIndexMap, ef: usize, has_rerank: bool) -> CostEstimate`
+- [x] `PlannerOutput` struct: `{ strategy: FusionStrategy, intent: IntentLabel, cost: CostEstimate, override_used: bool }`
+- [x] `fn plan(query: &Query, map: &SlotIndexMap) -> Result<PlannerOutput, CalyxError>`:
       1. If `query.fusion` is explicit → `override_used=true`, skip classify
       2. Else: classify intent → select strategy → estimate cost
       3. Return `PlannerOutput`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `intent_to_strategy(Code, map_with_code_slot)` → `SingleLens(code_slot)`
-- [ ] unit: `intent_to_strategy(Code, map_without_code_slot)` → `Rrf` (fallback)
-- [ ] unit: `estimate_cost` for 2-slot RRF with ef=100, no rerank →
+- [x] unit: `intent_to_strategy(Code, map_with_code_slot)` → `SingleLens(code_slot)`
+- [x] unit: `intent_to_strategy(Code, map_without_code_slot)` → `Rrf` (fallback)
+- [x] unit: `estimate_cost` for 2-slot RRF with ef=100, no rerank →
       `estimated_ms ≈ 4.0 + 5.0 = 9.0` (within 0.1)
-- [ ] unit: `plan` with explicit `query.fusion = Rrf` → `override_used=true`,
+- [x] unit: `plan` with explicit `query.fusion = Rrf` → `override_used=true`,
       `strategy=Rrf` regardless of query text
-- [ ] proptest: `estimate_cost` is non-negative for any valid inputs
+- [x] proptest: `estimate_cost` is non-negative for any valid inputs
 - [x] edge: `intent_to_strategy(Kernel, map)` → `WeightedRrf { profile: Kernel }`;
       true KernelFirst traversal is not claimed by PH26 and is owned by
       Lodestar/scale phases.
-- [ ] edge: `map.slots()` is empty → `CALYX_SEXTANT_NO_LENSES`
-- [ ] fail-closed: `plan` with a query that has no text and no anchor and no
+- [x] edge: `map.slots()` is empty → `CALYX_SEXTANT_NO_LENSES`
+- [x] fail-closed: `plan` with a query that has no text and no anchor and no
       explicit slots → `CALYX_SEXTANT_NO_LENSES`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -86,8 +86,8 @@ estimate drives the cap enforcement in T03. The mapping is overridable per A17.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

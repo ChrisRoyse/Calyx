@@ -21,25 +21,25 @@ ContextGraph `search_cross_embedder_anomalies`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `BlindSpotAlert`: `{ cx_id: CxId, slot_a: SlotId, slot_b: SlotId, agreement_self: f32, agreement_neighborhood_mean: f32, delta: f32, severity: Low|Medium|High }`
+- [x] Define `BlindSpotAlert`: `{ cx_id: CxId, slot_a: SlotId, slot_b: SlotId, agreement_self: f32, agreement_neighborhood_mean: f32, delta: f32, severity: Low|Medium|High }`
   - `severity`: `delta > 0.5` → High; `delta > 0.3` → Medium; else Low
-- [ ] Implement `blind_spot_detector(cx_id, k: usize, vault, sextant, forge, clock) -> Result<Vec<BlindSpotAlert>, CalyxError>`:
+- [x] Implement `blind_spot_detector(cx_id, k: usize, vault, sextant, forge, clock) -> Result<Vec<BlindSpotAlert>, CalyxError>`:
   - for each active pair `(a,b)` in cx: compute `agreement_self = cos(v_a, v_b)` for this constellation
   - retrieve the `k` nearest neighbors of `cx_id` from Sextant's ANN index (use slot_a for the neighbor query)
   - for each neighbor `cx_nbr`: compute `agreement_nbr = cos(v_a_nbr, v_b_nbr)`
   - compute `agreement_neighborhood_mean` = mean over neighbors
   - if `agreement_self > 0.7` and `agreement_neighborhood_mean < 0.3` → emit `BlindSpotAlert`
   - if `agreement_self < 0.3` and `agreement_neighborhood_mean > 0.7` → emit `BlindSpotAlert` (reversed)
-- [ ] Implement `blind_spots(cx_id | query)` public API: takes either a known `CxId` or a query to retrieve the `CxId` first; returns `Vec<BlindSpotAlert>`; empty vec is fine (no alert = no anomaly)
-- [ ] Thresholds (`0.7`, `0.3`, `k=10`) configurable via `BlindSpotConfig`; default values must be exactly as stated (No-Compress List)
+- [x] Implement `blind_spots(cx_id | query)` public API: takes either a known `CxId` or a query to retrieve the `CxId` first; returns `Vec<BlindSpotAlert>`; empty vec is fine (no alert = no anomaly)
+- [x] Thresholds (`0.7`, `0.3`, `k=10`) configurable via `BlindSpotConfig`; default values must be exactly as stated (No-Compress List)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: plant a constellation `cx0` with `cos(v_a,v_b)=0.9`; give it 5 neighbors all with `cos(v_a,v_b)=0.1`; `blind_spot_detector(cx0, k=5)` must fire a `BlindSpotAlert` for pair `(a,b)` with `severity: High`
-- [ ] unit: plant a constellation `cx1` where all neighbors also have `cos(v_a,v_b)=0.9`; `blind_spot_detector(cx1)` returns empty vec (no alert)
-- [ ] proptest: alerts are deterministic — calling `blind_spot_detector` twice on the same inputs returns identical `Vec<BlindSpotAlert>` (all RNG seeded)
-- [ ] edge: fewer than `k` neighbors available → use all available; 0 neighbors → empty alerts, no panic; constellation with single active slot → empty alerts
-- [ ] fail-closed: unknown `CxId` → `CALYX_ASTER_NOT_FOUND`; Sextant ANN lookup failure → `CALYX_SEXTANT_INDEX_ERROR` propagated (not swallowed)
+- [x] unit: plant a constellation `cx0` with `cos(v_a,v_b)=0.9`; give it 5 neighbors all with `cos(v_a,v_b)=0.1`; `blind_spot_detector(cx0, k=5)` must fire a `BlindSpotAlert` for pair `(a,b)` with `severity: High`
+- [x] unit: plant a constellation `cx1` where all neighbors also have `cos(v_a,v_b)=0.9`; `blind_spot_detector(cx1)` returns empty vec (no alert)
+- [x] proptest: alerts are deterministic — calling `blind_spot_detector` twice on the same inputs returns identical `Vec<BlindSpotAlert>` (all RNG seeded)
+- [x] edge: fewer than `k` neighbors available → use all available; 0 neighbors → empty alerts, no panic; constellation with single active slot → empty alerts
+- [x] fail-closed: unknown `CxId` → `CALYX_ASTER_NOT_FOUND`; Sextant ANN lookup failure → `CALYX_SEXTANT_INDEX_ERROR` propagated (not swallowed)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -53,7 +53,7 @@ ContextGraph `search_cross_embedder_anomalies`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

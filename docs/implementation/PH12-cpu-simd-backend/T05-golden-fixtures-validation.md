@@ -20,7 +20,7 @@ once committed; a change requires a new fixture version.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Python generator script `tests/golden/generate_golden.py` (not a Rust file;
+- [x] Python generator script `tests/golden/generate_golden.py` (not a Rust file;
   run once on aiwonder with pinned numpy 1.26.x):
   — seed `numpy.random.default_rng(seed=0xCALYX12)` (hex literal in comment);
   — generate: 64 random dim-128 f32 vectors (`vectors_128d.bin`, row-major f32
@@ -29,33 +29,33 @@ once committed; a change requires a new fixture version.
   `np.dot`, `scipy.spatial.distance.cosine`, and `np.argsort`;
   — sidecar `golden_manifest.json`: `{ "seed": "0xCALYX12", "numpy_version":
   "1.26.x", "n_vecs": 64, "dim": 128, "gemm_m": 128, "gemm_k": 64, "gemm_n": 32 }`
-- [ ] Commit the generated `.bin` and `.json` files under `tests/golden/` (they are
+- [x] Commit the generated `.bin` and `.json` files under `tests/golden/` (they are
   small: 64×128×4 ≈ 32 KB each); document that they must never be regenerated
   without bumping `"seed_version"` in the manifest
-- [ ] `tests/cpu_kernels.rs`: `fn load_golden_f32(name: &str) -> Vec<f32>` reads
+- [x] `tests/cpu_kernels.rs`: `fn load_golden_f32(name: &str) -> Vec<f32>` reads
   `tests/golden/<name>.bin` as LE f32 bytes; panics with filename in message on IO error
-- [ ] Test `golden_gemm_matches_numpy`: load `gemm_A`, `gemm_B`, `gemm_C_ref`;
+- [x] Test `golden_gemm_matches_numpy`: load `gemm_A`, `gemm_B`, `gemm_C_ref`;
   run `CpuBackend.gemm(...)`; assert max `|computed[i] - ref[i]| ≤ 1e-4` with
   a message printing the worst offender's index and values
-- [ ] Test `golden_cosine_matches_numpy`: load `vectors_128d`, `cosine_ref`;
+- [x] Test `golden_cosine_matches_numpy`: load `vectors_128d`, `cosine_ref`;
   run `CpuBackend.cosine_batch(query=vectors_128d[0], candidates=vectors_128d[1..], ...)`
   assert max `|computed[i] - ref[i]| ≤ 1e-5`
-- [ ] Test `golden_topk_matches_numpy`: load `vectors_128d`, `topk_ref` (top-8
+- [x] Test `golden_topk_matches_numpy`: load `vectors_128d`, `topk_ref` (top-8
   indices for the first query); assert `CpuBackend.topk` returns same index order
-- [ ] All three golden tests print on failure: seed, numpy version, worst error,
+- [x] All three golden tests print on failure: seed, numpy version, worst error,
   the index, and the expected vs actual values — enough to diagnose drift without
   re-running numpy
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `load_golden_f32("gemm_A")` returns a vec of length exactly `128 * 64`
-- [ ] unit: golden_manifest.json deserializes and `seed == "0xCALYX12"`
-- [ ] proptest: `load_golden_f32` → all values are finite (no NaN/Inf in committed fixtures)
-- [ ] edge (≥3): (1) request a non-existent golden file → panic with filename in
+- [x] unit: `load_golden_f32("gemm_A")` returns a vec of length exactly `128 * 64`
+- [x] unit: golden_manifest.json deserializes and `seed == "0xCALYX12"`
+- [x] proptest: `load_golden_f32` → all values are finite (no NaN/Inf in committed fixtures)
+- [x] edge (≥3): (1) request a non-existent golden file → panic with filename in
   message (not silent); (2) truncated binary file (odd byte count) → error message
   includes "unexpected EOF"; (3) cosine of the first vector against itself →
   result ≥ 0.9999 (sanity bound, not exact 1.0 due to float precision)
-- [ ] fail-closed: any golden test that fails tolerance prints `CALYX_FORGE_GOLDEN_MISMATCH`
+- [x] fail-closed: any golden test that fails tolerance prints `CALYX_FORGE_GOLDEN_MISMATCH`
   (a non-CALYX_* prefix is acceptable here since this is a test-only sentinel, but
   the message must include the op name, index, expected, and actual)
 
@@ -77,10 +77,10 @@ once committed; a change requires a new fixture version.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the golden set — this card *establishes* the
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the golden set — this card *establishes* the
       golden set; PH13 T03 verifies CUDA agrees with these same `.bin` files
-- [ ] FSV evidence (readback `xxd` + test output / screenshot) attached to the PH12 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] FSV evidence (readback `xxd` + test output / screenshot) attached to the PH12 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

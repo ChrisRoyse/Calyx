@@ -24,34 +24,34 @@ If `commit_batch` fails, the WAL record is orphaned (recovered by PH10 replay).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Add `AsterVault::new_durable(vault_dir, vault_salt, wal_options)` that
+- [x] Add `AsterVault::new_durable(vault_dir, vault_salt, wal_options)` that
   opens a `GroupCommitBatcher`-backed WAL in `vault_dir/wal/`, a `CfRouter`
   rooted at `vault_dir/`, and wires them into `VersionedCfStore::new_with_router`.
-- [ ] In `AsterVault::put`: build `wal_payload = encode_write_batch(cx)` (a
+- [x] In `AsterVault::put`: build `wal_payload = encode_write_batch(cx)` (a
   binary blob listing all CF rows); call `batcher.submit(wal_payload)` (blocks
   until fsync ack); only then call `self.rows.commit_batch(rows)`.
-- [ ] Define `encode_write_batch` / `decode_write_batch` in `vault.rs` or
+- [x] Define `encode_write_batch` / `decode_write_batch` in `vault.rs` or
   `vault/encode.rs`: a binary format listing `n_rows (u32 BE) | [(cf_tag (u8),
   key_len (u32 BE), key, value_len (u32 BE), value), ...]`.
-- [ ] Ensure `put` returns `Err` if `batcher.submit` fails; the in-memory MVCC
+- [x] Ensure `put` returns `Err` if `batcher.submit` fails; the in-memory MVCC
   table is NOT mutated if the WAL fails.
-- [ ] Add `AsterVault::flush(&self) -> Result<()>` that calls
+- [x] Add `AsterVault::flush(&self) -> Result<()>` that calls
   `rows.flush_all_cfs()` to persist all memtable data to SST.
-- [ ] Update `AsterVault::get` to read from `CfRouter` (disk) when in-memory
+- [x] Update `AsterVault::get` to read from `CfRouter` (disk) when in-memory
   lookup misses (for cold-open vaults with data only on disk).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `put(cx)` with durable vault → WAL segment file exists with ≥1 record;
+- [x] unit: `put(cx)` with durable vault → WAL segment file exists with ≥1 record;
   `get(cx.cx_id, snapshot)` returns the constellation byte-exact.
-- [ ] unit: vault process cold-open (new `AsterVault::new_durable` on same dir
+- [x] unit: vault process cold-open (new `AsterVault::new_durable` on same dir
   after flush): `get` returns the constellation from disk.
-- [ ] unit: WAL failure (write to a read-only WAL dir) → `put` returns Err; MVCC
+- [x] unit: WAL failure (write to a read-only WAL dir) → `put` returns Err; MVCC
   seq unchanged; no CF rows written.
-- [ ] edge (≥3): (1) empty vault cold-open → no error, `get` returns Err (not
+- [x] edge (≥3): (1) empty vault cold-open → no error, `get` returns Err (not
   found); (2) two puts, one flush → both readable; (3) put of constellation with
   15 slots → all 15 slot CFs written.
-- [ ] fail-closed: WAL error → `CALYX_DISK_PRESSURE`; no partial state.
+- [x] fail-closed: WAL error → `CALYX_DISK_PRESSURE`; no partial state.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -69,8 +69,8 @@ If `commit_batch` fails, the WAL record is orphaned (recovered by PH10 replay).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH09 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

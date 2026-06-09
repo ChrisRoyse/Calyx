@@ -27,26 +27,26 @@ and must be FSV-proven there against recurrence series data.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `StratifiedBits`: `{ strata: Vec<StratumResult>, sole_carrier_flag: bool }` where `StratumResult = { stratum: AnchorStratum, bits: MiEstimate, n_samples: usize }`
-- [ ] Implement `stratified_lens_signal(slot: SlotId, anchor: AnchorKind, vault, forge, clock) -> Result<StratifiedBits, CalyxError>`:
+- [x] Define `StratifiedBits`: `{ strata: Vec<StratumResult>, sole_carrier_flag: bool }` where `StratumResult = { stratum: AnchorStratum, bits: MiEstimate, n_samples: usize }`
+- [x] Implement `stratified_lens_signal(slot: SlotId, anchor: AnchorKind, vault, forge, clock) -> Result<StratifiedBits, CalyxError>`:
   - partition the labeled samples by outcome class (for binary anchors: {Pass, Fail}; for multi-class: each class)
   - for each stratum with n ≥ 50: call `ksg_with_ci` on the within-stratum samples
   - for strata with n < 50: record `CALYX_ASSAY_INSUFFICIENT_SAMPLES` for that stratum and continue
   - set `sole_carrier_flag = true` iff at least one stratum has `bits ≥ 0.05` while the global aggregate MI < 0.05
-- [ ] Refine `admit_lens` (from T01) to call `stratified_lens_signal` after a global `bits < 0.05` rejection:
+- [x] Refine `admit_lens` (from T01) to call `stratified_lens_signal` after a global `bits < 0.05` rejection:
   - if global bits < 0.05 BUT `stratified_bits.sole_carrier_flag` → **override to `Admit`** with the per-stratum bits attached; log `"admitted as rare-class sole carrier"`
   - if global bits < 0.05 AND no stratum clears 0.05 bits → keep `Reject { reason: LowSignal }`
-- [ ] Add `AnchorKind::Recurrence { rate: f32, ci_low: f32, ci_high: f32 }` to the anchor enum in `calyx-core`; this is the Bayesian Gamma–Poisson rate estimate (full Bayesian posterior in `26 §6` is a later task; for now use the raw Poisson MLE rate with a CI from `26 §6` formula)
-- [ ] Wire `AnchorKind::Recurrence` into `lens_signal`: treated as a grounded anchor (A2 — it is a real count); tagged `Trusted` in `MiEstimate`
-- [ ] **No-multiplier regression test:** assert `lens_signal(slot, anchor).bits == ksg_with_ci(slot, anchor).bits` — bits are NOT multiplied by any frequency scalar; this test is a hard regression guard
+- [x] Add `AnchorKind::Recurrence { rate: f32, ci_low: f32, ci_high: f32 }` to the anchor enum in `calyx-core`; this is the Bayesian Gamma–Poisson rate estimate (full Bayesian posterior in `26 §6` is a later task; for now use the raw Poisson MLE rate with a CI from `26 §6` formula)
+- [x] Wire `AnchorKind::Recurrence` into `lens_signal`: treated as a grounded anchor (A2 — it is a real count); tagged `Trusted` in `MiEstimate`
+- [x] **No-multiplier regression test:** assert `lens_signal(slot, anchor).bits == ksg_with_ci(slot, anchor).bits` — bits are NOT multiplied by any frequency scalar; this test is a hard regression guard
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: slot with 80% majority class (MI < 0.05 globally) but MI ≥ 0.07 on the 20% minority class (n_minority=60, n=300, seed=42) → `sole_carrier_flag = true`; `admit_lens` returns `Admit`
-- [ ] unit: slot with MI < 0.05 globally AND all strata < 0.05 → `Reject { reason: LowSignal }` (no sole carrier)
-- [ ] unit: `AnchorKind::Recurrence` lens signal: synthetic lens vectors correlated with a Poisson rate (simulated recurrence counts, seed=42) → `MiEstimate { trust: Trusted, bits > 0.0 }`
-- [ ] regression: `lens_signal(slot, anchor).bits == ksg_with_ci(slot, anchor).bits` — passes exactly (no frequency multiplication)
-- [ ] edge: all strata below quorum (50 samples each) → `sole_carrier_flag = false`; all strata empty → `Reject { reason: LowSignal }` (no infinite loop)
+- [x] unit: slot with 80% majority class (MI < 0.05 globally) but MI ≥ 0.07 on the 20% minority class (n_minority=60, n=300, seed=42) → `sole_carrier_flag = true`; `admit_lens` returns `Admit`
+- [x] unit: slot with MI < 0.05 globally AND all strata < 0.05 → `Reject { reason: LowSignal }` (no sole carrier)
+- [x] unit: `AnchorKind::Recurrence` lens signal: synthetic lens vectors correlated with a Poisson rate (simulated recurrence counts, seed=42) → `MiEstimate { trust: Trusted, bits > 0.0 }`
+- [x] regression: `lens_signal(slot, anchor).bits == ksg_with_ci(slot, anchor).bits` — passes exactly (no frequency multiplication)
+- [x] edge: all strata below quorum (50 samples each) → `sole_carrier_flag = false`; all strata empty → `Reject { reason: LowSignal }` (no infinite loop)
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -60,7 +60,7 @@ and must be FSV-proven there against recurrence series data.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH29 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

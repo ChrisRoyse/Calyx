@@ -19,33 +19,33 @@ the 1e6-cx `bench_single_lens` scale target remains future performance FSV.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `fn rebuild(&mut self) -> Result<(), CalyxError>`:
+- [x] `fn rebuild(&mut self) -> Result<(), CalyxError>`:
       clears layers/entry, iterates `self.nodes`, re-inserts each in order using
       the same RNG seed and `m`/`ef_construction` params → graph is structurally
       equivalent (recall within 1% of pre-rebuild for any query)
-- [ ] `fn snapshot_vectors(&self) -> Vec<(CxId, Vec<f32>)>` — returns raw (or
+- [x] `fn snapshot_vectors(&self) -> Vec<(CxId, Vec<f32>)>` — returns raw (or
       dequantized) vectors for Aster-backed rebuild; `#[cfg(not(test))]` path
       reads from `SlotIndexMap`; test path uses in-memory copy
-- [ ] Future scale FSV: extend `tests/hnsw_recall.rs` with a `bench_single_lens` test:
+- [x] Future scale FSV: extend `tests/hnsw_recall.rs` with a `bench_single_lens` test:
       - build `SlotIndexMap` with 1 slot, insert 1_000_000 synthetic unit vecs
         (seeded RNG, 128-dim)
       - run 1000 queries, record wall-clock `Instant` per query
       - compute p99 = sorted[990] latency in microseconds
       - assert p99 < 5000 (i.e. < 5 ms per `10 §8`)
       - print `recall@10=NNN p99_us=NNN` to stdout for FSV capture
-- [ ] After rebuild, rerun the recall harness → assert recall within 0.01 of
+- [x] After rebuild, rerun the recall harness → assert recall within 0.01 of
       pre-rebuild value (rebuild must not degrade quality)
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: build 100-node graph, rebuild, compare neighbor sets → recall@5 on
+- [x] unit: build 100-node graph, rebuild, compare neighbor sets → recall@5 on
       20 queries ≥ 0.98 (pre vs post rebuild)
-- [ ] unit: `snapshot_vectors` returns exactly `len()` entries with correct `CxId`
-- [ ] proptest: rebuild is idempotent — `rebuild(); rebuild()` ≡ `rebuild()`
+- [x] unit: `snapshot_vectors` returns exactly `len()` entries with correct `CxId`
+- [x] proptest: rebuild is idempotent — `rebuild(); rebuild()` ≡ `rebuild()`
       (same recall@10 within 0.01 on fixed queries)
-- [ ] edge: rebuild on empty graph → no panic, `len() == 0`
-- [ ] edge: rebuild after removing half the nodes → no dangling neighbor pointers
-- [ ] fail-closed: if Aster vector read returns `CALYX_ASTER_NOT_FOUND` during
+- [x] edge: rebuild on empty graph → no panic, `len() == 0`
+- [x] edge: rebuild after removing half the nodes → no dangling neighbor pointers
+- [x] fail-closed: if Aster vector read returns `CALYX_ASTER_NOT_FOUND` during
       rebuild, the error is propagated (not silently skipped); rebuild halts
 
 ## FSV (read the bytes on aiwonder — the truth gate)
@@ -61,12 +61,12 @@ the 1e6-cx `bench_single_lens` scale target remains future performance FSV.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] Sextant HNSW rebuild/search remains CPU/index-owned; any Sextant CPU/GPU
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] Sextant HNSW rebuild/search remains CPU/index-owned; any Sextant CPU/GPU
       parity request fails loud with `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`
       until a real Forge GPU search path is wired. Forge PH13 covers kernel
       parity separately.
-- [ ] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] FSV evidence (readback output / screenshot) attached to the PH23 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

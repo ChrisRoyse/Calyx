@@ -51,7 +51,7 @@
 > projection; adds finite guards to `admit_lens`; makes Aster-backed
 > materialization planning return errors by default; and documents that
 > abundance/sufficiency/blind-spot APIs are helper/report surfaces until PH62
-> CLI/MCP vault-backed product entry points land.
+> CLI/MCP vault-backed product entry points land (#342).
 
 Loom weaves cross-terms (associations between associations) and the agreement
 graph; Assay measures the bits each lens/pair carries about real outcomes and
@@ -133,7 +133,7 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
 - **Deliverables.** `contract.rs` (`admit_lens` → Admit|Reject{reason}),
   `n_eff.rs` (stable rank of the redundancy graph), stratified bits +
   no-frequency-multiplier invariant (refines A7, `26 §9`); typed recurrence
-  rate/CI semantics are PH42 work (#340).
+  rate/CI semantics are PH42 work (#340, owner #342).
 - **Key tasks.** `CALYX_ASSAY_LOW_SIGNAL` / `_REDUNDANT`; per-stratum bits so a
   rare-class sole carrier isn't lost; **no raw-frequency multiplier on bits**.
 - **Post-sweep note.** `admit_lens` rejects NaN/Inf `signal_bits` and
@@ -152,7 +152,7 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   ceiling), `bits_report`.
 - **Key tasks.** DPI ceiling exposed; deficit localized to slots; sufficiency
   emits structured deficits through `SufficiencyDeficitSink`; Anneal consumes
-  that interface in PH47.
+  that interface in PH47 (#342).
 - **Post-sweep note.** Sufficiency and bit reports remain anchor-explicit; the
   backing AssayStore now prevents same-panel/shard/subject collisions across
   vaults or anchors (#287), and persisted rows without vault scope are rejected
@@ -163,8 +163,8 @@ enforces the differentiation contract. Lands in `calyx-loom` + `calyx-assay`.
   (#309).
 - **Post-sweep note.** Current abundance, sufficiency, attribution, and
   blind-spot surfaces are library helpers/reports used by tests and later
-  engines. Vault-backed user-facing commands/tools are deferred to PH62/PH63;
-  this Stage 5 contract is the measured report data and CF persistence, not a
+  engines. Vault-backed user-facing commands/tools are deferred to PH62/PH63
+  (#342). This Stage 5 contract is the measured report data and CF persistence, not a
   complete CLI/MCP product surface (#340).
 - **FSV gate.** `abundance_report` prints the four honest numbers; a known-
   insufficient panel (`I≪H`) is flagged with the per-slot deficit (read it);

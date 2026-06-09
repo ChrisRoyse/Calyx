@@ -57,15 +57,15 @@ different slot key still fails closed.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `add_lens` on a fresh registry → `panel_version` goes from 0 to 1;
+- [x] unit: `add_lens` on a fresh registry → `panel_version` goes from 0 to 1;
   `slot_map` has one entry; `lenses` has one entry.
 - [x] unit: `add_lens` same spec twice → second call returns the same slot,
   `panel_version` is unchanged, and no duplicate backfill is queued (#327).
-- [ ] unit: `add_lens` two different specs → `panel_version == 2`, two distinct
+- [x] unit: `add_lens` two different specs → `panel_version == 2`, two distinct
   `SlotId`s allocated.
-- [ ] proptest: `panel_version` after N `add_lens` calls (all unique specs) ==
+- [x] proptest: `panel_version` after N `add_lens` calls (all unique specs) ==
   N (monotone increment, no skips).
-- [ ] edge (≥3): (1) frozen contract violation on registration → no slot
+- [x] edge (≥3): (1) frozen contract violation on registration → no slot
   allocated, `panel_version` unchanged; (2) `slot_id` never wraps below
   previous maximum; (3) `backfill_queue` has one entry per successful add.
 - [x] fail-closed: missing frozen contract → `CALYX_LENS_FROZEN_VIOLATION`,
@@ -82,8 +82,8 @@ different slot key still fails closed.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH20 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

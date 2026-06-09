@@ -21,28 +21,28 @@ slot vectors; result cached with TTL. This is the mechanism that keeps storage
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `delta_vec(v_a: &[f32], v_b: &[f32]) -> Vec<f32>`: element-wise subtraction; canonical pair order enforced (lexicographic SlotId → always `v_lower_id − v_higher_id`); result tagged `source: Derived`
-- [ ] Implement `interaction_vec(v_a: &[f32], v_b: &[f32], mode: InteractionMode, forge: &ForgeHandle) -> Result<Vec<f32>, CalyxError>`:
+- [x] Implement `delta_vec(v_a: &[f32], v_b: &[f32]) -> Vec<f32>`: element-wise subtraction; canonical pair order enforced (lexicographic SlotId → always `v_lower_id − v_higher_id`); result tagged `source: Derived`
+- [x] Implement `interaction_vec(v_a: &[f32], v_b: &[f32], mode: InteractionMode, forge: &ForgeHandle) -> Result<Vec<f32>, CalyxError>`:
   - `InteractionMode::Hadamard`: blockwise `v_a ⊙ v_b`
   - `InteractionMode::LowRank { w: &Mat }`: `v_aᵀ W v_b` via Forge matmul; W is a small random matrix (default 64×64 per pair, seeded from `(slot_a_id, slot_b_id)` deterministically)
-- [ ] Implement `concat_vec(v_a: &[f32], v_b: &[f32]) -> Vec<f32>`: typed, reversible concatenation; stores a `ConcatMeta { dim_a, dim_b }` header in the value so splitting is lossless
-- [ ] Implement `LruXtermCache`:
+- [x] Implement `concat_vec(v_a: &[f32], v_b: &[f32]) -> Vec<f32>`: typed, reversible concatenation; stores a `ConcatMeta { dim_a, dim_b }` header in the value so splitting is lossless
+- [x] Implement `LruXtermCache`:
   - Key: `(CxId, SlotId, SlotId, CrossTermKind)` (canonical pair order, lower SlotId first)
   - Value: `CrossTerm` + `computed_at: Instant` via the `Clock` trait
   - Capacity: configurable; default `n_eff * N` entries (passed at construction)
   - Eviction: LRU + TTL (configurable; default 10 min); never `Instant::now()` — always `clock.now()`
   - `get_or_compute(key, compute_fn) -> Result<CrossTerm, CalyxError>`
-- [ ] Implement `cross_term(cx_id, slot_a, slot_b, kind, cache, forge) -> Result<CrossTerm, CalyxError>`:
+- [x] Implement `cross_term(cx_id, slot_a, slot_b, kind, cache, forge) -> Result<CrossTerm, CalyxError>`:
   - checks xterm CF first (if already materialized, return stored)
   - else calls `cache.get_or_compute(...)` → invokes the correct lazy compute fn
   - never materializes to CF unless the materialization plan marks the pair as eager
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `delta_vec([1,0],[0,1]) == [1,-1]`; `delta_vec([0,1],[1,0]) == [-1,1]` (canonical pair order reversal changes sign); `concat_vec(a,b)` round-trips to `(a,b)` via `ConcatMeta`
-- [ ] proptest: `delta_vec(v_a,v_b) == -delta_vec(v_b,v_a)` for all `(v_a,v_b)` (anti-symmetry); `concat_vec` length = `len(a)+len(b)`
-- [ ] edge: cache eviction fires when capacity is reached (insert capacity+1 entries; first entry is gone); TTL eviction fires after injected clock advance; cache hit on second access returns identical bytes
-- [ ] fail-closed: `interaction_vec` with mismatched dims → `CALYX_LOOM_DIM_MISMATCH`; `cross_term` on a non-existent `CxId` → `CALYX_ASTER_NOT_FOUND`
+- [x] unit: `delta_vec([1,0],[0,1]) == [1,-1]`; `delta_vec([0,1],[1,0]) == [-1,1]` (canonical pair order reversal changes sign); `concat_vec(a,b)` round-trips to `(a,b)` via `ConcatMeta`
+- [x] proptest: `delta_vec(v_a,v_b) == -delta_vec(v_b,v_a)` for all `(v_a,v_b)` (anti-symmetry); `concat_vec` length = `len(a)+len(b)`
+- [x] edge: cache eviction fires when capacity is reached (insert capacity+1 entries; first entry is gone); TTL eviction fires after injected clock advance; cache hit on second access returns identical bytes
+- [x] fail-closed: `interaction_vec` with mismatched dims → `CALYX_LOOM_DIM_MISMATCH`; `cross_term` on a non-existent `CxId` → `CALYX_ASTER_NOT_FOUND`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -56,8 +56,8 @@ slot vectors; result cached with TTL. This is the mechanism that keeps storage
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the interaction_vec golden set (LowRank path uses Forge matmul)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] CPU↔GPU bit-parity ≤ 1e-3 on the interaction_vec golden set (LowRank path uses Forge matmul)
+- [x] FSV evidence (readback output / screenshot) attached to the PH27 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -19,36 +19,36 @@ on every Forge dispatch; writes only happen during exploration (T03).
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub struct AutotuneKey { pub op: String, pub shape: Vec<usize>, pub dtype: String, pub device: String, pub recall_tgt: f32 }`
+- [x] `pub struct AutotuneKey { pub op: String, pub shape: Vec<usize>, pub dtype: String, pub device: String, pub recall_tgt: f32 }`
   — `serde::{Serialize, Deserialize}`, `Clone`, `Debug`, `PartialEq`, `Eq`, `Hash`;
   `recall_tgt` is quantized to nearest 0.01 for hashing
   (`impl Hash`: hash `(op, shape, dtype, device, (recall_tgt * 100.0) as u32)`)
-- [ ] `pub struct AutotuneCache { entries: HashMap<AutotuneKey, BestConfig>, path: PathBuf }`
-- [ ] `pub fn load(path: &Path) -> Result<AutotuneCache, ForgeError>`
+- [x] `pub struct AutotuneCache { entries: HashMap<AutotuneKey, BestConfig>, path: PathBuf }`
+- [x] `pub fn load(path: &Path) -> Result<AutotuneCache, ForgeError>`
   — if file not found → return empty cache (not an error);
   if file malformed → `ForgeError::QuantError { op: "autotune_load", detail: "json parse error: {e}" }`
   (reusing the quant error variant is wrong — add `ForgeError::CacheError { ... }` → `CALYX_FORGE_CACHE_ERROR`)
-- [ ] `pub fn get(&self, key: &AutotuneKey) -> Option<&BestConfig>`
-- [ ] `pub fn insert(&mut self, key: AutotuneKey, config: BestConfig)`
-- [ ] `pub fn persist(&self) -> Result<(), ForgeError>`
+- [x] `pub fn get(&self, key: &AutotuneKey) -> Option<&BestConfig>`
+- [x] `pub fn insert(&mut self, key: AutotuneKey, config: BestConfig)`
+- [x] `pub fn persist(&self) -> Result<(), ForgeError>`
   — write to `<path>.tmp` then `fs::rename` atomically; if rename fails on same-fs
   → `ForgeError::CacheError`; on ZFS, ensure tmp file is in the same dataset
   (avoid `EXDEV` — stage temp file in same dir as `path`)
-- [ ] `pub fn rollback(&mut self, key: &AutotuneKey, previous: BestConfig)`
+- [x] `pub fn rollback(&mut self, key: &AutotuneKey, previous: BestConfig)`
   — replaces current config with `previous`; used by T04 reversibility
-- [ ] `AutotuneKey::default_for(op: &str, shape: &[usize], dtype: &str, device: &str) -> AutotuneKey`
+- [x] `AutotuneKey::default_for(op: &str, shape: &[usize], dtype: &str, device: &str) -> AutotuneKey`
   — `recall_tgt=0.95` default
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `insert` + `get` round-trip for a known key → returns the inserted `BestConfig`
-- [ ] unit: `persist` writes a file then `load` from that path returns the same entry
-- [ ] unit: `load` from non-existent path → empty cache, no error
-- [ ] proptest: `AutotuneKey` with `recall_tgt=0.951` and `recall_tgt=0.954` hash to
+- [x] unit: `insert` + `get` round-trip for a known key → returns the inserted `BestConfig`
+- [x] unit: `persist` writes a file then `load` from that path returns the same entry
+- [x] unit: `load` from non-existent path → empty cache, no error
+- [x] proptest: `AutotuneKey` with `recall_tgt=0.951` and `recall_tgt=0.954` hash to
   the same value (quantized to 0.01); `recall_tgt=0.95` and `recall_tgt=0.96` hash differently
-- [ ] edge (≥3): (1) empty cache persist → valid JSON file; (2) malformed JSON load → `CacheError`;
+- [x] edge (≥3): (1) empty cache persist → valid JSON file; (2) malformed JSON load → `CacheError`;
   (3) `rollback` on key not in cache → inserts the previous config (no error)
-- [ ] fail-closed: `persist` to a read-only path → `ForgeError::CacheError` with path in detail
+- [x] fail-closed: `persist` to a read-only path → `ForgeError::CacheError` with path in detail
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -64,8 +64,8 @@ on every Forge dispatch; writes only happen during exploration (T03).
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (test output + JSON file listing) attached to PH16 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (test output + JSON file listing) attached to PH16 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -19,7 +19,7 @@ absent, return 0.0 and document that silhouette was skipped.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub fn silhouette_score(embeddings: &[Vec<f32>], labels: &[String]) -> Result<f32>`:
+- [x] `pub fn silhouette_score(embeddings: &[Vec<f32>], labels: &[String]) -> Result<f32>`:
   - validate `embeddings.len() == labels.len()`; if not →
     `CALYX_REGISTRY_RUNTIME_UNAVAILABLE` with "silhouette requires matching
     embeddings and labels lengths".
@@ -32,24 +32,24 @@ absent, return 0.0 and document that silhouette was skipped.
   - return `mean(s_i)` over all embeddings.
   - complexity is O(N^2) — acceptable for probe sets ≤ 500; for larger sets,
     subsample to 500.
-- [ ] `pub fn separation_metric(embeddings: &[Vec<f32>], labels: Option<&[String]>) -> Result<f32>`:
+- [x] `pub fn separation_metric(embeddings: &[Vec<f32>], labels: Option<&[String]>) -> Result<f32>`:
   - if labels is `None` → return `Ok(0.0)`.
   - call `silhouette_score(embeddings, labels)`.
-- [ ] Use cosine distance `d = 1 - cos(u, v)` = `1 - dot(u, v)` for
+- [x] Use cosine distance `d = 1 - cos(u, v)` = `1 - dot(u, v)` for
   unit-normed vectors (no sqrt needed).
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: two tight clusters in 2-D, well-separated → silhouette > 0.5.
-- [ ] unit: two completely interleaved clusters (random permutation) → silhouette
+- [x] unit: two tight clusters in 2-D, well-separated → silhouette > 0.5.
+- [x] unit: two completely interleaved clusters (random permutation) → silhouette
   near 0.0 (within ±0.15 for seed=42).
-- [ ] unit: single label (all same class) → silhouette = 0.0 (a_i is defined
+- [x] unit: single label (all same class) → silhouette = 0.0 (a_i is defined
   but b_i is undefined → return 0.0).
-- [ ] unit: `labels = None` → returns `Ok(0.0)`.
-- [ ] edge (≥3): (1) N=2 same label → 0.0 (no b_i); (2) N=2 different labels
+- [x] unit: `labels = None` → returns `Ok(0.0)`.
+- [x] edge (≥3): (1) N=2 same label → 0.0 (no b_i); (2) N=2 different labels
   → silhouette ∈ [-1, 1]; (3) all embeddings identical → a_i = 0, b_i = 0
   → silhouette = 0.0 (avoid 0/0).
-- [ ] fail-closed: mismatched lengths → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`.
+- [x] fail-closed: mismatched lengths → `CALYX_REGISTRY_RUNTIME_UNAVAILABLE`.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -61,8 +61,8 @@ absent, return 0.0 and document that silhouette was skipped.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH21 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

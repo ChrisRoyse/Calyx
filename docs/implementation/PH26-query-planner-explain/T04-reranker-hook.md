@@ -36,7 +36,7 @@ candidate strings were zeroizing-owned.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `crates/calyx-sextant/src/reranker.rs`:
+- [x] `crates/calyx-sextant/src/reranker.rs`:
   ```rust
   pub struct RerankerClient {
       pub endpoint: String,       // e.g. "http://127.0.0.1:8089/rerank"
@@ -53,7 +53,7 @@ candidate strings were zeroizing-owned.
       pub zeroizing_ok: bool,
   }
   ```
-- [ ] `fn rerank(&self, req: RerankRequest) -> Result<RerankResponse, CalyxError>`:
+- [x] `fn rerank(&self, req: RerankRequest) -> Result<RerankResponse, CalyxError>`:
       - Serialize `{ "query": ..., "texts": [...] }` as JSON
       - POST to `self.endpoint` with `Content-Type: application/json`
       - `timeout(Duration::from_millis(self.timeout_ms))`
@@ -63,21 +63,21 @@ candidate strings were zeroizing-owned.
       - Serialized request body is scoped through a `Zeroizing` value; candidate
         strings are owned in `Zeroizing<String>` values and never persisted or
         logged by the product path
-- [ ] Wire into `PipelineStrategy` (replace the stub from PH25 T05)
-- [ ] `RerankerClient::new_local()` → creates a client pointed at `127.0.0.1:8089`
-- [ ] malformed JSON/shape → `CALYX_SEXTANT_RERANKER_TIMEOUT`
+- [x] Wire into `PipelineStrategy` (replace the stub from PH25 T05)
+- [x] `RerankerClient::new_local()` → creates a client pointed at `127.0.0.1:8089`
+- [x] malformed JSON/shape → `CALYX_SEXTANT_RERANKER_TIMEOUT`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: serialized request JSON has `"query"` and `"texts"` keys — assert
+- [x] unit: serialized request JSON has `"query"` and `"texts"` keys — assert
       using `serde_json::from_str` on the expected shape
-- [ ] unit (mock): spin up a `tiny_http` mock server in the test that returns
+- [x] unit (mock): spin up a `tiny_http` mock server in the test that returns
       `[{"index":0,"score":0.9},{"index":1,"score":0.5}]` → assert
       `RerankResponse` has correct candidate-order scores
-- [ ] edge (mock): mock server returns 500 → `CALYX_SEXTANT_RERANKER_TIMEOUT`
-- [ ] edge (mock): mock server sleeps > timeout → `CALYX_SEXTANT_RERANKER_TIMEOUT`
-- [ ] edge: empty candidate list → `Ok(RerankResponse { scores: vec![] })`
-- [ ] fail-closed: malformed JSON from server → `CALYX_SEXTANT_RERANKER_TIMEOUT`
+- [x] edge (mock): mock server returns 500 → `CALYX_SEXTANT_RERANKER_TIMEOUT`
+- [x] edge (mock): mock server sleeps > timeout → `CALYX_SEXTANT_RERANKER_TIMEOUT`
+- [x] edge: empty candidate list → `Ok(RerankResponse { scores: vec![] })`
+- [x] fail-closed: malformed JSON from server → `CALYX_SEXTANT_RERANKER_TIMEOUT`
 - [x] privacy: `RerankRequest.candidates` type contains `Zeroizing<String>`;
       serialized request body also uses `Zeroizing<String>`
 
@@ -105,8 +105,8 @@ candidate strings were zeroizing-owned.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH26 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
