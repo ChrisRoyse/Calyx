@@ -41,8 +41,10 @@ pub fn guard(
         let produced_vec = produced.get(&slot).ok_or(WardError::MissingSlot { slot })?;
         let matched_vec = matched.get(&slot).ok_or(WardError::MissingSlot { slot })?;
         let tau = profile.tau_for(&slot).unwrap_or(DEFAULT_TAU);
-        let cos = slot_cosine(&backend, produced_vec, matched_vec).unwrap_or(0.0);
-        let pass = cos >= tau;
+        let (cos, pass) = match slot_cosine(&backend, produced_vec, matched_vec) {
+            Some(cos) => (cos, cos >= tau),
+            None => (0.0, false),
+        };
         per_slot.push(SlotVerdict {
             slot,
             cos,
@@ -208,6 +210,20 @@ mod tests {
     #[test]
     fn zero_vector_returns_failed_verdict_without_panic() {
         let profile = sample_profile(vec![(slot(1), 0.70)]);
+        let produced = slot_vectors(&[(slot(1), vec![0.0, 0.0])]);
+        let matched = slot_vectors(&[(slot(1), vec![1.0, 0.0])]);
+
+        let verdict = guard(&profile, &produced, &matched).expect("guard succeeds");
+
+        assert!(!verdict.overall_pass);
+        assert_eq!(verdict.action, Some(NoveltyAction::Quarantine));
+        assert_eq!(verdict.per_slot[0].cos, 0.0);
+        assert!(!verdict.per_slot[0].pass);
+    }
+
+    #[test]
+    fn invalid_vector_fails_even_when_tau_is_zero() {
+        let profile = sample_profile(vec![(slot(1), 0.0)]);
         let produced = slot_vectors(&[(slot(1), vec![0.0, 0.0])]);
         let matched = slot_vectors(&[(slot(1), vec![1.0, 0.0])]);
 
