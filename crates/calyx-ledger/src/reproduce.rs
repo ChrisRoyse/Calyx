@@ -1,5 +1,7 @@
 //! Reproduce-time lens lookup and deterministic slot re-measurement.
 
+mod fusion;
+
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
@@ -11,6 +13,12 @@ use crate::append::LedgerCfStore;
 use crate::codec::decode;
 use crate::entry::{HASH_BYTES, LedgerEntry, SubjectId};
 use crate::kind::EntryKind;
+
+pub use fusion::{
+    FusionMode, FusionWeights, HitRef, REPRODUCE_PAYLOAD_TAG, REPRODUCE_TOLERANCE, ReproduceResult,
+    SlotWeight, append_reproduce_entry, assert_reproduced, assert_within_tolerance, reproduce,
+    reproduce_with_input_resolver, rerun_fusion,
+};
 
 /// Stable answer identifier used by Lodestar answer entries.
 pub type QueryId = Vec<u8>;

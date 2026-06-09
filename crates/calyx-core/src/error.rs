@@ -157,6 +157,9 @@ error_catalog! {
     ReproduceNondeterministic, reproduce_nondeterministic, "CALYX_REPRODUCE_NONDETERMINISTIC",
     "reproduce ledger entry lacks determinism seed", "no determinism seed in ledger entry - cannot guarantee reproduce fidelity";
 
+    ReproduceDriftExceeded, reproduce_drift_exceeded, "CALYX_REPRODUCE_DRIFT_EXCEEDED",
+    "reproduce max_drift exceeded tolerance", "reproduce max_drift exceeded 1e-3 - possible lens drift or fusion parameter change";
+
     VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
     "cross-vault read without grant", "request grant";
 
@@ -210,6 +213,7 @@ mod tests {
         "CALYX_LEDGER_ACTOR_TOO_LONG",
         "CALYX_LEDGER_GROUP_COMMIT_FAILED",
         "CALYX_REPRODUCE_NONDETERMINISTIC",
+        "CALYX_REPRODUCE_DRIFT_EXCEEDED",
         "CALYX_VAULT_ACCESS_DENIED",
         "CALYX_STALE_DERIVED",
         "CALYX_ORACLE_INSUFFICIENT",
@@ -268,6 +272,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_REPRODUCE_NONDETERMINISTIC",
             "no determinism seed in ledger entry - cannot guarantee reproduce fidelity"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_REPRODUCE_DRIFT_EXCEEDED",
+            "reproduce max_drift exceeded 1e-3 - possible lens drift or fusion parameter change"
         )));
     }
 

@@ -38,8 +38,8 @@ reproduce is called; PH36 depends on that contract existing.
 quarantine. `checkpoint.rs` is implemented and FSV-signed-off through #251 with
 same-WAL-batch Admin checkpoint rows. `reproduce.rs` now covers the
 content-addressed lens lookup, Forge determinism activation, input-hash
-verification, and slot re-measure half through #252; fusion replay/drift result
-assembly remains T05.
+verification, slot re-measure half through #252, and fusion replay/drift result
+assembly through #253.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -60,7 +60,7 @@ assembly remains T05.
 | T02 | `verify.rs`: `verify_chain(range)` + `CALYX_LEDGER_CHAIN_BROKEN` + quarantine | T01 |
 | T03 | Checkpoint scheduler: periodic Merkle root written as Admin entry (done #251) | T01 |
 | T04 | `reproduce.rs`: content-addressed lens lookup + re-measure + Forge determinism (done #252) | T02 |
-| T05 | `reproduce.rs`: re-run fusion + drift assertion + `ReproduceResult` | T04 |
+| T05 | `reproduce.rs`: re-run fusion + drift assertion + `ReproduceResult` (done #253) | T04 |
 | T06 | Audit query surface: `get_provenance`, `get_answer_trace`, `audit(filter)` | T02 |
 | T07 | FSV integration: flip-byte tamper test + reproduce bit-parity test | T05, T06 |
 
@@ -77,6 +77,13 @@ Two proofs, both byte-level on aiwonder:
    `{ reproduced: true, max_drift: <f64> }` where `max_drift ≤ 1e-3` (bit-parity
    within tolerance); read both the original and reproduced answer rows from the
    `ledger` CF and confirm the score vectors differ by ≤ 1e-3 per element.
+
+Latest reproduce evidence (#253): ledger API FSV at
+`/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609` wrote
+`happy-ledger-cf/0000000000000003.ledger` with payload tag `reproduce_v1`,
+`reproduced=true`, `max_drift=0.0`, and intact chain readback. Readback JSON
+SHA-256: `97dd9a65f4b1c4421b437247b1b2fb89d99975eae720be4521615713702bd994`.
+CLI surfacing remains in T06/T07.
 
 ## Risks / landmines
 

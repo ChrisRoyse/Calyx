@@ -32,10 +32,12 @@ pub use merkle::{
 };
 pub use redaction::{PayloadBuilder, RedactedInput, RedactionPolicy};
 pub use reproduce::{
-    ForgeBackend, InlineInputResolver, QueryId, RecordedSlot, RemeasuredSlot, ReproduceContext,
-    ReproduceInputResolver, ReproduceLensRegistry, activate_forge_determinism,
+    ForgeBackend, FusionMode, FusionWeights, HitRef, InlineInputResolver, QueryId,
+    REPRODUCE_PAYLOAD_TAG, REPRODUCE_TOLERANCE, RecordedSlot, RemeasuredSlot, ReproduceContext,
+    ReproduceInputResolver, ReproduceLensRegistry, ReproduceResult, SlotWeight,
+    activate_forge_determinism, append_reproduce_entry, assert_reproduced, assert_within_tolerance,
     build_reproduce_context, lookup_frozen_lens, remeasure_slots,
-    remeasure_slots_with_input_resolver,
+    remeasure_slots_with_input_resolver, reproduce, reproduce_with_input_resolver, rerun_fusion,
 };
 pub use verify::{VerifyResult, verify_chain};
 
