@@ -3,13 +3,15 @@ use super::encode::WriteRow;
 use crate::cf::ColumnFamily;
 use calyx_core::{CalyxError, Constellation, LedgerRef, Result, SystemClock};
 use calyx_ledger::{
-    ActorId, DefaultLedgerHook, EntryKind, LedgerAppender, LedgerGroupCommitHook, LedgerWriteBatch,
-    MemoryLedgerStore, PayloadBuilder, SubjectId,
+    ActorId, DefaultLedgerHook, EntryKind, LedgerAppender, MemoryLedgerStore, PayloadBuilder,
+    StagedLedgerRow, SubjectId,
 };
 use serde_json::json;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 pub(super) type AsterLedgerHook = Mutex<DefaultLedgerHook<MemoryLedgerStore, SystemClock>>;
+pub(super) type AsterLedgerHookGuard<'a> =
+    MutexGuard<'a, DefaultLedgerHook<MemoryLedgerStore, SystemClock>>;
 
 pub(super) fn recover_hook(recovery: &RecoveredBatches) -> Result<AsterLedgerHook> {
     let mut store = MemoryLedgerStore::default();
@@ -24,37 +26,35 @@ pub(super) fn recover_hook(recovery: &RecoveredBatches) -> Result<AsterLedgerHoo
     Ok(Mutex::new(DefaultLedgerHook::new(appender)))
 }
 
-pub(super) fn append_ingest(
-    hook: &AsterLedgerHook,
+pub(super) fn lock_hook(hook: &AsterLedgerHook) -> Result<AsterLedgerHookGuard<'_>> {
+    hook.lock()
+        .map_err(|_| CalyxError::ledger_group_commit_failed("ledger hook lock poisoned"))
+}
+
+pub(super) fn stage_ingest(
+    hook: &DefaultLedgerHook<MemoryLedgerStore, SystemClock>,
     rows: &mut Vec<WriteRow>,
     constellation: &Constellation,
-) -> Result<LedgerRef> {
-    let mut batch = AsterBatch { rows };
-    let mut hook = hook
-        .lock()
-        .map_err(|_| CalyxError::ledger_group_commit_failed("ledger hook lock poisoned"))?;
-    hook.on_commit(
-        &mut batch,
+) -> Result<StagedLedgerRow> {
+    let staged = hook.stage(
         EntryKind::Ingest,
         SubjectId::Cx(constellation.cx_id),
         ingest_payload(constellation),
         ActorId::Service("calyx-aster".to_string()),
-    )
+    )?;
+    rows.push(WriteRow {
+        cf: ColumnFamily::Ledger,
+        key: staged.key().to_vec(),
+        value: staged.value().to_vec(),
+    });
+    Ok(staged)
 }
 
-struct AsterBatch<'a> {
-    rows: &'a mut Vec<WriteRow>,
-}
-
-impl LedgerWriteBatch for AsterBatch<'_> {
-    fn put_ledger_row(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
-        self.rows.push(WriteRow {
-            cf: ColumnFamily::Ledger,
-            key,
-            value,
-        });
-        Ok(())
-    }
+pub(super) fn commit_staged(
+    hook: &mut DefaultLedgerHook<MemoryLedgerStore, SystemClock>,
+    staged: &StagedLedgerRow,
+) -> Result<LedgerRef> {
+    hook.commit_staged(staged)
 }
 
 fn ingest_payload(constellation: &Constellation) -> Vec<u8> {
@@ -88,16 +88,17 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::cf::ledger_key;
-    use calyx_ledger::decode;
+    use calyx_ledger::{LedgerCfStore, decode};
+    use std::collections::BTreeMap;
 
     #[test]
     fn aster_batch_uses_big_endian_ledger_keys() {
         let mut rows = Vec::new();
-        let mut batch = AsterBatch { rows: &mut rows };
-
-        batch
-            .put_ledger_row(ledger_key(7), b"entry".to_vec())
-            .expect("put ledger");
+        rows.push(WriteRow {
+            cf: ColumnFamily::Ledger,
+            key: ledger_key(7),
+            value: b"entry".to_vec(),
+        });
 
         assert_eq!(rows[0].cf, ColumnFamily::Ledger);
         assert_eq!(rows[0].key, ledger_key(7));
@@ -113,19 +114,41 @@ mod tests {
             torn_tail: None,
         })
         .expect("recover empty hook");
-        let ledger_ref = hook
-            .get_mut()
-            .unwrap()
-            .on_commit(
-                &mut AsterBatch { rows: &mut rows },
-                EntryKind::Ingest,
-                SubjectId::Query(vec![1]),
-                b"{}".to_vec(),
-                ActorId::Service("test".to_string()),
-            )
-            .expect("append");
+        let guard = hook.get_mut().unwrap();
+        let first = stage_ingest(guard, &mut rows, &sample_constellation()).expect("stage first");
 
-        assert_eq!(ledger_ref.seq, 0);
+        assert_eq!(first.ledger_ref().seq, 0);
+        assert_eq!(guard.appender().next_seq(), 0);
+        assert!(guard.appender().store().scan().unwrap().is_empty());
         assert_eq!(decode(&rows[0].value).unwrap().kind, EntryKind::Ingest);
+
+        let committed = commit_staged(guard, &first).expect("commit first");
+
+        assert_eq!(committed.seq, 0);
+        assert_eq!(guard.appender().next_seq(), 1);
+        assert_eq!(guard.appender().store().scan().unwrap().len(), 1);
+    }
+
+    fn sample_constellation() -> Constellation {
+        Constellation {
+            cx_id: calyx_core::CxId::from_bytes([7; 16]),
+            vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
+            panel_version: 1,
+            created_at: 42,
+            input_ref: calyx_core::InputRef {
+                hash: [3; 32],
+                pointer: Some("synthetic://ledger-hook".to_string()),
+                redacted: false,
+            },
+            modality: calyx_core::Modality::Text,
+            slots: BTreeMap::new(),
+            scalars: BTreeMap::new(),
+            anchors: Vec::new(),
+            provenance: LedgerRef {
+                seq: 99,
+                hash: [9; 32],
+            },
+            flags: calyx_core::CxFlags::default(),
+        }
     }
 }

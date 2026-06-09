@@ -193,15 +193,22 @@ where
         }
 
         let mut rows = Vec::new();
-        if let Some(hook) = &self.ledger_hook {
-            constellation.provenance = ledger_hook::append_ingest(hook, &mut rows, &constellation)?;
+        let mut hook_guard = match &self.ledger_hook {
+            Some(hook) => Some(ledger_hook::lock_hook(hook)?),
+            None => None,
+        };
+        let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
+            let staged = ledger_hook::stage_ingest(hook, &mut rows, &constellation)?;
+            constellation.provenance = staged.ledger_ref();
+            Some(staged)
         } else {
             rows.push(encode::WriteRow {
                 cf: ColumnFamily::Ledger,
                 key: ledger_key(constellation.provenance.seq),
                 value: ledger_stub::encode(constellation.provenance.seq),
             });
-        }
+            None
+        };
         let base_bytes = encode::encode_constellation_base(&constellation)?;
         rows.push(encode::WriteRow {
             cf: ColumnFamily::Base,
@@ -223,6 +230,9 @@ where
             });
         }
         self.commit_rows(&rows)?;
+        if let (Some(hook), Some(staged)) = (hook_guard.as_deref_mut(), staged_ledger.as_ref()) {
+            ledger_hook::commit_staged(hook, staged)?;
+        }
         Ok(id)
     }
 
@@ -289,6 +299,9 @@ mod ledger_timestamp_tests;
 
 #[cfg(test)]
 mod ledger_integration_tests;
+
+#[cfg(test)]
+mod ledger_atomicity_tests;
 
 #[cfg(test)]
 mod tests;

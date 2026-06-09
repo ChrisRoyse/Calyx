@@ -2,7 +2,7 @@
 
 use calyx_core::{CalyxError, Clock, LedgerRef, Result};
 
-use crate::append::{LedgerAppender, LedgerCfStore, MemoryLedgerStore};
+use crate::append::{LedgerAppender, LedgerCfStore, MemoryLedgerStore, PreparedLedgerEntry};
 use crate::entry::{ActorId, SubjectId};
 use crate::kind::EntryKind;
 
@@ -49,6 +49,29 @@ pub struct LedgerBatchRow {
     pub value: Vec<u8>,
 }
 
+/// One ledger row prepared for a storage batch but not yet committed to the appender tip.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StagedLedgerRow {
+    key: Vec<u8>,
+    value: Vec<u8>,
+    ledger_ref: LedgerRef,
+    prepared: PreparedLedgerEntry,
+}
+
+impl StagedLedgerRow {
+    pub fn key(&self) -> &[u8] {
+        &self.key
+    }
+
+    pub fn value(&self) -> &[u8] {
+        &self.value
+    }
+
+    pub fn ledger_ref(&self) -> LedgerRef {
+        self.ledger_ref.clone()
+    }
+}
+
 /// Default hook backed by a `LedgerAppender`.
 #[derive(Debug)]
 pub struct DefaultLedgerHook<S = MemoryLedgerStore, C = calyx_core::SystemClock> {
@@ -67,6 +90,31 @@ where
     pub const fn appender(&self) -> &LedgerAppender<S, C> {
         &self.appender
     }
+
+    pub fn stage(
+        &self,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<StagedLedgerRow> {
+        let prepared = self
+            .appender
+            .prepare(kind, subject, payload, actor)
+            .map_err(group_commit_failed)?;
+        Ok(StagedLedgerRow {
+            key: ledger_batch_key(prepared.seq()),
+            value: prepared.bytes().to_vec(),
+            ledger_ref: prepared.ledger_ref(),
+            prepared,
+        })
+    }
+
+    pub fn commit_staged(&mut self, staged: &StagedLedgerRow) -> Result<LedgerRef> {
+        self.appender
+            .commit_prepared(&staged.prepared)
+            .map_err(group_commit_failed)
+    }
 }
 
 impl<S, C> LedgerGroupCommitHook for DefaultLedgerHook<S, C>
@@ -82,15 +130,11 @@ where
         payload: Vec<u8>,
         actor: ActorId,
     ) -> Result<LedgerRef> {
-        let ledger_ref = self
-            .appender
-            .append(kind, subject, payload, actor)
-            .map_err(group_commit_failed)?;
-        let bytes = row_bytes(self.appender.store(), ledger_ref.seq)?;
+        let staged = self.stage(kind, subject, payload, actor)?;
         batch
-            .put_ledger_row(ledger_batch_key(ledger_ref.seq), bytes)
+            .put_ledger_row(staged.key.clone(), staged.value.clone())
             .map_err(group_commit_failed)?;
-        Ok(ledger_ref)
+        self.commit_staged(&staged)
     }
 }
 
@@ -113,16 +157,6 @@ pub const fn ingest_kind_for(op: WriteOp) -> EntryKind {
         WriteOp::VaultAdmin => EntryKind::Admin,
         WriteOp::Erase => EntryKind::Erase,
     }
-}
-
-fn row_bytes(store: &impl LedgerCfStore, seq: u64) -> Result<Vec<u8>> {
-    store
-        .scan()
-        .map_err(group_commit_failed)?
-        .into_iter()
-        .find(|row| row.seq == seq)
-        .map(|row| row.bytes)
-        .ok_or_else(|| group_commit_failed("ledger appender did not expose appended row"))
 }
 
 fn group_commit_failed(message: impl ToString) -> CalyxError {
@@ -218,6 +252,35 @@ mod tests {
     }
 
     #[test]
+    fn staged_row_does_not_advance_until_commit() {
+        let mut hook = sample_hook();
+        let mut batch = WriteBatch::default();
+
+        let staged = hook
+            .stage(
+                EntryKind::Ingest,
+                sample_subject(9),
+                b"{}".to_vec(),
+                sample_actor(),
+            )
+            .expect("stage row");
+
+        assert_eq!(staged.ledger_ref().seq, 0);
+        assert_eq!(hook.appender().next_seq(), 0);
+        assert_eq!(hook.appender().prev_hash(), [0; 32]);
+        assert!(hook.appender().store().scan().unwrap().is_empty());
+
+        batch
+            .put_ledger_row(staged.key().to_vec(), staged.value().to_vec())
+            .expect("put staged row");
+        let committed = hook.commit_staged(&staged).expect("commit staged");
+
+        assert_eq!(committed, staged.ledger_ref());
+        assert_eq!(hook.appender().next_seq(), 1);
+        assert_eq!(hook.appender().store().scan().unwrap().len(), 1);
+    }
+
+    #[test]
     fn batch_failure_returns_group_commit_error() {
         let mut hook = sample_hook();
         let mut batch = FailingBatch;
@@ -233,6 +296,9 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.code, "CALYX_LEDGER_GROUP_COMMIT_FAILED");
+        assert_eq!(hook.appender().next_seq(), 0);
+        assert_eq!(hook.appender().prev_hash(), [0; 32]);
+        assert!(hook.appender().store().scan().unwrap().is_empty());
     }
 
     fn sample_hook() -> DefaultLedgerHook<MemoryLedgerStore, FixedClock> {
