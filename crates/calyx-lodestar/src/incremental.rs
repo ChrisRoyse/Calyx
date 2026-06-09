@@ -126,12 +126,12 @@ impl IncrementalKernelEval {
             }
         }
         self.graph = builder.build();
+        self.stale = true;
         if was_member {
-            self.stale = true;
             Ok(IncrementalResult::KernelMemberRemoved { id })
         } else {
-            Ok(IncrementalResult::Dirty {
-                affected_sccs: BTreeSet::new(),
+            Ok(IncrementalResult::FullRebuildRequired {
+                reason: "node removal can split or reindex SCCs".to_string(),
             })
         }
     }
