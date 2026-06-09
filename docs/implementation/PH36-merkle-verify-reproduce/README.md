@@ -42,6 +42,9 @@ verification, slot re-measure half through #252, and fusion replay/drift result
 assembly through #253. `audit.rs` is implemented and FSV-signed-off through
 #254 with quarantine-aware provenance, answer trace, audit filtering, linked
 Kernel/Guard trace rows, and unprovenanced partial answer protection.
+The PH36 exit FSV integration bundle is implemented and FSV-signed-off through
+#255 with flip-byte tamper detection at seq 11, manifest quarantine, and
+reproduce bit-parity readback.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -64,7 +67,7 @@ Kernel/Guard trace rows, and unprovenanced partial answer protection.
 | T04 | `reproduce.rs`: content-addressed lens lookup + re-measure + Forge determinism (done #252) | T02 |
 | T05 | `reproduce.rs`: re-run fusion + drift assertion + `ReproduceResult` (done #253) | T04 |
 | T06 | Audit query surface: `get_provenance`, `get_answer_trace`, `audit(filter)` (done #254) | T02 |
-| T07 | FSV integration: flip-byte tamper test + reproduce bit-parity test | T05, T06 |
+| T07 | FSV integration: flip-byte tamper test + reproduce bit-parity test (done #255) | T05, T06 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -86,7 +89,7 @@ Latest reproduce evidence (#253): ledger API FSV at
 `reproduced=true`, `max_drift=0.0`, and intact chain readback. Readback JSON
 SHA-256: `97dd9a65f4b1c4421b437247b1b2fb89d99975eae720be4521615713702bd994`.
 CLI surfacing for provenance/answer-trace/audit is covered by #254; the final
-tamper + reproduce integration bundle remains in T07.
+tamper + reproduce integration bundle is covered by #255.
 
 Latest audit-query evidence (#254): CLI and Lodestar FSV at
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609` wrote:
@@ -99,6 +102,19 @@ Kernel/Guard rows and no warnings, audit ingest count 3, quarantined Answer seq
 8 fail-closed with `CALYX_LEDGER_CHAIN_BROKEN`, partial hop rows
 `complete=false`, and injected mid-hop failure leaving one Answer row that
 `get_answer_trace` marks `Unprovenanced` and not trusted.
+
+Latest PH36 exit integration evidence (#255): aiwonder FSV at
+`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609` wrote
+`ph36-exit-fsv/ph36-fsv-integration-readback.json` with SHA-256
+`006ef67bdb9db189b1142c6d4bb45c1181f8b6b31d1fb2cd8a51392553993fea`.
+The FSV log SHA-256 is
+`9ca1c532d305c8b45f2141e7bb5513c7e03796ca03d56ac9b717085fe02eb403`, and the
+xxd log SHA-256 is
+`e54e93b614538e45b03e8914e24cdfa31981c02923fd70031c7dcbf108862cff`.
+Readback proved `CALYX_LEDGER_CHAIN_BROKEN at seq=11`, manifest quarantine
+`0..20` with `broken_at_seq=11`, denied readback for ledger seq 11, and
+reproduce `reproduced=true`, `max_drift=0.0`, identical original/reproduced
+score bytes `4f71c93c` and `8c31c63c`, with an intact four-row reproduce ledger.
 
 ## Risks / landmines
 

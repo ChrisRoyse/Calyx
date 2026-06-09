@@ -208,6 +208,38 @@ fn quarantine_is_fail_closed_for_all_query_surfaces() {
 }
 
 #[test]
+fn quarantine_is_checked_before_decoding_row_bytes() {
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(450)).unwrap();
+    append_json(
+        &mut appender,
+        EntryKind::Ingest,
+        SubjectId::Cx(cx(1)),
+        json!({"cx_id": cx(1).to_string()}),
+    );
+    append_json(
+        &mut appender,
+        EntryKind::Ingest,
+        SubjectId::Cx(cx(2)),
+        json!({"cx_id": cx(2).to_string()}),
+    );
+    let mut store = appender.into_store();
+    let mut poisoned = store
+        .scan()
+        .unwrap()
+        .into_iter()
+        .find(|row| row.seq == 1)
+        .unwrap();
+    poisoned.bytes[8] ^= 1;
+    store.insert_raw(1, poisoned.bytes);
+
+    let quarantine = QuarantineSet::from_ranges(std::iter::once(1..2)).unwrap();
+    let error = get_provenance(&store, &quarantine, cx(1)).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+}
+
+#[test]
 fn partial_answer_hop_rows_are_unprovenanced_not_trusted() {
     let mut appender =
         LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(500)).unwrap();

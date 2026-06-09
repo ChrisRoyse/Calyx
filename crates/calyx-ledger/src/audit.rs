@@ -88,9 +88,8 @@ pub fn get_provenance(
     cx_id: CxId,
 ) -> Result<Vec<LedgerEntry>> {
     let mut out = Vec::new();
-    for entry in decode_entries(cf_reader)? {
+    for entry in decode_entries(cf_reader, quarantine)? {
         if entry_mentions_cx(&entry, cx_id) {
-            ensure_seq_not_quarantined(quarantine, entry.seq)?;
             out.push(entry);
         }
     }
@@ -102,7 +101,7 @@ pub fn get_answer_trace(
     quarantine: &dyn QuarantineLookup,
     answer_id: &[u8],
 ) -> Result<AnswerTrace> {
-    let entries = decode_entries(cf_reader)?;
+    let entries = decode_entries(cf_reader, quarantine)?;
     let mut answers = entries
         .iter()
         .filter(|&entry| {
@@ -218,21 +217,24 @@ pub fn audit(
         ensure_range_not_quarantined(quarantine, start..end)?;
     }
     let mut out = Vec::new();
-    for entry in decode_entries(cf_reader)? {
+    for entry in decode_entries(cf_reader, quarantine)? {
         if filter_matches(&entry, &filter) {
-            ensure_seq_not_quarantined(quarantine, entry.seq)?;
             out.push(entry);
         }
     }
     Ok(out)
 }
 
-fn decode_entries(cf_reader: &impl LedgerCfStore) -> Result<Vec<LedgerEntry>> {
-    cf_reader
-        .scan()?
-        .into_iter()
-        .map(|row| decode(&row.bytes))
-        .collect()
+fn decode_entries(
+    cf_reader: &impl LedgerCfStore,
+    quarantine: &dyn QuarantineLookup,
+) -> Result<Vec<LedgerEntry>> {
+    let mut entries = Vec::new();
+    for row in cf_reader.scan()? {
+        ensure_seq_not_quarantined(quarantine, row.seq)?;
+        entries.push(decode(&row.bytes)?);
+    }
+    Ok(entries)
 }
 
 fn filter_matches(entry: &LedgerEntry, filter: &AuditFilter) -> bool {
