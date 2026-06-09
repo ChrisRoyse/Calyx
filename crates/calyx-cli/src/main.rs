@@ -2,8 +2,10 @@
 
 mod crash;
 mod fsv;
+mod ledger_store;
 mod merkle;
 mod ops;
+mod verify;
 
 use std::env;
 use std::fs;
@@ -34,6 +36,15 @@ fn run(args: Vec<String>) -> Result<(), String> {
         {
             ops::readback_cf(Path::new(vault), cf)
         }
+        [command, flag, cf, vault_flag, vault, seq_flag, seq]
+            if command == "readback"
+                && flag == "--cf"
+                && cf == "ledger"
+                && vault_flag == "--vault"
+                && seq_flag == "--seq" =>
+        {
+            verify::readback_ledger_seq(Path::new(vault), verify::parse_seq(seq)?)
+        }
         [command, flag, vault_flag, vault]
             if command == "readback" && flag == "--wal" && vault_flag == "--vault" =>
         {
@@ -56,6 +67,18 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, range_flag, range] if command == "merkle-root" && range_flag == "--range" => {
             merkle::print_root_from_env(merkle::parse_range(range)?)
+        }
+        [command, ledger_flag, ledger, range_flag, range]
+            if command == "verify-chain"
+                && ledger_flag == "--ledger"
+                && range_flag == "--range" =>
+        {
+            verify::verify_ledger_dir(Path::new(ledger), verify::parse_verify_range(range)?)
+        }
+        [command, vault_flag, vault, range_flag, range]
+            if command == "verify-chain" && vault_flag == "--vault" && range_flag == "--range" =>
+        {
+            verify::verify_vault(Path::new(vault), verify::parse_verify_range(range)?)
         }
         [command, vault_flag, vault, cf_flag, cf]
             if command == "compact" && vault_flag == "--vault" && cf_flag == "--cf" =>
@@ -276,8 +299,9 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
+       calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        CALYX_LEDGER_DIR=<dir> calyx merkle-root --range <a..b>
        calyx compact --vault <dir> --cf <name>
        calyx compact-watch --vault <dir> --duration <30s|500ms>

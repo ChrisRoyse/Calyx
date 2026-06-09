@@ -39,6 +39,18 @@ pub fn encode(entry: &LedgerEntry) -> Vec<u8> {
 
 /// Decodes a ledger entry and verifies its embedded hash.
 pub fn decode(bytes: &[u8]) -> Result<LedgerEntry> {
+    let entry = decode_unchecked(bytes)?;
+    if entry.verify() {
+        Ok(entry)
+    } else {
+        Err(corrupt(format!(
+            "ledger entry seq {} hash mismatch",
+            entry.seq
+        )))
+    }
+}
+
+pub(crate) fn decode_unchecked(bytes: &[u8]) -> Result<LedgerEntry> {
     let mut cursor = Cursor::new(bytes);
     let seq = cursor.u64("seq")?;
     let prev_hash = cursor.hash("prev_hash")?;
@@ -69,11 +81,7 @@ pub fn decode(bytes: &[u8]) -> Result<LedgerEntry> {
         ts,
         entry_hash,
     };
-    if entry.verify() {
-        Ok(entry)
-    } else {
-        Err(corrupt(format!("ledger entry seq {seq} hash mismatch")))
-    }
+    Ok(entry)
 }
 
 /// Decodes only `seq` and `prev_hash` for fast chain-link checks.
