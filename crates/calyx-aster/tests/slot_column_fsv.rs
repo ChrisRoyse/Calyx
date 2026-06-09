@@ -86,8 +86,15 @@ fn slot_column_materialization_fsv_writes_readbacks() {
             "manifest_sha256": materialized.manifest_sha256,
             "chunk_sha256": materialized.chunk_sha256,
             "chunk_prefix_hex": hex(&chunk_bytes[..16]),
+            "chunk_payload_layout": "dimension-contiguous column-major f32 values",
+            "chunk_payload_prefix_hex": hex(&chunk_bytes[16..40]),
             "chunk_is_cxa1": chunk_bytes.starts_with(b"CXA1"),
             "manifest": readback.manifest,
+            "columns": column_major_values(
+                &chunk_bytes,
+                readback.manifest.rows,
+                readback.manifest.dim as usize
+            ),
             "rows": readback.rows.iter().map(|row| {
                 json!({"cx_id": row.cx_id, "values": row.values})
             }).collect::<Vec<_>>(),
@@ -148,6 +155,14 @@ fn write_edge_readbacks(root: &Path, slot: SlotId) {
     fs::write(&materialized.chunk_path, chunk).expect("write corrupt chunk");
     let corrupt_error = read_materialized_slot_column(&materialized.manifest_path)
         .expect_err("corrupt chunk rejected");
+    let mut bad_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&materialized.manifest_path).expect("read manifest"))
+            .expect("manifest json");
+    bad_manifest["chunk_file"] = json!("../slot-column.cxa1");
+    let bad_manifest_path = corrupt_output.join("bad-manifest-path.json");
+    write_json(&bad_manifest_path, &bad_manifest);
+    let path_error =
+        read_materialized_slot_column(&bad_manifest_path).expect_err("bad path rejected");
 
     write_json(
         &root.join("edge-readback.json"),
@@ -155,6 +170,7 @@ fn write_edge_readbacks(root: &Path, slot: SlotId) {
             "empty_slot_error": empty_error.code,
             "absent_slot_error": absent_error.code,
             "corrupt_chunk_error": corrupt_error.code,
+            "bad_manifest_path_error": path_error.code,
         }),
     );
 }
@@ -202,12 +218,23 @@ fn decoded_values(bytes: &[u8]) -> Vec<f32> {
     }
 }
 
+fn column_major_values(bytes: &[u8], rows: usize, dim: usize) -> Vec<Vec<f32>> {
+    let payload = &bytes[16..];
+    (0..dim)
+        .map(|column| {
+            (0..rows)
+                .map(|row| {
+                    let offset = (column * rows + row) * 4;
+                    f32::from_le_bytes(payload[offset..offset + 4].try_into().expect("f32"))
+                })
+                .collect()
+        })
+        .collect()
+}
+
 fn write_manifest(root: &Path) {
-    let mut entries = fs::read_dir(root)
-        .expect("read root")
-        .map(|entry| entry.expect("entry").path())
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
+    let mut entries = Vec::new();
+    collect_files(root, &mut entries);
     entries.sort();
     let mut lines = Vec::new();
     for path in entries {
@@ -215,10 +242,25 @@ fn write_manifest(root: &Path) {
             continue;
         }
         let bytes = fs::read(&path).expect("read artifact");
-        let name = path.file_name().expect("file name").to_string_lossy();
-        lines.push(format!("{:x}  {}\n", Sha256::digest(bytes), name));
+        let name = path
+            .strip_prefix(root)
+            .expect("relative path")
+            .to_string_lossy()
+            .replace('\\', "/");
+        lines.push(format!("{:x}  {name}\n", Sha256::digest(bytes)));
     }
     fs::write(root.join("SHA256SUMS.txt"), lines.concat()).expect("write sha manifest");
+}
+
+fn collect_files(dir: &Path, entries: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).expect("read dir") {
+        let path = entry.expect("entry").path();
+        if path.is_dir() {
+            collect_files(&path, entries);
+        } else if path.is_file() {
+            entries.push(path);
+        }
+    }
 }
 
 fn write_json(path: &Path, value: &serde_json::Value) {

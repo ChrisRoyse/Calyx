@@ -51,14 +51,15 @@ pub fn encode_column_chunk(rows: &[&[f32]]) -> Result<Vec<u8>> {
             "arrow chunk row dims differ",
         ));
     }
-    let mut out = Vec::with_capacity(HEADER_LEN + rows.len() * dim * 4);
+    let value_count = rows.len() * dim;
+    let mut out = Vec::with_capacity(HEADER_LEN + value_count * 4);
     out.extend_from_slice(MAGIC);
     out.extend_from_slice(&VERSION.to_le_bytes());
     out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
     out.extend_from_slice(&(dim as u32).to_le_bytes());
-    for row in rows {
-        for value in *row {
-            out.extend_from_slice(&value.to_le_bytes());
+    for column in 0..dim {
+        for row in rows {
+            out.extend_from_slice(&row[column].to_le_bytes());
         }
     }
     Ok(out)
@@ -88,15 +89,21 @@ pub fn decode_column_chunk(bytes: &[u8]) -> Result<ArrowChunkView<'_>> {
             "arrow chunk shape must be non-zero",
         ));
     }
-    let expected = HEADER_LEN + n_rows * dim * 4;
+    let value_count = n_rows * dim;
+    let expected = HEADER_LEN + value_count * 4;
     if bytes.len() != expected {
         return Err(CalyxError::aster_corrupt_shard(
             "arrow chunk byte length mismatch",
         ));
     }
-    let mut rows = Vec::with_capacity(n_rows * dim);
-    for chunk in bytes[HEADER_LEN..].chunks_exact(4) {
-        rows.push(f32::from_le_bytes(chunk.try_into().expect("f32")));
+    let payload = &bytes[HEADER_LEN..];
+    let mut rows = vec![0.0_f32; value_count];
+    for column in 0..dim {
+        for row in 0..n_rows {
+            let offset = (column * n_rows + row) * 4;
+            let value = f32::from_le_bytes(payload[offset..offset + 4].try_into().expect("f32"));
+            rows[row * dim + column] = value;
+        }
     }
     Ok(ArrowChunkView {
         raw: bytes,
@@ -120,6 +127,11 @@ mod tests {
 
         assert_eq!(&bytes[0..4], b"CXA1");
         assert_eq!(&bytes[4..8], &1_u32.to_le_bytes());
+        let payload = bytes[HEADER_LEN..]
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("f32")))
+            .collect::<Vec<_>>();
+        assert_eq!(payload, vec![1.0, 5.0, 2.0, 6.0, 3.5, 7.0, 4.25, 8.0]);
         assert_eq!(decoded.n_rows(), 2);
         assert_eq!(decoded.dim(), 4);
         assert_eq!(decoded.row(0).unwrap(), rows[0].as_slice());

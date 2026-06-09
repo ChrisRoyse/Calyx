@@ -161,7 +161,12 @@ pub fn read_materialized_slot_column(
     let parent = manifest_path
         .parent()
         .ok_or_else(|| CalyxError::disk_pressure("slot manifest has no parent"))?;
-    let chunk_path = parent.join(&manifest.chunk_file);
+    if manifest.chunk_file != CHUNK_FILE {
+        return Err(CalyxError::aster_corrupt_shard(
+            "slot column manifest chunk path invalid",
+        ));
+    }
+    let chunk_path = parent.join(CHUNK_FILE);
     let chunk_bytes =
         fs::read(&chunk_path).map_err(|error| storage_error("read slot chunk", error))?;
     let actual_sha256 = sha256_hex(&chunk_bytes);
