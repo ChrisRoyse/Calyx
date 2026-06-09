@@ -21,7 +21,7 @@ surface #254 are also FSV-signed-off on aiwonder. PH36 exit FSV integration
 bit-parity readback. Stage 7 exit rollup #256 is signed off with all 10
 `EntryKind`s, group-commit atomicity, redaction, checkpoints, tamper
 quarantine, reproduce bit-parity, and audit trace readback. PH36 audit-query
-quarantine filter hardening remains tracked separately as follow-up #349.
+quarantine filter hardening #349 is also FSV-signed-off.
 
 Implemented engine surfaces:
 
@@ -36,7 +36,7 @@ Implemented engine surfaces:
 | `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
 | `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
 | `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, and Sextant InRegionOnly guarded search are active: #258-#268, #275-#278, #350, #353, #357, #351, #352, #354, #358, #355, #356, and #359 are FSV-signed-off; remaining Ward queue is PH36 #349, Ledger guard provenance #279, then PH39 and exit #280 |
+| `calyx-ward` | S8 PH37-PH38 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, and Sextant InRegionOnly guarded search are active: #258-#268, #275-#278, #350, #353, #357, #351, #352, #354, #358, #355, #356, #359, and #349 are FSV-signed-off; remaining Ward queue is Ledger guard provenance #279, then PH39 and exit #280 |
 
 Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
 of truth is GitHub issue #23. Recent aiwonder FSV roots:
@@ -99,7 +99,9 @@ and
 and
 `/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`,
 and
-`/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`.
+`/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`,
+and
+`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.
 
 Ward is now the active engine frontier. Remaining major engine crates
 (`anneal`, `oracle`, `mcp`, `calyxd`) are still pending. Ledger PH35 is
@@ -109,9 +111,10 @@ range-bound signing #347, and real Aster `merkle-root --vault` #348 are signed
 off. PH36 verify_chain/quarantine #250, checkpoint scheduler #251, reproduce
 re-measure #252, reproduce fusion replay #253, and audit query surface #254
 are signed off. PH36 exit FSV integration #255 and Stage 7 exit rollup #256
-are signed off; residual PH36 audit-query quarantine filter hardening is
-tracked in #349, covering filtered audit queries around unrelated quarantined
-rows and typed `cx` mention matching. Stage 8 Ward has #258-#268,
+are signed off; PH36 audit-query quarantine filter hardening #349 is signed off,
+covering filtered audit queries around unrelated quarantined rows, typed `cx`
+mention matching, physical row-key mismatch fail-closed behavior, and durable
+Ledger SST readbacks. Stage 8 Ward has #258-#268,
 #275/#276/#277/#278, #350, and #353 signed off; PH37 is complete, PH38 T05 is
 proven against the real aiwonder injection corpus, PH38 T06 proves Sextant
 InRegionOnly guarded search, and #350 hardens novelty guard-id provenance.
@@ -121,8 +124,8 @@ are also signed off; #358 preserves legacy `GuardHealth` JSON compatibility afte
 #354, #355 preserves Anneal notification retry after hook backpressure, and
 #356 requires slot-aware `Query.guard_vectors` for multi-slot InRegionOnly
 guarding. #359 adds direct readback of those query vectors and the candidate
-slot vectors. Remaining Ward frontier work is PH36 audit-query hardening #349,
-Ledger guard provenance #279, then PH39, with exit #280.
+slot vectors. #349 hardens PH36 audit query quarantine filtering. Remaining Ward
+frontier work is Ledger guard provenance #279, then PH39, with exit #280.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
