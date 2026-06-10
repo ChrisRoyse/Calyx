@@ -47,6 +47,11 @@ Measured scope rows:
 | `Domain(label:ph34-real-scope)` | 60 | 48 | `0.95` | `0.104166664` |
 | `Union(collection_a, collection_b)` | 180 | 151 | `0.95000005` | `0.03311258` |
 
+These measured kernel sizes are the PH34 source of truth for the scoped runs.
+They are not normalized to, or evidence for, a universal ≈1% raw kernel; each
+scope reports its own final kernel size, recall, grounded fraction, and tuning
+fields.
+
 Union diagnostic readback: `mfvs_not_naive_union=true`, naive member union size
 `2`, union kernel size `1`, bridge list non-empty.
 

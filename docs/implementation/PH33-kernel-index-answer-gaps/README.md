@@ -5,15 +5,17 @@
 
 ## Objective
 
-Turn the ~1% MFVS kernel from PH32 into a production index and answer-path engine.
+Turn the PH32 compact MFVS target into a production index and answer-path engine.
 This phase builds three capabilities that together make the kernel's value concrete
 and measurable: (1) `idx/kernel/` — a dedicated ANN index over kernel constellation
 embeddings, enabling kernel-first query routing; (2) `kernel_answer` — answer a
 query by grounding at the nearest anchored kernel node then traversing association
 edges with `0.9^hop` attenuation, fully provenanced; (3) `grounding_gaps` — list
 exactly which kernel members cannot reach any anchor (the cheapest grounding plan).
-The phase closes with a recall test: **kernel-only recall ≥ 0.95·full on ≥3 real
-corpora** acquired and verified on aiwonder.
+The phase closes with measured final/tuned recall: **kernel-only recall ≥
+0.95·full on ≥3 real corpora**, with `raw_recall`, `tuned_recall`, and
+`pass_mode` read back so the compact-kernel target is never mistaken for a
+universal ≈1% guarantee.
 
 ## Dependencies
 
@@ -45,6 +47,12 @@ PH33 T05 real-corpora FSV (#232) is signed off on aiwonder: SciFact text ratio
 `0.9568264`, all non-exhaustive and warning-free. Reports live under
 `/home/croyse/calyx/fsv/ph33_recall_*_20260608.json`; summary SHA-256
 `1b0a6c0e1045de2a3230b326dd782f5767772dd6b5a9f4138543e65c5cdbe714`.
+Raw-vs-tuned recall #331 is signed off under
+`/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`: raw ratios
+were below gate (`0.08333334`, `0.09444446`, `0.064206704`) and final tuned
+ratios passed (`0.9611112`, `0.96666664`, `0.9568264`) with
+`pass_mode=tuned`. Anchor-aware answer search #332 is signed off under
+`/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
 T06 (#239) adds PH35-backed Lodestar provenance APIs:
 `build_kernel_pipeline_with_ledger` writes one `kind=Kernel` entry and
 `kernel_answer_with_ledger` writes one `kind=Answer` entry per hop, with
@@ -75,12 +83,14 @@ Full PH36 trace/reproduce is closed in #252-#255.
 | T05 | FSV: run on ≥3 real corpora on aiwonder; measure + report recall | T04 |
 | T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`) (done #239; PH36 trace/reproduce separate) | PH35 |
 | T07 | Recall below gate fails closed for acceptance flows (done #330) | T04 |
+| T08 | Raw-vs-tuned recall evidence with `raw_recall`, `tuned_recall`, and `pass_mode` (done #331) | T05, T07 |
+| T09 | Anchor-aware `kernel_answer` search exhausts the kernel index before failing closed (done #332) | T02 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 1. `kernel_recall_gate` run on **≥3 real corpora** (text/code/graph acquired and
-   verified on aiwonder); each corpus produces a `RecallReport` with
-   `ratio ≥ 0.95`.
+   verified on aiwonder); each corpus produces final/tuned `RecallReport`
+   evidence with `ratio ≥ 0.95`.
 2. `grounding_gaps` on the same corpora lists exactly the unanchored kernel members
    (cross-check by manual inspection of a small corpus).
 3. Both reports read back via `calyx readback` or printed JSON on aiwonder;
@@ -96,6 +106,9 @@ Full PH36 trace/reproduce is closed in #252-#255.
 - **ANN index vs. full search recall:** the `0.95` gate compares kernel-only ANN
   recall to full-corpus ANN recall on the same query set — both use the same ANN
   algorithm; the comparison is fair only if the same HNSW params are used.
+- **Raw compact target vs. tuned acceptance:** PH32's ≈1% compact-kernel target
+  is not the PH33 exit claim. #331 must remain visible in docs/readbacks because
+  it proves raw-below/tuned-pass behavior with explicit `pass_mode=tuned`.
 - **Loom graph handoff:** #293 proved the real XTerm CF adapter with explicit
   slot→CxId bindings and directional-confidence rows. Missing bindings/confidence
   fail closed; synthetic graph-builder structs alone are not enough for PH33 FSV.

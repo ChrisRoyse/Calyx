@@ -30,11 +30,14 @@
 > SCC-merge `apply_node_add() -> FullRebuildRequired -> rebuild_dirty()` now
 > preserves the pending candidate graph before stale state is cleared.
 
-Autonomously find the ≈1% grounding kernel (directed MFVS) of any dataset and
-use it as both an index and an answer-path — the most novel DB capability, no
-other store has it. Lands in `calyx-lodestar` + the graph crates
-`calyx-mincut`/`calyx-paths` (seeded from ContextGraph). **Living-system role:**
-identity.
+Autonomously find an auditable compact grounding kernel (directed MFVS target)
+for each dataset/scope and use it as both an index and an answer-path — the most
+novel DB capability, no other store has it. The ≈1% figure is the design target
+for the raw compact kernel, not a universal measured guarantee: PH33/PH34
+acceptance is the byte-read final/tuned kernel size, `raw_recall`,
+`tuned_recall`, and `pass_mode` for each real corpus/scope. Lands in
+`calyx-lodestar` + the graph crates `calyx-mincut`/`calyx-paths` (seeded from
+ContextGraph). **Living-system role:** identity.
 
 ---
 
@@ -56,7 +59,7 @@ identity.
   on a planted graph (read computed vs known).
 - **Axioms/PRD.** `08 §2/§3`, A29, `19 §6` (reuse seeds).
 
-## PH32 — Kernel-graph (~10%) + directed MFVS (~1%)
+## PH32 — Kernel-graph (~10% target) + directed MFVS (~1% target)
 - **Status.** ✅ DONE / FSV-signed-off on aiwonder. Readbacks:
   `ph32-kernel-graph-readback.json`, `ph32-lp-round-readback.json`,
   `ph32-dfvs-readback.json`, `ph32-specialized-dfvs-readback.json`,
@@ -150,7 +153,10 @@ The exit readback summary hash is
 the root manifest hash is
 `065558c3697d155c9a7cd299b91d93fb86733a3d903145cfb8b822aeb658f322`.
 
-The Stage 6 exit readback proves Lodestar finds the grounded ≈1% of any slice
-and uses it as index + reasoning path, with measured (never assumed) recall and
-an actionable grounding plan — PRD `KERNEL` + `KERNEL_ANY`. The semantic
-compressor and the AGI substrate's kernel half.
+The Stage 6 exit readback proves Lodestar builds compact grounded kernels and
+uses them as index + reasoning paths. The acceptance evidence is measured, not
+assumed: PH33 #331 records raw-vs-tuned recall and `pass_mode`, PH34 reports
+per-scope kernel sizes/recall/grounded fractions, and #240 signs off the Stage
+6 exit. It does not prove a universal ≈1% raw kernel for every slice; it proves
+the PRD `KERNEL` / `KERNEL_ANY` gates with the measured final/tuned artifacts.
+The semantic compressor and the AGI substrate's kernel half.

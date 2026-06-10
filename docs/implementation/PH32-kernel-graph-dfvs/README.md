@@ -1,4 +1,4 @@
-# PH32 - Kernel-graph (~10%) + directed MFVS (~1%)
+# PH32 - Kernel-graph (~10% target) + directed MFVS (~1% target)
 
 **Stage:** S6 - Lodestar Kernel  |  **Crate:** `calyx-lodestar`  |
 **PRD roadmap:** P5  |  **Axioms:** A10, A29

@@ -14,9 +14,11 @@
 
 Build and persist the `idx/kernel/` ANN index over the kernel constellation
 embeddings. Implement `kernel_search(query_vec) -> Vec<(CxId, f32)>` that routes
-queries kernel-first — searching only the ~1% kernel members for the nearest
-anchored nodes, then expanding by association edges. This is the "table of contents
-anchored to reality" funnel described in `08 §4.1`.
+queries kernel-first — searching the measured kernel members for the nearest
+anchored nodes, then expanding by association edges. PH32's ≈1% compact-kernel
+figure is the raw target; PH33/PH34 read back the actual final/tuned kernel size.
+This is the "table of contents anchored to reality" funnel described in
+`08 §4.1`.
 
 ## Build (checklist of concrete, code-level steps)
 

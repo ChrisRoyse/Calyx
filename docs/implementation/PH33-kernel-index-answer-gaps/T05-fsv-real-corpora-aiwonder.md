@@ -55,6 +55,10 @@ Readback ratios:
 | `calyx_code` | `0.09444446` | `0.96666664` | 153 | tuned |
 | `cora_graph` | `0.064206704` | `0.9568264` | 2242 | tuned |
 
+These rows are the caveat for Stage 6 summaries: the raw compact-kernel target
+is not the acceptance result. The signed PH33 gate is the final/tuned report
+with `pass_mode`, and all current real-corpus passes are `pass_mode=tuned`.
+
 `grounding_gaps` readback: `max_anchor_dist=0`, `expected_gap_count=4`,
 `report_gap_count=4`, exact independent reachability match = `true`.
 

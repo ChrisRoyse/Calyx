@@ -52,7 +52,7 @@ Ship **a clear win at low risk** first, prove it by FSV, then take the next. Cal
 | **P2** | Registry + multi-lens | hot add/retire lens, frozen contract, default panels, capability cards | add/retire with no re-embed (lazy backfill observed); 3+ modalities; frozen violation fails closed |
 | **P3** | Sextant | per-slot HNSW (embedded), RRF/WeightedRRF/SingleLens, provenance on hits | multi-lens recall@10 ≥ single-lens + Δ on a real corpus; every hit carries lineage |
 | **P4** | Loom + Assay | cross-terms (lazy), agreement graph, KSG/NMI MI, differentiation contract, n_eff, sufficiency | bits + pairwise corr computed; ≥0.05/≤0.6 gated before merge (run on aiwonder; no CI pipeline — FSV is CI); DPI ceiling reported; `abundance_report` honest |
-| **P5** | Lodestar | directed-FVS kernel, kernel index, kernel_answer, grounding_gaps | kernel built on ≥3 real corpora; kernel-only recall ≥ 0.95·full; grounding gaps listed |
+| **P5** | Lodestar | directed-FVS kernel, kernel index, kernel_answer, grounding_gaps | kernel built on ≥3 real corpora; final/tuned kernel-only recall ≥ 0.95·full with raw/tuned/pass_mode readback; grounding gaps listed |
 | **P6** | Ward | Gτ calibration (conformal), per-slot τ, novelty→new-region | injection corpus blocked ≥99% at calibrated FAR; valid-novelty path proven; τ provenance stored |
 | **P7** | Ledger | hash-chain, merkle, reproduce(), audit | chain verifies; a real answer replays within tolerance; tamper breaks chain (detected) |
 | **P8** | Anneal | self-heal, mistake-closure, autotune, lens proposal | 1e6-query soak: p99 ↓ ≥ target, no recall regression, no oscillation; every change reversible+logged |
@@ -115,7 +115,7 @@ BUILD_DONE :=
   LENS       := P2 gate
   SEARCH     := P3 gate ∧ recall Δ ≥ 15%
   DDA_BITS   := P4 gate ∧ contract gated before merge (run on aiwonder; no CI pipeline — FSV is CI) ∧ abundance_report shows DPI ceiling
-  KERNEL     := P5 gate ∧ kernel-only recall ≥ 0.95·full on ≥3 corpora
+  KERNEL     := P5 gate ∧ final/tuned kernel-only recall ≥ 0.95·full on ≥3 corpora ∧ raw_recall/tuned_recall/pass_mode read back
   GUARD      := P6 gate ∧ injection block ≥ 99% @ calibrated FAR
   PROVENANCE := P7 gate ∧ reproduce() passes on a real answer ∧ tamper detected
   SELFOPT    := P8 gate ∧ p99 ↓ ≥ 20% over 1e6 queries, no recall regression

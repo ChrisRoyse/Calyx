@@ -142,6 +142,10 @@ fail-closed behavior #330 is FSV-backed under
 Raw-vs-tuned recall evidence #331 and anchor-aware answer search #332 are
 FSV-backed under `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`
 and `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
+The #331 readback is the binding Stage 6 caveat: the raw compact-kernel target
+did not pass as a universal ≈1% claim; signed PH33 acceptance is measured
+final/tuned recall with explicit `raw_recall`, `tuned_recall`, and
+`pass_mode`.
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
@@ -219,7 +223,7 @@ anchored/provisional groundedness, and incremental re-eval hook. FSV root:
 
 **Stage 6 / PH33:** `calyx-lodestar` kernel index + answer + grounding gaps +
 real-corpora recall. T01-T05 are closed with aiwonder evidence, including
-kernel-only recall on SciFact text, live Calyx code, and Cora graph under
+final/tuned kernel-only recall on SciFact text, live Calyx code, and Cora graph under
 `/home/croyse/calyx/fsv/ph33_*_20260608.*`. T06 Ledger provenance (#239) is
 closed with PH35 Ledger append/readback evidence; PH36 trace/reproduce work is
 closed in Stage 7 (#249-#256). T08 #331 and T09 #332 are signed off with
