@@ -9,7 +9,8 @@ use calyx_core::{
 use calyx_sextant::{
     FreshnessTag, Hit, HnswIndex, PeriodicOptions, ProvenanceSource, Query, SearchEngine,
     SlotIndexMap, TemporalFixedClock, TemporalPolicy, TemporalSearchInput, TimeWindow,
-    temporal_search, temporal_search_from_primary, validate_primary_temporal_weight,
+    temporal_search, temporal_search_from_primary, temporal_search_pipeline,
+    validate_primary_temporal_weight,
 };
 use serde_json::json;
 
@@ -64,7 +65,7 @@ fn temporal_search_fsv_writes_result_readback() {
         0,
     )
     .expect("temporal search");
-    let zero_proof = temporal_search(
+    let zero_surface = temporal_search(
         &engine,
         &Query {
             k: 3,
@@ -75,7 +76,15 @@ fn temporal_search_fsv_writes_result_readback() {
         &TemporalFixedClock::new(QUERY_TIME),
         0,
     )
-    .expect("zero proof");
+    .expect("zero surface");
+    let zero_boost_proof = temporal_search_pipeline(
+        vec![raw_hit(3, 0.0, 1, Some(QUERY_TIME - 100))],
+        &TimeWindow::all(),
+        &policy,
+        0,
+        &TemporalFixedClock::new(QUERY_TIME),
+    )
+    .expect("zero boost proof");
     let windowed = temporal_search(
         &engine,
         &Query {
@@ -111,12 +120,15 @@ fn temporal_search_fsv_writes_result_readback() {
         "policy_never_dominant_visible": result.policy_snapshot.never_dominant,
         "zero_content_edge": {
             "before_content_score": 0.0,
-            "after_score": score_for(&zero_proof.hits, 3),
-            "after_temporal_scores": zero_proof
-                .hits
+            "boost_after_score": score_for(&zero_boost_proof, 3),
+            "boost_after_temporal_scores": zero_boost_proof
                 .iter()
                 .find(|hit| hit.cx_id == cx(3))
                 .and_then(|hit| hit.temporal_scores),
+            "final_surface_contains_zero_content": zero_surface
+                .hits
+                .iter()
+                .any(|hit| hit.cx_id == cx(3)),
         },
         "window_edge": {
             "before_count": result.pre_boost_ranking.len(),
@@ -151,7 +163,8 @@ fn temporal_search_fsv_writes_result_readback() {
     assert_eq!(ids_from_cx(&result.pre_boost_ranking), vec![1, 2, 3]);
     assert_eq!(ids(&result.hits), vec![2, 1]);
     assert!(!result.hits.iter().any(|hit| hit.cx_id == cx(3)));
-    assert_eq!(score_for(&zero_proof.hits, 3), 0.0);
+    assert_eq!(score_for(&zero_boost_proof, 3), 0.0);
+    assert!(!zero_surface.hits.iter().any(|hit| hit.cx_id == cx(3)));
     assert!(!windowed.hits.iter().any(|hit| hit.cx_id == cx(1)));
     assert!(empty.hits.is_empty());
     assert_eq!(invalid.code, CALYX_TEMPORAL_AP60_VIOLATION);

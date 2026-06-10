@@ -8,7 +8,7 @@ use calyx_sextant::{
     CALYX_SEXTANT_INDEX_EMPTY, FreshnessTag, FusionStrategy, Hit, HnswIndex, PeriodicOptions,
     ProvenanceSource, Query, SearchEngine, SlotIndexMap, TemporalFixedClock, TemporalPolicy,
     TemporalScores, TemporalSearchInput, TemporalSearchResult, TimeWindow, temporal_search,
-    temporal_search_from_primary, validate_primary_temporal_weight,
+    temporal_search_from_primary, temporal_search_pipeline, validate_primary_temporal_weight,
 };
 use proptest::prelude::*;
 
@@ -32,8 +32,7 @@ fn temporal_search_records_preboost_and_reranks_postboost() {
     .expect("temporal search");
 
     assert_eq!(ids_from_cx(&result.pre_boost_ranking), vec![1, 2, 3]);
-    assert_eq!(ids(&result.hits), vec![2, 1, 3]);
-    assert_eq!(result.pre_boost_ranking.len(), result.hits.len());
+    assert_eq!(ids(&result.hits), vec![2, 1]);
     assert_eq!(result.temporal_weight_used, 0.0);
     assert_eq!(result.primary_slots_used, vec![CONTENT_SLOT]);
     assert_eq!(result.temporal_slots_excluded, vec![TEMPORAL_SLOT]);
@@ -52,11 +51,11 @@ fn temporal_search_window_excludes_old_hit() {
     )
     .expect("windowed temporal search");
 
-    assert_eq!(ids(&result.hits), vec![2, 3]);
+    assert_eq!(ids(&result.hits), vec![2]);
 }
 
 #[test]
-fn zero_content_score_is_not_elevated_by_recency() {
+fn zero_content_score_is_not_elevated_or_final_surfaced_by_recency() {
     let engine = sample_engine();
     let result = temporal_search(
         &engine,
@@ -67,11 +66,17 @@ fn zero_content_score_is_not_elevated_by_recency() {
         0,
     )
     .expect("temporal search");
-    let zero = result
-        .hits
-        .iter()
-        .find(|hit| hit.cx_id == cx(3))
-        .expect("zero hit retained for proof");
+    assert!(!result.hits.iter().any(|hit| hit.cx_id == cx(3)));
+
+    let boosted = temporal_search_pipeline(
+        vec![raw_hit(3, 0.0, 1, Some(QUERY_TIME - 100))],
+        &TimeWindow::all(),
+        &policy_step(None),
+        0,
+        &TemporalFixedClock::new(QUERY_TIME),
+    )
+    .expect("zero proof");
+    let zero = boosted.first().expect("zero proof hit");
 
     assert_eq!(zero.score, 0.0);
     assert_eq!(zero.temporal_scores, Some(TemporalScores::zero()));
