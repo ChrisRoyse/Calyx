@@ -212,6 +212,7 @@ dependencies = [
  "calyx-forge",
  "calyx-ledger",
  "calyx-loom",
+ "calyx-oracle",
  "calyx-registry",
  "calyx-sextant",
  "serde_json",
@@ -308,6 +309,11 @@ dependencies = [
 [[package]]
 name = "calyx-oracle"
 version = "0.1.0"
+dependencies = [
+ "calyx-aster",
+ "calyx-core",
+ "serde",
+]
 
 [[package]]
 name = "calyx-paths"
