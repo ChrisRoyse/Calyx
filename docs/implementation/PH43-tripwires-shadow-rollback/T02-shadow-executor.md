@@ -1,53 +1,83 @@
-# PH43 · T02 — Shadow executor (held-out replay + beat-incumbent check)
+# PH43 - T02 - Shadow executor (held-out replay + beat-incumbent check)
 
 | Field | Value |
 |---|---|
-| **Phase** | PH43 — Tripwires + Shadow-First + Reversible/Rollback |
-| **Stage** | S10 — Anneal + Intelligence Objective J |
-| **Crate** | `calyx-anneal` |
-| **Files** | `crates/calyx-anneal/src/shadow.rs` (≤500) |
-| **Depends on** | T01 (TripwireRegistry — shadow uses it to gate promotion) |
-| **Axioms** | A14, A15 |
-| **PRD** | `dbprdplans/12 §6`, `dbprdplans/27 §4` |
+| Phase | PH43 - Tripwires + Shadow-First + Reversible/Rollback |
+| Stage | S10 - Anneal + Intelligence Objective J |
+| Crate | `calyx-anneal` |
+| Files | `crates/calyx-anneal/src/shadow.rs` (<=500) |
+| Depends on | T01 (`TripwireRegistry`) |
+| Axioms | A14, A15 |
+| PRD | `dbprdplans/12 section 6`, `dbprdplans/27 section 4` |
 
 ## Goal
 
-Implement `ShadowExecutor`: given a `candidate` (new config/artifact) and an
-`incumbent` (current live artifact), run both against a seeded, deterministic
-held-out query replay set, compare their metric vectors through
-`TripwireRegistry::check`, and return `ShadowVerdict::Promote` only if the
-candidate beats the incumbent on every tripwire metric with no regression.
-Any failure returns `ShadowVerdict::Revert { reason }` — the candidate never
-touches the live path.
+Implement `ShadowExecutor`: given a candidate config/artifact and the incumbent
+live artifact, run both against a seeded deterministic held-out replay set,
+compare every guarded metric through `TripwireRegistry::check`, and return
+`ShadowVerdict::Promote` only when the candidate passes all tripwires and does
+not regress against the incumbent. Any failure returns
+`ShadowVerdict::Revert { reason, metrics }`; the candidate never touches the
+live path.
 
-## Build (checklist of concrete, code-level steps)
+## Implementation
 
-- [ ] Define `struct HeldOutReplay { queries: Vec<ReplayQuery>, seed: u64 }` — seeded at construction, order deterministic; `ReplayQuery` carries the query vector + expected top-k anchor IDs + anchor similarity scores.
-- [ ] `fn build_replay(vault, n: usize, seed: u64) -> HeldOutReplay` — samples `n` queries from stored anchors; never from live-traffic order.
-- [ ] `struct ShadowExecutor { registry: TripwireRegistry, replay: HeldOutReplay, budget: BudgetHandle }` — takes a `BudgetHandle` from T04 to stay within background CPU/VRAM ceiling.
-- [ ] `fn run_shadow<A: AnnealAction>(&mut self, candidate: &A, incumbent: &A) -> ShadowVerdict` — runs both against `self.replay`; collects metric pairs; calls `registry.check` for each; returns `Promote` only if candidate metrics all pass and each is ≥ incumbent (no regression on any).
-- [ ] `enum ShadowVerdict { Promote { metrics: MetricSnapshot }, Revert { reason: ShadowRevertReason, metrics: MetricSnapshot } }` — `MetricSnapshot` captures `(metric, candidate_value, incumbent_value)` for every tripwire metric.
-- [ ] Trait `AnnealAction: Send + Sync` with `fn apply_shadow(&self, query: &ReplayQuery) -> MetricSnapshot`.
-- [ ] Shadow run must complete within `budget` ticks; if budget exhausted before replay finishes → `Revert { reason: BudgetExhausted }`.
-- [ ] Clock-injected: `shadow.rs` never calls `SystemTime::now()`; receives `&dyn Clock`.
+- [x] `HeldOutReplay { queries: Vec<ReplayQuery>, seed: u64 }` with seeded
+  deterministic sampling through `HeldOutReplay::sample`.
+- [x] `ReplayQuery` carries a query vector plus expected top-k `ReplayAnchor`
+  values (`CxId`, similarity).
+- [x] `build_replay(source, n, seed)` samples from a `ReplaySource`; live traffic
+  order is not part of the API.
+- [x] `ShadowExecutor { registry, replay, budget, clock }` receives a
+  `BudgetHandle` and injected `&dyn Clock`; `shadow.rs` does not call
+  `SystemTime::now()`.
+- [x] `run_shadow` runs candidate and incumbent over replay, averages metric
+  pairs, checks the candidate through `TripwireRegistry`, and promotes only when
+  every metric passes and dominates the incumbent (`RecallAtK` higher is better;
+  FAR/FRR/search p99/ingest p95 lower is better).
+- [x] Budget exhaustion before replay completes returns
+  `ShadowRevertReason::BudgetExhausted` without running the next query.
+- [x] Empty replay returns `ShadowRevertReason::InsufficientReplay`.
+- [x] Missing or non-finite metrics fail closed with explicit
+  `MissingMetric`/`InvalidMetric` reasons and no partial query-count advance.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+`AnnealAction::apply_shadow` returns an `ActionMetricSnapshot`, the single-sided
+metric vector for one action on one query. `MetricSnapshot` is reserved for the
+shadow verdict's paired candidate/incumbent comparisons. This keeps the public
+types honest: action output is one-sided; verdict output is paired and auditable.
 
-- [ ] unit: incumbent = perfect recall `1.0`; candidate = recall `0.85` → `Revert { reason: TripwireCrossed(RecallAtK) }`; verify `MetricSnapshot` carries both values.
-- [ ] unit: candidate beats incumbent on all metrics → `Promote`; `MetricSnapshot` values match manually computed expectations.
-- [ ] proptest: for any two metric snapshots where candidate dominates incumbent on every metric, `run_shadow` returns `Promote`.
-- [ ] edge: empty replay set → `Revert { reason: InsufficientReplay }`; single-query replay → runs without panic; candidate == incumbent on all metrics → `Promote` (no regression, passes).
-- [ ] fail-closed: `BudgetHandle` set to 0 ticks → `Revert { reason: BudgetExhausted }` immediately without running any queries.
+## Tests
 
-## FSV (read the bytes on aiwonder — the truth gate)
+- [x] Candidate recall `0.85` vs incumbent `1.0` reverts with
+  `TripwireCrossed(RecallAtK)` and retains paired metric values.
+- [x] Candidate dominates incumbent on all five metrics and promotes.
+- [x] Proptest checks dominance always promotes for threshold-safe values.
+- [x] Empty replay, single-query equality, and budget-zero edges are covered.
+- [x] Missing and invalid metric edges fail closed.
 
-- **SoT:** `ShadowVerdict` returned from `run_shadow`, plus the `MetricSnapshot` logged to Ledger (T05).
-- **Readback:** `calyx anneal shadow-log --last 5` (or read the Anneal Ledger CF) — prints the last 5 shadow verdicts with candidate vs incumbent metrics.
-- **Prove:** craft a candidate with recall `0.80` vs incumbent `0.95`; run shadow; confirm `Revert` entry in Ledger with `RecallAtK` as the failing metric; confirm the live config pointer is unchanged (incumbent still active).
+## FSV
+
+T05 Ledger logging is not implemented yet, so T02's source of truth is a durable
+shadow verdict artifact plus a synthetic live config pointer:
+
+- Evidence root:
+  `/home/croyse/calyx/data/fsv-issue395-shadow-20260610-2244`
+- `shadow-verdicts.json` records the trigger, expected outcome, happy path,
+  revert path, and edge-case before/after states.
+- `live-config-pointer-before.txt` and `live-config-pointer-after.txt` prove the
+  candidate never touched the live path.
+- `vault/.anneal/tripwire.toml` is the physical tripwire config used by the run.
+- `BLAKE3SUMS.txt` seals the artifacts for byte readback.
+
+When T05 lands, the durable JSON artifact should be replaced or supplemented by
+the Anneal Ledger CF row with `kind=Anneal`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH43 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check`, `cargo clippy -D warnings`, and focused tests pass on
+  aiwonder.
+- [x] All touched `.rs` files are <=500 lines.
+- [x] aiwonder FSV reads the artifact bytes and BLAKE3 manifest, including a
+  candidate recall `0.80` vs incumbent `0.95` revert with `RecallAtK` failing
+  and an unchanged live config pointer.
+- [ ] Evidence is attached to GitHub issue #395 before close.
