@@ -69,8 +69,8 @@ fn get_answer_trace_decodes_complete_path_and_fusion_weights() {
             "kernel_id": cx(88).to_string(),
             "guard_id": "guard-audit",
             "path": [
-                {"from_id": cx(10).to_string(), "cx_id": cx(11).to_string(), "hop": 0, "score": 0.9, "lens_id": lens(1).to_string()},
-                {"from_id": cx(11).to_string(), "cx_id": cx(12).to_string(), "hop": 1, "score": 0.7, "lens_id": lens(2).to_string()}
+                {"from_id": cx(10).to_string(), "cx_id": cx(11).to_string(), "hop": 0, "score": 0.9, "lens_id": lens(1).to_string(), "ledger_ref": {"seq": 42}},
+                {"from_id": cx(11).to_string(), "cx_id": cx(12).to_string(), "hop": 1, "score": 0.7, "lens_id": lens(2).to_string(), "ledger_seq": 43}
             ],
             "fusion_weights": fusion,
             "guard_result": {"pass": true},
@@ -84,6 +84,8 @@ fn get_answer_trace_decodes_complete_path_and_fusion_weights() {
     assert!(trace.is_trusted());
     assert_eq!(trace.path.len(), 2);
     assert_eq!(trace.path[0].cx_id, cx(11));
+    assert_eq!(trace.path[0].ledger_seq, 42);
+    assert_eq!(trace.path[1].ledger_seq, 43);
     assert_eq!(trace.path[1].lens_id, Some(lens(2)));
     assert_eq!(trace.kernel_entry.as_ref().unwrap().seq, 0);
     assert_eq!(trace.guard_entry.as_ref().unwrap().seq, 1);

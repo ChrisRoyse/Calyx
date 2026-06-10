@@ -3,7 +3,10 @@ use calyx_ledger::{LedgerAppender, LedgerCfStore};
 use calyx_paths::{AssocGraph, attenuate, reach};
 use serde::{Deserialize, Serialize};
 
-use crate::provenance::{AnswerHopEvidence, append_answer_hop_entry};
+use crate::provenance::{
+    AnswerCompleteHopEvidence, AnswerHopEvidence, append_answer_complete_entry,
+    append_answer_hop_entry,
+};
 use crate::{KernelIndex, LodestarError, Result, kernel_search};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -113,6 +116,25 @@ where
         },
     )?;
     let total_score = hops.iter().map(|hop| hop.hop_score).sum();
+    let complete_hops = hops
+        .iter()
+        .map(|hop| AnswerCompleteHopEvidence {
+            from: hop.from,
+            to: hop.to,
+            edge_weight: hop.edge_weight,
+            hop_index: hop.hop_index,
+            hop_score: hop.hop_score,
+            ledger_ref: hop.ledger_ref.clone(),
+        })
+        .collect::<Vec<_>>();
+    append_answer_complete_entry(
+        ledger,
+        query_cx,
+        anchor,
+        kernel_index.kernel_id,
+        &complete_hops,
+        total_score,
+    )?;
     AnswerPath::checked(query_cx, anchor, hops, total_score)
 }
 

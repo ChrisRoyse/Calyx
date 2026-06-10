@@ -344,6 +344,12 @@ fn trace_hop(seq: u64, value: &Value) -> Result<AnswerTraceHop> {
         .ok_or_else(|| CalyxError::ledger_corrupt("answer trace hop missing score"))?
         as f32;
     let lens_id = parse_lens_field(value, "lens_id").transpose()?;
+    let ledger_seq = value
+        .get("ledger_ref")
+        .and_then(|value| value.get("seq"))
+        .or_else(|| value.get("ledger_seq"))
+        .and_then(Value::as_u64)
+        .unwrap_or(seq);
     Ok(AnswerTraceHop {
         cx_id,
         from_cx_id,
@@ -351,7 +357,7 @@ fn trace_hop(seq: u64, value: &Value) -> Result<AnswerTraceHop> {
             .map_err(|_| CalyxError::ledger_corrupt("answer trace hop exceeds u32"))?,
         score,
         lens_id,
-        ledger_seq: seq,
+        ledger_seq,
     })
 }
 
