@@ -10,8 +10,8 @@ pub use calyx_aster::recurrence::{
     encode_recurrence_row, recurrence_summary_key,
 };
 pub use periodic::{
-    PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery, RecurrenceRead, periodic_fit,
-    periodic_recall, recurrence_series,
+    PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery, PeriodicTimeBucket, RecurrenceRead,
+    periodic_fit, periodic_recall, recurrence_series,
 };
 pub use series_store::SeriesStore;
 pub use signature::{

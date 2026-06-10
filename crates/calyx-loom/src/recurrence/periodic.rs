@@ -18,13 +18,21 @@ pub struct RecurrenceRead {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeriodicTimeBucket {
+    pub target_hour: u8,
+    pub target_day_of_week: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PeriodicFit {
     pub target_hour: Option<u8>,
     pub target_day_of_week: Option<u8>,
+    pub target_hour_day: Option<PeriodicTimeBucket>,
     pub dominant_period_secs: Option<f64>,
     pub support: usize,
     pub hour_confidence: f32,
     pub day_confidence: f32,
+    pub hour_day_confidence: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,6 +49,11 @@ impl PeriodicRecallQuery {
         if target_day_of_week.is_some_and(|day| day > 6) {
             return Err(period_error("target_day_of_week must be in 0..=6"));
         }
+        if target_hour.is_none() && target_day_of_week.is_none() {
+            return Err(period_error(
+                "periodic recall requires target_hour or target_day_of_week",
+            ));
+        }
         Ok(Self {
             target_hour,
             target_day_of_week,
@@ -51,11 +64,18 @@ impl PeriodicRecallQuery {
         if fit.support < 2 {
             return false;
         }
-        self.target_hour
-            .is_none_or(|hour| fit.target_hour == Some(hour))
-            && self
-                .target_day_of_week
-                .is_none_or(|day| fit.target_day_of_week == Some(day))
+        match (self.target_hour, self.target_day_of_week) {
+            (Some(hour), Some(day)) => {
+                fit.target_hour_day
+                    == Some(PeriodicTimeBucket {
+                        target_hour: hour,
+                        target_day_of_week: day,
+                    })
+            }
+            (Some(hour), None) => fit.target_hour == Some(hour),
+            (None, Some(day)) => fit.target_day_of_week == Some(day),
+            (None, None) => false,
+        }
     }
 }
 
@@ -82,19 +102,24 @@ where
 
 pub fn periodic_fit(occurrences: &[Occurrence]) -> PeriodicFit {
     let support = occurrences.len();
-    let (target_hour, hour_confidence) = mode(occurrences, 24, |occurrence| {
+    let mut ordered = occurrences.to_vec();
+    ordered.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
+    let (target_hour, hour_confidence) = mode(&ordered, 24, |occurrence| {
         local_hour_and_day(occurrence.t_k.0).0
     });
-    let (target_day_of_week, day_confidence) = mode(occurrences, 7, |occurrence| {
+    let (target_day_of_week, day_confidence) = mode(&ordered, 7, |occurrence| {
         local_hour_and_day(occurrence.t_k.0).1
     });
+    let (target_hour_day, hour_day_confidence) = hour_day_mode(&ordered);
     PeriodicFit {
         target_hour,
         target_day_of_week,
-        dominant_period_secs: recurrence::cadence_secs(occurrences),
+        target_hour_day,
+        dominant_period_secs: recurrence::cadence_secs(&ordered),
         support,
         hour_confidence,
         day_confidence,
+        hour_day_confidence,
     }
 }
 
@@ -162,6 +187,35 @@ where
         .find_map(|(bucket, count)| (*count == max_count).then_some(bucket))
         .expect("non-empty domain");
     (Some(bucket as u8), confidence)
+}
+
+fn hour_day_mode(occurrences: &[Occurrence]) -> (Option<PeriodicTimeBucket>, f32) {
+    if occurrences.len() < 2 {
+        return (None, 0.0);
+    }
+    let mut counts = [0_usize; 24 * 7];
+    for occurrence in occurrences {
+        let (hour, day) = local_hour_and_day(occurrence.t_k.0);
+        counts[usize::from(day) * 24 + usize::from(hour)] += 1;
+    }
+    let max_count = counts.iter().copied().max().expect("non-empty domain");
+    let tied = counts.iter().filter(|count| **count == max_count).count() > 1;
+    let confidence = max_count as f32 / occurrences.len() as f32;
+    if tied {
+        return (None, confidence);
+    }
+    let bucket = counts
+        .iter()
+        .enumerate()
+        .find_map(|(bucket, count)| (*count == max_count).then_some(bucket))
+        .expect("non-empty domain");
+    (
+        Some(PeriodicTimeBucket {
+            target_hour: (bucket % 24) as u8,
+            target_day_of_week: (bucket / 24) as u8,
+        }),
+        confidence,
+    )
 }
 
 fn local_hour_and_day(time_secs: i64) -> (u8, u8) {
