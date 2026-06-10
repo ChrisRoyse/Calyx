@@ -4,6 +4,9 @@
 > `calyx-sextant` (PH23-PH26) and Registry temporal lenses (PH22) are
 > implemented and FSV-signed-off. PH40 added temporal post-retrieval boost
 > modules to the existing Sextant stack rather than starting from a stub.
+> Follow-ups #616, #618, and #619 remain open for bounded overfetch before
+> window filtering, negative fusion-weight validation, and public periodic
+> scorer scope/query-time semantics.
 
 **Stage:** S9 — Temporal & Dedup  ·  **Crate:** `calyx-sextant`  ·
 **PRD roadmap:** A27  ·  **Axioms:** A27

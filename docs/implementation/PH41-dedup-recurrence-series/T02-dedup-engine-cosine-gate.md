@@ -22,7 +22,7 @@ contain E2/E3/E4) participate in the cosine comparison.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [x] Define `DedupDecision` enum: `NoMatch` | `Match { existing: CxId, per_slot_cos: Vec<(SlotId, f32)> }` | `AnchorConflict { existing: CxId }` — `AnchorConflict` is checked before cosine (T03 adds anchor check; engine returns placeholder here)
+- [x] Define `DedupDecision` enum: `NoMatch` | `Match { existing: CxId, per_slot_cos: Vec<(SlotId, f32)> }` | `AnchorConflict { existing: CxId }` — `AnchorConflict` is checked before cosine; T03 made the branch durable and FSV-backed
 - [x] Implement `resolve_tau(slot_id: SlotId, config: &TctCosineConfig, guard_profile: Option<&GuardProfile>) -> f32`:
   - `TauStrategy::PerSlot` → look up `slot_id` in the vec; missing slot → `CALYX_DEDUP_SLOT_NOT_IN_TAU`
   - `TauStrategy::Calibrated` → read threshold from `guard_profile.tau_for(&slot_id)` → `CALYX_DEDUP_MISSING_GUARD_PROFILE` if profile or threshold is missing

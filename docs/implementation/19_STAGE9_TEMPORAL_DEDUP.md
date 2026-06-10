@@ -11,7 +11,10 @@ system role:** the sense of time.
 
 ## PH40 — Temporal fusion + AP-60 post-retrieval boost
 - **Status.** Complete and FSV-backed on aiwonder: T01-T06 #373-#378 plus
-  post-sweep AP-60 final-surface hardening #615.
+  post-sweep AP-60 final-surface hardening #615. Open follow-ups #616, #618,
+  and #619 track bounded overfetch before window filtering, negative
+  `FusionWeights` validation, and public periodic scorer scope/query-time
+  semantics.
 - **Objective.** E2/E3/E4 bias retrieval ranking gently — never dominant, never
   during ANN retrieval.
 - **Deps.** PH24 (search), PH22 (E2/E3/E4 lenses).
