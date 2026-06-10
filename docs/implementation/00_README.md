@@ -260,7 +260,9 @@ manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
 **Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
-follow-ups #617/#620/#622** plus PH40 follow-ups #616/#618/#619, then PH42-PH72.
+follow-ups #624/#617/#622/#620/#626** plus PH40 follow-ups #616/#618/#619,
+then PH42-PH72. PH42 readback-surface gate #625 must be resolved before PH42
+can be signed off.
 PH41 public recurrence read API follow-up #578 and recurrence concurrency
 hardening #621 are FSV-backed.
 PH41 T01 #379 is FSV-backed at
@@ -280,7 +282,11 @@ PH41 T06 #384 is FSV-backed at
 with `dedup-ingest-at-readback.json` BLAKE3
 `bb5b028ff861983b2a5cd9dd547bfb2c39337eef16318422db2815990f6d51c1`.
 Post-T06 fallback hardening #623 is FSV-backed at
-`/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`.
+`/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`
+with `dedup-ingest-at-readback.json` BLAKE3
+`da862cb17a3a0877f216305fa4a5fb5ee4bdff5f04e2686bb884ca30568b7c45` and
+`BLAKE3SUMS.txt` BLAKE3
+`325f522e71d67a6ae6e7a94681b532403774b2a0eb0ddad39d631b935e1e134d`.
 PH41 T07 #385 is FSV-backed at
 `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`
 with `dedup-audit-readback.json` BLAKE3

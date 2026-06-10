@@ -44,9 +44,10 @@ kernel candidacy.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `cargo test -p calyx-assay tests` and `cargo test -p calyx-lodestar temporal_kernel::tests` on aiwonder
-- **Readback:** `cargo test -p calyx-assay -- --nocapture 2>&1` and `cargo test -p calyx-lodestar -- --nocapture 2>&1`; paste full terminal output to PH42 GitHub issue
-- **Prove:** all 9 tests pass; `fsv_agreeing_outcomes_high_consistency` output prints `oracle_self_consistency: <value ≥ 0.90>`; `fsv_differing_outcomes_flaky` prints `oracle_self_consistency: <value ≤ 0.60>`; `fsv_frequency_raises_kernel_weight` prints A and B kernel scores with A ranked higher; `fsv_surprise_never_inflates_bits` prints "surprise not found in CF bytes: OK"
+- **Trigger:** `cargo test -p calyx-assay tests` and `cargo test -p calyx-lodestar temporal_kernel::tests` may drive the deterministic PH42 scenarios on aiwonder, but passing tests are claims only.
+- **SoT:** persisted PH42 readback artifacts and the backing Aster/Ledger/CF/WAL bytes. #625 owns the cross-cutting readback surfaces needed here (`assay-report`, `kernel-weights`, and related PH42 artifacts) before this card can close.
+- **Readback:** after the trigger, run the shipped PH42 readback commands or direct byte readers, write JSON artifacts plus `BLAKE3SUMS.txt`, and verify the BLAKE3 manifest.
+- **Prove:** persisted readback bytes show agreeing outcomes produce `oracle_self_consistency ≥ 0.90`, differing outcomes produce `≤ 0.60`, high-frequency kernel weights outrank one-time baselines when betweenness is equal, and surprise is absent from stored CF bytes.
 
 ## Done when
 

@@ -70,7 +70,10 @@ Post-T06 hardening #623 is FSV-signed-off at
 the recurrence signature detector now falls back to event-time deltas when the
 configured temporal signature slot vectors are absent, so valid same-action
 events still append to the recurrence series instead of silently becoming exact
-duplicates.
+duplicates. Artifact hashes: `dedup-ingest-at-readback.json` BLAKE3
+`da862cb17a3a0877f216305fa4a5fb5ee4bdff5f04e2686bb884ca30568b7c45` and
+`BLAKE3SUMS.txt` BLAKE3
+`325f522e71d67a6ae6e7a94681b532403774b2a0eb0ddad39d631b935e1e134d`.
 PH41 T07 #385 is FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`: it adds
 Ledger-chain-verified `dedup_audit`, vault/target-bound reversible `dedup_undo`,
@@ -105,13 +108,17 @@ serializes direct appends, recurrence-policy ingests, dedup undo, anchor updates
 touching recurrence metadata, and ordinary durable writes that could otherwise
 advance WAL between a stale handle's refresh and commit. The FSV fixture opens
 one durable `AsterVault` per worker before the barrier, then separately reads
-recurrence/base/WAL/Ledger bytes: direct append returns and stores IDs 0..15
+recurrence/base/WAL bytes plus Ledger `verify-chain`: direct append returns and stores IDs 0..15
 with frequency 16, recurrence ingest stores IDs 0..12 with frequency 13, and a
 negative event time fails closed before retrying as ID 0.
 Artifact hashes: `recurrence-concurrency-readback.json` BLAKE3
 `91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8` and
 `BLAKE3SUMS.txt` BLAKE3
 `e1bb5a412ca31e1e8d27d18bd1410ee8c65260389a63bceac078ea01cfd027af`.
+Remaining PH41 follow-ups before PH42 are #624 WAL recovery/open append-lock
+serialization, #617 durable policy validation parity, #622 WAL write-failure
+error-code contract, #620 recurrence rollup tombstone/reclaim integration, and
+#626 anchor-conflict never-merge property coverage.
 
 ## Deliverables (file plan, each ≤500 lines)
 

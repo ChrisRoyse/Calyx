@@ -6,16 +6,15 @@
 
 ## Objective
 
-Recurrence intelligence (frequency, cadence, oracle self-consistency, temporal
-lead/lag) is computed once — during `ingest_at` (PH41) — and made available to
-every engine via grounded signals on the constellation's base CF record. This
-phase wires each of the seven engine consumers: Assay (frequency as grounded
-anchor; `oracle_self_consistency(domain)` from recurring outcomes' anchor
-agreement), Loom (temporal cross-terms / co-occurrence lead-lag), Lodestar
-(frequency → kernel candidacy; time-window kernels), Ward (non-recurring =
-novelty/highest-information), Sextant (AP-60 frequency/recency boost), Compression
-(dedup count = meaning-compression ratio), and Anneal (importance/cadence). The
-surprise term `−log p` for anomaly scoring is defined but may never inflate bits.
+PH41 provides the recurrence series/frequency/cadence storage and readback
+surface. This phase derives the grounded recurrence intelligence that spans
+engines: Assay (frequency as grounded anchor; `oracle_self_consistency(domain)`
+from recurring outcomes' anchor agreement), Loom (temporal cross-terms /
+co-occurrence lead-lag), Lodestar (frequency → kernel candidacy; time-window
+kernels), Ward (non-recurring = novelty/highest-information), Sextant (AP-60
+frequency/recency boost), Compression (dedup count = meaning-compression ratio),
+and Anneal (importance/cadence). The surprise term `−log p` for anomaly scoring
+is defined but may never inflate bits.
 
 ## Dependencies
 
@@ -41,9 +40,10 @@ series. This is primarily a wiring + API-surface phase: each engine gets a
 small, well-defined interface to the recurrence signals stored in the base CF.
 
 Entry discipline: PH42 is not the next active work while PH40 follow-ups
-#616/#618/#619 and PH41 follow-ups #617/#620/#622 remain open. Start this phase
-only after those follow-ups are FSV-backed or GitHub issue state records an
-explicit decision to defer them out of the PH42 entry gate.
+#616/#618/#619 and PH41 follow-ups #624/#617/#622/#620/#626 remain open. Start
+this phase only after those follow-ups are FSV-backed or GitHub issue state
+records an explicit decision to defer them out of the PH42 entry gate. PH42
+readback-surface gate #625 must also be resolved before PH42 can be signed off.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -77,16 +77,20 @@ Two gates:
 1. **Self-consistency:** recurring events with agreeing outcomes → `oracle_self_consistency` ≥ 0.90; with differing outcomes → `oracle_self_consistency` ≤ 0.60 (ceiling drops). Read `calyx readback assay-report --domain <domain>` showing the `self_consistency` scalar.
 2. **Frequency → kernel weight:** a constellation ingested N=50 times (high frequency) must appear in the kernel graph node list with weight above the baseline; a one-time constellation must not. Read `calyx readback kernel-weights` and confirm the ordering.
 
+#625 owns the cross-cutting readback-surface gate for these FSV claims. Tests
+may trigger PH42 computations, but the verdict must be persisted JSON,
+Aster/Ledger/CF/WAL bytes, or CLI readback output with BLAKE3-indexed artifacts.
+
 ## Risks / landmines
 
 - **Surprise `−log p` definition:** the surprise term is the negative log probability of the event given its recurrence rate — `−log(frequency / total_events)`. It must NEVER increase the stored bits for a high-frequency event; anomaly scoring is additive to retrieval scoring only (never stored as a lens weight). Audit every call site.
 - **Cross-crate circular dependencies:** wiring seven crates creates potential cycles. All recurrence signals flow from `calyx-aster` (the data source) through `calyx-loom` (the transformer) to consumers. No consumer crate imports another consumer crate.
 - **PH41 readiness:** PH41 recurrence series/frequency storage, #578 public
   read APIs, and #621 concurrency-safe allocation are available. Remaining PH41
-  follow-ups #617/#620/#622 still need issue-state resolution before PH42 starts
-  unless explicitly deferred. PH42 still needs consumer-facing O(1) base-CF
-  frequency anchor reads for hot paths; scan-based periodic readback APIs are
-  evidence/debug surfaces, not the PH42 runtime path. PH28 Assay MI and PH33
-  Lodestar kernel surfaces are already FSV-signed-off and should be reused
+  follow-ups #624/#617/#622/#620/#626 still need issue-state resolution before
+  PH42 starts unless explicitly deferred. PH42 still needs consumer-facing O(1)
+  base-CF frequency anchor reads for hot paths; scan-based periodic readback
+  APIs are evidence/debug surfaces, not the PH42 runtime path. PH28 Assay MI and
+  PH33 Lodestar kernel surfaces are already FSV-signed-off and should be reused
   directly rather than stubbed.
 - **Grounded anchor immutability:** frequency is a grounded anchor (A2) — a count of what happened. It must be read from the `frequency` field in the base CF (written by PH41), never recomputed from the series on every call (O(1), not O(N)).

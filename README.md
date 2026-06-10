@@ -120,8 +120,9 @@ overfetch, negative fusion-weight validation, and public periodic scorer
 scope. PH41 T01 #379 through T08 #386 are complete and FSV-signed-off; post-T06
 hardening #623 and public recurrence read API follow-up #578 are complete and
 FSV-signed-off. PH41 recurrence occurrence allocation concurrency hardening
-#621 is complete and FSV-backed. PH41 follow-ups #617, #620, and #622 remain
-tracked before PH42.
+#621 is complete and FSV-backed. PH41 follow-ups #624, #617, #622, #620, and
+#626 remain tracked before PH42; PH42 readback-surface gate #625 is open before
+PH42 can be signed off.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
