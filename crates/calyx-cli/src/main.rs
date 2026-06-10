@@ -8,9 +8,13 @@ mod manifest_readback;
 mod merkle;
 mod ops;
 mod provenance;
+mod recurrence_readback;
 mod scan;
 mod temporal_readback;
 mod verify;
+
+#[cfg(test)]
+mod main_tests;
 
 use std::env;
 use std::fs;
@@ -93,6 +97,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 vault_id,
                 salt,
             })
+        }
+        [command, topic, vault_flag, vault, cx_flag, cx_id]
+            if command == "readback"
+                && topic == "recurrence-series"
+                && vault_flag == "--vault"
+                && cx_flag == "--cx-id" =>
+        {
+            recurrence_readback::readback_recurrence_series(Path::new(vault), cx_id)
         }
         [command, flag, cf, vault_flag, vault]
             if command == "readback" && flag == "--cf" && vault_flag == "--vault" =>
@@ -399,7 +411,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | recurrence-series --vault <dir> --cx-id <cx> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>
@@ -422,76 +434,4 @@ fn usage() -> &'static str {
        calyx open-check --vault <dir> --index <n>
        calyx corrupt-shard --vault <dir> --cf <name> --byte-offset <n>
        calyx wal-batch-demo --vault <dir> --requests <n>"
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::path::PathBuf;
-
-    #[test]
-    fn crate_metadata_is_present() {
-        assert_eq!(env!("CARGO_PKG_NAME"), "calyx-cli");
-    }
-
-    #[test]
-    fn hex_lines_match_xxd_plain_chunks() {
-        let bytes: Vec<_> = (0u8..=34).collect();
-
-        assert_eq!(
-            hex_lines(&bytes),
-            vec![
-                "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
-                "202122",
-            ]
-        );
-    }
-
-    #[test]
-    fn display_relative_root_is_dot() {
-        let root = PathBuf::from("/tmp/calyx-readback");
-
-        assert_eq!(display_relative(&root, &root), ".");
-    }
-
-    #[test]
-    fn temporal_search_readback_command_executes() {
-        run(vec![
-            "readback".into(),
-            "temporal_search".into(),
-            "--explain".into(),
-            "--clock-fixed".into(),
-            "1000000".into(),
-            "--tz-offset".into(),
-            "0".into(),
-        ])
-        .expect("temporal search readback");
-    }
-
-    #[test]
-    fn dedup_check_readback_rejects_invalid_cosine_arg() {
-        let error = run(vec![
-            "readback".into(),
-            "dedup-check".into(),
-            "--vault".into(),
-            "missing".into(),
-            "--cx-id".into(),
-            "00000000000000000000000000000000".into(),
-            "--slot".into(),
-            "0".into(),
-            "--tau".into(),
-            "2.0".into(),
-            "--near-cos".into(),
-            "0.95".into(),
-            "--distinct-cos".into(),
-            "0.85".into(),
-            "--vault-id".into(),
-            "01ARZ3NDEKTSV4RRFFQ69G5FAV".into(),
-            "--salt".into(),
-            "s".into(),
-        ])
-        .expect_err("invalid tau");
-
-        assert!(error.contains("--tau"));
-    }
 }

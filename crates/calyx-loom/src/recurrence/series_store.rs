@@ -1,0 +1,56 @@
+use calyx_aster::dedup::{EpochSecs, OccurrenceId};
+use calyx_aster::recurrence;
+use calyx_aster::vault::AsterVault;
+use calyx_core::{Clock, CxId, Result};
+
+pub struct SeriesStore<'a, C> {
+    vault: &'a AsterVault<C>,
+    retention: recurrence::RetentionPolicy,
+}
+
+impl<'a, C> SeriesStore<'a, C>
+where
+    C: Clock,
+{
+    pub fn new(vault: &'a AsterVault<C>) -> Self {
+        Self {
+            vault,
+            retention: recurrence::RetentionPolicy::default(),
+        }
+    }
+
+    pub fn with_retention(
+        vault: &'a AsterVault<C>,
+        retention: recurrence::RetentionPolicy,
+    ) -> Result<Self> {
+        retention.validate()?;
+        Ok(Self { vault, retention })
+    }
+
+    pub fn append_occurrence(
+        &self,
+        cx_id: CxId,
+        t_k: EpochSecs,
+        context: recurrence::OccurrenceContext,
+    ) -> Result<OccurrenceId> {
+        self.append_occurrence_observed_at(cx_id, t_k, context, t_k)
+    }
+
+    pub fn append_occurrence_observed_at(
+        &self,
+        cx_id: CxId,
+        t_k: EpochSecs,
+        context: recurrence::OccurrenceContext,
+        observed_at: EpochSecs,
+    ) -> Result<OccurrenceId> {
+        recurrence::append_occurrence(self.vault, cx_id, t_k, context, observed_at, self.retention)
+    }
+
+    pub fn read_series(&self, cx_id: CxId) -> Result<recurrence::RecurrenceSeries> {
+        recurrence::read_series(self.vault, cx_id)
+    }
+
+    pub fn occurrence_count(&self, cx_id: CxId) -> Result<u64> {
+        recurrence::occurrence_count(self.vault, cx_id)
+    }
+}

@@ -15,7 +15,14 @@ fn column_family_names_match_prd_layout() {
     assert_eq!(
         static_names,
         [
-            "base", "xterm", "scalars", "anchors", "assay", "ledger", "online",
+            "base",
+            "xterm",
+            "scalars",
+            "anchors",
+            "assay",
+            "ledger",
+            "recurrence",
+            "online",
         ]
     );
 
@@ -36,9 +43,14 @@ fn keys_use_big_endian_ordering_for_range_scans() {
     assert_eq!(base_key(cx_id), vec![1; 16]);
     assert_eq!(ledger_key(1), vec![0, 0, 0, 0, 0, 0, 0, 1]);
     assert_eq!(ledger_key(u64::MAX), vec![0xff; 8]);
+    assert_eq!(
+        recurrence_key(cx_id, 7),
+        [vec![1; 16], vec![0, 0, 0, 0, 0, 0, 0, 7]].concat()
+    );
     println!("LEDGER_KEY_1 {}", hex_bytes(&ledger_key(1)));
     println!("LEDGER_KEY_MAX {}", hex_bytes(&ledger_key(u64::MAX)));
     assert!(ledger_key(9) < ledger_key(10));
+    assert!(recurrence_key(cx_id, 9) < recurrence_key(cx_id, 10));
     assert!(online_key(OnlineKeyKind::MistakeLog, 9) < online_key(OnlineKeyKind::MistakeLog, 10));
     assert!(scalar_key(ScalarId::new(1), cx_id) < scalar_key(ScalarId::new(2), cx_id));
     assert!(
@@ -101,6 +113,12 @@ fn cx_prefix_range_edges_are_byte_exact() {
     let max_range = cx_prefix_range(max);
     assert_eq!(max_range.end, None);
     assert!(max_range.contains(&base_key(max)));
+
+    let cx_a = cx(0x10);
+    let cx_b = cx(0x11);
+    let recurrence_range = recurrence_prefix_range(cx_a);
+    assert!(recurrence_range.contains(&recurrence_key(cx_a, 0)));
+    assert!(!recurrence_range.contains(&recurrence_key(cx_b, 0)));
 }
 
 #[test]

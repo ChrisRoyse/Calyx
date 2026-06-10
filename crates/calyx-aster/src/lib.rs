@@ -6,6 +6,7 @@ pub mod dedup;
 pub mod manifest;
 pub mod memtable;
 pub mod mvcc;
+pub mod recurrence;
 pub mod sst;
 pub mod vault;
 pub mod wal;
