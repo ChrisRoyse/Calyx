@@ -114,10 +114,12 @@ surfaces, missing required fields, and unsupported schema versions with
 - #388 implemented Loom temporal cross-terms and the persisted `temporal_xterm` CF/WAL row.
 - #389 implemented Lodestar recurrence frequency kernel weighting and time-window kernels, with artifact-backed readback surfaces `kernel-weights` and `kernel-window`.
 - #390 implements Ward recurrence novelty classification, overdue recurrence scanning, and retrieval-only `SurpriseScore` anomaly scoring with artifact-backed `ward-novelty` readback.
+- #391 implements Sextant AP-60 recurrence boost from Base CF `recurrence.frequency` plus Recurrence CF last occurrence time, with `recurrence_boost` explain evidence on `TemporalSearchResult` hits.
 
 ## Risks / Landmines
 
 - **Surprise `-log2(p)` definition:** the surprise term is the negative log probability of the event given its recurrence rate: `-log2(frequency / total_events)`. It must NEVER increase stored constellation bits; anomaly scoring is retrieval-only and never stored as a lens weight or information score. Audit every call site.
 - **Cross-crate circular dependencies:** recurrence signals flow from `calyx-aster` as the data source to consumers. No consumer crate imports another consumer crate.
+- **Sextant recurrence is read-only:** `calyx-sextant` may read Aster Base/Recurrence CFs for AP-60 recurrence evidence, but it must never write recurrence state. `TemporalPolicy.recurrence_boost = None` must skip those reads, and missing/invalid recurrence rows must fail closed with `CALYX_SEXTANT_RECURRENCE_READ_ERROR`.
 - **PH41 readiness:** PH41 recurrence series/frequency storage, #578 public read APIs, and #621 concurrency-safe allocation are available. Remaining PH41 follow-ups #620/#626 still need issue-state resolution before PH42 starts unless explicitly deferred.
 - **Grounded anchor immutability:** frequency is a grounded anchor (A2), a count of what happened. It must be read from the `frequency` field in the base CF written by PH41, not recomputed from the series on every hot-path call.

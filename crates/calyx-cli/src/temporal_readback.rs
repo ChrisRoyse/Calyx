@@ -1,35 +1,57 @@
 use std::collections::BTreeMap;
+use std::fs;
+use std::path::Path;
 
+use calyx_aster::dedup::EpochSecs;
+use calyx_aster::recurrence::{OccurrenceContext, RetentionPolicy, append_occurrence};
+use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, DecayFunction, InputRef, LedgerRef, Modality,
-    SlotId, SlotVector, VaultId,
+    Anchor, AnchorKind, AnchorValue, BoostConfig, CxFlags, CxId, DecayFunction, FusionWeights,
+    InputRef, LedgerRef, Modality, SlotId, VaultId, VaultStore,
 };
 use calyx_sextant::{
-    HnswIndex, PeriodicOptions, Query, SearchEngine, SlotIndexMap,
-    TemporalFixedClock as FixedClock, TemporalPolicy, temporal_search,
+    CausalConfidence, FreshnessTag, Hit, ProvenanceSource, TemporalFixedClock as FixedClock,
+    TemporalPolicy, TemporalSearchInput, TimeWindow, temporal_search_from_primary_with_recurrence,
 };
 
 const CONTENT_SLOT: SlotId = SlotId::new(8);
 const TEMPORAL_SLOT: SlotId = SlotId::new(20);
+const QUERY_SCORE: f32 = 0.70;
+const CX_A: u8 = 0xA1;
+const CX_B: u8 = 0xB2;
 
 pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> Result<(), String> {
-    let engine = sample_engine(clock_fixed)?;
-    let policy = policy_step()?;
-    let query = Query {
-        k: 2,
-        explain: true,
-        ..Query::new("temporal readback")
-            .with_vector(dense(vec![1.0, 0.0]))
-            .with_slots(vec![CONTENT_SLOT, TEMPORAL_SLOT])
-            .with_recall_k(3)
-    };
-    let result = temporal_search(
-        &engine,
-        &query,
-        None,
-        &policy,
-        &FixedClock::new(clock_fixed),
-        tz_offset_secs,
+    let root = std::env::temp_dir().join(format!(
+        "calyx-temporal-search-recurrence-readback-{}",
+        std::process::id()
+    ));
+    reset_dir(&root)?;
+    let vault = AsterVault::new_durable(
+        &root,
+        vault_id(),
+        b"temporal-readback-recurrence",
+        VaultOptions::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    seed_recurrence(&vault, clock_fixed)?;
+
+    let policy = policy_recurrence_only()?;
+    let result = temporal_search_from_primary_with_recurrence(
+        TemporalSearchInput {
+            primary_hits: vec![
+                hit(CX_A, 1, event_time(clock_fixed, 600)).with_explain("temporal_readback"),
+                hit(CX_B, 2, event_time(clock_fixed, 600)).with_explain("temporal_readback"),
+            ],
+            temporal_weight_used: 0.0,
+            final_k: 2,
+            window: Some(TimeWindow::all()),
+            policy: &policy,
+            clock: &FixedClock::new(clock_fixed),
+            tz_offset_secs,
+            primary_slots_used: vec![CONTENT_SLOT],
+            temporal_slots_excluded: vec![TEMPORAL_SLOT],
+        },
+        &vault,
     )
     .map_err(|error| error.to_string())?;
     println!(
@@ -39,51 +61,78 @@ pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> Result
     Ok(())
 }
 
-fn sample_engine(clock_fixed: i64) -> Result<SearchEngine, String> {
-    let map = SlotIndexMap::new();
-    map.register(HnswIndex::new(CONTENT_SLOT, 2, 42))
+fn seed_recurrence(vault: &AsterVault, clock_fixed: i64) -> Result<(), String> {
+    vault
+        .put(row(CX_A, created_at_secs(clock_fixed, 3_000)))
         .map_err(|error| error.to_string())?;
-    map.register(HnswIndex::new(TEMPORAL_SLOT, 2, 43))
+    vault
+        .put(row(CX_B, created_at_secs(clock_fixed, 86_400)))
         .map_err(|error| error.to_string())?;
-    let mut engine = SearchEngine::new(map);
-    let rows = [
-        (1, vec![1.0, 0.0], vec![0.0, 1.0], 100_000),
-        (2, vec![0.98, 0.2], vec![0.0, 1.0], 500),
-        (3, vec![0.0, 1.0], vec![1.0, 0.0], 100),
-    ];
-    for (seed, content, temporal, age_secs) in rows {
-        let id = cx(seed);
-        let created_at = created_at_secs(clock_fixed, age_secs);
-        engine
-            .indexes
-            .insert(CONTENT_SLOT, id, dense(content), seed as u64)
-            .map_err(|error| error.to_string())?;
-        engine
-            .indexes
-            .insert(TEMPORAL_SLOT, id, dense(temporal), seed as u64)
-            .map_err(|error| error.to_string())?;
-        engine.put_constellation(row(seed, created_at));
+    for idx in 0..50 {
+        append_occurrence(
+            vault,
+            cx(CX_A),
+            EpochSecs(event_time(clock_fixed, (50 - idx) * 60)),
+            OccurrenceContext::new(format!("A-{idx}")).map_err(|error| error.to_string())?,
+            EpochSecs(event_time(clock_fixed, 0)),
+            RetentionPolicy::default(),
+        )
+        .map_err(|error| error.to_string())?;
     }
-    Ok(engine)
+    append_occurrence(
+        vault,
+        cx(CX_B),
+        EpochSecs(event_time(clock_fixed, 86_400)),
+        OccurrenceContext::new("B-singleton").map_err(|error| error.to_string())?,
+        EpochSecs(event_time(clock_fixed, 0)),
+        RetentionPolicy::default(),
+    )
+    .map_err(|error| error.to_string())?;
+    vault.flush().map_err(|error| error.to_string())
 }
 
-fn policy_step() -> Result<TemporalPolicy, String> {
+fn policy_recurrence_only() -> Result<TemporalPolicy, String> {
     TemporalPolicy::new(
         true,
         DecayFunction::Step,
-        PeriodicOptions::new(None, None).map_err(|error| error.to_string())?,
         Default::default(),
         Default::default(),
-        Default::default(),
+        FusionWeights::new(1.0, 0.0, 0.0).map_err(|error| error.to_string())?,
+        BoostConfig {
+            post_retrieval_alpha: 0.0,
+            ..BoostConfig::default()
+        },
         true,
     )
     .map_err(|error| error.to_string())
 }
 
+fn hit(seed: u8, rank: usize, event_time_secs: i64) -> Hit {
+    Hit {
+        cx_id: cx(seed),
+        score: QUERY_SCORE,
+        rank,
+        event_time_secs: Some(event_time_secs),
+        temporal_scores: None,
+        causal_confidence: CausalConfidence::Absent,
+        causal_gate: None,
+        per_lens: Vec::new(),
+        cross_terms_used: false,
+        guard: None,
+        provenance: LedgerRef {
+            seq: seed as u64,
+            hash: [seed; 32],
+        },
+        provenance_source: ProvenanceSource::Stub,
+        freshness: FreshnessTag::fresh(0),
+        explain: None,
+    }
+}
+
 fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
     calyx_core::Constellation {
         cx_id: cx(seed),
-        vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap(),
+        vault_id: vault_id(),
         panel_version: 1,
         created_at,
         input_ref: InputRef {
@@ -109,17 +158,25 @@ fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
     }
 }
 
-fn created_at_secs(clock_fixed: i64, age_secs: i64) -> u64 {
-    u64::try_from(clock_fixed.saturating_sub(age_secs)).unwrap_or(0)
+fn reset_dir(path: &Path) -> Result<(), String> {
+    if path.exists() {
+        fs::remove_dir_all(path).map_err(|error| error.to_string())?;
+    }
+    fs::create_dir_all(path).map_err(|error| error.to_string())
 }
 
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
+fn event_time(clock_fixed: i64, age_secs: i64) -> i64 {
+    clock_fixed.saturating_sub(age_secs).max(0)
+}
+
+fn created_at_secs(clock_fixed: i64, age_secs: i64) -> u64 {
+    u64::try_from(event_time(clock_fixed, age_secs)).unwrap_or(0)
 }
 
 fn cx(seed: u8) -> CxId {
     CxId::from_bytes([seed; 16])
+}
+
+fn vault_id() -> VaultId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap()
 }

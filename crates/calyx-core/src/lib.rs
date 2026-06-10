@@ -21,7 +21,7 @@ pub use temporal::{
     BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
     CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_INVALID_WINDOW, CALYX_TEMPORAL_NEGATIVE_WEIGHT,
     CALYX_TEMPORAL_WEIGHT_SUM, DecayFunction, FusionWeights, MultiAnchorMode, PeriodicOptions,
-    SequenceDirection, SequenceOptions, TemporalPolicy,
+    RecurrenceBoostConfig, SequenceDirection, SequenceOptions, TemporalPolicy,
 };
 pub use time::{Clock, FixedClock, Seq, SystemClock, Ts};
 pub use traits::{Estimator, Index, Input, Lens, VaultStore};
