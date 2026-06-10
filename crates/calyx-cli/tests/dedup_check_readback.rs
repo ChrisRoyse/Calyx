@@ -4,9 +4,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use calyx_aster::cf::{ColumnFamily, base_key};
+use calyx_aster::dedup::{
+    CALYX_DEDUP_DPI_EXCEEDED, DedupAction, DedupPolicy, TauStrategy, TctCosineConfig,
+    check_dedup_with_limit,
+};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId, VaultStore,
+    Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
+    VaultStore,
 };
 use serde_json::{Value, json};
 
@@ -40,6 +45,9 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
     let stdout_json: Value = serde_json::from_slice(&output.stdout).expect("parse cli json");
     let missing_slot = run_dedup_check(&vault_dir, existing_id, "9", "0.90", "0.95", "0.85");
     let invalid_tau = run_dedup_check(&vault_dir, existing_id, "0", "2.0", "0.95", "0.85");
+    let dpi_candidate = candidate_constellation(CxId::from_bytes([0xee; 16]));
+    let dpi_error = check_dedup_with_limit(&dpi_candidate, &vault, &dedup_policy(), None, 0)
+        .expect_err("dpi exceeded");
     let base_bytes = vault
         .read_cf_at(vault.snapshot(), ColumnFamily::Base, &base_key(existing_id))
         .expect("read base")
@@ -63,6 +71,12 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
         "edge_invalid_tau": {
             "status_success": invalid_tau.status.success(),
             "stderr": stderr(&invalid_tau),
+        },
+        "edge_dpi_exceeded": {
+            "candidate": dpi_candidate.cx_id,
+            "candidate_limit": 0,
+            "after_error_code": dpi_error.code,
+            "expected_error_code": CALYX_DEDUP_DPI_EXCEEDED,
         }
     });
     write_json(&root.join("dedup-check-readback.json"), &readback);
@@ -85,6 +99,7 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
     assert!(stderr(&missing_slot).contains("no dense vector"));
     assert!(!invalid_tau.status.success());
     assert!(stderr(&invalid_tau).contains("--tau"));
+    assert_eq!(dpi_error.code, CALYX_DEDUP_DPI_EXCEEDED);
 
     println!("dedup_check_readback_fsv_root={}", root.display());
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
@@ -92,6 +107,17 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
     if !keep_root {
         fs::remove_dir_all(root).expect("cleanup temp root");
     }
+}
+
+fn dedup_policy() -> DedupPolicy {
+    DedupPolicy::TctCosine(
+        TctCosineConfig::new(
+            vec![SlotId::new(0)],
+            TauStrategy::PerSlot(vec![(SlotId::new(0), 0.90)]),
+            DedupAction::Collapse,
+        )
+        .expect("policy"),
+    )
 }
 
 fn run_dedup_check(
@@ -146,6 +172,37 @@ fn sample_constellation(vault: &AsterVault) -> Constellation {
         input_ref: InputRef {
             hash: input_hash,
             pointer: Some("synthetic://ph41/dedup-check-source".to_string()),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots,
+        scalars: BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: 0,
+            hash: [0; 32],
+        },
+        flags: CxFlags::default(),
+    }
+}
+
+fn candidate_constellation(cx_id: CxId) -> Constellation {
+    let mut slots = BTreeMap::new();
+    slots.insert(
+        SlotId::new(0),
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![1.0, 0.0],
+        },
+    );
+    Constellation {
+        cx_id,
+        vault_id: vault_id(),
+        panel_version: 41,
+        created_at: 1_786_406_501,
+        input_ref: InputRef {
+            hash: [0xee; 32],
+            pointer: Some("synthetic://ph41/dedup-dpi-candidate".to_string()),
             redacted: false,
         },
         modality: Modality::Text,
