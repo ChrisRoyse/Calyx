@@ -295,6 +295,9 @@ fn ensure_ledger_chain(rows: &[(u64, Vec<u8>)]) -> Result<()> {
         VerifyResult::Broken { at_seq, .. } => Err(CalyxError::ledger_chain_broken(format!(
             "ledger chain broken at seq {at_seq}"
         ))),
+        VerifyResult::Corrupt { at_seq, reason } => Err(CalyxError::ledger_corrupt(format!(
+            "ledger row corrupt at seq {at_seq}: {reason}"
+        ))),
     }
 }
 

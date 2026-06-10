@@ -19,6 +19,19 @@ pub enum VerifyResult {
         expected: [u8; HASH_BYTES],
         found: [u8; HASH_BYTES],
     },
+    Corrupt {
+        at_seq: u64,
+        reason: String,
+    },
+}
+
+impl VerifyResult {
+    pub fn quarantine_seq(&self) -> Option<u64> {
+        match self {
+            Self::Intact { .. } => None,
+            Self::Broken { at_seq, .. } | Self::Corrupt { at_seq, .. } => Some(*at_seq),
+        }
+    }
 }
 
 pub fn verify_chain(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<VerifyResult> {
@@ -37,30 +50,33 @@ pub fn verify_chain(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<Veri
         .into_iter()
         .map(|row| (row.seq, row.bytes))
         .collect::<BTreeMap<_, _>>();
-    let mut expected_prev = expected_prev_hash(&rows, range.start)?;
+    let mut expected_prev = match expected_prev_hash(&rows, range.start)? {
+        StartHash::Ready(hash) => hash,
+        StartHash::Corrupt(result) => return Ok(result),
+    };
     let mut count = 0_u64;
 
     for seq in range.clone() {
         let Some(bytes) = rows.get(&seq) else {
-            return Err(CalyxError::ledger_corrupt(format!(
-                "missing ledger row for seq {seq}"
-            )));
+            return Ok(corrupt_result(
+                seq,
+                format!("missing ledger row for seq {seq}"),
+            ));
         };
         let entry = match decode_unchecked(bytes) {
             Ok(entry) => entry,
-            Err(_) => {
-                return Ok(VerifyResult::Broken {
-                    at_seq: seq,
-                    expected: expected_prev,
-                    found: [0; HASH_BYTES],
-                });
+            Err(error) => {
+                return Ok(corrupt_result(
+                    seq,
+                    format!("decode ledger row seq {seq}: {error}"),
+                ));
             }
         };
         if entry.seq != seq {
-            return Err(CalyxError::ledger_corrupt(format!(
-                "ledger key seq {seq} != encoded seq {}",
-                entry.seq
-            )));
+            return Ok(corrupt_result(
+                seq,
+                format!("ledger key seq {seq} != encoded seq {}", entry.seq),
+            ));
         }
         if entry.prev_hash != expected_prev {
             return Ok(VerifyResult::Broken {
@@ -84,23 +100,47 @@ pub fn verify_chain(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<Veri
     Ok(VerifyResult::Intact { count })
 }
 
-fn expected_prev_hash(rows: &BTreeMap<u64, Vec<u8>>, start: u64) -> Result<[u8; HASH_BYTES]> {
+enum StartHash {
+    Ready([u8; HASH_BYTES]),
+    Corrupt(VerifyResult),
+}
+
+fn expected_prev_hash(rows: &BTreeMap<u64, Vec<u8>>, start: u64) -> Result<StartHash> {
     if start == 0 {
-        return Ok([0; HASH_BYTES]);
+        return Ok(StartHash::Ready([0; HASH_BYTES]));
     }
     let previous_seq = start - 1;
-    let bytes = rows.get(&previous_seq).ok_or_else(|| {
-        CalyxError::ledger_corrupt(format!(
-            "missing ledger row for previous seq {previous_seq}"
-        ))
-    })?;
-    let entry = decode_unchecked(bytes)?;
-    if entry.seq != previous_seq || !entry.verify() {
-        return Err(CalyxError::ledger_chain_broken(format!(
-            "cannot verify range start {start}: previous seq {previous_seq} is broken"
+    let Some(bytes) = rows.get(&previous_seq) else {
+        return Ok(StartHash::Corrupt(corrupt_result(
+            start,
+            format!("missing ledger row for previous seq {previous_seq}"),
+        )));
+    };
+    let entry = match decode_unchecked(bytes) {
+        Ok(entry) => entry,
+        Err(error) => {
+            return Ok(StartHash::Corrupt(corrupt_result(
+                start,
+                format!("cannot verify range start {start}: previous seq {previous_seq}: {error}"),
+            )));
+        }
+    };
+    if entry.seq != previous_seq {
+        return Ok(StartHash::Corrupt(corrupt_result(
+            start,
+            format!(
+                "previous key seq {previous_seq} != encoded seq {}",
+                entry.seq
+            ),
         )));
     }
-    Ok(entry.entry_hash)
+    if !entry.verify() {
+        return Ok(StartHash::Corrupt(corrupt_result(
+            start,
+            format!("cannot verify range start {start}: previous seq {previous_seq} is broken"),
+        )));
+    }
+    Ok(StartHash::Ready(entry.entry_hash))
 }
 
 fn recompute_hash(entry: &LedgerEntry) -> [u8; HASH_BYTES] {
@@ -113,6 +153,13 @@ fn recompute_hash(entry: &LedgerEntry) -> [u8; HASH_BYTES] {
         &entry.actor,
         entry.ts,
     )
+}
+
+fn corrupt_result(at_seq: u64, reason: impl Into<String>) -> VerifyResult {
+    VerifyResult::Corrupt {
+        at_seq,
+        reason: reason.into(),
+    }
 }
 
 #[cfg(test)]
@@ -222,7 +269,45 @@ mod tests {
     }
 
     #[test]
-    fn encoded_seq_mismatch_is_corrupt_not_quarantine() {
+    fn missing_row_reports_corrupt_result() {
+        let mut store = chain_store(3);
+        remove_row(&mut store, 1);
+
+        assert!(matches!(
+            verify_chain(&store, 0..3).unwrap(),
+            VerifyResult::Corrupt { at_seq: 1, .. }
+        ));
+    }
+
+    #[test]
+    fn truncated_row_reports_corrupt_result() {
+        let mut store = chain_store(3);
+        mutate_row(&mut store, 1, |bytes| bytes.truncate(12));
+
+        let result = verify_chain(&store, 0..3).unwrap();
+
+        assert!(matches!(result, VerifyResult::Corrupt { at_seq: 1, .. }));
+        assert_eq!(result.quarantine_seq(), Some(1));
+    }
+
+    #[test]
+    fn missing_previous_row_reports_range_start_corrupt_result() {
+        let mut store = chain_store(3);
+        remove_row(&mut store, 1);
+
+        let result = verify_chain(&store, 2..3).unwrap();
+
+        assert!(matches!(
+            result,
+            VerifyResult::Corrupt {
+                at_seq: 2,
+                ref reason
+            } if reason.contains("previous seq 1")
+        ));
+    }
+
+    #[test]
+    fn encoded_seq_mismatch_reports_corrupt_result() {
         let mut store = MemoryLedgerStore::default();
         let entry = LedgerEntry::new(
             3,
@@ -235,8 +320,25 @@ mod tests {
         );
         store.insert_raw(0, encode(&entry));
 
-        let error = verify_chain(&store, 0..1).unwrap_err();
+        let result = verify_chain(&store, 0..1).unwrap();
 
-        assert_eq!(error.code, "CALYX_LEDGER_CORRUPT");
+        assert!(matches!(
+            result,
+            VerifyResult::Corrupt {
+                at_seq: 0,
+                ref reason
+            } if reason.contains("encoded seq 3")
+        ));
+    }
+
+    fn remove_row(store: &mut MemoryLedgerStore, seq_to_remove: u64) {
+        let rows = store.scan().unwrap();
+        let mut filtered = MemoryLedgerStore::default();
+        for LedgerRow { seq, bytes } in rows {
+            if seq != seq_to_remove {
+                filtered.insert_raw(seq, bytes);
+            }
+        }
+        *store = filtered;
     }
 }

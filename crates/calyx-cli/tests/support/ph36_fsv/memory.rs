@@ -49,7 +49,7 @@ pub fn mutate_row_from_end(store: &mut MemoryLedgerStore, seq: u64, offset_from_
 
 pub fn broken_at(store: &MemoryLedgerStore, range: Range<u64>) -> u64 {
     match verify_chain(store, range).unwrap() {
-        VerifyResult::Broken { at_seq, .. } => at_seq,
+        VerifyResult::Broken { at_seq, .. } | VerifyResult::Corrupt { at_seq, .. } => at_seq,
         VerifyResult::Intact { .. } => panic!("expected broken chain"),
     }
 }

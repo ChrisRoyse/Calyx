@@ -432,6 +432,11 @@ fn chain_readback(store: &DirectoryLedgerStore, end: u64) -> Value {
             "expected": hex(&expected),
             "found": hex(&found),
         }),
+        VerifyResult::Corrupt { at_seq, reason } => json!({
+            "status": "corrupt",
+            "at_seq": at_seq,
+            "reason": reason,
+        }),
     }
 }
 
