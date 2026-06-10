@@ -28,13 +28,41 @@ pub fn ingest_at<C>(
 where
     C: Clock,
 {
+    ingest_at_with_retention(vault, input, at, guard_profile, RetentionPolicy::default())
+}
+
+pub fn ingest_at_with_retention<C>(
+    vault: &AsterVault<C>,
+    input: &IngestInput,
+    at: EpochSecs,
+    guard_profile: Option<&dyn GuardTauProfile>,
+    recurrence_retention: RetentionPolicy,
+) -> Result<DedupResult>
+where
+    C: Clock,
+{
+    recurrence_retention.validate()?;
     let policy = vault.dedup_policy().clone();
     if is_recurrence_series_policy(&policy) {
         return vault.with_recurrence_write_lock(|| {
-            ingest_at_with_policy(vault, input, at, guard_profile, &policy)
+            ingest_at_with_policy(
+                vault,
+                input,
+                at,
+                guard_profile,
+                &policy,
+                recurrence_retention,
+            )
         });
     }
-    ingest_at_with_policy(vault, input, at, guard_profile, &policy)
+    ingest_at_with_policy(
+        vault,
+        input,
+        at,
+        guard_profile,
+        &policy,
+        recurrence_retention,
+    )
 }
 
 fn ingest_at_with_policy<C>(
@@ -43,6 +71,7 @@ fn ingest_at_with_policy<C>(
     at: EpochSecs,
     guard_profile: Option<&dyn GuardTauProfile>,
     policy: &DedupPolicy,
+    recurrence_retention: RetentionPolicy,
 ) -> Result<DedupResult>
 where
     C: Clock,
@@ -50,11 +79,27 @@ where
     let new_cx = input.to_constellation(vault, at)?;
     let decision = check_dedup_without_conflict_write(&new_cx, vault, policy, guard_profile)?;
     match decision {
-        DedupDecision::NoMatch => store_new(vault, new_cx, at, policy, "NoMatch", Vec::new()),
+        DedupDecision::NoMatch => store_new(
+            vault,
+            new_cx,
+            at,
+            policy,
+            "NoMatch",
+            Vec::new(),
+            recurrence_retention,
+        ),
         DedupDecision::AnchorConflict { existing } => {
             let existing_cx = vault.get(existing, vault.snapshot())?;
             let online_rows = contested_rows(&new_cx, &existing_cx)?;
-            store_new(vault, new_cx, at, policy, "AnchorConflict", online_rows)
+            store_new(
+                vault,
+                new_cx,
+                at,
+                policy,
+                "AnchorConflict",
+                online_rows,
+                recurrence_retention,
+            )
         }
         DedupDecision::Match {
             existing,
@@ -75,21 +120,33 @@ where
                             per_slot_cos,
                             config,
                             guard_profile,
+                            retention: recurrence_retention,
                         },
                     )
                 } else {
                     merge_match(
                         vault,
-                        new_cx,
-                        at,
-                        existing,
-                        per_slot_cos,
-                        config.action.clone(),
-                        None,
+                        MergeMatch {
+                            new_cx,
+                            at,
+                            existing,
+                            per_slot_cos,
+                            action: config.action.clone(),
+                            signature: None,
+                            retention: recurrence_retention,
+                        },
                     )
                 }
             }
-            DedupPolicy::Off => store_new(vault, new_cx, at, policy, "NoMatch", Vec::new()),
+            DedupPolicy::Off => store_new(
+                vault,
+                new_cx,
+                at,
+                policy,
+                "NoMatch",
+                Vec::new(),
+                recurrence_retention,
+            ),
         },
     }
 }
@@ -119,6 +176,7 @@ fn store_new<C>(
     policy: &DedupPolicy,
     decision: &'static str,
     mut online_rows: Vec<(Vec<u8>, Vec<u8>)>,
+    recurrence_retention: RetentionPolicy,
 ) -> Result<DedupResult>
 where
     C: Clock,
@@ -135,7 +193,7 @@ where
             at,
             OccurrenceContext::new(Vec::new())?,
             at,
-            RetentionPolicy::default(),
+            recurrence_retention,
         )?;
         let occurrence = append.occurrence_id;
         new_cx = append.updated_base;
@@ -200,71 +258,63 @@ where
     Ok(DedupResult::ExactDuplicate(existing))
 }
 
-fn merge_match<C>(
-    vault: &AsterVault<C>,
-    new_cx: Constellation,
-    at: EpochSecs,
-    existing: CxId,
-    per_slot_cos: Vec<(SlotId, f32)>,
-    action: DedupAction,
-    signature: Option<RecurrenceSignatureLedger>,
-) -> Result<DedupResult>
+fn merge_match<C>(vault: &AsterVault<C>, matched: MergeMatch) -> Result<DedupResult>
 where
     C: Clock,
 {
-    let kind = online_kind(&action);
+    let kind = online_kind(&matched.action);
     let mut updated_base = None;
     let mut recurrence_rows = Vec::new();
     let mut before_base = None;
     let mut recurrence_tombstones = Vec::new();
-    let occurrence = if action == DedupAction::RecurrenceSeries {
-        let base = vault.get(existing, vault.snapshot())?;
+    let occurrence = if matched.action == DedupAction::RecurrenceSeries {
+        let base = vault.get(matched.existing, vault.snapshot())?;
         before_base = Some(base.clone());
         let append = build_append(
             vault,
             base,
-            at,
+            matched.at,
             OccurrenceContext::new(Vec::new())?,
-            at,
-            RetentionPolicy::default(),
+            matched.at,
+            matched.retention,
         )?;
         updated_base = Some(append.updated_base);
         recurrence_rows = append.recurrence_rows;
         recurrence_tombstones.push(append.occurrence_id);
         append.occurrence_id
     } else {
-        next_occurrence_id(vault, kind, existing)?
+        next_occurrence_id(vault, kind, matched.existing)?
     };
     let online_rows = vec![online_event_row(
         kind,
-        existing,
-        new_cx.cx_id,
+        matched.existing,
+        matched.new_cx.cx_id,
         occurrence,
-        at,
-        action.clone(),
-        per_slot_cos.clone(),
+        matched.at,
+        matched.action.clone(),
+        matched.per_slot_cos.clone(),
     )?];
     let restore = DedupRestoreSnapshot::new(
         vault.vault_id(),
-        existing,
-        new_cx.clone(),
+        matched.existing,
+        matched.new_cx.clone(),
         before_base,
         recurrence_tombstones,
     );
     let payload = ledger_payload(LedgerPayload {
-        cx: &new_cx,
-        at,
+        cx: &matched.new_cx,
+        at: matched.at,
         result: "DedupMerge",
         decision: "Match",
-        action: Some(action_name_for_action(&action)),
-        into: Some(existing),
+        action: Some(action_name_for_action(&matched.action)),
+        into: Some(matched.existing),
         occurrence: Some(occurrence),
-        per_slot_cos: &per_slot_cos,
-        recurrence_signature: signature,
+        per_slot_cos: &matched.per_slot_cos,
+        recurrence_signature: matched.signature,
         restore: Some(&restore),
     })?;
-    let candidate = (action == DedupAction::Link).then_some(new_cx);
-    let subject = candidate.as_ref().map_or(existing, |cx| cx.cx_id);
+    let candidate = (matched.action == DedupAction::Link).then_some(matched.new_cx);
+    let subject = candidate.as_ref().map_or(matched.existing, |cx| cx.cx_id);
     vault.commit_dedup_ingest(
         candidate,
         updated_base,
@@ -274,9 +324,19 @@ where
         payload,
     )?;
     Ok(DedupResult::DedupMerge {
-        into: existing,
+        into: matched.existing,
         occurrence,
     })
+}
+
+struct MergeMatch {
+    new_cx: Constellation,
+    at: EpochSecs,
+    existing: CxId,
+    per_slot_cos: Vec<(SlotId, f32)>,
+    action: DedupAction,
+    signature: Option<RecurrenceSignatureLedger>,
+    retention: RetentionPolicy,
 }
 
 fn recurrence_match<C>(vault: &AsterVault<C>, matched: RecurrenceMatch<'_>) -> Result<DedupResult>
@@ -297,15 +357,18 @@ where
             new_time,
         } => merge_match(
             vault,
-            matched.new_cx,
-            matched.at,
-            matched.existing,
-            matched.per_slot_cos,
-            DedupAction::RecurrenceSeries,
-            Some(RecurrenceSignatureLedger {
-                same_action,
-                new_time,
-            }),
+            MergeMatch {
+                new_cx: matched.new_cx,
+                at: matched.at,
+                existing: matched.existing,
+                per_slot_cos: matched.per_slot_cos,
+                action: DedupAction::RecurrenceSeries,
+                signature: Some(RecurrenceSignatureLedger {
+                    same_action,
+                    new_time,
+                }),
+                retention: matched.retention,
+            },
         ),
         SignatureResult::SameTime => exact_duplicate(
             vault,
@@ -321,6 +384,7 @@ where
             &DedupPolicy::TctCosine(matched.config.clone()),
             "ContentMismatch",
             Vec::new(),
+            matched.retention,
         ),
     }
 }
@@ -333,6 +397,7 @@ struct RecurrenceMatch<'a> {
     per_slot_cos: Vec<(SlotId, f32)>,
     config: &'a TctCosineConfig,
     guard_profile: Option<&'a dyn GuardTauProfile>,
+    retention: RetentionPolicy,
 }
 
 fn same_event_exact<C>(

@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use super::{DedupAction, EpochSecs, OccurrenceId, dedup_error};
 use crate::cf::{ColumnFamily, recurrence_key};
 use crate::recurrence::{
-    Occurrence, StoredRecurrenceRow, encode_recurrence_row, read_series, recurrence_summary_key,
+    FREQUENCY_SCALAR, Occurrence, StoredRecurrenceRow, encode_recurrence_row, read_series,
+    recurrence_summary_key,
 };
 use crate::vault::AsterVault;
 
@@ -167,10 +168,14 @@ where
         } else {
             restored.insert(snapshot.merged_from);
         }
-        if let Some(before_base) = snapshot.before_base {
+        let resets_recurrence = !snapshot.recurrence_tombstones.is_empty();
+        if let Some(mut before_base) = snapshot.before_base {
+            if resets_recurrence {
+                before_base.scalars.remove(FREQUENCY_SCALAR);
+            }
             updated_bases.push(before_base);
         }
-        if !snapshot.recurrence_tombstones.is_empty() {
+        if resets_recurrence {
             recurrence_resets.insert(snapshot.merged_into);
         }
         for id in snapshot.recurrence_tombstones {
