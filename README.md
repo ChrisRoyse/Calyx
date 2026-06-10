@@ -115,8 +115,8 @@ and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
 Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
 under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
-FSV-signed-off. PH41 T01 #379 and T02 #380 are complete and FSV-signed-off;
-the next atomic work is PH41 T03 #381.
+FSV-signed-off. PH41 T01 #379, T02 #380, and T03 #381 are complete and
+FSV-signed-off; the next atomic work is PH41 T04 #382.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -185,6 +185,10 @@ PH41 T02 #380 adds the bounded content-slot cosine dedup engine, shared
 fail-closed cosine math, CLI `readback dedup-check`, exact fallback on DPI
 exceed, runtime tau/config validation, and base/slot CF readback evidence at
 `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
+PH41 T03 #381 adds the anchor-conflict guard before cosine checks, reciprocal
+`online` CF contested rows, fail-closed anchor-vector validation, and direct
+base/online CF readback evidence at
+`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
