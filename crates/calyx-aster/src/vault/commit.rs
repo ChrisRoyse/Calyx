@@ -34,7 +34,6 @@ where
         let Some(durable) = &self.durable else {
             return Ok(());
         };
-        let _append_guard = crate::file_lock::FileLockGuard::acquire(&durable.append_lock_path())?;
         let current = self.latest_seq();
         let recovered = durable.recover_current_batches()?;
         if let Some(hook) = &self.ledger_hook {

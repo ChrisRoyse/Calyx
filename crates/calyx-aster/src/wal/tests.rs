@@ -5,6 +5,8 @@ use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc;
+use std::time::Duration;
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -112,6 +114,115 @@ fn torn_tail_is_truncated_and_reported_with_catalog_code() {
         acked.end_offset
     );
     cleanup(dir);
+}
+
+#[test]
+fn replay_waits_for_append_lock_before_truncating_torn_tail() {
+    let fsv_root = std::env::var_os("CALYX_WAL_RECOVERY_LOCK_FSV_ROOT").map(PathBuf::from);
+    let dir = fsv_root.as_ref().map_or_else(
+        || test_dir("replay-append-lock"),
+        |root| {
+            let _ = fs::remove_dir_all(root);
+            fs::create_dir_all(root).expect("create fsv root");
+            let dir = root.join("wal-replay-lock").join("wal");
+            fs::create_dir_all(&dir).expect("create fsv wal dir");
+            dir
+        },
+    );
+    let mut wal = Wal::open(&dir, WalOptions::default()).expect("open wal");
+    let first = wal.append(b"acked").expect("append acked");
+    drop(wal);
+
+    let next = record::encode(first.seq + 1, b"completed").expect("encode next record");
+    let append_guard = crate::file_lock::FileLockGuard::acquire(&dir.join(".append.lock"))
+        .expect("hold append lock");
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&first.segment_path)
+        .expect("open segment for in-flight append");
+    file.write_all(&next[..record::HEADER_LEN + 2])
+        .expect("write partial next record");
+    file.sync_data().expect("fsync partial next record");
+    drop(file);
+    let partial_len = fs::metadata(&first.segment_path)
+        .expect("partial metadata")
+        .len();
+
+    let (attempt_tx, attempt_rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
+    let replay_dir_path = dir.clone();
+    let handle = std::thread::spawn(move || {
+        attempt_tx.send(()).expect("send attempt");
+        done_tx
+            .send(replay_dir(&replay_dir_path).expect("replay after append completes"))
+            .expect("send replay");
+    });
+    attempt_rx.recv().expect("replay thread attempted");
+    assert!(
+        done_rx.recv_timeout(Duration::from_millis(50)).is_err(),
+        "replay completed while append lock was held"
+    );
+    let locked_len = fs::metadata(&first.segment_path)
+        .expect("locked metadata")
+        .len();
+    assert_eq!(locked_len, partial_len);
+
+    let mut file = OpenOptions::new()
+        .append(true)
+        .open(&first.segment_path)
+        .expect("reopen segment to finish append");
+    file.write_all(&next[record::HEADER_LEN + 2..])
+        .expect("finish next record");
+    file.sync_data().expect("fsync completed next record");
+    drop(file);
+    drop(append_guard);
+
+    let replay = done_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("replay finished after lock release");
+    handle.join().expect("join replay thread");
+
+    assert_eq!(replay.torn_tail, None);
+    assert_eq!(
+        replay
+            .records
+            .iter()
+            .map(|record| record.payload.as_slice())
+            .collect::<Vec<_>>(),
+        vec![b"acked".as_slice(), b"completed".as_slice()]
+    );
+    assert_eq!(
+        fs::metadata(&first.segment_path)
+            .expect("completed metadata")
+            .len(),
+        first.end_offset + next.len() as u64
+    );
+    if let Some(root) = fsv_root {
+        let segment_bytes = fs::read(&first.segment_path).expect("read final wal bytes");
+        let readback = serde_json::json!({
+            "append_lock_path": dir.join(".append.lock").display().to_string(),
+            "segment_path": first.segment_path.display().to_string(),
+            "partial_len_before_replay": partial_len,
+            "locked_len_after_replay_attempt": locked_len,
+            "final_len": segment_bytes.len(),
+            "expected_final_len": first.end_offset + next.len() as u64,
+            "torn_tail_present": replay.torn_tail.is_some(),
+            "records": replay.records.iter().map(|record| serde_json::json!({
+                "seq": record.seq,
+                "payload": String::from_utf8_lossy(&record.payload),
+                "start_offset": record.start_offset,
+                "end_offset": record.end_offset,
+            })).collect::<Vec<_>>(),
+            "contains_completed_payload": segment_bytes.windows(b"completed".len()).any(|window| window == b"completed"),
+        });
+        fs::write(
+            root.join("wal-recovery-lock-readback.json"),
+            serde_json::to_vec_pretty(&readback).unwrap(),
+        )
+        .expect("write fsv readback");
+    } else {
+        cleanup(dir);
+    }
 }
 
 #[test]
