@@ -328,6 +328,16 @@ with `recurrence-wal-failure-readback.json` BLAKE3
 `7af2b0050766d69d1fad37a896e896766fcf920b9ad510a017171ee1558e24ff`
 and `BLAKE3SUMS.txt` BLAKE3
 `5c23c502836168d8642cc0ad9bcf839af3a19ca5d8ac3f4e092d896dff6a1506`.
+#620 recurrence rollup tombstone/reclaim integration is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue620-recurrence-reclaim-20260610-209f843`
+with `recurrence-reclaim-readback.json` BLAKE3
+`c893925939e3fa0f9c2247c63c85f7eb162f94ce3cd7043f49bdc03b06409710`,
+active recurrence SST BLAKE3
+`878892e318a277654a835008620eb728f0641403f0a5f934560ed55b26913479`,
+WAL segment BLAKE3
+`8e6c0e9b295e6d543bcac38657e5952ef137540e2525cadcd3a79d59e8b3f941`,
+and `BLAKE3SUMS.txt` BLAKE3
+`46daedec8313759540c29130d6fcc880e40fad9e48f83bc98f63a47e62a2e2fe`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

@@ -151,9 +151,21 @@ the snapshot at 1. Artifact hashes: `recurrence-wal-failure-readback.json`
 BLAKE3 `7af2b0050766d69d1fad37a896e896766fcf920b9ad510a017171ee1558e24ff`
 and `BLAKE3SUMS.txt` BLAKE3
 `5c23c502836168d8642cc0ad9bcf839af3a19ca5d8ac3f4e092d896dff6a1506`.
-Remaining PH41 follow-ups before PH42 are #620 recurrence rollup
-tombstone/reclaim integration and #626 anchor-conflict never-merge property
-coverage.
+PH41 recurrence rollup tombstone/reclaim integration #620 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue620-recurrence-reclaim-20260610-209f843`.
+The readback appends seven occurrences with `max_occurrences=3`, rolls ids 0-3
+into a summary, compacts recurrence, reclaims eight input SSTs, prunes
+tombstones from the active SST, and cold-reopens with active ids 4/5/6 and
+frequency 7. WAL bytes intentionally retain historical recurrence records until
+the general WAL recycler. Artifact hashes: `recurrence-reclaim-readback.json`
+BLAKE3 `c893925939e3fa0f9c2247c63c85f7eb162f94ce3cd7043f49bdc03b06409710`,
+active recurrence SST BLAKE3
+`878892e318a277654a835008620eb728f0641403f0a5f934560ed55b26913479`, WAL
+segment BLAKE3 `8e6c0e9b295e6d543bcac38657e5952ef137540e2525cadcd3a79d59e8b3f941`,
+and `BLAKE3SUMS.txt` BLAKE3
+`46daedec8313759540c29130d6fcc880e40fad9e48f83bc98f63a47e62a2e2fe`.
+Remaining PH41 follow-up before PH42 is #626 anchor-conflict never-merge
+property coverage.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -189,13 +201,12 @@ coverage.
 
 #578 public recurrence read APIs, #621 recurrence concurrency hardening, and
 #617 durable policy validation parity are implemented and FSV-backed. #622
-settled the WAL-failure-code contract as `CALYX_DISK_PRESSURE` and is
-FSV-backed. Remaining follow-ups before PH42 are reclaim and anchor-conflict
-property work:
+settled the WAL-failure-code contract as `CALYX_DISK_PRESSURE`, and #620
+implements recurrence rollup tombstone/physical reclaim; both are FSV-backed.
+Remaining PH41 follow-up before PH42 is anchor-conflict property work:
 
 | Issue | Scope |
 |---|---|
-| #620 | Recurrence rollup tombstone/physical reclaim integration |
 | #626 | Anchor-conflict pairs never appear in the same `DedupMerge` property/regression |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
