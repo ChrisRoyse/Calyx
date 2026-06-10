@@ -129,6 +129,7 @@ mod tests {
                 last_recovered_seq: 0,
                 torn_tail: None,
                 temporal_policy: None,
+                dedup_policy: None,
             },
             None,
         )

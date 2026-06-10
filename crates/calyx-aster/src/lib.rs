@@ -2,6 +2,7 @@
 
 pub mod cf;
 pub mod compaction;
+pub mod dedup;
 pub mod manifest;
 pub mod memtable;
 pub mod mvcc;
