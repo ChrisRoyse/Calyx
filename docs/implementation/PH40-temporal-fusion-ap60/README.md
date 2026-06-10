@@ -1,9 +1,9 @@
 # PH40 — Temporal Fusion + AP-60 Post-Retrieval Boost
 
-> **Status: active Stage 9 work.** `calyx-sextant` (PH23–PH26) and Registry
-> temporal lenses (PH22) are implemented and FSV-signed-off. PH40 adds temporal
-> post-retrieval boost modules to the existing Sextant stack rather than
-> starting from a stub.
+> **Status: implemented and FSV-signed-off through T06.** `calyx-sextant`
+> (PH23-PH26) and Registry temporal lenses (PH22) are implemented and
+> FSV-signed-off. PH40 adds temporal post-retrieval boost modules to the
+> existing Sextant stack rather than starting from a stub.
 
 **Stage:** S9 — Temporal & Dedup  ·  **Crate:** `calyx-sextant`  ·
 **PRD roadmap:** A27  ·  **Axioms:** A27
@@ -46,8 +46,10 @@ weights).
 | `crates/calyx-sextant/src/temporal/window.rs` | `last_hours(n)` / `last_days(n)` constructors + window filter |
 | `crates/calyx-sextant/src/temporal/causal_gate.rs` | causal-confidence gate (high-conf ×1.10, low ×0.85) |
 | `crates/calyx-sextant/src/temporal/search.rs` | `temporal_search` AP-60 integration boundary, pre-boost ranking capture, final truncate/renumber |
+| `crates/calyx-sextant/src/temporal/tests.rs` | deterministic temporal-never-dominant, boost-reorder, query-time, timezone, and AP-60 violation proofs |
 | `crates/calyx-sextant/tests/causal_gate_fsv.rs` | deterministic causal gate pipeline artifact readback |
 | `crates/calyx-sextant/tests/temporal_search_fsv.rs` | deterministic temporal-search integration artifact readback |
+| `crates/calyx-sextant/tests/temporal_never_dominant_fsv.rs` | deterministic #378 artifact readback for the phase exit gate |
 | `crates/calyx-cli/src/temporal_readback.rs` | `calyx readback temporal_search --explain` FSV stdout surface |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -127,18 +129,34 @@ weights).
   hit, zero-content score remaining `0.0`, UTC-5 periodic score `0.5` versus
   UTC score `0.0`, and `CALYX_TEMPORAL_AP60_VIOLATION` for non-zero primary
   temporal weight.
+- T06 #378 commit: `2205edb`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue378-temporal-never-dominant-20260610-2205edb`
+- Source of truth: `temporal-never-dominant-input.json`,
+  `temporal-never-dominant-readback.json`, and `BLAKE3SUMS.txt` under the FSV
+  root. Separate after-read ran `b3sum -c BLAKE3SUMS.txt` and opened both JSON
+  files. BLAKE3 input digest:
+  `db7a5bcea78d9037ace122fd1d326895277814bcf6485544f0bc05518e098ef1`;
+  readback digest:
+  `5e466e6d072bd32bc6b1fabe8d49a9d5a7422982583526a891ad8e3a02922ff0`.
+- Readback proves the content-miss ID 03 remains score `0.0` and absent from
+  `positive_surface_ids`; close content matches reorder from `[0a, 0b]` to
+  `[0b, 0a]` with old score `0.6831000447273254` and fresh score
+  `0.690329909324646`; raw retrieval temporal weight is `0.0`; invalid weight
+  `0.25` returns `CALYX_TEMPORAL_AP60_VIOLATION`; E2 reads `0.5` by query time
+  rather than ingest-relative `0.75`; E3 reads `0.5` under UTC-5 and `0.0`
+  under UTC; the all-zero edge has `after_positive_surface_count = 0`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 A recent/periodic item that does NOT match a content lens must **not** surface in
-results — temporal never dominant. Read the ranked result list before and after
-`apply_temporal_boost`/`temporal_search` to confirm boost only reorders
-content-matching hits and never promotes a content-miss. `temporal weight =
-0.0` must be visible in the raw retrieval trace (explain output). T03 proves
-the pure boost helper bytes; T05/T06 must prove the full `temporal_search`
-pipeline via `calyx readback temporal_search --explain` on aiwonder with an
-injected fixed clock and a synthetic result set where the content-miss is the
-most recent item.
+results — temporal never dominant. PH40 readbacks record the ranked result list
+before and after `apply_temporal_boost`/`temporal_search`, confirming the boost
+only reorders content-matching hits and never promotes a content-miss.
+`temporal weight = 0.0` is visible in raw retrieval/explain output. T03 proves
+the pure boost helper bytes; T05/T06 prove the full pipeline and exit-gate
+invariants on aiwonder with an injected fixed clock and synthetic result sets
+where the content-miss is the most recent item.
 
 ## Risks / landmines
 
