@@ -39,6 +39,13 @@ must be measured natively from the recurrence series.
 - [ ] `agree → consistent, differ → flaky/ceiling drops` — codify: `Flaky` outcome lowers the Oracle ceiling for that domain to `agreement_rate`
 - [ ] Expose `oracle_self_consistency` from `calyx-assay` lib root
 
+## Implementation notes
+
+- Issue #387 implements this as a PH42-local Assay surface in `crates/calyx-assay/src/recurrence_anchor.rs`.
+- `frequency_anchor_for` reads the latest persisted base-CF `recurrence.frequency` scalar in O(1); `cadence_secs` remains `None` because cadence is derived from the recurrence series elsewhere.
+- Outcome evidence is encoded in bounded `OccurrenceContext.bytes` JSON under `outcome_anchor`; the default wire shape for the common text case is `{"outcome_anchor":{"kind":{"label":"OutcomeAnchor"},"value":{"text":"agree"}}}`.
+- Legacy non-JSON occurrence contexts are treated as no observed outcome; malformed or wrong-anchor evidence fails closed with `CALYX_ASSAY_MISSING_OUTCOME_SLOT`.
+
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [ ] unit: CxId with 5 occurrences, all outcome anchors identical → `Consistent { agreement_rate: 1.0 }`

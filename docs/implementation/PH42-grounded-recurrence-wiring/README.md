@@ -57,7 +57,8 @@ readback-surface gate #625 must also be resolved before PH42 can be signed off.
 | `crates/calyx-aster/src/dedup/compression_ratio.rs` | Dedup count = meaning-compression ratio; expose `compression_ratio(cx_id)` |
 | `crates/calyx-anneal/src/recurrence_schedule.rs` | Frequency → importance weight; cadence → adaptive retention/refresh schedule |
 | `crates/calyx-loom/src/recurrence/tests.rs` | Tests for cross-terms and lead-lag |
-| `crates/calyx-assay/src/tests.rs` | Tests for `oracle_self_consistency` |
+| `crates/calyx-assay/tests/recurrence_anchor.rs` | Tests for `oracle_self_consistency` |
+| `crates/calyx-assay/tests/recurrence_anchor_fsv.rs` | Ignored FSV trigger that writes the PH42 Assay report artifact |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
