@@ -182,6 +182,10 @@ impl DurableVault {
         self.root.join("wal").join(".append.lock")
     }
 
+    pub(super) fn commit_lock_path(&self) -> PathBuf {
+        self.root.join("locks").join("durable.commit.lock")
+    }
+
     pub(super) fn recover_current_batches(&self) -> Result<RecoveredBatches> {
         let options = VaultOptions {
             tiering_policy: self.tiering_policy.clone(),

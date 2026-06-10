@@ -5,6 +5,15 @@ impl<C> AsterVault<C>
 where
     C: Clock,
 {
+    pub(crate) fn with_durable_commit_lock<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        let Some(durable) = &self.durable else {
+            return f();
+        };
+        let _commit_guard = crate::file_lock::FileLockGuard::acquire(&durable.commit_lock_path())?;
+        self.refresh_from_durable()?;
+        f()
+    }
+
     pub(crate) fn with_recurrence_write_lock<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
         let _guard = self
             .recurrence_write_lock
@@ -46,6 +55,10 @@ where
     }
 
     pub(super) fn commit_rows(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
+        self.with_durable_commit_lock(|| self.commit_rows_locked(rows))
+    }
+
+    pub(super) fn commit_rows_locked(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
         let Some(durable) = &self.durable else {
             return self.commit_rows_to_mvcc(rows);
         };
@@ -90,6 +103,7 @@ where
             rows.iter()
                 .map(|row| (row.cf, row.key.clone(), row.value.clone())),
         )?;
-        self.rows.set_start_seq(seq)
+        self.rows.advance_to_at_least(seq);
+        Ok(())
     }
 }
