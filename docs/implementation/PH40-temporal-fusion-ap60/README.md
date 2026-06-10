@@ -45,7 +45,10 @@ weights).
 | `crates/calyx-sextant/src/temporal/boost.rs` | `apply_temporal_boost(hits, policy, query_time, tz_offset)` — content-relative post-retrieval reranker |
 | `crates/calyx-sextant/src/temporal/window.rs` | `last_hours(n)` / `last_days(n)` constructors + window filter |
 | `crates/calyx-sextant/src/temporal/causal_gate.rs` | causal-confidence gate (high-conf ×1.10, low ×0.85) |
+| `crates/calyx-sextant/src/temporal/search.rs` | `temporal_search` AP-60 integration boundary, pre-boost ranking capture, final truncate/renumber |
 | `crates/calyx-sextant/tests/causal_gate_fsv.rs` | deterministic causal gate pipeline artifact readback |
+| `crates/calyx-sextant/tests/temporal_search_fsv.rs` | deterministic temporal-search integration artifact readback |
+| `crates/calyx-cli/src/temporal_readback.rs` | `calyx readback temporal_search --explain` FSV stdout surface |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -109,6 +112,21 @@ weights).
   and `CALYX_TEMPORAL_INVALID_BOOST_CONFIG` for negative and over-10 causal
   multipliers. `BLAKE3SUMS.txt` digest:
   `aca9fc8102bd40b6c9f7c8f113fd39b72da633b00edef4486dd13a2d4527d3e7`.
+- T05 #377 commit: `b428b10`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue377-temporal-search-20260610-b428b10`
+- Source of truth: `temporal-search-input.json`,
+  `temporal-search-readback.json`, `temporal-search-cli-readback.json`, and
+  `BLAKE3SUMS.txt` under the FSV root. CLI readback was produced by
+  `calyx readback temporal_search --explain --clock-fixed 1000000 --tz-offset 0`.
+  Readback shows `pre_boost_ranking` IDs 01, 02, 03; final hits 02, 01;
+  `temporal_weight_used = 0.0`; `primary_slots_used = [8]`; and
+  `temporal_slots_excluded = [20]`. The recent content-miss ID 03 is absent
+  from the final `k=2` results while still visible in the pre-boost recall set.
+  Edge proofs cover empty vault output, one-hour window exclusion of the old
+  hit, zero-content score remaining `0.0`, UTC-5 periodic score `0.5` versus
+  UTC score `0.0`, and `CALYX_TEMPORAL_AP60_VIOLATION` for non-zero primary
+  temporal weight.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
