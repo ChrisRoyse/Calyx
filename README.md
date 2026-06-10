@@ -115,8 +115,8 @@ and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
 Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
 under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
-FSV-signed-off. PH41 T01 #379, T02 #380, and T03 #381 are complete and
-FSV-signed-off; the next atomic work is PH41 T04 #382.
+FSV-signed-off. PH41 T01 #379 through T05 #383 are complete and
+FSV-signed-off; the next atomic work is PH41 T06 #384.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -190,6 +190,18 @@ exact/same-CxId anchor-conflict bypasses, writes reciprocal `online` CF
 contested rows, fail-closes anchor-vector validation, and reads back direct
 base/online CF evidence at
 `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`.
+PH41 T04 #382 adds `ingest_at(input, at: t)` as the Aster temporal ingest
+facade, stores caller event time in base rows, writes Ledger payloads for new,
+merge, exact-duplicate, and anchor-conflict outcomes, and reads back
+base/online/ledger CF bytes at
+`/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`.
+PH41 T05 #383 adds the Aster-backed recurrence CF and Loom `SeriesStore`
+facade, writes occurrence rows and `recurrence.frequency` in the same commit,
+derives cadence on read, enforces active-row rollup/retention, adds CLI
+`readback recurrence-series`, and proves happy/empty/rollup/oversized bytes at
+`/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`
+(`recurrence-series-readback.json` BLAKE3
+`130010f0aefee719fe5f2b55c2d025e6d016c34f18d3773947597ccffc46b19a`).
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
