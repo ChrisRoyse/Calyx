@@ -57,17 +57,7 @@ pub fn score_e2_recency(event_time_secs: i64, query_time_secs: i64, decay: &Deca
 }
 
 #[inline]
-pub fn score_e3_periodic(event_time_secs: i64, opts: &PeriodicOptions, tz_offset_secs: i32) -> f32 {
-    score_e3_periodic_with_targets(
-        event_time_secs,
-        opts.target_hour,
-        opts.target_day_of_week,
-        tz_offset_secs,
-    )
-}
-
-#[inline]
-fn score_e3_periodic_at_query(
+pub fn score_e3_periodic(
     event_time_secs: i64,
     query_time_secs: i64,
     opts: &PeriodicOptions,
@@ -151,7 +141,7 @@ pub fn apply_temporal_boost(
             let scores = match hit.event_time_secs {
                 Some(event_time_secs) => TemporalScores {
                     e2_recency: score_e2_recency(event_time_secs, query_time_secs, &policy.decay),
-                    e3_periodic: score_e3_periodic_at_query(
+                    e3_periodic: score_e3_periodic(
                         event_time_secs,
                         query_time_secs,
                         &policy.periodic,
@@ -213,20 +203,37 @@ mod tests {
     #[test]
     fn e3_periodic_matches_tuesday_at_fourteen_utc() {
         let opts = PeriodicOptions::new(Some(14), Some(1)).expect("periodic");
-        assert_eq!(score_e3_periodic(TUESDAY_2024_01_02_14H_UTC, &opts, 0), 1.0);
+        assert_eq!(
+            score_e3_periodic(
+                TUESDAY_2024_01_02_14H_UTC,
+                TUESDAY_2024_01_02_14H_UTC + SECS_PER_DAY,
+                &opts,
+                0
+            ),
+            1.0
+        );
     }
 
     #[test]
     fn e3_use_now_targets_query_local_hour_and_day() {
         let opts = PeriodicOptions::from_query_time();
         assert_eq!(
-            score_e3_periodic_at_query(
+            score_e3_periodic(
                 TUESDAY_2024_01_02_14H_UTC,
                 TUESDAY_2024_01_02_14H_UTC,
                 &opts,
                 0
             ),
             1.0
+        );
+        assert_eq!(
+            score_e3_periodic(
+                TUESDAY_2024_01_02_14H_UTC,
+                TUESDAY_2024_01_02_14H_UTC + SECS_PER_DAY + SECS_PER_HOUR,
+                &opts,
+                0
+            ),
+            0.0
         );
     }
 
