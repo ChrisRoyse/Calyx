@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-10; Stage 9 active after PH40)
+## Status (2026-06-10; Stage 9 PH41 active)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -115,7 +115,8 @@ and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
 Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
 under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
-FSV-signed-off. The next atomic work is PH41 T01 #379.
+FSV-signed-off. PH41 T01 #379 is complete and FSV-signed-off; the next atomic
+work is PH41 T02 #380.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -175,6 +176,11 @@ PH40 post-sweep hardening #615 filters non-positive hits from the final
 `temporal_search` surface while preserving boost-stage proof bytes, with FSV
 artifacts at
 `/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`.
+PH41 T01 #379 adds `DedupPolicy`, `TctCosineConfig`, `TauStrategy`,
+`DedupAction`, `OccurrenceId`, and `DedupResult`, persists `dedup_policy` in
+Aster's durable vault manifest, adds `calyx readback vault-manifest --field`,
+and reads back the manifest bytes at
+`/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
