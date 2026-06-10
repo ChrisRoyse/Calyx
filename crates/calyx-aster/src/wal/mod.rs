@@ -126,6 +126,8 @@ impl Wal {
             return Ok(Vec::new());
         }
 
+        let _lock = crate::file_lock::FileLockGuard::acquire(&self.dir.join(".append.lock"))?;
+        self.refresh_after_external_appends()?;
         let mut acks = Vec::with_capacity(payloads.len());
         for payload in payloads {
             let seq = self.next_seq;
@@ -150,6 +152,19 @@ impl Wal {
             .sync_data()
             .map_err(|error| storage_error("fsync WAL batch", error))?;
         Ok(acks)
+    }
+
+    fn refresh_after_external_appends(&mut self) -> Result<()> {
+        let replay = replay_dir(&self.dir)?;
+        self.next_seq = replay.records.last().map_or(1, |record| record.seq + 1);
+        let segments =
+            segment::list_segments(&self.dir).map_err(|error| storage_error("list WAL", error))?;
+        let active_index = segments.last().map_or(0, |(index, _)| *index);
+        if active_index != self.active_index {
+            self.active_index = active_index;
+            self.file = open_append_file(&self.active_path())?;
+        }
+        Ok(())
     }
 
     fn rotate_if_needed(&mut self, incoming_bytes: u64) -> Result<()> {

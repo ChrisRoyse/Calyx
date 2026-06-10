@@ -23,6 +23,7 @@ where
             durable: None,
             dedup_policy: DedupPolicy::default(),
             ledger_hook: None,
+            recurrence_write_lock: std::sync::Mutex::new(()),
             recovery_report: VaultRecoveryReport {
                 last_recovered_seq: 0,
                 torn_tail: None,

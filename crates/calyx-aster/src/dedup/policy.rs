@@ -3,6 +3,8 @@ use calyx_core::{
 };
 use serde::{Deserialize, Serialize};
 
+use super::{DedupAction, DedupPolicy};
+
 pub const ANCHOR_VECTOR_TAU: f32 = 0.70;
 
 const CONTESTED_WITH_KEY_PREFIX: &[u8] = b"dedup:contested_with:";
@@ -56,6 +58,13 @@ pub fn check_anchor_conflict(
     } else {
         AnchorConflictResult::NoAnchor
     }
+}
+
+pub(crate) fn is_recurrence_series_policy(policy: &DedupPolicy) -> bool {
+    matches!(
+        policy,
+        DedupPolicy::TctCosine(config) if config.action == DedupAction::RecurrenceSeries
+    )
 }
 
 pub fn contested_with_key(cx_id: CxId) -> Vec<u8> {

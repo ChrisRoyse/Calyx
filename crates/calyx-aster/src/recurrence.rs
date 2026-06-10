@@ -127,16 +127,18 @@ pub fn append_occurrence<C>(
 where
     C: Clock,
 {
-    let base = read_base(vault, cx_id)?.ok_or_else(|| {
-        CalyxError::stale_derived("recurrence append requires an existing constellation")
-    })?;
-    let append = build_append(vault, base, t_k, context, observed_at, retention)?;
-    let occurrence_id = append.occurrence_id;
-    vault.commit_recurrence_batch(append.recurrence_rows, Some(append.updated_base))?;
-    Ok(occurrence_id)
+    vault.with_recurrence_write_lock(|| {
+        let base = read_base(vault, cx_id)?.ok_or_else(|| {
+            CalyxError::stale_derived("recurrence append requires an existing constellation")
+        })?;
+        let append = build_append(vault, base, t_k, context, observed_at, retention)?;
+        let occurrence_id = append.occurrence_id;
+        vault.commit_recurrence_batch(append.recurrence_rows, Some(append.updated_base))?;
+        Ok(occurrence_id)
+    })
 }
 
-pub fn build_append<C>(
+pub(crate) fn build_append<C>(
     vault: &AsterVault<C>,
     mut base: Constellation,
     t_k: EpochSecs,

@@ -8,8 +8,10 @@ use crate::dedup::{
     CALYX_RECURRENCE_SLOT_MISSING, TauStrategy, TctCosineConfig, decode_dedup_online_event,
     dedup_online_key,
 };
-use crate::recurrence::{StoredRecurrenceRow, decode_recurrence_row};
+use crate::recurrence::{StoredRecurrenceRow, decode_recurrence_row, read_series};
 use proptest::prelude::*;
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 #[test]
 fn off_policy_stores_each_distinct_input_as_new() {
@@ -95,6 +97,79 @@ fn recurrence_series_same_content_appends_online_occurrences() {
         .collect::<Vec<_>>();
     assert_eq!(recurrence_times, vec![100, 200, 300]);
     assert_eq!(scan(&vault, ColumnFamily::Recurrence).len(), 3);
+}
+
+#[test]
+fn concurrent_recurrence_ingest_allocates_unique_contiguous_occurrences() {
+    let vault = Arc::new(vault(tct_policy(DedupAction::RecurrenceSeries)));
+    let first = ingest_at(
+        vault.as_ref(),
+        &input("ingest-race", [1.0, 0.0]),
+        EpochSecs(100),
+        None,
+    )
+    .expect("first");
+    let DedupResult::New(id) = first else {
+        panic!("expected first new");
+    };
+
+    let workers = 12;
+    let barrier = Arc::new(Barrier::new(workers));
+    let handles = (0..workers)
+        .map(|index| {
+            let vault = Arc::clone(&vault);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                ingest_at(
+                    vault.as_ref(),
+                    &input("ingest-race", [1.0, 0.0]),
+                    EpochSecs(200 + index as i64),
+                    None,
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut merge_ids = Vec::new();
+    for handle in handles {
+        let result = handle.join().expect("thread").expect("ingest");
+        let DedupResult::DedupMerge { into, occurrence } = result else {
+            panic!("expected recurrence merge");
+        };
+        assert_eq!(into, id);
+        merge_ids.push(occurrence);
+    }
+    merge_ids.sort();
+    assert_eq!(
+        merge_ids,
+        (1..=workers as u64).map(OccurrenceId).collect::<Vec<_>>()
+    );
+
+    let series = read_series(vault.as_ref(), id).expect("series");
+    assert_eq!(series.frequency, workers as u64 + 1);
+    let mut stored_ids = series
+        .occurrences
+        .iter()
+        .map(|occurrence| occurrence.id)
+        .collect::<Vec<_>>();
+    stored_ids.sort();
+    assert_eq!(
+        stored_ids,
+        (0..=workers as u64).map(OccurrenceId).collect::<Vec<_>>()
+    );
+    let mut times = series
+        .occurrences
+        .iter()
+        .map(|occurrence| occurrence.t_k.0)
+        .collect::<Vec<_>>();
+    times.sort();
+    assert_eq!(
+        times,
+        std::iter::once(100)
+            .chain((0..workers).map(|index| 200 + index as i64))
+            .collect::<Vec<_>>()
+    );
 }
 
 #[test]
