@@ -78,7 +78,7 @@ appends, fails closed on missing temporal signature slots, and records
 | `crates/calyx-loom/src/recurrence/series_store.rs` | CF-backed store: append occurrence, read series, cadence scalar |
 | `crates/calyx-loom/src/recurrence/signature.rs` | Recurrence signature detector: content-slots-agree + temporal-slots-differ |
 | `crates/calyx-aster/src/dedup/audit.rs` | `dedup_audit(vault, cx) -> DedupAuditReport { per_slot_cos, merges, reversible }` |
-| `crates/calyx-aster/src/dedup/tests.rs` | All dedup FSV tests |
+| `crates/calyx-aster/src/dedup/*_tests.rs` | Dedup unit and FSV-style regression tests split by module |
 | `crates/calyx-loom/src/recurrence/tests.rs` | All recurrence series FSV tests |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)

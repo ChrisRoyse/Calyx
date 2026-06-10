@@ -49,6 +49,7 @@ pub struct IngestInput {
     pub anchors: Vec<Anchor>,
     pub input_pointer: Option<String>,
     pub redacted: bool,
+    #[serde(default)]
     pub temporal_slot_ids: Vec<SlotId>,
 }
 

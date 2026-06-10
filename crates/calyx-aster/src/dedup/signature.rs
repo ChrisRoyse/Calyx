@@ -31,7 +31,7 @@ pub fn detect_recurrence_signature(
         return Ok(SignatureResult::ContentMismatch);
     }
     if temporal_slot_ids.is_empty() {
-        return Ok(SignatureResult::SameTime);
+        return event_time_signature(existing_cx, new_time);
     }
     let mut temporal_differs = false;
     for slot in temporal_slot_ids {
@@ -75,7 +75,7 @@ fn required_temporal_dense(cx: &Constellation, slot: SlotId) -> Result<&[f32]> {
         })
 }
 
-fn is_temporal_slot(slot: &Slot) -> bool {
+pub(crate) fn is_temporal_slot(slot: &Slot) -> bool {
     temporal_axis(slot.slot_key.key()) || slot.axis.as_deref().is_some_and(temporal_axis)
 }
 
@@ -86,6 +86,20 @@ fn temporal_axis(value: &str) -> bool {
     ) || value.starts_with("E2_")
         || value.starts_with("E3_")
         || value.starts_with("E4_")
+}
+
+fn event_time_signature(
+    existing_cx: &Constellation,
+    new_time: EpochSecs,
+) -> Result<SignatureResult> {
+    if existing_cx.created_at == new_time.to_u64()? {
+        Ok(SignatureResult::SameTime)
+    } else {
+        Ok(SignatureResult::RecurrenceSignature {
+            same_action: existing_cx.cx_id,
+            new_time,
+        })
+    }
 }
 
 fn recurrence_slot_error(message: impl Into<String>) -> CalyxError {

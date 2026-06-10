@@ -162,18 +162,7 @@ pub enum DedupResult {
 }
 
 fn slot_excluded_from_dedup(slot: &Slot) -> bool {
-    slot.excluded_from_dedup
-        || slot.retrieval_only
-        || matches!(
-            slot.slot_key.key(),
-            "E2_recency" | "E3_periodic" | "E4_positional" | "E4_sequence"
-        )
-        || slot.axis.as_deref().is_some_and(|axis| {
-            matches!(
-                axis,
-                "E2_recency" | "E3_periodic" | "E4_positional" | "E4_sequence"
-            )
-        })
+    slot.excluded_from_dedup || slot.retrieval_only || signature::is_temporal_slot(slot)
 }
 
 pub(crate) fn dedup_error(code: &'static str, message: impl Into<String>) -> CalyxError {
@@ -218,6 +207,26 @@ mod tests {
         });
 
         let error = policy.validate(&panel).expect_err("temporal slot rejected");
+
+        assert_eq!(error.code, CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED);
+    }
+
+    #[test]
+    fn tct_cosine_rejects_temporal_prefix_required_slot() {
+        let panel = Panel {
+            version: 9,
+            slots: vec![slot(6, "E2_custom", false, false)],
+            created_at: 1_786_320_000,
+            kernel_ref: None,
+            guard_ref: None,
+        };
+        let policy = DedupPolicy::TctCosine(TctCosineConfig {
+            required_slots: vec![SlotId::new(6)],
+            tau: TauStrategy::Calibrated,
+            action: DedupAction::RecurrenceSeries,
+        });
+
+        let error = policy.validate(&panel).expect_err("E2 prefix rejected");
 
         assert_eq!(error.code, CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED);
     }

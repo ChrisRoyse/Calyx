@@ -5,7 +5,7 @@
 | **Phase** | PH41 — DedupPolicy TctCosine + Recurrence Series + Signature |
 | **Stage** | S9 — Temporal & Dedup |
 | **Crate** | `calyx-aster` / `calyx-loom` |
-| **Files** | `crates/calyx-aster/src/dedup/tests.rs` (≤500), `crates/calyx-loom/src/recurrence/tests.rs` (≤500) |
+| **Files** | `crates/calyx-aster/src/dedup/*_tests.rs` (≤500 each), `crates/calyx-loom/src/recurrence/tests.rs` (≤500) |
 | **Depends on** | T07 (this phase) |
 | **Axioms** | A28, A3, A26 |
 | **PRD** | `dbprdplans/25 §5`, `dbprdplans/25 §4c` |

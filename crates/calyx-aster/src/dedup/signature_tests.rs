@@ -91,7 +91,7 @@ fn default_panel_temporal_slots_are_discovered() {
 }
 
 #[test]
-fn empty_temporal_slots_cannot_claim_recurrence() {
+fn empty_temporal_slots_use_event_time_fallback() {
     let existing = cx(1, content([1.0, 0.0]), temporal([1.0, 0.0]));
     let new = cx(2, content(cos_vector(0.95)), temporal([0.0, 1.0]));
 
@@ -99,7 +99,13 @@ fn empty_temporal_slots_cannot_claim_recurrence() {
         detect_recurrence_signature(&new, &existing, &config(0.9), &[], None, EpochSecs(200))
             .expect("signature");
 
-    assert_eq!(result, SignatureResult::SameTime);
+    assert_eq!(
+        result,
+        SignatureResult::RecurrenceSignature {
+            same_action: existing.cx_id,
+            new_time: EpochSecs(200)
+        }
+    );
 }
 
 #[test]
