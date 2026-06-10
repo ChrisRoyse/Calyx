@@ -24,7 +24,8 @@ for the structure under `docs/implementation/PHnn-*/`.
 > Stage 9 / PH40 is complete and FSV-backed: #373 TemporalPolicy manifests,
 > #374 TimeWindow filtering, #375 `apply_temporal_boost`, #376 causal
 > confidence gate, #377 `temporal_search`, #378 temporal-never-dominant proof,
-> and #615 AP-60 final-surface hardening. PH41 #379 is the next Stage 9 card.
+> and #615 AP-60 final-surface hardening. PH41 T01 #379 is complete and
+> FSV-backed; PH41 T02 #380 is the next Stage 9 card.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

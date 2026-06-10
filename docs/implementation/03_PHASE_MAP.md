@@ -23,7 +23,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35-PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening #349 signed off) |
 | S8 Ward | PH37-PH39 | ✅ DONE, FSV-signed-off (#258-#280, #349, #350, #351, #352, #353, #354, #355, #356, #357, #358, and #359 signed off; exit #280 read back the full Ward surface) |
-| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378 plus #615 FSV-backed; next PH41 #379) |
+| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378 plus #615 FSV-backed; PH41 #379 FSV-backed; next #380) |
 | S10-S20 | PH43-PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -54,6 +54,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue378-temporal-never-dominant-20260610-2205edb`
 - Stage 9 PH40 AP-60 final-surface hardening (#615):
   `/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`
+- Stage 9 PH41 DedupPolicy manifest persistence (#379):
+  `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence

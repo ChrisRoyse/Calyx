@@ -27,10 +27,13 @@ anchors MUST NOT be merged. All merges are reversible and Ledger-logged. The
 
 ## Current state (build off what exists)
 
-`calyx-aster` has partial implementation: WAL, memtable, SSTable, column
-families, MVCC, constellation CRUD, manifest, and compaction are in place (PH05–
-PH11). The `ingest` path exists in `crates/calyx-aster/src/vault.rs`. The `Gτ`
-guard (PH37) will be in `calyx-ward`. `calyx-loom` now exists from Stage 5
+`calyx-aster` has WAL, memtable, SSTable, column families, MVCC, constellation
+CRUD, manifest, compaction, and PH41 T01 `DedupPolicy` manifest persistence in
+place. #379 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`.
+The `ingest` path exists in `crates/calyx-aster/src/vault.rs`; PH41 T02 now
+builds the content-slot cosine gate on top of the persisted policy. The `Gτ`
+guard (PH37) is in `calyx-ward`. `calyx-loom` exists from Stage 5
 (cross-terms/agreement/abundance); PH41 should add a new `recurrence` module
 under that crate rather than initialize the crate from scratch.
 
@@ -53,7 +56,7 @@ under that crate rather than initialize the crate from scratch.
 
 | Card | Title | Depends |
 |---|---|---|
-| T01 | `DedupPolicy` types + vault-creation config | — |
+| T01 | `DedupPolicy` types + vault-creation config | DONE / FSV #379 |
 | T02 | Dedup engine: per-slot cosine gate (content-only, excl. E2/E3/E4) | T01 |
 | T03 | Anchor-conflict guard (MUST NOT merge conflicting anchors) | T02 |
 | T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | T03 |

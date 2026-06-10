@@ -2,8 +2,8 @@
 
 Phased build, verification discipline, performance targets, mechanical completion predicate. Scope is **Vault-only** (`15`): Calyx replaces the SQLite/`sqlite-vec` Vaults; PostgreSQL is untouched, so there is no control-plane phase. Front-loads the durable-storage core before the customer-facing Vault swap.
 
-> **Current status (2026-06-10; Stage 9 PH41 next): P0-P7 are DONE and PH40
-> #373-#378 plus #615 are FSV-backed.** Stages 0-8 (PH00-PH39) are implemented, pushed, and FSV-signed-off on
+> **Current status (2026-06-10; Stage 9 PH41 active): P0-P7 are DONE, PH40
+> #373-#378 plus #615 are FSV-backed, and PH41 T01 #379 is FSV-backed.** Stages 0-8 (PH00-PH39) are implemented, pushed, and FSV-signed-off on
 > aiwonder. Stage 6 Lodestar is closed through #240 plus readiness follow-ups
 > #331/#332; Stage 7 Ledger is closed through #256; Stage 8 Ward is closed
 > through exit #280 after #258-#274, #275-#279, #349, #350, #351, #352, #353,
@@ -14,8 +14,8 @@ Phased build, verification discipline, performance targets, mechanical completio
 > PH40 roots now include #373 policy manifest persistence, #373 cold-open
 > policy hardening, #374 time-window filtering, #375 temporal boost readback,
 > #376 causal-gate readback, #377 temporal-search integration, #378
-> temporal-never-dominant proof, and #615 AP-60 final-surface hardening. PH41
-> #379 is next.
+> temporal-never-dominant proof, #615 AP-60 final-surface hardening, and PH41
+> #379 DedupPolicy manifest persistence. PH41 T02 #380 is next.
 > phase status:
 > `docs/implementation/03_PHASE_MAP.md` and
 > GitHub context issue #23.
