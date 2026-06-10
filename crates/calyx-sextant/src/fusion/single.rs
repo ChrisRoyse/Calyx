@@ -24,6 +24,8 @@ pub fn single_lens_fuse(
             rank: item.rank,
             event_time_secs: None,
             temporal_scores: None,
+            causal_confidence: crate::temporal::CausalConfidence::Absent,
+            causal_gate: None,
             per_lens: vec![PerLensContribution {
                 slot,
                 rank: item.rank,

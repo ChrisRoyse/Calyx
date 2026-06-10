@@ -89,6 +89,13 @@ pub struct Hit {
     pub event_time_secs: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub temporal_scores: Option<crate::temporal::TemporalScores>,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::temporal::CausalConfidence::is_absent"
+    )]
+    pub causal_confidence: crate::temporal::CausalConfidence,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_gate: Option<crate::temporal::CausalGateEvidence>,
     pub per_lens: Vec<PerLensContribution>,
     pub cross_terms_used: bool,
     pub guard: Option<HitGuardEvidence>,

@@ -242,6 +242,8 @@ mod tests {
             rank: seed as usize + 1,
             event_time_secs,
             temporal_scores: None,
+            causal_confidence: crate::temporal::CausalConfidence::Absent,
+            causal_gate: None,
             per_lens: Vec::new(),
             cross_terms_used: false,
             guard: None,

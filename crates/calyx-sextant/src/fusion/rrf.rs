@@ -90,6 +90,8 @@ fn fuse_with_weights(
                 rank: idx + 1,
                 event_time_secs: None,
                 temporal_scores: None,
+                causal_confidence: crate::temporal::CausalConfidence::Absent,
+                causal_gate: None,
                 per_lens,
                 cross_terms_used: false,
                 guard: None,

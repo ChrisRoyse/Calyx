@@ -103,6 +103,8 @@ fn hit_without_time(seed: u8) -> Hit {
         rank: seed as usize,
         event_time_secs: None,
         temporal_scores: None,
+        causal_confidence: calyx_sextant::CausalConfidence::Absent,
+        causal_gate: None,
         per_lens: Vec::new(),
         cross_terms_used: false,
         guard: None,
