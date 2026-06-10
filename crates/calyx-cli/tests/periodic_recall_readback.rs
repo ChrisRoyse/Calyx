@@ -66,6 +66,12 @@ fn periodic_recall_readback_writes_fit_recall_and_edges() {
             .len(),
         0
     );
+    assert!(
+        readback["happy"]["no_filter"]["stderr"]
+            .as_str()
+            .unwrap()
+            .contains("CALYX_TEMPORAL_INVALID_PERIOD")
+    );
     assert_eq!(
         readback["single_occurrence"]["recall"]["hits"]
             .as_array()
@@ -126,6 +132,7 @@ fn happy_path(root: &Path) -> Value {
         "series": command_json(&["readback", "recurrence-series", "--vault", &display(&vault_dir), "--cx-id", &tuesday.to_string()]),
         "recall": command_json(&["readback", "periodic-recall", "--vault", &display(&vault_dir), "--hour", "14", "--day", "1"]),
         "no_match": command_json(&["readback", "periodic-recall", "--vault", &display(&vault_dir), "--hour", "9", "--day", "1"]),
+        "no_filter": command_error(&["readback", "periodic-recall", "--vault", &display(&vault_dir)]),
         "raw_recurrence": command_stdout(&["readback", "--cf", "recurrence", "--vault", &display(&vault_dir)]),
         "raw_base": command_stdout(&["readback", "--cf", "base", "--vault", &display(&vault_dir)]),
         "raw_wal": command_stdout(&["readback", "--wal", "--vault", &display(&vault_dir)]),
@@ -227,6 +234,19 @@ fn command_stdout(args: &[&str]) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("stdout utf8")
+}
+
+fn command_error(args: &[&str]) -> Value {
+    let output = command(args);
+    assert!(
+        !output.status.success(),
+        "command unexpectedly passed: {}",
+        output.status
+    );
+    json!({
+        "status_success": output.status.success(),
+        "stderr": String::from_utf8(output.stderr).expect("stderr utf8"),
+    })
 }
 
 fn command(args: &[&str]) -> Output {

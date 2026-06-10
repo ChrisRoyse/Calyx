@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use calyx_aster::dedup::EpochSecs;
+use calyx_aster::dedup::{EpochSecs, OccurrenceId};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
     Constellation, CxFlags, FixedClock, InputRef, LedgerRef, Modality, VaultId, VaultStore,
@@ -65,9 +65,11 @@ fn single_occurrence_has_no_periodic_target() {
     assert_eq!(read.periodic_fit.support, 1);
     assert_eq!(read.periodic_fit.target_hour, None);
     assert_eq!(read.periodic_fit.target_day_of_week, None);
+    assert_eq!(read.periodic_fit.target_hour_day, None);
     assert_eq!(read.periodic_fit.dominant_period_secs, None);
     assert_eq!(read.periodic_fit.hour_confidence, 0.0);
     assert_eq!(read.periodic_fit.day_confidence, 0.0);
+    assert_eq!(read.periodic_fit.hour_day_confidence, 0.0);
 }
 
 #[test]
@@ -91,12 +93,20 @@ fn public_recurrence_series_adds_periodic_fit() {
     assert_eq!(read.periodic_fit.target_hour, Some(14));
     assert_eq!(read.periodic_fit.target_day_of_week, Some(1));
     assert_eq!(
+        read.periodic_fit.target_hour_day,
+        Some(PeriodicTimeBucket {
+            target_hour: 14,
+            target_day_of_week: 1
+        })
+    );
+    assert_eq!(
         read.periodic_fit.dominant_period_secs,
         Some(WEEK_SECS as f64)
     );
     assert_eq!(read.periodic_fit.support, 6);
     assert_eq!(read.periodic_fit.hour_confidence, 1.0);
     assert_eq!(read.periodic_fit.day_confidence, 1.0);
+    assert_eq!(read.periodic_fit.hour_day_confidence, 1.0);
 }
 
 #[test]
@@ -123,9 +133,63 @@ fn tied_periodic_buckets_do_not_claim_target() {
     assert_eq!(read.periodic_fit.support, 2);
     assert_eq!(read.periodic_fit.target_hour, None);
     assert_eq!(read.periodic_fit.target_day_of_week, None);
+    assert_eq!(read.periodic_fit.target_hour_day, None);
     assert_eq!(read.periodic_fit.hour_confidence, 0.5);
     assert_eq!(read.periodic_fit.day_confidence, 0.5);
+    assert_eq!(read.periodic_fit.hour_day_confidence, 0.5);
     assert!(recall.is_empty());
+}
+
+#[test]
+fn public_periodic_fit_sorts_unsorted_input_before_period_estimate() {
+    let occurrences = vec![
+        occurrence(2, 300, "c"),
+        occurrence(0, 100, "a"),
+        occurrence(1, 200, "b"),
+    ];
+
+    let fit = periodic_fit(&occurrences);
+
+    assert_eq!(fit.support, 3);
+    assert_eq!(fit.dominant_period_secs, Some(100.0));
+}
+
+#[test]
+fn joint_recall_requires_observed_hour_day_bucket() {
+    let (vault, cx_id) = vault_with_base();
+    let store = SeriesStore::new(&vault);
+    for (offset_secs, context) in [
+        (3_600, "tue-15"),
+        (24 * 3_600, "wed-14"),
+        (2 * 24 * 3_600, "thu-14"),
+        (2 * 3_600, "tue-16"),
+    ] {
+        store
+            .append_occurrence(
+                cx_id,
+                EpochSecs(TUESDAY_2024_01_02_14H_UTC + offset_secs),
+                ctx(context),
+            )
+            .expect("append mixed occurrence");
+    }
+
+    let read = store.recurrence_series(cx_id).expect("public read");
+    let joint_hits = store
+        .periodic_recall(PeriodicRecallQuery::new(Some(14), Some(1)).expect("joint query"))
+        .expect("joint recall");
+    let hour_hits = store
+        .periodic_recall(PeriodicRecallQuery::new(Some(14), None).expect("hour query"))
+        .expect("hour recall");
+    let day_hits = store
+        .periodic_recall(PeriodicRecallQuery::new(None, Some(1)).expect("day query"))
+        .expect("day recall");
+
+    assert_eq!(read.periodic_fit.target_hour, Some(14));
+    assert_eq!(read.periodic_fit.target_day_of_week, Some(1));
+    assert_eq!(read.periodic_fit.target_hour_day, None);
+    assert!(joint_hits.is_empty());
+    assert_eq!(hour_hits.len(), 1);
+    assert_eq!(day_hits.len(), 1);
 }
 
 #[test]
@@ -164,11 +228,25 @@ fn periodic_recall_returns_only_matching_series() {
     assert_eq!(hits[0].frequency, 3);
     assert_eq!(hits[0].periodic_fit.target_hour, Some(14));
     assert_eq!(hits[0].periodic_fit.target_day_of_week, Some(1));
+    assert_eq!(
+        hits[0].periodic_fit.target_hour_day,
+        Some(PeriodicTimeBucket {
+            target_hour: 14,
+            target_day_of_week: 1
+        })
+    );
 }
 
 #[test]
 fn periodic_recall_rejects_invalid_query() {
     let error = PeriodicRecallQuery::new(Some(24), None).expect_err("invalid hour");
+
+    assert_eq!(error.code, calyx_core::CALYX_TEMPORAL_INVALID_PERIOD);
+}
+
+#[test]
+fn periodic_recall_rejects_empty_query() {
+    let error = PeriodicRecallQuery::new(None, None).expect_err("empty query");
 
     assert_eq!(error.code, calyx_core::CALYX_TEMPORAL_INVALID_PERIOD);
 }
@@ -296,6 +374,14 @@ fn times(series: &RecurrenceSeries) -> Vec<i64> {
 
 fn ctx(value: &str) -> OccurrenceContext {
     OccurrenceContext::new(value.as_bytes().to_vec()).expect("context")
+}
+
+fn occurrence(id: u64, time_secs: i64, context: &str) -> Occurrence {
+    Occurrence {
+        id: OccurrenceId(id),
+        t_k: EpochSecs(time_secs),
+        context: ctx(context),
+    }
 }
 
 fn vault_with_base() -> (AsterVault<FixedClock>, calyx_core::CxId) {
