@@ -3,6 +3,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+const ARTIFACT_SCHEMA_VERSION: u64 = 1;
+const ARTIFACT_SOURCE_OF_TRUTH: &str = "PH42 persisted artifact";
+const ARTIFACT_SCHEMA_ERROR: &str = "CALYX_PH42_ARTIFACT_SCHEMA";
+
 const TOPICS: &[&str] = &[
     "assay-report",
     "temporal-cross-term",
@@ -32,12 +36,15 @@ pub fn readback_topic(topic: &str, args: &[String]) -> Result<(), String> {
             args.artifact.display()
         )
     })?;
+    let schema = validate_artifact_schema(topic, &args.artifact, &artifact_json)?;
     let selected = match &args.field {
         Some(field) => select_field(&artifact_json, field)?.clone(),
-        None => artifact_json,
+        None => artifact_json.clone(),
     };
     let readback = json!({
         "surface": topic,
+        "artifact_kind": schema.kind,
+        "schema_version": schema.version,
         "artifact": display_path(&args.artifact),
         "artifact_len": bytes.len(),
         "artifact_blake3": blake3::hash(&bytes).to_hex().to_string(),
@@ -76,6 +83,104 @@ fn parse_args(topic: &str, args: &[String]) -> Result<ArtifactArgs, String> {
     let artifact = artifact
         .ok_or_else(|| format!("readback {topic} requires --artifact <json> [--field <path>]"))?;
     Ok(ArtifactArgs { artifact, field })
+}
+
+struct ArtifactSchema<'a> {
+    kind: &'a str,
+    version: u64,
+}
+
+fn validate_artifact_schema<'a>(
+    topic: &str,
+    artifact: &Path,
+    value: &'a Value,
+) -> Result<ArtifactSchema<'a>, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| schema_error(artifact, "root must be a JSON object"))?;
+    let surface = required_string(artifact, object, "surface")?;
+    if surface != topic {
+        return Err(schema_error(
+            artifact,
+            format!("surface mismatch: expected {topic}, found {surface}"),
+        ));
+    }
+
+    let expected_kind = expected_artifact_kind(topic)
+        .ok_or_else(|| schema_error(artifact, format!("unknown PH42 surface {topic}")))?;
+    let kind = required_string(artifact, object, "artifact_kind")?;
+    if kind != expected_kind {
+        return Err(schema_error(
+            artifact,
+            format!("artifact_kind mismatch: expected {expected_kind}, found {kind}"),
+        ));
+    }
+
+    let version = required_u64(artifact, object, "schema_version")?;
+    if version != ARTIFACT_SCHEMA_VERSION {
+        return Err(schema_error(
+            artifact,
+            format!(
+                "schema_version mismatch: expected {}, found {version}",
+                ARTIFACT_SCHEMA_VERSION
+            ),
+        ));
+    }
+
+    let source = required_string(artifact, object, "source_of_truth")?;
+    if source != ARTIFACT_SOURCE_OF_TRUTH {
+        return Err(schema_error(
+            artifact,
+            format!(
+                "source_of_truth mismatch: expected {ARTIFACT_SOURCE_OF_TRUTH}, found {source}"
+            ),
+        ));
+    }
+
+    Ok(ArtifactSchema { kind, version })
+}
+
+fn required_string<'a>(
+    artifact: &Path,
+    object: &'a serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<&'a str, String> {
+    object
+        .get(field)
+        .and_then(Value::as_str)
+        .ok_or_else(|| schema_error(artifact, format!("missing required string field {field}")))
+}
+
+fn required_u64(
+    artifact: &Path,
+    object: &serde_json::Map<String, Value>,
+    field: &str,
+) -> Result<u64, String> {
+    object
+        .get(field)
+        .and_then(Value::as_u64)
+        .ok_or_else(|| schema_error(artifact, format!("missing required u64 field {field}")))
+}
+
+fn expected_artifact_kind(topic: &str) -> Option<&'static str> {
+    match topic {
+        "assay-report" => Some("ph42.assay-report.v1"),
+        "temporal-cross-term" => Some("ph42.temporal-cross-term.v1"),
+        "kernel-weights" => Some("ph42.kernel-weights.v1"),
+        "kernel-window" => Some("ph42.kernel-window.v1"),
+        "ward-novelty" => Some("ph42.ward-novelty.v1"),
+        "compression-ratio" => Some("ph42.compression-ratio.v1"),
+        "anneal-schedule" => Some("ph42.anneal-schedule.v1"),
+        _ => None,
+    }
+}
+
+fn schema_error(artifact: &Path, detail: impl AsRef<str>) -> String {
+    format!(
+        "{ARTIFACT_SCHEMA_ERROR} artifact {}: {}",
+        display_path(artifact),
+        detail.as_ref()
+    )
 }
 
 fn select_field<'a>(value: &'a Value, field: &str) -> Result<&'a Value, String> {

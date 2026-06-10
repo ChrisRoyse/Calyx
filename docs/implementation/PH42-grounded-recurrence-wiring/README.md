@@ -88,6 +88,18 @@ native vault/domain readers: `calyx readback <surface> --artifact <json>
 reader later, but it must still cite persisted bytes and a BLAKE3-indexed
 artifact in closeout.
 
+PH42 readback artifacts are fail-closed v1 envelopes. The artifact root must be
+a JSON object with:
+
+- `schema_version: 1`
+- `surface: <the requested readback surface>`
+- `artifact_kind: "ph42.<surface>.v1"`
+- `source_of_truth: "PH42 persisted artifact"`
+
+`calyx readback <surface> --artifact <json>` rejects arbitrary JSON, mismatched
+surfaces, missing required fields, and unsupported schema versions with
+`CALYX_PH42_ARTIFACT_SCHEMA` before selecting any `--field` value.
+
 ## Risks / landmines
 
 - **Surprise `−log p` definition:** the surprise term is the negative log probability of the event given its recurrence rate — `−log(frequency / total_events)`. It must NEVER increase the stored bits for a high-frequency event; anomaly scoring is additive to retrieval scoring only (never stored as a lens weight). Audit every call site.

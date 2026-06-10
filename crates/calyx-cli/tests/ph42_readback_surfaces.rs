@@ -14,6 +14,9 @@ const SURFACES: &[&str] = &[
     "anneal-schedule",
 ];
 
+const ARTIFACT_SCHEMA_VERSION: u64 = 1;
+const ARTIFACT_SOURCE_OF_TRUTH: &str = "PH42 persisted artifact";
+
 #[test]
 fn ph42_readback_surfaces_are_helped_and_read_artifact_bytes() {
     let root = reset_root();
@@ -38,6 +41,8 @@ fn ph42_readback_surfaces_are_helped_and_read_artifact_bytes() {
         let readback: Value = serde_json::from_slice(&output.stdout).expect("parse readback");
         let artifact_bytes = fs::read(&artifact).expect("read artifact");
         assert_eq!(readback["surface"], json!(surface));
+        assert_eq!(readback["artifact_kind"], json!(artifact_kind(surface)));
+        assert_eq!(readback["schema_version"], json!(ARTIFACT_SCHEMA_VERSION));
         assert_eq!(readback["artifact_len"], json!(artifact_bytes.len()));
         assert_eq!(
             readback["artifact_blake3"],
@@ -64,8 +69,10 @@ fn ph42_readback_surfaces_are_helped_and_read_artifact_bytes() {
 fn write_artifact(root: &Path, surface: &str, value: u64) -> PathBuf {
     let path = root.join(format!("{surface}.json"));
     let artifact = json!({
+        "schema_version": ARTIFACT_SCHEMA_VERSION,
         "surface": surface,
-        "source_of_truth": "PH42 persisted artifact",
+        "artifact_kind": artifact_kind(surface),
+        "source_of_truth": ARTIFACT_SOURCE_OF_TRUTH,
         "metrics": {
             "value": value,
             "verdict": "byte-readback",
@@ -73,6 +80,10 @@ fn write_artifact(root: &Path, surface: &str, value: u64) -> PathBuf {
     });
     fs::write(&path, serde_json::to_vec_pretty(&artifact).unwrap()).expect("write artifact");
     path
+}
+
+fn artifact_kind(surface: &str) -> String {
+    format!("ph42.{surface}.v1")
 }
 
 fn command(args: &[&str]) -> Output {
