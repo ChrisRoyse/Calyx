@@ -5,8 +5,8 @@ use std::process::{Command, Output};
 
 use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::dedup::{
-    CALYX_DEDUP_DPI_EXCEEDED, DedupAction, DedupPolicy, TauStrategy, TctCosineConfig,
-    check_dedup_with_limit,
+    CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU, CALYX_DEDUP_NO_REQUIRED_SLOTS, DedupAction,
+    DedupPolicy, TauStrategy, TctCosineConfig, check_dedup, check_dedup_with_limit,
 };
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
@@ -48,6 +48,15 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
     let dpi_candidate = candidate_constellation(CxId::from_bytes([0xee; 16]));
     let dpi_error = check_dedup_with_limit(&dpi_candidate, &vault, &dedup_policy(), None, 0)
         .expect_err("dpi exceeded");
+    let invalid_calibrated_tau_edges = invalid_calibrated_tau_edges(&vault);
+    let bypass_candidate = candidate_constellation(CxId::from_bytes([0xbe; 16]));
+    let bypassed_empty_required = DedupPolicy::TctCosine(TctCosineConfig {
+        required_slots: Vec::new(),
+        tau: TauStrategy::Calibrated,
+        action: DedupAction::Collapse,
+    });
+    let bypassed_error = check_dedup(&bypass_candidate, &vault, &bypassed_empty_required, None)
+        .expect_err("bypassed empty required slots");
     let base_bytes = vault
         .read_cf_at(vault.snapshot(), ColumnFamily::Base, &base_key(existing_id))
         .expect("read base")
@@ -77,6 +86,13 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
             "candidate_limit": 0,
             "after_error_code": dpi_error.code,
             "expected_error_code": CALYX_DEDUP_DPI_EXCEEDED,
+        },
+        "edge_invalid_calibrated_tau": invalid_calibrated_tau_edges.clone(),
+        "edge_bypassed_empty_required_slots": {
+            "candidate": bypass_candidate.cx_id,
+            "required_slots": [],
+            "after_error_code": bypassed_error.code,
+            "expected_error_code": CALYX_DEDUP_NO_REQUIRED_SLOTS,
         }
     });
     write_json(&root.join("dedup-check-readback.json"), &readback);
@@ -100,6 +116,10 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
     assert!(!invalid_tau.status.success());
     assert!(stderr(&invalid_tau).contains("--tau"));
     assert_eq!(dpi_error.code, CALYX_DEDUP_DPI_EXCEEDED);
+    assert_eq!(bypassed_error.code, CALYX_DEDUP_NO_REQUIRED_SLOTS);
+    for edge in invalid_calibrated_tau_edges {
+        assert_eq!(edge["after_error_code"], json!(CALYX_DEDUP_INVALID_TAU));
+    }
 
     println!("dedup_check_readback_fsv_root={}", root.display());
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
@@ -107,6 +127,39 @@ fn dedup_check_readback_cli_matches_near_duplicate_and_distinct() {
     if !keep_root {
         fs::remove_dir_all(root).expect("cleanup temp root");
     }
+}
+
+fn invalid_calibrated_tau_edges(vault: &AsterVault) -> Vec<Value> {
+    [
+        ("nan", f32::NAN),
+        ("pos_inf", f32::INFINITY),
+        ("neg_inf", f32::NEG_INFINITY),
+        ("above_one", 1.01),
+        ("below_neg_one", -1.01),
+    ]
+    .into_iter()
+    .map(|(label, tau)| {
+        let mut profile = BTreeMap::new();
+        profile.insert(SlotId::new(0), tau);
+        let policy = DedupPolicy::TctCosine(
+            TctCosineConfig::new(
+                vec![SlotId::new(0)],
+                TauStrategy::Calibrated,
+                DedupAction::Collapse,
+            )
+            .expect("policy"),
+        );
+        let candidate = candidate_constellation(CxId::from_bytes([0xca; 16]));
+        let error =
+            check_dedup(&candidate, vault, &policy, Some(&profile)).expect_err("invalid tau");
+        json!({
+            "label": label,
+            "profile_tau": label,
+            "after_error_code": error.code,
+            "expected_error_code": CALYX_DEDUP_INVALID_TAU,
+        })
+    })
+    .collect()
 }
 
 fn dedup_policy() -> DedupPolicy {
