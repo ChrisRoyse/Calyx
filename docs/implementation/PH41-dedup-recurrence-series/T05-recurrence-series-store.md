@@ -49,7 +49,7 @@ on read.
 - [x] proptest: `frequency` always equals total appends (rolled up + retained) — never undercounts
 - [x] edge: `read_series` on CxId with no occurrences → `frequency=0`, empty `occurrences`, `cadence=None`
 - [x] edge: `context` blob > 256 bytes → `CALYX_RECURRENCE_CONTEXT_TOO_LARGE`
-- [x] fail-closed: injected WAL append failure leaves snapshot, base frequency, and recurrence CF unchanged. Current canonical storage error is `CALYX_DISK_PRESSURE`; exact `CALYX_WAL_WRITE_ERROR` naming is tracked in #622.
+- [x] fail-closed: injected WAL append failure leaves snapshot, base frequency, and recurrence CF unchanged. #622 keeps `CALYX_DISK_PRESSURE` as the canonical PRD 18 storage-write code; no `CALYX_WAL_WRITE_ERROR` was added.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -64,8 +64,8 @@ on read.
 - **Artifact hash:** `recurrence-series-readback.json` BLAKE3 `130010f0aefee719fe5f2b55c2d025e6d016c34f18d3773947597ccffc46b19a`
 - **Happy path:** `calyx readback recurrence-series --vault <root>/ingest/vault --cx-id 434fd701ee186cee2544d1166e0a6ea2` reads `frequency=5`, `occurrence_count=5`, `cadence_secs=100.0`, ids 0..4 at `t_k` 100, 200, 300, 400, 500. Raw `recurrence` CF readback prints row values containing those `t_k` bytes.
 - **Edges:** empty CxId `e10224969b9a72b8863d4a19bc7346e6` reads zero frequency/occurrences and raw recurrence CF count 0; max-count rollup CxId `1a878fed496ac72653d03bd27a011321` reads `frequency=6`, active ids 1..5, `rollup_summary.count_rolled=1`, rolled row id 0 into 5; oversized CxId `f5e8283ed40acd977c6c8e3ce79e200e` reads zero frequency/occurrences, raw recurrence CF count 0, and persisted error `CALYX_RECURRENCE_CONTEXT_TOO_LARGE`.
-- **WAL fail-closed:** `cargo test -p calyx-aster recurrence::tests::wal_append_failure_leaves_recurrence_uncommitted -- --nocapture` passes on aiwonder and asserts injected WAL append failure leaves snapshot, base scalar, and recurrence CF unchanged.
-- **Follow-ups:** #620 owns physical tombstone/reclaim for rolled historical rows; #621 is closed/FSV-backed for concurrency-safe occurrence id allocation; #622 owns a dedicated WAL write-failure code/injection contract if PRD 18 expands beyond the current storage error.
+- **WAL fail-closed:** #622 is FSV-backed at `/home/croyse/calyx/data/fsv-issue622-recurrence-wal-failure-20260610-bf0d380`; `CALYX_DISK_PRESSURE` is the stable code, and readback proves snapshot/base/recurrence/online/ledger state unchanged after injected WAL append failure.
+- **Follow-ups:** #620 owns physical tombstone/reclaim for rolled historical rows; #621 is closed/FSV-backed for concurrency-safe occurrence id allocation; #622 is closed/FSV-backed for the WAL failure code contract.
 
 ## Done when
 

@@ -51,7 +51,9 @@ for the structure under `docs/implementation/PHnn-*/`.
 > `/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`.
 > PH41 durable dedup policy validation parity #617 is FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue617-dedup-panel-validation-20260610-07884d9`.
-> Remaining PH41 follow-ups are #622/#620/#626; PH42 readback-surface
+> PH41 recurrence WAL-failure error-code contract #622 is FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue622-recurrence-wal-failure-20260610-bf0d380`.
+> Remaining PH41 follow-ups are #620/#626; PH42 readback-surface
 > gate #625 is open before PH42 can be signed off.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and

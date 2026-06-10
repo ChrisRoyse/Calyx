@@ -54,7 +54,7 @@ tombstones for occurrence ids 0, 1, and 2 after undo.
 - [x] `fsv_frequency_count_accurate` passes (count=10)
 - [ ] #626 follow-up/property: no pair of constellations with `anchor_conflict` ever appears in the same `DedupMerge`
 - [ ] follow-up #620: rollup-triggered recurrence (>10_000 occurrences) keeps frequency accurate with `rollup_summary` present
-- [ ] follow-up #622: exact WAL/crash-injection proof beyond the current storage-error fail-closed path
+- [x] follow-up #622: exact WAL/crash-injection proof keeps `CALYX_DISK_PRESSURE` and reads unchanged base/recurrence/online/ledger bytes
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

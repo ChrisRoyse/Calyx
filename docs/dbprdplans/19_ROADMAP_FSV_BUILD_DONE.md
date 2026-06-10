@@ -29,7 +29,9 @@ Phased build, verification discipline, performance targets, mechanical completio
 > `/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`.
 > #617 durable dedup policy validation readback is at
 > `/home/croyse/calyx/data/fsv-issue617-dedup-panel-validation-20260610-07884d9`.
-> Remaining PH41 follow-ups are #622/#620/#626; PH40 follow-ups
+> #622 recurrence WAL-failure readback is at
+> `/home/croyse/calyx/data/fsv-issue622-recurrence-wal-failure-20260610-bf0d380`.
+> Remaining PH41 follow-ups are #620/#626; PH40 follow-ups
 > #616/#618/#619 also remain tracked before Stage 9 is stable. PH42
 > readback-surface gate #625 is open before PH42 can be signed off.
 > phase status:

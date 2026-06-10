@@ -141,9 +141,19 @@ open once panel metadata is supplied. Artifact hashes:
 `9e7636d173dd188b52f3aa232c70fe279e18ad89988a179ec4296e1287ce7423` and
 `BLAKE3SUMS.txt` BLAKE3
 `8c20d63213e87c210385f69ad8d144d4c81397e433e433e177161222151659d0`.
-Remaining PH41 follow-ups before PH42 are #622 WAL write-failure error-code
-contract, #620 recurrence rollup tombstone/reclaim integration, and #626
-anchor-conflict never-merge property coverage.
+PH41 WAL write-failure error-code contract #622 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue622-recurrence-wal-failure-20260610-bf0d380`.
+The decision is to keep `CALYX_DISK_PRESSURE` as the stable PRD 18 storage-write
+failure code and not add `CALYX_WAL_WRITE_ERROR`. The readback proves the
+injected WAL append failure returns `CALYX_DISK_PRESSURE`, leaves base and
+Ledger rows byte-identical, leaves recurrence and online CFs empty, and keeps
+the snapshot at 1. Artifact hashes: `recurrence-wal-failure-readback.json`
+BLAKE3 `7af2b0050766d69d1fad37a896e896766fcf920b9ad510a017171ee1558e24ff`
+and `BLAKE3SUMS.txt` BLAKE3
+`5c23c502836168d8642cc0ad9bcf839af3a19ca5d8ac3f4e092d896dff6a1506`.
+Remaining PH41 follow-ups before PH42 are #620 recurrence rollup
+tombstone/reclaim integration and #626 anchor-conflict never-merge property
+coverage.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -178,14 +188,14 @@ anchor-conflict never-merge property coverage.
 ## Tracked PH41 follow-ups
 
 #578 public recurrence read APIs, #621 recurrence concurrency hardening, and
-#617 durable policy validation parity are implemented and FSV-backed. Remaining
-follow-ups before PH42 are reclaim, WAL-failure-code, and anchor-conflict
+#617 durable policy validation parity are implemented and FSV-backed. #622
+settled the WAL-failure-code contract as `CALYX_DISK_PRESSURE` and is
+FSV-backed. Remaining follow-ups before PH42 are reclaim and anchor-conflict
 property work:
 
 | Issue | Scope |
 |---|---|
 | #620 | Recurrence rollup tombstone/physical reclaim integration |
-| #622 | Exact WAL write-failure code/injection proof beyond current storage-error fail-closed path |
 | #626 | Anchor-conflict pairs never appear in the same `DedupMerge` property/regression |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
