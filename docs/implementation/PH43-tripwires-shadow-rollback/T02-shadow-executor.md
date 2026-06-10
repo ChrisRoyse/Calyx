@@ -80,4 +80,4 @@ the Anneal Ledger CF row with `kind=Anneal`.
 - [x] aiwonder FSV reads the artifact bytes and BLAKE3 manifest, including a
   candidate recall `0.80` vs incumbent `0.95` revert with `RecallAtK` failing
   and an unchanged live config pointer.
-- [ ] Evidence is attached to GitHub issue #395 before close.
+- [x] Evidence is attached to GitHub issue #395 before close.

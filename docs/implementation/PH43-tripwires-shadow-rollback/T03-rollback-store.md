@@ -90,5 +90,5 @@ Required proof:
 
 ## Status
 
-Implementation and tests are present. Final close requires aiwonder gates plus
-manual byte readback evidence attached to GitHub issue #396.
+Done. #396 closed with aiwonder gates plus manual byte readback evidence at
+`/home/croyse/calyx/data/fsv-issue396-rollback-20260610-2314`.

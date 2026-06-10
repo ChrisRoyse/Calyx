@@ -23,7 +23,8 @@ PH43 Ledger card lands.
 
 ## Current State
 
-`calyx-anneal` has PH42 recurrence scheduling plus PH43 T01, T02, and T03:
+`calyx-anneal` has PH42 recurrence scheduling plus PH43 T01, T02, T03, and
+T04:
 
 - T01 persists tripwire thresholds under `<vault>/.anneal/tripwire.toml`, exposes
   `check`/`set_tripwire`/`status`, and provides
@@ -34,9 +35,12 @@ PH43 Ledger card lands.
 - T03 provides durable rollback snapshots and live artifact pointers in Aster CF
   `anneal_rollback`, with WAL-backed pointer swaps for prepare, promote,
   rollback, and commit.
+- T04 provides the non-blocking `BudgetEnforcer`, vault budget config readback,
+  CPU/VRAM RAII handles, conservative NVML-unavailable fallback, and budget
+  status artifacts.
 
-The real background budget enforcer, Ledger Anneal logging, and integrated
-bad-change auto-revert scenario remain open PH43 cards.
+Ledger Anneal logging and the integrated bad-change auto-revert scenario remain
+open PH43 cards.
 
 ## Anneal Invariants
 
@@ -52,7 +56,7 @@ bad-change auto-revert scenario remain open PH43 cards.
 | `src/tripwire.rs` | Metric tripwire registry: recall@k, guard FAR/FRR, search p99, ingest p95, hysteresis | Done |
 | `src/shadow.rs` | Shadow-first execution: run candidate against held-out replay; promote only if it beats incumbent on all tripwire metrics | Done |
 | `src/rollback.rs` | Artifact store; rollback as one atomic pointer swap | Done |
-| `src/budget.rs` | Background compute budget enforcer: CPU/VRAM ceiling, yield to serving + TEI | Open |
+| `src/budget.rs` | Background compute budget enforcer: CPU/VRAM ceiling, yield to serving + TEI | Done |
 | `src/ledger_anneal.rs` | Ledger `kind=Anneal` writer for every promotion/revert/proposal | Open |
 
 ## Tasks
@@ -62,7 +66,7 @@ bad-change auto-revert scenario remain open PH43 cards.
 | T01 | Tripwire registry (metrics + thresholds + hysteresis) | - | Done |
 | T02 | Shadow executor (held-out replay + beat-incumbent check) | T01 | Done |
 | T03 | Rollback store (prior artifact + pointer swap) | T01 | Done |
-| T04 | Background budget enforcer (CPU/VRAM yield) | - | Open |
+| T04 | Background budget enforcer (CPU/VRAM yield) | - | Done |
 | T05 | Ledger `kind=Anneal` writer | T03 | Open |
 | T06 | Integration: bad-change auto-revert FSV scenario | T01, T02, T03, T05 | Open |
 

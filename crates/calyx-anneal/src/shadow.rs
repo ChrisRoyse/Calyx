@@ -6,7 +6,7 @@ use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Serialize};
 
-use crate::{TripwireMetric, TripwireRegistry, TripwireResult};
+use crate::{BudgetHandle, TripwireMetric, TripwireRegistry, TripwireResult};
 
 const SHADOW_METRICS: [TripwireMetric; 5] = [
     TripwireMetric::RecallAtK,
@@ -55,31 +55,6 @@ where
     S: ReplaySource + ?Sized,
 {
     Ok(HeldOutReplay::sample(source.replay_queries()?, n, seed))
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BudgetHandle {
-    remaining_ticks: usize,
-}
-
-impl BudgetHandle {
-    pub const fn new(ticks: usize) -> Self {
-        Self {
-            remaining_ticks: ticks,
-        }
-    }
-
-    pub const fn remaining_ticks(&self) -> usize {
-        self.remaining_ticks
-    }
-
-    fn try_consume(&mut self) -> bool {
-        if self.remaining_ticks == 0 {
-            return false;
-        }
-        self.remaining_ticks -= 1;
-        true
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -139,7 +114,6 @@ pub trait AnnealAction: Send + Sync {
     fn apply_shadow(&self, query: &ReplayQuery) -> ActionMetricSnapshot;
 }
 
-#[derive(Clone)]
 pub struct ShadowExecutor<'a> {
     pub registry: TripwireRegistry,
     pub replay: HeldOutReplay,
