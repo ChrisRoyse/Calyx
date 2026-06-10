@@ -7,6 +7,7 @@ use calyx_aster::dedup::{
     DedupAction, DedupPolicy, DedupRestoreSnapshot, DedupResult, EpochSecs, IngestInput,
     TauStrategy, TctCosineConfig, ingest_at,
 };
+use calyx_aster::recurrence::FREQUENCY_SCALAR;
 use calyx_aster::vault::encode::{decode_write_batch, encode_constellation_base};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::replay_dir;
@@ -100,7 +101,7 @@ pub(crate) fn recurring_reversible_scenario(root: &Path) -> Value {
     )
     .expect("recurring first");
     let first_id = new_id(&first);
-    let first_base_hex = base_hex(&vault, first_id);
+    let first_base_hex = base_hex_without_frequency(&vault, first_id);
     let second = ingest_at(
         &vault,
         &temporal_input("recurring-b", unit_x(), unit_y()),
@@ -301,8 +302,9 @@ fn new_id(result: &DedupResult) -> CxId {
     }
 }
 
-fn base_hex(vault: &AsterVault, cx_id: CxId) -> String {
-    let cx = vault.get(cx_id, vault.snapshot()).expect("base cx");
+fn base_hex_without_frequency(vault: &AsterVault, cx_id: CxId) -> String {
+    let mut cx = vault.get(cx_id, vault.snapshot()).expect("base cx");
+    cx.scalars.remove(FREQUENCY_SCALAR);
     hex_bytes(&encode_constellation_base(&cx).expect("base bytes"))
 }
 

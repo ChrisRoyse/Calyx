@@ -21,7 +21,7 @@ pub use engine::{
     DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT, DedupDecision, check_dedup, check_dedup_with_limit,
     cosine_passes_all_required, resolve_tau,
 };
-pub use ingest_at::{ingest, ingest_at};
+pub use ingest_at::{ingest, ingest_at, ingest_at_with_retention};
 pub use ingest_event::{
     DedupOnlineEvent, DedupOnlineKind, decode_dedup_online_event, dedup_online_key,
 };
