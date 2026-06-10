@@ -259,9 +259,11 @@ the Stage 8 exit readback under
 manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
-**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41 T03
-#381**, then PH41 T04-T08 and PH42-PH72. PH41 T02 #380 is FSV-backed at
-`/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
+**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41 T04
+#382**, then PH41 T05-T08 and PH42-PH72. PH41 T02 #380 is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`;
+PH41 T03 #381 is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

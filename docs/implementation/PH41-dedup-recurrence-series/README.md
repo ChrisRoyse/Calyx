@@ -37,8 +37,14 @@ bounded content-slot cosine gate now runs on top of the persisted policy and
 prints byte readback through `calyx readback dedup-check`, including fail-closed
 runtime validation for calibrated tau and constructor-bypassed empty
 `required_slots`.
-The `ingest` path exists in `crates/calyx-aster/src/vault.rs`; PH41 T03 now
-adds the real anchor-conflict guard. The `Gτ`
+PH41 T03 #381 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`: the
+dedup engine now checks shared anchors before cosine, returns `AnchorConflict`
+for opposite `SpeakerMatch`, incompatible `StyleHold`, and exclusive-tag
+conflicts, and writes reciprocal `dedup:contested_with:<CxId>` rows through the
+durable `online` CF/WAL path. The `ingest` path exists in
+`crates/calyx-aster/src/vault.rs`; PH41 T04 now wires this dedup surface into
+`ingest_at`. The `Gτ`
 guard (PH37) is in `calyx-ward`. `calyx-loom` exists from Stage 5
 (cross-terms/agreement/abundance); PH41 should add a new `recurrence` module
 under that crate rather than initialize the crate from scratch.
@@ -64,7 +70,7 @@ under that crate rather than initialize the crate from scratch.
 |---|---|---|
 | T01 | `DedupPolicy` types + vault-creation config | DONE / FSV #379 |
 | T02 | Dedup engine: per-slot cosine gate (content-only, excl. E2/E3/E4) | DONE / FSV #380 |
-| T03 | Anchor-conflict guard (MUST NOT merge conflicting anchors) | T02 |
+| T03 | Anchor-conflict guard (MUST NOT merge conflicting anchors) | DONE / FSV #381 |
 | T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | T03 |
 | T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | T04 |
 | T06 | Recurrence signature detector (content-agree + temporal-differ) | T05 |
