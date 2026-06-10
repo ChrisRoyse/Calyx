@@ -185,10 +185,11 @@ PH41 T02 #380 adds the bounded content-slot cosine dedup engine, shared
 fail-closed cosine math, CLI `readback dedup-check`, exact fallback on DPI
 exceed, runtime tau/config validation, and base/slot CF readback evidence at
 `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
-PH41 T03 #381 adds the anchor-conflict guard before cosine checks, reciprocal
-`online` CF contested rows, fail-closed anchor-vector validation, and direct
-base/online CF readback evidence at
-`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`.
+PH41 T03 #381 adds the anchor-conflict guard before cosine checks, rejects
+exact/same-CxId anchor-conflict bypasses, writes reciprocal `online` CF
+contested rows, fail-closes anchor-vector validation, and reads back direct
+base/online CF evidence at
+`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

@@ -47,16 +47,17 @@ computing any cosines.
 - [x] proptest: for any pair of constellations with identical anchors, `check_anchor_conflict` returns `Compatible`
 - [x] edge: `new_cx.anchors` is empty → `NoAnchor` for all checks
 - [x] fail-closed: non-finite `StyleHold` vectors cannot bypass the conflict guard; corrupt persisted anchor-vector bytes fail decode; `contested_with` writes propagate WAL/group-commit errors with no silent ignore
+- [x] fail-closed: exact/same-CxId duplicates with conflicting shared anchors return `CALYX_DEDUP_ANCHOR_CONFLICT` or storage fail-closed instead of bypassing through `Exact`, DPI exact fallback, self-skip, or duplicate `put`
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** durable Aster `online` CF rows keyed by `dedup:contested_with:<CxId>`, base CF rows for the separate CxIds, WAL bytes, manifests, and the hash manifest under `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`.
-- **Readback:** manual aiwonder before-read confirmed the root was absent; trigger was `CALYX_DEDUP_ANCHOR_FSV_ROOT=/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7 cargo test -p calyx-cli --test dedup_anchor_conflict_readback -- --nocapture`; after-read used `find`, `b3sum -c BLAKE3SUMS.txt`, direct `cat` of the evidence JSON, and `calyx readback --cf online|base --vault <scenario>/vault`.
+- **SoT:** durable Aster `online` CF rows keyed by `dedup:contested_with:<CxId>`, base CF rows for the separate CxIds, WAL bytes, manifests, and the hash manifest under `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`.
+- **Readback:** manual aiwonder before-read confirmed the root was absent; trigger was `CALYX_DEDUP_ANCHOR_FSV_ROOT=/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540 cargo test -p calyx-cli --test dedup_anchor_conflict_readback -- --nocapture`; after-read used `find`, `b3sum -c BLAKE3SUMS.txt`, direct `cat` of the evidence JSON, and `calyx readback --cf online|base --vault <scenario>/vault`.
 - **Prove:** `speaker_conflict` wrote reciprocal `online` CF rows for `11111111111111111111111111111111` and `22222222222222222222222222222222` with `reason=OppositeValue`, while both base CF rows exist separately. `missing_slot_conflict_before_cosine` returned `AnchorConflict` and wrote reciprocal rows even though the candidate lacked the required dense slot, proving the anchor check runs before cosine/missing-slot failure. `style_conflict` wrote `IncompatibleVector { cos: 0.6499999761581421 }`; `style_compatible` matched without contested rows; `exclusive_tag_conflict` wrote `ExclusiveTag`; `no_shared_anchor` matched and `readback --cf online` printed no rows.
 
 ## Done when
 
-- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder at `28707f7`
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder at `00c0540`
 - [x] file(s) ≤ 500 lines (line-count gate passed on aiwonder)
 - [x] FSV evidence attached to GitHub issue #381
 - [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

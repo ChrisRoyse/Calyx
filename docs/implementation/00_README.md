@@ -263,7 +263,7 @@ manifest SHA-256
 #382**, then PH41 T05-T08 and PH42-PH72. PH41 T02 #380 is FSV-backed at
 `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`;
 PH41 T03 #381 is FSV-backed at
-`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`.
+`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

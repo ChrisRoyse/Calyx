@@ -59,7 +59,7 @@ Latest roots:
 - Stage 9 PH41 dedup engine cosine gate (#380):
   `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`
 - Stage 9 PH41 anchor-conflict guard (#381):
-  `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`
+  `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence

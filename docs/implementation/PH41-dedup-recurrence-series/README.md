@@ -38,11 +38,12 @@ prints byte readback through `calyx readback dedup-check`, including fail-closed
 runtime validation for calibrated tau and constructor-bypassed empty
 `required_slots`.
 PH41 T03 #381 is FSV-signed-off at
-`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-28707f7`: the
+`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`: the
 dedup engine now checks shared anchors before cosine, returns `AnchorConflict`
 for opposite `SpeakerMatch`, incompatible `StyleHold`, and exclusive-tag
 conflicts, and writes reciprocal `dedup:contested_with:<CxId>` rows through the
-durable `online` CF/WAL path. The `ingest` path exists in
+durable `online` CF/WAL path. Exact/same-CxId anchor conflicts now fail closed
+instead of matching through the exact/self path. The `ingest` path exists in
 `crates/calyx-aster/src/vault.rs`; PH41 T04 now wires this dedup surface into
 `ingest_at`. The `Gτ`
 guard (PH37) is in `calyx-ward`. `calyx-loom` exists from Stage 5
