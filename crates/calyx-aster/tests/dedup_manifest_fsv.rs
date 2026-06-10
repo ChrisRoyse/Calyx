@@ -87,6 +87,21 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
         .validate(&panel)
         .expect_err("temporal slot rejected");
 
+    let temporal_public_dir = root.join("invalid-temporal-required-vaultoptions-vault");
+    let temporal_public_before_current = temporal_public_dir.join("CURRENT").exists();
+    let temporal_public_before_manifest = temporal_public_dir.join("MANIFEST").exists();
+    let temporal_public_error = AsterVault::new_durable(
+        &temporal_public_dir,
+        vault_id(),
+        b"dedup-policy-salt",
+        VaultOptions {
+            dedup_policy: Some(temporal_required.clone()),
+            panel: Some(panel.clone()),
+            ..VaultOptions::default()
+        },
+    )
+    .expect_err("temporal required slot rejected through VaultOptions");
+
     let invalid_dir = root.join("invalid-empty-required-vault");
     let invalid_before_current = invalid_dir.join("CURRENT").exists();
     let empty_required_error = AsterVault::new_durable(
@@ -103,6 +118,36 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
         },
     )
     .expect_err("empty required slots fail closed");
+
+    let legacy_invalid_dir = root.join("legacy-invalid-temporal-required-vault");
+    let legacy_invalid = AsterVault::new_durable(
+        &legacy_invalid_dir,
+        vault_id(),
+        b"dedup-policy-salt",
+        VaultOptions {
+            dedup_policy: Some(temporal_required.clone()),
+            ..VaultOptions::default()
+        },
+    )
+    .expect("legacy invalid policy writes without panel metadata");
+    let legacy_cx = sample_constellation(&legacy_invalid);
+    legacy_invalid
+        .put(legacy_cx)
+        .expect("legacy invalid put succeeds before panel metadata is available");
+    legacy_invalid.flush().expect("legacy invalid flush");
+    drop(legacy_invalid);
+    let legacy_invalid_before_reopen_current = legacy_invalid_dir.join("CURRENT").exists();
+    let legacy_invalid_before_reopen_policy = read_manifest_policy(&legacy_invalid_dir);
+    let recovered_invalid_error = AsterVault::open(
+        &legacy_invalid_dir,
+        vault_id(),
+        b"dedup-policy-salt",
+        VaultOptions {
+            panel: Some(panel.clone()),
+            ..VaultOptions::default()
+        },
+    )
+    .expect_err("recovered temporal required slot rejected");
     let off_validation = DedupPolicy::Off.validate(&panel).is_ok();
 
     let action_json = serde_json::to_value(DedupAction::RecurrenceSeries).expect("action json");
@@ -129,11 +174,28 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
             "after_error_code": temporal_required_error.code,
             "expected_error_code": CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
         },
+        "temporal_required_vaultoptions_edge": {
+            "before_current_exists": temporal_public_before_current,
+            "before_manifest_exists": temporal_public_before_manifest,
+            "after_current_exists": temporal_public_dir.join("CURRENT").exists(),
+            "after_manifest_exists": temporal_public_dir.join("MANIFEST").exists(),
+            "after_vault_dir_exists": temporal_public_dir.exists(),
+            "after_error_code": temporal_public_error.code,
+            "expected_error_code": CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
+        },
         "empty_required_edge": {
             "before_current_exists": invalid_before_current,
             "after_current_exists": invalid_dir.join("CURRENT").exists(),
             "after_error_code": empty_required_error.code,
             "expected_error_code": CALYX_DEDUP_NO_REQUIRED_SLOTS
+        },
+        "recovered_temporal_policy_edge": {
+            "before_current_exists": legacy_invalid_before_reopen_current,
+            "before_manifest_policy": legacy_invalid_before_reopen_policy,
+            "after_current_exists": legacy_invalid_dir.join("CURRENT").exists(),
+            "after_manifest_policy": read_manifest_policy(&legacy_invalid_dir),
+            "after_error_code": recovered_invalid_error.code,
+            "expected_error_code": CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
         },
         "off_edge": {
             "before_policy": DedupPolicy::Off,
@@ -159,8 +221,22 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
         temporal_required_error.code,
         CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
     );
+    assert_eq!(
+        temporal_public_error.code,
+        CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
+    );
+    assert!(!temporal_public_dir.join("CURRENT").exists());
+    assert!(!temporal_public_dir.join("MANIFEST").exists());
     assert_eq!(empty_required_error.code, CALYX_DEDUP_NO_REQUIRED_SLOTS);
     assert!(!invalid_dir.join("CURRENT").exists());
+    assert_eq!(
+        recovered_invalid_error.code,
+        CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
+    );
+    assert_eq!(
+        read_manifest_policy(&legacy_invalid_dir),
+        Some(temporal_required)
+    );
     assert!(off_validation);
 
     if !keep_root {

@@ -5,7 +5,7 @@ use crate::dedup::DedupPolicy;
 use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault};
 use crate::sst::{SstReader, write_sst};
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
-use calyx_core::{CalyxError, Result, SlotId, SystemClock, TemporalPolicy};
+use calyx_core::{CalyxError, Panel, Result, SlotId, SystemClock, TemporalPolicy};
 use calyx_ledger::CheckpointConfig;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -23,6 +23,7 @@ pub struct VaultOptions {
     pub ledger_checkpoint: Option<CheckpointConfig>,
     pub temporal_policy: Option<TemporalPolicy>,
     pub dedup_policy: Option<DedupPolicy>,
+    pub panel: Option<Panel>,
 }
 
 impl Default for VaultOptions {
@@ -34,6 +35,7 @@ impl Default for VaultOptions {
             ledger_checkpoint: Some(CheckpointConfig::default()),
             temporal_policy: Some(TemporalPolicy::default()),
             dedup_policy: Some(DedupPolicy::default()),
+            panel: None,
         }
     }
 }
@@ -46,6 +48,7 @@ pub(super) struct DurableVault {
     ledger_checkpoint: Option<CheckpointConfig>,
     temporal_policy: Option<TemporalPolicy>,
     dedup_policy: Option<DedupPolicy>,
+    panel: Option<Panel>,
     #[cfg(test)]
     fail_next_wal_append: Arc<AtomicBool>,
 }
@@ -64,14 +67,19 @@ pub(super) struct RecoveredBatches {
 }
 
 impl DurableVault {
-    pub(super) fn open(root: impl AsRef<Path>, options: &VaultOptions) -> Result<Self> {
-        let root = root.as_ref().to_path_buf();
+    pub(super) fn validate_options(options: &VaultOptions) -> Result<()> {
         if let Some(policy) = &options.temporal_policy {
             policy.validate()?;
         }
         if let Some(policy) = &options.dedup_policy {
-            policy.validate_manifest()?;
+            validate_dedup_policy(policy, options.panel.as_ref())?;
         }
+        Ok(())
+    }
+
+    pub(super) fn open(root: impl AsRef<Path>, options: &VaultOptions) -> Result<Self> {
+        let root = root.as_ref().to_path_buf();
+        Self::validate_options(options)?;
         fs::create_dir_all(root.join("cf"))
             .map_err(|error| storage_error("create durable CF root", error))?;
         if let Some(policy) = &options.tiering_policy {
@@ -93,6 +101,7 @@ impl DurableVault {
             ledger_checkpoint: options.ledger_checkpoint.clone(),
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
+            panel: options.panel.clone(),
             #[cfg(test)]
             fail_next_wal_append: Arc::new(AtomicBool::new(false)),
         })
@@ -102,9 +111,13 @@ impl DurableVault {
         root: impl AsRef<Path>,
         options: &VaultOptions,
     ) -> Result<RecoveredBatches> {
+        Self::validate_options(options)?;
         let root = root.as_ref();
         if root.join("CURRENT").exists() {
             let recovery = recover_vault(root)?;
+            if let Some(policy) = &recovery.manifest.dedup_policy {
+                validate_dedup_policy(policy, options.panel.as_ref())?;
+            }
             let mut batches = read_manifested_batches(
                 root,
                 options.tiering_policy.as_ref(),
@@ -188,6 +201,7 @@ impl DurableVault {
             ledger_checkpoint: self.ledger_checkpoint.clone(),
             temporal_policy: self.temporal_policy,
             dedup_policy: self.dedup_policy.clone(),
+            panel: self.panel.clone(),
             ..VaultOptions::default()
         };
         Self::recover_batches(&self.root, &options)
@@ -248,6 +262,14 @@ impl DurableVault {
         )?;
         ManifestStore::open(&self.root).write_current(&manifest)?;
         Ok(())
+    }
+}
+
+fn validate_dedup_policy(policy: &DedupPolicy, panel: Option<&Panel>) -> Result<()> {
+    if let Some(panel) = panel {
+        policy.validate(panel)
+    } else {
+        policy.validate_manifest()
     }
 }
 

@@ -78,6 +78,7 @@ impl AsterVault<SystemClock> {
         vault_salt: impl Into<Vec<u8>>,
         options: VaultOptions,
     ) -> Result<Self> {
+        DurableVault::validate_options(&options)?;
         let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
         let ledger_hook = ledger_hook::recover_hook(&recovery, options.ledger_checkpoint.clone())?;
         let recovery_report = VaultRecoveryReport {
