@@ -111,6 +111,14 @@ pub fn ledger_key(seq: u64) -> Vec<u8> {
     seq.to_be_bytes().to_vec()
 }
 
+/// `recurrence` CF key: `(CxId, OccurrenceId)`.
+pub fn recurrence_key(cx_id: CxId, occurrence_id: u64) -> Vec<u8> {
+    let mut key = Vec::with_capacity(CX_ID_BYTES + 8);
+    key.extend_from_slice(cx_id.as_bytes());
+    key.extend_from_slice(&occurrence_id.to_be_bytes());
+    key
+}
+
 /// `online` CF key: `(OnlineKeyKind, seq_or_id)`.
 pub fn online_key(kind: OnlineKeyKind, seq_or_id: u64) -> Vec<u8> {
     let mut key = Vec::with_capacity(9);
@@ -145,6 +153,11 @@ pub fn ledger_range(start_seq: u64, end_seq: u64) -> KeyRange {
         start: ledger_key(start_seq),
         end: Some(ledger_key(end_seq)),
     }
+}
+
+/// Prefix range for all recurrence rows under one `CxId`.
+pub fn recurrence_prefix_range(cx_id: CxId) -> KeyRange {
+    cx_prefix_range(cx_id)
 }
 
 /// Builds a lexicographic range that contains all keys starting with `prefix`.

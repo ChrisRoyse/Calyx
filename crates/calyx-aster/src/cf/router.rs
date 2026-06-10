@@ -260,6 +260,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "anchors" => Some(ColumnFamily::Anchors),
         "assay" => Some(ColumnFamily::Assay),
         "ledger" => Some(ColumnFamily::Ledger),
+        "recurrence" => Some(ColumnFamily::Recurrence),
         "online" => Some(ColumnFamily::Online),
         _ if name.starts_with("slot_") => parse_slot_name(&name),
         _ => None,

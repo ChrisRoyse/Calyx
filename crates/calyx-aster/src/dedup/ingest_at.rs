@@ -5,14 +5,15 @@ use calyx_core::{
     Modality, Result, SlotId, SlotVector, VaultStore,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use super::engine::check_dedup_without_conflict_write;
+use super::ingest_ledger::{LedgerPayload, action_name, action_name_for_action, ledger_payload};
 use super::{
     AnchorConflictResult, ContestedWith, DedupAction, DedupDecision, DedupPolicy, DedupResult,
     OccurrenceId, check_anchor_conflict, contested_with_key, dedup_error, encode_contested_with,
 };
 use crate::cf::ColumnFamily;
+use crate::recurrence::{OccurrenceContext, RetentionPolicy, build_append};
 use crate::vault::AsterVault;
 
 pub const CALYX_DEDUP_INVALID_EVENT_TIME: &str = "CALYX_DEDUP_INVALID_EVENT_TIME";
@@ -204,7 +205,7 @@ pub fn decode_dedup_online_event(bytes: &[u8]) -> Result<DedupOnlineEvent> {
 
 fn store_new<C>(
     vault: &AsterVault<C>,
-    new_cx: Constellation,
+    mut new_cx: Constellation,
     at: EpochSecs,
     policy: &DedupPolicy,
     decision: &'static str,
@@ -217,12 +218,24 @@ where
         policy,
         DedupPolicy::TctCosine(config) if config.action == DedupAction::RecurrenceSeries
     );
+    let mut recurrence_rows = Vec::new();
     if is_recurrence_series {
+        let append = build_append(
+            vault,
+            new_cx,
+            at,
+            OccurrenceContext::new(Vec::new())?,
+            at,
+            RetentionPolicy::default(),
+        )?;
+        let occurrence = append.occurrence_id;
+        new_cx = append.updated_base;
+        recurrence_rows = append.recurrence_rows;
         online_rows.push(online_event_row(
             DedupOnlineKind::Occurrence,
             new_cx.cx_id,
             new_cx.cx_id,
-            OccurrenceId(0),
+            occurrence,
             at,
             DedupAction::RecurrenceSeries,
             Vec::new(),
@@ -239,7 +252,14 @@ where
         per_slot_cos: &[],
     })?;
     let id = new_cx.cx_id;
-    vault.commit_dedup_ingest(Some(new_cx), online_rows, id, payload)?;
+    vault.commit_dedup_ingest(
+        Some(new_cx),
+        None,
+        online_rows,
+        recurrence_rows,
+        id,
+        payload,
+    )?;
     Ok(DedupResult::New(id))
 }
 
@@ -263,7 +283,7 @@ where
         occurrence: None,
         per_slot_cos: &per_slot_cos,
     })?;
-    vault.commit_dedup_ingest(None, Vec::new(), existing, payload)?;
+    vault.commit_dedup_ingest(None, None, Vec::new(), Vec::new(), existing, payload)?;
     Ok(DedupResult::ExactDuplicate(existing))
 }
 
@@ -279,7 +299,24 @@ where
     C: Clock,
 {
     let kind = online_kind(&action);
-    let occurrence = next_occurrence_id(vault, kind, existing)?;
+    let mut updated_base = None;
+    let mut recurrence_rows = Vec::new();
+    let occurrence = if action == DedupAction::RecurrenceSeries {
+        let base = vault.get(existing, vault.snapshot())?;
+        let append = build_append(
+            vault,
+            base,
+            at,
+            OccurrenceContext::new(Vec::new())?,
+            at,
+            RetentionPolicy::default(),
+        )?;
+        updated_base = Some(append.updated_base);
+        recurrence_rows = append.recurrence_rows;
+        append.occurrence_id
+    } else {
+        next_occurrence_id(vault, kind, existing)?
+    };
     let online_rows = vec![online_event_row(
         kind,
         existing,
@@ -301,7 +338,14 @@ where
     })?;
     let candidate = (action == DedupAction::Link).then_some(new_cx);
     let subject = candidate.as_ref().map_or(existing, |cx| cx.cx_id);
-    vault.commit_dedup_ingest(candidate, online_rows, subject, payload)?;
+    vault.commit_dedup_ingest(
+        candidate,
+        updated_base,
+        online_rows,
+        recurrence_rows,
+        subject,
+        payload,
+    )?;
     Ok(DedupResult::DedupMerge {
         into: existing,
         occurrence,
@@ -427,55 +471,6 @@ fn event_key(prefix: &[u8], into: CxId, occurrence: OccurrenceId) -> Vec<u8> {
     key.extend_from_slice(into.as_bytes());
     key.extend_from_slice(&occurrence.0.to_be_bytes());
     key
-}
-
-struct LedgerPayload<'a> {
-    cx: &'a Constellation,
-    at: EpochSecs,
-    result: &'static str,
-    decision: &'static str,
-    action: Option<&'static str>,
-    into: Option<CxId>,
-    occurrence: Option<OccurrenceId>,
-    per_slot_cos: &'a [(SlotId, f32)],
-}
-
-fn ledger_payload(payload: LedgerPayload<'_>) -> Result<Vec<u8>> {
-    let value = json!({
-        "cx_id": payload.cx.cx_id.to_string(),
-        "input_hash": hex(&payload.cx.input_ref.hash),
-        "event_time_secs": payload.at.0,
-        "dedup_result": payload.result,
-        "dedup_decision": payload.decision,
-        "dedup_action": payload.action,
-        "dedup_into_id": payload.into.map(|id| id.to_string()),
-        "occurrence_id": payload.occurrence.map(|id| id.0),
-        "per_slot_cos": payload.per_slot_cos.iter().map(|(slot, cos)| {
-            json!({"slot": slot.get(), "cos": cos})
-        }).collect::<Vec<_>>(),
-    });
-    serde_json::to_vec(&value)
-        .map_err(|error| CalyxError::aster_corrupt_shard(format!("encode ledger payload: {error}")))
-}
-
-fn action_name(policy: &DedupPolicy) -> Option<&'static str> {
-    match policy {
-        DedupPolicy::Off => Some("Off"),
-        DedupPolicy::Exact => Some("Exact"),
-        DedupPolicy::TctCosine(config) => Some(action_name_for_action(&config.action)),
-    }
-}
-
-fn action_name_for_action(action: &DedupAction) -> &'static str {
-    match action {
-        DedupAction::Collapse => "Collapse",
-        DedupAction::Link => "Link",
-        DedupAction::RecurrenceSeries => "RecurrenceSeries",
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

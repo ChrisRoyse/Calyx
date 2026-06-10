@@ -7,6 +7,7 @@ pub mod cross_term;
 pub mod error;
 pub mod lru_cache;
 pub mod materialization;
+pub mod recurrence;
 
 pub use abundance::{AbundanceReport, CeilingEstimate, NeffEstimate};
 pub use agreement_graph::{AgreementEdge, LoomStore};
@@ -18,12 +19,17 @@ pub use cross_term::{
 };
 pub use error::{
     CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
-    CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_ZERO_NORM_VECTOR, loom_error,
+    CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_RECURRENCE_CONTEXT_TOO_LARGE,
+    CALYX_RECURRENCE_INVALID_RETENTION, loom_error,
 };
 pub use lru_cache::LruCache;
 pub use materialization::{
     MaterializationAction, MaterializationPlan, PairGainGate, StaticPairGainGate, plan_cross_terms,
     plan_cross_terms_checked,
+};
+pub use recurrence::{
+    Occurrence, OccurrenceContext, RecurrenceSeries, RetentionPolicy, RollupSummary, SeriesStore,
+    StoredRecurrenceRow, decode_recurrence_row, encode_recurrence_row, recurrence_summary_key,
 };
 
 #[cfg(test)]

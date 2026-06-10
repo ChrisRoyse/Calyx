@@ -2,6 +2,7 @@
 
 mod engine;
 mod ingest_at;
+mod ingest_ledger;
 mod policy;
 
 use calyx_core::{CalyxError, CxId, Panel, Result, Slot, SlotId};

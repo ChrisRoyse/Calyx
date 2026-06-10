@@ -3,8 +3,9 @@ use calyx_core::{
 };
 
 use super::*;
-use crate::cf::{ColumnFamily, base_key};
+use crate::cf::{ColumnFamily, base_key, recurrence_key};
 use crate::dedup::{TauStrategy, TctCosineConfig};
+use crate::recurrence::{StoredRecurrenceRow, decode_recurrence_row};
 use proptest::prelude::*;
 
 #[test]
@@ -69,6 +70,11 @@ fn recurrence_series_same_content_appends_online_occurrences() {
         .map(|occ| occurrence_at(&vault, id, occ))
         .collect::<Vec<_>>();
     assert_eq!(times, vec![100, 200, 300]);
+    let recurrence_times = (0..=2)
+        .map(|occ| recurrence_at(&vault, id, occ))
+        .collect::<Vec<_>>();
+    assert_eq!(recurrence_times, vec![100, 200, 300]);
+    assert_eq!(scan(&vault, ColumnFamily::Recurrence).len(), 3);
 }
 
 #[test]
@@ -166,6 +172,27 @@ proptest! {
                 occurrence_at(&vault, id, occurrence),
                 100 + occurrence as i64
             );
+            prop_assert_eq!(
+                recurrence_at(&vault, id, occurrence),
+                100 + occurrence as i64
+            );
+        }
+    }
+}
+
+fn recurrence_at(vault: &AsterVault<FixedClock>, id: CxId, occ: u64) -> i64 {
+    let bytes = vault
+        .read_cf_at(
+            vault.snapshot(),
+            ColumnFamily::Recurrence,
+            &recurrence_key(id, occ),
+        )
+        .expect("read recurrence")
+        .expect("recurrence row");
+    match decode_recurrence_row(&bytes).expect("decode recurrence") {
+        StoredRecurrenceRow::Occurrence(occurrence) => occurrence.t_k.0,
+        StoredRecurrenceRow::RollupSummary(_) | StoredRecurrenceRow::RolledOccurrence { .. } => {
+            panic!("expected occurrence row")
         }
     }
 }

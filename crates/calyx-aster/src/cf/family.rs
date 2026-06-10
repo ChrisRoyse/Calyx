@@ -28,19 +28,22 @@ pub enum ColumnFamily {
     Assay,
     /// `seq -> hash-chained provenance entry`.
     Ledger,
+    /// `(CxId, OccurrenceId) -> recurrence occurrence or summary`.
+    Recurrence,
     /// Typed online/adaptation state.
     Online,
 }
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 7] = [
+    pub const STATIC: [Self; 8] = [
         Self::Base,
         Self::XTerm,
         Self::Scalars,
         Self::Anchors,
         Self::Assay,
         Self::Ledger,
+        Self::Recurrence,
         Self::Online,
     ];
 
@@ -77,6 +80,7 @@ impl ColumnFamily {
             Self::Anchors => "anchors".to_string(),
             Self::Assay => "assay".to_string(),
             Self::Ledger => "ledger".to_string(),
+            Self::Recurrence => "recurrence".to_string(),
             Self::Online => "online".to_string(),
         }
     }

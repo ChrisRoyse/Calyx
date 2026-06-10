@@ -1,0 +1,178 @@
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+
+use calyx_aster::cf::{ColumnFamily, base_key, recurrence_prefix_range};
+use calyx_aster::recurrence::{
+    FREQUENCY_SCALAR, Occurrence, RollupSummary, StoredRecurrenceRow, decode_recurrence_row,
+};
+use calyx_aster::sst::SstReader;
+use calyx_aster::vault::encode::{decode_constellation_base, decode_write_batch};
+use calyx_aster::wal::replay_dir;
+use calyx_core::{Constellation, CxId};
+use serde_json::{Value, json};
+
+pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), String> {
+    let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
+    let recurrence_rows = latest_cf_rows(vault, ColumnFamily::Recurrence)?;
+    let base_rows = latest_cf_rows(vault, ColumnFamily::Base)?;
+    let base = base_rows
+        .get(&base_key(cx_id))
+        .map(|bytes| decode_constellation_base(bytes).map_err(|error| error.to_string()))
+        .transpose()?;
+    let frequency = base
+        .as_ref()
+        .map_or(Ok(0), recurrence_frequency)
+        .map_err(|error| error.to_string())?;
+
+    let range = recurrence_prefix_range(cx_id);
+    let mut occurrences = Vec::new();
+    let mut rolled_rows = Vec::new();
+    let mut rollup_summary = None;
+    for (key, value) in recurrence_rows {
+        if !range.contains(&key) {
+            continue;
+        }
+        match decode_recurrence_row(&value).map_err(|error| error.to_string())? {
+            StoredRecurrenceRow::Occurrence(occurrence) => occurrences.push(occurrence),
+            StoredRecurrenceRow::RollupSummary(summary) => rollup_summary = Some(summary),
+            StoredRecurrenceRow::RolledOccurrence { id, rolled_into } => {
+                rolled_rows.push(json!({
+                    "key_hex": hex_bytes(&key),
+                    "id": id.0,
+                    "rolled_into": rolled_into.0,
+                }));
+            }
+        }
+    }
+    occurrences.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
+
+    let value = json!({
+        "vault": vault.display().to_string(),
+        "cx_id": cx_id.to_string(),
+        "frequency": frequency,
+        "occurrence_count": occurrences.len(),
+        "cadence_secs": cadence_secs(&occurrences),
+        "rollup_summary": rollup_summary_json(rollup_summary.as_ref()),
+        "rolled_rows": rolled_rows,
+        "occurrences": occurrences.iter().map(occurrence_json).collect::<Vec<_>>(),
+    });
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&value).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+fn latest_cf_rows(vault: &Path, cf: ColumnFamily) -> Result<BTreeMap<Vec<u8>, Vec<u8>>, String> {
+    let mut rows = BTreeMap::new();
+    for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
+        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
+        for row in reader.iter().map_err(|error| error.to_string())? {
+            rows.insert(row.key, row.value);
+        }
+    }
+    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
+    for record in replay.records {
+        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
+            if row.cf == cf {
+                rows.insert(row.key, row.value);
+            }
+        }
+    }
+    Ok(rows)
+}
+
+fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    if !dir.exists() {
+        return Ok(files);
+    }
+    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
+            files.push(path);
+        }
+    }
+    files.sort_by(|left, right| sst_order(left).cmp(&sst_order(right)).then(left.cmp(right)));
+    Ok(files)
+}
+
+fn sst_order(path: &Path) -> (u64, usize) {
+    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+        return (0, 0);
+    };
+    if let Some(seq) = stem.strip_prefix("compacted-") {
+        return (seq.parse().unwrap_or(0), usize::MAX);
+    }
+    let Some((seq, index)) = stem.split_once('-') else {
+        return (0, 0);
+    };
+    (seq.parse().unwrap_or(0), index.parse().unwrap_or(0))
+}
+
+fn recurrence_frequency(cx: &Constellation) -> calyx_core::Result<u64> {
+    let Some(value) = cx.scalars.get(FREQUENCY_SCALAR) else {
+        return Ok(0);
+    };
+    if !value.is_finite() || *value < 0.0 || value.fract() != 0.0 {
+        return Err(calyx_core::CalyxError::aster_corrupt_shard(
+            "recurrence frequency scalar must be a non-negative integer",
+        ));
+    }
+    Ok(*value as u64)
+}
+
+fn cadence_secs(occurrences: &[Occurrence]) -> Option<f64> {
+    if occurrences.len() < 2 {
+        return None;
+    }
+    let mut gaps = occurrences
+        .windows(2)
+        .map(|pair| (pair[1].t_k.0 - pair[0].t_k.0) as f64)
+        .collect::<Vec<_>>();
+    gaps.sort_by(f64::total_cmp);
+    let mid = gaps.len() / 2;
+    Some(if gaps.len() % 2 == 0 {
+        (gaps[mid - 1] + gaps[mid]) / 2.0
+    } else {
+        gaps[mid]
+    })
+}
+
+fn rollup_summary_json(summary: Option<&RollupSummary>) -> Value {
+    summary.map_or(Value::Null, |summary| {
+        json!({
+            "oldest_t": summary.oldest_t.0,
+            "count_rolled": summary.count_rolled,
+            "period_estimate_secs": summary.period_estimate_secs,
+        })
+    })
+}
+
+fn occurrence_json(occurrence: &Occurrence) -> Value {
+    json!({
+        "id": occurrence.id.0,
+        "t_k": occurrence.t_k.0,
+        "context_len": occurrence.context.bytes.len(),
+        "context_hex": hex_bytes(&occurrence.context.bytes),
+    })
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => char::from(b'0' + value),
+        10..=15 => char::from(b'a' + value - 10),
+        _ => unreachable!("nibble out of range"),
+    }
+}
