@@ -25,13 +25,10 @@ pub fn guard(
     matched: &MatchedSlots,
     high_stakes: bool,
 ) -> Result<GuardVerdict, WardError> {
-    if high_stakes && !profile.is_calibrated() {
-        return Err(WardError::Provisional {
-            guard_id: profile.guard_id,
-        });
-    }
-
     let required = required_slots(profile);
+    if high_stakes {
+        validate_high_stakes_profile(profile, &required)?;
+    }
     if let GuardPolicy::KofN { k } = profile.policy
         && k > required.len()
     {
@@ -71,6 +68,24 @@ pub fn guard(
         per_slot,
         action,
     })
+}
+
+fn validate_high_stakes_profile(
+    profile: &GuardProfile,
+    required: &[SlotId],
+) -> Result<(), WardError> {
+    let calibration = profile.calibration.as_ref().ok_or(WardError::Provisional {
+        guard_id: profile.guard_id,
+    })?;
+    for slot in required {
+        if profile.tau_for(slot).is_none() || !calibration.per_slot.contains_key(slot) {
+            return Err(WardError::MissingSlotCalibration {
+                guard_id: profile.guard_id,
+                slot: *slot,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Runs `guard()` for non-critical embeddings that may use provisional profiles.
