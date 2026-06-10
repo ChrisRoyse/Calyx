@@ -382,3 +382,99 @@ fn recurrence_error(code: &'static str, message: impl Into<String>) -> CalyxErro
         remediation,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::vault::VaultOptions;
+    use calyx_core::{CxFlags, InputRef, LedgerRef, Modality, VaultId};
+    use std::collections::BTreeMap;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn wal_append_failure_leaves_recurrence_uncommitted() {
+        let root = test_root("recurrence-wal-fail");
+        let vault = AsterVault::new_durable(
+            &root,
+            vault_id(),
+            b"recurrence-wal-fail-salt".to_vec(),
+            VaultOptions::default(),
+        )
+        .expect("open durable vault");
+        let cx_id = vault.cx_id_for_input(b"recurrence-wal-fail", 41);
+        vault.put(base_cx(cx_id)).expect("put base");
+        vault.flush().expect("flush base");
+        let before_snapshot = vault.snapshot();
+
+        vault.fail_next_wal_append_for_test();
+        let error = append_occurrence(
+            &vault,
+            cx_id,
+            EpochSecs(100),
+            OccurrenceContext::new(b"ctx".to_vec()).expect("context"),
+            EpochSecs(100),
+            RetentionPolicy::default(),
+        )
+        .expect_err("injected WAL failure");
+
+        assert_eq!(error.code, "CALYX_DISK_PRESSURE");
+        assert_eq!(vault.snapshot(), before_snapshot);
+        assert_eq!(occurrence_count(&vault, cx_id).expect("count"), 0);
+        assert!(
+            read_series(&vault, cx_id)
+                .expect("series")
+                .occurrences
+                .is_empty()
+        );
+        let base_after = vault.get(cx_id, vault.snapshot()).expect("base after");
+        assert!(!base_after.scalars.contains_key(FREQUENCY_SCALAR));
+        assert!(
+            vault
+                .scan_cf_at(vault.snapshot(), ColumnFamily::Recurrence)
+                .expect("recurrence rows")
+                .is_empty()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn base_cx(cx_id: CxId) -> Constellation {
+        Constellation {
+            cx_id,
+            vault_id: vault_id(),
+            panel_version: 41,
+            created_at: 100,
+            input_ref: InputRef {
+                hash: *blake3::hash(b"recurrence-wal-fail").as_bytes(),
+                pointer: None,
+                redacted: true,
+            },
+            modality: Modality::Text,
+            slots: BTreeMap::new(),
+            scalars: BTreeMap::new(),
+            anchors: Vec::new(),
+            provenance: LedgerRef {
+                seq: 0,
+                hash: [0; 32],
+            },
+            flags: CxFlags {
+                ungrounded: true,
+                redacted_input: true,
+                ..CxFlags::default()
+            },
+        }
+    }
+
+    fn test_root(name: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        std::env::temp_dir().join(format!("{name}-{}-{nonce}", std::process::id()))
+    }
+
+    fn vault_id() -> VaultId {
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("vault id")
+    }
+}

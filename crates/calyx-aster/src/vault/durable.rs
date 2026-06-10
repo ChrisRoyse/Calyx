@@ -12,6 +12,8 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Debug)]
 pub struct VaultOptions {
@@ -43,6 +45,8 @@ pub(super) struct DurableVault {
     tiering_policy: Option<TieringPolicy>,
     temporal_policy: Option<TemporalPolicy>,
     dedup_policy: Option<DedupPolicy>,
+    #[cfg(test)]
+    fail_next_wal_append: Arc<AtomicBool>,
 }
 
 pub(super) struct RecoveredBatch {
@@ -87,6 +91,8 @@ impl DurableVault {
             tiering_policy: options.tiering_policy.clone(),
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
+            #[cfg(test)]
+            fail_next_wal_append: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -139,9 +145,18 @@ impl DurableVault {
     }
 
     pub(super) fn append_batch(&self, rows: &[WriteRow]) -> Result<u64> {
+        #[cfg(test)]
+        if self.fail_next_wal_append.swap(false, Ordering::SeqCst) {
+            return Err(CalyxError::disk_pressure("injected WAL append failure"));
+        }
         let payload = encode_write_batch(rows)?;
         let ack = self.batcher.submit(payload)?;
         Ok(ack.seq)
+    }
+
+    #[cfg(test)]
+    pub(super) fn fail_next_wal_append(&self) {
+        self.fail_next_wal_append.store(true, Ordering::SeqCst);
     }
 
     pub(super) fn checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
