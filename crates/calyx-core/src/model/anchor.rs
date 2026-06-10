@@ -35,4 +35,6 @@ pub enum AnchorValue {
     OneHot(Vec<String>),
     /// Textual label when the source cannot reduce to a category yet.
     Text(String),
+    /// Dense anchor vector for identity/style comparisons.
+    Vector(Vec<f32>),
 }

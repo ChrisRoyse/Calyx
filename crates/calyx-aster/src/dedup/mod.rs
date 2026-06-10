@@ -1,6 +1,7 @@
 //! Vault-level deduplication policy contracts.
 
 mod engine;
+mod policy;
 
 use calyx_core::{CalyxError, CxId, Panel, Result, Slot, SlotId};
 use serde::{Deserialize, Serialize};
@@ -8,6 +9,10 @@ use serde::{Deserialize, Serialize};
 pub use engine::{
     DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT, DedupDecision, check_dedup, check_dedup_with_limit,
     cosine_passes_all_required, resolve_tau,
+};
+pub use policy::{
+    ANCHOR_VECTOR_TAU, AnchorConflictResult, ConflictReason, ContestedWith, check_anchor_conflict,
+    contested_with_key, decode_contested_with, encode_contested_with,
 };
 
 pub const CALYX_DEDUP_NO_REQUIRED_SLOTS: &str = "CALYX_DEDUP_NO_REQUIRED_SLOTS";

@@ -2,9 +2,10 @@
 
 use crate::cf::{ColumnFamily, base_key};
 use crate::dedup::{
-    CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU, CALYX_DEDUP_MISSING_GUARD_PROFILE,
-    CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION, CALYX_DEDUP_SLOT_NOT_IN_TAU, DedupPolicy, TauStrategy,
-    TctCosineConfig, dedup_error,
+    AnchorConflictResult, CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU,
+    CALYX_DEDUP_MISSING_GUARD_PROFILE, CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION,
+    CALYX_DEDUP_SLOT_NOT_IN_TAU, ConflictReason, ContestedWith, DedupPolicy, TauStrategy,
+    TctCosineConfig, check_anchor_conflict, contested_with_key, dedup_error, encode_contested_with,
 };
 use crate::vault::AsterVault;
 use calyx_core::{
@@ -129,8 +130,16 @@ where
             }
             for (key, _) in candidates {
                 let existing_id = cx_id_from_base_key(&key)?;
+                if existing_id == new_cx.cx_id {
+                    continue;
+                }
                 let existing = vault.get(existing_id, snapshot)?;
-                if anchor_conflict_placeholder(new_cx, &existing) {
+                if let AnchorConflictResult::Conflicting {
+                    anchor_type,
+                    reason,
+                } = check_anchor_conflict(new_cx, &existing)
+                {
+                    write_anchor_conflict(vault, new_cx.cx_id, existing_id, anchor_type, reason)?;
                     return Ok(DedupDecision::AnchorConflict {
                         existing: existing_id,
                     });
@@ -200,8 +209,37 @@ fn cx_id_from_base_key(key: &[u8]) -> Result<CxId> {
     Ok(CxId::from_bytes(bytes))
 }
 
-fn anchor_conflict_placeholder(_new_cx: &Constellation, _existing_cx: &Constellation) -> bool {
-    false
+fn write_anchor_conflict<C>(
+    vault: &AsterVault<C>,
+    new_id: CxId,
+    existing_id: CxId,
+    anchor_type: calyx_core::AnchorKind,
+    reason: ConflictReason,
+) -> Result<()>
+where
+    C: Clock,
+{
+    let new_value = ContestedWith {
+        contested_with: existing_id,
+        anchor_type: anchor_type.clone(),
+        reason: reason.clone(),
+    };
+    let existing_value = ContestedWith {
+        contested_with: new_id,
+        anchor_type,
+        reason,
+    };
+    vault.commit_online_rows([
+        (
+            contested_with_key(new_id),
+            encode_contested_with(&new_value)?,
+        ),
+        (
+            contested_with_key(existing_id),
+            encode_contested_with(&existing_value)?,
+        ),
+    ])?;
+    Ok(())
 }
 
 #[cfg(test)]

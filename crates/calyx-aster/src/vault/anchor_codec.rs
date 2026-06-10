@@ -84,6 +84,18 @@ fn encode_anchor_value(value: &AnchorValue, out: &mut Vec<u8>) -> Result<()> {
             out.push(4);
             put_string(out, value)?;
         }
+        AnchorValue::Vector(values) => {
+            out.push(5);
+            out.extend_from_slice(&(values.len() as u32).to_be_bytes());
+            for value in values {
+                if !value.is_finite() {
+                    return Err(CalyxError::aster_corrupt_shard(
+                        "anchor vector contains non-finite value",
+                    ));
+                }
+                out.extend_from_slice(&value.to_bits().to_be_bytes());
+            }
+        }
     }
     Ok(())
 }
@@ -102,6 +114,14 @@ fn decode_anchor_value(cursor: &mut Cursor<'_>) -> Result<AnchorValue> {
             AnchorValue::OneHot(values)
         }
         4 => AnchorValue::Text(cursor.string()?),
+        5 => {
+            let count = cursor.u32()? as usize;
+            let mut values = Vec::with_capacity(count);
+            for _ in 0..count {
+                values.push(f32::from_bits(cursor.u32()?));
+            }
+            AnchorValue::Vector(values)
+        }
         tag => {
             return Err(CalyxError::aster_corrupt_shard(format!(
                 "unknown anchor value {tag}"
