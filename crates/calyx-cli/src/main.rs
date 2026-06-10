@@ -7,6 +7,7 @@ mod merkle;
 mod ops;
 mod provenance;
 mod scan;
+mod temporal_readback;
 mod verify;
 
 use std::env;
@@ -32,6 +33,15 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
             readback_vault_tree(Path::new(value)).map_err(|error| error.to_string())
+        }
+        [command, topic, explain_flag, clock_flag, clock, tz_flag, tz]
+            if command == "readback"
+                && topic == "temporal_search"
+                && explain_flag == "--explain"
+                && clock_flag == "--clock-fixed"
+                && tz_flag == "--tz-offset" =>
+        {
+            temporal_readback::readback_temporal_search(parse_i64(clock)?, parse_i32(tz)?)
         }
         [command, flag, cf, vault_flag, vault]
             if command == "readback" && flag == "--cf" && vault_flag == "--vault" =>
@@ -255,6 +265,18 @@ fn readback_vault_tree(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
+fn parse_i64(value: &str) -> Result<i64, String> {
+    value
+        .parse::<i64>()
+        .map_err(|error| format!("invalid i64 value {value}: {error}"))
+}
+
+fn parse_i32(value: &str) -> Result<i32, String> {
+    value
+        .parse::<i32>()
+        .map_err(|error| format!("invalid i32 value {value}: {error}"))
+}
+
 fn hex_lines(bytes: &[u8]) -> Vec<String> {
     bytes
         .chunks(32)
@@ -326,7 +348,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>
@@ -379,5 +401,19 @@ mod tests {
         let root = PathBuf::from("/tmp/calyx-readback");
 
         assert_eq!(display_relative(&root, &root), ".");
+    }
+
+    #[test]
+    fn temporal_search_readback_command_executes() {
+        run(vec![
+            "readback".into(),
+            "temporal_search".into(),
+            "--explain".into(),
+            "--clock-fixed".into(),
+            "1000000".into(),
+            "--tz-offset".into(),
+            "0".into(),
+        ])
+        .expect("temporal search readback");
     }
 }

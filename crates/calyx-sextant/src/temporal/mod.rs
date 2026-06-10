@@ -2,6 +2,7 @@
 
 mod boost;
 mod causal_gate;
+mod search;
 mod window;
 
 pub use boost::{
@@ -17,6 +18,10 @@ pub use calyx_core::{
 pub use causal_gate::{
     CausalConfidence, CausalGateEvidence, apply_causal_gate, causal_gate_mult,
     derive_causal_confidence, temporal_search_pipeline,
+};
+pub use search::{
+    TemporalSearchInput, TemporalSearchResult, temporal_search, temporal_search_from_primary,
+    validate_primary_temporal_weight,
 };
 pub use window::{Clock, FixedClock, SystemClock, TimeWindow, filter_hits_by_window};
 

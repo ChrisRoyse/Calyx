@@ -16,7 +16,7 @@ use crate::query::{
 };
 use crate::reranker::{RerankRequest, RerankerClient};
 use crate::slot_index_map::SlotIndexMap;
-use crate::util::{hex32, stub_ledger};
+use crate::util::{event_time_secs_from_ts, hex32, stub_ledger};
 
 const DEFAULT_PIPELINE_RECALL_MULTIPLIER: usize = 10;
 
@@ -373,7 +373,7 @@ impl SearchEngine {
             });
         for hit in hits {
             if let Some(cx) = self.docs.get(&hit.cx_id) {
-                hit.event_time_secs = i64::try_from(cx.created_at).ok();
+                hit.event_time_secs = event_time_secs_from_ts(cx.created_at);
                 hit.provenance = cx.provenance.clone();
                 hit.provenance_source = ProvenanceSource::Stored;
             } else if require_stored {

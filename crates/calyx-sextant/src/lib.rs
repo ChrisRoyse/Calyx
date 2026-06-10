@@ -50,9 +50,10 @@ pub use temporal::{
     BoostConfig, CausalConfidence, CausalGateEvidence, DecayFunction,
     FixedClock as TemporalFixedClock, FusionWeights, MultiAnchorMode, PeriodicOptions,
     SequenceDirection, SequenceOptions, SystemClock as TemporalSystemClock, TemporalPolicy,
-    TemporalScores, TimeWindow, apply_causal_gate, apply_temporal_boost, causal_gate_mult,
-    derive_causal_confidence, filter_hits_by_window, fuse_temporal, score_e2_recency,
-    score_e3_periodic, score_e4_sequence, temporal_search_pipeline,
+    TemporalScores, TemporalSearchInput, TemporalSearchResult, TimeWindow, apply_causal_gate,
+    apply_temporal_boost, causal_gate_mult, derive_causal_confidence, filter_hits_by_window,
+    fuse_temporal, score_e2_recency, score_e3_periodic, score_e4_sequence, temporal_search,
+    temporal_search_from_primary, temporal_search_pipeline, validate_primary_temporal_weight,
 };
 
 #[cfg(test)]

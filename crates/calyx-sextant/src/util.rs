@@ -45,6 +45,11 @@ pub fn stub_ledger(cx: CxId, seq: u64) -> LedgerRef {
     LedgerRef { seq, hash }
 }
 
+pub fn event_time_secs_from_ts(ts: u64) -> Option<i64> {
+    let secs = if ts >= 10_000_000_000 { ts / 1_000 } else { ts };
+    i64::try_from(secs).ok()
+}
+
 pub fn hex32(bytes: &[u8; 32]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut out = String::with_capacity(64);
