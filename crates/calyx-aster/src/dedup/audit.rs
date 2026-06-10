@@ -7,7 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{DedupAction, EpochSecs, OccurrenceId, dedup_error};
 use crate::cf::{ColumnFamily, recurrence_key};
-use crate::recurrence::{Occurrence, StoredRecurrenceRow, encode_recurrence_row, read_series};
+use crate::recurrence::{
+    Occurrence, StoredRecurrenceRow, encode_recurrence_row, read_series, recurrence_summary_key,
+};
 use crate::vault::AsterVault;
 
 pub const CALYX_DEDUP_WRONG_VAULT: &str = "CALYX_DEDUP_WRONG_VAULT";
@@ -182,6 +184,11 @@ where
         let id = OccurrenceId(0);
         recurrence_rows.push((
             recurrence_key(cx_id, id.0),
+            encode_recurrence_row(&StoredRecurrenceRow::Tombstone { id })?,
+        ));
+        let id = OccurrenceId(u64::MAX);
+        recurrence_rows.push((
+            recurrence_summary_key(cx_id),
             encode_recurrence_row(&StoredRecurrenceRow::Tombstone { id })?,
         ));
     }

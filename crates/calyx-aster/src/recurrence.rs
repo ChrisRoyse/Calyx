@@ -179,10 +179,7 @@ where
     for occurrence in &rolled {
         recurrence_rows.push((
             recurrence_key(base.cx_id, occurrence.id.0),
-            encode_recurrence_row(&StoredRecurrenceRow::RolledOccurrence {
-                id: occurrence.id,
-                rolled_into: occurrence_id,
-            })?,
+            encode_recurrence_row(&StoredRecurrenceRow::Tombstone { id: occurrence.id })?,
         ));
     }
     if let Some(summary) = &summary {
