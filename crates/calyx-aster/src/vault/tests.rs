@@ -155,6 +155,31 @@ fn duplicate_put_after_anchor_preserves_anchor_noop() {
 }
 
 #[test]
+fn duplicate_put_with_conflicting_anchor_fails_closed() {
+    let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
+    let mut cx = sample_constellation(&vault);
+    let id = cx.cx_id;
+    cx.anchors = vec![Anchor {
+        kind: AnchorKind::SpeakerMatch,
+        value: AnchorValue::Text("speaker-a".to_string()),
+        source: "unit-test".to_string(),
+        observed_at: 124,
+        confidence: 1.0,
+    }];
+    let mut changed = cx.clone();
+    changed.anchors[0].value = AnchorValue::Text("speaker-b".to_string());
+
+    vault.put(cx.clone()).expect("first put");
+    let error = vault
+        .put(changed)
+        .expect_err("same-CxId anchor conflict must fail closed");
+    let got = vault.get(id, vault.snapshot()).expect("get original");
+
+    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert_eq!(got.anchors, cx.anchors);
+}
+
+#[test]
 fn binary_codecs_roundtrip_known_offsets_and_fail_closed() {
     let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
     let cx = sample_constellation(&vault);

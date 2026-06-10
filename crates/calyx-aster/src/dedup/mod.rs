@@ -22,6 +22,7 @@ pub const CALYX_DEDUP_SLOT_NOT_IN_TAU: &str = "CALYX_DEDUP_SLOT_NOT_IN_TAU";
 pub const CALYX_DEDUP_MISSING_GUARD_PROFILE: &str = "CALYX_DEDUP_MISSING_GUARD_PROFILE";
 pub const CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION: &str = "CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION";
 pub const CALYX_DEDUP_DPI_EXCEEDED: &str = "CALYX_DEDUP_DPI_EXCEEDED";
+pub const CALYX_DEDUP_ANCHOR_CONFLICT: &str = "CALYX_DEDUP_ANCHOR_CONFLICT";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TauStrategy {
@@ -178,6 +179,7 @@ pub(crate) fn dedup_error(code: &'static str, message: impl Into<String>) -> Cal
             "ensure every required content slot has a dense vector on both constellations"
         }
         CALYX_DEDUP_DPI_EXCEEDED => "reduce the candidate set or use Exact dedup policy",
+        CALYX_DEDUP_ANCHOR_CONFLICT => "keep conflicting anchors as separate contested regions",
         _ => "inspect dedup policy",
     };
     CalyxError {

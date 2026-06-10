@@ -9,8 +9,9 @@ use proptest::prelude::*;
 use super::*;
 use crate::cf::ColumnFamily;
 use crate::dedup::{
-    CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU, CALYX_DEDUP_NO_REQUIRED_SLOTS,
-    ConflictReason, DedupAction, contested_with_key, decode_contested_with,
+    CALYX_DEDUP_ANCHOR_CONFLICT, CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU,
+    CALYX_DEDUP_NO_REQUIRED_SLOTS, ConflictReason, DedupAction, contested_with_key,
+    decode_contested_with,
 };
 
 #[test]
@@ -22,6 +23,55 @@ fn off_policy_returns_no_match_even_when_exact_exists() {
     let decision = check_dedup(&cx, &vault, &DedupPolicy::Off, None).expect("dedup");
 
     assert_eq!(decision, DedupDecision::NoMatch);
+}
+
+#[test]
+fn exact_policy_rejects_same_cxid_conflicting_anchor() {
+    let vault = sample_vault();
+    let existing = sample_cx_with_anchors(
+        1,
+        [(slot(0), dense(vec![1.0, 0.0]))],
+        vec![anchor(
+            AnchorKind::SpeakerMatch,
+            AnchorValue::Text("speaker-a".to_string()),
+        )],
+    );
+    let mut new = existing.clone();
+    new.anchors = vec![anchor(
+        AnchorKind::SpeakerMatch,
+        AnchorValue::Text("speaker-b".to_string()),
+    )];
+    vault.put(existing.clone()).expect("put existing");
+
+    let error = check_dedup(&new, &vault, &DedupPolicy::Exact, None)
+        .expect_err("same-CxId anchor conflict must fail closed");
+
+    assert_eq!(error.code, CALYX_DEDUP_ANCHOR_CONFLICT);
+    assert!(contested_row(&vault, existing.cx_id).is_none());
+}
+
+#[test]
+fn tct_cosine_rejects_same_cxid_conflicting_anchor_before_self_skip() {
+    let vault = sample_vault();
+    let existing = sample_cx_with_anchors(
+        1,
+        [(slot(0), dense(vec![1.0, 0.0]))],
+        vec![anchor(
+            AnchorKind::SpeakerMatch,
+            AnchorValue::Text("speaker-a".to_string()),
+        )],
+    );
+    let mut new = existing.clone();
+    new.anchors = vec![anchor(
+        AnchorKind::SpeakerMatch,
+        AnchorValue::Text("speaker-b".to_string()),
+    )];
+    vault.put(existing).expect("put existing");
+
+    let error = check_dedup(&new, &vault, &policy([(slot(0), 0.9)], vec![slot(0)]), None)
+        .expect_err("same-CxId anchor conflict must fail before self-skip");
+
+    assert_eq!(error.code, CALYX_DEDUP_ANCHOR_CONFLICT);
 }
 
 #[test]
@@ -379,18 +429,21 @@ fn anchor(kind: AnchorKind, value: AnchorValue) -> Anchor {
 }
 
 fn assert_contested(vault: &AsterVault<FixedClock>, id: CxId, contested_with: CxId) {
-    let bytes = vault
+    let bytes = contested_row(vault, id).expect("contested row");
+    let decoded = decode_contested_with(&bytes).expect("decode contested");
+    assert_eq!(decoded.contested_with, contested_with);
+    assert_eq!(decoded.anchor_type, AnchorKind::SpeakerMatch);
+    assert_eq!(decoded.reason, ConflictReason::OppositeValue);
+}
+
+fn contested_row(vault: &AsterVault<FixedClock>, id: CxId) -> Option<Vec<u8>> {
+    vault
         .read_cf_at(
             vault.snapshot(),
             ColumnFamily::Online,
             &contested_with_key(id),
         )
         .expect("read contested")
-        .expect("contested row");
-    let decoded = decode_contested_with(&bytes).expect("decode contested");
-    assert_eq!(decoded.contested_with, contested_with);
-    assert_eq!(decoded.anchor_type, AnchorKind::SpeakerMatch);
-    assert_eq!(decoded.reason, ConflictReason::OppositeValue);
 }
 
 fn policy<const N: usize>(tau: [(SlotId, f32); N], required: Vec<SlotId>) -> DedupPolicy {
