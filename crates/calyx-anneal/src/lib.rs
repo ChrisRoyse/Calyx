@@ -1,11 +1,17 @@
 //! Anneal self-optimization contracts for reversible tuning loops.
 
 mod recurrence_schedule;
+mod shadow;
 mod tripwire;
 
 pub use recurrence_schedule::{
     CALYX_ANNEAL_INVALID_CADENCE, FREQ_BONUS_MAX, RecurrenceSchedule, RefreshPriority,
     RetentionTier, anneal_retention_tier, frequency_kernel_bonus, recurrence_schedule_for,
+};
+pub use shadow::{
+    ActionMetricSnapshot, AnnealAction, BudgetHandle, HeldOutReplay, MetricComparison, MetricSide,
+    MetricSnapshot, ReplayAnchor, ReplayQuery, ReplaySource, ShadowExecutor, ShadowRevertReason,
+    ShadowVerdict, build_replay,
 };
 pub use tripwire::{
     CALYX_TRIPWIRE_INVALID_CONFIG, CALYX_TRIPWIRE_INVALID_METRIC, ThresholdDir, ThresholdState,
