@@ -65,7 +65,7 @@ pub fn temporal_search(
 
     let mut primary_query = query.clone();
     primary_query.slots = primary_slots.clone();
-    primary_query.k = query.recall_k.unwrap_or(query.k).max(query.k);
+    primary_query.k = primary_recall_k(engine, query, window, &primary_slots);
     primary_query.fusion = normalized_primary_fusion(query, &primary_slots);
 
     let primary_hits = engine.search(&primary_query)?;
@@ -167,6 +167,27 @@ fn primary_slots_all_empty(engine: &SearchEngine, slots: &[SlotId]) -> bool {
             .find(|stats| stats.slot == *slot)
             .is_some_and(|stats| stats.len == 0)
     })
+}
+
+fn primary_recall_k(
+    engine: &SearchEngine,
+    query: &Query,
+    window: Option<TimeWindow>,
+    primary_slots: &[SlotId],
+) -> usize {
+    let requested = query.recall_k.unwrap_or(query.k).max(query.k);
+    if window.is_none() {
+        return requested;
+    }
+    engine
+        .indexes
+        .stats()
+        .into_iter()
+        .filter(|stats| primary_slots.contains(&stats.slot))
+        .map(|stats| stats.len)
+        .max()
+        .unwrap_or(requested)
+        .max(requested)
 }
 
 fn validate_primary_fusion(query: &Query, primary_slots: &[SlotId]) -> Result<()> {
