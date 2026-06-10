@@ -102,6 +102,12 @@ a JSON object with:
 surfaces, missing required fields, and unsupported schema versions with
 `CALYX_PH42_ARTIFACT_SCHEMA` before selecting any `--field` value.
 
+## Implementation progress
+
+- #387 implemented Assay recurrence anchors and `oracle_self_consistency`.
+- #388 implemented Loom temporal cross-terms and the persisted `temporal_xterm` CF/WAL row.
+- #389 implements Lodestar recurrence frequency kernel weighting and time-window kernels, with artifact-backed readback surfaces `kernel-weights` and `kernel-window`.
+
 ## Risks / landmines
 
 - **Surprise `−log p` definition:** the surprise term is the negative log probability of the event given its recurrence rate — `−log(frequency / total_events)`. It must NEVER increase the stored bits for a high-frequency event; anomaly scoring is additive to retrieval scoring only (never stored as a lens weight). Audit every call site.

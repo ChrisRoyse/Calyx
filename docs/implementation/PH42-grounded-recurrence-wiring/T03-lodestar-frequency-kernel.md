@@ -53,6 +53,15 @@ during the window.
 - **Readback:** (1) ingest CxId-X 50 times (frequency=50) and CxId-Y once; persist kernel-weight JSON, run `calyx readback kernel-weights --artifact <kernel-weights.json>`, and confirm X has higher weight than Y when betweenness scores are equal; (2) persist window-kernel JSON, run `calyx readback kernel-window --artifact <kernel-window.json>`, and confirm only CxIds with occurrences in the requested window appear
 - **Prove:** X appears in kernel above Y (frequency bonus applied); window kernel contains only in-window CxIds; `scope = TimeWindow` in metadata
 
+## Implementation notes
+
+- Issue #389 implements this in `crates/calyx-lodestar/src/temporal_kernel.rs`.
+- `NodeScore` now carries `frequency_bonus`; PH42 helpers add `FREQ_WEIGHT * frequency_bonus` to the PH33 score and re-sort the node list.
+- `frequency_kernel_bonus` caps at `FREQ_BONUS_MAX=10_000` and returns a normalized log bonus in `[0.0, 1.0]`, including `u64::MAX -> 1.0`.
+- `apply_frequency_bonuses` reads `recurrence.frequency` from the Aster base CF through the vault, not by scanning recurrence rows. Missing base/scalar frequency is a `CALYX_LODESTAR_MISSING_FREQUENCY` warning with bonus `0.0`; invalid scalar shape fails closed with `CALYX_LODESTAR_INVALID_FREQUENCY`.
+- `kernel_for_window` scans persisted recurrence rows to find CxIds with an occurrence in the half-open `[start_secs, end_secs)` window and returns `KernelResult { scope: TimeWindow { .. } }`. `kernel_for_window_from_graph` applies the same active-CxId filter to an existing PH33 association graph.
+- The ignored FSV trigger is `crates/calyx-lodestar/tests/temporal_kernel_fsv.rs` and writes `kernel-weights.json`, `kernel-window.json`, and `BLAKE3SUMS.txt` under `CALYX_LODESTAR_ISSUE389_FSV_DIR`.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder

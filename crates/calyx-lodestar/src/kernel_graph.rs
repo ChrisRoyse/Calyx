@@ -50,8 +50,12 @@ pub struct NodeScore {
     pub betweenness_score: f64,
     pub groundedness_distance: Option<usize>,
     pub groundedness_score: f64,
+    #[serde(default)]
+    pub frequency_bonus: f32,
     pub total_score: f64,
 }
+
+pub type KernelNodeScore = NodeScore;
 
 #[derive(Clone, Debug)]
 pub struct KernelGraph {
@@ -226,16 +230,21 @@ fn score_nodes(
             betweenness_score: bet,
             groundedness_distance: gnd,
             groundedness_score: gnd_score,
+            frequency_bonus: 0.0,
             total_score: total,
         });
     }
-    scored.sort_by(|left, right| {
+    sort_node_scores(&mut scored);
+    Ok(scored)
+}
+
+pub fn sort_node_scores(scores: &mut [NodeScore]) {
+    scores.sort_by(|left, right| {
         right
             .total_score
             .total_cmp(&left.total_score)
             .then_with(|| left.id.as_bytes().cmp(right.id.as_bytes()))
     });
-    Ok(scored)
 }
 
 fn build_kernel_graph(

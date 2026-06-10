@@ -75,6 +75,8 @@ pub enum LodestarError {
     #[error("CALYX_DFVS_GENUS_TOO_LARGE: genus {genus} exceeds supported bound")]
     DfvsGenusTooLarge { genus: usize },
     #[error("{code}: {message}")]
+    TemporalKernel { code: &'static str, message: String },
+    #[error("{code}: {message}")]
     Ledger { code: &'static str, message: String },
     #[error("{code}: {message}")]
     Graph { code: &'static str, message: String },
@@ -112,6 +114,7 @@ impl LodestarError {
             Self::ScopeTenantNotFound { .. } => "CALYX_SCOPE_TENANT_NOT_FOUND",
             Self::DfvsVerificationFailed { .. } => "CALYX_DFVS_VERIFICATION_FAILED",
             Self::DfvsGenusTooLarge { .. } => "CALYX_DFVS_GENUS_TOO_LARGE",
+            Self::TemporalKernel { code, .. } => code,
             Self::Ledger { code, .. } => code,
             Self::Graph { code, .. } => code,
         }
