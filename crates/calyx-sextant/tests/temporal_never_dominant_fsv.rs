@@ -78,7 +78,7 @@ fn temporal_never_dominant_fsv_writes_readback() {
     let invalid = validate_primary_temporal_weight(0.25).expect_err("invalid weight");
     let e2 = e2_query_time_score();
     let (e3_local, e3_utc) = e3_timezone_scores();
-    let all_zero = temporal_search_pipeline(
+    let all_zero_boost = temporal_search_pipeline(
         vec![
             hit(30, 0.0, 1, Some(QUERY_TIME - 60)),
             hit(31, 0.0, 2, Some(QUERY_TIME - 30)),
@@ -88,7 +88,22 @@ fn temporal_never_dominant_fsv_writes_readback() {
         0,
         &TemporalFixedClock::new(QUERY_TIME),
     )
-    .expect("all zero");
+    .expect("all zero boost");
+    let all_zero_final = temporal_search_from_primary(TemporalSearchInput {
+        primary_hits: vec![
+            hit(30, 0.0, 1, Some(QUERY_TIME - 60)),
+            hit(31, 0.0, 2, Some(QUERY_TIME - 30)),
+        ],
+        temporal_weight_used: 0.0,
+        final_k: 2,
+        window: None,
+        policy: &step_policy(None),
+        clock: &TemporalFixedClock::new(QUERY_TIME),
+        tz_offset_secs: 0,
+        primary_slots_used: vec![calyx_core::SlotId::new(8)],
+        temporal_slots_excluded: vec![calyx_core::SlotId::new(20)],
+    })
+    .expect("all zero final");
 
     let readback = json!({
         "before_output_exists": before_output_exists,
@@ -129,8 +144,9 @@ fn temporal_never_dominant_fsv_writes_readback() {
         },
         "all_zero_edge": {
             "before_count": 2,
-            "after_hits": hit_readback(&all_zero),
-            "after_positive_surface_count": all_zero.iter().filter(|hit| hit.score > 0.0).count(),
+            "boost_after_hits": hit_readback(&all_zero_boost),
+            "final_after_hits": hit_readback(&all_zero_final.hits),
+            "after_positive_surface_count": all_zero_final.hits.len(),
         },
     });
     write_json(&output_path, &readback);
@@ -146,7 +162,8 @@ fn temporal_never_dominant_fsv_writes_readback() {
     assert_eq!(invalid.code, CALYX_TEMPORAL_AP60_VIOLATION);
     assert!((e2 - 0.5).abs() <= 1.0e-5);
     assert_eq!((e3_local, e3_utc), (0.5, 0.0));
-    assert_eq!(all_zero.iter().filter(|hit| hit.score > 0.0).count(), 0);
+    assert!(all_zero_boost.iter().all(|hit| hit.score == 0.0));
+    assert!(all_zero_final.hits.is_empty());
 
     if !keep_root {
         fs::remove_dir_all(root).expect("cleanup temp root");

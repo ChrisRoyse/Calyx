@@ -113,6 +113,7 @@ pub fn temporal_search_from_primary(
         input.tz_offset_secs,
     )?;
     let mut hits = apply_causal_gate(boosted, &input.policy.boost)?;
+    hits.retain(|hit| hit.score > 0.0);
     hits.truncate(input.final_k);
     for (index, hit) in hits.iter_mut().enumerate() {
         hit.rank = index + 1;

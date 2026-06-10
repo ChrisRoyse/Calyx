@@ -29,7 +29,8 @@ pub struct WeightedProfile {
     pub lexical_excludes_dense: bool,
 }
 
-/// AP-60 temporal slots remain post-retrieval-only until PH40 temporal boost.
+/// AP-60 temporal slots stay excluded from primary retrieval; PH40 applies
+/// them only as a bounded post-retrieval boost.
 pub const AP60_TEMPORAL_PRIMARY_SLOTS: [SlotId; 3] =
     [SlotId::new(20), SlotId::new(21), SlotId::new(22)];
 
