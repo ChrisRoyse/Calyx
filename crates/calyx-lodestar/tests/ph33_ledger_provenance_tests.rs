@@ -92,6 +92,12 @@ fn kernel_build_and_answer_append_real_ledger_refs() {
     let entries = appender.scan_entries().expect("scan ledger");
     let kinds: Vec<_> = entries.iter().map(|entry| entry.kind).collect();
     let seqs: Vec<_> = answer.provenance.iter().map(|ledger| ledger.seq).collect();
+    let trace = get_answer_trace(
+        appender.store(),
+        &QuarantineSet::default(),
+        query.as_bytes(),
+    )
+    .expect("answer trace");
 
     println!(
         "PH33_LEDGER_PROVENANCE build_seq={} answer_seqs={seqs:?}",
@@ -100,8 +106,8 @@ fn kernel_build_and_answer_append_real_ledger_refs() {
 
     assert_eq!(receipt.ledger_ref.seq, 0);
     assert_eq!(kinds[0], EntryKind::Kernel);
-    assert_eq!(kinds[1..], vec![EntryKind::Answer; answer.hops.len()]);
-    assert_eq!(entries.len(), 1 + answer.hops.len());
+    assert_eq!(kinds[1..], vec![EntryKind::Answer; answer.hops.len() + 1]);
+    assert_eq!(entries.len(), 2 + answer.hops.len());
     assert_eq!(seqs, vec![1, 2, 3]);
     assert_eq!(
         answer.provenance,
@@ -112,10 +118,19 @@ fn kernel_build_and_answer_append_real_ledger_refs() {
             .collect::<Vec<_>>()
     );
     assert_eq!(entries[0].entry_hash, receipt.ledger_ref.hash);
-    for (entry, ledger_ref) in entries[1..].iter().zip(&answer.provenance) {
+    for (entry, ledger_ref) in entries[1..=answer.hops.len()]
+        .iter()
+        .zip(&answer.provenance)
+    {
         assert_eq!(entry.entry_hash, ledger_ref.hash);
         assert_eq!(entry.seq, ledger_ref.seq);
     }
+    assert!(trace.is_trusted());
+    assert_eq!(trace.path.len(), answer.hops.len());
+    assert_eq!(
+        trace.kernel_entry.as_ref().unwrap().seq,
+        receipt.ledger_ref.seq
+    );
     assert!(kernel_payload_has_members_hash(
         &entries[0].payload,
         &receipt.kernel
@@ -224,11 +239,22 @@ fn ph33_kernel_ledger_provenance_aiwonder_fsv() {
     )
     .expect("answer with ledger");
     let entries = appender.scan_entries().expect("scan entries");
+    let trace = get_answer_trace(
+        appender.store(),
+        &QuarantineSet::default(),
+        query.as_bytes(),
+    )
+    .expect("answer trace");
     let readback = json!({
         "before_count": before.len(),
         "after_count": entries.len(),
         "kernel_entry_count": entries.iter().filter(|entry| entry.kind == EntryKind::Kernel).count(),
         "answer_entry_count": entries.iter().filter(|entry| entry.kind == EntryKind::Answer).count(),
+        "trace_complete": trace.complete,
+        "trace_trusted": trace.is_trusted(),
+        "trace_path_len": trace.path.len(),
+        "trace_answer_entry_seq": trace.answer_entry.as_ref().map(|entry| entry.seq),
+        "trace_kernel_entry_seq": trace.kernel_entry.as_ref().map(|entry| entry.seq),
         "kernel_ledger_ref": receipt.ledger_ref,
         "answer_provenance": answer.provenance,
         "chain_ok": chain_ok(&entries),
@@ -246,17 +272,18 @@ fn ph33_kernel_ledger_provenance_aiwonder_fsv() {
 
     println!("PH33_LEDGER_FSV_ROOT={}", root.display());
     println!("PH33_LEDGER_READBACK={}", readback_path.display());
-    println!("kernel ledger OK: 1 build entry, 3 answer hops");
+    println!("kernel ledger OK: 1 build entry, 3 answer hops, 1 complete answer row");
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
 
     assert_eq!(before.len(), 0);
-    assert_eq!(entries.len(), 4);
+    assert_eq!(entries.len(), 5);
     assert_eq!(entries[0].kind, EntryKind::Kernel);
     assert!(
         entries[1..]
             .iter()
             .all(|entry| entry.kind == EntryKind::Answer)
     );
+    assert!(trace.is_trusted());
     assert!(chain_ok(&entries));
     assert!(payloads_secret_free(&entries));
 }

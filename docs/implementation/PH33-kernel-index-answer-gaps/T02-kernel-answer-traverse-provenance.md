@@ -77,6 +77,13 @@ implements the "retrieval that reasons over the grounded skeleton" from
   source hashes `28f4c3e5cdc276b03d4605ea63d3ac19` /
   `193519c60f28c755ee2252d544f5885e`. The FSV passes the full real anchored set
   through `kernel_answer`, not a preselected one-anchor shortcut.
+- **#631 real-corpus Ledger trace:** aiwonder readback root
+  `/home/croyse/calyx/data/fsv-issue631-real-ledger-answer-20260610` proves
+  `kernel_answer_with_ledger` on real SciFact bytes: before ledger rows `0`,
+  after rows `6`, kernel row seq `0`, hop Answer seqs `[1,2,3,4]`, complete
+  Answer row seq `5`, `get_answer_trace` path length `4`, no warnings, and
+  `trace_trusted=true`. `BLAKE3SUMS.txt` verifies the JSON artifacts and all
+  physical `ledger-cf/*.ledger` row bytes.
 
 ## Done when
 

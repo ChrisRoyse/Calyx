@@ -24,9 +24,11 @@
 > `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
 > Real-corpus anchor-search bound readback #630 is signed off under
 > `/home/croyse/calyx/data/fsv-issue630-real-anchor-search-20260610`.
+> Real-corpus `kernel_answer_with_ledger` trace readback #631 is signed off under
+> `/home/croyse/calyx/data/fsv-issue631-real-ledger-answer-20260610`.
 > Stage 6 exit #240 is signed off under
 > `/home/croyse/calyx/data/fsv-issue240-stage6-exit-lodestar-20260609`.
-> PH36 still owns Ledger trace/reproduce. Post-stage-5 delta issue #360 is
+> PH36 still owns broader Ledger reproduce. Post-stage-5 delta issue #360 is
 > signed off under
 > `/home/croyse/calyx/data/fsv-issue360-lodestar-add-full-rebuild-20260609-96ed8af`;
 > SCC-merge `apply_node_add() -> FullRebuildRequired -> rebuild_dirty()` now
@@ -88,8 +90,10 @@ ContextGraph). **Living-system role:** identity.
 
 ## PH33 — Kernel index + kernel_answer + grounding_gaps
 - **Status.** ✅ T01-T09 DONE / FSV-signed-off. T06 #239 now writes real
-  PH35 Ledger rows for kernel build and answer hops; PH36 trace/reproduce
-  remains separate. T05 real-corpora recall FSV is signed off on aiwonder:
+  PH35 Ledger rows for kernel build and answer hops; #631 adds the final
+  complete Answer row that lets `get_answer_trace` return a trusted trace for
+  successful non-direct Lodestar answers. T05 real-corpora recall FSV is signed
+  off on aiwonder:
   SciFact text `0.9611112`, live Calyx code `0.9777778`, Cora graph
   `0.9568264`, and exact direct-anchor `grounding_gaps` readback. Follow-up #292
   locks `kernel_answer` to fail closed when `max_hops` cannot reach `query_cx`;
@@ -102,6 +106,9 @@ ContextGraph). **Living-system role:** identity.
   is outside the old top-10 window while the current scan is bounded at `158`
   tuned-kernel candidates, with the full real anchored set passed through
   production `kernel_answer`.
+  #631 signs off real SciFact `kernel_answer_with_ledger`: before ledger rows
+  `0`, after rows `6`, kernel seq `0`, hop seqs `[1,2,3,4]`, complete Answer
+  seq `5`, and `get_answer_trace` returns `trace_trusted=true`.
   T08 #331 raw-vs-tuned recall evidence is signed off under
   `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`.
 - **Objective.** Use the kernel as a real index + answer-path; surface the

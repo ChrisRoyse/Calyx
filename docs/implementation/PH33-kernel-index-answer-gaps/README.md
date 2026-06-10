@@ -61,11 +61,14 @@ by the tuned kernel's `158` candidates, and the test passes the full real
 anchored set through production `kernel_answer`.
 T06 (#239) adds PH35-backed Lodestar provenance APIs:
 `build_kernel_pipeline_with_ledger` writes one `kind=Kernel` entry and
-`kernel_answer_with_ledger` writes one `kind=Answer` entry per hop, with
-fail-closed `CALYX_LEDGER_*` error surfacing. Physical ledger row, decoded JSON,
-hex, and secret-scan readbacks are FSV-backed at
-`/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`.
-Full PH36 trace/reproduce is closed in #252-#255.
+`kernel_answer_with_ledger` writes one `kind=Answer` entry per hop plus a final
+complete Answer row for trusted `get_answer_trace` output, with fail-closed
+`CALYX_LEDGER_*` error surfacing. Physical ledger row, decoded JSON, hex, and
+secret-scan readbacks are FSV-backed at
+`/home/croyse/calyx/data/fsv-issue239-kernel-ledger-provenance-20260608`; the
+combined real-corpus readback #631 is signed off under
+`/home/croyse/calyx/data/fsv-issue631-real-ledger-answer-20260610`.
+Full PH36 reproduce remains closed in #252-#255.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -76,7 +79,7 @@ Full PH36 trace/reproduce is closed in #252-#255.
 | `crates/calyx-lodestar/src/loom_assoc.rs` | read Loom XTerm CF agreement rows through `LoomStore`, require slot→CxId bindings + directional confidence, and emit CxId `AgreementEdge` inputs for Mincut/Lodestar |
 | `crates/calyx-lodestar/src/grounding_gaps.rs` | `grounding_gaps(kernel, anchors) -> Vec<CxId>`; BFS from each kernel member; members not reaching any anchor are the gaps |
 | `crates/calyx-lodestar/src/recall_test.rs` | `kernel_recall_test(...) -> RecallReport` for report-only warning bytes; `kernel_recall_gate(...) -> RecallReport` for fail-closed acceptance when ratio < 0.95 |
-| `crates/calyx-lodestar/src/provenance.rs` | PH35-backed `kind=Kernel` / `kind=Answer` Ledger append helpers for build and answer paths (#239); PH36 trace/reproduce is closed separately in Stage 7 |
+| `crates/calyx-lodestar/src/provenance.rs` | PH35-backed `kind=Kernel` / per-hop `kind=Answer` / complete `kind=Answer` Ledger append helpers for build and answer paths (#239/#631); PH36 reproduce is closed separately in Stage 7 |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -87,7 +90,7 @@ Full PH36 trace/reproduce is closed in #252-#255.
 | T03 | `grounding_gaps`: anchor-reachability BFS + gap list | T01 |
 | T04 | Recall test harness: kernel-only recall ≥ 0.95·full | T02, T03 |
 | T05 | FSV: run on ≥3 real corpora on aiwonder; measure + report recall | T04 |
-| T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`) (done #239; PH36 trace/reproduce separate) | PH35 |
+| T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`, per-hop Answer rows, complete trace row) (done #239/#631; PH36 reproduce separate) | PH35 |
 | T07 | Recall below gate fails closed for acceptance flows (done #330) | T04 |
 | T08 | Raw-vs-tuned recall evidence with `raw_recall`, `tuned_recall`, and `pass_mode` (done #331) | T05, T07 |
 | T09 | Anchor-aware `kernel_answer` search exhausts the kernel index and continues to the first reachable anchor before failing closed (synthetic #332; real-corpus bound #630) | T02 |
@@ -130,6 +133,7 @@ Full PH36 trace/reproduce is closed in #252-#255.
   intentionally `provisional` after #294 and cannot satisfy grounded kernel
   evidence requirements.
 - **Provenance stamp per hop:** `kernel_answer_with_ledger` now appends real
-  Ledger rows per hop (#239). The legacy `kernel_answer` stub path is
-  compatibility-only and must not be counted as real Stage 6 exit provenance.
-  PH36 owns `get_answer_trace` and `reproduce`.
+  Ledger rows per hop and a final complete Answer row (#239/#631). The legacy
+  `kernel_answer` stub path is compatibility-only and must not be counted as
+  real Stage 6 exit provenance. Direct-hit ledger provenance is separately
+  tracked by #647; PH36 owns broader reproduce.

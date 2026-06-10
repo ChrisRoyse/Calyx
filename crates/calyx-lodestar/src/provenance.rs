@@ -71,6 +71,28 @@ where
         .map_err(Into::into)
 }
 
+pub fn append_answer_complete_entry<S, C>(
+    ledger: &mut LedgerAppender<S, C>,
+    query_cx: CxId,
+    anchor_kernel_node: CxId,
+    kernel_id: CxId,
+    hops: &[AnswerCompleteHopEvidence],
+    total_score: f32,
+) -> Result<LedgerRef>
+where
+    S: LedgerCfStore,
+    C: Clock,
+{
+    ledger
+        .append(
+            EntryKind::Answer,
+            SubjectId::Query(query_cx.as_bytes().to_vec()),
+            complete_answer_payload(query_cx, anchor_kernel_node, kernel_id, hops, total_score)?,
+            ActorId::Service("calyx-lodestar".to_string()),
+        )
+        .map_err(Into::into)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AnswerHopEvidence {
     pub from: CxId,
@@ -78,6 +100,16 @@ pub struct AnswerHopEvidence {
     pub edge_weight: f32,
     pub hop_index: u32,
     pub hop_score: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct AnswerCompleteHopEvidence {
+    pub from: CxId,
+    pub to: CxId,
+    pub edge_weight: f32,
+    pub hop_index: u32,
+    pub hop_score: f32,
+    pub ledger_ref: LedgerRef,
 }
 
 pub fn kernel_members_hash(kernel: &Kernel) -> [u8; 32] {
@@ -116,6 +148,46 @@ fn answer_hop_payload(
         .insert_u64("hop_index", u64::from(hop.hop_index))
         .insert_value("edge_weight", json!(hop.edge_weight))
         .insert_value("hop_score", json!(hop.hop_score));
+    let bytes = serde_json::to_vec(payload.value()).expect("payload serializes");
+    RedactionPolicy::check_payload(&bytes)?;
+    Ok(bytes)
+}
+
+fn complete_answer_payload(
+    query_cx: CxId,
+    anchor_kernel_node: CxId,
+    kernel_id: CxId,
+    hops: &[AnswerCompleteHopEvidence],
+    total_score: f32,
+) -> Result<Vec<u8>> {
+    let path = hops
+        .iter()
+        .map(|hop| {
+            json!({
+                "from_id": hop.from.to_string(),
+                "cx_id": hop.to.to_string(),
+                "to_id": hop.to.to_string(),
+                "hop": hop.hop_index,
+                "hop_index": hop.hop_index,
+                "score": hop.hop_score,
+                "hop_score": hop.hop_score,
+                "edge_weight": hop.edge_weight,
+                "ledger_ref": {
+                    "seq": hop.ledger_ref.seq,
+                    "hash": hex(&hop.ledger_ref.hash),
+                },
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut payload = PayloadBuilder::default();
+    payload
+        .insert_value("complete", json!(true))
+        .insert_u64("expected_hops", hops.len() as u64)
+        .insert_str("query_id", query_cx.to_string())
+        .insert_str("anchor_kernel_node_id", anchor_kernel_node.to_string())
+        .insert_str("kernel_id", kernel_id.to_string())
+        .insert_value("total_score", json!(total_score))
+        .insert_value("path", json!(path));
     let bytes = serde_json::to_vec(payload.value()).expect("payload serializes");
     RedactionPolicy::check_payload(&bytes)?;
     Ok(bytes)

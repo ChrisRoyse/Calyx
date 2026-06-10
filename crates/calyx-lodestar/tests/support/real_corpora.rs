@@ -19,6 +19,7 @@ pub mod recall_tuning;
 mod source_readback;
 mod sources;
 pub(crate) use graph::{similarity_graph, token_vector};
+#[allow(unused_imports)]
 pub use sources::{calyx_code, cora_graph, scifact_text};
 
 use recall_tuning::{RecallTuningReport, tuning_report};
