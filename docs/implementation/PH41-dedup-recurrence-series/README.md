@@ -59,6 +59,12 @@ rows in one commit, CLI `readback recurrence-series` reads SST+WAL bytes, and
 the FSV fixture proves happy-path 5 occurrences, empty series, max-count rollup,
 oversized context fail-closed, and WAL append failure atomicity. The `Gτ` guard
 (PH37) is in `calyx-ward`.
+PH41 T06 #384 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue384-recurrence-signature-20260610-8b0d0bb`:
+the signature detector now distinguishes same-action/new-time recurrence from
+same-time exact duplicate, routes valid signatures into recurrence occurrence
+appends, fails closed on missing temporal signature slots, and records
+`recurrence_signature`, `same_action`, and `new_time` in Ledger payloads.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -84,7 +90,7 @@ oversized context fail-closed, and WAL append failure atomicity. The `Gτ` guard
 | T03 | Anchor-conflict guard (MUST NOT merge conflicting anchors) | DONE / FSV #381 |
 | T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | DONE / FSV #382 |
 | T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | DONE / FSV #383 |
-| T06 | Recurrence signature detector (content-agree + temporal-differ) | T05 |
+| T06 | Recurrence signature detector (content-agree + temporal-differ) | DONE / FSV #384 |
 | T07 | `dedup_audit` (per-slot cos, reversible, Ledger-logged) | T06 |
 | T08 | FSV: near-but-distinct NOT merged; conflicting-anchor stays separate; recurring → series (reversible) | T07 |
 
