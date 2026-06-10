@@ -66,6 +66,23 @@ fn manual_override_replaces_assay_derived_slots() {
 }
 
 #[test]
+fn manual_empty_required_slots_fail_closed() {
+    let panel = panel_with_bits(&[(slot(1), Some(0.080), SlotState::Active)]);
+    let config = RequiredSlotDerivation::manual(AnchorKind::Reward, Vec::new());
+
+    let error = derive_required_profile(sample_profile(), &panel, &config)
+        .expect_err("empty manual required slots");
+
+    assert_eq!(
+        error,
+        WardError::InvalidRequiredSlotDerivation {
+            reason: "manual required slots must be non-empty",
+        }
+    );
+    assert_eq!(error.code(), "CALYX_GUARD_PROVISIONAL");
+}
+
+#[test]
 fn no_derived_slots_fails_closed_without_manual_override() {
     let panel = panel_with_bits(&[(slot(1), Some(0.010), SlotState::Active)]);
 

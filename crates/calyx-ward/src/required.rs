@@ -92,7 +92,15 @@ pub fn derive_required_profile(
 ) -> Result<GuardProfile, WardError> {
     validate_config(config)?;
     let required_slots = match &config.manual_required_slots {
-        Some(slots) => normalize_slots(slots.clone()),
+        Some(slots) => {
+            let slots = normalize_slots(slots.clone());
+            if slots.is_empty() {
+                return Err(WardError::InvalidRequiredSlotDerivation {
+                    reason: "manual required slots must be non-empty",
+                });
+            }
+            slots
+        }
         None => {
             let evidence = derive_required_slots(panel, config)?;
             if evidence.is_empty() {
