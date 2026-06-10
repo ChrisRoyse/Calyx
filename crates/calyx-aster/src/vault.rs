@@ -169,6 +169,14 @@ where
         &self.dedup_policy
     }
 
+    #[cfg(test)]
+    pub(crate) fn fail_next_wal_append_for_test(&self) {
+        self.durable
+            .as_ref()
+            .expect("test WAL failpoint requires durable vault")
+            .fail_next_wal_append();
+    }
+
     /// Reads one raw CF row at `snapshot`.
     pub fn read_cf_at(
         &self,
