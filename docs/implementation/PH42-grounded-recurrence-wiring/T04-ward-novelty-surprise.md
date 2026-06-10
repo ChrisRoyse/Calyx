@@ -1,64 +1,60 @@
-# PH42 · T04 — Ward: non-recurring = novelty; surprise `−log p` (never inflates bits)
+# PH42 T04 - Ward novelty and recurrence surprise
 
 | Field | Value |
 |---|---|
-| **Phase** | PH42 — Grounded Recurrence Wiring Across Engines |
-| **Stage** | S9 — Temporal & Dedup |
+| **Phase** | PH42 - Grounded Recurrence Wiring Across Engines |
+| **Stage** | S9 - Temporal & Dedup |
 | **Crate** | `calyx-ward` |
-| **Files** | `crates/calyx-ward/src/novelty.rs` (≤500) |
-| **Depends on** | T01 (this phase) · PH38 (τ calibration + novelty detection) · PH41 (frequency) |
-| **Axioms** | A29, A12 |
-| **PRD** | `dbprdplans/25 §4c`, `dbprdplans/09 §5b` |
+| **Issue** | #390 |
+| **Files** | `crates/calyx-ward/src/novelty.rs`, `crates/calyx-ward/src/error.rs`, `crates/calyx-ward/tests/novelty_recurrence*.rs` |
+| **Depends on** | T01 (this phase), PH38, PH41 recurrence frequency |
+| **Axioms** | A29, A12, A16 |
 
 ## Goal
 
-Wire recurrence frequency into Ward's novelty/anomaly classification: a
-non-recurring constellation (frequency = 0 or 1) arriving in a domain full of
-recurring events is the highest-information event — an anomaly, highest bits,
-immediate novelty signal (A29 §5). An overdue recurrence (expected event missing
-past its cadence window) is also a novelty signal. Define the surprise term
-`−log p` where `p = frequency / total_domain_events` — but codify the hard
-constraint: this term is used ONLY for retrieval/anomaly scoring; it MUST NOT
-inflate the stored information bits of any constellation (no bit-stuffing).
+Ward consumes PH41 recurrence frequency as a fail-closed novelty signal:
 
-## Build (checklist of concrete, code-level steps)
+- `frequency <= 1` is `NoveltySignal::NonRecurring` and maps to a new novelty region.
+- Recurring events with a known cadence become `OverdueRecurrence` when the current clock is past `last_occurrence_t + 2 * cadence_secs`.
+- Retrieval anomaly scoring uses `surprise = -log2(p)` where `p = frequency / total_domain_events`.
+- `SurpriseScore` is retrieval-only. It must never modify stored constellation bits, lens bits, or information scores.
 
-- [ ] Define `NoveltySignal` enum: `Recurring { frequency: u64, cadence_secs: f64 }` | `NonRecurring` | `OverdueRecurrence { expected_t: EpochSecs, overdue_by_secs: u64 }` | `Anomaly { surprise_bits: f32 }`
-- [ ] Implement `classify_novelty(cx_id: CxId, vault: &Vault, clock: &dyn Clock) -> Result<NoveltySignal, CalyxError>`:
-  - read `frequency` from base CF (O(1))
-  - if `frequency <= 1` → `NonRecurring` (singleton = novelty/highest-info event)
-  - if `frequency >= 3` AND cadence known: check `clock.now_secs() > last_occurrence_t + 2 * cadence_secs` → `OverdueRecurrence { expected_t: last_occurrence_t + cadence_secs, overdue_by_secs }`
-  - else → `Recurring`
-- [ ] Implement `surprise_bits(cx_id: CxId, domain: &Domain, vault: &Vault) -> Result<f32, CalyxError>`:
-  - `p = frequency(cx_id) / total_domain_events(domain)` — both from base CF; `total_domain_events` = sum of frequencies for all CxIds in domain
-  - if `p = 0.0` → `p = 1.0 / total_domain_events` (Laplace smoothing)
-  - `surprise = -p.ln() / 2f32.ln()` (bits, base-2 logarithm)
-  - return `surprise`
-- [ ] Hard constraint enforcement — codify as a type-level guarantee: `surprise_bits` returns a `SurpriseScore(f32)` newtype; this newtype has NO conversion to any type that touches stored constellation bits (no `Into<LensBits>`, no `Into<InformationScore>`). Add a lint comment: `// INVARIANT: SurpriseScore is for retrieval anomaly only; MUST NOT modify stored bits`
-- [ ] Implement `overdue_recurrence_scan(domain: &Domain, vault: &Vault, clock: &dyn Clock) -> Vec<(CxId, NoveltySignal)>`: scan all recurring CxIds in domain; return those that are overdue
-- [ ] Integrate `classify_novelty` result into Ward's existing novelty-region logic (PH38): `NonRecurring` maps to "new region" signal; `Anomaly` maps to "guard attention required"
+## Implementation
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+- `Domain` groups CxIds for domain-local recurrence probability.
+- `NoveltySignal` is serialized with snake-case tags: `recurring`, `non_recurring`, `overdue_recurrence`, `anomaly`.
+- `classify_novelty(cx_id, vault, clock)` reads `recurrence.frequency` from the base CF through `AsterVault::get`.
+- Missing frequency fails closed with `CALYX_WARD_MISSING_FREQUENCY`.
+- Non-finite, negative, fractional, or oversized frequency fails closed with `CALYX_WARD_INVALID_FREQUENCY`.
+- `surprise_bits(cx_id, domain, vault)` sums unique domain CxId frequencies from the base CF and returns `SurpriseScore`.
+- `SurpriseScore(f32)` has a private field and validates finite non-negative values.
+- `overdue_recurrence_scan(domain, vault, clock)` returns only overdue recurrence rows.
+- `novelty_action_for_signal(signal)` maps `NonRecurring` and `OverdueRecurrence` to `NoveltyAction::NewRegion`; `Anomaly` maps to `NoveltyAction::Quarantine`; plain `Recurring` has no action.
 
-- [ ] unit: `frequency = 0` → `NonRecurring`
-- [ ] unit: `frequency = 1` → `NonRecurring`
-- [ ] unit: `frequency = 10`, cadence=100s, `last_occurrence = clock.now_secs() - 350s` (> 2×cadence) → `OverdueRecurrence { expected_t: last+100, overdue_by: 250 }`
-- [ ] unit: `surprise_bits` for `frequency=1` in a domain of 100 events: `p = 1/100 = 0.01`, `surprise = -log2(0.01) ≈ 6.64 bits`
-- [ ] unit: `surprise_bits` for `frequency=50` in domain of 100: `p=0.5`, `surprise = 1.0 bit`
-- [ ] unit: `SurpriseScore` newtype has no `Into<LensBits>` impl — static assertion (compile-time)
-- [ ] proptest: `surprise_bits` ≥ 0.0 for all valid inputs (information is non-negative)
-- [ ] edge: `total_domain_events = 0` → Laplace smoothing: `p = 1.0/1 = 1.0`, `surprise = 0.0`
-- [ ] fail-closed: `frequency` field missing from base CF → `CALYX_WARD_MISSING_FREQUENCY`; not treated as `frequency=0` silently (fail-closed, A16)
+## Tests
 
-## FSV (read the bytes on aiwonder — the truth gate)
+- `frequency = 0` and `frequency = 1` both classify as `NonRecurring`.
+- `frequency = 10`, cadence `100s`, last occurrence `1000s`, clock `1350s` classifies as `OverdueRecurrence { expected_t: 1100, overdue_by_secs: 250 }`.
+- `surprise_bits` matches hand-computed values: `frequency=1` in 100 domain events is about `6.643856`; `frequency=50` in 100 events is `1.0`.
+- Empty domain returns `SurpriseScore(0.0)`.
+- Missing frequency fails closed with `CALYX_WARD_MISSING_FREQUENCY`.
+- Overdue scan and action mapping exercise the Ward routing surface.
+- Proptest keeps `surprise_score_from_counts` finite and non-negative for all valid `u64` count pairs.
 
-- **SoT:** `NoveltySignal` returned by `classify_novelty`; Ward's novelty-region log
-- **Readback:** (1) ingest a singleton CxId in a domain of 20 recurring events; persist Ward novelty JSON and run `calyx readback ward-novelty --artifact <ward-novelty.json> --field singleton.signal` → print `NoveltySignal`; (2) inject a FixedClock past the cadence window for a recurring CxId and read `--field overdue.signal` → print `OverdueRecurrence`
-- **Prove:** singleton → `NonRecurring` printed; overdue → `OverdueRecurrence { expected_t: ..., overdue_by: ... }` printed; `SurpriseScore` appears in anomaly log but NOT in any stored bits field (grep CF bytes for surprise value — must be absent)
+## FSV
 
-## Done when
+The ignored trigger `novelty_recurrence_fsv.rs` writes a durable aiwonder artifact:
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH42 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- `ward-novelty.json` v1 envelope for the `ward-novelty` readback surface.
+- A durable Aster vault under the FSV root with Base, Recurrence, Ledger, and WAL bytes.
+- Happy path: singleton `0101...` -> `non_recurring`; overdue recurring `0303...` -> `overdue_recurrence`; singleton surprise in a 21-event domain -> about `4.392317`.
+- Edges: zero frequency, empty domain, missing frequency, invalid fractional frequency.
+- Readback must separately inspect artifact fields, Base CF rows, Recurrence CF rows, WAL bytes, and BLAKE3 manifests.
+- The surprise f32 hex is recorded in the artifact and must not appear as a stored base/WAL bit value.
+
+## Done When
+
+- aiwonder gates pass: format, line count, diff check, Ward tests, Ward clippy, CLI readback checks.
+- The ignored FSV trigger is run on aiwonder, and its artifact manifests verify.
+- Manual readback evidence is posted to #390.
+- The issue is closed with commit, artifact root, readback values, and edge-case evidence.

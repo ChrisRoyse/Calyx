@@ -1,94 +1,100 @@
-# PH42 — Grounded Recurrence Wiring Across Engines
+# PH42 - Grounded Recurrence Wiring Across Engines
 
-**Stage:** S9 — Temporal & Dedup  ·  **Crate:** cross-crate (`calyx-assay`,
-`calyx-loom`, `calyx-lodestar`, `calyx-ward`, `calyx-sextant`, `calyx-aster`)  ·
-**PRD roadmap:** A29  ·  **Axioms:** A29, A2, A20
+**Stage:** S9 - Temporal & Dedup
+**Crate:** cross-crate (`calyx-assay`, `calyx-loom`, `calyx-lodestar`, `calyx-ward`, `calyx-sextant`, `calyx-aster`)
+**PRD roadmap:** A29
+**Axioms:** A29, A2, A20
 
 ## Objective
 
-PH41 provides the recurrence series/frequency/cadence storage and readback
-surface. This phase derives the grounded recurrence intelligence that spans
-engines: Assay (frequency as grounded anchor; `oracle_self_consistency(domain)`
-from recurring outcomes' anchor agreement), Loom (temporal cross-terms /
-co-occurrence lead-lag), Lodestar (frequency → kernel candidacy; time-window
-kernels), Ward (non-recurring = novelty/highest-information), Sextant (AP-60
-frequency/recency boost), Compression (dedup count = meaning-compression ratio),
-and Anneal (importance/cadence). The surprise term `−log p` for anomaly scoring
-is defined but may never inflate bits.
+PH41 provides recurrence series, frequency, and cadence storage and readback.
+PH42 derives the grounded recurrence intelligence that spans engines:
+
+- Assay: frequency as grounded anchor; `oracle_self_consistency(domain)` from recurring outcomes' anchor agreement.
+- Loom: temporal cross-terms and co-occurrence lead-lag.
+- Lodestar: frequency-to-kernel candidacy and time-window kernels.
+- Ward: non-recurring means novelty/highest information; overdue recurrence detection.
+- Sextant: AP-60 frequency/recency boost.
+- Compression: dedup count as meaning-compression ratio.
+- Anneal: importance and cadence scheduling.
+
+The surprise term `-log2(p)` for anomaly scoring is defined here, but it may never inflate stored constellation bits.
 
 ## Dependencies
 
-- **Phases:** PH41 (recurrence series + frequency count — the data these engines
-  consume), PH28 (KSG MI + partitioned NMI — Assay MI computation reused here
-  for self-consistency), PH33 (kernel index + grounding gaps — Lodestar candidacy
-  logic extended here)
-- **Provides for:** PH49 (Oracle consequence prediction needs `oracle_self_consistency`
-  and cadence from this phase), PH43 (Anneal importance/cadence weights), PH48
-  (J objective uses recurrence signals)
+- **Phases:** PH41 recurrence series and frequency count, PH28 KSG MI and partitioned NMI, PH33 kernel index and grounding gaps.
+- **Provides for:** PH49 Oracle consequence prediction, PH43 Anneal importance/cadence weights, PH48 J objective recurrence signals.
 
-## Current state (build off what exists)
+## Current State
 
 `calyx-assay`, `calyx-loom`, `calyx-lodestar`, `calyx-ward`, and
 `calyx-sextant` have their prerequisite Stage 5-8 surfaces implemented and
-FSV-signed-off. PH41 now provides recurrence series/frequency storage, #578
-public recurrence read APIs (`recurrence_series`, `periodic_fit`,
-`periodic_recall`), and #621 concurrency-safe occurrence allocation across
-multi-handle durable opens. PH42 should wire those grounded recurrence signals
-into the already-built engine surfaces, while using an O(1) base-CF frequency
-anchor path for hot consumers rather than recomputing/scanning recurrence
-series. This is primarily a wiring + API-surface phase: each engine gets a
-small, well-defined interface to the recurrence signals stored in the base CF.
+FSV-signed-off. PH41 provides recurrence series/frequency storage, #578 public
+recurrence read APIs (`recurrence_series`, `periodic_fit`, `periodic_recall`),
+and #621 concurrency-safe occurrence allocation across multi-handle durable
+opens.
+
+PH42 wires those grounded recurrence signals into existing engine surfaces while
+using an O(1) base-CF frequency anchor path for hot consumers instead of
+recomputing or scanning recurrence series.
 
 Entry discipline: PH42 is not the next active work while PH40 follow-ups
-#616/#618/#619 and PH41 follow-ups #620/#626 remain open. Start this phase only
-after those follow-ups are FSV-backed or GitHub issue state
-records an explicit decision to defer them out of the PH42 entry gate. PH42
-readback-surface gate #625 must also be resolved before PH42 can be signed off.
+#616/#618/#619 and PH41 follow-ups #620/#626 remain open, unless GitHub issue
+state records an explicit decision to defer them out of the PH42 entry gate.
+PH42 readback-surface gate #625 must also be resolved before PH42 can be signed
+off.
 
-## Deliverables (file plan, each ≤500 lines)
+## Deliverables
 
 | File | Responsibility |
 |---|---|
 | `crates/calyx-loom/src/recurrence/cross_terms.rs` | Temporal cross-terms: co-occurrence lead-lag between two CxIds' recurrence series |
 | `crates/calyx-assay/src/recurrence_anchor.rs` | Frequency as grounded anchor; `oracle_self_consistency(domain)` from recurring outcomes |
-| `crates/calyx-lodestar/src/temporal_kernel.rs` | Frequency → kernel candidacy boost; time-window kernel scope |
-| `crates/calyx-ward/src/novelty.rs` | Non-recurring = novelty/highest-information signal; overdue recurrence detection |
+| `crates/calyx-lodestar/src/temporal_kernel.rs` | Frequency-to-kernel candidacy boost; time-window kernel scope |
+| `crates/calyx-ward/src/novelty.rs` | Non-recurring novelty/highest-information signal; overdue recurrence detection |
 | `crates/calyx-sextant/src/temporal/recurrence_boost.rs` | Frequency/recency contribution to AP-60 post-retrieval boost |
 | `crates/calyx-aster/src/dedup/compression_ratio.rs` | Dedup count = meaning-compression ratio; expose `compression_ratio(cx_id)` |
-| `crates/calyx-anneal/src/recurrence_schedule.rs` | Frequency → importance weight; cadence → adaptive retention/refresh schedule |
+| `crates/calyx-anneal/src/recurrence_schedule.rs` | Frequency-to-importance weight; cadence-to-retention/refresh schedule |
 | `crates/calyx-loom/tests/recurrence_cross_terms.rs` | Tests for cross-terms and lead-lag |
 | `crates/calyx-loom/tests/recurrence_cross_terms_fsv.rs` | Ignored FSV trigger that writes the PH42 temporal cross-term artifact |
 | `crates/calyx-assay/tests/recurrence_anchor.rs` | Tests for `oracle_self_consistency` |
 | `crates/calyx-assay/tests/recurrence_anchor_fsv.rs` | Ignored FSV trigger that writes the PH42 Assay report artifact |
 
-## Tasks (atomic — all must pass for the phase to be DONE)
+## Tasks
 
 | Card | Title | Depends |
 |---|---|---|
-| T01 | Assay: frequency as grounded anchor + `oracle_self_consistency` | — |
+| T01 | Assay: frequency as grounded anchor + `oracle_self_consistency` | - |
 | T02 | Loom: temporal cross-terms + co-occurrence lead-lag | T01 |
-| T03 | Lodestar: frequency → kernel candidacy; time-window kernels | T01 |
-| T04 | Ward: non-recurring = novelty; surprise `−log p` (never inflates bits) | T01 |
+| T03 | Lodestar: frequency-to-kernel candidacy; time-window kernels | T01 |
+| T04 | Ward: non-recurring = novelty; surprise `-log2(p)` never inflates bits | T01 |
 | T05 | Sextant: frequency/recency recurrence boost (AP-60) | T01 |
 | T06 | Compression ratio + Anneal importance/cadence | T01 |
-| T07 | FSV: recurring-agreeing → high self-consistency; recurring-differing → flaky; frequency → kernel weight | T06 |
+| T07 | FSV: recurring-agreeing -> high self-consistency; recurring-differing -> flaky; frequency -> kernel weight | T06 |
 
-## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
+## FSV Exit Gate
 
-Two gates:
-1. **Self-consistency:** recurring events with agreeing outcomes → `oracle_self_consistency` ≥ 0.90; with differing outcomes → `oracle_self_consistency` ≤ 0.60 (ceiling drops). Persist the Assay report and read `calyx readback assay-report --artifact <assay-report.json> --field oracle_self_consistency`.
-2. **Frequency → kernel weight:** a constellation ingested N=50 times (high frequency) must appear in the kernel graph node list with weight above the baseline; a one-time constellation must not. Persist the kernel-weight report and read `calyx readback kernel-weights --artifact <kernel-weights.json>`.
+The phase is done only when these claims are byte-proven on aiwonder:
+
+1. **Self-consistency:** recurring events with agreeing outcomes produce
+   `oracle_self_consistency >= 0.90`; recurring events with differing outcomes
+   produce `oracle_self_consistency < 0.60`. Persist the Assay report and read
+   `calyx readback assay-report --artifact <assay-report.json> --field oracle_self_consistency`.
+2. **Frequency-to-kernel weight:** a constellation ingested N=50 times appears in
+   the kernel graph node list with weight above baseline; a one-time
+   constellation does not. Persist the kernel-weight report and read
+   `calyx readback kernel-weights --artifact <kernel-weights.json>`.
 
 #625 owns the cross-cutting readback-surface gate for these FSV claims. Tests
 may trigger PH42 computations, but the verdict must be persisted JSON,
 Aster/Ledger/CF/WAL bytes, or CLI readback output with BLAKE3-indexed artifacts.
 The #625 CLI contract is artifact-backed until individual PH42 engine cards add
-native vault/domain readers: `calyx readback <surface> --artifact <json>
-[--field <path>]`, where `<surface>` is one of `assay-report`,
-`temporal-cross-term`, `kernel-weights`, `kernel-window`, `ward-novelty`,
-`compression-ratio`, or `anneal-schedule`. A PH42 card may add a richer native
-reader later, but it must still cite persisted bytes and a BLAKE3-indexed
-artifact in closeout.
+native vault/domain readers:
+
+`calyx readback <surface> --artifact <json> [--field <path>]`
+
+`<surface>` is one of `assay-report`, `temporal-cross-term`, `kernel-weights`,
+`kernel-window`, `ward-novelty`, `compression-ratio`, or `anneal-schedule`.
 
 PH42 readback artifacts are fail-closed v1 envelopes. The artifact root must be
 a JSON object with:
@@ -102,22 +108,16 @@ a JSON object with:
 surfaces, missing required fields, and unsupported schema versions with
 `CALYX_PH42_ARTIFACT_SCHEMA` before selecting any `--field` value.
 
-## Implementation progress
+## Implementation Progress
 
 - #387 implemented Assay recurrence anchors and `oracle_self_consistency`.
 - #388 implemented Loom temporal cross-terms and the persisted `temporal_xterm` CF/WAL row.
-- #389 implements Lodestar recurrence frequency kernel weighting and time-window kernels, with artifact-backed readback surfaces `kernel-weights` and `kernel-window`.
+- #389 implemented Lodestar recurrence frequency kernel weighting and time-window kernels, with artifact-backed readback surfaces `kernel-weights` and `kernel-window`.
+- #390 implements Ward recurrence novelty classification, overdue recurrence scanning, and retrieval-only `SurpriseScore` anomaly scoring with artifact-backed `ward-novelty` readback.
 
-## Risks / landmines
+## Risks / Landmines
 
-- **Surprise `−log p` definition:** the surprise term is the negative log probability of the event given its recurrence rate — `−log(frequency / total_events)`. It must NEVER increase the stored bits for a high-frequency event; anomaly scoring is additive to retrieval scoring only (never stored as a lens weight). Audit every call site.
-- **Cross-crate circular dependencies:** wiring seven crates creates potential cycles. All recurrence signals flow from `calyx-aster` (the data source) through `calyx-loom` (the transformer) to consumers. No consumer crate imports another consumer crate.
-- **PH41 readiness:** PH41 recurrence series/frequency storage, #578 public
-  read APIs, and #621 concurrency-safe allocation are available. Remaining PH41
-  follow-ups #620/#626 still need issue-state resolution before PH42 starts
-  unless explicitly deferred. PH42 still needs consumer-facing O(1)
-  base-CF frequency anchor reads for hot paths; scan-based periodic readback
-  APIs are evidence/debug surfaces, not the PH42 runtime path. PH28 Assay MI and
-  PH33 Lodestar kernel surfaces are already FSV-signed-off and should be reused
-  directly rather than stubbed.
-- **Grounded anchor immutability:** frequency is a grounded anchor (A2) — a count of what happened. It must be read from the `frequency` field in the base CF (written by PH41), never recomputed from the series on every call (O(1), not O(N)).
+- **Surprise `-log2(p)` definition:** the surprise term is the negative log probability of the event given its recurrence rate: `-log2(frequency / total_events)`. It must NEVER increase stored constellation bits; anomaly scoring is retrieval-only and never stored as a lens weight or information score. Audit every call site.
+- **Cross-crate circular dependencies:** recurrence signals flow from `calyx-aster` as the data source to consumers. No consumer crate imports another consumer crate.
+- **PH41 readiness:** PH41 recurrence series/frequency storage, #578 public read APIs, and #621 concurrency-safe allocation are available. Remaining PH41 follow-ups #620/#626 still need issue-state resolution before PH42 starts unless explicitly deferred.
+- **Grounded anchor immutability:** frequency is a grounded anchor (A2), a count of what happened. It must be read from the `frequency` field in the base CF written by PH41, not recomputed from the series on every hot-path call.
