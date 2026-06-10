@@ -1,4 +1,5 @@
-use calyx_core::{CALYX_TEMPORAL_AP60_VIOLATION, CxId, Result, SlotId};
+use calyx_aster::vault::AsterVault;
+use calyx_core::{CALYX_TEMPORAL_AP60_VIOLATION, Clock as CoreClock, CxId, Result, SlotId};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_SLOT_MISSING, sextant_error};
@@ -10,7 +11,7 @@ use crate::search::SearchEngine;
 
 use super::{
     Clock, TemporalPolicy, TimeWindow, apply_causal_gate, apply_temporal_boost,
-    filter_hits_by_window,
+    apply_temporal_boost_with_recurrence, filter_hits_by_window,
 };
 
 const PRIMARY_TEMPORAL_WEIGHT: f32 = 0.0;
@@ -83,6 +84,72 @@ pub fn temporal_search(
     })
 }
 
+pub fn temporal_search_with_recurrence<C>(
+    engine: &SearchEngine,
+    query: &Query,
+    window: Option<TimeWindow>,
+    policy: &TemporalPolicy,
+    clock: &dyn Clock,
+    tz_offset_secs: i32,
+    vault: &AsterVault<C>,
+) -> Result<TemporalSearchResult>
+where
+    C: CoreClock,
+{
+    let selected_slots = if query.slots.is_empty() {
+        engine.indexes.slots()
+    } else {
+        query.slots.clone()
+    };
+    let (primary_slots, temporal_slots_excluded) = split_primary_slots(&selected_slots);
+    if primary_slots.is_empty() {
+        return Err(sextant_error(
+            CALYX_SEXTANT_NO_LENSES,
+            "AP-60 temporal search has no non-temporal primary slot to query",
+        ));
+    }
+    ensure_slots_registered(engine, &primary_slots)?;
+    validate_primary_fusion(query, &primary_slots)?;
+    if primary_slots_all_empty(engine, &primary_slots) {
+        return temporal_search_from_primary_with_recurrence(
+            TemporalSearchInput {
+                primary_hits: Vec::new(),
+                temporal_weight_used: PRIMARY_TEMPORAL_WEIGHT,
+                final_k: query.k,
+                window,
+                policy,
+                clock,
+                tz_offset_secs,
+                primary_slots_used: primary_slots,
+                temporal_slots_excluded,
+            },
+            vault,
+        );
+    }
+
+    let mut primary_query = query.clone();
+    primary_query.slots = primary_slots.clone();
+    primary_query.k = primary_recall_k(engine, query, window, &primary_slots);
+    primary_query.fusion = normalized_primary_fusion(query, &primary_slots);
+
+    let primary_hits = engine.search(&primary_query)?;
+
+    temporal_search_from_primary_with_recurrence(
+        TemporalSearchInput {
+            primary_hits,
+            temporal_weight_used: PRIMARY_TEMPORAL_WEIGHT,
+            final_k: query.k,
+            window,
+            policy,
+            clock,
+            tz_offset_secs,
+            primary_slots_used: primary_slots,
+            temporal_slots_excluded,
+        },
+        vault,
+    )
+}
+
 pub struct TemporalSearchInput<'a> {
     pub primary_hits: Vec<Hit>,
     pub temporal_weight_used: f32,
@@ -98,6 +165,25 @@ pub struct TemporalSearchInput<'a> {
 pub fn temporal_search_from_primary(
     input: TemporalSearchInput<'_>,
 ) -> Result<TemporalSearchResult> {
+    temporal_search_from_primary_inner(input, apply_temporal_boost)
+}
+
+pub fn temporal_search_from_primary_with_recurrence<C>(
+    input: TemporalSearchInput<'_>,
+    vault: &AsterVault<C>,
+) -> Result<TemporalSearchResult>
+where
+    C: CoreClock,
+{
+    temporal_search_from_primary_inner(input, |hits, policy, query_time_secs, tz_offset_secs| {
+        apply_temporal_boost_with_recurrence(hits, policy, query_time_secs, tz_offset_secs, vault)
+    })
+}
+
+fn temporal_search_from_primary_inner(
+    input: TemporalSearchInput<'_>,
+    boost: impl FnOnce(Vec<Hit>, &TemporalPolicy, i64, i32) -> Result<Vec<Hit>>,
+) -> Result<TemporalSearchResult> {
     validate_primary_temporal_weight(input.temporal_weight_used)?;
     let pre_boost_ranking = input
         .primary_hits
@@ -106,7 +192,7 @@ pub fn temporal_search_from_primary(
         .collect::<Vec<_>>();
     let window = input.window.unwrap_or_else(TimeWindow::all);
     let filtered = filter_hits_by_window(input.primary_hits, &window);
-    let boosted = apply_temporal_boost(
+    let boosted = boost(
         filtered,
         input.policy,
         input.clock.now_secs(),

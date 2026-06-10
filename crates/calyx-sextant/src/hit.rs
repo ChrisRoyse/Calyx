@@ -48,6 +48,8 @@ pub struct ExplainBreakdown {
     pub strategy: String,
     pub per_lens_count: usize,
     pub provenance_hex: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recurrence_boost: Option<crate::temporal::RecurrenceBoostEvidence>,
     #[serde(default)]
     pub guard_dropped: Vec<DroppedGuardHit>,
 }
@@ -111,6 +113,7 @@ impl Hit {
             strategy: strategy.into(),
             per_lens_count: self.per_lens.len(),
             provenance_hex: hex32(&self.provenance.hash),
+            recurrence_boost: None,
             guard_dropped: Vec::new(),
         });
         self

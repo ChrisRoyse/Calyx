@@ -1,8 +1,10 @@
-use calyx_core::Result;
+use calyx_aster::vault::AsterVault;
+use calyx_core::{Clock as CoreClock, CxId, RecurrenceBoostConfig, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::hit::Hit;
 
+use super::recurrence_boost::{RecurrenceBoostEvidence, recurrence_boost_evidence};
 use super::{DecayFunction, FusionWeights, PeriodicOptions, TemporalPolicy};
 
 const SECS_PER_HOUR: i64 = 3_600;
@@ -124,21 +126,63 @@ pub fn apply_temporal_boost(
     query_time_secs: i64,
     tz_offset_secs: i32,
 ) -> Result<Vec<Hit>> {
+    boost_hits(
+        hits,
+        policy,
+        query_time_secs,
+        tz_offset_secs,
+        |_cx_id, _query_time_secs, _config| Ok(None),
+    )
+}
+
+pub fn apply_temporal_boost_with_recurrence<C>(
+    hits: Vec<Hit>,
+    policy: &TemporalPolicy,
+    query_time_secs: i64,
+    tz_offset_secs: i32,
+    vault: &AsterVault<C>,
+) -> Result<Vec<Hit>>
+where
+    C: CoreClock,
+{
+    boost_hits(
+        hits,
+        policy,
+        query_time_secs,
+        tz_offset_secs,
+        |cx_id, query_time_secs, config| {
+            recurrence_boost_evidence(cx_id, vault, query_time_secs, config).map(Some)
+        },
+    )
+}
+
+fn boost_hits(
+    hits: Vec<Hit>,
+    policy: &TemporalPolicy,
+    query_time_secs: i64,
+    tz_offset_secs: i32,
+    mut recurrence: impl FnMut(
+        CxId,
+        i64,
+        &RecurrenceBoostConfig,
+    ) -> Result<Option<RecurrenceBoostEvidence>>,
+) -> Result<Vec<Hit>> {
     policy.validate()?;
     if !policy.enabled {
         return Ok(hits);
     }
     let alpha = policy.boost.post_retrieval_alpha;
     let total = hits.len();
-    let mut boosted = hits
-        .into_iter()
-        .enumerate()
-        .map(|(index, mut hit)| {
-            if hit.score <= 0.0 {
-                hit.temporal_scores = Some(TemporalScores::zero());
-                return hit;
-            }
-            let scores = match hit.event_time_secs {
+    let mut boosted = Vec::with_capacity(total);
+    for (index, mut hit) in hits.into_iter().enumerate() {
+        let recurrence_evidence = match policy.recurrence_boost {
+            Some(config) => recurrence(hit.cx_id, query_time_secs, &config)?,
+            None => None,
+        };
+        let scores = if hit.score <= 0.0 {
+            TemporalScores::zero()
+        } else {
+            match hit.event_time_secs {
                 Some(event_time_secs) => TemporalScores {
                     e2_recency: score_e2_recency(event_time_secs, query_time_secs, &policy.decay),
                     e3_periodic: score_e3_periodic(
@@ -154,12 +198,19 @@ pub fn apply_temporal_boost(
                     e3_periodic: 0.0,
                     e4_sequence: score_e4_sequence(index, total),
                 },
-            };
-            hit.score += hit.score * fuse_temporal(&scores, &policy.fusion_weights) * alpha;
-            hit.temporal_scores = Some(scores);
-            hit
-        })
-        .collect::<Vec<_>>();
+            }
+        };
+        if hit.score > 0.0 {
+            let temporal_multiplier = fuse_temporal(&scores, &policy.fusion_weights) * alpha;
+            let recurrence_multiplier = recurrence_evidence.as_ref().map_or(0.0, |item| item.total);
+            hit.score += hit.score * (temporal_multiplier + recurrence_multiplier);
+        }
+        hit.temporal_scores = Some(scores);
+        if let Some(explain) = hit.explain.as_mut() {
+            explain.recurrence_boost = recurrence_evidence;
+        }
+        boosted.push(hit);
+    }
 
     boosted.sort_by(|a, b| {
         b.score

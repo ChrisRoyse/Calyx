@@ -15,6 +15,8 @@ const DEFAULT_HALF_LIFE_SECS: u64 = 3_600;
 const DEFAULT_POST_RETRIEVAL_ALPHA: f32 = 0.10;
 const MAX_POST_RETRIEVAL_ALPHA: f32 = 0.10;
 const MAX_CAUSAL_MULTIPLIER: f32 = 10.0;
+const DEFAULT_RECURRENCE_WEIGHT: f32 = 0.05;
+const DEFAULT_MAX_RECURRENCE_BOOST: f32 = 0.10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -300,6 +302,64 @@ impl<'de> Deserialize<'de> for BoostConfig {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecurrenceBoostConfig {
+    pub frequency_weight: f32,
+    pub recency_weight: f32,
+    pub max_recurrence_boost: f32,
+}
+
+impl RecurrenceBoostConfig {
+    pub fn new(
+        frequency_weight: f32,
+        recency_weight: f32,
+        max_recurrence_boost: f32,
+    ) -> Result<Self> {
+        let config = Self {
+            frequency_weight,
+            recency_weight,
+            max_recurrence_boost,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        let values = [
+            self.frequency_weight,
+            self.recency_weight,
+            self.max_recurrence_boost,
+        ];
+        if values
+            .iter()
+            .any(|value| !value.is_finite() || *value < 0.0)
+            || self.max_recurrence_boost > DEFAULT_MAX_RECURRENCE_BOOST
+        {
+            return Err(temporal_error(
+                CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
+                format!(
+                    "recurrence boost weights must be finite, non-negative, and max <= {DEFAULT_MAX_RECURRENCE_BOOST}"
+                ),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl Default for RecurrenceBoostConfig {
+    fn default() -> Self {
+        Self {
+            frequency_weight: DEFAULT_RECURRENCE_WEIGHT,
+            recency_weight: DEFAULT_RECURRENCE_WEIGHT,
+            max_recurrence_boost: DEFAULT_MAX_RECURRENCE_BOOST,
+        }
+    }
+}
+
+fn default_recurrence_boost() -> Option<RecurrenceBoostConfig> {
+    Some(RecurrenceBoostConfig::default())
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct TemporalPolicy {
     pub enabled: bool,
@@ -308,6 +368,7 @@ pub struct TemporalPolicy {
     pub sequence: SequenceOptions,
     pub fusion_weights: FusionWeights,
     pub boost: BoostConfig,
+    pub recurrence_boost: Option<RecurrenceBoostConfig>,
     pub never_dominant: bool,
 }
 
@@ -328,6 +389,7 @@ impl TemporalPolicy {
             sequence,
             fusion_weights,
             boost,
+            recurrence_boost: default_recurrence_boost(),
             never_dominant,
         };
         policy.validate()?;
@@ -343,6 +405,9 @@ impl TemporalPolicy {
         }
         self.periodic.validate()?;
         self.fusion_weights.validate()?;
+        if let Some(config) = &self.recurrence_boost {
+            config.validate()?;
+        }
         self.boost.validate()
     }
 }
@@ -356,6 +421,7 @@ impl Default for TemporalPolicy {
             sequence: SequenceOptions::default(),
             fusion_weights: FusionWeights::default(),
             boost: BoostConfig::default(),
+            recurrence_boost: default_recurrence_boost(),
             never_dominant: true,
         }
     }
@@ -374,20 +440,24 @@ impl<'de> Deserialize<'de> for TemporalPolicy {
             sequence: SequenceOptions,
             fusion_weights: FusionWeights,
             boost: BoostConfig,
+            #[serde(default = "default_recurrence_boost")]
+            recurrence_boost: Option<RecurrenceBoostConfig>,
             never_dominant: bool,
         }
 
         let wire = Wire::deserialize(deserializer)?;
-        Self::new(
-            wire.enabled,
-            wire.decay,
-            wire.periodic,
-            wire.sequence,
-            wire.fusion_weights,
-            wire.boost,
-            wire.never_dominant,
-        )
-        .map_err(de::Error::custom)
+        let policy = Self {
+            enabled: wire.enabled,
+            decay: wire.decay,
+            periodic: wire.periodic,
+            sequence: wire.sequence,
+            fusion_weights: wire.fusion_weights,
+            boost: wire.boost,
+            recurrence_boost: wire.recurrence_boost,
+            never_dominant: wire.never_dominant,
+        };
+        policy.validate().map_err(de::Error::custom)?;
+        Ok(policy)
     }
 }
 
