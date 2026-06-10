@@ -22,10 +22,12 @@ phase makes every subsequent Anneal action safe by construction.
 
 ## Current state (build off what exists)
 
-`calyx-anneal` crate is a 9-line stub; greenfield. `Cargo.toml` references it
-but the crate contains only `lib.rs` with a module placeholder. No tripwire,
-shadow, or rollback logic exists. All Anneal actions from PH44 onward depend on
-this phase being complete.
+`calyx-anneal` now has the PH42 recurrence scheduling surface plus PH43 T01's
+tripwire registry. The registry persists metric thresholds under
+`<vault>/.anneal/tripwire.toml`, exposes `check`/`set_tripwire`/`status`, and has
+`calyx readback config tripwire --vault <dir>` for byte-backed inspection. Shadow
+execution, rollback, budget enforcement, and Ledger Anneal logging remain the
+next PH43 cards.
 
 **Anneal invariants (binding for every card in S10):**
 - Every Anneal action is reversible + tripwire-guarded + Ledger-logged.

@@ -1,4 +1,5 @@
 use super::*;
+use calyx_anneal::TripwireRegistry;
 use std::path::PathBuf;
 
 #[test]
@@ -65,4 +66,23 @@ fn dedup_check_readback_rejects_invalid_cosine_arg() {
     .expect_err("invalid tau");
 
     assert!(error.contains("--tau"));
+}
+
+#[test]
+fn tripwire_config_readback_command_executes() {
+    let root = std::env::temp_dir().join(format!("calyx-cli-tripwire-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create tripwire test vault");
+    TripwireRegistry::load_from_vault(&root).expect("write default tripwire config");
+
+    run(vec![
+        "readback".into(),
+        "config".into(),
+        "tripwire".into(),
+        "--vault".into(),
+        root.display().to_string(),
+    ])
+    .expect("tripwire config readback");
+
+    let _ = std::fs::remove_dir_all(root);
 }
