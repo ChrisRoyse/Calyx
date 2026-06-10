@@ -104,6 +104,9 @@ pub enum StoredRecurrenceRow {
         id: OccurrenceId,
         rolled_into: OccurrenceId,
     },
+    Tombstone {
+        id: OccurrenceId,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -259,7 +262,8 @@ where
         match decode_recurrence_row(&value)? {
             StoredRecurrenceRow::Occurrence(occurrence) => occurrences.push(occurrence),
             StoredRecurrenceRow::RollupSummary(summary) => rollup_summary = Some(summary),
-            StoredRecurrenceRow::RolledOccurrence { .. } => {}
+            StoredRecurrenceRow::RolledOccurrence { .. }
+            | StoredRecurrenceRow::Tombstone { .. } => {}
         }
     }
     occurrences.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));

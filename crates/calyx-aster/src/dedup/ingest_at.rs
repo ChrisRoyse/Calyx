@@ -6,6 +6,7 @@ use calyx_core::{
 };
 use serde::{Deserialize, Serialize};
 
+use super::audit::DedupRestoreSnapshot;
 use super::engine::check_dedup_without_conflict_write;
 use super::ingest_event::{DedupOnlineKind, next_online_prefix, online_event_row, online_kind};
 use super::ingest_ledger::{
@@ -72,19 +73,16 @@ impl IngestInput {
         self.slots.insert(slot, vector);
         self
     }
-
     pub fn with_anchor(mut self, anchor: Anchor) -> Self {
         self.anchors.push(anchor);
         self
     }
-
     pub fn with_temporal_slot(mut self, slot: SlotId) -> Self {
         if !self.temporal_slot_ids.contains(&slot) {
             self.temporal_slot_ids.push(slot);
         }
         self
     }
-
     pub fn with_temporal_slots(mut self, slots: impl IntoIterator<Item = SlotId>) -> Self {
         for slot in slots {
             if !self.temporal_slot_ids.contains(&slot) {
@@ -93,11 +91,9 @@ impl IngestInput {
         }
         self
     }
-
     pub fn temporal_slot_ids(&self) -> &[SlotId] {
         &self.temporal_slot_ids
     }
-
     fn to_constellation<C>(&self, vault: &AsterVault<C>, at: EpochSecs) -> Result<Constellation>
     where
         C: Clock,
@@ -256,6 +252,7 @@ where
         occurrence: None,
         per_slot_cos: &[],
         recurrence_signature: None,
+        restore: None,
     })?;
     let id = new_cx.cx_id;
     vault.commit_dedup_ingest(
@@ -289,6 +286,7 @@ where
         occurrence: None,
         per_slot_cos: &per_slot_cos,
         recurrence_signature: None,
+        restore: None,
     })?;
     vault.commit_dedup_ingest(None, None, Vec::new(), Vec::new(), existing, payload)?;
     Ok(DedupResult::ExactDuplicate(existing))
@@ -309,8 +307,11 @@ where
     let kind = online_kind(&action);
     let mut updated_base = None;
     let mut recurrence_rows = Vec::new();
+    let mut before_base = None;
+    let mut recurrence_tombstones = Vec::new();
     let occurrence = if action == DedupAction::RecurrenceSeries {
         let base = vault.get(existing, vault.snapshot())?;
+        before_base = Some(base.clone());
         let append = build_append(
             vault,
             base,
@@ -321,6 +322,7 @@ where
         )?;
         updated_base = Some(append.updated_base);
         recurrence_rows = append.recurrence_rows;
+        recurrence_tombstones.push(append.occurrence_id);
         append.occurrence_id
     } else {
         next_occurrence_id(vault, kind, existing)?
@@ -334,6 +336,13 @@ where
         action.clone(),
         per_slot_cos.clone(),
     )?];
+    let restore = DedupRestoreSnapshot::new(
+        vault.vault_id(),
+        existing,
+        new_cx.clone(),
+        before_base,
+        recurrence_tombstones,
+    );
     let payload = ledger_payload(LedgerPayload {
         cx: &new_cx,
         at,
@@ -344,6 +353,7 @@ where
         occurrence: Some(occurrence),
         per_slot_cos: &per_slot_cos,
         recurrence_signature: signature,
+        restore: Some(&restore),
     })?;
     let candidate = (action == DedupAction::Link).then_some(new_cx);
     let subject = candidate.as_ref().map_or(existing, |cx| cx.cx_id);

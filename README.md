@@ -118,7 +118,8 @@ under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
 FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
 overfetch, negative fusion-weight validation, and public periodic scorer
 scope. PH41 T01 #379 through T06 #384 are complete and FSV-signed-off; the next
-atomic work is PH41 T07 #385.
+post-T06 hardening #623 is complete and FSV-signed-off; PH41 T07 #385 has an
+implementation checkpoint pending aiwonder FSV.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -210,7 +211,14 @@ missing temporal signature slots, and proves happy/same-temporal/missing-slot
 bytes at
 `/home/croyse/calyx/data/fsv-issue384-recurrence-signature-20260610-8b0d0bb`
 (`dedup-ingest-at-readback.json` BLAKE3
-`bb5b028ff861983b2a5cd9dd547bfb2c39337eef16318422db2815990f6d51c1`).
+`bb5b028ff861983b2a5cd9dd547bfb2c39337eef16318422db2815990f6d51c1`). #623
+hardens the recurrence signature fallback when temporal vectors are absent and
+is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`.
+PH41 T07 #385 adds Ledger-chain-verified `dedup_audit`, vault/target-bound
+reversible `dedup_undo`, restore snapshots in merge Ledger payloads, recurrence
+tombstone undo, and CLI readbacks for `dedup-audit`, `dedup-undo`, and
+`cx-list`; aiwonder FSV is pending.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

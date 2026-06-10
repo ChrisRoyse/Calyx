@@ -295,9 +295,9 @@ fn recurrence_at(vault: &AsterVault<FixedClock>, id: CxId, occ: u64) -> i64 {
         .expect("recurrence row");
     match decode_recurrence_row(&bytes).expect("decode recurrence") {
         StoredRecurrenceRow::Occurrence(occurrence) => occurrence.t_k.0,
-        StoredRecurrenceRow::RollupSummary(_) | StoredRecurrenceRow::RolledOccurrence { .. } => {
-            panic!("expected occurrence row")
-        }
+        StoredRecurrenceRow::RollupSummary(_)
+        | StoredRecurrenceRow::RolledOccurrence { .. }
+        | StoredRecurrenceRow::Tombstone { .. } => panic!("expected occurrence row"),
     }
 }
 

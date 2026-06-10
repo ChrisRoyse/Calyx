@@ -44,6 +44,7 @@ pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), Strin
                     "rolled_into": rolled_into.0,
                 }));
             }
+            StoredRecurrenceRow::Tombstone { .. } => {}
         }
     }
     occurrences.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
