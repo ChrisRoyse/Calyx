@@ -188,6 +188,22 @@ fn binary_codecs_roundtrip_known_offsets_and_fail_closed() {
 }
 
 #[test]
+fn anchor_vector_decode_rejects_non_finite_values() {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&6_u16.to_be_bytes());
+    bytes.push(5);
+    bytes.extend_from_slice(&2_u32.to_be_bytes());
+    bytes.extend_from_slice(&f32::NAN.to_bits().to_be_bytes());
+    bytes.extend_from_slice(&1.0_f32.to_bits().to_be_bytes());
+    bytes.extend_from_slice(&0_u32.to_be_bytes());
+    bytes.extend_from_slice(&0_u64.to_be_bytes());
+    bytes.extend_from_slice(&1.0_f32.to_bits().to_be_bytes());
+
+    let err = encode::decode_anchor(&bytes).expect_err("nan vector must fail closed");
+    assert!(err.to_string().contains("non-finite"));
+}
+
+#[test]
 fn durable_vault_writes_wal_sst_manifest_and_cold_opens() {
     let dir = test_dir("durable");
     let vault =

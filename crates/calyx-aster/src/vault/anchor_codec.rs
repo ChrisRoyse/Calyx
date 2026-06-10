@@ -118,7 +118,13 @@ fn decode_anchor_value(cursor: &mut Cursor<'_>) -> Result<AnchorValue> {
             let count = cursor.u32()? as usize;
             let mut values = Vec::with_capacity(count);
             for _ in 0..count {
-                values.push(f32::from_bits(cursor.u32()?));
+                let value = f32::from_bits(cursor.u32()?);
+                if !value.is_finite() {
+                    return Err(CalyxError::aster_corrupt_shard(
+                        "anchor vector contains non-finite value",
+                    ));
+                }
+                values.push(value);
             }
             AnchorValue::Vector(values)
         }
