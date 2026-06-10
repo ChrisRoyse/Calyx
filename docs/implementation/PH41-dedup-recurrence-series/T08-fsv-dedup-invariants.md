@@ -12,31 +12,49 @@
 
 ## Goal
 
-Write the three formal FSV tests that prove PH41's exit-gate invariants on
-aiwonder with byte-level evidence. These tests are the primary artifact the
+Write the five formal FSV fixtures that prove PH41's exit-gate invariants on
+aiwonder with byte-level evidence. These fixtures are the primary artifact the
 GitHub issue requires: (1) near-but-distinct pair is NOT merged at calibrated τ;
-(2) same-content/opposite-anchor pair stays separate; (3) recurring event →
-one constellation + time series, reversible byte-for-byte.
+(2) same-content/opposite-anchor pair stays separate; (3) recurring event is
+reversible byte-for-byte across all restored base rows; (4) temporal slots are
+excluded from dedup agreement; (5) recurrence frequency reads back accurately.
+
+## Implementation checkpoint and FSV sign-off (2026-06-10)
+
+`#386` is implemented and FSV-signed-off on aiwonder at
+`/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`.
+The root did not exist before the trigger; after the trigger, the separate
+after-read verified 164 files and BLAKE3-checked every vault/artifact row in
+`BLAKE3SUMS.txt`. Artifact hashes:
+
+- `dedup-invariants-readback.json` BLAKE3
+  `f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140`
+- `BLAKE3SUMS.txt` BLAKE3
+  `fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`
+
+Direct aiwonder `calyx readback` calls confirmed the base, slot, online,
+recurrence, and ledger CF bytes for all five fixtures, including recurrence
+tombstones for occurrence ids 0, 1, and 2 after undo.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `fsv_near_but_distinct_not_merged`: create vault with `TctCosine { tau: Calibrated, action: Collapse }`. Embed two constellations whose content cosine = 0.87 (known to be below calibrated τ ≈ 0.92 from PH38 conformal calibration). Call `ingest_at` for both. Assert both return `New(CxId)` → two distinct CxIds. Call `calyx readback cx-list` and assert length = 2.
-- [ ] `fsv_conflicting_anchor_stays_separate`: create vault with `TctCosine { action: RecurrenceSeries }`. Ingest constellation-A with `SpeakerMatch::Speaker("alice")` and identical content. Ingest constellation-B with `SpeakerMatch::Speaker("bob")` and identical content slots (cos = 1.0). Assert second `ingest_at` returns `New(B)`, not `DedupMerge`. Assert `dedup_audit(B)` shows `anchor_conflict_blocks: [A]`. Assert both CxIds exist in CF.
-- [ ] `fsv_recurring_event_series_reversible`: create vault with `TctCosine { action: RecurrenceSeries }`. Ingest same content at t=1000, t=2000, t=3000. Assert: (a) first → `New(CxId-X)` and seeds recurrence occurrence `0`; (b) second → `DedupMerge { into: X, occurrence: 1 }`; (c) third → `DedupMerge { into: X, occurrence: 2 }`. Read `recurrence-series X` → `occurrences = [(1000,_), (2000,_), (3000,_)]`. Read `cx-list` → length = 1. Apply `dedup_undo(dedup_audit(X).reversal_token)`. Read `cx-list` → length = 3. `xxd` each of the 3 restored CxIds' base CF rows; compare byte-for-byte with the bytes written at each original `ingest_at` call.
-- [ ] `fsv_temporal_excluded_from_dedup_agreement`: ingest two constellations whose CONTENT slots cos=0.95 (above τ=0.90) but whose temporal slot cosines are 0.30 (very different — different event times). With `DedupPolicy::TctCosine { required_slots: [content_slot_only] }`. Assert dedup fires (`DedupMerge` returned) — confirming temporal slots are NOT part of the required-slots check.
-- [ ] `fsv_frequency_count_accurate`: 10 ingests of same content with `RecurrenceSeries`. Assert `SeriesStore::occurrence_count(CxId) == 10`. Assert `read_series(CxId).frequency == 10`.
-- [ ] All tests in `#[cfg(test)]`, deterministic, `FixedClock`, seeded RNG
+- [x] `fsv_near_but_distinct_not_merged`: create vault with `TctCosine { tau: Calibrated, action: Collapse }`. Embed two constellations whose content cosine = 0.87 (known to be below calibrated τ ≈ 0.92 from PH38 conformal calibration). Call `ingest_at` for both. Assert both return `New(CxId)` → two distinct CxIds. Call `calyx readback cx-list` and assert length = 2.
+- [x] `fsv_conflicting_anchor_stays_separate`: create vault with `TctCosine { action: RecurrenceSeries }`. Ingest constellation-A with `SpeakerMatch::Speaker("alice")` and identical content. Ingest constellation-B with `SpeakerMatch::Speaker("bob")` and identical content slots (cos = 1.0). Assert second `ingest_at` returns `New(B)`, not `DedupMerge`. Assert `dedup_audit(B)` shows `anchor_conflict_blocks: [A]`. Assert both CxIds exist in CF.
+- [x] `fsv_recurring_event_series_reversible`: create vault with `TctCosine { action: RecurrenceSeries }`. Ingest same content at t=1000, t=2000, t=3000. Assert: (a) first → `New(CxId-X)` and seeds recurrence occurrence `0`; (b) second → `DedupMerge { into: X, occurrence: 1 }`; (c) third → `DedupMerge { into: X, occurrence: 2 }`. Read `recurrence-series X` → `occurrences = [(1000,_), (2000,_), (3000,_)]`. Read `cx-list` → length = 1. Apply `dedup_undo(dedup_audit(X).reversal_token)`. Read `cx-list` → length = 3. `xxd` each of the 3 restored CxIds' base CF rows; compare byte-for-byte with the bytes written at each original `ingest_at` call.
+- [x] `fsv_temporal_excluded_from_dedup_agreement`: ingest two constellations whose CONTENT slots cos=0.95 (above τ=0.90) but whose temporal slot cosines are 0.30 (very different — different event times). With `DedupPolicy::TctCosine { required_slots: [content_slot_only] }`. Assert dedup fires (`DedupMerge` returned) — confirming temporal slots are NOT part of the required-slots check.
+- [x] `fsv_frequency_count_accurate`: 10 ingests of same content with `RecurrenceSeries`. Assert `SeriesStore::occurrence_count(CxId) == 10`. Assert `read_series(CxId).frequency == 10`.
+- [x] All tests in `#[cfg(test)]`, deterministic, `FixedClock`, seeded RNG
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] `fsv_near_but_distinct_not_merged` passes (2 CxIds confirmed)
-- [ ] `fsv_conflicting_anchor_stays_separate` passes (anchor-conflict-blocks confirmed)
-- [ ] `fsv_recurring_event_series_reversible` passes (byte-for-byte reversal confirmed)
-- [ ] `fsv_temporal_excluded_from_dedup_agreement` passes (temporal slots not in required-slots)
-- [ ] `fsv_frequency_count_accurate` passes (count=10)
-- [ ] proptest: no pair of constellations with `anchor_conflict` ever appears in the same `DedupMerge` (property holds for 1000 random pairs)
-- [ ] edge: `fsv_recurring_event_series_reversible` with rollup triggered (>10_000 occurrences) → frequency still accurate, rollup_summary present
-- [ ] fail-closed: `dedup_undo` on a partial reversal (crash mid-undo) → Ledger chain detects incomplete undo, full undo retried safely
+- [x] `fsv_near_but_distinct_not_merged` passes (2 CxIds confirmed)
+- [x] `fsv_conflicting_anchor_stays_separate` passes (anchor-conflict-blocks confirmed)
+- [x] `fsv_recurring_event_series_reversible` passes (byte-for-byte reversal confirmed)
+- [x] `fsv_temporal_excluded_from_dedup_agreement` passes (temporal slots not in required-slots)
+- [x] `fsv_frequency_count_accurate` passes (count=10)
+- [ ] follow-up/property: no pair of constellations with `anchor_conflict` ever appears in the same `DedupMerge` (candidate future property card if needed)
+- [ ] follow-up #620: rollup-triggered recurrence (>10_000 occurrences) keeps frequency accurate with `rollup_summary` present
+- [ ] follow-up #622: exact WAL/crash-injection proof beyond the current storage-error fail-closed path
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -56,7 +74,7 @@ one constellation + time series, reversible byte-for-byte.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH41 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to GitHub issue #386
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

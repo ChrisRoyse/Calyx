@@ -3,8 +3,9 @@
 Productionize on aiwonder: the `calyxd` daemon, systemd unit (sudo-gated),
 ZFS provisioning, Prometheus/Grafana, restic backup, and a byte-verified DR
 drill. Lands in `calyxd` + `infra/aiwonder/`. **Note the constraint (`01 §3`):**
-croyse has no passwordless sudo → systemd install + ZFS dataset creation are
-operator-run; dev/test never needs them.
+sudo is password-backed and authorized through the local env var name, not
+passwordless; systemd install + ZFS dataset creation are gated host actions that
+must read back service/dataset state and must never print the sudo value.
 
 ---
 
@@ -24,13 +25,13 @@ operator-run; dev/test never needs them.
 
 ## PH66 — systemd + ZFS provisioning + Prometheus/Grafana
 - **Objective.** Run as a managed service with the full observability surface.
-- **Deps.** PH65. **(sudo-gated steps run by operator.)**
+- **Deps.** PH65. **(sudo-gated steps use authorized password-backed sudo.)**
 - **Deliverables.** `calyxd.service` (loopback, non-root, `LimitNOFILE`), ZFS
   datasets (`hotpool/calyx`, `archive/calyx`, restic dataset), Prometheus
   `/metrics` (ingest p95, search p99/strategy, recall tripwire, guard FAR/FRR,
   n_eff, kernel recall, Anneal A/Bs, VRAM budget, the 25-hazard metrics), a
   Grafana dashboard.
-- **Key tasks.** (operator) install unit + create datasets; relocate
+- **Key tasks.** install unit + create datasets with authorized sudo; relocate
   `CALYX_HOME/data`→`/zfs/hot/calyx`; wire Prometheus target; build the Grafana
   panels.
 - **FSV gate.** (after operator steps) unit active + `/metrics` scraped;

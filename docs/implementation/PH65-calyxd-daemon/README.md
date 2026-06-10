@@ -13,10 +13,12 @@ init failure (`CALYX_FORGE_DEVICE_UNAVAILABLE`) — no silent CPU fallback is
 permitted in server mode. VRAM budget must honor the 3 resident TEI containers
 already using the RTX 5090. `calyx.toml` is the single authoritative config file.
 
-> **Operator/sudo note (binding, `01 §3`):** croyse has no passwordless sudo.
-> Systemd unit installation and ZFS dataset creation are operator-run steps
-> handled in PH66. This phase runs and tests from `CALYX_HOME` on the NVMe root,
-> with no dependency on those steps. Do not touch existing
+> **Operator/sudo note (binding, `01 §3`):** sudo is password-backed and
+> available through the local env var name when a phase is authorized to perform
+> gated host work. Systemd unit installation and ZFS dataset creation are handled
+> in PH66 and must read back the resulting service/dataset state. This phase
+> runs and tests from `CALYX_HOME` on the NVMe root, with no dependency on those
+> steps. Do not touch existing
 > leapable/contextgraph/PostgreSQL state on the box.
 
 ## Dependencies

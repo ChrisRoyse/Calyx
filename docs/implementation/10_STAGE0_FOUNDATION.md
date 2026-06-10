@@ -45,9 +45,10 @@ build Calyx, touching nothing else.
 builds **and runs on aiwonder** with output in `CALYX_HOME/target`; no file
 created outside `CALYX_HOME`.
 
-**Axioms/PRD.** §8c (everything on aiwonder), `16`, `28 §5`. **Risks.** no
-passwordless sudo → ZFS/systemd deferred (`01 §3`); `cmake`/`protoc` missing →
-userspace install.
+**Axioms/PRD.** §8c (everything on aiwonder), `16`, `28 §5`. **Risks.**
+password-backed sudo is gated and must never print the secret value; ZFS/systemd
+are deferred until their owning phases. `cmake` and `protoc` are now installed
+under `CALYX_HOME/bin` and verified in `01 §2/§6`.
 
 ---
 
@@ -95,8 +96,9 @@ issues every agent reads each turn.
   last-verified stamp — PRD `29 §2`).
 
 **Key tasks.** create repo; push; create labels; open + pin the five issues
-with the read-state protocol noted; record the landmines (no passwordless sudo;
-rust-is-installed correction; ≤500-line; FSV reads bytes; never secret values
+with the read-state protocol noted; record the landmines (sudo is
+password-backed and secret-safe, not passwordless; rust-is-installed
+correction; ≤500-line; FSV reads bytes; never secret values
 in issues; dedup never merges conflicting anchors).
 
 **FSV gate.** `gh issue list --label type:context` returns exactly the five,

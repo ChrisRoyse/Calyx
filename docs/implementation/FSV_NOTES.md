@@ -8,20 +8,28 @@ verdict.
 
 Every FSV gate should name the readback command that proves it. Current readback
 surfaces include file bytes, vault trees, column-family rows, WAL records, and
-SST levels:
+SST levels. The current CLI uses explicit `--vault` and typed subcommands for
+higher-level Aster/Ledger surfaces:
 
 ```bash
 calyx readback --hex <file>
 calyx readback --vault-tree <dir>
-calyx readback --cf <vault-root> <cf-name> [--prefix <hex-prefix>]
+calyx readback --cf <cf-name> --vault <vault-root> [--prefix <hex-prefix>]
+calyx readback --cf ledger --vault <vault-root> [--seq <n>]
+calyx readback cx-list --vault <vault-root>
+calyx readback recurrence-series --vault <vault-root> --cx-id <CxId>
+calyx readback dedup-audit --vault <vault-root> --cx-id <CxId>
+calyx readback dedup-undo --vault <vault-root> --token <json>
+calyx verify-chain --vault <vault-root> --range <start>..<end>
 calyx readback --wal <vault-root>
 calyx readback --level <vault-root> <cf-name>
 ```
 
-Later phases extend `readback` for Ledger entries, metrics, and higher-level
-engine artifacts. The command stays observational: it prints bytes, rows, or
-listings and exits. The agent compares those bytes to the expected state and
-records evidence in the GitHub issue.
+Later phases extend `readback` for metrics and higher-level engine artifacts.
+The command stays observational unless explicitly named as an action subcommand
+such as `dedup-undo`: it prints bytes, rows, or listings and exits. The agent
+compares those bytes to the expected state and records evidence in the GitHub
+issue.
 
 ## Synapse Mapping
 

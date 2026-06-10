@@ -46,7 +46,11 @@ system role:** the sense of time.
   post-T06 recurrence fallback hardening #623 is complete and FSV-backed at
   `/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`;
   PH41 T07 #385 is complete and FSV-backed at
-  `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`.
+  `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`;
+  PH41 T08 #386 is complete and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`
+  (`dedup-invariants-readback.json` BLAKE3
+  `f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140`).
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).
@@ -60,7 +64,8 @@ system role:** the sense of time.
 - **FSV gate.** near-but-distinct pair → **not merged** at calibrated τ; same-
   content/opposite-anchor pair → **stays separate**; a recurring event → one
   event + a time series (read the series + the merge audit, reversible byte-for-
-  byte).
+  byte); temporal slots are excluded from agreement; recurrence frequency reads
+  back accurately at 10 occurrences.
 - **Axioms/PRD.** A28, A3, `25 §4/§5`, `17 §7.1`.
 
 ## PH42 — Grounded recurrence wiring across engines

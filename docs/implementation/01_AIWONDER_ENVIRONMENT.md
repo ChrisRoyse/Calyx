@@ -37,8 +37,12 @@ verified** picture of the box (readback 2026-06-06) and the binding rule that
 ### Toolchain present / missing
 - **Present:** `git`, `gh`, `python3`, `docker`, `clang`, `gcc`, `cc`, **Rust
   via rustup** (`~/.cargo`, `~/.rustup`), **CUDA 13.2 + nvcc**, Infisical
-  (`~/.infisical`), HF cache (`~/.cache/huggingface`).
-- **Missing (install in userspace — see §6):** `cmake`, `protoc`.
+  (`~/.infisical`), HF cache (`~/.cache/huggingface`), `cmake`
+  (`/home/croyse/calyx/bin/cmake`, 4.3.3), and `protoc`
+  (`/home/croyse/calyx/bin/protoc`, libprotoc 35.0).
+- **Missing:** none required for the current Calyx build/test/FSV gate. If a
+  later phase needs another tool, install it inside `CALYX_HOME` and read it
+  back before claiming it exists.
 
 ### Resident services to REUSE (loopback; do not start throwaways — PRD `16 §9`)
 | Port | Service |
@@ -64,7 +68,7 @@ linking against the live project.
 |---|---|---|
 | "No `rustc` on box → cross-build + ship binary" (`00`,`16`) | **Rust is installed (rustup).** | **Build natively on aiwonder.** No cross-build/`.deb` pipeline needed for dev. (Keep cross-build only if a future minimal-deploy target needs it.) |
 | user `leapable`, paths `/opt/leapable/calyx`, `/zfs/hot/calyx` | current user is **`croyse`**; no `calyx` datasets exist; `/opt` needs root | Calyx home = `/home/croyse/calyx`; ZFS `calyx` datasets are an operator/sudo step (§4). |
-| systemd unit `calyxd.service` runs as `leapable` | **no passwordless sudo** for croyse | Server/systemd phases (S16) are **sudo-gated**: operator runs the unit install, or we defer to a user-level runner. Dev/test never needs systemd. |
+| systemd unit `calyxd.service` runs as `leapable` | `croyse` has password-backed sudo available through the operator-provided local env var name; it is not passwordless. | Server/systemd/ZFS phases are **sudo-gated but agent-owned when authorized**: use password-backed sudo from `.env` without printing the value, then read back the service/dataset state. Dev/test normally does not need systemd. |
 
 These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
 
@@ -93,7 +97,8 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
 session sources.
 
 ### Target ZFS datasets (preferred for hot/cold data; sudo-gated, one-time)
-Matches PRD `04 §3` / `16 §3`. Created by the operator (root) once:
+Matches PRD `04 §3` / `16 §3`. Create via authorized password-backed sudo
+when the owning phase needs ZFS-backed Calyx storage:
 ```bash
 sudo zfs create hotpool/calyx        -o mountpoint=/zfs/hot/calyx
 sudo zfs create archive/calyx        -o mountpoint=/zfs/archive/calyx
@@ -125,12 +130,14 @@ host loss is accepted posture.
   (DOCTRINE §8c). `.env` on the Windows side is gitignored; on aiwonder, keep
   the token in `~/.config/calyx/secrets.env` (`0600`), sourced by `env.sh`.
 
-## 6. Userspace installs (no sudo needed)
-- **cmake:** `python3 -m pip install --user cmake` (puts `cmake` in
-  `~/.local/bin`) or download the official static tarball into `CALYX_HOME/bin`.
-- **protoc:** download the prebuilt `protoc-*-linux-x86_64.zip` release into
-  `CALYX_HOME/bin` (only needed if a crate uses prost/tonic — we avoid where
-  possible). Prepend `CALYX_HOME/bin` and `~/.local/bin` to PATH in `env.sh`.
+## 6. Userspace installs
+- **cmake:** installed at `/home/croyse/calyx/bin/cmake`; current readback:
+  `cmake version 4.3.3`.
+- **protoc:** installed at `/home/croyse/calyx/bin/protoc`; current readback:
+  `libprotoc 35.0`.
+- **If reinstallation is needed:** download the official static tarball or
+  prebuilt release into `CALYX_HOME/bin`, then prepend `CALYX_HOME/bin` and
+  `~/.local/bin` to PATH in `env.sh`.
 - Anything else (e.g. extra Rust components, `cargo-fuzz`, `cargo-mutants`,
   `criterion` are dev-deps): `cargo install`/`rustup component add` — all
   userspace, no sudo.
@@ -149,6 +156,7 @@ Calyx is built and lives **only** on aiwonder, under `/home/croyse/calyx`,
 reachable as `croyse@aiwonder.mst.com` over the Cisco VPN, using the box's
 already-installed Rust + CUDA 13.2 + RTX 5090 (sm_120) and its resident TEI
 lenses, with all build output, data, datasets, and caches kept inside that one
-root, dedicated ZFS datasets provisioned by a one-time operator sudo step, no
-passwordless sudo for routine work, and absolutely no contact with the existing
+root, dedicated ZFS datasets provisioned by a one-time authorized sudo step,
+password-backed sudo available for gated host work when needed, and absolutely
+no contact with the existing
 leapable/contextgraph/PostgreSQL state on the same machine.

@@ -76,6 +76,15 @@ PH41 T07 #385 is FSV-signed-off at
 Ledger-chain-verified `dedup_audit`, vault/target-bound reversible `dedup_undo`,
 restore snapshots in merge Ledger payloads, recurrence tombstone undo, and CLI
 readbacks for `dedup-audit`, `dedup-undo`, and `cx-list`.
+PH41 T08 #386 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`: it
+adds the five-fixture dedup invariant readback for near-distinct separation,
+anchor-conflict separation, reversible recurrence undo across all three base
+rows, temporal-slot exclusion from agreement, and frequency count 10. Artifact
+hashes: `dedup-invariants-readback.json` BLAKE3
+`f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140` and
+`BLAKE3SUMS.txt` BLAKE3
+`fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -103,7 +112,7 @@ readbacks for `dedup-audit`, `dedup-undo`, and `cx-list`.
 | T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | DONE / FSV #383 |
 | T06 | Recurrence signature detector (content-agree + temporal-differ) | DONE / FSV #384 |
 | T07 | `dedup_audit` (per-slot cos, reversible, Ledger-logged) | DONE / FSV #385 |
-| T08 | FSV: near-but-distinct NOT merged; conflicting-anchor stays separate; recurring → series (reversible) | T07 |
+| T08 | FSV: near-but-distinct NOT merged; conflicting-anchor stays separate; recurring → series (reversible) | DONE / FSV #386 |
 
 ## Tracked PH41 follow-ups
 
@@ -117,7 +126,7 @@ readbacks for `dedup-audit`, `dedup-undo`, and `cx-list`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-Three gates, all must pass:
+Five gates, all passed in #386:
 1. **Near-but-distinct NOT merged:** ingest two constellations with content cosine
    just below calibrated τ → `New` returned for both → two separate CxIds exist in
    CF (`calyx readback cx-list`).
@@ -129,6 +138,11 @@ Three gates, all must pass:
    occurrences → `calyx readback recurrence-series <CxId>` shows 3 `t_k` entries →
    call `dedup_audit` → merge history reversible → apply reversal → original 3
    separate CxIds restored byte-for-byte.
+4. **Temporal slots excluded from dedup agreement:** content slots above τ still
+   merge even when temporal slot cosine is low, and `dedup_audit` reports only
+   the content slot in `per_slot_cos`.
+5. **Frequency count accurate:** ten same-content recurrence ingests read back as
+   `frequency = 10` and `occurrence_count = 10`.
 
 ## Risks / landmines
 

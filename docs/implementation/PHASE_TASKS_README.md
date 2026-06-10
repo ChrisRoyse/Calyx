@@ -25,10 +25,14 @@ for the structure under `docs/implementation/PHnn-*/`.
 > #374 TimeWindow filtering, #375 `apply_temporal_boost`, #376 causal
 > confidence gate, #377 `temporal_search`, #378 temporal-never-dominant proof,
 > and #615 AP-60 final-surface hardening. PH41 T01 #379 is complete and
-> FSV-backed; PH41 T02 #380 is complete and FSV-backed at
+> FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`;
+> PH41 T02 #380 is complete and FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
-> PH41 T03 #381 and PH41 T04 #382 are complete and FSV-backed; #382 evidence
-> root is `/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`.
+> PH41 T03 #381 is complete and FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`;
+> PH41 T04 #382 is complete and FSV-backed; #382 evidence root is
+> `/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`.
 > PH41 T05 #383 is complete and FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`;
 > PH41 T06 #384 is complete and FSV-backed at
@@ -36,7 +40,9 @@ for the structure under `docs/implementation/PHnn-*/`.
 > post-T06 recurrence fallback hardening #623 is FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`;
 > PH41 T07 #385 is FSV-backed at
-> `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`.
+> `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`;
+> PH41 T08 #386 is FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

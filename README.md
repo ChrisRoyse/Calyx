@@ -117,8 +117,9 @@ Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
 under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
 FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
 overfetch, negative fusion-weight validation, and public periodic scorer
-scope. PH41 T01 #379 through T07 #385 are complete and FSV-signed-off; post-T06
-hardening #623 is complete and FSV-signed-off.
+scope. PH41 T01 #379 through T08 #386 are complete and FSV-signed-off; post-T06
+hardening #623 is complete and FSV-signed-off. PH41 follow-ups #578, #617,
+#620, #621, and #622 remain tracked before PH42.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -221,6 +222,16 @@ tombstone undo, and CLI readbacks for `dedup-audit`, `dedup-undo`, and
 `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`
 (`dedup-audit-readback.json` BLAKE3
 `4b3031a933685e1d750e52d009c7be33944fb76ea16babb76e830018b966c7a4`).
+PH41 T08 #386 adds the five-fixture dedup invariant FSV: near-distinct pairs
+stay separate, anchor conflicts stay separate with audit evidence, recurring
+series undo restores all three base rows byte-for-byte, temporal slots are
+excluded from dedup agreement, and recurrence frequency readback reaches 10/10;
+aiwonder FSV is signed off at
+`/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`
+(`dedup-invariants-readback.json` BLAKE3
+`f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140`,
+`BLAKE3SUMS.txt` BLAKE3
+`fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`).
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

@@ -259,8 +259,10 @@ the Stage 8 exit readback under
 manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
-**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41 T08
-#386**, then PH41 follow-ups #578/#617/#620/#621/#622 and PH42-PH72.
+**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
+follow-ups #578/#617/#620/#621/#622**, then PH42-PH72.
+PH41 T01 #379 is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`;
 PH41 T02 #380 is FSV-backed at
 `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`;
 PH41 T03 #381 is FSV-backed at
@@ -281,6 +283,12 @@ PH41 T07 #385 is FSV-backed at
 `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`
 with `dedup-audit-readback.json` BLAKE3
 `4b3031a933685e1d750e52d009c7be33944fb76ea16babb76e830018b966c7a4`.
+PH41 T08 #386 is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`
+with `dedup-invariants-readback.json` BLAKE3
+`f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140` and
+`BLAKE3SUMS.txt` BLAKE3
+`fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep
