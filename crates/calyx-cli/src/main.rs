@@ -1,5 +1,6 @@
 //! Calyx command-line entry point.
 
+mod budget_readback;
 mod crash;
 mod dedup_audit_readback;
 mod dedup_readback;
@@ -117,12 +118,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
             ph42_readback::readback_topic(topic, rest)
         }
         [command, topic, name, vault_flag, vault]
-            if command == "readback"
-                && topic == "config"
-                && name == "tripwire"
-                && vault_flag == "--vault" =>
+            if command == "readback" && topic == "config" && vault_flag == "--vault" =>
         {
-            tripwire_readback::readback_tripwire_config(Path::new(vault))
+            readback_config(name, Path::new(vault))
         }
         [
             command,
@@ -396,6 +394,14 @@ fn parse_i32(value: &str) -> Result<i32, String> {
         .map_err(|error| format!("invalid i32 value {value}: {error}"))
 }
 
+fn readback_config(name: &str, vault: &Path) -> Result<(), String> {
+    match name {
+        "tripwire" => tripwire_readback::readback_tripwire_config(vault),
+        "budget" => budget_readback::readback_budget_config(vault),
+        _ => Err(format!("unknown config readback: {name}")),
+    }
+}
+
 fn hex_lines(bytes: &[u8]) -> Vec<String> {
     bytes
         .chunks(32)
@@ -467,7 +473,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | time-prediction --vault <dir> --cx-id <cx> --confidence-ceiling <f> | assay-report|temporal-cross-term|kernel-weights|kernel-window|ward-novelty|compression-ratio|anneal-schedule --artifact <json> [--field <path>] | config tripwire --vault <dir> | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | time-prediction --vault <dir> --cx-id <cx> --confidence-ceiling <f> | assay-report|temporal-cross-term|kernel-weights|kernel-window|ward-novelty|compression-ratio|anneal-schedule --artifact <json> [--field <path>] | config <tripwire|budget> --vault <dir> | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>

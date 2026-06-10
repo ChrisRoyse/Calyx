@@ -1,11 +1,18 @@
 //! Anneal self-optimization contracts for reversible tuning loops.
 
+mod budget;
 mod recurrence_schedule;
 mod rollback;
 mod rollback_codec;
 mod shadow;
 mod tripwire;
 
+pub use budget::{
+    BACKGROUND_NICE, BudgetConfig, BudgetConfigReadback, BudgetEnforcer, BudgetHandle, BudgetProbe,
+    BudgetProbeSample, BudgetStatus, CALYX_ANNEAL_BUDGET_EXHAUSTED,
+    CALYX_ANNEAL_BUDGET_INVALID_CONFIG, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe,
+    budget_config_path, read_budget_config_from_vault,
+};
 pub use recurrence_schedule::{
     CALYX_ANNEAL_INVALID_CADENCE, FREQ_BONUS_MAX, RecurrenceSchedule, RefreshPriority,
     RetentionTier, anneal_retention_tier, frequency_kernel_bonus, recurrence_schedule_for,
@@ -17,7 +24,7 @@ pub use rollback::{
     RollbackStore, rollback_live_key, rollback_snapshot_key,
 };
 pub use shadow::{
-    ActionMetricSnapshot, AnnealAction, BudgetHandle, HeldOutReplay, MetricComparison, MetricSide,
+    ActionMetricSnapshot, AnnealAction, HeldOutReplay, MetricComparison, MetricSide,
     MetricSnapshot, ReplayAnchor, ReplayQuery, ReplaySource, ShadowExecutor, ShadowRevertReason,
     ShadowVerdict, build_replay,
 };
