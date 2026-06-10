@@ -71,8 +71,9 @@ the recurrence signature detector now falls back to event-time deltas when the
 configured temporal signature slot vectors are absent, so valid same-action
 events still append to the recurrence series instead of silently becoming exact
 duplicates.
-PH41 T07 #385 has an implementation checkpoint pending aiwonder FSV: it adds
-Ledger-chain-verified `dedup_audit`, vault-bound reversible `dedup_undo`,
+PH41 T07 #385 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`: it adds
+Ledger-chain-verified `dedup_audit`, vault/target-bound reversible `dedup_undo`,
 restore snapshots in merge Ledger payloads, recurrence tombstone undo, and CLI
 readbacks for `dedup-audit`, `dedup-undo`, and `cx-list`.
 
@@ -101,7 +102,7 @@ readbacks for `dedup-audit`, `dedup-undo`, and `cx-list`.
 | T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | DONE / FSV #382 |
 | T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | DONE / FSV #383 |
 | T06 | Recurrence signature detector (content-agree + temporal-differ) | DONE / FSV #384 |
-| T07 | `dedup_audit` (per-slot cos, reversible, Ledger-logged) | T06 / implementation checkpoint, FSV pending |
+| T07 | `dedup_audit` (per-slot cos, reversible, Ledger-logged) | DONE / FSV #385 |
 | T08 | FSV: near-but-distinct NOT merged; conflicting-anchor stays separate; recurring → series (reversible) | T07 |
 
 ## Tracked PH41 follow-ups

@@ -117,9 +117,8 @@ Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
 under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
 FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
 overfetch, negative fusion-weight validation, and public periodic scorer
-scope. PH41 T01 #379 through T06 #384 are complete and FSV-signed-off; the next
-post-T06 hardening #623 is complete and FSV-signed-off; PH41 T07 #385 has an
-implementation checkpoint pending aiwonder FSV.
+scope. PH41 T01 #379 through T07 #385 are complete and FSV-signed-off; post-T06
+hardening #623 is complete and FSV-signed-off.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -218,7 +217,10 @@ is FSV-signed-off at
 PH41 T07 #385 adds Ledger-chain-verified `dedup_audit`, vault/target-bound
 reversible `dedup_undo`, restore snapshots in merge Ledger payloads, recurrence
 tombstone undo, and CLI readbacks for `dedup-audit`, `dedup-undo`, and
-`cx-list`; aiwonder FSV is pending.
+`cx-list`; aiwonder FSV is signed off at
+`/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`
+(`dedup-audit-readback.json` BLAKE3
+`4b3031a933685e1d750e52d009c7be33944fb76ea16babb76e830018b966c7a4`).
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

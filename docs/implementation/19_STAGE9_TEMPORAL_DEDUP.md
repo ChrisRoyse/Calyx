@@ -45,7 +45,8 @@ system role:** the sense of time.
   `/home/croyse/calyx/data/fsv-issue384-recurrence-signature-20260610-8b0d0bb`;
   post-T06 recurrence fallback hardening #623 is complete and FSV-backed at
   `/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`;
-  PH41 T07 #385 has an implementation checkpoint pending aiwonder FSV.
+  PH41 T07 #385 is complete and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`.
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).

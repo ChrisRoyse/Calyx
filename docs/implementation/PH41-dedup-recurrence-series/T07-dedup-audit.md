@@ -20,9 +20,11 @@ and a reversal token. The reversal token can be passed to `dedup_undo(vault,
 token)` to reconstruct the original pre-merge constellation(s) byte-for-byte.
 All merge events are Ledger-logged; `dedup_audit` reads the Ledger CF.
 
-## Implementation checkpoint (2026-06-10)
+## Implementation checkpoint and FSV sign-off (2026-06-10)
 
-`#385` is implemented in code and pending aiwonder FSV. The implementation adds
+`#385` is implemented and FSV-signed-off on aiwonder at
+`/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`. The
+implementation adds
 `crates/calyx-aster/src/dedup/audit.rs`, CLI readbacks in
 `crates/calyx-cli/src/dedup_audit_readback.rs`, and the durable readback fixture
 `crates/calyx-cli/tests/dedup_audit_readback.rs`.
@@ -44,6 +46,8 @@ Important contract details:
   reject it as secret-like material; the CLI flag remains `--token`.
 - Recurrence undo is logical and append-only: it writes latest tombstone rows
   that recurrence read paths ignore, preserving old bytes for provenance.
+- FSV artifact: `dedup-audit-readback.json` BLAKE3
+  `4b3031a933685e1d750e52d009c7be33944fb76ea16babb76e830018b966c7a4`.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -82,7 +86,7 @@ Important contract details:
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH41 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence attached to GitHub issue #385
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
