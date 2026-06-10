@@ -18,6 +18,7 @@ pub mod recall_test;
 pub mod scope;
 pub mod scope_cache;
 pub mod scope_report;
+pub mod temporal_kernel;
 
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
@@ -30,11 +31,15 @@ pub use hierarchical::{
     build_hierarchical_kernel,
 };
 pub use incremental::{IncrementalKernelEval, IncrementalResult, NodeAddEdge};
-pub use kernel::{GroundednessReport, Kernel, KernelParams, RecallReport, build_kernel_pipeline};
+pub use kernel::{
+    GroundednessReport, Kernel, KernelParams, RecallReport, build_kernel_pipeline,
+    build_kernel_pipeline_with_frequency,
+};
 pub use kernel_answer::{AnswerHop, AnswerPath, kernel_answer, kernel_answer_with_ledger};
 pub use kernel_graph::{
-    KernelGraph, KernelGraphParams, LpRoundParams, NodeScore, groundedness_distance,
-    lp_round_kernel_graph, lp_round_kernel_graph_from_solution, select_kernel_graph,
+    KernelGraph, KernelGraphParams, KernelNodeScore, LpRoundParams, NodeScore,
+    groundedness_distance, lp_round_kernel_graph, lp_round_kernel_graph_from_solution,
+    select_kernel_graph,
 };
 pub use kernel_index::{
     EmbeddingStore, FsKernelStore, KernelIndex, KernelStore, KernelVectorRow, build_kernel_index,
@@ -59,3 +64,9 @@ pub use scope::{
 };
 pub use scope_cache::{CacheStats, ScopeCache, ScopeCacheKey, scope_cache_anchor_identity};
 pub use scope_report::{ScopeKernelReport, report_all_scopes};
+pub use temporal_kernel::{
+    CALYX_LODESTAR_INVALID_FREQUENCY, CALYX_LODESTAR_INVALID_WINDOW,
+    CALYX_LODESTAR_MISSING_FREQUENCY, FREQ_BONUS_MAX, FREQ_WEIGHT, FrequencyRead, KernelResult,
+    KernelScope, KernelWeight, TimeWindow, active_cxids_in_window, apply_frequency_bonuses,
+    frequency_kernel_bonus, kernel_for_window, kernel_for_window_from_graph, kernel_weight_rows,
+};

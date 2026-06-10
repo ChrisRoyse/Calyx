@@ -1,13 +1,15 @@
-use calyx_core::{CxId, content_address};
+use calyx_aster::vault::AsterVault;
+use calyx_core::{Clock, CxId, content_address};
 use calyx_mincut::{betweenness, tarjan_scc};
 use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
 use crate::grounding_gaps::grounding_gaps_for_members;
 use crate::recall_test::RecallTestParams;
+use crate::temporal_kernel::apply_frequency_bonuses;
 use crate::{
-    DfvsResult, KernelGraphParams, LpRoundParams, Result, dfvs_approx, lp_round_kernel_graph,
-    select_kernel_graph,
+    DfvsResult, KernelGraph, KernelGraphParams, LpRoundParams, Result, dfvs_approx,
+    lp_round_kernel_graph, select_kernel_graph,
 };
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -88,12 +90,36 @@ pub fn build_kernel_pipeline(
     anchors: &[CxId],
     params: &KernelParams,
 ) -> Result<Kernel> {
+    build_kernel_pipeline_with_adjustment(graph, anchors, params, |_| Ok(()))
+}
+
+pub fn build_kernel_pipeline_with_frequency<C>(
+    graph: &AssocGraph,
+    anchors: &[CxId],
+    params: &KernelParams,
+    vault: &AsterVault<C>,
+) -> Result<Kernel>
+where
+    C: Clock,
+{
+    build_kernel_pipeline_with_adjustment(graph, anchors, params, |heuristic| {
+        apply_frequency_bonuses(heuristic, vault).map(|_| ())
+    })
+}
+
+fn build_kernel_pipeline_with_adjustment(
+    graph: &AssocGraph,
+    anchors: &[CxId],
+    params: &KernelParams,
+    mut adjust_heuristic: impl FnMut(&mut KernelGraph) -> Result<()>,
+) -> Result<Kernel> {
     if graph.is_empty() {
         return Ok(empty_kernel(params));
     }
     let scc = tarjan_scc(graph);
     let bet = betweenness(graph)?;
-    let heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
+    let mut heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
+    adjust_heuristic(&mut heuristic)?;
     let rounded = lp_round_kernel_graph(&heuristic, &params.lp_round)?;
     let dfvs = dfvs_approx(&rounded)?;
     let gap_report = grounding_gaps_for_members(
