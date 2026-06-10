@@ -4,9 +4,10 @@ use std::fs;
 mod dedup_ingest_at_readback_support;
 
 use dedup_ingest_at_readback_support::{
-    anchor_conflict_scenario, event_time_edges_scenario, exact_duplicate_scenario, fsv_root,
-    list_files, missing_temporal_signature_scenario, negative_time_scenario, recurrence_scenario,
-    reset_dir, same_temporal_signature_scenario, write_blake3_sums, write_json,
+    anchor_conflict_scenario, event_time_edges_scenario, event_time_fallback_signature_scenario,
+    exact_duplicate_scenario, fsv_root, list_files, missing_temporal_signature_scenario,
+    negative_time_scenario, recurrence_scenario, reset_dir, same_temporal_signature_scenario,
+    write_blake3_sums, write_json,
 };
 use serde_json::json;
 
@@ -21,6 +22,7 @@ fn dedup_ingest_at_writes_event_time_merge_and_ledger_bytes() {
 
     let recurrence = recurrence_scenario(&root);
     let same_time = same_temporal_signature_scenario(&root);
+    let fallback = event_time_fallback_signature_scenario(&root);
     let missing_temporal = missing_temporal_signature_scenario(&root);
     let exact = exact_duplicate_scenario(&root);
     let conflict = anchor_conflict_scenario(&root);
@@ -31,6 +33,7 @@ fn dedup_ingest_at_writes_event_time_merge_and_ledger_bytes() {
         "before": before,
         "recurrence": recurrence,
         "same_temporal_signature": same_time,
+        "event_time_fallback_signature": fallback,
         "missing_temporal_signature": missing_temporal,
         "exact_duplicate": exact,
         "anchor_conflict": conflict,
@@ -74,6 +77,26 @@ fn dedup_ingest_at_writes_event_time_merge_and_ledger_bytes() {
     assert_eq!(
         readback["same_temporal_signature"]["ledger_payloads"][1]["recurrence_signature"],
         json!(false)
+    );
+    assert_eq!(
+        readback["event_time_fallback_signature"]["occurrence_times"],
+        json!([100, 200])
+    );
+    assert_eq!(
+        readback["event_time_fallback_signature"]["results"][1]["DedupMerge"]["occurrence"],
+        json!(1)
+    );
+    assert_eq!(
+        readback["event_time_fallback_signature"]["recurrence_row_count"],
+        json!(2)
+    );
+    assert_eq!(
+        readback["event_time_fallback_signature"]["ledger_payloads"][1]["recurrence_signature"],
+        json!(true)
+    );
+    assert_eq!(
+        readback["event_time_fallback_signature"]["ledger_payloads"][1]["new_time"],
+        json!(200)
     );
     assert_eq!(
         readback["missing_temporal_signature"]["error_code"],
