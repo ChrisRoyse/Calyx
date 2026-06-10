@@ -7,10 +7,15 @@ use calyx_core::{
 use serde::{Deserialize, Serialize};
 
 use super::engine::check_dedup_without_conflict_write;
-use super::ingest_ledger::{LedgerPayload, action_name, action_name_for_action, ledger_payload};
+use super::ingest_event::{DedupOnlineKind, next_online_prefix, online_event_row, online_kind};
+use super::ingest_ledger::{
+    LedgerPayload, RecurrenceSignatureLedger, action_name, action_name_for_action, ledger_payload,
+};
+use super::signature::{SignatureResult, detect_recurrence_signature};
 use super::{
     AnchorConflictResult, ContestedWith, DedupAction, DedupDecision, DedupPolicy, DedupResult,
-    OccurrenceId, check_anchor_conflict, contested_with_key, dedup_error, encode_contested_with,
+    OccurrenceId, TctCosineConfig, check_anchor_conflict, contested_with_key, dedup_error,
+    encode_contested_with,
 };
 use crate::cf::ColumnFamily;
 use crate::recurrence::{OccurrenceContext, RetentionPolicy, build_append};
@@ -19,10 +24,6 @@ use crate::vault::AsterVault;
 pub const CALYX_DEDUP_INVALID_EVENT_TIME: &str = "CALYX_DEDUP_INVALID_EVENT_TIME";
 
 const EVENT_TIME_SCALAR: &str = "event_time_secs";
-const OCCURRENCE_PREFIX: &[u8] = b"dedup:occurrence:";
-const COLLAPSE_PREFIX: &[u8] = b"dedup:collapse:";
-const LINK_PREFIX: &[u8] = b"dedup:link:";
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct EpochSecs(pub i64);
@@ -48,6 +49,7 @@ pub struct IngestInput {
     pub anchors: Vec<Anchor>,
     pub input_pointer: Option<String>,
     pub redacted: bool,
+    pub temporal_slot_ids: Vec<SlotId>,
 }
 
 impl IngestInput {
@@ -61,6 +63,7 @@ impl IngestInput {
             anchors: Vec::new(),
             input_pointer: None,
             redacted: true,
+            temporal_slot_ids: Vec::new(),
         }
     }
 
@@ -72,6 +75,26 @@ impl IngestInput {
     pub fn with_anchor(mut self, anchor: Anchor) -> Self {
         self.anchors.push(anchor);
         self
+    }
+
+    pub fn with_temporal_slot(mut self, slot: SlotId) -> Self {
+        if !self.temporal_slot_ids.contains(&slot) {
+            self.temporal_slot_ids.push(slot);
+        }
+        self
+    }
+
+    pub fn with_temporal_slots(mut self, slots: impl IntoIterator<Item = SlotId>) -> Self {
+        for slot in slots {
+            if !self.temporal_slot_ids.contains(&slot) {
+                self.temporal_slot_ids.push(slot);
+            }
+        }
+        self
+    }
+
+    pub fn temporal_slot_ids(&self) -> &[SlotId] {
+        &self.temporal_slot_ids
     }
 
     fn to_constellation<C>(&self, vault: &AsterVault<C>, at: EpochSecs) -> Result<Constellation>
@@ -109,24 +132,6 @@ impl IngestInput {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DedupOnlineKind {
-    Occurrence,
-    Collapse,
-    Link,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct DedupOnlineEvent {
-    pub kind: DedupOnlineKind,
-    pub into: CxId,
-    pub source: CxId,
-    pub occurrence: OccurrenceId,
-    pub at: EpochSecs,
-    pub action: DedupAction,
-    pub per_slot_cos: Vec<(SlotId, f32)>,
-}
-
 pub fn ingest_at<C>(
     vault: &AsterVault<C>,
     input: &IngestInput,
@@ -154,6 +159,19 @@ where
             DedupPolicy::TctCosine(config) => {
                 if same_event_exact(vault, new_cx.cx_id, existing, at)? {
                     exact_duplicate(vault, &new_cx, at, existing, per_slot_cos)
+                } else if config.action == DedupAction::RecurrenceSeries {
+                    recurrence_match(
+                        vault,
+                        RecurrenceMatch {
+                            input,
+                            new_cx,
+                            at,
+                            existing,
+                            per_slot_cos,
+                            config,
+                            guard_profile,
+                        },
+                    )
                 } else {
                     merge_match(
                         vault,
@@ -162,6 +180,7 @@ where
                         existing,
                         per_slot_cos,
                         config.action.clone(),
+                        None,
                     )
                 }
             }
@@ -186,21 +205,6 @@ where
         )
     })?;
     ingest_at(vault, input, EpochSecs(now_secs), guard_profile)
-}
-
-pub fn dedup_online_key(kind: DedupOnlineKind, into: CxId, occurrence: OccurrenceId) -> Vec<u8> {
-    let prefix = match kind {
-        DedupOnlineKind::Occurrence => OCCURRENCE_PREFIX,
-        DedupOnlineKind::Collapse => COLLAPSE_PREFIX,
-        DedupOnlineKind::Link => LINK_PREFIX,
-    };
-    event_key(prefix, into, occurrence)
-}
-
-pub fn decode_dedup_online_event(bytes: &[u8]) -> Result<DedupOnlineEvent> {
-    serde_json::from_slice(bytes).map_err(|error| {
-        CalyxError::aster_corrupt_shard(format!("decode dedup online event: {error}"))
-    })
 }
 
 fn store_new<C>(
@@ -250,6 +254,7 @@ where
         into: None,
         occurrence: None,
         per_slot_cos: &[],
+        recurrence_signature: None,
     })?;
     let id = new_cx.cx_id;
     vault.commit_dedup_ingest(
@@ -282,6 +287,7 @@ where
         into: Some(existing),
         occurrence: None,
         per_slot_cos: &per_slot_cos,
+        recurrence_signature: None,
     })?;
     vault.commit_dedup_ingest(None, None, Vec::new(), Vec::new(), existing, payload)?;
     Ok(DedupResult::ExactDuplicate(existing))
@@ -294,6 +300,7 @@ fn merge_match<C>(
     existing: CxId,
     per_slot_cos: Vec<(SlotId, f32)>,
     action: DedupAction,
+    signature: Option<RecurrenceSignatureLedger>,
 ) -> Result<DedupResult>
 where
     C: Clock,
@@ -335,6 +342,7 @@ where
         into: Some(existing),
         occurrence: Some(occurrence),
         per_slot_cos: &per_slot_cos,
+        recurrence_signature: signature,
     })?;
     let candidate = (action == DedupAction::Link).then_some(new_cx);
     let subject = candidate.as_ref().map_or(existing, |cx| cx.cx_id);
@@ -350,6 +358,62 @@ where
         into: existing,
         occurrence,
     })
+}
+
+fn recurrence_match<C>(vault: &AsterVault<C>, matched: RecurrenceMatch<'_>) -> Result<DedupResult>
+where
+    C: Clock,
+{
+    let existing_cx = vault.get(matched.existing, vault.snapshot())?;
+    match detect_recurrence_signature(
+        &matched.new_cx,
+        &existing_cx,
+        matched.config,
+        matched.input.temporal_slot_ids(),
+        matched.guard_profile,
+        matched.at,
+    )? {
+        SignatureResult::RecurrenceSignature {
+            same_action,
+            new_time,
+        } => merge_match(
+            vault,
+            matched.new_cx,
+            matched.at,
+            matched.existing,
+            matched.per_slot_cos,
+            DedupAction::RecurrenceSeries,
+            Some(RecurrenceSignatureLedger {
+                same_action,
+                new_time,
+            }),
+        ),
+        SignatureResult::SameTime => exact_duplicate(
+            vault,
+            &matched.new_cx,
+            matched.at,
+            matched.existing,
+            matched.per_slot_cos,
+        ),
+        SignatureResult::NewContent | SignatureResult::ContentMismatch => store_new(
+            vault,
+            matched.new_cx,
+            matched.at,
+            &DedupPolicy::TctCosine(matched.config.clone()),
+            "ContentMismatch",
+            Vec::new(),
+        ),
+    }
+}
+
+struct RecurrenceMatch<'a> {
+    input: &'a IngestInput,
+    new_cx: Constellation,
+    at: EpochSecs,
+    existing: CxId,
+    per_slot_cos: Vec<(SlotId, f32)>,
+    config: &'a TctCosineConfig,
+    guard_profile: Option<&'a dyn GuardTauProfile>,
 }
 
 fn same_event_exact<C>(
@@ -411,66 +475,13 @@ fn next_occurrence_id<C>(
 where
     C: Clock,
 {
-    let prefix = event_prefix(kind, into);
+    let prefix = next_online_prefix(kind, into);
     let count = vault
         .scan_cf_at(vault.snapshot(), ColumnFamily::Online)?
         .into_iter()
         .filter(|(key, _)| key.starts_with(&prefix))
         .count();
     Ok(OccurrenceId(count as u64))
-}
-
-fn online_event_row(
-    kind: DedupOnlineKind,
-    into: CxId,
-    source: CxId,
-    occurrence: OccurrenceId,
-    at: EpochSecs,
-    action: DedupAction,
-    per_slot_cos: Vec<(SlotId, f32)>,
-) -> Result<(Vec<u8>, Vec<u8>)> {
-    let event = DedupOnlineEvent {
-        kind,
-        into,
-        source,
-        occurrence,
-        at,
-        action,
-        per_slot_cos,
-    };
-    let key = dedup_online_key(kind, into, occurrence);
-    let value = serde_json::to_vec(&event).map_err(|error| {
-        CalyxError::aster_corrupt_shard(format!("encode dedup online event: {error}"))
-    })?;
-    Ok((key, value))
-}
-
-fn online_kind(action: &DedupAction) -> DedupOnlineKind {
-    match action {
-        DedupAction::Collapse => DedupOnlineKind::Collapse,
-        DedupAction::Link => DedupOnlineKind::Link,
-        DedupAction::RecurrenceSeries => DedupOnlineKind::Occurrence,
-    }
-}
-
-fn event_prefix(kind: DedupOnlineKind, into: CxId) -> Vec<u8> {
-    let prefix = match kind {
-        DedupOnlineKind::Occurrence => OCCURRENCE_PREFIX,
-        DedupOnlineKind::Collapse => COLLAPSE_PREFIX,
-        DedupOnlineKind::Link => LINK_PREFIX,
-    };
-    let mut key = Vec::with_capacity(prefix.len() + 16);
-    key.extend_from_slice(prefix);
-    key.extend_from_slice(into.as_bytes());
-    key
-}
-
-fn event_key(prefix: &[u8], into: CxId, occurrence: OccurrenceId) -> Vec<u8> {
-    let mut key = Vec::with_capacity(prefix.len() + 24);
-    key.extend_from_slice(prefix);
-    key.extend_from_slice(into.as_bytes());
-    key.extend_from_slice(&occurrence.0.to_be_bytes());
-    key
 }
 
 #[cfg(test)]

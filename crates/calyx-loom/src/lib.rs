@@ -29,7 +29,8 @@ pub use materialization::{
 };
 pub use recurrence::{
     Occurrence, OccurrenceContext, RecurrenceSeries, RetentionPolicy, RollupSummary, SeriesStore,
-    StoredRecurrenceRow, decode_recurrence_row, encode_recurrence_row, recurrence_summary_key,
+    SignatureResult, StoredRecurrenceRow, decode_recurrence_row, detect_recurrence_signature,
+    encode_recurrence_row, recurrence_summary_key, temporal_slot_ids_for_panel,
 };
 
 #[cfg(test)]
