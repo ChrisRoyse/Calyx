@@ -31,8 +31,12 @@ anchors MUST NOT be merged. All merges are reversible and Ledger-logged. The
 CRUD, manifest, compaction, and PH41 T01 `DedupPolicy` manifest persistence in
 place. #379 is FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`.
-The `ingest` path exists in `crates/calyx-aster/src/vault.rs`; PH41 T02 now
-builds the content-slot cosine gate on top of the persisted policy. The `Gτ`
+PH41 T02 #380 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`: the
+bounded content-slot cosine gate now runs on top of the persisted policy and
+prints byte readback through `calyx readback dedup-check`.
+The `ingest` path exists in `crates/calyx-aster/src/vault.rs`; PH41 T03 now
+adds the real anchor-conflict guard. The `Gτ`
 guard (PH37) is in `calyx-ward`. `calyx-loom` exists from Stage 5
 (cross-terms/agreement/abundance); PH41 should add a new `recurrence` module
 under that crate rather than initialize the crate from scratch.
@@ -57,7 +61,7 @@ under that crate rather than initialize the crate from scratch.
 | Card | Title | Depends |
 |---|---|---|
 | T01 | `DedupPolicy` types + vault-creation config | DONE / FSV #379 |
-| T02 | Dedup engine: per-slot cosine gate (content-only, excl. E2/E3/E4) | T01 |
+| T02 | Dedup engine: per-slot cosine gate (content-only, excl. E2/E3/E4) | DONE / FSV #380 |
 | T03 | Anchor-conflict guard (MUST NOT merge conflicting anchors) | T02 |
 | T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | T03 |
 | T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | T04 |

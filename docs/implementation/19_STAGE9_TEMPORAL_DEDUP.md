@@ -30,7 +30,9 @@ system role:** the sense of time.
 ## PH41 — DedupPolicy TctCosine + recurrence series + signature
 - **Status.** T01 #379 is complete and FSV-backed on aiwonder at
   `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`;
-  PH41 T02 #380 is next.
+  T02 #380 is complete and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`;
+  PH41 T03 #381 is next.
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).
