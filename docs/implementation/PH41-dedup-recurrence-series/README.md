@@ -129,10 +129,21 @@ WAL segment BLAKE3
 `95c91a000e2c7fc7cba16196d7bbda74f7849e7c29d6c66a42b5dc46ac93e5d8`, and
 `BLAKE3SUMS.txt` BLAKE3
 `81d2d5d6790221315f1cfcbf1331fbc68668bb0b9d4bed26c2befd75d7099c3d`.
-Remaining PH41 follow-ups before PH42 are #617 durable policy validation
-parity, #622 WAL write-failure error-code contract, #620 recurrence rollup
-tombstone/reclaim integration, and #626 anchor-conflict never-merge property
-coverage.
+PH41 durable dedup policy validation parity #617 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue617-dedup-panel-validation-20260610-07884d9`:
+`VaultOptions::panel` now routes supplied and recovered `DedupPolicy` values
+through panel-aware temporal/dedup-excluded slot validation before durable
+creation or reopen can proceed. The readback proves public creation rejects
+required slot 5 with `CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED` and no
+`CURRENT`/`MANIFEST` bytes, while a legacy invalid manifest is rejected on cold
+open once panel metadata is supplied. Artifact hashes:
+`dedup-policy-readback.json` BLAKE3
+`9e7636d173dd188b52f3aa232c70fe279e18ad89988a179ec4296e1287ce7423` and
+`BLAKE3SUMS.txt` BLAKE3
+`8c20d63213e87c210385f69ad8d144d4c81397e433e433e177161222151659d0`.
+Remaining PH41 follow-ups before PH42 are #622 WAL write-failure error-code
+contract, #620 recurrence rollup tombstone/reclaim integration, and #626
+anchor-conflict never-merge property coverage.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -166,15 +177,16 @@ coverage.
 
 ## Tracked PH41 follow-ups
 
-#578 public recurrence read APIs and #621 recurrence concurrency hardening are
-implemented and FSV-backed. Remaining follow-ups before PH42 are validation,
-reclaim, and WAL-failure-code work:
+#578 public recurrence read APIs, #621 recurrence concurrency hardening, and
+#617 durable policy validation parity are implemented and FSV-backed. Remaining
+follow-ups before PH42 are reclaim, WAL-failure-code, and anchor-conflict
+property work:
 
 | Issue | Scope |
 |---|---|
-| #617 | Durable/recovered `DedupPolicy` validation parity for temporal required-slot rejection |
 | #620 | Recurrence rollup tombstone/physical reclaim integration |
 | #622 | Exact WAL write-failure code/injection proof beyond current storage-error fail-closed path |
+| #626 | Anchor-conflict pairs never appear in the same `DedupMerge` property/regression |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

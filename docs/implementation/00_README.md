@@ -260,9 +260,8 @@ manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
 **Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
-follow-ups #617/#622/#620/#626** plus PH40 follow-ups #616/#618/#619, then
-PH42-PH72. PH42 readback-surface gate #625 must be resolved before PH42 can be
-signed off.
+follow-ups #622/#620/#626** plus PH40 follow-ups #616/#618/#619, then PH42-PH72.
+PH42 readback-surface gate #625 must be resolved before PH42 can be signed off.
 PH41 public recurrence read API follow-up #578 and recurrence concurrency
 hardening #621 are FSV-backed.
 PH41 T01 #379 is FSV-backed at
@@ -317,6 +316,12 @@ WAL segment BLAKE3
 `95c91a000e2c7fc7cba16196d7bbda74f7849e7c29d6c66a42b5dc46ac93e5d8`,
 and `BLAKE3SUMS.txt` BLAKE3
 `81d2d5d6790221315f1cfcbf1331fbc68668bb0b9d4bed26c2befd75d7099c3d`.
+#617 durable dedup policy validation parity is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue617-dedup-panel-validation-20260610-07884d9`
+with `dedup-policy-readback.json` BLAKE3
+`9e7636d173dd188b52f3aa232c70fe279e18ad89988a179ec4296e1287ce7423`
+and `BLAKE3SUMS.txt` BLAKE3
+`8c20d63213e87c210385f69ad8d144d4c81397e433e433e177161222151659d0`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

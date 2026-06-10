@@ -23,7 +23,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35-PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening #349 signed off) |
 | S8 Ward | PH37-PH39 | ✅ DONE, FSV-signed-off (#258-#280, #349, #350, #351, #352, #353, #354, #355, #356, #357, #358, and #359 signed off; exit #280 read back the full Ward surface) |
-| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378 plus #615 FSV-backed, with follow-ups #616/#618/#619 open; PH41 #379/#380/#381/#382/#383/#384/#385/#386, #623, #578, #621, and #624 FSV-backed, with follow-ups #617/#622/#620/#626 open; PH42 readback-surface gate #625 open) |
+| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378 plus #615 FSV-backed, with follow-ups #616/#618/#619 open; PH41 #379/#380/#381/#382/#383/#384/#385/#386, #623, #578, #621, #624, and #617 FSV-backed, with follow-ups #622/#620/#626 open; PH42 readback-surface gate #625 open) |
 | S10-S20 | PH43-PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -78,6 +78,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`
 - Stage 9 PH41 WAL recovery/open serialization (#624):
   `/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`
+- Stage 9 PH41 durable dedup policy validation parity (#617):
+  `/home/croyse/calyx/data/fsv-issue617-dedup-panel-validation-20260610-07884d9`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence
