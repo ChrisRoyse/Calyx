@@ -11,6 +11,9 @@ use crate::error::CALYX_RECURRENCE_CONTEXT_TOO_LARGE;
 
 use super::*;
 
+const TUESDAY_2024_01_02_14H_UTC: i64 = 1_704_204_000;
+const WEEK_SECS: i64 = 604_800;
+
 #[test]
 fn append_three_occurrences_reads_sorted_with_cadence() {
     let (vault, cx_id) = vault_with_base();
@@ -46,6 +49,80 @@ fn single_occurrence_has_no_cadence() {
     assert_eq!(times(&series), vec![100]);
     assert_eq!(series.cadence_secs, None);
     assert_eq!(series.frequency, 1);
+}
+
+#[test]
+fn public_recurrence_series_adds_periodic_fit() {
+    let (vault, cx_id) = vault_with_base();
+    let store = SeriesStore::new(&vault);
+
+    for week in 0..6 {
+        store
+            .append_occurrence(
+                cx_id,
+                EpochSecs(TUESDAY_2024_01_02_14H_UTC + week * WEEK_SECS),
+                ctx("weekly"),
+            )
+            .expect("append weekly occurrence");
+    }
+
+    let read = store.recurrence_series(cx_id).expect("public read");
+
+    assert_eq!(read.series.frequency, 6);
+    assert_eq!(read.periodic_fit.target_hour, Some(14));
+    assert_eq!(read.periodic_fit.target_day_of_week, Some(1));
+    assert_eq!(
+        read.periodic_fit.dominant_period_secs,
+        Some(WEEK_SECS as f64)
+    );
+    assert_eq!(read.periodic_fit.support, 6);
+    assert_eq!(read.periodic_fit.hour_confidence, 1.0);
+    assert_eq!(read.periodic_fit.day_confidence, 1.0);
+}
+
+#[test]
+fn periodic_recall_returns_only_matching_series() {
+    let vault = AsterVault::with_clock(
+        vault_id(),
+        b"recurrence-test-salt".to_vec(),
+        FixedClock::new(1),
+    );
+    let tuesday = put_base(&vault, b"recurrence-tuesday");
+    let wednesday = put_base(&vault, b"recurrence-wednesday");
+    let store = SeriesStore::new(&vault);
+
+    for week in 0..3 {
+        store
+            .append_occurrence(
+                tuesday,
+                EpochSecs(TUESDAY_2024_01_02_14H_UTC + week * WEEK_SECS),
+                ctx("tue"),
+            )
+            .expect("append tuesday");
+        store
+            .append_occurrence(
+                wednesday,
+                EpochSecs(TUESDAY_2024_01_02_14H_UTC + 19 * 3_600 + week * WEEK_SECS),
+                ctx("wed"),
+            )
+            .expect("append wednesday");
+    }
+
+    let query = PeriodicRecallQuery::new(Some(14), Some(1)).expect("query");
+    let hits = store.periodic_recall(query).expect("periodic recall");
+
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].cx_id, tuesday);
+    assert_eq!(hits[0].frequency, 3);
+    assert_eq!(hits[0].periodic_fit.target_hour, Some(14));
+    assert_eq!(hits[0].periodic_fit.target_day_of_week, Some(1));
+}
+
+#[test]
+fn periodic_recall_rejects_invalid_query() {
+    let error = PeriodicRecallQuery::new(Some(24), None).expect_err("invalid hour");
+
+    assert_eq!(error.code, calyx_core::CALYX_TEMPORAL_INVALID_PERIOD);
 }
 
 #[test]
@@ -179,14 +256,19 @@ fn vault_with_base() -> (AsterVault<FixedClock>, calyx_core::CxId) {
         b"recurrence-test-salt".to_vec(),
         FixedClock::new(1),
     );
-    let cx_id = vault.cx_id_for_input(b"recurrence-base", 41);
+    let cx_id = put_base(&vault, b"recurrence-base");
+    (vault, cx_id)
+}
+
+fn put_base(vault: &AsterVault<FixedClock>, input: &[u8]) -> calyx_core::CxId {
+    let cx_id = vault.cx_id_for_input(input, 41);
     let cx = Constellation {
         cx_id,
         vault_id: vault_id(),
         panel_version: 41,
         created_at: 100,
         input_ref: InputRef {
-            hash: *blake3::hash(b"recurrence-base").as_bytes(),
+            hash: *blake3::hash(input).as_bytes(),
             pointer: None,
             redacted: true,
         },
@@ -205,7 +287,7 @@ fn vault_with_base() -> (AsterVault<FixedClock>, calyx_core::CxId) {
         },
     };
     vault.put(cx).expect("put base");
-    (vault, cx_id)
+    cx_id
 }
 
 fn vault_id() -> VaultId {

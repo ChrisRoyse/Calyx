@@ -14,11 +14,11 @@ path = "src/main.rs"
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
+calyx-loom = { path = "../calyx-loom" }
 calyx-sextant = { path = "../calyx-sextant" }
 serde_json.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
 calyx-forge = { path = "../calyx-forge" }
-calyx-loom = { path = "../calyx-loom" }
 calyx-registry = { path = "../calyx-registry" }

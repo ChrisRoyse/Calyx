@@ -3,6 +3,8 @@ use calyx_aster::recurrence;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, CxId, Result};
 
+use super::{PeriodicRecallHit, PeriodicRecallQuery, RecurrenceRead};
+
 pub struct SeriesStore<'a, C> {
     vault: &'a AsterVault<C>,
     retention: recurrence::RetentionPolicy,
@@ -50,7 +52,15 @@ where
         recurrence::read_series(self.vault, cx_id)
     }
 
+    pub fn recurrence_series(&self, cx_id: CxId) -> Result<RecurrenceRead> {
+        super::recurrence_series(self.vault, cx_id)
+    }
+
     pub fn occurrence_count(&self, cx_id: CxId) -> Result<u64> {
         recurrence::occurrence_count(self.vault, cx_id)
+    }
+
+    pub fn periodic_recall(&self, query: PeriodicRecallQuery) -> Result<Vec<PeriodicRecallHit>> {
+        super::periodic_recall(self.vault, query)
     }
 }
