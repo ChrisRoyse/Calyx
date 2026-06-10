@@ -28,9 +28,11 @@ pub use materialization::{
     plan_cross_terms_checked,
 };
 pub use recurrence::{
-    Occurrence, OccurrenceContext, RecurrenceSeries, RetentionPolicy, RollupSummary, SeriesStore,
-    SignatureResult, StoredRecurrenceRow, decode_recurrence_row, detect_recurrence_signature,
-    encode_recurrence_row, recurrence_summary_key, temporal_slot_ids_for_panel,
+    Occurrence, OccurrenceContext, PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery,
+    RecurrenceRead, RecurrenceSeries, RetentionPolicy, RollupSummary, SeriesStore, SignatureResult,
+    StoredRecurrenceRow, decode_recurrence_row, detect_recurrence_signature, encode_recurrence_row,
+    periodic_fit, periodic_recall, recurrence_series, recurrence_summary_key,
+    temporal_slot_ids_for_panel,
 };
 
 #[cfg(test)]
