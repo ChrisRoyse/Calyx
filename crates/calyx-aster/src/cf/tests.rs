@@ -24,6 +24,7 @@ fn column_family_names_match_prd_layout() {
             "ledger",
             "recurrence",
             "online",
+            "anneal_rollback",
         ]
     );
 

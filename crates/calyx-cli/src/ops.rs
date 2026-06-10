@@ -364,6 +364,7 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
         "scalars" => Ok(ColumnFamily::Scalars),
         "xterm" => Ok(ColumnFamily::XTerm),
         "temporal_xterm" => Ok(ColumnFamily::TemporalXTerm),
+        "anneal_rollback" => Ok(ColumnFamily::AnnealRollback),
         _ if value.starts_with("slot_") => parse_slot_cf(value),
         _ => Err(format!("unknown column family: {value}")),
     }

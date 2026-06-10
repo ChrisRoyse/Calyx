@@ -1,12 +1,20 @@
 //! Anneal self-optimization contracts for reversible tuning loops.
 
 mod recurrence_schedule;
+mod rollback;
+mod rollback_codec;
 mod shadow;
 mod tripwire;
 
 pub use recurrence_schedule::{
     CALYX_ANNEAL_INVALID_CADENCE, FREQ_BONUS_MAX, RecurrenceSchedule, RefreshPriority,
     RetentionTier, anneal_retention_tier, frequency_kernel_bonus, recurrence_schedule_for,
+};
+pub use rollback::{
+    ArtifactKey, ArtifactPtr, ArtifactSnapshot, AsterRollbackStorage,
+    CALYX_ANNEAL_CHANGE_COMMITTED, CALYX_ANNEAL_INVALID_ROLLBACK_STATE,
+    CALYX_ANNEAL_UNKNOWN_CHANGE_ID, ChangeId, LogicalTime, RollbackReadback, RollbackStorage,
+    RollbackStore, rollback_live_key, rollback_snapshot_key,
 };
 pub use shadow::{
     ActionMetricSnapshot, AnnealAction, BudgetHandle, HeldOutReplay, MetricComparison, MetricSide,

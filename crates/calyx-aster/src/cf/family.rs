@@ -34,11 +34,13 @@ pub enum ColumnFamily {
     Recurrence,
     /// Typed online/adaptation state.
     Online,
+    /// Anneal rollback snapshots and live artifact pointers.
+    AnnealRollback,
 }
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 9] = [
+    pub const STATIC: [Self; 10] = [
         Self::Base,
         Self::XTerm,
         Self::TemporalXTerm,
@@ -48,6 +50,7 @@ impl ColumnFamily {
         Self::Ledger,
         Self::Recurrence,
         Self::Online,
+        Self::AnnealRollback,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -86,6 +89,7 @@ impl ColumnFamily {
             Self::Ledger => "ledger".to_string(),
             Self::Recurrence => "recurrence".to_string(),
             Self::Online => "online".to_string(),
+            Self::AnnealRollback => "anneal_rollback".to_string(),
         }
     }
 

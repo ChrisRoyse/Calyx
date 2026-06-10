@@ -194,6 +194,26 @@ where
             .read_at(self.snapshot_handle(snapshot), cf, key, &self.clock)
     }
 
+    /// Writes raw CF rows through the same WAL/MVCC commit path as vault puts.
+    pub fn write_cf_batch(
+        &self,
+        rows: impl IntoIterator<Item = (ColumnFamily, Vec<u8>, Vec<u8>)>,
+    ) -> Result<Seq> {
+        let rows = rows
+            .into_iter()
+            .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
+            .collect::<Vec<_>>();
+        if rows.is_empty() {
+            return Ok(self.latest_seq());
+        }
+        self.commit_rows(&rows)
+    }
+
+    /// Writes one raw CF row through the WAL-backed batch path.
+    pub fn write_cf(&self, cf: ColumnFamily, key: Vec<u8>, value: Vec<u8>) -> Result<Seq> {
+        self.write_cf_batch([(cf, key, value)])
+    }
+
     /// Scans visible raw CF rows at `snapshot`.
     pub fn scan_cf_at(&self, snapshot: Seq, cf: ColumnFamily) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.rows
