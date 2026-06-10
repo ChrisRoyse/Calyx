@@ -53,7 +53,7 @@ data, NOT yet causality claims.
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `temporal_xterm` CF row for `(cx_a, cx_b)` pair
-- **Readback:** after ingesting 5 occurrences each for CxId-A (at t=100,200,300,400,500) and CxId-B (at t=115,215,315,415,515) with window=30s: `calyx readback temporal-cross-term --cx-a <A> --cx-b <B>`; print `lead_lag_secs` and `n_pairs`; `xxd` the CF row
+- **Readback:** after ingesting 5 occurrences each for CxId-A (at t=100,200,300,400,500) and CxId-B (at t=115,215,315,415,515) with window=30s: persist the temporal cross-term JSON, run `calyx readback temporal-cross-term --artifact <temporal-cross-term.json>`, and separately read the backing CF row with `calyx readback --cf temporal_xterm --vault <vault>` or equivalent byte reader
 - **Prove:** `lead_lag_secs = 15.0` (A leads B by 15s); `n_pairs = 5`; `xxd` shows the f64 bytes at the expected offset
 
 ## Done when

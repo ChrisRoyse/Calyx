@@ -74,12 +74,19 @@ readback-surface gate #625 must also be resolved before PH42 can be signed off.
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 Two gates:
-1. **Self-consistency:** recurring events with agreeing outcomes → `oracle_self_consistency` ≥ 0.90; with differing outcomes → `oracle_self_consistency` ≤ 0.60 (ceiling drops). Read `calyx readback assay-report --domain <domain>` showing the `self_consistency` scalar.
-2. **Frequency → kernel weight:** a constellation ingested N=50 times (high frequency) must appear in the kernel graph node list with weight above the baseline; a one-time constellation must not. Read `calyx readback kernel-weights` and confirm the ordering.
+1. **Self-consistency:** recurring events with agreeing outcomes → `oracle_self_consistency` ≥ 0.90; with differing outcomes → `oracle_self_consistency` ≤ 0.60 (ceiling drops). Persist the Assay report and read `calyx readback assay-report --artifact <assay-report.json> --field oracle_self_consistency`.
+2. **Frequency → kernel weight:** a constellation ingested N=50 times (high frequency) must appear in the kernel graph node list with weight above the baseline; a one-time constellation must not. Persist the kernel-weight report and read `calyx readback kernel-weights --artifact <kernel-weights.json>`.
 
 #625 owns the cross-cutting readback-surface gate for these FSV claims. Tests
 may trigger PH42 computations, but the verdict must be persisted JSON,
 Aster/Ledger/CF/WAL bytes, or CLI readback output with BLAKE3-indexed artifacts.
+The #625 CLI contract is artifact-backed until individual PH42 engine cards add
+native vault/domain readers: `calyx readback <surface> --artifact <json>
+[--field <path>]`, where `<surface>` is one of `assay-report`,
+`temporal-cross-term`, `kernel-weights`, `kernel-window`, `ward-novelty`,
+`compression-ratio`, or `anneal-schedule`. A PH42 card may add a richer native
+reader later, but it must still cite persisted bytes and a BLAKE3-indexed
+artifact in closeout.
 
 ## Risks / landmines
 

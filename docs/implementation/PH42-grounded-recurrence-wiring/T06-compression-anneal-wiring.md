@@ -60,8 +60,8 @@ expected to recur soon should be kept warm; cold events can be tiered).
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `CompressionRatio` and `RecurrenceSchedule` read from the vault
-- **Readback:** (1) after 50 ingests of same content: `calyx readback compression-ratio --cx-id <X>` → print ratio; (2) `calyx readback anneal-schedule --cx-id <X>` → print importance_weight, refresh_priority, next_expected_t
-- **Prove:** `ratio = 50.0`; `importance_weight ≈ 0.573` (= `log(51)/log(10001)`); `refresh_priority` matches the cadence computed from the 50 occurrence timestamps
+- **Readback:** (1) after 50 ingests of same content: persist compression JSON and run `calyx readback compression-ratio --artifact <compression-ratio.json> --field ratio` → print ratio; (2) persist anneal schedule JSON and run `calyx readback anneal-schedule --artifact <anneal-schedule.json>` → print importance_weight, refresh_priority, next_expected_t
+- **Prove:** `ratio = 50.0`; `importance_weight ≈ 0.427` (= `log(51)/log(10001)`); `refresh_priority` matches the cadence computed from the 50 occurrence timestamps
 
 ## Done when
 

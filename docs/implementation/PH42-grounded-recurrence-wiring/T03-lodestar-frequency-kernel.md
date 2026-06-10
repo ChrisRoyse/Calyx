@@ -39,7 +39,7 @@ during the window.
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [ ] unit: `frequency_kernel_bonus(0)` → 0.0; `frequency_kernel_bonus(1)` ≈ `ln(2)/ln(10001)` ≈ 0.076; `frequency_kernel_bonus(10_000)` = 1.0
-- [ ] unit: kernel with two nodes — A (betweenness=0.8, freq=50) and B (betweenness=0.9, freq=1) — after `apply_frequency_bonuses` with `FREQ_WEIGHT=0.15`: A score = 0.8 + 0.15 * freq_bonus(50) ≈ 0.8 + 0.15*0.257 ≈ 0.839; B score = 0.9 + 0.15*0.076 ≈ 0.911; B still ranks higher
+- [ ] unit: kernel with two nodes — A (betweenness=0.8, freq=50) and B (betweenness=0.9, freq=1) — after `apply_frequency_bonuses` with `FREQ_WEIGHT=0.15`: A score = 0.8 + 0.15 * freq_bonus(50) ≈ 0.8 + 0.15*0.427 ≈ 0.864; B score = 0.9 + 0.15*0.075 ≈ 0.911; B still ranks higher
 - [ ] unit: `kernel_for_window` with window [100, 300]: CxId-A has occurrences at [50, 150, 250], CxId-B has occurrences at [400, 500] → A is included, B is excluded
 - [ ] unit: `kernel_for_window` result has `scope = TimeWindow { window: [100, 300) }`
 - [ ] proptest: `frequency_kernel_bonus(n) ∈ [0.0, 1.0]` for all `n ∈ [0, u64::MAX]`
@@ -49,8 +49,8 @@ during the window.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** kernel node weight list from `calyx readback kernel-weights`; `KernelResult` from `kernel_for_window`
-- **Readback:** (1) ingest CxId-X 50 times (frequency=50) and CxId-Y once; run `calyx readback kernel-weights` and confirm X has higher weight than Y when betweenness scores are equal; (2) run `calyx readback kernel-window --window last_days:7` and confirm only CxIds with occurrences in the last 7 days appear
+- **SoT:** persisted kernel node weight list from `calyx readback kernel-weights --artifact <kernel-weights.json>`; persisted `KernelResult` from `kernel_for_window` via `calyx readback kernel-window --artifact <kernel-window.json>`
+- **Readback:** (1) ingest CxId-X 50 times (frequency=50) and CxId-Y once; persist kernel-weight JSON, run `calyx readback kernel-weights --artifact <kernel-weights.json>`, and confirm X has higher weight than Y when betweenness scores are equal; (2) persist window-kernel JSON, run `calyx readback kernel-window --artifact <kernel-window.json>`, and confirm only CxIds with occurrences in the requested window appear
 - **Prove:** X appears in kernel above Y (frequency bonus applied); window kernel contains only in-window CxIds; `scope = TimeWindow` in metadata
 
 ## Done when

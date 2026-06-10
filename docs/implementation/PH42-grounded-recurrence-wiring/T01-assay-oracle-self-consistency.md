@@ -53,8 +53,8 @@ must be measured natively from the recurrence series.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `oracle_self_consistency` scalar in Assay report, readable via `calyx readback assay-report`
-- **Readback:** create a domain with 5 recurring CxIds (all same action, 3 occurrences each), split: 3 CxIds have agreeing outcomes, 2 have differing. Run `calyx readback assay-report --domain <domain> --field oracle_self_consistency`
+- **SoT:** `oracle_self_consistency` scalar in persisted Assay report JSON, readable via `calyx readback assay-report --artifact <assay-report.json>`
+- **Readback:** create a domain with 5 recurring CxIds (all same action, 3 occurrences each), split: 3 CxIds have agreeing outcomes, 2 have differing. Persist the Assay report JSON, then run `calyx readback assay-report --artifact <assay-report.json> --field oracle_self_consistency`
 - **Prove:** `oracle_self_consistency` value printed is between 0.6 and 0.9 (mixed agreeing/flaky corpus); `Consistent` CxIds show `agreement_rate ≥ 0.75`; `Flaky` CxIds show `agreement_rate < 0.75`
 
 ## Done when

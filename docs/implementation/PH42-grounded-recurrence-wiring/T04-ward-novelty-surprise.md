@@ -53,7 +53,7 @@ inflate the stored information bits of any constellation (no bit-stuffing).
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `NoveltySignal` returned by `classify_novelty`; Ward's novelty-region log
-- **Readback:** (1) ingest a singleton CxId in a domain of 20 recurring events; `calyx readback ward-novelty --cx-id <singleton>` → print `NoveltySignal`; (2) inject a FixedClock past the cadence window for a recurring CxId; `calyx readback ward-novelty --cx-id <recurring>` → print `OverdueRecurrence`
+- **Readback:** (1) ingest a singleton CxId in a domain of 20 recurring events; persist Ward novelty JSON and run `calyx readback ward-novelty --artifact <ward-novelty.json> --field singleton.signal` → print `NoveltySignal`; (2) inject a FixedClock past the cadence window for a recurring CxId and read `--field overdue.signal` → print `OverdueRecurrence`
 - **Prove:** singleton → `NonRecurring` printed; overdue → `OverdueRecurrence { expected_t: ..., overdue_by: ... }` printed; `SurpriseScore` appears in anomaly log but NOT in any stored bits field (grep CF bytes for surprise value — must be absent)
 
 ## Done when
