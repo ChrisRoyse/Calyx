@@ -23,7 +23,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35-PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening #349 signed off) |
 | S8 Ward | PH37-PH39 | ✅ DONE, FSV-signed-off (#258-#280, #349, #350, #351, #352, #353, #354, #355, #356, #357, #358, and #359 signed off; exit #280 read back the full Ward surface) |
-| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378; T01 #373, T02 #374, and T03 #375 FSV-backed; next #376) |
+| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378; T01 #373, T02 #374, T03 #375, and T04 #376 FSV-backed; next #377) |
 | S10-S20 | PH43-PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -46,6 +46,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue374-time-window-20260609-d872c7c`
 - Stage 9 PH40 temporal boost helper (#375):
   `/home/croyse/calyx/data/fsv-issue375-temporal-boost-20260609-a54dcc1`
+- Stage 9 PH40 causal confidence gate (#376):
+  `/home/croyse/calyx/data/fsv-issue376-causal-gate-20260609-78f9b67`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence

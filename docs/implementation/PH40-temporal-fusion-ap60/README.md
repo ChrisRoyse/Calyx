@@ -45,7 +45,7 @@ weights).
 | `crates/calyx-sextant/src/temporal/boost.rs` | `apply_temporal_boost(hits, policy, query_time, tz_offset)` — content-relative post-retrieval reranker |
 | `crates/calyx-sextant/src/temporal/window.rs` | `last_hours(n)` / `last_days(n)` constructors + window filter |
 | `crates/calyx-sextant/src/temporal/causal_gate.rs` | causal-confidence gate (high-conf ×1.10, low ×0.85) |
-| `crates/calyx-sextant/src/temporal/tests.rs` | deterministic unit + property tests for all boost/window logic |
+| `crates/calyx-sextant/tests/causal_gate_fsv.rs` | deterministic causal gate pipeline artifact readback |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -95,6 +95,20 @@ weights).
   and the zero-content recent hit remains score 0.0. Edge proofs cover empty
   input, single-hit E4 = 1.0, missing timestamps, and
   `CALYX_TEMPORAL_AP60_VIOLATION` for `never_dominant=false`.
+- T04 #376 commit: `78f9b67`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue376-causal-gate-20260609-78f9b67`
+- Source of truth: `causal-gate-input.json`,
+  `causal-gate-readback.json`, and `BLAKE3SUMS.txt` under the FSV root.
+  Readback shows the final `temporal_search_pipeline` ranking after
+  window-filter -> temporal boost -> causal gate. High confidence hit 01 reads
+  back score `1.0642499923706055`, neutral hit 02 reads back
+  `0.8506667017936707`, and low hit 03 reads back `0.6257416605949402`.
+  Each hit carries `causal_confidence` and `causal_gate` explain evidence.
+  Edge proofs cover empty input, `Absent` confidence treated as multiplier 1.0,
+  and `CALYX_TEMPORAL_INVALID_BOOST_CONFIG` for negative and over-10 causal
+  multipliers. `BLAKE3SUMS.txt` digest:
+  `aca9fc8102bd40b6c9f7c8f113fd39b72da633b00edef4486dd13a2d4527d3e7`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

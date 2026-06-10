@@ -38,7 +38,8 @@ field whose violation returns `CALYX_TEMPORAL_AP60_VIOLATION`.
 - [x] unit: `TemporalPolicy::default()` round-trips through `serde_json` byte-exact
 - [x] unit: `PeriodicOptions { target_hour: Some(24), .. }` → `CALYX_TEMPORAL_INVALID_PERIOD`
 - [x] edge: `never_dominant = false` attempted → `CALYX_TEMPORAL_AP60_VIOLATION`
-- [x] edge: `BoostConfig { causal_high_mult: 0.0, .. }` allowed (no range constraint on mult itself — gate is semantic, not structural)
+- [x] edge: `BoostConfig { causal_high_mult: 0.0, .. }` allowed; T04 adds
+  the causal multiplier range guard `[0.0, 10.0]` and still permits zero.
 - [x] fail-closed: zero `FusionWeights { 0.0, 0.0, 0.0 }` → `CALYX_TEMPORAL_WEIGHT_SUM`
 - [x] fail-closed: `BoostConfig::new(0.11, 1.10, 0.85)` → `CALYX_TEMPORAL_AP60_VIOLATION`
 
