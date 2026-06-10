@@ -58,7 +58,7 @@ pub fn calibrate_slot(
 
     let mut bad_scores = sorted_scores(&input.bad_scores)?;
     let good_scores = sorted_scores(&input.good_scores)?;
-    let tau = conformal_tau(&bad_scores, input.target_far)?;
+    let tau = conformal_tau(&bad_scores, input.target_far, alpha)?;
     let far = fraction(
         input
             .bad_scores
@@ -83,6 +83,7 @@ pub fn calibrate_slot(
         input.slot,
         input.slot_kind,
         input.target_far,
+        alpha,
         &good_scores,
         &bad_scores,
     );
@@ -157,29 +158,71 @@ fn sorted_scores(scores: &[f32]) -> Result<Vec<f32>, WardError> {
     Ok(scores)
 }
 
-fn conformal_tau(sorted_bad_scores: &[f32], target_far: f32) -> Result<f32, WardError> {
+fn conformal_tau(sorted_bad_scores: &[f32], target_far: f32, alpha: f32) -> Result<f32, WardError> {
     if sorted_bad_scores.is_empty() {
         return Err(WardError::InsufficientCalibrationData {
             n: 0,
             min: MIN_BAD_SCORES,
         });
     }
-    let keep_fraction = 1.0 - target_far;
-    let rank = (keep_fraction * sorted_bad_scores.len() as f32).ceil() as usize;
-    let index = rank.saturating_sub(1).min(sorted_bad_scores.len() - 1);
-    let candidate = sorted_bad_scores[index];
-    let candidate_far = fraction(
-        sorted_bad_scores
+    if target_far == 0.0 {
+        return Ok(next_above(*sorted_bad_scores.last().expect("non-empty")));
+    }
+    let mut candidates = Vec::with_capacity(sorted_bad_scores.len() * 2);
+    for score in sorted_bad_scores {
+        if candidates.last().copied() != Some(*score) {
+            candidates.push(*score);
+            candidates.push(next_above(*score));
+        }
+    }
+    candidates.sort_by(|left, right| left.total_cmp(right));
+    candidates.dedup();
+    for candidate in candidates {
+        let bad_accepts = sorted_bad_scores
             .iter()
             .filter(|score| **score >= candidate)
-            .count(),
-        sorted_bad_scores.len(),
-    );
-    if candidate_far <= target_far + f32::EPSILON {
-        Ok(candidate)
-    } else {
-        Ok(next_above(candidate))
+            .count();
+        let candidate_far = fraction(bad_accepts, sorted_bad_scores.len());
+        if candidate_far <= target_far + f32::EPSILON
+            && confidence_bound_satisfied(bad_accepts, sorted_bad_scores.len(), target_far, alpha)
+        {
+            return Ok(candidate);
+        }
     }
+    Ok(next_above(*sorted_bad_scores.last().expect("non-empty")))
+}
+
+fn confidence_bound_satisfied(
+    bad_accepts: usize,
+    bad_count: usize,
+    target_far: f32,
+    alpha: f32,
+) -> bool {
+    binomial_cdf_at_most(bad_accepts, bad_count, f64::from(target_far))
+        <= f64::from(alpha) + f64::EPSILON
+}
+
+fn binomial_cdf_at_most(successes: usize, trials: usize, probability: f64) -> f64 {
+    if successes >= trials {
+        return 1.0;
+    }
+    if probability <= 0.0 {
+        return 1.0;
+    }
+    if probability >= 1.0 {
+        return if successes >= trials { 1.0 } else { 0.0 };
+    }
+    let complement = 1.0 - probability;
+    let mut term = complement.powf(trials as f64);
+    let mut sum = term;
+    for index in 0..successes {
+        term *= (trials - index) as f64 / (index + 1) as f64 * probability / complement;
+        sum += term;
+        if sum > 1.0 {
+            return 1.0;
+        }
+    }
+    sum
 }
 
 fn merge_meta(
@@ -215,6 +258,7 @@ fn corpus_hash(
     slot: SlotId,
     slot_kind: SlotKind,
     target_far: f32,
+    alpha: f32,
     good_scores: &[f32],
     bad_scores: &[f32],
 ) -> [u8; 32] {
@@ -222,6 +266,7 @@ fn corpus_hash(
     hasher.update(slot.get().to_be_bytes());
     hasher.update([slot_kind as u8]);
     hasher.update(target_far.to_le_bytes());
+    hasher.update(alpha.to_le_bytes());
     for score in good_scores {
         hasher.update(score.to_le_bytes());
     }

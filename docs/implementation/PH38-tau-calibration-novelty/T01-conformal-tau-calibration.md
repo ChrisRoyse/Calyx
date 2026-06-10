@@ -23,12 +23,21 @@ milliseconds, matching `calyx_core::Ts`, with evidence at
 Post-#354 per-slot calibration hardening preserves slot-level FAR/FRR metadata
 under `CalibrationMeta.per_slot`, with evidence at
 `/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+Post-#648 alpha-bound hardening makes threshold selection alpha-sensitive, with
+evidence at `/home/croyse/calyx/data/fsv-issue648-alpha-bound-20260610` and
+real injection-corpus evidence at
+`/home/croyse/calyx/data/fsv-issue648-real-injection-20260610`.
 
 Readback facts:
 - `identity-style-comparison.json` shows
-  `estimator="conformal_quantile_v1"`, `identity_far=0.009999999776482582`,
-  `identity_tau=0.5940000414848328`, `style_tau=0.5820000767707825`, and
+  `estimator="conformal_quantile_v1"`, `identity_far=0.0`,
+  `identity_tau=0.5970000624656677`, `style_tau=0.5940000414848328`, and
   `identity_tau_gt_style_tau=true`.
+- `alpha-confidence-bound.json` shows strict alpha `0.01` produces tau
+  `0.5895001292228699` and FAR `0.03400000184774399`, while loose alpha `0.20`
+  produces tau `0.5868000984191895` and FAR `0.0430000014603138`; the strict
+  tau is higher, strict FAR is lower, and the corpus hashes differ because alpha
+  is part of the calibration evidence hash.
 - `insufficient-error.json` shows `CALYX_GUARD_PROVISIONAL` for 49 bad scores.
 - `all-high-bad-scores.json` shows tied high bad scores get `tau=0.9900000691413879`
   and `far=0.0`.
@@ -67,15 +76,17 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
       - Require `input.bad_scores.len() >= 50` → else return
         `Err(WardError::InsufficientCalibrationData { n: len, min: 50 })`
         (maps to `CALYX_GUARD_PROVISIONAL`)
-      - Conformal quantile: sort `bad_scores` ascending; `tau = quantile at
-        (1 − target_far)`, advanced one f32 ULP when ties at the quantile would
-        make Ward accept too many bad scores.
+      - Conformal quantile: sort `bad_scores` ascending; candidate thresholds
+        must keep empirical FAR within `target_far` and satisfy the binomial
+        one-sided confidence check `P(Binomial(n, target_far) <= bad_accepts)
+        <= alpha`. If the sample cannot certify the requested confidence, use
+        `max_bad + 1 ULP` to stay fail-closed against the observed bad set.
       - Compute achieved `far = fraction of bad_scores >= tau`, matching
         Ward's `cos >= tau` pass predicate.
       - Compute `frr = fraction of good_scores < tau`
       - `confidence = 1.0 - alpha`
-      - `corpus_hash`: SHA-256 of sorted concatenated score bytes (stable,
-        deterministic)
+      - `corpus_hash`: SHA-256 of slot kind, target FAR, alpha, and sorted
+        concatenated score bytes (stable, deterministic)
       - `estimator = "conformal_quantile_v1"`
       - Return `(tau, CalibrationMeta { corpus_hash, estimator, far, frr,
         confidence, ts: clock-derived Unix millisecond timestamp, per_slot:
@@ -101,6 +112,9 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
       (`target_far=0.05`); assert identity τ > stylistic τ (identity is stricter)
 - [x] proptest: for any bad_scores of length ≥ 50 with values in `[0.0, 1.0]`,
       achieved FAR of the returned τ ≤ target_far (conformal guarantee holds)
+- [x] regression: with enough bad-sample support, changing alpha changes tau;
+      strict alpha raises tau, lowers achieved FAR, and changes the persisted
+      calibration corpus hash.
 - [x] edge: exactly 50 bad scores → `Ok` returned (boundary quorum)
 - [x] edge: 49 bad scores → `WardError::InsufficientCalibrationData { n: 49 }`
 - [x] edge: all bad scores = 0.99 → τ is advanced above 0.99; achieved_far = 0.0
@@ -125,7 +139,10 @@ FAR target); stylistic slots loose. The result is a `GuardProfile` whose
   identity-slot FAR <= 0.01, `tau` in the expected range, identity-slot tau >
   stylistic-slot tau, and edge-case files for quorum failure, all-high bad
   scores, quantile ties, zero target FAR, loose identity FAR, and #354 per-slot
-  FAR/FRR preservation through health/readback.
+  FAR/FRR preservation through health/readback. Post-#648 readback also proves
+  alpha-sensitive thresholding through `alpha-confidence-bound.json` and real
+  injection-corpus `calibration-provenance.json` with persisted `alpha`,
+  `confidence`, `tau`, and corpus hash.
 
 ## Done when
 

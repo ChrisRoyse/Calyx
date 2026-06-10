@@ -47,6 +47,13 @@ T05 (#268) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`.
 T06 (#276) is implemented and FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`.
+#648 hardens T01 so `alpha` is no longer metadata-only: threshold candidates
+must pass a binomial one-sided false-accept confidence check before calibration
+accepts them. If the sample cannot certify the requested confidence, Ward uses
+the strictest observed-bad threshold (`max_bad + 1 ULP`) instead of reporting a
+looser alpha-insensitive tau. FSV roots:
+`/home/croyse/calyx/data/fsv-issue648-alpha-bound-20260610` and
+`/home/croyse/calyx/data/fsv-issue648-real-injection-20260610`.
 #350 hardens T03 by failing closed when the supplied `GuardProfile.guard_id`
 does not match `GuardVerdict.guard_id`, before any novelty sink write. That FSV
 is signed off at
@@ -88,7 +95,7 @@ quarantine contract.
 
 | File | Responsibility |
 |---|---|
-| `src/calibrate.rs` | conformal τ calibration per slot; empirical FAR is measured with Ward's `cos >= tau` predicate; slot-kind FAR caps; `CalibrationMeta` with `corpus_hash`, `estimator`, profile-summary `far`/`frr`, `confidence`, `ts`, and per-slot FAR/FRR in `per_slot`; provisional errors for invalid/insufficient calibration |
+| `src/calibrate.rs` | conformal τ calibration per slot; alpha-sensitive binomial false-accept confidence check; empirical FAR is measured with Ward's `cos >= tau` predicate; slot-kind FAR caps; `CalibrationMeta` with `corpus_hash`, `estimator`, profile-summary `far`/`frr`, `confidence`, `ts`, and per-slot FAR/FRR in `per_slot`; provisional errors for invalid/insufficient calibration |
 | `src/novelty.rs` | `NoveltyHandler`: route FAIL to `NewRegion` / `Quarantine` / `RejectClosed`; write novel constellation to the PH09-backed Aster vault CF |
 | `src/drift.rs` | `DriftMonitor`: track rolling rejection/OOD rate per slot; fire Anneal hook when runtime rejection rate creeps above that slot's calibrated FAR bound; `guard_health()` exposes rejection rate, per-slot calibrated FAR bounds, FRR, drift flag, and last calibration timestamp |
 | `src/lib.rs` | wire new modules; re-export `calibrate`, `novelty`, `drift` |
@@ -155,6 +162,18 @@ slot 1 FAR `0.01` / FRR `1.0` and slot 2 FAR `0.05` / FRR `0.0`; `guard_health`
 reads those same per-slot FAR/FRR values; the drift hook event fires for slot 1
 using the slot 1 FAR bound. Evidence root:
 `/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`.
+
+**Alpha-sensitive calibration bound:** #648 proves strict alpha changes tau
+when the sample supports the confidence check. Readback
+`alpha-confidence-bound.json` shows bad count `1000`, target FAR `0.05`,
+strict alpha `0.01` -> tau `0.5895001292228699` / FAR `0.03400000184774399`,
+loose alpha `0.20` -> tau `0.5868000984191895` / FAR
+`0.0430000014603138`, distinct corpus hashes, and both `strict_tau_gt_loose_tau`
+and `strict_far_lt_loose_far` true. The real injection-corpus readback at
+`/home/croyse/calyx/data/fsv-issue648-real-injection-20260610` persists
+`alpha=0.05`, `confidence=0.95`, tau `0.7752314805984497`,
+`calibration_far=0.0`, held-out block rate `1.0`, and a verified SHA-256
+manifest.
 
 **GuardHealth serde compatibility:** #358 proves pre-#354 `GuardHealth` JSON
 without `per_slot_calibrated_far_bound` deserializes successfully, defaults that

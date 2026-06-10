@@ -134,11 +134,17 @@ fn ph38_t05_fsv_fixture_writes_readback_artifacts() {
         "calibration-provenance.json",
         &json!({
             "estimator": ESTIMATOR,
+            "alpha": ALPHA,
+            "confidence": profile.calibration.as_ref().expect("calibration").confidence,
             "calibration_split": CALIBRATION_SPLIT,
             "calibration_good_count": label_count(&calibration_rows, 0),
             "calibration_bad_count": label_count(&calibration_rows, 1),
             "calibration_far": profile.calibration.as_ref().expect("calibration").far,
             "calibration_frr": profile.calibration.as_ref().expect("calibration").frr,
+            "tau": profile.tau_for(&CONTENT_SLOT).expect("content tau"),
+            "corpus_hash": hash_hex(
+                &profile.calibration.as_ref().expect("calibration").corpus_hash
+            ),
             "profile": profile,
             "target_far": TARGET_FAR,
             "corpus_vectors_sha256": corpus.vectors_sha256,
@@ -210,6 +216,10 @@ fn assert_split_ready(calibration_rows: &[&VectorRow], heldout_rows: &[&VectorRo
 
 fn label_count(rows: &[&VectorRow], label: u8) -> usize {
     rows.iter().filter(|item| item.label == label).count()
+}
+
+fn hash_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn benign_centroid_for_rows(rows: &[&VectorRow]) -> Vec<f32> {
