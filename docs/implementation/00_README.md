@@ -261,7 +261,7 @@ manifest SHA-256
 
 **Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41 T03
 #381**, then PH41 T04-T08 and PH42-PH72. PH41 T02 #380 is FSV-backed at
-`/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`.
+`/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

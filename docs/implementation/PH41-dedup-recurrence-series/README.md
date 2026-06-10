@@ -32,9 +32,11 @@ CRUD, manifest, compaction, and PH41 T01 `DedupPolicy` manifest persistence in
 place. #379 is FSV-signed-off at
 `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`.
 PH41 T02 #380 is FSV-signed-off at
-`/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`: the
+`/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`: the
 bounded content-slot cosine gate now runs on top of the persisted policy and
-prints byte readback through `calyx readback dedup-check`.
+prints byte readback through `calyx readback dedup-check`, including fail-closed
+runtime validation for calibrated tau and constructor-bypassed empty
+`required_slots`.
 The `ingest` path exists in `crates/calyx-aster/src/vault.rs`; PH41 T03 now
 adds the real anchor-conflict guard. The `Gτ`
 guard (PH37) is in `calyx-ward`. `calyx-loom` exists from Stage 5

@@ -50,9 +50,9 @@ contain E2/E3/E4) participate in the cosine comparison.
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** real Aster vault bytes under
-  `/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06/vault`,
+  `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20/vault`,
   plus the saved readback artifacts in the FSV root.
-- **Readback trigger:** `CALYX_DEDUP_ENGINE_FSV_ROOT=/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06 cargo test -p calyx-cli --test dedup_check_readback -- --nocapture`
+- **Readback trigger:** `CALYX_DEDUP_ENGINE_FSV_ROOT=/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20 cargo test -p calyx-cli --test dedup_check_readback -- --nocapture`
   created a durable vault, inserted one source constellation, ran
   `calyx readback dedup-check`, and saved stdout/stderr, base CF bytes, and
   BLAKE3 sums.
@@ -60,8 +60,10 @@ contain E2/E3/E4) participate in the cosine comparison.
   `eec6d89ce772fa6e05416733ebce870f`; near candidate (cos
   `0.949999988079071`, τ `0.9`) prints `Match` for that exact CxId; distinct
   candidate (cos `0.8500000238418579`) prints `NoMatch`; missing slot, invalid
-  tau, and DPI-exceeded edges fail closed. Separate `calyx readback --cf base`
-  and `--cf slot_00` reads show the persisted source row and slot vector bytes.
+  tau, DPI-exceeded, invalid calibrated tau (`NaN`, `+/-inf`, out-of-range),
+  and constructor-bypassed empty `required_slots` edges fail closed. Separate
+  `calyx readback --cf base` and `--cf slot_00` reads show the persisted source
+  row and slot vector bytes.
 
 ## Done when
 

@@ -57,7 +57,7 @@ Latest roots:
 - Stage 9 PH41 DedupPolicy manifest persistence (#379):
   `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`
 - Stage 9 PH41 dedup engine cosine gate (#380):
-  `/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`
+  `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence

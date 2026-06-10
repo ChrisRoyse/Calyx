@@ -26,7 +26,7 @@ for the structure under `docs/implementation/PHnn-*/`.
 > confidence gate, #377 `temporal_search`, #378 temporal-never-dominant proof,
 > and #615 AP-60 final-surface hardening. PH41 T01 #379 is complete and
 > FSV-backed; PH41 T02 #380 is complete and FSV-backed at
-> `/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`.
+> `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
 > PH41 T03 #381 is the next Stage 9 card.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and

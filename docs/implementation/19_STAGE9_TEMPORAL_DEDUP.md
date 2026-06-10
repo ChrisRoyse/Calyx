@@ -31,7 +31,7 @@ system role:** the sense of time.
 - **Status.** T01 #379 is complete and FSV-backed on aiwonder at
   `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`;
   T02 #380 is complete and FSV-backed at
-  `/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`;
+  `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`;
   PH41 T03 #381 is next.
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
