@@ -115,8 +115,10 @@ and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
 Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
 under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
-FSV-signed-off. PH41 T01 #379 through T05 #383 are complete and
-FSV-signed-off; the next atomic work is PH41 T06 #384.
+FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
+overfetch, negative fusion-weight validation, and public periodic scorer
+scope. PH41 T01 #379 through T05 #383 are complete and FSV-signed-off; the next
+atomic work is PH41 T06 #384.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
