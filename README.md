@@ -11,6 +11,9 @@ All build, test, and verification work happens on aiwonder under
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
 including PH33 raw-vs-tuned recall #331 and kernel_answer anchor search #332.
+The Lodestar compact-kernel ≈1% figure is a raw design target, not a universal
+measured guarantee; current acceptance is the measured final/tuned recall,
+kernel size, and `pass_mode` readback in the PH33/PH34 artifacts.
 Stage 7 Ledger (PH35-PH36) is closed and FSV-signed-off after PH35
 #242-#248, PH35 failure-atomicity hardening #345, PH36 T01 #249,
 range-bound signature hardening #347, and real Aster `merkle-root --vault`
