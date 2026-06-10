@@ -21,7 +21,7 @@ pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), Strin
         .get(&base_key(cx_id))
         .map(|bytes| decode_constellation_base(bytes).map_err(|error| error.to_string()))
         .transpose()?;
-    let frequency = base
+    let base_frequency = base
         .as_ref()
         .map_or(Ok(0), recurrence_frequency)
         .map_err(|error| error.to_string())?;
@@ -30,6 +30,7 @@ pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), Strin
     let mut occurrences = Vec::new();
     let mut rolled_rows = Vec::new();
     let mut rollup_summary = None;
+    let mut has_tombstone = false;
     for (key, value) in recurrence_rows {
         if !range.contains(&key) {
             continue;
@@ -44,10 +45,19 @@ pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), Strin
                     "rolled_into": rolled_into.0,
                 }));
             }
-            StoredRecurrenceRow::Tombstone { .. } => {}
+            StoredRecurrenceRow::Tombstone { .. } => has_tombstone = true,
         }
     }
     occurrences.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
+    let total_count = occurrences.len() as u64
+        + rollup_summary
+            .as_ref()
+            .map_or(0, |summary| summary.count_rolled);
+    let frequency = if has_tombstone {
+        total_count
+    } else {
+        base_frequency.max(total_count)
+    };
 
     let value = json!({
         "vault": vault.display().to_string(),

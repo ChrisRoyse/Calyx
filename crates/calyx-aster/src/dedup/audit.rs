@@ -7,9 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{DedupAction, EpochSecs, OccurrenceId, dedup_error};
 use crate::cf::{ColumnFamily, recurrence_key};
-use crate::recurrence::{
-    FREQUENCY_SCALAR, Occurrence, StoredRecurrenceRow, encode_recurrence_row, read_series,
-};
+use crate::recurrence::{Occurrence, StoredRecurrenceRow, encode_recurrence_row, read_series};
 use crate::vault::AsterVault;
 
 pub const CALYX_DEDUP_WRONG_VAULT: &str = "CALYX_DEDUP_WRONG_VAULT";
@@ -172,11 +170,6 @@ where
                 recurrence_key(snapshot.merged_into, id.0),
                 encode_recurrence_row(&StoredRecurrenceRow::Tombstone { id })?,
             ));
-        }
-    }
-    for cx in &mut updated_bases {
-        if recurrence_resets.contains(&cx.cx_id) {
-            cx.scalars.remove(FREQUENCY_SCALAR);
         }
     }
     for cx_id in recurrence_resets {

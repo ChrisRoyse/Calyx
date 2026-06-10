@@ -204,7 +204,11 @@ where
     C: Clock,
 {
     let rows = read_rows(vault, cx_id)?;
-    let frequency = occurrence_count(vault, cx_id)?.max(rows.total_count());
+    let frequency = if rows.has_tombstone {
+        rows.total_count()
+    } else {
+        base_frequency(vault, cx_id)?.max(rows.total_count())
+    };
     Ok(RecurrenceSeries {
         cx_id,
         cadence_secs: cadence_secs(&rows.occurrences),
@@ -218,6 +222,14 @@ pub fn occurrence_count<C>(vault: &AsterVault<C>, cx_id: CxId) -> Result<u64>
 where
     C: Clock,
 {
+    let rows = read_rows(vault, cx_id)?;
+    if rows.has_tombstone {
+        return Ok(rows.total_count());
+    }
+    Ok(base_frequency(vault, cx_id)?.max(rows.total_count()))
+}
+
+fn base_frequency<C: Clock>(vault: &AsterVault<C>, cx_id: CxId) -> Result<u64> {
     let Some(base) = read_base(vault, cx_id)? else {
         return Ok(0);
     };
@@ -238,23 +250,18 @@ pub fn decode_recurrence_row(bytes: &[u8]) -> Result<StoredRecurrenceRow> {
         .map_err(|error| CalyxError::aster_corrupt_shard(format!("decode recurrence row: {error}")))
 }
 
-fn read_base<C>(vault: &AsterVault<C>, cx_id: CxId) -> Result<Option<Constellation>>
-where
-    C: Clock,
-{
+fn read_base<C: Clock>(vault: &AsterVault<C>, cx_id: CxId) -> Result<Option<Constellation>> {
     vault
         .read_cf_at(vault.snapshot(), ColumnFamily::Base, &base_key(cx_id))?
         .map(|bytes| encode::decode_constellation_base(&bytes))
         .transpose()
 }
 
-fn read_rows<C>(vault: &AsterVault<C>, cx_id: CxId) -> Result<SeriesRows>
-where
-    C: Clock,
-{
+fn read_rows<C: Clock>(vault: &AsterVault<C>, cx_id: CxId) -> Result<SeriesRows> {
     let range = recurrence_prefix_range(cx_id);
     let mut occurrences = Vec::new();
     let mut rollup_summary = None;
+    let mut has_tombstone = false;
     for (key, value) in vault.scan_cf_at(vault.snapshot(), ColumnFamily::Recurrence)? {
         if !range.contains(&key) {
             continue;
@@ -262,14 +269,15 @@ where
         match decode_recurrence_row(&value)? {
             StoredRecurrenceRow::Occurrence(occurrence) => occurrences.push(occurrence),
             StoredRecurrenceRow::RollupSummary(summary) => rollup_summary = Some(summary),
-            StoredRecurrenceRow::RolledOccurrence { .. }
-            | StoredRecurrenceRow::Tombstone { .. } => {}
+            StoredRecurrenceRow::RolledOccurrence { .. } => {}
+            StoredRecurrenceRow::Tombstone { .. } => has_tombstone = true,
         }
     }
     occurrences.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
     Ok(SeriesRows {
         occurrences,
         rollup_summary,
+        has_tombstone,
     })
 }
 
@@ -277,6 +285,7 @@ where
 struct SeriesRows {
     occurrences: Vec<Occurrence>,
     rollup_summary: Option<RollupSummary>,
+    has_tombstone: bool,
 }
 
 impl SeriesRows {
