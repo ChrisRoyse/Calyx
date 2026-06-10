@@ -1,5 +1,6 @@
 use super::{AsterVault, VaultOptions, VaultRecoveryReport, durable, encode, ledger_hook};
 use crate::cf::{CfRouter, ColumnFamily, base_key, ledger_key};
+use crate::dedup::DedupPolicy;
 use crate::mvcc::VersionedCfStore;
 use calyx_core::{
     Clock, CxFlags, FixedClock, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
@@ -180,6 +181,7 @@ fn router_failure_vault(dir: &Path) -> AsterVault<FixedClock> {
         clock: FixedClock::new(123),
         rows: VersionedCfStore::new_with_router(0, router),
         durable: None,
+        dedup_policy: DedupPolicy::default(),
         ledger_hook: Some(ledger_hook),
         recovery_report: VaultRecoveryReport {
             last_recovered_seq: 0,
