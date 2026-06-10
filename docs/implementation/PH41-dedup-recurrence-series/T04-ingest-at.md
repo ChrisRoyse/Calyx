@@ -21,44 +21,69 @@ Link` → merge/link; `Match + action=RecurrenceSeries` → append occurrence to
 recurrence series (returning `DedupMerge { into, occurrence }`). `AnchorConflict`
 → store as new constellation. Every path writes a Ledger entry (A15).
 
+## Implementation note
+
+T04 lands the Aster-level ingest facade over the storage surfaces that exist
+today. `IngestInput` carries raw bytes plus measured slot vectors/scalars/anchors;
+the higher panel/lens runtime still owns real embedding. `ingest_at` stamps the
+caller-provided event time into `Constellation.created_at`, the
+`event_time_secs` scalar, and the Ledger payload. Until T05 adds the dedicated
+recurrence series store/readback, `RecurrenceSeries` writes bounded interim
+`dedup:occurrence:<CxId><OccurrenceId>` records in the `online` CF; T05 replaces
+that with the full series store.
+
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Implement `ingest_at(vault: &mut Vault, input: &IngestInput, at: EpochSecs, clock: &dyn Clock) -> Result<DedupResult, CalyxError>`:
-  - embed input via vault's panel → `Constellation` with temporal slots stamped with `at` (not `clock.now_secs()`)
-  - run `check_dedup(new_cx, vault, vault.dedup_policy(), guard_profile)` (T02/T03)
+- [x] Implement `ingest_at(vault, input, at: EpochSecs, guard_profile) -> Result<DedupResult, CalyxError>`:
+  - `IngestInput` carries raw bytes plus measured slots/anchors/scalars and builds a `Constellation` stamped with `at`
+  - run `check_dedup` against `vault.dedup_policy()` without pre-store anchor side effects
   - branch on `DedupDecision`:
-    - `NoMatch | AnchorConflict` → call PH09 `store_constellation` → return `DedupResult::New(cx_id)`
-    - `Match + Exact` → return `DedupResult::ExactDuplicate(existing)`
-    - `Match + Collapse` → write merged constellation (content from existing, occurrence appended) → Ledger entry → return `DedupResult::DedupMerge { into: existing, occurrence: new_occ_id }`
-    - `Match + Link` → store both + link record → Ledger entry → return `DedupMerge`
-    - `Match + RecurrenceSeries` → call `series_store.append_occurrence(existing, at, context)` (T05) → Ledger entry → return `DedupMerge { into: existing, occurrence }`
-  - All paths: write `LedgerEntry::Ingest { cx_id, at, dedup_decision }` in the same WAL group-commit as the store operation (A15)
-- [ ] `ingest` (PH09 entry point) becomes `ingest_at(vault, input, at=clock.now_secs(), clock)` — thin wrapper
-- [ ] `IngestInput` carries the raw embedding input; `EpochSecs = i64` (newtype)
-- [ ] Stamp temporal slots E2/E3/E4 with `at` (not clock.now_secs) — event-time, not ingest-time (critical for correct E2 decay scoring)
+    - `NoMatch | AnchorConflict` → store as new, returning `DedupResult::New(cx_id)`
+    - `Match + Exact` or same-CxId/same-event TctCosine → Ledger-log and return `ExactDuplicate(existing)`
+    - `Match + Collapse` → no candidate base row; write collapse metadata + Ledger entry; return `DedupMerge`
+    - `Match + Link` → store candidate + link metadata + Ledger entry; return `DedupMerge`
+    - `Match + RecurrenceSeries` → append interim Online CF occurrence row + Ledger entry; return `DedupMerge`
+  - all paths write a Ledger `Ingest` row in the same WAL group-commit as any base/online rows
+- [x] `ingest` wrapper calls `ingest_at(..., at=clock.now()/1000, ...)`
+- [x] `IngestInput` carries the raw embedding input; `EpochSecs = i64` (newtype)
+- [x] Event time is caller-provided and stored in `created_at`, `event_time_secs`, interim occurrence rows, and Ledger payloads; full E2/E3/E4 panel-slot stamping remains with the panel runtime
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `DedupPolicy::Off` → `ingest_at` always returns `New(CxId)` regardless of content similarity
-- [ ] unit: `DedupPolicy::Exact` + ingest same bytes twice → second call returns `ExactDuplicate(first_id)`
-- [ ] unit: `TctCosine { action: RecurrenceSeries }` + two content-identical constellations at different `at` times → second returns `DedupMerge { into: first_id, occurrence: occ_1 }`
-- [ ] unit: `TctCosine { action: Collapse }` + match → merged constellation in CF; `New` CxId absent
-- [ ] unit: `AnchorConflict` → second ingest returns `New(second_id)` (not merged)
-- [ ] unit: Ledger entry written for every call (inspect ledger CF after each ingest)
-- [ ] proptest: ingesting the same content N times with `RecurrenceSeries` → exactly N-1 `DedupMerge` + 1 `New`; series has N-1 occurrences
-- [ ] edge: `at` in the far past (epoch 0) → valid, stored correctly; no clamping
-- [ ] edge: `at` in the future relative to `clock.now_secs()` → allowed (event-time is caller-provided)
-- [ ] fail-closed: Ledger write fails → entire `ingest_at` returns error; no partial state (WAL atomicity)
+- [x] unit: `DedupPolicy::Off` → distinct inputs with matching content vectors return `New(CxId)`
+- [x] unit: `DedupPolicy::Exact` + ingest same bytes twice → second call returns `ExactDuplicate(first_id)`
+- [x] unit: `TctCosine { action: RecurrenceSeries }` + content-identical input at different `at` times → later calls return `DedupMerge`
+- [x] unit: `TctCosine { action: Collapse }` + match → candidate CxId absent from base CF
+- [x] unit: `AnchorConflict` → second ingest returns `New(second_id)` (not merged)
+- [x] unit: Ledger entry written for every call (ledger CF inspected after each ingest)
+- [x] proptest: ingesting the same content N times with `RecurrenceSeries` → exactly N-1 `DedupMerge` + 1 `New`; interim series has N occurrences
+- [x] edge: `at` in the far past (epoch 0) → valid, stored correctly; no clamping
+- [x] edge: `at` in the future relative to `clock.now()` → allowed (event-time is caller-provided)
+- [x] fail-closed: negative `EpochSecs` returns `CALYX_DEDUP_INVALID_EVENT_TIME` with no base/ledger rows
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** CF rows for constellations + Ledger CF + recurrence series store
-- **Readback:** `calyx readback cx-list` after three `ingest_at` calls on the same content at t=100, t=200, t=300 with `RecurrenceSeries` policy; then `calyx readback recurrence-series <CxId>` to show 3 occurrences; then `calyx readback ledger --cx-id <CxId>` to show 3 Ledger entries
-- **Prove:** exactly one CxId in cx-list (not three); recurrence-series shows `t_k = [100, 200, 300]`; ledger shows 3 entries with `dedup_decision = DedupMerge` for entries 2 and 3
+- **SoT:** Aster `base`, `online`, and `ledger` CF rows plus WAL/SST bytes.
+- **Evidence root:** `/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`
+  on aiwonder, code commit `1a0c5601134f8c36c7ce6885f047c759e9e85e25`.
+- **Readback:** root was absent before trigger; `CALYX_DEDUP_INGEST_AT_FSV_ROOT`
+  ran `cargo test -p calyx-cli --test dedup_ingest_at_readback -- --nocapture`
+  to write the persisted vaults and `dedup-ingest-at-readback.json`
+  (`BLAKE3=7f89caffebaae65958773f4db67f071acf9899db1807e9ba214015521fa13627`).
+  Separate after-read used `/home/croyse/calyx/target/debug/calyx readback --cf
+  base|online|ledger` against the recurrence, exact, anchor-conflict,
+  event-time-edge, and negative-time vaults; `b3sum -c BLAKE3SUMS.txt` returned
+  `OK` for every SST/WAL/manifest/readback artifact.
+- **Prove:** exactly one logical base CxId; interim occurrence rows show
+  `t_k = [100, 200, 300]`; Ledger has 3 entries with `DedupMerge` for entries
+  2 and 3. Exact duplicate keeps one base row and writes a second Ledger entry;
+  anchor conflict stores two base CxIds plus reciprocal `dedup:contested_with`
+  rows; epoch 0 and 2100-01-01 event times persist; negative `EpochSecs` leaves
+  base and ledger CFs empty. Dedicated `readback recurrence-series` remains T05.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH41 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH41 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

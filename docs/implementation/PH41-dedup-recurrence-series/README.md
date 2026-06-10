@@ -43,9 +43,14 @@ dedup engine now checks shared anchors before cosine, returns `AnchorConflict`
 for opposite `SpeakerMatch`, incompatible `StyleHold`, and exclusive-tag
 conflicts, and writes reciprocal `dedup:contested_with:<CxId>` rows through the
 durable `online` CF/WAL path. Exact/same-CxId anchor conflicts now fail closed
-instead of matching through the exact/self path. The `ingest` path exists in
-`crates/calyx-aster/src/vault.rs`; PH41 T04 now wires this dedup surface into
-`ingest_at`. The `Gτ`
+instead of matching through the exact/self path.
+PH41 T04 #382 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`: the Aster
+`ingest_at` facade stores caller-provided event time in base rows, interim
+recurrence Online CF rows, and Ledger payloads; exact duplicates write Ledger
+without a second base row; anchor conflicts store a new candidate plus reciprocal
+contested rows; invalid negative event time fails closed with no base/ledger
+rows. The `Gτ`
 guard (PH37) is in `calyx-ward`. `calyx-loom` exists from Stage 5
 (cross-terms/agreement/abundance); PH41 should add a new `recurrence` module
 under that crate rather than initialize the crate from scratch.
@@ -72,11 +77,18 @@ under that crate rather than initialize the crate from scratch.
 | T01 | `DedupPolicy` types + vault-creation config | DONE / FSV #379 |
 | T02 | Dedup engine: per-slot cosine gate (content-only, excl. E2/E3/E4) | DONE / FSV #380 |
 | T03 | Anchor-conflict guard (MUST NOT merge conflicting anchors) | DONE / FSV #381 |
-| T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | T03 |
+| T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | DONE / FSV #382 |
 | T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | T04 |
 | T06 | Recurrence signature detector (content-agree + temporal-differ) | T05 |
 | T07 | `dedup_audit` (per-slot cos, reversible, Ledger-logged) | T06 |
 | T08 | FSV: near-but-distinct NOT merged; conflicting-anchor stays separate; recurring → series (reversible) | T07 |
+
+## Tracked PH41 follow-ups
+
+| Issue | Scope |
+|---|---|
+| #578 | Public `recurrence_series`, `periodic_fit`, and `periodic_recall` read APIs before PH41 exit |
+| #617 | Durable/recovered `DedupPolicy` validation parity for temporal required-slot rejection |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

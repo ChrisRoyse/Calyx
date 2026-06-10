@@ -27,7 +27,9 @@ for the structure under `docs/implementation/PHnn-*/`.
 > and #615 AP-60 final-surface hardening. PH41 T01 #379 is complete and
 > FSV-backed; PH41 T02 #380 is complete and FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
-> PH41 T03 #381 is the next Stage 9 card.
+> PH41 T03 #381 and PH41 T04 #382 are complete and FSV-backed; #382 evidence
+> root is `/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`.
+> PH41 T05 #383 is the next Stage 9 card.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

@@ -23,7 +23,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35-PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening #349 signed off) |
 | S8 Ward | PH37-PH39 | ✅ DONE, FSV-signed-off (#258-#280, #349, #350, #351, #352, #353, #354, #355, #356, #357, #358, and #359 signed off; exit #280 read back the full Ward surface) |
-| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378 plus #615 FSV-backed; PH41 #379/#380/#381 FSV-backed; next #382) |
+| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378 plus #615 FSV-backed; PH41 #379/#380/#381/#382 FSV-backed; next #383) |
 | S10-S20 | PH43-PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -60,6 +60,8 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`
 - Stage 9 PH41 anchor-conflict guard (#381):
   `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`
+- Stage 9 PH41 `ingest_at(input, at: t)` (#382):
+  `/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence
