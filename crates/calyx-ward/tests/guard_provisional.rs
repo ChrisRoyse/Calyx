@@ -3,9 +3,11 @@ use std::collections::BTreeMap;
 use calyx_core::SlotId;
 use calyx_ward::{
     CalibrationMeta, DEFAULT_TAU, GuardId, GuardPolicy, GuardProfile, MatchedSlots, NoveltyAction,
-    ProducedSlots, WardError, guard, guard_non_high_stakes, guard_result_with_stakes,
+    ProducedSlots, SlotCalibrationMeta, WardError, guard, guard_non_high_stakes,
+    guard_result_with_stakes,
 };
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 const GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101";
 
@@ -65,15 +67,51 @@ fn calibrated_non_high_stakes_proceeds_without_provisional_flag() {
 }
 
 #[test]
-fn calibrated_empty_tau_uses_cold_start_without_becoming_provisional() {
+fn calibrated_missing_tau_high_stakes_refuses_slot_provenance() {
     let (mut profile, produced, matched) = calibrated_case(0.70);
     profile.tau.clear();
 
-    let verdict = guard(&profile, &produced, &matched, true).expect("empty tau verdict");
+    let error = guard(&profile, &produced, &matched, true).expect_err("missing tau");
+
+    assert_eq!(
+        error,
+        WardError::MissingSlotCalibration {
+            guard_id: guard_id(),
+            slot: slot(1),
+        }
+    );
+    assert_eq!(error.code(), "CALYX_GUARD_PROVISIONAL");
+}
+
+#[test]
+fn calibrated_non_high_stakes_empty_tau_still_uses_cold_start() {
+    let (mut profile, produced, matched) = calibrated_case(0.70);
+    profile.tau.clear();
+
+    let verdict = guard(&profile, &produced, &matched, false).expect("empty tau verdict");
 
     assert!(!verdict.provisional);
     assert!(verdict.overall_pass);
     assert_close(verdict.per_slot[0].tau, DEFAULT_TAU);
+}
+
+#[test]
+fn profile_level_only_calibration_high_stakes_refuses_required_slot() {
+    let mut profile = base_profile(Some(profile_level_calibration()));
+    profile.tau.insert(slot(1), 0.70);
+    let produced = produced_slots();
+    let matched = matched_slots(0.75);
+
+    let error = guard(&profile, &produced, &matched, true).expect_err("missing per-slot meta");
+
+    assert_eq!(
+        error,
+        WardError::MissingSlotCalibration {
+            guard_id: guard_id(),
+            slot: slot(1),
+        }
+    );
+    assert!(error.to_string().contains("required slot 1"));
 }
 
 #[test]
@@ -109,15 +147,24 @@ fn guard_provisional_fsv_fixture_writes_readback_artifacts() {
         guard(&calibrated, &calibrated_produced, &calibrated_matched, true)
             .expect("calibrated high-stakes verdict");
 
-    let mut empty_tau_profile = calibrated.clone();
-    empty_tau_profile.tau.clear();
-    let calibrated_empty_tau = guard(
-        &empty_tau_profile,
+    let mut missing_tau_profile = calibrated.clone();
+    missing_tau_profile.tau.clear();
+    let missing_tau_error = guard(
+        &missing_tau_profile,
         &calibrated_produced,
         &calibrated_matched,
         true,
     )
-    .expect("calibrated empty tau verdict");
+    .expect_err("calibrated missing tau");
+    let mut profile_level_only = base_profile(Some(profile_level_calibration()));
+    profile_level_only.tau.insert(slot(1), 0.70);
+    let profile_level_only_error = guard(
+        &profile_level_only,
+        &calibrated_produced,
+        &calibrated_matched,
+        true,
+    )
+    .expect_err("profile-level-only calibration");
 
     write_json(&root, "high-stakes-error.json", &error_json(&high_stakes));
     write_json(&root, "non-high-stakes-provisional.json", &non_high_stakes);
@@ -126,7 +173,16 @@ fn guard_provisional_fsv_fixture_writes_readback_artifacts() {
         "calibrated-high-stakes.json",
         &calibrated_high_stakes,
     );
-    write_json(&root, "calibrated-empty-tau.json", &calibrated_empty_tau);
+    write_json(
+        &root,
+        "calibrated-missing-tau-error.json",
+        &error_json(&missing_tau_error),
+    );
+    write_json(
+        &root,
+        "profile-level-only-error.json",
+        &error_json(&profile_level_only_error),
+    );
     write_json(
         &root,
         "case-summary.json",
@@ -137,17 +193,26 @@ fn guard_provisional_fsv_fixture_writes_readback_artifacts() {
             "non_high_stakes_provisional": non_high_stakes.provisional,
             "non_high_stakes_tau": non_high_stakes.per_slot[0].tau,
             "calibrated_high_stakes_provisional": calibrated_high_stakes.provisional,
-            "calibrated_empty_tau": calibrated_empty_tau.per_slot[0].tau,
+            "calibrated_high_stakes_tau": calibrated_high_stakes.per_slot[0].tau,
+            "calibrated_slot_meta_count": calibrated
+                .calibration
+                .as_ref()
+                .map(|meta| meta.per_slot.len()),
+            "missing_tau_code": missing_tau_error.code(),
+            "profile_level_only_code": profile_level_only_error.code(),
         }),
     );
+    write_sha_manifest(&root);
 
     println!(
-        "FSV_PH38_T02 high_stakes_code={} non_high_stakes_provisional={} non_high_stakes_tau={:.3} calibrated_provisional={} empty_tau={:.3}",
+        "FSV_PH38_T02 high_stakes_code={} non_high_stakes_provisional={} non_high_stakes_tau={:.3} calibrated_provisional={} calibrated_tau={:.3} missing_tau_code={} profile_only_code={}",
         high_stakes.code(),
         non_high_stakes.provisional,
         non_high_stakes.per_slot[0].tau,
         calibrated_high_stakes.provisional,
-        calibrated_empty_tau.per_slot[0].tau,
+        calibrated_high_stakes.per_slot[0].tau,
+        missing_tau_error.code(),
+        profile_level_only_error.code(),
     );
     println!("FSV_PH38_T02_MESSAGE {}", high_stakes);
 }
@@ -178,6 +243,8 @@ fn base_profile(calibration: Option<CalibrationMeta>) -> GuardProfile {
 }
 
 fn calibration() -> CalibrationMeta {
+    let mut per_slot = BTreeMap::new();
+    per_slot.insert(slot(1), slot_calibration());
     CalibrationMeta {
         corpus_hash: [9; 32],
         estimator: "synthetic-conformal".to_string(),
@@ -185,7 +252,25 @@ fn calibration() -> CalibrationMeta {
         frr: 0.02,
         confidence: 0.99,
         ts: 1_786_233_600,
+        per_slot,
+    }
+}
+
+fn profile_level_calibration() -> CalibrationMeta {
+    CalibrationMeta {
         per_slot: BTreeMap::new(),
+        ..calibration()
+    }
+}
+
+fn slot_calibration() -> SlotCalibrationMeta {
+    SlotCalibrationMeta {
+        corpus_hash: [8; 32],
+        estimator: "synthetic-conformal-slot".to_string(),
+        far: 0.01,
+        frr: 0.02,
+        confidence: 0.99,
+        ts: 1_786_233_600,
     }
 }
 
@@ -210,6 +295,24 @@ fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
     let path = std::path::Path::new(root).join(name);
     let file = std::fs::File::create(path).expect("create fsv json");
     serde_json::to_writer_pretty(file, value).expect("write fsv json");
+}
+
+fn write_sha_manifest(root: &str) {
+    let root = std::path::Path::new(root);
+    let mut lines = Vec::new();
+    for entry in std::fs::read_dir(root).expect("read fsv root") {
+        let path = entry.expect("dir entry").path();
+        if path.is_file() && path.file_name().unwrap() != "sha256-manifest.txt" {
+            let bytes = std::fs::read(&path).expect("read fsv file");
+            lines.push(format!(
+                "{:x}  {}\n",
+                Sha256::digest(bytes),
+                path.file_name().unwrap().to_string_lossy()
+            ));
+        }
+    }
+    lines.sort();
+    std::fs::write(root.join("sha256-manifest.txt"), lines.concat()).expect("write sha manifest");
 }
 
 fn assert_close(actual: f32, expected: f32) {

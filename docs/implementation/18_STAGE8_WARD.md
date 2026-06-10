@@ -86,6 +86,12 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `CALYX_GUARD_PROVISIONAL` refusal for uncalibrated high-stakes calls.
   Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
+- **Post-sweep hardening.** #649 makes high-stakes guard validation per-slot:
+  every required slot must have an explicit tau and `CalibrationMeta.per_slot`
+  provenance entry, or the guard fails closed with `CALYX_GUARD_PROVISIONAL`.
+  Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue649-guard-provisional-20260610` and
+  `/home/croyse/calyx/data/fsv-issue649-ledger-provenance-20260610`.
 - **Post-sweep note.** PH38 T03 (#266) adds `NoveltyHandler`, `NovelId`,
   `NoveltyRecord`, `NoveltyStatus`, the object-safe `VaultSink`, and
   `novel_regions()` readback for `AwaitingGrounding` new-region records.
@@ -166,7 +172,9 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `CalibrationMeta.per_slot`), `novelty.rs`
   (NewRegion|Quarantine|RejectClosed), drift monitor hook (Anneal).
 - **Key tasks.** ROC/conformal per slot; identity slots strict, stylistic loose;
-  uncalibrated τ → `provisional`, high-stakes refuses; `CALYX_GUARD_PROVISIONAL`.
+  uncalibrated τ → `provisional`; high-stakes refuses uncalibrated profiles,
+  missing required-slot tau, and missing required-slot calibration provenance
+  with `CALYX_GUARD_PROVISIONAL`.
 - **FSV gate.** **injection corpus blocked >=99% at the calibrated FAR** is
   signed off in #268 on the real prompt-injection set on aiwonder; valid novelty
   writes a durable file-backed novelty row and reads back as `AwaitingGrounding`.
@@ -188,6 +196,11 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   #279 with physical `.ledger` row readback, `audit(kind=Guard)` returning seqs
   `[0,2]`, `get_provenance(cx1)` returning `[2]`, and matching quarantined Guard
   rows failing closed with `CALYX_LEDGER_CHAIN_BROKEN`.
+  **High-stakes slot provenance** is signed off in #649 with readback proving a
+  calibrated high-stakes slot passes, missing required-slot tau and profile-level
+  only calibration both return `CALYX_GUARD_PROVISIONAL`, Ledger calibration and
+  verdict rows remain at seqs `[0,1]`, and the refused profile-level-only call
+  appends no unprovenanced Guard row.
 - **Axioms/PRD.** A12, A2, `09 §3`, `19 §4`.
 
 ## PH39 — Identity-locked generation (speaker/style)

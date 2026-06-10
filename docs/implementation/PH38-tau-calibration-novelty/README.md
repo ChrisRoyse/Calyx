@@ -175,6 +175,16 @@ and `strict_far_lt_loose_far` true. The real injection-corpus readback at
 `calibration_far=0.0`, held-out block rate `1.0`, and a verified SHA-256
 manifest.
 
+**High-stakes slot provenance:** #649 proves high-stakes guards require every
+required slot to carry both explicit tau and `CalibrationMeta.per_slot`
+provenance. The guard FSV root
+`/home/croyse/calyx/data/fsv-issue649-guard-provisional-20260610` reads back a
+calibrated high-stakes pass, a missing-tau refusal, and a profile-level-only
+calibration refusal, all with a verified SHA-256 manifest. The Ledger FSV root
+`/home/croyse/calyx/data/fsv-issue649-ledger-provenance-20260610` reads physical
+calibration/verdict rows at seqs `[0,1]`, includes the row bytes, and proves the
+refused profile-level-only call appends no unprovenanced Guard row.
+
 **GuardHealth serde compatibility:** #358 proves pre-#354 `GuardHealth` JSON
 without `per_slot_calibrated_far_bound` deserializes successfully, defaults that
 map to empty, and reserializes with the new field present. Evidence root:
@@ -217,7 +227,9 @@ and a matching quarantined Guard row failing closed with
   `CALYX_GUARD_PROVISIONAL` rather than an uncalibrated τ — fail closed.
 - The merged profile-level calibration FAR/FRR are summaries; callers that need
   slot-specific health or drift comparison must read `CalibrationMeta.per_slot`
-  and `GuardHealth.per_slot_calibrated_far_bound`.
+  and `GuardHealth.per_slot_calibrated_far_bound`. High-stakes guard calls
+  require per-required-slot tau plus `CalibrationMeta.per_slot` provenance and
+  fail closed with `CALYX_GUARD_PROVISIONAL` if either is absent.
 - The injection corpus on aiwonder must be a real set (aiwonder at
   `/home/croyse/calyx/data/injection_corpus/`); synthetic random vectors do
   not satisfy the FSV gate.

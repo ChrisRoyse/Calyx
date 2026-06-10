@@ -1,8 +1,10 @@
 # PH38 · T02 — `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse
 
-> STATUS: DONE / FSV-signed-off on aiwonder for #265. Implemented in
-> `5c23db5ee9e0f1f95ed8f4c67011b49984770385`; evidence root:
-> `/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`.
+> STATUS: DONE / FSV-signed-off on aiwonder for #265; hardened by #649.
+> Initial implementation `5c23db5ee9e0f1f95ed8f4c67011b49984770385`;
+> #649 evidence roots:
+> `/home/croyse/calyx/data/fsv-issue649-guard-provisional-20260610` and
+> `/home/croyse/calyx/data/fsv-issue649-ledger-provenance-20260610`.
 
 | Field | Value |
 |---|---|
@@ -33,6 +35,10 @@ MUST refuse."
 - [x] At the top of `guard()`, before any slot iteration:
       `if high_stakes && !profile.is_calibrated() { return Err(WardError::Provisional
       { guard_id: profile.guard_id }) }`
+- [x] #649 hardening: after deriving required slots, high-stakes guard calls
+      require each required slot to have both an explicit tau and
+      `CalibrationMeta.per_slot` provenance. A profile-level calibration summary
+      without slot provenance fails closed with `CALYX_GUARD_PROVISIONAL`.
 - [x] `WardError::Provisional` display format:
       `"CALYX_GUARD_PROVISIONAL: guard {guard_id} is uncalibrated; calibrate
       before high-stakes use -- run calibrate() with an anchored set >=50 examples"`
@@ -55,8 +61,13 @@ MUST refuse."
       `provisional: false`
 - [x] unit: calibrated profile + `high_stakes=false` → proceeds normally; verdict
       `provisional: false`
-- [x] edge: profile with `calibration: Some(..)` but `tau` map empty → proceeds;
-      all slots use cold-start 0.7; `provisional: false` (calibration is present)
+- [x] edge: profile with `calibration: Some(..)` but a required slot missing
+      from the tau map → high-stakes fails closed with
+      `CALYX_GUARD_PROVISIONAL`; non-high-stakes still uses cold-start 0.7 and
+      returns `provisional: false`
+- [x] edge: profile-level `calibration: Some(..)` with empty
+      `CalibrationMeta.per_slot` → high-stakes fails closed with
+      `CALYX_GUARD_PROVISIONAL` naming the required slot
 - [x] fail-closed: `WardError::Provisional` formatted string contains the advice
       "calibrate before high-stakes use" and the guard_id UUID
 
@@ -64,13 +75,17 @@ MUST refuse."
 
 - **SoT:** durable aiwonder evidence root containing provisional refusal JSON,
   non-high-stakes provisional verdict JSON, captured log, and a SHA-256
-  manifest.
+  manifest; #649 also reads physical Ledger calibration/verdict row bytes.
 - **Readback:** run the manual FSV fixture with
   `CALYX_WARD_PROVISIONAL_FSV_DIR=$root`, then separately inspect the JSON/log
   artifacts with `xxd`, `sha256sum`, grep, and parsed JSON.
 - **Prove:** durable readback contains `CALYX_GUARD_PROVISIONAL`; the
   uncalibrated+high_stakes case records `Err(Provisional { .. })`, while the
   uncalibrated+non_high_stakes case records the provisional verdict path.
+  #649 additionally proves missing high-stakes required-slot tau and missing
+  required-slot calibration provenance both return `CALYX_GUARD_PROVISIONAL`,
+  while a calibrated high-stakes call appends Guard Ledger rows at seqs `[0,1]`
+  and the refused profile-level-only call appends no row.
 
 ## Done when
 

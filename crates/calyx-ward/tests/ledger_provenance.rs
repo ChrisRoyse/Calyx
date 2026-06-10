@@ -10,9 +10,10 @@ use calyx_ledger::{
 };
 use calyx_ward::{
     CalibrationInput, GuardId, GuardPolicy, GuardProfile, NoveltyAction, ProducedSlots, SlotKind,
-    calibrate_with_ledger, guard_with_ledger,
+    WardLedgerError, calibrate_with_ledger, guard_with_ledger,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 const GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101";
 
@@ -253,6 +254,107 @@ fn issue279_ward_ledger_provenance_fsv_writes_readbacks() {
     );
 }
 
+#[test]
+#[ignore = "manual aiwonder FSV for issue #649 high-stakes slot provenance"]
+fn issue649_high_stakes_slot_provenance_fsv_writes_readbacks() {
+    let root = std::env::var("CALYX_WARD_ISSUE649_FSV_DIR")
+        .map(PathBuf::from)
+        .expect("CALYX_WARD_ISSUE649_FSV_DIR is required");
+    reset_dir(&root);
+    let ledger_dir = root.join("ledger-cf");
+    fs::create_dir_all(&ledger_dir).unwrap();
+    let before_rows = DirectoryLedgerStore::open(&ledger_dir)
+        .unwrap()
+        .scan()
+        .unwrap();
+    let mut appender = LedgerAppender::open(
+        DirectoryLedgerStore::open(&ledger_dir).unwrap(),
+        FixedClock::new(64_900),
+    )
+    .unwrap();
+    let (profile, calibration_ref) = calibrate_with_ledger(
+        &mut appender,
+        profile_template(),
+        vec![calibration_input(slot(1), SlotKind::Identity, 0.01)],
+        0.05,
+        &FixedClock::new(64_901),
+    )
+    .expect("calibrate with ledger");
+    let (verdict, verdict_ref) = guard_with_ledger(
+        &mut appender,
+        cx(1),
+        &profile,
+        &slot_vectors(&[(slot(1), vec![1.0, 0.0])]),
+        &slot_vectors(&[(slot(1), vec![1.0, 0.0])]),
+        true,
+    )
+    .expect("high-stakes guard with ledger");
+    let mut missing_slot_meta = profile.clone();
+    missing_slot_meta
+        .calibration
+        .as_mut()
+        .unwrap()
+        .per_slot
+        .clear();
+    let missing_slot_error = guard_with_ledger(
+        &mut appender,
+        cx(2),
+        &missing_slot_meta,
+        &slot_vectors(&[(slot(1), vec![1.0, 0.0])]),
+        &slot_vectors(&[(slot(1), vec![1.0, 0.0])]),
+        true,
+    )
+    .expect_err("missing per-slot provenance");
+    let store = appender.into_store();
+    let rows = store.scan().unwrap();
+    let entries = rows
+        .iter()
+        .map(|row| decode(&row.bytes).unwrap())
+        .collect::<Vec<_>>();
+
+    assert!(before_rows.is_empty());
+    assert!(verdict.overall_pass);
+    assert_eq!(seqs(&entries), vec![0, 1]);
+    assert_eq!(calibration_ref.seq, 0);
+    assert_eq!(verdict_ref.seq, 1);
+    assert!(missing_slot_error.to_string().contains("required slot 1"));
+    assert!(
+        profile
+            .calibration
+            .as_ref()
+            .unwrap()
+            .per_slot
+            .contains_key(&slot(1))
+    );
+
+    write_json(
+        &root,
+        "issue649-readback.json",
+        &json!({
+            "ledger_dir": ledger_dir,
+            "before_rows": row_readback(&before_rows),
+            "after_rows": row_readback(&rows),
+            "entries": entry_readback(&entries),
+            "calibration_ref": {"seq": calibration_ref.seq, "hash": hex(&calibration_ref.hash)},
+            "verdict_ref": {"seq": verdict_ref.seq, "hash": hex(&verdict_ref.hash)},
+            "verdict": verdict,
+            "calibration_per_slot_count": profile.calibration.as_ref().unwrap().per_slot.len(),
+            "required_slots": profile.required_slots.iter().map(|slot| slot.get()).collect::<Vec<_>>(),
+            "missing_slot_error": ward_ledger_error_json(&missing_slot_error),
+        }),
+    );
+    write_sha_manifest(&root);
+
+    println!(
+        "ISSUE649_WARD_PROVENANCE_FSV root={} rows={} calibration_seq={} verdict_seq={} missing_code={}",
+        root.display(),
+        rows.len(),
+        calibration_ref.seq,
+        verdict_ref.seq,
+        ward_ledger_error_code(&missing_slot_error),
+    );
+}
+
 fn payload_json(entry: &calyx_ledger::LedgerEntry) -> Value {
     serde_json::from_slice(&entry.payload).unwrap()
 }
@@ -287,6 +389,28 @@ fn entry_readback(entries: &[LedgerEntry]) -> Vec<Value> {
 
 fn seqs(entries: &[LedgerEntry]) -> Vec<u64> {
     entries.iter().map(|entry| entry.seq).collect()
+}
+
+fn ward_ledger_error_json(error: &WardLedgerError) -> Value {
+    match error {
+        WardLedgerError::Ward(error) => json!({
+            "source": "ward",
+            "code": error.code(),
+            "message": error.to_string(),
+        }),
+        WardLedgerError::Ledger(error) => json!({
+            "source": "ledger",
+            "code": error.code,
+            "message": error.message,
+        }),
+    }
+}
+
+fn ward_ledger_error_code(error: &WardLedgerError) -> &'static str {
+    match error {
+        WardLedgerError::Ward(error) => error.code(),
+        WardLedgerError::Ledger(_) => "CALYX_LEDGER_ERROR",
+    }
 }
 
 fn profile_template() -> GuardProfile {
@@ -335,6 +459,33 @@ fn write_json(root: &Path, name: &str, value: &Value) {
         serde_json::to_vec_pretty(value).expect("serialize json"),
     )
     .expect("write json");
+}
+
+fn write_sha_manifest(root: &Path) {
+    let mut lines = Vec::new();
+    collect_sha_lines(root, root, &mut lines);
+    lines.sort();
+    fs::write(root.join("sha256-manifest.txt"), lines.concat()).expect("write sha manifest");
+}
+
+fn collect_sha_lines(root: &Path, dir: &Path, lines: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).expect("read fsv root") {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            collect_sha_lines(root, &path, lines);
+            continue;
+        }
+        if !path.is_file() || path.file_name().unwrap() == "sha256-manifest.txt" {
+            continue;
+        }
+        let bytes = fs::read(&path).expect("read fsv file");
+        let rel_path = path.strip_prefix(root).expect("relative fsv path");
+        lines.push(format!(
+            "{:x}  {}\n",
+            Sha256::digest(bytes),
+            rel_path.display()
+        ));
+    }
 }
 
 fn hex(bytes: &[u8]) -> String {

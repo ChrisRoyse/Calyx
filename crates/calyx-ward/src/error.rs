@@ -32,6 +32,10 @@ pub enum WardError {
     Provisional {
         guard_id: GuardId,
     },
+    MissingSlotCalibration {
+        guard_id: GuardId,
+        slot: SlotId,
+    },
     MissingSlot {
         slot: SlotId,
     },
@@ -82,7 +86,9 @@ impl WardError {
     pub const fn code(&self) -> &'static str {
         match self {
             Self::Ood { .. } => CALYX_GUARD_OOD,
-            Self::Provisional { .. } => CALYX_GUARD_PROVISIONAL,
+            Self::Provisional { .. } | Self::MissingSlotCalibration { .. } => {
+                CALYX_GUARD_PROVISIONAL
+            }
             Self::InsufficientCalibrationData { .. }
             | Self::InvalidCalibrationInput { .. }
             | Self::InvalidRequiredSlotDerivation { .. } => CALYX_GUARD_PROVISIONAL,
@@ -113,6 +119,10 @@ impl fmt::Display for WardError {
             Self::Provisional { guard_id } => write!(
                 f,
                 "{CALYX_GUARD_PROVISIONAL}: guard {guard_id} is uncalibrated; calibrate before high-stakes use -- run calibrate() with an anchored set >=50 examples"
+            ),
+            Self::MissingSlotCalibration { guard_id, slot } => write!(
+                f,
+                "{CALYX_GUARD_PROVISIONAL}: guard {guard_id} missing high-stakes calibration provenance for required slot {slot}; calibrate every required slot before high-stakes use"
             ),
             Self::MissingSlot { slot } => {
                 write!(
@@ -223,6 +233,20 @@ mod tests {
     }
 
     #[test]
+    fn missing_slot_calibration_display_contains_code_and_slot() {
+        let error = WardError::MissingSlotCalibration {
+            guard_id: guard_id(),
+            slot: slot(7),
+        };
+        let formatted = error.to_string();
+
+        assert_eq!(error.code(), CALYX_GUARD_PROVISIONAL);
+        assert!(formatted.contains(CALYX_GUARD_PROVISIONAL));
+        assert!(formatted.contains("required slot 7"));
+        assert!(formatted.contains("high-stakes calibration provenance"));
+    }
+
+    #[test]
     fn missing_slot_display_contains_code_and_slot() {
         let error = WardError::MissingSlot { slot: slot(7) };
         let formatted = error.to_string();
@@ -319,6 +343,10 @@ mod tests {
             },
             WardError::Provisional {
                 guard_id: guard_id(),
+            },
+            WardError::MissingSlotCalibration {
+                guard_id: guard_id(),
+                slot: slot(7),
             },
             WardError::MissingSlot { slot: slot(3) },
             WardError::PolicyViolation {
