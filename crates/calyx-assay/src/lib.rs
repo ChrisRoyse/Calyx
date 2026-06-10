@@ -11,6 +11,7 @@ pub mod loom_adapter;
 pub mod n_eff;
 pub mod nmi;
 pub mod projection;
+pub mod recurrence_anchor;
 mod samples;
 pub mod store;
 pub mod stratified;
@@ -37,6 +38,13 @@ pub use loom_adapter::AsterAssayMaterializationGate;
 pub use n_eff::{NeffReport, stable_rank};
 pub use nmi::{NmiReport, partitioned_histogram_nmi};
 pub use projection::{ProjectionReport, project_cpu, project_gpu, target_projection_dim};
+pub use recurrence_anchor::{
+    CALYX_ASSAY_MISSING_OUTCOME_SLOT, CONSISTENT_AGREEMENT_THRESHOLD, DEFAULT_OUTCOME_ANCHOR_LABEL,
+    Domain, OutcomeAgreement, RecurrenceAnchor, default_outcome_anchor, frequency_anchor_for,
+    measure_outcome_agreement, measure_outcome_agreement_for, oracle_self_consistency,
+    oracle_self_consistency_from_agreements, outcome_agreement_from_observations,
+    outcome_occurrence_context,
+};
 pub use store::{AssayCacheKey, AssayRow, AssayStore, AssaySubject};
 pub use stratified::{StratifiedBits, StratumBits, stratified_bits};
 pub use sufficiency::{
