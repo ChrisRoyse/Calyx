@@ -7,6 +7,7 @@ use calyx_ward::{
 };
 use proptest::prelude::*;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 
 const GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101";
 
@@ -179,8 +180,8 @@ fn calibrate_updates_profile_with_merged_provenance() {
 #[test]
 fn calibrate_preserves_distinct_per_slot_bounds() {
     let clock = FixedClock::new(1_785_400_000);
-    let mut identity_input = calibration_input(slot(1), SlotKind::Identity, 0.01);
-    let mut stylistic_input = calibration_input(slot(2), SlotKind::Stylistic, 0.05);
+    let mut identity_input = confidence_supported_input(slot(1), SlotKind::Identity, 0.01);
+    let mut stylistic_input = confidence_supported_input(slot(2), SlotKind::Stylistic, 0.05);
     identity_input.good_scores = vec![0.59; 100];
     stylistic_input.good_scores = vec![0.59; 100];
     let calibrated = calibrate(
@@ -201,6 +202,21 @@ fn calibrate_preserves_distinct_per_slot_bounds() {
     assert_eq!(meta.frr, identity.frr);
     assert_eq!(identity.estimator, ESTIMATOR);
     assert_eq!(stylistic.ts, 1_785_400_000);
+}
+
+#[test]
+fn alpha_changes_tau_when_sample_supports_confidence_bound() {
+    let input = confidence_supported_input(slot(8), SlotKind::Stylistic, 0.05);
+    let clock = FixedClock::new(1_785_400_000);
+
+    let (strict_tau, strict_meta) = calibrate_slot(&input, 0.01, &clock).expect("strict alpha");
+    let (loose_tau, loose_meta) = calibrate_slot(&input, 0.20, &clock).expect("loose alpha");
+
+    assert!(strict_tau > loose_tau);
+    assert!(strict_meta.far < loose_meta.far);
+    assert_eq!(strict_meta.confidence, 0.99);
+    assert_eq!(loose_meta.confidence, 0.80);
+    assert_ne!(strict_meta.corpus_hash, loose_meta.corpus_hash);
 }
 
 #[test]
@@ -246,6 +262,11 @@ fn calibrate_fsv_fixture_writes_readback_artifacts() {
     let loose_identity = calibration_input(slot(7), SlotKind::Identity, 0.05);
     let loose_identity_error =
         calibrate_slot(&loose_identity, 0.05, &clock).expect_err("loose identity");
+    let alpha_input = confidence_supported_input(slot(8), SlotKind::Stylistic, 0.05);
+    let (strict_alpha_tau, strict_alpha_meta) =
+        calibrate_slot(&alpha_input, 0.01, &clock).expect("strict alpha");
+    let (loose_alpha_tau, loose_alpha_meta) =
+        calibrate_slot(&alpha_input, 0.20, &clock).expect("loose alpha");
 
     write_json(
         &root,
@@ -311,18 +332,42 @@ fn calibrate_fsv_fixture_writes_readback_artifacts() {
     );
     write_json(
         &root,
+        "alpha-confidence-bound.json",
+        &json!({
+            "target_far": alpha_input.target_far,
+            "bad_count": alpha_input.bad_scores.len(),
+            "strict_alpha": 0.01,
+            "strict_confidence": strict_alpha_meta.confidence,
+            "strict_tau": strict_alpha_tau,
+            "strict_far": strict_alpha_meta.far,
+            "strict_corpus_hash": hash_hex(&strict_alpha_meta.corpus_hash),
+            "loose_alpha": 0.20,
+            "loose_confidence": loose_alpha_meta.confidence,
+            "loose_tau": loose_alpha_tau,
+            "loose_far": loose_alpha_meta.far,
+            "loose_corpus_hash": hash_hex(&loose_alpha_meta.corpus_hash),
+            "strict_tau_gt_loose_tau": strict_alpha_tau > loose_alpha_tau,
+            "strict_far_lt_loose_far": strict_alpha_meta.far < loose_alpha_meta.far,
+            "corpus_hashes_differ": strict_alpha_meta.corpus_hash != loose_alpha_meta.corpus_hash,
+        }),
+    );
+    write_json(
+        &root,
         "loose-identity-error.json",
         &error_json(&loose_identity_error),
     );
+    write_sha_manifest(&root);
 
     println!(
-        "FSV_CALIBRATE estimator={} identity_tau={:.6} style_tau={:.6} identity_far={:.6} tie_far={:.6} zero_far={:.6} insufficient_code={} loose_identity_code={}",
+        "FSV_CALIBRATE estimator={} identity_tau={:.6} style_tau={:.6} identity_far={:.6} tie_far={:.6} zero_far={:.6} strict_alpha_tau={:.6} loose_alpha_tau={:.6} insufficient_code={} loose_identity_code={}",
         ESTIMATOR,
         identity_tau,
         style_tau,
         identity_meta.far,
         tie_meta.far,
         zero_far_meta.far,
+        strict_alpha_tau,
+        loose_alpha_tau,
         insufficient_error.code(),
         loose_identity_error.code()
     );
@@ -333,6 +378,20 @@ fn calibration_input(slot: SlotId, slot_kind: SlotKind, target_far: f32) -> Cali
         slot,
         good_scores: (0..100).map(|i| 0.80 + i as f32 * 0.001).collect(),
         bad_scores: (0..100).map(|i| 0.30 + i as f32 * 0.003).collect(),
+        slot_kind,
+        target_far,
+    }
+}
+
+fn confidence_supported_input(
+    slot: SlotId,
+    slot_kind: SlotKind,
+    target_far: f32,
+) -> CalibrationInput {
+    CalibrationInput {
+        slot,
+        good_scores: (0..1_000).map(|i| 0.80 + i as f32 * 0.0001).collect(),
+        bad_scores: (0..1_000).map(|i| 0.30 + i as f32 * 0.0003).collect(),
         slot_kind,
         target_far,
     }
@@ -362,6 +421,28 @@ fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
     let path = std::path::Path::new(root).join(name);
     let file = std::fs::File::create(path).expect("create fsv json");
     serde_json::to_writer_pretty(file, value).expect("write fsv json");
+}
+
+fn write_sha_manifest(root: &str) {
+    let root = std::path::Path::new(root);
+    let mut lines = Vec::new();
+    for entry in std::fs::read_dir(root).expect("read fsv root") {
+        let path = entry.expect("dir entry").path();
+        if path.is_file() && path.file_name().unwrap() != "sha256-manifest.txt" {
+            let bytes = std::fs::read(&path).expect("read fsv file");
+            lines.push(format!(
+                "{:x}  {}\n",
+                Sha256::digest(bytes),
+                path.file_name().unwrap().to_string_lossy()
+            ));
+        }
+    }
+    lines.sort();
+    std::fs::write(root.join("sha256-manifest.txt"), lines.concat()).expect("write sha manifest");
+}
+
+fn hash_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn guard_id() -> GuardId {
