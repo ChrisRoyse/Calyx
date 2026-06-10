@@ -8,7 +8,7 @@ use calyx_ledger::{LedgerAppender, LedgerCfStore};
 use serde::{Deserialize, Serialize};
 
 use crate::error::WardError;
-use crate::guard::{ProducedSlots, guard};
+use crate::guard::{ProducedSlots, guard, validate_non_inert_profile};
 use crate::identity::IdentityProfile;
 use crate::ledger::{WardLedgerResult, append_guard_verdict};
 use crate::novelty::{NoveltyHandler, NoveltyRecord};
@@ -111,6 +111,7 @@ fn reject_inert_identity_profile(identity_profile: &IdentityProfile) -> Result<(
             reason: "identity generation requires at least one identity slot",
         });
     }
+    validate_non_inert_profile(&identity_profile.guard_profile)?;
     Ok(())
 }
 

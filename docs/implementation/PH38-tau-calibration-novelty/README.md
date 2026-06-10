@@ -185,6 +185,13 @@ calibration refusal, all with a verified SHA-256 manifest. The Ledger FSV root
 calibration/verdict rows at seqs `[0,1]`, includes the row bytes, and proves the
 refused profile-level-only call appends no unprovenanced Guard row.
 
+**Inert guard profiles:** #650 proves Ward and trusted Sextant surfaces reject
+runtime-inert profiles before pass/OOD selection. Empty required-slot profiles
+and `KofN { k: 0 }` return `CALYX_GUARD_INERT_PROFILE`; the Ward Ledger fixture
+proves no Guard row is appended for an inert profile, and the Sextant fixture
+proves non-inert uncalibrated guarded search remains explicitly
+`provisional=true`.
+
 **GuardHealth serde compatibility:** #358 proves pre-#354 `GuardHealth` JSON
 without `per_slot_calibrated_far_bound` deserializes successfully, defaults that
 map to empty, and reserializes with the new field present. Evidence root:
@@ -230,6 +237,9 @@ and a matching quarantined Guard row failing closed with
   and `GuardHealth.per_slot_calibrated_far_bound`. High-stakes guard calls
   require per-required-slot tau plus `CalibrationMeta.per_slot` provenance and
   fail closed with `CALYX_GUARD_PROVISIONAL` if either is absent.
+- Empty required-slot profiles and `KofN { k: 0 }` are runtime-inert and must
+  fail closed with `CALYX_GUARD_INERT_PROFILE` before high-stakes provenance,
+  trusted-query, Ledger, or Sextant guarded-search verdict paths.
 - The injection corpus on aiwonder must be a real set (aiwonder at
   `/home/croyse/calyx/data/injection_corpus/`); synthetic random vectors do
   not satisfy the FSV gate.

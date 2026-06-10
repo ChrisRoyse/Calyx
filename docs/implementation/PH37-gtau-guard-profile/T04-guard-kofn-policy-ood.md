@@ -17,9 +17,11 @@ and `/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`.
 ## Goal
 
 Extend `guard()` with `KofN { k }` policy: the constellation passes only if at
-least `k` of the unique required slots individually pass their `τ`. When `k >
-unique_required_slots.len()`, fail closed with `CALYX_GUARD_POLICY_VIOLATION` (not
-a panic). All-slot per-slot verdicts are still returned in every case.
+least `k` of the unique required slots individually pass their `τ`. When `k ==
+0`, fail closed with `CALYX_GUARD_INERT_PROFILE`; when `k >
+unique_required_slots.len()`, fail closed with `CALYX_GUARD_POLICY_VIOLATION`
+(not a panic). All-slot per-slot verdicts are still returned for non-inert
+pass/fail cases.
 
 ## Post-implementation note
 
@@ -28,7 +30,8 @@ Implemented in `crates/calyx-ward/src/guard.rs` and
 `bd35e1e40a02b14ff20d9b287620d6e1aa761207`. `guard()` now supports
 `GuardPolicy::KofN { k }`, returns `WardError::PolicyViolation` when `k` exceeds
 the unique required-slot count, and keeps full per-slot verdicts for pass/fail
-policy outcomes. `guard_result()` is exported from `calyx-ward` and wraps any
+policy outcomes. #650 later hardened `KofN { k: 0 }` to fail closed as an inert
+profile. `guard_result()` is exported from `calyx-ward` and wraps any
 non-passing verdict in `WardError::Ood` with the failing slot details.
 
 aiwonder FSV root:
@@ -38,6 +41,8 @@ artifacts include `kofn-k2-pass-verdict.json`, `kofn-k3-fail-verdict.json`,
 `policy-violation-error.json`, and `kofn-fsv.log`. Separate readback used
 `xxd`, `sha256sum`, parsed JSON, and source inspection of
 `crates/calyx-ward/src/guard.rs` and `crates/calyx-ward/tests/guard_kofn.rs`.
+#650 supersedes the `kofn-k0-pass-verdict.json` edge with
+`kofn-k0-inert-error.json` and `CALYX_GUARD_INERT_PROFILE`.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -45,6 +50,8 @@ artifacts include `kofn-k2-pass-verdict.json`, `kofn-k3-fail-verdict.json`,
       `profile.policy`:
       - `AllRequired` (already in T03): `pass_count == unique required slots`
       - `KofN { k }`:
+        - Guard: if `k == 0` →
+          `return Err(WardError::InertProfile { reason: "kofn_zero", ... })`
         - Guard: if `k > unique required slots` →
           `return Err(WardError::PolicyViolation { k, n_required:
           unique_required_slots.len() })`
@@ -67,8 +74,8 @@ artifacts include `kofn-k2-pass-verdict.json`, `kofn-k3-fail-verdict.json`,
       `failing_slots().len() == 1`
 - [ ] unit: same setup, `KofN { k: 3 }` → `overall_pass = false`
 - [ ] unit: `KofN { k: 1 }` with all slots failing → `overall_pass = false`
-- [ ] unit: `KofN { k: 0 }` with all slots failing → `overall_pass = true`
-      (0-of-N is trivially satisfied)
+- [ ] unit: `KofN { k: 0 }` with all slots failing →
+      `CALYX_GUARD_INERT_PROFILE` (0-of-N is not a trusted guard)
 - [ ] edge: `KofN { k: 4 }` with 3 required slots → `WardError::PolicyViolation`
       returned; no panic
 - [ ] edge: `KofN { k: 1 }` with a single required slot at exactly τ (boundary)
@@ -83,7 +90,8 @@ artifacts include `kofn-k2-pass-verdict.json`, `kofn-k3-fail-verdict.json`,
 - **Readback:** run the manual FSV fixture with `CALYX_WARD_KOFN_FSV_DIR=$root`,
   then separately inspect the files with `xxd`, `sha256sum`, and JSON parsing.
 - **Prove:** readback shows `k=2, pass_count=2 -> overall_pass=true`;
-  `k=3, pass_count=2 -> overall_pass=false`; `k=4, n=3` produces
+  `k=3, pass_count=2 -> overall_pass=false`; `k=0` produces
+  `CALYX_GUARD_INERT_PROFILE`; `k=4, n=3` produces
   `CALYX_GUARD_POLICY_VIOLATION`.
 
 ## Done when

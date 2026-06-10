@@ -29,6 +29,9 @@ Readback facts:
   required query slot.
 - `source-readback.json` shows `line_count=111` and
   `aggregate_vector_gate_markers=[]`.
+- #650 hardens trusted-query profile validation: empty required-slot profiles
+  and `KofN { k: 0 }` now return `CALYX_GUARD_INERT_PROFILE` before region
+  evaluation, including the no-trusted-regions edge.
 
 ## Goal
 
@@ -45,6 +48,7 @@ predicate as `guard()`. The API is storage-agnostic:
       `NoveltyAction`.
 - [x] Average-pass / slot-fail incoming-query attack remains OOD.
 - [x] No trusted regions returns OOD without inventing a nearest region.
+- [x] Inert profiles fail closed before no-region OOD/pass selection.
 - [x] Missing required query slot fails closed with `CALYX_GUARD_MISSING_SLOT`.
 - [x] aiwonder cargo/check/clippy/test gates pass and `.rs` files remain
       <=500 lines.

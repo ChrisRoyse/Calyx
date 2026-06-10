@@ -10,8 +10,8 @@ use calyx_ledger::{
     DirectoryLedgerStore, LedgerAppender, LedgerCfStore, MemoryLedgerStore, decode,
 };
 use calyx_ward::{
-    GenerateOutput, NoveltyAction, NoveltyHandler, NoveltyStatus, VaultSink, WardError,
-    guard_generate, guard_generate_with_ledger,
+    GenerateOutput, GuardPolicy, NoveltyAction, NoveltyHandler, NoveltyStatus, VaultSink,
+    WardError, guard_generate, guard_generate_with_ledger,
 };
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -141,6 +141,33 @@ fn high_stakes_uncalibrated_profile_fails_before_lens_execution() {
     .unwrap_err();
 
     assert!(matches!(error, WardError::Provisional { .. }));
+    assert_eq!(speaker.calls(), 0);
+    assert_eq!(style.calls(), 0);
+}
+
+#[test]
+fn inert_kofn_identity_profile_fails_before_lens_execution() {
+    let mut profile = identity_profile(NoveltyAction::NewRegion, true);
+    profile.guard_profile.policy = GuardPolicy::KofN { k: 0 };
+    let speaker = MockLens::audio(cos_vector(0.90));
+    let style = MockLens::text(cos_vector(0.90));
+    let error = guard_generate(
+        &profile,
+        &generate_input(true, true),
+        &speaker,
+        &style,
+        &handler_for(MemorySink::default()),
+        true,
+    )
+    .unwrap_err();
+
+    assert!(matches!(
+        error,
+        WardError::InertProfile {
+            reason: "kofn_zero",
+            ..
+        }
+    ));
     assert_eq!(speaker.calls(), 0);
     assert_eq!(style.calls(), 0);
 }

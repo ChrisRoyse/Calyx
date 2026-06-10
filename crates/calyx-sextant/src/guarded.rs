@@ -2,9 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{Constellation, CxId, Result, SlotId, SlotVector};
+use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
 use calyx_ward::{
     GuardProfile, GuardVerdict, MatchedSlots, ProducedSlots, WardError, guard_non_high_stakes,
+    validate_non_inert_profile,
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,7 @@ pub(crate) fn apply_query_guard(
     let Some(QueryGuard::InRegionOnly(profile)) = &query.guard else {
         return Ok(Vec::new());
     };
+    validate_trusted_guard_profile(profile)?;
     let produced = produced_guard_slots(query, profile)?;
     let mut kept = Vec::with_capacity(hits.len());
     let mut dropped = Vec::new();
@@ -60,6 +62,10 @@ pub(crate) fn apply_query_guard(
     }
     *hits = kept;
     Ok(dropped)
+}
+
+fn validate_trusted_guard_profile(profile: &GuardProfile) -> Result<()> {
+    validate_non_inert_profile(profile).map_err(ward_error)
 }
 
 enum CandidateGuard {
@@ -181,4 +187,12 @@ fn drop_without_verdict(cx_id: CxId, reason: impl Into<String>) -> CandidateGuar
 
 fn ward_reason(error: &WardError) -> String {
     format!("ward_error:{}", error.code())
+}
+
+fn ward_error(error: WardError) -> CalyxError {
+    CalyxError {
+        code: error.code(),
+        message: error.to_string(),
+        remediation: "configure at least one required guard slot and a non-zero pass policy",
+    }
 }

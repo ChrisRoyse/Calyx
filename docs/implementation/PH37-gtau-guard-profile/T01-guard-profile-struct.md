@@ -30,6 +30,10 @@ Implemented in `crates/calyx-ward/src/profile.rs` and re-exported from
 `edge-empty-required.json`; each round-trips through `serde_json` and was read
 back separately with `xxd`, `sha256sum`, grep, and parsed JSON output.
 
+Post-sweep hardening #650 keeps those shapes representable for compatibility
+but rejects them at runtime: empty `required_slots` and `KofN { k: 0 }` now
+return `CALYX_GUARD_INERT_PROFILE` before any trusted guard surface can pass.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `GuardPolicy` enum: `AllRequired` | `KofN { k: usize }` — serde,
@@ -59,11 +63,13 @@ back separately with `xxd`, `sha256sum`, grep, and parsed JSON output.
       assert `tau_for(&s1) == Some(0.80)` and `tau_for(&s3) == None`
 - [ ] proptest: `GuardProfile` serde round-trip: `serde_json::from_str(
       serde_json::to_string(&p).unwrap()).unwrap() == p`
-- [ ] edge: `KofN { k: 0 }` is representable and round-trips cleanly
+- [ ] edge: `KofN { k: 0 }` is representable and round-trips cleanly; runtime
+      guard calls reject it as `CALYX_GUARD_INERT_PROFILE` after #650
 - [ ] edge: `CalibrationMeta` with `far=0.0, frr=1.0` round-trips and
       `is_calibrated()` returns `true`
 - [ ] edge: `GuardProfile` with empty `required_slots` serializes/deserializes
-      without panic
+      without panic; runtime guard calls reject it as
+      `CALYX_GUARD_INERT_PROFILE` after #650
 - [ ] fail-closed: `tau_for` on a slot absent from the map returns `None` (not
       0.0 or a default — caller must handle absence explicitly)
 

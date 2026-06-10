@@ -58,11 +58,18 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   before peripheral regions, and the source-marked verdict records
   `kernel_near` or `peripheral`. Durable aiwonder evidence:
   `/home/croyse/calyx/data/fsv-issue278-ph37-t09-20260609-c2d3e30`.
+- **Post-sweep hardening.** #650 rejects runtime-inert `GuardProfile` shapes on
+  Ward and trusted Sextant surfaces: empty required-slot profiles and
+  `KofN { k: 0 }` fail closed with `CALYX_GUARD_INERT_PROFILE`. Durable
+  aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue650-ward-inert-20260610` and
+  `/home/croyse/calyx/data/fsv-issue650-sextant-inert-20260610`.
 - **Deliverables.** `guard.rs` (`cos(produced_k, matched_k) ≥ τ_k`),
   `GuardProfile { tau: Map<SlotId,f32>, required_slots, policy, calibration,
   novelty_action }`, per-slot verdict breakdown.
 - **Key tasks.** require **every** required slot to pass (no flattened vector,
-  A3); `CALYX_GUARD_OOD` on fail; verdict carries per-slot `(cos,tau,pass)`.
+  A3); reject inert profiles before guard verdicts; `CALYX_GUARD_OOD` on fail;
+  verdict carries per-slot `(cos,tau,pass)`.
 - **FSV gate.** an output passing the average but failing one required slot is
   **rejected**; read durable per-slot verdict JSON and source-readback artifacts
   from aiwonder. No concatenated-slot path is allowed.

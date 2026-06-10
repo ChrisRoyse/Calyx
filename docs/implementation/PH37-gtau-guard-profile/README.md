@@ -39,6 +39,9 @@ adds Assay-derived required-slot selection from load-bearing `Slot.bits_about`
 entries and is FSV-signed-off. PH37 T09 (#278) adds Lodestar-fed kernel-near
 guard priority with source-marked verdicts and is FSV-signed-off. PH37 is
 covered; PH38 conformal tau calibration T01 (#264) is also FSV-signed-off.
+Post-sweep hardening #650 rejects runtime-inert guard profiles on Ward and
+trusted Sextant surfaces: empty `required_slots` and `KofN { k: 0 }` now fail
+closed with `CALYX_GUARD_INERT_PROFILE`.
 
 Before #258, `calyx-ward` had only crate metadata. Ward depends on slots/lenses
 (PH22) and Forge cosine (PH13); those dependency surfaces are already Stage 1-2
@@ -90,7 +93,11 @@ src/guard.rs` must return empty).
   wrapper over `Backend::cosine`.
 - `SlotId` ordering across the `Map<SlotId,f32>` must be deterministic for
   bit-parity tests; use a `BTreeMap` internally.
-- `KofN` with k greater than the unique required-slot count must fail closed,
-  not panic.
+- `KofN` with `k == 0` is not a trusted guard and must fail closed with
+  `CALYX_GUARD_INERT_PROFILE`; `k` greater than the unique required-slot count
+  must fail closed, not panic.
+- Empty required-slot profiles are inert runtime profiles; serde may preserve
+  them for compatibility, but guard execution must reject them before a pass or
+  OOD verdict.
 - Per-slot `(cos, tau, pass)` must be in the verdict even on overall PASS — the
   caller always gets full decomposition.

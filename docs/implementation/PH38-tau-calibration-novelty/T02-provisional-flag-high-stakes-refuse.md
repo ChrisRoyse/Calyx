@@ -1,6 +1,7 @@
 # PH38 · T02 — `provisional` flag + `CALYX_GUARD_PROVISIONAL` high-stakes refuse
 
-> STATUS: DONE / FSV-signed-off on aiwonder for #265; hardened by #649.
+> STATUS: DONE / FSV-signed-off on aiwonder for #265; hardened by #649 and
+> #650.
 > Initial implementation `5c23db5ee9e0f1f95ed8f4c67011b49984770385`;
 > #649 evidence roots:
 > `/home/croyse/calyx/data/fsv-issue649-guard-provisional-20260610` and
@@ -39,6 +40,9 @@ MUST refuse."
       require each required slot to have both an explicit tau and
       `CalibrationMeta.per_slot` provenance. A profile-level calibration summary
       without slot provenance fails closed with `CALYX_GUARD_PROVISIONAL`.
+- [x] #650 hardening: inert-profile validation runs before high-stakes
+      provenance checks, so empty required-slot profiles and `KofN { k: 0 }`
+      return `CALYX_GUARD_INERT_PROFILE` instead of a vacuous pass.
 - [x] `WardError::Provisional` display format:
       `"CALYX_GUARD_PROVISIONAL: guard {guard_id} is uncalibrated; calibrate
       before high-stakes use -- run calibrate() with an anchored set >=50 examples"`

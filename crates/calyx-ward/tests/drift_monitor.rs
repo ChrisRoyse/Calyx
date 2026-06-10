@@ -70,17 +70,23 @@ fn drift_uses_each_slots_own_calibrated_far_bound() {
     let hook_readback = hook.clone();
     let profile = calibrated_profile_with_distinct_slot_bounds();
     let mut monitor = DriftMonitor::new(&profile, 100, Arc::new(hook));
+    let slot1_far = profile
+        .calibration
+        .as_ref()
+        .and_then(|meta| meta.per_slot.get(&slot(1)))
+        .map(|meta| meta.far)
+        .expect("slot 1 far");
 
-    record_repeated(&mut monitor, slot(1), true, 98);
-    record_repeated(&mut monitor, slot(1), false, 2);
-    record_repeated(&mut monitor, slot(2), true, 98);
-    record_repeated(&mut monitor, slot(2), false, 2);
+    record_repeated(&mut monitor, slot(1), true, 99);
+    record_repeated(&mut monitor, slot(1), false, 1);
+    record_repeated(&mut monitor, slot(2), true, 99);
+    record_repeated(&mut monitor, slot(2), false, 1);
     wait_for_events(&hook_readback, 1);
 
     let events = hook_readback.events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].slot, slot(1));
-    assert_close(events[0].calibrated_far_bound, 0.01);
+    assert_close(events[0].calibrated_far_bound, slot1_far);
 }
 
 #[test]
@@ -242,10 +248,10 @@ fn per_slot_calibration_fsv_fixture_writes_readback_artifacts() {
     let profile = calibrated_profile_with_distinct_slot_bounds();
     let mut monitor = DriftMonitor::new(&profile, 100, Arc::new(hook));
 
-    record_repeated(&mut monitor, slot(1), true, 98);
-    record_repeated(&mut monitor, slot(1), false, 2);
-    record_repeated(&mut monitor, slot(2), true, 98);
-    record_repeated(&mut monitor, slot(2), false, 2);
+    record_repeated(&mut monitor, slot(1), true, 99);
+    record_repeated(&mut monitor, slot(1), false, 1);
+    record_repeated(&mut monitor, slot(2), true, 99);
+    record_repeated(&mut monitor, slot(2), false, 1);
     wait_for_events(&hook_readback, 1);
     let health = guard_health(&monitor, guard_id());
     let events = hook_readback.events();
@@ -400,7 +406,7 @@ fn calibrated_profile_with_distinct_slot_bounds() -> GuardProfile {
     let mut identity = calibration_input(slot(1), SlotKind::Identity, 0.01);
     let mut stylistic = calibration_input(slot(2), SlotKind::Stylistic, 0.05);
     identity.good_scores = vec![0.59; 100];
-    stylistic.good_scores = vec![0.59; 100];
+    stylistic.good_scores = vec![0.70; 100];
     calibrate(
         profile_template(),
         vec![identity, stylistic],

@@ -4,7 +4,9 @@ use calyx_core::CxId;
 use serde::{Deserialize, Serialize};
 
 use crate::error::WardError;
-use crate::guard::{MatchedSlots, ProducedSlots, guard_non_high_stakes};
+use crate::guard::{
+    MatchedSlots, ProducedSlots, guard_non_high_stakes, validate_non_inert_profile,
+};
 use crate::profile::{GuardProfile, NoveltyAction};
 use crate::verdict::SlotVerdict;
 
@@ -112,6 +114,7 @@ pub fn guard_query_kernel_first(
     kernel_regions: &[TrustedRegion],
     peripheral_regions: &[TrustedRegion],
 ) -> Result<KernelFirstQueryVerdict, WardError> {
+    validate_non_inert_profile(profile)?;
     let kernel = evaluate_regions(
         profile,
         query_slots,

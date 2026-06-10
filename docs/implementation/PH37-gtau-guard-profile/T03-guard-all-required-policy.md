@@ -43,6 +43,10 @@ artifacts include `allrequired-fail-verdict.json`,
 `guard-fsv.log`. Separate readback used `xxd`, `sha256sum`, parsed JSON, and
 source inspection of `crates/calyx-ward/src/guard.rs`.
 
+Post-sweep hardening #650 replaces the empty-required runtime outcome with
+`edge-empty-required-error.json`: empty required-slot profiles now fail closed
+with `CALYX_GUARD_INERT_PROFILE` instead of producing a vacuous pass.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `ProducedSlots` type alias: `BTreeMap<SlotId, Vec<f32>>` (the
@@ -91,7 +95,8 @@ source inspection of `crates/calyx-ward/src/guard.rs`.
       (`≥` not `>`)
 - [ ] proptest: for any two unit-norm vectors and τ in `[0.0, 1.0]`, the verdict
       `pass` matches `cosine(a,b) >= τ`
-- [ ] edge: `required_slots` is empty → `overall_pass = true`, `per_slot` empty
+- [ ] edge: `required_slots` is empty →
+      `WardError::InertProfile` / `CALYX_GUARD_INERT_PROFILE`
 - [ ] edge: produced vector for a required slot is the zero vector -> normalize
       cannot produce a valid unit vector; test that `guard()` returns a
       fail verdict with the configured novelty action (not a panic). T04 wraps
@@ -107,7 +112,8 @@ source inspection of `crates/calyx-ward/src/guard.rs`.
 - **Readback:** run the ignored/manual FSV fixture with
   `CALYX_WARD_GUARD_FSV_DIR=$root`, then separately inspect the written files
   with `xxd`, `sha256sum`, JSON parsing, and a source readback of
-  `crates/calyx-ward/src/guard.rs`.
+  `crates/calyx-ward/src/guard.rs`; #650 additionally reads back
+  `CALYX_GUARD_INERT_PROFILE` for empty required-slot profiles.
 - **Prove:** durable JSON shows the two-slot verdict with
   `overall_pass=false` when slot-2 cos=0.55 < tau=0.70; the failing-slots
   readback identifies slot 2 only; source readback confirms no concatenated

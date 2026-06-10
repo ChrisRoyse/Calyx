@@ -52,14 +52,19 @@ fn kofn_one_of_three_fails_when_all_slots_fail() {
 }
 
 #[test]
-fn kofn_zero_is_trivially_satisfied_even_when_slots_fail() {
+fn kofn_zero_fails_inert_profile_even_when_slots_fail() {
     let (profile, produced, matched) = scenario(GuardPolicy::KofN { k: 0 }, &[0.1, 0.2, 0.3]);
 
-    let verdict = guard(&profile, &produced, &matched).expect("guard succeeds");
+    let error = guard(&profile, &produced, &matched).expect_err("inert profile");
 
-    assert!(verdict.overall_pass);
-    assert_eq!(verdict.action, None);
-    assert_eq!(verdict.failing_slots().len(), 3);
+    assert_eq!(
+        error,
+        WardError::InertProfile {
+            guard_id: guard_id(),
+            reason: "kofn_zero",
+        }
+    );
+    assert_eq!(error.code(), "CALYX_GUARD_INERT_PROFILE");
 }
 
 #[test]
@@ -107,19 +112,21 @@ fn guard_kofn_fsv_fixture_writes_readback_artifacts() {
 
     let k2 = guard(&k2_profile, &produced, &matched).expect("k2 pass verdict");
     let k3 = guard(&k3_profile, &produced, &matched).expect("k3 fail verdict");
-    let k0 = guard(&k0_profile, &k0_produced, &k0_matched).expect("k0 pass verdict");
+    let k0 = guard(&k0_profile, &k0_produced, &k0_matched).expect_err("k0 inert profile");
     let ood = guard_result(&k3_profile, &produced, &matched).expect_err("ood error");
     let policy = guard(&k4_profile, &k4_produced, &k4_matched).expect_err("policy violation");
 
     write_json(&root, "kofn-k2-pass-verdict.json", &k2);
     write_json(&root, "kofn-k3-fail-verdict.json", &k3);
-    write_json(&root, "kofn-k0-pass-verdict.json", &k0);
+    write_json(&root, "kofn-k0-inert-error.json", &error_json(&k0));
     write_json(&root, "guard-result-ood-error.json", &error_json(&ood));
     write_json(&root, "policy-violation-error.json", &error_json(&policy));
 
     println!(
-        "FSV_KOFN k2_overall={} k3_overall={} k0_overall={}",
-        k2.overall_pass, k3.overall_pass, k0.overall_pass
+        "FSV_KOFN k2_overall={} k3_overall={} k0_code={}",
+        k2.overall_pass,
+        k3.overall_pass,
+        k0.code()
     );
     println!("FSV_KOFN_POLICY {}", policy);
     println!("FSV_KOFN_OOD {}", ood);

@@ -26,16 +26,9 @@ pub fn guard(
     high_stakes: bool,
 ) -> Result<GuardVerdict, WardError> {
     let required = required_slots(profile);
+    validate_non_inert_required(profile, &required)?;
     if high_stakes {
         validate_high_stakes_profile(profile, &required)?;
-    }
-    if let GuardPolicy::KofN { k } = profile.policy
-        && k > required.len()
-    {
-        return Err(WardError::PolicyViolation {
-            k,
-            n_required: required.len(),
-        });
     }
 
     let mut per_slot = Vec::new();
@@ -68,6 +61,39 @@ pub fn guard(
         per_slot,
         action,
     })
+}
+
+/// Rejects guard profiles that cannot require evidence from any slot.
+pub fn validate_non_inert_profile(profile: &GuardProfile) -> Result<(), WardError> {
+    let required = required_slots(profile);
+    validate_non_inert_required(profile, &required)
+}
+
+fn validate_non_inert_required(
+    profile: &GuardProfile,
+    required: &[SlotId],
+) -> Result<(), WardError> {
+    if required.is_empty() {
+        return Err(WardError::InertProfile {
+            guard_id: profile.guard_id,
+            reason: "empty_required_slots",
+        });
+    }
+    if let GuardPolicy::KofN { k } = profile.policy {
+        if k == 0 {
+            return Err(WardError::InertProfile {
+                guard_id: profile.guard_id,
+                reason: "kofn_zero",
+            });
+        }
+        if k > required.len() {
+            return Err(WardError::PolicyViolation {
+                k,
+                n_required: required.len(),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn validate_high_stakes_profile(
@@ -217,16 +243,20 @@ mod tests {
     }
 
     #[test]
-    fn empty_required_slots_passes_without_action() {
+    fn empty_required_slots_fails_inert_profile() {
         let profile = sample_profile(vec![]);
         let produced = ProducedSlots::new();
         let matched = MatchedSlots::new();
 
-        let verdict = guard(&profile, &produced, &matched).expect("guard succeeds");
+        let error = guard(&profile, &produced, &matched).expect_err("inert profile");
 
-        assert!(verdict.overall_pass);
-        assert!(verdict.per_slot.is_empty());
-        assert_eq!(verdict.action, None);
+        assert_eq!(
+            error,
+            WardError::InertProfile {
+                guard_id: guard_id(),
+                reason: "empty_required_slots",
+            }
+        );
     }
 
     #[test]
@@ -337,7 +367,7 @@ mod tests {
             &ProducedSlots::new(),
             &MatchedSlots::new(),
         )
-        .expect("empty verdict");
+        .expect_err("empty required slots");
         let zero = guard(
             &sample_profile(vec![(slot(1), 0.70)]),
             &slot_vectors(&[(slot(1), vec![0.0, 0.0])]),
@@ -353,7 +383,7 @@ mod tests {
 
         write_json(&root, "allrequired-fail-verdict.json", &fail);
         write_json(&root, "allrequired-pass-verdict.json", &pass);
-        write_json(&root, "edge-empty-required-verdict.json", &empty);
+        write_json(&root, "edge-empty-required-error.json", &error_json(&empty));
         write_json(&root, "edge-zero-vector-verdict.json", &zero);
         write_json(
             &root,
@@ -423,6 +453,13 @@ mod tests {
         let path = std::path::Path::new(root).join(name);
         let file = std::fs::File::create(path).expect("create fsv json");
         serde_json::to_writer_pretty(file, value).expect("write fsv json");
+    }
+
+    fn error_json(error: &WardError) -> serde_json::Value {
+        json!({
+            "code": error.code(),
+            "message": error.to_string(),
+        })
     }
 
     fn guard_id() -> GuardId {

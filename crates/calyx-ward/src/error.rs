@@ -11,6 +11,7 @@ use crate::verdict::SlotVerdict;
 
 pub const CALYX_GUARD_OOD: &str = "CALYX_GUARD_OOD";
 pub const CALYX_GUARD_PROVISIONAL: &str = "CALYX_GUARD_PROVISIONAL";
+pub const CALYX_GUARD_INERT_PROFILE: &str = "CALYX_GUARD_INERT_PROFILE";
 pub const CALYX_GUARD_MISSING_SLOT: &str = "CALYX_GUARD_MISSING_SLOT";
 pub const CALYX_GUARD_POLICY_VIOLATION: &str = "CALYX_GUARD_POLICY_VIOLATION";
 pub const CALYX_GUARD_NOT_A_FAILURE: &str = "CALYX_GUARD_NOT_A_FAILURE";
@@ -35,6 +36,10 @@ pub enum WardError {
     MissingSlotCalibration {
         guard_id: GuardId,
         slot: SlotId,
+    },
+    InertProfile {
+        guard_id: GuardId,
+        reason: &'static str,
     },
     MissingSlot {
         slot: SlotId,
@@ -92,6 +97,7 @@ impl WardError {
             Self::InsufficientCalibrationData { .. }
             | Self::InvalidCalibrationInput { .. }
             | Self::InvalidRequiredSlotDerivation { .. } => CALYX_GUARD_PROVISIONAL,
+            Self::InertProfile { .. } => CALYX_GUARD_INERT_PROFILE,
             Self::MissingSlot { .. } => CALYX_GUARD_MISSING_SLOT,
             Self::PolicyViolation { .. } => CALYX_GUARD_POLICY_VIOLATION,
             Self::NotAFailure { .. } => CALYX_GUARD_NOT_A_FAILURE,
@@ -123,6 +129,10 @@ impl fmt::Display for WardError {
             Self::MissingSlotCalibration { guard_id, slot } => write!(
                 f,
                 "{CALYX_GUARD_PROVISIONAL}: guard {guard_id} missing high-stakes calibration provenance for required slot {slot}; calibrate every required slot before high-stakes use"
+            ),
+            Self::InertProfile { guard_id, reason } => write!(
+                f,
+                "{CALYX_GUARD_INERT_PROFILE}: guard {guard_id} is inert ({reason}); trusted guard surfaces require at least one required slot and a non-zero pass policy"
             ),
             Self::MissingSlot { slot } => {
                 write!(
@@ -247,6 +257,20 @@ mod tests {
     }
 
     #[test]
+    fn inert_profile_display_contains_code_and_reason() {
+        let error = WardError::InertProfile {
+            guard_id: guard_id(),
+            reason: "kofn_zero",
+        };
+        let formatted = error.to_string();
+
+        assert_eq!(error.code(), CALYX_GUARD_INERT_PROFILE);
+        assert!(formatted.contains(CALYX_GUARD_INERT_PROFILE));
+        assert!(formatted.contains("kofn_zero"));
+        assert!(formatted.contains("trusted guard surfaces"));
+    }
+
+    #[test]
     fn missing_slot_display_contains_code_and_slot() {
         let error = WardError::MissingSlot { slot: slot(7) };
         let formatted = error.to_string();
@@ -347,6 +371,10 @@ mod tests {
             WardError::MissingSlotCalibration {
                 guard_id: guard_id(),
                 slot: slot(7),
+            },
+            WardError::InertProfile {
+                guard_id: guard_id(),
+                reason: "empty_required_slots",
             },
             WardError::MissingSlot { slot: slot(3) },
             WardError::PolicyViolation {
