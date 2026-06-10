@@ -97,7 +97,8 @@ impl Wal {
         batch::validate_window(options.group_commit_window)?;
         let dir = dir.as_ref().to_path_buf();
         fs::create_dir_all(&dir).map_err(|error| storage_error("create WAL directory", error))?;
-        let replay = replay_dir(&dir)?;
+        let _lock = crate::file_lock::FileLockGuard::acquire(&dir.join(".append.lock"))?;
+        let replay = replay_dir_locked(&dir)?;
         let next_seq = replay.records.last().map_or(1, |record| record.seq + 1);
         let segments =
             segment::list_segments(&dir).map_err(|error| storage_error("list WAL", error))?;
@@ -155,7 +156,7 @@ impl Wal {
     }
 
     fn refresh_after_external_appends(&mut self) -> Result<()> {
-        let replay = replay_dir(&self.dir)?;
+        let replay = replay_dir_locked(&self.dir)?;
         self.next_seq = replay.records.last().map_or(1, |record| record.seq + 1);
         let segments =
             segment::list_segments(&self.dir).map_err(|error| storage_error("list WAL", error))?;
@@ -195,6 +196,11 @@ impl Wal {
 /// Replays a WAL directory, truncating the first torn segment tail if present.
 pub fn replay_dir(dir: impl AsRef<Path>) -> Result<ReplayOutcome> {
     let dir = dir.as_ref();
+    let _lock = crate::file_lock::FileLockGuard::acquire(&dir.join(".append.lock"))?;
+    replay_dir_locked(dir)
+}
+
+fn replay_dir_locked(dir: &Path) -> Result<ReplayOutcome> {
     let segments = segment::list_segments(dir).map_err(|error| storage_error("list WAL", error))?;
     let mut records = Vec::new();
 

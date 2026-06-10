@@ -178,10 +178,6 @@ impl DurableVault {
         self.root.join("locks").join("recurrence.write.lock")
     }
 
-    pub(super) fn append_lock_path(&self) -> PathBuf {
-        self.root.join("wal").join(".append.lock")
-    }
-
     pub(super) fn commit_lock_path(&self) -> PathBuf {
         self.root.join("locks").join("durable.commit.lock")
     }
