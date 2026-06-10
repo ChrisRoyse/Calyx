@@ -26,7 +26,8 @@ pub use drift::{
 pub use error::{
     CALYX_GUARD_ID_MISMATCH, CALYX_GUARD_IDENTITY_SLOT_NOT_REQUIRED, CALYX_GUARD_INERT_PROFILE,
     CALYX_GUARD_MISSING_SLOT, CALYX_GUARD_NOT_A_FAILURE, CALYX_GUARD_NOVELTY_SINK, CALYX_GUARD_OOD,
-    CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, CALYX_WARD_INVALID_INPUT,
+    CALYX_GUARD_POLICY_VIOLATION, CALYX_GUARD_PROVISIONAL, CALYX_WARD_INVALID_DOMAIN,
+    CALYX_WARD_INVALID_FREQUENCY, CALYX_WARD_INVALID_INPUT, CALYX_WARD_MISSING_FREQUENCY,
     CALYX_WARD_MODEL_DIM_MISMATCH, CALYX_WARD_MODEL_NOT_FOUND, CALYX_WARD_RUNTIME_ERROR, WardError,
 };
 pub use generate::{
@@ -42,7 +43,9 @@ pub use ledger::{
     calibrate_with_ledger, guard_with_ledger,
 };
 pub use novelty::{
-    NovelId, NoveltyHandler, NoveltyRecord, NoveltyStatus, VaultSink, novel_regions,
+    Domain, NovelId, NoveltyHandler, NoveltyRecord, NoveltySignal, NoveltyStatus, SurpriseScore,
+    VaultSink, classify_novelty, novel_regions, novelty_action_for_signal, overdue_recurrence_scan,
+    surprise_bits,
 };
 pub use profile::{
     CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction, SlotCalibrationMeta,

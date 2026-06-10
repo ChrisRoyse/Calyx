@@ -1,9 +1,13 @@
 //! Novelty routing for failed Ward verdicts.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::sync::Arc;
 
-use calyx_core::Clock;
+use calyx_aster::dedup::EpochSecs;
+use calyx_aster::recurrence::{FREQUENCY_SCALAR, read_series};
+use calyx_aster::vault::AsterVault;
+use calyx_core::{Clock, CxId, VaultStore};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -42,6 +46,58 @@ pub enum NoveltyStatus {
     AwaitingGrounding,
     Quarantined,
     Rejected,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Domain {
+    pub id: String,
+    pub cx_ids: Vec<CxId>,
+}
+
+impl Domain {
+    pub fn new(id: impl Into<String>, cx_ids: Vec<CxId>) -> Self {
+        Self {
+            id: id.into(),
+            cx_ids,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SurpriseScore(f32);
+
+impl SurpriseScore {
+    pub fn new(value: f32) -> Result<Self, WardError> {
+        if value.is_finite() && value >= 0.0 {
+            Ok(Self(value))
+        } else {
+            Err(WardError::InvalidDomain {
+                reason: format!("surprise score must be finite and non-negative, found {value}"),
+            })
+        }
+    }
+
+    pub const fn get(self) -> f32 {
+        self.0
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "signal")]
+pub enum NoveltySignal {
+    Recurring {
+        frequency: u64,
+        cadence_secs: f64,
+    },
+    NonRecurring,
+    OverdueRecurrence {
+        expected_t: EpochSecs,
+        overdue_by_secs: u64,
+    },
+    Anomaly {
+        surprise_bits: SurpriseScore,
+    },
 }
 
 /// Durable record written when Ward routes a failed verdict.
@@ -127,6 +183,104 @@ impl NoveltyHandler {
     }
 }
 
+pub fn classify_novelty<C>(
+    cx_id: CxId,
+    vault: &AsterVault<C>,
+    clock: &dyn Clock,
+) -> Result<NoveltySignal, WardError>
+where
+    C: Clock,
+{
+    let frequency = read_base_frequency(vault, cx_id)?;
+    if frequency <= 1 {
+        return Ok(NoveltySignal::NonRecurring);
+    }
+
+    let series = read_series(vault, cx_id).map_err(ward_runtime)?;
+    let cadence_secs = series.cadence_secs.unwrap_or(0.0);
+    if frequency >= 3
+        && cadence_secs.is_finite()
+        && cadence_secs > 0.0
+        && let Some(last_t) = series
+            .occurrences
+            .iter()
+            .map(|occurrence| occurrence.t_k)
+            .max()
+    {
+        let now_secs = clock_now_secs(clock);
+        let overdue_threshold = last_t.0 as f64 + (2.0 * cadence_secs);
+        if now_secs as f64 > overdue_threshold {
+            let expected_t = expected_epoch(last_t, cadence_secs)?;
+            return Ok(NoveltySignal::OverdueRecurrence {
+                expected_t,
+                overdue_by_secs: now_secs.saturating_sub(expected_t.0).max(0) as u64,
+            });
+        }
+    }
+
+    Ok(NoveltySignal::Recurring {
+        frequency,
+        cadence_secs,
+    })
+}
+
+pub fn surprise_bits<C>(
+    cx_id: CxId,
+    domain: &Domain,
+    vault: &AsterVault<C>,
+) -> Result<SurpriseScore, WardError>
+where
+    C: Clock,
+{
+    let total = total_domain_events(domain, vault)?;
+    if total == 0 {
+        return surprise_score_from_counts(0, 0);
+    }
+    let frequency = read_base_frequency(vault, cx_id)?;
+    surprise_score_from_counts(frequency, total)
+}
+
+pub fn surprise_score_from_counts(
+    frequency: u64,
+    total_domain_events: u64,
+) -> Result<SurpriseScore, WardError> {
+    if total_domain_events == 0 {
+        return SurpriseScore::new(0.0);
+    }
+    let effective_frequency = frequency.max(1) as f32;
+    let p = (effective_frequency / total_domain_events as f32).clamp(f32::MIN_POSITIVE, 1.0);
+    // INVARIANT: SurpriseScore is for retrieval anomaly only; MUST NOT modify stored bits.
+    SurpriseScore::new(-p.ln() / 2.0_f32.ln())
+}
+
+pub fn overdue_recurrence_scan<C>(
+    domain: &Domain,
+    vault: &AsterVault<C>,
+    clock: &dyn Clock,
+) -> Result<Vec<(CxId, NoveltySignal)>, WardError>
+where
+    C: Clock,
+{
+    let mut overdue = Vec::new();
+    for cx_id in unique_domain_ids(domain) {
+        let signal = classify_novelty(cx_id, vault, clock)?;
+        if matches!(signal, NoveltySignal::OverdueRecurrence { .. }) {
+            overdue.push((cx_id, signal));
+        }
+    }
+    Ok(overdue)
+}
+
+pub fn novelty_action_for_signal(signal: &NoveltySignal) -> Option<NoveltyAction> {
+    match signal {
+        NoveltySignal::Recurring { .. } => None,
+        NoveltySignal::NonRecurring | NoveltySignal::OverdueRecurrence { .. } => {
+            Some(NoveltyAction::NewRegion)
+        }
+        NoveltySignal::Anomaly { .. } => Some(NoveltyAction::Quarantine),
+    }
+}
+
 /// Lists awaiting-grounding novelty records at or after `since_ts`.
 pub fn novel_regions(
     vault: &dyn VaultSink,
@@ -142,6 +296,70 @@ pub fn novel_regions(
 
 fn clock_ts_i64(clock: &dyn Clock) -> i64 {
     i64::try_from(clock.now()).unwrap_or(i64::MAX)
+}
+
+fn clock_now_secs(clock: &dyn Clock) -> i64 {
+    i64::try_from(clock.now() / 1000).unwrap_or(i64::MAX)
+}
+
+fn total_domain_events<C>(domain: &Domain, vault: &AsterVault<C>) -> Result<u64, WardError>
+where
+    C: Clock,
+{
+    unique_domain_ids(domain)
+        .into_iter()
+        .try_fold(0_u64, |total, cx_id| {
+            total
+                .checked_add(read_base_frequency(vault, cx_id)?)
+                .ok_or_else(|| WardError::InvalidDomain {
+                    reason: format!("domain {} frequency total overflowed u64", domain.id),
+                })
+        })
+}
+
+fn read_base_frequency<C>(vault: &AsterVault<C>, cx_id: CxId) -> Result<u64, WardError>
+where
+    C: Clock,
+{
+    let cx = vault
+        .get(cx_id, vault.snapshot())
+        .map_err(|_| WardError::MissingFrequency {
+            cx_id,
+            detail: "base row missing",
+        })?;
+    let Some(value) = cx.scalars.get(FREQUENCY_SCALAR) else {
+        return Err(WardError::MissingFrequency {
+            cx_id,
+            detail: "scalar missing",
+        });
+    };
+    if !value.is_finite() || *value < 0.0 || value.fract() != 0.0 || *value > u64::MAX as f64 {
+        return Err(WardError::InvalidFrequency {
+            cx_id,
+            value: *value,
+        });
+    }
+    Ok(*value as u64)
+}
+
+fn expected_epoch(last_t: EpochSecs, cadence_secs: f64) -> Result<EpochSecs, WardError> {
+    let expected = last_t.0 as f64 + cadence_secs;
+    if !expected.is_finite() || expected < i64::MIN as f64 || expected > i64::MAX as f64 {
+        return Err(WardError::InvalidDomain {
+            reason: format!("expected recurrence time overflowed for cadence {cadence_secs}"),
+        });
+    }
+    Ok(EpochSecs(expected.round() as i64))
+}
+
+fn unique_domain_ids(domain: &Domain) -> BTreeSet<CxId> {
+    domain.cx_ids.iter().copied().collect()
+}
+
+fn ward_runtime(error: calyx_core::CalyxError) -> WardError {
+    WardError::Runtime {
+        reason: error.to_string(),
+    }
 }
 
 fn derive_novel_id(

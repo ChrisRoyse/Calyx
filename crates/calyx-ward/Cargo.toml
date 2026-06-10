@@ -7,6 +7,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }
 calyx-ledger = { path = "../calyx-ledger" }
@@ -18,4 +19,5 @@ tokenizers = { version = "0.22.2", default-features = false, features = ["onig"]
 uuid.workspace = true
 
 [dev-dependencies]
+blake3.workspace = true
 proptest.workspace = true

@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt;
 use std::path::PathBuf;
 
-use calyx_core::SlotId;
+use calyx_core::{CxId, SlotId};
 
 use crate::profile::GuardId;
 use crate::verdict::SlotVerdict;
@@ -22,6 +22,9 @@ pub const CALYX_WARD_MODEL_NOT_FOUND: &str = "CALYX_WARD_MODEL_NOT_FOUND";
 pub const CALYX_WARD_INVALID_INPUT: &str = "CALYX_WARD_INVALID_INPUT";
 pub const CALYX_WARD_MODEL_DIM_MISMATCH: &str = "CALYX_WARD_MODEL_DIM_MISMATCH";
 pub const CALYX_WARD_RUNTIME_ERROR: &str = "CALYX_WARD_RUNTIME_ERROR";
+pub const CALYX_WARD_MISSING_FREQUENCY: &str = "CALYX_WARD_MISSING_FREQUENCY";
+pub const CALYX_WARD_INVALID_FREQUENCY: &str = "CALYX_WARD_INVALID_FREQUENCY";
+pub const CALYX_WARD_INVALID_DOMAIN: &str = "CALYX_WARD_INVALID_DOMAIN";
 
 /// Fail-closed errors emitted by Ward guard policy checks.
 #[derive(Clone, Debug, PartialEq)]
@@ -84,6 +87,17 @@ pub enum WardError {
     NoveltySink {
         reason: String,
     },
+    MissingFrequency {
+        cx_id: CxId,
+        detail: &'static str,
+    },
+    InvalidFrequency {
+        cx_id: CxId,
+        value: f64,
+    },
+    InvalidDomain {
+        reason: String,
+    },
 }
 
 impl WardError {
@@ -108,6 +122,9 @@ impl WardError {
             Self::ModelDimMismatch { .. } => CALYX_WARD_MODEL_DIM_MISMATCH,
             Self::Runtime { .. } => CALYX_WARD_RUNTIME_ERROR,
             Self::NoveltySink { .. } => CALYX_GUARD_NOVELTY_SINK,
+            Self::MissingFrequency { .. } => CALYX_WARD_MISSING_FREQUENCY,
+            Self::InvalidFrequency { .. } => CALYX_WARD_INVALID_FREQUENCY,
+            Self::InvalidDomain { .. } => CALYX_WARD_INVALID_DOMAIN,
         }
     }
 }
@@ -188,6 +205,17 @@ impl fmt::Display for WardError {
             }
             Self::NoveltySink { reason } => {
                 write!(f, "{CALYX_GUARD_NOVELTY_SINK}: {reason}")
+            }
+            Self::MissingFrequency { cx_id, detail } => write!(
+                f,
+                "{CALYX_WARD_MISSING_FREQUENCY}: {detail} for {cx_id}; Ward novelty classification fails closed"
+            ),
+            Self::InvalidFrequency { cx_id, value } => write!(
+                f,
+                "{CALYX_WARD_INVALID_FREQUENCY}: recurrence.frequency for {cx_id} must be a non-negative integer, found {value}"
+            ),
+            Self::InvalidDomain { reason } => {
+                write!(f, "{CALYX_WARD_INVALID_DOMAIN}: {reason}")
             }
         }
     }
