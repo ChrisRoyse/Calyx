@@ -109,11 +109,13 @@ and
 `/home/croyse/calyx/data/fsv-issue270-speaker-lens-20260609-ef729f8-ort126-sm120`,
 `/home/croyse/calyx/data/fsv-issue271-style-lens-20260609-a43e546-ort126-sm120`,
 `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`,
-and `/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`.
+`/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`,
+`/home/croyse/calyx/data/fsv-issue274-ph39-t06-20260609-8e29b51-v2-cpu-ort126`,
+and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
 Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is active under
-S9 epic #361, with T01 #373 and T02 #374 FSV-signed-off and the remaining PH40
-queue #375-#378.
+S9 epic #361, with T01 #373, T02 #374, and T03 #375 FSV-signed-off and the
+remaining PH40 queue #376-#378.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -143,14 +145,21 @@ quarantine contract. #269 adds the PH39 `IdentityProfile` construction and
 identity-anchor fail-closed surface with durable JSON and SHA manifest readback.
 #270 adds the pinned WavLM speaker lens, #271 adds the pinned style lens, #272
 adds `guard_generate()` plus accepted/novel/rejected/provisional readbacks, #273
-proves real prompt-injection quarantine on the numeric style slot, #274 hardens
-identity profile storage, and #280 closes the full Stage 8 Ward exit. PH40 T01
-#373 stores the default temporal policy in Aster's durable vault manifest with
+proves real prompt-injection quarantine on the numeric style slot, #274 proves
+PH39 speaker-similarity target FSV, and #280 closes the full Stage 8 Ward exit.
+PH40 T01 #373 stores temporal policy in Aster's durable vault manifest with
 aiwonder readback at
-`/home/croyse/calyx/data/fsv-issue373-temporal-policy-manifest-20260609-9ca0a93`.
+`/home/croyse/calyx/data/fsv-issue373-temporal-policy-manifest-20260609-9ca0a93`;
+post-sweep hardening keeps custom policy authoritative across cold open and
+second flush at
+`/home/croyse/calyx/data/fsv-issue373-temporal-policy-reopen-20260609-a54dcc1`.
 PH40 T02 #374 adds `TimeWindow` helpers and stable-order temporal hit filtering
 with aiwonder readback at
 `/home/croyse/calyx/data/fsv-issue374-time-window-20260609-d872c7c`.
+PH40 T03 #375 adds content-relative `apply_temporal_boost`, attaches
+`TemporalScores`, caps temporal alpha at 0.10, preserves zero-content misses at
+score 0.0, and reads back boost artifacts at
+`/home/croyse/calyx/data/fsv-issue375-temporal-boost-20260609-a54dcc1`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
