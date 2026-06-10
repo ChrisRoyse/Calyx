@@ -260,8 +260,9 @@ manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
 **Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
-follow-ups #617/#620/#621/#622**, then PH42-PH72. PH41 public recurrence read
-API follow-up #578 is FSV-backed.
+follow-ups #617/#620/#622** plus PH40 follow-ups #616/#618/#619, then PH42-PH72.
+PH41 public recurrence read API follow-up #578 and recurrence concurrency
+hardening #621 are FSV-backed.
 PH41 T01 #379 is FSV-backed at
 `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`;
 PH41 T02 #380 is FSV-backed at
@@ -296,6 +297,12 @@ with `periodic-recall-readback.json` BLAKE3
 `7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79` and
 `BLAKE3SUMS.txt` BLAKE3
 `7f4af4acb4f507c5e70afb3128f04692d8673fcbabe8aa552d417a2734a09c4e`.
+#621 recurrence occurrence ID concurrency hardening is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`
+with `recurrence-concurrency-readback.json` BLAKE3
+`91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8` and
+`BLAKE3SUMS.txt` BLAKE3
+`e1bb5a412ca31e1e8d27d18bd1410ee8c65260389a63bceac078ea01cfd027af`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

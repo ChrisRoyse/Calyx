@@ -43,6 +43,10 @@ for the structure under `docs/implementation/PHnn-*/`.
 > `/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`;
 > PH41 T08 #386 is FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`.
+> PH41 public recurrence read APIs #578 are FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`;
+> PH41 recurrence concurrency hardening #621 is FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

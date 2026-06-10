@@ -119,8 +119,9 @@ FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
 overfetch, negative fusion-weight validation, and public periodic scorer
 scope. PH41 T01 #379 through T08 #386 are complete and FSV-signed-off; post-T06
 hardening #623 and public recurrence read API follow-up #578 are complete and
-FSV-signed-off. PH41 follow-ups #617, #620, #621, and #622 remain tracked before
-PH42.
+FSV-signed-off. PH41 recurrence occurrence allocation concurrency hardening
+#621 is complete and FSV-backed. PH41 follow-ups #617, #620, and #622 remain
+tracked before PH42.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -241,6 +242,19 @@ joint hour/day matching, and no-filter fail-closed behavior. aiwonder FSV is at
 `7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79`,
 `BLAKE3SUMS.txt` BLAKE3
 `7f4af4acb4f507c5e70afb3128f04692d8673fcbabe8aa552d417a2734a09c4e`).
+#621 makes recurrence occurrence ID allocation concurrency-safe across
+multi-handle durable vault opens by serializing recurrence writes with the
+recurrence lock and serializing every durable commit with a process+OS
+`durable.commit.lock` that refreshes WAL/MVCC/Ledger state before staging.
+aiwonder FSV is at
+`/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`:
+direct append reads back returned/stored IDs 0..15 with frequency 16, recurrence
+policy ingest reads back IDs 0..12 with frequency 13, and the invalid-time edge
+fails closed with `CALYX_DEDUP_INVALID_EVENT_TIME` before retrying as ID 0.
+Artifact hashes: `recurrence-concurrency-readback.json` BLAKE3
+`91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8` and
+`BLAKE3SUMS.txt` BLAKE3
+`e1bb5a412ca31e1e8d27d18bd1410ee8c65260389a63bceac078ea01cfd027af`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).

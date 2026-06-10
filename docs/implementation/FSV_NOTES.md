@@ -14,7 +14,7 @@ higher-level Aster/Ledger surfaces:
 ```bash
 calyx readback --hex <file>
 calyx readback --vault-tree <dir>
-calyx readback --cf <cf-name> --vault <vault-root> [--prefix <hex-prefix>]
+calyx readback --cf <cf-name> --vault <vault-root>
 calyx readback --cf ledger --vault <vault-root> [--seq <n>]
 calyx readback cx-list --vault <vault-root>
 calyx readback recurrence-series --vault <vault-root> --cx-id <CxId>
@@ -25,6 +25,22 @@ calyx verify-chain --vault <vault-root> --range <start>..<end>
 calyx readback --wal --vault <vault-root>
 calyx readback --cf <cf-name> --level <level-dir>
 ```
+
+Recent recurrence concurrency evidence (#621) uses the same surfaces against
+the persistent aiwonder root
+`/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`:
+
+```bash
+calyx readback recurrence-series --vault <root>/direct-append/vault --cx-id <CxId>
+calyx readback --cf recurrence --vault <root>/direct-append/vault
+calyx readback --cf base --vault <root>/direct-append/vault
+calyx readback --wal --vault <root>/direct-append/vault
+calyx verify-chain --vault <root>/direct-append/vault --range 0..1
+```
+
+The same readbacks are repeated for `<root>/ingest/vault` and
+`<root>/failed-retry/vault`, with `BLAKE3SUMS.txt` verifying the persisted SST,
+WAL, manifest, and JSON artifact bytes.
 
 Later phases extend `readback` for metrics and higher-level engine artifacts.
 The command stays observational unless explicitly named as an action subcommand

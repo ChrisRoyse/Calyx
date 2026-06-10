@@ -96,6 +96,22 @@ closed with `CALYX_TEMPORAL_INVALID_PERIOD`. Artifact hashes:
 `7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79` and
 `BLAKE3SUMS.txt` BLAKE3
 `7f4af4acb4f507c5e70afb3128f04692d8673fcbabe8aa552d417a2734a09c4e`.
+PH41 concurrency hardening #621 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`:
+recurrence writes now take the recurrence lock, and every durable commit takes a
+process+OS `durable.commit.lock`, refreshes WAL/MVCC/Ledger state before
+staging, and then appends/checkpoints with a monotonic local sequence. This
+serializes direct appends, recurrence-policy ingests, dedup undo, anchor updates
+touching recurrence metadata, and ordinary durable writes that could otherwise
+advance WAL between a stale handle's refresh and commit. The FSV fixture opens
+one durable `AsterVault` per worker before the barrier, then separately reads
+recurrence/base/WAL/Ledger bytes: direct append returns and stores IDs 0..15
+with frequency 16, recurrence ingest stores IDs 0..12 with frequency 13, and a
+negative event time fails closed before retrying as ID 0.
+Artifact hashes: `recurrence-concurrency-readback.json` BLAKE3
+`91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8` and
+`BLAKE3SUMS.txt` BLAKE3
+`e1bb5a412ca31e1e8d27d18bd1410ee8c65260389a63bceac078ea01cfd027af`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -129,14 +145,14 @@ closed with `CALYX_TEMPORAL_INVALID_PERIOD`. Artifact hashes:
 
 ## Tracked PH41 follow-ups
 
-#578 public recurrence read APIs are implemented and FSV-backed. Remaining
-follow-ups before PH42 are hardening and concurrency/reclaim work:
+#578 public recurrence read APIs and #621 recurrence concurrency hardening are
+implemented and FSV-backed. Remaining follow-ups before PH42 are validation,
+reclaim, and WAL-failure-code work:
 
 | Issue | Scope |
 |---|---|
 | #617 | Durable/recovered `DedupPolicy` validation parity for temporal required-slot rejection |
 | #620 | Recurrence rollup tombstone/physical reclaim integration |
-| #621 | Concurrency-safe recurrence occurrence id allocation |
 | #622 | Exact WAL write-failure code/injection proof beyond current storage-error fail-closed path |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)

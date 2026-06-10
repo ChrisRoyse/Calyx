@@ -55,6 +55,12 @@ system role:** the sense of time.
   `/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`
   (`periodic-recall-readback.json` BLAKE3
   `7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79`).
+  PH41 recurrence occurrence allocation concurrency hardening #621 is complete
+  and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`
+  (`recurrence-concurrency-readback.json` BLAKE3
+  `91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8`).
+  Remaining PH41 follow-ups before PH42 are #617, #620, and #622.
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).
@@ -74,6 +80,9 @@ system role:** the sense of time.
 - **Axioms/PRD.** A28, A3, `25 §4/§5`, `17 §7.1`.
 
 ## PH42 — Grounded recurrence wiring across engines
+- **Status.** Not the next active work while PH40 follow-ups #616/#618/#619 and
+  PH41 follow-ups #617/#620/#622 remain open. Start PH42 only after those
+  follow-ups have FSV-backed issue closures or an explicit issue-state decision.
 - **Objective.** Compute recurrence intelligence once (on ingest) and flow it to
   every engine — optimal use system-wide.
 - **Deps.** PH41, PH28 (Assay), PH33 (kernel).
