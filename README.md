@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-10; Stage 9 PH41 active)
+## Status (2026-06-10; Stage 9 PH41 follow-ups active)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -118,8 +118,9 @@ under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
 FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
 overfetch, negative fusion-weight validation, and public periodic scorer
 scope. PH41 T01 #379 through T08 #386 are complete and FSV-signed-off; post-T06
-hardening #623 is complete and FSV-signed-off. PH41 follow-ups #578, #617,
-#620, #621, and #622 remain tracked before PH42.
+hardening #623 and public recurrence read API follow-up #578 are complete and
+FSV-signed-off. PH41 follow-ups #617, #620, #621, and #622 remain tracked before
+PH42.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -232,6 +233,14 @@ aiwonder FSV is signed off at
 `f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140`,
 `BLAKE3SUMS.txt` BLAKE3
 `fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`).
+#578 adds public `recurrence_series`, `periodic_fit`, and `periodic_recall`
+read APIs plus CLI `readback periodic-recall`, with sorted public fit input,
+joint hour/day matching, and no-filter fail-closed behavior. aiwonder FSV is at
+`/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`
+(`periodic-recall-readback.json` BLAKE3
+`7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79`,
+`BLAKE3SUMS.txt` BLAKE3
+`7f4af4acb4f507c5e70afb3128f04692d8673fcbabe8aa552d417a2734a09c4e`).
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
