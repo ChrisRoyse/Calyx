@@ -263,6 +263,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "ledger" => Some(ColumnFamily::Ledger),
         "recurrence" => Some(ColumnFamily::Recurrence),
         "online" => Some(ColumnFamily::Online),
+        "anneal_rollback" => Some(ColumnFamily::AnnealRollback),
         _ if name.starts_with("slot_") => parse_slot_name(&name),
         _ => None,
     }

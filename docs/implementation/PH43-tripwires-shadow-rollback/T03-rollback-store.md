@@ -1,53 +1,94 @@
-# PH43 · T03 — Rollback store (prior artifact + pointer swap)
+# PH43 - T03 - Rollback store (prior artifact + pointer swap)
 
 | Field | Value |
 |---|---|
-| **Phase** | PH43 — Tripwires + Shadow-First + Reversible/Rollback |
-| **Stage** | S10 — Anneal + Intelligence Objective J |
+| **Phase** | PH43 - Tripwires + Shadow-First + Reversible/Rollback |
+| **Stage** | S10 - Anneal + Intelligence Objective J |
 | **Crate** | `calyx-anneal` |
-| **Files** | `crates/calyx-anneal/src/rollback.rs` (≤500) |
+| **Files** | `crates/calyx-anneal/src/rollback.rs`, `crates/calyx-anneal/src/rollback_codec.rs` |
 | **Depends on** | T01 (TripwireRegistry identifies what to revert) |
 | **Axioms** | A14, A15 |
-| **PRD** | `dbprdplans/12 §6`, `dbprdplans/27 §4` |
+| **PRD** | `dbprdplans/12 section 6`, `dbprdplans/27 section 4` |
 
 ## Goal
 
-Implement `RollbackStore`: before any Anneal promotion, snapshot the prior
-artifact (config entry, index pointer, or quant-level record) under a
-`change_id`; after a promotion, the prior snapshot is retained until the change
-is explicitly committed (confirmed good for N queries). Rollback is a single
-atomic pointer swap — `rollback(change_id)` restores the prior artifact and the
-live path is back to the previous state in O(1) without data movement.
+Before any Anneal promotion, `RollbackStore` snapshots the prior artifact under a
+monotonic `ChangeId`. If a promoted candidate must be reverted,
+`rollback(change_id)` restores the prior live pointer with one atomic state
+mutation and no artifact data movement.
 
-## Build (checklist of concrete, code-level steps)
+## Implementation
 
-- [ ] `struct ChangeId(u64)` — monotonic, assigned from a vault-wide counter via the `Clock` + a seeded counter; never reused.
-- [ ] `struct ArtifactSnapshot { change_id: ChangeId, prior_ptr: ArtifactPtr, candidate_ptr: ArtifactPtr, ts: LogicalTime, description: String }` where `ArtifactPtr` is an enum over config-cache key hash, HNSW graph path, quant-level record hash.
-- [ ] `struct RollbackStore { snapshots: HashMap<ChangeId, ArtifactSnapshot>, live_ptrs: HashMap<ArtifactKey, ArtifactPtr> }` — stored in vault CF `anneal_rollback`.
-- [ ] `fn prepare(key: ArtifactKey, candidate_ptr: ArtifactPtr) -> ChangeId` — reads current `live_ptr` for `key`, saves `ArtifactSnapshot`, returns `ChangeId`.
-- [ ] `fn promote(change_id: ChangeId)` — atomically swaps `live_ptrs[key]` to `candidate_ptr`; snapshot retained.
-- [ ] `fn rollback(change_id: ChangeId) -> Result<(), CalyxError>` — atomically swaps `live_ptrs[key]` back to `prior_ptr`; marks snapshot `reverted=true`; returns `CALYX_ANNEAL_UNKNOWN_CHANGE_ID` if not found.
-- [ ] `fn commit(change_id: ChangeId)` — marks snapshot permanently committed; prior artifact may now be GC'd after a configurable retention window.
-- [ ] All pointer swaps use `ArcSwap` or equivalent to be data-race-free; no `unsafe` blocks except in the swap primitive.
-- [ ] Persist snapshot log to `anneal_rollback` CF via Aster WAL write; survives crash.
+- [x] `ChangeId(u64)` is allocated from `Clock::now()`, a seeded counter bucket,
+  and the recovered max durable change id so successful ids are monotonic and not
+  reused.
+- [x] `ArtifactSnapshot` records `change_id`, `ArtifactKey`, prior pointer,
+  candidate pointer, logical timestamp, description, and promoted/reverted/
+  committed flags.
+- [x] `ArtifactPtr` covers config-cache key hashes, HNSW graph paths, and
+  quant-level record hashes.
+- [x] `RollbackStore` keeps `snapshots` and `live_ptrs` behind a `RwLock`; this is
+  the data-race-free swap primitive used instead of adding an ArcSwap dependency.
+- [x] `install_live_ptr`, `prepare`, `promote`, `rollback`, and `commit` write
+  durable rows first, then update memory, so storage failure leaves no partial
+  snapshot/live-pointer mutation.
+- [x] Aster has a real `anneal_rollback` column family with WAL tag 9, durable
+  recovery parsing, compaction scan parsing, and generic CLI CF readback support.
+- [x] `AsterVault::write_cf_batch` exposes a narrow WAL-backed raw CF batch API
+  used by `AsterRollbackStorage`.
+- [x] Snapshot/live rows use a deterministic binary codec:
+  - snapshot key: `change:` + big-endian `ChangeId`
+  - live key: `live:` + artifact-key tag/hash
+  - snapshot value magic: `ARS1`
+  - live value magic: `ARL1`
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests
 
-- [ ] unit: `prepare` → `promote` → `rollback` restores prior pointer exactly (compare `ArtifactPtr` byte equality).
-- [ ] unit: double-rollback on a committed change → `CALYX_ANNEAL_CHANGE_COMMITTED`.
-- [ ] proptest: sequence of `(prepare, promote, rollback)` operations never leaves `live_ptrs` in an inconsistent state (invariant: `live_ptrs[k]` is always either prior or candidate, never undefined).
-- [ ] edge: `rollback` with unknown `change_id` → `CALYX_ANNEAL_UNKNOWN_CHANGE_ID`; concurrent `promote` + `rollback` on different keys → both succeed independently; empty store → `rollback` fails closed.
-- [ ] fail-closed: WAL write failure during `prepare` → `CALYX_ASTER_WAL_SYNC` propagated; no partial snapshot recorded.
+- [x] Unit: `prepare` -> `promote` -> `rollback` restores the prior live pointer
+  bytes exactly.
+- [x] Unit: rollback after commit returns `CALYX_ANNEAL_CHANGE_COMMITTED`.
+- [x] Unit/edge: unknown change and empty store return
+  `CALYX_ANNEAL_UNKNOWN_CHANGE_ID`.
+- [x] Unit/edge: concurrent promote and rollback on different keys succeed
+  independently.
+- [x] Fail-closed: injected storage/WAL failure during `prepare` propagates the
+  upstream `CALYX_ASTER_WAL_SYNC` code and records no snapshot row.
+- [x] Proptest: operation sequences never leave the live pointer undefined or
+  outside the known prior/candidate set.
+- [x] Ignored FSV trigger: `rollback_fsv.rs` creates durable Aster
+  `anneal_rollback` rows and byte artifacts under `CALYX_ISSUE396_FSV_ROOT`.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## FSV
 
-- **SoT:** `anneal_rollback` CF row for the `ChangeId`; `live_ptrs` in-memory + persisted.
-- **Readback:** `calyx readback anneal rollback --change-id <id>` (or `xxd` the `anneal_rollback` CF at the relevant key) — shows prior + candidate pointers + reverted flag.
-- **Prove:** perform `prepare` → `promote` (live ptr = candidate) → `rollback` (live ptr = prior); `xxd` confirms the CF row has `reverted=true` and `live_ptrs` returns the prior pointer hash; byte-exact round-trip.
+Source of truth:
 
-## Done when
+- Aster CF: `<vault>/cf/anneal_rollback`
+- WAL: `<vault>/wal`
+- FSV root: `/home/croyse/calyx/data/fsv-issue396-rollback-<timestamp>`
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH43 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+Readback paths:
+
+- Generic CLI: `calyx readback --cf anneal_rollback --vault <vault>`
+- Direct byte files emitted by the ignored FSV trigger:
+  - `live-before.bin`
+  - `snapshot-after-prepare.bin`
+  - `live-after-promote.bin`
+  - `snapshot-after-rollback.bin`
+  - `rollback-readback.json`
+  - `BLAKE3SUMS.txt`
+
+Required proof:
+
+1. Install prior live pointer.
+2. Prepare a candidate and read the snapshot row.
+3. Promote and read the live row as the candidate pointer.
+4. Roll back and read the live row as the prior pointer.
+5. Reopen the durable vault and read the same prior pointer from
+   `anneal_rollback`.
+6. Exercise at least three edges with before/after CF scans: unknown change id,
+   missing live pointer, and rollback of a committed change.
+
+## Status
+
+Implementation and tests are present. Final close requires aiwonder gates plus
+manual byte readback evidence attached to GitHub issue #396.

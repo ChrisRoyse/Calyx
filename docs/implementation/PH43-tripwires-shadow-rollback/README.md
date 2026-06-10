@@ -23,7 +23,7 @@ PH43 Ledger card lands.
 
 ## Current State
 
-`calyx-anneal` has PH42 recurrence scheduling plus PH43 T01 and T02:
+`calyx-anneal` has PH42 recurrence scheduling plus PH43 T01, T02, and T03:
 
 - T01 persists tripwire thresholds under `<vault>/.anneal/tripwire.toml`, exposes
   `check`/`set_tripwire`/`status`, and provides
@@ -31,9 +31,12 @@ PH43 Ledger card lands.
 - T02 provides deterministic held-out replay sampling, `ShadowExecutor`,
   budget-tick enforcement, tripwire-gated promote/revert verdicts, and durable
   FSV verdict artifacts while T05 Ledger logging is still pending.
+- T03 provides durable rollback snapshots and live artifact pointers in Aster CF
+  `anneal_rollback`, with WAL-backed pointer swaps for prepare, promote,
+  rollback, and commit.
 
-Rollback storage, the real background budget enforcer, and Ledger Anneal logging
-remain open PH43 cards.
+The real background budget enforcer, Ledger Anneal logging, and integrated
+bad-change auto-revert scenario remain open PH43 cards.
 
 ## Anneal Invariants
 
@@ -48,7 +51,7 @@ remain open PH43 cards.
 |---|---|---|
 | `src/tripwire.rs` | Metric tripwire registry: recall@k, guard FAR/FRR, search p99, ingest p95, hysteresis | Done |
 | `src/shadow.rs` | Shadow-first execution: run candidate against held-out replay; promote only if it beats incumbent on all tripwire metrics | Done |
-| `src/rollback.rs` | Artifact store; rollback as one atomic pointer swap | Open |
+| `src/rollback.rs` | Artifact store; rollback as one atomic pointer swap | Done |
 | `src/budget.rs` | Background compute budget enforcer: CPU/VRAM ceiling, yield to serving + TEI | Open |
 | `src/ledger_anneal.rs` | Ledger `kind=Anneal` writer for every promotion/revert/proposal | Open |
 
@@ -58,7 +61,7 @@ remain open PH43 cards.
 |---|---|---|---|
 | T01 | Tripwire registry (metrics + thresholds + hysteresis) | - | Done |
 | T02 | Shadow executor (held-out replay + beat-incumbent check) | T01 | Done |
-| T03 | Rollback store (prior artifact + pointer swap) | T01 | Open |
+| T03 | Rollback store (prior artifact + pointer swap) | T01 | Done |
 | T04 | Background budget enforcer (CPU/VRAM yield) | - | Open |
 | T05 | Ledger `kind=Anneal` writer | T03 | Open |
 | T06 | Integration: bad-change auto-revert FSV scenario | T01, T02, T03, T05 | Open |
@@ -87,7 +90,9 @@ serving-path metric may regress.
 - Shadow replay must use a seeded deterministic held-out set, never live traffic
   order.
 - Pointer swap must be atomic on the config cache slot; partial swap is a data
-  race.
+  race. T03 uses a `RwLock` state guard plus one Aster WAL batch for each
+  snapshot/live-pointer mutation.
 - Budget enforcement must not add latency to serving-path hot loops; check
   budget on the background task scheduler, not inline.
-- T02 uses durable JSON artifacts until T05 provides the Anneal Ledger CF row.
+- T02 and T03 use durable FSV artifacts until T05 provides the Anneal Ledger CF
+  row.
