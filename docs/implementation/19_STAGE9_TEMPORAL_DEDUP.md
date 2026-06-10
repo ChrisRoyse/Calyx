@@ -10,8 +10,9 @@ system role:** the sense of time.
 ---
 
 ## PH40 — Temporal fusion + AP-60 post-retrieval boost
-- **Current.** T01 #373, T02 #374, T03 #375, and T04 #376 are FSV-backed on
-  aiwonder; #377 `temporal_search` integration is next.
+- **Status.** Complete and FSV-backed on aiwonder: T01-T06 #373-#378 plus
+  post-sweep AP-60 final-surface hardening #615. PH41 #379 is the next Stage 9
+  task.
 - **Objective.** E2/E3/E4 bias retrieval ranking gently — never dominant, never
   during ANN retrieval.
 - **Deps.** PH24 (search), PH22 (E2/E3/E4 lenses).
@@ -23,7 +24,8 @@ system role:** the sense of time.
   timezone-aware E3.
 - **FSV gate.** a recent/periodic item that doesn't match a content lens does
   **not** surface (temporal never dominant); the boost reorders only post-
-  retrieval (read ranked results before/after boost).
+  retrieval and non-positive hits are filtered from final `temporal_search`
+  results (read ranked results before/after boost).
 - **Axioms/PRD.** A27, `25 §3`, `10 §6`.
 
 ## PH41 — DedupPolicy TctCosine + recurrence series + signature

@@ -1,9 +1,9 @@
 # PH40 — Temporal Fusion + AP-60 Post-Retrieval Boost
 
-> **Status: implemented and FSV-signed-off through T06.** `calyx-sextant`
-> (PH23-PH26) and Registry temporal lenses (PH22) are implemented and
-> FSV-signed-off. PH40 adds temporal post-retrieval boost modules to the
-> existing Sextant stack rather than starting from a stub.
+> **Status: implemented and FSV-signed-off through T06 plus #615 hardening.**
+> `calyx-sextant` (PH23-PH26) and Registry temporal lenses (PH22) are
+> implemented and FSV-signed-off. PH40 adds temporal post-retrieval boost
+> modules to the existing Sextant stack rather than starting from a stub.
 
 **Stage:** S9 — Temporal & Dedup  ·  **Crate:** `calyx-sextant`  ·
 **PRD roadmap:** A27  ·  **Axioms:** A27
@@ -45,7 +45,7 @@ weights).
 | `crates/calyx-sextant/src/temporal/boost.rs` | `apply_temporal_boost(hits, policy, query_time, tz_offset)` — content-relative post-retrieval reranker |
 | `crates/calyx-sextant/src/temporal/window.rs` | `last_hours(n)` / `last_days(n)` constructors + window filter |
 | `crates/calyx-sextant/src/temporal/causal_gate.rs` | causal-confidence gate (high-conf ×1.10, low ×0.85) |
-| `crates/calyx-sextant/src/temporal/search.rs` | `temporal_search` AP-60 integration boundary, pre-boost ranking capture, final truncate/renumber |
+| `crates/calyx-sextant/src/temporal/search.rs` | `temporal_search` AP-60 integration boundary, pre-boost ranking capture, non-positive final-surface filter, final truncate/renumber |
 | `crates/calyx-sextant/src/temporal/tests.rs` | deterministic temporal-never-dominant, boost-reorder, query-time, timezone, and AP-60 violation proofs |
 | `crates/calyx-sextant/tests/causal_gate_fsv.rs` | deterministic causal gate pipeline artifact readback |
 | `crates/calyx-sextant/tests/temporal_search_fsv.rs` | deterministic temporal-search integration artifact readback |
@@ -146,15 +146,40 @@ weights).
   `0.25` returns `CALYX_TEMPORAL_AP60_VIOLATION`; E2 reads `0.5` by query time
   rather than ingest-relative `0.75`; E3 reads `0.5` under UTC-5 and `0.0`
   under UTC; the all-zero edge has `after_positive_surface_count = 0`.
+- Post-sweep hardening #615 commit: `b9a105c`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`
+- Source of truth: `temporal-search/temporal-search-input.json`,
+  `temporal-search/temporal-search-readback.json`,
+  `temporal-never-dominant/temporal-never-dominant-input.json`,
+  `temporal-never-dominant/temporal-never-dominant-readback.json`, and both
+  `BLAKE3SUMS.txt` files under the #615 root. Separate after-read ran
+  `b3sum -c`, opened all four JSON files, and parsed the invariant fields.
+- Hashes: temporal-search input
+  `889e95f471f36481c83fb69a2d362de4b25f1b809e7c68fe440768c109d8f3c4`;
+  temporal-search readback
+  `4ac1f39146d2d64113285d5e691a08fe886a9fb6836c1e2a3fc7c6af96fb08b1`;
+  temporal-never-dominant input
+  `db7a5bcea78d9037ace122fd1d326895277814bcf6485544f0bc05518e098ef1`;
+  temporal-never-dominant readback
+  `b6c88b8d26c5ddb2f3292c37034f5ee740ea7cdfd92f1cfaaca873b8f7a8e41b`.
+- #615 readback proves the final `temporal_search` surface excludes
+  non-positive hits: `actual_pre_boost = [1, 2, 3]`,
+  `actual_final = [2, 1]`, `content_miss_absent_from_final = true`,
+  `zero_content_edge.boost_after_score = 0.0`, and
+  `zero_content_edge.final_surface_contains_zero_content = false`. The all-zero
+  edge now reads `final_after_hits = []` and
+  `after_positive_surface_count = 0`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 A recent/periodic item that does NOT match a content lens must **not** surface in
 results — temporal never dominant. PH40 readbacks record the ranked result list
 before and after `apply_temporal_boost`/`temporal_search`, confirming the boost
-only reorders content-matching hits and never promotes a content-miss.
-`temporal weight = 0.0` is visible in raw retrieval/explain output. T03 proves
-the pure boost helper bytes; T05/T06 prove the full pipeline and exit-gate
+only reorders content-matching hits, keeps content misses at `score = 0.0`, and
+filters non-positive hits from the final temporal-search result. `temporal
+weight = 0.0` is visible in raw retrieval/explain output. T03 proves the pure
+boost helper bytes; T05/T06/#615 prove the full pipeline and exit-gate
 invariants on aiwonder with an injected fixed clock and synthetic result sets
 where the content-miss is the most recent item.
 

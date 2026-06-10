@@ -66,6 +66,15 @@ the temporal-never-dominant artifacts on aiwonder.
   retrieval weight `0.25` returns `CALYX_TEMPORAL_AP60_VIOLATION`; E2 reads
   `0.5` versus ingest-relative wrong value `0.75`; E3 reads `0.5` under UTC-5
   and `0.0` under UTC; the all-zero edge has `after_positive_surface_count = 0`.
+- **Post-sweep hardening:** #615 commit `b9a105c`; evidence root
+  `/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`.
+  Separate after-read verified `temporal-never-dominant/BLAKE3SUMS.txt`,
+  opened `temporal-never-dominant-input.json` and
+  `temporal-never-dominant-readback.json`, and read back
+  `all_zero_edge.boost_after_hits` with both scores `0.0`,
+  `all_zero_edge.final_after_hits = []`, and
+  `all_zero_edge.after_positive_surface_count = 0`. Readback hash:
+  `b6c88b8d26c5ddb2f3292c37034f5ee740ea7cdfd92f1cfaaca873b8f7a8e41b`.
 
 ## Done when
 

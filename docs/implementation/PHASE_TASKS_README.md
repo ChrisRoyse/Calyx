@@ -21,9 +21,10 @@ for the structure under `docs/implementation/PHnn-*/`.
 > #280 after #258-#274, #275/#276/#277/#278/#279, #349, #350, #351, #352, #353,
 > #354, #355, #356, #357, #358, and #359. The #280 exit root is
 > `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
-> Stage 9 / PH40 is active: #373 TemporalPolicy manifests, #374 TimeWindow
-> filtering, #375 `apply_temporal_boost`, and #376 causal confidence gate are
-> FSV-backed; #377 is the next PH40 card.
+> Stage 9 / PH40 is complete and FSV-backed: #373 TemporalPolicy manifests,
+> #374 TimeWindow filtering, #375 `apply_temporal_boost`, #376 causal
+> confidence gate, #377 `temporal_search`, #378 temporal-never-dominant proof,
+> and #615 AP-60 final-surface hardening. PH41 #379 is the next Stage 9 card.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

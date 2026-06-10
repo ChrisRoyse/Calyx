@@ -27,6 +27,7 @@ output surfaces the before/after ranked lists so FSV can be performed.
   - if `window.is_some()` → `filter_hits_by_window`
   - `apply_temporal_boost(filtered, policy, clock.now_secs(), tz_offset_secs)`
   - `apply_causal_gate(boosted, &policy.boost)`
+  - filter non-positive hits from the final search surface
   - return `TemporalSearchResult { hits, pre_boost_ranking, policy_snapshot }`
 - [x] Define `TemporalSearchResult { hits: Vec<Hit>, pre_boost_ranking: Vec<CxId>, policy_snapshot: TemporalPolicy }` with `serde` + `Debug`
 - [x] Enforce: inside `temporal_search`, assert that the primary retrieval call passes `temporal_weight = 0.0`; if the search backend returns a `temporal_weight_used` field, assert it is 0.0 → `CALYX_TEMPORAL_AP60_VIOLATION` otherwise
@@ -36,9 +37,9 @@ output surfaces the before/after ranked lists so FSV can be performed.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [x] unit: `temporal_search` on a 3-hit vault with `FixedClock { secs: 1_000_000 }`, no window → pre-boost ranking recorded, post-boost ranking may differ; assert `pre_boost_ranking.len() == hits.len()`
-- [x] unit: `temporal_search` with a window that excludes 1 of 3 hits → result contains 2 hits only
-- [x] unit: hit with `content_score = 0.0` in primary results → not present in boosted output with elevated score (AP-60)
+- [x] unit: `temporal_search` on a 3-hit vault with `FixedClock { secs: 1_000_000 }`, no window -> pre-boost ranking records all 3 primary hits; final surface contains only the 2 positive content hits after boost/gate
+- [x] unit: `temporal_search` with a window that excludes 1 of 3 hits -> result contains only the positive in-window hit after the zero-content final-surface filter
+- [x] unit: hit with `content_score = 0.0` in primary results -> boost-stage proof remains `0.0` and final `temporal_search` surface excludes it
 - [x] proptest: `temporal_search` result hit IDs are a subset of primary retrieval IDs (no hallucinated hits)
 - [x] edge: vault with 0 constellations → empty result, no panic
 - [x] edge: `tz_offset_secs = -18000` (UTC-5) → E3 hour scoring uses local hour, not UTC hour; verify with a hit at UTC 19:00 = local 14:00 matching `target_hour=14`
@@ -55,6 +56,14 @@ output surfaces the before/after ranked lists so FSV can be performed.
   Files read back: `temporal-search-input.json`,
   `temporal-search-readback.json`, `temporal-search-cli-readback.json`,
   and `BLAKE3SUMS.txt`.
+- **Post-sweep hardening:** #615 commit `b9a105c`; evidence root
+  `/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`.
+  Separate after-read verified `temporal-search/BLAKE3SUMS.txt`, opened
+  `temporal-search-input.json` and `temporal-search-readback.json`, and read
+  back `actual_pre_boost = [1, 2, 3]`, `actual_final = [2, 1]`,
+  `content_miss_absent_from_final = true`,
+  `zero_content_edge.boost_after_score = 0.0`, and
+  `zero_content_edge.final_surface_contains_zero_content = false`.
 
 ## Done when
 

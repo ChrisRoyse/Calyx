@@ -10,7 +10,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 
 ---
 
-## Current status (2026-06-09)
+## Current status (2026-06-10)
 
 | Stage | Phases | Status |
 |---|---|---|
@@ -23,7 +23,7 @@ stage file). Status: **✅ DONE** · **▶ ACTIVE** (next up) · **· pending**.
 | S6 Lodestar | PH31–PH34 | ✅ DONE, FSV-signed-off (`calyx-paths` + `calyx-mincut` + `calyx-lodestar`; PH31-PH34 plus #331/#332/#240 evidence complete; PH36 trace/reproduce closed in Stage 7) |
 | S7 Ledger | PH35-PH36 | ✅ DONE, FSV-signed-off (PH35-PH36 through Stage 7 exit #256; PH36 audit-query quarantine filter hardening #349 signed off) |
 | S8 Ward | PH37-PH39 | ✅ DONE, FSV-signed-off (#258-#280, #349, #350, #351, #352, #353, #354, #355, #356, #357, #358, and #359 signed off; exit #280 read back the full Ward surface) |
-| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378; T01 #373, T02 #374, T03 #375, and T04 #376 FSV-backed; next #377) |
+| S9 Temporal & Dedup | PH40-PH42 | ▶ ACTIVE (PH40 #373-#378 plus #615 FSV-backed; next PH41 #379) |
 | S10-S20 | PH43-PH72 | · pending |
 
 FSV evidence is summarized in GitHub issue #23 (`[CONTEXT] You are here`).
@@ -48,6 +48,12 @@ Latest roots:
   `/home/croyse/calyx/data/fsv-issue375-temporal-boost-20260609-a54dcc1`
 - Stage 9 PH40 causal confidence gate (#376):
   `/home/croyse/calyx/data/fsv-issue376-causal-gate-20260609-78f9b67`
+- Stage 9 PH40 temporal search AP-60 integration (#377):
+  `/home/croyse/calyx/data/fsv-issue377-temporal-search-20260610-b428b10`
+- Stage 9 PH40 temporal never-dominant / boost-reorder proof (#378):
+  `/home/croyse/calyx/data/fsv-issue378-temporal-never-dominant-20260610-2205edb`
+- Stage 9 PH40 AP-60 final-surface hardening (#615):
+  `/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`
 - Stage 2 Forge PH12 CPU SIMD:
   representative roots `/home/croyse/calyx/data/fsv-q71-20260607115027`
   and `/home/croyse/calyx/data/fsv-q76-20260607122351`; issue evidence
@@ -260,7 +266,7 @@ Latest roots:
 > post-append commit semantics, deadline-based group commit, and release-mode
 > absent-slot sentinel checks. No remaining Stage 1-5 implementation blocker is
 > hidden in the phase map; future seams are mapped to concrete later phase/card
-> owners, and the active implementation frontier moves to Stage 9 / PH40.
+> owners, and the active implementation frontier moved to Stage 9 / PH40.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 
