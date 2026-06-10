@@ -2,8 +2,8 @@
 
 use calyx_core::CalyxError;
 pub use calyx_core::{
-    CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_INVALID_WINDOW,
-    CALYX_TEMPORAL_WEIGHT_SUM,
+    CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
+    CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_INVALID_WINDOW, CALYX_TEMPORAL_WEIGHT_SUM,
 };
 
 pub const CALYX_SEXTANT_PLAN_UNBOUNDED: &str = "CALYX_SEXTANT_PLAN_UNBOUNDED";
@@ -46,6 +46,9 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         }
         CALYX_TEMPORAL_AP60_VIOLATION => {
             "keep temporal signals post-retrieval only and never dominant"
+        }
+        CALYX_TEMPORAL_INVALID_BOOST_CONFIG => {
+            "set post-retrieval alpha and causal multipliers within their valid ranges"
         }
         CALYX_TEMPORAL_INVALID_PERIOD => "set target_hour 0..=23 and day_of_week 0..=6",
         CALYX_TEMPORAL_INVALID_WINDOW => "set a non-empty temporal window within i64 bounds",

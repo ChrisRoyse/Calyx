@@ -141,6 +141,8 @@ fn hit(seed: u8, score: f32, event_time_secs: Option<i64>, rank: usize) -> Hit {
         rank,
         event_time_secs,
         temporal_scores: None,
+        causal_confidence: calyx_sextant::CausalConfidence::Absent,
+        causal_gate: None,
         per_lens: Vec::new(),
         cross_terms_used: false,
         guard: None,

@@ -4,6 +4,7 @@ use crate::{CalyxError, Result};
 use serde::{Deserialize, Deserializer, Serialize, de};
 
 pub const CALYX_TEMPORAL_AP60_VIOLATION: &str = "CALYX_TEMPORAL_AP60_VIOLATION";
+pub const CALYX_TEMPORAL_INVALID_BOOST_CONFIG: &str = "CALYX_TEMPORAL_INVALID_BOOST_CONFIG";
 pub const CALYX_TEMPORAL_INVALID_PERIOD: &str = "CALYX_TEMPORAL_INVALID_PERIOD";
 pub const CALYX_TEMPORAL_INVALID_WINDOW: &str = "CALYX_TEMPORAL_INVALID_WINDOW";
 pub const CALYX_TEMPORAL_WEIGHT_SUM: &str = "CALYX_TEMPORAL_WEIGHT_SUM";
@@ -12,6 +13,7 @@ const WEIGHT_SUM_EPSILON: f32 = 1.0e-6;
 const DEFAULT_HALF_LIFE_SECS: u64 = 3_600;
 const DEFAULT_POST_RETRIEVAL_ALPHA: f32 = 0.10;
 const MAX_POST_RETRIEVAL_ALPHA: f32 = 0.10;
+const MAX_CAUSAL_MULTIPLIER: f32 = 10.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -229,6 +231,22 @@ impl BoostConfig {
                 ),
             ));
         }
+        if !self.causal_high_mult.is_finite()
+            || !(0.0..=MAX_CAUSAL_MULTIPLIER).contains(&self.causal_high_mult)
+        {
+            return Err(temporal_error(
+                CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
+                format!("causal_high_mult must be finite and in 0.0..={MAX_CAUSAL_MULTIPLIER}"),
+            ));
+        }
+        if !self.causal_low_mult.is_finite()
+            || !(0.0..=MAX_CAUSAL_MULTIPLIER).contains(&self.causal_low_mult)
+        {
+            return Err(temporal_error(
+                CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
+                format!("causal_low_mult must be finite and in 0.0..={MAX_CAUSAL_MULTIPLIER}"),
+            ));
+        }
         Ok(())
     }
 }
@@ -365,6 +383,9 @@ fn temporal_error(code: &'static str, message: impl Into<String>) -> CalyxError 
     let remediation = match code {
         CALYX_TEMPORAL_AP60_VIOLATION => {
             "keep temporal signals post-retrieval only and never dominant"
+        }
+        CALYX_TEMPORAL_INVALID_BOOST_CONFIG => {
+            "set post-retrieval alpha and causal multipliers within their valid ranges"
         }
         CALYX_TEMPORAL_INVALID_PERIOD => "set target_hour 0..=23 and day_of_week 0..=6",
         CALYX_TEMPORAL_INVALID_WINDOW => "set a non-empty temporal window within i64 bounds",
