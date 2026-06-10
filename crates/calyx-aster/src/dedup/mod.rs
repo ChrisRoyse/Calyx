@@ -1,6 +1,7 @@
 //! Vault-level deduplication policy contracts.
 
 mod audit;
+mod compression_ratio;
 mod engine;
 mod ingest_at;
 mod ingest_event;
@@ -16,6 +17,10 @@ pub use audit::{
     CALYX_DEDUP_UNDO_EMPTY_TOKEN, CALYX_DEDUP_UNDO_MISSING_RESTORE, CALYX_DEDUP_WRONG_VAULT,
     DedupAuditReport, DedupRestoreSnapshot, DedupUndoRecord, MergeRecord, ReversalToken,
     dedup_audit, dedup_undo,
+};
+pub use compression_ratio::{
+    CALYX_DEDUP_INVALID_FREQUENCY, CALYX_DEDUP_MISSING_FREQUENCY, CompressionRatio, Domain,
+    DomainCompressionStats, compression_ratio, domain_compression_stats,
 };
 pub use engine::{
     DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT, DedupDecision, check_dedup, check_dedup_with_limit,
@@ -191,6 +196,12 @@ pub(crate) fn dedup_error(code: &'static str, message: impl Into<String>) -> Cal
         CALYX_DEDUP_DPI_EXCEEDED => "reduce the candidate set or use Exact dedup policy",
         CALYX_DEDUP_ANCHOR_CONFLICT => "keep conflicting anchors as separate contested regions",
         CALYX_DEDUP_INVALID_EVENT_TIME => "use a non-negative Unix epoch timestamp in seconds",
+        CALYX_DEDUP_MISSING_FREQUENCY => {
+            "write recurrence.frequency to the Base CF before reading recurrence consumers"
+        }
+        CALYX_DEDUP_INVALID_FREQUENCY => {
+            "store recurrence.frequency as a finite non-negative integer scalar"
+        }
         CALYX_DEDUP_WRONG_VAULT => "apply the reversal token to the vault that produced it",
         CALYX_DEDUP_UNDO_MISSING_RESTORE => {
             "use a merge ledger entry that contains a dedup restore snapshot"

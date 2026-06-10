@@ -115,6 +115,7 @@ surfaces, missing required fields, and unsupported schema versions with
 - #389 implemented Lodestar recurrence frequency kernel weighting and time-window kernels, with artifact-backed readback surfaces `kernel-weights` and `kernel-window`.
 - #390 implements Ward recurrence novelty classification, overdue recurrence scanning, and retrieval-only `SurpriseScore` anomaly scoring with artifact-backed `ward-novelty` readback.
 - #391 implements Sextant AP-60 recurrence boost from Base CF `recurrence.frequency` plus Recurrence CF last occurrence time, with `recurrence_boost` explain evidence on `TemporalSearchResult` hits.
+- #392 implements Aster meaning-compression ratio from Base CF frequency and Anneal recurrence importance/cadence scheduling, with artifact-backed `compression-ratio` and `anneal-schedule` readbacks.
 
 ## Risks / Landmines
 

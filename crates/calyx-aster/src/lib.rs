@@ -12,6 +12,10 @@ pub mod sst;
 pub mod vault;
 pub mod wal;
 
+pub use dedup::{
+    CompressionRatio, Domain, DomainCompressionStats, compression_ratio, domain_compression_stats,
+};
+
 #[cfg(test)]
 mod tests {
     #[test]
