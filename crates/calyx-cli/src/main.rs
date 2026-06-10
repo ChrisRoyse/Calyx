@@ -8,6 +8,7 @@ mod ledger_store;
 mod manifest_readback;
 mod merkle;
 mod ops;
+mod ph42_readback;
 mod provenance;
 mod recurrence_readback;
 mod scan;
@@ -109,6 +110,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, topic, rest @ ..] if command == "readback" && topic == "periodic-recall" => {
             recurrence_readback::readback_periodic_recall(rest)
+        }
+        [command, topic, rest @ ..] if command == "readback" && ph42_readback::is_topic(topic) => {
+            ph42_readback::readback_topic(topic, rest)
         }
         [command, topic, vault_flag, vault, cx_flag, cx_id]
             if command == "readback"
@@ -436,7 +440,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | assay-report|temporal-cross-term|kernel-weights|kernel-window|ward-novelty|compression-ratio|anneal-schedule --artifact <json> [--field <path>] | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>
