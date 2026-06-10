@@ -251,84 +251,87 @@ where
             ));
         }
 
-        let mut constellation = constellation;
-        let id = constellation.cx_id;
-        let base_key = base_key(id);
-        let latest = self.snapshot();
-        if let Some(existing) = self.rows.read_at(
-            self.snapshot_handle(latest),
-            ColumnFamily::Base,
-            &base_key,
-            &self.clock,
-        )? {
-            let base_bytes = encode::encode_constellation_base(&constellation)?;
-            if existing == base_bytes {
-                return Ok(id);
-            }
-            if encode::same_constellation_identity(&existing, &base_bytes)? {
-                let existing_cx = encode::decode_constellation_base(&existing)?;
-                let incoming_cx = encode::decode_constellation_base(&base_bytes)?;
-                if let AnchorConflictResult::Conflicting {
-                    anchor_type,
-                    reason,
-                } = check_anchor_conflict(&incoming_cx, &existing_cx)
-                {
-                    return Err(CalyxError::aster_corrupt_shard(format!(
-                        "CxId duplicate has conflicting {anchor_type:?} anchor: {reason:?}"
-                    )));
+        self.with_durable_commit_lock(|| {
+            let mut constellation = constellation;
+            let id = constellation.cx_id;
+            let base_key = base_key(id);
+            let latest = self.snapshot();
+            if let Some(existing) = self.rows.read_at(
+                self.snapshot_handle(latest),
+                ColumnFamily::Base,
+                &base_key,
+                &self.clock,
+            )? {
+                let base_bytes = encode::encode_constellation_base(&constellation)?;
+                if existing == base_bytes {
+                    return Ok(id);
                 }
-                return Ok(id);
+                if encode::same_constellation_identity(&existing, &base_bytes)? {
+                    let existing_cx = encode::decode_constellation_base(&existing)?;
+                    let incoming_cx = encode::decode_constellation_base(&base_bytes)?;
+                    if let AnchorConflictResult::Conflicting {
+                        anchor_type,
+                        reason,
+                    } = check_anchor_conflict(&incoming_cx, &existing_cx)
+                    {
+                        return Err(CalyxError::aster_corrupt_shard(format!(
+                            "CxId duplicate has conflicting {anchor_type:?} anchor: {reason:?}"
+                        )));
+                    }
+                    return Ok(id);
+                }
+                return Err(CalyxError::aster_corrupt_shard(
+                    "CxId collision or non-idempotent duplicate constellation",
+                ));
             }
-            return Err(CalyxError::aster_corrupt_shard(
-                "CxId collision or non-idempotent duplicate constellation",
-            ));
-        }
 
-        let mut rows = Vec::new();
-        let mut hook_guard = match &self.ledger_hook {
-            Some(hook) => Some(ledger_hook::lock_hook(hook)?),
-            None => None,
-        };
-        let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
-            let staged = ledger_hook::stage_ingest(hook, &mut rows, &constellation)?;
-            constellation.provenance = staged
-                .first()
-                .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
-                .ledger_ref();
-            Some(staged)
-        } else {
+            let mut rows = Vec::new();
+            let mut hook_guard = match &self.ledger_hook {
+                Some(hook) => Some(ledger_hook::lock_hook(hook)?),
+                None => None,
+            };
+            let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
+                let staged = ledger_hook::stage_ingest(hook, &mut rows, &constellation)?;
+                constellation.provenance = staged
+                    .first()
+                    .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+                    .ledger_ref();
+                Some(staged)
+            } else {
+                rows.push(encode::WriteRow {
+                    cf: ColumnFamily::Ledger,
+                    key: ledger_key(constellation.provenance.seq),
+                    value: ledger_stub::encode(constellation.provenance.seq),
+                });
+                None
+            };
+            let base_bytes = encode::encode_constellation_base(&constellation)?;
             rows.push(encode::WriteRow {
-                cf: ColumnFamily::Ledger,
-                key: ledger_key(constellation.provenance.seq),
-                value: ledger_stub::encode(constellation.provenance.seq),
+                cf: ColumnFamily::Base,
+                key: base_key,
+                value: base_bytes,
             });
-            None
-        };
-        let base_bytes = encode::encode_constellation_base(&constellation)?;
-        rows.push(encode::WriteRow {
-            cf: ColumnFamily::Base,
-            key: base_key,
-            value: base_bytes,
-        });
-        for (slot, vector) in &constellation.slots {
-            rows.push(encode::WriteRow {
-                cf: ColumnFamily::slot(*slot),
-                key: slot_key(id),
-                value: encode::encode_slot_vector(vector)?,
-            });
-        }
-        for anchor in &constellation.anchors {
-            rows.push(encode::WriteRow {
-                cf: ColumnFamily::Anchors,
-                key: anchor_key(id, &anchor.kind),
-                value: encode::encode_anchor(anchor)?,
-            });
-        }
-        self.commit_rows(&rows)?;
-        if let (Some(hook), Some(staged)) = (hook_guard.as_deref_mut(), staged_ledger.as_ref()) {
-            ledger_hook::commit_staged(hook, staged)?;
-        }
-        Ok(id)
+            for (slot, vector) in &constellation.slots {
+                rows.push(encode::WriteRow {
+                    cf: ColumnFamily::slot(*slot),
+                    key: slot_key(id),
+                    value: encode::encode_slot_vector(vector)?,
+                });
+            }
+            for anchor in &constellation.anchors {
+                rows.push(encode::WriteRow {
+                    cf: ColumnFamily::Anchors,
+                    key: anchor_key(id, &anchor.kind),
+                    value: encode::encode_anchor(anchor)?,
+                });
+            }
+            self.commit_rows_locked(&rows)?;
+            if let (Some(hook), Some(staged)) = (hook_guard.as_deref_mut(), staged_ledger.as_ref())
+            {
+                ledger_hook::commit_staged(hook, staged)?;
+            }
+            Ok(id)
+        })
     }
 
     fn get(&self, id: CxId, snapshot: Seq) -> Result<Constellation> {

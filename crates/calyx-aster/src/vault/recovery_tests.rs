@@ -46,6 +46,53 @@ fn durable_open_empty_dir_starts_at_zero() {
 }
 
 #[test]
+fn stale_durable_handle_refreshes_before_commit_sequence_allocation() {
+    let dir = test_dir("stale-handle-commit-seq");
+    let first = AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect("open first durable");
+    let stale = AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect("open stale durable");
+    let first_cx = sample_constellation();
+    let mut second_cx = sample_constellation();
+    second_cx.cx_id = CxId::from_bytes([0x42; 16]);
+    second_cx.input_ref.hash = [0x42; 32];
+    second_cx.input_ref.pointer = Some("synthetic://stale-handle-second".to_string());
+    let first_id = first_cx.cx_id;
+    let second_id = second_cx.cx_id;
+
+    first.put(first_cx).expect("first handle put");
+    first.flush().expect("first flush");
+    stale
+        .put(second_cx)
+        .expect("stale handle put after external commit");
+    stale.flush().expect("stale flush");
+
+    let replay = crate::wal::replay_dir(dir.join("wal")).expect("replay stale handle wal");
+    let reopened = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect("reopen stale handle vault");
+
+    assert_eq!(
+        replay
+            .records
+            .iter()
+            .map(|record| record.seq)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
+    assert_eq!(stale.snapshot(), 2);
+    assert_eq!(reopened.snapshot(), 2);
+    assert_eq!(
+        reopened.get(first_id, reopened.snapshot()).unwrap().cx_id,
+        first_id
+    );
+    assert_eq!(
+        reopened.get(second_id, reopened.snapshot()).unwrap().cx_id,
+        second_id
+    );
+    cleanup(dir);
+}
+
+#[test]
 fn open_reports_torn_tail_through_recovery_report() {
     let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
     let dir = fsv_root.as_ref().map_or_else(
