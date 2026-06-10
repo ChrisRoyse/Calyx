@@ -17,6 +17,7 @@ fn column_family_names_match_prd_layout() {
         [
             "base",
             "xterm",
+            "temporal_xterm",
             "scalars",
             "anchors",
             "assay",
@@ -57,6 +58,11 @@ fn keys_use_big_endian_ordering_for_range_scans() {
         xterm_key(cx_id, SlotId::new(1), SlotId::new(9), XTermKind::Concat)
             < xterm_key(cx_id, SlotId::new(1), SlotId::new(10), XTermKind::Concat)
     );
+    assert_eq!(
+        temporal_xterm_key(cx_id, cx(2)),
+        [vec![1; 16], vec![2; 16]].concat()
+    );
+    assert!(temporal_xterm_key(cx_id, cx(2)) < temporal_xterm_key(cx_id, cx(3)));
     assert!(anchor_key(cx_id, &AnchorKind::TestPass) < anchor_key(cx_id, &AnchorKind::Reward));
     assert!(
         anchor_key(cx_id, &AnchorKind::TestPass)
@@ -119,6 +125,10 @@ fn cx_prefix_range_edges_are_byte_exact() {
     let recurrence_range = recurrence_prefix_range(cx_a);
     assert!(recurrence_range.contains(&recurrence_key(cx_a, 0)));
     assert!(!recurrence_range.contains(&recurrence_key(cx_b, 0)));
+
+    let temporal_range = temporal_xterm_prefix_range(cx_a);
+    assert!(temporal_range.contains(&temporal_xterm_key(cx_a, cx_b)));
+    assert!(!temporal_range.contains(&temporal_xterm_key(cx_b, cx_a)));
 }
 
 #[test]
@@ -232,6 +242,18 @@ proptest! {
         let left = xterm_key(cx_id, SlotId::new(a1), SlotId::new(b1), xterm_kind(k1));
         let right = xterm_key(cx_id, SlotId::new(a2), SlotId::new(b2), xterm_kind(k2));
         prop_assert_eq!(left.cmp(&right), (a1, b1, k1).cmp(&(a2, b2, k2)));
+    }
+
+    #[test]
+    fn temporal_xterm_keys_sort_by_cx_pair(
+        a1 in any::<[u8; 16]>(),
+        b1 in any::<[u8; 16]>(),
+        a2 in any::<[u8; 16]>(),
+        b2 in any::<[u8; 16]>(),
+    ) {
+        let left = temporal_xterm_key(CxId::from_bytes(a1), CxId::from_bytes(b1));
+        let right = temporal_xterm_key(CxId::from_bytes(a2), CxId::from_bytes(b2));
+        prop_assert_eq!(left.cmp(&right), (a1, b1).cmp(&(a2, b2)));
     }
 
     #[test]

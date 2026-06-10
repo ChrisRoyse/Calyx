@@ -56,7 +56,8 @@ readback-surface gate #625 must also be resolved before PH42 can be signed off.
 | `crates/calyx-sextant/src/temporal/recurrence_boost.rs` | Frequency/recency contribution to AP-60 post-retrieval boost |
 | `crates/calyx-aster/src/dedup/compression_ratio.rs` | Dedup count = meaning-compression ratio; expose `compression_ratio(cx_id)` |
 | `crates/calyx-anneal/src/recurrence_schedule.rs` | Frequency → importance weight; cadence → adaptive retention/refresh schedule |
-| `crates/calyx-loom/src/recurrence/tests.rs` | Tests for cross-terms and lead-lag |
+| `crates/calyx-loom/tests/recurrence_cross_terms.rs` | Tests for cross-terms and lead-lag |
+| `crates/calyx-loom/tests/recurrence_cross_terms_fsv.rs` | Ignored FSV trigger that writes the PH42 temporal cross-term artifact |
 | `crates/calyx-assay/tests/recurrence_anchor.rs` | Tests for `oracle_self_consistency` |
 | `crates/calyx-assay/tests/recurrence_anchor_fsv.rs` | Ignored FSV trigger that writes the PH42 Assay report artifact |
 

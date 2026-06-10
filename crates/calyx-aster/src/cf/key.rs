@@ -90,6 +90,14 @@ pub fn xterm_key(cx_id: CxId, a: SlotId, b: SlotId, kind: XTermKind) -> Vec<u8> 
     key
 }
 
+/// `temporal_xterm` CF key: `(CxId_a, CxId_b)`.
+pub fn temporal_xterm_key(cx_a: CxId, cx_b: CxId) -> Vec<u8> {
+    let mut key = Vec::with_capacity(CX_ID_BYTES * 2);
+    key.extend_from_slice(cx_a.as_bytes());
+    key.extend_from_slice(cx_b.as_bytes());
+    key
+}
+
 /// `scalars` CF key: `(ScalarId, CxId)`.
 pub fn scalar_key(scalar: ScalarId, cx_id: CxId) -> Vec<u8> {
     let mut key = Vec::with_capacity(4 + CX_ID_BYTES);
@@ -134,6 +142,11 @@ pub fn cx_prefix_range(cx_id: CxId) -> KeyRange {
 
 /// Prefix range for all xterms under one `CxId`.
 pub fn xterm_prefix_range(cx_id: CxId) -> KeyRange {
+    cx_prefix_range(cx_id)
+}
+
+/// Prefix range for all temporal cross-terms where `cx_id` is the left side.
+pub fn temporal_xterm_prefix_range(cx_id: CxId) -> KeyRange {
     cx_prefix_range(cx_id)
 }
 

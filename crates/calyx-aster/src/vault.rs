@@ -13,6 +13,7 @@ pub mod ledger_stub;
 mod router_bridge;
 mod slot_backfill;
 mod slot_column;
+mod temporal_xterm;
 
 use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::dedup::{AnchorConflictResult, DedupPolicy, check_anchor_conflict};

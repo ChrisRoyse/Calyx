@@ -62,3 +62,17 @@ data, NOT yet causality claims.
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
 - [ ] FSV evidence (readback output / screenshot) attached to the PH42 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+
+## Implementation notes
+
+- `temporal_xterm` is a dedicated Aster CF with key `cx_a || cx_b`; `(A,B)` and
+  `(B,A)` are independent rows.
+- Loom stores a fixed binary `LLAG1` value: magic, `cx_a`, `cx_b`,
+  big-endian `f64 lead_lag_secs`, big-endian `u64 n_pairs`, and big-endian
+  `u64 proximity_window_secs`.
+- `calyx_loom::temporal_cross_term` reads recurrence series through
+  `SeriesStore`, maps read failures to `CALYX_LOOM_SERIES_READ_ERROR`, and
+  persists only non-self, sufficient-pair results.
+- FSV is driven by
+  `crates/calyx-loom/tests/recurrence_cross_terms_fsv.rs`, which writes
+  `temporal-cross-term.json` plus BLAKE3 manifest under the issue evidence root.

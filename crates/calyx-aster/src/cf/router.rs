@@ -256,6 +256,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
     match name.as_ref() {
         "base" => Some(ColumnFamily::Base),
         "xterm" => Some(ColumnFamily::XTerm),
+        "temporal_xterm" => Some(ColumnFamily::TemporalXTerm),
         "scalars" => Some(ColumnFamily::Scalars),
         "anchors" => Some(ColumnFamily::Anchors),
         "assay" => Some(ColumnFamily::Assay),
