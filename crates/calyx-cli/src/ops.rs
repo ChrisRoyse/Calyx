@@ -1,7 +1,7 @@
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::compaction::{
-    CompactionResult, CompactionScheduler, CompactionSchedulerOptions, CompactionThrottle,
-    SstShard, StorageTier, TieringPolicy, catalog_from_vault_dir, compact_shards,
+    CompactionScheduler, CompactionSchedulerOptions, StorageTier, TieringPolicy,
+    catalog_from_vault_dir,
 };
 use calyx_aster::sst::{SstReader, write_sst};
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -19,6 +19,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+mod compact;
+pub use compact::compact;
 
 const SOAK_VALUE_BYTES: usize = 256;
 
@@ -60,36 +63,6 @@ pub fn readback_wal(vault: &Path) -> Result<(), String> {
             torn.offset,
             torn.message
         );
-    }
-    Ok(())
-}
-
-pub fn compact(vault: &Path, cf_name: &str) -> Result<(), String> {
-    let cf = parse_cf(cf_name)?;
-    let cf_dir = vault.join("cf").join(cf.name());
-    let files = list_sst_files(&cf_dir)?;
-    let shards = shards_for(cf, &files)?;
-    let output = cf_dir.join(format!("compact-{}.sst", unix_millis()));
-    let result = compact_shards(cf, &shards, &output, CompactionThrottle::unlimited())
-        .map_err(|error| error.to_string())?;
-    match result {
-        CompactionResult::Skipped { debt } => {
-            println!(
-                "COMPACT_SKIPPED\tCF\t{}\tPENDING_BYTES\t{}\tSCORE_MILLI\t{}",
-                cf.name(),
-                debt.pending_bytes,
-                debt.score_milli
-            );
-        }
-        CompactionResult::Compacted(report) => {
-            for file in files {
-                if file != report.output_path {
-                    fs::remove_file(&file)
-                        .map_err(|error| format!("remove compacted input: {error}"))?;
-                }
-            }
-            print_report("COMPACTED", &report);
-        }
     }
     Ok(())
 }
@@ -366,13 +339,6 @@ fn demo_constellation(vault: &AsterVault, vault_id: VaultId) -> Constellation {
     }
 }
 
-fn shards_for(cf: ColumnFamily, files: &[PathBuf]) -> Result<Vec<SstShard>, String> {
-    files
-        .iter()
-        .map(|file| SstShard::new(cf, file, 0).map_err(|error| error.to_string()))
-        .collect()
-}
-
 fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     if !dir.exists() {
@@ -421,21 +387,6 @@ fn tier_roots(vault: &Path) -> (PathBuf, PathBuf) {
         .or_else(|| vault.parent().map(Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."));
     (home.join("hot"), home.join("archive"))
-}
-
-fn print_report(label: &str, report: &calyx_aster::compaction::CompactionReport) {
-    println!(
-        "{}\tCF\t{}\tINPUT_FILES\t{}\tINPUT_BYTES\t{}\tOUTPUT_BYTES\t{}\tLOGICAL_BYTES\t{}\tWRITE_AMP_MILLI\t{}\tOUTPUT\t{}\tSTAGING_PARENT\t{}",
-        label,
-        report.cf.name(),
-        report.input_files,
-        report.input_bytes,
-        report.output_bytes,
-        report.logical_bytes,
-        report.write_amp_milli,
-        report.output_path.display(),
-        report.staging_parent.display()
-    );
 }
 
 fn unix_millis() -> u128 {
