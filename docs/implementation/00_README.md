@@ -260,7 +260,8 @@ manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
 **Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
-follow-ups #620/#626** plus PH40 follow-ups #616/#618/#619, then PH42-PH72.
+follow-ups #627/#628/#626** plus PH40 follow-ups #616/#618/#619, then
+PH42-PH72.
 PH42 readback-surface gate #625 must be resolved before PH42 can be signed off.
 PH41 public recurrence read API follow-up #578 and recurrence concurrency
 hardening #621 are FSV-backed.

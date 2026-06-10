@@ -164,8 +164,9 @@ active recurrence SST BLAKE3
 segment BLAKE3 `8e6c0e9b295e6d543bcac38657e5952ef137540e2525cadcd3a79d59e8b3f941`,
 and `BLAKE3SUMS.txt` BLAKE3
 `46daedec8313759540c29130d6fcc880e40fad9e48f83bc98f63a47e62a2e2fe`.
-Remaining PH41 follow-up before PH42 is #626 anchor-conflict never-merge
-property coverage.
+Remaining PH41 follow-ups before PH42 are #627 CLI compact recovery-safe naming,
+#628 dedup undo after rolled recurrence summary FSV, and #626 anchor-conflict
+never-merge property coverage.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -203,10 +204,13 @@ property coverage.
 #617 durable policy validation parity are implemented and FSV-backed. #622
 settled the WAL-failure-code contract as `CALYX_DISK_PRESSURE`, and #620
 implements recurrence rollup tombstone/physical reclaim; both are FSV-backed.
-Remaining PH41 follow-up before PH42 is anchor-conflict property work:
+Remaining PH41 follow-ups before PH42 are CLI compact recovery safety,
+dedup-undo-after-rollup FSV, and anchor-conflict property work:
 
 | Issue | Scope |
 |---|---|
+| #627 | CLI compact must use durable recovery-safe SST naming |
+| #628 | Dedup undo after rolled recurrence summary needs dedicated FSV |
 | #626 | Anchor-conflict pairs never appear in the same `DedupMerge` property/regression |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)

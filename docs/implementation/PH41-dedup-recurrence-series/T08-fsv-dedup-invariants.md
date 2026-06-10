@@ -55,6 +55,7 @@ tombstones for occurrence ids 0, 1, and 2 after undo.
 - [ ] #626 follow-up/property: no pair of constellations with `anchor_conflict` ever appears in the same `DedupMerge`
 - [x] follow-up #620: rollup-triggered recurrence keeps active rows bounded, prunes tombstone rows from the active compacted SST, and cold-reopens with frequency intact
 - [x] follow-up #622: exact WAL/crash-injection proof keeps `CALYX_DISK_PRESSURE` and reads unchanged base/recurrence/online/ledger bytes
+- [ ] #628 follow-up/FSV: dedup undo after rolled recurrence summary clears stale summary state after compaction/reopen
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 

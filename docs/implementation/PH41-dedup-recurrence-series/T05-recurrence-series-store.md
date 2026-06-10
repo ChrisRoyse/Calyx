@@ -66,7 +66,7 @@ on read.
 - **Edges:** empty CxId `e10224969b9a72b8863d4a19bc7346e6` reads zero frequency/occurrences and raw recurrence CF count 0; max-count rollup CxId `1a878fed496ac72653d03bd27a011321` reads `frequency=6`, active ids 1..5, `rollup_summary.count_rolled=1`, rolled row id 0 into 5; oversized CxId `f5e8283ed40acd977c6c8e3ce79e200e` reads zero frequency/occurrences, raw recurrence CF count 0, and persisted error `CALYX_RECURRENCE_CONTEXT_TOO_LARGE`.
 - **WAL fail-closed:** #622 is FSV-backed at `/home/croyse/calyx/data/fsv-issue622-recurrence-wal-failure-20260610-bf0d380`; `CALYX_DISK_PRESSURE` is the stable code, and readback proves snapshot/base/recurrence/online/ledger state unchanged after injected WAL append failure.
 - **Reclaim:** #620 is FSV-backed at `/home/croyse/calyx/data/fsv-issue620-recurrence-reclaim-20260610-209f843`; rolled rows write tombstones, recurrence compaction reclaims superseded input SSTs, prunes tombstone rows from the active compacted SST, cold-reopens with ids 4/5/6 and frequency 7, and documents WAL history retention until the general recycler.
-- **Follow-ups:** #621 is closed/FSV-backed for concurrency-safe occurrence id allocation; #622 is closed/FSV-backed for the WAL failure code contract; #626 remains for anchor-conflict never-merge property coverage.
+- **Follow-ups:** #621 is closed/FSV-backed for concurrency-safe occurrence id allocation; #622 is closed/FSV-backed for the WAL failure code contract; #627 remains for CLI compaction recovery-safe naming, #628 remains for dedup undo after rolled summary FSV, and #626 remains for anchor-conflict never-merge property coverage.
 
 ## Done when
 
