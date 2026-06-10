@@ -114,8 +114,8 @@ and
 and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
 Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is active under
-S9 epic #361, with T01 #373, T02 #374, and T03 #375 FSV-signed-off and the
-remaining PH40 queue #376-#378.
+S9 epic #361, with T01 #373, T02 #374, T03 #375, and T04 #376 FSV-signed-off
+and the remaining PH40 queue #377-#378.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -160,6 +160,10 @@ PH40 T03 #375 adds content-relative `apply_temporal_boost`, attaches
 `TemporalScores`, caps temporal alpha at 0.10, preserves zero-content misses at
 score 0.0, and reads back boost artifacts at
 `/home/croyse/calyx/data/fsv-issue375-temporal-boost-20260609-a54dcc1`.
+PH40 T04 #376 adds the causal confidence gate, attaches `CausalConfidence` and
+`CausalGateEvidence` for explain/readback, validates causal multipliers in
+`[0.0, 10.0]`, and reads back pipeline artifacts at
+`/home/croyse/calyx/data/fsv-issue376-causal-gate-20260609-78f9b67`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
