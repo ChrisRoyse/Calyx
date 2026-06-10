@@ -183,8 +183,8 @@ and reads back the manifest bytes at
 `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`.
 PH41 T02 #380 adds the bounded content-slot cosine dedup engine, shared
 fail-closed cosine math, CLI `readback dedup-check`, exact fallback on DPI
-exceed, and base/slot CF readback evidence at
-`/home/croyse/calyx/data/fsv-issue380-dedup-engine-20260610-2711d06`.
+exceed, runtime tau/config validation, and base/slot CF readback evidence at
+`/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
