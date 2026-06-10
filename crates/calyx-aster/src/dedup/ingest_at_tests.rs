@@ -116,6 +116,31 @@ fn recurrence_series_same_temporal_slot_does_not_append_occurrence() {
 }
 
 #[test]
+fn recurrence_series_uses_event_time_when_temporal_slot_list_absent() {
+    let vault = vault(tct_policy(DedupAction::RecurrenceSeries));
+    let input = input("fallback-time", [1.0, 0.0]);
+
+    let first = ingest_at(&vault, &input, EpochSecs(100), None).expect("first");
+    let second = ingest_at(&vault, &input, EpochSecs(200), None).expect("second");
+
+    let DedupResult::New(id) = first else {
+        panic!("expected first new");
+    };
+    assert_eq!(
+        second,
+        DedupResult::DedupMerge {
+            into: id,
+            occurrence: OccurrenceId(1)
+        }
+    );
+    assert_eq!(scan(&vault, ColumnFamily::Base).len(), 1);
+    assert_eq!(scan(&vault, ColumnFamily::Ledger).len(), 2);
+    assert_eq!(scan(&vault, ColumnFamily::Recurrence).len(), 2);
+    assert_eq!(recurrence_at(&vault, id, 0), 100);
+    assert_eq!(recurrence_at(&vault, id, 1), 200);
+}
+
+#[test]
 fn recurrence_series_missing_temporal_slot_fails_closed() {
     let vault = vault(tct_policy(DedupAction::RecurrenceSeries));
     let first = temporal_input("missing-temporal", [1.0, 0.0], [1.0, 0.0]);
@@ -132,6 +157,24 @@ fn recurrence_series_missing_temporal_slot_fails_closed() {
     assert_eq!(scan(&vault, ColumnFamily::Ledger).len(), 1);
     assert_eq!(scan(&vault, ColumnFamily::Recurrence).len(), 1);
     assert_eq!(recurrence_at(&vault, id, 0), 100);
+}
+
+#[test]
+fn ingest_input_json_missing_temporal_slots_defaults_empty() {
+    let json = r#"{
+        "raw_bytes":[108,101,103,97,99,121],
+        "panel_version":41,
+        "modality":"text",
+        "slots":{},
+        "scalars":{},
+        "anchors":[],
+        "input_pointer":null,
+        "redacted":true
+    }"#;
+
+    let input: IngestInput = serde_json::from_str(json).expect("legacy input json");
+
+    assert!(input.temporal_slot_ids().is_empty());
 }
 
 #[test]
