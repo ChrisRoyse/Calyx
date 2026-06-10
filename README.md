@@ -117,8 +117,8 @@ Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
 under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
 FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
 overfetch, negative fusion-weight validation, and public periodic scorer
-scope. PH41 T01 #379 through T05 #383 are complete and FSV-signed-off; the next
-atomic work is PH41 T06 #384.
+scope. PH41 T01 #379 through T06 #384 are complete and FSV-signed-off; the next
+atomic work is PH41 T07 #385.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -204,6 +204,13 @@ derives cadence on read, enforces active-row rollup/retention, adds CLI
 `/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`
 (`recurrence-series-readback.json` BLAKE3
 `130010f0aefee719fe5f2b55c2d025e6d016c34f18d3773947597ccffc46b19a`).
+PH41 T06 #384 adds the recurrence signature detector, routes content-agree and
+temporal-differ ingests into recurrence occurrence appends, fails closed on
+missing temporal signature slots, and proves happy/same-temporal/missing-slot
+bytes at
+`/home/croyse/calyx/data/fsv-issue384-recurrence-signature-20260610-8b0d0bb`
+(`dedup-ingest-at-readback.json` BLAKE3
+`bb5b028ff861983b2a5cd9dd547bfb2c39337eef16318422db2815990f6d51c1`).
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
