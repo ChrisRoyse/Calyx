@@ -42,7 +42,7 @@ weights).
 | `crates/calyx-core/src/temporal.rs` | shared `TemporalPolicy`, `FusionWeights`, `DecayFunction`, `PeriodicOptions`, `SequenceOptions`, `BoostConfig`; AP-60 invariant enforced at serde/write/read boundaries |
 | `crates/calyx-sextant/src/temporal/mod.rs` | Sextant-facing re-export and PH40 T01 deterministic tests |
 | `crates/calyx-aster/tests/temporal_manifest_fsv.rs` | T01 durable vault manifest FSV readback |
-| `crates/calyx-sextant/src/temporal/boost.rs` | `apply_temporal_boost(hits, policy, query_time, clock)` — post-retrieval reranker |
+| `crates/calyx-sextant/src/temporal/boost.rs` | `apply_temporal_boost(hits, policy, query_time, tz_offset)` — content-relative post-retrieval reranker |
 | `crates/calyx-sextant/src/temporal/window.rs` | `last_hours(n)` / `last_days(n)` constructors + window filter |
 | `crates/calyx-sextant/src/temporal/causal_gate.rs` | causal-confidence gate (high-conf ×1.10, low ×0.85) |
 | `crates/calyx-sextant/src/temporal/tests.rs` | deterministic unit + property tests for all boost/window logic |
@@ -70,6 +70,12 @@ weights).
   attempted vault and returns `CALYX_TEMPORAL_AP60_VIOLATION`; zero weights
   return `CALYX_TEMPORAL_WEIGHT_SUM`; invalid hour returns
   `CALYX_TEMPORAL_INVALID_PERIOD`.
+- Post-sweep hardening commit: `a54dcc1`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue373-temporal-policy-reopen-20260609-a54dcc1`
+- Additional proof: `BoostConfig.post_retrieval_alpha` is serialized,
+  defaulted for older manifests, capped at 0.10, and a custom temporal policy
+  survives cold open plus second flush instead of being replaced by defaults.
 - T02 #374 commit: `d872c7c`
 - aiwonder FSV root:
   `/home/croyse/calyx/data/fsv-issue374-time-window-20260609-d872c7c`
@@ -79,17 +85,28 @@ weights).
   the out-of-window hit 02 is absent and retained order is unchanged. Edge
   proofs cover empty input, all-window retention of missing timestamps, and
   `CALYX_TEMPORAL_INVALID_WINDOW` for zero, reversed, and overflow windows.
+- T03 #375 commit: `a54dcc1`
+- aiwonder FSV root:
+  `/home/croyse/calyx/data/fsv-issue375-temporal-boost-20260609-a54dcc1`
+- Source of truth: `temporal-boost-input.json`,
+  `temporal-boost-readback.json`, and `BLAKE3SUMS.txt` under the FSV root.
+  Readback shows the high-content old hit remains rank 1 after a content-
+  relative temporal boost, `TemporalScores` are attached for explain output,
+  and the zero-content recent hit remains score 0.0. Edge proofs cover empty
+  input, single-hit E4 = 1.0, missing timestamps, and
+  `CALYX_TEMPORAL_AP60_VIOLATION` for `never_dominant=false`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 A recent/periodic item that does NOT match a content lens must **not** surface in
 results — temporal never dominant. Read the ranked result list before and after
-`apply_temporal_boost` to confirm boost only reorders, never promotes a
-content-miss. `temporal weight = 0.0` must be visible in the raw retrieval trace
-(explain output). Both before/after ranked lists read via
-`calyx readback temporal_search --explain` on aiwonder with an injected fixed
-clock and a synthetic two-result set where the content-miss is the most recent
-item.
+`apply_temporal_boost`/`temporal_search` to confirm boost only reorders
+content-matching hits and never promotes a content-miss. `temporal weight =
+0.0` must be visible in the raw retrieval trace (explain output). T03 proves
+the pure boost helper bytes; T05/T06 must prove the full `temporal_search`
+pipeline via `calyx readback temporal_search --explain` on aiwonder with an
+injected fixed clock and a synthetic result set where the content-miss is the
+most recent item.
 
 ## Risks / landmines
 
@@ -105,5 +122,7 @@ item.
 - **Fusion weight sum:** recency (0.50) + sequence (0.35) + periodic (0.15) = 1.0
   exactly. Tunable per vault but must re-normalize; assert sum ≈ 1.0 at
   construction.
-- **PH24 dependency:** do not start T03 until PH24's `Hit` type is stable; the
-  boost operates on `Hit` structs returned by fusion.
+- **T05 integration ordering:** fusion still creates hits before provenance
+  timestamps are attached. The full temporal pipeline must overfetch, attach
+  provenance/event time, apply the window/boost/gate stages, then final-truncate
+  and renumber.

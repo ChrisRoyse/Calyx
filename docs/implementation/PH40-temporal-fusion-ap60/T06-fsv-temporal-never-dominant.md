@@ -16,7 +16,8 @@ Write the deterministic FSV test suite that proves the two core PH40 invariants
 byte-by-byte on aiwonder: (1) temporal is never dominant — a content-miss item
 cannot surface regardless of recency; (2) the boost correctly reorders
 content-matching hits post-retrieval (before/after ranking delta observable).
-These tests are the formal FSV harness for the phase gate.
+These tests support the phase gate; the formal FSV verdict is the after-read of
+the temporal-search artifacts on aiwonder.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -41,9 +42,15 @@ These tests are the formal FSV harness for the phase gate.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `cargo test -p calyx-sextant temporal::tests` output on aiwonder
-- **Readback:** run `cargo test -p calyx-sextant temporal::tests -- --nocapture 2>&1` on aiwonder; paste terminal output to GitHub issue #378
-- **Prove:** all 8 tests pass; the `fsv_temporal_never_dominant` test output explicitly prints "content-miss score after boost: 0.0" confirming the AP-60 invariant; the `fsv_boost_reorders_content_matches` output prints pre- and post-boost scores showing the reordering
+- **SoT:** temporal-search before/after ranked-list readback artifacts on aiwonder
+- **Readback:** run the deterministic temporal-search FSV trigger, then
+  separately `cat`/`b3sum -c` the input, pre-boost, post-boost, and edge-case
+  JSON artifacts under the #378 FSV root; paste the after-read bytes to GitHub
+  issue #378
+- **Prove:** content-miss score after boost is physically present as `0.0`,
+  close content matches can reorder post-boost, raw retrieval still records
+  temporal weight `0.0`, E2 age uses query time, and E3 changes when the
+  timezone offset changes
 
 ## Done when
 

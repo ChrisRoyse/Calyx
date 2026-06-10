@@ -10,6 +10,8 @@ system role:** the sense of time.
 ---
 
 ## PH40 — Temporal fusion + AP-60 post-retrieval boost
+- **Current.** T01 #373, T02 #374, and T03 #375 are FSV-backed on aiwonder;
+  #376 causal confidence gate is next.
 - **Objective.** E2/E3/E4 bias retrieval ranking gently — never dominant, never
   during ANN retrieval.
 - **Deps.** PH24 (search), PH22 (E2/E3/E4 lenses).
