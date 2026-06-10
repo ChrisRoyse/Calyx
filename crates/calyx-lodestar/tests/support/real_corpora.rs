@@ -68,10 +68,35 @@ pub struct CorpusReport {
     warning: Option<String>,
 }
 
+#[allow(dead_code)]
+#[derive(Serialize)]
+pub struct TunedKernelFixtureReport {
+    pub initial_member_count: usize,
+    pub final_member_count: usize,
+    pub tuned_member_count: usize,
+    pub exhaustive_expansion: bool,
+    pub min_recall_ratio: f32,
+}
+
 #[derive(Serialize)]
 struct GapCheck {
     cx_id: CxId,
     independently_reaches_anchor: bool,
+}
+
+#[allow(dead_code)]
+impl CorpusCase {
+    pub fn modality(&self) -> &'static str {
+        self.modality
+    }
+
+    pub fn graph(&self) -> &AssocGraph {
+        &self.graph
+    }
+
+    pub fn anchors(&self) -> &[CxId] {
+        &self.anchors
+    }
 }
 
 pub fn run_case(case: &CorpusCase) -> CorpusReport {
@@ -252,6 +277,38 @@ pub fn run_text_gap_check(case: &CorpusCase) -> serde_json::Value {
         "report": report,
         "manual_gap_checks": checks,
     })
+}
+
+#[allow(dead_code)]
+pub fn embeddings_for_case(case: &CorpusCase) -> BTreeMap<CxId, Vec<f32>> {
+    embeddings(&case.rows)
+}
+
+#[allow(dead_code)]
+pub fn source_readback_json(case: &CorpusCase) -> serde_json::Value {
+    json!(source_readbacks(&case.sources))
+}
+
+#[allow(dead_code)]
+pub fn tuned_kernel_fixture(case: &CorpusCase) -> (Kernel, TunedKernelFixtureReport) {
+    let initial = build_real_kernel(case);
+    let full = InMemoryAnnIndex::new(case.rows.clone()).expect("full ann");
+    let params = RecallTestParams {
+        held_out_fraction: 0.10,
+        top_k: TOP_K,
+        min_recall_ratio: 0.95,
+        ..RecallTestParams::default()
+    };
+    let (final_kernel, tuned_member_count, exhaustive_expansion) =
+        tune_kernel_to_gate(initial.clone(), &full, case, &params);
+    let report = TunedKernelFixtureReport {
+        initial_member_count: initial.members.len(),
+        final_member_count: final_kernel.members.len(),
+        tuned_member_count,
+        exhaustive_expansion,
+        min_recall_ratio: params.min_recall_ratio,
+    };
+    (final_kernel, report)
 }
 
 pub(super) fn corpus_case(

@@ -52,17 +52,17 @@ pub fn kernel_answer(
     anchored_kernel_nodes: &[CxId],
     max_hops: usize,
 ) -> Result<AnswerPath> {
-    let anchor = nearest_anchored_kernel_node(kernel_index, query_vec, anchored_kernel_nodes)?;
-    graph.require_node_index(anchor)?;
-    if query_cx == anchor {
+    let (anchor, path) = nearest_answerable_anchored_path(
+        kernel_index,
+        graph,
+        query_cx,
+        query_vec,
+        anchored_kernel_nodes,
+        max_hops,
+    )?;
+    if path.len() == 1 {
         return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
     }
-
-    let path =
-        reach(graph, anchor, query_cx, max_hops)?.ok_or(LodestarError::KernelAnswerNoPath {
-            from: anchor,
-            to: query_cx,
-        })?;
     let hops = answer_hops_with(graph, &path, |from, to, hop_index, _, _| {
         Ok(stub_ledger_ref(from, to, hop_index))
     })?;
@@ -83,17 +83,17 @@ where
     S: LedgerCfStore,
     C: Clock,
 {
-    let anchor = nearest_anchored_kernel_node(kernel_index, query_vec, anchored_kernel_nodes)?;
-    graph.require_node_index(anchor)?;
-    if query_cx == anchor {
+    let (anchor, path) = nearest_answerable_anchored_path(
+        kernel_index,
+        graph,
+        query_cx,
+        query_vec,
+        anchored_kernel_nodes,
+        max_hops,
+    )?;
+    if path.len() == 1 {
         return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
     }
-
-    let path =
-        reach(graph, anchor, query_cx, max_hops)?.ok_or(LodestarError::KernelAnswerNoPath {
-            from: anchor,
-            to: query_cx,
-        })?;
     let hops = answer_hops_with(
         graph,
         &path,
@@ -116,20 +116,53 @@ where
     AnswerPath::checked(query_cx, anchor, hops, total_score)
 }
 
-fn nearest_anchored_kernel_node(
+fn nearest_answerable_anchored_path(
     index: &KernelIndex,
+    graph: &AssocGraph,
+    query_cx: CxId,
     query_vec: &[f32],
     anchored_nodes: &[CxId],
-) -> Result<CxId> {
+    max_hops: usize,
+) -> Result<(CxId, Vec<CxId>)> {
     if anchored_nodes.is_empty() {
         return Err(LodestarError::KernelNoAnchoredNode);
     }
     let candidates = kernel_search(index, query_vec, index.rows().len())?;
-    candidates
+    let mut saw_anchored_candidate = false;
+    let mut first_path_error = None;
+    for anchor in candidates
         .into_iter()
         .map(|(cx_id, _)| cx_id)
-        .find(|cx_id| anchored_nodes.contains(cx_id))
-        .ok_or(LodestarError::KernelNoAnchoredNode)
+        .filter(|cx_id| anchored_nodes.contains(cx_id))
+    {
+        saw_anchored_candidate = true;
+        if graph.node_index(anchor).is_none() {
+            continue;
+        }
+        if query_cx == anchor {
+            return Ok((anchor, vec![anchor]));
+        }
+        match reach(graph, anchor, query_cx, max_hops) {
+            Ok(Some(path)) => return Ok((anchor, path)),
+            Ok(None) => {
+                first_path_error.get_or_insert(LodestarError::KernelAnswerNoPath {
+                    from: anchor,
+                    to: query_cx,
+                });
+            }
+            Err(err) => {
+                let error = LodestarError::from(err);
+                if error.code() != "CALYX_PATHS_MAX_HOPS" {
+                    return Err(error);
+                }
+                first_path_error.get_or_insert(error);
+            }
+        }
+    }
+    if !saw_anchored_candidate {
+        return Err(LodestarError::KernelNoAnchoredNode);
+    }
+    Err(first_path_error.unwrap_or(LodestarError::KernelNoAnchoredNode))
 }
 
 fn answer_hops_with<F>(
