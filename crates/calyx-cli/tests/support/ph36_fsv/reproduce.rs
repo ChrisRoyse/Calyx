@@ -303,6 +303,9 @@ fn chain_readback(store: &DirectoryLedgerStore, end: u64) -> Value {
     match verify_chain(store, 0..end).unwrap() {
         VerifyResult::Intact { count } => json!({"status": "intact", "count": count}),
         VerifyResult::Broken { at_seq, .. } => json!({"status": "broken", "at_seq": at_seq}),
+        VerifyResult::Corrupt { at_seq, reason } => {
+            json!({"status": "corrupt", "at_seq": at_seq, "reason": reason})
+        }
     }
 }
 

@@ -92,6 +92,12 @@ as PH09 writes constellations.*
   Ledger SSTs, wrote a manifest quarantine for `0..20`, and proved a seq 8
   read fails closed at
   `/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`.
+- **Post-sweep hardening.** #651 extends `verify_chain(range)` so missing,
+  truncated, or key/encoded-sequence-mismatched physical Ledger rows return a
+  structured `VerifyResult::Corrupt` with the failing seq. The CLI reports
+  `CALYX_LEDGER_CORRUPT at seq=<n>` and writes the same Aster manifest
+  quarantine record as hash-chain `Broken` results. Durable aiwonder evidence:
+  `/home/croyse/calyx/data/fsv-issue651-verify-chain-physical-20260610`.
 - **Post-sweep note.** PH36 T03 (#251) adds `checkpoint.rs`,
   `CheckpointScheduler`, `CheckpointPayload`, Aster `VaultOptions`
   checkpoint cadence, and `calyx scan --cf ledger --vault` decoded readback.
@@ -150,9 +156,12 @@ its grounded source and replays to prove it was measured, not made up — PRD
 or it is tagged `unprovenanced`.
 
 **Status:** DONE / FSV-signed-off through #256 plus post-exit PH36 hardening
-#349. Stage 8 Ward is also signed off through #280. #349 proves filtered audit queries
-ignore unrelated quarantined rows outside the requested result set, still fail
-closed for requested ranges or matching/relevant quarantined rows, reject
-physical ledger row-key mismatches, and use typed `cx` provenance fields instead
-of arbitrary payload string matching. Evidence root:
-`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`.
+#349 and #651. Stage 8 Ward is also signed off through #280. #349 proves
+filtered audit queries ignore unrelated quarantined rows outside the requested
+result set, still fail closed for requested ranges or matching/relevant
+quarantined rows, reject physical ledger row-key mismatches, and use typed `cx`
+provenance fields instead of arbitrary payload string matching. #651 proves
+verify-chain quarantines missing, truncated, and key/encoded-sequence-mismatched
+physical Ledger rows. Evidence roots:
+`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`
+and `/home/croyse/calyx/data/fsv-issue651-verify-chain-physical-20260610`.

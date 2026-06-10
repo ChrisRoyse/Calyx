@@ -12,11 +12,14 @@
 
 ## Goal
 
-STATUS: DONE / FSV-signed-off on aiwonder for #250. Implemented in
+STATUS: DONE / FSV-signed-off on aiwonder for #250; hardened by #651.
+Implemented in
 `crates/calyx-ledger/src/verify.rs`, `crates/calyx-aster/src/manifest/mod.rs`,
 and `calyx verify-chain` / quarantined ledger readback paths in `calyx-cli`.
 Evidence root:
 `/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`.
+#651 evidence root:
+`/home/croyse/calyx/data/fsv-issue651-verify-chain-physical-20260610`.
 
 Readback facts:
 - A 20-entry durable Aster vault was flushed to physical `cf/ledger` SST files;
@@ -31,6 +34,10 @@ Readback facts:
 - `calyx readback --cf ledger --vault <vault> --seq 8` fails closed with
   `CALYX_LEDGER_CHAIN_BROKEN: ledger seq 8 is quarantined`.
 - Empty range `0..0` remains `CHAIN_INTACT count=0`.
+- #651 readback proves missing physical row, truncated physical row payload, and
+  key/encoded-sequence mismatch all return `CALYX_LEDGER_CORRUPT at seq=1`,
+  advance the vault manifest quarantine count, and cause subsequent ledger
+  readback for seq 1 to fail closed with `CALYX_LEDGER_CHAIN_BROKEN`.
 
 The unchecked Build/Tests/Done rows below are preserved as the original
 implementation prompt. The status block and evidence root above are the
@@ -38,21 +45,24 @@ authoritative closeout state for #250.
 
 Implement `verify_chain(vault, range)` — the tamper detection path. It walks
 every ledger entry in `[seq_a, seq_b)`, re-verifies `entry_hash = blake3(seq ‖ prev_hash ‖ kind ‖ subject ‖ payload ‖ actor ‖ ts)` and checks each `prev_hash`
-equals the previous entry's `entry_hash`. On the first discrepancy it returns
-`CALYX_LEDGER_CHAIN_BROKEN` with the exact `seq` of the broken link and writes
-a quarantine marker to the vault manifest (fail-closed). It never silently
-continues past a broken link.
+equals the previous entry's `entry_hash`. On the first hash-chain discrepancy it
+returns `CALYX_LEDGER_CHAIN_BROKEN` with the exact `seq` of the broken link. On
+physical row corruption (missing row, undecodable row bytes, or key/encoded seq
+mismatch) it returns `CALYX_LEDGER_CORRUPT at seq=<n>`. Both cases write a
+quarantine marker to the vault manifest (fail-closed). It never silently
+continues past a broken or corrupt row.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `pub enum VerifyResult { Intact { count: u64 }, Broken { at_seq: u64, expected: [u8;32], found: [u8;32] } }`
+- [ ] `pub enum VerifyResult { Intact { count: u64 }, Broken { at_seq: u64, expected: [u8;32], found: [u8;32] }, Corrupt { at_seq: u64, reason: String } }`
 - [ ] `pub fn verify_chain(cf_reader: &dyn LedgerCfReader, range: KeyRange) -> Result<VerifyResult>` —
   iterates entries in ascending seq order; for each entry: (a) re-compute
   `entry_hash` via `LedgerEntry::verify()`, (b) check `entry.prev_hash ==
-  prev_entry_hash`; on first failure return `VerifyResult::Broken { at_seq, … }`.
+  prev_entry_hash`; on first hash failure return `VerifyResult::Broken { at_seq, ... }`;
+  on first physical row failure return `VerifyResult::Corrupt { at_seq, ... }`.
 - [ ] `CALYX_LEDGER_CHAIN_BROKEN` added to `calyx-core/src/error.rs` with
   remediation `"ledger chain integrity violation — affected range quarantined; do not serve results from this range"`.
-- [ ] On `VerifyResult::Broken`, write a quarantine record to the vault
+- [ ] On `VerifyResult::Broken` or `VerifyResult::Corrupt`, write a quarantine record to the vault
   manifest (not to the `ledger` CF): `QuarantineRecord { range_start, range_end, broken_at_seq, detected_at_ts }`.
   Subsequent reads from the quarantined range must return `CALYX_LEDGER_CHAIN_BROKEN`
   immediately (checked in the read path).
@@ -74,6 +84,10 @@ continues past a broken link.
   returns `true`; read of any seq in `[5,10)` returns `CALYX_LEDGER_CHAIN_BROKEN`.
 - [ ] edge (≥3): empty range → `Intact { count: 0 }`; single entry (genesis) →
   `Intact { count: 1 }`; `seq=0` with wrong `prev_hash` → `Broken { at_seq: 0 }`.
+- [ ] #651 edges: missing physical row → `VerifyResult::Corrupt { at_seq }`;
+  truncated row payload → `VerifyResult::Corrupt { at_seq }`;
+  key/encoded-sequence mismatch → `VerifyResult::Corrupt { at_seq }`; vault CLI
+  writes manifest quarantine for each case.
 - [ ] fail-closed: CF reader returns an I/O error mid-walk → propagate as
   `CALYX_ASTER_IO_ERROR` (not silently treated as intact); verify no partial
   quarantine is written on I/O error.
@@ -91,8 +105,8 @@ continues past a broken link.
   4. `calyx readback --vault test --cf ledger --seq 8` →
      must return `CALYX_LEDGER_CHAIN_BROKEN` (quarantine active).
 - **Prove:** the broken-at seq matches the seq of the corrupted entry (not an
-  off-by-one); the quarantined range blocks reads; intact chains report
-  `Intact { count: 20 }`.
+  off-by-one); physical row corrupt-at seq matches the mutated/missing row; the
+  quarantined range blocks reads; intact chains report `Intact { count: 20 }`.
 
 ## Done when
 

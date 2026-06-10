@@ -17,7 +17,7 @@ pub fn verify_ledger_dir(ledger: &Path, range: Range<u64>) -> Result<(), String>
 pub fn verify_vault(vault: &Path, range: Range<u64>) -> Result<(), String> {
     let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
     let result = verify_chain(&store, range.clone()).map_err(|error| error.to_string())?;
-    if let VerifyResult::Broken { at_seq, .. } = result {
+    if let Some(at_seq) = result.quarantine_seq() {
         write_quarantine(vault, range, at_seq)?;
     }
     print_verify_result(result)
@@ -75,6 +75,9 @@ fn print_verify_result(result: VerifyResult) -> Result<(), String> {
         }
         VerifyResult::Broken { at_seq, .. } => {
             Err(format!("CALYX_LEDGER_CHAIN_BROKEN at seq={at_seq}"))
+        }
+        VerifyResult::Corrupt { at_seq, reason } => {
+            Err(format!("CALYX_LEDGER_CORRUPT at seq={at_seq}: {reason}"))
         }
     }
 }

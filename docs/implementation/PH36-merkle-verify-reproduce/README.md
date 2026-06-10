@@ -54,6 +54,11 @@ quarantined rows outside the requested result set, still fail closed for
 requested ranges or matching/relevant quarantined rows, reject physical ledger
 row-key mismatches, and use typed `cx` provenance fields instead of arbitrary
 payload string matching.
+#651 hardens `verify_chain` itself for physical row failures: missing Ledger
+rows, truncated row payloads, and key/encoded-sequence mismatches now return
+structured `VerifyResult::Corrupt` results. `calyx verify-chain --vault` reports
+`CALYX_LEDGER_CORRUPT at seq=<n>` and still writes the fail-closed manifest
+quarantine record.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -99,6 +104,15 @@ Latest reproduce evidence (#253): ledger API FSV at
 SHA-256: `97dd9a65f4b1c4421b437247b1b2fb89d99975eae720be4521615713702bd994`.
 CLI surfacing for provenance/answer-trace/audit is covered by #254; the final
 tamper + reproduce integration bundle is covered by #255.
+
+Latest verify-chain physical-row evidence (#651): aiwonder FSV at
+`/home/croyse/calyx/data/fsv-issue651-verify-chain-physical-20260610` wrote
+real Aster vaults, removed WAL segments, mutated physical `cf/ledger` SST rows,
+and read back `MANIFEST` bytes. Missing row, truncated payload, and
+key/encoded-sequence mismatch each failed with `CALYX_LEDGER_CORRUPT at seq=1`,
+advanced manifest quarantine state, and caused subsequent ledger readback for
+seq 1 to fail closed with `CALYX_LEDGER_CHAIN_BROKEN`. The intact vault still
+reported `CHAIN_INTACT count=4`.
 
 Latest audit-query evidence (#254, #349): CLI and Lodestar FSV at
 `/home/croyse/calyx/data/fsv-issue254-audit-query-20260609` wrote:
@@ -153,6 +167,9 @@ grep, and seq 11 readback failure with `CALYX_LEDGER_CHAIN_BROKEN`.
   tombstone to the vault manifest (not to the `ledger` CF itself, which is
   append-only) so that subsequent reads from the affected range return
   `CALYX_LEDGER_CHAIN_BROKEN` rather than serving potentially tampered data.
+- **Physical row failures quarantine too:** missing ledger rows, undecodable row
+  bytes, and key/encoded-seq mismatches are `VerifyResult::Corrupt`, not plain
+  unquarantined errors.
 - **Ed25519 key management:** signing key is vault-local; never hardcoded; if
   absent, `merkle_root` returns unsigned root (still valid for local audit); sign
   is opt-in for export.
