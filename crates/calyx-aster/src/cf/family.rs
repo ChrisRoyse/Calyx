@@ -20,6 +20,8 @@ pub enum ColumnFamily {
     Slot { slot: SlotId, kind: SlotFamilyKind },
     /// `(CxId, a, b, kind) -> cross-term value`.
     XTerm,
+    /// `(CxId_a, CxId_b) -> temporal cross-term value`.
+    TemporalXTerm,
     /// `(ScalarId, CxId) -> f64`.
     Scalars,
     /// `(CxId, AnchorKind) -> AnchorValue + source + ts`.
@@ -36,9 +38,10 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 8] = [
+    pub const STATIC: [Self; 9] = [
         Self::Base,
         Self::XTerm,
+        Self::TemporalXTerm,
         Self::Scalars,
         Self::Anchors,
         Self::Assay,
@@ -76,6 +79,7 @@ impl ColumnFamily {
                 kind: SlotFamilyKind::Raw,
             } => format!("slot_{:02}.raw", slot.get()),
             Self::XTerm => "xterm".to_string(),
+            Self::TemporalXTerm => "temporal_xterm".to_string(),
             Self::Scalars => "scalars".to_string(),
             Self::Anchors => "anchors".to_string(),
             Self::Assay => "assay".to_string(),

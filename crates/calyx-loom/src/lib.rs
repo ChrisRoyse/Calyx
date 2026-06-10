@@ -19,7 +19,8 @@ pub use cross_term::{
 };
 pub use error::{
     CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
-    CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_RECURRENCE_CONTEXT_TOO_LARGE,
+    CALYX_LOOM_SERIES_READ_ERROR, CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_TEMPORAL_XTERM_CORRUPT,
+    CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_RECURRENCE_CONTEXT_TOO_LARGE,
     CALYX_RECURRENCE_INVALID_RETENTION, loom_error,
 };
 pub use lru_cache::LruCache;
@@ -28,11 +29,12 @@ pub use materialization::{
     plan_cross_terms_checked,
 };
 pub use recurrence::{
-    Occurrence, OccurrenceContext, PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery,
-    RecurrenceRead, RecurrenceSeries, RetentionPolicy, RollupSummary, SeriesStore, SignatureResult,
-    StoredRecurrenceRow, decode_recurrence_row, detect_recurrence_signature, encode_recurrence_row,
-    periodic_fit, periodic_recall, recurrence_series, recurrence_summary_key,
-    temporal_slot_ids_for_panel,
+    LeadLagResult, Occurrence, OccurrenceContext, PeriodicFit, PeriodicRecallHit,
+    PeriodicRecallQuery, RecurrenceRead, RecurrenceSeries, RetentionPolicy, RollupSummary,
+    SeriesStore, SignatureResult, StoredRecurrenceRow, co_occurrence_pairs, decode_lead_lag_result,
+    decode_recurrence_row, detect_recurrence_signature, encode_lead_lag_result,
+    encode_recurrence_row, lead_lag_secs, periodic_fit, periodic_recall, recurrence_series,
+    recurrence_summary_key, temporal_cross_term, temporal_slot_ids_for_panel,
 };
 
 #[cfg(test)]

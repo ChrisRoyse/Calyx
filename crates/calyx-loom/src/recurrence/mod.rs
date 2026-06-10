@@ -1,5 +1,6 @@
 //! Bounded recurrence-series storage over Aster recurrence CF rows.
 
+pub mod cross_terms;
 mod periodic;
 mod series_store;
 pub mod signature;
@@ -8,6 +9,10 @@ pub use calyx_aster::recurrence::{
     FREQUENCY_SCALAR, MAX_CONTEXT_BYTES, Occurrence, OccurrenceContext, RecurrenceSeries,
     RetentionPolicy, RollupSummary, StoredRecurrenceRow, decode_recurrence_row,
     encode_recurrence_row, recurrence_summary_key,
+};
+pub use cross_terms::{
+    LeadLagResult, co_occurrence_pairs, decode_lead_lag_result, encode_lead_lag_result,
+    lead_lag_secs, temporal_cross_term,
 };
 pub use periodic::{
     PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery, PeriodicTimeBucket, RecurrenceRead,

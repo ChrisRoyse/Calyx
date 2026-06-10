@@ -363,6 +363,7 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
         "online" => Ok(ColumnFamily::Online),
         "scalars" => Ok(ColumnFamily::Scalars),
         "xterm" => Ok(ColumnFamily::XTerm),
+        "temporal_xterm" => Ok(ColumnFamily::TemporalXTerm),
         _ if value.starts_with("slot_") => parse_slot_cf(value),
         _ => Err(format!("unknown column family: {value}")),
     }
