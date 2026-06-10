@@ -69,6 +69,21 @@ fn far_rank_anchor_graph() -> AssocGraph {
     builder.build()
 }
 
+fn competing_anchor_graph() -> AssocGraph {
+    let mut builder = AssocGraph::builder();
+    for seed in [9, 10, 11, 12, 13] {
+        builder.add_node(cx(seed), 1.0).unwrap();
+    }
+    builder
+        .add_edge(cx(10), cx(11), 1.0)
+        .unwrap()
+        .add_edge(cx(11), cx(12), 1.0)
+        .unwrap()
+        .add_edge(cx(12), cx(13), 1.0)
+        .unwrap();
+    builder.build()
+}
+
 fn fsv_root(case: &str) -> PathBuf {
     let base = std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)
@@ -177,6 +192,29 @@ fn kernel_answer_finds_anchor_ranked_beyond_old_top10_window() {
     assert_eq!(answer.anchor_kernel_node, cx(13));
     assert_eq!(answer.hops.len(), 1);
     assert_eq!(answer.hops[0].to, cx(200));
+}
+
+#[test]
+fn kernel_answer_continues_to_next_reachable_anchor() {
+    let graph = competing_anchor_graph();
+    let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
+    let answer = kernel_answer(&index, &graph, cx(13), &[0.99, 0.01], &[cx(9), cx(10)], 3).unwrap();
+
+    write_readback(
+        "anchor-rank",
+        "kernel-answer-next-reachable-anchor.json",
+        json!({
+            "unreachable_nearer_anchor": cx(9),
+            "selected_anchor": answer.anchor_kernel_node,
+            "query_cx": answer.query_cx,
+            "hops": answer.hops,
+            "total_score": answer.total_score,
+        }),
+    );
+
+    assert_eq!(answer.anchor_kernel_node, cx(10));
+    assert_eq!(answer.hops.len(), 3);
+    assert!((answer.total_score - 2.71).abs() <= 1e-5);
 }
 
 #[test]

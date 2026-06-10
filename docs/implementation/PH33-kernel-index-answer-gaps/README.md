@@ -53,6 +53,12 @@ were below gate (`0.08333334`, `0.09444446`, `0.064206704`) and final tuned
 ratios passed (`0.9611112`, `0.96666664`, `0.9568264`) with
 `pass_mode=tuned`. Anchor-aware answer search #332 is signed off under
 `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
+Real-corpus anchor-search bound readback #630 is signed off under
+`/home/croyse/calyx/data/fsv-issue630-real-anchor-search-20260610`: SciFact
+loads hash-checked corpus/qrels bytes, the selected grounded anchor is rank
+`76` outside the old top-10 window, the current exhaustive fallback is bounded
+by the tuned kernel's `158` candidates, and the test passes the full real
+anchored set through production `kernel_answer`.
 T06 (#239) adds PH35-backed Lodestar provenance APIs:
 `build_kernel_pipeline_with_ledger` writes one `kind=Kernel` entry and
 `kernel_answer_with_ledger` writes one `kind=Answer` entry per hop, with
@@ -84,7 +90,7 @@ Full PH36 trace/reproduce is closed in #252-#255.
 | T06 | Kernel build/answer → Ledger provenance wiring (`kind=Kernel`) (done #239; PH36 trace/reproduce separate) | PH35 |
 | T07 | Recall below gate fails closed for acceptance flows (done #330) | T04 |
 | T08 | Raw-vs-tuned recall evidence with `raw_recall`, `tuned_recall`, and `pass_mode` (done #331) | T05, T07 |
-| T09 | Anchor-aware `kernel_answer` search exhausts the kernel index before failing closed (done #332) | T02 |
+| T09 | Anchor-aware `kernel_answer` search exhausts the kernel index and continues to the first reachable anchor before failing closed (synthetic #332; real-corpus bound #630) | T02 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

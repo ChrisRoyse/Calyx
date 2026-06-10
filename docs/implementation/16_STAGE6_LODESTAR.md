@@ -22,6 +22,8 @@
 > `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`;
 > anchor-aware answer search #332 is signed off under
 > `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
+> Real-corpus anchor-search bound readback #630 is signed off under
+> `/home/croyse/calyx/data/fsv-issue630-real-anchor-search-20260610`.
 > Stage 6 exit #240 is signed off under
 > `/home/croyse/calyx/data/fsv-issue240-stage6-exit-lodestar-20260609`.
 > PH36 still owns Ledger trace/reproduce. Post-stage-5 delta issue #360 is
@@ -96,6 +98,10 @@ ContextGraph). **Living-system role:** identity.
   `/home/croyse/calyx/data/fsv-issue330-recall-gate-fail-closed-20260608`.
   T09 #332 is signed off under
   `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
+  #630 adds the real-corpus bounded fallback readback: SciFact anchor rank `76`
+  is outside the old top-10 window while the current scan is bounded at `158`
+  tuned-kernel candidates, with the full real anchored set passed through
+  production `kernel_answer`.
   T08 #331 raw-vs-tuned recall evidence is signed off under
   `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`.
 - **Objective.** Use the kernel as a real index + answer-path; surface the
