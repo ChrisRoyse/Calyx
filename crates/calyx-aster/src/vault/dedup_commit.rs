@@ -6,7 +6,7 @@ impl<C> AsterVault<C>
 where
     C: Clock,
 {
-    pub fn commit_recurrence_batch(
+    pub(crate) fn commit_recurrence_batch(
         &self,
         recurrence_rows: Vec<(Vec<u8>, Vec<u8>)>,
         updated_base: Option<Constellation>,

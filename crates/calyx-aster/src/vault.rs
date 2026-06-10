@@ -26,6 +26,7 @@ use calyx_core::{
 };
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::sync::Mutex;
 
 pub use compaction_bridge::VaultCompactionScheduler;
 pub use durable::VaultOptions;
@@ -46,6 +47,7 @@ pub struct AsterVault<C = SystemClock> {
     durable: Option<DurableVault>,
     dedup_policy: DedupPolicy,
     ledger_hook: Option<AsterLedgerHook>,
+    recurrence_write_lock: Mutex<()>,
     recovery_report: VaultRecoveryReport,
 }
 
@@ -109,6 +111,7 @@ impl AsterVault<SystemClock> {
             durable: Some(durable),
             dedup_policy,
             ledger_hook: Some(ledger_hook),
+            recurrence_write_lock: Mutex::new(()),
             recovery_report,
         })
     }
@@ -128,6 +131,7 @@ where
             durable: None,
             dedup_policy: DedupPolicy::default(),
             ledger_hook: None,
+            recurrence_write_lock: Mutex::new(()),
             recovery_report: VaultRecoveryReport {
                 last_recovered_seq: 0,
                 torn_tail: None,
@@ -351,27 +355,29 @@ where
     }
 
     fn anchor(&self, id: CxId, anchor: Anchor) -> Result<()> {
-        let latest = self.snapshot();
-        let mut constellation = self.get(id, latest)?;
-        constellation.anchors.push(anchor.clone());
-        let rows = [
-            (
-                ColumnFamily::Base,
-                base_key(id),
-                encode::encode_constellation_base(&constellation)?,
-            ),
-            (
-                ColumnFamily::Anchors,
-                anchor_key(id, &anchor.kind),
-                encode::encode_anchor(&anchor)?,
-            ),
-        ];
-        let rows = rows
-            .into_iter()
-            .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
-            .collect::<Vec<_>>();
-        self.commit_rows(&rows)?;
-        Ok(())
+        self.with_recurrence_write_lock(|| {
+            let latest = self.snapshot();
+            let mut constellation = self.get(id, latest)?;
+            constellation.anchors.push(anchor.clone());
+            let rows = [
+                (
+                    ColumnFamily::Base,
+                    base_key(id),
+                    encode::encode_constellation_base(&constellation)?,
+                ),
+                (
+                    ColumnFamily::Anchors,
+                    anchor_key(id, &anchor.kind),
+                    encode::encode_anchor(&anchor)?,
+                ),
+            ];
+            let rows = rows
+                .into_iter()
+                .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
+                .collect::<Vec<_>>();
+            self.commit_rows(&rows)?;
+            Ok(())
+        })
     }
 
     fn snapshot(&self) -> Seq {

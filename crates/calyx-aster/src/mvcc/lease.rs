@@ -40,6 +40,20 @@ impl SeqAllocator {
         self.current.store(seq, Ordering::Release);
         Ok(())
     }
+
+    /// Advances a live allocator after reading externally committed durable rows.
+    pub fn advance_to_at_least(&self, seq: Seq) {
+        let mut current = self.current();
+        while current < seq {
+            match self
+                .current
+                .compare_exchange(current, seq, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return,
+                Err(next_current) => current = next_current,
+            }
+        }
+    }
 }
 
 impl Default for SeqAllocator {

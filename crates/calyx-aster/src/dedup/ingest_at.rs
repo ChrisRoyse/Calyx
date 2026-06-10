@@ -1,10 +1,6 @@
-use std::collections::BTreeMap;
-
 use calyx_core::{
-    Anchor, CalyxError, Clock, Constellation, CxFlags, CxId, GuardTauProfile, InputRef, LedgerRef,
-    Modality, Result, SlotId, SlotVector, VaultStore,
+    CalyxError, Clock, Constellation, CxId, GuardTauProfile, Result, SlotId, VaultStore,
 };
-use serde::{Deserialize, Serialize};
 
 use super::audit::DedupRestoreSnapshot;
 use super::engine::check_dedup_without_conflict_write;
@@ -14,120 +10,14 @@ use super::ingest_ledger::{
 };
 use super::signature::{SignatureResult, detect_recurrence_signature};
 use super::{
-    AnchorConflictResult, ContestedWith, DedupAction, DedupDecision, DedupPolicy, DedupResult,
-    OccurrenceId, TctCosineConfig, check_anchor_conflict, contested_with_key, dedup_error,
-    encode_contested_with,
+    AnchorConflictResult, CALYX_DEDUP_INVALID_EVENT_TIME, ContestedWith, DedupAction,
+    DedupDecision, DedupPolicy, DedupResult, EpochSecs, IngestInput, OccurrenceId, TctCosineConfig,
+    check_anchor_conflict, contested_with_key, dedup_error, encode_contested_with,
+    is_recurrence_series_policy,
 };
 use crate::cf::ColumnFamily;
 use crate::recurrence::{OccurrenceContext, RetentionPolicy, build_append};
 use crate::vault::AsterVault;
-
-pub const CALYX_DEDUP_INVALID_EVENT_TIME: &str = "CALYX_DEDUP_INVALID_EVENT_TIME";
-
-const EVENT_TIME_SCALAR: &str = "event_time_secs";
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct EpochSecs(pub i64);
-
-impl EpochSecs {
-    pub fn to_u64(self) -> Result<u64> {
-        u64::try_from(self.0).map_err(|_| {
-            dedup_error(
-                CALYX_DEDUP_INVALID_EVENT_TIME,
-                format!("event time {} is before Unix epoch", self.0),
-            )
-        })
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IngestInput {
-    pub raw_bytes: Vec<u8>,
-    pub panel_version: u32,
-    pub modality: Modality,
-    pub slots: BTreeMap<SlotId, SlotVector>,
-    pub scalars: BTreeMap<String, f64>,
-    pub anchors: Vec<Anchor>,
-    pub input_pointer: Option<String>,
-    pub redacted: bool,
-    #[serde(default)]
-    pub temporal_slot_ids: Vec<SlotId>,
-}
-
-impl IngestInput {
-    pub fn new(raw_bytes: impl Into<Vec<u8>>, panel_version: u32, modality: Modality) -> Self {
-        Self {
-            raw_bytes: raw_bytes.into(),
-            panel_version,
-            modality,
-            slots: BTreeMap::new(),
-            scalars: BTreeMap::new(),
-            anchors: Vec::new(),
-            input_pointer: None,
-            redacted: true,
-            temporal_slot_ids: Vec::new(),
-        }
-    }
-
-    pub fn with_slot(mut self, slot: SlotId, vector: SlotVector) -> Self {
-        self.slots.insert(slot, vector);
-        self
-    }
-    pub fn with_anchor(mut self, anchor: Anchor) -> Self {
-        self.anchors.push(anchor);
-        self
-    }
-    pub fn with_temporal_slot(mut self, slot: SlotId) -> Self {
-        if !self.temporal_slot_ids.contains(&slot) {
-            self.temporal_slot_ids.push(slot);
-        }
-        self
-    }
-    pub fn with_temporal_slots(mut self, slots: impl IntoIterator<Item = SlotId>) -> Self {
-        for slot in slots {
-            if !self.temporal_slot_ids.contains(&slot) {
-                self.temporal_slot_ids.push(slot);
-            }
-        }
-        self
-    }
-    pub fn temporal_slot_ids(&self) -> &[SlotId] {
-        &self.temporal_slot_ids
-    }
-    fn to_constellation<C>(&self, vault: &AsterVault<C>, at: EpochSecs) -> Result<Constellation>
-    where
-        C: Clock,
-    {
-        let event_time = at.to_u64()?;
-        let input_hash = *blake3::hash(&self.raw_bytes).as_bytes();
-        let mut scalars = self.scalars.clone();
-        scalars.insert(EVENT_TIME_SCALAR.to_string(), at.0 as f64);
-        Ok(Constellation {
-            cx_id: vault.cx_id_for_input(&self.raw_bytes, self.panel_version),
-            vault_id: vault.vault_id(),
-            panel_version: self.panel_version,
-            created_at: event_time,
-            input_ref: InputRef {
-                hash: input_hash,
-                pointer: self.input_pointer.clone(),
-                redacted: self.redacted,
-            },
-            modality: self.modality,
-            slots: self.slots.clone(),
-            scalars,
-            anchors: self.anchors.clone(),
-            provenance: LedgerRef {
-                seq: 0,
-                hash: [0; 32],
-            },
-            flags: CxFlags {
-                ungrounded: self.anchors.is_empty(),
-                redacted_input: self.redacted,
-                ..CxFlags::default()
-            },
-        })
-    }
-}
 
 pub fn ingest_at<C>(
     vault: &AsterVault<C>,
@@ -138,20 +28,38 @@ pub fn ingest_at<C>(
 where
     C: Clock,
 {
-    let new_cx = input.to_constellation(vault, at)?;
     let policy = vault.dedup_policy().clone();
-    let decision = check_dedup_without_conflict_write(&new_cx, vault, &policy, guard_profile)?;
+    if is_recurrence_series_policy(&policy) {
+        return vault.with_recurrence_write_lock(|| {
+            ingest_at_with_policy(vault, input, at, guard_profile, &policy)
+        });
+    }
+    ingest_at_with_policy(vault, input, at, guard_profile, &policy)
+}
+
+fn ingest_at_with_policy<C>(
+    vault: &AsterVault<C>,
+    input: &IngestInput,
+    at: EpochSecs,
+    guard_profile: Option<&dyn GuardTauProfile>,
+    policy: &DedupPolicy,
+) -> Result<DedupResult>
+where
+    C: Clock,
+{
+    let new_cx = input.to_constellation(vault, at)?;
+    let decision = check_dedup_without_conflict_write(&new_cx, vault, policy, guard_profile)?;
     match decision {
-        DedupDecision::NoMatch => store_new(vault, new_cx, at, &policy, "NoMatch", Vec::new()),
+        DedupDecision::NoMatch => store_new(vault, new_cx, at, policy, "NoMatch", Vec::new()),
         DedupDecision::AnchorConflict { existing } => {
             let existing_cx = vault.get(existing, vault.snapshot())?;
             let online_rows = contested_rows(&new_cx, &existing_cx)?;
-            store_new(vault, new_cx, at, &policy, "AnchorConflict", online_rows)
+            store_new(vault, new_cx, at, policy, "AnchorConflict", online_rows)
         }
         DedupDecision::Match {
             existing,
             per_slot_cos,
-        } => match &policy {
+        } => match policy {
             DedupPolicy::Exact => exact_duplicate(vault, &new_cx, at, existing, per_slot_cos),
             DedupPolicy::TctCosine(config) => {
                 if same_event_exact(vault, new_cx.cx_id, existing, at)? {
@@ -181,7 +89,7 @@ where
                     )
                 }
             }
-            DedupPolicy::Off => store_new(vault, new_cx, at, &policy, "NoMatch", Vec::new()),
+            DedupPolicy::Off => store_new(vault, new_cx, at, policy, "NoMatch", Vec::new()),
         },
     }
 }

@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 use calyx_aster::dedup::{EpochSecs, OccurrenceId};
 use calyx_aster::vault::AsterVault;
@@ -34,6 +36,51 @@ fn append_three_occurrences_reads_sorted_with_cadence() {
     assert_eq!(series.cadence_secs, Some(100.0));
     assert_eq!(series.frequency, 3);
     assert_eq!(store.occurrence_count(cx_id).expect("count"), 3);
+}
+
+#[test]
+fn concurrent_series_store_appends_allocate_unique_contiguous_ids() {
+    let (vault, cx_id) = vault_with_base();
+    let vault = Arc::new(vault);
+    let workers = 16;
+    let barrier = Arc::new(Barrier::new(workers));
+    let handles = (0..workers)
+        .map(|index| {
+            let vault = Arc::clone(&vault);
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                let store = SeriesStore::new(vault.as_ref());
+                store.append_occurrence(
+                    cx_id,
+                    EpochSecs(1_000 + index as i64),
+                    ctx(&format!("race-{index}")),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let mut ids = Vec::new();
+    for handle in handles {
+        ids.push(handle.join().expect("thread").expect("append"));
+    }
+    ids.sort();
+    assert_eq!(
+        ids,
+        (0..workers as u64).map(OccurrenceId).collect::<Vec<_>>()
+    );
+
+    let store = SeriesStore::new(vault.as_ref());
+    let series = store.read_series(cx_id).expect("series");
+    assert_eq!(series.frequency, workers as u64);
+    assert_eq!(series.occurrences.len(), workers);
+    let mut stored_ids = series
+        .occurrences
+        .iter()
+        .map(|occurrence| occurrence.id)
+        .collect::<Vec<_>>();
+    stored_ids.sort();
+    assert_eq!(stored_ids, ids);
 }
 
 #[test]

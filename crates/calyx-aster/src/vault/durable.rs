@@ -43,6 +43,7 @@ pub(super) struct DurableVault {
     root: PathBuf,
     batcher: GroupCommitBatcher,
     tiering_policy: Option<TieringPolicy>,
+    ledger_checkpoint: Option<CheckpointConfig>,
     temporal_policy: Option<TemporalPolicy>,
     dedup_policy: Option<DedupPolicy>,
     #[cfg(test)]
@@ -89,6 +90,7 @@ impl DurableVault {
             root,
             batcher,
             tiering_policy: options.tiering_policy.clone(),
+            ledger_checkpoint: options.ledger_checkpoint.clone(),
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
             #[cfg(test)]
@@ -170,6 +172,29 @@ impl DurableVault {
 
     pub(super) fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub(super) fn recurrence_lock_path(&self) -> PathBuf {
+        self.root.join("locks").join("recurrence.write.lock")
+    }
+
+    pub(super) fn append_lock_path(&self) -> PathBuf {
+        self.root.join("wal").join(".append.lock")
+    }
+
+    pub(super) fn recover_current_batches(&self) -> Result<RecoveredBatches> {
+        let options = VaultOptions {
+            tiering_policy: self.tiering_policy.clone(),
+            ledger_checkpoint: self.ledger_checkpoint.clone(),
+            temporal_policy: self.temporal_policy,
+            dedup_policy: self.dedup_policy.clone(),
+            ..VaultOptions::default()
+        };
+        Self::recover_batches(&self.root, &options)
+    }
+
+    pub(super) fn ledger_checkpoint(&self) -> Option<CheckpointConfig> {
+        self.ledger_checkpoint.clone()
     }
 
     pub(super) fn tiering_policy(&self) -> Option<&TieringPolicy> {

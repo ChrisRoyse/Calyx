@@ -71,6 +71,10 @@ impl VersionedCfStore {
         self.seqs.set_start_seq(seq)
     }
 
+    pub fn advance_to_at_least(&self, seq: Seq) {
+        self.seqs.advance_to_at_least(seq);
+    }
+
     /// Pins a snapshot at the latest committed sequence.
     pub fn pin_snapshot(
         &self,

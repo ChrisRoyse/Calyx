@@ -115,6 +115,13 @@ pub fn dedup_undo<C>(vault: &AsterVault<C>, token: &ReversalToken) -> Result<Vec
 where
     C: Clock,
 {
+    vault.with_recurrence_write_lock(|| dedup_undo_locked(vault, token))
+}
+
+fn dedup_undo_locked<C>(vault: &AsterVault<C>, token: &ReversalToken) -> Result<Vec<CxId>>
+where
+    C: Clock,
+{
     validate_token_vault(vault, token)?;
     if let Some(restored) = already_undone(vault, token)? {
         return Ok(restored);
@@ -133,7 +140,6 @@ where
             "reversal token has no matching merge ledger entries for its target",
         ));
     }
-
     let mut restored = BTreeSet::new();
     let mut restored_cx = Vec::new();
     let mut updated_bases = Vec::new();

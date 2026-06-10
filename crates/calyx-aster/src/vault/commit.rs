@@ -1,10 +1,50 @@
-use super::{AsterVault, encode};
+use super::{AsterVault, encode, ledger_hook};
 use calyx_core::{CalyxError, Clock, Result, Seq};
 
 impl<C> AsterVault<C>
 where
     C: Clock,
 {
+    pub(crate) fn with_recurrence_write_lock<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        let _guard = self
+            .recurrence_write_lock
+            .lock()
+            .map_err(|_| CalyxError::backpressure("recurrence write lock poisoned"))?;
+        let _file_guard = self
+            .durable
+            .as_ref()
+            .map(|durable| {
+                crate::file_lock::FileLockGuard::acquire(&durable.recurrence_lock_path())
+            })
+            .transpose()?;
+        self.refresh_from_durable()?;
+        f()
+    }
+
+    fn refresh_from_durable(&self) -> Result<()> {
+        let Some(durable) = &self.durable else {
+            return Ok(());
+        };
+        let _append_guard = crate::file_lock::FileLockGuard::acquire(&durable.append_lock_path())?;
+        let current = self.latest_seq();
+        let recovered = durable.recover_current_batches()?;
+        if let Some(hook) = &self.ledger_hook {
+            ledger_hook::refresh_hook(hook, &recovered, durable.ledger_checkpoint())?;
+        }
+        for batch in &recovered.batches {
+            if batch.seq <= current {
+                continue;
+            }
+            let rows_at_seq = batch
+                .rows
+                .iter()
+                .map(|row| (row.cf, row.key.clone(), row.value.clone()));
+            self.rows.restore_batch(batch.seq, rows_at_seq)?;
+        }
+        self.rows.advance_to_at_least(recovered.last_recovered_seq);
+        Ok(())
+    }
+
     pub(super) fn commit_rows(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
         let Some(durable) = &self.durable else {
             return self.commit_rows_to_mvcc(rows);
