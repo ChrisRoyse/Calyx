@@ -5,6 +5,10 @@
 > groundedness-distance scoring plus deterministic top-fraction selection.
 > aiwonder FSV readback: `ph32-kernel-graph-readback.json`.
 
+> Historical checklist note: the unchecked implementation prompts below were
+> satisfied by the closed Stage 6 evidence; current state is the status/evidence
+> block above.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH32 — Kernel-graph (~10%) + directed MFVS (~1%) |

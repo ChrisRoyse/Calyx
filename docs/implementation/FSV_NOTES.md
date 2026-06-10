@@ -18,11 +18,12 @@ calyx readback --cf <cf-name> --vault <vault-root> [--prefix <hex-prefix>]
 calyx readback --cf ledger --vault <vault-root> [--seq <n>]
 calyx readback cx-list --vault <vault-root>
 calyx readback recurrence-series --vault <vault-root> --cx-id <CxId>
+calyx readback periodic-recall --vault <vault-root> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>]
 calyx readback dedup-audit --vault <vault-root> --cx-id <CxId>
 calyx readback dedup-undo --vault <vault-root> --token <json>
 calyx verify-chain --vault <vault-root> --range <start>..<end>
-calyx readback --wal <vault-root>
-calyx readback --level <vault-root> <cf-name>
+calyx readback --wal --vault <vault-root>
+calyx readback --cf <cf-name> --level <level-dir>
 ```
 
 Later phases extend `readback` for metrics and higher-level engine artifacts.

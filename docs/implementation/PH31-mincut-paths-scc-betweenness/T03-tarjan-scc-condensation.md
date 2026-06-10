@@ -5,6 +5,10 @@
 > component membership, condensation edges, DAG check, and graph-mismatch
 > fail-closed validation. aiwonder FSV readback: `ph31-scc-readback.json`.
 
+> Historical checklist note: the unchecked implementation prompts below were
+> satisfied by the closed Stage 6 evidence; current state is the status/evidence
+> block above.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

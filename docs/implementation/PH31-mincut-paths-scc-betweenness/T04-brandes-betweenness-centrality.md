@@ -6,6 +6,10 @@
 > fail-closed behavior. aiwonder FSV readback:
 > `ph31-betweenness-readback.json`.
 
+> Historical checklist note: the unchecked implementation prompts below were
+> satisfied by the closed Stage 6 evidence; current state is the status/evidence
+> block above.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

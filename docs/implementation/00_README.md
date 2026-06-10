@@ -47,8 +47,8 @@ Completed-phase note: task-card checkboxes are implementation prompts and
 design-history acceptance criteria. The current status source is, in order,
 GitHub issue state/evidence comments, `STAGE1_5_EVIDENCE_MANIFEST.md` for
 PH05-PH30, `03_PHASE_MAP.md`, the per-stage file, then the phase README. For
-Stages 0-5, open/closed state and aiwonder FSV evidence supersede historical
-task-card checklist prompts.
+completed stages and completed Stage 9 cards, open/closed state and aiwonder
+FSV evidence supersede historical task-card checklist prompts.
 
 ## 3. Numbering
 
@@ -260,7 +260,8 @@ manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
 **Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
-follow-ups #578/#617/#620/#621/#622**, then PH42-PH72.
+follow-ups #617/#620/#621/#622**, then PH42-PH72. PH41 public recurrence read
+API follow-up #578 is FSV-backed.
 PH41 T01 #379 is FSV-backed at
 `/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`;
 PH41 T02 #380 is FSV-backed at
@@ -289,6 +290,12 @@ with `dedup-invariants-readback.json` BLAKE3
 `f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140` and
 `BLAKE3SUMS.txt` BLAKE3
 `fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`.
+#578 public recurrence read APIs are FSV-backed at
+`/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`
+with `periodic-recall-readback.json` BLAKE3
+`7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79` and
+`BLAKE3SUMS.txt` BLAKE3
+`7f4af4acb4f507c5e70afb3128f04692d8673fcbabe8aa552d417a2734a09c4e`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

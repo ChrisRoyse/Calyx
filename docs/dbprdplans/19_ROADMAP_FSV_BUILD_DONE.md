@@ -2,8 +2,9 @@
 
 Phased build, verification discipline, performance targets, mechanical completion predicate. Scope is **Vault-only** (`15`): Calyx replaces the SQLite/`sqlite-vec` Vaults; PostgreSQL is untouched, so there is no control-plane phase. Front-loads the durable-storage core before the customer-facing Vault swap.
 
-> **Current status (2026-06-10; Stage 9 PH41 active): P0-P7 are DONE, PH40
-> #373-#378 plus #615 are FSV-backed, and PH41 T01-T06 #379-#384 are FSV-backed.** Stages 0-8 (PH00-PH39) are implemented, pushed, and FSV-signed-off on
+> **Current status (2026-06-10; Stage 9 PH41 follow-ups active): P0-P7 are DONE,
+> PH40 #373-#378 plus #615 are FSV-backed, and PH41 T01-T08 #379-#386 plus #623
+> and #578 are FSV-backed.** Stages 0-8 (PH00-PH39) are implemented, pushed, and FSV-signed-off on
 > aiwonder. Stage 6 Lodestar is closed through #240 plus readiness follow-ups
 > #331/#332; Stage 7 Ledger is closed through #256; Stage 8 Ward is closed
 > through exit #280 after #258-#274, #275-#279, #349, #350, #351, #352, #353,
@@ -17,8 +18,13 @@ Phased build, verification discipline, performance targets, mechanical completio
 > temporal-never-dominant proof, #615 AP-60 final-surface hardening, and PH41
 > #379 DedupPolicy manifest persistence, #380 dedup engine cosine-gate
 > readback, #381 anchor-conflict guard readback, #382 ingest_at readback,
-> #383 recurrence series store readback, and #384 recurrence signature detector
-> readback. PH41 T07 #385 is next.
+> #383 recurrence series store readback, #384 recurrence signature detector
+> readback, #385 dedup audit/undo readback, #386 dedup invariant exit readback,
+> #623 recurrence fallback readback, and #578 public periodic recurrence
+> readback at
+> `/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`.
+> Remaining PH41 follow-ups are #617/#620/#621/#622; PH40 follow-ups
+> #616/#618/#619 also remain tracked before Stage 9 is stable.
 > phase status:
 > `docs/implementation/03_PHASE_MAP.md` and
 > GitHub context issue #23.

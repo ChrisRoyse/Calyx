@@ -31,10 +31,13 @@ surprise term `−log p` for anomaly scoring is defined but may never inflate bi
 
 `calyx-assay`, `calyx-loom`, `calyx-lodestar`, `calyx-ward`, and
 `calyx-sextant` have their prerequisite Stage 5-8 surfaces implemented and
-FSV-signed-off. PH42 now waits on PH41's recurrence series/frequency field, then
-wires those grounded recurrence signals into the already-built engine surfaces.
-This is primarily a wiring + API-surface phase — each engine gets a small,
-well-defined interface to the recurrence signals stored in the base CF.
+FSV-signed-off. PH41 now provides recurrence series/frequency storage and the
+#578 public recurrence read APIs (`recurrence_series`, `periodic_fit`,
+`periodic_recall`). PH42 should wire those grounded recurrence signals into the
+already-built engine surfaces, while using an O(1) base-CF frequency anchor path
+for hot consumers rather than recomputing/scanning recurrence series. This is
+primarily a wiring + API-surface phase: each engine gets a small, well-defined
+interface to the recurrence signals stored in the base CF.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -72,7 +75,10 @@ Two gates:
 
 - **Surprise `−log p` definition:** the surprise term is the negative log probability of the event given its recurrence rate — `−log(frequency / total_events)`. It must NEVER increase the stored bits for a high-frequency event; anomaly scoring is additive to retrieval scoring only (never stored as a lens weight). Audit every call site.
 - **Cross-crate circular dependencies:** wiring seven crates creates potential cycles. All recurrence signals flow from `calyx-aster` (the data source) through `calyx-loom` (the transformer) to consumers. No consumer crate imports another consumer crate.
-- **PH41 readiness:** PH42 is blocked on PH41's recurrence series and frequency
-  field. PH28 Assay MI and PH33 Lodestar kernel surfaces are already
-  FSV-signed-off and should be reused directly rather than stubbed.
+- **PH41 readiness:** PH41 recurrence series/frequency storage and #578 public
+  read APIs are available. PH42 still needs consumer-facing O(1) base-CF
+  frequency anchor reads for hot paths; scan-based periodic readback APIs are
+  evidence/debug surfaces, not the PH42 runtime path. PH28 Assay MI and PH33
+  Lodestar kernel surfaces are already FSV-signed-off and should be reused
+  directly rather than stubbed.
 - **Grounded anchor immutability:** frequency is a grounded anchor (A2) — a count of what happened. It must be read from the `frequency` field in the base CF (written by PH41), never recomputed from the series on every call (O(1), not O(N)).

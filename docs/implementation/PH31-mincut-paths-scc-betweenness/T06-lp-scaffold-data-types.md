@@ -5,6 +5,10 @@
 > constraints, problems, solutions, validation, and PH32-ready MFVS relaxation
 > problem shape. aiwonder FSV readback: `ph31-lp-readback.json`.
 
+> Historical checklist note: the unchecked implementation prompts below were
+> satisfied by the closed Stage 6 evidence; current state is the status/evidence
+> block above.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

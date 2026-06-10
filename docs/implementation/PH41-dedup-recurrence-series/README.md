@@ -85,6 +85,17 @@ hashes: `dedup-invariants-readback.json` BLAKE3
 `f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140` and
 `BLAKE3SUMS.txt` BLAKE3
 `fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`.
+PH41 public recurrence read API follow-up #578 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`: Loom
+now exposes public `recurrence_series`, `periodic_fit`, and `periodic_recall`
+read APIs, CLI `readback periodic-recall` reads the recurrence CF/WAL-backed
+series surface, public fit input is sorted before cadence estimation, joint
+hour/day recall must match an observed bucket, and empty recall queries fail
+closed with `CALYX_TEMPORAL_INVALID_PERIOD`. Artifact hashes:
+`periodic-recall-readback.json` BLAKE3
+`7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79` and
+`BLAKE3SUMS.txt` BLAKE3
+`7f4af4acb4f507c5e70afb3128f04692d8673fcbabe8aa552d417a2734a09c4e`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -94,10 +105,12 @@ hashes: `dedup-invariants-readback.json` BLAKE3
 | `crates/calyx-aster/src/dedup/policy.rs` | Policy validation, anchor-conflict check, content-slot selection (excl. E2/E3/E4) |
 | `crates/calyx-aster/src/dedup/engine.rs` | `check_dedup(new_cx, vault, policy) -> DedupDecision`; per-slot cosine, required-slots pass logic |
 | `crates/calyx-aster/src/dedup/ingest_at.rs` | `ingest_at(vault, input, at: t) -> New(CxId) | DedupMerge{into, occurrence}` |
-| `crates/calyx-loom/src/recurrence/mod.rs` | `RecurrenceSeries`, `Occurrence { t_k, context }`, bounded rollup/retention (A26) |
-| `crates/calyx-loom/src/recurrence/series_store.rs` | CF-backed store: append occurrence, read series, cadence scalar |
+| `crates/calyx-loom/src/recurrence/mod.rs` | `RecurrenceSeries`, `Occurrence { t_k, context }`, public read API exports, bounded rollup/retention (A26) |
+| `crates/calyx-loom/src/recurrence/series_store.rs` | CF-backed store: append occurrence, read series, cadence scalar, periodic recall readback |
+| `crates/calyx-loom/src/recurrence/periodic.rs` | Public `recurrence_series`, `periodic_fit`, and `periodic_recall` read APIs |
 | `crates/calyx-loom/src/recurrence/signature.rs` | Recurrence signature detector: content-slots-agree + temporal-slots-differ |
 | `crates/calyx-aster/src/dedup/audit.rs` | `dedup_audit(vault, cx) -> DedupAuditReport { per_slot_cos, merges, reversible }` |
+| `crates/calyx-cli/src/recurrence_readback.rs` | CLI `readback recurrence-series` and `readback periodic-recall` source-of-truth surfaces |
 | `crates/calyx-aster/src/dedup/*_tests.rs` | Dedup unit and FSV-style regression tests split by module |
 | `crates/calyx-loom/src/recurrence/tests.rs` | All recurrence series FSV tests |
 
@@ -116,9 +129,11 @@ hashes: `dedup-invariants-readback.json` BLAKE3
 
 ## Tracked PH41 follow-ups
 
+#578 public recurrence read APIs are implemented and FSV-backed. Remaining
+follow-ups before PH42 are hardening and concurrency/reclaim work:
+
 | Issue | Scope |
 |---|---|
-| #578 | Public `recurrence_series`, `periodic_fit`, and `periodic_recall` read APIs before PH41 exit |
 | #617 | Durable/recovered `DedupPolicy` validation parity for temporal required-slot rejection |
 | #620 | Recurrence rollup tombstone/physical reclaim integration |
 | #621 | Concurrency-safe recurrence occurrence id allocation |
@@ -126,7 +141,8 @@ hashes: `dedup-invariants-readback.json` BLAKE3
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-Five gates, all passed in #386:
+The original five T01-T08 gates passed in #386; #578 adds the public recurrence
+read API/readback surface for those bytes:
 1. **Near-but-distinct NOT merged:** ingest two constellations with content cosine
    just below calibrated τ → `New` returned for both → two separate CxIds exist in
    CF (`calyx readback cx-list`).

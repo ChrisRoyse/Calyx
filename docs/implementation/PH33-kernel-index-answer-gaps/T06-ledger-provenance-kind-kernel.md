@@ -18,8 +18,8 @@ evidence row containing `kernel_id`, `members_hash`, MFVS approximation factor,
 recall ratio, and graph sequence. `kernel_answer_with_ledger` stamps every hop
 with a real `LedgerRef` from an appended `kind=Answer` row.
 
-Full audit query and reproduce surfaces are closed in PH36 work (#252-#255); this card
-does not claim PH36 trace/reproduce completion.
+Full audit query and reproduce surfaces were later closed in PH36 work
+(#252-#255); the checked PH36 lines below record that later closure.
 
 ## Build
 
@@ -31,8 +31,8 @@ does not claim PH36 trace/reproduce completion.
   but is not valid Stage 6 exit evidence for real provenance.
 - [x] Missing/corrupt Ledger integration fails closed with the underlying
   `CALYX_LEDGER_*` code surfaced through `LodestarError`.
-- [ ] PH36 `get_answer_trace` returns kernel and hop entries in order (#254).
-- [ ] PH36 `reproduce` reruns the answer path and detects drift/tamper (#253/#255).
+- [x] PH36 `get_answer_trace` returns kernel and hop entries in order (#254).
+- [x] PH36 `reproduce` reruns the answer path and detects drift/tamper (#253/#255).
 
 ## FSV
 

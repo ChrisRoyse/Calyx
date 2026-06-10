@@ -51,13 +51,18 @@ system role:** the sense of time.
   `/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`
   (`dedup-invariants-readback.json` BLAKE3
   `f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140`).
+  PH41 public recurrence read API follow-up #578 is complete and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`
+  (`periodic-recall-readback.json` BLAKE3
+  `7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79`).
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).
 - **Deliverables.** `DedupPolicy { Off|Exact|TctCosine{required_slots,tau,
   action} }`, `ingest_at(input,t)` → `New|DedupMerge{into,occurrence}`,
   recurrence series store, recurrence signature detector (content slots agree +
-  temporal slots differ), reversible + Ledger-logged merges.
+  temporal slots differ), public `recurrence_series`/`periodic_fit`/
+  `periodic_recall` read APIs, reversible + Ledger-logged merges.
 - **Key tasks.** content-only agreement (temporal excluded); **MUST NOT merge
   constellations with conflicting anchors**; recurrence series rollup/retention
   (bounded, A26); `dedup_audit` (per-slot cos, reversible).

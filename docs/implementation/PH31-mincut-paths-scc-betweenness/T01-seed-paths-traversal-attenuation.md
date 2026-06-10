@@ -5,6 +5,10 @@
 > readbacks: `ph31-paths-traversal-readback.json` and path test stdout under
 > `/home/croyse/calyx/data/fsv-ph31-20260608`.
 
+> Historical checklist note: the unchecked implementation prompts below were
+> satisfied by the closed Stage 6 evidence; current state is the status/evidence
+> block above.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |

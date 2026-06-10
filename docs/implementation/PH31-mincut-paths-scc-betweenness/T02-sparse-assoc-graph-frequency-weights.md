@@ -5,6 +5,10 @@
 > max-deduped parallel edges, self-loop support, and frequency node weights.
 > aiwonder FSV readback: `ph31-paths-graph-readback.json`.
 
+> Historical checklist note: the unchecked implementation prompts below were
+> satisfied by the closed Stage 6 evidence; current state is the status/evidence
+> block above.
+
 | Field | Value |
 |---|---|
 | **Phase** | PH31 — mincut/paths: graph build + SCC + betweenness |
