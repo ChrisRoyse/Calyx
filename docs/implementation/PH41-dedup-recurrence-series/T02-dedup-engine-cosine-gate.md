@@ -25,7 +25,7 @@ contain E2/E3/E4) participate in the cosine comparison.
 - [ ] Define `DedupDecision` enum: `NoMatch` | `Match { existing: CxId, per_slot_cos: Vec<(SlotId, f32)> }` | `AnchorConflict { existing: CxId }` — `AnchorConflict` is checked before cosine (T03 adds anchor check; engine returns placeholder here)
 - [ ] Implement `resolve_tau(slot_id: SlotId, config: &TctCosineConfig, guard_profile: Option<&GuardProfile>) -> f32`:
   - `TauStrategy::PerSlot` → look up `slot_id` in the vec; missing slot → `CALYX_DEDUP_SLOT_NOT_IN_TAU`
-  - `TauStrategy::Calibrated` → read threshold from `guard_profile.tau_for_slot(slot_id)` → `CALYX_DEDUP_MISSING_GUARD_PROFILE` if None
+  - `TauStrategy::Calibrated` → read threshold from `guard_profile.tau_for(&slot_id)` → `CALYX_DEDUP_MISSING_GUARD_PROFILE` if profile or threshold is missing
 - [ ] Implement `cosine_passes_all_required(new_cx: &Constellation, existing_cx: &Constellation, config: &TctCosineConfig, guard_profile: Option<&GuardProfile>) -> Result<Option<Vec<(SlotId, f32)>>, CalyxError>`:
   - for each `slot_id` in `config.required_slots`: compute `cos(new_slot_vec, existing_slot_vec)` using PH37/PH12 cosine; if `cos < resolve_tau(slot_id)` → return `None` (short-circuit); if all pass → `Some(per_slot_cosines)`
 - [ ] Implement `check_dedup(new_cx: &Constellation, vault: &Vault, policy: &DedupPolicy, guard_profile: Option<&GuardProfile>) -> Result<DedupDecision, CalyxError>`:

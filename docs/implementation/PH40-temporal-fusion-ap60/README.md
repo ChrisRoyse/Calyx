@@ -2,7 +2,7 @@
 
 > **Status: implemented and FSV-signed-off through T06 plus #615 hardening.**
 > `calyx-sextant` (PH23-PH26) and Registry temporal lenses (PH22) are
-> implemented and FSV-signed-off. PH40 adds temporal post-retrieval boost
+> implemented and FSV-signed-off. PH40 added temporal post-retrieval boost
 > modules to the existing Sextant stack rather than starting from a stub.
 
 **Stage:** S9 — Temporal & Dedup  ·  **Crate:** `calyx-sextant`  ·
@@ -27,11 +27,11 @@ distorting in-window ranking.
   one of the seven engine wirings), PH49 (Oracle consequence prediction uses
   temporal search)
 
-## Current state (build off what exists)
+## Current state (completed build on existing stack)
 
 `calyx-sextant` now contains the Stage 4 search stack (dense/sparse indexes,
-fusion, provenance, freshness, planner/explain). PH40 depends on those existing
-modules and should wire AP-60 as a post-retrieval stage. E2/E3/E4 lens math is
+fusion, provenance, freshness, planner/explain). PH40 wires AP-60 as a
+post-retrieval stage on those existing modules. E2/E3/E4 lens math is
 already in `calyx-registry` from PH22 (closed-form, deterministic, no trained
 weights).
 
@@ -54,14 +54,14 @@ weights).
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
-| Card | Title | Depends |
-|---|---|---|
-| T01 #373 | TemporalPolicy + FusionWeights types | — |
-| T02 #374 | TimeWindow helpers (`last_hours`/`last_days`) | T01 |
-| T03 #375 | `apply_temporal_boost` post-retrieval reranker | T02 |
-| T04 #376 | Causal confidence gate (×1.10 / ×0.85) | T03 |
-| T05 #377 | AP-60 invariant enforcement + `temporal_search` integration | T04 |
-| T06 #378 | FSV: temporal-never-dominant + boost-reorder proof | T05 |
+| Card | Title | Depends | Status |
+|---|---|---|---|
+| T01 #373 | TemporalPolicy + FusionWeights types | — | DONE / FSV |
+| T02 #374 | TimeWindow helpers (`last_hours`/`last_days`) | T01 | DONE / FSV |
+| T03 #375 | `apply_temporal_boost` post-retrieval reranker | T02 | DONE / FSV |
+| T04 #376 | Causal confidence gate (x1.10 / x0.85) | T03 | DONE / FSV |
+| T05 #377 | AP-60 invariant enforcement + `temporal_search` integration | T04 | DONE / FSV |
+| T06 #378 | FSV: temporal-never-dominant + boost-reorder proof | T05 | DONE / FSV |
 
 ## Completed PH40 Evidence
 

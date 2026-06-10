@@ -7,7 +7,7 @@ for the structure under `docs/implementation/PHnn-*/`.
 > Stage 0 (PH00–PH04: `calyx-core` + Aster scaffolding) is **already built** and
 > is intentionally **not** covered here. These cards cover **PH05 → PH72**.
 >
-> **Current (2026-06-09):** Stages 1–5 (PH05–PH30) are **DONE** and
+> **Current (2026-06-10):** Stages 1–5 (PH05–PH30) are **DONE** and
 > FSV-signed-off on aiwonder, including post-sweep hardening through #340 and
 > Registry/Sextant integration #339. Post-sweep PH06 slot-column SoA hardening
 > is FSV-backed at

@@ -259,9 +259,10 @@ the Stage 8 exit readback under
 manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
-**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH40** and
-then PH41-PH72. Stage 1-5 future seams are mapped to concrete phase/card owners
-in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella placeholders. The post-sweep
+**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41 T02
+#380**, then PH41 T03-T08 and PH42-PH72. Stage 1-5 future seams are mapped to
+concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
+placeholders. The post-sweep
 Aster slot-column SoA hardening is FSV-backed at
 `/home/croyse/calyx/data/fsv-issue341-slot-column-soa-20260609-b960c58`. Track
 live state in the `ChrisRoyse/Calyx` GitHub `type:context` issues (doctrine

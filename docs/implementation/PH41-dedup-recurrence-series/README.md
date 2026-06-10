@@ -1,7 +1,7 @@
 # PH41 — DedupPolicy TctCosine + Recurrence Series + Signature
 
 **Stage:** S9 — Temporal & Dedup  ·  **Crate:** `calyx-aster` / `calyx-loom`  ·
-**PRD roadmap:** A28, A29  ·  **Axioms:** A28, A3, A26
+**PRD roadmap:** A28, A29  ·  **Axioms:** A28, A29, A3, A26
 
 ## Objective
 
@@ -48,7 +48,7 @@ under that crate rather than initialize the crate from scratch.
 | `crates/calyx-loom/src/recurrence/mod.rs` | `RecurrenceSeries`, `Occurrence { t_k, context }`, bounded rollup/retention (A26) |
 | `crates/calyx-loom/src/recurrence/series_store.rs` | CF-backed store: append occurrence, read series, cadence scalar |
 | `crates/calyx-loom/src/recurrence/signature.rs` | Recurrence signature detector: content-slots-agree + temporal-slots-differ |
-| `crates/calyx-aster/src/dedup/audit.rs` | `dedup_audit(vault, cx) -> DeduAuditReport { per_slot_cos, merges, reversible }` |
+| `crates/calyx-aster/src/dedup/audit.rs` | `dedup_audit(vault, cx) -> DedupAuditReport { per_slot_cos, merges, reversible }` |
 | `crates/calyx-aster/src/dedup/tests.rs` | All dedup FSV tests |
 | `crates/calyx-loom/src/recurrence/tests.rs` | All recurrence series FSV tests |
 

@@ -15,8 +15,9 @@
 > native deterministic `ef` HNSW beam traversal and byte-readback recall FSV.
 > Post-sweep hardening #286 refreshes `explain.provenance_hex` after stored
 > constellation provenance is attached, removes AP-60 temporal slots 20/21/22
-> from primary WeightedRRF profiles until PH40, and makes WeightedRRF skip slots
-> not explicitly named by its profile.
+> from primary WeightedRRF profiles before PH40, and makes WeightedRRF skip slots
+> not explicitly named by its profile. PH40 plus #615 later implemented and
+> FSV-signed the AP-60 final surface as a post-retrieval stage.
 > Post-sweep hardening #290 wires `FusionStrategy::Pipeline` to a real sparse
 > recall candidate subset, returns no Pipeline hits when sparse stage 1 has no
 > candidates, and makes reranker HTTP non-2xx responses fail closed.
@@ -191,9 +192,10 @@ attention.
   scoped, never persisted — privacy); bounded plans.
 - **Post-sweep note.** Planner bounds now reject `k=0`, no-lenses, ef/slot
   over-cap, and cost-cap cases with distinct catalog codes (#282).
-- **Post-sweep note.** Planner-selected temporal profile currently routes
-  through semantic slot 8 only; AP-60 temporal slots 20/21/22 are reserved for
-  PH40 post-retrieval temporal boost rather than primary retrieval (#286).
+- **Post-sweep note.** Planner-selected temporal profile routes through semantic
+  slot 8 only; AP-60 temporal slots 20/21/22 stayed out of primary retrieval.
+  PH40/#615 later implemented the temporal boost as a post-retrieval surface
+  with FSV evidence.
 - **Post-sweep note.** Reranker requests now use the live TEI `texts` wire
   schema, parse rank-array responses back into candidate order, and fail closed
   on non-2xx status instead of returning mock scores (#290).

@@ -40,9 +40,16 @@ one constellation + time series, reversible byte-for-byte.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `cargo test -p calyx-aster dedup::tests` and `cargo test -p calyx-loom recurrence::tests` on aiwonder
-- **Readback:** run `cargo test -p calyx-aster dedup::tests -- --nocapture 2>&1` and `cargo test -p calyx-loom recurrence::tests -- --nocapture 2>&1`; paste full terminal output to PH41 GitHub issue
-- **Prove:** all 8 tests pass; the `fsv_recurring_event_series_reversible` test output explicitly prints the pre-undo and post-undo `cx-list` lengths (1 and 3); the `fsv_near_but_distinct_not_merged` test prints both CxIds confirming they are distinct
+- **SoT:** the Aster base/slot CF bytes, recurrence-series CF rows, Ledger rows,
+  and readback artifacts under the issue-specific aiwonder FSV root.
+- **Readback:** after triggering ingest/merge/undo, run `calyx readback cx-list`,
+  `calyx readback recurrence-series`, `calyx readback dedup-audit`, and raw
+  CF/`xxd` reads for the affected CxIds; record BLAKE3 hashes for every
+  artifact and vault file.
+- **Prove:** tests may trigger the scenario, but the verdict is the separate
+  byte readback: near-distinct has two base CF rows, conflicting anchors remain
+  separate with an audit block record, recurring events store one Cx plus the
+  expected occurrence rows, and undo restores three byte-identical Cx rows.
 
 ## Done when
 

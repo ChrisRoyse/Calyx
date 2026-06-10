@@ -268,7 +268,8 @@ Latest roots:
 > post-append commit semantics, deadline-based group commit, and release-mode
 > absent-slot sentinel checks. No remaining Stage 1-5 implementation blocker is
 > hidden in the phase map; future seams are mapped to concrete later phase/card
-> owners, and the active implementation frontier moved to Stage 9 / PH40.
+> owners; that historical frontier has since moved past PH40 to Stage 9 /
+> PH41 T02 #380.
 
 ## Stage 4 — Sextant search  (`14_STAGE4_SEXTANT.md`) — ✅ DONE
 
