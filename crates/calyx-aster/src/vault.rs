@@ -164,6 +164,21 @@ where
             .scan_cf_at(self.snapshot_handle(snapshot), cf, &self.clock)
     }
 
+    pub(crate) fn commit_online_rows<I>(&self, rows: I) -> Result<Seq>
+    where
+        I: IntoIterator<Item = (Vec<u8>, Vec<u8>)>,
+    {
+        let rows = rows
+            .into_iter()
+            .map(|(key, value)| encode::WriteRow {
+                cf: ColumnFamily::Online,
+                key,
+                value,
+            })
+            .collect::<Vec<_>>();
+        self.commit_rows(&rows)
+    }
+
     fn snapshot_handle(&self, seq: Seq) -> Snapshot {
         let lease = ReaderLease::new(0, seq, self.clock.now(), DEFAULT_LEASE_MS);
         Snapshot::new(seq, Freshness::FreshDerived, lease)

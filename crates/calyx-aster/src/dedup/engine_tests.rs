@@ -1,13 +1,16 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{
-    CxFlags, FixedClock, InputRef, LedgerRef, Modality, SlotVector, VaultId, VaultStore,
+    Anchor, AnchorKind, AnchorValue, CxFlags, FixedClock, InputRef, LedgerRef, Modality,
+    SlotVector, VaultId, VaultStore,
 };
 use proptest::prelude::*;
 
 use super::*;
+use crate::cf::ColumnFamily;
 use crate::dedup::{
-    CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU, CALYX_DEDUP_NO_REQUIRED_SLOTS, DedupAction,
+    CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU, CALYX_DEDUP_NO_REQUIRED_SLOTS,
+    ConflictReason, DedupAction, contested_with_key, decode_contested_with,
 };
 
 #[test]
@@ -210,6 +213,67 @@ fn candidate_set_over_dpi_fails_closed_when_exact_not_found() {
     assert_eq!(error.code, CALYX_DEDUP_DPI_EXCEEDED);
 }
 
+#[test]
+fn anchor_conflict_writes_contested_rows_before_cosine() {
+    let vault = sample_vault();
+    let existing = sample_cx_with_anchors(
+        1,
+        [(slot(0), dense(vec![1.0, 0.0]))],
+        vec![anchor(
+            AnchorKind::SpeakerMatch,
+            AnchorValue::Text("speaker-a".to_string()),
+        )],
+    );
+    let new = sample_cx_with_anchors(
+        2,
+        [],
+        vec![anchor(
+            AnchorKind::SpeakerMatch,
+            AnchorValue::Text("speaker-b".to_string()),
+        )],
+    );
+    vault.put(existing.clone()).expect("put existing");
+
+    let decision =
+        check_dedup(&new, &vault, &policy([(slot(0), 0.9)], vec![slot(0)]), None).expect("dedup");
+
+    assert_eq!(
+        decision,
+        DedupDecision::AnchorConflict {
+            existing: existing.cx_id
+        }
+    );
+    assert_contested(&vault, new.cx_id, existing.cx_id);
+    assert_contested(&vault, existing.cx_id, new.cx_id);
+}
+
+#[test]
+fn no_shared_anchor_type_continues_to_cosine_match() {
+    let vault = sample_vault();
+    let existing = sample_cx_with_anchors(
+        1,
+        [(slot(0), dense(vec![1.0, 0.0]))],
+        vec![anchor(
+            AnchorKind::SpeakerMatch,
+            AnchorValue::Text("speaker-a".to_string()),
+        )],
+    );
+    let new = sample_cx_with_anchors(
+        2,
+        [(slot(0), dense(cos_vector(0.95)))],
+        vec![anchor(
+            AnchorKind::StyleHold,
+            AnchorValue::Vector(cos_vector(0.85)),
+        )],
+    );
+    vault.put(existing.clone()).expect("put existing");
+
+    let decision =
+        check_dedup(&new, &vault, &policy([(slot(0), 0.9)], vec![slot(0)]), None).expect("dedup");
+
+    assert_eq!(decision_existing(&decision), Some(existing.cx_id));
+}
+
 proptest! {
     #[test]
     fn identical_constellations_always_match(seed in 1u8..=u8::MAX) {
@@ -274,6 +338,14 @@ fn sample_vault() -> AsterVault<FixedClock> {
 }
 
 fn sample_cx<const N: usize>(seed: u8, slots: [(SlotId, SlotVector); N]) -> Constellation {
+    sample_cx_with_anchors(seed, slots, Vec::new())
+}
+
+fn sample_cx_with_anchors<const N: usize>(
+    seed: u8,
+    slots: [(SlotId, SlotVector); N],
+    anchors: Vec<Anchor>,
+) -> Constellation {
     Constellation {
         cx_id: CxId::from_bytes([seed; 16]),
         vault_id: vault_id(),
@@ -287,13 +359,38 @@ fn sample_cx<const N: usize>(seed: u8, slots: [(SlotId, SlotVector); N]) -> Cons
         modality: Modality::Text,
         slots: slots.into_iter().collect(),
         scalars: BTreeMap::new(),
-        anchors: Vec::new(),
+        anchors,
         provenance: LedgerRef {
             seq: u64::from(seed),
             hash: [seed; 32],
         },
         flags: CxFlags::default(),
     }
+}
+
+fn anchor(kind: AnchorKind, value: AnchorValue) -> Anchor {
+    Anchor {
+        kind,
+        value,
+        source: "synthetic-dedup-engine".to_string(),
+        observed_at: 1,
+        confidence: 1.0,
+    }
+}
+
+fn assert_contested(vault: &AsterVault<FixedClock>, id: CxId, contested_with: CxId) {
+    let bytes = vault
+        .read_cf_at(
+            vault.snapshot(),
+            ColumnFamily::Online,
+            &contested_with_key(id),
+        )
+        .expect("read contested")
+        .expect("contested row");
+    let decoded = decode_contested_with(&bytes).expect("decode contested");
+    assert_eq!(decoded.contested_with, contested_with);
+    assert_eq!(decoded.anchor_type, AnchorKind::SpeakerMatch);
+    assert_eq!(decoded.reason, ConflictReason::OppositeValue);
 }
 
 fn policy<const N: usize>(tau: [(SlotId, f32); N], required: Vec<SlotId>) -> DedupPolicy {
