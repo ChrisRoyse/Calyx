@@ -97,6 +97,23 @@ fn temporal_search_fsv_writes_result_readback() {
         0,
     )
     .expect("windowed");
+    let underfill_window = TimeWindow::last_hours(1, &TemporalFixedClock::new(QUERY_TIME)).unwrap();
+    let underfill_query = Query {
+        k: 1,
+        explain: true,
+        ..Query::new("temporal search underfill")
+            .with_vector(dense(vec![1.0, 0.0]))
+            .with_slots(vec![CONTENT_SLOT, TEMPORAL_SLOT])
+    };
+    let underfill = temporal_search(
+        &engine,
+        &underfill_query,
+        Some(underfill_window),
+        &policy,
+        &TemporalFixedClock::new(QUERY_TIME),
+        0,
+    )
+    .expect("underfill regression");
     let empty = temporal_search(
         &empty_engine(),
         &query,
@@ -136,6 +153,20 @@ fn temporal_search_fsv_writes_result_readback() {
             "after_ids": ids(&windowed.hits),
             "old_id_excluded": !windowed.hits.iter().any(|hit| hit.cx_id == cx(1)),
         },
+        "underfill_edge": {
+            "query_k": underfill_query.k,
+            "query_recall_k": underfill_query.recall_k,
+            "raw_pre_window_ids": ids_from_cx(&underfill.pre_boost_ranking),
+            "raw_rank_1_id": id_hex(1),
+            "raw_rank_1_event_time_secs": 900_000,
+            "window": underfill_window,
+            "raw_rank_1_in_window": underfill_window.contains(900_000),
+            "raw_rank_2_id": id_hex(2),
+            "raw_rank_2_event_time_secs": 999_500,
+            "raw_rank_2_in_window": underfill_window.contains(999_500),
+            "final_ids": ids(&underfill.hits),
+            "filled_final_k": underfill.hits.len() == underfill_query.k,
+        },
         "empty_edge": {
             "before_index_count": 0,
             "after_hit_count": empty.hits.len(),
@@ -166,6 +197,8 @@ fn temporal_search_fsv_writes_result_readback() {
     assert_eq!(score_for(&zero_boost_proof, 3), 0.0);
     assert!(!zero_surface.hits.iter().any(|hit| hit.cx_id == cx(3)));
     assert!(!windowed.hits.iter().any(|hit| hit.cx_id == cx(1)));
+    assert_eq!(ids_from_cx(&underfill.pre_boost_ranking), vec![1, 2, 3]);
+    assert_eq!(ids(&underfill.hits), vec![2]);
     assert!(empty.hits.is_empty());
     assert_eq!(invalid.code, CALYX_TEMPORAL_AP60_VIOLATION);
 

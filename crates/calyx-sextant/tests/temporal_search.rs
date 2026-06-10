@@ -55,6 +55,23 @@ fn temporal_search_window_excludes_old_hit() {
 }
 
 #[test]
+fn temporal_search_overfetches_before_window_filter_for_k_one() {
+    let engine = sample_engine();
+    let result = temporal_search(
+        &engine,
+        &sample_query(1),
+        Some(TimeWindow::last_hours(1, &TemporalFixedClock::new(QUERY_TIME)).unwrap()),
+        &policy_step(None),
+        &TemporalFixedClock::new(QUERY_TIME),
+        0,
+    )
+    .expect("windowed temporal search");
+
+    assert_eq!(ids_from_cx(&result.pre_boost_ranking), vec![1, 2, 3]);
+    assert_eq!(ids(&result.hits), vec![2]);
+}
+
+#[test]
 fn zero_content_score_is_not_elevated_or_final_surfaced_by_recency() {
     let engine = sample_engine();
     let result = temporal_search(
