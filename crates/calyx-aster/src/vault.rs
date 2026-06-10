@@ -14,6 +14,7 @@ mod slot_backfill;
 mod slot_column;
 
 use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
+use crate::dedup::{AnchorConflictResult, check_anchor_conflict};
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
 use crate::vault::durable::DurableVault;
 use crate::vault::ledger_hook::AsterLedgerHook;
@@ -215,9 +216,21 @@ where
             &self.clock,
         )? {
             let base_bytes = encode::encode_constellation_base(&constellation)?;
-            if existing == base_bytes
-                || encode::same_constellation_identity(&existing, &base_bytes)?
-            {
+            if existing == base_bytes {
+                return Ok(id);
+            }
+            if encode::same_constellation_identity(&existing, &base_bytes)? {
+                let existing_cx = encode::decode_constellation_base(&existing)?;
+                let incoming_cx = encode::decode_constellation_base(&base_bytes)?;
+                if let AnchorConflictResult::Conflicting {
+                    anchor_type,
+                    reason,
+                } = check_anchor_conflict(&incoming_cx, &existing_cx)
+                {
+                    return Err(CalyxError::aster_corrupt_shard(format!(
+                        "CxId duplicate has conflicting {anchor_type:?} anchor: {reason:?}"
+                    )));
+                }
                 return Ok(id);
             }
             return Err(CalyxError::aster_corrupt_shard(

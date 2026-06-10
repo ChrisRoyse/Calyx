@@ -2,10 +2,11 @@
 
 use crate::cf::{ColumnFamily, base_key};
 use crate::dedup::{
-    AnchorConflictResult, CALYX_DEDUP_DPI_EXCEEDED, CALYX_DEDUP_INVALID_TAU,
-    CALYX_DEDUP_MISSING_GUARD_PROFILE, CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION,
-    CALYX_DEDUP_SLOT_NOT_IN_TAU, ConflictReason, ContestedWith, DedupPolicy, TauStrategy,
-    TctCosineConfig, check_anchor_conflict, contested_with_key, dedup_error, encode_contested_with,
+    AnchorConflictResult, CALYX_DEDUP_ANCHOR_CONFLICT, CALYX_DEDUP_DPI_EXCEEDED,
+    CALYX_DEDUP_INVALID_TAU, CALYX_DEDUP_MISSING_GUARD_PROFILE,
+    CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION, CALYX_DEDUP_SLOT_NOT_IN_TAU, ConflictReason,
+    ContestedWith, DedupPolicy, TauStrategy, TctCosineConfig, check_anchor_conflict,
+    contested_with_key, dedup_error, encode_contested_with,
 };
 use crate::vault::AsterVault;
 use calyx_core::{
@@ -113,6 +114,10 @@ where
         DedupPolicy::Exact => exact_match(new_cx, vault),
         DedupPolicy::TctCosine(config) => {
             config.validate_static()?;
+            let exact = exact_match(new_cx, vault)?;
+            if matches!(exact, DedupDecision::Match { .. }) {
+                return Ok(exact);
+            }
             let snapshot = vault.snapshot();
             let candidates = vault.scan_cf_at(snapshot, ColumnFamily::Base)?;
             if candidates.len() > candidate_limit {
@@ -167,6 +172,8 @@ where
         .read_cf_at(snapshot, ColumnFamily::Base, &base_key(new_cx.cx_id))?
         .is_some()
     {
+        let existing = vault.get(new_cx.cx_id, snapshot)?;
+        reject_exact_anchor_conflict(new_cx, &existing)?;
         Ok(DedupDecision::Match {
             existing: new_cx.cx_id,
             per_slot_cos: Vec::new(),
@@ -174,6 +181,23 @@ where
     } else {
         Ok(DedupDecision::NoMatch)
     }
+}
+
+fn reject_exact_anchor_conflict(new_cx: &Constellation, existing: &Constellation) -> Result<()> {
+    if let AnchorConflictResult::Conflicting {
+        anchor_type,
+        reason,
+    } = check_anchor_conflict(new_cx, existing)
+    {
+        return Err(dedup_error(
+            CALYX_DEDUP_ANCHOR_CONFLICT,
+            format!(
+                "exact duplicate {} has conflicting {anchor_type:?} anchor: {reason:?}",
+                new_cx.cx_id
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn required_dense(cx: &Constellation, slot: SlotId) -> Result<&[f32]> {
