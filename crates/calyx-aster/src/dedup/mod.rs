@@ -1,6 +1,7 @@
 //! Vault-level deduplication policy contracts.
 
 mod engine;
+mod ingest_at;
 mod policy;
 
 use calyx_core::{CalyxError, CxId, Panel, Result, Slot, SlotId};
@@ -9,6 +10,10 @@ use serde::{Deserialize, Serialize};
 pub use engine::{
     DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT, DedupDecision, check_dedup, check_dedup_with_limit,
     cosine_passes_all_required, resolve_tau,
+};
+pub use ingest_at::{
+    CALYX_DEDUP_INVALID_EVENT_TIME, DedupOnlineEvent, DedupOnlineKind, EpochSecs, IngestInput,
+    decode_dedup_online_event, dedup_online_key, ingest, ingest_at,
 };
 pub use policy::{
     ANCHOR_VECTOR_TAU, AnchorConflictResult, ConflictReason, ContestedWith, check_anchor_conflict,
@@ -180,6 +185,7 @@ pub(crate) fn dedup_error(code: &'static str, message: impl Into<String>) -> Cal
         }
         CALYX_DEDUP_DPI_EXCEEDED => "reduce the candidate set or use Exact dedup policy",
         CALYX_DEDUP_ANCHOR_CONFLICT => "keep conflicting anchors as separate contested regions",
+        CALYX_DEDUP_INVALID_EVENT_TIME => "use a non-negative Unix epoch timestamp in seconds",
         _ => "inspect dedup policy",
     };
     CalyxError {

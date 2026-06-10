@@ -90,12 +90,13 @@ pub fn check_dedup<C>(
 where
     C: Clock,
 {
-    check_dedup_with_limit(
+    check_dedup_inner(
         new_cx,
         vault,
         policy,
         guard_profile,
         DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT,
+        true,
     )
 }
 
@@ -105,6 +106,39 @@ pub fn check_dedup_with_limit<C>(
     policy: &DedupPolicy,
     guard_profile: Option<&dyn GuardTauProfile>,
     candidate_limit: usize,
+) -> Result<DedupDecision>
+where
+    C: Clock,
+{
+    check_dedup_inner(new_cx, vault, policy, guard_profile, candidate_limit, true)
+}
+
+pub(crate) fn check_dedup_without_conflict_write<C>(
+    new_cx: &Constellation,
+    vault: &AsterVault<C>,
+    policy: &DedupPolicy,
+    guard_profile: Option<&dyn GuardTauProfile>,
+) -> Result<DedupDecision>
+where
+    C: Clock,
+{
+    check_dedup_inner(
+        new_cx,
+        vault,
+        policy,
+        guard_profile,
+        DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT,
+        false,
+    )
+}
+
+fn check_dedup_inner<C>(
+    new_cx: &Constellation,
+    vault: &AsterVault<C>,
+    policy: &DedupPolicy,
+    guard_profile: Option<&dyn GuardTauProfile>,
+    candidate_limit: usize,
+    write_conflict_rows: bool,
 ) -> Result<DedupDecision>
 where
     C: Clock,
@@ -144,7 +178,15 @@ where
                     reason,
                 } = check_anchor_conflict(new_cx, &existing)
                 {
-                    write_anchor_conflict(vault, new_cx.cx_id, existing_id, anchor_type, reason)?;
+                    if write_conflict_rows {
+                        write_anchor_conflict(
+                            vault,
+                            new_cx.cx_id,
+                            existing_id,
+                            anchor_type,
+                            reason,
+                        )?;
+                    }
                     return Ok(DedupDecision::AnchorConflict {
                         existing: existing_id,
                     });

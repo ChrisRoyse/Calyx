@@ -14,7 +14,7 @@ mod slot_backfill;
 mod slot_column;
 
 use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
-use crate::dedup::{AnchorConflictResult, check_anchor_conflict};
+use crate::dedup::{AnchorConflictResult, DedupPolicy, check_anchor_conflict};
 use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
 use crate::vault::durable::DurableVault;
 use crate::vault::ledger_hook::AsterLedgerHook;
@@ -43,6 +43,7 @@ pub struct AsterVault<C = SystemClock> {
     clock: C,
     rows: VersionedCfStore,
     durable: Option<DurableVault>,
+    dedup_policy: DedupPolicy,
     ledger_hook: Option<AsterLedgerHook>,
     recovery_report: VaultRecoveryReport,
 }
@@ -97,6 +98,7 @@ impl AsterVault<SystemClock> {
         let mut durable_options = options.clone();
         durable_options.temporal_policy = recovery.temporal_policy;
         durable_options.dedup_policy = recovery.dedup_policy;
+        let dedup_policy = durable_options.dedup_policy.clone().unwrap_or_default();
         let durable = DurableVault::open(vault_dir, &durable_options)?;
         Ok(Self {
             vault_id,
@@ -104,6 +106,7 @@ impl AsterVault<SystemClock> {
             clock: SystemClock,
             rows,
             durable: Some(durable),
+            dedup_policy,
             ledger_hook: Some(ledger_hook),
             recovery_report,
         })
@@ -122,12 +125,25 @@ where
             clock,
             rows: VersionedCfStore::default(),
             durable: None,
+            dedup_policy: DedupPolicy::default(),
             ledger_hook: None,
             recovery_report: VaultRecoveryReport {
                 last_recovered_seq: 0,
                 torn_tail: None,
             },
         }
+    }
+
+    pub fn with_clock_and_dedup_policy(
+        vault_id: VaultId,
+        vault_salt: impl Into<Vec<u8>>,
+        clock: C,
+        dedup_policy: DedupPolicy,
+    ) -> Result<Self> {
+        dedup_policy.validate_manifest()?;
+        let mut vault = Self::with_clock(vault_id, vault_salt, clock);
+        vault.dedup_policy = dedup_policy;
+        Ok(vault)
     }
 
     /// Computes the PRD content-addressed id for raw input bytes.
@@ -142,6 +158,14 @@ where
 
     pub fn recovery_report(&self) -> &VaultRecoveryReport {
         &self.recovery_report
+    }
+
+    pub fn vault_id(&self) -> VaultId {
+        self.vault_id
+    }
+
+    pub fn dedup_policy(&self) -> &DedupPolicy {
+        &self.dedup_policy
     }
 
     /// Reads one raw CF row at `snapshot`.
@@ -178,6 +202,88 @@ where
             })
             .collect::<Vec<_>>();
         self.commit_rows(&rows)
+    }
+
+    pub(crate) fn commit_dedup_ingest(
+        &self,
+        mut constellation: Option<Constellation>,
+        online_rows: Vec<(Vec<u8>, Vec<u8>)>,
+        subject: CxId,
+        ledger_payload: Vec<u8>,
+    ) -> Result<Seq> {
+        let mut rows = Vec::new();
+        let mut hook_guard = match &self.ledger_hook {
+            Some(hook) => Some(ledger_hook::lock_hook(hook)?),
+            None => None,
+        };
+        let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
+            let staged =
+                ledger_hook::stage_ingest_payload(hook, &mut rows, subject, ledger_payload)?;
+            if let Some(cx) = constellation.as_mut() {
+                cx.provenance = staged
+                    .first()
+                    .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+                    .ledger_ref();
+            }
+            Some(staged)
+        } else {
+            let seq = self
+                .latest_seq()
+                .checked_add(1)
+                .ok_or_else(|| CalyxError::ledger_chain_broken("ledger sequence exhausted"))?;
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::Ledger,
+                key: ledger_key(seq),
+                value: ledger_stub::encode(seq),
+            });
+            if let Some(cx) = constellation.as_mut() {
+                cx.provenance = calyx_core::LedgerRef { seq, hash: [0; 32] };
+            }
+            None
+        };
+        if let Some(cx) = constellation.as_ref() {
+            self.stage_constellation_rows(&mut rows, cx)?;
+        }
+        for (key, value) in online_rows {
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::Online,
+                key,
+                value,
+            });
+        }
+        let seq = self.commit_rows(&rows)?;
+        if let (Some(hook), Some(staged)) = (hook_guard.as_deref_mut(), staged_ledger.as_ref()) {
+            ledger_hook::commit_staged(hook, staged)?;
+        }
+        Ok(seq)
+    }
+
+    fn stage_constellation_rows(
+        &self,
+        rows: &mut Vec<encode::WriteRow>,
+        constellation: &Constellation,
+    ) -> Result<()> {
+        let id = constellation.cx_id;
+        rows.push(encode::WriteRow {
+            cf: ColumnFamily::Base,
+            key: base_key(id),
+            value: encode::encode_constellation_base(constellation)?,
+        });
+        for (slot, vector) in &constellation.slots {
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::slot(*slot),
+                key: slot_key(id),
+                value: encode::encode_slot_vector(vector)?,
+            });
+        }
+        for anchor in &constellation.anchors {
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::Anchors,
+                key: anchor_key(id, &anchor.kind),
+                value: encode::encode_anchor(anchor)?,
+            });
+        }
+        Ok(())
     }
 
     fn snapshot_handle(&self, seq: Seq) -> Snapshot {
