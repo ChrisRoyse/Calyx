@@ -12,6 +12,13 @@ pub(super) struct LedgerPayload<'a> {
     pub into: Option<CxId>,
     pub occurrence: Option<OccurrenceId>,
     pub per_slot_cos: &'a [(SlotId, f32)],
+    pub recurrence_signature: Option<RecurrenceSignatureLedger>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RecurrenceSignatureLedger {
+    pub same_action: CxId,
+    pub new_time: EpochSecs,
 }
 
 pub(super) fn ledger_payload(payload: LedgerPayload<'_>) -> Result<Vec<u8>> {
@@ -24,6 +31,11 @@ pub(super) fn ledger_payload(payload: LedgerPayload<'_>) -> Result<Vec<u8>> {
         "dedup_action": payload.action,
         "dedup_into_id": payload.into.map(|id| id.to_string()),
         "occurrence_id": payload.occurrence.map(|id| id.0),
+        "recurrence_signature": payload.recurrence_signature.is_some(),
+        "same_action": payload.recurrence_signature.map(|signature| {
+            signature.same_action.to_string()
+        }),
+        "new_time": payload.recurrence_signature.map(|signature| signature.new_time.0),
         "per_slot_cos": payload.per_slot_cos.iter().map(|(slot, cos)| {
             json!({"slot": slot.get(), "cos": cos})
         }).collect::<Vec<_>>(),

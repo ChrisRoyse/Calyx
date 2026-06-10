@@ -74,10 +74,10 @@ fn recurrence_series_readback_writes_rollup_edges_and_fail_closed_bytes() {
 fn ingest_scenario(root: &Path) -> Value {
     let vault_dir = root.join("ingest").join("vault");
     let vault = durable_vault_with_policy(&vault_dir, tct_policy());
-    let input = input("recurrence-ingest", [1.0, 0.0]);
     let mut first_id = None;
     let mut results = Vec::new();
-    for time in [100, 200, 300, 400, 500] {
+    for (index, time) in [100, 200, 300, 400, 500].into_iter().enumerate() {
+        let input = temporal_input("recurrence-ingest", [1.0, 0.0], temporal_vector(index));
         let result = ingest_at(&vault, &input, EpochSecs(time), None).expect("ingest recurrence");
         if let DedupResult::New(cx_id) = &result {
             first_id = Some(*cx_id);
@@ -229,6 +229,32 @@ fn input(raw: &str, vector: [f32; 2]) -> IngestInput {
             data: vector.to_vec(),
         },
     )
+}
+
+fn temporal_input(raw: &str, vector: [f32; 2], temporal: [f32; 2]) -> IngestInput {
+    input(raw, vector)
+        .with_slot(
+            temporal_slot(),
+            SlotVector::Dense {
+                dim: 2,
+                data: temporal.to_vec(),
+            },
+        )
+        .with_temporal_slot(temporal_slot())
+}
+
+fn temporal_vector(index: usize) -> [f32; 2] {
+    match index {
+        0 => [1.0, 0.0],
+        1 => [0.0, 1.0],
+        2 => [-1.0, 0.0],
+        3 => [0.0, -1.0],
+        _ => [0.70710677, 0.70710677],
+    }
+}
+
+fn temporal_slot() -> SlotId {
+    SlotId::new(20)
 }
 
 fn tct_policy() -> DedupPolicy {

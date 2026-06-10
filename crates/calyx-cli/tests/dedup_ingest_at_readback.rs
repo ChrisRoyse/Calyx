@@ -64,6 +64,10 @@ fn dedup_ingest_at_writes_event_time_merge_and_ledger_bytes() {
         readback["recurrence"]["results"][1]["DedupMerge"]["occurrence"],
         json!(1)
     );
+    assert_eq!(
+        readback["recurrence"]["ledger_payloads"][1]["recurrence_signature"],
+        json!(true)
+    );
     assert_eq!(readback["exact_duplicate"]["base_row_count"], json!(1));
     assert_eq!(
         readback["exact_duplicate"]["second_result"]["ExactDuplicate"],
@@ -96,11 +100,28 @@ fn dedup_ingest_at_writes_event_time_merge_and_ledger_bytes() {
 fn recurrence_scenario(root: &Path) -> Value {
     let vault_dir = root.join("recurrence").join("vault");
     let vault = durable_vault(&vault_dir, tct_policy(DedupAction::RecurrenceSeries));
-    let input = input("same-event", [1.0, 0.0]);
     let results = [
-        ingest_at(&vault, &input, EpochSecs(100), None).expect("ingest 100"),
-        ingest_at(&vault, &input, EpochSecs(200), None).expect("ingest 200"),
-        ingest_at(&vault, &input, EpochSecs(300), None).expect("ingest 300"),
+        ingest_at(
+            &vault,
+            &temporal_input("same-event", [1.0, 0.0], [1.0, 0.0]),
+            EpochSecs(100),
+            None,
+        )
+        .expect("ingest 100"),
+        ingest_at(
+            &vault,
+            &temporal_input("same-event", [1.0, 0.0], [0.0, 1.0]),
+            EpochSecs(200),
+            None,
+        )
+        .expect("ingest 200"),
+        ingest_at(
+            &vault,
+            &temporal_input("same-event", [1.0, 0.0], [-1.0, 0.0]),
+            EpochSecs(300),
+            None,
+        )
+        .expect("ingest 300"),
     ];
     vault.flush().expect("flush recurrence");
     let id = result_new_id(&results[0]);
@@ -304,6 +325,22 @@ fn input(name: &str, dense_values: [f32; 2]) -> IngestInput {
             data: dense_values.to_vec(),
         },
     )
+}
+
+fn temporal_input(name: &str, dense_values: [f32; 2], temporal_values: [f32; 2]) -> IngestInput {
+    input(name, dense_values)
+        .with_slot(
+            temporal_slot(),
+            SlotVector::Dense {
+                dim: 2,
+                data: temporal_values.to_vec(),
+            },
+        )
+        .with_temporal_slot(temporal_slot())
+}
+
+fn temporal_slot() -> SlotId {
+    slot(20)
 }
 
 fn speaker(name: &str) -> Anchor {

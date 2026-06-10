@@ -2,8 +2,10 @@
 
 mod engine;
 mod ingest_at;
+mod ingest_event;
 mod ingest_ledger;
 mod policy;
+mod signature;
 
 use calyx_core::{CalyxError, CxId, Panel, Result, Slot, SlotId};
 use serde::{Deserialize, Serialize};
@@ -12,13 +14,17 @@ pub use engine::{
     DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT, DedupDecision, check_dedup, check_dedup_with_limit,
     cosine_passes_all_required, resolve_tau,
 };
-pub use ingest_at::{
-    CALYX_DEDUP_INVALID_EVENT_TIME, DedupOnlineEvent, DedupOnlineKind, EpochSecs, IngestInput,
-    decode_dedup_online_event, dedup_online_key, ingest, ingest_at,
+pub use ingest_at::{CALYX_DEDUP_INVALID_EVENT_TIME, EpochSecs, IngestInput, ingest, ingest_at};
+pub use ingest_event::{
+    DedupOnlineEvent, DedupOnlineKind, decode_dedup_online_event, dedup_online_key,
 };
 pub use policy::{
     ANCHOR_VECTOR_TAU, AnchorConflictResult, ConflictReason, ContestedWith, check_anchor_conflict,
     contested_with_key, decode_contested_with, encode_contested_with,
+};
+pub use signature::{
+    CALYX_RECURRENCE_SLOT_MISSING, SignatureResult, detect_recurrence_signature,
+    temporal_slot_ids_for_panel,
 };
 
 pub const CALYX_DEDUP_NO_REQUIRED_SLOTS: &str = "CALYX_DEDUP_NO_REQUIRED_SLOTS";

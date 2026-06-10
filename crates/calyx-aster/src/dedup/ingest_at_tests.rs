@@ -4,7 +4,10 @@ use calyx_core::{
 
 use super::*;
 use crate::cf::{ColumnFamily, base_key, recurrence_key};
-use crate::dedup::{TauStrategy, TctCosineConfig};
+use crate::dedup::{
+    CALYX_RECURRENCE_SLOT_MISSING, TauStrategy, TctCosineConfig, decode_dedup_online_event,
+    dedup_online_key,
+};
 use crate::recurrence::{StoredRecurrenceRow, decode_recurrence_row};
 use proptest::prelude::*;
 
@@ -41,11 +44,28 @@ fn exact_policy_writes_ledger_for_exact_duplicate() {
 #[test]
 fn recurrence_series_same_content_appends_online_occurrences() {
     let vault = vault(tct_policy(DedupAction::RecurrenceSeries));
-    let input = input("recurring", [1.0, 0.0]);
 
-    let first = ingest_at(&vault, &input, EpochSecs(100), None).expect("first");
-    let second = ingest_at(&vault, &input, EpochSecs(200), None).expect("second");
-    let third = ingest_at(&vault, &input, EpochSecs(300), None).expect("third");
+    let first = ingest_at(
+        &vault,
+        &temporal_input("recurring", [1.0, 0.0], [1.0, 0.0]),
+        EpochSecs(100),
+        None,
+    )
+    .expect("first");
+    let second = ingest_at(
+        &vault,
+        &temporal_input("recurring", [1.0, 0.0], [0.0, 1.0]),
+        EpochSecs(200),
+        None,
+    )
+    .expect("second");
+    let third = ingest_at(
+        &vault,
+        &temporal_input("recurring", [1.0, 0.0], [-1.0, 0.0]),
+        EpochSecs(300),
+        None,
+    )
+    .expect("third");
 
     let DedupResult::New(id) = first else {
         panic!("expected first new");
@@ -75,6 +95,43 @@ fn recurrence_series_same_content_appends_online_occurrences() {
         .collect::<Vec<_>>();
     assert_eq!(recurrence_times, vec![100, 200, 300]);
     assert_eq!(scan(&vault, ColumnFamily::Recurrence).len(), 3);
+}
+
+#[test]
+fn recurrence_series_same_temporal_slot_does_not_append_occurrence() {
+    let vault = vault(tct_policy(DedupAction::RecurrenceSeries));
+    let first_input = temporal_input("same-time", [1.0, 0.0], [1.0, 0.0]);
+    let second_input = temporal_input("same-time", [1.0, 0.0], [1.0, 0.0]);
+
+    let first = ingest_at(&vault, &first_input, EpochSecs(100), None).expect("first");
+    let second = ingest_at(&vault, &second_input, EpochSecs(200), None).expect("second");
+
+    let DedupResult::New(id) = first else {
+        panic!("expected first new");
+    };
+    assert_eq!(second, DedupResult::ExactDuplicate(id));
+    assert_eq!(scan(&vault, ColumnFamily::Base).len(), 1);
+    assert_eq!(scan(&vault, ColumnFamily::Recurrence).len(), 1);
+    assert_eq!(recurrence_at(&vault, id, 0), 100);
+}
+
+#[test]
+fn recurrence_series_missing_temporal_slot_fails_closed() {
+    let vault = vault(tct_policy(DedupAction::RecurrenceSeries));
+    let first = temporal_input("missing-temporal", [1.0, 0.0], [1.0, 0.0]);
+    let missing_temporal = input("missing-temporal", [1.0, 0.0]).with_temporal_slot(temp_slot());
+
+    let first_result = ingest_at(&vault, &first, EpochSecs(100), None).expect("first");
+    let error = ingest_at(&vault, &missing_temporal, EpochSecs(200), None)
+        .expect_err("missing temporal slot rejected");
+
+    let DedupResult::New(id) = first_result else {
+        panic!("expected first new");
+    };
+    assert_eq!(error.code, CALYX_RECURRENCE_SLOT_MISSING);
+    assert_eq!(scan(&vault, ColumnFamily::Ledger).len(), 1);
+    assert_eq!(scan(&vault, ColumnFamily::Recurrence).len(), 1);
+    assert_eq!(recurrence_at(&vault, id, 0), 100);
 }
 
 #[test]
@@ -139,12 +196,16 @@ proptest! {
     #[test]
     fn recurrence_series_repeats_are_one_new_then_merges(count in 1usize..=8) {
         let vault = vault(tct_policy(DedupAction::RecurrenceSeries));
-        let input = input("recurrence-prop", [1.0, 0.0]);
         let mut new_count = 0;
         let mut merge_count = 0;
         let mut series_id = None;
 
         for index in 0..count {
+            let input = temporal_input(
+                "recurrence-prop",
+                [1.0, 0.0],
+                cos_vector_for_index(index),
+            );
             let result = ingest_at(&vault, &input, EpochSecs(100 + index as i64), None)
                 .expect("ingest recurrence property row");
             match result {
@@ -239,6 +300,35 @@ fn input(name: &str, dense_values: [f32; 2]) -> IngestInput {
             data: dense_values.to_vec(),
         },
     )
+}
+
+fn temporal_input(name: &str, dense_values: [f32; 2], temporal_values: [f32; 2]) -> IngestInput {
+    input(name, dense_values)
+        .with_slot(
+            temp_slot(),
+            SlotVector::Dense {
+                dim: 2,
+                data: temporal_values.to_vec(),
+            },
+        )
+        .with_temporal_slot(temp_slot())
+}
+
+fn cos_vector_for_index(index: usize) -> [f32; 2] {
+    match index {
+        0 => [1.0, 0.0],
+        1 => [0.0, 1.0],
+        2 => [-1.0, 0.0],
+        3 => [0.0, -1.0],
+        4 => [0.70710677, 0.70710677],
+        5 => [-0.70710677, 0.70710677],
+        6 => [-0.70710677, -0.70710677],
+        _ => [0.70710677, -0.70710677],
+    }
+}
+
+fn temp_slot() -> SlotId {
+    SlotId::new(20)
 }
 
 fn speaker(name: &str) -> Anchor {
