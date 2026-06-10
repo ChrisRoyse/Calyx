@@ -1,11 +1,22 @@
 //! Vault-level deduplication policy contracts.
 
+mod engine;
+
 use calyx_core::{CalyxError, CxId, Panel, Result, Slot, SlotId};
 use serde::{Deserialize, Serialize};
+
+pub use engine::{
+    DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT, DedupDecision, check_dedup, check_dedup_with_limit,
+    cosine_passes_all_required, resolve_tau,
+};
 
 pub const CALYX_DEDUP_NO_REQUIRED_SLOTS: &str = "CALYX_DEDUP_NO_REQUIRED_SLOTS";
 pub const CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED: &str = "CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED";
 pub const CALYX_DEDUP_INVALID_TAU: &str = "CALYX_DEDUP_INVALID_TAU";
+pub const CALYX_DEDUP_SLOT_NOT_IN_TAU: &str = "CALYX_DEDUP_SLOT_NOT_IN_TAU";
+pub const CALYX_DEDUP_MISSING_GUARD_PROFILE: &str = "CALYX_DEDUP_MISSING_GUARD_PROFILE";
+pub const CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION: &str = "CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION";
+pub const CALYX_DEDUP_DPI_EXCEEDED: &str = "CALYX_DEDUP_DPI_EXCEEDED";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TauStrategy {
@@ -137,21 +148,31 @@ fn slot_excluded_from_dedup(slot: &Slot) -> bool {
         || slot.retrieval_only
         || matches!(
             slot.slot_key.key(),
-            "E2_recency" | "E3_periodic" | "E4_positional"
+            "E2_recency" | "E3_periodic" | "E4_positional" | "E4_sequence"
         )
-        || slot
-            .axis
-            .as_deref()
-            .is_some_and(|axis| matches!(axis, "E2_recency" | "E3_periodic" | "E4_positional"))
+        || slot.axis.as_deref().is_some_and(|axis| {
+            matches!(
+                axis,
+                "E2_recency" | "E3_periodic" | "E4_positional" | "E4_sequence"
+            )
+        })
 }
 
-fn dedup_error(code: &'static str, message: impl Into<String>) -> CalyxError {
+pub(crate) fn dedup_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
         CALYX_DEDUP_NO_REQUIRED_SLOTS => "choose at least one required content slot",
         CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED => {
             "remove E2/E3/E4 temporal lenses from required dedup slots"
         }
         CALYX_DEDUP_INVALID_TAU => "set finite cosine thresholds in -1.0..=1.0",
+        CALYX_DEDUP_SLOT_NOT_IN_TAU => "add a threshold for every required dedup slot",
+        CALYX_DEDUP_MISSING_GUARD_PROFILE => {
+            "provide a calibrated guard profile with tau for each required slot"
+        }
+        CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION => {
+            "ensure every required content slot has a dense vector on both constellations"
+        }
+        CALYX_DEDUP_DPI_EXCEEDED => "reduce the candidate set or use Exact dedup policy",
         _ => "inspect dedup policy",
     };
     CalyxError {

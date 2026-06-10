@@ -154,6 +154,16 @@ where
             .read_at(self.snapshot_handle(snapshot), cf, key, &self.clock)
     }
 
+    /// Scans visible raw CF rows at `snapshot`.
+    pub(crate) fn scan_cf_at(
+        &self,
+        snapshot: Seq,
+        cf: ColumnFamily,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.rows
+            .scan_cf_at(self.snapshot_handle(snapshot), cf, &self.clock)
+    }
+
     fn snapshot_handle(&self, seq: Seq) -> Snapshot {
         let lease = ReaderLease::new(0, seq, self.clock.now(), DEFAULT_LEASE_MS);
         Snapshot::new(seq, Freshness::FreshDerived, lease)

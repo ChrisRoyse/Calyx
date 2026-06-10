@@ -2,8 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::SlotId;
-use calyx_forge::{Backend, CpuBackend};
+use calyx_core::{SlotId, dense_cosine};
 
 use crate::error::WardError;
 use crate::profile::{GuardPolicy, GuardProfile};
@@ -42,13 +41,12 @@ pub fn guard(
         });
     }
 
-    let backend = CpuBackend::new();
     let mut per_slot = Vec::new();
     for slot in required {
         let produced_vec = produced.get(&slot).ok_or(WardError::MissingSlot { slot })?;
         let matched_vec = matched.get(&slot).ok_or(WardError::MissingSlot { slot })?;
         let tau = profile.tau_for(&slot).unwrap_or(DEFAULT_TAU);
-        let (cos, pass) = match slot_cosine(&backend, produced_vec, matched_vec) {
+        let (cos, pass) = match dense_cosine(produced_vec, matched_vec) {
             Some(cos) => (cos, cos >= tau),
             None => (0.0, false),
         };
@@ -121,32 +119,6 @@ fn required_slots(profile: &GuardProfile) -> Vec<SlotId> {
     slots.sort_unstable();
     slots.dedup();
     slots
-}
-
-fn slot_cosine(backend: &CpuBackend, produced: &[f32], matched: &[f32]) -> Option<f32> {
-    if produced.len() != matched.len() {
-        return None;
-    }
-    let dim = produced.len();
-    let produced = normalized(produced)?;
-    let matched = normalized(matched)?;
-    let mut out = [0.0_f32; 1];
-    backend
-        .cosine(&produced, &matched, dim, &mut out)
-        .ok()
-        .map(|_| out[0])
-        .filter(|cos| cos.is_finite())
-}
-
-fn normalized(values: &[f32]) -> Option<Vec<f32>> {
-    if values.is_empty() || values.iter().any(|value| !value.is_finite()) {
-        return None;
-    }
-    let norm = values.iter().map(|value| value * value).sum::<f32>().sqrt();
-    if !norm.is_finite() || norm <= 0.0 {
-        return None;
-    }
-    Some(values.iter().map(|value| value / norm).collect())
 }
 
 #[cfg(test)]

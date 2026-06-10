@@ -1,6 +1,7 @@
 //! Calyx command-line entry point.
 
 mod crash;
+mod dedup_readback;
 mod fsv;
 mod ledger_store;
 mod manifest_readback;
@@ -51,6 +52,47 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 && tz_flag == "--tz-offset" =>
         {
             temporal_readback::readback_temporal_search(parse_i64(clock)?, parse_i32(tz)?)
+        }
+        [
+            command,
+            topic,
+            vault_flag,
+            vault,
+            cx_flag,
+            cx_id,
+            slot_flag,
+            slot,
+            tau_flag,
+            tau,
+            near_flag,
+            near_cos,
+            distinct_flag,
+            distinct_cos,
+            vault_id_flag,
+            vault_id,
+            salt_flag,
+            salt,
+        ] if command == "readback"
+            && topic == "dedup-check"
+            && vault_flag == "--vault"
+            && cx_flag == "--cx-id"
+            && slot_flag == "--slot"
+            && tau_flag == "--tau"
+            && near_flag == "--near-cos"
+            && distinct_flag == "--distinct-cos"
+            && vault_id_flag == "--vault-id"
+            && salt_flag == "--salt" =>
+        {
+            dedup_readback::readback_dedup_check(dedup_readback::DedupReadbackArgs {
+                vault: Path::new(vault),
+                cx_id,
+                slot,
+                tau,
+                near_cos,
+                distinct_cos,
+                vault_id,
+                salt,
+            })
         }
         [command, flag, cf, vault_flag, vault]
             if command == "readback" && flag == "--cf" && vault_flag == "--vault" =>
@@ -357,7 +399,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>
@@ -424,5 +466,32 @@ mod tests {
             "0".into(),
         ])
         .expect("temporal search readback");
+    }
+
+    #[test]
+    fn dedup_check_readback_rejects_invalid_cosine_arg() {
+        let error = run(vec![
+            "readback".into(),
+            "dedup-check".into(),
+            "--vault".into(),
+            "missing".into(),
+            "--cx-id".into(),
+            "00000000000000000000000000000000".into(),
+            "--slot".into(),
+            "0".into(),
+            "--tau".into(),
+            "2.0".into(),
+            "--near-cos".into(),
+            "0.95".into(),
+            "--distinct-cos".into(),
+            "0.85".into(),
+            "--vault-id".into(),
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV".into(),
+            "--salt".into(),
+            "s".into(),
+        ])
+        .expect_err("invalid tau");
+
+        assert!(error.contains("--tau"));
     }
 }
