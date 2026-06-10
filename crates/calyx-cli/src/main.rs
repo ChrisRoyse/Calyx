@@ -3,6 +3,7 @@
 mod crash;
 mod fsv;
 mod ledger_store;
+mod manifest_readback;
 mod merkle;
 mod ops;
 mod provenance;
@@ -33,6 +34,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
             readback_vault_tree(Path::new(value)).map_err(|error| error.to_string())
+        }
+        [command, topic, field_flag, field, vault_flag, vault]
+            if command == "readback"
+                && topic == "vault-manifest"
+                && field_flag == "--field"
+                && vault_flag == "--vault" =>
+        {
+            manifest_readback::readback_vault_manifest_field(Path::new(vault), field)
         }
         [command, topic, explain_flag, clock_flag, clock, tz_flag, tz]
             if command == "readback"
@@ -348,7 +357,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>

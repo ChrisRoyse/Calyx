@@ -1,5 +1,6 @@
 //! Atomic manifest and recovery ordering for Aster vaults.
 
+use crate::dedup::DedupPolicy;
 use crate::sst::SstReader;
 use crate::wal::{ReplayRecord, TornTail, replay_dir};
 use calyx_core::{CalyxError, Result, TemporalPolicy};
@@ -149,6 +150,8 @@ pub struct VaultManifest {
     pub codebook_refs: Vec<ImmutableRef>,
     #[serde(default)]
     pub temporal_policy: Option<TemporalPolicy>,
+    #[serde(default)]
+    pub dedup_policy: Option<DedupPolicy>,
     pub degraded_rebuildable: bool,
     #[serde(default)]
     pub quarantines: Vec<QuarantineRecord>,
@@ -177,6 +180,24 @@ impl VaultManifest {
         codebook_refs: Vec<ImmutableRef>,
         temporal_policy: Option<TemporalPolicy>,
     ) -> Result<Self> {
+        Self::new_with_policies(
+            manifest_seq,
+            durable_seq,
+            panel_ref,
+            codebook_refs,
+            temporal_policy,
+            Some(DedupPolicy::default()),
+        )
+    }
+
+    pub fn new_with_policies(
+        manifest_seq: u64,
+        durable_seq: u64,
+        panel_ref: ImmutableRef,
+        codebook_refs: Vec<ImmutableRef>,
+        temporal_policy: Option<TemporalPolicy>,
+        dedup_policy: Option<DedupPolicy>,
+    ) -> Result<Self> {
         let manifest = Self {
             version: ManifestVersion::current(),
             manifest_seq,
@@ -184,6 +205,7 @@ impl VaultManifest {
             panel_ref,
             codebook_refs,
             temporal_policy,
+            dedup_policy,
             degraded_rebuildable: false,
             quarantines: Vec::new(),
         };
@@ -215,6 +237,9 @@ impl VaultManifest {
         }
         if let Some(policy) = &self.temporal_policy {
             policy.validate()?;
+        }
+        if let Some(policy) = &self.dedup_policy {
+            policy.validate_manifest()?;
         }
         Ok(())
     }

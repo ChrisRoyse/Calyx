@@ -1,6 +1,7 @@
 use super::encode::{WriteRow, decode_write_batch, encode_write_batch};
 use crate::cf::ColumnFamily;
 use crate::compaction::TieringPolicy;
+use crate::dedup::DedupPolicy;
 use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault};
 use crate::sst::{SstReader, write_sst};
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
@@ -19,6 +20,7 @@ pub struct VaultOptions {
     pub tiering_policy: Option<TieringPolicy>,
     pub ledger_checkpoint: Option<CheckpointConfig>,
     pub temporal_policy: Option<TemporalPolicy>,
+    pub dedup_policy: Option<DedupPolicy>,
 }
 
 impl Default for VaultOptions {
@@ -29,6 +31,7 @@ impl Default for VaultOptions {
             tiering_policy: None,
             ledger_checkpoint: Some(CheckpointConfig::default()),
             temporal_policy: Some(TemporalPolicy::default()),
+            dedup_policy: Some(DedupPolicy::default()),
         }
     }
 }
@@ -39,6 +42,7 @@ pub(super) struct DurableVault {
     batcher: GroupCommitBatcher,
     tiering_policy: Option<TieringPolicy>,
     temporal_policy: Option<TemporalPolicy>,
+    dedup_policy: Option<DedupPolicy>,
 }
 
 pub(super) struct RecoveredBatch {
@@ -51,6 +55,7 @@ pub(super) struct RecoveredBatches {
     pub last_recovered_seq: u64,
     pub torn_tail: Option<crate::wal::TornTail>,
     pub temporal_policy: Option<TemporalPolicy>,
+    pub dedup_policy: Option<DedupPolicy>,
 }
 
 impl DurableVault {
@@ -58,6 +63,9 @@ impl DurableVault {
         let root = root.as_ref().to_path_buf();
         if let Some(policy) = &options.temporal_policy {
             policy.validate()?;
+        }
+        if let Some(policy) = &options.dedup_policy {
+            policy.validate_manifest()?;
         }
         fs::create_dir_all(root.join("cf"))
             .map_err(|error| storage_error("create durable CF root", error))?;
@@ -78,6 +86,7 @@ impl DurableVault {
             batcher,
             tiering_policy: options.tiering_policy.clone(),
             temporal_policy: options.temporal_policy,
+            dedup_policy: options.dedup_policy.clone(),
         })
     }
 
@@ -104,6 +113,7 @@ impl DurableVault {
                 last_recovered_seq: recovery.last_recovered_seq,
                 torn_tail: recovery.torn_tail,
                 temporal_policy: recovery.manifest.temporal_policy,
+                dedup_policy: recovery.manifest.dedup_policy,
             });
         }
 
@@ -124,6 +134,7 @@ impl DurableVault {
             last_recovered_seq,
             torn_tail: replay.torn_tail,
             temporal_policy: options.temporal_policy,
+            dedup_policy: options.dedup_policy.clone(),
         })
     }
 
@@ -187,12 +198,13 @@ impl DurableVault {
 
     fn write_manifest(&self, seq: u64) -> Result<()> {
         let (panel_ref, codebook_refs) = ensure_manifest_assets(&self.root)?;
-        let manifest = VaultManifest::new_with_temporal_policy(
+        let manifest = VaultManifest::new_with_policies(
             seq,
             seq,
             panel_ref,
             codebook_refs,
             self.temporal_policy,
+            self.dedup_policy.clone(),
         )?;
         ManifestStore::open(&self.root).write_current(&manifest)?;
         Ok(())
