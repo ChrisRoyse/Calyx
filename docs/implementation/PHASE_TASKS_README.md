@@ -33,7 +33,9 @@ for the structure under `docs/implementation/PHnn-*/`.
 > `/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`;
 > PH41 T06 #384 is complete and FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue384-recurrence-signature-20260610-8b0d0bb`;
-> PH41 T07 #385 is the next Stage 9 card.
+> post-T06 recurrence fallback hardening #623 is FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`;
+> PH41 T07 #385 has an implementation checkpoint pending aiwonder FSV.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.

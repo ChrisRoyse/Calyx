@@ -1,7 +1,7 @@
 use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId};
 use serde_json::json;
 
-use super::{DedupAction, DedupPolicy, EpochSecs, OccurrenceId};
+use super::{DedupAction, DedupPolicy, DedupRestoreSnapshot, EpochSecs, OccurrenceId};
 
 pub(super) struct LedgerPayload<'a> {
     pub cx: &'a Constellation,
@@ -13,6 +13,7 @@ pub(super) struct LedgerPayload<'a> {
     pub occurrence: Option<OccurrenceId>,
     pub per_slot_cos: &'a [(SlotId, f32)],
     pub recurrence_signature: Option<RecurrenceSignatureLedger>,
+    pub restore: Option<&'a DedupRestoreSnapshot>,
 }
 
 #[derive(Clone, Copy)]
@@ -30,6 +31,7 @@ pub(super) fn ledger_payload(payload: LedgerPayload<'_>) -> Result<Vec<u8>> {
         "dedup_decision": payload.decision,
         "dedup_action": payload.action,
         "dedup_into_id": payload.into.map(|id| id.to_string()),
+        "merged_from": payload.restore.map(|restore| restore.merged_from.to_string()),
         "occurrence_id": payload.occurrence.map(|id| id.0),
         "recurrence_signature": payload.recurrence_signature.is_some(),
         "same_action": payload.recurrence_signature.map(|signature| {
@@ -39,6 +41,7 @@ pub(super) fn ledger_payload(payload: LedgerPayload<'_>) -> Result<Vec<u8>> {
         "per_slot_cos": payload.per_slot_cos.iter().map(|(slot, cos)| {
             json!({"slot": slot.get(), "cos": cos})
         }).collect::<Vec<_>>(),
+        "restore": payload.restore,
     });
     serde_json::to_vec(&value)
         .map_err(|error| CalyxError::aster_corrupt_shard(format!("encode ledger payload: {error}")))

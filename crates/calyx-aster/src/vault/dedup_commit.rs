@@ -125,4 +125,86 @@ where
         }
         Ok(seq)
     }
+
+    pub(crate) fn commit_dedup_undo(
+        &self,
+        restored: Vec<Constellation>,
+        updated_bases: Vec<Constellation>,
+        recurrence_rows: Vec<(Vec<u8>, Vec<u8>)>,
+        subject: CxId,
+        ledger_payload: Vec<u8>,
+    ) -> Result<Seq> {
+        let mut rows = Vec::new();
+        let mut hook_guard = match &self.ledger_hook {
+            Some(hook) => Some(ledger_hook::lock_hook(hook)?),
+            None => None,
+        };
+        let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
+            Some(ledger_hook::stage_ingest_payload(
+                hook,
+                &mut rows,
+                subject,
+                ledger_payload,
+            )?)
+        } else {
+            let seq = self
+                .latest_seq()
+                .checked_add(1)
+                .ok_or_else(|| CalyxError::ledger_chain_broken("ledger sequence exhausted"))?;
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::Ledger,
+                key: ledger_key(seq),
+                value: ledger_stub::encode(seq),
+            });
+            None
+        };
+        for cx in &restored {
+            if cx.vault_id != self.vault_id {
+                return Err(CalyxError::vault_access_denied(
+                    "dedup undo restore belongs to another vault",
+                ));
+            }
+            self.stage_constellation_rows(&mut rows, cx)?;
+        }
+        for cx in &updated_bases {
+            if cx.vault_id != self.vault_id {
+                return Err(CalyxError::vault_access_denied(
+                    "dedup undo base update belongs to another vault",
+                ));
+            }
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::Base,
+                key: base_key(cx.cx_id),
+                value: encode::encode_constellation_base(cx)?,
+            });
+        }
+        for (key, value) in recurrence_rows {
+            rows.push(encode::WriteRow {
+                cf: ColumnFamily::Recurrence,
+                key,
+                value,
+            });
+        }
+        let rows = latest_rows(rows);
+        let seq = self.commit_rows(&rows)?;
+        if let (Some(hook), Some(staged)) = (hook_guard.as_deref_mut(), staged_ledger.as_ref()) {
+            ledger_hook::commit_staged(hook, staged)?;
+        }
+        Ok(seq)
+    }
+}
+
+fn latest_rows(rows: Vec<encode::WriteRow>) -> Vec<encode::WriteRow> {
+    let mut latest = Vec::<encode::WriteRow>::new();
+    for row in rows {
+        if let Some(index) = latest
+            .iter()
+            .position(|existing| existing.cf == row.cf && existing.key == row.key)
+        {
+            latest[index] = row;
+        } else {
+            latest.push(row);
+        }
+    }
+    latest
 }

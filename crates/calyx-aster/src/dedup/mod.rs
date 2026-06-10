@@ -1,5 +1,6 @@
 //! Vault-level deduplication policy contracts.
 
+mod audit;
 mod engine;
 mod ingest_at;
 mod ingest_event;
@@ -10,6 +11,11 @@ mod signature;
 use calyx_core::{CalyxError, CxId, Panel, Result, Slot, SlotId};
 use serde::{Deserialize, Serialize};
 
+pub use audit::{
+    CALYX_DEDUP_UNDO_EMPTY_TOKEN, CALYX_DEDUP_UNDO_MISSING_RESTORE, CALYX_DEDUP_WRONG_VAULT,
+    DedupAuditReport, DedupRestoreSnapshot, DedupUndoRecord, MergeRecord, ReversalToken,
+    dedup_audit, dedup_undo,
+};
 pub use engine::{
     DEFAULT_DEDUP_DPI_CANDIDATE_LIMIT, DedupDecision, check_dedup, check_dedup_with_limit,
     cosine_passes_all_required, resolve_tau,
@@ -182,6 +188,11 @@ pub(crate) fn dedup_error(code: &'static str, message: impl Into<String>) -> Cal
         CALYX_DEDUP_DPI_EXCEEDED => "reduce the candidate set or use Exact dedup policy",
         CALYX_DEDUP_ANCHOR_CONFLICT => "keep conflicting anchors as separate contested regions",
         CALYX_DEDUP_INVALID_EVENT_TIME => "use a non-negative Unix epoch timestamp in seconds",
+        CALYX_DEDUP_WRONG_VAULT => "apply the reversal token to the vault that produced it",
+        CALYX_DEDUP_UNDO_MISSING_RESTORE => {
+            "use a merge ledger entry that contains a dedup restore snapshot"
+        }
+        CALYX_DEDUP_UNDO_EMPTY_TOKEN => "use a reversal token with at least one snapshot CxId",
         _ => "inspect dedup policy",
     };
     CalyxError {

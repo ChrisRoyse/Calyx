@@ -50,6 +50,9 @@ one constellation + time series, reversible byte-for-byte.
   byte readback: near-distinct has two base CF rows, conflicting anchors remain
   separate with an audit block record, recurring events store one Cx plus the
   expected occurrence rows, and undo restores three byte-identical Cx rows.
+  Recurrence undo is append-only: the after-read must show the logical series
+  empty through `readback recurrence-series` and raw recurrence CF tombstone rows
+  for the prior occurrence ids rather than deleted historical bytes.
 
 ## Done when
 

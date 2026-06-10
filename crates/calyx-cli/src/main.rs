@@ -1,6 +1,7 @@
 //! Calyx command-line entry point.
 
 mod crash;
+mod dedup_audit_readback;
 mod dedup_readback;
 mod fsv;
 mod ledger_store;
@@ -105,6 +106,27 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 && cx_flag == "--cx-id" =>
         {
             recurrence_readback::readback_recurrence_series(Path::new(vault), cx_id)
+        }
+        [command, topic, vault_flag, vault, cx_flag, cx_id]
+            if command == "readback"
+                && topic == "dedup-audit"
+                && vault_flag == "--vault"
+                && cx_flag == "--cx-id" =>
+        {
+            dedup_audit_readback::readback_dedup_audit(Path::new(vault), cx_id)
+        }
+        [command, topic, vault_flag, vault, token_flag, token]
+            if command == "readback"
+                && topic == "dedup-undo"
+                && vault_flag == "--vault"
+                && token_flag == "--token" =>
+        {
+            dedup_audit_readback::readback_dedup_undo(Path::new(vault), token)
+        }
+        [command, topic, vault_flag, vault]
+            if command == "readback" && topic == "cx-list" && vault_flag == "--vault" =>
+        {
+            dedup_audit_readback::readback_cx_list(Path::new(vault))
         }
         [command, flag, cf, vault_flag, vault]
             if command == "readback" && flag == "--cf" && vault_flag == "--vault" =>
@@ -411,7 +433,7 @@ fn print_usage() {
 }
 
 fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | recurrence-series --vault <dir> --cx-id <cx> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | recurrence-series --vault <dir> --cx-id <cx> | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx scan --cf ledger --vault <dir>
