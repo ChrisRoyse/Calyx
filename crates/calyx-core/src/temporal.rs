@@ -7,6 +7,7 @@ pub const CALYX_TEMPORAL_AP60_VIOLATION: &str = "CALYX_TEMPORAL_AP60_VIOLATION";
 pub const CALYX_TEMPORAL_INVALID_BOOST_CONFIG: &str = "CALYX_TEMPORAL_INVALID_BOOST_CONFIG";
 pub const CALYX_TEMPORAL_INVALID_PERIOD: &str = "CALYX_TEMPORAL_INVALID_PERIOD";
 pub const CALYX_TEMPORAL_INVALID_WINDOW: &str = "CALYX_TEMPORAL_INVALID_WINDOW";
+pub const CALYX_TEMPORAL_NEGATIVE_WEIGHT: &str = "CALYX_TEMPORAL_NEGATIVE_WEIGHT";
 pub const CALYX_TEMPORAL_WEIGHT_SUM: &str = "CALYX_TEMPORAL_WEIGHT_SUM";
 
 const WEIGHT_SUM_EPSILON: f32 = 1.0e-6;
@@ -157,11 +158,22 @@ impl FusionWeights {
 
     pub fn validate(&self) -> Result<()> {
         let sum = self.recency + self.sequence + self.periodic;
-        if !self.recency.is_finite()
-            || !self.sequence.is_finite()
-            || !self.periodic.is_finite()
-            || (sum - 1.0).abs() >= WEIGHT_SUM_EPSILON
-        {
+        if !self.recency.is_finite() || !self.sequence.is_finite() || !self.periodic.is_finite() {
+            return Err(temporal_error(
+                CALYX_TEMPORAL_WEIGHT_SUM,
+                format!("temporal fusion weights must sum to 1.0, got {sum}"),
+            ));
+        }
+        if self.recency < 0.0 || self.sequence < 0.0 || self.periodic < 0.0 {
+            return Err(temporal_error(
+                CALYX_TEMPORAL_NEGATIVE_WEIGHT,
+                format!(
+                    "temporal fusion weights must be non-negative: recency={} sequence={} periodic={}",
+                    self.recency, self.sequence, self.periodic
+                ),
+            ));
+        }
+        if (sum - 1.0).abs() >= WEIGHT_SUM_EPSILON {
             return Err(temporal_error(
                 CALYX_TEMPORAL_WEIGHT_SUM,
                 format!("temporal fusion weights must sum to 1.0, got {sum}"),
@@ -389,6 +401,9 @@ fn temporal_error(code: &'static str, message: impl Into<String>) -> CalyxError 
         }
         CALYX_TEMPORAL_INVALID_PERIOD => "set target_hour 0..=23 and day_of_week 0..=6",
         CALYX_TEMPORAL_INVALID_WINDOW => "set a non-empty temporal window within i64 bounds",
+        CALYX_TEMPORAL_NEGATIVE_WEIGHT => {
+            "use a convex temporal fusion blend with every component >= 0.0"
+        }
         CALYX_TEMPORAL_WEIGHT_SUM => "normalize recency + sequence + periodic to exactly 1.0",
         _ => "inspect temporal policy",
     };
