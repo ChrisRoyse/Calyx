@@ -84,6 +84,27 @@ pub(crate) fn same_temporal_signature_scenario(root: &Path) -> Value {
     )
 }
 
+pub(crate) fn event_time_fallback_signature_scenario(root: &Path) -> Value {
+    let vault_dir = root.join("event_time_fallback_signature").join("vault");
+    let vault = durable_vault(&vault_dir, tct_policy(DedupAction::RecurrenceSeries));
+    let input = input("fallback-signature", [1.0, 0.0]);
+    let first = ingest_at(&vault, &input, EpochSecs(100), None).expect("first fallback");
+    let second = ingest_at(&vault, &input, EpochSecs(200), None).expect("second fallback");
+    vault.flush().expect("flush fallback signature");
+    let id = result_new_id(&first);
+    scenario_json(
+        &vault,
+        &vault_dir,
+        json!([first, second]),
+        json!({
+            "cx_id": id,
+            "occurrence_times": [occurrence_at(&vault, id, 0), occurrence_at(&vault, id, 1)],
+            "occurrences": occurrence_values(&vault, id, 0..=1),
+            "ledger_payloads": ledger_payloads(&vault, 0..=1),
+        }),
+    )
+}
+
 pub(crate) fn missing_temporal_signature_scenario(root: &Path) -> Value {
     let vault_dir = root.join("missing_temporal_signature").join("vault");
     let vault = durable_vault(&vault_dir, tct_policy(DedupAction::RecurrenceSeries));
