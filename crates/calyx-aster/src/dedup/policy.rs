@@ -91,7 +91,9 @@ fn style_conflict_reason(left: &AnchorValue, right: &AnchorValue) -> Option<Conf
     let (AnchorValue::Vector(left), AnchorValue::Vector(right)) = (left, right) else {
         return Some(ConflictReason::ExclusiveTag);
     };
-    let cos = dense_cosine(left, right).unwrap_or(-1.0);
+    let cos = dense_cosine(left, right)
+        .filter(|cos| cos.is_finite())
+        .unwrap_or(-1.0);
     (cos < ANCHOR_VECTOR_TAU).then_some(ConflictReason::IncompatibleVector { cos })
 }
 
@@ -108,6 +110,17 @@ mod tests {
     fn no_shared_anchor_returns_no_anchor() {
         let new = sample_cx(1, vec![anchor(AnchorKind::SpeakerMatch, text("speaker-a"))]);
         let existing = sample_cx(2, vec![anchor(AnchorKind::StyleHold, vector_at_cos(0.8))]);
+
+        assert_eq!(
+            check_anchor_conflict(&new, &existing),
+            AnchorConflictResult::NoAnchor
+        );
+    }
+
+    #[test]
+    fn empty_new_anchors_return_no_anchor() {
+        let new = sample_cx(1, Vec::new());
+        let existing = sample_cx(2, vec![anchor(AnchorKind::SpeakerMatch, text("speaker-a"))]);
 
         assert_eq!(
             check_anchor_conflict(&new, &existing),
@@ -143,6 +156,25 @@ mod tests {
             panic!("expected vector conflict");
         };
         assert!((cos - 0.65).abs() <= 1.0e-5);
+    }
+
+    #[test]
+    fn non_finite_style_vector_conflicts_fail_closed() {
+        let new = sample_cx(
+            1,
+            vec![anchor(
+                AnchorKind::StyleHold,
+                AnchorValue::Vector(vec![f32::NAN, 1.0]),
+            )],
+        );
+        let existing = sample_cx(2, vec![anchor(AnchorKind::StyleHold, vector_at_cos(0.85))]);
+
+        let AnchorConflictResult::Conflicting { reason, .. } =
+            check_anchor_conflict(&new, &existing)
+        else {
+            panic!("expected conflict");
+        };
+        assert_eq!(reason, ConflictReason::IncompatibleVector { cos: -1.0 });
     }
 
     #[test]
