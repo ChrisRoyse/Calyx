@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::str::FromStr;
 
-use calyx_core::{Clock, SlotId};
+use calyx_core::{Clock, GuardTauProfile, SlotId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -147,6 +147,12 @@ impl GuardProfile {
     /// Returns the tau for `slot`; `None` means the slot is not guarded.
     pub fn tau_for(&self, slot: &SlotId) -> Option<f32> {
         self.tau.get(slot).copied()
+    }
+}
+
+impl GuardTauProfile for GuardProfile {
+    fn tau_for(&self, slot: &SlotId) -> Option<f32> {
+        GuardProfile::tau_for(self, slot)
     }
 }
 

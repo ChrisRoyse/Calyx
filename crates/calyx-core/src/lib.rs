@@ -1,5 +1,6 @@
 //! Core Calyx identifiers, model contracts, and shared types.
 
+pub mod cosine;
 pub mod enums;
 pub mod error;
 pub mod ids;
@@ -8,6 +9,7 @@ pub mod temporal;
 pub mod time;
 pub mod traits;
 
+pub use cosine::{GuardTauProfile, dense_cosine};
 pub use enums::{AbsentReason, AnchorKind, Asymmetry, Modality, QuantPolicy, SlotShape, SlotState};
 pub use error::{CALYX_ERROR_CODES, CalyxError, CalyxErrorCode, CalyxWarning, Result};
 pub use ids::{CxId, LensId, ParseIdError, SlotId, SlotKey, VaultId, content_address};
