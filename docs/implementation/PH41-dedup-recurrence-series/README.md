@@ -50,10 +50,15 @@ PH41 T04 #382 is FSV-signed-off at
 recurrence Online CF rows, and Ledger payloads; exact duplicates write Ledger
 without a second base row; anchor conflicts store a new candidate plus reciprocal
 contested rows; invalid negative event time fails closed with no base/ledger
-rows. The `Gτ`
-guard (PH37) is in `calyx-ward`. `calyx-loom` exists from Stage 5
-(cross-terms/agreement/abundance); PH41 should add a new `recurrence` module
-under that crate rather than initialize the crate from scratch.
+rows.
+PH41 T05 #383 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`: Aster
+now owns the dedicated `recurrence` CF, Loom exposes `SeriesStore` as the
+facade, recurrence ingests update base `recurrence.frequency` and recurrence
+rows in one commit, CLI `readback recurrence-series` reads SST+WAL bytes, and
+the FSV fixture proves happy-path 5 occurrences, empty series, max-count rollup,
+oversized context fail-closed, and WAL append failure atomicity. The `Gτ` guard
+(PH37) is in `calyx-ward`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -78,7 +83,7 @@ under that crate rather than initialize the crate from scratch.
 | T02 | Dedup engine: per-slot cosine gate (content-only, excl. E2/E3/E4) | DONE / FSV #380 |
 | T03 | Anchor-conflict guard (MUST NOT merge conflicting anchors) | DONE / FSV #381 |
 | T04 | `ingest_at(input, at: t)` → `New | DedupMerge{into, occurrence}` | DONE / FSV #382 |
-| T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | T04 |
+| T05 | Recurrence series store (one event, many `t_k` occurrences; bounded, A26) | DONE / FSV #383 |
 | T06 | Recurrence signature detector (content-agree + temporal-differ) | T05 |
 | T07 | `dedup_audit` (per-slot cos, reversible, Ledger-logged) | T06 |
 | T08 | FSV: near-but-distinct NOT merged; conflicting-anchor stays separate; recurring → series (reversible) | T07 |
@@ -89,6 +94,9 @@ under that crate rather than initialize the crate from scratch.
 |---|---|
 | #578 | Public `recurrence_series`, `periodic_fit`, and `periodic_recall` read APIs before PH41 exit |
 | #617 | Durable/recovered `DedupPolicy` validation parity for temporal required-slot rejection |
+| #620 | Recurrence rollup tombstone/physical reclaim integration |
+| #621 | Concurrency-safe recurrence occurrence id allocation |
+| #622 | Exact WAL write-failure code/injection proof beyond current storage-error fail-closed path |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

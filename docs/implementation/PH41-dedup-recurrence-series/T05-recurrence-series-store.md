@@ -4,8 +4,8 @@
 |---|---|
 | **Phase** | PH41 — DedupPolicy TctCosine + Recurrence Series + Signature |
 | **Stage** | S9 — Temporal & Dedup |
-| **Crate** | `calyx-loom` |
-| **Files** | `crates/calyx-loom/src/recurrence/mod.rs` (≤500), `crates/calyx-loom/src/recurrence/series_store.rs` (≤500) |
+| **Crate** | `calyx-aster` / `calyx-loom` |
+| **Files** | `crates/calyx-aster/src/recurrence.rs` (≤500), `crates/calyx-loom/src/recurrence/mod.rs` (≤500), `crates/calyx-loom/src/recurrence/series_store.rs` (≤500), `crates/calyx-cli/src/recurrence_readback.rs` (≤500) |
 | **Depends on** | T04 (this phase) · PH09 (aster CF infrastructure) |
 | **Axioms** | A28, A26 |
 | **PRD** | `dbprdplans/25 §4`, `dbprdplans/25 §4b` |
@@ -22,34 +22,34 @@ on read.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `Occurrence { id: OccurrenceId, t_k: EpochSecs, context: OccurrenceContext }` where `OccurrenceContext` is a small blob (≤256 bytes) of caller-provided context (e.g., session ID, source)
-- [ ] Define `RecurrenceSeries { cx_id: CxId, occurrences: Vec<Occurrence>, frequency: u64, cadence_secs: Option<f64>, rollup_summary: Option<RollupSummary> }`
-- [ ] Define `RollupSummary { oldest_t: EpochSecs, count_rolled: u64, period_estimate_secs: f64 }` — replaces oldest occurrences when rollup fires
-- [ ] Define `RetentionPolicy { max_occurrences: usize, max_age_secs: u64 }` — default: max_occurrences=10_000, max_age_secs=365*86400
-- [ ] Implement `SeriesStore::append_occurrence(cx_id: CxId, t_k: EpochSecs, context: OccurrenceContext) -> Result<OccurrenceId, CalyxError>`:
+- [x] Define `Occurrence { id: OccurrenceId, t_k: EpochSecs, context: OccurrenceContext }` where `OccurrenceContext` is a small blob (≤256 bytes) of caller-provided context (e.g., session ID, source)
+- [x] Define `RecurrenceSeries { cx_id: CxId, occurrences: Vec<Occurrence>, frequency: u64, cadence_secs: Option<f64>, rollup_summary: Option<RollupSummary> }`
+- [x] Define `RollupSummary { oldest_t: EpochSecs, count_rolled: u64, period_estimate_secs: f64 }` — replaces oldest occurrences when rollup fires
+- [x] Define `RetentionPolicy { max_occurrences: usize, max_age_secs: u64 }` — default: max_occurrences=10_000, max_age_secs=365*86400
+- [x] Implement `SeriesStore::append_occurrence(cx_id: CxId, t_k: EpochSecs, context: OccurrenceContext) -> Result<OccurrenceId, CalyxError>`:
   - write occurrence to the `recurrence` CF under key `(cx_id, occ_id)` in WAL group-commit
   - increment `frequency` counter in base CF for `cx_id`
-  - enforce `RetentionPolicy`: if len+1 > max_occurrences → roll up oldest 10% into `RollupSummary`, delete those rows
+  - enforce `RetentionPolicy`: if len+1 > max_occurrences → roll up oldest 10% into `RollupSummary`, replace active rows with rolled markers
   - enforce age retention: drop occurrences older than `now - max_age_secs` → roll up
   - return new `OccurrenceId`
-- [ ] Implement `SeriesStore::read_series(cx_id: CxId) -> Result<RecurrenceSeries, CalyxError>`:
+- [x] Implement `SeriesStore::read_series(cx_id: CxId) -> Result<RecurrenceSeries, CalyxError>`:
   - scan `recurrence` CF for `cx_id` prefix; read all occurrence rows
   - compute `cadence_secs` = median of consecutive `t_k` gaps (if ≥2 occurrences)
   - return `RecurrenceSeries` with occurrences sorted ascending by `t_k`
-- [ ] Implement `SeriesStore::occurrence_count(cx_id: CxId) -> Result<u64, CalyxError>` — O(1) from `frequency` field in base CF
-- [ ] `calyx-loom` exists from Stage 5; add a `recurrence` module and re-export it from the existing `lib.rs`
+- [x] Implement `SeriesStore::occurrence_count(cx_id: CxId) -> Result<u64, CalyxError>` — O(1) from `frequency` field in base CF
+- [x] `calyx-loom` exists from Stage 5; add a `recurrence` module and re-export it from the existing `lib.rs`
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: append 3 occurrences at t=100, 200, 300 → `read_series` returns sorted `[100, 200, 300]`; `cadence_secs = Some(100.0)`; `frequency = 3`
-- [ ] unit: append 1 occurrence → `cadence_secs = None` (need ≥2)
-- [ ] unit: `RetentionPolicy { max_occurrences: 5 }` → after 6 appends, count = 5 + rollup_summary has count_rolled=1; `frequency` still = 6
-- [ ] unit: age rollup: append occurrence at t=0, set retention max_age=3600 seconds, clock at t=7200 → occurrence rolled up on next append
-- [ ] unit: `occurrence_count` = O(1) (reads `frequency` scalar, not scan)
-- [ ] proptest: `frequency` always equals total appends (rolled up + retained) — never undercounts
-- [ ] edge: `read_series` on CxId with no occurrences → `frequency=0`, empty `occurrences`, `cadence=None`
-- [ ] edge: `context` blob > 256 bytes → `CALYX_RECURRENCE_CONTEXT_TOO_LARGE`
-- [ ] fail-closed: WAL write fails on append → `CALYX_WAL_WRITE_ERROR`; occurrence not committed
+- [x] unit: append 3 occurrences at t=100, 200, 300 → `read_series` returns sorted `[100, 200, 300]`; `cadence_secs = Some(100.0)`; `frequency = 3`
+- [x] unit: append 1 occurrence → `cadence_secs = None` (need ≥2)
+- [x] unit: `RetentionPolicy { max_occurrences: 5 }` → after 6 appends, count = 5 + rollup_summary has count_rolled=1; `frequency` still = 6
+- [x] unit: age rollup: append occurrence at t=0, set retention max_age=3600 seconds, clock at t=7200 → occurrence rolled up on next append
+- [x] unit: `occurrence_count` = O(1) (reads `frequency` scalar, not scan)
+- [x] proptest: `frequency` always equals total appends (rolled up + retained) — never undercounts
+- [x] edge: `read_series` on CxId with no occurrences → `frequency=0`, empty `occurrences`, `cadence=None`
+- [x] edge: `context` blob > 256 bytes → `CALYX_RECURRENCE_CONTEXT_TOO_LARGE`
+- [x] fail-closed: injected WAL append failure leaves snapshot, base frequency, and recurrence CF unchanged. Current canonical storage error is `CALYX_DISK_PRESSURE`; exact `CALYX_WAL_WRITE_ERROR` naming is tracked in #622.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -57,9 +57,19 @@ on read.
 - **Readback:** `calyx readback recurrence-series <CxId>` after 5 ingests at known timestamps; print `occurrences`, `cadence_secs`, `frequency`; `xxd` the raw CF rows for `(cx_id, occ_0)` through `(cx_id, occ_4)`
 - **Prove:** 5 occurrences in order; `cadence_secs` = correct median gap; `frequency = 5`; raw CF bytes contain the `t_k` values at the expected offsets
 
+### FSV evidence captured for #383
+
+- **Commit:** `bacf9d2aa0b6e96872d0753e23192294c771a90a`
+- **Root:** `/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`
+- **Artifact hash:** `recurrence-series-readback.json` BLAKE3 `130010f0aefee719fe5f2b55c2d025e6d016c34f18d3773947597ccffc46b19a`
+- **Happy path:** `calyx readback recurrence-series --vault <root>/ingest/vault --cx-id 434fd701ee186cee2544d1166e0a6ea2` reads `frequency=5`, `occurrence_count=5`, `cadence_secs=100.0`, ids 0..4 at `t_k` 100, 200, 300, 400, 500. Raw `recurrence` CF readback prints row values containing those `t_k` bytes.
+- **Edges:** empty CxId `e10224969b9a72b8863d4a19bc7346e6` reads zero frequency/occurrences and raw recurrence CF count 0; max-count rollup CxId `1a878fed496ac72653d03bd27a011321` reads `frequency=6`, active ids 1..5, `rollup_summary.count_rolled=1`, rolled row id 0 into 5; oversized CxId `f5e8283ed40acd977c6c8e3ce79e200e` reads zero frequency/occurrences, raw recurrence CF count 0, and persisted error `CALYX_RECURRENCE_CONTEXT_TOO_LARGE`.
+- **WAL fail-closed:** `cargo test -p calyx-aster recurrence::tests::wal_append_failure_leaves_recurrence_uncommitted -- --nocapture` passes on aiwonder and asserts injected WAL append failure leaves snapshot, base scalar, and recurrence CF unchanged.
+- **Follow-ups:** #620 owns physical tombstone/reclaim for rolled historical rows, #621 owns concurrency-safe occurrence id allocation, #622 owns a dedicated WAL write-failure code/injection contract if PRD 18 expands beyond the current storage error.
+
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH41 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH41 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

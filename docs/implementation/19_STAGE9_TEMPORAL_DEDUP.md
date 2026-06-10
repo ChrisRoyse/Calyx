@@ -34,7 +34,11 @@ system role:** the sense of time.
   `/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`;
   T03 #381 is complete and FSV-backed at
   `/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`;
-  PH41 T04 #382 is next.
+  T04 #382 is complete and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`;
+  T05 #383 is complete and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`;
+  PH41 T06 #384 is next.
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).
