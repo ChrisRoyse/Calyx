@@ -12,14 +12,19 @@ use calyx_paths::AssocGraph;
 use serde::Serialize;
 use serde_json::json;
 
+#[path = "real_corpora/graph.rs"]
+mod graph;
 pub mod recall_tuning;
+#[path = "real_corpora/source_readback.rs"]
+mod source_readback;
 mod sources;
+pub(crate) use graph::{similarity_graph, token_vector};
 pub use sources::{calyx_code, cora_graph, scifact_text};
 
 use recall_tuning::{RecallTuningReport, tuning_report};
+use source_readback::{SourceReadback, source_readbacks};
 
 pub const STAMP: &str = "20260608";
-const DIM: usize = 64;
 const TOP_K: usize = 10;
 const GROUNDING_GAP_DISTANCE: usize = 0;
 const TUNING_ROUNDS: &[(u64, f32)] = &[
@@ -40,14 +45,6 @@ pub struct CorpusCase {
     graph: AssocGraph,
     anchors: Vec<CxId>,
     hash: [u8; 16],
-}
-
-#[derive(Serialize)]
-struct SourceReadback {
-    path: String,
-    bytes: u64,
-    file_count: usize,
-    content_hash: String,
 }
 
 #[derive(Serialize)]
@@ -75,13 +72,6 @@ pub struct CorpusReport {
 struct GapCheck {
     cx_id: CxId,
     independently_reaches_anchor: bool,
-}
-
-#[derive(Serialize)]
-struct SourceBytes {
-    bytes: u64,
-    file_count: usize,
-    content_hash: String,
 }
 
 pub fn run_case(case: &CorpusCase) -> CorpusReport {
@@ -286,27 +276,6 @@ pub(super) fn corpus_case(
     }
 }
 
-pub(super) fn similarity_graph(rows: &[RecallQuery], fanout: usize) -> AssocGraph {
-    let mut builder = AssocGraph::builder();
-    for row in rows {
-        builder.add_node(row.cx_id, 1.0).expect("node");
-    }
-    for row in rows {
-        let mut scored: Vec<_> = rows
-            .iter()
-            .filter(|other| other.cx_id != row.cx_id)
-            .map(|other| (other.cx_id, cosine(&row.vector, &other.vector).max(0.0)))
-            .collect();
-        scored.sort_by(|left, right| right.1.total_cmp(&left.1));
-        for (dst, score) in scored.into_iter().take(fanout) {
-            if score > 0.0 {
-                builder.add_edge(row.cx_id, dst, score).expect("edge");
-            }
-        }
-    }
-    builder.build()
-}
-
 fn sample_ordinals(rows: &[RecallQuery], fraction: f32, seed: u64) -> Vec<usize> {
     let target = ((rows.len() as f32) * fraction).ceil() as usize;
     let mut keyed: Vec<_> = rows
@@ -324,40 +293,6 @@ fn sample_ordinals(rows: &[RecallQuery], fraction: f32, seed: u64) -> Vec<usize>
     let mut out: Vec<_> = keyed.into_iter().take(target).map(|(_, idx)| idx).collect();
     out.sort_unstable();
     out
-}
-
-pub(super) fn token_vector(text: &str) -> Vec<f32> {
-    let mut vector = vec![0.0_f32; DIM];
-    for token in text.split(|c: char| !c.is_ascii_alphanumeric()) {
-        if token.len() < 3 {
-            continue;
-        }
-        let digest = blake3::hash(token.to_ascii_lowercase().as_bytes());
-        let idx = u16::from_be_bytes([digest.as_bytes()[0], digest.as_bytes()[1]]) as usize % DIM;
-        vector[idx] += 1.0;
-    }
-    normalize(&mut vector);
-    vector
-}
-
-fn normalize(vector: &mut [f32]) {
-    let norm = vector.iter().map(|value| value * value).sum::<f32>().sqrt();
-    if norm > 0.0 {
-        for value in vector {
-            *value /= norm;
-        }
-    }
-}
-
-fn cosine(a: &[f32], b: &[f32]) -> f32 {
-    let dot = a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
-    let an = a.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let bn = b.iter().map(|x| x * x).sum::<f32>().sqrt();
-    if an == 0.0 || bn == 0.0 {
-        0.0
-    } else {
-        dot / (an * bn)
-    }
 }
 
 fn reaches_anchor(graph: &AssocGraph, member: CxId, anchors: &[CxId], max_dist: usize) -> bool {
@@ -391,66 +326,6 @@ pub(super) fn read_lines(path: &Path) -> Vec<String> {
         .lines()
         .map(str::to_string)
         .collect()
-}
-
-fn source_readbacks(paths: &[PathBuf]) -> Vec<SourceReadback> {
-    paths
-        .iter()
-        .map(|path| {
-            let bytes = read_source_bytes(path);
-            SourceReadback {
-                path: path.display().to_string(),
-                bytes: bytes.bytes,
-                file_count: bytes.file_count,
-                content_hash: bytes.content_hash,
-            }
-        })
-        .collect()
-}
-
-fn read_source_bytes(path: &Path) -> SourceBytes {
-    if path.is_dir() {
-        let mut files = Vec::new();
-        collect_files(path, &mut files);
-        files.sort();
-        let mut parts = Vec::new();
-        let mut total = 0_u64;
-        for file in &files {
-            let body = fs::read(file).expect("read source file");
-            total += body.len() as u64;
-            parts.push(
-                file.strip_prefix(path)
-                    .unwrap_or(file)
-                    .display()
-                    .to_string()
-                    .into_bytes(),
-            );
-            parts.push(body);
-        }
-        SourceBytes {
-            bytes: total,
-            file_count: files.len(),
-            content_hash: hex(&content_address(parts)),
-        }
-    } else {
-        let body = fs::read(path).expect("read source");
-        SourceBytes {
-            bytes: body.len() as u64,
-            file_count: 1,
-            content_hash: hex(&content_address([body])),
-        }
-    }
-}
-
-fn collect_files(root: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(root).expect("read source dir") {
-        let path = entry.expect("source entry").path();
-        if path.is_dir() {
-            collect_files(&path, out);
-        } else {
-            out.push(path);
-        }
-    }
 }
 
 fn embeddings(rows: &[RecallQuery]) -> BTreeMap<CxId, Vec<f32>> {
@@ -492,8 +367,4 @@ pub fn calyx_home() -> PathBuf {
     std::env::var("CALYX_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/home/croyse/calyx"))
-}
-
-fn hex(bytes: &[u8; 16]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
