@@ -6,7 +6,7 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-09; Stage 9 active after #280)
+## Status (2026-06-10; Stage 9 active after PH40)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
@@ -113,9 +113,9 @@ and
 `/home/croyse/calyx/data/fsv-issue274-ph39-t06-20260609-8e29b51-v2-cpu-ort126`,
 and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
-Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is active under
-S9 epic #361, with T01 #373, T02 #374, T03 #375, and T04 #376 FSV-signed-off
-and the remaining PH40 queue #377-#378.
+Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
+under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
+FSV-signed-off. The next atomic work is PH41 T01 #379.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345
@@ -164,6 +164,17 @@ PH40 T04 #376 adds the causal confidence gate, attaches `CausalConfidence` and
 `CausalGateEvidence` for explain/readback, validates causal multipliers in
 `[0.0, 10.0]`, and reads back pipeline artifacts at
 `/home/croyse/calyx/data/fsv-issue376-causal-gate-20260609-78f9b67`.
+PH40 T05 #377 adds `temporal_search` AP-60 integration with primary retrieval
+temporal weight `0.0`, pre-boost ranking capture, CLI explain readback, and FSV
+artifacts at
+`/home/croyse/calyx/data/fsv-issue377-temporal-search-20260610-b428b10`.
+PH40 T06 #378 adds deterministic temporal-never-dominant and boost-reorder
+proofs with FSV artifacts at
+`/home/croyse/calyx/data/fsv-issue378-temporal-never-dominant-20260610-2205edb`.
+PH40 post-sweep hardening #615 filters non-positive hits from the final
+`temporal_search` surface while preserving boost-stage proof bytes, with FSV
+artifacts at
+`/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`.
 
 Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
 -> `03_PHASE_MAP.md`).
