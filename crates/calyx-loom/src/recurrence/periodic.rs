@@ -143,19 +143,25 @@ fn mode<F>(occurrences: &[Occurrence], domain: usize, value: F) -> (Option<u8>, 
 where
     F: Fn(&Occurrence) -> u8,
 {
-    if occurrences.is_empty() {
+    if occurrences.len() < 2 {
         return (None, 0.0);
     }
     let mut counts = vec![0_usize; domain];
     for occurrence in occurrences {
         counts[usize::from(value(occurrence))] += 1;
     }
-    let (bucket, count) = counts
-        .into_iter()
+    let max_count = counts.iter().copied().max().expect("non-empty domain");
+    let tied = counts.iter().filter(|count| **count == max_count).count() > 1;
+    let confidence = max_count as f32 / occurrences.len() as f32;
+    if tied {
+        return (None, confidence);
+    }
+    let bucket = counts
+        .iter()
         .enumerate()
-        .max_by_key(|(bucket, count)| (*count, std::cmp::Reverse(*bucket)))
+        .find_map(|(bucket, count)| (*count == max_count).then_some(bucket))
         .expect("non-empty domain");
-    (Some(bucket as u8), count as f32 / occurrences.len() as f32)
+    (Some(bucket as u8), confidence)
 }
 
 fn local_hour_and_day(time_secs: i64) -> (u8, u8) {

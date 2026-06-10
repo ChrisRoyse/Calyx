@@ -52,6 +52,25 @@ fn single_occurrence_has_no_cadence() {
 }
 
 #[test]
+fn single_occurrence_has_no_periodic_target() {
+    let (vault, cx_id) = vault_with_base();
+    let store = SeriesStore::new(&vault);
+
+    store
+        .append_occurrence(cx_id, EpochSecs(TUESDAY_2024_01_02_14H_UTC), ctx("one"))
+        .expect("append one");
+
+    let read = store.recurrence_series(cx_id).expect("public read");
+
+    assert_eq!(read.periodic_fit.support, 1);
+    assert_eq!(read.periodic_fit.target_hour, None);
+    assert_eq!(read.periodic_fit.target_day_of_week, None);
+    assert_eq!(read.periodic_fit.dominant_period_secs, None);
+    assert_eq!(read.periodic_fit.hour_confidence, 0.0);
+    assert_eq!(read.periodic_fit.day_confidence, 0.0);
+}
+
+#[test]
 fn public_recurrence_series_adds_periodic_fit() {
     let (vault, cx_id) = vault_with_base();
     let store = SeriesStore::new(&vault);
@@ -78,6 +97,35 @@ fn public_recurrence_series_adds_periodic_fit() {
     assert_eq!(read.periodic_fit.support, 6);
     assert_eq!(read.periodic_fit.hour_confidence, 1.0);
     assert_eq!(read.periodic_fit.day_confidence, 1.0);
+}
+
+#[test]
+fn tied_periodic_buckets_do_not_claim_target() {
+    let (vault, cx_id) = vault_with_base();
+    let store = SeriesStore::new(&vault);
+
+    store
+        .append_occurrence(cx_id, EpochSecs(TUESDAY_2024_01_02_14H_UTC), ctx("tue"))
+        .expect("append tuesday");
+    store
+        .append_occurrence(
+            cx_id,
+            EpochSecs(TUESDAY_2024_01_02_14H_UTC + 19 * 3_600),
+            ctx("wed"),
+        )
+        .expect("append wednesday");
+
+    let read = store.recurrence_series(cx_id).expect("public read");
+    let recall = store
+        .periodic_recall(PeriodicRecallQuery::new(Some(14), Some(1)).expect("query"))
+        .expect("periodic recall");
+
+    assert_eq!(read.periodic_fit.support, 2);
+    assert_eq!(read.periodic_fit.target_hour, None);
+    assert_eq!(read.periodic_fit.target_day_of_week, None);
+    assert_eq!(read.periodic_fit.hour_confidence, 0.5);
+    assert_eq!(read.periodic_fit.day_confidence, 0.5);
+    assert!(recall.is_empty());
 }
 
 #[test]

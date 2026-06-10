@@ -73,6 +73,14 @@ fn periodic_recall_readback_writes_fit_recall_and_edges() {
             .len(),
         0
     );
+    assert_eq!(
+        readback["single_occurrence"]["series"]["periodic_fit"]["target_hour"],
+        Value::Null
+    );
+    assert_eq!(
+        readback["single_occurrence"]["series"]["periodic_fit"]["target_day_of_week"],
+        Value::Null
+    );
     assert!(
         readback["invalid_hour"]["stderr"]
             .as_str()
