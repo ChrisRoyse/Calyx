@@ -47,7 +47,9 @@ for the structure under `docs/implementation/PHnn-*/`.
 > `/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`;
 > PH41 recurrence concurrency hardening #621 is FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`.
-> Remaining PH41 follow-ups are #624/#617/#622/#620/#626; PH42 readback-surface
+> PH41 WAL recovery/open serialization #624 is FSV-backed at
+> `/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`.
+> Remaining PH41 follow-ups are #617/#622/#620/#626; PH42 readback-surface
 > gate #625 is open before PH42 can be signed off.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and

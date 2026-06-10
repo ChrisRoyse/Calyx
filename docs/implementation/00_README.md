@@ -260,9 +260,9 @@ manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
 **Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
-follow-ups #624/#617/#622/#620/#626** plus PH40 follow-ups #616/#618/#619,
-then PH42-PH72. PH42 readback-surface gate #625 must be resolved before PH42
-can be signed off.
+follow-ups #617/#622/#620/#626** plus PH40 follow-ups #616/#618/#619, then
+PH42-PH72. PH42 readback-surface gate #625 must be resolved before PH42 can be
+signed off.
 PH41 public recurrence read API follow-up #578 and recurrence concurrency
 hardening #621 are FSV-backed.
 PH41 T01 #379 is FSV-backed at
@@ -309,6 +309,14 @@ with `recurrence-concurrency-readback.json` BLAKE3
 `91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8` and
 `BLAKE3SUMS.txt` BLAKE3
 `e1bb5a412ca31e1e8d27d18bd1410ee8c65260389a63bceac078ea01cfd027af`.
+#624 WAL recovery/open serialization is FSV-backed at
+`/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`
+with `wal-recovery-lock-readback.json` BLAKE3
+`1c2c255e517691660f8ba45c78b625dd5c4d6eb68b5d7609a69cc8bf2b5bff84`,
+WAL segment BLAKE3
+`95c91a000e2c7fc7cba16196d7bbda74f7849e7c29d6c66a42b5dc46ac93e5d8`,
+and `BLAKE3SUMS.txt` BLAKE3
+`81d2d5d6790221315f1cfcbf1331fbc68668bb0b9d4bed26c2befd75d7099c3d`.
 Stage 1-5 future seams are mapped to
 concrete phase/card owners in `STAGE1_5_EVIDENCE_MANIFEST.md`, not umbrella
 placeholders. The post-sweep

@@ -115,10 +115,24 @@ Artifact hashes: `recurrence-concurrency-readback.json` BLAKE3
 `91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8` and
 `BLAKE3SUMS.txt` BLAKE3
 `e1bb5a412ca31e1e8d27d18bd1410ee8c65260389a63bceac078ea01cfd027af`.
-Remaining PH41 follow-ups before PH42 are #624 WAL recovery/open append-lock
-serialization, #617 durable policy validation parity, #622 WAL write-failure
-error-code contract, #620 recurrence rollup tombstone/reclaim integration, and
-#626 anchor-conflict never-merge property coverage.
+PH41 WAL recovery/open serialization #624 is FSV-signed-off at
+`/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`:
+WAL replay/open now takes the same `.append.lock` as append before any torn-tail
+truncation, while already-locked append refreshes use an internal replay helper.
+The FSV fixture holds `.append.lock` over a partial record, proves replay does
+not truncate it (`partial_len_before_replay=47`,
+`locked_len_after_replay_attempt=47`), completes the record, and then reads two
+records (`seq=1` payload `acked`, `seq=2` payload `completed`) from a 54-byte
+WAL segment with no torn tail. Artifact hashes: `wal-recovery-lock-readback.json`
+BLAKE3 `1c2c255e517691660f8ba45c78b625dd5c4d6eb68b5d7609a69cc8bf2b5bff84`,
+WAL segment BLAKE3
+`95c91a000e2c7fc7cba16196d7bbda74f7849e7c29d6c66a42b5dc46ac93e5d8`, and
+`BLAKE3SUMS.txt` BLAKE3
+`81d2d5d6790221315f1cfcbf1331fbc68668bb0b9d4bed26c2befd75d7099c3d`.
+Remaining PH41 follow-ups before PH42 are #617 durable policy validation
+parity, #622 WAL write-failure error-code contract, #620 recurrence rollup
+tombstone/reclaim integration, and #626 anchor-conflict never-merge property
+coverage.
 
 ## Deliverables (file plan, each ≤500 lines)
 

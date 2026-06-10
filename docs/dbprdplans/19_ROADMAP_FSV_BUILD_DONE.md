@@ -25,7 +25,9 @@ Phased build, verification discipline, performance targets, mechanical completio
 > `/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`.
 > #621 recurrence concurrency readback is at
 > `/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`.
-> Remaining PH41 follow-ups are #624/#617/#622/#620/#626; PH40 follow-ups
+> #624 WAL recovery/open serialization readback is at
+> `/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`.
+> Remaining PH41 follow-ups are #617/#622/#620/#626; PH40 follow-ups
 > #616/#618/#619 also remain tracked before Stage 9 is stable. PH42
 > readback-surface gate #625 is open before PH42 can be signed off.
 > phase status:

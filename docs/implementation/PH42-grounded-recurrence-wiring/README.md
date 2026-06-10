@@ -40,7 +40,7 @@ series. This is primarily a wiring + API-surface phase: each engine gets a
 small, well-defined interface to the recurrence signals stored in the base CF.
 
 Entry discipline: PH42 is not the next active work while PH40 follow-ups
-#616/#618/#619 and PH41 follow-ups #624/#617/#622/#620/#626 remain open. Start
+#616/#618/#619 and PH41 follow-ups #617/#622/#620/#626 remain open. Start
 this phase only after those follow-ups are FSV-backed or GitHub issue state
 records an explicit decision to defer them out of the PH42 entry gate. PH42
 readback-surface gate #625 must also be resolved before PH42 can be signed off.
@@ -87,7 +87,7 @@ Aster/Ledger/CF/WAL bytes, or CLI readback output with BLAKE3-indexed artifacts.
 - **Cross-crate circular dependencies:** wiring seven crates creates potential cycles. All recurrence signals flow from `calyx-aster` (the data source) through `calyx-loom` (the transformer) to consumers. No consumer crate imports another consumer crate.
 - **PH41 readiness:** PH41 recurrence series/frequency storage, #578 public
   read APIs, and #621 concurrency-safe allocation are available. Remaining PH41
-  follow-ups #624/#617/#622/#620/#626 still need issue-state resolution before
+  follow-ups #617/#622/#620/#626 still need issue-state resolution before
   PH42 starts unless explicitly deferred. PH42 still needs consumer-facing O(1)
   base-CF frequency anchor reads for hot paths; scan-based periodic readback
   APIs are evidence/debug surfaces, not the PH42 runtime path. PH28 Assay MI and

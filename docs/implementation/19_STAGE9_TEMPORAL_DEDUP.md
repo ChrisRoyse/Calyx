@@ -60,7 +60,11 @@ system role:** the sense of time.
   `/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`
   (`recurrence-concurrency-readback.json` BLAKE3
   `91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8`).
-  Remaining PH41 follow-ups before PH42 are #624, #617, #622, #620, and #626.
+  PH41 WAL recovery/open serialization #624 is complete and FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue624-wal-recovery-lock-20260610-1e4b34c`
+  (`wal-recovery-lock-readback.json` BLAKE3
+  `1c2c255e517691660f8ba45c78b625dd5c4d6eb68b5d7609a69cc8bf2b5bff84`).
+  Remaining PH41 follow-ups before PH42 are #617, #622, #620, and #626.
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).
@@ -81,7 +85,7 @@ system role:** the sense of time.
 
 ## PH42 — Grounded recurrence wiring across engines
 - **Status.** Not the next active work while PH40 follow-ups #616/#618/#619 and
-  PH41 follow-ups #624/#617/#622/#620/#626 remain open. Start PH42 only after
+  PH41 follow-ups #617/#622/#620/#626 remain open. Start PH42 only after
   those follow-ups have FSV-backed issue closures or an explicit issue-state
   decision. PH42 readback-surface gate #625 must also be resolved before PH42
   can be signed off.
