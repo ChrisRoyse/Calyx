@@ -9,6 +9,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal status --health --vault <dir>
        calyx anneal replay-status --vault <dir>
        calyx anneal head-status --kind <Predictor|Calibrator|FusionWeights> --vault <dir>
+       calyx anneal bandit-status --key <shape_key> --vault <dir>
        calyx anneal frozen-guard-report --artifact <json>
        calyx anneal regression-report --artifact <json>
        calyx anneal status --faults --last <n> --vault <dir>

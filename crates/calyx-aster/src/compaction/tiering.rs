@@ -133,6 +133,7 @@ impl TieringPolicy {
                 | ColumnFamily::AnnealMistakes
                 | ColumnFamily::AnnealReplay
                 | ColumnFamily::AnnealHeads
+                | ColumnFamily::AnnealBandit
         ) {
             return false;
         }

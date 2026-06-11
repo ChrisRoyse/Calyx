@@ -10,6 +10,7 @@ mod rollback;
 mod rollback_codec;
 mod shadow;
 mod tripwire;
+mod tune;
 
 pub use budget::{
     BACKGROUND_NICE, BudgetConfig, BudgetConfigReadback, BudgetEnforcer, BudgetHandle, BudgetProbe,
@@ -107,6 +108,12 @@ pub use tripwire::{
     TripwireConfigReadback, TripwireMetric, TripwireRegistry, TripwireResult, TripwireStatus,
     TripwireThreshold, TripwireThresholdEntry, read_tripwire_config_from_vault,
     tripwire_config_path,
+};
+pub use tune::{
+    Arm, ArmStatus, AsterBanditStorage, BanditPolicy, BanditReadback, BanditStatus, BanditStorage,
+    CALYX_ANNEAL_BANDIT_EMPTY, CALYX_ANNEAL_BANDIT_INVALID_CONFIG, CALYX_ANNEAL_BANDIT_INVALID_ROW,
+    ConfigBandit, ConfigBanditStore, ConfigVariant, DEFAULT_HYSTERESIS_WINS, bandit_key,
+    decode_config_bandit, encode_config_bandit, shape_key_hash,
 };
 
 #[cfg(test)]
