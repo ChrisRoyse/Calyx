@@ -24,6 +24,13 @@ pub trait HeadPromotionGate {
         incumbent: &HeadShadowProposal,
         description: &str,
     ) -> Result<ChangeOutcome>;
+    fn record_sleep_pass_deferred(
+        &mut self,
+        _buffer_len: usize,
+        _degraded_components: &[String],
+    ) -> Result<()> {
+        Ok(())
+    }
 }
 
 impl HeadShadowProposal {
@@ -79,6 +86,23 @@ where
             ),
             description,
         )
+    }
+
+    fn record_sleep_pass_deferred(
+        &mut self,
+        buffer_len: usize,
+        degraded_components: &[String],
+    ) -> Result<()> {
+        let components = if degraded_components.is_empty() {
+            "none".to_string()
+        } else {
+            degraded_components.join("; ")
+        };
+        self.write_sleep_pass_deferred(format!(
+            "sleep pass deferred degraded_count={} buffer_len={} components={components}",
+            degraded_components.len(),
+            buffer_len
+        ))
     }
 }
 
