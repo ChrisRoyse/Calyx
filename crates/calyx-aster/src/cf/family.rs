@@ -48,11 +48,13 @@ pub enum ColumnFamily {
     AnnealReplay,
     /// Anneal online head parameters and Fisher diagonals.
     AnnealHeads,
+    /// Anneal per-shape autotune bandit state.
+    AnnealBandit,
 }
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 16] = [
+    pub const STATIC: [Self; 17] = [
         Self::Base,
         Self::XTerm,
         Self::TemporalXTerm,
@@ -69,6 +71,7 @@ impl ColumnFamily {
         Self::AnnealMistakes,
         Self::AnnealReplay,
         Self::AnnealHeads,
+        Self::AnnealBandit,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -114,6 +117,7 @@ impl ColumnFamily {
             Self::AnnealMistakes => "anneal_mistakes".to_string(),
             Self::AnnealReplay => "anneal_replay".to_string(),
             Self::AnnealHeads => "anneal_heads".to_string(),
+            Self::AnnealBandit => "anneal_bandit".to_string(),
         }
     }
 

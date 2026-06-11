@@ -1,5 +1,6 @@
 //! Calyx command-line entry point.
 
+mod anneal_bandit_readback;
 mod anneal_commands;
 mod anneal_frozen_guard_readback;
 mod anneal_head_readback;
