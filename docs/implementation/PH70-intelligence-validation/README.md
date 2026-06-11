@@ -52,6 +52,8 @@ persisted metrics.
 | T05 | Oracle sufficiency validation — SWE-bench ≈0.46 deficit | T01 or parallel |
 | T06 | Anneal J growth curve validation — real corpus soak | T01 or parallel |
 
+| T07 | Living concert FSV - A31 engines operating together on one corpus loop | T01 or parallel |
+
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 Per PRD `28 §2c` and `28 §7`: each intelligence metric proven on real data by
