@@ -246,19 +246,24 @@ impl BoostConfig {
             ));
         }
         if !self.causal_high_mult.is_finite()
-            || !(0.0..=MAX_CAUSAL_MULTIPLIER).contains(&self.causal_high_mult)
+            || self.causal_high_mult <= 1.0
+            || self.causal_high_mult > MAX_CAUSAL_MULTIPLIER
         {
             return Err(temporal_error(
                 CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
-                format!("causal_high_mult must be finite and in 0.0..={MAX_CAUSAL_MULTIPLIER}"),
+                format!("causal_high_mult must be finite and in 1.0..={MAX_CAUSAL_MULTIPLIER}"),
             ));
         }
-        if !self.causal_low_mult.is_finite()
-            || !(0.0..=MAX_CAUSAL_MULTIPLIER).contains(&self.causal_low_mult)
-        {
+        if !self.causal_low_mult.is_finite() || !(0.0..1.0).contains(&self.causal_low_mult) {
             return Err(temporal_error(
                 CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
-                format!("causal_low_mult must be finite and in 0.0..={MAX_CAUSAL_MULTIPLIER}"),
+                "causal_low_mult must be finite and in 0.0..1.0",
+            ));
+        }
+        if self.causal_low_mult >= self.causal_high_mult {
+            return Err(temporal_error(
+                CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
+                "causal_low_mult must be less than causal_high_mult",
             ));
         }
         Ok(())

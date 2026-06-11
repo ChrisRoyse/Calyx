@@ -72,8 +72,8 @@ fn never_dominant_false_fails_closed() {
 }
 
 #[test]
-fn boost_config_zero_high_multiplier_is_allowed_by_type_layer() {
-    let policy = TemporalPolicy::new(
+fn boost_config_enforces_causal_multiplier_semantics() {
+    let valid = TemporalPolicy::new(
         true,
         DecayFunction::default(),
         PeriodicOptions::default(),
@@ -81,19 +81,46 @@ fn boost_config_zero_high_multiplier_is_allowed_by_type_layer() {
         FusionWeights::default(),
         BoostConfig {
             post_retrieval_alpha: 0.10,
-            causal_high_mult: 0.0,
-            causal_low_mult: 0.85,
+            causal_high_mult: 1.25,
+            causal_low_mult: 0.50,
         },
         true,
     )
-    .expect("T01 does not enforce boost range");
-    assert_eq!(policy.boost.causal_high_mult, 0.0);
+    .expect("boost/dampen config valid");
+    assert_eq!(valid.boost.causal_high_mult, 1.25);
+    assert_eq!(valid.boost.causal_low_mult, 0.50);
+
+    assert_boost_config_error(0.0, 0.85, "causal_high_mult");
+    assert_boost_config_error(1.0, 0.85, "causal_high_mult");
+    assert_boost_config_error(1.10, 1.0, "causal_low_mult");
+    assert_boost_config_error(1.05, 1.10, "causal_low_mult");
+    assert_boost_config_error(-0.5, 0.85, "causal_high_mult");
+    assert_boost_config_error(f32::NAN, 0.85, "causal_high_mult");
 }
 
 #[test]
 fn zero_fusion_weights_fail_closed() {
     let error = FusionWeights::new(0.0, 0.0, 0.0).expect_err("zero sum rejected");
     assert_eq!(error.code, CALYX_TEMPORAL_WEIGHT_SUM);
+}
+
+fn assert_boost_config_error(high: f32, low: f32, message: &str) {
+    let error = TemporalPolicy::new(
+        true,
+        DecayFunction::default(),
+        PeriodicOptions::default(),
+        SequenceOptions::default(),
+        FusionWeights::default(),
+        BoostConfig {
+            post_retrieval_alpha: 0.10,
+            causal_high_mult: high,
+            causal_low_mult: low,
+        },
+        true,
+    )
+    .expect_err("invalid boost config rejected");
+    assert_eq!(error.code, CALYX_TEMPORAL_INVALID_BOOST_CONFIG);
+    assert!(error.message.contains(message), "{}", error.message);
 }
 
 #[test]
