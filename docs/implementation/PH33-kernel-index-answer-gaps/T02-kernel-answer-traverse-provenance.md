@@ -52,7 +52,8 @@ implements the "retrieval that reasons over the grounded skeleton" from
 - [x] unit: every hop in `hops` has a non-None `ledger_ref` (even the stub) — stub
   carries non-zero `hop_index` field.
 - [x] edge: `query_cx` == `anchor_kernel_node` (query is already a kernel node) →
-  `hops = []`; `total_score = 1.0`.
+  `hops = []`; `total_score = 1.0`; the ledger-backed API still appends a
+  complete `kind=Answer` row with `expected_hops=0` before returning (#647).
 - [x] edge: missing query node propagates the `CALYX_PATHS_NODE_NOT_FOUND` graph error.
 - [x] edge: a nearer anchored candidate with no bounded path is skipped; the next
   reachable anchored candidate is selected and produces the full answer path.
@@ -84,6 +85,13 @@ implements the "retrieval that reasons over the grounded skeleton" from
   Answer row seq `5`, `get_answer_trace` path length `4`, no warnings, and
   `trace_trusted=true`. `BLAKE3SUMS.txt` verifies the JSON artifacts and all
   physical `ledger-cf/*.ledger` row bytes.
+- **#647 direct-hit Ledger trace:** aiwonder readback root
+  `/home/croyse/calyx/data/fsv-issue647-direct-hit-ledger-20260611T073538Z`
+  proves `kernel_answer_with_ledger` on `query_cx == anchor`: before ledger rows
+  `0`, after rows `2`, one `kind=Kernel` row, one complete `kind=Answer` row,
+  `expected_hops=0`, `path=[]`, `trace_path_len=0`, and `trace_trusted=true`.
+  Primary readback `ph33-direct-hit-ledger-readback.json` SHA-256:
+  `c14c9e985ed3b63ed5faba5ac91fcd6f324a8bd5f2762f7525992082ca57c9d8`.
 
 ## Done when
 

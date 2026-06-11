@@ -135,5 +135,8 @@ Full PH36 reproduce remains closed in #252-#255.
 - **Provenance stamp per hop:** `kernel_answer_with_ledger` now appends real
   Ledger rows per hop and a final complete Answer row (#239/#631). The legacy
   `kernel_answer` stub path is compatibility-only and must not be counted as
-  real Stage 6 exit provenance. Direct-hit ledger provenance is separately
-  tracked by #647; PH36 owns broader reproduce.
+  real Stage 6 exit provenance. Direct-hit ledger answers must append a durable
+  complete `kind=Answer` row with `expected_hops=0` before returning (#647);
+  FSV root:
+  `/home/croyse/calyx/data/fsv-issue647-direct-hit-ledger-20260611T073538Z`;
+  PH36 owns broader reproduce.

@@ -16,7 +16,10 @@ Replace PH33's stub-only provenance path with real PH35 Ledger appends on the
 ledger-backed build and answer APIs. Kernel build appends one `kind=Kernel`
 evidence row containing `kernel_id`, `members_hash`, MFVS approximation factor,
 recall ratio, and graph sequence. `kernel_answer_with_ledger` stamps every hop
-with a real `LedgerRef` from an appended `kind=Answer` row.
+with a real `LedgerRef` from an appended `kind=Answer` row, then appends a
+final complete `kind=Answer` row for `get_answer_trace`. Post-#647, the
+direct-hit `query_cx == anchor` path also appends that complete Answer row with
+`expected_hops=0` before returning.
 
 Full audit query and reproduce surfaces were later closed in PH36 work
 (#252-#255); the checked PH36 lines below record that later closure.
@@ -27,6 +30,8 @@ Full audit query and reproduce surfaces were later closed in PH36 work
   through the PH35 `LedgerAppender`.
 - [x] `kernel_answer_with_ledger` appends one real `kind=Answer` Ledger entry
   per hop and returns those refs in `AnswerPath.provenance`.
+- [x] `kernel_answer_with_ledger` appends the final complete `kind=Answer` row
+  even for direct-hit zero-hop answers (#647).
 - [x] The existing pure `kernel_answer` compatibility path remains deterministic,
   but is not valid Stage 6 exit evidence for real provenance.
 - [x] Missing/corrupt Ledger integration fails closed with the underlying
@@ -47,9 +52,14 @@ Full audit query and reproduce surfaces were later closed in PH36 work
   - `04b-ledger-row-sizes.out`
   - `05-ledger-row-hex.out`
   - `07-secret-grep-count.out`
-- **Prove:** before count is 0; after count is 4; row seq 0 is `kind=Kernel`;
-  row seq 1..3 are `kind=Answer`; every `prev_hash` equals the previous
-  `entry_hash`; answer path refs match the decoded rows; secret grep count is 0.
+- **Prove:** before count is 0; after rows include one `kind=Kernel`, per-hop
+  `kind=Answer` rows when hops exist, and a final complete `kind=Answer` row.
+  For #647 direct-hit FSV, after count is 2, seq 1 is `kind=Answer` with
+  `complete=true`, `expected_hops=0`, and `path=[]`; `get_answer_trace` returns
+  `trace_trusted=true` with `trace_path_len=0`. Evidence root:
+  `/home/croyse/calyx/data/fsv-issue647-direct-hit-ledger-20260611T073538Z`;
+  primary readback SHA-256
+  `c14c9e985ed3b63ed5faba5ac91fcd6f324a8bd5f2762f7525992082ca57c9d8`.
 
 ## Done when
 

@@ -95,6 +95,7 @@ where
         max_hops,
     )?;
     if path.len() == 1 {
+        append_answer_complete_entry(ledger, query_cx, anchor, kernel_index.kernel_id, &[], 1.0)?;
         return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
     }
     let hops = answer_hops_with(
