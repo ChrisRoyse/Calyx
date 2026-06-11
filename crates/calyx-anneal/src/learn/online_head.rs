@@ -14,7 +14,7 @@ pub use codec::{
 pub use storage::{AsterHeadStorage, HeadStorage};
 pub use update::{HeadPromotionGate, HeadShadowProposal};
 
-use super::ReplayEntry;
+use super::{FrozenLensCheck, NoFrozenLensGuard, ReplayEntry};
 use crate::{ChangeId, ChangeOutcome, LogicalTime};
 use codec::{encode_head_rows, heads_hash};
 use update::{apply_update, update_reverted, validate_update};
@@ -92,14 +92,15 @@ pub struct HeadUpdateOutcome {
     pub heads: Vec<HeadUpdateSummary>,
 }
 
-pub struct OnlineHeadState<S, G> {
+pub struct OnlineHeadState<S, G, F = NoFrozenLensGuard> {
     heads: HashMap<HeadKind, OnlineHead>,
     storage: S,
     substrate: G,
     clock: Arc<dyn Clock>,
+    frozen_guard: F,
 }
 
-impl<S, G> OnlineHeadState<S, G>
+impl<S, G> OnlineHeadState<S, G, NoFrozenLensGuard>
 where
     S: HeadStorage,
     G: HeadPromotionGate,
@@ -109,6 +110,27 @@ where
         substrate: G,
         clock: Arc<dyn Clock>,
         heads: impl IntoIterator<Item = OnlineHead>,
+    ) -> Result<Self> {
+        Self::open_with_guard(storage, substrate, clock, heads, NoFrozenLensGuard)
+    }
+
+    pub fn open_default(storage: S, substrate: G, clock: Arc<dyn Clock>) -> Result<Self> {
+        Self::open(storage, substrate, clock, default_heads()?)
+    }
+}
+
+impl<S, G, F> OnlineHeadState<S, G, F>
+where
+    S: HeadStorage,
+    G: HeadPromotionGate,
+    F: FrozenLensCheck,
+{
+    pub fn open_with_guard(
+        storage: S,
+        substrate: G,
+        clock: Arc<dyn Clock>,
+        heads: impl IntoIterator<Item = OnlineHead>,
+        frozen_guard: F,
     ) -> Result<Self> {
         let mut map = HashMap::new();
         for head in heads {
@@ -131,14 +153,32 @@ where
             storage,
             substrate,
             clock,
+            frozen_guard,
         })
     }
 
-    pub fn open_default(storage: S, substrate: G, clock: Arc<dyn Clock>) -> Result<Self> {
-        Self::open(storage, substrate, clock, default_heads()?)
+    pub fn open_default_with_guard(
+        storage: S,
+        substrate: G,
+        clock: Arc<dyn Clock>,
+        frozen_guard: F,
+    ) -> Result<Self> {
+        Self::open_with_guard(storage, substrate, clock, default_heads()?, frozen_guard)
     }
 
     pub fn update(
+        &mut self,
+        batch: &[ReplayEntry],
+        lr: f32,
+        fisher_weight: f32,
+    ) -> Result<HeadUpdateOutcome> {
+        self.frozen_guard.assert_no_violation()?;
+        let outcome = self.update_inner(batch, lr, fisher_weight);
+        post_update_guard(&self.frozen_guard)?;
+        outcome
+    }
+
+    fn update_inner(
         &mut self,
         batch: &[ReplayEntry],
         lr: f32,
@@ -251,6 +291,20 @@ where
             .into_iter()
             .map(|head| HeadUpdateSummary::from_head(head, head.version))
             .collect()
+    }
+}
+
+fn post_update_guard<F: FrozenLensCheck>(guard: &F) -> Result<()> {
+    match guard.assert_no_violation() {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            #[cfg(debug_assertions)]
+            panic!("frozen lens violation after anneal update: {error}");
+            #[cfg(not(debug_assertions))]
+            {
+                Err(error)
+            }
+        }
     }
 }
 

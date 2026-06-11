@@ -1,5 +1,7 @@
 //! Calyx command-line entry point.
 
+mod anneal_commands;
+mod anneal_frozen_guard_readback;
 mod anneal_head_readback;
 mod anneal_mistakes_readback;
 mod anneal_replay_readback;
@@ -129,35 +131,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         {
             readback_config(name, Path::new(vault))
         }
-        [command, topic, health_flag, vault_flag, vault]
-            if command == "anneal"
-                && topic == "status"
-                && health_flag == "--health"
-                && vault_flag == "--vault" =>
-        {
-            anneal_status::status_health(Path::new(vault))
-        }
-        [command, topic, vault_flag, vault]
-            if command == "anneal" && topic == "replay-status" && vault_flag == "--vault" =>
-        {
-            anneal_replay_readback::replay_status(Path::new(vault))
-        }
-        [command, topic, kind_flag, kind, vault_flag, vault]
-            if command == "anneal"
-                && topic == "head-status"
-                && kind_flag == "--kind"
-                && vault_flag == "--vault" =>
-        {
-            anneal_head_readback::head_status(Path::new(vault), kind)
-        }
-        [command, topic, vault_flag, vault, kind_flag, kind]
-            if command == "anneal"
-                && topic == "head-status"
-                && vault_flag == "--vault"
-                && kind_flag == "--kind" =>
-        {
-            anneal_head_readback::head_status(Path::new(vault), kind)
-        }
+        [command, topic, rest @ ..] if command == "anneal" => anneal_commands::run(topic, rest),
         [command, topic, subtopic, vault_flag, vault, last_flag, last]
             if command == "readback"
                 && topic == "anneal"
@@ -177,22 +151,6 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 && vault_flag == "--vault" =>
         {
             ward_tau_readback::readback_ward_tau(Path::new(vault), slot)
-        }
-        [
-            command,
-            topic,
-            faults_flag,
-            last_flag,
-            last,
-            vault_flag,
-            vault,
-        ] if command == "anneal"
-            && topic == "status"
-            && faults_flag == "--faults"
-            && last_flag == "--last"
-            && vault_flag == "--vault" =>
-        {
-            anneal_status::status_faults(Path::new(vault), anneal_status::parse_last(last)?)
         }
         [
             command,

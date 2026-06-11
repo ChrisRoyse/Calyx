@@ -5,9 +5,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
-    CALYX_ANNEAL_HEAD_TOO_LARGE, CALYX_ANNEAL_HEAD_UPDATE_REVERTED, ChangeOutcome, HeadKind,
-    HeadPromotionGate, HeadShadowProposal, HeadStorage, MistakeRef, OnlineHead, OnlineHeadState,
-    ReplayEntry, ShadowRevertReason, decode_online_head,
+    CALYX_ANNEAL_HEAD_TOO_LARGE, CALYX_ANNEAL_HEAD_UPDATE_REVERTED, ChangeOutcome, FrozenLensCheck,
+    HeadKind, HeadPromotionGate, HeadShadowProposal, HeadStorage, MistakeRef, OnlineHead,
+    OnlineHeadState, ReplayEntry, ShadowRevertReason, decode_online_head,
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -131,6 +131,24 @@ fn aster_storage_writes_cbor_head_row_to_anneal_heads_cf() {
     assert!(head.param_norm() > 0.0);
 }
 
+#[test]
+fn online_head_update_checks_frozen_guard_before_and_after() {
+    let guard = CountingFrozenGuard::default();
+    let calls = guard.calls.clone();
+    let mut state = OnlineHeadState::open_with_guard(
+        MemoryHeadStorage::default(),
+        ScriptedGate::promote(),
+        Arc::new(FixedClock::new(TEST_TS)),
+        [zero_predictor()],
+        guard,
+    )
+    .unwrap();
+
+    state.update(&[entry(1.0, 1)], 0.01, 0.0).unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+}
+
 fn state_with_heads<I, S, G>(storage: S, gate: G, heads: I) -> OnlineHeadState<S, G>
 where
     I: IntoIterator<Item = OnlineHead>,
@@ -189,6 +207,18 @@ impl HeadStorage for MemoryHeadStorage {
             .iter()
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect())
+    }
+}
+
+#[derive(Clone, Default)]
+struct CountingFrozenGuard {
+    calls: Arc<AtomicUsize>,
+}
+
+impl FrozenLensCheck for CountingFrozenGuard {
+    fn assert_no_violation(&self) -> Result<()> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     }
 }
 

@@ -175,6 +175,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-ledger",
+ "calyx-registry",
  "ciborium",
  "proptest",
  "rand 0.8.6",
