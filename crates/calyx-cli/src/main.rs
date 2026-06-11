@@ -7,6 +7,7 @@ mod anneal_commands;
 mod anneal_deficit_map;
 mod anneal_frozen_guard_readback;
 mod anneal_head_readback;
+mod anneal_lens_proposal_log;
 mod anneal_mistakes_readback;
 mod anneal_propose_preview;
 mod anneal_regression_readback;

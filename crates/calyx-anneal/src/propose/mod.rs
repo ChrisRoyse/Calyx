@@ -2,6 +2,7 @@
 
 pub mod candidate_synth;
 pub mod deficit_localize;
+pub mod differentiation_gate;
 
 pub use candidate_synth::{
     AlgParams, AlgorithmicKind, CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT, CandidateLens,
@@ -13,4 +14,9 @@ pub use deficit_localize::{
     CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE, DEFAULT_DEFICIT_THRESHOLD_BITS,
     DeficitLocalizer, DeficitLocalizerConfig, DeficitMap, MODALITY_COVERAGE_THRESHOLD_BITS,
     ModalityId, has_deficit, top_gap_description,
+};
+pub use differentiation_gate::{
+    CALYX_REGISTRY_PROFILE_TIMEOUT, DIFFERENTIATION_MAX_CORR, DIFFERENTIATION_MIN_BITS,
+    DifferentiationGate, GateOutcome, LensProfiler, PROFILE_TIMEOUT_MS, PairNMI, RejectReason,
+    describe_gate_outcome, gate,
 };

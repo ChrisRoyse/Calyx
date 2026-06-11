@@ -17,6 +17,7 @@ calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-oracle = { path = "../calyx-oracle" }
+calyx-registry = { path = "../calyx-registry" }
 calyx-sextant = { path = "../calyx-sextant" }
 blake3.workspace = true
 serde.workspace = true
@@ -25,5 +26,4 @@ serde_json.workspace = true
 [dev-dependencies]
 calyx-assay = { path = "../calyx-assay" }
 calyx-forge = { path = "../calyx-forge" }
-calyx-registry = { path = "../calyx-registry" }
 calyx-ward = { path = "../calyx-ward" }

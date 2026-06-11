@@ -174,3 +174,49 @@ fn anneal_propose_preview_fixture_command_executes() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn anneal_lens_proposal_log_fixture_command_executes() {
+    let root = std::env::temp_dir().join(format!("calyx-cli-gate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create gate fixture dir");
+    let fixture = root.join("gate-log.json");
+    std::fs::write(
+        &fixture,
+        r#"{
+  "clock_ts": 1785500420,
+  "events": [{
+    "seq": 1,
+    "candidate_lens_id": "c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8c8",
+    "candidate": {
+      "candidate_type": "commission",
+      "spec": {
+        "target_modality": "audio",
+        "endpoint": null,
+        "model_id": null,
+        "description": "fixture candidate"
+      }
+    },
+    "profile_bits": 0.12,
+    "panel": ["01010101010101010101010101010101"],
+    "correlations": [{
+      "lens_id": "01010101010101010101010101010101",
+      "corr": 0.45
+    }]
+  }]
+}"#,
+    )
+    .expect("write gate fixture");
+
+    run(vec![
+        "anneal".into(),
+        "lens-proposal-log".into(),
+        "--fixture".into(),
+        fixture.display().to_string(),
+        "--last".into(),
+        "5".into(),
+    ])
+    .expect("lens proposal log readback");
+
+    let _ = std::fs::remove_dir_all(root);
+}
