@@ -22,6 +22,7 @@ pub struct DfvsResult {
     pub members: Vec<CxId>,
     pub approx_factor: f64,
     pub tau_star_estimate: usize,
+    pub tau_star_exact: bool,
     pub method: DfvsMethod,
 }
 
@@ -98,6 +99,7 @@ fn solve_with_method(
     } else {
         None
     };
+    let exact_search_used = exact.is_some();
     let mut members = exact.unwrap_or_else(|| greedy_fvs(graph));
     local_search_shrink(graph, &mut members);
     members.sort();
@@ -107,19 +109,58 @@ fn solve_with_method(
             detail: "removing computed members leaves a directed cycle".to_string(),
         });
     }
-    let tau_star_estimate = members.len().max(1);
-    let actual = if members.is_empty() {
-        1.0
-    } else {
-        members.len() as f64 / tau_star_estimate as f64
-    };
-    let approx_factor = theoretical_bound.map_or(actual, |bound| actual.min(bound));
+    let (tau_star_estimate, tau_star_exact, approx_factor) =
+        approximation_report(graph, members.len(), exact_search_used, theoretical_bound);
     Ok(DfvsResult {
         members,
         approx_factor,
         tau_star_estimate,
+        tau_star_exact,
         method,
     })
+}
+
+fn approximation_report(
+    graph: &AssocGraph,
+    member_count: usize,
+    exact_search_used: bool,
+    theoretical_bound: Option<f64>,
+) -> (usize, bool, f64) {
+    if member_count == 0 {
+        return (0, true, 1.0);
+    }
+    if exact_search_used {
+        return (member_count, true, 1.0);
+    }
+
+    let lower_bound = cyclic_scc_lower_bound(graph).max(1);
+    let observed_bound = member_count as f64 / lower_bound as f64;
+    let lower_bound_is_tight = member_count == lower_bound;
+    let approx_factor = if lower_bound_is_tight {
+        1.0
+    } else {
+        theoretical_bound.map_or(observed_bound, |bound| observed_bound.max(bound))
+    };
+    (lower_bound, lower_bound_is_tight, approx_factor)
+}
+
+fn cyclic_scc_lower_bound(graph: &AssocGraph) -> usize {
+    let self_loop_nodes: BTreeSet<_> = graph
+        .edges()
+        .iter()
+        .filter_map(|edge| {
+            let (src, dst) = graph.edge_endpoints(*edge);
+            (src == dst).then_some(src)
+        })
+        .collect();
+
+    tarjan_scc(graph)
+        .components
+        .iter()
+        .filter(|component| {
+            component.len() > 1 || component.iter().any(|node| self_loop_nodes.contains(node))
+        })
+        .count()
 }
 
 fn exact_min_fvs(graph: &AssocGraph) -> Option<Vec<CxId>> {
@@ -217,6 +258,7 @@ fn empty_result(method: DfvsMethod) -> DfvsResult {
         members: Vec::new(),
         approx_factor: 1.0,
         tau_star_estimate: 0,
+        tau_star_exact: true,
         method,
     }
 }

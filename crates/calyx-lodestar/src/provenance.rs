@@ -128,6 +128,11 @@ fn kernel_build_payload(kernel: &Kernel, graph_seq: u64) -> Result<Vec<u8>> {
         .insert_str("members_hash", hex(&kernel_members_hash(kernel)))
         .insert_u64("graph_seq", graph_seq)
         .insert_value("mfvs_approx_factor", json!(kernel.recall.approx_factor))
+        .insert_value(
+            "mfvs_tau_star_estimate",
+            json!(kernel.recall.tau_star_estimate),
+        )
+        .insert_value("mfvs_tau_star_exact", json!(kernel.recall.tau_star_exact))
         .insert_value("recall_ratio", json!(kernel.recall.ratio));
     let bytes = serde_json::to_vec(payload.value()).expect("payload serializes");
     RedactionPolicy::check_payload(&bytes)?;
