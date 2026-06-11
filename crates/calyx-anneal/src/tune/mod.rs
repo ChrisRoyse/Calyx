@@ -1,6 +1,7 @@
 mod bandit;
 mod scope_forge;
 mod scope_index;
+mod scope_loom;
 
 pub use bandit::{
     Arm, ArmStatus, AsterBanditStorage, BanditPolicy, BanditReadback, BanditStatus, BanditStorage,
@@ -23,4 +24,13 @@ pub use scope_index::{
     NoopIndexPromotionWriter, NoopIndexSlotHealth, candidate_configs as index_candidate_configs,
     decode_index_config, encode_index_config, index_slot_label, quant_win_check, slot_autotune_key,
     validate_index_config,
+};
+pub use scope_loom::{
+    CALYX_LOOM_PLAN_WRITE_FAIL, CALYX_LOOM_SCOPE_INVALID_CONFIG, ConcatKey,
+    DEFAULT_LOOM_RECALL_TARGET, LoomBanditPersistence, LoomMaterializer, LoomPromotionRecord,
+    LoomPromotionWriter, LoomScopeTuner, LoomTuneDecision, MAX_LOOM_CANDIDATES,
+    MAX_LOOM_EAGER_PAIRS, MIN_LOOM_PAIR_BITS, MatPlanConfig, NoopLoomBanditStore,
+    NoopLoomMaterializer, NoopLoomPromotionWriter, PlanScore, QueryLog, QueryObservation,
+    decode_mat_plan_config, encode_mat_plan_config, evaluate_plan, generate_candidate_plan,
+    loom_plan_label, loom_plan_shape_key, loom_plan_tune_key, validate_mat_plan_config,
 };
