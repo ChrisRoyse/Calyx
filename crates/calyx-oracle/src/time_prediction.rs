@@ -77,6 +77,7 @@ pub fn predict_next_occurrence_from_series(
     let half_width = cadence_mad_secs
         .max(cadence_secs * f64::from(1.0 - confidence))
         .round() as i64;
+    let interval = checked_interval(t_hat, half_width)?;
     Ok(TimePrediction {
         cx_id: series.cx_id,
         sufficient: true,
@@ -86,10 +87,7 @@ pub fn predict_next_occurrence_from_series(
         confidence_ceiling,
         cadence_secs,
         cadence_mad_secs,
-        interval: TimePredictionInterval {
-            low: EpochSecs(t_hat.saturating_sub(half_width)),
-            high: EpochSecs(t_hat.saturating_add(half_width)),
-        },
+        interval,
         periodic_confidence: periodic_confidence(&times),
     })
 }
@@ -203,6 +201,24 @@ fn checked_time_add(time: i64, delta: i64, message: &'static str) -> Result<i64>
         .ok_or_else(|| oracle_insufficient(message))
 }
 
+fn checked_interval(t_hat: i64, half_width: i64) -> Result<TimePredictionInterval> {
+    if half_width < 0 {
+        return Err(oracle_insufficient(
+            "prediction interval half-width must be non-negative",
+        ));
+    }
+    let low = t_hat
+        .checked_sub(half_width)
+        .ok_or_else(|| oracle_insufficient("prediction interval low bound overflow"))?;
+    let high = t_hat
+        .checked_add(half_width)
+        .ok_or_else(|| oracle_insufficient("prediction interval high bound overflow"))?;
+    Ok(TimePredictionInterval {
+        low: EpochSecs(low),
+        high: EpochSecs(high),
+    })
+}
+
 fn oracle_insufficient(message: impl Into<String>) -> CalyxError {
     CalyxError::oracle_insufficient(message)
 }
@@ -276,6 +292,147 @@ mod tests {
 
         assert_eq!(error.code, CALYX_ORACLE_INSUFFICIENT);
         assert!(error.message.contains("confidence ceiling"));
+    }
+
+    #[test]
+    fn next_occurrence_overflow_fails_closed_before_interval() {
+        let series = series_with_times([i64::MAX - 20, i64::MAX - 10, i64::MAX]);
+
+        let error = predict_next_occurrence_from_series(&series, 1.0).expect_err("overflow");
+
+        assert_eq!(error.code, CALYX_ORACLE_INSUFFICIENT);
+        assert!(error.message.contains("next occurrence timestamp overflow"));
+    }
+
+    #[test]
+    fn interval_high_overflow_fails_closed() {
+        let series = series_with_times([i64::MAX - 30, i64::MAX - 20, i64::MAX - 10]);
+
+        let error = predict_next_occurrence_from_series(&series, 1.0).expect_err("interval high");
+
+        assert_eq!(error.code, CALYX_ORACLE_INSUFFICIENT);
+        assert!(
+            error
+                .message
+                .contains("prediction interval high bound overflow")
+        );
+    }
+
+    #[test]
+    fn checked_interval_low_overflow_fails_closed() {
+        let error = checked_interval(i64::MIN, 1).expect_err("interval low");
+
+        assert_eq!(error.code, CALYX_ORACLE_INSUFFICIENT);
+        assert!(
+            error
+                .message
+                .contains("prediction interval low bound overflow")
+        );
+    }
+
+    #[test]
+    #[ignore = "aiwonder FSV writes #657 interval-bound readback artifact"]
+    fn time_prediction_interval_bounds_aiwonder_fsv() {
+        let root = std::env::var("CALYX_ISSUE657_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("calyx-issue657-time-bounds-fsv"));
+        std::fs::create_dir_all(&root).expect("create root");
+
+        let high_series = series_with_times([i64::MAX - 30, i64::MAX - 20, i64::MAX - 10]);
+        let (high_t_hat, high_half_width) =
+            interval_inputs(&high_series, 1.0).expect("high inputs");
+        let high_error =
+            predict_next_occurrence_from_series(&high_series, 1.0).expect_err("high overflow");
+        let low_error = checked_interval(i64::MIN, 1).expect_err("low overflow");
+        let t_hat_series = series_with_times([i64::MAX - 20, i64::MAX - 10, i64::MAX]);
+        let t_hat_error =
+            predict_next_occurrence_from_series(&t_hat_series, 1.0).expect_err("t_hat overflow");
+
+        let report = format!(
+            concat!(
+                "{{\n",
+                "  \"issue\": 657,\n",
+                "  \"high_before_t_hat\": {},\n",
+                "  \"high_before_half_width\": {},\n",
+                "  \"high_legacy_low\": {},\n",
+                "  \"high_legacy_high\": {},\n",
+                "  \"high_after_code\": \"{}\",\n",
+                "  \"high_after_message\": \"{}\",\n",
+                "  \"low_legacy_low\": {},\n",
+                "  \"low_legacy_high\": {},\n",
+                "  \"low_after_code\": \"{}\",\n",
+                "  \"low_after_message\": \"{}\",\n",
+                "  \"t_hat_after_code\": \"{}\",\n",
+                "  \"t_hat_after_message\": \"{}\"\n",
+                "}}\n"
+            ),
+            high_t_hat,
+            high_half_width,
+            high_t_hat.saturating_sub(high_half_width),
+            high_t_hat.saturating_add(high_half_width),
+            high_error.code,
+            high_error.message,
+            i64::MIN.saturating_sub(1),
+            i64::MIN.saturating_add(1),
+            low_error.code,
+            low_error.message,
+            t_hat_error.code,
+            t_hat_error.message
+        );
+        let path = root.join("issue657-time-prediction-bounds-readback.json");
+        std::fs::write(&path, report).expect("write report");
+        let bytes = std::fs::read(&path).expect("read report");
+        let readback = String::from_utf8(bytes.clone()).expect("utf8 report");
+        let digest = digest_hex(&bytes);
+
+        println!("ISSUE657_FSV_ROOT={}", root.display());
+        println!("ISSUE657_READBACK={}", path.display());
+        println!("ISSUE657_READBACK_BLAKE3={digest}");
+        println!("{readback}");
+
+        assert!(readback.contains("\"high_after_code\": \"CALYX_ORACLE_INSUFFICIENT\""));
+        assert!(
+            readback
+                .contains("\"high_after_message\": \"prediction interval high bound overflow\"")
+        );
+        assert!(readback.contains("\"low_after_code\": \"CALYX_ORACLE_INSUFFICIENT\""));
+        assert!(
+            readback.contains("\"low_after_message\": \"prediction interval low bound overflow\"")
+        );
+        assert!(readback.contains("\"t_hat_after_code\": \"CALYX_ORACLE_INSUFFICIENT\""));
+        assert!(
+            readback.contains("\"t_hat_after_message\": \"next occurrence timestamp overflow\"")
+        );
+    }
+
+    fn interval_inputs(series: &RecurrenceSeries, confidence_ceiling: f32) -> Result<(i64, i64)> {
+        let times = sorted_times(series);
+        let gaps = positive_gaps(&times)?;
+        let cadence_secs = median(&gaps);
+        let cadence_mad_secs = median_absolute_deviation(&gaps, cadence_secs);
+        let t_hat = checked_time_add(
+            *times.last().expect("test series has quorum"),
+            cadence_secs.round() as i64,
+            "next occurrence timestamp overflow",
+        )?;
+        let confidence = confidence(
+            times.len(),
+            cadence_secs,
+            cadence_mad_secs,
+            periodic_confidence(&times),
+            confidence_ceiling,
+        );
+        let half_width = cadence_mad_secs
+            .max(cadence_secs * f64::from(1.0 - confidence))
+            .round() as i64;
+        Ok((t_hat, half_width))
+    }
+
+    fn digest_hex(bytes: &[u8]) -> String {
+        calyx_core::content_address([bytes])
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect()
     }
 
     fn series_with_times(times: impl IntoIterator<Item = i64>) -> RecurrenceSeries {
