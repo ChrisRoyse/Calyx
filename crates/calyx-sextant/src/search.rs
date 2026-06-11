@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{Anchor, CalyxError, Constellation, CxId, Result, SlotId, SlotState, SlotVector};
+use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotState, SlotVector};
 use zeroize::Zeroizing;
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
@@ -10,11 +10,13 @@ use crate::guarded::{GuardedSearchReport, apply_query_guard};
 use crate::hit::{FreshnessTag, Hit, ProvenanceSource};
 use crate::planner::QueryPlanner;
 use crate::planner_explain::PlannerExplain;
-use crate::query::{
-    AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, ScalarOp,
-    ScalarPredicate,
-};
+use crate::query::{FreshnessRequirement, Query, QueryFilters};
+use crate::query_admission::{QueryAdmissionConfig, QueryAdmissionController, QueryAdmissionStats};
 use crate::reranker::{RerankRequest, RerankerClient};
+use crate::search_support::{
+    anchor_filter_matches, default_strategy, metadata_matches, scalar_matches, strategy_weights,
+    text_to_sparse,
+};
 use crate::slot_index_map::SlotIndexMap;
 use crate::util::{event_time_secs_from_ts, hex32, stub_ledger};
 
@@ -24,6 +26,7 @@ const DEFAULT_PIPELINE_RECALL_MULTIPLIER: usize = 10;
 pub struct SearchEngine {
     pub indexes: SlotIndexMap,
     docs: BTreeMap<CxId, Constellation>,
+    query_admission: QueryAdmissionController,
 }
 
 impl SearchEngine {
@@ -31,7 +34,20 @@ impl SearchEngine {
         Self {
             indexes,
             docs: BTreeMap::new(),
+            query_admission: QueryAdmissionController::default(),
         }
+    }
+
+    pub fn set_query_admission_config(&mut self, config: QueryAdmissionConfig) {
+        self.query_admission = QueryAdmissionController::new(config);
+    }
+
+    pub fn query_admission_stats(&self) -> QueryAdmissionStats {
+        self.query_admission.stats()
+    }
+
+    pub fn query_admission_metrics_text(&self) -> String {
+        self.query_admission.metrics_text()
     }
 
     pub fn put_constellation(&mut self, constellation: Constellation) {
@@ -81,6 +97,7 @@ impl SearchEngine {
         query: &Query,
         reranker: Option<&RerankerClient>,
     ) -> Result<GuardedSearchReport> {
+        let _query_permit = self.query_admission.acquire()?;
         query.validate()?;
         let slots = if query.slots.is_empty() {
             self.indexes.slots()
@@ -396,101 +413,5 @@ impl SearchEngine {
             }
         }
         Ok(())
-    }
-}
-
-fn scalar_matches(cx: &Constellation, filter: &ScalarPredicate) -> bool {
-    cx.scalars
-        .get(&filter.name)
-        .is_some_and(|actual| compare_scalar(*actual, filter.op, filter.value))
-}
-
-fn compare_scalar(actual: f64, op: ScalarOp, expected: f64) -> bool {
-    if !actual.is_finite() || !expected.is_finite() {
-        return false;
-    }
-    match op {
-        ScalarOp::Eq => actual == expected,
-        ScalarOp::Gt => actual > expected,
-        ScalarOp::Gte => actual >= expected,
-        ScalarOp::Lt => actual < expected,
-        ScalarOp::Lte => actual <= expected,
-    }
-}
-
-fn anchor_filter_matches(cx: &Constellation, filter: &AnchorPredicate) -> bool {
-    cx.anchors
-        .iter()
-        .any(|anchor| anchor_matches(anchor, filter))
-}
-
-fn anchor_matches(anchor: &Anchor, filter: &AnchorPredicate) -> bool {
-    if anchor.kind != filter.kind {
-        return false;
-    }
-    if let Some(value) = &filter.value
-        && &anchor.value != value
-    {
-        return false;
-    }
-    if let Some(min_confidence) = filter.min_confidence
-        && (!min_confidence.is_finite() || anchor.confidence < min_confidence)
-    {
-        return false;
-    }
-    if let Some(source) = &filter.source
-        && &anchor.source != source
-    {
-        return false;
-    }
-    true
-}
-
-fn metadata_matches(cx: &Constellation, filter: &MetadataPredicate) -> bool {
-    match filter {
-        MetadataPredicate::Vault(vault) => &cx.vault_id == vault,
-        MetadataPredicate::Modality(modality) => &cx.modality == modality,
-        MetadataPredicate::PanelVersion(panel_version) => cx.panel_version == *panel_version,
-        MetadataPredicate::CreatedAt { min, max } => {
-            min.is_none_or(|value| cx.created_at >= value)
-                && max.is_none_or(|value| cx.created_at <= value)
-        }
-        MetadataPredicate::InputRedacted(redacted) => cx.input_ref.redacted == *redacted,
-        MetadataPredicate::InputPointerContains(fragment) => cx
-            .input_ref
-            .pointer
-            .as_ref()
-            .is_some_and(|pointer| pointer.contains(fragment)),
-    }
-}
-
-fn default_strategy(slots: &[SlotId]) -> FusionStrategy {
-    if slots.len() == 1 {
-        FusionStrategy::SingleLens { slot: slots[0] }
-    } else {
-        FusionStrategy::Rrf
-    }
-}
-
-fn strategy_weights(strategy: &FusionStrategy) -> BTreeMap<SlotId, f32> {
-    match strategy {
-        FusionStrategy::WeightedRrf { profile } => crate::fusion::profiles::lookup(*profile)
-            .map(|profile| profile.weights)
-            .unwrap_or_default(),
-        _ => BTreeMap::new(),
-    }
-}
-
-fn text_to_sparse(text: &str) -> SlotVector {
-    SlotVector::Sparse {
-        dim: 1_000_000,
-        entries: crate::index::tokenizer::tokenize(text)
-            .into_iter()
-            .enumerate()
-            .map(|(idx, _)| calyx_core::SparseEntry {
-                idx: idx as u32,
-                val: 1.0,
-            })
-            .collect(),
     }
 }
