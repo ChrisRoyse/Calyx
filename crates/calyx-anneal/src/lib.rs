@@ -21,11 +21,18 @@ pub use heal::degrade::{
     CALYX_ANNEAL_HEALTH_INVALID_ROW, ComponentHealth, ComponentKind, DegradeRegistry,
     HealthRowReadback, HealthStorage, ScopeId, decode_health_value,
 };
+pub use heal::triggers::{
+    AssayMetrics, CALYX_ANNEAL_FAULT_INVALID_EVENT, ChecksumDetector, ChecksumEntry, EndpointUrl,
+    FaultDetector, FaultEvent, FaultKind, FaultMonitor, HttpProbe, LensProbeDetector, ProbeStatus,
+    SignalDecayDetector, SignalSample, StaleDetector, StaleEntry, TauDriftDetector, TauDriftSample,
+    WardMetrics,
+};
 pub use integration_fsv::{AnnealStatus, AnnealSubstrate, CALYX_LEDGER_WRITE_FAIL, ChangeOutcome};
 pub use ledger_anneal::{
-    ANNEAL_LEDGER_PAYLOAD_TAG, AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry,
-    AnnealLedgerReadback, AsterAnnealLedgerStore, CALYX_ANNEAL_LEDGER_INVALID_ENTRY,
-    CALYX_ASTER_CF_UNAVAILABLE, CALYX_LEDGER_ENTRY_TOO_LARGE, MAX_ANNEAL_LEDGER_PAYLOAD_BYTES,
+    ANNEAL_LEDGER_PAYLOAD_TAG, AnnealFaultLedgerDetails, AnnealLedger, AnnealLedgerAction,
+    AnnealLedgerEntry, AnnealLedgerReadback, AsterAnnealLedgerStore,
+    CALYX_ANNEAL_LEDGER_INVALID_ENTRY, CALYX_ASTER_CF_UNAVAILABLE, CALYX_LEDGER_ENTRY_TOO_LARGE,
+    MAX_ANNEAL_LEDGER_PAYLOAD_BYTES, decode_anneal_ledger_payload,
 };
 pub use recurrence_schedule::{
     CALYX_ANNEAL_INVALID_CADENCE, FREQ_BONUS_MAX, RecurrenceSchedule, RefreshPriority,

@@ -206,6 +206,7 @@ fn sample_entry(
         },
         ts: TEST_TS,
         description: "synthetic anneal ledger event".to_string(),
+        fault: None,
         prev_hash,
     }
 }
@@ -217,6 +218,7 @@ fn action_strategy() -> impl Strategy<Value = AnnealLedgerAction> {
         Just(AnnealLedgerAction::Propose),
         Just(AnnealLedgerAction::Park),
         Just(AnnealLedgerAction::DegradeChange),
+        Just(AnnealLedgerAction::FaultEvent),
         Just(AnnealLedgerAction::Recalibrate),
         Just(AnnealLedgerAction::MistakeUpdate),
         Just(AnnealLedgerAction::AutotuneAB),

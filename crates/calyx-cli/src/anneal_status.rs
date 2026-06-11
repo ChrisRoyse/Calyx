@@ -2,11 +2,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_anneal::decode_health_value;
+use calyx_anneal::{AnnealLedgerAction, decode_anneal_ledger_payload, decode_health_value};
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::sst::SstReader;
 use calyx_aster::vault::encode::decode_write_batch;
 use calyx_aster::wal::replay_dir;
+use calyx_ledger::{EntryKind, LedgerCfStore, decode};
+
+use crate::ledger_store::AsterLedgerCfStore;
 
 pub(crate) fn status_health(vault: &Path) -> Result<(), String> {
     if !vault.is_dir() {
@@ -28,6 +31,55 @@ pub(crate) fn status_health(vault: &Path) -> Result<(), String> {
         println!("{}: {}", row.kind, row.health);
     }
     Ok(())
+}
+
+pub(crate) fn status_faults(vault: &Path, last: usize) -> Result<(), String> {
+    if last == 0 {
+        return Err("--last must be positive".to_string());
+    }
+    let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
+    let mut faults = Vec::new();
+    for row in store.scan().map_err(|error| error.to_string())? {
+        let entry = decode(&row.bytes).map_err(|error| error.to_string())?;
+        if entry.kind != EntryKind::Anneal {
+            continue;
+        }
+        let anneal =
+            decode_anneal_ledger_payload(&entry.payload).map_err(|error| error.to_string())?;
+        if anneal.action == AnnealLedgerAction::FaultEvent {
+            faults.push(anneal);
+        }
+    }
+    if faults.is_empty() {
+        println!("ANNEAL_FAULTS empty");
+        return Ok(());
+    }
+    if last < faults.len() {
+        faults.drain(0..faults.len() - last);
+    }
+    for entry in faults {
+        if let Some(fault) = entry.fault {
+            println!(
+                "FaultEvent ts={} component={} kind={} recommendation={}",
+                entry.ts,
+                fault.component_label(),
+                fault.fault_kind,
+                fault.recommendation
+            );
+        } else {
+            println!(
+                "FaultEvent ts={} description={}",
+                entry.ts, entry.description
+            );
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn parse_last(value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .map_err(|error| format!("invalid --last: {error}"))
 }
 
 fn read_sst_rows(vault: &Path, rows: &mut BTreeMap<Vec<u8>, Vec<u8>>) -> Result<(), String> {

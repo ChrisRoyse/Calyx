@@ -208,6 +208,7 @@ fn ledger_entry(
         metrics,
         ts: readback.snapshot.ts,
         description,
+        fault: None,
         prev_hash: None,
     }
 }

@@ -27,9 +27,44 @@ pub enum AnnealLedgerAction {
     Propose,
     Park,
     DegradeChange,
+    FaultEvent,
     Recalibrate,
     MistakeUpdate,
     AutotuneAB,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnealFaultLedgerDetails {
+    pub fault_kind: String,
+    pub recommendation: String,
+    pub component_kind: String,
+    pub component_hash: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slot_id: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lens_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope_hash: Option<String>,
+}
+
+impl AnnealFaultLedgerDetails {
+    pub fn component_label(&self) -> String {
+        match self.component_kind.as_str() {
+            "ann_index" => format!("AnnIndex(slot_{})", self.slot_id.unwrap_or_default()),
+            "guard_profile" => format!("GuardProfile(slot_{})", self.slot_id.unwrap_or_default()),
+            "lens_endpoint" => self
+                .lens_id
+                .as_ref()
+                .map(|lens_id| format!("LensEndpoint({lens_id})"))
+                .unwrap_or_else(|| format!("LensEndpoint(hash={})", self.component_hash)),
+            "kernel_index" => self
+                .scope_hash
+                .as_ref()
+                .map(|hash| format!("KernelIndex(scope_hash={hash})"))
+                .unwrap_or_else(|| format!("KernelIndex(hash={})", self.component_hash)),
+            _ => format!("{}({})", self.component_kind, self.component_hash),
+        }
+    }
 }
 
 /// Hash-only Anneal audit payload that is safe for the ledger redaction policy.
@@ -43,6 +78,7 @@ pub struct AnnealLedgerEntry {
     pub metrics: MetricSnapshot,
     pub ts: LogicalTime,
     pub description: String,
+    pub fault: Option<AnnealFaultLedgerDetails>,
     pub prev_hash: Option<[u8; 32]>,
 }
 
@@ -207,6 +243,8 @@ struct AnnealLedgerPayload {
     metrics: MetricSnapshot,
     ts: LogicalTime,
     description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    fault: Option<AnnealFaultLedgerDetails>,
     prev_hash: Option<String>,
 }
 
@@ -222,6 +260,7 @@ fn encode_payload(entry: &AnnealLedgerEntry) -> Result<Vec<u8>> {
         metrics: entry.metrics.clone(),
         ts: entry.ts,
         description: entry.description.clone(),
+        fault: entry.fault.clone(),
         prev_hash: entry.prev_hash.as_ref().map(hex32),
     };
     let bytes = serde_json::to_vec(&payload)
@@ -260,11 +299,16 @@ fn decode_payload(payload: &[u8]) -> Result<AnnealLedgerEntry> {
         metrics: payload.metrics,
         ts: payload.ts,
         description: payload.description,
+        fault: payload.fault,
         prev_hash: match payload.prev_hash {
             Some(value) => Some(decode_hex32(&value, "prev_hash")?),
             None => None,
         },
     })
+}
+
+pub fn decode_anneal_ledger_payload(payload: &[u8]) -> Result<AnnealLedgerEntry> {
+    decode_payload(payload)
 }
 
 fn anneal_subject(change_id: ChangeId) -> SubjectId {
