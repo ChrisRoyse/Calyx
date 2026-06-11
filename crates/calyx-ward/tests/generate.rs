@@ -10,8 +10,9 @@ use calyx_ledger::{
     DirectoryLedgerStore, LedgerAppender, LedgerCfStore, MemoryLedgerStore, decode,
 };
 use calyx_ward::{
-    GenerateOutput, GuardPolicy, NoveltyAction, NoveltyHandler, NoveltyStatus, VaultSink,
-    WardError, guard_generate, guard_generate_with_ledger,
+    GUARDED_REJECT_TAG, GUARDED_REJECT_UNPROVENANCED_TAG, GenerateOutput, GuardPolicy,
+    NoveltyAction, NoveltyHandler, NoveltyStatus, VaultSink, WardError, guard_generate,
+    guard_generate_with_ledger,
 };
 use proptest::prelude::*;
 use serde_json::{Value, json};
@@ -78,6 +79,41 @@ fn accepted_generation_can_append_guard_ledger_row() {
 }
 
 #[test]
+fn rejected_generation_can_append_guard_ledger_row() {
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(27_201)).unwrap();
+    let output = guard_generate_with_ledger(
+        &mut appender,
+        &identity_profile(NoveltyAction::RejectClosed, true),
+        &generate_input(true, true),
+        &MockLens::audio(cos_vector(0.90)),
+        &MockLens::text(cos_vector(0.20)),
+        &handler_for(MemorySink::default()),
+        true,
+    )
+    .unwrap();
+    let rows = appender.store().scan().unwrap();
+
+    match output {
+        GenerateOutput::Rejected {
+            ledger_ref,
+            provenance_tag,
+            ..
+        } => {
+            assert_eq!(provenance_tag, GUARDED_REJECT_TAG);
+            assert_eq!(ledger_ref.as_ref().map(|value| value.seq), Some(0));
+        }
+        other => panic!("expected rejected output, got {other:?}"),
+    }
+    assert_eq!(rows.len(), 1);
+    let entry = decode(&rows[0].bytes).unwrap();
+    let payload: Value = serde_json::from_slice(&entry.payload).unwrap();
+    assert_eq!(payload["ward_provenance"], "ward_guard_verdict_v1");
+    assert_eq!(payload["overall_pass"], false);
+    assert_eq!(payload["action"], "reject_closed");
+}
+
+#[test]
 fn out_of_region_new_region_routes_to_novelty_record() {
     let sink = MemorySink::default();
     let output = guard_generate(
@@ -114,9 +150,15 @@ fn reject_closed_preserves_rejected_verdict_after_sink_write() {
     .unwrap();
 
     match output {
-        GenerateOutput::Rejected { verdict } => {
+        GenerateOutput::Rejected {
+            verdict,
+            provenance_tag,
+            ledger_ref,
+        } => {
             assert!(!verdict.overall_pass);
             assert_eq!(verdict.failing_slots()[0].slot, STYLE_SLOT);
+            assert_eq!(provenance_tag, GUARDED_REJECT_UNPROVENANCED_TAG);
+            assert_eq!(ledger_ref, None);
         }
         other => panic!("expected rejected output, got {other:?}"),
     }
@@ -273,12 +315,6 @@ fn issue272_guard_generate_fsv_writes_readbacks() {
         true,
     )
     .unwrap();
-    let after_rows = appender.store().scan().unwrap();
-    let entries = after_rows
-        .iter()
-        .map(|row| decode(&row.bytes).unwrap())
-        .collect::<Vec<_>>();
-
     let novel_sink = FileSink::new(root.join("novelty-new-region"));
     let novel = guard_generate(
         &identity_profile(NoveltyAction::NewRegion, true),
@@ -299,6 +335,21 @@ fn issue272_guard_generate_fsv_writes_readbacks() {
         true,
     )
     .unwrap();
+    let rejected_ledger = guard_generate_with_ledger(
+        &mut appender,
+        &identity_profile(NoveltyAction::RejectClosed, true),
+        &generate_input(true, true),
+        &MockLens::audio(cos_vector(0.91)),
+        &MockLens::text(cos_vector(0.29)),
+        &handler_for(FileSink::new(root.join("novelty-reject-ledger"))),
+        true,
+    )
+    .unwrap();
+    let after_rows = appender.store().scan().unwrap();
+    let entries = after_rows
+        .iter()
+        .map(|row| decode(&row.bytes).unwrap())
+        .collect::<Vec<_>>();
     let provisional = guard_generate(
         &identity_profile(NoveltyAction::NewRegion, false),
         &generate_input(true, true),
@@ -328,6 +379,11 @@ fn issue272_guard_generate_fsv_writes_readbacks() {
             &json!(novel_sink.novel_records().unwrap()),
         ),
         write_json(&root, "rejected-output.json", &json!(rejected)),
+        write_json(
+            &root,
+            "rejected-ledger-output.json",
+            &json!(rejected_ledger),
+        ),
         write_json(
             &root,
             "novelty-reject-readback.json",

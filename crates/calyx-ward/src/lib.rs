@@ -31,7 +31,8 @@ pub use error::{
     CALYX_WARD_MODEL_DIM_MISMATCH, CALYX_WARD_MODEL_NOT_FOUND, CALYX_WARD_RUNTIME_ERROR, WardError,
 };
 pub use generate::{
-    GUARDED_PASS_TAG, GenerateInput, GenerateOutput, guard_generate, guard_generate_with_ledger,
+    GUARDED_PASS_TAG, GUARDED_REJECT_TAG, GUARDED_REJECT_UNPROVENANCED_TAG, GenerateInput,
+    GenerateOutput, guard_generate, guard_generate_with_ledger,
 };
 pub use guard::{
     DEFAULT_TAU, MatchedSlots, ProducedSlots, guard, guard_non_high_stakes, guard_result,
