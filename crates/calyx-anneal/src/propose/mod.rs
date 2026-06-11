@@ -3,6 +3,8 @@
 pub mod candidate_synth;
 pub mod deficit_localize;
 pub mod differentiation_gate;
+pub mod propose_lens;
+pub mod registry_hot_add;
 
 pub use candidate_synth::{
     AlgParams, AlgorithmicKind, CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT, CandidateLens,
@@ -20,3 +22,9 @@ pub use differentiation_gate::{
     DifferentiationGate, GateOutcome, LensProfiler, PROFILE_TIMEOUT_MS, PairNMI, RejectReason,
     describe_gate_outcome, gate,
 };
+pub use propose_lens::{
+    CALYX_REGISTRY_HOT_ADD_FAIL, HotAddAction, HotAddPlan, HotAddReceipt, LensHotAdder,
+    ProposalOutcome, ProposalSubstrate, ProposalTerminalState, ProposeLens, ProposeLensRequest,
+    propose_lens,
+};
+pub use registry_hot_add::RegistryHotAdder;
