@@ -230,6 +230,7 @@ fn sample_constellation(vault: &AsterVault) -> Constellation {
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 0,
@@ -261,6 +262,7 @@ fn candidate_constellation(cx_id: CxId) -> Constellation {
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 0,

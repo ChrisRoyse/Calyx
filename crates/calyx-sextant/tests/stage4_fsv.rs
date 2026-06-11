@@ -455,6 +455,7 @@ fn sample_constellation(cx_id: CxId, seq: u64) -> calyx_core::Constellation {
         modality: Modality::Text,
         slots: BTreeMap::new(),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: vec![Anchor {
             kind: AnchorKind::Label("stage4".to_string()),
             value: AnchorValue::Text("ok".to_string()),

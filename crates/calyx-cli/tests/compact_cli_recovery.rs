@@ -219,6 +219,7 @@ fn sample_constellation(vault: &AsterVault, label: &str, seed: u8) -> Constellat
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 0,

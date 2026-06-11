@@ -96,6 +96,7 @@ pub fn constellation(
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors,
         provenance: LedgerRef {
             seq: 0,

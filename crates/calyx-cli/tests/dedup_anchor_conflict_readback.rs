@@ -276,6 +276,7 @@ fn sample_cx<const N: usize>(
         modality: Modality::Text,
         slots: slots.into_iter().collect(),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors,
         provenance: LedgerRef {
             seq: u64::from(seed),

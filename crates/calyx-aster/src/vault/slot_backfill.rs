@@ -147,6 +147,7 @@ mod tests {
             modality: Modality::Text,
             slots,
             scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             anchors: Vec::new(),
             provenance: LedgerRef {
                 seq: 1,

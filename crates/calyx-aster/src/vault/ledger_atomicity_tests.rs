@@ -253,6 +253,7 @@ fn sample_constellation<C: Clock>(
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 9000 + u64::from(seed),

@@ -73,6 +73,7 @@ fn row(seed: u8) -> Constellation {
         modality: Modality::Text,
         slots: BTreeMap::new(),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: seed as u64,

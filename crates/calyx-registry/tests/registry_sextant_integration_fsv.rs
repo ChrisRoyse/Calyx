@@ -219,6 +219,7 @@ fn constellation(cx_id: CxId, name: &str, text: &str, seq: u64) -> calyx_core::C
         modality: Modality::Text,
         slots: BTreeMap::new(),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef { seq, hash },
         flags: CxFlags::default(),

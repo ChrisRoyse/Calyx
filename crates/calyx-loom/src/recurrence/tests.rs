@@ -456,6 +456,7 @@ fn put_base(vault: &AsterVault<FixedClock>, input: &[u8]) -> calyx_core::CxId {
         modality: Modality::Text,
         slots: BTreeMap::new(),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 0,

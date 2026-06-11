@@ -126,6 +126,7 @@ pub fn small_constellation_strategy() -> BoxedStrategy<Constellation> {
                 modality,
                 slots,
                 scalars: BTreeMap::new(),
+                metadata: BTreeMap::new(),
                 anchors: (!redacted)
                     .then(|| Anchor {
                         kind: AnchorKind::Reward,

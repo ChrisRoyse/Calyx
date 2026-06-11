@@ -60,4 +60,8 @@ impl<'a> Cursor<'a> {
     pub(super) fn u64(&mut self) -> Result<u64> {
         Ok(u64::from_be_bytes(self.array()?))
     }
+
+    pub(super) fn remaining(&self) -> usize {
+        self.bytes.len().saturating_sub(self.offset)
+    }
 }

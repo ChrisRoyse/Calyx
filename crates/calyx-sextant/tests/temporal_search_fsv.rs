@@ -281,6 +281,7 @@ fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
         modality: Modality::Text,
         slots: BTreeMap::new(),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: vec![Anchor {
             kind: AnchorKind::Label("temporal-search-fsv".to_string()),
             value: AnchorValue::Text("synthetic".to_string()),

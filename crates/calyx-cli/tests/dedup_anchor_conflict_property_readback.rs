@@ -184,6 +184,7 @@ impl CaseEvent {
                 },
             )]),
             scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             anchors: vec![speaker(&self.speaker)],
             provenance: LedgerRef {
                 seq: 0,

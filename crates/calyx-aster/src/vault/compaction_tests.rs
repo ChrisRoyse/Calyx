@@ -231,6 +231,7 @@ fn sample_constellation(seed: u8) -> calyx_core::Constellation {
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: u64::from(seed),

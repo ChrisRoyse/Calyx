@@ -242,6 +242,7 @@ fn constellation(
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors,
         provenance: LedgerRef {
             seq: 3_190 + cx_id.as_bytes()[0] as u64,

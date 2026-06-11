@@ -89,6 +89,7 @@ fn row(seed: u8, frequency: Option<f64>) -> calyx_core::Constellation {
         modality: Modality::Text,
         slots: BTreeMap::<SlotId, SlotVector>::new(),
         scalars,
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: seed as u64,

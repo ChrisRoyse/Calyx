@@ -100,6 +100,7 @@ pub fn encode_constellation_base(cx: &Constellation) -> Result<Vec<u8>> {
         put_bytes(&mut out, &encode_anchor(anchor)?)?;
     }
     out.extend_from_slice(&cx.provenance.hash);
+    encode_string_metadata(&cx.metadata, &mut out)?;
     Ok(out)
 }
 
@@ -135,6 +136,16 @@ pub fn decode_constellation_base(bytes: &[u8]) -> Result<Constellation> {
         seq: header.ledger_seq,
         hash: cursor.array()?,
     };
+    let metadata = if cursor.remaining() == 0 {
+        BTreeMap::new()
+    } else {
+        decode_string_metadata(&mut cursor)?
+    };
+    if cursor.remaining() != 0 {
+        return Err(CalyxError::aster_corrupt_shard(
+            "trailing bytes after constellation metadata",
+        ));
+    }
     Ok(Constellation {
         cx_id: header.cx_id,
         vault_id: header.vault_id,
@@ -144,6 +155,7 @@ pub fn decode_constellation_base(bytes: &[u8]) -> Result<Constellation> {
         modality: header.modality,
         slots,
         scalars,
+        metadata,
         anchors,
         provenance,
         flags: header.flags,
@@ -295,6 +307,9 @@ fn identity_hash(cx: &Constellation) -> Result<blake3::Hash> {
         put_string(&mut bytes, key)?;
         bytes.extend_from_slice(&value.to_bits().to_be_bytes());
     }
+    if !cx.metadata.is_empty() {
+        encode_string_metadata(&cx.metadata, &mut bytes)?;
+    }
     bytes.extend_from_slice(&[0_u8; 32]);
     Ok(blake3::hash(&bytes))
 }
@@ -403,6 +418,28 @@ fn decode_flags(bits: u8) -> CxFlags {
 
 fn put_string(out: &mut Vec<u8>, value: &str) -> Result<()> {
     put_bytes(out, value.as_bytes())
+}
+
+fn encode_string_metadata(metadata: &BTreeMap<String, String>, out: &mut Vec<u8>) -> Result<()> {
+    let count = u32::try_from(metadata.len())
+        .map_err(|_| CalyxError::aster_corrupt_shard("metadata map too large"))?;
+    out.extend_from_slice(&count.to_be_bytes());
+    for (key, value) in metadata {
+        put_string(out, key)?;
+        put_string(out, value)?;
+    }
+    Ok(())
+}
+
+fn decode_string_metadata(cursor: &mut Cursor<'_>) -> Result<BTreeMap<String, String>> {
+    let count = cursor.u32()? as usize;
+    let mut metadata = BTreeMap::new();
+    for _ in 0..count {
+        let key = cursor.string()?;
+        let value = cursor.string()?;
+        metadata.insert(key, value);
+    }
+    Ok(metadata)
 }
 
 fn put_bytes(out: &mut Vec<u8>, bytes: &[u8]) -> Result<()> {
