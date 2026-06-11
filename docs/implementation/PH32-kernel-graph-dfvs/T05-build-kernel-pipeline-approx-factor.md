@@ -3,8 +3,12 @@
 > **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
 > `crates/calyx-lodestar/src/kernel.rs` with serializable `Kernel`,
 > deterministic `kernel_id`, groundedness/provisional reporting,
-> approximation-factor propagation, and serde roundtrip coverage. aiwonder FSV
-> readback: `ph32-kernel-pipeline-readback.json`.
+> approximation-factor/tau propagation, and serde roundtrip coverage. aiwonder
+> FSV readback: `ph32-kernel-pipeline-readback.json`; #645 adds honest
+> exact-vs-approximate tau readback under
+> `/home/croyse/calyx/data/fsv-issue645-dfvs-honest-20260611T072428Z`
+> (`ph32-dfvs-honest-bounds-readback.json` SHA-256
+> `82617d924c8e8c47355cbc3dda83b75f27a47fb4a15f690bc983f8e4760322f7`).
 
 > Historical checklist note: the unchecked implementation prompts below were
 > satisfied by the closed Stage 6 evidence; current state is the status/evidence
@@ -25,16 +29,16 @@
 Wire the pipeline stages (condense -> kernel-graph -> LP scaffold/fallback ->
 DFVS) into `build_kernel_pipeline` and produce the complete `Kernel` struct
 (per PRD section 6).
-The approx-factor is emitted in the struct so it is always auditable (`08 §7`:
-"MFVS approximation factor and the recall test are reported so the kernel's quality
-is auditable, not asserted"). The `Kernel` is serializable to the `idx/kernel/`
-store (PH33 uses it as an index).
+The approx-factor and tau certificate are emitted in the struct so they are
+always auditable (`08 §7`: "MFVS approximation factor and the recall test are
+reported so the kernel's quality is auditable, not asserted"). The `Kernel` is
+serializable to the `idx/kernel/` store (PH33 uses it as an index).
 
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] `pub struct Kernel { kernel_id: KernelId, panel_version: u64, anchor_kind: Option<AnchorKind>, corpus_shard_hash: [u8;32], members: Vec<CxId>, kernel_graph: Vec<CxId>, groundedness: GroundednessReport, recall: RecallReport, built_at: Timestamp, estimator_provenance: String }` — exact PRD §6 fields.
 - [ ] `pub struct GroundednessReport { reached_anchor: f32, unanchored_members: Vec<CxId> }`.
-- [ ] `pub struct RecallReport { kernel_only: f32, full: f32, ratio: f32, approx_factor: f64 }` — `approx_factor` from `DfvsResult`.
+- [ ] `pub struct RecallReport { kernel_only: f32, full: f32, ratio: f32, approx_factor: f64, tau_star_estimate: usize, tau_star_exact: bool }` — approximation fields from `DfvsResult`.
 - [ ] `pub fn build_kernel_pipeline(graph: &AssocGraph, anchors: &[CxId], params: &KernelParams) -> Result<Kernel, CalyxError>`:
   1. `tarjan_scc` → `condensate` (PH31).
   2. `select_kernel_graph` + `lp_round_kernel_graph` scaffold/fallback (T01/T02).
@@ -42,7 +46,8 @@ store (PH33 uses it as an index).
   4. Anchor-reachability check: BFS from each `dfvs_approx` member to any anchor;
      unreachable → `unanchored_members`.
   5. Populate `Kernel` struct; `recall.ratio` is stub `0.0` until PH33 adds the
-     recall test; `approx_factor` is always populated from step 3.
+     recall test; `approx_factor`, `tau_star_estimate`, and `tau_star_exact` are
+     always populated from step 3.
 - [ ] `KernelId` = `CxId`-space hash of `(panel_version, anchor_kind, corpus_shard_hash)`.
 - [ ] If `members.is_empty()` AND input graph is non-empty → `CALYX_KERNEL_EMPTY_RESULT`.
 - [ ] Provisional flag: if `unanchored_members.len() == members.len()` (fully
@@ -56,8 +61,8 @@ store (PH33 uses it as an index).
   in `members`; `unanchored_members` is empty (anchor reachable).
 - [ ] unit: same graph with anchors removed → `unanchored_members = [planted_fvs_node]`;
   `estimator_provenance` contains `"provisional"`; `CALYX_KERNEL_UNGROUNDED` logged.
-- [ ] unit: `RecallReport.approx_factor` matches the `DfvsResult.approx_factor`
-  from the underlying `dfvs_approx` call.
+- [ ] unit: `RecallReport.approx_factor`, `tau_star_estimate`, and
+  `tau_star_exact` match the underlying `DfvsResult` from `dfvs_approx`.
 - [ ] unit: `Kernel` round-trips via serde (JSON); `kernel_id` re-derives to same
   value from same inputs.
 - [ ] edge: DAG input (no cycles) → `members = []`; `kernel_graph` contains top-10%
@@ -71,9 +76,9 @@ store (PH33 uses it as an index).
 - **SoT:** `cargo test -p calyx-lodestar kernel -- --nocapture` stdout.
 - **Readback:** `cargo test -p calyx-lodestar kernel 2>&1 | tee /tmp/ph32_t05_fsv.txt && cat /tmp/ph32_t05_fsv.txt`.
 - **Prove:** planted-FVS test prints `members` containing the planted node ID;
-  `approx_factor` value printed; `provisional` tag visible for unanchored case;
-  serde round-trip JSON matches; output table attached to PH32 GitHub issue
-  confirming computed vs known planted FVS.
+  `approx_factor` and tau certificate values printed; `provisional` tag visible
+  for unanchored case; serde round-trip JSON matches; output table attached to
+  PH32 GitHub issue confirming computed vs known planted FVS.
 
 ## Done when
 

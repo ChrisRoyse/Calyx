@@ -22,6 +22,11 @@ than LP local search.
 
 Implemented in issue #329. aiwonder FSV readbacks live under
 `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`.
+Issue #645 extends this contract to tau/approximation readback honesty:
+approximate paths use a cyclic-SCC lower-bound estimate, expose
+`tau_star_exact`, and do not clamp observed bounds down to exact-looking `1.0`.
+FSV root:
+`/home/croyse/calyx/data/fsv-issue645-dfvs-honest-20260611T072428Z`.
 
 ## Build
 
@@ -40,6 +45,8 @@ Implemented in issue #329. aiwonder FSV readbacks live under
 - [x] unit: injected `LpSolution` rounding is labeled as test-provided input, not
   solver output.
 - [x] unit: DFVS readback method/provenance no longer contains `LpLocalSearch`.
+- [x] unit: exact and approximate DFVS paths produce distinguishable
+  `approx_factor`, `tau_star_estimate`, and `tau_star_exact` readback.
 
 ## FSV
 

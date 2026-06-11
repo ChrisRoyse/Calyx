@@ -13,8 +13,8 @@ use serde_json::json;
 #[path = "support/ph32_lodestar_helpers.rs"]
 mod ph32_lodestar_helpers;
 use ph32_lodestar_helpers::{
-    builder_with_nodes, cx, has_edge, hub_graph, kernel_params, planted_graph, triangle_graph,
-    write_readback,
+    builder_with_nodes, cx, full_kernel_graph, has_edge, hub_graph, kernel_params,
+    merged_two_cycle_graph, planted_graph, triangle_graph, write_readback,
 };
 
 #[test]
@@ -156,6 +156,69 @@ fn dfvs_triangle_planted_and_dag_cases_are_verified() {
     assert!(planted_members.contains(&cx(1)));
     assert!(planted_members.contains(&cx(4)));
     assert!(dag_kernel.members.is_empty());
+}
+
+#[test]
+fn dfvs_honest_bounds_distinguish_exact_from_approximate_path() {
+    let exact_graph = triangle_graph();
+    let exact = dfvs_approx(&full_kernel_graph(exact_graph)).unwrap();
+
+    let approximate_graph = merged_two_cycle_graph();
+    let approximate = dfvs_approx(&full_kernel_graph(approximate_graph.clone())).unwrap();
+    let approximate_kernel =
+        build_kernel_pipeline(&approximate_graph, &[cx(1), cx(12)], &kernel_params(1.0)).unwrap();
+
+    println!(
+        "DFVS_HONEST_BOUNDS_READBACK exact={exact:?} approximate={approximate:?} provenance={}",
+        approximate_kernel.estimator_provenance
+    );
+    write_readback(
+        "ph32-dfvs-honest-bounds-readback.json",
+        json!({
+            "exact": {
+                "members": &exact.members,
+                "approx_factor": exact.approx_factor,
+                "tau_star_estimate": exact.tau_star_estimate,
+                "tau_star_exact": exact.tau_star_exact,
+                "method": exact.method,
+            },
+            "approximate": {
+                "members": &approximate.members,
+                "approx_factor": approximate.approx_factor,
+                "tau_star_estimate": approximate.tau_star_estimate,
+                "tau_star_exact": approximate.tau_star_exact,
+                "method": approximate.method,
+            },
+            "kernel_recall": approximate_kernel.recall,
+            "kernel_provenance": approximate_kernel.estimator_provenance,
+        }),
+    );
+
+    assert_eq!(exact.members.len(), 1);
+    assert_eq!(exact.approx_factor, 1.0);
+    assert_eq!(exact.tau_star_estimate, 1);
+    assert!(exact.tau_star_exact);
+    assert_eq!(approximate.members.len(), 2);
+    assert_eq!(approximate.approx_factor, 2.0);
+    assert_eq!(approximate.tau_star_estimate, 1);
+    assert!(!approximate.tau_star_exact);
+    assert!(calyx_lodestar::dfvs::verify_feedback_vertex_set(
+        &approximate_graph,
+        &approximate.members
+    ));
+    assert_eq!(approximate_kernel.recall.approx_factor, 2.0);
+    assert_eq!(approximate_kernel.recall.tau_star_estimate, 1);
+    assert!(!approximate_kernel.recall.tau_star_exact);
+    assert!(
+        approximate_kernel
+            .estimator_provenance
+            .contains("approx_factor=2.000000")
+    );
+    assert!(
+        approximate_kernel
+            .estimator_provenance
+            .contains("tau_star_exact=false")
+    );
 }
 
 #[test]

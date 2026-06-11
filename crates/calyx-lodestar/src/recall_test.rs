@@ -208,6 +208,8 @@ pub fn kernel_recall_test_with_clock(
         full,
         ratio,
         approx_factor: 1.0,
+        tau_star_estimate: 0,
+        tau_star_exact: true,
         recall_test_params: Some(params.clone()),
         corpus_name: Some(corpus.name().to_string()),
         n_queries_tested: held_out.len(),

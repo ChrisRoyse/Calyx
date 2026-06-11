@@ -24,6 +24,8 @@ pub struct RecallReport {
     pub full: f32,
     pub ratio: f32,
     pub approx_factor: f64,
+    pub tau_star_estimate: usize,
+    pub tau_star_exact: bool,
     pub recall_test_params: Option<RecallTestParams>,
     pub corpus_name: Option<String>,
     pub n_queries_tested: usize,
@@ -38,6 +40,8 @@ impl Default for RecallReport {
             full: 0.0,
             ratio: 0.0,
             approx_factor: 1.0,
+            tau_star_estimate: 0,
+            tau_star_exact: true,
             recall_test_params: None,
             corpus_name: None,
             n_queries_tested: 0,
@@ -143,6 +147,8 @@ fn build_kernel_pipeline_with_adjustment(
         groundedness: groundedness_report(&dfvs.members, gap_report.gaps),
         recall: RecallReport {
             approx_factor: dfvs.approx_factor,
+            tau_star_estimate: dfvs.tau_star_estimate,
+            tau_star_exact: dfvs.tau_star_exact,
             ..RecallReport::default()
         },
         built_at_millis: params.built_at_millis,
@@ -181,8 +187,8 @@ fn estimator_provenance(dfvs: &DfvsResult, warnings: &[String]) -> String {
         "anchored"
     };
     format!(
-        "ph32::{:?}; approx_factor={:.6}; trust={trust}",
-        dfvs.method, dfvs.approx_factor
+        "ph32::{:?}; approx_factor={:.6}; tau_star_estimate={}; tau_star_exact={}; trust={trust}",
+        dfvs.method, dfvs.approx_factor, dfvs.tau_star_estimate, dfvs.tau_star_exact
     )
 }
 

@@ -14,6 +14,8 @@ pub struct ScopeKernelReport {
     pub kernel_only_recall: f32,
     pub grounded_fraction: f32,
     pub approx_factor: f64,
+    pub tau_star_estimate: usize,
+    pub tau_star_exact: bool,
     pub bridge_count: usize,
 }
 
@@ -35,6 +37,8 @@ impl ScopeKernelReport {
             kernel_only_recall: kernel.recall.kernel_only,
             grounded_fraction: kernel.groundedness.reached_anchor,
             approx_factor: kernel.recall.approx_factor,
+            tau_star_estimate: kernel.recall.tau_star_estimate,
+            tau_star_exact: kernel.recall.tau_star_exact,
             bridge_count,
         }
     }

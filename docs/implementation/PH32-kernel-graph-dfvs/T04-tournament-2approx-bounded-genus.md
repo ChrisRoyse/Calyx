@@ -2,9 +2,11 @@
 
 > **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
 > `crates/calyx-lodestar/src/dfvs.rs` with tournament detection,
-> `Tournament2Approx`, genus estimate, `BoundedGenus`, automatic dispatch, and
-> genus-too-large fail-closed behavior. aiwonder FSV readback:
-> `ph32-specialized-dfvs-readback.json`.
+> `Tournament2Approx`, genus estimate, `BoundedGenus`, automatic dispatch,
+> genus-too-large fail-closed behavior, and #645 honest-bound reporting. aiwonder
+> FSV readback: `ph32-specialized-dfvs-readback.json`; #645 adds exact vs
+> approximate tau readback under
+> `/home/croyse/calyx/data/fsv-issue645-dfvs-honest-20260611T072428Z`.
 
 > Historical checklist note: the unchecked implementation prompts below were
 > satisfied by the closed Stage 6 evidence; current state is the status/evidence
@@ -27,8 +29,10 @@ near-tournament graphs (graphs where every pair of nodes has at least one direct
 edge — common in densely-associated corpus regions); (2) `O(g)`-approximation for
 bounded-genus subgraphs (planar or near-planar sub-regions). Both are dispatched
 automatically when `dfvs_approx` detects the graph satisfies the structural condition.
-The `DfvsMethod` variant is set accordingly, and `approx_factor` reflects the tighter
-bound.
+The `DfvsMethod` variant is set accordingly. `approx_factor` is exact `1.0`
+only when exact search or a tight lower-bound certificate proves it; otherwise
+it reports the conservative observed `|members| / tau_star_estimate` bound and
+never clamps that value downward.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -45,8 +49,9 @@ bound.
   `approx_factor ≤ genus + 1` (or a tighter constant derived from the embedding).
 - [ ] `dfvs_approx` dispatch: if `is_tournament` -> call `tournament_2approx`;
   else if `genus_estimate <= 2` -> call `bounded_genus_approx`; else -> exact/greedy local search.
-- [ ] All three methods set `approx_factor` to the method's theoretical bound
-  multiplied by the actual ratio `|members|/tau_star_estimate`.
+- [ ] All three methods set `approx_factor` from the honest certificate: exact
+  or tight lower-bound proof -> `1.0`; otherwise the conservative observed
+  `|members| / tau_star_estimate`, not a downward-clamped theoretical label.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -69,9 +74,10 @@ bound.
 - **SoT:** `cargo test -p calyx-lodestar tournament -- --nocapture` and
   `cargo test -p calyx-lodestar genus -- --nocapture` stdout.
 - **Readback:** `cargo test -p calyx-lodestar dfvs 2>&1 | tee /tmp/ph32_t04_fsv.txt && cat /tmp/ph32_t04_fsv.txt`.
-- **Prove:** tournament test prints `method=Tournament2Approx` and `approx_factor ≤ 2.0`;
-  genus test prints `method=BoundedGenus`; proptest passes confirming acyclicity;
-  output attached to PH32 GitHub issue.
+- **Prove:** tournament test prints `method=Tournament2Approx`; genus test
+  prints `method=BoundedGenus`; #645 readback shows exact and approximate tau
+  evidence are distinguishable; proptest passes confirming acyclicity; output
+  attached to PH32 GitHub issue.
 
 ## Done when
 

@@ -79,7 +79,11 @@ Issue #329 readbacks live under
   rounds a supplied `LpSolution`; it is not proof that Calyx solved LP
   constraints.
 - **Approximation factor honesty:** generic exact/greedy local search reports an
-  auditable method and factor, not the PRD's future LP theoretical bound.
+  auditable method, factor, `tau_star_estimate`, and `tau_star_exact` certificate,
+  not the PRD's future LP theoretical bound. Post-#645, heuristic paths use an
+  independent cyclic-SCC lower bound and never self-certify by setting tau from
+  `members.len()`. FSV root:
+  `/home/croyse/calyx/data/fsv-issue645-dfvs-honest-20260611T072428Z`.
 - **kernel-graph size overshoot:** the ~10% target is a goal; log the actual
   fraction and surface it in readbacks.
 - **Incremental correctness:** Anneal deltas must not corrupt SCC/component

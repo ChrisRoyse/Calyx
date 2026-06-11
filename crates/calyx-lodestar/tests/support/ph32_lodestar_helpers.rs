@@ -2,7 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use calyx_core::CxId;
-use calyx_lodestar::{KernelGraphParams, KernelParams, LpRoundParams};
+use calyx_lodestar::{KernelGraph, KernelGraphParams, KernelParams, LpRoundParams};
 use calyx_paths::AssocGraph;
 
 pub fn cx(seed: u8) -> CxId {
@@ -81,6 +81,40 @@ pub fn planted_graph() -> AssocGraph {
         .add_edge(cx(4), cx(1), 1.0)
         .unwrap();
     builder.build()
+}
+
+pub fn merged_two_cycle_graph() -> AssocGraph {
+    let mut builder = builder_with_nodes(&(1..=22).collect::<Vec<_>>());
+    for seed in 1..11 {
+        builder.add_edge(cx(seed), cx(seed + 1), 1.0).unwrap();
+    }
+    builder.add_edge(cx(11), cx(1), 1.0).unwrap();
+    for seed in 12..22 {
+        builder.add_edge(cx(seed), cx(seed + 1), 1.0).unwrap();
+    }
+    builder.add_edge(cx(22), cx(12), 1.0).unwrap();
+    builder
+        .add_edge(cx(1), cx(12), 1.0)
+        .unwrap()
+        .add_edge(cx(12), cx(1), 1.0)
+        .unwrap();
+    builder.build()
+}
+
+pub fn full_kernel_graph(graph: AssocGraph) -> KernelGraph {
+    let selected = graph.node_ids().collect();
+    KernelGraph {
+        graph,
+        selected,
+        source_fraction: 1.0,
+        lp_fraction: None,
+        params: KernelGraphParams {
+            target_fraction: 1.0,
+            ..KernelGraphParams::default()
+        },
+        scores: Vec::new(),
+        warnings: Vec::new(),
+    }
 }
 
 pub fn kernel_params(target_fraction: f32) -> KernelParams {

@@ -21,6 +21,15 @@ relaxation solver and does not claim the future LP theoretical bound.
 
 Implemented in PH32 and contract-hardened in #329. aiwonder FSV readbacks:
 `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608/ph32-dfvs-readback.json`.
+Issue #645 hardened the approximation evidence contract: exact search and tight
+lower-bound certificates report `tau_star_exact=true` and `approx_factor=1.0`;
+heuristic paths report `tau_star_estimate` from an independent cyclic-SCC lower
+bound, set `tau_star_exact=false` when the lower bound is not tight, and never
+clamp the observed bound down to a nicer theoretical label.
+aiwonder FSV root:
+`/home/croyse/calyx/data/fsv-issue645-dfvs-honest-20260611T072428Z`;
+primary readback `ph32-dfvs-honest-bounds-readback.json` SHA-256
+`82617d924c8e8c47355cbc3dda83b75f27a47fb4a15f690bc983f8e4760322f7`.
 
 ## Build
 
@@ -33,6 +42,8 @@ Implemented in PH32 and contract-hardened in #329. aiwonder FSV readbacks:
 - [x] Fail closed with `CALYX_DFVS_VERIFICATION_FAILED` if verification fails.
 - [x] Empty graph returns an empty result with method
   `ExactOrGreedyLocalSearch`.
+- [x] Approximation readback distinguishes exact tau certificates from
+  lower-bound estimates with `tau_star_exact`.
 
 ## Tests
 
@@ -46,10 +57,12 @@ Implemented in PH32 and contract-hardened in #329. aiwonder FSV readbacks:
 ## FSV
 
 - **SoT:** `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608/ph32-dfvs-readback.json`
+  and `/home/croyse/calyx/data/fsv-issue645-dfvs-honest-20260611T072428Z/ph32-dfvs-honest-bounds-readback.json`.
 - **Readback:** `cat` the JSON on aiwonder after running
   `cargo test -p calyx-lodestar dfvs_triangle_planted_and_dag_cases_are_verified -- --nocapture`.
-- **Prove:** computed members match the planted cases and method/provenance
-  strings no longer contain `LpLocalSearch`.
+- **Prove:** computed members match the planted cases, method/provenance strings
+  no longer contain `LpLocalSearch`, and exact vs approximate paths carry
+  distinct `tau_star_estimate` / `tau_star_exact` evidence.
 
 ## Done when
 
