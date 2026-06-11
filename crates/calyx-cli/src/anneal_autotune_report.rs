@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use calyx_anneal::{
     AnnealLedgerAction, bandit_key, decode_anneal_ledger_payload, decode_config_bandit,
-    index_slot_label, shape_key_hash,
+    index_slot_label, loom_plan_shape_key, shape_key_hash,
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::sst::SstReader;
@@ -22,6 +22,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         .shape_key()
         .map(|shape_key| read_bandit_status(&request.vault, &shape_key))
         .transpose()?;
+    let loom_plan = loom_plan_summary(&cache.entries, &request);
     let report = json!({
         "scope": request.scope,
         "slot": request.slot,
@@ -31,6 +32,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         "last": request.last,
         "cache_bytes": cache.bytes,
         "cache_entries": cache.entries,
+        "loom_plan": loom_plan,
         "bandit": bandit,
         "recent_promotions": promotions,
     });
@@ -108,10 +110,12 @@ impl ReportRequest {
     fn validate(&self) -> Result<(), String> {
         match self.scope.as_str() {
             "forge" => Ok(()),
+            "loom" if self.slot.is_none() => Ok(()),
+            "loom" => Err("autotune-report --scope loom does not accept --slot".to_string()),
             "index" if self.slot.is_some() => Ok(()),
             "index" => Err("autotune-report --scope index requires --slot".to_string()),
             other => Err(format!(
-                "autotune-report currently supports --scope forge or --scope index, got {other}"
+                "autotune-report currently supports --scope forge, --scope index, or --scope loom, got {other}"
             )),
         }
     }
@@ -120,6 +124,7 @@ impl ReportRequest {
         match self.scope.as_str() {
             "forge" => None,
             "index" => self.slot.map(|slot| index_slot_label(SlotId::new(slot))),
+            "loom" => Some(loom_plan_shape_key().to_string()),
             _ => None,
         }
     }
@@ -157,6 +162,7 @@ fn filter_cache_entries(entries: Value, request: &ReportRequest) -> Value {
 fn cache_entry_matches(entry: &Value, request: &ReportRequest) -> bool {
     match request.scope.as_str() {
         "forge" => entry["key"]["op"].as_str() != Some("index"),
+        "loom" => entry["key"]["op"].as_str() == Some("loom"),
         "index" => {
             let Some(slot) = request.slot else {
                 return false;
@@ -202,12 +208,43 @@ fn read_promotions(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, 
 fn promotion_matches(artifact_id: &str, request: &ReportRequest) -> bool {
     match request.scope.as_str() {
         "forge" => artifact_id.starts_with("forge:"),
+        "loom" => artifact_id == loom_plan_shape_key(),
         "index" => request
             .slot
             .map(|slot| artifact_id == index_slot_label(SlotId::new(slot)))
             .unwrap_or(false),
         _ => false,
     }
+}
+
+fn loom_plan_summary(entries: &Value, request: &ReportRequest) -> Value {
+    if request.scope != "loom" {
+        return Value::Null;
+    }
+    let Some(entry) = entries.as_array().and_then(|values| values.first()) else {
+        return json!({
+            "found": false,
+            "eager_pairs_count": 0,
+            "indexed_concat_keys_count": 0,
+            "bits_sum": 0.0,
+            "avg_latency_ns": 0
+        });
+    };
+    let extra = &entry["config"]["extra"];
+    json!({
+        "found": true,
+        "eager_pairs_count": extra_value(extra, "eager_pairs_count"),
+        "indexed_concat_keys_count": extra_value(extra, "indexed_concat_keys_count"),
+        "bits_sum": extra_value(extra, "bits_sum"),
+        "avg_latency_ns": extra_value(extra, "avg_latency_ns"),
+        "eager_pairs": extra_value(extra, "eager_pairs"),
+        "indexed_concat_keys": extra_value(extra, "indexed_concat_keys"),
+        "plan_hash": extra_value(extra, "plan_hash"),
+    })
+}
+
+fn extra_value(extra: &Value, key: &str) -> Value {
+    extra.get(key).cloned().unwrap_or(Value::Null)
 }
 
 fn read_bandit_status(vault: &Path, shape_key: &str) -> Result<Value, String> {
