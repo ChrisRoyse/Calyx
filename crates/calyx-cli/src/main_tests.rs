@@ -86,3 +86,42 @@ fn tripwire_config_readback_command_executes() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn anneal_deficit_map_fixture_command_executes() {
+    let root = std::env::temp_dir().join(format!("calyx-cli-deficit-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create deficit fixture dir");
+    let fixture = root.join("assay.json");
+    std::fs::write(
+        &fixture,
+        r#"{
+  "clock_ts": 1785500418,
+  "panel": ["01010101010101010101010101010101"],
+  "anchors": [{
+    "anchor_id": "outcome_positive",
+    "entropy_h": 2.0,
+    "panel_sufficiency": 0.3,
+    "expected_modalities": ["text", "audio"],
+    "bits_per_lens": [{
+      "lens_id": "01010101010101010101010101010101",
+      "bits": 0.3,
+      "modality": "text"
+    }]
+  }]
+}"#,
+    )
+    .expect("write deficit fixture");
+
+    run(vec![
+        "anneal".into(),
+        "deficit-map".into(),
+        "--anchor".into(),
+        "outcome_positive".into(),
+        "--fixture".into(),
+        fixture.display().to_string(),
+    ])
+    .expect("deficit map readback");
+
+    let _ = std::fs::remove_dir_all(root);
+}

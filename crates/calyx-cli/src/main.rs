@@ -4,6 +4,7 @@ mod anneal_ab_log;
 mod anneal_autotune_report;
 mod anneal_bandit_readback;
 mod anneal_commands;
+mod anneal_deficit_map;
 mod anneal_frozen_guard_readback;
 mod anneal_head_readback;
 mod anneal_mistakes_readback;

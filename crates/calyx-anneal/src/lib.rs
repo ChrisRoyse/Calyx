@@ -5,6 +5,7 @@ mod heal;
 mod integration_fsv;
 mod learn;
 mod ledger_anneal;
+mod propose;
 mod recurrence_schedule;
 mod rollback;
 mod rollback_codec;
@@ -87,6 +88,12 @@ pub use ledger_anneal::{
     AnnealLedgerEntry, AnnealLedgerReadback, AsterAnnealLedgerStore,
     CALYX_ANNEAL_LEDGER_INVALID_ENTRY, CALYX_ASTER_CF_UNAVAILABLE, CALYX_LEDGER_ENTRY_TOO_LARGE,
     MAX_ANNEAL_LEDGER_PAYLOAD_BYTES, decode_anneal_ledger_payload,
+};
+pub use propose::{
+    AnchorGap, AnchorId, AssayAttribution, CALYX_ANNEAL_DEFICIT_INVALID_CONFIG,
+    CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE, DEFAULT_DEFICIT_THRESHOLD_BITS,
+    DeficitLocalizer, DeficitLocalizerConfig, DeficitMap, MODALITY_COVERAGE_THRESHOLD_BITS,
+    ModalityId, has_deficit, top_gap_description,
 };
 pub use recurrence_schedule::{
     CALYX_ANNEAL_INVALID_CADENCE, FREQ_BONUS_MAX, RecurrenceSchedule, RefreshPriority,
