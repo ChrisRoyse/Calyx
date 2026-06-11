@@ -3,7 +3,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use calyx_core::CxId;
-use calyx_paths::{AssocGraph, PathsError, attenuate, deattenuate, reach, reach_scored};
+use calyx_paths::{
+    AssocGraph, PathsError, attenuate, bidirectional, deattenuate, reach, reach_scored,
+};
 use proptest::prelude::*;
 use serde_json::json;
 
@@ -113,6 +115,34 @@ fn traversal_reaches_linear_chain_and_scores_hops() {
     assert!((scored[&cx(2).to_string()] - 0.9).abs() <= 1e-6);
     assert!((scored[&cx(3).to_string()] - 0.81).abs() <= 1e-6);
     assert!((scored[&cx(4).to_string()] - 0.729).abs() <= 1e-6);
+}
+
+#[test]
+fn bidirectional_reports_forward_and_reverse_paths() {
+    let mut builder = AssocGraph::builder();
+    builder
+        .add_node(cx(1), 1.0)
+        .unwrap()
+        .add_node(cx(2), 1.0)
+        .unwrap()
+        .add_edge(cx(1), cx(2), 0.8)
+        .unwrap()
+        .add_edge(cx(2), cx(1), 0.7)
+        .unwrap();
+    let graph = builder.build();
+
+    let paths = bidirectional(&graph, cx(1), cx(2), 1).expect("bidirectional path");
+
+    println!(
+        "BIDIRECTIONAL_READBACK forward={:?} reverse={:?}",
+        paths.forward, paths.reverse
+    );
+    write_readback(
+        "ph31-paths-bidirectional-readback.json",
+        json!({ "forward": paths.forward, "reverse": paths.reverse }),
+    );
+    assert_eq!(paths.forward, Some(vec![cx(1), cx(2)]));
+    assert_eq!(paths.reverse, Some(vec![cx(2), cx(1)]));
 }
 
 #[test]

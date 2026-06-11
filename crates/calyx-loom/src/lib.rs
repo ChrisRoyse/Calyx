@@ -9,7 +9,10 @@ pub mod lru_cache;
 pub mod materialization;
 pub mod recurrence;
 
-pub use abundance::{AbundanceReport, CeilingEstimate, NeffEstimate};
+pub use abundance::{
+    AbundanceReport, CeilingEstimate, NeffEstimate, cross_term_upper_bound, dda_signal_yield,
+    meaning_compression_yield,
+};
 pub use agreement_graph::{AgreementEdge, LoomStore};
 pub use blind_spot::{BlindSpotAlert, Severity, detect_blind_spot};
 pub use cross_term::{

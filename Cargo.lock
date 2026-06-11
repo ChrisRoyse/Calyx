@@ -189,11 +189,15 @@ name = "calyx-assay"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "calyx-anneal",
  "calyx-aster",
  "calyx-core",
+ "calyx-ledger",
  "calyx-lodestar",
  "calyx-loom",
+ "calyx-oracle",
  "calyx-paths",
+ "calyx-sextant",
  "calyx-ward",
  "proptest",
  "rand 0.8.6",
@@ -332,6 +336,7 @@ version = "0.1.0"
 dependencies = [
  "calyx-aster",
  "calyx-core",
+ "calyx-paths",
  "serde",
 ]
 

@@ -10,4 +10,4 @@ pub mod traversal;
 pub use attenuation::{attenuate, deattenuate};
 pub use error::{PathsError, Result};
 pub use graph::{AssocGraph, AssocGraphBuilder, Edge, NodeEntry};
-pub use traversal::{reach, reach_scored};
+pub use traversal::{BidirectionalPath, bidirectional, reach, reach_scored};

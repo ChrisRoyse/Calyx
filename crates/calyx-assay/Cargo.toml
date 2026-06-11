@@ -17,7 +17,11 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+calyx-anneal = { path = "../calyx-anneal" }
+calyx-ledger = { path = "../calyx-ledger" }
 calyx-lodestar = { path = "../calyx-lodestar" }
+calyx-oracle = { path = "../calyx-oracle" }
 calyx-paths = { path = "../calyx-paths" }
+calyx-sextant = { path = "../calyx-sextant" }
 calyx-ward = { path = "../calyx-ward" }
 proptest.workspace = true

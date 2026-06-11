@@ -45,12 +45,8 @@ impl AbundanceReport {
         measured_count: usize,
         derived_count: usize,
     ) -> Self {
-        let c_n2 = n_lenses.saturating_mul(n_lenses.saturating_sub(1)) / 2;
-        let meaning_compression_yield = if n_constellations == 0 {
-            f32::NAN
-        } else {
-            materialized as f32 / n_constellations as f32
-        };
+        let c_n2 = cross_term_upper_bound(n_lenses);
+        let meaning_compression_yield = meaning_compression_yield(materialized, n_constellations);
         Self {
             n_lenses,
             c_n2_upper_bound: c_n2,
@@ -62,5 +58,24 @@ impl AbundanceReport {
             derived_count,
             meaning_compression_yield,
         }
+    }
+}
+
+pub fn cross_term_upper_bound(n_lenses: usize) -> usize {
+    n_lenses.saturating_mul(n_lenses.saturating_sub(1)) / 2
+}
+
+pub fn dda_signal_yield(n_inputs: usize, n_lenses: usize) -> usize {
+    let per_input = n_lenses
+        .saturating_add(cross_term_upper_bound(n_lenses))
+        .saturating_add(1);
+    n_inputs.saturating_mul(per_input)
+}
+
+pub fn meaning_compression_yield(materialized_signals: usize, n_inputs: usize) -> f32 {
+    if n_inputs == 0 {
+        f32::NAN
+    } else {
+        materialized_signals as f32 / n_inputs as f32
     }
 }
