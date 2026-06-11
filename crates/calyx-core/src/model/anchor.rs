@@ -2,9 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::AnchorKind;
+use crate::{AnchorKind, Result};
 
-use super::Ts;
+use super::{Ts, validation::record_schema_error};
 
 /// A grounded real-outcome observation attached to a constellation.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -37,4 +37,39 @@ pub enum AnchorValue {
     Text(String),
     /// Dense anchor vector for identity/style comparisons.
     Vector(Vec<f32>),
+}
+
+impl Anchor {
+    /// Validates a grounded anchor before it is written to a record boundary.
+    pub fn validate_schema(&self) -> Result<()> {
+        if !self.confidence.is_finite() || !(0.0..=1.0).contains(&self.confidence) {
+            return Err(record_schema_error(
+                "anchor confidence must be finite and within [0, 1]",
+            ));
+        }
+        self.value.validate_schema()
+    }
+}
+
+impl AnchorValue {
+    /// Validates numeric anchor payloads against the record schema.
+    pub fn validate_schema(&self) -> Result<()> {
+        match self {
+            Self::Number(value) if !value.is_finite() => {
+                Err(record_schema_error("anchor number is NaN or Inf"))
+            }
+            Self::Vector(values) if values.is_empty() => {
+                Err(record_schema_error("anchor vector must not be empty"))
+            }
+            Self::Vector(values) if values.iter().any(|value| !value.is_finite()) => {
+                Err(record_schema_error("anchor vector contains NaN or Inf"))
+            }
+            Self::Bool(_)
+            | Self::Enum(_)
+            | Self::Number(_)
+            | Self::OneHot(_)
+            | Self::Text(_)
+            | Self::Vector(_) => Ok(()),
+        }
+    }
 }

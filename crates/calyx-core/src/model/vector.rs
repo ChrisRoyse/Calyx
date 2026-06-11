@@ -1,8 +1,12 @@
 //! Slot vector representations.
 
+use std::collections::BTreeSet;
+
 use serde::{Deserialize, Serialize};
 
-use crate::AbsentReason;
+use crate::{AbsentReason, Result};
+
+use super::validation::record_schema_error;
 
 /// Sparse vector entry.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -43,4 +47,89 @@ impl SlotVector {
             Self::Sparse { .. } | Self::Multi { .. } | Self::Absent { .. } => None,
         }
     }
+
+    /// Validates a stored vector payload against the Calyx record schema.
+    pub fn validate_schema(&self) -> Result<()> {
+        match self {
+            Self::Dense { dim, data } => validate_dense(*dim, data),
+            Self::Sparse { dim, entries } => validate_sparse(*dim, entries),
+            Self::Multi { token_dim, tokens } => validate_multi(*token_dim, tokens),
+            Self::Absent { .. } => Ok(()),
+        }
+    }
+}
+
+fn validate_dense(dim: u32, data: &[f32]) -> Result<()> {
+    if dim == 0 {
+        return Err(record_schema_error(
+            "dense slot dim must be greater than zero",
+        ));
+    }
+    if data.len() != dim as usize {
+        return Err(record_schema_error(format!(
+            "dense slot dim {dim} does not match {} values",
+            data.len()
+        )));
+    }
+    ensure_finite("dense slot", data)
+}
+
+fn validate_sparse(dim: u32, entries: &[SparseEntry]) -> Result<()> {
+    if dim == 0 {
+        return Err(record_schema_error(
+            "sparse slot dim must be greater than zero",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for entry in entries {
+        if entry.idx >= dim {
+            return Err(record_schema_error(format!(
+                "sparse slot index {} outside dim {dim}",
+                entry.idx
+            )));
+        }
+        if !seen.insert(entry.idx) {
+            return Err(record_schema_error(format!(
+                "sparse slot index {} is duplicated",
+                entry.idx
+            )));
+        }
+        if !entry.val.is_finite() {
+            return Err(record_schema_error(format!(
+                "sparse slot index {} is non-finite",
+                entry.idx
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_multi(token_dim: u32, tokens: &[Vec<f32>]) -> Result<()> {
+    if token_dim == 0 {
+        return Err(record_schema_error(
+            "multi-vector token_dim must be greater than zero",
+        ));
+    }
+    if tokens.is_empty() {
+        return Err(record_schema_error(
+            "multi-vector payload must contain at least one token",
+        ));
+    }
+    for (idx, token) in tokens.iter().enumerate() {
+        if token.len() != token_dim as usize {
+            return Err(record_schema_error(format!(
+                "multi-vector token {idx} length {} does not match token_dim {token_dim}",
+                token.len()
+            )));
+        }
+        ensure_finite("multi-vector token", token)?;
+    }
+    Ok(())
+}
+
+fn ensure_finite(field: &str, values: &[f32]) -> Result<()> {
+    if values.iter().all(|value| value.is_finite()) {
+        return Ok(());
+    }
+    Err(record_schema_error(format!("{field} contains NaN or Inf")))
 }

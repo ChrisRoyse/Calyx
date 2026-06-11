@@ -5,8 +5,8 @@ use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, VaultId,
 };
 use calyx_sextant::{
-    AnchorPredicate, InvertedIndex, MetadataPredicate, Query, QueryFilters, ScalarOp,
-    ScalarPredicate, SearchEngine, SlotIndexMap,
+    AnchorPredicate, CALYX_SEXTANT_QUERY_SHAPE, InvertedIndex, MetadataPredicate, Query,
+    QueryFilters, ScalarOp, ScalarPredicate, SearchEngine, SlotIndexMap,
 };
 use serde_json::json;
 
@@ -86,8 +86,8 @@ fn query_filters_apply_scalars_anchors_and_metadata() {
                     ..QueryFilters::default()
                 }),
         )
-        .unwrap();
-    assert!(non_finite_scalar.is_empty());
+        .unwrap_err();
+    assert_eq!(non_finite_scalar.code, CALYX_SEXTANT_QUERY_SHAPE);
 }
 
 #[test]
@@ -146,6 +146,20 @@ fn query_filters_aiwonder_fsv() {
                 }),
         )
         .unwrap();
+    let non_finite_scalar = engine
+        .search(
+            &Query::new("cat")
+                .with_slots(vec![SlotId::new(1)])
+                .with_filters(QueryFilters {
+                    scalars: vec![ScalarPredicate {
+                        name: "quality".to_string(),
+                        op: ScalarOp::Gte,
+                        value: f64::NAN,
+                    }],
+                    ..QueryFilters::default()
+                }),
+        )
+        .unwrap_err();
 
     fs::write(
         root.join("filterable-rows.json"),
@@ -168,6 +182,7 @@ fn query_filters_aiwonder_fsv() {
             .collect::<Vec<_>>(),
         "metadata_mismatch_count": metadata_mismatch.len(),
         "anchor_mismatch_count": anchor_mismatch.len(),
+        "non_finite_scalar_error": non_finite_scalar.code,
         "excluded_ids_absent": !ids(&filtered).contains(&rows[1].cx_id.to_string())
             && !ids(&filtered).contains(&rows[2].cx_id.to_string()),
         "rank_renumbered": filtered.first().map(|hit| hit.rank) == Some(1),
@@ -182,6 +197,10 @@ fn query_filters_aiwonder_fsv() {
     assert_eq!(ids(&late_filtered), vec![cx(10).to_string()]);
     assert_eq!(readback["metadata_mismatch_count"], 0);
     assert_eq!(readback["anchor_mismatch_count"], 0);
+    assert_eq!(
+        readback["non_finite_scalar_error"],
+        CALYX_SEXTANT_QUERY_SHAPE
+    );
     assert_eq!(readback["excluded_ids_absent"], true);
     assert_eq!(readback["rank_renumbered"], true);
 }

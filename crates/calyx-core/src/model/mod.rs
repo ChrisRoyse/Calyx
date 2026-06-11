@@ -4,6 +4,7 @@ pub mod anchor;
 pub mod constellation;
 pub mod signal;
 pub mod slot;
+mod validation;
 pub mod vector;
 
 pub use crate::time::Ts;
@@ -11,6 +12,7 @@ pub use anchor::{Anchor, AnchorValue};
 pub use constellation::{Constellation, METADATA_CHUNK_ID, METADATA_DATABASE_NAME};
 pub use signal::{ConfidenceInterval, CxFlags, InputRef, LedgerRef, Signal};
 pub use slot::{Panel, Slot};
+pub use validation::CALYX_RECORD_SCHEMA_VIOLATION;
 pub use vector::{SlotVector, SparseEntry};
 
 #[cfg(test)]

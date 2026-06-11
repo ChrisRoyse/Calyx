@@ -4,9 +4,11 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{CxId, Modality, SlotId, VaultId};
+use crate::{CxId, Modality, Result, SlotId, VaultId};
 
-use super::{Anchor, CxFlags, InputRef, LedgerRef, SlotVector, Ts};
+use super::{
+    Anchor, CxFlags, InputRef, LedgerRef, SlotVector, Ts, validation::record_schema_error,
+};
 
 /// Leapable Vault contract key for a source chunk identifier.
 pub const METADATA_CHUNK_ID: &str = "chunk_id";
@@ -57,5 +59,36 @@ impl Constellation {
     /// Returns the preserved Leapable database identifier, when this row came from a Vault chunk.
     pub fn database_name(&self) -> Option<&str> {
         self.metadata_value(METADATA_DATABASE_NAME)
+    }
+
+    /// Validates this record at storage/API boundaries.
+    pub fn validate_schema(&self) -> Result<()> {
+        if self.panel_version == 0 {
+            return Err(record_schema_error(
+                "constellation panel_version must be greater than zero",
+            ));
+        }
+        for (slot, vector) in &self.slots {
+            vector
+                .validate_schema()
+                .map_err(|err| record_schema_error(format!("slot {slot}: {}", err.message)))?;
+        }
+        for (key, value) in &self.scalars {
+            if key.is_empty() {
+                return Err(record_schema_error("scalar key must not be empty"));
+            }
+            if !value.is_finite() {
+                return Err(record_schema_error(format!("scalar {key:?} is NaN or Inf")));
+            }
+        }
+        for key in self.metadata.keys() {
+            if key.is_empty() {
+                return Err(record_schema_error("metadata key must not be empty"));
+            }
+        }
+        for anchor in &self.anchors {
+            anchor.validate_schema()?;
+        }
+        Ok(())
     }
 }

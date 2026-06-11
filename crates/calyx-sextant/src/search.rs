@@ -81,6 +81,7 @@ impl SearchEngine {
         query: &Query,
         reranker: Option<&RerankerClient>,
     ) -> Result<GuardedSearchReport> {
+        query.validate()?;
         let slots = if query.slots.is_empty() {
             self.indexes.slots()
         } else {

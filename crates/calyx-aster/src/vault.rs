@@ -236,6 +236,7 @@ where
         rows: &mut Vec<encode::WriteRow>,
         constellation: &Constellation,
     ) -> Result<()> {
+        constellation.validate_schema()?;
         let id = constellation.cx_id;
         rows.push(encode::WriteRow {
             cf: ColumnFamily::Base,
@@ -295,6 +296,7 @@ where
                 "constellation belongs to another vault",
             ));
         }
+        constellation.validate_schema()?;
 
         self.with_durable_commit_lock(|| {
             let mut constellation = constellation;
@@ -403,6 +405,7 @@ where
     }
 
     fn anchor(&self, id: CxId, anchor: Anchor) -> Result<()> {
+        anchor.validate_schema()?;
         self.with_recurrence_write_lock(|| {
             let latest = self.snapshot();
             let mut constellation = self.get(id, latest)?;
