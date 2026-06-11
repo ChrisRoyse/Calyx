@@ -4,6 +4,12 @@ use calyx_core::CxId;
 
 use crate::{AssocGraph, PathsError, Result, attenuate};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BidirectionalPath {
+    pub forward: Option<Vec<CxId>>,
+    pub reverse: Option<Vec<CxId>>,
+}
+
 pub fn reach(
     graph: &AssocGraph,
     src: CxId,
@@ -30,6 +36,18 @@ pub fn reach(
         });
     }
     Ok(Some(path_to_ids(graph, &path)))
+}
+
+pub fn bidirectional(
+    graph: &AssocGraph,
+    question: CxId,
+    answer: CxId,
+    max_hops: usize,
+) -> Result<BidirectionalPath> {
+    Ok(BidirectionalPath {
+        forward: reach(graph, question, answer, max_hops)?,
+        reverse: reach(graph, answer, question, max_hops)?,
+    })
 }
 
 pub fn reach_scored(graph: &AssocGraph, src: CxId, max_hops: usize) -> Result<Vec<(CxId, f32)>> {

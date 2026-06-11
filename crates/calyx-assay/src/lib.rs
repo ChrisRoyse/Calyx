@@ -4,6 +4,8 @@ pub mod attribution;
 pub mod bootstrap;
 pub mod contract;
 pub mod estimate;
+pub mod formula_catalog;
+pub mod formulas;
 pub mod gate;
 pub mod ksg;
 pub mod logistic;
@@ -28,6 +30,14 @@ pub use contract::{AdmissionDecision, admit_lens, admit_lens_with_strata};
 pub use estimate::{
     EstimatorKind, MiEstimate, TrustTag, require_grounded_anchor, trust_for_anchor,
 };
+pub use formula_catalog::{
+    CALYX_FORMULA_COVERAGE_MISSING, FORMULA_COVERAGE_ARTIFACT_KIND,
+    FORMULA_COVERAGE_SCHEMA_VERSION, FORMULA_COVERAGE_SOT_KEY, FORMULA_COVERAGE_SURFACE,
+    FormulaCoverageArtifact, FormulaCoverageRow, FormulaCoverageStatus, FormulaCoverageSummary,
+    FormulaRowSpec, formula_coverage_artifact, formula_coverage_json, prd22_formula_specs,
+    validate_formula_coverage,
+};
+pub use formulas::{dpi_ceiling, lens_signal, marginal_value, pair_redundancy};
 pub use gate::{AssayGate, LensSignal, PairGain};
 pub use ksg::{
     MIN_ASSAY_SAMPLES, ksg_mi_continuous, ksg_mi_continuous_discrete,

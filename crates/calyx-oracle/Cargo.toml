@@ -9,4 +9,5 @@ publish.workspace = true
 [dependencies]
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-paths = { path = "../calyx-paths" }
 serde.workspace = true
