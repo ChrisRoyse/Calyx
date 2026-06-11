@@ -26,6 +26,7 @@ pub enum AnnealLedgerAction {
     Revert,
     Propose,
     Park,
+    DegradeChange,
     Recalibrate,
     MistakeUpdate,
     AutotuneAB,

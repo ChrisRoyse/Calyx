@@ -28,8 +28,10 @@ the PH43 substrate).
 ## Current state (build off what exists)
 
 `calyx-anneal` crate: PH43 substrate is complete (`tripwire.rs`, `shadow.rs`,
-`rollback.rs`, `budget.rs`, `ledger_anneal.rs`). No self-heal logic exists yet.
-Greenfield for heal triggers, degraded-flag registry, background rebuild tasks.
+`rollback.rs`, `budget.rs`, `ledger_anneal.rs`). PH44 T01 adds the
+`heal::degrade` registry, durable `anneal_health` CF, and
+`calyx anneal status --health` readback. Remaining self-heal cards build on
+that registry for triggers, background rebuild tasks, restore, and recalibration.
 
 **Anneal invariants (binding):**
 - Rebuild derived from base+slots, never from another derived or from a

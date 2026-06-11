@@ -25,6 +25,7 @@ fn column_family_names_match_prd_layout() {
             "recurrence",
             "online",
             "anneal_rollback",
+            "anneal_health",
         ]
     );
 
