@@ -24,7 +24,7 @@ fn hex_lines_match_xxd_plain_chunks() {
 fn display_relative_root_is_dot() {
     let root = PathBuf::from("/tmp/calyx-readback");
 
-    assert_eq!(display_relative(&root, &root), ".");
+    assert_eq!(vault_tree::display_relative(&root, &root), ".");
 }
 
 #[test]

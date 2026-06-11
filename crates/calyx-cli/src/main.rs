@@ -18,7 +18,9 @@ mod temporal_readback;
 mod time_prediction_readback;
 mod tripwire_readback;
 mod usage;
+mod vault_tree;
 mod verify;
+mod ward_tau_readback;
 
 #[cfg(test)]
 mod main_tests;
@@ -45,7 +47,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             readback_hex(Path::new(value)).map_err(|error| error.to_string())
         }
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
-            readback_vault_tree(Path::new(value)).map_err(|error| error.to_string())
+            vault_tree::readback_vault_tree(Path::new(value)).map_err(|error| error.to_string())
         }
         [command, topic, field_flag, field, vault_flag, vault]
             if command == "readback"
@@ -131,6 +133,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 && vault_flag == "--vault" =>
         {
             anneal_status::status_health(Path::new(vault))
+        }
+        [command, topic, slot_flag, slot, vault_flag, vault]
+            if command == "ward"
+                && topic == "tau"
+                && slot_flag == "--slot"
+                && vault_flag == "--vault" =>
+        {
+            ward_tau_readback::readback_ward_tau(Path::new(vault), slot)
         }
         [
             command,
@@ -401,13 +411,6 @@ fn readback_hex(path: &Path) -> io::Result<()> {
     Ok(())
 }
 
-fn readback_vault_tree(path: &Path) -> io::Result<()> {
-    for line in vault_tree_lines(path)? {
-        println!("{line}");
-    }
-    Ok(())
-}
-
 fn parse_i64(value: &str) -> Result<i64, String> {
     value
         .parse::<i64>()
@@ -448,46 +451,4 @@ fn hex_digit(value: u8) -> char {
         10..=15 => char::from(b'a' + value - 10),
         _ => unreachable!("nibble out of range"),
     }
-}
-
-fn vault_tree_lines(root: &Path) -> io::Result<Vec<String>> {
-    let root = root.canonicalize()?;
-    let mut lines = vec![format!("DIR\t{}", display_relative(&root, &root))];
-    collect_tree(&root, &root, &mut lines)?;
-    Ok(lines)
-}
-
-fn collect_tree(root: &Path, dir: &Path, lines: &mut Vec<String>) -> io::Result<()> {
-    let mut entries: Vec<_> = fs::read_dir(dir)?.collect::<Result<_, _>>()?;
-    entries.sort_by_key(|entry| entry.path());
-
-    for entry in entries {
-        let path = entry.path();
-        let metadata = entry.metadata()?;
-        let relative = display_relative(root, &path);
-        if metadata.is_dir() {
-            lines.push(format!("DIR\t{relative}"));
-            collect_tree(root, &path, lines)?;
-        } else {
-            lines.push(format!("FILE\t{relative}\tbytes={}", metadata.len()));
-        }
-    }
-
-    Ok(())
-}
-
-fn display_relative(root: &Path, path: &Path) -> String {
-    let relative = path.strip_prefix(root).unwrap_or(path);
-    if relative.as_os_str().is_empty() {
-        ".".to_string()
-    } else {
-        normalize_path(relative)
-    }
-}
-
-fn normalize_path(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
 }

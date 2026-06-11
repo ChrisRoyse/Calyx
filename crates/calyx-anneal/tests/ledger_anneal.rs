@@ -223,6 +223,10 @@ fn action_strategy() -> impl Strategy<Value = AnnealLedgerAction> {
         Just(AnnealLedgerAction::BaseCorruptAlert),
         Just(AnnealLedgerAction::BaseRestored),
         Just(AnnealLedgerAction::Recalibrate),
+        Just(AnnealLedgerAction::TauRecalibrated),
+        Just(AnnealLedgerAction::TauRecalibrationReverted),
+        Just(AnnealLedgerAction::LensPark),
+        Just(AnnealLedgerAction::LensUnpark),
         Just(AnnealLedgerAction::MistakeUpdate),
         Just(AnnealLedgerAction::AutotuneAB),
     ]
