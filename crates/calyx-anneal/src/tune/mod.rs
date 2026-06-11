@@ -1,8 +1,15 @@
+mod ab_runner;
 mod bandit;
 mod scope_forge;
 mod scope_index;
 mod scope_loom;
 
+pub use ab_runner::{
+    ABLedgerEvent, ABLedgerWriter, ABPromotionConfig, ABResult, ABRunner, ABSummary, ABTrial,
+    ABTrialBudget, ABVerdict, ABVerdictRecord, CALYX_ANNEAL_AB_CACHE_WRITE_FAIL,
+    CALYX_ANNEAL_TRIAL_ALREADY_ACTIVE, CALYX_ANNEAL_TRIAL_INVALID_RESULT,
+    CALYX_ANNEAL_TRIAL_NOT_ACTIVE, DEFAULT_AB_MIN_SAMPLES, NoopABBudget, NoopABLedgerWriter,
+};
 pub use bandit::{
     Arm, ArmStatus, AsterBanditStorage, BanditPolicy, BanditReadback, BanditStatus, BanditStorage,
     CALYX_ANNEAL_BANDIT_EMPTY, CALYX_ANNEAL_BANDIT_INVALID_CONFIG, CALYX_ANNEAL_BANDIT_INVALID_ROW,

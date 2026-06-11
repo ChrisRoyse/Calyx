@@ -42,7 +42,11 @@ pub enum AnnealLedgerAction {
     SleepPassDeferred,
     OutcomeReward,
     OutcomeContradiction,
+    #[serde(rename = "autotune_ab")]
     AutotuneAB,
+    #[serde(rename = "autotune_abandoned")]
+    AutotuneAbandoned,
+    #[serde(rename = "autotune_promote")]
     AutotunePromote,
 }
 
