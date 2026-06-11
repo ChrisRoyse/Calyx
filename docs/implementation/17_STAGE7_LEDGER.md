@@ -46,6 +46,14 @@ as PH09 writes constellations.*
   Failure-injected aiwonder readbacks prove no leaked row, no `next_seq`
   advance, and no visible Ledger CF row at
   `/home/croyse/calyx/data/fsv-issue345-ledger-group-commit-atomicity-20260609`.
+- **Post-sweep note.** PH35 public-surface hardening #652 removes
+  `LedgerGroupCommitHook` from the public re-export surface and makes direct
+  `on_commit` misuse fail closed with no batch row, no durable row, and no
+  appender-tip movement. Aster continues to use the staged path:
+  `stage_with_checkpoints` before durable commit, `commit_staged` after durable
+  commit succeeds. Direct-reject and Aster staged-commit aiwonder readbacks are
+  FSV-backed at
+  `/home/croyse/calyx/data/fsv-issue652-ledger-hook-surface-20260611T070209Z`.
 - **Post-sweep note.** PH35 T06 (#247) adds actor validation plus
   server-stamped monotonic timestamps in `LedgerAppender`, including restart
   recovery of `last_ts` and Aster ingest readback of non-empty service actors.

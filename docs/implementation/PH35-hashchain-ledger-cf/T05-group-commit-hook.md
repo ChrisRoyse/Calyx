@@ -18,18 +18,24 @@ data it describes. Provenance can therefore never be "added later" and can never
 be lost on a crash between the data write and the ledger write — the WAL either
 contains both or neither.
 
-**Status:** DONE / FSV-backed by #246 and hardening #345. Evidence roots:
+**Status:** DONE / FSV-backed by #246, hardening #345, and public-surface
+hardening #652. Evidence roots:
 `/home/croyse/calyx/data/fsv-issue246-ledger-group-commit-20260608` and
-`/home/croyse/calyx/data/fsv-issue345-ledger-group-commit-atomicity-20260609`.
+`/home/croyse/calyx/data/fsv-issue345-ledger-group-commit-atomicity-20260609`,
+plus
+`/home/croyse/calyx/data/fsv-issue652-ledger-hook-surface-20260611T070209Z`.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [x] Define `trait LedgerGroupCommitHook` in `group_commit.rs`:
+- [x] Define the legacy `LedgerGroupCommitHook` only as a crate-private
+  fail-closed shim. It is not re-exported from `calyx-ledger`; direct
+  `on_commit` calls return `CALYX_LEDGER_GROUP_COMMIT_FAILED` without adding a
+  batch row, writing a ledger row, or advancing the appender tip:
   ```rust
-  pub trait LedgerGroupCommitHook: Send + Sync {
+  pub(crate) trait LedgerGroupCommitHook: Send + Sync {
       fn on_commit(
           &mut self,
-          batch: &mut WriteBatch,
+          batch: &mut dyn LedgerWriteBatch,
           kind: EntryKind,
           subject: SubjectId,
           payload: Vec<u8>,
@@ -37,10 +43,10 @@ contains both or neither.
       ) -> Result<LedgerRef>;
   }
   ```
-- [x] `struct DefaultLedgerHook { appender: LedgerAppender }` impl stages the
-  next entry with `LedgerAppender::prepare`, adds the encoded bytes to the
-  batch under the `ledger` CF key `ledger_key(seq)`, then advances the appender
-  only through `commit_staged` after the storage batch accepts the row.
+- [x] `struct DefaultLedgerHook { appender: LedgerAppender }` exposes
+  `stage_with_checkpoints(...)` to prepare ledger rows under the `ledger` CF key
+  `ledger_key(seq)`, then advances the appender only through `commit_staged`
+  after durable storage accepts the batch.
 - [x] Integrate into PH09's `IngestWriter` (or equivalent group-commit
   coordinator in `calyx-aster`): stage the ledger row before base/slot rows,
   call `commit_rows(...)`, and commit the staged hook state only after the Aster
@@ -56,10 +62,11 @@ contains both or neither.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [x] unit: construct a `WriteBatch`, call `DefaultLedgerHook::on_commit` →
-  assert the batch now contains exactly one ledger-CF row under key
+- [x] unit: construct a `WriteBatch`, call `DefaultLedgerHook::stage_with_checkpoints`,
+  copy staged rows into the batch, then call `commit_staged` → assert the batch
+  now contains exactly one ledger-CF row under key
   `ledger_key(0)`.
-- [x] unit: three sequential `on_commit` calls → assert ledger CF keys are
+- [x] unit: three sequential staged commits → assert ledger CF keys are
   `ledger_key(0)`, `ledger_key(1)`, `ledger_key(2)` in the batch (ordered,
   no gaps).
 - [x] integration (uses in-process stub WAL): write a constellation via the
@@ -71,6 +78,9 @@ contains both or neither.
 - [x] fail-closed: hook returns an error mid-batch → `CALYX_LEDGER_GROUP_COMMIT_FAILED`;
   assert the WAL is not advanced (batch not committed); assert no ledger row
   appears in the CF.
+- [x] fail-closed: direct `LedgerGroupCommitHook::on_commit` misuse returns
+  `CALYX_LEDGER_GROUP_COMMIT_FAILED`; assert no batch row, no ledger row file,
+  no store row, and hook `next_seq=0`.
 - [x] fail-closed: Aster commit fails after staging a ledger row → exact
   `CALYX_BACKPRESSURE`; assert no logical Ledger CF row, no decoded physical
   ledger row, `snapshot=0`, and hook `next_seq=0`.
@@ -106,6 +116,24 @@ proves `ledger_cf_matches_wal_row=true`, `ledger_row_index=0`,
 equals the ledger `entry_hash`, and hook `next_seq=1`/`store_rows=1`. The
 aiwonder root manifest is
 `f5756e3ed3ab564d013247f8341fde9d56dfe0c690f18572ae9167d9d1d89d0b`.
+
+**Readback captured for #652:** root
+`/home/croyse/calyx/data/fsv-issue652-ledger-hook-surface-20260611T070209Z`
+proves direct `on_commit` misuse returns `CALYX_LEDGER_GROUP_COMMIT_FAILED`
+with `after_batch_rows=0`, `after_ledger_file_count=0`, `after_store_rows=0`,
+and hook `next_seq=0`/zero `prev_hash`. The Aster staged success path proves
+`ledger_cf_matches_wal_row=true`, `ledger_before_base=true`, stored
+constellation provenance equals entry hash
+`72268b360bf416aa8584c4d7954760c498821238ee26b28fd5d2c70c7520a679`, and
+hook `next_seq=1`/`store_rows=1`. Key SHA-256s:
+`direct-on-commit-readback.json=bf9e19bc55a7e2ca8beac24a4dcd7b9ccca47296d55710417cebce50f953e016`,
+`group-commit-atomicity-readback.json=3ce1e41a12fb2a5f20dfce8f9dc59f9b57673c892be4f31239a0d8297bd05fa3`,
+`cli-ledger-seq0.txt=ae9cf084cf12804661b76481bffcc3ac1f7a926b63aac3b34c123aee1b0c95e3`,
+`cli-wal-readback.txt=62b36a6c3360b7ce29f19535fc2134b8dc5aac147143abe99740644960d4b47e`,
+success ledger SST
+`36ef04ff42f706316c241de2fc7d2aa7441f3a32c285f108c9c6607e5ac1fa8c`,
+success WAL
+`12d81a5f135bc2db54b155653b69ce5eecc7f2e86d90d51d02be830ddef180f6`.
 
 ## Done when
 

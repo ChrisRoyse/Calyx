@@ -48,8 +48,11 @@ adds the wider PH09-to-ledger WAL smoke: 100 unique constellation writes through
 base rows co-located, ledger-before-base ordering, and an empty secret scan.
 Evidence is at
 `/home/croyse/calyx/data/fsv-issue248-ledger-integration-smoke-20260608`. PH35
-is complete; PH36 is next. The following scaffolding already exists and must be
-reused:
+is complete; PH36 is next. #652 additionally hardens the public surface:
+`LedgerGroupCommitHook` is no longer re-exported, direct crate-local `on_commit`
+misuse fails closed, and staged Aster commits remain byte-proven at
+`/home/croyse/calyx/data/fsv-issue652-ledger-hook-surface-20260611T070209Z`.
+The following scaffolding already exists and must be reused:
 
 - `calyx-core/src/model/signal.rs`: `LedgerRef { seq: u64, hash: [u8; 32] }`
 - `calyx-aster/src/cf/key.rs`: `ledger_key(seq: u64) -> Vec<u8>` (big-endian
@@ -72,7 +75,7 @@ are implemented.
 | `crates/calyx-ledger/src/append.rs` | `LedgerAppender`: seq-counter, `append(entry) -> LedgerRef`, append-only enforcement (no update/delete), tombstone prohibition |
 | `crates/calyx-ledger/src/kind.rs` | `EntryKind` enum with all 10 variants; `Display` / serde |
 | `crates/calyx-ledger/src/redaction.rs` | `RedactionPolicy`: ensure payloads carry hashes/ids only, never raw secret values; `check_payload` validator |
-| `crates/calyx-ledger/src/group_commit.rs` | `LedgerGroupCommitHook`: trait impl wiring a ledger append into PH09's group-commit batch so the ledger entry and the data write share one WAL record |
+| `crates/calyx-ledger/src/group_commit.rs` | `DefaultLedgerHook`: staged ledger row preparation plus post-durable `commit_staged`; the legacy direct hook is crate-private and fails closed |
 | `crates/calyx-ledger/src/lib.rs` | Crate root; re-exports |
 | `crates/calyx-ledger/src/tests/` | Unit + proptest + FSV-support tests (may be split into `entry_tests.rs`, `append_tests.rs`, `group_commit_tests.rs`) |
 

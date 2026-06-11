@@ -12,8 +12,10 @@ pub trait LedgerWriteBatch {
     fn put_ledger_row(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()>;
 }
 
-/// Hook called before a storage batch is durably committed.
-pub trait LedgerGroupCommitHook: Send + Sync {
+/// Legacy direct hook surface kept crate-private so storage engines cannot
+/// advance Ledger state outside their durable staged commit path.
+#[allow(dead_code)] // #652: retained only to fail closed if crate-local legacy code calls it.
+pub(crate) trait LedgerGroupCommitHook: Send + Sync {
     fn on_commit(
         &mut self,
         batch: &mut dyn LedgerWriteBatch,
@@ -206,23 +208,16 @@ where
 {
     fn on_commit(
         &mut self,
-        batch: &mut dyn LedgerWriteBatch,
-        kind: EntryKind,
-        subject: SubjectId,
-        payload: Vec<u8>,
-        actor: ActorId,
+        _batch: &mut dyn LedgerWriteBatch,
+        _kind: EntryKind,
+        _subject: SubjectId,
+        _payload: Vec<u8>,
+        _actor: ActorId,
     ) -> Result<LedgerRef> {
-        let staged = self.stage_with_checkpoints(kind, subject, payload, actor)?;
-        let data_ref = staged[0].ledger_ref.clone();
-        for row in &staged {
-            batch
-                .put_ledger_row(row.key.clone(), row.value.clone())
-                .map_err(group_commit_failed)?;
-        }
-        for row in &staged {
-            self.commit_staged(row)?;
-        }
-        Ok(data_ref)
+        Err(group_commit_failed(
+            "direct LedgerGroupCommitHook::on_commit is disabled; use \
+             stage_with_checkpoints and commit_staged after durable storage commit",
+        ))
     }
 }
 
@@ -254,23 +249,25 @@ fn group_commit_failed(message: impl ToString) -> CalyxError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::append::DirectoryLedgerStore;
     use crate::codec::decode;
     use calyx_core::{CxId, FixedClock};
+    use std::fs;
 
     #[test]
-    fn default_hook_adds_one_ledger_row_to_batch() {
+    fn staged_commit_adds_one_ledger_row_to_batch() {
         let mut hook = sample_hook();
         let mut batch = WriteBatch::default();
 
-        let ledger_ref = hook
-            .on_commit(
-                &mut batch,
-                EntryKind::Ingest,
-                sample_subject(1),
-                b"{}".to_vec(),
-                sample_actor(),
-            )
-            .expect("hook append");
+        let ledger_ref = stage_commit(
+            &mut hook,
+            &mut batch,
+            EntryKind::Ingest,
+            sample_subject(1),
+            b"{}".to_vec(),
+            sample_actor(),
+        )
+        .expect("staged commit");
 
         assert_eq!(ledger_ref.seq, 0);
         assert_eq!(batch.ledger_rows().len(), 1);
@@ -282,19 +279,20 @@ mod tests {
     }
 
     #[test]
-    fn sequential_hook_calls_stage_ordered_ledger_keys() {
+    fn sequential_staged_commits_stage_ordered_ledger_keys() {
         let mut hook = sample_hook();
         let mut batch = WriteBatch::default();
 
         for index in 0..3 {
-            hook.on_commit(
+            stage_commit(
+                &mut hook,
                 &mut batch,
                 EntryKind::Measure,
                 sample_subject(index),
                 format!(r#"{{"input_hash":"{index:064x}"}}"#).into_bytes(),
                 sample_actor(),
             )
-            .expect("hook append");
+            .expect("staged commit");
         }
 
         let keys = batch
@@ -317,7 +315,8 @@ mod tests {
         let mut hook = sample_hook();
         let mut batch = WriteBatch::default();
 
-        hook.on_commit(
+        stage_commit(
+            &mut hook,
             &mut batch,
             EntryKind::Admin,
             sample_subject(7),
@@ -325,7 +324,8 @@ mod tests {
             sample_actor(),
         )
         .expect("empty payload accepted");
-        hook.on_commit(
+        stage_commit(
+            &mut hook,
             &mut batch,
             EntryKind::Erase,
             sample_subject(8),
@@ -369,9 +369,9 @@ mod tests {
     }
 
     #[test]
-    fn batch_failure_returns_group_commit_error() {
+    fn direct_on_commit_fails_closed_without_batch_or_tip_mutation() {
         let mut hook = sample_hook();
-        let mut batch = FailingBatch;
+        let mut batch = WriteBatch::default();
 
         let error = hook
             .on_commit(
@@ -384,9 +384,97 @@ mod tests {
             .unwrap_err();
 
         assert_eq!(error.code, "CALYX_LEDGER_GROUP_COMMIT_FAILED");
+        assert!(error.message.contains("direct LedgerGroupCommitHook"));
+        assert!(batch.ledger_rows().is_empty());
         assert_eq!(hook.appender().next_seq(), 0);
         assert_eq!(hook.appender().prev_hash(), [0; 32]);
         assert!(hook.appender().store().scan().unwrap().is_empty());
+    }
+
+    #[test]
+    #[ignore = "manual aiwonder FSV for #652 direct group-commit misuse"]
+    fn ph35_direct_on_commit_rejects_aiwonder_fsv() {
+        let root = std::env::var("CALYX_FSV_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph35-direct-on-commit-fsv"))
+            .join("direct-on-commit-reject");
+        let ledger_dir = root.join("ledger-cf");
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&ledger_dir).expect("create FSV ledger dir");
+        let store = DirectoryLedgerStore::open(&ledger_dir).expect("open directory store");
+        let mut hook = DefaultLedgerHook::new(
+            LedgerAppender::open(store, FixedClock::new(652)).expect("open appender"),
+        );
+        let mut batch = WriteBatch::default();
+
+        let before_files = fs::read_dir(&ledger_dir).unwrap().count();
+        let before_next_seq = hook.appender().next_seq();
+        let before_prev_hash = hook.appender().prev_hash();
+        let error = hook
+            .on_commit(
+                &mut batch,
+                EntryKind::Ingest,
+                sample_subject(6),
+                b"{\"input_hash\":\"issue652\"}".to_vec(),
+                sample_actor(),
+            )
+            .unwrap_err();
+        let after_files = fs::read_dir(&ledger_dir).unwrap().count();
+        let after_store_rows = hook.appender().store().scan().unwrap();
+
+        let readback = serde_json::json!({
+            "issue": 652,
+            "ledger_dir": ledger_dir.display().to_string(),
+            "before_ledger_file_count": before_files,
+            "before_next_seq": before_next_seq,
+            "before_prev_hash": hex(&before_prev_hash),
+            "after_error_code": error.code,
+            "after_error_message": error.message,
+            "after_ledger_file_count": after_files,
+            "after_store_rows": after_store_rows.len(),
+            "after_next_seq": hook.appender().next_seq(),
+            "after_prev_hash": hex(&hook.appender().prev_hash()),
+            "after_batch_rows": batch.ledger_rows().len(),
+        });
+        let readback_path = root.join("direct-on-commit-readback.json");
+        fs::write(
+            &readback_path,
+            serde_json::to_vec_pretty(&readback).unwrap(),
+        )
+        .unwrap();
+
+        println!("PH35_DIRECT_ON_COMMIT_FSV_ROOT={}", root.display());
+        println!("PH35_DIRECT_ON_COMMIT_READBACK={}", readback_path.display());
+        println!("{}", serde_json::to_string_pretty(&readback).unwrap());
+
+        assert_eq!(error.code, "CALYX_LEDGER_GROUP_COMMIT_FAILED");
+        assert!(batch.ledger_rows().is_empty());
+        assert_eq!(hook.appender().next_seq(), before_next_seq);
+        assert_eq!(hook.appender().prev_hash(), before_prev_hash);
+        assert!(after_store_rows.is_empty());
+        assert_eq!(fs::read_dir(&ledger_dir).unwrap().count(), 0);
+    }
+
+    fn stage_commit(
+        hook: &mut DefaultLedgerHook<MemoryLedgerStore, FixedClock>,
+        batch: &mut WriteBatch,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<LedgerRef> {
+        let staged = hook.stage_with_checkpoints(kind, subject, payload, actor)?;
+        let data_ref = staged
+            .first()
+            .ok_or_else(|| group_commit_failed("no staged ledger rows"))?
+            .ledger_ref();
+        for row in &staged {
+            batch.put_ledger_row(row.key().to_vec(), row.value().to_vec())?;
+        }
+        for row in &staged {
+            hook.commit_staged(row)?;
+        }
+        Ok(data_ref)
     }
 
     fn sample_hook() -> DefaultLedgerHook<MemoryLedgerStore, FixedClock> {
@@ -404,11 +492,7 @@ mod tests {
         ActorId::Service("ledger-hook-test".to_string())
     }
 
-    struct FailingBatch;
-
-    impl LedgerWriteBatch for FailingBatch {
-        fn put_ledger_row(&mut self, _key: Vec<u8>, _value: Vec<u8>) -> Result<()> {
-            Err(CalyxError::disk_pressure("synthetic batch write failure"))
-        }
+    fn hex(bytes: &[u8]) -> String {
+        bytes.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 }

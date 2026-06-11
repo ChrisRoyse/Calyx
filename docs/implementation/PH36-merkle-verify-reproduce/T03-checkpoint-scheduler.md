@@ -47,9 +47,10 @@ Ledger CF bytes, WAL bytes, vault tree, and SHA256 manifests.
   and stages a chained `EntryKind::Admin` row after the triggering ingest row.
 - [x] `struct CheckpointPayload` — serde JSON; tag `"checkpoint_v1"` in the
   `payload` bytes so it can be distinguished from other Admin entries.
-- [x] Integrate `CheckpointScheduler::should_checkpoint` into `LedgerGroupCommitHook::on_commit`
-  — after each append, if the scheduler fires, write the checkpoint in the same
-  commit batch.
+- [x] Integrate `CheckpointScheduler::should_checkpoint` into
+  `DefaultLedgerHook::stage_with_checkpoints` so checkpoint rows are staged in
+  the same durable commit batch as the data row. Public callers must commit
+  staged rows only after storage commit succeeds.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
