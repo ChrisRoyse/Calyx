@@ -3,6 +3,7 @@
 mod budget;
 mod heal;
 mod integration_fsv;
+mod learn;
 mod ledger_anneal;
 mod recurrence_schedule;
 mod rollback;
@@ -49,6 +50,12 @@ pub use heal::triggers::{
     WardMetrics,
 };
 pub use integration_fsv::{AnnealStatus, AnnealSubstrate, CALYX_LEDGER_WRITE_FAIL, ChangeOutcome};
+pub use learn::{
+    AsterMistakeStorage, CALYX_ANNEAL_INVALID_WINDOW, CALYX_ANNEAL_MISTAKE_APPEND_ONLY,
+    CALYX_ANNEAL_MISTAKE_INVALID_ROW, DEFAULT_MISTAKE_SURPRISE_THRESHOLD, MistakeEntry, MistakeLog,
+    MistakeReadback, MistakeRef, MistakeStorage, decode_mistake_entry, encode_mistake_entry,
+    mistake_key, mistake_seq_from_key,
+};
 pub use ledger_anneal::{
     ANNEAL_LEDGER_PAYLOAD_TAG, AnnealFaultLedgerDetails, AnnealLedger, AnnealLedgerAction,
     AnnealLedgerEntry, AnnealLedgerReadback, AsterAnnealLedgerStore,

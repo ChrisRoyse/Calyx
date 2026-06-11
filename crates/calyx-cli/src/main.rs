@@ -1,5 +1,6 @@
 //! Calyx command-line entry point.
 
+mod anneal_mistakes_readback;
 mod anneal_status;
 mod budget_readback;
 mod crash;
@@ -133,6 +134,18 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 && vault_flag == "--vault" =>
         {
             anneal_status::status_health(Path::new(vault))
+        }
+        [command, topic, subtopic, vault_flag, vault, last_flag, last]
+            if command == "readback"
+                && topic == "anneal"
+                && subtopic == "mistakes"
+                && vault_flag == "--vault"
+                && last_flag == "--last" =>
+        {
+            anneal_mistakes_readback::readback_mistakes(
+                Path::new(vault),
+                anneal_status::parse_last(last)?,
+            )
         }
         [command, topic, slot_flag, slot, vault_flag, vault]
             if command == "ward"

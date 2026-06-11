@@ -11,6 +11,7 @@ calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
 blake3.workspace = true
+ciborium.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
