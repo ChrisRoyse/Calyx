@@ -410,6 +410,7 @@ fn parse_cf_name(value: &str) -> Result<ColumnFamily> {
         "temporal_xterm" => Ok(ColumnFamily::TemporalXTerm),
         "assay" => Ok(ColumnFamily::Assay),
         "anneal_rollback" => Ok(ColumnFamily::AnnealRollback),
+        "anneal_health" => Ok(ColumnFamily::AnnealHealth),
         _ if value.starts_with("slot_") => parse_slot_cf(value),
         _ => Err(CalyxError::aster_corrupt_shard(format!(
             "unknown durable CF directory {value}"

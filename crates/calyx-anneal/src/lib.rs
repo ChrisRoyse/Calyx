@@ -1,6 +1,7 @@
 //! Anneal self-optimization contracts for reversible tuning loops.
 
 mod budget;
+mod heal;
 mod integration_fsv;
 mod ledger_anneal;
 mod recurrence_schedule;
@@ -14,6 +15,11 @@ pub use budget::{
     BudgetProbeSample, BudgetStatus, CALYX_ANNEAL_BUDGET_EXHAUSTED,
     CALYX_ANNEAL_BUDGET_INVALID_CONFIG, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe,
     budget_config_path, read_budget_config_from_vault,
+};
+pub use heal::degrade::{
+    ANNEAL_HEALTH_TAG, AsterHealthStore, CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED,
+    CALYX_ANNEAL_HEALTH_INVALID_ROW, ComponentHealth, ComponentKind, DegradeRegistry,
+    HealthRowReadback, HealthStorage, ScopeId, decode_health_value,
 };
 pub use integration_fsv::{AnnealStatus, AnnealSubstrate, CALYX_LEDGER_WRITE_FAIL, ChangeOutcome};
 pub use ledger_anneal::{
