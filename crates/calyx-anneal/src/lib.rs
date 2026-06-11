@@ -1,6 +1,7 @@
 //! Anneal self-optimization contracts for reversible tuning loops.
 
 mod budget;
+mod integration_fsv;
 mod ledger_anneal;
 mod recurrence_schedule;
 mod rollback;
@@ -14,6 +15,7 @@ pub use budget::{
     CALYX_ANNEAL_BUDGET_INVALID_CONFIG, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe,
     budget_config_path, read_budget_config_from_vault,
 };
+pub use integration_fsv::{AnnealStatus, AnnealSubstrate, CALYX_LEDGER_WRITE_FAIL, ChangeOutcome};
 pub use ledger_anneal::{
     ANNEAL_LEDGER_PAYLOAD_TAG, AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry,
     AnnealLedgerReadback, AsterAnnealLedgerStore, CALYX_ANNEAL_LEDGER_INVALID_ENTRY,
