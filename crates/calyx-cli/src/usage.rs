@@ -10,6 +10,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal replay-status --vault <dir>
        calyx anneal head-status --kind <Predictor|Calibrator|FusionWeights> --vault <dir>
        calyx anneal frozen-guard-report --artifact <json>
+       calyx anneal regression-report --artifact <json>
        calyx anneal status --faults --last <n> --vault <dir>
        calyx ward tau --slot <n> --vault <dir>
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>

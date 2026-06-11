@@ -32,6 +32,18 @@ pub struct AnnealStatus {
     pub recent_changes: Vec<AnnealLedgerEntry>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AnnealLedgerActionPair {
+    pub promote: AnnealLedgerAction,
+    pub revert: AnnealLedgerAction,
+}
+
+impl AnnealLedgerActionPair {
+    pub const fn new(promote: AnnealLedgerAction, revert: AnnealLedgerAction) -> Self {
+        Self { promote, revert }
+    }
+}
+
 pub struct AnnealSubstrate<'a, R, L, C, P = ProcStatBudgetProbe>
 where
     R: RollbackStorage,
@@ -112,6 +124,28 @@ where
     where
         A: ShadowAnnealAction,
     {
+        self.propose_change_with_actions(
+            key,
+            candidate_ptr,
+            candidate,
+            incumbent,
+            AnnealLedgerActionPair::new(AnnealLedgerAction::Promote, AnnealLedgerAction::Revert),
+            description,
+        )
+    }
+
+    pub fn propose_change_with_actions<A>(
+        &mut self,
+        key: ArtifactKey,
+        candidate_ptr: ArtifactPtr,
+        candidate: &A,
+        incumbent: &A,
+        actions: AnnealLedgerActionPair,
+        description: impl Into<String>,
+    ) -> Result<ChangeOutcome>
+    where
+        A: ShadowAnnealAction,
+    {
         let description = description.into();
         let change_id =
             self.rollback
@@ -120,8 +154,7 @@ where
         let verdict = self.shadow_verdict(candidate, incumbent)?;
         match verdict {
             ShadowVerdict::Promote { metrics } => {
-                let entry =
-                    ledger_entry(&readback, AnnealLedgerAction::Promote, metrics, description);
+                let entry = ledger_entry(&readback, actions.promote, metrics, description);
                 self.write_ledger(entry)?;
                 self.rollback.promote(change_id)?;
                 Ok(ChangeOutcome::Promoted(change_id))
@@ -129,8 +162,7 @@ where
             ShadowVerdict::Revert { reason, metrics } => {
                 self.rollback.rollback(change_id)?;
                 let reverted = self.rollback.readback(change_id)?;
-                let entry =
-                    ledger_entry(&reverted, AnnealLedgerAction::Revert, metrics, description);
+                let entry = ledger_entry(&reverted, actions.revert, metrics, description);
                 self.write_ledger(entry)?;
                 Ok(ChangeOutcome::Reverted { reason, change_id })
             }
@@ -138,13 +170,26 @@ where
     }
 
     pub fn rollback_explicit(&mut self, change_id: ChangeId) -> Result<()> {
+        self.rollback_explicit_with_action(
+            change_id,
+            AnnealLedgerAction::Revert,
+            "explicit rollback".to_string(),
+        )
+    }
+
+    pub fn rollback_explicit_with_action(
+        &mut self,
+        change_id: ChangeId,
+        action: AnnealLedgerAction,
+        description: String,
+    ) -> Result<()> {
         self.rollback.rollback(change_id)?;
         let readback = self.rollback.readback(change_id)?;
         let entry = ledger_entry(
             &readback,
-            AnnealLedgerAction::Revert,
+            action,
             MetricSnapshot::empty(self.clock.now()),
-            "explicit rollback".to_string(),
+            description,
         );
         self.write_ledger(entry)
     }

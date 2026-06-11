@@ -4,6 +4,7 @@ mod anneal_commands;
 mod anneal_frozen_guard_readback;
 mod anneal_head_readback;
 mod anneal_mistakes_readback;
+mod anneal_regression_readback;
 mod anneal_replay_readback;
 mod anneal_status;
 mod budget_readback;

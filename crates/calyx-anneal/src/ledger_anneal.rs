@@ -37,6 +37,8 @@ pub enum AnnealLedgerAction {
     LensPark,
     LensUnpark,
     MistakeUpdate,
+    HeadUpdate,
+    HeadUpdateReverted,
     AutotuneAB,
 }
 

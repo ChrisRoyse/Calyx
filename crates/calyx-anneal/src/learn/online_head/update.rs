@@ -4,8 +4,9 @@ use calyx_ledger::LedgerCfStore;
 use super::{HeadKind, OnlineHead, dot, invalid_row, validate_head};
 use crate::CALYX_ANNEAL_HEAD_UPDATE_REVERTED;
 use crate::{
-    ActionMetricSnapshot, AnnealAction, AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe,
-    ChangeOutcome, ReplayEntry, RollbackStorage, ShadowRevertReason, TripwireMetric,
+    ActionMetricSnapshot, AnnealAction, AnnealLedgerAction, AnnealLedgerActionPair,
+    AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe, ChangeOutcome, ReplayEntry,
+    RollbackStorage, ShadowRevertReason, TripwireMetric,
 };
 
 #[derive(Clone, Debug)]
@@ -67,7 +68,17 @@ where
         incumbent: &HeadShadowProposal,
         description: &str,
     ) -> Result<ChangeOutcome> {
-        self.propose_change_with_description(key, candidate_ptr, candidate, incumbent, description)
+        self.propose_change_with_actions(
+            key,
+            candidate_ptr,
+            candidate,
+            incumbent,
+            AnnealLedgerActionPair::new(
+                AnnealLedgerAction::HeadUpdate,
+                AnnealLedgerAction::HeadUpdateReverted,
+            ),
+            description,
+        )
     }
 }
 
