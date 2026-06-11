@@ -211,6 +211,30 @@ where
         self.write_ledger(entry)
     }
 
+    pub fn write_outcome_event(
+        &mut self,
+        action: AnnealLedgerAction,
+        change_id: ChangeId,
+        artifact_id: String,
+        candidate_hash: [u8; 32],
+        description: String,
+    ) -> Result<()> {
+        let ts = self.clock.now();
+        let entry = AnnealLedgerEntry {
+            action,
+            change_id,
+            artifact_id,
+            prior_ptr_hash: [0; 32],
+            candidate_ptr_hash: candidate_hash,
+            metrics: MetricSnapshot::empty(ts),
+            ts,
+            description,
+            fault: None,
+            prev_hash: None,
+        };
+        self.write_ledger(entry)
+    }
+
     pub fn status(&self) -> Result<AnnealStatus> {
         Ok(AnnealStatus {
             tripwire_states: self.tripwires.status(),

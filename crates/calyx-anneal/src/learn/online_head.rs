@@ -23,7 +23,7 @@ pub use storage::{AsterHeadStorage, HeadStorage};
 pub use update::{HeadPromotionGate, HeadShadowProposal};
 
 use super::{FrozenLensCheck, NoFrozenLensGuard, ReplayEntry};
-use crate::{ChangeId, ChangeOutcome, LogicalTime};
+use crate::{AnnealLedgerAction, ChangeId, ChangeOutcome, LogicalTime};
 use codec::{encode_head_rows, heads_hash};
 use update::{apply_update, update_reverted, validate_update};
 
@@ -269,6 +269,23 @@ where
 
     pub fn readback(&self) -> Result<Vec<HeadReadback>> {
         decode_head_rows(self.storage.scan_heads()?)
+    }
+
+    pub fn record_outcome_event(
+        &mut self,
+        action: AnnealLedgerAction,
+        change_id: ChangeId,
+        artifact_id: String,
+        candidate_hash: [u8; 32],
+        description: String,
+    ) -> Result<()> {
+        self.substrate.record_outcome_event(
+            action,
+            change_id,
+            artifact_id,
+            candidate_hash,
+            description,
+        )
     }
 
     fn candidate_heads(

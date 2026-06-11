@@ -45,6 +45,7 @@ pub enum OnlineKeyKind {
     MistakeLog,
     ReplayBuffer,
     HeadState,
+    DeltaJQueue,
 }
 
 impl OnlineKeyKind {
@@ -53,6 +54,7 @@ impl OnlineKeyKind {
             Self::MistakeLog => 0,
             Self::ReplayBuffer => 1,
             Self::HeadState => 2,
+            Self::DeltaJQueue => 3,
         }
     }
 }

@@ -5,7 +5,7 @@ use super::{HeadKind, OnlineHead, dot, invalid_row, validate_head};
 use crate::CALYX_ANNEAL_HEAD_UPDATE_REVERTED;
 use crate::{
     ActionMetricSnapshot, AnnealAction, AnnealLedgerAction, AnnealLedgerActionPair,
-    AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe, ChangeOutcome, ReplayEntry,
+    AnnealSubstrate, ArtifactKey, ArtifactPtr, BudgetProbe, ChangeId, ChangeOutcome, ReplayEntry,
     RollbackStorage, ShadowRevertReason, TripwireMetric,
 };
 
@@ -28,6 +28,16 @@ pub trait HeadPromotionGate {
         &mut self,
         _buffer_len: usize,
         _degraded_components: &[String],
+    ) -> Result<()> {
+        Ok(())
+    }
+    fn record_outcome_event(
+        &mut self,
+        _action: AnnealLedgerAction,
+        _change_id: ChangeId,
+        _artifact_id: String,
+        _candidate_hash: [u8; 32],
+        _description: String,
     ) -> Result<()> {
         Ok(())
     }
@@ -103,6 +113,17 @@ where
             degraded_components.len(),
             buffer_len
         ))
+    }
+
+    fn record_outcome_event(
+        &mut self,
+        action: AnnealLedgerAction,
+        change_id: ChangeId,
+        artifact_id: String,
+        candidate_hash: [u8; 32],
+        description: String,
+    ) -> Result<()> {
+        self.write_outcome_event(action, change_id, artifact_id, candidate_hash, description)
     }
 }
 

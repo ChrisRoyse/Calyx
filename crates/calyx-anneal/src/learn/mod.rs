@@ -1,6 +1,7 @@
 mod frozen_guard;
 mod mistake_log;
 mod online_head;
+mod outcome;
 mod regression_assert;
 mod replay_buffer;
 
@@ -23,6 +24,15 @@ pub use online_head::{
     RegressionUpdateOutcome, SleepPassConfig, SleepPassOutcome, SleepPassReplayRecord,
     decode_head_rows, decode_online_head, encode_online_head, head_key, head_state_artifact_key,
     record_mistake_for_replay, run_sleep_pass,
+};
+pub use outcome::{
+    AsterOutcomeStorage, CALYX_ANNEAL_OUTCOME_APPEND_ONLY, CALYX_ANNEAL_OUTCOME_INVALID_ANCHOR,
+    CALYX_ANNEAL_OUTCOME_INVALID_CONFIG, CALYX_ANNEAL_OUTCOME_INVALID_ROW,
+    DEFAULT_OUTCOME_ACTION_COST, DEFAULT_OUTCOME_FISHER_WEIGHT, DEFAULT_OUTCOME_LR,
+    OutcomePrediction, OutcomeQueue, OutcomeQueueEntry, OutcomeQueueReadback, OutcomeStorage,
+    RecordOutcomeConfig, RecordOutcomeContext, RecordOutcomeContradiction, RecordOutcomeResult,
+    RecordOutcomeReward, decode_outcome_queue_entry, encode_outcome_queue_entry, outcome_queue_key,
+    outcome_queue_seq_from_key, record_outcome,
 };
 pub use regression_assert::{
     CALYX_ANNEAL_REGRESSION_INVALID_CONFIG, CALYX_ANNEAL_REGRESSION_NAN_PREDICTION,
