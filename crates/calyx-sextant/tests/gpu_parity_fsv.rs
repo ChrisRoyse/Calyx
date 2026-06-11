@@ -147,6 +147,7 @@ fn row(value: u8, slot8: SlotVector, slot9: SlotVector) -> calyx_core::Constella
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: vec![Anchor {
             kind: AnchorKind::Label("gpu-parity".to_string()),
             value: AnchorValue::Text("explicit-cpu-fanout".to_string()),

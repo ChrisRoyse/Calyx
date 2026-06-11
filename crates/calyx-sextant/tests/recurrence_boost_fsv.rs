@@ -255,6 +255,7 @@ fn row(seed: u8, frequency: Option<f64>) -> calyx_core::Constellation {
         modality: Modality::Text,
         slots: BTreeMap::<SlotId, SlotVector>::new(),
         scalars,
+        metadata: BTreeMap::new(),
         anchors: vec![Anchor {
             kind: AnchorKind::Label("issue391".to_string()),
             value: AnchorValue::Text("synthetic".to_string()),

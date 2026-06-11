@@ -33,6 +33,8 @@ pub struct IngestInput {
     pub modality: Modality,
     pub slots: BTreeMap<SlotId, SlotVector>,
     pub scalars: BTreeMap<String, f64>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, String>,
     pub anchors: Vec<Anchor>,
     pub input_pointer: Option<String>,
     pub redacted: bool,
@@ -48,6 +50,7 @@ impl IngestInput {
             modality,
             slots: BTreeMap::new(),
             scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             anchors: Vec::new(),
             input_pointer: None,
             redacted: true,
@@ -57,6 +60,11 @@ impl IngestInput {
 
     pub fn with_slot(mut self, slot: SlotId, vector: SlotVector) -> Self {
         self.slots.insert(slot, vector);
+        self
+    }
+
+    pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.metadata.insert(key.into(), value.into());
         self
     }
 
@@ -110,6 +118,7 @@ impl IngestInput {
             modality: self.modality,
             slots: self.slots.clone(),
             scalars,
+            metadata: self.metadata.clone(),
             anchors: self.anchors.clone(),
             provenance: LedgerRef {
                 seq: 0,

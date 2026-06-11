@@ -196,6 +196,7 @@ fn sample_constellation(vault: &AsterVault, seed: u16) -> calyx_core::Constellat
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 9000 + u64::from(seed),

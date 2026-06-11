@@ -187,6 +187,7 @@ fn row(cx_id: CxId, vector: SlotVector, seq: u64) -> calyx_core::Constellation {
         modality: Modality::Text,
         slots: BTreeMap::from([(slot(), vector)]),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: vec![Anchor {
             kind: AnchorKind::Label("guard-region".to_string()),
             value: AnchorValue::Enum("trusted".to_string()),

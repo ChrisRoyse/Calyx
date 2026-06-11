@@ -242,6 +242,7 @@ mod tests {
                 },
             )]),
             scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             anchors,
             provenance: LedgerRef {
                 seq: u64::from(seed),

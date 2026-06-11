@@ -72,6 +72,7 @@ Constellation {
   input_ref: InputRef,                  // hash + optional pointer to raw bytes (may be redacted/absent)
   modality: Modality,                   // text | code | image | audio | video | structured | mixed
   slots: Map<SlotId, SlotVector>,       // dense or sparse, per Slot.shape
+  metadata: Map<String, String>,        // verbatim source ids (chunk_id, database_name, ...)
   scalars: Map<ScalarId, f64>,          // BFS depth, churn, coverage Δ, blame age, repo health, ...
   anchors: Vec<Anchor>,                 // grounded outcomes (may be empty → "ungrounded" flag)
   cross_terms: CrossTermPolicy,         // lazy | eager(subset) | none  (Loom decides; see 06)

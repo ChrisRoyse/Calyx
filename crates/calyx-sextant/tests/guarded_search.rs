@@ -388,6 +388,7 @@ fn row_with_slots(
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: vec![Anchor {
             kind: AnchorKind::Label("guard-region".to_string()),
             value: AnchorValue::Enum("trusted".to_string()),

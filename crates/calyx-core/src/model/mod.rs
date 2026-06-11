@@ -8,7 +8,7 @@ pub mod vector;
 
 pub use crate::time::Ts;
 pub use anchor::{Anchor, AnchorValue};
-pub use constellation::Constellation;
+pub use constellation::{Constellation, METADATA_CHUNK_ID, METADATA_DATABASE_NAME};
 pub use signal::{ConfidenceInterval, CxFlags, InputRef, LedgerRef, Signal};
 pub use slot::{Panel, Slot};
 pub use vector::{SlotVector, SparseEntry};
@@ -70,6 +70,8 @@ mod tests {
 
         assert_eq!(bytes, serde_json::to_vec(&decoded).unwrap());
         assert_eq!(decoded.slots.len(), 2);
+        assert_eq!(decoded.chunk_id(), Some("chunk-42/source row"));
+        assert_eq!(decoded.database_name(), Some("leapable_db_stage15"));
         assert!(matches!(
             decoded.slots.get(&SlotId::new(2)),
             Some(SlotVector::Absent {
@@ -186,6 +188,15 @@ mod tests {
 
         let mut scalars = BTreeMap::new();
         scalars.insert("coverage_delta".to_string(), 0.25);
+        let mut metadata = BTreeMap::new();
+        metadata.insert(
+            METADATA_CHUNK_ID.to_string(),
+            "chunk-42/source row".to_string(),
+        );
+        metadata.insert(
+            METADATA_DATABASE_NAME.to_string(),
+            "leapable_db_stage15".to_string(),
+        );
 
         Constellation {
             cx_id: CxId::from_bytes([1; 16]),
@@ -202,6 +213,7 @@ mod tests {
             modality: Modality::Text,
             slots,
             scalars,
+            metadata,
             anchors: vec![Anchor {
                 kind: AnchorKind::Reward,
                 value: AnchorValue::Number(1.0),

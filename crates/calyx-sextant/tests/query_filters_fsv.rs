@@ -305,6 +305,7 @@ fn row(spec: RowSpec) -> calyx_core::Constellation {
         modality: spec.modality,
         slots: BTreeMap::new(),
         scalars,
+        metadata: BTreeMap::new(),
         anchors: vec![Anchor {
             kind: AnchorKind::Label("topic".to_string()),
             value: AnchorValue::Enum(spec.topic.to_string()),

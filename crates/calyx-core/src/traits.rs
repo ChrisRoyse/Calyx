@@ -237,6 +237,7 @@ mod tests {
             modality: Modality::Text,
             slots: BTreeMap::new(),
             scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             anchors: vec![Anchor {
                 kind: AnchorKind::Reward,
                 value: AnchorValue::Number(1.0),

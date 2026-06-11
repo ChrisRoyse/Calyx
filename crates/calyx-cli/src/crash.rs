@@ -346,6 +346,7 @@ fn synthetic_constellation(vault_id: VaultId, index: u8) -> Constellation {
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: index as u64,

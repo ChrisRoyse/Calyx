@@ -14,8 +14,8 @@ pub use enums::{AbsentReason, AnchorKind, Asymmetry, Modality, QuantPolicy, Slot
 pub use error::{CALYX_ERROR_CODES, CalyxError, CalyxErrorCode, CalyxWarning, Result};
 pub use ids::{CxId, LensId, ParseIdError, SlotId, SlotKey, VaultId, content_address};
 pub use model::{
-    Anchor, AnchorValue, ConfidenceInterval, Constellation, CxFlags, InputRef, LedgerRef, Panel,
-    Signal, Slot, SlotVector, SparseEntry,
+    Anchor, AnchorValue, ConfidenceInterval, Constellation, CxFlags, InputRef, LedgerRef,
+    METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Panel, Signal, Slot, SlotVector, SparseEntry,
 };
 pub use temporal::{
     BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_BOOST_CONFIG,

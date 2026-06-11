@@ -327,6 +327,7 @@ fn demo_constellation(vault: &AsterVault, vault_id: VaultId) -> Constellation {
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 1,

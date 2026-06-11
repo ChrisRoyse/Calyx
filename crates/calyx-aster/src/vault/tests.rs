@@ -1,7 +1,7 @@
 use super::*;
 use calyx_core::{
-    AbsentReason, AnchorKind, AnchorValue, CxFlags, FixedClock, InputRef, LedgerRef, Modality,
-    SlotVector,
+    AbsentReason, AnchorKind, AnchorValue, CxFlags, FixedClock, InputRef, LedgerRef,
+    METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Modality, SlotVector,
 };
 use calyx_ledger::{EntryKind, SubjectId, decode as decode_ledger};
 use std::collections::BTreeMap;
@@ -34,6 +34,15 @@ fn sample_constellation(vault: &AsterVault<FixedClock>) -> Constellation {
             reason: AbsentReason::LensUnavailable,
         },
     );
+    let mut metadata = BTreeMap::new();
+    metadata.insert(
+        METADATA_CHUNK_ID.to_string(),
+        "chunk-same-input".to_string(),
+    );
+    metadata.insert(
+        METADATA_DATABASE_NAME.to_string(),
+        "leapable_db_vault_tests".to_string(),
+    );
     Constellation {
         cx_id,
         vault_id: vault_id(),
@@ -47,6 +56,7 @@ fn sample_constellation(vault: &AsterVault<FixedClock>) -> Constellation {
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata,
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 1,

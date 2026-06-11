@@ -132,6 +132,7 @@ fn real_qrels_constellation(cx_id: CxId, doc_id: &str, seq: u64) -> calyx_core::
         modality: Modality::Text,
         slots: BTreeMap::new(),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq,

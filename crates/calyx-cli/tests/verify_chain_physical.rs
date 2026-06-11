@@ -190,6 +190,7 @@ fn sample_constellation(vault: &AsterVault, seed: u16) -> Constellation {
             },
         )]),
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 99,

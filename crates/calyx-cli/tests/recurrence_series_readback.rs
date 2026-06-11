@@ -202,6 +202,7 @@ fn put_base(vault: &AsterVault, input: &[u8], panel_version: u32) -> calyx_core:
             modality: Modality::Text,
             slots: BTreeMap::new(),
             scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             anchors: Vec::new(),
             provenance: LedgerRef {
                 seq: 0,

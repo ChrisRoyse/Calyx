@@ -65,6 +65,7 @@ pub struct Constellation {
     input_ref: InputRef, modality: Modality,
     slots: BTreeMap<SlotId, SlotVector>,
     scalars: BTreeMap<String, f64>,
+    metadata: BTreeMap<String, String>, // verbatim source identifiers, e.g. chunk_id/database_name
     anchors: Vec<Anchor>,
     provenance: LedgerRef,
     flags: CxFlags,   // ungrounded, degraded, novel_region, redacted_input

@@ -101,6 +101,7 @@ fn sample_constellation(cx_id: CxId, seed: u16) -> Constellation {
         modality: Modality::Text,
         slots,
         scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
         anchors: Vec::new(),
         provenance: LedgerRef {
             seq: 99,

@@ -35,11 +35,10 @@ implements the same semantic contract in Rust.
   - `Constellation.input_ref`: `InputRef::ContentHash(blake3(row.content))` —
     stores the content hash, not the cleartext (never persist candidate text,
     PRD 15 §4)
-  - `Constellation.scalars`: `{"chunk_id": row.chunk_id as f64 hash}` — preserve
-    the `chunk_id` as a string scalar (stored in `scalars` as a string, not f64;
-    use a separate metadata map if the core type supports it)
-  - Metadata preservation: `chunk_id` and `database_name` stored in
-    `Constellation`'s metadata/scalars field verbatim (string keys matching the
+  - `Constellation.scalars`: numeric source measurements only; never encode
+    `chunk_id`/`database_name` here because those identifiers are strings.
+  - `Constellation.metadata`: `chunk_id` and `database_name` stored verbatim
+    (string keys matching the
     `vault-sqlite.ts` contract names)
   - `CALYX_LENS_DIM_MISMATCH` if `row.embedding.len() != 768`
   - `CALYX_LENS_NUMERICAL_INVARIANT` if any embedding value is NaN or Inf

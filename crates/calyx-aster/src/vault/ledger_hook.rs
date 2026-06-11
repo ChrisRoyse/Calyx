@@ -190,6 +190,7 @@ mod tests {
             modality: calyx_core::Modality::Text,
             slots: BTreeMap::new(),
             scalars: BTreeMap::new(),
+            metadata: BTreeMap::new(),
             anchors: Vec::new(),
             provenance: LedgerRef {
                 seq: 99,
