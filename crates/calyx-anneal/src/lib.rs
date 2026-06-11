@@ -1,6 +1,7 @@
 //! Anneal self-optimization contracts for reversible tuning loops.
 
 mod budget;
+mod ledger_anneal;
 mod recurrence_schedule;
 mod rollback;
 mod rollback_codec;
@@ -12,6 +13,11 @@ pub use budget::{
     BudgetProbeSample, BudgetStatus, CALYX_ANNEAL_BUDGET_EXHAUSTED,
     CALYX_ANNEAL_BUDGET_INVALID_CONFIG, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe,
     budget_config_path, read_budget_config_from_vault,
+};
+pub use ledger_anneal::{
+    ANNEAL_LEDGER_PAYLOAD_TAG, AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry,
+    AnnealLedgerReadback, AsterAnnealLedgerStore, CALYX_ANNEAL_LEDGER_INVALID_ENTRY,
+    CALYX_ASTER_CF_UNAVAILABLE, CALYX_LEDGER_ENTRY_TOO_LARGE, MAX_ANNEAL_LEDGER_PAYLOAD_BYTES,
 };
 pub use recurrence_schedule::{
     CALYX_ANNEAL_INVALID_CADENCE, FREQ_BONUS_MAX, RecurrenceSchedule, RefreshPriority,

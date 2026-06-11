@@ -9,12 +9,13 @@ publish.workspace = true
 [dependencies]
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-ledger = { path = "../calyx-ledger" }
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 toml.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
 proptest.workspace = true
-serde_json.workspace = true
