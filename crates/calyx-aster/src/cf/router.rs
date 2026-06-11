@@ -271,6 +271,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "anneal_replay" => Some(ColumnFamily::AnnealReplay),
         "anneal_heads" => Some(ColumnFamily::AnnealHeads),
         "anneal_bandit" => Some(ColumnFamily::AnnealBandit),
+        "anneal_soak" => Some(ColumnFamily::AnnealSoak),
         _ if name.starts_with("slot_") => parse_slot_name(&name),
         _ => None,
     }

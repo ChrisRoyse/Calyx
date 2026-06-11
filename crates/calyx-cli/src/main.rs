@@ -9,6 +9,7 @@ mod anneal_head_readback;
 mod anneal_mistakes_readback;
 mod anneal_regression_readback;
 mod anneal_replay_readback;
+mod anneal_soak_report;
 mod anneal_status;
 mod budget_readback;
 mod crash;
