@@ -53,6 +53,19 @@ fn causal_gate_fsv_writes_pipeline_readback() {
     };
     let invalid_high = apply_causal_gate(Vec::new(), &invalid_negative)
         .expect_err("negative multiplier fails closed");
+    let invalid_zero_high = BoostConfig {
+        causal_high_mult: 0.0,
+        ..policy.boost
+    };
+    let invalid_zero = apply_causal_gate(Vec::new(), &invalid_zero_high)
+        .expect_err("zero high multiplier fails closed");
+    let invalid_low_above_neutral = BoostConfig {
+        causal_high_mult: 1.05,
+        causal_low_mult: 1.10,
+        ..policy.boost
+    };
+    let invalid_order = apply_causal_gate(Vec::new(), &invalid_low_above_neutral)
+        .expect_err("low multiplier above high/neutral fails closed");
     let invalid_over_max = BoostConfig {
         causal_low_mult: 10.5,
         ..policy.boost
@@ -85,6 +98,19 @@ fn causal_gate_fsv_writes_pipeline_readback() {
             "after_error_code": invalid_high.code,
             "expected_error_code": CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
         },
+        "edge_invalid_zero_high": {
+            "before_causal_high_mult": 0.0,
+            "after_error_code": invalid_zero.code,
+            "after_error_message": invalid_zero.message,
+            "expected_error_code": CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
+        },
+        "edge_invalid_low_above_high": {
+            "before_causal_high_mult": 1.05,
+            "before_causal_low_mult": 1.10,
+            "after_error_code": invalid_order.code,
+            "after_error_message": invalid_order.message,
+            "expected_error_code": CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
+        },
         "edge_invalid_over_max": {
             "before_causal_low_mult": 10.5,
             "after_error_code": invalid_low.code,
@@ -105,6 +131,8 @@ fn causal_gate_fsv_writes_pipeline_readback() {
     assert!(empty.is_empty());
     assert_eq!(absent[0].causal_gate.map(|gate| gate.multiplier), Some(1.0));
     assert_eq!(invalid_high.code, CALYX_TEMPORAL_INVALID_BOOST_CONFIG);
+    assert_eq!(invalid_zero.code, CALYX_TEMPORAL_INVALID_BOOST_CONFIG);
+    assert_eq!(invalid_order.code, CALYX_TEMPORAL_INVALID_BOOST_CONFIG);
     assert_eq!(invalid_low.code, CALYX_TEMPORAL_INVALID_BOOST_CONFIG);
 
     if !keep_root {

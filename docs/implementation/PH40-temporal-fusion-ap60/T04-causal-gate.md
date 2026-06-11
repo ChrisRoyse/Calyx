@@ -39,6 +39,9 @@ causal anchor is unverified or contested.
 - [x] proptest: `apply_causal_gate` is a permutation of input hit IDs (no hits added or removed)
 - [x] edge: empty hit list → empty result without panic
 - [x] fail-closed: `BoostConfig { causal_high_mult: -0.5 }` → `CALYX_TEMPORAL_INVALID_BOOST_CONFIG`
+- [x] fail-closed: `causal_high_mult <= 1.0` and `causal_low_mult >= 1.0`
+      now reject as semantic violations (#656); high confidence must boost and
+      low confidence must dampen.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
