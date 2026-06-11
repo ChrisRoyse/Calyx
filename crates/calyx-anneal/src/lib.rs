@@ -112,13 +112,19 @@ pub use tripwire::{
 pub use tune::{
     Arm, ArmStatus, AsterBanditStorage, BanditPolicy, BanditReadback, BanditStatus, BanditStorage,
     CALYX_ANNEAL_BANDIT_EMPTY, CALYX_ANNEAL_BANDIT_INVALID_CONFIG, CALYX_ANNEAL_BANDIT_INVALID_ROW,
-    CALYX_FORGE_CACHE_WRITE_FAIL, CALYX_FORGE_SCOPE_INVALID_CONFIG, ConfigBandit,
-    ConfigBanditStore, ConfigVariant, DEFAULT_FORGE_RECALL_TARGET, DEFAULT_HYSTERESIS_WINS, DType,
-    ForgeBanditPersistence, ForgeConfig, ForgePromotionRecord, ForgePromotionWriter,
-    ForgeScopeTuner, ForgeTuneDecision, MAX_BUCKETED_DIM, MAX_FORGE_CANDIDATES,
-    NoopForgeBanditStore, NoopForgePromotionWriter, ShapeKey, bandit_key, bucket_dim, bucket_shape,
-    candidate_configs, decode_config_bandit, decode_forge_config, encode_config_bandit,
-    encode_forge_config, shape_key_hash,
+    CALYX_FORGE_CACHE_WRITE_FAIL, CALYX_FORGE_SCOPE_INVALID_CONFIG, CALYX_INDEX_CACHE_WRITE_FAIL,
+    CALYX_INDEX_SCOPE_INVALID_CONFIG, ConfigBandit, ConfigBanditStore, ConfigVariant,
+    DEFAULT_FORGE_RECALL_TARGET, DEFAULT_HYSTERESIS_WINS, DEFAULT_INDEX_RECALL_TARGET,
+    DEFAULT_INDEX_VRAM_BUDGET_BYTES, DType, ForgeBanditPersistence, ForgeConfig,
+    ForgePromotionRecord, ForgePromotionWriter, ForgeScopeTuner, ForgeTuneDecision,
+    IndexBanditPersistence, IndexConfig, IndexPromotionRecord, IndexPromotionWriter,
+    IndexScopeTuner, IndexSlotHealth, IndexTuneDecision, IndexTuneSkip, MAX_BUCKETED_DIM,
+    MAX_FORGE_CANDIDATES, MAX_INDEX_CANDIDATES, MIN_BITS_PER_ANCHOR, NoopForgeBanditStore,
+    NoopForgePromotionWriter, NoopIndexAssayMetrics, NoopIndexBanditStore,
+    NoopIndexPromotionWriter, NoopIndexSlotHealth, ShapeKey, bandit_key, bucket_dim, bucket_shape,
+    candidate_configs, decode_config_bandit, decode_forge_config, decode_index_config,
+    encode_config_bandit, encode_forge_config, encode_index_config, index_candidate_configs,
+    index_slot_label, quant_win_check, shape_key_hash, slot_autotune_key, validate_index_config,
 };
 
 #[cfg(test)]
