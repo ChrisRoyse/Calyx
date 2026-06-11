@@ -125,7 +125,10 @@ impl TieringPolicy {
     fn is_cold(&self, cf: ColumnFamily, panel_version: u32) -> bool {
         if matches!(
             cf,
-            ColumnFamily::Base | ColumnFamily::Ledger | ColumnFamily::Anchors
+            ColumnFamily::Base
+                | ColumnFamily::Ledger
+                | ColumnFamily::Anchors
+                | ColumnFamily::AnnealChecksums
         ) {
             return false;
         }

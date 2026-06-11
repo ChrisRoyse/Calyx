@@ -26,6 +26,7 @@ fn column_family_names_match_prd_layout() {
             "online",
             "anneal_rollback",
             "anneal_health",
+            "anneal_checksums",
         ]
     );
 

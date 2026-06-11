@@ -29,6 +29,8 @@ pub enum AnnealLedgerAction {
     DegradeChange,
     FaultEvent,
     Rebuild,
+    BaseCorruptAlert,
+    BaseRestored,
     Recalibrate,
     MistakeUpdate,
     AutotuneAB,
@@ -46,6 +48,8 @@ pub struct AnnealFaultLedgerDetails {
     pub lens_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scope_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shard_id: Option<String>,
 }
 
 impl AnnealFaultLedgerDetails {
@@ -63,6 +67,11 @@ impl AnnealFaultLedgerDetails {
                 .as_ref()
                 .map(|hash| format!("KernelIndex(scope_hash={hash})"))
                 .unwrap_or_else(|| format!("KernelIndex(hash={})", self.component_hash)),
+            "base_shard" => self
+                .shard_id
+                .as_ref()
+                .map(|shard_id| format!("BaseShard({shard_id})"))
+                .unwrap_or_else(|| format!("BaseShard(hash={})", self.component_hash)),
             _ => format!("{}({})", self.component_kind, self.component_hash),
         }
     }

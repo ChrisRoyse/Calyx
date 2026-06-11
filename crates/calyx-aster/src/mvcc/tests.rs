@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 mod allocator;
 mod freshness;
 mod isolation;
+mod read_barrier;
 mod router_bridge;
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);

@@ -108,6 +108,7 @@ pub enum ComponentKind {
     KernelIndex { scope: ScopeId },
     GuardProfile { slot_id: SlotId },
     LensEndpoint { lens_id: LensId },
+    BaseShard { shard_id: String },
 }
 
 impl ComponentKind {
@@ -119,12 +120,19 @@ impl ComponentKind {
         Self::LensEndpoint { lens_id }
     }
 
+    pub fn base_shard(shard_id: impl Into<String>) -> Self {
+        Self::BaseShard {
+            shard_id: shard_id.into(),
+        }
+    }
+
     pub(crate) fn storage_key(&self) -> Vec<u8> {
         match self {
             Self::AnnIndex { slot_id } => format!("ann_index/slot_{:04}", slot_id.get()),
             Self::KernelIndex { scope } => format!("kernel_index/{scope}"),
             Self::GuardProfile { slot_id } => format!("guard_profile/slot_{:04}", slot_id.get()),
             Self::LensEndpoint { lens_id } => format!("lens_endpoint/{lens_id}"),
+            Self::BaseShard { shard_id } => format!("base_shard/{shard_id}"),
         }
         .into_bytes()
     }
@@ -137,6 +145,7 @@ impl fmt::Display for ComponentKind {
             Self::KernelIndex { scope } => write!(f, "KernelIndex({scope})"),
             Self::GuardProfile { slot_id } => write!(f, "GuardProfile(slot_{})", slot_id.get()),
             Self::LensEndpoint { lens_id } => write!(f, "LensEndpoint({lens_id})"),
+            Self::BaseShard { shard_id } => write!(f, "BaseShard({shard_id})"),
         }
     }
 }

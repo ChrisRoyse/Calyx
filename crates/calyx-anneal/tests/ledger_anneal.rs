@@ -220,6 +220,8 @@ fn action_strategy() -> impl Strategy<Value = AnnealLedgerAction> {
         Just(AnnealLedgerAction::DegradeChange),
         Just(AnnealLedgerAction::FaultEvent),
         Just(AnnealLedgerAction::Rebuild),
+        Just(AnnealLedgerAction::BaseCorruptAlert),
+        Just(AnnealLedgerAction::BaseRestored),
         Just(AnnealLedgerAction::Recalibrate),
         Just(AnnealLedgerAction::MistakeUpdate),
         Just(AnnealLedgerAction::AutotuneAB),
