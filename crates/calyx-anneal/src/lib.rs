@@ -112,8 +112,13 @@ pub use tripwire::{
 pub use tune::{
     Arm, ArmStatus, AsterBanditStorage, BanditPolicy, BanditReadback, BanditStatus, BanditStorage,
     CALYX_ANNEAL_BANDIT_EMPTY, CALYX_ANNEAL_BANDIT_INVALID_CONFIG, CALYX_ANNEAL_BANDIT_INVALID_ROW,
-    ConfigBandit, ConfigBanditStore, ConfigVariant, DEFAULT_HYSTERESIS_WINS, bandit_key,
-    decode_config_bandit, encode_config_bandit, shape_key_hash,
+    CALYX_FORGE_CACHE_WRITE_FAIL, CALYX_FORGE_SCOPE_INVALID_CONFIG, ConfigBandit,
+    ConfigBanditStore, ConfigVariant, DEFAULT_FORGE_RECALL_TARGET, DEFAULT_HYSTERESIS_WINS, DType,
+    ForgeBanditPersistence, ForgeConfig, ForgePromotionRecord, ForgePromotionWriter,
+    ForgeScopeTuner, ForgeTuneDecision, MAX_BUCKETED_DIM, MAX_FORGE_CANDIDATES,
+    NoopForgeBanditStore, NoopForgePromotionWriter, ShapeKey, bandit_key, bucket_dim, bucket_shape,
+    candidate_configs, decode_config_bandit, decode_forge_config, encode_config_bandit,
+    encode_forge_config, shape_key_hash,
 };
 
 #[cfg(test)]

@@ -43,6 +43,7 @@ pub enum AnnealLedgerAction {
     OutcomeReward,
     OutcomeContradiction,
     AutotuneAB,
+    AutotunePromote,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
