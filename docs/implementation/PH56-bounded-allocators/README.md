@@ -41,6 +41,7 @@ primitives there. Single-NVMe `hotpool` has no redundancy; buildup = an outage.
 | `crates/calyx-aster/src/memtable/bounded.rs` | Byte-capped memtable; backpressure on high-water; `CALYX_BACKPRESSURE` on full |
 | `crates/calyx-aster/src/mmap_col.rs` | mmap accessor for cold/columnar Aster columns; page-cache delegated to ZFS ARC |
 | `crates/calyx-aster/src/pressure.rs` | Disk-pressure guard; `CALYX_DISK_PRESSURE` before `hotpool` fills; spill trigger |
+| `crates/calyx-sextant/src/query_admission.rs` | Bounded query admission; deadline reject with `CALYX_BACKPRESSURE` |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -53,6 +54,7 @@ primitives there. Single-NVMe `hotpool` has no redundancy; buildup = an outage.
 | T05 | mmap cold/columnar access — OS page cache, never full vault in heap | T04 |
 | T06 | Disk-pressure guard — `CALYX_DISK_PRESSURE`, spill cold to archive | T05 |
 | T07 | 1e7-op soak — RSS bounded, no leak, backpressure fires before OOM | T01, T02, T03, T04, T05, T06 |
+| T08 | Bounded concurrent-query admission — finite queue, deadline reject | PH24 search |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -64,6 +66,8 @@ calyx readback --metric rss_bytes --op-count 1e7
 
 - RSS must remain bounded (flat trend) over the full 1e7 ops — read the metric series
 - A write flood → backpressure (`CALYX_BACKPRESSURE`) then reject, never OOM
+- A query flood past the concurrent cap → bounded queue, deadline reject with
+  `CALYX_BACKPRESSURE`, and query reject metrics rise while queue depth returns to zero
 - `CALYX_DISK_PRESSURE` fires before `hotpool` fills (inject a fill test, read `disk_free`)
 - Evidence (metric chart + reject log) attached to the PH56 GitHub issue
 

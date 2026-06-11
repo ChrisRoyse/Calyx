@@ -9,8 +9,10 @@ pub mod navigation;
 pub mod planner;
 pub mod planner_explain;
 pub mod query;
+pub mod query_admission;
 pub mod reranker;
 pub mod search;
+mod search_support;
 pub mod slot_index_map;
 pub mod temporal;
 mod util;
@@ -43,6 +45,7 @@ pub use query::{
     AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, QueryGuard,
     ScalarOp, ScalarPredicate,
 };
+pub use query_admission::{QueryAdmissionConfig, QueryAdmissionController, QueryAdmissionStats};
 pub use reranker::{RerankRequest, RerankerClient};
 pub use search::SearchEngine;
 pub use slot_index_map::SlotIndexMap;
