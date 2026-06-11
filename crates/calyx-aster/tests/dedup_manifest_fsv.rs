@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_aster::dedup::{
-    CALYX_DEDUP_NO_REQUIRED_SLOTS, CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED, DedupAction, DedupPolicy,
-    TauStrategy, TctCosineConfig,
+    CALYX_DEDUP_NO_REQUIRED_SLOTS, CALYX_DEDUP_SLOT_NOT_IN_PANEL,
+    CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED, DedupAction, DedupPolicy, TauStrategy, TctCosineConfig,
 };
 use calyx_aster::manifest::ManifestStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -86,6 +86,14 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
     let temporal_required_error = temporal_required
         .validate(&panel)
         .expect_err("temporal slot rejected");
+    let missing_required = DedupPolicy::TctCosine(TctCosineConfig {
+        required_slots: vec![SlotId::new(9)],
+        tau: TauStrategy::Calibrated,
+        action: DedupAction::Link,
+    });
+    let missing_required_error = missing_required
+        .validate(&panel)
+        .expect_err("missing required slot rejected");
 
     let temporal_public_dir = root.join("invalid-temporal-required-vaultoptions-vault");
     let temporal_public_before_current = temporal_public_dir.join("CURRENT").exists();
@@ -101,6 +109,21 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
         },
     )
     .expect_err("temporal required slot rejected through VaultOptions");
+
+    let missing_public_dir = root.join("invalid-missing-required-vaultoptions-vault");
+    let missing_public_before_current = missing_public_dir.join("CURRENT").exists();
+    let missing_public_before_manifest = missing_public_dir.join("MANIFEST").exists();
+    let missing_public_error = AsterVault::new_durable(
+        &missing_public_dir,
+        vault_id(),
+        b"dedup-policy-salt",
+        VaultOptions {
+            dedup_policy: Some(missing_required.clone()),
+            panel: Some(panel.clone()),
+            ..VaultOptions::default()
+        },
+    )
+    .expect_err("missing required slot rejected through VaultOptions");
 
     let invalid_dir = root.join("invalid-empty-required-vault");
     let invalid_before_current = invalid_dir.join("CURRENT").exists();
@@ -174,6 +197,12 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
             "after_error_code": temporal_required_error.code,
             "expected_error_code": CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
         },
+        "missing_required_edge": {
+            "before_required_slots": [9],
+            "before_panel_slots": panel.slots.iter().map(|slot| slot.slot_id.get()).collect::<Vec<_>>(),
+            "after_error_code": missing_required_error.code,
+            "expected_error_code": CALYX_DEDUP_SLOT_NOT_IN_PANEL
+        },
         "temporal_required_vaultoptions_edge": {
             "before_current_exists": temporal_public_before_current,
             "before_manifest_exists": temporal_public_before_manifest,
@@ -182,6 +211,15 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
             "after_vault_dir_exists": temporal_public_dir.exists(),
             "after_error_code": temporal_public_error.code,
             "expected_error_code": CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
+        },
+        "missing_required_vaultoptions_edge": {
+            "before_current_exists": missing_public_before_current,
+            "before_manifest_exists": missing_public_before_manifest,
+            "after_current_exists": missing_public_dir.join("CURRENT").exists(),
+            "after_manifest_exists": missing_public_dir.join("MANIFEST").exists(),
+            "after_vault_dir_exists": missing_public_dir.exists(),
+            "after_error_code": missing_public_error.code,
+            "expected_error_code": CALYX_DEDUP_SLOT_NOT_IN_PANEL
         },
         "empty_required_edge": {
             "before_current_exists": invalid_before_current,
@@ -221,12 +259,16 @@ fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
         temporal_required_error.code,
         CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
     );
+    assert_eq!(missing_required_error.code, CALYX_DEDUP_SLOT_NOT_IN_PANEL);
     assert_eq!(
         temporal_public_error.code,
         CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED
     );
     assert!(!temporal_public_dir.join("CURRENT").exists());
     assert!(!temporal_public_dir.join("MANIFEST").exists());
+    assert_eq!(missing_public_error.code, CALYX_DEDUP_SLOT_NOT_IN_PANEL);
+    assert!(!missing_public_dir.join("CURRENT").exists());
+    assert!(!missing_public_dir.join("MANIFEST").exists());
     assert_eq!(empty_required_error.code, CALYX_DEDUP_NO_REQUIRED_SLOTS);
     assert!(!invalid_dir.join("CURRENT").exists());
     assert_eq!(

@@ -22,9 +22,9 @@ the path that captures recurring events as a series (§4 PRD).
 
 - [x] Define `TauStrategy` enum: `PerSlot(Vec<(SlotId, f32)>)` (explicit per-slot threshold) | `Calibrated` (reuse Ward `GuardProfile` conformal calibration from PH38)
 - [x] Define `DedupAction` enum: `Collapse` (replace existing with merged) | `Link` (store both + a link record) | `RecurrenceSeries` (append occurrence to series)
-- [x] Define `TctCosineConfig { required_slots: Vec<SlotId>, tau: TauStrategy, action: DedupAction }` — validate: `required_slots` must not contain any `SlotId` that maps to a temporal lens (E2/E3/E4); violation → `CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED`
+- [x] Define `TctCosineConfig { required_slots: Vec<SlotId>, tau: TauStrategy, action: DedupAction }` — validate: every `required_slots` member must exist in the active panel and must not map to a temporal or dedup-excluded lens (E2/E3/E4); violations → `CALYX_DEDUP_SLOT_NOT_IN_PANEL` or `CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED`
 - [x] Define `DedupPolicy` enum: `Off` | `Exact` | `TctCosine(TctCosineConfig)`
-- [x] Implement `DedupPolicy::validate(panel: &Panel) -> Result<(), CalyxError>`: for `TctCosine`, cross-check `required_slots` against panel to ensure none are temporal lenses; `required_slots` empty → `CALYX_DEDUP_NO_REQUIRED_SLOTS`
+- [x] Implement `DedupPolicy::validate(panel: &Panel) -> Result<(), CalyxError>`: for `TctCosine`, cross-check `required_slots` against panel to ensure each slot is present and no slot is temporal/dedup-excluded; `required_slots` empty → `CALYX_DEDUP_NO_REQUIRED_SLOTS`
 - [x] Define `DedupResult` enum: `New(CxId)` | `DedupMerge { into: CxId, occurrence: OccurrenceId }` | `ExactDuplicate(CxId)` — returned by `ingest_at`
 - [x] Define `OccurrenceId(u64)` — monotonic per-series identifier
 - [x] `serde::{Serialize, Deserialize}` + `Clone` + `Debug` + `PartialEq` on all types
@@ -33,6 +33,8 @@ the path that captures recurring events as a series (§4 PRD).
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
 - [x] unit: `DedupPolicy::TctCosine(TctCosineConfig { required_slots: [e2_slot_id], .. })` → `CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED`
+- [x] unit: `DedupPolicy::TctCosine(TctCosineConfig { required_slots: [missing_slot_id], .. })` → `CALYX_DEDUP_SLOT_NOT_IN_PANEL`
+- [x] unit: `DedupPolicy::TctCosine(TctCosineConfig { required_slots: [dedup_excluded_slot_id], .. })` → `CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED`
 - [x] unit: `DedupPolicy::TctCosine(TctCosineConfig { required_slots: [], .. })` → `CALYX_DEDUP_NO_REQUIRED_SLOTS`
 - [x] unit: `DedupPolicy::Off` → `validate` always returns `Ok(())`
 - [x] unit: `DedupPolicy` round-trips through `serde_json` byte-exact (all three variants)

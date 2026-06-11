@@ -45,6 +45,7 @@ pub const CALYX_DEDUP_NO_REQUIRED_SLOTS: &str = "CALYX_DEDUP_NO_REQUIRED_SLOTS";
 pub const CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED: &str = "CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED";
 pub const CALYX_DEDUP_INVALID_TAU: &str = "CALYX_DEDUP_INVALID_TAU";
 pub const CALYX_DEDUP_SLOT_NOT_IN_TAU: &str = "CALYX_DEDUP_SLOT_NOT_IN_TAU";
+pub const CALYX_DEDUP_SLOT_NOT_IN_PANEL: &str = "CALYX_DEDUP_SLOT_NOT_IN_PANEL";
 pub const CALYX_DEDUP_MISSING_GUARD_PROFILE: &str = "CALYX_DEDUP_MISSING_GUARD_PROFILE";
 pub const CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION: &str = "CALYX_DEDUP_SLOT_NOT_IN_CONSTELLATION";
 pub const CALYX_DEDUP_DPI_EXCEEDED: &str = "CALYX_DEDUP_DPI_EXCEEDED";
@@ -114,9 +115,13 @@ impl TctCosineConfig {
     pub fn validate(&self, panel: &Panel) -> Result<()> {
         self.validate_static()?;
         for required in &self.required_slots {
-            if let Some(slot) = panel.slots.iter().find(|slot| slot.slot_id == *required)
-                && slot_excluded_from_dedup(slot)
-            {
+            let Some(slot) = panel.slots.iter().find(|slot| slot.slot_id == *required) else {
+                return Err(dedup_error(
+                    CALYX_DEDUP_SLOT_NOT_IN_PANEL,
+                    format!("required slot {required} is missing from the active panel"),
+                ));
+            };
+            if slot_excluded_from_dedup(slot) {
                 return Err(dedup_error(
                     CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED,
                     format!("required slot {required} maps to a temporal or dedup-excluded lens"),
@@ -187,6 +192,9 @@ pub(crate) fn dedup_error(code: &'static str, message: impl Into<String>) -> Cal
         }
         CALYX_DEDUP_INVALID_TAU => "set finite cosine thresholds in -1.0..=1.0",
         CALYX_DEDUP_SLOT_NOT_IN_TAU => "add a threshold for every required dedup slot",
+        CALYX_DEDUP_SLOT_NOT_IN_PANEL => {
+            "add the required slot to the active panel or remove it from required_slots"
+        }
         CALYX_DEDUP_MISSING_GUARD_PROFILE => {
             "provide a calibrated guard profile with tau for each required slot"
         }
@@ -223,6 +231,13 @@ mod tests {
     use std::collections::BTreeMap;
 
     #[test]
+    fn tct_cosine_accepts_present_required_content_slots() {
+        sample_tct_config()
+            .validate(&sample_panel())
+            .expect("present content slots validate");
+    }
+
+    #[test]
     fn tct_cosine_rejects_temporal_required_slot() {
         let panel = sample_panel();
         let policy = DedupPolicy::TctCosine(TctCosineConfig {
@@ -254,6 +269,38 @@ mod tests {
         let error = policy.validate(&panel).expect_err("E2 prefix rejected");
 
         assert_eq!(error.code, CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED);
+    }
+
+    #[test]
+    fn tct_cosine_rejects_dedup_excluded_required_slot() {
+        let panel = sample_panel();
+        let policy = DedupPolicy::TctCosine(TctCosineConfig {
+            required_slots: vec![SlotId::new(2)],
+            tau: TauStrategy::Calibrated,
+            action: DedupAction::Link,
+        });
+
+        let error = policy
+            .validate(&panel)
+            .expect_err("dedup-excluded slot rejected");
+
+        assert_eq!(error.code, CALYX_DEDUP_TEMPORAL_SLOT_IN_REQUIRED);
+    }
+
+    #[test]
+    fn tct_cosine_rejects_missing_required_slot() {
+        let panel = sample_panel();
+        let policy = DedupPolicy::TctCosine(TctCosineConfig {
+            required_slots: vec![SlotId::new(9)],
+            tau: TauStrategy::Calibrated,
+            action: DedupAction::Link,
+        });
+
+        let error = policy
+            .validate(&panel)
+            .expect_err("missing required slot rejected");
+
+        assert_eq!(error.code, CALYX_DEDUP_SLOT_NOT_IN_PANEL);
     }
 
     #[test]
@@ -343,6 +390,7 @@ mod tests {
             slots: vec![
                 slot(0, "E1_semantic", false, false),
                 slot(1, "keyword_splade", false, false),
+                slot(2, "E1_archive", false, true),
                 slot(5, "E2_recency", true, true),
             ],
             created_at: 1_786_320_000,
