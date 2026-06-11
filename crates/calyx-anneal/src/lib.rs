@@ -51,10 +51,13 @@ pub use heal::triggers::{
 };
 pub use integration_fsv::{AnnealStatus, AnnealSubstrate, CALYX_LEDGER_WRITE_FAIL, ChangeOutcome};
 pub use learn::{
-    AsterMistakeStorage, CALYX_ANNEAL_INVALID_WINDOW, CALYX_ANNEAL_MISTAKE_APPEND_ONLY,
-    CALYX_ANNEAL_MISTAKE_INVALID_ROW, DEFAULT_MISTAKE_SURPRISE_THRESHOLD, MistakeEntry, MistakeLog,
-    MistakeReadback, MistakeRef, MistakeStorage, decode_mistake_entry, encode_mistake_entry,
-    mistake_key, mistake_seq_from_key,
+    AsterMistakeStorage, AsterReplayStorage, CALYX_ANNEAL_INVALID_CAPACITY,
+    CALYX_ANNEAL_INVALID_WINDOW, CALYX_ANNEAL_MISTAKE_APPEND_ONLY,
+    CALYX_ANNEAL_MISTAKE_INVALID_ROW, CALYX_ANNEAL_REPLAY_INVALID_ROW,
+    DEFAULT_MISTAKE_SURPRISE_THRESHOLD, DEFAULT_REPLAY_CAPACITY, MistakeEntry, MistakeLog,
+    MistakeReadback, MistakeRef, MistakeStorage, ReplayBuffer, ReplayEntry, ReplaySnapshot,
+    ReplayStorage, decode_mistake_entry, decode_replay_snapshot, encode_mistake_entry,
+    encode_replay_snapshot, mistake_key, mistake_seq_from_key, replay_snapshot_key,
 };
 pub use ledger_anneal::{
     ANNEAL_LEDGER_PAYLOAD_TAG, AnnealFaultLedgerDetails, AnnealLedger, AnnealLedgerAction,

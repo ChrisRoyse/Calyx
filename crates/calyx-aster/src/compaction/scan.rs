@@ -76,6 +76,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "anneal_health" => Some(ColumnFamily::AnnealHealth),
         "anneal_checksums" => Some(ColumnFamily::AnnealChecksums),
         "anneal_mistakes" => Some(ColumnFamily::AnnealMistakes),
+        "anneal_replay" => Some(ColumnFamily::AnnealReplay),
         _ if name.starts_with("slot_") => parse_slot_name(&name),
         _ => None,
     }

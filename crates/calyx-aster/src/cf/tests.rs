@@ -29,6 +29,7 @@ fn column_family_names_match_prd_layout() {
             "anneal_health",
             "anneal_checksums",
             "anneal_mistakes",
+            "anneal_replay",
         ]
     );
 
