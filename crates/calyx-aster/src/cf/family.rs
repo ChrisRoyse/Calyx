@@ -44,11 +44,13 @@ pub enum ColumnFamily {
     AnnealChecksums,
     /// Anneal online mistake-closure log.
     AnnealMistakes,
+    /// Anneal surprise-prioritized replay buffer snapshot.
+    AnnealReplay,
 }
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 14] = [
+    pub const STATIC: [Self; 15] = [
         Self::Base,
         Self::XTerm,
         Self::TemporalXTerm,
@@ -63,6 +65,7 @@ impl ColumnFamily {
         Self::AnnealHealth,
         Self::AnnealChecksums,
         Self::AnnealMistakes,
+        Self::AnnealReplay,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -106,6 +109,7 @@ impl ColumnFamily {
             Self::AnnealHealth => "anneal_health".to_string(),
             Self::AnnealChecksums => "anneal_checksums".to_string(),
             Self::AnnealMistakes => "anneal_mistakes".to_string(),
+            Self::AnnealReplay => "anneal_replay".to_string(),
         }
     }
 
