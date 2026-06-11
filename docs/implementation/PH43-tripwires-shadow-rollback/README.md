@@ -23,24 +23,26 @@ PH43 Ledger card lands.
 
 ## Current State
 
-`calyx-anneal` has PH42 recurrence scheduling plus PH43 T01, T02, T03, and
-T04:
+`calyx-anneal` has PH42 recurrence scheduling plus PH43 T01, T02, T03, T04,
+and T05:
 
 - T01 persists tripwire thresholds under `<vault>/.anneal/tripwire.toml`, exposes
   `check`/`set_tripwire`/`status`, and provides
   `calyx readback config tripwire --vault <dir>` for byte-backed inspection.
 - T02 provides deterministic held-out replay sampling, `ShadowExecutor`,
   budget-tick enforcement, tripwire-gated promote/revert verdicts, and durable
-  FSV verdict artifacts while T05 Ledger logging is still pending.
+  FSV verdict artifacts.
 - T03 provides durable rollback snapshots and live artifact pointers in Aster CF
   `anneal_rollback`, with WAL-backed pointer swaps for prepare, promote,
   rollback, and commit.
 - T04 provides the non-blocking `BudgetEnforcer`, vault budget config readback,
   CPU/VRAM RAII handles, conservative NVML-unavailable fallback, and budget
   status artifacts.
+- T05 provides `AnnealLedger`, a hash-chained `EntryKind::Anneal` writer over
+  the existing PH35 ledger path, with Aster `ledger` CF storage, recent reads,
+  change-id lookup, and fail-closed oversized-payload handling.
 
-Ledger Anneal logging and the integrated bad-change auto-revert scenario remain
-open PH43 cards.
+The integrated bad-change auto-revert scenario remains the open PH43 card.
 
 ## Anneal Invariants
 
@@ -57,7 +59,7 @@ open PH43 cards.
 | `src/shadow.rs` | Shadow-first execution: run candidate against held-out replay; promote only if it beats incumbent on all tripwire metrics | Done |
 | `src/rollback.rs` | Artifact store; rollback as one atomic pointer swap | Done |
 | `src/budget.rs` | Background compute budget enforcer: CPU/VRAM ceiling, yield to serving + TEI | Done |
-| `src/ledger_anneal.rs` | Ledger `kind=Anneal` writer for every promotion/revert/proposal | Open |
+| `src/ledger_anneal.rs` | Ledger `kind=Anneal` writer for every promotion/revert/proposal | Done |
 
 ## Tasks
 
@@ -67,7 +69,7 @@ open PH43 cards.
 | T02 | Shadow executor (held-out replay + beat-incumbent check) | T01 | Done |
 | T03 | Rollback store (prior artifact + pointer swap) | T01 | Done |
 | T04 | Background budget enforcer (CPU/VRAM yield) | - | Done |
-| T05 | Ledger `kind=Anneal` writer | T03 | Open |
+| T05 | Ledger `kind=Anneal` writer | T03 | Done |
 | T06 | Integration: bad-change auto-revert FSV scenario | T01, T02, T03, T05 | Open |
 
 ## FSV Exit Gate
@@ -79,8 +81,10 @@ The phase is done only when this is byte-proven on aiwonder:
 2. Confirm the tripwire fires.
 3. Confirm a Ledger entry with `kind=Anneal` and `action=revert` is written.
 4. Confirm the prior artifact pointer is restored.
-5. Run `calyx readback ledger` and read the revert entry with the original
-   pointer hash.
+5. Run `calyx audit --vault <dir> --kind anneal`,
+   `calyx scan --cf ledger --vault <dir>`, and
+   `calyx readback --cf ledger --vault <dir> --seq <n>` to read the revert
+   entry with the original pointer hash.
 6. `xxd` the config slot and confirm the prior value is byte-exact.
 
 Both the tripwire-fired Ledger row and restored pointer must be present; no
@@ -98,5 +102,5 @@ serving-path metric may regress.
   snapshot/live-pointer mutation.
 - Budget enforcement must not add latency to serving-path hot loops; check
   budget on the background task scheduler, not inline.
-- T02 and T03 use durable FSV artifacts until T05 provides the Anneal Ledger CF
-  row.
+- T05 writes through the PH35 `LedgerAppender`; do not reintroduce side ledger
+  row formats or bypass the hash-chain appender.
