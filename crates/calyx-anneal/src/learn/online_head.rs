@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 mod codec;
 mod regression;
+mod sleep_pass;
 mod storage;
 mod update;
 
@@ -13,6 +14,11 @@ pub use codec::{
     decode_head_rows, decode_online_head, encode_online_head, head_key, head_state_artifact_key,
 };
 pub use regression::{HeadRegressionRollback, RegressionUpdateOutcome};
+pub use sleep_pass::{
+    CALYX_ANNEAL_SLEEP_PASS_INVALID_CONFIG, DEFAULT_SLEEP_PASS_BATCH_SIZE,
+    DEFAULT_SLEEP_PASS_MIN_SURPRISE, SleepPassConfig, SleepPassOutcome, SleepPassReplayRecord,
+    record_mistake_for_replay, run_sleep_pass,
+};
 pub use storage::{AsterHeadStorage, HeadStorage};
 pub use update::{HeadPromotionGate, HeadShadowProposal};
 

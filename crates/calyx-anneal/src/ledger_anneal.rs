@@ -39,6 +39,7 @@ pub enum AnnealLedgerAction {
     MistakeUpdate,
     HeadUpdate,
     HeadUpdateReverted,
+    SleepPassDeferred,
     AutotuneAB,
 }
 

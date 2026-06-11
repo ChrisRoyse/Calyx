@@ -194,6 +194,23 @@ where
         self.write_ledger(entry)
     }
 
+    pub fn write_sleep_pass_deferred(&mut self, description: String) -> Result<()> {
+        let ts = self.clock.now();
+        let entry = AnnealLedgerEntry {
+            action: AnnealLedgerAction::SleepPassDeferred,
+            change_id: ChangeId(ts.max(1)),
+            artifact_id: "sleep_pass".to_string(),
+            prior_ptr_hash: [0; 32],
+            candidate_ptr_hash: [0; 32],
+            metrics: MetricSnapshot::empty(ts),
+            ts,
+            description,
+            fault: None,
+            prev_hash: None,
+        };
+        self.write_ledger(entry)
+    }
+
     pub fn status(&self) -> Result<AnnealStatus> {
         Ok(AnnealStatus {
             tripwire_states: self.tripwires.status(),
