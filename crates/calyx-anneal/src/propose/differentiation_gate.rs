@@ -1,0 +1,201 @@
+use calyx_core::{CalyxError, Clock, Constellation, LensId, Result, SystemClock, Ts};
+use calyx_registry::CapabilityCard;
+use serde::{Deserialize, Serialize};
+
+use super::candidate_synth::CandidateLens;
+use super::deficit_localize::CALYX_ASSAY_INVALID_METRIC;
+
+pub const DIFFERENTIATION_MIN_BITS: f64 = 0.05;
+pub const DIFFERENTIATION_MAX_CORR: f64 = 0.6;
+pub const PROFILE_TIMEOUT_MS: Ts = 30_000;
+pub const CALYX_REGISTRY_PROFILE_TIMEOUT: &str = "CALYX_REGISTRY_PROFILE_TIMEOUT";
+
+const METRIC_EPSILON: f64 = 1e-12;
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
+pub enum GateOutcome {
+    Admitted { bits: f64, max_corr: f64 },
+    Rejected { reason: RejectReason },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "reason", rename_all = "snake_case")]
+pub enum RejectReason {
+    InsufficientBits {
+        bits: f64,
+        threshold: f64,
+    },
+    TooCorrelated {
+        corr: f64,
+        offending_lens: LensId,
+        threshold: f64,
+    },
+    ProfileTimeout,
+}
+
+pub trait LensProfiler {
+    fn profile(
+        &self,
+        candidate: &CandidateLens,
+        corpus_sample: &[Constellation],
+    ) -> Result<CapabilityCard>;
+}
+
+pub trait PairNMI {
+    fn lens_embeddings(
+        &self,
+        lens: &LensId,
+        corpus_sample: &[Constellation],
+    ) -> Result<Vec<Vec<f32>>>;
+
+    fn nmi(&self, lens_a: &LensId, lens_b_embeddings: &[Vec<f32>]) -> Result<f64>;
+}
+
+pub struct DifferentiationGate<'a> {
+    clock: &'a dyn Clock,
+    profile_timeout_ms: Ts,
+}
+
+impl<'a> DifferentiationGate<'a> {
+    pub fn new(clock: &'a dyn Clock) -> Self {
+        Self {
+            clock,
+            profile_timeout_ms: PROFILE_TIMEOUT_MS,
+        }
+    }
+
+    pub fn gate(
+        &self,
+        candidate: &CandidateLens,
+        panel: &[LensId],
+        profiler: &dyn LensProfiler,
+        nmi: &dyn PairNMI,
+        corpus: &[Constellation],
+    ) -> Result<GateOutcome> {
+        let started = self.clock.now();
+        let card = match profiler.profile(candidate, corpus) {
+            Ok(card) => card,
+            Err(error) if error.code == CALYX_REGISTRY_PROFILE_TIMEOUT => {
+                return Ok(GateOutcome::Rejected {
+                    reason: RejectReason::ProfileTimeout,
+                });
+            }
+            Err(error) => return Err(error),
+        };
+        if self.clock.now().saturating_sub(started) > self.profile_timeout_ms {
+            return Ok(GateOutcome::Rejected {
+                reason: RejectReason::ProfileTimeout,
+            });
+        }
+
+        let bits = profile_bits(&card)?;
+        if bits < DIFFERENTIATION_MIN_BITS {
+            return Ok(GateOutcome::Rejected {
+                reason: RejectReason::InsufficientBits {
+                    bits,
+                    threshold: DIFFERENTIATION_MIN_BITS,
+                },
+            });
+        }
+
+        let mut max_corr = 0.0;
+        let mut offending_lens = None;
+        for lens in panel {
+            let embeddings = nmi.lens_embeddings(lens, corpus)?;
+            let corr = validate_corr(nmi.nmi(&card.lens_id, &embeddings)?, lens)?;
+            if corr > max_corr {
+                max_corr = corr;
+                offending_lens = Some(*lens);
+            }
+        }
+        if max_corr > DIFFERENTIATION_MAX_CORR {
+            return Ok(GateOutcome::Rejected {
+                reason: RejectReason::TooCorrelated {
+                    corr: max_corr,
+                    offending_lens: offending_lens.expect("panel lens recorded with max corr"),
+                    threshold: DIFFERENTIATION_MAX_CORR,
+                },
+            });
+        }
+
+        Ok(GateOutcome::Admitted { bits, max_corr })
+    }
+}
+
+pub fn gate(
+    candidate: &CandidateLens,
+    panel: &[LensId],
+    profiler: &dyn LensProfiler,
+    nmi: &dyn PairNMI,
+    corpus: &[Constellation],
+) -> Result<GateOutcome> {
+    let clock = SystemClock;
+    DifferentiationGate::new(&clock).gate(candidate, panel, profiler, nmi, corpus)
+}
+
+pub fn describe_gate_outcome(outcome: &GateOutcome) -> String {
+    match outcome {
+        GateOutcome::Admitted { bits, max_corr } => format!(
+            "LensAdmitted bits={bits:.4} threshold={DIFFERENTIATION_MIN_BITS:.4} max_corr={max_corr:.4} threshold={DIFFERENTIATION_MAX_CORR:.4}"
+        ),
+        GateOutcome::Rejected {
+            reason: RejectReason::InsufficientBits { bits, threshold },
+        } => format!("LensRejected insufficient_bits bits={bits:.4} threshold={threshold:.4}"),
+        GateOutcome::Rejected {
+            reason:
+                RejectReason::TooCorrelated {
+                    corr,
+                    offending_lens,
+                    threshold,
+                },
+        } => format!(
+            "LensRejected too_correlated corr={corr:.4} offending_lens={offending_lens} threshold={threshold:.4}"
+        ),
+        GateOutcome::Rejected {
+            reason: RejectReason::ProfileTimeout,
+        } => format!(
+            "LensRejected profile_timeout threshold_ms={}",
+            PROFILE_TIMEOUT_MS
+        ),
+    }
+}
+
+fn profile_bits(card: &CapabilityCard) -> Result<f64> {
+    let bits = card
+        .signal
+        .map(f64::from)
+        .ok_or_else(|| invalid_metric("capability card missing assay signal bits_per_anchor"))?;
+    validate_nonnegative("bits_per_anchor", bits)
+}
+
+fn validate_corr(value: f64, lens: &LensId) -> Result<f64> {
+    let value = validate_nonnegative("nmi", value)?;
+    if value > 1.0 + METRIC_EPSILON {
+        return Err(invalid_metric(format!(
+            "NMI for lens {lens} must be <= 1.0, got {value}"
+        )));
+    }
+    Ok(value.min(1.0))
+}
+
+fn validate_nonnegative(name: &'static str, value: f64) -> Result<f64> {
+    if !value.is_finite() || value < -METRIC_EPSILON {
+        return Err(invalid_metric(format!(
+            "{name} must be finite and non-negative, got {value}"
+        )));
+    }
+    Ok(if value.abs() <= METRIC_EPSILON {
+        0.0
+    } else {
+        value
+    })
+}
+
+fn invalid_metric(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_ASSAY_INVALID_METRIC,
+        message: message.into(),
+        remediation: "re-measure candidate capability and pair NMI before gating a lens",
+    }
+}
