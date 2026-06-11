@@ -243,6 +243,7 @@ dependencies = [
  "calyx-registry",
  "calyx-sextant",
  "calyx-ward",
+ "serde",
  "serde_json",
 ]
 
