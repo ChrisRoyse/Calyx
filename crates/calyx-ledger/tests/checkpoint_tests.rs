@@ -1,7 +1,7 @@
 use calyx_core::{CalyxError, CxId, FixedClock, Result};
 use calyx_ledger::{
     ActorId, CheckpointConfig, CheckpointPayload, DefaultLedgerHook, EntryKind, LedgerAppender,
-    LedgerCfStore, LedgerGroupCommitHook, LedgerRow, MemoryLedgerStore, SubjectId, WriteBatch,
+    LedgerCfStore, LedgerRow, LedgerWriteBatch, MemoryLedgerStore, SubjectId, WriteBatch,
     merkle_root,
 };
 
@@ -11,7 +11,8 @@ fn scheduler_writes_periodic_admin_checkpoints() {
     let mut batch = WriteBatch::default();
 
     for seed in 0..15 {
-        hook.on_commit(
+        staged_commit(
+            &mut hook,
             &mut batch,
             EntryKind::Ingest,
             sample_subject(seed),
@@ -37,7 +38,8 @@ fn checkpoint_payload_root_matches_direct_merkle_root() {
     let mut batch = WriteBatch::default();
 
     for seed in 0..3 {
-        hook.on_commit(
+        staged_commit(
+            &mut hook,
             &mut batch,
             EntryKind::Ingest,
             sample_subject(seed),
@@ -71,15 +73,15 @@ fn checkpoint_edges_cover_every_entry_and_never_fire() {
     let mut every = checkpoint_hook(CheckpointConfig::new(1));
     let mut every_batch = WriteBatch::default();
     for seed in 0..3 {
-        every
-            .on_commit(
-                &mut every_batch,
-                EntryKind::Ingest,
-                sample_subject(seed),
-                b"{}".to_vec(),
-                ActorId::Service("checkpoint-test".to_string()),
-            )
-            .expect("commit");
+        staged_commit(
+            &mut every,
+            &mut every_batch,
+            EntryKind::Ingest,
+            sample_subject(seed),
+            b"{}".to_vec(),
+            ActorId::Service("checkpoint-test".to_string()),
+        )
+        .expect("commit");
     }
     assert_eq!(
         checkpoint_entries(&every.appender().scan_entries().unwrap()).len(),
@@ -88,15 +90,15 @@ fn checkpoint_edges_cover_every_entry_and_never_fire() {
 
     let mut never = checkpoint_hook(CheckpointConfig::new(u64::MAX));
     let mut never_batch = WriteBatch::default();
-    never
-        .on_commit(
-            &mut never_batch,
-            EntryKind::Ingest,
-            sample_subject(9),
-            b"{}".to_vec(),
-            ActorId::Service("checkpoint-test".to_string()),
-        )
-        .expect("commit");
+    staged_commit(
+        &mut never,
+        &mut never_batch,
+        EntryKind::Ingest,
+        sample_subject(9),
+        b"{}".to_vec(),
+        ActorId::Service("checkpoint-test".to_string()),
+    )
+    .expect("commit");
     assert!(checkpoint_entries(&never.appender().scan_entries().unwrap()).is_empty());
 }
 
@@ -105,7 +107,8 @@ fn signed_checkpoint_payload_has_public_signature_fields() {
     let mut hook = checkpoint_hook(CheckpointConfig::new(2).with_sign_key([42; 32]));
     let mut batch = WriteBatch::default();
     for seed in 0..2 {
-        hook.on_commit(
+        staged_commit(
+            &mut hook,
             &mut batch,
             EntryKind::Ingest,
             sample_subject(seed),
@@ -147,6 +150,24 @@ fn checkpoint_hook(config: CheckpointConfig) -> DefaultLedgerHook<MemoryLedgerSt
     let appender = LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(10))
         .expect("open appender");
     DefaultLedgerHook::with_checkpoint_config(appender, config).expect("checkpoint hook")
+}
+
+fn staged_commit(
+    hook: &mut DefaultLedgerHook<MemoryLedgerStore, FixedClock>,
+    batch: &mut WriteBatch,
+    kind: EntryKind,
+    subject: SubjectId,
+    payload: Vec<u8>,
+    actor: ActorId,
+) -> Result<()> {
+    let staged = hook.stage_with_checkpoints(kind, subject, payload, actor)?;
+    for row in &staged {
+        batch.put_ledger_row(row.key().to_vec(), row.value().to_vec())?;
+    }
+    for row in &staged {
+        hook.commit_staged(row)?;
+    }
+    Ok(())
 }
 
 fn sample_subject(seed: u8) -> SubjectId {
