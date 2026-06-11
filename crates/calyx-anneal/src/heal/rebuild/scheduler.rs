@@ -272,6 +272,7 @@ where
             ts,
             description: description.into(),
             fault: None,
+            proposal: None,
             prev_hash: None,
         })
         .map(|_| ())
@@ -299,6 +300,7 @@ where
             ts,
             description: format!("rebuild failed {}: {}", error.code, error.message),
             fault: None,
+            proposal: None,
             prev_hash: None,
         })
         .map(|_| ())

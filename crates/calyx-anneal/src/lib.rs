@@ -90,17 +90,19 @@ pub use ledger_anneal::{
     MAX_ANNEAL_LEDGER_PAYLOAD_BYTES, decode_anneal_ledger_payload,
 };
 pub use propose::{
-    AlgParams, AlgorithmicKind, AnchorGap, AnchorId, AssayAttribution,
+    AdmissionRecord, AlgParams, AlgorithmicKind, AnchorGap, AnchorId, AssayAttribution,
     CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT, CALYX_ANNEAL_DEFICIT_INVALID_CONFIG,
     CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE, CALYX_REGISTRY_HOT_ADD_FAIL,
     CALYX_REGISTRY_PROFILE_TIMEOUT, CandidateLens, CommissionSpec, CorpusSampleSource,
     DEFAULT_DEFICIT_THRESHOLD_BITS, DIFFERENTIATION_MAX_CORR, DIFFERENTIATION_MIN_BITS,
     DeficitLocalizer, DeficitLocalizerConfig, DeficitMap, DifferentiationGate, GateOutcome,
-    HotAddAction, HotAddPlan, HotAddReceipt, LensHotAdder, LensProfiler,
-    MAX_SYNTHESIS_CORPUS_SAMPLE, MODALITY_COVERAGE_THRESHOLD_BITS, ModalityId, PROFILE_TIMEOUT_MS,
-    PairNMI, ProposalOutcome, ProposalSubstrate, ProposalTerminalState, ProposeLens,
-    ProposeLensRequest, RegistryHotAdder, RejectReason, build_commission_spec, describe,
-    describe_gate_outcome, gate, has_deficit, propose_lens, synthesize, synthesize_algorithmic,
+    HotAddAction, HotAddPlan, HotAddReceipt, LensAdmittedEntry, LensHotAdder, LensProfiler,
+    LensRejectedEntry, MAX_SYNTHESIS_CORPUS_SAMPLE, MODALITY_COVERAGE_THRESHOLD_BITS, ModalityId,
+    PROFILE_TIMEOUT_MS, PairNMI, ProposalHistoryReadback, ProposalOutcome, ProposalSubstrate,
+    ProposalTerminalState, ProposeLens, ProposeLensRequest, RegistryHotAdder, RejectReason,
+    build_commission_spec, describe, describe_gate_outcome, gate, has_deficit, proposal_history,
+    proposal_history_with_refs, propose_lens, record_admitted, record_from_entry,
+    record_outcome as record_proposal_outcome, record_rejected, synthesize, synthesize_algorithmic,
     synthesize_from_source, top_gap_description,
 };
 pub use recurrence_schedule::{

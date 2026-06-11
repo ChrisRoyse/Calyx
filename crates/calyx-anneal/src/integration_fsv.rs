@@ -206,6 +206,7 @@ where
             ts,
             description,
             fault: None,
+            proposal: None,
             prev_hash: None,
         };
         self.write_ledger(entry)
@@ -230,6 +231,7 @@ where
             ts,
             description,
             fault: None,
+            proposal: None,
             prev_hash: None,
         };
         self.write_ledger(entry)
@@ -295,6 +297,7 @@ fn ledger_entry(
         ts: readback.snapshot.ts,
         description,
         fault: None,
+        proposal: None,
         prev_hash: None,
     }
 }

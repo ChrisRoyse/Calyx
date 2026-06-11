@@ -17,6 +17,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal deficit-map --anchor <anchor_id> --fixture <json> [--threshold <bits>]
        calyx anneal propose-preview --anchor <anchor_id> --deficit <json> --corpus <json>
        calyx anneal lens-proposal-log --fixture <json> --last <n>
+       calyx anneal lens-proposal-log --vault <dir> --last <n>
        calyx anneal propose-lens-run --fixture <json>
        calyx anneal frozen-guard-report --artifact <json>
        calyx anneal regression-report --artifact <json>

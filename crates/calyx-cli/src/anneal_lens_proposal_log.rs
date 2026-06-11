@@ -7,9 +7,11 @@ use std::sync::{
 };
 
 use calyx_anneal::{
-    CandidateLens, DifferentiationGate, LensProfiler, PairNMI, describe_gate_outcome,
+    AnnealLedgerAction, CandidateLens, DifferentiationGate, LensProfiler, PairNMI,
+    decode_anneal_ledger_payload, describe_gate_outcome, record_from_entry,
 };
-use calyx_core::{CalyxError, Clock, Constellation, LensId, Result as CalyxResult};
+use calyx_core::{CalyxError, Clock, Constellation, LedgerRef, LensId, Result as CalyxResult};
+use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use calyx_registry::{
     CapabilityCard, CostMetrics, CoverageMetrics, LensHealth, MetricSource, SeparationMetrics,
     SpreadMetrics,
@@ -17,38 +19,16 @@ use calyx_registry::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::ledger_store::AsterLedgerCfStore;
+
 const CALYX_ASSAY_INVALID_METRIC: &str = "CALYX_ASSAY_INVALID_METRIC";
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let request = LensProposalLogRequest::parse(args)?;
-    let fixture_bytes = fs::read(&request.fixture).map_err(|error| {
-        format!(
-            "{CALYX_ASSAY_INVALID_METRIC}: read fixture {}: {error}",
-            request.fixture.display()
-        )
-    })?;
-    let fixture = serde_json::from_slice::<Fixture>(&fixture_bytes).map_err(|error| {
-        format!(
-            "{CALYX_ASSAY_INVALID_METRIC}: parse fixture {}: {error}",
-            request.fixture.display()
-        )
-    })?;
-    let mut entries = Vec::new();
-    for event in fixture.events {
-        let entry = run_event(fixture.clock_ts, event)?;
-        entries.push(entry);
-    }
-    if request.last < entries.len() {
-        entries.drain(0..entries.len() - request.last);
-    }
-    let readback = json!({
-        "source_of_truth": "fixture JSON bytes read from fixture_path; GateOutcome recomputed by calyx anneal lens-proposal-log",
-        "fixture_path": request.fixture.display().to_string(),
-        "fixture_len": fixture_bytes.len(),
-        "fixture_blake3": blake3::hash(&fixture_bytes).to_hex().to_string(),
-        "last": request.last,
-        "entries": entries,
-    });
+    let readback = match request.source {
+        LensProposalLogSource::Fixture(fixture) => read_fixture_entries(fixture, request.last)?,
+        LensProposalLogSource::Vault(vault) => read_vault_entries(vault, request.last)?,
+    };
     println!(
         "{}",
         serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
@@ -57,19 +37,29 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
 }
 
 struct LensProposalLogRequest {
-    fixture: PathBuf,
+    source: LensProposalLogSource,
     last: usize,
+}
+
+enum LensProposalLogSource {
+    Fixture(PathBuf),
+    Vault(PathBuf),
 }
 
 impl LensProposalLogRequest {
     fn parse(args: &[String]) -> Result<Self, String> {
         let mut fixture = None;
+        let mut vault = None;
         let mut last = None;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
                 "--fixture" => {
                     fixture = args.get(idx + 1).map(PathBuf::from);
+                    idx += 2;
+                }
+                "--vault" => {
+                    vault = args.get(idx + 1).map(PathBuf::from);
                     idx += 2;
                 }
                 "--last" => {
@@ -88,11 +78,97 @@ impl LensProposalLogRequest {
         if last == 0 {
             return Err("--last must be positive".to_string());
         }
-        Ok(Self {
-            fixture: fixture.ok_or_else(|| "lens-proposal-log requires --fixture".to_string())?,
-            last,
-        })
+        let source = match (fixture, vault) {
+            (Some(_), Some(_)) => {
+                return Err(
+                    "lens-proposal-log accepts either --fixture or --vault, not both".into(),
+                );
+            }
+            (Some(path), None) => LensProposalLogSource::Fixture(path),
+            (None, Some(path)) => LensProposalLogSource::Vault(path),
+            (None, None) => {
+                return Err("lens-proposal-log requires --fixture <json> or --vault <dir>".into());
+            }
+        };
+        Ok(Self { source, last })
     }
+}
+
+fn read_fixture_entries(fixture_path: PathBuf, last: usize) -> Result<serde_json::Value, String> {
+    let fixture_bytes = fs::read(&fixture_path).map_err(|error| {
+        format!(
+            "{CALYX_ASSAY_INVALID_METRIC}: read fixture {}: {error}",
+            fixture_path.display()
+        )
+    })?;
+    let fixture = serde_json::from_slice::<Fixture>(&fixture_bytes).map_err(|error| {
+        format!(
+            "{CALYX_ASSAY_INVALID_METRIC}: parse fixture {}: {error}",
+            fixture_path.display()
+        )
+    })?;
+    let mut entries = Vec::new();
+    for event in fixture.events {
+        entries.push(run_event(fixture.clock_ts, event)?);
+    }
+    if last < entries.len() {
+        entries.drain(0..entries.len() - last);
+    }
+    Ok(json!({
+        "source_of_truth": "fixture JSON bytes read from fixture_path; GateOutcome recomputed by calyx anneal lens-proposal-log",
+        "fixture_path": fixture_path.display().to_string(),
+        "fixture_len": fixture_bytes.len(),
+        "fixture_blake3": blake3::hash(&fixture_bytes).to_hex().to_string(),
+        "last": last,
+        "entries": entries,
+    }))
+}
+
+fn read_vault_entries(vault: PathBuf, last: usize) -> Result<serde_json::Value, String> {
+    let store = AsterLedgerCfStore::open(&vault).map_err(|error| error.to_string())?;
+    let mut entries = Vec::new();
+    for row in store.scan().map_err(|error| error.to_string())? {
+        let entry = decode(&row.bytes).map_err(|error| error.to_string())?;
+        if entry.seq != row.seq {
+            return Err(format!(
+                "ledger row seq {} decodes to entry seq {}",
+                row.seq, entry.seq
+            ));
+        }
+        if entry.kind != EntryKind::Anneal {
+            continue;
+        }
+        let anneal =
+            decode_anneal_ledger_payload(&entry.payload).map_err(|error| error.to_string())?;
+        if !matches!(
+            anneal.action,
+            AnnealLedgerAction::LensAdmitted | AnnealLedgerAction::LensRejected
+        ) {
+            continue;
+        }
+        let ledger_ref = LedgerRef {
+            seq: entry.seq,
+            hash: entry.entry_hash,
+        };
+        let readback = record_from_entry(ledger_ref, anneal)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "proposal ledger action did not produce history entry".to_string())?;
+        entries.push(json!({
+            "seq": row.seq,
+            "entry_hash": hex(&entry.entry_hash),
+            "payload_hex": hex(&entry.payload),
+            "record": readback.record,
+        }));
+    }
+    if last < entries.len() {
+        entries.drain(0..entries.len() - last);
+    }
+    Ok(json!({
+        "source_of_truth": "Aster ledger CF rows plus WAL replay under <vault>/cf/ledger and <vault>/wal",
+        "vault": vault.display().to_string(),
+        "last": last,
+        "entries": entries,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -285,6 +361,23 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> CapabilityCard {
         },
         health: LensHealth::Loaded,
         low_spread: false,
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => char::from(b'0' + value),
+        10..=15 => char::from(b'a' + value - 10),
+        _ => unreachable!("nibble out of range"),
     }
 }
 

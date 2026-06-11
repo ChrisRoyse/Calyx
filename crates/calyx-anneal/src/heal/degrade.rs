@@ -350,6 +350,7 @@ where
                 health.state_name()
             ),
             fault: None,
+            proposal: None,
             prev_hash: None,
         })
     }
