@@ -130,6 +130,7 @@ impl TieringPolicy {
                 | ColumnFamily::Anchors
                 | ColumnFamily::Graph
                 | ColumnFamily::AnnealChecksums
+                | ColumnFamily::AnnealMistakes
         ) {
             return false;
         }
