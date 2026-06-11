@@ -34,7 +34,7 @@ run MFVS over the materialized union graph instead of returning
   3. `bridges = kernel_a.members ∩ kernel_b.members` (intersection by `CxId`).
   4. Sort by descending frequency weight (A29: high-frequency bridge = highest value).
   5. Return sorted bridge list.
-- [x] `pub fn kernel_answer_scoped(kernel_index: &KernelIndex, store: &dyn AssocStore, query_cx: CxId, query_vec: &[f32], scope: &Scope, anchored_kernel_nodes: &[CxId], max_hops: usize) -> Result<AnswerPath>` — wraps `kernel_answer` (PH33-T02) but restricts traversal to edges within the materialized scope's node set.
+- [x] `pub fn kernel_answer_scoped(kernel_index: &KernelIndex, store: &dyn AssocStore, query_cx: CxId, query_vec: &[f32], scope: &Scope, anchored_kernel_nodes: &[CxId], max_hops: usize) -> Result<AnswerPath>` — wraps `kernel_answer` (PH33-T02) but first filters both `KernelIndex` rows and anchored candidates to the materialized scope's node set, then restricts traversal to scoped edges (#646).
 - [x] Bridge nodes appear in `ScopeKernelReport` as a `bridge_count: usize` field (count of nodes
   appearing in multiple scope kernels) — added to the existing report struct from T03.
 - [x] Empty bridge list (disjoint scopes) → return `vec![]` without error; no `CALYX_*` for empty bridges.
@@ -49,12 +49,17 @@ run MFVS over the materialized union graph instead of returning
   `bridges(...)` = `[]`; no error.
 - [x] unit: `kernel_answer_scoped` on a `Subgraph` scope → only traverses edges within
   the subgraph; does not leak into the full graph.
+- [x] unit: `kernel_answer_scoped` with an out-of-scope high-score anchor and an
+  in-scope lower-score reachable anchor → global top candidate is excluded from
+  `scoped_index_rows`, and the in-scope anchor is selected (#646).
 - [x] unit: `ScopeKernelReport.bridge_count` for the union scope = 2 (the 2 shared nodes).
 - [x] edge: `bridges` with both scopes = `AllAssociations` → bridge list = all kernel members
   (every member is a bridge between A and A); length = kernel.members.len().
 - [x] edge: `bridges` on two empty scopes → `[]`; no panic.
 - [x] fail-closed: `kernel_answer_scoped` on a scope with no anchored kernel node →
   `CALYX_KERNEL_NO_ANCHORED_NODE` (not a silent empty answer).
+- [x] fail-closed: if scope filtering removes all anchored candidates, return
+  `CALYX_KERNEL_NO_ANCHORED_NODE` before answer selection (#646).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
@@ -82,6 +87,15 @@ run MFVS over the materialized union graph instead of returning
   `CALYX_KERNEL_NO_ANCHORED_NODE`, the union report has `bridge_count=2`,
   `AllAssociations` bridged with itself returns all kernel members, and a
   union-scope kernel is MFVS-derived (`mfvs_not_naive_union=true`).
+- **#646 scoped-candidate FSV:** root
+  `/home/croyse/calyx/data/fsv-issue646-scoped-answer-20260611T074856Z`;
+  readback `fsv/ph34-scoped-answer-candidate-narrowing-readback.json`
+  SHA-256 `34f467dc37ae2f66a352753269005c6b5694d993fed3e9c35e659c648a031bf3`.
+  The readback proves global top candidate `09090909090909090909090909090909`
+  was present in global index rows/hits, while `scoped_index_rows` and
+  `scoped_anchors` contained only `01010101010101010101010101010101`; the
+  selected answer anchor was `01010101010101010101010101010101` with one scoped
+  hop to query `02020202020202020202020202020202`.
 
 ## Done when
 

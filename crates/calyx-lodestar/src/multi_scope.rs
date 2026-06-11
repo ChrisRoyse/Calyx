@@ -5,8 +5,8 @@ use calyx_paths::AssocGraph;
 
 use crate::grounding_gaps::CALYX_KERNEL_UNGROUNDED;
 use crate::{
-    AnswerPath, AssocStore, Kernel, KernelIndex, KernelParams, Result, Scope, ScopeCache,
-    ScopeCacheKey, build_kernel_pipeline, kernel_answer, materialize_scope,
+    AnswerPath, AssocStore, Kernel, KernelIndex, KernelParams, LodestarError, Result, Scope,
+    ScopeCache, ScopeCacheKey, build_kernel_pipeline, kernel_answer, materialize_scope,
     scope_cache_anchor_identity, scope_hash,
 };
 
@@ -68,12 +68,22 @@ pub fn kernel_answer_scoped(
     max_hops: usize,
 ) -> Result<AnswerPath> {
     let scoped_graph = materialize_scope(scope, store)?;
+    let scoped_nodes: BTreeSet<_> = scoped_graph.node_ids().collect();
+    let scoped_anchors = anchored_kernel_nodes
+        .iter()
+        .copied()
+        .filter(|anchor| scoped_nodes.contains(anchor))
+        .collect::<Vec<_>>();
+    if scoped_anchors.is_empty() {
+        return Err(LodestarError::KernelNoAnchoredNode);
+    }
+    let scoped_index = scoped_index_or_no_anchor(kernel_index, &scoped_nodes)?;
     kernel_answer(
-        kernel_index,
+        &scoped_index,
         &scoped_graph,
         query_cx,
         query_vec,
-        anchored_kernel_nodes,
+        &scoped_anchors,
         max_hops,
     )
 }
@@ -124,6 +134,17 @@ fn anchors_for_graph(
         }
     }
     Ok(anchors.into_iter().collect())
+}
+
+fn scoped_index_or_no_anchor(
+    kernel_index: &KernelIndex,
+    scoped_nodes: &BTreeSet<CxId>,
+) -> Result<KernelIndex> {
+    match kernel_index.filter_to_nodes(scoped_nodes) {
+        Ok(index) => Ok(index),
+        Err(LodestarError::KernelEmptyResult) => Err(LodestarError::KernelNoAnchoredNode),
+        Err(err) => Err(err),
+    }
 }
 
 fn anchor_kinds_for_scope(scope: &Scope, explicit: Option<&AnchorKind>) -> Vec<AnchorKind> {

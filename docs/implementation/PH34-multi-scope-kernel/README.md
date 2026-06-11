@@ -54,10 +54,12 @@ readbacks under `/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`.
 PH34 T05 (#237) is implemented and FSV-signed-off on aiwonder:
 `bridges`, `kernel_answer_scoped`, and `ScopeKernelReport.bridge_count` cover
 frequency-sorted bridge nodes, disjoint/empty bridge results, scoped answer
-paths that cannot leak outside materialized scope edges, `AllAssociations`
-self-bridges, and a union-scope MFVS readback proving the union kernel is not a
-naive member union. Readbacks live under
-`/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`.
+paths that cannot leak outside materialized scope edges, scope-local answer
+candidate ranking/index rows (#646), `AllAssociations` self-bridges, and a
+union-scope MFVS readback proving the union kernel is not a naive member union.
+Readbacks live under `/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`;
+#646 scoped-candidate FSV lives under
+`/home/croyse/calyx/data/fsv-issue646-scoped-answer-20260611T074856Z`.
 PH34 T06 (#238) is implemented and FSV-signed-off on aiwonder: the real SciFact
 corpus was measured at five scopes (`AllAssociations`, `Collection`,
 `TimeWindow`, `Domain`, and `Union`), each wrote a distinct

@@ -90,6 +90,16 @@ impl KernelIndex {
         &self.rows
     }
 
+    pub fn filter_to_nodes(&self, allowed_nodes: &BTreeSet<CxId>) -> Result<Self> {
+        let rows = self
+            .rows
+            .iter()
+            .filter(|row| allowed_nodes.contains(&row.cx_id))
+            .cloned()
+            .collect::<Vec<_>>();
+        Self::from_rows(self.kernel_id, rows)
+    }
+
     fn from_rows(kernel_id: CxId, rows: Vec<KernelVectorRow>) -> Result<Self> {
         let dim = validate_rows(&rows)?;
         let hnsw = build_hnsw(dim, &rows)?;
