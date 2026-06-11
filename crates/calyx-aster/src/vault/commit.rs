@@ -10,7 +10,9 @@ where
             return f();
         };
         let _commit_guard = crate::file_lock::FileLockGuard::acquire(&durable.commit_lock_path())?;
-        self.refresh_from_durable()?;
+        if durable.durable_tip_seq()? > self.latest_seq() {
+            self.refresh_from_durable()?;
+        }
         f()
     }
 
@@ -26,7 +28,15 @@ where
                 crate::file_lock::FileLockGuard::acquire(&durable.recurrence_lock_path())
             })
             .transpose()?;
-        self.refresh_from_durable()?;
+        if self
+            .durable
+            .as_ref()
+            .map(|durable| durable.durable_tip_seq())
+            .transpose()?
+            .is_some_and(|tip| tip > self.latest_seq())
+        {
+            self.refresh_from_durable()?;
+        }
         f()
     }
 
@@ -83,9 +93,7 @@ where
                 "durable WAL seq {durable_seq} diverged from MVCC seq {mvcc_seq}"
             )));
         }
-        if let Err(error) = durable.checkpoint_batch(durable_seq, rows) {
-            eprintln!("calyx durable checkpoint failed after WAL seq {durable_seq}: {error}");
-        }
+        durable.stage_checkpoint_batch(durable_seq, rows)?;
         Ok(mvcc_seq)
     }
 

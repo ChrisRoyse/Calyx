@@ -59,14 +59,26 @@ fn hnsw_search_edges_fail_closed() {
 fn hnsw_duplicate_insert_reconnects_updated_vector() {
     let mut index = build_index(128, 8);
     let moved = cx(0);
+    let original = unit_vector(0, 8);
     let target = unit_vector(127, 8);
     index.insert(moved, dense(target.clone()), 999).unwrap();
 
     let got = index.search(&dense(target), 1, Some(32)).unwrap();
+    let old = index.search(&dense(original), 1, Some(32)).unwrap();
 
     assert_eq!(got[0].cx_id, moved);
+    assert_ne!(old[0].cx_id, moved);
     assert_eq!(index.stats().base_seq, 999);
     assert_eq!(index.stats().built_at_seq, 999);
+}
+
+#[test]
+fn hnsw_byte_identical_query_returns_self_with_minimal_ef() {
+    let index = build_index(256, 8);
+    let target = unit_vector(199, 8);
+    let got = index.search(&dense(target), 1, Some(1)).unwrap();
+
+    assert_eq!(got[0].cx_id, cx(199));
 }
 
 #[test]
