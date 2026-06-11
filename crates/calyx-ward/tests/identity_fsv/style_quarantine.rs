@@ -366,18 +366,16 @@ fn assert_accepted(output: &GenerateOutput, style_slot: SlotId) {
 }
 
 fn assert_borderline_consistent(output: &GenerateOutput, style_slot: SlotId) {
-    let slot = match output {
-        GenerateOutput::Accepted { verdict, .. } | GenerateOutput::Rejected { verdict } => verdict
-            .per_slot
-            .iter()
-            .find(|verdict| verdict.slot == style_slot)
-            .expect("borderline style verdict"),
-        GenerateOutput::Novel { record } => record
-            .failing_verdicts
-            .iter()
-            .find(|verdict| verdict.slot == style_slot)
-            .expect("borderline failed style verdict"),
+    let per_slot = match output {
+        GenerateOutput::Accepted { verdict, .. } | GenerateOutput::Rejected { verdict, .. } => {
+            &verdict.per_slot
+        }
+        GenerateOutput::Novel { record } => &record.failing_verdicts,
     };
+    let slot = per_slot
+        .iter()
+        .find(|verdict| verdict.slot == style_slot)
+        .expect("borderline style verdict");
     assert_eq!(slot.pass, slot.cos >= slot.tau);
 }
 

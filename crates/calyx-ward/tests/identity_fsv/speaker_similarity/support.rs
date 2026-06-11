@@ -201,7 +201,7 @@ pub(super) fn accepted_slot(output: &GenerateOutput, slot: SlotId) -> SlotVerdic
 }
 
 pub(super) fn rejected_verdict(output: &GenerateOutput) -> &GuardVerdict {
-    let GenerateOutput::Rejected { verdict } = output else {
+    let GenerateOutput::Rejected { verdict, .. } = output else {
         panic!("expected rejected cross-speaker output");
     };
     verdict

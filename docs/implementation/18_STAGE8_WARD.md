@@ -245,6 +245,10 @@ Lands in `calyx-ward`. **Living-system role:** immune system / self-vs-non-self.
   `/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`.
   The accepted path writes a physical Ledger Guard row at
   `ledger-cf/0000000000000000.ledger`.
+  PH39 post-sweep #653 extends the same wrapper to rejected `RejectClosed`
+  outputs: plain `guard_generate()` returns `guarded:reject:unprovenanced`,
+  while `guard_generate_with_ledger()` writes a physical rejected Guard row and
+  returns `guarded:reject` with `ledger_ref`.
   PH39 T05 (#273) proves a real prompt-injection row from
   `deepset/prompt-injections` is quarantined through `guard_generate()` on
   numeric style slot `9`; durable readbacks under

@@ -32,7 +32,8 @@ before being accepted.
 - [x] Define `GenerateOutput` enum:
       `Accepted { verdict: GuardVerdict, provenance_tag: String, ledger_ref: Option<LedgerRef> }` |
       `Novel { record: NoveltyRecord }` |
-      `Rejected { verdict: GuardVerdict }` (for `RejectClosed`)
+      `Rejected { verdict: GuardVerdict, provenance_tag: String, ledger_ref: Option<LedgerRef> }`
+      (for `RejectClosed`)
 - [x] Implement `guard_generate(identity_profile: &IdentityProfile,
       input: &GenerateInput, speaker_lens: &dyn Lens,
       style_lens: &dyn Lens, novelty_handler: &NoveltyHandler,
@@ -69,8 +70,10 @@ before being accepted.
 - [x] Add `/// CALYX_GUARD_OOD` doc on the OOD path; `/// guarded:pass` on
       the accept path
 - [x] Add `guard_generate_with_ledger(...)` wrapper that appends the accepted
-      `GuardVerdict` through the #279 `append_guard_verdict()` path and returns
-      `ledger_ref` for auditable accepted output.
+      or rejected `GuardVerdict` through the #279 `append_guard_verdict()` path
+      and returns `ledger_ref` for auditable Guard output. Plain
+      `guard_generate()` reject outputs are explicitly tagged
+      `guarded:reject:unprovenanced`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -81,7 +84,11 @@ before being accepted.
       `NewRegion` policy; returns `Novel { record }` with
       `status: AwaitingGrounding`
 - [x] unit: `RejectClosed` policy + out-of-region → returns `Rejected { .. }`;
-      detailed failing verdict preserved
+      detailed failing verdict preserved and plain output tagged
+      `guarded:reject:unprovenanced`
+- [x] unit: `guard_generate_with_ledger()` + `RejectClosed` out-of-region
+      appends a Guard ledger row with `overall_pass=false`, `action=reject_closed`,
+      and returns `Rejected { provenance_tag: "guarded:reject", ledger_ref: Some(..) }`
 - [x] unit: uncalibrated profile + `high_stakes=true` → `Err(Provisional)`;
       no lens embeddings computed (early return)
 - [x] unit: empty `IdentityProfile.identity_slots` → fail closed before any
@@ -105,7 +112,10 @@ before being accepted.
   `calyx readback` where a vault/ledger CF is involved.
 - **Prove:** durable readback shows accepted in-region output with
   `"guarded:pass"` provenance, out-of-region `NewRegion` output, and
-  high-stakes uncalibrated `Err(Provisional)`.
+  high-stakes uncalibrated `Err(Provisional)`. #653 adds rejected-path proof:
+  plain `RejectClosed` output carries `guarded:reject:unprovenanced`, while
+  `guard_generate_with_ledger()` writes a physical Guard row for the rejected
+  verdict and returns `guarded:reject` with `ledger_ref`.
 
 ### #272 readback summary
 

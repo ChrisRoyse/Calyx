@@ -17,6 +17,8 @@ use crate::speaker_lens::WAVLM_SAMPLE_RATE;
 use crate::verdict::GuardVerdict;
 
 pub const GUARDED_PASS_TAG: &str = "guarded:pass";
+pub const GUARDED_REJECT_TAG: &str = "guarded:reject";
+pub const GUARDED_REJECT_UNPROVENANCED_TAG: &str = "guarded:reject:unprovenanced";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GenerateInput {
@@ -39,6 +41,9 @@ pub enum GenerateOutput {
     },
     Rejected {
         verdict: GuardVerdict,
+        provenance_tag: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ledger_ref: Option<LedgerRef>,
     },
 }
 
@@ -98,6 +103,14 @@ where
             Ok(GenerateOutput::Accepted {
                 verdict,
                 provenance_tag,
+                ledger_ref: Some(ledger_ref),
+            })
+        }
+        GenerateOutput::Rejected { verdict, .. } => {
+            let ledger_ref = append_guard_verdict(appender, input.matched_cx_id, &verdict)?;
+            Ok(GenerateOutput::Rejected {
+                verdict,
+                provenance_tag: GUARDED_REJECT_TAG.to_string(),
                 ledger_ref: Some(ledger_ref),
             })
         }
@@ -174,7 +187,11 @@ fn route_verdict(
         Err(WardError::Ood { .. })
             if identity_profile.guard_profile.novelty_action == NoveltyAction::RejectClosed =>
         {
-            Ok(GenerateOutput::Rejected { verdict })
+            Ok(GenerateOutput::Rejected {
+                verdict,
+                provenance_tag: GUARDED_REJECT_UNPROVENANCED_TAG.to_string(),
+                ledger_ref: None,
+            })
         }
         Err(error) => Err(error),
     }
