@@ -59,6 +59,44 @@ fn registry_records_determinism_proof_or_exemption() {
 }
 
 #[test]
+fn frozen_lens_snapshots_return_weight_hashes_in_id_order() {
+    let mut registry = Registry::new();
+    let left = OneDimLens::new("snapshot-left");
+    let right = OneDimLens::new("snapshot-right");
+    let left_id = registry
+        .register_frozen(left.clone(), left.contract.clone())
+        .unwrap();
+    let right_id = registry
+        .register_frozen(right.clone(), right.contract.clone())
+        .unwrap();
+
+    let snapshots = registry.frozen_lens_snapshots();
+
+    assert_eq!(snapshots.len(), 2);
+    assert!(
+        snapshots
+            .windows(2)
+            .all(|pair| pair[0].lens_id < pair[1].lens_id)
+    );
+    assert_eq!(
+        registry.frozen_contract(left_id).unwrap().weights_sha256(),
+        snapshots
+            .iter()
+            .find(|snapshot| snapshot.lens_id == left_id)
+            .unwrap()
+            .weights_sha256
+    );
+    assert_eq!(
+        registry.frozen_contract(right_id).unwrap().weights_sha256(),
+        snapshots
+            .iter()
+            .find(|snapshot| snapshot.lens_id == right_id)
+            .unwrap()
+            .weights_sha256
+    );
+}
+
+#[test]
 fn registry_rejects_wrong_modality() {
     let mut registry = Registry::new();
     let lens = OneDimLens::new("wrong-modality");

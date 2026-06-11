@@ -25,6 +25,13 @@ struct RegistryEntry {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub struct FrozenLensSnapshot {
+    pub lens_id: LensId,
+    pub weights_sha256: [u8; 32],
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum DeterminismProof {
     ProbeVerified,
     ContractOnlyExemption,
@@ -155,6 +162,19 @@ impl Registry {
         self.lenses
             .get(&lens_id)
             .and_then(|entry| entry.frozen.as_ref())
+    }
+
+    /// Returns all registered frozen lens weight hashes in stable id order.
+    pub fn frozen_lens_snapshots(&self) -> Vec<FrozenLensSnapshot> {
+        self.lenses
+            .iter()
+            .filter_map(|(lens_id, entry)| {
+                entry.frozen.as_ref().map(|contract| FrozenLensSnapshot {
+                    lens_id: *lens_id,
+                    weights_sha256: contract.weights_sha256(),
+                })
+            })
+            .collect()
     }
 
     /// Returns structured metadata for a lens id, when registered.

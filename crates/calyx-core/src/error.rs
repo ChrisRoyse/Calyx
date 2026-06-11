@@ -121,6 +121,9 @@ error_catalog! {
     RegistryDuplicate, registry_duplicate, "CALYX_REGISTRY_DUPLICATE",
     "lens id already registered", "reuse existing LensId or register a distinct frozen spec";
 
+    RegistryUnavailable, registry_unavailable, "CALYX_REGISTRY_UNAVAILABLE",
+    "lens registry unavailable", "restore registry before guarded anneal update";
+
     AssayInsufficientSamples, assay_insufficient_samples, "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
     "< quorum (50) anchors", "anchor more outcomes";
 
@@ -211,6 +214,7 @@ mod tests {
         "CALYX_LENS_NUMERICAL_INVARIANT",
         "CALYX_LENS_UNREACHABLE",
         "CALYX_REGISTRY_DUPLICATE",
+        "CALYX_REGISTRY_UNAVAILABLE",
         "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
         "CALYX_ASSAY_LOW_SIGNAL",
         "CALYX_ASSAY_REDUNDANT",
@@ -259,6 +263,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_REGISTRY_DUPLICATE",
             "reuse existing LensId or register a distinct frozen spec"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_REGISTRY_UNAVAILABLE",
+            "restore registry before guarded anneal update"
         )));
         assert!(pairs.contains(&(
             "CALYX_ORACLE_INSUFFICIENT",

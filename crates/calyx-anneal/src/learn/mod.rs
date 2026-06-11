@@ -1,7 +1,12 @@
+mod frozen_guard;
 mod mistake_log;
 mod online_head;
 mod replay_buffer;
 
+pub use frozen_guard::{
+    CALYX_REGISTRY_UNAVAILABLE, FrozenCheckReport, FrozenLensCheck, FrozenLensGuard,
+    FrozenLensReportRow, FrozenLensSource, FrozenLensStatus, NoFrozenLensGuard,
+};
 pub use mistake_log::{
     AsterMistakeStorage, CALYX_ANNEAL_INVALID_WINDOW, CALYX_ANNEAL_MISTAKE_APPEND_ONLY,
     CALYX_ANNEAL_MISTAKE_INVALID_ROW, DEFAULT_MISTAKE_SURPRISE_THRESHOLD, MistakeEntry, MistakeLog,
