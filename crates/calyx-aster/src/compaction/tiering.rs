@@ -132,6 +132,7 @@ impl TieringPolicy {
                 | ColumnFamily::AnnealChecksums
                 | ColumnFamily::AnnealMistakes
                 | ColumnFamily::AnnealReplay
+                | ColumnFamily::AnnealHeads
         ) {
             return false;
         }

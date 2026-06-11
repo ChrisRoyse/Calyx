@@ -51,13 +51,17 @@ pub use heal::triggers::{
 };
 pub use integration_fsv::{AnnealStatus, AnnealSubstrate, CALYX_LEDGER_WRITE_FAIL, ChangeOutcome};
 pub use learn::{
-    AsterMistakeStorage, AsterReplayStorage, CALYX_ANNEAL_INVALID_CAPACITY,
+    AsterHeadStorage, AsterMistakeStorage, AsterReplayStorage, CALYX_ANNEAL_HEAD_INVALID_ROW,
+    CALYX_ANNEAL_HEAD_TOO_LARGE, CALYX_ANNEAL_HEAD_UPDATE_REVERTED, CALYX_ANNEAL_INVALID_CAPACITY,
     CALYX_ANNEAL_INVALID_WINDOW, CALYX_ANNEAL_MISTAKE_APPEND_ONLY,
     CALYX_ANNEAL_MISTAKE_INVALID_ROW, CALYX_ANNEAL_REPLAY_INVALID_ROW,
-    DEFAULT_MISTAKE_SURPRISE_THRESHOLD, DEFAULT_REPLAY_CAPACITY, MistakeEntry, MistakeLog,
-    MistakeReadback, MistakeRef, MistakeStorage, ReplayBuffer, ReplayEntry, ReplaySnapshot,
-    ReplayStorage, decode_mistake_entry, decode_replay_snapshot, encode_mistake_entry,
-    encode_replay_snapshot, mistake_key, mistake_seq_from_key, replay_snapshot_key,
+    DEFAULT_MISTAKE_SURPRISE_THRESHOLD, DEFAULT_REPLAY_CAPACITY, HeadKind, HeadPromotionGate,
+    HeadReadback, HeadShadowProposal, HeadStorage, HeadUpdateOutcome, HeadUpdateSummary,
+    MAX_ONLINE_HEAD_PARAMS, MistakeEntry, MistakeLog, MistakeReadback, MistakeRef, MistakeStorage,
+    OnlineHead, OnlineHeadState, ReplayBuffer, ReplayEntry, ReplaySnapshot, ReplayStorage,
+    decode_head_rows, decode_mistake_entry, decode_online_head, decode_replay_snapshot,
+    encode_mistake_entry, encode_online_head, encode_replay_snapshot, head_key,
+    head_state_artifact_key, mistake_key, mistake_seq_from_key, replay_snapshot_key,
 };
 pub use ledger_anneal::{
     ANNEAL_LEDGER_PAYLOAD_TAG, AnnealFaultLedgerDetails, AnnealLedger, AnnealLedgerAction,

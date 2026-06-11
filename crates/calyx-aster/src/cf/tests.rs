@@ -30,6 +30,7 @@ fn column_family_names_match_prd_layout() {
             "anneal_checksums",
             "anneal_mistakes",
             "anneal_replay",
+            "anneal_heads",
         ]
     );
 
