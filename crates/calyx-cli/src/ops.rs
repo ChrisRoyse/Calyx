@@ -374,6 +374,7 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
         "anneal_replay" => Ok(ColumnFamily::AnnealReplay),
         "anneal_heads" => Ok(ColumnFamily::AnnealHeads),
         "anneal_bandit" => Ok(ColumnFamily::AnnealBandit),
+        "anneal_soak" => Ok(ColumnFamily::AnnealSoak),
         _ if value.starts_with("slot_") => parse_slot_cf(value),
         _ => Err(format!("unknown column family: {value}")),
     }

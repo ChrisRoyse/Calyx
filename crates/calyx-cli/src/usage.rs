@@ -11,6 +11,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal head-status --kind <Predictor|Calibrator|FusionWeights> --vault <dir>
        calyx anneal bandit-status --key <shape_key> --vault <dir>
        calyx anneal ab-log --last <n> --vault <dir>
+       calyx anneal soak-report --last <n> --vault <dir>
        calyx anneal autotune-report --scope forge --cache <json> --vault <dir> --last <n>
        calyx anneal autotune-report --scope index --slot <n> --cache <json> --vault <dir> --last <n>
        calyx anneal frozen-guard-report --artifact <json>
