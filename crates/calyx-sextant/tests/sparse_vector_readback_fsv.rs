@@ -29,6 +29,33 @@ fn sparse_vector_readback_preserves_non_contiguous_ids_and_weights() {
 }
 
 #[test]
+fn inverted_index_replacement_drops_stale_postings() {
+    let mut index = InvertedIndex::new(SlotId::new(1));
+    let id = cx(0x24);
+
+    index.insert_text(id, "alpha shared", 1).unwrap();
+    assert_eq!(index.lookup("alpha"), vec![id]);
+    assert_eq!(index.search_text("alpha", 1)[0].cx_id, id);
+
+    index.insert_text(id, "beta only", 2).unwrap();
+    assert_eq!(index.total_docs(), 1);
+    assert_eq!(index.lookup("alpha"), Vec::<CxId>::new());
+    assert_eq!(index.lookup("beta"), vec![id]);
+    assert!(index.search_text("alpha", 1).is_empty());
+    assert_eq!(index.search_text("beta", 1)[0].cx_id, id);
+
+    index
+        .insert(id, sparse_vector(&[(10, 1.0), (20, 1.0)]), 3)
+        .unwrap();
+    assert_eq!(index.lookup("beta"), Vec::<CxId>::new());
+    assert_eq!(index.lookup("t10"), vec![id]);
+
+    index.insert(id, sparse_vector(&[(30, 1.0)]), 4).unwrap();
+    assert_eq!(index.lookup("t10"), Vec::<CxId>::new());
+    assert_eq!(index.lookup("t30"), vec![id]);
+}
+
+#[test]
 #[ignore = "aiwonder FSV writes PH25 sparse vector readback source-of-truth artifacts"]
 fn sparse_vector_readback_aiwonder_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")

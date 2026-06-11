@@ -303,7 +303,7 @@ Latest roots:
 
 | PH | Title | Dep | Crate | PRD/Ax | Gate | Status |
 |---|---|---|---|---|---|---|
-| PH23 | Per-slot HNSW index | PH20 | sextant | P3/`10` | insert+search recall vs brute-force ≥ target on current 10k-row FSV; 1e6 SingleLens p99 remains future scale FSV | ✅ FSV |
+| PH23 | Per-slot HNSW index | PH20 | sextant | P3/`10` | insert+search recall vs brute-force ≥ target on PH23 10k-row FSV; #640 proves 1e6 embedded-scale SingleLens p99=686 us, RRF-6 p99=3570 us, pipeline p99=17507 us | ✅ FSV |
 | PH24 | RRF/WeightedRRF/SingleLens fusion + provenance hits | PH23 | sextant | P3/`10` | multi-lens recall@10 ≥ single-lens +Δ on real qrels; every Hit carries LedgerRef | ✅ FSV |
 | PH25 | Sparse lens inverted index | PH24 | sextant | `10` | sparse lens term-match + BM25 correct; pipeline recall stage works | ✅ FSV |
 | PH26 | Query planner + intent + explain | PH25 | sextant | A17 | intent→strategy auto-select; `explain=true` returns per-lens breakdown | ✅ FSV |

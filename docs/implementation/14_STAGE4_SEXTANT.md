@@ -116,9 +116,11 @@ attention.
 - **Post-sweep note.** MaxSim and quantization CPU/GPU delta helpers now return
   `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE` instead of comparing CPU output to
   itself; #299 readback records the explicit unavailable state.
-- **FSV gate.** insert N + search → recall vs brute-force ≥ target; current
-  byte-readback p99 evidence is the 10,000-row HNSW FSV. A 1e6-cx SingleLens
-  benchmark remains future scale FSV in PH68 T06 and PH70 T01. #327 proves
+- **FSV gate.** insert N + search → recall vs brute-force ≥ target; PH23 keeps
+  the 10,000-row HNSW recall/p99 readback, and #640 adds release-mode 1e6-cx
+  embedded-scale budget readback on aiwonder: SingleLens p99=686 us, RRF-6
+  p99=3570 us, pipeline p99=17507 us, exact byte-identical known-I/O top hit.
+  PH70 T01 still owns the later real-qrels recall delta gate. #327 proves
   parked/retired slots are not searched by default and fail closed when
   explicitly requested.
 - **Axioms/PRD.** `10 §3`, `19 §4`.

@@ -15,7 +15,9 @@
 Implement `rebuild()` on `HnswGraph` (re-inserts all stored vectors from
 scratch, used by self-heal and after crash recovery). Current PH23 readback
 uses `hnsw_recall_aiwonder_fsv` on a 10,000-row synthetic in-RAM HNSW corpus;
-the 1e6-cx `bench_single_lens` scale target remains future performance FSV.
+#640 adds release-mode 1e6-cx embedded-scale performance FSV with SingleLens
+p99=686 us, RRF-6 p99=3570 us, pipeline p99=17507 us, and exact known-I/O
+readback on aiwonder.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -55,9 +57,11 @@ the 1e6-cx `bench_single_lens` scale target remains future performance FSV.
   on aiwonder
 - **Readback:** the JSON records `n=10000`, `stored_rows=10000`, `recall_at_10`,
   `p99_us`, neighbor counts, layer histogram, and fail-closed edge codes
-- **Prove:** current PH23 evidence is the 10,000-row recall/p99 artifact; do not
-  claim a 1e6-cx `bench_single_lens` artifact until that test exists and is
-  byte-read back on aiwonder
+- **Prove:** PH23 evidence includes the 10,000-row recall/p99 artifact. #640
+  adds the 1e6-cx embedded-scale budget artifact at
+  `/home/croyse/calyx/data/fsv-issue640-embedded-scale-exactfast-20260611T055130Z/issue640-embedded-scale-latency-series.json`
+  (SHA-256 `7c9e2a299329f9d0fb80529bb237d6777717bebe1a68759666ca909a01676ef2`),
+  byte-read back on aiwonder.
 
 ## Done when
 

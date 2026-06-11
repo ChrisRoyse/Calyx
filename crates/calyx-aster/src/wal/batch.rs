@@ -5,10 +5,22 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-type BatchReply = Sender<Result<Option<AppendAck>>>;
+type BatchReply = Sender<Result<BatchResponse>>;
+
+enum BatchOp {
+    Append(Vec<u8>),
+    Flush,
+    TipSeq,
+}
+
+enum BatchResponse {
+    Ack(AppendAck),
+    Flush,
+    TipSeq(u64),
+}
 
 struct BatchRequest {
-    payload: Option<Vec<u8>>,
+    op: BatchOp,
     respond: BatchReply,
 }
 
@@ -35,28 +47,54 @@ impl GroupCommitBatcher {
         let (respond, receive) = mpsc::channel();
         self.sender
             .send(BatchRequest {
-                payload: Some(payload),
+                op: BatchOp::Append(payload),
                 respond,
             })
             .map_err(|_| CalyxError::disk_pressure("group commit batcher is closed"))?;
-        receive
+        match receive
             .recv()
             .map_err(|_| CalyxError::disk_pressure("group commit response channel closed"))?
-            .and_then(|ack| ack.ok_or_else(|| CalyxError::disk_pressure("missing WAL ack")))
+        {
+            Ok(BatchResponse::Ack(ack)) => Ok(ack),
+            Ok(_) => Err(CalyxError::disk_pressure("missing WAL ack")),
+            Err(error) => Err(error),
+        }
     }
 
     pub fn flush_sync(&self) -> Result<()> {
         let (respond, receive) = mpsc::channel();
         self.sender
             .send(BatchRequest {
-                payload: None,
+                op: BatchOp::Flush,
                 respond,
             })
             .map_err(|_| CalyxError::disk_pressure("group commit batcher is closed"))?;
-        receive
+        match receive
             .recv()
             .map_err(|_| CalyxError::disk_pressure("group commit flush channel closed"))?
-            .map(|_| ())
+        {
+            Ok(BatchResponse::Flush) => Ok(()),
+            Ok(_) => Err(CalyxError::disk_pressure("missing WAL flush ack")),
+            Err(error) => Err(error),
+        }
+    }
+
+    pub fn tip_seq(&self) -> Result<u64> {
+        let (respond, receive) = mpsc::channel();
+        self.sender
+            .send(BatchRequest {
+                op: BatchOp::TipSeq,
+                respond,
+            })
+            .map_err(|_| CalyxError::disk_pressure("group commit batcher is closed"))?;
+        match receive
+            .recv()
+            .map_err(|_| CalyxError::disk_pressure("group commit tip channel closed"))?
+        {
+            Ok(BatchResponse::TipSeq(seq)) => Ok(seq),
+            Ok(_) => Err(CalyxError::disk_pressure("missing WAL tip ack")),
+            Err(error) => Err(error),
+        }
     }
 }
 
@@ -76,6 +114,10 @@ fn run_batcher(
     _clock: Arc<dyn Clock>,
 ) {
     while let Ok(first) = receiver.recv() {
+        if !matches!(first.op, BatchOp::Append(_)) {
+            flush_requests(&wal, vec![first]);
+            continue;
+        }
         let mut requests = vec![first];
         let deadline = std::time::Instant::now() + group_commit_window;
         loop {
@@ -96,7 +138,10 @@ fn run_batcher(
 fn flush_requests(wal: &Mutex<Wal>, requests: Vec<BatchRequest>) {
     let payloads: Vec<_> = requests
         .iter()
-        .filter_map(|request| request.payload.as_deref())
+        .filter_map(|request| match &request.op {
+            BatchOp::Append(payload) => Some(payload.as_slice()),
+            BatchOp::Flush | BatchOp::TipSeq => None,
+        })
         .collect();
     let result = if payloads.is_empty() {
         Ok(Vec::new())
@@ -108,13 +153,25 @@ fn flush_requests(wal: &Mutex<Wal>, requests: Vec<BatchRequest>) {
     match result {
         Ok(acks) => {
             let mut acks = acks.into_iter();
+            let mut tip_seq = None;
             for request in requests {
-                let response = if request.payload.is_some() {
-                    acks.next()
-                        .map(Some)
-                        .ok_or_else(|| CalyxError::disk_pressure("missing WAL ack"))
-                } else {
-                    Ok(None)
+                let response = match request.op {
+                    BatchOp::Append(_) => acks
+                        .next()
+                        .map(BatchResponse::Ack)
+                        .ok_or_else(|| CalyxError::disk_pressure("missing WAL ack")),
+                    BatchOp::Flush => Ok(BatchResponse::Flush),
+                    BatchOp::TipSeq => {
+                        let seq = match tip_seq {
+                            Some(seq) => Ok(seq),
+                            None => wal
+                                .lock()
+                                .expect("group commit WAL lock poisoned")
+                                .durable_tip_seq()
+                                .inspect(|seq| tip_seq = Some(*seq)),
+                        };
+                        seq.map(BatchResponse::TipSeq)
+                    }
                 };
                 let _ = request.respond.send(response);
             }

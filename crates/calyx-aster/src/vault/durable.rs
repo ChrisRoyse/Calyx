@@ -11,9 +11,9 @@ use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct VaultOptions {
@@ -49,6 +49,7 @@ pub(super) struct DurableVault {
     temporal_policy: Option<TemporalPolicy>,
     dedup_policy: Option<DedupPolicy>,
     panel: Option<Panel>,
+    pending_checkpoint: Mutex<Vec<(u64, Vec<WriteRow>)>>,
     #[cfg(test)]
     fail_next_wal_append: Arc<AtomicBool>,
 }
@@ -102,6 +103,7 @@ impl DurableVault {
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
             panel: options.panel.clone(),
+            pending_checkpoint: Mutex::new(Vec::new()),
             #[cfg(test)]
             fail_next_wal_append: Arc::new(AtomicBool::new(false)),
         })
@@ -169,6 +171,10 @@ impl DurableVault {
         Ok(ack.seq)
     }
 
+    pub(super) fn durable_tip_seq(&self) -> Result<u64> {
+        self.batcher.tip_seq()
+    }
+
     #[cfg(test)]
     pub(super) fn fail_next_wal_append(&self) {
         self.fail_next_wal_append.store(true, Ordering::SeqCst);
@@ -179,8 +185,17 @@ impl DurableVault {
         self.write_manifest(seq)
     }
 
+    pub(super) fn stage_checkpoint_batch(&self, seq: u64, rows: &[WriteRow]) -> Result<()> {
+        self.pending_checkpoint
+            .lock()
+            .map_err(|_| CalyxError::disk_pressure("checkpoint staging lock poisoned"))?
+            .push((seq, rows.to_vec()));
+        Ok(())
+    }
+
     pub(super) fn flush(&self) -> Result<()> {
-        self.batcher.flush_sync()
+        self.batcher.flush_sync()?;
+        self.flush_pending_checkpoints()
     }
 
     pub(super) fn root(&self) -> &Path {
@@ -240,6 +255,28 @@ impl DurableVault {
                 .map(|(_, row)| (row.key.as_slice(), row.value.as_slice()));
             write_sst(&path, entries)?;
         }
+        Ok(())
+    }
+
+    fn flush_pending_checkpoints(&self) -> Result<()> {
+        let batches = self
+            .pending_checkpoint
+            .lock()
+            .map_err(|_| CalyxError::disk_pressure("checkpoint staging lock poisoned"))?
+            .clone();
+        if batches.is_empty() {
+            return Ok(());
+        }
+        for (seq, rows) in &batches {
+            self.write_rows(*seq, rows)?;
+        }
+        let last_seq = batches.last().map_or(0, |(seq, _)| *seq);
+        self.write_manifest(last_seq)?;
+        let mut pending = self
+            .pending_checkpoint
+            .lock()
+            .map_err(|_| CalyxError::disk_pressure("checkpoint staging lock poisoned"))?;
+        pending.retain(|(seq, _)| *seq > last_seq);
         Ok(())
     }
 

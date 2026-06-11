@@ -29,6 +29,12 @@ in their respective phases. PH69 delivers the verified corpora. PH70 is the
 cross-cutting validation harness that exercises each engine on real data and reads
 persisted metrics.
 
+Related scale evidence: #640 proves the Sextant embedded-scale absolute budget
+surface at 1e6 synthetic cx on aiwonder (SingleLens p99=686 us, RRF-6 p99=3570
+us, pipeline p99=17507 us, exact known-I/O readback, Aster vault bytes read).
+That evidence supports PH70 readiness, but it does not satisfy PH70 T01's
+real-qrels multi-lens recall delta exit gate.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |

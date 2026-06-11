@@ -88,6 +88,7 @@ pub struct Wal {
     options: WalOptions,
     active_index: u64,
     file: File,
+    active_len: u64,
     next_seq: u64,
 }
 
@@ -104,13 +105,17 @@ impl Wal {
             segment::list_segments(&dir).map_err(|error| storage_error("list WAL", error))?;
         let active_index = segments.last().map_or(0, |(index, _)| *index);
         let active_path = segment::segment_path(&dir, active_index);
-        let file = open_append_file(&active_path)?;
+        let mut file = open_append_file(&active_path)?;
+        let active_len = file
+            .seek(SeekFrom::End(0))
+            .map_err(|error| storage_error("seek WAL segment", error))?;
 
         Ok(Self {
             dir,
             options,
             active_index,
             file,
+            active_len,
             next_seq,
         })
     }
@@ -128,7 +133,7 @@ impl Wal {
         }
 
         let _lock = crate::file_lock::FileLockGuard::acquire(&self.dir.join(".append.lock"))?;
-        self.refresh_after_external_appends()?;
+        self.refresh_after_external_appends_locked()?;
         let mut acks = Vec::with_capacity(payloads.len());
         for payload in payloads {
             let seq = self.next_seq;
@@ -147,6 +152,7 @@ impl Wal {
                 end_offset,
             });
             self.next_seq += 1;
+            self.active_len = end_offset;
         }
 
         self.file
@@ -155,7 +161,16 @@ impl Wal {
         Ok(acks)
     }
 
-    fn refresh_after_external_appends(&mut self) -> Result<()> {
+    pub fn durable_tip_seq(&mut self) -> Result<u64> {
+        let _lock = crate::file_lock::FileLockGuard::acquire(&self.dir.join(".append.lock"))?;
+        self.refresh_after_external_appends_locked()?;
+        Ok(self.next_seq.saturating_sub(1))
+    }
+
+    fn refresh_after_external_appends_locked(&mut self) -> Result<()> {
+        if !self.external_appends_present()? {
+            return Ok(());
+        }
         let replay = replay_dir_locked(&self.dir)?;
         self.next_seq = replay.records.last().map_or(1, |record| record.seq + 1);
         let segments =
@@ -165,7 +180,23 @@ impl Wal {
             self.active_index = active_index;
             self.file = open_append_file(&self.active_path())?;
         }
+        self.active_len = self.seek_end()?;
         Ok(())
+    }
+
+    fn external_appends_present(&self) -> Result<bool> {
+        let segments =
+            segment::list_segments(&self.dir).map_err(|error| storage_error("list WAL", error))?;
+        let Some((active_index, active_path)) = segments.last() else {
+            return Ok(self.active_index != 0 || self.active_len != 0);
+        };
+        if *active_index != self.active_index {
+            return Ok(true);
+        }
+        let len = fs::metadata(active_path)
+            .map_err(|error| storage_error("stat WAL segment", error))?
+            .len();
+        Ok(len != self.active_len)
     }
 
     fn rotate_if_needed(&mut self, incoming_bytes: u64) -> Result<()> {
@@ -179,6 +210,7 @@ impl Wal {
             .map_err(|error| storage_error("fsync WAL segment before rotation", error))?;
         self.active_index += 1;
         self.file = open_append_file(&self.active_path())?;
+        self.active_len = 0;
         Ok(())
     }
 

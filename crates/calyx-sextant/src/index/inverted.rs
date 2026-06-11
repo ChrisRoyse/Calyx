@@ -60,6 +60,12 @@ impl InvertedIndex {
         self.remove_doc(cx_id, true)
     }
 
+    fn remove_existing_doc(&mut self, cx_id: CxId, remove_vector: bool) {
+        if self.docs.contains_key(&cx_id) || (remove_vector && self.vectors.contains_key(&cx_id)) {
+            self.remove_doc(cx_id, remove_vector);
+        }
+    }
+
     fn remove_doc(&mut self, cx_id: CxId, remove_vector: bool) -> bool {
         let existed = self.docs.remove(&cx_id).is_some();
         self.doc_len.remove(&cx_id);
@@ -140,7 +146,7 @@ impl SextantIndex for InvertedIndex {
             .map(|entry| format!("t{}", entry.idx))
             .collect::<Vec<_>>()
             .join(" ");
-        self.remove_doc(cx_id, true);
+        self.remove_existing_doc(cx_id, true);
         self.vectors.insert(cx_id, vector);
         self.index_text(cx_id, &text, seq);
         Ok(())
@@ -171,7 +177,6 @@ impl SextantIndex for InvertedIndex {
         self.postings.clear();
         self.doc_len.clear();
         for (cx, text) in docs {
-            self.remove_doc(cx, false);
             self.index_text(cx, &text, self.base_seq);
         }
         self.built_at_seq = self.base_seq;
@@ -211,7 +216,7 @@ impl SextantIndex for InvertedIndex {
     }
 
     fn insert_text(&mut self, cx_id: CxId, text: &str, seq: u64) -> Result<()> {
-        self.remove_doc(cx_id, true);
+        self.remove_existing_doc(cx_id, true);
         self.index_text(cx_id, text, seq);
         Ok(())
     }

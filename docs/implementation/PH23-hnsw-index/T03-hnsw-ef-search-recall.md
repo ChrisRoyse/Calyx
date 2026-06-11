@@ -13,10 +13,12 @@
 ## Goal
 
 Add `ef`-controlled greedy beam search to `HnswGraph` and a deterministic
-brute-force recall harness. The FSV requires recall@10 ≥ target on aiwonder with
-SingleLens p99 < 5 ms at 1e6 cx (`10 §8`). Current PH23 FSV proves the index on
-a 10,000-row synthetic corpus; the 1e6-cx target remains future scale FSV.
-This card proves the index is correct before fusion is added.
+brute-force recall harness. PH23 FSV proves recall on a 10,000-row synthetic
+corpus. #640 adds release-mode 1e6-cx embedded-scale budget readback on
+aiwonder: SingleLens p99=686 us (<5 ms), known byte-identical query returns the
+expected top cx, and edge codes remain fail-closed. This card proves the index
+is correct before fusion is added; PH70 still owns the later real-qrels recall
+delta gate.
 
 ## Build (checklist of concrete, code-level steps)
 
