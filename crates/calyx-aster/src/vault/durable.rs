@@ -448,18 +448,40 @@ fn ensure_manifest_assets(root: &Path) -> Result<(ImmutableRef, Vec<ImmutableRef
 }
 
 fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
+    match fs::read(path) {
+        Ok(existing) if existing == bytes => return Ok(()),
+        Ok(_) => {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "manifest immutable asset {} hash mismatch",
+                path.display()
+            )));
+        }
+        Err(error) if error.kind() != io::ErrorKind::NotFound => {
+            return Err(storage_error("read manifest asset", error));
+        }
+        Err(_) => {}
+    }
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .map_err(|error| storage_error("create manifest asset dir", error))?;
     }
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("manifest-asset");
+    let tmp = path.with_file_name(format!(
+        ".{file_name}.{:?}.tmp",
+        std::thread::current().id()
+    ));
     {
         let mut file =
-            File::create(path).map_err(|error| storage_error("create manifest asset", error))?;
+            File::create(&tmp).map_err(|error| storage_error("create manifest asset", error))?;
         file.write_all(bytes)
             .map_err(|error| storage_error("write manifest asset", error))?;
         file.sync_all()
             .map_err(|error| storage_error("fsync manifest asset", error))?;
     }
+    fs::rename(&tmp, path).map_err(|error| storage_error("install manifest asset", error))?;
     Ok(())
 }
 
