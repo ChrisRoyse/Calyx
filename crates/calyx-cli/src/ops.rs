@@ -358,6 +358,7 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
     match value {
         "base" => Ok(ColumnFamily::Base),
         "anchors" => Ok(ColumnFamily::Anchors),
+        "assay" => Ok(ColumnFamily::Assay),
         "ledger" => Ok(ColumnFamily::Ledger),
         "recurrence" => Ok(ColumnFamily::Recurrence),
         "online" => Ok(ColumnFamily::Online),

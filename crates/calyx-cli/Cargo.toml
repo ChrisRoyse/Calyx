@@ -22,5 +22,7 @@ blake3.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+calyx-assay = { path = "../calyx-assay" }
 calyx-forge = { path = "../calyx-forge" }
 calyx-registry = { path = "../calyx-registry" }
+calyx-ward = { path = "../calyx-ward" }
