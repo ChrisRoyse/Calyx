@@ -128,6 +128,7 @@ impl TieringPolicy {
             ColumnFamily::Base
                 | ColumnFamily::Ledger
                 | ColumnFamily::Anchors
+                | ColumnFamily::Graph
                 | ColumnFamily::AnnealChecksums
         ) {
             return false;

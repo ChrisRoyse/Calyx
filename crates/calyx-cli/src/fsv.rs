@@ -276,6 +276,7 @@ fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
 fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
     match value {
         "base" => Ok(ColumnFamily::Base),
+        "graph" => Ok(ColumnFamily::Graph),
         "slot_00" => Ok(ColumnFamily::slot(SlotId::new(0))),
         _ => Err(format!("unsupported FSV column family: {value}")),
     }

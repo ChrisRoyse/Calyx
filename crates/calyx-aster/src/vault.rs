@@ -15,7 +15,7 @@ mod slot_backfill;
 mod slot_column;
 mod temporal_xterm;
 
-use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
+use crate::cf::{CfRouter, ColumnFamily, KeyRange, anchor_key, base_key, ledger_key, slot_key};
 use crate::dedup::{AnchorConflictResult, DedupPolicy, check_anchor_conflict};
 use crate::mvcc::{CfRead, Freshness, ReadBarrier, ReaderLease, Snapshot, VersionedCfStore};
 use crate::vault::durable::DurableVault;
@@ -218,6 +218,17 @@ where
     pub fn scan_cf_at(&self, snapshot: Seq, cf: ColumnFamily) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.rows
             .scan_cf_at(self.snapshot_handle(snapshot), cf, &self.clock)
+    }
+
+    /// Scans visible raw CF rows in a key range at `snapshot`.
+    pub fn scan_cf_range_at(
+        &self,
+        snapshot: Seq,
+        cf: ColumnFamily,
+        range: &KeyRange,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.rows
+            .scan_cf_range_at(self.snapshot_handle(snapshot), cf, range, &self.clock)
     }
 
     pub(super) fn stage_constellation_rows(
