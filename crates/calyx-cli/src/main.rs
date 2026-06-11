@@ -1,5 +1,6 @@
 //! Calyx command-line entry point.
 
+mod anneal_head_readback;
 mod anneal_mistakes_readback;
 mod anneal_replay_readback;
 mod anneal_status;
@@ -140,6 +141,22 @@ fn run(args: Vec<String>) -> Result<(), String> {
             if command == "anneal" && topic == "replay-status" && vault_flag == "--vault" =>
         {
             anneal_replay_readback::replay_status(Path::new(vault))
+        }
+        [command, topic, kind_flag, kind, vault_flag, vault]
+            if command == "anneal"
+                && topic == "head-status"
+                && kind_flag == "--kind"
+                && vault_flag == "--vault" =>
+        {
+            anneal_head_readback::head_status(Path::new(vault), kind)
+        }
+        [command, topic, vault_flag, vault, kind_flag, kind]
+            if command == "anneal"
+                && topic == "head-status"
+                && vault_flag == "--vault"
+                && kind_flag == "--kind" =>
+        {
+            anneal_head_readback::head_status(Path::new(vault), kind)
         }
         [command, topic, subtopic, vault_flag, vault, last_flag, last]
             if command == "readback"
