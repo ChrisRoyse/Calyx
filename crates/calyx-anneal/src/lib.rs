@@ -27,6 +27,13 @@ pub use heal::rebuild::{
     CALYX_ASTER_SNAPSHOT_UNAVAILABLE, GuardProfileRebuilder, KernelIndexRebuilder, MvccSnapshot,
     RebuildOutcome, RebuildPriority, RebuildScheduler, RebuildTarget, Rebuilder,
 };
+pub use heal::recalibrate::{
+    CALYX_ANNEAL_PARK_THRESHOLD_NOT_MET, CALYX_ANNEAL_TAU_INVALID,
+    CALYX_ANNEAL_UNPARK_THRESHOLD_NOT_MET, CALYX_WARD_RECALIBRATE_FAILED, FileWardTauStore,
+    LensParkOutcome, NewTau, RecalibrationOutcome, SIGNAL_DECAY_FLOOR_BITS, TauDriftEvent,
+    WARD_TAU_TAG, WardRecalibrate, WardTauReadback, WardTauStore, park_decayed_lens,
+    trigger_tau_recalibration, unpark_lens, ward_tau_path,
+};
 pub use heal::restore::{
     BASE_SHARD_CHECKSUM_TAG, BaseFaultEvent, BaseShard, CALYX_ANNEAL_ALERT_WRITE_FAILED,
     CALYX_ANNEAL_CHECKSUM_INVALID_ROW, CALYX_ANNEAL_RESTORE_FAILED, RestoreCommand, RestoreConfig,

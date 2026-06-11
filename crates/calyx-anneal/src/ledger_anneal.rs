@@ -32,6 +32,10 @@ pub enum AnnealLedgerAction {
     BaseCorruptAlert,
     BaseRestored,
     Recalibrate,
+    TauRecalibrated,
+    TauRecalibrationReverted,
+    LensPark,
+    LensUnpark,
     MistakeUpdate,
     AutotuneAB,
 }
