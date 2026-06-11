@@ -1,11 +1,17 @@
 //! Lens proposal primitives for Anneal.
 
+pub mod admission_record;
 pub mod candidate_synth;
 pub mod deficit_localize;
 pub mod differentiation_gate;
 pub mod propose_lens;
 pub mod registry_hot_add;
 
+pub use admission_record::{
+    AdmissionRecord, LensAdmittedEntry, LensRejectedEntry, ProposalHistoryReadback,
+    proposal_history, proposal_history_with_refs, record_admitted, record_from_entry,
+    record_outcome, record_rejected,
+};
 pub use candidate_synth::{
     AlgParams, AlgorithmicKind, CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT, CandidateLens,
     CommissionSpec, CorpusSampleSource, MAX_SYNTHESIS_CORPUS_SAMPLE, build_commission_spec,

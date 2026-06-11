@@ -8,6 +8,7 @@ use calyx_ledger::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::propose::AdmissionRecord;
 use crate::{ChangeId, LogicalTime, MetricSnapshot};
 
 pub const ANNEAL_LEDGER_PAYLOAD_TAG: &str = "anneal_event_v1";
@@ -25,6 +26,10 @@ pub enum AnnealLedgerAction {
     Promote,
     Revert,
     Propose,
+    #[serde(rename = "LensAdmitted")]
+    LensAdmitted,
+    #[serde(rename = "LensRejected")]
+    LensRejected,
     Park,
     DegradeChange,
     FaultEvent,
@@ -103,6 +108,7 @@ pub struct AnnealLedgerEntry {
     pub ts: LogicalTime,
     pub description: String,
     pub fault: Option<AnnealFaultLedgerDetails>,
+    pub proposal: Option<AdmissionRecord>,
     pub prev_hash: Option<[u8; 32]>,
 }
 
@@ -269,6 +275,8 @@ struct AnnealLedgerPayload {
     description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     fault: Option<AnnealFaultLedgerDetails>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    proposal: Option<AdmissionRecord>,
     prev_hash: Option<String>,
 }
 
@@ -285,6 +293,7 @@ fn encode_payload(entry: &AnnealLedgerEntry) -> Result<Vec<u8>> {
         ts: entry.ts,
         description: entry.description.clone(),
         fault: entry.fault.clone(),
+        proposal: entry.proposal.clone(),
         prev_hash: entry.prev_hash.as_ref().map(hex32),
     };
     let bytes = serde_json::to_vec(&payload)
@@ -324,6 +333,7 @@ fn decode_payload(payload: &[u8]) -> Result<AnnealLedgerEntry> {
         ts: payload.ts,
         description: payload.description,
         fault: payload.fault,
+        proposal: payload.proposal,
         prev_hash: match payload.prev_hash {
             Some(value) => Some(decode_hex32(&value, "prev_hash")?),
             None => None,

@@ -116,6 +116,7 @@ fn ab_ledger_entry(event: &ABLedgerEvent) -> AnnealLedgerEntry {
             ledger_safe_text(&event.record.reason)
         ),
         fault: None,
+        proposal: None,
         prev_hash: None,
     }
 }

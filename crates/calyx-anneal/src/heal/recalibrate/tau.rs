@@ -195,6 +195,7 @@ where
         ts: event.ts,
         description: event.description,
         fault: None,
+        proposal: None,
         prev_hash: None,
     })
 }
