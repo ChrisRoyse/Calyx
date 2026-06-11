@@ -1,4 +1,4 @@
-# PH53 — Collections-as-any-model (relational/doc/KV/TS/blob)
+# PH53 — Collections-as-any-model (relational/doc/KV/TS/blob/graph/OLAP)
 
 **Stage:** S12 — Universal data layer  ·  **Crate:** `calyx-aster`  ·
 **PRD roadmap:** A19, `20 §2/§3`, `04 §2`  ·  **Axioms:** A15, A19
@@ -7,7 +7,7 @@
 
 Implement the `Collection` container so Calyx behaves as any data model a
 workload needs: relational records, nested documents, key-value state,
-time-series events, and blob payloads — all as key-encoding layers over the
+time-series events, blob payloads, graph edges, and columnar OLAP scans — all as key-encoding layers over the
 Aster ordered-transactional core (FoundationDB-style). A collection with **0
 lenses** is a plain fast store; adding ≥1 lens via `add_lens` upgrades it to a
 Constellations-mode collection with the full Association Engine. Each paradigm's
@@ -51,6 +51,7 @@ layer.
 | `crates/calyx-aster/src/layers/blob.rs` | chunked payload + manifest; cold-tier sidecar |
 | `crates/calyx-aster/src/layers/mod.rs` | `Layer` trait; dispatch to paradigm |
 | `crates/calyx-aster/src/plain_graph/` | plain 0-lens graph keys, reverse edge index, CSR projection, bounded traversal |
+| `crates/calyx-aster/src/olap/` | columnar Arrow/SoA scan+aggregate root op over materialized slot chunks |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -65,6 +66,7 @@ layer.
 | T07 | Progressive enhancement: 0-lens = plain store; `add_lens` upgrades to Constellations | T01, T02, T03, T04, T05, T06 |
 | T08 | FSV: each paradigm's root op round-trips on aiwonder | T02, T03, T04, T05, T06, T07 |
 | T09 | Plain graph layer: `(node)→props`, typed edge/reverse keys, CSR, traversal | T01 |
+| T10 | Columnar/OLAP layer: Arrow chunk scan+aggregate with group-by | Slot column materialization |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
