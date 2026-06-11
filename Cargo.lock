@@ -213,6 +213,7 @@ dependencies = [
  "blake3",
  "calyx-core",
  "calyx-ledger",
+ "calyx-paths",
  "crc32fast",
  "memmap2",
  "proptest",

@@ -7,6 +7,7 @@ mod file_lock;
 pub mod manifest;
 pub mod memtable;
 pub mod mvcc;
+pub mod plain_graph;
 pub mod recurrence;
 pub mod sst;
 pub mod vault;

@@ -23,6 +23,7 @@ fn column_family_names_match_prd_layout() {
             "assay",
             "ledger",
             "recurrence",
+            "graph",
             "online",
             "anneal_rollback",
             "anneal_health",

@@ -1,6 +1,6 @@
 //! In-memory MVCC row table used to define the cross-CF snapshot contract.
 
-use crate::cf::{CfRouter, ColumnFamily};
+use crate::cf::{CfRouter, ColumnFamily, KeyRange};
 use crate::mvcc::{
     Freshness, ReadBarrier, ReaderLease, SeqAllocator, Snapshot, read_barrier::first_blocking,
 };
@@ -230,6 +230,32 @@ impl VersionedCfStore {
             .iter()
             .filter_map(|((row_cf, key), versions)| {
                 if *row_cf != cf {
+                    return None;
+                }
+                visible_value(versions, snapshot.seq()).map(|value| (key.clone(), value))
+            })
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| left.0.cmp(&right.0));
+        for (key, _) in &rows {
+            self.ensure_unbarriered(cf, key)?;
+        }
+        Ok(rows)
+    }
+
+    /// Scans visible rows for one CF and key range at the pinned sequence.
+    pub fn scan_cf_range_at(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        clock: &dyn Clock,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        snapshot.ensure_live(clock)?;
+        let table = self.rows.read().expect("mvcc row table poisoned");
+        let mut rows = table
+            .iter()
+            .filter_map(|((row_cf, key), versions)| {
+                if *row_cf != cf || !range.contains(key) {
                     return None;
                 }
                 visible_value(versions, snapshot.seq()).map(|value| (key.clone(), value))

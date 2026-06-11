@@ -70,6 +70,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "assay" => Some(ColumnFamily::Assay),
         "ledger" => Some(ColumnFamily::Ledger),
         "recurrence" => Some(ColumnFamily::Recurrence),
+        "graph" => Some(ColumnFamily::Graph),
         "online" => Some(ColumnFamily::Online),
         "anneal_rollback" => Some(ColumnFamily::AnnealRollback),
         "anneal_health" => Some(ColumnFamily::AnnealHealth),

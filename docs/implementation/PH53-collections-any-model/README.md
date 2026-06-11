@@ -50,6 +50,7 @@ layer.
 | `crates/calyx-aster/src/layers/timeseries.rs` | `(series,ts)→point` + rollups + retention |
 | `crates/calyx-aster/src/layers/blob.rs` | chunked payload + manifest; cold-tier sidecar |
 | `crates/calyx-aster/src/layers/mod.rs` | `Layer` trait; dispatch to paradigm |
+| `crates/calyx-aster/src/plain_graph/` | plain 0-lens graph keys, reverse edge index, CSR projection, bounded traversal |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -63,6 +64,7 @@ layer.
 | T06 | Blob layer: chunked payload + manifest | T01 |
 | T07 | Progressive enhancement: 0-lens = plain store; `add_lens` upgrades to Constellations | T01, T02, T03, T04, T05, T06 |
 | T08 | FSV: each paradigm's root op round-trips on aiwonder | T02, T03, T04, T05, T06, T07 |
+| T09 | Plain graph layer: `(node)→props`, typed edge/reverse keys, CSR, traversal | T01 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

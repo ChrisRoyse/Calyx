@@ -404,6 +404,7 @@ fn parse_cf_name(value: &str) -> Result<ColumnFamily> {
         "anchors" => Ok(ColumnFamily::Anchors),
         "ledger" => Ok(ColumnFamily::Ledger),
         "recurrence" => Ok(ColumnFamily::Recurrence),
+        "graph" => Ok(ColumnFamily::Graph),
         "online" => Ok(ColumnFamily::Online),
         "scalars" => Ok(ColumnFamily::Scalars),
         "xterm" => Ok(ColumnFamily::XTerm),

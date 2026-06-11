@@ -32,6 +32,8 @@ pub enum ColumnFamily {
     Ledger,
     /// `(CxId, OccurrenceId) -> recurrence occurrence or summary`.
     Recurrence,
+    /// Plain collection graph rows: nodes, typed edges, reverse index, CSR projection.
+    Graph,
     /// Typed online/adaptation state.
     Online,
     /// Anneal rollback snapshots and live artifact pointers.
@@ -44,7 +46,7 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 12] = [
+    pub const STATIC: [Self; 13] = [
         Self::Base,
         Self::XTerm,
         Self::TemporalXTerm,
@@ -53,6 +55,7 @@ impl ColumnFamily {
         Self::Assay,
         Self::Ledger,
         Self::Recurrence,
+        Self::Graph,
         Self::Online,
         Self::AnnealRollback,
         Self::AnnealHealth,
@@ -94,6 +97,7 @@ impl ColumnFamily {
             Self::Assay => "assay".to_string(),
             Self::Ledger => "ledger".to_string(),
             Self::Recurrence => "recurrence".to_string(),
+            Self::Graph => "graph".to_string(),
             Self::Online => "online".to_string(),
             Self::AnnealRollback => "anneal_rollback".to_string(),
             Self::AnnealHealth => "anneal_health".to_string(),

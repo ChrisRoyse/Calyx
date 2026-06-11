@@ -10,6 +10,7 @@ publish.workspace = true
 blake3.workspace = true
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
+calyx-paths = { path = "../calyx-paths" }
 crc32fast.workspace = true
 memmap2.workspace = true
 serde.workspace = true
