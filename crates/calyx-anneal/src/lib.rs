@@ -90,10 +90,13 @@ pub use ledger_anneal::{
     MAX_ANNEAL_LEDGER_PAYLOAD_BYTES, decode_anneal_ledger_payload,
 };
 pub use propose::{
-    AnchorGap, AnchorId, AssayAttribution, CALYX_ANNEAL_DEFICIT_INVALID_CONFIG,
-    CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE, DEFAULT_DEFICIT_THRESHOLD_BITS,
-    DeficitLocalizer, DeficitLocalizerConfig, DeficitMap, MODALITY_COVERAGE_THRESHOLD_BITS,
-    ModalityId, has_deficit, top_gap_description,
+    AlgParams, AlgorithmicKind, AnchorGap, AnchorId, AssayAttribution,
+    CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT, CALYX_ANNEAL_DEFICIT_INVALID_CONFIG,
+    CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE, CandidateLens, CommissionSpec,
+    CorpusSampleSource, DEFAULT_DEFICIT_THRESHOLD_BITS, DeficitLocalizer, DeficitLocalizerConfig,
+    DeficitMap, MAX_SYNTHESIS_CORPUS_SAMPLE, MODALITY_COVERAGE_THRESHOLD_BITS, ModalityId,
+    build_commission_spec, describe, has_deficit, synthesize, synthesize_algorithmic,
+    synthesize_from_source, top_gap_description,
 };
 pub use recurrence_schedule::{
     CALYX_ANNEAL_INVALID_CADENCE, FREQ_BONUS_MAX, RecurrenceSchedule, RefreshPriority,

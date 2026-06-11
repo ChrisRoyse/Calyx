@@ -125,3 +125,52 @@ fn anneal_deficit_map_fixture_command_executes() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn anneal_propose_preview_fixture_command_executes() {
+    let root = std::env::temp_dir().join(format!("calyx-cli-propose-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create propose fixture dir");
+    let deficit = root.join("deficit.json");
+    let corpus = root.join("corpus.json");
+    std::fs::write(
+        &deficit,
+        r#"{
+  "computed_at": 1785500419,
+  "top_gaps": [{
+    "anchor_class": "temporal_latency",
+    "entropy_h": 2.0,
+    "mutual_info_i": 0.4,
+    "gap": 1.6
+  }],
+  "underrepresented_modalities": ["structured"],
+  "total_bits_deficit": 1.6
+}"#,
+    )
+    .expect("write propose deficit fixture");
+    std::fs::write(
+        &corpus,
+        r#"[{
+  "cx_id": "01010101010101010101010101010101",
+  "created_at": 100,
+  "modality": "structured",
+  "scalars": {"time_lag": 1.0},
+  "metadata": {"fixture": "issue419"}
+}]"#,
+    )
+    .expect("write propose corpus fixture");
+
+    run(vec![
+        "anneal".into(),
+        "propose-preview".into(),
+        "--anchor".into(),
+        "temporal_latency".into(),
+        "--deficit".into(),
+        deficit.display().to_string(),
+        "--corpus".into(),
+        corpus.display().to_string(),
+    ])
+    .expect("propose preview readback");
+
+    let _ = std::fs::remove_dir_all(root);
+}
