@@ -220,3 +220,37 @@ fn anneal_lens_proposal_log_fixture_command_executes() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn anneal_propose_lens_run_fixture_command_executes() {
+    let root = std::env::temp_dir().join(format!("calyx-cli-propose-lens-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create propose-lens fixture dir");
+    let fixture = root.join("propose-lens.json");
+    std::fs::write(
+        &fixture,
+        r#"{
+  "anchor": "quality",
+  "entropy": 1.0,
+  "sufficiency": [0.20, 0.80],
+  "profile_bits": 0.12,
+  "corr": 0.45,
+  "clock_ts": 1785500421,
+  "panel": ["01010101010101010101010101010101"],
+  "substrate": "promote",
+  "hot_add": "succeed",
+  "corpus_rows": 1
+}"#,
+    )
+    .expect("write propose-lens fixture");
+
+    run(vec![
+        "anneal".into(),
+        "propose-lens-run".into(),
+        "--fixture".into(),
+        fixture.display().to_string(),
+    ])
+    .expect("propose lens run readback");
+
+    let _ = std::fs::remove_dir_all(root);
+}

@@ -3,8 +3,8 @@ use std::path::Path;
 use crate::{
     anneal_ab_log, anneal_autotune_report, anneal_bandit_readback, anneal_deficit_map,
     anneal_frozen_guard_readback, anneal_head_readback, anneal_lens_proposal_log,
-    anneal_propose_preview, anneal_regression_readback, anneal_replay_readback, anneal_soak_report,
-    anneal_status,
+    anneal_propose_lens_run, anneal_propose_preview, anneal_regression_readback,
+    anneal_replay_readback, anneal_soak_report, anneal_status,
 };
 
 pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
@@ -43,6 +43,7 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
         ("deficit-map", args) => anneal_deficit_map::run(args),
         ("propose-preview", args) => anneal_propose_preview::run(args),
         ("lens-proposal-log", args) => anneal_lens_proposal_log::run(args),
+        ("propose-lens-run", args) => anneal_propose_lens_run::run(args),
         ("frozen-guard-report", [artifact_flag, artifact]) if artifact_flag == "--artifact" => {
             anneal_frozen_guard_readback::frozen_guard_report(Path::new(artifact))
         }
