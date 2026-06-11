@@ -135,6 +135,22 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [
             command,
             topic,
+            faults_flag,
+            last_flag,
+            last,
+            vault_flag,
+            vault,
+        ] if command == "anneal"
+            && topic == "status"
+            && faults_flag == "--faults"
+            && last_flag == "--last"
+            && vault_flag == "--vault" =>
+        {
+            anneal_status::status_faults(Path::new(vault), anneal_status::parse_last(last)?)
+        }
+        [
+            command,
+            topic,
             vault_flag,
             vault,
             cx_flag,

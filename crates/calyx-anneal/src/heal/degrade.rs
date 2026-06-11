@@ -119,7 +119,7 @@ impl ComponentKind {
         Self::LensEndpoint { lens_id }
     }
 
-    fn storage_key(&self) -> Vec<u8> {
+    pub(crate) fn storage_key(&self) -> Vec<u8> {
         match self {
             Self::AnnIndex { slot_id } => format!("ann_index/slot_{:04}", slot_id.get()),
             Self::KernelIndex { scope } => format!("kernel_index/{scope}"),
@@ -324,6 +324,7 @@ where
                 prior.state_name(),
                 health.state_name()
             ),
+            fault: None,
             prev_hash: None,
         })
     }
