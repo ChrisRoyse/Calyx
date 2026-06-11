@@ -28,6 +28,7 @@ pub enum AnnealLedgerAction {
     Park,
     DegradeChange,
     FaultEvent,
+    Rebuild,
     Recalibrate,
     MistakeUpdate,
     AutotuneAB,

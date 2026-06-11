@@ -21,6 +21,12 @@ pub use heal::degrade::{
     CALYX_ANNEAL_HEALTH_INVALID_ROW, ComponentHealth, ComponentKind, DegradeRegistry,
     HealthRowReadback, HealthStorage, ScopeId, decode_health_value,
 };
+pub use heal::rebuild::{
+    AnnIndexRebuilder, AsterRebuildSource, CALYX_ANNEAL_REBUILD_INVALID_TARGET,
+    CALYX_ANNEAL_REBUILD_IO, CALYX_ANNEAL_REBUILD_SOURCE_VIOLATION,
+    CALYX_ASTER_SNAPSHOT_UNAVAILABLE, GuardProfileRebuilder, KernelIndexRebuilder, MvccSnapshot,
+    RebuildOutcome, RebuildPriority, RebuildScheduler, RebuildTarget, Rebuilder,
+};
 pub use heal::triggers::{
     AssayMetrics, CALYX_ANNEAL_FAULT_INVALID_EVENT, ChecksumDetector, ChecksumEntry, EndpointUrl,
     FaultDetector, FaultEvent, FaultKind, FaultMonitor, HttpProbe, LensProbeDetector, ProbeStatus,
