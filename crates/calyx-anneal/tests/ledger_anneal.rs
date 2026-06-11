@@ -234,5 +234,6 @@ fn action_strategy() -> impl Strategy<Value = AnnealLedgerAction> {
         Just(AnnealLedgerAction::OutcomeReward),
         Just(AnnealLedgerAction::OutcomeContradiction),
         Just(AnnealLedgerAction::AutotuneAB),
+        Just(AnnealLedgerAction::AutotunePromote),
     ]
 }

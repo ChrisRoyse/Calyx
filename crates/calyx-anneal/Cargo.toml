@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-forge = { path = "../calyx-forge" }
 calyx-ledger = { path = "../calyx-ledger" }
 calyx-registry = { path = "../calyx-registry" }
 blake3.workspace = true

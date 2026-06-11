@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use crate::{
-    anneal_bandit_readback, anneal_frozen_guard_readback, anneal_head_readback,
-    anneal_regression_readback, anneal_replay_readback, anneal_status,
+    anneal_autotune_report, anneal_bandit_readback, anneal_frozen_guard_readback,
+    anneal_head_readback, anneal_regression_readback, anneal_replay_readback, anneal_status,
 };
 
 pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
@@ -35,6 +35,7 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
         {
             anneal_bandit_readback::bandit_status(Path::new(vault), key)
         }
+        ("autotune-report", args) => anneal_autotune_report::run(args),
         ("frozen-guard-report", [artifact_flag, artifact]) if artifact_flag == "--artifact" => {
             anneal_frozen_guard_readback::frozen_guard_report(Path::new(artifact))
         }
