@@ -17,7 +17,8 @@ use super::artifact::{hex, ptr_hash, target_hash};
 use super::builders::{AnnIndexRebuilder, GuardProfileRebuilder, KernelIndexRebuilder};
 use super::source::AsterRebuildSource;
 use super::{
-    RebuildJob, RebuildOutcome, RebuildPriority, RebuildTarget, Rebuilder, invalid_target,
+    CALYX_ANNEAL_REBUILD_TRIPWIRE_FAILED, RebuildJob, RebuildOutcome, RebuildPriority,
+    RebuildTarget, Rebuilder, invalid_target,
 };
 
 const REBUILD_CPU_WEIGHT: f64 = 0.01;
@@ -167,7 +168,7 @@ where
                 })
             }
             ChangeOutcome::Reverted { reason, .. } => {
-                let error = invalid_target(format!("rebuild tripwire reverted: {reason:?}"));
+                let error = tripwire_failed(format!("rebuild tripwire reverted: {reason:?}"));
                 self.record_failure(substrate, job.target, error)
             }
         }
@@ -308,4 +309,12 @@ fn failure_change_id(target: &RebuildTarget, ts: u64) -> ChangeId {
     let mut raw = [0_u8; 8];
     raw.copy_from_slice(&hash[..8]);
     ChangeId((u64::from_be_bytes(raw) ^ ts).max(1))
+}
+
+fn tripwire_failed(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_ANNEAL_REBUILD_TRIPWIRE_FAILED,
+        message: message.into(),
+        remediation: "keep the prior derived artifact live and inspect tripwire metrics before retrying",
+    }
 }

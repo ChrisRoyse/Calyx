@@ -19,13 +19,14 @@ pub use budget::{
 pub use heal::degrade::{
     ANNEAL_HEALTH_TAG, AsterHealthStore, CALYX_ANNEAL_HEAL_CONFIRMATION_REQUIRED,
     CALYX_ANNEAL_HEALTH_INVALID_ROW, ComponentHealth, ComponentKind, DegradeRegistry,
-    HealthRowReadback, HealthStorage, ScopeId, decode_health_value,
+    HealthRowReadback, HealthStorage, LensRoute, ScopeId, decode_health_value,
 };
 pub use heal::rebuild::{
     AnnIndexRebuilder, AsterRebuildSource, CALYX_ANNEAL_REBUILD_INVALID_TARGET,
     CALYX_ANNEAL_REBUILD_IO, CALYX_ANNEAL_REBUILD_SOURCE_VIOLATION,
-    CALYX_ASTER_SNAPSHOT_UNAVAILABLE, GuardProfileRebuilder, KernelIndexRebuilder, MvccSnapshot,
-    RebuildOutcome, RebuildPriority, RebuildScheduler, RebuildTarget, Rebuilder,
+    CALYX_ANNEAL_REBUILD_TRIPWIRE_FAILED, CALYX_ASTER_SNAPSHOT_UNAVAILABLE, GuardProfileRebuilder,
+    KernelIndexRebuilder, MvccSnapshot, RebuildOutcome, RebuildPriority, RebuildScheduler,
+    RebuildTarget, Rebuilder,
 };
 pub use heal::recalibrate::{
     CALYX_ANNEAL_PARK_THRESHOLD_NOT_MET, CALYX_ANNEAL_TAU_INVALID,

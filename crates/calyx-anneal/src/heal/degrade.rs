@@ -157,6 +157,13 @@ pub struct HealthRowReadback {
     pub updated_at: LogicalTime,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LensRoute {
+    pub requested: Vec<LensId>,
+    pub active: Vec<LensId>,
+    pub degraded: bool,
+}
+
 #[derive(Serialize, Deserialize)]
 struct HealthRow {
     tag: String,
@@ -263,6 +270,15 @@ where
                 !self.health(&kind).excludes_lens()
             })
             .collect()
+    }
+
+    pub fn route_lens_panel(&self, panel: &[LensId]) -> LensRoute {
+        let active = self.active_lenses(panel);
+        LensRoute {
+            requested: panel.to_vec(),
+            degraded: active.len() != panel.len(),
+            active,
+        }
     }
 
     pub fn degraded_components(&self) -> Vec<(ComponentKind, ComponentHealth)> {
