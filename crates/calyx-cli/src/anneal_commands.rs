@@ -1,7 +1,8 @@
 use std::path::Path;
 
 use crate::{
-    anneal_frozen_guard_readback, anneal_head_readback, anneal_replay_readback, anneal_status,
+    anneal_frozen_guard_readback, anneal_head_readback, anneal_regression_readback,
+    anneal_replay_readback, anneal_status,
 };
 
 pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
@@ -26,6 +27,9 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
         }
         ("frozen-guard-report", [artifact_flag, artifact]) if artifact_flag == "--artifact" => {
             anneal_frozen_guard_readback::frozen_guard_report(Path::new(artifact))
+        }
+        ("regression-report", [artifact_flag, artifact]) if artifact_flag == "--artifact" => {
+            anneal_regression_readback::regression_report(Path::new(artifact))
         }
         ("status", [faults_flag, last_flag, last, vault_flag, vault])
             if faults_flag == "--faults" && last_flag == "--last" && vault_flag == "--vault" =>

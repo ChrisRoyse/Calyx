@@ -5,12 +5,14 @@ use calyx_core::{CalyxError, Clock, Constellation, Result};
 use serde::{Deserialize, Serialize};
 
 mod codec;
+mod regression;
 mod storage;
 mod update;
 
 pub use codec::{
     decode_head_rows, decode_online_head, encode_online_head, head_key, head_state_artifact_key,
 };
+pub use regression::{HeadRegressionRollback, RegressionUpdateOutcome};
 pub use storage::{AsterHeadStorage, HeadStorage};
 pub use update::{HeadPromotionGate, HeadShadowProposal};
 

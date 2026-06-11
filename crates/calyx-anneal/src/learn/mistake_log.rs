@@ -190,6 +190,10 @@ where
         Ok(last_entries(&self.read_state()?.entries, n))
     }
 
+    pub fn get(&self, seq: u64) -> Result<Option<MistakeEntry>> {
+        Ok(self.read_state()?.entries.get(&seq).cloned())
+    }
+
     pub fn readback_recent(&self, n: usize) -> Result<Vec<MistakeReadback>> {
         let mut rows = decode_readback_rows(self.storage.scan()?)?;
         if n < rows.len() {
