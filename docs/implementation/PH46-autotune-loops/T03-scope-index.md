@@ -44,6 +44,13 @@ and logged to the Anneal Ledger.
 - **Readback:** `calyx anneal autotune-report --scope index --slot 0` — prints current `ef`, `M`, `quant_bits`, trial count, last promotion.
 - **Prove:** run 50 simulated searches for `slot_0` with arm B (`ef=128, quant_bits=8`) consistently beating arm A (`ef=64, quant_bits=16`) on latency AND with `bits_after ≈ bits_before`; confirm `autotune-report` shows arm B as incumbent; Ledger has `AutotunePromote` entry.
 
+## Implementation Notes
+
+- `scope_index.rs` is a thin facade; config/key serialization lives in `scope_index/types.rs`, and Ledger/bandit persistence adapters live in `scope_index/writer.rs` to preserve the ≤500-line gate.
+- Slot keys are stable labels: `index:slot_0000`, hashed with the existing `shape_key_hash`/`bandit_key` path so `anneal_bandit` readback can find the physical row.
+- PH16 cache rows use op `index`, shape `[slot_id]`, dtype `ann`, device `index:slot_####`; the config fields are duplicated into `BestConfig.extra` for human readback.
+- `quant_win_check` is the quant-safety gate. Latency and recall gates are enforced by `IndexScopeTuner::on_search_for_arm` because the required signature carries only config + bits inputs.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder

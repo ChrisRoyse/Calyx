@@ -1,7 +1,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_anneal::{AnnealLedgerAction, decode_anneal_ledger_payload};
+use calyx_anneal::{
+    AnnealLedgerAction, bandit_key, decode_anneal_ledger_payload, decode_config_bandit,
+    index_slot_label, shape_key_hash,
+};
+use calyx_aster::cf::ColumnFamily;
+use calyx_aster::sst::SstReader;
+use calyx_core::SlotId;
 use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use serde_json::{Value, json};
 
@@ -9,18 +15,23 @@ use crate::ledger_store::AsterLedgerCfStore;
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let request = ReportRequest::parse(args)?;
-    if request.scope != "forge" {
-        return Err("autotune-report currently supports --scope forge".to_string());
-    }
-    let cache = read_cache(&request.cache)?;
-    let promotions = read_promotions(&request.vault, request.last)?;
+    request.validate()?;
+    let cache = read_cache(&request.cache, &request)?;
+    let promotions = read_promotions(&request.vault, &request)?;
+    let bandit = request
+        .shape_key()
+        .map(|shape_key| read_bandit_status(&request.vault, &shape_key))
+        .transpose()?;
     let report = json!({
         "scope": request.scope,
+        "slot": request.slot,
+        "shape_key": request.shape_key(),
         "cache": request.cache.display().to_string(),
         "vault": request.vault.display().to_string(),
         "last": request.last,
         "cache_bytes": cache.bytes,
         "cache_entries": cache.entries,
+        "bandit": bandit,
         "recent_promotions": promotions,
     });
     println!(
@@ -35,6 +46,7 @@ struct ReportRequest {
     cache: PathBuf,
     vault: PathBuf,
     last: usize,
+    slot: Option<u16>,
 }
 
 impl ReportRequest {
@@ -43,6 +55,7 @@ impl ReportRequest {
         let mut cache = None;
         let mut vault = None;
         let mut last = None;
+        let mut slot = None;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -67,6 +80,15 @@ impl ReportRequest {
                     );
                     idx += 2;
                 }
+                "--slot" => {
+                    slot = Some(
+                        args.get(idx + 1)
+                            .ok_or_else(|| "--slot requires a value".to_string())?
+                            .parse::<u16>()
+                            .map_err(|error| format!("invalid --slot: {error}"))?,
+                    );
+                    idx += 2;
+                }
                 other => return Err(format!("unknown autotune-report arg: {other}")),
             }
         }
@@ -79,7 +101,27 @@ impl ReportRequest {
             cache: cache.ok_or_else(|| "autotune-report requires --cache".to_string())?,
             vault: vault.ok_or_else(|| "autotune-report requires --vault".to_string())?,
             last,
+            slot,
         })
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        match self.scope.as_str() {
+            "forge" => Ok(()),
+            "index" if self.slot.is_some() => Ok(()),
+            "index" => Err("autotune-report --scope index requires --slot".to_string()),
+            other => Err(format!(
+                "autotune-report currently supports --scope forge or --scope index, got {other}"
+            )),
+        }
+    }
+
+    fn shape_key(&self) -> Option<String> {
+        match self.scope.as_str() {
+            "forge" => None,
+            "index" => self.slot.map(|slot| index_slot_label(SlotId::new(slot))),
+            _ => None,
+        }
     }
 }
 
@@ -88,18 +130,49 @@ struct CacheReport {
     entries: Value,
 }
 
-fn read_cache(path: &Path) -> Result<CacheReport, String> {
+fn read_cache(path: &Path, request: &ReportRequest) -> Result<CacheReport, String> {
     let bytes =
         fs::read(path).map_err(|error| format!("read cache {}: {error}", path.display()))?;
     let json: Value = serde_json::from_slice(&bytes)
         .map_err(|error| format!("parse cache {}: {error}", path.display()))?;
+    let entries = json.get("entries").cloned().unwrap_or_else(|| json!([]));
     Ok(CacheReport {
         bytes: bytes.len(),
-        entries: json.get("entries").cloned().unwrap_or_else(|| json!([])),
+        entries: filter_cache_entries(entries, request),
     })
 }
 
-fn read_promotions(vault: &Path, last: usize) -> Result<Vec<Value>, String> {
+fn filter_cache_entries(entries: Value, request: &ReportRequest) -> Value {
+    let Some(list) = entries.as_array() else {
+        return json!([]);
+    };
+    Value::Array(
+        list.iter()
+            .filter(|entry| cache_entry_matches(entry, request))
+            .cloned()
+            .collect(),
+    )
+}
+
+fn cache_entry_matches(entry: &Value, request: &ReportRequest) -> bool {
+    match request.scope.as_str() {
+        "forge" => entry["key"]["op"].as_str() != Some("index"),
+        "index" => {
+            let Some(slot) = request.slot else {
+                return false;
+            };
+            entry["key"]["op"].as_str() == Some("index")
+                && entry["key"]["shape"]
+                    .as_array()
+                    .and_then(|shape| shape.first())
+                    .and_then(Value::as_u64)
+                    == Some(u64::from(slot))
+        }
+        _ => false,
+    }
+}
+
+fn read_promotions(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, String> {
     let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
     let mut promotions = Vec::new();
     for row in store.scan().map_err(|error| error.to_string())? {
@@ -109,8 +182,8 @@ fn read_promotions(vault: &Path, last: usize) -> Result<Vec<Value>, String> {
         }
         let anneal =
             decode_anneal_ledger_payload(&entry.payload).map_err(|error| error.to_string())?;
-        if anneal.action == AnnealLedgerAction::AutotunePromote
-            && anneal.artifact_id.starts_with("forge:")
+        if promotion_matches(&anneal.artifact_id, request)
+            && anneal.action == AnnealLedgerAction::AutotunePromote
         {
             promotions.push(json!({
                 "seq": row.seq,
@@ -120,10 +193,78 @@ fn read_promotions(vault: &Path, last: usize) -> Result<Vec<Value>, String> {
             }));
         }
     }
-    if last < promotions.len() {
-        promotions.drain(0..promotions.len() - last);
+    if request.last < promotions.len() {
+        promotions.drain(0..promotions.len() - request.last);
     }
     Ok(promotions)
+}
+
+fn promotion_matches(artifact_id: &str, request: &ReportRequest) -> bool {
+    match request.scope.as_str() {
+        "forge" => artifact_id.starts_with("forge:"),
+        "index" => request
+            .slot
+            .map(|slot| artifact_id == index_slot_label(SlotId::new(slot)))
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+fn read_bandit_status(vault: &Path, shape_key: &str) -> Result<Value, String> {
+    let cf = ColumnFamily::AnnealBandit;
+    let shape_hash = shape_key_hash(shape_key);
+    let wanted_key = bandit_key(shape_hash);
+    let mut physical_rows = Vec::new();
+    let mut latest = None;
+    for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
+        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
+        for row in reader.iter().map_err(|error| error.to_string())? {
+            let bandit = decode_config_bandit(&row.value).map_err(|error| error.to_string())?;
+            let status = bandit
+                .status(shape_hash)
+                .map_err(|error| error.to_string())?;
+            let readback = json!({
+                "file": file.display().to_string(),
+                "key_hex": hex(&row.key),
+                "value_hex": hex(&row.value),
+                "value_len": row.value.len(),
+                "status": status,
+            });
+            if row.key == wanted_key {
+                latest = Some(readback.clone());
+            }
+            physical_rows.push(readback);
+        }
+    }
+    let status = latest.as_ref().and_then(|row| row.get("status")).cloned();
+    Ok(json!({
+        "cf": cf.name(),
+        "shape_key": shape_key,
+        "shape_key_hash": hex(&shape_hash),
+        "key_hex": hex(&wanted_key),
+        "found": latest.is_some(),
+        "incumbent": status.as_ref().and_then(|value| value.get("incumbent")).cloned(),
+        "arm_count": status.as_ref().and_then(|value| value.get("arm_count")).cloned(),
+        "arms": status.as_ref().and_then(|value| value.get("arms")).cloned(),
+        "row": latest,
+        "physical_row_count": physical_rows.len(),
+        "physical_rows": physical_rows,
+    }))
+}
+
+fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    if !dir.exists() {
+        return Ok(files);
+    }
+    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
+            files.push(path);
+        }
+    }
+    files.sort();
+    Ok(files)
 }
 
 fn hex(bytes: &[u8]) -> String {
