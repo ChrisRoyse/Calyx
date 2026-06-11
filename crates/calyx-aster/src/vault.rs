@@ -17,7 +17,7 @@ mod temporal_xterm;
 
 use crate::cf::{CfRouter, ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
 use crate::dedup::{AnchorConflictResult, DedupPolicy, check_anchor_conflict};
-use crate::mvcc::{CfRead, Freshness, ReaderLease, Snapshot, VersionedCfStore};
+use crate::mvcc::{CfRead, Freshness, ReadBarrier, ReaderLease, Snapshot, VersionedCfStore};
 use crate::vault::durable::DurableVault;
 use crate::vault::ledger_hook::AsterLedgerHook;
 use crate::wal::TornTail;
@@ -259,6 +259,18 @@ where
         }
         self.rows.flush_all_cfs()?;
         Ok(())
+    }
+
+    pub fn install_read_barrier(&self, barrier: ReadBarrier) {
+        self.rows.install_read_barrier(barrier);
+    }
+
+    pub fn remove_read_barrier(&self, id: &str) -> bool {
+        self.rows.remove_read_barrier(id)
+    }
+
+    pub fn read_barriers(&self) -> Vec<ReadBarrier> {
+        self.rows.read_barriers()
     }
 }
 

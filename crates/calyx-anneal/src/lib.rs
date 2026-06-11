@@ -27,6 +27,13 @@ pub use heal::rebuild::{
     CALYX_ASTER_SNAPSHOT_UNAVAILABLE, GuardProfileRebuilder, KernelIndexRebuilder, MvccSnapshot,
     RebuildOutcome, RebuildPriority, RebuildScheduler, RebuildTarget, Rebuilder,
 };
+pub use heal::restore::{
+    BASE_SHARD_CHECKSUM_TAG, BaseFaultEvent, BaseShard, CALYX_ANNEAL_ALERT_WRITE_FAILED,
+    CALYX_ANNEAL_CHECKSUM_INVALID_ROW, CALYX_ANNEAL_RESTORE_FAILED, RestoreCommand, RestoreConfig,
+    RestoreOutcome, ShardId, alert_operator, attempt_restore, base_shard_checksum,
+    clear_reads_on_range, fail_reads_on_range, install_recorded_read_barriers, load_base_shards,
+    record_base_shard_checksum, verify_base_shards, write_base_restored_event,
+};
 pub use heal::triggers::{
     AssayMetrics, CALYX_ANNEAL_FAULT_INVALID_EVENT, ChecksumDetector, ChecksumEntry, EndpointUrl,
     FaultDetector, FaultEvent, FaultKind, FaultMonitor, HttpProbe, LensProbeDetector, ProbeStatus,

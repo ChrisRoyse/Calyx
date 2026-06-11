@@ -26,6 +26,9 @@ pub(super) fn component_details(component: &ComponentKind) -> AnnealFaultLedgerD
         ComponentKind::KernelIndex { scope } => {
             details("kernel_index", component_hash).with_scope_hash(scope)
         }
+        ComponentKind::BaseShard { shard_id } => {
+            details("base_shard", component_hash).with_shard_id(shard_id)
+        }
     }
 }
 
@@ -91,12 +94,14 @@ fn details(kind: &str, component_hash: String) -> AnnealFaultLedgerDetails {
         slot_id: None,
         lens_id: None,
         scope_hash: None,
+        shard_id: None,
     }
 }
 
 trait DetailExt {
     fn with_slot(self, slot_id: SlotId) -> Self;
     fn with_lens(self, lens_id: LensId) -> Self;
+    fn with_shard_id(self, value: &str) -> Self;
     fn with_scope_hash(self, scope: &ScopeId) -> Self;
 }
 
@@ -108,6 +113,11 @@ impl DetailExt for AnnealFaultLedgerDetails {
 
     fn with_lens(mut self, lens_id: LensId) -> Self {
         self.lens_id = Some(lens_id.to_string());
+        self
+    }
+
+    fn with_shard_id(mut self, value: &str) -> Self {
+        self.shard_id = Some(value.to_string());
         self
     }
 

@@ -1,7 +1,9 @@
 //! In-memory MVCC row table used to define the cross-CF snapshot contract.
 
 use crate::cf::{CfRouter, ColumnFamily};
-use crate::mvcc::{Freshness, ReaderLease, SeqAllocator, Snapshot};
+use crate::mvcc::{
+    Freshness, ReadBarrier, ReaderLease, SeqAllocator, Snapshot, read_barrier::first_blocking,
+};
 use crate::sst::SstSummary;
 use calyx_core::{Clock, Result, Seq};
 use std::collections::HashMap;
@@ -41,6 +43,7 @@ pub struct VersionedCfStore {
     next_lease_id: AtomicU64,
     rows: RwLock<RowTable>,
     router: RwLock<Option<CfRouter>>,
+    read_barriers: RwLock<Vec<ReadBarrier>>,
 }
 
 impl VersionedCfStore {
@@ -50,6 +53,7 @@ impl VersionedCfStore {
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(HashMap::new()),
             router: RwLock::new(None),
+            read_barriers: RwLock::new(Vec::new()),
         }
     }
 
@@ -59,6 +63,7 @@ impl VersionedCfStore {
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(HashMap::new()),
             router: RwLock::new(Some(router)),
+            read_barriers: RwLock::new(Vec::new()),
         }
     }
 
@@ -148,6 +153,32 @@ impl VersionedCfStore {
             .map_or(Ok(Vec::new()), CfRouter::flush_pending)
     }
 
+    pub fn install_read_barrier(&self, barrier: ReadBarrier) {
+        let mut barriers = self
+            .read_barriers
+            .write()
+            .expect("mvcc read barriers poisoned");
+        barriers.retain(|existing| existing.id() != barrier.id());
+        barriers.push(barrier);
+    }
+
+    pub fn remove_read_barrier(&self, id: &str) -> bool {
+        let mut barriers = self
+            .read_barriers
+            .write()
+            .expect("mvcc read barriers poisoned");
+        let before = barriers.len();
+        barriers.retain(|existing| existing.id() != id);
+        barriers.len() != before
+    }
+
+    pub fn read_barriers(&self) -> Vec<ReadBarrier> {
+        self.read_barriers
+            .read()
+            .expect("mvcc read barriers poisoned")
+            .clone()
+    }
+
     /// Reads one CF/key at the pinned sequence.
     pub fn read_at(
         &self,
@@ -157,6 +188,7 @@ impl VersionedCfStore {
         clock: &dyn Clock,
     ) -> Result<Option<Vec<u8>>> {
         snapshot.ensure_live(clock)?;
+        self.ensure_unbarriered(cf, key)?;
         let table = self.rows.read().expect("mvcc row table poisoned");
         Ok(table
             .get(&(cf, key.to_vec()))
@@ -171,6 +203,9 @@ impl VersionedCfStore {
         clock: &dyn Clock,
     ) -> Result<Vec<Option<Vec<u8>>>> {
         snapshot.ensure_live(clock)?;
+        for read in reads {
+            self.ensure_unbarriered(read.cf, &read.key)?;
+        }
         let table = self.rows.read().expect("mvcc row table poisoned");
         Ok(reads
             .iter()
@@ -201,7 +236,21 @@ impl VersionedCfStore {
             })
             .collect::<Vec<_>>();
         rows.sort_by(|left, right| left.0.cmp(&right.0));
+        for (key, _) in &rows {
+            self.ensure_unbarriered(cf, key)?;
+        }
         Ok(rows)
+    }
+
+    fn ensure_unbarriered(&self, cf: ColumnFamily, key: &[u8]) -> Result<()> {
+        let barriers = self
+            .read_barriers
+            .read()
+            .expect("mvcc read barriers poisoned");
+        if let Some(error) = first_blocking(&barriers, cf, key) {
+            return Err(error);
+        }
+        Ok(())
     }
 }
 
