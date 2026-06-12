@@ -1,0 +1,60 @@
+[package]
+name = "calyx-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+calyx-aster = { path = "../crates/calyx-aster" }
+calyx-core = { path = "../crates/calyx-core" }
+calyx-mcp = { path = "../crates/calyx-mcp" }
+calyx-sextant = { path = "../crates/calyx-sextant" }
+libfuzzer-sys = "0.4"
+serde_json = "1"
+
+[[bin]]
+name = "aster_sst_decode"
+path = "fuzz_targets/aster_sst_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "aster_wal_replay"
+path = "fuzz_targets/aster_wal_replay.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "aster_manifest_decode"
+path = "fuzz_targets/aster_manifest_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "query_parse"
+path = "fuzz_targets/query_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lens_output_decode"
+path = "fuzz_targets/lens_output_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mcp_jsonrpc_decode"
+path = "fuzz_targets/mcp_jsonrpc_decode.rs"
+test = false
+doc = false
+bench = false
