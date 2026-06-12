@@ -41,10 +41,7 @@ fn pipeline_recall_headroom_aiwonder_fsv() {
     let narrow = engine.search(&pipeline_query(1)).unwrap();
     let wide = engine.search(&pipeline_query(3)).unwrap();
 
-    let server = spawn_reranker(
-        "HTTP/1.1 200 OK",
-        r#"{"scores":[1.0,0.5,0.25],"zeroizing_ok":true}"#,
-    );
+    let server = spawn_reranker("HTTP/1.1 200 OK", r#"{"scores":[1.0,0.5,0.25]}"#);
     let reranked = engine
         .search_with_reranker(
             &pipeline_query(3),

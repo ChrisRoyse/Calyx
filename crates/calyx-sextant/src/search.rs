@@ -132,7 +132,7 @@ impl SearchEngine {
             .unwrap_or_else(|| default_strategy(&slots));
         if reranker.is_some() && !matches!(strategy, FusionStrategy::Pipeline) {
             return Err(crate::error::sextant_error(
-                crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
+                crate::error::CALYX_SEXTANT_QUERY_SHAPE,
                 "reranker search requires Pipeline fusion",
             ));
         }
@@ -274,12 +274,6 @@ impl SearchEngine {
             query.text.clone(),
             candidates,
         ))?;
-        if !response.zeroizing_ok {
-            return Err(crate::error::sextant_error(
-                crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
-                "reranker did not report request-scoped candidate handling",
-            ));
-        }
         let mut scored = hits
             .iter()
             .cloned()
@@ -313,7 +307,7 @@ impl SearchEngine {
     ) -> Result<Vec<RerankCandidateText>> {
         if stage1_slots.is_empty() {
             return Err(crate::error::sextant_error(
-                crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
+                crate::error::CALYX_SEXTANT_RERANKER_NO_CANDIDATES,
                 "pipeline rerank requires sparse stage-1 candidate text",
             ));
         }
@@ -328,7 +322,7 @@ impl SearchEngine {
             }
             texts.push(RerankCandidateText::new(text.ok_or_else(|| {
                 crate::error::sextant_error(
-                    crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
+                    crate::error::CALYX_SEXTANT_RERANKER_NO_CANDIDATES,
                     format!("candidate text missing for {}", hit.cx_id),
                 )
             })?));

@@ -9,6 +9,9 @@ pub use calyx_core::{
 pub const CALYX_SEXTANT_PLAN_UNBOUNDED: &str = "CALYX_SEXTANT_PLAN_UNBOUNDED";
 pub const CALYX_SEXTANT_PLAN_COST_EXCEEDED: &str = "CALYX_SEXTANT_PLAN_COST_EXCEEDED";
 pub const CALYX_SEXTANT_RERANKER_TIMEOUT: &str = "CALYX_SEXTANT_RERANKER_TIMEOUT";
+pub const CALYX_SEXTANT_RERANKER_ENDPOINT: &str = "CALYX_SEXTANT_RERANKER_ENDPOINT";
+pub const CALYX_SEXTANT_RERANKER_PROTOCOL: &str = "CALYX_SEXTANT_RERANKER_PROTOCOL";
+pub const CALYX_SEXTANT_RERANKER_NO_CANDIDATES: &str = "CALYX_SEXTANT_RERANKER_NO_CANDIDATES";
 pub const CALYX_SEXTANT_NO_LENSES: &str = "CALYX_SEXTANT_NO_LENSES";
 pub const CALYX_SEXTANT_SLOT_ALREADY_REGISTERED: &str = "CALYX_SEXTANT_SLOT_ALREADY_REGISTERED";
 pub const CALYX_SEXTANT_SLOT_MISSING: &str = "CALYX_SEXTANT_SLOT_MISSING";
@@ -38,6 +41,15 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         CALYX_SEXTANT_PLAN_UNBOUNDED => "tighten k/ef/slot limits or raise operator cap",
         CALYX_SEXTANT_PLAN_COST_EXCEEDED => "reduce k, ef, participating slots, or index scope",
         CALYX_SEXTANT_RERANKER_TIMEOUT => "retry after reranker health is restored",
+        CALYX_SEXTANT_RERANKER_ENDPOINT => {
+            "configure a resolvable http:// reranker endpoint (resident TEI :8089)"
+        }
+        CALYX_SEXTANT_RERANKER_PROTOCOL => {
+            "inspect the reranker response; the server must return one finite score per candidate"
+        }
+        CALYX_SEXTANT_RERANKER_NO_CANDIDATES => {
+            "supply at least one request-scoped candidate text to rerank"
+        }
         CALYX_SEXTANT_NO_LENSES => "register at least one slot index before planning or searching",
         CALYX_SEXTANT_SLOT_ALREADY_REGISTERED => {
             "use a distinct SlotId or rebuild the existing slot"
