@@ -4,7 +4,6 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Clock, CxId, Result};
 use serde::{Deserialize, Serialize};
 
-pub const CALYX_ORACLE_INSUFFICIENT: &str = "CALYX_ORACLE_INSUFFICIENT";
 pub const MIN_TIME_PREDICTION_OCCURRENCES: usize = 3;
 
 const FULL_CONFIDENCE_SUPPORT: f32 = 12.0;

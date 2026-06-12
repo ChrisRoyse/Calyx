@@ -10,9 +10,11 @@ publish.workspace = true
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-paths = { path = "../calyx-paths" }
+calyx-ward = { path = "../calyx-ward" }
 serde.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
 calyx-loom = { path = "../calyx-loom" }
+proptest.workspace = true
 serde_json.workspace = true
