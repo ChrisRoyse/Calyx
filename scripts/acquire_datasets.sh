@@ -54,10 +54,10 @@ export CALYX_DATASET_PYTHON="$VENV_DIR/bin/python3"
 REGISTERED=(
   acquire_dedup.sh           # PH69 T06 - QQP / PAWS (#556, landed via #605)
   acquire_classification.sh  # PH69 T03 - AG News / IMDB / SST-2 / banking77 / DBpedia-14 (#553)
+  acquire_code_oracle.sh     # PH69 T04 - SWE-bench Lite / HumanEval / MBPP-sanitized (#554)
 )
 PENDING=(
   "acquire_retrieval.sh        PH69 T02 (#552) - BEIR / MS MARCO / NQ / TREC-COVID"
-  "acquire_code_oracle.sh      PH69 T04 (#554) - SWE-bench Lite / HumanEval / MBPP"
   "acquire_graph_kernel.sh     PH69 T05 (#555) - WordNet / ConceptNet / Wiktionary / Cora / ogbn"
   "acquire_audio.sh            PH69 T07 (#557) - VoxCeleb / LibriSpeech / RAVDESS / IEMOCAP"
   "acquire_image.sh            PH69 T07 (#557) - ImageNet-subset / CIFAR-100 / COCO"
