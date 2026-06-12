@@ -49,11 +49,10 @@ pub use loom_adapter::AsterAssayMaterializationGate;
 pub use n_eff::{NeffReport, stable_rank};
 pub use nmi::{NmiReport, partitioned_histogram_nmi};
 pub use periodicity::{
-    AutocorrelationReport, DEFAULT_FAP_PERMUTATIONS, DEFAULT_MAX_PEAKS,
-    DEFAULT_PERIODICITY_SEED, DEFAULT_PERIODOGRAM_OVERSAMPLE, MAX_ACF_SAMPLES,
-    MAX_FREQUENCY_GRID, MIN_PERIODICITY_SAMPLES, PeriodicityReport, PeriodogramConfig,
-    PeriodogramPeak, SIGNIFICANT_PEAK_FAP, autocorrelation, bin_event_counts, lomb_scargle,
-    lomb_scargle_with_anchor, lomb_scargle_with_config,
+    AutocorrelationReport, DEFAULT_FAP_PERMUTATIONS, DEFAULT_MAX_PEAKS, DEFAULT_PERIODICITY_SEED,
+    DEFAULT_PERIODOGRAM_OVERSAMPLE, MAX_ACF_SAMPLES, MAX_FREQUENCY_GRID, MIN_PERIODICITY_SAMPLES,
+    PeriodicityReport, PeriodogramConfig, PeriodogramPeak, SIGNIFICANT_PEAK_FAP, autocorrelation,
+    bin_event_counts, lomb_scargle, lomb_scargle_with_anchor, lomb_scargle_with_config,
 };
 pub use projection::{ProjectionReport, project_cpu, project_gpu, target_projection_dim};
 pub use recurrence_anchor::{

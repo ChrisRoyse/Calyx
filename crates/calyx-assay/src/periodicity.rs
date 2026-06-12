@@ -148,7 +148,14 @@ pub fn lomb_scargle_with_config(
     let centered: Vec<f64> = values.iter().map(|value| value - stats.mean).collect();
     let powers = gls_powers(times, &centered, stats.variance, &frequencies);
     let mut peaks = ranked_peaks(&frequencies, &powers, config.max_peaks);
-    assign_permutation_fap(times, &centered, stats.variance, &frequencies, &mut peaks, config)?;
+    assign_permutation_fap(
+        times,
+        &centered,
+        stats.variance,
+        &frequencies,
+        &mut peaks,
+        config,
+    )?;
     Ok(PeriodicityReport {
         frequencies,
         powers,
@@ -298,8 +305,11 @@ fn validate_series(times: &[f64], values: &[f64]) -> Result<SeriesStats> {
     }
     let span = times[times.len() - 1] - times[0];
     let mean = values.iter().sum::<f64>() / values.len() as f64;
-    let variance =
-        values.iter().map(|value| (value - mean).powi(2)).sum::<f64>() / values.len() as f64;
+    let variance = values
+        .iter()
+        .map(|value| (value - mean).powi(2))
+        .sum::<f64>()
+        / values.len() as f64;
     if variance <= 0.0 {
         return Err(CalyxError::assay_low_signal(
             "values have zero variance; no periodic signal is measurable",
@@ -380,7 +390,8 @@ fn gls_powers(times: &[f64], centered: &[f64], variance: f64, frequencies: &[f64
             if determinant.abs() < f64::EPSILON {
                 return 0.0;
             }
-            let power = (ss * yc * yc + cc * ys * ys - 2.0 * cs * yc * ys) / (variance * determinant);
+            let power =
+                (ss * yc * yc + cc * ys * ys - 2.0 * cs * yc * ys) / (variance * determinant);
             power.clamp(0.0, 1.0)
         })
         .collect()
@@ -440,8 +451,7 @@ fn assign_permutation_fap(
             .iter()
             .filter(|&&max_power| max_power >= peak.power)
             .count();
-        peak.false_alarm_probability =
-            (exceed + 1) as f64 / (config.fap_permutations + 1) as f64;
+        peak.false_alarm_probability = (exceed + 1) as f64 / (config.fap_permutations + 1) as f64;
     }
     Ok(())
 }
