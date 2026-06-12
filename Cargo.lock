@@ -323,6 +323,11 @@ dependencies = [
 [[package]]
 name = "calyx-mcp"
 version = "0.1.0"
+dependencies = [
+ "calyx-core",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "calyx-mincut"
