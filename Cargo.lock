@@ -352,6 +352,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-ledger",
+ "calyx-lodestar",
  "calyx-loom",
  "calyx-paths",
  "calyx-testkit",
