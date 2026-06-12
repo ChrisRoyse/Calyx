@@ -53,12 +53,12 @@ export CALYX_DATASET_PYTHON="$VENV_DIR/bin/python3"
 # (no silent caps). Move a script from PENDING to REGISTERED as its card lands.
 REGISTERED=(
   acquire_dedup.sh           # PH69 T06 - QQP / PAWS (#556, landed via #605)
+  acquire_retrieval.sh       # PH69 T02 - BEIR scifact / MS MARCO / NQ / TREC-COVID (#552)
   acquire_classification.sh  # PH69 T03 - AG News / IMDB / SST-2 / banking77 / DBpedia-14 (#553)
   acquire_code_oracle.sh     # PH69 T04 - SWE-bench Lite / HumanEval / MBPP-sanitized (#554)
   acquire_graph_kernel.sh    # PH69 T05 - WordNet / ConceptNet / Cora / ogbn-arxiv (#555; wiktionary deferred loudly)
 )
 PENDING=(
-  "acquire_retrieval.sh        PH69 T02 (#552) - BEIR / MS MARCO / NQ / TREC-COVID"
   "acquire_audio.sh            PH69 T07 (#557) - VoxCeleb / LibriSpeech / RAVDESS / IEMOCAP"
   "acquire_image.sh            PH69 T07 (#557) - ImageNet-subset / CIFAR-100 / COCO"
   "acquire_temporal_adversarial.sh  PH69 T08 (#558) - temporal / injection / persona / drift"
