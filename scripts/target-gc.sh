@@ -25,13 +25,16 @@ fi
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Resolve the target dir the same way cargo does: CARGO_TARGET_DIR wins, else
-# the repo's own target/. Error out rather than guess if neither resolves.
+# cargo-sweep takes the PROJECT dir (it runs `cargo metadata` to find the target
+# dir, honoring CARGO_TARGET_DIR) — NOT the target dir itself. Resolve the target
+# dir the same way cargo does for reporting, export it so metadata agrees, and
+# hand cargo-sweep the workspace root.
 if [[ -n "${CARGO_TARGET_DIR:-}" ]]; then
   target_dir="$CARGO_TARGET_DIR"
 else
   target_dir="$repo_root/target"
 fi
+export CARGO_TARGET_DIR="$target_dir"
 
 if [[ ! -d "$target_dir" ]]; then
   echo "ERROR: target dir does not exist: $target_dir" >&2
@@ -45,10 +48,15 @@ if ! command -v cargo-sweep >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ ! -f "$repo_root/Cargo.toml" ]]; then
+  echo "ERROR: no Cargo.toml at workspace root: $repo_root" >&2
+  exit 1
+fi
+
 maxsize="${CALYX_TARGET_MAXSIZE:-40GB}"
 
 before="$(du -sh "$target_dir" 2>/dev/null | cut -f1)"
 echo "[target-gc] $(date -u +%FT%TZ) target=$target_dir before=$before limit=$maxsize"
-cargo sweep --maxsize "$maxsize" "$target_dir"
+cargo sweep --maxsize "$maxsize" "$repo_root"
 after="$(du -sh "$target_dir" 2>/dev/null | cut -f1)"
 echo "[target-gc] $(date -u +%FT%TZ) after=$after"
