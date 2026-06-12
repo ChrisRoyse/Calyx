@@ -11,14 +11,21 @@
 #
 # Source of Truth: $CALYX_DATASET_ROOT/MANIFEST.md (catalog, one row per dataset)
 # and $CALYX_DATASET_ROOT/<name>/manifest.json (per-file sha256/bytes/rows).
-# The dataset-level sha256 is the digest of sorted per-file hash lines
+# The dataset-level sha256 is the digest of the sorted per-file hash lines
 # "<sha256>  <relpath>\n" over all data files (everything except manifest.json,
-# hidden entries, and *.tmp), so any added/removed/edited byte changes it.
+# hidden entries, and *.tmp) - the standard signed-manifest / sorted-file-list
+# pattern, so any added/removed/edited byte changes the dataset sha256.
+#
+# Fail-closed: any mismatch prints an exact CALYX_* code on stderr and exits 1.
+# No fallbacks: a malformed catalog/manifest is an error, never skipped.
 set -euo pipefail
 
 SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 DATASET_ROOT="${CALYX_DATASET_ROOT:-/zfs/archive/calyx/datasets}"
 
+# Interpreter resolution (documented order, hard error at the end - no silent skip):
+# 1. $CALYX_DATASET_PYTHON  2. dataset-root tools venv  3. python3 on PATH
+# 4. python on PATH if it is a Python 3.
 resolve_python() {
   if [[ -n "${CALYX_DATASET_PYTHON:-}" ]]; then
     echo "$CALYX_DATASET_PYTHON"
@@ -28,6 +35,8 @@ resolve_python() {
     echo "$DATASET_ROOT/.dataset_tools_venv/bin/python3"
     return
   fi
+  # Probe-execute each candidate: on Windows a `python3` App-Store stub exists
+  # on PATH but is not a real interpreter, so `command -v` alone is not proof.
   local candidate
   for candidate in python3 python; do
     if "$candidate" -c 'import sys; raise SystemExit(0 if sys.version_info[0] == 3 else 1)' \
@@ -62,15 +71,17 @@ PREAMBLE = [
     "<!-- template: name=dataset dir under $CALYX_DATASET_ROOT | source=URL or",
     "     huggingface:<org>/<repo> <config> | revision=pinned commit/version |",
     "     sha256=digest of sorted '<file_sha256>  <relpath>' lines over all data",
-    "     files | rows=sum of counted records (csv/tsv header excluded; jsonl",
-    "     non-empty lines; parquet num_rows) | bytes=sum of data-file sizes |",
-    "     license=upstream license | tests=what it tests.",
+    "     files | rows=sum of record counts of counted files (csv/tsv: records",
+    "     minus header, jsonl: non-empty lines, parquet: num_rows) | bytes=sum",
+    "     of data-file sizes | license=upstream license | tests=what it tests.",
     "     Rows are machine-written by scripts/verify_dataset.sh register - do",
     "     not hand-edit. -->",
 ]
-COLUMNS = ["name", "source", "revision", "sha256", "rows", "bytes", "license", "tests"]
 ROW_KINDS = {".csv": "csv", ".tsv": "tsv", ".jsonl": "jsonl", ".parquet": "parquet"}
+COLUMNS = ["name", "source", "revision", "sha256", "rows", "bytes", "license", "tests"]
 
+# 2 GiB - 1: the largest value accepted on every platform (Windows C long is
+# 32-bit, so sys.maxsize raises OverflowError there).
 csv.field_size_limit(2**31 - 1)
 
 
@@ -88,6 +99,7 @@ def sha256_file(path):
 
 
 def data_files(ds_dir):
+    """Sorted relative POSIX paths of all data files (deterministic walk)."""
     found = []
     for path in ds_dir.rglob("*"):
         if not path.is_file():
@@ -119,26 +131,27 @@ def count_rows(path, kind):
         except ImportError:
             fail(
                 "CALYX_DATASET_TOOLCHAIN_MISSING",
-                f"{path}: pyarrow required for parquet row counts - run scripts/acquire_datasets.sh "
-                "or set CALYX_DATASET_PYTHON to a venv with pyarrow",
+                f"{path}: pyarrow required for parquet row counts - "
+                "run scripts/acquire_datasets.sh once or set CALYX_DATASET_PYTHON to a venv with pyarrow",
             )
         return pq.ParquetFile(path).metadata.num_rows
     fail("CALYX_DATASET_MANIFEST_INVALID", f"{path}: unknown row_kind {kind!r}")
 
 
 def dataset_digest(entries):
+    """entries: [(relpath, file_sha256)] - digest of the sorted hash lines."""
     body = "".join(f"{sha}  {rel}\n" for rel, sha in sorted(entries))
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
 def scan_dataset(name, rows_from, require_match=False):
+    """Recompute every per-file fact from the bytes on disk."""
     ds_dir = ROOT / name
     if not ds_dir.is_dir():
         fail("CALYX_DATASET_NOT_FOUND", f"dataset dir missing: {ds_dir}")
     rels = data_files(ds_dir)
     if not rels:
         fail("CALYX_DATASET_NOT_FOUND", f"dataset dir has no data files: {ds_dir}")
-    matched = set()
     if rows_from:
         matched = {rel for rel in rels for glob in rows_from if fnmatch.fnmatch(rel, glob)}
         if require_match and not matched:
@@ -170,6 +183,7 @@ def aggregates(files):
 
 
 def read_catalog():
+    """MANIFEST.md -> (preamble_lines, {name: row_dict}). Strict parse."""
     if not MANIFEST_MD.is_file():
         fail("CALYX_DATASET_MANIFEST_INVALID", f"catalog missing: {MANIFEST_MD}")
     lines = MANIFEST_MD.read_text(encoding="utf-8").splitlines()
@@ -194,7 +208,6 @@ def read_catalog():
 
 
 def write_catalog(preamble, rows):
-    ROOT.mkdir(parents=True, exist_ok=True)
     lines = (preamble or PREAMBLE) + [HEADER, SEPARATOR]
     for name in sorted(rows):
         row = rows[name]
@@ -212,9 +225,8 @@ def read_manifest_json(name):
         manifest = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as err:
         fail("CALYX_DATASET_MANIFEST_INVALID", f"{path}: invalid JSON: {err}")
-    required = ("schema_version", "name", "source", "revision", "license", "tests",
-                "sha256", "rows", "bytes", "files")
-    for key in required:
+    for key in ("schema_version", "name", "source", "revision", "license", "tests",
+                "sha256", "rows", "bytes", "files"):
         if key not in manifest:
             fail("CALYX_DATASET_MANIFEST_INVALID", f"{path}: missing key {key!r}")
     if manifest["name"] != name:
@@ -283,7 +295,9 @@ def verify_all():
             verify_one(name)
         except SystemExit:
             failures.append(name)
-    on_disk = sorted(p.name for p in ROOT.iterdir() if p.is_dir() and not p.name.startswith("."))
+    on_disk = sorted(
+        p.name for p in ROOT.iterdir() if p.is_dir() and not p.name.startswith(".")
+    )
     unregistered = [name for name in on_disk if name not in rows]
     if unregistered:
         print(
@@ -355,6 +369,10 @@ main()
 PY
 }
 
+# --- self-test: synthetic known-I/O fixture + edge-case battery -------------
+# Known input -> hand-computed expected output (the 2+2=4 discipline). The
+# constants below were computed by hand from the literal fixture bytes; if the
+# digest algorithm ever drifts, this fails loudly.
 EXPECTED_FILE_SHA="5690d17928402728fe857961dddf327a04a2e45c42bfa1d2721a8859d3c096b4"
 EXPECTED_DS_SHA="ed59b3298d0d2c5c56bfbb30c2438f87c54859c1ee785ea6020649421564e8d3"
 
@@ -396,19 +414,19 @@ self_test() {
     --license "n/a (synthetic)" --tests "verify_dataset.sh self-test"
   show_sot "after register"
 
-  step "hand-computed expected hashes match the registered row"
+  step "hand-computed expected hashes match the registered row (2+2=4 check)"
   grep -q "| $EXPECTED_DS_SHA | 3 | 32 |" "$manifest" \
     || { echo "SELF-TEST FAILED: MANIFEST row != hand-computed digest/rows/bytes" >&2; grep synthetic_fixture "$manifest" >&2; exit 1; }
   grep -q "\"sha256\": \"$EXPECTED_FILE_SHA\"" "$tmp_root/synthetic_fixture/manifest.json" \
     || { echo "SELF-TEST FAILED: manifest.json file sha != hand-computed" >&2; exit 1; }
 
-  step "verify passes and is idempotent"
+  step "verify passes and is idempotent (same stdout + exit twice)"
   "$SCRIPT_PATH" synthetic_fixture > "$tmp_root/run1.log"
   "$SCRIPT_PATH" synthetic_fixture > "$tmp_root/run2.log"
   cmp "$tmp_root/run1.log" "$tmp_root/run2.log"
   grep -q '^\[OK\] synthetic_fixture ' "$tmp_root/run1.log"
 
-  step "edge 1: tampered MANIFEST.md sha256"
+  step "edge 1: tampered MANIFEST.md sha256 -> CALYX_DATASET_CHECKSUM_MISMATCH"
   show_sot "before tamper"
   sed -i.bak "s/$EXPECTED_DS_SHA/0000000000000000000000000000000000000000000000000000000000000000/" "$manifest"
   show_sot "after tamper"
@@ -416,35 +434,35 @@ self_test() {
   mv "$manifest.bak" "$manifest"
   show_sot "after restore"
 
-  step "edge 2: correct sha256 but wrong MANIFEST.md rows"
+  step "edge 2: correct sha256 but wrong MANIFEST.md rows -> CALYX_DATASET_ROWCOUNT_MISMATCH"
   show_sot "before tamper"
   sed -i.bak "s/| 3 | 32 |/| 999 | 32 |/" "$manifest"
   show_sot "after tamper"
   expect_fail CALYX_DATASET_ROWCOUNT_MISMATCH synthetic_fixture
   mv "$manifest.bak" "$manifest"
 
-  step "edge 3: data bytes tampered on disk"
+  step "edge 3: data bytes tampered on disk -> CALYX_DATASET_CHECKSUM_MISMATCH"
   echo "4,delta" >> "$tmp_root/synthetic_fixture/data.csv"
   echo "--- data.csv after tamper ---"; cat "$tmp_root/synthetic_fixture/data.csv"
   expect_fail CALYX_DATASET_CHECKSUM_MISMATCH synthetic_fixture
   printf 'id,value\n1,alpha\n2,beta\n3,gamma\n' > "$tmp_root/synthetic_fixture/data.csv"
   "$SCRIPT_PATH" synthetic_fixture >/dev/null
 
-  step "edge 4: dataset dir missing"
+  step "edge 4: dataset dir missing -> CALYX_DATASET_NOT_FOUND"
   mv "$tmp_root/synthetic_fixture" "$tmp_root/.hidden_fixture"
   expect_fail CALYX_DATASET_NOT_FOUND synthetic_fixture
   mv "$tmp_root/.hidden_fixture" "$tmp_root/synthetic_fixture"
 
-  step "edge 5: unknown dataset name"
+  step "edge 5: unknown dataset name -> CALYX_DATASET_NOT_FOUND"
   expect_fail CALYX_DATASET_NOT_FOUND no_such_dataset
 
-  step "edge 6: corrupt manifest.json"
+  step "edge 6: corrupt manifest.json -> CALYX_DATASET_MANIFEST_INVALID"
   cp "$tmp_root/synthetic_fixture/manifest.json" "$tmp_root/mj.bak"
   echo '{not json' > "$tmp_root/synthetic_fixture/manifest.json"
   expect_fail CALYX_DATASET_MANIFEST_INVALID synthetic_fixture
   mv "$tmp_root/mj.bak" "$tmp_root/synthetic_fixture/manifest.json"
 
-  step "edge 7: unregistered dataset dir fails ALL coverage"
+  step "edge 7: unregistered dataset dir fails ALL coverage -> CALYX_DATASET_NOT_FOUND"
   mkdir -p "$tmp_root/orphan_dataset"
   echo "data" > "$tmp_root/orphan_dataset/blob.bin"
   expect_fail CALYX_DATASET_NOT_FOUND ALL
