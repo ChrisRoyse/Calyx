@@ -1,12 +1,14 @@
 use super::ColumnFamily;
 use crate::compaction::TieringPolicy;
 use crate::memtable::Memtable;
+use crate::resource::ResourceCounters;
 use crate::sst::level::SstLevel;
 use crate::sst::{SstEntry, SstSummary};
 use calyx_core::{CalyxError, Result, SlotId};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 const DEFAULT_MEMTABLE_BYTES: usize = 8 * 1024 * 1024;
 
@@ -18,6 +20,7 @@ pub struct CfRouter {
     levels: HashMap<ColumnFamily, SstLevel>,
     next_file: HashMap<ColumnFamily, u64>,
     memtable_byte_cap: usize,
+    resource_counters: Arc<ResourceCounters>,
 }
 
 impl CfRouter {
@@ -52,6 +55,7 @@ impl CfRouter {
             levels: HashMap::new(),
             next_file: HashMap::new(),
             memtable_byte_cap,
+            resource_counters: Arc::new(ResourceCounters::default()),
         };
         for cf in ColumnFamily::STATIC {
             router.ensure_cf(cf)?;
@@ -68,12 +72,23 @@ impl CfRouter {
                 return Err(error);
             }
             self.flush_cf(cf)?;
-            self.memtable_mut(cf).put(key, value)?;
+            if let Err(retry_error) = self.memtable_mut(cf).put(key, value) {
+                if retry_error.code == "CALYX_BACKPRESSURE" {
+                    self.resource_counters.record_memtable_rejected();
+                }
+                return Err(retry_error);
+            }
+            self.resource_counters.record_memtable_absorbed();
         }
         if self.memtable_mut(cf).needs_flush() {
             self.flush_cf(cf)?;
         }
         Ok(())
+    }
+
+    /// Shares the backpressure counters this router increments.
+    pub fn resource_counters(&self) -> Arc<ResourceCounters> {
+        Arc::clone(&self.resource_counters)
     }
 
     pub fn flush_cf(&mut self, cf: ColumnFamily) -> Result<SstSummary> {
