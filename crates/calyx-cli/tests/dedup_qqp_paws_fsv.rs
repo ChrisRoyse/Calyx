@@ -100,7 +100,10 @@ fn engine_near_threshold_and_temporal_edges() {
         None,
     )
     .expect("ingest below");
-    assert!(matches!(below, DedupResult::New(_)), "0.89 < tau: {below:?}");
+    assert!(
+        matches!(below, DedupResult::New(_)),
+        "0.89 < tau: {below:?}"
+    );
     let above = ingest_at(
         &vault,
         &text_input("edge-above", vector_at_cos(0.91)),
