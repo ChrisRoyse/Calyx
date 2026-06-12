@@ -164,9 +164,9 @@ active recurrence SST BLAKE3
 segment BLAKE3 `8e6c0e9b295e6d543bcac38657e5952ef137540e2525cadcd3a79d59e8b3f941`,
 and `BLAKE3SUMS.txt` BLAKE3
 `46daedec8313759540c29130d6fcc880e40fad9e48f83bc98f63a47e62a2e2fe`.
-Remaining PH41 follow-ups before PH42 are #627 CLI compact recovery-safe naming,
-#628 dedup undo after rolled recurrence summary FSV, and #626 anchor-conflict
-never-merge property coverage.
+PH41 follow-ups #627 CLI compact recovery-safe naming, #628 dedup undo after
+rolled recurrence summary FSV, and #626 anchor-conflict never-merge property
+coverage are closed and FSV-backed.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -198,14 +198,14 @@ never-merge property coverage.
 | T07 | `dedup_audit` (per-slot cos, reversible, Ledger-logged) | DONE / FSV #385 |
 | T08 | FSV: near-but-distinct NOT merged; conflicting-anchor stays separate; recurring → series (reversible) | DONE / FSV #386 |
 
-## Tracked PH41 follow-ups
+## Closed PH41 follow-ups
 
 #578 public recurrence read APIs, #621 recurrence concurrency hardening, and
 #617 durable policy validation parity are implemented and FSV-backed. #622
 settled the WAL-failure-code contract as `CALYX_DISK_PRESSURE`, and #620
 implements recurrence rollup tombstone/physical reclaim; both are FSV-backed.
-Remaining PH41 follow-ups before PH42 are CLI compact recovery safety,
-dedup-undo-after-rollup FSV, and anchor-conflict property work:
+CLI compact recovery safety #627, dedup-undo-after-rollup FSV #628, and
+anchor-conflict property work #626 are also closed and FSV-backed:
 
 | Issue | Scope |
 |---|---|

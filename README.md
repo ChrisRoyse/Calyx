@@ -6,14 +6,16 @@ Calyx is the universal association-native database described by the PRDs in
 All build, test, and verification work happens on aiwonder under
 `/home/croyse/calyx`. A local checkout is for authoring only.
 
-## Status (2026-06-10; Stage 9 PH41 follow-ups active)
+## Status (2026-06-12; Stage 9 PH40-PH42 closeout current)
 
 Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
 Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
-including PH33 raw-vs-tuned recall #331 and kernel_answer anchor search #332.
-The Lodestar compact-kernel ≈1% figure is a raw design target, not a universal
-measured guarantee; current acceptance is the measured final/tuned recall,
-kernel size, and `pass_mode` readback in the PH33/PH34 artifacts.
+including PH33 raw-vs-tuned recall #331, kernel_answer anchor search #332,
+the #629 Lodestar caveat, the #632 helper split that preceded more
+real-corpus work, and the #630/#631 real-corpus readbacks. The Lodestar
+compact-kernel ≈1% figure is a raw design target, not a universal measured
+guarantee; current acceptance is the measured final/tuned recall, kernel size,
+and `pass_mode` readback in the PH33/PH34 artifacts.
 Stage 7 Ledger (PH35-PH36) is closed and FSV-signed-off after PH35
 #242-#248, PH35 failure-atomicity hardening #345, PH36 T01 #249,
 range-bound signature hardening #347, and real Aster `merkle-root --vault`
@@ -116,18 +118,17 @@ and
 `/home/croyse/calyx/data/fsv-issue274-ph39-t06-20260609-8e29b51-v2-cpu-ort126`,
 and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
 
-Stage 9 Temporal & Dedup is now the active engine frontier. PH40 is complete
-under S9 epic #361, with T01-T06 #373-#378 and post-sweep hardening #615
-FSV-signed-off; PH40 follow-ups #616, #618, and #619 remain tracked for
-overfetch, negative fusion-weight validation, and public periodic scorer
-scope. PH41 T01 #379 through T08 #386 are complete and FSV-signed-off; post-T06
-hardening #623 and public recurrence read API follow-up #578 are complete and
-FSV-signed-off. PH41 recurrence occurrence allocation concurrency hardening
-#621 is complete and FSV-backed. PH41 WAL recovery/open serialization #624 is
-complete and FSV-backed. PH41 durable policy validation parity #617 is
-complete and FSV-backed. PH41 WAL failure error-code contract #622 is complete
-and FSV-backed. PH41 follow-ups #620 and #626 remain tracked before PH42; PH42
-readback-surface gate #625 is open before PH42 can be signed off.
+Stage 9 Temporal & Dedup is current through the PH40-PH42 closeout gates. PH40
+is complete under S9 epic #361, with T01-T06 #373-#378, post-sweep hardening
+#615, and follow-ups #616/#618/#619 FSV-signed-off. PH41 T01 #379 through T08
+#386 are complete and FSV-signed-off; post-T06 hardening #623, public
+recurrence read API follow-up #578, recurrence occurrence allocation
+concurrency hardening #621, WAL recovery/open serialization #624, durable
+policy validation parity #617, WAL failure error-code contract #622, recurrence
+rollup tombstone/reclaim #620, anchor-conflict property coverage #626, CLI
+compact recovery-safe naming #627, and dedup undo-after-rollup FSV #628 are
+complete and FSV-backed. PH42 readback-surface gate #625 is also complete and
+FSV-backed; later PH42 gaps are tracked separately in GitHub issues.
 Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
 pending. Ledger PH35 is
 FSV-signed-off, including the #345

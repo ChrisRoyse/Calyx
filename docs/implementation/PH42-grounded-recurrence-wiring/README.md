@@ -38,11 +38,11 @@ PH42 wires those grounded recurrence signals into existing engine surfaces while
 using an O(1) base-CF frequency anchor path for hot consumers instead of
 recomputing or scanning recurrence series.
 
-Entry discipline: PH42 is not the next active work while PH40 follow-ups
-#616/#618/#619 and PH41 follow-ups #620/#626 remain open, unless GitHub issue
-state records an explicit decision to defer them out of the PH42 entry gate.
-PH42 readback-surface gate #625 must also be resolved before PH42 can be signed
-off.
+Entry discipline update (2026-06-12): GitHub issue state records PH40
+follow-ups #616/#618/#619, PH41 follow-ups #620/#626/#627/#628, and PH42
+readback-surface gate #625 closed and FSV-backed. Those stale gates no longer
+block PH42 sign-off; newer PH42 gaps such as #634/#635/#636 are tracked
+separately.
 
 ## Deliverables
 
@@ -85,11 +85,11 @@ The phase is done only when these claims are byte-proven on aiwonder:
    constellation does not. Persist the kernel-weight report and read
    `calyx readback kernel-weights --artifact <kernel-weights.json>`.
 
-#625 owns the cross-cutting readback-surface gate for these FSV claims. Tests
+#625 closed the cross-cutting readback-surface gate for these FSV claims. Tests
 may trigger PH42 computations, but the verdict must be persisted JSON,
 Aster/Ledger/CF/WAL bytes, or CLI readback output with BLAKE3-indexed artifacts.
-The #625 CLI contract is artifact-backed until individual PH42 engine cards add
-native vault/domain readers:
+The #625 CLI contract remains the artifact-backed bridge until individual PH42
+engine cards add native vault/domain readers:
 
 `calyx readback <surface> --artifact <json> [--field <path>]`
 
@@ -123,5 +123,5 @@ surfaces, missing required fields, and unsupported schema versions with
 - **Surprise `-log2(p)` definition:** the surprise term is the negative log probability of the event given its recurrence rate: `-log2(frequency / total_events)`. It must NEVER increase stored constellation bits; anomaly scoring is retrieval-only and never stored as a lens weight or information score. Audit every call site.
 - **Cross-crate circular dependencies:** recurrence signals flow from `calyx-aster` as the data source to consumers. No consumer crate imports another consumer crate.
 - **Sextant recurrence is read-only:** `calyx-sextant` may read Aster Base/Recurrence CFs for AP-60 recurrence evidence, but it must never write recurrence state. `TemporalPolicy.recurrence_boost = None` must skip those reads, and missing/invalid recurrence rows must fail closed with `CALYX_SEXTANT_RECURRENCE_READ_ERROR`.
-- **PH41 readiness:** PH41 recurrence series/frequency storage, #578 public read APIs, and #621 concurrency-safe allocation are available. Remaining PH41 follow-ups #620/#626 still need issue-state resolution before PH42 starts unless explicitly deferred.
+- **PH41 readiness:** PH41 recurrence series/frequency storage, #578 public read APIs, and #621 concurrency-safe allocation are available. PH41 follow-ups #620/#626/#627/#628 are closed and FSV-backed; newer PH42 gaps #634/#635/#636 are tracked separately.
 - **Grounded anchor immutability:** frequency is a grounded anchor (A2), a count of what happened. It must be read from the `frequency` field in the base CF written by PH41, not recomputed from the series on every hot-path call.

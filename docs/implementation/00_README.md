@@ -142,10 +142,11 @@ fail-closed behavior #330 is FSV-backed under
 Raw-vs-tuned recall evidence #331 and anchor-aware answer search #332 are
 FSV-backed under `/home/croyse/calyx/data/fsv-issue331-raw-vs-tuned-recall-20260608`
 and `/home/croyse/calyx/data/fsv-issue332-kernel-answer-anchor-search-20260608`.
-The #331 readback is the binding Stage 6 caveat: the raw compact-kernel target
-did not pass as a universal ≈1% claim; signed PH33 acceptance is measured
-final/tuned recall with explicit `raw_recall`, `tuned_recall`, and
-`pass_mode`.
+The #629 caveat closes the Stage 6 docs gap around that readback: the raw
+compact-kernel target did not pass as a universal ≈1% claim; signed PH33
+acceptance is measured final/tuned recall with explicit `raw_recall`,
+`tuned_recall`, and `pass_mode`. #632 split the near-limit Lodestar FSV helpers
+before the #630/#631 real-corpus readbacks, and all three are FSV-backed.
 
 - **Stage 0** (PH00–PH04): `calyx-core` — IDs, enums, the full `CALYX_*` error
   catalog, the constellation model structs, engine traits, the injected `Clock`.
@@ -263,10 +264,10 @@ the Stage 8 exit readback under
 manifest SHA-256
 `5849dada4934955e4e60ef83588adfff4782297bbc78d7d7a319d42a03d5b58c`.
 
-**Remaining:** Open post-Ward implementation proceeds at **Stage 9 / PH41
-follow-ups #627/#628/#626** plus PH40 follow-ups #616/#618/#619, then
-PH42-PH72.
-PH42 readback-surface gate #625 must be resolved before PH42 can be signed off.
+**Remaining:** Stage 9 PH40/PH41 follow-ups #616/#618/#619/#620/#626/#627/#628
+and PH42 readback-surface gate #625 are closed and FSV-backed. Post-Ward
+implementation proceeds beyond PH42 into PH43-PH72, with any later gaps tracked
+as GitHub issues.
 PH41 public recurrence read API follow-up #578 and recurrence concurrency
 hardening #621 are FSV-backed.
 PH41 T01 #379 is FSV-backed at

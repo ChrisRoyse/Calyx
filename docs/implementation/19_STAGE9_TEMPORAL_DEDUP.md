@@ -11,10 +11,10 @@ system role:** the sense of time.
 
 ## PH40 — Temporal fusion + AP-60 post-retrieval boost
 - **Status.** Complete and FSV-backed on aiwonder: T01-T06 #373-#378 plus
-  post-sweep AP-60 final-surface hardening #615. Open follow-ups #616, #618,
-  and #619 track bounded overfetch before window filtering, negative
-  `FusionWeights` validation, and public periodic scorer scope/query-time
-  semantics.
+  post-sweep AP-60 final-surface hardening #615 and follow-ups #616/#618/#619.
+  Those follow-ups are closed and FSV-backed for bounded overfetch before
+  window filtering, negative `FusionWeights` validation, and public periodic
+  scorer scope/query-time semantics.
 - **Objective.** E2/E3/E4 bias retrieval ranking gently — never dominant, never
   during ANN retrieval.
 - **Deps.** PH24 (search), PH22 (E2/E3/E4 lenses).
@@ -71,8 +71,8 @@ system role:** the sense of time.
   PH41 WAL failure error-code contract #622 is complete and FSV-backed at
   `/home/croyse/calyx/data/fsv-issue622-recurrence-wal-failure-20260610-bf0d380`.
   The stable code remains PRD 18's `CALYX_DISK_PRESSURE`; no
-  `CALYX_WAL_WRITE_ERROR` was added. Remaining PH41 follow-ups before PH42 are
-  #620 and #626.
+  `CALYX_WAL_WRITE_ERROR` was added. PH41 follow-ups #620/#626/#627/#628 are
+  closed and FSV-backed.
 - **Objective.** Deduplicate by multi-content-slot `Gτ` agreement; collapse
   recurrences into one event + a timestamp series; configurable at creation.
 - **Deps.** PH37 (Gτ), PH09 (ingest).
@@ -92,11 +92,9 @@ system role:** the sense of time.
 - **Axioms/PRD.** A28, A3, `25 §4/§5`, `17 §7.1`.
 
 ## PH42 — Grounded recurrence wiring across engines
-- **Status.** Not the next active work while PH40 follow-ups #616/#618/#619 and
-  PH41 follow-ups #620/#626 remain open. Start PH42 only after those follow-ups
-  have FSV-backed issue closures or an explicit issue-state
-  decision. PH42 readback-surface gate #625 must also be resolved before PH42
-  can be signed off.
+- **Status.** PH40 follow-ups #616/#618/#619, PH41 follow-ups
+  #620/#626/#627/#628, and PH42 readback-surface gate #625 are closed and
+  FSV-backed. Newer PH42 gaps such as #634/#635/#636 are tracked separately.
 - **Objective.** Compute recurrence intelligence once (on ingest) and flow it to
   every engine — optimal use system-wide.
 - **Deps.** PH41, PH28 (Assay), PH33 (kernel).

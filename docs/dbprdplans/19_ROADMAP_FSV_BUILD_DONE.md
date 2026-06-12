@@ -2,11 +2,13 @@
 
 Phased build, verification discipline, performance targets, mechanical completion predicate. Scope is **Vault-only** (`15`): Calyx replaces the SQLite/`sqlite-vec` Vaults; PostgreSQL is untouched, so there is no control-plane phase. Front-loads the durable-storage core before the customer-facing Vault swap.
 
-> **Current status (2026-06-10; Stage 9 PH41 follow-ups active): P0-P7 are DONE,
-> PH40 #373-#378 plus #615 are FSV-backed, and PH41 T01-T08 #379-#386 plus #623,
-> #578, and #621 are FSV-backed.** Stages 0-8 (PH00-PH39) are implemented, pushed, and FSV-signed-off on
+> **Current status (2026-06-12; Stage 9 PH40-PH42 closeout current): P0-P7 are DONE,
+> PH40 #373-#378 plus #615/#616/#618/#619 are FSV-backed, PH41 T01-T08
+> #379-#386 plus #623/#578/#621/#624/#617/#622/#620/#626/#627/#628 are
+> FSV-backed, and PH42 readback-surface gate #625 is FSV-backed.** Stages 0-8 (PH00-PH39) are implemented, pushed, and FSV-signed-off on
 > aiwonder. Stage 6 Lodestar is closed through #240 plus readiness follow-ups
-> #331/#332; Stage 7 Ledger is closed through #256; Stage 8 Ward is closed
+> #331/#332, docs caveat #629, helper split #632, and real-corpus readbacks
+> #630/#631; Stage 7 Ledger is closed through #256; Stage 8 Ward is closed
 > through exit #280 after #258-#274, #275-#279, #349, #350, #351, #352, #353,
 > #354, #355, #356, #357, #358, and #359. The #280 exit root is
 > `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`; full
@@ -35,9 +37,9 @@ Phased build, verification discipline, performance targets, mechanical completio
 > `/home/croyse/calyx/data/fsv-issue640-embedded-scale-exactfast-20260611T055130Z`
 > and proves 1e6-cx release-mode SingleLens/RRF-6/pipeline p99 budgets plus
 > exact known-I/O readback; PH70 still owns the real-corpus recall delta gate.
-> Remaining PH41 follow-ups are #620/#626; PH40 follow-ups
-> #616/#618/#619 also remain tracked before Stage 9 is stable. PH42
-> readback-surface gate #625 is open before PH42 can be signed off.
+> PH40 follow-ups #616/#618/#619, PH41 follow-ups #620/#626/#627/#628, and PH42
+> readback-surface gate #625 are closed and FSV-backed. Newer PH42 gaps such as
+> #634/#635/#636 are tracked separately from those closeout gates.
 > phase status:
 > `docs/implementation/03_PHASE_MAP.md` and
 > GitHub context issue #23.

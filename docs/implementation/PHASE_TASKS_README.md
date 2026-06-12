@@ -53,8 +53,8 @@ for the structure under `docs/implementation/PHnn-*/`.
 > `/home/croyse/calyx/data/fsv-issue617-dedup-panel-validation-20260610-07884d9`.
 > PH41 recurrence WAL-failure error-code contract #622 is FSV-backed at
 > `/home/croyse/calyx/data/fsv-issue622-recurrence-wal-failure-20260610-bf0d380`.
-> Remaining PH41 follow-ups are #620/#626; PH42 readback-surface
-> gate #625 is open before PH42 can be signed off.
+> PH41 follow-ups #620/#626/#627/#628 and PH42 readback-surface
+> gate #625 are closed and FSV-backed.
 > Stage 6 card-level unchecked checklist rows are historical prompts unless
 > contradicted by code/readback; the authoritative completion state is #240 and
 > the per-card `STATUS: DONE / FSV-signed-off` notes.
