@@ -296,7 +296,7 @@ fn series_with_times_rollup(
 }
 
 fn occurrences_from_times(times: impl IntoIterator<Item = i64>) -> Vec<Occurrence> {
-    let occurrences = times
+    times
         .into_iter()
         .enumerate()
         .map(|(index, time)| Occurrence {
@@ -304,6 +304,5 @@ fn occurrences_from_times(times: impl IntoIterator<Item = i64>) -> Vec<Occurrenc
             t_k: EpochSecs(time),
             context: OccurrenceContext { bytes: Vec::new() },
         })
-        .collect::<Vec<_>>();
-    occurrences
+        .collect()
 }
