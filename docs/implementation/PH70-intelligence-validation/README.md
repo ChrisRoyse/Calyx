@@ -43,6 +43,7 @@ real-qrels multi-lens recall delta exit gate.
 | `scripts/validate_assay_bits.sh` | Ingest AG News/banking77; compute per-lens MI + differentiation contract; read `bits_about` CF rows |
 | `scripts/validate_lodestar_kernel.sh` | Build kernel on ≥3 graph corpora; read kernel-only recall vs full-recall metrics |
 | `scripts/validate_ward_guard.sh` | Calibrate τ on clean set; run injection corpus; read per-slot guard verdict counts |
+| `crates/calyx-ward/src/polis.rs` | Validate Polis 21-slot civic synthetic personas; read guard verdicts + tie outcomes |
 | `scripts/validate_oracle_sufficiency.sh` | Ingest SWE-bench Lite; run Oracle sufficiency gate; read `I(panel;oracle)` and deficit |
 | `scripts/validate_anneal_j.sh` | Run 1e6-query soak; read J growth curve over time; capture Grafana screenshot |
 | `scripts/ph70_evidence_bundle.sh` | Collect all readback outputs + screenshots into a GitHub issue evidence bundle |
@@ -59,6 +60,7 @@ real-qrels multi-lens recall delta exit gate.
 | T06 | Anneal J growth curve validation — real corpus soak | T01 or parallel |
 
 | T07 | Living concert FSV - A31 engines operating together on one corpus loop | T01 or parallel |
+| T08 | Polis civic-panel constellation/guard FSV - synthetic personas | T04 or parallel |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -73,6 +75,9 @@ reading the persisted numbers/bytes on aiwonder (not a harness return value):
    more from PH69); read from the `kernel_recall` metric file on aiwonder.
 4. Ward: injection-block ≥99% at calibrated FAR on the prompt-injection corpus;
    read from the `guard_verdicts` CF row / metric file.
+4b. Polis civic: 21-slot civic panel guard over synthetic personas; planted tie
+   pairs pass all required slots, planted non-ties fail the intended slots; read
+   guard verdicts and tie outcomes from the persisted proof artifact.
 5. Oracle: `I(panel;oracle)` ≈0.46 deficit on SWE-bench Lite form-only panel →
    sufficiency-refusal fires; read from the `oracle_sufficiency` metric.
 6. Anneal: `J` rises over a real corpus soak; `p99 ↓ ≥ 20%`; no recall regression;

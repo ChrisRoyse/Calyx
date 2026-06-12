@@ -8,6 +8,7 @@ pub mod guard;
 pub mod identity;
 pub mod ledger;
 pub mod novelty;
+pub mod polis;
 pub mod profile;
 pub mod query;
 pub mod required;
@@ -47,6 +48,11 @@ pub use novelty::{
     Domain, NovelId, NoveltyHandler, NoveltyRecord, NoveltySignal, NoveltyStatus, SurpriseScore,
     VaultSink, classify_novelty, novel_regions, novelty_action_for_signal, overdue_recurrence_scan,
     surprise_bits,
+};
+pub use polis::{
+    CALYX_POLIS_EMPTY_PERSONA_SET, CALYX_POLIS_INVALID_AXIS, CALYX_POLIS_SLOT_COUNT_MISMATCH,
+    CALYX_POLIS_TIE_MISMATCH, CIVIC_SLOT_COUNT, CIVIC_TAU, CivicPersona, CivicPersonaPair,
+    PolisCivicError, PolisCivicProof, evaluate_polis_civic_pairs, synthetic_polis_persona_pairs,
 };
 pub use profile::{
     CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction, SlotCalibrationMeta,
