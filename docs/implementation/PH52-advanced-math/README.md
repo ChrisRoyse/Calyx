@@ -18,6 +18,8 @@ CI; fail-closed below quorum. Complements (never replaces) the grounded MFVS ker
 |---|---|---|
 | Spectral centrality + GFT (graph Fourier transform) | `26 §2` | `calyx-mincut` / Forge |
 | Energy pattern-completion (standalone math layer) | `26 §3` | `calyx-oracle` (via `complete.rs`) |
+| Periodicity (Lomb-Scargle + autocorrelation) on recurrence streams | `26 §4` | `calyx-assay` |
+| Inter-event hazard ("overdue" anomaly) + CUSUM rate change-point | `26 §4` | `calyx-assay` |
 | Transfer entropy `T(A→B) = I(B_future; A_past | B_past)` on recurrence streams | `26 §4` | `calyx-assay` |
 | Total correlation `TC(Φ)` / `n_eff` | `26 §5` | `calyx-assay` |
 | Bayesian posteriors (Gamma-Poisson rate, Beta-Bernoulli consistency) | `26 §6` | `calyx-assay` |
@@ -57,6 +59,9 @@ span three crates (`calyx-assay`, `calyx-mincut`, `calyx-oracle`).
 |---|---|---|
 | `src/spectral.rs` | `calyx-mincut` | Eigenvector centrality + Lanczos eigensolver; GFT project/reconstruct; spectral gap |
 | `src/periodicity.rs` | `calyx-assay` | Floating-mean Lomb-Scargle periodogram, event-count binning, slotted autocorrelation, seeded permutation FAP |
+| `src/recurrence_hazard.rs` | `calyx-assay` | Gamma-renewal inter-event hazard → overdue flag; Page CUSUM on the gap series → rate change-point |
+| `src/special_fn.rs` | `calyx-assay` | Shared deterministic special functions: regularised incomplete gamma + Lanczos `ln Γ` |
+| `tests/recurrence_hazard_fsv.rs` | `calyx-assay` | Planted-synthetic + vault-readback FSV for hazard/overdue and CUSUM change-point |
 | `src/transfer_entropy.rs` | `calyx-assay` | `T(A→B) = I(B_future; A_past | B_past)` on recurrence streams; reuses KSG |
 | `src/total_correlation.rs` | `calyx-assay` | `TC(Φ) = ΣH(slot_k) − H(Φ)`; interaction information; `n_eff` from TC |
 | `src/bayesian.rs` | `calyx-assay` | Gamma-Poisson rate posterior; Beta-Bernoulli consistency posterior; credible intervals |
@@ -69,6 +74,7 @@ span three crates (`calyx-assay`, `calyx-mincut`, `calyx-oracle`).
 |---|---|---|
 | T01 | Spectral centrality + GFT (Lanczos + Forge eigensolve) | PH31 graph |
 | T01b | Lomb-Scargle + autocorrelation periodicity build card | PH42 recurrence streams |
+| T01c | Inter-event hazard (overdue) + CUSUM rate change-point | PH42 recurrence streams |
 | T02 | Transfer entropy on recurrence streams (reuse KSG) | PH28, PH42 |
 | T03 | Total correlation `n_eff` (TC + interaction information) | PH28 |
 | T04 | Bayesian posteriors: Gamma-Poisson + Beta-Bernoulli | PH42 |
@@ -80,6 +86,7 @@ span three crates (`calyx-assay`, `calyx-mincut`, `calyx-oracle`).
 Each new number proven against a planted synthetic (read computed vs known):
 1. **Spectral:** planted community in synthetic graph -> spectral centrality ranks community hub correctly.
 1b. **Periodicity:** planted 7.0-unit recurrence stream -> Lomb-Scargle dominant period recovers within +/-5%, false-alarm probability is significant, and autocorrelation independently reports the fundamental lag.
+1c. **Hazard / CUSUM:** planted 100s cadence that stops -> overdue hazard fires at the expected elapsed (survival ≤ α) and not before; planted 5× rate shift -> CUSUM localises the change-point at the planted occurrence index with the correct direction; a steady cadence fires no false alarm.
 2. **Transfer entropy:** planted causal A→B (A always precedes B) → `T(A→B) > T(B→A)` + CI
 3. **Total correlation / `n_eff`:** `n_eff` from TC < N (some redundancy) for a known-redundant
    panel; interaction information positive for a known-synergistic triple

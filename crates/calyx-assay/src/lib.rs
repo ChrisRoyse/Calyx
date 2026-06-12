@@ -16,7 +16,9 @@ pub mod nmi;
 pub mod periodicity;
 pub mod projection;
 pub mod recurrence_anchor;
+pub mod recurrence_hazard;
 mod samples;
+mod special_fn;
 pub mod store;
 pub mod stratified;
 pub mod sufficiency;
@@ -66,6 +68,13 @@ pub use recurrence_anchor::{
     measure_outcome_agreement, measure_outcome_agreement_for, oracle_self_consistency,
     oracle_self_consistency_from_agreements, outcome_agreement_from_observations,
     outcome_occurrence_context,
+};
+pub use recurrence_hazard::{
+    CV_DETERMINISTIC, CusumChangePoint, CusumConfig, CusumReport, DEFAULT_CUSUM_SLACK_K,
+    DEFAULT_CUSUM_THRESHOLD_H, DEFAULT_MIN_SIGMA_FRAC, DEFAULT_OVERDUE_ALPHA, InterEventHazardReport,
+    MIN_CUSUM_GAPS, MIN_HAZARD_GAPS, RateShift, inter_event_hazard, inter_event_hazard_from_series,
+    inter_event_hazard_with_alpha, recurrence_rate_cusum, recurrence_rate_cusum_from_series,
+    recurrence_rate_cusum_with_config,
 };
 pub use store::{AssayCacheKey, AssayRow, AssayStore, AssaySubject};
 pub use stratified::{StratifiedBits, StratumBits, stratified_bits};
