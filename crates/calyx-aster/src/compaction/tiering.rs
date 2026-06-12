@@ -4,7 +4,7 @@ use calyx_core::{CalyxError, Result, SlotId};
 use std::collections::BTreeSet;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Hot/cold physical storage tier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +108,13 @@ impl TieringPolicy {
         file_name: &str,
         entries: impl IntoIterator<Item = (&'a [u8], &'a [u8])>,
     ) -> Result<TierWrite> {
+        // A non-canonical name would be invisible to every fail-closed
+        // recovery/scan pass, so refuse to create it in the first place.
+        if crate::storage_names::classify_sst(Path::new(file_name))?.is_none() {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "tiered SST file name {file_name} is not a canonical Aster SST name"
+            )));
+        }
         let placement = self.place_cf(cf, panel_version);
         let dir = placement.absolute_dir();
         fs::create_dir_all(&dir)

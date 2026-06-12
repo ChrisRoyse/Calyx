@@ -13,6 +13,7 @@ pub mod plain_graph;
 pub mod recurrence;
 pub mod resource;
 pub mod sst;
+pub mod storage_names;
 pub mod vault;
 pub mod wal;
 
