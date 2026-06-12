@@ -301,7 +301,7 @@ FIXTURE_SHA="66d4f653d0a47b52396f9b526ac633dcb2633cbd4993e5adbf0204c37247982c"
 self_test() {
   local tmp_root
   tmp_root="$(mktemp -d)"
-  trap 'rm -rf "$tmp_root"' EXIT
+  trap "rm -rf '$tmp_root'" EXIT
   export CALYX_DATASET_ROOT="$tmp_root"
   DATASET_ROOT="$tmp_root"
   local manifest="$tmp_root/MANIFEST.md"
