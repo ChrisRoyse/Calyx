@@ -2,6 +2,7 @@
 
 pub mod autotune;
 mod backend;
+pub mod compression_report;
 pub mod cpu;
 #[cfg(feature = "cuda")]
 pub mod cuda;
@@ -21,6 +22,11 @@ pub use autotune::{
 pub use backend::{
     Backend, BackendKind, BestConfig, CUDA_EXACT_TOPK_MAX_K, DeviceInfo,
     FORGE_DEFERRED_BACKEND_OPS, FORGE_SHIPPED_BACKEND_OPS, Result,
+};
+pub use compression_report::{
+    COMPRESSION_REPORT_SCHEMA_VERSION, CompressionReport, CompressionReportInput,
+    CompressionSlotMeasurement, CompressionSlotReport, CompressionTotals, IntelligenceDeltaReport,
+    KernelCompressionMeasurement, KernelCompressionReport, compression_report,
 };
 pub use cpu::CpuBackend;
 #[cfg(feature = "cuda")]
