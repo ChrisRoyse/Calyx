@@ -1,7 +1,14 @@
 //! Oracle consequence prediction and completion primitives.
 
+mod error;
 mod prd22;
 mod time_prediction;
+mod types;
+
+pub use error::{
+    CALYX_ORACLE_DOMAIN_NOT_FOUND, CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT,
+    CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE, OracleError,
+};
 
 pub use prd22::{
     ConsequenceExpansion, OracleCeiling, OraclePrediction, SuperIntelligenceEvidence,
@@ -9,10 +16,14 @@ pub use prd22::{
     super_intelligence,
 };
 pub use time_prediction::{
-    CALYX_ORACLE_INSUFFICIENT, MIN_TIME_PREDICTION_OCCURRENCES, TimeBucket, TimePrediction,
-    TimePredictionInterval, predict_next_occurrence, predict_next_occurrence_from_series,
+    MIN_TIME_PREDICTION_OCCURRENCES, TimeBucket, TimePrediction, TimePredictionInterval,
+    predict_next_occurrence, predict_next_occurrence_from_series,
     predict_next_occurrence_from_series_with_tz_offset, predict_next_occurrence_with_tz_offset,
     time_bucket,
+};
+pub use types::{
+    Consequence, ConsequenceTree, DEFAULT_CONSEQUENCE_TREE_MAX_DEPTH, DomainId,
+    OracleSelfConsistency, Prediction, SufficiencyBound,
 };
 
 #[cfg(test)]

@@ -1,6 +1,8 @@
 use calyx_aster::dedup::OccurrenceId;
 use calyx_aster::recurrence::{Occurrence, OccurrenceContext, RollupSummary};
 
+use crate::CALYX_ORACLE_INSUFFICIENT;
+
 use super::*;
 
 const TUESDAY_2024_01_02_14H_UTC: i64 = 1_704_204_000;
