@@ -31,7 +31,8 @@ pub use intelligence_report::{
     read_intelligence_report_snapshot, report_diff, to_json, write_intelligence_report_snapshot,
 };
 pub use j_composite::{
-    CALYX_ANNEAL_J_INVALID_CONFIG, CALYX_ANNEAL_J_INVALID_METRIC, DEFAULT_J_DOMAIN, JMetricSources,
+    CALYX_ANNEAL_J_INVALID_CONFIG, CALYX_ANNEAL_J_INVALID_METRIC,
+    CALYX_ANNEAL_J_SYNTHETIC_RECURSION, DEFAULT_J_DOMAIN, JGeneratedPositiveCredit, JMetricSources,
     JObjectiveContext, JTerms, JValue, JWeights, REDUNDANCY_PENALTY, UNIT_PENALTY, compute_j,
     j_weights_path, read_objective_weights_from_vault, set_objective_weights,
 };

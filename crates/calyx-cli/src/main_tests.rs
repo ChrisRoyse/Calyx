@@ -1,4 +1,5 @@
 use super::*;
+use crate::cli_support::hex_lines;
 use calyx_anneal::TripwireRegistry;
 use std::path::PathBuf;
 
@@ -256,6 +257,48 @@ fn anneal_intelligence_report_fixture_command_executes() {
     ])
     .expect("intelligence report readback");
 
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn anneal_intelligence_report_synthetic_recursion_attempt_fails() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-cli-j-synthetic-recursion-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create j synthetic recursion fixture dir");
+    let fixture = root.join("j-report.json");
+    std::fs::write(
+        &fixture,
+        r#"{
+  "domain": "fixture",
+  "panel_len": 4,
+  "metrics": {
+    "mutual_info_panel_anchor": 1.5,
+    "n_eff": 3.5,
+    "panel_sufficiency": 0.8,
+    "kernel_recall": 0.7,
+    "oracle_accuracy": 0.6,
+    "mistake_rate": 0.1,
+    "compression_yield": 0.4,
+    "coverage": 0.3,
+    "dpi_ceiling": 2.0,
+    "synthetic_recursion_credit_attempted": true
+  }
+}"#,
+    )
+    .expect("write j synthetic recursion fixture");
+
+    let error = run(vec![
+        "anneal".into(),
+        "intelligence-report".into(),
+        "--fixture".into(),
+        fixture.display().to_string(),
+    ])
+    .unwrap_err();
+
+    assert!(error.contains("CALYX_ANNEAL_J_SYNTHETIC_RECURSION"));
     let _ = std::fs::remove_dir_all(root);
 }
 
