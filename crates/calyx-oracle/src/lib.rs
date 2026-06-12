@@ -2,6 +2,7 @@
 
 mod error;
 mod prd22;
+mod self_consistency;
 mod time_prediction;
 mod types;
 
@@ -14,6 +15,10 @@ pub use prd22::{
     ConsequenceExpansion, OracleCeiling, OraclePrediction, SuperIntelligenceEvidence,
     SuperIntelligenceVerdict, butterfly_expand, oracle_ceiling, oracle_predict, reverse_query,
     super_intelligence,
+};
+pub use self_consistency::{
+    MIN_FLAKINESS_PAIRS, MIN_VALIDITY_SAMPLES, ORACLE_DOMAIN_METADATA_KEY,
+    ORACLE_FALLBACK_DOMAIN_METADATA_KEY, oracle_self_consistency,
 };
 pub use time_prediction::{
     MIN_TIME_PREDICTION_OCCURRENCES, TimeBucket, TimePrediction, TimePredictionInterval,

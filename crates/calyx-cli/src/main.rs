@@ -33,6 +33,7 @@ mod manifest_readback;
 mod merkle;
 mod navigate;
 mod ops;
+mod oracle_readback;
 mod ph42_readback;
 mod provenance;
 mod recurrence_readback;
@@ -151,6 +152,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, topic, rest @ ..] if command == "readback" && topic == "periodic-recall" => {
             recurrence_readback::readback_periodic_recall(rest)
+        }
+        [command, topic, rest @ ..]
+            if command == "readback" && topic == "oracle_self_consistency" =>
+        {
+            oracle_readback::readback_oracle_self_consistency(rest)
         }
         [command, topic, rest @ ..]
             if command == "readback" && topic == "temporal-log-recurrence" =>

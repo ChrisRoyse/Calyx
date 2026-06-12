@@ -8,6 +8,7 @@ mod cursor;
 mod dedup_commit;
 mod durable;
 pub mod encode;
+mod ledger_append;
 mod ledger_hook;
 pub mod ledger_stub;
 mod router_bridge;

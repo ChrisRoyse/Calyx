@@ -347,8 +347,10 @@ name = "calyx-oracle"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "calyx-assay",
  "calyx-aster",
  "calyx-core",
+ "calyx-ledger",
  "calyx-loom",
  "calyx-paths",
  "calyx-ward",

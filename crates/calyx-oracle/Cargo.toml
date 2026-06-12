@@ -7,14 +7,16 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+calyx-assay = { path = "../calyx-assay" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-ledger = { path = "../calyx-ledger" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-ward = { path = "../calyx-ward" }
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
 calyx-loom = { path = "../calyx-loom" }
 proptest.workspace = true
-serde_json.workspace = true

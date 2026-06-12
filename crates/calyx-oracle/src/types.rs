@@ -64,14 +64,33 @@ pub struct OracleSelfConsistency {
     pub flakiness: f32,
     pub validity: f32,
     pub ceiling: f32,
+    #[serde(default)]
+    pub provisional: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<LedgerRef>,
 }
 
 impl OracleSelfConsistency {
     pub fn measured(flakiness: f32, validity: f32) -> Self {
+        Self::with_provenance(flakiness, validity, false, None)
+    }
+
+    pub fn provisional(flakiness: f32, validity: f32) -> Self {
+        Self::with_provenance(flakiness, validity, true, None)
+    }
+
+    pub fn with_provenance(
+        flakiness: f32,
+        validity: f32,
+        provisional: bool,
+        provenance: Option<LedgerRef>,
+    ) -> Self {
         Self {
             flakiness,
             validity,
             ceiling: validity * (1.0 - flakiness),
+            provisional,
+            provenance,
         }
     }
 }
