@@ -69,8 +69,18 @@ fn neighbors_ranks_self_first() {
     let spec = write_spec(&dir, &fixture_spec());
     let out = dir.join("neighbors.json");
     let output = run(&[
-        "navigate", "neighbors", "--spec", spec_str(&spec), "--cx", &cx(1), "--slot", "1", "--k",
-        "3", "--out", out.to_str().unwrap(),
+        "navigate",
+        "neighbors",
+        "--spec",
+        spec_str(&spec),
+        "--cx",
+        &cx(1),
+        "--slot",
+        "1",
+        "--k",
+        "3",
+        "--out",
+        out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
     let readback = read_json(&out);
@@ -87,14 +97,27 @@ fn define_returns_anchor_constellation_with_slots() {
     let spec = write_spec(&dir, &fixture_spec());
     let out = dir.join("define.json");
     let output = run(&[
-        "navigate", "define", "--spec", spec_str(&spec), "--cx", &cx(1), "--slot", "1", "--k", "3",
-        "--out", out.to_str().unwrap(),
+        "navigate",
+        "define",
+        "--spec",
+        spec_str(&spec),
+        "--cx",
+        &cx(1),
+        "--slot",
+        "1",
+        "--k",
+        "3",
+        "--out",
+        out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
     let readback = read_json(&out);
     assert_eq!(readback["constellation"]["cx_id"], json!(cx(1)));
     assert!(
-        !readback["constellation"]["slots"].as_object().unwrap().is_empty(),
+        !readback["constellation"]["slots"]
+            .as_object()
+            .unwrap()
+            .is_empty(),
         "define should gather slot centroids: {readback}"
     );
     let _ = fs::remove_dir_all(dir);
@@ -107,7 +130,15 @@ fn agree_and_disagree_match_ph63_handcomputed_values() {
 
     let agree_out = dir.join("agree.json");
     let output = run(&[
-        "navigate", "agree", "--spec", spec_str(&spec), "--anchor", &cx(1), "--k", "10", "--out",
+        "navigate",
+        "agree",
+        "--spec",
+        spec_str(&spec),
+        "--anchor",
+        &cx(1),
+        "--k",
+        "10",
+        "--out",
         agree_out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
@@ -119,8 +150,16 @@ fn agree_and_disagree_match_ph63_handcomputed_values() {
 
     let disagree_out = dir.join("disagree.json");
     let output = run(&[
-        "navigate", "disagree", "--spec", spec_str(&spec), "--anchor", &cx(1), "--k", "10",
-        "--out", disagree_out.to_str().unwrap(),
+        "navigate",
+        "disagree",
+        "--spec",
+        spec_str(&spec),
+        "--anchor",
+        &cx(1),
+        "--k",
+        "10",
+        "--out",
+        disagree_out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
     let disagree = read_json(&disagree_out);
@@ -138,8 +177,18 @@ fn traverse_is_directional_and_attenuated() {
 
     let fwd_out = dir.join("forward.json");
     let output = run(&[
-        "navigate", "traverse", "--spec", spec_str(&spec), "--anchor", &cx(1), "--direction",
-        "forward", "--hops", "2", "--out", fwd_out.to_str().unwrap(),
+        "navigate",
+        "traverse",
+        "--spec",
+        spec_str(&spec),
+        "--anchor",
+        &cx(1),
+        "--direction",
+        "forward",
+        "--hops",
+        "2",
+        "--out",
+        fwd_out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
     let forward = read_json(&fwd_out);
@@ -150,14 +199,27 @@ fn traverse_is_directional_and_attenuated() {
 
     let bwd_out = dir.join("backward.json");
     let output = run(&[
-        "navigate", "traverse", "--spec", spec_str(&spec), "--anchor", &cx(1), "--direction",
-        "backward", "--hops", "2", "--out", bwd_out.to_str().unwrap(),
+        "navigate",
+        "traverse",
+        "--spec",
+        spec_str(&spec),
+        "--anchor",
+        &cx(1),
+        "--direction",
+        "backward",
+        "--hops",
+        "2",
+        "--out",
+        bwd_out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
     let backward = read_json(&bwd_out);
     let bwd = backward["path"]["steps"].as_array().unwrap();
     assert!((bwd[0]["score"].as_f64().unwrap() - 0.225).abs() < 1e-3);
-    assert_ne!(fwd[0]["cx_id"], bwd[0]["cx_id"], "forward/backward must differ");
+    assert_ne!(
+        fwd[0]["cx_id"], bwd[0]["cx_id"],
+        "forward/backward must differ"
+    );
     let _ = fs::remove_dir_all(dir);
 }
 
@@ -168,8 +230,16 @@ fn skills_then_search_skill_stays_in_scope() {
 
     let skills_out = dir.join("skills.json");
     let output = run(&[
-        "navigate", "skills", "--spec", spec_str(&spec), "--min-cluster-size", "2",
-        "--min-samples", "1", "--out", skills_out.to_str().unwrap(),
+        "navigate",
+        "skills",
+        "--spec",
+        spec_str(&spec),
+        "--min-cluster-size",
+        "2",
+        "--min-samples",
+        "1",
+        "--out",
+        skills_out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
     let tree = read_json(&skills_out);
@@ -192,9 +262,24 @@ fn skills_then_search_skill_stays_in_scope() {
 
     let search_out = dir.join("search_skill.json");
     let output = run(&[
-        "navigate", "search-skill", "--spec", spec_str(&spec), "--min-cluster-size", "2",
-        "--min-samples", "1", "--skill", scope, "--slot", "1", "--k", "2", "--vec", "1.0,0.0",
-        "--out", search_out.to_str().unwrap(),
+        "navigate",
+        "search-skill",
+        "--spec",
+        spec_str(&spec),
+        "--min-cluster-size",
+        "2",
+        "--min-samples",
+        "1",
+        "--skill",
+        scope,
+        "--slot",
+        "1",
+        "--k",
+        "2",
+        "--vec",
+        "1.0,0.0",
+        "--out",
+        search_out.to_str().unwrap(),
     ]);
     assert!(output.status.success(), "{}", stderr(&output));
     let hits = read_json(&search_out);
@@ -214,49 +299,106 @@ fn fail_closed_codes() {
 
     // Unknown anchor: no dense vector anywhere.
     expect_fail(
-        &["navigate", "agree", "--spec", s, "--anchor", &cx(99), "--k", "10"],
+        &[
+            "navigate",
+            "agree",
+            "--spec",
+            s,
+            "--anchor",
+            &cx(99),
+            "--k",
+            "10",
+        ],
         "CALYX_SEXTANT_CX_MISSING",
     );
     // Hops below and above the 1..=10 contract.
     expect_fail(
         &[
-            "navigate", "traverse", "--spec", s, "--anchor", &cx(1), "--direction", "forward",
-            "--hops", "0",
+            "navigate",
+            "traverse",
+            "--spec",
+            s,
+            "--anchor",
+            &cx(1),
+            "--direction",
+            "forward",
+            "--hops",
+            "0",
         ],
         "CALYX_SEXTANT_TRAVERSE_HOPS",
     );
     expect_fail(
         &[
-            "navigate", "traverse", "--spec", s, "--anchor", &cx(1), "--direction", "forward",
-            "--hops", "11",
+            "navigate",
+            "traverse",
+            "--spec",
+            s,
+            "--anchor",
+            &cx(1),
+            "--direction",
+            "forward",
+            "--hops",
+            "11",
         ],
         "CALYX_SEXTANT_TRAVERSE_HOPS",
     );
     // No association graph on a single-lens spec with no edges.
     expect_fail(
         &[
-            "navigate", "traverse", "--spec", spec_str(&single), "--anchor", &cx(1),
-            "--direction", "forward", "--hops", "2",
+            "navigate",
+            "traverse",
+            "--spec",
+            spec_str(&single),
+            "--anchor",
+            &cx(1),
+            "--direction",
+            "forward",
+            "--hops",
+            "2",
         ],
         "CALYX_SEXTANT_ASSOC_GRAPH_MISSING",
     );
     // Budget below the doc count.
     expect_fail(
-        &["navigate", "skills", "--spec", s, "--max-constellations", "2"],
+        &[
+            "navigate",
+            "skills",
+            "--spec",
+            s,
+            "--max-constellations",
+            "2",
+        ],
         "CALYX_SEXTANT_SKILL_BUDGET_EXCEEDED",
     );
     // Unknown skill scope.
     expect_fail(
         &[
-            "navigate", "search-skill", "--spec", s, "--skill", "skill-nope", "--slot", "1",
-            "--k", "2", "--vec", "1.0,0.0",
+            "navigate",
+            "search-skill",
+            "--spec",
+            s,
+            "--skill",
+            "skill-nope",
+            "--slot",
+            "1",
+            "--k",
+            "2",
+            "--vec",
+            "1.0,0.0",
         ],
         "CALYX_SEXTANT_SKILL_UNKNOWN",
     );
     // Cross-lens consensus needs two lenses.
     expect_fail(
         &[
-            "navigate", "agree", "--spec", spec_str(&single), "--anchor", &cx(1), "--k", "10",
+            "navigate",
+            "agree",
+            "--spec",
+            spec_str(&single),
+            "--anchor",
+            &cx(1),
+            "--k",
+            "10",
         ],
         "CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES",
     );
