@@ -11,6 +11,7 @@ pub mod mvcc;
 pub mod olap;
 pub mod plain_graph;
 pub mod recurrence;
+pub mod resource;
 pub mod sst;
 pub mod vault;
 pub mod wal;

@@ -4,11 +4,12 @@ use crate::cf::{CfRouter, ColumnFamily, KeyRange};
 use crate::mvcc::{
     Freshness, ReadBarrier, ReaderLease, SeqAllocator, Snapshot, read_barrier::first_blocking,
 };
+use crate::resource::{LeaseRegistry, LeaseView, ResourceCounters};
 use crate::sst::SstSummary;
-use calyx_core::{Clock, Result, Seq};
+use calyx_core::{Clock, Result, Seq, Ts};
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct VersionedValue {
@@ -44,6 +45,8 @@ pub struct VersionedCfStore {
     rows: RwLock<RowTable>,
     router: RwLock<Option<CfRouter>>,
     read_barriers: RwLock<Vec<ReadBarrier>>,
+    leases: LeaseRegistry,
+    resource_counters: Arc<ResourceCounters>,
 }
 
 impl VersionedCfStore {
@@ -54,16 +57,21 @@ impl VersionedCfStore {
             rows: RwLock::new(HashMap::new()),
             router: RwLock::new(None),
             read_barriers: RwLock::new(Vec::new()),
+            leases: LeaseRegistry::default(),
+            resource_counters: Arc::new(ResourceCounters::default()),
         }
     }
 
     pub fn new_with_router(start_seq: Seq, router: CfRouter) -> Self {
+        let resource_counters = router.resource_counters();
         Self {
             seqs: SeqAllocator::new(start_seq),
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(HashMap::new()),
             router: RwLock::new(Some(router)),
             read_barriers: RwLock::new(Vec::new()),
+            leases: LeaseRegistry::default(),
+            resource_counters,
         }
     }
 
@@ -81,6 +89,9 @@ impl VersionedCfStore {
     }
 
     /// Pins a snapshot at the latest committed sequence.
+    ///
+    /// The lease is registered for oldest-pinned-seq gap accounting; it leaves
+    /// the registry on [`Self::release_lease`] or when its `max_age_ms` expires.
     pub fn pin_snapshot(
         &self,
         freshness: Freshness,
@@ -90,7 +101,23 @@ impl VersionedCfStore {
         let seq = self.current_seq();
         let lease_id = self.next_lease_id.fetch_add(1, Ordering::AcqRel) + 1;
         let lease = ReaderLease::new(lease_id, seq, clock.now(), max_age_ms);
+        self.leases.register(lease);
         Snapshot::new(seq, freshness, lease)
+    }
+
+    /// Releases one pinned reader lease; returns whether it was still live.
+    pub fn release_lease(&self, lease_id: u64) -> bool {
+        self.leases.release(lease_id)
+    }
+
+    /// Live reader-lease view at `now` for resource accounting.
+    pub fn lease_view(&self, now: Ts) -> LeaseView {
+        self.leases.live_view(now)
+    }
+
+    /// Backpressure counters shared with this store's CF router.
+    pub fn resource_counters(&self) -> &ResourceCounters {
+        &self.resource_counters
     }
 
     /// Atomically commits one write group across any number of CFs.

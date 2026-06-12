@@ -35,6 +35,8 @@ mod ops;
 mod ph42_readback;
 mod provenance;
 mod recurrence_readback;
+mod resource_drill;
+mod resource_status;
 mod scan;
 mod temporal_log_recurrence_readback;
 mod temporal_readback;
@@ -340,6 +342,57 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 && output_flag == "--output" =>
         {
             ops::tier(Path::new(vault), cf, output)
+        }
+        [command, vault_flag, vault] if command == "resource-status" && vault_flag == "--vault" => {
+            resource_status::run_resource_status(
+                Path::new(vault),
+                resource_status::ResourceStatusFormat::Json,
+            )
+        }
+        [command, vault_flag, vault, metrics_flag]
+            if command == "resource-status"
+                && vault_flag == "--vault"
+                && metrics_flag == "--metrics" =>
+        {
+            resource_status::run_resource_status(
+                Path::new(vault),
+                resource_status::ResourceStatusFormat::Metrics,
+            )
+        }
+        [
+            command,
+            vault_flag,
+            vault,
+            ops_flag,
+            ops,
+            value_flag,
+            value_bytes,
+            cap_flag,
+            memtable_cap,
+            pin_flag,
+            pin_max_age_ms,
+        ] if command == "resource-drill"
+            && vault_flag == "--vault"
+            && ops_flag == "--ops"
+            && value_flag == "--value-bytes"
+            && cap_flag == "--memtable-cap"
+            && pin_flag == "--pin-max-age-ms" =>
+        {
+            let args = resource_drill::ResourceDrillArgs {
+                ops: ops
+                    .parse::<u64>()
+                    .map_err(|error| format!("invalid --ops: {error}"))?,
+                value_bytes: value_bytes
+                    .parse::<usize>()
+                    .map_err(|error| format!("invalid --value-bytes: {error}"))?,
+                memtable_cap: memtable_cap
+                    .parse::<usize>()
+                    .map_err(|error| format!("invalid --memtable-cap: {error}"))?,
+                pin_max_age_ms: pin_max_age_ms
+                    .parse::<u64>()
+                    .map_err(|error| format!("invalid --pin-max-age-ms: {error}"))?,
+            };
+            resource_drill::run_resource_drill(Path::new(vault), args)
         }
         [command, vault_flag, vault] if command == "vault-demo" && vault_flag == "--vault" => {
             ops::vault_demo(Path::new(vault))

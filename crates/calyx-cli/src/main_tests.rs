@@ -372,3 +372,49 @@ fn kernel_health_readback_command_executes() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn resource_status_refuses_missing_vault_without_creating_it() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-cli-resource-status-missing-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+
+    let error = run(vec![
+        "resource-status".into(),
+        "--vault".into(),
+        root.display().to_string(),
+    ])
+    .expect_err("missing vault must fail closed");
+
+    assert!(error.contains("CALYX_DISK_PRESSURE"));
+    assert!(!root.exists(), "status probe must not create vault state");
+}
+
+#[test]
+fn resource_drill_rejects_zero_memtable_cap() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-cli-resource-drill-zero-cap-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+
+    let error = run(vec![
+        "resource-drill".into(),
+        "--vault".into(),
+        root.display().to_string(),
+        "--ops".into(),
+        "1".into(),
+        "--value-bytes".into(),
+        "8".into(),
+        "--memtable-cap".into(),
+        "0".into(),
+        "--pin-max-age-ms".into(),
+        "1000".into(),
+    ])
+    .expect_err("zero memtable cap must be rejected");
+
+    assert!(error.contains("--memtable-cap must be positive"));
+    let _ = std::fs::remove_dir_all(&root);
+}

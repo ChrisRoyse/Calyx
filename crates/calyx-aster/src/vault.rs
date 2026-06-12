@@ -18,6 +18,7 @@ mod temporal_xterm;
 use crate::cf::{CfRouter, ColumnFamily, KeyRange, anchor_key, base_key, ledger_key, slot_key};
 use crate::dedup::{AnchorConflictResult, DedupPolicy, check_anchor_conflict};
 use crate::mvcc::{CfRead, Freshness, ReadBarrier, ReaderLease, Snapshot, VersionedCfStore};
+use crate::resource::{ResourceStatus, VramBudgetStatus, collect_resource_status};
 use crate::vault::durable::DurableVault;
 use crate::vault::ledger_hook::AsterLedgerHook;
 use crate::wal::TornTail;
@@ -271,6 +272,32 @@ where
         }
         self.rows.flush_all_cfs()?;
         Ok(())
+    }
+
+    /// Pins an explicit reader lease tracked for oldest-pinned-seq accounting.
+    ///
+    /// Unlike vault-internal snapshot handles, leases pinned here register in
+    /// the store lease registry and hold the oldest-pinned-seq gap open until
+    /// [`Self::release_reader`] or lease expiry.
+    pub fn pin_reader(&self, freshness: Freshness, max_age_ms: u64) -> Snapshot {
+        self.rows.pin_snapshot(freshness, &self.clock, max_age_ms)
+    }
+
+    /// Releases an explicit reader lease; returns whether it was still live.
+    pub fn release_reader(&self, lease_id: u64) -> bool {
+        self.rows.release_lease(lease_id)
+    }
+
+    /// Collects the aggregate resource status for this vault (PRD 18 §4).
+    ///
+    /// `vault_dir` is the durable root this vault was opened from; `vram` is
+    /// the VRAM budget section sourced from the vault Anneal budget config.
+    pub fn resource_status(
+        &self,
+        vault_dir: &Path,
+        vram: VramBudgetStatus,
+    ) -> Result<ResourceStatus> {
+        collect_resource_status(vault_dir, vram, &self.rows, self.clock.now())
     }
 
     pub fn install_read_barrier(&self, barrier: ReadBarrier) {
