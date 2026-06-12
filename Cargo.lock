@@ -245,6 +245,7 @@ dependencies = [
  "calyx-registry",
  "calyx-sextant",
  "calyx-ward",
+ "calyxd",
  "serde",
  "serde_json",
 ]
@@ -442,10 +443,13 @@ dependencies = [
 name = "calyxd"
 version = "0.1.0"
 dependencies = [
+ "blake3",
  "calyx-aster",
  "calyx-core",
  "calyx-ledger",
  "prometheus",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
