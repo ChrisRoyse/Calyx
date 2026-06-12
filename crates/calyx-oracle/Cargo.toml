@@ -11,3 +11,8 @@ calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-paths = { path = "../calyx-paths" }
 serde.workspace = true
+
+[dev-dependencies]
+blake3.workspace = true
+calyx-loom = { path = "../calyx-loom" }
+serde_json.workspace = true

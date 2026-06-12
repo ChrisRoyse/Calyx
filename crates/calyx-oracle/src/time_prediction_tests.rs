@@ -1,5 +1,5 @@
 use calyx_aster::dedup::OccurrenceId;
-use calyx_aster::recurrence::{Occurrence, OccurrenceContext};
+use calyx_aster::recurrence::{Occurrence, OccurrenceContext, RollupSummary};
 
 use super::*;
 
@@ -122,6 +122,55 @@ fn nonzero_offset_changes_prediction_periodic_bucket() {
 }
 
 #[test]
+fn rolled_frequency_lifts_confidence_after_active_cadence_exists() {
+    let series = series_with_times_rollup(
+        (9..12).map(|week| TUESDAY_2024_01_02_14H_UTC + week * WEEK_SECS),
+        12,
+        RollupSummary {
+            oldest_t: EpochSecs(TUESDAY_2024_01_02_14H_UTC),
+            count_rolled: 9,
+            period_estimate_secs: WEEK_SECS as f64,
+        },
+    );
+
+    let prediction = predict_next_occurrence_from_series(&series, 1.0).expect("rolled support");
+
+    assert_eq!(
+        prediction.t_hat,
+        EpochSecs(TUESDAY_2024_01_02_14H_UTC + 12 * WEEK_SECS)
+    );
+    assert_eq!(prediction.support, 12);
+    assert_eq!(prediction.active_support, 3);
+    assert_eq!(prediction.rolled_support, 9);
+    assert_eq!(
+        prediction.rollup_period_estimate_secs,
+        Some(WEEK_SECS as f64)
+    );
+    assert_eq!(prediction.cadence_secs, WEEK_SECS as f64);
+    assert_eq!(prediction.confidence, 1.0);
+}
+
+#[test]
+fn rolled_frequency_without_active_cadence_fails_closed_explicitly() {
+    let series = series_with_times_rollup(
+        [TUESDAY_2024_01_02_14H_UTC + 11 * WEEK_SECS],
+        12,
+        RollupSummary {
+            oldest_t: EpochSecs(TUESDAY_2024_01_02_14H_UTC),
+            count_rolled: 11,
+            period_estimate_secs: WEEK_SECS as f64,
+        },
+    );
+
+    let error = predict_next_occurrence_from_series(&series, 1.0).expect_err("active sparse");
+
+    assert_eq!(error.code, CALYX_ORACLE_INSUFFICIENT);
+    assert!(error.message.contains("active support=1"));
+    assert!(error.message.contains("rolled_support=11"));
+    assert!(error.message.contains("cannot define cadence"));
+}
+
+#[test]
 #[ignore = "aiwonder FSV writes #657 interval-bound readback artifact"]
 fn time_prediction_interval_bounds_aiwonder_fsv() {
     let root = std::env::var("CALYX_ISSUE657_ROOT")
@@ -221,6 +270,32 @@ fn digest_hex(bytes: &[u8]) -> String {
 }
 
 fn series_with_times(times: impl IntoIterator<Item = i64>) -> RecurrenceSeries {
+    let occurrences = occurrences_from_times(times);
+    RecurrenceSeries {
+        cx_id: CxId::from_bytes([0x57; 16]),
+        cadence_secs: calyx_aster::recurrence::cadence_secs(&occurrences),
+        frequency: occurrences.len() as u64,
+        occurrences,
+        rollup_summary: None,
+    }
+}
+
+fn series_with_times_rollup(
+    times: impl IntoIterator<Item = i64>,
+    frequency: u64,
+    rollup_summary: RollupSummary,
+) -> RecurrenceSeries {
+    let occurrences = occurrences_from_times(times);
+    RecurrenceSeries {
+        cx_id: CxId::from_bytes([0x57; 16]),
+        cadence_secs: calyx_aster::recurrence::cadence_secs(&occurrences),
+        frequency,
+        occurrences,
+        rollup_summary: Some(rollup_summary),
+    }
+}
+
+fn occurrences_from_times(times: impl IntoIterator<Item = i64>) -> Vec<Occurrence> {
     let occurrences = times
         .into_iter()
         .enumerate()
@@ -230,11 +305,5 @@ fn series_with_times(times: impl IntoIterator<Item = i64>) -> RecurrenceSeries {
             context: OccurrenceContext { bytes: Vec::new() },
         })
         .collect::<Vec<_>>();
-    RecurrenceSeries {
-        cx_id: CxId::from_bytes([0x57; 16]),
-        cadence_secs: calyx_aster::recurrence::cadence_secs(&occurrences),
-        frequency: occurrences.len() as u64,
-        occurrences,
-        rollup_summary: None,
-    }
+    occurrences
 }

@@ -17,6 +17,9 @@ pub struct TimePrediction {
     pub cx_id: CxId,
     pub sufficient: bool,
     pub support: usize,
+    pub active_support: usize,
+    pub rolled_support: u64,
+    pub rollup_period_estimate_secs: Option<f64>,
     pub tz_offset_secs: i32,
     pub t_hat: EpochSecs,
     pub confidence: f32,
@@ -79,6 +82,14 @@ pub fn predict_next_occurrence_from_series_with_tz_offset(
     validate_confidence_ceiling(confidence_ceiling)?;
     let times = sorted_times(series);
     if times.len() < MIN_TIME_PREDICTION_OCCURRENCES {
+        let rolled_support = rolled_support(series);
+        if rolled_support > 0 {
+            return Err(oracle_insufficient(format!(
+                "rolled recurrence active support={} rolled_support={} cannot define cadence; min_active={MIN_TIME_PREDICTION_OCCURRENCES}",
+                times.len(),
+                rolled_support
+            )));
+        }
         return Err(oracle_insufficient(format!(
             "sparse recurrence series support={} min={MIN_TIME_PREDICTION_OCCURRENCES}",
             times.len()
@@ -97,7 +108,7 @@ pub fn predict_next_occurrence_from_series_with_tz_offset(
     )?;
     let periodic_confidence = periodic_confidence_with_tz_offset(&times, tz_offset_secs);
     let confidence = confidence(
-        times.len(),
+        total_support(series),
         cadence_secs,
         cadence_mad_secs,
         periodic_confidence,
@@ -110,7 +121,10 @@ pub fn predict_next_occurrence_from_series_with_tz_offset(
     Ok(TimePrediction {
         cx_id: series.cx_id,
         sufficient: true,
-        support: times.len(),
+        support: total_support(series),
+        active_support: times.len(),
+        rolled_support: rolled_support(series),
+        rollup_period_estimate_secs: rollup_period_estimate_secs(series),
         tz_offset_secs,
         t_hat: EpochSecs(t_hat),
         confidence,
@@ -139,6 +153,27 @@ fn sorted_times(series: &RecurrenceSeries) -> Vec<i64> {
         .collect::<Vec<_>>();
     times.sort_unstable();
     times
+}
+
+fn total_support(series: &RecurrenceSeries) -> usize {
+    usize::try_from(series.frequency.max(series.occurrences.len() as u64)).unwrap_or(usize::MAX)
+}
+
+fn rolled_support(series: &RecurrenceSeries) -> u64 {
+    series
+        .frequency
+        .saturating_sub(series.occurrences.len() as u64)
+}
+
+fn rollup_period_estimate_secs(series: &RecurrenceSeries) -> Option<f64> {
+    series
+        .rollup_summary
+        .as_ref()
+        .and_then(|summary| positive_finite(summary.period_estimate_secs))
+}
+
+fn positive_finite(value: f64) -> Option<f64> {
+    (value.is_finite() && value > 0.0).then_some(value)
 }
 
 fn positive_gaps(times: &[i64]) -> Result<Vec<f64>> {

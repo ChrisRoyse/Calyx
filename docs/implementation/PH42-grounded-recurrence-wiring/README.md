@@ -48,6 +48,16 @@ construction. Named IANA timezone and DST database conversion is not implicit in
 Loom, Oracle, or Sextant; callers must provide the effective offset for the
 context being scored/read back.
 
+## Rolled Recurrence Semantics
+
+Aster stores recurrence history as active occurrence rows plus a rolled summary
+and base `recurrence.frequency`. Loom and Oracle treat active occurrence rows as
+the only source that can define hour/day phase and cadence. Rolled summaries and
+base frequency contribute total support/confidence and readback evidence after
+active rows establish cadence. If retention leaves too few active rows to define
+cadence or phase, consumers fail closed or return no periodic match with explicit
+active/rolled support fields rather than inferring phase from rollup bytes alone.
+
 Entry discipline update (2026-06-12): GitHub issue state records PH40
 follow-ups #616/#618/#619, PH41 follow-ups #620/#626/#627/#628, and PH42
 readback-surface gate #625 closed and FSV-backed. Those stale gates no longer
