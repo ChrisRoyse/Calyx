@@ -9,7 +9,6 @@ pub const CALYX_ANNEAL_J_INVALID_CONFIG: &str = "CALYX_ANNEAL_J_INVALID_CONFIG";
 pub const DEFAULT_J_DOMAIN: &str = "default";
 pub const UNIT_PENALTY: f64 = 1.0;
 pub const REDUNDANCY_PENALTY: f64 = 1.0;
-const COMPUTE_TIME_GOODHART_PENALTY: f64 = 0.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct JTerms {
@@ -100,6 +99,7 @@ pub struct JObjectiveContext {
     pub domain: String,
     pub panel_len: usize,
     pub weights: JWeights,
+    pub goodhart_penalty: f64,
 }
 
 impl JObjectiveContext {
@@ -108,11 +108,17 @@ impl JObjectiveContext {
             domain: domain.into(),
             panel_len,
             weights: JWeights::default(),
+            goodhart_penalty: 0.0,
         }
     }
 
     pub fn with_weights(mut self, weights: JWeights) -> Self {
         self.weights = weights;
+        self
+    }
+
+    pub fn with_goodhart_penalty(mut self, penalty: f64) -> Self {
+        self.goodhart_penalty = penalty;
         self
     }
 }
@@ -177,7 +183,8 @@ where
             .map_err(invalid_metric)?,
         p_redundant: redundancy_penalty(context.panel_len, n_eff),
         p_ungrounded: provisional_excluded as f64 * UNIT_PENALTY,
-        p_goodhart: COMPUTE_TIME_GOODHART_PENALTY,
+        p_goodhart: validate_nonnegative(context.goodhart_penalty, "p_goodhart")
+            .map_err(invalid_metric)?,
     };
     let weighted_positive = weights.w1 * terms.w1_info
         + weights.w2 * terms.w2_n_eff

@@ -5,7 +5,7 @@ pub(crate) fn print_usage() {
 }
 
 pub(crate) fn usage() -> &'static str {
-    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | kernel-health --root <dir> --kernel-id <cx> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | time-prediction --vault <dir> --cx-id <cx> --confidence-ceiling <f> | assay-report|temporal-cross-term|kernel-weights|kernel-window|ward-novelty|compression-ratio|anneal-schedule --artifact <json> [--field <path>] | config <tripwire|budget> --vault <dir> | anneal mistakes --vault <dir> --last <n> | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
+    "usage: calyx readback (--hex <file> | --vault-tree <dir> | vault-manifest --field <name> --vault <dir> | temporal_search --explain --clock-fixed <secs> --tz-offset <secs> | dedup-check --vault <dir> --cx-id <cx> --slot <n> --tau <f> --near-cos <f> --distinct-cos <f> --vault-id <id> --salt <s> | kernel-health --root <dir> --kernel-id <cx> | recurrence-series --vault <dir> --cx-id <cx> | periodic-recall --vault <dir> (--hour <0-23> | --day <0-6>) [--hour <0-23>] [--day <0-6>] | time-prediction --vault <dir> --cx-id <cx> --confidence-ceiling <f> | assay-report|temporal-cross-term|kernel-weights|kernel-window|ward-novelty|compression-ratio|anneal-schedule --artifact <json> [--field <path>] | config <tripwire|budget> --vault <dir> | ledger --kind Anneal --action <GoodhartPassed|GoodhartFailed> --last <n> --vault <dir> | anneal mistakes --vault <dir> --last <n> | dedup-audit --vault <dir> --cx-id <cx> | dedup-undo --vault <dir> --token <json> | cx-list --vault <dir> | --cf <name> --vault <dir> [--seq <n>] | --cf <name> --level <dir> | --wal --vault <dir>)
        calyx anneal status --health --vault <dir>
        calyx anneal replay-status --vault <dir>
        calyx anneal head-status --kind <Predictor|Calibrator|FusionWeights> --vault <dir>
@@ -15,6 +15,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal autotune-report --scope forge --cache <json> --vault <dir> --last <n>
        calyx anneal autotune-report --scope index --slot <n> --cache <json> --vault <dir> --last <n>
        calyx anneal intelligence-report --fixture <json> [--vault <dir>]
+       calyx anneal goodhart-check --fixture <json> --vault <dir> --vault-id <id> --salt <s>
        calyx anneal deficit-map --anchor <anchor_id> --fixture <json> [--threshold <bits>]
        calyx anneal propose-preview --anchor <anchor_id> --deficit <json> --corpus <json>
        calyx anneal lens-proposal-log --fixture <json> --last <n>
