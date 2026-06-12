@@ -73,6 +73,7 @@ fn temporal_never_dominant_fsv_writes_readback() {
         tz_offset_secs: 0,
         primary_slots_used: vec![calyx_core::SlotId::new(8)],
         temporal_slots_excluded: vec![calyx_core::SlotId::new(20)],
+        window_recall: Default::default(),
     })
     .expect("ap60 zero");
     let invalid = validate_primary_temporal_weight(0.25).expect_err("invalid weight");
@@ -102,6 +103,7 @@ fn temporal_never_dominant_fsv_writes_readback() {
         tz_offset_secs: 0,
         primary_slots_used: vec![calyx_core::SlotId::new(8)],
         temporal_slots_excluded: vec![calyx_core::SlotId::new(20)],
+        window_recall: Default::default(),
     })
     .expect("all zero final");
 
