@@ -292,3 +292,57 @@ fn anneal_propose_lens_run_fixture_command_executes() {
 
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn kernel_health_readback_command_executes() {
+    use calyx_lodestar::{
+        FsKernelStore, GroundednessReport, Kernel, RecallReport, write_kernel_artifact,
+    };
+
+    let root = std::env::temp_dir().join(format!("calyx-cli-kernel-health-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create kernel health store root");
+
+    let kernel_id = calyx_core::CxId::from_bytes([0xab; 16]);
+    let kernel = Kernel {
+        kernel_id,
+        panel_version: 1,
+        anchor_kind: Some("synthetic".to_string()),
+        corpus_shard_hash: [0; 32],
+        members: vec![kernel_id],
+        kernel_graph: vec![kernel_id],
+        groundedness: GroundednessReport {
+            reached_anchor: 1.0,
+            unanchored_members: Vec::new(),
+        },
+        recall: RecallReport::default(),
+        built_at_millis: 1,
+        estimator_provenance: "test".to_string(),
+        warnings: Vec::new(),
+    };
+    let store = FsKernelStore::new(&root);
+    write_kernel_artifact(&kernel, &store).expect("write kernel artifact");
+
+    run(vec![
+        "readback".into(),
+        "kernel-health".into(),
+        "--root".into(),
+        root.display().to_string(),
+        "--kernel-id".into(),
+        kernel_id.to_string(),
+    ])
+    .expect("kernel health readback");
+
+    let error = run(vec![
+        "readback".into(),
+        "kernel-health".into(),
+        "--root".into(),
+        root.display().to_string(),
+        "--kernel-id".into(),
+        "00000000000000000000000000000000".into(),
+    ])
+    .expect_err("missing kernel must fail closed");
+    assert!(error.contains("CALYX_KERNEL_NOT_FOUND"));
+
+    let _ = std::fs::remove_dir_all(root);
+}

@@ -10,6 +10,7 @@ pub mod incremental;
 pub mod kernel;
 pub mod kernel_answer;
 pub mod kernel_graph;
+pub mod kernel_health;
 pub mod kernel_index;
 pub mod loom_assoc;
 pub mod multi_scope;
@@ -40,6 +41,11 @@ pub use kernel_graph::{
     KernelGraph, KernelGraphParams, KernelNodeScore, LpRoundParams, NodeScore,
     groundedness_distance, lp_round_kernel_graph, lp_round_kernel_graph_from_solution,
     select_kernel_graph,
+};
+pub use kernel_health::{
+    KERNEL_ARTIFACT_FORMAT_VERSION, KernelArtifactStore, KernelHealth, KernelRecallHealth,
+    KernelTrust, RecallPassMode, kernel_health, kernel_health_from_kernel, read_kernel_artifact,
+    write_kernel_artifact,
 };
 pub use kernel_index::{
     EmbeddingStore, FsKernelStore, KernelIndex, KernelStore, KernelVectorRow, build_kernel_index,
