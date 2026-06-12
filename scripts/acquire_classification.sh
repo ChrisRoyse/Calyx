@@ -399,5 +399,6 @@ case "${1:-acquire}" in
   acquire) acquire_all ;;
   --self-test) self_test ;;
   --validate-spec) shift; run_python validate-spec "$@" ;;
+  --gen-fixture) shift; run_python gen-fixture "$@" ;;
   *) fail CALYX_DATASET_MANIFEST_INVALID "unknown mode ${1:-}" ;;
 esac
