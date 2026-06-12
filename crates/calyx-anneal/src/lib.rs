@@ -3,6 +3,7 @@
 mod budget;
 mod heal;
 mod integration_fsv;
+mod j;
 mod learn;
 mod ledger_anneal;
 mod propose;
@@ -53,6 +54,11 @@ pub use heal::triggers::{
 };
 pub use integration_fsv::{
     AnnealLedgerActionPair, AnnealStatus, AnnealSubstrate, CALYX_LEDGER_WRITE_FAIL, ChangeOutcome,
+};
+pub use j::{
+    CALYX_ANNEAL_J_INVALID_CONFIG, CALYX_ANNEAL_J_INVALID_METRIC, DEFAULT_J_DOMAIN, JMetricSources,
+    JObjectiveContext, JTerms, JValue, JWeights, REDUNDANCY_PENALTY, UNIT_PENALTY, compute_j,
+    j_weights_path, read_objective_weights_from_vault, set_objective_weights,
 };
 pub use learn::{
     AsterHeadStorage, AsterMistakeStorage, AsterOutcomeStorage, AsterReplayStorage,
