@@ -81,6 +81,7 @@ fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
         "anneal_bandit" => Some(ColumnFamily::AnnealBandit),
         "anneal_soak" => Some(ColumnFamily::AnnealSoak),
         "anneal_report" => Some(ColumnFamily::AnnealReport),
+        "anneal_growth" => Some(ColumnFamily::AnnealGrowth),
         _ if name.starts_with("slot_") => parse_slot_name(&name),
         _ => None,
     }

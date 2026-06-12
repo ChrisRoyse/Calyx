@@ -54,11 +54,13 @@ pub enum ColumnFamily {
     AnnealSoak,
     /// Anneal intelligence report snapshots.
     AnnealReport,
+    /// Anneal J-over-time growth curve samples.
+    AnnealGrowth,
 }
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 19] = [
+    pub const STATIC: [Self; 20] = [
         Self::Base,
         Self::XTerm,
         Self::TemporalXTerm,
@@ -78,6 +80,7 @@ impl ColumnFamily {
         Self::AnnealBandit,
         Self::AnnealSoak,
         Self::AnnealReport,
+        Self::AnnealGrowth,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -126,6 +129,7 @@ impl ColumnFamily {
             Self::AnnealBandit => "anneal_bandit".to_string(),
             Self::AnnealSoak => "anneal_soak".to_string(),
             Self::AnnealReport => "anneal_report".to_string(),
+            Self::AnnealGrowth => "anneal_growth".to_string(),
         }
     }
 

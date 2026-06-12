@@ -136,6 +136,7 @@ impl TieringPolicy {
                 | ColumnFamily::AnnealBandit
                 | ColumnFamily::AnnealSoak
                 | ColumnFamily::AnnealReport
+                | ColumnFamily::AnnealGrowth
         ) {
             return false;
         }
