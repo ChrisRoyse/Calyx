@@ -47,5 +47,12 @@ pub(crate) fn usage() -> &'static str {
        calyx recover --vault <dir>
        calyx open-check --vault <dir> --index <n>
        calyx corrupt-shard --vault <dir> --cf <name> --byte-offset <n>
-       calyx wal-batch-demo --vault <dir> --requests <n>"
+       calyx wal-batch-demo --vault <dir> --requests <n>
+       calyx navigate neighbors --spec <json> --cx <cx> --slot <n> --k <n> [--out <json>]
+       calyx navigate define --spec <json> --cx <cx> --slot <n> --k <n> [--out <json>]
+       calyx navigate agree --spec <json> --anchor <cx> --k <n> [--slots <a,b>] [--out <json>]
+       calyx navigate disagree --spec <json> --anchor <cx> --k <n> [--slots <a,b>] [--out <json>]
+       calyx navigate traverse --spec <json> --anchor <cx> --direction <forward|backward|both> --hops <1-10> [--out <json>]
+       calyx navigate skills --spec <json> [--min-cluster-size <n>] [--min-samples <n>] [--max-constellations <n>] [--slots <a,b>] [--allow-single] [--out <json>]
+       calyx navigate search-skill --spec <json> --skill <name> --slot <n> --k <n> --vec <a,b> [--text <s>] [--min-cluster-size <n>] [--min-samples <n>] [--out <json>]"
 }
