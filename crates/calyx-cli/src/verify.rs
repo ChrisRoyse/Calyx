@@ -101,7 +101,7 @@ fn hex_digit(value: u8) -> char {
 
 #[cfg(test)]
 mod tests {
-    use crate::ledger_store::parse_aster_ledger_seq;
+    use calyx_aster::ledger_view::parse_aster_ledger_seq;
 
     use super::*;
 
