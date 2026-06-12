@@ -10,6 +10,7 @@ publish.workspace = true
 blake3.workspace = true
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-paths = { path = "../calyx-paths" }
 calyx-ward = { path = "../calyx-ward" }
 rand.workspace = true
 rand_chacha.workspace = true
