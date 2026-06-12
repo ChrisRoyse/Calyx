@@ -50,7 +50,9 @@ fn irregular_times(n: usize, mean_gap: f64, seed: u64) -> Vec<f64> {
 fn planted_period_recovered_within_5pct() {
     let (centres, counts) = planted_event_series();
     let report = lomb_scargle(&centres, &counts).unwrap();
-    let dominant = report.dominant().expect("planted series has a dominant peak");
+    let dominant = report
+        .dominant()
+        .expect("planted series has a dominant peak");
     assert!(
         (dominant.period - PLANTED_PERIOD).abs() <= 0.05 * PLANTED_PERIOD,
         "detected {} not within 5% of planted {PLANTED_PERIOD}",
@@ -136,10 +138,7 @@ fn bin_event_counts_hand_computed_io() {
     let events = [0.0, 0.4, 1.2, 2.5, 2.7, 6.9];
     let (centres, counts) = bin_event_counts(&events, 1.0).unwrap();
     assert_eq!(counts, vec![2.0, 1.0, 2.0, 0.0, 0.0, 0.0, 1.0]);
-    assert_eq!(
-        centres,
-        vec![0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5]
-    );
+    assert_eq!(centres, vec![0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5]);
 }
 
 #[test]
@@ -249,22 +248,35 @@ fn periodicity_aiwonder_fsv() {
     let noise_values: Vec<f64> = (0..100).map(|_| standard_normal(&mut rng)).collect();
     let noise_report = lomb_scargle(&noise_times, &noise_values).unwrap();
     let edges = json!([
-        edge_case("empty_input", json!({"times": [], "values": []}),
-            lomb_scargle(&[], &[]).map(|_| "report".to_string())),
-        edge_case("below_min_samples", json!({"n": 5, "min": MIN_PERIODICITY_SAMPLES}),
-            lomb_scargle(&good_times[..5], &good_values[..5]).map(|_| "report".to_string())),
-        edge_case("zero_variance_values", json!({"n": 20, "values": "constant 3.0"}),
-            lomb_scargle(&good_times, &[3.0; 20]).map(|_| "report".to_string())),
+        edge_case(
+            "empty_input",
+            json!({"times": [], "values": []}),
+            lomb_scargle(&[], &[]).map(|_| "report".to_string())
+        ),
+        edge_case(
+            "below_min_samples",
+            json!({"n": 5, "min": MIN_PERIODICITY_SAMPLES}),
+            lomb_scargle(&good_times[..5], &good_values[..5]).map(|_| "report".to_string())
+        ),
+        edge_case(
+            "zero_variance_values",
+            json!({"n": 20, "values": "constant 3.0"}),
+            lomb_scargle(&good_times, &[3.0; 20]).map(|_| "report".to_string())
+        ),
         edge_case("nan_value", json!({"n": 20, "values[3]": "NaN"}), {
             let mut nan_values = good_values.clone();
             nan_values[3] = f64::NAN;
             lomb_scargle(&good_times, &nan_values).map(|_| "report".to_string())
         }),
-        edge_case("non_monotonic_times", json!({"n": 20, "times[4]": "swapped above times[5]"}), {
-            let mut bad_times = good_times.clone();
-            bad_times[4] = bad_times[5] + 1.0;
-            lomb_scargle(&bad_times, &good_values).map(|_| "report".to_string())
-        }),
+        edge_case(
+            "non_monotonic_times",
+            json!({"n": 20, "times[4]": "swapped above times[5]"}),
+            {
+                let mut bad_times = good_times.clone();
+                bad_times[4] = bad_times[5] + 1.0;
+                lomb_scargle(&bad_times, &good_values).map(|_| "report".to_string())
+            }
+        ),
         edge_case(
             "pure_noise_no_fabricated_period",
             json!({"n": 100, "values": "seeded standard normal"}),
