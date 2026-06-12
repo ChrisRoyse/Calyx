@@ -150,6 +150,10 @@ def check_qrels(name, fname, expected_rows, query_ids, corpus_ids):
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.reader(handle, delimiter="\t")
         header = next(reader, None)
+        if header is None:
+            # Empty file: a row-count failure (verify_dataset.sh count_rows
+            # precedent), not a schema failure - there is no schema to judge.
+            fail("CALYX_DATASET_ROWCOUNT_MISMATCH", f"{name}/{fname}: empty qrels file")
         if header != QRELS_HEADER:
             fail("CALYX_DATASET_SCHEMA_MISMATCH",
                  f"{name}/{fname}: header {header!r} != {QRELS_HEADER}")
