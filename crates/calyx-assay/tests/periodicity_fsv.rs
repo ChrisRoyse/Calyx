@@ -113,10 +113,9 @@ fn autocorrelation_cross_checks_planted_period() {
     let dominant = report
         .dominant_period
         .expect("planted series has an ACF peak");
-    let nearest_multiple = (dominant / PLANTED_PERIOD).round().max(1.0) * PLANTED_PERIOD;
     assert!(
-        (dominant - nearest_multiple).abs() <= 1.0,
-        "ACF dominant lag {dominant} is not near a multiple of {PLANTED_PERIOD}"
+        (dominant - PLANTED_PERIOD).abs() <= 1.0,
+        "ACF dominant lag {dominant} must be the fundamental {PLANTED_PERIOD}, not a harmonic"
     );
 }
 

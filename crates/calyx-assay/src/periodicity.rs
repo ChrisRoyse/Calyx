@@ -456,18 +456,30 @@ fn assign_permutation_fap(
     Ok(())
 }
 
-/// Highest positive local maximum of the coefficient series, if any.
+/// Dominant ACF period: the smallest-lag positive local maximum whose
+/// coefficient is within [`ACF_PEAK_TOLERANCE`] of the strongest one.
+///
+/// For a periodic series every multiple of the true period is a local
+/// maximum with the same expected coefficient, while long-lag slots have
+/// fewer pairs and therefore noisier coefficients — a plain global max can
+/// land on an arbitrary harmonic. Selecting the earliest near-maximal peak
+/// recovers the fundamental (standard ACF period-detection practice, e.g.
+/// McQuillan et al. 2013).
 fn positive_local_max(lags: &[f64], coefficients: &[f64]) -> Option<f64> {
-    let mut best: Option<(f64, f64)> = None;
+    const ACF_PEAK_TOLERANCE: f64 = 0.8;
+    let mut peaks: Vec<(f64, f64)> = Vec::new();
     for index in 1..coefficients.len().saturating_sub(1) {
         let value = coefficients[index];
-        if value > 0.0
-            && value > coefficients[index - 1]
-            && value >= coefficients[index + 1]
-            && best.is_none_or(|(_, best_value)| value > best_value)
-        {
-            best = Some((lags[index], value));
+        if value > 0.0 && value > coefficients[index - 1] && value >= coefficients[index + 1] {
+            peaks.push((lags[index], value));
         }
     }
-    best.map(|(lag, _)| lag)
+    let strongest = peaks
+        .iter()
+        .map(|&(_, value)| value)
+        .fold(f64::NEG_INFINITY, f64::max);
+    peaks
+        .into_iter()
+        .find(|&(_, value)| value >= ACF_PEAK_TOLERANCE * strongest)
+        .map(|(lag, _)| lag)
 }
