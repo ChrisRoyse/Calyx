@@ -354,6 +354,7 @@ dependencies = [
  "calyx-ledger",
  "calyx-loom",
  "calyx-paths",
+ "calyx-testkit",
  "calyx-ward",
  "proptest",
  "serde",
