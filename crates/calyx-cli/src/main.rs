@@ -7,6 +7,7 @@ mod anneal_commands;
 mod anneal_deficit_map;
 mod anneal_frozen_guard_readback;
 mod anneal_goodhart_check;
+mod anneal_growth_curve;
 mod anneal_head_readback;
 mod anneal_intelligence_report;
 mod anneal_ledger_readback;

@@ -44,6 +44,16 @@ FSV metric for A32: "is Calyx getting more intelligent, and how fast?"
 - **Readback:** `calyx anneal growth-curve --last 20` — prints ASCII sparkline of J over time + `j_first`, `j_last`, `slope_recent`, `is_rising`.
 - **Prove:** ingest a real-corpus batch (10k documents) under the autotune + mistake-closure loop; take growth curve samples every 1000 ingests; `growth-curve --last 10` shows `is_rising=true`; `j_last > j_first`. Attach `growth-curve` output to PH48 GitHub issue.
 
+## Implementation Notes
+
+- `crates/calyx-anneal/src/j/growth_curve.rs` stores `GrowthSample` rows in the
+  Aster `anneal_growth` CF using timestamp+sequence big-endian keys.
+- `calyx anneal growth-curve --vault <dir> [--last <n>]` reads the CF back,
+  prints a `GrowthSummary`, and includes an ASCII plot for manual inspection.
+- The ignored FSV test writes durable evidence under
+  `/home/croyse/calyx/data/fsv-issue427-*` and separately reads CF rows to prove
+  the bytes exist after the trigger.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder

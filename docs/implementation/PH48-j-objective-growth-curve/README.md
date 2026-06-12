@@ -23,9 +23,17 @@ DPI-capped, penalty-guarded drive toward maximum grounded intelligence.
 
 ## Current state (build off what exists)
 
+Current implementation state: PH48 T01-T05 are implemented through
+`j_composite`, `goodhart`, `gradient`, `intelligence_report`, and
+`growth_curve`; T06 remains the integration FSV.
+
 `calyx-anneal` crate: PH43–PH47 complete. No `J` composite, no gradient queue,
-no `intelligence_report`, no `growth_curve` implementation. Greenfield. Source
-in `dbprdplans/27` defines the composite formula and all terms.
+the initial PH48 modules are no longer greenfield. Source in `dbprdplans/27`
+defines the composite formula and all terms.
+
+Status update: PH48 T01-T05 now provide the `J` composite, Goodhart defense,
+gradient queue, `intelligence_report`, and `growth_curve` implementation. T06
+remains the full integration FSV that proves the complete Stage 10 loop.
 
 **J composite formula (from `27 §2`, verbatim — no-compress):**
 ```

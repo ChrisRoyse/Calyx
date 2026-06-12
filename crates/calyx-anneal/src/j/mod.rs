@@ -1,5 +1,6 @@
 mod goodhart;
 mod gradient;
+mod growth_curve;
 mod intelligence_report;
 mod j_composite;
 
@@ -16,6 +17,12 @@ pub use gradient::{
     GradientCandidate, GradientEntry, GradientEntryReadback, GradientRefreshReport,
     GradientSnapshot, GradientWarning, IntelligenceGradient, PriorityReadback, TuneScopeKind,
     estimate_dj, gradient_state_path, read_gradient_snapshot_from_vault, write_gradient_snapshot,
+};
+pub use growth_curve::{
+    ANNEAL_GROWTH_TAG, AsterGrowthCf, CALYX_ANNEAL_GROWTH_INVALID_CONFIG,
+    CALYX_ANNEAL_GROWTH_INVALID_ROW, CALYX_ANNEAL_GROWTH_INVALID_SAMPLE,
+    DEFAULT_GROWTH_MAX_SAMPLES, DEFAULT_GROWTH_WINDOW, GrowthCf, GrowthCurve, GrowthSample,
+    GrowthSummary, anneal_growth_key, decode_growth_row, encode_growth_row,
 };
 pub use intelligence_report::{
     ANNEAL_REPORT_TAG, CALYX_ANNEAL_REPORT_INVALID_ROW, IntelligenceReport, JTermDeltas,

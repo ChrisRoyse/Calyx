@@ -260,6 +260,32 @@ fn anneal_intelligence_report_fixture_command_executes() {
 }
 
 #[test]
+fn anneal_growth_curve_empty_vault_command_executes() {
+    let root = std::env::temp_dir().join(format!("calyx-cli-growth-curve-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create growth curve fixture dir");
+    calyx_aster::vault::AsterVault::new_durable(
+        &root,
+        "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
+        b"calyx-anneal-intelligence-report".to_vec(),
+        calyx_aster::vault::VaultOptions::default(),
+    )
+    .expect("create growth vault");
+
+    run(vec![
+        "anneal".into(),
+        "growth-curve".into(),
+        "--vault".into(),
+        root.display().to_string(),
+        "--last".into(),
+        "10".into(),
+    ])
+    .expect("growth curve readback");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn anneal_propose_lens_run_fixture_command_executes() {
     let root = std::env::temp_dir().join(format!("calyx-cli-propose-lens-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
