@@ -6,6 +6,7 @@ mod honesty_gate;
 mod prd22;
 mod predict;
 mod self_consistency;
+mod super_intel_types;
 mod time_prediction;
 mod types;
 
@@ -31,6 +32,7 @@ pub use self_consistency::{
     MIN_FLAKINESS_PAIRS, MIN_VALIDITY_SAMPLES, ORACLE_DOMAIN_METADATA_KEY,
     ORACLE_FALLBACK_DOMAIN_METADATA_KEY, oracle_self_consistency,
 };
+pub use super_intel_types::{Cause, SuperIntelReport, Tier, TierResult};
 pub use time_prediction::{
     MIN_TIME_PREDICTION_OCCURRENCES, TimeBucket, TimePrediction, TimePredictionInterval,
     predict_next_occurrence, predict_next_occurrence_from_series,
