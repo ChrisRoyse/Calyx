@@ -93,9 +93,10 @@ fn run_consensus(flags: &Flags, kind: Consensus) -> Result<(), String> {
         .map(|slots| slots.iter().map(|slot| slot.get()).collect::<Vec<_>>());
     let (mode, report) = match kind {
         Consensus::Agree => ("agree", agree(&engine, anchor, k, slot_filter.as_deref())),
-        Consensus::Disagree => {
-            ("disagree", disagree(&engine, anchor, k, slot_filter.as_deref()))
-        }
+        Consensus::Disagree => (
+            "disagree",
+            disagree(&engine, anchor, k, slot_filter.as_deref()),
+        ),
     };
     let report = report.map_err(code_message)?;
     emit(
@@ -188,8 +189,7 @@ fn emit(report: Value, out: Option<&str>) -> Result<(), String> {
         Some(path) => {
             std::fs::write(path, &bytes).map_err(|error| format!("write {path}: {error}"))?;
             // Re-read the bytes from disk and digest those, not the in-memory value.
-            let reread =
-                std::fs::read(path).map_err(|error| format!("reread {path}: {error}"))?;
+            let reread = std::fs::read(path).map_err(|error| format!("reread {path}: {error}"))?;
             let digest = blake3::hash(&reread).to_hex();
             println!("{}", String::from_utf8_lossy(&reread));
             println!("NAVIGATE_OUT={path}");
@@ -244,7 +244,10 @@ impl Flags {
     }
 
     fn flag(&self, key: &str) -> bool {
-        self.map.get(key).map(|value| value == "true").unwrap_or(false)
+        self.map
+            .get(key)
+            .map(|value| value == "true")
+            .unwrap_or(false)
     }
 
     fn cx_id(&self, key: &str) -> Result<CxId, String> {
