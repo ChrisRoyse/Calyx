@@ -7,6 +7,7 @@ mod prd22;
 mod predict;
 mod self_consistency;
 mod super_intel;
+mod super_intel_full;
 mod super_intel_types;
 mod time_prediction;
 mod types;
@@ -26,7 +27,8 @@ pub use honesty_gate::{
 pub use prd22::{
     ConsequenceExpansion, OracleCeiling, OraclePrediction, SuperIntelligenceEvidence,
     SuperIntelligenceVerdict, butterfly_expand, oracle_ceiling,
-    oracle_predict as oracle_formula_predict, reverse_query, super_intelligence,
+    oracle_predict as oracle_formula_predict, reverse_query,
+    super_intelligence as super_intelligence_formula,
 };
 pub use predict::{Action, ORACLE_ACTION_METADATA_KEY, oracle_predict};
 pub use self_consistency::{
@@ -39,6 +41,13 @@ pub use super_intel::{
     measure_super_intelligence_tiers_1_to_3, measure_tier_kernel_exists, measure_tier_oracle_clean,
     measure_tier_oracle_clean_with_source, measure_tier_panel_sufficient,
     measure_tier_panel_sufficient_with_assay, measure_tiers_1_to_3,
+};
+pub use super_intel_full::{
+    CALIBRATION_CEILING_DELTA, CalibrationMeasurement, CalibrationSource, GOODHART_THRESHOLD,
+    GoodhartDefenseMeasurement, GoodhartDefenseSource, MistakeClosureMeasurement,
+    MistakeClosureSource, SuperIntelligenceRequest, measure_super_intelligence_tiers,
+    measure_tier_calibrated, measure_tier_goodhart_defended, measure_tier_mistake_closed,
+    super_intelligence, super_intelligence_with_ledger, write_super_intelligence_ledger,
 };
 pub use super_intel_types::{Cause, SuperIntelReport, Tier, TierResult};
 pub use time_prediction::{

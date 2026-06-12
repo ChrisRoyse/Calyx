@@ -171,18 +171,22 @@ where
     S: OracleConsistencySource,
 {
     match source.oracle_self_consistency(domain, clock) {
-        Ok(result) => measured_tier(
-            Tier::OracleClean,
-            result.ceiling,
-            ORACLE_CLEAN_THRESHOLD,
-            || oracle_clean_fix(&result),
-        ),
+        Ok(result) => measure_tier_oracle_clean_from_result(&result),
         Err(error) => failed_tier(
             Tier::OracleClean,
             ORACLE_CLEAN_THRESHOLD,
             oracle_error_fix(&error),
         ),
     }
+}
+
+pub(crate) fn measure_tier_oracle_clean_from_result(result: &OracleSelfConsistency) -> TierResult {
+    measured_tier(
+        Tier::OracleClean,
+        result.ceiling,
+        ORACLE_CLEAN_THRESHOLD,
+        || oracle_clean_fix(result),
+    )
 }
 
 pub fn measure_tier_panel_sufficient<C>(
@@ -300,7 +304,7 @@ where
     SuperIntelReport::new(domain, tiers)
 }
 
-fn panel_sufficiency_tier(panel: &Panel, report: &PanelSufficiency) -> TierResult {
+pub(crate) fn panel_sufficiency_tier(panel: &Panel, report: &PanelSufficiency) -> TierResult {
     if !valid_measurement(report.panel_bits, report.anchor_entropy_bits) {
         return failed_tier(
             Tier::PanelSufficient,
@@ -316,7 +320,7 @@ fn panel_sufficiency_tier(panel: &Panel, report: &PanelSufficiency) -> TierResul
     )
 }
 
-fn kernel_recall_tier(report: &RecallReport) -> TierResult {
+pub(crate) fn kernel_recall_tier(report: &RecallReport) -> TierResult {
     if !valid_measurement(report.ratio, KERNEL_RECALL_RATIO) || report.n_queries_tested == 0 {
         return failed_tier(
             Tier::KernelExists,
@@ -332,7 +336,7 @@ fn kernel_recall_tier(report: &RecallReport) -> TierResult {
     )
 }
 
-fn measured_tier(
+pub(crate) fn measured_tier(
     tier: Tier,
     measured_value: f32,
     threshold: f32,
@@ -356,11 +360,11 @@ fn measured_tier(
     )
 }
 
-fn failed_tier(tier: Tier, threshold: f32, cheapest_fix: String) -> TierResult {
+pub(crate) fn failed_tier(tier: Tier, threshold: f32, cheapest_fix: String) -> TierResult {
     TierResult::new(tier, false, 0.0, threshold, Some(cheapest_fix))
 }
 
-fn valid_measurement(measured_value: f32, threshold: f32) -> bool {
+pub(crate) fn valid_measurement(measured_value: f32, threshold: f32) -> bool {
     measured_value.is_finite() && threshold.is_finite() && measured_value >= 0.0 && threshold >= 0.0
 }
 
@@ -398,7 +402,7 @@ fn max_deficit_lens(panel: &Panel, report: &PanelSufficiency) -> Option<(LensId,
         .max_by(|left, right| left.1.total_cmp(&right.1))
 }
 
-fn oracle_error_fix(error: &OracleError) -> String {
+pub(crate) fn oracle_error_fix(error: &OracleError) -> String {
     format!("{}: {}", error.code(), error.remediation())
 }
 
@@ -409,7 +413,7 @@ fn kernel_error_fix(error: &LodestarError) -> String {
     }
 }
 
-fn validate_held_out(held_out: &HeldOutSplit) -> Result<(), LodestarError> {
+pub(crate) fn validate_held_out(held_out: &HeldOutSplit) -> Result<(), LodestarError> {
     if held_out.held_out_ids.is_empty() {
         return Err(LodestarError::RecallEmptyCorpus);
     }

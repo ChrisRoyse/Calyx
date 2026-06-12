@@ -1,5 +1,6 @@
 mod butterfly;
 mod predict;
+mod super_intelligence;
 
 use std::path::Path;
 use std::str::FromStr;
@@ -14,7 +15,11 @@ use serde_json::json;
 pub(crate) fn is_topic(topic: &str) -> bool {
     matches!(
         topic,
-        "oracle_self_consistency" | "oracle_sufficiency" | "oracle_predict" | "oracle_expand"
+        "oracle_self_consistency"
+            | "oracle_sufficiency"
+            | "oracle_predict"
+            | "oracle_expand"
+            | "super_intelligence"
     )
 }
 
@@ -24,6 +29,7 @@ pub(crate) fn readback_oracle(topic: &str, args: &[String]) -> Result<(), String
         "oracle_sufficiency" => readback_oracle_sufficiency(args),
         "oracle_predict" => predict::readback_oracle_predict(args),
         "oracle_expand" => butterfly::readback_oracle_expand(args),
+        "super_intelligence" => super_intelligence::readback_super_intelligence(args),
         _ => Err("unknown oracle readback topic".to_string()),
     }
 }
