@@ -37,3 +37,6 @@ cargo test --workspace --doc
 
 bash "$repo_root/scripts/orphan_rs.sh"
 bash "$repo_root/scripts/linecount.sh"
+# Dataset MANIFEST tooling (PH69 T01): synthetic known-I/O + edge battery in a
+# temp root - fast, hermetic, and keeps the digest algorithm pinned.
+bash "$repo_root/scripts/verify_dataset.sh" --self-test

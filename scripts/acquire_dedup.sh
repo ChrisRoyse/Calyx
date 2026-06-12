@@ -7,8 +7,8 @@ set -euo pipefail
 DATASET_ROOT="${CALYX_DATASET_ROOT:-/zfs/archive/calyx/datasets}"
 QQP_DIR="$DATASET_ROOT/quora_qp"
 PAWS_DIR="$DATASET_ROOT/paws"
-VENV_DIR="$DATASET_ROOT/.dedup_acquire_venv"
-MANIFEST_MD="$DATASET_ROOT/MANIFEST.md"
+VENV_DIR="$DATASET_ROOT/.dataset_tools_venv"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 QQP_URL="https://qim.fs.quoracdn.net/quora_duplicate_questions.tsv"
 QQP_EXPECTED_BYTES=58176133
@@ -190,9 +190,6 @@ qqp_manifest = {
     "license": "Quora custom / non-commercial research",
     "tests": "TCT cosine-Gtau dedup correctness (PH70 issue #605)",
 }
-(qqp_dir / "manifest.json").write_text(
-    json.dumps(qqp_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-)
 
 paws_manifest = {
     "dataset": "paws",
@@ -206,9 +203,6 @@ paws_manifest = {
     "license": "Provided 'AS IS' by Google (PAWS release); free for any purpose",
     "tests": "conflicting-anchor never-merge on adversarial high-overlap pairs (PH70 issue #605)",
 }
-(paws_dir / "manifest.json").write_text(
-    json.dumps(paws_manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-)
 
 fsv_sha = sha256_file(fsv_path)
 summary = {
@@ -223,39 +217,22 @@ summary = {
 print(json.dumps(summary, sort_keys=True))
 PY
 
-# --- MANIFEST.md rows (idempotent rewrite of the dedup section) ---
-python3 - "$DATASET_ROOT" <<'PY'
-import json
-import pathlib
-import sys
-
-root = pathlib.Path(sys.argv[1])
-manifest = root / "MANIFEST.md"
-summary = json.loads((root / "dedup_fsv_pairs.manifest.json").read_text(encoding="utf-8"))
-qqp, paws = summary["qqp"], summary["paws"]
-header = "| name | source | revision | sha256 | rows | bytes | license | tests |"
-rows = {
-    "quora_qp": (
-        f"| quora_qp | {qqp['source']} | 2017-03-06 | {qqp['raw_sha256']} | {qqp['rows']} "
-        f"| {qqp['raw_bytes']} | {qqp['license']} | {qqp['tests']} |"
-    ),
-    "paws": (
-        f"| paws | {paws['source']} | {paws['revision']} | {paws['parquet_sha256']['test']} "
-        f"| {sum(s['rows'] for s in paws['splits'].values())} | - | {paws['license']} | {paws['tests']} |"
-    ),
-}
-lines = []
-if manifest.exists():
-    lines = [
-        line
-        for line in manifest.read_text(encoding="utf-8").splitlines()
-        if not line.startswith("| quora_qp |") and not line.startswith("| paws |")
-    ]
-if not any(line.startswith("| name |") for line in lines):
-    lines = ["# Calyx dataset MANIFEST", "", header, "|---|---|---|---|---|---|---|---|"] + lines
-lines.extend(rows.values())
-manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
-print(f"MANIFEST rows written to {manifest}")
-PY
+# --- canonical registration: manifest.json + MANIFEST.md row + verify -------
+# verify_dataset.sh register is the single writer of catalog rows (PH69 T01);
+# it recomputes per-file sha256/bytes/rows from the bytes on disk and then
+# byte-verifies its own output. PAWS counts rows from the pinned parquet
+# splits only - the derived *.tsv files hold the same records.
+export CALYX_DATASET_PYTHON="$VENV_DIR/bin/python3"
+bash "$SCRIPT_DIR/verify_dataset.sh" register quora_qp \
+  --source "$QQP_URL" \
+  --revision "2017-03-06" \
+  --license "Quora custom / non-commercial research" \
+  --tests "TCT cosine-Gtau dedup correctness (PH70 issue #605)"
+bash "$SCRIPT_DIR/verify_dataset.sh" register paws \
+  --source "huggingface:google-research-datasets/paws labeled_final" \
+  --revision "$PAWS_REVISION" \
+  --license "Provided 'AS IS' by Google (PAWS release); free for any purpose" \
+  --tests "conflicting-anchor never-merge on adversarial high-overlap pairs (PH70 issue #605)" \
+  --rows-from "*.parquet"
 
 echo "acquire_dedup: OK"

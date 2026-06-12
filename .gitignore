@@ -64,7 +64,8 @@ lenses/
 
 # ── Data, datasets, on-disk DB state (Aster storage, ZFS-backed) ─────
 data/
-datasets/
+/datasets/*
+!/datasets/MANIFEST.md
 *.aster
 *.lsm
 *.sst
