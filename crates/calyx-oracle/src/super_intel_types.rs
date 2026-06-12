@@ -82,6 +82,7 @@ pub struct SuperIntelReport {
     pub domain: DomainId,
     pub tiers: Vec<TierResult>,
     pub failing_tier: Option<Tier>,
+    pub cheapest_fix: Option<String>,
     pub overall: bool,
 }
 
@@ -89,11 +90,18 @@ impl SuperIntelReport {
     pub fn new(domain: DomainId, tiers: Vec<TierResult>) -> Self {
         let overall = tiers.iter().all(|tier| tier.passed);
         let failing_tier = first_failing_tier(&tiers);
+        let cheapest_fix = failing_tier.and_then(|failing| {
+            tiers
+                .iter()
+                .find(|tier| tier.tier == failing)
+                .and_then(|tier| tier.cheapest_fix.clone())
+        });
 
         Self {
             domain,
             tiers,
             failing_tier,
+            cheapest_fix,
             overall,
         }
     }
