@@ -47,6 +47,7 @@ mod tripwire_readback;
 mod usage;
 mod vault_tree;
 mod verify;
+mod verify_restore;
 mod ward_tau_readback;
 
 #[cfg(test)]
@@ -59,7 +60,11 @@ use std::process::ExitCode;
 use cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
 
 fn main() -> ExitCode {
-    match run(env::args().skip(1).collect()) {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if let Some(code) = verify_restore::try_run(&args) {
+        return code;
+    }
+    match run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");
