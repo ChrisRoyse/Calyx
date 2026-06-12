@@ -23,6 +23,15 @@ pub const CALYX_SEXTANT_POSTINGS_CORRUPT: &str = "CALYX_SEXTANT_POSTINGS_CORRUPT
 pub const CALYX_SEXTANT_POSTINGS_NOT_SORTED: &str = "CALYX_SEXTANT_POSTINGS_NOT_SORTED";
 pub const CALYX_SEXTANT_PROVENANCE_MISSING: &str = "CALYX_SEXTANT_PROVENANCE_MISSING";
 pub const CALYX_SEXTANT_RECURRENCE_READ_ERROR: &str = "CALYX_SEXTANT_RECURRENCE_READ_ERROR";
+pub const CALYX_SEXTANT_CX_MISSING: &str = "CALYX_SEXTANT_CX_MISSING";
+pub const CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES: &str =
+    "CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES";
+pub const CALYX_SEXTANT_ASSOC_GRAPH_MISSING: &str = "CALYX_SEXTANT_ASSOC_GRAPH_MISSING";
+pub const CALYX_SEXTANT_TRAVERSE_HOPS: &str = "CALYX_SEXTANT_TRAVERSE_HOPS";
+pub const CALYX_SEXTANT_SKILL_UNKNOWN: &str = "CALYX_SEXTANT_SKILL_UNKNOWN";
+pub const CALYX_SEXTANT_SKILL_PARAMS: &str = "CALYX_SEXTANT_SKILL_PARAMS";
+pub const CALYX_SEXTANT_SKILL_BUDGET_EXCEEDED: &str = "CALYX_SEXTANT_SKILL_BUDGET_EXCEEDED";
+pub const CALYX_SEXTANT_SKILL_PAIR_NO_OVERLAP: &str = "CALYX_SEXTANT_SKILL_PAIR_NO_OVERLAP";
 pub const CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED: &str = "CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED";
 pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
@@ -52,6 +61,24 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         }
         CALYX_SEXTANT_RECURRENCE_READ_ERROR => {
             "repair the recurrence frequency scalar or recurrence CF rows"
+        }
+        CALYX_SEXTANT_CX_MISSING => {
+            "ingest and index the constellation before navigating from or to it"
+        }
+        CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES => {
+            "expose at least two active dense lenses on the anchor for cross-lens consensus"
+        }
+        CALYX_SEXTANT_ASSOC_GRAPH_MISSING => {
+            "set the vault association graph on the engine before traversing"
+        }
+        CALYX_SEXTANT_TRAVERSE_HOPS => "set traverse hops within 1..=10",
+        CALYX_SEXTANT_SKILL_UNKNOWN => "call skills() and use one of the returned skill names",
+        CALYX_SEXTANT_SKILL_PARAMS => "set min_cluster_size >= 2 and min_samples >= 1",
+        CALYX_SEXTANT_SKILL_BUDGET_EXCEEDED => {
+            "reduce the constellation count or raise max_constellations"
+        }
+        CALYX_SEXTANT_SKILL_PAIR_NO_OVERLAP => {
+            "ensure every clustered constellation shares at least one dense lens with the others"
         }
         CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED => {
             "raise max_candidates or use the exhaustive window recall policy"
