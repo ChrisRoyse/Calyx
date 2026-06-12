@@ -361,7 +361,7 @@ acquire_all() {
 # --- self-test: hermetic synthetic fixtures + edge battery -------------------
 # Known input -> hand-derived expected output. Plain-byte fixtures (no parquet
 # dependency), so the pinned sha is platform-independent.
-FIXTURE_SHA="@FIXTURE_SHA@"
+FIXTURE_SHA="cdb76ac0c5fdf456310e826588a07516b3ff5735205cea350de396c3b6d747ff"
 
 self_test() {
   local tmp_root
