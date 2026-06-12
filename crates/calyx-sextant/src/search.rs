@@ -27,6 +27,7 @@ pub struct SearchEngine {
     pub indexes: SlotIndexMap,
     docs: BTreeMap<CxId, Constellation>,
     query_admission: QueryAdmissionController,
+    assoc_graph: Option<calyx_paths::AssocGraph>,
 }
 
 impl SearchEngine {
@@ -35,6 +36,7 @@ impl SearchEngine {
             indexes,
             docs: BTreeMap::new(),
             query_admission: QueryAdmissionController::default(),
+            assoc_graph: None,
         }
     }
 
@@ -56,6 +58,20 @@ impl SearchEngine {
 
     pub fn constellation(&self, cx_id: CxId) -> Option<&Constellation> {
         self.docs.get(&cx_id)
+    }
+
+    /// Stored constellation ids in deterministic (sorted) order.
+    pub fn constellation_ids(&self) -> Vec<CxId> {
+        self.docs.keys().copied().collect()
+    }
+
+    /// Sets the vault association graph used by `navigation::traverse`.
+    pub fn set_assoc_graph(&mut self, graph: calyx_paths::AssocGraph) {
+        self.assoc_graph = Some(graph);
+    }
+
+    pub fn assoc_graph(&self) -> Option<&calyx_paths::AssocGraph> {
+        self.assoc_graph.as_ref()
     }
 
     pub fn search(&self, query: &Query) -> Result<Vec<Hit>> {

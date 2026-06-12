@@ -389,6 +389,7 @@ dependencies = [
  "blake3",
  "calyx-aster",
  "calyx-core",
+ "calyx-paths",
  "calyx-ward",
  "proptest",
  "rand 0.8.6",
