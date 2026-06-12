@@ -1,5 +1,6 @@
 //! Oracle consequence prediction and completion primitives.
 
+mod butterfly;
 mod error;
 mod honesty_gate;
 mod prd22;
@@ -8,6 +9,10 @@ mod self_consistency;
 mod time_prediction;
 mod types;
 
+pub use butterfly::{
+    HOP_ATTENUATION, MAX_DEPTH, MIN_CONFIDENCE_THRESHOLD, build_tree, expand,
+    is_provisional_ledger_ref, provisional_ledger_ref, select,
+};
 pub use error::{
     CALYX_ORACLE_DOMAIN_NOT_FOUND, CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT,
     CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE, OracleError,
