@@ -15,3 +15,8 @@ calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
 prometheus.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+blake3.workspace = true
+serde_json.workspace = true
