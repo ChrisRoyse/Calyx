@@ -29,6 +29,7 @@ pub struct PeriodicFit {
     pub target_hour: Option<u8>,
     pub target_day_of_week: Option<u8>,
     pub target_hour_day: Option<PeriodicTimeBucket>,
+    pub tz_offset_secs: i32,
     pub dominant_period_secs: Option<f64>,
     pub support: usize,
     pub hour_confidence: f32,
@@ -40,10 +41,19 @@ pub struct PeriodicFit {
 pub struct PeriodicRecallQuery {
     pub target_hour: Option<u8>,
     pub target_day_of_week: Option<u8>,
+    pub tz_offset_secs: i32,
 }
 
 impl PeriodicRecallQuery {
     pub fn new(target_hour: Option<u8>, target_day_of_week: Option<u8>) -> Result<Self> {
+        Self::with_tz_offset(target_hour, target_day_of_week, 0)
+    }
+
+    pub fn with_tz_offset(
+        target_hour: Option<u8>,
+        target_day_of_week: Option<u8>,
+        tz_offset_secs: i32,
+    ) -> Result<Self> {
         if target_hour.is_some_and(|hour| hour > 23) {
             return Err(period_error("target_hour must be in 0..=23"));
         }
@@ -58,6 +68,7 @@ impl PeriodicRecallQuery {
         Ok(Self {
             target_hour,
             target_day_of_week,
+            tz_offset_secs,
         })
     }
 
@@ -101,6 +112,7 @@ pub struct PeriodicRecallStats {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PeriodicRecallReadback {
+    pub query: PeriodicRecallQuery,
     pub hits: Vec<PeriodicRecallHit>,
     pub stats: PeriodicRecallStats,
 }
@@ -109,9 +121,20 @@ pub fn recurrence_series<C>(vault: &AsterVault<C>, cx_id: CxId) -> Result<Recurr
 where
     C: Clock,
 {
+    recurrence_series_with_tz_offset(vault, cx_id, 0)
+}
+
+pub fn recurrence_series_with_tz_offset<C>(
+    vault: &AsterVault<C>,
+    cx_id: CxId,
+    tz_offset_secs: i32,
+) -> Result<RecurrenceRead>
+where
+    C: Clock,
+{
     let readback = recurrence::read_series_readback(vault, cx_id)?;
     let series = readback.series;
-    let periodic_fit = periodic_fit(&series.occurrences);
+    let periodic_fit = periodic_fit_with_tz_offset(&series.occurrences, tz_offset_secs);
     Ok(RecurrenceRead {
         series,
         periodic_fit,
@@ -120,20 +143,25 @@ where
 }
 
 pub fn periodic_fit(occurrences: &[Occurrence]) -> PeriodicFit {
+    periodic_fit_with_tz_offset(occurrences, 0)
+}
+
+pub fn periodic_fit_with_tz_offset(occurrences: &[Occurrence], tz_offset_secs: i32) -> PeriodicFit {
     let support = occurrences.len();
     let mut ordered = occurrences.to_vec();
     ordered.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
     let (target_hour, hour_confidence) = mode(&ordered, 24, |occurrence| {
-        local_hour_and_day(occurrence.t_k.0).0
+        local_hour_and_day(occurrence.t_k.0, tz_offset_secs).0
     });
     let (target_day_of_week, day_confidence) = mode(&ordered, 7, |occurrence| {
-        local_hour_and_day(occurrence.t_k.0).1
+        local_hour_and_day(occurrence.t_k.0, tz_offset_secs).1
     });
-    let (target_hour_day, hour_day_confidence) = hour_day_mode(&ordered);
+    let (target_hour_day, hour_day_confidence) = hour_day_mode(&ordered, tz_offset_secs);
     PeriodicFit {
         target_hour,
         target_day_of_week,
         target_hour_day,
+        tz_offset_secs,
         dominant_period_secs: recurrence::cadence_secs(&ordered),
         support,
         hour_confidence,
@@ -167,7 +195,7 @@ where
         ..PeriodicRecallStats::default()
     };
     for cx_id in index.ids {
-        let read = recurrence_series(vault, cx_id)?;
+        let read = recurrence_series_with_tz_offset(vault, cx_id, query.tz_offset_secs)?;
         stats.series_read_count += 1;
         stats.series_range_rows_visited += read.read_stats.range_scan_rows;
         stats.series_rows_decoded += read.read_stats.decoded_rows;
@@ -184,7 +212,7 @@ where
     }
     hits.sort_by_key(|hit| hit.cx_id);
     stats.matching_series_count = hits.len();
-    Ok(PeriodicRecallReadback { hits, stats })
+    Ok(PeriodicRecallReadback { query, hits, stats })
 }
 
 struct RecurrenceCxIdIndex {
@@ -235,13 +263,16 @@ where
     (Some(bucket as u8), confidence)
 }
 
-fn hour_day_mode(occurrences: &[Occurrence]) -> (Option<PeriodicTimeBucket>, f32) {
+fn hour_day_mode(
+    occurrences: &[Occurrence],
+    tz_offset_secs: i32,
+) -> (Option<PeriodicTimeBucket>, f32) {
     if occurrences.len() < 2 {
         return (None, 0.0);
     }
     let mut counts = [0_usize; 24 * 7];
     for occurrence in occurrences {
-        let (hour, day) = local_hour_and_day(occurrence.t_k.0);
+        let (hour, day) = local_hour_and_day(occurrence.t_k.0, tz_offset_secs);
         counts[usize::from(day) * 24 + usize::from(hour)] += 1;
     }
     let max_count = counts.iter().copied().max().expect("non-empty domain");
@@ -264,11 +295,20 @@ fn hour_day_mode(occurrences: &[Occurrence]) -> (Option<PeriodicTimeBucket>, f32
     )
 }
 
-fn local_hour_and_day(time_secs: i64) -> (u8, u8) {
-    let local_hour = (time_secs.rem_euclid(SECS_PER_DAY) / SECS_PER_HOUR) as u8;
-    let local_day = time_secs.div_euclid(SECS_PER_DAY);
+pub fn periodic_time_bucket(time_secs: i64, tz_offset_secs: i32) -> PeriodicTimeBucket {
+    let local_secs = time_secs.saturating_add(i64::from(tz_offset_secs));
+    let local_hour = (local_secs.rem_euclid(SECS_PER_DAY) / SECS_PER_HOUR) as u8;
+    let local_day = local_secs.div_euclid(SECS_PER_DAY);
     let day_of_week = (local_day + UNIX_EPOCH_DAY_OF_WEEK_MONDAY_ZERO).rem_euclid(7) as u8;
-    (local_hour, day_of_week)
+    PeriodicTimeBucket {
+        target_hour: local_hour,
+        target_day_of_week: day_of_week,
+    }
+}
+
+fn local_hour_and_day(time_secs: i64, tz_offset_secs: i32) -> (u8, u8) {
+    let bucket = periodic_time_bucket(time_secs, tz_offset_secs);
+    (bucket.target_hour, bucket.target_day_of_week)
 }
 
 fn period_error(message: impl Into<String>) -> CalyxError {

@@ -11,6 +11,13 @@ const SECS_PER_HOUR: i64 = 3_600;
 const SECS_PER_DAY: i64 = 86_400;
 const UNIX_EPOCH_DAY_OF_WEEK_MONDAY_ZERO: i64 = 3;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TemporalTimeBucket {
+    pub hour: u8,
+    pub day_of_week: u8,
+    pub tz_offset_secs: i32,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TemporalScores {
     pub e2_recency: f32,
@@ -93,12 +100,22 @@ fn score_e3_periodic_with_targets(
 }
 
 #[inline]
-fn local_hour_and_day(time_secs: i64, tz_offset_secs: i32) -> (u8, u8) {
+pub fn temporal_time_bucket(time_secs: i64, tz_offset_secs: i32) -> TemporalTimeBucket {
     let local_secs = time_secs.saturating_add(i64::from(tz_offset_secs));
     let local_hour = (local_secs.rem_euclid(SECS_PER_DAY) / SECS_PER_HOUR) as u8;
     let local_day = local_secs.div_euclid(SECS_PER_DAY);
     let day_of_week = (local_day + UNIX_EPOCH_DAY_OF_WEEK_MONDAY_ZERO).rem_euclid(7) as u8;
-    (local_hour, day_of_week)
+    TemporalTimeBucket {
+        hour: local_hour,
+        day_of_week,
+        tz_offset_secs,
+    }
+}
+
+#[inline]
+fn local_hour_and_day(time_secs: i64, tz_offset_secs: i32) -> (u8, u8) {
+    let bucket = temporal_time_bucket(time_secs, tz_offset_secs);
+    (bucket.hour, bucket.day_of_week)
 }
 
 #[inline]

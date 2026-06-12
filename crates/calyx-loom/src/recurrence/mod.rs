@@ -16,8 +16,9 @@ pub use cross_terms::{
 };
 pub use periodic::{
     PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery, PeriodicRecallReadback,
-    PeriodicRecallStats, PeriodicTimeBucket, RecurrenceRead, periodic_fit, periodic_recall,
-    periodic_recall_readback, recurrence_series,
+    PeriodicRecallStats, PeriodicTimeBucket, RecurrenceRead, periodic_fit,
+    periodic_fit_with_tz_offset, periodic_recall, periodic_recall_readback, periodic_time_bucket,
+    recurrence_series, recurrence_series_with_tz_offset,
 };
 pub use series_store::SeriesStore;
 pub use signature::{
