@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 
 use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotState, SlotVector};
-use zeroize::Zeroizing;
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::guarded::{GuardedSearchReport, apply_query_guard};
@@ -12,7 +11,7 @@ use crate::planner::QueryPlanner;
 use crate::planner_explain::PlannerExplain;
 use crate::query::{FreshnessRequirement, Query, QueryFilters};
 use crate::query_admission::{QueryAdmissionConfig, QueryAdmissionController, QueryAdmissionStats};
-use crate::reranker::{RerankRequest, RerankerClient};
+use crate::reranker::{RerankCandidateText, RerankRequest, RerankerClient};
 use crate::search_support::{
     anchor_filter_matches, default_strategy, metadata_matches, scalar_matches, strategy_weights,
     text_to_sparse,
@@ -271,10 +270,10 @@ impl SearchEngine {
             return Ok(());
         }
         let candidates = self.candidate_texts_for_hits(hits, stage1_slots)?;
-        let response = reranker.rerank(&RerankRequest {
-            query: query.text.clone(),
+        let response = reranker.rerank(&RerankRequest::from_candidate_texts(
+            query.text.clone(),
             candidates,
-        })?;
+        ))?;
         if !response.zeroizing_ok {
             return Err(crate::error::sextant_error(
                 crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
@@ -311,7 +310,7 @@ impl SearchEngine {
         &self,
         hits: &[Hit],
         stage1_slots: &[SlotId],
-    ) -> Result<Vec<Zeroizing<String>>> {
+    ) -> Result<Vec<RerankCandidateText>> {
         if stage1_slots.is_empty() {
             return Err(crate::error::sextant_error(
                 crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
@@ -327,7 +326,7 @@ impl SearchEngine {
                     break;
                 }
             }
-            texts.push(Zeroizing::new(text.ok_or_else(|| {
+            texts.push(RerankCandidateText::new(text.ok_or_else(|| {
                 crate::error::sextant_error(
                     crate::error::CALYX_SEXTANT_RERANKER_TIMEOUT,
                     format!("candidate text missing for {}", hit.cx_id),

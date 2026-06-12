@@ -4,12 +4,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use calyx_core::CxId;
 use calyx_core::SlotId;
-use zeroize::Zeroizing;
 
 use super::FusionContext;
 use super::rrf::rrf_fuse_restricted;
 use crate::hit::Hit;
 use crate::index::IndexSearchHit;
+use crate::reranker::RerankCandidateText;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PipelineOutput {
@@ -20,8 +20,12 @@ pub struct PipelineOutput {
     pub candidate_ids: Vec<CxId>,
 }
 
-pub fn candidate_texts(texts: &[String]) -> Vec<Zeroizing<String>> {
-    texts.iter().cloned().map(Zeroizing::new).collect()
+pub fn candidate_texts(texts: &[String]) -> Vec<RerankCandidateText> {
+    texts
+        .iter()
+        .cloned()
+        .map(RerankCandidateText::new)
+        .collect()
 }
 
 pub fn pipeline_fuse(

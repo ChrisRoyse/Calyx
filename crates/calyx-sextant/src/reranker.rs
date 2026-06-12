@@ -1,5 +1,6 @@
 //! Request-scoped reranker hook for the :8089 cross-encoder surface.
 
+use std::fmt;
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
@@ -10,18 +11,80 @@ use zeroize::Zeroizing;
 
 use crate::error::{CALYX_SEXTANT_RERANKER_TIMEOUT, sextant_error};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(PartialEq)]
+pub struct RerankCandidateText {
+    inner: Zeroizing<String>,
+}
+
+impl RerankCandidateText {
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            inner: Zeroizing::new(text.into()),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        self.inner.as_str()
+    }
+}
+
+impl fmt::Debug for RerankCandidateText {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RerankCandidateText")
+            .field("text", &"<request-scoped redacted>")
+            .field("len", &self.inner.len())
+            .finish()
+    }
+}
+
+#[derive(PartialEq)]
 pub struct RerankRequest {
-    pub query: String,
-    pub candidates: Vec<Zeroizing<String>>,
+    query: Zeroizing<String>,
+    candidates: Vec<RerankCandidateText>,
 }
 
 impl RerankRequest {
     pub fn new(query: impl Into<String>, candidates: Vec<String>) -> Self {
+        Self::from_candidate_texts(
+            query,
+            candidates
+                .into_iter()
+                .map(RerankCandidateText::new)
+                .collect(),
+        )
+    }
+
+    pub fn from_candidate_texts(
+        query: impl Into<String>,
+        candidates: Vec<RerankCandidateText>,
+    ) -> Self {
         Self {
-            query: query.into(),
-            candidates: candidates.into_iter().map(Zeroizing::new).collect(),
+            query: Zeroizing::new(query.into()),
+            candidates,
         }
+    }
+
+    pub fn query(&self) -> &str {
+        self.query.as_str()
+    }
+
+    pub fn candidates(&self) -> &[RerankCandidateText] {
+        &self.candidates
+    }
+
+    pub fn candidate_count(&self) -> usize {
+        self.candidates.len()
+    }
+}
+
+impl fmt::Debug for RerankRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("RerankRequest")
+            .field("query", &"<request-scoped redacted>")
+            .field("candidate_count", &self.candidates.len())
+            .finish()
     }
 }
 
@@ -96,12 +159,12 @@ impl RerankerClient {
                 )
             })?;
         let texts = request
-            .candidates
+            .candidates()
             .iter()
-            .map(|candidate| candidate.as_str())
+            .map(RerankCandidateText::as_str)
             .collect();
         let wire_request = WireRerankRequest {
-            query: &request.query,
+            query: request.query(),
             texts,
         };
         let body = Zeroizing::new(serde_json::to_string(&wire_request).map_err(|error| {
@@ -123,7 +186,7 @@ impl RerankerClient {
             .read_to_string(&mut response)
             .map_err(|_| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "read timeout"))?;
         ensure_success_status(&response)?;
-        parse_http_rerank_response(&response, request.candidates.len())
+        parse_http_rerank_response(&response, request.candidate_count())
     }
 }
 
