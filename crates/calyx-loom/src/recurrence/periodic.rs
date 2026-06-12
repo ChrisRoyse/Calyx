@@ -32,6 +32,9 @@ pub struct PeriodicFit {
     pub tz_offset_secs: i32,
     pub dominant_period_secs: Option<f64>,
     pub support: usize,
+    pub active_support: usize,
+    pub rolled_support: u64,
+    pub rollup_period_estimate_secs: Option<f64>,
     pub hour_confidence: f32,
     pub day_confidence: f32,
     pub hour_day_confidence: f32,
@@ -73,7 +76,7 @@ impl PeriodicRecallQuery {
     }
 
     pub fn matches(self, fit: PeriodicFit) -> bool {
-        if fit.support < 2 {
+        if fit.active_support < 2 {
             return false;
         }
         match (self.target_hour, self.target_day_of_week) {
@@ -134,7 +137,7 @@ where
 {
     let readback = recurrence::read_series_readback(vault, cx_id)?;
     let series = readback.series;
-    let periodic_fit = periodic_fit_with_tz_offset(&series.occurrences, tz_offset_secs);
+    let periodic_fit = periodic_fit_for_series_with_tz_offset(&series, tz_offset_secs);
     Ok(RecurrenceRead {
         series,
         periodic_fit,
@@ -147,7 +150,7 @@ pub fn periodic_fit(occurrences: &[Occurrence]) -> PeriodicFit {
 }
 
 pub fn periodic_fit_with_tz_offset(occurrences: &[Occurrence], tz_offset_secs: i32) -> PeriodicFit {
-    let support = occurrences.len();
+    let active_support = occurrences.len();
     let mut ordered = occurrences.to_vec();
     ordered.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
     let (target_hour, hour_confidence) = mode(&ordered, 24, |occurrence| {
@@ -163,11 +166,29 @@ pub fn periodic_fit_with_tz_offset(occurrences: &[Occurrence], tz_offset_secs: i
         target_hour_day,
         tz_offset_secs,
         dominant_period_secs: recurrence::cadence_secs(&ordered),
-        support,
+        support: active_support,
+        active_support,
+        rolled_support: 0,
+        rollup_period_estimate_secs: None,
         hour_confidence,
         day_confidence,
         hour_day_confidence,
     }
+}
+
+fn periodic_fit_for_series_with_tz_offset(
+    series: &RecurrenceSeries,
+    tz_offset_secs: i32,
+) -> PeriodicFit {
+    let mut fit = periodic_fit_with_tz_offset(&series.occurrences, tz_offset_secs);
+    let total_support = series.frequency.max(fit.active_support as u64);
+    fit.support = usize::try_from(total_support).unwrap_or(usize::MAX);
+    fit.rolled_support = total_support.saturating_sub(fit.active_support as u64);
+    fit.rollup_period_estimate_secs = series
+        .rollup_summary
+        .as_ref()
+        .and_then(|summary| positive_finite(summary.period_estimate_secs));
+    fit
 }
 
 pub fn periodic_recall<C>(
@@ -309,6 +330,10 @@ pub fn periodic_time_bucket(time_secs: i64, tz_offset_secs: i32) -> PeriodicTime
 fn local_hour_and_day(time_secs: i64, tz_offset_secs: i32) -> (u8, u8) {
     let bucket = periodic_time_bucket(time_secs, tz_offset_secs);
     (bucket.target_hour, bucket.target_day_of_week)
+}
+
+fn positive_finite(value: f64) -> Option<f64> {
+    (value.is_finite() && value > 0.0).then_some(value)
 }
 
 fn period_error(message: impl Into<String>) -> CalyxError {
