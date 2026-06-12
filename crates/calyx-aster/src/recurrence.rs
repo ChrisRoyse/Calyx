@@ -59,6 +59,22 @@ pub struct RecurrenceSeries {
     pub rollup_summary: Option<RollupSummary>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecurrenceReadStats {
+    pub range_scan_rows: usize,
+    pub decoded_rows: usize,
+    pub occurrence_rows: usize,
+    pub rollup_summary_rows: usize,
+    pub rolled_occurrence_rows: usize,
+    pub tombstone_rows: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecurrenceSeriesReadback {
+    pub series: RecurrenceSeries,
+    pub stats: RecurrenceReadStats,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RetentionPolicy {
     pub max_occurrences: usize,
@@ -202,18 +218,31 @@ pub fn read_series<C>(vault: &AsterVault<C>, cx_id: CxId) -> Result<RecurrenceSe
 where
     C: Clock,
 {
-    let rows = read_rows(vault, cx_id)?;
+    Ok(read_series_readback(vault, cx_id)?.series)
+}
+
+pub fn read_series_readback<C>(
+    vault: &AsterVault<C>,
+    cx_id: CxId,
+) -> Result<RecurrenceSeriesReadback>
+where
+    C: Clock,
+{
+    let (rows, stats) = read_rows_with_stats(vault, cx_id)?;
     let frequency = if rows.has_tombstone {
         rows.total_count()
     } else {
         base_frequency(vault, cx_id)?.max(rows.total_count())
     };
-    Ok(RecurrenceSeries {
-        cx_id,
-        cadence_secs: cadence_secs(&rows.occurrences),
-        occurrences: rows.occurrences,
-        frequency,
-        rollup_summary: rows.rollup_summary,
+    Ok(RecurrenceSeriesReadback {
+        series: RecurrenceSeries {
+            cx_id,
+            cadence_secs: cadence_secs(&rows.occurrences),
+            occurrences: rows.occurrences,
+            frequency,
+            rollup_summary: rows.rollup_summary,
+        },
+        stats,
     })
 }
 
@@ -257,27 +286,47 @@ fn read_base<C: Clock>(vault: &AsterVault<C>, cx_id: CxId) -> Result<Option<Cons
 }
 
 fn read_rows<C: Clock>(vault: &AsterVault<C>, cx_id: CxId) -> Result<SeriesRows> {
+    Ok(read_rows_with_stats(vault, cx_id)?.0)
+}
+
+fn read_rows_with_stats<C: Clock>(
+    vault: &AsterVault<C>,
+    cx_id: CxId,
+) -> Result<(SeriesRows, RecurrenceReadStats)> {
     let range = recurrence_prefix_range(cx_id);
     let mut occurrences = Vec::new();
     let mut rollup_summary = None;
     let mut has_tombstone = false;
-    for (key, value) in vault.scan_cf_at(vault.snapshot(), ColumnFamily::Recurrence)? {
-        if !range.contains(&key) {
-            continue;
-        }
+    let mut stats = RecurrenceReadStats::default();
+    let rows = vault.scan_cf_range_at(vault.snapshot(), ColumnFamily::Recurrence, &range)?;
+    stats.range_scan_rows = rows.len();
+    for (_, value) in rows {
+        stats.decoded_rows += 1;
         match decode_recurrence_row(&value)? {
-            StoredRecurrenceRow::Occurrence(occurrence) => occurrences.push(occurrence),
-            StoredRecurrenceRow::RollupSummary(summary) => rollup_summary = Some(summary),
-            StoredRecurrenceRow::RolledOccurrence { .. } => {}
-            StoredRecurrenceRow::Tombstone { .. } => has_tombstone = true,
+            StoredRecurrenceRow::Occurrence(occurrence) => {
+                stats.occurrence_rows += 1;
+                occurrences.push(occurrence);
+            }
+            StoredRecurrenceRow::RollupSummary(summary) => {
+                stats.rollup_summary_rows += 1;
+                rollup_summary = Some(summary);
+            }
+            StoredRecurrenceRow::RolledOccurrence { .. } => stats.rolled_occurrence_rows += 1,
+            StoredRecurrenceRow::Tombstone { .. } => {
+                stats.tombstone_rows += 1;
+                has_tombstone = true;
+            }
         }
     }
     occurrences.sort_by_key(|occurrence| (occurrence.t_k, occurrence.id));
-    Ok(SeriesRows {
-        occurrences,
-        rollup_summary,
-        has_tombstone,
-    })
+    Ok((
+        SeriesRows {
+            occurrences,
+            rollup_summary,
+            has_tombstone,
+        },
+        stats,
+    ))
 }
 
 #[derive(Debug)]
