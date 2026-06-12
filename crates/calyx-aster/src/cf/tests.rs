@@ -33,6 +33,7 @@ fn column_family_names_match_prd_layout() {
             "anneal_heads",
             "anneal_bandit",
             "anneal_soak",
+            "anneal_report",
         ]
     );
 
