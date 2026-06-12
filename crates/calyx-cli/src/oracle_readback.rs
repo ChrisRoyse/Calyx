@@ -1,3 +1,5 @@
+mod predict;
+
 use std::path::Path;
 use std::str::FromStr;
 
@@ -9,13 +11,17 @@ use serde::Deserialize;
 use serde_json::json;
 
 pub(crate) fn is_topic(topic: &str) -> bool {
-    matches!(topic, "oracle_self_consistency" | "oracle_sufficiency")
+    matches!(
+        topic,
+        "oracle_self_consistency" | "oracle_sufficiency" | "oracle_predict"
+    )
 }
 
 pub(crate) fn readback_oracle(topic: &str, args: &[String]) -> Result<(), String> {
     match topic {
         "oracle_self_consistency" => readback_oracle_self_consistency(args),
         "oracle_sufficiency" => readback_oracle_sufficiency(args),
+        "oracle_predict" => predict::readback_oracle_predict(args),
         _ => Err("unknown oracle readback topic".to_string()),
     }
 }
@@ -40,7 +46,8 @@ pub(crate) fn readback_oracle_self_consistency(args: &[String]) -> Result<(), St
             let clock = SystemClock;
             match oracle_self_consistency(&vault, DomainId::from(domain.clone()), &clock) {
                 Ok(result) => {
-                    vault.flush()
+                    vault
+                        .flush()
                         .map_err(|error| format!("flush oracle ledger row: {error}"))?;
                     println!(
                         "{}",
