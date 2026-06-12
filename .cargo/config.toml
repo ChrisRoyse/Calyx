@@ -1,5 +1,8 @@
-[build]
-target-dir = "/home/croyse/calyx/target"
+# Machine-specific settings (e.g. build.target-dir) must NOT be committed
+# here: this file applies to every checkout on every machine, and an absolute
+# Unix path silently resolves to <drive>:\home\... on Windows. On aiwonder the
+# shared target dir is provided by env.sh via CARGO_TARGET_DIR, which takes
+# precedence over this file (CLI > env > config).
 
 [term]
 color = "auto"
