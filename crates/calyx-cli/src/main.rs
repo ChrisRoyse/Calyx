@@ -21,6 +21,7 @@ mod anneal_replay_readback;
 mod anneal_soak_report;
 mod anneal_status;
 mod budget_readback;
+mod cli_support;
 mod crash;
 mod dedup_audit_readback;
 mod dedup_readback;
@@ -51,10 +52,10 @@ mod ward_tau_readback;
 mod main_tests;
 
 use std::env;
-use std::fs;
-use std::io;
 use std::path::Path;
 use std::process::ExitCode;
+
+use cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
 
 fn main() -> ExitCode {
     match run(env::args().skip(1).collect()) {
@@ -483,55 +484,5 @@ fn run(args: Vec<String>) -> Result<(), String> {
             Ok(())
         }
         _ => Err(usage::usage().to_string()),
-    }
-}
-
-fn readback_hex(path: &Path) -> io::Result<()> {
-    let bytes = fs::read(path)?;
-    for line in hex_lines(&bytes) {
-        println!("{line}");
-    }
-    Ok(())
-}
-
-fn parse_i64(value: &str) -> Result<i64, String> {
-    value
-        .parse::<i64>()
-        .map_err(|error| format!("invalid i64 value {value}: {error}"))
-}
-
-fn parse_i32(value: &str) -> Result<i32, String> {
-    value
-        .parse::<i32>()
-        .map_err(|error| format!("invalid i32 value {value}: {error}"))
-}
-
-fn readback_config(name: &str, vault: &Path) -> Result<(), String> {
-    match name {
-        "tripwire" => tripwire_readback::readback_tripwire_config(vault),
-        "budget" => budget_readback::readback_budget_config(vault),
-        _ => Err(format!("unknown config readback: {name}")),
-    }
-}
-
-fn hex_lines(bytes: &[u8]) -> Vec<String> {
-    bytes
-        .chunks(32)
-        .map(|chunk| {
-            let mut line = String::with_capacity(chunk.len() * 2);
-            for byte in chunk {
-                line.push(hex_digit(byte >> 4));
-                line.push(hex_digit(byte & 0x0f));
-            }
-            line
-        })
-        .collect()
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
     }
 }

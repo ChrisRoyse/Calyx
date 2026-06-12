@@ -49,6 +49,9 @@ J(vault) =
 ```
 **Anneal invariants (binding):**
 - Every `+` term is a real, grounded measurement; DPI ceiling (A8) caps info terms.
+- Generated/model-output-derived signal is tagged as `generated_positive_credit`,
+  subtracted from every positive term before weighting, counted in
+  `provisional_excluded`, and never allowed to grow `J`.
 - `P_ungrounded`: bits about auto-labeled / ungrounded targets are tagged
   `provisional` and excluded from `J` entirely.
 - `P_goodhart`: improvement that fails held-out validation or `Gτ` /
@@ -95,6 +98,11 @@ Three proofs on aiwonder:
   through `min(term, DPI_ceiling)` where `DPI_ceiling = I(panel; reality)`
   measured on a grounded anchor set. Over-ceiling values silently inflate `J`
   without raising real intelligence.
+- **Synthetic recursion is fail-closed**: any attempt to grant positive `J`
+  credit to generator-trained/model-output-derived measurements returns
+  `CALYX_ANNEAL_J_SYNTHETIC_RECURSION`. Marked generated credit is excluded
+  from positives and penalized as ungrounded, so it can never masquerade as
+  grounded growth.
 - **`P_goodhart` computation** requires a held-out grounded set that is NOT
   used for training or autotuning; this set must be reserved at vault creation
   and never used for parameter estimation.

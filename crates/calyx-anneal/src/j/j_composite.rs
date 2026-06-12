@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 pub const CALYX_ANNEAL_J_INVALID_METRIC: &str = "CALYX_ANNEAL_J_INVALID_METRIC";
 pub const CALYX_ANNEAL_J_INVALID_CONFIG: &str = "CALYX_ANNEAL_J_INVALID_CONFIG";
+pub const CALYX_ANNEAL_J_SYNTHETIC_RECURSION: &str = "CALYX_ANNEAL_J_SYNTHETIC_RECURSION";
 pub const DEFAULT_J_DOMAIN: &str = "default";
 pub const UNIT_PENALTY: f64 = 1.0;
 pub const REDUNDANCY_PENALTY: f64 = 1.0;
@@ -94,6 +95,48 @@ impl JWeights {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JGeneratedPositiveCredit {
+    pub count: usize,
+    pub w1_info: f64,
+    pub w2_n_eff: f64,
+    pub w3_sufficiency: f64,
+    pub w4_kernel_recall: f64,
+    pub w5_oracle_accuracy: f64,
+    pub w7_compression: f64,
+    pub w8_coverage: f64,
+}
+
+impl JGeneratedPositiveCredit {
+    fn validate(self) -> Result<Self> {
+        for (name, value) in [
+            ("generated_positive_credit.w1_info", self.w1_info),
+            ("generated_positive_credit.w2_n_eff", self.w2_n_eff),
+            (
+                "generated_positive_credit.w3_sufficiency",
+                self.w3_sufficiency,
+            ),
+            (
+                "generated_positive_credit.w4_kernel_recall",
+                self.w4_kernel_recall,
+            ),
+            (
+                "generated_positive_credit.w5_oracle_accuracy",
+                self.w5_oracle_accuracy,
+            ),
+            (
+                "generated_positive_credit.w7_compression",
+                self.w7_compression,
+            ),
+            ("generated_positive_credit.w8_coverage", self.w8_coverage),
+        ] {
+            validate_nonnegative(value, name).map_err(invalid_metric)?;
+        }
+        Ok(self)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct JObjectiveContext {
     pub domain: String,
@@ -140,13 +183,25 @@ pub trait JMetricSources {
     fn coverage(&self) -> f64;
     fn dpi_ceiling(&self) -> f64;
     fn provisional_count(&self) -> usize;
+    fn generated_positive_credit(&self) -> JGeneratedPositiveCredit {
+        JGeneratedPositiveCredit::default()
+    }
+    fn synthetic_recursion_credit_attempted(&self) -> bool {
+        false
+    }
 }
 
 pub fn compute_j<S>(context: &JObjectiveContext, sources: &S) -> Result<JValue>
 where
     S: JMetricSources,
 {
+    if sources.synthetic_recursion_credit_attempted() {
+        return Err(synthetic_recursion_error(
+            "generated/model-output-derived signals cannot receive positive J credit",
+        ));
+    }
     let weights = context.weights.validate()?;
+    let generated_credit = sources.generated_positive_credit().validate()?;
     let dpi_ceiling =
         validate_nonnegative(sources.dpi_ceiling(), "dpi_ceiling").map_err(invalid_metric)?;
     let raw_info = validate_nonnegative(
@@ -159,30 +214,59 @@ where
         "panel_sufficiency",
     )
     .map_err(invalid_metric)?;
-    let provisional_excluded = sources.provisional_count();
-    let info = if provisional_excluded == 0 {
-        raw_info.min(dpi_ceiling)
+    let raw_n_eff = validate_nonnegative(sources.n_eff(), "n_eff").map_err(invalid_metric)?;
+    let grounded_info = exclude_generated_credit(
+        raw_info,
+        generated_credit.w1_info,
+        "mutual_info_panel_anchor",
+    )?;
+    let grounded_n_eff = exclude_generated_credit(raw_n_eff, generated_credit.w2_n_eff, "n_eff")?;
+    let grounded_sufficiency = exclude_generated_credit(
+        raw_sufficiency,
+        generated_credit.w3_sufficiency,
+        "panel_sufficiency",
+    )?;
+    let provisional_count = sources.provisional_count();
+    let provisional_excluded = provisional_count
+        .checked_add(generated_credit.count)
+        .ok_or_else(|| invalid_metric("provisional exclusion count overflow"))?;
+    let info = if provisional_count == 0 {
+        grounded_info.min(dpi_ceiling)
     } else {
         0.0
     };
-    let sufficiency = raw_sufficiency.min(dpi_ceiling);
-    let n_eff = validate_nonnegative(sources.n_eff(), "n_eff").map_err(invalid_metric)?;
+    let sufficiency = grounded_sufficiency.min(dpi_ceiling);
     let terms = JTerms {
         w1_info: info,
-        w2_n_eff: n_eff,
+        w2_n_eff: grounded_n_eff,
         w3_sufficiency: sufficiency,
-        w4_kernel_recall: validate_nonnegative(sources.kernel_recall(), "kernel_recall")
-            .map_err(invalid_metric)?,
-        w5_oracle_accuracy: validate_nonnegative(sources.oracle_accuracy(), "oracle_accuracy")
-            .map_err(invalid_metric)?,
+        w4_kernel_recall: exclude_generated_credit(
+            validate_nonnegative(sources.kernel_recall(), "kernel_recall")
+                .map_err(invalid_metric)?,
+            generated_credit.w4_kernel_recall,
+            "kernel_recall",
+        )?,
+        w5_oracle_accuracy: exclude_generated_credit(
+            validate_nonnegative(sources.oracle_accuracy(), "oracle_accuracy")
+                .map_err(invalid_metric)?,
+            generated_credit.w5_oracle_accuracy,
+            "oracle_accuracy",
+        )?,
         w6_mistake_rate: validate_nonnegative(sources.mistake_rate(), "mistake_rate")
             .map_err(invalid_metric)?,
-        w7_compression: validate_nonnegative(sources.compression_yield(), "compression_yield")
-            .map_err(invalid_metric)?,
-        w8_coverage: validate_nonnegative(sources.coverage(), "coverage")
-            .map_err(invalid_metric)?,
-        p_redundant: redundancy_penalty(context.panel_len, n_eff),
-        p_ungrounded: provisional_excluded as f64 * UNIT_PENALTY,
+        w7_compression: exclude_generated_credit(
+            validate_nonnegative(sources.compression_yield(), "compression_yield")
+                .map_err(invalid_metric)?,
+            generated_credit.w7_compression,
+            "compression_yield",
+        )?,
+        w8_coverage: exclude_generated_credit(
+            validate_nonnegative(sources.coverage(), "coverage").map_err(invalid_metric)?,
+            generated_credit.w8_coverage,
+            "coverage",
+        )?,
+        p_redundant: redundancy_penalty(context.panel_len, grounded_n_eff),
+        p_ungrounded: ungrounded_penalty(provisional_excluded)?,
         p_goodhart: validate_nonnegative(context.goodhart_penalty, "p_goodhart")
             .map_err(invalid_metric)?,
     };
@@ -207,7 +291,7 @@ where
         j,
         terms,
         dpi_ceiling,
-        dpi_headroom: (dpi_ceiling - raw_info).min(dpi_ceiling - raw_sufficiency),
+        dpi_headroom: (dpi_ceiling - grounded_info).min(dpi_ceiling - grounded_sufficiency),
         provisional_excluded,
         weights,
     })
@@ -271,6 +355,25 @@ fn redundancy_penalty(panel_len: usize, n_eff: f64) -> f64 {
     ((panel_len as f64) - n_eff).max(0.0) * REDUNDANCY_PENALTY
 }
 
+fn exclude_generated_credit(raw: f64, generated: f64, name: &str) -> Result<f64> {
+    if generated > raw {
+        return Err(invalid_metric(format!(
+            "{name} generated-positive credit {generated} exceeds measured input {raw}"
+        )));
+    }
+    Ok(raw - generated)
+}
+
+fn ungrounded_penalty(count: usize) -> Result<f64> {
+    let penalty = count as f64 * UNIT_PENALTY;
+    if !penalty.is_finite() {
+        return Err(invalid_metric(format!(
+            "provisional exclusion penalty must be finite, got {penalty}"
+        )));
+    }
+    Ok(penalty)
+}
+
 fn validate_nonnegative(value: f64, name: &str) -> std::result::Result<f64, String> {
     if !value.is_finite() || value < 0.0 {
         return Err(format!(
@@ -293,5 +396,13 @@ fn invalid_config(message: impl Into<String>) -> CalyxError {
         code: CALYX_ANNEAL_J_INVALID_CONFIG,
         message: message.into(),
         remediation: "correct PH48 objective configuration before computing J",
+    }
+}
+
+fn synthetic_recursion_error(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_ANNEAL_J_SYNTHETIC_RECURSION,
+        message: message.into(),
+        remediation: "tag generated/model-output-derived signals as generated_positive_credit or re-measure real grounded inputs through frozen lenses",
     }
 }

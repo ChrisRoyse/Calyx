@@ -3,11 +3,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use calyx_anneal::{
-    DEFAULT_J_DOMAIN, GradientCandidate, IntelligenceGradient, JMetricSources, JObjectiveContext,
-    JTerms, JValue, JWeights, compute_j, format_report, intelligence_report,
-    latest_intelligence_report_snapshot, read_goodhart_state_from_vault,
-    read_intelligence_report_snapshot, read_objective_weights_from_vault, report_diff, to_json,
-    write_gradient_snapshot, write_intelligence_report_snapshot,
+    CALYX_ANNEAL_J_SYNTHETIC_RECURSION, DEFAULT_J_DOMAIN, GradientCandidate, IntelligenceGradient,
+    JGeneratedPositiveCredit, JMetricSources, JObjectiveContext, JTerms, JValue, JWeights,
+    compute_j, format_report, intelligence_report, latest_intelligence_report_snapshot,
+    read_goodhart_state_from_vault, read_intelligence_report_snapshot,
+    read_objective_weights_from_vault, report_diff, to_json, write_gradient_snapshot,
+    write_intelligence_report_snapshot,
 };
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Clock, FixedClock, SystemClock, VaultId};
@@ -45,8 +46,13 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         weights,
         goodhart_penalty,
     };
-    let j_value = compute_j(&context, &fixture.metrics)
-        .unwrap_or_else(|_| unavailable_j_value(weights, goodhart_penalty));
+    let j_value = match compute_j(&context, &fixture.metrics) {
+        Ok(value) => value,
+        Err(error) if error.code == CALYX_ANNEAL_J_SYNTHETIC_RECURSION => {
+            return Err(format!("{}: {}", error.code, error.message));
+        }
+        Err(_) => unavailable_j_value(weights, goodhart_penalty),
+    };
     let gradient = request.resolve_gradient(&fixture, &j_value)?;
     let report = intelligence_report(
         &context,
@@ -262,6 +268,10 @@ struct FixtureMetrics {
     dpi_ceiling: f64,
     #[serde(default)]
     provisional_count: usize,
+    #[serde(default)]
+    generated_positive_credit: JGeneratedPositiveCredit,
+    #[serde(default)]
+    synthetic_recursion_credit_attempted: bool,
 }
 
 impl JMetricSources for FixtureMetrics {
@@ -303,6 +313,14 @@ impl JMetricSources for FixtureMetrics {
 
     fn provisional_count(&self) -> usize {
         self.provisional_count
+    }
+
+    fn generated_positive_credit(&self) -> JGeneratedPositiveCredit {
+        self.generated_positive_credit
+    }
+
+    fn synthetic_recursion_credit_attempted(&self) -> bool {
+        self.synthetic_recursion_credit_attempted
     }
 }
 
