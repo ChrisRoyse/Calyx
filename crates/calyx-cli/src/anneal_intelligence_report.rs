@@ -1,10 +1,13 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use calyx_anneal::{
-    DEFAULT_J_DOMAIN, JMetricSources, JObjectiveContext, JWeights, compute_j,
-    read_goodhart_state_from_vault, read_objective_weights_from_vault,
+    DEFAULT_J_DOMAIN, GradientCandidate, IntelligenceGradient, JMetricSources, JObjectiveContext,
+    JValue, JWeights, compute_j, read_goodhart_state_from_vault, read_objective_weights_from_vault,
+    write_gradient_snapshot,
 };
+use calyx_core::{Clock, FixedClock, SystemClock};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -27,12 +30,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let context = JObjectiveContext {
         domain: fixture
             .domain
+            .clone()
             .unwrap_or_else(|| DEFAULT_J_DOMAIN.to_string()),
         panel_len: fixture.panel_len,
         weights,
         goodhart_penalty,
     };
     let j_value = compute_j(&context, &fixture.metrics).map_err(|error| error.to_string())?;
+    let gradient = request.resolve_gradient(&fixture, &j_value)?;
     let readback = json!({
         "source_of_truth": "fixture JSON bytes read by calyx anneal intelligence-report",
         "fixture_path": request.fixture.display().to_string(),
@@ -43,6 +48,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         "context": context,
         "raw_metrics": fixture.metrics,
         "j_value": j_value,
+        "gradient_state_source": gradient.state_source,
+        "gradient_refresh": gradient.refresh,
+        "gradient": gradient.snapshot.gradient,
+        "next_best_action": gradient.snapshot.next_best_action,
+        "gradient_warnings": gradient.snapshot.warnings,
     });
     println!(
         "{}",
@@ -109,6 +119,39 @@ impl IntelligenceReportRequest {
         }
         Ok((0.0, "default no vault Goodhart state".to_string()))
     }
+
+    fn resolve_gradient(
+        &self,
+        fixture: &Fixture,
+        j_value: &JValue,
+    ) -> Result<GradientReportState, String> {
+        let clock: Arc<dyn Clock> = fixture
+            .gradient_ts
+            .map(|ts| Arc::new(FixedClock::new(ts)) as Arc<dyn Clock>)
+            .unwrap_or_else(|| Arc::new(SystemClock));
+        let mut gradient = IntelligenceGradient::new(j_value.clone(), clock)
+            .with_budget_units(fixture.gradient_budget_units.unwrap_or(u64::MAX));
+        let refresh = gradient.refresh(fixture.gradient_candidates.clone());
+        let snapshot = gradient.snapshot(5);
+        let state_source = if let Some(vault) = &self.vault {
+            let path =
+                write_gradient_snapshot(vault, &snapshot).map_err(|error| error.to_string())?;
+            path.display().to_string()
+        } else {
+            "not persisted without --vault".to_string()
+        };
+        Ok(GradientReportState {
+            refresh,
+            snapshot,
+            state_source,
+        })
+    }
+}
+
+struct GradientReportState {
+    refresh: calyx_anneal::GradientRefreshReport,
+    snapshot: calyx_anneal::GradientSnapshot,
+    state_source: String,
 }
 
 #[derive(Deserialize)]
@@ -119,6 +162,12 @@ struct Fixture {
     panel_len: usize,
     #[serde(default)]
     weights: Option<JWeights>,
+    #[serde(default)]
+    gradient_candidates: Vec<GradientCandidate>,
+    #[serde(default)]
+    gradient_budget_units: Option<u64>,
+    #[serde(default)]
+    gradient_ts: Option<u64>,
     metrics: FixtureMetrics,
 }
 
