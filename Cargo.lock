@@ -241,6 +241,7 @@ dependencies = [
  "calyx-lodestar",
  "calyx-loom",
  "calyx-oracle",
+ "calyx-paths",
  "calyx-registry",
  "calyx-sextant",
  "calyx-ward",
