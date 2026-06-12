@@ -11,7 +11,8 @@ if [[ -f "$repo_root/env.sh" ]]; then
 fi
 
 cargo fmt --all -- --check
-cargo check --workspace
+cargo check --workspace --all-targets
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+bash "$repo_root/scripts/orphan_rs.sh"
 bash "$repo_root/scripts/linecount.sh"
