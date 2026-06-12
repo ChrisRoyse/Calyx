@@ -31,6 +31,11 @@ pub enum ForgeError {
         detail: String,
         remediation: String,
     },
+    QuantIntelligenceLoss {
+        slot: String,
+        detail: String,
+        remediation: String,
+    },
     CacheError {
         op: String,
         path: String,
@@ -51,6 +56,7 @@ impl ForgeError {
             Self::ShapeMismatch { .. } => "CALYX_FORGE_SHAPE_MISMATCH",
             Self::Unimplemented { .. } => "CALYX_FORGE_UNIMPLEMENTED",
             Self::QuantError { .. } => "CALYX_FORGE_QUANT_ERROR",
+            Self::QuantIntelligenceLoss { .. } => "CALYX_QUANT_INTELLIGENCE_LOSS",
             Self::CacheError { .. } => "CALYX_FORGE_CACHE_ERROR",
             Self::SeedVersionMismatch { .. } => "CALYX_FORGE_QUANT_SEED_VERSION",
         }
@@ -63,6 +69,7 @@ impl ForgeError {
             | Self::ShapeMismatch { remediation, .. }
             | Self::Unimplemented { remediation, .. }
             | Self::QuantError { remediation, .. }
+            | Self::QuantIntelligenceLoss { remediation, .. }
             | Self::CacheError { remediation, .. } => remediation,
             Self::SeedVersionMismatch { .. } => SEED_VERSION_REMEDIATION,
         }
@@ -92,6 +99,9 @@ impl fmt::Display for ForgeError {
                     level,
                     detail
                 )
+            }
+            Self::QuantIntelligenceLoss { slot, detail, .. } => {
+                format!("{} slot={} detail={}", self.code(), slot, detail)
             }
             Self::CacheError {
                 op, path, detail, ..

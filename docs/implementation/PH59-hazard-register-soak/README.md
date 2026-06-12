@@ -52,6 +52,7 @@ crate that orchestrates the full 25-hazard sweep and the final 1e7-op soak.
 | T05 | Hazards 17–21: disk full, ARC thrash, clock skew, Anneal thrash, panel explosion | PH56, PH58, PH43 |
 | T06 | Hazards 22–25: secret leakage, nondeterminism, whole-host loss, upgrade skew | PH35, PH36, PH66 |
 | T07 | Final 1e7-op soak — RSS/VRAM bounded, no leak, no oscillation | T01–T06 |
+| T08 | doc-23 `compression_report(vault)` honest-numbers artifact + readback | PH14, PH42, Ward/Assay evidence |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

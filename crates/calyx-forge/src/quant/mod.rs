@@ -4,6 +4,8 @@ pub mod qjl;
 pub mod rotation;
 pub mod turboquant;
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(test)]
@@ -47,6 +49,21 @@ impl QuantLevel {
 
     pub fn is_lossy(self) -> bool {
         !matches!(self, Self::F32 | Self::Bits8)
+    }
+}
+
+impl fmt::Display for QuantLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let name = match self {
+            Self::F32 => "F32",
+            Self::Bits8 => "Bits8",
+            Self::Bits8Fp => "Bits8Fp",
+            Self::Bits4Fp => "Bits4Fp",
+            Self::Bits3p5 => "Bits3p5",
+            Self::Bits2p5 => "Bits2p5",
+            Self::Bits1 => "Bits1",
+        };
+        f.write_str(name)
     }
 }
 

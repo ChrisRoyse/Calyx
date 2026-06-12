@@ -122,6 +122,11 @@ pub mod tests {
                 detail: "invalid quantized payload".to_string(),
                 remediation: "Reject malformed quantized vectors".to_string(),
             },
+            ForgeError::QuantIntelligenceLoss {
+                slot: "slot-text".to_string(),
+                detail: "guard FAR regression".to_string(),
+                remediation: "Use a gentler quantization level".to_string(),
+            },
             ForgeError::CacheError {
                 op: "load".to_string(),
                 path: "/tmp/calyx-autotune.json".to_string(),
@@ -241,7 +246,11 @@ pub mod tests {
             remediation in ".{0,96}"
         ) {
             for err in all_error_variants(op.clone(), detail.clone(), remediation.clone()) {
-                prop_assert!(err.to_string().starts_with("CALYX_FORGE_"));
+                let rendered = err.to_string();
+                prop_assert!(
+                    rendered.starts_with("CALYX_FORGE_")
+                        || rendered.starts_with("CALYX_QUANT_INTELLIGENCE_LOSS")
+                );
             }
         }
     }
@@ -265,10 +274,19 @@ pub mod tests {
                 detail: "driver init failed".to_string(),
                 remediation: "read nvidia-smi\ncheck CUDA_VISIBLE_DEVICES".to_string(),
             },
+            ForgeError::QuantIntelligenceLoss {
+                slot: "kernel".to_string(),
+                detail: "kernel recall regressed".to_string(),
+                remediation: "use a gentler quant level".to_string(),
+            },
         ];
 
         for err in errors {
-            assert!(err.to_string().starts_with("CALYX_FORGE_"));
+            let rendered = err.to_string();
+            assert!(
+                rendered.starts_with("CALYX_FORGE_")
+                    || rendered.starts_with("CALYX_QUANT_INTELLIGENCE_LOSS")
+            );
         }
     }
 
@@ -296,6 +314,16 @@ pub mod tests {
             device
                 .to_string()
                 .starts_with("CALYX_FORGE_DEVICE_UNAVAILABLE")
+        );
+        let loss = ForgeError::QuantIntelligenceLoss {
+            slot: "slot-text".to_string(),
+            detail: "bits delta below bound".to_string(),
+            remediation: "try Bits3p5 instead of Bits2p5".to_string(),
+        };
+        println!("{loss}");
+        assert!(
+            loss.to_string()
+                .starts_with("CALYX_QUANT_INTELLIGENCE_LOSS")
         );
     }
 }

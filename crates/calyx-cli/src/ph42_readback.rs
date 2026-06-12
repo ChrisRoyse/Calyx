@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 const ARTIFACT_SCHEMA_VERSION: u64 = 1;
-const ARTIFACT_SOURCE_OF_TRUTH: &str = "PH42 persisted artifact";
+const PH42_ARTIFACT_SOURCE_OF_TRUTH: &str = "PH42 persisted artifact";
+const PH59_ARTIFACT_SOURCE_OF_TRUTH: &str = "PH59 compression report artifact";
 const ARTIFACT_SCHEMA_ERROR: &str = "CALYX_PH42_ARTIFACT_SCHEMA";
 
 const TOPICS: &[&str] = &[
@@ -14,6 +15,7 @@ const TOPICS: &[&str] = &[
     "kernel-window",
     "ward-novelty",
     "compression-ratio",
+    "compression-report",
     "anneal-schedule",
 ];
 
@@ -107,7 +109,7 @@ fn validate_artifact_schema<'a>(
     }
 
     let expected_kind = expected_artifact_kind(topic)
-        .ok_or_else(|| schema_error(artifact, format!("unknown PH42 surface {topic}")))?;
+        .ok_or_else(|| schema_error(artifact, format!("unknown readback surface {topic}")))?;
     let kind = required_string(artifact, object, "artifact_kind")?;
     if kind != expected_kind {
         return Err(schema_error(
@@ -128,12 +130,12 @@ fn validate_artifact_schema<'a>(
     }
 
     let source = required_string(artifact, object, "source_of_truth")?;
-    if source != ARTIFACT_SOURCE_OF_TRUTH {
+    let expected_source = expected_source_of_truth(topic)
+        .ok_or_else(|| schema_error(artifact, format!("unknown readback surface {topic}")))?;
+    if source != expected_source {
         return Err(schema_error(
             artifact,
-            format!(
-                "source_of_truth mismatch: expected {ARTIFACT_SOURCE_OF_TRUTH}, found {source}"
-            ),
+            format!("source_of_truth mismatch: expected {expected_source}, found {source}"),
         ));
     }
 
@@ -170,7 +172,16 @@ fn expected_artifact_kind(topic: &str) -> Option<&'static str> {
         "kernel-window" => Some("ph42.kernel-window.v1"),
         "ward-novelty" => Some("ph42.ward-novelty.v1"),
         "compression-ratio" => Some("ph42.compression-ratio.v1"),
+        "compression-report" => Some("ph59.compression-report.v1"),
         "anneal-schedule" => Some("ph42.anneal-schedule.v1"),
+        _ => None,
+    }
+}
+
+fn expected_source_of_truth(topic: &str) -> Option<&'static str> {
+    match topic {
+        "compression-report" => Some(PH59_ARTIFACT_SOURCE_OF_TRUTH),
+        topic if TOPICS.contains(&topic) => Some(PH42_ARTIFACT_SOURCE_OF_TRUTH),
         _ => None,
     }
 }
