@@ -99,8 +99,14 @@ pub(crate) fn windowed_primary_search(
         return Ok((hits, report));
     };
 
-    let cap = match policy {
-        WindowRecallPolicy::Exhaustive => union_bound.max(requested),
+    // `cap` is the ceiling we will never fetch past; `budget` is where this
+    // round starts. Exhaustive pins both to the union bound (complete in one
+    // round); Bounded starts at the caller's request and deepens up to the cap.
+    let (cap, mut budget) = match policy {
+        WindowRecallPolicy::Exhaustive => {
+            let cap = union_bound.max(requested);
+            (cap, cap)
+        }
         WindowRecallPolicy::Bounded { max_candidates } => {
             if max_candidates < final_k {
                 return Err(sextant_error(
@@ -110,12 +116,8 @@ pub(crate) fn windowed_primary_search(
                     ),
                 ));
             }
-            max_candidates
+            (max_candidates, requested.min(max_candidates))
         }
-    };
-    let mut budget = match policy {
-        WindowRecallPolicy::Exhaustive => cap,
-        WindowRecallPolicy::Bounded { .. } => requested.min(cap),
     };
 
     loop {
