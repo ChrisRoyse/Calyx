@@ -18,6 +18,7 @@ pub enum EstimatorKind {
     LogisticProbe,
     Bootstrap,
     PanelSufficiency,
+    OutcomeEntropy,
     PairGain,
 }
 

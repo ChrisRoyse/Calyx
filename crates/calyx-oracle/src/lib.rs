@@ -1,6 +1,7 @@
 //! Oracle consequence prediction and completion primitives.
 
 mod error;
+mod honesty_gate;
 mod prd22;
 mod self_consistency;
 mod time_prediction;
@@ -11,6 +12,9 @@ pub use error::{
     CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE, OracleError,
 };
 
+pub use honesty_gate::{
+    SufficiencyAssay, VaultSufficiencyAssay, check_sufficiency, check_sufficiency_with_assay,
+};
 pub use prd22::{
     ConsequenceExpansion, OracleCeiling, OraclePrediction, SuperIntelligenceEvidence,
     SuperIntelligenceVerdict, butterfly_expand, oracle_ceiling, oracle_predict, reverse_query,

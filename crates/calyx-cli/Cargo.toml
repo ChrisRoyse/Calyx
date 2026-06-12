@@ -11,6 +11,7 @@ name = "calyx"
 path = "src/main.rs"
 
 [dependencies]
+calyx-assay = { path = "../calyx-assay" }
 calyx-anneal = { path = "../calyx-anneal" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
@@ -27,6 +28,5 @@ serde.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
-calyx-assay = { path = "../calyx-assay" }
 calyx-forge = { path = "../calyx-forge" }
 calyx-ward = { path = "../calyx-ward" }

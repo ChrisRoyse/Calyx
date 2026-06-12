@@ -3,10 +3,13 @@
 use std::collections::BTreeMap;
 
 use calyx_aster::cf::{CfRouter, ColumnFamily};
-use calyx_core::{AnchorKind, CalyxError, Result, SlotId, VaultId};
+use calyx_aster::vault::AsterVault;
+use calyx_core::{AnchorKind, CalyxError, Clock, Result, SlotId, VaultId, VaultStore};
 use serde::{Deserialize, Serialize};
 
 use crate::estimate::MiEstimate;
+
+type AsterAssayRow = (ColumnFamily, Vec<u8>, Vec<u8>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct AssayCacheKey {
@@ -60,6 +63,7 @@ pub enum AssaySubject {
     Lens { slot: SlotId },
     Pair { a: SlotId, b: SlotId },
     Panel,
+    OutcomeEntropy,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -115,33 +119,37 @@ impl AssayStore {
     }
 
     pub fn persist_to_aster(&self, router: &mut CfRouter) -> Result<usize> {
-        for row in self.rows.values() {
-            row.cache_key.require_scoped()?;
-            let key = assay_key(&row.cache_key, &row.subject);
-            let value = serde_json::to_vec(row)
-                .map_err(|error| CalyxError::disk_pressure(format!("encode assay row: {error}")))?;
+        for (_, key, value) in self.aster_rows()? {
             router.put(ColumnFamily::Assay, &key, &value)?;
         }
         router.flush_cf(ColumnFamily::Assay)?;
         Ok(self.rows.len())
     }
 
+    pub fn persist_to_vault<C>(&self, vault: &AsterVault<C>) -> Result<usize>
+    where
+        C: Clock,
+    {
+        vault.write_cf_batch(self.aster_rows()?)?;
+        vault.flush()?;
+        Ok(self.rows.len())
+    }
+
     pub fn load_from_aster(router: &CfRouter) -> Result<Self> {
         let mut store = Self::default();
         for entry in router.iter_cf(ColumnFamily::Assay)? {
-            let row: AssayRow = serde_json::from_slice(&entry.value).map_err(|error| {
-                CalyxError::aster_corrupt_shard(format!("decode assay row: {error}"))
-            })?;
-            row.cache_key.require_scoped()?;
-            let expected = assay_key(&row.cache_key, &row.subject);
-            if entry.key != expected {
-                return Err(CalyxError::aster_corrupt_shard(
-                    "assay CF key does not match row subject",
-                ));
-            }
-            store
-                .rows
-                .insert((row.cache_key.clone(), row.subject.clone()), row);
+            store.insert_aster_row(entry.key, entry.value)?;
+        }
+        Ok(store)
+    }
+
+    pub fn load_from_vault<C>(vault: &AsterVault<C>) -> Result<Self>
+    where
+        C: Clock,
+    {
+        let mut store = Self::default();
+        for (key, value) in vault.scan_cf_at(vault.snapshot(), ColumnFamily::Assay)? {
+            store.insert_aster_row(key, value)?;
         }
         Ok(store)
     }
@@ -152,6 +160,34 @@ impl AssayStore {
 
     pub fn is_empty(&self) -> bool {
         self.rows.is_empty()
+    }
+
+    fn aster_rows(&self) -> Result<Vec<AsterAssayRow>> {
+        let mut out = Vec::with_capacity(self.rows.len());
+        for row in self.rows.values() {
+            row.cache_key.require_scoped()?;
+            let key = assay_key(&row.cache_key, &row.subject);
+            let value = serde_json::to_vec(row)
+                .map_err(|error| CalyxError::disk_pressure(format!("encode assay row: {error}")))?;
+            out.push((ColumnFamily::Assay, key, value));
+        }
+        Ok(out)
+    }
+
+    fn insert_aster_row(&mut self, key: Vec<u8>, value: Vec<u8>) -> Result<()> {
+        let row: AssayRow = serde_json::from_slice(&value).map_err(|error| {
+            CalyxError::aster_corrupt_shard(format!("decode assay row: {error}"))
+        })?;
+        row.cache_key.require_scoped()?;
+        let expected = assay_key(&row.cache_key, &row.subject);
+        if key != expected {
+            return Err(CalyxError::aster_corrupt_shard(
+                "assay CF key does not match row subject",
+            ));
+        }
+        self.rows
+            .insert((row.cache_key.clone(), row.subject.clone()), row);
+        Ok(())
     }
 }
 
@@ -178,6 +214,7 @@ fn assay_key(cache_key: &AssayCacheKey, subject: &AssaySubject) -> Vec<u8> {
             key.extend_from_slice(&b.get().to_be_bytes());
         }
         AssaySubject::Panel => key.push(2),
+        AssaySubject::OutcomeEntropy => key.push(3),
     }
     key
 }
@@ -195,7 +232,7 @@ fn default_anchor() -> AnchorKind {
 mod tests {
     use super::*;
     use crate::estimate::{EstimatorKind, MiEstimate, TrustTag};
-    use calyx_core::{AnchorKind, VaultId};
+    use calyx_core::{AnchorKind, FixedClock, VaultId};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -226,6 +263,32 @@ mod tests {
 
         assert_eq!(loaded.get(&key, &subject).unwrap().written_at_seq, 99);
         cleanup(dir);
+    }
+
+    #[test]
+    fn outcome_entropy_subject_roundtrips_through_vault() {
+        let vault = AsterVault::with_clock(vault_a(), b"assay-entropy", FixedClock::new(7));
+        let mut store = AssayStore::default();
+        let key = AssayCacheKey::scoped(8, "oracle-domain", vault_a(), AnchorKind::Reward);
+        store.put(
+            key.clone(),
+            AssaySubject::OutcomeEntropy,
+            MiEstimate::point(1.0, 120, EstimatorKind::OutcomeEntropy, TrustTag::Trusted),
+            "oracle entropy fixture",
+            7,
+        );
+
+        assert_eq!(store.persist_to_vault(&vault).unwrap(), 1);
+        let loaded = AssayStore::load_from_vault(&vault).unwrap();
+
+        assert_eq!(
+            loaded
+                .get(&key, &AssaySubject::OutcomeEntropy)
+                .unwrap()
+                .estimate
+                .bits,
+            1.0
+        );
     }
 
     #[test]

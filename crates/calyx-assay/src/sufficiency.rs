@@ -148,7 +148,7 @@ fn panel_sufficiency_with_trust(
     context: DeficitRoutingContext,
 ) -> PanelSufficiency {
     let deficit_bits = (anchor_entropy_bits - panel_bits).max(0.0);
-    let sufficient = deficit_bits <= 1.0e-6;
+    let sufficient = panel_bits >= anchor_entropy_bits;
     let deficits = if sufficient {
         Vec::new()
     } else {

@@ -159,9 +159,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
             recurrence_readback::readback_periodic_recall(rest)
         }
         [command, topic, rest @ ..]
-            if command == "readback" && topic == "oracle_self_consistency" =>
+            if command == "readback" && oracle_readback::is_topic(topic) =>
         {
-            oracle_readback::readback_oracle_self_consistency(rest)
+            oracle_readback::readback_oracle(topic, rest)
         }
         [command, topic, rest @ ..]
             if command == "readback" && topic == "temporal-log-recurrence" =>
