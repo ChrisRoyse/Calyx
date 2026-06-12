@@ -4,12 +4,18 @@ use std::sync::Arc;
 
 use calyx_anneal::{
     DEFAULT_J_DOMAIN, GradientCandidate, IntelligenceGradient, JMetricSources, JObjectiveContext,
-    JValue, JWeights, compute_j, read_goodhart_state_from_vault, read_objective_weights_from_vault,
-    write_gradient_snapshot,
+    JTerms, JValue, JWeights, compute_j, format_report, intelligence_report,
+    latest_intelligence_report_snapshot, read_goodhart_state_from_vault,
+    read_intelligence_report_snapshot, read_objective_weights_from_vault, report_diff, to_json,
+    write_gradient_snapshot, write_intelligence_report_snapshot,
 };
-use calyx_core::{Clock, FixedClock, SystemClock};
+use calyx_aster::vault::{AsterVault, VaultOptions};
+use calyx_core::{Clock, FixedClock, SystemClock, VaultId};
 use serde::Deserialize;
 use serde_json::json;
+
+const REPORT_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+const REPORT_VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let request = IntelligenceReportRequest::parse(args)?;
@@ -27,6 +33,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     })?;
     let (weights, weights_source) = request.resolve_weights(&fixture)?;
     let (goodhart_penalty, goodhart_state_source) = request.resolve_goodhart_penalty()?;
+    let goodhart_state = calyx_anneal::GoodhartState {
+        p_goodhart: goodhart_penalty,
+    };
     let context = JObjectiveContext {
         domain: fixture
             .domain
@@ -36,8 +45,18 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         weights,
         goodhart_penalty,
     };
-    let j_value = compute_j(&context, &fixture.metrics).map_err(|error| error.to_string())?;
+    let j_value = compute_j(&context, &fixture.metrics)
+        .unwrap_or_else(|_| unavailable_j_value(weights, goodhart_penalty));
     let gradient = request.resolve_gradient(&fixture, &j_value)?;
+    let report = intelligence_report(
+        &context,
+        &fixture.metrics,
+        &gradient.gradient,
+        &goodhart_state,
+        fixture.goodhart_last.clone(),
+        gradient.clock.as_ref(),
+    );
+    let persisted = request.persist_report(&report)?;
     let readback = json!({
         "source_of_truth": "fixture JSON bytes read by calyx anneal intelligence-report",
         "fixture_path": request.fixture.display().to_string(),
@@ -47,7 +66,12 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         "goodhart_state_source": goodhart_state_source,
         "context": context,
         "raw_metrics": fixture.metrics,
-        "j_value": j_value,
+        "j_value": to_json(&report),
+        "human_report": format_report(&report),
+        "anneal_report_state_source": persisted.state_source,
+        "anneal_report_key_hex": persisted.key_hex,
+        "anneal_report_persisted_readback": persisted.readback,
+        "report_diff_from_previous": persisted.diff,
         "gradient_state_source": gradient.state_source,
         "gradient_refresh": gradient.refresh,
         "gradient": gradient.snapshot.gradient,
@@ -129,7 +153,7 @@ impl IntelligenceReportRequest {
             .gradient_ts
             .map(|ts| Arc::new(FixedClock::new(ts)) as Arc<dyn Clock>)
             .unwrap_or_else(|| Arc::new(SystemClock));
-        let mut gradient = IntelligenceGradient::new(j_value.clone(), clock)
+        let mut gradient = IntelligenceGradient::new(j_value.clone(), clock.clone())
             .with_budget_units(fixture.gradient_budget_units.unwrap_or(u64::MAX));
         let refresh = gradient.refresh(fixture.gradient_candidates.clone());
         let snapshot = gradient.snapshot(5);
@@ -141,17 +165,68 @@ impl IntelligenceReportRequest {
             "not persisted without --vault".to_string()
         };
         Ok(GradientReportState {
+            gradient,
+            clock,
             refresh,
             snapshot,
             state_source,
         })
     }
+
+    fn persist_report(
+        &self,
+        report: &calyx_anneal::IntelligenceReport,
+    ) -> Result<PersistedReportState, String> {
+        let Some(vault_path) = &self.vault else {
+            return Ok(PersistedReportState {
+                state_source: "not persisted without --vault".to_string(),
+                key_hex: None,
+                readback: None,
+                diff: None,
+            });
+        };
+        let vault_id = REPORT_VAULT_ID.parse::<VaultId>().map_err(|error| {
+            format!("CALYX_ANNEAL_REPORT_INVALID_ROW: parse report vault id: {error}")
+        })?;
+        let vault = AsterVault::new_durable(
+            vault_path,
+            vault_id,
+            REPORT_VAULT_SALT.to_vec(),
+            VaultOptions::default(),
+        )
+        .map_err(|error| error.to_string())?;
+        let previous =
+            latest_intelligence_report_snapshot(&vault).map_err(|error| error.to_string())?;
+        let key = write_intelligence_report_snapshot(&vault, report)
+            .map_err(|error| error.to_string())?;
+        let readback = read_intelligence_report_snapshot(&vault, report.ts)
+            .map_err(|error| error.to_string())?
+            .map(|stored| to_json(&stored));
+        let diff = previous
+            .as_ref()
+            .map(|before| json!(report_diff(before, report)));
+        Ok(PersistedReportState {
+            state_source: format!("{}/cf/anneal_report", vault_path.display()),
+            key_hex: Some(hex_bytes(&key)),
+            readback,
+            diff,
+        })
+    }
 }
 
 struct GradientReportState {
+    gradient: IntelligenceGradient,
+    clock: Arc<dyn Clock>,
     refresh: calyx_anneal::GradientRefreshReport,
     snapshot: calyx_anneal::GradientSnapshot,
     state_source: String,
+}
+
+struct PersistedReportState {
+    state_source: String,
+    key_hex: Option<String>,
+    readback: Option<serde_json::Value>,
+    diff: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -168,6 +243,8 @@ struct Fixture {
     gradient_budget_units: Option<u64>,
     #[serde(default)]
     gradient_ts: Option<u64>,
+    #[serde(default)]
+    goodhart_last: Option<calyx_anneal::GoodhartReport>,
     metrics: FixtureMetrics,
 }
 
@@ -227,4 +304,35 @@ impl JMetricSources for FixtureMetrics {
     fn provisional_count(&self) -> usize {
         self.provisional_count
     }
+}
+
+fn unavailable_j_value(weights: JWeights, goodhart_penalty: f64) -> JValue {
+    JValue {
+        j: f64::NAN,
+        terms: JTerms {
+            w1_info: f64::NAN,
+            w2_n_eff: f64::NAN,
+            w3_sufficiency: f64::NAN,
+            w4_kernel_recall: f64::NAN,
+            w5_oracle_accuracy: f64::NAN,
+            w6_mistake_rate: f64::NAN,
+            w7_compression: f64::NAN,
+            w8_coverage: f64::NAN,
+            p_redundant: f64::NAN,
+            p_ungrounded: f64::NAN,
+            p_goodhart: goodhart_penalty,
+        },
+        dpi_ceiling: f64::NAN,
+        dpi_headroom: f64::NAN,
+        provisional_excluded: 0,
+        weights,
+    }
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }

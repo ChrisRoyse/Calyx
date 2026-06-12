@@ -1,5 +1,6 @@
 mod goodhart;
 mod gradient;
+mod intelligence_report;
 mod j_composite;
 
 pub use goodhart::{
@@ -15,6 +16,12 @@ pub use gradient::{
     GradientCandidate, GradientEntry, GradientEntryReadback, GradientRefreshReport,
     GradientSnapshot, GradientWarning, IntelligenceGradient, PriorityReadback, TuneScopeKind,
     estimate_dj, gradient_state_path, read_gradient_snapshot_from_vault, write_gradient_snapshot,
+};
+pub use intelligence_report::{
+    ANNEAL_REPORT_TAG, CALYX_ANNEAL_REPORT_INVALID_ROW, IntelligenceReport, JTermDeltas,
+    ReportAvailability, ReportDiff, anneal_report_key, decode_intelligence_report_row,
+    format_report, intelligence_report, latest_intelligence_report_snapshot,
+    read_intelligence_report_snapshot, report_diff, to_json, write_intelligence_report_snapshot,
 };
 pub use j_composite::{
     CALYX_ANNEAL_J_INVALID_CONFIG, CALYX_ANNEAL_J_INVALID_METRIC, DEFAULT_J_DOMAIN, JMetricSources,
