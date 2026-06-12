@@ -61,16 +61,17 @@ fn ungrounded_kernel() -> Kernel {
         reached_anchor: 0.0,
         unanchored_members: kernel.members.clone(),
     };
-    kernel.warnings = vec![
-        "CALYX_KERNEL_UNGROUNDED: all kernel members are provisional".to_string(),
-    ];
+    kernel.warnings =
+        vec!["CALYX_KERNEL_UNGROUNDED: all kernel members are provisional".to_string()];
     kernel.estimator_provenance = "ph32::Tournament2Approx; trust=provisional".to_string();
     kernel
 }
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let root = args.next().expect("usage: kernel_health_fsv_driver <store-root> [rebuild]");
+    let root = args
+        .next()
+        .expect("usage: kernel_health_fsv_driver <store-root> [rebuild]");
     let rebuild = args.next().as_deref() == Some("rebuild");
     let store = FsKernelStore::new(&root);
 

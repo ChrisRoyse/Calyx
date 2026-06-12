@@ -220,9 +220,8 @@ fn ungrounded_kernel_surfaces_provisional_trust() {
         reached_anchor: 0.0,
         unanchored_members: kernel.members.clone(),
     };
-    kernel.warnings = vec![
-        "CALYX_KERNEL_UNGROUNDED: all kernel members are provisional".to_string(),
-    ];
+    kernel.warnings =
+        vec!["CALYX_KERNEL_UNGROUNDED: all kernel members are provisional".to_string()];
     kernel.estimator_provenance = "ph32::Tournament2Approx; trust=provisional".to_string();
     write_kernel_artifact(&kernel, &store).expect("write artifact");
 
