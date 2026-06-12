@@ -260,7 +260,17 @@ if mode == "validate":
     if not (ROOT / name).is_dir():
         fail("CALYX_DATASET_NOT_FOUND", f"dataset dir missing: {ROOT / name}")
     report = {}
-    CHECKS[name](ROOT / name, report)
+    try:
+        CHECKS[name](ROOT / name, report)
+    except SystemExit:
+        raise
+    except (zipfile.BadZipFile, tarfile.ReadError, gzip.BadGzipFile, EOFError,
+            KeyError, OSError, ValueError) as err:
+        # Corrupt/truncated archive bytes are an integrity failure - closed
+        # catalog code, never a raw traceback (same contract as
+        # verify_dataset.sh count_rows, fixed in #553).
+        fail("CALYX_DATASET_CHECKSUM_MISMATCH",
+             f"{name}: unreadable/corrupt archive: {type(err).__name__}: {err}")
     print(json.dumps({name: report}, sort_keys=True))
 elif mode == "validate-spec":
     name, expect = sys.argv[2], json.loads(sys.argv[3])
