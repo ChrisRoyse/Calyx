@@ -53,6 +53,10 @@ pub enum AnnealLedgerAction {
     AutotuneAbandoned,
     #[serde(rename = "autotune_promote")]
     AutotunePromote,
+    #[serde(rename = "GoodhartPassed")]
+    GoodhartPassed,
+    #[serde(rename = "GoodhartFailed")]
+    GoodhartFailed,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

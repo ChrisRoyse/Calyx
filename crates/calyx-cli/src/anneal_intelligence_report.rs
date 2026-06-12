@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use calyx_anneal::{
     DEFAULT_J_DOMAIN, JMetricSources, JObjectiveContext, JWeights, compute_j,
-    read_objective_weights_from_vault,
+    read_goodhart_state_from_vault, read_objective_weights_from_vault,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -23,12 +23,14 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         )
     })?;
     let (weights, weights_source) = request.resolve_weights(&fixture)?;
+    let (goodhart_penalty, goodhart_state_source) = request.resolve_goodhart_penalty()?;
     let context = JObjectiveContext {
         domain: fixture
             .domain
             .unwrap_or_else(|| DEFAULT_J_DOMAIN.to_string()),
         panel_len: fixture.panel_len,
         weights,
+        goodhart_penalty,
     };
     let j_value = compute_j(&context, &fixture.metrics).map_err(|error| error.to_string())?;
     let readback = json!({
@@ -37,6 +39,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         "fixture_len": fixture_bytes.len(),
         "fixture_blake3": blake3::hash(&fixture_bytes).to_hex().to_string(),
         "weights_source": weights_source,
+        "goodhart_state_source": goodhart_state_source,
         "context": context,
         "raw_metrics": fixture.metrics,
         "j_value": j_value,
@@ -94,6 +97,17 @@ impl IntelligenceReportRequest {
             JWeights::default(),
             "default PRD27 unit weights".to_string(),
         ))
+    }
+
+    fn resolve_goodhart_penalty(&self) -> Result<(f64, String), String> {
+        if let Some(vault) = &self.vault {
+            let state = read_goodhart_state_from_vault(vault).map_err(|error| error.to_string())?;
+            return Ok((
+                state.p_goodhart,
+                format!("{}/.anneal/goodhart_state.toml", vault.display()),
+            ));
+        }
+        Ok((0.0, "default no vault Goodhart state".to_string()))
     }
 }
 

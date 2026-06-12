@@ -6,8 +6,10 @@ mod anneal_bandit_readback;
 mod anneal_commands;
 mod anneal_deficit_map;
 mod anneal_frozen_guard_readback;
+mod anneal_goodhart_check;
 mod anneal_head_readback;
 mod anneal_intelligence_report;
+mod anneal_ledger_readback;
 mod anneal_lens_proposal_log;
 mod anneal_mistakes_readback;
 mod anneal_propose_lens_fixture;
@@ -145,6 +147,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, topic, rest @ ..] if command == "readback" && ph42_readback::is_topic(topic) => {
             ph42_readback::readback_topic(topic, rest)
+        }
+        [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
+            anneal_ledger_readback::run(rest)
         }
         [command, topic, name, vault_flag, vault]
             if command == "readback" && topic == "config" && vault_flag == "--vault" =>
