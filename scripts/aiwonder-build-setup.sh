@@ -68,10 +68,15 @@ fi
 echo "[setup] cargo-sweep: $(command -v cargo-sweep) ($(cargo-sweep --version 2>/dev/null || echo '?'))"
 
 # 3) Daily user cron to bound the shared target dir.
+#    Always reference the canonical checkout ($CALYX_HOME/repo), never $repo_root:
+#    this script may be run from an ephemeral worktree, but the cron must survive
+#    that worktree being removed.
 mkdir -p "$CALYX_HOME/logs"
-cron_line="0 4 * * * CARGO_TARGET_DIR=$CALYX_HOME/target CALYX_TARGET_MAXSIZE=\${CALYX_TARGET_MAXSIZE:-40GB} bash $repo_root/scripts/target-gc.sh >> $CALYX_HOME/logs/target-gc.log 2>&1"
+gc_script="$CALYX_HOME/repo/scripts/target-gc.sh"
+cron_line="0 4 * * * CARGO_TARGET_DIR=$CALYX_HOME/target CALYX_TARGET_MAXSIZE=\${CALYX_TARGET_MAXSIZE:-40GB} bash $gc_script >> $CALYX_HOME/logs/target-gc.log 2>&1"
 # Replace any previous target-gc entry, keep everything else.
 ( crontab -l 2>/dev/null | grep -v 'target-gc.sh' || true; echo "$cron_line" ) | crontab -
+echo "[setup] GC script: $gc_script"
 echo "[setup] installed daily target-gc cron (04:00 UTC):"
 crontab -l | grep 'target-gc.sh'
 
