@@ -15,7 +15,8 @@ use std::sync::{Arc, RwLock};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-const DEFAULT_COMPACTION_TARGET_BYTES: u64 = 64 * 1024 * 1024;
+/// Default per-CF compaction target used for debt scoring (PRD 24 §8).
+pub const DEFAULT_COMPACTION_TARGET_BYTES: u64 = 64 * 1024 * 1024;
 const WRITE_AMP_SCALE: u64 = 1_000;
 
 pub use scan::{catalog_from_vault_dir, catalog_from_vault_tiers};
