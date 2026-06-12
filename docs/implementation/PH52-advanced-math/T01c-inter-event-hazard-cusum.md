@@ -71,8 +71,29 @@ the Aster Recurrence CF and read them back before running the detectors.
   oversized CUSUM baseline — each returns `CALYX_ASSAY_INSUFFICIENT_SAMPLES`
   with a precise message.
 
-Manual aiwonder run:
-`CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue585-recurrence-hazard \
- cargo test -p calyx-assay --test recurrence_hazard_fsv -- --ignored --nocapture`
-writes `issue585_hazard.json`, `issue585_cusum.json`, `issue585_edges.json`
-(byte-readback source of truth).
+### aiwonder byte-readback (binding)
+
+Run on aiwonder (RTX 5090 sm_120), `cargo check` + `clippy -D warnings` +
+`cargo test -p calyx-assay` all green:
+
+```
+CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue585-recurrence-hazard-<ts> \
+  cargo test -p calyx-assay --test recurrence_hazard_fsv -- --ignored --nocapture
+```
+
+- Root: `/home/croyse/calyx/data/fsv-issue585-recurrence-hazard-20260612T162550Z`
+- `issue585_hazard.json` SHA256: `ee84df90841719c31da3db5b2d90265e18482e60c1b993eabab54e0c4e9d53ca`
+- `issue585_cusum.json` SHA256: `98ef614d12c11736cc44d8f5654dbe1fa0ae2d2cfd65d6662cfd7864092ca380`
+- `issue585_edges.json` SHA256: `ba04ae3c62abd311a35e5345348ea6abe5e0173f2b1c55482e805a88fe792896`
+
+Read-back values (independent `cat` of the SoT):
+
+- Hazard: planted 100s cadence, last `t=2000`; `now=2350` → `overdue=true`,
+  `overdue_survival=0.0`, `expected_next=2100`, `overdue_threshold_secs=100`;
+  `now=2050` → `overdue=false`, `fresh_survival=1.0`.
+- CUSUM: planted 5× speed-up → `detected_gap_index=20`,
+  `detected_change_time=3000`, `detected_direction=speed_up`,
+  `baseline_mean_gap=100`, `baseline_sigma=0.1` (floored from 0).
+- Edges: all four fail closed with `CALYX_ASSAY_INSUFFICIENT_SAMPLES` and the
+  exact diagnostic message (too few occurrences, now-before-last, NaN
+  occurrence, oversized CUSUM baseline).
