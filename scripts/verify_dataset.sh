@@ -164,7 +164,11 @@ def scan_dataset(name, rows_from, require_match=False):
     rels = data_files(ds_dir)
     if not rels:
         fail("CALYX_DATASET_NOT_FOUND", f"dataset dir has no data files: {ds_dir}")
-    if rows_from:
+    # rows_from semantics: None = no filter (count every countable file);
+    # a list (even empty) = count ONLY matches. The distinction matters when
+    # --rows-from matched only non-countable files (e.g. a .zip): verify must
+    # reconstruct "count nothing", not fall back to counting everything.
+    if rows_from is not None:
         matched = {rel for rel in rels for glob in rows_from if fnmatch.fnmatch(rel, glob)}
         if require_match and not matched:
             fail("CALYX_DATASET_MANIFEST_INVALID", f"--rows-from {rows_from} matched no files in {ds_dir}")
@@ -172,7 +176,7 @@ def scan_dataset(name, rows_from, require_match=False):
     for rel in rels:
         path = ds_dir / rel
         kind = ROW_KINDS.get(path.suffix, "none")
-        counted = kind != "none" and (not rows_from or rel in matched)
+        counted = kind != "none" and (rows_from is None or rel in matched)
         files.append(
             {
                 "path": rel,
@@ -254,8 +258,13 @@ def verify_one(name):
     if not (ROOT / name).is_dir():
         fail("CALYX_DATASET_NOT_FOUND", f"dataset dir missing: {ROOT / name}")
     manifest = read_manifest_json(name)
+    # Reproduce the register-time counting decisions exactly: the recorded
+    # counted paths ARE the filter. An empty list (register --rows-from
+    # matched only non-countable files) must stay an empty filter - the old
+    # `or None` collapse made verify count files register had excluded
+    # (first hit: voxceleb1, #557).
     rows_from = [f["path"] for f in manifest["files"] if f["counted"] and f["row_kind"] != "none"]
-    actual_files = scan_dataset(name, rows_from or None)
+    actual_files = scan_dataset(name, rows_from)
     expected_by_path = {f["path"]: f for f in manifest["files"]}
     actual_by_path = {f["path"]: f for f in actual_files}
     missing = sorted(set(expected_by_path) - set(actual_by_path))
@@ -489,6 +498,17 @@ self_test() {
   echo "data" > "$tmp_root/orphan_dataset/blob.bin"
   expect_fail CALYX_DATASET_NOT_FOUND ALL
   rm -rf "$tmp_root/orphan_dataset"
+
+  step "edge 8: --rows-from excludes every countable file -> rows=0 AND verify stays green (#557 regression)"
+  mkdir -p "$tmp_root/archive_fixture"
+  printf 'id,label
+1,a
+2,b
+' > "$tmp_root/archive_fixture/meta.csv"
+  printf 'not-countable-binary' > "$tmp_root/archive_fixture/payload.zip"
+  "$SCRIPT_PATH" register archive_fixture     --source "self-test" --revision "rows-from-excludes-countable"     --license "n/a" --tests "verify must reproduce register-time counting"     --rows-from "payload.zip"
+  grep -E '^\| archive_fixture \|' "$manifest" | grep -q '| 0 |'     || { echo "SELF-TEST FAILED: archive_fixture rows != 0 in MANIFEST" >&2; exit 1; }
+  "$SCRIPT_PATH" archive_fixture     || { echo "SELF-TEST FAILED: verify red after register with excluded countable file (rows_from empty-list collapse)" >&2; exit 1; }
 
   step "final: verify ALL green"
   "$SCRIPT_PATH" ALL
