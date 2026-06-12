@@ -26,8 +26,9 @@ evidence for the PH71 GitHub issue.
 - [ ] `ProductionFSV::snapshot_pg_state(pg_conn: &PgConn, vault_name: &str) ->
       Result<PgSnapshot, CalyxError>`: queries the PostgreSQL control-plane tables
       relevant to this Vault (`creator_databases` WHERE `database_name = vault_name`,
-      `queries` table recent rows, billing summary row) and hashes the result set
-      to `PgSnapshot { tables: Vec<TableHash>, taken_at: Timestamp }`. Uses
+      `queries` table recent rows, billing summary row, `marketplace`, and
+      `outbox`) and hashes the result set to
+      `PgSnapshot { tables: Vec<TableHash>, taken_at: Timestamp }`. Uses
       **read-only** queries only. Any write attempt → compile error (connection is
       opened read-only). `CALYX_PG_WRITE_ATTEMPTED` if the driver reports a write
       op somehow triggered.

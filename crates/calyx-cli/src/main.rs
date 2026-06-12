@@ -25,6 +25,7 @@ mod dedup_audit_readback;
 mod dedup_readback;
 mod fsv;
 mod kernel_health_readback;
+mod leapable;
 mod ledger_store;
 mod manifest_readback;
 mod merkle;
@@ -148,6 +149,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, topic, rest @ ..] if command == "readback" && ph42_readback::is_topic(topic) => {
             ph42_readback::readback_topic(topic, rest)
         }
+        [command, topic, rest @ ..] if command == "leapable" => leapable::run(topic, rest),
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
             anneal_ledger_readback::run(rest)
         }

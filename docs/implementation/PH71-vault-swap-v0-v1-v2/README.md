@@ -44,6 +44,7 @@ embedding harness is **greenfield**.
 | `crates/calyx-cli/src/leapable/round_trip_verifier.rs` | V1: byte-exact `.db` round-trip verification via readback (≤500 lines) |
 | `crates/calyx-cli/src/leapable/shadow_removal.rs` | V2: remove `sqlite-vec` shadow; install default panels per Vault type (≤500 lines) |
 | `crates/calyx-cli/src/leapable/production_fsv.rs` | V2: full-provenance readback + control-plane identical-response proof + PostgreSQL-untouched proof (≤500 lines) |
+| `crates/calyx-cli/src/leapable/issue612_fsv.rs` | Issue #612 closure verifier: flipped-read p99 non-regression and widened `pg_dump` table diff (<=500 lines) |
 | `crates/calyx-cli/src/leapable/mod.rs` | module root, re-exports (≤100 lines) |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -56,6 +57,7 @@ embedding harness is **greenfield**.
 | T04 | Byte-exact `.db` round-trip migration verifier (V1 gate) | T03 |
 | T05 | Remove `sqlite-vec` shadow + default-panels-per-vault (V2) | T04 |
 | T06 | Production Vault calyx-only + control-plane-identical FSV + PostgreSQL-untouched proof (V2 gate) | T05 |
+| T07 | Issue #612 verifier: persisted flipped-read latency samples plus widened PG snapshot (`creator_databases`, `queries`, `billing`, `marketplace`, `outbox`) | T03, T06 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -67,7 +69,9 @@ Three sub-gates, each proven by byte readback on a real Vault on aiwonder:
    set.
 2. **V1 flip gate:** A/B recall win (Calyx ≥ sqlite-vec), no latency regression;
    `calyx migrate vault <real.db> <vault.calyx>` round-trips byte-exact on content
-   (every chunk's text hash and `chunk_id` matches source SQLite).
+   (every chunk's text hash and `chunk_id` matches source SQLite). Issue #612 adds
+   a mechanical verifier for persisted live latency samples: flipped-read p99 must
+   be no more than 105% of the sqlite-vec baseline p99.
 3. **V2 calyx-only gate:** a real production Vault runs Calyx-only with full
    provenance; every Ask returns a LedgerRef-cited result; **control-plane
    queries/billing/listing for that Vault return identical results** before and
@@ -76,6 +80,10 @@ Three sub-gates, each proven by byte readback on a real Vault on aiwonder:
 PostgreSQL verified untouched: run the same `psql` queries against
 `creator_databases`, `queries`, billing tables before and after every sub-gate —
 responses must be byte-identical. Evidence attached to the PH71 GitHub issue.
+
+Issue #612 widens the required PostgreSQL snapshot set to include
+`marketplace` and `outbox` alongside `creator_databases`, `queries`, and billing.
+The `pg_dump` bytes for all five table groups must match before and after.
 
 ## Risks / landmines
 
