@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # PH69 T01 / issue #551 - dataset acquisition orchestrator.
 #
-# Sources $CALYX_HOME/.env for HF_HUB_TOKEN, provisions the shared dataset tools
-# venv (pinned pyarrow), runs every registered per-modality acquire script in
-# sequence, then byte-verifies the whole catalog with verify_dataset.sh ALL.
-# Fail-closed: the first failure aborts with a non-zero exit; nothing is skipped
-# silently.
+# Sources $CALYX_HOME/.env for HF_HUB_TOKEN, provisions the shared dataset
+# tools venv (pinned pyarrow), runs every registered per-modality acquire
+# script in sequence, then byte-verifies the whole catalog with
+# verify_dataset.sh ALL. Fail-closed (A16): the first failure aborts with a
+# non-zero exit; nothing is skipped silently.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,6 +20,7 @@ fail() {
   exit 1
 }
 
+# --- secrets: HF_HUB_TOKEN must exist (gated HF datasets need it) -----------
 ENV_FILE="$CALYX_HOME/.env"
 if [[ ! -f "$ENV_FILE" ]]; then
   fail CALYX_DATASET_ENV_MISSING "$ENV_FILE not found - provision CALYX_HOME (PH00)"
@@ -33,6 +34,7 @@ if [[ -z "${HF_HUB_TOKEN:-${HF_TOKEN:-}}" ]]; then
 fi
 export HF_HUB_TOKEN="${HF_HUB_TOKEN:-$HF_TOKEN}"
 
+# --- shared tools venv (pyarrow for parquet hashing/row counts) -------------
 if [[ ! -d "$DATASET_ROOT" ]]; then
   fail CALYX_DATASET_NOT_FOUND "dataset root missing: $DATASET_ROOT (PH00 ZFS provisioning)"
 fi
@@ -45,10 +47,12 @@ if ! "$VENV_DIR/bin/python3" -c 'import pyarrow' 2>/dev/null; then
 fi
 export CALYX_DATASET_PYTHON="$VENV_DIR/bin/python3"
 
+# --- per-modality acquire scripts -------------------------------------------
 # Registered scripts run in order; each is fail-closed itself. The pending list
-# is printed explicitly so a partial catalog is never mistaken for a full one.
+# is printed explicitly so a partial catalog is never mistaken for a full one
+# (no silent caps). Move a script from PENDING to REGISTERED as its card lands.
 REGISTERED=(
-  acquire_dedup.sh
+  acquire_dedup.sh        # PH69 T06 - QQP / PAWS (#556, landed via #605)
 )
 PENDING=(
   "acquire_retrieval.sh        PH69 T02 (#552) - BEIR / MS MARCO / NQ / TREC-COVID"
@@ -74,6 +78,7 @@ for entry in "${PENDING[@]}"; do
   echo "  PENDING: $entry"
 done
 
+# --- the truth gate: byte-verify every catalog row + dir coverage -----------
 echo "=== verify: ALL ==="
 bash "$repo_root/scripts/verify_dataset.sh" ALL
 echo "acquire_datasets: OK"
