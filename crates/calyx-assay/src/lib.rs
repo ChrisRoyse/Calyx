@@ -12,6 +12,7 @@ pub mod logistic;
 pub mod loom_adapter;
 pub mod n_eff;
 pub mod nmi;
+pub mod periodicity;
 pub mod projection;
 pub mod recurrence_anchor;
 mod samples;
@@ -47,6 +48,13 @@ pub use logistic::{LogisticProbeReport, logistic_probe_mi, logistic_probe_mi_wit
 pub use loom_adapter::AsterAssayMaterializationGate;
 pub use n_eff::{NeffReport, stable_rank};
 pub use nmi::{NmiReport, partitioned_histogram_nmi};
+pub use periodicity::{
+    AutocorrelationReport, DEFAULT_FAP_PERMUTATIONS, DEFAULT_MAX_PEAKS,
+    DEFAULT_PERIODICITY_SEED, DEFAULT_PERIODOGRAM_OVERSAMPLE, MAX_ACF_SAMPLES,
+    MAX_FREQUENCY_GRID, MIN_PERIODICITY_SAMPLES, PeriodicityReport, PeriodogramConfig,
+    PeriodogramPeak, SIGNIFICANT_PEAK_FAP, autocorrelation, bin_event_counts, lomb_scargle,
+    lomb_scargle_with_anchor, lomb_scargle_with_config,
+};
 pub use projection::{ProjectionReport, project_cpu, project_gpu, target_projection_dim};
 pub use recurrence_anchor::{
     CALYX_ASSAY_MISSING_OUTCOME_SLOT, CONSISTENT_AGREEMENT_THRESHOLD, DEFAULT_OUTCOME_ANCHOR_LABEL,
