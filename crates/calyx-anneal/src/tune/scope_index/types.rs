@@ -12,6 +12,7 @@ pub const DEFAULT_INDEX_RECALL_TARGET: f32 = 0.99;
 pub const DEFAULT_INDEX_VRAM_BUDGET_BYTES: u64 = 1 << 30;
 pub const MIN_BITS_PER_ANCHOR: f64 = 0.05;
 const QUANT_EPSILON: f64 = 1e-6;
+const GUARD_FAR_EPSILON: f64 = 1e-12;
 const VALID_QUANT_BITS: [u8; 4] = [4, 8, 16, 32];
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -89,6 +90,16 @@ pub struct IndexPromotionRecord {
     pub slot_key_hash: [u8; 32],
     pub old_config_hash: [u8; 32],
     pub new_config_hash: [u8; 32],
+    pub quant_evidence: Option<QuantPromotionEvidence>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QuantPromotionEvidence {
+    pub cosine_error_before: f64,
+    pub cosine_error_after: f64,
+    pub max_cosine_error: f64,
+    pub guard_far_before: f64,
+    pub guard_far_after: f64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -168,6 +179,38 @@ pub fn quant_win_check(
         return false;
     }
     candidate.quant_bits >= incumbent.quant_bits || bits_after + QUANT_EPSILON >= bits_before
+}
+
+pub(super) fn metrics_are_valid(recall_k: f64, bits_per_anchor: f64) -> bool {
+    recall_k.is_finite() && bits_per_anchor.is_finite() && bits_per_anchor >= 0.0
+}
+
+pub fn validate_quant_promotion_evidence(evidence: &QuantPromotionEvidence) -> Result<()> {
+    let values = [
+        evidence.cosine_error_before,
+        evidence.cosine_error_after,
+        evidence.max_cosine_error,
+        evidence.guard_far_before,
+        evidence.guard_far_after,
+    ];
+    if values
+        .iter()
+        .any(|value| !value.is_finite() || *value < 0.0)
+    {
+        return Err(invalid_config(
+            "quant promotion evidence must be finite and nonnegative",
+        ));
+    }
+    if evidence.max_cosine_error == 0.0 {
+        return Err(invalid_config("quant cosine error bound must be positive"));
+    }
+    if evidence.cosine_error_after > evidence.max_cosine_error + QUANT_EPSILON {
+        return Err(invalid_config("quant cosine error exceeds accepted bound"));
+    }
+    if evidence.guard_far_after > evidence.guard_far_before + GUARD_FAR_EPSILON {
+        return Err(invalid_config("quant guard FAR regressed"));
+    }
+    Ok(())
 }
 
 pub fn validate_index_config(config: &IndexConfig) -> Result<()> {

@@ -2,6 +2,7 @@ use calyx_aster::cf::full_content_hash;
 use calyx_core::{CalyxError, Clock, Result};
 use calyx_ledger::LedgerCfStore;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::shadow::AnnealAction as ShadowAnnealAction;
 use crate::{
@@ -207,6 +208,7 @@ where
             description,
             fault: None,
             proposal: None,
+            details: None,
             prev_hash: None,
         };
         self.write_ledger(entry)
@@ -220,6 +222,25 @@ where
         candidate_hash: [u8; 32],
         description: String,
     ) -> Result<()> {
+        self.write_outcome_event_with_details(
+            action,
+            change_id,
+            artifact_id,
+            candidate_hash,
+            description,
+            None,
+        )
+    }
+
+    pub fn write_outcome_event_with_details(
+        &mut self,
+        action: AnnealLedgerAction,
+        change_id: ChangeId,
+        artifact_id: String,
+        candidate_hash: [u8; 32],
+        description: String,
+        details: Option<Value>,
+    ) -> Result<()> {
         let ts = self.clock.now();
         let entry = AnnealLedgerEntry {
             action,
@@ -232,6 +253,7 @@ where
             description,
             fault: None,
             proposal: None,
+            details,
             prev_hash: None,
         };
         self.write_ledger(entry)
@@ -298,6 +320,7 @@ fn ledger_entry(
         description,
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     }
 }

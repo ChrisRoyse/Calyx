@@ -3,8 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_anneal::{
-    AsterAnnealLedgerStore, AsterBanditStorage, CALYX_INDEX_CACHE_WRITE_FAIL, ConfigBanditStore,
-    IndexConfig, IndexScopeTuner, IndexSlotHealth, IndexTuneSkip, decode_config_bandit,
+    AsterAnnealLedgerStore, AsterBanditStorage, CALYX_INDEX_CACHE_WRITE_FAIL,
+    CALYX_INDEX_SCOPE_INVALID_CONFIG, ConfigBanditStore, IndexConfig, IndexScopeTuner,
+    IndexSlotHealth, IndexTuneSkip, QuantPromotionEvidence, decode_config_bandit,
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -16,10 +17,10 @@ use serde_json::{Value, json};
 const FSV_TS: u64 = 1_785_500_414;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE414_FSV_ROOT on aiwonder"]
-fn issue414_index_scope_tuner_fsv() {
+#[ignore = "requires CALYX_ISSUE614_FSV_ROOT on aiwonder"]
+fn issue614_quant_promotion_ledger_details_fsv() {
     let root =
-        PathBuf::from(env::var("CALYX_ISSUE414_FSV_ROOT").expect("set CALYX_ISSUE414_FSV_ROOT"));
+        PathBuf::from(env::var("CALYX_ISSUE614_FSV_ROOT").expect("set CALYX_ISSUE614_FSV_ROOT"));
     reset_dir(&root);
     fs::create_dir_all(&root).expect("create FSV root");
     let vault_dir = root.join("vault");
@@ -50,11 +51,19 @@ fn issue414_index_scope_tuner_fsv() {
                 _ => 780,
             };
             let decision = tuner
-                .on_search_for_arm(slot, 1, latency, 0.990, 9.999_999_5)
+                .on_search_for_arm_with_quant_evidence(
+                    slot,
+                    1,
+                    latency,
+                    0.990,
+                    9.999_999_5,
+                    Some(quant_evidence()),
+                )
                 .unwrap();
             if let Some(promotion) = decision.promoted {
                 saw_promotion = true;
                 assert_eq!(promotion.latency_after_ns, 780);
+                assert_eq!(promotion.quant_evidence, Some(quant_evidence()));
                 assert_eq!(decision.incumbent, configs[1]);
             }
         }
@@ -77,6 +86,36 @@ fn issue414_index_scope_tuner_fsv() {
     assert_eq!(
         after["ledger_rows"][0]["payload_json"]["metrics"]["metrics"][0]["candidate_value"],
         780.0
+    );
+    assert_eq!(
+        after["ledger_rows"][0]["payload_json"]["details"]["tag"],
+        "quant_compression_promotion_v1"
+    );
+    assert_eq!(
+        after["ledger_rows"][0]["payload_json"]["details"]["slot"],
+        0
+    );
+    assert_eq!(
+        after["ledger_rows"][0]["payload_json"]["details"]["slot_hash_bytes"],
+        json!(calyx_anneal::shape_key_hash(
+            &calyx_anneal::index_slot_label(slot)
+        ))
+    );
+    assert_eq!(
+        after["ledger_rows"][0]["payload_json"]["details"]["level_before_bits"],
+        16
+    );
+    assert_eq!(
+        after["ledger_rows"][0]["payload_json"]["details"]["level_after_bits"],
+        8
+    );
+    assert_eq!(
+        after["ledger_rows"][0]["payload_json"]["details"]["cosine_error_after"],
+        0.0004
+    );
+    assert_eq!(
+        after["ledger_rows"][0]["payload_json"]["details"]["guard_far_after"],
+        0.001
     );
 
     let bits_loss_before = sot_readback(&vault, &cache_path);
@@ -124,6 +163,60 @@ fn issue414_index_scope_tuner_fsv() {
     );
     assert_eq!(parked_after["ledger_rows"], parked_before["ledger_rows"]);
 
+    let missing_evidence_before = sot_readback(&vault, &cache_path);
+    let missing_evidence_code = {
+        let cache = AutotuneCache::load(&cache_path).unwrap();
+        let mut tuner = IndexScopeTuner::with_parts(cache, &mut ledger, NoopStore, NotParked);
+        tuner
+            .install_candidates(SlotId::new(3), configs.clone())
+            .unwrap();
+        tuner
+            .on_search_for_arm_with_quant_evidence(
+                SlotId::new(3),
+                0,
+                1_000,
+                0.990,
+                10.0,
+                Some(quant_evidence()),
+            )
+            .unwrap();
+        tuner
+            .on_search_for_arm_with_quant_evidence(
+                SlotId::new(3),
+                1,
+                800,
+                0.990,
+                10.0,
+                Some(quant_evidence()),
+            )
+            .unwrap();
+        tuner
+            .on_search_for_arm_with_quant_evidence(
+                SlotId::new(3),
+                1,
+                790,
+                0.990,
+                10.0,
+                Some(quant_evidence()),
+            )
+            .unwrap();
+        tuner
+            .on_search_for_arm(SlotId::new(3), 1, 780, 0.990, 10.0)
+            .unwrap_err()
+            .code
+    };
+    assert_eq!(missing_evidence_code, CALYX_INDEX_SCOPE_INVALID_CONFIG);
+    vault.flush().expect("flush missing evidence edge");
+    let missing_evidence_after = sot_readback(&vault, &cache_path);
+    assert_eq!(
+        missing_evidence_after["cache_entries"],
+        missing_evidence_before["cache_entries"]
+    );
+    assert_eq!(
+        missing_evidence_after["ledger_rows"],
+        missing_evidence_before["ledger_rows"]
+    );
+
     let missing_cache = root.join("missing-parent").join("cache.json");
     let cache = AutotuneCache::load(&missing_cache).unwrap();
     let mut fail_tuner = IndexScopeTuner::new(cache);
@@ -134,13 +227,13 @@ fn issue414_index_scope_tuner_fsv() {
         .on_search_for_arm(slot, 0, 1_000, 0.990, 10.0)
         .unwrap();
     fail_tuner
-        .on_search_for_arm(slot, 1, 800, 0.990, 10.0)
+        .on_search_for_arm_with_quant_evidence(slot, 1, 800, 0.990, 10.0, Some(quant_evidence()))
         .unwrap();
     fail_tuner
-        .on_search_for_arm(slot, 1, 790, 0.990, 10.0)
+        .on_search_for_arm_with_quant_evidence(slot, 1, 790, 0.990, 10.0, Some(quant_evidence()))
         .unwrap();
     let cache_error = fail_tuner
-        .on_search_for_arm(slot, 1, 780, 0.990, 10.0)
+        .on_search_for_arm_with_quant_evidence(slot, 1, 780, 0.990, 10.0, Some(quant_evidence()))
         .unwrap_err();
     assert_eq!(cache_error.code, CALYX_INDEX_CACHE_WRITE_FAIL);
 
@@ -162,7 +255,11 @@ fn issue414_index_scope_tuner_fsv() {
                 "happy_latency_before_ns": 1000,
                 "happy_latency_after_ns": 780,
                 "incumbent_hnsw_ef": 128,
-                "incumbent_quant_bits": 8
+                "incumbent_quant_bits": 8,
+                "ledger_details_tag": "quant_compression_promotion_v1",
+                "ledger_slot_hash_bytes": calyx_anneal::shape_key_hash(&calyx_anneal::index_slot_label(slot)),
+                "cosine_error_after": 0.0004,
+                "guard_far_after": 0.001
             },
             "before": before,
             "after_happy_path": after,
@@ -179,6 +276,13 @@ fn issue414_index_scope_tuner_fsv() {
                     "after": parked_after
                 },
                 {
+                    "case": "missing_quant_evidence",
+                    "before": missing_evidence_before,
+                    "after": missing_evidence_after,
+                    "expected": CALYX_INDEX_SCOPE_INVALID_CONFIG,
+                    "actual": missing_evidence_code
+                },
+                {
                     "case": "cache_write_fail",
                     "expected": CALYX_INDEX_CACHE_WRITE_FAIL,
                     "actual": cache_error.code,
@@ -192,8 +296,8 @@ fn issue414_index_scope_tuner_fsv() {
 fn open_vault(vault_dir: &Path) -> AsterVault {
     AsterVault::new_durable(
         vault_dir,
-        "01J41400000000000000000000".parse().unwrap(),
-        b"issue414-salt".to_vec(),
+        "01J61400000000000000000000".parse().unwrap(),
+        b"issue614-salt".to_vec(),
         VaultOptions::default(),
     )
     .expect("open durable vault")
@@ -206,7 +310,7 @@ fn open_anneal_ledger(
     let appender = LedgerAppender::open(store, FixedClock::new(FSV_TS)).unwrap();
     calyx_anneal::AnnealLedger::new(
         appender,
-        ActorId::Service("calyx-anneal-issue414-fsv".to_string()),
+        ActorId::Service("calyx-anneal-issue614-fsv".to_string()),
     )
     .unwrap()
 }
@@ -310,6 +414,16 @@ fn quant_configs() -> Vec<IndexConfig> {
             ..IndexConfig::default()
         },
     ]
+}
+
+fn quant_evidence() -> QuantPromotionEvidence {
+    QuantPromotionEvidence {
+        cosine_error_before: 0.0,
+        cosine_error_after: 0.000_4,
+        max_cosine_error: 0.001,
+        guard_far_before: 0.001,
+        guard_far_after: 0.001,
+    }
 }
 
 fn write_json(path: &Path, value: &Value) {

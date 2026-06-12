@@ -117,6 +117,7 @@ fn ab_ledger_entry(event: &ABLedgerEvent) -> AnnealLedgerEntry {
         ),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     }
 }

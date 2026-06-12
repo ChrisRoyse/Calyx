@@ -208,6 +208,7 @@ fn sample_entry(
         description: "synthetic anneal ledger event".to_string(),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash,
     }
 }

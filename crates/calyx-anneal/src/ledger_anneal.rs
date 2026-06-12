@@ -113,6 +113,7 @@ pub struct AnnealLedgerEntry {
     pub description: String,
     pub fault: Option<AnnealFaultLedgerDetails>,
     pub proposal: Option<AdmissionRecord>,
+    pub details: Option<serde_json::Value>,
     pub prev_hash: Option<[u8; 32]>,
 }
 
@@ -281,6 +282,8 @@ struct AnnealLedgerPayload {
     fault: Option<AnnealFaultLedgerDetails>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     proposal: Option<AdmissionRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    details: Option<serde_json::Value>,
     prev_hash: Option<String>,
 }
 
@@ -298,6 +301,7 @@ fn encode_payload(entry: &AnnealLedgerEntry) -> Result<Vec<u8>> {
         description: entry.description.clone(),
         fault: entry.fault.clone(),
         proposal: entry.proposal.clone(),
+        details: entry.details.clone(),
         prev_hash: entry.prev_hash.as_ref().map(hex32),
     };
     let bytes = serde_json::to_vec(&payload)
@@ -338,6 +342,7 @@ fn decode_payload(payload: &[u8]) -> Result<AnnealLedgerEntry> {
         description: payload.description,
         fault: payload.fault,
         proposal: payload.proposal,
+        details: payload.details,
         prev_hash: match payload.prev_hash {
             Some(value) => Some(decode_hex32(&value, "prev_hash")?),
             None => None,

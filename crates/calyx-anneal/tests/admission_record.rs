@@ -96,6 +96,7 @@ fn missing_structured_payload_fails_history_decode() {
             description: "bad proposal row".to_string(),
             fault: None,
             proposal: None,
+            details: None,
             prev_hash: None,
         })
         .expect("write malformed proposal");
@@ -165,6 +166,7 @@ fn non_proposal_entry(change_id: ChangeId) -> AnnealLedgerEntry {
         description: "non proposal event".to_string(),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     }
 }

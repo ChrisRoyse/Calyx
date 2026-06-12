@@ -170,16 +170,16 @@ pub use tune::{
     MIN_LOOM_PAIR_BITS, MatPlanConfig, MetricSample, NoopABBudget, NoopABLedgerWriter,
     NoopForgeBanditStore, NoopForgePromotionWriter, NoopIndexAssayMetrics, NoopIndexBanditStore,
     NoopIndexPromotionWriter, NoopIndexSlotHealth, NoopLoomBanditStore, NoopLoomMaterializer,
-    NoopLoomPromotionWriter, NoopSoakStorage, PlanScore, QueryLog, QueryObservation,
-    SeededSoakProfile, ShapeKey, SoakConfig, SoakHarness, SoakMetrics, SoakMode, SoakReport,
-    SoakRowKind, SoakStorage, SoakStoredRow, bandit_key, bucket_dim, bucket_shape,
+    NoopLoomPromotionWriter, NoopSoakStorage, PlanScore, QuantPromotionEvidence, QueryLog,
+    QueryObservation, SeededSoakProfile, ShapeKey, SoakConfig, SoakHarness, SoakMetrics, SoakMode,
+    SoakReport, SoakRowKind, SoakStorage, SoakStoredRow, bandit_key, bucket_dim, bucket_shape,
     candidate_configs, check_oscillation, decode_config_bandit, decode_forge_config,
     decode_index_config, decode_mat_plan_config, decode_soak_reports, decode_soak_row,
     encode_config_bandit, encode_forge_config, encode_index_config, encode_mat_plan_config,
     encode_soak_row, evaluate_plan, generate_candidate_plan, index_candidate_configs,
     index_slot_label, loom_plan_label, loom_plan_shape_key, loom_plan_tune_key, quant_win_check,
     shape_key_hash, slot_autotune_key, soak_report_key, soak_sample_key, validate_index_config,
-    validate_mat_plan_config,
+    validate_mat_plan_config, validate_quant_promotion_evidence,
 };
 
 #[cfg(test)]

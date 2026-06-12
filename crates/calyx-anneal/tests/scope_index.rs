@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use calyx_anneal::{
     CALYX_INDEX_CACHE_WRITE_FAIL, IndexConfig, IndexPromotionRecord, IndexPromotionWriter,
     IndexScopeTuner, IndexSlotHealth, IndexTuneSkip, NoopIndexBanditStore, NoopIndexSlotHealth,
-    index_candidate_configs, quant_win_check, slot_autotune_key,
+    QuantPromotionEvidence, index_candidate_configs, quant_win_check, slot_autotune_key,
 };
 use calyx_core::{Result, SlotId};
 use calyx_forge::AutotuneCache;
@@ -84,20 +84,76 @@ fn quant_downgrade_with_equal_bits_and_lower_p99_promotes() {
         .on_search_for_arm(slot, 0, 1_000, 0.990, 10.0)
         .unwrap();
     tuner
-        .on_search_for_arm(slot, 1, 800, 0.990, 9.999_999_5)
+        .on_search_for_arm_with_quant_evidence(
+            slot,
+            1,
+            800,
+            0.990,
+            9.999_999_5,
+            Some(quant_evidence()),
+        )
         .unwrap();
     tuner
-        .on_search_for_arm(slot, 1, 790, 0.990, 9.999_999_5)
+        .on_search_for_arm_with_quant_evidence(
+            slot,
+            1,
+            790,
+            0.990,
+            9.999_999_5,
+            Some(quant_evidence()),
+        )
         .unwrap();
     let decision = tuner
-        .on_search_for_arm(slot, 1, 780, 0.990, 9.999_999_5)
+        .on_search_for_arm_with_quant_evidence(
+            slot,
+            1,
+            780,
+            0.990,
+            9.999_999_5,
+            Some(quant_evidence()),
+        )
         .unwrap();
 
     assert_eq!(decision.incumbent, winner);
     assert_eq!(writer.records().len(), 1);
+    assert_eq!(writer.records()[0].quant_evidence, Some(quant_evidence()));
     let loaded = AutotuneCache::load(&path).unwrap();
     let persisted = loaded.get(&slot_autotune_key(slot, 0.99)).unwrap();
     assert_eq!(persisted.extra.get("quant_bits").unwrap(), "8");
+}
+
+#[test]
+fn quant_downgrade_missing_evidence_fails_closed() {
+    let slot = SlotId::new(0);
+    let cache = AutotuneCache::load(&temp_path("missing_evidence")).unwrap();
+    let writer = RecordingWriter::default();
+    let mut tuner = IndexScopeTuner::with_parts(
+        cache,
+        writer.clone(),
+        NoopIndexBanditStore,
+        NoopIndexSlotHealth,
+    );
+    let configs = quant_configs();
+    let incumbent = configs[0].clone();
+    tuner.install_candidates(slot, configs).unwrap();
+    tuner
+        .on_search_for_arm_with_quant_evidence(slot, 0, 1_000, 0.990, 10.0, Some(quant_evidence()))
+        .unwrap();
+    tuner
+        .on_search_for_arm_with_quant_evidence(slot, 1, 800, 0.990, 10.0, Some(quant_evidence()))
+        .unwrap();
+    tuner
+        .on_search_for_arm_with_quant_evidence(slot, 1, 790, 0.990, 10.0, Some(quant_evidence()))
+        .unwrap();
+
+    let error = tuner
+        .on_search_for_arm(slot, 1, 780, 0.990, 10.0)
+        .unwrap_err();
+
+    assert_eq!(error.code, calyx_anneal::CALYX_INDEX_SCOPE_INVALID_CONFIG);
+    assert!(error.message.contains("requires measured cosine/FAR"));
+    assert_eq!(tuner.get_incumbent_config(slot).unwrap(), incumbent);
+    assert!(writer.records().is_empty());
 }
 
 #[test]
@@ -129,11 +185,15 @@ fn cache_write_failure_is_fail_closed_but_in_memory_incumbent_survives() {
     tuner
         .on_search_for_arm(slot, 0, 1_000, 0.990, 10.0)
         .unwrap();
-    tuner.on_search_for_arm(slot, 1, 800, 0.990, 10.0).unwrap();
-    tuner.on_search_for_arm(slot, 1, 790, 0.990, 10.0).unwrap();
+    tuner
+        .on_search_for_arm_with_quant_evidence(slot, 1, 800, 0.990, 10.0, Some(quant_evidence()))
+        .unwrap();
+    tuner
+        .on_search_for_arm_with_quant_evidence(slot, 1, 790, 0.990, 10.0, Some(quant_evidence()))
+        .unwrap();
 
     let error = tuner
-        .on_search_for_arm(slot, 1, 780, 0.990, 10.0)
+        .on_search_for_arm_with_quant_evidence(slot, 1, 780, 0.990, 10.0, Some(quant_evidence()))
         .unwrap_err();
 
     assert_eq!(error.code, CALYX_INDEX_CACHE_WRITE_FAIL);
@@ -204,6 +264,16 @@ fn quant_configs() -> Vec<IndexConfig> {
             ..IndexConfig::default()
         },
     ]
+}
+
+fn quant_evidence() -> QuantPromotionEvidence {
+    QuantPromotionEvidence {
+        cosine_error_before: 0.0,
+        cosine_error_after: 0.000_4,
+        max_cosine_error: 0.001,
+        guard_far_before: 0.001,
+        guard_far_after: 0.001,
+    }
 }
 
 fn temp_path(label: &str) -> PathBuf {
