@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use crate::honesty_gate::SufficiencyAssay;
 use crate::super_intel::{
     HeldOutSplit, KERNEL_RECALL_RATIO, KernelRecallSource, OracleConsistencySource, ShortCircuit,
-    failed_tier, kernel_recall_tier, measure_tier_oracle_clean_from_result, panel_sufficiency_tier,
-    valid_measurement, validate_held_out,
+    failed_tier, kernel_recall_tier, measure_tier_oracle_clean_from_result, oracle_error_fix,
+    panel_sufficiency_tier, valid_measurement, validate_held_out,
 };
 use crate::{DomainId, OracleError, SuperIntelReport, Tier, TierResult};
 
@@ -206,7 +206,16 @@ where
             LABEL_HELD_OUT_ORACLE_FIX.to_string(),
         ));
     }
-    let measurement = source.goodhart_defense_measurement(domain, held_out, clock)?;
+    let measurement = match source.goodhart_defense_measurement(domain, held_out, clock) {
+        Ok(measurement) => measurement,
+        Err(error) => {
+            return Ok(failed_tier(
+                Tier::GoodhartDefended,
+                GOODHART_THRESHOLD,
+                oracle_error_fix(&error),
+            ));
+        }
+    };
     let passed = measurement.report_passed
         && valid_measurement(measurement.pass_rate, GOODHART_THRESHOLD)
         && measurement.pass_rate >= GOODHART_THRESHOLD;

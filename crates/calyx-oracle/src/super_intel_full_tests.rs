@@ -58,6 +58,26 @@ fn tier5_goodhart_passes_at_or_above_threshold_and_fails_below() {
 }
 
 #[test]
+fn tier5_goodhart_source_failure_returns_failed_tier() {
+    let tier = measure_tier_goodhart_defended(
+        &GoodFixture(Err(synthetic_error("CALYX_SYNTHETIC_GOODHART_DOWN"))),
+        &domain(),
+        &held_out(),
+        &clock(),
+    )
+    .expect("tier 5 source failures are tier results");
+
+    assert!(!tier.passed);
+    assert_eq!(tier.tier, Tier::GoodhartDefended);
+    assert!(
+        tier.cheapest_fix
+            .as_deref()
+            .expect("goodhart source fix")
+            .contains("CALYX_SYNTHETIC_GOODHART_DOWN")
+    );
+}
+
+#[test]
 fn tier6_mistake_closed_requires_zero_recurring_mistakes() {
     let pass = measure_tier_mistake_closed(&MistakeFixture::ok(0, 3), &domain(), &clock()).unwrap();
     let fail = measure_tier_mistake_closed(&MistakeFixture::ok(1, 3), &domain(), &clock()).unwrap();
