@@ -4,8 +4,9 @@ use crate::compaction::TieringPolicy;
 use crate::dedup::DedupPolicy;
 use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault};
 use crate::sst::{SstReader, write_sst};
+use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name};
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
-use calyx_core::{CalyxError, Panel, Result, SlotId, SystemClock, TemporalPolicy};
+use calyx_core::{CalyxError, Panel, Result, SystemClock, TemporalPolicy};
 use calyx_ledger::CheckpointConfig;
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -333,18 +334,22 @@ fn read_manifested_batches(
                 continue;
             }
             let cf_name = cf_dir.file_name().to_string_lossy().to_string();
-            let cf = parse_cf_name(&cf_name)?;
+            let cf = parse_cf_dir_name(&cf_name)?;
             for file in
                 fs::read_dir(cf_dir.path()).map_err(|error| storage_error("read CF dir", error))?
             {
                 let path = file
                     .map_err(|error| storage_error("read SST entry", error))?
                     .path();
-                if path.extension().and_then(|value| value.to_str()) != Some("sst") {
+                let Some(name) = classify_sst(&path)? else {
                     continue;
-                }
-                let Some((seq, index)) = durable_sst_identity(&path) else {
-                    continue;
+                };
+                let (seq, index) = match name {
+                    SstName::DurableBatch { seq, index } => (seq, index),
+                    SstName::Compacted { seq } => (seq, 0),
+                    // Router memtable flushes are recovered by
+                    // `CfRouter::load_existing`, not by durable readback.
+                    SstName::Router { .. } => continue,
                 };
                 if seq > durable_seq {
                     continue;
@@ -387,57 +392,6 @@ fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<P
         }
     }
     roots
-}
-
-fn durable_sst_identity(path: &Path) -> Option<(u64, usize)> {
-    let stem = path.file_stem()?.to_str()?;
-    if let Some(seq) = stem.strip_prefix("compacted-") {
-        return Some((seq.parse().ok()?, 0));
-    }
-    let (seq, index) = stem.split_once('-')?;
-    Some((seq.parse().ok()?, index.parse().ok()?))
-}
-
-fn parse_cf_name(value: &str) -> Result<ColumnFamily> {
-    match value {
-        "base" => Ok(ColumnFamily::Base),
-        "anchors" => Ok(ColumnFamily::Anchors),
-        "ledger" => Ok(ColumnFamily::Ledger),
-        "recurrence" => Ok(ColumnFamily::Recurrence),
-        "graph" => Ok(ColumnFamily::Graph),
-        "online" => Ok(ColumnFamily::Online),
-        "scalars" => Ok(ColumnFamily::Scalars),
-        "xterm" => Ok(ColumnFamily::XTerm),
-        "temporal_xterm" => Ok(ColumnFamily::TemporalXTerm),
-        "assay" => Ok(ColumnFamily::Assay),
-        "anneal_rollback" => Ok(ColumnFamily::AnnealRollback),
-        "anneal_health" => Ok(ColumnFamily::AnnealHealth),
-        "anneal_checksums" => Ok(ColumnFamily::AnnealChecksums),
-        "anneal_mistakes" => Ok(ColumnFamily::AnnealMistakes),
-        "anneal_replay" => Ok(ColumnFamily::AnnealReplay),
-        "anneal_heads" => Ok(ColumnFamily::AnnealHeads),
-        "anneal_bandit" => Ok(ColumnFamily::AnnealBandit),
-        "anneal_soak" => Ok(ColumnFamily::AnnealSoak),
-        "anneal_report" => Ok(ColumnFamily::AnnealReport),
-        "anneal_growth" => Ok(ColumnFamily::AnnealGrowth),
-        _ if value.starts_with("slot_") => parse_slot_cf(value),
-        _ => Err(CalyxError::aster_corrupt_shard(format!(
-            "unknown durable CF directory {value}"
-        ))),
-    }
-}
-
-fn parse_slot_cf(value: &str) -> Result<ColumnFamily> {
-    let raw = value.ends_with(".raw");
-    let slot_text = value.trim_start_matches("slot_").trim_end_matches(".raw");
-    let slot = slot_text.parse::<u16>().map_err(|error| {
-        CalyxError::aster_corrupt_shard(format!("invalid slot CF directory {value}: {error}"))
-    })?;
-    if raw {
-        Ok(ColumnFamily::slot_raw(SlotId::new(slot)))
-    } else {
-        Ok(ColumnFamily::slot(SlotId::new(slot)))
-    }
 }
 
 fn ensure_manifest_assets(root: &Path) -> Result<(ImmutableRef, Vec<ImmutableRef>)> {

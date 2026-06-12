@@ -101,8 +101,7 @@ impl Wal {
         let _lock = crate::file_lock::FileLockGuard::acquire(&dir.join(".append.lock"))?;
         let replay = replay_dir_locked(&dir)?;
         let next_seq = replay.records.last().map_or(1, |record| record.seq + 1);
-        let segments =
-            segment::list_segments(&dir).map_err(|error| storage_error("list WAL", error))?;
+        let segments = segment::list_segments(&dir)?;
         let active_index = segments.last().map_or(0, |(index, _)| *index);
         let active_path = segment::segment_path(&dir, active_index);
         let mut file = open_append_file(&active_path)?;
@@ -173,8 +172,7 @@ impl Wal {
         }
         let replay = replay_dir_locked(&self.dir)?;
         self.next_seq = replay.records.last().map_or(1, |record| record.seq + 1);
-        let segments =
-            segment::list_segments(&self.dir).map_err(|error| storage_error("list WAL", error))?;
+        let segments = segment::list_segments(&self.dir)?;
         let active_index = segments.last().map_or(0, |(index, _)| *index);
         if active_index != self.active_index {
             self.active_index = active_index;
@@ -185,8 +183,7 @@ impl Wal {
     }
 
     fn external_appends_present(&self) -> Result<bool> {
-        let segments =
-            segment::list_segments(&self.dir).map_err(|error| storage_error("list WAL", error))?;
+        let segments = segment::list_segments(&self.dir)?;
         let Some((active_index, active_path)) = segments.last() else {
             return Ok(self.active_index != 0 || self.active_len != 0);
         };
@@ -233,7 +230,7 @@ pub fn replay_dir(dir: impl AsRef<Path>) -> Result<ReplayOutcome> {
 }
 
 fn replay_dir_locked(dir: &Path) -> Result<ReplayOutcome> {
-    let segments = segment::list_segments(dir).map_err(|error| storage_error("list WAL", error))?;
+    let segments = segment::list_segments(dir)?;
     let mut records = Vec::new();
 
     for (position, (_, path)) in segments.iter().enumerate() {

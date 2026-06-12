@@ -275,6 +275,61 @@ fn torn_tail_in_early_segment_removes_later_segments() {
 }
 
 #[test]
+fn open_fails_closed_on_noncanonical_wal_file_name() {
+    let dir = test_dir("noncanonical-name");
+    let mut wal = Wal::open(&dir, WalOptions::default()).expect("open wal");
+    wal.append(b"committed").expect("append");
+    drop(wal);
+    fs::write(dir.join("0001.wal"), b"").expect("write noncanonical wal name");
+
+    let error = Wal::open(&dir, WalOptions::default()).expect_err("noncanonical wal name");
+    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(error.message.contains("0001.wal"), "{}", error.message);
+
+    let replay_error = replay_dir(&dir).expect_err("replay refuses noncanonical wal name");
+    assert_eq!(replay_error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    cleanup(dir);
+}
+
+#[test]
+fn open_fails_closed_on_wal_segment_index_gap() {
+    let dir = test_dir("segment-gap");
+    fs::write(
+        dir.join("00000000000000000000.wal"),
+        record::encode(1, b"first").expect("encode first"),
+    )
+    .expect("write segment 0");
+    fs::write(
+        dir.join("00000000000000000002.wal"),
+        record::encode(2, b"third").expect("encode third"),
+    )
+    .expect("write segment 2");
+
+    let error = Wal::open(&dir, WalOptions::default()).expect_err("segment gap");
+    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(
+        error.message.contains("not contiguous"),
+        "{}",
+        error.message
+    );
+    cleanup(dir);
+}
+
+#[test]
+fn open_ignores_files_without_wal_extension() {
+    let dir = test_dir("foreign-files");
+    fs::write(dir.join("notes.txt"), b"operator scratch").expect("write foreign file");
+    let mut wal = Wal::open(&dir, WalOptions::default()).expect("open with foreign file");
+    wal.append(b"committed").expect("append");
+    drop(wal);
+
+    let replay = replay_dir(&dir).expect("replay with foreign file");
+    assert_eq!(replay.records.len(), 1);
+    assert_eq!(replay.records[0].payload, b"committed");
+    cleanup(dir);
+}
+
+#[test]
 fn record_golden_and_edge_cases_are_byte_exact() {
     let encoded = record::encode(42, b"hello").expect("encode golden");
     let mut hasher = crc32fast::Hasher::new();
