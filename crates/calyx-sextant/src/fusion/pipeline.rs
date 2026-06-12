@@ -9,23 +9,13 @@ use super::FusionContext;
 use super::rrf::rrf_fuse_restricted;
 use crate::hit::Hit;
 use crate::index::IndexSearchHit;
-use crate::reranker::RerankCandidateText;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PipelineOutput {
     pub stage1_candidates: usize,
     pub final_hits: usize,
     pub subset_ok: bool,
-    pub zeroizing_ok: bool,
     pub candidate_ids: Vec<CxId>,
-}
-
-pub fn candidate_texts(texts: &[String]) -> Vec<RerankCandidateText> {
-    texts
-        .iter()
-        .cloned()
-        .map(RerankCandidateText::new)
-        .collect()
 }
 
 pub fn pipeline_fuse(
@@ -51,13 +41,11 @@ pub fn pipeline_fuse(
     }
 }
 
-pub fn summarize_pipeline(stage1: &[CxId], final_ids: &[CxId], texts: &[String]) -> PipelineOutput {
-    let request_scoped = candidate_texts(texts);
+pub fn summarize_pipeline(stage1: &[CxId], final_ids: &[CxId]) -> PipelineOutput {
     PipelineOutput {
         stage1_candidates: stage1.len(),
         final_hits: final_ids.len(),
         subset_ok: final_ids.iter().all(|cx| stage1.contains(cx)),
-        zeroizing_ok: request_scoped.len() == texts.len(),
         candidate_ids: final_ids.to_vec(),
     }
 }

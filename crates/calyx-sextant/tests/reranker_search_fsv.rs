@@ -19,10 +19,7 @@ fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
     let baseline = engine.search(&query).unwrap();
     assert!(baseline.len() >= 2);
 
-    let ok_server = spawn_reranker(
-        "HTTP/1.1 200 OK",
-        r#"{"scores":[0.01,0.99],"zeroizing_ok":true}"#,
-    );
+    let ok_server = spawn_reranker("HTTP/1.1 200 OK", r#"{"scores":[0.01,0.99]}"#);
     let reranked = engine
         .search_with_reranker(
             &query,
@@ -56,12 +53,9 @@ fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
         )
         .unwrap_err();
     non_2xx.join();
-    assert_eq!(err.code, "CALYX_SEXTANT_RERANKER_TIMEOUT");
+    assert_eq!(err.code, "CALYX_SEXTANT_RERANKER_PROTOCOL");
 
-    let mismatch = spawn_reranker(
-        "HTTP/1.1 200 OK",
-        r#"{"scores":[0.10],"zeroizing_ok":true}"#,
-    );
+    let mismatch = spawn_reranker("HTTP/1.1 200 OK", r#"{"scores":[0.10]}"#);
     let err = engine
         .search_with_reranker(
             &query,
@@ -69,7 +63,7 @@ fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
         )
         .unwrap_err();
     mismatch.join();
-    assert_eq!(err.code, "CALYX_SEXTANT_RERANKER_TIMEOUT");
+    assert_eq!(err.code, "CALYX_SEXTANT_RERANKER_PROTOCOL");
 
     let err = engine
         .search_with_reranker(
@@ -80,7 +74,7 @@ fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
             &RerankerClient::new("http://127.0.0.1:9", Duration::from_millis(5)),
         )
         .unwrap_err();
-    assert_eq!(err.code, "CALYX_SEXTANT_RERANKER_TIMEOUT");
+    assert_eq!(err.code, "CALYX_SEXTANT_QUERY_SHAPE");
     assert!(err.message.contains("Pipeline"));
 }
 
@@ -110,10 +104,7 @@ fn search_with_reranker_aiwonder_fsv() {
     let engine = sample_engine();
     let query = pipeline_query();
     let baseline = engine.search(&query).unwrap();
-    let server = spawn_reranker(
-        "HTTP/1.1 200 OK",
-        r#"{"scores":[0.01,0.99],"zeroizing_ok":true}"#,
-    );
+    let server = spawn_reranker("HTTP/1.1 200 OK", r#"{"scores":[0.01,0.99]}"#);
     let reranked = engine
         .search_with_reranker(
             &query,
@@ -147,7 +138,7 @@ fn search_with_reranker_aiwonder_fsv() {
     fs::write(root.join("reranker-http-request.txt"), request).unwrap();
     fs::write(
         root.join("reranker-http-response.json"),
-        r#"{"scores":[0.01,0.99],"zeroizing_ok":true}"#,
+        r#"{"scores":[0.01,0.99]}"#,
     )
     .unwrap();
     fs::write(

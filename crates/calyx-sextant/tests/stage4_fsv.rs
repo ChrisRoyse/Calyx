@@ -130,13 +130,17 @@ fn pipeline_and_reranker_keep_candidate_text_request_scoped() {
     let stage1 = vec![cx(1), cx(2), cx(3)];
     let final_ids = vec![cx(2), cx(3)];
     let texts = vec!["cat hat".to_string(), "dog log".to_string()];
-    let summary = summarize_pipeline(&stage1, &final_ids, &texts);
+    let summary = summarize_pipeline(&stage1, &final_ids);
     assert_eq!(summary.stage1_candidates, 3);
     assert!(summary.subset_ok);
-    assert!(summary.zeroizing_ok);
 
     let reranker = RerankerClient::new("http://127.0.0.1:9", Duration::from_millis(5));
     let request = RerankRequest::new("cat", texts);
+    let rendered_request = format!("{request:?}");
+    assert!(
+        !rendered_request.contains("cat hat") && rendered_request.contains("redacted"),
+        "rerank request Debug must redact candidate text: {rendered_request}"
+    );
     assert_eq!(
         reranker.rerank(&request).unwrap_err().code,
         "CALYX_SEXTANT_RERANKER_TIMEOUT"
@@ -319,7 +323,7 @@ fn stage4_full_stack_fsv() {
         "rerank": rerank
             .as_ref()
             .map(|response| {
-                json!({"scores": response.scores.clone(), "zeroizing_ok": response.zeroizing_ok})
+                json!({"scores": response.scores.clone()})
             })
             .unwrap_or_else(|error| json!({"error": error.code})),
         "rrf6_p99_us": latencies.0,
@@ -398,7 +402,7 @@ fn measure_latencies(engine: &SearchEngine, query: &Query) -> (u128, u128, u128)
         let _ = engine.search(query).unwrap();
         rrf.push(start.elapsed().as_micros());
         let start = Instant::now();
-        let _ = summarize_pipeline(&[cx(1), cx(2), cx(3)], &[cx(2), cx(3)], &["cat".into()]);
+        let _ = summarize_pipeline(&[cx(1), cx(2), cx(3)], &[cx(2), cx(3)]);
         pipeline.push(start.elapsed().as_micros());
         let start = Instant::now();
         let _ = engine

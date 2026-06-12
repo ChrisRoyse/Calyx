@@ -125,7 +125,7 @@ fn issue594_reranker_candidate_text_non_persistence_aiwonder_fsv() {
             .unwrap()
             .is_empty()
     );
-    assert_eq!(fail_error.code, "CALYX_SEXTANT_RERANKER_TIMEOUT");
+    assert_eq!(fail_error.code, "CALYX_SEXTANT_RERANKER_ENDPOINT");
     assert!(
         readback["edges"]["invalid_endpoint"]["after_hits"]
             .as_array()
@@ -142,10 +142,7 @@ struct RerankObservation {
 }
 
 fn run_successful_rerank(candidate: &str) -> RerankObservation {
-    let server = spawn_reranker(
-        "HTTP/1.1 200 OK",
-        r#"{"scores":[0.42],"zeroizing_ok":true}"#,
-    );
+    let server = spawn_reranker("HTTP/1.1 200 OK", r#"{"scores":[0.42]}"#);
     let response = RerankerClient::new(server.endpoint.clone(), Duration::from_secs(1))
         .rerank(&RerankRequest::new(
             "privacy query",
