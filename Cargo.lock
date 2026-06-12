@@ -421,6 +421,7 @@ name = "calyx-ward"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "calyx-assay",
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
