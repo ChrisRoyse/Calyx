@@ -214,6 +214,10 @@ error_catalog! {
 
     DatasetManifestInvalid, dataset_manifest_invalid, "CALYX_DATASET_MANIFEST_INVALID",
     "MANIFEST.md or manifest.json missing/malformed/drifted", "re-register via scripts/verify_dataset.sh register";
+
+    DatasetSchemaMismatch, dataset_schema_mismatch, "CALYX_DATASET_SCHEMA_MISMATCH",
+    "dataset columns/fields missing or malformed vs the pinned upstream contract",
+    "re-acquire at the pinned revision; check upstream schema drift";
 }
 
 #[cfg(test)]
@@ -257,6 +261,7 @@ mod tests {
         "CALYX_DATASET_CHECKSUM_MISMATCH",
         "CALYX_DATASET_ROWCOUNT_MISMATCH",
         "CALYX_DATASET_MANIFEST_INVALID",
+        "CALYX_DATASET_SCHEMA_MISMATCH",
     ];
 
     #[test]
@@ -331,6 +336,10 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_DATASET_MANIFEST_INVALID",
             "re-register via scripts/verify_dataset.sh register"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_DATASET_SCHEMA_MISMATCH",
+            "re-acquire at the pinned revision; check upstream schema drift"
         )));
     }
 
