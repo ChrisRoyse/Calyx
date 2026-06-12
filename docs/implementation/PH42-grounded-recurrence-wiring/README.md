@@ -38,6 +38,16 @@ PH42 wires those grounded recurrence signals into existing engine surfaces while
 using an O(1) base-CF frequency anchor path for hot consumers instead of
 recomputing or scanning recurrence series.
 
+## Canonical Timezone Model
+
+Occurrence timestamps are stored as UTC epoch seconds. Engines that bucket
+hour-of-day or day-of-week must apply an explicit fixed `tz_offset_secs`
+provided by the query or vault context before computing buckets. Existing
+compatibility wrappers use `tz_offset_secs = 0` and are therefore UTC-only by
+construction. Named IANA timezone and DST database conversion is not implicit in
+Loom, Oracle, or Sextant; callers must provide the effective offset for the
+context being scored/read back.
+
 Entry discipline update (2026-06-12): GitHub issue state records PH40
 follow-ups #616/#618/#619, PH41 follow-ups #620/#626/#627/#628, and PH42
 readback-surface gate #625 closed and FSV-backed. Those stale gates no longer

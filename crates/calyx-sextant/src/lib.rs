@@ -63,14 +63,15 @@ pub use temporal::{
     FixedClock as TemporalFixedClock, FusionWeights, MultiAnchorMode, PeriodicOptions,
     RecurrenceBoostConfig, RecurrenceBoostEvidence, SequenceDirection, SequenceOptions, SlotLen,
     SystemClock as TemporalSystemClock, TemporalPolicy, TemporalScores, TemporalSearchInput,
-    TemporalSearchResult, TimeWindow, WindowRecallPolicy, WindowRecallReport, apply_causal_gate,
-    apply_temporal_boost, apply_temporal_boost_with_recurrence, causal_gate_mult,
-    count_hits_in_window, derive_causal_confidence, filter_hits_by_window, frequency_kernel_bonus,
-    fuse_temporal, recurrence_boost_evidence, recurrence_boost_from_parts, recurrence_boost_score,
-    score_e2_recency, score_e3_periodic, score_e4_sequence, temporal_search,
-    temporal_search_from_primary, temporal_search_from_primary_with_recurrence,
+    TemporalSearchResult, TemporalTimeBucket, TimeWindow, WindowRecallPolicy, WindowRecallReport,
+    apply_causal_gate, apply_temporal_boost, apply_temporal_boost_with_recurrence,
+    causal_gate_mult, count_hits_in_window, derive_causal_confidence, filter_hits_by_window,
+    frequency_kernel_bonus, fuse_temporal, recurrence_boost_evidence, recurrence_boost_from_parts,
+    recurrence_boost_score, score_e2_recency, score_e3_periodic, score_e4_sequence,
+    temporal_search, temporal_search_from_primary, temporal_search_from_primary_with_recurrence,
     temporal_search_pipeline, temporal_search_with_recall, temporal_search_with_recurrence,
-    temporal_search_with_recurrence_and_recall, validate_primary_temporal_weight,
+    temporal_search_with_recurrence_and_recall, temporal_time_bucket,
+    validate_primary_temporal_weight,
 };
 
 #[cfg(test)]

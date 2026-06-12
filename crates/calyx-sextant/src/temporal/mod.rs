@@ -8,8 +8,8 @@ mod search;
 mod window;
 
 pub use boost::{
-    TemporalScores, apply_temporal_boost, apply_temporal_boost_with_recurrence, fuse_temporal,
-    score_e2_recency, score_e3_periodic, score_e4_sequence,
+    TemporalScores, TemporalTimeBucket, apply_temporal_boost, apply_temporal_boost_with_recurrence,
+    fuse_temporal, score_e2_recency, score_e3_periodic, score_e4_sequence, temporal_time_bucket,
 };
 pub use calyx_core::{
     BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_BOOST_CONFIG,

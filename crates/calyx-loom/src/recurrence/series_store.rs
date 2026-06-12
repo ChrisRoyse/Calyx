@@ -56,6 +56,14 @@ where
         super::recurrence_series(self.vault, cx_id)
     }
 
+    pub fn recurrence_series_with_tz_offset(
+        &self,
+        cx_id: CxId,
+        tz_offset_secs: i32,
+    ) -> Result<RecurrenceRead> {
+        super::recurrence_series_with_tz_offset(self.vault, cx_id, tz_offset_secs)
+    }
+
     pub fn occurrence_count(&self, cx_id: CxId) -> Result<u64> {
         recurrence::occurrence_count(self.vault, cx_id)
     }

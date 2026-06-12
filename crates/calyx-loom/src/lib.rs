@@ -37,9 +37,10 @@ pub use recurrence::{
     RecurrenceReadStats, RecurrenceSeries, RecurrenceSeriesReadback, RetentionPolicy,
     RollupSummary, SeriesStore, SignatureResult, StoredRecurrenceRow, co_occurrence_pairs,
     decode_lead_lag_result, decode_recurrence_row, detect_recurrence_signature,
-    encode_lead_lag_result, encode_recurrence_row, lead_lag_secs, periodic_fit, periodic_recall,
-    periodic_recall_readback, recurrence_series, recurrence_summary_key, temporal_cross_term,
-    temporal_slot_ids_for_panel,
+    encode_lead_lag_result, encode_recurrence_row, lead_lag_secs, periodic_fit,
+    periodic_fit_with_tz_offset, periodic_recall, periodic_recall_readback, periodic_time_bucket,
+    recurrence_series, recurrence_series_with_tz_offset, recurrence_summary_key,
+    temporal_cross_term, temporal_slot_ids_for_panel,
 };
 
 #[cfg(test)]

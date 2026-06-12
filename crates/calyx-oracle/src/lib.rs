@@ -9,8 +9,10 @@ pub use prd22::{
     super_intelligence,
 };
 pub use time_prediction::{
-    CALYX_ORACLE_INSUFFICIENT, MIN_TIME_PREDICTION_OCCURRENCES, TimePrediction,
+    CALYX_ORACLE_INSUFFICIENT, MIN_TIME_PREDICTION_OCCURRENCES, TimeBucket, TimePrediction,
     TimePredictionInterval, predict_next_occurrence, predict_next_occurrence_from_series,
+    predict_next_occurrence_from_series_with_tz_offset, predict_next_occurrence_with_tz_offset,
+    time_bucket,
 };
 
 #[cfg(test)]
