@@ -2,6 +2,7 @@
 
 mod boost;
 mod causal_gate;
+mod recall_budget;
 mod recurrence_boost;
 mod search;
 mod window;
@@ -20,16 +21,20 @@ pub use causal_gate::{
     CausalConfidence, CausalGateEvidence, apply_causal_gate, causal_gate_mult,
     derive_causal_confidence, temporal_search_pipeline,
 };
+pub use recall_budget::{SlotLen, WindowRecallPolicy, WindowRecallReport};
 pub use recurrence_boost::{
     RecurrenceBoostEvidence, frequency_kernel_bonus, recurrence_boost_evidence,
     recurrence_boost_from_parts, recurrence_boost_score,
 };
 pub use search::{
     TemporalSearchInput, TemporalSearchResult, temporal_search, temporal_search_from_primary,
-    temporal_search_from_primary_with_recurrence, temporal_search_with_recurrence,
+    temporal_search_from_primary_with_recurrence, temporal_search_with_recall,
+    temporal_search_with_recurrence, temporal_search_with_recurrence_and_recall,
     validate_primary_temporal_weight,
 };
-pub use window::{Clock, FixedClock, SystemClock, TimeWindow, filter_hits_by_window};
+pub use window::{
+    Clock, FixedClock, SystemClock, TimeWindow, count_hits_in_window, filter_hits_by_window,
+};
 
 #[cfg(test)]
 mod tests;

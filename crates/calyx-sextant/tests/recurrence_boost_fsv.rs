@@ -56,6 +56,7 @@ fn issue391_recurrence_boost_fsv_artifacts() {
             tz_offset_secs: 0,
             primary_slots_used: vec![CONTENT_SLOT],
             temporal_slots_excluded: vec![TEMPORAL_SLOT],
+            window_recall: Default::default(),
         },
         &vault,
     )

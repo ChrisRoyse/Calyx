@@ -219,6 +219,7 @@ fn timezone_result(tz_offset_secs: i32) -> calyx_sextant::TemporalSearchResult {
         tz_offset_secs,
         primary_slots_used: vec![CONTENT_SLOT],
         temporal_slots_excluded: Vec::new(),
+        window_recall: Default::default(),
     })
     .expect("timezone result")
 }

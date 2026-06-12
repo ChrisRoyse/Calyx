@@ -23,6 +23,7 @@ pub const CALYX_SEXTANT_POSTINGS_CORRUPT: &str = "CALYX_SEXTANT_POSTINGS_CORRUPT
 pub const CALYX_SEXTANT_POSTINGS_NOT_SORTED: &str = "CALYX_SEXTANT_POSTINGS_NOT_SORTED";
 pub const CALYX_SEXTANT_PROVENANCE_MISSING: &str = "CALYX_SEXTANT_PROVENANCE_MISSING";
 pub const CALYX_SEXTANT_RECURRENCE_READ_ERROR: &str = "CALYX_SEXTANT_RECURRENCE_READ_ERROR";
+pub const CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED: &str = "CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED";
 pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
         CALYX_SEXTANT_PLAN_UNBOUNDED => "tighten k/ef/slot limits or raise operator cap",
@@ -51,6 +52,9 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         }
         CALYX_SEXTANT_RECURRENCE_READ_ERROR => {
             "repair the recurrence frequency scalar or recurrence CF rows"
+        }
+        CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED => {
+            "raise max_candidates or use the exhaustive window recall policy"
         }
         CALYX_TEMPORAL_AP60_VIOLATION => {
             "keep temporal signals post-retrieval only and never dominant"

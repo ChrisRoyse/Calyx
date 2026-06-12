@@ -50,6 +50,7 @@ pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> Result
             tz_offset_secs,
             primary_slots_used: vec![CONTENT_SLOT],
             temporal_slots_excluded: vec![TEMPORAL_SLOT],
+            window_recall: Default::default(),
         },
         &vault,
     )

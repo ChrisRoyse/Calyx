@@ -9,9 +9,10 @@ use crate::hit::Hit;
 use crate::query::Query;
 use crate::search::SearchEngine;
 
+use super::recall_budget::windowed_primary_search;
 use super::{
-    Clock, TemporalPolicy, TimeWindow, apply_causal_gate, apply_temporal_boost,
-    apply_temporal_boost_with_recurrence, filter_hits_by_window,
+    Clock, TemporalPolicy, TimeWindow, WindowRecallPolicy, WindowRecallReport, apply_causal_gate,
+    apply_temporal_boost, apply_temporal_boost_with_recurrence, filter_hits_by_window,
 };
 
 const PRIMARY_TEMPORAL_WEIGHT: f32 = 0.0;
@@ -20,12 +21,16 @@ const PRIMARY_TEMPORAL_WEIGHT: f32 = 0.0;
 pub struct TemporalSearchResult {
     pub hits: Vec<Hit>,
     pub pre_boost_ranking: Vec<CxId>,
+    #[serde(default)]
+    pub windowed_ranking: Vec<CxId>,
     pub policy_snapshot: TemporalPolicy,
     pub temporal_weight_used: f32,
     #[serde(default)]
     pub primary_slots_used: Vec<SlotId>,
     #[serde(default)]
     pub temporal_slots_excluded: Vec<SlotId>,
+    #[serde(default)]
+    pub window_recall: WindowRecallReport,
 }
 
 pub fn temporal_search(
@@ -36,52 +41,36 @@ pub fn temporal_search(
     clock: &dyn Clock,
     tz_offset_secs: i32,
 ) -> Result<TemporalSearchResult> {
-    let selected_slots = if query.slots.is_empty() {
-        engine.indexes.slots()
-    } else {
-        query.slots.clone()
-    };
-    let (primary_slots, temporal_slots_excluded) = split_primary_slots(&selected_slots);
-    if primary_slots.is_empty() {
-        return Err(sextant_error(
-            CALYX_SEXTANT_NO_LENSES,
-            "AP-60 temporal search has no non-temporal primary slot to query",
-        ));
-    }
-    ensure_slots_registered(engine, &primary_slots)?;
-    validate_primary_fusion(query, &primary_slots)?;
-    if primary_slots_all_empty(engine, &primary_slots) {
-        return temporal_search_from_primary(TemporalSearchInput {
-            primary_hits: Vec::new(),
-            temporal_weight_used: PRIMARY_TEMPORAL_WEIGHT,
-            final_k: query.k,
-            window,
-            policy,
-            clock,
-            tz_offset_secs,
-            primary_slots_used: primary_slots,
-            temporal_slots_excluded,
-        });
-    }
-
-    let mut primary_query = query.clone();
-    primary_query.slots = primary_slots.clone();
-    primary_query.k = primary_recall_k(engine, query, window, &primary_slots);
-    primary_query.fusion = normalized_primary_fusion(query, &primary_slots);
-
-    let primary_hits = engine.search(&primary_query)?;
-
-    temporal_search_from_primary(TemporalSearchInput {
-        primary_hits,
-        temporal_weight_used: PRIMARY_TEMPORAL_WEIGHT,
-        final_k: query.k,
+    temporal_search_with_recall(
+        engine,
+        query,
         window,
         policy,
         clock,
         tz_offset_secs,
-        primary_slots_used: primary_slots,
-        temporal_slots_excluded,
-    })
+        WindowRecallPolicy::default(),
+    )
+}
+
+pub fn temporal_search_with_recall(
+    engine: &SearchEngine,
+    query: &Query,
+    window: Option<TimeWindow>,
+    policy: &TemporalPolicy,
+    clock: &dyn Clock,
+    tz_offset_secs: i32,
+    recall_policy: WindowRecallPolicy,
+) -> Result<TemporalSearchResult> {
+    let input = primary_retrieval(
+        engine,
+        query,
+        window,
+        policy,
+        clock,
+        tz_offset_secs,
+        recall_policy,
+    )?;
+    temporal_search_from_primary(input)
 }
 
 pub fn temporal_search_with_recurrence<C>(
@@ -96,6 +85,55 @@ pub fn temporal_search_with_recurrence<C>(
 where
     C: CoreClock,
 {
+    temporal_search_with_recurrence_and_recall(
+        engine,
+        query,
+        window,
+        policy,
+        clock,
+        tz_offset_secs,
+        vault,
+        WindowRecallPolicy::default(),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn temporal_search_with_recurrence_and_recall<C>(
+    engine: &SearchEngine,
+    query: &Query,
+    window: Option<TimeWindow>,
+    policy: &TemporalPolicy,
+    clock: &dyn Clock,
+    tz_offset_secs: i32,
+    vault: &AsterVault<C>,
+    recall_policy: WindowRecallPolicy,
+) -> Result<TemporalSearchResult>
+where
+    C: CoreClock,
+{
+    let input = primary_retrieval(
+        engine,
+        query,
+        window,
+        policy,
+        clock,
+        tz_offset_secs,
+        recall_policy,
+    )?;
+    temporal_search_from_primary_with_recurrence(input, vault)
+}
+
+/// Shared AP-60 primary retrieval: validates primary slots, then runs the
+/// explicit window-recall policy (no silent k expansion).
+fn primary_retrieval<'a>(
+    engine: &SearchEngine,
+    query: &Query,
+    window: Option<TimeWindow>,
+    policy: &'a TemporalPolicy,
+    clock: &'a dyn Clock,
+    tz_offset_secs: i32,
+    recall_policy: WindowRecallPolicy,
+) -> Result<TemporalSearchInput<'a>> {
     let selected_slots = if query.slots.is_empty() {
         engine.indexes.slots()
     } else {
@@ -110,44 +148,34 @@ where
     }
     ensure_slots_registered(engine, &primary_slots)?;
     validate_primary_fusion(query, &primary_slots)?;
-    if primary_slots_all_empty(engine, &primary_slots) {
-        return temporal_search_from_primary_with_recurrence(
-            TemporalSearchInput {
-                primary_hits: Vec::new(),
-                temporal_weight_used: PRIMARY_TEMPORAL_WEIGHT,
-                final_k: query.k,
-                window,
-                policy,
-                clock,
-                tz_offset_secs,
-                primary_slots_used: primary_slots,
-                temporal_slots_excluded,
-            },
-            vault,
-        );
-    }
 
-    let mut primary_query = query.clone();
-    primary_query.slots = primary_slots.clone();
-    primary_query.k = primary_recall_k(engine, query, window, &primary_slots);
-    primary_query.fusion = normalized_primary_fusion(query, &primary_slots);
+    let (primary_hits, window_recall) = if primary_slots_all_empty(engine, &primary_slots) {
+        (Vec::new(), WindowRecallReport::default())
+    } else {
+        let mut primary_query = query.clone();
+        primary_query.slots = primary_slots.clone();
+        primary_query.fusion = normalized_primary_fusion(query, &primary_slots);
+        windowed_primary_search(
+            engine,
+            &primary_query,
+            window.as_ref(),
+            query.k,
+            recall_policy,
+        )?
+    };
 
-    let primary_hits = engine.search(&primary_query)?;
-
-    temporal_search_from_primary_with_recurrence(
-        TemporalSearchInput {
-            primary_hits,
-            temporal_weight_used: PRIMARY_TEMPORAL_WEIGHT,
-            final_k: query.k,
-            window,
-            policy,
-            clock,
-            tz_offset_secs,
-            primary_slots_used: primary_slots,
-            temporal_slots_excluded,
-        },
-        vault,
-    )
+    Ok(TemporalSearchInput {
+        primary_hits,
+        temporal_weight_used: PRIMARY_TEMPORAL_WEIGHT,
+        final_k: query.k,
+        window,
+        policy,
+        clock,
+        tz_offset_secs,
+        primary_slots_used: primary_slots,
+        temporal_slots_excluded,
+        window_recall,
+    })
 }
 
 pub struct TemporalSearchInput<'a> {
@@ -160,6 +188,7 @@ pub struct TemporalSearchInput<'a> {
     pub tz_offset_secs: i32,
     pub primary_slots_used: Vec<SlotId>,
     pub temporal_slots_excluded: Vec<SlotId>,
+    pub window_recall: WindowRecallReport,
 }
 
 pub fn temporal_search_from_primary(
@@ -192,6 +221,7 @@ fn temporal_search_from_primary_inner(
         .collect::<Vec<_>>();
     let window = input.window.unwrap_or_else(TimeWindow::all);
     let filtered = filter_hits_by_window(input.primary_hits, &window);
+    let windowed_ranking = filtered.iter().map(|hit| hit.cx_id).collect::<Vec<_>>();
     let boosted = boost(
         filtered,
         input.policy,
@@ -208,10 +238,12 @@ fn temporal_search_from_primary_inner(
     Ok(TemporalSearchResult {
         hits,
         pre_boost_ranking,
+        windowed_ranking,
         policy_snapshot: *input.policy,
         temporal_weight_used: input.temporal_weight_used,
         primary_slots_used: input.primary_slots_used,
         temporal_slots_excluded: input.temporal_slots_excluded,
+        window_recall: input.window_recall,
     })
 }
 
@@ -253,27 +285,6 @@ fn primary_slots_all_empty(engine: &SearchEngine, slots: &[SlotId]) -> bool {
             .find(|stats| stats.slot == *slot)
             .is_some_and(|stats| stats.len == 0)
     })
-}
-
-fn primary_recall_k(
-    engine: &SearchEngine,
-    query: &Query,
-    window: Option<TimeWindow>,
-    primary_slots: &[SlotId],
-) -> usize {
-    let requested = query.recall_k.unwrap_or(query.k).max(query.k);
-    if window.is_none() {
-        return requested;
-    }
-    engine
-        .indexes
-        .stats()
-        .into_iter()
-        .filter(|stats| primary_slots.contains(&stats.slot))
-        .map(|stats| stats.len)
-        .max()
-        .unwrap_or(requested)
-        .max(requested)
 }
 
 fn validate_primary_fusion(query: &Query, primary_slots: &[SlotId]) -> Result<()> {
