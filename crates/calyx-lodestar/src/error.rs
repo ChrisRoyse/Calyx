@@ -16,6 +16,10 @@ pub enum LodestarError {
     KernelEmptyResult,
     #[error("CALYX_KERNEL_INDEX_NOT_FOUND: kernel index {kernel_id} was not found")]
     KernelIndexNotFound { kernel_id: calyx_core::CxId },
+    #[error("CALYX_KERNEL_NOT_FOUND: kernel {kernel_id} was not found")]
+    KernelNotFound { kernel_id: calyx_core::CxId },
+    #[error("CALYX_KERNEL_ARTIFACT_CODEC: {detail}")]
+    KernelArtifactCodec { detail: String },
     #[error("CALYX_KERNEL_DIM_MISMATCH: expected dim {expected}, got {actual}")]
     KernelDimMismatch { expected: usize, actual: usize },
     #[error("CALYX_KERNEL_EMBEDDING_MISSING: missing embedding for {cx_id}")]
@@ -91,6 +95,8 @@ impl LodestarError {
             Self::KernelLpInfeasible { .. } => "CALYX_KERNEL_LP_INFEASIBLE",
             Self::KernelEmptyResult => "CALYX_KERNEL_EMPTY_RESULT",
             Self::KernelIndexNotFound { .. } => "CALYX_KERNEL_INDEX_NOT_FOUND",
+            Self::KernelNotFound { .. } => "CALYX_KERNEL_NOT_FOUND",
+            Self::KernelArtifactCodec { .. } => "CALYX_KERNEL_ARTIFACT_CODEC",
             Self::KernelDimMismatch { .. } => "CALYX_KERNEL_DIM_MISMATCH",
             Self::KernelEmbeddingMissing { .. } => "CALYX_KERNEL_EMBEDDING_MISSING",
             Self::KernelIndexIo { .. } => "CALYX_KERNEL_INDEX_IO",

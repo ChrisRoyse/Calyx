@@ -47,6 +47,10 @@ impl FsKernelStore {
     pub fn index_file_path(&self, kernel_id: CxId) -> PathBuf {
         self.index_dir(kernel_id).join("index.json")
     }
+
+    pub fn kernel_file_path(&self, kernel_id: CxId) -> PathBuf {
+        self.index_dir(kernel_id).join("kernel.json")
+    }
 }
 
 impl KernelStore for FsKernelStore {

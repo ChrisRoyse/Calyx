@@ -22,6 +22,7 @@ mod crash;
 mod dedup_audit_readback;
 mod dedup_readback;
 mod fsv;
+mod kernel_health_readback;
 mod ledger_store;
 mod manifest_readback;
 mod merkle;
@@ -122,6 +123,14 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 vault_id,
                 salt,
             })
+        }
+        [command, topic, root_flag, root, kernel_flag, kernel_id]
+            if command == "readback"
+                && topic == "kernel-health"
+                && root_flag == "--root"
+                && kernel_flag == "--kernel-id" =>
+        {
+            kernel_health_readback::readback_kernel_health(Path::new(root), kernel_id)
         }
         [command, topic, vault_flag, vault, cx_flag, cx_id]
             if command == "readback"
