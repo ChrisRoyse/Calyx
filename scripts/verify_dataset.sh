@@ -115,16 +115,25 @@ def data_files(ds_dir):
 
 
 def count_rows(path, kind):
+    # Row counts are derived from bytes that may be corrupt (truncated download,
+    # bit rot). Reader exceptions are byte-integrity failures, so they map to
+    # the closed catalog as CHECKSUM_MISMATCH - never a raw traceback.
     if kind in ("csv", "tsv"):
         delimiter = "," if kind == "csv" else "\t"
-        with path.open("r", encoding="utf-8", newline="") as handle:
-            records = sum(1 for _ in csv.reader(handle, delimiter=delimiter))
+        try:
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                records = sum(1 for _ in csv.reader(handle, delimiter=delimiter))
+        except (UnicodeDecodeError, csv.Error, OSError) as err:
+            fail("CALYX_DATASET_CHECKSUM_MISMATCH", f"{path}: unreadable {kind} data: {err}")
         if records == 0:
             fail("CALYX_DATASET_ROWCOUNT_MISMATCH", f"{path}: empty {kind} file (no header)")
         return records - 1
     if kind == "jsonl":
-        with path.open("r", encoding="utf-8") as handle:
-            return sum(1 for line in handle if line.strip())
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                return sum(1 for line in handle if line.strip())
+        except (UnicodeDecodeError, OSError) as err:
+            fail("CALYX_DATASET_CHECKSUM_MISMATCH", f"{path}: unreadable jsonl data: {err}")
     if kind == "parquet":
         try:
             import pyarrow.parquet as pq
@@ -134,7 +143,10 @@ def count_rows(path, kind):
                 f"{path}: pyarrow required for parquet row counts - "
                 "run scripts/acquire_datasets.sh once or set CALYX_DATASET_PYTHON to a venv with pyarrow",
             )
-        return pq.ParquetFile(path).metadata.num_rows
+        try:
+            return pq.ParquetFile(path).metadata.num_rows
+        except Exception as err:  # ArrowInvalid etc.: truncated/corrupt parquet bytes
+            fail("CALYX_DATASET_CHECKSUM_MISMATCH", f"{path}: corrupt parquet: {err}")
     fail("CALYX_DATASET_MANIFEST_INVALID", f"{path}: unknown row_kind {kind!r}")
 
 
@@ -445,6 +457,16 @@ self_test() {
   echo "4,delta" >> "$tmp_root/synthetic_fixture/data.csv"
   echo "--- data.csv after tamper ---"; cat "$tmp_root/synthetic_fixture/data.csv"
   expect_fail CALYX_DATASET_CHECKSUM_MISMATCH synthetic_fixture
+  printf 'id,value\n1,alpha\n2,beta\n3,gamma\n' > "$tmp_root/synthetic_fixture/data.csv"
+  "$SCRIPT_PATH" synthetic_fixture >/dev/null
+
+  step "edge 3b: undecodable bytes in data file -> CALYX_DATASET_CHECKSUM_MISMATCH (not a traceback)"
+  printf '\xff\xfe\x00garbage' > "$tmp_root/synthetic_fixture/data.csv"
+  expect_fail CALYX_DATASET_CHECKSUM_MISMATCH synthetic_fixture
+  if grep -q 'Traceback' "$tmp_root/err.log"; then
+    echo "SELF-TEST FAILED: corrupt data produced a raw traceback instead of a closed-catalog code" >&2
+    exit 1
+  fi
   printf 'id,value\n1,alpha\n2,beta\n3,gamma\n' > "$tmp_root/synthetic_fixture/data.csv"
   "$SCRIPT_PATH" synthetic_fixture >/dev/null
 
