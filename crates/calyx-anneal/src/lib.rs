@@ -57,15 +57,18 @@ pub use integration_fsv::{
 };
 pub use j::{
     CALYX_ANNEAL_GOODHART_INVALID_CONFIG, CALYX_ANNEAL_GOODHART_INVALID_METRIC,
-    CALYX_ANNEAL_J_INVALID_CONFIG, CALYX_ANNEAL_J_INVALID_METRIC,
+    CALYX_ANNEAL_GRADIENT_INVALID_CONFIG, CALYX_ANNEAL_GRADIENT_INVALID_METRIC,
+    CALYX_ANNEAL_J_INVALID_CONFIG, CALYX_ANNEAL_J_INVALID_METRIC, CandidateAction,
     DEFAULT_CROSS_LENS_DOMINANCE_THRESHOLD, DEFAULT_GOODHART_VIOLATION_PENALTY_WEIGHT,
     DEFAULT_GTAU_THRESHOLD, DEFAULT_HELD_OUT_MIN_GAIN_FRACTION, DEFAULT_J_DOMAIN, GoodhartChecker,
-    GoodhartLedgerContext, GoodhartReport, GoodhartState, GoodhartViolation, HeldOutSet,
-    JMetricSources, JObjectiveContext, JTerms, JValue, JWeights, LensContributionDelta,
-    REDUNDANCY_PENALTY, UNIT_PENALTY, WardGtau, add_goodhart_penalty_to_vault, compute_j,
-    goodhart_state_path, j_weights_path, read_goodhart_state_from_vault,
-    read_objective_weights_from_vault, record_goodhart_report, set_objective_weights,
-    write_goodhart_state,
+    GoodhartLedgerContext, GoodhartReport, GoodhartState, GoodhartViolation, GradientCandidate,
+    GradientEntry, GradientEntryReadback, GradientRefreshReport, GradientSnapshot, GradientWarning,
+    HeldOutSet, IntelligenceGradient, JMetricSources, JObjectiveContext, JTerms, JValue, JWeights,
+    LensContributionDelta, PriorityReadback, REDUNDANCY_PENALTY, TuneScopeKind, UNIT_PENALTY,
+    WardGtau, add_goodhart_penalty_to_vault, compute_j, estimate_dj, goodhart_state_path,
+    gradient_state_path, j_weights_path, read_goodhart_state_from_vault,
+    read_gradient_snapshot_from_vault, read_objective_weights_from_vault, record_goodhart_report,
+    set_objective_weights, write_goodhart_state, write_gradient_snapshot,
 };
 pub use learn::{
     AsterHeadStorage, AsterMistakeStorage, AsterOutcomeStorage, AsterReplayStorage,

@@ -1,4 +1,5 @@
 mod goodhart;
+mod gradient;
 mod j_composite;
 
 pub use goodhart::{
@@ -8,6 +9,12 @@ pub use goodhart::{
     GoodhartLedgerContext, GoodhartReport, GoodhartState, GoodhartViolation, HeldOutSet,
     LensContributionDelta, WardGtau, add_goodhart_penalty_to_vault, goodhart_state_path,
     read_goodhart_state_from_vault, record_goodhart_report, write_goodhart_state,
+};
+pub use gradient::{
+    CALYX_ANNEAL_GRADIENT_INVALID_CONFIG, CALYX_ANNEAL_GRADIENT_INVALID_METRIC, CandidateAction,
+    GradientCandidate, GradientEntry, GradientEntryReadback, GradientRefreshReport,
+    GradientSnapshot, GradientWarning, IntelligenceGradient, PriorityReadback, TuneScopeKind,
+    estimate_dj, gradient_state_path, read_gradient_snapshot_from_vault, write_gradient_snapshot,
 };
 pub use j_composite::{
     CALYX_ANNEAL_J_INVALID_CONFIG, CALYX_ANNEAL_J_INVALID_METRIC, DEFAULT_J_DOMAIN, JMetricSources,
