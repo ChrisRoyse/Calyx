@@ -222,6 +222,44 @@ fn anneal_lens_proposal_log_fixture_command_executes() {
 }
 
 #[test]
+fn anneal_intelligence_report_fixture_command_executes() {
+    let root = std::env::temp_dir().join(format!("calyx-cli-j-report-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create j report fixture dir");
+    let fixture = root.join("j-report.json");
+    std::fs::write(
+        &fixture,
+        r#"{
+  "domain": "fixture",
+  "panel_len": 4,
+  "metrics": {
+    "mutual_info_panel_anchor": 1.5,
+    "n_eff": 3.5,
+    "panel_sufficiency": 0.8,
+    "kernel_recall": 0.7,
+    "oracle_accuracy": 0.6,
+    "mistake_rate": 0.1,
+    "compression_yield": 0.4,
+    "coverage": 0.3,
+    "dpi_ceiling": 2.0,
+    "provisional_count": 0
+  }
+}"#,
+    )
+    .expect("write j report fixture");
+
+    run(vec![
+        "anneal".into(),
+        "intelligence-report".into(),
+        "--fixture".into(),
+        fixture.display().to_string(),
+    ])
+    .expect("intelligence report readback");
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn anneal_propose_lens_run_fixture_command_executes() {
     let root = std::env::temp_dir().join(format!("calyx-cli-propose-lens-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);

@@ -14,6 +14,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal soak-report --last <n> --vault <dir>
        calyx anneal autotune-report --scope forge --cache <json> --vault <dir> --last <n>
        calyx anneal autotune-report --scope index --slot <n> --cache <json> --vault <dir> --last <n>
+       calyx anneal intelligence-report --fixture <json> [--vault <dir>]
        calyx anneal deficit-map --anchor <anchor_id> --fixture <json> [--threshold <bits>]
        calyx anneal propose-preview --anchor <anchor_id> --deficit <json> --corpus <json>
        calyx anneal lens-proposal-log --fixture <json> --last <n>

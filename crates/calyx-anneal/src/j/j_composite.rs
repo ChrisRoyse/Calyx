@@ -1,0 +1,290 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use calyx_core::{CalyxError, Result};
+use serde::{Deserialize, Serialize};
+
+pub const CALYX_ANNEAL_J_INVALID_METRIC: &str = "CALYX_ANNEAL_J_INVALID_METRIC";
+pub const CALYX_ANNEAL_J_INVALID_CONFIG: &str = "CALYX_ANNEAL_J_INVALID_CONFIG";
+pub const DEFAULT_J_DOMAIN: &str = "default";
+pub const UNIT_PENALTY: f64 = 1.0;
+pub const REDUNDANCY_PENALTY: f64 = 1.0;
+const COMPUTE_TIME_GOODHART_PENALTY: f64 = 0.0;
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct JTerms {
+    pub w1_info: f64,
+    pub w2_n_eff: f64,
+    pub w3_sufficiency: f64,
+    pub w4_kernel_recall: f64,
+    pub w5_oracle_accuracy: f64,
+    pub w6_mistake_rate: f64,
+    pub w7_compression: f64,
+    pub w8_coverage: f64,
+    pub p_redundant: f64,
+    pub p_ungrounded: f64,
+    pub p_goodhart: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JValue {
+    pub j: f64,
+    pub terms: JTerms,
+    pub dpi_ceiling: f64,
+    pub dpi_headroom: f64,
+    pub provisional_excluded: usize,
+    pub weights: JWeights,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JWeights {
+    pub w1: f64,
+    pub w2: f64,
+    pub w3: f64,
+    pub w4: f64,
+    pub w5: f64,
+    pub w6: f64,
+    pub w7: f64,
+    pub w8: f64,
+}
+
+impl Default for JWeights {
+    fn default() -> Self {
+        Self {
+            w1: 1.0,
+            w2: 1.0,
+            w3: 1.0,
+            w4: 1.0,
+            w5: 1.0,
+            w6: 1.0,
+            w7: 1.0,
+            w8: 1.0,
+        }
+    }
+}
+
+impl JWeights {
+    pub fn zero() -> Self {
+        Self {
+            w1: 0.0,
+            w2: 0.0,
+            w3: 0.0,
+            w4: 0.0,
+            w5: 0.0,
+            w6: 0.0,
+            w7: 0.0,
+            w8: 0.0,
+        }
+    }
+
+    fn validate(self) -> Result<Self> {
+        for (name, value) in [
+            ("w1", self.w1),
+            ("w2", self.w2),
+            ("w3", self.w3),
+            ("w4", self.w4),
+            ("w5", self.w5),
+            ("w6", self.w6),
+            ("w7", self.w7),
+            ("w8", self.w8),
+        ] {
+            validate_nonnegative(value, name).map_err(invalid_config)?;
+        }
+        Ok(self)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JObjectiveContext {
+    pub domain: String,
+    pub panel_len: usize,
+    pub weights: JWeights,
+}
+
+impl JObjectiveContext {
+    pub fn new(domain: impl Into<String>, panel_len: usize) -> Self {
+        Self {
+            domain: domain.into(),
+            panel_len,
+            weights: JWeights::default(),
+        }
+    }
+
+    pub fn with_weights(mut self, weights: JWeights) -> Self {
+        self.weights = weights;
+        self
+    }
+}
+
+impl Default for JObjectiveContext {
+    fn default() -> Self {
+        Self::new(DEFAULT_J_DOMAIN, 0)
+    }
+}
+
+pub trait JMetricSources {
+    fn mutual_info_panel_anchor(&self) -> f64;
+    fn n_eff(&self) -> f64;
+    fn panel_sufficiency(&self, domain: &str) -> f64;
+    fn kernel_recall(&self) -> f64;
+    fn oracle_accuracy(&self) -> f64;
+    fn mistake_rate(&self) -> f64;
+    fn compression_yield(&self) -> f64;
+    fn coverage(&self) -> f64;
+    fn dpi_ceiling(&self) -> f64;
+    fn provisional_count(&self) -> usize;
+}
+
+pub fn compute_j<S>(context: &JObjectiveContext, sources: &S) -> Result<JValue>
+where
+    S: JMetricSources,
+{
+    let weights = context.weights.validate()?;
+    let dpi_ceiling =
+        validate_nonnegative(sources.dpi_ceiling(), "dpi_ceiling").map_err(invalid_metric)?;
+    let raw_info = validate_nonnegative(
+        sources.mutual_info_panel_anchor(),
+        "mutual_info_panel_anchor",
+    )
+    .map_err(invalid_metric)?;
+    let raw_sufficiency = validate_nonnegative(
+        sources.panel_sufficiency(&context.domain),
+        "panel_sufficiency",
+    )
+    .map_err(invalid_metric)?;
+    let provisional_excluded = sources.provisional_count();
+    let info = if provisional_excluded == 0 {
+        raw_info.min(dpi_ceiling)
+    } else {
+        0.0
+    };
+    let sufficiency = raw_sufficiency.min(dpi_ceiling);
+    let n_eff = validate_nonnegative(sources.n_eff(), "n_eff").map_err(invalid_metric)?;
+    let terms = JTerms {
+        w1_info: info,
+        w2_n_eff: n_eff,
+        w3_sufficiency: sufficiency,
+        w4_kernel_recall: validate_nonnegative(sources.kernel_recall(), "kernel_recall")
+            .map_err(invalid_metric)?,
+        w5_oracle_accuracy: validate_nonnegative(sources.oracle_accuracy(), "oracle_accuracy")
+            .map_err(invalid_metric)?,
+        w6_mistake_rate: validate_nonnegative(sources.mistake_rate(), "mistake_rate")
+            .map_err(invalid_metric)?,
+        w7_compression: validate_nonnegative(sources.compression_yield(), "compression_yield")
+            .map_err(invalid_metric)?,
+        w8_coverage: validate_nonnegative(sources.coverage(), "coverage")
+            .map_err(invalid_metric)?,
+        p_redundant: redundancy_penalty(context.panel_len, n_eff),
+        p_ungrounded: provisional_excluded as f64 * UNIT_PENALTY,
+        p_goodhart: COMPUTE_TIME_GOODHART_PENALTY,
+    };
+    let weighted_positive = weights.w1 * terms.w1_info
+        + weights.w2 * terms.w2_n_eff
+        + weights.w3 * terms.w3_sufficiency
+        + weights.w4 * terms.w4_kernel_recall
+        + weights.w5 * terms.w5_oracle_accuracy
+        + weights.w7 * terms.w7_compression
+        + weights.w8 * terms.w8_coverage;
+    let weighted_negative = weights.w6 * terms.w6_mistake_rate
+        + terms.p_redundant
+        + terms.p_ungrounded
+        + terms.p_goodhart;
+    let j = weighted_positive - weighted_negative;
+    if !j.is_finite() {
+        return Err(invalid_metric(format!(
+            "computed J must be finite, got {j}"
+        )));
+    }
+    Ok(JValue {
+        j,
+        terms,
+        dpi_ceiling,
+        dpi_headroom: (dpi_ceiling - raw_info).min(dpi_ceiling - raw_sufficiency),
+        provisional_excluded,
+        weights,
+    })
+}
+
+pub fn j_weights_path(vault: &Path) -> PathBuf {
+    vault.join(".anneal").join("j_weights.toml")
+}
+
+pub fn set_objective_weights(vault: &Path, weights: JWeights) -> Result<JWeights> {
+    let weights = weights.validate()?;
+    let path = j_weights_path(vault);
+    let parent = path
+        .parent()
+        .ok_or_else(|| invalid_config("j weight path has no parent"))?;
+    fs::create_dir_all(parent).map_err(|error| {
+        invalid_config(format!(
+            "create objective weight dir {}: {error}",
+            parent.display()
+        ))
+    })?;
+    let encoded = toml::to_string_pretty(&weights)
+        .map_err(|error| invalid_config(format!("encode objective weights: {error}")))?;
+    fs::write(&path, encoded.as_bytes()).map_err(|error| {
+        invalid_config(format!(
+            "write objective weights {}: {error}",
+            path.display()
+        ))
+    })?;
+    Ok(weights)
+}
+
+pub fn read_objective_weights_from_vault(vault: &Path) -> Result<JWeights> {
+    let path = j_weights_path(vault);
+    if !path.exists() {
+        return Ok(JWeights::default());
+    }
+    let bytes = fs::read(&path).map_err(|error| {
+        invalid_config(format!(
+            "read objective weights {}: {error}",
+            path.display()
+        ))
+    })?;
+    let text = std::str::from_utf8(&bytes).map_err(|error| {
+        invalid_config(format!(
+            "read objective weights {} as UTF-8: {error}",
+            path.display()
+        ))
+    })?;
+    toml::from_str::<JWeights>(text)
+        .map_err(|error| {
+            invalid_config(format!(
+                "parse objective weights {}: {error}",
+                path.display()
+            ))
+        })?
+        .validate()
+}
+
+fn redundancy_penalty(panel_len: usize, n_eff: f64) -> f64 {
+    ((panel_len as f64) - n_eff).max(0.0) * REDUNDANCY_PENALTY
+}
+
+fn validate_nonnegative(value: f64, name: &str) -> std::result::Result<f64, String> {
+    if !value.is_finite() || value < 0.0 {
+        return Err(format!(
+            "{name} must be finite and non-negative, got {value}"
+        ));
+    }
+    Ok(value)
+}
+
+fn invalid_metric(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_ANNEAL_J_INVALID_METRIC,
+        message: message.into(),
+        remediation: "re-measure grounded objective inputs before computing J",
+    }
+}
+
+fn invalid_config(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_ANNEAL_J_INVALID_CONFIG,
+        message: message.into(),
+        remediation: "correct PH48 objective configuration before computing J",
+    }
+}
