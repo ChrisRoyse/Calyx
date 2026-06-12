@@ -3,6 +3,7 @@
 mod error;
 mod honesty_gate;
 mod prd22;
+mod predict;
 mod self_consistency;
 mod time_prediction;
 mod types;
@@ -17,9 +18,10 @@ pub use honesty_gate::{
 };
 pub use prd22::{
     ConsequenceExpansion, OracleCeiling, OraclePrediction, SuperIntelligenceEvidence,
-    SuperIntelligenceVerdict, butterfly_expand, oracle_ceiling, oracle_predict, reverse_query,
-    super_intelligence,
+    SuperIntelligenceVerdict, butterfly_expand, oracle_ceiling,
+    oracle_predict as oracle_formula_predict, reverse_query, super_intelligence,
 };
+pub use predict::{Action, ORACLE_ACTION_METADATA_KEY, oracle_predict};
 pub use self_consistency::{
     MIN_FLAKINESS_PAIRS, MIN_VALIDITY_SAMPLES, ORACLE_DOMAIN_METADATA_KEY,
     ORACLE_FALLBACK_DOMAIN_METADATA_KEY, oracle_self_consistency,

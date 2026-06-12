@@ -17,7 +17,7 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, FixedClock, SlotId, VaultId};
 use calyx_ledger::{ActorId, LedgerAppender, decode};
 use calyx_loom::{dda_signal_yield, meaning_compression_yield};
-use calyx_oracle::oracle_predict;
+use calyx_oracle::oracle_formula_predict;
 use calyx_sextant::fusion::rrf::rrf_contribution;
 use calyx_ward::{GuardId, GuardPolicy, GuardProfile, NoveltyAction, guard};
 use serde::Serialize;
@@ -155,7 +155,7 @@ fn edge_cases(artifact: &FormulaCoverageArtifact) -> Value {
     empty_artifact.summary.missing_rows = 0;
     let empty_error = validate_formula_coverage(&empty_artifact).unwrap_err();
     let redundant_error = pair_redundancy(0.61).unwrap_err();
-    let oracle_error = oracle_predict(0.25, 0.75, 0.8).unwrap_err();
+    let oracle_error = oracle_formula_predict(0.25, 0.75, 0.8).unwrap_err();
 
     json!({
         "empty_catalog": {
