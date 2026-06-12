@@ -28,3 +28,25 @@ tracing = "0.1"
 ulid = { version = "1", features = ["serde"] }
 uuid = { version = "1", features = ["serde"] }
 wide = "1"
+
+# ── Build profiles ───────────────────────────────────────────────────────────
+# Tuned for this workspace's high-churn, multi-agent build cadence. The cargo
+# default (`debug = 2`, full DWARF) made every dev/test executable ~280 MB and
+# ballooned the shared target/ dir to ~190 GB within days. `line-tables-only`
+# keeps function names + file:line in panic/test backtraces — everything the
+# gate (`cargo test`, `cargo check`) actually needs — while cutting executable
+# size and link time several-fold. First-party crates keep line tables;
+# dependencies get no debuginfo at all since we never step into them.
+#
+# Portable and machine-agnostic: these apply identically on Linux, Windows, and
+# CI, so they live here (not in .cargo/config.toml, which must stay free of
+# machine-specific settings). Linker choice (mold) and incremental policy are
+# machine-local on the build host — see docs/implementation/02_BUILD_PERFORMANCE.md.
+[profile.dev]
+debug = "line-tables-only"
+
+# Dependencies are compiled once and never stepped into during this project's
+# test/gate workflow; stripping their debuginfo is the single biggest target/
+# size reduction with zero loss of first-party debuggability.
+[profile.dev.package."*"]
+debug = false
