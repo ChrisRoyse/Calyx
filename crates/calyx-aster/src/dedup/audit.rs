@@ -100,7 +100,7 @@ where
         }
         merges.push(merge_record(entry)?);
     }
-    let undo_entries = undo_records(&entries, cx_id);
+    let undo_entries = undo_records(&entries, cx_id)?;
     let occurrences = read_series(vault, cx_id)?.occurrences;
     let anchor_conflict_blocks = anchor_conflict_blocks(vault, cx_id)?;
     let reversal_token = reversal_token(vault.vault_id(), cx_id, &merges);
@@ -327,7 +327,7 @@ fn merge_record(entry: &DedupLedgerEntry) -> Result<MergeRecord> {
     })
 }
 
-fn undo_records(entries: &[DedupLedgerEntry], cx_id: CxId) -> Vec<DedupUndoRecord> {
+fn undo_records(entries: &[DedupLedgerEntry], cx_id: CxId) -> Result<Vec<DedupUndoRecord>> {
     let mut records = Vec::new();
     for entry in entries {
         if entry.payload.dedup_result.as_deref() != Some("DedupUndo") {
@@ -342,10 +342,21 @@ fn undo_records(entries: &[DedupLedgerEntry], cx_id: CxId) -> Vec<DedupUndoRecor
         records.push(DedupUndoRecord {
             seq: entry.seq,
             reversal: reversal.clone(),
-            restored: entry.payload.restored.clone().unwrap_or_default(),
+            restored: undo_restored(entry)?,
         });
     }
-    records
+    Ok(records)
+}
+
+/// `undo_payload` always writes the `restored` list, so a `DedupUndo` entry
+/// without one can only come from corruption or a foreign writer.
+fn undo_restored(entry: &DedupLedgerEntry) -> Result<Vec<CxId>> {
+    entry.payload.restored.clone().ok_or_else(|| {
+        CalyxError::ledger_corrupt(format!(
+            "DedupUndo ledger entry seq {} missing restored CxIds",
+            entry.seq
+        ))
+    })
 }
 
 fn reversal_token(vault_id: VaultId, cx_id: CxId, merges: &[MergeRecord]) -> ReversalToken {
@@ -382,7 +393,7 @@ where
         if entry.payload.dedup_result.as_deref() == Some("DedupUndo")
             && entry.payload.reversal.as_ref() == Some(token)
         {
-            return Ok(Some(entry.payload.restored.unwrap_or_default()));
+            return Ok(Some(undo_restored(&entry)?));
         }
     }
     Ok(None)
