@@ -6,17 +6,18 @@ mod series_store;
 pub mod signature;
 
 pub use calyx_aster::recurrence::{
-    FREQUENCY_SCALAR, MAX_CONTEXT_BYTES, Occurrence, OccurrenceContext, RecurrenceSeries,
-    RetentionPolicy, RollupSummary, StoredRecurrenceRow, decode_recurrence_row,
-    encode_recurrence_row, recurrence_summary_key,
+    FREQUENCY_SCALAR, MAX_CONTEXT_BYTES, Occurrence, OccurrenceContext, RecurrenceReadStats,
+    RecurrenceSeries, RecurrenceSeriesReadback, RetentionPolicy, RollupSummary,
+    StoredRecurrenceRow, decode_recurrence_row, encode_recurrence_row, recurrence_summary_key,
 };
 pub use cross_terms::{
     LeadLagResult, co_occurrence_pairs, decode_lead_lag_result, encode_lead_lag_result,
     lead_lag_secs, temporal_cross_term,
 };
 pub use periodic::{
-    PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery, PeriodicTimeBucket, RecurrenceRead,
-    periodic_fit, periodic_recall, recurrence_series,
+    PeriodicFit, PeriodicRecallHit, PeriodicRecallQuery, PeriodicRecallReadback,
+    PeriodicRecallStats, PeriodicTimeBucket, RecurrenceRead, periodic_fit, periodic_recall,
+    periodic_recall_readback, recurrence_series,
 };
 pub use series_store::SeriesStore;
 pub use signature::{

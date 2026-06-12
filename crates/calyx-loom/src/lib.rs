@@ -33,11 +33,13 @@ pub use materialization::{
 };
 pub use recurrence::{
     LeadLagResult, Occurrence, OccurrenceContext, PeriodicFit, PeriodicRecallHit,
-    PeriodicRecallQuery, RecurrenceRead, RecurrenceSeries, RetentionPolicy, RollupSummary,
-    SeriesStore, SignatureResult, StoredRecurrenceRow, co_occurrence_pairs, decode_lead_lag_result,
-    decode_recurrence_row, detect_recurrence_signature, encode_lead_lag_result,
-    encode_recurrence_row, lead_lag_secs, periodic_fit, periodic_recall, recurrence_series,
-    recurrence_summary_key, temporal_cross_term, temporal_slot_ids_for_panel,
+    PeriodicRecallQuery, PeriodicRecallReadback, PeriodicRecallStats, RecurrenceRead,
+    RecurrenceReadStats, RecurrenceSeries, RecurrenceSeriesReadback, RetentionPolicy,
+    RollupSummary, SeriesStore, SignatureResult, StoredRecurrenceRow, co_occurrence_pairs,
+    decode_lead_lag_result, decode_recurrence_row, detect_recurrence_signature,
+    encode_lead_lag_result, encode_recurrence_row, lead_lag_secs, periodic_fit, periodic_recall,
+    periodic_recall_readback, recurrence_series, recurrence_summary_key, temporal_cross_term,
+    temporal_slot_ids_for_panel,
 };
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use calyx_aster::cf::ColumnFamily;
-use calyx_aster::recurrence::{self, Occurrence, RecurrenceSeries};
+use calyx_aster::recurrence::{self, Occurrence, RecurrenceReadStats, RecurrenceSeries};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CALYX_TEMPORAL_INVALID_PERIOD, CalyxError, Clock, CxId, Result, VaultStore};
 use serde::{Deserialize, Serialize};
@@ -15,6 +15,7 @@ const UNIX_EPOCH_DAY_OF_WEEK_MONDAY_ZERO: i64 = 3;
 pub struct RecurrenceRead {
     pub series: RecurrenceSeries,
     pub periodic_fit: PeriodicFit,
+    pub read_stats: RecurrenceReadStats,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -88,15 +89,33 @@ pub struct PeriodicRecallHit {
     pub periodic_fit: PeriodicFit,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PeriodicRecallStats {
+    pub index_rows_visited: usize,
+    pub candidate_series_count: usize,
+    pub series_read_count: usize,
+    pub series_range_rows_visited: usize,
+    pub series_rows_decoded: usize,
+    pub matching_series_count: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PeriodicRecallReadback {
+    pub hits: Vec<PeriodicRecallHit>,
+    pub stats: PeriodicRecallStats,
+}
+
 pub fn recurrence_series<C>(vault: &AsterVault<C>, cx_id: CxId) -> Result<RecurrenceRead>
 where
     C: Clock,
 {
-    let series = recurrence::read_series(vault, cx_id)?;
+    let readback = recurrence::read_series_readback(vault, cx_id)?;
+    let series = readback.series;
     let periodic_fit = periodic_fit(&series.occurrences);
     Ok(RecurrenceRead {
         series,
         periodic_fit,
+        read_stats: readback.stats,
     })
 }
 
@@ -130,9 +149,28 @@ pub fn periodic_recall<C>(
 where
     C: Clock,
 {
+    Ok(periodic_recall_readback(vault, query)?.hits)
+}
+
+pub fn periodic_recall_readback<C>(
+    vault: &AsterVault<C>,
+    query: PeriodicRecallQuery,
+) -> Result<PeriodicRecallReadback>
+where
+    C: Clock,
+{
+    let index = recurrence_cx_ids(vault)?;
     let mut hits = Vec::new();
-    for cx_id in recurrence_cx_ids(vault)? {
+    let mut stats = PeriodicRecallStats {
+        index_rows_visited: index.rows_visited,
+        candidate_series_count: index.ids.len(),
+        ..PeriodicRecallStats::default()
+    };
+    for cx_id in index.ids {
         let read = recurrence_series(vault, cx_id)?;
+        stats.series_read_count += 1;
+        stats.series_range_rows_visited += read.read_stats.range_scan_rows;
+        stats.series_rows_decoded += read.read_stats.decoded_rows;
         if !query.matches(read.periodic_fit) {
             continue;
         }
@@ -145,15 +183,23 @@ where
         });
     }
     hits.sort_by_key(|hit| hit.cx_id);
-    Ok(hits)
+    stats.matching_series_count = hits.len();
+    Ok(PeriodicRecallReadback { hits, stats })
 }
 
-fn recurrence_cx_ids<C>(vault: &AsterVault<C>) -> Result<BTreeSet<CxId>>
+struct RecurrenceCxIdIndex {
+    ids: BTreeSet<CxId>,
+    rows_visited: usize,
+}
+
+fn recurrence_cx_ids<C>(vault: &AsterVault<C>) -> Result<RecurrenceCxIdIndex>
 where
     C: Clock,
 {
     let mut ids = BTreeSet::new();
-    for (key, _) in vault.scan_cf_at(vault.snapshot(), ColumnFamily::Recurrence)? {
+    let rows = vault.scan_cf_at(vault.snapshot(), ColumnFamily::Recurrence)?;
+    let rows_visited = rows.len();
+    for (key, _) in rows {
         if key.len() < CX_ID_BYTES {
             continue;
         }
@@ -161,7 +207,7 @@ where
         bytes.copy_from_slice(&key[..CX_ID_BYTES]);
         ids.insert(CxId::from_bytes(bytes));
     }
-    Ok(ids)
+    Ok(RecurrenceCxIdIndex { ids, rows_visited })
 }
 
 fn mode<F>(occurrences: &[Occurrence], domain: usize, value: F) -> (Option<u8>, f32)
