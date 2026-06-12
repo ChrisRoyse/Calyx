@@ -34,6 +34,7 @@ mod ph42_readback;
 mod provenance;
 mod recurrence_readback;
 mod scan;
+mod temporal_log_recurrence_readback;
 mod temporal_readback;
 mod time_prediction_readback;
 mod tripwire_readback;
@@ -145,6 +146,11 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, topic, rest @ ..] if command == "readback" && topic == "periodic-recall" => {
             recurrence_readback::readback_periodic_recall(rest)
+        }
+        [command, topic, rest @ ..]
+            if command == "readback" && topic == "temporal-log-recurrence" =>
+        {
+            temporal_log_recurrence_readback::readback_temporal_log_recurrence(rest)
         }
         [command, topic, rest @ ..] if command == "readback" && ph42_readback::is_topic(topic) => {
             ph42_readback::readback_topic(topic, rest)

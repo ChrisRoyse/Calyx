@@ -47,6 +47,7 @@ real-qrels multi-lens recall delta exit gate.
 | `scripts/validate_oracle_sufficiency.sh` | Ingest SWE-bench Lite; run Oracle sufficiency gate; read `I(panel;oracle)` and deficit |
 | `scripts/validate_anneal_j.sh` | Run 1e6-query soak; read J growth curve over time; capture Grafana screenshot |
 | `scripts/ph70_evidence_bundle.sh` | Collect all readback outputs + screenshots into a GitHub issue evidence bundle |
+| `crates/calyx-cli/src/temporal_log_recurrence_readback/` | Validate real timestamped logs through recurrence signature, periodic fit, and next-occurrence readback |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -61,6 +62,7 @@ real-qrels multi-lens recall delta exit gate.
 
 | T07 | Living concert FSV - A31 engines operating together on one corpus loop | T01 or parallel |
 | T08 | Polis civic-panel constellation/guard FSV - synthetic personas | T04 or parallel |
+| T09 | Temporal real-log recurrence / next-occurrence FSV | PH41 + PH69 temporal logs |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -78,6 +80,9 @@ reading the persisted numbers/bytes on aiwonder (not a harness return value):
 4b. Polis civic: 21-slot civic panel guard over synthetic personas; planted tie
    pairs pass all required slots, planted non-ties fail the intended slots; read
    guard verdicts and tie outcomes from the persisted proof artifact.
+4c. Temporal recurrence: real timestamped log rows fire recurrence signatures,
+   persist one recurrence series, detect the observed cadence, and predict the
+   next occurrence from a cold-open Aster vault artifact.
 5. Oracle: `I(panel;oracle)` ≈0.46 deficit on SWE-bench Lite form-only panel →
    sufficiency-refusal fires; read from the `oracle_sufficiency` metric.
 6. Anneal: `J` rises over a real corpus soak; `p99 ↓ ≥ 20%`; no recall regression;
