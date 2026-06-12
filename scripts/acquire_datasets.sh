@@ -57,10 +57,10 @@ REGISTERED=(
   acquire_classification.sh  # PH69 T03 - AG News / IMDB / SST-2 / banking77 / DBpedia-14 (#553)
   acquire_code_oracle.sh     # PH69 T04 - SWE-bench Lite / HumanEval / MBPP-sanitized (#554)
   acquire_graph_kernel.sh    # PH69 T05 - WordNet / ConceptNet / Cora / ogbn-arxiv (#555; wiktionary deferred loudly)
+  acquire_audio.sh           # PH69 T07 - VoxCeleb1/2 / LibriSpeech / RAVDESS / IEMOCAP (#557)
+  acquire_image.sh           # PH69 T07 - ImageNet-1k-val (gated, #683) / CIFAR-100 / COCO (#557)
 )
 PENDING=(
-  "acquire_audio.sh            PH69 T07 (#557) - VoxCeleb / LibriSpeech / RAVDESS / IEMOCAP"
-  "acquire_image.sh            PH69 T07 (#557) - ImageNet-subset / CIFAR-100 / COCO"
   "acquire_temporal_adversarial.sh  PH69 T08 (#558) - temporal / injection / persona / drift"
 )
 
