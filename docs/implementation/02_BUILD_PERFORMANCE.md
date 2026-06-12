@@ -56,7 +56,25 @@ Cargo auto-discovers this for every build under `CALYX_HOME` (the repo and all
 worktrees are children of it) **without** affecting other projects on the box
 and **without** Windows/CI ever seeing it.
 
-## 3. Keeping `target/` bounded forever
+## 3. Test suite: all cores, not one (cargo-nextest)
+
+`cargo test` compiles test binaries in parallel but then **runs each binary
+sequentially**, so a 1500-test / 250-binary workspace leaves most of the 32
+threads idle during the run. The gate uses **cargo-nextest**, which runs every
+test across every binary in a single pool sized to all logical CPUs:
+
+- **`scripts/check.sh`** runs `cargo nextest run --workspace` (parallel) then
+  `cargo test --workspace --doc` (nextest does not execute doctests). It errors
+  loudly if `cargo-nextest` is absent rather than silently skipping tests.
+- **`.config/nextest.toml`** pins the policy: `test-threads = "num-cpus"`,
+  `fail-fast = false` (surface every failure in one run), `retries = 0` (a flaky
+  test fails loudly, never masked), and a generous hang timeout (~20 min) so a
+  genuinely stuck test can't block the gate while legitimately long FSV/dataset
+  tests are never falsely killed.
+- Provisioned by `scripts/aiwonder-build-setup.sh`; in CI via
+  `taiki-e/install-action@nextest`.
+
+## 4. Keeping `target/` bounded forever
 
 Cargo has no built-in GC, and on this box churn (not age) is the enemy — age-
 based pruning reclaims ~0 because everything is days old. So we bound by **size**:

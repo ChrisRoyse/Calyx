@@ -67,6 +67,13 @@ if ! command -v cargo-sweep >/dev/null 2>&1; then
 fi
 echo "[setup] cargo-sweep: $(command -v cargo-sweep) ($(cargo-sweep --version 2>/dev/null || echo '?'))"
 
+# 2b) cargo-nextest: parallel test runner used by scripts/check.sh.
+if ! command -v cargo-nextest >/dev/null 2>&1; then
+  echo "[setup] installing cargo-nextest ..."
+  cargo install cargo-nextest --locked
+fi
+echo "[setup] cargo-nextest: $(command -v cargo-nextest) ($(cargo-nextest --version 2>/dev/null || echo '?'))"
+
 # 3) Daily user cron to bound the shared target dir.
 #    Always reference the canonical checkout ($CALYX_HOME/repo), never $repo_root:
 #    this script may be run from an ephemeral worktree, but the cron must survive
