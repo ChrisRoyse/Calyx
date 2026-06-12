@@ -351,6 +351,8 @@ dependencies = [
  "calyx-core",
  "calyx-loom",
  "calyx-paths",
+ "calyx-ward",
+ "proptest",
  "serde",
  "serde_json",
 ]
