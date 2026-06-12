@@ -238,6 +238,7 @@ dependencies = [
  "calyx-core",
  "calyx-forge",
  "calyx-ledger",
+ "calyx-lodestar",
  "calyx-loom",
  "calyx-oracle",
  "calyx-registry",
