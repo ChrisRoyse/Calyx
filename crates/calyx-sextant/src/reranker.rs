@@ -1,4 +1,10 @@
 //! Request-scoped reranker hook for the :8089 cross-encoder surface.
+//!
+//! PRD 30 §1/§4 (Leapable privacy invariant): reranker candidate text is
+//! request-scoped and never persisted. [`RerankCandidateText`] makes that
+//! structural — zeroize-on-drop, Debug-redacted, no `Display`, no serde
+//! impls — and every transient buffer holding candidate bytes (wire JSON,
+//! HTTP request) is zeroized too.
 
 use std::fmt;
 use std::io::{Read, Write};
@@ -9,8 +15,30 @@ use calyx_core::Result;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use crate::error::{CALYX_SEXTANT_RERANKER_TIMEOUT, sextant_error};
+use crate::error::{
+    CALYX_SEXTANT_RERANKER_ENDPOINT, CALYX_SEXTANT_RERANKER_NO_CANDIDATES,
+    CALYX_SEXTANT_RERANKER_PROTOCOL, CALYX_SEXTANT_RERANKER_TIMEOUT, sextant_error,
+};
 
+/// Candidate text scoped to a single rerank request.
+///
+/// Must never become serializable or displayable; the only raw-text exit is
+/// [`RerankCandidateText::as_str`] on the reranker wire path.
+///
+/// ```compile_fail
+/// fn requires_serialize<T: serde::Serialize>() {}
+/// requires_serialize::<calyx_sextant::RerankCandidateText>();
+/// ```
+///
+/// ```compile_fail
+/// fn requires_deserialize<T: serde::de::DeserializeOwned>() {}
+/// requires_deserialize::<calyx_sextant::RerankCandidateText>();
+/// ```
+///
+/// ```compile_fail
+/// fn requires_display<T: std::fmt::Display>() {}
+/// requires_display::<calyx_sextant::RerankCandidateText>();
+/// ```
 #[derive(PartialEq)]
 pub struct RerankCandidateText {
     inner: Zeroizing<String>,
@@ -88,16 +116,17 @@ impl fmt::Debug for RerankRequest {
     }
 }
 
+/// Scores only. There is deliberately no self-reported privacy flag here:
+/// request-scoping is enforced by [`RerankCandidateText`] at the type level
+/// and proven by the on-disk sentinel FSV, never claimed by the server.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RerankResponse {
     pub scores: Vec<f32>,
-    pub zeroizing_ok: bool,
 }
 
 #[derive(Debug, Deserialize)]
 struct WireRerankResponse {
     scores: Vec<f32>,
-    zeroizing_ok: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -127,9 +156,15 @@ impl RerankerClient {
     }
 
     pub fn rerank(&self, request: &RerankRequest) -> Result<RerankResponse> {
+        if request.candidates.is_empty() {
+            return Err(sextant_error(
+                CALYX_SEXTANT_RERANKER_NO_CANDIDATES,
+                "rerank request carries no candidate text",
+            ));
+        }
         if !self.endpoint.starts_with("http://") {
             return Err(sextant_error(
-                CALYX_SEXTANT_RERANKER_TIMEOUT,
+                CALYX_SEXTANT_RERANKER_ENDPOINT,
                 "only http endpoints are supported",
             ));
         }
@@ -137,11 +172,25 @@ impl RerankerClient {
         let host_port = without_scheme.split('/').next().unwrap_or(without_scheme);
         let addr = host_port
             .to_socket_addrs()
-            .map_err(|_| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "bad reranker endpoint"))?
+            .map_err(|error| {
+                sextant_error(
+                    CALYX_SEXTANT_RERANKER_ENDPOINT,
+                    format!("bad reranker endpoint {host_port}: {error}"),
+                )
+            })?
             .next()
-            .ok_or_else(|| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "no reranker addr"))?;
-        let mut stream = TcpStream::connect_timeout(&addr, self.timeout)
-            .map_err(|_| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "connect timeout"))?;
+            .ok_or_else(|| {
+                sextant_error(
+                    CALYX_SEXTANT_RERANKER_ENDPOINT,
+                    format!("reranker endpoint {host_port} resolved to no address"),
+                )
+            })?;
+        let mut stream = TcpStream::connect_timeout(&addr, self.timeout).map_err(|error| {
+            sextant_error(
+                CALYX_SEXTANT_RERANKER_TIMEOUT,
+                format!("connect timeout to {addr}: {error}"),
+            )
+        })?;
         stream
             .set_read_timeout(Some(self.timeout))
             .map_err(|error| {
@@ -169,7 +218,7 @@ impl RerankerClient {
         };
         let body = Zeroizing::new(serde_json::to_string(&wire_request).map_err(|error| {
             sextant_error(
-                CALYX_SEXTANT_RERANKER_TIMEOUT,
+                CALYX_SEXTANT_RERANKER_PROTOCOL,
                 format!("serialize rerank request failed: {error}"),
             )
         })?);
@@ -178,13 +227,19 @@ impl RerankerClient {
             body.len(),
             body = &*body
         ));
-        stream
-            .write_all(http.as_bytes())
-            .map_err(|_| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "write timeout"))?;
+        stream.write_all(http.as_bytes()).map_err(|error| {
+            sextant_error(
+                CALYX_SEXTANT_RERANKER_TIMEOUT,
+                format!("write timeout: {error}"),
+            )
+        })?;
         let mut response = String::new();
-        stream
-            .read_to_string(&mut response)
-            .map_err(|_| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "read timeout"))?;
+        stream.read_to_string(&mut response).map_err(|error| {
+            sextant_error(
+                CALYX_SEXTANT_RERANKER_TIMEOUT,
+                format!("read timeout: {error}"),
+            )
+        })?;
         ensure_success_status(&response)?;
         parse_http_rerank_response(&response, request.candidate_count())
     }
@@ -196,7 +251,7 @@ fn ensure_success_status(response: &str) -> Result<()> {
     }
     let status = response.lines().next().unwrap_or("missing HTTP status");
     Err(sextant_error(
-        CALYX_SEXTANT_RERANKER_TIMEOUT,
+        CALYX_SEXTANT_RERANKER_PROTOCOL,
         format!("reranker returned non-2xx status: {status}"),
     ))
 }
@@ -204,7 +259,7 @@ fn ensure_success_status(response: &str) -> Result<()> {
 fn parse_http_rerank_response(response: &str, expected_scores: usize) -> Result<RerankResponse> {
     let body = response.split("\r\n\r\n").nth(1).ok_or_else(|| {
         sextant_error(
-            CALYX_SEXTANT_RERANKER_TIMEOUT,
+            CALYX_SEXTANT_RERANKER_PROTOCOL,
             "reranker response missing HTTP body",
         )
     })?;
@@ -213,33 +268,40 @@ fn parse_http_rerank_response(response: &str, expected_scores: usize) -> Result<
     }
     let wire: WireRerankResponse = serde_json::from_str(body).map_err(|error| {
         sextant_error(
-            CALYX_SEXTANT_RERANKER_TIMEOUT,
+            CALYX_SEXTANT_RERANKER_PROTOCOL,
             format!("invalid reranker JSON: {error}"),
         )
     })?;
     if wire.scores.len() != expected_scores || wire.scores.iter().any(|score| !score.is_finite()) {
         return Err(sextant_error(
-            CALYX_SEXTANT_RERANKER_TIMEOUT,
-            "reranker returned invalid score vector",
+            CALYX_SEXTANT_RERANKER_PROTOCOL,
+            format!(
+                "reranker returned invalid score vector: {} scores for {} candidates",
+                wire.scores.len(),
+                expected_scores
+            ),
         ));
     }
     Ok(RerankResponse {
         scores: wire.scores,
-        zeroizing_ok: wire.zeroizing_ok.unwrap_or(true),
     })
 }
 
 fn parse_tei_rank_response(body: &str, expected_scores: usize) -> Result<RerankResponse> {
     let ranks: Vec<WireRank> = serde_json::from_str(body).map_err(|error| {
         sextant_error(
-            CALYX_SEXTANT_RERANKER_TIMEOUT,
+            CALYX_SEXTANT_RERANKER_PROTOCOL,
             format!("invalid reranker JSON: {error}"),
         )
     })?;
     if ranks.len() != expected_scores {
         return Err(sextant_error(
-            CALYX_SEXTANT_RERANKER_TIMEOUT,
-            "reranker returned invalid rank vector",
+            CALYX_SEXTANT_RERANKER_PROTOCOL,
+            format!(
+                "reranker returned invalid rank vector: {} ranks for {} candidates",
+                ranks.len(),
+                expected_scores
+            ),
         ));
     }
     let mut scores = vec![f32::NAN; expected_scores];
@@ -249,22 +311,22 @@ fn parse_tei_rank_response(body: &str, expected_scores: usize) -> Result<RerankR
             || scores[rank.index].is_finite()
         {
             return Err(sextant_error(
-                CALYX_SEXTANT_RERANKER_TIMEOUT,
-                "reranker returned invalid rank entry",
+                CALYX_SEXTANT_RERANKER_PROTOCOL,
+                format!(
+                    "reranker returned invalid rank entry at index {}",
+                    rank.index
+                ),
             ));
         }
         scores[rank.index] = rank.score;
     }
     if scores.iter().any(|score| !score.is_finite()) {
         return Err(sextant_error(
-            CALYX_SEXTANT_RERANKER_TIMEOUT,
+            CALYX_SEXTANT_RERANKER_PROTOCOL,
             "reranker returned incomplete rank vector",
         ));
     }
-    Ok(RerankResponse {
-        scores,
-        zeroizing_ok: true,
-    })
+    Ok(RerankResponse { scores })
 }
 
 #[cfg(test)]
@@ -273,11 +335,11 @@ mod tests {
 
     #[test]
     fn parses_real_reranker_scores_from_http_body() {
-        let response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"scores\":[0.25,0.75],\"zeroizing_ok\":true}";
+        let response =
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"scores\":[0.25,0.75]}";
         let parsed = parse_http_rerank_response(response, 2).unwrap();
 
         assert_eq!(parsed.scores, vec![0.25, 0.75]);
-        assert!(parsed.zeroizing_ok);
     }
 
     #[test]
@@ -286,7 +348,6 @@ mod tests {
         let parsed = parse_http_rerank_response(response, 2).unwrap();
 
         assert_eq!(parsed.scores, vec![0.75, 0.25]);
-        assert!(parsed.zeroizing_ok);
     }
 
     #[test]
@@ -295,7 +356,8 @@ mod tests {
             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"scores\":[0.25]}";
         let err = parse_http_rerank_response(response, 2).unwrap_err();
 
-        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_TIMEOUT);
+        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_PROTOCOL);
+        assert!(err.message.contains("1 scores for 2 candidates"));
     }
 
     #[test]
@@ -303,8 +365,36 @@ mod tests {
         let response = "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n";
         let err = ensure_success_status(response).unwrap_err();
 
-        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_TIMEOUT);
+        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_PROTOCOL);
         assert!(err.message.contains("503"));
+    }
+
+    #[test]
+    fn empty_candidates_fail_closed_before_any_network_io() {
+        let client = RerankerClient::new("http://127.0.0.1:9", Duration::from_millis(5));
+        let request = RerankRequest::new("query", Vec::new());
+        let err = client.rerank(&request).unwrap_err();
+
+        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_NO_CANDIDATES);
+    }
+
+    #[test]
+    fn non_http_endpoint_fails_closed_with_endpoint_code() {
+        let client = RerankerClient::new("https://127.0.0.1:8089", Duration::from_millis(5));
+        let request = RerankRequest::new("query", vec!["candidate".to_string()]);
+        let err = client.rerank(&request).unwrap_err();
+
+        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_ENDPOINT);
+    }
+
+    #[test]
+    fn debug_format_redacts_query_and_candidate_text() {
+        let request = RerankRequest::new("private query", vec!["secret candidate".to_string()]);
+        let rendered = format!("{request:?}");
+
+        assert!(!rendered.contains("private query"));
+        assert!(!rendered.contains("secret candidate"));
+        assert!(rendered.contains("redacted"));
     }
 
     #[test]
