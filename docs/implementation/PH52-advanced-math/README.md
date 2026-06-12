@@ -56,6 +56,7 @@ span three crates (`calyx-assay`, `calyx-mincut`, `calyx-oracle`).
 | File | Crate | Responsibility |
 |---|---|---|
 | `src/spectral.rs` | `calyx-mincut` | Eigenvector centrality + Lanczos eigensolver; GFT project/reconstruct; spectral gap |
+| `src/periodicity.rs` | `calyx-assay` | Floating-mean Lomb-Scargle periodogram, event-count binning, slotted autocorrelation, seeded permutation FAP |
 | `src/transfer_entropy.rs` | `calyx-assay` | `T(A→B) = I(B_future; A_past | B_past)` on recurrence streams; reuses KSG |
 | `src/total_correlation.rs` | `calyx-assay` | `TC(Φ) = ΣH(slot_k) − H(Φ)`; interaction information; `n_eff` from TC |
 | `src/bayesian.rs` | `calyx-assay` | Gamma-Poisson rate posterior; Beta-Bernoulli consistency posterior; credible intervals |
@@ -67,6 +68,7 @@ span three crates (`calyx-assay`, `calyx-mincut`, `calyx-oracle`).
 | Card | Title | Depends |
 |---|---|---|
 | T01 | Spectral centrality + GFT (Lanczos + Forge eigensolve) | PH31 graph |
+| T01b | Lomb-Scargle + autocorrelation periodicity build card | PH42 recurrence streams |
 | T02 | Transfer entropy on recurrence streams (reuse KSG) | PH28, PH42 |
 | T03 | Total correlation `n_eff` (TC + interaction information) | PH28 |
 | T04 | Bayesian posteriors: Gamma-Poisson + Beta-Bernoulli | PH42 |
@@ -76,8 +78,8 @@ span three crates (`calyx-assay`, `calyx-mincut`, `calyx-oracle`).
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
 Each new number proven against a planted synthetic (read computed vs known):
-1. **Spectral:** planted community in synthetic graph → spectral centrality ranks community
-   hub correctly; planted period via Lomb-Scargle recovers within ±5%
+1. **Spectral:** planted community in synthetic graph -> spectral centrality ranks community hub correctly.
+1b. **Periodicity:** planted 7.0-unit recurrence stream -> Lomb-Scargle dominant period recovers within +/-5%, false-alarm probability is significant, and autocorrelation independently reports the fundamental lag.
 2. **Transfer entropy:** planted causal A→B (A always precedes B) → `T(A→B) > T(B→A)` + CI
 3. **Total correlation / `n_eff`:** `n_eff` from TC < N (some redundancy) for a known-redundant
    panel; interaction information positive for a known-synergistic triple

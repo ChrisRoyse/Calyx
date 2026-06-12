@@ -24,7 +24,7 @@ synthetic** by reading the computed value, not a harness (`26 §10`):
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] **FSV test 1 — planted period (Lomb-Scargle):** generate a synthetic recurrence stream with planted period `T_true = 7.0` time units (100 events, Gaussian jitter, seeded); run Lomb-Scargle periodogram over the recurrence timestamps; assert dominant period `T_detected ∈ [6.65, 7.35]` (±5%); write `{T_true, T_detected}` to `/tmp/ph52_period.json`
-  - Lomb-Scargle implementation: 2-phase: (1) compute the test frequencies `ω` on a grid from `1/T_max` to `1/T_min_inter_event`; (2) compute the Lomb-Scargle power `P(ω) = (Σ cos²(ω(t-τ)))^{-1}·(Σ cos(ω(t-τ)))² + (...)` using numerically stable forms; peak frequency → dominant period. ≤50 lines, inline in `transfer_entropy.rs` or a small helper.
+  - Lomb-Scargle implementation home: `crates/calyx-assay/src/periodicity.rs`. The real build card uses floating-mean Lomb-Scargle, seeded permutation FAP, ranked peaks, and slotted autocorrelation; it is not an inline `transfer_entropy.rs` helper.
 - [ ] **FSV test 2 — planted causal (transfer entropy):** 100-event stream where A always fires 2 steps before B (planted lag=2, seeded); `transfer_entropy_sweep([1,2,4,8])`; assert `t_a_to_b > t_b_to_a + 0.1` at lag=2; `dominant_direction = A_to_B`; CI does not overlap zero for `t_a_to_b`; write to `/tmp/ph52_te_fsv.json`
 - [ ] **FSV test 3 — planted rare-class (label propagation):** synthetic association graph with 20 nodes; 2 nodes are rare-class carriers (the only nodes receiving a specific anchor label); both are in the MFVS kernel; run `propagate_labels`; assert the two nearest-neighbor non-kernel nodes receive `confidence > 0.3` with `provisional = true`; write to `/tmp/ph52_label_prop.json`
 - [ ] **FSV test 4 — planted community (spectral):** synthetic 10-node graph = two 5-cliques joined by one bridge edge; `laplacian_eigenmaps(k=2)`; second eigenvector (Fiedler vector) must have positive values on one clique and negative on the other; `spectral_gap` detects the bottleneck (small Fiedler value < 0.1); write to `/tmp/ph52_spectral_fsv.json`
@@ -44,11 +44,12 @@ synthetic** by reading the computed value, not a harness (`26 §10`):
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `/tmp/ph52_period.json`, `/tmp/ph52_te_fsv.json`, `/tmp/ph52_label_prop.json`, `/tmp/ph52_spectral_fsv.json`, `/tmp/ph52_bayes_fsv.json`
+- **SoT:** `/home/croyse/calyx/data/fsv-issue584-periodicity-*/ph52_period.json` for the periodicity build-card FSV, plus `/tmp/ph52_te_fsv.json`, `/tmp/ph52_label_prop.json`, `/tmp/ph52_spectral_fsv.json`, `/tmp/ph52_bayes_fsv.json`
 - **Readback:**
   ```
-  cargo test -p calyx-assay -- advanced_math_fsv --nocapture 2>&1 | tee /tmp/ph52_fsv.log
-  cat /tmp/ph52_period.json       | jq '{T_true, T_detected, within_5pct: ((.T_detected - .T_true) | fabs | . <= .T_true * 0.05)}'
+  CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue584-periodicity-<STAMP> \
+    cargo test -p calyx-assay --test periodicity_fsv periodicity_aiwonder_fsv -- --ignored --nocapture
+  cat /home/croyse/calyx/data/fsv-issue584-periodicity-<STAMP>/ph52_period.json | jq '{planted_period, detected_period, within_5pct, acf_dominant_lag, false_alarm_probability}'
   cat /tmp/ph52_te_fsv.json       | jq '{t_a_to_b, t_b_to_a, dominant_direction}'
   cat /tmp/ph52_label_prop.json   | jq '.labels[] | select(.hop_distance == 1) | {node_id, confidence, provisional}'
   cat /tmp/ph52_spectral_fsv.json | jq '{spectral_gap, fiedler_sign_count_positive, fiedler_sign_count_negative}'
