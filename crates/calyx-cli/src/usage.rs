@@ -24,6 +24,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal frozen-guard-report --artifact <json>
        calyx anneal regression-report --artifact <json>
        calyx anneal status --faults --last <n> --vault <dir>
+       calyx leapable issue612-fsv --baseline-latency <json> --flipped-latency <json> --pg-before <dir> --pg-after <dir> --out <json>
        calyx ward tau --slot <n> --vault <dir>
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
