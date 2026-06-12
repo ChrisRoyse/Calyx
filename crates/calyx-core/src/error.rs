@@ -202,6 +202,18 @@ error_catalog! {
 
     ReaderLeaseExpired, reader_lease_expired, "CALYX_READER_LEASE_EXPIRED",
     "long reader aborted to release MVCC version", "re-issue with bounded-staleness snapshot";
+
+    DatasetNotFound, dataset_not_found, "CALYX_DATASET_NOT_FOUND",
+    "dataset dir or MANIFEST row missing", "acquire + register via scripts/acquire_datasets.sh";
+
+    DatasetChecksumMismatch, dataset_checksum_mismatch, "CALYX_DATASET_CHECKSUM_MISMATCH",
+    "recomputed sha256 != recorded value", "re-acquire at the pinned revision; never edit dataset bytes in place";
+
+    DatasetRowcountMismatch, dataset_rowcount_mismatch, "CALYX_DATASET_ROWCOUNT_MISMATCH",
+    "recomputed row count != recorded value", "re-acquire at the pinned revision; check split/decoder drift";
+
+    DatasetManifestInvalid, dataset_manifest_invalid, "CALYX_DATASET_MANIFEST_INVALID",
+    "MANIFEST.md or manifest.json missing/malformed/drifted", "re-register via scripts/verify_dataset.sh register";
 }
 
 #[cfg(test)]
@@ -241,6 +253,10 @@ mod tests {
         "CALYX_DISK_PRESSURE",
         "CALYX_QUANT_INTELLIGENCE_LOSS",
         "CALYX_READER_LEASE_EXPIRED",
+        "CALYX_DATASET_NOT_FOUND",
+        "CALYX_DATASET_CHECKSUM_MISMATCH",
+        "CALYX_DATASET_ROWCOUNT_MISMATCH",
+        "CALYX_DATASET_MANIFEST_INVALID",
     ];
 
     #[test]
@@ -299,6 +315,22 @@ mod tests {
         assert!(pairs.contains(&(
             "CALYX_REPRODUCE_DRIFT_EXCEEDED",
             "reproduce max_drift exceeded 1e-3 - possible lens drift or fusion parameter change"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_DATASET_NOT_FOUND",
+            "acquire + register via scripts/acquire_datasets.sh"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_DATASET_CHECKSUM_MISMATCH",
+            "re-acquire at the pinned revision; never edit dataset bytes in place"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_DATASET_ROWCOUNT_MISMATCH",
+            "re-acquire at the pinned revision; check split/decoder drift"
+        )));
+        assert!(pairs.contains(&(
+            "CALYX_DATASET_MANIFEST_INVALID",
+            "re-register via scripts/verify_dataset.sh register"
         )));
     }
 
