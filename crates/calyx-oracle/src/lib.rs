@@ -5,6 +5,7 @@ mod error;
 mod honesty_gate;
 mod prd22;
 mod predict;
+mod reverse_query;
 mod self_consistency;
 mod super_intel;
 mod super_intel_full;
@@ -27,10 +28,14 @@ pub use honesty_gate::{
 pub use prd22::{
     ConsequenceExpansion, OracleCeiling, OraclePrediction, SuperIntelligenceEvidence,
     SuperIntelligenceVerdict, butterfly_expand, oracle_ceiling,
-    oracle_predict as oracle_formula_predict, reverse_query,
+    oracle_predict as oracle_formula_predict, reverse_query as reverse_query_formula,
     super_intelligence as super_intelligence_formula,
 };
 pub use predict::{Action, ORACLE_ACTION_METADATA_KEY, oracle_predict};
+pub use reverse_query::{
+    MAX_REVERSE_DEPTH, ORACLE_EFFECT_METADATA_KEY, ORACLE_STRUCTURAL_CONFIDENCE_METADATA_KEY,
+    reverse_query,
+};
 pub use self_consistency::{
     MIN_FLAKINESS_PAIRS, MIN_VALIDITY_SAMPLES, ORACLE_DOMAIN_METADATA_KEY,
     ORACLE_FALLBACK_DOMAIN_METADATA_KEY, oracle_self_consistency,
