@@ -67,6 +67,7 @@ real-qrels multi-lens recall delta exit gate.
 | T09 | Temporal real-log recurrence / next-occurrence FSV | PH41 + PH69 temporal logs |
 | T10 | Ward speaker identity-lock + speaker-MI FSV - VoxCeleb | PH39 + PH69 VoxCeleb |
 | T11 | Drift / change-point / MMD FSV - month-A/month-B drift pair | PH69 drift pair |
+| T12 | Dedup correctness FSV - QQP/PAWS merge precision/recall + conflicting-anchor never-merge | PH41 + PH69 QQP/PAWS |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
