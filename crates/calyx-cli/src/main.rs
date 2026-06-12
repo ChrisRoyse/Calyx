@@ -29,6 +29,7 @@ mod leapable;
 mod ledger_store;
 mod manifest_readback;
 mod merkle;
+mod navigate;
 mod ops;
 mod ph42_readback;
 mod provenance;
@@ -156,6 +157,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             ph42_readback::readback_topic(topic, rest)
         }
         [command, topic, rest @ ..] if command == "leapable" => leapable::run(topic, rest),
+        [command, mode, rest @ ..] if command == "navigate" => navigate::run(mode, rest),
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
             anneal_ledger_readback::run(rest)
         }
