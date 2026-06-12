@@ -49,6 +49,7 @@ real-qrels multi-lens recall delta exit gate.
 | `scripts/ph70_evidence_bundle.sh` | Collect all readback outputs + screenshots into a GitHub issue evidence bundle |
 | `crates/calyx-cli/src/temporal_log_recurrence_readback/` | Validate real timestamped logs through recurrence signature, periodic fit, and next-occurrence readback |
 | `crates/calyx-ward/tests/identity_fsv/voxceleb_identity/` | Validate Ward speaker identity-lock on real VoxCeleb audio: WavLM speaker slot, per-slot guard verdicts, and speaker-MI readbacks |
+| `crates/calyx-assay/src/mmd.rs` | Validate drift-pair distribution shift via Gaussian-kernel MMD and change-point readbacks |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -65,6 +66,7 @@ real-qrels multi-lens recall delta exit gate.
 | T08 | Polis civic-panel constellation/guard FSV - synthetic personas | T04 or parallel |
 | T09 | Temporal real-log recurrence / next-occurrence FSV | PH41 + PH69 temporal logs |
 | T10 | Ward speaker identity-lock + speaker-MI FSV - VoxCeleb | PH39 + PH69 VoxCeleb |
+| T11 | Drift / change-point / MMD FSV - month-A/month-B drift pair | PH69 drift pair |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -90,6 +92,10 @@ reading the persisted numbers/bytes on aiwonder (not a harness return value):
    guard pairs pass, impostor pairs reject closed, and speaker-MI exceeds the
    load-bearing threshold; read fixture, embedding, guard, MI, edge, and checksum
    artifacts from the aiwonder evidence root.
+4e. Drift/MMD: the PH69 drift-pair month-A vs month-B split produces a
+   significant Gaussian-kernel MMD report and a change-point near the split
+   boundary, while month-A vs month-A-control stays non-significant; read the
+   persisted report and edge artifact from the aiwonder evidence root.
 5. Oracle: `I(panel;oracle)` ≈0.46 deficit on SWE-bench Lite form-only panel →
    sufficiency-refusal fires; read from the `oracle_sufficiency` metric.
 6. Anneal: `J` rises over a real corpus soak; `p99 ↓ ≥ 20%`; no recall regression;
