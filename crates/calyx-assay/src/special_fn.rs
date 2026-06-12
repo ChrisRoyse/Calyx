@@ -64,7 +64,9 @@ pub(crate) fn gammp(a: f64, x: f64) -> Result<f64> {
                 return Ok((1.0 - q).clamp(0.0, 1.0));
             }
         }
-        Err(domain("incomplete gamma continued fraction did not converge"))
+        Err(domain(
+            "incomplete gamma continued fraction did not converge",
+        ))
     }
 }
 
@@ -115,7 +117,12 @@ mod tests {
     fn ln_gamma_matches_known_values() {
         // Γ(5) = 24, Γ(1/2) = √π, Γ(1) = Γ(2) = 1.
         approx(ln_gamma(5.0), 24.0_f64.ln(), 1e-10, "lnΓ(5)");
-        approx(ln_gamma(0.5), std::f64::consts::PI.sqrt().ln(), 1e-10, "lnΓ(1/2)");
+        approx(
+            ln_gamma(0.5),
+            std::f64::consts::PI.sqrt().ln(),
+            1e-10,
+            "lnΓ(1/2)",
+        );
         approx(ln_gamma(1.0), 0.0, 1e-12, "lnΓ(1)");
         approx(ln_gamma(2.0), 0.0, 1e-12, "lnΓ(2)");
     }
@@ -124,7 +131,12 @@ mod tests {
     fn incomplete_gamma_matches_exponential_and_erlang() {
         // a = 1 is the exponential: Q(1, x) = e^{-x}, P(1, x) = 1 - e^{-x}.
         approx(gammq(1.0, 2.0).unwrap(), (-2.0_f64).exp(), 1e-12, "Q(1,2)");
-        approx(gammp(1.0, 1.0).unwrap(), 1.0 - (-1.0_f64).exp(), 1e-12, "P(1,1)");
+        approx(
+            gammp(1.0, 1.0).unwrap(),
+            1.0 - (-1.0_f64).exp(),
+            1e-12,
+            "P(1,1)",
+        );
         // a = 2 Erlang: P(2, 2) = 1 - 3 e^{-2} (continued-fraction branch).
         approx(
             gammp(2.0, 2.0).unwrap(),
