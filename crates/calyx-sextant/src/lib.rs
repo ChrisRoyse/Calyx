@@ -53,7 +53,7 @@ pub use query::{
     ScalarOp, ScalarPredicate,
 };
 pub use query_admission::{QueryAdmissionConfig, QueryAdmissionController, QueryAdmissionStats};
-pub use reranker::{RerankRequest, RerankerClient};
+pub use reranker::{RerankCandidateText, RerankRequest, RerankerClient};
 pub use search::SearchEngine;
 pub use slot_index_map::SlotIndexMap;
 pub use temporal::{
