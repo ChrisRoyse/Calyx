@@ -31,6 +31,7 @@ pub(crate) fn usage() -> &'static str {
        calyx ward tau --slot <n> --vault <dir>
        calyx merkle-root (--ledger <dir> | --vault <dir>) --range <a..b>
        calyx verify-chain (--ledger <dir> | --vault <dir>) --range <a..b>
+       calyx verify-restore --vault <dir> [--json]
        calyx scan --cf ledger --vault <dir>
        calyx get-provenance --vault <dir> --cx <cx-id>
        calyx get-answer-trace --vault <dir> --answer <answer-id-or-hex>
