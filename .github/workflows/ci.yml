@@ -1,0 +1,34 @@
+name: CI
+
+# Same bar as scripts/check.sh (the aiwonder per-merge gate), enforced on
+# every push and PR so unformatted / unwired / failing code cannot sit on
+# main unnoticed. aiwonder-only FSV suites are #[ignore]d and the cuda
+# feature is gated off by default, so the workspace is runner-safe.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all -- --check
+      - name: check (all targets)
+        run: cargo check --workspace --all-targets
+      - name: clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: test
+        run: cargo test --workspace
+      - name: orphaned .rs gate
+        run: bash scripts/orphan_rs.sh
+      - name: line-count gate
+        run: bash scripts/linecount.sh
