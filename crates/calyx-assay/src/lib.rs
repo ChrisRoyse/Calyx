@@ -10,6 +10,7 @@ pub mod gate;
 pub mod ksg;
 pub mod logistic;
 pub mod loom_adapter;
+pub mod mmd;
 pub mod n_eff;
 pub mod nmi;
 pub mod periodicity;
@@ -46,6 +47,10 @@ pub use ksg::{
 };
 pub use logistic::{LogisticProbeReport, logistic_probe_mi, logistic_probe_mi_with_anchor};
 pub use loom_adapter::AsterAssayMaterializationGate;
+pub use mmd::{
+    ChangePointReport, DEFAULT_MMD_ALPHA, DEFAULT_MMD_PERMUTATIONS, DEFAULT_MMD_SEED, MmdConfig,
+    MmdReport, gaussian_mmd, gaussian_mmd_with_config, mmd_change_point,
+};
 pub use n_eff::{NeffReport, stable_rank};
 pub use nmi::{NmiReport, partitioned_histogram_nmi};
 pub use periodicity::{
