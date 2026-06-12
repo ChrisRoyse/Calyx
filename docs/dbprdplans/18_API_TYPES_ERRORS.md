@@ -211,6 +211,11 @@ pub struct Hit {
 | `CALYX_DISK_PRESSURE` | hotpool near full | free/spill to archive; writes fail-closed |
 | `CALYX_QUANT_INTELLIGENCE_LOSS` | quant level would drop bits/cosine/FAR beyond bound | use a gentler level (A25) |
 | `CALYX_READER_LEASE_EXPIRED` | long reader aborted to release MVCC version | re-issue with bounded-staleness snapshot |
+| `CALYX_DATASET_NOT_FOUND` | dataset dir or MANIFEST row missing | acquire + register via scripts/acquire_datasets.sh |
+| `CALYX_DATASET_CHECKSUM_MISMATCH` | recomputed sha256 != recorded value | re-acquire at the pinned revision; never edit dataset bytes in place |
+| `CALYX_DATASET_ROWCOUNT_MISMATCH` | recomputed row count != recorded value | re-acquire at the pinned revision; check split/decoder drift |
+| `CALYX_DATASET_MANIFEST_INVALID` | MANIFEST.md or manifest.json missing/malformed/drifted | re-register via scripts/verify_dataset.sh register |
+| `CALYX_DATASET_SCHEMA_MISMATCH` | dataset columns/fields missing or malformed vs the pinned upstream contract | re-acquire at the pinned revision; check upstream schema drift |
 
 Every error is `{ code, message, remediation }` (A16/A17): structured, actionable, never a silent fallback.
 
