@@ -11,6 +11,7 @@ calyx-assay = { path = "../calyx-assay" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
+calyx-lodestar = { path = "../calyx-lodestar" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-ward = { path = "../calyx-ward" }
 serde.workspace = true

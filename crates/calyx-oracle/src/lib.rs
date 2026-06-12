@@ -6,6 +6,7 @@ mod honesty_gate;
 mod prd22;
 mod predict;
 mod self_consistency;
+mod super_intel;
 mod super_intel_types;
 mod time_prediction;
 mod types;
@@ -31,6 +32,13 @@ pub use predict::{Action, ORACLE_ACTION_METADATA_KEY, oracle_predict};
 pub use self_consistency::{
     MIN_FLAKINESS_PAIRS, MIN_VALIDITY_SAMPLES, ORACLE_DOMAIN_METADATA_KEY,
     ORACLE_FALLBACK_DOMAIN_METADATA_KEY, oracle_self_consistency,
+};
+pub use super_intel::{
+    HeldOutSplit, KERNEL_RECALL_RATIO, KernelRecallGate, KernelRecallSource,
+    ORACLE_CLEAN_THRESHOLD, OracleConsistencySource, ShortCircuit, TierMeasurementRequest,
+    measure_super_intelligence_tiers_1_to_3, measure_tier_kernel_exists, measure_tier_oracle_clean,
+    measure_tier_oracle_clean_with_source, measure_tier_panel_sufficient,
+    measure_tier_panel_sufficient_with_assay, measure_tiers_1_to_3,
 };
 pub use super_intel_types::{Cause, SuperIntelReport, Tier, TierResult};
 pub use time_prediction::{
