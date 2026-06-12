@@ -12,11 +12,13 @@ use crate::{
     HealthStorage, SignalSample, shape_key_hash,
 };
 
+use types::metrics_are_valid;
 pub use types::{
     DEFAULT_INDEX_RECALL_TARGET, DEFAULT_INDEX_VRAM_BUDGET_BYTES, IndexConfig,
     IndexPromotionRecord, IndexTuneDecision, IndexTuneSkip, MAX_INDEX_CANDIDATES,
-    MIN_BITS_PER_ANCHOR, candidate_configs, decode_index_config, encode_index_config,
-    index_slot_label, quant_win_check, slot_autotune_key, validate_index_config,
+    MIN_BITS_PER_ANCHOR, QuantPromotionEvidence, candidate_configs, decode_index_config,
+    encode_index_config, index_slot_label, quant_win_check, slot_autotune_key,
+    validate_index_config, validate_quant_promotion_evidence,
 };
 pub use writer::{
     IndexBanditPersistence, IndexPromotionWriter, NoopIndexBanditStore, NoopIndexPromotionWriter,
@@ -35,6 +37,7 @@ struct PromotionMetrics {
     recall_after: f64,
     bits_before: f64,
     bits_after: f64,
+    quant_evidence: Option<QuantPromotionEvidence>,
 }
 
 pub trait IndexSlotHealth {
@@ -186,13 +189,39 @@ where
         recall_k: f64,
         bits_per_anchor: f64,
     ) -> Result<IndexTuneDecision> {
+        self.on_search_for_arm_with_quant_evidence(
+            slot_id,
+            arm_idx,
+            p99_ns,
+            recall_k,
+            bits_per_anchor,
+            None,
+        )
+    }
+
+    pub fn on_search_for_arm_with_quant_evidence(
+        &mut self,
+        slot_id: SlotId,
+        arm_idx: usize,
+        p99_ns: u64,
+        recall_k: f64,
+        bits_per_anchor: f64,
+        quant_evidence: Option<QuantPromotionEvidence>,
+    ) -> Result<IndexTuneDecision> {
         if self.health.is_slot_parked(slot_id) {
             return self.parked_decision(slot_id);
         }
         self.ensure_bandit(slot_id)?;
         let prior_idx = self.bandits[&slot_id].incumbent_idx;
         let prior_config = self.config_for_arm(slot_id, prior_idx)?;
-        let won = self.arm_won(slot_id, arm_idx, p99_ns, recall_k, bits_per_anchor)?;
+        let won = self.arm_won(
+            slot_id,
+            arm_idx,
+            p99_ns,
+            recall_k,
+            bits_per_anchor,
+            quant_evidence.as_ref(),
+        )?;
         self.bandits
             .get_mut(&slot_id)
             .expect("bandit ensured")
@@ -220,6 +249,7 @@ where
                     .copied()
                     .unwrap_or(bits_per_anchor),
                 bits_after: bits_per_anchor,
+                quant_evidence,
             };
             self.record_incumbent_metrics(slot_id, p99_ns, recall_k, bits_per_anchor);
             Some(self.promote_with_metrics(slot_id, prior_config, new_config, metrics)?)
@@ -329,6 +359,7 @@ where
         p99_ns: u64,
         recall_k: f64,
         bits_per_anchor: f64,
+        quant_evidence: Option<&QuantPromotionEvidence>,
     ) -> Result<bool> {
         if !metrics_are_valid(recall_k, bits_per_anchor) {
             return Ok(false);
@@ -356,9 +387,18 @@ where
             .get(&slot_id)
             .copied()
             .unwrap_or(bits_per_anchor);
-        Ok(p99_ns < baseline_latency
-            && recall_k + RECALL_EPSILON >= baseline_recall
-            && quant_win_check(&candidate, &incumbent, baseline_bits, bits_per_anchor))
+        let latency_ok = p99_ns < baseline_latency;
+        let recall_ok = recall_k + RECALL_EPSILON >= baseline_recall;
+        let bits_ok = quant_win_check(&candidate, &incumbent, baseline_bits, bits_per_anchor);
+        if !(latency_ok && recall_ok && bits_ok) {
+            return Ok(false);
+        }
+        if candidate.quant_bits != incumbent.quant_bits {
+            validate_quant_promotion_evidence(quant_evidence.ok_or_else(|| {
+                invalid_config("quant promotion requires measured cosine/FAR evidence")
+            })?)?;
+        }
+        Ok(true)
     }
 
     fn promote_with_metrics(
@@ -386,6 +426,7 @@ where
             slot_key_hash: shape_key_hash(&index_slot_label(slot_id)),
             old_config_hash: *blake3::hash(&old_bytes).as_bytes(),
             new_config_hash: *blake3::hash(&new_bytes).as_bytes(),
+            quant_evidence: metrics.quant_evidence,
         };
         self.write_cache(&record)?;
         self.promotion_writer.write_autotune_promote(&record)?;
@@ -455,8 +496,4 @@ fn cache_write_fail(error: calyx_forge::ForgeError) -> CalyxError {
         message: format!("Index autotune cache write failed: {error}"),
         remediation: "repair the PH16 autotune cache path before persisting an Index promotion",
     }
-}
-
-fn metrics_are_valid(recall_k: f64, bits_per_anchor: f64) -> bool {
-    recall_k.is_finite() && bits_per_anchor.is_finite() && bits_per_anchor >= 0.0
 }

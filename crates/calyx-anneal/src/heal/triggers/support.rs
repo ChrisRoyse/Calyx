@@ -73,6 +73,7 @@ where
             description: format!("fault event {}", event.fault_kind.as_str()),
             fault: Some(details),
             proposal: None,
+            details: None,
             prev_hash: None,
         })
         .map(|_| ())

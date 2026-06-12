@@ -109,6 +109,7 @@ fn autotune_ledger_entry(event: &LoomPromotionRecord) -> AnnealLedgerEntry {
         description: promotion_description(event),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     }
 }

@@ -44,6 +44,7 @@ where
         description: format!("base shard restored shard_id={}", shard.shard_id),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     })
 }
@@ -68,6 +69,7 @@ where
         description: format!("base corrupt alert shard_id={}", shard.shard_id),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     })
 }

@@ -351,6 +351,7 @@ where
             ),
             fault: None,
             proposal: None,
+            details: None,
             prev_hash: None,
         })
     }

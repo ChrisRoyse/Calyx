@@ -244,6 +244,7 @@ fn ledger_entry(record: AdmissionRecord) -> Result<AnnealLedgerEntry> {
         description,
         fault: None,
         proposal: Some(record),
+        details: None,
         prev_hash: None,
     })
 }

@@ -115,6 +115,7 @@ fn autotune_ledger_entry(event: &ForgePromotionRecord) -> AnnealLedgerEntry {
         description: promotion_description(event),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     }
 }

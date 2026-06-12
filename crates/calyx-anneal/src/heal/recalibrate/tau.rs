@@ -196,6 +196,7 @@ where
         description: event.description,
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     })
 }

@@ -110,6 +110,7 @@ where
         description: format!("{} bits={bits:.6}", action_label(action)),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     })
 }

@@ -365,6 +365,7 @@ where
         description: goodhart_ledger_description(report),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     };
     ledger.write(entry)

@@ -213,6 +213,7 @@ fn event(change_id: ChangeId, action: AnnealLedgerAction, label: &str) -> Anneal
         description: format!("synthetic {label} for issue 398"),
         fault: None,
         proposal: None,
+        details: None,
         prev_hash: None,
     }
 }

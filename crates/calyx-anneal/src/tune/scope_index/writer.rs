@@ -1,5 +1,6 @@
 use calyx_core::{Clock, Result};
 use calyx_ledger::LedgerCfStore;
+use serde_json::{Value, json};
 
 use super::types::{IndexPromotionRecord, index_slot_label};
 use crate::{
@@ -78,12 +79,13 @@ where
     P: crate::BudgetProbe,
 {
     fn write_autotune_promote(&mut self, event: &IndexPromotionRecord) -> Result<()> {
-        self.write_outcome_event(
+        self.write_outcome_event_with_details(
             AnnealLedgerAction::AutotunePromote,
             event.change_id,
             index_slot_label(event.slot_id),
             event.new_config_hash,
             promotion_description(event),
+            quant_promotion_details(event),
         )
     }
 }
@@ -115,8 +117,28 @@ fn autotune_ledger_entry(event: &IndexPromotionRecord) -> AnnealLedgerEntry {
         description: promotion_description(event),
         fault: None,
         proposal: None,
+        details: quant_promotion_details(event),
         prev_hash: None,
     }
+}
+
+fn quant_promotion_details(event: &IndexPromotionRecord) -> Option<Value> {
+    let evidence = event.quant_evidence.as_ref()?;
+    Some(json!({
+        "tag": "quant_compression_promotion_v1",
+        "scope": "index",
+        "slot": event.slot_id.get(),
+        "slot_hash_bytes": event.slot_key_hash,
+        "level_before_bits": event.old_config.quant_bits,
+        "level_after_bits": event.new_config.quant_bits,
+        "bits_per_anchor_before": event.bits_before,
+        "bits_per_anchor_after": event.bits_after,
+        "cosine_error_before": evidence.cosine_error_before,
+        "cosine_error_after": evidence.cosine_error_after,
+        "max_cosine_error": evidence.max_cosine_error,
+        "guard_far_before": evidence.guard_far_before,
+        "guard_far_after": evidence.guard_far_after,
+    }))
 }
 
 fn promotion_description(event: &IndexPromotionRecord) -> String {

@@ -50,6 +50,7 @@ and logged to the Anneal Ledger.
 - Slot keys are stable labels: `index:slot_0000`, hashed with the existing `shape_key_hash`/`bandit_key` path so `anneal_bandit` readback can find the physical row.
 - PH16 cache rows use op `index`, shape `[slot_id]`, dtype `ann`, device `index:slot_####`; the config fields are duplicated into `BestConfig.extra` for human readback.
 - `quant_win_check` is the quant-safety gate. Latency and recall gates are enforced by `IndexScopeTuner::on_search_for_arm` because the required signature carries only config + bits inputs.
+- Quant-bit promotions that pass the win gate also require measured `QuantPromotionEvidence` and write structured Anneal Ledger `details` with before/after quant bits, bits-per-anchor, cosine error, guard FAR, and the slot hash as bytes. Missing or regressed evidence fails closed before cache, bandit, or Ledger mutation.
 
 ## Done when
 

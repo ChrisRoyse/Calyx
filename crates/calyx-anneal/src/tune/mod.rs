@@ -29,9 +29,10 @@ pub use scope_index::{
     DEFAULT_INDEX_VRAM_BUDGET_BYTES, IndexBanditPersistence, IndexConfig, IndexPromotionRecord,
     IndexPromotionWriter, IndexScopeTuner, IndexSlotHealth, IndexTuneDecision, IndexTuneSkip,
     MAX_INDEX_CANDIDATES, MIN_BITS_PER_ANCHOR, NoopIndexAssayMetrics, NoopIndexBanditStore,
-    NoopIndexPromotionWriter, NoopIndexSlotHealth, candidate_configs as index_candidate_configs,
-    decode_index_config, encode_index_config, index_slot_label, quant_win_check, slot_autotune_key,
-    validate_index_config,
+    NoopIndexPromotionWriter, NoopIndexSlotHealth, QuantPromotionEvidence,
+    candidate_configs as index_candidate_configs, decode_index_config, encode_index_config,
+    index_slot_label, quant_win_check, slot_autotune_key, validate_index_config,
+    validate_quant_promotion_evidence,
 };
 pub use scope_loom::{
     CALYX_LOOM_PLAN_WRITE_FAIL, CALYX_LOOM_SCOPE_INVALID_CONFIG, ConcatKey,
