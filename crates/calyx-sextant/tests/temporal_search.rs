@@ -162,6 +162,7 @@ fn timezone_offset_controls_periodic_scoring() {
         tz_offset_secs: -18_000,
         primary_slots_used: vec![CONTENT_SLOT],
         temporal_slots_excluded: Vec::new(),
+        window_recall: Default::default(),
     })
     .expect("local tz");
     let utc = temporal_search_from_primary(TemporalSearchInput {
@@ -174,6 +175,7 @@ fn timezone_offset_controls_periodic_scoring() {
         tz_offset_secs: 0,
         primary_slots_used: vec![CONTENT_SLOT],
         temporal_slots_excluded: Vec::new(),
+        window_recall: Default::default(),
     })
     .expect("utc");
 
@@ -230,6 +232,7 @@ proptest! {
             tz_offset_secs: 0,
             primary_slots_used: vec![CONTENT_SLOT],
             temporal_slots_excluded: vec![TEMPORAL_SLOT],
+            window_recall: Default::default(),
         }).expect("temporal from primary");
 
         prop_assert!(result.hits.iter().all(|hit| primary_ids.contains(&hit.cx_id)));

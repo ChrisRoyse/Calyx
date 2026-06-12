@@ -26,7 +26,7 @@ pub use error::{
     CALYX_SEXTANT_SLOT_ALREADY_REGISTERED, CALYX_SEXTANT_SLOT_INACTIVE, CALYX_SEXTANT_SLOT_MISSING,
     CALYX_SEXTANT_VECTOR_SHAPE, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_BOOST_CONFIG,
     CALYX_TEMPORAL_INVALID_PERIOD, CALYX_TEMPORAL_INVALID_WINDOW, CALYX_TEMPORAL_WEIGHT_SUM,
-    sextant_error,
+    CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED, sextant_error,
 };
 pub use fusion::{FusionContext, FusionStrategy, RrfProfile, WeightedProfile, weighted_profiles};
 pub use guarded::GuardedSearchReport;
@@ -52,15 +52,16 @@ pub use slot_index_map::SlotIndexMap;
 pub use temporal::{
     BoostConfig, CausalConfidence, CausalGateEvidence, DecayFunction,
     FixedClock as TemporalFixedClock, FusionWeights, MultiAnchorMode, PeriodicOptions,
-    RecurrenceBoostConfig, RecurrenceBoostEvidence, SequenceDirection, SequenceOptions,
+    RecurrenceBoostConfig, RecurrenceBoostEvidence, SequenceDirection, SequenceOptions, SlotLen,
     SystemClock as TemporalSystemClock, TemporalPolicy, TemporalScores, TemporalSearchInput,
-    TemporalSearchResult, TimeWindow, apply_causal_gate, apply_temporal_boost,
-    apply_temporal_boost_with_recurrence, causal_gate_mult, derive_causal_confidence,
-    filter_hits_by_window, frequency_kernel_bonus, fuse_temporal, recurrence_boost_evidence,
-    recurrence_boost_from_parts, recurrence_boost_score, score_e2_recency, score_e3_periodic,
-    score_e4_sequence, temporal_search, temporal_search_from_primary,
-    temporal_search_from_primary_with_recurrence, temporal_search_pipeline,
-    temporal_search_with_recurrence, validate_primary_temporal_weight,
+    TemporalSearchResult, TimeWindow, WindowRecallPolicy, WindowRecallReport, apply_causal_gate,
+    apply_temporal_boost, apply_temporal_boost_with_recurrence, causal_gate_mult,
+    count_hits_in_window, derive_causal_confidence, filter_hits_by_window, frequency_kernel_bonus,
+    fuse_temporal, recurrence_boost_evidence, recurrence_boost_from_parts, recurrence_boost_score,
+    score_e2_recency, score_e3_periodic, score_e4_sequence, temporal_search,
+    temporal_search_from_primary, temporal_search_from_primary_with_recurrence,
+    temporal_search_pipeline, temporal_search_with_recall, temporal_search_with_recurrence,
+    temporal_search_with_recurrence_and_recall, validate_primary_temporal_weight,
 };
 
 #[cfg(test)]

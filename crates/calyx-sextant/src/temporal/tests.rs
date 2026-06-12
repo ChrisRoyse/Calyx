@@ -186,6 +186,7 @@ fn fsv_ap60_weight_zero_in_retrieval() {
         tz_offset_secs: 0,
         primary_slots_used: vec![SlotId::new(8)],
         temporal_slots_excluded: vec![SlotId::new(20)],
+        window_recall: Default::default(),
     })
     .expect("zero temporal weight");
     let error = validate_primary_temporal_weight(0.25).expect_err("non-zero weight rejected");

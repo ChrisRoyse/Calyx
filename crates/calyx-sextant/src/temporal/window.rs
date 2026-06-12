@@ -127,11 +127,23 @@ pub fn filter_hits_by_window(hits: Vec<Hit>, window: &TimeWindow) -> Vec<Hit> {
         return hits;
     }
     hits.into_iter()
-        .filter(|hit| {
-            hit.event_time_secs
-                .is_some_and(|event_time_secs| window.contains(event_time_secs))
-        })
+        .filter(|hit| hit_matches_window(hit, window))
         .collect()
+}
+
+/// Non-consuming count with identical semantics to [`filter_hits_by_window`].
+pub fn count_hits_in_window(hits: &[Hit], window: &TimeWindow) -> usize {
+    if window.is_all() {
+        return hits.len();
+    }
+    hits.iter()
+        .filter(|hit| hit_matches_window(hit, window))
+        .count()
+}
+
+fn hit_matches_window(hit: &Hit, window: &TimeWindow) -> bool {
+    hit.event_time_secs
+        .is_some_and(|event_time_secs| window.contains(event_time_secs))
 }
 
 fn invalid_window(message: impl Into<String>) -> calyx_core::CalyxError {
