@@ -296,7 +296,7 @@ acquire_all() {
 # deterministic under the pinned pyarrow; this constant pins both the fixture
 # generator and the toolchain (a pyarrow drift fails loudly here, never
 # silently downstream).
-FIXTURE_SHA="@FIXTURE_SHA@"
+FIXTURE_SHA="66d4f653d0a47b52396f9b526ac633dcb2633cbd4993e5adbf0204c37247982c"
 
 self_test() {
   local tmp_root
