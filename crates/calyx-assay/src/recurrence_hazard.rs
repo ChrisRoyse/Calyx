@@ -281,9 +281,21 @@ pub fn recurrence_rate_cusum_with_config(
         max_c_neg = max_c_neg.max(c_neg);
         if change_point.is_none() {
             if c_pos > h {
-                change_point = Some(localize(event_times, pos_onset, i, RateShift::SlowDown, c_pos));
+                change_point = Some(localize(
+                    event_times,
+                    pos_onset,
+                    i,
+                    RateShift::SlowDown,
+                    c_pos,
+                ));
             } else if c_neg > h {
-                change_point = Some(localize(event_times, neg_onset, i, RateShift::SpeedUp, c_neg));
+                change_point = Some(localize(
+                    event_times,
+                    neg_onset,
+                    i,
+                    RateShift::SpeedUp,
+                    c_neg,
+                ));
             }
         }
     }

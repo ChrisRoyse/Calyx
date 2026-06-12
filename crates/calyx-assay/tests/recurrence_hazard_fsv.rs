@@ -46,7 +46,10 @@ fn regular_series_that_stopped_is_overdue_at_known_time() {
     assert_eq!(report.empirical_survival, 0.0);
     assert_eq!(report.expected_next, 2100.0);
     assert_eq!(report.overdue_threshold_secs, 100.0);
-    assert!(report.overdue, "350s after the last of a 100s cadence is overdue");
+    assert!(
+        report.overdue,
+        "350s after the last of a 100s cadence is overdue"
+    );
 
     // now = 2050 → elapsed 50 < 100 → not overdue.
     let fresh = inter_event_hazard(&times, last + 50.0).unwrap();
@@ -57,7 +60,9 @@ fn regular_series_that_stopped_is_overdue_at_known_time() {
 #[test]
 fn gamma_path_overdue_crosses_at_the_survival_threshold() {
     // Jittered ~100s cadence so CV>0 and the Gamma renewal branch runs.
-    let gaps = [90.0, 110.0, 95.0, 105.0, 100.0, 108.0, 92.0, 103.0, 97.0, 100.0];
+    let gaps = [
+        90.0, 110.0, 95.0, 105.0, 100.0, 108.0, 92.0, 103.0, 97.0, 100.0,
+    ];
     let mut times = vec![0.0];
     for g in gaps {
         times.push(times.last().unwrap() + g);
@@ -69,7 +74,10 @@ fn gamma_path_overdue_crosses_at_the_survival_threshold() {
     let probe = inter_event_hazard(&times, last + 1.0).unwrap();
     assert!(!probe.deterministic);
     let threshold = probe.overdue_threshold_secs;
-    assert!(threshold > 100.0, "threshold {threshold} should exceed the mean cadence");
+    assert!(
+        threshold > 100.0,
+        "threshold {threshold} should exceed the mean cadence"
+    );
 
     let before = inter_event_hazard(&times, last + threshold - 5.0).unwrap();
     let after = inter_event_hazard(&times, last + threshold + 5.0).unwrap();
@@ -91,12 +99,16 @@ fn cusum_localizes_a_planted_rate_shift_at_the_known_index() {
     for _ in 0..20 {
         times.push(times.last().unwrap() + 20.0);
     }
-    let report = recurrence_rate_cusum_with_config(&times, &CusumConfig::with_baseline(10)).unwrap();
+    let report =
+        recurrence_rate_cusum_with_config(&times, &CusumConfig::with_baseline(10)).unwrap();
 
     let cp = report.change_point.expect("planted shift must fire");
     assert_eq!(cp.gap_index, 20, "onset at the first shifted gap");
     assert_eq!(cp.occurrence_index, 20);
-    assert_eq!(cp.change_time, 3000.0, "absolute timestamp of the regime change");
+    assert_eq!(
+        cp.change_time, 3000.0,
+        "absolute timestamp of the regime change"
+    );
     assert_eq!(cp.direction, RateShift::SpeedUp, "gaps shrank → rate ↑");
     assert_eq!(report.baseline_mean_gap, 100.0);
 }
@@ -106,7 +118,10 @@ fn cusum_holds_steady_with_no_false_alarm() {
     // A perfectly steady 50s cadence must not fabricate a change-point.
     let times: Vec<f64> = (0..30).map(|k| 500.0 + k as f64 * 50.0).collect();
     let report = recurrence_rate_cusum(&times).unwrap();
-    assert!(report.change_point.is_none(), "steady rate has no change-point");
+    assert!(
+        report.change_point.is_none(),
+        "steady rate has no change-point"
+    );
     assert_eq!(report.baseline_mean_gap, 50.0);
 }
 
@@ -250,7 +265,10 @@ fn base_cx(cx_id: CxId, vault_id: VaultId) -> Constellation {
         scalars: BTreeMap::new(),
         metadata: BTreeMap::new(),
         anchors: Vec::new(),
-        provenance: LedgerRef { seq: 0, hash: [0; 32] },
+        provenance: LedgerRef {
+            seq: 0,
+            hash: [0; 32],
+        },
         flags: CxFlags {
             ungrounded: true,
             redacted_input: true,
@@ -264,7 +282,10 @@ fn vault_readback_overdue_fires_at_expected_time() {
     // 10 gaps of 100s from t=1000 → last occurrence at t=2000.
     let series = series_from_vault("overdue", &[100; 10], 1000);
     let report = inter_event_hazard_from_series(&series, EpochSecs(2350), 0.05).unwrap();
-    assert!(report.overdue, "the recurrence is 350s overdue against a 100s cadence");
+    assert!(
+        report.overdue,
+        "the recurrence is 350s overdue against a 100s cadence"
+    );
     assert_eq!(report.expected_next, 2100.0);
     assert_eq!(report.survival, 0.0);
 
@@ -280,7 +301,9 @@ fn vault_readback_cusum_finds_planted_change_point() {
     let series = series_from_vault("cusum", &gaps, 1000);
     let report =
         recurrence_rate_cusum_from_series(&series, &CusumConfig::with_baseline(10)).unwrap();
-    let cp = report.change_point.expect("planted shift fires on the read-back series");
+    let cp = report
+        .change_point
+        .expect("planted shift fires on the read-back series");
     assert_eq!(cp.occurrence_index, 20);
     assert_eq!(cp.change_time, 3000.0);
     assert_eq!(cp.direction, RateShift::SpeedUp);
@@ -298,7 +321,8 @@ fn recurrence_hazard_aiwonder_fsv() {
     // 1. Overdue hazard from a real vault read-back (the 2+2=4 case).
     let hazard_series = series_from_vault("fsv-overdue", &[100; 10], 1000);
     let overdue = inter_event_hazard_from_series(&hazard_series, EpochSecs(2350), 0.05).unwrap();
-    let not_overdue = inter_event_hazard_from_series(&hazard_series, EpochSecs(2050), 0.05).unwrap();
+    let not_overdue =
+        inter_event_hazard_from_series(&hazard_series, EpochSecs(2050), 0.05).unwrap();
     write_json(
         &root.join("issue585_hazard.json"),
         &json!({
