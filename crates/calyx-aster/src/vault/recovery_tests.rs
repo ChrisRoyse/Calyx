@@ -159,6 +159,55 @@ fn open_reports_torn_tail_through_recovery_report() {
     }
 }
 
+#[test]
+fn cold_open_fails_closed_on_unrecognized_sst_name() {
+    let dir = test_dir("unrecognized-sst-name");
+    let vault = AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect("open durable");
+    vault.put(sample_constellation()).expect("durable put");
+    vault.flush().expect("flush durable");
+    drop(vault);
+    fs::write(dir.join("cf/base/garbage.sst"), b"not an aster name").expect("plant stray sst");
+
+    let error = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect_err("cold open with unrecognized SST name");
+
+    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(error.message.contains("garbage.sst"), "{}", error.message);
+    cleanup(dir);
+}
+
+#[test]
+fn cold_open_fails_closed_on_renamed_durable_sst() {
+    let dir = test_dir("renamed-durable-sst");
+    let vault = AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect("open durable");
+    vault.put(sample_constellation()).expect("durable put");
+    vault.flush().expect("flush durable");
+    drop(vault);
+    let base_dir = dir.join("cf/base");
+    let durable_sst = fs::read_dir(&base_dir)
+        .expect("read base dir")
+        .map(|entry| entry.expect("entry").path())
+        .find(|path| {
+            path.extension().and_then(|value| value.to_str()) == Some("sst")
+                && path
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|stem| stem.contains('-'))
+        })
+        .expect("durable batch SST present");
+    // Simulate name corruption / partial rename of a real durable batch file.
+    fs::rename(&durable_sst, base_dir.join("0000007-x.sst")).expect("corrupt sst name");
+
+    let error = AsterVault::open(&dir, vault_id(), b"salt", VaultOptions::default())
+        .expect_err("cold open with corrupted SST name");
+
+    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(error.message.contains("0000007-x.sst"), "{}", error.message);
+    cleanup(dir);
+}
+
 fn sample_constellation() -> Constellation {
     let mut slots = BTreeMap::new();
     slots.insert(

@@ -197,7 +197,7 @@ fn tiered_writer_uses_archive_parent_for_cold_raw_sidecar() {
         .write_tiered_sst(
             ColumnFamily::slot_raw(SlotId::new(0)),
             7,
-            "raw.sst",
+            "00000000000000000001.sst",
             [(b"k".as_slice(), b"raw-f32".as_slice())],
         )
         .expect("write cold raw");

@@ -4,7 +4,8 @@ use crate::memtable::Memtable;
 use crate::resource::ResourceCounters;
 use crate::sst::level::SstLevel;
 use crate::sst::{SstEntry, SstSummary};
-use calyx_core::{CalyxError, Result, SlotId};
+use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name};
+use calyx_core::{CalyxError, Result};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -195,18 +196,30 @@ impl CfRouter {
                 if !path.is_dir() {
                     continue;
                 }
-                let Some(cf) = parse_cf_dir(&path) else {
-                    continue;
-                };
+                let name = path
+                    .file_name()
+                    .map(|value| value.to_string_lossy().to_string())
+                    .ok_or_else(|| {
+                        CalyxError::aster_corrupt_shard(format!(
+                            "CF directory entry {} has no name",
+                            path.display()
+                        ))
+                    })?;
+                let cf = parse_cf_dir_name(&name)?;
                 by_cf.entry(cf).or_default().extend(list_sst_files(&path)?);
             }
         }
         for (cf, mut files) in by_cf {
             files.sort();
             files.dedup();
+            // Only router-flushed SSTs participate in the next-file counter;
+            // durable batches and compaction outputs use disjoint name shapes.
             let next = files
                 .iter()
-                .filter_map(|file| file.file_stem()?.to_string_lossy().parse::<u64>().ok())
+                .filter_map(|file| match classify_sst(file) {
+                    Ok(Some(SstName::Router { seq })) => Some(seq),
+                    _ => None,
+                })
                 .max()
                 .unwrap_or(0)
                 + 1;
@@ -251,6 +264,9 @@ impl CfRouter {
     }
 }
 
+/// Lists SST files in a CF directory, failing closed on any `*.sst` file
+/// whose name matches no canonical writer shape (such files were previously
+/// loaded into levels while being invisible to the next-file counter).
 fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(dir)
@@ -259,59 +275,18 @@ fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>> {
         let path = entry
             .map_err(|error| CalyxError::disk_pressure(format!("read CF file: {error}")))?
             .path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
+        if classify_sst(&path)?.is_some() {
             files.push(path);
         }
     }
     Ok(files)
 }
 
-fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
-    let name = path.file_name()?.to_string_lossy();
-    match name.as_ref() {
-        "base" => Some(ColumnFamily::Base),
-        "xterm" => Some(ColumnFamily::XTerm),
-        "temporal_xterm" => Some(ColumnFamily::TemporalXTerm),
-        "scalars" => Some(ColumnFamily::Scalars),
-        "anchors" => Some(ColumnFamily::Anchors),
-        "assay" => Some(ColumnFamily::Assay),
-        "ledger" => Some(ColumnFamily::Ledger),
-        "recurrence" => Some(ColumnFamily::Recurrence),
-        "graph" => Some(ColumnFamily::Graph),
-        "online" => Some(ColumnFamily::Online),
-        "anneal_rollback" => Some(ColumnFamily::AnnealRollback),
-        "anneal_health" => Some(ColumnFamily::AnnealHealth),
-        "anneal_checksums" => Some(ColumnFamily::AnnealChecksums),
-        "anneal_mistakes" => Some(ColumnFamily::AnnealMistakes),
-        "anneal_replay" => Some(ColumnFamily::AnnealReplay),
-        "anneal_heads" => Some(ColumnFamily::AnnealHeads),
-        "anneal_bandit" => Some(ColumnFamily::AnnealBandit),
-        "anneal_soak" => Some(ColumnFamily::AnnealSoak),
-        "anneal_report" => Some(ColumnFamily::AnnealReport),
-        "anneal_growth" => Some(ColumnFamily::AnnealGrowth),
-        _ if name.starts_with("slot_") => parse_slot_name(&name),
-        _ => None,
-    }
-}
-
-fn parse_slot_name(name: &str) -> Option<ColumnFamily> {
-    let raw = name.ends_with(".raw");
-    let slot = name
-        .trim_start_matches("slot_")
-        .trim_end_matches(".raw")
-        .parse::<u16>()
-        .ok()?;
-    Some(if raw {
-        ColumnFamily::slot_raw(SlotId::new(slot))
-    } else {
-        ColumnFamily::slot(SlotId::new(slot))
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::cf::ColumnFamily;
+    use calyx_core::SlotId;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
@@ -376,6 +351,59 @@ mod tests {
         assert_eq!(
             reopened.get(ColumnFamily::Base, b"k").unwrap(),
             Some(b"value".to_vec())
+        );
+        cleanup(dir);
+    }
+
+    #[test]
+    fn reopen_fails_closed_on_unrecognized_sst_name() {
+        let dir = test_dir("unrecognized-sst");
+        let mut router = CfRouter::open(&dir, 64).unwrap();
+        router.put(ColumnFamily::Base, b"k", b"value").unwrap();
+        router.flush_cf(ColumnFamily::Base).unwrap();
+        drop(router);
+        std::fs::write(dir.join("cf/base/junk.sst"), b"foreign bytes").unwrap();
+
+        let error = CfRouter::open(&dir, 64).expect_err("unrecognized SST name");
+
+        assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+        assert!(error.message.contains("junk.sst"), "{}", error.message);
+        cleanup(dir);
+    }
+
+    #[test]
+    fn reopen_fails_closed_on_unknown_cf_directory() {
+        let dir = test_dir("unknown-cf-dir");
+        let mut router = CfRouter::open(&dir, 64).unwrap();
+        router.put(ColumnFamily::Base, b"k", b"value").unwrap();
+        router.flush_cf(ColumnFamily::Base).unwrap();
+        drop(router);
+        std::fs::create_dir_all(dir.join("cf/not_a_family")).unwrap();
+
+        let error = CfRouter::open(&dir, 64).expect_err("unknown CF directory");
+
+        assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+        assert!(error.message.contains("not_a_family"), "{}", error.message);
+        cleanup(dir);
+    }
+
+    #[test]
+    fn next_file_counter_resumes_past_existing_router_ssts() {
+        let dir = test_dir("next-file-resume");
+        let mut router = CfRouter::open(&dir, 64).unwrap();
+        router.put(ColumnFamily::Base, b"k1", b"v1").unwrap();
+        router.flush_cf(ColumnFamily::Base).unwrap();
+        router.put(ColumnFamily::Base, b"k2", b"v2").unwrap();
+        router.flush_cf(ColumnFamily::Base).unwrap();
+        drop(router);
+
+        let mut reopened = CfRouter::open(&dir, 64).unwrap();
+        reopened.put(ColumnFamily::Base, b"k3", b"v3").unwrap();
+        let summary = reopened.flush_cf(ColumnFamily::Base).unwrap();
+
+        assert_eq!(
+            summary.path.file_name().unwrap().to_str().unwrap(),
+            "00000000000000000003.sst"
         );
         cleanup(dir);
     }

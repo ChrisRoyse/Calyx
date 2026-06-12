@@ -4,6 +4,7 @@ use calyx_aster::compaction::{
     catalog_from_vault_dir,
 };
 use calyx_aster::sst::{SstReader, write_sst};
+use calyx_aster::storage_names::classify_sst;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::{
     DEFAULT_GROUP_COMMIT_WINDOW, GroupCommitBatcher, Wal, WalOptions, replay_dir,
@@ -101,7 +102,7 @@ pub fn tier(vault: &Path, cf_name: &str, output: &str) -> Result<(), String> {
         .write_tiered_sst(
             cf,
             panel_version,
-            "tiered.sst",
+            &format!("{:020}.sst", 1),
             [(b"k".as_slice(), b"tier".as_slice())],
         )
         .map_err(|error| error.to_string())?;
@@ -135,7 +136,10 @@ pub fn soak(vault: &Path, ops: usize, threads: usize) -> Result<(), String> {
     let workers = threads.max(1);
     let mut handles = Vec::with_capacity(workers);
     for worker in 0..workers {
-        let path = vault.join("cf/base").join(format!("soak-{worker:02}.sst"));
+        // Canonical router-class names so fail-closed scans accept the files.
+        let path = vault
+            .join("cf/base")
+            .join(format!("{:020}.sst", worker as u64 + 1));
         let entries = soak_entries(worker, workers, ops);
         handles.push(thread::spawn(move || write_entries(path, entries)));
     }
@@ -340,6 +344,9 @@ fn demo_constellation(vault: &AsterVault, vault_id: VaultId) -> Constellation {
     }
 }
 
+/// Lists SST files fail-closed: a `*.sst` file with a non-canonical name is a
+/// typed error (the engine's recovery/scan passes reject the same names, so
+/// readback and compaction must never silently work around them).
 fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     if !dir.exists() {
@@ -347,7 +354,10 @@ fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
     }
     for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
         let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
+        if classify_sst(&path)
+            .map_err(|error| error.to_string())?
+            .is_some()
+        {
             files.push(path);
         }
     }

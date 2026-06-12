@@ -1,6 +1,6 @@
 use super::{CompactionCatalog, SstShard, TieringPolicy};
-use crate::cf::ColumnFamily;
-use calyx_core::{CalyxError, Result, SlotId};
+use crate::storage_names::{classify_sst, parse_cf_dir_name};
+use calyx_core::{CalyxError, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -28,9 +28,16 @@ pub fn catalog_from_vault_tiers(
             if !path.is_dir() {
                 continue;
             }
-            let Some(cf) = parse_cf_dir(&path) else {
-                continue;
-            };
+            let name = path
+                .file_name()
+                .map(|value| value.to_string_lossy().to_string())
+                .ok_or_else(|| {
+                    CalyxError::aster_corrupt_shard(format!(
+                        "compaction CF directory entry {} has no name",
+                        path.display()
+                    ))
+                })?;
+            let cf = parse_cf_dir_name(&name)?;
             for sst in list_ssts(&path)? {
                 shards.push(SstShard::new(cf, sst, 0)?);
             }
@@ -41,6 +48,8 @@ pub fn catalog_from_vault_tiers(
     Ok(CompactionCatalog::new(shards))
 }
 
+/// Lists SST files for compaction, failing closed on any `*.sst` name that
+/// matches no canonical writer shape instead of compacting unknown bytes.
 fn list_ssts(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     for entry in fs::read_dir(dir)
@@ -51,54 +60,12 @@ fn list_ssts(dir: &Path) -> Result<Vec<PathBuf>> {
                 CalyxError::disk_pressure(format!("read compaction SST entry: {error}"))
             })?
             .path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
+        if classify_sst(&path)?.is_some() {
             files.push(path);
         }
     }
     files.sort();
     Ok(files)
-}
-
-fn parse_cf_dir(path: &Path) -> Option<ColumnFamily> {
-    let name = path.file_name()?.to_string_lossy();
-    match name.as_ref() {
-        "base" => Some(ColumnFamily::Base),
-        "xterm" => Some(ColumnFamily::XTerm),
-        "temporal_xterm" => Some(ColumnFamily::TemporalXTerm),
-        "scalars" => Some(ColumnFamily::Scalars),
-        "anchors" => Some(ColumnFamily::Anchors),
-        "assay" => Some(ColumnFamily::Assay),
-        "ledger" => Some(ColumnFamily::Ledger),
-        "recurrence" => Some(ColumnFamily::Recurrence),
-        "graph" => Some(ColumnFamily::Graph),
-        "online" => Some(ColumnFamily::Online),
-        "anneal_rollback" => Some(ColumnFamily::AnnealRollback),
-        "anneal_health" => Some(ColumnFamily::AnnealHealth),
-        "anneal_checksums" => Some(ColumnFamily::AnnealChecksums),
-        "anneal_mistakes" => Some(ColumnFamily::AnnealMistakes),
-        "anneal_replay" => Some(ColumnFamily::AnnealReplay),
-        "anneal_heads" => Some(ColumnFamily::AnnealHeads),
-        "anneal_bandit" => Some(ColumnFamily::AnnealBandit),
-        "anneal_soak" => Some(ColumnFamily::AnnealSoak),
-        "anneal_report" => Some(ColumnFamily::AnnealReport),
-        "anneal_growth" => Some(ColumnFamily::AnnealGrowth),
-        _ if name.starts_with("slot_") => parse_slot_name(&name),
-        _ => None,
-    }
-}
-
-fn parse_slot_name(name: &str) -> Option<ColumnFamily> {
-    let raw = name.ends_with(".raw");
-    let slot = name
-        .trim_start_matches("slot_")
-        .trim_end_matches(".raw")
-        .parse::<u16>()
-        .ok()?;
-    Some(if raw {
-        ColumnFamily::slot_raw(SlotId::new(slot))
-    } else {
-        ColumnFamily::slot(SlotId::new(slot))
-    })
 }
 
 fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<PathBuf> {

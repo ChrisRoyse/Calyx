@@ -4,6 +4,7 @@ use calyx_aster::compaction::{
     CompactionReport, CompactionResult, CompactionThrottle, SstShard, compact_shards,
 };
 use calyx_aster::manifest::ManifestStore;
+use calyx_aster::storage_names::{SstName, classify_sst};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -41,7 +42,8 @@ fn compaction_output_path(
     files: &[PathBuf],
 ) -> Result<PathBuf, String> {
     if !vault.join("CURRENT").exists() {
-        return Ok(cf_dir.join(format!("compact-{}.sst", unix_millis())));
+        // Canonical compacted-class name so fail-closed scans accept it.
+        return Ok(cf_dir.join(format!("compacted-{:020}.sst", unix_millis())));
     }
     let durable_seq = ManifestStore::open(vault)
         .load_current()
@@ -84,22 +86,14 @@ fn durable_compaction_output_path(cf_dir: &Path, durable_seq: u64) -> Result<Pat
 }
 
 fn durable_input_is_manifest_bounded(path: &Path, durable_seq: u64) -> bool {
-    if durable_sst_identity(path).is_some_and(|(seq, _)| seq <= durable_seq) {
-        return true;
+    match classify_sst(path) {
+        Ok(Some(
+            SstName::Router { seq }
+            | SstName::DurableBatch { seq, .. }
+            | SstName::Compacted { seq },
+        )) => seq <= durable_seq,
+        _ => false,
     }
-    path.file_stem()
-        .and_then(|value| value.to_str())
-        .and_then(|stem| stem.parse::<u64>().ok())
-        .is_some_and(|seq| seq <= durable_seq)
-}
-
-fn durable_sst_identity(path: &Path) -> Option<(u64, usize)> {
-    let stem = path.file_stem()?.to_str()?;
-    if let Some(seq) = stem.strip_prefix("compacted-") {
-        return Some((seq.parse().ok()?, 0));
-    }
-    let (seq, index) = stem.split_once('-')?;
-    Some((seq.parse().ok()?, index.parse().ok()?))
 }
 
 fn shards_for(cf: ColumnFamily, files: &[PathBuf]) -> Result<Vec<SstShard>, String> {

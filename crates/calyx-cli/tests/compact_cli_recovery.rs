@@ -164,18 +164,36 @@ fn compact_cli_rejects_unbounded_sst_names_in_durable_vault() {
         .expect("put hidden b");
     vault.flush().expect("flush hidden setup");
     drop(vault);
+    // Layer 1: a non-canonical SST name fails closed at listing time.
     let hidden = base_dir.join("compact-legacy.sst");
     write_sst(&hidden, [(b"hidden".as_slice(), b"row".as_slice())]).expect("write hidden SST");
     let before_files = list_names(&base_dir);
     let output = run_compact(&vault_dir, "base");
     let after_files = list_names(&base_dir);
+    fs::remove_file(&hidden).expect("remove non-canonical SST");
+
+    // Layer 2: a canonical durable name beyond CURRENT durable_seq is refused
+    // by the manifest bound check.
+    let durable_seq = manifest_readback(&vault_dir)["durable_seq"]
+        .as_u64()
+        .expect("durable seq");
+    let unbounded = base_dir.join(format!("{:020}-0000.sst", durable_seq + 1));
+    write_sst(&unbounded, [(b"future".as_slice(), b"row".as_slice())])
+        .expect("write unbounded SST");
+    let unbounded_before_files = list_names(&base_dir);
+    let unbounded_output = run_compact(&vault_dir, "base");
+    let unbounded_after_files = list_names(&base_dir);
     let readback = json!({
         "before_files": before_files,
         "after_files": after_files,
         "status_success": output.status.success(),
         "stderr": stderr(&output),
         "stdout": stdout(&output),
-        "hidden_sst_still_present": hidden.exists(),
+        "unbounded_before_files": unbounded_before_files,
+        "unbounded_after_files": unbounded_after_files,
+        "unbounded_status_success": unbounded_output.status.success(),
+        "unbounded_stderr": stderr(&unbounded_output),
+        "unbounded_sst_still_present": unbounded.exists(),
     });
     write_json(
         &root.join("cli-compact-hidden-reject-readback.json"),
@@ -184,9 +202,13 @@ fn compact_cli_rejects_unbounded_sst_names_in_durable_vault() {
     write_blake3_sums(&root);
 
     assert!(!output.status.success());
-    assert!(stderr(&output).contains("not bounded by CURRENT durable_seq"));
-    assert!(hidden.exists());
+    assert!(stderr(&output).contains("CALYX_ASTER_CORRUPT_SHARD"));
+    assert!(stderr(&output).contains("compact-legacy.sst"));
     assert_eq!(before_files, after_files);
+    assert!(!unbounded_output.status.success());
+    assert!(stderr(&unbounded_output).contains("not bounded by CURRENT durable_seq"));
+    assert!(unbounded.exists());
+    assert_eq!(unbounded_before_files, unbounded_after_files);
 
     println!("cli_compact_hidden_reject_fsv_root={}", root.display());
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
