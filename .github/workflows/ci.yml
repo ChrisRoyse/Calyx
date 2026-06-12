@@ -20,14 +20,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
       - name: rustfmt
         run: cargo fmt --all -- --check
       - name: check (all targets)
         run: cargo check --workspace --all-targets
       - name: clippy (deny warnings)
         run: cargo clippy --workspace --all-targets -- -D warnings
-      - name: test
-        run: cargo test --workspace
+      - name: test (nextest, parallel)
+        run: cargo nextest run --workspace
+      - name: doctests
+        run: cargo test --workspace --doc
       - name: orphaned .rs gate
         run: bash scripts/orphan_rs.sh
       - name: line-count gate

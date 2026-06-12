@@ -1,0 +1,22 @@
+# cargo-nextest configuration — parallel test execution for the whole workspace.
+# nextest runs every test across every binary in ONE pool sized to the machine,
+# unlike `cargo test` which runs test binaries one after another. See
+# docs/implementation/02_BUILD_PERFORMANCE.md.
+
+[profile.default]
+# Saturate every logical CPU. This is nextest's default; set explicitly so the
+# intent (use the whole box, not one core) is visible and stable.
+test-threads = "num-cpus"
+
+# Surface every failure in a single gate run instead of stopping at the first —
+# faster signal when several tests break together.
+fail-fast = false
+
+# No automatic retries: a failing or flaky test must fail loudly, never be
+# masked by a lucky re-run. Flakiness is a bug to fix, not to paper over.
+retries = 0
+
+# Flag slow tests at 120s; only kill one after 10 such periods (~20 min) so a
+# genuinely hung test can never block the gate forever, while legitimately long
+# FSV/dataset tests are never falsely terminated.
+slow-timeout = { period = "120s", terminate-after = 10 }
