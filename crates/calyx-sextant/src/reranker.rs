@@ -79,8 +79,22 @@ impl RerankerClient {
             .ok_or_else(|| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "no reranker addr"))?;
         let mut stream = TcpStream::connect_timeout(&addr, self.timeout)
             .map_err(|_| sextant_error(CALYX_SEXTANT_RERANKER_TIMEOUT, "connect timeout"))?;
-        stream.set_read_timeout(Some(self.timeout)).ok();
-        stream.set_write_timeout(Some(self.timeout)).ok();
+        stream
+            .set_read_timeout(Some(self.timeout))
+            .map_err(|error| {
+                sextant_error(
+                    CALYX_SEXTANT_RERANKER_TIMEOUT,
+                    format!("set reranker read timeout failed: {error}"),
+                )
+            })?;
+        stream
+            .set_write_timeout(Some(self.timeout))
+            .map_err(|error| {
+                sextant_error(
+                    CALYX_SEXTANT_RERANKER_TIMEOUT,
+                    format!("set reranker write timeout failed: {error}"),
+                )
+            })?;
         let texts = request
             .candidates
             .iter()
@@ -228,5 +242,33 @@ mod tests {
 
         assert_eq!(err.code, CALYX_SEXTANT_RERANKER_TIMEOUT);
         assert!(err.message.contains("503"));
+    }
+
+    #[test]
+    fn read_timeout_fires_when_real_server_stalls() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("local addr");
+        let server = std::thread::spawn(move || {
+            // Accept the connection, read the request, then stall without
+            // ever replying so the client's read timeout must fire.
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut buf = [0_u8; 1024];
+            let _ = stream.read(&mut buf);
+            std::thread::sleep(Duration::from_millis(1500));
+        });
+
+        let client = RerankerClient::new(format!("http://{addr}"), Duration::from_millis(200));
+        let request = RerankRequest::new("query", vec!["candidate".to_string()]);
+        let started = std::time::Instant::now();
+        let err = client.rerank(&request).unwrap_err();
+
+        assert_eq!(err.code, CALYX_SEXTANT_RERANKER_TIMEOUT);
+        assert!(err.message.contains("read timeout"), "{}", err.message);
+        assert!(
+            started.elapsed() < Duration::from_millis(1400),
+            "read returned only after the server thread exited, so the \
+             configured timeout did not fire"
+        );
+        server.join().expect("server thread");
     }
 }

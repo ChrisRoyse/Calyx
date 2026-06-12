@@ -219,6 +219,40 @@ fn audit_reports_anchor_conflict_blocks() {
 }
 
 #[test]
+fn audit_and_undo_reject_dedup_undo_entry_missing_restored() {
+    let root = test_root("dedup-audit-missing-restored");
+    let vault = durable_vault(&root);
+    let first = ingest_at(
+        &vault,
+        &input("missing-restored", [1.0, 0.0], [1.0, 0.0]),
+        EpochSecs(100),
+        None,
+    )
+    .expect("ingest");
+    let id = new_id(first);
+    let token = dedup_audit(&vault, id).expect("audit").reversal_token;
+    // A foreign/older writer records a DedupUndo entry without the mandatory
+    // restored list, through the real commit path so the chain stays intact.
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "dedup_result": "DedupUndo",
+        "reversal": token,
+    }))
+    .expect("encode payload");
+    vault
+        .commit_dedup_undo(Vec::new(), Vec::new(), Vec::new(), id, payload)
+        .expect("commit undo entry without restored");
+
+    let audit_error = dedup_audit(&vault, id).expect_err("audit fails loud");
+    let undo_error = dedup_undo(&vault, &token).expect_err("undo fails loud");
+
+    assert_eq!(audit_error.code, "CALYX_LEDGER_CORRUPT");
+    assert_eq!(undo_error.code, "CALYX_LEDGER_CORRUPT");
+    assert!(audit_error.message.contains("missing restored"));
+    assert!(undo_error.message.contains("missing restored"));
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn audit_rejects_broken_ledger_chain() {
     let mut rows = ledger_rows_for_test(2);
     rows[1].1[8] ^= 1;
