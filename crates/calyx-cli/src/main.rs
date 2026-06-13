@@ -30,6 +30,8 @@ mod fsv;
 mod kernel_health_readback;
 mod leapable;
 mod ledger_store;
+mod lodestar_commands;
+mod lodestar_kernel_validation;
 #[cfg(test)]
 mod main_tests;
 mod manifest_readback;
@@ -167,6 +169,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
             sextant_recall_validation::run(rest)
         }
         [command, topic, rest @ ..] if command == "media" => media_commands::run(topic, rest),
+        [command, topic, rest @ ..] if command == "lodestar" => lodestar_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
             anneal_ledger_readback::run(rest)
         }
