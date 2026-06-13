@@ -50,6 +50,27 @@ impl CudaContext {
         self.free_mem_mib_at_init
     }
 
+    /// Live free device VRAM in bytes via `cudaMemGetInfo` (in-process — never
+    /// `nvidia-smi`). The returned value reflects *current* free memory and
+    /// therefore accounts for every other resident process on the GPU (the TEI
+    /// containers, dcgm-exporter). This is the truth source the VRAM budgeter
+    /// consults before each large dispatch; it never assumes a fixed 32 GiB.
+    ///
+    /// Fail-loud: a driver error surfaces as
+    /// [`ForgeError::DeviceUnavailable`] (`CALYX_FORGE_DEVICE_UNAVAILABLE`) —
+    /// there is no zero-fill fallback, so callers can treat the unknown state
+    /// as over-budget.
+    pub fn free_device_vram_bytes(&self) -> Result<usize> {
+        let (free_bytes, _total_bytes) = self.inner.mem_get_info().map_err(|err| {
+            ForgeError::DeviceUnavailable {
+                device: device_label(self.device_idx),
+                detail: format!("CUDA cudaMemGetInfo (live free-VRAM query) failed: {err}"),
+                remediation: CUDA_REMEDIATION.to_string(),
+            }
+        })?;
+        Ok(free_bytes)
+    }
+
     pub(crate) fn distance_module_cache(&self) -> &OnceLock<Arc<CudaModule>> {
         &self.distance_module
     }
