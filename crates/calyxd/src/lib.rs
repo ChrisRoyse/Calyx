@@ -3,7 +3,9 @@
 //! The daemon binary (`src/main.rs`) compiles its modules privately; this
 //! library exposes only what external consumers need: the stable
 //! `CALYX_DAEMON_*` error taxonomy and the PH67 `verify-restore` byte-level
-//! verification tool reused by `calyx-cli`.
+//! verification tool reused by `calyx-cli`, and the authoritative
+//! [`config::CalyxConfig`] runtime configuration.
 
+pub mod config;
 pub mod error;
 pub mod verify;

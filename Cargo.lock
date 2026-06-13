@@ -527,6 +527,7 @@ dependencies = [
  "prometheus",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
