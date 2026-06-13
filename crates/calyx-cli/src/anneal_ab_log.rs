@@ -4,6 +4,7 @@ use calyx_anneal::{AnnealLedgerAction, decode_anneal_ledger_payload};
 use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use serde_json::json;
 
+use crate::cf_read::hex_bytes as hex;
 use crate::ledger_store::AsterLedgerCfStore;
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
@@ -90,21 +91,4 @@ fn read_ab_entries(vault: &Path, last: usize) -> Result<Vec<serde_json::Value>, 
         entries.drain(0..entries.len() - last);
     }
     Ok(entries)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
 }

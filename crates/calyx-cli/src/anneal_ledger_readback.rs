@@ -4,7 +4,7 @@ use calyx_anneal::{AnnealLedgerAction, decode_anneal_ledger_payload};
 use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use serde_json::json;
 
-use crate::{fsv::hex_bytes, ledger_store::AsterLedgerCfStore};
+use crate::{cf_read::hex_bytes, ledger_store::AsterLedgerCfStore};
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let request = Request::parse(args)?;

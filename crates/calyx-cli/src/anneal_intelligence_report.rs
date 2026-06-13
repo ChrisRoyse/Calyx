@@ -15,6 +15,8 @@ use calyx_core::{Clock, FixedClock, SystemClock, VaultId};
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::cf_read::hex_bytes;
+
 const REPORT_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const REPORT_VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
 
@@ -345,12 +347,4 @@ fn unavailable_j_value(weights: JWeights, goodhart_penalty: f64) -> JValue {
         provisional_excluded: 0,
         weights,
     }
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
 }

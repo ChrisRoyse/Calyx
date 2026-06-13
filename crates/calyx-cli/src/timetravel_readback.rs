@@ -14,18 +14,16 @@
 //! `CalyxError` code (e.g. `CALYX_TIMETRAVEL_NO_DATA` when `T` precedes the
 //! first committed write) so a broken vault is never masked by an empty result.
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
-use calyx_aster::sst::SstReader;
 use calyx_aster::timetravel::read_all;
-use calyx_aster::vault::encode::{decode_constellation_base, decode_write_batch};
+use calyx_aster::vault::encode::decode_constellation_base;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_aster::wal::replay_dir;
-use calyx_core::{Clock, VaultId};
+use calyx_core::Clock;
 use serde_json::json;
+
+use crate::cf_read::vault_id_from_base;
 
 /// `readback time-index --vault <PATH>`: print every `time_index` entry in
 /// `(millis, seqno)` order.
@@ -102,71 +100,4 @@ fn open_vault(vault: &Path) -> Result<AsterVault<impl Clock>, String> {
         VaultOptions::default(),
     )
     .map_err(|error| error.to_string())
-}
-
-/// Infers the `VaultId` from the first committed Base-CF constellation. The id
-/// is a keyspace prefix, so opening with the wrong id would silently read an
-/// empty vault — inferring it from the data on disk avoids that.
-fn vault_id_from_base(vault: &Path) -> Result<VaultId, String> {
-    latest_cf_rows(vault, ColumnFamily::Base)?
-        .into_values()
-        .next()
-        .map(|bytes| {
-            decode_constellation_base(&bytes)
-                .map(|cx| cx.vault_id)
-                .map_err(|error| error.to_string())
-        })
-        .transpose()?
-        .ok_or_else(|| "cannot infer vault id: base CF has no rows".to_string())
-}
-
-/// Merges every on-disk SST row for `cf` with the rows still in the WAL, latest
-/// write winning — the raw read used only to bootstrap the vault id before the
-/// vault is open.
-fn latest_cf_rows(vault: &Path, cf: ColumnFamily) -> Result<BTreeMap<Vec<u8>, Vec<u8>>, String> {
-    let mut rows = BTreeMap::new();
-    for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
-            rows.insert(row.key, row.value);
-        }
-    }
-    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
-    for record in replay.records {
-        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
-            if row.cf == cf {
-                rows.insert(row.key, row.value);
-            }
-        }
-    }
-    Ok(rows)
-}
-
-/// Lists `*.sst` files in `dir` in commit order (compacted files last per seq).
-fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    if !dir.exists() {
-        return Ok(files);
-    }
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
-            files.push(path);
-        }
-    }
-    files.sort_by(|left, right| sst_order(left).cmp(&sst_order(right)).then(left.cmp(right)));
-    Ok(files)
-}
-
-fn sst_order(path: &Path) -> (u64, usize) {
-    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
-        return (0, 0);
-    };
-    if let Some(seq) = stem.strip_prefix("compacted-") {
-        return (seq.parse().unwrap_or(0), usize::MAX);
-    }
-    let Some((seq, index)) = stem.split_once('-') else {
-        return (0, 0);
-    };
-    (seq.parse().unwrap_or(0), index.parse().unwrap_or(0))
 }

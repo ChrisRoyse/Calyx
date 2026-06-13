@@ -11,6 +11,7 @@ use calyx_core::SlotId;
 use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use serde_json::{Value, json};
 
+use crate::cf_read::{hex_bytes as hex, list_sst_files};
 use crate::ledger_store::AsterLedgerCfStore;
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
@@ -287,36 +288,4 @@ fn read_bandit_status(vault: &Path, shape_key: &str) -> Result<Value, String> {
         "physical_row_count": physical_rows.len(),
         "physical_rows": physical_rows,
     }))
-}
-
-fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    if !dir.exists() {
-        return Ok(files);
-    }
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
-            files.push(path);
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
 }

@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_anneal::{AnnealLedgerAction, decode_anneal_ledger_payload, decode_health_value};
 use calyx_aster::cf::ColumnFamily;
@@ -9,6 +8,7 @@ use calyx_aster::vault::encode::decode_write_batch;
 use calyx_aster::wal::replay_dir;
 use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 
+use crate::cf_read::list_sst_files;
 use crate::ledger_store::AsterLedgerCfStore;
 
 pub(crate) fn status_health(vault: &Path) -> Result<(), String> {
@@ -109,19 +109,4 @@ fn read_wal_rows(vault: &Path, rows: &mut BTreeMap<Vec<u8>, Vec<u8>>) -> Result<
         }
     }
     Ok(())
-}
-
-fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    if !dir.exists() {
-        return Ok(files);
-    }
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
-            files.push(path);
-        }
-    }
-    files.sort();
-    Ok(files)
 }

@@ -19,6 +19,8 @@ use calyx_oracle::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::cf_read::hex_bytes;
+
 const USAGE: &str = "usage: calyx readback reverse_query --vault <dir> --domain <domain> --answer <text> --fixture <json> --vault-id <id> --salt <s>";
 
 pub(crate) fn readback_reverse_query(args: &[String]) -> Result<(), String> {
@@ -384,10 +386,6 @@ fn cx_id(domain: &str, action: &str, series_key: &str) -> CxId {
         action.as_bytes(),
         series_key.as_bytes(),
     ]))
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn default_clock_ts() -> u64 {

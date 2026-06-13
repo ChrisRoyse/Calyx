@@ -3,6 +3,7 @@ use std::path::Path;
 use calyx_ledger::{LedgerCfStore, decode};
 use serde_json::json;
 
+use crate::cf_read::hex_bytes;
 use crate::ledger_store::AsterLedgerCfStore;
 
 pub fn scan_ledger_vault(vault: &Path) -> Result<(), String> {
@@ -24,21 +25,4 @@ pub fn scan_ledger_vault(vault: &Path) -> Result<(), String> {
         );
     }
     Ok(())
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
 }

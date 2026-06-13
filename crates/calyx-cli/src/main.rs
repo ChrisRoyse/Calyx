@@ -21,6 +21,7 @@ mod anneal_soak;
 mod anneal_soak_report;
 mod anneal_status;
 mod budget_readback;
+mod cf_read;
 mod cli_support;
 mod crash;
 mod dedup_audit_readback;

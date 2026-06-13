@@ -4,6 +4,7 @@ use std::path::Path;
 
 use calyx_ledger::{DirectoryLedgerStore, merkle_root};
 
+use crate::cf_read::hex_bytes;
 use crate::ledger_store::AsterLedgerCfStore;
 
 pub fn print_root(ledger_dir: &Path, range: Range<u64>) -> Result<(), String> {
@@ -40,23 +41,6 @@ pub fn parse_range(value: &str) -> Result<Range<u64>, String> {
         return Err(format!("range start {start} > end {end}"));
     }
     Ok(start..end)
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
 }
 
 #[cfg(test)]

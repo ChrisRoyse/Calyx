@@ -1,4 +1,4 @@
-use super::{list_sst_files, parse_cf, unix_millis};
+use super::{parse_cf, unix_millis};
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::compaction::{
     CompactionReport, CompactionResult, CompactionThrottle, SstShard, compact_shards,
@@ -7,6 +7,8 @@ use calyx_aster::manifest::ManifestStore;
 use calyx_aster::storage_names::{SstName, classify_sst};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::cf_read::list_sst_files;
 
 const DURABLE_COMPACT_FIRST_INDEX: u16 = 9_000;
 const DURABLE_COMPACT_LAST_INDEX: u16 = 9_999;
