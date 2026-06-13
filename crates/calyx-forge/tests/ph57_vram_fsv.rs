@@ -97,12 +97,19 @@ fn fsv_edge_cases_before_after() {
     match b.reserve(1) {
         Ok(_) => panic!("over-cap reservation must fail"),
         Err(e) => {
-            println!("    trigger: reserve(1) at cap → error {} (expected {CODE})", e.code());
+            println!(
+                "    trigger: reserve(1) at cap → error {} (expected {CODE})",
+                e.code()
+            );
             assert_eq!(e.code(), CODE);
         }
     }
     show("AFTER over-cap attempt", &b);
-    assert_eq!(b.allocated_bytes(), GIB, "rejected reservation must not perturb SoT");
+    assert_eq!(
+        b.allocated_bytes(),
+        GIB,
+        "rejected reservation must not perturb SoT"
+    );
 
     // --- Edge B: empty input — zero-byte reservation, SoT unchanged ---
     println!("\n  -- Edge B: empty input (0-byte reservation) --");
@@ -116,9 +123,12 @@ fn fsv_edge_cases_before_after() {
     // --- Edge C: device-headroom limit dominates a huge soft cap ---
     println!("\n  -- Edge C: device free-VRAM headroom limit (max-limit case) --");
     // soft_cap 32 GiB, but only 512 MiB + 1 KiB free → usable == 1 KiB.
-    let b3 = VramBudgeter::with_soft_cap(32 * GIB, StaticProbe {
-        free: RESERVED_HEADROOM_BYTES + 1024,
-    });
+    let b3 = VramBudgeter::with_soft_cap(
+        32 * GIB,
+        StaticProbe {
+            free: RESERVED_HEADROOM_BYTES + 1024,
+        },
+    );
     println!(
         "    free={} headroom={} → usable=1024 bytes",
         RESERVED_HEADROOM_BYTES + 1024,
@@ -129,7 +139,10 @@ fn fsv_edge_cases_before_after() {
     match b3.reserve(1025) {
         Ok(_) => panic!("over-headroom reservation must fail"),
         Err(e) => {
-            println!("    trigger: reserve(1025) > usable(1024) → {} (expected {CODE})", e.code());
+            println!(
+                "    trigger: reserve(1025) > usable(1024) → {} (expected {CODE})",
+                e.code()
+            );
             assert_eq!(e.code(), CODE);
         }
     }

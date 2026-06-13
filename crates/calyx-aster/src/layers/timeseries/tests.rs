@@ -65,7 +65,12 @@ fn points_round_trip_in_time_order_with_correct_rollup() {
 
     // A different series is fully isolated.
     assert!(layer.ts_range(&col, 8, 0, 400).unwrap().is_empty());
-    assert!(layer.ts_rollup(&col, 8, RollupWindow::OneHour, 0).unwrap().is_none());
+    assert!(
+        layer
+            .ts_rollup(&col, 8, RollupWindow::OneHour, 0)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -81,13 +86,25 @@ fn rollups_bucket_by_window_start() {
     layer.ts_write(&col, 1, t0, 10.0).unwrap();
     layer.ts_write(&col, 1, t1, 20.0).unwrap();
 
-    let h0 = layer.ts_rollup(&col, 1, RollupWindow::OneHour, t0).unwrap().unwrap();
-    let h1 = layer.ts_rollup(&col, 1, RollupWindow::OneHour, t1).unwrap().unwrap();
+    let h0 = layer
+        .ts_rollup(&col, 1, RollupWindow::OneHour, t0)
+        .unwrap()
+        .unwrap();
+    let h1 = layer
+        .ts_rollup(&col, 1, RollupWindow::OneHour, t1)
+        .unwrap()
+        .unwrap();
     assert_eq!((h0.count, h0.sum), (1, 10.0));
     assert_eq!((h1.count, h1.sum), (1, 20.0));
 
-    let day = layer.ts_rollup(&col, 1, RollupWindow::OneDay, t0).unwrap().unwrap();
-    assert_eq!((day.count, day.sum, day.min, day.max), (2, 30.0, 10.0, 20.0));
+    let day = layer
+        .ts_rollup(&col, 1, RollupWindow::OneDay, t0)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (day.count, day.sum, day.min, day.max),
+        (2, 30.0, 10.0, 20.0)
+    );
 }
 
 #[test]
@@ -120,7 +137,12 @@ fn edge_cases_fail_closed_with_exact_codes() {
     assert!(layer.ts_range(&col, 1, 900, 100).unwrap().is_empty());
 
     // (3) rollup before any write to a series returns None.
-    assert!(layer.ts_rollup(&col, 99, RollupWindow::OneMinute, 0).unwrap().is_none());
+    assert!(
+        layer
+            .ts_rollup(&col, 99, RollupWindow::OneMinute, 0)
+            .unwrap()
+            .is_none()
+    );
 
     // (4) non-finite value rejected loudly (protects rollups from NaN).
     assert_eq!(
@@ -128,7 +150,10 @@ fn edge_cases_fail_closed_with_exact_codes() {
         CALYX_INVALID_ARGUMENT
     );
     assert_eq!(
-        layer.ts_write(&col, 1, 700, f64::INFINITY).unwrap_err().code,
+        layer
+            .ts_write(&col, 1, 700, f64::INFINITY)
+            .unwrap_err()
+            .code,
         CALYX_INVALID_ARGUMENT
     );
 
@@ -142,7 +167,11 @@ fn edge_cases_fail_closed_with_exact_codes() {
 
     // (6) corrupt point value bytes fail closed.
     vault
-        .write_cf(ColumnFamily::TimeSeries, point_key(&col, 1, 800), vec![0, 0, 0])
+        .write_cf(
+            ColumnFamily::TimeSeries,
+            point_key(&col, 1, 800),
+            vec![0, 0, 0],
+        )
         .unwrap();
     assert_eq!(
         layer.ts_range(&col, 1, 0, 1000).unwrap_err().code,
@@ -224,7 +253,10 @@ fn durable_ts_fsv_writes_readback_artifacts() {
     assert!((rollup.sum - 0.97).abs() < 1e-9, "sum was {}", rollup.sum);
 
     let point_files = physical_files(&dir.join("cf").join("timeseries"));
-    assert!(!point_files.is_empty(), "cf/timeseries must hold on-disk shards");
+    assert!(
+        !point_files.is_empty(),
+        "cf/timeseries must hold on-disk shards"
+    );
 
     let pk = point_key(&col, 1, 1_700_000_100);
     let readback = serde_json::json!({

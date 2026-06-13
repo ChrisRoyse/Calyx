@@ -14,9 +14,7 @@
 use calyx_core::{CalyxError, Clock, Result, Seq};
 
 use crate::cf::{ColumnFamily, KeyRange};
-use crate::collection::{
-    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, RetentionPolicy,
-};
+use crate::collection::{CALYX_INVALID_ARGUMENT, Collection, CollectionMode, RetentionPolicy};
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 
@@ -97,7 +95,11 @@ impl<'a, C: Clock> TimeSeriesLayer<'a, C> {
         let snapshot = self.vault.latest_seq();
         let point_key = point_key(col, series, ts);
         let mut rows = Vec::with_capacity(1 + RollupWindow::ALL.len());
-        rows.push((ColumnFamily::TimeSeries, point_key.clone(), encode_point(val)));
+        rows.push((
+            ColumnFamily::TimeSeries,
+            point_key.clone(),
+            encode_point(val),
+        ));
         for window in RollupWindow::ALL {
             let key = rollup_key(col, series, window, window.window_start(ts));
             let current = self
@@ -203,7 +205,12 @@ pub fn point_key(col: &Collection, series: u64, ts: u64) -> Vec<u8> {
 }
 
 /// `0x04 | 0x01 | cid | series | window_tag | window_start`.
-pub fn rollup_key(col: &Collection, series: u64, window: RollupWindow, window_start: u64) -> Vec<u8> {
+pub fn rollup_key(
+    col: &Collection,
+    series: u64,
+    window: RollupWindow,
+    window_start: u64,
+) -> Vec<u8> {
     let mut key = Vec::with_capacity(2 + 8 + 8 + 1 + 8);
     key.push(DISC_TS);
     key.push(KIND_ROLLUP);
