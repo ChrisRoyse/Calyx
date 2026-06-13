@@ -12,6 +12,7 @@ mod error;
 mod metrics;
 mod server;
 mod verify_loop;
+mod vram;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -34,7 +35,8 @@ const USAGE: &str = "usage: calyxd (--vault <dir> | --ledger <dir>)... \
   --interval-secs <n>  seconds between verify cycles (default 60, min 1)
   --once               run one verify cycle, print metrics text, exit
   --config <path>      path to a calyx.toml runtime config file
-  --validate-config    parse+validate --config, print it (no secrets), exit";
+  --validate-config    parse+validate --config, print it (no secrets), exit
+  --audit-vram         with --config: CUDA preflight + NVML VRAM audit, then exit";
 
 #[derive(Debug)]
 struct Config {
@@ -44,6 +46,7 @@ struct Config {
     once: bool,
     config_path: Option<PathBuf>,
     validate_config: bool,
+    audit_vram: bool,
 }
 
 fn main() -> ExitCode {
@@ -60,7 +63,7 @@ fn main() -> ExitCode {
     // Server mode: a --config (without --validate-config) boots the config-driven
     // daemon, which begins with a fatal CUDA preflight before any other init.
     if let Some(path) = config.config_path.clone() {
-        return run_server(&path, config.once);
+        return run_server(&path, config.once, config.audit_vram);
     }
     match run(config) {
         Ok(()) => ExitCode::SUCCESS,
@@ -71,13 +74,14 @@ fn main() -> ExitCode {
     }
 }
 
-/// Server mode: load `calyx.toml`, run the fatal CUDA preflight, then chain-verify
-/// the configured vault on the configured loopback. The CUDA preflight is the
-/// PH65 T02 deliverable; T03 adds the VRAM audit and T05/T06 the MCP dispatch.
+/// Server mode: load `calyx.toml`, run the fatal CUDA preflight (T02) and the
+/// VRAM budget audit honoring resident TEI (T03), then chain-verify the
+/// configured vault on the configured loopback. `--audit-vram` stops after the
+/// audit (no vault needed). T05/T06 add the MCP dispatch surface.
 ///
-/// A CUDA failure is fatal with exit code 1 and the structured
-/// `CALYX_FORGE_DEVICE_UNAVAILABLE` code — there is no CPU fallback.
-fn run_server(config_path: &std::path::Path, once: bool) -> ExitCode {
+/// A CUDA or NVML failure — or an already-exhausted budget — is fatal with exit
+/// code 1 and a structured `CALYX_*` code; there is no CPU fallback.
+fn run_server(config_path: &std::path::Path, once: bool, audit_vram: bool) -> ExitCode {
     let cfg = match CalyxConfig::from_file(config_path) {
         Ok(cfg) => cfg,
         Err(error) => {
@@ -96,6 +100,54 @@ fn run_server(config_path: &std::path::Path, once: bool) -> ExitCode {
         "INFO calyxd: CUDA device ready device=\"{}\" vram={}MiB compute={}",
         device.device_name, device.vram_total_mib, device.compute_cap
     );
+    // PH65 T03: VRAM budget audit against live NVML usage, honoring resident TEI.
+    let nvml = match vram::NvmlVramUsage::init() {
+        Ok(nvml) => nvml,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let budget = match vram::VramBudget::from_config(cfg.vram_budget_mib, &device, nvml) {
+        Ok(budget) => budget,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let audit = match budget.startup_vram_audit() {
+        Ok(audit) => audit,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    println!(
+        "INFO calyxd: VRAM audit tei_used={}MiB calyx_budget={}MiB device_total={}MiB available={}MiB",
+        audit.tei_used_mib,
+        audit.calyx_budget_mib,
+        audit.device_total_mib,
+        audit.calyx_budget_mib.saturating_sub(audit.tei_used_mib)
+    );
+    // Startup readiness signal: would a representative Forge dispatch be admitted
+    // right now? Per-dispatch enforcement (the hard gate) happens at dispatch
+    // time once Forge work is wired (PH65 T05/T06); this is observability, not a
+    // hard gate, because resident usage fluctuates.
+    const PROBE_DISPATCH_MIB: u32 = 256;
+    let available = match budget.available_mib() {
+        Ok(available) => available,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    let dispatch_ready = budget.check_can_allocate(PROBE_DISPATCH_MIB).is_ok();
+    println!(
+        "INFO calyxd: dispatch readiness available={available}MiB probe={PROBE_DISPATCH_MIB}MiB admitted={dispatch_ready}"
+    );
+    if audit_vram {
+        return ExitCode::SUCCESS;
+    }
     let server_config = Config {
         targets: vec![VerifyTarget {
             kind: TargetKind::Vault,
@@ -106,6 +158,7 @@ fn run_server(config_path: &std::path::Path, once: bool) -> ExitCode {
         once,
         config_path: None,
         validate_config: false,
+        audit_vram: false,
     };
     match run(server_config) {
         Ok(()) => ExitCode::SUCCESS,
@@ -183,6 +236,7 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
     let mut once = false;
     let mut config_path = None;
     let mut validate_config = false;
+    let mut audit_vram = false;
 
     let mut iter = args.into_iter();
     while let Some(flag) = iter.next() {
@@ -192,6 +246,7 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
                 config_path = Some(PathBuf::from(value));
             }
             "--validate-config" => validate_config = true,
+            "--audit-vram" => audit_vram = true,
             "--vault" | "--ledger" => {
                 let path = require_value(&flag, iter.next())?;
                 let kind = if flag == "--vault" {
@@ -236,6 +291,11 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
             "at least one --vault or --ledger target is required",
         ));
     }
+    if audit_vram && config_path.is_none() {
+        return Err(DaemonError::config_invalid(
+            "--audit-vram requires --config <calyx.toml>",
+        ));
+    }
     Ok(Config {
         targets,
         bind,
@@ -243,6 +303,7 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
         once,
         config_path,
         validate_config,
+        audit_vram,
     })
 }
 
