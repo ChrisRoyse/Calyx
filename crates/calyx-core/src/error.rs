@@ -289,6 +289,7 @@ mod tests {
         "CALYX_SUPPLY_CHAIN_VULN",
         "CALYX_LENS_WEIGHT_TAMPERED",
         "CALYX_EXTERNAL_CMD_NOT_ALLOWED",
+        "CALYX_PROVISIONAL_VAULT",
     ];
 
     #[test]
