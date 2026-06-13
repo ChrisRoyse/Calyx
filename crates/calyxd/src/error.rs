@@ -19,6 +19,11 @@ pub enum DaemonError {
     /// CUDA device init failed (or was force-failed for FSV). Server mode is
     /// fatal on this — never a silent CPU fallback.
     DeviceUnavailable { detail: String },
+    /// A healthcheck probe (CUDA / VRAM / vault read) did not reach a healthy
+    /// state. Used by the `calyxd::health` daemon-readiness probe (T04) when the
+    /// failure is not already covered by a more specific `CALYX_*` code (e.g. a
+    /// vault that is present but does not verify on read-back).
+    HealthFailed { detail: String },
 }
 
 impl DaemonError {
@@ -46,6 +51,12 @@ impl DaemonError {
         }
     }
 
+    pub fn health_failed(detail: impl Into<String>) -> Self {
+        Self::HealthFailed {
+            detail: detail.into(),
+        }
+    }
+
     /// Stable wire code for the error.
     pub fn code(&self) -> &'static str {
         match self {
@@ -53,6 +64,7 @@ impl DaemonError {
             Self::ConfigInvalid { .. } => "CALYX_DAEMON_CONFIG_INVALID",
             Self::VramBudget { .. } => "CALYX_FORGE_VRAM_BUDGET",
             Self::DeviceUnavailable { .. } => "CALYX_FORGE_DEVICE_UNAVAILABLE",
+            Self::HealthFailed { .. } => "CALYX_DAEMON_HEALTH_FAIL",
         }
     }
 
@@ -74,6 +86,10 @@ impl DaemonError {
                 "ensure an NVIDIA CUDA GPU + driver are present and calyxd was built with \
                  --features cuda; server mode requires a working GPU and will not start without one"
             }
+            Self::HealthFailed { .. } => {
+                "inspect the failing probe named in the detail (CUDA / VRAM / vault read), fix the \
+                 underlying cause, then re-run `calyx healthcheck`; the daemon is not healthy until it passes"
+            }
         }
     }
 
@@ -83,7 +99,8 @@ impl DaemonError {
             Self::BindFailed { detail }
             | Self::ConfigInvalid { detail }
             | Self::VramBudget { detail }
-            | Self::DeviceUnavailable { detail } => detail,
+            | Self::DeviceUnavailable { detail }
+            | Self::HealthFailed { detail } => detail,
         }
     }
 }
@@ -148,12 +165,23 @@ mod tests {
     }
 
     #[test]
+    fn health_failed_displays_code_detail_and_remediation() {
+        let error = DaemonError::health_failed("vault read-back unverified: chain not intact");
+        assert_eq!(error.code(), "CALYX_DAEMON_HEALTH_FAIL");
+        let shown = error.to_string();
+        assert!(shown.contains("CALYX_DAEMON_HEALTH_FAIL"));
+        assert!(shown.contains("chain not intact"));
+        assert!(shown.contains("remediation:"));
+    }
+
+    #[test]
     fn every_variant_display_carries_a_nonempty_remediation() {
         let variants = [
             DaemonError::bind_failed("d"),
             DaemonError::config_invalid("d"),
             DaemonError::vram_budget("d"),
             DaemonError::device_unavailable("d"),
+            DaemonError::health_failed("d"),
         ];
         for error in &variants {
             assert!(
