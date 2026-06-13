@@ -10,6 +10,7 @@ pub mod kind;
 pub mod merkle;
 pub mod redaction;
 pub mod reproduce;
+pub mod tombstone;
 pub mod verify;
 
 pub use append::{
@@ -43,6 +44,10 @@ pub use reproduce::{
     activate_forge_determinism, append_reproduce_entry, assert_reproduced, assert_within_tolerance,
     build_reproduce_context, lookup_frozen_lens, remeasure_slots,
     remeasure_slots_with_input_resolver, reproduce, reproduce_with_input_resolver, rerun_fusion,
+};
+pub use tombstone::{
+    ErasureScope, ErasureTombstone, find_tombstone, is_tombstoned, tombstone_from_entry,
+    write_tombstone,
 };
 pub use verify::{VerifyResult, verify_chain};
 

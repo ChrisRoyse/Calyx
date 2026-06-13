@@ -1,5 +1,7 @@
 //! Lawful/user-requested erasure for Aster vault content (PH61 T01).
 
+mod ledger;
+
 use crate::cf::{
     ColumnFamily, KeyRange, anchor_prefix_range, base_key, recurrence_prefix_range, slot_key,
     temporal_xterm_prefix_range, xterm_prefix_range,
@@ -7,7 +9,7 @@ use crate::cf::{
 use crate::mvcc::tombstone_value;
 use crate::vault::{AsterVault, VaultContext, encode};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Ts, VaultId};
-use calyx_ledger::SubjectId;
+use calyx_ledger::{EntryKind, SubjectId};
 use serde::{Deserialize, Serialize};
 
 /// Metadata key used by `EraseScope::Subject`.
@@ -108,14 +110,70 @@ pub fn erase<C>(
 where
     C: Clock,
 {
-    let summary = erase_cf_records_summary(vault, &scope, vault_ctx, Some(registry))?;
-    if scope == EraseScope::Vault || summary.rows_tombstoned > 0 {
-        vault_ctx.shred_key_for_erasure();
+    if vault_ctx.vault_id() != vault.vault_id() {
+        return Err(CalyxError::vault_access_denied(
+            "erase VaultContext belongs to another vault",
+        ));
     }
-    Ok(EraseResult {
-        scope,
-        records_deleted: summary.records_deleted,
-        shredded_at: vault.clock_now(),
+    vault.with_durable_commit_lock(|| {
+        let snapshot = vault.latest_seq();
+        let real_ledger = vault.has_real_ledger_hook();
+        if real_ledger && let Some(tombstone) = ledger::existing_tombstone(vault, &scope, snapshot)?
+        {
+            if scope == EraseScope::Vault || tombstone.records_deleted > 0 {
+                vault_ctx.shred_key_for_erasure();
+            }
+            return Err(CalyxError::erase_already_tombstoned(format!(
+                "erase scope already has ledger tombstone at seq {}",
+                tombstone.seq
+            )));
+        }
+        let targets = collect_targets(vault, &scope, snapshot)?;
+        registry.run_all(&scope, vault.vault_id())?;
+        let rows_tombstoned = targets.rows.len();
+        if scope != EraseScope::Vault && rows_tombstoned == 0 {
+            return Ok(EraseResult {
+                scope,
+                records_deleted: targets.records_deleted,
+                shredded_at: vault.clock_now(),
+            });
+        }
+        let affected = affected_cfs(&targets.rows);
+        let row_tombstone = tombstone_value();
+        let rows = targets
+            .rows
+            .iter()
+            .map(|target| encode::WriteRow {
+                cf: target.cf,
+                key: target.key.clone(),
+                value: row_tombstone.clone(),
+            })
+            .collect::<Vec<_>>();
+        if real_ledger {
+            let tombstone =
+                ledger::tombstone_for(vault, &scope, targets.records_deleted, vault.clock_now())?;
+            let ledger_ref = vault.commit_rows_with_ledger_entry_locked(
+                rows,
+                EntryKind::Erase,
+                ledger::tombstone_subject(&tombstone),
+                tombstone.as_ledger_payload(),
+                tombstone.actor.clone(),
+            )?;
+            debug_assert_eq!(ledger_ref.seq, tombstone.seq);
+        } else {
+            vault.commit_rows_locked(&rows)?;
+        }
+        if rows_tombstoned > 0 {
+            vault.purge_tombstoned_cfs(&affected)?;
+        }
+        if scope == EraseScope::Vault || rows_tombstoned > 0 {
+            vault_ctx.shred_key_for_erasure();
+        }
+        Ok(EraseResult {
+            scope,
+            records_deleted: targets.records_deleted,
+            shredded_at: vault.clock_now(),
+        })
     })
 }
 
@@ -155,7 +213,6 @@ where
         if targets.rows.is_empty() {
             return Ok(EraseWriteSummary {
                 records_deleted: targets.records_deleted,
-                rows_tombstoned: 0,
             });
         }
         let tombstone = tombstone_value();
@@ -172,7 +229,6 @@ where
         vault.purge_tombstoned_cfs(&affected_cfs(&targets.rows))?;
         Ok(EraseWriteSummary {
             records_deleted: targets.records_deleted,
-            rows_tombstoned: rows.len(),
         })
     })
 }
@@ -202,7 +258,6 @@ struct EraseTargets {
 #[derive(Debug)]
 struct EraseWriteSummary {
     records_deleted: usize,
-    rows_tombstoned: usize,
 }
 
 fn collect_targets<C>(
@@ -435,3 +490,6 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod ledger_tests;

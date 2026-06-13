@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use calyx_ledger::{LedgerCfStore, decode};
+use calyx_ledger::{LedgerCfStore, decode, tombstone_from_entry};
 use serde_json::json;
 
 use crate::cf_read::hex_bytes;
@@ -10,8 +10,11 @@ pub fn scan_ledger_vault(vault: &Path) -> Result<(), String> {
     let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
     for row in store.scan().map_err(|error| error.to_string())? {
         let entry = decode(&row.bytes).map_err(|error| error.to_string())?;
-        let payload = serde_json::from_slice::<serde_json::Value>(&entry.payload)
-            .unwrap_or_else(|_| json!({"hex": hex_bytes(&entry.payload)}));
+        let payload = match tombstone_from_entry(&entry) {
+            Ok(Some(tombstone)) => tombstone.as_json_value(),
+            Ok(None) | Err(_) => serde_json::from_slice::<serde_json::Value>(&entry.payload)
+                .unwrap_or_else(|_| json!({"hex": hex_bytes(&entry.payload)})),
+        };
         println!(
             "{}",
             json!({

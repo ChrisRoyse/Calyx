@@ -7,7 +7,7 @@ use calyx_core::{CxId, Result as CalyxResult};
 use calyx_ledger::{
     ActorId, AuditFilter, EntryKind, LedgerEntry, QuarantineLookup, SubjectId,
     audit as ledger_audit, get_answer_trace as ledger_get_answer_trace,
-    get_provenance as ledger_get_provenance,
+    get_provenance as ledger_get_provenance, tombstone_from_entry,
 };
 use serde_json::{Value, json};
 
@@ -83,8 +83,15 @@ fn entry_json(entry: &LedgerEntry) -> Value {
         "ts": entry.ts,
         "entry_hash": hex(&entry.entry_hash),
         "payload_hex": hex(&entry.payload),
-        "payload_json": serde_json::from_slice::<Value>(&entry.payload).unwrap_or(Value::Null),
+        "payload_json": payload_json(entry),
     })
+}
+
+fn payload_json(entry: &LedgerEntry) -> Value {
+    match tombstone_from_entry(entry) {
+        Ok(Some(tombstone)) => tombstone.as_json_value(),
+        Ok(None) | Err(_) => serde_json::from_slice::<Value>(&entry.payload).unwrap_or(Value::Null),
+    }
 }
 
 fn subject_json(subject: &SubjectId) -> Value {
