@@ -53,6 +53,69 @@ where
         let mut appender = LedgerAppender::open(store, SystemClock)?;
         appender.append(kind, subject, payload, actor)
     }
+
+    pub(crate) fn has_real_ledger_hook(&self) -> bool {
+        self.ledger_hook.is_some()
+    }
+
+    pub(crate) fn next_ledger_seq_locked(&self) -> Result<u64> {
+        let Some(hook) = &self.ledger_hook else {
+            let store = AsterRawLedgerStore { vault: self };
+            return Ok(LedgerAppender::open(store, SystemClock)?.next_seq());
+        };
+        let guard = ledger_hook::lock_hook(hook)?;
+        Ok(guard.appender().next_seq())
+    }
+
+    pub(crate) fn commit_rows_with_ledger_entry_locked(
+        &self,
+        mut rows: Vec<encode::WriteRow>,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<LedgerRef> {
+        let Some(hook) = &self.ledger_hook else {
+            return self.commit_rows_with_raw_ledger_entry(rows, kind, subject, payload, actor);
+        };
+        let mut guard = ledger_hook::lock_hook(hook)?;
+        let staged = guard.stage_with_checkpoints(kind, subject, payload, actor)?;
+        let ledger_ref = staged
+            .first()
+            .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+            .ledger_ref();
+        rows.extend(staged.iter().map(|row| encode::WriteRow {
+            cf: ColumnFamily::Ledger,
+            key: row.key().to_vec(),
+            value: row.value().to_vec(),
+        }));
+        self.commit_rows_locked(&rows)?;
+        for row in &staged {
+            guard.commit_staged(row)?;
+        }
+        Ok(ledger_ref)
+    }
+
+    fn commit_rows_with_raw_ledger_entry(
+        &self,
+        mut rows: Vec<encode::WriteRow>,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<LedgerRef> {
+        let store = AsterRawLedgerStore { vault: self };
+        let appender = LedgerAppender::open(store, SystemClock)?;
+        let prepared = appender.prepare(kind, subject, payload, actor)?;
+        let ledger_ref = prepared.ledger_ref();
+        rows.push(encode::WriteRow {
+            cf: ColumnFamily::Ledger,
+            key: ledger_key(prepared.seq()),
+            value: prepared.bytes().to_vec(),
+        });
+        self.commit_rows_locked(&rows)?;
+        Ok(ledger_ref)
+    }
 }
 
 struct AsterRawLedgerStore<'a, C> {
