@@ -50,6 +50,11 @@ fn ksg_mi_continuous_with_trust(
     ))
 }
 
+pub(crate) fn ksg_mi_continuous_point(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> Result<f32> {
+    validate_samples(x, y, k)?;
+    Ok(ksg_bits_from_validated_samples(x, y, k))
+}
+
 fn ksg_bits_from_validated_samples(x: &[Vec<f32>], y: &[Vec<f32>], k: usize) -> f32 {
     let n = x.len();
     let mut local_bits = Vec::with_capacity(n);

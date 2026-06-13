@@ -22,6 +22,7 @@ mod special_fn;
 pub mod store;
 pub mod stratified;
 pub mod sufficiency;
+pub mod transfer_entropy;
 
 pub use attribution::{
     BitsReport, SlotAttribution, bits_report, bits_report_with_anchor, per_sensor_attribution,
@@ -83,6 +84,12 @@ pub use sufficiency::{
     SufficiencyDeficit, SufficiencyDeficitSink, entropy_bits, panel_sufficiency,
     panel_sufficiency_with_anchor, panel_sufficiency_with_anchor_and_context,
     panel_sufficiency_with_context,
+};
+pub use transfer_entropy::{
+    CALYX_TE_INSUFFICIENT_SAMPLES, DEFAULT_TE_BOOTSTRAP_RESAMPLES, DEFAULT_TE_BOOTSTRAP_SEED,
+    DEFAULT_TE_K, DEFAULT_TE_LAGS, DEFAULT_TE_WINDOW, Direction, MIN_TE_QUORUM, RecurrenceStream,
+    TEResult, Timestamp, TransferEntropyConfig, max_transfer_entropy_lag, transfer_entropy,
+    transfer_entropy_sweep, transfer_entropy_sweep_with_config, transfer_entropy_with_config,
 };
 
 #[cfg(test)]
