@@ -2,8 +2,9 @@ use calyx_anneal::{decode_replay_snapshot, replay_snapshot_key};
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::sst::SstReader;
 use serde_json::json;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+use crate::cf_read::{hex_bytes, list_sst_files};
 
 pub fn replay_status(vault: &Path) -> Result<(), String> {
     let cf = ColumnFamily::AnnealReplay;
@@ -65,36 +66,4 @@ pub fn replay_status(vault: &Path) -> Result<(), String> {
         serde_json::to_string_pretty(&readback).map_err(|error| error.to_string())?
     );
     Ok(())
-}
-
-fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    if !dir.exists() {
-        return Ok(files);
-    }
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
-            files.push(path);
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
 }

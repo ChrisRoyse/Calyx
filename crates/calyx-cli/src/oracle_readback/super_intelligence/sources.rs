@@ -146,7 +146,3 @@ fn default_kernel_only() -> f32 {
 fn default_full_recall() -> f32 {
     1.0
 }
-
-pub(super) fn hex_bytes(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}

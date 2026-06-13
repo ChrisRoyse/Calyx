@@ -19,6 +19,7 @@ use calyx_registry::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::cf_read::hex_bytes as hex;
 use crate::ledger_store::AsterLedgerCfStore;
 
 const CALYX_ASSAY_INVALID_METRIC: &str = "CALYX_ASSAY_INVALID_METRIC";
@@ -361,23 +362,6 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> CapabilityCard {
         },
         health: LensHealth::Loaded,
         low_spread: false,
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
     }
 }
 

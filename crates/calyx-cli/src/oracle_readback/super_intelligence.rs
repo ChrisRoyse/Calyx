@@ -19,10 +19,12 @@ use calyx_oracle::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::cf_read::hex_bytes;
+
 mod sources;
 use sources::{
     CalibrationSourceFixture, GoodhartSourceFixture, KernelFixture, KernelSource,
-    MistakeSourceFixture, OracleFixture, hex_bytes, validate_bits, validate_fraction,
+    MistakeSourceFixture, OracleFixture, validate_bits, validate_fraction,
 };
 
 const USAGE: &str = "usage: calyx readback super_intelligence --vault <dir> --domain <domain> --fixture <json> --vault-id <id> --salt <s>";

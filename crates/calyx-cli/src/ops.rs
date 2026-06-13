@@ -4,7 +4,6 @@ use calyx_aster::compaction::{
     catalog_from_vault_dir,
 };
 use calyx_aster::sst::{SstReader, write_sst};
-use calyx_aster::storage_names::classify_sst;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::{
     DEFAULT_GROUP_COMMIT_WINDOW, GroupCommitBatcher, Wal, WalOptions, replay_dir,
@@ -20,6 +19,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use crate::cf_read::{hex_bytes, list_sst_files};
 
 mod compact;
 pub use compact::compact;
@@ -344,27 +345,6 @@ fn demo_constellation(vault: &AsterVault, vault_id: VaultId) -> Constellation {
     }
 }
 
-/// Lists SST files fail-closed: a `*.sst` file with a non-canonical name is a
-/// typed error (the engine's recovery/scan passes reject the same names, so
-/// readback and compaction must never silently work around them).
-fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    if !dir.exists() {
-        return Ok(files);
-    }
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if classify_sst(&path)
-            .map_err(|error| error.to_string())?
-            .is_some()
-        {
-            files.push(path);
-        }
-    }
-    files.sort();
-    Ok(files)
-}
-
 fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
     match value {
         "base" => Ok(ColumnFamily::Base),
@@ -427,21 +407,4 @@ fn fd_count() -> usize {
     fs::read_dir("/proc/self/fd")
         .map(|entries| entries.count())
         .unwrap_or(0)
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
 }

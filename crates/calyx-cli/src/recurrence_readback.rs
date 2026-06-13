@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -7,12 +6,12 @@ use calyx_aster::cf::{ColumnFamily, base_key, recurrence_prefix_range};
 use calyx_aster::recurrence::{
     FREQUENCY_SCALAR, Occurrence, RollupSummary, StoredRecurrenceRow, decode_recurrence_row,
 };
-use calyx_aster::sst::SstReader;
-use calyx_aster::vault::encode::{decode_constellation_base, decode_write_batch};
-use calyx_aster::wal::replay_dir;
+use calyx_aster::vault::encode::decode_constellation_base;
 use calyx_core::{Constellation, CxId};
 use calyx_loom::recurrence::{PeriodicRecallQuery, periodic_fit};
 use serde_json::{Value, json};
+
+use crate::cf_read::{hex_bytes, latest_cf_rows};
 
 pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), String> {
     let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
@@ -156,53 +155,6 @@ fn recurrence_cx_ids(recurrence_rows: &BTreeMap<Vec<u8>, Vec<u8>>) -> Vec<CxId> 
     ids
 }
 
-fn latest_cf_rows(vault: &Path, cf: ColumnFamily) -> Result<BTreeMap<Vec<u8>, Vec<u8>>, String> {
-    let mut rows = BTreeMap::new();
-    for file in list_sst_files(&vault.join("cf").join(cf.name()))? {
-        let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
-        for row in reader.iter().map_err(|error| error.to_string())? {
-            rows.insert(row.key, row.value);
-        }
-    }
-    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
-    for record in replay.records {
-        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
-            if row.cf == cf {
-                rows.insert(row.key, row.value);
-            }
-        }
-    }
-    Ok(rows)
-}
-
-fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    let mut files = Vec::new();
-    if !dir.exists() {
-        return Ok(files);
-    }
-    for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
-        let path = entry.map_err(|error| error.to_string())?.path();
-        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
-            files.push(path);
-        }
-    }
-    files.sort_by(|left, right| sst_order(left).cmp(&sst_order(right)).then(left.cmp(right)));
-    Ok(files)
-}
-
-fn sst_order(path: &Path) -> (u64, usize) {
-    let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
-        return (0, 0);
-    };
-    if let Some(seq) = stem.strip_prefix("compacted-") {
-        return (seq.parse().unwrap_or(0), usize::MAX);
-    }
-    let Some((seq, index)) = stem.split_once('-') else {
-        return (0, 0);
-    };
-    (seq.parse().unwrap_or(0), index.parse().unwrap_or(0))
-}
-
 fn recurrence_frequency(cx: &Constellation) -> calyx_core::Result<u64> {
     let Some(value) = cx.scalars.get(FREQUENCY_SCALAR) else {
         return Ok(0);
@@ -287,21 +239,4 @@ fn parse_u8(value: &str, flag: &str) -> Result<u8, String> {
     value
         .parse::<u8>()
         .map_err(|error| format!("invalid {flag}: {error}"))
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
 }
