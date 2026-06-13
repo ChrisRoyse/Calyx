@@ -4,6 +4,7 @@ use calyx_core::{CalyxError, Result, SlotId};
 pub(super) fn cf_tag(cf: ColumnFamily) -> u8 {
     match cf {
         ColumnFamily::Base => 0,
+        ColumnFamily::Collections => 117,
         ColumnFamily::Anchors => 1,
         ColumnFamily::Ledger => 2,
         ColumnFamily::XTerm => 3,
@@ -37,6 +38,7 @@ pub(super) fn cf_tag(cf: ColumnFamily) -> u8 {
 pub(super) fn decode_cf(tag: u8) -> Result<ColumnFamily> {
     Ok(match tag {
         0 => ColumnFamily::Base,
+        117 => ColumnFamily::Collections,
         1 => ColumnFamily::Anchors,
         2 => ColumnFamily::Ledger,
         3 => ColumnFamily::XTerm,

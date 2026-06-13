@@ -16,6 +16,8 @@ pub enum SlotFamilyKind {
 pub enum ColumnFamily {
     /// `CxId -> ConstellationHeader`.
     Base,
+    /// `b"coll\0" || collection_name -> Collection metadata`.
+    Collections,
     /// Per-slot vector column, either quantized or raw sidecar.
     Slot { slot: SlotId, kind: SlotFamilyKind },
     /// `(CxId, a, b, kind) -> cross-term value`.
@@ -62,8 +64,9 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 21] = [
+    pub const STATIC: [Self; 22] = [
         Self::Base,
+        Self::Collections,
         Self::XTerm,
         Self::TemporalXTerm,
         Self::Scalars,
@@ -106,6 +109,7 @@ impl ColumnFamily {
     pub fn name(&self) -> String {
         match self {
             Self::Base => "base".to_string(),
+            Self::Collections => "collections".to_string(),
             Self::Slot {
                 slot,
                 kind: SlotFamilyKind::Quantized,
