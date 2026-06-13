@@ -12,6 +12,7 @@ calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-ward = { path = "../calyx-ward" }
+memmap2.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true
