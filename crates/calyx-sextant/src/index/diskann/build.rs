@@ -1,26 +1,42 @@
-//! Vamana graph construction for the DiskANN on-disk format (PH68 T01).
+//! Vamana graph construction for the DiskANN on-disk format (PH68 T01/T02).
 //!
 //! Two-pass build per the DiskANN paper: seeded random init edges, then for
-//! each point (seeded random order) greedy-search from the medoid and
-//! RobustPrune — alpha=1.0 on the first pass, `params.alpha` on the second —
-//! with backward edges re-pruned on overflow. Deterministic for a fixed input.
+//! each point greedy-search from the medoid and RobustPrune — alpha=1.0 on the
+//! first pass, `params.alpha` on the second — with backward edges re-pruned on
+//! overflow.
+//!
+//! Construction geometry runs on L2-normalized copies so the distance kernel
+//! is a bare dot product (cosine is scale-invariant, so neighbor topology is
+//! identical to the search-time `1 - cosine`); the graph file still stores the
+//! original vectors verbatim. Each pass advances in batches: every point in a
+//! batch greedy-searches the *same frozen snapshot* of the graph in parallel
+//! (read-only), then edge updates apply sequentially in batch order — so the
+//! build is both parallel and fully deterministic regardless of thread count.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 
 use calyx_core::Result;
+use rand::SeedableRng;
 use rand::seq::SliceRandom;
-use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rayon::prelude::*;
 
 use super::graph::{
     DISKANN_FORMAT_VERSION, DISKANN_MAX_DIM, DISKANN_MAX_M, DiskAnnGraphWriter, DiskAnnHeader,
     invalid,
 };
-use crate::util::cosine;
 
 /// Deterministic build seed (Vamana insert order + random init edges).
 const BUILD_SEED: u64 = 42;
+/// First synchronization round size. Batches grow geometrically from here
+/// (ParlayANN prefix-doubling): early points refine the graph at near-
+/// sequential quality, later points parallelize over the larger snapshot.
+const BUILD_BATCH_MIN: usize = 256;
+/// Batches never exceed `n / BUILD_BATCH_DIVISOR` so that no single
+/// synchronization round connects more than a small fraction of the graph
+/// against one stale snapshot — keeping graph quality scale-independent.
+const BUILD_BATCH_DIVISOR: usize = 32;
 
 /// Vamana build parameters.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -104,94 +120,145 @@ pub fn build_diskann_graph(
     writer.finish()
 }
 
-fn distance(a: &[f32], b: &[f32]) -> f32 {
-    1.0 - cosine(a, b)
+/// L2-normalize every vector; a zero vector stays all-zero (dot == 0 with
+/// anything, i.e. distance 1 — matching cosine's zero-vector convention).
+/// `norm[id]` lines up with the dense id space validated above.
+fn normalize(vectors: &[(u32, Vec<f32>)]) -> Vec<Vec<f32>> {
+    vectors
+        .par_iter()
+        .map(|(_, v)| {
+            let mag = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+            if mag == 0.0 {
+                v.clone()
+            } else {
+                v.iter().map(|x| x / mag).collect()
+            }
+        })
+        .collect()
 }
 
-/// Two-pass Vamana over an in-memory adjacency list.
+/// Distance between two unit vectors: `1 - dot` (equals `1 - cosine`).
+fn dist(a: &[f32], b: &[f32]) -> f32 {
+    1.0 - a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>()
+}
+
+/// Two-pass Vamana over an in-memory adjacency list, batched + parallel.
 fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec<Vec<u32>>) {
     let n = vectors.len();
     if n == 1 {
         return (0, vec![Vec::new()]);
     }
-    let entry = medoid(vectors);
+    let norm = normalize(vectors);
+    let entry = medoid(&norm);
     let mut rng = ChaCha8Rng::seed_from_u64(BUILD_SEED);
+    let mut all: Vec<u32> = (0..n as u32).collect();
     let mut adjacency: Vec<Vec<u32>> = Vec::with_capacity(n);
     for i in 0..n as u32 {
-        adjacency.push(random_neighbors(&mut rng, n, i, params.m_max.min(n - 1)));
+        all.shuffle(&mut rng);
+        adjacency.push(
+            all.iter()
+                .copied()
+                .filter(|&j| j != i)
+                .take(params.m_max.min(n - 1))
+                .collect(),
+        );
     }
     let ef = params.ef_construction.max(params.m_max);
     let mut order: Vec<u32> = (0..n as u32).collect();
+    let batch_cap = (n / BUILD_BATCH_DIVISOR).max(BUILD_BATCH_MIN);
     for alpha in [1.0_f32, params.alpha] {
         order.shuffle(&mut rng);
-        for &i in &order {
-            let query = &vectors[i as usize].1;
-            let mut candidates = greedy_search(vectors, &adjacency, entry, query, ef);
-            candidates.extend(adjacency[i as usize].iter().copied());
-            adjacency[i as usize] = robust_prune(vectors, i, candidates, alpha, params.m_max);
-            for j in adjacency[i as usize].clone() {
-                if !adjacency[j as usize].contains(&i) {
-                    adjacency[j as usize].push(i);
-                    if adjacency[j as usize].len() > params.m_max {
-                        let cands = std::mem::take(&mut adjacency[j as usize]);
-                        adjacency[j as usize] =
-                            robust_prune(vectors, j, cands, alpha, params.m_max);
-                    }
+        let mut start = 0;
+        let mut batch_size = BUILD_BATCH_MIN;
+        while start < order.len() {
+            let end = (start + batch_size).min(order.len());
+            let batch = &order[start..end];
+            start = end;
+            batch_size = (batch_size * 2).min(batch_cap);
+            // Parallel, read-only against the frozen `adjacency` snapshot.
+            let pruned: Vec<(u32, Vec<u32>)> = batch
+                .par_iter()
+                .map(|&i| {
+                    let mut candidates = greedy_search(&norm, &adjacency, entry, i, ef);
+                    candidates.extend(adjacency[i as usize].iter().copied());
+                    (i, robust_prune(&norm, i, candidates, alpha, params.m_max))
+                })
+                .collect();
+            // Forward edges: sequential, cheap (assignment only).
+            for (i, neighbors) in &pruned {
+                adjacency[*i as usize] = neighbors.clone();
+            }
+            // Back-edges grouped by target (BTreeMap → deterministic key order,
+            // add-lists in batch order). Each affected node is re-pruned ONCE
+            // for the whole batch, and the re-prunes run in parallel — this is
+            // the build's hot path, so it must not serialize.
+            let mut back: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+            for (i, neighbors) in &pruned {
+                for &j in neighbors {
+                    back.entry(j).or_default().push(*i);
                 }
+            }
+            let updates: Vec<(u32, Vec<u32>)> = back
+                .into_iter()
+                .collect::<Vec<_>>()
+                .par_iter()
+                .map(|(j, adds)| {
+                    let mut merged = adjacency[*j as usize].clone();
+                    for &i in adds {
+                        if !merged.contains(&i) {
+                            merged.push(i);
+                        }
+                    }
+                    let neighbors = if merged.len() > params.m_max {
+                        robust_prune(&norm, *j, merged, alpha, params.m_max)
+                    } else {
+                        merged
+                    };
+                    (*j, neighbors)
+                })
+                .collect();
+            for (j, neighbors) in updates {
+                adjacency[j as usize] = neighbors;
             }
         }
     }
     (entry, adjacency)
 }
 
-fn random_neighbors(rng: &mut ChaCha8Rng, n: usize, self_id: u32, count: usize) -> Vec<u32> {
-    if count == n.saturating_sub(1) {
-        return (0..n as u32).filter(|&id| id != self_id).collect();
-    }
-    let mut seen = HashSet::with_capacity(count);
-    let mut out = Vec::with_capacity(count);
-    while out.len() < count {
-        let candidate = rng.gen_range(0..n as u32);
-        if candidate != self_id && seen.insert(candidate) {
-            out.push(candidate);
-        }
-    }
-    out
-}
-
-/// Point closest to the dataset centroid (standard DiskANN entry point).
-fn medoid(vectors: &[(u32, Vec<f32>)]) -> u32 {
-    let dim = vectors[0].1.len();
+/// Point closest to the (normalized) dataset centroid — the DiskANN entry.
+fn medoid(norm: &[Vec<f32>]) -> u32 {
+    let dim = norm[0].len();
     let mut centroid = vec![0.0_f32; dim];
-    for (_, v) in vectors {
+    for v in norm {
         for (c, x) in centroid.iter_mut().zip(v) {
             *c += x;
         }
     }
-    let inv = 1.0 / vectors.len() as f32;
+    let inv = 1.0 / norm.len() as f32;
     for c in &mut centroid {
         *c *= inv;
     }
     let mut best = (0_u32, f32::INFINITY);
-    for (id, v) in vectors {
-        let d = distance(&centroid, v);
+    for (id, v) in norm.iter().enumerate() {
+        let d = dist(&centroid, v);
         if d < best.1 {
-            best = (*id, d);
+            best = (id as u32, d);
         }
     }
     best.0
 }
 
-/// Beam search over the in-memory adjacency; returns every expanded node
-/// (the Vamana visited set used as prune candidates).
+/// Greedy beam search over the in-memory adjacency from `entry` toward
+/// `query` (a node id); returns every expanded node (the prune candidate set).
 fn greedy_search(
-    vectors: &[(u32, Vec<f32>)],
+    norm: &[Vec<f32>],
     adjacency: &[Vec<u32>],
     entry: u32,
-    query: &[f32],
+    query: u32,
     ef: usize,
 ) -> Vec<u32> {
-    let mut pool: Vec<(u32, f32)> = vec![(entry, distance(query, &vectors[entry as usize].1))];
+    let q = &norm[query as usize];
+    let mut pool: Vec<(u32, f32)> = vec![(entry, dist(q, &norm[entry as usize]))];
     let mut seen: HashSet<u32> = HashSet::from([entry]);
     let mut expanded: HashSet<u32> = HashSet::new();
     let mut visited: Vec<u32> = Vec::new();
@@ -200,7 +267,7 @@ fn greedy_search(
         visited.push(next);
         for &nb in &adjacency[next as usize] {
             if seen.insert(nb) {
-                pool.push((nb, distance(query, &vectors[nb as usize].1)));
+                pool.push((nb, dist(q, &norm[nb as usize])));
             }
         }
         pool.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
@@ -211,20 +278,14 @@ fn greedy_search(
 
 /// RobustPrune(p, candidates, alpha, r): keep the closest candidate, drop any
 /// other whose distance to it (scaled by alpha) undercuts its distance to p.
-fn robust_prune(
-    vectors: &[(u32, Vec<f32>)],
-    p: u32,
-    candidates: Vec<u32>,
-    alpha: f32,
-    r: usize,
-) -> Vec<u32> {
-    let query = &vectors[p as usize].1;
+fn robust_prune(norm: &[Vec<f32>], p: u32, candidates: Vec<u32>, alpha: f32, r: usize) -> Vec<u32> {
+    let q = &norm[p as usize];
     let mut pool: Vec<(u32, f32)> = candidates
         .into_iter()
         .collect::<HashSet<_>>()
         .into_iter()
         .filter(|&c| c != p)
-        .map(|c| (c, distance(query, &vectors[c as usize].1)))
+        .map(|c| (c, dist(q, &norm[c as usize])))
         .collect();
     pool.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     let mut result: Vec<u32> = Vec::with_capacity(r);
@@ -233,10 +294,8 @@ fn robust_prune(
         if result.len() >= r {
             break;
         }
-        let star_vec = &vectors[star as usize].1;
-        pool.retain(|&(c, d_pc)| {
-            c != star && alpha * distance(star_vec, &vectors[c as usize].1) > d_pc
-        });
+        let star_vec = &norm[star as usize];
+        pool.retain(|&(c, d_pc)| c != star && alpha * dist(star_vec, &norm[c as usize]) > d_pc);
     }
     result
 }
