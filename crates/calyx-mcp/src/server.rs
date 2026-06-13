@@ -104,7 +104,10 @@ impl McpServer {
                 );
             }
         };
-        let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
 
         let Some(tool) = self.tools.get(&name) else {
             return JsonRpcResponse::error(id, JsonRpcError::method_not_found(&name));
@@ -116,10 +119,7 @@ impl McpServer {
         let outcome = catch_unwind(AssertUnwindSafe(|| tool.call(arguments)));
         match outcome {
             Ok(Ok(value)) => match serde_json::to_string(&value) {
-                Ok(payload) => JsonRpcResponse::success(
-                    id,
-                    json!(ToolCallResult::text(payload)),
-                ),
+                Ok(payload) => JsonRpcResponse::success(id, json!(ToolCallResult::text(payload))),
                 Err(error) => JsonRpcResponse::error(
                     id,
                     JsonRpcError::internal(format!("serialize tool result: {error}")),
@@ -222,7 +222,10 @@ mod tests {
         let resp = server.dispatch(req(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#));
         let tools = resp.result.unwrap()["tools"].clone();
         assert_eq!(tools[0]["name"], "echo");
-        assert_eq!(tools[0]["inputSchema"]["properties"]["msg"]["type"], "string");
+        assert_eq!(
+            tools[0]["inputSchema"]["properties"]["msg"]["type"],
+            "string"
+        );
     }
 
     #[test]

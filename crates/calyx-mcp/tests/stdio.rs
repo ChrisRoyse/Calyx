@@ -94,7 +94,11 @@ fn malformed_line_logs_to_stderr_and_next_line_still_processed() {
 
     // Exactly one response: the malformed line produced no stdout, only stderr.
     let lines: Vec<&str> = stdout.lines().collect();
-    assert_eq!(lines.len(), 1, "malformed line must not emit a stdout response");
+    assert_eq!(
+        lines.len(),
+        1,
+        "malformed line must not emit a stdout response"
+    );
     let response: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
     assert_eq!(response["id"], 5);
     assert!(

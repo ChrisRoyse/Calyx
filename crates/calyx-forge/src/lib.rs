@@ -53,12 +53,12 @@ pub use quant::{
     apply_rotation, apply_rotation_batch, binary_prefilter, dot_estimate_unbiased,
     dot_qjl_correction, encode_qjl_residual, hamming_dot_estimate, new_seed, seed_id_hex,
 };
+#[cfg(feature = "cuda")]
+pub use vram::CudaVramProbe;
 pub use vram::{
     DEFAULT_SOFT_CAP_BYTES, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV, VRAM_BUDGET_REMEDIATION,
     VramBudgeter, VramGuard, VramProbe, VramStats,
 };
-#[cfg(feature = "cuda")]
-pub use vram::CudaVramProbe;
 
 #[cfg(test)]
 mod tests {

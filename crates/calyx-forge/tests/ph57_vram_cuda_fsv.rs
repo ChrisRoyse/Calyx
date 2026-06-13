@@ -29,7 +29,10 @@ fn fsv_live_free_vram_query() {
     let probe = CudaVramProbe::new(Arc::new(ctx));
 
     let free = probe.free_device_vram().expect("live cudaMemGetInfo query");
-    println!("[CUDA-FSV] free_device_vram() = {free} bytes ({} MiB)", free / (1024 * 1024));
+    println!(
+        "[CUDA-FSV] free_device_vram() = {free} bytes ({} MiB)",
+        free / (1024 * 1024)
+    );
 
     // The issue's exact bound: must be > 0 on an idle/loaded GPU and within
     // the physical device size (+ tolerance). Never the 0 of a silent failure.
@@ -55,7 +58,10 @@ fn fsv_budgeter_reserve_on_real_device() {
         before.allocated_bytes, before.device_free_bytes
     );
     assert_eq!(before.allocated_bytes, 0);
-    assert!(before.device_free_bytes > 0, "device_free must be live, not 0");
+    assert!(
+        before.device_free_bytes > 0,
+        "device_free must be live, not 0"
+    );
 
     // Trigger X: reserve 1 GiB. Outcome Y: allocated rises by exactly 1 GiB.
     let guard = budgeter.reserve(GIB).expect("reserve 1 GiB on real device");
@@ -72,5 +78,8 @@ fn fsv_budgeter_reserve_on_real_device() {
         "[CUDA-FSV] AFTER:  allocated={} device_free={}",
         after.allocated_bytes, after.device_free_bytes
     );
-    assert_eq!(after.allocated_bytes, 0, "guard drop must release accounting");
+    assert_eq!(
+        after.allocated_bytes, 0,
+        "guard drop must release accounting"
+    );
 }

@@ -21,8 +21,7 @@ pub const RESERVED_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
 pub const VRAM_BUDGET_ENV: &str = "CALYX_FORGE_VRAM_BUDGET";
 
 /// Operator remediation attached to every `CALYX_FORGE_VRAM_BUDGET` error.
-pub const VRAM_BUDGET_REMEDIATION: &str =
-    "Forge VRAM budget exceeded; reduce batch size or wait for eviction; set CALYX_FORGE_VRAM_BUDGET env var (bytes)";
+pub const VRAM_BUDGET_REMEDIATION: &str = "Forge VRAM budget exceeded; reduce batch size or wait for eviction; set CALYX_FORGE_VRAM_BUDGET env var (bytes)";
 
 /// Enforces a soft cap on Forge's cumulative GPU allocation and consults live
 /// device free-VRAM before admitting a dispatch.
@@ -359,7 +358,9 @@ mod tests {
     #[test]
     fn probe_failure_is_fail_closed() {
         let b = VramBudgeter::with_soft_cap(GIB, FailingProbe);
-        let err = b.can_allocate(1024).expect_err("probe failure => over-budget");
+        let err = b
+            .can_allocate(1024)
+            .expect_err("probe failure => over-budget");
         assert_eq!(err.code(), CODE);
         assert!(b.reserve(1024).is_err());
         assert_eq!(b.allocated_bytes(), 0);
@@ -368,9 +369,12 @@ mod tests {
     #[test]
     fn device_headroom_gate_independent_of_soft_cap() {
         // Huge soft cap, but only 1 KiB usable after the 512 MiB headroom.
-        let b = VramBudgeter::with_soft_cap(32 * GIB, StaticProbe {
-            free: RESERVED_HEADROOM_BYTES + 1024,
-        });
+        let b = VramBudgeter::with_soft_cap(
+            32 * GIB,
+            StaticProbe {
+                free: RESERVED_HEADROOM_BYTES + 1024,
+            },
+        );
         // Exactly usable succeeds.
         assert!(b.can_allocate(1024).is_ok());
         // One byte more than usable fails despite the soft cap being huge.
@@ -381,9 +385,12 @@ mod tests {
     #[test]
     fn free_below_headroom_saturates_to_zero_usable() {
         // free < headroom => usable saturates to 0 => every nonzero alloc fails.
-        let b = VramBudgeter::with_soft_cap(32 * GIB, StaticProbe {
-            free: RESERVED_HEADROOM_BYTES - 1,
-        });
+        let b = VramBudgeter::with_soft_cap(
+            32 * GIB,
+            StaticProbe {
+                free: RESERVED_HEADROOM_BYTES - 1,
+            },
+        );
         assert_eq!(b.can_allocate(1).unwrap_err().code(), CODE);
         assert!(b.can_allocate(0).is_ok());
     }
