@@ -15,6 +15,7 @@ pub mod olap;
 pub mod plain_column;
 pub mod plain_graph;
 pub mod recurrence;
+pub mod redaction;
 pub mod residency;
 pub mod resource;
 pub mod retention;

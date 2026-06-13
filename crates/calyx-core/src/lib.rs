@@ -2,6 +2,7 @@
 
 pub mod alloc;
 pub mod cache;
+pub mod consent;
 pub mod cosine;
 pub mod enums;
 pub mod error;
@@ -17,6 +18,10 @@ pub use alloc::{
     PageAlignedSlabPool, PageSlabGuard, SlabGuard, SlabPool, VecBlockPool,
 };
 pub use cache::{CALYX_CACHE_EVICTED, InsertResult, LruTtlCache};
+pub use consent::{
+    CALYX_CONSENT_VIOLATION, ConsentTag, LawfulBasis, Purpose, Timestamp, check_consent,
+    consent_expired,
+};
 pub use cosine::{GuardTauProfile, dense_cosine};
 pub use enums::{AbsentReason, AnchorKind, Asymmetry, Modality, QuantPolicy, SlotShape, SlotState};
 pub use error::{CALYX_ERROR_CODES, CalyxError, CalyxErrorCode, CalyxWarning, Result};
