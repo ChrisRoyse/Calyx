@@ -28,6 +28,7 @@ where
                 last_recovered_seq: 0,
                 torn_tail: None,
             },
+            residency: None,
         }
     }
 

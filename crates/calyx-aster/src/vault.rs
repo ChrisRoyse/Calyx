@@ -53,6 +53,7 @@ pub struct AsterVault<C = SystemClock> {
     ledger_hook: Option<AsterLedgerHook>,
     recurrence_write_lock: Mutex<()>,
     recovery_report: VaultRecoveryReport,
+    residency: Option<crate::residency::Residency>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +84,7 @@ impl AsterVault<SystemClock> {
         options: VaultOptions,
     ) -> Result<Self> {
         DurableVault::validate_options(&options)?;
+        let vault_root = vault_dir.as_ref().to_path_buf();
         let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
         let ledger_hook = ledger_hook::recover_hook(&recovery, options.ledger_checkpoint.clone())?;
         let recovery_report = VaultRecoveryReport {
@@ -108,6 +110,21 @@ impl AsterVault<SystemClock> {
         durable_options.dedup_policy = recovery.dedup_policy;
         let dedup_policy = durable_options.dedup_policy.clone().unwrap_or_default();
         let durable = DurableVault::open(vault_dir, &durable_options)?;
+        // Data residency (PRD 30 §4): a caller-supplied pin is enforced against
+        // tiering and persisted (conflict-checked, immutable); on reopen the
+        // on-disk pin is authoritative and re-enforced against tiering.
+        if let Some(pin) = &options.residency {
+            if let Some(tiering) = &options.tiering_policy {
+                pin.enforce_tier_roots(&tiering.tier_roots())?;
+            }
+            pin.persist(&vault_root)?;
+        }
+        let residency = crate::residency::Residency::load(&vault_root)?;
+        if options.residency.is_none()
+            && let (Some(pin), Some(tiering)) = (&residency, &options.tiering_policy)
+        {
+            pin.enforce_tier_roots(&tiering.tier_roots())?;
+        }
         Ok(Self {
             vault_id,
             vault_salt: vault_salt.into(),
@@ -118,6 +135,7 @@ impl AsterVault<SystemClock> {
             ledger_hook: Some(ledger_hook),
             recurrence_write_lock: Mutex::new(()),
             recovery_report,
+            residency,
         })
     }
 }
@@ -141,6 +159,49 @@ where
                 last_recovered_seq: 0,
                 torn_tail: None,
             },
+            residency: None,
+        }
+    }
+
+    /// Returns the vault's data-residency pin, if one is set (PRD `30 §4`).
+    pub fn residency(&self) -> Option<&crate::residency::Residency> {
+        self.residency.as_ref()
+    }
+
+    /// Authorizes an external copy/export to `target` against the residency pin.
+    /// With no pin set, every target is authorized. On a violation, an
+    /// `EntryKind::Admin` governance entry is written to the Ledger (the audit
+    /// trail) and `CALYX_RESIDENCY_VIOLATION` is returned — fail closed, never a
+    /// silent off-dataset copy.
+    pub fn authorize_external_copy(&self, target: &std::path::Path) -> Result<()> {
+        let Some(residency) = &self.residency else {
+            return Ok(());
+        };
+        match residency.authorize(target) {
+            Ok(()) => Ok(()),
+            Err(violation) => {
+                // The Ledger forbids raw paths (potential secrets), so the
+                // immutable audit references paths by verifiable blake3 digest;
+                // the human-readable paths travel in the returned error message.
+                let payload = serde_json::to_vec(&serde_json::json!({
+                    "event": "residency_violation",
+                    "dataset_root_hash": residency.dataset_root_digest(),
+                    "attempted_target_hash": crate::residency::Residency::path_digest(target),
+                    "allow_off_dataset": residency.allow_off_dataset,
+                }))
+                .map_err(|error| CalyxError {
+                    code: "CALYX_RESIDENCY_CORRUPT",
+                    message: format!("encode residency audit payload: {error}"),
+                    remediation: "report this bug; residency audit payload must be serializable",
+                })?;
+                self.append_ledger_entry(
+                    calyx_ledger::EntryKind::Admin,
+                    calyx_ledger::SubjectId::Guard(residency.audit_subject()),
+                    payload,
+                    calyx_ledger::ActorId::System,
+                )?;
+                Err(violation)
+            }
         }
     }
 

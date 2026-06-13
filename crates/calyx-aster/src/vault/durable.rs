@@ -25,6 +25,9 @@ pub struct VaultOptions {
     pub temporal_policy: Option<TemporalPolicy>,
     pub dedup_policy: Option<DedupPolicy>,
     pub panel: Option<Panel>,
+    /// Optional data-residency pin (PRD `30 §4`). When set, the vault's storage
+    /// location is pinned and off-dataset writes/copies fail closed.
+    pub residency: Option<crate::residency::Residency>,
 }
 
 impl Default for VaultOptions {
@@ -37,6 +40,7 @@ impl Default for VaultOptions {
             temporal_policy: Some(TemporalPolicy::default()),
             dedup_policy: Some(DedupPolicy::default()),
             panel: None,
+            residency: None,
         }
     }
 }
