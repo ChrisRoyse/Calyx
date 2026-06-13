@@ -70,12 +70,25 @@ pub(super) fn stage_ingest_payload(
     subject: calyx_core::CxId,
     payload: Vec<u8>,
 ) -> Result<Vec<StagedLedgerRow>> {
-    let staged = hook.stage_with_checkpoints(
+    stage_entry_payload(
+        hook,
+        rows,
         EntryKind::Ingest,
         SubjectId::Cx(subject),
         payload,
         ActorId::Service("calyx-aster".to_string()),
-    )?;
+    )
+}
+
+pub(super) fn stage_entry_payload(
+    hook: &DefaultLedgerHook<MemoryLedgerStore, SystemClock>,
+    rows: &mut Vec<WriteRow>,
+    kind: EntryKind,
+    subject: SubjectId,
+    payload: Vec<u8>,
+    actor: ActorId,
+) -> Result<Vec<StagedLedgerRow>> {
+    let staged = hook.stage_with_checkpoints(kind, subject, payload, actor)?;
     for row in &staged {
         rows.push(WriteRow {
             cf: ColumnFamily::Ledger,

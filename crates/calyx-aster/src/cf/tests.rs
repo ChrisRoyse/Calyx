@@ -17,6 +17,7 @@ fn column_family_names_match_prd_layout() {
         [
             "base",
             "collections",
+            "relational",
             "xterm",
             "temporal_xterm",
             "scalars",

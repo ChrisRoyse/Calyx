@@ -5,6 +5,7 @@ pub mod collection;
 pub mod compaction;
 pub mod dedup;
 mod file_lock;
+pub mod layers;
 pub mod ledger_view;
 pub mod manifest;
 pub mod memtable;
