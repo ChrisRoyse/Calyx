@@ -102,6 +102,10 @@ Four proofs, all byte-level on aiwonder:
   write and the key zeroize, the key still exists and a replay must re-attempt the
   shred. The erase operation is idempotent: re-running on an already-tombstoned CX is
   a no-op returning `Ok(())`.
+- **Zeroize proof safety:** PH61 tests may read an explicitly zeroized live key before
+  drop, but any drop-triggered wipe proof must use the PH60 heap-live
+  `drop_in_place` probe. A post-`drop` stack-pointer read is undefined behavior and
+  cannot be FSV evidence.
 - **Backup copies:** crypto-shred renders backup ciphertext permanently unreadable, but
   the operator must ensure backups are encrypted with the same vault key (or the vault
   key itself is included in the backup and can be shredded separately). Document the

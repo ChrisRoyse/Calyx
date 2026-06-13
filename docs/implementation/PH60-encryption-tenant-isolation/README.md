@@ -90,7 +90,10 @@ Two proofs, both byte-level on aiwonder:
   can only be run by the operator; document in the GitHub issue.
 - **Key material lifetime:** `VaultKey` must never be cloned into a `static`; it must
   be passed explicitly by reference so that drop order is deterministic and zeroize
-  runs. Use `zeroize` crate on key material.
+  runs. Use `zeroize` crate on key material. Zeroize-on-drop FSV tests must keep
+  the allocation live with `Box::into_raw` + `std::ptr::drop_in_place` and reclaim
+  with `ManuallyDrop`; post-drop stack-pointer reads are undefined behavior and
+  forbidden.
 - **No anonymous write (A16 + A33):** `AuthN::InProcess` is valid for embedded vaults
   (the host app owns identity); server mode must require mTLS token or Cloudflare
   Access token before any mutation. A missing token → `CALYX_AUTHN_REQUIRED`.

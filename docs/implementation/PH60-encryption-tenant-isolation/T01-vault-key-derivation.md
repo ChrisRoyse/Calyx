@@ -63,8 +63,17 @@ zeroized on drop and never cloned into a static.
   hard-coded constants.
 - **Prove:** before: no `VaultKey` type; after: golden test passes; flipping one
   ciphertext byte returns `CALYX_DECRYPTION_FAILED`; drop of `VaultKey` zeroes
-  inner bytes (confirmed by a `let ptr = key.inner.as_ptr(); drop(key);` unsafe read
-  in a dedicated zeroize test that asserts `[0u8; 32]`).
+  inner bytes with a heap-live destructor probe, never by reading a stack pointer
+  after `drop(key)`.
+
+  ```rust
+  let raw: *mut VaultKey = Box::into_raw(Box::new(key));
+  let byte_ptr = unsafe { (*raw).inner.as_ptr() };
+  unsafe { std::ptr::drop_in_place(raw) }; // runs Zeroizing::drop, does not free
+  let after = unsafe { std::slice::from_raw_parts(byte_ptr, 32) };
+  assert_eq!(after, &[0u8; 32]);
+  unsafe { drop(Box::from_raw(raw as *mut std::mem::ManuallyDrop<VaultKey>)) };
+  ```
 
 ## Done when
 
