@@ -11,8 +11,8 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::error::DaemonError;
 use crate::metrics::ChainVerifyMetrics;
+use calyxd::error::DaemonError;
 
 const REQUEST_HEAD_LIMIT: usize = 8192;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);

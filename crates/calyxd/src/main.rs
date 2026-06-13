@@ -6,13 +6,14 @@
 //! `CALYX_DAEMON_BIND_FAILED`. A broken/corrupt/unverifiable chain is not an
 //! exit — it is the alert: the gauge holds 0 until the chain verifies intact.
 
-mod config;
-mod cuda_probe;
-mod error;
+// Shared daemon modules (config, error, the T02 CUDA probe, the T03 VRAM
+// budget) live in the `calyxd` library — the single source of truth, reused by
+// `calyx-cli` and the T04 healthcheck. The binary consumes them from the lib
+// rather than recompiling its own copies. `metrics`/`server`/`verify_loop` are
+// the binary-only /metrics chain-verify surface.
 mod metrics;
 mod server;
 mod verify_loop;
-mod vram;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -20,8 +21,10 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use config::CalyxConfig;
-use error::DaemonError;
+use calyxd::config::CalyxConfig;
+use calyxd::cuda_probe;
+use calyxd::error::DaemonError;
+use calyxd::vram;
 use metrics::ChainVerifyMetrics;
 use server::MetricsServer;
 use verify_loop::{TargetKind, VerifyTarget, run_cycle, spawn_loop};
