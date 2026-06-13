@@ -76,8 +76,9 @@ Four proofs, all byte-level on aiwonder:
 1. **Crypto-shred: no recoverable content.**
    Ingest a known constellation into vault-a; call `calyx erase --vault vault-a --cx <cx_id>`.
    Then: (a) read the raw Aster CF bytes via `xxd` — no constellation plaintext visible;
-   (b) read the most-recent restic backup snapshot for vault-a (PH67 or a simulated
-   backup file) — the same CF range in the backup returns only ciphertext, key is gone;
+   (b) read the most-recent real restic backup snapshot for vault-a (simulated
+   backup files do not close this gate) — the same CF range in the backup returns
+   only ciphertext, key is gone;
    (c) read the Ledger tail — a `Tombstone` entry at the correct seq is present, containing
    `{ kind: Erased, scope: CxId, actor, at }` with no original payload bytes.
 

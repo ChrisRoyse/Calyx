@@ -62,12 +62,16 @@ wires the pre-commit hook that blocks commits containing secrets.
   - Assert Ledger tombstone entry payload bytes contain zero occurrences of the
     original constellation content bytes.
 
-- [ ] **Backup unreadability proof (simulated):**
-  - Simulate a "backup" by copying the raw CF bytes to a temp file *before* erase.
-  - Run `erase`; the key is shredded.
-  - Attempt to decrypt the backup bytes using the now-shredded key →
+- [ ] **Backup unreadability proof (real restic):**
+  - Seed the issue #597 fixture with `CALYX_ISSUE597_FSV_ROOT=<root> cargo test -p
+    calyx-aster --test issue597_real_restic_crypto_shred -- --ignored --nocapture`.
+  - Run a real `restic backup` of the seeded `vault-a` directory on aiwonder.
+  - Restore the snapshot to a separate ZFS staging directory.
+  - Grep the restored bytes for the erased plaintext sentinel → absent.
+  - Re-run the fixture with `CALYX_ISSUE597_RESTORED_VAULT=<restored-vault>` and
+    verify the restored ciphertext decrypts with a shredded key as
     `CALYX_DECRYPTION_FAILED`.
-  - Print: `"backup bytes after shred: Err(CALYX_DECRYPTION_FAILED) ✓"`.
+  - Print: `"restored_decrypt_with_shredded_key=Err(CALYX_DECRYPTION_FAILED)"`.
 
 - [ ] **Cold-start honesty:**
   - Create a `ColdStartGuard`; assert `search_always_ok() == true`.
@@ -106,7 +110,7 @@ Four byte-level proofs on aiwonder (matches the PH61 FSV exit gate):
    - `erase result: records_deleted=1 ✓`
    - `tombstone present: true ✓`
    - `decrypt after shred: Err(CALYX_DECRYPTION_FAILED) ✓`
-   - `backup bytes after shred: Err(CALYX_DECRYPTION_FAILED) ✓`
+   - `restored_decrypt_with_shredded_key=Err(CALYX_DECRYPTION_FAILED)`
    - `tombstone payload contains no content bytes: true ✓`
 
 2. **Cross-vault denied + Ledger-audited (real Ledger, not stub ring):**
