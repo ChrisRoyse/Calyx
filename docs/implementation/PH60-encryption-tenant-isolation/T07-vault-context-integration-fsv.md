@@ -1,4 +1,4 @@
-# PH60 · T07 — Integration: `VaultContext` wires key + keyspace + grant + quota; cross-vault FSV test
+# PH60 · T07 — Integration: `VaultContext` wires key + keyspace + write lock + grant + quota; cross-vault FSV test
 
 | Field | Value |
 |---|---|
@@ -21,17 +21,20 @@ complete defense-in-depth stack (key + keyspace + grant) end-to-end on aiwonder.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] `struct VaultContext { vault_id: VaultId, key: VaultKey, keyspace: KeyspaceGuard, grants: Arc<RwLock<GrantStore>>, quota: QuotaGuard, zfs_status: ZfsEncryptionStatus }` —
+- [ ] `struct VaultContext { vault_id: VaultId, key: VaultKey, keyspace: KeyspaceGuard, write_lock: Arc<VaultWriteLock>, grants: Arc<RwLock<GrantStore>>, quota: QuotaGuard, zfs_status: ZfsEncryptionStatus }` —
   the single aggregate every storage operation receives.
 - [ ] `impl VaultContext { pub fn new(vault_id: VaultId, master_key: &[u8], config: QuotaConfig, zfs_dataset: &str) -> Result<Self> }` —
-  derives `VaultKey` via HKDF; builds `KeyspaceGuard`; constructs empty `GrantStore`;
-  constructs `QuotaGuard`; probes ZFS; returns `CALYX_VAULT_KEY_MISSING` if
-  `master_key` empty.
+  derives `VaultKey` via HKDF; builds `KeyspaceGuard`; obtains the shared per-vault
+  `VaultWriteLock` instance; constructs empty `GrantStore`; constructs `QuotaGuard`;
+  probes ZFS; returns `CALYX_VAULT_KEY_MISSING` if `master_key` empty.
 - [ ] `pub fn check_cross_vault_read(&self, dst: VaultId, actor: ActorId, now: Timestamp) -> Result<()>` —
   calls `grant_store.check_grant(self.vault_id, dst, actor, now)`; the `CALYX_VAULT_ACCESS_DENIED`
   error propagates unchanged.
 - [ ] `pub fn encode_key(&self, cf: CfName, user_key: &[u8]) -> Vec<u8>` — delegates
   to `self.keyspace.encode_key(cf, user_key)`.
+- [ ] `pub fn with_write_lock<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T>` —
+  acquires `self.write_lock.lock()` around WAL group-commit work. Do not create a
+  fresh `VaultWriteLock` inside this method.
 - [ ] `pub fn decrypt_value(&self, nonce: &[u8; 12], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>>` —
   delegates to `self.key.decrypt(...)`.
 - [ ] `pub fn encrypt_value(&self, nonce: &[u8; 12], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>>` —
@@ -55,6 +58,9 @@ complete defense-in-depth stack (key + keyspace + grant) end-to-end on aiwonder.
   `check_cross_vault_read` → assert `Ok(())`.
 - [ ] Attempt `ctx_a.encrypt_value` then decrypt with `ctx_b.key` → assert
   `CALYX_DECRYPTION_FAILED` (different vault → different derived key → tag mismatch).
+- [ ] Construct two contexts for the same `VaultId` through the production constructor
+  and prove they share the same `Arc<VaultWriteLock>` instance (`Arc::ptr_eq`) before
+  running a lock-exclusion smoke test.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 

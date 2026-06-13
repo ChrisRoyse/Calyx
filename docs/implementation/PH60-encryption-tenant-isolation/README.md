@@ -42,7 +42,7 @@ TLS configuration types and the grant model so PH65 can wire them in.
 | File | Responsibility |
 |---|---|
 | `crates/calyx-aster/src/vault/key.rs` | `VaultKey` struct; derive/load from host-app key material; per-vault AES-256-GCM key derivation (HKDF); `CALYX_VAULT_KEY_MISSING` |
-| `crates/calyx-aster/src/vault/keyspace.rs` | Per-vault keyspace prefix encoding; write lock; `KeyspaceGuard`; ensures no CF key from vault A can be read as vault B key |
+| `crates/calyx-aster/src/vault/keyspace.rs` | Per-vault full-ULID keyspace prefix encoding; stateless `KeyspaceGuard`; standalone shared `VaultWriteLock`; ensures no CF key from vault A can be read as vault B key |
 | `crates/calyx-aster/src/vault/grant.rs` | `GrantEntry`, `GrantStore`; `check_grant(src_vault, dst_vault, actor) -> Result<()>`; `CALYX_VAULT_ACCESS_DENIED`; Ledger-stub grant log write |
 | `crates/calyx-aster/src/vault/quota.rs` | Per-tenant ingest/query/VRAM/IO quota counters; `QuotaGuard`; backpressure when exceeded; `CALYX_QUOTA_EXCEEDED` |
 | `crates/calyx-aster/src/vault/mod.rs` | Re-exports; `VaultContext` aggregating key + keyspace + grant + quota |
@@ -56,7 +56,7 @@ TLS configuration types and the grant model so PH65 can wire them in.
 | Card | Title | Depends |
 |---|---|---|
 | T01 | `VaultKey`: per-vault key derivation (HKDF) + AES-256-GCM context | — |
-| T02 | `KeyspaceGuard`: per-vault key-prefix + write lock + cross-vault read block | T01 |
+| T02 | `KeyspaceGuard` + `VaultWriteLock`: full-ULID key-prefix + cross-vault read block | T01 |
 | T03 | `GrantStore`: grant entry + `check_grant` + `CALYX_VAULT_ACCESS_DENIED` + Ledger-stub audit | T02 |
 | T04 | `QuotaGuard`: per-tenant counters + backpressure + `CALYX_QUOTA_EXCEEDED` | T02 |
 | T05 | `TlsConfig` / `MtlsConfig` / `AuthN` types + no-anonymous-write predicate | — |
