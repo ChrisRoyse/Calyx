@@ -15,20 +15,21 @@ pub mod ledger_stub;
 mod router_bridge;
 mod slot_backfill;
 mod slot_column;
+mod store;
 mod temporal_xterm;
 
-use crate::cf::{CfRouter, ColumnFamily, KeyRange, anchor_key, base_key, ledger_key, slot_key};
-use crate::dedup::{AnchorConflictResult, DedupPolicy, check_anchor_conflict};
-use crate::mvcc::{CfRead, Freshness, ReadBarrier, ReaderLease, Snapshot, VersionedCfStore};
+#[cfg(test)]
+use crate::cf::ledger_key;
+use crate::cf::{CfRouter, ColumnFamily, KeyRange, anchor_key, base_key, slot_key};
+use crate::dedup::DedupPolicy;
+use crate::mvcc::{Freshness, ReadBarrier, ReaderLease, Snapshot, VersionedCfStore};
 use crate::resource::{ResourceStatus, VramBudgetStatus, collect_resource_status};
 use crate::vault::durable::DurableVault;
 use crate::vault::ledger_hook::AsterLedgerHook;
 use crate::wal::TornTail;
-use calyx_core::{
-    Anchor, CalyxError, Clock, Constellation, CxId, Result, Seq, SlotId, SystemClock, VaultId,
-    VaultStore,
-};
-use std::collections::BTreeMap;
+#[cfg(test)]
+use calyx_core::{Anchor, SlotId, VaultStore};
+use calyx_core::{CalyxError, Clock, Constellation, CxId, Result, Seq, SystemClock, VaultId};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -392,156 +393,6 @@ where
 
     pub fn read_barriers(&self) -> Vec<ReadBarrier> {
         self.rows.read_barriers()
-    }
-}
-
-impl<C> VaultStore for AsterVault<C>
-where
-    C: Clock,
-{
-    fn put(&self, constellation: Constellation) -> Result<CxId> {
-        if constellation.vault_id != self.vault_id {
-            return Err(CalyxError::vault_access_denied(
-                "constellation belongs to another vault",
-            ));
-        }
-        constellation.validate_schema()?;
-
-        self.with_durable_commit_lock(|| {
-            let mut constellation = constellation;
-            let id = constellation.cx_id;
-            let base_key = base_key(id);
-            let latest = self.snapshot();
-            if let Some(existing) = self.rows.read_at(
-                self.snapshot_handle(latest),
-                ColumnFamily::Base,
-                &base_key,
-                &self.clock,
-            )? {
-                let base_bytes = encode::encode_constellation_base(&constellation)?;
-                if existing == base_bytes {
-                    return Ok(id);
-                }
-                if encode::same_constellation_identity(&existing, &base_bytes)? {
-                    let existing_cx = encode::decode_constellation_base(&existing)?;
-                    let incoming_cx = encode::decode_constellation_base(&base_bytes)?;
-                    if let AnchorConflictResult::Conflicting {
-                        anchor_type,
-                        reason,
-                    } = check_anchor_conflict(&incoming_cx, &existing_cx)
-                    {
-                        return Err(CalyxError::aster_corrupt_shard(format!(
-                            "CxId duplicate has conflicting {anchor_type:?} anchor: {reason:?}"
-                        )));
-                    }
-                    return Ok(id);
-                }
-                return Err(CalyxError::aster_corrupt_shard(
-                    "CxId collision or non-idempotent duplicate constellation",
-                ));
-            }
-
-            let mut rows = Vec::new();
-            let mut hook_guard = match &self.ledger_hook {
-                Some(hook) => Some(ledger_hook::lock_hook(hook)?),
-                None => None,
-            };
-            let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
-                let staged = ledger_hook::stage_ingest(hook, &mut rows, &constellation)?;
-                constellation.provenance = staged
-                    .first()
-                    .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
-                    .ledger_ref();
-                Some(staged)
-            } else {
-                rows.push(encode::WriteRow {
-                    cf: ColumnFamily::Ledger,
-                    key: ledger_key(constellation.provenance.seq),
-                    value: ledger_stub::encode(constellation.provenance.seq),
-                });
-                None
-            };
-            let base_bytes = encode::encode_constellation_base(&constellation)?;
-            rows.push(encode::WriteRow {
-                cf: ColumnFamily::Base,
-                key: base_key,
-                value: base_bytes,
-            });
-            for (slot, vector) in &constellation.slots {
-                rows.push(encode::WriteRow {
-                    cf: ColumnFamily::slot(*slot),
-                    key: slot_key(id),
-                    value: encode::encode_slot_vector(vector)?,
-                });
-            }
-            for anchor in &constellation.anchors {
-                rows.push(encode::WriteRow {
-                    cf: ColumnFamily::Anchors,
-                    key: anchor_key(id, &anchor.kind),
-                    value: encode::encode_anchor(anchor)?,
-                });
-            }
-            self.commit_rows_locked(&rows)?;
-            if let (Some(hook), Some(staged)) = (hook_guard.as_deref_mut(), staged_ledger.as_ref())
-            {
-                ledger_hook::commit_staged(hook, staged)?;
-            }
-            Ok(id)
-        })
-    }
-
-    fn get(&self, id: CxId, snapshot: Seq) -> Result<Constellation> {
-        let handle = self.snapshot_handle(snapshot);
-        let base = self
-            .rows
-            .read_at(handle, ColumnFamily::Base, &base_key(id), &self.clock)?
-            .ok_or_else(|| CalyxError::stale_derived("constellation missing at snapshot"))?;
-        let mut constellation = encode::decode_constellation_base(&base)?;
-        let slot_ids: Vec<SlotId> = constellation.slots.keys().copied().collect();
-        let reads: Vec<_> = slot_ids
-            .iter()
-            .map(|slot| CfRead::new(ColumnFamily::slot(*slot), slot_key(id)))
-            .collect();
-        let values = self.rows.read_batch(handle, &reads, &self.clock)?;
-        let mut slots = BTreeMap::new();
-        for (slot, value) in slot_ids.into_iter().zip(values) {
-            let value =
-                value.ok_or_else(|| CalyxError::aster_corrupt_shard("slot CF row missing"))?;
-            slots.insert(slot, encode::decode_slot_vector(&value)?);
-        }
-        constellation.slots = slots;
-        Ok(constellation)
-    }
-
-    fn anchor(&self, id: CxId, anchor: Anchor) -> Result<()> {
-        anchor.validate_schema()?;
-        self.with_recurrence_write_lock(|| {
-            let latest = self.snapshot();
-            let mut constellation = self.get(id, latest)?;
-            constellation.anchors.push(anchor.clone());
-            let rows = [
-                (
-                    ColumnFamily::Base,
-                    base_key(id),
-                    encode::encode_constellation_base(&constellation)?,
-                ),
-                (
-                    ColumnFamily::Anchors,
-                    anchor_key(id, &anchor.kind),
-                    encode::encode_anchor(&anchor)?,
-                ),
-            ];
-            let rows = rows
-                .into_iter()
-                .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
-                .collect::<Vec<_>>();
-            self.commit_rows(&rows)?;
-            Ok(())
-        })
-    }
-
-    fn snapshot(&self) -> Seq {
-        self.latest_seq()
     }
 }
 
