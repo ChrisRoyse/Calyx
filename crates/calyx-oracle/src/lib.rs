@@ -25,7 +25,8 @@ pub use energy::{
 };
 pub use error::{
     CALYX_ORACLE_DOMAIN_NOT_FOUND, CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT,
-    CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE, OracleError,
+    CALYX_ORACLE_LEDGER_WRITE_FAILURE, CALYX_ORACLE_NO_RECURRENCE, CALYX_ORACLE_SLOT_CONFLICT,
+    OracleError,
 };
 
 pub use honesty_gate::{
@@ -68,8 +69,9 @@ pub use time_prediction::{
     time_bucket,
 };
 pub use types::{
-    Consequence, ConsequenceTree, DEFAULT_CONSEQUENCE_TREE_MAX_DEPTH, DomainId,
-    OracleSelfConsistency, Prediction, SufficiencyBound,
+    CompletionResult, CompletionSlotPartition, Consequence, ConsequenceTree,
+    DEFAULT_CONSEQUENCE_TREE_MAX_DEPTH, DomainId, OracleSelfConsistency, Prediction, SlotSet,
+    SlotTag, SufficiencyBound, TaggedSlot,
 };
 
 #[cfg(test)]
