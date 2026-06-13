@@ -1,6 +1,7 @@
 //! Oracle consequence prediction and completion primitives.
 
 mod butterfly;
+mod complete;
 mod energy;
 mod error;
 mod honesty_gate;
@@ -17,6 +18,10 @@ mod types;
 pub use butterfly::{
     HOP_ATTENUATION, MAX_DEPTH, MIN_CONFIDENCE_THRESHOLD, build_tree, expand,
     is_provisional_ledger_ref, provisional_ledger_ref, select,
+};
+pub use complete::{
+    COMPLETION_LEDGER_TAG, CompletionLedger, CompletionLedgerPayload, CompletionRegion,
+    WardCompletionRegion, complete, complete_with_assay_and_region,
 };
 pub use energy::{
     AnnealConfig, CALYX_ORACLE_ENERGY_EMPTY_REGION, CALYX_ORACLE_ENERGY_INVALID_INPUT,
