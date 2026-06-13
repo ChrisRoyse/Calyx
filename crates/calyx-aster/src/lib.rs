@@ -16,6 +16,7 @@ pub mod residency;
 pub mod resource;
 pub mod sst;
 pub mod storage_names;
+pub mod timetravel;
 pub mod vault;
 pub mod wal;
 

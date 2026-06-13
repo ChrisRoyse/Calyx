@@ -105,6 +105,22 @@ impl VersionedCfStore {
         Snapshot::new(seq, freshness, lease)
     }
 
+    /// Pins a reader lease at an explicit historical `seq` (time-travel). The
+    /// lease participates in oldest-pinned-seq accounting so version GC cannot
+    /// reclaim versions at or below `seq` until it is released.
+    pub fn pin_snapshot_at(
+        &self,
+        seq: Seq,
+        freshness: Freshness,
+        clock: &dyn Clock,
+        max_age_ms: u64,
+    ) -> Snapshot {
+        let lease_id = self.next_lease_id.fetch_add(1, Ordering::AcqRel) + 1;
+        let lease = ReaderLease::new(lease_id, seq, clock.now(), max_age_ms);
+        self.leases.register(lease);
+        Snapshot::new(seq, freshness, lease)
+    }
+
     /// Releases one pinned reader lease; returns whether it was still live.
     pub fn release_lease(&self, lease_id: u64) -> bool {
         self.leases.release(lease_id)

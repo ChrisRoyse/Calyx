@@ -68,6 +68,30 @@ where
     }
 
     pub(super) fn commit_rows_locked(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
+        if rows.is_empty() {
+            // Empty commit: do not advance the seq or stamp a time-index entry.
+            return self.commit_prepared_rows(rows);
+        }
+        // Time-travel (PH72 T04): stamp this group-commit with one time-index
+        // entry in the SAME batch as the data, so the (millis -> seqno) mapping
+        // is atomic with the write — a crash can never leave a write without its
+        // time mapping (A15). We hold the durable commit lock here, so the next
+        // allocated seq is exactly current_seq()+1; we assert that against the
+        // committed seq below and fail loud on any divergence (never silent).
+        let predicted = self.rows.current_seq().saturating_add(1);
+        let (cf, key, value) = crate::timetravel::entry_row(self.clock.now(), predicted);
+        let mut all_rows = rows.to_vec();
+        all_rows.push(encode::WriteRow { cf, key, value });
+        let committed = self.commit_prepared_rows(&all_rows)?;
+        if committed != predicted {
+            return Err(CalyxError::aster_corrupt_shard(format!(
+                "time-index seqno prediction {predicted} diverged from committed seq {committed}"
+            )));
+        }
+        Ok(committed)
+    }
+
+    fn commit_prepared_rows(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
         let Some(durable) = &self.durable else {
             return self.commit_rows_to_mvcc(rows);
         };

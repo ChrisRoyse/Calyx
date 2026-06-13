@@ -56,11 +56,13 @@ pub enum ColumnFamily {
     AnnealReport,
     /// Anneal J-over-time growth curve samples.
     AnnealGrowth,
+    /// Time-travel index: `big_endian_u64(millis_utc) || big_endian_u64(seqno)` -> sentinel.
+    TimeIndex,
 }
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 20] = [
+    pub const STATIC: [Self; 21] = [
         Self::Base,
         Self::XTerm,
         Self::TemporalXTerm,
@@ -81,6 +83,7 @@ impl ColumnFamily {
         Self::AnnealSoak,
         Self::AnnealReport,
         Self::AnnealGrowth,
+        Self::TimeIndex,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -130,6 +133,7 @@ impl ColumnFamily {
             Self::AnnealSoak => "anneal_soak".to_string(),
             Self::AnnealReport => "anneal_report".to_string(),
             Self::AnnealGrowth => "anneal_growth".to_string(),
+            Self::TimeIndex => "time_index".to_string(),
         }
     }
 

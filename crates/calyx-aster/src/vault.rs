@@ -351,6 +351,25 @@ where
         self.rows.release_lease(lease_id)
     }
 
+    /// Pins a reader lease at a historical `seq` (time-travel) and returns its
+    /// lease id, which the caller must release with [`Self::release_reader`].
+    pub fn pin_reader_at(&self, seq: Seq, max_age_ms: u64) -> u64 {
+        self.rows
+            .pin_snapshot_at(seq, Freshness::FreshDerived, &self.clock, max_age_ms)
+            .lease()
+            .id()
+    }
+
+    /// Opens a time-travel snapshot as of wall-clock `t_millis` (PRD `17 §8`).
+    pub fn as_of(&self, t_millis: u64) -> Result<crate::timetravel::TimeTravelSnapshot<'_, C>> {
+        crate::timetravel::TimeTravelSnapshot::open(self, t_millis)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn clock_ref(&self) -> &C {
+        &self.clock
+    }
+
     /// Collects the aggregate resource status for this vault (PRD 18 §4).
     ///
     /// `vault_dir` is the durable root this vault was opened from; `vram` is
