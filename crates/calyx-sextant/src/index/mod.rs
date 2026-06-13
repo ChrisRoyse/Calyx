@@ -14,7 +14,7 @@ pub mod tokenizer;
 
 pub use diskann::{
     DiskAnnBuildParams, DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef,
-    build_diskann_graph, node_block_size, open_diskann_graph,
+    DiskAnnSearch, DiskAnnSearchParams, build_diskann_graph, node_block_size, open_diskann_graph,
 };
 pub use dual::{DualIndex, DualSide};
 pub use hnsw::HnswIndex;

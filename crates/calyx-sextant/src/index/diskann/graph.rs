@@ -305,6 +305,20 @@ impl DiskAnnGraphReader {
         self.header.node_count
     }
 
+    pub fn node_block_size(&self) -> usize {
+        self.block
+    }
+
+    pub fn node_block_offset(&self, id: u32) -> Result<u64> {
+        if u64::from(id) >= self.header.node_count {
+            return Err(invalid(format!(
+                "node id {id} >= node_count {}",
+                self.header.node_count
+            )));
+        }
+        Ok((DISKANN_BLOCK_ALIGN + id as usize * self.block) as u64)
+    }
+
     pub fn read_node(&self, id: u32) -> Result<DiskAnnNodeRef<'_>> {
         if u64::from(id) >= self.header.node_count {
             return Err(invalid(format!(
