@@ -14,6 +14,7 @@ path = "src/main.rs"
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }
+nvml-wrapper = { workspace = true }
 calyx-ledger = { path = "../calyx-ledger" }
 prometheus.workspace = true
 serde.workspace = true
