@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use calyx_core::Result;
-use rand::SeedableRng;
 use rand::seq::SliceRandom;
+use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use super::graph::{
@@ -116,17 +116,9 @@ fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec
     }
     let entry = medoid(vectors);
     let mut rng = ChaCha8Rng::seed_from_u64(BUILD_SEED);
-    let mut all: Vec<u32> = (0..n as u32).collect();
     let mut adjacency: Vec<Vec<u32>> = Vec::with_capacity(n);
     for i in 0..n as u32 {
-        all.shuffle(&mut rng);
-        adjacency.push(
-            all.iter()
-                .copied()
-                .filter(|&j| j != i)
-                .take(params.m_max.min(n - 1))
-                .collect(),
-        );
+        adjacency.push(random_neighbors(&mut rng, n, i, params.m_max.min(n - 1)));
     }
     let ef = params.ef_construction.max(params.m_max);
     let mut order: Vec<u32> = (0..n as u32).collect();
@@ -150,6 +142,21 @@ fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec
         }
     }
     (entry, adjacency)
+}
+
+fn random_neighbors(rng: &mut ChaCha8Rng, n: usize, self_id: u32, count: usize) -> Vec<u32> {
+    if count == n.saturating_sub(1) {
+        return (0..n as u32).filter(|&id| id != self_id).collect();
+    }
+    let mut seen = HashSet::with_capacity(count);
+    let mut out = Vec::with_capacity(count);
+    while out.len() < count {
+        let candidate = rng.gen_range(0..n as u32);
+        if candidate != self_id && seen.insert(candidate) {
+            out.push(candidate);
+        }
+    }
+    out
 }
 
 /// Point closest to the dataset centroid (standard DiskANN entry point).
