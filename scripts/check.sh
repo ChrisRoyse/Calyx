@@ -40,3 +40,6 @@ bash "$repo_root/scripts/linecount.sh"
 # Dataset MANIFEST tooling (PH69 T01): synthetic known-I/O + edge battery in a
 # temp root - fast, hermetic, and keeps the digest algorithm pinned.
 bash "$repo_root/scripts/verify_dataset.sh" --self-test
+# DATA BUILD_DONE coverage gate (PH69 T08): hermetic synthetic-MANIFEST
+# battery pinning the 12 required (modality x outcome) cells.
+bash "$repo_root/scripts/check_manifest_coverage.sh" --self-test
