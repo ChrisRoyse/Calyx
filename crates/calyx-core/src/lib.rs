@@ -14,14 +14,14 @@ pub use cosine::{GuardTauProfile, dense_cosine};
 pub use enums::{AbsentReason, AnchorKind, Asymmetry, Modality, QuantPolicy, SlotShape, SlotState};
 pub use error::{CALYX_ERROR_CODES, CalyxError, CalyxErrorCode, CalyxWarning, Result};
 pub use ids::{CxId, LensId, ParseIdError, SlotId, SlotKey, VaultId, content_address};
-pub use security::{
-    AuthN, CALYX_AUTHN_REQUIRED, CALYX_TLS_CONFIG_INVALID, MtlsConfig, TlsConfig,
-    no_anonymous_write,
-};
 pub use model::{
     Anchor, AnchorValue, CALYX_RECORD_SCHEMA_VIOLATION, ConfidenceInterval, Constellation, CxFlags,
     InputRef, LedgerRef, METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Panel, Signal, Slot,
     SlotVector, SparseEntry,
+};
+pub use security::{
+    AuthN, CALYX_AUTHN_REQUIRED, CALYX_TLS_CONFIG_INVALID, MtlsConfig, TlsConfig,
+    no_anonymous_write,
 };
 pub use temporal::{
     BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CALYX_TEMPORAL_INVALID_BOOST_CONFIG,

@@ -9,8 +9,8 @@
 //!      decrypt vault A's bytes.
 
 use calyx_aster::cf::{CfRouter, ColumnFamily};
-use calyx_aster::vault::{GrantEntry, VaultContext};
 use calyx_aster::vault::quota::QuotaConfig;
+use calyx_aster::vault::{GrantEntry, VaultContext};
 use calyx_core::VaultId;
 use calyx_ledger::ActorId;
 use std::path::PathBuf;
@@ -76,18 +76,29 @@ fn ph60_full_stack_tenant_isolation_fsv() {
     assert_eq!(cf, ColumnFamily::Base);
     assert_eq!(user_key, b"cx-0001");
     let recovered = ctx_a.decrypt_value(&nonce, &stored, aad).unwrap();
-    println!("[gate2] decrypted (vault A) = {:?}", String::from_utf8_lossy(&recovered));
+    println!(
+        "[gate2] decrypted (vault A) = {:?}",
+        String::from_utf8_lossy(&recovered)
+    );
     assert_eq!(recovered, plaintext, "vault A recovers its own plaintext");
 
     // ── Gate keyspace: vault A cannot decode a vault-B-prefixed key ──────────
     let b_key = ctx_b.encode_key(ColumnFamily::Base, b"cx-0001");
     let mismatch = ctx_a.decode_key(&b_key).unwrap_err();
-    println!("[keyspace] ctx_a.decode_key(vault_b_key) = Err({})", mismatch.code);
+    println!(
+        "[keyspace] ctx_a.decode_key(vault_b_key) = Err({})",
+        mismatch.code
+    );
     assert_eq!(mismatch.code, "CALYX_VAULT_KEYSPACE_MISMATCH");
 
     // ── Gate 1: cross-vault read denied + audited, then granted ─────────────
-    let denied = ctx_a.check_cross_vault_read(b_id, actor.clone(), now).unwrap_err();
-    println!("[gate1] check_cross_vault_read (no grant) = Err({})", denied.code);
+    let denied = ctx_a
+        .check_cross_vault_read(b_id, actor.clone(), now)
+        .unwrap_err();
+    println!(
+        "[gate1] check_cross_vault_read (no grant) = Err({})",
+        denied.code
+    );
     assert_eq!(denied.code, "CALYX_VAULT_ACCESS_DENIED");
 
     // The denial physically resides in the audit ring.
@@ -116,7 +127,10 @@ fn ph60_full_stack_tenant_isolation_fsv() {
 
     // ── Gate 2b: vault B cannot decrypt vault A's ciphertext ────────────────
     let cross = ctx_b.decrypt_value(&nonce, &stored, aad).unwrap_err();
-    println!("[gate2] ctx_b.decrypt_value(vault_a_ciphertext) = Err({})", cross.code);
+    println!(
+        "[gate2] ctx_b.decrypt_value(vault_a_ciphertext) = Err({})",
+        cross.code
+    );
     assert_eq!(
         cross.code, "CALYX_DECRYPTION_FAILED",
         "different vault -> different derived key -> tag mismatch"

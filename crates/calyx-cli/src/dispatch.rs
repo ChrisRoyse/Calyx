@@ -11,9 +11,9 @@ use crate::cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
 use crate::{
     anneal_commands, anneal_ledger_readback, anneal_mistakes_readback, anneal_status, crash,
     dedup_audit_readback, dedup_readback, fsv, healthcheck, kernel_health_readback, leapable,
-    lodestar_commands, manifest_readback, media_commands, merkle, navigate, ops, oracle_readback,
-    ph42_readback, provenance, recurrence_readback, resource_drill, resource_status, scan,
-    sextant_commands, temporal_log_recurrence_readback, temporal_readback,
+    lodestar_commands, manifest_readback, media_commands, merkle, migrate, navigate, ops,
+    oracle_readback, ph42_readback, provenance, recurrence_readback, resource_drill,
+    resource_status, scan, sextant_commands, temporal_log_recurrence_readback, temporal_readback,
     time_prediction_readback, timetravel_readback, usage, vault_tree, verify, ward_tau_readback,
 };
 
@@ -103,6 +103,7 @@ pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
             recurrence_readback::readback_periodic_recall(rest)
         }
         [command, rest @ ..] if command == "healthcheck" => healthcheck::run(rest),
+        [command, topic, rest @ ..] if command == "migrate" => migrate::run(topic, rest),
         [command, topic, rest @ ..]
             if command == "readback" && oracle_readback::is_topic(topic) =>
         {

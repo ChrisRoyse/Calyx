@@ -25,21 +25,43 @@ The allowed-direct-import tests are ported.
 
 ## Current state (build off what exists)
 
-`calyx-cli` crate exists with all subcommands from PH62. `calyx-mcp` is wired.
-`calyx migrate vault` is a greenfield subcommand within `calyx-cli`. No Rust
-migration code exists yet. The source contract is `vault-sqlite.ts` (Leapable
-TypeScript — defines the chunk schema and identifier invariants); this must be
-mapped to a Rust interface without copying the TS code.
+`calyx-cli` now wires a `migrate` command family through the main dispatch path.
+The implemented commands are:
+
+```
+calyx migrate vault <sqlite.db> <vault.calyx> [--verify] [--backfill-default-panel] [--offline-backfill] [--batch-size <n>]
+calyx migrate backfill <sqlite.db> <vault.calyx> [--offline-backfill] [--batch-size <n>]
+calyx migrate verify <sqlite.db> <vault.calyx> [--require-backfill]
+calyx migrate status <vault.calyx>
+calyx migrate readback <sqlite.db> <vault.calyx> <chunk_id>
+```
+
+The source contract remains `vault-sqlite.ts` (Leapable TypeScript). The Rust
+reader accepts the `chunks(chunk_id, database_name, content, embedding)` schema,
+preserves `chunk_id` and `database_name` in constellation metadata, writes the
+SQLite GTE vector into slot 0, and can lazily backfill the default text panel
+through PH20's persisted `BackfillScheduler`. Backfill writes physical Aster slot
+column-family rows for slots 1 through 7 without rewriting the base slot row.
+
+Issue #598 FSV evidence lives on aiwonder at:
+`/home/croyse/calyx/data/fsv-issue598-lazy-backfill-20260613T132855Z`.
+That run created a real SQLite source DB, migrated it with default-panel
+backfill, read SQLite rows back with `sqlite3`, read Calyx migration status and
+per-chunk readback, inspected physical Aster CF files for `slot_00` through
+`slot_07`, and exercised malformed-schema / malformed-embedding / missing-
+backfill verifier edges.
 
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |
 |---|---|
-| `crates/calyx-cli/src/cmd/migrate.rs` | `migrate vault` subcommand: arg parsing, orchestration |
+| `crates/calyx-cli/src/migrate/mod.rs` | `migrate` command family: arg parsing, orchestration, tests |
 | `crates/calyx-cli/src/migrate/reader.rs` | SQLite reader: open `.db`, iterate `chunks` table, stream rows |
 | `crates/calyx-cli/src/migrate/adapter.rs` | `VaultSqliteAdapter`: maps SQLite row → Constellation; preserves `chunk_id`/`database_name` |
 | `crates/calyx-cli/src/migrate/verifier.rs` | Readback verifier: compare Calyx constellation content bytes vs source SQLite row bytes |
-| `crates/calyx-cli/src/migrate/mod.rs` | Module facade; `pub use` re-exports |
+| `crates/calyx-cli/src/migrate/backfill.rs` | Default-panel lazy backfill: scheduler batches, slot materialization, offline fallback |
+| `crates/calyx-cli/src/migrate/manifest.rs` | Migration manifest, deterministic vault identity, panel/scheduler persistence |
+| `crates/calyx-cli/src/migrate/errors.rs` | Migration-specific CLI error codes |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -55,15 +77,18 @@ mapped to a Rust interface without copying the TS code.
 
 Migrate a real Leapable `.db` file on aiwonder:
 ```
-calyx migrate vault /path/to/real-leapable.db /tmp/migrated.calyx
-calyx readback --cf-row /tmp/migrated.calyx --cf base --key <cx_id_hex>
+calyx migrate vault /path/to/real-leapable.db /tmp/migrated.calyx --verify --backfill-default-panel
+calyx migrate status /tmp/migrated.calyx
+calyx migrate readback /path/to/real-leapable.db /tmp/migrated.calyx <chunk_id>
 ```
 The content bytes in the Calyx constellation (the `input_ref` / raw content bytes
 stored in the base CF row) must be byte-identical to the corresponding content
 from the source SQLite `chunks` row. Verified by the verifier's own output AND by
 a cross-check `sqlite3 real-leapable.db 'SELECT content FROM chunks WHERE
-chunk_id=X'` vs `calyx readback --cf-row … --key <cx_id_hex>`. No harness
-assertion counts — read the bytes on aiwonder.
+chunk_id=X'` vs `calyx migrate readback … <chunk_id>`. For lazy-panel migration,
+`status` must show `slot_0` through `slot_7` rows present and physical Aster
+`slot_00` through `slot_07` column-family files must be inspected on aiwonder. No
+harness assertion counts — read the bytes on aiwonder.
 
 ## Risks / landmines
 

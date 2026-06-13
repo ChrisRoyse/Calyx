@@ -89,7 +89,10 @@ mod tests {
         let (a, b) = (vault(0xA1), vault(0xB2));
         let guard = LensStoreGuard::new(a);
         let err = assert_no_cross_vault_vector(&guard, b).unwrap_err();
-        println!("assert_no_cross_vault_vector(guard_A, vault_B) = Err({})", err.code);
+        println!(
+            "assert_no_cross_vault_vector(guard_A, vault_B) = Err({})",
+            err.code
+        );
         assert_eq!(err.code, CALYX_LENS_CROSS_VAULT);
     }
 
@@ -99,7 +102,9 @@ mod tests {
         let guard = LensStoreGuard::new(vault(0x00));
         for byte in 1u8..=255 {
             assert_eq!(
-                assert_no_cross_vault_vector(&guard, vault(byte)).unwrap_err().code,
+                assert_no_cross_vault_vector(&guard, vault(byte))
+                    .unwrap_err()
+                    .code,
                 CALYX_LENS_CROSS_VAULT,
                 "foreign vault {byte:#x} must be blocked"
             );
@@ -111,6 +116,9 @@ mod tests {
     #[test]
     fn lens_weights_are_vault_agnostic() {
         let lens = LensId::from_parts("sem-self", b"weights", b"corpus", b"768xf32");
-        assert!(content_id_is_vault_agnostic(&lens), "lens weights are shared by design");
+        assert!(
+            content_id_is_vault_agnostic(&lens),
+            "lens weights are shared by design"
+        );
     }
 }

@@ -133,7 +133,10 @@ impl VaultWriteLock {
     /// Recovers from poisoning (a panic while held does not wedge the vault):
     /// the lock protects ordering, not invariant-bearing data.
     pub fn lock(&self) -> VaultWriteLockGuard<'_> {
-        let guard = self.inner.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         VaultWriteLockGuard { _inner: guard }
     }
 
@@ -187,7 +190,11 @@ mod tests {
     #[test]
     fn prefix_is_the_full_16_byte_ulid() {
         let guard = KeyspaceGuard::new(vault(VAULT_A_BYTES));
-        assert_eq!(guard.prefix(), &VAULT_A_BYTES, "prefix must be the full ULID");
+        assert_eq!(
+            guard.prefix(),
+            &VAULT_A_BYTES,
+            "prefix must be the full ULID"
+        );
         assert_eq!(PREFIX_LEN, 16);
     }
 
@@ -213,7 +220,10 @@ mod tests {
         let kb = b.encode_key(ColumnFamily::Base, b"same-key");
         println!("vault A key = {}", hex(&ka));
         println!("vault B key = {}", hex(&kb));
-        assert_ne!(ka, kb, "different vaults must never collide on an identical user key");
+        assert_ne!(
+            ka, kb,
+            "different vaults must never collide on an identical user key"
+        );
         assert_eq!(&ka[..16], &VAULT_A_BYTES);
         assert_eq!(&kb[..16], &VAULT_B_BYTES);
     }
@@ -241,7 +251,10 @@ mod tests {
         // Flip the last prefix byte (offset 15) → no longer owned.
         let mut tampered = raw.clone();
         tampered[15] ^= 0x01;
-        assert!(!a.owns_key(&tampered), "single-byte prefix change must break ownership");
+        assert!(
+            !a.owns_key(&tampered),
+            "single-byte prefix change must break ownership"
+        );
     }
 
     #[test]
@@ -265,7 +278,10 @@ mod tests {
         assert_ne!(q, r);
         assert!(matches!(
             a.decode_key(&r).unwrap().0,
-            ColumnFamily::Slot { kind: SlotFamilyKind::Raw, .. }
+            ColumnFamily::Slot {
+                kind: SlotFamilyKind::Raw,
+                ..
+            }
         ));
     }
 
@@ -293,8 +309,14 @@ mod tests {
         let other = KeyspaceGuard::new(vault(other_bytes));
         let raw = zero.encode_key(ColumnFamily::Base, &[0u8; 8]);
         assert!(zero.owns_key(&raw));
-        assert!(!other.owns_key(&raw), "all-zero key must not alias the neighbouring vault");
-        assert_eq!(other.decode_key(&raw).unwrap_err().code, CALYX_VAULT_KEYSPACE_MISMATCH);
+        assert!(
+            !other.owns_key(&raw),
+            "all-zero key must not alias the neighbouring vault"
+        );
+        assert_eq!(
+            other.decode_key(&raw).unwrap_err().code,
+            CALYX_VAULT_KEYSPACE_MISMATCH
+        );
     }
 
     #[test]
@@ -305,7 +327,10 @@ mod tests {
         let b = KeyspaceGuard::new(vault(b_bytes));
         let ka = a.encode_key(ColumnFamily::Base, b"x");
         assert!(!b.owns_key(&ka));
-        assert_eq!(b.decode_key(&ka).unwrap_err().code, CALYX_VAULT_KEYSPACE_MISMATCH);
+        assert_eq!(
+            b.decode_key(&ka).unwrap_err().code,
+            CALYX_VAULT_KEYSPACE_MISMATCH
+        );
     }
 
     #[test]
@@ -322,7 +347,10 @@ mod tests {
         let lock = VaultWriteLock::new();
         let held = lock.lock();
         // While held, a non-blocking acquire must fail.
-        assert!(lock.try_lock().is_none(), "write lock must exclude a second holder");
+        assert!(
+            lock.try_lock().is_none(),
+            "write lock must exclude a second holder"
+        );
         drop(held);
         // After release, acquire succeeds.
         assert!(lock.try_lock().is_some(), "write lock must release on drop");
@@ -375,7 +403,10 @@ mod tests {
 
         // Separate READ of the source of truth: scan the CF store back.
         let rows = router.range(ColumnFamily::Base, b"", &[0xFF; 64]).unwrap();
-        let stored = rows.iter().find(|e| e.key == key).expect("row must be on disk");
+        let stored = rows
+            .iter()
+            .find(|e| e.key == key)
+            .expect("row must be on disk");
         println!("stored key   = {}", hex(&stored.key));
         println!("stored value = {}", hex(&stored.value));
         assert_eq!(stored.value, value);

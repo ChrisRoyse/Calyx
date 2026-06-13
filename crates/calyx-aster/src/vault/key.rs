@@ -66,13 +66,12 @@ impl VaultKey {
         // HKDF-expand only fails when the requested length exceeds 255*HashLen
         // (255*32 = 8160 bytes). KEY_LEN is 32, so this branch is unreachable;
         // we still surface it as an error rather than unwrap, to stay fail-loud.
-        hk.expand(&info, okm.as_mut_slice()).map_err(|err| {
-            CalyxError {
+        hk.expand(&info, okm.as_mut_slice())
+            .map_err(|err| CalyxError {
                 code: CALYX_VAULT_KEY_MISSING,
                 message: format!("HKDF-SHA-256 expand failed: {err}"),
                 remediation: "report a bug: HKDF output length is fixed at 32 bytes",
-            }
-        })?;
+            })?;
         Ok(Self { inner: okm })
     }
 
@@ -99,10 +98,21 @@ impl VaultKey {
     ///
     /// # Errors
     /// [`CALYX_ENCRYPTION_FAILED`] on any cipher error.
-    pub fn encrypt(&self, nonce: &[u8; NONCE_LEN], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+    pub fn encrypt(
+        &self,
+        nonce: &[u8; NONCE_LEN],
+        plaintext: &[u8],
+        aad: &[u8],
+    ) -> Result<Vec<u8>> {
         let cipher = Aes256Gcm::new(self.aes_gcm_key());
         cipher
-            .encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad })
+            .encrypt(
+                Nonce::from_slice(nonce),
+                Payload {
+                    msg: plaintext,
+                    aad,
+                },
+            )
             .map_err(|_| encryption_failed("AES-256-GCM encryption failed"))
     }
 
@@ -114,7 +124,12 @@ impl VaultKey {
     ///
     /// # Errors
     /// [`CALYX_DECRYPTION_FAILED`] on tag/AAD mismatch or truncated input.
-    pub fn decrypt(&self, nonce: &[u8; NONCE_LEN], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+    pub fn decrypt(
+        &self,
+        nonce: &[u8; NONCE_LEN],
+        ciphertext: &[u8],
+        aad: &[u8],
+    ) -> Result<Vec<u8>> {
         if ciphertext.len() < TAG_LEN {
             return Err(decryption_failed(format!(
                 "ciphertext is {} bytes, shorter than the {TAG_LEN}-byte GCM tag",
@@ -123,7 +138,13 @@ impl VaultKey {
         }
         let cipher = Aes256Gcm::new(self.aes_gcm_key());
         cipher
-            .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+            .decrypt(
+                Nonce::from_slice(nonce),
+                Payload {
+                    msg: ciphertext,
+                    aad,
+                },
+            )
             .map_err(|_| decryption_failed("AES-256-GCM tag verification failed"))
     }
 }
@@ -131,7 +152,9 @@ impl VaultKey {
 impl std::fmt::Debug for VaultKey {
     /// Never prints the secret bytes.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VaultKey").field("inner", &"<redacted>").finish()
+        f.debug_struct("VaultKey")
+            .field("inner", &"<redacted>")
+            .finish()
     }
 }
 
@@ -167,9 +190,7 @@ mod tests {
     /// Fixed synthetic master material (32 bytes) — the `2+2` known input.
     const MASTER: &[u8] = b"calyx-test-master-key-0123456789";
     /// Fixed synthetic ULID bytes `01 02 .. 10` → HKDF `info`.
-    const VAULT_ULID_BYTES: [u8; 16] = [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
-    ];
+    const VAULT_ULID_BYTES: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     /// Golden HKDF-SHA-256 output, computed independently by Python
     /// `cryptography.hazmat.primitives.kdf.hkdf.HKDF` (the external oracle).
     const GOLDEN_KEY: [u8; 32] = [
@@ -199,18 +220,27 @@ mod tests {
         let derived = *key.inner;
         println!("derived key = {}", hex(&derived));
         println!("golden  key = {}", hex(&GOLDEN_KEY));
-        assert_eq!(derived, GOLDEN_KEY, "HKDF-SHA-256 derivation drifted from golden vector");
+        assert_eq!(
+            derived, GOLDEN_KEY,
+            "HKDF-SHA-256 derivation drifted from golden vector"
+        );
     }
 
     #[test]
     fn derive_is_deterministic_and_vault_scoped() {
         let a = VaultKey::derive(MASTER, &test_vault_id()).unwrap();
         let b = VaultKey::derive(MASTER, &test_vault_id()).unwrap();
-        assert_eq!(*a.inner, *b.inner, "same (master, vault) must derive same key");
+        assert_eq!(
+            *a.inner, *b.inner,
+            "same (master, vault) must derive same key"
+        );
 
         let other = VaultId::from_ulid(Ulid::from_bytes([99; 16]));
         let c = VaultKey::derive(MASTER, &other).unwrap();
-        assert_ne!(*a.inner, *c.inner, "different vault_id must derive a different key");
+        assert_ne!(
+            *a.inner, *c.inner,
+            "different vault_id must derive a different key"
+        );
     }
 
     #[test]
@@ -241,7 +271,11 @@ mod tests {
     fn empty_plaintext_encrypts_to_tag_only() {
         let key = VaultKey::from_raw(GOLDEN_KEY);
         let ct = key.encrypt(&NONCE, b"", AAD).unwrap();
-        assert_eq!(ct.len(), TAG_LEN, "empty plaintext → 16-byte tag-only ciphertext");
+        assert_eq!(
+            ct.len(),
+            TAG_LEN,
+            "empty plaintext → 16-byte tag-only ciphertext"
+        );
         let pt = key.decrypt(&NONCE, &ct, AAD).unwrap();
         assert!(pt.is_empty());
     }
@@ -261,7 +295,10 @@ mod tests {
         let last = ct.len() - 1;
         ct[last] ^= 0x01;
         let err = key.decrypt(&NONCE, &ct, AAD).unwrap_err();
-        assert_eq!(err.code, CALYX_DECRYPTION_FAILED, "tampered tag must not yield plaintext");
+        assert_eq!(
+            err.code, CALYX_DECRYPTION_FAILED,
+            "tampered tag must not yield plaintext"
+        );
     }
 
     #[test]
@@ -290,7 +327,11 @@ mod tests {
         // SAFETY: `raw` is a live, aligned, initialized allocation from `Box`.
         let byte_ptr = unsafe { (*raw).inner.as_ptr() };
         // SAFETY: same live allocation; bytes are initialized to 0xAA.
-        assert_eq!(unsafe { *byte_ptr }, 0xAA, "precondition: bytes set before drop");
+        assert_eq!(
+            unsafe { *byte_ptr },
+            0xAA,
+            "precondition: bytes set before drop"
+        );
         // SAFETY: `raw` points to a live, initialized `VaultKey`; this runs its
         // destructor (zeroizing `inner` in place) exactly once and leaves the
         // backing allocation intact.
@@ -298,7 +339,10 @@ mod tests {
         // SAFETY: the allocation is still live (only the destructor ran, not the
         // free); we read 32 initialized `u8`s from it.
         let after = unsafe { std::slice::from_raw_parts(byte_ptr, KEY_LEN) };
-        assert_eq!(after, &[0_u8; KEY_LEN], "secret bytes must be zeroized on drop");
+        assert_eq!(
+            after, &[0_u8; KEY_LEN],
+            "secret bytes must be zeroized on drop"
+        );
         // SAFETY: reclaim the allocation without re-running the destructor.
         unsafe { drop(Box::from_raw(raw as *mut ManuallyDrop<VaultKey>)) };
     }
