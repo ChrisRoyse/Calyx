@@ -8,6 +8,12 @@
 //! wedged verify loop) and a per-outcome run counter whose label values are
 //! pre-initialized at registration so the series exist from the first scrape.
 
+mod calyx;
+mod hazards;
+
+pub use calyx::{CalyxMetrics, SearchStrategy};
+pub use hazards::HAZARD_IDS;
+
 use prometheus::{IntCounterVec, IntGaugeVec, Opts, Registry, TextEncoder};
 
 /// Outcome of one chain-verify run, in `calyx_ledger` verdict order.
@@ -153,9 +159,10 @@ impl ChainVerifyMetrics {
     }
 }
 
-/// In-process readback surface for unit tests (the production readback is
-/// the encoded `/metrics` text itself).
-#[cfg(test)]
+/// In-process readback accessors (the production readback is the encoded
+/// `/metrics` text itself). Public API rather than test-gated because the
+/// binary's verify-loop tests, which depend on this library crate, exercise
+/// them across the crate boundary.
 impl ChainVerifyMetrics {
     pub fn family_count(&self) -> usize {
         self.registry.gather().len()
