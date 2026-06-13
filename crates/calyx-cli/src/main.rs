@@ -18,6 +18,7 @@ mod anneal_propose_lens_run;
 mod anneal_propose_preview;
 mod anneal_regression_readback;
 mod anneal_replay_readback;
+mod anneal_soak;
 mod anneal_soak_report;
 mod anneal_status;
 mod budget_readback;
