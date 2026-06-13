@@ -256,7 +256,9 @@ mod tests {
         let (a, b) = (vault(0xA1), vault(0xB2));
         store.add_grant(grant(a, b, actor("agent1"), None));
         // Trigger X: the granted cross-vault read.
-        store.check_grant(a, b, actor("agent1"), T).expect("grant must allow");
+        store
+            .check_grant(a, b, actor("agent1"), T)
+            .expect("grant must allow");
         println!("audit ring = {}", ring_json(&store));
         // Outcome Y: exactly one Granted event, no Denied event.
         let events = store.audit_events(16);
@@ -275,7 +277,10 @@ mod tests {
         // expires_at = T-1: at now=T the grant is expired -> denied.
         let expired = store_setup(Some(T - 1));
         assert_eq!(
-            expired.check_grant(a, b, actor("agent1"), T).unwrap_err().code,
+            expired
+                .check_grant(a, b, actor("agent1"), T)
+                .unwrap_err()
+                .code,
             "CALYX_VAULT_ACCESS_DENIED"
         );
         // expires_at = T (exclusive boundary): now=T is expired -> denied.
@@ -293,7 +298,10 @@ mod tests {
         store.add_grant(grant(a, b, actor("agent1"), None));
         // agent2 has no grant even though agent1 does.
         assert_eq!(
-            store.check_grant(a, b, actor("agent2"), T).unwrap_err().code,
+            store
+                .check_grant(a, b, actor("agent2"), T)
+                .unwrap_err()
+                .code,
             "CALYX_VAULT_ACCESS_DENIED"
         );
         assert!(store.check_grant(a, b, actor("agent1"), T).is_ok());
@@ -305,7 +313,11 @@ mod tests {
         let (a, b) = (vault(0xA1), vault(0xB2));
         store.add_grant(grant(a, b, actor("agent1"), Some(T + 10)));
         store.add_grant(grant(a, b, actor("agent1"), Some(T + 99))); // re-issue
-        assert_eq!(store.grant_count(), 1, "re-issuing must replace, not duplicate");
+        assert_eq!(
+            store.grant_count(),
+            1,
+            "re-issuing must replace, not duplicate"
+        );
         // The replacement's expiry is in effect.
         assert!(store.check_grant(a, b, actor("agent1"), T + 50).is_ok());
     }
@@ -320,13 +332,24 @@ mod tests {
         assert_eq!(store.grant_count(), 0);
         // After revoke: denied, and a Revoked event precedes the Denied one.
         assert_eq!(
-            store.check_grant(a, b, actor("agent1"), T).unwrap_err().code,
+            store
+                .check_grant(a, b, actor("agent1"), T)
+                .unwrap_err()
+                .code,
             "CALYX_VAULT_ACCESS_DENIED"
         );
         let events = store.audit_events(16);
         println!("audit ring = {}", ring_json(&store));
-        assert!(events.iter().any(|e| matches!(e, AuditEvent::Revoked { .. })));
-        assert!(events.iter().any(|e| matches!(e, AuditEvent::Denied { .. })));
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, AuditEvent::Revoked { .. }))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, AuditEvent::Denied { .. }))
+        );
     }
 
     #[test]
@@ -346,7 +369,11 @@ mod tests {
         for i in 0..(AUDIT_RING_CAPACITY + 1) {
             let _ = store.check_grant(a, b, actor(&format!("a{i}")), T);
         }
-        assert_eq!(store.audit_len(), AUDIT_RING_CAPACITY, "ring is capacity-bounded");
+        assert_eq!(
+            store.audit_len(),
+            AUDIT_RING_CAPACITY,
+            "ring is capacity-bounded"
+        );
         let all = store.audit_events(AUDIT_RING_CAPACITY + 100);
         assert_eq!(all.len(), AUDIT_RING_CAPACITY);
         // Oldest retained is "a1" (a0 evicted); newest is "a1024".
@@ -358,7 +385,11 @@ mod tests {
             AuditEvent::Denied { actor, .. } => actor.clone(),
             other => panic!("unexpected last event: {other:?}"),
         };
-        assert_eq!(first_actor, actor("a1"), "oldest event (a0) must be evicted");
+        assert_eq!(
+            first_actor,
+            actor("a1"),
+            "oldest event (a0) must be evicted"
+        );
         assert_eq!(last_actor, actor(&format!("a{AUDIT_RING_CAPACITY}")));
     }
 

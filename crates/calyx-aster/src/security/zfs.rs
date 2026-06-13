@@ -86,7 +86,10 @@ pub fn classify_zfs_output(
         let value = stdout.trim();
         // `encryption=off` (or empty/`none`) means no at-rest encryption; any
         // other non-empty value is the active cipher suite.
-        if value.is_empty() || value.eq_ignore_ascii_case("off") || value.eq_ignore_ascii_case("none") {
+        if value.is_empty()
+            || value.eq_ignore_ascii_case("off")
+            || value.eq_ignore_ascii_case("none")
+        {
             ZfsEncryptionStatus::Disabled
         } else {
             ZfsEncryptionStatus::Enabled {
@@ -155,7 +158,10 @@ mod tests {
                 algorithm: "aes-256-gcm".to_string()
             }
         );
-        assert!(operator_guidance(&status).is_none(), "enabled needs no guidance");
+        assert!(
+            operator_guidance(&status).is_none(),
+            "enabled needs no guidance"
+        );
     }
 
     #[test]
@@ -166,7 +172,10 @@ mod tests {
         }
         let guidance = operator_guidance(&ZfsEncryptionStatus::Disabled);
         println!("disabled guidance = {guidance:?}");
-        assert!(guidance.is_some_and(|s| !s.is_empty()), "disabled must guide the operator");
+        assert!(
+            guidance.is_some_and(|s| !s.is_empty()),
+            "disabled must guide the operator"
+        );
     }
 
     #[test]
@@ -187,7 +196,10 @@ mod tests {
         // exit 1 with a non-"does not exist" stderr (e.g. EPERM) -> not available.
         let status = classify_zfs_output(false, "", "permission denied\n", "tank/calyx");
         assert_eq!(status, ZfsEncryptionStatus::ZfsNotAvailable);
-        assert!(operator_guidance(&status).is_none(), "unavailable is not actionable");
+        assert!(
+            operator_guidance(&status).is_none(),
+            "unavailable is not actionable"
+        );
     }
 
     #[test]

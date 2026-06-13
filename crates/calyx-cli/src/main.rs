@@ -44,6 +44,7 @@ mod media_commands;
 mod media_emotion_validation;
 mod media_image_validation;
 mod merkle;
+mod migrate;
 mod navigate;
 mod ops;
 mod oracle_readback;

@@ -222,9 +222,17 @@ mod tests {
         println!("after 500: counters = {:?}", g.counters());
         // cumulative 1100 > 1000 -> exceeded.
         let err = g.charge_ingest(600, T).unwrap_err();
-        println!("charge_ingest(600) = Err({}); counters = {:?}", err.code, g.counters());
+        println!(
+            "charge_ingest(600) = Err({}); counters = {:?}",
+            err.code,
+            g.counters()
+        );
         assert_eq!(err.code, "CALYX_QUOTA_EXCEEDED");
-        assert_eq!(g.counters().0, 1100, "tripping charge is counted (window stays tripped)");
+        assert_eq!(
+            g.counters().0,
+            1100,
+            "tripping charge is counted (window stays tripped)"
+        );
     }
 
     #[test]
@@ -250,7 +258,11 @@ mod tests {
         // delta exactly WINDOW_NS -> NEW window (inclusive boundary) -> reset,
         // so a full 1000 fits again and the counter shows the fresh total.
         assert!(g.charge_ingest(1000, T + WINDOW_NS).is_ok());
-        assert_eq!(g.counters().0, 1000, "exactly-WINDOW_NS delta starts a fresh window");
+        assert_eq!(
+            g.counters().0,
+            1000,
+            "exactly-WINDOW_NS delta starts a fresh window"
+        );
     }
 
     #[test]
@@ -268,7 +280,10 @@ mod tests {
     fn zero_charge_always_ok_even_when_tripped() {
         let g = guard(QuotaConfig::default());
         let _ = g.charge_ingest(2000, T); // trip
-        assert!(g.charge_ingest(0, T).is_ok(), "zero charge never exceeds quota");
+        assert!(
+            g.charge_ingest(0, T).is_ok(),
+            "zero charge never exceeds quota"
+        );
         assert!(g.charge_query(0, T).is_ok());
         assert!(g.charge_io(0, T).is_ok());
     }
@@ -287,12 +302,26 @@ mod tests {
         let g = guard(QuotaConfig::default()); // 1000 CX/s
         assert!(g.charge_ingest(800, T).is_ok());
         // Lower the limit mid-window; current window keeps the old 1000 budget.
-        g.update_config(QuotaConfig { max_ingest_cx_per_sec: 100, ..QuotaConfig::default() });
-        assert_eq!(g.active_config().max_ingest_cx_per_sec, 1000, "current window unchanged");
-        assert!(g.charge_ingest(150, T).is_ok(), "still under old 1000 budget this window");
+        g.update_config(QuotaConfig {
+            max_ingest_cx_per_sec: 100,
+            ..QuotaConfig::default()
+        });
+        assert_eq!(
+            g.active_config().max_ingest_cx_per_sec,
+            1000,
+            "current window unchanged"
+        );
+        assert!(
+            g.charge_ingest(150, T).is_ok(),
+            "still under old 1000 budget this window"
+        );
         // Next window applies the new 100 limit.
         assert!(g.charge_ingest(150, T + WINDOW_NS + 1).is_err());
-        assert_eq!(g.active_config().max_ingest_cx_per_sec, 100, "new window applies pending config");
+        assert_eq!(
+            g.active_config().max_ingest_cx_per_sec,
+            100,
+            "new window applies pending config"
+        );
     }
 
     #[test]
@@ -300,7 +329,10 @@ mod tests {
         // The correctness proof the lock-free design would fail: 8 threads each
         // try 50 unit charges in ONE window; with a 100-CX limit EXACTLY 100
         // must be admitted, never more (no silent over-admission).
-        let g = Arc::new(guard(QuotaConfig { max_ingest_cx_per_sec: 100, ..QuotaConfig::default() }));
+        let g = Arc::new(guard(QuotaConfig {
+            max_ingest_cx_per_sec: 100,
+            ..QuotaConfig::default()
+        }));
         // Start the window deterministically at T so no thread triggers a reset.
         g.charge_ingest(0, T).ok();
         let mut handles = Vec::new();
@@ -317,8 +349,14 @@ mod tests {
             }));
         }
         let total_admitted: u32 = handles.into_iter().map(|h| h.join().unwrap()).sum();
-        println!("admitted under concurrency = {total_admitted} (limit 100); counter = {:?}", g.counters());
-        assert_eq!(total_admitted, 100, "exactly the limit admitted — no over/under-admission");
+        println!(
+            "admitted under concurrency = {total_admitted} (limit 100); counter = {:?}",
+            g.counters()
+        );
+        assert_eq!(
+            total_admitted, 100,
+            "exactly the limit admitted — no over/under-admission"
+        );
     }
 
     proptest::proptest! {

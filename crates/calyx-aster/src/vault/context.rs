@@ -89,7 +89,8 @@ impl VaultContext {
     /// [`CALYX_VAULT_ACCESS_DENIED`](calyx_core::CalyxError::vault_access_denied)
     /// if no active grant exists; the denial is audited in the grant store.
     pub fn check_cross_vault_read(&self, dst: VaultId, actor: ActorId, now: Ts) -> Result<()> {
-        self.grants_read().check_grant(self.vault_id, dst, actor, now)
+        self.grants_read()
+            .check_grant(self.vault_id, dst, actor, now)
     }
 
     /// Encodes a storable, vault-prefixed CF key (`prefix ‖ cf_tag ‖ user_key`).
@@ -112,7 +113,12 @@ impl VaultContext {
     }
 
     /// AES-256-GCM decrypts a value under this vault's key (fails closed).
-    pub fn decrypt_value(&self, nonce: &[u8; 12], ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+    pub fn decrypt_value(
+        &self,
+        nonce: &[u8; 12],
+        ciphertext: &[u8],
+        aad: &[u8],
+    ) -> Result<Vec<u8>> {
         self.key.decrypt(nonce, ciphertext, aad)
     }
 
@@ -122,12 +128,16 @@ impl VaultContext {
     }
 
     fn grants_read(&self) -> RwLockReadGuard<'_, GrantStore> {
-        self.grants.read().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.grants
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// Write access to the grant store, recovering from lock poisoning.
     pub fn grants_write(&self) -> RwLockWriteGuard<'_, GrantStore> {
-        self.grants.write().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.grants
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -143,15 +153,18 @@ mod tests {
 
     #[test]
     fn new_with_empty_master_fails_closed() {
-        let err = VaultContext::new(vault(0xA1), b"", QuotaConfig::default(), "tank/calyx").unwrap_err();
+        let err =
+            VaultContext::new(vault(0xA1), b"", QuotaConfig::default(), "tank/calyx").unwrap_err();
         assert_eq!(err.code, "CALYX_VAULT_KEY_MISSING");
     }
 
     #[test]
     fn same_master_different_vault_derives_distinct_keys() {
         let master = b"shared-master-key-material-000000";
-        let a = VaultContext::new(vault(0xA1), master, QuotaConfig::default(), "tank/calyx").unwrap();
-        let b = VaultContext::new(vault(0xB2), master, QuotaConfig::default(), "tank/calyx").unwrap();
+        let a =
+            VaultContext::new(vault(0xA1), master, QuotaConfig::default(), "tank/calyx").unwrap();
+        let b =
+            VaultContext::new(vault(0xB2), master, QuotaConfig::default(), "tank/calyx").unwrap();
         // Same plaintext+nonce+aad encrypts differently because HKDF info (the
         // vault id) differs -> different derived keys.
         let nonce = [7u8; 12];
@@ -163,7 +176,13 @@ mod tests {
     #[test]
     fn context_constructs_when_zfs_unavailable() {
         // ZFS absence is not an error — context still constructs.
-        let ctx = VaultContext::new(vault(0xA1), b"k0123456789abcdef", QuotaConfig::default(), "tank/none").unwrap();
+        let ctx = VaultContext::new(
+            vault(0xA1),
+            b"k0123456789abcdef",
+            QuotaConfig::default(),
+            "tank/none",
+        )
+        .unwrap();
         println!("zfs_status = {:?}", ctx.zfs_status());
         // On this dev host: not Enabled, but construction succeeded.
         assert_eq!(ctx.vault_id(), vault(0xA1));
@@ -174,22 +193,36 @@ mod tests {
         let ctx = VaultContext::new(
             vault(0xA1),
             b"k0123456789abcdef",
-            QuotaConfig { max_ingest_cx_per_sec: 10, ..QuotaConfig::default() },
+            QuotaConfig {
+                max_ingest_cx_per_sec: 10,
+                ..QuotaConfig::default()
+            },
             "tank/calyx",
         )
         .unwrap();
         assert!(ctx.charge_ingest(10, 1_000_000_000).is_ok());
-        assert_eq!(ctx.charge_ingest(1, 1_000_000_000).unwrap_err().code, "CALYX_QUOTA_EXCEEDED");
+        assert_eq!(
+            ctx.charge_ingest(1, 1_000_000_000).unwrap_err().code,
+            "CALYX_QUOTA_EXCEEDED"
+        );
     }
 
     #[test]
     fn cross_vault_denied_then_granted() {
-        let a = VaultContext::new(vault(0xA1), b"k0123456789abcdef", QuotaConfig::default(), "tank/calyx").unwrap();
+        let a = VaultContext::new(
+            vault(0xA1),
+            b"k0123456789abcdef",
+            QuotaConfig::default(),
+            "tank/calyx",
+        )
+        .unwrap();
         let b_id = vault(0xB2);
         let actor = ActorId::Agent("agent1".to_string());
         // Default-deny.
         assert_eq!(
-            a.check_cross_vault_read(b_id, actor.clone(), 1_000).unwrap_err().code,
+            a.check_cross_vault_read(b_id, actor.clone(), 1_000)
+                .unwrap_err()
+                .code,
             "CALYX_VAULT_ACCESS_DENIED"
         );
         // Grant, then allowed.

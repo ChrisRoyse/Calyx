@@ -106,7 +106,10 @@ impl AuthN {
     /// `false` for [`AuthN::InProcess`]. `calyxd` uses this to enforce that a
     /// server-mode principal is never in-process.
     pub fn is_server_mode(&self) -> bool {
-        matches!(self, AuthN::MtlsToken { .. } | AuthN::CloudflareAccess { .. })
+        matches!(
+            self,
+            AuthN::MtlsToken { .. } | AuthN::CloudflareAccess { .. }
+        )
     }
 }
 
@@ -173,32 +176,55 @@ mod tests {
 
     #[test]
     fn no_anonymous_write_accepts_mtls_token() {
-        let authn = AuthN::MtlsToken { fingerprint: [7u8; 32] };
+        let authn = AuthN::MtlsToken {
+            fingerprint: [7u8; 32],
+        };
         assert!(no_anonymous_write(Some(&authn)).is_ok());
     }
 
     #[test]
     fn empty_host_app_id_is_still_an_identity() {
         // Presence, not content, is what this gate checks.
-        let authn = AuthN::InProcess { host_app_id: String::new() };
+        let authn = AuthN::InProcess {
+            host_app_id: String::new(),
+        };
         assert!(no_anonymous_write(Some(&authn)).is_ok());
     }
 
     #[test]
     fn is_server_mode_per_variant() {
-        assert!(!AuthN::InProcess { host_app_id: "h".into() }.is_server_mode());
-        assert!(AuthN::MtlsToken { fingerprint: [0u8; 32] }.is_server_mode());
         assert!(
-            AuthN::CloudflareAccess { service_token_id: "svc".into() }.is_server_mode()
+            !AuthN::InProcess {
+                host_app_id: "h".into()
+            }
+            .is_server_mode()
+        );
+        assert!(
+            AuthN::MtlsToken {
+                fingerprint: [0u8; 32]
+            }
+            .is_server_mode()
+        );
+        assert!(
+            AuthN::CloudflareAccess {
+                service_token_id: "svc".into()
+            }
+            .is_server_mode()
         );
     }
 
     #[test]
     fn authn_round_trips_for_all_three_variants() {
         for authn in [
-            AuthN::InProcess { host_app_id: "host-1".into() },
-            AuthN::MtlsToken { fingerprint: [3u8; 32] },
-            AuthN::CloudflareAccess { service_token_id: "tok-9".into() },
+            AuthN::InProcess {
+                host_app_id: "host-1".into(),
+            },
+            AuthN::MtlsToken {
+                fingerprint: [3u8; 32],
+            },
+            AuthN::CloudflareAccess {
+                service_token_id: "tok-9".into(),
+            },
         ] {
             let bytes = serde_json::to_vec(&authn).expect("serialize");
             let back: AuthN = serde_json::from_slice(&bytes).expect("deserialize");
