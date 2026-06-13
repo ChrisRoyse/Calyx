@@ -9,6 +9,8 @@ pub enum DaemonError {
     BindFailed { detail: String },
     /// Invalid CLI arguments or verify-target paths.
     ConfigInvalid { detail: String },
+    /// VRAM budget out of the daemon's accepted range (`0 < x <= ceiling`).
+    VramBudget { detail: String },
 }
 
 impl DaemonError {
@@ -24,11 +26,18 @@ impl DaemonError {
         }
     }
 
+    pub fn vram_budget(detail: impl Into<String>) -> Self {
+        Self::VramBudget {
+            detail: detail.into(),
+        }
+    }
+
     /// Stable wire code for the error.
     pub fn code(&self) -> &'static str {
         match self {
             Self::BindFailed { .. } => "CALYX_DAEMON_BIND_FAILED",
             Self::ConfigInvalid { .. } => "CALYX_DAEMON_CONFIG_INVALID",
+            Self::VramBudget { .. } => "CALYX_FORGE_VRAM_BUDGET",
         }
     }
 }
@@ -36,7 +45,9 @@ impl DaemonError {
 impl fmt::Display for DaemonError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let detail = match self {
-            Self::BindFailed { detail } | Self::ConfigInvalid { detail } => detail,
+            Self::BindFailed { detail }
+            | Self::ConfigInvalid { detail }
+            | Self::VramBudget { detail } => detail,
         };
         write!(f, "{}: {detail}", self.code())
     }
@@ -65,6 +76,16 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "CALYX_DAEMON_CONFIG_INVALID: missing --vault"
+        );
+    }
+
+    #[test]
+    fn vram_budget_displays_stable_code_and_detail() {
+        let error = DaemonError::vram_budget("vram_budget_mib 0 out of range");
+        assert_eq!(error.code(), "CALYX_FORGE_VRAM_BUDGET");
+        assert_eq!(
+            error.to_string(),
+            "CALYX_FORGE_VRAM_BUDGET: vram_budget_mib 0 out of range"
         );
     }
 }

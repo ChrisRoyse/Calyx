@@ -6,6 +6,7 @@
 //! `CALYX_DAEMON_BIND_FAILED`. A broken/corrupt/unverifiable chain is not an
 //! exit — it is the alert: the gauge holds 0 until the chain verifies intact.
 
+mod config;
 mod error;
 mod metrics;
 mod server;
@@ -17,6 +18,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
+use config::CalyxConfig;
 use error::DaemonError;
 use metrics::ChainVerifyMetrics;
 use server::MetricsServer;
@@ -24,11 +26,14 @@ use verify_loop::{TargetKind, VerifyTarget, run_cycle, spawn_loop};
 
 const USAGE: &str = "usage: calyxd (--vault <dir> | --ledger <dir>)... \
 [--bind <loopback-addr:port>] [--interval-secs <n>] [--once]
+       calyxd --config <calyx.toml> --validate-config
   --vault <dir>        Aster vault directory to chain-verify (repeatable)
   --ledger <dir>       standalone directory ledger to chain-verify (repeatable)
   --bind <addr>        loopback listen address (default 127.0.0.1:7700)
   --interval-secs <n>  seconds between verify cycles (default 60, min 1)
-  --once               run one verify cycle, print metrics text, exit";
+  --once               run one verify cycle, print metrics text, exit
+  --config <path>      path to a calyx.toml runtime config file
+  --validate-config    parse+validate --config, print it (no secrets), exit";
 
 #[derive(Debug)]
 struct Config {
@@ -36,6 +41,8 @@ struct Config {
     bind: SocketAddr,
     interval: Duration,
     once: bool,
+    config_path: Option<PathBuf>,
+    validate_config: bool,
 }
 
 fn main() -> ExitCode {
@@ -46,8 +53,39 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if config.validate_config {
+        return validate_config(config.config_path.as_deref());
+    }
     match run(config) {
         Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// `--validate-config`: load the reference TOML, run fail-closed validation, and
+/// print the parsed config (which holds no secrets). Exits 0 on success, 2 with
+/// the stable `CALYX_*` error code on any failure.
+fn validate_config(path: Option<&std::path::Path>) -> ExitCode {
+    let Some(path) = path else {
+        eprintln!(
+            "calyxd: {}",
+            DaemonError::config_invalid("--validate-config requires --config <path>")
+        );
+        return ExitCode::from(2);
+    };
+    match CalyxConfig::from_file(path) {
+        Ok(config) => {
+            println!("calyxd: config {} OK", path.display());
+            println!("{config:#?}");
+            println!(
+                "calyxd: vault_path_resolved = {}",
+                config.vault_path_resolved().display()
+            );
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             eprintln!("calyxd: {error}");
             ExitCode::from(2)
@@ -92,10 +130,17 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
         .expect("default bind address parses");
     let mut interval = Duration::from_secs(60);
     let mut once = false;
+    let mut config_path = None;
+    let mut validate_config = false;
 
     let mut iter = args.into_iter();
     while let Some(flag) = iter.next() {
         match flag.as_str() {
+            "--config" => {
+                let value = require_value(&flag, iter.next())?;
+                config_path = Some(PathBuf::from(value));
+            }
+            "--validate-config" => validate_config = true,
             "--vault" | "--ledger" => {
                 let path = require_value(&flag, iter.next())?;
                 let kind = if flag == "--vault" {
@@ -133,7 +178,8 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
         }
     }
 
-    if targets.is_empty() {
+    // `--validate-config` is a standalone mode that needs no verify targets.
+    if !validate_config && targets.is_empty() {
         return Err(DaemonError::config_invalid(
             "at least one --vault or --ledger target is required",
         ));
@@ -143,6 +189,8 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
         bind,
         interval,
         once,
+        config_path,
+        validate_config,
     })
 }
 
@@ -203,5 +251,24 @@ mod tests {
         let config = parse_args(args(&["--vault", "Z:/missing/vault-602", "--once"])).unwrap();
         let error = run(config).unwrap_err();
         assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
+    }
+
+    #[test]
+    fn parse_args_validate_config_needs_no_target() {
+        let config = parse_args(args(&["--config", "infra/aiwonder/calyx.toml", "--validate-config"]))
+            .expect("validate-config mode requires no verify target");
+        assert!(config.validate_config);
+        assert_eq!(
+            config.config_path,
+            Some(PathBuf::from("infra/aiwonder/calyx.toml"))
+        );
+        assert!(config.targets.is_empty());
+    }
+
+    #[test]
+    fn parse_args_config_requires_value() {
+        let error = parse_args(args(&["--config"])).unwrap_err();
+        assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
+        assert!(error.to_string().contains("--config requires a value"));
     }
 }
