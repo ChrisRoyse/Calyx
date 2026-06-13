@@ -1,6 +1,7 @@
 //! Oracle consequence prediction and completion primitives.
 
 mod butterfly;
+mod energy;
 mod error;
 mod honesty_gate;
 mod prd22;
@@ -16,6 +17,11 @@ mod types;
 pub use butterfly::{
     HOP_ATTENUATION, MAX_DEPTH, MIN_CONFIDENCE_THRESHOLD, build_tree, expand,
     is_provisional_ledger_ref, provisional_ledger_ref, select,
+};
+pub use energy::{
+    AnnealConfig, CALYX_ORACLE_ENERGY_EMPTY_REGION, CALYX_ORACLE_ENERGY_INVALID_INPUT,
+    DEFAULT_BETA, DEFAULT_EPS, DescentResult, MAX_STEPS, descend, descent_step, energy,
+    energy_softmax_weights, get_beta,
 };
 pub use error::{
     CALYX_ORACLE_DOMAIN_NOT_FOUND, CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT,
