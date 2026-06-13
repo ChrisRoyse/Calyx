@@ -7,6 +7,7 @@
 //! exit — it is the alert: the gauge holds 0 until the chain verifies intact.
 
 mod config;
+mod cuda_probe;
 mod error;
 mod metrics;
 mod server;
@@ -56,7 +57,57 @@ fn main() -> ExitCode {
     if config.validate_config {
         return validate_config(config.config_path.as_deref());
     }
+    // Server mode: a --config (without --validate-config) boots the config-driven
+    // daemon, which begins with a fatal CUDA preflight before any other init.
+    if let Some(path) = config.config_path.clone() {
+        return run_server(&path, config.once);
+    }
     match run(config) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+/// Server mode: load `calyx.toml`, run the fatal CUDA preflight, then chain-verify
+/// the configured vault on the configured loopback. The CUDA preflight is the
+/// PH65 T02 deliverable; T03 adds the VRAM audit and T05/T06 the MCP dispatch.
+///
+/// A CUDA failure is fatal with exit code 1 and the structured
+/// `CALYX_FORGE_DEVICE_UNAVAILABLE` code — there is no CPU fallback.
+fn run_server(config_path: &std::path::Path, once: bool) -> ExitCode {
+    let cfg = match CalyxConfig::from_file(config_path) {
+        Ok(cfg) => cfg,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            return ExitCode::from(2);
+        }
+    };
+    let device = match cuda_probe::probe_cuda_device() {
+        Ok(device) => device,
+        Err(error) => {
+            eprintln!("calyxd: {error}");
+            return ExitCode::from(1);
+        }
+    };
+    println!(
+        "INFO calyxd: CUDA device ready device=\"{}\" vram={}MiB compute={}",
+        device.device_name, device.vram_total_mib, device.compute_cap
+    );
+    let server_config = Config {
+        targets: vec![VerifyTarget {
+            kind: TargetKind::Vault,
+            path: cfg.vault_path_resolved(),
+        }],
+        bind: cfg.bind_addr,
+        interval: Duration::from_secs(60),
+        once,
+        config_path: None,
+        validate_config: false,
+    };
+    match run(server_config) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("calyxd: {error}");
@@ -178,8 +229,9 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
         }
     }
 
-    // `--validate-config` is a standalone mode that needs no verify targets.
-    if !validate_config && targets.is_empty() {
+    // `--validate-config` and server mode (`--config <path>`) need no explicit
+    // verify targets — the config supplies them.
+    if !validate_config && config_path.is_none() && targets.is_empty() {
         return Err(DaemonError::config_invalid(
             "at least one --vault or --ledger target is required",
         ));

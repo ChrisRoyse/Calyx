@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-forge = { path = "../calyx-forge" }
 calyx-ledger = { path = "../calyx-ledger" }
 prometheus.workspace = true
 serde.workspace = true
@@ -21,3 +22,9 @@ toml.workspace = true
 [dev-dependencies]
 blake3.workspace = true
 serde_json.workspace = true
+
+[features]
+default = []
+# Enables the real CUDA preflight probe (calyx-forge CUDA path). Build with
+# --features cuda on a GPU host; without it, server mode fails loud at startup.
+cuda = ["calyx-forge/cuda"]
