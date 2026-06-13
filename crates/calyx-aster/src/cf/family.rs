@@ -168,4 +168,61 @@ impl ColumnFamily {
             _ => None,
         }
     }
+
+    /// Stable, reversible byte tag identifying this CF inside a vault-scoped key
+    /// (see [`crate::vault::keyspace`]).
+    ///
+    /// Non-slot CFs encode to a single discriminant byte — their position in
+    /// [`Self::STATIC`] (0..23), which stays in sync automatically if the
+    /// manifest order is extended. Slot CFs encode to
+    /// `SLOT_TAG ‖ slot_id_be(2) ‖ kind_byte` so the slot index and
+    /// quantized/raw flavor round-trip exactly. `STATIC` has 23 entries, so no
+    /// static discriminant can collide with `SLOT_KEYSPACE_TAG` (`0xF0`).
+    pub fn keyspace_tag(&self) -> Vec<u8> {
+        match self {
+            Self::Slot { slot, kind } => {
+                let mut tag = Vec::with_capacity(4);
+                tag.push(SLOT_KEYSPACE_TAG);
+                tag.extend_from_slice(&slot.get().to_be_bytes());
+                tag.push(match kind {
+                    SlotFamilyKind::Quantized => 0,
+                    SlotFamilyKind::Raw => 1,
+                });
+                tag
+            }
+            other => {
+                let index = Self::STATIC
+                    .iter()
+                    .position(|cf| cf == other)
+                    .expect("every non-slot ColumnFamily is listed in STATIC");
+                vec![index as u8]
+            }
+        }
+    }
+
+    /// Inverse of [`Self::keyspace_tag`]: parses the CF tag off the front of
+    /// `raw` and returns the CF plus the remaining (user-key) bytes.
+    ///
+    /// Returns `None` on any malformed tag (empty, unknown discriminant, or a
+    /// truncated slot tag) so the caller can fail closed.
+    pub fn parse_keyspace_tag(raw: &[u8]) -> Option<(Self, &[u8])> {
+        let (&first, rest) = raw.split_first()?;
+        if first == SLOT_KEYSPACE_TAG {
+            let slot_bytes = rest.get(0..2)?;
+            let kind = match rest.get(2)? {
+                0 => SlotFamilyKind::Quantized,
+                1 => SlotFamilyKind::Raw,
+                _ => return None,
+            };
+            let slot = SlotId::new(u16::from_be_bytes([slot_bytes[0], slot_bytes[1]]));
+            Some((Self::Slot { slot, kind }, &rest[3..]))
+        } else {
+            let cf = *Self::STATIC.get(first as usize)?;
+            Some((cf, rest))
+        }
+    }
 }
+
+/// Discriminant byte that marks a slot CF tag. Distinct from every static-CF
+/// discriminant because `STATIC.len()` (23) is far below this value.
+const SLOT_KEYSPACE_TAG: u8 = 0xF0;

@@ -10,6 +10,7 @@ mod dedup_commit;
 mod durable;
 pub mod encode;
 pub mod key;
+pub mod keyspace;
 mod layer_commit;
 mod ledger_append;
 mod ledger_hook;
@@ -39,6 +40,9 @@ pub use compaction_bridge::VaultCompactionScheduler;
 pub use durable::VaultOptions;
 pub use key::{
     CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING, VaultKey,
+};
+pub use keyspace::{
+    CALYX_VAULT_KEYSPACE_MISMATCH, KeyspaceGuard, VaultWriteLock, VaultWriteLockGuard, vault_prefix,
 };
 pub use slot_column::{
     SlotColumnManifest, SlotColumnMaterialization, SlotColumnReadback, SlotColumnRow,
