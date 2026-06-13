@@ -7,12 +7,10 @@
 //! exit — it is the alert: the gauge holds 0 until the chain verifies intact.
 
 // Shared daemon modules (config, error, the T02 CUDA probe, the T03 VRAM
-// budget) live in the `calyxd` library — the single source of truth, reused by
-// `calyx-cli` and the T04 healthcheck. The binary consumes them from the lib
-// rather than recompiling its own copies. `metrics`/`server`/`verify_loop` are
-// the binary-only /metrics chain-verify surface.
-mod metrics;
-mod server;
+// budget, the PH66 T03 metrics surface) live in the `calyxd` library — the
+// single source of truth, reused by `calyx-cli` and the T04 healthcheck. The
+// binary consumes them from the lib rather than recompiling its own copies.
+// `verify_loop` is the binary-only periodic chain-verify driver.
 mod verify_loop;
 
 use std::net::SocketAddr;
@@ -24,9 +22,9 @@ use std::time::Duration;
 use calyxd::config::CalyxConfig;
 use calyxd::cuda_probe;
 use calyxd::error::DaemonError;
+use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics};
+use calyxd::server::MetricsServer;
 use calyxd::vram;
-use metrics::ChainVerifyMetrics;
-use server::MetricsServer;
 use verify_loop::{TargetKind, VerifyTarget, run_cycle, spawn_loop};
 
 const USAGE: &str = "usage: calyxd (--vault <dir> | --ledger <dir>)... \
@@ -209,24 +207,29 @@ fn run(config: Config) -> Result<(), DaemonError> {
         .iter()
         .map(VerifyTarget::label)
         .collect::<Vec<_>>();
-    let metrics = Arc::new(ChainVerifyMetrics::new(&labels));
+    let chain = Arc::new(ChainVerifyMetrics::new(&labels));
 
-    run_cycle(&config.targets, &metrics);
+    run_cycle(&config.targets, &chain);
+
+    // The served surface composes the live chain-verify family (updated in place
+    // by the verify loop) with the full PH66 T03 metric set. Both share the same
+    // `chain` Arc, so a scrape reflects the latest verify cycle.
+    let surface = Arc::new(CalyxMetrics::new(Arc::clone(&chain), &labels));
 
     if config.once {
-        let text = metrics.encode_text().map_err(DaemonError::config_invalid)?;
+        let text = surface.encode_text().map_err(DaemonError::config_invalid)?;
         print!("{text}");
         return Ok(());
     }
 
-    let server = MetricsServer::bind(config.bind, Arc::clone(&metrics))?;
+    let server = MetricsServer::bind(config.bind, Arc::clone(&surface))?;
     println!(
         "calyxd: serving /metrics on {} (verify interval {}s, {} target(s))",
         server.local_addr()?,
         config.interval.as_secs(),
         config.targets.len()
     );
-    spawn_loop(config.targets, metrics, config.interval);
+    spawn_loop(config.targets, chain, config.interval);
     server.run()
 }
 
