@@ -13,8 +13,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_ledger::{DirectoryLedgerStore, LedgerCfStore, VerifyResult, verify_chain};
 
-use crate::metrics::{ChainVerifyMetrics, VerifyOutcome};
 use calyxd::error::DaemonError;
+use calyxd::metrics::{ChainVerifyMetrics, VerifyOutcome};
 
 /// How a verify target's ledger rows are stored on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
