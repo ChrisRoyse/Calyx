@@ -5,6 +5,7 @@ mod batch_ingest;
 mod cf_codec;
 mod commit;
 mod compaction_bridge;
+pub mod context;
 mod cursor;
 mod dedup_commit;
 mod durable;
@@ -39,6 +40,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 pub use compaction_bridge::VaultCompactionScheduler;
+pub use context::VaultContext;
 pub use durable::VaultOptions;
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
 pub use key::{
