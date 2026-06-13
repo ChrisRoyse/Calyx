@@ -12,6 +12,7 @@ pub mod kernel_answer;
 pub mod kernel_graph;
 pub mod kernel_health;
 pub mod kernel_index;
+pub mod label_propagation;
 pub mod loom_assoc;
 pub mod multi_scope;
 pub mod provenance;
@@ -50,6 +51,13 @@ pub use kernel_health::{
 pub use kernel_index::{
     EmbeddingStore, FsKernelStore, KernelIndex, KernelStore, KernelVectorRow, build_kernel_index,
     kernel_search, load_kernel_index, write_kernel_index,
+};
+pub use label_propagation::{
+    CALYX_PROP_GRAPH_EMPTY, CALYX_PROP_INVALID_INPUT, CALYX_PROP_NO_KERNEL_NODES,
+    CALYX_PROP_NOT_CONVERGED, DEFAULT_PROPAGATION_DECAY_LAMBDA, LabelPropagationReceipt, NodeId,
+    PropagatedLabel, PropagationError, SparseGraph, append_label_propagation_entry,
+    kernel_labels_hash, propagate_labels, propagate_labels_with_decay,
+    propagate_labels_with_ledger,
 };
 pub use loom_assoc::{
     LoomAssocEdgeProvenance, LoomAssocGraphInput, LoomDirectionalConfidence, LoomSlotNode,
