@@ -70,6 +70,7 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "base" => ColumnFamily::Base,
         "collections" => ColumnFamily::Collections,
         "relational" => ColumnFamily::Relational,
+        "document" => ColumnFamily::Document,
         "anchors" => ColumnFamily::Anchors,
         "ledger" => ColumnFamily::Ledger,
         "recurrence" => ColumnFamily::Recurrence,
@@ -267,6 +268,7 @@ mod tests {
         for cf in [
             ColumnFamily::Base,
             ColumnFamily::Recurrence,
+            ColumnFamily::Document,
             ColumnFamily::slot(SlotId::new(0)),
             ColumnFamily::slot_raw(SlotId::new(7)),
             ColumnFamily::slot(SlotId::new(123)),

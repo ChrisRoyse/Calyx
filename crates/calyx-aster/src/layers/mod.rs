@@ -4,8 +4,10 @@ use calyx_core::Result;
 
 use crate::collection::{Collection, CollectionMode};
 
+pub mod document;
 pub mod relational;
 
+pub use document::{DocId, DocumentLayer};
 pub use relational::{RecordKey, RecordValue, RelationalLayer, Row};
 
 pub trait Layer: Send + Sync {
