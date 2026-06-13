@@ -9,6 +9,7 @@ mod cursor;
 mod dedup_commit;
 mod durable;
 pub mod encode;
+pub mod key;
 mod layer_commit;
 mod ledger_append;
 mod ledger_hook;
@@ -36,6 +37,9 @@ use std::sync::Mutex;
 
 pub use compaction_bridge::VaultCompactionScheduler;
 pub use durable::VaultOptions;
+pub use key::{
+    CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING, VaultKey,
+};
 pub use slot_column::{
     SlotColumnManifest, SlotColumnMaterialization, SlotColumnReadback, SlotColumnRow,
     read_materialized_slot_column,
