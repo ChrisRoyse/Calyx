@@ -69,6 +69,7 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
     let cf = match value {
         "base" => ColumnFamily::Base,
         "collections" => ColumnFamily::Collections,
+        "relational" => ColumnFamily::Relational,
         "anchors" => ColumnFamily::Anchors,
         "ledger" => ColumnFamily::Ledger,
         "recurrence" => ColumnFamily::Recurrence,
