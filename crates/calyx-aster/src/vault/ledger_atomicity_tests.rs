@@ -188,6 +188,7 @@ fn router_failure_vault(dir: &Path) -> AsterVault<FixedClock> {
             last_recovered_seq: 0,
             torn_tail: None,
         },
+        residency: None,
     }
 }
 
