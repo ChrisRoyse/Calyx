@@ -30,6 +30,7 @@ mod dispatch;
 mod entry;
 mod fsv;
 mod healthcheck;
+mod healthcheck_daemon;
 #[cfg(test)]
 mod healthcheck_tests;
 mod kernel_health_readback;
