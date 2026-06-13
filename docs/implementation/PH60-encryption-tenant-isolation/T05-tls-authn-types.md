@@ -39,8 +39,10 @@ types live in `calyx-core` so they can be imported by both `calyx-aster` and
 - [ ] `impl TlsConfig { pub fn validate(&self) -> Result<()> }` — checks that the
   cert and key paths exist and are readable (metadata only, no parse); returns
   `CALYX_TLS_CONFIG_INVALID` if not.
-- [ ] Add `CALYX_AUTHN_REQUIRED`, `CALYX_TLS_CONFIG_INVALID` to
-  `calyx-core/src/error.rs`.
+- [ ] Define module-local `pub const CALYX_AUTHN_REQUIRED` and
+  `CALYX_TLS_CONFIG_INVALID` in `calyx-core/src/security.rs`. Do not add these
+  PH60 codes to `calyx-core/src/error.rs` / `CALYX_ERROR_CODES` unless
+  `docs/dbprdplans/18_API_TYPES_ERRORS.md` is amended in the same change.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 

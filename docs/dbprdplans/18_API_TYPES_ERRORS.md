@@ -192,6 +192,8 @@ pub struct Hit {
 | `CALYX_LENS_DIM_MISMATCH` | output dim ≠ Slot.shape | fix lens or slot shape |
 | `CALYX_LENS_NUMERICAL_INVARIANT` | NaN/Inf/non-unit output | check lens runtime/normalize |
 | `CALYX_LENS_UNREACHABLE` | runtime endpoint down | restore lens service |
+| `CALYX_REGISTRY_DUPLICATE` | lens id already registered | reuse existing LensId or register a distinct frozen spec |
+| `CALYX_REGISTRY_UNAVAILABLE` | lens registry unavailable | restore registry before guarded anneal update |
 | `CALYX_ASSAY_INSUFFICIENT_SAMPLES` | < quorum (50) anchors | anchor more outcomes |
 | `CALYX_ASSAY_LOW_SIGNAL` | lens < 0.05 bits | park/retire lens |
 | `CALYX_ASSAY_REDUNDANT` | pair corr > 0.6 | drop duplicate lens |
@@ -203,6 +205,13 @@ pub struct Hit {
 | `CALYX_ASTER_CORRUPT_SHARD` | base shard hash mismatch | restore from restic/snapshot |
 | `CALYX_ASTER_TORN_WAL` | torn tail on recovery | auto-discarded; logged |
 | `CALYX_LEDGER_CHAIN_BROKEN` | hash-chain verify failed | quarantine range, investigate |
+| `CALYX_LEDGER_CORRUPT` | ledger CF integrity violation | ledger CF integrity violation — run verify_chain to identify range |
+| `CALYX_LEDGER_APPEND_ONLY_VIOLATION` | ledger CF append-only invariant violated | ledger CF is append-only; deletes and tombstones are forbidden |
+| `CALYX_LEDGER_SECRET_IN_PAYLOAD` | ledger payload contains secret-like material | ledger payload must store hashes/ids only — redact before writing |
+| `CALYX_LEDGER_ACTOR_TOO_LONG` | ledger actor id exceeds 64 UTF-8 bytes | actor id must be <= 64 bytes UTF-8 |
+| `CALYX_LEDGER_GROUP_COMMIT_FAILED` | ledger hook failed during group commit | ledger hook failed — group-commit rolled back; retry the write |
+| `CALYX_REPRODUCE_NONDETERMINISTIC` | reproduce ledger entry lacks determinism seed | no determinism seed in ledger entry - cannot guarantee reproduce fidelity |
+| `CALYX_REPRODUCE_DRIFT_EXCEEDED` | reproduce max_drift exceeded tolerance | reproduce max_drift exceeded 1e-3 - possible lens drift or fusion parameter change |
 | `CALYX_VAULT_ACCESS_DENIED` | cross-vault read without grant | request grant |
 | `CALYX_STALE_DERIVED` | fresh required, rebuild pending | retry or accept StaleOk |
 | `CALYX_ORACLE_INSUFFICIENT` | `I(panel;oracle) < H(Y)` — panel can't predict | add outcome/execution lens (propose_lens) |
@@ -216,6 +225,20 @@ pub struct Hit {
 | `CALYX_DATASET_ROWCOUNT_MISMATCH` | recomputed row count != recorded value | re-acquire at the pinned revision; check split/decoder drift |
 | `CALYX_DATASET_MANIFEST_INVALID` | MANIFEST.md or manifest.json missing/malformed/drifted | re-register via scripts/verify_dataset.sh register |
 | `CALYX_DATASET_SCHEMA_MISMATCH` | dataset columns/fields missing or malformed vs the pinned upstream contract | re-acquire at the pinned revision; check upstream schema drift |
+
+### Catalog boundary
+
+`CALYX_ERROR_CODES` in `crates/calyx-core/src/error.rs` is the closed PRD-18
+cross-surface catalog and must match the table above in the same order. A new
+code enters that catalog only when this PRD-18 table and the `PRD_18_CODES`
+test fixture are amended in the same change.
+
+Subsystem- or phase-local `CALYX_*` errors stay beside the owning guard/type as
+module-local `pub const` strings and construct `{ code, message, remediation }`
+directly. Examples include temporal policy codes, record-schema validation,
+MCP JSON-RPC parse errors, PH60 authn/TLS codes, and PH61 consent/redaction
+codes. Task cards for those codes must not instruct agents to edit the closed
+catalog unless they also amend this PRD.
 
 Every error is `{ code, message, remediation }` (A16/A17): structured, actionable, never a silent fallback.
 

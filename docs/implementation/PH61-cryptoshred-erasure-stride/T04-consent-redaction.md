@@ -36,7 +36,10 @@ minimization and consent-governed processing from `30 §4`.
   tag has not expired; returns `CALYX_CONSENT_VIOLATION` otherwise (fail closed, A16).
 - [ ] `fn consent_expired(tag: &ConsentTag, now: Timestamp) -> bool` —
   `tag.expires_at.map_or(false, |exp| now >= exp)`.
-- [ ] Add `CALYX_CONSENT_VIOLATION` to `calyx-core/src/error.rs`.
+- [ ] Define module-local `pub const CALYX_CONSENT_VIOLATION` in
+  `calyx-core/src/consent.rs`. Do not add this PH61 code to
+  `calyx-core/src/error.rs` / `CALYX_ERROR_CODES` unless
+  `docs/dbprdplans/18_API_TYPES_ERRORS.md` is amended in the same change.
 
 ### `calyx-aster/src/redaction.rs`
 
@@ -50,7 +53,10 @@ minimization and consent-governed processing from `30 §4`.
   when the vault's consent tag specifies hash-only input (called at ingest boundary).
 - [ ] `fn pii_input_for_ingest(raw: &str, require_redacted: bool) -> InputMode` —
   if `require_redacted` → `redact_to_hash(raw)`; else → `Full(raw.to_string())`.
-- [ ] Add `CALYX_PII_REDACTION_REQUIRED` to `calyx-core/src/error.rs`.
+- [ ] Define module-local `pub const CALYX_PII_REDACTION_REQUIRED` in
+  `calyx-aster/src/redaction.rs`. Do not add this PH61 code to
+  `calyx-core/src/error.rs` / `CALYX_ERROR_CODES` unless
+  `docs/dbprdplans/18_API_TYPES_ERRORS.md` is amended in the same change.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
