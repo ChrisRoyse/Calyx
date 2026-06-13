@@ -48,6 +48,8 @@ mod recurrence_readback;
 mod resource_drill;
 mod resource_status;
 mod scan;
+mod sextant_commands;
+mod sextant_diskann_validation;
 mod sextant_recall_validation;
 mod temporal_log_recurrence_readback;
 mod temporal_readback;
@@ -165,9 +167,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, topic, rest @ ..] if command == "leapable" => leapable::run(topic, rest),
         [command, mode, rest @ ..] if command == "navigate" => navigate::run(mode, rest),
-        [command, topic, rest @ ..] if command == "sextant" && topic == "recall-validate" => {
-            sextant_recall_validation::run(rest)
-        }
+        [command, topic, rest @ ..] if command == "sextant" => sextant_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "media" => media_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "lodestar" => lodestar_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
