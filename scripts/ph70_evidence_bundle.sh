@@ -54,7 +54,7 @@ collect_bundle() {
   "synapse_tool": "audit_export_bundle",
   "profile_id": "vscode",
   "output_path": "$OUT_DIR/synapse_audit_export_bundle.json",
-  "redaction_policy": "default",
+  "redaction_policy": "strict",
   "note": "Agent performs the actual Synapse MCP call and places/cites its output with this bundle."
 }
 EOF
