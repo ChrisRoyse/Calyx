@@ -25,6 +25,7 @@ mod cli_support;
 mod crash;
 mod dedup_audit_readback;
 mod dedup_readback;
+mod entry;
 mod fsv;
 mod kernel_health_readback;
 mod leapable;
@@ -32,6 +33,7 @@ mod ledger_store;
 #[cfg(test)]
 mod main_tests;
 mod manifest_readback;
+mod media_image_validation;
 mod merkle;
 mod navigate;
 mod ops;
@@ -53,22 +55,10 @@ mod verify;
 mod verify_restore;
 mod ward_tau_readback;
 use cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
-use std::env;
-use std::path::Path;
-use std::process::ExitCode;
+use std::{path::Path, process::ExitCode};
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
-    if let Some(code) = verify_restore::try_run(&args) {
-        return code;
-    }
-    match run(args) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("error: {error}");
-            ExitCode::from(2)
-        }
-    }
+    entry::main()
 }
 
 fn run(args: Vec<String>) -> Result<(), String> {
@@ -173,6 +163,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, mode, rest @ ..] if command == "navigate" => navigate::run(mode, rest),
         [command, topic, rest @ ..] if command == "sextant" && topic == "recall-validate" => {
             sextant_recall_validation::run(rest)
+        }
+        [command, topic, rest @ ..] if command == "media" && topic == "image-validate" => {
+            media_image_validation::run(rest)
         }
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
             anneal_ledger_readback::run(rest)

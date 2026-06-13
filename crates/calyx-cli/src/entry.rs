@@ -1,0 +1,15 @@
+use std::{env, process::ExitCode};
+
+pub(crate) fn main() -> ExitCode {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if let Some(code) = super::verify_restore::try_run(&args) {
+        return code;
+    }
+    match super::run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("error: {error}");
+            ExitCode::from(2)
+        }
+    }
+}
