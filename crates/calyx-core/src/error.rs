@@ -288,6 +288,7 @@ mod tests {
         "CALYX_SBOM_PARSE_ERROR",
         "CALYX_SUPPLY_CHAIN_VULN",
         "CALYX_LENS_WEIGHT_TAMPERED",
+        "CALYX_EXTERNAL_CMD_NOT_ALLOWED",
     ];
 
     #[test]
