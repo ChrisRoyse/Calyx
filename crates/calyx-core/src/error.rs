@@ -1,4 +1,8 @@
 //! Closed `CALYX_*` error catalog.
+//!
+//! This module contains only the PRD 18 cross-surface catalog. Subsystem-local
+//! `CALYX_*` strings live beside their owning guard/type and build
+//! [`CalyxError`] directly unless PRD 18 is amended in the same change.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -264,10 +268,36 @@ mod tests {
         "CALYX_DATASET_SCHEMA_MISMATCH",
     ];
 
+    const MODULE_LOCAL_CODES: &[&str] = &[
+        "CALYX_TEMPORAL_AP60_VIOLATION",
+        "CALYX_TEMPORAL_INVALID_BOOST_CONFIG",
+        "CALYX_TEMPORAL_INVALID_PERIOD",
+        "CALYX_TEMPORAL_INVALID_WINDOW",
+        "CALYX_TEMPORAL_NEGATIVE_WEIGHT",
+        "CALYX_TEMPORAL_WEIGHT_SUM",
+        "CALYX_RECORD_SCHEMA_VIOLATION",
+        "CALYX_MCP_JSONRPC_INVALID",
+        "CALYX_AUTHN_REQUIRED",
+        "CALYX_TLS_CONFIG_INVALID",
+        "CALYX_CONSENT_VIOLATION",
+        "CALYX_PII_REDACTION_REQUIRED",
+    ];
+
     #[test]
     fn catalog_matches_prd_18_exactly() {
         let actual: Vec<_> = CALYX_ERROR_CODES.iter().map(|code| code.code()).collect();
         assert_eq!(actual, PRD_18_CODES);
+    }
+
+    #[test]
+    fn module_local_codes_are_not_prd_18_catalog_entries() {
+        let catalog: Vec<_> = CALYX_ERROR_CODES.iter().map(|code| code.code()).collect();
+        for code in MODULE_LOCAL_CODES {
+            assert!(
+                !catalog.contains(code),
+                "{code} is module-local unless PRD 18 is amended"
+            );
+        }
     }
 
     #[test]
