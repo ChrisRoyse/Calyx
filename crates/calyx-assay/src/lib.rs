@@ -1,6 +1,7 @@
 //! Assay signal-bit measurement, panel sufficiency, and persistence contracts.
 
 pub mod attribution;
+pub mod bayesian;
 pub mod bootstrap;
 pub mod contract;
 pub mod estimate;
@@ -27,6 +28,12 @@ pub mod transfer_entropy;
 
 pub use attribution::{
     BitsReport, SlotAttribution, bits_report, bits_report_with_anchor, per_sensor_attribution,
+};
+pub use bayesian::{
+    BAYESIAN_POSTERIOR_KEY_PREFIX, BayesianPosteriorRow, BetaBernoulli,
+    CALYX_BAYES_INVALID_INTERVAL, DEFAULT_BAYES_PRIOR_ALPHA, DEFAULT_BAYES_PRIOR_BETA,
+    GammaPoisson, bayesian_posterior_for_domain, bayesian_posterior_key, beta_bernoulli_for_domain,
+    gamma_poisson_for_domain, persist_bayesian_posterior,
 };
 pub use bootstrap::{
     BootstrapCi, BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED,
