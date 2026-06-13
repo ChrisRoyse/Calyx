@@ -22,6 +22,7 @@ mod special_fn;
 pub mod store;
 pub mod stratified;
 pub mod sufficiency;
+pub mod total_correlation;
 pub mod transfer_entropy;
 
 pub use attribution::{
@@ -84,6 +85,12 @@ pub use sufficiency::{
     SufficiencyDeficit, SufficiencyDeficitSink, entropy_bits, panel_sufficiency,
     panel_sufficiency_with_anchor, panel_sufficiency_with_anchor_and_context,
     panel_sufficiency_with_context,
+};
+pub use total_correlation::{
+    CALYX_TC_INSUFFICIENT_SAMPLES, DEFAULT_TC_BOOTSTRAP_RESAMPLES, DEFAULT_TC_K, IIResult, IISign,
+    MIN_QUORUM_TC_PER_SLOT, SlotVectors, TCResult, TotalCorrelationConfig, interaction_information,
+    interaction_information_with_config, min_quorum_tc, n_eff_from_tc, total_correlation,
+    total_correlation_with_config,
 };
 pub use transfer_entropy::{
     CALYX_TE_INSUFFICIENT_SAMPLES, DEFAULT_TE_BOOTSTRAP_RESAMPLES, DEFAULT_TE_BOOTSTRAP_SEED,
