@@ -4,8 +4,8 @@ use crate::{
     anneal_ab_log, anneal_autotune_report, anneal_bandit_readback, anneal_deficit_map,
     anneal_frozen_guard_readback, anneal_goodhart_check, anneal_growth_curve, anneal_head_readback,
     anneal_intelligence_report, anneal_lens_proposal_log, anneal_propose_lens_run,
-    anneal_propose_preview, anneal_regression_readback, anneal_replay_readback, anneal_soak_report,
-    anneal_status,
+    anneal_propose_preview, anneal_regression_readback, anneal_replay_readback, anneal_soak,
+    anneal_soak_report, anneal_status,
 };
 
 pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
@@ -39,6 +39,7 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
             anneal_bandit_readback::bandit_status(Path::new(vault), key)
         }
         ("ab-log", args) => anneal_ab_log::run(args),
+        ("soak", args) => anneal_soak::run(args),
         ("soak-report", args) => anneal_soak_report::run(args),
         ("autotune-report", args) => anneal_autotune_report::run(args),
         ("intelligence-report", args) => anneal_intelligence_report::run(args),

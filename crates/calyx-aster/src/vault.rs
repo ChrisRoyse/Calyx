@@ -1,6 +1,7 @@
 //! Aster `VaultStore` implementation over the PH08 MVCC CF table.
 
 mod anchor_codec;
+mod batch_ingest;
 mod cf_codec;
 mod commit;
 mod compaction_bridge;
