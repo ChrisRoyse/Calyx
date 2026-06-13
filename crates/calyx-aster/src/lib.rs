@@ -23,6 +23,7 @@ pub mod security;
 pub mod sst;
 pub mod storage_names;
 pub mod stream;
+pub mod stride_fsv;
 pub mod supply_chain;
 pub mod timetravel;
 pub mod vault;
