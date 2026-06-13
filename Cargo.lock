@@ -198,6 +198,7 @@ dependencies = [
  "calyx-ledger",
  "calyx-lodestar",
  "calyx-loom",
+ "calyx-mincut",
  "calyx-oracle",
  "calyx-paths",
  "calyx-sextant",
