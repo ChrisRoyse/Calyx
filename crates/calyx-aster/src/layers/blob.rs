@@ -336,7 +336,11 @@ fn decode_manifest(bytes: &[u8]) -> Result<BlobManifest> {
     let cold_tier = match bytes[44] {
         0 => false,
         1 => true,
-        other => return Err(corrupt(format!("blob manifest cold_tier byte {other} is not 0/1"))),
+        other => {
+            return Err(corrupt(format!(
+                "blob manifest cold_tier byte {other} is not 0/1"
+            )));
+        }
     };
     Ok(BlobManifest {
         total_bytes,

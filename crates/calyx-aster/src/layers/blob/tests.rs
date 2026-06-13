@@ -149,7 +149,10 @@ fn edge_cases_fail_closed_with_exact_codes() {
     assert_eq!(layer.blob_get(&col, empty_id).unwrap(), Some(Vec::new()));
 
     // (2) absent blob -> None.
-    assert_eq!(layer.blob_get(&col, BlobId::from_text("ghost")).unwrap(), None);
+    assert_eq!(
+        layer.blob_get(&col, BlobId::from_text("ghost")).unwrap(),
+        None
+    );
 
     // (3) flip one byte in a chunk row -> corrupt on get (hash mismatch).
     let corrupt_id = BlobId::from_text("corrupt");
@@ -179,7 +182,11 @@ fn edge_cases_fail_closed_with_exact_codes() {
     // (5) corrupt manifest length -> fail closed.
     let bad_manifest = BlobId::from_text("badmanifest");
     vault
-        .write_cf(ColumnFamily::Blob, manifest_key(&col, bad_manifest), vec![0; 3])
+        .write_cf(
+            ColumnFamily::Blob,
+            manifest_key(&col, bad_manifest),
+            vec![0; 3],
+        )
         .unwrap();
     assert_eq!(
         layer.blob_manifest(&col, bad_manifest).unwrap_err().code,
@@ -199,7 +206,12 @@ fn oversized_payload_fails_closed() {
         .blob_put(&col, BlobId::from_text("huge"), &oversized)
         .unwrap_err();
     assert_eq!(error.code, CALYX_BLOB_TOO_LARGE);
-    assert_eq!(layer.blob_manifest(&col, BlobId::from_text("huge")).unwrap(), None);
+    assert_eq!(
+        layer
+            .blob_manifest(&col, BlobId::from_text("huge"))
+            .unwrap(),
+        None
+    );
 }
 
 #[test]
@@ -215,14 +227,24 @@ fn missing_manifest_with_orphan_chunks_reads_none_not_partial() {
     let chunks: Vec<_> = data
         .chunks(BLOB_CHUNK_SIZE)
         .enumerate()
-        .map(|(i, c)| (ColumnFamily::Blob, chunk_key(&col, id, i as u32), c.to_vec()))
+        .map(|(i, c)| {
+            (
+                ColumnFamily::Blob,
+                chunk_key(&col, id, i as u32),
+                c.to_vec(),
+            )
+        })
         .collect();
     vault.write_cf_batch(chunks).unwrap();
 
     // Chunk rows physically present...
     assert!(
         vault
-            .read_cf_at(vault.latest_seq(), ColumnFamily::Blob, &chunk_key(&col, id, 0))
+            .read_cf_at(
+                vault.latest_seq(),
+                ColumnFamily::Blob,
+                &chunk_key(&col, id, 0)
+            )
             .unwrap()
             .is_some()
     );
