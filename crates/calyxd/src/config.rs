@@ -98,8 +98,7 @@ impl CalyxConfig {
     fn validate(self) -> Result<Self, DaemonError> {
         if !self.bind_addr.ip().is_loopback() {
             return Err(DaemonError::bind_failed(format!(
-                "bind_addr {} is not loopback; calyxd must bind 127.0.0.1 or [::1] \
-                 (remediation: set bind_addr to a loopback address in calyx.toml)",
+                "bind_addr {} is not loopback; calyxd must bind 127.0.0.1 or [::1]",
                 self.bind_addr
             )));
         }
