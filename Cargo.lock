@@ -246,6 +246,7 @@ dependencies = [
  "calyx-sextant",
  "calyx-ward",
  "calyxd",
+ "proptest",
  "serde",
  "serde_json",
 ]

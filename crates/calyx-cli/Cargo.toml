@@ -30,3 +30,4 @@ serde_json.workspace = true
 
 [dev-dependencies]
 calyx-ward = { path = "../calyx-ward" }
+proptest.workspace = true

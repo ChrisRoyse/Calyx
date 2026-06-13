@@ -1,5 +1,4 @@
 //! Calyx command-line entry point.
-
 mod anneal_ab_log;
 mod anneal_autotune_report;
 mod anneal_bandit_readback;
@@ -30,6 +29,8 @@ mod fsv;
 mod kernel_health_readback;
 mod leapable;
 mod ledger_store;
+#[cfg(test)]
+mod main_tests;
 mod manifest_readback;
 mod merkle;
 mod navigate;
@@ -41,6 +42,7 @@ mod recurrence_readback;
 mod resource_drill;
 mod resource_status;
 mod scan;
+mod sextant_recall_validation;
 mod temporal_log_recurrence_readback;
 mod temporal_readback;
 mod time_prediction_readback;
@@ -50,15 +52,10 @@ mod vault_tree;
 mod verify;
 mod verify_restore;
 mod ward_tau_readback;
-
-#[cfg(test)]
-mod main_tests;
-
+use cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
 use std::env;
 use std::path::Path;
 use std::process::ExitCode;
-
-use cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
@@ -174,6 +171,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
         }
         [command, topic, rest @ ..] if command == "leapable" => leapable::run(topic, rest),
         [command, mode, rest @ ..] if command == "navigate" => navigate::run(mode, rest),
+        [command, topic, rest @ ..] if command == "sextant" && topic == "recall-validate" => {
+            sextant_recall_validation::run(rest)
+        }
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
             anneal_ledger_readback::run(rest)
         }
