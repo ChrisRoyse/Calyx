@@ -61,13 +61,14 @@ impl CudaContext {
     /// there is no zero-fill fallback, so callers can treat the unknown state
     /// as over-budget.
     pub fn free_device_vram_bytes(&self) -> Result<usize> {
-        let (free_bytes, _total_bytes) = self.inner.mem_get_info().map_err(|err| {
-            ForgeError::DeviceUnavailable {
-                device: device_label(self.device_idx),
-                detail: format!("CUDA cudaMemGetInfo (live free-VRAM query) failed: {err}"),
-                remediation: CUDA_REMEDIATION.to_string(),
-            }
-        })?;
+        let (free_bytes, _total_bytes) =
+            self.inner
+                .mem_get_info()
+                .map_err(|err| ForgeError::DeviceUnavailable {
+                    device: device_label(self.device_idx),
+                    detail: format!("CUDA cudaMemGetInfo (live free-VRAM query) failed: {err}"),
+                    remediation: CUDA_REMEDIATION.to_string(),
+                })?;
         Ok(free_bytes)
     }
 

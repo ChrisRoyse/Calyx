@@ -255,8 +255,12 @@ mod tests {
 
     #[test]
     fn parse_args_validate_config_needs_no_target() {
-        let config = parse_args(args(&["--config", "infra/aiwonder/calyx.toml", "--validate-config"]))
-            .expect("validate-config mode requires no verify target");
+        let config = parse_args(args(&[
+            "--config",
+            "infra/aiwonder/calyx.toml",
+            "--validate-config",
+        ]))
+        .expect("validate-config mode requires no verify target");
         assert!(config.validate_config);
         assert_eq!(
             config.config_path,

@@ -90,9 +90,9 @@ impl<'a, C: Clock> KvLayer<'a, C> {
         require_kv_mode(col)?;
         validate_user_key(key)?;
         let full_key = kv_key(col, ns, key);
-        let Some(bytes) = self
-            .vault
-            .read_cf_at(self.vault.latest_seq(), ColumnFamily::Kv, &full_key)?
+        let Some(bytes) =
+            self.vault
+                .read_cf_at(self.vault.latest_seq(), ColumnFamily::Kv, &full_key)?
         else {
             return Ok(None);
         };

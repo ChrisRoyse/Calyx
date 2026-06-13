@@ -68,7 +68,10 @@ fn set_get_roundtrip_uses_0x03_discriminant() {
     assert_eq!(&key[17..19], &3_u16.to_be_bytes());
     assert_eq!(&key[19..], b"foo");
 
-    assert_eq!(layer.kv_get(&col, 1, b"foo").unwrap(), Some(b"bar".to_vec()));
+    assert_eq!(
+        layer.kv_get(&col, 1, b"foo").unwrap(),
+        Some(b"bar".to_vec())
+    );
     // Namespace scoping: same user key in a different ns is independent.
     assert_eq!(layer.kv_get(&col, 2, b"foo").unwrap(), None);
 }
@@ -81,19 +84,35 @@ fn ttl_expires_check_on_read() {
     let col = kv_collection();
 
     layer
-        .kv_set(&col, 0, b"tok", b"live", Some(std::time::Duration::from_millis(5)))
+        .kv_set(
+            &col,
+            0,
+            b"tok",
+            b"live",
+            Some(std::time::Duration::from_millis(5)),
+        )
         .unwrap();
     // expires_at = 1000 + 5 = 1005; still visible at 1000 and 1004.
-    assert_eq!(layer.kv_get(&col, 0, b"tok").unwrap(), Some(b"live".to_vec()));
+    assert_eq!(
+        layer.kv_get(&col, 0, b"tok").unwrap(),
+        Some(b"live".to_vec())
+    );
     clock.set(1004);
-    assert_eq!(layer.kv_get(&col, 0, b"tok").unwrap(), Some(b"live".to_vec()));
+    assert_eq!(
+        layer.kv_get(&col, 0, b"tok").unwrap(),
+        Some(b"live".to_vec())
+    );
     // At/after expires_at the record is invisible — but the bytes remain.
     clock.set(1005);
     assert_eq!(layer.kv_get(&col, 0, b"tok").unwrap(), None);
     clock.set(9999);
     assert_eq!(layer.kv_get(&col, 0, b"tok").unwrap(), None);
     let raw = vault
-        .read_cf_at(vault.latest_seq(), ColumnFamily::Kv, &kv_key(&col, 0, b"tok"))
+        .read_cf_at(
+            vault.latest_seq(),
+            ColumnFamily::Kv,
+            &kv_key(&col, 0, b"tok"),
+        )
         .unwrap()
         .expect("expired bytes still physically present until PH58 janitor");
     let (expires_at, payload) = decode_value(&raw).unwrap();
@@ -109,7 +128,13 @@ fn sub_millisecond_ttl_fails_loud() {
     // Clock resolution is Unix ms; a nanosecond TTL cannot be honored, so we
     // error loudly rather than silently store an immortal record.
     let error = layer
-        .kv_set(&col, 0, b"k", b"v", Some(std::time::Duration::from_nanos(1)))
+        .kv_set(
+            &col,
+            0,
+            b"k",
+            b"v",
+            Some(std::time::Duration::from_nanos(1)),
+        )
         .unwrap_err();
     assert_eq!(error.code, CALYX_INVALID_ARGUMENT);
     assert_eq!(layer.kv_get(&col, 0, b"k").unwrap(), None);
@@ -145,7 +170,10 @@ fn range_returns_sorted_live_entries_in_namespace() {
     let rows = layer.kv_range(&col, 1, b"a", b"z", 10).unwrap();
     assert_eq!(
         rows,
-        vec![(b"a".to_vec(), b"1".to_vec()), (b"c".to_vec(), b"3".to_vec())]
+        vec![
+            (b"a".to_vec(), b"1".to_vec()),
+            (b"c".to_vec(), b"3".to_vec())
+        ]
     );
 }
 
@@ -175,7 +203,11 @@ fn edge_cases_fail_closed_with_exact_codes() {
     // (4) corrupt stored value (wrong version byte) fails closed on read.
     let corrupt_key = kv_key(&col, 0, b"corrupt");
     vault
-        .write_cf(ColumnFamily::Kv, corrupt_key, vec![0x02, 0, 0, 0, 0, 0, 0, 0, 0])
+        .write_cf(
+            ColumnFamily::Kv,
+            corrupt_key,
+            vec![0x02, 0, 0, 0, 0, 0, 0, 0, 0],
+        )
         .unwrap();
     assert_eq!(
         layer.kv_get(&col, 0, b"corrupt").unwrap_err().code,
@@ -228,13 +260,17 @@ fn durable_kv_fsv_writes_readback_artifacts() {
     let col = kv_collection();
     create_collection(&vault, col.clone()).unwrap();
 
-    let before = vault.scan_cf_at(vault.latest_seq(), ColumnFamily::Kv).unwrap();
+    let before = vault
+        .scan_cf_at(vault.latest_seq(), ColumnFamily::Kv)
+        .unwrap();
     assert!(before.is_empty());
 
     layer.kv_set(&col, 1, b"foo", b"bar", None).unwrap();
     let expected_key = kv_key(&col, 1, b"foo");
     let expected_value = encode_value(0, b"bar");
-    let after = vault.scan_cf_at(vault.latest_seq(), ColumnFamily::Kv).unwrap();
+    let after = vault
+        .scan_cf_at(vault.latest_seq(), ColumnFamily::Kv)
+        .unwrap();
     assert_eq!(after, vec![(expected_key.clone(), expected_value.clone())]);
 
     vault.flush().unwrap();
