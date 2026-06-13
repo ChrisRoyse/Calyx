@@ -9,6 +9,7 @@ mod cursor;
 mod dedup_commit;
 mod durable;
 pub mod encode;
+pub mod grant;
 pub mod key;
 pub mod keyspace;
 mod layer_commit;
@@ -38,6 +39,7 @@ use std::sync::Mutex;
 
 pub use compaction_bridge::VaultCompactionScheduler;
 pub use durable::VaultOptions;
+pub use grant::{AuditEvent, GrantEntry, GrantStore};
 pub use key::{
     CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING, VaultKey,
 };
