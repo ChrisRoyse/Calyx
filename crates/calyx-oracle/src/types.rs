@@ -1,6 +1,6 @@
 //! Public Oracle contract types for consequence prediction.
 
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 use calyx_core::{AnchorValue, LedgerRef, LensId};
 use calyx_ward::GuardVerdict;
@@ -95,6 +95,88 @@ impl OracleSelfConsistency {
     }
 }
 
+pub type SlotSet = HashSet<LensId>;
+
+#[derive(Clone, Copy, Debug)]
+pub struct CompletionSlotPartition<'a> {
+    pub all_slots: &'a SlotSet,
+    pub clamp: &'a SlotSet,
+    pub free: &'a SlotSet,
+}
+
+impl<'a> CompletionSlotPartition<'a> {
+    pub fn new(all_slots: &'a SlotSet, clamp: &'a SlotSet, free: &'a SlotSet) -> Self {
+        Self {
+            all_slots,
+            clamp,
+            free,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SlotTag {
+    Measured,
+    Inferred,
+    Provisional,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TaggedSlot {
+    pub lens_id: LensId,
+    pub vector: Vec<f32>,
+    pub tag: SlotTag,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CompletionResult {
+    pub filled_cx: Vec<TaggedSlot>,
+    pub confidence: f32,
+    pub converged: bool,
+    pub energy: f32,
+    pub provenance: LedgerRef,
+}
+
+impl CompletionResult {
+    pub fn new(
+        filled_cx: Vec<TaggedSlot>,
+        confidence: f32,
+        converged: bool,
+        energy: f32,
+        provenance: LedgerRef,
+        partition: CompletionSlotPartition<'_>,
+    ) -> Result<Self, crate::OracleError> {
+        validate_completion_slots(&filled_cx, partition)?;
+        Ok(Self {
+            filled_cx,
+            confidence,
+            converged,
+            energy,
+            provenance,
+        })
+    }
+
+    pub fn inferred_slots(&self) -> Vec<&TaggedSlot> {
+        self.slots_with_tag(SlotTag::Inferred)
+    }
+
+    pub fn provisional_slots(&self) -> Vec<&TaggedSlot> {
+        self.slots_with_tag(SlotTag::Provisional)
+    }
+
+    pub fn measured_slots(&self) -> Vec<&TaggedSlot> {
+        self.slots_with_tag(SlotTag::Measured)
+    }
+
+    fn slots_with_tag(&self, tag: SlotTag) -> Vec<&TaggedSlot> {
+        self.filled_cx
+            .iter()
+            .filter(|slot| slot.tag == tag)
+            .collect()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Consequence {
     pub action_or_event: String,
@@ -122,222 +204,47 @@ impl ConsequenceTree {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::path::Path;
-    use std::str::FromStr;
+fn validate_completion_slots(
+    filled_cx: &[TaggedSlot],
+    partition: CompletionSlotPartition<'_>,
+) -> Result<(), crate::OracleError> {
+    let all_slots = partition.all_slots;
+    let clamp = partition.clamp;
+    let free = partition.free;
+    let union: SlotSet = clamp.union(free).copied().collect();
+    let filled: SlotSet = filled_cx.iter().map(|slot| slot.lens_id).collect();
 
-    use calyx_core::SlotId;
-    use calyx_ward::{GuardId, NoveltyAction, SlotVerdict};
-    use proptest::prelude::*;
-    use serde::Serialize;
+    let overlap = sorted_lens_ids(clamp.intersection(free).copied());
+    let mut missing: SlotSet = all_slots.difference(&union).copied().collect();
+    missing.extend(all_slots.difference(&filled).copied());
+    let mut extra: SlotSet = union.difference(all_slots).copied().collect();
+    extra.extend(filled.difference(all_slots).copied());
 
-    use super::*;
-    use crate::{
-        CALYX_ORACLE_FLAKY_ANCHOR, CALYX_ORACLE_INSUFFICIENT, CALYX_ORACLE_NO_RECURRENCE,
-        OracleError,
-    };
+    let tag_mismatch = sorted_lens_ids(filled_cx.iter().filter_map(|slot| {
+        let clamped_wrong = clamp.contains(&slot.lens_id) && slot.tag != SlotTag::Measured;
+        let free_wrong = free.contains(&slot.lens_id) && slot.tag == SlotTag::Measured;
+        (clamped_wrong || free_wrong).then_some(slot.lens_id)
+    }));
 
-    #[test]
-    fn prediction_json_roundtrips_with_known_fields() {
-        let prediction = prediction_fixture();
-
-        let json = serde_json::to_string(&prediction).expect("serialize prediction");
-        let decoded: Prediction = serde_json::from_str(&json).expect("deserialize prediction");
-
-        assert_eq!(decoded, prediction);
-        assert!(json.contains("\"I_panel_oracle\":1.05"));
+    if overlap.is_empty() && missing.is_empty() && extra.is_empty() && tag_mismatch.is_empty() {
+        return Ok(());
     }
 
-    #[test]
-    fn self_consistency_ceiling_matches_known_values() {
-        assert_close(OracleSelfConsistency::measured(0.0, 1.0).ceiling, 1.0);
-        assert_close(OracleSelfConsistency::measured(0.1, 0.8).ceiling, 0.72);
-        assert_close(OracleSelfConsistency::measured(0.5, 0.5).ceiling, 0.25);
-    }
-
-    proptest! {
-        #[test]
-        fn self_consistency_ceiling_stays_in_unit_interval(
-            flakiness in 0.0f32..=1.0,
-            validity in 0.0f32..=1.0,
-        ) {
-            let consistency = OracleSelfConsistency::measured(flakiness, validity);
-
-            prop_assert!(consistency.ceiling >= 0.0);
-            prop_assert!(consistency.ceiling <= 1.0);
-        }
-    }
-
-    #[test]
-    fn empty_per_sensor_deficit_still_serializes() {
-        let bound = SufficiencyBound {
-            i_panel_oracle: 0.0,
-            dpi_ceiling: 0.0,
-            sufficient: false,
-            per_sensor_deficit: Vec::new(),
-        };
-
-        let json = serde_json::to_string(&bound).expect("serialize bound");
-        let decoded: SufficiencyBound = serde_json::from_str(&json).expect("deserialize bound");
-
-        assert_eq!(decoded, bound);
-        assert!(json.contains("\"per_sensor_deficit\":[]"));
-    }
-
-    #[test]
-    fn root_consequence_keeps_hop_zero() {
-        let root = consequence(2, "root-action", 0, 0.9);
-
-        assert_eq!(root.hop, 0);
-    }
-
-    #[test]
-    fn max_depth_zero_allows_empty_tree() {
-        let tree = ConsequenceTree {
-            root: consequence(3, "terminal", 0, 0.6),
-            children: Vec::new(),
-            max_depth: 0,
-        };
-
-        assert_eq!(tree.max_depth, 0);
-        assert!(tree.children.is_empty());
-    }
-
-    #[test]
-    fn oracle_error_display_contains_codes_and_remediation() {
-        let insufficient = OracleError::Insufficient {
-            bound: SufficiencyBound {
-                i_panel_oracle: 0.46,
-                dpi_ceiling: 0.46,
-                sufficient: false,
-                per_sensor_deficit: Vec::new(),
-            },
-        };
-        let flaky = OracleError::FlakyAnchor {
-            self_consistency: 0.25,
-        };
-        let recurrence = OracleError::NoRecurrence {
-            domain: DomainId::from("fixture"),
-        };
-
-        assert_display_has_code_and_remediation(&insufficient, CALYX_ORACLE_INSUFFICIENT);
-        assert_display_has_code_and_remediation(&flaky, CALYX_ORACLE_FLAKY_ANCHOR);
-        assert_display_has_code_and_remediation(&recurrence, CALYX_ORACLE_NO_RECURRENCE);
-    }
-
-    #[test]
-    #[ignore = "manual aiwonder FSV for issue #429 Oracle contract readbacks"]
-    fn issue429_oracle_types_fsv_writes_readbacks() {
-        let root = std::env::var_os("CALYX_ORACLE_TYPES_FSV_DIR")
-            .map(std::path::PathBuf::from)
-            .expect("set CALYX_ORACLE_TYPES_FSV_DIR");
-        fs::create_dir_all(&root).expect("create oracle types fsv root");
-
-        let prediction = prediction_fixture();
-        write_json(&root.join("prediction.json"), &prediction);
-        let decoded: Prediction = serde_json::from_slice(
-            &fs::read(root.join("prediction.json")).expect("read prediction"),
-        )
-        .expect("decode prediction");
-        write_json(&root.join("prediction-roundtrip.json"), &decoded);
-
-        write_json(
-            &root.join("edge-empty-deficit.json"),
-            &SufficiencyBound {
-                i_panel_oracle: 0.0,
-                dpi_ceiling: 0.0,
-                sufficient: false,
-                per_sensor_deficit: Vec::new(),
-            },
-        );
-        write_json(
-            &root.join("edge-hop-zero.json"),
-            &consequence(2, "root-action", 0, 0.9),
-        );
-        write_json(
-            &root.join("edge-max-depth-zero.json"),
-            &ConsequenceTree {
-                root: consequence(3, "terminal", 0, 0.6),
-                children: Vec::new(),
-                max_depth: 0,
-            },
-        );
-        fs::write(
-            root.join("oracle-error-catalog.txt"),
-            [
-                CALYX_ORACLE_INSUFFICIENT,
-                CALYX_ORACLE_FLAKY_ANCHOR,
-                CALYX_ORACLE_NO_RECURRENCE,
-            ]
-            .join("\n"),
-        )
-        .expect("write oracle catalog");
-    }
-
-    fn assert_display_has_code_and_remediation(error: &OracleError, code: &'static str) {
-        let display = error.to_string();
-        assert!(display.contains(code));
-        assert!(display.contains("remediation:"));
-        assert!(!error.remediation().is_empty());
-    }
-
-    fn prediction_fixture() -> Prediction {
-        Prediction {
-            outcome: AnchorValue::Bool(true),
-            confidence: 0.72,
-            consequences: vec![consequence(1, "compile-pass", 1, 0.5)],
-            bound: SufficiencyBound {
-                i_panel_oracle: 1.05,
-                dpi_ceiling: 1.05,
-                sufficient: true,
-                per_sensor_deficit: vec![(LensId::from_bytes([7; 16]), 0.0)],
-            },
-            provenance: ledger(9),
-            guard: guard(true),
-        }
-    }
-
-    fn write_json<T: Serialize>(path: &Path, value: &T) {
-        let json = serde_json::to_vec_pretty(value).expect("serialize fsv json");
-        fs::write(path, json).expect("write fsv json");
-    }
-
-    fn consequence(seed: u8, action_or_event: &str, hop: u8, confidence: f32) -> Consequence {
-        Consequence {
-            action_or_event: action_or_event.to_string(),
-            domain: DomainId::from("fixture"),
-            outcome: AnchorValue::Text(format!("outcome-{seed}")),
-            confidence,
-            hop,
-            provenance: ledger(u64::from(seed)),
-        }
-    }
-
-    fn guard(pass: bool) -> GuardVerdict {
-        GuardVerdict {
-            guard_id: GuardId::from_str("018f48a4-9a79-74d2-8a5c-9ad7f6b8c101").expect("guard id"),
-            overall_pass: pass,
-            provisional: false,
-            per_slot: vec![SlotVerdict {
-                slot: SlotId::new(1),
-                cos: 0.9,
-                tau: 0.7,
-                pass,
-            }],
-            action: Some(NoveltyAction::RejectClosed),
-        }
-    }
-
-    fn ledger(seed: u64) -> LedgerRef {
-        LedgerRef {
-            seq: seed,
-            hash: [seed as u8; 32],
-        }
-    }
-
-    fn assert_close(actual: f32, expected: f32) {
-        assert!((actual - expected).abs() < 1.0e-6);
-    }
+    Err(crate::OracleError::SlotConflict {
+        overlap,
+        missing: sorted_lens_ids(missing),
+        extra: sorted_lens_ids(extra),
+        tag_mismatch,
+    })
 }
+
+fn sorted_lens_ids(ids: impl IntoIterator<Item = LensId>) -> Vec<LensId> {
+    let mut ids: Vec<_> = ids.into_iter().collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+#[cfg(test)]
+#[path = "types_tests.rs"]
+mod tests;
