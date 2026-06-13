@@ -106,6 +106,8 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "collections" => ColumnFamily::Collections,
         "relational" => ColumnFamily::Relational,
         "document" => ColumnFamily::Document,
+        "kv" => ColumnFamily::Kv,
+        "timeseries" => ColumnFamily::TimeSeries,
         "anchors" => ColumnFamily::Anchors,
         "ledger" => ColumnFamily::Ledger,
         "recurrence" => ColumnFamily::Recurrence,

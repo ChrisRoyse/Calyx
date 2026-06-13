@@ -1,0 +1,332 @@
+//! KV `(ns, key) -> value` layer with check-on-read TTL.
+//!
+//! KV state is O(1) keyed storage scoped per collection and namespace, sitting
+//! on the same ordered transactional core as the relational and document
+//! layers and addressed by the disjoint `0x03` key-space discriminant.
+//!
+//! TTL is enforced **check-on-read** for PH53: an expired record is invisible
+//! to [`KvLayer::kv_get`] even though its bytes remain on disk until the PH58
+//! background janitor physically reclaims them. Deletion writes the native
+//! MVCC tombstone, which the read path filters, so a deleted key reads back as
+//! absent.
+
+use std::time::Duration;
+
+use calyx_core::{CalyxError, Clock, Result, Seq};
+
+use crate::cf::{ColumnFamily, KeyRange, prefix_range};
+use crate::collection::{CALYX_INVALID_ARGUMENT, Collection, CollectionMode};
+use crate::mvcc::tombstone_value;
+use crate::vault::AsterVault;
+use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
+
+use super::Layer;
+
+/// Key-space discriminant for KV rows.
+const DISC_KV: u8 = 0x03;
+/// On-disk value layout version. A non-zero leading byte also guarantees a
+/// live KV value can never alias the MVCC tombstone sentinel (which begins
+/// with `0x00`), so `kv_get` cannot mistake a stored value for a deletion.
+const KV_VALUE_VERSION: u8 = 0x01;
+/// `version (1) || expires_at_ms (u64 BE)` header preceding the payload.
+const VALUE_HEADER_BYTES: usize = 1 + 8;
+const MAX_USER_KEY_BYTES: usize = u16::MAX as usize;
+const MAX_PAYLOAD_BYTES: usize = 1 << 20;
+
+/// `(ns, key) -> value` key-encoding layer over a `KV` collection.
+pub struct KvLayer<'a, C: Clock> {
+    vault: &'a AsterVault<C>,
+}
+
+impl<'a, C: Clock> KvLayer<'a, C> {
+    pub fn new(vault: &'a AsterVault<C>) -> Self {
+        Self { vault }
+    }
+
+    /// Writes `val` at `(ns, key)`, optionally expiring it `ttl` after the
+    /// current server clock. `ttl == None` stores a non-expiring record.
+    pub fn kv_set(
+        &self,
+        col: &Collection,
+        ns: u64,
+        key: &[u8],
+        val: &[u8],
+        ttl: Option<Duration>,
+    ) -> Result<Seq> {
+        require_kv_mode(col)?;
+        validate_user_key(key)?;
+        validate_payload(val)?;
+        let expires_at = match ttl {
+            None => 0,
+            Some(duration) => {
+                let now = self.vault.clock_now();
+                let millis = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+                // A zero TTL would alias "no expiry"; reject it so callers get a
+                // loud error instead of a silently immortal record.
+                if millis == 0 {
+                    return Err(invalid_argument(
+                        "kv ttl must be >= 1ms (got a sub-millisecond duration)",
+                    ));
+                }
+                now.saturating_add(millis)
+            }
+        };
+        let full_key = kv_key(col, ns, key);
+        let value = encode_value(expires_at, val);
+        let subject = ledger_subject(&full_key);
+        let payload = ledger_payload(col, ns, &full_key, &value);
+        self.vault.write_cf_batch_with_ledger_entry(
+            [(ColumnFamily::Kv, full_key, value)],
+            EntryKind::Ingest,
+            subject,
+            payload,
+            ActorId::Service("calyx-aster-kv".to_string()),
+        )
+    }
+
+    /// Reads the live value at `(ns, key)`. Returns `None` if the key is
+    /// absent, tombstoned, or expired. Never returns expired bytes.
+    pub fn kv_get(&self, col: &Collection, ns: u64, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        require_kv_mode(col)?;
+        validate_user_key(key)?;
+        let full_key = kv_key(col, ns, key);
+        let Some(bytes) = self
+            .vault
+            .read_cf_at(self.vault.latest_seq(), ColumnFamily::Kv, &full_key)?
+        else {
+            return Ok(None);
+        };
+        let (expires_at, payload) = decode_value(&bytes)?;
+        if is_expired(expires_at, self.vault.clock_now()) {
+            return Ok(None);
+        }
+        Ok(Some(payload.to_vec()))
+    }
+
+    /// Deletes `(ns, key)` by writing the native MVCC tombstone. A subsequent
+    /// `kv_get` reads back as absent; the tombstone is reclaimed by the PH58
+    /// janitor.
+    pub fn kv_delete(&self, col: &Collection, ns: u64, key: &[u8]) -> Result<Seq> {
+        require_kv_mode(col)?;
+        validate_user_key(key)?;
+        let full_key = kv_key(col, ns, key);
+        let value = tombstone_value();
+        let subject = ledger_subject(&full_key);
+        let payload = ledger_payload(col, ns, &full_key, &value);
+        self.vault.write_cf_batch_with_ledger_entry(
+            [(ColumnFamily::Kv, full_key, value)],
+            EntryKind::Ingest,
+            subject,
+            payload,
+            ActorId::Service("calyx-aster-kv".to_string()),
+        )
+    }
+
+    /// Returns live `(user_key, payload)` pairs in namespace `ns` whose user
+    /// keys fall in `[start, end)`, ordered by user key, capped at `limit`.
+    ///
+    /// KV keys are length-prefixed (so on-disk order is length-major); this
+    /// scans the whole namespace prefix and re-sorts by user key, giving
+    /// lexicographic results independent of stored encoding.
+    pub fn kv_range(
+        &self,
+        col: &Collection,
+        ns: u64,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        require_kv_mode(col)?;
+        if limit == 0 || start >= end {
+            return Ok(Vec::new());
+        }
+        let now = self.vault.clock_now();
+        let rows = self.vault.scan_cf_range_at(
+            self.vault.latest_seq(),
+            ColumnFamily::Kv,
+            &namespace_range(col, ns),
+        )?;
+        let mut out = Vec::new();
+        for (full_key, value) in rows {
+            let user_key = decode_user_key(col, ns, &full_key)?;
+            if user_key.as_slice() < start || user_key.as_slice() >= end {
+                continue;
+            }
+            let (expires_at, payload) = decode_value(&value)?;
+            if is_expired(expires_at, now) {
+                continue;
+            }
+            out.push((user_key, payload.to_vec()));
+        }
+        out.sort_by(|left, right| left.0.cmp(&right.0));
+        out.truncate(limit);
+        Ok(out)
+    }
+}
+
+impl<C> Layer for KvLayer<'_, C>
+where
+    C: Clock + Send + Sync,
+{
+    fn collection_mode() -> CollectionMode {
+        CollectionMode::KV
+    }
+
+    fn put(&self, col: &Collection, key: &[u8], value: &[u8]) -> Result<()> {
+        self.kv_set(col, 0, key, value, None)?;
+        Ok(())
+    }
+
+    fn get(&self, col: &Collection, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.kv_get(col, 0, key)
+    }
+
+    fn range(
+        &self,
+        col: &Collection,
+        start: &[u8],
+        end: &[u8],
+        limit: usize,
+    ) -> Result<Vec<Vec<u8>>> {
+        Ok(self
+            .kv_range(col, 0, start, end, limit)?
+            .into_iter()
+            .map(|(_, value)| value)
+            .collect())
+    }
+}
+
+/// Stable per-collection id used to scope KV rows. Distinct hash domain from
+/// the other layers so collisions across modes are impossible.
+pub fn collection_id(col: &Collection) -> u64 {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"calyx:kv:collection:v1");
+    hasher.update(&col.tenant.0.to_be_bytes());
+    hasher.update(&(col.name.len() as u16).to_be_bytes());
+    hasher.update(col.name.as_bytes());
+    u64::from_be_bytes(hasher.finalize().as_bytes()[0..8].try_into().unwrap())
+}
+
+/// Encodes the full KV row key: `0x03 | cid | ns | key_len | user_key`.
+pub fn kv_key(col: &Collection, ns: u64, user_key: &[u8]) -> Vec<u8> {
+    let mut key = namespace_prefix(col, ns);
+    key.extend_from_slice(&(user_key.len() as u16).to_be_bytes());
+    key.extend_from_slice(user_key);
+    key
+}
+
+fn namespace_prefix(col: &Collection, ns: u64) -> Vec<u8> {
+    let mut key = Vec::with_capacity(1 + 8 + 8 + 2);
+    key.push(DISC_KV);
+    key.extend_from_slice(&collection_id(col).to_be_bytes());
+    key.extend_from_slice(&ns.to_be_bytes());
+    key
+}
+
+fn namespace_range(col: &Collection, ns: u64) -> KeyRange {
+    prefix_range(&namespace_prefix(col, ns))
+}
+
+fn decode_user_key(col: &Collection, ns: u64, full_key: &[u8]) -> Result<Vec<u8>> {
+    let prefix = namespace_prefix(col, ns);
+    let rest = full_key
+        .strip_prefix(prefix.as_slice())
+        .ok_or_else(|| corrupt("kv scan returned a key outside the namespace prefix"))?;
+    let len_bytes = rest
+        .get(0..2)
+        .ok_or_else(|| corrupt("kv key is missing its user-key length prefix"))?;
+    let len = u16::from_be_bytes([len_bytes[0], len_bytes[1]]) as usize;
+    let user_key = rest
+        .get(2..2 + len)
+        .ok_or_else(|| corrupt("kv key length prefix exceeds the stored key"))?;
+    if 2 + len != rest.len() {
+        return Err(corrupt("kv key has trailing bytes after the user key"));
+    }
+    Ok(user_key.to_vec())
+}
+
+fn encode_value(expires_at: u64, payload: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(VALUE_HEADER_BYTES + payload.len());
+    out.push(KV_VALUE_VERSION);
+    out.extend_from_slice(&expires_at.to_be_bytes());
+    out.extend_from_slice(payload);
+    out
+}
+
+/// Returns `(expires_at_ms, payload)` from a stored value, failing closed on a
+/// short or wrong-version row.
+fn decode_value(bytes: &[u8]) -> Result<(u64, &[u8])> {
+    if bytes.len() < VALUE_HEADER_BYTES {
+        return Err(corrupt("kv value is shorter than its header"));
+    }
+    if bytes[0] != KV_VALUE_VERSION {
+        return Err(corrupt(format!(
+            "unsupported kv value version {} (expected {KV_VALUE_VERSION})",
+            bytes[0]
+        )));
+    }
+    let expires_at = u64::from_be_bytes(bytes[1..9].try_into().unwrap());
+    Ok((expires_at, &bytes[VALUE_HEADER_BYTES..]))
+}
+
+fn is_expired(expires_at: u64, now: u64) -> bool {
+    expires_at != 0 && now >= expires_at
+}
+
+fn require_kv_mode(col: &Collection) -> Result<()> {
+    if col.mode == CollectionMode::KV {
+        Ok(())
+    } else {
+        Err(invalid_argument(format!(
+            "kv layer requires a KV collection, got {:?}",
+            col.mode
+        )))
+    }
+}
+
+fn validate_user_key(key: &[u8]) -> Result<()> {
+    if key.is_empty() || key.len() > MAX_USER_KEY_BYTES {
+        return Err(invalid_argument(format!(
+            "kv user key must be 1..={MAX_USER_KEY_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_payload(val: &[u8]) -> Result<()> {
+    if val.len() > MAX_PAYLOAD_BYTES {
+        return Err(invalid_argument(format!(
+            "kv value must be <= {MAX_PAYLOAD_BYTES} bytes"
+        )));
+    }
+    Ok(())
+}
+
+fn ledger_subject(full_key: &[u8]) -> SubjectId {
+    SubjectId::Query(blake3::hash(full_key).as_bytes().to_vec())
+}
+
+fn ledger_payload(col: &Collection, ns: u64, full_key: &[u8], value: &[u8]) -> Vec<u8> {
+    let mut payload = PayloadBuilder::default();
+    payload
+        .insert_str("collection_id", format!("{:016x}", collection_id(col)))
+        .insert_str("ns", ns.to_string())
+        .insert_str("key_hash", blake3::hash(full_key).to_hex().to_string())
+        .insert_str("value_hash", blake3::hash(value).to_hex().to_string());
+    RedactionPolicy::default().apply_to_payload(&payload)
+}
+
+fn invalid_argument(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_INVALID_ARGUMENT,
+        message: message.into(),
+        remediation: "fix the kv input",
+    }
+}
+
+fn corrupt(message: impl Into<String>) -> CalyxError {
+    CalyxError::aster_corrupt_shard(message)
+}
+
+#[cfg(test)]
+mod tests;

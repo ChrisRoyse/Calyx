@@ -22,6 +22,10 @@ pub enum ColumnFamily {
     Relational,
     /// `0x02 || collection_id || doc_id || path_segments -> leaf/tombstone`.
     Document,
+    /// `0x03 || collection_id || ns || key_len || user_key -> version || expires_at || payload`.
+    Kv,
+    /// `0x04 || tag || collection_id || series || ts|window -> point f64 / rollup tuple`.
+    TimeSeries,
     /// Per-slot vector column, either quantized or raw sidecar.
     Slot { slot: SlotId, kind: SlotFamilyKind },
     /// `(CxId, a, b, kind) -> cross-term value`.
@@ -68,7 +72,7 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 24] = [
+    pub const STATIC: [Self; 26] = [
         Self::Base,
         Self::Collections,
         Self::Relational,
@@ -93,6 +97,8 @@ impl ColumnFamily {
         Self::AnnealGrowth,
         Self::TimeIndex,
         Self::Document,
+        Self::Kv,
+        Self::TimeSeries,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -118,6 +124,8 @@ impl ColumnFamily {
             Self::Collections => "collections".to_string(),
             Self::Relational => "relational".to_string(),
             Self::Document => "document".to_string(),
+            Self::Kv => "kv".to_string(),
+            Self::TimeSeries => "timeseries".to_string(),
             Self::Slot {
                 slot,
                 kind: SlotFamilyKind::Quantized,
@@ -177,10 +185,10 @@ impl ColumnFamily {
     /// (see [`crate::vault::keyspace`]).
     ///
     /// Non-slot CFs encode to a single discriminant byte — their position in
-    /// [`Self::STATIC`] (0..24), which stays in sync automatically if the
+    /// [`Self::STATIC`] (0..26), which stays in sync automatically if the
     /// manifest order is extended. Slot CFs encode to
     /// `SLOT_TAG ‖ slot_id_be(2) ‖ kind_byte` so the slot index and
-    /// quantized/raw flavor round-trip exactly. `STATIC` has 23 entries, so no
+    /// quantized/raw flavor round-trip exactly. `STATIC` has 26 entries, so no
     /// static discriminant can collide with `SLOT_KEYSPACE_TAG` (`0xF0`).
     pub fn keyspace_tag(&self) -> Vec<u8> {
         match self {
@@ -228,5 +236,5 @@ impl ColumnFamily {
 }
 
 /// Discriminant byte that marks a slot CF tag. Distinct from every static-CF
-/// discriminant because `STATIC.len()` (24) is far below this value.
+/// discriminant because `STATIC.len()` (26) is far below this value.
 const SLOT_KEYSPACE_TAG: u8 = 0xF0;
