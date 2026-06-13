@@ -285,6 +285,9 @@ mod tests {
         "CALYX_TLS_CONFIG_INVALID",
         "CALYX_CONSENT_VIOLATION",
         "CALYX_PII_REDACTION_REQUIRED",
+        "CALYX_SBOM_PARSE_ERROR",
+        "CALYX_SUPPLY_CHAIN_VULN",
+        "CALYX_LENS_WEIGHT_TAMPERED",
     ];
 
     #[test]
