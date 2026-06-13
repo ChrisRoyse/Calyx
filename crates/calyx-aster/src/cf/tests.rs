@@ -35,6 +35,7 @@ fn column_family_names_match_prd_layout() {
             "anneal_soak",
             "anneal_report",
             "anneal_growth",
+            "time_index",
         ]
     );
 

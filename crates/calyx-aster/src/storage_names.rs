@@ -87,6 +87,7 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "anneal_soak" => ColumnFamily::AnnealSoak,
         "anneal_report" => ColumnFamily::AnnealReport,
         "anneal_growth" => ColumnFamily::AnnealGrowth,
+        "time_index" => ColumnFamily::TimeIndex,
         _ if value.starts_with("slot_") => parse_slot_cf(value)?,
         _ => {
             return Err(CalyxError::aster_corrupt_shard(format!(
