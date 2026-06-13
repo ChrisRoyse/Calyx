@@ -6,6 +6,10 @@ rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "calyx-mcp"
+path = "src/main.rs"
+
 [dependencies]
 calyx-core = { path = "../calyx-core" }
 serde.workspace = true

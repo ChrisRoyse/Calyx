@@ -1,6 +1,32 @@
 use calyx_mcp::{
-    CALYX_MCP_JSONRPC_INVALID, JsonRpcWire, decode_jsonrpc_request, decode_jsonrpc_wire,
+    CALYX_MCP_JSONRPC_INVALID, JsonRpcId, JsonRpcRequest, JsonRpcWire, decode_jsonrpc_request,
+    decode_jsonrpc_wire,
 };
+
+#[test]
+fn request_id_round_trips_for_string_int_and_null() {
+    // Integer id.
+    let int_req =
+        decode_jsonrpc_request(br#"{"jsonrpc":"2.0","id":99,"method":"tools/list"}"#).unwrap();
+    assert_eq!(int_req.id, Some(JsonRpcId::Number(99)));
+    let wire = serde_json::to_string(&int_req).unwrap();
+    let back: JsonRpcRequest = serde_json::from_str(&wire).unwrap();
+    assert_eq!(back, int_req);
+
+    // String id.
+    let str_req =
+        decode_jsonrpc_request(br#"{"jsonrpc":"2.0","id":"abc","method":"tools/list"}"#).unwrap();
+    assert_eq!(str_req.id, Some(JsonRpcId::String("abc".into())));
+
+    // Explicit null id deserializes to None.
+    let null_req =
+        decode_jsonrpc_request(br#"{"jsonrpc":"2.0","id":null,"method":"tools/list"}"#).unwrap();
+    assert_eq!(null_req.id, None);
+
+    // Absent id also deserializes to None.
+    let no_id = decode_jsonrpc_request(br#"{"jsonrpc":"2.0","method":"tools/list"}"#).unwrap();
+    assert_eq!(no_id.id, None);
+}
 
 #[test]
 fn valid_single_request_decodes() {
