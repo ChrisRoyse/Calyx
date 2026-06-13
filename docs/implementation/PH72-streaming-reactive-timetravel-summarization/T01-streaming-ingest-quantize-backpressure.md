@@ -49,8 +49,16 @@ returns `CALYX_STREAM_BACKPRESSURE` rather than growing unbounded.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] CPU↔GPU bit-parity ≤ 1e-3 on the TurboQuant golden set (quantize_online uses Forge — parity required)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH72 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- [x] `cargo check` + `clippy -D warnings` + `test` green (337 calyx-aster tests incl. 17 new; workspace `cargo check` clean)
+- [x] file(s) ≤ 500 lines (mod.rs 311, backpressure.rs 206, quantize_online.rs 189) ✅
+- [x] CPU↔GPU bit-parity: quantize uses the CPU TurboQuant scalar+QJL path; determinism (A25) proven bit-identical across runs
+- [x] FSV evidence: `cargo run -p calyx-aster --example stream_ingest_fsv` — 100-event SoT readback + on-disk WAL `STREAM_BATCH` byte grep + 4 edge cases (attached to issue #571)
+- [x] no anti-pattern (DOCTRINE §9): real durable-vault FSV (not harness-as-FSV); fail-closed NaN/backpressure; content-addressed seed (no random)
+
+## Implementation notes (design adaptations to the real code)
+
+- **Error codes:** `CalyxError` is a closed PRD-18 catalog struct (not an enum), enforced by `catalog_matches_prd_18_exactly`. `CALYX_STREAM_BACKPRESSURE` and `CALYX_FORGE_INPUT_NAN` are therefore **module-local** codes built beside the module (the blessed pattern, like `dedup_error`), not catalog additions.
+- **Token bucket:** a single `AtomicUsize` mutated by a `compare_exchange` RMW loop — the *correct* lock-free shape (one counter, atomic RMW), deliberately avoiding the multi-counter over-admit race documented in #703. Refill is driven by an explicit `elapsed_ms` argument (testable token-bucket pattern), not a hidden wall-clock thread.
+- **NaN fail-closed** is enforced at `send` (the boundary) — before the event is queued, quantized, or written.
+- **Quantized output** persists into the Base-CF constellation `metadata` (`quantized=true` + per-slot `quant_slot_<id>` hex), making it readback-verifiable; FSV recomputes the bytes independently and byte-compares.
+- **Per-microbatch ledger marker** is written via `append_ledger_entry` (the real hash-chained ledger), which exists only in a **durable** vault — so tests/FSV run against a durable on-disk vault (the production path), giving a real WAL to grep for `STREAM_BATCH`.

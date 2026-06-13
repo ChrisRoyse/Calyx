@@ -19,6 +19,7 @@ pub mod resource;
 pub mod security;
 pub mod sst;
 pub mod storage_names;
+pub mod stream;
 pub mod timetravel;
 pub mod vault;
 pub mod wal;
