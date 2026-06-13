@@ -13,8 +13,8 @@ pub mod time;
 pub mod traits;
 
 pub use alloc::{
-    AllocStats, AnnNode, AnnNodePool, Arena, ArenaVec, CALYX_ALLOC_CAP_EXCEEDED,
-    DEFAULT_EMBED_DIM, PageAlignedSlabPool, PageSlabGuard, SlabGuard, SlabPool, VecBlockPool,
+    AllocStats, AnnNode, AnnNodePool, Arena, ArenaVec, CALYX_ALLOC_CAP_EXCEEDED, DEFAULT_EMBED_DIM,
+    PageAlignedSlabPool, PageSlabGuard, SlabGuard, SlabPool, VecBlockPool,
 };
 pub use cache::{CALYX_CACHE_EVICTED, InsertResult, LruTtlCache};
 pub use cosine::{GuardTauProfile, dense_cosine};

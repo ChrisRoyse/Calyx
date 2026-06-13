@@ -20,8 +20,8 @@ pub mod slab;
 
 pub use arena::{Arena, ArenaVec};
 pub use slab::{
-    AnnNode, AnnNodePool, PageAlignedSlabPool, PageSlabGuard, SlabGuard, SlabPool, VecBlockPool,
-    DEFAULT_EMBED_DIM,
+    AnnNode, AnnNodePool, DEFAULT_EMBED_DIM, PageAlignedSlabPool, PageSlabGuard, SlabGuard,
+    SlabPool, VecBlockPool,
 };
 
 use crate::CalyxError;

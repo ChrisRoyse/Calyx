@@ -52,7 +52,12 @@ fn event(index: usize) -> IngestInput {
     let data: Vec<f32> = (0..SLOT_DIM)
         .map(|i| ((index * SLOT_DIM + i) as f32) * 0.0625 - 0.75)
         .collect();
-    IngestInput::new(format!("fsv-event-{index}").into_bytes(), 41, Modality::Text).with_slot(
+    IngestInput::new(
+        format!("fsv-event-{index}").into_bytes(),
+        41,
+        Modality::Text,
+    )
+    .with_slot(
         SlotId::new(0),
         SlotVector::Dense {
             dim: SLOT_DIM as u32,
@@ -90,7 +95,9 @@ fn count_marker_on_disk(dir: &Path) -> usize {
     let mut total = 0;
     let mut stack = vec![dir.to_path_buf()];
     while let Some(path) = stack.pop() {
-        let Ok(meta) = fs::metadata(&path) else { continue };
+        let Ok(meta) = fs::metadata(&path) else {
+            continue;
+        };
         if meta.is_dir() {
             if let Ok(entries) = fs::read_dir(&path) {
                 for entry in entries.flatten() {
@@ -98,10 +105,7 @@ fn count_marker_on_disk(dir: &Path) -> usize {
                 }
             }
         } else if let Ok(bytes) = fs::read(&path) {
-            total += bytes
-                .windows(needle.len())
-                .filter(|w| *w == needle)
-                .count();
+            total += bytes.windows(needle.len()).filter(|w| *w == needle).count();
         }
     }
     total
@@ -131,10 +135,14 @@ fn happy_path_100() {
     let vault = open_vault(&dir);
 
     let before = scan(&vault, ColumnFamily::Base).len();
-    println!("[BEFORE] base rows = {before}, on-disk STREAM_BATCH = {}", count_marker_on_disk(&dir));
+    println!(
+        "[BEFORE] base rows = {before}, on-disk STREAM_BATCH = {}",
+        count_marker_on_disk(&dir)
+    );
     assert_eq!(before, 0, "vault must start empty");
 
-    let ingester = StreamIngester::new(Arc::clone(&vault), config(), BackpressureGuard::new(256, 0));
+    let ingester =
+        StreamIngester::new(Arc::clone(&vault), config(), BackpressureGuard::new(256, 0));
     for i in 0..100 {
         ingester
             .send(event(i), EpochSecs(1_000 + i as i64))
@@ -171,7 +179,10 @@ fn happy_path_100() {
             unreachable!()
         };
         let expected = to_hex(&quantize_slot_online(data, &config(), cx_id).unwrap().bytes);
-        assert_eq!(stored, &expected, "event {i}: SoT bytes must equal recomputed quantization");
+        assert_eq!(
+            stored, &expected,
+            "event {i}: SoT bytes must equal recomputed quantization"
+        );
         verified += 1;
     }
     println!("[VERIFY] {verified}/100 base rows carry quantized=true AND byte-exact quant bytes");
@@ -179,9 +190,17 @@ fn happy_path_100() {
     // SoT #3: ledger marker count == batches, and the marker is physically on disk.
     let ledger_markers = count_ledger_marker(&vault);
     let disk_markers = count_marker_on_disk(&dir);
-    println!("[AFTER ] STREAM_BATCH ledger rows = {ledger_markers}, on-disk occurrences = {disk_markers}");
-    assert_eq!(ledger_markers, stats.batches, "one STREAM_BATCH ledger entry per microbatch");
-    assert!(disk_markers >= 1, "STREAM_BATCH must be resident in WAL/SST on disk");
+    println!(
+        "[AFTER ] STREAM_BATCH ledger rows = {ledger_markers}, on-disk occurrences = {disk_markers}"
+    );
+    assert_eq!(
+        ledger_markers, stats.batches,
+        "one STREAM_BATCH ledger entry per microbatch"
+    );
+    assert!(
+        disk_markers >= 1,
+        "STREAM_BATCH must be resident in WAL/SST on disk"
+    );
 
     // Sample the example row 0 for the evidence log.
     let sample = metadata_for(&vault, 0);
@@ -198,13 +217,19 @@ fn edge_empty_stream() {
     println!("\n=== EDGE 1: empty stream (0 events) ===");
     let dir = fresh_dir("empty");
     let vault = open_vault(&dir);
-    println!("[BEFORE] base rows = {}", scan(&vault, ColumnFamily::Base).len());
+    println!(
+        "[BEFORE] base rows = {}",
+        scan(&vault, ColumnFamily::Base).len()
+    );
     let ingester = StreamIngester::new(Arc::clone(&vault), config(), BackpressureGuard::new(8, 0));
     let stats = ingester.drain_and_close().expect("drain");
     vault.flush().expect("flush");
     let base = scan(&vault, ColumnFamily::Base).len();
     let markers = count_ledger_marker(&vault);
-    println!("[AFTER ] base rows = {base}, STREAM_BATCH ledger rows = {markers}, stats.batches = {}", stats.batches);
+    println!(
+        "[AFTER ] base rows = {base}, STREAM_BATCH ledger rows = {markers}, stats.batches = {}",
+        stats.batches
+    );
     assert_eq!(stats.ingested, 0);
     assert_eq!(base, 0);
     assert_eq!(markers, 0, "no microbatch -> no ledger marker");
@@ -228,8 +253,14 @@ fn edge_backpressure() {
     vault.flush().expect("flush");
     let base = scan(&vault, ColumnFamily::Base).len();
     println!("[TRIGGER] send outcomes = {codes:?}");
-    println!("[AFTER ] base rows = {base}, stats.backpressured = {}", stats.backpressured);
-    assert_eq!(codes[5], CALYX_STREAM_BACKPRESSURE, "6th send must fail closed");
+    println!(
+        "[AFTER ] base rows = {base}, stats.backpressured = {}",
+        stats.backpressured
+    );
+    assert_eq!(
+        codes[5], CALYX_STREAM_BACKPRESSURE,
+        "6th send must fail closed"
+    );
     assert_eq!(stats.backpressured, 1);
     assert_eq!(base, 5, "only the 5 admitted events were persisted");
     drop(vault);
@@ -246,11 +277,16 @@ fn edge_nan_fail_closed() {
         data[3] = f32::NAN;
     }
     let before = scan(&vault, ColumnFamily::Base).len();
-    let err = ingester.send(input, EpochSecs(1_000)).expect_err("NaN must fail");
+    let err = ingester
+        .send(input, EpochSecs(1_000))
+        .expect_err("NaN must fail");
     let stats = ingester.drain_and_close().expect("drain");
     vault.flush().expect("flush");
     let after = scan(&vault, ColumnFamily::Base).len();
-    println!("[BEFORE] base rows = {before}; [TRIGGER] send(NaN) -> {}; [AFTER] base rows = {after}", err.code);
+    println!(
+        "[BEFORE] base rows = {before}; [TRIGGER] send(NaN) -> {}; [AFTER] base rows = {after}",
+        err.code
+    );
     assert_eq!(err.code, CALYX_FORGE_INPUT_NAN);
     assert_eq!(stats.ingested, 0);
     assert_eq!(after, 0, "rejected event is never persisted");
@@ -270,7 +306,10 @@ fn edge_backfill_event_time() {
     assert_eq!(stats.ingested, 1);
     let created_at = metadata_created_at(&vault, 0);
     println!("[TRIGGER] send at EpochSecs(1234); [AFTER] readback created_at = {created_at}");
-    assert_eq!(created_at, 1_234, "created_at honors explicit event time, no silent re-stamp");
+    assert_eq!(
+        created_at, 1_234,
+        "created_at honors explicit event time, no silent re-stamp"
+    );
     drop(vault);
     let _ = fs::remove_dir_all(&dir);
 }
@@ -278,5 +317,8 @@ fn edge_backfill_event_time() {
 fn metadata_created_at(vault: &AsterVault<SystemClock>, index: usize) -> u64 {
     let input = event(index);
     let cx_id = vault.cx_id_for_input(&input.raw_bytes, input.panel_version);
-    vault.get(cx_id, vault.snapshot()).expect("readback").created_at
+    vault
+        .get(cx_id, vault.snapshot())
+        .expect("readback")
+        .created_at
 }

@@ -8,6 +8,7 @@ pub use calyx_core::{
 
 pub const CALYX_SEXTANT_PLAN_UNBOUNDED: &str = "CALYX_SEXTANT_PLAN_UNBOUNDED";
 pub const CALYX_SEXTANT_PLAN_COST_EXCEEDED: &str = "CALYX_SEXTANT_PLAN_COST_EXCEEDED";
+pub const CALYX_PLANNER_COST_CAP: &str = "CALYX_PLANNER_COST_CAP";
 pub const CALYX_SEXTANT_RERANKER_TIMEOUT: &str = "CALYX_SEXTANT_RERANKER_TIMEOUT";
 pub const CALYX_SEXTANT_RERANKER_ENDPOINT: &str = "CALYX_SEXTANT_RERANKER_ENDPOINT";
 pub const CALYX_SEXTANT_RERANKER_PROTOCOL: &str = "CALYX_SEXTANT_RERANKER_PROTOCOL";
@@ -44,6 +45,9 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
     let remediation = match code {
         CALYX_SEXTANT_PLAN_UNBOUNDED => "tighten k/ef/slot limits or raise operator cap",
         CALYX_SEXTANT_PLAN_COST_EXCEEDED => "reduce k, ef, participating slots, or index scope",
+        CALYX_PLANNER_COST_CAP => {
+            "reduce the cross-model query scope, add a selective index, or raise cost_cap_ms"
+        }
         CALYX_SEXTANT_RERANKER_TIMEOUT => "retry after reranker health is restored",
         CALYX_SEXTANT_RERANKER_ENDPOINT => {
             "configure a resolvable http:// reranker endpoint (resident TEI :8089)"

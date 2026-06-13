@@ -22,7 +22,7 @@ estimated cost > a vault-level threshold) is **rejected** before execution with
 
 ## Build (checklist of concrete, code-level steps)
 
-- [ ] Define `UniversalQuery` in `query/mod.rs`:
+- [x] Define `UniversalQuery` in `query/mod.rs`:
   ```rust
   pub struct UniversalQuery {
       pub relational: Option<RelationalFilter>,   // typed predicates on a Collection
@@ -38,7 +38,7 @@ estimated cost > a vault-level threshold) is **rejected** before execution with
       pub isolation:   IsolationLevel,
   }
   ```
-- [ ] Define `PlanStep` enum:
+- [x] Define `PlanStep` enum:
   `RelationalScan { collection, filter, index: Option<IndexSpec> }` |
   `DocScan { collection, path_filter }` |
   `KvGet { ns, key }` |
@@ -47,8 +47,8 @@ estimated cost > a vault-level threshold) is **rejected** before execution with
   `VectorFusion { lens_ids, query_vec, limit }` |
   `Aggregate { spec }` |
   `Ask { question, context_cx_ids }`.
-- [ ] Define `CrossModelPlan { steps: Vec<PlanStep>, estimated_cost_ms: f32, explain: Option<ExplainOutput> }`.
-- [ ] Implement `plan(vault: &AsterVault, query: &UniversalQuery) -> Result<CrossModelPlan>`:
+- [x] Define `CrossModelPlan { steps: Vec<PlanStep>, estimated_cost_ms: f32, explain: Option<ExplainOutput> }`.
+- [x] Implement `plan(vault: &AsterVault, query: &UniversalQuery) -> Result<CrossModelPlan>`:
   - For each non-None query field, produce the appropriate `PlanStep`(s).
   - Estimate cost per step (conservative heuristics: relational full-scan = 50 ms
     per 100K rows; index scan = 5 ms; KV = 0.1 ms; TS range = 1 ms/1K points;
@@ -58,45 +58,54 @@ estimated cost > a vault-level threshold) is **rejected** before execution with
   - If `explain=true`, populate `ExplainOutput` with per-step cost + chosen index.
   - Order steps: relational filter first (most selective); then graph hop; then
     vector/FTS; then aggregate; then ASK last (most expensive).
-- [ ] Vault threshold for "unbounded" rejection: `DEFAULT_COST_CAP_MS = 30_000`
+- [x] Vault threshold for "unbounded" rejection: `DEFAULT_COST_CAP_MS = 30_000`
   (30 s); configurable via `TxnPolicy`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
-- [ ] unit: `plan` for `relational + kv` query → `CrossModelPlan` with 2 steps in
+- [x] unit: `plan` for `relational + kv` query → `CrossModelPlan` with 2 steps in
   order `[RelationalScan, KvGet]`; `estimated_cost_ms > 0`.
-- [ ] unit: `plan` with `cost_cap_ms=Some(1)` and relational full-scan (est ~50ms)
+- [x] unit: `plan` with `cost_cap_ms=Some(1)` and relational full-scan (est ~50ms)
   → `CALYX_PLANNER_COST_CAP`.
-- [ ] unit explain: `plan(explain=true)` → `ExplainOutput.steps` has one entry per
+- [x] unit explain: `plan(explain=true)` → `ExplainOutput.steps` has one entry per
   `PlanStep` with non-zero cost; total = sum of parts.
-- [ ] unit unbounded rejection: `UniversalQuery { relational: Some(…), cost_cap_ms: None }`
+- [x] unit unbounded rejection: `UniversalQuery { relational: Some(…), cost_cap_ms: None }`
   on a collection with 1M rows → estimated > `DEFAULT_COST_CAP_MS` →
   `CALYX_PLANNER_COST_CAP`.
-- [ ] proptest: for any query with `cost_cap_ms=Some(cap)`, if the planner accepts
+- [x] proptest: for any query with `cost_cap_ms=Some(cap)`, if the planner accepts
   it, `estimated_cost_ms <= cap` (planner does not underestimate past the cap).
-- [ ] edge (≥3): (1) empty `UniversalQuery` (all None, no ask) → plan with 0 steps,
+- [x] edge (≥3): (1) empty `UniversalQuery` (all None, no ask) → plan with 0 steps,
   `estimated_cost_ms=0`, accepted; (2) `ASK` only → plan has `Ask` step;
   (3) all modes set simultaneously → steps in correct dependency order.
-- [ ] fail-closed: `cost_cap_ms=Some(0)` → `CALYX_PLANNER_COST_CAP` immediately
+- [x] fail-closed: `cost_cap_ms=Some(0)` → `CALYX_PLANNER_COST_CAP` immediately
   (any non-zero estimated cost exceeds cap).
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-- **SoT:** `cargo test -p calyx-sextant query::planner` output on aiwonder.
+- **SoT:** durable Aster vault bytes on aiwonder plus planner readback JSON under
+  `/home/croyse/calyx/data/fsv-issue464-query-planner-20260613T150006Z`.
 - **Readback:**
   ```
-  cargo test -p calyx-sextant query -- --nocapture 2>&1 | tail -30
-  calyx query --vault /home/croyse/calyx/test-vault \
-    --filter 'orders.qty >= 1' --kv 'ns=1,key=sess' --explain
+  CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue464-query-planner-20260613T150006Z \
+    cargo test -p calyx-sextant \
+    query::planner::fsv_tests::issue464_query_planner_fsv_writes_readback_artifacts \
+    -- --ignored --nocapture
+  cat /home/croyse/calyx/data/fsv-issue464-query-planner-20260613T150006Z/issue464-query-planner-readback.json
+  xxd -g 1 -l 160 /home/croyse/calyx/data/fsv-issue464-query-planner-20260613T150006Z/vault/cf/relational/*.sst
   ```
-- **Prove:** `--explain` output lists 2 steps with non-zero cost estimates;
-  rejection test prints `CALYX_PLANNER_COST_CAP` with the estimate.
-  Evidence posted to PH55 issue.
+- **Prove:** readback JSON shows `before_relational_rows=0`,
+  `after_relational_rows=2`, happy steps `[relational_scan, kv_get]`,
+  explain costs `50.0 + 0.1 = 50.1`, empty query accepted at `0.0`, ASK-only
+  planned as `ask`, cap-zero rejected with `CALYX_PLANNER_COST_CAP`, and
+  1M-row unbounded estimate rejected with `CALYX_PLANNER_COST_CAP`. The
+  relational SST hex contains keys
+  `010970609d868f214400080000000000000001` and
+  `010970609d868f214400080000000000000002`.
 
 ## Done when
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH55 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
+- [x] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
+- [x] file(s) ≤ 500 lines (line-count gate ✅)
+- [x] FSV evidence (readback output / screenshot) attached to the PH55 GitHub issue
+- [x] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
       "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -8,4 +8,4 @@
 
 pub mod lru_ttl;
 
-pub use lru_ttl::{InsertResult, LruTtlCache, CALYX_CACHE_EVICTED};
+pub use lru_ttl::{CALYX_CACHE_EVICTED, InsertResult, LruTtlCache};
