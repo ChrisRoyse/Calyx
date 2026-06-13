@@ -18,10 +18,11 @@ pub mod temporal;
 mod util;
 
 pub use error::{
-    CALYX_SEXTANT_ASSOC_GRAPH_MISSING, CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES,
-    CALYX_SEXTANT_CX_MISSING, CALYX_SEXTANT_DIM_MISMATCH, CALYX_SEXTANT_EF_TOO_SMALL,
-    CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE, CALYX_SEXTANT_INDEX_EMPTY, CALYX_SEXTANT_NO_LENSES,
-    CALYX_SEXTANT_PLAN_COST_EXCEEDED, CALYX_SEXTANT_PLAN_UNBOUNDED, CALYX_SEXTANT_POSTINGS_CORRUPT,
+    CALYX_PLANNER_COST_CAP, CALYX_SEXTANT_ASSOC_GRAPH_MISSING,
+    CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES, CALYX_SEXTANT_CX_MISSING,
+    CALYX_SEXTANT_DIM_MISMATCH, CALYX_SEXTANT_EF_TOO_SMALL, CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE,
+    CALYX_SEXTANT_INDEX_EMPTY, CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_PLAN_COST_EXCEEDED,
+    CALYX_SEXTANT_PLAN_UNBOUNDED, CALYX_SEXTANT_POSTINGS_CORRUPT,
     CALYX_SEXTANT_POSTINGS_NOT_SORTED, CALYX_SEXTANT_PROVENANCE_MISSING, CALYX_SEXTANT_QUERY_SHAPE,
     CALYX_SEXTANT_RECURRENCE_READ_ERROR, CALYX_SEXTANT_RERANKER_ENDPOINT,
     CALYX_SEXTANT_RERANKER_NO_CANDIDATES, CALYX_SEXTANT_RERANKER_PROTOCOL,
@@ -51,8 +52,11 @@ pub use navigation::{
 pub use planner::{IntentLabel, PlanLimits, PlannedQuery, QueryPlanner};
 pub use planner_explain::PlannerExplain;
 pub use query::{
-    AnchorPredicate, FreshnessRequirement, MetadataPredicate, Query, QueryFilters, QueryGuard,
-    ScalarOp, ScalarPredicate,
+    AggOp, AggSpec, AnchorPredicate, AskSpec, CrossModelPlan, DEFAULT_COST_CAP_MS, DocFilter,
+    DocPathFilter, ExplainOutput, ExplainStep, FieldOp, FieldPredicate, FreshnessRequirement,
+    GraphHop, KvLookup, MetadataPredicate, PlanStep, PlanStepKind, Query, QueryFilters, QueryGuard,
+    RelationalFilter, ScalarOp, ScalarPredicate, TsRange, UniversalQuery, VectorQuery,
+    plan as plan_cross_model,
 };
 pub use query_admission::{QueryAdmissionConfig, QueryAdmissionController, QueryAdmissionStats};
 pub use reranker::{RerankCandidateText, RerankRequest, RerankResponse, RerankerClient};

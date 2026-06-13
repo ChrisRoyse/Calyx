@@ -23,8 +23,7 @@ use calyx_core::CalyxError;
 /// Not a PRD 18 catalog entry; built directly per the closed-catalog doctrine.
 pub const CALYX_STREAM_BACKPRESSURE: &str = "CALYX_STREAM_BACKPRESSURE";
 
-const STREAM_BACKPRESSURE_REMEDIATION: &str =
-    "retry after token refill or reduce the stream send rate; the bucket is bounded by capacity (A26)";
+const STREAM_BACKPRESSURE_REMEDIATION: &str = "retry after token refill or reduce the stream send rate; the bucket is bounded by capacity (A26)";
 
 /// Builds a `CALYX_STREAM_BACKPRESSURE` error.
 pub(crate) fn stream_backpressure_error(message: impl Into<String>) -> CalyxError {
@@ -146,7 +145,9 @@ mod tests {
         let guard = BackpressureGuard::new(5, 0);
         assert_eq!(guard.available(), 5);
         for i in 0..5 {
-            guard.acquire(1).unwrap_or_else(|_| panic!("token {i} should be available"));
+            guard
+                .acquire(1)
+                .unwrap_or_else(|_| panic!("token {i} should be available"));
         }
         assert_eq!(guard.available(), 0);
         let err = guard.acquire(1).expect_err("6th acquire must fail closed");
@@ -156,7 +157,9 @@ mod tests {
     #[test]
     fn acquire_more_than_capacity_fails_immediately() {
         let guard = BackpressureGuard::new(5, 0);
-        let err = guard.acquire(6).expect_err("over-capacity request must fail");
+        let err = guard
+            .acquire(6)
+            .expect_err("over-capacity request must fail");
         assert_eq!(err.code, CALYX_STREAM_BACKPRESSURE);
         // A failed over-capacity acquire spends nothing.
         assert_eq!(guard.available(), 5);

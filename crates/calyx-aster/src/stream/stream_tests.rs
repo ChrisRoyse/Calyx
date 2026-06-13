@@ -50,7 +50,12 @@ fn event_input(index: usize) -> IngestInput {
     let data: Vec<f32> = (0..SLOT_DIM)
         .map(|i| ((index * SLOT_DIM + i) as f32) * 0.125 - 0.5)
         .collect();
-    IngestInput::new(format!("stream-event-{index}").into_bytes(), 41, Modality::Text).with_slot(
+    IngestInput::new(
+        format!("stream-event-{index}").into_bytes(),
+        41,
+        Modality::Text,
+    )
+    .with_slot(
         SlotId::new(0),
         SlotVector::Dense {
             dim: SLOT_DIM as u32,

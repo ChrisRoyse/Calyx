@@ -17,8 +17,7 @@ pub const CALYX_FORGE_INPUT_NAN: &str = "CALYX_FORGE_INPUT_NAN";
 const INPUT_NAN_REMEDIATION: &str =
     "reject NaN/Inf slot vectors before on-the-fly quantization; re-emit finite coefficients";
 
-const FORGE_FAULT_REMEDIATION: &str =
-    "fail-closed on Forge quantization fault: reject the input or re-encode with the current rotation seed";
+const FORGE_FAULT_REMEDIATION: &str = "fail-closed on Forge quantization fault: reject the input or re-encode with the current rotation seed";
 
 /// Builds a `CALYX_FORGE_INPUT_NAN` error.
 pub(crate) fn input_nan_error(message: impl Into<String>) -> CalyxError {
@@ -129,7 +128,10 @@ mod tests {
         let first = quantize_slot_online(&raw, &cfg, cx(7)).expect("first encode");
         let second = quantize_slot_online(&raw, &cfg, cx(7)).expect("second encode");
         assert_eq!(first.dim, 128);
-        assert_eq!(first.bytes, second.bytes, "same seed -> bit-identical (A25)");
+        assert_eq!(
+            first.bytes, second.bytes,
+            "same seed -> bit-identical (A25)"
+        );
         assert_eq!(first.seed_id, second.seed_id);
     }
 

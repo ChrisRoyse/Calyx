@@ -15,7 +15,7 @@ use std::alloc::{self, Layout};
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
-use super::{alloc_cap_exceeded, AllocStats};
+use super::{AllocStats, alloc_cap_exceeded};
 use crate::Result;
 
 /// Backing-block base alignment. Pointers requested with an alignment `<=` this

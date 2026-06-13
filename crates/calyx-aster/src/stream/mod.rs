@@ -268,15 +268,18 @@ where
         for (slot_id, vector) in &event.input.slots {
             if let SlotVector::Dense { data, .. } = vector {
                 let quantized = quantize_slot_online(data, config, cx_id)?;
-                input
-                    .metadata
-                    .insert(format!("quant_slot_{}", slot_id.0), to_hex(&quantized.bytes));
+                input.metadata.insert(
+                    format!("quant_slot_{}", slot_id.0),
+                    to_hex(&quantized.bytes),
+                );
                 outcome.quantized += 1;
                 quantized_any = true;
             }
         }
         if quantized_any {
-            input.metadata.insert("quantized".to_string(), "true".to_string());
+            input
+                .metadata
+                .insert("quantized".to_string(), "true".to_string());
         }
         ingest_at(vault, &input, event.at, None)?;
         outcome.ingested += 1;

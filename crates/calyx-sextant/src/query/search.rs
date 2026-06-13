@@ -1,4 +1,4 @@
-//! Query request types and freshness policy.
+//! Stage 4 search query request types and freshness policy.
 
 use std::collections::{BTreeMap, BTreeSet};
 

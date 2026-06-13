@@ -143,11 +143,9 @@ impl<const SLOT_SIZE: usize> SlabPool<SLOT_SIZE> {
     /// [`CALYX_ALLOC_CAP_EXCEEDED`](super::CALYX_ALLOC_CAP_EXCEEDED) when the
     /// pool is exhausted — fail closed, never a silent grow.
     pub fn acquire(&self) -> Result<SlabGuard<'_, SLOT_SIZE>> {
-        let index = self
-            .meta
-            .borrow_mut()
-            .acquire_index()
-            .ok_or_else(|| alloc_cap_exceeded(format!("slab pool exhausted ({} slots)", self.cap_slots)))?;
+        let index = self.meta.borrow_mut().acquire_index().ok_or_else(|| {
+            alloc_cap_exceeded(format!("slab pool exhausted ({} slots)", self.cap_slots))
+        })?;
         Ok(SlabGuard { pool: self, index })
     }
 
@@ -237,7 +235,9 @@ impl PageAlignedSlabPool {
             "page-aligned slot_size must be a non-zero multiple of {PAGE_SIZE}, got {slot_size}"
         );
         if cap_slots == 0 {
-            return Err(alloc_cap_exceeded("page-aligned pool cap_slots must be > 0"));
+            return Err(alloc_cap_exceeded(
+                "page-aligned pool cap_slots must be > 0",
+            ));
         }
         let total = slot_size
             .checked_mul(cap_slots)
@@ -261,11 +261,12 @@ impl PageAlignedSlabPool {
     /// # Errors
     /// [`CALYX_ALLOC_CAP_EXCEEDED`](super::CALYX_ALLOC_CAP_EXCEEDED) when exhausted.
     pub fn acquire(&self) -> Result<PageSlabGuard<'_>> {
-        let index = self
-            .meta
-            .borrow_mut()
-            .acquire_index()
-            .ok_or_else(|| alloc_cap_exceeded(format!("page-aligned pool exhausted ({} slots)", self.cap_slots)))?;
+        let index = self.meta.borrow_mut().acquire_index().ok_or_else(|| {
+            alloc_cap_exceeded(format!(
+                "page-aligned pool exhausted ({} slots)",
+                self.cap_slots
+            ))
+        })?;
         Ok(PageSlabGuard { pool: self, index })
     }
 
@@ -333,7 +334,9 @@ impl PageSlabGuard<'_> {
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
         // SAFETY: unique live guard for this index, pointer + len stay within
         // the one slot, which is initialized (zeroed at construction).
-        unsafe { std::slice::from_raw_parts_mut(self.pool.slot_ptr(self.index), self.pool.slot_size) }
+        unsafe {
+            std::slice::from_raw_parts_mut(self.pool.slot_ptr(self.index), self.pool.slot_size)
+        }
     }
 }
 
@@ -414,7 +417,11 @@ mod tests {
         for _ in 0..4 {
             let mut g = pool.acquire().expect("acquire");
             let p = g.as_mut_ptr();
-            println!("slot {} ptr {p:p} % {PAGE_SIZE} = {}", g.slot_index(), p as usize % PAGE_SIZE);
+            println!(
+                "slot {} ptr {p:p} % {PAGE_SIZE} = {}",
+                g.slot_index(),
+                p as usize % PAGE_SIZE
+            );
             assert_eq!(p as usize % PAGE_SIZE, 0, "slot pointer is page-aligned");
             guards.push(g);
         }
@@ -446,7 +453,10 @@ mod tests {
         let vblocks = VecBlockPool::new(2).expect("vec block pool");
         assert_eq!(vblocks.cap_slots(), 2);
         let _g = vblocks.acquire().unwrap();
-        assert_eq!(std::mem::size_of::<[u8; VEC_BLOCK_SIZE]>(), DEFAULT_EMBED_DIM * 4);
+        assert_eq!(
+            std::mem::size_of::<[u8; VEC_BLOCK_SIZE]>(),
+            DEFAULT_EMBED_DIM * 4
+        );
 
         let nodes = AnnNodePool::new(2).expect("ann node pool");
         assert_eq!(nodes.cap_slots(), 2);
