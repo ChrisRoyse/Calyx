@@ -12,6 +12,7 @@ pub mod encode;
 pub mod grant;
 pub mod key;
 pub mod keyspace;
+pub mod quota;
 mod layer_commit;
 mod ledger_append;
 mod ledger_hook;
@@ -46,6 +47,7 @@ pub use key::{
 pub use keyspace::{
     CALYX_VAULT_KEYSPACE_MISMATCH, KeyspaceGuard, VaultWriteLock, VaultWriteLockGuard, vault_prefix,
 };
+pub use quota::{CALYX_QUOTA_EXCEEDED, QuotaConfig, QuotaGuard};
 pub use slot_column::{
     SlotColumnManifest, SlotColumnMaterialization, SlotColumnReadback, SlotColumnRow,
     read_materialized_slot_column,
