@@ -273,6 +273,7 @@ dependencies = [
  "bincode",
  "blake3",
  "calyx-core",
+ "calyx-forge",
  "calyx-ledger",
  "calyx-paths",
  "crc32fast",
