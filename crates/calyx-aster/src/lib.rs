@@ -1,6 +1,7 @@
 //! Aster storage engine skeleton for Calyx column families and WAL.
 
 pub mod cf;
+pub mod collection;
 pub mod compaction;
 pub mod dedup;
 mod file_lock;

@@ -11,6 +11,7 @@ publish = false
 
 [workspace.dependencies]
 blake3 = "1"
+bincode = { version = "2.0.1", features = ["serde"] }
 ciborium = "0.2"
 crc32fast = "1"
 cudarc = { version = "0.19.7", default-features = false }

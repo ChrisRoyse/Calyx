@@ -16,6 +16,7 @@ fn column_family_names_match_prd_layout() {
         static_names,
         [
             "base",
+            "collections",
             "xterm",
             "temporal_xterm",
             "scalars",

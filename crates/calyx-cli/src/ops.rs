@@ -368,6 +368,7 @@ fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>, String> {
 fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
     match value {
         "base" => Ok(ColumnFamily::Base),
+        "collections" => Ok(ColumnFamily::Collections),
         "anchors" => Ok(ColumnFamily::Anchors),
         "assay" => Ok(ColumnFamily::Assay),
         "ledger" => Ok(ColumnFamily::Ledger),
