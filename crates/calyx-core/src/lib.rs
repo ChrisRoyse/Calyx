@@ -2,6 +2,7 @@
 
 pub mod alloc;
 pub mod cache;
+pub mod cold_start;
 pub mod consent;
 pub mod cosine;
 pub mod enums;
@@ -18,6 +19,7 @@ pub use alloc::{
     PageAlignedSlabPool, PageSlabGuard, SlabGuard, SlabPool, VecBlockPool,
 };
 pub use cache::{CALYX_CACHE_EVICTED, InsertResult, LruTtlCache};
+pub use cold_start::{CALYX_PROVISIONAL_VAULT, ColdStartGuard, VaultTrustState};
 pub use consent::{
     CALYX_CONSENT_VIOLATION, ConsentTag, LawfulBasis, Purpose, Timestamp, check_consent,
     consent_expired,

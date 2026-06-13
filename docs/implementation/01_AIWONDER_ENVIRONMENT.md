@@ -105,6 +105,11 @@ sudo zfs create archive/calyx        -o mountpoint=/zfs/archive/calyx
 sudo zfs create archive/calyx-restic -o mountpoint=/zfs/archive/calyx/restic
 sudo chown -R croyse:croyse /zfs/hot/calyx /zfs/archive/calyx
 ```
+PH61 T07 security FSV uses the encrypted child dataset
+`hotpool/calyx/secure`, mounted through `/home/croyse/calyx/data/secure`;
+live readback on 2026-06-13 showed `encryption=aes-256-gcm`, `keyformat=raw`,
+and a root-only key file outside the repo. The older parent Calyx datasets may
+remain `encryption=off`; do not cite them as the PH61 at-rest encryption proof.
 Then `data/` and `datasets/` under `CALYX_HOME` are relocated/symlinked to
 `/zfs/hot/calyx` (WAL, base CF, active slots, indexes, kernel/guard) and
 `/zfs/archive/calyx` (raw f32 sidecars, retired slots, ledger archive, restic,

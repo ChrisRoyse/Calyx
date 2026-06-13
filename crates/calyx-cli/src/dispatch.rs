@@ -259,6 +259,14 @@ pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
         {
             scan::scan_ledger_vault(Path::new(vault))
         }
+        [command, vault_flag, vault, last_flag, last]
+            if command == "ledger-tail" && vault_flag == "--vault" && last_flag == "--last" =>
+        {
+            let last = last
+                .parse::<usize>()
+                .map_err(|error| format!("invalid --last: {error}"))?;
+            scan::tail_ledger_vault(Path::new(vault), last)
+        }
         [command, vault_flag, vault, cx_flag, cx]
             if command == "get-provenance" && vault_flag == "--vault" && cx_flag == "--cx" =>
         {
