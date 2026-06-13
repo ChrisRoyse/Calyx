@@ -185,6 +185,9 @@ error_catalog! {
     VaultAccessDenied, vault_access_denied, "CALYX_VAULT_ACCESS_DENIED",
     "cross-vault read without grant", "request grant";
 
+    EraseAlreadyTombstoned, erase_already_tombstoned, "CALYX_ERASE_ALREADY_TOMBSTONED",
+    "erase scope already has an erasure tombstone", "treat as idempotent erasure or inspect ledger tombstone";
+
     StaleDerived, stale_derived, "CALYX_STALE_DERIVED",
     "fresh required, rebuild pending", "retry or accept StaleOk";
 
@@ -254,6 +257,7 @@ mod tests {
         "CALYX_REPRODUCE_NONDETERMINISTIC",
         "CALYX_REPRODUCE_DRIFT_EXCEEDED",
         "CALYX_VAULT_ACCESS_DENIED",
+        "CALYX_ERASE_ALREADY_TOMBSTONED",
         "CALYX_STALE_DERIVED",
         "CALYX_ORACLE_INSUFFICIENT",
         "CALYX_FORGE_VRAM_BUDGET",

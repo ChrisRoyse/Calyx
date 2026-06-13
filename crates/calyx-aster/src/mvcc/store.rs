@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
+const TOMBSTONE_VALUE: &[u8] = b"\0CALYX_ASTER_TOMBSTONE_V1";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct VersionedValue {
     seq: Seq,
@@ -35,6 +37,14 @@ impl CfRead {
             key: key.into(),
         }
     }
+}
+
+pub fn tombstone_value() -> Vec<u8> {
+    TOMBSTONE_VALUE.to_vec()
+}
+
+pub fn is_tombstone_value(value: &[u8]) -> bool {
+    value == TOMBSTONE_VALUE
 }
 
 /// Versioned row table with a single vault-wide sequence.
@@ -334,5 +344,5 @@ fn visible_value(versions: &[VersionedValue], seq: Seq) -> Option<Vec<u8>> {
         .iter()
         .rev()
         .find(|version| version.seq <= seq)
-        .map(|version| version.value.clone())
+        .and_then(|version| (!is_tombstone_value(&version.value)).then(|| version.value.clone()))
 }

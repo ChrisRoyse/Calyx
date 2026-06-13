@@ -6,7 +6,7 @@ mod store;
 
 pub use lease::{Freshness, ReaderLease, SeqAllocator, Snapshot};
 pub use read_barrier::{CALYX_ASTER_BASE_CORRUPT, ReadBarrier};
-pub use store::{CfRead, VersionedCfStore};
+pub use store::{CfRead, VersionedCfStore, is_tombstone_value, tombstone_value};
 
 #[cfg(test)]
 mod tests;

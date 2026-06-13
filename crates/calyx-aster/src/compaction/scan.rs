@@ -1,5 +1,5 @@
 use super::{CompactionCatalog, SstShard, TieringPolicy};
-use crate::storage_names::{classify_sst, parse_cf_dir_name};
+use crate::storage_names::{parse_cf_dir_name, sst_order_key};
 use calyx_core::{CalyxError, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,7 +43,13 @@ pub fn catalog_from_vault_tiers(
             }
         }
     }
-    shards.sort_by(|left, right| left.path.cmp(&right.path));
+    shards.sort_by(|left, right| {
+        left.cf
+            .name()
+            .cmp(&right.cf.name())
+            .then_with(|| order_key(&left.path).cmp(&order_key(&right.path)))
+            .then_with(|| left.path.cmp(&right.path))
+    });
     shards.dedup_by(|left, right| left.path == right.path);
     Ok(CompactionCatalog::new(shards))
 }
@@ -60,12 +66,18 @@ fn list_ssts(dir: &Path) -> Result<Vec<PathBuf>> {
                 CalyxError::disk_pressure(format!("read compaction SST entry: {error}"))
             })?
             .path();
-        if classify_sst(&path)?.is_some() {
-            files.push(path);
+        if let Some(order) = sst_order_key(&path)? {
+            files.push((order, path));
         }
     }
-    files.sort();
-    Ok(files)
+    files.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    Ok(files.into_iter().map(|(_, path)| path).collect())
+}
+
+fn order_key(path: &Path) -> crate::storage_names::SstOrderKey {
+    sst_order_key(path)
+        .expect("catalog contains canonical SST")
+        .expect("catalog path has SST extension")
 }
 
 fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<PathBuf> {

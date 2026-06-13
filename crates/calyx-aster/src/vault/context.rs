@@ -122,6 +122,16 @@ impl VaultContext {
         self.key.decrypt(nonce, ciphertext, aad)
     }
 
+    /// Crypto-shreds the live vault key for lawful/user-requested erasure.
+    pub fn shred_key_for_erasure(&mut self) {
+        self.key.shred_for_erasure();
+    }
+
+    /// Returns true once the live key has been overwritten by the erasure sentinel.
+    pub fn is_key_shredded_for_erasure(&self) -> bool {
+        self.key.is_shredded_for_erasure()
+    }
+
     /// Charges `cx_count` against this vault's ingest quota at `now_ns`.
     pub fn charge_ingest(&self, cx_count: u32, now_ns: u64) -> Result<()> {
         self.quota.charge_ingest(cx_count, now_ns)
