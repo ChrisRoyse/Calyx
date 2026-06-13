@@ -5,10 +5,14 @@ use calyx_core::Result;
 use crate::collection::{Collection, CollectionMode};
 
 pub mod document;
+pub mod kv;
 pub mod relational;
+pub mod timeseries;
 
 pub use document::{DocId, DocumentLayer};
+pub use kv::KvLayer;
 pub use relational::{RecordKey, RecordValue, RelationalLayer, Row};
+pub use timeseries::{RollupValue, RollupWindow, TimeSeriesLayer};
 
 pub trait Layer: Send + Sync {
     fn collection_mode() -> CollectionMode
