@@ -5,7 +5,7 @@ pub(crate) fn main() -> ExitCode {
     if let Some(code) = super::verify_restore::try_run(&args) {
         return code;
     }
-    match super::run(args) {
+    match crate::dispatch::run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("error: {error}");

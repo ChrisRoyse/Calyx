@@ -1,5 +1,6 @@
 use super::*;
 use crate::cli_support::hex_lines;
+use crate::dispatch::run;
 use calyx_anneal::TripwireRegistry;
 use std::path::PathBuf;
 

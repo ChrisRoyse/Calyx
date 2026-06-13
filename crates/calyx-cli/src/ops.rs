@@ -372,6 +372,7 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
         "assay" => Ok(ColumnFamily::Assay),
         "ledger" => Ok(ColumnFamily::Ledger),
         "recurrence" => Ok(ColumnFamily::Recurrence),
+        "time_index" => Ok(ColumnFamily::TimeIndex),
         "graph" => Ok(ColumnFamily::Graph),
         "online" => Ok(ColumnFamily::Online),
         "scalars" => Ok(ColumnFamily::Scalars),
