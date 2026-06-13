@@ -13,8 +13,10 @@ pub mod quant_config;
 pub mod tokenizer;
 
 pub use diskann::{
-    DiskAnnBuildParams, DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef,
-    DiskAnnSearch, DiskAnnSearchParams, build_diskann_graph, node_block_size, open_diskann_graph,
+    ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey, DiskAnnBuildParams,
+    DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef, DiskAnnSearch,
+    DiskAnnSearchParams, TokenDiskAnnMaxSim, build_diskann_graph, node_block_size,
+    open_diskann_graph,
 };
 pub use dual::{DualIndex, DualSide};
 pub use hnsw::HnswIndex;

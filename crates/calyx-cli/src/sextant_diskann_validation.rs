@@ -1,3 +1,4 @@
+mod issue604;
 mod support;
 
 use std::collections::BTreeSet;
@@ -58,6 +59,9 @@ struct EdgeReport {
 }
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
+    if issue604::is_issue604(args) {
+        return issue604::run(args);
+    }
     let request = Request::parse(args)?;
     match request.mode {
         Mode::Happy => run_happy(&request),

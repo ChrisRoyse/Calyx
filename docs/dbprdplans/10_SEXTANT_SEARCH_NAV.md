@@ -62,8 +62,8 @@ profiles.
 | Dense | HNSW (usearch-class) | in-RAM HNSW | **DiskANN** on-disk graph |
 | Dense, asymmetric | dual HNSW (a/b) with directional boost | both in-RAM | dual DiskANN |
 | Sparse (SPLADE/keyword) | inverted lists | in-RAM | **SPANN** (centroids RAM, lists on NVMe) |
-| Multi (ColBERT) | token index + MaxSim | token HNSW | token DiskANN + MaxSim rerank |
-| Concat cross-term | HNSW on the joint key | RAM | DiskANN |
+| Multi (ColBERT) | token index + MaxSim | token HNSW | token DiskANN + segmented MaxSim rerank from raw token sidecars |
+| Concat cross-term | HNSW on the joint key | RAM | DiskANN over materialized `xterm` Concat keys |
 | Kernel | small dedicated ANN | RAM | RAM (tiny set) |
 | Scalars | b-tree | b-tree | b-tree |
 

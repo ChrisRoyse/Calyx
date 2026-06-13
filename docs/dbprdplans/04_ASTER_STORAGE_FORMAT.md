@@ -66,7 +66,9 @@ vault.calyx/                         # a vault = a directory
     online/                          # mistake log, replay buffer, online head state
   idx/
     slot_00.ann/ ...                 # per-slot HNSW (embedded) or DiskANN (server) graph
+    slot_00.token.ann/ ...           # server token DiskANN + MaxSim sidecars for multi slots
     slot_00.asym_a/ slot_00.asym_b/  # asymmetric dual indexes when Slot.asymmetry = Dual
+    xterm.concat.ann/                # server DiskANN over materialized Concat xterm rows
     slot_06.sparse/                  # SPANN-style inverted lists for sparse lenses
     kernel/                          # Lodestar kernel index (kernel CxIds + recall meta)
     scalars.btree/
@@ -89,9 +91,9 @@ ZFS notes (from `aiwonder-system.md` gotchas): reference disks by `wwn-`/`eui-`,
 | CF | Key | Value | Index |
 |---|---|---|---|
 | `base` | `CxId` | header (modality, flags, scalar refs, anchor refs, ledger ref, created_at) | primary |
-| `slot_k` | `CxId` | quantized SlotVector (dense PQ/F8 / sparse / multi) | ANN/inverted in `idx/` |
+| `slot_k` | `CxId` | quantized SlotVector (dense PQ/F8 / sparse / multi) | ANN/inverted in `idx/`; multi server slots use `idx/slot_k.token.ann/` |
 | `slot_k.raw` | `CxId` | raw f32 (cold) | none (scan/rescore only) |
-| `xterm` | `(CxId, a, b, kind)` | cross-term value | optional ANN on Concat keys |
+| `xterm` | `(CxId, a, b, kind)` | cross-term value | optional ANN on Concat keys in `idx/xterm.concat.ann/` |
 | `scalars` | `(ScalarId, CxId)` | f64 | btree |
 | `anchors` | `(CxId, AnchorKind)` | AnchorValue + source + ts | by-kind secondary |
 | `ledger` | `seq` | hash-chained provenance entry | merkle (`11`) |
