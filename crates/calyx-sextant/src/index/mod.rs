@@ -4,6 +4,7 @@ use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
 use serde::{Deserialize, Serialize};
 
 pub mod bm25;
+pub mod diskann;
 pub mod dual;
 pub mod hnsw;
 pub mod inverted;
@@ -11,6 +12,10 @@ pub mod multi;
 pub mod quant_config;
 pub mod tokenizer;
 
+pub use diskann::{
+    DiskAnnBuildParams, DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef,
+    build_diskann_graph, node_block_size, open_diskann_graph,
+};
 pub use dual::{DualIndex, DualSide};
 pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;

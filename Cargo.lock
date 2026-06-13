@@ -406,6 +406,7 @@ dependencies = [
  "calyx-oracle",
  "calyx-paths",
  "calyx-ward",
+ "memmap2",
  "proptest",
  "rand 0.8.6",
  "rand_chacha 0.3.1",

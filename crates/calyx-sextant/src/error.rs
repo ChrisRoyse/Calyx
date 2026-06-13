@@ -36,6 +36,9 @@ pub const CALYX_SEXTANT_SKILL_PARAMS: &str = "CALYX_SEXTANT_SKILL_PARAMS";
 pub const CALYX_SEXTANT_SKILL_BUDGET_EXCEEDED: &str = "CALYX_SEXTANT_SKILL_BUDGET_EXCEEDED";
 pub const CALYX_SEXTANT_SKILL_PAIR_NO_OVERLAP: &str = "CALYX_SEXTANT_SKILL_PAIR_NO_OVERLAP";
 pub const CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED: &str = "CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED";
+pub const CALYX_INDEX_CORRUPT: &str = "CALYX_INDEX_CORRUPT";
+pub const CALYX_INDEX_IO: &str = "CALYX_INDEX_IO";
+pub const CALYX_INDEX_INVALID_PARAMS: &str = "CALYX_INDEX_INVALID_PARAMS";
 pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
         CALYX_SEXTANT_PLAN_UNBOUNDED => "tighten k/ef/slot limits or raise operator cap",
@@ -94,6 +97,13 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         }
         CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED => {
             "raise max_candidates or use the exhaustive window recall policy"
+        }
+        CALYX_INDEX_CORRUPT => {
+            "rebuild the on-disk index from the vault; do not trust partial reads"
+        }
+        CALYX_INDEX_IO => "inspect disk/permissions on the index path, then rebuild",
+        CALYX_INDEX_INVALID_PARAMS => {
+            "supply non-empty vectors with dense ids and dim/m_max/ef/alpha within bounds"
         }
         CALYX_TEMPORAL_AP60_VIOLATION => {
             "keep temporal signals post-retrieval only and never dominant"
