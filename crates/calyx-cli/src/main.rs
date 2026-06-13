@@ -33,6 +33,8 @@ mod ledger_store;
 #[cfg(test)]
 mod main_tests;
 mod manifest_readback;
+mod media_commands;
+mod media_emotion_validation;
 mod media_image_validation;
 mod merkle;
 mod navigate;
@@ -164,9 +166,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
         [command, topic, rest @ ..] if command == "sextant" && topic == "recall-validate" => {
             sextant_recall_validation::run(rest)
         }
-        [command, topic, rest @ ..] if command == "media" && topic == "image-validate" => {
-            media_image_validation::run(rest)
-        }
+        [command, topic, rest @ ..] if command == "media" => media_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
             anneal_ledger_readback::run(rest)
         }

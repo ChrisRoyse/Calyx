@@ -22,6 +22,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal goodhart-check --fixture <json> --vault <dir> --vault-id <id> --salt <s>
        calyx sextant recall-validate --corpus-jsonl <jsonl> --queries-jsonl <jsonl> --qrels <tsv> --metrics-dir <dir> --vault <dir> [--query-limit <n>] [--min-delta <f>]
        calyx media image-validate --samples <jsonl> --metrics-dir <dir> --vault <dir> [--min-image-bits <f>] [--min-cross-modal-bits <f>] [--k <n>]
+       calyx media emotion-validate --samples <jsonl> --metrics-dir <dir> --vault <dir> [--min-bits <f>] [--k <n>]
        calyx anneal deficit-map --anchor <anchor_id> --fixture <json> [--threshold <bits>]
        calyx anneal propose-preview --anchor <anchor_id> --deficit <json> --corpus <json>
        calyx anneal lens-proposal-log --fixture <json> --last <n>
