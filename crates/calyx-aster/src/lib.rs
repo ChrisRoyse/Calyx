@@ -17,6 +17,7 @@ pub mod plain_graph;
 pub mod recurrence;
 pub mod residency;
 pub mod resource;
+pub mod retention;
 pub mod security;
 pub mod sst;
 pub mod storage_names;
