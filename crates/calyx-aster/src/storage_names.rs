@@ -32,6 +32,36 @@ pub enum SstName {
     Compacted { seq: u64 },
 }
 
+/// Canonical chronological order for SST files inside one CF.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SstOrderKey {
+    pub seq: u64,
+    pub class_rank: u8,
+    pub index: usize,
+}
+
+impl SstOrderKey {
+    fn from_name(name: SstName) -> Self {
+        match name {
+            SstName::Router { seq } => Self {
+                seq,
+                class_rank: 1,
+                index: 0,
+            },
+            SstName::DurableBatch { seq, index } => Self {
+                seq,
+                class_rank: 2,
+                index,
+            },
+            SstName::Compacted { seq } => Self {
+                seq,
+                class_rank: 3,
+                index: usize::MAX,
+            },
+        }
+    }
+}
+
 /// Classifies an SST path. Returns `Ok(None)` for paths without an `sst`
 /// extension (foreign files such as locks and dot-temp files are not Aster's
 /// to judge), `Ok(Some(_))` for canonical names, and a typed error for any
@@ -44,6 +74,11 @@ pub fn classify_sst(path: &Path) -> Result<Option<SstName>> {
     stem.and_then(classify_sst_stem)
         .map(Some)
         .ok_or_else(|| unrecognized_name(path, "SST"))
+}
+
+/// Returns the chronological sort key for a canonical SST file.
+pub fn sst_order_key(path: &Path) -> Result<Option<SstOrderKey>> {
+    Ok(classify_sst(path)?.map(SstOrderKey::from_name))
 }
 
 /// Returns the WAL segment index for canonical `{index:020}.wal` names,
@@ -203,6 +238,26 @@ mod tests {
             classify_sst(&sst("compacted-00000000000000000042.sst")).unwrap(),
             Some(SstName::Compacted { seq: 42 })
         );
+    }
+
+    #[test]
+    fn sst_order_key_uses_sequence_not_filename_prefix() {
+        let compacted_6 = sst_order_key(&sst("compacted-00000000000000000006.sst"))
+            .unwrap()
+            .unwrap();
+        let router_7 = sst_order_key(&sst("00000000000000000007.sst"))
+            .unwrap()
+            .unwrap();
+        let durable_7 = sst_order_key(&sst("00000000000000000007-0000.sst"))
+            .unwrap()
+            .unwrap();
+        let compacted_7 = sst_order_key(&sst("compacted-00000000000000000007.sst"))
+            .unwrap()
+            .unwrap();
+
+        assert!(compacted_6 < router_7);
+        assert!(router_7 < durable_7);
+        assert!(durable_7 < compacted_7);
     }
 
     #[test]

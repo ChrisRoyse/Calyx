@@ -16,7 +16,7 @@ use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use calyx_core::{CalyxError, Result, VaultId};
 use hkdf::Hkdf;
 use sha2::Sha256;
-use zeroize::Zeroizing;
+use zeroize::{Zeroize, Zeroizing};
 
 /// Host-provided key material was empty, so no vault key could be derived.
 pub const CALYX_VAULT_KEY_MISSING: &str = "CALYX_VAULT_KEY_MISSING";
@@ -83,6 +83,16 @@ impl VaultKey {
         Self {
             inner: Zeroizing::new(bytes),
         }
+    }
+
+    /// Overwrites this live key with the all-zero erasure sentinel.
+    pub(crate) fn shred_for_erasure(&mut self) {
+        self.inner.as_mut_slice().zeroize();
+    }
+
+    /// Reports whether this live key has been overwritten by erasure.
+    pub(crate) fn is_shredded_for_erasure(&self) -> bool {
+        self.inner.iter().all(|byte| *byte == 0)
     }
 
     /// Zero-copy borrow of the inner bytes as an AES-256-GCM key reference.

@@ -67,7 +67,7 @@ where
         self.with_durable_commit_lock(|| self.commit_rows_locked(rows))
     }
 
-    pub(super) fn commit_rows_locked(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
+    pub(crate) fn commit_rows_locked(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
         if rows.is_empty() {
             // Empty commit: do not advance the seq or stamp a time-index entry.
             return self.commit_prepared_rows(rows);

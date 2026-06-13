@@ -4,8 +4,10 @@ use crate::compaction::{
     CompactionCatalog, CompactionResult, CompactionScheduler, CompactionSchedulerOptions,
     CompactionThrottle, catalog_from_vault_tiers,
 };
+use crate::mvcc::is_tombstone_value;
 use crate::recurrence::{StoredRecurrenceRow, decode_recurrence_row};
 use crate::sst::{SstReader, write_sst};
+use crate::storage_names::classify_sst;
 use calyx_core::{CalyxError, Clock, Result};
 use std::fs;
 use std::path::Path;
@@ -63,6 +65,29 @@ where
         Ok(result)
     }
 
+    pub(crate) fn purge_tombstoned_cfs(&self, cfs: &[ColumnFamily]) -> Result<()> {
+        let Some(durable) = &self.durable else {
+            return Ok(());
+        };
+        durable.flush()?;
+        self.rows.flush_all_cfs()?;
+        let mut unique = Vec::new();
+        for cf in cfs {
+            if !unique.contains(cf) {
+                unique.push(*cf);
+            }
+        }
+        for cf in unique {
+            purge_tombstoned_cf_once(
+                durable.root(),
+                durable.tiering_policy(),
+                cf,
+                self.latest_seq(),
+            )?;
+        }
+        Ok(())
+    }
+
     pub fn start_compaction_scheduler(
         &self,
         mut options: CompactionSchedulerOptions,
@@ -83,6 +108,53 @@ where
         let scheduler = CompactionScheduler::start(catalog.clone(), options);
         Ok(Some(VaultCompactionScheduler { catalog, scheduler }))
     }
+}
+
+fn purge_tombstoned_cf_once(
+    root: &Path,
+    tiering_policy: Option<&crate::compaction::TieringPolicy>,
+    cf: ColumnFamily,
+    seq: u64,
+) -> Result<()> {
+    let catalog = catalog_from_vault_tiers(root, tiering_policy)?;
+    let output = tiering_policy.map_or_else(
+        || root.join("cf").join(cf.name()),
+        |policy| policy.place_current_cf(cf).absolute_dir(),
+    );
+    let output = output.join(format!("compacted-{seq:020}.sst"));
+    let mut result = catalog.compact_cf(cf, output, CompactionThrottle::unlimited())?;
+    let CompactionResult::Compacted(report) = &mut result else {
+        return Ok(());
+    };
+    prune_mvcc_tombstones(report)?;
+    report.reclaimed_input_files = reclaim_compaction_inputs(report)?;
+    Ok(())
+}
+
+fn reclaim_compaction_inputs(report: &crate::compaction::CompactionReport) -> Result<usize> {
+    let output = fs::canonicalize(&report.output_path)
+        .map_err(|error| CalyxError::disk_pressure(format!("stat compacted SST: {error}")))?;
+    let mut reclaimed = 0;
+    for input in &report.input_paths {
+        let input = match fs::canonicalize(input) {
+            Ok(path) => path,
+            Err(_) => continue,
+        };
+        if input == output {
+            continue;
+        }
+        if classify_sst(&input)?.is_none() {
+            continue;
+        }
+        fs::remove_file(&input).map_err(|error| {
+            CalyxError::disk_pressure(format!(
+                "reclaim compaction input {}: {error}",
+                input.display()
+            ))
+        })?;
+        reclaimed += 1;
+    }
+    Ok(reclaimed)
 }
 
 fn reclaim_recurrence_inputs(report: &crate::compaction::CompactionReport) -> Result<usize> {
@@ -116,14 +188,36 @@ fn reclaim_recurrence_inputs(report: &crate::compaction::CompactionReport) -> Re
     Ok(reclaimed)
 }
 
+fn prune_mvcc_tombstones(report: &mut crate::compaction::CompactionReport) -> Result<()> {
+    rewrite_compacted_without(
+        report,
+        |value| Ok(is_tombstone_value(value)),
+        "mvcc tombstone",
+    )
+}
+
 fn prune_recurrence_tombstones(report: &mut crate::compaction::CompactionReport) -> Result<()> {
+    rewrite_compacted_without(
+        report,
+        |value| {
+            Ok(matches!(
+                decode_recurrence_row(value)?,
+                StoredRecurrenceRow::Tombstone { .. }
+            ))
+        },
+        "recurrence tombstone",
+    )
+}
+
+fn rewrite_compacted_without(
+    report: &mut crate::compaction::CompactionReport,
+    should_prune: impl Fn(&[u8]) -> Result<bool>,
+    reason: &str,
+) -> Result<()> {
     let mut retained = Vec::<(Vec<u8>, Vec<u8>)>::new();
     let mut pruned = 0_u64;
     for entry in SstReader::open(&report.output_path)?.iter()? {
-        if matches!(
-            decode_recurrence_row(&entry.value)?,
-            StoredRecurrenceRow::Tombstone { .. }
-        ) {
+        if should_prune(&entry.value)? {
             pruned += 1;
             continue;
         }
@@ -141,7 +235,7 @@ fn prune_recurrence_tombstones(report: &mut crate::compaction::CompactionReport)
     let summary = write_sst(&reclaimed_path, entries)?;
     fs::remove_file(&report.output_path).map_err(|error| {
         CalyxError::disk_pressure(format!(
-            "remove recurrence tombstone compaction file {}: {error}",
+            "remove {reason} compaction file {}: {error}",
             report.output_path.display()
         ))
     })?;

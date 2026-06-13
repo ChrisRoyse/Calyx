@@ -251,6 +251,10 @@ where
         self.vault_id
     }
 
+    pub(crate) fn clock_now(&self) -> u64 {
+        self.clock.now()
+    }
+
     pub fn dedup_policy(&self) -> &DedupPolicy {
         &self.dedup_policy
     }

@@ -4,7 +4,7 @@ use crate::memtable::Memtable;
 use crate::resource::ResourceCounters;
 use crate::sst::level::SstLevel;
 use crate::sst::{SstEntry, SstSummary};
-use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name};
+use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name, sst_order_key};
 use calyx_core::{CalyxError, Result};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -210,7 +210,7 @@ impl CfRouter {
             }
         }
         for (cf, mut files) in by_cf {
-            files.sort();
+            sort_ssts_by_sequence(&mut files)?;
             files.dedup();
             // Only router-flushed SSTs participate in the next-file counter;
             // durable batches and compaction outputs use disjoint name shapes.
@@ -275,11 +275,33 @@ fn list_sst_files(dir: &Path) -> Result<Vec<PathBuf>> {
         let path = entry
             .map_err(|error| CalyxError::disk_pressure(format!("read CF file: {error}")))?
             .path();
-        if classify_sst(&path)?.is_some() {
+        if sst_order_key(&path)?.is_some() {
             files.push(path);
         }
     }
     Ok(files)
+}
+
+fn sort_ssts_by_sequence(files: &mut [PathBuf]) -> Result<()> {
+    let mut keyed = files
+        .iter()
+        .map(|path| {
+            Ok((
+                sst_order_key(path)?.ok_or_else(|| {
+                    CalyxError::aster_corrupt_shard(format!(
+                        "non-SST path {} in CF level",
+                        path.display()
+                    ))
+                })?,
+                path.clone(),
+            ))
+        })
+        .collect::<Result<Vec<_>>>()?;
+    keyed.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)));
+    for (slot, (_, path)) in files.iter_mut().zip(keyed) {
+        *slot = path;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
