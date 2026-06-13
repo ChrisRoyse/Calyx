@@ -49,6 +49,9 @@ Cloudflare Access). The PH65 calyxd binary is the deliverable being wrapped here
 | `infra/aiwonder/ops/provision-zfs.sh` | [OPERATOR] Script: `zfs create` + `chown`; idempotent (skips if dataset exists) |
 | `infra/aiwonder/ops/install-service.sh` | [OPERATOR] Script: copy unit file, `systemctl daemon-reload`, `enable`, `start` |
 | `infra/aiwonder/ops/relocate-data.sh` | Script (no sudo): `rsync` `CALYX_HOME/data/` → `/zfs/hot/calyx/`, update `calyx.toml` vault_path |
+| `infra/aiwonder/secrets-loader/calyx.env.map.json` | Calyx loader-map fragment for the 13th rendered env file (`/run/leapable/secrets/calyx.env`) |
+| `infra/aiwonder/bin/calyx-aiwonder-healthcheck.sh` | Wrapper called by `leapable-aiwonder-healthcheck` to run `calyx healthcheck` and write `/zfs/hot/logs/calyx-health/latest.json` |
+| `infra/aiwonder/bin/install-calyx-deploy-wiring.sh` | [OPERATOR] Idempotent wiring step: merge the loader-map fragment, install the wrapper, and add the Calyx checks to the existing aggregator |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -65,6 +68,11 @@ Cloudflare Access). The PH65 calyxd binary is the deliverable being wrapped here
 After operator steps:
 1. `systemctl is-active calyxd` → `active`; `systemctl status calyxd` shows
    `ExecStartPost` (healthcheck) completed with exit 0.
+1a. `/run/leapable/secrets/calyx.env` exists with mode `0400`; names-only
+    readback shows `HF_HUB_TOKEN` and `HF_TOKEN`; no secret values are printed.
+1b. `/zfs/hot/logs/aiwonder-health/latest.json` contains
+    `calyx_healthcheck_latest_json` and `calyx_health_latest_status` checks, and
+    `/zfs/hot/logs/calyx-health/latest.json` has `.status == "pass"`.
 2. `curl -s http://127.0.0.1:9090/api/v1/targets` → calyx target is `up`.
 3. `curl -s http://127.0.0.1:7700/metrics` → response contains all 25-hazard
    metric names + the named ingest/search/guard/anneal metrics.

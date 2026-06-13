@@ -82,6 +82,11 @@ safe to re-run (idempotent).
 - [ ] `infra/aiwonder/calyx.toml` updated from PH65: add `[service]` section
   documenting the systemd integration, and set `health_log_path =
   "/zfs/hot/logs/calyx-health/latest.json"` (the post-provisioning path)
+- [ ] `infra/aiwonder/bin/install-calyx-deploy-wiring.sh` has run on aiwonder:
+  it merges `infra/aiwonder/secrets-loader/calyx.env.map.json` into the
+  Leapable secrets loader map, installs
+  `/usr/local/sbin/calyx-aiwonder-healthcheck.sh`, and inserts the marked
+  Calyx checks into `leapable-aiwonder-healthcheck`.
 
 ## Tests (synthetic, deterministic — known input → known bytes/number)
 
@@ -104,7 +109,9 @@ safe to re-run (idempotent).
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `/etc/systemd/system/calyxd.service` after operator install; output
-  of `systemctl status calyxd`
+  of `systemctl status calyxd`; `/run/leapable/secrets/calyx.env`;
+  `/zfs/hot/logs/calyx-health/latest.json`; and
+  `/zfs/hot/logs/aiwonder-health/latest.json`
 - **Readback (operator runs):**
   ```bash
   # [OPERATOR] on aiwonder:
@@ -114,6 +121,10 @@ safe to re-run (idempotent).
   # Must print: active
   journalctl -u calyxd --since "5 minutes ago" --no-pager | tail -20
   # Must contain: healthcheck pass line and startup banner
+  stat -c '%a %U:%G %n' /run/leapable/secrets/calyx.env
+  sed -n 's/^\([A-Z0-9_]*\)=.*/\1=<redacted>/p' /run/leapable/secrets/calyx.env
+  jq '.status, [.checks[] | select(.name|startswith("calyx_")) | .name]' \
+    /zfs/hot/logs/aiwonder-health/latest.json
   ```
 - **Prove:** `systemctl is-active calyxd` returns `active`; `journalctl` output
   contains `ExecStartPost` completion with exit code 0; `latest.json` has

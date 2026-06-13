@@ -36,8 +36,9 @@
 > - **Postgres/pgbouncer backend ("backenddb") slots are live and
 >   loader-rendered** — `aiwonder_postgres_*` and `aiwonder_pgbouncer_*`
 >   (URLs, per-role passwords, observer DSN). The loader materializes
->   **12** env files: `outbox-relay.env`, `postgres-exporter.env`,
->   `pgbouncer-exporter.env`, and `pgbouncer.env` are the newer ones.
+>   **13** env files after Calyx wiring: `outbox-relay.env`,
+>   `postgres-exporter.env`, `pgbouncer-exporter.env`, `pgbouncer.env`, and
+>   `calyx.env` are the newer ones.
 > - **Tauri updater signing keys** (`tauri_updater_signing_key`,
 >   `tauri_updater_signing_key_password`, `tauri_updater_pubkey`) are
 >   present and LIVE — pulled at build time by
@@ -245,8 +246,8 @@ Examples in `docs2/aiwonder-system.md §"SDK examples"`.
 `leapable-secrets-load.service` runs at boot. It reads
 `infra/aiwonder/secrets-loader/secrets-map.json`, authenticates as the
 `aiwonder-prod` machine identity, fetches each named secret, and writes
-the **twelve** env files under `/run/leapable/secrets/` at mode `0400` with
-the owner declared in the map. Each service has
+the mapped env files under `/run/leapable/secrets/` at mode `0400` with the
+owner declared in the map. Each service has
 `EnvironmentFile=/run/leapable/secrets/<name>.env` in its systemd unit.
 
 Loader source: `infra/aiwonder/secrets-loader/`. Validator:
@@ -612,8 +613,9 @@ shred -u /tmp/ingest-bundle-priv-b64.txt
 
 ## 4. Loader → env file mapping (the materialized aiwonder state)
 
-After `leapable-secrets-load.service` runs, `/run/leapable/secrets/`
-contains exactly these **twelve** files. Mode `0400` on every one.
+After `leapable-secrets-load.service` runs with the Calyx wiring installed,
+`/run/leapable/secrets/` contains these **thirteen** files. Mode `0400` on
+every one.
 
 | File                     | Owner                   | Consumed by systemd unit(s)                                                                                              | Loader map source                          |
 | ------------------------ | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------ |
@@ -629,6 +631,7 @@ contains exactly these **twelve** files. Mode `0400` on every one.
 | `alertmanager.env`       | `prometheus:prometheus` | `prometheus-alertmanager.service`                                                                                        | `secrets-map.json::alertmanager.env`       |
 | `redis.env`              | `redis:redis`           | `redis-server.service`                                                                                                   | `secrets-map.json::redis.env`              |
 | `pgbouncer.env`          | `root:root`             | `leapable-render-pgbouncer-userlist.service` (renders the pgbouncer SCRAM userlist)                                      | `secrets-map.json::pgbouncer.env`          |
+| `calyx.env`              | `leapable:leapable`     | `calyxd.service`; `calyx-aiwonder-healthcheck.sh`                                                                         | `secrets-map.json::calyx.env`              |
 
 `zfs-archive.key` (per the ZFS-encryption work in
 `docs/datacenterrefactor/zfs-archive-encryption-runbook.md`) will be added
@@ -902,7 +905,7 @@ machine/aiwonder have it. Everything beyond bootstrap is in Infisical.
   their config from `EnvironmentFile=/run/leapable/secrets/<file>.env`.
 - **`leapable-secrets-load.service`** is the bridge between this vault and
   the running box: at boot it authenticates as the `aiwonder-prod` machine
-  identity, reads `secrets-map.json`, and renders the **12** `*.env` files
+  identity, reads `secrets-map.json`, and renders the mapped `*.env` files
   under `/run/leapable/secrets/` (mode `0400`). Service code never calls
   Infisical directly — see §2.4 and §4.
 - **Ingress is Cloudflare Tunnel + Caddy** in front of the loopback
@@ -944,11 +947,12 @@ aiwonder as `calyxd`, alongside — not replacing — the existing stack:
   published/Discover Vaults; the PostgreSQL control plane is left untouched.
 - **Secrets Calyx needs from this vault:** today, effectively **one** —
   `hf_hub_token` (`HF_HUB_TOKEN` / `HF_TOKEN`) to pull/host embedder models
-  and gated HF datasets. It is already live in the vault (§3.1). When
-  `calyxd` lands it gets its own rendered `calyx.env` (the 13th loader
-  file): add a `calyx` entry to `secrets-loader/secrets-map.json` and a
-  `calyx.env` mapping. Add any future token (e.g. Kaggle) via the CLI
-  (`infisical secrets set kaggle_key=…`) — never a new value in the repo.
+  and gated HF datasets. It is already live in the vault (§3.1). `calyxd`
+  gets its own rendered `calyx.env` (the 13th loader file) via
+  `infra/aiwonder/secrets-loader/calyx.env.map.json`, installed by
+  `infra/aiwonder/bin/install-calyx-deploy-wiring.sh`. Add any future token
+  (e.g. Kaggle) via the CLI (`infisical secrets set kaggle_key=…`) — never a
+  new value in the repo.
 
 ### 10.6 Binding operating rules on the box
 

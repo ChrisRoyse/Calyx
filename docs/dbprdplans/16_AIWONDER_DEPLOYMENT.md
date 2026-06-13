@@ -88,7 +88,7 @@ All secrets are managed in **Infisical** (`leapable-aiwonder-prod`, project `c2d
 
 - **The only secret Calyx needs today:** `hf_hub_token` (`HF_HUB_TOKEN`/`HF_TOKEN`) — pull/host embedder models + gated HF datasets (lenses, `05`; datasets, `28`). Already live in the vault.
 - **Add later via CLI** if needed (no new code/values in repo): `infisical secrets set kaggle_username=… kaggle_key=…` for Kaggle datasets; any future model/registry token the same way.
-- **Loading:** prefer `infisical run --projectId=… --env=prod -- <cmd>` (secrets enter the child env in memory, never disk); on the box, `leapable-secrets-load.service` renders `/run/leapable/secrets/calyx.env` (mode 0400, `leapable`-owned) — add `calyx` to `secrets-loader/secrets-map.json`.
+- **Loading:** prefer `infisical run --projectId=… --env=prod -- <cmd>` (secrets enter the child env in memory, never disk); on the box, `leapable-secrets-load.service` renders `/run/leapable/secrets/calyx.env` (mode 0400, `leapable`-owned) from `infra/aiwonder/secrets-loader/calyx.env.map.json` — merge with `infra/aiwonder/bin/install-calyx-deploy-wiring.sh`. The current `calyx.env` map exports only `HF_HUB_TOKEN` and `HF_TOKEN`, both backed by the existing `hf_hub_token` Infisical secret name.
 - **Discipline (binding):** never write a secret *value* into a repo file, issue, PR, comment, or chat — env-var **names** or `<REDACTED:LABEL>` only (`AICodingAgentSuperPrompt.md` §3.16). Most likely Calyx needs **only** the HF token; add others only when a concrete need appears.
 
 ## 6. Observability
@@ -97,7 +97,7 @@ All secrets are managed in **Infisical** (`leapable-aiwonder-prod`, project `c2d
 |---|---|
 | `calyxd` metrics | Prometheus `/metrics` (loopback): ingest p95, search p99 per strategy, recall tripwire, guard FAR/FRR, n_eff, kernel recall ratio, Anneal A/Bs, VRAM budget use |
 | GPU | existing dcgm-exporter |
-| Health | `calyx healthcheck` → `/zfs/hot/logs/calyx-health/latest.json` (`.status` literal `"pass"`), wired into `leapable-aiwonder-healthcheck` |
+| Health | `calyx healthcheck` → `/zfs/hot/logs/calyx-health/latest.json` (`.status` literal `"pass"`), called by `infra/aiwonder/bin/calyx-aiwonder-healthcheck.sh` and wired into `leapable-aiwonder-healthcheck` by `infra/aiwonder/bin/install-calyx-deploy-wiring.sh` |
 | Grafana | a Calyx dashboard (ingest/search/bits/kernel/anneal panels) in `infra/aiwonder/grafana/`. Agents open it (`ops.leapable.ai`) via a **new tab in the one main Chrome** (auto-authed, `31 §6b`) and read the panels with **screenshot + AI-vision** (`31 §6c`) — charts that `read_text` can't capture. |
 | Alerts | Alertmanager rules: tripwire breach, chain-verify failure, guard FAR drift, lens endpoint down, disk pressure on hotpool |
 
