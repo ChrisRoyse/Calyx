@@ -64,3 +64,21 @@ healthcheck_timeout_secs = 30
 # ExecStart passes THIS file via --config; health_log_path above is the
 # post-provisioning JSON snapshot the monitoring aggregator reads.
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Storage layout (PH66 T02, issue #537) — documentation only.
+#
+# Like [service] above, there is no `[storage]` table: deny_unknown_fields would
+# reject it. The on-disk layout after ZFS provisioning + relocation:
+#
+#   vault_path  -> /zfs/hot/calyx          (hotpool/calyx dataset; WAL + base CF
+#                                            + ledger live under here)
+#   log_dir     -> /zfs/hot/logs/calyx     (already set above)
+#   archive     -> /zfs/archive/calyx      (restic repo at .../calyx-restic)
+#
+# PRE-PROVISIONING FALLBACK: vault_path above defaults to
+# `$CALYX_HOME/data/vault`. `infra/aiwonder/ops/relocate-data.sh` rewrites it to
+# `/zfs/hot/calyx` (in place, idempotently) once the data has been rsynced onto
+# the hotpool dataset. Provision the datasets with
+# `infra/aiwonder/ops/provision-zfs.sh` first.
+# ---------------------------------------------------------------------------
