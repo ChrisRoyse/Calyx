@@ -47,3 +47,20 @@ tei_endpoints = [
 
 # Healthcheck timeout in seconds. Default when omitted: 30.
 healthcheck_timeout_secs = 30
+
+# ---------------------------------------------------------------------------
+# systemd integration (PH66 T01, issue #536) — documentation only.
+#
+# This config carries no `[service]` table: CalyxConfig is parsed with
+# deny_unknown_fields, so an unconsumed section would abort --validate-config.
+# The systemd wiring lives in repo-owned unit files instead:
+#
+#   infra/aiwonder/systemd/calyxd.service   — the unit (User=croyse, loopback
+#                                             only, Restart=on-failure,
+#                                             LimitNOFILE=1048576, healthcheck
+#                                             gate via ExecStartPost)
+#   infra/aiwonder/ops/install-service.sh    — idempotent operator installer
+#
+# ExecStart passes THIS file via --config; health_log_path above is the
+# post-provisioning JSON snapshot the monitoring aggregator reads.
+# ---------------------------------------------------------------------------
