@@ -23,5 +23,7 @@ ulid.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
+calyx-ledger = { path = "../calyx-ledger" }
 proptest.workspace = true
 rand.workspace = true
+ulid.workspace = true
