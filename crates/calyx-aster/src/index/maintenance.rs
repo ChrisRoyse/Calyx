@@ -236,6 +236,27 @@ fn is_maintained_kind(kind: SecondaryIndexKind) -> bool {
     )
 }
 
+/// True when `col` declares at least one secondary index this module maintains
+/// inline (btree/inverted). Paradigm layers gate **all** index-row construction
+/// on this so a write to an unindexed collection costs nothing extra and never
+/// coerces its keys into the index value domain. This mirrors the FoundationDB
+/// Record Layer rule that index maintenance is driven solely by the indexes
+/// that actually exist for the record type.
+pub fn collection_has_maintained_index(col: &Collection) -> bool {
+    col.indexes.iter().any(|spec| is_maintained_kind(spec.kind))
+}
+
+/// True when a maintained index references `field`. Layers building synthetic
+/// index rows (KV `ns`/`key`/`value`, TS `series`/`ts`/`value`) use this to
+/// include — and type-coerce — only the fields some index will actually read,
+/// so an index on one field never fails a write because of an out-of-domain
+/// value in an *un*indexed field.
+pub fn field_is_indexed(col: &Collection, field: &str) -> bool {
+    col.indexes
+        .iter()
+        .any(|spec| is_maintained_kind(spec.kind) && spec.fields.iter().any(|name| name == field))
+}
+
 fn single_index_field(declared: &SecondaryIndexSpec) -> Result<&str> {
     if declared.fields.len() != 1 {
         return Err(invalid_argument(format!(

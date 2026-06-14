@@ -15,8 +15,9 @@ use calyx_aster::collection::{
 };
 use calyx_aster::index::btree::btree_point;
 use calyx_aster::index::{BtreeIndex, IndexId, IndexKind, IndexSpec, SecondaryIndex};
+use calyx_aster::layers::kv::kv_key;
 use calyx_aster::layers::relational::{self, collection_id};
-use calyx_aster::layers::{RecordKey, RecordValue, RelationalLayer, Row};
+use calyx_aster::layers::{KvLayer, RecordKey, RecordValue, RelationalLayer, Row};
 use calyx_aster::vault::encode::decode_write_batch;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::replay_dir;
@@ -52,6 +53,21 @@ fn orders(name: &str, indexes: Vec<SecondaryIndexSpec>) -> Collection {
             isolation: IsolationLevel::ReadCommitted,
             cost_cap_ms: None,
         },
+        tenant: TenantId::default(),
+    }
+}
+
+fn kv_collection(name: &str, indexes: Vec<SecondaryIndexSpec>) -> Collection {
+    Collection {
+        name: name.to_string(),
+        mode: CollectionMode::KV,
+        schema: None,
+        panel: None,
+        indexes,
+        dedup: DedupPolicy::Off,
+        temporal: TemporalPolicy::default(),
+        retention: RetentionPolicy::Forever,
+        txn_policy: TxnPolicy::default(),
         tenant: TenantId::default(),
     }
 }
@@ -132,6 +148,7 @@ fn issue460_atomic_index_write_fsv_aiwonder() {
     let missing = edge_missing_field(&vault, &layer);
     let update = edge_update_tombstone(&vault, &layer, &col, &spec, &pk);
     let two = edge_two_indexes(&vault, &layer);
+    let kv_max_ns = edge_kv_max_namespace(&vault);
 
     vault.flush().unwrap();
     drop(vault);
@@ -192,6 +209,7 @@ fn issue460_atomic_index_write_fsv_aiwonder() {
             "missing_indexed_field": missing,
             "update_tombstone": update,
             "two_indexes": two,
+            "kv_max_namespace": kv_max_ns,
         },
         "final_relational_rows": rows_json(&reopened, ColumnFamily::Relational),
         "final_index_btree_rows": rows_json(&reopened, ColumnFamily::IndexBtree),
@@ -300,6 +318,84 @@ fn edge_two_indexes<C: Clock>(vault: &AsterVault<C>, layer: &RelationalLayer<C>)
     json!({"seq": seq, "before_index_rows": before, "after_index_rows": after, "qty_pks": pk_nums(&qty), "item_pks": pk_nums(&item)})
 }
 
+fn edge_kv_max_namespace<C: Clock>(vault: &AsterVault<C>) -> Value {
+    let layer = KvLayer::new(vault);
+    let col = kv_collection(
+        "kv_max_namespace",
+        vec![
+            index(SecondaryIndexKind::Btree, "ns_idx", "ns"),
+            index(SecondaryIndexKind::Btree, "key_idx", "key"),
+        ],
+    );
+    create_collection(vault, col.clone()).unwrap();
+    let before = vault
+        .scan_cf_at(vault.latest_seq(), ColumnFamily::IndexBtree)
+        .unwrap()
+        .len();
+    let key = b"max-ns";
+    let value = b"value";
+    let seq = layer.kv_set(&col, u64::MAX, key, value, None).unwrap();
+    let got = layer.kv_get(&col, u64::MAX, key).unwrap();
+    assert_eq!(got, Some(value.to_vec()));
+    let ns_spec = IndexSpec::new(
+        IndexId::new(1),
+        "ns_idx",
+        IndexKind::Btree,
+        "ns",
+        FieldType::Bytes,
+    );
+    let key_spec = IndexSpec::new(
+        IndexId::new(2),
+        "key_idx",
+        IndexKind::Btree,
+        "key",
+        FieldType::Bytes,
+    );
+    let kv_pk = RecordKey::from_bytes(kv_key(&col, u64::MAX, key)).unwrap();
+    let ns_index_key = BtreeIndex::new(collection_id(&col), ns_spec.clone())
+        .encode_index_key(&RecordValue::Bytes(u64::MAX.to_be_bytes().to_vec()), &kv_pk)
+        .unwrap();
+    let key_index_key = BtreeIndex::new(collection_id(&col), key_spec.clone())
+        .encode_index_key(&RecordValue::Bytes(key.to_vec()), &kv_pk)
+        .unwrap();
+    let ns_index_value = vault
+        .read_cf_at(seq, ColumnFamily::IndexBtree, &ns_index_key)
+        .unwrap();
+    let key_index_value = vault
+        .read_cf_at(seq, ColumnFamily::IndexBtree, &key_index_key)
+        .unwrap();
+    let ns_pks = btree_point(
+        vault,
+        &col,
+        &ns_spec,
+        &RecordValue::Bytes(u64::MAX.to_be_bytes().to_vec()),
+    )
+    .unwrap();
+    let key_pks = btree_point(vault, &col, &key_spec, &RecordValue::Bytes(key.to_vec())).unwrap();
+    let after = vault
+        .scan_cf_at(seq, ColumnFamily::IndexBtree)
+        .unwrap()
+        .len();
+    assert_eq!(after, before + 2);
+    assert_eq!(ns_index_value, Some(Vec::new()));
+    assert_eq!(key_index_value, Some(Vec::new()));
+    assert_eq!(ns_pks.len(), 1);
+    assert_eq!(key_pks.len(), 1);
+    assert_eq!(ns_pks[0], kv_pk);
+    assert_eq!(key_pks[0], kv_pk);
+    json!({
+        "seq": seq,
+        "before_index_rows": before,
+        "after_index_rows": after,
+        "kv_pk_hex": hex(kv_pk.as_bytes()),
+        "ns_index_key_hex": hex(&ns_index_key),
+        "key_index_key_hex": hex(&key_index_key),
+        "value_hex": hex(&got.unwrap()),
+        "ns_index_pks": pk_hexes(&ns_pks),
+        "key_index_pks": pk_hexes(&key_pks),
+    })
+}
+
 fn read_pair<C: Clock>(
     vault: &AsterVault<C>,
     seq: u64,
@@ -358,6 +454,10 @@ fn pk_nums(keys: &[RecordKey]) -> Vec<u64> {
     keys.iter()
         .map(|pk| u64::from_be_bytes(pk.as_bytes().try_into().unwrap()))
         .collect()
+}
+
+fn pk_hexes(keys: &[RecordKey]) -> Vec<String> {
+    keys.iter().map(|pk| hex(pk.as_bytes())).collect()
 }
 
 fn physical_files(root: &Path) -> Vec<Value> {
