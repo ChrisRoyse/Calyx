@@ -19,6 +19,28 @@ queue, deadline-driven); (3) if neither fits nor can be queued within deadline, 
 with `CALYX_FORGE_VRAM_BUDGET`. Never silently OOM. This is the coordination layer between
 the budgeter/eviction (T01/T02) and the dispatch path.
 
+## Implementation status
+
+Issue #477 implemented the admission surface in `crates/calyx-forge/src/vram/admission.rs`
+with deterministic unit/property tests in `admission_tests.rs` and the aiwonder FSV test
+`crates/calyx-forge/tests/ph57_admission_fsv.rs`.
+
+The existing T02 registry borrows `VramBudgeter` through resident `VramGuard`s, so the
+controller follows that lifetime model:
+`AdmissionController<'b, P, D> { budgeter: &'b VramBudgeter<P>, registry:
+Arc<Mutex<GpuBlockRegistry<'b, P, D>>>, queue: Mutex<VecDeque<QueuedDispatch>>, ... }`.
+This preserves the shipped RAII accounting contract instead of forcing an `Arc` refactor
+through the registry.
+
+`VramStats` now exposes `splits_total`, `queued_total`, `failed_total`, and
+`admission_metrics_text()`, including `calyx_forge_vram_budget_exceeded_total`.
+
+`run_with_admission` recursively halves batches down to `split_min_batch`, holds a real
+budget reservation around each admitted leaf dispatch, merges `Vec<T>` and `()` outputs
+through `AdmissionOutput`, queues bounded work when a synchronous result is not available,
+and returns `CALYX_FORGE_VRAM_BUDGET` with requested/available/budget diagnostics on
+fail-closed paths.
+
 ## Build (checklist of concrete, code-level steps)
 
 - [ ] Define `enum AdmitDecision { Split { sub_batch_size: usize }, Queue { deadline: Instant }, Fail }` in `admission.rs`
@@ -50,6 +72,43 @@ the budgeter/eviction (T01/T02) and the dispatch path.
 - **SoT:** `VramStats::failed_total` counter and Prometheus `calyx_forge_vram_budget_exceeded_total`
 - **Readback:** `calyx readback --metric forge_vram_budget_exceeded_total` during concurrent TEI soak (T06)
 - **Prove:** dispatch 50 concurrent over-budget requests → `failed_total >= 1`; `forge_vram_budget_exceeded_total` counter increments; no OOM in `dmesg`; split requests produce correct results (verify byte-parity of split vs non-split output on a deterministic input).
+
+### Issue #477 evidence
+
+aiwonder branch gate, run from `/home/croyse/calyx/repo`:
+
+- `cargo fmt --all -- --check`
+- `cargo check -p calyx-forge`
+- `cargo clippy -p calyx-forge --all-targets -- -D warnings`
+- `cargo test -p calyx-forge -- --nocapture`
+- `cargo test -p calyx-forge --features cuda --test cuda_parity -- --nocapture`
+
+Admission FSV root:
+`/home/croyse/calyx/data/fsv-issue477-admission-20260614T194934Z`
+
+- `ph57-admission-readback.json` sha256
+  `1f69c5a5d19c9702221f9a829f5b153ff0ada4f5fe9e99bf607de79d1049184e`
+- `ph57-admission.prom` sha256
+  `f555f241ceb576a42f10327cd092b162bcc44f0fe02de117ab6be228c7b666a5`
+- before counters: `splits_total=0`, `queued_total=0`, `failed_total=0`
+- after counters: `splits_total=9`, `queued_total=1`, `failed_total=3`
+- Prometheus readback: `calyx_forge_vram_budget_exceeded_total 3`
+- known split input: `bytes=4294967296`, `batch=8`
+- expected output: `[0,1,2,3,4,5,6,7]`
+- actual output: `[0,1,2,3,4,5,6,7]`
+- fail-closed code: `CALYX_FORGE_VRAM_BUDGET`
+- kernel log check: no `oom`, `out of memory`, `xid`, or `nvrm` matches in the last 200 `dmesg` lines.
+
+CUDA parity FSV root:
+`/home/croyse/calyx/data/fsv-issue477-cuda-parity-20260614T195130Z`
+
+- `cuda-gemm-parity.json` sha256
+  `950601de2fee27f9649fb6ca247913854ee3eeb5de0772a8409e65beddc07fdd`
+- `cuda-normalize-parity.json` sha256
+  `c761b5ee188d90780ed21bf4444bfd53eb372ee6414882152ffc09c0ed10a038`
+- GEMM parity: `max_rel_err=0.00031746612512506545 <= 0.001`
+- normalize parity: `rel_err=0.0000002533753900024749 <= 0.001`
+- golden cosine/dot/l2/topk parity also passed in the CUDA test output.
 
 ## Done when
 

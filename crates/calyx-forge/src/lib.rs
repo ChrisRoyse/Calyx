@@ -56,9 +56,10 @@ pub use quant::{
 #[cfg(feature = "cuda")]
 pub use vram::CudaVramProbe;
 pub use vram::{
-    BlockDeallocator, BlockId, BlockKind, DEFAULT_SOFT_CAP_BYTES, DevicePtr, GpuBlockRegistry,
-    GpuBlockStats, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV, VRAM_BUDGET_REMEDIATION, VramBudgeter,
-    VramGuard, VramProbe, VramStats,
+    AdmissionController, AdmissionOutput, AdmitDecision, BlockDeallocator, BlockId, BlockKind,
+    DEFAULT_SOFT_CAP_BYTES, DevicePtr, GpuBlockRegistry, GpuBlockStats, QueuedDispatch,
+    RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV, VRAM_BUDGET_REMEDIATION, VramBudgeter, VramGuard,
+    VramProbe, VramStats,
 };
 
 #[cfg(test)]
