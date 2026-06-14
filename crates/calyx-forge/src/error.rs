@@ -16,6 +16,10 @@ pub enum ForgeError {
         detail: String,
         remediation: String,
     },
+    GpuError {
+        detail: String,
+        remediation: String,
+    },
     ShapeMismatch {
         expected: Vec<usize>,
         got: Vec<usize>,
@@ -61,6 +65,7 @@ impl ForgeError {
         match self {
             Self::NumericalInvariant { .. } => "CALYX_FORGE_NUMERICAL_INVARIANT",
             Self::DeviceUnavailable { .. } => "CALYX_FORGE_DEVICE_UNAVAILABLE",
+            Self::GpuError { .. } => "CALYX_GPU_ERROR",
             Self::ShapeMismatch { .. } => "CALYX_FORGE_SHAPE_MISMATCH",
             Self::Unimplemented { .. } => "CALYX_FORGE_UNIMPLEMENTED",
             Self::QuantError { .. } => "CALYX_FORGE_QUANT_ERROR",
@@ -75,6 +80,7 @@ impl ForgeError {
         match self {
             Self::NumericalInvariant { remediation, .. }
             | Self::DeviceUnavailable { remediation, .. }
+            | Self::GpuError { remediation, .. }
             | Self::ShapeMismatch { remediation, .. }
             | Self::Unimplemented { remediation, .. }
             | Self::QuantError { remediation, .. }
@@ -95,6 +101,7 @@ impl fmt::Display for ForgeError {
             Self::DeviceUnavailable { device, detail, .. } => {
                 format!("{} device={} detail={}", self.code(), device, detail)
             }
+            Self::GpuError { detail, .. } => format!("{} detail={}", self.code(), detail),
             Self::ShapeMismatch { expected, got, .. } => {
                 format!("{} expected={expected:?} got={got:?}", self.code())
             }
