@@ -45,4 +45,17 @@ impl InvertedIndex {
     ) -> Result<InvertedStats> {
         read_stats(vault, snapshot, self)
     }
+
+    pub(crate) fn stats_after_put(
+        &self,
+        field_val: &FieldValue,
+        stats: InvertedStats,
+    ) -> Result<InvertedStats> {
+        let text = text_value(field_val)?;
+        let (_counts, doc_len) = term_frequencies(text);
+        if doc_len == 0 {
+            return Ok(stats);
+        }
+        Ok(updated_stats(stats, doc_len))
+    }
 }

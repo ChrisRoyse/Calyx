@@ -107,7 +107,7 @@ impl InvertedIndex {
         key
     }
 
-    fn decode_posting_key(&self, key: &[u8]) -> Result<(u64, RecordKey)> {
+    pub(crate) fn decode_posting_key(&self, key: &[u8]) -> Result<(u64, RecordKey)> {
         let prefix = self.prefix();
         if key.len() <= prefix.len() + TERM_HASH_BYTES || key[..prefix.len()] != prefix[..] {
             return Err(corrupt(
