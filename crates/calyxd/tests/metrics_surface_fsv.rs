@@ -14,7 +14,10 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Arc;
 
-use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics, SearchStrategy, VerifyOutcome};
+use calyxd::metrics::{
+    CalyxMetrics, ChainVerifyMetrics, SearchStrategy, VerifyOutcome, ZfsDatasetChecksum,
+    ZfsIntegritySnapshot, ZfsPoolIntegrity,
+};
 use calyxd::server::MetricsServer;
 
 const VAULT: &str = "/data/fsv-vault";
@@ -36,6 +39,18 @@ fn recorded_surface() -> Arc<CalyxMetrics> {
     surface.record_anneal_exposure("beamwidth", "treatment");
     surface.set_anneal_improvement("beamwidth", 1.15);
     surface.set_vram_budget(4096, 8192);
+    surface.record_zfs_integrity(&ZfsIntegritySnapshot {
+        datasets: vec![ZfsDatasetChecksum {
+            dataset: "hotpool/calyx".to_string(),
+            enabled: true,
+        }],
+        pools: vec![ZfsPoolIntegrity {
+            pool: "hotpool".to_string(),
+            healthy: true,
+            cksum_errors: 0,
+            scrub_age_seconds: Some(86_400),
+        }],
+    });
     surface
         .set_hazard("disk_full", true)
         .expect("disk_full is a registered hazard");
@@ -116,6 +131,15 @@ fn full_surface_served_over_real_http_with_recorded_values() {
     // VRAM budget — exact MiB values.
     assert_line(&body, "calyx_vram_budget_used_mib 4096");
     assert_line(&body, "calyx_vram_budget_limit_mib 8192");
+
+    // ZFS integrity snapshot sourced from the same recording API the daemon uses.
+    assert_line(&body, "calyx_zfs_pool_healthy{pool=\"hotpool\"} 1");
+    assert_line(&body, "calyx_zfs_cksum_errors_total{pool=\"hotpool\"} 0");
+    assert_line(&body, "calyx_zfs_scrub_age_seconds{pool=\"hotpool\"} 86400");
+    assert_line(
+        &body,
+        "calyx_zfs_dataset_checksum_enabled{dataset=\"hotpool/calyx\"} 1",
+    );
 
     // All 25 hazard gauges present; disk_full tripped to 1, the rest 0.
     let hazard_lines: Vec<&str> = body
