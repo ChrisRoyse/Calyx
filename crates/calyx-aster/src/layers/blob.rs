@@ -42,8 +42,10 @@ const HASH_BYTES: usize = 32;
 pub const BLOB_CHUNK_SIZE: usize = 262_144;
 /// Hard ceiling on a single blob (1 GiB) — fail closed above this.
 pub const MAX_BLOB_BYTES: usize = 1 << 30;
-/// `total_bytes (8) | chunk_count (4) | content_hash (32) | cold_tier (1)`.
-const MANIFEST_VALUE_BYTES: usize = 8 + 4 + HASH_BYTES + 1;
+/// Legacy `total_bytes (8) | chunk_count (4) | content_hash (32) | cold_tier (1)`.
+const MANIFEST_VALUE_BYTES_V1: usize = 8 + 4 + HASH_BYTES + 1;
+/// Current manifest appends `created_at_ms (8)` for retention decisions.
+const MANIFEST_VALUE_BYTES: usize = MANIFEST_VALUE_BYTES_V1 + 8;
 
 /// 16-byte content-or-caller-assigned blob identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -84,6 +86,8 @@ pub struct BlobManifest {
     pub chunk_count: u32,
     pub content_hash: [u8; HASH_BYTES],
     pub cold_tier: bool,
+    /// Unix milliseconds from the vault clock. `None` marks a legacy manifest.
+    pub created_at_ms: Option<u64>,
 }
 
 /// `(blob_id) -> chunked payload + manifest` layer over a `Blob` collection.
@@ -151,6 +155,7 @@ impl<'a, C: Clock> BlobLayer<'a, C> {
             chunk_count,
             content_hash,
             cold_tier: false,
+            created_at_ms: Some(self.vault.clock_now()),
         };
         let key = manifest_key(col, blob_id);
         let value = encode_manifest(&manifest);
@@ -342,13 +347,14 @@ fn encode_manifest(manifest: &BlobManifest) -> Vec<u8> {
     out.extend_from_slice(&manifest.chunk_count.to_be_bytes());
     out.extend_from_slice(&manifest.content_hash);
     out.push(u8::from(manifest.cold_tier));
+    out.extend_from_slice(&manifest.created_at_ms.unwrap_or(0).to_be_bytes());
     out
 }
 
 fn decode_manifest(bytes: &[u8]) -> Result<BlobManifest> {
-    if bytes.len() != MANIFEST_VALUE_BYTES {
+    if !matches!(bytes.len(), MANIFEST_VALUE_BYTES_V1 | MANIFEST_VALUE_BYTES) {
         return Err(corrupt(format!(
-            "blob manifest must be {MANIFEST_VALUE_BYTES} bytes, got {}",
+            "blob manifest must be {MANIFEST_VALUE_BYTES_V1} or {MANIFEST_VALUE_BYTES} bytes, got {}",
             bytes.len()
         )));
     }
@@ -365,11 +371,17 @@ fn decode_manifest(bytes: &[u8]) -> Result<BlobManifest> {
             )));
         }
     };
+    let created_at_ms = if bytes.len() == MANIFEST_VALUE_BYTES {
+        Some(u64::from_be_bytes(bytes[45..53].try_into().unwrap()))
+    } else {
+        None
+    };
     Ok(BlobManifest {
         total_bytes,
         chunk_count,
         content_hash,
         cold_tier,
+        created_at_ms,
     })
 }
 
