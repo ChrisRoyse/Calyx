@@ -13,8 +13,7 @@ use crate::{ForgeError, Result};
 pub const DEFAULT_SOFT_CAP_BYTES: usize = 12 * 1024 * 1024 * 1024;
 
 /// Headroom reserved below the live free-VRAM figure for driver/runtime
-/// overhead and allocator fragmentation: 512 MiB. A dispatch must fit within
-/// `free - RESERVED_HEADROOM_BYTES`, not the full free figure.
+/// overhead and allocator fragmentation: 512 MiB.
 pub const RESERVED_HEADROOM_BYTES: usize = 512 * 1024 * 1024;
 
 /// Environment variable that configures the soft cap (bytes, decimal).
@@ -23,23 +22,38 @@ pub const VRAM_BUDGET_ENV: &str = "CALYX_FORGE_VRAM_BUDGET";
 /// Operator remediation attached to every `CALYX_FORGE_VRAM_BUDGET` error.
 pub const VRAM_BUDGET_REMEDIATION: &str = "Forge VRAM budget exceeded; reduce batch size or wait for eviction; set CALYX_FORGE_VRAM_BUDGET env var (bytes)";
 
+/// VRAM reservation owner. Serving is the default path; Anneal is the capped
+/// background lane that must not crowd out serving/TEI work.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
+pub enum Category {
+    Serving,
+    Anneal,
+}
+
+impl Category {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Serving => "serving",
+            Self::Anneal => "anneal",
+        }
+    }
+}
+
 /// Enforces a soft cap on Forge's cumulative GPU allocation and consults live
 /// device free-VRAM before admitting a dispatch.
-///
-/// Generic over the [`VramProbe`] hardware boundary so the accounting logic is
-/// testable with deterministic byte counts on CPU; production uses
-/// `CudaVramProbe`. The `allocated_bytes` counter is atomic and shared via a
-/// single budgeter instance across all Forge subsystems, so every dispatch
-/// sees the same budget.
 pub struct VramBudgeter<P: VramProbe> {
     soft_cap_bytes: usize,
     allocated_bytes: AtomicUsize,
+    serving_allocated_bytes: AtomicUsize,
+    anneal_allocated_bytes: AtomicUsize,
     admission_splits_total: AtomicU64,
     admission_queued_total: AtomicU64,
     admission_failed_total: AtomicU64,
     oom_intercepts_total: AtomicU64,
     oom_batch_reductions_total: AtomicU64,
     oom_final_failures_total: AtomicU64,
+    anneal_throttle_events_total: AtomicU64,
+    anneal_vram_rejections_total: AtomicU64,
     probe: P,
 }
 
@@ -49,22 +63,25 @@ impl<P: VramProbe> VramBudgeter<P> {
         Self {
             soft_cap_bytes,
             allocated_bytes: AtomicUsize::new(0),
+            serving_allocated_bytes: AtomicUsize::new(0),
+            anneal_allocated_bytes: AtomicUsize::new(0),
             admission_splits_total: AtomicU64::new(0),
             admission_queued_total: AtomicU64::new(0),
             admission_failed_total: AtomicU64::new(0),
             oom_intercepts_total: AtomicU64::new(0),
             oom_batch_reductions_total: AtomicU64::new(0),
             oom_final_failures_total: AtomicU64::new(0),
+            anneal_throttle_events_total: AtomicU64::new(0),
+            anneal_vram_rejections_total: AtomicU64::new(0),
             probe,
         }
     }
 
     /// Construct from the environment.
     ///
-    /// `CALYX_FORGE_VRAM_BUDGET` unset → [`DEFAULT_SOFT_CAP_BYTES`] (12 GiB).
-    /// Set to a decimal byte count → that value. Set to a non-integer →
-    /// `Err(CALYX_FORGE_VRAM_BUDGET)` (fail-loud on misconfiguration; no silent
-    /// default that would mask an operator typo). Logs the resolved cap.
+    /// `CALYX_FORGE_VRAM_BUDGET` unset -> [`DEFAULT_SOFT_CAP_BYTES`] (12 GiB).
+    /// Set to a decimal byte count -> that value. Non-integer -> fail closed
+    /// with `CALYX_FORGE_VRAM_BUDGET`.
     pub fn from_env(probe: P) -> Result<Self> {
         let raw = std::env::var(VRAM_BUDGET_ENV).ok();
         let soft_cap_bytes = parse_soft_cap_strict(raw.as_deref())?;
@@ -87,15 +104,12 @@ impl<P: VramProbe> VramBudgeter<P> {
         self.allocated_bytes.load(Ordering::Acquire)
     }
 
-    /// Check — without reserving — whether `bytes` could be allocated now.
-    ///
-    /// Two gates, both must pass:
-    /// 1. soft cap: `allocated + bytes <= soft_cap`;
-    /// 2. device headroom: `bytes <= free_device_vram - RESERVED_HEADROOM_BYTES`.
-    ///
-    /// A zero-byte request is always admissible and short-circuits before any
-    /// device query. Any probe failure is treated as over-budget (fail-closed)
-    /// and surfaces as `CALYX_FORGE_VRAM_BUDGET`.
+    /// Forge's currently reserved bytes for one owner category.
+    pub fn allocated_bytes_for(&self, category: Category) -> usize {
+        self.category_counter(category).load(Ordering::Acquire)
+    }
+
+    /// Check, without reserving, whether `bytes` could be allocated now.
     pub fn can_allocate(&self, bytes: usize) -> Result<()> {
         if bytes == 0 {
             return Ok(());
@@ -106,47 +120,54 @@ impl<P: VramProbe> VramBudgeter<P> {
         Ok(())
     }
 
-    /// Reserve `bytes`, returning an RAII [`VramGuard`] that releases the
-    /// reservation on drop.
-    ///
-    /// The soft-cap reservation is performed with a compare-and-swap loop so
-    /// concurrent reservers can never collectively exceed `soft_cap` (no
-    /// time-of-check/time-of-use race on the counter). The device-headroom
-    /// gate is checked first; it is necessarily best-effort against the live
-    /// driver, but the atomic soft cap is the hard invariant.
+    /// Reserve serving/default VRAM, returning an RAII guard.
     pub fn reserve(&self, bytes: usize) -> Result<VramGuard<'_, P>> {
+        self.reserve_category(bytes, Category::Serving)
+    }
+
+    /// Reserve `bytes` for a specific owner category.
+    pub fn reserve_category(&self, bytes: usize, category: Category) -> Result<VramGuard<'_, P>> {
+        self.reserve_category_inner(bytes, category, None)
+    }
+
+    pub(crate) fn reserve_category_with_cap(
+        &self,
+        bytes: usize,
+        category: Category,
+        category_cap_bytes: usize,
+    ) -> Result<VramGuard<'_, P>> {
+        self.reserve_category_inner(bytes, category, Some(category_cap_bytes))
+    }
+
+    fn reserve_category_inner(
+        &self,
+        bytes: usize,
+        category: Category,
+        category_cap_bytes: Option<usize>,
+    ) -> Result<VramGuard<'_, P>> {
         if bytes == 0 {
             return Ok(VramGuard {
                 budgeter: self,
                 bytes: 0,
+                category,
             });
         }
-        self.check_device_headroom(bytes)?;
 
-        let mut current = self.allocated_bytes.load(Ordering::Acquire);
-        loop {
-            let projected = self.checked_projection(current, bytes)?;
-            match self.allocated_bytes.compare_exchange_weak(
-                current,
-                projected,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            ) {
-                Ok(_) => {
-                    return Ok(VramGuard {
-                        budgeter: self,
-                        bytes,
-                    });
-                }
-                Err(actual) => current = actual,
-            }
+        self.check_device_headroom(bytes)?;
+        self.reserve_total(bytes)?;
+        if let Err(err) = self.reserve_category_counter(category, bytes, category_cap_bytes) {
+            self.allocated_bytes.fetch_sub(bytes, Ordering::AcqRel);
+            return Err(err);
         }
+
+        Ok(VramGuard {
+            budgeter: self,
+            bytes,
+            category,
+        })
     }
 
-    /// Snapshot accounting + live device free VRAM. A probe failure logs at
-    /// warn level and reports `device_free_bytes = 0` (a visible alarm, never
-    /// a silent success — control decisions go through [`Self::reserve`], which
-    /// fails closed).
+    /// Snapshot accounting + live device free VRAM.
     pub fn stats(&self) -> VramStats {
         let device_free_bytes = match self.probe.free_device_vram() {
             Ok(free) => free,
@@ -162,6 +183,8 @@ impl<P: VramProbe> VramBudgeter<P> {
         VramStats {
             soft_cap_bytes: self.soft_cap_bytes,
             allocated_bytes: self.allocated_bytes.load(Ordering::Acquire),
+            serving_allocated_bytes: self.allocated_bytes_for(Category::Serving),
+            anneal_allocated_bytes: self.allocated_bytes_for(Category::Anneal),
             device_free_bytes,
             splits_total: self.admission_splits_total.load(Ordering::Acquire),
             queued_total: self.admission_queued_total.load(Ordering::Acquire),
@@ -170,6 +193,10 @@ impl<P: VramProbe> VramBudgeter<P> {
                 oom_intercepts: self.oom_intercepts_total.load(Ordering::Acquire),
                 batch_reductions: self.oom_batch_reductions_total.load(Ordering::Acquire),
                 final_failures: self.oom_final_failures_total.load(Ordering::Acquire),
+            },
+            yield_stats: crate::vram::YieldStats {
+                anneal_throttle_events: self.anneal_throttle_events_total.load(Ordering::Acquire),
+                anneal_vram_rejections: self.anneal_vram_rejections_total.load(Ordering::Acquire),
             },
         }
     }
@@ -199,11 +226,71 @@ impl<P: VramProbe> VramBudgeter<P> {
         self.oom_final_failures_total.fetch_add(1, Ordering::AcqRel);
     }
 
+    pub(crate) fn record_anneal_throttle_event(&self) {
+        self.anneal_throttle_events_total
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn record_anneal_vram_rejection(&self) {
+        self.anneal_vram_rejections_total
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    fn reserve_total(&self, bytes: usize) -> Result<()> {
+        let mut current = self.allocated_bytes.load(Ordering::Acquire);
+        loop {
+            let projected = self.checked_projection(current, bytes)?;
+            match self.allocated_bytes.compare_exchange_weak(
+                current,
+                projected,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Ok(()),
+                Err(actual) => current = actual,
+            }
+        }
+    }
+
+    fn reserve_category_counter(
+        &self,
+        category: Category,
+        bytes: usize,
+        category_cap_bytes: Option<usize>,
+    ) -> Result<()> {
+        let counter = self.category_counter(category);
+        let mut current = counter.load(Ordering::Acquire);
+        loop {
+            let projected = current.checked_add(bytes).ok_or_else(|| {
+                budget_err(format!(
+                    "{} reservation arithmetic overflow: allocated={current} + requested={bytes}",
+                    category.as_str()
+                ))
+            })?;
+            if let Some(cap) = category_cap_bytes
+                && projected > cap
+            {
+                return Err(budget_err(format!(
+                    "{} category cap exceeded: allocated={current} + requested={bytes} = {projected} > cap={cap}",
+                    category.as_str()
+                )));
+            }
+            match counter.compare_exchange_weak(
+                current,
+                projected,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => return Ok(()),
+                Err(actual) => current = actual,
+            }
+        }
+    }
+
     fn check_soft_cap(&self, current: usize, bytes: usize) -> Result<()> {
         self.checked_projection(current, bytes).map(|_| ())
     }
 
-    /// `current + bytes`, validated against overflow and the soft cap.
     fn checked_projection(&self, current: usize, bytes: usize) -> Result<usize> {
         let projected = current.checked_add(bytes).ok_or_else(|| {
             budget_err(format!(
@@ -233,19 +320,32 @@ impl<P: VramProbe> VramBudgeter<P> {
         }
         Ok(())
     }
+
+    fn category_counter(&self, category: Category) -> &AtomicUsize {
+        match category {
+            Category::Serving => &self.serving_allocated_bytes,
+            Category::Anneal => &self.anneal_allocated_bytes,
+        }
+    }
 }
 
 /// RAII handle for a live VRAM reservation. Dropping it returns `bytes` to the
-/// budgeter's available pool. Holding it keeps that VRAM accounted-for.
+/// budgeter's available pool and the owner category counter.
 pub struct VramGuard<'b, P: VramProbe> {
     budgeter: &'b VramBudgeter<P>,
     bytes: usize,
+    category: Category,
 }
 
 impl<P: VramProbe> VramGuard<'_, P> {
     /// The number of bytes this guard holds reserved.
     pub fn bytes(&self) -> usize {
         self.bytes
+    }
+
+    /// The owner category this guard accounts against.
+    pub fn category(&self) -> Category {
+        self.category
     }
 }
 
@@ -254,6 +354,9 @@ impl<P: VramProbe> Drop for VramGuard<'_, P> {
         if self.bytes > 0 {
             self.budgeter
                 .allocated_bytes
+                .fetch_sub(self.bytes, Ordering::AcqRel);
+            self.budgeter
+                .category_counter(self.category)
                 .fetch_sub(self.bytes, Ordering::AcqRel);
         }
     }
@@ -280,204 +383,5 @@ fn parse_soft_cap_strict(raw: Option<&str>) -> Result<usize> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-    use std::sync::atomic::AtomicUsize;
-    use std::sync::{Barrier, Mutex};
-
-    const GIB: usize = 1024 * 1024 * 1024;
-    const MIB: usize = 1024 * 1024;
-    const CODE: &str = "CALYX_FORGE_VRAM_BUDGET";
-
-    /// Deterministic probe returning a fixed free-VRAM reading.
-    struct StaticProbe {
-        free: usize,
-    }
-    impl VramProbe for StaticProbe {
-        fn free_device_vram(&self) -> Result<usize> {
-            Ok(self.free)
-        }
-    }
-
-    /// Probe that always fails — stands in for a `cudaMemGetInfo` driver error.
-    struct FailingProbe;
-    impl VramProbe for FailingProbe {
-        fn free_device_vram(&self) -> Result<usize> {
-            Err(ForgeError::DeviceUnavailable {
-                device: "test-gpu".into(),
-                detail: "simulated cudaMemGetInfo failure".into(),
-                remediation: "n/a".into(),
-            })
-        }
-    }
-
-    // Serialize the one test that mutates process-global env.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
-    #[test]
-    fn soft_cap_accounting_reserve_and_release() {
-        // soft_cap = 1 GiB, abundant device free VRAM.
-        let b = VramBudgeter::with_soft_cap(GIB, StaticProbe { free: 32 * GIB });
-
-        let g1 = b.reserve(512 * MIB).expect("first 512 MiB reservation");
-        assert_eq!(b.allocated_bytes(), 512 * MIB);
-
-        let g2 = b.reserve(512 * MIB).expect("second 512 MiB reservation");
-        assert_eq!(b.allocated_bytes(), GIB);
-
-        // 1 byte over the cap fails closed with the exact code.
-        match b.reserve(1) {
-            Ok(_) => panic!("over-cap reservation must fail"),
-            Err(err) => assert_eq!(err.code(), CODE),
-        }
-        // ... and does not perturb the counter.
-        assert_eq!(b.allocated_bytes(), GIB);
-
-        drop(g1);
-        drop(g2);
-        assert_eq!(b.allocated_bytes(), 0);
-    }
-
-    #[test]
-    fn guard_releases_on_drop() {
-        let b = VramBudgeter::with_soft_cap(GIB, StaticProbe { free: 32 * GIB });
-        {
-            let _g = b.reserve(256 * MIB).expect("reservation");
-            assert_eq!(b.allocated_bytes(), 256 * MIB);
-        }
-        assert_eq!(b.allocated_bytes(), 0);
-        // The freed budget is immediately reusable.
-        let _g = b.reserve(256 * MIB).expect("re-reservation after release");
-        assert_eq!(b.allocated_bytes(), 256 * MIB);
-    }
-
-    #[test]
-    fn parse_soft_cap_known_inputs() {
-        assert_eq!(parse_soft_cap_strict(Some("1073741824")).unwrap(), GIB);
-        assert_eq!(parse_soft_cap_strict(None).unwrap(), DEFAULT_SOFT_CAP_BYTES);
-        // Default is exactly 12 GiB.
-        assert_eq!(DEFAULT_SOFT_CAP_BYTES, 12_884_901_888);
-        // Whitespace tolerated.
-        assert_eq!(parse_soft_cap_strict(Some(" 1073741824 ")).unwrap(), GIB);
-        // Garbage fails loud.
-        let err = parse_soft_cap_strict(Some("not-a-number")).expect_err("must reject garbage");
-        assert_eq!(err.code(), CODE);
-    }
-
-    #[test]
-    fn from_env_reads_configured_cap() {
-        let _lock = ENV_LOCK.lock().unwrap();
-        // SAFETY: env access is serialized by ENV_LOCK; we restore below.
-        unsafe { std::env::set_var(VRAM_BUDGET_ENV, "1073741824") };
-        let b = VramBudgeter::from_env(StaticProbe { free: 32 * GIB }).unwrap();
-        assert_eq!(b.soft_cap_bytes(), GIB);
-
-        unsafe { std::env::remove_var(VRAM_BUDGET_ENV) };
-        let b2 = VramBudgeter::from_env(StaticProbe { free: 32 * GIB }).unwrap();
-        assert_eq!(b2.soft_cap_bytes(), DEFAULT_SOFT_CAP_BYTES);
-    }
-
-    #[test]
-    fn zero_soft_cap_rejects_all_nonzero() {
-        let b = VramBudgeter::with_soft_cap(0, StaticProbe { free: 32 * GIB });
-        assert_eq!(b.can_allocate(1).unwrap_err().code(), CODE);
-        assert!(b.reserve(1).is_err());
-        // A zero-byte request is still valid.
-        assert!(b.can_allocate(0).is_ok());
-    }
-
-    #[test]
-    fn zero_byte_reservation_skips_device_query() {
-        // FailingProbe would error if consulted; a 0-byte request must not
-        // consult it and must succeed with no accounting change.
-        let b = VramBudgeter::with_soft_cap(GIB, FailingProbe);
-        assert!(b.can_allocate(0).is_ok());
-        let g = b.reserve(0).expect("zero-byte reservation");
-        assert_eq!(g.bytes(), 0);
-        assert_eq!(b.allocated_bytes(), 0);
-        drop(g);
-        assert_eq!(b.allocated_bytes(), 0);
-    }
-
-    #[test]
-    fn probe_failure_is_fail_closed() {
-        let b = VramBudgeter::with_soft_cap(GIB, FailingProbe);
-        let err = b
-            .can_allocate(1024)
-            .expect_err("probe failure => over-budget");
-        assert_eq!(err.code(), CODE);
-        assert!(b.reserve(1024).is_err());
-        assert_eq!(b.allocated_bytes(), 0);
-    }
-
-    #[test]
-    fn device_headroom_gate_independent_of_soft_cap() {
-        // Huge soft cap, but only 1 KiB usable after the 512 MiB headroom.
-        let b = VramBudgeter::with_soft_cap(
-            32 * GIB,
-            StaticProbe {
-                free: RESERVED_HEADROOM_BYTES + 1024,
-            },
-        );
-        // Exactly usable succeeds.
-        assert!(b.can_allocate(1024).is_ok());
-        // One byte more than usable fails despite the soft cap being huge.
-        let err = b.can_allocate(1025).expect_err("device headroom exceeded");
-        assert_eq!(err.code(), CODE);
-    }
-
-    #[test]
-    fn free_below_headroom_saturates_to_zero_usable() {
-        // free < headroom => usable saturates to 0 => every nonzero alloc fails.
-        let b = VramBudgeter::with_soft_cap(
-            32 * GIB,
-            StaticProbe {
-                free: RESERVED_HEADROOM_BYTES - 1,
-            },
-        );
-        assert_eq!(b.can_allocate(1).unwrap_err().code(), CODE);
-        assert!(b.can_allocate(0).is_ok());
-    }
-
-    proptest::proptest! {
-        /// No matter how reservations interleave across threads, the live
-        /// total never exceeds the soft cap, and all guards release cleanly.
-        #[test]
-        fn concurrent_reservations_never_exceed_soft_cap(
-            soft_cap in 1usize..=4096,
-            allocs in proptest::collection::vec(1usize..=512, 1..24),
-        ) {
-            let budgeter = Arc::new(VramBudgeter::with_soft_cap(
-                soft_cap,
-                StaticProbe { free: usize::MAX },
-            ));
-            let barrier = Arc::new(Barrier::new(allocs.len()));
-            let peak = Arc::new(AtomicUsize::new(0));
-
-            let handles: Vec<_> = allocs
-                .into_iter()
-                .map(|a| {
-                    let b = Arc::clone(&budgeter);
-                    let bar = Arc::clone(&barrier);
-                    let pk = Arc::clone(&peak);
-                    std::thread::spawn(move || {
-                        // Hold the guard (if admitted) until every thread has
-                        // attempted, so the peak reflects the concurrent sum.
-                        let guard = b.reserve(a).ok();
-                        pk.fetch_max(b.allocated_bytes(), Ordering::AcqRel);
-                        bar.wait();
-                        pk.fetch_max(b.allocated_bytes(), Ordering::AcqRel);
-                        drop(guard);
-                    })
-                })
-                .collect();
-            for h in handles {
-                h.join().unwrap();
-            }
-
-            proptest::prop_assert!(peak.load(Ordering::Acquire) <= soft_cap);
-            proptest::prop_assert_eq!(budgeter.allocated_bytes(), 0);
-        }
-    }
-}
+#[path = "budget_tests.rs"]
+mod tests;

@@ -54,15 +54,19 @@ pub use quant::{
     dot_qjl_correction, encode_qjl_residual, hamming_dot_estimate, new_seed, seed_id_hex,
 };
 #[cfg(feature = "cuda")]
+pub use vram::CudaStream;
+#[cfg(feature = "cuda")]
 pub use vram::CudaVramProbe;
 #[cfg(feature = "cuda")]
 pub use vram::RawCudaMalloc;
 pub use vram::{
-    AdmissionController, AdmissionOutput, AdmitDecision, BlockDeallocator, BlockId, BlockKind,
-    CudaAllocError, CudaMalloc, DEFAULT_OOM_MAX_RETRIES, DEFAULT_SOFT_CAP_BYTES, DevicePtr,
-    GpuBlockRegistry, GpuBlockStats, OomGuard, OomGuardStats, QueuedDispatch,
-    RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV, VRAM_BUDGET_REMEDIATION, VramBudgeter, VramGuard,
-    VramProbe, VramStats,
+    ANNEAL_VRAM_BUDGET_ENV, AdmissionController, AdmissionOutput, AdmitDecision, BlockDeallocator,
+    BlockId, BlockKind, Category, CudaAllocError, CudaMalloc, DEFAULT_ANNEAL_THROTTLE_SLEEP,
+    DEFAULT_ANNEAL_VRAM_CAP_BYTES, DEFAULT_OOM_MAX_RETRIES, DEFAULT_POWER_BACKOFF_THRESHOLD_W,
+    DEFAULT_SOFT_CAP_BYTES, DevicePtr, GpuBlockRegistry, GpuBlockStats, NvmlPowerProbe, OomGuard,
+    OomGuardStats, PowerProbe, QueuedDispatch, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV,
+    VRAM_BUDGET_REMEDIATION, VramBudgeter, VramGuard, VramProbe, VramStats, YieldPolicy,
+    YieldStats,
 };
 
 #[cfg(test)]

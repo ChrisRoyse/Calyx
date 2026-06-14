@@ -351,6 +351,7 @@ version = "0.1.0"
 dependencies = [
  "calyx-core",
  "cudarc 0.19.7",
+ "nvml-wrapper",
  "proptest",
  "rand 0.8.6",
  "rand_chacha 0.3.1",
