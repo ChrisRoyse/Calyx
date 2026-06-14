@@ -8,6 +8,7 @@ pub mod frozen;
 pub mod lens;
 pub mod panel_ops;
 pub mod panels;
+pub mod persistence;
 pub mod profile;
 pub mod runtime;
 pub mod spec;
@@ -27,13 +28,17 @@ pub use drift::{DriftDecision, RuntimeGolden};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};
 pub use frozen::{FrozenLensContract, LensDType, NormPolicy};
 pub use lens::{
-    DeterminismProof, DualMeasurement, FrozenLensSnapshot, Registry, ensure_input_modality,
-    ensure_vector_shape,
+    DeterminismProof, DualMeasurement, FrozenLensSnapshot, Registry, RegistryLensSnapshot,
+    ensure_input_modality, ensure_vector_shape,
 };
 pub use panel_ops::{PanelDiff, PanelSlotListing, list_panel, list_panel_with_assay, swap_panel};
 pub use panels::{
     AlgorithmicPanelLens, InstantiatedPanel, PanelLensRuntime, PanelSlotSpec, PanelTemplate,
     civic_default, code_default, instantiate_panel, media_default, text_default,
+};
+pub use persistence::{
+    VaultPanelState, VaultPanelWrite, VaultRegistrySnapshot, load_vault_panel_state,
+    persist_vault_panel_state,
 };
 pub use profile::{
     CapabilityCard, CostMetrics, CoverageMetrics, MetricSource, ProfileOptions, ProfileProbe,
