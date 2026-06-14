@@ -25,16 +25,23 @@
 //! NULL is not indexable in a btree key (no type, no defined order) and fails
 //! closed; per-field NULL handling via a leading flag byte is a later phase.
 
-use calyx_core::{CalyxError, Result};
+use calyx_core::{CalyxError, Clock, Result, Seq};
 
 use super::{
     FieldValue, IndexKind, IndexSpec, SecondaryIndex, field_value_type, invalid_index_input,
 };
-use crate::collection::FieldType;
+use crate::cf::{ColumnFamily, KeyRange, prefix_range};
+use crate::collection::{Collection, FieldType};
+use crate::layers::relational::{collection_id, record_key};
 use crate::layers::{RecordKey, RecordValue};
+use crate::vault::AsterVault;
 
 /// Key-space discriminant for btree secondary-index keys.
 pub const DISC_BTREE_INDEX: u8 = 0x10;
+
+/// On-disk name of the Aster CF that stores btree secondary-index entries.
+/// Must equal [`ColumnFamily::IndexBtree`]'s `name()` (asserted in tests).
+pub const CF_INDEX_BTREE: &str = "index_btree";
 
 /// `0x10` + collection_id (8B) + index_id (4B).
 const PREFIX_BYTES: usize = 1 + 8 + 4;
@@ -65,6 +72,13 @@ impl BtreeIndex {
 
     pub fn spec(&self) -> &IndexSpec {
         &self.spec
+    }
+
+    /// The 13-byte fixed key prefix (discriminant + collection id + index id)
+    /// that bounds this index's entire keyspace — the lower bound of an
+    /// unbounded range scan.
+    pub fn index_key_prefix(&self) -> Vec<u8> {
+        self.prefix()
     }
 
     /// The 13-byte fixed key prefix: discriminant + collection id + index id.
@@ -297,6 +311,132 @@ fn read_u64(body: &[u8], label: &str) -> Result<u64> {
 
 fn corrupt(message: impl Into<String>) -> CalyxError {
     CalyxError::aster_corrupt_shard(message)
+}
+
+// ── Range / point / count queries over the `index_btree` CF ─────────────────
+//
+// All queries pin a single MVCC snapshot (`vault.latest_seq()`), so a query
+// sees one consistent committed state with no dirty reads. An index key whose
+// data row is absent at that snapshot is a *stale* entry (the row was deleted
+// but the index not yet compacted — handled by PH54 T05); it is skipped, never
+// returned. The pre-T04 write path does not yet maintain the index, so callers
+// (and tests) populate entries via [`btree_index_put`].
+
+fn index_for(col: &Collection, spec: &IndexSpec) -> BtreeIndex {
+    BtreeIndex::new(collection_id(col), spec.clone())
+}
+
+/// Builds the half-open `[start, end)` index-key range for an inclusive
+/// `[gte, lte]` field-value range. `None` bounds extend to this index's full
+/// keyspace. `lte` is made inclusive by taking the lexicographic upper bound of
+/// its exact-value scan prefix.
+fn range_bounds(
+    idx: &BtreeIndex,
+    gte: Option<&FieldValue>,
+    lte: Option<&FieldValue>,
+) -> Result<KeyRange> {
+    let start = match gte {
+        Some(value) => idx.encode_scan_prefix(value)?,
+        None => idx.index_key_prefix(),
+    };
+    let end = match lte {
+        Some(value) => prefix_range(&idx.encode_scan_prefix(value)?).end,
+        None => prefix_range(&idx.index_key_prefix()).end,
+    };
+    Ok(KeyRange { start, end })
+}
+
+/// Writes one index entry `(field value, pk) -> ∅` for `spec` over `col`.
+/// Direct index write used by tests and (later) the T04 maintenance hook.
+pub fn btree_index_put<C: Clock>(
+    vault: &AsterVault<C>,
+    col: &Collection,
+    spec: &IndexSpec,
+    field_val: &FieldValue,
+    pk: &RecordKey,
+) -> Result<Seq> {
+    let key = index_for(col, spec).encode_index_key(field_val, pk)?;
+    vault.write_cf(ColumnFamily::IndexBtree, key, Vec::new())
+}
+
+/// Range query at an explicit snapshot. Returns the primary keys whose indexed
+/// field value lies in `[gte, lte]`, in ascending index order, skipping stale
+/// entries. `limit == 0` means unbounded (caller must bound for huge indexes).
+pub fn btree_range_at<C: Clock>(
+    vault: &AsterVault<C>,
+    snapshot: Seq,
+    col: &Collection,
+    spec: &IndexSpec,
+    gte: Option<&FieldValue>,
+    lte: Option<&FieldValue>,
+    limit: usize,
+) -> Result<Vec<RecordKey>> {
+    let idx = index_for(col, spec);
+    let range = range_bounds(&idx, gte, lte)?;
+    let mut out = Vec::new();
+    for (key, _empty) in vault.scan_cf_range_at(snapshot, ColumnFamily::IndexBtree, &range)? {
+        if limit != 0 && out.len() == limit {
+            break;
+        }
+        let (_field, pk) = idx.decode_index_key(&key)?;
+        let data_key = record_key(col, &pk)?;
+        if vault
+            .read_cf_at(snapshot, ColumnFamily::Relational, &data_key)?
+            .is_some()
+        {
+            out.push(pk);
+        }
+    }
+    Ok(out)
+}
+
+/// Range query at the latest committed snapshot. See [`btree_range_at`].
+pub fn btree_range<C: Clock>(
+    vault: &AsterVault<C>,
+    col: &Collection,
+    spec: &IndexSpec,
+    gte: Option<&FieldValue>,
+    lte: Option<&FieldValue>,
+    limit: usize,
+) -> Result<Vec<RecordKey>> {
+    btree_range_at(vault, vault.latest_seq(), col, spec, gte, lte, limit)
+}
+
+/// Point query: every primary key whose indexed field value equals `val`.
+pub fn btree_point<C: Clock>(
+    vault: &AsterVault<C>,
+    col: &Collection,
+    spec: &IndexSpec,
+    val: &FieldValue,
+) -> Result<Vec<RecordKey>> {
+    btree_range(vault, col, spec, Some(val), Some(val), 0)
+}
+
+/// Counts live (non-stale) entries in `[gte, lte]` without materializing the
+/// primary keys. Stale entries are excluded so the count agrees with
+/// [`btree_range`]'s length.
+pub fn btree_count<C: Clock>(
+    vault: &AsterVault<C>,
+    col: &Collection,
+    spec: &IndexSpec,
+    gte: Option<&FieldValue>,
+    lte: Option<&FieldValue>,
+) -> Result<u64> {
+    let snapshot = vault.latest_seq();
+    let idx = index_for(col, spec);
+    let range = range_bounds(&idx, gte, lte)?;
+    let mut count = 0_u64;
+    for (key, _empty) in vault.scan_cf_range_at(snapshot, ColumnFamily::IndexBtree, &range)? {
+        let (_field, pk) = idx.decode_index_key(&key)?;
+        let data_key = record_key(col, &pk)?;
+        if vault
+            .read_cf_at(snapshot, ColumnFamily::Relational, &data_key)?
+            .is_some()
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 #[cfg(test)]
