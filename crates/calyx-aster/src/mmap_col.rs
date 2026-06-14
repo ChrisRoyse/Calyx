@@ -6,7 +6,7 @@
 
 use calyx_core::{CalyxError, Result};
 #[cfg(unix)]
-use memmap2::Advice;
+use memmap2::{Advice, UncheckedAdvice};
 use memmap2::{Mmap, MmapOptions};
 use std::fs::File;
 use std::mem::{align_of, size_of};
@@ -125,11 +125,19 @@ impl MmapColumn {
         if self.checked_end(offset, len).is_err() {
             return;
         }
-        let advice = match advice {
-            PageAdvice::WillNeed => Advice::WillNeed,
-            PageAdvice::DontNeed => Advice::DontNeed,
-        };
-        let _ = self.mmap.advise_range(advice, offset, len);
+        match advice {
+            PageAdvice::WillNeed => {
+                let _ = self.mmap.advise_range(Advice::WillNeed, offset, len);
+            }
+            PageAdvice::DontNeed => {
+                // SAFETY: the mapping is read-only and file-backed. This is a
+                // best-effort page-cache hint after our public range check.
+                let _ = unsafe {
+                    self.mmap
+                        .unchecked_advise_range(UncheckedAdvice::DontNeed, offset, len)
+                };
+            }
+        }
     }
 
     #[cfg(not(unix))]
