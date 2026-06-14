@@ -144,6 +144,7 @@ impl TieringPolicy {
                 | ColumnFamily::AnnealSoak
                 | ColumnFamily::AnnealReport
                 | ColumnFamily::AnnealGrowth
+                | ColumnFamily::AnnealOperators
         ) {
             return false;
         }
