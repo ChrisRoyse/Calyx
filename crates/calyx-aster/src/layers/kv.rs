@@ -308,7 +308,7 @@ fn decode_user_key(col: &Collection, ns: u64, full_key: &[u8]) -> Result<Vec<u8>
 /// `ns` is a full `u64`; schema-less namespace indexes use native `U64`, while
 /// explicit schema types keep their declared encoding and fail closed when they
 /// cannot represent the namespace.
-fn kv_index_row(col: &Collection, ns: u64, key: &[u8], val: &[u8]) -> Result<Row> {
+pub(crate) fn kv_index_row(col: &Collection, ns: u64, key: &[u8], val: &[u8]) -> Result<Row> {
     let mut fields = Vec::new();
     if field_is_indexed(col, "ns") {
         fields.push(("ns", kv_namespace_value(col, ns)?));
@@ -349,7 +349,7 @@ fn declared_field_type(col: &Collection, field: &str) -> Option<FieldType> {
         .map(|declared| declared.ty)
 }
 
-fn encode_value(expires_at: u64, payload: &[u8]) -> Vec<u8> {
+pub(crate) fn encode_value(expires_at: u64, payload: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(VALUE_HEADER_BYTES + payload.len());
     out.push(KV_VALUE_VERSION);
     out.extend_from_slice(&expires_at.to_be_bytes());
@@ -359,7 +359,7 @@ fn encode_value(expires_at: u64, payload: &[u8]) -> Vec<u8> {
 
 /// Returns `(expires_at_ms, payload)` from a stored value, failing closed on a
 /// short or wrong-version row.
-fn decode_value(bytes: &[u8]) -> Result<(u64, &[u8])> {
+pub(crate) fn decode_value(bytes: &[u8]) -> Result<(u64, &[u8])> {
     if bytes.len() < VALUE_HEADER_BYTES {
         return Err(corrupt("kv value is shorter than its header"));
     }
@@ -373,7 +373,7 @@ fn decode_value(bytes: &[u8]) -> Result<(u64, &[u8])> {
     Ok((expires_at, &bytes[VALUE_HEADER_BYTES..]))
 }
 
-fn is_expired(expires_at: u64, now: u64) -> bool {
+pub(crate) fn is_expired(expires_at: u64, now: u64) -> bool {
     expires_at != 0 && now >= expires_at
 }
 
@@ -388,7 +388,7 @@ fn require_kv_mode(col: &Collection) -> Result<()> {
     }
 }
 
-fn validate_user_key(key: &[u8]) -> Result<()> {
+pub(crate) fn validate_user_key(key: &[u8]) -> Result<()> {
     if key.is_empty() || key.len() > MAX_USER_KEY_BYTES {
         return Err(invalid_argument(format!(
             "kv user key must be 1..={MAX_USER_KEY_BYTES} bytes"
@@ -397,7 +397,7 @@ fn validate_user_key(key: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn validate_payload(val: &[u8]) -> Result<()> {
+pub(crate) fn validate_payload(val: &[u8]) -> Result<()> {
     if val.len() > MAX_PAYLOAD_BYTES {
         return Err(invalid_argument(format!(
             "kv value must be <= {MAX_PAYLOAD_BYTES} bytes"
