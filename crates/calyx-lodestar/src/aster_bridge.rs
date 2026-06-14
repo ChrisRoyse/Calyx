@@ -52,6 +52,14 @@ pub struct AsterRecallInputs {
     params: RecallTestParams,
 }
 
+#[derive(Clone, Debug)]
+pub struct AsterSummarizeRequest<'a> {
+    pub collection: &'a str,
+    pub scope: Scope,
+    pub params: Option<SummarizeParams>,
+    pub recall_params: RecallTestParams,
+}
+
 impl AsterRecallInputs {
     pub fn measurement(&self) -> SummarizeRecall<'_> {
         SummarizeRecall {
@@ -267,29 +275,39 @@ pub fn encode_assoc_node_props(
 
 pub fn summarize_vault_latest<C: Clock>(
     vault: &AsterVault<C>,
-    collection: &str,
-    scope: Scope,
-    params: Option<SummarizeParams>,
-    recall_params: RecallTestParams,
+    request: AsterSummarizeRequest<'_>,
     cache: &mut ScopeCache,
     clock: &dyn Clock,
 ) -> std::result::Result<SummarizeResult, CalyxError> {
-    let snapshot = AsterAssocSnapshot::latest(vault, collection).map_err(to_calyx)?;
-    summarize_snapshot(vault, &snapshot, scope, params, recall_params, cache, clock)
+    let snapshot = AsterAssocSnapshot::latest(vault, request.collection).map_err(to_calyx)?;
+    summarize_snapshot(
+        vault,
+        &snapshot,
+        request.scope,
+        request.params,
+        request.recall_params,
+        cache,
+        clock,
+    )
 }
 
 pub fn summarize_vault_as_of<C: Clock>(
     vault: &AsterVault<C>,
-    collection: &str,
-    scope: Scope,
+    request: AsterSummarizeRequest<'_>,
     t_millis: Ts,
-    params: Option<SummarizeParams>,
-    recall_params: RecallTestParams,
     cache: &mut ScopeCache,
     clock: &dyn Clock,
 ) -> std::result::Result<SummarizeResult, CalyxError> {
-    let snapshot = AsterAssocSnapshot::as_of(vault, collection, t_millis)?;
-    summarize_snapshot(vault, &snapshot, scope, params, recall_params, cache, clock)
+    let snapshot = AsterAssocSnapshot::as_of(vault, request.collection, t_millis)?;
+    summarize_snapshot(
+        vault,
+        &snapshot,
+        request.scope,
+        request.params,
+        request.recall_params,
+        cache,
+        clock,
+    )
 }
 
 fn summarize_snapshot<C: Clock>(

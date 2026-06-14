@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, SystemClock, VaultId};
 use calyx_lodestar::{
-    DEFAULT_ASTER_ASSOC_COLLECTION, RecallTestParams, Scope, ScopeCache, SummarizeParams,
-    summarize_vault_as_of, summarize_vault_latest,
+    AsterSummarizeRequest, DEFAULT_ASTER_ASSOC_COLLECTION, RecallTestParams, Scope, ScopeCache,
+    SummarizeParams, summarize_vault_as_of, summarize_vault_latest,
 };
 
 use crate::cf_read::vault_id_from_base;
@@ -26,27 +26,16 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     .map_err(CliError::from)?;
     let mut cache = ScopeCache::new(32);
     let clock = SystemClock;
+    let summarize_request = AsterSummarizeRequest {
+        collection: &request.graph,
+        scope: request.scope,
+        params: Some(request.params),
+        recall_params: request.recall,
+    };
     let result = if let Some(t) = request.as_of {
-        summarize_vault_as_of(
-            &vault,
-            &request.graph,
-            request.scope,
-            t,
-            Some(request.params),
-            request.recall,
-            &mut cache,
-            &clock,
-        )
+        summarize_vault_as_of(&vault, summarize_request, t, &mut cache, &clock)
     } else {
-        summarize_vault_latest(
-            &vault,
-            &request.graph,
-            request.scope,
-            Some(request.params),
-            request.recall,
-            &mut cache,
-            &clock,
-        )
+        summarize_vault_latest(&vault, summarize_request, &mut cache, &clock)
     }
     .map_err(CliError::from)?;
     vault.flush().map_err(CliError::from)?;

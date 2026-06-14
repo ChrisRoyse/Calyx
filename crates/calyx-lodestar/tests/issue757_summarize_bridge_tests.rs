@@ -4,9 +4,10 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{AnchorKind, CxId, FixedClock, VaultId};
 use calyx_ledger::decode;
 use calyx_lodestar::{
-    AsterAssocMetadata, AsterAssocNodeProps, CALYX_TIMETRAVEL_BEFORE_HORIZON,
-    DEFAULT_ASTER_ASSOC_COLLECTION, RecallTestParams, Scope, ScopeCache, SummarizeParams,
-    encode_assoc_node_props, summarize_vault_as_of, summarize_vault_latest, write_assoc_metadata,
+    AsterAssocMetadata, AsterAssocNodeProps, AsterSummarizeRequest,
+    CALYX_TIMETRAVEL_BEFORE_HORIZON, DEFAULT_ASTER_ASSOC_COLLECTION, RecallTestParams, Scope,
+    ScopeCache, SummarizeParams, encode_assoc_node_props, summarize_vault_as_of,
+    summarize_vault_latest, write_assoc_metadata,
 };
 
 fn cx(seed: u8) -> CxId {
@@ -55,18 +56,20 @@ fn aster_bridge_summary_measures_recall_and_writes_aster_ledger() {
     let clock = FixedClock::new(7_000);
     let result = summarize_vault_latest(
         &vault,
-        DEFAULT_ASTER_ASSOC_COLLECTION,
-        Scope::AllAssociations,
-        Some(SummarizeParams {
-            max_kernel_size: Some(6),
-            anchor_kind: Some(AnchorKind::Label("domain".to_string())),
-            ..Default::default()
-        }),
-        RecallTestParams {
-            held_out_fraction: 1.0,
-            top_k: 6,
-            rng_seed: 1,
-            min_recall_ratio: 0.0,
+        AsterSummarizeRequest {
+            collection: DEFAULT_ASTER_ASSOC_COLLECTION,
+            scope: Scope::AllAssociations,
+            params: Some(SummarizeParams {
+                max_kernel_size: Some(6),
+                anchor_kind: Some(AnchorKind::Label("domain".to_string())),
+                ..Default::default()
+            }),
+            recall_params: RecallTestParams {
+                held_out_fraction: 1.0,
+                top_k: 6,
+                rng_seed: 1,
+                min_recall_ratio: 0.0,
+            },
         },
         &mut cache,
         &clock,
@@ -100,11 +103,13 @@ fn aster_bridge_as_of_before_metadata_horizon_fails_closed() {
     let clock = FixedClock::new(7_000);
     let err = summarize_vault_as_of(
         &vault,
-        DEFAULT_ASTER_ASSOC_COLLECTION,
-        Scope::AllAssociations,
+        AsterSummarizeRequest {
+            collection: DEFAULT_ASTER_ASSOC_COLLECTION,
+            scope: Scope::AllAssociations,
+            params: None,
+            recall_params: RecallTestParams::default(),
+        },
         999,
-        None,
-        RecallTestParams::default(),
         &mut cache,
         &clock,
     )

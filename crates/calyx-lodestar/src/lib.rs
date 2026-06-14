@@ -26,8 +26,8 @@ pub mod temporal_kernel;
 
 pub use aster_bridge::{
     ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, AsterAssocSnapshot,
-    DEFAULT_ASTER_ASSOC_COLLECTION, encode_assoc_node_props, summarize_vault_as_of,
-    summarize_vault_latest, write_assoc_metadata,
+    AsterSummarizeRequest, DEFAULT_ASTER_ASSOC_COLLECTION, encode_assoc_node_props,
+    summarize_vault_as_of, summarize_vault_latest, write_assoc_metadata,
 };
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
