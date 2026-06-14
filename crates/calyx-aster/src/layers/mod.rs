@@ -8,12 +8,17 @@ pub mod blob;
 pub mod document;
 pub mod kv;
 pub mod relational;
+pub mod retention_reclaimer;
 pub mod timeseries;
 
 pub use blob::{BlobId, BlobLayer, BlobManifest};
 pub use document::{DocId, DocumentLayer};
 pub use kv::KvLayer;
 pub use relational::{RecordKey, RecordValue, RelationalLayer, Row};
+pub use retention_reclaimer::{
+    CALYX_RETENTION_RECLAIMER_INVALID_COLLECTION, RetentionReclaimReport, RetentionReclaimer,
+    RetentionReclaimerConfig,
+};
 pub use timeseries::{RollupValue, RollupWindow, TimeSeriesLayer};
 
 pub trait Layer: Send + Sync {

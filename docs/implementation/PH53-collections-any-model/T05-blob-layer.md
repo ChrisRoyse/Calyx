@@ -14,7 +14,8 @@
 
 Implement the blob paradigm layer for storing and streaming large payloads.
 Payloads are split into fixed-size chunks (each a CF row); a manifest row
-records the chunk count, total byte count, content hash, and cold-tier flag.
+records the chunk count, total byte count, content hash, cold-tier flag, and
+v2 creation timestamp used by PH58 retention.
 The manifest is written **last**, in its own WAL flush after all chunk rows
 are durable — so a partial-write failure leaves no live manifest, and a
 subsequent `get_blob` will see no blob (not corrupt data). Cold-tier sidecar
@@ -27,8 +28,10 @@ on ZFS archive is flagged in the manifest; physical cold offload in PH11.
   chunk_key    = 0x05 | 0x00 | collection_id (8B BE) | blob_id (16B) | chunk_idx (u32 BE)
   manifest_key = 0x05 | 0x01 | collection_id (8B BE) | blob_id (16B)
   chunk_value  = raw bytes (≤256 KiB per chunk)
-  manifest_val = total_bytes (u64 BE) | chunk_count (u32 BE) | content_hash (32B blake3) | cold_tier (u8 bool)
+  manifest_val_v2 = total_bytes (u64 BE) | chunk_count (u32 BE) | content_hash (32B blake3) | cold_tier (u8 bool) | created_at_ms (u64 BE)
   ```
+  v1 manifests without `created_at_ms` remain readable and are skipped by
+  TTL-based blob retention rather than guessed.
 - [ ] Define `BLOB_CHUNK_SIZE: usize = 262_144` (256 KiB). Configurable per
   vault but immutable after first write.
 - [ ] Implement `blob_put(col: &Collection, blob_id: BlobId, data: &[u8]) -> Result<()>`:

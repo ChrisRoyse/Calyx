@@ -55,6 +55,7 @@ fn put_get_round_trips_and_manifest_matches_hash() {
     assert_eq!(manifest.chunk_count, 1); // 110 bytes < 256 KiB
     assert_eq!(&manifest.content_hash, blake3::hash(&data).as_bytes());
     assert!(!manifest.cold_tier);
+    assert_eq!(manifest.created_at_ms, Some(1));
 
     assert_eq!(layer.blob_get(&col, id).unwrap(), Some(data));
 }
@@ -72,6 +73,7 @@ fn payload_spanning_three_chunks_reassembles() {
     let manifest = layer.blob_manifest(&col, id).unwrap().unwrap();
     assert_eq!(manifest.chunk_count, 3);
     assert_eq!(manifest.total_bytes, (BLOB_CHUNK_SIZE * 2 + 1) as u64);
+    assert_eq!(manifest.created_at_ms, Some(1));
 
     // Independent read of each chunk row proves the physical split.
     let snap = vault.latest_seq();
@@ -146,6 +148,7 @@ fn edge_cases_fail_closed_with_exact_codes() {
     assert_eq!(manifest.chunk_count, 0);
     assert_eq!(manifest.total_bytes, 0);
     assert_eq!(&manifest.content_hash, blake3::hash(b"").as_bytes());
+    assert_eq!(manifest.created_at_ms, Some(1));
     assert_eq!(layer.blob_get(&col, empty_id).unwrap(), Some(Vec::new()));
 
     // (2) absent blob -> None.
@@ -334,6 +337,7 @@ fn durable_blob_fsv_writes_readback_artifacts() {
         "manifest_kind": format!("{:#04x}", mk[1]),
         "manifest_chunk_count": manifest.chunk_count,
         "manifest_total_bytes": manifest.total_bytes,
+        "manifest_created_at_ms": manifest.created_at_ms,
         "content_hash_hex": hex_bytes(&manifest.content_hash),
         "roundtrip_byte_exact": roundtrip == data,
         "blob_cf_files": cf_files,
