@@ -1,15 +1,19 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
-use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
-use hf_hub::api::sync::ApiBuilder;
-use ort::ep;
+use fastembed::{EmbeddingModel, TextEmbedding};
+use serde::{Deserialize, Serialize};
 
-use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
-use crate::runtime::common::{
-    default_hf_cache_root, fastembed_cache_root, hash_files, normalize_unit, text_from_input,
-};
+use crate::frozen::{FrozenLensContract, NormPolicy};
+use crate::runtime::common::{normalize_unit, text_from_input};
+use crate::spec::{LensRuntime, LensSpec};
+
+mod custom;
+mod fastembed_runtime;
+
+#[cfg(test)]
+mod tests;
 
 pub struct OnnxLens {
     id: LensId,
@@ -17,10 +21,16 @@ pub struct OnnxLens {
     contract: FrozenLensContract,
     files: OnnxModelFiles,
     provider_policy: OnnxProviderPolicy,
-    model: Mutex<TextEmbedding>,
+    backend: OnnxBackend,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum OnnxBackend {
+    FastEmbed(Mutex<TextEmbedding>),
+    Custom(Mutex<custom::CustomOnnxRuntime>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum OnnxProviderPolicy {
     CudaFailLoud,
     CpuExplicit,
@@ -31,6 +41,24 @@ impl OnnxProviderPolicy {
         match self {
             Self::CudaFailLoud => "cuda:0,error_on_failure,no_cpu_fallback",
             Self::CpuExplicit => "cpu_explicit,no_cuda",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PoolingPolicy {
+    Mean,
+    Cls,
+    LastToken,
+}
+
+impl PoolingPolicy {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Mean => "mean",
+            Self::Cls => "cls",
+            Self::LastToken => "last_token",
         }
     }
 }
@@ -46,21 +74,116 @@ pub struct OnnxModelFiles {
     pub tokenizer_config: PathBuf,
 }
 
+impl OnnxModelFiles {
+    pub fn artifact_paths(&self) -> Vec<PathBuf> {
+        let mut paths = vec![
+            self.model_file.clone(),
+            self.tokenizer.clone(),
+            self.config.clone(),
+        ];
+        if !paths.contains(&self.special_tokens_map) {
+            paths.push(self.special_tokens_map.clone());
+        }
+        if !paths.contains(&self.tokenizer_config) {
+            paths.push(self.tokenizer_config.clone());
+        }
+        paths
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct OnnxFileSpec {
+    pub name: String,
+    pub model_id: String,
+    pub model_file: PathBuf,
+    pub tokenizer: PathBuf,
+    pub config: PathBuf,
+    pub pooling: PoolingPolicy,
+    pub norm_policy: NormPolicy,
+    pub provider_policy: OnnxProviderPolicy,
+    pub expected_shape: Option<SlotShape>,
+    pub expected_weights_sha256: Option<[u8; 32]>,
+}
+
+impl OnnxFileSpec {
+    pub fn text(
+        name: impl Into<String>,
+        model_id: impl Into<String>,
+        model_file: impl Into<PathBuf>,
+        tokenizer: impl Into<PathBuf>,
+        config: impl Into<PathBuf>,
+        pooling: PoolingPolicy,
+        norm_policy: NormPolicy,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            model_id: model_id.into(),
+            model_file: model_file.into(),
+            tokenizer: tokenizer.into(),
+            config: config.into(),
+            pooling,
+            norm_policy,
+            provider_policy: OnnxProviderPolicy::CudaFailLoud,
+            expected_shape: None,
+            expected_weights_sha256: None,
+        }
+    }
+
+    pub fn from_lens_spec(spec: &LensSpec) -> Result<Self> {
+        let LensRuntime::Onnx { model_id, files } = &spec.runtime else {
+            return Err(config_invalid("LensSpec runtime is not onnx"));
+        };
+        let [model_file, tokenizer, config, ..] = files.as_slice() else {
+            return Err(config_invalid(
+                "LensRuntime::Onnx requires model, tokenizer, and config paths",
+            ));
+        };
+        let pooling = custom::pooling_from_config(config)?;
+        Ok(Self {
+            name: spec.name.clone(),
+            model_id: model_id.clone(),
+            model_file: model_file.clone(),
+            tokenizer: tokenizer.clone(),
+            config: config.clone(),
+            pooling,
+            norm_policy: spec.norm_policy,
+            provider_policy: OnnxProviderPolicy::CpuExplicit,
+            expected_shape: Some(spec.output),
+            expected_weights_sha256: Some(spec.weights_sha256),
+        })
+    }
+
+    pub fn with_provider_policy(mut self, policy: OnnxProviderPolicy) -> Self {
+        self.provider_policy = policy;
+        self
+    }
+
+    pub fn with_expected_shape(mut self, shape: SlotShape) -> Self {
+        self.expected_shape = Some(shape);
+        self
+    }
+
+    pub fn with_expected_weights_sha256(mut self, hash: [u8; 32]) -> Self {
+        self.expected_weights_sha256 = Some(hash);
+        self
+    }
+}
+
 impl OnnxLens {
     pub fn all_minilm_l6_v2(name: impl Into<String>) -> Result<Self> {
-        Self::from_hf_cache(name, default_hf_cache_root())
+        fastembed_runtime::from_hf_cache(name, fastembed_runtime::default_cache_root())
     }
 
     pub fn all_minilm_l6_v2_cpu_explicit(name: impl Into<String>) -> Result<Self> {
-        Self::from_hf_cache_with_policy(
+        fastembed_runtime::from_hf_cache_with_policy(
             name,
-            default_hf_cache_root(),
+            fastembed_runtime::default_cache_root(),
             OnnxProviderPolicy::CpuExplicit,
         )
     }
 
     pub fn from_hf_cache(name: impl Into<String>, cache_dir: impl Into<PathBuf>) -> Result<Self> {
-        Self::from_hf_cache_with_policy(name, cache_dir, OnnxProviderPolicy::CudaFailLoud)
+        fastembed_runtime::from_hf_cache(name, cache_dir.into())
     }
 
     pub fn from_hf_cache_with_policy(
@@ -68,12 +191,7 @@ impl OnnxLens {
         cache_dir: impl Into<PathBuf>,
         provider_policy: OnnxProviderPolicy,
     ) -> Result<Self> {
-        Self::from_model_with_policy(
-            name,
-            EmbeddingModel::AllMiniLML6V2,
-            cache_dir.into(),
-            provider_policy,
-        )
+        fastembed_runtime::from_hf_cache_with_policy(name, cache_dir.into(), provider_policy)
     }
 
     pub fn from_model(
@@ -81,7 +199,7 @@ impl OnnxLens {
         model_name: EmbeddingModel,
         cache_dir: PathBuf,
     ) -> Result<Self> {
-        Self::from_model_with_policy(
+        fastembed_runtime::from_model_with_policy(
             name,
             model_name,
             cache_dir,
@@ -95,53 +213,49 @@ impl OnnxLens {
         cache_dir: PathBuf,
         provider_policy: OnnxProviderPolicy,
     ) -> Result<Self> {
-        let name = name.into();
-        let info = TextEmbedding::get_model_info(&model_name).map_err(|err| {
-            CalyxError::lens_unreachable(format!("fastembed model metadata failed: {err}"))
-        })?;
-        let model = TextEmbedding::try_new(
-            TextInitOptions::new(model_name.clone())
-                .with_cache_dir(cache_dir.clone())
-                .with_show_download_progress(false)
-                .with_intra_threads(1)
-                .with_execution_providers(execution_providers(provider_policy)),
-        )
-        .map_err(|err| CalyxError::lens_unreachable(format!("ONNX runtime init failed: {err}")))?;
-        let effective_cache = fastembed_cache_root(&cache_dir);
-        let files = resolve_files(&effective_cache, &info.model_code, &info.model_file)?;
-        let weights_sha256 = hash_files(&[
-            files.model_file.clone(),
-            files.tokenizer.clone(),
-            files.config.clone(),
-            files.special_tokens_map.clone(),
-            files.tokenizer_config.clone(),
-        ])?;
-        let corpus_hash = sha256_digest(&[
-            b"onnx-fastembed-mean-pool-v1",
-            info.model_code.as_bytes(),
-            info.model_file.as_bytes(),
-        ]);
-        let dim = u32::try_from(info.dim).map_err(|_| {
-            CalyxError::lens_dim_mismatch(format!("ONNX dim {} exceeds u32", info.dim))
-        })?;
-        let contract = FrozenLensContract::new(
-            name,
-            weights_sha256,
-            corpus_hash,
-            SlotShape::Dense(dim),
-            Modality::Text,
-            LensDType::F32,
-            NormPolicy::unit(),
-        );
-        let id = contract.lens_id();
-        Ok(Self {
+        fastembed_runtime::from_model_with_policy(name, model_name, cache_dir, provider_policy)
+    }
+
+    pub fn from_files(spec: OnnxFileSpec) -> Result<Self> {
+        custom::from_files(spec)
+    }
+
+    pub fn from_lens_spec(spec: &LensSpec) -> Result<Self> {
+        Self::from_files(OnnxFileSpec::from_lens_spec(spec)?)
+    }
+
+    pub(crate) fn from_fastembed_parts(
+        id: LensId,
+        dim: u32,
+        contract: FrozenLensContract,
+        files: OnnxModelFiles,
+        provider_policy: OnnxProviderPolicy,
+        model: TextEmbedding,
+    ) -> Self {
+        Self {
             id,
             dim,
             contract,
             files,
             provider_policy,
-            model: Mutex::new(model),
-        })
+            backend: OnnxBackend::FastEmbed(Mutex::new(model)),
+        }
+    }
+
+    pub(crate) fn from_custom_parts(
+        contract: FrozenLensContract,
+        files: OnnxModelFiles,
+        provider_policy: OnnxProviderPolicy,
+        runtime: custom::CustomOnnxRuntime,
+    ) -> Self {
+        Self {
+            id: contract.lens_id(),
+            dim: runtime.dim(),
+            contract,
+            files,
+            provider_policy,
+            backend: OnnxBackend::Custom(Mutex::new(runtime)),
+        }
     }
 
     pub fn contract(&self) -> &FrozenLensContract {
@@ -154,6 +268,32 @@ impl OnnxLens {
 
     pub fn provider_policy(&self) -> &'static str {
         self.provider_policy.as_str()
+    }
+
+    pub fn runtime_name(&self) -> &'static str {
+        match self.backend {
+            OnnxBackend::FastEmbed(_) => "onnx-fastembed",
+            OnnxBackend::Custom(_) => "onnx-custom",
+        }
+    }
+
+    pub fn lens_spec(&self) -> LensSpec {
+        LensSpec {
+            name: self.contract.name().to_string(),
+            runtime: LensRuntime::Onnx {
+                model_id: self.files.model_code.clone(),
+                files: self.files.artifact_paths(),
+            },
+            output: self.contract.shape(),
+            modality: self.contract.modality(),
+            weights_sha256: self.contract.weights_sha256(),
+            corpus_hash: self.contract.corpus_hash(),
+            norm_policy: self.contract.norm_policy(),
+            axis: None,
+            asymmetry: calyx_core::Asymmetry::None,
+            retrieval_only: false,
+            excluded_from_dedup: false,
+        }
     }
 }
 
@@ -181,11 +321,32 @@ impl Lens for OnnxLens {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
+        match &self.backend {
+            OnnxBackend::FastEmbed(model) => self.measure_fastembed(model, inputs),
+            OnnxBackend::Custom(runtime) => {
+                let mut runtime = runtime.lock().map_err(|_| {
+                    CalyxError::lens_unreachable("custom ONNX session mutex was poisoned")
+                })?;
+                inputs
+                    .iter()
+                    .map(|input| runtime.measure(self, input))
+                    .collect()
+            }
+        }
+    }
+}
+
+impl OnnxLens {
+    fn measure_fastembed(
+        &self,
+        model: &Mutex<TextEmbedding>,
+        inputs: &[Input],
+    ) -> Result<Vec<SlotVector>> {
         let mut texts = Vec::with_capacity(inputs.len());
         for input in inputs {
             texts.push(text_from_input(self, input)?.to_string());
         }
-        let mut model = self.model.lock().map_err(|_| {
+        let mut model = model.lock().map_err(|_| {
             CalyxError::lens_unreachable("ONNX model mutex was poisoned during inference")
         })?;
         let embeddings = model
@@ -218,168 +379,10 @@ impl Lens for OnnxLens {
     }
 }
 
-fn execution_providers(policy: OnnxProviderPolicy) -> Vec<fastembed::ExecutionProviderDispatch> {
-    match policy {
-        OnnxProviderPolicy::CudaFailLoud => vec![
-            ep::CUDA::default()
-                .with_device_id(0)
-                .build()
-                .error_on_failure(),
-        ],
-        OnnxProviderPolicy::CpuExplicit => vec![ep::CPU::default().build()],
-    }
-}
-
-fn resolve_files(cache_dir: &Path, model_code: &str, model_file: &str) -> Result<OnnxModelFiles> {
-    let api = ApiBuilder::new()
-        .with_cache_dir(cache_dir.to_path_buf())
-        .with_progress(false)
-        .build()
-        .map_err(|err| CalyxError::lens_unreachable(format!("HF API init failed: {err}")))?;
-    let repo = api.model(model_code.to_string());
-    Ok(OnnxModelFiles {
-        cache_dir: cache_dir.to_path_buf(),
-        model_code: model_code.to_string(),
-        model_file: fetch(&repo, model_file)?,
-        tokenizer: fetch(&repo, "tokenizer.json")?,
-        config: fetch(&repo, "config.json")?,
-        special_tokens_map: fetch(&repo, "special_tokens_map.json")?,
-        tokenizer_config: fetch(&repo, "tokenizer_config.json")?,
-    })
-}
-
-fn fetch(repo: &hf_hub::api::sync::ApiRepo, filename: &str) -> Result<PathBuf> {
-    repo.get(filename)
-        .map_err(|err| CalyxError::lens_unreachable(format!("fetch {filename} failed: {err}")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn execution_provider_policy_is_cuda_fail_loud() {
-        let providers = execution_providers(OnnxProviderPolicy::CudaFailLoud);
-
-        assert_eq!(providers.len(), 1);
-        let provider = format!("{:?}", providers[0]);
-        assert!(provider.contains("CUDA"));
-        assert!(provider.contains("error_on_failure: true"));
-    }
-
-    #[test]
-    fn execution_provider_policy_can_be_explicit_cpu() {
-        let providers = execution_providers(OnnxProviderPolicy::CpuExplicit);
-
-        assert_eq!(providers.len(), 1);
-        let provider = format!("{:?}", providers[0]);
-        assert!(provider.contains("CPU"));
-        assert!(!provider.contains("CUDA"));
-    }
-
-    #[test]
-    #[ignore = "requires aiwonder HF cache/network and downloads ONNX all-MiniLM"]
-    fn onnx_all_minilm_aiwonder_fsv() {
-        let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-aiwonder-fsv").unwrap();
-        let input = Input::new(Modality::Text, b"Calyx PH19 ONNX local probe".to_vec());
-        let vector = lens.measure(&input).unwrap();
-
-        if let SlotVector::Dense { dim, data } = vector {
-            println!("ONNX_FSV_CACHE={}", lens.files().cache_dir.display());
-            println!("ONNX_FSV_MODEL={}", lens.files().model_file.display());
-            println!("ONNX_FSV_PROVIDER_POLICY={}", lens.provider_policy());
-            println!("ONNX_FSV_DIM={dim}");
-            println!("ONNX_FSV_FIRST3={:?}", &data[..3]);
-            let norm = data.iter().map(|v| v * v).sum::<f32>().sqrt();
-            println!("ONNX_FSV_NORM={norm:.8}");
-            assert!((norm - 1.0).abs() < 1.0e-3);
-        } else {
-            panic!("expected dense ONNX vector");
-        }
-    }
-
-    #[test]
-    #[ignore = "requires aiwonder CUDA/ONNX stack; validates fail-loud GPU policy"]
-    fn onnx_cuda_fail_loud_aiwonder_fsv() {
-        let input = Input::new(Modality::Text, b"Calyx PH19 CUDA fail-loud probe".to_vec());
-        match OnnxLens::all_minilm_l6_v2("onnx-aiwonder-cuda-fail-loud") {
-            Ok(lens) => {
-                println!("ONNX_CUDA_PROVIDER_POLICY={}", lens.provider_policy());
-                match lens.measure(&input) {
-                    Ok(vector) => {
-                        println!("ONNX_CUDA_RESULT=success");
-                        if let SlotVector::Dense { dim, data } = vector {
-                            let norm = data.iter().map(|v| v * v).sum::<f32>().sqrt();
-                            println!("ONNX_CUDA_DIM={dim}");
-                            println!("ONNX_CUDA_NORM={norm:.8}");
-                            assert!((norm - 1.0).abs() < 1.0e-3);
-                        } else {
-                            panic!("expected dense ONNX vector");
-                        }
-                    }
-                    Err(error) => {
-                        println!("ONNX_CUDA_RESULT=fail_loud");
-                        println!("ONNX_CUDA_ERROR_CODE={}", error.code);
-                        println!("ONNX_CUDA_ERROR_MESSAGE={}", error.message);
-                        assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
-                        assert!(
-                            error.message.contains("CUDA")
-                                || error.message.contains("Execution Provider")
-                                || error.message.contains("kernel image")
-                        );
-                    }
-                }
-            }
-            Err(error) => {
-                println!("ONNX_CUDA_RESULT=fail_loud_init");
-                println!("ONNX_CUDA_ERROR_CODE={}", error.code);
-                println!("ONNX_CUDA_ERROR_MESSAGE={}", error.message);
-                assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
-            }
-        }
-    }
-
-    #[test]
-    #[ignore = "requires aiwonder HF cache/network and downloads ONNX all-MiniLM"]
-    fn onnx_dim_guard_aiwonder_fsv() {
-        let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-aiwonder-dim-guard").unwrap();
-        let error = lens
-            .contract()
-            .verify_vector(
-                lens.id(),
-                &SlotVector::Dense {
-                    dim: 3,
-                    data: vec![1.0, 0.0, 0.0],
-                },
-            )
-            .unwrap_err();
-
-        println!("ONNX_DIM_GUARD_ERROR={}", error.code);
-        assert_eq!(error.code, "CALYX_LENS_DIM_MISMATCH");
-
-        let empty = lens
-            .measure(&Input::new(Modality::Text, Vec::new()))
-            .unwrap();
-        if let SlotVector::Dense { dim, data } = empty {
-            let norm = data.iter().map(|v| v * v).sum::<f32>().sqrt();
-            println!("ONNX_EMPTY_DIM={dim}");
-            println!("ONNX_EMPTY_NORM={norm:.8}");
-            println!("ONNX_EMPTY_FIRST3={:?}", &data[..3]);
-            assert!((norm - 1.0).abs() < 1.0e-3);
-        } else {
-            panic!("expected dense empty ONNX vector");
-        }
-
-        let invalid = lens
-            .measure(&Input::new(Modality::Text, vec![0xff]))
-            .unwrap_err();
-        println!("ONNX_INVALID_UTF8_ERROR={}", invalid.code);
-        assert_eq!(invalid.code, "CALYX_LENS_DIM_MISMATCH");
-
-        let wrong_modality = lens
-            .measure(&Input::new(Modality::Image, b"pixels".to_vec()))
-            .unwrap_err();
-        println!("ONNX_WRONG_MODALITY_ERROR={}", wrong_modality.code);
-        assert_eq!(wrong_modality.code, "CALYX_LENS_DIM_MISMATCH");
+pub(crate) fn config_invalid(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: "CALYX_LENS_CONFIG_INVALID",
+        message: message.into(),
+        remediation: "fix ONNX model/tokenizer/config or register a supported lens spec",
     }
 }
