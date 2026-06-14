@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
+use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     Clock, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector,
@@ -243,6 +244,55 @@ fn timetravel_readback_cli_fsv() {
     assert!(
         stderr.contains("CALYX_TIMETRAVEL_NO_DATA"),
         "must fail closed with CALYX_TIMETRAVEL_NO_DATA, got: {stderr}"
+    );
+
+    // ==================== edge: corrupt time_index fails closed =============
+    {
+        let vault = AsterVault::open(
+            &vault_dir,
+            vault_id(),
+            b"calyx-timetravel-readback".to_vec(),
+            VaultOptions::default(),
+        )
+        .expect("reopen vault to inject corrupt time_index row");
+        vault
+            .write_cf(ColumnFamily::TimeIndex, vec![0_u8; 17], vec![0])
+            .expect("inject corrupt time_index key");
+        vault.flush().expect("flush corrupt key");
+    }
+    let corrupt_index = calyx()
+        .args(["readback", "time-index", "--vault", vault_arg])
+        .output()
+        .expect("spawn calyx");
+    assert!(
+        !corrupt_index.status.success(),
+        "corrupt time-index readback must fail"
+    );
+    let corrupt_index_stderr = String::from_utf8_lossy(&corrupt_index.stderr);
+    assert!(
+        corrupt_index_stderr.contains("CALYX_ASTER_CORRUPT_SHARD"),
+        "time-index readback must expose corrupt shard, got: {corrupt_index_stderr}"
+    );
+
+    let corrupt_asof = calyx()
+        .args([
+            "readback",
+            "as-of",
+            "--vault",
+            vault_arg,
+            "--t-millis",
+            &m3.to_string(),
+        ])
+        .output()
+        .expect("spawn calyx");
+    assert!(
+        !corrupt_asof.status.success(),
+        "corrupt as-of readback must fail"
+    );
+    let corrupt_asof_stderr = String::from_utf8_lossy(&corrupt_asof.stderr);
+    assert!(
+        corrupt_asof_stderr.contains("CALYX_ASTER_CORRUPT_SHARD"),
+        "as-of readback must expose corrupt shard, got: {corrupt_asof_stderr}"
     );
 
     let _ = std::fs::remove_dir_all(&root);

@@ -269,15 +269,18 @@ fn dropped_snapshot_releases_its_pin() {
 fn corrupt_time_index_key_fails_closed() {
     let vault = vault_at(0);
     ingest(&vault, b"c1", 1.0, 1000);
-    // Inject a malformed (8-byte) time-index key directly into the CF.
+    // Inject a malformed key directly into the CF. It is longer than a valid
+    // key, but sorts inside the as_of(1000) range so resolve must fail closed.
     vault
         .write_cf(
             ColumnFamily::TimeIndex,
-            vec![0u8; 8],
+            vec![0u8; 17],
             time_index::SENTINEL.to_vec(),
         )
         .expect("inject corrupt key");
     let err = time_index::read_all(&vault).unwrap_err();
+    assert_eq!(err.code, "CALYX_ASTER_CORRUPT_SHARD");
+    let err = vault.as_of(1000).unwrap_err();
     assert_eq!(err.code, "CALYX_ASTER_CORRUPT_SHARD");
 }
 
