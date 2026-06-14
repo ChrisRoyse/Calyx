@@ -17,10 +17,13 @@
 //! fails closed (`CALYX_ASTER_CORRUPT_SHARD`) on any mismatch, so silent
 //! corruption is impossible.
 
-use calyx_core::{CalyxError, Clock, Result, Seq};
+use calyx_core::{CalyxError, Clock, Modality, Result, Seq};
 
 use crate::cf::{ColumnFamily, KeyRange};
-use crate::collection::{CALYX_INVALID_ARGUMENT, Collection, CollectionMode};
+use crate::collection::{
+    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, collection_has_lens,
+    ingest_collection_constellation,
+};
 use crate::mvcc::tombstone_value;
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
@@ -97,6 +100,26 @@ impl<'a, C: Clock> BlobLayer<'a, C> {
     /// manifest in a separate commit, so a partial failure never leaves a live
     /// manifest pointing at missing chunks. Returns the manifest commit seq.
     pub fn blob_put(&self, col: &Collection, blob_id: BlobId, data: &[u8]) -> Result<Seq> {
+        if collection_has_lens(col) {
+            if data.len() > MAX_BLOB_BYTES {
+                return Err(blob_too_large(data.len()));
+            }
+            let len = (data.len() as u64).to_be_bytes();
+            let content_hash = blake3::hash(data);
+            let parts = [
+                ("blob_id", blob_id.as_bytes().as_slice()),
+                ("total_bytes", len.as_slice()),
+                ("content_hash", content_hash.as_bytes().as_slice()),
+                ("payload", data),
+            ];
+            return ingest_collection_constellation(
+                self.vault,
+                col,
+                "blob",
+                &parts,
+                Modality::Mixed,
+            );
+        }
         require_blob_mode(col)?;
         if data.len() > MAX_BLOB_BYTES {
             return Err(blob_too_large(data.len()));
