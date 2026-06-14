@@ -249,6 +249,23 @@ impl VersionedCfStore {
             .and_then(|versions| visible_value(versions, snapshot.seq())))
     }
 
+    /// Returns the visible version sequence for one CF/key at the pinned sequence.
+    pub fn seq_for_key_at(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        key: &[u8],
+        clock: &dyn Clock,
+    ) -> Result<Option<Seq>> {
+        snapshot.ensure_live(clock)?;
+        self.ensure_unbarriered(cf, key)?;
+        let table = self.rows.read().expect("mvcc row table poisoned");
+        Ok(table
+            .get(&(cf, key.to_vec()))
+            .and_then(|versions| visible_version(versions, snapshot.seq()))
+            .map(|version| version.seq))
+    }
+
     /// Resolves all requested CF/key rows at the same pinned sequence.
     pub fn read_batch(
         &self,
@@ -387,9 +404,13 @@ impl Default for VersionedCfStore {
 }
 
 fn visible_value(versions: &[VersionedValue], seq: Seq) -> Option<Vec<u8>> {
+    visible_version(versions, seq).map(|version| version.value.clone())
+}
+
+fn visible_version(versions: &[VersionedValue], seq: Seq) -> Option<&VersionedValue> {
     versions
         .iter()
         .rev()
         .find(|version| version.seq <= seq)
-        .and_then(|version| (!is_tombstone_value(&version.value)).then(|| version.value.clone()))
+        .filter(|version| !is_tombstone_value(&version.value))
 }
