@@ -15,7 +15,7 @@ use serde_json::json;
 use adapter::{VaultSqliteAdapter, default_base_lens_id, default_panel_version};
 use backfill::{BackfillMode, BackfillSummary, backfill_default_panel};
 use manifest::MigrationManifest;
-use reader::{open_sqlite, read_chunk, stream_rows};
+use reader::{open_sqlite, read_chunk, row_count, stream_rows};
 use verifier::{StatusReport, VerifyReport, readback_chunk, status, verify_migration};
 
 use crate::error::CliResult;
@@ -73,9 +73,18 @@ fn migrate_vault(
     sqlite_path: &Path,
     vault_dir: &Path,
     options: MigrationOptions,
-) -> Result<MigrateVaultReport> {
+) -> CliResult<MigrateVaultReport> {
     let conn = open_sqlite(sqlite_path)?;
+    let source_rows = usize::try_from(row_count(&conn)?)
+        .map_err(|_| errors::schema("SQLite row count exceeds usize"))?;
     let rows = stream_rows(&conn)?;
+    if rows.len() != source_rows {
+        return Err(errors::schema(format!(
+            "streamed {} rows but row_count reported {source_rows}",
+            rows.len()
+        ))
+        .into());
+    }
     let mut manifest = MigrationManifest::load_or_create(
         vault_dir,
         sqlite_path,
@@ -89,7 +98,7 @@ fn migrate_vault(
         vault.put(adapter.constellation(row))?;
     }
     vault.flush()?;
-    manifest.source_rows = rows.len();
+    manifest.source_rows = source_rows;
     manifest.migrated_rows = rows.len();
     manifest.write(vault_dir)?;
     let backfill = if options.backfill {
@@ -116,7 +125,7 @@ fn migrate_vault(
     };
     let status = status(&vault)?;
     Ok(MigrateVaultReport {
-        source_rows: rows.len(),
+        source_rows,
         migrated_rows: rows.len(),
         manifest: manifest::manifest_path(vault_dir).display().to_string(),
         backfill,
@@ -129,46 +138,55 @@ fn run_backfill(
     sqlite_path: &Path,
     vault_dir: &Path,
     options: MigrationOptions,
-) -> Result<BackfillSummary> {
+) -> CliResult<BackfillSummary> {
     let manifest = MigrationManifest::load(vault_dir)?;
     let conn = open_sqlite(sqlite_path)?;
     let rows = stream_rows(&conn)?;
     let vault = open_vault(vault_dir, &manifest)?;
     let adapter = adapter(&manifest)?;
-    backfill_default_panel(
+    Ok(backfill_default_panel(
         &vault,
         vault_dir,
         &rows,
         &adapter,
         options.mode.unwrap_or(BackfillMode::RealTei),
         options.batch_size.max(1),
-    )
+    )?)
 }
 
 fn run_verify(
     sqlite_path: &Path,
     vault_dir: &Path,
     require_backfill: bool,
-) -> Result<VerifyReport> {
+) -> CliResult<VerifyReport> {
     let manifest = MigrationManifest::load(vault_dir)?;
     let conn = open_sqlite(sqlite_path)?;
     let rows = stream_rows(&conn)?;
     let vault = open_vault(vault_dir, &manifest)?;
-    verify_migration(&vault, &rows, &adapter(&manifest)?, require_backfill)
+    Ok(verify_migration(
+        &vault,
+        &rows,
+        &adapter(&manifest)?,
+        require_backfill,
+    )?)
 }
 
-fn run_status(vault_dir: &Path) -> Result<StatusReport> {
+fn run_status(vault_dir: &Path) -> CliResult<StatusReport> {
     let manifest = MigrationManifest::load(vault_dir)?;
     let vault = open_vault(vault_dir, &manifest)?;
-    status(&vault)
+    Ok(status(&vault)?)
 }
 
-fn run_readback(sqlite_path: &Path, vault_dir: &Path, chunk_id: &str) -> Result<serde_json::Value> {
+fn run_readback(
+    sqlite_path: &Path,
+    vault_dir: &Path,
+    chunk_id: &str,
+) -> CliResult<serde_json::Value> {
     let manifest = MigrationManifest::load(vault_dir)?;
     let conn = open_sqlite(sqlite_path)?;
     let row = read_chunk(&conn, chunk_id)?;
     let vault = open_vault(vault_dir, &manifest)?;
-    readback_chunk(&vault, &row, &adapter(&manifest)?)
+    Ok(readback_chunk(&vault, &row, &adapter(&manifest)?)?)
 }
 
 fn open_vault(vault_dir: &Path, manifest: &MigrationManifest) -> Result<AsterVault> {
@@ -313,19 +331,19 @@ mod tests {
         .unwrap();
         conn.execute(
             "INSERT INTO chunks VALUES('kernel-1','db','alpha beta',?1)",
-            [embedding(&[1.0, 0.0])],
+            [embedding(1.0)],
         )
         .unwrap();
         conn.execute(
             "INSERT INTO chunks VALUES('hot-2','db','gamma delta',?1)",
-            [embedding(&[0.0, 1.0])],
+            [embedding(0.0)],
         )
         .unwrap();
     }
 
-    fn embedding(values: &[f32]) -> Vec<u8> {
-        values
-            .iter()
+    fn embedding(first: f32) -> Vec<u8> {
+        std::iter::once(first)
+            .chain((1..768).map(|idx| idx as f32 / 768.0))
             .flat_map(|value| value.to_le_bytes())
             .collect()
     }

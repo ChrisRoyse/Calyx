@@ -49,7 +49,7 @@ impl VaultSqliteAdapter {
             METADATA_DATABASE_NAME.to_string(),
             row.database_name.clone(),
         );
-        metadata.insert(METADATA_ROWID.to_string(), row.rowid.to_string());
+        metadata.insert(METADATA_ROWID.to_string(), row.row_num.to_string());
         metadata.insert(
             METADATA_CONTENT_HASH.to_string(),
             hex_encode(&row.content_hash()),
@@ -104,7 +104,7 @@ mod tests {
             default_panel_version(),
         );
         let row = ChunkRow {
-            rowid: 7,
+            row_num: 7,
             chunk_id: "chunk/with spaces".to_string(),
             database_name: "leapable_db".to_string(),
             content: b"known content".to_vec(),
