@@ -1,0 +1,29 @@
+# calyxd.service — systemd unit for the Calyx daemon (PH66 T01, issue #536).
+#
+# Repo-owned, operator-installed via ../ops/install-service.sh. Runs non-root,
+# binds loopback only (per calyx.toml bind_addr), restarts on failure, and gates
+# readiness on the calyx healthcheck.
+#
+# User=croyse is the actual aiwonder operator user (01 §3). The PRD's eventual
+# production target is User=leapable with binaries under /opt/leapable/calyx/;
+# switch User/Group and the ExecStart/ExecStartPost paths together when that
+# layout lands.
+[Unit]
+Description=Calyx association database (calyxd)
+After=network-online.target leapable-secrets-load.service
+Wants=leapable-secrets-load.service
+
+[Service]
+User=croyse
+Group=croyse
+EnvironmentFile=/run/leapable/secrets/calyx.env
+WorkingDirectory=/home/croyse/calyx/repo
+ExecStart=/home/croyse/calyx/target/release/calyxd --config /home/croyse/calyx/repo/infra/aiwonder/calyx.toml
+ExecStartPost=/home/croyse/calyx/target/release/calyx healthcheck --wait 30
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=1048576
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

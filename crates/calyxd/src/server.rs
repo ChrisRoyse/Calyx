@@ -11,8 +11,8 @@ use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::metrics::ChainVerifyMetrics;
-use calyxd::error::DaemonError;
+use crate::error::DaemonError;
+use crate::metrics::CalyxMetrics;
 
 const REQUEST_HEAD_LIMIT: usize = 8192;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -21,12 +21,12 @@ const CONTENT_TYPE: &str = "text/plain; version=0.0.4";
 /// Loopback `/metrics` server.
 pub struct MetricsServer {
     listener: TcpListener,
-    metrics: Arc<ChainVerifyMetrics>,
+    metrics: Arc<CalyxMetrics>,
 }
 
 impl MetricsServer {
     /// Binds `addr`, refusing any non-loopback IP before touching the OS.
-    pub fn bind(addr: SocketAddr, metrics: Arc<ChainVerifyMetrics>) -> Result<Self, DaemonError> {
+    pub fn bind(addr: SocketAddr, metrics: Arc<CalyxMetrics>) -> Result<Self, DaemonError> {
         if !addr.ip().is_loopback() {
             return Err(DaemonError::bind_failed(format!(
                 "refused non-loopback bind address {addr}; calyxd serves loopback only"
@@ -66,7 +66,7 @@ impl MetricsServer {
 }
 
 /// Serves exactly one HTTP request on `stream`.
-fn handle_connection(mut stream: TcpStream, metrics: &ChainVerifyMetrics) -> Result<(), String> {
+fn handle_connection(mut stream: TcpStream, metrics: &CalyxMetrics) -> Result<(), String> {
     stream
         .set_read_timeout(Some(IO_TIMEOUT))
         .map_err(|error| format!("set read timeout: {error}"))?;
@@ -87,7 +87,7 @@ fn handle_connection(mut stream: TcpStream, metrics: &ChainVerifyMetrics) -> Res
 }
 
 /// Routes one request line to a status + body.
-fn route(request_line: &str, metrics: &ChainVerifyMetrics) -> (&'static str, String) {
+fn route(request_line: &str, metrics: &CalyxMetrics) -> (&'static str, String) {
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default();
     let path = parts.next().unwrap_or_default();
@@ -152,9 +152,12 @@ fn write_response(stream: &mut TcpStream, status: &str, body: &str) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::metrics::ChainVerifyMetrics;
 
-    fn metrics() -> Arc<ChainVerifyMetrics> {
-        Arc::new(ChainVerifyMetrics::new(&["/tmp/vault".to_string()]))
+    fn metrics() -> Arc<CalyxMetrics> {
+        let labels = ["/tmp/vault".to_string()];
+        let chain = Arc::new(ChainVerifyMetrics::new(&labels));
+        Arc::new(CalyxMetrics::new(chain, &labels))
     }
 
     #[test]
@@ -173,11 +176,28 @@ mod tests {
     }
 
     #[test]
-    fn route_serves_metrics_text() {
+    fn route_serves_full_metric_surface() {
         let metrics = metrics();
         let (status, body) = route("GET /metrics HTTP/1.1", &metrics);
         assert_eq!(status, "200 OK");
+        // Chain-verify family (issue #602) plus the PH66 T03 families and the
+        // 25 hazard gauges are all served from the one route.
         assert!(body.contains("calyx_ledger_chain_verify_ok"));
+        assert!(body.contains("calyx_ingest_duration_seconds"));
+        assert!(body.contains("calyx_search_recall_tripwire"));
+        assert!(body.contains("calyx_vram_budget_limit_mib"));
+        let hazard_lines = body
+            .lines()
+            .filter(|line| line.starts_with("calyx_hazard_"))
+            .count();
+        assert_eq!(hazard_lines, 25);
+    }
+
+    #[test]
+    fn metrics_response_uses_prometheus_content_type() {
+        // The exposition format version is mandatory for Prometheus to parse the
+        // body; assert the exact header value the handler writes.
+        assert_eq!(CONTENT_TYPE, "text/plain; version=0.0.4");
     }
 
     #[test]
