@@ -1,5 +1,6 @@
 use super::{AsterVault, encode};
 use crate::cf::ColumnFamily;
+use crate::mmap_col::MmapColumn;
 use crate::sst::arrow::{decode_column_chunk, encode_column_chunk};
 use calyx_core::{CalyxError, Clock, CxId, Result, Seq, SlotId, SlotVector};
 use serde::{Deserialize, Serialize};
@@ -167,16 +168,16 @@ pub fn read_materialized_slot_column(
         ));
     }
     let chunk_path = parent.join(CHUNK_FILE);
-    let chunk_bytes =
-        fs::read(&chunk_path).map_err(|error| storage_error("read slot chunk", error))?;
-    let actual_sha256 = sha256_hex(&chunk_bytes);
+    let column = MmapColumn::open(&chunk_path)?;
+    let chunk_bytes = column.as_bytes();
+    let actual_sha256 = sha256_hex(chunk_bytes);
     if actual_sha256 != manifest.chunk_sha256 {
         return Err(CalyxError::aster_corrupt_shard(
             "slot column chunk sha256 mismatch",
         ));
     }
 
-    let chunk = decode_column_chunk(&chunk_bytes)?;
+    let chunk = decode_column_chunk(chunk_bytes)?;
     if chunk.n_rows() != manifest.rows || chunk.dim() != manifest.dim as usize {
         return Err(CalyxError::aster_corrupt_shard(
             "slot column manifest shape mismatch",
