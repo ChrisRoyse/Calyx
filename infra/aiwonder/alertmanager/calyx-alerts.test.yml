@@ -112,3 +112,91 @@ tests:
       - eval_time: 5m
         alertname: CalyxHotpoolDiskPressure
         exp_alerts: []
+
+  # CalyxZfsPoolUnhealthy — fires immediately at healthy=0; silent at 1.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_pool_healthy{pool="archive"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsPoolUnhealthy
+        exp_alerts:
+          - exp_labels: { severity: critical, pool: "archive" }
+            exp_annotations:
+              summary: "Calyx ZFS pool unhealthy"
+              description: "ZFS pool archive is not healthy"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_pool_healthy{pool="archive"}'
+        values: '1x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsPoolUnhealthy
+        exp_alerts: []
+
+  # CalyxZfsChecksumErrors — fires on any nonzero CKSUM count.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_cksum_errors_total{pool="hotpool"}'
+        values: '2x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsChecksumErrors
+        exp_alerts:
+          - exp_labels: { severity: critical, pool: "hotpool" }
+            exp_annotations:
+              summary: "Calyx ZFS checksum errors"
+              description: "ZFS pool hotpool has checksum errors"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_cksum_errors_total{pool="hotpool"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsChecksumErrors
+        exp_alerts: []
+
+  # CalyxZfsScrubStale — 40d is 3,456,000s; fire only above it.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_scrub_age_seconds{pool="archive"}'
+        values: '3456001x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsScrubStale
+        exp_alerts:
+          - exp_labels: { severity: critical, pool: "archive" }
+            exp_annotations:
+              summary: "Calyx ZFS scrub stale"
+              description: "ZFS pool archive has no scrub within 40d"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_scrub_age_seconds{pool="archive"}'
+        values: '3456000x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsScrubStale
+        exp_alerts: []
+
+  # CalyxZfsDatasetChecksumDisabled — checksum=off/unreadable is fail-closed.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_dataset_checksum_enabled{dataset="archive/calyx"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsDatasetChecksumDisabled
+        exp_alerts:
+          - exp_labels: { severity: critical, dataset: "archive/calyx" }
+            exp_annotations:
+              summary: "Calyx ZFS dataset checksum disabled"
+              description: "ZFS dataset archive/calyx has checksum disabled or unreadable"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_dataset_checksum_enabled{dataset="archive/calyx"}'
+        values: '1x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsDatasetChecksumDisabled
+        exp_alerts: []
