@@ -4,9 +4,9 @@ pub mod arrow;
 mod bloom;
 pub mod level;
 
+use crate::mmap_col::MmapColumn;
 use bloom::BloomFilter;
 use calyx_core::{CalyxError, Result};
-use memmap2::Mmap;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -44,7 +44,7 @@ struct IndexEntry {
 /// Memory-mapped SSTable reader.
 #[derive(Debug)]
 pub struct SstReader {
-    mmap: Mmap,
+    column: MmapColumn,
     index: Vec<IndexEntry>,
     bloom: BloomFilter,
 }
@@ -108,22 +108,25 @@ pub fn write_sst<'a>(
 impl SstReader {
     /// Opens an SSTable through mmap.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
-        let file = File::open(path.as_ref()).map_err(|error| storage_error("open SST", error))?;
-        // SAFETY: the map is read-only and the file handle remains alive through mmap creation.
-        let mmap = unsafe { Mmap::map(&file).map_err(|error| storage_error("mmap SST", error))? };
-        let header = read_header(&mmap)?;
+        let column = MmapColumn::open(path.as_ref())?;
+        let bytes = column.as_bytes();
+        let header = read_header(bytes)?;
         let index = read_index(
-            &mmap,
+            bytes,
             header.entries,
             header.index_offset,
             header.bloom_offset,
         )?;
-        let bloom_bytes = mmap
+        let bloom_bytes = bytes
             .get(header.bloom_offset as usize..)
             .ok_or_else(|| CalyxError::aster_corrupt_shard("SST bloom offset out of bounds"))?;
         let bloom = BloomFilter::decode(bloom_bytes)
             .ok_or_else(|| CalyxError::aster_corrupt_shard("invalid SST bloom filter"))?;
-        Ok(Self { mmap, index, bloom })
+        Ok(Self {
+            column,
+            index,
+            bloom,
+        })
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
@@ -137,7 +140,7 @@ impl SstReader {
             return Ok(None);
         };
         Ok(Some(
-            read_record(&self.mmap, self.index[position].offset)?.value,
+            read_record(self.column.as_bytes(), self.index[position].offset)?.value,
         ))
     }
 
@@ -150,7 +153,7 @@ impl SstReader {
             if entry.key.as_slice() >= end {
                 break;
             }
-            rows.push(read_record(&self.mmap, entry.offset)?);
+            rows.push(read_record(self.column.as_bytes(), entry.offset)?);
         }
         Ok(rows)
     }
@@ -158,7 +161,7 @@ impl SstReader {
     pub fn iter(&self) -> Result<Vec<SstEntry>> {
         self.index
             .iter()
-            .map(|entry| read_record(&self.mmap, entry.offset))
+            .map(|entry| read_record(self.column.as_bytes(), entry.offset))
             .collect()
     }
 
