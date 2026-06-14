@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Result, SlotId, SlotVector, VaultStore};
+use calyx_core::{Constellation, CxId, Result, Seq, SlotId, SlotVector, VaultStore};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -44,35 +44,9 @@ pub fn verify_migration(
     for row in rows {
         let cx_id = adapter.cx_id(row);
         let cx = vault.get(cx_id, snapshot)?;
-        if cx.input_ref.hash != row.content_hash() {
-            return Err(errors::verify_mismatch(format!(
-                "{} content hash mismatch",
-                row.chunk_id
-            )));
-        }
-        if cx.chunk_id() != Some(row.chunk_id.as_str())
-            || cx.database_name() != Some(row.database_name.as_str())
-            || cx.metadata.get(METADATA_ROWID) != Some(&row.row_num.to_string())
-            || cx.metadata.get(METADATA_CONTENT_HASH) != Some(&hex_encode(&row.content_hash()))
-            || cx.panel_version != default_panel_version()
-        {
-            return Err(errors::verify_mismatch(format!(
-                "{} metadata mismatch",
-                row.chunk_id
-            )));
-        }
+        verify_base_row(vault, snapshot, row, cx_id, &cx)?;
         matched += 1;
-        if slot_matches(
-            vault.read_slot_vector_at(snapshot, cx_id, BASE_SLOT)?,
-            &row.embedding,
-        ) {
-            base_slot_matches += 1;
-        } else {
-            return Err(errors::verify_mismatch(format!(
-                "{} base slot mismatch",
-                row.chunk_id
-            )));
-        }
+        base_slot_matches += 1;
         for slot in default_slot_ids().into_iter().skip(1) {
             if vault.read_slot_vector_at(snapshot, cx_id, slot)?.is_none() {
                 missing_backfill.push(format!("{}:slot{}", row.chunk_id, slot.get()));
@@ -99,6 +73,58 @@ pub fn verify_migration(
         }
         .to_string(),
     })
+}
+
+pub fn row_exists_and_matches(
+    vault: &AsterVault,
+    row: &ChunkRow,
+    adapter: &VaultSqliteAdapter,
+) -> Result<bool> {
+    let snapshot = vault.snapshot();
+    let cx_id = adapter.cx_id(row);
+    let cx = match vault.get(cx_id, snapshot) {
+        Ok(cx) => cx,
+        Err(err) if err.code == "CALYX_STALE_DERIVED" => return Ok(false),
+        Err(err) => return Err(err),
+    };
+    verify_base_row(vault, snapshot, row, cx_id, &cx)?;
+    Ok(true)
+}
+
+fn verify_base_row(
+    vault: &AsterVault,
+    snapshot: Seq,
+    row: &ChunkRow,
+    cx_id: CxId,
+    cx: &Constellation,
+) -> Result<()> {
+    if cx.input_ref.hash != row.content_hash() {
+        return Err(errors::verify_mismatch(format!(
+            "{} content hash mismatch",
+            row.chunk_id
+        )));
+    }
+    if cx.chunk_id() != Some(row.chunk_id.as_str())
+        || cx.database_name() != Some(row.database_name.as_str())
+        || cx.metadata.get(METADATA_ROWID) != Some(&row.row_num.to_string())
+        || cx.metadata.get(METADATA_CONTENT_HASH) != Some(&hex_encode(&row.content_hash()))
+        || cx.panel_version != default_panel_version()
+    {
+        return Err(errors::verify_mismatch(format!(
+            "{} metadata mismatch",
+            row.chunk_id
+        )));
+    }
+    if !slot_matches(
+        vault.read_slot_vector_at(snapshot, cx_id, BASE_SLOT)?,
+        &row.embedding,
+    ) {
+        return Err(errors::verify_mismatch(format!(
+            "{} base slot mismatch",
+            row.chunk_id
+        )));
+    }
+    Ok(())
 }
 
 pub fn status(vault: &AsterVault) -> Result<StatusReport> {

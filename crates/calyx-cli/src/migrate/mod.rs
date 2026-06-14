@@ -3,13 +3,15 @@ mod backfill;
 mod errors;
 mod manifest;
 mod reader;
+#[cfg(test)]
+mod tests;
 mod verifier;
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{Result, VaultStore};
+use calyx_core::{LensId, Result, SlotId, VaultStore};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -17,7 +19,9 @@ use adapter::{VaultSqliteAdapter, default_base_lens_id, default_panel_version};
 use backfill::{BackfillMode, BackfillSummary, backfill_default_panel};
 use manifest::MigrationManifest;
 use reader::{open_sqlite, read_chunk, row_count, stream_rows};
-use verifier::{StatusReport, VerifyReport, readback_chunk, status, verify_migration};
+use verifier::{
+    StatusReport, VerifyReport, readback_chunk, row_exists_and_matches, status, verify_migration,
+};
 
 use crate::error::CliResult;
 use crate::output::print_json;
@@ -26,18 +30,27 @@ use crate::output::print_json;
 struct MigrateVaultReport {
     source_rows: usize,
     migrated_rows: usize,
+    written_rows: usize,
+    skipped_rows: usize,
+    batches_completed: usize,
+    dry_run: bool,
     manifest: String,
+    gte_lens_id: String,
+    gte_endpoint: Option<String>,
     backfill: Option<BackfillSummary>,
     verify: Option<VerifyReport>,
-    status: StatusReport,
+    status: Option<StatusReport>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct MigrationOptions {
     verify: bool,
     backfill: bool,
     require_backfill: bool,
+    dry_run: bool,
     batch_size: usize,
+    gte_lens_id: Option<String>,
+    gte_endpoint: Option<String>,
     mode: Option<BackfillMode>,
 }
 
@@ -78,6 +91,7 @@ fn migrate_vault(
     let conn = open_sqlite(sqlite_path)?;
     let source_rows = usize::try_from(row_count(&conn)?)
         .map_err(|_| errors::schema("SQLite row count exceeds usize"))?;
+    eprintln!("migrating {source_rows} rows...");
     let rows = stream_rows(&conn)?;
     if rows.len() != source_rows {
         return Err(errors::schema(format!(
@@ -86,23 +100,74 @@ fn migrate_vault(
         ))
         .into());
     }
+    let base_lens_id = options
+        .gte_lens_id
+        .clone()
+        .unwrap_or_else(default_base_lens_id);
+    validate_lens_id(&base_lens_id)?;
     let mut manifest = MigrationManifest::load_or_create(
         vault_dir,
         sqlite_path,
         &rows,
-        default_base_lens_id(),
+        base_lens_id,
         default_panel_version(),
     )?;
+    ensure_manifest_matches_options(&manifest, &options)?;
     let adapter = adapter(&manifest)?;
     ensure_unique_cx_ids(&adapter, &rows)?;
+    let batch_size = options.batch_size.max(1);
+    let batches_planned = rows.len().div_ceil(batch_size);
+    if options.dry_run {
+        for row in &rows {
+            adapter.constellation(row)?;
+        }
+        eprintln!(
+            "dry-run: would migrate {} rows in {batches_planned} batches",
+            rows.len()
+        );
+        return Ok(MigrateVaultReport {
+            source_rows,
+            migrated_rows: rows.len(),
+            written_rows: 0,
+            skipped_rows: 0,
+            batches_completed: batches_planned,
+            dry_run: true,
+            manifest: manifest::manifest_path(vault_dir).display().to_string(),
+            gte_lens_id: manifest.base_lens_id.clone(),
+            gte_endpoint: options.gte_endpoint.clone(),
+            backfill: None,
+            verify: None,
+            status: None,
+        });
+    }
+    if let Some(endpoint) = &options.gte_endpoint {
+        eprintln!("gte endpoint configured: {endpoint}");
+    }
     let vault = open_vault(vault_dir, &manifest)?;
-    for row in &rows {
-        vault.put(adapter.constellation(row)?)?;
+    let mut written_rows = 0;
+    let mut skipped_rows = 0;
+    let mut processed_rows = 0;
+    let mut batches_completed = 0;
+    for batch in rows.chunks(batch_size) {
+        for row in batch {
+            if row_exists_and_matches(&vault, row, &adapter)? {
+                skipped_rows += 1;
+            } else {
+                vault.put(adapter.constellation(row)?)?;
+                written_rows += 1;
+            }
+            processed_rows += 1;
+        }
+        batches_completed += 1;
+        if processed_rows == source_rows || processed_rows % 1000 == 0 {
+            eprintln!("migrated {processed_rows}/{source_rows}...");
+        }
     }
     vault.flush()?;
     manifest.source_rows = source_rows;
-    manifest.migrated_rows = rows.len();
+    manifest.migrated_rows = written_rows + skipped_rows;
     manifest.write(vault_dir)?;
+    eprintln!("migration complete: {written_rows} new, {skipped_rows} duplicate");
     let backfill = if options.backfill {
         Some(backfill_default_panel(
             &vault,
@@ -110,7 +175,7 @@ fn migrate_vault(
             &rows,
             &adapter,
             options.mode.unwrap_or(BackfillMode::RealTei),
-            options.batch_size.max(1),
+            batch_size,
         )?)
     } else {
         None
@@ -128,11 +193,17 @@ fn migrate_vault(
     let status = status(&vault)?;
     Ok(MigrateVaultReport {
         source_rows,
-        migrated_rows: rows.len(),
+        migrated_rows: written_rows + skipped_rows,
+        written_rows,
+        skipped_rows,
+        batches_completed,
+        dry_run: false,
         manifest: manifest::manifest_path(vault_dir).display().to_string(),
+        gte_lens_id: manifest.base_lens_id.clone(),
+        gte_endpoint: options.gte_endpoint.clone(),
         backfill,
         verify,
-        status,
+        status: Some(status),
     })
 }
 
@@ -201,11 +272,39 @@ fn open_vault(vault_dir: &Path, manifest: &MigrationManifest) -> Result<AsterVau
 }
 
 fn adapter(manifest: &MigrationManifest) -> Result<VaultSqliteAdapter> {
-    Ok(VaultSqliteAdapter::new(
+    let lens_id = manifest
+        .base_lens_id
+        .parse::<LensId>()
+        .map_err(|err| errors::manifest(format!("invalid base_lens_id: {err}")))?;
+    Ok(VaultSqliteAdapter::new_with_lens_slot(
         manifest.vault_id()?,
-        manifest.vault_salt()?,
         manifest.panel_version,
+        lens_id,
+        SlotId::new(manifest.base_slot_id),
     ))
+}
+
+fn validate_lens_id(value: &str) -> CliResult {
+    value
+        .parse::<LensId>()
+        .map(|_| ())
+        .map_err(|err| errors::manifest(format!("invalid --gte-lens-id: {err}")).into())
+}
+
+fn ensure_manifest_matches_options(
+    manifest: &MigrationManifest,
+    options: &MigrationOptions,
+) -> CliResult {
+    if let Some(requested) = &options.gte_lens_id
+        && manifest.base_lens_id != *requested
+    {
+        return Err(errors::manifest(format!(
+            "existing manifest base_lens_id {} does not match --gte-lens-id {requested}",
+            manifest.base_lens_id
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 fn ensure_unique_cx_ids(adapter: &VaultSqliteAdapter, rows: &[reader::ChunkRow]) -> CliResult {
@@ -228,7 +327,7 @@ fn parse_vault(rest: &[String]) -> std::result::Result<(&Path, &Path, MigrationO
         return Err(migrate_usage());
     }
     let mut options = MigrationOptions {
-        batch_size: 16,
+        batch_size: 100,
         ..MigrationOptions::default()
     };
     parse_options(&rest[2..], &mut options, true)?;
@@ -271,8 +370,21 @@ fn parse_options(
     while idx < flags.len() {
         match flags[idx].as_str() {
             "--verify" if allow_verify => options.verify = true,
+            "--dry-run" if allow_verify => options.dry_run = true,
             "--backfill-default-panel" if allow_verify => options.backfill = true,
             "--offline-backfill" => options.mode = Some(BackfillMode::OfflineDeterministic),
+            "--gte-lens-id" if allow_verify && idx + 1 < flags.len() => {
+                idx += 1;
+                let value = flags[idx].clone();
+                value
+                    .parse::<LensId>()
+                    .map_err(|err| format!("invalid --gte-lens-id: {err}"))?;
+                options.gte_lens_id = Some(value);
+            }
+            "--gte-endpoint" if allow_verify && idx + 1 < flags.len() => {
+                idx += 1;
+                options.gte_endpoint = Some(flags[idx].clone());
+            }
             "--batch-size" if idx + 1 < flags.len() => {
                 idx += 1;
                 options.batch_size = flags[idx]
@@ -289,7 +401,7 @@ fn parse_options(
 fn migrate_usage() -> String {
     json!({
         "usage": [
-            "calyx migrate vault <sqlite.db> <vault.calyx> [--verify] [--backfill-default-panel] [--offline-backfill] [--batch-size <n>]",
+            "calyx migrate vault <sqlite.db> <vault.calyx> [--verify] [--dry-run] [--gte-lens-id <hex16>] [--gte-endpoint <url>] [--backfill-default-panel] [--offline-backfill] [--batch-size <n>]",
             "calyx migrate backfill <sqlite.db> <vault.calyx> [--offline-backfill] [--batch-size <n>]",
             "calyx migrate verify <sqlite.db> <vault.calyx> [--require-backfill]",
             "calyx migrate status <vault.calyx>",
@@ -297,111 +409,4 @@ fn migrate_usage() -> String {
         ]
     })
     .to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use rusqlite::Connection;
-
-    use super::*;
-
-    #[test]
-    fn migrates_and_offline_backfills_default_panel() {
-        let root = std::env::temp_dir().join(format!(
-            "calyx-migrate-offline-{}-{}",
-            std::process::id(),
-            manifest::now_ms()
-        ));
-        let sqlite = root.join("vault.db");
-        let vault = root.join("vault.calyx");
-        std::fs::create_dir_all(&root).unwrap();
-        seed_sqlite(&sqlite);
-
-        let report = migrate_vault(
-            &sqlite,
-            &vault,
-            MigrationOptions {
-                verify: true,
-                backfill: true,
-                batch_size: 1,
-                mode: Some(BackfillMode::OfflineDeterministic),
-                ..MigrationOptions::default()
-            },
-        )
-        .unwrap();
-
-        assert_eq!(report.source_rows, 2);
-        assert_eq!(
-            report.verify.unwrap().missing_backfill,
-            Vec::<String>::new()
-        );
-        assert!(report.status.slot_rows.values().all(|count| *count == 2));
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn duplicate_content_rows_fail_before_vault_creation() {
-        let root = std::env::temp_dir().join(format!(
-            "calyx-migrate-duplicate-content-{}-{}",
-            std::process::id(),
-            manifest::now_ms()
-        ));
-        let sqlite = root.join("vault.db");
-        let vault = root.join("vault.calyx");
-        std::fs::create_dir_all(&root).unwrap();
-        seed_duplicate_content_sqlite(&sqlite);
-
-        let error = migrate_vault(&sqlite, &vault, MigrationOptions::default()).unwrap_err();
-
-        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
-        assert!(error.message().contains("rows 1 and 2"));
-        assert!(error.message().contains("content-addressed cx_id"));
-        assert!(!vault.exists());
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    fn seed_sqlite(path: &Path) {
-        let conn = Connection::open(path).unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chunks VALUES('kernel-1','db','alpha beta',?1)",
-            [embedding(1.0)],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chunks VALUES('hot-2','db','gamma delta',?1)",
-            [embedding(0.0)],
-        )
-        .unwrap();
-    }
-
-    fn seed_duplicate_content_sqlite(path: &Path) {
-        let conn = Connection::open(path).unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chunks VALUES('first','db','same content',?1)",
-            [embedding(1.0)],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chunks VALUES('second','db','same content',?1)",
-            [embedding(2.0)],
-        )
-        .unwrap();
-    }
-
-    fn embedding(first: f32) -> Vec<u8> {
-        std::iter::once(first)
-            .chain((1..768).map(|idx| idx as f32 / 768.0))
-            .flat_map(|value| value.to_le_bytes())
-            .collect()
-    }
 }
