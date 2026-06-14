@@ -7,7 +7,7 @@ impl<C> AsterVault<C>
 where
     C: Clock,
 {
-    pub(crate) fn write_cf_batch_with_ledger_entry(
+    pub fn write_cf_batch_with_ledger_entry(
         &self,
         rows: impl IntoIterator<Item = (ColumnFamily, Vec<u8>, Vec<u8>)>,
         kind: EntryKind,

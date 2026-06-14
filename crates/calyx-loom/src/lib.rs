@@ -25,8 +25,8 @@ pub use error::{
     CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
     CALYX_LOOM_SERIES_READ_ERROR, CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_TEMPORAL_XTERM_CORRUPT,
     CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_REACTIVE_QUEUE_FULL, CALYX_REACTIVE_REGISTRY_FULL,
-    CALYX_REACTIVE_SIGNAL_UNAVAILABLE, CALYX_RECURRENCE_CONTEXT_TOO_LARGE,
-    CALYX_RECURRENCE_INVALID_RETENTION, loom_error,
+    CALYX_REACTIVE_ROW_CORRUPT, CALYX_REACTIVE_SIGNAL_UNAVAILABLE,
+    CALYX_RECURRENCE_CONTEXT_TOO_LARGE, CALYX_RECURRENCE_INVALID_RETENTION, loom_error,
 };
 pub use lru_cache::LruCache;
 pub use materialization::{
@@ -34,8 +34,11 @@ pub use materialization::{
     plan_cross_terms_checked,
 };
 pub use reactive::{
-    AuditEntry, AuditLog, BoundedQueue, ReactiveEngine, ReactiveSignals, RecurrenceSignals,
-    TriggerCondition, TriggerDef, TriggerFired, TriggerId, TriggerRegistry,
+    AgreementDriftSignals, AgreementDriftTracker, AuditEntry, AuditLog, BoundedQueue,
+    ReactiveEngine, ReactiveRowKey, ReactiveRowKind, ReactiveSignalSet, ReactiveSignals,
+    RecurrenceSignals, TriggerCondition, TriggerDef, TriggerFired, TriggerId, TriggerRegistry,
+    WardNoveltySignals, decode_audit_entry, decode_trigger_fired, reactive_audit_key,
+    reactive_audit_prefix, reactive_fired_key, reactive_row_key,
 };
 pub use recurrence::{
     LeadLagResult, Occurrence, OccurrenceContext, PeriodicFit, PeriodicRecallHit,

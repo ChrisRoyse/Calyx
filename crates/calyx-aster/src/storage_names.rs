@@ -114,6 +114,7 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "recurrence" => ColumnFamily::Recurrence,
         "graph" => ColumnFamily::Graph,
         "online" => ColumnFamily::Online,
+        "reactive" => ColumnFamily::Reactive,
         "scalars" => ColumnFamily::Scalars,
         "xterm" => ColumnFamily::XTerm,
         "temporal_xterm" => ColumnFamily::TemporalXTerm,
