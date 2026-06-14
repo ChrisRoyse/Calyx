@@ -130,6 +130,15 @@ impl CompactionCatalog {
         self.pin_snapshot().shard_count_for_cf(cf)
     }
 
+    pub fn shards_for_cf(&self, cf: ColumnFamily) -> Vec<SstShard> {
+        self.pin_snapshot()
+            .shards
+            .iter()
+            .filter(|shard| shard.cf == cf)
+            .cloned()
+            .collect()
+    }
+
     pub fn debt_for_cf(&self, cf: ColumnFamily, target_bytes: u64) -> CompactionDebt {
         let snapshot = self.pin_snapshot();
         let inputs: Vec<_> = snapshot
