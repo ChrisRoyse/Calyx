@@ -102,6 +102,37 @@ impl AsterVault<SystemClock> {
         vault_salt: impl Into<Vec<u8>>,
         options: VaultOptions,
     ) -> Result<Self> {
+        AsterVault::open_with_clock(vault_dir, vault_id, vault_salt, options, SystemClock)
+    }
+}
+
+impl<C> AsterVault<C>
+where
+    C: Clock,
+{
+    /// Opens a durable vault with an injected clock.
+    ///
+    /// Production callers use [`AsterVault::open`] with [`SystemClock`]. This
+    /// constructor exists for deterministic FSV: the vault remains fully
+    /// durable, but group commits stamp `time_index` rows from `clock`.
+    pub fn new_durable_with_clock(
+        vault_dir: impl AsRef<Path>,
+        vault_id: VaultId,
+        vault_salt: impl Into<Vec<u8>>,
+        options: VaultOptions,
+        clock: C,
+    ) -> Result<Self> {
+        Self::open_with_clock(vault_dir, vault_id, vault_salt, options, clock)
+    }
+
+    /// Opens a durable vault with an injected clock.
+    pub fn open_with_clock(
+        vault_dir: impl AsRef<Path>,
+        vault_id: VaultId,
+        vault_salt: impl Into<Vec<u8>>,
+        options: VaultOptions,
+        clock: C,
+    ) -> Result<Self> {
         DurableVault::validate_options(&options)?;
         let vault_root = vault_dir.as_ref().to_path_buf();
         let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
@@ -149,7 +180,7 @@ impl AsterVault<SystemClock> {
         Ok(Self {
             vault_id,
             vault_salt: vault_salt.into(),
-            clock: SystemClock,
+            clock,
             rows,
             durable: Some(durable),
             dedup_policy,
@@ -160,12 +191,7 @@ impl AsterVault<SystemClock> {
             residency,
         })
     }
-}
 
-impl<C> AsterVault<C>
-where
-    C: Clock,
-{
     /// Creates a vault with an injected clock.
     pub fn with_clock(vault_id: VaultId, vault_salt: impl Into<Vec<u8>>, clock: C) -> Self {
         Self {
