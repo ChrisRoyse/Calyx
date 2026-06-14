@@ -27,9 +27,14 @@ zeroize.workspace = true
 
 [dev-dependencies]
 calyx-ledger = { path = "../calyx-ledger" }
+criterion.workspace = true
 proptest.workspace = true
 rand.workspace = true
 ulid.workspace = true
+
+[[bench]]
+name = "bench_arena_reset"
+harness = false
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
