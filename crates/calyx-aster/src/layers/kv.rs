@@ -12,10 +12,13 @@
 
 use std::time::Duration;
 
-use calyx_core::{CalyxError, Clock, Result, Seq};
+use calyx_core::{CalyxError, Clock, Modality, Result, Seq};
 
 use crate::cf::{ColumnFamily, KeyRange, prefix_range};
-use crate::collection::{CALYX_INVALID_ARGUMENT, Collection, CollectionMode};
+use crate::collection::{
+    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, collection_has_lens,
+    ingest_collection_constellation,
+};
 use crate::mvcc::tombstone_value;
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
@@ -53,24 +56,28 @@ impl<'a, C: Clock> KvLayer<'a, C> {
         val: &[u8],
         ttl: Option<Duration>,
     ) -> Result<Seq> {
+        if collection_has_lens(col) {
+            validate_user_key(key)?;
+            validate_payload(val)?;
+            let expires_at = self.expires_at(ttl)?;
+            let full_key = kv_key(col, ns, key);
+            let value = encode_value(expires_at, val);
+            let parts = [
+                ("kv_key", full_key.as_slice()),
+                ("kv_value", value.as_slice()),
+            ];
+            return ingest_collection_constellation(
+                self.vault,
+                col,
+                "kv",
+                &parts,
+                Modality::Structured,
+            );
+        }
         require_kv_mode(col)?;
         validate_user_key(key)?;
         validate_payload(val)?;
-        let expires_at = match ttl {
-            None => 0,
-            Some(duration) => {
-                let now = self.vault.clock_now();
-                let millis = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
-                // A zero TTL would alias "no expiry"; reject it so callers get a
-                // loud error instead of a silently immortal record.
-                if millis == 0 {
-                    return Err(invalid_argument(
-                        "kv ttl must be >= 1ms (got a sub-millisecond duration)",
-                    ));
-                }
-                now.saturating_add(millis)
-            }
-        };
+        let expires_at = self.expires_at(ttl)?;
         let full_key = kv_key(col, ns, key);
         let value = encode_value(expires_at, val);
         let subject = ledger_subject(&full_key);
@@ -161,6 +168,22 @@ impl<'a, C: Clock> KvLayer<'a, C> {
         out.sort_by(|left, right| left.0.cmp(&right.0));
         out.truncate(limit);
         Ok(out)
+    }
+
+    fn expires_at(&self, ttl: Option<Duration>) -> Result<u64> {
+        match ttl {
+            None => Ok(0),
+            Some(duration) => {
+                let now = self.vault.clock_now();
+                let millis = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+                if millis == 0 {
+                    return Err(invalid_argument(
+                        "kv ttl must be >= 1ms (got a sub-millisecond duration)",
+                    ));
+                }
+                Ok(now.saturating_add(millis))
+            }
+        }
     }
 }
 

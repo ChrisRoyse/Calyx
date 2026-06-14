@@ -2,11 +2,13 @@
 
 use std::collections::BTreeSet;
 
-use calyx_core::{Clock, Result, Seq};
+use calyx_core::{Clock, Modality, Result, Seq};
 use serde_json::Value;
 
 use crate::cf::{ColumnFamily, KeyRange, prefix_range};
-use crate::collection::{Collection, CollectionMode};
+use crate::collection::{
+    Collection, CollectionMode, collection_has_lens, ingest_collection_constellation,
+};
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 
@@ -37,6 +39,21 @@ impl<'a, C: Clock> DocumentLayer<'a, C> {
     }
 
     pub fn put_doc(&self, col: &Collection, doc_id: DocId, doc: &Value) -> Result<Seq> {
+        if collection_has_lens(col) {
+            validate_document(col, doc)?;
+            let value = encode_json_value(doc)?;
+            let parts = [
+                ("doc_id", doc_id.as_bytes().as_slice()),
+                ("document", value.as_slice()),
+            ];
+            return ingest_collection_constellation(
+                self.vault,
+                col,
+                "document",
+                &parts,
+                Modality::Structured,
+            );
+        }
         require_documents_mode(col)?;
         validate_document(col, doc)?;
         let mut flattened = Vec::new();

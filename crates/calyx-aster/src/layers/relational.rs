@@ -3,13 +3,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bincode::config;
-use calyx_core::{CalyxError, Clock, Result, Seq};
+use calyx_core::{CalyxError, Clock, Modality, Result, Seq};
 use serde::{Deserialize, Serialize};
 
 use crate::cf::{ColumnFamily, KeyRange};
 use crate::collection::{
     CALYX_COLLECTION_NOT_FOUND, CALYX_INVALID_ARGUMENT, Collection, CollectionMode, FieldType,
-    Schema, collection_key, decode_collection,
+    Schema, collection_has_lens, collection_key, decode_collection,
+    ingest_collection_constellation,
 };
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
@@ -95,6 +96,22 @@ impl<'a, C: Clock> RelationalLayer<'a, C> {
     }
 
     pub fn put_record(&self, col: &Collection, pk: &RecordKey, row: &Row) -> Result<Seq> {
+        if collection_has_lens(col) {
+            validate_row(col, row)?;
+            let key = record_key(col, pk)?;
+            let value = encode_record_value(row)?;
+            let parts = [
+                ("record_key", key.as_slice()),
+                ("record_value", value.as_slice()),
+            ];
+            return ingest_collection_constellation(
+                self.vault,
+                col,
+                "records",
+                &parts,
+                Modality::Structured,
+            );
+        }
         require_records_mode(col)?;
         validate_row(col, row)?;
         let key = record_key(col, pk)?;
