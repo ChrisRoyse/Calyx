@@ -61,6 +61,7 @@ pub enum RecordValue {
     Bytes(Vec<u8>),
     Timestamp(i64),
     Null,
+    U64(u64),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -387,6 +388,7 @@ fn value_matches_type(value: &RecordValue, ty: FieldType) -> bool {
             | (RecordValue::Text(_), FieldType::Text)
             | (RecordValue::Bytes(_), FieldType::Bytes)
             | (RecordValue::Timestamp(_), FieldType::Timestamp)
+            | (RecordValue::U64(_), FieldType::U64)
     )
 }
 
@@ -396,9 +398,10 @@ fn record_key_from_value(value: &RecordValue) -> Result<RecordKey> {
         RecordValue::I64(value) | RecordValue::Timestamp(value) if *value >= 0 => {
             Ok(RecordKey::from_u64(*value as u64))
         }
+        RecordValue::U64(value) => Ok(RecordKey::from_u64(*value)),
         RecordValue::Text(value) => RecordKey::from_bytes(value.as_bytes().to_vec()),
         _ => Err(schema_violation(
-            "foreign-key field must be Bytes, non-negative I64/Timestamp, or Text",
+            "foreign-key field must be Bytes, non-negative I64/Timestamp, U64, or Text",
         )),
     }
 }
