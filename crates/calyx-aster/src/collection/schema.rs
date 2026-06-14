@@ -13,6 +13,7 @@ pub enum FieldType {
     Text,
     Bytes,
     Timestamp,
+    U64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
