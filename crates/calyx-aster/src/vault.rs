@@ -348,6 +348,25 @@ where
             .scan_cf_range_at(self.snapshot_handle(snapshot), cf, range, &self.clock)
     }
 
+    /// Scans at most `limit` visible raw CF rows in key order after `after_key`.
+    pub fn scan_cf_range_page_at(
+        &self,
+        snapshot: Seq,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        after_key: Option<&[u8]>,
+        limit: usize,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.rows.scan_cf_range_page_at(
+            self.snapshot_handle(snapshot),
+            cf,
+            range,
+            after_key,
+            limit,
+            &self.clock,
+        )
+    }
+
     pub(super) fn stage_constellation_rows(
         &self,
         rows: &mut Vec<encode::WriteRow>,

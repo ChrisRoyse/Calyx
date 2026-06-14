@@ -3,7 +3,7 @@
 use calyx_core::SlotId;
 
 /// Per-slot column family flavor.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SlotFamilyKind {
     /// Quantized, active slot vector column.
     Quantized,
@@ -12,7 +12,7 @@ pub enum SlotFamilyKind {
 }
 
 /// Aster column families from PRD 04 section 4.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ColumnFamily {
     /// `CxId -> ConstellationHeader`.
     Base,
