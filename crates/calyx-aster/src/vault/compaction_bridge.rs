@@ -65,7 +65,9 @@ where
         Ok(result)
     }
 
-    pub(crate) fn purge_tombstoned_cfs(&self, cfs: &[ColumnFamily]) -> Result<()> {
+    /// Compacts the listed column families, prunes MVCC tombstone rows from the
+    /// compacted SST, and reclaims superseded input SSTs for durable vaults.
+    pub fn purge_tombstoned_cfs(&self, cfs: &[ColumnFamily]) -> Result<()> {
         let Some(durable) = &self.durable else {
             return Ok(());
         };
