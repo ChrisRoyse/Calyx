@@ -36,6 +36,7 @@ Greenfield for the budgeter, admission control, and yield logic.
 | `crates/calyx-forge/src/vram/admission.rs` | Admission control: split/queue/fail logic; `CALYX_FORGE_VRAM_BUDGET` |
 | `crates/calyx-forge/src/vram/oom_guard.rs` | OOM guard: reduce-batch → retry → fail closed; CUDA OOM intercept |
 | `crates/calyx-forge/src/vram/mod.rs` | Re-exports + `VramStats` |
+| `crates/calyx-registry/src/ingest_microbatch.rs` | Bounded ingest microbatch admission, timeout breaker, `CALYX_BACKPRESSURE` |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -47,6 +48,7 @@ Greenfield for the budgeter, admission control, and yield logic.
 | T04 | OOM guard — reduce-batch → retry → fail closed | T03 |
 | T05 | Anneal yield + 600 W cap enforcement | T04 |
 | T06 | Concurrent TEI FSV soak — dispatch over budget → split/queue/fail, p99 holds | T01, T02, T03, T04, T05 |
+| T07 | Bounded ingest microbatch admission — cap bytes, backpressure, per-lens breaker | PRD 24 §6 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

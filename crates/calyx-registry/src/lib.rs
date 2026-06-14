@@ -5,6 +5,7 @@ pub mod commission;
 pub mod drift;
 pub mod explain;
 pub mod frozen;
+pub mod ingest_microbatch;
 pub mod lens;
 pub mod panel_ops;
 pub mod panels;
@@ -27,6 +28,11 @@ pub use commission::{
 pub use drift::{DriftDecision, RuntimeGolden};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};
 pub use frozen::{FrozenLensContract, LensDType, NormPolicy};
+pub use ingest_microbatch::{
+    DEFAULT_INGEST_MICROBATCH_CAP_BYTES, INGEST_MICROBATCH_INPUT_OVERHEAD_BYTES, IngestLensOutcome,
+    IngestLensOutcomeStatus, IngestMicrobatchConfig, IngestMicrobatchController,
+    IngestMicrobatchPermit, IngestMicrobatchStats, IngestPanelReadout, estimate_microbatch_bytes,
+};
 pub use lens::{
     DeterminismProof, DualMeasurement, FrozenLensSnapshot, Registry, RegistryLensSnapshot,
     ensure_input_modality, ensure_vector_shape,
