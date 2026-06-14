@@ -5,6 +5,7 @@ mod manifest;
 mod reader;
 mod verifier;
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -92,10 +93,11 @@ fn migrate_vault(
         default_base_lens_id(),
         default_panel_version(),
     )?;
-    let vault = open_vault(vault_dir, &manifest)?;
     let adapter = adapter(&manifest)?;
+    ensure_unique_cx_ids(&adapter, &rows)?;
+    let vault = open_vault(vault_dir, &manifest)?;
     for row in &rows {
-        vault.put(adapter.constellation(row))?;
+        vault.put(adapter.constellation(row)?)?;
     }
     vault.flush()?;
     manifest.source_rows = source_rows;
@@ -204,6 +206,21 @@ fn adapter(manifest: &MigrationManifest) -> Result<VaultSqliteAdapter> {
         manifest.vault_salt()?,
         manifest.panel_version,
     ))
+}
+
+fn ensure_unique_cx_ids(adapter: &VaultSqliteAdapter, rows: &[reader::ChunkRow]) -> CliResult {
+    let mut seen = BTreeMap::new();
+    for row in rows {
+        let cx_id = adapter.cx_id(row);
+        if let Some(first_row_num) = seen.insert(cx_id, row.row_num) {
+            return Err(errors::schema(format!(
+                "rows {first_row_num} and {} map to the same content-addressed cx_id {cx_id}; duplicate content cannot preserve distinct SQLite metadata",
+                row.row_num
+            ))
+            .into());
+        }
+    }
+    Ok(())
 }
 
 fn parse_vault(rest: &[String]) -> std::result::Result<(&Path, &Path, MigrationOptions), String> {
@@ -322,6 +339,27 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    #[test]
+    fn duplicate_content_rows_fail_before_vault_creation() {
+        let root = std::env::temp_dir().join(format!(
+            "calyx-migrate-duplicate-content-{}-{}",
+            std::process::id(),
+            manifest::now_ms()
+        ));
+        let sqlite = root.join("vault.db");
+        let vault = root.join("vault.calyx");
+        std::fs::create_dir_all(&root).unwrap();
+        seed_duplicate_content_sqlite(&sqlite);
+
+        let error = migrate_vault(&sqlite, &vault, MigrationOptions::default()).unwrap_err();
+
+        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
+        assert!(error.message().contains("rows 1 and 2"));
+        assert!(error.message().contains("content-addressed cx_id"));
+        assert!(!vault.exists());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     fn seed_sqlite(path: &Path) {
         let conn = Connection::open(path).unwrap();
         conn.execute(
@@ -337,6 +375,25 @@ mod tests {
         conn.execute(
             "INSERT INTO chunks VALUES('hot-2','db','gamma delta',?1)",
             [embedding(0.0)],
+        )
+        .unwrap();
+    }
+
+    fn seed_duplicate_content_sqlite(path: &Path) {
+        let conn = Connection::open(path).unwrap();
+        conn.execute(
+            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO chunks VALUES('first','db','same content',?1)",
+            [embedding(1.0)],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO chunks VALUES('second','db','same content',?1)",
+            [embedding(2.0)],
         )
         .unwrap();
     }

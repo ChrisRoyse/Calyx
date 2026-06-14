@@ -19,14 +19,6 @@ pub struct ChunkRow {
 }
 
 impl ChunkRow {
-    pub fn identity_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::new();
-        put_len_prefixed(&mut out, self.database_name.as_bytes());
-        put_len_prefixed(&mut out, self.chunk_id.as_bytes());
-        put_len_prefixed(&mut out, &self.content);
-        out
-    }
-
     pub fn content_hash(&self) -> [u8; 32] {
         *blake3::hash(&self.content).as_bytes()
     }
@@ -170,11 +162,6 @@ fn decode_embedding(bytes: Vec<u8>, row_num: u64) -> CliResult<Vec<f32>> {
         );
     }
     Ok(values)
-}
-
-fn put_len_prefixed(out: &mut Vec<u8>, bytes: &[u8]) {
-    out.extend_from_slice(&(bytes.len() as u64).to_be_bytes());
-    out.extend_from_slice(bytes);
 }
 
 #[cfg(test)]
