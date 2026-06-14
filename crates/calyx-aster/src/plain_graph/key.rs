@@ -13,6 +13,7 @@ const KIND_NODE: u8 = 0;
 const KIND_EDGE_OUT: u8 = 1;
 const KIND_EDGE_IN: u8 = 2;
 const KIND_CSR: u8 = 3;
+const KIND_METADATA: u8 = 4;
 const MAX_COLLECTION_BYTES: usize = 256;
 const MAX_EDGE_TYPE_BYTES: usize = 128;
 const MAX_VALUE_BYTES: usize = 1 << 20;
@@ -59,6 +60,13 @@ impl GraphKeyspace {
 
     pub(super) fn csr_key(&self) -> Vec<u8> {
         self.kind_prefix(KIND_CSR)
+    }
+
+    pub(super) fn metadata_key(&self, name: &str) -> Result<Vec<u8>> {
+        validate_metadata_name(name)?;
+        let mut key = self.kind_prefix(KIND_METADATA);
+        encode_edge_type(name, &mut key);
+        Ok(key)
     }
 
     pub(super) fn node_range(&self) -> KeyRange {
@@ -162,6 +170,16 @@ pub(super) fn validate_value(field: &str, value: &[u8]) -> Result<()> {
         return Err(graph_invalid(format!(
             "{field} exceeds {MAX_VALUE_BYTES} bytes"
         )));
+    }
+    Ok(())
+}
+
+fn validate_metadata_name(value: &str) -> Result<()> {
+    let bytes = value.as_bytes();
+    if bytes.is_empty() || bytes.len() > MAX_EDGE_TYPE_BYTES || bytes.iter().any(|b| *b < 0x20) {
+        return Err(graph_invalid(
+            "graph metadata name must be printable and 1..=128 bytes",
+        ));
     }
     Ok(())
 }

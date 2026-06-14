@@ -2,6 +2,7 @@
 
 //! Lodestar grounding-kernel discovery and maintenance.
 
+pub mod aster_bridge;
 pub mod dfvs;
 mod error;
 pub mod grounding_gaps;
@@ -23,6 +24,11 @@ pub mod scope_report;
 pub mod summarize;
 pub mod temporal_kernel;
 
+pub use aster_bridge::{
+    ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, AsterAssocSnapshot,
+    DEFAULT_ASTER_ASSOC_COLLECTION, encode_assoc_node_props, summarize_vault_as_of,
+    summarize_vault_latest, write_assoc_metadata,
+};
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
     tournament_2approx,
@@ -82,7 +88,8 @@ pub use scope_report::{ScopeKernelReport, report_all_scopes};
 pub use summarize::{
     CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING,
     CALYX_TIMETRAVEL_BEFORE_HORIZON, SUMMARIZE_INVOKED_MARKER, SummarizeCtx, SummarizeParams,
-    SummarizeResult, summarize, summarize_as_of,
+    SummarizeRecall, SummarizeResult, summarize, summarize_as_of, summarize_with_ledger,
+    summarize_with_recall,
 };
 pub use temporal_kernel::{
     CALYX_LODESTAR_INVALID_FREQUENCY, CALYX_LODESTAR_INVALID_WINDOW,
