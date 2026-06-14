@@ -26,7 +26,9 @@ mod terms;
 
 pub use btree::{BtreeIndex, DISC_BTREE_INDEX};
 pub use inverted::{DISC_INVERTED_INDEX, InvertedIndex};
-pub use maintenance::{CALYX_INDEX_STALE_ENTRY, IndexMaintenance};
+pub use maintenance::{
+    CALYX_INDEX_STALE_ENTRY, IndexMaintenance, collection_has_maintained_index, field_is_indexed,
+};
 
 use calyx_core::{CalyxError, Result};
 

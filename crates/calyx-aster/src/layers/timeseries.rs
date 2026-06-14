@@ -15,10 +15,10 @@ use calyx_core::{CalyxError, Clock, Modality, Result, Seq};
 
 use crate::cf::{ColumnFamily, KeyRange};
 use crate::collection::{
-    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, RetentionPolicy, collection_has_lens,
-    ingest_collection_constellation,
+    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, FieldType, RetentionPolicy, Schema,
+    collection_has_lens, ingest_collection_constellation,
 };
-use crate::index::IndexMaintenance;
+use crate::index::{IndexMaintenance, collection_has_maintained_index, field_is_indexed};
 use crate::layers::relational::{RecordKey, RecordValue, Row};
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
@@ -119,12 +119,6 @@ impl<'a, C: Clock> TimeSeriesLayer<'a, C> {
         }
         let snapshot = self.vault.latest_seq();
         let point_key = point_key(col, series, ts);
-        let old_index_row = self
-            .vault
-            .read_cf_at(snapshot, ColumnFamily::TimeSeries, &point_key)?
-            .map(|bytes| decode_point(&bytes).and_then(|old| ts_index_row(series, ts, old)))
-            .transpose()?;
-        let new_index_row = ts_index_row(series, ts, val)?;
         let pk = RecordKey::from_bytes(point_key.clone())?;
         let mut rows = Vec::with_capacity(1 + RollupWindow::ALL.len());
         rows.push((
@@ -142,14 +136,27 @@ impl<'a, C: Clock> TimeSeriesLayer<'a, C> {
             let updated = fold_rollup(current, val);
             rows.push((ColumnFamily::TimeSeries, key, encode_rollup(&updated)));
         }
-        IndexMaintenance::stage_put(
-            self.vault,
-            &mut rows,
-            col,
-            &pk,
-            old_index_row.as_ref(),
-            &new_index_row,
-        )?;
+        // Only touch secondary indexes — and the extra point read they require —
+        // when the collection declares one. Unindexed series writes stay on the
+        // point/rollup path and never coerce synthetic index fields.
+        if collection_has_maintained_index(col) {
+            let old_index_row = self
+                .vault
+                .read_cf_at(snapshot, ColumnFamily::TimeSeries, &point_key)?
+                .map(|bytes| {
+                    decode_point(&bytes).and_then(|old| ts_index_row(col, series, ts, old))
+                })
+                .transpose()?;
+            let new_index_row = ts_index_row(col, series, ts, val)?;
+            IndexMaintenance::stage_put(
+                self.vault,
+                &mut rows,
+                col,
+                &pk,
+                old_index_row.as_ref(),
+                &new_index_row,
+            )?;
+        }
         let subject = ledger_subject(&point_key);
         let payload = ledger_payload(col, series, ts, &point_key, val);
         self.vault.write_cf_batch_with_ledger_entry(
@@ -293,17 +300,67 @@ fn point_ts(col: &Collection, series: u64, key: &[u8]) -> Result<u64> {
     Ok(u64::from_be_bytes(ts_bytes.try_into().unwrap()))
 }
 
-fn ts_index_row(series: u64, ts: u64, val: f64) -> Result<Row> {
-    let series = i64::try_from(series)
-        .map_err(|_| invalid_argument("time-series series id exceeds i64 indexable range"))?;
-    let ts = i64::try_from(ts)
-        .map_err(|_| invalid_argument("time-series timestamp exceeds i64 indexable range"))?;
-    Ok(Row::new([
-        ("series", RecordValue::I64(series)),
-        ("ts", RecordValue::Timestamp(ts)),
-        ("value", RecordValue::F64(val)),
-        ("val", RecordValue::F64(val)),
-    ]))
+/// Builds the synthetic index row for a time-series point, carrying only the
+/// well-known fields (`series`, `ts`, `value`/`val`) a maintained index
+/// references.
+///
+/// `series` and `ts` are full `u64`s but the index value domain
+/// ([`RecordValue`]) has no unsigned-64 type. Mirroring the KV layer's
+/// `kv_namespace_value`, each is encoded by its declared schema field type,
+/// defaulting to big-endian bytes (which preserve unsigned order). The lossy
+/// `I64`/`Timestamp` conversions are performed — and can fail — **only** when the
+/// declaring index pins that field to a signed type, and only for that field; an
+/// index on `value` is never blocked by a large series id or timestamp.
+fn ts_index_row(col: &Collection, series: u64, ts: u64, val: f64) -> Result<Row> {
+    let mut fields = Vec::new();
+    if field_is_indexed(col, "series") {
+        fields.push(("series", ts_u64_value(col, "series", series)?));
+    }
+    if field_is_indexed(col, "ts") {
+        fields.push(("ts", ts_u64_value(col, "ts", ts)?));
+    }
+    if field_is_indexed(col, "value") {
+        fields.push(("value", RecordValue::F64(val)));
+    }
+    if field_is_indexed(col, "val") {
+        fields.push(("val", RecordValue::F64(val)));
+    }
+    Ok(Row::new(fields))
+}
+
+/// Encodes a `u64` index field (`series`/`ts`) by its declared schema type,
+/// defaulting to big-endian bytes for schema-less/`Bytes` indexes so the full
+/// unsigned range is representable and correctly ordered.
+fn ts_u64_value(col: &Collection, field: &str, value: u64) -> Result<RecordValue> {
+    match declared_field_type(col, field) {
+        Some(FieldType::I64) => i64::try_from(value).map(RecordValue::I64).map_err(|_| {
+            invalid_argument(format!("time-series {field} exceeds i64 indexable range"))
+        }),
+        Some(FieldType::Timestamp) => {
+            i64::try_from(value)
+                .map(RecordValue::Timestamp)
+                .map_err(|_| {
+                    invalid_argument(format!(
+                        "time-series {field} exceeds timestamp indexable range"
+                    ))
+                })
+        }
+        Some(FieldType::Text) => Ok(RecordValue::Text(value.to_string())),
+        Some(FieldType::Bytes) | None => Ok(RecordValue::Bytes(value.to_be_bytes().to_vec())),
+        Some(FieldType::Bool) | Some(FieldType::F64) => Err(invalid_argument(format!(
+            "time-series {field} index field must be Bytes, Text, I64, or Timestamp"
+        ))),
+    }
+}
+
+fn declared_field_type(col: &Collection, field: &str) -> Option<FieldType> {
+    let Some(Schema::SchemaFull(fields)) = &col.schema else {
+        return None;
+    };
+    fields
+        .iter()
+        .find(|declared| declared.name == field)
+        .map(|declared| declared.ty)
 }
 
 fn encode_point(val: f64) -> Vec<u8> {
