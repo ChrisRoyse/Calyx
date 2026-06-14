@@ -75,6 +75,14 @@ calyx readback --metric forge_dispatch_p99_ms
 - T05 readback proved `forge_anneal_throttle_events_total 1`,
   `forge_anneal_vram_rejections_total 1`, 60 `nvidia-smi dmon` samples with max
   power `76 W`, and CUDA priority ordering `serving_raw=-5` over `anneal_raw=0`.
+- T06 concurrent TEI soak is implemented in `crates/calyx-forge/tests/soak_ph57.rs`
+  with Criterion coverage in `crates/calyx-forge/benches/bench_admission_overhead.rs`.
+- aiwonder FSV root: `/home/croyse/calyx/data/fsv-issue480-ph57-soak-20260614T214449Z`.
+- T06 readback proved TEI :8088/:8089/:8090 health `200`, baseline p99
+  `25.539 ms`, loaded p99 `19.943 ms`, one-TEI edge success `12/12`,
+  `calyx_forge_vram_budget_exceeded_total 38`, splits `75`, queued `4`,
+  max VRAM `7628 MiB`, max power `192 W`, admission overhead `88.415 ns`,
+  no OOM matches in `dmesg`/`journalctl`, and line gate max `.rs` length `500`.
 
 ## Risks / landmines
 
