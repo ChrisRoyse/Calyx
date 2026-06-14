@@ -30,3 +30,6 @@ calyx-ledger = { path = "../calyx-ledger" }
 proptest.workspace = true
 rand.workspace = true
 ulid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+nix.workspace = true

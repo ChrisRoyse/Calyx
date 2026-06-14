@@ -101,6 +101,7 @@ where
             return self.commit_rows_to_mvcc(rows);
         };
 
+        durable.ensure_disk_write_allowed(self.rows.resource_counters())?;
         let durable_seq = durable.append_batch(rows)?;
         let mvcc_seq = match self.commit_rows_to_mvcc(rows) {
             Ok(seq) => seq,
