@@ -35,8 +35,10 @@ use crate::error::LodestarError;
 use crate::kernel::KernelParams;
 use crate::kernel_graph::KernelGraphParams;
 use crate::multi_scope::build_kernel;
+use crate::recall_test::{AnnIndex, CorpusReader, RecallTestParams, kernel_recall_test_with_clock};
 use crate::scope::{AssocStore, Scope, materialize_scope, scope_hash};
 use crate::scope_cache::ScopeCache;
+use crate::{EmbeddingStore, Kernel, build_kernel_index};
 
 /// `require_grounded` rejects any kernel whose grounded fraction is below this.
 const MIN_GROUNDED_FRACTION: f32 = 0.5;
@@ -109,6 +111,14 @@ pub struct SummarizeResult {
     pub ledger_ref: LedgerRef,
 }
 
+/// Optional recall inputs for a measured `kernel_only_recall`.
+pub struct SummarizeRecall<'a> {
+    pub embeddings: &'a dyn EmbeddingStore,
+    pub full_index: &'a dyn AnnIndex,
+    pub corpus: &'a dyn CorpusReader,
+    pub params: RecallTestParams,
+}
+
 impl fmt::Display for SummarizeResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
@@ -155,11 +165,60 @@ where
     S: LedgerCfStore,
     C: Clock,
 {
+    summarize_with_recall(store, scope, params, None, ctx)
+}
+
+/// Same as [`summarize`], but measures `kernel_only_recall` against a supplied
+/// full corpus/index before writing provenance.
+pub fn summarize_with_recall<S, C>(
+    store: &dyn AssocStore,
+    scope: Scope,
+    params: Option<SummarizeParams>,
+    recall: Option<SummarizeRecall<'_>>,
+    ctx: &mut SummarizeCtx<'_, S, C>,
+) -> Result<SummarizeResult, CalyxError>
+where
+    S: LedgerCfStore,
+    C: Clock,
+{
+    summarize_with_ledger(
+        store,
+        scope,
+        params,
+        recall,
+        ctx.cache,
+        ctx.clock,
+        |scope_h, kernel_size, kernel_only_recall, grounded_fraction| {
+            append_invoked(
+                ctx.ledger,
+                scope_h,
+                kernel_size,
+                kernel_only_recall,
+                grounded_fraction,
+            )
+        },
+    )
+}
+
+/// Advanced entry point for callers that append provenance through a non-generic
+/// sink such as `AsterVault::append_ledger_entry`.
+pub fn summarize_with_ledger<F>(
+    store: &dyn AssocStore,
+    scope: Scope,
+    params: Option<SummarizeParams>,
+    recall: Option<SummarizeRecall<'_>>,
+    cache: &mut ScopeCache,
+    clock: &dyn Clock,
+    mut append: F,
+) -> Result<SummarizeResult, CalyxError>
+where
+    F: FnMut(&[u8; 32], usize, f32, f32) -> Result<LedgerRef, CalyxError>,
+{
     let params = params.unwrap_or_default();
     validate_scope(&scope)?;
 
     let scope_h = scope_hash(&scope);
-    let now = ctx.clock.now();
+    let now = clock.now();
 
     let mut kernel_params = KernelParams {
         built_at_millis: now,
@@ -176,10 +235,10 @@ where
     let active_cache = if params.cache_ttl_secs == Some(0) {
         &mut throwaway
     } else {
-        &mut *ctx.cache
+        &mut *cache
     };
 
-    let kernel = build_kernel(
+    let mut kernel = build_kernel(
         store,
         scope,
         params.anchor_kind.clone(),
@@ -193,18 +252,14 @@ where
         return Err(insufficient_grounding(grounded_fraction));
     }
 
+    apply_measured_recall(&mut kernel, recall.as_ref(), clock)?;
+
     let kernel_ids = kernel.members.clone();
     let kernel_size = kernel_ids.len();
     let kernel_only_recall = kernel.recall.kernel_only;
     let approx_factor = kernel.recall.approx_factor as f32;
 
-    let ledger_ref = append_invoked(
-        ctx.ledger,
-        &scope_h,
-        kernel_size,
-        kernel_only_recall,
-        grounded_fraction,
-    )?;
+    let ledger_ref = append(&scope_h, kernel_size, kernel_only_recall, grounded_fraction)?;
 
     Ok(SummarizeResult {
         scope_hash: scope_h,
@@ -215,6 +270,36 @@ where
         approx_factor,
         ledger_ref,
     })
+}
+
+fn apply_measured_recall(
+    kernel: &mut Kernel,
+    recall: Option<&SummarizeRecall<'_>>,
+    clock: &dyn Clock,
+) -> Result<(), CalyxError> {
+    let Some(recall) = recall else {
+        return Ok(());
+    };
+    if kernel.members.is_empty() {
+        return Ok(());
+    }
+    let approx_factor = kernel.recall.approx_factor;
+    let tau_star_estimate = kernel.recall.tau_star_estimate;
+    let tau_star_exact = kernel.recall.tau_star_exact;
+    let index = build_kernel_index(kernel, recall.embeddings).map_err(to_calyx)?;
+    let mut measured = kernel_recall_test_with_clock(
+        &index,
+        recall.full_index,
+        recall.corpus,
+        &recall.params,
+        clock,
+    )
+    .map_err(to_calyx)?;
+    measured.approx_factor = approx_factor;
+    measured.tau_star_estimate = tau_star_estimate;
+    measured.tau_star_exact = tau_star_exact;
+    kernel.recall = measured;
+    Ok(())
 }
 
 /// Summarizes `scope` as of time `t`: the scope intersected with everything at or

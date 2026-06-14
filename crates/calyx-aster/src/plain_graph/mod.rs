@@ -212,6 +212,42 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
             .map_err(|error| graph_corrupt(format!("decode CSR projection: {error}")))
     }
 
+    pub fn assoc_graph(&self, snapshot: Seq) -> Result<AssocGraph> {
+        let nodes = self.node_ids(snapshot)?;
+        let node_set = nodes.iter().copied().collect::<BTreeSet<_>>();
+        let mut builder = AssocGraph::builder();
+        for node in &nodes {
+            builder.add_node(*node, 1.0).map_err(path_error)?;
+        }
+        for (key, _) in self.scan_at(snapshot, &self.keys.edge_out_range())? {
+            let edge = self.keys.decode_edge_out_key(&key)?;
+            if !node_set.contains(&edge.src) || !node_set.contains(&edge.dst) {
+                return Err(graph_corrupt("graph edge endpoint has no node row"));
+            }
+            builder
+                .add_edge(edge.src, edge.dst, 1.0)
+                .map_err(path_error)?;
+        }
+        Ok(builder.build())
+    }
+
+    pub fn put_metadata(&self, name: &str, value: &[u8]) -> Result<Seq> {
+        validate_value("metadata value", value)?;
+        self.vault.write_cf(
+            ColumnFamily::Graph,
+            self.keys.metadata_key(name)?,
+            value.to_vec(),
+        )
+    }
+
+    pub fn get_metadata(&self, snapshot: Seq, name: &str) -> Result<Option<Vec<u8>>> {
+        self.vault.read_cf_at(
+            snapshot,
+            ColumnFamily::Graph,
+            &self.keys.metadata_key(name)?,
+        )
+    }
+
     pub fn node_key(&self, node: CxId) -> Vec<u8> {
         self.keys.node_key(node)
     }

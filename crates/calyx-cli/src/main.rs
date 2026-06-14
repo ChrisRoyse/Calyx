@@ -60,6 +60,7 @@ mod scan;
 mod sextant_commands;
 mod sextant_diskann_validation;
 mod sextant_recall_validation;
+mod summarize_command;
 mod temporal_log_recurrence_readback;
 mod temporal_readback;
 mod time_prediction_readback;
