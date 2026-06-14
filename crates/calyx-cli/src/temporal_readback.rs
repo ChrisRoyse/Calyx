@@ -20,7 +20,7 @@ const QUERY_SCORE: f32 = 0.70;
 const CX_A: u8 = 0xA1;
 const CX_B: u8 = 0xB2;
 
-pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> Result<(), String> {
+pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> crate::error::CliResult {
     let root = std::env::temp_dir().join(format!(
         "calyx-temporal-search-recurrence-readback-{}",
         std::process::id()
@@ -62,7 +62,7 @@ pub fn readback_temporal_search(clock_fixed: i64, tz_offset_secs: i32) -> Result
     Ok(())
 }
 
-fn seed_recurrence(vault: &AsterVault, clock_fixed: i64) -> Result<(), String> {
+fn seed_recurrence(vault: &AsterVault, clock_fixed: i64) -> std::result::Result<(), String> {
     vault
         .put(row(CX_A, created_at_secs(clock_fixed, 3_000)))
         .map_err(|error| error.to_string())?;
@@ -160,7 +160,7 @@ fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
     }
 }
 
-fn reset_dir(path: &Path) -> Result<(), String> {
+fn reset_dir(path: &Path) -> std::result::Result<(), String> {
     if path.exists() {
         fs::remove_dir_all(path).map_err(|error| error.to_string())?;
     }

@@ -4,7 +4,7 @@ use std::path::Path;
 use calyx_anneal::{RegressionReport, regression_rate};
 use serde_json::json;
 
-pub fn regression_report(path: &Path) -> Result<(), String> {
+pub fn regression_report(path: &Path) -> crate::error::CliResult {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     let report: RegressionReport =
         serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;

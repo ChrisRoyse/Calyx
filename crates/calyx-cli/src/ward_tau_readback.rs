@@ -3,12 +3,9 @@ use std::path::Path;
 use calyx_anneal::{FileWardTauStore, WardTauStore};
 use calyx_core::SlotId;
 
-pub(crate) fn readback_ward_tau(vault: &Path, slot: &str) -> Result<(), String> {
+pub(crate) fn readback_ward_tau(vault: &Path, slot: &str) -> crate::error::CliResult {
     if !vault.is_dir() {
-        return Err(format!(
-            "--vault path {} is not a directory",
-            vault.display()
-        ));
+        return Err(format!("--vault path {} is not a directory", vault.display()).into());
     }
     let slot_id = slot
         .parse::<SlotId>()

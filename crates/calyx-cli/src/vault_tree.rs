@@ -2,7 +2,9 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-pub(crate) fn readback_vault_tree(path: &Path) -> io::Result<()> {
+use crate::error::CliResult;
+
+pub(crate) fn readback_vault_tree(path: &Path) -> CliResult {
     for line in vault_tree_lines(path)? {
         println!("{line}");
     }

@@ -28,7 +28,7 @@ pub fn is_topic(topic: &str) -> bool {
     TOPICS.contains(&topic)
 }
 
-pub fn readback_topic(topic: &str, args: &[String]) -> Result<(), String> {
+pub fn readback_topic(topic: &str, args: &[String]) -> crate::error::CliResult {
     let args = parse_args(topic, args)?;
     let bytes = fs::read(&args.artifact)
         .map_err(|error| format!("read PH42 artifact {}: {error}", args.artifact.display()))?;

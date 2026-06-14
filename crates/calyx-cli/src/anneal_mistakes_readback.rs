@@ -7,9 +7,11 @@ use std::path::Path;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
 
-pub fn readback_mistakes(vault: &Path, last: usize) -> Result<(), String> {
+pub fn readback_mistakes(vault: &Path, last: usize) -> crate::error::CliResult {
     if last == 0 {
-        return Err("anneal mistakes readback requires --last > 0".to_string());
+        return Err("anneal mistakes readback requires --last > 0"
+            .to_string()
+            .into());
     }
     let cf = ColumnFamily::AnnealMistakes;
     let mut physical_rows = Vec::new();

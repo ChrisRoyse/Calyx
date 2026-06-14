@@ -27,7 +27,7 @@ use crate::cf_read::vault_id_from_base;
 
 /// `readback time-index --vault <PATH>`: print every `time_index` entry in
 /// `(millis, seqno)` order.
-pub fn readback_time_index(vault: &Path) -> Result<(), String> {
+pub fn readback_time_index(vault: &Path) -> crate::error::CliResult {
     let store = open_vault(vault)?;
     let entries = read_all(&store).map_err(|error| error.to_string())?;
     let rows: Vec<_> = entries
@@ -48,7 +48,7 @@ pub fn readback_time_index(vault: &Path) -> Result<(), String> {
 
 /// `readback as-of --vault <PATH> --t-millis <T>`: resolve the snapshot as of
 /// `T` and print the constellations visible at that historical sequence.
-pub fn readback_as_of(vault: &Path, t_millis: &str) -> Result<(), String> {
+pub fn readback_as_of(vault: &Path, t_millis: &str) -> crate::error::CliResult {
     let t_millis: u64 = t_millis
         .parse()
         .map_err(|error| format!("invalid --t-millis: {error}"))?;

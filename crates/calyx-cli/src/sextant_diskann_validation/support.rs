@@ -111,7 +111,10 @@ pub(super) fn approx_rows(raw: &[(CxId, Vec<f32>)]) -> Vec<(CxId, Vec<f32>)> {
         .collect()
 }
 
-pub(super) fn write_raw_sidecar(raw_dir: &Path, raw: &[(CxId, Vec<f32>)]) -> Result<(), String> {
+pub(super) fn write_raw_sidecar(
+    raw_dir: &Path,
+    raw: &[(CxId, Vec<f32>)],
+) -> std::result::Result<(), String> {
     for (id, (_, vector)) in raw.iter().enumerate() {
         let bytes: Vec<_> = vector
             .iter()
@@ -202,7 +205,7 @@ pub(super) fn dir_bytes(path: &Path) -> Result<u64, String> {
         .sum()
 }
 
-pub(super) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+pub(super) fn write_json<T: Serialize>(path: &Path, value: &T) -> std::result::Result<(), String> {
     let json = serde_json::to_string_pretty(value).map_err(|error| error.to_string())?;
     fs::write(path, json).map_err(|error| error.to_string())
 }

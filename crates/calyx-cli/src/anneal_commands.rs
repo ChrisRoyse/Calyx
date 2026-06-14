@@ -8,7 +8,7 @@ use crate::{
     anneal_soak_report, anneal_status,
 };
 
-pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
+pub(crate) fn run(topic: &str, rest: &[String]) -> crate::error::CliResult {
     match (topic, rest) {
         ("status", [health_flag, vault_flag, vault])
             if health_flag == "--health" && vault_flag == "--vault" =>
@@ -60,9 +60,6 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> Result<(), String> {
         {
             anneal_status::status_faults(Path::new(vault), anneal_status::parse_last(last)?)
         }
-        _ => Err(format!(
-            "unknown anneal command: {topic} {}",
-            rest.join(" ")
-        )),
+        _ => Err(format!("unknown anneal command: {topic} {}", rest.join(" ")).into()),
     }
 }

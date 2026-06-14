@@ -30,17 +30,14 @@ pub(crate) const CALYX_CLI_USAGE_ERROR: &str = "CALYX_CLI_USAGE_ERROR";
 /// Remediation for [`CALYX_CLI_USAGE_ERROR`].
 const CLI_USAGE_REMEDIATION: &str =
     "run `calyx --help` and fix the command/flags shown in the message";
-
-/// Sentinel code for a CLI-surfaced failure whose owning subcommand has not yet
-/// been migrated to a structured [`CalyxError`] (transitional — tracked by the
-/// follow-up "adopt CliError end-to-end" issue). The verbatim message is
-/// preserved so the operator/agent still learns exactly what failed.
-pub(crate) const CALYX_CLI_ERROR: &str = "CALYX_CLI_ERROR";
-/// Remediation for [`CALYX_CLI_ERROR`].
-const CLI_GENERIC_REMEDIATION: &str = "read the message; if it names a CALYX_* code, follow that code's remediation, else consult `calyx --help`";
+/// Remediation for subsystem-local `CALYX_*` errors that are not PRD 18 entries.
+const CLI_SUBSYSTEM_REMEDIATION: &str =
+    "follow the emitted CALYX_* subsystem code and inspect the named source of truth";
 
 /// Exit code emitted for every CLI error (POSIX "command misuse").
 pub(crate) const CLI_ERROR_EXIT: u8 = 2;
+
+pub(crate) type CliResult<T = ()> = std::result::Result<T, CliError>;
 
 /// Canonical CLI error. Either a structured catalog error or a CLI-local
 /// condition (I/O, usage). All three render to the same `{code,message,
@@ -53,8 +50,6 @@ pub(crate) enum CliError {
     Io(String),
     /// A command-misuse failure surfaced under [`CALYX_CLI_USAGE_ERROR`].
     Usage(String),
-    /// A legacy unstructured failure surfaced under [`CALYX_CLI_ERROR`].
-    Cli(String),
 }
 
 /// Private serialization shape — guarantees byte-identical field order
@@ -69,22 +64,13 @@ struct Wire<'a> {
 
 impl CliError {
     /// Builds a usage error (bad/missing args, unknown subcommand).
-    // Consumed by PH62 T02+ subcommands that detect arg/usage faults directly.
-    #[allow(dead_code)]
     pub(crate) fn usage(message: impl Into<String>) -> Self {
         Self::Usage(message.into())
     }
 
     /// Builds an I/O error from a context message.
-    // Consumed by PH62 T02+ subcommands; `From<io::Error>` covers the `?` path.
-    #[allow(dead_code)]
     pub(crate) fn io(message: impl Into<String>) -> Self {
         Self::Io(message.into())
-    }
-
-    /// Builds a transitional CLI error carrying a legacy unstructured message.
-    pub(crate) fn cli(message: impl Into<String>) -> Self {
-        Self::Cli(message.into())
     }
 
     /// Returns the stable, machine-dispatchable code.
@@ -93,7 +79,6 @@ impl CliError {
             Self::Calyx(error) => error.code,
             Self::Io(_) => CALYX_CLI_IO_ERROR,
             Self::Usage(_) => CALYX_CLI_USAGE_ERROR,
-            Self::Cli(_) => CALYX_CLI_ERROR,
         }
     }
 
@@ -101,7 +86,7 @@ impl CliError {
     pub(crate) fn message(&self) -> &str {
         match self {
             Self::Calyx(error) => &error.message,
-            Self::Io(message) | Self::Usage(message) | Self::Cli(message) => message,
+            Self::Io(message) | Self::Usage(message) => message,
         }
     }
 
@@ -111,7 +96,6 @@ impl CliError {
             Self::Calyx(error) => error.remediation,
             Self::Io(_) => CLI_IO_REMEDIATION,
             Self::Usage(_) => CLI_USAGE_REMEDIATION,
-            Self::Cli(_) => CLI_GENERIC_REMEDIATION,
         }
     }
 
@@ -147,7 +131,42 @@ impl From<CalyxError> for CliError {
 
 impl From<io::Error> for CliError {
     fn from(error: io::Error) -> Self {
-        Self::Io(error.to_string())
+        Self::io(error.to_string())
+    }
+}
+
+impl From<String> for CliError {
+    fn from(message: String) -> Self {
+        Self::Usage(message)
+    }
+}
+
+impl From<&str> for CliError {
+    fn from(message: &str) -> Self {
+        Self::Usage(message.to_string())
+    }
+}
+
+impl From<serde_json::Error> for CliError {
+    fn from(error: serde_json::Error) -> Self {
+        Self::Usage(error.to_string())
+    }
+}
+
+impl From<calyx_lodestar::LodestarError> for CliError {
+    fn from(error: calyx_lodestar::LodestarError) -> Self {
+        let code = error.code();
+        let text = error.to_string();
+        let message = text
+            .strip_prefix(code)
+            .and_then(|rest| rest.strip_prefix(": "))
+            .unwrap_or(&text)
+            .to_string();
+        Self::Calyx(CalyxError {
+            code,
+            message,
+            remediation: CLI_SUBSYSTEM_REMEDIATION,
+        })
     }
 }
 

@@ -1,14 +1,13 @@
 use std::fs;
-use std::io;
 use std::path::Path;
 
+use crate::error::CliResult;
+use crate::output::print_hex_dump;
 use crate::{budget_readback, tripwire_readback};
 
-pub(crate) fn readback_hex(path: &Path) -> io::Result<()> {
+pub(crate) fn readback_hex(path: &Path) -> CliResult {
     let bytes = fs::read(path)?;
-    for line in hex_lines(&bytes) {
-        println!("{line}");
-    }
+    print_hex_dump(0, &bytes);
     Ok(())
 }
 
@@ -24,14 +23,15 @@ pub(crate) fn parse_i32(value: &str) -> Result<i32, String> {
         .map_err(|error| format!("invalid i32 value {value}: {error}"))
 }
 
-pub(crate) fn readback_config(name: &str, vault: &Path) -> Result<(), String> {
+pub(crate) fn readback_config(name: &str, vault: &Path) -> CliResult {
     match name {
         "tripwire" => tripwire_readback::readback_tripwire_config(vault),
         "budget" => budget_readback::readback_budget_config(vault),
-        _ => Err(format!("unknown config readback: {name}")),
+        _ => Err(format!("unknown config readback: {name}").into()),
     }
 }
 
+#[cfg(test)]
 pub(crate) fn hex_lines(bytes: &[u8]) -> Vec<String> {
     bytes
         .chunks(32)
@@ -46,6 +46,7 @@ pub(crate) fn hex_lines(bytes: &[u8]) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn hex_digit(value: u8) -> char {
     match value {
         0..=9 => char::from(b'0' + value),

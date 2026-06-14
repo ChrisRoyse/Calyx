@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::anneal_propose_lens_fixture::{Fixture, execute_fixture};
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = Request::parse(args)?;
     let fixture_bytes = fs::read(&request.fixture)
         .map_err(|error| format!("read fixture {}: {error}", request.fixture.display()))?;

@@ -56,7 +56,11 @@ impl CrashPoint {
     }
 }
 
-pub fn crash_drill(vault: &Path, point: CrashPoint, pause_ms: Option<u64>) -> Result<(), String> {
+pub fn crash_drill(
+    vault: &Path,
+    point: CrashPoint,
+    pause_ms: Option<u64>,
+) -> crate::error::CliResult {
     ensure_empty_vault(vault)?;
     let vault_id = crash_vault_id()?;
     let writer = AsterVault::new_durable(
@@ -99,7 +103,7 @@ pub fn crash_drill(vault: &Path, point: CrashPoint, pause_ms: Option<u64>) -> Re
     crash_exit(pause_ms);
 }
 
-pub fn recover(vault: &Path) -> Result<(), String> {
+pub fn recover(vault: &Path) -> crate::error::CliResult {
     let store = ManifestStore::open(vault);
     let durable_seq = if vault.join("CURRENT").exists() {
         store
@@ -156,7 +160,7 @@ pub fn recover(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn open_check(vault: &Path, index: u8) -> Result<(), String> {
+pub fn open_check(vault: &Path, index: u8) -> crate::error::CliResult {
     let vault_id = crash_vault_id()?;
     let expected = synthetic_constellation(vault_id, index);
     let id = expected.cx_id;
@@ -172,7 +176,7 @@ pub fn open_check(vault: &Path, index: u8) -> Result<(), String> {
         .get(id, snapshot)
         .map_err(|error| error.to_string())?;
     if got != expected {
-        return Err(format!("open-check mismatch for index {index}"));
+        return Err(format!("open-check mismatch for index {index}").into());
     }
     println!(
         "OPEN_CHECK\tINDEX\t{}\tID\t{}\tSNAPSHOT\t{}\tVAULT\t{}",
@@ -184,7 +188,7 @@ pub fn open_check(vault: &Path, index: u8) -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_empty_vault(vault: &Path) -> Result<(), String> {
+fn ensure_empty_vault(vault: &Path) -> std::result::Result<(), String> {
     if !vault.exists() {
         return Ok(());
     }
@@ -203,7 +207,7 @@ fn ensure_empty_vault(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn append_torn_header(vault: &Path, seq: u64) -> Result<(), String> {
+fn append_torn_header(vault: &Path, seq: u64) -> std::result::Result<(), String> {
     let segment = vault.join("wal").join("00000000000000000000.wal");
     let mut file = OpenOptions::new()
         .append(true)
@@ -224,7 +228,11 @@ fn append_torn_header(vault: &Path, seq: u64) -> Result<(), String> {
     Ok(())
 }
 
-fn append_wal_batch(vault: &Path, expected_seq: u64, rows: &[WriteRow]) -> Result<(), String> {
+fn append_wal_batch(
+    vault: &Path,
+    expected_seq: u64,
+    rows: &[WriteRow],
+) -> std::result::Result<(), String> {
     let mut wal =
         Wal::open(vault.join("wal"), WalOptions::default()).map_err(|error| error.to_string())?;
     let payload = encode_write_batch(rows).map_err(|error| error.to_string())?;
@@ -293,7 +301,7 @@ fn ensure_manifest_assets(vault: &Path) -> Result<(ImmutableRef, Vec<ImmutableRe
     ))
 }
 
-fn write_asset(path: &Path, bytes: &[u8]) -> Result<(), String> {
+fn write_asset(path: &Path, bytes: &[u8]) -> std::result::Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }

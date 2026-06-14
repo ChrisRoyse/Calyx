@@ -17,6 +17,8 @@
 
 use serde::Serialize;
 
+use crate::error::{CliError, CliResult};
+
 /// Bytes per hex-dump row (matches `xxd` default width).
 const HEX_ROW: usize = 16;
 /// Full-row hex-column width: 16 bytes × 2 hex chars + 15 single-space seps.
@@ -29,14 +31,11 @@ fn json_line<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
 }
 
 /// Prints a single value as compact JSON on stdout.
-// Canonical emitter consumed by the subcommand tasks PH62 T02–T08; defined here
-// (T01) as the shared contract before those subcommands are wired.
-#[allow(dead_code)]
-pub(crate) fn print_json<T: Serialize>(value: &T) {
-    match json_line(value) {
-        Ok(json) => println!("{json}"),
-        Err(error) => panic!("print_json: value must serialize: {error}"),
-    }
+pub(crate) fn print_json<T: Serialize>(value: &T) -> CliResult {
+    let json = json_line(value)
+        .map_err(|error| CliError::usage(format!("serialize CLI JSON output: {error}")))?;
+    println!("{json}");
+    Ok(())
 }
 
 /// Builds the aligned table lines (header first) for `headers`/`rows`. Column
@@ -76,7 +75,6 @@ fn table_lines(headers: &[&str], rows: &[Vec<String>]) -> Vec<String> {
 }
 
 /// Prints `rows` as a left-aligned table under `headers`.
-#[allow(dead_code)] // consumed by PH62 T02–T08 subcommands; canonical contract defined in T01.
 pub(crate) fn print_table(headers: &[&str], rows: &[Vec<String>]) {
     for line in table_lines(headers, rows) {
         println!("{line}");
@@ -114,7 +112,6 @@ fn hex_dump_lines(offset: u64, bytes: &[u8]) -> Vec<String> {
 }
 
 /// Prints `bytes` as a hex dump (see [`hex_dump_lines`]).
-#[allow(dead_code)] // consumed by PH62 T02–T08 readback subcommands; canonical contract defined in T01.
 pub(crate) fn print_hex_dump(offset: u64, bytes: &[u8]) {
     for line in hex_dump_lines(offset, bytes) {
         println!("{line}");

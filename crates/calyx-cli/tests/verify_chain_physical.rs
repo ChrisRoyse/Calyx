@@ -20,19 +20,14 @@ fn verify_chain_vault_quarantines_missing_physical_row() {
     let case = run_case(&root, "missing", Tamper::RemoveRow(1));
 
     assert_ne!(case["verify_status"], 0);
-    assert!(
-        case["verify_stderr"]
-            .as_str()
-            .unwrap()
-            .contains("CALYX_LEDGER_CORRUPT at seq=1")
-    );
+    assert_stderr_code_and_message(&case, "verify_stderr", "CALYX_LEDGER_CORRUPT", "seq=1");
     assert_eq!(case["after_quarantine_count"], 1);
     assert_eq!(case["seq_1_quarantined"], true);
-    assert!(
-        case["readback_stderr"]
-            .as_str()
-            .unwrap()
-            .contains("CALYX_LEDGER_CHAIN_BROKEN")
+    assert_stderr_code_and_message(
+        &case,
+        "readback_stderr",
+        "CALYX_LEDGER_CHAIN_BROKEN",
+        "quarantined",
     );
     cleanup(root);
 }
@@ -43,12 +38,7 @@ fn verify_chain_vault_quarantines_corrupt_physical_payload() {
     let case = run_case(&root, "corrupt-payload", Tamper::TruncateValue(1));
 
     assert_ne!(case["verify_status"], 0);
-    assert!(
-        case["verify_stderr"]
-            .as_str()
-            .unwrap()
-            .contains("CALYX_LEDGER_CORRUPT at seq=1")
-    );
+    assert_stderr_code_and_message(&case, "verify_stderr", "CALYX_LEDGER_CORRUPT", "seq=1");
     assert_eq!(case["after_quarantine_count"], 1);
     assert_eq!(case["seq_1_quarantined"], true);
     cleanup(root);
@@ -340,6 +330,20 @@ fn collect_hashes(root: &Path, path: &Path, lines: &mut Vec<String>) {
             lines.push(format!("{}  {}\n", blake3::hash(&bytes).to_hex(), rel));
         }
     }
+}
+
+fn assert_stderr_code_and_message(case: &Value, field: &str, code: &str, message_part: &str) {
+    let stderr = case[field].as_str().unwrap();
+    let parsed: Value = serde_json::from_str(stderr)
+        .unwrap_or_else(|error| panic!("{field} JSON: {error}: {stderr}"));
+
+    assert_eq!(parsed["code"], code, "{field}: {stderr}");
+    assert!(
+        parsed["message"]
+            .as_str()
+            .is_some_and(|message| message.contains(message_part)),
+        "{field}: {stderr}"
+    );
 }
 
 fn stdout(output: &Output) -> String {

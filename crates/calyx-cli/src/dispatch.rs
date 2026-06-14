@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use crate::cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
+use crate::error::{CliError, CliResult};
 use crate::{
     anneal_commands, anneal_ledger_readback, anneal_mistakes_readback, anneal_status, crash,
     dedup_audit_readback, dedup_readback, fsv, healthcheck, kernel_health_readback, leapable,
@@ -17,13 +18,13 @@ use crate::{
     time_prediction_readback, timetravel_readback, usage, vault_tree, verify, ward_tau_readback,
 };
 
-pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
+pub(crate) fn run(args: Vec<String>) -> CliResult {
     match args.as_slice() {
         [command, flag, value] if command == "readback" && flag == "--hex" => {
-            readback_hex(Path::new(value)).map_err(|error| error.to_string())
+            readback_hex(Path::new(value))
         }
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
-            vault_tree::readback_vault_tree(Path::new(value)).map_err(|error| error.to_string())
+            vault_tree::readback_vault_tree(Path::new(value))
         }
         [command, topic, field_flag, field, vault_flag, vault]
             if command == "readback"
@@ -464,6 +465,6 @@ pub(crate) fn run(args: Vec<String>) -> Result<(), String> {
             usage::print_usage();
             Ok(())
         }
-        _ => Err(usage::usage().to_string()),
+        _ => Err(CliError::usage(usage::usage())),
     }
 }

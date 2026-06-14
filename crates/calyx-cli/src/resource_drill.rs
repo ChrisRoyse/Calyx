@@ -22,12 +22,12 @@ pub(crate) struct ResourceDrillArgs {
     pub pin_max_age_ms: u64,
 }
 
-pub(crate) fn run_resource_drill(vault: &Path, args: ResourceDrillArgs) -> Result<(), String> {
+pub(crate) fn run_resource_drill(vault: &Path, args: ResourceDrillArgs) -> crate::error::CliResult {
     if args.value_bytes == 0 {
-        return Err("--value-bytes must be positive".to_string());
+        return Err("--value-bytes must be positive".to_string().into());
     }
     if args.memtable_cap == 0 {
-        return Err("--memtable-cap must be positive".to_string());
+        return Err("--memtable-cap must be positive".to_string().into());
     }
     let options = VaultOptions {
         memtable_byte_cap: args.memtable_cap,
@@ -78,7 +78,7 @@ fn print_status(
     store: &calyx_aster::vault::AsterVault,
     vault: &Path,
     phase: &str,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     let vram = vram_status_from_vault(vault)?;
     let status = store
         .resource_status(vault, vram)
