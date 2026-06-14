@@ -74,11 +74,12 @@ fn floor_range(t_millis: u64) -> KeyRange {
 pub(crate) fn resolve<C: Clock>(vault: &AsterVault<C>, t_millis: u64) -> Result<Seq> {
     let latest = vault.latest_seq();
     let rows = vault.scan_cf_range_at(latest, ColumnFamily::TimeIndex, &floor_range(t_millis))?;
-    let (key, _) = rows
-        .last()
-        .ok_or_else(|| no_data(format!("no time-index entry at or before t={t_millis}ms")))?;
-    let (_, seqno) = decode_key(key)?;
-    Ok(seqno)
+    let mut resolved = None;
+    for (key, _) in rows {
+        let (_, seqno) = decode_key(&key)?;
+        resolved = Some(seqno);
+    }
+    resolved.ok_or_else(|| no_data(format!("no time-index entry at or before t={t_millis}ms")))
 }
 
 /// Reads every time-index entry visible at the vault's latest sequence, in

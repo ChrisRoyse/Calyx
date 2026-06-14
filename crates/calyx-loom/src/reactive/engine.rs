@@ -163,7 +163,8 @@ impl ReactiveEngine {
             } => {
                 let current = signals.occurrence_count(*series)?;
                 let last = self.last_count.insert(def.id, current).unwrap_or(0);
-                Ok(current > last && current >= u64::from(*min_occurrences))
+                let threshold = u64::from(*min_occurrences).max(1);
+                Ok(current > last && last < threshold && current >= threshold)
             }
             TriggerCondition::DriftDetected {
                 slot,
@@ -314,6 +315,11 @@ mod tests {
             eng.evaluate_post_ingest(cx(), lref(3), &signals).unwrap(),
             1
         );
+        assert_eq!(
+            eng.evaluate_post_ingest(cx(), lref(4), &signals).unwrap(),
+            0,
+            "once the threshold has been crossed, later occurrences do not refire"
+        );
 
         let fired: Vec<_> = eng.drain_fired();
         assert_eq!(fired.len(), 1);
@@ -322,9 +328,9 @@ mod tests {
             fired[0].ledger_ref.seq, 3,
             "fired event carries the 3rd ingest ref"
         );
-        // audit log: 3 evaluations recorded (2 no-match + 1 match)
+        // audit log: 4 evaluations recorded (3 no-match + 1 threshold-crossing match)
         let matched: Vec<bool> = eng.audit_log().entries().map(|e| e.matched).collect();
-        assert_eq!(matched, vec![false, false, true]);
+        assert_eq!(matched, vec![false, false, true, false]);
     }
 
     #[test]
