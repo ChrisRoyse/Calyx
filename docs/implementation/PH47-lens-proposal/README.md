@@ -14,6 +14,12 @@ hot-add it to the panel, and re-measure sufficiency. The fix is the right sensor
 not more training. Every proposal is reversible + Ledger-logged via the PH43
 substrate.
 
+Issue #582 extends the same growth-by-differentiation rule beyond lenses: when
+a parameter refit cannot close the measured deficit, Anneal can synthesize a
+new online head or kernel scope, shadow it, admit it only on measured positive
+deltaJ with no tripwire regression, and persist both the proposed-operator row
+and the promote/revert Ledger event.
+
 ## Dependencies
 
 - **Phases:** PH46 (autotune loops; the tuned Loom materialization plan is needed
@@ -48,6 +54,7 @@ source copied into `CALYX_HOME`.
 | `src/propose/differentiation_gate.rs` | Differentiation gate: check ≥0.05 bits gain AND ≤0.6 corr; admit or reject with reason |
 | `src/propose/propose_lens.rs` | Top-level `propose_lens(anchor)` orchestrator: calls deficit→synth→gate→hot-add→re-measure |
 | `src/propose/admission_record.rs` | Ledger entries for every proposal: `LensAdmitted` / `LensRejected`; re-measure sufficiency diff |
+| `src/propose/operator_synth.rs` + `operator_synth/` | Learned operator synthesis: online head / kernel scope proposal records, CF storage, shadow gate adapter |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
 
@@ -57,7 +64,8 @@ source copied into `CALYX_HOME`.
 | T02 | Candidate lens synthesis (`CandidateLens` + commission spec) | T01 |
 | T03 | Differentiation gate (≥0.05 bits, ≤0.6 corr) | T02 |
 | T04 | `propose_lens` orchestrator (hot-add + re-measure) | T01–T03 |
-| T05 | Admission record + integration FSV | T01–T04 |
+| T05 | Admission record + integration FSV | T01-T04 |
+| T06 | Learned operator synthesis (`online_head` / `kernel_scope`) | T01, PH45, PH34 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
@@ -67,6 +75,16 @@ clears the differentiation contract is admitted and hot-added → re-measure
 `I(panel;anchor)` → confirm the value increased (sufficiency rose). Separately:
 a candidate that does NOT clear the contract (bits < 0.05 or corr > 0.6) is
 rejected → Ledger has `LensRejected` entry with reason.
+
+For learned operators (#582): use a deterministic synthetic deficit where
+`refit_delta_j < total_bits_deficit`. Trigger `propose_operator`, then read
+`anneal_operators` CF rows, `anneal_rollback` rows, WAL files, and decoded
+Ledger rows. Expected happy paths: online-head proposal persists a row with
+`shadow_delta_j = total_bits_deficit - refit_delta_j`; kernel-scope proposal
+persists `shadow_delta_j = kernel_recall_after - kernel_recall_before`; Ledger
+contains `operator_promoted`. Required edges: refit-closed writes no rows,
+no-gain fails with `CALYX_ANNEAL_OPERATOR_NO_GAIN`, invalid metrics fail with
+`CALYX_ASSAY_INVALID_METRIC`, and shadow rollback records `operator_reverted`.
 
 ## Risks / landmines
 
