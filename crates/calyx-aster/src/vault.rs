@@ -20,6 +20,7 @@ pub mod ledger_stub;
 pub mod quota;
 mod retention_horizon;
 mod router_bridge;
+mod seq_readback;
 mod slot_backfill;
 mod slot_column;
 mod store;
