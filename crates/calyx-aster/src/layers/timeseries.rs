@@ -11,10 +11,13 @@
 //! (`DropAfter`) is enforced check-on-read for PH53; physical deletion is the
 //! PH58 janitor's job.
 
-use calyx_core::{CalyxError, Clock, Result, Seq};
+use calyx_core::{CalyxError, Clock, Modality, Result, Seq};
 
 use crate::cf::{ColumnFamily, KeyRange};
-use crate::collection::{CALYX_INVALID_ARGUMENT, Collection, CollectionMode, RetentionPolicy};
+use crate::collection::{
+    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, RetentionPolicy, collection_has_lens,
+    ingest_collection_constellation,
+};
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 
@@ -86,6 +89,26 @@ impl<'a, C: Clock> TimeSeriesLayer<'a, C> {
     /// Appends one measurement and folds it into every rollup window, all in a
     /// single atomic group commit.
     pub fn ts_write(&self, col: &Collection, series: u64, ts: u64, val: f64) -> Result<Seq> {
+        if collection_has_lens(col) {
+            if !val.is_finite() {
+                return Err(invalid_argument(
+                    "time-series value must be finite (NaN/inf rejected to protect rollups)",
+                ));
+            }
+            let key = point_key(col, series, ts);
+            let value = encode_point(val);
+            let parts = [
+                ("point_key", key.as_slice()),
+                ("point_value", value.as_slice()),
+            ];
+            return ingest_collection_constellation(
+                self.vault,
+                col,
+                "timeseries",
+                &parts,
+                Modality::Structured,
+            );
+        }
         require_ts_mode(col)?;
         if !val.is_finite() {
             return Err(invalid_argument(
