@@ -14,9 +14,9 @@ use crate::{
     dedup_audit_readback, dedup_readback, fsv, healthcheck, kernel_health_readback, leapable,
     lodestar_commands, manifest_readback, media_commands, merkle, migrate, navigate, ops,
     oracle_readback, ph42_readback, provenance, recurrence_readback, resource_drill,
-    resource_status, scan, sextant_commands, temporal_log_recurrence_readback, temporal_readback,
-    time_prediction_readback, timetravel_readback, trigger_readback, usage, vault_tree, verify,
-    ward_tau_readback,
+    resource_status, scan, sextant_commands, summarize_command, temporal_log_recurrence_readback,
+    temporal_readback, time_prediction_readback, timetravel_readback, trigger_readback, usage,
+    vault_tree, verify, ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -124,6 +124,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "sextant" => sextant_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "media" => media_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "lodestar" => lodestar_commands::run(topic, rest),
+        [command, rest @ ..] if command == "summarize" => summarize_command::run(rest),
         [command, topic, rest @ ..] if command == "readback" && topic == "ledger" => {
             anneal_ledger_readback::run(rest)
         }

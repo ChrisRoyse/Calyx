@@ -58,3 +58,25 @@ a `SUMMARIZE_INVOKED` entry containing the scope hash and result metrics.
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
 - [ ] FSV evidence (readback output / screenshot) attached to the PH72 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+## Issue #757 follow-up implementation
+
+#757 completes the three deliberate gaps left after #576:
+
+- `summarize_with_recall` accepts optional recall inputs and measures
+  `kernel_only_recall` through the existing Lodestar `kernel_recall_test`
+  path after the kernel is built. With per-node embeddings present, the result
+  is a finite measured value instead of the default `0.0`.
+- `AsterAssocSnapshot` is the production `AsterVault -> AssocStore` bridge.
+  It reads `cf/graph` `PlainGraph` rows, JSON node props, and the
+  `lodestar_assoc_v1` graph metadata row. That metadata carries the
+  vault-embedded `retention_horizon`; `summarize_vault_as_of` fails closed with
+  `CALYX_TIMETRAVEL_BEFORE_HORIZON` before opening a historical snapshot when
+  `t` is outside the retained horizon.
+- `calyx summarize --vault <dir> --scope <json|@file> --out <json>` now opens
+  the Aster vault, summarizes the graph collection, writes
+  `SummarizeResult` JSON, prints `SummarizeResult::Display`, and appends the
+  `SUMMARIZE_INVOKED` provenance row to Aster `cf/ledger`, readable by
+  `calyx ledger-tail --vault <dir> --last 1`.
+
+FSV for #757 must read the JSON output, `cf/graph` rows, and the Aster ledger
+tail bytes separately. A return value or passing test is not sufficient.
