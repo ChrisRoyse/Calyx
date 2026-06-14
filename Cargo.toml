@@ -15,6 +15,7 @@ blake3 = "1"
 bincode = { package = "bincode_reloaded", version = "3.1.6", features = ["serde"] }
 ciborium = "0.2"
 crc32fast = "1"
+criterion = "0.5"
 cudarc = { version = "0.19.7", default-features = false }
 ed25519-dalek = "2"
 hkdf = "0.12"
