@@ -4,11 +4,13 @@ use calyx_core::Result;
 
 use crate::collection::{Collection, CollectionMode};
 
+pub mod blob;
 pub mod document;
 pub mod kv;
 pub mod relational;
 pub mod timeseries;
 
+pub use blob::{BlobId, BlobLayer, BlobManifest};
 pub use document::{DocId, DocumentLayer};
 pub use kv::KvLayer;
 pub use relational::{RecordKey, RecordValue, RelationalLayer, Row};
