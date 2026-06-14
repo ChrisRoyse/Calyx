@@ -526,6 +526,7 @@ dependencies = [
  "calyx-core",
  "calyx-forge",
  "calyx-ledger",
+ "calyx-mcp",
  "nvml-wrapper",
  "prometheus",
  "serde",
