@@ -83,6 +83,79 @@ half-indexed row is possible.
   write at `pk=7`. No seq gap between data write and index write.
   Evidence posted to PH54 issue.
 
+## Implementation Evidence (2026-06-14)
+
+Commit `14f85db` hardens the write path beyond the original T04 hook by gating
+synthetic index maintenance on declared maintained indexes, avoiding old-row
+reads when a collection has no indexes, making KV and time-series pseudo-fields
+schema-aware, and making btree query liveness checks inspect the owning column
+family instead of assuming every primary key is relational.
+
+aiwonder verification:
+
+- Targeted gate `issue460_aiwonder_targeted_after_btree_fix_v2`: passed
+  `cargo fmt --all -- --check`, the <=500-line gate, `cargo check -p
+  calyx-aster`, `cargo clippy -p calyx-aster -- -D warnings`, `cargo test -p
+  calyx-aster layers::kv -- --nocapture` (9 passed), `cargo test -p
+  calyx-aster index::btree -- --nocapture` (16 passed), and `cargo test -p
+  calyx-aster --test issue460_kv_unsigned_ns_index_fsv -- --nocapture` (2
+  passed).
+- Workspace gate `issue460_aiwonder_workspace_gates_after_btree_fix`: passed
+  `cargo check --workspace`, `cargo clippy --workspace -- -D warnings`, and
+  `cargo test --workspace`.
+
+Manual FSV source-of-truth readback on aiwonder:
+
+- Atomic root:
+  `/home/croyse/calyx/data/fsv-issue460-atomic-index-20260614T081001Z`.
+  Artifact
+  `/home/croyse/calyx/data/fsv-issue460-atomic-index-20260614T081001Z/issue460-atomic-index-write-fsv-artifact.json`
+  has BLAKE3
+  `cb91fe138fc7e655cd3ec4fd5f4a21b312b037b635977353dab1494b798a6c64`.
+- WAL BLAKE3:
+  `14b8698710eba536d03c372d38deba84495e3514a4b7cc5f13e2be6abbb723db`.
+- Seq 2 relational SST `00000000000000000002-0001.sst` BLAKE3:
+  `8f0bd03021d3464402343fabe369b1469ddab2171c1efd640ed133637476f5b1`.
+- Seq 2 index SST `00000000000000000002-0002.sst` BLAKE3:
+  `48b4d319fa7a341dcb7b31b08095a8f5088576284a41c77b23406cc58acb4a9b`.
+- Seq 6 index tombstone SST `00000000000000000006-0002.sst` BLAKE3:
+  `b20f42ae316b60e4bb5f16087eb34f9cdbd0b66b699e4ba5bd9f148a41ece04b`.
+- Seq 10 KV SST `00000000000000000010-0001.sst` BLAKE3:
+  `c29b989f08bc57b1e99e52436fb4d6f9bfe5e4e74d7354d023889e4f7ca6ab99`.
+- Seq 10 index SST `00000000000000000010-0002.sst` BLAKE3:
+  `9e0fd93bf2e287a39e8e3112c953bfce6c3aae702071e08d4874baa1b63197ea`.
+
+The artifact and direct byte reads show the happy path absent before seq 2 and
+present after seq 2 with both relational data and btree index bytes in the same
+WAL batch (`ledger`, `relational`, `index_btree`, `time_index`). Reopen-at-seq
+readback preserved both entries. The update edge wrote the old qty 42 index key
+as `CALYX_ASTER_TOMBSTONE_V1` and the new qty 50 key at the same update path.
+The no-index edge held index rows stable, the missing-field edge failed with
+`CALYX_SCHEMA_VIOLATION`, the two-index edge produced both keys, and the KV edge
+wrote namespace `u64::MAX` as sortable big-endian bytes with direct
+`IndexBtree` entries for both `ns` and `key`.
+
+Unsigned namespace ordering FSV:
+
+- Namespace root:
+  `/home/croyse/calyx/data/fsv-issue460-ns-index-20260614T081211Z`.
+- Artifact
+  `/home/croyse/calyx/data/fsv-issue460-ns-index-20260614T081211Z/issue460-ns-index-fsv-artifact.json`
+  BLAKE3:
+  `59788ddbf85cdabca8129985d4e9c3233822bc0b9459ee2acffd3469c84cca36`.
+- Index SST BLAKE3 values:
+  `4dd5cd697876385509832a631bb9cde44e21be47c82c0ae0681c07fe4bafae95`,
+  `2604bea06fe1f11feb286f627565fdc8acee59aedcc620421a4c84ccbb1a73a5`,
+  `df786f8aabd198f1dd108aa96cb4c269edab62d97df439760387662c0ed6f621`,
+  `0ad8388a06f80d87ad7794594c71b0367d5fbd13bcd4d3e7e2a52800ab0d812b`,
+  `bf9ab12dc5d4952762865baef4d6d51efd4c646cf6b7079a4501d9bab7b05b4b`,
+  and `155a7322293037c6d6647fdb0c5d8411a5ae653283f992bfdfbd9ba9d74e4bdc`.
+
+The namespace FSV wrote namespaces out of order
+`[u64::MAX, 0, i64::MAX + 1, i64::MAX, 1]`, reopened the durable vault, scanned
+`IndexBtree`, decoded the physical keys, and read back unsigned order
+`[0, 1, 9223372036854775807, 9223372036854775808, 18446744073709551615]`.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
