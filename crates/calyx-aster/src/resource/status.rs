@@ -18,6 +18,7 @@ pub struct ResourceStatus {
     pub vault_dir: String,
     pub collected_at: Ts,
     pub heap: HeapStatus,
+    pub memtable: MemtableStatus,
     pub vram: VramBudgetStatus,
     pub compaction: CompactionDebtStatus,
     pub pinned: PinnedSeqStatus,
@@ -29,6 +30,24 @@ pub struct ResourceStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HeapStatus {
     pub rss_bytes: u64,
+}
+
+/// Memtable byte-cap status across the currently open CF routers.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemtableStatus {
+    pub total_used_bytes: u64,
+    pub total_cap_bytes: u64,
+    pub per_cf: Vec<MemtableCfStatus>,
+}
+
+/// One column family's mutable memtable usage.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemtableCfStatus {
+    pub cf: String,
+    pub used_bytes: u64,
+    pub cap_bytes: u64,
+    pub high_water_bytes: u64,
+    pub flush_triggered: bool,
 }
 
 /// VRAM budget section, sourced from the vault Anneal budget enforcer.
@@ -90,6 +109,31 @@ impl ResourceStatus {
         };
         let base = format!("vault=\"{vault}\"");
         metric("calyx_heap_rss_bytes", base.clone(), self.heap.rss_bytes);
+        metric(
+            "calyx_memtable_total_used_bytes",
+            base.clone(),
+            self.memtable.total_used_bytes,
+        );
+        metric(
+            "calyx_memtable_total_cap_bytes",
+            base.clone(),
+            self.memtable.total_cap_bytes,
+        );
+        for cf in &self.memtable.per_cf {
+            let labels = format!("{base},cf=\"{}\"", escape_label(&cf.cf));
+            metric("calyx_memtable_used_bytes", labels.clone(), cf.used_bytes);
+            metric("calyx_memtable_cap_bytes", labels.clone(), cf.cap_bytes);
+            metric(
+                "calyx_memtable_high_water_bytes",
+                labels.clone(),
+                cf.high_water_bytes,
+            );
+            metric(
+                "calyx_memtable_flush_trigger",
+                labels,
+                u64::from(cf.flush_triggered),
+            );
+        }
         metric(
             "calyx_vram_budget_bytes",
             base.clone(),

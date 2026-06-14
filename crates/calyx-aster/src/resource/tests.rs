@@ -221,6 +221,17 @@ fn metrics_text_renders_prometheus_conventions() {
         vault_dir: "/tmp/v".to_string(),
         collected_at: 1,
         heap: HeapStatus { rss_bytes: 2048 },
+        memtable: MemtableStatus {
+            total_used_bytes: 64,
+            total_cap_bytes: 1024,
+            per_cf: vec![MemtableCfStatus {
+                cf: "base".to_string(),
+                used_bytes: 64,
+                cap_bytes: 1024,
+                high_water_bytes: 819,
+                flush_triggered: false,
+            }],
+        },
         vram: VramBudgetStatus {
             budget_bytes: 512,
             used_bytes: 128,
@@ -256,6 +267,8 @@ fn metrics_text_renders_prometheus_conventions() {
 
     let text = status.to_metrics_text("demo");
     assert!(text.contains("calyx_heap_rss_bytes{vault=\"demo\"} 2048"));
+    assert!(text.contains("calyx_memtable_used_bytes{vault=\"demo\",cf=\"base\"} 64"));
+    assert!(text.contains("calyx_memtable_cap_bytes{vault=\"demo\",cf=\"base\"} 1024"));
     assert!(
         text.contains("calyx_compaction_pending_compaction_bytes{vault=\"demo\",cf=\"base\"} 300")
     );

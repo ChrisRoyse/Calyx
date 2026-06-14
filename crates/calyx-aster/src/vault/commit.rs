@@ -93,6 +93,10 @@ where
     }
 
     fn commit_prepared_rows(&self, rows: &[encode::WriteRow]) -> Result<Seq> {
+        self.rows.ensure_memtable_admission(
+            rows.iter()
+                .map(|row| (row.cf, row.key.as_slice(), row.value.as_slice())),
+        )?;
         let Some(durable) = &self.durable else {
             return self.commit_rows_to_mvcc(rows);
         };

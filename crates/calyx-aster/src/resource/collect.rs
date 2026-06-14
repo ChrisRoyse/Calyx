@@ -32,11 +32,13 @@ pub fn collect_resource_status(
     let wal = collect_wal(vault_dir)?;
     let pinned = collect_pinned(store, now);
     let backpressure = store.resource_counters().snapshot();
+    let memtable = store.memtable_status();
     Ok(ResourceStatus {
         schema_version: RESOURCE_STATUS_SCHEMA_VERSION,
         vault_dir: vault_dir.display().to_string(),
         collected_at: now,
         heap,
+        memtable,
         vram,
         compaction,
         pinned,
