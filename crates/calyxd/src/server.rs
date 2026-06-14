@@ -186,6 +186,7 @@ mod tests {
         assert!(body.contains("calyx_ingest_duration_seconds"));
         assert!(body.contains("calyx_search_recall_tripwire"));
         assert!(body.contains("calyx_vram_budget_limit_mib"));
+        assert!(body.contains("calyx_zfs_pool_healthy"));
         let hazard_lines = body
             .lines()
             .filter(|line| line.starts_with("calyx_hazard_"))

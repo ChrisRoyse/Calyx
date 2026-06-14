@@ -22,7 +22,7 @@ use std::time::Duration;
 use calyxd::config::CalyxConfig;
 use calyxd::cuda_probe;
 use calyxd::error::DaemonError;
-use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics};
+use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics, collect_default_zfs_integrity};
 use calyxd::server::MetricsServer;
 use calyxd::vram;
 use verify_loop::{TargetKind, VerifyTarget, run_cycle, spawn_loop};
@@ -215,6 +215,7 @@ fn run(config: Config) -> Result<(), DaemonError> {
     // by the verify loop) with the full PH66 T03 metric set. Both share the same
     // `chain` Arc, so a scrape reflects the latest verify cycle.
     let surface = Arc::new(CalyxMetrics::new(Arc::clone(&chain), &labels));
+    refresh_zfs_metrics(&surface);
 
     if config.once {
         let text = surface.encode_text().map_err(DaemonError::config_invalid)?;
@@ -230,7 +231,27 @@ fn run(config: Config) -> Result<(), DaemonError> {
         config.targets.len()
     );
     spawn_loop(config.targets, chain, config.interval);
+    spawn_zfs_metrics_loop(Arc::clone(&surface), config.interval);
     server.run()
+}
+
+fn refresh_zfs_metrics(metrics: &CalyxMetrics) {
+    match collect_default_zfs_integrity() {
+        Ok(snapshot) => metrics.record_zfs_integrity(&snapshot),
+        Err(detail) => eprintln!("calyxd: zfs integrity metrics refresh failed: {detail}"),
+    }
+}
+
+fn spawn_zfs_metrics_loop(metrics: Arc<CalyxMetrics>, interval: Duration) {
+    let _zfs_thread = std::thread::Builder::new()
+        .name("calyxd-zfs-metrics".to_string())
+        .spawn(move || {
+            loop {
+                std::thread::sleep(interval);
+                refresh_zfs_metrics(&metrics);
+            }
+        })
+        .expect("spawn zfs metrics loop");
 }
 
 fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {

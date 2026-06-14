@@ -77,9 +77,13 @@ now_epoch="$(date +%s)"
 for pool in "${POOLS[@]}"; do
   scan_line="$(zpool status "$pool" 2>/dev/null | grep -E '^\s*scan:' || true)"
   echo "  $pool : ${scan_line:-<no scan line>}"
-  # Extract the trailing "on <date>" and convert to epoch.
+  # Extract the trailing "on <date>" for completed scrubs or "since <date>" for
+  # an active scrub, then convert to epoch.
   scrub_date="$(printf '%s' "$scan_line" | sed -n 's/.* on \(.*\)$/\1/p')"
-  if [ -z "$scrub_date" ] || printf '%s' "$scan_line" | grep -q 'none requested'; then
+  if [ -z "$scrub_date" ]; then
+    scrub_date="$(printf '%s' "$scan_line" | sed -n 's/.* since \(.*\)$/\1/p')"
+  fi
+  if [ -z "$scrub_date" ] || printf '%s' "$scan_line" | grep -q 'none requested' || ! printf '%s' "$scan_line" | grep -q 'scrub'; then
     echo "      no scrub recorded <- CALYX_ZFS_SCRUB_STALE"
     fail=6
     continue

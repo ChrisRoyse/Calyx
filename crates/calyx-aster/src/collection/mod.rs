@@ -1,5 +1,6 @@
 //! Collection descriptors for PH53 collections-as-any-model.
 
+mod enhancement;
 mod policy;
 mod schema;
 
@@ -10,6 +11,11 @@ use serde::{Deserialize, Serialize};
 use crate::cf::ColumnFamily;
 use crate::vault::AsterVault;
 
+pub use enhancement::{
+    CALYX_COLLECTION_LENS_DUPLICATE, CALYX_LENS_NOT_FOUND, add_lens, backfill_pending_key,
+    collection_has_lens, collection_id, ingest_collection_constellation, lens_registry_key,
+    register_lens,
+};
 pub use policy::{
     DEFAULT_TEMPORAL_BOOST_WEIGHTS, DedupAction, DedupPolicy, IsolationLevel, PanelRef,
     RetentionPolicy, SecondaryIndexKind, SecondaryIndexSpec, TemporalPolicy, TenantId, TxnPolicy,
@@ -172,5 +178,7 @@ fn collection_error(
     }
 }
 
+#[cfg(test)]
+mod enhancement_tests;
 #[cfg(test)]
 mod tests;
