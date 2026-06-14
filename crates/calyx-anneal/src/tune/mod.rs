@@ -3,6 +3,7 @@ mod bandit;
 mod scope_forge;
 mod scope_index;
 mod scope_loom;
+mod scope_storage;
 mod soak_harness;
 
 pub use ab_runner::{
@@ -42,6 +43,15 @@ pub use scope_loom::{
     NoopLoomMaterializer, NoopLoomPromotionWriter, PlanScore, QueryLog, QueryObservation,
     decode_mat_plan_config, encode_mat_plan_config, evaluate_plan, generate_candidate_plan,
     loom_plan_label, loom_plan_shape_key, loom_plan_tune_key, validate_mat_plan_config,
+};
+pub use scope_storage::{
+    CALYX_STORAGE_CACHE_WRITE_FAIL, CALYX_STORAGE_SCOPE_INVALID_CONFIG,
+    DEFAULT_STORAGE_RECALL_TARGET, MAX_STORAGE_CANDIDATES, NoopStorageBanditStore,
+    NoopStoragePromotionWriter, StorageBanditPersistence, StorageConfig, StorageMetrics,
+    StoragePromotionRecord, StoragePromotionWriter, StorageScopeTuner, StorageShapeKey,
+    StorageTuneDecision, candidate_storage_configs, decode_storage_config, encode_storage_config,
+    storage_autotune_key, storage_shape_label, storage_win_check, validate_storage_config,
+    validate_storage_metrics,
 };
 pub use soak_harness::{
     AsterSoakStorage, CALYX_ANNEAL_SOAK_INVALID_CONFIG, CALYX_ANNEAL_SOAK_INVALID_ROW,
