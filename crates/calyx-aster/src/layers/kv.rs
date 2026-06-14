@@ -19,6 +19,8 @@ use crate::collection::{
     CALYX_INVALID_ARGUMENT, Collection, CollectionMode, collection_has_lens,
     ingest_collection_constellation,
 };
+use crate::index::IndexMaintenance;
+use crate::layers::relational::{RecordKey, RecordValue, Row};
 use crate::mvcc::tombstone_value;
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
@@ -77,13 +79,28 @@ impl<'a, C: Clock> KvLayer<'a, C> {
         require_kv_mode(col)?;
         validate_user_key(key)?;
         validate_payload(val)?;
+        let old_index_row = self
+            .kv_get(col, ns, key)?
+            .map(|old| kv_index_row(ns, key, &old))
+            .transpose()?;
+        let new_index_row = kv_index_row(ns, key, val)?;
         let expires_at = self.expires_at(ttl)?;
         let full_key = kv_key(col, ns, key);
         let value = encode_value(expires_at, val);
+        let pk = RecordKey::from_bytes(full_key.clone())?;
+        let mut rows = vec![(ColumnFamily::Kv, full_key.clone(), value.clone())];
+        IndexMaintenance::stage_put(
+            self.vault,
+            &mut rows,
+            col,
+            &pk,
+            old_index_row.as_ref(),
+            &new_index_row,
+        )?;
         let subject = ledger_subject(&full_key);
         let payload = ledger_payload(col, ns, &full_key, &value);
         self.vault.write_cf_batch_with_ledger_entry(
-            [(ColumnFamily::Kv, full_key, value)],
+            rows,
             EntryKind::Ingest,
             subject,
             payload,
@@ -116,12 +133,21 @@ impl<'a, C: Clock> KvLayer<'a, C> {
     pub fn kv_delete(&self, col: &Collection, ns: u64, key: &[u8]) -> Result<Seq> {
         require_kv_mode(col)?;
         validate_user_key(key)?;
+        let old_index_row = self
+            .kv_get(col, ns, key)?
+            .map(|old| kv_index_row(ns, key, &old))
+            .transpose()?;
         let full_key = kv_key(col, ns, key);
         let value = tombstone_value();
+        let pk = RecordKey::from_bytes(full_key.clone())?;
+        let mut rows = vec![(ColumnFamily::Kv, full_key.clone(), value.clone())];
+        if let Some(old_index_row) = &old_index_row {
+            IndexMaintenance::stage_delete(self.vault, &mut rows, col, &pk, old_index_row)?;
+        }
         let subject = ledger_subject(&full_key);
         let payload = ledger_payload(col, ns, &full_key, &value);
         self.vault.write_cf_batch_with_ledger_entry(
-            [(ColumnFamily::Kv, full_key, value)],
+            rows,
             EntryKind::Ingest,
             subject,
             payload,
@@ -266,6 +292,16 @@ fn decode_user_key(col: &Collection, ns: u64, full_key: &[u8]) -> Result<Vec<u8>
         return Err(corrupt("kv key has trailing bytes after the user key"));
     }
     Ok(user_key.to_vec())
+}
+
+fn kv_index_row(ns: u64, key: &[u8], val: &[u8]) -> Result<Row> {
+    let ns = i64::try_from(ns)
+        .map_err(|_| invalid_argument("kv namespace exceeds i64 indexable range"))?;
+    Ok(Row::new([
+        ("ns", RecordValue::I64(ns)),
+        ("key", RecordValue::Bytes(key.to_vec())),
+        ("value", RecordValue::Bytes(val.to_vec())),
+    ]))
 }
 
 fn encode_value(expires_at: u64, payload: &[u8]) -> Vec<u8> {

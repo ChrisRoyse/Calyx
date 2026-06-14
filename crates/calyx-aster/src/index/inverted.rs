@@ -195,15 +195,11 @@ pub fn inverted_put<C: Clock>(
     pk: &RecordKey,
 ) -> Result<Seq> {
     let idx = index_for(col, spec)?;
-    let text = text_value(field_val)?;
-    let (_counts, doc_len) = term_frequencies(text);
-    if doc_len == 0 {
+    let stats = read_stats(vault, vault.latest_seq(), &idx)?;
+    let rows = idx.encode_put_entries(field_val, pk, stats)?;
+    if rows.is_empty() {
         return Ok(vault.latest_seq());
     }
-    let stats = read_stats(vault, vault.latest_seq(), &idx)?;
-    let updated = updated_stats(stats, doc_len);
-    let mut rows = idx.encode_entries(field_val, pk, stats)?;
-    rows.push((idx.stats_key(), encode_stats(updated)));
     vault.write_cf_batch(
         rows.into_iter()
             .map(|(key, value)| (ColumnFamily::IndexInverted, key, value)),
@@ -474,6 +470,9 @@ fn descending_weight(a: &(RecordKey, f32), b: &(RecordKey, f32)) -> Ordering {
 fn corrupt(message: impl Into<String>) -> CalyxError {
     CalyxError::aster_corrupt_shard(message)
 }
+
+#[path = "inverted_maintenance.rs"]
+mod maintenance;
 
 #[cfg(test)]
 #[path = "inverted_tests.rs"]

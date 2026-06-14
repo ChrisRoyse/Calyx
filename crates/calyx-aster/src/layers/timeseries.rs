@@ -18,6 +18,8 @@ use crate::collection::{
     CALYX_INVALID_ARGUMENT, Collection, CollectionMode, RetentionPolicy, collection_has_lens,
     ingest_collection_constellation,
 };
+use crate::index::IndexMaintenance;
+use crate::layers::relational::{RecordKey, RecordValue, Row};
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 
@@ -117,6 +119,13 @@ impl<'a, C: Clock> TimeSeriesLayer<'a, C> {
         }
         let snapshot = self.vault.latest_seq();
         let point_key = point_key(col, series, ts);
+        let old_index_row = self
+            .vault
+            .read_cf_at(snapshot, ColumnFamily::TimeSeries, &point_key)?
+            .map(|bytes| decode_point(&bytes).and_then(|old| ts_index_row(series, ts, old)))
+            .transpose()?;
+        let new_index_row = ts_index_row(series, ts, val)?;
+        let pk = RecordKey::from_bytes(point_key.clone())?;
         let mut rows = Vec::with_capacity(1 + RollupWindow::ALL.len());
         rows.push((
             ColumnFamily::TimeSeries,
@@ -133,6 +142,14 @@ impl<'a, C: Clock> TimeSeriesLayer<'a, C> {
             let updated = fold_rollup(current, val);
             rows.push((ColumnFamily::TimeSeries, key, encode_rollup(&updated)));
         }
+        IndexMaintenance::stage_put(
+            self.vault,
+            &mut rows,
+            col,
+            &pk,
+            old_index_row.as_ref(),
+            &new_index_row,
+        )?;
         let subject = ledger_subject(&point_key);
         let payload = ledger_payload(col, series, ts, &point_key, val);
         self.vault.write_cf_batch_with_ledger_entry(
@@ -274,6 +291,19 @@ fn point_ts(col: &Collection, series: u64, key: &[u8]) -> Result<u64> {
         .filter(|_| rest.len() == 8)
         .ok_or_else(|| corrupt("time-series point key has a malformed timestamp"))?;
     Ok(u64::from_be_bytes(ts_bytes.try_into().unwrap()))
+}
+
+fn ts_index_row(series: u64, ts: u64, val: f64) -> Result<Row> {
+    let series = i64::try_from(series)
+        .map_err(|_| invalid_argument("time-series series id exceeds i64 indexable range"))?;
+    let ts = i64::try_from(ts)
+        .map_err(|_| invalid_argument("time-series timestamp exceeds i64 indexable range"))?;
+    Ok(Row::new([
+        ("series", RecordValue::I64(series)),
+        ("ts", RecordValue::Timestamp(ts)),
+        ("value", RecordValue::F64(val)),
+        ("val", RecordValue::F64(val)),
+    ]))
 }
 
 fn encode_point(val: f64) -> Vec<u8> {
