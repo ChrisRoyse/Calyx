@@ -3,6 +3,7 @@ use crate::cf::CfRouter;
 use crate::dedup::DedupPolicy;
 use crate::mvcc::{Freshness, Snapshot, VersionedCfStore};
 use crate::sst::SstSummary;
+use crate::timetravel::RetentionHorizon;
 use calyx_core::{Clock, Result, Seq};
 
 impl<C> AsterVault<C>
@@ -22,6 +23,7 @@ where
             rows: VersionedCfStore::new_with_router(0, router),
             durable: None,
             dedup_policy: DedupPolicy::default(),
+            retention_horizon: std::sync::Mutex::new(RetentionHorizon::default()),
             ledger_hook: None,
             recurrence_write_lock: std::sync::Mutex::new(()),
             recovery_report: VaultRecoveryReport {

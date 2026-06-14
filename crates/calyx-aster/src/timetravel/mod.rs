@@ -8,6 +8,7 @@
 //! the same WAL group-commit batch as the data (see `vault::commit`), so a crash
 //! can never leave a write without its time mapping (A15).
 
+mod retention;
 mod time_index;
 
 use calyx_core::{Clock, Constellation, CxId, Result, Seq, VaultStore};
@@ -15,6 +16,9 @@ use calyx_core::{Clock, Constellation, CxId, Result, Seq, VaultStore};
 use crate::cf::{ColumnFamily, KeyRange};
 use crate::vault::AsterVault;
 
+pub use retention::{
+    CALYX_TIMETRAVEL_BEFORE_HORIZON, RetentionHorizon, before_horizon, check_horizon,
+};
 pub(crate) use time_index::entry_row;
 pub use time_index::{TimeIndexEntry, read_all};
 
@@ -37,6 +41,8 @@ impl<'a, C: Clock> TimeTravelSnapshot<'a, C> {
     /// Opens a snapshot as of `t_millis`. Returns `CALYX_TIMETRAVEL_NO_DATA` if
     /// the vault has no write at or before `t`.
     pub fn open(vault: &'a AsterVault<C>, t_millis: u64) -> Result<Self> {
+        let horizon = vault.retention_horizon();
+        retention::check_horizon_at(&horizon, t_millis, vault.clock_now())?;
         let seqno = time_index::resolve(vault, t_millis)?;
         let lease_id = vault.pin_reader_at(seqno, TIMETRAVEL_LEASE_MS);
         Ok(Self {
