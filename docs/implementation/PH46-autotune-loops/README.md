@@ -46,6 +46,7 @@ soak harness. Greenfield for the bandit + scope modules.
 | `src/tune/scope_forge.rs` | Forge kernel layer: matmul tile/dtype/batch-size tuning per `(op,shape,dtype,device)` |
 | `src/tune/scope_index.rs` | Index layer: HNSW `ef`/`M`, DiskANN beamwidth, SPANN cutoffs, quant level per slot |
 | `src/tune/scope_loom.rs` | Loom materialization layer: eager vs lazy cross-terms; Concat index |
+| `src/tune/scope_storage.rs` | Aster storage layer: compaction cadence, hot/cold tiering, codebook refresh, prefetch |
 | `src/tune/ab_runner.rs` | A/B runner on live traffic: shadow candidate vs incumbent; metric collection; promote/revert |
 | `src/tune/soak_harness.rs` | 1e6-query soak: drives the A/B loop to convergence; emits p99 series + recall series |
 
@@ -58,6 +59,7 @@ soak harness. Greenfield for the bandit + scope modules.
 | T03 | Index + quant scope tuner | T01 |
 | T04 | Loom materialization scope tuner | T01 |
 | T05 | A/B runner on live traffic | T01 |
+| T07 | Aster storage scope tuner + `autotune-report --scope storage` | T01 |
 | T06 | 1e6-query soak + FSV (p99 ↓ ≥20%, no recall regression, no oscillation) | T01–T05 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
@@ -68,6 +70,13 @@ report` — `p99 ≤ 0.80 × p99_baseline` (≥20% reduction), `recall@10 ≥
 recall@10_baseline` (no regression), `p99_series` shows no oscillation
 (monotone improvement window ≥ last 10k queries). Read the Ledger for A/B
 promotion entries — each promotion logged with before/after metrics.
+
+Storage FSV addendum for #583: run `calyx anneal autotune-report --scope
+storage --cache <json> --vault <dir>` and read the physical storage cache rows
+(`op=storage`), per-shape `anneal_bandit` CF rows, and Ledger
+`AutotunePromote` rows whose artifact id starts with `storage:`. The storage
+scope must prove compaction cadence, hot/cold tiering, codebook refresh, and
+prefetch parameters from the cache and Ledger bytes, not from a harness verdict.
 
 ## Risks / landmines
 
@@ -82,3 +91,6 @@ promotion entries — each promotion logged with before/after metrics.
   recall staying ≥ target. Use Assay's `bits_per_anchor` as the recall proxy.
 - **soak_harness.rs** must be deterministic when seeded (for CI-like validation),
   but must also support real live-traffic mode on aiwonder.
+- **Storage tradeoffs**: faster reads cannot buy hidden write-amplification,
+  cache-miss, tier-temperature, codebook-staleness, or prefetch regressions.
+  Storage promotions require lower p99 and non-regression on each storage metric.
