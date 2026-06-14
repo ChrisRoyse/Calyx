@@ -20,8 +20,11 @@
 //! types — rather than introducing parallel definitions.
 
 pub mod btree;
+pub mod inverted;
+mod terms;
 
 pub use btree::{BtreeIndex, DISC_BTREE_INDEX};
+pub use inverted::{DISC_INVERTED_INDEX, InvertedIndex};
 
 use calyx_core::{CalyxError, Result};
 
