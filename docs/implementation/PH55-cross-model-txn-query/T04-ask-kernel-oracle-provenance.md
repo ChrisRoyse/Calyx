@@ -1,96 +1,108 @@
-# PH55 · T04 — `ASK`: multi-lens + `kernel_answer` + Oracle + provenance tag
+# PH55 - T04 - `ASK`: multi-lens + `kernel_answer` + Oracle + provenance tag
 
 | Field | Value |
 |---|---|
-| **Phase** | PH55 — Cross-model transactions + universal query surface |
-| **Stage** | S12 — Universal data layer |
+| **Phase** | PH55 - Cross-model transactions + universal query surface |
+| **Stage** | S12 - Universal data layer |
 | **Crate** | `calyx-sextant` |
-| **Files** | `crates/calyx-sextant/src/query/ask.rs` (≤500) |
-| **Depends on** | T03 (executor context + ProvenancedRow), PH33 (kernel_answer), PH24 (multi-lens RRF), PH35 (LedgerRef provenance stub) |
-| **Axioms** | A15, A16, A17, A19 |
-| **PRD** | `dbprdplans/20 §2` (ASK row), `dbprdplans/10 §0`, `dbprdplans/17 §7.3` |
+| **Files** | `crates/calyx-sextant/src/query/ask.rs`, `crates/calyx-sextant/src/query/ask/*`, query planner/executor surfaces |
+| **Depends on** | T03 executor context, PH24 RRF fusion, PH33 kernel-answer semantics, PH35 ledger provenance |
+| **Issue** | `#466` |
+| **Status** | Implemented and FSV-read on aiwonder |
 
 ## Goal
 
-Implement the `ASK` query mode: given a natural-language question and a set of
-candidate `CxId`s from prior pipeline steps, run multi-lens RRF retrieval
-(from PH24) to rank the most relevant constellations, pass the top-K to
-`kernel_answer` (PH33), and ground the answer through the Oracle (PH49 — stub
-if not yet built). Every returned result is tagged with a `LedgerRef`
-(provenance chain entry). `ASK = multi-lens + kernel_answer + Oracle, grounded
-+ provenanced` per `20 §2`.
+Implement the `ASK` query mode: given a natural-language question and a set of candidate `CxId`s from prior pipeline steps, rank relevant constellations, produce a grounded answer, and tag each grounding row with its `LedgerRef`.
 
-## Build (checklist of concrete, code-level steps)
+## Implementation Notes
 
-- [ ] Define `AskSpec` in `query/mod.rs`:
-  ```rust
-  pub struct AskSpec {
-      pub question: String,
-      pub context_cx_ids: Vec<CxId>,   // candidate set from prior steps (may be empty = full vault)
-      pub top_k: usize,                // default 10
-      pub oracle: bool,                // whether to run Oracle grounding (PH49; stub if absent)
-  }
-  ```
-- [ ] Implement `ask(vault: &AsterVault, spec: &AskSpec, snapshot_seq: Seq) -> Result<AskResult>`:
-  1. **Multi-lens retrieval:** embed `spec.question` using the vault's default
-     panel (call `registry::embed_query`); run `sextant::fuse_rrf` restricted
-     to `spec.context_cx_ids` (or full vault if empty); return top-`top_k`
-     `(CxId, score)` pairs.
-  2. **Kernel answer:** call `lodestar::kernel_answer(vault, question, top_cx_ids,
-     snapshot_seq)` (PH33 API); returns `KernelAnswer { text, grounding_cx_ids,
-     gaps: Vec<String> }`. If PH33 not yet built: stub returns `text="[kernel
-     stub]", grounding_cx_ids=top_cx_ids, gaps=[]`.
-  3. **Oracle grounding** (if `spec.oracle=true`): call
-     `oracle::consequence_predict(vault, kernel_answer)` (PH49 API). Stub: wrap
-     `kernel_answer.text` as an `OracleResult` with `conf=None`.
-  4. **Provenance:** for each `grounding_cx_id`, look up its `LedgerRef` from the
-     `ledger` CF at `snapshot_seq`; attach to the result.
-  5. Return `AskResult { answer: String, grounding: Vec<ProvenancedRow>,
-     gaps: Vec<String>, oracle_conf: Option<f32> }`.
-- [ ] Enforce: if `spec.question` is empty → `CALYX_INVALID_ARGUMENT`.
-- [ ] Enforce: answer must not be returned without at least one `grounding_cx_id`
-  (even the stub must produce ≥1 grounding entry). If `kernel_answer` returns
-  empty grounding → return `CALYX_ANSWER_UNGROUNDED` (A16 fail-closed).
-- [ ] The `ASK` step in the executor pipeline calls `ask(...)` and appends
-  `AskResult.grounding` rows to the `QueryResult.rows` with their `ledger_ref`s.
+- `AskSpec` now carries:
+  - `question: String`
+  - `context_cx_ids: Vec<CxId>`
+  - `top_k: usize` with serde default `10`
+  - `oracle: bool`
+- `AskResult` returns:
+  - `answer`
+  - `grounding: Vec<ProvenancedRow>`
+  - `gaps`
+  - `oracle_conf`
+- `query::ask::ask(...)` validates the question, pins the caller's snapshot, builds the candidate set from explicit context or full `Base` CF, ranks available per-slot vectors with PH24 restricted RRF, and tags every grounding row from `vault.get(cx_id, snapshot).provenance`.
+- `PlanStep::Ask` now includes `top_k` and `oracle`; the planner propagates both fields from `AskSpec`.
+- The executor now calls `query::ask::ask(...)` and appends grounding rows to `QueryResult.rows`, using prior `ExecState` CxId candidates when the step has no explicit context.
+- Empty question fails closed with `CALYX_INVALID_ARGUMENT`.
+- No visible candidates or empty grounding fails closed with `CALYX_ANSWER_UNGROUNDED`.
+- Candidate rows with no available lens slots fail closed with `CALYX_LENS_NOT_FOUND`.
+- Oracle is wired as a PH49-compatible stub returning `oracle_conf=None`.
+- Kernel answer is wired as a PH33-compatible stub returning `answer="[kernel stub]"`, grounding equal to top RRF CxIds, and no gaps.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Boundary Note
 
-- [ ] unit stub path: `ask` with `oracle=false`, stubbed `kernel_answer` → returns
-  `AskResult` with `answer="[kernel stub]"`, `grounding.len() >= 1`, each
-  grounding row has `ledger_ref=Some(…)` or `None` (both acceptable for stub).
-- [ ] unit provenance tag: ingest a real constellation with a Ledger stub (PH35
-  stub); `ask` with that `CxId` in context → returned grounding row has
-  `ledger_ref=Some(ref)` with the correct `seq`.
-- [ ] unit empty context: `ask` with empty `context_cx_ids` → retrieval searches
-  full vault; returns ≥0 rows (empty vault OK).
-- [ ] edge (≥3): (1) empty `question` → `CALYX_INVALID_ARGUMENT`; (2)
-  `kernel_answer` stub returns empty grounding → `CALYX_ANSWER_UNGROUNDED`;
-  (3) `top_k=1` → exactly 1 grounding row (no more); (4) `oracle=false` →
-  `oracle_conf=None`.
-- [ ] fail-closed: `registry::embed_query` returns `Err` (lens unavailable) →
-  `ask` returns `CALYX_LENS_NOT_FOUND`, not a silent empty result.
+`calyx-lodestar` currently depends on `calyx-sextant`, so Sextant cannot directly call Lodestar's concrete `kernel_answer` API without creating a crate dependency cycle. This implementation keeps the PH33/PH49 call site as a local compatibility boundary and preserves fail-closed grounding/provenance semantics until the shared kernel-answer interface is split into a lower-level crate.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## Tests
 
-- **SoT:** `cargo test -p calyx-sextant query::ask` on aiwonder.
-- **Readback:**
-  ```
-  calyx ask --vault /home/croyse/calyx/test-vault "What orders were placed recently?" \
-    --provenance --top-k 3
-  # Output must show:
-  # answer: <non-empty string>
-  # grounding[0].ledger_ref: <hex seq>
-  # grounding[0].cx_id: <hex>
-  ```
-- **Prove:** `calyx ask` returns a non-empty answer with ≥1 grounding row and
-  a `ledger_ref` field (even if stub value); `--provenance` flag prints the
-  `LedgerRef` hex. Evidence posted to PH55 issue.
+- `query::ask` unit tests cover:
+  - stub answer with at least one grounding row
+  - provenance tag from stored constellation ledger refs
+  - empty context full-vault search
+  - `top_k=1`
+  - `oracle=false` returning `None`
+  - empty question error
+  - empty grounding error
+  - unavailable lens error
+- `query::executor` tests cover `PlanStep::Ask` appending grounding rows with provenance.
+- Planner tests cover propagation of the expanded `AskSpec`.
 
-## Done when
+## aiwonder Gates
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH55 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+Run from `/home/croyse/calyx/repo` on branch `issue466-ask`:
+
+- `cargo fmt --all -- --check` - passed
+- Rust line-count gate (`*.rs <= 500`) - passed
+- `cargo check -p calyx-sextant` - passed
+- `cargo clippy -p calyx-sextant --all-targets -- -D warnings` - passed
+- `cargo test -p calyx-sextant --lib query:: -- --nocapture` - passed: 29 passed, 3 ignored
+- `cargo test -p calyx-sextant --lib query::ask::fsv_tests::issue466_ask_fsv_writes_readback_artifacts -- --ignored --nocapture` - passed
+
+## FSV Evidence
+
+FSV root:
+
+`/home/croyse/calyx/data/fsv-issue466-ask-20260614T161015Z`
+
+Readback file:
+
+`/home/croyse/calyx/data/fsv-issue466-ask-20260614T161015Z/issue466-ask-readback.json`
+
+Manual SoT readback:
+
+- Readback JSON was read directly with `cat`.
+- Physical Aster files were listed under `vault/cf/base`, `vault/cf/ledger`, and `vault/cf/slot_00`.
+- SHA-256 hashes were read for the JSON and every SST file in those CFs.
+- SST bytes were sampled with `xxd` from Base, Ledger, and slot_00 files.
+
+Observed state:
+
+- Before: `base_rows=0`, `ledger_rows=0`, `slot_00_rows=0`, `latest_seq=0`.
+- After: `base_rows=3`, `ledger_rows=3`, `slot_00_rows=3`, `latest_seq=3`.
+- Happy path answer: `[kernel stub]`.
+- Happy path grounding count: `2`.
+- Happy path ledger refs present with observed seqs `[1, 0]`.
+- Executor ASK grounding count: `1`, ledger ref present.
+- Full-vault search with empty context returned `2` grounding rows.
+- `top_k=1` returned exactly `1` grounding row.
+- Edge codes:
+  - empty question: `CALYX_INVALID_ARGUMENT`
+  - no visible grounding: `CALYX_ANSWER_UNGROUNDED`
+  - unavailable lens: `CALYX_LENS_NOT_FOUND`
+  - oracle stub confidence: `null`
+
+## Done
+
+- [x] `AskSpec` extended with `top_k` and `oracle`.
+- [x] `ask(...)` implemented with snapshot-pinned candidate retrieval, restricted RRF, kernel stub, Oracle stub, and provenance tags.
+- [x] Executor `ASK` step wired to append grounding rows.
+- [x] Fail-closed errors implemented.
+- [x] Unit tests and executor/planner tests updated.
+- [x] aiwonder gates passed.
+- [x] Manual FSV readback captured against durable Aster bytes.

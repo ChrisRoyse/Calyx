@@ -16,14 +16,14 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, CxId, Result, Seq, SlotId};
 use serde_json::Value;
 
-use crate::error::{CALYX_SEXTANT_QUERY_SHAPE, sextant_error};
 use crate::fusion::rrf::rrf_fuse_restricted;
 use crate::fusion::{FusionContext, FusionStrategy};
 use crate::index::IndexSearchHit;
 
+use super::ask::ask as ask_query;
 use super::{
-    AggOp, AggSpec, CrossModelPlan, DocPathFilter, FieldPredicate, PlanStep, ProvenancedRow,
-    QueryResult,
+    AggOp, AggSpec, AskSpec, CrossModelPlan, DocPathFilter, FieldPredicate, PlanStep,
+    ProvenancedRow, QueryResult,
 };
 use support::{
     cx_from_key, default_collection, doc_value_matches, fold_numeric, index_bounds, json_row,
@@ -111,10 +111,20 @@ where
             limit,
         } => execute_vector_fusion(vault, snapshot, state, lens_ids.len(), &query_vec, limit),
         PlanStep::Aggregate { spec } => execute_aggregate(state, &spec),
-        PlanStep::Ask { .. } => Err(sextant_error(
-            CALYX_SEXTANT_QUERY_SHAPE,
-            "ASK execution is delegated to PH55 T04",
-        )),
+        PlanStep::Ask {
+            question,
+            context_cx_ids,
+            top_k,
+            oracle,
+        } => execute_ask(
+            vault,
+            snapshot,
+            state,
+            question,
+            context_cx_ids,
+            top_k,
+            oracle,
+        ),
     }
 }
 
@@ -368,6 +378,45 @@ where
             ledger_ref: ledger_ref(vault, snapshot, hit.cx_id),
         })
         .collect();
+    Ok(())
+}
+
+fn execute_ask<C>(
+    vault: &AsterVault<C>,
+    snapshot: Seq,
+    state: &mut ExecState,
+    question: String,
+    mut context_cx_ids: Vec<CxId>,
+    top_k: usize,
+    oracle: bool,
+) -> Result<()>
+where
+    C: Clock,
+{
+    if context_cx_ids.is_empty() {
+        context_cx_ids.extend(state.candidates.iter().copied());
+    }
+    if context_cx_ids.is_empty() {
+        context_cx_ids.extend(state.rows.iter().filter_map(|row| cx_from_key(&row.key)));
+    }
+    let result = ask_query(
+        vault,
+        &AskSpec {
+            question,
+            context_cx_ids,
+            top_k,
+            oracle,
+        },
+        snapshot,
+    )?;
+    state.candidates.extend(
+        result
+            .grounding
+            .iter()
+            .filter_map(|row| cx_from_key(&row.key)),
+    );
+    state.total_scanned += result.grounding.len() as u64;
+    state.rows.extend(result.grounding);
     Ok(())
 }
 

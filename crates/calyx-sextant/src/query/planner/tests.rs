@@ -157,6 +157,8 @@ fn ask_only_plans_single_ask_step() {
         ask: Some(AskSpec {
             question: "which orders need review?".to_string(),
             context_cx_ids: Vec::new(),
+            top_k: 10,
+            oracle: false,
         }),
         ..UniversalQuery::default()
     };
@@ -205,6 +207,8 @@ fn all_modes_keep_dependency_order() {
         ask: Some(AskSpec {
             question: "summarize".to_string(),
             context_cx_ids: Vec::new(),
+            top_k: 10,
+            oracle: false,
         }),
         cost_cap_ms: Some(1_000),
         ..UniversalQuery::default()
@@ -336,6 +340,8 @@ proptest! {
             ask: include_ask.then(|| AskSpec {
                 question: "summarize".to_string(),
                 context_cx_ids: Vec::new(),
+                top_k: 10,
+                oracle: false,
             }),
             cost_cap_ms: Some(cap),
             ..UniversalQuery::default()

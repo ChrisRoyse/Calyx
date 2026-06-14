@@ -78,6 +78,8 @@ fn issue464_query_planner_fsv_writes_readback_artifacts() {
             ask: Some(AskSpec {
                 question: "which orders need review?".to_string(),
                 context_cx_ids: Vec::new(),
+                top_k: 10,
+                oracle: false,
             }),
             ..UniversalQuery::default()
         },

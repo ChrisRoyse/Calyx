@@ -22,6 +22,9 @@ pub const CALYX_SEXTANT_EF_TOO_SMALL: &str = "CALYX_SEXTANT_EF_TOO_SMALL";
 pub const CALYX_SEXTANT_DIM_MISMATCH: &str = "CALYX_SEXTANT_DIM_MISMATCH";
 pub const CALYX_SEXTANT_VECTOR_SHAPE: &str = "CALYX_SEXTANT_VECTOR_SHAPE";
 pub const CALYX_SEXTANT_QUERY_SHAPE: &str = "CALYX_SEXTANT_QUERY_SHAPE";
+pub const CALYX_INVALID_ARGUMENT: &str = "CALYX_INVALID_ARGUMENT";
+pub const CALYX_ANSWER_UNGROUNDED: &str = "CALYX_ANSWER_UNGROUNDED";
+pub const CALYX_LENS_NOT_FOUND: &str = "CALYX_LENS_NOT_FOUND";
 pub const CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE: &str = "CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE";
 pub const CALYX_SEXTANT_POSTINGS_CORRUPT: &str = "CALYX_SEXTANT_POSTINGS_CORRUPT";
 pub const CALYX_SEXTANT_POSTINGS_NOT_SORTED: &str = "CALYX_SEXTANT_POSTINGS_NOT_SORTED";
@@ -71,6 +74,11 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         CALYX_SEXTANT_QUERY_SHAPE => {
             "submit a query with finite vectors, valid limits, and non-conflicting predicates"
         }
+        CALYX_INVALID_ARGUMENT => "submit a non-empty ASK question and valid query arguments",
+        CALYX_ANSWER_UNGROUNDED => {
+            "seed ASK with at least one visible grounded constellation candidate"
+        }
+        CALYX_LENS_NOT_FOUND => "register or load a visible lens slot for ASK retrieval",
         CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE => {
             "wire a real Forge GPU path before claiming Sextant CPU/GPU parity"
         }
