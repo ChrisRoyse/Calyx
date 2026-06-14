@@ -1,55 +1,67 @@
-# PH56 · T06 — Disk-pressure guard — `CALYX_DISK_PRESSURE`, spill cold to archive
+# PH56 T06 - Disk-Pressure Guard
 
 | Field | Value |
 |---|---|
-| **Phase** | PH56 — Bounded caches/queues/memtables + arenas/pools |
-| **Stage** | S13 — Resource, GC & Reliability Hardening |
-| **Crate** | `calyx-aster` |
-| **Files** | `crates/calyx-aster/src/pressure.rs` (≤500) |
-| **Depends on** | T04 (bounded memtable + backpressure established) · T05 (mmap/cold exists) |
-| **Axioms** | A26, A16 |
-| **PRD** | `dbprdplans/24 §6`, `24 §7b`, `24 §7` hazard 17 |
+| Phase | PH56 - Bounded caches/queues/memtables + arenas/pools |
+| Stage | S13 - Resource, GC & Reliability Hardening |
+| Crate | `calyx-aster` |
+| Primary file | `crates/calyx-aster/src/pressure.rs` |
+| Depends on | T04 bounded memtable + T05 mmap/cold columnar access |
+| PRD | `docs/dbprdplans/24_MEMORY_GC_RELIABILITY.md` sections 6, 7b, hazard 17 |
+| Issue | GitHub #473 |
 
-## Goal
+## Delivered
 
-Implement a disk-pressure guard that monitors `hotpool` NVMe free space and halts write
-acceptance before the single NVMe fills to corruption. At the 85% high-water mark, stop
-accepting new writes (return `CALYX_DISK_PRESSURE`, fail closed) and trigger a spill of cold
-data to the `archive` dataset. Also enforce the operational hygiene that staged temp files are
-written inside the destination dataset (avoiding `EXDEV` on ZFS rename — PRD `24 §7b`). This
-defends hazard 17 (disk full on `hotpool`).
+- `DiskPressureGuard` samples the configured hotpool path with Unix `statvfs` through `nix::sys::statvfs`.
+- `check()` computes `used_ratio = 1.0 - f_bavail / f_blocks`, treats `f_blocks == 0` as `0.0`, and returns `CALYX_DISK_PRESSURE` when `used_ratio >= high_water_ratio`.
+- statvfs failures return module-local `CALYX_IO_ERROR`; write admission fails closed on that error.
+- Durable write admission checks the guard before WAL append, MVCC commit, and router mutation.
+- `SpillTrigger::request_spill()` sends a non-blocking channel request and logs via `tracing`.
+- `TempFile::in_dataset(destination_dir)` creates staging files under the destination dataset, not `/tmp`.
+- `calyx_disk_pressure_events_total` is emitted in Prometheus resource metrics and increments when `CALYX_DISK_PRESSURE` fires.
 
-## Build (checklist of concrete, code-level steps)
+## Tests
 
-- [ ] Define `struct DiskPressureGuard { hotpool_path: PathBuf, high_water_ratio: f64, clock: Arc<dyn Clock> }` in `pressure.rs`
-- [ ] Implement `DiskPressureGuard::check(&self) -> Result<DiskStatus, CalyxError>` — calls `statvfs` (via `nix::sys::statvfs::statvfs`) to get `f_bavail` and `f_blocks`; computes `used_ratio = 1.0 - (f_bavail as f64 / f_blocks as f64)`; if `used_ratio >= high_water_ratio` returns `CALYX_DISK_PRESSURE` with `used_ratio` in the error payload
-- [ ] Implement `DiskPressureGuard::is_under_pressure(&self) -> bool` — thin wrapper over `check()`; returns true if `CALYX_DISK_PRESSURE` would fire; used by write acceptors
-- [ ] Add `CALYX_DISK_PRESSURE` to `calyx-core` error catalog if not present; remediation: "hotpool NVMe at high-water; writes halted; spill cold data to archive or delete stale artifacts"
-- [ ] Implement `SpillTrigger::request_spill(&self)` — sends a channel message to the janitor/GC background task to move cold SST files from `hotpool` to `archive`; non-blocking (fire and forget); logs the request via `tracing`
-- [ ] Enforce temp-file hygiene: add `TempFile::in_dataset(destination_dir: &Path) -> TempFile` helper that creates temp files inside the destination directory (not `/tmp`), so ZFS `rename` is atomic (no `EXDEV`)
-- [ ] Wire `DiskPressureGuard::is_under_pressure` into the memtable `write()` path (checked before every write accept)
-- [ ] Emit Prometheus counter `calyx_disk_pressure_events_total` on each `CALYX_DISK_PRESSURE` firing
+- Mock 90 percent used -> `CALYX_DISK_PRESSURE`, payload includes `used_ratio=0.900000`.
+- Mock 80 percent used -> accepted with `DiskStatus::Ok`.
+- Mock exact 85 percent high-water -> rejected; boundary is inclusive.
+- Mock `f_blocks == 0` -> `used_ratio = 0.0`.
+- Mock statvfs failure -> `CALYX_IO_ERROR`; boolean wrapper fails closed.
+- Temp file parent is the destination dataset and is removed on drop.
+- Spill request reaches the receiver channel.
+- Linux write-path regression proves pressure rejects before WAL append and a later 70 percent sample allows the write.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## aiwonder Gates
 
-- [ ] unit: mock `statvfs` returning 90% used → `is_under_pressure()` returns true; `check()` returns `CALYX_DISK_PRESSURE` with `used_ratio ≈ 0.90` in payload
-- [ ] unit: mock 80% used → `is_under_pressure()` returns false; `check()` returns `Ok(DiskStatus::Ok { used_ratio: 0.80 })`
-- [ ] unit: mock exactly `high_water_ratio` (85%) → `is_under_pressure()` returns true (boundary is inclusive)
-- [ ] unit: `TempFile::in_dataset(dir)` creates file inside `dir`; verify `parent() == dir` (no `/tmp` escape)
-- [ ] unit: `SpillTrigger::request_spill` sends message on channel — verify receiver gets the `SpillRequest` message within a sync test
-- [ ] edge: `statvfs` fails (e.g., invalid path) → returns `CALYX_IO_ERROR`, does not panic; caller treats this as "pressure unknown → reject" (fail closed)
-- [ ] edge: `f_blocks == 0` (unusual FS) → `used_ratio = 0.0` (treat as empty, not divide-by-zero)
-- [ ] fail-closed: `DiskPressureGuard` wired into memtable; mock 90% full; attempt write → `CALYX_DISK_PRESSURE` returned; mock drops to 70%; write succeeds
+Branch: `issue473-ph56-disk-pressure`  
+Implementation commit: `47ef6e7`
 
-## FSV (read the bytes on aiwonder — the truth gate)
+Ran on aiwonder from `/home/croyse/calyx/repo`:
 
-- **SoT:** `disk_free` bytes on `hotpool` (`df -h /hotpool` or `zfs list -o name,avail hotpool`) and `calyx_disk_pressure_events_total` counter
-- **Readback:** fill `hotpool` to 86% with a test file; `calyx readback --metric disk_pressure_events_total` must show > 0; attempt a write — must receive `CALYX_DISK_PRESSURE`; delete the test file; write must succeed
-- **Prove:** before the test, `disk_pressure_events_total == 0`; after filling to 86%, the counter increments and writes are rejected cleanly (no data corruption, no OOM). `df -h /hotpool` shows ≤ 100% used at all times.
+- `cargo fmt --all -- --check`
+- corrected tracked `.rs` line gate: no file over 500 lines
+- `cargo check -p calyx-aster`
+- `cargo test -p calyx-aster pressure -- --nocapture` - 15 passed
+- `cargo test -p calyx-aster metrics_text_renders_prometheus_conventions -- --nocapture` - 1 passed
+- `cargo test -p calyx-aster --test issue473_disk_pressure -- --nocapture` - 1 passed, 1 ignored FSV driver
+- `cargo clippy -p calyx-aster --all-targets -- -D warnings`
 
-## Done when
+## FSV Evidence
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH56 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+Evidence root:
+
+`/home/croyse/calyx/data/fsv-issue473-disk-pressure-20260614T180237Z`
+
+`/home/croyse/calyx/data` is a symlink to `/zfs/hot/calyx`, so the vault and evidence files were on the hotpool dataset.
+
+Source of truth reads:
+
+- `df-before.txt`: hotpool mounted as `hotpool/calyx`; available bytes `1610551787520`, use `1%`.
+- `df-after.txt`: same hotpool mount and available bytes `1610551787520`, proving the synthetic test did not fill or corrupt the pool.
+- `metrics-before.prom`: `calyx_disk_pressure_events_total{vault="issue473"} 0`, `calyx_wal_bytes{vault="issue473"} 0`.
+- `metrics-after-pressure.prom`: `calyx_disk_pressure_events_total{vault="issue473"} 1`, `calyx_wal_bytes{vault="issue473"} 73`.
+- `issue473-disk-pressure-readback.json`: pressure error code `CALYX_DISK_PRESSURE`; invalid path error code `CALYX_IO_ERROR`; spill request path equals the vault path; temp parent matched dataset; temp file removed on drop.
+- WAL readback: `wal_before_reject = 73`, `wal_after_reject = 73`; rejected `blocked-key` and `blocked-value` strings were absent from the WAL.
+- Final WAL bytes were `152` only after pressure was cleared and `clear-key -> clear-value` was accepted.
+
+The FSV used a safe threshold-crossing proof instead of physically filling the 1.6 TB hotpool: the real `statvfs` sample reported `used_ratio=0.001982`, and the pressure guard was configured with `high_water_ratio=0.000000` to force the same comparison path without consuming hundreds of GB of NVMe.
