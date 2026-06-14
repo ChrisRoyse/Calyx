@@ -1,10 +1,15 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
+use calyx_aster::vault::encode::decode_constellation_base;
 use calyx_core::{Constellation, CxId, Result, Seq, SlotId, SlotVector, VaultStore};
+use calyx_ledger::{LedgerCfStore, VerifyResult, verify_chain};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+
+use crate::ledger_store::AsterLedgerCfStore;
 
 use super::adapter::{
     BASE_SLOT, METADATA_CONTENT_HASH, METADATA_ROWID, VaultSqliteAdapter, default_panel_version,
@@ -38,7 +43,19 @@ pub struct VerifyError {
 pub struct StatusReport {
     pub base_rows: usize,
     pub slot_rows: BTreeMap<String, usize>,
+    pub ledger_chain: LedgerChainStatus,
+    pub first_chunk_id: Option<String>,
+    pub last_chunk_id: Option<String>,
     pub latest_seq: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LedgerChainStatus {
+    pub state: String,
+    pub count: u64,
+    pub checked_range: String,
+    pub at_seq: Option<u64>,
+    pub reason: Option<String>,
 }
 
 pub fn verify_migration(
@@ -170,16 +187,21 @@ pub(super) fn content_hash(content: &[u8]) -> [u8; 32] {
     *blake3::hash(content).as_bytes()
 }
 
-pub fn status(vault: &AsterVault) -> Result<StatusReport> {
+pub fn status(vault: &AsterVault, vault_dir: &Path) -> Result<StatusReport> {
     let snapshot = vault.snapshot();
     let mut slot_rows = BTreeMap::new();
     for slot in default_slot_ids() {
         let count = vault.scan_cf_at(snapshot, ColumnFamily::slot(slot))?.len();
         slot_rows.insert(format!("slot_{}", slot.get()), count);
     }
+    let base_rows = vault.scan_cf_at(snapshot, ColumnFamily::Base)?;
+    let (first_chunk_id, last_chunk_id) = chunk_id_extents(&base_rows)?;
     Ok(StatusReport {
-        base_rows: vault.scan_cf_at(snapshot, ColumnFamily::Base)?.len(),
+        base_rows: base_rows.len(),
         slot_rows,
+        ledger_chain: ledger_chain_status(vault_dir)?,
+        first_chunk_id,
+        last_chunk_id,
         latest_seq: snapshot,
     })
 }
@@ -234,4 +256,69 @@ fn slot_json(_slot: SlotId, vector: Option<SlotVector>) -> Result<serde_json::Va
         "kind": kind,
         "json_sha256": hex_encode(blake3::hash(&bytes).as_bytes()),
     }))
+}
+
+fn chunk_id_extents(rows: &[(Vec<u8>, Vec<u8>)]) -> Result<(Option<String>, Option<String>)> {
+    let mut chunks = Vec::new();
+    for (idx, (_, bytes)) in rows.iter().enumerate() {
+        let cx = decode_constellation_base(bytes)?;
+        if let Some(chunk_id) = cx.chunk_id() {
+            let row_num = cx
+                .metadata
+                .get(METADATA_ROWID)
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(idx as u64);
+            chunks.push((row_num, chunk_id.to_string()));
+        }
+    }
+    chunks.sort_by_key(|(row_num, _)| *row_num);
+    Ok((
+        chunks.first().map(|(_, chunk_id)| chunk_id.clone()),
+        chunks.last().map(|(_, chunk_id)| chunk_id.clone()),
+    ))
+}
+
+fn ledger_chain_status(vault_dir: &Path) -> Result<LedgerChainStatus> {
+    let store = match AsterLedgerCfStore::open(vault_dir) {
+        Ok(store) => store,
+        Err(error) => {
+            return Ok(LedgerChainStatus {
+                state: "unavailable".to_string(),
+                count: 0,
+                checked_range: "0..0".to_string(),
+                at_seq: None,
+                reason: Some(error.to_string()),
+            });
+        }
+    };
+    let rows = store.scan()?;
+    let end = rows
+        .iter()
+        .map(|row| row.seq)
+        .max()
+        .map_or(0, |seq| seq.saturating_add(1));
+    let checked_range = format!("0..{end}");
+    match verify_chain(&store, 0..end)? {
+        VerifyResult::Intact { count } => Ok(LedgerChainStatus {
+            state: "Intact".to_string(),
+            count,
+            checked_range,
+            at_seq: None,
+            reason: None,
+        }),
+        VerifyResult::Broken { at_seq, .. } => Ok(LedgerChainStatus {
+            state: "Broken".to_string(),
+            count: rows.len() as u64,
+            checked_range,
+            at_seq: Some(at_seq),
+            reason: Some(format!("ledger chain broken at seq {at_seq}")),
+        }),
+        VerifyResult::Corrupt { at_seq, reason } => Ok(LedgerChainStatus {
+            state: "Corrupt".to_string(),
+            count: rows.len() as u64,
+            checked_range,
+            at_seq: Some(at_seq),
+            reason: Some(reason),
+        }),
+    }
 }
