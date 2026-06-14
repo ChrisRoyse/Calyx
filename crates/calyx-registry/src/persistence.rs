@@ -8,8 +8,8 @@ use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Panel, Result, SlotS
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AlgorithmicLens, ExternalCmdLens, LensRuntime, LensSpec, Registry, RegistryLensSnapshot,
-    TeiHttpLens,
+    AlgorithmicLens, ExternalCmdLens, LensRuntime, LensSpec, OnnxLens, Registry,
+    RegistryLensSnapshot, TeiHttpLens,
 };
 
 const SNAPSHOT_VERSION: u16 = 1;
@@ -178,7 +178,8 @@ fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Option<Arc<dyn Lens>> {
             spec.modality,
             dense_dim(spec.output)?,
         )),
-        LensRuntime::CandleLocal { .. } | LensRuntime::Onnx { .. } => return None,
+        LensRuntime::CandleLocal { .. } => return None,
+        LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec).ok()?),
     };
     if snapshot.contract.verify_registration(lens.as_ref()).is_ok() {
         Some(lens)

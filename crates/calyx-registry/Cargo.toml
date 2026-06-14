@@ -28,3 +28,4 @@ tokenizers = { version = "0.22.2", default-features = false, features = ["onig"]
 
 [dev-dependencies]
 calyx-sextant = { path = "../calyx-sextant" }
+proptest.workspace = true

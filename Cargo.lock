@@ -481,6 +481,7 @@ dependencies = [
  "fastembed",
  "hf-hub",
  "ort",
+ "proptest",
  "serde",
  "serde_json",
  "sha2",

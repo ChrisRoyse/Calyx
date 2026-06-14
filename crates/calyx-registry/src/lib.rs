@@ -54,7 +54,9 @@ pub use profile::{
 pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};
 pub use runtime::candle::{CandleDevicePolicy, CandleLens, CandleModelFiles, DEFAULT_CANDLE_MODEL};
 pub use runtime::external_cmd::ExternalCmdLens;
-pub use runtime::onnx::{OnnxLens, OnnxModelFiles, OnnxProviderPolicy};
+pub use runtime::onnx::{
+    OnnxFileSpec, OnnxLens, OnnxModelFiles, OnnxProviderPolicy, PoolingPolicy,
+};
 pub use runtime::tei_http::{DEFAULT_TEI_ENDPOINT, TeiHttpLens};
 pub use spec::{LensHealth, LensRuntime, LensSpec};
 pub use swap::{BackfillCandidate, BackfillQueue, SlotSpec, SwapController};
