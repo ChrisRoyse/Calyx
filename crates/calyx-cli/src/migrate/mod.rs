@@ -6,21 +6,24 @@ mod reader;
 #[cfg(test)]
 mod tests;
 mod verifier;
+#[cfg(test)]
+mod verify_tests;
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{LensId, Result, SlotId, VaultStore};
+use calyx_core::{CalyxError, LensId, Result, SlotId, VaultStore};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use adapter::{VaultSqliteAdapter, default_base_lens_id, default_panel_version};
 use backfill::{BackfillMode, BackfillSummary, backfill_default_panel};
-use manifest::MigrationManifest;
+use manifest::{MigrationManifest, hex_encode};
 use reader::{open_sqlite, read_chunk, row_count, stream_rows};
 use verifier::{
-    StatusReport, VerifyReport, readback_chunk, row_exists_and_matches, status, verify_migration,
+    StatusReport, VerifyError, VerifyReport, readback_chunk, row_exists_and_matches, status,
+    verify_migration,
 };
 
 use crate::error::CliResult;
@@ -69,7 +72,7 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
         "verify" => {
             let (sqlite, vault, require_backfill) = parse_verify(rest)?;
             let report = run_verify(sqlite, vault, require_backfill)?;
-            print_json(&report)
+            print_verify_report(&report)
         }
         "status" if rest.len() == 1 => {
             let report = run_status(Path::new(&rest[0]))?;
@@ -181,12 +184,16 @@ fn migrate_vault(
         None
     };
     let verify = if options.verify {
-        Some(verify_migration(
+        let report = verify_migration(
             &vault,
             &rows,
             &adapter,
             options.require_backfill || options.backfill,
-        )?)
+        )?;
+        if report.mismatched > 0 {
+            return Err(verify_failed_error(&report).into());
+        }
+        Some(report)
     } else {
         None
     };
@@ -242,6 +249,38 @@ fn run_verify(
         &adapter(&manifest)?,
         require_backfill,
     )?)
+}
+
+fn print_verify_report(report: &VerifyReport) -> CliResult {
+    if report.mismatched == 0 {
+        println!(
+            "verified {}/{} rows: byte-exact on content",
+            report.matched, report.total
+        );
+        return Ok(());
+    }
+    for error in &report.errors {
+        println!("{}", verify_error_line(error));
+    }
+    eprintln!("FAILED: {} mismatches", report.mismatched);
+    Err(verify_failed_error(report).into())
+}
+
+fn verify_error_line(error: &VerifyError) -> String {
+    format!(
+        "MISMATCH row={} chunk_id={} expected={} actual={}",
+        error.row_num,
+        error.chunk_id,
+        hex_encode(&error.expected_hash),
+        hex_encode(&error.actual_hash)
+    )
+}
+
+fn verify_failed_error(report: &VerifyReport) -> CalyxError {
+    CalyxError::aster_corrupt_shard(format!(
+        "{} migration content hash mismatches",
+        report.mismatched
+    ))
 }
 
 fn run_status(vault_dir: &Path) -> CliResult<StatusReport> {

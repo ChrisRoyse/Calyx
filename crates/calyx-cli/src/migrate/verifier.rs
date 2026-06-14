@@ -18,10 +18,20 @@ use super::reader::ChunkRow;
 pub struct VerifyReport {
     pub total: usize,
     pub matched: usize,
+    pub mismatched: usize,
+    pub errors: Vec<VerifyError>,
     pub base_slot_matches: usize,
     pub backfill_slots_checked: usize,
     pub missing_backfill: Vec<String>,
     pub gate: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerifyError {
+    pub row_num: u64,
+    pub chunk_id: String,
+    pub expected_hash: [u8; 32],
+    pub actual_hash: [u8; 32],
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -39,14 +49,40 @@ pub fn verify_migration(
 ) -> Result<VerifyReport> {
     let mut matched = 0;
     let mut base_slot_matches = 0;
+    let mut errors = Vec::new();
     let mut missing_backfill = Vec::new();
     let snapshot = vault.snapshot();
     for row in rows {
         let cx_id = adapter.cx_id(row);
-        let cx = vault.get(cx_id, snapshot)?;
-        verify_base_row(vault, snapshot, row, cx_id, &cx)?;
-        matched += 1;
-        base_slot_matches += 1;
+        let expected_hash = content_hash(&row.content);
+        let cx = match vault.get(cx_id, snapshot) {
+            Ok(cx) => cx,
+            Err(_) => {
+                errors.push(VerifyError {
+                    row_num: row.row_num,
+                    chunk_id: row.chunk_id.clone(),
+                    expected_hash,
+                    actual_hash: [0; 32],
+                });
+                continue;
+            }
+        };
+        if cx.input_ref.hash == expected_hash {
+            matched += 1;
+        } else {
+            errors.push(VerifyError {
+                row_num: row.row_num,
+                chunk_id: row.chunk_id.clone(),
+                expected_hash,
+                actual_hash: cx.input_ref.hash,
+            });
+        }
+        if slot_matches(
+            vault.read_slot_vector_at(snapshot, cx_id, BASE_SLOT)?,
+            &row.embedding,
+        ) {
+            base_slot_matches += 1;
+        }
         for slot in default_slot_ids().into_iter().skip(1) {
             if vault.read_slot_vector_at(snapshot, cx_id, slot)?.is_none() {
                 missing_backfill.push(format!("{}:slot{}", row.chunk_id, slot.get()));
@@ -60,13 +96,16 @@ pub fn verify_migration(
             missing_backfill.len()
         )));
     }
+    let mismatched = errors.len();
     Ok(VerifyReport {
         total: rows.len(),
         matched,
+        mismatched,
+        errors,
         base_slot_matches,
         backfill_slots_checked: checked,
         missing_backfill,
-        gate: if matched == rows.len() {
+        gate: if mismatched == 0 && matched == rows.len() {
             "PASS"
         } else {
             "FAIL"
@@ -125,6 +164,10 @@ fn verify_base_row(
         )));
     }
     Ok(())
+}
+
+pub(super) fn content_hash(content: &[u8]) -> [u8; 32] {
+    *blake3::hash(content).as_bytes()
 }
 
 pub fn status(vault: &AsterVault) -> Result<StatusReport> {
