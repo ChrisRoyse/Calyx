@@ -54,6 +54,7 @@ fn router_counts_absorbed_memtable_backpressure_and_flushes_real_ssts() {
     let status = counters.snapshot();
     assert_eq!(status.memtable_absorbed_total, 4);
     assert_eq!(status.memtable_rejected_total, 0);
+    assert_eq!(status.disk_pressure_events_total, 0);
     assert_eq!(status.events_total, 4);
     // Physical evidence: each absorbed event produced one SST flush on disk.
     assert_eq!(router.level_file_count(ColumnFamily::Base), 4);
@@ -73,6 +74,7 @@ fn router_counts_rejected_row_larger_than_cap() {
     let status = counters.snapshot();
     assert_eq!(status.memtable_absorbed_total, 0);
     assert_eq!(status.memtable_rejected_total, 1);
+    assert_eq!(status.disk_pressure_events_total, 0);
     assert_eq!(status.events_total, 1);
     fs::remove_dir_all(dir).unwrap();
 }
@@ -257,6 +259,7 @@ fn metrics_text_renders_prometheus_conventions() {
         backpressure: BackpressureStatus {
             memtable_absorbed_total: 3,
             memtable_rejected_total: 1,
+            disk_pressure_events_total: 2,
             events_total: 4,
         },
         wal: WalStatus {
@@ -276,6 +279,7 @@ fn metrics_text_renders_prometheus_conventions() {
     assert!(text.contains(
         "calyx_backpressure_events_total{vault=\"demo\",source=\"memtable_absorbed\"} 3"
     ));
+    assert!(text.contains("calyx_disk_pressure_events_total{vault=\"demo\"} 2"));
     assert!(text.contains("calyx_wal_bytes{vault=\"demo\"} 640"));
 }
 

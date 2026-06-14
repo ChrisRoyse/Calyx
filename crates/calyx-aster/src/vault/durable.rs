@@ -5,6 +5,8 @@ use crate::cf::ColumnFamily;
 use crate::compaction::TieringPolicy;
 use crate::dedup::DedupPolicy;
 use crate::manifest::recover_vault;
+use crate::pressure::DiskPressureGuard;
+use crate::resource::ResourceCounters;
 use crate::sst::{SstReader, write_sst};
 use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name};
 use crate::timetravel::RetentionHorizon;
@@ -32,6 +34,7 @@ pub struct VaultOptions {
     /// Optional data-residency pin (PRD `30 §4`). When set, the vault's storage
     /// location is pinned and off-dataset writes/copies fail closed.
     pub residency: Option<crate::residency::Residency>,
+    pub disk_pressure_guard: Option<DiskPressureGuard>,
 }
 
 impl Default for VaultOptions {
@@ -46,6 +49,7 @@ impl Default for VaultOptions {
             retention_horizon: RetentionHorizon::default(),
             panel: None,
             residency: None,
+            disk_pressure_guard: None,
         }
     }
 }
@@ -60,6 +64,7 @@ pub(super) struct DurableVault {
     dedup_policy: Option<DedupPolicy>,
     retention_horizon: Mutex<RetentionHorizon>,
     panel: Option<Panel>,
+    disk_pressure_guard: Option<DiskPressureGuard>,
     pending_checkpoint: Mutex<Vec<(u64, Vec<WriteRow>)>>,
     #[cfg(test)]
     fail_next_wal_append: Arc<AtomicBool>,
@@ -117,6 +122,7 @@ impl DurableVault {
             dedup_policy: options.dedup_policy.clone(),
             retention_horizon: Mutex::new(options.retention_horizon.clone()),
             panel: options.panel.clone(),
+            disk_pressure_guard: options.disk_pressure_guard.clone(),
             pending_checkpoint: Mutex::new(Vec::new()),
             #[cfg(test)]
             fail_next_wal_append: Arc::new(AtomicBool::new(false)),
@@ -191,6 +197,21 @@ impl DurableVault {
         Ok(ack.seq)
     }
 
+    pub(super) fn ensure_disk_write_allowed(&self, counters: &ResourceCounters) -> Result<()> {
+        let Some(guard) = &self.disk_pressure_guard else {
+            return Ok(());
+        };
+        match guard.check() {
+            Ok(_) => Ok(()),
+            Err(error) if error.code == "CALYX_DISK_PRESSURE" => {
+                counters.record_disk_pressure();
+                guard.request_spill();
+                Err(error)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub(super) fn durable_tip_seq(&self) -> Result<u64> {
         self.batcher.tip_seq()
     }
@@ -238,6 +259,7 @@ impl DurableVault {
             dedup_policy: self.dedup_policy.clone(),
             retention_horizon: self.retention_horizon(),
             panel: self.panel.clone(),
+            disk_pressure_guard: self.disk_pressure_guard.clone(),
             ..VaultOptions::default()
         };
         Self::recover_batches(&self.root, &options)

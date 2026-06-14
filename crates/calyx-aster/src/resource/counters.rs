@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 pub struct ResourceCounters {
     memtable_absorbed_total: AtomicU64,
     memtable_rejected_total: AtomicU64,
+    disk_pressure_events_total: AtomicU64,
 }
 
 impl ResourceCounters {
@@ -27,13 +28,21 @@ impl ResourceCounters {
         self.memtable_rejected_total.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Records a `CALYX_DISK_PRESSURE` write-admission rejection.
+    pub fn record_disk_pressure(&self) {
+        self.disk_pressure_events_total
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     /// Snapshots the counters into a serializable status section.
     pub fn snapshot(&self) -> BackpressureStatus {
         let absorbed = self.memtable_absorbed_total.load(Ordering::Relaxed);
         let rejected = self.memtable_rejected_total.load(Ordering::Relaxed);
+        let disk_pressure = self.disk_pressure_events_total.load(Ordering::Relaxed);
         BackpressureStatus {
             memtable_absorbed_total: absorbed,
             memtable_rejected_total: rejected,
+            disk_pressure_events_total: disk_pressure,
             events_total: absorbed.saturating_add(rejected),
         }
     }
@@ -46,6 +55,8 @@ pub struct BackpressureStatus {
     pub memtable_absorbed_total: u64,
     /// `CALYX_BACKPRESSURE` events that persisted after the emergency flush.
     pub memtable_rejected_total: u64,
+    /// `CALYX_DISK_PRESSURE` write-admission rejections.
+    pub disk_pressure_events_total: u64,
     /// Sum of all backpressure events observed by this process.
     pub events_total: u64,
 }
