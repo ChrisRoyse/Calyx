@@ -29,6 +29,7 @@ pub fn collect_resource_status(
         rss_bytes: heap_rss_bytes()?,
     };
     let compaction = collect_compaction(vault_dir)?;
+    let gc = store.snapshot_gc_metrics(now);
     let wal = collect_wal(vault_dir)?;
     let pinned = collect_pinned(store, now);
     let backpressure = store.resource_counters().snapshot();
@@ -41,6 +42,7 @@ pub fn collect_resource_status(
         memtable,
         vram,
         compaction,
+        gc,
         pinned,
         backpressure,
         wal,

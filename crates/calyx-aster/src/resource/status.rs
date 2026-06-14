@@ -1,5 +1,6 @@
 //! Aggregate resource-health status (PRD 18 §4 `resource_status`, 24 §8).
 
+use crate::gc::GcMetrics;
 use crate::resource::counters::BackpressureStatus;
 use calyx_core::Ts;
 use serde::{Deserialize, Serialize};
@@ -21,6 +22,7 @@ pub struct ResourceStatus {
     pub memtable: MemtableStatus,
     pub vram: VramBudgetStatus,
     pub compaction: CompactionDebtStatus,
+    pub gc: GcMetrics,
     pub pinned: PinnedSeqStatus,
     pub backpressure: BackpressureStatus,
     pub wal: WalStatus,
@@ -154,6 +156,26 @@ impl ResourceStatus {
             "calyx_compaction_target_bytes",
             base.clone(),
             self.compaction.target_bytes,
+        );
+        metric(
+            "calyx_gc_versions_reclaimed_total",
+            base.clone(),
+            self.gc.versions_reclaimed_total,
+        );
+        metric(
+            "calyx_gc_bytes_freed_total",
+            base.clone(),
+            self.gc.bytes_freed_total,
+        );
+        metric(
+            "calyx_gc_soft_deletes_purged_total",
+            base.clone(),
+            self.gc.soft_deletes_purged_total,
+        );
+        metric(
+            "calyx_compaction_debt",
+            base.clone(),
+            self.gc.compaction_debt,
         );
         metric(
             "calyx_oldest_pinned_seq_gap",
