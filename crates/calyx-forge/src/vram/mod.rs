@@ -22,11 +22,12 @@ pub mod admission;
 pub mod budget;
 pub mod lru_evict;
 pub mod oom_guard;
+pub mod yield_policy;
 
 pub use admission::{AdmissionController, AdmissionOutput, AdmitDecision, QueuedDispatch};
 pub use budget::{
-    DEFAULT_SOFT_CAP_BYTES, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV, VRAM_BUDGET_REMEDIATION,
-    VramBudgeter, VramGuard,
+    Category, DEFAULT_SOFT_CAP_BYTES, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV,
+    VRAM_BUDGET_REMEDIATION, VramBudgeter, VramGuard,
 };
 pub use lru_evict::{
     BlockDeallocator, BlockId, BlockKind, DevicePtr, GpuBlockRegistry, GpuBlockStats,
@@ -34,6 +35,12 @@ pub use lru_evict::{
 #[cfg(feature = "cuda")]
 pub use oom_guard::RawCudaMalloc;
 pub use oom_guard::{CudaAllocError, CudaMalloc, DEFAULT_OOM_MAX_RETRIES, OomGuard, OomGuardStats};
+#[cfg(feature = "cuda")]
+pub use yield_policy::CudaStream;
+pub use yield_policy::{
+    ANNEAL_VRAM_BUDGET_ENV, DEFAULT_ANNEAL_THROTTLE_SLEEP, DEFAULT_ANNEAL_VRAM_CAP_BYTES,
+    DEFAULT_POWER_BACKOFF_THRESHOLD_W, NvmlPowerProbe, PowerProbe, YieldPolicy,
+};
 
 use crate::Result;
 
@@ -60,6 +67,10 @@ pub struct VramStats {
     pub soft_cap_bytes: usize,
     /// Forge's currently reserved total (sum of live [`VramGuard`]s), in bytes.
     pub allocated_bytes: usize,
+    /// Serving/search/embed reserved bytes.
+    pub serving_allocated_bytes: usize,
+    /// Anneal/autotune/background reserved bytes.
+    pub anneal_allocated_bytes: usize,
     /// Live free device VRAM (bytes) at snapshot time; `0` if the probe failed
     /// (a failure is logged at warn level — `0` is a visible alarm, never a
     /// silent success).
@@ -74,6 +85,17 @@ pub struct VramStats {
     pub failed_total: u64,
     /// Cumulative last-resort CUDA OOM guard counters.
     pub oom_guard: OomGuardStats,
+    /// Anneal yield/cap counters.
+    pub yield_stats: YieldStats,
+}
+
+/// Counters for Anneal's background-yield controls.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Default, serde::Serialize)]
+pub struct YieldStats {
+    /// Times Anneal dispatch was throttled due to sustained high GPU power.
+    pub anneal_throttle_events: u64,
+    /// Anneal VRAM reservations rejected by the background sub-budget.
+    pub anneal_vram_rejections: u64,
 }
 
 impl VramStats {
@@ -84,6 +106,12 @@ impl VramStats {
                 "# HELP calyx_forge_vram_admission_splits_total Forge VRAM dispatches admitted for immediate execution.\n",
                 "# TYPE calyx_forge_vram_admission_splits_total counter\n",
                 "calyx_forge_vram_admission_splits_total {}\n",
+                "# HELP forge_vram_serving_allocated_bytes Serving VRAM bytes currently reserved by Forge.\n",
+                "# TYPE forge_vram_serving_allocated_bytes gauge\n",
+                "forge_vram_serving_allocated_bytes {}\n",
+                "# HELP forge_vram_anneal_allocated_bytes Anneal VRAM bytes currently reserved by Forge.\n",
+                "# TYPE forge_vram_anneal_allocated_bytes gauge\n",
+                "forge_vram_anneal_allocated_bytes {}\n",
                 "# HELP calyx_forge_vram_admission_queued_total Forge VRAM dispatches placed in the bounded queue.\n",
                 "# TYPE calyx_forge_vram_admission_queued_total counter\n",
                 "calyx_forge_vram_admission_queued_total {}\n",
@@ -98,14 +126,24 @@ impl VramStats {
                 "forge_oom_batch_reductions_total {}\n",
                 "# HELP forge_oom_final_failures_total OOM guard paths that failed closed with CALYX_FORGE_VRAM_BUDGET.\n",
                 "# TYPE forge_oom_final_failures_total counter\n",
-                "forge_oom_final_failures_total {}\n"
+                "forge_oom_final_failures_total {}\n",
+                "# HELP forge_anneal_throttle_events_total Anneal dispatch throttles due to GPU power backoff.\n",
+                "# TYPE forge_anneal_throttle_events_total counter\n",
+                "forge_anneal_throttle_events_total {}\n",
+                "# HELP forge_anneal_vram_rejections_total Anneal VRAM reservations rejected by the Anneal sub-budget.\n",
+                "# TYPE forge_anneal_vram_rejections_total counter\n",
+                "forge_anneal_vram_rejections_total {}\n"
             ),
             self.splits_total,
+            self.serving_allocated_bytes,
+            self.anneal_allocated_bytes,
             self.queued_total,
             self.failed_total,
             self.oom_guard.oom_intercepts,
             self.oom_guard.batch_reductions,
-            self.oom_guard.final_failures
+            self.oom_guard.final_failures,
+            self.yield_stats.anneal_throttle_events,
+            self.yield_stats.anneal_vram_rejections
         )
     }
 }
