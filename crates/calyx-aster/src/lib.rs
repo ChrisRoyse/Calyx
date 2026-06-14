@@ -27,6 +27,7 @@ pub mod stream;
 pub mod stride_fsv;
 pub mod supply_chain;
 pub mod timetravel;
+pub mod txn;
 pub mod vault;
 pub mod wal;
 
