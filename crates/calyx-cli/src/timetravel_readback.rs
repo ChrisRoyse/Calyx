@@ -53,6 +53,9 @@ pub fn readback_as_of(vault: &Path, t_millis: &str) -> crate::error::CliResult {
         .parse()
         .map_err(|error| format!("invalid --t-millis: {error}"))?;
     let store = open_vault(vault)?;
+    // Readback is an integrity surface: validate the physical time-index CF
+    // before printing a snapshot so malformed keys are never masked.
+    read_all(&store).map_err(|error| error.to_string())?;
     let snapshot = store.as_of(t_millis).map_err(|error| error.to_string())?;
 
     // The cx universe is every Base row visible at the vault's latest sequence;
