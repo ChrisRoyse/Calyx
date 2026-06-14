@@ -15,7 +15,7 @@ where
         payload: Vec<u8>,
         actor: ActorId,
     ) -> Result<Seq> {
-        let data_rows = rows
+        let mut data_rows = rows
             .into_iter()
             .map(|(cf, key, value)| encode::WriteRow { cf, key, value })
             .collect::<Vec<_>>();
@@ -30,6 +30,8 @@ where
                 let staged = ledger_hook::stage_entry_payload(
                     &hook, &mut rows, kind, subject, payload, actor,
                 )?;
+                let ledger_ref = staged_ledger_ref(&staged)?;
+                attach_ledger_ref_to_base_rows(&mut data_rows, &ledger_ref)?;
                 rows.extend(data_rows);
                 let seq = self.commit_rows_locked(&rows)?;
                 ledger_hook::commit_staged(&mut hook, &staged)?;
@@ -43,6 +45,8 @@ where
             let mut rows = Vec::with_capacity(data_rows.len() + 1);
             let staged =
                 ledger_hook::stage_entry_payload(hook, &mut rows, kind, subject, payload, actor)?;
+            let ledger_ref = staged_ledger_ref(&staged)?;
+            attach_ledger_ref_to_base_rows(&mut data_rows, &ledger_ref)?;
             rows.extend(data_rows);
             let seq = self.commit_rows_locked(&rows)?;
             ledger_hook::commit_staged(hook, &staged)?;
@@ -80,4 +84,23 @@ where
             None,
         )
     }
+}
+
+fn staged_ledger_ref(staged: &[calyx_ledger::StagedLedgerRow]) -> Result<calyx_core::LedgerRef> {
+    staged
+        .first()
+        .map(calyx_ledger::StagedLedgerRow::ledger_ref)
+        .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))
+}
+
+fn attach_ledger_ref_to_base_rows(
+    rows: &mut [encode::WriteRow],
+    ledger_ref: &calyx_core::LedgerRef,
+) -> Result<()> {
+    for row in rows.iter_mut().filter(|row| row.cf == ColumnFamily::Base) {
+        let mut constellation = encode::decode_constellation_base(&row.value)?;
+        constellation.provenance = ledger_ref.clone();
+        row.value = encode::encode_constellation_base(&constellation)?;
+    }
+    Ok(())
 }
