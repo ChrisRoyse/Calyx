@@ -24,7 +24,7 @@ use crate::ledger_store::AsterLedgerCfStore;
 
 const CALYX_ASSAY_INVALID_METRIC: &str = "CALYX_ASSAY_INVALID_METRIC";
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = LensProposalLogRequest::parse(args)?;
     let readback = match request.source {
         LensProposalLogSource::Fixture(fixture) => read_fixture_entries(fixture, request.last)?,

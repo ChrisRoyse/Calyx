@@ -25,7 +25,7 @@ use serde_json::{Value, json};
 use spec::{NavSpec, build_engine};
 
 /// Dispatches a `calyx navigate <mode> [flags]` invocation.
-pub fn run(mode: &str, args: &[String]) -> Result<(), String> {
+pub fn run(mode: &str, args: &[String]) -> crate::error::CliResult {
     let flags = Flags::parse(args)?;
     match mode {
         "neighbors" => run_neighbors(&flags),
@@ -38,7 +38,8 @@ pub fn run(mode: &str, args: &[String]) -> Result<(), String> {
         other => Err(format!(
             "unknown navigate mode `{other}` (expected one of: neighbors, define, agree, \
              disagree, traverse, skills, search-skill)"
-        )),
+        )
+        .into()),
     }
 }
 
@@ -47,7 +48,7 @@ enum Consensus {
     Disagree,
 }
 
-fn run_neighbors(flags: &Flags) -> Result<(), String> {
+fn run_neighbors(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let cx = flags.cx_id("cx")?;
     let slot = flags.slot("slot")?;
@@ -65,7 +66,7 @@ fn run_neighbors(flags: &Flags) -> Result<(), String> {
     )
 }
 
-fn run_define(flags: &Flags) -> Result<(), String> {
+fn run_define(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let cx = flags.cx_id("cx")?;
     let slot = flags.slot("slot")?;
@@ -83,7 +84,7 @@ fn run_define(flags: &Flags) -> Result<(), String> {
     )
 }
 
-fn run_consensus(flags: &Flags, kind: Consensus) -> Result<(), String> {
+fn run_consensus(flags: &Flags, kind: Consensus) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let anchor = flags.cx_id("anchor")?;
     let k = flags.usize_value("k")?;
@@ -111,7 +112,7 @@ fn run_consensus(flags: &Flags, kind: Consensus) -> Result<(), String> {
     )
 }
 
-fn run_traverse(flags: &Flags) -> Result<(), String> {
+fn run_traverse(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let anchor = flags.cx_id("anchor")?;
     let hops = u32::try_from(flags.usize_value("hops")?)
@@ -130,7 +131,7 @@ fn run_traverse(flags: &Flags) -> Result<(), String> {
     )
 }
 
-fn run_skills(flags: &Flags) -> Result<(), String> {
+fn run_skills(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let params = flags.skill_params()?;
     let tree = skills(&engine, &params).map_err(code_message)?;
@@ -144,7 +145,7 @@ fn run_skills(flags: &Flags) -> Result<(), String> {
     )
 }
 
-fn run_search_skill(flags: &Flags) -> Result<(), String> {
+fn run_search_skill(flags: &Flags) -> crate::error::CliResult {
     let engine = load_engine(flags)?;
     let params = flags.skill_params()?;
     let tree = skills(&engine, &params).map_err(code_message)?;
@@ -183,7 +184,7 @@ fn load_engine(flags: &Flags) -> Result<SearchEngine, String> {
 }
 
 /// Serializes the readback, optionally pinning it to a Source-of-Truth file.
-fn emit(report: Value, out: Option<&str>) -> Result<(), String> {
+fn emit(report: Value, out: Option<&str>) -> crate::error::CliResult {
     let bytes = serde_json::to_vec_pretty(&report).map_err(|error| error.to_string())?;
     match out {
         Some(path) => {

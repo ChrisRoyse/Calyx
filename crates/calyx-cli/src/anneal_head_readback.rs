@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
 
-pub fn head_status(vault: &Path, kind_label: &str) -> Result<(), String> {
+pub fn head_status(vault: &Path, kind_label: &str) -> crate::error::CliResult {
     let kind = HeadKind::from_label(kind_label).map_err(|error| error.to_string())?;
     let cf = ColumnFamily::AnnealHeads;
     let wanted_key = head_key(kind);

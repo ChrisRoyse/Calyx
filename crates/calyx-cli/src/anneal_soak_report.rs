@@ -8,7 +8,7 @@ use serde_json::json;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = SoakReportRequest::parse(args)?;
     let readback = read_soak_rows(&request.vault, request.last)?;
     println!(

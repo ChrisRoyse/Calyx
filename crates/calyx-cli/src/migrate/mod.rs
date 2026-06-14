@@ -18,6 +18,9 @@ use manifest::MigrationManifest;
 use reader::{open_sqlite, read_chunk, stream_rows};
 use verifier::{StatusReport, VerifyReport, readback_chunk, status, verify_migration};
 
+use crate::error::CliResult;
+use crate::output::print_json;
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 struct MigrateVaultReport {
     source_rows: usize,
@@ -37,34 +40,32 @@ struct MigrationOptions {
     mode: Option<BackfillMode>,
 }
 
-pub(crate) fn run(topic: &str, rest: &[String]) -> std::result::Result<(), String> {
+pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
     match topic {
         "vault" => {
             let (sqlite, vault, options) = parse_vault(rest)?;
-            let report = migrate_vault(sqlite, vault, options).map_err(|err| err.to_string())?;
+            let report = migrate_vault(sqlite, vault, options)?;
             print_json(&report)
         }
         "backfill" => {
             let (sqlite, vault, options) = parse_backfill(rest)?;
-            let report = run_backfill(sqlite, vault, options).map_err(|err| err.to_string())?;
+            let report = run_backfill(sqlite, vault, options)?;
             print_json(&report)
         }
         "verify" => {
             let (sqlite, vault, require_backfill) = parse_verify(rest)?;
-            let report =
-                run_verify(sqlite, vault, require_backfill).map_err(|err| err.to_string())?;
+            let report = run_verify(sqlite, vault, require_backfill)?;
             print_json(&report)
         }
         "status" if rest.len() == 1 => {
-            let report = run_status(Path::new(&rest[0])).map_err(|err| err.to_string())?;
+            let report = run_status(Path::new(&rest[0]))?;
             print_json(&report)
         }
         "readback" if rest.len() == 3 => {
-            let value = run_readback(Path::new(&rest[0]), Path::new(&rest[1]), &rest[2])
-                .map_err(|err| err.to_string())?;
+            let value = run_readback(Path::new(&rest[0]), Path::new(&rest[1]), &rest[2])?;
             print_json(&value)
         }
-        _ => Err(migrate_usage()),
+        _ => Err(migrate_usage().into()),
     }
 }
 
@@ -247,12 +248,6 @@ fn parse_options(
         }
         idx += 1;
     }
-    Ok(())
-}
-
-fn print_json<T: Serialize>(value: &T) -> std::result::Result<(), String> {
-    let text = serde_json::to_string_pretty(value).map_err(|err| err.to_string())?;
-    println!("{text}");
     Ok(())
 }
 

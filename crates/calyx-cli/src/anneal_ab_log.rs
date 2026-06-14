@@ -7,7 +7,7 @@ use serde_json::json;
 use crate::cf_read::hex_bytes as hex;
 use crate::ledger_store::AsterLedgerCfStore;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = ABLogRequest::parse(args)?;
     let entries = read_ab_entries(&request.vault, request.last)?;
     let report = json!({

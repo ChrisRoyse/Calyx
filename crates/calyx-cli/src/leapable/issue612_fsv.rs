@@ -72,7 +72,7 @@ struct TableProof {
     bytes_identical: bool,
 }
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let args = parse_args(args)?;
     let evidence = build_evidence(&args)?;
     let bytes = serde_json::to_vec_pretty(&evidence).map_err(|error| error.to_string())?;

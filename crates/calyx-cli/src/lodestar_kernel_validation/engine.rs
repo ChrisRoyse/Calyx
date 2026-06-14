@@ -254,7 +254,7 @@ fn add_full_hits(
     full: &InMemoryAnnIndex,
     corpus: &GraphCorpus,
     params: &RecallTestParams,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     for ordinal in sample_ordinals(&corpus.rows, params.held_out_fraction, params.rng_seed) {
         let query = &corpus.rows[ordinal];
         let hits = full

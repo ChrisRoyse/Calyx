@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use calyx_core::CalyxError;
 use calyxd::verify::verify_restore;
 use serde::Serialize;
 
@@ -19,6 +20,9 @@ const DEFAULT_OUT: &str = "/zfs/hot/logs/calyx-health/latest.json";
 const DEFAULT_SECRET_ENV: &str = "/run/leapable/secrets/calyx.env";
 const DEFAULT_CALYX_HOME: &str = "/home/croyse/calyx";
 const DEFAULT_REQUIRED_ENV: [&str; 2] = ["HF_HUB_TOKEN", "HF_TOKEN"];
+const CALYX_HEALTHCHECK_FAILED: &str = "CALYX_HEALTHCHECK_FAILED";
+const HEALTHCHECK_FAILED_REMEDIATION: &str =
+    "inspect the written healthcheck JSON source of truth and fix failed checks";
 
 #[derive(Debug)]
 struct HealthArgs {
@@ -49,7 +53,7 @@ struct HealthCheck {
     detail: String,
 }
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = HealthArgs::parse(args)?;
     let started = Instant::now();
     let wait = Duration::from_secs(request.wait_secs);
@@ -60,9 +64,9 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         if report.failure_count == 0 {
             return Ok(());
         }
-        let failure = failure_message(&request.out, &report);
+        let failure = failure_error(&request.out, &report);
         if started.elapsed() >= wait {
-            return Err(failure);
+            return Err(failure.into());
         }
         thread::sleep(Duration::from_secs(1));
     }
@@ -115,7 +119,9 @@ impl HealthArgs {
                     request.required_env.push(value(args, i)?.to_string());
                     i += 2;
                 }
-                other => return Err(format!("CALYX_HEALTH_CONFIG_INVALID: unknown arg {other}")),
+                other => {
+                    return Err(format!("CALYX_HEALTH_CONFIG_INVALID: unknown arg {other}"));
+                }
             }
         }
         if request.required_env.iter().any(|name| name.is_empty()) {
@@ -283,7 +289,7 @@ fn check_metrics(url: &str) -> HealthCheck {
     }
 }
 
-fn write_and_read_back(path: &Path, report: &HealthReport) -> Result<(), String> {
+fn write_and_read_back(path: &Path, report: &HealthReport) -> std::result::Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
             format!(
@@ -378,7 +384,7 @@ impl ParsedHttpUrl {
 }
 
 #[cfg(unix)]
-fn check_mode_0400(path: &Path, metadata: &fs::Metadata) -> Result<(), String> {
+fn check_mode_0400(path: &Path, metadata: &fs::Metadata) -> std::result::Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
 
     let mode = metadata.permissions().mode() & 0o777;
@@ -394,7 +400,7 @@ fn check_mode_0400(path: &Path, metadata: &fs::Metadata) -> Result<(), String> {
 }
 
 #[cfg(not(unix))]
-fn check_mode_0400(_path: &Path, _metadata: &fs::Metadata) -> Result<(), String> {
+fn check_mode_0400(_path: &Path, _metadata: &fs::Metadata) -> std::result::Result<(), String> {
     Ok(())
 }
 
@@ -449,7 +455,7 @@ fn fail(name: &'static str, code: &'static str, detail: String) -> HealthCheck {
     }
 }
 
-fn failure_message(path: &Path, report: &HealthReport) -> String {
+fn failure_error(path: &Path, report: &HealthReport) -> CalyxError {
     let details = report
         .checks
         .iter()
@@ -463,11 +469,15 @@ fn failure_message(path: &Path, report: &HealthReport) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "CALYX_HEALTHCHECK_FAILED: wrote {} with {} failure(s): {details}",
-        path.display(),
-        report.failure_count
-    )
+    CalyxError {
+        code: CALYX_HEALTHCHECK_FAILED,
+        message: format!(
+            "wrote {} with {} failure(s): {details}",
+            path.display(),
+            report.failure_count
+        ),
+        remediation: HEALTHCHECK_FAILED_REMEDIATION,
+    }
 }
 
 fn unix_secs() -> u64 {

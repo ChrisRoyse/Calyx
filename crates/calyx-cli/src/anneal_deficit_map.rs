@@ -10,7 +10,7 @@ use calyx_core::{CalyxError, FixedClock, LensId, Modality, Result as CalyxResult
 use serde::Deserialize;
 use serde_json::json;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = DeficitMapRequest::parse(args)?;
     let fixture_bytes = fs::read(&request.fixture).map_err(|error| {
         format!(

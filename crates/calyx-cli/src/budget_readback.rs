@@ -4,7 +4,7 @@ use std::path::Path;
 use calyx_anneal::{budget_config_path, read_budget_config_from_vault};
 use serde_json::json;
 
-pub fn readback_budget_config(vault: &Path) -> Result<(), String> {
+pub fn readback_budget_config(vault: &Path) -> crate::error::CliResult {
     let config_path = budget_config_path(vault);
     let bytes = fs::read(&config_path)
         .map_err(|error| format!("read {}: {error}", config_path.display()))?;

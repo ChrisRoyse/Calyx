@@ -8,7 +8,7 @@ use engine::evaluate_corpora;
 use metrics::write_metric_outputs;
 use request::LodestarKernelRequest;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = LodestarKernelRequest::parse(args)?;
     let data = CorpusSet::load(&request.corpora_dir)?;
     let report = evaluate_corpora(&data, &request)?;

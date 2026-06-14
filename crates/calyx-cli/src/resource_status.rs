@@ -5,7 +5,7 @@ use std::path::Path;
 use calyx_anneal::{BudgetConfig, BudgetEnforcer};
 use calyx_aster::resource::VramBudgetStatus;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::SystemClock;
+use calyx_core::{CalyxError, SystemClock};
 
 pub(crate) const RESOURCE_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 pub(crate) const RESOURCE_VAULT_SALT: &[u8] = b"calyx-resource-status";
@@ -20,20 +20,22 @@ pub(crate) enum ResourceStatusFormat {
 pub(crate) fn run_resource_status(
     vault: &Path,
     format: ResourceStatusFormat,
-) -> Result<(), String> {
+) -> crate::error::CliResult {
     // A status probe must never create vault state: refuse paths that are not
     // already an Aster vault instead of letting open() materialize skeleton dirs.
     if !vault.is_dir() {
-        return Err(format!(
-            "CALYX_DISK_PRESSURE: vault dir {} does not exist",
+        return Err(CalyxError::disk_pressure(format!(
+            "vault dir {} does not exist",
             vault.display()
-        ));
+        ))
+        .into());
     }
     if !vault.join("cf").is_dir() {
-        return Err(format!(
-            "CALYX_DISK_PRESSURE: {} has no cf/ root; not an Aster vault",
+        return Err(CalyxError::disk_pressure(format!(
+            "{} has no cf/ root; not an Aster vault",
             vault.display()
-        ));
+        ))
+        .into());
     }
     let store = open_resource_vault(vault, VaultOptions::default())?;
     let vram = vram_status_from_vault(vault)?;

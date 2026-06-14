@@ -259,7 +259,7 @@ fn multi_query(
     engine.search(&query).map_err(|error| error.to_string())
 }
 
-pub(super) fn ensure_ledger_refs(hits: &[calyx_sextant::Hit]) -> Result<(), String> {
+pub(super) fn ensure_ledger_refs(hits: &[calyx_sextant::Hit]) -> std::result::Result<(), String> {
     if hits
         .iter()
         .all(|hit| hit.provenance_source == ProvenanceSource::Stored)

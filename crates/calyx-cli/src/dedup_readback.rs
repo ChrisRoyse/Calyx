@@ -17,7 +17,7 @@ pub struct DedupReadbackArgs<'a> {
     pub salt: &'a str,
 }
 
-pub fn readback_dedup_check(args: DedupReadbackArgs<'_>) -> Result<(), String> {
+pub fn readback_dedup_check(args: DedupReadbackArgs<'_>) -> crate::error::CliResult {
     let slot = parse_slot(args.slot)?;
     let tau = parse_cosine(args.tau, "--tau")?;
     let near_cos = parse_cosine(args.near_cos, "--near-cos")?;

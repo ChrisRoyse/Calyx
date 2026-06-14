@@ -70,7 +70,7 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn write_float(path: &Path, value: f32) -> Result<(), String> {
+fn write_float(path: &Path, value: f32) -> std::result::Result<(), String> {
     if !value.is_finite() {
         return Err(format!(
             "CALYX_FSV_LODESTAR_NONFINITE_METRIC: {}",
@@ -80,7 +80,7 @@ fn write_float(path: &Path, value: f32) -> Result<(), String> {
     fs::write(path, format!("{value:.6}\n")).map_err(|error| error.to_string())
 }
 
-fn write_gaps(path: &PathBuf, corpus: &CorpusReport) -> Result<(), String> {
+fn write_gaps(path: &PathBuf, corpus: &CorpusReport) -> std::result::Result<(), String> {
     let mut out = String::new();
     out.push_str(&format!("corpus={}\n", corpus.corpus));
     out.push_str(&format!(

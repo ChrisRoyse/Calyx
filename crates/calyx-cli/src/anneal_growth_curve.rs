@@ -10,7 +10,7 @@ const GROWTH_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const GROWTH_VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
 const DEFAULT_LAST: usize = 20;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = GrowthCurveRequest::parse(args)?;
     let vault_id = GROWTH_VAULT_ID
         .parse::<VaultId>()

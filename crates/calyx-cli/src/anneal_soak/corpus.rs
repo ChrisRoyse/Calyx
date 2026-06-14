@@ -82,7 +82,10 @@ pub(super) fn ingest_corpus(
     Ok(stats)
 }
 
-fn flush_batch(vault: &AsterVault, batch: &mut Vec<Constellation>) -> Result<(), String> {
+fn flush_batch(
+    vault: &AsterVault,
+    batch: &mut Vec<Constellation>,
+) -> std::result::Result<(), String> {
     if batch.is_empty() {
         return Ok(());
     }

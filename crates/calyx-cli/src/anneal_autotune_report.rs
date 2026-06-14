@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use crate::cf_read::{hex_bytes as hex, list_sst_files};
 use crate::ledger_store::AsterLedgerCfStore;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = ReportRequest::parse(args)?;
     request.validate()?;
     let cache = read_cache(&request.cache, &request)?;

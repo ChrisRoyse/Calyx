@@ -54,7 +54,7 @@ pub(crate) fn write_metric_outputs(
     })
 }
 
-fn write_float(path: &std::path::Path, value: f64) -> Result<(), String> {
+fn write_float(path: &std::path::Path, value: f64) -> std::result::Result<(), String> {
     if !value.is_finite() {
         return Err(format!(
             "CALYX_FSV_SEXTANT_NONFINITE_METRIC: {}",

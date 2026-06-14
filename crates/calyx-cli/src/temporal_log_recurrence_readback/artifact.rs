@@ -60,7 +60,11 @@ pub(super) fn vault_files(root: &Path) -> Result<Vec<Value>, String> {
     Ok(files)
 }
 
-fn collect_files(root: &Path, dir: &Path, files: &mut Vec<Value>) -> Result<(), String> {
+fn collect_files(
+    root: &Path,
+    dir: &Path,
+    files: &mut Vec<Value>,
+) -> std::result::Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|error| error.to_string())? {
         let path = entry.map_err(|error| error.to_string())?.path();
         if path.is_dir() {
@@ -78,7 +82,7 @@ fn collect_files(root: &Path, dir: &Path, files: &mut Vec<Value>) -> Result<(), 
     Ok(())
 }
 
-pub(super) fn write_json(path: &Path, value: &Value) -> Result<(), String> {
+pub(super) fn write_json(path: &Path, value: &Value) -> std::result::Result<(), String> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }

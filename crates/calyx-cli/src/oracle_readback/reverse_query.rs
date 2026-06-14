@@ -23,7 +23,7 @@ use crate::cf_read::hex_bytes;
 
 const USAGE: &str = "usage: calyx readback reverse_query --vault <dir> --domain <domain> --answer <text> --fixture <json> --vault-id <id> --salt <s>";
 
-pub(crate) fn readback_reverse_query(args: &[String]) -> Result<(), String> {
+pub(crate) fn readback_reverse_query(args: &[String]) -> crate::error::CliResult {
     let args = ReadbackArgs::parse(args)?;
     let fixture = ReverseFixture::read(&args.fixture, &args.domain)?;
     let vault_id = VaultId::from_str(&args.vault_id)
@@ -92,7 +92,7 @@ pub(crate) fn readback_reverse_query(args: &[String]) -> Result<(), String> {
                 }))
                 .map_err(|error| error.to_string())?
             );
-            Err(error.to_string())
+            Err(error.to_string().into())
         }
     }
 }
@@ -275,7 +275,7 @@ fn write_structural_edge(
     domain: &str,
     edge: &FixtureEdge,
     index: usize,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     let series_key = format!("{index}-{}-structural", edge.from);
     let cx_id = cx_id(domain, &edge.from, &series_key);
     let confidence = edge.confidence.unwrap_or(0.35);
@@ -291,7 +291,7 @@ fn write_structural_edge(
     )
 }
 
-fn write_base(vault: &AsterVault, cx: Constellation) -> Result<(), String> {
+fn write_base(vault: &AsterVault, cx: Constellation) -> std::result::Result<(), String> {
     vault
         .write_cf(
             ColumnFamily::Base,

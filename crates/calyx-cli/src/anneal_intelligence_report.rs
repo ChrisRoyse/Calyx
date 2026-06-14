@@ -20,7 +20,7 @@ use crate::cf_read::hex_bytes;
 const REPORT_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const REPORT_VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = IntelligenceReportRequest::parse(args)?;
     let fixture_bytes = fs::read(&request.fixture).map_err(|error| {
         format!(
@@ -51,7 +51,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let j_value = match compute_j(&context, &fixture.metrics) {
         Ok(value) => value,
         Err(error) if error.code == CALYX_ANNEAL_J_SYNTHETIC_RECURSION => {
-            return Err(format!("{}: {}", error.code, error.message));
+            return Err(error.into());
         }
         Err(_) => unavailable_j_value(weights, goodhart_penalty),
     };

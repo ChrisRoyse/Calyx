@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
 
-pub fn replay_status(vault: &Path) -> Result<(), String> {
+pub fn replay_status(vault: &Path) -> crate::error::CliResult {
     let cf = ColumnFamily::AnnealReplay;
     let snapshot_key = replay_snapshot_key();
     let mut physical_rows = Vec::new();

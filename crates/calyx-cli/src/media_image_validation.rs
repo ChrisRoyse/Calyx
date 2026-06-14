@@ -13,7 +13,7 @@ use engine::evaluate_media_image;
 use metrics::write_metric_outputs;
 use request::MediaImageRequest;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = MediaImageRequest::parse(args)?;
     fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
     let vault_id = request

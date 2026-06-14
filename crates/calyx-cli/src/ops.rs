@@ -21,13 +21,14 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::cf_read::{hex_bytes, list_sst_files};
+use crate::output::print_table;
 
 mod compact;
 pub use compact::compact;
 
 const SOAK_VALUE_BYTES: usize = 256;
 
-pub fn readback_cf(vault: &Path, cf_name: &str) -> Result<(), String> {
+pub fn readback_cf(vault: &Path, cf_name: &str) -> crate::error::CliResult {
     let cf = parse_cf(cf_name)?;
     let files = list_sst_files(&vault.join("cf").join(cf.name()))?;
     for file in files {
@@ -45,7 +46,7 @@ pub fn readback_cf(vault: &Path, cf_name: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn readback_wal(vault: &Path) -> Result<(), String> {
+pub fn readback_wal(vault: &Path) -> crate::error::CliResult {
     let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
     for record in replay.records {
         println!(
@@ -69,7 +70,7 @@ pub fn readback_wal(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn compact_watch(vault: &Path, duration: Duration) -> Result<(), String> {
+pub fn compact_watch(vault: &Path, duration: Duration) -> crate::error::CliResult {
     let catalog = Arc::new(catalog_from_vault_dir(vault).map_err(|error| error.to_string())?);
     let options = CompactionSchedulerOptions {
         interval_ms: 1,
@@ -90,14 +91,14 @@ pub fn compact_watch(vault: &Path, duration: Duration) -> Result<(), String> {
     Ok(())
 }
 
-pub fn tier(vault: &Path, cf_name: &str, output: &str) -> Result<(), String> {
+pub fn tier(vault: &Path, cf_name: &str, output: &str) -> crate::error::CliResult {
     let cf = parse_cf(cf_name)?;
     let (hot, archive) = tier_roots(vault);
     let policy = TieringPolicy::new(hot, archive, [SlotId::new(0), SlotId::new(1)], 1);
     let panel_version = match output {
         "hot" => 1,
         "cold" => 0,
-        _ => return Err("tier output must be hot or cold".to_string()),
+        _ => return Err("tier output must be hot or cold".to_string().into()),
     };
     let written = policy
         .write_tiered_sst(
@@ -116,21 +117,36 @@ pub fn tier(vault: &Path, cf_name: &str, output: &str) -> Result<(), String> {
         written.staging_parent.display()
     );
     if output == "cold" && written.placement.tier != StorageTier::Cold {
-        return Err(format!("{} did not resolve to cold tier", cf.name()));
+        return Err(format!("{} did not resolve to cold tier", cf.name()).into());
     }
     if output == "hot" && written.placement.tier != StorageTier::Hot {
-        return Err(format!("{} did not resolve to hot tier", cf.name()));
+        return Err(format!("{} did not resolve to hot tier", cf.name()).into());
     }
     Ok(())
 }
 
-pub fn soak(vault: &Path, ops: usize, threads: usize) -> Result<(), String> {
+pub fn soak(vault: &Path, ops: usize, threads: usize) -> crate::error::CliResult {
     let fd_before = fd_count();
     fs::create_dir_all(vault.join("cf/base")).map_err(|error| error.to_string())?;
     fs::create_dir_all(vault.join("wal")).map_err(|error| error.to_string())?;
     if ops == 0 {
-        println!("SOAK\tOPS\t0\tWRITE_AMP_MILLI\t1000");
-        println!("FD_COUNT\tBEFORE\t{fd_before}\tAFTER\t{}", fd_count());
+        print_table(
+            &["metric", "before", "after", "value"],
+            &[
+                vec![
+                    "SOAK".to_string(),
+                    "-".to_string(),
+                    "-".to_string(),
+                    "ops=0 write_amp_milli=1000".to_string(),
+                ],
+                vec![
+                    "FD_COUNT".to_string(),
+                    fd_before.to_string(),
+                    fd_count().to_string(),
+                    "-".to_string(),
+                ],
+            ],
+        );
         return Ok(());
     }
 
@@ -170,7 +186,7 @@ pub fn soak(vault: &Path, ops: usize, threads: usize) -> Result<(), String> {
     Ok(())
 }
 
-pub fn vault_demo(vault: &Path) -> Result<(), String> {
+pub fn vault_demo(vault: &Path) -> crate::error::CliResult {
     let vault_id = demo_vault_id()?;
     let writer = AsterVault::new_durable(
         vault,
@@ -199,7 +215,7 @@ pub fn vault_demo(vault: &Path) -> Result<(), String> {
     let mut expected = constellation;
     expected.provenance = got.provenance.clone();
     if got != expected {
-        return Err("cold-open constellation mismatch".to_string());
+        return Err("cold-open constellation mismatch".to_string().into());
     }
 
     println!(
@@ -213,7 +229,7 @@ pub fn vault_demo(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn wal_batch_demo(vault: &Path, requests: usize) -> Result<(), String> {
+pub fn wal_batch_demo(vault: &Path, requests: usize) -> crate::error::CliResult {
     fs::create_dir_all(vault.join("wal")).map_err(|error| error.to_string())?;
     let wal = Wal::open(vault.join("wal"), WalOptions::default()).map_err(|e| e.to_string())?;
     let batcher = Arc::new(
@@ -270,7 +286,10 @@ pub fn parse_duration(value: &str) -> Result<Duration, String> {
         .map_err(|error| error.to_string())
 }
 
-fn write_entries(path: PathBuf, mut entries: Vec<(Vec<u8>, Vec<u8>)>) -> Result<(), String> {
+fn write_entries(
+    path: PathBuf,
+    mut entries: Vec<(Vec<u8>, Vec<u8>)>,
+) -> std::result::Result<(), String> {
     entries.sort_by(|left, right| left.0.cmp(&right.0));
     let refs: Vec<_> = entries
         .iter()

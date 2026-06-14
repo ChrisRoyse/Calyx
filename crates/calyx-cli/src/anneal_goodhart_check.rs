@@ -15,7 +15,7 @@ use calyx_ledger::{ActorId, LedgerAppender};
 use serde::Deserialize;
 use serde_json::json;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = Request::parse(args)?;
     let bytes = fs::read(&request.fixture)
         .map_err(|error| format!("read fixture {}: {error}", request.fixture.display()))?;
@@ -45,7 +45,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         return Err(format!(
             "fixture expected passed={} but report passed={}",
             fixture.expect_pass, report.passed
-        ));
+        )
+        .into());
     }
     let clock = FixedClock::new(fixture.ledger_ts);
     let rollback_readback = apply_synthetic_rollback(

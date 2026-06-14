@@ -15,7 +15,7 @@ use runner::run_seeded_soak;
 
 pub(super) const DEFAULT_MIN_DOCS: usize = 50_000;
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = SoakRequest::parse(args)?;
     fs::create_dir_all(&request.metrics_dir).map_err(|error| error.to_string())?;
     let vault_id = request

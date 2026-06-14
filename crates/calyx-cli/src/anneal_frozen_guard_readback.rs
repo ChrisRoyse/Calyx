@@ -3,7 +3,7 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
-pub fn frozen_guard_report(path: &Path) -> Result<(), String> {
+pub fn frozen_guard_report(path: &Path) -> crate::error::CliResult {
     let bytes = fs::read(path).map_err(|error| error.to_string())?;
     let report: FrozenCheckReport =
         serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
