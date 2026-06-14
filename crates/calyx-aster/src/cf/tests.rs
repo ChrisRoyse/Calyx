@@ -43,6 +43,7 @@ fn column_family_names_match_prd_layout() {
             "timeseries",
             "blob",
             "index_btree",
+            "index_inverted",
         ]
     );
 

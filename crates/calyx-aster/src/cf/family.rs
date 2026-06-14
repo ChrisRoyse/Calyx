@@ -73,11 +73,14 @@ pub enum ColumnFamily {
     /// Btree secondary index (PH54): `0x10 || collection_id || index_id ||
     /// field_val_encoded || pk -> ∅`. Existence is the signal; values are empty.
     IndexBtree,
+    /// Inverted secondary index (PH54): `0x11 || collection_id || index_id ||
+    /// term_hash || pk -> f32_be`. A reserved all-ones term hash stores avgdl stats.
+    IndexInverted,
 }
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 28] = [
+    pub const STATIC: [Self; 29] = [
         Self::Base,
         Self::Collections,
         Self::Relational,
@@ -106,6 +109,7 @@ impl ColumnFamily {
         Self::TimeSeries,
         Self::Blob,
         Self::IndexBtree,
+        Self::IndexInverted,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -163,6 +167,7 @@ impl ColumnFamily {
             Self::AnnealGrowth => "anneal_growth".to_string(),
             Self::TimeIndex => "time_index".to_string(),
             Self::IndexBtree => "index_btree".to_string(),
+            Self::IndexInverted => "index_inverted".to_string(),
         }
     }
 
@@ -194,10 +199,10 @@ impl ColumnFamily {
     /// (see [`crate::vault::keyspace`]).
     ///
     /// Non-slot CFs encode to a single discriminant byte — their position in
-    /// [`Self::STATIC`] (0..28), which stays in sync automatically if the
+    /// [`Self::STATIC`] (0..29), which stays in sync automatically if the
     /// manifest order is extended. Slot CFs encode to
     /// `SLOT_TAG ‖ slot_id_be(2) ‖ kind_byte` so the slot index and
-    /// quantized/raw flavor round-trip exactly. `STATIC` has 28 entries, so no
+    /// quantized/raw flavor round-trip exactly. `STATIC` has 29 entries, so no
     /// static discriminant can collide with `SLOT_KEYSPACE_TAG` (`0xF0`).
     pub fn keyspace_tag(&self) -> Vec<u8> {
         match self {
@@ -245,5 +250,5 @@ impl ColumnFamily {
 }
 
 /// Discriminant byte that marks a slot CF tag. Distinct from every static-CF
-/// discriminant because `STATIC.len()` (28) is far below this value.
+/// discriminant because `STATIC.len()` (29) is far below this value.
 const SLOT_KEYSPACE_TAG: u8 = 0xF0;
