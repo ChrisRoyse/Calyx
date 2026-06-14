@@ -12,6 +12,7 @@ use crate::collection::{
     Schema, collection_has_lens, collection_key, decode_collection,
     ingest_collection_constellation,
 };
+use crate::index::IndexMaintenance;
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 
@@ -116,10 +117,17 @@ impl<'a, C: Clock> RelationalLayer<'a, C> {
         validate_row(col, row)?;
         let key = record_key(col, pk)?;
         let value = encode_record_value(row)?;
+        let old_row = self
+            .vault
+            .read_cf_at(self.vault.latest_seq(), ColumnFamily::Relational, &key)?
+            .map(|bytes| decode_record_value(&bytes))
+            .transpose()?;
+        let mut rows = vec![(ColumnFamily::Relational, key.clone(), value.clone())];
+        IndexMaintenance::stage_put(self.vault, &mut rows, col, pk, old_row.as_ref(), row)?;
         let subject = ledger_subject(&key);
         let payload = ledger_payload(col, pk, &key, &value);
         self.vault.write_cf_batch_with_ledger_entry(
-            [(ColumnFamily::Relational, key, value)],
+            rows,
             EntryKind::Ingest,
             subject,
             payload,

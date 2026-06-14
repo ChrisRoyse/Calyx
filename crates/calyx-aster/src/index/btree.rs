@@ -27,6 +27,7 @@
 
 use calyx_core::{CalyxError, Clock, Result, Seq};
 
+use super::maintenance::CALYX_INDEX_STALE_ENTRY;
 use super::{
     FieldValue, IndexKind, IndexSpec, SecondaryIndex, field_value_type, invalid_index_input,
 };
@@ -385,6 +386,8 @@ pub fn btree_range_at<C: Clock>(
             .is_some()
         {
             out.push(pk);
+        } else {
+            warn_stale_entry(col, spec, &pk);
         }
     }
     Ok(out)
@@ -434,9 +437,21 @@ pub fn btree_count<C: Clock>(
             .is_some()
         {
             count += 1;
+        } else {
+            warn_stale_entry(col, spec, &pk);
         }
     }
     Ok(count)
+}
+
+fn warn_stale_entry(col: &Collection, spec: &IndexSpec, pk: &RecordKey) {
+    tracing::warn!(
+        code = CALYX_INDEX_STALE_ENTRY,
+        collection = %col.name,
+        index = %spec.name,
+        pk_hash = %blake3::hash(pk.as_bytes()).to_hex(),
+        "stale btree index entry skipped"
+    );
 }
 
 #[cfg(test)]

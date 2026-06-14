@@ -21,10 +21,12 @@
 
 pub mod btree;
 pub mod inverted;
+pub mod maintenance;
 mod terms;
 
 pub use btree::{BtreeIndex, DISC_BTREE_INDEX};
 pub use inverted::{DISC_INVERTED_INDEX, InvertedIndex};
+pub use maintenance::{CALYX_INDEX_STALE_ENTRY, IndexMaintenance};
 
 use calyx_core::{CalyxError, Result};
 
