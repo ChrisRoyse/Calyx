@@ -255,6 +255,7 @@ fn metrics_text_renders_prometheus_conventions() {
             oldest_pinned_seq: Some(5),
             oldest_pinned_seq_gap: 4,
             active_leases: 1,
+            reader_lease_expired_total: 2,
         },
         backpressure: BackpressureStatus {
             memtable_absorbed_total: 3,
@@ -276,6 +277,7 @@ fn metrics_text_renders_prometheus_conventions() {
         text.contains("calyx_compaction_pending_compaction_bytes{vault=\"demo\",cf=\"base\"} 300")
     );
     assert!(text.contains("calyx_oldest_pinned_seq_gap{vault=\"demo\"} 4"));
+    assert!(text.contains("calyx_reader_lease_expired_total{vault=\"demo\"} 2"));
     assert!(text.contains(
         "calyx_backpressure_events_total{vault=\"demo\",source=\"memtable_absorbed\"} 3"
     ));

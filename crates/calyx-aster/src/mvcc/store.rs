@@ -1,6 +1,7 @@
 //! In-memory MVCC row table used to define the cross-CF snapshot contract.
 
 use crate::cf::{CfRouter, ColumnFamily, KeyRange};
+use crate::gc::SnapshotGcTick;
 use crate::mvcc::{
     Freshness, ReadBarrier, ReaderLease, SeqAllocator, Snapshot, read_barrier::first_blocking,
 };
@@ -144,6 +145,19 @@ impl VersionedCfStore {
         self.leases.live_view(now)
     }
 
+    /// Background snapshot-GC tick hook, intended for the 1 s GC scheduler.
+    pub fn snapshot_gc_tick(&self, clock: &dyn Clock, max_gap_seqs: u64) -> SnapshotGcTick {
+        let now = clock.now();
+        let aborted_readers = self.leases.check_and_abort_expired(now);
+        let gap_alert = self.leases.check_gap(self.current_seq(), now, max_gap_seqs);
+        let metrics = self.leases.metrics(self.current_seq(), now);
+        SnapshotGcTick {
+            aborted_readers,
+            gap_alert,
+            metrics,
+        }
+    }
+
     /// Backpressure counters shared with this store's CF router.
     pub fn resource_counters(&self) -> &ResourceCounters {
         &self.resource_counters
@@ -283,7 +297,7 @@ impl VersionedCfStore {
         key: &[u8],
         clock: &dyn Clock,
     ) -> Result<Option<Vec<u8>>> {
-        snapshot.ensure_live(clock)?;
+        self.ensure_snapshot_live(snapshot, clock)?;
         self.ensure_unbarriered(cf, key)?;
         let table = self.rows.read().expect("mvcc row table poisoned");
         Ok(table
@@ -299,7 +313,7 @@ impl VersionedCfStore {
         key: &[u8],
         clock: &dyn Clock,
     ) -> Result<Option<Seq>> {
-        snapshot.ensure_live(clock)?;
+        self.ensure_snapshot_live(snapshot, clock)?;
         self.ensure_unbarriered(cf, key)?;
         let table = self.rows.read().expect("mvcc row table poisoned");
         Ok(table
@@ -315,7 +329,7 @@ impl VersionedCfStore {
         reads: &[CfRead],
         clock: &dyn Clock,
     ) -> Result<Vec<Option<Vec<u8>>>> {
-        snapshot.ensure_live(clock)?;
+        self.ensure_snapshot_live(snapshot, clock)?;
         for read in reads {
             self.ensure_unbarriered(read.cf, &read.key)?;
         }
@@ -337,7 +351,7 @@ impl VersionedCfStore {
         cf: ColumnFamily,
         clock: &dyn Clock,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        snapshot.ensure_live(clock)?;
+        self.ensure_snapshot_live(snapshot, clock)?;
         let table = self.rows.read().expect("mvcc row table poisoned");
         let mut rows = table
             .iter()
@@ -363,7 +377,7 @@ impl VersionedCfStore {
         range: &KeyRange,
         clock: &dyn Clock,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        snapshot.ensure_live(clock)?;
+        self.ensure_snapshot_live(snapshot, clock)?;
         let table = self.rows.read().expect("mvcc row table poisoned");
         let mut rows = table
             .iter()
@@ -391,7 +405,7 @@ impl VersionedCfStore {
         limit: usize,
         clock: &dyn Clock,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
-        snapshot.ensure_live(clock)?;
+        self.ensure_snapshot_live(snapshot, clock)?;
         if limit == 0 {
             return Ok(Vec::new());
         }
@@ -436,6 +450,15 @@ impl VersionedCfStore {
             return Err(error);
         }
         Ok(())
+    }
+
+    fn ensure_snapshot_live(&self, snapshot: Snapshot, clock: &dyn Clock) -> Result<()> {
+        let now = clock.now();
+        let lease = snapshot.lease();
+        if lease.is_expired_at(now) {
+            self.leases.abort_if_expired(lease, now);
+        }
+        lease.ensure_live_at(now)
     }
 }
 
