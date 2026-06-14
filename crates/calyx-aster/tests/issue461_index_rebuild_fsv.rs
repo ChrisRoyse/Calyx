@@ -365,6 +365,7 @@ fn issue461_index_rebuild_fsv_aiwonder() {
         .unwrap();
     let corrupt = calyx_aster::index::index_rebuild(&vault, &corrupt_col, &spec, 1).unwrap_err();
     let after = rows_json(&vault, ColumnFamily::IndexBtree);
+    vault.flush().unwrap();
     let evidence = json!({
         "trigger": "delete one qty_idx index key for pk=3, verify, rebuild, verify, range-query",
         "expected": {"gap_missing": 1, "keys_added": 1, "healthy": true, "range_pks": [1, 2, 3, 4, 5]},
