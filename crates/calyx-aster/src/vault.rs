@@ -18,6 +18,7 @@ mod ledger_append;
 mod ledger_hook;
 pub mod ledger_stub;
 pub mod quota;
+mod retention_horizon;
 mod router_bridge;
 mod slot_backfill;
 mod slot_column;
@@ -30,6 +31,7 @@ use crate::cf::{CfRouter, ColumnFamily, KeyRange, anchor_key, base_key, slot_key
 use crate::dedup::DedupPolicy;
 use crate::mvcc::{Freshness, ReadBarrier, ReaderLease, Snapshot, VersionedCfStore};
 use crate::resource::{ResourceStatus, VramBudgetStatus, collect_resource_status};
+use crate::timetravel::RetentionHorizon;
 use crate::vault::durable::DurableVault;
 use crate::vault::ledger_hook::AsterLedgerHook;
 use crate::wal::TornTail;
@@ -66,6 +68,7 @@ pub struct AsterVault<C = SystemClock> {
     rows: VersionedCfStore,
     durable: Option<DurableVault>,
     dedup_policy: DedupPolicy,
+    retention_horizon: Mutex<RetentionHorizon>,
     ledger_hook: Option<AsterLedgerHook>,
     recurrence_write_lock: Mutex<()>,
     recovery_report: VaultRecoveryReport,
@@ -124,7 +127,9 @@ impl AsterVault<SystemClock> {
         let mut durable_options = options.clone();
         durable_options.temporal_policy = recovery.temporal_policy;
         durable_options.dedup_policy = recovery.dedup_policy;
+        durable_options.retention_horizon = recovery.retention_horizon.clone();
         let dedup_policy = durable_options.dedup_policy.clone().unwrap_or_default();
+        let retention_horizon = durable_options.retention_horizon.clone();
         let durable = DurableVault::open(vault_dir, &durable_options)?;
         // Data residency (PRD 30 §4): a caller-supplied pin is enforced against
         // tiering and persisted (conflict-checked, immutable); on reopen the
@@ -148,6 +153,7 @@ impl AsterVault<SystemClock> {
             rows,
             durable: Some(durable),
             dedup_policy,
+            retention_horizon: Mutex::new(retention_horizon),
             ledger_hook: Some(ledger_hook),
             recurrence_write_lock: Mutex::new(()),
             recovery_report,
@@ -169,6 +175,7 @@ where
             rows: VersionedCfStore::default(),
             durable: None,
             dedup_policy: DedupPolicy::default(),
+            retention_horizon: Mutex::new(RetentionHorizon::default()),
             ledger_hook: None,
             recurrence_write_lock: Mutex::new(()),
             recovery_report: VaultRecoveryReport {
