@@ -16,9 +16,11 @@ use calyx_core::{CalyxError, Clock, Modality, Result, Seq};
 
 use crate::cf::{ColumnFamily, KeyRange, prefix_range};
 use crate::collection::{
-    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, collection_has_lens,
+    CALYX_INVALID_ARGUMENT, Collection, CollectionMode, FieldType, Schema, collection_has_lens,
     ingest_collection_constellation,
 };
+use crate::index::{IndexMaintenance, collection_has_maintained_index, field_is_indexed};
+use crate::layers::relational::{RecordKey, RecordValue, Row};
 use crate::mvcc::tombstone_value;
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
@@ -80,10 +82,30 @@ impl<'a, C: Clock> KvLayer<'a, C> {
         let expires_at = self.expires_at(ttl)?;
         let full_key = kv_key(col, ns, key);
         let value = encode_value(expires_at, val);
+        let pk = RecordKey::from_bytes(full_key.clone())?;
+        let mut rows = vec![(ColumnFamily::Kv, full_key.clone(), value.clone())];
+        // Only touch secondary indexes — and the extra read they require — when
+        // the collection actually declares one. Unindexed KV writes stay on the
+        // O(1) key path and never coerce synthetic index fields.
+        if collection_has_maintained_index(col) {
+            let old_index_row = self
+                .kv_get(col, ns, key)?
+                .map(|old| kv_index_row(col, ns, key, &old))
+                .transpose()?;
+            let new_index_row = kv_index_row(col, ns, key, val)?;
+            IndexMaintenance::stage_put(
+                self.vault,
+                &mut rows,
+                col,
+                &pk,
+                old_index_row.as_ref(),
+                &new_index_row,
+            )?;
+        }
         let subject = ledger_subject(&full_key);
         let payload = ledger_payload(col, ns, &full_key, &value);
         self.vault.write_cf_batch_with_ledger_entry(
-            [(ColumnFamily::Kv, full_key, value)],
+            rows,
             EntryKind::Ingest,
             subject,
             payload,
@@ -118,10 +140,22 @@ impl<'a, C: Clock> KvLayer<'a, C> {
         validate_user_key(key)?;
         let full_key = kv_key(col, ns, key);
         let value = tombstone_value();
+        let pk = RecordKey::from_bytes(full_key.clone())?;
+        let mut rows = vec![(ColumnFamily::Kv, full_key.clone(), value.clone())];
+        // See `kv_set`: skip the index read+stage entirely when no index exists.
+        if collection_has_maintained_index(col) {
+            let old_index_row = self
+                .kv_get(col, ns, key)?
+                .map(|old| kv_index_row(col, ns, key, &old))
+                .transpose()?;
+            if let Some(old_index_row) = &old_index_row {
+                IndexMaintenance::stage_delete(self.vault, &mut rows, col, &pk, old_index_row)?;
+            }
+        }
         let subject = ledger_subject(&full_key);
         let payload = ledger_payload(col, ns, &full_key, &value);
         self.vault.write_cf_batch_with_ledger_entry(
-            [(ColumnFamily::Kv, full_key, value)],
+            rows,
             EntryKind::Ingest,
             subject,
             payload,
@@ -266,6 +300,53 @@ fn decode_user_key(col: &Collection, ns: u64, full_key: &[u8]) -> Result<Vec<u8>
         return Err(corrupt("kv key has trailing bytes after the user key"));
     }
     Ok(user_key.to_vec())
+}
+
+/// Builds the synthetic index row for a KV record, carrying only the well-known
+/// fields (`ns`, `key`, `value`) that a maintained index actually references.
+///
+/// `ns` is a full `u64` but the index value domain ([`RecordValue`]) has no
+/// unsigned-64 type. Schema-less namespace indexes use big-endian bytes, which
+/// preserve full-domain numeric order in a btree. An explicit `I64`/`Timestamp`
+/// schema narrows the field and fails closed above `i64::MAX`.
+fn kv_index_row(col: &Collection, ns: u64, key: &[u8], val: &[u8]) -> Result<Row> {
+    let mut fields = Vec::new();
+    if field_is_indexed(col, "ns") {
+        fields.push(("ns", kv_namespace_value(col, ns)?));
+    }
+    if field_is_indexed(col, "key") {
+        fields.push(("key", RecordValue::Bytes(key.to_vec())));
+    }
+    if field_is_indexed(col, "value") {
+        fields.push(("value", RecordValue::Bytes(val.to_vec())));
+    }
+    Ok(Row::new(fields))
+}
+
+fn kv_namespace_value(col: &Collection, ns: u64) -> Result<RecordValue> {
+    match declared_field_type(col, "ns") {
+        Some(FieldType::I64) => i64::try_from(ns)
+            .map(RecordValue::I64)
+            .map_err(|_| invalid_argument("kv namespace exceeds i64 indexable range")),
+        Some(FieldType::Timestamp) => i64::try_from(ns)
+            .map(RecordValue::Timestamp)
+            .map_err(|_| invalid_argument("kv namespace exceeds timestamp indexable range")),
+        Some(FieldType::Text) => Ok(RecordValue::Text(ns.to_string())),
+        Some(FieldType::Bytes) | None => Ok(RecordValue::Bytes(ns.to_be_bytes().to_vec())),
+        Some(FieldType::Bool) | Some(FieldType::F64) => Err(invalid_argument(
+            "kv namespace index field must be Bytes, Text, I64, or Timestamp",
+        )),
+    }
+}
+
+fn declared_field_type(col: &Collection, field: &str) -> Option<FieldType> {
+    let Some(Schema::SchemaFull(fields)) = &col.schema else {
+        return None;
+    };
+    fields
+        .iter()
+        .find(|declared| declared.name == field)
+        .map(|declared| declared.ty)
 }
 
 fn encode_value(expires_at: u64, payload: &[u8]) -> Vec<u8> {

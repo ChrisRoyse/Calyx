@@ -9,6 +9,8 @@ use crate::cf::{ColumnFamily, KeyRange, prefix_range};
 use crate::collection::{
     Collection, CollectionMode, collection_has_lens, ingest_collection_constellation,
 };
+use crate::index::{IndexMaintenance, collection_has_maintained_index};
+use crate::layers::relational::RecordKey;
 use crate::vault::AsterVault;
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 
@@ -56,6 +58,7 @@ impl<'a, C: Clock> DocumentLayer<'a, C> {
         }
         require_documents_mode(col)?;
         validate_document(col, doc)?;
+        let doc_pk = RecordKey::from_bytes(doc_id.as_bytes().to_vec())?;
         let mut flattened = Vec::new();
         flatten_document(&mut Vec::new(), doc, &mut flattened)?;
         let mut rows = Vec::with_capacity(flattened.len());
@@ -74,6 +77,22 @@ impl<'a, C: Clock> DocumentLayer<'a, C> {
                     encode_cell(&DocumentCell::Tombstone)?,
                 ));
             }
+        }
+        // Skip the prior-version read and index staging unless an index exists.
+        if collection_has_maintained_index(col) {
+            let old_index_row = self
+                .get_doc(col, doc_id)?
+                .map(|old| IndexMaintenance::document_row(col, &old))
+                .transpose()?;
+            let new_index_row = IndexMaintenance::document_row(col, doc)?;
+            IndexMaintenance::stage_put(
+                self.vault,
+                &mut rows,
+                col,
+                &doc_pk,
+                old_index_row.as_ref(),
+                &new_index_row,
+            )?;
         }
         let prefix = document_prefix(col, doc_id);
         let subject = ledger_subject(&prefix);
@@ -142,6 +161,14 @@ impl<'a, C: Clock> DocumentLayer<'a, C> {
 
     pub fn delete_doc(&self, col: &Collection, doc_id: DocId) -> Result<Seq> {
         require_documents_mode(col)?;
+        // Read the prior version for index removal only when an index exists.
+        let old_index_row = if collection_has_maintained_index(col) {
+            self.get_doc(col, doc_id)?
+                .map(|old| IndexMaintenance::document_row(col, &old))
+                .transpose()?
+        } else {
+            None
+        };
         let mut rows = Vec::new();
         for (key, value) in self.visible_doc_rows(col, doc_id)? {
             if matches!(decode_cell(&value)?, DocumentCell::Leaf(_)) {
@@ -151,6 +178,10 @@ impl<'a, C: Clock> DocumentLayer<'a, C> {
                     encode_cell(&DocumentCell::Tombstone)?,
                 ));
             }
+        }
+        if let Some(old_index_row) = &old_index_row {
+            let doc_pk = RecordKey::from_bytes(doc_id.as_bytes().to_vec())?;
+            IndexMaintenance::stage_delete(self.vault, &mut rows, col, &doc_pk, old_index_row)?;
         }
         let prefix = document_prefix(col, doc_id);
         let subject = ledger_subject(&prefix);

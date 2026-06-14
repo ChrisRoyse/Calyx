@@ -9,7 +9,8 @@ use calyx_core::{FixedClock, Ts, VaultId};
 use proptest::prelude::*;
 
 use crate::collection::{
-    DedupPolicy, RetentionPolicy, TemporalPolicy, TenantId, TxnPolicy, create_collection,
+    DedupPolicy, RetentionPolicy, SecondaryIndexKind, SecondaryIndexSpec, TemporalPolicy, TenantId,
+    TxnPolicy, create_collection,
 };
 use crate::vault::VaultOptions;
 
@@ -74,6 +75,39 @@ fn set_get_roundtrip_uses_0x03_discriminant() {
     );
     // Namespace scoping: same user key in a different ns is independent.
     assert_eq!(layer.kv_get(&col, 2, b"foo").unwrap(), None);
+}
+
+#[test]
+fn large_namespace_does_not_block_key_index_maintenance() {
+    let vault = AsterVault::with_clock(vault_id(), b"salt", FixedClock::new(1000));
+    let layer = KvLayer::new(&vault);
+    let mut col = kv_collection();
+    col.indexes.push(SecondaryIndexSpec {
+        name: "ns_idx".to_string(),
+        kind: SecondaryIndexKind::Btree,
+        fields: vec!["ns".to_string()],
+    });
+    col.indexes.push(SecondaryIndexSpec {
+        name: "key_idx".to_string(),
+        kind: SecondaryIndexKind::Btree,
+        fields: vec!["key".to_string()],
+    });
+
+    layer
+        .kv_set(&col, u64::MAX, b"max-ns", b"value", None)
+        .unwrap();
+
+    assert_eq!(
+        layer.kv_get(&col, u64::MAX, b"max-ns").unwrap(),
+        Some(b"value".to_vec())
+    );
+    assert_eq!(
+        vault
+            .scan_cf_at(vault.latest_seq(), ColumnFamily::IndexBtree)
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 #[test]

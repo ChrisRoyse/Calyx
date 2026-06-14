@@ -27,11 +27,13 @@
 
 use calyx_core::{CalyxError, Clock, Result, Seq};
 
+use super::maintenance::CALYX_INDEX_STALE_ENTRY;
 use super::{
     FieldValue, IndexKind, IndexSpec, SecondaryIndex, field_value_type, invalid_index_input,
 };
 use crate::cf::{ColumnFamily, KeyRange, prefix_range};
-use crate::collection::{Collection, FieldType};
+use crate::collection::{CALYX_INVALID_ARGUMENT, Collection, CollectionMode, FieldType};
+use crate::layers::document::{DocId, document_prefix};
 use crate::layers::relational::{collection_id, record_key};
 use crate::layers::{RecordKey, RecordValue};
 use crate::vault::AsterVault;
@@ -379,12 +381,10 @@ pub fn btree_range_at<C: Clock>(
             break;
         }
         let (_field, pk) = idx.decode_index_key(&key)?;
-        let data_key = record_key(col, &pk)?;
-        if vault
-            .read_cf_at(snapshot, ColumnFamily::Relational, &data_key)?
-            .is_some()
-        {
+        if pk_is_live(vault, snapshot, col, &pk)? {
             out.push(pk);
+        } else {
+            warn_stale_entry(col, spec, &pk);
         }
     }
     Ok(out)
@@ -428,15 +428,69 @@ pub fn btree_count<C: Clock>(
     let mut count = 0_u64;
     for (key, _empty) in vault.scan_cf_range_at(snapshot, ColumnFamily::IndexBtree, &range)? {
         let (_field, pk) = idx.decode_index_key(&key)?;
-        let data_key = record_key(col, &pk)?;
-        if vault
-            .read_cf_at(snapshot, ColumnFamily::Relational, &data_key)?
-            .is_some()
-        {
+        if pk_is_live(vault, snapshot, col, &pk)? {
             count += 1;
+        } else {
+            warn_stale_entry(col, spec, &pk);
         }
     }
     Ok(count)
+}
+
+/// Resolves whether the data row behind an index entry's primary key is still
+/// live at `snapshot`, reading the column family that the owning collection's
+/// paradigm layer actually stores data in.
+///
+/// PH54 T04 maintains secondary indexes for every paradigm layer, so the
+/// liveness check that filters stale entries must dispatch on collection mode —
+/// assuming the relational CF would treat every KV/TS/Document index entry as
+/// stale and silently drop it. `read_cf_at` already filters MVCC tombstones, so
+/// a deleted row reads back as absent.
+fn pk_is_live<C: Clock>(
+    vault: &AsterVault<C>,
+    snapshot: Seq,
+    col: &Collection,
+    pk: &RecordKey,
+) -> Result<bool> {
+    match col.mode {
+        CollectionMode::Records => {
+            let data_key = record_key(col, pk)?;
+            Ok(vault
+                .read_cf_at(snapshot, ColumnFamily::Relational, &data_key)?
+                .is_some())
+        }
+        // KV and TimeSeries index entries carry the full data key as their pk.
+        CollectionMode::KV => Ok(vault
+            .read_cf_at(snapshot, ColumnFamily::Kv, pk.as_bytes())?
+            .is_some()),
+        CollectionMode::TimeSeries => Ok(vault
+            .read_cf_at(snapshot, ColumnFamily::TimeSeries, pk.as_bytes())?
+            .is_some()),
+        // A document is live if any leaf survives under its id prefix.
+        CollectionMode::Documents => {
+            let prefix = document_prefix(col, DocId::from_slice(pk.as_bytes())?);
+            Ok(!vault
+                .scan_cf_range_at(snapshot, ColumnFamily::Document, &prefix_range(&prefix))?
+                .is_empty())
+        }
+        // Blob and Constellations route through the constellation/lens path and
+        // never write btree index entries, so a query reaching here is a bug.
+        other => Err(CalyxError {
+            code: CALYX_INVALID_ARGUMENT,
+            message: format!("btree index queries are not defined for {other:?} collections"),
+            remediation: "query a Records/KV/TimeSeries/Documents collection",
+        }),
+    }
+}
+
+fn warn_stale_entry(col: &Collection, spec: &IndexSpec, pk: &RecordKey) {
+    tracing::warn!(
+        code = CALYX_INDEX_STALE_ENTRY,
+        collection = %col.name,
+        index = %spec.name,
+        pk_hash = %blake3::hash(pk.as_bytes()).to_hex(),
+        "stale btree index entry skipped"
+    );
 }
 
 #[cfg(test)]
