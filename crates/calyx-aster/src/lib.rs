@@ -11,6 +11,7 @@ pub mod layers;
 pub mod ledger_view;
 pub mod manifest;
 pub mod memtable;
+pub mod mmap_col;
 pub mod mvcc;
 pub mod olap;
 pub mod plain_column;
