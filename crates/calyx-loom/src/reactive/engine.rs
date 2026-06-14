@@ -17,13 +17,13 @@ use super::{
 /// A bounded, audited reactive trigger engine. Holds the registry of trigger
 /// definitions, a depth-capped queue of fired events, and a ring audit log.
 pub struct ReactiveEngine {
-    registry: TriggerRegistry,
-    queue: BoundedQueue<TriggerFired>,
-    audit_log: AuditLog,
-    clock: Arc<dyn Clock>,
+    pub(crate) registry: TriggerRegistry,
+    pub(crate) queue: BoundedQueue<TriggerFired>,
+    pub(crate) audit_log: AuditLog,
+    pub(crate) clock: Arc<dyn Clock>,
     /// Last observed occurrence count per `EventRecurs` trigger, so a fire is
     /// raised only on the ingest that *increments* the count past the bar.
-    last_count: HashMap<TriggerId, u64>,
+    pub(crate) last_count: HashMap<TriggerId, u64>,
 }
 
 impl ReactiveEngine {
@@ -144,7 +144,7 @@ impl ReactiveEngine {
 
     /// Evaluates one condition. Returns `Ok(true)` on match, `Ok(false)` on
     /// no-match, and propagates any signal-source error (fail closed).
-    fn evaluate_condition<S: ReactiveSignals>(
+    pub(crate) fn evaluate_condition<S: ReactiveSignals>(
         &mut self,
         def: &TriggerDef,
         cx_id: CxId,

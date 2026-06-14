@@ -29,6 +29,10 @@ where
         Ok(Self { vault, retention })
     }
 
+    pub(crate) fn vault(&self) -> &'a AsterVault<C> {
+        self.vault
+    }
+
     pub fn append_occurrence(
         &self,
         cx_id: CxId,

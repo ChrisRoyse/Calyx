@@ -8,6 +8,7 @@ use crate::entry::ActorId;
 
 const SECRET_TOKEN_MIN: usize = 40;
 const MAX_HASH_OR_ID_LEN: usize = 64;
+const MAX_QUANT_SLOT_METADATA_LEN: usize = 4096;
 const MAX_SOURCE_METADATA_LEN: usize = 128;
 
 /// Per-vault ledger redaction policy.
@@ -207,6 +208,9 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
     if is_public_key_field(&field) {
         return token.len() == MAX_HASH_OR_ID_LEN && is_hex(token);
     }
+    if field.starts_with("quant_slot_") {
+        return token.len() <= MAX_QUANT_SLOT_METADATA_LEN && is_hex(token);
+    }
     if !field_allows_stable_identifier(&field) || token.len() > MAX_HASH_OR_ID_LEN {
         return false;
     }
@@ -405,6 +409,15 @@ mod tests {
         assert!(RedactionPolicy::check_payload(&hash_payload).is_ok());
 
         assert_secret(b"0123456789ABCDEFGHIJabcdefghij!@#$%^&*()".to_vec());
+    }
+
+    #[test]
+    fn check_payload_allows_quant_slot_hex_metadata() {
+        let bytes = serde_json::to_vec(
+            &json!({"restore":{"candidate":{"metadata":{"quant_slot_0":"ab".repeat(128)}}}}),
+        )
+        .unwrap();
+        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
     }
 
     #[test]

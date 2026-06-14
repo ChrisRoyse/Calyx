@@ -48,6 +48,8 @@ pub enum ColumnFamily {
     Graph,
     /// Typed online/adaptation state.
     Online,
+    /// Durable reactive trigger audit/fired rows.
+    Reactive,
     /// Anneal rollback snapshots and live artifact pointers.
     AnnealRollback,
     /// Anneal component health snapshot.
@@ -82,7 +84,7 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 30] = [
+    pub const STATIC: [Self; 31] = [
         Self::Base,
         Self::Collections,
         Self::Relational,
@@ -95,6 +97,7 @@ impl ColumnFamily {
         Self::Recurrence,
         Self::Graph,
         Self::Online,
+        Self::Reactive,
         Self::AnnealRollback,
         Self::AnnealHealth,
         Self::AnnealChecksums,
@@ -158,6 +161,7 @@ impl ColumnFamily {
             Self::Recurrence => "recurrence".to_string(),
             Self::Graph => "graph".to_string(),
             Self::Online => "online".to_string(),
+            Self::Reactive => "reactive".to_string(),
             Self::AnnealRollback => "anneal_rollback".to_string(),
             Self::AnnealHealth => "anneal_health".to_string(),
             Self::AnnealChecksums => "anneal_checksums".to_string(),

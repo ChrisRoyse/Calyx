@@ -136,6 +136,7 @@ impl TieringPolicy {
                 | ColumnFamily::Ledger
                 | ColumnFamily::Anchors
                 | ColumnFamily::Graph
+                | ColumnFamily::Reactive
                 | ColumnFamily::AnnealChecksums
                 | ColumnFamily::AnnealMistakes
                 | ColumnFamily::AnnealReplay
