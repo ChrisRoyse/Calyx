@@ -16,6 +16,11 @@ pub const CALYX_REACTIVE_REGISTRY_FULL: &str = "CALYX_REACTIVE_REGISTRY_FULL";
 /// The reactive fired-event queue is at `max_queue_depth`; the oldest undelivered
 /// event was discarded to make room (bounded by construction, A26).
 pub const CALYX_REACTIVE_QUEUE_FULL: &str = "CALYX_REACTIVE_QUEUE_FULL";
+/// A per-subscription drain buffer overflowed; retained events are still
+/// available through the subscription report API.
+pub const CALYX_REACTIVE_DRAIN_OVERFLOW: &str = "CALYX_REACTIVE_DRAIN_OVERFLOW";
+/// The requested public subscription id is not registered.
+pub const CALYX_REACTIVE_SUBSCRIPTION_NOT_FOUND: &str = "CALYX_REACTIVE_SUBSCRIPTION_NOT_FOUND";
 /// A signal source cannot evaluate the requested trigger condition (e.g. a
 /// recurrence-only source asked for a novelty/drift verdict). Fail closed rather
 /// than silently treat the condition as not-firing.
@@ -39,6 +44,8 @@ pub fn loom_error(code: &'static str, message: impl Into<String>) -> CalyxError 
         CALYX_RECURRENCE_INVALID_RETENTION => "use a positive recurrence max_occurrences value",
         CALYX_REACTIVE_REGISTRY_FULL => "deregister a trigger or raise max_triggers",
         CALYX_REACTIVE_QUEUE_FULL => "drain TriggerFired events or raise max_queue_depth",
+        CALYX_REACTIVE_DRAIN_OVERFLOW => "drain the subscription more often or raise max_drain_buf",
+        CALYX_REACTIVE_SUBSCRIPTION_NOT_FOUND => "use a registered subscription id",
         CALYX_REACTIVE_SIGNAL_UNAVAILABLE => "wire a signal source that evaluates this condition",
         CALYX_REACTIVE_ROW_CORRUPT => "rebuild the reactive CF rows from the ledger/audit source",
         _ => "inspect Loom xterm inputs",

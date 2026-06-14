@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use super::{
     AuditEntry, AuditLog, BoundedQueue, DEFAULT_MAX_AUDIT_ENTRIES, DEFAULT_MAX_QUEUE_DEPTH,
-    DEFAULT_MAX_TRIGGERS, NoveltyVerdict, ReactiveSignals, TriggerCondition, TriggerDef,
-    TriggerFired, TriggerId, TriggerRegistry, queue_full_error,
+    DEFAULT_MAX_TRIGGERS, NoveltyVerdict, ReactiveSignals, SubscriptionStore, TriggerCondition,
+    TriggerDef, TriggerFired, TriggerId, TriggerRegistry, queue_full_error,
 };
 
 /// A bounded, audited reactive trigger engine. Holds the registry of trigger
@@ -24,6 +24,7 @@ pub struct ReactiveEngine {
     /// Last observed occurrence count per `EventRecurs` trigger, so a fire is
     /// raised only on the ingest that *increments* the count past the bar.
     pub(crate) last_count: HashMap<TriggerId, u64>,
+    pub(crate) subscriptions: SubscriptionStore,
 }
 
 impl ReactiveEngine {
@@ -50,6 +51,7 @@ impl ReactiveEngine {
             audit_log: AuditLog::new(max_audit_entries),
             clock,
             last_count: HashMap::new(),
+            subscriptions: SubscriptionStore::default(),
         }
     }
 
@@ -120,6 +122,7 @@ impl ReactiveEngine {
                 ledger_ref: ingest_ledger_ref.clone(),
                 condition_snapshot: def.condition.clone(),
             };
+            self.dispatch_to_subscriptions(&event);
             if let Some(dropped) = self.queue.push(event) {
                 // A26: oldest event discarded — record the loss to the audit log
                 // (the immutable warning the FSV reads) and remember to fail.
