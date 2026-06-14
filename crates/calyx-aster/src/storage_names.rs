@@ -130,6 +130,7 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "anneal_growth" => ColumnFamily::AnnealGrowth,
         "time_index" => ColumnFamily::TimeIndex,
         "index_btree" => ColumnFamily::IndexBtree,
+        "index_inverted" => ColumnFamily::IndexInverted,
         _ if value.starts_with("slot_") => parse_slot_cf(value)?,
         _ => {
             return Err(CalyxError::aster_corrupt_shard(format!(
