@@ -44,6 +44,92 @@ fn migrates_and_offline_backfills_default_panel() {
 }
 
 #[test]
+fn status_reports_ledger_chain_and_source_chunk_extents() {
+    let root = temp_root("status-extents");
+    let sqlite = root.join("vault.db");
+    let vault = root.join("vault.calyx");
+    std::fs::create_dir_all(&root).unwrap();
+    seed_sqlite(&sqlite);
+
+    migrate_vault(&sqlite, &vault, MigrationOptions::default()).unwrap();
+    let report = run_status(&vault).unwrap();
+
+    assert_eq!(report.base_rows, 2);
+    assert_eq!(report.first_chunk_id.as_deref(), Some("kernel-1"));
+    assert_eq!(report.last_chunk_id.as_deref(), Some("hot-2"));
+    assert_eq!(report.ledger_chain.state, "Intact");
+    assert_eq!(report.ledger_chain.count, 2);
+    assert_eq!(report.ledger_chain.checked_range, "0..2");
+    assert_eq!(report.ledger_chain.at_seq, None);
+    assert_eq!(report.ledger_chain.reason, None);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn migrate_verify_reports_one_hundred_exact_matches_with_metadata() {
+    let root = temp_root("verify-100");
+    let sqlite = root.join("vault.db");
+    let vault_dir = root.join("vault.calyx");
+    std::fs::create_dir_all(&root).unwrap();
+    seed_numbered_sqlite(&sqlite, 100);
+    migrate_vault(&sqlite, &vault_dir, MigrationOptions::default()).unwrap();
+    let manifest = MigrationManifest::load(&vault_dir).unwrap();
+    let rows = stream_rows(&open_sqlite(&sqlite).unwrap()).unwrap();
+    let vault = open_vault(&vault_dir, &manifest).unwrap();
+    let adapter = adapter(&manifest).unwrap();
+
+    let report = verify_migration(&vault, &rows, &adapter, false).unwrap();
+
+    assert_eq!(report.total, 100);
+    assert_eq!(report.matched, 100);
+    assert_eq!(report.mismatched, 0);
+    for row in &rows {
+        let cx = vault.get(adapter.cx_id(row), vault.snapshot()).unwrap();
+        assert_eq!(cx.chunk_id(), Some(row.chunk_id.as_str()));
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn verify_against_empty_vault_reports_all_rows_mismatched() {
+    let root = temp_root("empty-vault-mismatch");
+    let sqlite = root.join("vault.db");
+    let vault_dir = root.join("vault.calyx");
+    std::fs::create_dir_all(&root).unwrap();
+    seed_numbered_sqlite(&sqlite, 4);
+    let conn = open_sqlite(&sqlite).unwrap();
+    let rows = stream_rows(&conn).unwrap();
+    let manifest = MigrationManifest::load_or_create(
+        &vault_dir,
+        &sqlite,
+        &rows,
+        default_base_lens_id(),
+        default_panel_version(),
+    )
+    .unwrap();
+    manifest.write(&vault_dir).unwrap();
+    let vault = open_vault(&vault_dir, &manifest).unwrap();
+    let adapter = adapter(&manifest).unwrap();
+
+    let report = verify_migration(&vault, &rows, &adapter, false).unwrap();
+
+    assert_eq!(report.total, 4);
+    assert_eq!(report.matched, 0);
+    assert_eq!(report.mismatched, 4);
+    assert_eq!(report.errors.len(), 4);
+    assert!(
+        report
+            .errors
+            .iter()
+            .all(|error| error.actual_hash == [0; 32])
+    );
+    assert_eq!(report.gate, "FAIL");
+    drop(vault);
+    drop(conn);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn duplicate_content_rows_fail_before_vault_creation() {
     let root = temp_root("duplicate-content");
     let sqlite = root.join("vault.db");
@@ -143,6 +229,8 @@ fn empty_sqlite_completes_zero_rows() {
     assert_eq!(report.skipped_rows, 0);
     assert_eq!(report.batches_completed, 0);
     assert_eq!(report.status.as_ref().unwrap().base_rows, 0);
+    assert_eq!(report.status.as_ref().unwrap().first_chunk_id, None);
+    assert_eq!(report.status.as_ref().unwrap().last_chunk_id, None);
     std::fs::remove_dir_all(root).unwrap();
 }
 

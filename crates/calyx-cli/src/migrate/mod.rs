@@ -42,6 +42,7 @@ struct MigrateVaultReport {
     gte_endpoint: Option<String>,
     backfill: Option<BackfillSummary>,
     verify: Option<VerifyReport>,
+    verify_summary: Option<String>,
     status: Option<StatusReport>,
 }
 
@@ -140,6 +141,7 @@ fn migrate_vault(
             gte_endpoint: options.gte_endpoint.clone(),
             backfill: None,
             verify: None,
+            verify_summary: None,
             status: None,
         });
     }
@@ -197,7 +199,8 @@ fn migrate_vault(
     } else {
         None
     };
-    let status = status(&vault)?;
+    let verify_summary = verify.as_ref().map(verify_success_summary);
+    let status = status(&vault, vault_dir)?;
     Ok(MigrateVaultReport {
         source_rows,
         migrated_rows: written_rows + skipped_rows,
@@ -210,6 +213,7 @@ fn migrate_vault(
         gte_endpoint: options.gte_endpoint.clone(),
         backfill,
         verify,
+        verify_summary,
         status: Some(status),
     })
 }
@@ -253,10 +257,7 @@ fn run_verify(
 
 fn print_verify_report(report: &VerifyReport) -> CliResult {
     if report.mismatched == 0 {
-        println!(
-            "verified {}/{} rows: byte-exact on content",
-            report.matched, report.total
-        );
+        println!("{}", verify_success_summary(report));
         return Ok(());
     }
     for error in &report.errors {
@@ -264,6 +265,13 @@ fn print_verify_report(report: &VerifyReport) -> CliResult {
     }
     eprintln!("FAILED: {} mismatches", report.mismatched);
     Err(verify_failed_error(report).into())
+}
+
+fn verify_success_summary(report: &VerifyReport) -> String {
+    format!(
+        "verified {}/{} rows: byte-exact on content",
+        report.matched, report.total
+    )
 }
 
 fn verify_error_line(error: &VerifyError) -> String {
@@ -286,7 +294,7 @@ fn verify_failed_error(report: &VerifyReport) -> CalyxError {
 fn run_status(vault_dir: &Path) -> CliResult<StatusReport> {
     let manifest = MigrationManifest::load(vault_dir)?;
     let vault = open_vault(vault_dir, &manifest)?;
-    Ok(status(&vault)?)
+    Ok(status(&vault, vault_dir)?)
 }
 
 fn run_readback(
