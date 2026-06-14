@@ -87,6 +87,7 @@ pub struct PinnedSeqStatus {
     /// `current_seq - oldest_pinned_seq` across live leases; 0 when none.
     pub oldest_pinned_seq_gap: u64,
     pub active_leases: usize,
+    pub reader_lease_expired_total: u64,
 }
 
 /// WAL footprint section, measured from `wal/*.wal` segment files.
@@ -163,6 +164,11 @@ impl ResourceStatus {
             "calyx_active_reader_leases",
             base.clone(),
             self.pinned.active_leases as u64,
+        );
+        metric(
+            "calyx_reader_lease_expired_total",
+            base.clone(),
+            self.pinned.reader_lease_expired_total,
         );
         metric(
             "calyx_backpressure_events_total",
