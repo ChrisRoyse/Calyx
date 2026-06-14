@@ -4,7 +4,9 @@ use crate::cf::{CfRouter, ColumnFamily, KeyRange};
 use crate::mvcc::{
     Freshness, ReadBarrier, ReaderLease, SeqAllocator, Snapshot, read_barrier::first_blocking,
 };
-use crate::resource::{LeaseRegistry, LeaseView, ResourceCounters};
+use crate::resource::{
+    LeaseRegistry, LeaseView, MemtableCfStatus, MemtableStatus, ResourceCounters,
+};
 use crate::sst::SstSummary;
 use calyx_core::{Clock, Result, Seq, Ts};
 use std::collections::BTreeMap;
@@ -145,6 +147,46 @@ impl VersionedCfStore {
     /// Backpressure counters shared with this store's CF router.
     pub fn resource_counters(&self) -> &ResourceCounters {
         &self.resource_counters
+    }
+
+    /// Live memtable byte-cap status shared with resource readback.
+    pub fn memtable_status(&self) -> MemtableStatus {
+        let router = self.router.read().expect("mvcc router poisoned");
+        let Some(router) = router.as_ref() else {
+            return MemtableStatus::default();
+        };
+        let per_cf = router
+            .memtable_usage_by_cf()
+            .into_iter()
+            .map(|(cf, usage)| MemtableCfStatus {
+                cf: cf.name().to_string(),
+                used_bytes: usage.used_bytes as u64,
+                cap_bytes: usage.cap_bytes as u64,
+                high_water_bytes: usage.high_water_bytes as u64,
+                flush_triggered: usage.flush_triggered,
+            })
+            .collect::<Vec<_>>();
+        let total_used_bytes = per_cf.iter().map(|cf| cf.used_bytes).sum();
+        let total_cap_bytes = per_cf.iter().map(|cf| cf.cap_bytes).sum();
+        MemtableStatus {
+            total_used_bytes,
+            total_cap_bytes,
+            per_cf,
+        }
+    }
+
+    /// Admission check for rows that cannot fit even in an empty memtable.
+    pub fn ensure_memtable_admission<I, K, V>(&self, rows: I) -> Result<()>
+    where
+        I: IntoIterator<Item = (ColumnFamily, K, V)>,
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
+        self.router
+            .read()
+            .expect("mvcc router poisoned")
+            .as_ref()
+            .map_or(Ok(()), |router| router.ensure_batch_admitted(rows))
     }
 
     /// Atomically commits one write group across any number of CFs.

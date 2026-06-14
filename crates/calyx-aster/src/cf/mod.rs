@@ -4,6 +4,9 @@ mod family;
 mod key;
 mod router;
 
+#[cfg(test)]
+mod router_tests;
+
 pub use family::{ColumnFamily, SlotFamilyKind};
 pub use key::{
     KeyRange, OnlineKeyKind, ScalarId, XTermKind, anchor_key, anchor_prefix_range, base_key,

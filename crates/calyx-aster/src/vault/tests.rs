@@ -6,7 +6,7 @@ use calyx_core::{
 use calyx_ledger::{EntryKind, SubjectId, decode as decode_ledger};
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
@@ -296,60 +296,56 @@ fn durable_vault_writes_wal_sst_manifest_and_cold_opens() {
 }
 
 #[test]
-fn durable_wal_success_survives_post_wal_router_failure() {
+fn durable_memtable_oversize_rejects_before_wal_append() {
     let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
     let dir = fsv_root.as_ref().map_or_else(
-        || test_dir("post-wal-router-failure"),
+        || test_dir("memtable-oversize-preflight"),
         |root| {
-            let dir = root.join("post-wal-router-failure").join("vault");
+            let dir = root.join("memtable-oversize-preflight").join("vault");
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).expect("create fsv vault");
             dir
         },
     );
     let options = VaultOptions {
-        memtable_byte_cap: 1,
+        memtable_byte_cap: 16,
         ..VaultOptions::default()
     };
     let vault =
         AsterVault::new_durable(&dir, vault_id(), b"salt".to_vec(), options).expect("open durable");
-    let cx = sample_constellation(&AsterVault::with_clock(
-        vault_id(),
-        b"salt".to_vec(),
-        FixedClock::new(123),
-    ));
-    let id = cx.cx_id;
 
-    vault.put(cx.clone()).expect("durable put");
+    let before_wal_bytes = wal_bytes(&dir);
+    let before_seq = vault.snapshot();
+    let error = vault
+        .write_cf(ColumnFamily::Base, b"k".to_vec(), vec![0xAA; 64])
+        .expect_err("oversize row rejects before WAL");
 
-    assert_eq!(vault.snapshot(), 1);
-    let stored = vault.get(id, vault.snapshot()).unwrap();
-    let mut expected = cx;
-    expected.provenance = stored.provenance.clone();
-    assert_eq!(stored, expected);
-    assert!(dir.join("wal/00000000000000000000.wal").exists());
-    assert!(dir.join("CURRENT").exists());
+    assert_eq!(error.code, "CALYX_BACKPRESSURE");
+    assert_eq!(vault.snapshot(), before_seq);
+    assert_eq!(wal_bytes(&dir), before_wal_bytes);
     drop(vault);
 
     let reopened = AsterVault::open(&dir, vault_id(), b"salt".to_vec(), VaultOptions::default())
-        .expect("cold open from WAL");
+        .expect("cold open after rejected write");
 
-    assert_eq!(reopened.snapshot(), 1);
-    assert_eq!(reopened.get(id, reopened.snapshot()).unwrap(), expected);
+    assert_eq!(reopened.snapshot(), before_seq);
+    assert_eq!(
+        reopened
+            .read_cf_at(reopened.snapshot(), ColumnFamily::Base, b"k")
+            .unwrap(),
+        None
+    );
     if let Some(root) = fsv_root {
-        let wal_path = dir.join("wal/00000000000000000000.wal");
         let readback = serde_json::json!({
-            "snapshot_after_put": 1,
+            "error_code": error.code,
+            "snapshot_before": before_seq,
             "cold_open_snapshot": reopened.snapshot(),
-            "current_exists": dir.join("CURRENT").exists(),
-            "wal_exists": wal_path.exists(),
-            "wal_bytes": fs::metadata(&wal_path).unwrap().len(),
-            "cx_id": id.to_string(),
-            "provenance_seq": expected.provenance.seq,
-            "provenance_hash": hex(&expected.provenance.hash),
+            "wal_bytes_before": before_wal_bytes,
+            "wal_bytes_after": wal_bytes(&dir),
+            "rejected_key_visible": false,
         });
         fs::write(
-            root.join("post-wal-router-failure-readback.json"),
+            root.join("memtable-oversize-preflight-readback.json"),
             serde_json::to_vec_pretty(&readback).unwrap(),
         )
         .unwrap();
@@ -464,6 +460,17 @@ fn sst_count(dir: PathBuf) -> usize {
         .unwrap()
         .filter(|entry| entry.as_ref().unwrap().path().extension().unwrap() == "sst")
         .count()
+}
+
+fn wal_bytes(dir: &Path) -> u64 {
+    let wal = dir.join("wal");
+    if !wal.is_dir() {
+        return 0;
+    }
+    fs::read_dir(wal)
+        .unwrap()
+        .map(|entry| fs::metadata(entry.unwrap().path()).unwrap().len())
+        .sum()
 }
 
 fn cleanup(dir: PathBuf) {

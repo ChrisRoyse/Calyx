@@ -15,8 +15,8 @@ pub use counters::{BackpressureStatus, ResourceCounters};
 pub use heap::{CALYX_RESOURCE_PROBE_UNAVAILABLE, heap_rss_bytes};
 pub use leases::{LeaseRegistry, LeaseView};
 pub use status::{
-    CfCompactionDebt, CompactionDebtStatus, HeapStatus, PinnedSeqStatus,
-    RESOURCE_STATUS_SCHEMA_VERSION, ResourceStatus, VramBudgetStatus, WalStatus,
+    CfCompactionDebt, CompactionDebtStatus, HeapStatus, MemtableCfStatus, MemtableStatus,
+    PinnedSeqStatus, RESOURCE_STATUS_SCHEMA_VERSION, ResourceStatus, VramBudgetStatus, WalStatus,
 };
 
 #[cfg(test)]
