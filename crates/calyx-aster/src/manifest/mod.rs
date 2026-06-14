@@ -1,7 +1,10 @@
 //! Atomic manifest and recovery ordering for Aster vaults.
 
+mod quarantine;
+
 use crate::dedup::DedupPolicy;
 use crate::sst::SstReader;
+use crate::timetravel::RetentionHorizon;
 use crate::wal::{ReplayRecord, TornTail, replay_dir};
 use calyx_core::{CalyxError, Result, TemporalPolicy};
 use serde::{Deserialize, Serialize};
@@ -16,6 +19,8 @@ const MANIFEST_PREFIX: &str = "manifest-";
 const MANIFEST_SUFFIX: &str = ".json";
 const SUPPORTED_MANIFEST_MAJOR: u16 = 1;
 const SUPPORTED_MANIFEST_MINOR: u16 = 0;
+
+pub use quarantine::QuarantineRecord;
 
 /// Version guard for MANIFEST bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -52,7 +57,8 @@ pub struct ImmutableRef {
 
 impl ImmutableRef {
     pub fn from_bytes(logical_path: impl Into<String>, bytes: &[u8]) -> Result<Self> {
-        Self::new(logical_path, blake3::hash(bytes).to_hex().to_string())
+        let hash = blake3::hash(bytes).to_hex().to_string();
+        Self::new(logical_path, hash)
     }
 
     pub fn new(logical_path: impl Into<String>, blake3_hex: impl Into<String>) -> Result<Self> {
@@ -95,51 +101,6 @@ impl ImmutableRef {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct QuarantineRecord {
-    pub range_start: u64,
-    pub range_end: u64,
-    pub broken_at_seq: u64,
-    pub detected_at_ts: u64,
-}
-
-impl QuarantineRecord {
-    pub fn new(
-        range_start: u64,
-        range_end: u64,
-        broken_at_seq: u64,
-        detected_at_ts: u64,
-    ) -> Result<Self> {
-        let record = Self {
-            range_start,
-            range_end,
-            broken_at_seq,
-            detected_at_ts,
-        };
-        record.validate()?;
-        Ok(record)
-    }
-
-    pub const fn contains(&self, seq: u64) -> bool {
-        self.range_start <= seq && seq < self.range_end
-    }
-
-    fn validate(&self) -> Result<()> {
-        if self.range_start >= self.range_end {
-            return Err(CalyxError::ledger_chain_broken(
-                "quarantine range must be non-empty",
-            ));
-        }
-        if !self.contains(self.broken_at_seq) {
-            return Err(CalyxError::ledger_chain_broken(format!(
-                "broken seq {} is outside quarantine range {}..{}",
-                self.broken_at_seq, self.range_start, self.range_end
-            )));
-        }
-        Ok(())
-    }
-}
-
 /// Durable Aster vault manifest.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct VaultManifest {
@@ -154,6 +115,8 @@ pub struct VaultManifest {
     pub temporal_policy: Option<TemporalPolicy>,
     #[serde(default)]
     pub dedup_policy: Option<DedupPolicy>,
+    #[serde(default)]
+    pub retention_horizon: RetentionHorizon,
     pub degraded_rebuildable: bool,
     #[serde(default)]
     pub quarantines: Vec<QuarantineRecord>,
@@ -209,6 +172,7 @@ impl VaultManifest {
             codebook_refs,
             temporal_policy,
             dedup_policy,
+            retention_horizon: RetentionHorizon::default(),
             degraded_rebuildable: false,
             quarantines: Vec::new(),
         };
@@ -248,6 +212,7 @@ impl VaultManifest {
         if let Some(policy) = &self.dedup_policy {
             policy.validate_manifest()?;
         }
+        self.retention_horizon.validate()?;
         Ok(())
     }
 }
