@@ -116,12 +116,23 @@ impl<'a, C: Clock> KvLayer<'a, C> {
     /// Reads the live value at `(ns, key)`. Returns `None` if the key is
     /// absent, tombstoned, or expired. Never returns expired bytes.
     pub fn kv_get(&self, col: &Collection, ns: u64, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        self.kv_get_at(self.vault.latest_seq(), col, ns, key)
+    }
+
+    /// Snapshot-pinned variant of [`Self::kv_get`].
+    pub fn kv_get_at(
+        &self,
+        snapshot: Seq,
+        col: &Collection,
+        ns: u64,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
         require_kv_mode(col)?;
         validate_user_key(key)?;
         let full_key = kv_key(col, ns, key);
-        let Some(bytes) =
-            self.vault
-                .read_cf_at(self.vault.latest_seq(), ColumnFamily::Kv, &full_key)?
+        let Some(bytes) = self
+            .vault
+            .read_cf_at(snapshot, ColumnFamily::Kv, &full_key)?
         else {
             return Ok(None);
         };
