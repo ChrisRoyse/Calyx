@@ -1,55 +1,81 @@
-# PH56 · T05 — mmap cold/columnar access — OS page cache, never full vault in heap
+# PH56 T05 - mmap cold/columnar access - OS page cache, never full vault in heap
 
 | Field | Value |
 |---|---|
-| **Phase** | PH56 — Bounded caches/queues/memtables + arenas/pools |
-| **Stage** | S13 — Resource, GC & Reliability Hardening |
+| **Phase** | PH56 - Bounded caches/queues/memtables + arenas/pools |
+| **Stage** | S13 - Resource, GC & Reliability Hardening |
 | **Crate** | `calyx-aster` |
-| **Files** | `crates/calyx-aster/src/mmap_col.rs` (≤500) |
-| **Depends on** | T04 (bounded memtable established) · PH11 (SSTable/compaction layout exists) |
+| **Files** | `crates/calyx-aster/src/mmap_col.rs` (`<=500`) |
+| **Depends on** | T04 bounded memtable; PH11 SSTable/compaction layout |
 | **Axioms** | A26, A16 |
-| **PRD** | `dbprdplans/24 §1`, `24 §5`, `04 §3` |
+| **PRD** | `dbprdplans/24` sections 1 and 5; `dbprdplans/04` section 3 |
 
 ## Goal
 
-Provide `MmapColumn` — a memory-mapped accessor for cold and columnar Aster data (SST slot
-columns, ANN graph files, panel codebooks) where the OS page cache (ZFS ARC) is the cache and
-Calyx never holds the full vault in heap. Opened column files are mmap'd read-only; access is a
-pointer dereference; eviction is managed by the kernel. This eliminates a class of heap-OOM
-failures on large vaults (hazard 8) and enables streaming for VRAM (PH57 uses pinned-host
-double-buffering over these mmap'd columns).
+Provide `MmapColumn`, a memory-mapped accessor for cold and columnar Aster data
+(SST slot columns, ANN graph files, panel codebooks) where the OS page cache is
+the cache and Calyx never holds the full vault in heap. Opened column files are
+mapped read-only; access is a pointer dereference; eviction is managed by the
+kernel. This removes a class of heap-OOM failures on large vaults and enables
+streaming for VRAM in PH57.
 
-## Build (checklist of concrete, code-level steps)
+## Build
 
-- [ ] Define `struct MmapColumn { mmap: memmap2::Mmap, path: PathBuf, file_len: usize }` in `mmap_col.rs`; use `memmap2` crate (no-std-compat, widely used in RocksDB/LanceDB patterns)
-- [ ] Implement `MmapColumn::open(path: &Path) -> Result<Self, CalyxError>` — opens file read-only, calls `memmap2::MmapOptions::new().map(&file)`; if file empty or nonexistent returns `CALYX_NOT_FOUND`; if mmap fails returns `CALYX_IO_ERROR` with OS error string
-- [ ] Implement `MmapColumn::read_slice(&self, offset: usize, len: usize) -> Result<&[u8], CalyxError>` — bounds-checks `offset + len <= file_len`; returns slice; `CALYX_BOUNDS_EXCEEDED` on violation
-- [ ] Implement `MmapColumn::read_f32_slice(&self, offset: usize, count: usize) -> Result<&[f32], CalyxError>` — alignment-checked cast (offset must be 4-byte aligned); wraps `read_slice`
-- [ ] Implement `MmapColumn::prefetch(&self, offset: usize, len: usize)` — calls `libc::madvise(MADV_WILLNEED)` on the range; non-fatal if madvise fails (best-effort)
-- [ ] Implement `MmapColumn::drop_pages(&self, offset: usize, len: usize)` — calls `libc::madvise(MADV_DONTNEED)` to release pages under pressure; non-fatal
-- [ ] Add `primarycache=metadata` advisory note in a doc-comment (operator must set this on the SST ZFS dataset to avoid double-caching in ARC + mmap)
-- [ ] Wire `MmapColumn::open` into the SST reader in `calyx-aster` for cold slot columns
+- [x] Define `struct MmapColumn { mmap: memmap2::Mmap, path: PathBuf, file_len: usize }` in `mmap_col.rs`.
+- [x] Implement `MmapColumn::open(path: &Path) -> Result<Self>` with read-only `memmap2::MmapOptions::new().map(&file)`.
+- [x] Return `CALYX_NOT_FOUND` for nonexistent or empty files and `CALYX_IO_ERROR` for mmap/open failures.
+- [x] Implement `read_slice(offset, len)` with checked bounds and `CALYX_BOUNDS_EXCEEDED` on violation.
+- [x] Implement `read_f32_slice(offset, count)` with checked byte length and f32 alignment.
+- [x] Implement `prefetch(offset, len)` with best-effort `MADV_WILLNEED`.
+- [x] Implement `drop_pages(offset, len)` with best-effort `MADV_DONTNEED` through `memmap2::UncheckedAdvice`.
+- [x] Add a `primarycache=metadata` ZFS advisory note.
+- [x] Document that mapped files are immutable and must not be truncated while live.
+- [x] Wire `MmapColumn::open` into SST reads, materialized slot-column reads, and OLAP slot-column aggregate scans.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests
 
-- [ ] unit: write 1024 known bytes to a temp file; `MmapColumn::open` + `read_slice(0, 1024)` returns the exact bytes; verified with `assert_eq!(slice, &expected[..])`
-- [ ] unit: `read_f32_slice` on a file containing 4 known f32 values → slice matches `[1.0_f32, 2.0, 3.0, 4.0]` byte-exactly
-- [ ] unit: `read_slice(offset=1020, len=8)` on a 1024-byte file → `CALYX_BOUNDS_EXCEEDED` (1028 > 1024)
-- [ ] unit: `read_f32_slice` at odd offset (e.g., offset=3) → `CALYX_BOUNDS_EXCEEDED` (alignment violation)
-- [ ] unit: open a nonexistent path → `CALYX_NOT_FOUND`
-- [ ] edge: zero-length file → `open` returns `CALYX_NOT_FOUND` (empty mmap is meaningless)
-- [ ] edge: `prefetch` and `drop_pages` on a valid range → no panic (madvise may return ENOSYS on some kernels; must not fail-hard)
-- [ ] fail-closed: truncate a file after open (file shrinks); `read_slice` at a now-invalid offset → OS SIGBUS would occur — document in SAFETY comment; in practice we re-check `file_len` at open time; operator must not truncate live files
+- [x] Unit: 1024 known bytes round-trip through `read_slice(0, 1024)`.
+- [x] Unit: four known f32 values round-trip through `read_f32_slice(0, 4)`.
+- [x] Unit: `read_slice(1020, 8)` on a 1024-byte file returns `CALYX_BOUNDS_EXCEEDED`.
+- [x] Unit: `read_f32_slice(3, 1)` returns `CALYX_BOUNDS_EXCEEDED`.
+- [x] Unit: nonexistent path returns `CALYX_NOT_FOUND`.
+- [x] Edge: zero-length file returns `CALYX_NOT_FOUND`.
+- [x] Edge: `prefetch` and `drop_pages` are nonfatal on valid and invalid ranges.
+- [x] Reader integration: SST, slot-column, and OLAP focused tests pass on aiwonder.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## FSV
 
-- **SoT:** heap RSS reported by `/proc/self/status VmRSS` during a large vault read, compared to vault size on disk
-- **Readback:** `calyx readback --metric rss_bytes` while reading a 10 GB vault — `rss_bytes` must remain << vault size (page cache handles it, not heap); `zfs list -o name,used` shows vault on disk; `free -h` shows ARC growing (not heap)
-- **Prove:** open a 1 GB cold column file, read 1 MB of it; `rss_bytes` delta is < 2 MB (only the 1 MB page plus overhead, not 1 GB). Compare before/after with `calyx readback --metric rss_bytes`.
+**Source of truth:** bytes and RSS on aiwonder:
 
-## Done when
+- `/home/croyse/calyx/data/fsv-issue472-mmap-20260614T173632Z/cold-column-1g.bin`
+- `/home/croyse/calyx/data/fsv-issue472-mmap-20260614T173632Z/f32-column.bin`
+- `/home/croyse/calyx/data/fsv-issue472-mmap-20260614T173632Z/empty-column.bin`
+- `/home/croyse/calyx/data/fsv-issue472-mmap-20260614T173632Z/issue472-mmap-fsv-readback.json`
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH56 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+Evidence captured on 2026-06-14:
+
+- Implementation commits: `5fde017` and `677bc1c`.
+- aiwonder gates passed: `cargo fmt --all -- --check`, tracked `.rs` line-count gate, `cargo check -p calyx-aster`, focused `mmap_col`, `slot_column`, `sst`, `olap` tests, and `cargo clippy -p calyx-aster --all-targets -- -D warnings`.
+- Cold file logical size: `1073741824` bytes.
+- Cold file sparse disk use: `41472` bytes.
+- Read length: `1048576` bytes.
+- First MiB hash: `1c59b8670027384143781a8a8bff2f3b44bd8818d0f53b13b064c2375a1afe38`.
+- Readback JSON hash: `5330c3c893297406759053b9ace51c0024740172f8decc166cf197f979043f32`.
+- RSS before/open/read: `4841472` / `4845568` / `5902336` bytes.
+- RSS delta after 1 MiB read: `1060864` bytes, under the `2097152` byte limit.
+- f32 readback: `[1.0, 2.0, 3.0, 4.0]`.
+- Edge readbacks: bounds and alignment returned `CALYX_BOUNDS_EXCEEDED`; missing and empty returned `CALYX_NOT_FOUND`; `prefetch` and `drop_pages` were called nonfatally.
+
+Separate aiwonder SoT reads:
+
+- `stat` showed `cold-column-1g.bin` as a regular 1 GiB file and `f32-column.bin` as 16 bytes.
+- `head -c 1048576 cold-column-1g.bin | sha256sum` matched the JSON `slice_sha256` and `expected_sha256`.
+- `xxd -g1 -l 128 cold-column-1g.bin` showed the deterministic byte pattern beginning `07 26 45 64 83 a2 c1 e0`.
+- `xxd -g4 -l 16 f32-column.bin` showed `0000803f 00000040 00004040 00008040`.
+
+## Done When
+
+- [x] `cargo check`, `clippy -D warnings`, and focused tests are green on aiwonder.
+- [x] Rust files are `<=500` lines.
+- [x] FSV evidence is attached to GitHub issue #472 / PR evidence.
+- [x] No PH56 anti-pattern: no full cold column read into heap; no trust or intelligence-theory changes.

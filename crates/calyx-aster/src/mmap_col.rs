@@ -16,6 +16,10 @@ pub const CALYX_NOT_FOUND: &str = "CALYX_NOT_FOUND";
 pub const CALYX_IO_ERROR: &str = "CALYX_IO_ERROR";
 pub const CALYX_BOUNDS_EXCEEDED: &str = "CALYX_BOUNDS_EXCEEDED";
 
+/// Read-only mmap over an immutable cold column file.
+///
+/// The backing file must not be truncated while mapped; Unix kernels can raise
+/// SIGBUS on later access when a live mapping outlives the backing bytes.
 #[derive(Debug)]
 pub struct MmapColumn {
     mmap: Mmap,
