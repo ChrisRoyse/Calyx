@@ -171,6 +171,7 @@ fn router_failure_vault(dir: &Path) -> AsterVault<FixedClock> {
             torn_tail: None,
             temporal_policy: None,
             dedup_policy: None,
+            retention_horizon: crate::timetravel::RetentionHorizon::default(),
         },
         None,
     )
@@ -182,6 +183,7 @@ fn router_failure_vault(dir: &Path) -> AsterVault<FixedClock> {
         rows: VersionedCfStore::new_with_router(0, router),
         durable: None,
         dedup_policy: DedupPolicy::default(),
+        retention_horizon: std::sync::Mutex::new(crate::timetravel::RetentionHorizon::default()),
         ledger_hook: Some(ledger_hook),
         recurrence_write_lock: std::sync::Mutex::new(()),
         recovery_report: VaultRecoveryReport {

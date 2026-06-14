@@ -1,16 +1,19 @@
+mod manifest_ops;
+
 use super::encode::{WriteRow, decode_write_batch, encode_write_batch};
 use crate::cf::ColumnFamily;
 use crate::compaction::TieringPolicy;
 use crate::dedup::DedupPolicy;
-use crate::manifest::{ImmutableRef, ManifestStore, VaultManifest, recover_vault};
+use crate::manifest::recover_vault;
 use crate::sst::{SstReader, write_sst};
 use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name};
+use crate::timetravel::RetentionHorizon;
 use crate::wal::{GroupCommitBatcher, WalOptions, replay_dir};
 use calyx_core::{CalyxError, Panel, Result, SystemClock, TemporalPolicy};
 use calyx_ledger::CheckpointConfig;
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::{self, Write};
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 #[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,6 +27,7 @@ pub struct VaultOptions {
     pub ledger_checkpoint: Option<CheckpointConfig>,
     pub temporal_policy: Option<TemporalPolicy>,
     pub dedup_policy: Option<DedupPolicy>,
+    pub retention_horizon: RetentionHorizon,
     pub panel: Option<Panel>,
     /// Optional data-residency pin (PRD `30 §4`). When set, the vault's storage
     /// location is pinned and off-dataset writes/copies fail closed.
@@ -39,6 +43,7 @@ impl Default for VaultOptions {
             ledger_checkpoint: Some(CheckpointConfig::default()),
             temporal_policy: Some(TemporalPolicy::default()),
             dedup_policy: Some(DedupPolicy::default()),
+            retention_horizon: RetentionHorizon::default(),
             panel: None,
             residency: None,
         }
@@ -53,6 +58,7 @@ pub(super) struct DurableVault {
     ledger_checkpoint: Option<CheckpointConfig>,
     temporal_policy: Option<TemporalPolicy>,
     dedup_policy: Option<DedupPolicy>,
+    retention_horizon: Mutex<RetentionHorizon>,
     panel: Option<Panel>,
     pending_checkpoint: Mutex<Vec<(u64, Vec<WriteRow>)>>,
     #[cfg(test)]
@@ -70,6 +76,7 @@ pub(super) struct RecoveredBatches {
     pub torn_tail: Option<crate::wal::TornTail>,
     pub temporal_policy: Option<TemporalPolicy>,
     pub dedup_policy: Option<DedupPolicy>,
+    pub retention_horizon: RetentionHorizon,
 }
 
 impl DurableVault {
@@ -80,6 +87,7 @@ impl DurableVault {
         if let Some(policy) = &options.dedup_policy {
             validate_dedup_policy(policy, options.panel.as_ref())?;
         }
+        options.retention_horizon.validate()?;
         Ok(())
     }
 
@@ -107,6 +115,7 @@ impl DurableVault {
             ledger_checkpoint: options.ledger_checkpoint.clone(),
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
+            retention_horizon: Mutex::new(options.retention_horizon.clone()),
             panel: options.panel.clone(),
             pending_checkpoint: Mutex::new(Vec::new()),
             #[cfg(test)]
@@ -146,6 +155,7 @@ impl DurableVault {
                 torn_tail: recovery.torn_tail,
                 temporal_policy: recovery.manifest.temporal_policy,
                 dedup_policy: recovery.manifest.dedup_policy,
+                retention_horizon: recovery.manifest.retention_horizon,
             });
         }
 
@@ -167,6 +177,7 @@ impl DurableVault {
             torn_tail: replay.torn_tail,
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
+            retention_horizon: options.retention_horizon.clone(),
         })
     }
 
@@ -225,6 +236,7 @@ impl DurableVault {
             ledger_checkpoint: self.ledger_checkpoint.clone(),
             temporal_policy: self.temporal_policy,
             dedup_policy: self.dedup_policy.clone(),
+            retention_horizon: self.retention_horizon(),
             panel: self.panel.clone(),
             ..VaultOptions::default()
         };
@@ -294,43 +306,6 @@ impl DurableVault {
             || self.root.join("cf").join(cf.name()),
             |policy| policy.place_current_cf(cf).absolute_dir(),
         )
-    }
-
-    fn write_manifest(&self, seq: u64) -> Result<()> {
-        let manifest_seq = self.current_manifest()?.map_or(seq.max(1), |manifest| {
-            manifest.manifest_seq.saturating_add(1)
-        });
-        self.write_manifest_with_seq(manifest_seq, seq)
-    }
-
-    fn write_manifest_with_seq(&self, manifest_seq: u64, durable_seq: u64) -> Result<()> {
-        let current = self.current_manifest()?;
-        let (panel_ref, codebook_refs) = match (&self.panel, current.as_ref()) {
-            (Some(panel), _) => ensure_manifest_assets(&self.root, Some(panel))?,
-            (None, Some(manifest)) => (manifest.panel_ref.clone(), manifest.codebook_refs.clone()),
-            (None, None) => ensure_manifest_assets(&self.root, None)?,
-        };
-        let manifest = VaultManifest::new_with_policies(
-            manifest_seq,
-            durable_seq,
-            panel_ref,
-            codebook_refs,
-            self.temporal_policy,
-            self.dedup_policy.clone(),
-        )?;
-        let mut manifest = manifest;
-        manifest.registry_ref = current.and_then(|manifest| manifest.registry_ref);
-        manifest.validate()?;
-        ManifestStore::open(&self.root).write_current(&manifest)?;
-        Ok(())
-    }
-
-    fn current_manifest(&self) -> Result<Option<VaultManifest>> {
-        if self.root.join("CURRENT").exists() {
-            ManifestStore::open(&self.root).load_current().map(Some)
-        } else {
-            Ok(None)
-        }
     }
 }
 
@@ -423,73 +398,6 @@ fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<P
         }
     }
     roots
-}
-
-fn ensure_manifest_assets(
-    root: &Path,
-    panel: Option<&Panel>,
-) -> Result<(ImmutableRef, Vec<ImmutableRef>)> {
-    let codebook_path = root.join("codebooks/default.bin");
-    let codebook_bytes = b"calyx-stage1-codebook";
-    let panel_ref = if let Some(panel) = panel {
-        let panel_bytes = serde_json::to_vec_pretty(panel).map_err(|error| {
-            CalyxError::aster_corrupt_shard(format!("encode durable panel asset: {error}"))
-        })?;
-        let hash = blake3::hash(&panel_bytes).to_hex().to_string();
-        let logical = format!("panel/panel-v{:08}-{}.json", panel.version, &hash[..16]);
-        write_asset(&root.join(&logical), &panel_bytes)?;
-        ImmutableRef::from_bytes(logical, &panel_bytes)?
-    } else {
-        let panel_bytes = b"calyx-stage1-panel";
-        write_asset(&root.join("panel/current.bin"), panel_bytes)?;
-        ImmutableRef::from_bytes("panel/current.bin", panel_bytes)?
-    };
-    write_asset(&codebook_path, codebook_bytes)?;
-    Ok((
-        panel_ref,
-        vec![ImmutableRef::from_bytes(
-            "codebooks/default.bin",
-            codebook_bytes,
-        )?],
-    ))
-}
-
-fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
-    match fs::read(path) {
-        Ok(existing) if existing == bytes => return Ok(()),
-        Ok(_) => {
-            return Err(CalyxError::aster_corrupt_shard(format!(
-                "manifest immutable asset {} hash mismatch",
-                path.display()
-            )));
-        }
-        Err(error) if error.kind() != io::ErrorKind::NotFound => {
-            return Err(storage_error("read manifest asset", error));
-        }
-        Err(_) => {}
-    }
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| storage_error("create manifest asset dir", error))?;
-    }
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("manifest-asset");
-    let tmp = path.with_file_name(format!(
-        ".{file_name}.{:?}.tmp",
-        std::thread::current().id()
-    ));
-    {
-        let mut file =
-            File::create(&tmp).map_err(|error| storage_error("create manifest asset", error))?;
-        file.write_all(bytes)
-            .map_err(|error| storage_error("write manifest asset", error))?;
-        file.sync_all()
-            .map_err(|error| storage_error("fsync manifest asset", error))?;
-    }
-    fs::rename(&tmp, path).map_err(|error| storage_error("install manifest asset", error))?;
-    Ok(())
 }
 
 fn storage_error(context: &str, error: io::Error) -> CalyxError {

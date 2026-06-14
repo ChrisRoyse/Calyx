@@ -49,6 +49,7 @@ where
         if let Some(hook) = &self.ledger_hook {
             ledger_hook::refresh_hook(hook, &recovered, durable.ledger_checkpoint())?;
         }
+        self.replace_retention_horizon(recovered.retention_horizon.clone())?;
         for batch in &recovered.batches {
             if batch.seq <= current {
                 continue;

@@ -7,6 +7,7 @@ use calyx_core::{
 };
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 /// A clock the test advances between commits so each group-commit is stamped
 /// with a known wall-clock millisecond.
@@ -189,6 +190,64 @@ fn single_write_boundary() {
     );
     let snap = vault.as_of(500).expect("as_of 500");
     assert!(snap.get_cx(c1).is_ok());
+}
+
+#[test]
+fn absolute_horizon_fails_closed_before_inclusive_boundary() {
+    let vault = vault_at(0);
+    vault
+        .set_retention_horizon(RetentionHorizon::absolute(5000))
+        .expect("set horizon");
+    let c1 = ingest(&vault, b"horizon-boundary", 1.0, 5000);
+
+    let before = vault.as_of(4999).unwrap_err();
+    assert_eq!(before.code, CALYX_TIMETRAVEL_BEFORE_HORIZON);
+    assert!(before.message.contains("requested_millis=4999"));
+    assert!(before.message.contains("horizon_millis=5000"));
+
+    let at_boundary = vault.as_of(5000).expect("inclusive horizon boundary");
+    assert!(at_boundary.get_cx(c1).is_ok());
+}
+
+#[test]
+fn none_horizon_preserves_no_data_error() {
+    let vault = vault_at(0);
+    ingest(&vault, b"no-data", 1.0, 500);
+    vault
+        .set_retention_horizon(RetentionHorizon::none())
+        .expect("default none is valid");
+    let err = vault.as_of(0).unwrap_err();
+    assert_eq!(err.code, "CALYX_TIMETRAVEL_NO_DATA");
+}
+
+#[test]
+fn rolling_zero_horizon_rejects_anything_before_now() {
+    let vault = vault_at(10_000);
+    vault
+        .set_retention_horizon(RetentionHorizon::rolling(Duration::ZERO))
+        .expect("set rolling zero");
+    let c1 = ingest(&vault, b"rolling-zero", 1.0, 10_000);
+
+    let before = vault.as_of(9_999).unwrap_err();
+    assert_eq!(before.code, CALYX_TIMETRAVEL_BEFORE_HORIZON);
+    let at_now = vault.as_of(10_000).expect("as_of now");
+    assert!(at_now.get_cx(c1).is_ok());
+}
+
+#[test]
+fn rolling_horizon_uses_current_clock_and_saturating_math() {
+    let vault = vault_at(10_000);
+    vault
+        .set_retention_horizon(RetentionHorizon::rolling(Duration::from_secs(1)))
+        .expect("set rolling horizon");
+    let c1 = ingest(&vault, b"rolling", 1.0, 9_000);
+    vault.clock_set(10_000);
+
+    let before = vault.as_of(8_999).unwrap_err();
+    assert_eq!(before.code, CALYX_TIMETRAVEL_BEFORE_HORIZON);
+    assert!(before.message.contains("horizon_millis=9000"));
+    let at_horizon = vault.as_of(9_000).expect("rolling inclusive horizon");
+    assert!(at_horizon.get_cx(c1).is_ok());
 }
 
 #[test]

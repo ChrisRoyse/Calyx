@@ -182,6 +182,7 @@ mod tests {
                 torn_tail: None,
                 temporal_policy: None,
                 dedup_policy: None,
+                retention_horizon: crate::timetravel::RetentionHorizon::default(),
             },
             None,
         )
