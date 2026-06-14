@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use calyx_core::{CalyxError, Clock, FixedClock, VaultId};
 
@@ -261,6 +261,8 @@ fn invalid_config_and_collection_fail_closed() {
 
 #[test]
 fn durable_reclaimer_fsv_writes_readback_artifacts() {
+    const FSV_NOW_MS: u64 = 1_700_000_002_000;
+
     let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);
     let dir = fsv_root
         .as_ref()
@@ -268,9 +270,14 @@ fn durable_reclaimer_fsv_writes_readback_artifacts() {
         .unwrap_or_else(|| temp_dir("retention-fsv"));
     fs::remove_dir_all(&dir).ok();
 
-    let vault =
-        AsterVault::new_durable(&dir, vault_id(), b"retention-fsv", VaultOptions::default())
-            .unwrap();
+    let vault = AsterVault::new_durable_with_clock(
+        &dir,
+        vault_id(),
+        b"retention-fsv",
+        VaultOptions::default(),
+        FixedClock::new(FSV_NOW_MS),
+    )
+    .unwrap();
     let ts_col = ts_collection(
         "fsv-ts",
         RetentionPolicy::DropAfter(Duration::from_millis(1)),
@@ -284,12 +291,12 @@ fn durable_reclaimer_fsv_writes_readback_artifacts() {
 
     let ts = TimeSeriesLayer::new(&vault);
     let now_nanos = vault.clock_now().saturating_mul(NANOS_PER_MILLI);
-    let live_nanos = now_nanos.saturating_add(60_000 * NANOS_PER_MILLI);
+    let live_nanos = now_nanos.saturating_add(NANOS_PER_MILLI / 2);
     ts.ts_write(&ts_col, 42, now_nanos.saturating_sub(5_000_000), 4.0)
         .unwrap();
     ts.ts_write(&ts_col, 42, live_nanos, 8.0).unwrap();
 
-    let now_ms = current_time_ms();
+    let now_ms = vault.clock_now();
     let expired = BlobId::from_text("fsv-expired");
     let live = BlobId::from_text("fsv-live");
     write_blob_rows(&vault, &blob_col, expired, b"expired", now_ms - 10_000);
@@ -441,15 +448,6 @@ fn manifest_value(bytes: &[u8], created_at_ms: Option<u64>) -> Vec<u8> {
         out.extend_from_slice(&created_at_ms.to_be_bytes());
     }
     out
-}
-
-fn current_time_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_millis()
-        .try_into()
-        .unwrap()
 }
 
 fn physical_files(dir: &std::path::Path) -> Vec<serde_json::Value> {
