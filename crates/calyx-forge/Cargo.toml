@@ -13,6 +13,7 @@ cuda = ["dep:cudarc"]
 [dependencies]
 calyx-core = { path = "../calyx-core" }
 cudarc = { workspace = true, optional = true, features = ["std", "driver", "cublas", "nvrtc", "dynamic-loading", "cuda-13020"] }
+nvml-wrapper.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true
 serde.workspace = true

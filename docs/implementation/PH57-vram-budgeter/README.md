@@ -35,6 +35,7 @@ Greenfield for the budgeter, admission control, and yield logic.
 | `crates/calyx-forge/src/vram/lru_evict.rs` | LRU eviction of GPU-resident blocks under pressure |
 | `crates/calyx-forge/src/vram/admission.rs` | Admission control: split/queue/fail logic; `CALYX_FORGE_VRAM_BUDGET` |
 | `crates/calyx-forge/src/vram/oom_guard.rs` | OOM guard: reduce-batch → retry → fail closed; CUDA OOM intercept |
+| `crates/calyx-forge/src/vram/yield_policy.rs` | Anneal sub-budget, power backoff, and CUDA stream priority yield policy |
 | `crates/calyx-forge/src/vram/mod.rs` | Re-exports + `VramStats` |
 | `crates/calyx-registry/src/ingest_microbatch.rs` | Bounded ingest microbatch admission, timeout breaker, `CALYX_BACKPRESSURE` |
 
@@ -65,6 +66,15 @@ calyx readback --metric forge_dispatch_p99_ms
 - Search p99 SLO holds (read `nvidia-smi` + latency series; no OOM kill in `dmesg`)
 - Evidence (nvidia-smi screenshot + latency series + `forge_vram_budget_exceeded_total`) attached
   to the PH57 GitHub issue
+
+## Current implementation evidence
+
+- T05 Anneal yield policy is implemented in `crates/calyx-forge/src/vram/yield_policy.rs`.
+- `VramStats` now includes split serving/Anneal byte gauges and `YieldStats`.
+- aiwonder FSV root: `/home/croyse/calyx/data/fsv-issue479-yield-policy-20260614T211902Z`.
+- T05 readback proved `forge_anneal_throttle_events_total 1`,
+  `forge_anneal_vram_rejections_total 1`, 60 `nvidia-smi dmon` samples with max
+  power `76 W`, and CUDA priority ordering `serving_raw=-5` over `anneal_raw=0`.
 
 ## Risks / landmines
 
