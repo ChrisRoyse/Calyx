@@ -174,6 +174,11 @@ impl ResourceStatus {
             format!("{base},source=\"memtable_rejected\""),
             self.backpressure.memtable_rejected_total,
         );
+        metric(
+            "calyx_disk_pressure_events_total",
+            base.clone(),
+            self.backpressure.disk_pressure_events_total,
+        );
         metric("calyx_wal_bytes", base.clone(), self.wal.bytes);
         metric("calyx_wal_segments", base, self.wal.segment_count as u64);
         out
