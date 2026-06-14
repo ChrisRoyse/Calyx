@@ -27,6 +27,7 @@ fn column_family_names_match_prd_layout() {
             "recurrence",
             "graph",
             "online",
+            "reactive",
             "anneal_rollback",
             "anneal_health",
             "anneal_checksums",

@@ -24,11 +24,19 @@ use uuid::Uuid;
 
 use crate::error::{CALYX_REACTIVE_QUEUE_FULL, CALYX_REACTIVE_REGISTRY_FULL, loom_error};
 
+mod durable;
 mod engine;
 mod signals;
 
+pub use durable::{
+    ReactiveRowKey, ReactiveRowKind, decode_audit_entry, decode_trigger_fired, reactive_audit_key,
+    reactive_audit_prefix, reactive_fired_key, reactive_row_key,
+};
 pub use engine::ReactiveEngine;
-pub use signals::RecurrenceSignals;
+pub use signals::{
+    AgreementDriftSignals, AgreementDriftTracker, ReactiveSignalSet, RecurrenceSignals,
+    WardNoveltySignals,
+};
 
 /// Stable identifier for a registered trigger (UUID v7 — time-ordered).
 pub type TriggerId = Uuid;

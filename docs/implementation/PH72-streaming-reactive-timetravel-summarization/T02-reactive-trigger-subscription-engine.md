@@ -55,6 +55,24 @@ the Ledger reference of the ingest that triggered evaluation.
 - **Readback:** `calyx readback trigger-audit <sub_id> --vault $VAULT_PATH` → prints all `AuditEntry` rows; `calyx readback trigger-fired --vault $VAULT_PATH` → prints `TriggerFired` events; Ledger ref in each fired event is verifiable via `calyx readback ledger-entry <ledger_ref>`
 - **Prove:** before: 0 triggers registered; register `EventRecurs { series_id: <known_id>, min_occurrences: 3 }` → ingest the recurring event 3 times → exactly one `TriggerFired` in the queue; the audit log shows 3 evaluation entries (2 no-match + 1 match); `ledger_ref` in the `TriggerFired` matches the WAL entry for the 3rd ingest (byte-compare the seq number); fill the queue → Ledger warning entry present
 
+## Issue #755 follow-up shipped 2026-06-14
+
+- Added the durable Aster `reactive` CF and WAL tag for persisted `AuditEntry` and `TriggerFired` rows. Durable row keys are typed as audit/fired, include trigger id and ingest ledger seq, and are decoded by `calyx readback trigger-audit` / `trigger-fired`.
+- `ReactiveEngine::evaluate_post_ingest_durable` now writes reactive rows through a Ledger-backed group commit with `reactive_state_v1` payloads containing `row_count`, `audit_count`, `fired_count`, `warning_count`, and the triggering ingest ledger ref.
+- `StreamIngester::new_with_post_ingest_hook` calls the durable reactive hook immediately after each successful `ingest_at` and before the stream-batch ledger marker. The fired row carries the actual ingest ledger ref, even though reactive ledger rows are interleaved afterward.
+- `ReactiveSignalSet` now has real adapters for recurrence, Ward novelty (`NewRegion`), and agreement drift (`DriftDetected`) over Aster rows.
+- Ledger redaction now explicitly permits Calyx-generated `quant_slot_*` hex metadata so recurrence merge restore snapshots from streamed quantized inputs remain reversible without tripping the token guard.
+
+aiwonder FSV evidence:
+
+- Root: `/home/croyse/calyx/data/fsv-issue755-reactive-durable-20260614/stream-event-recurs`
+- Artifact: `stream-event-recurs.json` recorded `audit_matched: [false, false, true]`, `fired_ledger_seq: 5`, and identical `fired_ledger_hash` / `ledger_row_hash` (`cf8c1f74c89f2688d8de98763d3736f4a641d1d9f2b6af76bc275bbde1862486`).
+- `cargo run -q -p calyx-cli -- readback trigger-audit 019ec59b-ec2e-72b2-a019-db00310027e9 --vault <root>` printed exactly three audit rows: seq 1 false, seq 3 false, seq 5 true.
+- `cargo run -q -p calyx-cli -- readback trigger-fired --vault <root>` printed exactly one fired row with `EventRecurs { min_occurrences: 3 }`, `ledger_seq: 5`.
+- `cargo run -q -p calyx-cli -- verify-chain --vault <root> --range 0..8` returned `CHAIN_INTACT count=8`.
+- Queue overflow edge: `/tmp/calyx-issue755-queue-overflow-430080-1` readback showed one audit row with `code: CALYX_REACTIVE_QUEUE_FULL`; `queue-overflow.json` showed one `reactive_state_v1` ledger payload with `warning_count: 1`.
+- Ward and drift adapter edges: `/tmp/calyx-issue755-ward-new-region-430080-2` and `/tmp/calyx-issue755-drift-430080-0` each printed one persisted fired row via `readback trigger-fired`.
+
 ## Done when
 
 - [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder

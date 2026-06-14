@@ -376,6 +376,7 @@ fn parse_cf(value: &str) -> Result<ColumnFamily, String> {
         "time_index" => Ok(ColumnFamily::TimeIndex),
         "graph" => Ok(ColumnFamily::Graph),
         "online" => Ok(ColumnFamily::Online),
+        "reactive" => Ok(ColumnFamily::Reactive),
         "scalars" => Ok(ColumnFamily::Scalars),
         "xterm" => Ok(ColumnFamily::XTerm),
         "temporal_xterm" => Ok(ColumnFamily::TemporalXTerm),

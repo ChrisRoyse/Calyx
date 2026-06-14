@@ -32,10 +32,11 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-use calyx_core::{CalyxError, Clock, Result, SlotVector};
+use calyx_core::{CalyxError, Clock, CxId, LedgerRef, Result, SlotVector, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 
-use crate::dedup::{EpochSecs, IngestInput, ingest_at};
+use crate::cf::{ColumnFamily, ledger_key};
+use crate::dedup::{DedupResult, EpochSecs, IngestInput, ingest_at};
 use crate::vault::AsterVault;
 use quantize_online::input_nan_error;
 
@@ -48,6 +49,11 @@ pub const STREAM_BATCH_MARKER: &str = "STREAM_BATCH";
 const STREAM_CLOSED_CODE: &str = "CALYX_STREAM_CLOSED";
 const STREAM_CLOSED_REMEDIATION: &str =
     "the stream ingester was already drained/closed; build a new StreamIngester to resume";
+
+/// Hook invoked after each successful `ingest_at` and before the stream-batch
+/// ledger row. The `LedgerRef` is read from the Ledger CF after the ingest write.
+pub type PostIngestHook<C> =
+    Arc<dyn Fn(&AsterVault<C>, CxId, LedgerRef) -> Result<()> + Send + Sync>;
 
 fn stream_closed_error(message: impl Into<String>) -> CalyxError {
     CalyxError {
@@ -107,6 +113,16 @@ where
         config: QuantizeOnlineConfig,
         guard: BackpressureGuard,
     ) -> Self {
+        Self::new_with_post_ingest_hook(vault, config, guard, None)
+    }
+
+    /// Builds an ingester with a post-ingest hook for reactive evaluation.
+    pub fn new_with_post_ingest_hook(
+        vault: Arc<AsterVault<C>>,
+        config: QuantizeOnlineConfig,
+        guard: BackpressureGuard,
+        post_ingest: Option<PostIngestHook<C>>,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel::<StreamEvent>();
         let guard = Arc::new(guard);
         let backpressured = Arc::new(AtomicUsize::new(0));
@@ -114,7 +130,9 @@ where
         let handle = {
             let vault = Arc::clone(&vault);
             let flush = Arc::clone(&flush);
-            thread::spawn(move || flush_loop(&vault, &receiver, &config, &flush))
+            thread::spawn(move || {
+                flush_loop(&vault, &receiver, &config, &flush, post_ingest.as_ref())
+            })
         };
         Self {
             sender: Some(sender),
@@ -215,6 +233,7 @@ fn flush_loop<C>(
     receiver: &Receiver<StreamEvent>,
     config: &QuantizeOnlineConfig,
     flush: &Arc<Mutex<FlushState>>,
+    post_ingest: Option<&PostIngestHook<C>>,
 ) where
     C: Clock + Send + Sync + 'static,
 {
@@ -230,7 +249,7 @@ fn flush_loop<C>(
                 Err(_) => break,
             }
         }
-        match process_batch(vault, config, &batch) {
+        match process_batch(vault, config, &batch, post_ingest) {
             Ok(outcome) => {
                 if let Ok(mut state) = flush.lock() {
                     state.stats.ingested += outcome.ingested;
@@ -253,6 +272,7 @@ fn process_batch<C>(
     vault: &AsterVault<C>,
     config: &QuantizeOnlineConfig,
     batch: &[StreamEvent],
+    post_ingest: Option<&PostIngestHook<C>>,
 ) -> Result<BatchOutcome>
 where
     C: Clock + Send + Sync + 'static,
@@ -281,7 +301,11 @@ where
                 .metadata
                 .insert("quantized".to_string(), "true".to_string());
         }
-        ingest_at(vault, &input, event.at, None)?;
+        let result = ingest_at(vault, &input, event.at, None)?;
+        let ledger_ref = latest_ledger_ref(vault)?;
+        if let Some(hook) = post_ingest {
+            hook(vault, result_cx_id(&result), ledger_ref)?;
+        }
         outcome.ingested += 1;
     }
     let payload = format!(
@@ -296,6 +320,52 @@ where
         ActorId::Service("calyx-stream".to_string()),
     )?;
     Ok(outcome)
+}
+
+fn result_cx_id(result: &DedupResult) -> CxId {
+    match result {
+        DedupResult::New(cx_id) | DedupResult::ExactDuplicate(cx_id) => *cx_id,
+        DedupResult::DedupMerge { into, .. } => *into,
+    }
+}
+
+fn latest_ledger_ref<C>(vault: &AsterVault<C>) -> Result<LedgerRef>
+where
+    C: Clock + Send + Sync + 'static,
+{
+    let (key, value) = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::Ledger)?
+        .into_iter()
+        .max_by(|left, right| left.0.cmp(&right.0))
+        .ok_or_else(|| stream_closed_error("ingest wrote no Ledger row"))?;
+    let key_seq = ledger_seq(&key)?;
+    let entry = calyx_ledger::decode(&value)?;
+    if entry.seq != key_seq {
+        return Err(CalyxError::ledger_corrupt(format!(
+            "Ledger CF key seq {key_seq} != decoded entry seq {}",
+            entry.seq
+        )));
+    }
+    Ok(LedgerRef {
+        seq: entry.seq,
+        hash: entry.entry_hash,
+    })
+}
+
+fn ledger_seq(key: &[u8]) -> Result<u64> {
+    if key.len() != 8 {
+        return Err(CalyxError::ledger_corrupt(format!(
+            "ledger key length {} != 8",
+            key.len()
+        )));
+    }
+    let seq = u64::from_be_bytes(key.try_into().expect("length checked"));
+    if ledger_key(seq) != key {
+        return Err(CalyxError::ledger_corrupt(
+            "ledger key is not canonical big-endian seq",
+        ));
+    }
+    Ok(seq)
 }
 
 /// Lowercase hex encoding (no external dependency).
