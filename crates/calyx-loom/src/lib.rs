@@ -7,6 +7,7 @@ pub mod cross_term;
 pub mod error;
 pub mod lru_cache;
 pub mod materialization;
+pub mod reactive;
 pub mod recurrence;
 
 pub use abundance::{
@@ -23,13 +24,18 @@ pub use cross_term::{
 pub use error::{
     CALYX_LOOM_DIM_MISMATCH, CALYX_LOOM_FORGE_UNAVAILABLE, CALYX_LOOM_NON_FINITE_VECTOR,
     CALYX_LOOM_SERIES_READ_ERROR, CALYX_LOOM_SLOT_MISSING, CALYX_LOOM_TEMPORAL_XTERM_CORRUPT,
-    CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_RECURRENCE_CONTEXT_TOO_LARGE,
+    CALYX_LOOM_ZERO_NORM_VECTOR, CALYX_REACTIVE_QUEUE_FULL, CALYX_REACTIVE_REGISTRY_FULL,
+    CALYX_REACTIVE_SIGNAL_UNAVAILABLE, CALYX_RECURRENCE_CONTEXT_TOO_LARGE,
     CALYX_RECURRENCE_INVALID_RETENTION, loom_error,
 };
 pub use lru_cache::LruCache;
 pub use materialization::{
     MaterializationAction, MaterializationPlan, PairGainGate, StaticPairGainGate, plan_cross_terms,
     plan_cross_terms_checked,
+};
+pub use reactive::{
+    AuditEntry, AuditLog, BoundedQueue, ReactiveEngine, ReactiveSignals, RecurrenceSignals,
+    TriggerCondition, TriggerDef, TriggerFired, TriggerId, TriggerRegistry,
 };
 pub use recurrence::{
     LeadLagResult, Occurrence, OccurrenceContext, PeriodicFit, PeriodicRecallHit,

@@ -11,6 +11,15 @@ pub const CALYX_LOOM_SERIES_READ_ERROR: &str = "CALYX_LOOM_SERIES_READ_ERROR";
 pub const CALYX_LOOM_TEMPORAL_XTERM_CORRUPT: &str = "CALYX_LOOM_TEMPORAL_XTERM_CORRUPT";
 pub const CALYX_RECURRENCE_CONTEXT_TOO_LARGE: &str = "CALYX_RECURRENCE_CONTEXT_TOO_LARGE";
 pub const CALYX_RECURRENCE_INVALID_RETENTION: &str = "CALYX_RECURRENCE_INVALID_RETENTION";
+/// The reactive trigger registry is at `max_triggers`; no new trigger admitted.
+pub const CALYX_REACTIVE_REGISTRY_FULL: &str = "CALYX_REACTIVE_REGISTRY_FULL";
+/// The reactive fired-event queue is at `max_queue_depth`; the oldest undelivered
+/// event was discarded to make room (bounded by construction, A26).
+pub const CALYX_REACTIVE_QUEUE_FULL: &str = "CALYX_REACTIVE_QUEUE_FULL";
+/// A signal source cannot evaluate the requested trigger condition (e.g. a
+/// recurrence-only source asked for a novelty/drift verdict). Fail closed rather
+/// than silently treat the condition as not-firing.
+pub const CALYX_REACTIVE_SIGNAL_UNAVAILABLE: &str = "CALYX_REACTIVE_SIGNAL_UNAVAILABLE";
 
 pub fn loom_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
@@ -25,6 +34,9 @@ pub fn loom_error(code: &'static str, message: impl Into<String>) -> CalyxError 
         }
         CALYX_RECURRENCE_CONTEXT_TOO_LARGE => "store only a bounded recurrence context blob",
         CALYX_RECURRENCE_INVALID_RETENTION => "use a positive recurrence max_occurrences value",
+        CALYX_REACTIVE_REGISTRY_FULL => "deregister a trigger or raise max_triggers",
+        CALYX_REACTIVE_QUEUE_FULL => "drain TriggerFired events or raise max_queue_depth",
+        CALYX_REACTIVE_SIGNAL_UNAVAILABLE => "wire a signal source that evaluates this condition",
         _ => "inspect Loom xterm inputs",
     };
     CalyxError {
