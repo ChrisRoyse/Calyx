@@ -42,6 +42,7 @@ fn column_family_names_match_prd_layout() {
             "kv",
             "timeseries",
             "blob",
+            "index_btree",
         ]
     );
 

@@ -129,6 +129,7 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "anneal_report" => ColumnFamily::AnnealReport,
         "anneal_growth" => ColumnFamily::AnnealGrowth,
         "time_index" => ColumnFamily::TimeIndex,
+        "index_btree" => ColumnFamily::IndexBtree,
         _ if value.starts_with("slot_") => parse_slot_cf(value)?,
         _ => {
             return Err(CalyxError::aster_corrupt_shard(format!(
@@ -211,6 +212,29 @@ mod tests {
 
     fn sst(name: &str) -> PathBuf {
         PathBuf::from("/vault/cf/base").join(name)
+    }
+
+    /// Guard: every static CF round-trips name → parse_cf_dir_name. A new
+    /// `ColumnFamily` that forgets to register its directory name here fails
+    /// this test immediately instead of only on a vault reopen.
+    #[test]
+    fn every_static_cf_dir_name_round_trips() {
+        for cf in ColumnFamily::STATIC {
+            let parsed = parse_cf_dir_name(&cf.name()).unwrap_or_else(|e| {
+                panic!("CF {:?} dir name {} not parseable: {e}", cf, cf.name())
+            });
+            assert_eq!(
+                parsed, cf,
+                "parse_cf_dir_name must invert name() for {cf:?}"
+            );
+        }
+        // Slot CFs (quantized + raw) also round-trip.
+        for cf in [
+            ColumnFamily::slot(calyx_core::SlotId::new(0)),
+            ColumnFamily::slot_raw(calyx_core::SlotId::new(42)),
+        ] {
+            assert_eq!(parse_cf_dir_name(&cf.name()).unwrap(), cf);
+        }
     }
 
     #[test]
