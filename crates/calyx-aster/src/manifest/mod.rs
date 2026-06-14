@@ -147,6 +147,8 @@ pub struct VaultManifest {
     pub manifest_seq: u64,
     pub durable_seq: u64,
     pub panel_ref: ImmutableRef,
+    #[serde(default)]
+    pub registry_ref: Option<ImmutableRef>,
     pub codebook_refs: Vec<ImmutableRef>,
     #[serde(default)]
     pub temporal_policy: Option<TemporalPolicy>,
@@ -203,6 +205,7 @@ impl VaultManifest {
             manifest_seq,
             durable_seq,
             panel_ref,
+            registry_ref: None,
             codebook_refs,
             temporal_policy,
             dedup_policy,
@@ -222,6 +225,10 @@ impl VaultManifest {
         }
         self.panel_ref.validate()?;
         require_prefix(&self.panel_ref, "panel/")?;
+        if let Some(reference) = &self.registry_ref {
+            reference.validate()?;
+            require_prefix(reference, "registry/")?;
+        }
         let mut seen = BTreeSet::new();
         for reference in &self.codebook_refs {
             reference.validate()?;
@@ -455,6 +462,9 @@ fn require_prefix(reference: &ImmutableRef, prefix: &str) -> Result<()> {
 
 fn verify_immutable_refs(vault_dir: &Path, manifest: &VaultManifest) -> Result<()> {
     verify_immutable_ref(vault_dir, &manifest.panel_ref)?;
+    if let Some(reference) = &manifest.registry_ref {
+        verify_immutable_ref(vault_dir, reference)?;
+    }
     for reference in &manifest.codebook_refs {
         verify_immutable_ref(vault_dir, reference)?;
     }

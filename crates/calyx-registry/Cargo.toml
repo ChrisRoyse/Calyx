@@ -12,7 +12,9 @@ candle-cuda = ["candle-core/cuda"]
 
 [dependencies]
 calyx-assay = { path = "../calyx-assay" }
+calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+blake3.workspace = true
 candle-core = "0.10.2"
 candle-nn = "0.10.2"
 candle-transformers = "0.10.2"
@@ -25,5 +27,4 @@ sha2.workspace = true
 tokenizers = { version = "0.22.2", default-features = false, features = ["onig"] }
 
 [dev-dependencies]
-calyx-aster = { path = "../calyx-aster" }
 calyx-sextant = { path = "../calyx-sextant" }

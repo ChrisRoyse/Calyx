@@ -37,6 +37,15 @@ pub enum DeterminismProof {
     ContractOnlyExemption,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct RegistryLensSnapshot {
+    pub lens_id: LensId,
+    pub contract: FrozenLensContract,
+    pub spec: Option<LensSpec>,
+    pub determinism: DeterminismProof,
+}
+
 impl Registry {
     /// Creates an empty registry.
     pub fn new() -> Self {
@@ -182,6 +191,46 @@ impl Registry {
         self.lenses
             .get(&lens_id)
             .and_then(|entry| entry.spec.as_ref())
+    }
+
+    pub fn lens_snapshots(&self) -> Vec<RegistryLensSnapshot> {
+        self.lenses
+            .iter()
+            .filter_map(|(lens_id, entry)| {
+                entry.frozen.as_ref().map(|contract| RegistryLensSnapshot {
+                    lens_id: *lens_id,
+                    contract: contract.clone(),
+                    spec: entry.spec.clone(),
+                    determinism: entry.determinism,
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn register_persisted_arc(
+        &mut self,
+        lens: Arc<dyn Lens>,
+        contract: FrozenLensContract,
+        spec: Option<LensSpec>,
+        determinism: DeterminismProof,
+    ) -> Result<LensId> {
+        contract.verify_registration(lens.as_ref())?;
+        let id = lens.id();
+        if self.lenses.contains_key(&id) {
+            return Err(CalyxError::registry_duplicate(format!(
+                "lens {id} is already registered"
+            )));
+        }
+        self.lenses.insert(
+            id,
+            RegistryEntry {
+                lens,
+                frozen: Some(contract),
+                spec,
+                determinism,
+            },
+        );
+        Ok(id)
     }
 
     /// Returns whether registration verified a deterministic probe or used an explicit exemption.
