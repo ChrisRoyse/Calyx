@@ -41,6 +41,7 @@ fn column_family_names_match_prd_layout() {
             "document",
             "kv",
             "timeseries",
+            "blob",
         ]
     );
 
