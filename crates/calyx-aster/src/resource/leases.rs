@@ -1,27 +1,20 @@
 //! Active reader-lease registry for oldest-pinned-seq gap accounting.
 
+use crate::gc::{GapAlert, ReadLease, ReaderId, SnapshotPinMetrics, SnapshotPinWatchdog};
 use crate::mvcc::ReaderLease;
 use calyx_core::{Seq, Ts};
-use std::collections::BTreeMap;
-use std::sync::Mutex;
 
 /// Registry of live reader leases pinned through `VersionedCfStore::pin_snapshot`.
 ///
 /// Bounded by construction (A26): every lease carries an expiry, and expired
-/// entries are pruned on every register/view, so the registry can never grow
-/// past the set of leases that are still within their `max_age_ms` window.
+/// entries are aborted on every watchdog tick/view, so the registry can never
+/// grow past the set of leases that are still within their `max_age_ms` window.
 /// Ad-hoc internal snapshot handles (lease id 0, vault-internal reads) are
 /// intentionally not registered: the oldest-pinned-seq gap tracks explicit
 /// long readers, the hazard PRD 24 §7 row 6 cares about.
 #[derive(Debug, Default)]
 pub struct LeaseRegistry {
-    entries: Mutex<BTreeMap<u64, LeaseEntry>>,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct LeaseEntry {
-    pinned_seq: Seq,
-    expires_at: Ts,
+    watchdog: SnapshotPinWatchdog,
 }
 
 /// Live-lease view used by the resource status collector.
@@ -31,42 +24,60 @@ pub struct LeaseView {
     pub active_leases: usize,
     /// Smallest pinned sequence among unexpired leases.
     pub oldest_pinned_seq: Option<Seq>,
+    /// Monotonic count of expired leases aborted by the watchdog.
+    pub reader_lease_expired_total: u64,
 }
 
 impl LeaseRegistry {
-    /// Registers a freshly issued lease, pruning entries already expired.
+    /// Registers a freshly issued lease.
     pub fn register(&self, lease: ReaderLease) {
-        let mut entries = self.lock();
-        prune_expired(&mut entries, lease.issued_at());
-        entries.insert(
+        self.watchdog.register_lease(ReadLease::from_millis(
             lease.id(),
-            LeaseEntry {
-                pinned_seq: lease.pinned_seq(),
-                expires_at: lease.expires_at(),
-            },
-        );
+            lease.pinned_seq(),
+            lease.issued_at(),
+            lease.max_age_ms(),
+        ));
     }
 
     /// Releases one lease; returns whether it was still registered.
     pub fn release(&self, lease_id: u64) -> bool {
-        self.lock().remove(&lease_id).is_some()
+        self.watchdog.release(lease_id)
+    }
+
+    /// Aborts one lease if the caller observed it expired at `now`.
+    pub fn abort_if_expired(&self, lease: ReaderLease, now: Ts) -> bool {
+        let probe = ReadLease::from_millis(
+            lease.id(),
+            lease.pinned_seq(),
+            lease.issued_at(),
+            lease.max_age_ms(),
+        );
+        probe.is_expired_at(now) && self.watchdog.abort_if_expired_at(lease.id(), now)
+    }
+
+    /// Background tick hook: abort all expired leases at `now`.
+    pub fn check_and_abort_expired(&self, now: Ts) -> Vec<ReaderId> {
+        self.watchdog.check_and_abort_expired_at(now)
+    }
+
+    /// Checks the live oldest-pinned gap at `newest_seq`.
+    pub fn check_gap(&self, newest_seq: Seq, now: Ts, max_gap_seqs: u64) -> Option<GapAlert> {
+        self.watchdog
+            .check_gap_at_with_max(newest_seq, now, max_gap_seqs)
+    }
+
+    /// Returns the watchdog metrics after refreshing expiry state.
+    pub fn metrics(&self, newest_seq: Seq, now: Ts) -> SnapshotPinMetrics {
+        self.watchdog.metrics_at(newest_seq, now)
     }
 
     /// Returns the live view at `now`, pruning expired leases first.
     pub fn live_view(&self, now: Ts) -> LeaseView {
-        let mut entries = self.lock();
-        prune_expired(&mut entries, now);
+        self.watchdog.check_and_abort_expired_at(now);
         LeaseView {
-            active_leases: entries.len(),
-            oldest_pinned_seq: entries.values().map(|entry| entry.pinned_seq).min(),
+            active_leases: self.watchdog.lease_count(),
+            oldest_pinned_seq: self.watchdog.oldest_pinned_seq_at(now),
+            reader_lease_expired_total: self.watchdog.reader_lease_expired_total(),
         }
     }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<u64, LeaseEntry>> {
-        self.entries.lock().expect("lease registry poisoned")
-    }
-}
-
-fn prune_expired(entries: &mut BTreeMap<u64, LeaseEntry>, now: Ts) {
-    entries.retain(|_, entry| now < entry.expires_at);
 }

@@ -128,5 +128,6 @@ fn collect_pinned(store: &VersionedCfStore, now: Ts) -> PinnedSeqStatus {
             .oldest_pinned_seq
             .map_or(0, |oldest| current_seq.saturating_sub(oldest)),
         active_leases: view.active_leases,
+        reader_lease_expired_total: view.reader_lease_expired_total,
     }
 }
