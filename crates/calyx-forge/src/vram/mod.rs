@@ -19,10 +19,14 @@
 //! on real bytes; only the external GPU reading is injected.
 
 pub mod budget;
+pub mod lru_evict;
 
 pub use budget::{
     DEFAULT_SOFT_CAP_BYTES, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV, VRAM_BUDGET_REMEDIATION,
     VramBudgeter, VramGuard,
+};
+pub use lru_evict::{
+    BlockDeallocator, BlockId, BlockKind, DevicePtr, GpuBlockRegistry, GpuBlockStats,
 };
 
 use crate::Result;
