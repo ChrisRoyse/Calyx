@@ -44,6 +44,8 @@ pub enum AnnealLedgerAction {
     MistakeUpdate,
     HeadUpdate,
     HeadUpdateReverted,
+    OperatorPromoted,
+    OperatorReverted,
     SleepPassDeferred,
     OutcomeReward,
     OutcomeContradiction,
