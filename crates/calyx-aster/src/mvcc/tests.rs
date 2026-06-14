@@ -15,6 +15,7 @@ mod freshness;
 mod isolation;
 mod read_barrier;
 mod router_bridge;
+mod snapshot_gc;
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 

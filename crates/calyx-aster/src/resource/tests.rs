@@ -2,6 +2,7 @@ use super::collect::{collect_compaction, collect_wal};
 use super::heap::parse_vm_rss_bytes;
 use super::*;
 use crate::cf::{CfRouter, ColumnFamily};
+use crate::gc::GcMetrics;
 use crate::mvcc::{Freshness, ReaderLease, VersionedCfStore};
 use crate::vault::{AsterVault, VaultOptions};
 use calyx_core::FixedClock;
@@ -250,6 +251,12 @@ fn metrics_text_renders_prometheus_conventions() {
                 score_milli: 300,
             }],
         },
+        gc: GcMetrics {
+            versions_reclaimed_total: 7,
+            bytes_freed_total: 2048,
+            soft_deletes_purged_total: 0,
+            compaction_debt: 11,
+        },
         pinned: PinnedSeqStatus {
             current_seq: 9,
             oldest_pinned_seq: Some(5),
@@ -276,6 +283,10 @@ fn metrics_text_renders_prometheus_conventions() {
     assert!(
         text.contains("calyx_compaction_pending_compaction_bytes{vault=\"demo\",cf=\"base\"} 300")
     );
+    assert!(text.contains("calyx_gc_versions_reclaimed_total{vault=\"demo\"} 7"));
+    assert!(text.contains("calyx_gc_bytes_freed_total{vault=\"demo\"} 2048"));
+    assert!(text.contains("calyx_gc_soft_deletes_purged_total{vault=\"demo\"} 0"));
+    assert!(text.contains("calyx_compaction_debt{vault=\"demo\"} 11"));
     assert!(text.contains("calyx_oldest_pinned_seq_gap{vault=\"demo\"} 4"));
     assert!(text.contains("calyx_reader_lease_expired_total{vault=\"demo\"} 2"));
     assert!(text.contains(

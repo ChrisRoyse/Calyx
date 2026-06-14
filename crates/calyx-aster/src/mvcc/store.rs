@@ -1,7 +1,9 @@
 //! In-memory MVCC row table used to define the cross-CF snapshot contract.
 
+mod gc;
+
 use crate::cf::{CfRouter, ColumnFamily, KeyRange};
-use crate::gc::SnapshotGcTick;
+use crate::gc::{SnapshotGcCounters, SnapshotGcReclaimer, SnapshotGcTick};
 use crate::mvcc::{
     Freshness, ReadBarrier, ReaderLease, SeqAllocator, Snapshot, read_barrier::first_blocking,
 };
@@ -61,6 +63,8 @@ pub struct VersionedCfStore {
     read_barriers: RwLock<Vec<ReadBarrier>>,
     leases: LeaseRegistry,
     resource_counters: Arc<ResourceCounters>,
+    snapshot_gc: SnapshotGcReclaimer,
+    snapshot_gc_counters: SnapshotGcCounters,
 }
 
 impl VersionedCfStore {
@@ -73,6 +77,8 @@ impl VersionedCfStore {
             read_barriers: RwLock::new(Vec::new()),
             leases: LeaseRegistry::default(),
             resource_counters: Arc::new(ResourceCounters::default()),
+            snapshot_gc: SnapshotGcReclaimer::default(),
+            snapshot_gc_counters: SnapshotGcCounters::default(),
         }
     }
 
@@ -86,6 +92,8 @@ impl VersionedCfStore {
             read_barriers: RwLock::new(Vec::new()),
             leases: LeaseRegistry::default(),
             resource_counters,
+            snapshot_gc: SnapshotGcReclaimer::default(),
+            snapshot_gc_counters: SnapshotGcCounters::default(),
         }
     }
 
