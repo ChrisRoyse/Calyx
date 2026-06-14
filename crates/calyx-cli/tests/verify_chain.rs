@@ -37,7 +37,7 @@ fn verify_chain_ledger_reports_intact_and_broken_seq() {
     );
 
     assert!(!broken.status.success());
-    assert!(stderr(&broken).contains("CALYX_LEDGER_CHAIN_BROKEN at seq=1"));
+    assert_stderr_code_and_message(&broken, "CALYX_LEDGER_CHAIN_BROKEN", "seq=1");
     cleanup(dir);
 }
 
@@ -52,13 +52,13 @@ fn verify_chain_vault_quarantines_broken_range() {
 
     let broken = run(["verify-chain", "--vault"], &dir, ["--range", "0..3"]);
     assert!(!broken.status.success());
-    assert!(stderr(&broken).contains("CALYX_LEDGER_CHAIN_BROKEN at seq=1"));
+    assert_stderr_code_and_message(&broken, "CALYX_LEDGER_CHAIN_BROKEN", "seq=1");
 
     let manifest = ManifestStore::open(&dir).load_current().unwrap();
     assert!(is_quarantined(&manifest, 2));
     let readback = run_readback_ledger_seq(&dir, 2);
     assert!(!readback.status.success());
-    assert!(stderr(&readback).contains("CALYX_LEDGER_CHAIN_BROKEN"));
+    assert_stderr_code_and_message(&readback, "CALYX_LEDGER_CHAIN_BROKEN", "quarantined");
     cleanup(dir);
 }
 
@@ -109,9 +109,9 @@ fn ph36_verify_chain_quarantine_aiwonder_fsv() {
     println!("{}", serde_json::to_string_pretty(&readback_json).unwrap());
 
     assert!(!verify.status.success());
-    assert!(stderr(&verify).contains("CALYX_LEDGER_CHAIN_BROKEN at seq=7"));
+    assert_stderr_code_and_message(&verify, "CALYX_LEDGER_CHAIN_BROKEN", "seq=7");
     assert!(!readback.status.success());
-    assert!(stderr(&readback).contains("CALYX_LEDGER_CHAIN_BROKEN"));
+    assert_stderr_code_and_message(&readback, "CALYX_LEDGER_CHAIN_BROKEN", "quarantined");
     assert_eq!(before_manifest.quarantines.len(), 0);
     assert_eq!(after_manifest.quarantines.len(), 1);
     assert!(is_quarantined(&after_manifest, 8));
@@ -274,6 +274,20 @@ fn stdout(output: &Output) -> String {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).trim().to_string()
+}
+
+fn assert_stderr_code_and_message(output: &Output, code: &str, message_part: &str) {
+    let stderr = stderr(output);
+    let parsed: serde_json::Value = serde_json::from_str(&stderr)
+        .unwrap_or_else(|error| panic!("stderr JSON: {error}: {stderr}"));
+
+    assert_eq!(parsed["code"], code, "stderr: {stderr}");
+    assert!(
+        parsed["message"]
+            .as_str()
+            .is_some_and(|message| message.contains(message_part)),
+        "stderr: {stderr}"
+    );
 }
 
 fn sst_files(dir: &Path) -> Vec<PathBuf> {

@@ -87,7 +87,7 @@ fn persist_assay_rows(vault: &AsterVault, report: &EmotionReport) -> Result<usiz
         .map_err(|error| error.to_string())
 }
 
-fn write_float(path: &std::path::Path, value: f32) -> Result<(), String> {
+fn write_float(path: &std::path::Path, value: f32) -> std::result::Result<(), String> {
     if !value.is_finite() {
         return Err(format!(
             "CALYX_FSV_MEDIA_EMOTION_NONFINITE_METRIC: {}",

@@ -90,7 +90,7 @@ fn write_series_row(
     stats: &CorpusStats,
     growth: &calyx_anneal::GrowthSample,
     is_last: bool,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     let row = json!({
         "step": index + 1,
         "query_count": sample.query_count,
@@ -258,7 +258,10 @@ fn summary_json(
     })
 }
 
-fn write_p99_delta(path: &Path, report: &calyx_anneal::SoakReport) -> Result<(), String> {
+fn write_p99_delta(
+    path: &Path,
+    report: &calyx_anneal::SoakReport,
+) -> std::result::Result<(), String> {
     let required_max = (report.baseline_p99_ns as f64 * 0.80).round() as u64;
     let text = format!(
         "p99_first_ns={}\np99_last_ns={}\np99_required_max_ns={}\np99_decrease_fraction={:.6}\np99_pass={}\n",
@@ -271,7 +274,7 @@ fn write_p99_delta(path: &Path, report: &calyx_anneal::SoakReport) -> Result<(),
     fs::write(path, text).map_err(|error| error.to_string())
 }
 
-fn write_json(path: &Path, value: &Value) -> Result<(), String> {
+fn write_json(path: &Path, value: &Value) -> std::result::Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
     fs::write(path, [bytes, b"\n".to_vec()].concat()).map_err(|error| error.to_string())
 }

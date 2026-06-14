@@ -8,7 +8,7 @@ use serde_json::json;
 use crate::cf_read::hex_bytes;
 use crate::ledger_store::AsterLedgerCfStore;
 
-pub fn scan_ledger_vault(vault: &Path) -> Result<(), String> {
+pub fn scan_ledger_vault(vault: &Path) -> crate::error::CliResult {
     let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
     for row in store.scan().map_err(|error| error.to_string())? {
         println!("{}", ledger_row_json(&row)?);
@@ -16,7 +16,7 @@ pub fn scan_ledger_vault(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn tail_ledger_vault(vault: &Path, last: usize) -> Result<(), String> {
+pub fn tail_ledger_vault(vault: &Path, last: usize) -> crate::error::CliResult {
     let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
     let rows = store.scan().map_err(|error| error.to_string())?;
     match verify_chain(&store, 0..rows.len() as u64).map_err(|error| error.to_string())? {
@@ -26,7 +26,7 @@ pub fn tail_ledger_vault(vault: &Path, last: usize) -> Result<(), String> {
                 json!({"verify_chain": "Intact", "verified_count": count})
             );
         }
-        other => return Err(format!("ledger chain is not intact: {other:?}")),
+        other => return Err(format!("ledger chain is not intact: {other:?}").into()),
     }
     for row in rows.iter().skip(rows.len().saturating_sub(last)) {
         println!("{}", ledger_row_json(row)?);

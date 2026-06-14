@@ -66,7 +66,7 @@ pub(super) fn is_issue604(args: &[String]) -> bool {
     value(args, "--mode") == Some("issue604")
 }
 
-pub(super) fn run(args: &[String]) -> Result<(), String> {
+pub(super) fn run(args: &[String]) -> crate::error::CliResult {
     let request = Request::parse(args)?;
     let paths = Paths::create(&request.root)?;
     let token_rows = token_rows(request.docs, request.tokens_per_doc, request.dim);
@@ -127,7 +127,8 @@ pub(super) fn run(args: &[String]) -> Result<(), String> {
         return Err(format!(
             "recall below target: token_min={} concat_min={} target={}",
             summary.token_recall_min, summary.concat_recall_min, request.recall_target
-        ));
+        )
+        .into());
     }
     write_json(&paths.metrics_dir.join("issue604_summary.json"), &summary)?;
     println!(
@@ -437,7 +438,7 @@ fn dir_bytes(path: &Path) -> Result<u64, String> {
         .sum()
 }
 
-fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<(), String> {
+fn write_json<T: Serialize>(path: &Path, value: &T) -> std::result::Result<(), String> {
     fs::write(
         path,
         serde_json::to_string_pretty(value).map_err(|e| e.to_string())?,

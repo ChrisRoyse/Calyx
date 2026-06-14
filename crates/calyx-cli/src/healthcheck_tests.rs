@@ -59,7 +59,7 @@ fn healthcheck_fails_closed_and_writes_json_for_missing_secret_var() {
     ])
     .expect_err("missing HF_TOKEN must fail");
 
-    assert!(error.contains("CALYX_HEALTHCHECK_FAILED"));
+    assert_eq!(error.code(), "CALYX_HEALTHCHECK_FAILED");
     let text = std::fs::read_to_string(&out).expect("read latest");
     assert!(text.contains("CALYX_HEALTH_SECRET_ENV_VAR_MISSING"));
     let _ = std::fs::remove_dir_all(root);

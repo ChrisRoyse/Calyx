@@ -25,7 +25,7 @@ pub(crate) fn is_topic(topic: &str) -> bool {
     )
 }
 
-pub(crate) fn readback_oracle(topic: &str, args: &[String]) -> Result<(), String> {
+pub(crate) fn readback_oracle(topic: &str, args: &[String]) -> crate::error::CliResult {
     match topic {
         "oracle_self_consistency" => readback_oracle_self_consistency(args),
         "oracle_sufficiency" => readback_oracle_sufficiency(args),
@@ -33,11 +33,11 @@ pub(crate) fn readback_oracle(topic: &str, args: &[String]) -> Result<(), String
         "oracle_expand" => butterfly::readback_oracle_expand(args),
         "reverse_query" => reverse_query::readback_reverse_query(args),
         "super_intelligence" => super_intelligence::readback_super_intelligence(args),
-        _ => Err("unknown oracle readback topic".to_string()),
+        _ => Err("unknown oracle readback topic".to_string().into()),
     }
 }
 
-pub(crate) fn readback_oracle_self_consistency(args: &[String]) -> Result<(), String> {
+pub(crate) fn readback_oracle_self_consistency(args: &[String]) -> crate::error::CliResult {
     match args {
         [vault_flag, vault, domain_flag, domain, vault_id_flag, vault_id, salt_flag, salt]
             if vault_flag == "--vault"
@@ -76,15 +76,15 @@ pub(crate) fn readback_oracle_self_consistency(args: &[String]) -> Result<(), St
                         }))
                         .map_err(|error| error.to_string())?
                     );
-                    Err(error.to_string())
+                    Err(error.to_string().into())
                 }
             }
         }
-        _ => Err("usage: calyx readback oracle_self_consistency --vault <dir> --domain <domain> --vault-id <id> --salt <s>".to_string()),
+        _ => Err("usage: calyx readback oracle_self_consistency --vault <dir> --domain <domain> --vault-id <id> --salt <s>".to_string().into()),
     }
 }
 
-fn readback_oracle_sufficiency(args: &[String]) -> Result<(), String> {
+fn readback_oracle_sufficiency(args: &[String]) -> crate::error::CliResult {
     match args {
         [vault_flag, vault, fixture_flag, fixture, vault_id_flag, vault_id, salt_flag, salt]
             if vault_flag == "--vault"
@@ -132,11 +132,11 @@ fn readback_oracle_sufficiency(args: &[String]) -> Result<(), String> {
                         ))
                         .map_err(|error| error.to_string())?
                     );
-                    Err(error.to_string())
+                    Err(error.to_string().into())
                 }
             }
         }
-        _ => Err("usage: calyx readback oracle_sufficiency --vault <dir> --fixture <json> --vault-id <id> --salt <s>".to_string()),
+        _ => Err("usage: calyx readback oracle_sufficiency --vault <dir> --fixture <json> --vault-id <id> --salt <s>".to_string().into()),
     }
 }
 

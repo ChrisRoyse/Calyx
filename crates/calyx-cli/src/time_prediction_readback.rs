@@ -8,7 +8,11 @@ use serde_json::json;
 
 use crate::cf_read::vault_id_from_base;
 
-pub fn readback_time_prediction(vault: &Path, cx_id: &str, ceiling: &str) -> Result<(), String> {
+pub fn readback_time_prediction(
+    vault: &Path,
+    cx_id: &str,
+    ceiling: &str,
+) -> crate::error::CliResult {
     let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
     let confidence_ceiling = ceiling
         .parse::<f32>()
@@ -38,7 +42,7 @@ pub fn readback_time_prediction(vault: &Path, cx_id: &str, ceiling: &str) -> Res
             "prediction": null,
             "error": error,
         }),
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(error.to_string().into()),
     };
     println!(
         "{}",

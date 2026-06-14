@@ -6,7 +6,7 @@ use std::path::Path;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
 
-pub fn bandit_status(vault: &Path, shape_key: &str) -> Result<(), String> {
+pub fn bandit_status(vault: &Path, shape_key: &str) -> crate::error::CliResult {
     let cf = ColumnFamily::AnnealBandit;
     let shape_hash = shape_key_hash(shape_key);
     let wanted_key = bandit_key(shape_hash);

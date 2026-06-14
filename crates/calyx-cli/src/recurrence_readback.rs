@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 
 use crate::cf_read::{hex_bytes, latest_cf_rows};
 
-pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), String> {
+pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> crate::error::CliResult {
     let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
     let recurrence_rows = latest_cf_rows(vault, ColumnFamily::Recurrence)?;
     let base_rows = latest_cf_rows(vault, ColumnFamily::Base)?;
@@ -27,7 +27,7 @@ pub fn readback_recurrence_series(vault: &Path, cx_id: &str) -> Result<(), Strin
     Ok(())
 }
 
-pub fn readback_periodic_recall(args: &[String]) -> Result<(), String> {
+pub fn readback_periodic_recall(args: &[String]) -> crate::error::CliResult {
     let args = PeriodicRecallArgs::parse(args)?;
     let recurrence_rows = latest_cf_rows(&args.vault, ColumnFamily::Recurrence)?;
     let base_rows = latest_cf_rows(&args.vault, ColumnFamily::Base)?;

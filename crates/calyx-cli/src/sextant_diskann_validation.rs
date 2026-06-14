@@ -58,7 +58,7 @@ struct EdgeReport {
     observed_message: String,
 }
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     if issue604::is_issue604(args) {
         return issue604::run(args);
     }
@@ -72,7 +72,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
-fn run_happy(request: &Request) -> Result<(), String> {
+fn run_happy(request: &Request) -> crate::error::CliResult {
     let paths = Paths::create(&request.root)?;
     let raw = raw_vectors(request.nodes, request.dim);
     let approx = approx_rows(&raw);
@@ -170,7 +170,7 @@ fn run_happy(request: &Request) -> Result<(), String> {
     Ok(())
 }
 
-fn run_empty_edge(request: &Request) -> Result<(), String> {
+fn run_empty_edge(request: &Request) -> crate::error::CliResult {
     let paths = Paths::for_root(&request.root);
     let before = file_len(&paths.graph_path);
     let err = DiskAnnSearch::build(
@@ -192,7 +192,7 @@ fn run_empty_edge(request: &Request) -> Result<(), String> {
     )
 }
 
-fn run_dim_mismatch_edge(request: &Request) -> Result<(), String> {
+fn run_dim_mismatch_edge(request: &Request) -> crate::error::CliResult {
     let paths = Paths::create(&request.root)?;
     let raw = raw_vectors(32, request.dim);
     write_raw_sidecar(&paths.raw_dir, &raw)?;
@@ -215,7 +215,7 @@ fn run_dim_mismatch_edge(request: &Request) -> Result<(), String> {
     )
 }
 
-fn run_truncated_edge(request: &Request) -> Result<(), String> {
+fn run_truncated_edge(request: &Request) -> crate::error::CliResult {
     let paths = Paths::create(&request.root)?;
     let raw = raw_vectors(32, request.dim);
     write_raw_sidecar(&paths.raw_dir, &raw)?;
@@ -245,7 +245,7 @@ fn run_truncated_edge(request: &Request) -> Result<(), String> {
     )
 }
 
-fn run_missing_raw_edge(request: &Request) -> Result<(), String> {
+fn run_missing_raw_edge(request: &Request) -> crate::error::CliResult {
     let paths = Paths::create(&request.root)?;
     let raw = raw_vectors(32, request.dim);
     write_raw_sidecar(&paths.raw_dir, &raw)?;
@@ -288,7 +288,7 @@ fn write_edge(
     after: Option<u64>,
     code: &'static str,
     message: &str,
-) -> Result<(), String> {
+) -> crate::error::CliResult {
     let paths = Paths::create(root)?;
     let report = EdgeReport {
         mode: mode.to_string(),

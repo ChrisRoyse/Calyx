@@ -32,7 +32,7 @@ const PANEL_VERSION: u32 = 70;
 const CONTENT_SLOT: u16 = 0;
 const EVENT_BYTES: &[u8] = b"temp";
 
-pub fn readback_temporal_log_recurrence(args: &[String]) -> Result<(), String> {
+pub fn readback_temporal_log_recurrence(args: &[String]) -> crate::error::CliResult {
     let args = Args::parse(args)?;
     let bytes = std::fs::read(&args.log).map_err(|error| error.to_string())?;
     let text = String::from_utf8(bytes.clone()).map_err(|error| error.to_string())?;
@@ -233,7 +233,7 @@ fn validate_readback(
     Ok(())
 }
 
-fn ensure_empty_vault_target(vault: &Path) -> Result<(), String> {
+fn ensure_empty_vault_target(vault: &Path) -> std::result::Result<(), String> {
     if !vault.exists() {
         return Ok(());
     }

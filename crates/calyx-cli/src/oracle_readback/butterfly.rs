@@ -21,7 +21,7 @@ use calyx_oracle::{
 use serde::Deserialize;
 use serde_json::json;
 
-pub(crate) fn readback_oracle_expand(args: &[String]) -> Result<(), String> {
+pub(crate) fn readback_oracle_expand(args: &[String]) -> crate::error::CliResult {
     let args = ExpandArgs::parse(args)?;
     let vault_id = VaultId::from_str(&args.vault_id)
         .map_err(|error| format!("invalid --vault-id: {error}"))?;
@@ -83,7 +83,7 @@ pub(crate) fn readback_oracle_expand(args: &[String]) -> Result<(), String> {
                 }))
                 .map_err(|error| error.to_string())?
             );
-            Err(error.to_string())
+            Err(error.to_string().into())
         }
     }
 }

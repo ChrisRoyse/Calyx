@@ -1,7 +1,5 @@
 use std::{env, process::ExitCode};
 
-use crate::error::CliError;
-
 pub(crate) fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
     if let Some(code) = super::verify_restore::try_run(&args) {
@@ -15,9 +13,6 @@ pub(crate) fn main() -> ExitCode {
     }
     match crate::dispatch::run(args) {
         Ok(()) => ExitCode::SUCCESS,
-        // `dispatch::run` still flattens subcommand failures to a `String`
-        // (legacy paths preserved). Surface them through the canonical
-        // structured envelope on stderr with exit 2; `emit` never returns.
-        Err(message) => CliError::cli(message).emit(),
+        Err(error) => error.emit(),
     }
 }

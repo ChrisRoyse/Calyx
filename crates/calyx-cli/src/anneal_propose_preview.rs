@@ -12,7 +12,7 @@ use serde_json::json;
 
 const CALYX_ASTER_CF_UNAVAILABLE: &str = "CALYX_ASTER_CF_UNAVAILABLE";
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = ProposePreviewRequest::parse(args)?;
     let deficit_bytes = read_bytes(&request.deficit, "deficit")?;
     let corpus_bytes = read_bytes(&request.corpus, "corpus")?;
@@ -42,7 +42,8 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         return Err(format!(
             "CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT: requested anchor {} does not match top gap {}",
             request.anchor, top_anchor
-        ));
+        )
+        .into());
     }
     let candidate = synthesize(&deficit, &corpus).map_err(format_calyx_error)?;
     let readback = json!({

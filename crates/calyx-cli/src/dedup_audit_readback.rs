@@ -10,7 +10,7 @@ use serde_json::json;
 
 use crate::cf_read::{hex_bytes, latest_cf_rows, vault_id_from_base};
 
-pub fn readback_dedup_audit(vault: &Path, cx_id: &str) -> Result<(), String> {
+pub fn readback_dedup_audit(vault: &Path, cx_id: &str) -> crate::error::CliResult {
     let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
     let vault_id = vault_id_from_base(vault)?;
     let store = AsterVault::open(
@@ -28,7 +28,7 @@ pub fn readback_dedup_audit(vault: &Path, cx_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn readback_dedup_undo(vault: &Path, token: &str) -> Result<(), String> {
+pub fn readback_dedup_undo(vault: &Path, token: &str) -> crate::error::CliResult {
     let token: ReversalToken =
         serde_json::from_str(token).map_err(|error| format!("invalid --token: {error}"))?;
     let vault_id = vault_id_from_base(vault)?;
@@ -56,7 +56,7 @@ pub fn readback_dedup_undo(vault: &Path, token: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn readback_cx_list(vault: &Path) -> Result<(), String> {
+pub fn readback_cx_list(vault: &Path) -> crate::error::CliResult {
     let rows = latest_cf_rows(vault, ColumnFamily::Base)?;
     let mut values = Vec::new();
     for (key, value) in rows {

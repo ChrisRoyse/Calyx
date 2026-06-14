@@ -1,7 +1,7 @@
-pub(crate) fn run(topic: &str, args: &[String]) -> Result<(), String> {
+pub(crate) fn run(topic: &str, args: &[String]) -> crate::error::CliResult {
     match topic {
         "recall-validate" => super::sextant_recall_validation::run(args),
         "diskann-validate" => super::sextant_diskann_validation::run(args),
-        other => Err(format!("unknown sextant topic: {other}")),
+        other => Err(format!("unknown sextant topic: {other}").into()),
     }
 }

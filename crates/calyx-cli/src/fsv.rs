@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
 
-pub fn arrow_demo(vault: &Path) -> Result<(), String> {
+pub fn arrow_demo(vault: &Path) -> crate::error::CliResult {
     let cf = ColumnFamily::slot(SlotId::new(0));
     let cf_dir = vault.join("cf").join(cf.name());
     fs::create_dir_all(&cf_dir).map_err(|error| error.to_string())?;
@@ -25,7 +25,7 @@ pub fn arrow_demo(vault: &Path) -> Result<(), String> {
     let chunk = encode_column_chunk(&refs).map_err(|error| error.to_string())?;
     let decoded = decode_column_chunk(&chunk).map_err(|error| error.to_string())?;
     if decoded.n_rows() != 2 || decoded.dim() != 4 {
-        return Err("arrow demo decoded unexpected shape".to_string());
+        return Err("arrow demo decoded unexpected shape".to_string().into());
     }
     let path = cf_dir.join("00000000000000000001.sst");
     let summary = write_sst(&path, [(b"arrow-key".as_slice(), chunk.as_slice())])
@@ -48,7 +48,7 @@ pub fn arrow_demo(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn cf_demo(vault: &Path) -> Result<(), String> {
+pub fn cf_demo(vault: &Path) -> crate::error::CliResult {
     let mut router = CfRouter::open(vault, 1024).map_err(|error| error.to_string())?;
     router
         .put(ColumnFamily::Base, b"k1", b"base-old")
@@ -97,7 +97,7 @@ pub fn cf_demo(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn mvcc_demo(vault: &Path) -> Result<(), String> {
+pub fn mvcc_demo(vault: &Path) -> crate::error::CliResult {
     let vault_id = mvcc_vault_id()?;
     let router = CfRouter::open(vault, 4096).map_err(|error| error.to_string())?;
     let writer = AsterVault::with_clock_and_router(
@@ -124,7 +124,7 @@ pub fn mvcc_demo(vault: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn wal_drill(vault: &Path, records: usize) -> Result<(), String> {
+pub fn wal_drill(vault: &Path, records: usize) -> crate::error::CliResult {
     let wal_dir = vault.join("wal");
     fs::create_dir_all(&wal_dir).map_err(|error| error.to_string())?;
     let options = WalOptions::default();
@@ -165,7 +165,7 @@ pub fn wal_drill(vault: &Path, records: usize) -> Result<(), String> {
     Ok(())
 }
 
-pub fn wal_replay(wal_dir: &Path) -> Result<(), String> {
+pub fn wal_replay(wal_dir: &Path) -> crate::error::CliResult {
     let replay = replay_dir(wal_dir).map_err(|error| error.to_string())?;
     for record in replay.records {
         println!(
@@ -189,7 +189,7 @@ pub fn wal_replay(wal_dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-pub fn corrupt_shard(vault: &Path, cf_name: &str, byte_offset: u64) -> Result<(), String> {
+pub fn corrupt_shard(vault: &Path, cf_name: &str, byte_offset: u64) -> crate::error::CliResult {
     let cf = parse_cf(cf_name)?;
     let files = list_sst_files(&vault.join("cf").join(cf.name()))?;
     let path = files
@@ -202,9 +202,7 @@ pub fn corrupt_shard(vault: &Path, cf_name: &str, byte_offset: u64) -> Result<()
         .map_err(|error| error.to_string())?;
     let len = file.metadata().map_err(|error| error.to_string())?.len();
     if byte_offset >= len {
-        return Err(format!(
-            "byte offset {byte_offset} outside SST length {len}"
-        ));
+        return Err(format!("byte offset {byte_offset} outside SST length {len}").into());
     }
     file.seek(SeekFrom::Start(byte_offset))
         .map_err(|error| error.to_string())?;
@@ -225,7 +223,7 @@ pub fn corrupt_shard(vault: &Path, cf_name: &str, byte_offset: u64) -> Result<()
     Ok(())
 }
 
-pub fn readback_level(cf_name: &str, level_dir: &Path) -> Result<(), String> {
+pub fn readback_level(cf_name: &str, level_dir: &Path) -> crate::error::CliResult {
     let cf = parse_cf(cf_name)?;
     let files = list_sst_files(level_dir)?;
     let level = SstLevel::from_oldest_first(files.clone());
@@ -249,13 +247,13 @@ fn assert_value(
     cf: ColumnFamily,
     key: &[u8],
     expected: &[u8],
-) -> Result<(), String> {
+) -> crate::error::CliResult {
     let got = router
         .get(cf, key)
         .map_err(|error| error.to_string())?
         .ok_or_else(|| format!("missing {} key {}", cf.name(), hex_bytes(key)))?;
     if got != expected {
-        return Err(format!("{} key {} mismatch", cf.name(), hex_bytes(key)));
+        return Err(format!("{} key {} mismatch", cf.name(), hex_bytes(key)).into());
     }
     Ok(())
 }

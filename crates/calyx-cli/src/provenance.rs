@@ -11,29 +11,29 @@ use calyx_ledger::{
 };
 use serde_json::{Value, json};
 
+use crate::error::CliResult;
 use crate::ledger_store::AsterLedgerCfStore;
+use crate::output::print_json;
 
-pub fn get_provenance(vault: &Path, cx: &str) -> Result<(), String> {
+pub fn get_provenance(vault: &Path, cx: &str) -> CliResult {
     let cx_id = CxId::from_str(cx).map_err(|error| format!("invalid --cx: {error}"))?;
-    let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
+    let store = AsterLedgerCfStore::open(vault)?;
     let quarantine = VaultQuarantine::new(vault);
-    let entries =
-        ledger_get_provenance(&store, &quarantine, cx_id).map_err(|error| error.to_string())?;
+    let entries = ledger_get_provenance(&store, &quarantine, cx_id)?;
     print_json(&json!(entries_json(&entries)))
 }
 
-pub fn get_answer_trace(vault: &Path, answer: &str) -> Result<(), String> {
+pub fn get_answer_trace(vault: &Path, answer: &str) -> CliResult {
     let answer_id = parse_answer_id(answer)?;
-    let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
+    let store = AsterLedgerCfStore::open(vault)?;
     let quarantine = VaultQuarantine::new(vault);
-    let trace = ledger_get_answer_trace(&store, &quarantine, &answer_id)
-        .map_err(|error| error.to_string())?;
-    print_json(&serde_json::to_value(trace).map_err(|error| error.to_string())?)
+    let trace = ledger_get_answer_trace(&store, &quarantine, &answer_id)?;
+    print_json(&serde_json::to_value(trace)?)
 }
 
-pub fn audit(vault: &Path, kind: &str) -> Result<(), String> {
+pub fn audit(vault: &Path, kind: &str) -> CliResult {
     let kind = parse_kind(kind)?;
-    let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
+    let store = AsterLedgerCfStore::open(vault)?;
     let quarantine = VaultQuarantine::new(vault);
     let entries = ledger_audit(
         &store,
@@ -42,8 +42,7 @@ pub fn audit(vault: &Path, kind: &str) -> Result<(), String> {
             kind: Some(kind),
             ..AuditFilter::default()
         },
-    )
-    .map_err(|error| error.to_string())?;
+    )?;
     print_json(&json!(entries_json(&entries)))
 }
 
@@ -155,14 +154,6 @@ fn hex_value(byte: u8) -> Result<u8, String> {
         b'A'..=b'F' => Ok(byte - b'A' + 10),
         _ => Err("invalid hex answer id".to_string()),
     }
-}
-
-fn print_json(value: &Value) -> Result<(), String> {
-    println!(
-        "{}",
-        serde_json::to_string_pretty(value).map_err(|error| error.to_string())?
-    );
-    Ok(())
 }
 
 fn hex(bytes: &[u8]) -> String {

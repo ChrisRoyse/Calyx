@@ -67,7 +67,8 @@ fn dedup_check_readback_rejects_invalid_cosine_arg() {
     ])
     .expect_err("invalid tau");
 
-    assert!(error.contains("--tau"));
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(error.message().contains("--tau"));
 }
 
 #[test]
@@ -299,7 +300,7 @@ fn anneal_intelligence_report_synthetic_recursion_attempt_fails() {
     ])
     .unwrap_err();
 
-    assert!(error.contains("CALYX_ANNEAL_J_SYNTHETIC_RECURSION"));
+    assert_eq!(error.code(), "CALYX_ANNEAL_J_SYNTHETIC_RECURSION");
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -412,7 +413,7 @@ fn kernel_health_readback_command_executes() {
         "00000000000000000000000000000000".into(),
     ])
     .expect_err("missing kernel must fail closed");
-    assert!(error.contains("CALYX_KERNEL_NOT_FOUND"));
+    assert_eq!(error.code(), "CALYX_KERNEL_NOT_FOUND");
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -432,7 +433,7 @@ fn resource_status_refuses_missing_vault_without_creating_it() {
     ])
     .expect_err("missing vault must fail closed");
 
-    assert!(error.contains("CALYX_DISK_PRESSURE"));
+    assert_eq!(error.code(), "CALYX_DISK_PRESSURE");
     assert!(!root.exists(), "status probe must not create vault state");
 }
 
@@ -459,6 +460,7 @@ fn resource_drill_rejects_zero_memtable_cap() {
     ])
     .expect_err("zero memtable cap must be rejected");
 
-    assert!(error.contains("--memtable-cap must be positive"));
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(error.message().contains("--memtable-cap must be positive"));
     let _ = std::fs::remove_dir_all(&root);
 }

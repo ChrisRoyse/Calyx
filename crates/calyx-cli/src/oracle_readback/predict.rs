@@ -21,7 +21,7 @@ use calyx_oracle::{
 use serde::Deserialize;
 use serde_json::json;
 
-pub(crate) fn readback_oracle_predict(args: &[String]) -> Result<(), String> {
+pub(crate) fn readback_oracle_predict(args: &[String]) -> crate::error::CliResult {
     match args {
         [vault_flag, vault, fixture_flag, fixture, vault_id_flag, vault_id, salt_flag, salt]
             if vault_flag == "--vault"
@@ -76,11 +76,11 @@ pub(crate) fn readback_oracle_predict(args: &[String]) -> Result<(), String> {
                         ))
                         .map_err(|error| error.to_string())?
                     );
-                    Err(error.to_string())
+                    Err(error.to_string().into())
                 }
             }
         }
-        _ => Err("usage: calyx readback oracle_predict --vault <dir> --fixture <json> --vault-id <id> --salt <s>".to_string()),
+        _ => Err("usage: calyx readback oracle_predict --vault <dir> --fixture <json> --vault-id <id> --salt <s>".to_string().into()),
     }
 }
 

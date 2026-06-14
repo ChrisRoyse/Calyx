@@ -13,7 +13,7 @@ use crate::cf_read::list_sst_files;
 const DURABLE_COMPACT_FIRST_INDEX: u16 = 9_000;
 const DURABLE_COMPACT_LAST_INDEX: u16 = 9_999;
 
-pub fn compact(vault: &Path, cf_name: &str) -> Result<(), String> {
+pub fn compact(vault: &Path, cf_name: &str) -> crate::error::CliResult {
     let cf = parse_cf(cf_name)?;
     let cf_dir = vault.join("cf").join(cf.name());
     let files = list_sst_files(&cf_dir)?;
@@ -105,7 +105,10 @@ fn shards_for(cf: ColumnFamily, files: &[PathBuf]) -> Result<Vec<SstShard>, Stri
         .collect()
 }
 
-fn remove_compacted_inputs(files: &[PathBuf], report: &CompactionReport) -> Result<(), String> {
+fn remove_compacted_inputs(
+    files: &[PathBuf],
+    report: &CompactionReport,
+) -> std::result::Result<(), String> {
     for file in files {
         if file != &report.output_path {
             fs::remove_file(file).map_err(|error| format!("remove compacted input: {error}"))?;

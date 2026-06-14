@@ -6,10 +6,12 @@ use serde_json::json;
 
 use crate::{cf_read::hex_bytes, ledger_store::AsterLedgerCfStore};
 
-pub(crate) fn run(args: &[String]) -> Result<(), String> {
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = Request::parse(args)?;
     if request.kind != "Anneal" {
-        return Err("readback ledger --kind currently supports only Anneal".to_string());
+        return Err("readback ledger --kind currently supports only Anneal"
+            .to_string()
+            .into());
     }
     let store = AsterLedgerCfStore::open(&request.vault).map_err(|error| error.to_string())?;
     let mut matches = Vec::new();

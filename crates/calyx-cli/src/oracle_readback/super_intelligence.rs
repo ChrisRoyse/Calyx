@@ -29,7 +29,7 @@ use sources::{
 
 const USAGE: &str = "usage: calyx readback super_intelligence --vault <dir> --domain <domain> --fixture <json> --vault-id <id> --salt <s>";
 
-pub(crate) fn readback_super_intelligence(args: &[String]) -> Result<(), String> {
+pub(crate) fn readback_super_intelligence(args: &[String]) -> crate::error::CliResult {
     let args = ReadbackArgs::parse(args)?;
     let fixture = SuperIntelFixture::read(&args.fixture, &args.domain)?;
     let vault_id = VaultId::from_str(&args.vault_id)
@@ -108,7 +108,7 @@ pub(crate) fn readback_super_intelligence(args: &[String]) -> Result<(), String>
                 }))
                 .map_err(|error| error.to_string())?
             );
-            Err(error.to_string())
+            Err(error.to_string().into())
         }
     }
 }
