@@ -369,7 +369,7 @@ where
         },
         &state.candidates,
     );
-    state.rows = hits
+    let hit_rows = hits
         .into_iter()
         .map(|hit| ProvenancedRow {
             key: RecordKey::from_bytes(hit.cx_id.as_bytes().to_vec()).expect("CxId key"),
@@ -378,7 +378,31 @@ where
             ledger_ref: ledger_ref(vault, snapshot, hit.cx_id),
         })
         .collect();
+    merge_vector_hits(state, hit_rows);
     Ok(())
+}
+
+fn merge_vector_hits(state: &mut ExecState, hit_rows: Vec<ProvenancedRow>) {
+    if state.rows.is_empty() {
+        state.rows = hit_rows;
+        return;
+    }
+    let mut hits = hit_rows
+        .into_iter()
+        .map(|row| (row.key.as_bytes().to_vec(), row))
+        .collect::<BTreeMap<_, _>>();
+    let mut merged = Vec::with_capacity(state.rows.len() + hits.len());
+    for row in state.rows.drain(..) {
+        if cx_from_key(&row.key).is_some() {
+            if let Some(hit) = hits.remove(row.key.as_bytes()) {
+                merged.push(hit);
+            }
+        } else {
+            merged.push(row);
+        }
+    }
+    merged.extend(hits.into_values());
+    state.rows = merged;
 }
 
 fn execute_ask<C>(
