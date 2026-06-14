@@ -33,6 +33,7 @@ pub struct VaultSqliteAdapter {
 }
 
 impl VaultSqliteAdapter {
+    #[allow(dead_code)]
     pub fn new(vault_id: VaultId, _vault_salt: Vec<u8>, panel_version: u32) -> Self {
         Self::new_with_lens_slot(vault_id, panel_version, default_gte_lens_id(), BASE_SLOT)
     }

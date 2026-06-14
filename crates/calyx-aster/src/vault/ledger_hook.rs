@@ -1,7 +1,10 @@
 use super::durable::RecoveredBatches;
 use super::encode::WriteRow;
 use crate::cf::ColumnFamily;
-use calyx_core::{CalyxError, Constellation, LedgerRef, Result, SystemClock};
+use calyx_core::{
+    CalyxError, Constellation, LedgerRef, METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Result,
+    SystemClock,
+};
 use calyx_ledger::{
     ActorId, CheckpointConfig, DefaultLedgerHook, EntryKind, LedgerAppender, MemoryLedgerStore,
     PayloadBuilder, StagedLedgerRow, SubjectId,
@@ -115,6 +118,12 @@ pub(super) fn commit_staged(
 
 fn ingest_payload(constellation: &Constellation) -> Vec<u8> {
     let mut payload = PayloadBuilder::default();
+    let mut metadata = serde_json::Map::new();
+    for key in [METADATA_CHUNK_ID, METADATA_DATABASE_NAME] {
+        if let Some(value) = constellation.metadata.get(key) {
+            metadata.insert(key.to_string(), json!(value));
+        }
+    }
     payload
         .insert_str("cx_id", constellation.cx_id.to_string())
         .insert_str("input_hash", hex(&constellation.input_ref.hash))
@@ -126,6 +135,9 @@ fn ingest_payload(constellation: &Constellation) -> Vec<u8> {
             }),
         )
         .insert_u64("ts", constellation.created_at);
+    if !metadata.is_empty() {
+        payload.insert_value("metadata", serde_json::Value::Object(metadata));
+    }
     calyx_ledger::RedactionPolicy::default().apply_to_payload(&payload)
 }
 
@@ -180,7 +192,11 @@ mod tests {
         assert_eq!(first[0].ledger_ref().seq, 0);
         assert_eq!(guard.appender().next_seq(), 0);
         assert!(guard.appender().store().scan().unwrap().is_empty());
-        assert_eq!(decode(&rows[0].value).unwrap().kind, EntryKind::Ingest);
+        let decoded = decode(&rows[0].value).unwrap();
+        assert_eq!(decoded.kind, EntryKind::Ingest);
+        let payload: serde_json::Value = serde_json::from_slice(&decoded.payload).unwrap();
+        assert_eq!(payload["metadata"][METADATA_CHUNK_ID], "chunk-7");
+        assert_eq!(payload["metadata"][METADATA_DATABASE_NAME], "db/main");
 
         let committed = commit_staged(guard, &first).expect("commit first");
 
@@ -203,7 +219,10 @@ mod tests {
             modality: calyx_core::Modality::Text,
             slots: BTreeMap::new(),
             scalars: BTreeMap::new(),
-            metadata: BTreeMap::new(),
+            metadata: BTreeMap::from([
+                (METADATA_CHUNK_ID.to_string(), "chunk-7".to_string()),
+                (METADATA_DATABASE_NAME.to_string(), "db/main".to_string()),
+            ]),
             anchors: Vec::new(),
             provenance: LedgerRef {
                 seq: 99,

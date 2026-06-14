@@ -1,6 +1,6 @@
 //! Ledger payload redaction and secret guardrails.
 
-use calyx_core::{CalyxError, InputRef, Result};
+use calyx_core::{CalyxError, InputRef, METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -8,6 +8,7 @@ use crate::entry::ActorId;
 
 const SECRET_TOKEN_MIN: usize = 40;
 const MAX_HASH_OR_ID_LEN: usize = 64;
+const MAX_SOURCE_METADATA_LEN: usize = 128;
 
 /// Per-vault ledger redaction policy.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -197,6 +198,9 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
         return false;
     };
     let field = normalized_field(field);
+    if is_source_metadata_field(&field) {
+        return allowed_source_metadata_value(token);
+    }
     if field == "signature" {
         return token.len() == 128 && is_hex(token);
     }
@@ -212,6 +216,8 @@ fn allowed_stable_identifier(token: &str, field: Option<&str>) -> bool {
 fn field_allows_stable_identifier(field: &str) -> bool {
     let field = normalized_field(field);
     field == "hash"
+        || field == "metadata"
+        || is_source_metadata_field(&field)
         || field == "input_hash"
         || field == "root"
         || field == "signature"
@@ -221,6 +227,18 @@ fn field_allows_stable_identifier(field: &str) -> bool {
         || field.ends_with("_id")
         || field.ends_with("_sha256")
         || field.ends_with("_digest")
+}
+
+fn is_source_metadata_field(field: &str) -> bool {
+    matches!(field, METADATA_CHUNK_ID | METADATA_DATABASE_NAME)
+}
+
+fn allowed_source_metadata_value(token: &str) -> bool {
+    !token.is_empty()
+        && token.len() <= MAX_SOURCE_METADATA_LEN
+        && token
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | ':' | '/'))
 }
 
 fn is_secret_field(field: &str) -> bool {
@@ -426,6 +444,36 @@ mod tests {
         assert_eq!(value.get("ts"), Some(&json!(123)));
         assert!(value.get("raw_bytes").is_none());
         assert!(value.get("api_key").is_none());
+        assert!(RedactionPolicy::check_payload(&bytes).is_ok());
+    }
+
+    #[test]
+    fn apply_to_payload_keeps_source_metadata_identifiers() {
+        let mut builder = PayloadBuilder::default();
+        builder.insert_value(
+            "metadata",
+            json!({
+                "chunk_id": "chunk-source-20260614-long-but-bounded",
+                "database_name": "production-db/main-source-20260614-long-but-bounded",
+                "raw_bytes": "do not keep",
+            }),
+        );
+
+        let bytes = RedactionPolicy::default().apply_to_payload(&builder);
+        let value: Value = serde_json::from_slice(&bytes).unwrap();
+        let metadata = value.get("metadata").unwrap();
+
+        assert_eq!(
+            metadata.get(METADATA_CHUNK_ID),
+            Some(&json!("chunk-source-20260614-long-but-bounded"))
+        );
+        assert_eq!(
+            metadata.get(METADATA_DATABASE_NAME),
+            Some(&json!(
+                "production-db/main-source-20260614-long-but-bounded"
+            ))
+        );
+        assert!(metadata.get("raw_bytes").is_none());
         assert!(RedactionPolicy::check_payload(&bytes).is_ok());
     }
 
