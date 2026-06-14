@@ -1,5 +1,6 @@
 //! Query surfaces for Stage 4 search and PH55 cross-model planning.
 
+pub mod ask;
 pub mod executor;
 pub mod planner;
 mod search;
@@ -11,6 +12,7 @@ use calyx_core::{CxId, LensId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use ask::{AskResult, ask};
 pub use executor::execute;
 pub use planner::{DEFAULT_COST_CAP_MS, plan};
 pub use search::*;
@@ -137,6 +139,10 @@ pub struct AskSpec {
     pub question: String,
     #[serde(default)]
     pub context_cx_ids: Vec<CxId>,
+    #[serde(default = "default_ask_top_k")]
+    pub top_k: usize,
+    #[serde(default)]
+    pub oracle: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -175,6 +181,8 @@ pub enum PlanStep {
     Ask {
         question: String,
         context_cx_ids: Vec<CxId>,
+        top_k: usize,
+        oracle: bool,
     },
 }
 
@@ -251,6 +259,12 @@ pub struct ProvenancedRow {
 
 const fn default_isolation() -> IsolationLevel {
     IsolationLevel::ReadCommitted
+}
+
+pub const DEFAULT_ASK_TOP_K: usize = 10;
+
+const fn default_ask_top_k() -> usize {
+    DEFAULT_ASK_TOP_K
 }
 
 impl Default for UniversalQuery {

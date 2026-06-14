@@ -13,12 +13,13 @@ use calyx_core::{CxId, FixedClock, LensId, VaultId};
 use proptest::prelude::*;
 use serde_json::json;
 
-use crate::error::CALYX_SEXTANT_QUERY_SHAPE;
 use crate::query::{
     AggOp, AggSpec, CrossModelPlan, DocPathFilter, FieldOp, FieldPredicate, PlanStep,
 };
 
 use super::{execute, execute_at_snapshot};
+
+mod ask;
 
 fn vault() -> AsterVault {
     AsterVault::new(vault_id(), b"query-executor-test-salt".to_vec())
@@ -316,27 +317,6 @@ fn graph_stub_passes_input_cx_ids_and_vector_empty_candidates_stays_empty() {
     )
     .unwrap();
     assert!(vector.rows.is_empty());
-}
-
-#[test]
-fn fail_closed_step_returns_error_without_result() {
-    let vault = vault();
-    let orders = orders();
-    put_order(&vault, &orders, 3, 3);
-
-    let error = execute(
-        &vault,
-        plan(vec![
-            relational_step(orders, 3),
-            PlanStep::Ask {
-                question: "which orders?".to_string(),
-                context_cx_ids: Vec::new(),
-            },
-        ]),
-    )
-    .unwrap_err();
-
-    assert_eq!(error.code, CALYX_SEXTANT_QUERY_SHAPE);
 }
 
 #[test]

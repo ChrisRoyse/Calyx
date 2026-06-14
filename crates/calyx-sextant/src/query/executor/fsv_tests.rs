@@ -142,6 +142,8 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
             PlanStep::Ask {
                 question: "which orders?".to_string(),
                 context_cx_ids: Vec::new(),
+                top_k: 1,
+                oracle: false,
             },
         ]),
     )
