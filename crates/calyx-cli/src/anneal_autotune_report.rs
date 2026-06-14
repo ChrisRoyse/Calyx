@@ -19,11 +19,13 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     request.validate()?;
     let cache = read_cache(&request.cache, &request)?;
     let promotions = read_promotions(&request.vault, &request)?;
+    let recent_ab = read_recent_ab(&request.vault, &request)?;
     let bandit = request
         .shape_key()
         .map(|shape_key| read_bandit_status(&request.vault, &shape_key))
         .transpose()?;
     let loom_plan = loom_plan_summary(&cache.entries, &request);
+    let storage_plans = storage_plans_summary(&cache.entries, &request, &request.vault)?;
     let report = json!({
         "scope": request.scope,
         "slot": request.slot,
@@ -34,7 +36,9 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
         "cache_bytes": cache.bytes,
         "cache_entries": cache.entries,
         "loom_plan": loom_plan,
+        "storage_plans": storage_plans,
         "bandit": bandit,
+        "recent_ab": recent_ab,
         "recent_promotions": promotions,
     });
     println!(
@@ -111,12 +115,14 @@ impl ReportRequest {
     fn validate(&self) -> Result<(), String> {
         match self.scope.as_str() {
             "forge" => Ok(()),
+            "storage" if self.slot.is_none() => Ok(()),
+            "storage" => Err("autotune-report --scope storage does not accept --slot".to_string()),
             "loom" if self.slot.is_none() => Ok(()),
             "loom" => Err("autotune-report --scope loom does not accept --slot".to_string()),
             "index" if self.slot.is_some() => Ok(()),
             "index" => Err("autotune-report --scope index requires --slot".to_string()),
             other => Err(format!(
-                "autotune-report currently supports --scope forge, --scope index, or --scope loom, got {other}"
+                "autotune-report currently supports --scope forge, --scope index, --scope loom, or --scope storage, got {other}"
             )),
         }
     }
@@ -126,6 +132,7 @@ impl ReportRequest {
             "forge" => None,
             "index" => self.slot.map(|slot| index_slot_label(SlotId::new(slot))),
             "loom" => Some(loom_plan_shape_key().to_string()),
+            "storage" => None,
             _ => None,
         }
     }
@@ -164,6 +171,7 @@ fn cache_entry_matches(entry: &Value, request: &ReportRequest) -> bool {
     match request.scope.as_str() {
         "forge" => entry["key"]["op"].as_str() != Some("index"),
         "loom" => entry["key"]["op"].as_str() == Some("loom"),
+        "storage" => entry["key"]["op"].as_str() == Some("storage"),
         "index" => {
             let Some(slot) = request.slot else {
                 return false;
@@ -180,8 +188,20 @@ fn cache_entry_matches(entry: &Value, request: &ReportRequest) -> bool {
 }
 
 fn read_promotions(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, String> {
+    read_anneal_entries(vault, request, true)
+}
+
+fn read_recent_ab(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, String> {
+    read_anneal_entries(vault, request, false)
+}
+
+fn read_anneal_entries(
+    vault: &Path,
+    request: &ReportRequest,
+    promotions_only: bool,
+) -> Result<Vec<Value>, String> {
     let store = AsterLedgerCfStore::open(vault).map_err(|error| error.to_string())?;
-    let mut promotions = Vec::new();
+    let mut rows = Vec::new();
     for row in store.scan().map_err(|error| error.to_string())? {
         let entry = decode(&row.bytes).map_err(|error| error.to_string())?;
         if entry.kind != EntryKind::Anneal {
@@ -189,10 +209,18 @@ fn read_promotions(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, 
         }
         let anneal =
             decode_anneal_ledger_payload(&entry.payload).map_err(|error| error.to_string())?;
-        if promotion_matches(&anneal.artifact_id, request)
-            && anneal.action == AnnealLedgerAction::AutotunePromote
-        {
-            promotions.push(json!({
+        let action_matches = if promotions_only {
+            anneal.action == AnnealLedgerAction::AutotunePromote
+        } else {
+            matches!(
+                anneal.action,
+                AnnealLedgerAction::AutotuneAB
+                    | AnnealLedgerAction::AutotuneAbandoned
+                    | AnnealLedgerAction::AutotunePromote
+            )
+        };
+        if action_matches && promotion_matches(&anneal.artifact_id, request) {
+            rows.push(json!({
                 "seq": row.seq,
                 "entry_hash": hex(&entry.entry_hash),
                 "payload_hex": hex(&entry.payload),
@@ -200,22 +228,73 @@ fn read_promotions(vault: &Path, request: &ReportRequest) -> Result<Vec<Value>, 
             }));
         }
     }
-    if request.last < promotions.len() {
-        promotions.drain(0..promotions.len() - request.last);
+    if request.last < rows.len() {
+        rows.drain(0..rows.len() - request.last);
     }
-    Ok(promotions)
+    Ok(rows)
 }
 
 fn promotion_matches(artifact_id: &str, request: &ReportRequest) -> bool {
     match request.scope.as_str() {
         "forge" => artifact_id.starts_with("forge:"),
         "loom" => artifact_id == loom_plan_shape_key(),
+        "storage" => artifact_id.starts_with("storage:"),
         "index" => request
             .slot
             .map(|slot| artifact_id == index_slot_label(SlotId::new(slot)))
             .unwrap_or(false),
         _ => false,
     }
+}
+
+fn storage_plans_summary(
+    entries: &Value,
+    request: &ReportRequest,
+    vault: &Path,
+) -> Result<Value, String> {
+    if request.scope != "storage" {
+        return Ok(Value::Null);
+    }
+    let Some(list) = entries.as_array() else {
+        return Ok(json!({
+            "found": false,
+            "plans": []
+        }));
+    };
+    let mut plans = Vec::new();
+    for entry in list {
+        let extra = &entry["config"]["extra"];
+        let shape_key = extra_value(extra, "shape_key");
+        let bandit = shape_key
+            .as_str()
+            .map(|value| read_bandit_status(vault, value))
+            .transpose()?;
+        plans.push(json!({
+            "key": entry["key"].clone(),
+            "shape_key": shape_key,
+            "shape_key_hash": extra_value(extra, "shape_key_hash"),
+            "vault_id": extra_value(extra, "vault_id"),
+            "workload_id": extra_value(extra, "workload_id"),
+            "config": storage_config_summary(extra),
+            "bandit": bandit,
+        }));
+    }
+    Ok(json!({
+        "found": !plans.is_empty(),
+        "plans": plans,
+    }))
+}
+
+fn storage_config_summary(extra: &Value) -> Value {
+    json!({
+        "compaction_interval_ms": extra_value(extra, "compaction_interval_ms"),
+        "debt_trigger_score_milli": extra_value(extra, "debt_trigger_score_milli"),
+        "max_write_amp_milli": extra_value(extra, "max_write_amp_milli"),
+        "hot_tier_min_hits": extra_value(extra, "hot_tier_min_hits"),
+        "cold_tier_idle_secs": extra_value(extra, "cold_tier_idle_secs"),
+        "codebook_refresh_secs": extra_value(extra, "codebook_refresh_secs"),
+        "prefetch_bytes": extra_value(extra, "prefetch_bytes"),
+    })
 }
 
 fn loom_plan_summary(entries: &Value, request: &ReportRequest) -> Value {
@@ -288,4 +367,69 @@ fn read_bandit_status(vault: &Path, shape_key: &str) -> Result<Value, String> {
         "physical_row_count": physical_rows.len(),
         "physical_rows": physical_rows,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn storage_scope_accepts_no_slot_and_has_multi_shape_bandit() {
+        let request = request("storage", None);
+
+        assert!(request.validate().is_ok());
+        assert_eq!(request.shape_key(), None);
+    }
+
+    #[test]
+    fn storage_scope_rejects_slot() {
+        let error = request("storage", Some(0)).validate().unwrap_err();
+
+        assert!(error.contains("--scope storage does not accept --slot"));
+    }
+
+    #[test]
+    fn storage_cache_filter_keeps_only_storage_entries() {
+        let request = request("storage", None);
+        let entries = json!([
+            {"key": {"op": "storage"}, "config": {"extra": {"shape_key": "storage:v:w:1"}}},
+            {"key": {"op": "index", "shape": [0]}, "config": {"extra": {}}},
+            {"key": {"op": "loom"}, "config": {"extra": {}}}
+        ]);
+
+        let filtered = filter_cache_entries(entries, &request);
+
+        assert_eq!(filtered.as_array().unwrap().len(), 1);
+        assert_eq!(filtered[0]["key"]["op"], "storage");
+    }
+
+    #[test]
+    fn storage_config_summary_returns_all_storage_knobs() {
+        let extra = json!({
+            "compaction_interval_ms": "5000",
+            "debt_trigger_score_milli": "750",
+            "max_write_amp_milli": "1500",
+            "hot_tier_min_hits": "4",
+            "cold_tier_idle_secs": "3600",
+            "codebook_refresh_secs": "900",
+            "prefetch_bytes": "131072"
+        });
+
+        let summary = storage_config_summary(&extra);
+
+        assert_eq!(summary["compaction_interval_ms"], "5000");
+        assert_eq!(summary["hot_tier_min_hits"], "4");
+        assert_eq!(summary["codebook_refresh_secs"], "900");
+        assert_eq!(summary["prefetch_bytes"], "131072");
+    }
+
+    fn request(scope: &str, slot: Option<u16>) -> ReportRequest {
+        ReportRequest {
+            scope: scope.to_string(),
+            cache: PathBuf::from("cache.json"),
+            vault: PathBuf::from("vault"),
+            last: 5,
+            slot,
+        }
+    }
 }
