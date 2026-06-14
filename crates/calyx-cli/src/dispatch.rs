@@ -15,7 +15,8 @@ use crate::{
     lodestar_commands, manifest_readback, media_commands, merkle, migrate, navigate, ops,
     oracle_readback, ph42_readback, provenance, recurrence_readback, resource_drill,
     resource_status, scan, sextant_commands, temporal_log_recurrence_readback, temporal_readback,
-    time_prediction_readback, timetravel_readback, usage, vault_tree, verify, ward_tau_readback,
+    time_prediction_readback, timetravel_readback, trigger_readback, usage, vault_tree, verify,
+    ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -194,6 +195,16 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
             if command == "readback" && topic == "time-index" && vault_flag == "--vault" =>
         {
             timetravel_readback::readback_time_index(Path::new(vault))
+        }
+        [command, topic, sub_id, vault_flag, vault]
+            if command == "readback" && topic == "trigger-audit" && vault_flag == "--vault" =>
+        {
+            trigger_readback::readback_trigger_audit(Path::new(vault), sub_id)
+        }
+        [command, topic, vault_flag, vault]
+            if command == "readback" && topic == "trigger-fired" && vault_flag == "--vault" =>
+        {
+            trigger_readback::readback_trigger_fired(Path::new(vault))
         }
         [command, topic, vault_flag, vault, t_flag, t_millis]
             if command == "readback"

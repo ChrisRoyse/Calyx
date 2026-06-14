@@ -64,6 +64,7 @@ mod temporal_log_recurrence_readback;
 mod temporal_readback;
 mod time_prediction_readback;
 mod timetravel_readback;
+mod trigger_readback;
 mod tripwire_readback;
 mod usage;
 mod vault_tree;

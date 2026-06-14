@@ -20,6 +20,9 @@ pub const CALYX_REACTIVE_QUEUE_FULL: &str = "CALYX_REACTIVE_QUEUE_FULL";
 /// recurrence-only source asked for a novelty/drift verdict). Fail closed rather
 /// than silently treat the condition as not-firing.
 pub const CALYX_REACTIVE_SIGNAL_UNAVAILABLE: &str = "CALYX_REACTIVE_SIGNAL_UNAVAILABLE";
+/// A durable reactive CF row could not be encoded/decoded or its key was not
+/// one of the canonical trigger audit/fired shapes.
+pub const CALYX_REACTIVE_ROW_CORRUPT: &str = "CALYX_REACTIVE_ROW_CORRUPT";
 
 pub fn loom_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
@@ -37,6 +40,7 @@ pub fn loom_error(code: &'static str, message: impl Into<String>) -> CalyxError 
         CALYX_REACTIVE_REGISTRY_FULL => "deregister a trigger or raise max_triggers",
         CALYX_REACTIVE_QUEUE_FULL => "drain TriggerFired events or raise max_queue_depth",
         CALYX_REACTIVE_SIGNAL_UNAVAILABLE => "wire a signal source that evaluates this condition",
+        CALYX_REACTIVE_ROW_CORRUPT => "rebuild the reactive CF rows from the ledger/audit source",
         _ => "inspect Loom xterm inputs",
     };
     CalyxError {
