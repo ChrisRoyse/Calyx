@@ -7,6 +7,7 @@ use calyx_core::{
 use serde::{Deserialize, Serialize};
 
 use crate::frozen::FrozenLensContract;
+use crate::ingest_microbatch::{IngestLensOutcome, IngestMicrobatchController, IngestPanelReadout};
 use crate::spec::{LensHealth, LensSpec};
 
 /// Runtime registry for frozen lens measurement instruments.
@@ -139,6 +140,26 @@ impl Registry {
             self.validate_entry(lens_id, entry, vector)?;
         }
         Ok(vectors)
+    }
+
+    /// Measures an ingest microbatch across lenses with bounded admission and degradation.
+    pub fn measure_ingest_microbatch(
+        &self,
+        lens_ids: &[LensId],
+        inputs: &[Input],
+        admission: &IngestMicrobatchController,
+        now_ms: u64,
+    ) -> Result<IngestPanelReadout> {
+        let mut outcomes = Vec::with_capacity(lens_ids.len());
+        for &lens_id in lens_ids {
+            self.lookup(lens_id)?;
+            let outcome: IngestLensOutcome =
+                admission.measure_lens_batch(lens_id, inputs, now_ms, |batch| {
+                    self.measure_batch(lens_id, batch)
+                })?;
+            outcomes.push(outcome);
+        }
+        Ok(admission.panel_readout(inputs.len(), outcomes))
     }
 
     /// Measures both directions of an asymmetric dual lens.
