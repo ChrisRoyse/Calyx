@@ -23,4 +23,9 @@ tracing.workspace = true
 wide.workspace = true
 
 [dev-dependencies]
+criterion.workspace = true
 proptest.workspace = true
+
+[[bench]]
+name = "bench_admission_overhead"
+harness = false

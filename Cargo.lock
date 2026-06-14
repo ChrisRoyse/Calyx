@@ -350,6 +350,7 @@ name = "calyx-forge"
 version = "0.1.0"
 dependencies = [
  "calyx-core",
+ "criterion",
  "cudarc 0.19.7",
  "nvml-wrapper",
  "proptest",
