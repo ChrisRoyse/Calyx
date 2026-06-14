@@ -7,7 +7,8 @@ use crate::mvcc::{
 use crate::resource::{LeaseRegistry, LeaseView, ResourceCounters};
 use crate::sst::SstSummary;
 use calyx_core::{Clock, Result, Seq, Ts};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::ops::Bound;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -21,7 +22,7 @@ struct VersionedValue {
 
 type CfKey = (ColumnFamily, Vec<u8>);
 type VersionChain = Vec<VersionedValue>;
-type RowTable = HashMap<CfKey, VersionChain>;
+type RowTable = BTreeMap<CfKey, VersionChain>;
 
 /// One CF/key read requested against a snapshot.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,7 +65,7 @@ impl VersionedCfStore {
         Self {
             seqs: SeqAllocator::new(start_seq),
             next_lease_id: AtomicU64::new(0),
-            rows: RwLock::new(HashMap::new()),
+            rows: RwLock::new(BTreeMap::new()),
             router: RwLock::new(None),
             read_barriers: RwLock::new(Vec::new()),
             leases: LeaseRegistry::default(),
@@ -77,7 +78,7 @@ impl VersionedCfStore {
         Self {
             seqs: SeqAllocator::new(start_seq),
             next_lease_id: AtomicU64::new(0),
-            rows: RwLock::new(HashMap::new()),
+            rows: RwLock::new(BTreeMap::new()),
             router: RwLock::new(Some(router)),
             read_barriers: RwLock::new(Vec::new()),
             leases: LeaseRegistry::default(),
@@ -317,6 +318,52 @@ impl VersionedCfStore {
         rows.sort_by(|left, right| left.0.cmp(&right.0));
         for (key, _) in &rows {
             self.ensure_unbarriered(cf, key)?;
+        }
+        Ok(rows)
+    }
+
+    /// Scans at most `limit` visible rows in a range after `after_key`.
+    pub fn scan_cf_range_page_at(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        after_key: Option<&[u8]>,
+        limit: usize,
+        clock: &dyn Clock,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        snapshot.ensure_live(clock)?;
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let start = after_key.unwrap_or(&range.start).to_vec();
+        let lower = if after_key.is_some() {
+            Bound::Excluded((cf, start))
+        } else {
+            Bound::Included((cf, start))
+        };
+        let table = self.rows.read().expect("mvcc row table poisoned");
+        let mut rows = Vec::with_capacity(limit);
+        for ((row_cf, key), versions) in table.range((lower, Bound::Unbounded)) {
+            if *row_cf != cf {
+                if *row_cf > cf {
+                    break;
+                }
+                continue;
+            }
+            if !range.contains(key) {
+                if range.end.as_ref().is_some_and(|end| key >= end) {
+                    break;
+                }
+                continue;
+            }
+            if let Some(value) = visible_value(versions, snapshot.seq()) {
+                self.ensure_unbarriered(cf, key)?;
+                rows.push((key.clone(), value));
+                if rows.len() == limit {
+                    break;
+                }
+            }
         }
         Ok(rows)
     }
