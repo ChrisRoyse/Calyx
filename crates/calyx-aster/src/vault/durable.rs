@@ -100,7 +100,7 @@ impl DurableVault {
             options.wal_options.group_commit_window,
             Arc::new(SystemClock),
         )?;
-        Ok(Self {
+        let durable = Self {
             root,
             batcher,
             tiering_policy: options.tiering_policy.clone(),
@@ -111,7 +111,11 @@ impl DurableVault {
             pending_checkpoint: Mutex::new(Vec::new()),
             #[cfg(test)]
             fail_next_wal_append: Arc::new(AtomicBool::new(false)),
-        })
+        };
+        if durable.panel.is_some() && !durable.root.join("CURRENT").exists() {
+            durable.write_manifest_with_seq(1, 0)?;
+        }
+        Ok(durable)
     }
 
     pub(super) fn recover_batches(
@@ -293,17 +297,40 @@ impl DurableVault {
     }
 
     fn write_manifest(&self, seq: u64) -> Result<()> {
-        let (panel_ref, codebook_refs) = ensure_manifest_assets(&self.root)?;
+        let manifest_seq = self.current_manifest()?.map_or(seq.max(1), |manifest| {
+            manifest.manifest_seq.saturating_add(1)
+        });
+        self.write_manifest_with_seq(manifest_seq, seq)
+    }
+
+    fn write_manifest_with_seq(&self, manifest_seq: u64, durable_seq: u64) -> Result<()> {
+        let current = self.current_manifest()?;
+        let (panel_ref, codebook_refs) = match (&self.panel, current.as_ref()) {
+            (Some(panel), _) => ensure_manifest_assets(&self.root, Some(panel))?,
+            (None, Some(manifest)) => (manifest.panel_ref.clone(), manifest.codebook_refs.clone()),
+            (None, None) => ensure_manifest_assets(&self.root, None)?,
+        };
         let manifest = VaultManifest::new_with_policies(
-            seq,
-            seq,
+            manifest_seq,
+            durable_seq,
             panel_ref,
             codebook_refs,
             self.temporal_policy,
             self.dedup_policy.clone(),
         )?;
+        let mut manifest = manifest;
+        manifest.registry_ref = current.and_then(|manifest| manifest.registry_ref);
+        manifest.validate()?;
         ManifestStore::open(&self.root).write_current(&manifest)?;
         Ok(())
+    }
+
+    fn current_manifest(&self) -> Result<Option<VaultManifest>> {
+        if self.root.join("CURRENT").exists() {
+            ManifestStore::open(&self.root).load_current().map(Some)
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -398,15 +425,28 @@ fn tiered_cf_roots(root: &Path, tiering_policy: Option<&TieringPolicy>) -> Vec<P
     roots
 }
 
-fn ensure_manifest_assets(root: &Path) -> Result<(ImmutableRef, Vec<ImmutableRef>)> {
-    let panel_path = root.join("panel/current.bin");
+fn ensure_manifest_assets(
+    root: &Path,
+    panel: Option<&Panel>,
+) -> Result<(ImmutableRef, Vec<ImmutableRef>)> {
     let codebook_path = root.join("codebooks/default.bin");
-    let panel_bytes = b"calyx-stage1-panel";
     let codebook_bytes = b"calyx-stage1-codebook";
-    write_asset(&panel_path, panel_bytes)?;
+    let panel_ref = if let Some(panel) = panel {
+        let panel_bytes = serde_json::to_vec_pretty(panel).map_err(|error| {
+            CalyxError::aster_corrupt_shard(format!("encode durable panel asset: {error}"))
+        })?;
+        let hash = blake3::hash(&panel_bytes).to_hex().to_string();
+        let logical = format!("panel/panel-v{:08}-{}.json", panel.version, &hash[..16]);
+        write_asset(&root.join(&logical), &panel_bytes)?;
+        ImmutableRef::from_bytes(logical, &panel_bytes)?
+    } else {
+        let panel_bytes = b"calyx-stage1-panel";
+        write_asset(&root.join("panel/current.bin"), panel_bytes)?;
+        ImmutableRef::from_bytes("panel/current.bin", panel_bytes)?
+    };
     write_asset(&codebook_path, codebook_bytes)?;
     Ok((
-        ImmutableRef::from_bytes("panel/current.bin", panel_bytes)?,
+        panel_ref,
         vec![ImmutableRef::from_bytes(
             "codebooks/default.bin",
             codebook_bytes,
