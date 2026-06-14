@@ -44,6 +44,7 @@ fn column_family_names_match_prd_layout() {
             "blob",
             "index_btree",
             "index_inverted",
+            "anneal_operators",
         ]
     );
 

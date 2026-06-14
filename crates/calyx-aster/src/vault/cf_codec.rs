@@ -32,6 +32,7 @@ pub(super) fn cf_tag(cf: ColumnFamily) -> u8 {
         ColumnFamily::TimeIndex => 116,
         ColumnFamily::IndexBtree => 123,
         ColumnFamily::IndexInverted => 124,
+        ColumnFamily::AnnealOperators => 125,
         ColumnFamily::Slot { slot, kind } => {
             let base = match kind {
                 SlotFamilyKind::Quantized => 16,
@@ -73,6 +74,7 @@ pub(super) fn decode_cf(tag: u8) -> Result<ColumnFamily> {
         116 => ColumnFamily::TimeIndex,
         123 => ColumnFamily::IndexBtree,
         124 => ColumnFamily::IndexInverted,
+        125 => ColumnFamily::AnnealOperators,
         16..=63 => ColumnFamily::slot(SlotId::new((tag - 16) as u16)),
         64..=111 => ColumnFamily::slot_raw(SlotId::new((tag - 64) as u16)),
         _ => {

@@ -128,6 +128,7 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "anneal_soak" => ColumnFamily::AnnealSoak,
         "anneal_report" => ColumnFamily::AnnealReport,
         "anneal_growth" => ColumnFamily::AnnealGrowth,
+        "anneal_operators" => ColumnFamily::AnnealOperators,
         "time_index" => ColumnFamily::TimeIndex,
         "index_btree" => ColumnFamily::IndexBtree,
         "index_inverted" => ColumnFamily::IndexInverted,
