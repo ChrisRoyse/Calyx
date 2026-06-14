@@ -118,29 +118,55 @@ fn row_from_sqlite(row: &Row<'_>) -> CliResult<ChunkRow> {
         .map_err(|_| errors::schema(format!("chunks rowid {rowid} is negative")))?;
     Ok(ChunkRow {
         row_num,
-        chunk_id: row
-            .get(1)
-            .map_err(|err| errors::sqlite(&format!("read chunk_id at row {row_num}"), err))?,
-        database_name: row
-            .get(2)
-            .map_err(|err| errors::sqlite(&format!("read database_name at row {row_num}"), err))?,
+        chunk_id: text_field(
+            row.get_ref(1)
+                .map_err(|err| errors::sqlite(&format!("read chunk_id at row {row_num}"), err))?,
+            "chunk_id",
+            row_num,
+        )?,
+        database_name: text_field(
+            row.get_ref(2).map_err(|err| {
+                errors::sqlite(&format!("read database_name at row {row_num}"), err)
+            })?,
+            "database_name",
+            row_num,
+        )?,
         content: value_bytes(
             row.get_ref(3)
                 .map_err(|err| errors::sqlite(&format!("read content at row {row_num}"), err))?,
+            "content",
+            row_num,
         )?,
         embedding: decode_embedding(
-            value_bytes(row.get_ref(4).map_err(|err| {
-                errors::sqlite(&format!("read embedding at row {row_num}"), err)
-            })?)?,
+            value_bytes(
+                row.get_ref(4).map_err(|err| {
+                    errors::sqlite(&format!("read embedding at row {row_num}"), err)
+                })?,
+                "embedding",
+                row_num,
+            )?,
             row_num,
         )?,
     })
 }
 
-fn value_bytes(value: ValueRef<'_>) -> CliResult<Vec<u8>> {
+fn text_field(value: ValueRef<'_>, field: &str, row_num: u64) -> CliResult<String> {
+    let bytes = value_bytes(value, field, row_num)?;
+    std::str::from_utf8(&bytes)
+        .map(str::to_string)
+        .map_err(|err| {
+            errors::schema(format!(
+                "row {row_num} {field} is not valid UTF-8: {err}; raw_hex={}",
+                super::manifest::hex_encode(&bytes)
+            ))
+            .into()
+        })
+}
+
+fn value_bytes(value: ValueRef<'_>, field: &str, row_num: u64) -> CliResult<Vec<u8>> {
     match value {
         ValueRef::Blob(bytes) | ValueRef::Text(bytes) => Ok(bytes.to_vec()),
-        _ => Err(errors::schema("content and embedding must be TEXT or BLOB").into()),
+        _ => Err(errors::schema(format!("row {row_num} {field} must be TEXT or BLOB")).into()),
     }
 }
 
@@ -269,6 +295,47 @@ mod tests {
 
         assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
         assert!(error.message().contains("row 1"));
+        assert!(error.message().contains("raw_hex=fffe"));
+    }
+
+    #[test]
+    fn null_embedding_fails_with_row_number() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO chunks VALUES('c1','db','alpha',NULL)", [])
+            .unwrap();
+
+        let error = stream_rows(&conn).unwrap_err();
+
+        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
+        assert!(error.message().contains("row 1"));
+        assert!(error.message().contains("embedding"));
+    }
+
+    #[test]
+    fn non_utf8_database_name_reports_raw_bytes() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE chunks(chunk_id TEXT,database_name BLOB,content TEXT,embedding BLOB)",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO chunks VALUES('c1',?1,'alpha',?2)",
+            (vec![0xff, 0x00], embedding_blob(1.0)),
+        )
+        .unwrap();
+
+        let error = stream_rows(&conn).unwrap_err();
+
+        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
+        assert!(error.message().contains("row 1"));
+        assert!(error.message().contains("database_name"));
+        assert!(error.message().contains("raw_hex=ff00"));
     }
 
     fn one_row_db(
