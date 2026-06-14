@@ -8,6 +8,14 @@ use crate::error::{CliError, CliResult};
 
 const GTE_EMBEDDING_DIM: usize = 768;
 const GTE_EMBEDDING_BYTES: usize = GTE_EMBEDDING_DIM * std::mem::size_of::<f32>();
+const FIXTURE_COLUMNS: [&str; 4] = ["chunk_id", "database_name", "content", "embedding"];
+const LEAPABLE_CHUNK_COLUMNS: [&str; 2] = ["id", "text"];
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum SourceSchema {
+    CalyxFixture,
+    LeapableVec,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChunkRow {
@@ -34,31 +42,116 @@ pub fn open_sqlite(path: &Path) -> CliResult<Connection> {
         .map_err(|err| CliError::io(format!("open sqlite {}: {err}", path.display())))
 }
 
-pub fn validate_schema(conn: &Connection) -> CliResult {
-    let columns = table_columns(conn)?;
-    for required in ["chunk_id", "database_name", "content", "embedding"] {
-        if !columns.iter().any(|column| column == required) {
+pub fn row_count(conn: &Connection) -> CliResult<u64> {
+    match source_schema(conn)? {
+        SourceSchema::CalyxFixture => {
+            scalar_count(conn, "SELECT COUNT(*) FROM chunks", "count chunks")
+        }
+        SourceSchema::LeapableVec => {
+            scalar_count(conn, "SELECT COUNT(*) FROM chunks", "count chunks")
+        }
+    }
+}
+
+pub fn stream_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
+    match source_schema(conn)? {
+        SourceSchema::CalyxFixture => stream_fixture_rows(conn),
+        SourceSchema::LeapableVec => stream_leapable_rows(conn),
+    }
+}
+
+pub fn read_chunk(conn: &Connection, chunk_id: &str) -> CliResult<ChunkRow> {
+    match source_schema(conn)? {
+        SourceSchema::CalyxFixture => read_fixture_chunk(conn, chunk_id),
+        SourceSchema::LeapableVec => read_leapable_chunk(conn, chunk_id),
+    }
+}
+
+fn source_schema(conn: &Connection) -> CliResult<SourceSchema> {
+    let chunks = table_columns(conn, "chunks")?;
+    if has_columns(&chunks, &FIXTURE_COLUMNS) {
+        return Ok(SourceSchema::CalyxFixture);
+    }
+    if has_columns(&chunks, &LEAPABLE_CHUNK_COLUMNS) && has_leapable_vector_tables(conn)? {
+        validate_leapable_source(conn)?;
+        return Ok(SourceSchema::LeapableVec);
+    }
+    for required in FIXTURE_COLUMNS {
+        if !chunks.iter().any(|column| column == required) {
             return Err(
                 errors::schema(format!("chunks table missing required column {required}")).into(),
             );
         }
     }
+    Ok(SourceSchema::CalyxFixture)
+}
+
+fn has_leapable_vector_tables(conn: &Connection) -> CliResult<bool> {
+    Ok(has_columns(
+        &table_columns(conn, "database_metadata")?,
+        &["database_name"],
+    ) && has_columns(&table_columns(conn, "embeddings")?, &["id", "chunk_id"])
+        && has_columns(
+            &table_columns(conn, "vec_embeddings_rowids")?,
+            &["id", "chunk_id", "chunk_offset"],
+        )
+        && has_columns(
+            &table_columns(conn, "vec_embeddings_vector_chunks00")?,
+            &["vectors"],
+        ))
+}
+
+fn has_columns(columns: &[String], required: &[&str]) -> bool {
+    required
+        .iter()
+        .all(|required| columns.iter().any(|column| column == required))
+}
+
+fn validate_leapable_source(conn: &Connection) -> CliResult {
+    let chunks = scalar_count(conn, "SELECT COUNT(*) FROM chunks", "count Leapable chunks")?;
+    let vector_rows = scalar_count(conn, LEAPABLE_JOIN_COUNT_SQL, "count Leapable vectors")?;
+    if chunks != vector_rows {
+        return Err(errors::schema(format!(
+            "Leapable sqlite-vec source requires one embedding vector per chunk: chunks={chunks} vector_rows={vector_rows}"
+        ))
+        .into());
+    }
+    let invalid_offsets_sql = format!(
+        "SELECT COUNT(*) FROM chunks c \
+         JOIN embeddings e ON e.chunk_id = c.id \
+         JOIN vec_embeddings_rowids r ON r.id = e.id \
+         JOIN vec_embeddings_vector_chunks00 vc ON vc.rowid = r.chunk_id \
+         WHERE r.chunk_offset IS NULL OR r.chunk_offset < 0 \
+            OR length(vc.vectors) < ((r.chunk_offset + 1) * {GTE_EMBEDDING_BYTES})"
+    );
+    let invalid_offsets = scalar_count(
+        conn,
+        &invalid_offsets_sql,
+        "validate Leapable vector offsets",
+    )?;
+    if invalid_offsets != 0 {
+        return Err(errors::embedding(format!(
+            "Leapable sqlite-vec source has {invalid_offsets} vector offsets outside backing blobs"
+        ))
+        .into());
+    }
     Ok(())
 }
 
-pub fn row_count(conn: &Connection) -> CliResult<u64> {
-    validate_schema(conn)?;
+const LEAPABLE_JOIN_COUNT_SQL: &str = "SELECT COUNT(*) FROM chunks c \
+     JOIN embeddings e ON e.chunk_id = c.id \
+     JOIN vec_embeddings_rowids r ON r.id = e.id \
+     JOIN vec_embeddings_vector_chunks00 vc ON vc.rowid = r.chunk_id";
+
+fn scalar_count(conn: &Connection, sql: &str, op: &'static str) -> CliResult<u64> {
     let count = conn
-        .query_row("SELECT COUNT(*) FROM chunks", [], |row| {
-            row.get::<_, i64>(0)
-        })
-        .map_err(|err| errors::sqlite("count chunks", err))?;
+        .query_row(sql, [], |row| row.get::<_, i64>(0))
+        .map_err(|err| errors::sqlite(op, err))?;
     u64::try_from(count)
         .map_err(|_| errors::schema(format!("SQLite row count {count} is negative")).into())
 }
 
-pub fn stream_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
-    validate_schema(conn)?;
+fn stream_fixture_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
     let mut stmt = conn
         .prepare(
             "SELECT rowid, chunk_id, database_name, content, embedding \
@@ -78,8 +171,33 @@ pub fn stream_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
     Ok(out)
 }
 
-pub fn read_chunk(conn: &Connection, chunk_id: &str) -> CliResult<ChunkRow> {
-    validate_schema(conn)?;
+fn stream_leapable_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT c.rowid, c.id, \
+                    (SELECT database_name FROM database_metadata ORDER BY id LIMIT 1), \
+                    c.text, vc.vectors, r.chunk_offset \
+             FROM chunks c \
+             JOIN embeddings e ON e.chunk_id = c.id \
+             JOIN vec_embeddings_rowids r ON r.id = e.id \
+             JOIN vec_embeddings_vector_chunks00 vc ON vc.rowid = r.chunk_id \
+             ORDER BY c.rowid",
+        )
+        .map_err(|err| errors::sqlite("prepare Leapable chunk scan", err))?;
+    let mut rows = stmt
+        .query([])
+        .map_err(|err| errors::sqlite("query Leapable chunks", err))?;
+    let mut out = Vec::new();
+    while let Some(row) = rows
+        .next()
+        .map_err(|err| errors::sqlite("read Leapable chunk row", err))?
+    {
+        out.push(row_from_leapable(row)?);
+    }
+    Ok(out)
+}
+
+fn read_fixture_chunk(conn: &Connection, chunk_id: &str) -> CliResult<ChunkRow> {
     let mut stmt = conn
         .prepare(
             "SELECT rowid, chunk_id, database_name, content, embedding \
@@ -98,24 +216,46 @@ pub fn read_chunk(conn: &Connection, chunk_id: &str) -> CliResult<ChunkRow> {
     row_from_sqlite(row)
 }
 
-fn table_columns(conn: &Connection) -> CliResult<Vec<String>> {
+fn read_leapable_chunk(conn: &Connection, chunk_id: &str) -> CliResult<ChunkRow> {
     let mut stmt = conn
-        .prepare("PRAGMA table_info(chunks)")
-        .map_err(|err| errors::sqlite("inspect chunks schema", err))?;
+        .prepare(
+            "SELECT c.rowid, c.id, \
+                    (SELECT database_name FROM database_metadata ORDER BY id LIMIT 1), \
+                    c.text, vc.vectors, r.chunk_offset \
+             FROM chunks c \
+             JOIN embeddings e ON e.chunk_id = c.id \
+             JOIN vec_embeddings_rowids r ON r.id = e.id \
+             JOIN vec_embeddings_vector_chunks00 vc ON vc.rowid = r.chunk_id \
+             WHERE c.id = ?1 \
+             ORDER BY c.rowid LIMIT 1",
+        )
+        .map_err(|err| errors::sqlite("prepare Leapable chunk read", err))?;
+    let mut rows = stmt
+        .query([chunk_id])
+        .map_err(|err| errors::sqlite("query Leapable chunk", err))?;
+    let Some(row) = rows
+        .next()
+        .map_err(|err| errors::sqlite("read Leapable chunk", err))?
+    else {
+        return Err(errors::schema(format!("chunk_id {chunk_id} not found")).into());
+    };
+    row_from_leapable(row)
+}
+
+fn table_columns(conn: &Connection, table: &str) -> CliResult<Vec<String>> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(|err| errors::sqlite("inspect sqlite schema", err))?;
     let rows = stmt
         .query_map([], |row| row.get::<_, String>(1))
-        .map_err(|err| errors::sqlite("read chunks schema", err))?;
+        .map_err(|err| errors::sqlite("read sqlite schema", err))?;
     rows.map(|row| row.map_err(|err| errors::sqlite("decode schema row", err)))
         .collect::<calyx_core::Result<Vec<_>>>()
         .map_err(Into::into)
 }
 
 fn row_from_sqlite(row: &Row<'_>) -> CliResult<ChunkRow> {
-    let rowid: i64 = row
-        .get(0)
-        .map_err(|err| errors::sqlite("read rowid", err))?;
-    let row_num = u64::try_from(rowid)
-        .map_err(|_| errors::schema(format!("chunks rowid {rowid} is negative")))?;
+    let row_num = row_num(row)?;
     Ok(ChunkRow {
         row_num,
         chunk_id: text_field(
@@ -148,6 +288,67 @@ fn row_from_sqlite(row: &Row<'_>) -> CliResult<ChunkRow> {
             row_num,
         )?,
     })
+}
+
+fn row_from_leapable(row: &Row<'_>) -> CliResult<ChunkRow> {
+    let row_num = row_num(row)?;
+    let vectors = value_bytes(
+        row.get_ref(4)
+            .map_err(|err| errors::sqlite(&format!("read vectors at row {row_num}"), err))?,
+        "vectors",
+        row_num,
+    )?;
+    let chunk_offset: i64 = row
+        .get(5)
+        .map_err(|err| errors::sqlite(&format!("read chunk_offset at row {row_num}"), err))?;
+    let offset = usize::try_from(chunk_offset).map_err(|_| {
+        errors::embedding(format!(
+            "row {row_num} sqlite-vec chunk_offset {chunk_offset} is negative"
+        ))
+    })?;
+    let start = offset.checked_mul(GTE_EMBEDDING_BYTES).ok_or_else(|| {
+        errors::embedding(format!("row {row_num} sqlite-vec vector offset overflow"))
+    })?;
+    let end = start.checked_add(GTE_EMBEDDING_BYTES).ok_or_else(|| {
+        errors::embedding(format!("row {row_num} sqlite-vec vector end overflow"))
+    })?;
+    let vector = vectors.get(start..end).ok_or_else(|| {
+        errors::embedding(format!(
+            "row {row_num} sqlite-vec vector offset {chunk_offset} outside blob length {}",
+            vectors.len()
+        ))
+    })?;
+    Ok(ChunkRow {
+        row_num,
+        chunk_id: text_field(
+            row.get_ref(1)
+                .map_err(|err| errors::sqlite(&format!("read chunk_id at row {row_num}"), err))?,
+            "chunk_id",
+            row_num,
+        )?,
+        database_name: text_field(
+            row.get_ref(2).map_err(|err| {
+                errors::sqlite(&format!("read database_name at row {row_num}"), err)
+            })?,
+            "database_name",
+            row_num,
+        )?,
+        content: value_bytes(
+            row.get_ref(3)
+                .map_err(|err| errors::sqlite(&format!("read content at row {row_num}"), err))?,
+            "content",
+            row_num,
+        )?,
+        embedding: decode_embedding(vector.to_vec(), row_num)?,
+    })
+}
+
+fn row_num(row: &Row<'_>) -> CliResult<u64> {
+    let rowid: i64 = row
+        .get(0)
+        .map_err(|err| errors::sqlite("read rowid", err))?;
+    u64::try_from(rowid)
+        .map_err(|_| errors::schema(format!("chunks rowid {rowid} is negative")).into())
 }
 
 fn text_field(value: ValueRef<'_>, field: &str, row_num: u64) -> CliResult<String> {
@@ -191,177 +392,4 @@ fn decode_embedding(bytes: Vec<u8>, row_num: u64) -> CliResult<Vec<f32>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn streams_rows_in_rowid_order_and_preserves_empty_identity_fields() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-        for (chunk_id, database_name, content, first) in [
-            ("c3", "db", "gamma", 3.0),
-            ("", "db", "empty chunk", 2.0),
-            ("c1", "", "empty db", 1.0),
-        ] {
-            conn.execute(
-                "INSERT INTO chunks VALUES(?1,?2,?3,?4)",
-                (chunk_id, database_name, content, embedding_blob(first)),
-            )
-            .unwrap();
-        }
-
-        let rows = stream_rows(&conn).unwrap();
-
-        assert_eq!(row_count(&conn).unwrap(), 3);
-        assert_eq!(
-            rows.iter().map(|row| row.row_num).collect::<Vec<_>>(),
-            vec![1, 2, 3]
-        );
-        assert_eq!(rows[0].content, b"gamma");
-        assert_eq!(rows[0].embedding.len(), GTE_EMBEDDING_DIM);
-        assert_eq!(rows[0].embedding[0], 3.0);
-        assert_eq!(rows[1].chunk_id, "");
-        assert_eq!(rows[2].database_name, "");
-    }
-
-    #[test]
-    fn missing_required_schema_column_fails_closed() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT)",
-            [],
-        )
-        .unwrap();
-
-        let error = validate_schema(&conn).unwrap_err();
-
-        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
-        assert!(error.message().contains("embedding"));
-        assert!(error.remediation().contains("Leapable Vault SQLite DB"));
-    }
-
-    #[test]
-    fn exact_gte_embedding_blob_decodes_first_little_endian_float() {
-        let conn = one_row_db("c1", "db", "alpha", embedding_blob(1.0));
-        let rows = stream_rows(&conn).unwrap();
-
-        assert_eq!(rows[0].embedding.len(), GTE_EMBEDDING_DIM);
-        assert_eq!(rows[0].embedding[0], 1.0);
-    }
-
-    #[test]
-    fn wrong_embedding_size_reports_row_number() {
-        let conn = one_row_db("c1", "db", "alpha", vec![0_u8; GTE_EMBEDDING_BYTES - 4]);
-
-        let error = stream_rows(&conn).unwrap_err();
-
-        assert_eq!(error.code(), errors::CALYX_MIGRATE_EMBEDDING_FORMAT);
-        assert!(error.message().contains("row 1"));
-        assert!(error.message().contains("3068"));
-    }
-
-    #[test]
-    fn empty_chunks_table_streams_zero_rows() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-
-        assert_eq!(row_count(&conn).unwrap(), 0);
-        assert_eq!(stream_rows(&conn).unwrap(), Vec::new());
-    }
-
-    #[test]
-    fn non_utf8_chunk_id_fails_with_row_number() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id BLOB,database_name TEXT,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chunks VALUES(?1,'db','alpha',?2)",
-            (vec![0xff, 0xfe], embedding_blob(1.0)),
-        )
-        .unwrap();
-
-        let error = stream_rows(&conn).unwrap_err();
-
-        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
-        assert!(error.message().contains("row 1"));
-        assert!(error.message().contains("raw_hex=fffe"));
-    }
-
-    #[test]
-    fn null_embedding_fails_with_row_number() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-        conn.execute("INSERT INTO chunks VALUES('c1','db','alpha',NULL)", [])
-            .unwrap();
-
-        let error = stream_rows(&conn).unwrap_err();
-
-        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
-        assert!(error.message().contains("row 1"));
-        assert!(error.message().contains("embedding"));
-    }
-
-    #[test]
-    fn non_utf8_database_name_reports_raw_bytes() {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name BLOB,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chunks VALUES('c1',?1,'alpha',?2)",
-            (vec![0xff, 0x00], embedding_blob(1.0)),
-        )
-        .unwrap();
-
-        let error = stream_rows(&conn).unwrap_err();
-
-        assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
-        assert!(error.message().contains("row 1"));
-        assert!(error.message().contains("database_name"));
-        assert!(error.message().contains("raw_hex=ff00"));
-    }
-
-    fn one_row_db(
-        chunk_id: &str,
-        database_name: &str,
-        content: &str,
-        embedding: Vec<u8>,
-    ) -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        conn.execute(
-            "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
-            [],
-        )
-        .unwrap();
-        conn.execute(
-            "INSERT INTO chunks VALUES(?1,?2,?3,?4)",
-            (chunk_id, database_name, content, embedding),
-        )
-        .unwrap();
-        conn
-    }
-
-    fn embedding_blob(first: f32) -> Vec<u8> {
-        std::iter::once(first)
-            .chain((1..GTE_EMBEDDING_DIM).map(|idx| idx as f32 / 10.0))
-            .flat_map(|value| value.to_le_bytes())
-            .collect()
-    }
-}
+mod tests;
