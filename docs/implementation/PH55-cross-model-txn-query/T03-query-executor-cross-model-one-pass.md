@@ -1,28 +1,26 @@
-# PH55 · T03 — Query executor: relational filter → graph hop → vector fusion → aggregate → TS range
+# PH55 T03 - Query executor: relational filter -> graph hop -> vector fusion -> aggregate -> TS range
 
 | Field | Value |
 |---|---|
-| **Phase** | PH55 — Cross-model transactions + universal query surface |
-| **Stage** | S12 — Universal data layer |
+| **Phase** | PH55 - Cross-model transactions + universal query surface |
+| **Stage** | S12 - Universal data layer |
 | **Crate** | `calyx-sextant` |
-| **Files** | `crates/calyx-sextant/src/query/executor.rs` (≤500) |
+| **Files** | `crates/calyx-sextant/src/query/executor.rs` plus `query/executor/` modules, all under 500 lines |
 | **Depends on** | T02 (CrossModelPlan + PlanStep), PH53 (all paradigm layers), PH54 T02/T03 (index queries), PH24 (RRF fusion), PH08 (MVCC snapshot) |
 | **Axioms** | A15, A16, A19 |
-| **PRD** | `dbprdplans/20 §4`, `dbprdplans/10 §0` |
+| **PRD** | `dbprdplans/20 A-4`, `dbprdplans/10 A-0` |
 
 ## Goal
 
 Execute a `CrossModelPlan` in one pass, pinned to a single MVCC snapshot, and
-return a `QueryResult` with all matching rows/values and their provenance
-references. The executor is a pipeline: each `PlanStep` filters or augments
-the result set from the previous step. No partial reads across different seq
-values; no deadlocks (single-writer serialization + read-only snapshot).
-The final result is a `ProvenancedResult` (each row/value carries a
-`LedgerRef` or `None` for plain-mode collections).
+return a `QueryResult` with matching rows/values and provenance references where
+the row key is a constellation ID. The executor is a pipeline: each `PlanStep`
+filters or augments the result set from the previous step. Reads do not advance
+across different seq values during a query.
 
-## Build (checklist of concrete, code-level steps)
+## Build
 
-- [ ] Define `QueryResult` and `ProvenancedResult` in `query/mod.rs`:
+- [x] Define `QueryResult` and `ProvenancedRow` in `query/mod.rs`:
   ```rust
   pub struct QueryResult {
       pub rows: Vec<ProvenancedRow>,
@@ -32,73 +30,57 @@ The final result is a `ProvenancedResult` (each row/value carries a
   }
   pub struct ProvenancedRow {
       pub key: RecordKey,
-      pub value: Option<Row>,          // None for index-only results
-      pub score: Option<f32>,          // for vector/FTS ranked results
+      pub value: Option<Row>,
+      pub score: Option<f32>,
       pub ledger_ref: Option<LedgerRef>,
   }
   ```
-- [ ] Implement `execute(vault: &AsterVault, plan: CrossModelPlan) -> Result<QueryResult>`:
-  - Pin `snapshot_seq = vault.current_seq()` at entry; ALL reads use this seq.
-  - Execute steps in order:
-    1. `RelationalScan`: call `btree_range` or full-scan depending on `index` field;
-       collect `Vec<RecordKey>`.
-    2. `DocScan`: for each `RecordKey`, `get_subtree` on the path filter; keep
-       matching.
-    3. `KvGet`: point-read; emit one row or skip if absent/expired.
-    4. `TsRangeScan`: call `ts_range`; emit `(ts, val)` pairs as rows.
-    5. `GraphHop`: for each input `CxId`, look up `xterm` CF keys
-       `(cx_id, *, *, Agreement)` (or stub if PH27 not built: pass-through);
-       collect reachable `CxId`s.
-    6. `VectorFusion`: call `sextant::fuse_rrf` (PH24) with the accumulated
-       `CxId` set as candidate filter; return ranked `(CxId, score)` pairs.
-    7. `Aggregate`: compute count/sum/min/max/avg over the numeric values in the
-       accumulated rows.
-    8. `Ask`: delegated to T04.
-  - After all steps: annotate each row with `ledger_ref` from the `ledger` CF
-    (for Constellation-mode rows) or `None` (for plain-mode rows).
-  - Return `QueryResult`.
-- [ ] All reads use the pinned `snapshot_seq`; never advance the snapshot mid-query.
-- [ ] `RelationalScan` with no `IndexSpec` → full CF scan (accepted only when
-  `estimated_cost` was under cap — planner already checked this).
-- [ ] `GraphHop` stub (when PH27 not available): return `input_cx_ids` unchanged
-  (0-hop). Log a structured `[INFO]` "graph hop stubbed".
+- [x] Implement `execute(vault: &AsterVault, plan: CrossModelPlan) -> Result<QueryResult>`.
+- [x] Pin `snapshot_seq = vault.latest_seq()` at entry and use it for all reads.
+- [x] Execute steps in order:
+  1. `RelationalScan`: btree range when a planned index exists, otherwise full relational CF scan.
+  2. `DocScan`: scan document IDs when no input rows exist, then call `get_subtree_at`.
+  3. `KvGet`: point-read with absent/expired values skipped.
+  4. `TsRangeScan`: snapshot-pinned range read emitting `(ts, value)` rows.
+  5. `GraphHop`: PH27 stub returns input `CxId`s unchanged and logs `[INFO] graph hop stubbed`.
+  6. `VectorFusion`: call PH24 restricted RRF over accumulated candidate `CxId`s.
+  7. `Aggregate`: count/sum/min/max/avg over accumulated numeric values.
+  8. `Ask`: delegated to T04 and fails closed with `CALYX_SEXTANT_QUERY_SHAPE`.
+- [x] Add snapshot-pinned Aster helpers `KvLayer::kv_get_at` and `TimeSeriesLayer::ts_range_at`.
+- [x] Annotate result rows with `LedgerRef` when the row key is a constellation `CxId`; plain-mode rows keep `None`.
 
-## Tests (synthetic, deterministic — known input → known bytes/number)
+## Tests
 
-- [ ] unit relational: plan `[RelationalScan(qty>=3)]` on a 5-record collection →
-  `rows.len() == 3` (pks with qty 3,5,7); `elapsed_ms < 1000`.
-- [ ] unit multi-mode: plan `[RelationalScan, KvGet]` on a vault with both CFs →
-  2 entries in `rows` (one relational row + one KV row); same `snapshot_seq`.
-- [ ] unit TS: plan `[TsRangeScan(0..MAX)]` on 3 written points → 3 rows in
-  ascending ts order.
-- [ ] unit aggregate: plan `[RelationalScan, Aggregate(count)]` → `rows` has 1
-  entry with `value = count` of matching relational rows.
-- [ ] proptest: for any combination of non-empty plan steps with seeded data, all
-  result rows were visible at the pinned `snapshot_seq` (no row created after
-  `snapshot_seq` appears in results).
-- [ ] edge (≥3): (1) empty collection → `rows.len() == 0`; (2) KvGet on expired
-  TTL → 0 rows (not error); (3) `GraphHop` stub → input cx_ids passed through
-  unchanged; (4) VectorFusion on empty candidate set → empty result.
-- [ ] fail-closed: if any step returns `Err`, the whole `execute` returns `Err`;
-  no partial result emitted.
+- [x] Unit relational: `[RelationalScan(qty >= 3)]` on five records returns pks `3,5,7`.
+- [x] Unit document: `DocScan` filters a nested subtree value through `DocumentLayer::get_subtree_at`.
+- [x] Unit multi-mode: `[RelationalScan, KvGet]` returns relational rows plus the KV row at one snapshot.
+- [x] Unit TS: `[TsRangeScan(0..MAX)]` returns three points in ascending timestamp order.
+- [x] Unit aggregate: `[RelationalScan, Aggregate(count)]` returns one count row with value `3`.
+- [x] Proptest: non-empty combinations of relational/KV/TS/aggregate storage steps exclude post-snapshot writes.
+- [x] Edge cases: empty collection returns zero rows; expired KV returns zero rows without error; graph stub passes input `CxId`s through; vector fusion with no candidates returns empty.
+- [x] Fail-closed: ASK returns `CALYX_SEXTANT_QUERY_SHAPE` and no partial `QueryResult`.
 
-## FSV (read the bytes on aiwonder — the truth gate)
+## FSV
 
-- **SoT:** `cargo test -p calyx-sextant query::executor` on aiwonder.
-- **Readback:**
-  ```
-  cargo test -p calyx-sextant executor -- --nocapture 2>&1 | tail -20
-  calyx query --vault /home/croyse/calyx/test-vault \
-    --filter 'orders.qty >= 1' --kv 'ns=1,key=sess' --agg count --explain
-  ```
-- **Prove:** Query returns `rows` covering both relational and KV collections
-  at the same snapshot_seq; `--explain` shows `snapshot_seq=N` for all steps.
-  Evidence posted to PH55 issue.
+- **SoT:** Aster durable CF files under `/home/croyse/calyx/data/fsv-issue465-query-executor-final-20260614T154344Z/vault/cf` on aiwonder, plus `issue465-query-executor-readback.json`.
+- **Trigger:** `CALYX_FSV_ROOT=<root> cargo test -p calyx-sextant --lib query::executor::fsv_tests::issue465_query_executor_fsv_writes_readback_artifacts -- --ignored --nocapture`.
+- **Manual readback:** `cat` of the readback JSON, `find` of physical CF files, `sha256sum` of SST files, and `xxd` hex samples for relational, KV, timeseries, and ledger SSTs.
+- **Proved:** before counts were zero; after counts were `relational_rows=6`, `kv_rows=2`, `timeseries_rows=6`, `ledger_rows=10`, `latest_seq=11`; happy path returned relational keys `3,5,7` and KV bytes `active`; TS returned `10,20,30`; aggregate returned count `3`; empty collection, expired KV, graph stub, vector-empty, pinned-snapshot post-write exclusion, and fail-closed ASK matched expected results.
 
-## Done when
+## Completion Evidence
 
-- [ ] `cargo check` + `clippy -D warnings` + `test` green on aiwonder
-- [ ] file(s) ≤ 500 lines (line-count gate ✅)
-- [ ] FSV evidence (readback output / screenshot) attached to the PH55 GitHub issue
-- [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing
-      "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+- Commit: `Implement PH55 query executor` on the issue branch; final SHA is recorded by GitHub/PR after merge.
+- aiwonder gates:
+  - `cargo fmt --all -- --check`
+  - source line gate excluding target artifacts
+  - `cargo check -p calyx-sextant`
+  - `cargo clippy -p calyx-sextant --all-targets -- -D warnings`
+  - `cargo test -p calyx-sextant --lib query::executor -- --nocapture` (11 passed, 1 ignored FSV test)
+- FSV root: `/home/croyse/calyx/data/fsv-issue465-query-executor-final-20260614T154344Z`.
+
+## Done When
+
+- [x] `cargo check` + `clippy -D warnings` + tests are green on aiwonder.
+- [x] Rust source/test files are under 500 lines.
+- [x] FSV evidence is captured from aiwonder bytes and attached to issue/PR evidence.
+- [x] No anti-pattern: no flattening, no ungrounded trusted claim, no frozen-lens mutation, and no harness-as-FSV.

@@ -1,13 +1,17 @@
 //! Query surfaces for Stage 4 search and PH55 cross-model planning.
 
+pub mod executor;
 pub mod planner;
 mod search;
 
 use calyx_aster::collection::{Collection, IsolationLevel, SecondaryIndexSpec};
+use calyx_aster::layers::{RecordKey, Row};
+use calyx_core::LedgerRef;
 use calyx_core::{CxId, LensId};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub use executor::execute;
 pub use planner::{DEFAULT_COST_CAP_MS, plan};
 pub use search::*;
 
@@ -223,6 +227,26 @@ pub struct ExplainStep {
     pub estimated_cost_ms: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chosen_index: Option<SecondaryIndexSpec>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct QueryResult {
+    pub rows: Vec<ProvenancedRow>,
+    pub total_scanned: u64,
+    pub elapsed_ms: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explain: Option<ExplainOutput>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ProvenancedRow {
+    pub key: RecordKey,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<Row>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub score: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ledger_ref: Option<LedgerRef>,
 }
 
 const fn default_isolation() -> IsolationLevel {
