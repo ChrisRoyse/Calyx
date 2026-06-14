@@ -37,6 +37,9 @@ pub struct VramBudgeter<P: VramProbe> {
     admission_splits_total: AtomicU64,
     admission_queued_total: AtomicU64,
     admission_failed_total: AtomicU64,
+    oom_intercepts_total: AtomicU64,
+    oom_batch_reductions_total: AtomicU64,
+    oom_final_failures_total: AtomicU64,
     probe: P,
 }
 
@@ -49,6 +52,9 @@ impl<P: VramProbe> VramBudgeter<P> {
             admission_splits_total: AtomicU64::new(0),
             admission_queued_total: AtomicU64::new(0),
             admission_failed_total: AtomicU64::new(0),
+            oom_intercepts_total: AtomicU64::new(0),
+            oom_batch_reductions_total: AtomicU64::new(0),
+            oom_final_failures_total: AtomicU64::new(0),
             probe,
         }
     }
@@ -160,6 +166,11 @@ impl<P: VramProbe> VramBudgeter<P> {
             splits_total: self.admission_splits_total.load(Ordering::Acquire),
             queued_total: self.admission_queued_total.load(Ordering::Acquire),
             failed_total: self.admission_failed_total.load(Ordering::Acquire),
+            oom_guard: crate::vram::OomGuardStats {
+                oom_intercepts: self.oom_intercepts_total.load(Ordering::Acquire),
+                batch_reductions: self.oom_batch_reductions_total.load(Ordering::Acquire),
+                final_failures: self.oom_final_failures_total.load(Ordering::Acquire),
+            },
         }
     }
 
@@ -173,6 +184,19 @@ impl<P: VramProbe> VramBudgeter<P> {
 
     pub(crate) fn record_admission_failed(&self) {
         self.admission_failed_total.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn record_oom_intercept(&self) {
+        self.oom_intercepts_total.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn record_oom_batch_reduction(&self) {
+        self.oom_batch_reductions_total
+            .fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn record_oom_final_failure(&self) {
+        self.oom_final_failures_total.fetch_add(1, Ordering::AcqRel);
     }
 
     fn check_soft_cap(&self, current: usize, bytes: usize) -> Result<()> {

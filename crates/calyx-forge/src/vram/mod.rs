@@ -21,6 +21,7 @@
 pub mod admission;
 pub mod budget;
 pub mod lru_evict;
+pub mod oom_guard;
 
 pub use admission::{AdmissionController, AdmissionOutput, AdmitDecision, QueuedDispatch};
 pub use budget::{
@@ -30,6 +31,9 @@ pub use budget::{
 pub use lru_evict::{
     BlockDeallocator, BlockId, BlockKind, DevicePtr, GpuBlockRegistry, GpuBlockStats,
 };
+#[cfg(feature = "cuda")]
+pub use oom_guard::RawCudaMalloc;
+pub use oom_guard::{CudaAllocError, CudaMalloc, DEFAULT_OOM_MAX_RETRIES, OomGuard, OomGuardStats};
 
 use crate::Result;
 
@@ -68,10 +72,12 @@ pub struct VramStats {
     /// Cumulative admission decisions that failed closed with
     /// `CALYX_FORGE_VRAM_BUDGET`.
     pub failed_total: u64,
+    /// Cumulative last-resort CUDA OOM guard counters.
+    pub oom_guard: OomGuardStats,
 }
 
 impl VramStats {
-    /// Prometheus text readback for PH57 admission counters.
+    /// Prometheus text readback for PH57 admission and OOM guard counters.
     pub fn admission_metrics_text(&self) -> String {
         format!(
             concat!(
@@ -83,9 +89,23 @@ impl VramStats {
                 "calyx_forge_vram_admission_queued_total {}\n",
                 "# HELP calyx_forge_vram_budget_exceeded_total Forge VRAM dispatches failed closed by CALYX_FORGE_VRAM_BUDGET.\n",
                 "# TYPE calyx_forge_vram_budget_exceeded_total counter\n",
-                "calyx_forge_vram_budget_exceeded_total {}\n"
+                "calyx_forge_vram_budget_exceeded_total {}\n",
+                "# HELP forge_oom_intercepts_total CUDA allocation OOM responses intercepted by Forge.\n",
+                "# TYPE forge_oom_intercepts_total counter\n",
+                "forge_oom_intercepts_total {}\n",
+                "# HELP forge_oom_batch_reductions_total Dispatch retries that reduced batch size after a budget OOM.\n",
+                "# TYPE forge_oom_batch_reductions_total counter\n",
+                "forge_oom_batch_reductions_total {}\n",
+                "# HELP forge_oom_final_failures_total OOM guard paths that failed closed with CALYX_FORGE_VRAM_BUDGET.\n",
+                "# TYPE forge_oom_final_failures_total counter\n",
+                "forge_oom_final_failures_total {}\n"
             ),
-            self.splits_total, self.queued_total, self.failed_total
+            self.splits_total,
+            self.queued_total,
+            self.failed_total,
+            self.oom_guard.oom_intercepts,
+            self.oom_guard.batch_reductions,
+            self.oom_guard.final_failures
         )
     }
 }

@@ -39,11 +39,32 @@ between them). Defends hazard 7 (VRAM OOM).
 - [ ] edge: mock CUDA error other than OOM (e.g., `cudaErrorIllegalAddress`) → `CALYX_GPU_ERROR` (not `CALYX_FORGE_VRAM_BUDGET`); no retry
 - [ ] fail-closed: `alloc_with_retry` with `max_retries=3`, all fail → exactly 3 eviction attempts; return `CALYX_FORGE_VRAM_BUDGET`; `oom_intercepts == 3`, `final_failures == 1`
 
+## Implementation record
+
+- Code surface: `crates/calyx-forge/src/vram/oom_guard.rs` defines `OomGuard`, injectable `CudaMalloc`, `CudaAllocError`, `OomGuardStats`, and the CUDA-feature `RawCudaMalloc` adapter.
+- Error mapping: CUDA allocation OOM maps to `CALYX_FORGE_VRAM_BUDGET`; non-OOM CUDA allocation errors map to `CALYX_GPU_ERROR`.
+- Counters: `VramBudgeter::stats()` now exposes `OomGuardStats { oom_intercepts, batch_reductions, final_failures }`.
+- Metrics: `VramStats::admission_metrics_text()` emits `forge_oom_intercepts_total`, `forge_oom_batch_reductions_total`, and `forge_oom_final_failures_total`.
+- Coverage: unit/proptest coverage lives in `crates/calyx-forge/src/vram/oom_guard_tests.rs`; readback artifact coverage lives in `crates/calyx-forge/tests/ph57_oom_guard_fsv.rs`.
+
 ## FSV (read the bytes on aiwonder — the truth gate)
 
 - **SoT:** `OomGuardStats::oom_intercepts` and `final_failures` counters; `dmesg` on aiwonder (must show no OOM kill during test)
 - **Readback:** `calyx readback --metric forge_oom_intercepts_total` and `forge_oom_final_failures_total`; `sudo dmesg | grep -i oom`
 - **Prove:** inject a VRAM-exhaustion scenario on aiwonder (allocate all GPU memory via a test process, then dispatch to Forge); `forge_oom_intercepts_total > 0`; `dmesg` shows no OOM kill; the failing dispatch returns `CALYX_FORGE_VRAM_BUDGET` in the client log (not a panic).
+
+## FSV evidence
+
+- Root: `/home/croyse/calyx/data/fsv-issue478-oom-guard-20260614T201628Z`
+- Synthetic OOM guard readback: `ph57-oom-guard-readback.json`, 1401 bytes, sha256 `5c970858a58db6f15641bb3707ed79c863e04d16ba0765cdef912494fb6d1a57`
+- Real CUDA OOM readback: `ph57-oom-guard-cuda-readback.json`, 719 bytes, sha256 `13f6ac41d0922cc3dd7c4602201b4945fe63ef54f5ab23cdae1330a913ad0c97`
+- Metrics readback: `ph57-oom-guard.prom`, 1123 bytes, sha256 `bc5067b20f26b415a1cfdd6fd7feeebacca07161a579a09e6010e7a3f607f6b8`
+- Synthetic counters: before `oom_intercepts=0`, after alloc retry `oom_intercepts=2`, after dispatch `batch_reductions=1`, after final failure `oom_intercepts=5`, `final_failures=1`; dispatch output `32`; final error `CALYX_FORGE_VRAM_BUDGET`; non-OOM CUDA error `CALYX_GPU_ERROR`.
+- Real CUDA OOM: requested `34743517184` bytes against device total `33669775360`; before `oom_intercepts=0`; after `oom_intercepts=1`, `final_failures=1`; error `CALYX_FORGE_VRAM_BUDGET`.
+- Prometheus metrics: `forge_oom_intercepts_total 5`, `forge_oom_batch_reductions_total 1`, `forge_oom_final_failures_total 1`.
+- Kernel readback: sudo `dmesg --ctime` last 300 lines checked after the CUDA OOM FSV; `oom|out of memory|xid|nvrm` matches = 0.
+- CUDA parity root: `/home/croyse/calyx/data/fsv-issue478-cuda-parity-20260614T201810Z`; `cuda-gemm-parity.json` sha256 `950601de2fee27f9649fb6ca247913854ee3eeb5de0772a8409e65beddc07fdd`, max relative error `0.00031746612512506545`; `cuda-normalize-parity.json` sha256 `c761b5ee188d90780ed21bf4444bfd53eb372ee6414882152ffc09c0ed10a038`, relative error `0.0000002533753900024749`.
+- Gates passed on aiwonder: `cargo fmt --all -- --check`; `cargo check -p calyx-forge`; `cargo clippy -p calyx-forge --all-targets -- -D warnings`; `cargo test -p calyx-forge -- --nocapture`; `cargo test -p calyx-forge --features cuda --test ph57_oom_guard_fsv -- --nocapture`; `cargo test -p calyx-forge --features cuda --test cuda_parity -- --nocapture`; `.rs` line-count gate (no files >500; touched max `budget.rs` 483).
 
 ## Done when
 
