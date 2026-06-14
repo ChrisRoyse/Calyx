@@ -3,7 +3,7 @@
 //!
 //! See [`crate::vram`] for the design rationale (why the probe is injectable).
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use crate::vram::{VramProbe, VramStats};
 use crate::{ForgeError, Result};
@@ -34,6 +34,9 @@ pub const VRAM_BUDGET_REMEDIATION: &str = "Forge VRAM budget exceeded; reduce ba
 pub struct VramBudgeter<P: VramProbe> {
     soft_cap_bytes: usize,
     allocated_bytes: AtomicUsize,
+    admission_splits_total: AtomicU64,
+    admission_queued_total: AtomicU64,
+    admission_failed_total: AtomicU64,
     probe: P,
 }
 
@@ -43,6 +46,9 @@ impl<P: VramProbe> VramBudgeter<P> {
         Self {
             soft_cap_bytes,
             allocated_bytes: AtomicUsize::new(0),
+            admission_splits_total: AtomicU64::new(0),
+            admission_queued_total: AtomicU64::new(0),
+            admission_failed_total: AtomicU64::new(0),
             probe,
         }
     }
@@ -151,7 +157,22 @@ impl<P: VramProbe> VramBudgeter<P> {
             soft_cap_bytes: self.soft_cap_bytes,
             allocated_bytes: self.allocated_bytes.load(Ordering::Acquire),
             device_free_bytes,
+            splits_total: self.admission_splits_total.load(Ordering::Acquire),
+            queued_total: self.admission_queued_total.load(Ordering::Acquire),
+            failed_total: self.admission_failed_total.load(Ordering::Acquire),
         }
+    }
+
+    pub(crate) fn record_admission_split(&self) {
+        self.admission_splits_total.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn record_admission_queued(&self) {
+        self.admission_queued_total.fetch_add(1, Ordering::AcqRel);
+    }
+
+    pub(crate) fn record_admission_failed(&self) {
+        self.admission_failed_total.fetch_add(1, Ordering::AcqRel);
     }
 
     fn check_soft_cap(&self, current: usize, bytes: usize) -> Result<()> {

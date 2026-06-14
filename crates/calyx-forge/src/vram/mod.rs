@@ -18,9 +18,11 @@
 //! byte counts on a CPU-only box. The system under test (the accounting) runs
 //! on real bytes; only the external GPU reading is injected.
 
+pub mod admission;
 pub mod budget;
 pub mod lru_evict;
 
+pub use admission::{AdmissionController, AdmissionOutput, AdmitDecision, QueuedDispatch};
 pub use budget::{
     DEFAULT_SOFT_CAP_BYTES, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV, VRAM_BUDGET_REMEDIATION,
     VramBudgeter, VramGuard,
@@ -48,7 +50,7 @@ pub trait VramProbe: Send + Sync {
 /// free-VRAM reading. This is the Source-of-Truth surface for FSV readback:
 /// `allocated_bytes` is Forge's own reserved total, `device_free_bytes` is the
 /// `cudaMemGetInfo` reading at the moment [`VramBudgeter::stats`] was called.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize)]
 pub struct VramStats {
     /// Configured soft cap on Forge's cumulative allocation (bytes).
     pub soft_cap_bytes: usize,
@@ -58,6 +60,34 @@ pub struct VramStats {
     /// (a failure is logged at warn level — `0` is a visible alarm, never a
     /// silent success).
     pub device_free_bytes: usize,
+    /// Cumulative admission decisions that proceeded immediately. A full-batch
+    /// admission is recorded as a no-op split with `sub_batch_size == batch`.
+    pub splits_total: u64,
+    /// Cumulative admission decisions placed in the bounded queue.
+    pub queued_total: u64,
+    /// Cumulative admission decisions that failed closed with
+    /// `CALYX_FORGE_VRAM_BUDGET`.
+    pub failed_total: u64,
+}
+
+impl VramStats {
+    /// Prometheus text readback for PH57 admission counters.
+    pub fn admission_metrics_text(&self) -> String {
+        format!(
+            concat!(
+                "# HELP calyx_forge_vram_admission_splits_total Forge VRAM dispatches admitted for immediate execution.\n",
+                "# TYPE calyx_forge_vram_admission_splits_total counter\n",
+                "calyx_forge_vram_admission_splits_total {}\n",
+                "# HELP calyx_forge_vram_admission_queued_total Forge VRAM dispatches placed in the bounded queue.\n",
+                "# TYPE calyx_forge_vram_admission_queued_total counter\n",
+                "calyx_forge_vram_admission_queued_total {}\n",
+                "# HELP calyx_forge_vram_budget_exceeded_total Forge VRAM dispatches failed closed by CALYX_FORGE_VRAM_BUDGET.\n",
+                "# TYPE calyx_forge_vram_budget_exceeded_total counter\n",
+                "calyx_forge_vram_budget_exceeded_total {}\n"
+            ),
+            self.splits_total, self.queued_total, self.failed_total
+        )
+    }
 }
 
 /// Production [`VramProbe`] backed by a real CUDA context.
