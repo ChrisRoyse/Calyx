@@ -30,6 +30,13 @@ recycles segments internally but has no anti-storm guard. No janitor exists. `ca
 is stubbed (Anneal background task infrastructure from PH43 assumed complete by time PH58
 runs). Single-NVMe `hotpool` has no redundancy; buildup = an outage.
 
+T01 (#481) now adds the reader-lease watchdog in `calyx-aster::gc::snapshot_gc`, wires
+expired read pins through `CALYX_READER_LEASE_EXPIRED`, and exposes the
+`AsterVault::snapshot_gc_tick(max_gap_seqs)` hook for the PH58 scheduler. The general PH58
+GC scheduler is still owned by T02+; until it exists, resource-status and explicit ticks
+refresh expired reader pins. Evidence root:
+`/home/croyse/calyx/data/fsv-issue481-ph58-reader-leases-20260614T221758Z`.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |

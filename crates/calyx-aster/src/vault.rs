@@ -10,6 +10,7 @@ mod cursor;
 mod dedup_commit;
 mod durable;
 pub mod encode;
+mod gc_bridge;
 pub mod grant;
 pub mod key;
 pub mod keyspace;

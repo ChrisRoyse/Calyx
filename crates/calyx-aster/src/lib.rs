@@ -6,6 +6,7 @@ pub mod compaction;
 pub mod dedup;
 pub mod erase;
 mod file_lock;
+pub mod gc;
 pub mod index;
 pub mod layers;
 pub mod ledger_view;

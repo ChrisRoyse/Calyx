@@ -129,12 +129,16 @@ impl ReaderLease {
         self.issued_at.saturating_add(self.max_age_ms)
     }
 
-    pub fn is_expired(self, clock: &dyn Clock) -> bool {
-        clock.now() >= self.expires_at()
+    pub fn is_expired_at(self, now: Ts) -> bool {
+        now >= self.expires_at()
     }
 
-    pub fn ensure_live(self, clock: &dyn Clock) -> Result<()> {
-        if self.is_expired(clock) {
+    pub fn is_expired(self, clock: &dyn Clock) -> bool {
+        self.is_expired_at(clock.now())
+    }
+
+    pub fn ensure_live_at(self, now: Ts) -> Result<()> {
+        if self.is_expired_at(now) {
             return Err(CalyxError::reader_lease_expired(format!(
                 "reader lease {} for seq {} expired at {}",
                 self.id,
@@ -143,6 +147,10 @@ impl ReaderLease {
             )));
         }
         Ok(())
+    }
+
+    pub fn ensure_live(self, clock: &dyn Clock) -> Result<()> {
+        self.ensure_live_at(clock.now())
     }
 }
 

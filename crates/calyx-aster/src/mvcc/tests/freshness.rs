@@ -39,6 +39,27 @@ fn reader_lease_expiration_fails_closed() {
 }
 
 #[test]
+fn expired_snapshot_read_releases_pin_and_returns_calyx_code() {
+    let store = VersionedCfStore::default();
+    store
+        .commit_batch([(ColumnFamily::Base, b"k".to_vec(), b"v".to_vec())])
+        .unwrap();
+    let issued = FixedClock::new(100);
+    let expired = FixedClock::new(105);
+    let snapshot = store.pin_snapshot(Freshness::FreshDerived, &issued, 5);
+    assert_eq!(store.lease_view(104).active_leases, 1);
+
+    let error = store
+        .read_at(snapshot, ColumnFamily::Base, b"k", &expired)
+        .expect_err("read must fail closed after lease expiry");
+
+    assert_eq!(error.code, "CALYX_READER_LEASE_EXPIRED");
+    let view = store.lease_view(105);
+    assert_eq!(view.active_leases, 0);
+    assert_eq!(view.reader_lease_expired_total, 1);
+}
+
+#[test]
 fn freshness_boundaries_and_snapshot_policy_are_enforced() {
     Freshness::FreshDerived.ensure(10, 10).unwrap();
     assert_eq!(
