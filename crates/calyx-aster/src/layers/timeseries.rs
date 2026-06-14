@@ -64,7 +64,7 @@ impl RollupWindow {
     }
 
     /// Floors `ts` to the start of the window it falls in.
-    fn window_start(self, ts: u64) -> u64 {
+    pub(crate) fn window_start(self, ts: u64) -> u64 {
         ts - (ts % self.span_nanos())
     }
 }
@@ -308,7 +308,7 @@ fn point_ts(col: &Collection, series: u64, key: &[u8]) -> Result<u64> {
 /// explicit schema fields keep their declared encoding. Signed conversions can
 /// fail only when the declaring index pins that field to a signed type, so an
 /// index on `value` is never blocked by a large series id or timestamp.
-fn ts_index_row(col: &Collection, series: u64, ts: u64, val: f64) -> Result<Row> {
+pub(crate) fn ts_index_row(col: &Collection, series: u64, ts: u64, val: f64) -> Result<Row> {
     let mut fields = Vec::new();
     if field_is_indexed(col, "series") {
         fields.push(("series", ts_u64_value(col, "series", series)?));
@@ -359,11 +359,11 @@ fn declared_field_type(col: &Collection, field: &str) -> Option<FieldType> {
         .map(|declared| declared.ty)
 }
 
-fn encode_point(val: f64) -> Vec<u8> {
+pub(crate) fn encode_point(val: f64) -> Vec<u8> {
     val.to_be_bytes().to_vec()
 }
 
-fn decode_point(bytes: &[u8]) -> Result<f64> {
+pub(crate) fn decode_point(bytes: &[u8]) -> Result<f64> {
     if bytes.len() != POINT_VALUE_BYTES {
         return Err(corrupt(format!(
             "time-series point value must be {POINT_VALUE_BYTES} bytes, got {}",
@@ -373,7 +373,7 @@ fn decode_point(bytes: &[u8]) -> Result<f64> {
     Ok(f64::from_be_bytes(bytes.try_into().unwrap()))
 }
 
-fn fold_rollup(current: Option<RollupValue>, val: f64) -> RollupValue {
+pub(crate) fn fold_rollup(current: Option<RollupValue>, val: f64) -> RollupValue {
     match current {
         None => RollupValue {
             count: 1,
@@ -390,7 +390,7 @@ fn fold_rollup(current: Option<RollupValue>, val: f64) -> RollupValue {
     }
 }
 
-fn encode_rollup(rollup: &RollupValue) -> Vec<u8> {
+pub(crate) fn encode_rollup(rollup: &RollupValue) -> Vec<u8> {
     let mut out = Vec::with_capacity(ROLLUP_VALUE_BYTES);
     out.extend_from_slice(&rollup.count.to_be_bytes());
     out.extend_from_slice(&rollup.sum.to_be_bytes());
@@ -399,7 +399,7 @@ fn encode_rollup(rollup: &RollupValue) -> Vec<u8> {
     out
 }
 
-fn decode_rollup(bytes: &[u8]) -> Result<RollupValue> {
+pub(crate) fn decode_rollup(bytes: &[u8]) -> Result<RollupValue> {
     if bytes.len() != ROLLUP_VALUE_BYTES {
         return Err(corrupt(format!(
             "time-series rollup value must be {ROLLUP_VALUE_BYTES} bytes, got {}",

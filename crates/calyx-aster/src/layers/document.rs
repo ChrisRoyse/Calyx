@@ -31,6 +31,8 @@ use errors::{corrupt_doc, invalid_argument};
 use schema::validate_document;
 use tree::{build_tree, docs_from_rows, flatten_document};
 
+pub(crate) type DocumentWriteRows = Vec<(ColumnFamily, Vec<u8>, Vec<u8>)>;
+
 pub struct DocumentLayer<'a, C: Clock> {
     vault: &'a AsterVault<C>,
 }
@@ -57,43 +59,7 @@ impl<'a, C: Clock> DocumentLayer<'a, C> {
             );
         }
         require_documents_mode(col)?;
-        validate_document(col, doc)?;
-        let doc_pk = RecordKey::from_bytes(doc_id.as_bytes().to_vec())?;
-        let mut flattened = Vec::new();
-        flatten_document(&mut Vec::new(), doc, &mut flattened)?;
-        let mut rows = Vec::with_capacity(flattened.len());
-        let mut new_keys = BTreeSet::new();
-        for (path, value) in flattened {
-            let key = document_key_from_segments(col, doc_id, &path)?;
-            let value = encode_cell(&DocumentCell::leaf(value)?)?;
-            new_keys.insert(key.clone());
-            rows.push((ColumnFamily::Document, key, value));
-        }
-        for (key, value) in self.visible_doc_rows(col, doc_id)? {
-            if !new_keys.contains(&key) && matches!(decode_cell(&value)?, DocumentCell::Leaf(_)) {
-                rows.push((
-                    ColumnFamily::Document,
-                    key,
-                    encode_cell(&DocumentCell::Tombstone)?,
-                ));
-            }
-        }
-        // Skip the prior-version read and index staging unless an index exists.
-        if collection_has_maintained_index(col) {
-            let old_index_row = self
-                .get_doc(col, doc_id)?
-                .map(|old| IndexMaintenance::document_row(col, &old))
-                .transpose()?;
-            let new_index_row = IndexMaintenance::document_row(col, doc)?;
-            IndexMaintenance::stage_put(
-                self.vault,
-                &mut rows,
-                col,
-                &doc_pk,
-                old_index_row.as_ref(),
-                &new_index_row,
-            )?;
-        }
+        let rows = stage_doc_rows_at(self.vault, self.vault.latest_seq(), col, doc_id, doc)?;
         let prefix = document_prefix(col, doc_id);
         let subject = ledger_subject(&prefix);
         let payload = ledger_payload(col, doc_id, &prefix, &rows);
@@ -251,6 +217,58 @@ where
             .map(|value| encode_json_value(&value))
             .collect()
     }
+}
+
+pub(crate) fn stage_doc_rows_at<C: Clock>(
+    vault: &AsterVault<C>,
+    snapshot: Seq,
+    col: &Collection,
+    doc_id: DocId,
+    doc: &Value,
+) -> Result<DocumentWriteRows> {
+    require_documents_mode(col)?;
+    validate_document(col, doc)?;
+    let doc_pk = RecordKey::from_bytes(doc_id.as_bytes().to_vec())?;
+    let mut flattened = Vec::new();
+    flatten_document(&mut Vec::new(), doc, &mut flattened)?;
+    let mut rows = Vec::with_capacity(flattened.len());
+    let mut new_keys = BTreeSet::new();
+    for (path, value) in flattened {
+        let key = document_key_from_segments(col, doc_id, &path)?;
+        let value = encode_cell(&DocumentCell::leaf(value)?)?;
+        new_keys.insert(key.clone());
+        rows.push((ColumnFamily::Document, key, value));
+    }
+    let old_rows = vault.scan_cf_range_at(
+        snapshot,
+        ColumnFamily::Document,
+        &prefix_range(&document_prefix(col, doc_id)),
+    )?;
+    for (key, value) in old_rows {
+        if !new_keys.contains(&key) && matches!(decode_cell(&value)?, DocumentCell::Leaf(_)) {
+            rows.push((
+                ColumnFamily::Document,
+                key,
+                encode_cell(&DocumentCell::Tombstone)?,
+            ));
+        }
+    }
+    if collection_has_maintained_index(col) {
+        let old_index_row = DocumentLayer::new(vault)
+            .get_doc_at(snapshot, col, doc_id)?
+            .map(|old| IndexMaintenance::document_row(col, &old))
+            .transpose()?;
+        let new_index_row = IndexMaintenance::document_row(col, doc)?;
+        IndexMaintenance::stage_put(
+            vault,
+            &mut rows,
+            col,
+            &doc_pk,
+            old_index_row.as_ref(),
+            &new_index_row,
+        )?;
+    }
+    Ok(rows)
 }
 
 fn require_documents_mode(col: &Collection) -> Result<()> {
