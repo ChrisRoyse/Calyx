@@ -8,13 +8,13 @@ pub use types::{
     OlapScanResult,
 };
 
+use crate::mmap_col::MmapColumn;
 use crate::sst::arrow::{ArrowColumnView, decode_column_shape};
 use crate::vault::{AsterVault, SlotColumnManifest};
 use calyx_core::{CalyxError, Clock, Result, Seq, SlotId};
-use memmap2::Mmap;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 const MANIFEST_MAGIC: &str = "CXSC1";
@@ -44,18 +44,14 @@ pub fn scan_materialized_slot_column_aggregate(
     let manifest_path = manifest_path.as_ref();
     let manifest = read_manifest(manifest_path)?;
     let chunk_path = chunk_path_for(manifest_path, &manifest)?;
-    let file = File::open(&chunk_path)
-        .map_err(|error| olap_error("CALYX_OLAP_IO", format!("open chunk: {error}")))?;
-    let mmap = unsafe {
-        Mmap::map(&file).map_err(|error| olap_error("CALYX_OLAP_IO", format!("mmap: {error}")))?
-    };
-    let chunk_sha256 = sha256_hex(&mmap);
+    let column = MmapColumn::open(&chunk_path)?;
+    let chunk_sha256 = sha256_hex(column.as_bytes());
     if chunk_sha256 != manifest.chunk_sha256 {
         return Err(CalyxError::aster_corrupt_shard(
             "slot column chunk sha256 mismatch",
         ));
     }
-    let chunk = decode_column_shape(&mmap)?;
+    let chunk = decode_column_shape(column.as_bytes())?;
     validate_manifest_shape(&manifest, &chunk)?;
     validate_plan(plan, chunk.dim(), chunk.n_rows())?;
     let aggregate = scan_total(&chunk, plan.value_column)?;
