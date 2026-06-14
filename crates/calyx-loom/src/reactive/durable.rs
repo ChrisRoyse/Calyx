@@ -150,6 +150,7 @@ impl ReactiveEngine {
                 ledger_ref: ingest_ledger_ref.clone(),
                 condition_snapshot: def.condition.clone(),
             };
+            self.dispatch_to_subscriptions(&event);
             if let Some(dropped) = self.queue.push(event.clone()) {
                 let warning = AuditEntry {
                     eval_id: Uuid::now_v7(),

@@ -5,7 +5,7 @@
 | **Phase** | PH72 — Streaming + Reactive + Time-Travel + Universal Summarization |
 | **Stage** | S20 — Critical Capabilities |
 | **Crate** | `calyx-loom` |
-| **Files** | `crates/calyx-loom/src/reactive/stream_api.rs` (≤500) |
+| **Files** | `crates/calyx-loom/src/reactive/subscription.rs` (<=500) plus `reactive/engine.rs` dispatch hooks |
 | **Depends on** | T02 (reactive trigger/subscription engine) |
 | **Axioms** | A26, A16, A15 |
 | **PRD** | `17 §8` |
@@ -56,3 +56,20 @@ bounded drain buffer (A26). Subscription state is Ledger-provenanced (A15):
 - [ ] file(s) ≤ 500 lines (line-count gate ✅)
 - [ ] FSV evidence (readback output / screenshot) attached to the PH72 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV
+
+## #573 implementation note
+
+- `SubscriptionId`, `SubscriptionHandle`, and `SubscriptionStore` live in
+  `crates/calyx-loom/src/reactive/subscription.rs`.
+- `ReactiveEngine::subscribe`, `observe_delta`, `observe_delta_report`,
+  `observe_delta_stream`, and `unsubscribe` expose the synchronous pull API.
+- `ReactiveEngine::subscribe_durable` and `unsubscribe_durable` append
+  `SUBSCRIPTION_CREATED` / `SUBSCRIPTION_REMOVED` ledger entries tagged
+  `reactive_subscription_v1`.
+- Fired events are dispatched to the matching subscription buffer from both
+  `evaluate_post_ingest` and `evaluate_post_ingest_durable`.
+- `observe_delta` fails closed with
+  `CALYX_REACTIVE_SUBSCRIPTION_NOT_FOUND` for unknown ids and
+  `CALYX_REACTIVE_DRAIN_OVERFLOW` after a bounded-buffer overflow; callers can
+  use `observe_delta_report` to drain the retained events and see the overflow
+  flag.

@@ -27,6 +27,7 @@ use crate::error::{CALYX_REACTIVE_QUEUE_FULL, CALYX_REACTIVE_REGISTRY_FULL, loom
 mod durable;
 mod engine;
 mod signals;
+mod subscription;
 
 pub use durable::{
     ReactiveRowKey, ReactiveRowKind, decode_audit_entry, decode_trigger_fired, reactive_audit_key,
@@ -36,6 +37,10 @@ pub use engine::ReactiveEngine;
 pub use signals::{
     AgreementDriftSignals, AgreementDriftTracker, ReactiveSignalSet, RecurrenceSignals,
     WardNoveltySignals,
+};
+pub use subscription::{
+    DEFAULT_MAX_DRAIN_BUF, DEFAULT_MAX_SUBSCRIPTIONS, SubscriptionDelta, SubscriptionHandle,
+    SubscriptionId, SubscriptionStore,
 };
 
 /// Stable identifier for a registered trigger (UUID v7 — time-ordered).
