@@ -67,6 +67,7 @@ fn value_matches_type(value: &Value, ty: FieldType) -> bool {
     match ty {
         FieldType::Bool => value.is_boolean(),
         FieldType::I64 | FieldType::Timestamp => value.as_i64().is_some(),
+        FieldType::U64 => value.as_u64().is_some(),
         FieldType::F64 => value.as_f64().is_some(),
         FieldType::Text | FieldType::Bytes => value.as_str().is_some(),
     }

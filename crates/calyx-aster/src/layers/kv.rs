@@ -305,10 +305,9 @@ fn decode_user_key(col: &Collection, ns: u64, full_key: &[u8]) -> Result<Vec<u8>
 /// Builds the synthetic index row for a KV record, carrying only the well-known
 /// fields (`ns`, `key`, `value`) that a maintained index actually references.
 ///
-/// `ns` is a full `u64` but the index value domain ([`RecordValue`]) has no
-/// unsigned-64 type. Schema-less namespace indexes use big-endian bytes, which
-/// preserve full-domain numeric order in a btree. An explicit `I64`/`Timestamp`
-/// schema narrows the field and fails closed above `i64::MAX`.
+/// `ns` is a full `u64`; schema-less namespace indexes use native `U64`, while
+/// explicit schema types keep their declared encoding and fail closed when they
+/// cannot represent the namespace.
 fn kv_index_row(col: &Collection, ns: u64, key: &[u8], val: &[u8]) -> Result<Row> {
     let mut fields = Vec::new();
     if field_is_indexed(col, "ns") {
@@ -328,13 +327,14 @@ fn kv_namespace_value(col: &Collection, ns: u64) -> Result<RecordValue> {
         Some(FieldType::I64) => i64::try_from(ns)
             .map(RecordValue::I64)
             .map_err(|_| invalid_argument("kv namespace exceeds i64 indexable range")),
+        Some(FieldType::U64) | None => Ok(RecordValue::U64(ns)),
         Some(FieldType::Timestamp) => i64::try_from(ns)
             .map(RecordValue::Timestamp)
             .map_err(|_| invalid_argument("kv namespace exceeds timestamp indexable range")),
         Some(FieldType::Text) => Ok(RecordValue::Text(ns.to_string())),
-        Some(FieldType::Bytes) | None => Ok(RecordValue::Bytes(ns.to_be_bytes().to_vec())),
+        Some(FieldType::Bytes) => Ok(RecordValue::Bytes(ns.to_be_bytes().to_vec())),
         Some(FieldType::Bool) | Some(FieldType::F64) => Err(invalid_argument(
-            "kv namespace index field must be Bytes, Text, I64, or Timestamp",
+            "kv namespace index field must be U64, Bytes, Text, I64, or Timestamp",
         )),
     }
 }

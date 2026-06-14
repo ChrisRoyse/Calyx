@@ -295,6 +295,7 @@ fn json_to_record_value(value: &Value, expected: Option<FieldType>) -> Result<Re
     match expected {
         Some(FieldType::Bool) => value.as_bool().map(RecordValue::Bool),
         Some(FieldType::I64) => value.as_i64().map(RecordValue::I64),
+        Some(FieldType::U64) => value.as_u64().map(RecordValue::U64),
         Some(FieldType::Timestamp) => value.as_i64().map(RecordValue::Timestamp),
         Some(FieldType::F64) => value.as_f64().map(RecordValue::F64),
         Some(FieldType::Text) => value
@@ -319,6 +320,7 @@ fn infer_json_record_value(value: &Value) -> Option<RecordValue> {
         Value::Number(value) => value
             .as_i64()
             .map(RecordValue::I64)
+            .or_else(|| value.as_u64().map(RecordValue::U64))
             .or_else(|| value.as_f64().map(RecordValue::F64)),
         Value::String(value) => Some(RecordValue::Text(value.clone())),
         Value::Array(_) | Value::Object(_) => None,

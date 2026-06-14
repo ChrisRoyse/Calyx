@@ -12,15 +12,12 @@
 //! terminated for variable-length text/bytes).
 //!
 //! Per-type encoding:
-//! * `I64` — sign-flip (`XOR 0x8000_0000_0000_0000`) then 8B BE, so negative
-//!   values sort before non-negative ones in byte order.
-//! * `Timestamp` — non-negative i64 nanoseconds as 8B BE (fail-closed on negative).
-//! * `F64` — IEEE-754 total-order transform (negatives: flip all bits;
-//!   non-negatives: flip the sign bit) then 8B BE.
-//! * `Bool` — single byte `0x00`/`0x01`.
-//! * `Text` — first ≤64 UTF-8 bytes (truncated on a char boundary),
-//!   escape-terminated memcomparable form.
-//! * `Bytes` — first ≤64 bytes, escape-terminated memcomparable form.
+//! * `I64`: sign-flip (`XOR 0x8000_0000_0000_0000`) then 8B BE.
+//! * `U64`: plain 8B BE, preserving the full unsigned range.
+//! * `Timestamp`: non-negative i64 nanoseconds as 8B BE.
+//! * `F64`: IEEE-754 total-order transform then 8B BE.
+//! * `Bool`: single byte `0x00`/`0x01`.
+//! * `Text`/`Bytes`: first 64 bytes, escape-terminated memcomparable form.
 //!
 //! NULL is not indexable in a btree key (no type, no defined order) and fails
 //! closed; per-field NULL handling via a leading flag byte is a later phase.
@@ -106,6 +103,7 @@ impl BtreeIndex {
         match field_val {
             RecordValue::Bool(value) => Ok(vec![u8::from(*value)]),
             RecordValue::I64(value) => Ok(i64_order_bytes(*value).to_vec()),
+            RecordValue::U64(value) => Ok(value.to_be_bytes().to_vec()),
             RecordValue::Timestamp(value) => {
                 if *value < 0 {
                     return Err(invalid_index_input(
@@ -150,6 +148,7 @@ impl BtreeIndex {
                 let word = read_u64(body, "i64")?;
                 Ok((RecordValue::I64((word ^ SIGN_BIT) as i64), 8))
             }
+            FieldType::U64 => Ok((RecordValue::U64(read_u64(body, "u64")?), 8)),
             FieldType::Timestamp => {
                 let word = read_u64(body, "timestamp")?;
                 if word > i64::MAX as u64 {
