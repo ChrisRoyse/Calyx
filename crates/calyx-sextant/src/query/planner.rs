@@ -121,6 +121,8 @@ where
             step: PlanStep::Ask {
                 question: ask.question.clone(),
                 context_cx_ids: ask.context_cx_ids.clone(),
+                top_k: ask.top_k,
+                oracle: ask.oracle,
             },
             cost_ms: ASK_COST_MS,
             chosen_index: None,
