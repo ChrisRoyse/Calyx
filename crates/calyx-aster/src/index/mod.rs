@@ -141,6 +141,7 @@ pub(crate) fn field_value_type(value: &FieldValue) -> Option<FieldType> {
         RecordValue::Text(_) => Some(FieldType::Text),
         RecordValue::Bytes(_) => Some(FieldType::Bytes),
         RecordValue::Timestamp(_) => Some(FieldType::Timestamp),
+        RecordValue::U64(_) => Some(FieldType::U64),
         RecordValue::Null => None,
     }
 }

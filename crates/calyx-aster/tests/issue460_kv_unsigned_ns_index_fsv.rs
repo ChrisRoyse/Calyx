@@ -5,8 +5,8 @@
 //! This is the regression guard for the bug where `kv_set` unconditionally
 //! coerced `ns` into an `i64` (rejecting every `ns >= 2^63`) and - had the
 //! coercion not failed - would have sorted `u64::MAX` (`-1` as `i64`) *before*
-//! `0`. The fix encodes a schema-less namespace index as big-endian bytes, so
-//! the on-disk index order equals the natural unsigned order.
+//! `0`. The fix now encodes a schema-less namespace index as native `U64`, whose
+//! on-disk big-endian bytes match the natural unsigned order.
 //!
 //! Source of truth: the durable `index_btree` column family, read back after a
 //! flush + reopen (not return values).
@@ -57,14 +57,14 @@ fn ns_index() -> SecondaryIndexSpec {
 
 /// Runtime spec matching exactly how `IndexMaintenance` builds the `ns` index:
 /// collection-scoped by the relational collection id, ordinal+1 id, and the
-/// schema-less `Bytes` field type.
+/// schema-less `U64` field type.
 fn ns_spec() -> IndexSpec {
     IndexSpec::new(
         IndexId::new(1),
         "ns_idx",
         IndexKind::Btree,
         "ns",
-        FieldType::Bytes,
+        FieldType::U64,
     )
 }
 
@@ -150,8 +150,8 @@ fn ns_index_orders_namespaces_unsigned_on_disk() {
     let spec = ns_spec();
     let index = BtreeIndex::new(collection_id(&col), spec.clone());
 
-    // scan_cf_at returns keys in stored byte order; decoding each yields the ns
-    // big-endian bytes. The decoded sequence MUST equal ascending unsigned ns.
+    // scan_cf_at returns keys in stored byte order. The decoded sequence MUST
+    // equal ascending unsigned ns.
     let rows = reopened
         .scan_cf_at(reopened.latest_seq(), ColumnFamily::IndexBtree)
         .unwrap();
@@ -163,13 +163,14 @@ fn ns_index_orders_namespaces_unsigned_on_disk() {
 
     let mut on_disk_order = Vec::new();
     for (key, _empty) in &rows {
-        let (field_val, _pk) = index.decode_index_key(key).unwrap();
-        let bytes = match field_val {
-            calyx_aster::layers::RecordValue::Bytes(b) => b,
-            other => panic!("ns index value must decode as Bytes, got {other:?}"),
+        let (field_val, pk) = index.decode_index_key(key).unwrap();
+        let ns = match field_val {
+            calyx_aster::layers::RecordValue::U64(value) => value,
+            other => panic!("ns index value must decode as U64, got {other:?}"),
         };
-        assert_eq!(bytes.len(), 8, "ns index value must be 8 big-endian bytes");
-        on_disk_order.push(u64::from_be_bytes(bytes.try_into().unwrap()));
+        let field_bytes = &key[13..key.len() - pk.as_bytes().len()];
+        assert_eq!(field_bytes, &ns.to_be_bytes());
+        on_disk_order.push(ns);
     }
 
     assert_eq!(

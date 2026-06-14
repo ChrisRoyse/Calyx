@@ -304,12 +304,9 @@ fn point_ts(col: &Collection, series: u64, key: &[u8]) -> Result<u64> {
 /// well-known fields (`series`, `ts`, `value`/`val`) a maintained index
 /// references.
 ///
-/// `series` and `ts` are full `u64`s but the index value domain
-/// ([`RecordValue`]) has no unsigned-64 type. Mirroring the KV layer's
-/// `kv_namespace_value`, each is encoded by its declared schema field type,
-/// defaulting to big-endian bytes (which preserve unsigned order). The lossy
-/// `I64`/`Timestamp` conversions are performed — and can fail — **only** when the
-/// declaring index pins that field to a signed type, and only for that field; an
+/// `series` and `ts` are full `u64`s. Schema-less indexes use native `U64`;
+/// explicit schema fields keep their declared encoding. Signed conversions can
+/// fail only when the declaring index pins that field to a signed type, so an
 /// index on `value` is never blocked by a large series id or timestamp.
 fn ts_index_row(col: &Collection, series: u64, ts: u64, val: f64) -> Result<Row> {
     let mut fields = Vec::new();
@@ -328,14 +325,13 @@ fn ts_index_row(col: &Collection, series: u64, ts: u64, val: f64) -> Result<Row>
     Ok(Row::new(fields))
 }
 
-/// Encodes a `u64` index field (`series`/`ts`) by its declared schema type,
-/// defaulting to big-endian bytes for schema-less/`Bytes` indexes so the full
-/// unsigned range is representable and correctly ordered.
+/// Encodes a `u64` index field (`series`/`ts`) by its declared schema type.
 fn ts_u64_value(col: &Collection, field: &str, value: u64) -> Result<RecordValue> {
     match declared_field_type(col, field) {
         Some(FieldType::I64) => i64::try_from(value).map(RecordValue::I64).map_err(|_| {
             invalid_argument(format!("time-series {field} exceeds i64 indexable range"))
         }),
+        Some(FieldType::U64) | None => Ok(RecordValue::U64(value)),
         Some(FieldType::Timestamp) => {
             i64::try_from(value)
                 .map(RecordValue::Timestamp)
@@ -346,9 +342,9 @@ fn ts_u64_value(col: &Collection, field: &str, value: u64) -> Result<RecordValue
                 })
         }
         Some(FieldType::Text) => Ok(RecordValue::Text(value.to_string())),
-        Some(FieldType::Bytes) | None => Ok(RecordValue::Bytes(value.to_be_bytes().to_vec())),
+        Some(FieldType::Bytes) => Ok(RecordValue::Bytes(value.to_be_bytes().to_vec())),
         Some(FieldType::Bool) | Some(FieldType::F64) => Err(invalid_argument(format!(
-            "time-series {field} index field must be Bytes, Text, I64, or Timestamp"
+            "time-series {field} index field must be U64, Bytes, Text, I64, or Timestamp"
         ))),
     }
 }

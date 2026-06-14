@@ -61,6 +61,29 @@ fn i64_byte_order_equals_numeric_order() {
 }
 
 #[test]
+fn u64_uses_plain_big_endian_order() {
+    let idx = index(FieldType::U64);
+    let values = [0_u64, 1, i64::MAX as u64, (i64::MAX as u64) + 1, u64::MAX];
+    let keys: Vec<Vec<u8>> = values
+        .iter()
+        .map(|v| idx.encode_index_key(&RecordValue::U64(*v), &pk(0)).unwrap())
+        .collect();
+    assert_eq!(field_component(&keys[0]), &0_u64.to_be_bytes());
+    assert_eq!(field_component(&keys[4]), &u64::MAX.to_be_bytes());
+    for pair in keys.windows(2) {
+        assert!(pair[0] < pair[1], "byte order must match unsigned order");
+    }
+    for value in values {
+        let key = idx
+            .encode_index_key(&RecordValue::U64(value), &pk(42))
+            .unwrap();
+        let (decoded, decoded_pk) = idx.decode_index_key(&key).unwrap();
+        assert_eq!(decoded, RecordValue::U64(value));
+        assert_eq!(decoded_pk, pk(42));
+    }
+}
+
+#[test]
 fn f64_byte_order_equals_numeric_order() {
     let idx = index(FieldType::F64);
     let neg = idx
@@ -243,6 +266,19 @@ proptest! {
         // Ordering with a fixed pk reflects numeric order.
         let ka0 = idx.encode_index_key(&RecordValue::I64(a), &pk(0)).unwrap();
         let kb0 = idx.encode_index_key(&RecordValue::I64(b), &pk(0)).unwrap();
+        prop_assert_eq!(a < b, ka0 < kb0);
+        prop_assert_eq!(a == b, ka0 == kb0);
+    }
+
+    #[test]
+    fn prop_u64_round_trip_and_order(a in any::<u64>(), b in any::<u64>(), pk_val in any::<u64>()) {
+        let idx = index(FieldType::U64);
+        let ka = idx.encode_index_key(&RecordValue::U64(a), &pk(pk_val)).unwrap();
+        let (da, dpk) = idx.decode_index_key(&ka).unwrap();
+        prop_assert_eq!(da, RecordValue::U64(a));
+        prop_assert_eq!(dpk, pk(pk_val));
+        let ka0 = idx.encode_index_key(&RecordValue::U64(a), &pk(0)).unwrap();
+        let kb0 = idx.encode_index_key(&RecordValue::U64(b), &pk(0)).unwrap();
         prop_assert_eq!(a < b, ka0 < kb0);
         prop_assert_eq!(a == b, ka0 == kb0);
     }

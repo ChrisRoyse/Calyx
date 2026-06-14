@@ -342,7 +342,7 @@ fn edge_kv_max_namespace<C: Clock>(vault: &AsterVault<C>) -> Value {
         "ns_idx",
         IndexKind::Btree,
         "ns",
-        FieldType::Bytes,
+        FieldType::U64,
     );
     let key_spec = IndexSpec::new(
         IndexId::new(2),
@@ -353,7 +353,7 @@ fn edge_kv_max_namespace<C: Clock>(vault: &AsterVault<C>) -> Value {
     );
     let kv_pk = RecordKey::from_bytes(kv_key(&col, u64::MAX, key)).unwrap();
     let ns_index_key = BtreeIndex::new(collection_id(&col), ns_spec.clone())
-        .encode_index_key(&RecordValue::Bytes(u64::MAX.to_be_bytes().to_vec()), &kv_pk)
+        .encode_index_key(&RecordValue::U64(u64::MAX), &kv_pk)
         .unwrap();
     let key_index_key = BtreeIndex::new(collection_id(&col), key_spec.clone())
         .encode_index_key(&RecordValue::Bytes(key.to_vec()), &kv_pk)
@@ -364,13 +364,7 @@ fn edge_kv_max_namespace<C: Clock>(vault: &AsterVault<C>) -> Value {
     let key_index_value = vault
         .read_cf_at(seq, ColumnFamily::IndexBtree, &key_index_key)
         .unwrap();
-    let ns_pks = btree_point(
-        vault,
-        &col,
-        &ns_spec,
-        &RecordValue::Bytes(u64::MAX.to_be_bytes().to_vec()),
-    )
-    .unwrap();
+    let ns_pks = btree_point(vault, &col, &ns_spec, &RecordValue::U64(u64::MAX)).unwrap();
     let key_pks = btree_point(vault, &col, &key_spec, &RecordValue::Bytes(key.to_vec())).unwrap();
     let after = vault
         .scan_cf_at(seq, ColumnFamily::IndexBtree)
