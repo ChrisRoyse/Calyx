@@ -3,13 +3,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
-    CALYX_STORAGE_CACHE_WRITE_FAIL, CALYX_STORAGE_SCOPE_INVALID_CONFIG, NoopStorageBanditStore,
-    StorageConfig, StorageMetrics, StoragePromotionRecord, StoragePromotionWriter,
-    StorageScopeTuner, StorageShapeKey, candidate_storage_configs, storage_autotune_key,
+    AnnealLedger, AnnealLedgerAction, CALYX_STORAGE_CACHE_WRITE_FAIL,
+    CALYX_STORAGE_SCOPE_INVALID_CONFIG, ChangeId, NoopStorageBanditStore, StorageConfig,
+    StorageMetrics, StoragePromotionRecord, StoragePromotionWriter, StorageScopeTuner,
+    StorageShapeKey, candidate_storage_configs, shape_key_hash, storage_autotune_key,
     storage_win_check, validate_storage_config,
 };
-use calyx_core::Result;
+use calyx_core::{FixedClock, Result};
 use calyx_forge::AutotuneCache;
+use calyx_ledger::{ActorId, LedgerAppender, MemoryLedgerStore};
+use serde_json::json;
 
 #[test]
 fn lower_latency_without_storage_regressions_promotes_and_persists() {
@@ -156,6 +159,42 @@ fn generated_candidates_cover_all_storage_knobs() {
     assert!(configs.iter().any(|cfg| cfg.prefetch_bytes != 64 * 1024));
 }
 
+#[test]
+fn ledger_promotion_payload_uses_redaction_safe_storage_artifact() {
+    let key = StorageShapeKey::new("v".repeat(48), "w".repeat(48), &[257, 65, 17]);
+    let record = StoragePromotionRecord {
+        key: key.clone(),
+        change_id: ChangeId(58_300),
+        old_config: tuned_configs()[0].clone(),
+        new_config: tuned_configs()[1].clone(),
+        metrics_before: baseline_metrics(),
+        metrics_after: winning_metrics(),
+        key_hash: shape_key_hash(&key.label()),
+        old_config_hash: [1; 32],
+        new_config_hash: [2; 32],
+    };
+    let mut ledger = memory_ledger();
+
+    ledger.write_autotune_promote(&record).unwrap();
+    let entries = ledger.read_recent(1).unwrap();
+    let entry = entries.first().unwrap();
+    let details = entry.details.as_ref().unwrap();
+
+    assert_eq!(entry.action, AnnealLedgerAction::AutotunePromote);
+    assert!(entry.artifact_id.starts_with("storage:"));
+    assert!(entry.artifact_id.len() < 40);
+    assert_ne!(entry.artifact_id, key.label());
+    assert_eq!(
+        details.get("tag"),
+        Some(&json!("storage_autotune_promotion_v1"))
+    );
+    assert_eq!(details.get("scope"), Some(&json!("storage")));
+    assert!(details.get("shape_key").is_none());
+    assert!(details.get("vault_id").is_none());
+    assert!(details.get("workload_id").is_none());
+    assert_eq!(details.get("shape_bucketed"), Some(&json!([512, 128, 32])));
+}
+
 #[derive(Clone, Default)]
 struct RecordingWriter {
     records: Arc<Mutex<Vec<StoragePromotionRecord>>>,
@@ -224,4 +263,14 @@ fn temp_path(label: &str) -> PathBuf {
     ));
     let _ = fs::remove_file(&path);
     path
+}
+
+fn memory_ledger() -> AnnealLedger<MemoryLedgerStore, FixedClock> {
+    let appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(58_300)).unwrap();
+    AnnealLedger::new(
+        appender,
+        ActorId::Service("calyx-storage-scope-test".to_string()),
+    )
+    .unwrap()
 }
