@@ -10,9 +10,14 @@
 
 mod calyx;
 mod hazards;
+mod zfs;
 
 pub use calyx::{CalyxMetrics, SearchStrategy};
 pub use hazards::HAZARD_IDS;
+pub use zfs::{
+    DEFAULT_ZFS_DATASETS, ZFS_SCRUB_MAX_AGE_SECONDS, ZfsDatasetChecksum, ZfsIntegritySnapshot,
+    ZfsPoolIntegrity, collect_default_zfs_integrity, collect_zfs_integrity,
+};
 
 use prometheus::{IntCounterVec, IntGaugeVec, Opts, Registry, TextEncoder};
 
