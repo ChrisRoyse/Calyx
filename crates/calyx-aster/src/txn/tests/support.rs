@@ -20,6 +20,8 @@ use crate::vault::encode::decode_write_batch;
 use crate::vault::{AsterVault, VaultOptions};
 use crate::wal::replay_dir;
 
+mod edges;
+
 pub(super) struct Collections {
     pub orders: Collection,
     pub docs: Collection,
@@ -60,7 +62,9 @@ pub(super) fn fsv_evidence(root: &Path) -> Value {
     let rel_key = record_key(&cols.orders, &pk).unwrap();
     let kv_key = kv::kv_key(&cols.cache, 7, b"fsv-session");
     let slot_key = slot_key(cx.cx_id);
-    let before = read_fsv_rows(&vault, vault.latest_seq(), &rel_key, &kv_key, &slot_key);
+    let before_seq = vault.latest_seq();
+    let before = read_fsv_rows(&vault, before_seq, &rel_key, &kv_key, &slot_key);
+    let expected_seq = before_seq + 1;
     let mut txn = handle
         .begin_on(
             &vault,
@@ -75,6 +79,7 @@ pub(super) fn fsv_evidence(root: &Path) -> Value {
         .unwrap();
     txn.put_constellation(&vault, &cx).unwrap();
     let seq = txn.commit(&vault).unwrap();
+    assert_eq!(seq, expected_seq);
     let after = read_fsv_rows(&vault, seq, &rel_key, &kv_key, &slot_key);
     vault.flush().unwrap();
     json!({
@@ -86,10 +91,27 @@ pub(super) fn fsv_evidence(root: &Path) -> Value {
             "slot_00_cf": vault_dir.join("cf/slot_00").display().to_string(),
             "wal": vault_dir.join("wal").display().to_string()
         },
+        "synthetic_input": {
+            "record_pk": 463,
+            "record_item": "fsv",
+            "record_qty": 463,
+            "kv_namespace": 7,
+            "kv_key": "fsv-session",
+            "kv_value": "active",
+            "slot_00_dim": 2
+        },
+        "hand_expected": {
+            "commit_seq": expected_seq,
+            "relational_present": true,
+            "kv_present": true,
+            "slot_00_present": true,
+            "all_rows_share_commit_seq": true
+        },
         "trigger": "CrossModelTxn put_record + kv_set + put_constellation then commit",
-        "expected_seq": seq,
+        "expected_seq": expected_seq,
         "before": before,
         "after": after,
+        "edge_cases": edges::edge_evidence(root),
         "wal_batches": wal_batches(&vault_dir.join("wal")),
         "cf_files": physical_files(&vault_dir.join("cf"))
     })
@@ -126,6 +148,14 @@ pub(super) fn write_fsv(root: &Path, evidence: &Value) {
     );
     assert_eq!(evidence["after"]["kv_seq"], evidence["expected_seq"]);
     assert_eq!(evidence["after"]["slot_00_seq"], evidence["expected_seq"]);
+    assert_eq!(
+        evidence["edge_cases"]["cost_cap_exceeded"]["error_code"],
+        "CALYX_TXN_COST_CAP"
+    );
+    assert_eq!(
+        evidence["edge_cases"]["wal_submit_failure"]["error_code"],
+        "CALYX_DISK_PRESSURE"
+    );
 }
 
 pub(super) fn memory_vault() -> AsterVault<FixedClock> {
