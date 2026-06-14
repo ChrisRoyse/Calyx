@@ -178,13 +178,25 @@ impl<'a, C: Clock> TimeSeriesLayer<'a, C> {
         start_ts: u64,
         end_ts: u64,
     ) -> Result<Vec<(u64, f64)>> {
+        self.ts_range_at(self.vault.latest_seq(), col, series, start_ts, end_ts)
+    }
+
+    /// Snapshot-pinned variant of [`Self::ts_range`].
+    pub fn ts_range_at(
+        &self,
+        snapshot: Seq,
+        col: &Collection,
+        series: u64,
+        start_ts: u64,
+        end_ts: u64,
+    ) -> Result<Vec<(u64, f64)>> {
         require_ts_mode(col)?;
         if start_ts > end_ts {
             return Ok(Vec::new());
         }
         let horizon = self.retention_floor(col);
         let rows = self.vault.scan_cf_range_at(
-            self.vault.latest_seq(),
+            snapshot,
             ColumnFamily::TimeSeries,
             &point_range(col, series, start_ts, end_ts),
         )?;
