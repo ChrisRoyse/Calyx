@@ -7,6 +7,7 @@
 mod issue577_support;
 
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -162,7 +163,7 @@ proptest! {
 
 #[test]
 fn zero_event_pipeline_edge() {
-    let root = unique_root("zero");
+    let root = edge_root("zero");
     let (vault, clock) = open_vault(&root.join("vault"), b"issue577-zero");
     let vault = Arc::new(vault);
     let mut engine = ReactiveEngine::new(Arc::new(FixedClock::new(1)));
@@ -180,18 +181,31 @@ fn zero_event_pipeline_edge() {
         .drain_and_close()
         .unwrap();
     assert_eq!(stats.ingested, 0);
-    assert!(engine.observe_delta(sub).unwrap().is_empty());
-    assert_eq!(vault.as_of(1).unwrap_err().code, "CALYX_TIMETRAVEL_NO_DATA");
+    let delta = engine.observe_delta(sub).unwrap();
+    assert!(delta.is_empty());
+    let as_of_error = vault.as_of(1).unwrap_err();
+    assert_eq!(as_of_error.code, "CALYX_TIMETRAVEL_NO_DATA");
 
     seed_summary_graph(vault.as_ref(), &clock, 0);
     let summary = summarize_latest(vault.as_ref(), 1);
     assert_eq!(summary.kernel_size, 0);
-    fs::remove_dir_all(root).ok();
+    write_json(
+        &root,
+        "ph72_zero_edge.json",
+        json!({
+            "edge": "zero_event_pipeline",
+            "stream_stats": stream_stats_json(&stats),
+            "reactive_delta_count": delta.len(),
+            "as_of_error_code": as_of_error.code,
+            "summary_kernel_size": summary.kernel_size,
+        }),
+    );
+    cleanup_edge_root(&root);
 }
 
 #[test]
 fn corrupt_time_index_is_isolated_from_stream_and_reactive() {
-    let root = unique_root("corrupt-time-index");
+    let root = edge_root("corrupt-time-index");
     let (vault, _clock) = open_vault(&root.join("vault"), b"issue577-corrupt");
     let vault = Arc::new(vault);
     let (_stats_first, _trigger_id, sub_id, engine) = stream_first_three_with_reactive(&vault);
@@ -204,16 +218,35 @@ fn corrupt_time_index_is_isolated_from_stream_and_reactive() {
 
     let before_reactive_rows =
         audit_entries(vault.as_ref()).len() + fired_events(vault.as_ref()).len();
+    let before_time_index_rows = read_all(vault.as_ref()).unwrap().len();
     vault
         .write_cf(ColumnFamily::TimeIndex, vec![0; 17], b"bad".to_vec())
         .unwrap();
+    let read_all_error = read_all(vault.as_ref()).unwrap_err();
+    assert_eq!(read_all_error.code, "CALYX_ASTER_CORRUPT_SHARD");
     let err = vault.as_of(1).unwrap_err();
     assert_eq!(err.code, "CALYX_ASTER_CORRUPT_SHARD");
     let after_reactive_rows =
         audit_entries(vault.as_ref()).len() + fired_events(vault.as_ref()).len();
     assert_eq!(before_reactive_rows, after_reactive_rows);
-    assert_eq!(fired_events(vault.as_ref()).len(), 1);
-    fs::remove_dir_all(root).ok();
+    let fired_rows = fired_events(vault.as_ref()).len();
+    assert_eq!(fired_rows, 1);
+    write_json(
+        &root,
+        "ph72_corrupt_time_index_edge.json",
+        json!({
+            "edge": "corrupt_time_index_isolated_from_stream_and_reactive",
+            "streamed": 50,
+            "corrupt_key_len": 17,
+            "time_index_rows_before_corruption": before_time_index_rows,
+            "read_all_error_code": read_all_error.code,
+            "as_of_error_code": err.code,
+            "reactive_rows_before": before_reactive_rows,
+            "reactive_rows_after": after_reactive_rows,
+            "fired_rows_after": fired_rows,
+        }),
+    );
+    cleanup_edge_root(&root);
 }
 
 fn stream_first_three_with_reactive(
@@ -393,4 +426,20 @@ fn unique_root(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("calyx-issue577-{name}-{}-{id}", std::process::id()));
     clean_dir(&root);
     root
+}
+
+fn edge_root(name: &str) -> PathBuf {
+    if let Some(base) = std::env::var_os("CALYX_ISSUE577_FSV_ROOT") {
+        let root = PathBuf::from(base).join("edge").join(name);
+        clean_dir(&root);
+        root
+    } else {
+        unique_root(name)
+    }
+}
+
+fn cleanup_edge_root(root: &Path) {
+    if std::env::var_os("CALYX_ISSUE577_FSV_ROOT").is_none() {
+        fs::remove_dir_all(root).ok();
+    }
 }
