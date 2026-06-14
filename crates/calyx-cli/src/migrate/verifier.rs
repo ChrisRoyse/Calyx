@@ -52,7 +52,7 @@ pub fn verify_migration(
         }
         if cx.chunk_id() != Some(row.chunk_id.as_str())
             || cx.database_name() != Some(row.database_name.as_str())
-            || cx.metadata.get(METADATA_ROWID) != Some(&row.rowid.to_string())
+            || cx.metadata.get(METADATA_ROWID) != Some(&row.row_num.to_string())
             || cx.metadata.get(METADATA_CONTENT_HASH) != Some(&hex_encode(&row.content_hash()))
             || cx.panel_version != default_panel_version()
         {

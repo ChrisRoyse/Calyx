@@ -167,17 +167,17 @@ fn measure_algorithmic(
         AlgorithmicPanelLens::ByteFeatures => sparse_keywords(shape, &row.content)?,
         AlgorithmicPanelLens::TemporalRecent => SlotVector::Dense {
             dim: 1,
-            data: vec![1.0 / (row.rowid.max(0) as f32 + 1.0)],
+            data: vec![1.0 / (row.row_num as f32 + 1.0)],
         },
         AlgorithmicPanelLens::TemporalPeriodic => {
-            let angle = row.rowid as f32;
+            let angle = row.row_num as f32;
             SlotVector::Dense {
                 dim: 2,
                 data: vec![angle.sin(), angle.cos()],
             }
         }
         AlgorithmicPanelLens::TemporalPositional => {
-            let pos = row.rowid.max(0) as f32;
+            let pos = row.row_num as f32;
             SlotVector::Dense {
                 dim: 4,
                 data: vec![pos, pos * pos, row.content.len() as f32, 1.0],
