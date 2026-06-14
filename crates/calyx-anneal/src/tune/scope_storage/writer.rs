@@ -2,7 +2,7 @@ use calyx_core::{Clock, Result};
 use calyx_ledger::LedgerCfStore;
 use serde_json::{Value, json};
 
-use super::types::{StoragePromotionRecord, storage_shape_label};
+use super::types::StoragePromotionRecord;
 use crate::{
     AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry, AnnealSubstrate, BanditStorage,
     ConfigBandit, ConfigBanditStore, MetricComparison, MetricSnapshot, TripwireMetric,
@@ -82,7 +82,7 @@ where
         self.write_outcome_event_with_details(
             AnnealLedgerAction::AutotunePromote,
             event.change_id,
-            event.key.label(),
+            storage_ledger_artifact_id(event),
             event.new_config_hash,
             promotion_description(event),
             Some(promotion_details(event)),
@@ -94,7 +94,7 @@ fn autotune_ledger_entry(event: &StoragePromotionRecord) -> AnnealLedgerEntry {
     AnnealLedgerEntry {
         action: AnnealLedgerAction::AutotunePromote,
         change_id: event.change_id,
-        artifact_id: event.key.label(),
+        artifact_id: storage_ledger_artifact_id(event),
         prior_ptr_hash: event.old_config_hash,
         candidate_ptr_hash: event.new_config_hash,
         metrics: MetricSnapshot {
@@ -126,10 +126,9 @@ fn promotion_details(event: &StoragePromotionRecord) -> Value {
     json!({
         "tag": "storage_autotune_promotion_v1",
         "scope": "storage",
-        "shape_key": event.key.label(),
+        "shape_artifact": storage_ledger_artifact_id(event),
         "shape_hash_bytes": event.key_hash,
-        "vault_id": event.key.vault_id,
-        "workload_id": event.key.workload_id,
+        "shape_bucketed": event.key.shape_bucketed,
         "old_config": event.old_config,
         "new_config": event.new_config,
         "metrics_before": event.metrics_before,
@@ -140,11 +139,7 @@ fn promotion_details(event: &StoragePromotionRecord) -> Value {
 fn promotion_description(event: &StoragePromotionRecord) -> String {
     format!(
         "storage autotune promote {} p99 {} -> {} write_amp {} -> {} interval {} -> {} debt {} -> {} hot_hits {} -> {} cold_idle {} -> {} codebook {} -> {} prefetch {} -> {}",
-        storage_shape_label(
-            &event.key.vault_id,
-            &event.key.workload_id,
-            &event.key.shape_bucketed,
-        ),
+        storage_ledger_artifact_id(event),
         event.metrics_before.p99_read_ns,
         event.metrics_after.p99_read_ns,
         event.metrics_before.write_amp_milli,
@@ -162,4 +157,12 @@ fn promotion_description(event: &StoragePromotionRecord) -> String {
         event.old_config.prefetch_bytes,
         event.new_config.prefetch_bytes
     )
+}
+
+fn storage_ledger_artifact_id(event: &StoragePromotionRecord) -> String {
+    let prefix = event.key_hash[..12]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    format!("storage:{prefix}")
 }
