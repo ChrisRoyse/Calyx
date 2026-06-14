@@ -25,6 +25,7 @@ use prometheus::{
 
 use super::ChainVerifyMetrics;
 use super::hazards::HazardGauges;
+use super::zfs::{DEFAULT_ZFS_DATASETS, ZfsIntegrityMetrics, ZfsIntegritySnapshot};
 
 /// Latency histogram buckets in seconds, spanning sub-millisecond to 10s.
 const LATENCY_BUCKETS: &[f64] = &[
@@ -93,6 +94,7 @@ pub struct CalyxMetrics {
     vram_used_mib: IntGauge,
     vram_limit_mib: IntGauge,
     hazards: HazardGauges,
+    zfs: ZfsIntegrityMetrics,
 }
 
 impl CalyxMetrics {
@@ -236,6 +238,7 @@ impl CalyxMetrics {
                 .expect("define calyx_vram_budget_limit_mib"),
         );
         let hazards = HazardGauges::register(&registry);
+        let zfs = ZfsIntegrityMetrics::register(&registry, &DEFAULT_ZFS_DATASETS);
 
         let metrics = Self {
             chain,
@@ -254,6 +257,7 @@ impl CalyxMetrics {
             vram_used_mib,
             vram_limit_mib,
             hazards,
+            zfs,
         };
         metrics.preinitialize(vault_labels);
         metrics
@@ -360,6 +364,10 @@ impl CalyxMetrics {
     /// Sets one PH59 hazard's state. An unknown hazard id is a fail-closed error.
     pub fn set_hazard(&self, hazard_id: &str, triggered: bool) -> Result<(), String> {
         self.hazards.set(hazard_id, triggered)
+    }
+
+    pub fn record_zfs_integrity(&self, snapshot: &ZfsIntegritySnapshot) {
+        self.zfs.record(snapshot);
     }
 
     /// Encodes the full surface in Prometheus text exposition format v0.0.4:
