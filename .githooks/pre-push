@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Calyx pre-push gate — rejects a push whose tree is not cargo-fmt clean.
+#
+# WHY: GitHub Actions is billing-disabled and `gh pr merge` runs server-side,
+# so the ONLY place to stop unformatted code from reaching main is before it
+# leaves this machine. PRs #530/#517/#475/#453 merged clippy+test-green but
+# fmt-dirty and broke `cargo fmt --check` on main (see scripts/check.sh:19).
+# This hook makes that class of breakage impossible to push.
+#
+# Install (once per clone): git config core.hooksPath .githooks
+# (scripts/aiwonder-build-setup.sh does this automatically.)
+#
+# Fail-loud: if cargo is unavailable the push is REJECTED with a clear message
+# rather than silently skipping the check.
+set -euo pipefail
+
+if [[ -f "$HOME/.cargo/env" ]]; then source "$HOME/.cargo/env"; fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "pre-push: ERROR — cargo not found on PATH; cannot verify formatting." >&2
+  echo "pre-push: install Rust or fix PATH, then retry. Refusing to push unverified." >&2
+  exit 1
+fi
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+echo "pre-push: cargo fmt --all -- --check ..." >&2
+if ! cargo fmt --all -- --check; then
+  echo "" >&2
+  echo "pre-push: REJECTED — code is not cargo-fmt clean (files listed above)." >&2
+  echo "pre-push: run \`cargo fmt --all\` and commit the result, then push again." >&2
+  exit 1
+fi
+echo "pre-push: fmt clean — push allowed." >&2

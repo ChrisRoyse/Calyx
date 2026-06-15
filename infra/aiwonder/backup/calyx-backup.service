@@ -1,0 +1,19 @@
+# calyx-backup.service — one-shot restic backup (PH67 T02, issue #542).
+#
+# Driven by calyx-backup.timer (hourly). One-shot by design: there is no
+# Restart= — a failed run is simply retried on the timer's next fire, not
+# restart-looped. Runs as croyse with the Infisical-rendered calyx.env so
+# $CALYX_RESTIC_PASSWORD is in the environment for restic-backup.sh.
+[Unit]
+Description=Calyx restic backup (one-shot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=croyse
+Group=croyse
+EnvironmentFile=/run/leapable/secrets/calyx.env
+ExecStart=/bin/bash /home/croyse/calyx/repo/infra/aiwonder/backup/restic-backup.sh
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=calyx-backup

@@ -1,0 +1,84 @@
+# calyx.toml — reference runtime configuration for the Calyx daemon (calyxd).
+#
+# This is the single authoritative source for every daemon tunable. It is parsed
+# into `calyxd::config::CalyxConfig` at startup and validated fail-closed: a
+# non-loopback bind address, an out-of-range VRAM budget, a missing required
+# key, or a syntax error each aborts startup with a stable `CALYX_*` error code
+# — never a silent default.
+#
+# SECRETS NEVER LIVE HERE. API keys, tokens, and credentials enter the process
+# via environment variables (e.g. an Infisical-rendered `calyx.env`), not this
+# file. Keep this file safe to commit.
+#
+# Validate after editing:
+#   cargo run -p calyxd -- --config infra/aiwonder/calyx.toml --validate-config
+
+# Loopback address the daemon's /metrics + MCP dispatch server binds to.
+# MUST be a loopback address (127.0.0.1 or [::1]); any other address is refused
+# with CALYX_DAEMON_BIND_FAILED. Default when omitted: 127.0.0.1:7700.
+bind_addr = "127.0.0.1:7700"
+
+# Aster vault directory the daemon serves and chain-verifies.
+# Supports `$CALYX_HOME` / `${CALYX_HOME}` interpolation so the file stays
+# portable across dev and the aiwonder production layout. With CALYX_HOME unset
+# the literal path is used as-is. On aiwonder CALYX_HOME=/home/croyse/calyx.
+vault_path = "$CALYX_HOME/data/vault"
+
+# VRAM budget for Forge, in MiB. Must be in 1..=30000.
+# The aiwonder RTX 5090 exposes 32607 MiB; the 30000 ceiling leaves headroom for
+# the three resident TEI servers and the CUDA context. Out-of-range values abort
+# with CALYX_FORGE_VRAM_BUDGET.
+vram_budget_mib = 8192
+
+# Directory for daemon log files.
+log_dir = "/zfs/hot/logs/calyx"
+
+# Path the healthcheck JSON snapshot is written to (read by the monitoring
+# aggregator). Default when omitted: /zfs/hot/logs/calyx-health/latest.json.
+health_log_path = "/zfs/hot/logs/calyx-health/latest.json"
+
+# Text-Embeddings-Inference (TEI) endpoints the daemon expects to be resident.
+# On aiwonder these are the three loopback model servers on :8088/:8089/:8090.
+tei_endpoints = [
+  "http://127.0.0.1:8088",
+  "http://127.0.0.1:8089",
+  "http://127.0.0.1:8090",
+]
+
+# Healthcheck timeout in seconds. Default when omitted: 30.
+healthcheck_timeout_secs = 30
+
+# ---------------------------------------------------------------------------
+# systemd integration (PH66 T01, issue #536) — documentation only.
+#
+# This config carries no `[service]` table: CalyxConfig is parsed with
+# deny_unknown_fields, so an unconsumed section would abort --validate-config.
+# The systemd wiring lives in repo-owned unit files instead:
+#
+#   infra/aiwonder/systemd/calyxd.service   — the unit (User=croyse, loopback
+#                                             only, Restart=on-failure,
+#                                             LimitNOFILE=1048576, healthcheck
+#                                             gate via ExecStartPost)
+#   infra/aiwonder/ops/install-service.sh    — idempotent operator installer
+#
+# ExecStart passes THIS file via --config; health_log_path above is the
+# post-provisioning JSON snapshot the monitoring aggregator reads.
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Storage layout (PH66 T02, issue #537) — documentation only.
+#
+# Like [service] above, there is no `[storage]` table: deny_unknown_fields would
+# reject it. The on-disk layout after ZFS provisioning + relocation:
+#
+#   vault_path  -> /zfs/hot/calyx          (hotpool/calyx dataset; WAL + base CF
+#                                            + ledger live under here)
+#   log_dir     -> /zfs/hot/logs/calyx     (already set above)
+#   archive     -> /zfs/archive/calyx      (restic repo at .../calyx-restic)
+#
+# PRE-PROVISIONING FALLBACK: vault_path above defaults to
+# `$CALYX_HOME/data/vault`. `infra/aiwonder/ops/relocate-data.sh` rewrites it to
+# `/zfs/hot/calyx` (in place, idempotently) once the data has been rsynced onto
+# the hotpool dataset. Provision the datasets with
+# `infra/aiwonder/ops/provision-zfs.sh` first.
+# ---------------------------------------------------------------------------

@@ -1,7 +1,9 @@
 name: CI
 
-# Format, check, lint, and test the workspace on every push and PR. The cuda
-# feature is gated off by default, so the workspace is runner-safe (CPU-only).
+# Same bar as scripts/check.sh (the aiwonder per-merge gate), enforced on
+# every push and PR so unformatted / unwired / failing code cannot sit on
+# main unnoticed. aiwonder-only FSV suites are #[ignore]d and the cuda
+# feature is gated off by default, so the workspace is runner-safe.
 
 on:
   push:
@@ -29,3 +31,7 @@ jobs:
         run: cargo nextest run --workspace
       - name: doctests
         run: cargo test --workspace --doc
+      - name: orphaned .rs gate
+        run: bash scripts/orphan_rs.sh
+      - name: line-count gate
+        run: bash scripts/linecount.sh

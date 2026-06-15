@@ -1,0 +1,18 @@
+# Calyx Prometheus scrape config — drop-in snippet (PH66 T04, issue #539).
+#
+# This file does NOT modify Prometheus in place. The operator appends it to the
+# existing /etc/prometheus/prometheus.yml under `scrape_configs:` and reloads.
+# No Calyx code reads or writes the Prometheus config — it is a one-time operator
+# wiring step.
+#
+# [OPERATOR] Append the entry below under scrape_configs in prometheus.yml, then:
+#   curl -X POST http://127.0.0.1:9090/-/reload
+#
+# calyxd binds loopback only (127.0.0.1:7700); Prometheus scrapes from the same
+# host. Do not expose this target off-box.
+- job_name: 'calyxd'
+  static_configs:
+    - targets: ['127.0.0.1:7700']
+  metrics_path: '/metrics'
+  scrape_interval: 15s
+  scrape_timeout: 10s

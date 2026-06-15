@@ -1,0 +1,89 @@
+# Calyx Prometheus alerting rules (PH66 T04, issue #539).
+#
+# This file does NOT modify Prometheus/Alertmanager in place. The operator copies
+# it onto the box and adds its path to the Prometheus `rule_files:` stanza (these
+# are recording/alerting rules evaluated by Prometheus and routed to
+# Alertmanager). No Calyx code reads or writes it — it is a one-time operator
+# wiring step. See ../prometheus/README.md.
+#
+# Named conditions. Thresholds are chosen so none fire on a healthy system
+# at default/zero metric values:
+#   - recall tripwire is pre-initialized to 1 (healthy); the alert fires only
+#     once a real measurement drives it to 0.
+#   - guard FAR fires above 0.05, never at the 0.0 init value.
+#   - chain-verify fires immediately (for: 0m) — an unverifiable ledger is the
+#     alert, not a transient.
+groups:
+  - name: calyx
+    rules:
+      - alert: CalyxRecallTripwire
+        expr: calyx_search_recall_tripwire == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Calyx recall tripwire tripped"
+          description: "calyx_search_recall_tripwire is 0 — search recall has fallen below threshold"
+
+      - alert: CalyxChainVerifyFail
+        expr: calyx_ledger_chain_verify_ok == 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Calyx ledger chain verification failed"
+          description: "Ledger hash chain integrity check failed — possible data corruption"
+
+      - alert: CalyxGuardFARDrift
+        expr: calyx_guard_far > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Calyx guard FAR above 5% threshold"
+          description: "Guard false-accept rate {{ $value }} exceeds 0.05 on {{ $labels.slot }}"
+
+      - alert: CalyxLensEndpointDown
+        expr: up{job="tei"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "TEI lens endpoint down"
+          description: "TEI endpoint {{ $labels.instance }} is not scraping"
+
+      - alert: CalyxHotpoolDiskPressure
+        expr: zfs_pool_free_bytes{pool="hotpool"} < 107374182400
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "hotpool < 100 GB free"
+          description: "hotpool available: {{ $value | humanize1024 }}B; WAL may stall"
+
+      - alert: CalyxZfsPoolUnhealthy
+        expr: calyx_zfs_pool_healthy == 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Calyx ZFS pool unhealthy"
+          description: "ZFS pool {{ $labels.pool }} is not healthy"
+
+      - alert: CalyxZfsChecksumErrors
+        expr: calyx_zfs_cksum_errors_total > 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Calyx ZFS checksum errors"
+          description: "ZFS pool {{ $labels.pool }} has checksum errors"
+
+      - alert: CalyxZfsScrubStale
+        expr: calyx_zfs_scrub_age_seconds > 3456000
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Calyx ZFS scrub stale"
+          description: "ZFS pool {{ $labels.pool }} has no scrub within 40d"
+
+      - alert: CalyxZfsDatasetChecksumDisabled
+        expr: calyx_zfs_dataset_checksum_enabled == 0
+        for: 0m
+        labels: { severity: critical }
+        annotations:
+          summary: "Calyx ZFS dataset checksum disabled"
+          description: "ZFS dataset {{ $labels.dataset }} has checksum disabled or unreadable"

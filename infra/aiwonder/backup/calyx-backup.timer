@@ -1,0 +1,20 @@
+# calyx-backup.timer — hourly restic backup schedule (PH67 T02, issue #542).
+#
+# RPO = 1 hour (OnCalendar=hourly). RTO = time to `restic restore` +
+# `calyx verify-restore`. No off-machine replica (single-host posture). See
+# dr-drill-runbook.md (PH67 T04).
+#
+# Persistent=true runs a missed backup on next boot (e.g. box rebooted through a
+# scheduled window). RandomizedDelaySec=300 spreads the fire across 5 minutes so
+# Calyx does not storm the disk at :00 alongside the other leapable timers.
+[Unit]
+Description=Calyx restic backup timer
+Requires=calyx-backup.service
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

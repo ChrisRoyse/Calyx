@@ -1,0 +1,202 @@
+# promtool test for calyx-alerts.yml (PH66 T04 FSV, issue #539).
+#
+#   promtool test rules calyx-alerts.test.yml
+#
+# Synthetic series with hand-computed expectations: each alert fires on its
+# tripped condition and stays silent on a healthy value, proving the thresholds
+# never false-fire at default/zero metric values.
+rule_files:
+  - calyx-alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # CalyxRecallTripwire — fires when the gauge is 0 for 2m; silent at healthy 1.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_search_recall_tripwire{vault="/data/v"}'
+        values: '0x3'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: CalyxRecallTripwire
+        exp_alerts:
+          - exp_labels: { severity: critical, vault: "/data/v" }
+            exp_annotations:
+              summary: "Calyx recall tripwire tripped"
+              description: "calyx_search_recall_tripwire is 0 — search recall has fallen below threshold"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_search_recall_tripwire{vault="/data/v"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: CalyxRecallTripwire
+        exp_alerts: []
+
+  # CalyxChainVerifyFail — fires immediately (for: 0m) at ok=0; silent at ok=1.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_ledger_chain_verify_ok{vault="/data/v"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxChainVerifyFail
+        exp_alerts:
+          - exp_labels: { severity: critical, vault: "/data/v" }
+            exp_annotations:
+              summary: "Calyx ledger chain verification failed"
+              description: "Ledger hash chain integrity check failed — possible data corruption"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_ledger_chain_verify_ok{vault="/data/v"}'
+        values: '1x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxChainVerifyFail
+        exp_alerts: []
+
+  # CalyxGuardFARDrift — fires above 0.05 for 5m; silent at 0.04.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_guard_far{vault="/data/v",slot="subject"}'
+        values: '0.06x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CalyxGuardFARDrift
+        exp_alerts:
+          - exp_labels: { severity: warning, vault: "/data/v", slot: "subject" }
+            exp_annotations:
+              summary: "Calyx guard FAR above 5% threshold"
+              description: "Guard false-accept rate 0.06 exceeds 0.05 on subject"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_guard_far{vault="/data/v",slot="subject"}'
+        values: '0.04x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CalyxGuardFARDrift
+        exp_alerts: []
+
+  # CalyxLensEndpointDown — fires when the TEI scrape target is down for 1m.
+  - interval: 1m
+    input_series:
+      - series: 'up{job="tei",instance="127.0.0.1:8088"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxLensEndpointDown
+        exp_alerts:
+          - exp_labels: { severity: critical, job: "tei", instance: "127.0.0.1:8088" }
+            exp_annotations:
+              summary: "TEI lens endpoint down"
+              description: "TEI endpoint 127.0.0.1:8088 is not scraping"
+
+  # CalyxHotpoolDiskPressure — fires below 100 GB free for 5m; silent at 200 GiB.
+  - interval: 1m
+    input_series:
+      - series: 'zfs_pool_free_bytes{pool="hotpool"}'
+        values: '53687091200x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CalyxHotpoolDiskPressure
+        exp_alerts:
+          - exp_labels: { severity: warning, pool: "hotpool" }
+            exp_annotations:
+              summary: "hotpool < 100 GB free"
+              description: "hotpool available: 50GiB; WAL may stall"
+  - interval: 1m
+    input_series:
+      - series: 'zfs_pool_free_bytes{pool="hotpool"}'
+        values: '214748364800x5'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: CalyxHotpoolDiskPressure
+        exp_alerts: []
+
+  # CalyxZfsPoolUnhealthy — fires immediately at healthy=0; silent at 1.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_pool_healthy{pool="archive"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsPoolUnhealthy
+        exp_alerts:
+          - exp_labels: { severity: critical, pool: "archive" }
+            exp_annotations:
+              summary: "Calyx ZFS pool unhealthy"
+              description: "ZFS pool archive is not healthy"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_pool_healthy{pool="archive"}'
+        values: '1x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsPoolUnhealthy
+        exp_alerts: []
+
+  # CalyxZfsChecksumErrors — fires on any nonzero CKSUM count.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_cksum_errors_total{pool="hotpool"}'
+        values: '2x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsChecksumErrors
+        exp_alerts:
+          - exp_labels: { severity: critical, pool: "hotpool" }
+            exp_annotations:
+              summary: "Calyx ZFS checksum errors"
+              description: "ZFS pool hotpool has checksum errors"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_cksum_errors_total{pool="hotpool"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsChecksumErrors
+        exp_alerts: []
+
+  # CalyxZfsScrubStale — 40d is 3,456,000s; fire only above it.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_scrub_age_seconds{pool="archive"}'
+        values: '3456001x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsScrubStale
+        exp_alerts:
+          - exp_labels: { severity: critical, pool: "archive" }
+            exp_annotations:
+              summary: "Calyx ZFS scrub stale"
+              description: "ZFS pool archive has no scrub within 40d"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_scrub_age_seconds{pool="archive"}'
+        values: '3456000x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsScrubStale
+        exp_alerts: []
+
+  # CalyxZfsDatasetChecksumDisabled — checksum=off/unreadable is fail-closed.
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_dataset_checksum_enabled{dataset="archive/calyx"}'
+        values: '0x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsDatasetChecksumDisabled
+        exp_alerts:
+          - exp_labels: { severity: critical, dataset: "archive/calyx" }
+            exp_annotations:
+              summary: "Calyx ZFS dataset checksum disabled"
+              description: "ZFS dataset archive/calyx has checksum disabled or unreadable"
+  - interval: 1m
+    input_series:
+      - series: 'calyx_zfs_dataset_checksum_enabled{dataset="archive/calyx"}'
+        values: '1x2'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CalyxZfsDatasetChecksumDisabled
+        exp_alerts: []
