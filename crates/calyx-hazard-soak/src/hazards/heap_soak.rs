@@ -146,7 +146,7 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
 
     for op in 0..op_count {
         if !injected && op >= op_count / 2 {
-            let flood = inject_max_write_flood(&mut router, flood_rows)?;
+            let flood = inject_max_write_flood(root, &mut router, flood_rows)?;
             counts.flood_backpressure_events += flood.backpressure_events;
             flood_fail_closed_code = flood.fail_closed_error_code;
             flood_fail_closed_row_bytes = flood.fail_closed_row_bytes;
@@ -169,7 +169,7 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
         }
     }
     if !injected {
-        let flood = inject_max_write_flood(&mut router, flood_rows)?;
+        let flood = inject_max_write_flood(root, &mut router, flood_rows)?;
         counts.flood_backpressure_events += flood.backpressure_events;
         flood_fail_closed_code = flood.fail_closed_error_code;
         flood_fail_closed_row_bytes = flood.fail_closed_row_bytes;
@@ -177,10 +177,13 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
     router.flush_pending().map_err(err)?;
     let counters = router.resource_counters().snapshot();
     let rss_final = heap_rss_bytes().map_err(err)?;
-    samples.push(RssSample {
-        op: op_count,
-        rss_bytes: rss_final,
-    });
+    match samples.last_mut() {
+        Some(sample) if sample.op == op_count => sample.rss_bytes = rss_final,
+        _ => samples.push(RssSample {
+            op: op_count,
+            rss_bytes: rss_final,
+        }),
+    }
     let rss_max = samples
         .iter()
         .map(|sample| sample.rss_bytes)
@@ -317,7 +320,11 @@ fn cache_miss_op(
     Ok(())
 }
 
-fn inject_max_write_flood(router: &mut CfRouter, flood_rows: u64) -> Result<FloodReadback, String> {
+fn inject_max_write_flood(
+    root: &Path,
+    router: &mut CfRouter,
+    flood_rows: u64,
+) -> Result<FloodReadback, String> {
     let before = router.resource_counters().snapshot().events_total;
     let mut value = vec![0xEE; 4096];
     let last = value.len() - 1;
@@ -328,22 +335,28 @@ fn inject_max_write_flood(router: &mut CfRouter, flood_rows: u64) -> Result<Floo
         router.put(ColumnFamily::Base, &key, &value).map_err(err)?;
     }
     let after_flood = router.resource_counters().snapshot().events_total;
-    let oversized = vec![0xFA; MEMTABLE_CAP + 1];
-    let fail_closed_row_bytes = oversized.len();
-    let fail_closed_error_code = match router.ensure_batch_admitted([(
-        ColumnFamily::Base,
-        b"ph59-h8-oversized-row".as_slice(),
-        oversized.as_slice(),
-    )]) {
-        Ok(()) => return Err("oversized row unexpectedly admitted".to_string()),
-        Err(error) if error.code == "CALYX_BACKPRESSURE" => error.code.to_string(),
-        Err(error) => return Err(format!("expected CALYX_BACKPRESSURE, got {}", error.code)),
-    };
+    let (fail_closed_row_bytes, fail_closed_error_code) =
+        probe_max_write_fail_closed(root.join("max_write_fail_closed"))?;
     Ok(FloodReadback {
         backpressure_events: after_flood.saturating_sub(before),
         fail_closed_row_bytes,
         fail_closed_error_code,
     })
+}
+
+fn probe_max_write_fail_closed(root: impl AsRef<Path>) -> Result<(usize, String), String> {
+    let router = CfRouter::open(root, 1024).map_err(err)?;
+    let value = vec![0xFA; 4096];
+    let row_bytes = value.len();
+    match router.ensure_batch_admitted([(
+        ColumnFamily::Base,
+        b"ph59-h8-max-write".as_slice(),
+        value.as_slice(),
+    )]) {
+        Ok(()) => Err("4096-byte row unexpectedly admitted into 1KiB cap".to_string()),
+        Err(error) if error.code == "CALYX_BACKPRESSURE" => Ok((row_bytes, error.code.to_string())),
+        Err(error) => Err(format!("expected CALYX_BACKPRESSURE, got {}", error.code)),
+    }
 }
 
 fn tail_slope(samples: &[RssSample]) -> f64 {
