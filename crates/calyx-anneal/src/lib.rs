@@ -121,7 +121,7 @@ pub use propose::{
     CALYX_ANNEAL_DEFICIT_INVALID_CONFIG, CALYX_ANNEAL_OPERATOR_INVALID_RECORD,
     CALYX_ANNEAL_OPERATOR_NO_GAIN, CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE,
     CALYX_REGISTRY_HOT_ADD_FAIL, CALYX_REGISTRY_PROFILE_TIMEOUT, CandidateLens, CommissionSpec,
-    CorpusSampleSource, DEFAULT_DEFICIT_THRESHOLD_BITS, DIFFERENTIATION_MAX_CORR,
+    ConversionTarget, CorpusSampleSource, DEFAULT_DEFICIT_THRESHOLD_BITS, DIFFERENTIATION_MAX_CORR,
     DIFFERENTIATION_MIN_BITS, DeficitLocalizer, DeficitLocalizerConfig, DeficitMap,
     DifferentiationGate, GateOutcome, HotAddAction, HotAddPlan, HotAddReceipt, LensAdmittedEntry,
     LensHotAdder, LensProfiler, LensRejectedEntry, MAX_SYNTHESIS_CORPUS_SAMPLE,
@@ -133,7 +133,7 @@ pub use propose::{
     RegistryHotAdder, RejectReason, build_commission_spec, decode_operator_proposal,
     decode_operator_proposal_rows, describe, describe_gate_outcome, encode_operator_proposal, gate,
     has_deficit, operator_proposal_key, proposal_history, proposal_history_with_refs, propose_lens,
-    propose_operator, record_admitted, record_from_entry,
+    propose_operator, ranked_conversion_targets, record_admitted, record_from_entry,
     record_outcome as record_proposal_outcome, record_rejected, synthesize, synthesize_algorithmic,
     synthesize_from_source, top_gap_description,
 };

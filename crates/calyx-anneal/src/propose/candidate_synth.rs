@@ -7,6 +7,9 @@ use crate::EndpointUrl;
 
 use super::{AnchorGap, DeficitMap, ModalityId};
 
+mod targets;
+pub use targets::{ConversionTarget, ranked_conversion_targets};
+
 pub const MAX_SYNTHESIS_CORPUS_SAMPLE: usize = 1000;
 pub const CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT: &str = "CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT";
 const CALYX_ASTER_CF_UNAVAILABLE: &str = "CALYX_ASTER_CF_UNAVAILABLE";
@@ -31,15 +34,19 @@ pub struct AlgParams {
     pub features: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CommissionSpec {
     pub target_modality: ModalityId,
     pub endpoint: Option<EndpointUrl>,
     pub model_id: Option<String>,
+    #[serde(default = "default_axis")]
+    pub axis: String,
+    #[serde(default)]
+    pub suggested_targets: Vec<ConversionTarget>,
     pub description: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "candidate_type", rename_all = "snake_case")]
 pub enum CandidateLens {
     Algorithmic {
@@ -110,23 +117,34 @@ pub fn build_commission_spec(deficit: &DeficitMap) -> CandidateLens {
         .first()
         .copied()
         .unwrap_or(Modality::Mixed);
+    let suggested_targets = ranked_conversion_targets(deficit);
+    let top_target = suggested_targets.first();
+    let axis = top_target
+        .map(|target| target.axis.clone())
+        .unwrap_or_else(default_axis);
+    let model_id = top_target.map(|target| target.hf_id.clone());
     let description = match top_gap(deficit) {
         Some(top) => format!(
-            "commission frozen lens for '{}' modality targeting anchor '{}' gap {:.3} bits",
+            "commission frozen lens for '{}' modality axis '{}' targeting anchor '{}' gap {:.3} bits via {}",
             modality_name(target_modality),
+            axis,
             top.anchor_class,
-            top.gap
+            top.gap,
+            model_id.as_deref().unwrap_or("unresolved LensForge target")
         ),
         None => format!(
-            "commission frozen lens for '{}' modality; no localized anchor gap was provided",
-            modality_name(target_modality)
+            "commission frozen lens for '{}' modality axis '{}'; no localized anchor gap was provided",
+            modality_name(target_modality),
+            axis
         ),
     };
     CandidateLens::Commission {
         spec: CommissionSpec {
             target_modality,
             endpoint: None,
-            model_id: None,
+            model_id,
+            axis,
+            suggested_targets,
             description,
         },
     }
@@ -253,6 +271,10 @@ fn top_gap(deficit: &DeficitMap) -> Option<&AnchorGap> {
         .top_gaps
         .iter()
         .max_by(|left, right| left.gap.total_cmp(&right.gap))
+}
+
+fn default_axis() -> String {
+    "unspecified".to_string()
 }
 
 fn capped_sample(corpus_sample: &[Constellation]) -> &[Constellation] {

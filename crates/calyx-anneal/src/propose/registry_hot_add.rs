@@ -1,19 +1,32 @@
+use std::path::{Path, PathBuf};
+
 use calyx_core::{Asymmetry, CalyxError, Constellation, Modality, Panel, QuantPolicy, Result, Ts};
-use calyx_registry::{AlgorithmicLens, Registry, SlotSpec, SwapController};
+use calyx_registry::{
+    AlgorithmicLens, CommissionRequest, Registry, SlotSpec, SwapController, commission_lens,
+    register_commissioned,
+};
 
 use super::{
-    CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, HotAddAction, HotAddPlan, HotAddReceipt,
-    LensHotAdder,
+    CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, CommissionSpec, ConversionTarget, HotAddAction,
+    HotAddPlan, HotAddReceipt, LensHotAdder,
 };
 use crate::{ArtifactKey, ArtifactPtr};
 
 pub struct RegistryHotAdder<'a> {
     registry: &'a mut Registry,
+    artifact_dir: PathBuf,
 }
 
 impl<'a> RegistryHotAdder<'a> {
     pub fn new(registry: &'a mut Registry) -> Self {
-        Self { registry }
+        Self::with_artifact_dir(registry, default_artifact_dir())
+    }
+
+    pub fn with_artifact_dir(registry: &'a mut Registry, artifact_dir: impl AsRef<Path>) -> Self {
+        Self {
+            registry,
+            artifact_dir: artifact_dir.as_ref().to_path_buf(),
+        }
     }
 }
 
@@ -47,21 +60,61 @@ impl LensHotAdder for RegistryHotAdder<'_> {
         &mut self,
         controller: &mut SwapController,
         candidate: &CandidateLens,
-        _corpus: &[Constellation],
+        corpus: &[Constellation],
         now: Ts,
     ) -> Result<HotAddReceipt> {
-        let (lens, spec) = candidate_slot_spec(candidate)?;
-        let contract = lens.contract().clone();
-        if !self.registry.contains(spec.lens_id) {
-            self.registry.register_frozen(lens, contract)?;
+        match candidate {
+            CandidateLens::Algorithmic { .. } => {
+                let (lens, spec) = candidate_slot_spec(candidate)?;
+                let contract = lens.contract().clone();
+                if !self.registry.contains(spec.lens_id) {
+                    self.registry.register_frozen(lens, contract)?;
+                }
+                add_slot(controller, self.registry, spec, now)
+            }
+            CandidateLens::Commission { spec } => {
+                let target = primary_target(spec)?;
+                let artifact = commission_lens(
+                    &CommissionRequest {
+                        name: commissioned_name(&target),
+                        base_model: target.hf_id.clone(),
+                        corpus: corpus_bytes(corpus, spec)?,
+                        output_dim: target_dim(&target),
+                        modality: target.modality,
+                        axis: Some(target.axis.clone()),
+                    },
+                    &self.artifact_dir.join(safe_slug(&target.axis)),
+                )?;
+                let lens_id = register_commissioned(self.registry, artifact.clone())?;
+                let slot_spec = SlotSpec {
+                    key: format!("anneal_{}", commissioned_name(&target)),
+                    lens_id,
+                    shape: artifact.contract.shape(),
+                    modality: artifact.contract.modality(),
+                    asymmetry: Asymmetry::None,
+                    quant: QuantPolicy::turboquant_default(),
+                    axis: Some(target.axis),
+                    retrieval_only: false,
+                    excluded_from_dedup: false,
+                };
+                add_slot(controller, self.registry, slot_spec, now)
+            }
         }
-        let outcome = controller.add_lens(self.registry, spec, [], now)?;
-        Ok(HotAddReceipt {
-            lens_id: outcome.slot.lens_id,
-            panel_version: outcome.panel_version,
-            slot_count: controller.panel().slots.len(),
-        })
     }
+}
+
+fn add_slot(
+    controller: &mut SwapController,
+    registry: &Registry,
+    spec: SlotSpec,
+    now: Ts,
+) -> Result<HotAddReceipt> {
+    let outcome = controller.add_lens(registry, spec, [], now)?;
+    Ok(HotAddReceipt {
+        lens_id: outcome.slot.lens_id,
+        panel_version: outcome.panel_version,
+        slot_count: controller.panel().slots.len(),
+    })
 }
 
 fn candidate_slot_spec(candidate: &CandidateLens) -> Result<(AlgorithmicLens, SlotSpec)> {
@@ -95,9 +148,10 @@ fn candidate_slot_spec(candidate: &CandidateLens) -> Result<(AlgorithmicLens, Sl
         CandidateLens::Commission { .. } => {
             return Err(CalyxError {
                 code: CALYX_REGISTRY_HOT_ADD_FAIL,
-                message: "commissioned candidate has no frozen runtime artifact to hot-add yet"
-                    .to_string(),
-                remediation: "commission and freeze the lens artifact before registry hot-add",
+                message:
+                    "commissioned candidate must be applied through RegistryHotAdder::apply_hot_add"
+                        .to_string(),
+                remediation: "route commissioned candidates through the conversion target hot-add path",
             });
         }
     };
@@ -114,6 +168,76 @@ fn candidate_slot_spec(candidate: &CandidateLens) -> Result<(AlgorithmicLens, Sl
         excluded_from_dedup: false,
     };
     Ok((lens, spec))
+}
+
+fn primary_target(spec: &CommissionSpec) -> Result<ConversionTarget> {
+    if let Some(target) = spec.suggested_targets.first() {
+        return Ok(target.clone());
+    }
+    let Some(hf_id) = spec.model_id.clone() else {
+        return Err(CalyxError {
+            code: CALYX_REGISTRY_HOT_ADD_FAIL,
+            message: "commissioned candidate has no hf_id conversion target".to_string(),
+            remediation: "synthesize a ranked conversion target before registry hot-add",
+        });
+    };
+    Ok(ConversionTarget {
+        hf_id,
+        modality: spec.target_modality,
+        axis: spec.axis.clone(),
+        formats: vec!["adapter".to_string()],
+        expected_bits: 0.0,
+    })
+}
+
+fn corpus_bytes(corpus: &[Constellation], spec: &CommissionSpec) -> Result<Vec<Vec<u8>>> {
+    let mut rows = Vec::new();
+    for cx in corpus.iter().take(256) {
+        rows.push(serde_json::to_vec(cx).map_err(|error| CalyxError {
+            code: CALYX_REGISTRY_HOT_ADD_FAIL,
+            message: format!("serialize constellation for commission corpus failed: {error}"),
+            remediation: "repair corpus serialization before registry hot-add",
+        })?);
+    }
+    if rows.is_empty() {
+        rows.push(spec.description.as_bytes().to_vec());
+    }
+    Ok(rows)
+}
+
+fn commissioned_name(target: &ConversionTarget) -> String {
+    format!(
+        "{}-{}",
+        safe_slug(&target.axis),
+        hex_prefix(hash_bytes(target.hf_id.as_bytes()), 8)
+    )
+}
+
+fn target_dim(target: &ConversionTarget) -> u32 {
+    match target.modality {
+        Modality::Text | Modality::Code | Modality::Structured | Modality::Mixed => 384,
+        _ => 16,
+    }
+}
+
+fn safe_slug(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+fn default_artifact_dir() -> PathBuf {
+    std::env::var_os("CALYX_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("lenses")
+        .join("anneal-flywheel")
 }
 
 fn algorithmic_key(kind: super::AlgorithmicKind) -> &'static str {
@@ -153,6 +277,14 @@ fn hash_many<const N: usize>(parts: [&[u8]; N]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
+fn hash_bytes(bytes: &[u8]) -> [u8; 32] {
+    blake3::hash(bytes).into()
+}
+
 fn hex32(bytes: [u8; 32]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn hex_prefix(bytes: [u8; 32], len: usize) -> String {
+    hex32(bytes).chars().take(len).collect()
 }

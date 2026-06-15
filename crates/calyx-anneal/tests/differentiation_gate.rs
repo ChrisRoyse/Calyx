@@ -141,6 +141,8 @@ fn candidate() -> CandidateLens {
             target_modality: calyx_core::Modality::Audio,
             endpoint: None,
             model_id: None,
+            axis: "speaker_identity".to_string(),
+            suggested_targets: Vec::new(),
             description: "fixture candidate".to_string(),
         },
     }
