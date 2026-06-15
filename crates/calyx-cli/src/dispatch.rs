@@ -11,12 +11,13 @@ use crate::cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
 use crate::error::{CliError, CliResult};
 use crate::{
     anneal_commands, anneal_ledger_readback, anneal_mistakes_readback, anneal_status, crash,
-    dedup_audit_readback, dedup_readback, fsv, healthcheck, kernel_health_readback, leapable,
-    lens_commands, lodestar_commands, manifest_readback, media_commands, merkle, migrate, navigate,
-    ops, oracle_readback, panel_commands, ph42_readback, provenance, recurrence_readback,
-    resource_drill, resource_status, scan, sextant_commands, summarize_command,
-    temporal_log_recurrence_readback, temporal_readback, time_prediction_readback,
-    timetravel_readback, trigger_readback, usage, vault_tree, verify, ward_tau_readback,
+    dedup_audit_readback, dedup_readback, fsv, healthcheck, intelligence_commands,
+    kernel_health_readback, leapable, lens_commands, lodestar_commands, manifest_readback,
+    media_commands, merkle, migrate, navigate, ops, oracle_readback, panel_commands, ph42_readback,
+    provenance, recurrence_readback, resource_drill, resource_status, scan, sextant_commands,
+    summarize_command, temporal_log_recurrence_readback, temporal_readback,
+    time_prediction_readback, timetravel_readback, trigger_readback, usage, vault_tree, verify,
+    ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -106,6 +107,11 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         }
         [command, rest @ ..] if command == "healthcheck" => healthcheck::run(rest),
         [command, topic, rest @ ..] if command == "migrate" => migrate::run(topic, rest),
+        [command, topic, vault_flag, vault]
+            if command == "intelligence" && topic == "abundance" && vault_flag == "--vault" =>
+        {
+            intelligence_commands::abundance(Path::new(vault))
+        }
         [command, topic, rest @ ..]
             if command == "readback" && oracle_readback::is_topic(topic) =>
         {

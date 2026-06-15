@@ -28,6 +28,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal autotune-report --scope index --slot <n> --cache <json> --vault <dir> --last <n>
        calyx anneal autotune-report --scope storage --cache <json> --vault <dir> --last <n>
        calyx anneal intelligence-report --fixture <json> [--vault <dir>]
+       calyx intelligence abundance --vault <dir>
        calyx anneal growth-curve --vault <dir> [--last <n>]
        calyx anneal goodhart-check --fixture <json> --vault <dir> --vault-id <id> --salt <s>
        calyx sextant recall-validate --corpus-jsonl <jsonl> --queries-jsonl <jsonl> --qrels <tsv> --metrics-dir <dir> --vault <dir> [--query-limit <n>] [--min-delta <f>]
