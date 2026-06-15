@@ -8,6 +8,9 @@ pub(crate) mod read_flip;
 #[cfg(test)]
 mod read_flip_tests;
 pub(crate) mod recall_comparator;
+pub(crate) mod round_trip_verifier;
+#[cfg(test)]
+mod round_trip_verifier_tests;
 pub(crate) mod shadow_harness;
 mod shadow_harness_cli;
 #[cfg(test)]
@@ -33,6 +36,7 @@ pub(crate) fn run(topic: &str, args: &[String]) -> crate::error::CliResult {
         "issue612-fsv" => issue612_fsv::run(args),
         "read-flip" => read_flip::run_read_flip(args),
         "recall-compare" => recall_comparator::run_recall_compare(args),
+        "verify-round-trip" => round_trip_verifier::run_verify_round_trip(args),
         "shadow-open" => shadow_harness_cli::run_shadow_open(args),
         "shadow-readback" => shadow_harness_cli::run_shadow_readback(args),
         _ => Err(format!("unknown leapable command: {topic}").into()),
