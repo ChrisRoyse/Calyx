@@ -247,6 +247,7 @@ fn single_flight_edge_zero_jitter() -> Result<SingleFlightEdge, String> {
             let value = cache
                 .get_or_compute("edge-hot", 4, || {
                     recomputes.fetch_add(1, Ordering::SeqCst);
+                    thread::sleep(Duration::from_millis(20));
                     b"edge".to_vec()
                 })
                 .expect("edge get");
