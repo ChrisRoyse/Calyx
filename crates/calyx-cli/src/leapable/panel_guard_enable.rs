@@ -59,8 +59,8 @@ impl PanelGuardEnable {
         vault: &mut ShadowVault,
         panel_spec: &PanelSpec,
     ) -> Result<PanelEnableReport> {
-        let (sqlite_path, calyx_dir) = vault.paths();
-        let conn = open_sqlite(sqlite_path).map_err(cli_to_calyx)?;
+        let (_, calyx_dir) = vault.paths();
+        let conn = open_sqlite(vault.sqlite_read_path()).map_err(cli_to_calyx)?;
         let rows = stream_rows(&conn).map_err(cli_to_calyx)?;
         let aster_dir = super::dual_write::aster_dir(calyx_dir);
         let manifest = MigrationManifest::load(&aster_dir)?;
