@@ -28,6 +28,13 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
             vault_tree::readback_vault_tree(Path::new(value))
         }
+        [command, vault_flag, vault, show_flag]
+            if command == "readback"
+                && vault_flag == "--vault"
+                && show_flag == "--show-manifest" =>
+        {
+            leapable::readback_shadow_manifest(Path::new(vault))
+        }
         [command, topic, field_flag, field, vault_flag, vault]
             if command == "readback"
                 && topic == "vault-manifest"
