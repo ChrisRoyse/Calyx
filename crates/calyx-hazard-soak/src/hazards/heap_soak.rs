@@ -30,11 +30,12 @@ pub(super) fn probe_h8_heap_oom(root: &Path) -> ProbeResult {
         env_u64("PH59_H8_FLOOD_ROWS").unwrap_or(DEFAULT_FLOOD_ROWS),
     )?;
     let passed = report.backpressure_events_total >= 1
-        && report.flood_backpressure_errors >= 1
+        && report.flood_backpressure_events >= 1
         && report.rss_max_bytes <= report.rss_budget_bytes
         && report.rss_trend_bytes_per_op < 1.0
         && report.cache_used_bytes <= CACHE_CAP as u64
         && report.arena_high_water_bytes <= ARENA_CAP as u64
+        && report.fail_closed_error_code == "CALYX_BACKPRESSURE"
         && report.structured_error_codes == ["CALYX_BACKPRESSURE"];
 
     Ok((
@@ -83,9 +84,11 @@ struct HeapSoakReport {
     range_scans: u64,
     range_materialized: u64,
     cache_miss_queries: u64,
-    flood_backpressure_errors: u64,
+    flood_backpressure_events: u64,
     flood_attempted_rows: u64,
     max_write_value_bytes: usize,
+    fail_closed_row_bytes: usize,
+    fail_closed_error_code: String,
     backpressure_events_total: u64,
     memtable_absorbed_total: u64,
     memtable_rejected_total: u64,
@@ -109,7 +112,13 @@ struct Counts {
     range_scans: u64,
     range_materialized: u64,
     cache_miss_queries: u64,
-    backpressure: u64,
+    flood_backpressure_events: u64,
+}
+
+struct FloodReadback {
+    backpressure_events: u64,
+    fail_closed_row_bytes: usize,
+    fail_closed_error_code: String,
 }
 
 fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoakReport, String> {
@@ -131,11 +140,16 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
     let mut slab_max = 0.0f64;
     let mut page_slab_max = 0.0f64;
     let mut injected = false;
+    let mut flood_fail_closed_code = String::new();
+    let mut flood_fail_closed_row_bytes = 0usize;
     let started = Instant::now();
 
     for op in 0..op_count {
         if !injected && op >= op_count / 2 {
-            inject_max_write_flood(&router, flood_rows, &mut counts)?;
+            let flood = inject_max_write_flood(&mut router, flood_rows)?;
+            counts.flood_backpressure_events += flood.backpressure_events;
+            flood_fail_closed_code = flood.fail_closed_error_code;
+            flood_fail_closed_row_bytes = flood.fail_closed_row_bytes;
             injected = true;
         }
         let (slab_util, page_util) = exercise_allocators(op, &mut arena, &slab, &page_slab)?;
@@ -155,7 +169,10 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
         }
     }
     if !injected {
-        inject_max_write_flood(&router, flood_rows, &mut counts)?;
+        let flood = inject_max_write_flood(&mut router, flood_rows)?;
+        counts.flood_backpressure_events += flood.backpressure_events;
+        flood_fail_closed_code = flood.fail_closed_error_code;
+        flood_fail_closed_row_bytes = flood.fail_closed_row_bytes;
     }
     router.flush_pending().map_err(err)?;
     let counters = router.resource_counters().snapshot();
@@ -191,9 +208,11 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
         range_scans: counts.range_scans,
         range_materialized: counts.range_materialized,
         cache_miss_queries: counts.cache_miss_queries,
-        flood_backpressure_errors: counts.backpressure,
+        flood_backpressure_events: counts.flood_backpressure_events,
         flood_attempted_rows: flood_rows,
         max_write_value_bytes: 4096,
+        fail_closed_row_bytes: flood_fail_closed_row_bytes,
+        fail_closed_error_code: flood_fail_closed_code,
         backpressure_events_total: counters.events_total,
         memtable_absorbed_total: counters.memtable_absorbed_total,
         memtable_rejected_total: counters.memtable_rejected_total,
@@ -298,28 +317,33 @@ fn cache_miss_op(
     Ok(())
 }
 
-fn inject_max_write_flood(
-    router: &CfRouter,
-    flood_rows: u64,
-    counts: &mut Counts,
-) -> Result<(), String> {
-    let key = u64::MAX.to_be_bytes();
-    let value = vec![0xEE; 4096];
-    let rows_per_attempt = MEMTABLE_CAP / value.len() + 1;
-    let attempts = flood_rows.div_ceil(rows_per_attempt as u64);
-    for _ in 0..attempts {
-        let error = router
-            .ensure_batch_admitted(
-                (0..rows_per_attempt)
-                    .map(|_| (ColumnFamily::Base, key.as_slice(), value.as_slice())),
-            )
-            .expect_err("max-size write flood must fail closed");
-        if error.code != "CALYX_BACKPRESSURE" {
-            return Err(format!("expected CALYX_BACKPRESSURE, got {}", error.code));
-        }
-        counts.backpressure += 1;
+fn inject_max_write_flood(router: &mut CfRouter, flood_rows: u64) -> Result<FloodReadback, String> {
+    let before = router.resource_counters().snapshot().events_total;
+    let mut value = vec![0xEE; 4096];
+    let last = value.len() - 1;
+    for row in 0..flood_rows {
+        value[0] = row as u8;
+        value[last] = (row >> 8) as u8;
+        let key = u64::MAX.saturating_sub(row).to_be_bytes();
+        router.put(ColumnFamily::Base, &key, &value).map_err(err)?;
     }
-    Ok(())
+    let after_flood = router.resource_counters().snapshot().events_total;
+    let oversized = vec![0xFA; MEMTABLE_CAP + 1];
+    let fail_closed_row_bytes = oversized.len();
+    let fail_closed_error_code = match router.ensure_batch_admitted([(
+        ColumnFamily::Base,
+        b"ph59-h8-oversized-row".as_slice(),
+        oversized.as_slice(),
+    )]) {
+        Ok(()) => return Err("oversized row unexpectedly admitted".to_string()),
+        Err(error) if error.code == "CALYX_BACKPRESSURE" => error.code.to_string(),
+        Err(error) => return Err(format!("expected CALYX_BACKPRESSURE, got {}", error.code)),
+    };
+    Ok(FloodReadback {
+        backpressure_events: after_flood.saturating_sub(before),
+        fail_closed_row_bytes,
+        fail_closed_error_code,
+    })
 }
 
 fn tail_slope(samples: &[RssSample]) -> f64 {
