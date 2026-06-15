@@ -2,6 +2,8 @@
 
 pub mod ann_gc;
 pub mod compaction_gc;
+pub mod orphan_reconciler;
+pub mod panel_version_gc;
 pub mod snapshot_gc;
 pub mod wal_recycler;
 
@@ -16,6 +18,15 @@ pub use compaction_gc::{
     DEFAULT_DISK_BW_BYTES_PER_SEC, DEFAULT_MAX_IO_FRACTION, DEFAULT_TOMBSTONE_RATIO_TRIGGER,
     TombstoneCfStats, TombstoneInventory, VaultCompactionGcTarget, scan_catalog_tombstones,
     scan_tombstone_inventory, tombstone_ratio_for_counts,
+};
+pub use orphan_reconciler::{
+    OrphanBaseEntry, OrphanGcTarget, OrphanIndexEntry, OrphanReconciler, OrphanRepairResult,
+    OrphanReport, VaultOrphanGcTarget,
+};
+pub use panel_version_gc::{
+    CodebookVersionGc, CodebookVersionGcTarget, PanelVersionGc, PanelVersionGcResult,
+    PanelVersionGcTarget, PanelVersionId, PanelVersionRecord, RetentionPolicy, RetiredLensGc,
+    RetiredLensGcTarget, VaultPanelVersionGcTarget, VersionTier,
 };
 pub use snapshot_gc::{
     BoundedStalenessSnapshot, CALYX_GC_ERROR, DEFAULT_GC_MAX_OPS_PER_RUN,
