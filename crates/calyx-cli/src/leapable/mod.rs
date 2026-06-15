@@ -1,4 +1,9 @@
+pub(crate) mod dual_write;
+#[cfg(test)]
+mod dual_write_tests;
+pub(crate) mod dual_write_typed;
 mod issue612_fsv;
+pub(crate) mod recall_comparator;
 pub(crate) mod shadow_harness;
 mod shadow_harness_cli;
 #[cfg(test)]
@@ -10,9 +15,18 @@ pub(crate) fn readback_shadow_manifest(vault: &std::path::Path) -> crate::error:
     shadow_harness_cli::readback_shadow_manifest_cli(vault)
 }
 
+pub(crate) fn readback_dual_write_verify(
+    vault: &std::path::Path,
+    sqlite: &std::path::Path,
+) -> crate::error::CliResult {
+    dual_write::run_readback_verify(vault, sqlite)
+}
+
 pub(crate) fn run(topic: &str, args: &[String]) -> crate::error::CliResult {
     match topic {
+        "dual-write" => dual_write::run_dual_write(args),
         "issue612-fsv" => issue612_fsv::run(args),
+        "recall-compare" => recall_comparator::run_recall_compare(args),
         "shadow-open" => shadow_harness_cli::run_shadow_open(args),
         "shadow-readback" => shadow_harness_cli::run_shadow_readback(args),
         _ => Err(format!("unknown leapable command: {topic}").into()),
