@@ -3,6 +3,7 @@ use calyx_aster::resource::heap_rss_bytes;
 use calyx_core::{Arena, FixedClock, LruTtlCache, PageAlignedSlabPool, SlabPool};
 use serde::Serialize;
 use serde_json::json;
+use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -78,6 +79,7 @@ struct HeapSoakReport {
     process_rss_headroom_bytes: u64,
     rss_budget_bytes: u64,
     rss_trend_bytes_per_op: f64,
+    rss_trend_window: &'static str,
     rss_samples: Vec<RssSample>,
     writes: u64,
     point_reads: u64,
@@ -130,7 +132,7 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
     let clock = Arc::new(FixedClock::new(1_800_100_800_000));
     let mut cache = LruTtlCache::<u64, Vec<u8>>::new(CACHE_CAP, Duration::from_secs(3600), clock)
         .map_err(err)?;
-    let mut recent = Vec::<[u8; 8]>::with_capacity(KEY_RING);
+    let mut recent = VecDeque::<[u8; 8]>::with_capacity(KEY_RING);
     let mut value = vec![0u8; 4096];
     let mut samples = vec![RssSample {
         op: 0,
@@ -205,6 +207,7 @@ fn run_heap_soak(root: &Path, op_count: u64, flood_rows: u64) -> Result<HeapSoak
         process_rss_headroom_bytes: PROCESS_RSS_HEADROOM as u64,
         rss_budget_bytes: rss_budget,
         rss_trend_bytes_per_op: tail_slope(&samples),
+        rss_trend_window: "last_quarter_after_burst",
         rss_samples: samples,
         writes: counts.writes,
         point_reads: counts.point_reads,
@@ -259,7 +262,7 @@ fn exercise_allocators(
 fn write_op(
     op: u64,
     router: &mut CfRouter,
-    recent: &mut Vec<[u8; 8]>,
+    recent: &mut VecDeque<[u8; 8]>,
     value: &mut [u8],
     counts: &mut Counts,
 ) -> Result<(), String> {
@@ -271,14 +274,18 @@ fn write_op(
         .put(ColumnFamily::Base, &key, &value[..len])
         .map_err(err)?;
     if recent.len() == KEY_RING {
-        recent.remove(0);
+        recent.pop_front();
     }
-    recent.push(key);
+    recent.push_back(key);
     counts.writes += 1;
     Ok(())
 }
 
-fn point_read_op(router: &CfRouter, recent: &[[u8; 8]], counts: &mut Counts) -> Result<(), String> {
+fn point_read_op(
+    router: &CfRouter,
+    recent: &VecDeque<[u8; 8]>,
+    counts: &mut Counts,
+) -> Result<(), String> {
     if let Some(key) = recent.get((counts.point_reads as usize) % recent.len().max(1)) {
         let _ = router.get(ColumnFamily::Base, key).map_err(err)?;
     }
@@ -289,14 +296,16 @@ fn point_read_op(router: &CfRouter, recent: &[[u8; 8]], counts: &mut Counts) -> 
 fn range_op(
     op: u64,
     router: &CfRouter,
-    recent: &[[u8; 8]],
+    recent: &VecDeque<[u8; 8]>,
     counts: &mut Counts,
 ) -> Result<(), String> {
     counts.range_scans += 1;
-    if recent.is_empty() || !op.is_multiple_of(10_000) {
+    if !op.is_multiple_of(10_000) {
         return Ok(());
     }
-    let start = recent[0];
+    let Some(start) = recent.front().copied() else {
+        return Ok(());
+    };
     let end = u64::from_be_bytes(start).saturating_add(16).to_be_bytes();
     let _ = router
         .range(ColumnFamily::Base, &start, &end)
@@ -360,7 +369,7 @@ fn probe_max_write_fail_closed(root: impl AsRef<Path>) -> Result<(usize, String)
 }
 
 fn tail_slope(samples: &[RssSample]) -> f64 {
-    let start = samples.len() / 2;
+    let start = samples.len().saturating_mul(3) / 4;
     slope(&samples[start..])
 }
 
