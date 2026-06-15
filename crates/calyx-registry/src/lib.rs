@@ -40,12 +40,14 @@ pub use lens::{
     ensure_input_modality, ensure_vector_shape,
 };
 pub use panel_ops::{
-    PanelCapabilityGateOutcome, PanelDiff, PanelSlotListing, apply_capability_gate, list_panel,
-    list_panel_with_assay, swap_panel,
+    AppliedPanelTemplate, CALYX_PANEL_LENS_MISSING, PanelCapabilityGateOutcome, PanelDiff,
+    PanelSlotListing, ResolvedPanelLens, apply_capability_gate, apply_panel_template, list_panel,
+    list_panel_with_assay, swap_panel, swap_panel_to_target,
 };
 pub use panels::{
     AlgorithmicPanelLens, InstantiatedPanel, PanelLensRuntime, PanelSlotSpec, PanelTemplate,
-    civic_default, code_default, instantiate_panel, media_default, text_default,
+    bio_default, civic_default, code_default, instantiate_panel, legal_default, media_default,
+    medical_default, text_default,
 };
 pub use persistence::{
     VaultPanelState, VaultPanelWrite, VaultRegistrySnapshot, load_vault_panel_state,
