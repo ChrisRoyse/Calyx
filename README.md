@@ -8,6 +8,11 @@
 
 **Calyx is an association-native database.** Instead of storing rows and matching them, or storing one vector and finding its neighbors, Calyx stores *constellations* — one input measured through many frozen lenses — then fuses, grounds, and guards every answer. Built in Rust, with GPU linear algebra baked in.
 
+[![License: BSL 1.1](https://img.shields.io/badge/license-BSL%201.1-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
+[![Status: pre-1.0](https://img.shields.io/badge/status-pre--1.0-yellow.svg)](#-project-status)
+[![Made with GPU](https://img.shields.io/badge/math-CPU%20SIMD%20%2B%20CUDA-2BD4A8.svg)](#-architecture)
+
 [Why Calyx](#-why-calyx) · [Concepts](#-the-core-idea-constellations) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Developer Docs](#-developer-documentation) · [Roadmap](#-project-status)
 
 <img src="docs/assets/hero.png" alt="A single grounded point blooming into a constellation of vectors" width="100%" />
@@ -378,7 +383,16 @@ A few house rules:
 
 ## 📄 License
 
-A license has not yet been finalized for this project. Until one is added, all rights are reserved by the author. If you would like to use Calyx, please open an issue to discuss.
+Calyx is **source-available** under the [Business Source License 1.1](LICENSE) (BSL) — the same model used by databases like CockroachDB, MariaDB, and Couchbase.
+
+| Use | Allowed under BSL? |
+|---|---|
+| Development, testing, evaluation, research, education | ✅ Free |
+| Personal & non-commercial projects | ✅ Free |
+| Reading, modifying, and redistributing the source | ✅ Free |
+| **Production or commercial use** — embedding in a product/service, or running in a business | 💼 Requires a commercial license |
+
+Each released version automatically converts to the open-source **Apache License 2.0** four years after its release. For a commercial license, please [open an issue](https://github.com/ChrisRoyse/Calyx/issues). See [`LICENSE`](LICENSE) for the binding terms.
 
 ---
 
