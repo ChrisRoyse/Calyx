@@ -73,6 +73,8 @@ struct ShadowManifest {
     sqlite_path_digest: String,
     calyx_chunk_count: u64,
     created_at_ms: u64,
+    #[serde(default)]
+    features: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -86,6 +88,7 @@ pub(crate) struct ShadowManifestReadback {
     pub chunk_count: u64,
     pub wal_path: PathBuf,
     pub wal_bytes: u64,
+    pub features: BTreeMap<String, String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -120,21 +123,47 @@ impl ShadowVault {
         &self.sqlite.database_name
     }
 
+    pub(crate) fn paths(&self) -> (&Path, &Path) {
+        (&self.sqlite.path, &self.calyx.root)
+    }
+
     pub(crate) fn mode(&self) -> VaultMode {
         self.calyx.manifest.mode
     }
 
     pub(crate) fn set_mode(&mut self, next: VaultMode) -> Result<(), CalyxError> {
-        let current = self.mode();
-        if next < current {
+        self.set_mode_with_features(next, &[])
+    }
+
+    pub(crate) fn set_mode_with_features(
+        &mut self,
+        next: VaultMode,
+        entries: &[(&str, String)],
+    ) -> Result<(), CalyxError> {
+        let old = self.calyx.manifest.clone();
+        if next < old.mode {
+            let message = format!(
+                "cannot move vault mode from {:?} back to {next:?}",
+                old.mode
+            );
             return Err(error(
                 CALYX_VAULT_MODE_ROLLBACK_DENIED,
-                format!("cannot move vault mode from {current:?} back to {next:?}"),
+                message,
                 "open a forward migration issue; vault mode is a one-way ratchet",
             ));
         }
         self.calyx.manifest.mode = next;
-        self.calyx.write_manifest()
+        for (key, value) in entries {
+            self.calyx
+                .manifest
+                .features
+                .insert((*key).to_string(), value.clone());
+        }
+        if let Err(error) = self.calyx.write_manifest() {
+            self.calyx.manifest = old;
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub(crate) fn verify_pg_contract(&self) -> Result<PgContractReport, CalyxError> {
@@ -219,6 +248,7 @@ impl CalyxHandle {
                 sqlite_path_digest: readback.sqlite_path_digest,
                 calyx_chunk_count: readback.chunk_count,
                 created_at_ms: 0,
+                features: readback.features,
             }
         } else {
             fs::create_dir_all(root).map_err(|error| {
@@ -239,6 +269,7 @@ impl CalyxHandle {
                     .to_string(),
                 calyx_chunk_count: 0,
                 created_at_ms: now_ms(),
+                features: BTreeMap::new(),
             }
         };
         let handle = Self {
@@ -307,6 +338,7 @@ fn decode_manifest_bytes(vault: &Path, bytes: &[u8]) -> Result<ShadowManifestRea
         chunk_count: manifest.calyx_chunk_count,
         wal_path,
         wal_bytes,
+        features: manifest.features,
     })
 }
 
