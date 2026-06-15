@@ -22,6 +22,8 @@ pub struct CommissionRequest {
     pub base_model: String,
     pub corpus: Vec<Vec<u8>>,
     pub output_dim: u32,
+    pub modality: Modality,
+    pub axis: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -50,6 +52,7 @@ pub fn commission_lens(
         ))
     })?;
     let corpus_parts = request.corpus.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let axis = request.axis.clone().unwrap_or_else(|| request.name.clone());
     let corpus_hash = sha256_digest(&corpus_parts);
     let weights_sha256 = sha256_digest(&[
         b"commissioned-lens-v1",
@@ -61,7 +64,7 @@ pub fn commission_lens(
         weights_sha256,
         corpus_hash,
         SlotShape::Dense(request.output_dim),
-        Modality::Text,
+        request.modality,
         LensDType::F32,
         NormPolicy::None,
     );
@@ -89,11 +92,11 @@ pub fn commission_lens(
             kind: format!("commissioned:{}", request.base_model),
         },
         output: SlotShape::Dense(request.output_dim),
-        modality: Modality::Text,
+        modality: request.modality,
         weights_sha256,
         corpus_hash,
         norm_policy: NormPolicy::None,
-        axis: Some(request.name.clone()),
+        axis: Some(axis),
         asymmetry: calyx_core::Asymmetry::None,
         quant_default: calyx_core::QuantPolicy::turboquant_default(),
         truncate_dim: None,
@@ -131,7 +134,7 @@ impl Lens for CommissionedLens {
     }
 
     fn modality(&self) -> Modality {
-        Modality::Text
+        self.artifact.contract.modality()
     }
 
     fn measure(&self, input: &Input) -> Result<SlotVector> {
