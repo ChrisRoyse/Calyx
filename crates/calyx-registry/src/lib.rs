@@ -2,6 +2,7 @@
 
 pub mod backfill;
 pub mod commission;
+pub mod compression;
 pub mod drift;
 pub mod explain;
 pub mod frozen;
@@ -26,6 +27,12 @@ pub use commission::{
     CommissionRequest, CommissionedLens, CommissionedLensArtifact, LensForgeFile,
     LensForgeManifest, commission_lens, lens_spec_from_manifest, lens_spec_from_manifest_path,
     lens_spec_from_manifest_with_license_override, register_commissioned,
+};
+pub use compression::{
+    CALYX_VECTOR_COMPRESSION_EMPTY, CALYX_VECTOR_COMPRESSION_INVALID, COMPRESSED_SLOT_TAG,
+    SlotCompressionReport, SlotCompressionRow, StoredSlotCodec, StoredSlotEnvelope,
+    compress_slot_batch, decode_stored_slot_envelope, matryoshka_truncate_renormalize,
+    write_compressed_slot_batch,
 };
 pub use drift::{DriftDecision, RuntimeGolden};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};

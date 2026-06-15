@@ -1,5 +1,7 @@
 use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
-use calyx_core::{CalyxError, LensId, Modality, Panel, Slot, SlotId, SlotKey, SlotState, Ts};
+use calyx_core::{
+    CalyxError, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotState, Ts,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::Registry;
@@ -22,6 +24,7 @@ pub struct PanelSlotListing {
     pub key: String,
     pub lens_id: LensId,
     pub state: SlotState,
+    pub quant: QuantPolicy,
     pub bits_about: Option<f32>,
     pub health: LensHealth,
 }
@@ -237,6 +240,9 @@ fn resolve_registry_slots(
             )));
         }
         slot.lens_id = lens_id;
+        slot.quant = registry
+            .lens_spec(lens_id)
+            .map_or(QuantPolicy::None, |spec| spec.quant_default);
         resolved.push(ResolvedPanelLens {
             slot_key: spec.name.clone(),
             lens_name: name.clone(),
@@ -269,6 +275,7 @@ fn listing_for_slot(slot: &Slot, registry: &Registry) -> PanelSlotListing {
         key: slot.slot_key.key().to_string(),
         lens_id: slot.lens_id,
         state: slot.state,
+        quant: slot.quant,
         bits_about: slot_bits(slot),
         health: registry
             .health(slot.lens_id)

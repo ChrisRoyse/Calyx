@@ -118,7 +118,26 @@ where
         for (slot, value) in slot_ids.into_iter().zip(values) {
             let value =
                 value.ok_or_else(|| CalyxError::aster_corrupt_shard("slot CF row missing"))?;
-            slots.insert(slot, encode::decode_slot_vector(&value)?);
+            let vector = match encode::decode_slot_vector(&value) {
+                Ok(vector) => vector,
+                Err(_) => {
+                    let raw = self
+                        .rows
+                        .read_at(
+                            handle,
+                            ColumnFamily::slot_raw(slot),
+                            &slot_key(id),
+                            &self.clock,
+                        )?
+                        .ok_or_else(|| {
+                            CalyxError::aster_corrupt_shard(
+                                "compressed slot CF row missing raw sidecar",
+                            )
+                        })?;
+                    encode::decode_slot_vector(&raw)?
+                }
+            };
+            slots.insert(slot, vector);
         }
         constellation.slots = slots;
         Ok(constellation)

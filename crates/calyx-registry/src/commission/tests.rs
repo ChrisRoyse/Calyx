@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use calyx_core::{Modality, SlotShape};
+use calyx_core::{Modality, QuantPolicy, SlotShape};
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -42,6 +42,9 @@ fn lensforge_manifest_round_trips_to_stable_lens_spec() {
         source_hf_id: "fixture/tiny".to_string(),
         license: Some("apache-2.0".to_string()),
         non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
     };
     let manifest_path = root.join("manifest.json");
     fs::write(
@@ -120,6 +123,9 @@ fn model2vec_manifest_maps_to_static_lookup_runtime() {
         source_hf_id: "minishlab/potion-base-8M".to_string(),
         license: Some("mit".to_string()),
         non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
     };
     let manifest_path = root.join("manifest.json");
     fs::write(
@@ -173,6 +179,9 @@ fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
         source_hf_id: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
         license: Some("apache-2.0".to_string()),
         non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
     };
     let manifest_path = root.join("manifest.json");
     fs::write(
@@ -228,6 +237,9 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
         source_hf_id: "fixture/mol".to_string(),
         license: Some("mit".to_string()),
         non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: Some(8),
+        recall_delta: 0.03,
     };
 
     let spec = lens_spec_from_manifest_with_license_override(&manifest, &root, false).unwrap();
@@ -269,6 +281,9 @@ fn noncommercial_manifest_requires_explicit_allow_flag() {
         source_hf_id: "fixture/dna".to_string(),
         license: Some("CC-BY-NC-SA-4.0".to_string()),
         non_commercial: true,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
     };
 
     let denied =
