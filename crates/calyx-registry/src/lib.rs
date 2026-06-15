@@ -39,7 +39,10 @@ pub use lens::{
     DeterminismProof, DualMeasurement, FrozenLensSnapshot, Registry, RegistryLensSnapshot,
     ensure_input_modality, ensure_vector_shape,
 };
-pub use panel_ops::{PanelDiff, PanelSlotListing, list_panel, list_panel_with_assay, swap_panel};
+pub use panel_ops::{
+    PanelCapabilityGateOutcome, PanelDiff, PanelSlotListing, apply_capability_gate, list_panel,
+    list_panel_with_assay, swap_panel,
+};
 pub use panels::{
     AlgorithmicPanelLens, InstantiatedPanel, PanelLensRuntime, PanelSlotSpec, PanelTemplate,
     civic_default, code_default, instantiate_panel, media_default, text_default,
@@ -53,8 +56,11 @@ pub use placement::{
     LENS_RAM_REMEDIATION, LENS_VRAM_REMEDIATION, PlacementBudget, PlacementPlan, choose_placement,
 };
 pub use profile::{
-    CapabilityCard, CostMetrics, CoverageMetrics, MetricSource, ProfileOptions, ProfileProbe,
-    Profiler, SeparationMetrics, SpreadMetrics, apply_assay_metrics, profile_lens,
+    CAPABILITY_MAX_PAIRWISE_CORR_ENV, CAPABILITY_MIN_SIGNAL_BITS_ENV, CapabilityCard,
+    CapabilityGateDecision, CapabilityGateEvaluation, CapabilityGateThresholds, CostMetrics,
+    CoverageMetrics, MetricSource, ProfileOptions, ProfileProbe, Profiler, SeparationMetrics,
+    SpreadMetrics, append_capability_gate_ledger, apply_assay_metrics, capability_gate_json,
+    evaluate_capability_gate, max_panel_pairwise_correlation, profile_lens,
     profile_slot_with_assay,
 };
 pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};

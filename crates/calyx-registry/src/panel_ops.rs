@@ -1,10 +1,12 @@
 use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
-use calyx_core::{LensId, Panel, Slot, SlotId, SlotKey, SlotState, Ts};
+use calyx_core::{CalyxError, LensId, Panel, Slot, SlotId, SlotKey, SlotState, Ts};
 use serde::{Deserialize, Serialize};
 
 use crate::Registry;
 use crate::panels::{PanelTemplate, instantiate_panel};
+use crate::profile::{CapabilityGateDecision, CapabilityGateEvaluation};
 use crate::spec::LensHealth;
+use crate::swap::{LifecycleOutcome, SwapController};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PanelDiff {
@@ -24,12 +26,63 @@ pub struct PanelSlotListing {
     pub health: LensHealth,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PanelCapabilityGateOutcome {
+    pub slot_id: SlotId,
+    pub lens_id: LensId,
+    pub decision: CapabilityGateDecision,
+    pub state: SlotState,
+    pub panel_version: u32,
+    pub reason: String,
+}
+
 pub fn list_panel(panel: &Panel, registry: &Registry) -> Vec<PanelSlotListing> {
     panel
         .slots
         .iter()
         .map(|slot| listing_for_slot(slot, registry))
         .collect()
+}
+
+pub fn apply_capability_gate(
+    controller: &mut SwapController,
+    slot_id: SlotId,
+    evaluation: &CapabilityGateEvaluation,
+    now: Ts,
+) -> calyx_core::Result<PanelCapabilityGateOutcome> {
+    let slot = controller
+        .panel()
+        .slots
+        .iter()
+        .find(|slot| slot.slot_id == slot_id)
+        .ok_or_else(|| CalyxError::registry_unavailable(format!("slot {slot_id} not in panel")))?;
+    if slot.lens_id != evaluation.lens_id {
+        return Err(CalyxError::registry_unavailable(format!(
+            "capability gate lens {} does not match slot {} lens {}",
+            evaluation.lens_id, slot_id, slot.lens_id
+        )));
+    }
+
+    let lifecycle = match evaluation.decision {
+        CapabilityGateDecision::Admit if slot.state == SlotState::Active => LifecycleOutcome {
+            slot_id,
+            lens_id: slot.lens_id,
+            state: slot.state,
+            panel_version: controller.panel().version,
+        },
+        CapabilityGateDecision::Admit => controller.unpark_lens(slot_id, now)?,
+        CapabilityGateDecision::Park => controller.park_lens(slot_id, now)?,
+        CapabilityGateDecision::Retire => controller.retire_lens(slot_id, now)?,
+    };
+
+    Ok(PanelCapabilityGateOutcome {
+        slot_id,
+        lens_id: lifecycle.lens_id,
+        decision: evaluation.decision,
+        state: lifecycle.state,
+        panel_version: lifecycle.panel_version,
+        reason: evaluation.reason.clone(),
+    })
 }
 
 pub fn list_panel_with_assay(
@@ -155,6 +208,10 @@ mod tests {
 
     use super::*;
     use crate::runtime::algorithmic::AlgorithmicLens;
+    use crate::{
+        CapabilityCard, CapabilityGateThresholds, CostMetrics, CoverageMetrics, MetricSource,
+        SeparationMetrics, SpreadMetrics,
+    };
 
     #[test]
     fn list_panel_uses_stored_slot_bits() {
@@ -185,6 +242,34 @@ mod tests {
         let listing = list_panel_with_assay(&panel, &registry, &store, &cache_key);
 
         assert_eq!(listing[0].bits_about, Some(0.47));
+    }
+
+    #[test]
+    fn apply_capability_gate_uses_existing_lifecycle_states() {
+        let (registry, lens_id) = registry_with_lens();
+        let panel = panel_with_slot(lens_id, None);
+        let slot_id = panel.slots[0].slot_id;
+        let mut controller = SwapController::new(panel);
+
+        let parked = apply_capability_gate(
+            &mut controller,
+            slot_id,
+            &evaluation(lens_id, CapabilityGateDecision::Park),
+            20,
+        )
+        .expect("park from gate");
+        let retired = apply_capability_gate(
+            &mut controller,
+            slot_id,
+            &evaluation(lens_id, CapabilityGateDecision::Retire),
+            21,
+        )
+        .expect("retire from gate");
+
+        assert_eq!(registry.health(lens_id).unwrap(), LensHealth::Loaded);
+        assert_eq!(parked.state, SlotState::Parked);
+        assert_eq!(retired.state, SlotState::Retired);
+        assert_eq!(controller.panel().slots[0].state, SlotState::Retired);
     }
 
     fn registry_with_lens() -> (Registry, LensId) {
@@ -244,5 +329,56 @@ mod tests {
 
     fn vault_id() -> VaultId {
         "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
+    }
+
+    fn evaluation(lens_id: LensId, decision: CapabilityGateDecision) -> CapabilityGateEvaluation {
+        CapabilityGateEvaluation {
+            lens_id,
+            decision,
+            signal_bits: 0.08,
+            signal_grounded: true,
+            max_pairwise_corr: 0.1,
+            thresholds: CapabilityGateThresholds::default(),
+            reason: "unit gate".to_string(),
+            card: CapabilityCard {
+                lens_id,
+                probe_count: 4,
+                signal: Some(0.08),
+                signal_source: MetricSource::AssayStore,
+                proxy_signal: 0.08,
+                differentiation: Some(0.07),
+                differentiation_source: MetricSource::AssayStore,
+                proxy_differentiation: 0.7,
+                spread: SpreadMetrics {
+                    participation_ratio: 2.0,
+                    normalized_participation_ratio: 0.5,
+                    stable_rank: 2.0,
+                    total_variance: 1.0,
+                    mean_pairwise_distance: 1.0,
+                },
+                separation: SeparationMetrics {
+                    score: 0.5,
+                    silhouette: 0.5,
+                    mean_pairwise_distance: 1.0,
+                    labeled_groups: 2,
+                    used_labels: true,
+                },
+                cost: CostMetrics {
+                    total_ms: 1.0,
+                    ms_per_input: 1.0,
+                    vram_bytes: 0,
+                    ram_bytes: 0,
+                    batch_ceiling: 1_000,
+                },
+                coverage: CoverageMetrics {
+                    requested: 4,
+                    measured: 4,
+                    failed: 0,
+                    rate: 1.0,
+                },
+                health: LensHealth::Loaded,
+                low_spread: false,
+            },
+        }
     }
 }
