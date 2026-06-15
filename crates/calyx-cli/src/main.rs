@@ -37,6 +37,7 @@ mod healthcheck_tests;
 mod kernel_health_readback;
 mod leapable;
 mod ledger_store;
+mod lens_commands;
 mod lodestar_commands;
 mod lodestar_kernel_validation;
 #[cfg(test)]

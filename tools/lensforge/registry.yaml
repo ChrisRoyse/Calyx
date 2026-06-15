@@ -1,0 +1,22 @@
+output_root: "${CALYX_HOME}/lenses"
+models:
+  - name: semantic-bge-small-en-v1-5
+    hf_id: Xenova/bge-small-en-v1.5
+    modality: text
+    formats: [onnx-int8]
+    pooling: mean
+    norm: l2
+
+  - name: domain-scibert-scivocab-uncased
+    hf_id: Xenova/scibert_scivocab_uncased
+    modality: text
+    formats: [onnx-int8]
+    pooling: mean
+    norm: l2
+
+  - name: audio-wav2vec2-base-960h
+    hf_id: Xenova/wav2vec2-base-960h
+    modality: audio
+    formats: [onnx-int8]
+    pooling: mean
+    norm: finite

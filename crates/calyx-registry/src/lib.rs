@@ -22,7 +22,8 @@ pub use backfill::{
 };
 pub use calyx_core::{Input, Lens};
 pub use commission::{
-    CommissionRequest, CommissionedLens, CommissionedLensArtifact, commission_lens,
+    CommissionRequest, CommissionedLens, CommissionedLensArtifact, LensForgeFile,
+    LensForgeManifest, commission_lens, lens_spec_from_manifest, lens_spec_from_manifest_path,
     register_commissioned,
 };
 pub use drift::{DriftDecision, RuntimeGolden};
