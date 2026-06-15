@@ -3,6 +3,10 @@ pub(crate) mod dual_write;
 mod dual_write_tests;
 pub(crate) mod dual_write_typed;
 mod issue612_fsv;
+pub(crate) mod panel_guard_enable;
+pub(crate) mod read_flip;
+#[cfg(test)]
+mod read_flip_tests;
 pub(crate) mod recall_comparator;
 pub(crate) mod shadow_harness;
 mod shadow_harness_cli;
@@ -24,8 +28,10 @@ pub(crate) fn readback_dual_write_verify(
 
 pub(crate) fn run(topic: &str, args: &[String]) -> crate::error::CliResult {
     match topic {
+        "ask" => read_flip::run_ask(args),
         "dual-write" => dual_write::run_dual_write(args),
         "issue612-fsv" => issue612_fsv::run(args),
+        "read-flip" => read_flip::run_read_flip(args),
         "recall-compare" => recall_comparator::run_recall_compare(args),
         "shadow-open" => shadow_harness_cli::run_shadow_open(args),
         "shadow-readback" => shadow_harness_cli::run_shadow_readback(args),
