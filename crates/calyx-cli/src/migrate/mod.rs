@@ -1,11 +1,11 @@
-mod adapter;
+pub(crate) mod adapter;
 mod backfill;
-mod errors;
-mod manifest;
-mod reader;
+pub(crate) mod errors;
+pub(crate) mod manifest;
+pub(crate) mod reader;
 #[cfg(test)]
 mod tests;
-mod verifier;
+pub(crate) mod verifier;
 #[cfg(test)]
 mod verify_tests;
 
@@ -309,7 +309,7 @@ fn run_readback(
     Ok(readback_chunk(&vault, &row, &adapter(&manifest)?)?)
 }
 
-fn open_vault(vault_dir: &Path, manifest: &MigrationManifest) -> Result<AsterVault> {
+pub(crate) fn open_vault(vault_dir: &Path, manifest: &MigrationManifest) -> Result<AsterVault> {
     AsterVault::new_durable(
         vault_dir,
         manifest.vault_id()?,
@@ -318,7 +318,7 @@ fn open_vault(vault_dir: &Path, manifest: &MigrationManifest) -> Result<AsterVau
     )
 }
 
-fn adapter(manifest: &MigrationManifest) -> Result<VaultSqliteAdapter> {
+pub(crate) fn adapter(manifest: &MigrationManifest) -> Result<VaultSqliteAdapter> {
     let lens_id = manifest
         .base_lens_id
         .parse::<LensId>()
@@ -354,7 +354,10 @@ fn ensure_manifest_matches_options(
     Ok(())
 }
 
-fn ensure_unique_cx_ids(adapter: &VaultSqliteAdapter, rows: &[reader::ChunkRow]) -> CliResult {
+pub(crate) fn ensure_unique_cx_ids(
+    adapter: &VaultSqliteAdapter,
+    rows: &[reader::ChunkRow],
+) -> CliResult {
     let mut seen = BTreeMap::new();
     for row in rows {
         let cx_id = adapter.cx_id(row);

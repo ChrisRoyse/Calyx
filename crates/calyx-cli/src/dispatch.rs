@@ -1,9 +1,4 @@
 //! Argument dispatch for the `calyx` binary.
-//!
-//! Extracted from `main.rs` so the crate entry point stays small and adding a
-//! new subcommand never pushes `main.rs` over the 500-line module gate. Each
-//! arm matches a positional argument shape with flag-literal guards and
-//! delegates to the owning module.
 
 use std::path::Path;
 
@@ -27,6 +22,13 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         }
         [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
             vault_tree::readback_vault_tree(Path::new(value))
+        }
+        [command, vault_flag, vault, verify_flag, sqlite]
+            if command == "readback"
+                && vault_flag == "--vault"
+                && verify_flag == "--verify-against" =>
+        {
+            leapable::readback_dual_write_verify(Path::new(vault), Path::new(sqlite))
         }
         [command, vault_flag, vault, show_flag]
             if command == "readback"
