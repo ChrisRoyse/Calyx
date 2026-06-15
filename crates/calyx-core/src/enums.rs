@@ -18,6 +18,12 @@ pub enum Modality {
     Audio,
     /// Video streams or clips.
     Video,
+    /// Protein or peptide sequences.
+    Protein,
+    /// DNA or nucleotide sequences.
+    Dna,
+    /// Molecules encoded as SMILES or related chemistry strings.
+    Molecule,
     /// Structured records, tables, or typed objects.
     Structured,
     /// Mixed or multi-modal inputs.
@@ -164,6 +170,9 @@ mod tests {
             modality_name(Modality::Image),
             modality_name(Modality::Audio),
             modality_name(Modality::Video),
+            modality_name(Modality::Protein),
+            modality_name(Modality::Dna),
+            modality_name(Modality::Molecule),
             modality_name(Modality::Structured),
             modality_name(Modality::Mixed),
         ];
@@ -176,6 +185,9 @@ mod tests {
                 "image",
                 "audio",
                 "video",
+                "protein",
+                "dna",
+                "molecule",
                 "structured",
                 "mixed"
             ]
@@ -235,6 +247,9 @@ mod tests {
             Modality::Image => "image",
             Modality::Audio => "audio",
             Modality::Video => "video",
+            Modality::Protein => "protein",
+            Modality::Dna => "dna",
+            Modality::Molecule => "molecule",
             Modality::Structured => "structured",
             Modality::Mixed => "mixed",
         }

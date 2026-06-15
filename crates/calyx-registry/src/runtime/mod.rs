@@ -1,5 +1,6 @@
 //! Lens runtime implementations.
 
+pub mod adapters;
 pub mod algorithmic;
 pub mod candle;
 mod common;

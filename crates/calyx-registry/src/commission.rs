@@ -13,6 +13,7 @@ mod tests;
 
 pub use manifest::{
     LensForgeFile, LensForgeManifest, lens_spec_from_manifest, lens_spec_from_manifest_path,
+    lens_spec_from_manifest_with_license_override,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
