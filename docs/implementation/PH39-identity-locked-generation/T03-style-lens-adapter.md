@@ -121,7 +121,7 @@ readback confirmed:
 
 - model SHA-256:
   `fc3c80ead2e4ceef693fa67756f2e0f920fee7df326a565286b34d68d7a170af`
-- tokenizer SHA-256:
+- vocab SHA-256:
   `82139106e603ee4e1d5bc99d056ccbed5a92bc24848b1b5a7137c26e00d0dbf6`
 - source revision: `d7d0f5ca829316a8f5695e49dfce80b86db5e76c`
 - input tensors: `input_ids`, `attention_mask`; output tensor:

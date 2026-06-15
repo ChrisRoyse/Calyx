@@ -32,7 +32,7 @@ On disk this bundle maps to the Aster per-slot column families + scalar/anchor/x
 | Multi (ColBERT) | token-major blocks | MaxSim |
 | Quantized | block-scaled codes + per-block scale (MXFP / TurboQuant) | tensor-core ready |
 
-SoA is the key decision: distance/normalize/MI over a slot are a **single strided pass over a contiguous column**; projection/scoring across the panel is a **grouped GEMM over the per-slot blocks** (§3). Row-major (AoS) would scatter these; Calyx keeps the row *logically* (the bundle) but stores it column-physically (HTAP-style, `04`).
+SoA is the core decision: distance/normalize/MI over a slot are a **single strided pass over a contiguous column**; projection/scoring across the panel is a **grouped GEMM over the per-slot blocks** (§3). Row-major (AoS) would scatter these; Calyx keeps the row *logically* (the bundle) but stores it column-physically (HTAP-style, `04`).
 
 ## 3. How all the vector math is done (the array-math catalog)
 

@@ -137,9 +137,9 @@ Project slug:             leapable-aiwonder-prod-j-ejx
 Environments:             prod (98 keys at /), dev (2 keys at /), staging (empty)
 Secret path:              /   (plus newer folders: prod /polis, dev /social-media-2 — §intro)
 Machine identity:         aiwonder-prod
-Machine identity id:      24fcf8d6-947e-4bd8-a132-fbbd05abe32d
+Machine identity id:      <REDACTED:INFISICAL_MACHINE_ID>
 Auth method:              Universal Auth (for aiwonder + automation)
-Universal Auth client_id: b652fa69-97a7-415c-b4aa-dab6bdb6029f
+Universal Auth client_id: <REDACTED:INFISICAL_UNIVERSAL_AUTH_CLIENT_ID>
 Project role:             Admin
 Org role:                 No Access  (least-privilege at org scope)
 ```

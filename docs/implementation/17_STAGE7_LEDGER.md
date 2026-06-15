@@ -142,7 +142,7 @@ as PH09 writes constellations.*
   physical redaction grep clean, three Admin checkpoint rows, seq 11
   quarantine after tamper, reproduce `max_drift=0.0` through real
   `calyx-registry` lenses and `calyx-forge` TurboQuant determinism, and
-  complete/partial audit trace behavior. Key hashes: `stage7-exit.log`
+  complete/partial audit trace behavior. Reference hashes: `stage7-exit.log`
   `3c9b2e9d5ca2c925bca52f6d0d0f3fcf0377900e56728c0c85f3c2e81505ad5e`,
   `ledger-appender-readback.json`
   `f6bc6713f91eb93be892c468c09deaa57678ece07f1ffcea77018758e9b72299`,
