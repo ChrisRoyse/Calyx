@@ -90,6 +90,56 @@ fn lensforge_manifest_missing_required_field_is_config_invalid() {
     assert!(error.message.contains("dim"), "{}", error.message);
 }
 
+#[test]
+fn model2vec_manifest_maps_to_static_lookup_runtime() {
+    let root = temp_root("model2vec-static");
+    let matrix = write(&root, "embeddings.cslm", &static_matrix_bytes());
+    let tokenizer = write(&root, "tokenizer.json", br#"{ "tokenizer": true }"#);
+    let files = vec![
+        file("embeddings", &matrix, &static_matrix_bytes()),
+        file("tokenizer", &tokenizer, br#"{ "tokenizer": true }"#),
+    ];
+    let manifest = LensForgeManifest {
+        name: "tiny-model2vec".to_string(),
+        modality: Modality::Text,
+        runtime: "model2vec".to_string(),
+        dim: 2,
+        dtype: "int8".to_string(),
+        weights_sha256: plain_sha256_hex(&static_matrix_bytes()),
+        artifact_set_sha256: Some(artifact_hash(&[
+            &static_matrix_bytes(),
+            br#"{ "tokenizer": true }"#,
+        ])),
+        files,
+        pooling: "mean".to_string(),
+        norm: "l2".to_string(),
+        source_hf_id: "minishlab/potion-base-8M".to_string(),
+        license: Some("mit".to_string()),
+        non_commercial: false,
+    };
+    let manifest_path = root.join("manifest.json");
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let spec = lens_spec_from_manifest_path(&manifest_path).unwrap();
+
+    assert_eq!(spec.output, SlotShape::Dense(2));
+    assert!(matches!(
+        spec.runtime,
+        LensRuntime::StaticLookup { ref embeddings_file, ref tokenizer, dim }
+            if dim == 2
+                && embeddings_file.ends_with("embeddings.cslm")
+                && tokenizer.ends_with("tokenizer.json")
+    ));
+    assert_eq!(
+        hex_from_bytes(&spec.weights_sha256),
+        manifest.artifact_set_sha256.unwrap()
+    );
+}
+
 fn temp_root(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -107,6 +157,18 @@ fn write(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
     let path = root.join(name);
     fs::write(&path, bytes).unwrap();
     path
+}
+
+fn static_matrix_bytes() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"CXLKUP1\0");
+    bytes.extend_from_slice(&2_u32.to_le_bytes());
+    bytes.extend_from_slice(&2_u32.to_le_bytes());
+    bytes.push(1);
+    bytes.extend_from_slice(&[0, 0, 0]);
+    bytes.extend_from_slice(&1.0_f32.to_le_bytes());
+    bytes.extend_from_slice(&[1_u8, 0, 0, 1]);
+    bytes
 }
 
 fn file(role: &str, path: &Path, bytes: &[u8]) -> LensForgeFile {

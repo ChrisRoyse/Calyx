@@ -158,7 +158,7 @@ fn spec_weights_sha256(
 ) -> Result<[u8; 32]> {
     let model = artifacts
         .iter()
-        .find(|file| file.role == "model" || file.role == "weights")
+        .find(|file| is_model_role(&file.role))
         .ok_or_else(|| config_invalid("lensforge manifest requires a model file"))?;
     let model_sha = plain_sha256_hex(&model.bytes);
     if !hex_eq(&model_sha, &manifest.weights_sha256) {
@@ -168,7 +168,8 @@ fn spec_weights_sha256(
         )));
     }
     if let Some(expected) = &manifest.artifact_set_sha256 {
-        let parts = artifacts
+        let contract_artifacts = contract_artifacts(manifest, artifacts)?;
+        let parts = contract_artifacts
             .iter()
             .map(|file| file.bytes.as_slice())
             .collect::<Vec<_>>();
@@ -201,7 +202,23 @@ fn runtime_from_manifest(
             model_id: manifest.source_hf_id.clone(),
             files,
         }),
-        "model2vec" => Ok(LensRuntime::ExternalCmd {
+        "model2vec" | "static_lookup" | "static-lookup" => {
+            let embeddings_file = artifact_by_role(artifacts, is_model_role)?;
+            let tokenizer = artifact_by_role(artifacts, |role| role == "tokenizer")?;
+            Ok(LensRuntime::StaticLookup {
+                embeddings_file,
+                tokenizer,
+                dim: manifest.dim,
+            })
+        }
+        "external-cmd" | "external_cmd" => Ok(LensRuntime::ExternalCmd {
+            cmd: manifest.source_hf_id.clone(),
+            args: artifacts
+                .iter()
+                .map(|file| file.path.display().to_string())
+                .collect::<Vec<_>>(),
+        }),
+        "model2vec-external" => Ok(LensRuntime::ExternalCmd {
             cmd: "model2vec".to_string(),
             args: files
                 .iter()
@@ -222,7 +239,7 @@ fn ordered_manifest_files(files: &[LensForgeFile]) -> Vec<&LensForgeFile> {
 
 fn role_rank(role: &str) -> u8 {
     match role {
-        "model" | "weights" => 0,
+        "model" | "weights" | "embeddings" => 0,
         "tokenizer" => 1,
         "config" => 2,
         "preprocessor" => 3,
@@ -230,6 +247,40 @@ fn role_rank(role: &str) -> u8 {
         "special_tokens_map" => 5,
         _ => 9,
     }
+}
+
+fn contract_artifacts<'a>(
+    manifest: &LensForgeManifest,
+    artifacts: &'a [VerifiedFile],
+) -> Result<Vec<&'a VerifiedFile>> {
+    match manifest.runtime.as_str() {
+        "model2vec" | "static_lookup" | "static-lookup" => Ok(vec![
+            artifact_ref_by_role(artifacts, is_model_role)?,
+            artifact_ref_by_role(artifacts, |role| role == "tokenizer")?,
+        ]),
+        _ => Ok(artifacts.iter().collect()),
+    }
+}
+
+fn artifact_by_role(
+    artifacts: &[VerifiedFile],
+    predicate: impl Fn(&str) -> bool,
+) -> Result<PathBuf> {
+    Ok(artifact_ref_by_role(artifacts, predicate)?.path.clone())
+}
+
+fn artifact_ref_by_role(
+    artifacts: &[VerifiedFile],
+    predicate: impl Fn(&str) -> bool,
+) -> Result<&VerifiedFile> {
+    artifacts
+        .iter()
+        .find(|file| predicate(&file.role))
+        .ok_or_else(|| config_invalid("lensforge manifest missing static lookup artifact"))
+}
+
+fn is_model_role(role: &str) -> bool {
+    matches!(role, "model" | "weights" | "embeddings")
 }
 
 fn resolve_manifest_path(base_dir: &Path, path: &Path) -> PathBuf {

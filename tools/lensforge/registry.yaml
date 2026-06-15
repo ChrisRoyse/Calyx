@@ -7,6 +7,14 @@ models:
     pooling: mean
     norm: l2
 
+  - name: semantic-potion-base-8m
+    hf_id: minishlab/potion-base-8M
+    modality: text
+    formats: [model2vec]
+    pooling: mean
+    norm: l2
+    dtype: int8
+
   - name: domain-scibert-scivocab-uncased
     hf_id: Xenova/scibert_scivocab_uncased
     modality: text

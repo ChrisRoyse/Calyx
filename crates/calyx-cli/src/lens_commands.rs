@@ -1,9 +1,10 @@
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
-use calyx_core::SlotShape;
-use calyx_registry::{LensRuntime, LensSpec, lens_spec_from_manifest_path};
+use calyx_core::{Input, Modality, SlotShape, SlotVector};
+use calyx_registry::{Lens, LensRuntime, LensSpec, StaticLookupLens, lens_spec_from_manifest_path};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
@@ -41,18 +42,37 @@ struct ListReport {
     lenses: Vec<LensCatalogEntry>,
 }
 
+#[derive(Serialize)]
+struct ExplainReport {
+    manifest: PathBuf,
+    lens_id: String,
+    name: String,
+    runtime: String,
+    dtype: String,
+    dim: u32,
+    rows: Option<u32>,
+    norm: f32,
+    first_values: Vec<f32>,
+    total_ms: f32,
+    ms_per_input: f32,
+    vram_bytes: u64,
+    vram_mb: f32,
+}
+
 pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
     match topic {
         "add" => add(rest),
         "list" => list(rest),
+        "explain" => explain(rest),
         other => Err(CliError::usage(format!(
-            "unknown lens subcommand {other}; expected add or list"
+            "unknown lens subcommand {other}; expected add, list, or explain"
         ))),
     }
 }
 
 fn add(args: &[String]) -> CliResult {
     let flags = Flags::parse(args)?;
+    flags.reject_measure_flags("calyx lens add")?;
     let manifest = flags
         .manifest
         .ok_or_else(|| CliError::usage("calyx lens add requires --manifest <path>"))?;
@@ -77,6 +97,7 @@ fn add(args: &[String]) -> CliResult {
 
 fn list(args: &[String]) -> CliResult {
     let flags = Flags::parse(args)?;
+    flags.reject_measure_flags("calyx lens list")?;
     if flags.manifest.is_some() {
         return Err(CliError::usage(
             "calyx lens list does not accept --manifest",
@@ -91,10 +112,67 @@ fn list(args: &[String]) -> CliResult {
     })
 }
 
+fn explain(args: &[String]) -> CliResult {
+    let flags = Flags::parse(args)?;
+    let manifest = flags
+        .manifest
+        .ok_or_else(|| CliError::usage("calyx lens explain requires --manifest <path>"))?;
+    let repeat = flags.repeat.unwrap_or(1);
+    if repeat == 0 {
+        return Err(CliError::usage("--repeat must be > 0"));
+    }
+    let spec = lens_spec_from_manifest_path(&manifest)?;
+    let input = flags
+        .input
+        .unwrap_or_else(|| "Calyx static lookup explain probe".to_string());
+    match &spec.runtime {
+        LensRuntime::StaticLookup { .. } => explain_static_lookup(manifest, spec, input, repeat),
+        other => Err(CliError::usage(format!(
+            "calyx lens explain currently supports static_lookup manifests, got {}",
+            runtime_name(other)
+        ))),
+    }
+}
+
+fn explain_static_lookup(
+    manifest: PathBuf,
+    spec: LensSpec,
+    input: String,
+    repeat: usize,
+) -> CliResult {
+    let lens = StaticLookupLens::from_lens_spec(&spec)?;
+    let lens_id = spec.lens_id().to_string();
+    let probe = Input::new(Modality::Text, input.into_bytes());
+    let started = Instant::now();
+    let mut last = None;
+    for _ in 0..repeat {
+        last = Some(lens.measure(&probe)?);
+    }
+    let total_ms = started.elapsed().as_secs_f64() as f32 * 1000.0;
+    let vector = last.ok_or_else(|| CliError::usage("repeat produced no vector"))?;
+    print_json(&ExplainReport {
+        manifest,
+        lens_id,
+        name: spec.name,
+        runtime: runtime_name(&spec.runtime).to_string(),
+        dtype: lens.dtype().as_str().to_string(),
+        dim: dim(spec.output),
+        rows: Some(lens.row_count()),
+        norm: slot_norm(&vector),
+        first_values: slot_prefix(&vector, 4),
+        total_ms,
+        ms_per_input: total_ms / repeat as f32,
+        vram_bytes: 0,
+        vram_mb: 0.0,
+    })
+}
+
 #[derive(Default)]
 struct Flags {
     manifest: Option<PathBuf>,
     home: Option<PathBuf>,
+    input: Option<String>,
+    repeat: Option<usize>,
 }
 
 impl Flags {
@@ -111,6 +189,17 @@ impl Flags {
                     idx += 1;
                     flags.home = Some(value(args, idx, "--home")?.into());
                 }
+                "--input" => {
+                    idx += 1;
+                    flags.input = Some(value(args, idx, "--input")?.to_string());
+                }
+                "--repeat" => {
+                    idx += 1;
+                    let raw = value(args, idx, "--repeat")?;
+                    flags.repeat = Some(raw.parse().map_err(|err| {
+                        CliError::usage(format!("parse --repeat value {raw}: {err}"))
+                    })?);
+                }
                 other => {
                     return Err(CliError::usage(format!("unexpected lens flag {other}")));
                 }
@@ -118,6 +207,15 @@ impl Flags {
             idx += 1;
         }
         Ok(flags)
+    }
+
+    fn reject_measure_flags(&self, command: &str) -> CliResult {
+        if self.input.is_some() || self.repeat.is_some() {
+            return Err(CliError::usage(format!(
+                "{command} does not accept --input or --repeat"
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -174,6 +272,7 @@ fn runtime_name(runtime: &LensRuntime) -> &'static str {
         LensRuntime::TeiHttp { .. } => "tei_http",
         LensRuntime::CandleLocal { .. } => "candle_local",
         LensRuntime::Onnx { .. } => "onnx",
+        LensRuntime::StaticLookup { .. } => "static_lookup",
         LensRuntime::ExternalCmd { .. } => "external_cmd",
     }
 }
@@ -187,4 +286,44 @@ fn dim(shape: SlotShape) -> u32 {
 
 fn hex_from_bytes(bytes: &[u8; 32]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn slot_norm(vector: &SlotVector) -> f32 {
+    match vector {
+        SlotVector::Dense { data, .. } => {
+            data.iter().map(|value| value * value).sum::<f32>().sqrt()
+        }
+        SlotVector::Sparse { entries, .. } => entries
+            .iter()
+            .map(|entry| entry.val * entry.val)
+            .sum::<f32>()
+            .sqrt(),
+        SlotVector::Multi { tokens, .. } => tokens
+            .iter()
+            .flat_map(|token| token.iter())
+            .map(|value| value * value)
+            .sum::<f32>()
+            .sqrt(),
+        SlotVector::Absent { .. } => 0.0,
+    }
+}
+
+fn slot_prefix(vector: &SlotVector, limit: usize) -> Vec<f32> {
+    match vector {
+        SlotVector::Dense { data, .. } => data.iter().take(limit).copied().collect(),
+        SlotVector::Sparse { dim, entries } => {
+            let mut values = vec![0.0; (*dim as usize).min(limit)];
+            for entry in entries {
+                if let Some(value) = values.get_mut(entry.idx as usize) {
+                    *value = entry.val;
+                }
+            }
+            values
+        }
+        SlotVector::Multi { tokens, .. } => tokens
+            .first()
+            .map(|token| token.iter().take(limit).copied().collect())
+            .unwrap_or_default(),
+        SlotVector::Absent { .. } => Vec::new(),
+    }
 }

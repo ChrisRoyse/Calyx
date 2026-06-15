@@ -15,6 +15,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -31,6 +32,8 @@ except ImportError as exc:  # pragma: no cover - exercised on missing host deps.
 
 
 VERSION = 1
+STATIC_LOOKUP_MAGIC = b"CXLKUP1\0"
+STATIC_LOOKUP_DTYPE = {"int8": 1, "f16": 2, "float16": 2, "f32": 3, "float32": 3}
 ONNX_MODEL_CANDIDATES = (
     "onnx/model_int8.onnx",
     "model_int8.onnx",
@@ -46,6 +49,7 @@ COMMON_OPTIONAL_FILES = (
 ROLE_ORDER = {
     "model": 0,
     "weights": 0,
+    "embeddings": 0,
     "tokenizer": 1,
     "config": 2,
     "preprocessor": 3,
@@ -112,11 +116,10 @@ def convert_entry(
         log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format_modality"})
         return None
     if target_format == "model2vec":
-        if shutil.which("model2vec") is None:
+        if not python_module_exists("model2vec"):
             log_event(log_path, "skip", model, target_format, {"reason": "dependency_missing"})
             return None
-        log_event(log_path, "skip", model, target_format, {"reason": "distillation_not_configured"})
-        return None
+        return convert_model2vec(model, output_root, log_path)
     if target_format == "candle-fp16":
         if not python_module_exists("safetensors"):
             log_event(log_path, "skip", model, target_format, {"reason": "dependency_missing"})
@@ -127,6 +130,57 @@ def convert_entry(
         log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format"})
         return None
     return convert_onnx_int8(model, output_root, log_path)
+
+
+def convert_model2vec(
+    model: dict[str, Any], output_root: Path, log_path: Path
+) -> dict[str, Any] | None:
+    import numpy as np
+    from model2vec import StaticModel
+
+    name = str(model.get("name") or safe_name(str(model["hf_id"])))
+    out_dir = output_root / safe_name(name) / "model2vec"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    info = hf_model_info(str(model["hf_id"]))
+    license_value = model.get("license") or hf_license(info) or "unknown"
+    static = StaticModel.from_pretrained(
+        str(model["hf_id"]),
+        token=os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN"),
+        normalize=True,
+        force_download=False,
+    )
+    matrix = expand_model2vec_matrix(static, np)
+    dim = int(model.get("dim") or matrix.shape[1])
+    if dim != int(matrix.shape[1]):
+        raise ValueError(f"model2vec dim {matrix.shape[1]} != configured {dim}")
+    dtype = str(model.get("dtype") or "int8").lower()
+    matrix_path = out_dir / "embeddings.cslm"
+    actual_dtype = write_static_lookup_matrix(matrix_path, matrix, dtype, np)
+    tokenizer_path = out_dir / "tokenizer.json"
+    static.tokenizer.save(str(tokenizer_path))
+    artifacts = {"embeddings": matrix_path, "tokenizer": tokenizer_path}
+    manifest = build_manifest(
+        model={**model, "dtype": actual_dtype, "norm": model.get("norm", "l2")},
+        target_format="model2vec",
+        artifacts=artifacts,
+        dim=dim,
+        license_value=license_value,
+    )
+    manifest_path = out_dir / "manifest.json"
+    write_json(manifest_path, manifest)
+    log_event(
+        log_path,
+        "manifest",
+        model,
+        "model2vec",
+        {
+            "manifest": str(manifest_path),
+            "weights_sha256": manifest["weights_sha256"],
+            "dtype": actual_dtype,
+            "dim": dim,
+        },
+    )
+    return {"name": manifest["name"], "manifest": str(manifest_path)}
 
 
 def convert_onnx_int8(
@@ -210,6 +264,52 @@ def copy_local_artifacts(model: dict[str, Any], out_dir: Path) -> dict[str, Path
     return artifacts
 
 
+def expand_model2vec_matrix(static: Any, np: Any) -> Any:
+    matrix = static.embedding
+    mapping = getattr(static, "token_mapping", None)
+    if mapping is not None:
+        matrix = matrix[mapping]
+    weights = getattr(static, "weights", None)
+    if weights is not None:
+        matrix = matrix.astype(np.float32, copy=False) * weights[:, None]
+    return np.ascontiguousarray(matrix)
+
+
+def write_static_lookup_matrix(path: Path, matrix: Any, dtype: str, np: Any) -> str:
+    dtype_key = dtype.lower()
+    if dtype_key not in STATIC_LOOKUP_DTYPE:
+        raise ValueError(f"unsupported static lookup dtype {dtype}")
+    rows, dim = matrix.shape
+    scale = 1.0
+    if dtype_key == "int8":
+        body, scale = quantize_int8(matrix, np)
+        actual_dtype = "int8"
+    elif dtype_key in {"f16", "float16"}:
+        body = matrix.astype(np.float16, copy=False)
+        actual_dtype = "f16"
+    else:
+        body = matrix.astype(np.float32, copy=False)
+        actual_dtype = "f32"
+    body = np.ascontiguousarray(body)
+    with path.open("wb") as handle:
+        handle.write(STATIC_LOOKUP_MAGIC)
+        handle.write(int(rows).to_bytes(4, "little"))
+        handle.write(int(dim).to_bytes(4, "little"))
+        handle.write(bytes([STATIC_LOOKUP_DTYPE[actual_dtype]]))
+        handle.write(b"\0\0\0")
+        handle.write(struct.pack("<f", scale))
+        handle.write(body.tobytes(order="C"))
+    return actual_dtype
+
+
+def quantize_int8(matrix: Any, np: Any) -> tuple[Any, float]:
+    peak = float(np.max(np.abs(matrix))) if matrix.size else 0.0
+    scale = peak / 127.0 if peak > 0.0 else 1.0
+    quantized = np.rint(matrix.astype(np.float32, copy=False) / scale)
+    quantized = np.clip(quantized, -127, 127).astype(np.int8)
+    return quantized, scale
+
+
 def build_manifest(
     model: dict[str, Any],
     target_format: str,
@@ -229,7 +329,7 @@ def build_manifest(
                 "bytes": len(data),
             }
         )
-    model_path = role_path(artifacts, "model")
+    model_path = model_artifact_path(artifacts)
     model_hash = plain_sha256(model_path.read_bytes())
     artifact_hash = length_delimited_sha256(path.read_bytes() for _, path in ordered)
     return {
@@ -351,6 +451,13 @@ def role_path(artifacts: dict[str, Path], role: str) -> Path:
     raise ValueError(f"missing artifact role {role}")
 
 
+def model_artifact_path(artifacts: dict[str, Path]) -> Path:
+    for role in ("model", "weights", "embeddings"):
+        if role in artifacts:
+            return artifacts[role]
+    raise ValueError("missing artifact role model/weights/embeddings")
+
+
 def ordered_artifacts(artifacts: dict[str, Path]) -> list[tuple[str, Path]]:
     return sorted(artifacts.items(), key=lambda item: (ROLE_ORDER.get(item[0], 9), item[1].name))
 
@@ -426,7 +533,7 @@ def self_test() -> int:
         output = root / "out"
         registry.write_text(
             f"""
-output_root: "{output}"
+output_root: {yaml_single_quote(output)}
 models:
   - name: tiny-fixture
     hf_id: fixture/tiny
@@ -436,11 +543,11 @@ models:
     norm: l2
     files:
       - role: model
-        path: "{source / "model_int8.onnx"}"
+        path: {yaml_single_quote(source / "model_int8.onnx")}
       - role: tokenizer
-        path: "{source / "tokenizer.json"}"
+        path: {yaml_single_quote(source / "tokenizer.json")}
       - role: config
-        path: "{source / "config.json"}"
+        path: {yaml_single_quote(source / "config.json")}
   - name: bad-audio
     hf_id: fixture/audio
     modality: audio
@@ -462,6 +569,10 @@ models:
             print("self-test missing unsupported modality skip", file=sys.stderr)
             return 1
     return 0
+
+
+def yaml_single_quote(path: Path) -> str:
+    return "'" + str(path).replace("'", "''") + "'"
 
 
 if __name__ == "__main__":
