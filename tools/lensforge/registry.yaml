@@ -36,3 +36,48 @@ models:
     formats: [onnx-int8]
     pooling: mean
     norm: finite
+
+  - name: image-siglip2-b16-adapter
+    hf_id: google/siglip2-base-patch16-224
+    modality: image
+    formats: [adapter]
+    pooling: mean
+    norm: l2
+    dim: 16
+    license: apache-2.0
+
+  - name: audio-clap-htsat-adapter
+    hf_id: laion/clap-htsat-unfused
+    modality: audio
+    formats: [adapter]
+    pooling: mean
+    norm: l2
+    dim: 16
+    license: apache-2.0
+
+  - name: protein-esm2-t6-8m-adapter
+    hf_id: facebook/esm2_t6_8M_UR50D
+    modality: protein
+    formats: [adapter]
+    pooling: mean
+    norm: l2
+    dim: 16
+    license: mit
+
+  - name: dna-dnabert2-117m-adapter
+    hf_id: zhihan1996/DNABERT-2-117M
+    modality: dna
+    formats: [adapter]
+    pooling: mean
+    norm: l2
+    dim: 16
+    license: apache-2.0
+
+  - name: molecule-chemberta-zinc-adapter
+    hf_id: seyonec/ChemBERTa-zinc-base-v1
+    modality: molecule
+    formats: [adapter]
+    pooling: mean
+    norm: l2
+    dim: 16
+    license: mit

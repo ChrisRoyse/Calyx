@@ -312,6 +312,9 @@ fn modality_name(modality: ModalityId) -> &'static str {
         Modality::Image => "image",
         Modality::Audio => "audio",
         Modality::Video => "video",
+        Modality::Protein => "protein",
+        Modality::Dna => "dna",
+        Modality::Molecule => "molecule",
         Modality::Structured => "structured",
         Modality::Mixed => "mixed",
     }

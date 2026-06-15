@@ -290,7 +290,9 @@ fn entry_from_spec(
 
 fn estimate_lens_cost(spec: &LensSpec) -> CliResult<LensCost> {
     match &spec.runtime {
-        LensRuntime::Algorithmic { .. } | LensRuntime::ExternalCmd { .. } => Ok(LensCost::zero()),
+        LensRuntime::Algorithmic { .. }
+        | LensRuntime::MultimodalAdapter { .. }
+        | LensRuntime::ExternalCmd { .. } => Ok(LensCost::zero()),
         LensRuntime::TeiHttp { .. } => Ok(LensCost::zero()),
         LensRuntime::StaticLookup {
             embeddings_file,
@@ -412,6 +414,7 @@ fn runtime_name(runtime: &LensRuntime) -> &'static str {
         LensRuntime::CandleLocal { .. } => "candle_local",
         LensRuntime::Onnx { .. } => "onnx",
         LensRuntime::StaticLookup { .. } => "static_lookup",
+        LensRuntime::MultimodalAdapter { .. } => "multimodal_adapter",
         LensRuntime::ExternalCmd { .. } => "external_cmd",
     }
 }
