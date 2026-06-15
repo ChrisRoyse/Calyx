@@ -1,8 +1,0 @@
-repos:
-  - repo: local
-    hooks:
-      - id: calyx-secret-scan
-        name: Calyx secret scan
-        entry: scripts/secret-scan.sh
-        language: system
-        pass_filenames: false

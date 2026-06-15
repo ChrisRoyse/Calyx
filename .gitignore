@@ -9,6 +9,8 @@ scripts/
 infra/
 datasets/
 env.sh
+.pre-commit-config.yaml
+.githooks/
 
 # ── Secrets / environment — never commit, not even examples ───────────
 .env
