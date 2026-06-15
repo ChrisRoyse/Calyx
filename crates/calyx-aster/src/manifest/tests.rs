@@ -104,7 +104,7 @@ fn unknown_manifest_major_fails_closed() {
         .load_current()
         .expect_err("unsupported major rejected");
 
-    assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    assert_eq!(error.code, "CALYX_FORMAT_VERSION_UNSUPPORTED");
     cleanup(dir);
 }
 
