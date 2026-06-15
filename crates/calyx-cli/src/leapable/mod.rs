@@ -15,6 +15,9 @@ pub(crate) mod shadow_harness;
 mod shadow_harness_cli;
 #[cfg(test)]
 mod shadow_harness_tests;
+pub(crate) mod shadow_removal;
+#[cfg(test)]
+mod shadow_removal_tests;
 
 pub(crate) use shadow_harness::{ShadowVault, VaultMode};
 
@@ -36,6 +39,7 @@ pub(crate) fn run(topic: &str, args: &[String]) -> crate::error::CliResult {
         "issue612-fsv" => issue612_fsv::run(args),
         "read-flip" => read_flip::run_read_flip(args),
         "recall-compare" => recall_comparator::run_recall_compare(args),
+        "remove-shadow" => shadow_removal::run_remove_shadow(args),
         "verify-round-trip" => round_trip_verifier::run_verify_round_trip(args),
         "shadow-open" => shadow_harness_cli::run_shadow_open(args),
         "shadow-readback" => shadow_harness_cli::run_shadow_readback(args),
