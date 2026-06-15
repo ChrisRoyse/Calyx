@@ -372,6 +372,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
+ "calyx-registry",
  "calyx-sextant",
  "serde",
  "serde_json",
