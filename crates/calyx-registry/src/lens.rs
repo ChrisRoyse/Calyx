@@ -112,6 +112,20 @@ impl Registry {
         self.lenses.contains_key(&id)
     }
 
+    /// Finds a registered lens by its stable frozen/spec name.
+    pub fn find_lens_by_name(&self, name: &str) -> Option<LensId> {
+        self.lenses
+            .iter()
+            .find(|(_, entry)| {
+                entry.spec.as_ref().is_some_and(|spec| spec.name == name)
+                    || entry
+                        .frozen
+                        .as_ref()
+                        .is_some_and(|contract| contract.name() == name)
+            })
+            .map(|(lens_id, _)| *lens_id)
+    }
+
     /// Measures one input with a registered lens.
     pub fn measure(&self, lens_id: LensId, input: &Input) -> Result<SlotVector> {
         let entry = self.lookup(lens_id)?;

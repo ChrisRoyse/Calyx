@@ -1,9 +1,9 @@
 use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
-use calyx_core::{CalyxError, LensId, Panel, Slot, SlotId, SlotKey, SlotState, Ts};
+use calyx_core::{CalyxError, LensId, Modality, Panel, Slot, SlotId, SlotKey, SlotState, Ts};
 use serde::{Deserialize, Serialize};
 
 use crate::Registry;
-use crate::panels::{PanelTemplate, instantiate_panel};
+use crate::panels::{PanelLensRuntime, PanelTemplate, instantiate_panel};
 use crate::profile::{CapabilityGateDecision, CapabilityGateEvaluation};
 use crate::spec::LensHealth;
 use crate::swap::{LifecycleOutcome, SwapController};
@@ -36,12 +36,44 @@ pub struct PanelCapabilityGateOutcome {
     pub reason: String,
 }
 
+pub const CALYX_PANEL_LENS_MISSING: &str = "CALYX_PANEL_LENS_MISSING";
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AppliedPanelTemplate {
+    pub template_name: String,
+    pub diff: PanelDiff,
+    pub resolved_lenses: Vec<ResolvedPanelLens>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedPanelLens {
+    pub slot_key: String,
+    pub lens_name: String,
+    pub lens_id: LensId,
+}
+
 pub fn list_panel(panel: &Panel, registry: &Registry) -> Vec<PanelSlotListing> {
     panel
         .slots
         .iter()
         .map(|slot| listing_for_slot(slot, registry))
         .collect()
+}
+
+pub fn apply_panel_template(
+    panel: &mut Panel,
+    registry: &Registry,
+    template: &PanelTemplate,
+    now: Ts,
+) -> calyx_core::Result<AppliedPanelTemplate> {
+    let mut target = instantiate_panel(template, now);
+    let resolved_lenses = resolve_registry_slots(&mut target.panel, registry, template)?;
+    let diff = swap_panel_to_target(panel, &target.panel, now);
+    Ok(AppliedPanelTemplate {
+        template_name: template.name.clone(),
+        diff,
+        resolved_lenses,
+    })
 }
 
 pub fn apply_capability_gate(
@@ -108,8 +140,11 @@ pub fn list_panel_with_assay(
 
 pub fn swap_panel(panel: &mut Panel, template: &PanelTemplate, now: Ts) -> PanelDiff {
     let target = instantiate_panel(template, now);
+    swap_panel_to_target(panel, &target.panel, now)
+}
+
+pub fn swap_panel_to_target(panel: &mut Panel, target: &Panel, now: Ts) -> PanelDiff {
     let target_ids = target
-        .panel
         .slots
         .iter()
         .map(|slot| slot.lens_id)
@@ -133,7 +168,7 @@ pub fn swap_panel(panel: &mut Panel, template: &PanelTemplate, now: Ts) -> Panel
         .map(|slot| slot.slot_id.get())
         .max()
         .map_or(0, |id| id.saturating_add(1));
-    for target_slot in &target.panel.slots {
+    for target_slot in &target.slots {
         let exists = panel
             .slots
             .iter()
@@ -165,6 +200,62 @@ pub fn swap_panel(panel: &mut Panel, template: &PanelTemplate, now: Ts) -> Panel
     }
 }
 
+fn resolve_registry_slots(
+    panel: &mut Panel,
+    registry: &Registry,
+    template: &PanelTemplate,
+) -> calyx_core::Result<Vec<ResolvedPanelLens>> {
+    let mut resolved = Vec::new();
+    for (slot, spec) in panel.slots.iter_mut().zip(&template.slots) {
+        let PanelLensRuntime::Registry { name } = &spec.runtime else {
+            continue;
+        };
+        let lens_id = registry
+            .find_lens_by_name(name)
+            .ok_or_else(|| panel_lens_missing(&template.name, &spec.name, name))?;
+        let contract = registry
+            .frozen_contract(lens_id)
+            .ok_or_else(|| panel_lens_missing(&template.name, &spec.name, name))?;
+        if contract.shape() != spec.output {
+            return Err(CalyxError::lens_dim_mismatch(format!(
+                "panel {} slot {} shape {:?} != lens {} frozen {:?}",
+                template.name,
+                spec.name,
+                spec.output,
+                name,
+                contract.shape()
+            )));
+        }
+        if contract.modality() != spec.modality {
+            return Err(CalyxError::lens_dim_mismatch(format!(
+                "panel {} slot {} modality {:?} != lens {} frozen {:?}",
+                template.name,
+                spec.name,
+                spec.modality,
+                name,
+                contract.modality()
+            )));
+        }
+        slot.lens_id = lens_id;
+        resolved.push(ResolvedPanelLens {
+            slot_key: spec.name.clone(),
+            lens_name: name.clone(),
+            lens_id,
+        });
+    }
+    Ok(resolved)
+}
+
+fn panel_lens_missing(template: &str, slot: &str, lens_name: &str) -> CalyxError {
+    CalyxError {
+        code: CALYX_PANEL_LENS_MISSING,
+        message: format!(
+            "panel {template} slot {slot} references missing or unconverted lens {lens_name}"
+        ),
+        remediation: "convert and register the missing lens before applying the panel",
+    }
+}
+
 fn cloned_target_slot(target: &Slot, slot_id: SlotId) -> Slot {
     let mut slot = target.clone();
     slot.slot_id = slot_id;
@@ -181,11 +272,28 @@ fn listing_for_slot(slot: &Slot, registry: &Registry) -> PanelSlotListing {
         bits_about: slot_bits(slot),
         health: registry
             .health(slot.lens_id)
-            .unwrap_or_else(|err| LensHealth::Failing {
-                code: "CALYX_LENS_UNREACHABLE".to_string(),
-                reason: err.message,
-            }),
+            .unwrap_or_else(|err| missing_slot_health(slot, err)),
     }
+}
+
+fn missing_slot_health(slot: &Slot, err: CalyxError) -> LensHealth {
+    if is_builtin_temporal_slot(slot) {
+        return LensHealth::Loaded;
+    }
+    LensHealth::Failing {
+        code: "CALYX_LENS_UNREACHABLE".to_string(),
+        reason: err.message,
+    }
+}
+
+fn is_builtin_temporal_slot(slot: &Slot) -> bool {
+    slot.modality == Modality::Structured
+        && slot.retrieval_only
+        && slot.excluded_from_dedup
+        && matches!(
+            slot.slot_key.key(),
+            "E2_recency" | "E3_periodic" | "E4_positional"
+        )
 }
 
 fn slot_bits(slot: &Slot) -> Option<f32> {
