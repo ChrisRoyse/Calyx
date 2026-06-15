@@ -46,6 +46,8 @@ pub(crate) fn usage() -> &'static str {
        calyx anneal status --faults --last <n> --vault <dir>
        calyx leapable issue612-fsv --baseline-latency <json> --flipped-latency <json> --pg-before <dir> --pg-after <dir> --out <json>
        calyx leapable dual-write --sqlite <db> --calyx <dir>
+       calyx leapable read-flip --sqlite <db> --calyx <dir> [--tau <f>] [--skip-backfill]
+       calyx leapable ask --vault <dir> (--query-vector <json-array> | --query <text>) [--top-k <n>]
        calyx leapable recall-compare --sqlite <db> --calyx <dir> --queries <jsonl> [--top-k <n>]
        calyx leapable shadow-open --sqlite <db> --vault <dir>
        calyx leapable shadow-readback --vault <dir>
