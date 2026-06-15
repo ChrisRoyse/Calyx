@@ -5,6 +5,7 @@ mod scored;
 
 use std::collections::HashMap;
 
+use calyx_aster::gc::{AnnIndexGraph, AnnTombstoneStats};
 use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
 
 use super::{IndexSearchHit, IndexStats, QuantConfig, SextantIndex, ranked};
@@ -21,6 +22,7 @@ struct Row {
     seq: u64,
     level: u8,
     neighbors: Vec<usize>,
+    deleted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -64,6 +66,55 @@ impl HnswIndex {
         self.rows.iter().map(|row| row.neighbors.len()).collect()
     }
 
+    pub fn total_nodes(&self) -> usize {
+        self.rows.len()
+    }
+
+    pub fn live_len(&self) -> usize {
+        self.rows.iter().filter(|row| !row.deleted).count()
+    }
+
+    pub fn tombstone_count(&self) -> usize {
+        self.rows.iter().filter(|row| row.deleted).count()
+    }
+
+    pub fn tombstone_ratio(&self) -> f64 {
+        if self.rows.is_empty() {
+            0.0
+        } else {
+            self.tombstone_count() as f64 / self.rows.len() as f64
+        }
+    }
+
+    pub fn mark_deleted(&mut self, cx_id: CxId, seq: u64) -> Result<bool> {
+        let Some(&index) = self.positions.get(&cx_id) else {
+            return Ok(false);
+        };
+        if self.rows[index].deleted {
+            self.base_seq = self.base_seq.max(seq);
+            return Ok(false);
+        }
+        self.remove_fingerprint(index);
+        self.rows[index].deleted = true;
+        self.rows[index].seq = seq;
+        self.base_seq = self.base_seq.max(seq);
+        Ok(true)
+    }
+
+    pub fn purge_tombstones(&mut self) -> Result<usize> {
+        let before = self.rows.len();
+        self.rows.retain(|row| !row.deleted);
+        self.rebuild_lookup_maps();
+        self.rebuild()?;
+        Ok(before - self.rows.len())
+    }
+
+    pub fn clone_without_tombstones(&self) -> Result<Self> {
+        let mut clone = self.clone();
+        clone.purge_tombstones()?;
+        Ok(clone)
+    }
+
     pub fn layer_histogram(&self) -> Vec<usize> {
         let max = self.rows.iter().map(|row| row.level).max().unwrap_or(0) as usize;
         let mut hist = vec![0; max + 1];
@@ -77,6 +128,7 @@ impl HnswIndex {
         top_k(
             self.rows
                 .iter()
+                .filter(|row| !row.deleted)
                 .map(|row| (row.cx_id, cosine(query, &row.vector)))
                 .collect(),
             k,
@@ -139,6 +191,7 @@ impl HnswIndex {
             .into_iter()
             .flat_map(|indices| indices.iter())
             .filter_map(|idx| self.rows.get(*idx))
+            .filter(|row| !row.deleted)
             .filter(|row| same_vector_bits(&row.vector, query))
             .map(|row| (row.cx_id, cosine(query, &row.vector)))
             .collect()
@@ -159,6 +212,15 @@ impl HnswIndex {
             if indices.is_empty() {
                 self.fingerprints.remove(&fingerprint);
             }
+        }
+    }
+
+    fn rebuild_lookup_maps(&mut self) {
+        self.positions.clear();
+        self.fingerprints.clear();
+        for idx in 0..self.rows.len() {
+            self.positions.insert(self.rows[idx].cx_id, idx);
+            self.index_fingerprint(idx);
         }
     }
 }
@@ -185,6 +247,7 @@ impl SextantIndex for HnswIndex {
             self.remove_fingerprint(index);
             self.rows[index].vector = values.to_vec();
             self.rows[index].seq = seq;
+            self.rows[index].deleted = false;
             self.index_fingerprint(index);
             self.base_seq = self.base_seq.max(seq);
             self.rebuild()?;
@@ -198,6 +261,7 @@ impl SextantIndex for HnswIndex {
             seq,
             level,
             neighbors: Vec::new(),
+            deleted: false,
         });
         self.positions.insert(cx_id, index);
         self.index_fingerprint(index);
@@ -226,8 +290,15 @@ impl SextantIndex for HnswIndex {
                 "hnsw search requires k > 0",
             ));
         }
+        let live_len = self.live_len();
+        if live_len == 0 {
+            return Err(sextant_error(
+                CALYX_SEXTANT_INDEX_EMPTY,
+                "hnsw search requested on an empty index",
+            ));
+        }
         let query = self.checked_query(query)?;
-        let needed = k.min(self.rows.len());
+        let needed = k.min(live_len);
         let ef = ef
             .unwrap_or_else(|| needed.max(self.max_neighbors * 2))
             .min(self.rows.len());
@@ -271,9 +342,11 @@ impl SextantIndex for HnswIndex {
     }
 
     fn vector(&self, cx_id: CxId) -> Option<SlotVector> {
-        self.positions.get(&cx_id).map(|&index| SlotVector::Dense {
-            dim: self.dim,
-            data: self.rows[index].vector.clone(),
+        self.positions.get(&cx_id).and_then(|&index| {
+            (!self.rows[index].deleted).then(|| SlotVector::Dense {
+                dim: self.dim,
+                data: self.rows[index].vector.clone(),
+            })
         })
     }
 
@@ -285,11 +358,31 @@ impl SextantIndex for HnswIndex {
         IndexStats {
             slot: self.slot,
             shape: self.shape(),
-            len: self.rows.len(),
+            len: self.live_len(),
             built_at_seq: self.built_at_seq,
             base_seq: self.base_seq,
             kind: "hnsw",
         }
+    }
+}
+
+impl AnnIndexGraph for HnswIndex {
+    fn ann_index_id(&self) -> String {
+        format!("slot_{}", self.slot.get())
+    }
+
+    fn ann_tombstone_stats(&self) -> AnnTombstoneStats {
+        let tombstoned_nodes = self.tombstone_count();
+        AnnTombstoneStats {
+            index_id: self.ann_index_id(),
+            total_nodes: self.total_nodes(),
+            tombstoned_nodes,
+            live_nodes: self.live_len(),
+        }
+    }
+
+    fn rebuild_without_tombstones(&self) -> Result<Self> {
+        self.clone_without_tombstones()
     }
 }
 

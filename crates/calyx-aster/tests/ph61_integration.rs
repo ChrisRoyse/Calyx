@@ -101,7 +101,7 @@ fn ph61_integration_full_phase_fsv() {
     cross_vault_denial_is_in_real_ledger(&vault);
     cold_start_transitions();
     retention_already_tombstoned_is_idempotent(&root);
-    secret_scan_hook_is_wired();
+    public_repo_internal_dev_tooling_is_not_reintroduced();
     fail_closed_codes_are_exercised(&root, reerase_error.code);
 }
 
@@ -183,16 +183,16 @@ fn retention_already_tombstoned_is_idempotent(root: &Path) {
     assert_eq!(tombstone_count(&vault), 1);
 }
 
-fn secret_scan_hook_is_wired() {
+fn public_repo_internal_dev_tooling_is_not_reintroduced() {
     let repo = workspace_root();
     let script = repo.join("scripts/secret-scan.sh");
     let hook = repo.join(".pre-commit-config.yaml");
-    let script_text = fs::read_to_string(&script).unwrap();
-    let hook_text = fs::read_to_string(&hook).unwrap();
 
-    assert!(script_text.contains("gitleaks"));
-    assert!(script_text.contains("Never commit a credential value"));
-    assert!(hook_text.contains("scripts/secret-scan.sh"));
+    assert!(!script.exists());
+    assert!(!hook.exists());
+    assert!(repo.join(".gitignore").is_file());
+    assert!(repo.join("LICENSE").is_file());
+    assert!(repo.join("README.md").is_file());
 }
 
 fn fail_closed_codes_are_exercised(root: &Path, reerase_code: &str) {

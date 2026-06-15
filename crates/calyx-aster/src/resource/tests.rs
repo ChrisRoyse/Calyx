@@ -294,6 +294,7 @@ fn metrics_text_renders_prometheus_conventions() {
     ));
     assert!(text.contains("calyx_disk_pressure_events_total{vault=\"demo\"} 2"));
     assert!(text.contains("calyx_wal_bytes{vault=\"demo\"} 640"));
+    assert!(text.contains("calyx_wal_bytes_active{vault=\"demo\"} 640"));
 }
 
 #[cfg(target_os = "linux")]

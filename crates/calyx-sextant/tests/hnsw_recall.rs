@@ -1,6 +1,7 @@
 use std::fs;
 use std::time::Instant;
 
+use calyx_aster::gc::{AnnGcReclaimer, AnnIndexGraph, SharedAnnIndex};
 use calyx_core::{CxId, SlotId, SlotVector, content_address};
 use calyx_sextant::{
     CALYX_SEXTANT_DIM_MISMATCH, CALYX_SEXTANT_EF_TOO_SMALL, CALYX_SEXTANT_INDEX_EMPTY, HnswIndex,
@@ -79,6 +80,38 @@ fn hnsw_byte_identical_query_returns_self_with_minimal_ef() {
     let got = index.search(&dense(target), 1, Some(1)).unwrap();
 
     assert_eq!(got[0].cx_id, cx(199));
+}
+
+#[test]
+fn hnsw_tombstones_are_purged_by_shared_ann_gc() {
+    let mut index = build_index(100, 8);
+    for i in 0..30 {
+        assert!(index.mark_deleted(cx(i), 1_000 + i as u64).unwrap());
+    }
+    assert_eq!(index.total_nodes(), 100);
+    assert_eq!(index.live_len(), 70);
+    assert_eq!(index.tombstone_count(), 30);
+    assert!((index.tombstone_ratio() - 0.30).abs() < f64::EPSILON);
+    assert_eq!(index.vector(cx(0)), None);
+    let deleted_query = dense(unit_vector(0, 8));
+    let got = index.search(&deleted_query, 10, Some(64)).unwrap();
+    assert_eq!(got.len(), 10);
+    assert!(!got.iter().any(|hit| hit.cx_id == cx(0)));
+
+    let shared = SharedAnnIndex::new(index);
+    let old_reader = shared.current().unwrap();
+    let reclaimer = AnnGcReclaimer::with_limits(std::time::Duration::ZERO, 0.25, 0.80);
+    let result = reclaimer.run_once_at(&shared, "slot_23", 0.10, 1);
+
+    assert!(result.triggered);
+    assert_eq!(result.total_nodes_before, 100);
+    assert_eq!(result.tombstoned_nodes_before, 30);
+    assert_eq!(old_reader.ann_tombstone_stats().tombstoned_nodes, 30);
+    let after = shared.current().unwrap();
+    assert_eq!(after.total_nodes(), 70);
+    assert_eq!(after.live_len(), 70);
+    assert_eq!(after.tombstone_count(), 0);
+    assert_eq!(after.ann_tombstone_stats().tombstone_ratio(), 0.0);
 }
 
 #[test]
