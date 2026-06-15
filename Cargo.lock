@@ -369,6 +369,7 @@ dependencies = [
 name = "calyx-hazard-soak"
 version = "0.1.0"
 dependencies = [
+ "calyx-anneal",
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
