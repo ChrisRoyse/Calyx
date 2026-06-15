@@ -112,6 +112,8 @@ def convert_entry(
     model: dict[str, Any], target_format: str, output_root: Path, log_path: Path
 ) -> dict[str, Any] | None:
     modality = str(model.get("modality", "")).lower()
+    if target_format in {"adapter", "multimodal-adapter", "multimodal_adapter"}:
+        return convert_adapter(model, output_root, log_path)
     if target_format == "model2vec" and modality != "text":
         log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format_modality"})
         return None
@@ -126,6 +128,46 @@ def convert_entry(
         log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format"})
         return None
     return convert_onnx_int8(model, output_root, log_path)
+
+
+def convert_adapter(
+    model: dict[str, Any], output_root: Path, log_path: Path
+) -> dict[str, Any] | None:
+    name = str(model.get("name") or safe_name(str(model["hf_id"])))
+    out_dir = output_root / safe_name(name) / "adapter"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    modality = str(model["modality"]).lower()
+    dim = int(model.get("dim") or 16)
+    license_value = str(model.get("license") or "unknown")
+    adapter = {
+        "schema": "calyx-multimodal-adapter-v1",
+        "name": name,
+        "axis": modality,
+        "model_id": str(model["hf_id"]),
+        "dim": dim,
+        "preprocessing": str(model.get("adapter") or default_adapter(modality)),
+        "pooling": str(model.get("pooling", "mean")),
+        "norm": str(model.get("norm", "l2")),
+    }
+    adapter_path = out_dir / "adapter.json"
+    write_json(adapter_path, adapter)
+    manifest = build_manifest(
+        model={**model, "dtype": model.get("dtype", "f32"), "norm": model.get("norm", "l2")},
+        target_format="multimodal-adapter",
+        artifacts={"model": adapter_path},
+        dim=dim,
+        license_value=license_value,
+    )
+    manifest_path = out_dir / "manifest.json"
+    write_json(manifest_path, manifest)
+    log_event(
+        log_path,
+        "manifest",
+        model,
+        "multimodal-adapter",
+        {"manifest": str(manifest_path), "weights_sha256": manifest["weights_sha256"]},
+    )
+    return {"name": manifest["name"], "manifest": str(manifest_path)}
 
 
 def convert_model2vec(
@@ -270,7 +312,14 @@ def download_hf_onnx_artifacts(
         log_event(log_path, "skip", model, "onnx-int8", {"reason": "preconverted_onnx_missing"})
         return None
     required = [("model", model_file), ("config", "config.json")]
-    if str(model.get("modality", "")).lower() in {"text", "code", "mixed"}:
+    if str(model.get("modality", "")).lower() in {
+        "text",
+        "code",
+        "mixed",
+        "protein",
+        "dna",
+        "molecule",
+    }:
         required.append(("tokenizer", "tokenizer.json"))
     artifacts = {}
     for role, repo_path in required:
@@ -533,6 +582,17 @@ def normalize_candle_dtype(dtype: str) -> str:
     raise ValueError(f"unsupported candle dtype {dtype}")
 
 
+def default_adapter(modality: str) -> str:
+    defaults = {
+        "image": "pixel-preprocess:v1",
+        "audio": "log-mel:v1",
+        "protein": "esm-repr-layer:v1",
+        "dna": "kmer-bpe:v1",
+        "molecule": "smiles-tokenize:v1",
+    }
+    return defaults.get(modality, "raw-bytes:v1")
+
+
 def ordered_artifacts(artifacts: dict[str, Path]) -> list[tuple[str, Path]]:
     return sorted(artifacts.items(), key=lambda item: (ROLE_ORDER.get(item[0], 9), item[1].name))
 
@@ -551,7 +611,13 @@ def length_delimited_sha256(parts: Iterable[bytes]) -> str:
 
 def is_non_commercial(license_value: str) -> bool:
     lowered = license_value.lower()
-    return any(token in lowered for token in ("non-commercial", "noncommercial", "nc", "cc-by-nc"))
+    normalized = lowered.replace("_", "-").replace(" ", "-")
+    return (
+        "non-commercial" in normalized
+        or "noncommercial" in normalized
+        or "cc-by-nc" in normalized
+        or any(token == "nc" for token in re.split(r"[^a-z0-9]+", normalized))
+    )
 
 
 def safe_name(value: str) -> str:
@@ -627,6 +693,12 @@ models:
     hf_id: fixture/audio
     modality: audio
     formats: [model2vec]
+  - name: tiny-image-adapter
+    hf_id: fixture/image
+    modality: image
+    formats: [adapter]
+    dim: 16
+    license: mit
 """,
             encoding="utf-8",
         )
@@ -638,6 +710,11 @@ models:
         actual = plain_sha256((output / "tiny-fixture" / "onnx-int8" / "model_int8.onnx").read_bytes())
         if data["weights_sha256"] != actual:
             print("self-test weights_sha256 mismatch", file=sys.stderr)
+            return 1
+        adapter_manifest = output / "tiny-image-adapter" / "adapter" / "manifest.json"
+        adapter_data = json.loads(adapter_manifest.read_text(encoding="utf-8"))
+        if adapter_data["runtime"] != "multimodal-adapter" or adapter_data["modality"] != "image":
+            print("self-test adapter manifest mismatch", file=sys.stderr)
             return 1
         log_text = (output / "conversion-log.jsonl").read_text(encoding="utf-8")
         if "unsupported_format_modality" not in log_text:

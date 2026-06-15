@@ -384,6 +384,9 @@ fn modality_tag(modality: Modality) -> u8 {
         Modality::Video => 4,
         Modality::Structured => 5,
         Modality::Mixed => 6,
+        Modality::Protein => 7,
+        Modality::Dna => 8,
+        Modality::Molecule => 9,
     }
 }
 
@@ -396,6 +399,9 @@ fn decode_modality(tag: u8) -> Result<Modality> {
         4 => Modality::Video,
         5 => Modality::Structured,
         6 => Modality::Mixed,
+        7 => Modality::Protein,
+        8 => Modality::Dna,
+        9 => Modality::Molecule,
         _ => return Err(CalyxError::aster_corrupt_shard("unknown modality tag")),
     })
 }

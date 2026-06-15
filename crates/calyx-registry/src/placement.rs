@@ -103,6 +103,7 @@ fn runtime_prefers_cpu(runtime: &LensRuntime) -> bool {
     matches!(
         runtime,
         LensRuntime::Algorithmic { .. }
+            | LensRuntime::MultimodalAdapter { .. }
             | LensRuntime::StaticLookup { .. }
             | LensRuntime::ExternalCmd { .. }
     )

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::frozen::{NormPolicy, sha256_digest};
+use crate::runtime::adapters::{allow_noncommercial_from_env, ensure_license_allowed};
 use crate::spec::{LensRuntime, LensSpec};
 
 const CONFIG_INVALID: &str = "CALYX_LENS_CONFIG_INVALID";
@@ -58,7 +59,24 @@ pub fn lens_spec_from_manifest_path(path: impl AsRef<Path>) -> Result<LensSpec> 
 }
 
 pub fn lens_spec_from_manifest(manifest: &LensForgeManifest, base_dir: &Path) -> Result<LensSpec> {
+    lens_spec_from_manifest_with_license_override(
+        manifest,
+        base_dir,
+        allow_noncommercial_from_env(),
+    )
+}
+
+pub fn lens_spec_from_manifest_with_license_override(
+    manifest: &LensForgeManifest,
+    base_dir: &Path,
+    allow_non_commercial: bool,
+) -> Result<LensSpec> {
     validate_required(manifest)?;
+    ensure_license_allowed(
+        manifest.license.as_deref(),
+        manifest.non_commercial,
+        allow_non_commercial,
+    )?;
     let artifacts = read_and_verify_files(manifest, base_dir)?;
     let weights_sha256 = spec_weights_sha256(manifest, &artifacts)?;
     let corpus_hash = sha256_digest(&[
@@ -220,6 +238,12 @@ fn runtime_from_manifest(
                 .map(|file| file.path.display().to_string())
                 .collect::<Vec<_>>(),
         }),
+        "adapter" | "multimodal-adapter" | "multimodal_adapter" => {
+            Ok(LensRuntime::MultimodalAdapter {
+                axis: modality_token(manifest.modality).to_string(),
+                model_id: manifest.source_hf_id.clone(),
+            })
+        }
         "model2vec-external" => Ok(LensRuntime::ExternalCmd {
             cmd: "model2vec".to_string(),
             args: files
@@ -311,6 +335,9 @@ fn modality_token(modality: Modality) -> &'static str {
         Modality::Image => "image",
         Modality::Audio => "audio",
         Modality::Video => "video",
+        Modality::Protein => "protein",
+        Modality::Dna => "dna",
+        Modality::Molecule => "molecule",
         Modality::Structured => "structured",
         Modality::Mixed => "mixed",
     }

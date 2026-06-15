@@ -34,6 +34,10 @@ pub enum LensRuntime {
         tokenizer: PathBuf,
         dim: u32,
     },
+    MultimodalAdapter {
+        axis: String,
+        model_id: String,
+    },
     ExternalCmd {
         cmd: String,
         args: Vec<String>,
@@ -80,6 +84,7 @@ impl LensSpec {
     pub fn health(&self) -> LensHealth {
         match &self.runtime {
             LensRuntime::Algorithmic { .. } => LensHealth::Loaded,
+            LensRuntime::MultimodalAdapter { .. } => LensHealth::Loaded,
             LensRuntime::TeiHttp { endpoint } => probe_http(endpoint),
             LensRuntime::CandleLocal { files, .. } | LensRuntime::Onnx { files, .. } => {
                 if files.is_empty() {
