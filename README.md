@@ -1,285 +1,391 @@
+<div align="center">
+
+<img src="docs/assets/logo.png" alt="Calyx logo" width="120" />
+
 # Calyx
 
-Calyx is the universal association-native database described by the PRDs in
-`docs/dbprdplans/` and the implementation plan in `docs/implementation/`.
+### Store meaning, not tokens.
 
-All build, test, and verification work happens on aiwonder under
-`/home/croyse/calyx`. A local checkout is for authoring only.
+**Calyx is an association-native database.** Instead of storing rows and matching them, or storing one vector and finding its neighbors, Calyx stores *constellations* — one input measured through many frozen lenses — then fuses, grounds, and guards every answer. Built in Rust, with GPU linear algebra baked in.
 
-## Status (2026-06-12; Stage 9 PH40-PH42 closeout current)
+[Why Calyx](#-why-calyx) · [Concepts](#-the-core-idea-constellations) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Developer Docs](#-developer-documentation) · [Roadmap](#-project-status)
 
-Stages 0-5 (phases PH00-PH30) are built and FSV-signed-off on aiwonder.
-Stage 6 (PH31-PH34 Lodestar) is closed and FSV-signed-off through #240,
-including PH33 raw-vs-tuned recall #331, kernel_answer anchor search #332,
-the #629 Lodestar caveat, the #632 helper split that preceded more
-real-corpus work, and the #630/#631 real-corpus readbacks. The Lodestar
-compact-kernel ≈1% figure is a raw design target, not a universal measured
-guarantee; current acceptance is the measured final/tuned recall, kernel size,
-and `pass_mode` readback in the PH33/PH34 artifacts.
-Stage 7 Ledger (PH35-PH36) is closed and FSV-signed-off after PH35
-#242-#248, PH35 failure-atomicity hardening #345, PH36 T01 #249,
-range-bound signature hardening #347, and real Aster `merkle-root --vault`
-hardening #348, verify_chain/quarantine #250, and checkpoint scheduler #251.
-PH36 reproduce re-measure #252, fusion replay/drift #253, and audit query
-surface #254 are also FSV-signed-off on aiwonder. PH36 exit FSV integration
-#255 is signed off with flip-byte tamper detection at seq 11 and reproduce
-bit-parity readback. Stage 7 exit rollup #256 is signed off with all 10
-`EntryKind`s, group-commit atomicity, redaction, checkpoints, tamper
-quarantine, reproduce bit-parity, and audit trace readback. PH36 audit-query
-quarantine filter hardening #349 is also FSV-signed-off.
+<img src="docs/assets/hero.png" alt="A single grounded point blooming into a constellation of vectors" width="100%" />
 
-Implemented engine surfaces:
+</div>
 
-| Crate | Stage | What it is |
+---
+
+> **Calyx** is a database whose native record is the *association-constellation*: one input measured through many frozen embedders ("lenses"), fused, differentiated by the information each one adds, and anchored to real outcomes. It finds the small grounding **kernel** that explains a whole dataset, **guards** generated content against drift and out-of-distribution answers, keeps a tamper-evident **ledger** of how every answer was produced, and gets faster the more you use it.
+
+A *calyx* is the whorl of sepals that holds a flower together at its base — the grounded structure from which a constellation of petals opens. That is exactly what this database is: a grounded base (kernel + provenance) that holds a constellation of vectors and lets it bloom into search, naming, and answers.
+
+---
+
+## ✨ Why Calyx
+
+Every time you build a serious retrieval or intelligence system, you end up gluing the same machinery together by hand: a vector store for semantics, a keyword index for lexical match, a graph database for relationships, a pile of bespoke code to combine embedders, more code to measure whether a new embedder actually helps, and *still* nothing that tells you when your AI's answer has wandered outside what your data can support.
+
+Calyx bakes that machinery **once, into the storage engine**.
+
+<div align="center">
+<img src="docs/assets/vs-oldway.png" alt="A tangle of disconnected databases and glue code, versus one unified Calyx constellation" width="90%" />
+</div>
+
+| What a multi-signal system needs | Vector DB / pgvector / Elastic / Neo4j | **Calyx bakes in** |
 |---|---|---|
-| `calyx-core` | S0 | IDs, enums, `CALYX_*` error catalog, constellation model, engine traits, `Clock` |
-| `calyx-aster` | S1 | storage core: WAL+group-commit, LSM/SSTable, column families, MVCC, CRUD, crash recovery, compaction/tiering |
-| `calyx-forge` | S2 | math runtime: CPU SIMD + CUDA sm_120 bit-parity, TurboQuant, MXFP4/grouped GEMM, autotune cache |
-| `calyx-registry` | S3 | lenses: algorithmic/TEI/candle/ONNX runtimes, frozen contract + `LensId`, hot-swap+backfill, capability cards, default panels + temporal lenses |
-| `calyx-sextant` | S4 | search/navigation: per-slot dense/sparse indexes, RRF/WeightedRRF/SingleLens fusion, provenance hits, planner/explain |
-| `calyx-loom` / `calyx-assay` | S5 | DDA + bits: lazy cross-terms, agreement graph, abundance reports, MI/NMI/logistic estimators, differentiation contract, n_eff, sufficiency, attribution, cache provenance |
-| `calyx-paths` / `calyx-mincut` | S6 PH31 | graph primitives: sparse association graph, 0.9^hop traversal, Tarjan SCC condensation, Brandes betweenness, Loom graph builder, LP scaffolding |
-| `calyx-lodestar` | S6 PH32-PH34 | kernel discovery: kernel-graph scoring, LP-rounding interface, DFVS approximations, kernel pipeline, grounded/provisional tagging, incremental re-eval hook, kernel index/answer/gaps/recall FSV, scope materialization, scope cache |
-| `calyx-ledger` | S7 PH35-PH36 | provenance: hash-chained append-only ledger CF, redaction, group-commit integration, Merkle checkpoints, verify-chain quarantine, reproduce, audit query surfaces |
-| `calyx-ward` | S8 PH37-PH39 | guard profile, verdict/error, AllRequired, KofN, OOD wrapper, no-average/no-flatten enforcement, PH37 readback harness, incoming-query `guard_query`, Assay-derived required-slot derivation, kernel-near guard priority, PH38 conformal tau calibration, provisional high-stakes refusal, novelty routing, drift monitoring, injection-corpus FSV, Sextant InRegionOnly guarded search, Ledger-backed calibration/guard-verdict provenance, and PH39 identity-profile, WavLM speaker lens, style lens, `guard_generate()`, identity injection quarantine construction, identity profile store hardening, and Stage 8 exit are FSV-signed-off through #280 |
+| Many embedders, each versioned & frozen | You build the lifecycle yourself | **Registry** — add/retire lenses; each is content-addressed and immutable |
+| Combine signals into one ranking | Hand-tuned fusion across systems | **Sextant** — dense + sparse + multi-vector fusion in one query |
+| Know which signals actually *help* | You measure mutual information by hand | **Assay** — measures the bits each lens adds; prunes redundant ones |
+| Relationships between records | A separate graph database | **Loom** + **Lodestar** — associations are native; the explanatory *kernel* is discoverable |
+| Stop the AI from answering off-distribution | Nothing | **Ward** — a calibrated, fail-closed guard on every answer |
+| Prove how an answer was produced | Metadata columns, best effort | **Ledger** — hash-chained, tamper-evident provenance |
+| Get faster with use | Manual index / quantization tuning | **Anneal** — safe, reversible self-optimization |
 
-Plus `calyx-cli` (readback/FSV/crash tools) and `calyx-testkit`. Current source
-of truth is GitHub issue #23. Recent aiwonder FSV roots:
-`/home/croyse/calyx/data/fsv-stage5-loom-assay-20260608-final`,
-`/home/croyse/calyx/data/fsv-ph31-20260608`, and
-`/home/croyse/calyx/data/fsv-ph32-20260608`. Current Lodestar FSV roots include
-`/home/croyse/calyx/fsv/ph33_*_20260608.*`,
-`/home/croyse/calyx/data/fsv-issue233-scope-materialize-20260608`,
-`/home/croyse/calyx/data/fsv-issue234-scope-cache-20260608`,
-`/home/croyse/calyx/data/fsv-issue235-multi-scope-20260608`,
-`/home/croyse/calyx/data/fsv-issue236-hierarchical-20260608`, and
-`/home/croyse/calyx/data/fsv-issue237-bridge-scopes-20260608`, plus
-`/home/croyse/calyx/fsv/ph34_scope_*_20260608.json`,
-`/home/croyse/calyx/data/fsv-issue249-merkle-root-ed25519-20260609`, and
-`/home/croyse/calyx/data/fsv-issue345-ledger-group-commit-atomicity-20260609`,
-`/home/croyse/calyx/data/fsv-issue347-merkle-range-bound-signatures-20260609`,
-and
-`/home/croyse/calyx/data/fsv-issue348-merkle-vault-real-aster-cf-20260609`,
-and
-`/home/croyse/calyx/data/fsv-issue250-verify-chain-quarantine-20260609`,
-and
-`/home/croyse/calyx/data/fsv-issue251-checkpoint-scheduler-20260609`,
-`/home/croyse/calyx/data/fsv-issue252-reproduce-20260609`,
-`/home/croyse/calyx/data/fsv-issue253-reproduce-fusion-20260609`,
-`/home/croyse/calyx/data/fsv-issue254-audit-query-20260609`, and
-`/home/croyse/calyx/data/fsv-issue255-ph36-integration-20260609`, plus
-`/home/croyse/calyx/data/fsv-issue256-stage7-exit-20260609-nomock`,
-`/home/croyse/calyx/data/fsv-issue258-ph37-t01-20260609-tsus`, and
-`/home/croyse/calyx/data/fsv-issue259-ph37-t02-20260609`,
-`/home/croyse/calyx/data/fsv-issue260-ph37-t03-20260609-20a2a34`, and
-`/home/croyse/calyx/data/fsv-issue261-ph37-t04-20260609-bd35e1e`,
-`/home/croyse/calyx/data/fsv-issue262-ph37-t05-20260609-3dbe1a6`,
-`/home/croyse/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7`,
-`/home/croyse/calyx/data/fsv-issue264-ph38-t01-20260609-f95c817`,
-`/home/croyse/calyx/data/fsv-issue275-ph37-t07-20260609-8b71024`,
-`/home/croyse/calyx/data/fsv-issue277-ph37-t08-20260609-e75ade1`, and
-`/home/croyse/calyx/data/fsv-issue278-ph37-t09-20260609-c2d3e30`, and
-`/home/croyse/calyx/data/fsv-issue265-ph38-t02-20260609-5c23db5`,
-and
-`/home/croyse/calyx/data/fsv-issue266-ph38-t03-20260609-fa0c263`,
-and
-`/home/croyse/calyx/data/fsv-issue267-ph38-t04-20260609-912b707`,
-and
-`/home/croyse/calyx/data/fsv-issue268-ph38-t05-20260609-ff20d0a`,
-`/home/croyse/calyx/data/fsv-issue276-ph38-t06-20260609-c0b5d7f`,
-and
-`/home/croyse/calyx/data/fsv-issue350-ph38-guard-id-mismatch-20260609-a1fca2f`,
-and
-`/home/croyse/calyx/data/fsv-issue357-ph38-timestamp-units-20260609-6e3ff73`,
-and
-`/home/croyse/calyx/data/fsv-issue351-ph38-rejection-rate-20260609-c6a2ccc`,
-and
-`/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995`,
-and
-`/home/croyse/calyx/data/fsv-issue354-ph38-per-slot-calibration-20260609-f672547`,
-and
-`/home/croyse/calyx/data/fsv-issue358-guard-health-serde-20260609-b298497`,
-and
-`/home/croyse/calyx/data/fsv-issue355-drift-retry-20260609-bd544a5`,
-and
-`/home/croyse/calyx/data/fsv-issue356-sextant-multislot-guard-20260609-cfea3ac`,
-and
-`/home/croyse/calyx/data/fsv-issue359-sextant-guard-vector-readback-20260609-cf8d4b3`,
-and
-`/home/croyse/calyx/data/fsv-issue349-audit-query-hardening-20260609-5697553`,
-and
-`/home/croyse/calyx/data/fsv-issue279-ward-ledger-provenance-20260609-55fc1da`,
-and
-`/home/croyse/calyx/data/fsv-issue269-identity-profile-20260609`,
-`/home/croyse/calyx/data/fsv-issue270-speaker-lens-20260609-ef729f8-ort126-sm120`,
-`/home/croyse/calyx/data/fsv-issue271-style-lens-20260609-a43e546-ort126-sm120`,
-`/home/croyse/calyx/data/fsv-issue272-guard-generate-20260609-3bce50c`,
-`/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120`,
-`/home/croyse/calyx/data/fsv-issue274-ph39-t06-20260609-8e29b51-v2-cpu-ort126`,
-and `/home/croyse/calyx/data/fsv-issue280-stage8-exit-20260609-477d4a4`.
+> [!NOTE]
+> A vector database is a **one-lens Calyx**: a single embedder plus nearest-neighbor search. Calyx is built for the case where one signal is never enough.
 
-Stage 9 Temporal & Dedup is current through the PH40-PH42 closeout gates. PH40
-is complete under S9 epic #361, with T01-T06 #373-#378, post-sweep hardening
-#615, and follow-ups #616/#618/#619 FSV-signed-off. PH41 T01 #379 through T08
-#386 are complete and FSV-signed-off; post-T06 hardening #623, public
-recurrence read API follow-up #578, recurrence occurrence allocation
-concurrency hardening #621, WAL recovery/open serialization #624, durable
-policy validation parity #617, WAL failure error-code contract #622, recurrence
-rollup tombstone/reclaim #620, anchor-conflict property coverage #626, CLI
-compact recovery-safe naming #627, and dedup undo-after-rollup FSV #628 are
-complete and FSV-backed. PH42 readback-surface gate #625 is also complete and
-FSV-backed; later PH42 gaps are tracked separately in GitHub issues.
-Remaining major engine crates (`anneal`, `oracle`, `mcp`, `calyxd`) are still
-pending. Ledger PH35 is
-FSV-signed-off, including the #345
-failure-atomic staging hardening; PH36 Merkle root export #249,
-range-bound signing #347, and real Aster `merkle-root --vault` #348 are signed
-off. PH36 verify_chain/quarantine #250, checkpoint scheduler #251, reproduce
-re-measure #252, reproduce fusion replay #253, and audit query surface #254
-are signed off. PH36 exit FSV integration #255 and Stage 7 exit rollup #256
-are signed off; PH36 audit-query quarantine filter hardening #349 is signed off,
-covering filtered audit queries around unrelated quarantined rows, typed `cx`
-mention matching, physical row-key mismatch fail-closed behavior, and durable
-Ledger SST readbacks. Stage 8 Ward has #258-#273,
-#275/#276/#277/#278, #350, and #353 signed off; PH37 is complete, PH38 T05 is
-proven against the real aiwonder injection corpus, PH38 T06 proves Sextant
-InRegionOnly guarded search, and #350 hardens novelty guard-id provenance.
-PH38 timestamp hardening #357, drift metric semantics hardening #351,
-held-out injection split reporting #352, and per-slot calibration health #354
-are also signed off; #358 preserves legacy `GuardHealth` JSON compatibility after
-#354, #355 preserves Anneal notification retry after hook backpressure, and
-#356 requires slot-aware `Query.guard_vectors` for multi-slot InRegionOnly
-guarding. #359 adds direct readback of those query vectors and the candidate
-slot vectors. #349 hardens PH36 audit query quarantine filtering. #279 adds
-`calibrate_with_ledger()` and `guard_with_ledger()` wrappers that append durable
-Ledger `kind=Guard` rows for Ward calibration and guard verdicts, then read
-those rows back through PH36 audit/provenance while preserving the #349
-quarantine contract. #269 adds the PH39 `IdentityProfile` construction and
-identity-anchor fail-closed surface with durable JSON and SHA manifest readback.
-#270 adds the pinned WavLM speaker lens, #271 adds the pinned style lens, #272
-adds `guard_generate()` plus accepted/novel/rejected/provisional readbacks, #273
-proves real prompt-injection quarantine on the numeric style slot, #274 proves
-PH39 speaker-similarity target FSV, and #280 closes the full Stage 8 Ward exit.
-PH40 T01 #373 stores temporal policy in Aster's durable vault manifest with
-aiwonder readback at
-`/home/croyse/calyx/data/fsv-issue373-temporal-policy-manifest-20260609-9ca0a93`;
-post-sweep hardening keeps custom policy authoritative across cold open and
-second flush at
-`/home/croyse/calyx/data/fsv-issue373-temporal-policy-reopen-20260609-a54dcc1`.
-PH40 T02 #374 adds `TimeWindow` helpers and stable-order temporal hit filtering
-with aiwonder readback at
-`/home/croyse/calyx/data/fsv-issue374-time-window-20260609-d872c7c`.
-PH40 T03 #375 adds content-relative `apply_temporal_boost`, attaches
-`TemporalScores`, caps temporal alpha at 0.10, preserves zero-content misses at
-score 0.0, and reads back boost artifacts at
-`/home/croyse/calyx/data/fsv-issue375-temporal-boost-20260609-a54dcc1`.
-PH40 T04 #376 adds the causal confidence gate, attaches `CausalConfidence` and
-`CausalGateEvidence` for explain/readback, validates causal multipliers in
-`[0.0, 10.0]`, and reads back pipeline artifacts at
-`/home/croyse/calyx/data/fsv-issue376-causal-gate-20260609-78f9b67`.
-PH40 T05 #377 adds `temporal_search` AP-60 integration with primary retrieval
-temporal weight `0.0`, pre-boost ranking capture, CLI explain readback, and FSV
-artifacts at
-`/home/croyse/calyx/data/fsv-issue377-temporal-search-20260610-b428b10`.
-PH40 T06 #378 adds deterministic temporal-never-dominant and boost-reorder
-proofs with FSV artifacts at
-`/home/croyse/calyx/data/fsv-issue378-temporal-never-dominant-20260610-2205edb`.
-PH40 post-sweep hardening #615 filters non-positive hits from the final
-`temporal_search` surface while preserving boost-stage proof bytes, with FSV
-artifacts at
-`/home/croyse/calyx/data/fsv-issue615-ap60-final-surface-20260610-b9a105c`.
-PH41 T01 #379 adds `DedupPolicy`, `TctCosineConfig`, `TauStrategy`,
-`DedupAction`, `OccurrenceId`, and `DedupResult`, persists `dedup_policy` in
-Aster's durable vault manifest, adds `calyx readback vault-manifest --field`,
-and reads back the manifest bytes at
-`/home/croyse/calyx/data/fsv-issue379-dedup-policy-20260610-0083015`.
-PH41 T02 #380 adds the bounded content-slot cosine dedup engine, shared
-fail-closed cosine math, CLI `readback dedup-check`, exact fallback on DPI
-exceed, runtime tau/config validation, and base/slot CF readback evidence at
-`/home/croyse/calyx/data/fsv-issue380-dedup-validation-20260610-5af9a20`.
-PH41 T03 #381 adds the anchor-conflict guard before cosine checks, rejects
-exact/same-CxId anchor-conflict bypasses, writes reciprocal `online` CF
-contested rows, fail-closes anchor-vector validation, and reads back direct
-base/online CF evidence at
-`/home/croyse/calyx/data/fsv-issue381-anchor-conflict-20260610-00c0540`.
-PH41 T04 #382 adds `ingest_at(input, at: t)` as the Aster temporal ingest
-facade, stores caller event time in base rows, writes Ledger payloads for new,
-merge, exact-duplicate, and anchor-conflict outcomes, and reads back
-base/online/ledger CF bytes at
-`/home/croyse/calyx/data/fsv-issue382-ingest-at-20260610-1a0c560`.
-PH41 T05 #383 adds the Aster-backed recurrence CF and Loom `SeriesStore`
-facade, writes occurrence rows and `recurrence.frequency` in the same commit,
-derives cadence on read, enforces active-row rollup/retention, adds CLI
-`readback recurrence-series`, and proves happy/empty/rollup/oversized bytes at
-`/home/croyse/calyx/data/fsv-issue383-recurrence-series-20260610-bacf9d2`
-(`recurrence-series-readback.json` BLAKE3
-`130010f0aefee719fe5f2b55c2d025e6d016c34f18d3773947597ccffc46b19a`).
-PH41 T06 #384 adds the recurrence signature detector, routes content-agree and
-temporal-differ ingests into recurrence occurrence appends, fails closed on
-missing temporal signature slots, and proves happy/same-temporal/missing-slot
-bytes at
-`/home/croyse/calyx/data/fsv-issue384-recurrence-signature-20260610-8b0d0bb`
-(`dedup-ingest-at-readback.json` BLAKE3
-`bb5b028ff861983b2a5cd9dd547bfb2c39337eef16318422db2815990f6d51c1`). #623
-hardens the recurrence signature fallback when temporal vectors are absent and
-is FSV-signed-off at
-`/home/croyse/calyx/data/fsv-issue623-recurrence-fallback-20260610-1dc61cf`.
-PH41 T07 #385 adds Ledger-chain-verified `dedup_audit`, vault/target-bound
-reversible `dedup_undo`, restore snapshots in merge Ledger payloads, recurrence
-tombstone undo, and CLI readbacks for `dedup-audit`, `dedup-undo`, and
-`cx-list`; aiwonder FSV is signed off at
-`/home/croyse/calyx/data/fsv-issue385-dedup-audit-20260610-cc9f57b`
-(`dedup-audit-readback.json` BLAKE3
-`4b3031a933685e1d750e52d009c7be33944fb76ea16babb76e830018b966c7a4`).
-PH41 T08 #386 adds the five-fixture dedup invariant FSV: near-distinct pairs
-stay separate, anchor conflicts stay separate with audit evidence, recurring
-series undo restores all three base rows byte-for-byte, temporal slots are
-excluded from dedup agreement, and recurrence frequency readback reaches 10/10;
-aiwonder FSV is signed off at
-`/home/croyse/calyx/data/fsv-issue386-dedup-invariants-20260610-5fdab01`
-(`dedup-invariants-readback.json` BLAKE3
-`f568a21145a811671c79f2cba56b08eee36b6536fa64dbd598ee73d5d527e140`,
-`BLAKE3SUMS.txt` BLAKE3
-`fdda61062034e8d10c4a99e509166e7338b9bc62d6454d8ed3c66fefea33eb87`).
-#578 adds public `recurrence_series`, `periodic_fit`, and `periodic_recall`
-read APIs plus CLI `readback periodic-recall`, with sorted public fit input,
-joint hour/day matching, and no-filter fail-closed behavior. aiwonder FSV is at
-`/home/croyse/calyx/data/fsv-issue578-periodic-recall-20260610-240de5a`
-(`periodic-recall-readback.json` BLAKE3
-`7973b14e446ddd9d1901648d5dd66cf1afac2fbc9a6806b191f4bb0682921c79`,
-`BLAKE3SUMS.txt` BLAKE3
-`7f4af4acb4f507c5e70afb3128f04692d8673fcbabe8aa552d417a2734a09c4e`).
-#621 makes recurrence occurrence ID allocation concurrency-safe across
-multi-handle durable vault opens by serializing recurrence writes with the
-recurrence lock and serializing every durable commit with a process+OS
-`durable.commit.lock` that refreshes WAL/MVCC/Ledger state before staging.
-aiwonder FSV is at
-`/home/croyse/calyx/data/fsv-issue621-recurrence-concurrency-20260610-b1fdf5d`:
-direct append reads back returned/stored IDs 0..15 with frequency 16, recurrence
-policy ingest reads back IDs 0..12 with frequency 13, and the invalid-time edge
-fails closed with `CALYX_DEDUP_INVALID_EVENT_TIME` before retrying as ID 0.
-Artifact hashes: `recurrence-concurrency-readback.json` BLAKE3
-`91e0ad19b81589f49591a9ed65ee6efb3c656a82ebc545a27c62820d1cfa96d8` and
-`BLAKE3SUMS.txt` BLAKE3
-`e1bb5a412ca31e1e8d27d18bd1410ee8c65260389a63bceac078ea01cfd027af`.
+---
 
-Full plan and per-phase status: `docs/implementation/` (start at `00_README.md`
--> `03_PHASE_MAP.md`).
+## 🌟 The core idea: constellations
 
-## Per-Merge Gate
+A traditional database stores a **row**. A vector database stores a **point**. Calyx stores a **constellation**: one input, measured through many independent *lenses* (embedders and feature extractors), each producing its own typed slot-vector — kept **separate**, never flattened into one opaque blob.
 
-Run the gate on aiwonder before every merge:
+<div align="center">
+<img src="docs/assets/constellation-model.png" alt="One input passes through seven lenses, each producing a cluster of vectors that fuse into one constellation with a gold kernel at its center" width="95%" />
+</div>
+
+Calyx is organized around four verbs — the calculus of association:
+
+| Verb | What it means | Subsystem |
+|---|---|---|
+| **Measure** | Assemble a constellation by viewing one input through every lens in a panel | Registry, Aster |
+| **Count** | Derive the associations *between* slots (agreement, delta, interaction) | Loom |
+| **Differentiate** | Quantify the unique information each lens contributes about real outcomes | Assay |
+| **Compose** | Find the explanatory kernel, guard generation, and answer with provenance | Lodestar, Ward, Ledger |
+
+Three principles make the results trustworthy:
+
+- **Grounding is mandatory.** Every claim is measured against real, anchored outcomes. Ungrounded results are explicitly tagged *provisional* rather than presented as fact.
+- **Keep slots separate (no-flatten).** Signals stay typed and independent end-to-end, so you can always see *which* lens drove a result.
+- **Fail closed.** Unknown lens, shape mismatch, uncalibrated guard, missing data → a structured error, never a silent wrong answer.
+
+---
+
+## 🚀 Quick Start
+
+> [!IMPORTANT]
+> Calyx is a Rust workspace (`edition 2024`, toolchain `1.95`). It builds CPU-only by default; the GPU backend is an opt-in feature.
+
+**Prerequisites**
+
+- Rust `1.95` (via [`rustup`](https://rustup.rs); the pinned toolchain is in `rust-toolchain.toml`)
+- A C toolchain (for bundled SQLite, used by the migration tool)
+- *Optional, for GPU acceleration:* an NVIDIA `sm_120`-class GPU and CUDA `13.2`
+
+**Build & test**
 
 ```bash
-cd /home/croyse/calyx/repo
-source ./env.sh
-bash scripts/check.sh
+git clone https://github.com/ChrisRoyse/Calyx.git
+cd Calyx
+
+# CPU build (portable, uses SIMD math)
+cargo build --release --workspace
+
+# Run the test suite
+cargo test --workspace
+
+# Optional: build with the CUDA backend
+cargo build --release --workspace --features cuda
 ```
 
-`scripts/check.sh` runs `cargo fmt`, `cargo check`, `cargo clippy -D warnings`,
-`cargo test`, and the `scripts/linecount.sh` gate. There is no hosted CI for
-Calyx; FSV evidence in GitHub Issues is the release gate.
+**Try the CLI**
 
-Every `.rs` source/test file must stay at or below 500 lines. If a file exceeds
-the limit, open a `type:task` issue and modularize it per
-`docs2/modulateprompt.md` before the gate can pass.
+The `calyx` binary is the operator surface. A few read-only examples:
+
+```bash
+# Verify your toolchain & environment are ready
+cargo run -p calyx-cli -- healthcheck
+
+# Inspect a vault's column families, manifest, or ledger
+cargo run -p calyx-cli -- readback manifest --vault ./my-vault
+cargo run -p calyx-cli -- readback cf --vault ./my-vault
+
+# Verify the provenance ledger's hash chain end-to-end
+cargo run -p calyx-cli -- verify-chain --vault ./my-vault
+
+# Migrate an existing SQLite database into a Calyx vault
+cargo run -p calyx-cli -- migrate --from ./app.db --to ./my-vault
+```
+
+See the [CLI reference](#cli-the-calyx-binary) for the full command surface.
+
+---
+
+## 🧭 Architecture
+
+Calyx is **not** a service mesh. It is an embedded engine — a stack of focused Rust crates — with three thin entry points on top: a CLI (`calyx`), a daemon (`calyxd`), and an MCP server (`calyx-mcp`).
+
+Every subsystem is named for an instrument of celestial navigation: a lens is a sighting instrument, the kernel is the guiding star, and search is navigation.
+
+```mermaid
+flowchart TB
+    subgraph Surfaces["Entry points"]
+        CLI["calyx · CLI"]
+        DAEMON["calyxd · daemon + metrics"]
+        MCP["calyx-mcp · agent interface"]
+    end
+
+    subgraph Intelligence["Intelligence layer"]
+        ORACLE["Oracle · consequence prediction"]
+        ANNEAL["Anneal · self-optimization"]
+        LODESTAR["Lodestar · grounding kernel"]
+    end
+
+    subgraph Engine["Association engine"]
+        SEXTANT["Sextant · search & fusion"]
+        LOOM["Loom · associations"]
+        ASSAY["Assay · information bits"]
+        WARD["Ward · the guard"]
+        REGISTRY["Registry · lenses"]
+    end
+
+    subgraph Foundation["Storage & math"]
+        ASTER["Aster · LSM storage"]
+        FORGE["Forge · CPU/GPU math"]
+        LEDGER["Ledger · provenance"]
+        CORE["Core · types & traits"]
+    end
+
+    Surfaces --> Intelligence --> Engine --> Foundation
+```
+
+| Subsystem | Crate | What it is |
+|---|---|---|
+| 🪐 **Aster** | `calyx-aster` | Embedded LSM storage: write-ahead log, group-commit, MVCC snapshots, memory-mapped tables, crash recovery, hot/cold tiering. The "schema" layer. |
+| 🔥 **Forge** | `calyx-forge` | The numeric runtime: one math backend implemented twice — CPU SIMD and CUDA — engineered for bit-near parity. Quantization from full precision down to 1-bit. |
+| 🔭 **Registry** | `calyx-registry` | The lens registry: seven embedder runtimes (local, server, ONNX, algorithmic, multimodal…), each frozen and content-addressed. Hot-swap and lazy backfill. |
+| 🧭 **Sextant** | `calyx-sextant` | Search & navigation: in-RAM and on-disk vector indexes, keyword (BM25) index, late-interaction, and multi-signal fusion with a query planner. |
+| 🕸️ **Loom** | `calyx-loom` | Derives the associations *between* slots (agreement, delta, interaction) and weaves them into a queryable association graph. |
+| ⚖️ **Assay** | `calyx-assay` | Measures the information (in bits) each lens contributes about real outcomes, enforces a redundancy contract, and reports panel sufficiency. |
+| ⭐ **Lodestar** | `calyx-lodestar` | Discovers the small **grounding kernel** that explains a corpus, and turns it into both an index and an answer path. |
+| 🛡️ **Ward** | `calyx-ward` | The fail-closed guard: scores every required slot independently against a calibrated threshold and refuses out-of-distribution or ungrounded content. |
+| 📜 **Ledger** | `calyx-ledger` | Append-only, hash-chained provenance with periodic signed checkpoints and tamper-evident verification. |
+| ♨️ **Anneal** | `calyx-anneal` | Reversible self-optimization: tunes the engine within safety tripwires and rolls back anything that regresses quality. |
+| 🔮 **Oracle** | `calyx-oracle` | Consequence prediction over grounded constellations, with an honesty gate that refuses to answer when the data can't support it. |
+| 🧩 **Core** | `calyx-core` | The dependency-free foundation: identifiers, the closed error catalog, the data model, and the engine traits everything else implements. |
+
+---
+
+## 🧠 The intelligence layer
+
+What makes Calyx more than a fast multi-index search engine is the layer that turns retrieval into *grounded* intelligence.
+
+### ⭐ Lodestar — the grounding kernel
+
+Most datasets are mostly redundant. Lodestar discovers the small set of records — the **kernel** — that actually carries the structure of the whole corpus, scoring candidates by how central and how *grounded* they are. The kernel then doubles as a fast index and as an answer path: route a query through the kernel first, then walk its edges to an answer.
+
+### 🛡️ Ward — the no-hallucination guard
+
+<div align="center">
+<img src="docs/assets/ward-guard.png" alt="A glowing trusted region with a gold kernel inside, deflecting an out-of-distribution intruder at its boundary" width="88%" />
+</div>
+
+Ward is a **fail-closed boundary** around what your data can support. Each required slot is scored *independently* against a calibrated threshold — there is no single averaged gate that a strong score on one slot can sneak past. Anything outside the trusted region is refused, quarantined, or recorded as a new region to learn — never waved through. Thresholds are set by conformal calibration to a target false-accept rate, so the guard's strictness is a number you choose, not a guess.
+
+### 📜 Ledger — provenance you can verify
+
+<div align="center">
+<img src="docs/assets/ledger.png" alt="A hash-chained sequence of crystalline blocks anchored by glowing gold checkpoints" width="90%" />
+</div>
+
+Every measurement, kernel, guard verdict, and answer is appended to a hash-chained ledger. Each entry seals the one before it, so any tampering is detectable; periodic checkpoints can be cryptographically signed; and a single command can re-verify the entire chain. You can always answer the question *"how was this produced, and has anything changed since?"*
+
+### ♨️ Anneal — a database that improves with use
+
+<div align="center">
+<img src="docs/assets/anneal.png" alt="A constellation tightening and brightening as redundant points are pruned away, over a rising growth curve" width="90%" />
+</div>
+
+Anneal continuously tunes the engine — index parameters, quantization levels, fusion weights — but **safely**: every change is gated against quality tripwires and shadow-tested before it goes live, and anything that regresses recall, latency, or guard accuracy is automatically reverted. Optimization that can only make things better, and is always reversible.
+
+### 🔮 Oracle — grounded consequence prediction
+
+<div align="center">
+<img src="docs/assets/oracle.png" alt="A branching consequence tree fanning out from a single action, with grounded branches glowing brighter" width="90%" />
+</div>
+
+Oracle predicts the grounded consequences of an action by mining recurrence patterns in your data, builds a branching "butterfly" tree of likely downstream effects, and can even walk backward from an outcome to its likely causes. Crucially, it has an **honesty gate**: when the available signals can't support a confident prediction, Oracle returns *insufficient* with the specific deficits — instead of fabricating an answer.
+
+---
+
+## 🗄️ One core, every paradigm
+
+<div align="center">
+<img src="docs/assets/universal-db.png" alt="Relational, document, key-value, columnar, graph, time-series, full-text, and vector paradigms all converging into one glowing core" width="92%" />
+</div>
+
+Because everything is built on one ordered, transactional storage core, Calyx can serve the role of many database shapes at once:
+
+| Paradigm | How Calyx serves it |
+|---|---|
+| **Vector** | A dense lens + per-slot ANN search — a vector DB is a one-lens Calyx |
+| **Full-text** | A sparse lexical lens with a BM25 inverted index |
+| **Graph** | Associations are native; cross-terms are edges and the kernel is a path |
+| **Time-series** | Range keys + temporal lenses, with time scoring that is *additive and never dominant* |
+| **Key-value / Document / Relational** | Typed records and keyed state on the same transactional core |
+
+The search-shaped paradigms collapse into the association engine; the storage-shaped ones are the general data layer beneath it. One engine, one transaction, one source of truth.
+
+---
+
+## 📚 Developer Documentation
+
+Everything a developer needs to build with Calyx. Deep, source-derived references live in [`docs/systemspecs/`](docs/systemspecs/) (start at [`01_system_overview.md`](docs/systemspecs/01_system_overview.md)).
+
+### Building from source
+
+| Step | Command |
+|---|---|
+| Install the pinned toolchain | `rustup show` (reads `rust-toolchain.toml`) |
+| CPU build | `cargo build --release --workspace` |
+| GPU build (CUDA `sm_120`) | `cargo build --release --workspace --features cuda` |
+| Run tests | `cargo test --workspace` |
+| Format & lint | `cargo fmt` · `cargo clippy` |
+
+> [!NOTE]
+> The CPU backend uses portable SIMD and runs anywhere. The CUDA backend is gated behind the `cuda` feature and is verified for bit-near parity against the CPU backend (relative tolerance `1e-3`, absolute `1e-6`).
+
+### Binaries
+
+| Binary | Crate | Role |
+|---|---|---|
+| `calyx` | `calyx-cli` | Operator CLI: readback, migration, navigation, verification |
+| `calyxd` | `calyxd` | Loopback daemon: Prometheus `/metrics`, ledger verification loop, VRAM preflight, healthcheck |
+| `calyx-mcp` | `calyx-mcp` | JSON-RPC 2.0 [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, for AI-agent integration |
+
+### Configuration
+
+`calyxd` is configured from a single TOML file (passed via `--config`) and validated **fail-closed** — any unknown key is rejected rather than ignored.
+
+```toml
+# calyx.toml
+bind_addr = "127.0.0.1:7700"     # must be a loopback address
+vault_path = "$CALYX_HOME/data/vault"
+vram_budget_mib = 8192           # 1..=30000
+log_dir = "/var/log/calyx"
+healthcheck_timeout_secs = 30
+```
+
+```bash
+# Validate a config before starting
+cargo run -p calyxd -- --config ./calyx.toml --validate-config
+```
+
+Selected environment variables the engine reads (all invalid values fail closed):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CALYX_HOME` | — | Root used to resolve `$CALYX_HOME` in paths and derive cache/tier roots |
+| `CALYX_FORGE_VRAM_BUDGET` | `12 GiB` | VRAM soft cap for the Forge math runtime (bytes) |
+| `CALYX_CAPABILITY_MIN_SIGNAL_BITS` | `0.05` | Minimum information a new lens must add to be admitted |
+| `CALYX_CAPABILITY_MAX_PAIRWISE_CORR` | `0.6` | Maximum correlation a new lens may have with existing lenses |
+| `HF_HOME` | `$CALYX_HOME/.hf-cache` | Cache directory for downloaded model weights |
+
+### Data model
+
+| Concept | Meaning |
+|---|---|
+| **Vault** | A Calyx database — a directory on disk |
+| **Constellation** | One record: one input measured through a panel of lenses (never called a "row" or "point") |
+| **Slot** | One typed vector within a constellation, produced by one lens |
+| **Lens** | A frozen, content-addressed embedder or feature extractor (never just a "model") |
+| **Panel** | A named set of lenses applied together |
+| **Anchor** | A real outcome a constellation is grounded against |
+| **Kernel** | The small set of constellations that explains a corpus |
+| **Signal** | The information (in bits) a lens carries about an outcome |
+
+### Storage tiers
+
+| Tier | What lives here | Survives restart? |
+|---|---|---|
+| **Durable (source of truth)** | Write-ahead log, on-disk tables, manifest, the hash-chained ledger | Yes — recovered by replaying the log after loading the manifest |
+| **Derived (regenerable)** | Secondary indexes, vector indexes, association cross-terms, kernel caches | Rebuildable from the durable tier |
+| **Ephemeral** | Memtables, reader snapshots, in-RAM caches | No |
+
+### Engine traits
+
+The whole engine is composed from a few traits defined in `calyx-core`, so each layer can be extended independently:
+
+| Trait | Responsibility |
+|---|---|
+| `Lens` | Turn an input into a typed slot-vector (an embedder/extractor) |
+| `Index` / `SextantIndex` | Index and search vectors for one slot |
+| `VaultStore` | Persist and read constellations and column families |
+| `Estimator` | Measure information / mutual information between signals |
+| `Backend` | Low-level math (GEMM, cosine, dot, top-k) — CPU or GPU |
+
+### CLI: the `calyx` binary
+
+Invoked as `calyx <command> [subcommand] [flags]`. Most commands emit JSON to stdout. Major command groups:
+
+| Group | What it does |
+|---|---|
+| `readback` | Read-only inspection of vault internals — column families, log records, manifest, temporal/recurrence state |
+| `migrate` | Import a SQLite database into a Calyx vault, with round-trip verification |
+| `verify-chain` · `merkle` · `provenance` | Verify the ledger hash chain, checkpoints, and lineage |
+| `navigate` · `sextant` · `lodestar` | Search, neighbor, consensus, traversal, and kernel exploration |
+| `lens` · `panel` | Inspect and manage lenses and panels |
+| `summarize` | Corpus and document summarization |
+| `healthcheck` | Confirm toolchain, environment, and (optionally) a running daemon are ready |
+
+### Error model
+
+Calyx defines a single, closed catalog of stable `CALYX_*` error codes in `calyx-core`, each with a fixed meaning and remediation. The pervasive discipline is **fail-closed**: invalid input, a missing lens contract, an uncalibrated guard, or a failed GPU preflight all abort with a typed error rather than degrading silently into a wrong answer.
+
+---
+
+## 🗺️ Project status
+
+> [!WARNING]
+> **Calyx is pre-1.0 software under active development.** The on-disk format and public interfaces may change before a stable release.
+
+The core engine — storage, math, the lens registry, multi-signal search, the association and information layers, the grounding kernel, the guard, the ledger, self-optimization, and the first oracle capabilities — is built and exercised by an extensive test suite.
+
+Actively expanding toward 1.0:
+
+- **A richer public CLI and a populated MCP toolset** so agents can drive the full engine directly.
+- **Scale-out vector indexing** (on-disk graph and centroid-partitioned indexes) for very large vaults.
+- **Server & deployment polish** for running `calyxd` as a managed service.
+- **Broader validation** of the oracle and guard against public benchmark corpora.
+
+> [!NOTE]
+> Calyx's vision extends to a *grounded substrate for general intelligence* — measuring whether a domain has the signal to be predicted at all, and refusing to pretend when it doesn't. That north star is aspirational; the honesty gate that underpins it is already built.
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome. A good change comes with a test that **fails when the behavior is wrong and passes when it is right** — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the testing philosophy and conventions.
+
+A few house rules:
+
+- Seed RNGs and inject the `Clock` — logic must never read wall-clock time or depend on locale.
+- Keep the controlled vocabulary: a frozen embedder is a **lens**, a record is a **constellation**, information-about-outcome is **signal**.
+- Run `cargo fmt`, `cargo clippy`, and `cargo test --workspace` before opening a PR.
+
+---
+
+## 📄 License
+
+A license has not yet been finalized for this project. Until one is added, all rights are reserved by the author. If you would like to use Calyx, please open an issue to discuss.
+
+---
+
+<div align="center">
+
+**Calyx** — *Intelligence is the calculus of association. Calyx is its engine.*
+
+<sub>Built in Rust 🦀 · GPU math baked in · Grounded by design</sub>
+
+</div>
