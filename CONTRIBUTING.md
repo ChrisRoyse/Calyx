@@ -1,66 +1,56 @@
-# Contributing
+# Contributing to Calyx
+
+Thanks for your interest in Calyx! Contributions are welcome.
+
+## Getting started
+
+```bash
+cargo build --workspace
+cargo test --workspace
+```
+
+Calyx pins its toolchain in `rust-toolchain.toml` (Rust `1.95`, edition 2024).
+The GPU (CUDA) backend is behind the `cuda` feature and is off by default, so
+the workspace builds and tests CPU-only on any machine.
+
+## Before you open a PR
+
+Run the same checks CI runs:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+```
 
 ## Tests
 
-Every test must answer two questions before it lands:
+Every test should answer two questions:
 
 - **Fails when wrong:** what specific defect would make this test fail?
-- **Passes when right:** what source-of-truth behavior proves the code is correct?
+- **Passes when right:** what behavior proves the code is correct?
 
 Follow FIRST:
 
-- **Fast:** unit and property tests should stay small and local.
-- **Independent:** no hidden ordering, shared mutable process state, or mystery fixtures.
-- **Repeatable:** seed RNGs with `StdRng::seed_from_u64`; inject `Clock`; do not read wall time in logic.
-- **Self-validating:** use clear assertions, not log inspection.
-- **Timely:** add regression tests with the fix that needs them.
+- **Fast:** unit and property tests stay small and local.
+- **Independent:** no hidden ordering or shared mutable process state.
+- **Repeatable:** seed RNGs with `StdRng::seed_from_u64`; inject `Clock` — never
+  read wall-clock time in logic, and don't depend on locale.
+- **Self-validating:** clear assertions, not log inspection.
+- **Timely:** add a regression test alongside the fix that needs it.
 
-Forbidden in committed tests:
+Avoid `sleep()` as synchronization (poll with a bounded timeout instead) and
+don't leave `#[ignore]` behind without a tracking issue.
 
-- `sleep()` as synchronization; use polling with a bounded timeout when waiting is unavoidable.
-- Lingering `#[ignore]`; fix it, delete it, or file a dated issue before merging.
-- Assertion roulette; every assertion should make the failed invariant obvious.
-- Wall-clock or locale dependence in logic tests.
+## Conventions
 
-Useful tools on aiwonder:
+Calyx uses a controlled vocabulary — please keep it consistent:
 
-```bash
-cargo test --workspace
-cargo fuzz --help
-cargo mutants --check
-```
+- a frozen embedder is a **lens** (not "model"/"encoder")
+- a record is a **constellation** (not "row"/"doc"/"point")
+- information-about-an-outcome is **signal** (not "score"/"weight")
 
-## Fuzz And Mutation Cadence
+## License
 
-`cargo-fuzz` targets live under `fuzz/` and cover the PRD `28 §6c`
-untrusted-input boundaries:
-
-```bash
-cargo fuzz list
-cargo fuzz run aster_sst_decode fuzz/corpus/aster_sst_decode -- -runs=1000
-cargo fuzz run aster_wal_replay fuzz/corpus/aster_wal_replay -- -runs=1000
-cargo fuzz run aster_manifest_decode fuzz/corpus/aster_manifest_decode -- -runs=1000
-cargo fuzz run query_parse fuzz/corpus/query_parse -- -runs=1000
-cargo fuzz run lens_output_decode fuzz/corpus/lens_output_decode -- -runs=1000
-cargo fuzz run mcp_jsonrpc_decode fuzz/corpus/mcp_jsonrpc_decode -- -runs=1000
-```
-
-Use bounded smoke runs on every touched untrusted boundary and longer sessions
-when changing parser/decoder logic. Seed Aster corpus directories with real SST,
-WAL, and MANIFEST bytes copied from aiwonder evidence vaults. A crash artifact is
-not "handled" until a GitHub issue and regression test exist.
-
-Mutation testing is agent-invoked on aiwonder, not hosted CI:
-
-```bash
-cargo mutants --in-diff origin/main...HEAD --check --output /home/croyse/calyx/data/mutants/diff-check
-cargo mutants --in-diff origin/main...HEAD --output /home/croyse/calyx/data/mutants/diff-run
-cargo mutants --package calyx-core --package calyx-aster --output /home/croyse/calyx/data/mutants/core-aster-periodic
-```
-
-Every survived mutant is a test-gap issue with the `cargo-mutants` report path
-attached. The report artifact is the test-usefulness source of truth; passing
-tests are still only a claim until FSV reads the relevant bytes.
-
-Tests are the fast claim. FSV is the verdict: read persisted bytes on aiwonder
-and attach the evidence to the relevant GitHub issue.
+By contributing, you agree that your contributions are licensed under the
+project's [Business Source License 1.1](LICENSE).

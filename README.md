@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/logo.png" alt="Calyx logo" width="120" />
+<img src="assets/logo.png" alt="Calyx logo" width="120" />
 
 # Calyx
 
@@ -15,7 +15,7 @@
 
 [Why Calyx](#-why-calyx) · [Concepts](#-the-core-idea-constellations) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Developer Docs](#-developer-documentation) · [Roadmap](#-project-status)
 
-<img src="docs/assets/hero.png" alt="A single grounded point blooming into a constellation of vectors" width="100%" />
+<img src="assets/hero.png" alt="A single grounded point blooming into a constellation of vectors" width="100%" />
 
 </div>
 
@@ -34,7 +34,7 @@ Every time you build a serious retrieval or intelligence system, you end up glui
 Calyx bakes that machinery **once, into the storage engine**.
 
 <div align="center">
-<img src="docs/assets/vs-oldway.png" alt="A tangle of disconnected databases and glue code, versus one unified Calyx constellation" width="90%" />
+<img src="assets/vs-oldway.png" alt="A tangle of disconnected databases and glue code, versus one unified Calyx constellation" width="90%" />
 </div>
 
 | What a multi-signal system needs | Vector DB / pgvector / Elastic / Neo4j | **Calyx bakes in** |
@@ -57,7 +57,7 @@ Calyx bakes that machinery **once, into the storage engine**.
 A traditional database stores a **row**. A vector database stores a **point**. Calyx stores a **constellation**: one input, measured through many independent *lenses* (embedders and feature extractors), each producing its own typed slot-vector — kept **separate**, never flattened into one opaque blob.
 
 <div align="center">
-<img src="docs/assets/constellation-model.png" alt="One input passes through seven lenses, each producing a cluster of vectors that fuse into one constellation with a gold kernel at its center" width="95%" />
+<img src="assets/constellation-model.png" alt="One input passes through seven lenses, each producing a cluster of vectors that fuse into one constellation with a gold kernel at its center" width="95%" />
 </div>
 
 Calyx is organized around four verbs — the calculus of association:
@@ -193,7 +193,7 @@ Most datasets are mostly redundant. Lodestar discovers the small set of records 
 ### 🛡️ Ward — the no-hallucination guard
 
 <div align="center">
-<img src="docs/assets/ward-guard.png" alt="A glowing trusted region with a gold kernel inside, deflecting an out-of-distribution intruder at its boundary" width="88%" />
+<img src="assets/ward-guard.png" alt="A glowing trusted region with a gold kernel inside, deflecting an out-of-distribution intruder at its boundary" width="88%" />
 </div>
 
 Ward is a **fail-closed boundary** around what your data can support. Each required slot is scored *independently* against a calibrated threshold — there is no single averaged gate that a strong score on one slot can sneak past. Anything outside the trusted region is refused, quarantined, or recorded as a new region to learn — never waved through. Thresholds are set by conformal calibration to a target false-accept rate, so the guard's strictness is a number you choose, not a guess.
@@ -201,7 +201,7 @@ Ward is a **fail-closed boundary** around what your data can support. Each requi
 ### 📜 Ledger — provenance you can verify
 
 <div align="center">
-<img src="docs/assets/ledger.png" alt="A hash-chained sequence of crystalline blocks anchored by glowing gold checkpoints" width="90%" />
+<img src="assets/ledger.png" alt="A hash-chained sequence of crystalline blocks anchored by glowing gold checkpoints" width="90%" />
 </div>
 
 Every measurement, kernel, guard verdict, and answer is appended to a hash-chained ledger. Each entry seals the one before it, so any tampering is detectable; periodic checkpoints can be cryptographically signed; and a single command can re-verify the entire chain. You can always answer the question *"how was this produced, and has anything changed since?"*
@@ -209,7 +209,7 @@ Every measurement, kernel, guard verdict, and answer is appended to a hash-chain
 ### ♨️ Anneal — a database that improves with use
 
 <div align="center">
-<img src="docs/assets/anneal.png" alt="A constellation tightening and brightening as redundant points are pruned away, over a rising growth curve" width="90%" />
+<img src="assets/anneal.png" alt="A constellation tightening and brightening as redundant points are pruned away, over a rising growth curve" width="90%" />
 </div>
 
 Anneal continuously tunes the engine — index parameters, quantization levels, fusion weights — but **safely**: every change is gated against quality tripwires and shadow-tested before it goes live, and anything that regresses recall, latency, or guard accuracy is automatically reverted. Optimization that can only make things better, and is always reversible.
@@ -217,7 +217,7 @@ Anneal continuously tunes the engine — index parameters, quantization levels, 
 ### 🔮 Oracle — grounded consequence prediction
 
 <div align="center">
-<img src="docs/assets/oracle.png" alt="A branching consequence tree fanning out from a single action, with grounded branches glowing brighter" width="90%" />
+<img src="assets/oracle.png" alt="A branching consequence tree fanning out from a single action, with grounded branches glowing brighter" width="90%" />
 </div>
 
 Oracle predicts the grounded consequences of an action by mining recurrence patterns in your data, builds a branching "butterfly" tree of likely downstream effects, and can even walk backward from an outcome to its likely causes. Crucially, it has an **honesty gate**: when the available signals can't support a confident prediction, Oracle returns *insufficient* with the specific deficits — instead of fabricating an answer.
@@ -227,7 +227,7 @@ Oracle predicts the grounded consequences of an action by mining recurrence patt
 ## 🗄️ One core, every paradigm
 
 <div align="center">
-<img src="docs/assets/universal-db.png" alt="Relational, document, key-value, columnar, graph, time-series, full-text, and vector paradigms all converging into one glowing core" width="92%" />
+<img src="assets/universal-db.png" alt="Relational, document, key-value, columnar, graph, time-series, full-text, and vector paradigms all converging into one glowing core" width="92%" />
 </div>
 
 Because everything is built on one ordered, transactional storage core, Calyx can serve the role of many database shapes at once:
@@ -246,7 +246,7 @@ The search-shaped paradigms collapse into the association engine; the storage-sh
 
 ## 📚 Developer Documentation
 
-Everything a developer needs to build with Calyx. Deep, source-derived references live in [`docs/systemspecs/`](docs/systemspecs/) (start at [`01_system_overview.md`](docs/systemspecs/01_system_overview.md)).
+Everything a developer needs to build with Calyx.
 
 ### Building from source
 

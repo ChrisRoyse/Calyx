@@ -1,10 +1,4 @@
-# Historical gitleaks fingerprints present before PH61 T07.
-# These are tracked as exact commit/file/rule/line fingerprints so new leaks
-# still fail the gate. Do not add credential values here.
+# Allowlisted gitleaks fingerprints (example/dummy values in test fixtures,
+# not real credentials). Tracked as exact fingerprints so genuine leaks still
+# fail the gate. Do not add credential values here.
 cc9f57b0a9c426b7b66899bdec323eba74fe223e:crates/calyx-aster/src/dedup/audit_tests.rs:generic-api-key:58
-8cd1a143f37a306f1e0cd7fd0938d13d3fde030a:docs/implementation/PH39-identity-locked-generation/T03-style-lens-adapter.md:generic-api-key:124
-210dfca11b93137be67484e02b0217dcc77a69d4:docs/implementation/17_STAGE7_LEDGER.md:generic-api-key:131
-d912619fade20164b99550715194ae951c9ae65f:docs/dbprdplans/23_ARRAY_MATH_STORAGE_COMPRESSION.md:generic-api-key:35
-2492f79b422cafa15f2599f883dfebf1de08429c:docs/dbprdplans/23_ARRAY_MATH_STORAGE_COMPRESSION.md:generic-api-key:35
-d912619fade20164b99550715194ae951c9ae65f:docs2/infisical-secrets-guide.md:generic-api-key:141
-2492f79b422cafa15f2599f883dfebf1de08429c:docs2/infisical-secrets-guide.md:generic-api-key:115

@@ -2,6 +2,14 @@
 .claude/
 *.local.json
 
+# ── Internal / non-public material (kept out of the public repo) ──────
+docs/
+docs2/
+scripts/
+infra/
+datasets/
+env.sh
+
 # ── Secrets / environment — never commit, not even examples ───────────
 .env
 .env.*
