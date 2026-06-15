@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use calyx_aster::manifest::{ImmutableRef, ManifestStore};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    Asymmetry, Input, Lens, LensId, Modality, Panel, SlotId, SlotShape, SlotState, SlotVector,
-    VaultId,
+    Asymmetry, Input, Lens, LensId, Modality, Panel, QuantPolicy, SlotId, SlotShape, SlotState,
+    SlotVector, VaultId,
 };
 use calyx_registry::{
     AlgorithmicLens, LensRuntime, LensSpec, Registry, SlotSpec, SwapController, list_panel,
@@ -262,6 +262,9 @@ fn lens_spec(lens: &AlgorithmicLens, runtime: LensRuntime) -> LensSpec {
         norm_policy: lens.contract().norm_policy(),
         axis: Some("issue752".to_string()),
         asymmetry: Asymmetry::None,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: calyx_registry::spec::default_recall_delta(),
         retrieval_only: false,
         excluded_from_dedup: false,
     }

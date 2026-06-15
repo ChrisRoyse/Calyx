@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    Asymmetry, Input, Lens, LensId, Modality, Panel, Result as CalyxResult, SlotShape, SlotVector,
-    VaultId,
+    Asymmetry, Input, Lens, LensId, Modality, Panel, QuantPolicy, Result as CalyxResult, SlotShape,
+    SlotVector, VaultId,
 };
 use calyx_registry::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use calyx_registry::{
@@ -243,6 +243,9 @@ fn register_dummy_lens(registry: &mut Registry, name: &str, output: SlotShape, m
         norm_policy: contract.norm_policy(),
         axis: Some("issue789".to_string()),
         asymmetry: Asymmetry::None,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: calyx_registry::spec::default_recall_delta(),
         retrieval_only: false,
         excluded_from_dedup: false,
     };

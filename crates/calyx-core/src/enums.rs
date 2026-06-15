@@ -58,12 +58,25 @@ pub enum Asymmetry {
 pub enum QuantPolicy {
     /// Store unquantized values.
     None,
+    /// TurboQuant storage with `bits_per_channel_x2` where 7 means 3.5 bpc.
+    TurboQuant { bits_per_channel_x2: u8 },
+    /// Blackwell microscaling FP4 storage, with MXFP8 used as the safe fallback.
+    MxFp4,
     /// Product quantization with `m` subquantizers and `nbits` codebook bits.
     Pq { m: u8, nbits: u8 },
     /// Float8 storage.
     Float8,
     /// Binary storage.
     Binary,
+}
+
+impl QuantPolicy {
+    /// Quality-neutral TurboQuant default from PRD 23 section 4.1.
+    pub const fn turboquant_default() -> Self {
+        Self::TurboQuant {
+            bits_per_channel_x2: 7,
+        }
+    }
 }
 
 /// Grounded outcome axis for anchors and Assay bits.
@@ -151,6 +164,11 @@ mod tests {
             QuantPolicy::Pq { m: 8, nbits: 4 },
             br#"{"pq":{"m":8,"nbits":4}}"#,
         );
+        roundtrip(
+            QuantPolicy::turboquant_default(),
+            br#"{"turbo_quant":{"bits_per_channel_x2":7}}"#,
+        );
+        roundtrip(QuantPolicy::MxFp4, br#""mx_fp4""#);
         roundtrip(
             AnchorKind::Label("gold".to_string()),
             br#"{"label":"gold"}"#,
@@ -273,6 +291,8 @@ mod tests {
     fn quant_name(value: &QuantPolicy) -> &'static str {
         match value {
             QuantPolicy::None => "none",
+            QuantPolicy::TurboQuant { .. } => "turbo_quant",
+            QuantPolicy::MxFp4 => "mx_fp4",
             QuantPolicy::Pq { .. } => "pq",
             QuantPolicy::Float8 => "float8",
             QuantPolicy::Binary => "binary",

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{Asymmetry, CalyxError, Modality, Result, SlotShape};
+use calyx_core::{Asymmetry, CalyxError, Modality, QuantPolicy, Result, SlotShape};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -20,7 +20,7 @@ pub struct LensForgeFile {
     pub bytes: u64,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LensForgeManifest {
     pub name: String,
     pub modality: Modality,
@@ -38,6 +38,12 @@ pub struct LensForgeManifest {
     pub license: Option<String>,
     #[serde(default)]
     pub non_commercial: bool,
+    #[serde(default = "crate::spec::default_quant_default")]
+    pub quant_default: QuantPolicy,
+    #[serde(default)]
+    pub truncate_dim: Option<u32>,
+    #[serde(default = "crate::spec::default_recall_delta")]
+    pub recall_delta: f32,
 }
 
 pub fn lens_spec_from_manifest_path(path: impl AsRef<Path>) -> Result<LensSpec> {
@@ -98,6 +104,9 @@ pub fn lens_spec_from_manifest_with_license_override(
         norm_policy: norm_policy(&manifest.norm)?,
         axis: Some(manifest.name.clone()),
         asymmetry: Asymmetry::None,
+        quant_default: manifest.quant_default,
+        truncate_dim: manifest.truncate_dim,
+        recall_delta: manifest.recall_delta,
         retrieval_only: false,
         excluded_from_dedup: false,
     })
@@ -117,6 +126,19 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
     }
     if manifest.dim == 0 {
         return Err(config_invalid("lensforge manifest dim must be > 0"));
+    }
+    if let Some(truncate_dim) = manifest.truncate_dim
+        && (truncate_dim == 0 || truncate_dim > manifest.dim)
+    {
+        return Err(config_invalid(format!(
+            "truncate_dim {truncate_dim} must be in 1..={}",
+            manifest.dim
+        )));
+    }
+    if !manifest.recall_delta.is_finite() || manifest.recall_delta < 0.0 {
+        return Err(config_invalid(
+            "recall_delta must be finite and non-negative",
+        ));
     }
     if manifest.files.is_empty() {
         return Err(config_invalid("lensforge manifest files are required"));

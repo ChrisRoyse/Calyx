@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Calyx session entrypoint - source this every session on aiwonder.
-source "$HOME/.cargo/env"
+. "$HOME/.cargo/env"
 
 export CALYX_HOME=/home/croyse/calyx
 export CARGO_TARGET_DIR="$CALYX_HOME/target"
 export HF_HOME="$CALYX_HOME/.hf-cache"
 export CUDA_HOME=/usr/local/cuda
+export CUDA_PATH="$CUDA_HOME"
+export CUDA_ROOT="$CUDA_HOME"
+export NVCC="$CUDA_HOME/bin/nvcc"
 export PATH="$CALYX_HOME/bin:$HOME/.local/bin:$CUDA_HOME/bin:$PATH"
 export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
 for calyx_nvidia_lib in "$CALYX_HOME"/.venv-cudnn/lib/python*/site-packages/nvidia/*/lib; do
