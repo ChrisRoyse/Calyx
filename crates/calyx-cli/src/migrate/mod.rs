@@ -1,5 +1,5 @@
 pub(crate) mod adapter;
-mod backfill;
+pub(crate) mod backfill;
 pub(crate) mod errors;
 pub(crate) mod manifest;
 pub(crate) mod reader;
