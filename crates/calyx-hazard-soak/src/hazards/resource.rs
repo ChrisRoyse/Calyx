@@ -14,7 +14,7 @@ use super::resource_support::*;
 
 const START_TS: u64 = 1_800_100_000_000;
 const FSV_MEMTABLE_BYTES: usize = 64 * 1024 * 1024;
-type ProbeResult = Result<(bool, Value), String>;
+pub(super) type ProbeResult = Result<(bool, Value), String>;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct HazardResult {
@@ -41,7 +41,7 @@ pub fn run_hazards_1_5(root: &Path) -> Vec<HazardResult> {
     .collect()
 }
 
-fn run_probe(
+pub(super) fn run_probe(
     root: &Path,
     hazard_id: u8,
     name: &'static str,

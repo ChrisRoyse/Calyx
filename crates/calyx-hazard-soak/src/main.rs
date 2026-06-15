@@ -1,6 +1,7 @@
 mod hazards;
 
 use hazards::resource::{HazardResult, run_hazards_1_5};
+use hazards::resource_hazards_6_8::run_hazards_6_8;
 use serde_json::{Value, json};
 use std::env;
 use std::fs;
@@ -15,79 +16,180 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let args = env::args().skip(1).collect::<Vec<_>>();
-    validate_args(&args)?;
-    let root = fsv_root();
+    let suite = Suite::parse(&args)?;
+    let root = fsv_root(suite);
     fs::create_dir_all(&root).map_err(|error| format!("create FSV root: {error}"))?;
-    fs::write(
-        root.join("cleanup-tag.txt"),
-        b"issue488 PH59 T01 synthetic FSV data\n",
-    )
-    .map_err(|error| format!("write cleanup tag: {error}"))?;
+    fs::write(root.join("cleanup-tag.txt"), suite.cleanup_tag().as_bytes())
+        .map_err(|error| format!("write cleanup tag: {error}"))?;
 
-    let results = run_hazards_1_5(&root);
+    let results = suite.run(&root);
     let pass_count = results.iter().filter(|result| result.passed).count();
     let passed = pass_count == results.len();
     let artifact = json!({
-        "issue": 488,
+        "issue": suite.issue(),
         "phase": "PH59",
-        "task": "T01",
-        "suite": "hazards_1_5_resource_ops",
+        "task": suite.task(),
+        "suite": suite.suite_name(),
         "passed": passed,
         "pass_count": pass_count,
         "hazard_count": results.len(),
         "source_of_truth": {
             "fsv_root": root,
-            "root_artifact": root.join("ph59_hazards_1_5.json"),
-            "target_artifact": repo_root().join("target/ph59_hazards_1_5.json"),
-            "metrics": root.join("ph59_hazards_1_5.prom")
+            "root_artifact": root.join(suite.json_artifact()),
+            "target_artifact": repo_root().join("target").join(suite.json_artifact()),
+            "metrics": root.join(suite.prom_artifact())
         },
         "results": results
     });
-    write_artifacts(&root, &artifact, &results)?;
+    write_artifacts(&root, &artifact, &results, suite)?;
     println!(
-        "PH59_HAZARDS_1_5_ROOT={} passed={}/{}",
+        "{}={} passed={}/{}",
+        suite.root_env_name(),
         root.display(),
         pass_count,
         results.len()
     );
+    println!("PH59_{}_FSV_ROOT={}", suite.task(), root.display());
     if passed {
         Ok(())
     } else {
-        Err("one or more PH59 T01 hazard probes failed".to_string())
+        Err(format!(
+            "one or more PH59 {} hazard probes failed",
+            suite.task()
+        ))
     }
 }
 
-fn validate_args(args: &[String]) -> Result<(), String> {
-    if args.is_empty() || args == ["--hazards", "1-5"] || args == ["--all-hazards"] {
-        return Ok(());
-    }
-    Err(format!(
-        "unsupported args {args:?}; this crate currently implements --hazards 1-5"
-    ))
+#[derive(Clone, Copy)]
+enum Suite {
+    Hazards1To5,
+    Hazards6To8,
+    AllImplemented,
 }
 
-fn write_artifacts(root: &Path, artifact: &Value, results: &[HazardResult]) -> Result<(), String> {
+impl Suite {
+    fn parse(args: &[String]) -> Result<Self, String> {
+        match args {
+            [] => Ok(Self::Hazards1To5),
+            [flag, range] if flag == "--hazards" && range == "1-5" => Ok(Self::Hazards1To5),
+            [flag, range] if flag == "--hazards" && range == "6-8" => Ok(Self::Hazards6To8),
+            [flag, range] if flag == "--hazards" && range == "1-8" => Ok(Self::AllImplemented),
+            [flag] if flag == "--all-hazards" => Ok(Self::AllImplemented),
+            _ => Err(format!(
+                "unsupported args {args:?}; supported: --hazards 1-5, --hazards 6-8, --hazards 1-8"
+            )),
+        }
+    }
+
+    fn run(self, root: &Path) -> Vec<HazardResult> {
+        match self {
+            Self::Hazards1To5 => run_hazards_1_5(root),
+            Self::Hazards6To8 => run_hazards_6_8(root),
+            Self::AllImplemented => {
+                let mut results = run_hazards_1_5(root);
+                results.extend(run_hazards_6_8(root));
+                results
+            }
+        }
+    }
+
+    fn issue(self) -> Value {
+        match self {
+            Self::Hazards1To5 => json!(488),
+            Self::Hazards6To8 => json!(489),
+            Self::AllImplemented => json!([488, 489]),
+        }
+    }
+
+    fn task(self) -> &'static str {
+        match self {
+            Self::Hazards1To5 => "T01",
+            Self::Hazards6To8 => "T02",
+            Self::AllImplemented => "T01_T02",
+        }
+    }
+
+    fn suite_name(self) -> &'static str {
+        match self {
+            Self::Hazards1To5 => "hazards_1_5_resource_ops",
+            Self::Hazards6To8 => "hazards_6_8_mvcc_vram_heap",
+            Self::AllImplemented => "hazards_1_8_resource_ops",
+        }
+    }
+
+    fn metrics_suite(self) -> &'static str {
+        match self {
+            Self::Hazards1To5 => "ph59_t01",
+            Self::Hazards6To8 => "ph59_t02",
+            Self::AllImplemented => "ph59_t01_t02",
+        }
+    }
+
+    fn json_artifact(self) -> &'static str {
+        match self {
+            Self::Hazards1To5 => "ph59_hazards_1_5.json",
+            Self::Hazards6To8 => "ph59_hazards_6_8.json",
+            Self::AllImplemented => "ph59_hazards_1_8.json",
+        }
+    }
+
+    fn prom_artifact(self) -> &'static str {
+        match self {
+            Self::Hazards1To5 => "ph59_hazards_1_5.prom",
+            Self::Hazards6To8 => "ph59_hazards_6_8.prom",
+            Self::AllImplemented => "ph59_hazards_1_8.prom",
+        }
+    }
+
+    fn root_env_name(self) -> &'static str {
+        match self {
+            Self::Hazards1To5 => "PH59_HAZARDS_1_5_ROOT",
+            Self::Hazards6To8 => "PH59_HAZARDS_6_8_ROOT",
+            Self::AllImplemented => "PH59_HAZARDS_1_8_ROOT",
+        }
+    }
+
+    fn cleanup_tag(self) -> String {
+        format!(
+            "issue{} PH59 {} synthetic FSV data\n",
+            self.issue(),
+            self.task()
+        )
+    }
+}
+
+fn write_artifacts(
+    root: &Path,
+    artifact: &Value,
+    results: &[HazardResult],
+    suite: Suite,
+) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(artifact).map_err(|error| error.to_string())?;
-    fs::write(root.join("ph59_hazards_1_5.json"), &bytes)
+    fs::write(root.join(suite.json_artifact()), &bytes)
         .map_err(|error| format!("write root artifact: {error}"))?;
     let target = repo_root().join("target");
     fs::create_dir_all(&target).map_err(|error| format!("create target dir: {error}"))?;
-    fs::write(target.join("ph59_hazards_1_5.json"), &bytes)
+    fs::write(target.join(suite.json_artifact()), &bytes)
         .map_err(|error| format!("write target artifact: {error}"))?;
-    fs::write(root.join("ph59_hazards_1_5.prom"), metrics_text(results))
-        .map_err(|error| format!("write metrics artifact: {error}"))?;
+    fs::write(
+        root.join(suite.prom_artifact()),
+        metrics_text(results, suite),
+    )
+    .map_err(|error| format!("write metrics artifact: {error}"))?;
     Ok(())
 }
 
-fn metrics_text(results: &[HazardResult]) -> String {
+fn metrics_text(results: &[HazardResult], suite: Suite) -> String {
     let mut text = String::new();
     let pass_count = results.iter().filter(|result| result.passed).count();
     text.push_str(&format!(
-        "calyx_hazard_pass_count{{suite=\"ph59_t01\"}} {pass_count}\n"
+        "calyx_hazard_pass_count{{suite=\"{}\"}} {pass_count}\n",
+        suite.metrics_suite()
     ));
     for result in results {
         text.push_str(&format!(
-            "calyx_hazard_pass{{suite=\"ph59_t01\",hazard=\"H{}\"}} {}\n",
+            "calyx_hazard_pass{{suite=\"{}\",hazard=\"H{}\"}} {}\n",
+            suite.metrics_suite(),
             result.hazard_id,
             u8::from(result.passed)
         ));
@@ -101,10 +203,16 @@ fn metrics_text(results: &[HazardResult]) -> String {
     text
 }
 
-fn fsv_root() -> PathBuf {
+fn fsv_root(suite: Suite) -> PathBuf {
     env::var_os("CALYX_FSV_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|| env::temp_dir().join(format!("calyx-ph59-t01-{}", std::process::id())))
+        .unwrap_or_else(|| {
+            env::temp_dir().join(format!(
+                "calyx-ph59-{}-{}",
+                suite.task().to_ascii_lowercase(),
+                std::process::id()
+            ))
+        })
 }
 
 fn repo_root() -> PathBuf {

@@ -371,6 +371,7 @@ version = "0.1.0"
 dependencies = [
  "calyx-aster",
  "calyx-core",
+ "calyx-forge",
  "serde",
  "serde_json",
 ]
