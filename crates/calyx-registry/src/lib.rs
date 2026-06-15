@@ -10,6 +10,7 @@ pub mod lens;
 pub mod panel_ops;
 pub mod panels;
 pub mod persistence;
+pub mod placement;
 pub mod profile;
 pub mod runtime;
 pub mod spec;
@@ -46,6 +47,10 @@ pub use panels::{
 pub use persistence::{
     VaultPanelState, VaultPanelWrite, VaultRegistrySnapshot, load_vault_panel_state,
     persist_vault_panel_state,
+};
+pub use placement::{
+    CALYX_RAM_BUDGET_EXCEEDED, CALYX_VRAM_BUDGET_EXCEEDED, CpuLensPool, CpuPoolAdmission,
+    LENS_RAM_REMEDIATION, LENS_VRAM_REMEDIATION, PlacementBudget, PlacementPlan, choose_placement,
 };
 pub use profile::{
     CapabilityCard, CostMetrics, CoverageMetrics, MetricSource, ProfileOptions, ProfileProbe,

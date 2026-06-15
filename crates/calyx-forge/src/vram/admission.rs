@@ -11,9 +11,88 @@ use std::time::Instant;
 
 use crate::vram::{
     BlockDeallocator, GpuBlockRegistry, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_REMEDIATION,
-    VramBudgeter, VramProbe,
+    VramBudgeter, VramGuard, VramProbe,
 };
 use crate::{ForgeError, Result};
+
+pub const LENS_VRAM_BUDGET_REMEDIATION: &str = "Lower lens precision, move the lens to CPU, evict cold GPU lenses, or raise CALYX_FORGE_VRAM_BUDGET";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LensAdmissionPlacement {
+    Cpu,
+    Gpu,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LensAdmissionRequest {
+    pub lens_vram_bytes: usize,
+    pub tei_reserved_bytes: usize,
+    pub allow_cpu_fallback: bool,
+}
+
+pub struct LensAdmission<'b, P: VramProbe> {
+    pub placement: LensAdmissionPlacement,
+    pub requested_vram_bytes: usize,
+    pub available_vram_bytes: usize,
+    pub guard: Option<VramGuard<'b, P>>,
+}
+
+pub fn admit_lens<'b, P: VramProbe>(
+    budgeter: &'b VramBudgeter<P>,
+    request: LensAdmissionRequest,
+) -> Result<LensAdmission<'b, P>> {
+    if request.lens_vram_bytes == 0 {
+        return Ok(LensAdmission {
+            placement: LensAdmissionPlacement::Gpu,
+            requested_vram_bytes: 0,
+            available_vram_bytes: available_after_tei(budgeter, request.tei_reserved_bytes),
+            guard: None,
+        });
+    }
+
+    let available = available_after_tei(budgeter, request.tei_reserved_bytes);
+    if request.lens_vram_bytes <= available {
+        return Ok(LensAdmission {
+            placement: LensAdmissionPlacement::Gpu,
+            requested_vram_bytes: request.lens_vram_bytes,
+            available_vram_bytes: available,
+            guard: Some(budgeter.reserve(request.lens_vram_bytes)?),
+        });
+    }
+
+    if request.allow_cpu_fallback {
+        return Ok(LensAdmission {
+            placement: LensAdmissionPlacement::Cpu,
+            requested_vram_bytes: request.lens_vram_bytes,
+            available_vram_bytes: available,
+            guard: None,
+        });
+    }
+
+    Err(ForgeError::LensVramBudget {
+        detail: format!(
+            "lens_vram_bytes={} available_after_tei={} tei_reserved_bytes={}",
+            request.lens_vram_bytes, available, request.tei_reserved_bytes
+        ),
+        remediation: LENS_VRAM_BUDGET_REMEDIATION.to_string(),
+    })
+}
+
+fn available_after_tei<P: VramProbe>(
+    budgeter: &VramBudgeter<P>,
+    tei_reserved_bytes: usize,
+) -> usize {
+    let stats = budgeter.stats();
+    let soft_available = stats
+        .soft_cap_bytes
+        .saturating_sub(stats.allocated_bytes)
+        .saturating_sub(tei_reserved_bytes);
+    let device_available = stats
+        .device_free_bytes
+        .saturating_sub(RESERVED_HEADROOM_BYTES)
+        .saturating_sub(tei_reserved_bytes);
+    soft_available.min(device_available)
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AdmitDecision {

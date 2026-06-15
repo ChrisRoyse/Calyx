@@ -190,6 +190,66 @@ fn nonzero_bytes_with_empty_batch_fails_closed() {
     assert_eq!(budgeter.stats().failed_total, 1);
 }
 
+#[test]
+fn lens_admission_reserves_until_post_tei_cap_then_fallback_or_refuse() {
+    let budgeter = VramBudgeter::with_soft_cap(10 * MIB, StaticProbe { free: 64 * GIB });
+    let request = LensAdmissionRequest {
+        lens_vram_bytes: 2 * MIB,
+        tei_reserved_bytes: 2 * MIB,
+        allow_cpu_fallback: false,
+    };
+    let mut guards = Vec::new();
+
+    for _ in 0..4 {
+        let admission = admit_lens(&budgeter, request).expect("GPU lens fits post-TEI cap");
+        assert_eq!(admission.placement, LensAdmissionPlacement::Gpu);
+        assert_eq!(admission.requested_vram_bytes, 2 * MIB);
+        guards.push(admission.guard.expect("GPU admission owns guard"));
+    }
+    assert_eq!(budgeter.allocated_bytes(), 8 * MIB);
+
+    let fallback = admit_lens(
+        &budgeter,
+        LensAdmissionRequest {
+            allow_cpu_fallback: true,
+            ..request
+        },
+    )
+    .expect("CPU fallback chosen after VRAM cap");
+    assert_eq!(fallback.placement, LensAdmissionPlacement::Cpu);
+    assert!(fallback.guard.is_none());
+
+    let err = match admit_lens(&budgeter, request) {
+        Ok(_) => panic!("no-fallback GPU lens should refuse"),
+        Err(err) => err,
+    };
+    assert_eq!(err.code(), "CALYX_VRAM_BUDGET_EXCEEDED");
+    assert!(err.remediation().contains("Lower lens precision"));
+
+    drop(guards);
+    assert_eq!(budgeter.allocated_bytes(), 0);
+}
+
+#[test]
+fn zero_vram_lens_admits_without_reservation() {
+    let budgeter = VramBudgeter::with_soft_cap(0, StaticProbe { free: 0 });
+
+    let admission = admit_lens(
+        &budgeter,
+        LensAdmissionRequest {
+            lens_vram_bytes: 0,
+            tei_reserved_bytes: 8 * MIB,
+            allow_cpu_fallback: false,
+        },
+    )
+    .expect("zero VRAM lens admits");
+
+    assert_eq!(admission.placement, LensAdmissionPlacement::Gpu);
+    assert_eq!(admission.requested_vram_bytes, 0);
+    assert!(admission.guard.is_none());
+    assert_eq!(budgeter.allocated_bytes(), 0);
+}
+
 proptest::proptest! {
     #[test]
     fn decisions_are_total_and_counted(

@@ -52,6 +52,7 @@ mod navigate;
 mod ops;
 mod oracle_readback;
 mod output;
+mod panel_commands;
 mod ph42_readback;
 mod provenance;
 mod recurrence_readback;

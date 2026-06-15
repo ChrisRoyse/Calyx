@@ -91,8 +91,10 @@ fn write_amp_or_tier_regression_does_not_promote() {
 
 #[test]
 fn invalid_storage_config_fails_closed() {
-    let mut config = StorageConfig::default();
-    config.prefetch_bytes = 123;
+    let config = StorageConfig {
+        prefetch_bytes: 123,
+        ..StorageConfig::default()
+    };
     let error = validate_storage_config(&config).unwrap_err();
 
     assert_eq!(error.code, CALYX_STORAGE_SCOPE_INVALID_CONFIG);

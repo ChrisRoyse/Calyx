@@ -239,6 +239,7 @@ fn slot_with_bits(slot_id: SlotId, bits: Option<f32>, state: SlotState) -> Slot 
         modality: Modality::Text,
         asymmetry: Asymmetry::None,
         quant: QuantPolicy::None,
+        resource: Default::default(),
         axis: Some("synthetic".to_string()),
         retrieval_only: false,
         excluded_from_dedup: false,

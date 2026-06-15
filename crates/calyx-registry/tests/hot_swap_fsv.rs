@@ -386,6 +386,7 @@ fn panel() -> Panel {
             modality: Modality::Text,
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,
+            resource: Default::default(),
             axis: None,
             retrieval_only: false,
             excluded_from_dedup: false,
