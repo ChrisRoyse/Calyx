@@ -182,7 +182,7 @@ pub(crate) fn run_ask(args: &[String]) -> CliResult {
     print_json(&result)
 }
 
-fn ask_calyx(
+pub(crate) fn ask_calyx(
     calyx_dir: &Path,
     mode: VaultMode,
     query_vec: &[f32],
