@@ -175,6 +175,7 @@ impl SwapController {
             modality: spec.modality,
             asymmetry: spec.asymmetry,
             quant: spec.quant,
+            resource: Default::default(),
             axis: spec.axis,
             retrieval_only: spec.retrieval_only,
             excluded_from_dedup: spec.excluded_from_dedup,

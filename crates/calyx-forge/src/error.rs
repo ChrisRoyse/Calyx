@@ -54,6 +54,10 @@ pub enum ForgeError {
         detail: String,
         remediation: String,
     },
+    LensVramBudget {
+        detail: String,
+        remediation: String,
+    },
     SeedVersionMismatch {
         expected: u8,
         got: u8,
@@ -72,6 +76,7 @@ impl ForgeError {
             Self::QuantIntelligenceLoss { .. } => "CALYX_QUANT_INTELLIGENCE_LOSS",
             Self::CacheError { .. } => "CALYX_FORGE_CACHE_ERROR",
             Self::VramBudget { .. } => "CALYX_FORGE_VRAM_BUDGET",
+            Self::LensVramBudget { .. } => "CALYX_VRAM_BUDGET_EXCEEDED",
             Self::SeedVersionMismatch { .. } => "CALYX_FORGE_QUANT_SEED_VERSION",
         }
     }
@@ -86,7 +91,8 @@ impl ForgeError {
             | Self::QuantError { remediation, .. }
             | Self::QuantIntelligenceLoss { remediation, .. }
             | Self::CacheError { remediation, .. }
-            | Self::VramBudget { remediation, .. } => remediation,
+            | Self::VramBudget { remediation, .. }
+            | Self::LensVramBudget { remediation, .. } => remediation,
             Self::SeedVersionMismatch { .. } => SEED_VERSION_REMEDIATION,
         }
     }
@@ -126,6 +132,9 @@ impl fmt::Display for ForgeError {
                 format!("{} op={} path={} detail={}", self.code(), op, path, detail)
             }
             Self::VramBudget { detail, .. } => {
+                format!("{} detail={}", self.code(), detail)
+            }
+            Self::LensVramBudget { detail, .. } => {
                 format!("{} detail={}", self.code(), detail)
             }
             Self::SeedVersionMismatch { expected, got } => {

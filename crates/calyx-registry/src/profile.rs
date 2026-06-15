@@ -8,7 +8,9 @@ use crate::lens::Registry;
 use crate::spec::LensHealth;
 
 mod assay;
+mod cost;
 pub use assay::{apply_assay_metrics, profile_slot_with_assay};
+pub use cost::CostMetrics;
 
 /// One profiling probe, optionally labeled for silhouette separation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,13 +75,6 @@ pub struct SeparationMetrics {
     pub mean_pairwise_distance: f32,
     pub labeled_groups: usize,
     pub used_labels: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct CostMetrics {
-    pub total_ms: f32,
-    pub ms_per_input: f32,
-    pub vram_bytes: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -160,11 +155,8 @@ impl Profiler {
             failed,
             rate: observations.len() as f32 / probes.len() as f32,
         };
-        let cost = CostMetrics {
-            total_ms,
-            ms_per_input: total_ms / probes.len() as f32,
-            vram_bytes: vram_before.max(vram_after),
-        };
+        let cost =
+            CostMetrics::from_profile(total_ms, probes, &observations, vram_before, vram_after);
         let proxy_differentiation = separation.score;
         let proxy_signal = clamp01(
             coverage.rate

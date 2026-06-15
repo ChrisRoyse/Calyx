@@ -370,6 +370,7 @@ fn slot(slot: u16, lens_id: LensId, key: &str) -> Slot {
         modality: Modality::Structured,
         asymmetry: Asymmetry::None,
         quant: QuantPolicy::None,
+        resource: Default::default(),
         axis: None,
         retrieval_only: false,
         excluded_from_dedup: false,
@@ -433,6 +434,8 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> calyx_registry::Capab
             total_ms: 1.0,
             ms_per_input: 1.0,
             vram_bytes: 0,
+            ram_bytes: 0,
+            batch_ceiling: 1_000,
         },
         coverage: CoverageMetrics {
             requested: probe_count,

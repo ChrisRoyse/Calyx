@@ -24,7 +24,10 @@ pub mod lru_evict;
 pub mod oom_guard;
 pub mod yield_policy;
 
-pub use admission::{AdmissionController, AdmissionOutput, AdmitDecision, QueuedDispatch};
+pub use admission::{
+    AdmissionController, AdmissionOutput, AdmitDecision, LENS_VRAM_BUDGET_REMEDIATION,
+    LensAdmission, LensAdmissionPlacement, LensAdmissionRequest, QueuedDispatch, admit_lens,
+};
 pub use budget::{
     Category, DEFAULT_SOFT_CAP_BYTES, RESERVED_HEADROOM_BYTES, VRAM_BUDGET_ENV,
     VRAM_BUDGET_REMEDIATION, VramBudgeter, VramGuard,

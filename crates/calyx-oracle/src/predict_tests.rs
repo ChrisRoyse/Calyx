@@ -363,6 +363,7 @@ fn slot(id: u16) -> Slot {
         modality: Modality::Code,
         asymmetry: Asymmetry::None,
         quant: QuantPolicy::None,
+        resource: Default::default(),
         axis: Some("oracle-predict-fixture".to_string()),
         retrieval_only: false,
         excluded_from_dedup: false,

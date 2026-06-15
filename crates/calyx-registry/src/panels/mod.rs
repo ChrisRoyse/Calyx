@@ -69,6 +69,7 @@ pub fn instantiate_panel(template: &PanelTemplate, created_at: u64) -> Instantia
                 modality: spec.modality,
                 asymmetry: spec.asymmetry,
                 quant: QuantPolicy::None,
+                resource: Default::default(),
                 axis: Some(spec.name.clone()),
                 retrieval_only: spec.retrieval_only,
                 excluded_from_dedup: spec.excluded_from_dedup,

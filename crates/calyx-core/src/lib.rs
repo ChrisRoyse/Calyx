@@ -30,8 +30,8 @@ pub use error::{CALYX_ERROR_CODES, CalyxError, CalyxErrorCode, CalyxWarning, Res
 pub use ids::{CxId, LensId, ParseIdError, SlotId, SlotKey, VaultId, content_address};
 pub use model::{
     Anchor, AnchorValue, CALYX_RECORD_SCHEMA_VIOLATION, ConfidenceInterval, Constellation, CxFlags,
-    InputRef, LedgerRef, METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Panel, Signal, Slot,
-    SlotVector, SparseEntry,
+    InputRef, LedgerRef, LensCost, METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Panel, Placement,
+    Signal, Slot, SlotResource, SlotVector, SparseEntry,
 };
 pub use security::{
     AuthN, CALYX_AUTHN_REQUIRED, CALYX_TLS_CONFIG_INVALID, MtlsConfig, TlsConfig,

@@ -97,6 +97,7 @@ fn panel() -> Panel {
             modality: Modality::Text,
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,
+            resource: Default::default(),
             axis: Some("issue752".to_string()),
             retrieval_only: false,
             excluded_from_dedup: false,

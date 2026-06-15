@@ -409,6 +409,7 @@ mod tests {
             modality: Modality::Text,
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,
+            resource: Default::default(),
             axis: Some(key.to_string()),
             retrieval_only,
             excluded_from_dedup,
