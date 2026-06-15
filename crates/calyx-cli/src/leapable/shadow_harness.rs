@@ -8,6 +8,11 @@ use calyx_core::CalyxError;
 use rusqlite::{Connection, OpenFlags};
 use serde::{Deserialize, Serialize};
 
+mod contract;
+
+pub(crate) use contract::PgContractReport;
+use contract::verify_pg_contract_for;
+
 pub(crate) const CALYX_VAULT_NOT_FOUND: &str = "CALYX_VAULT_NOT_FOUND";
 pub(crate) const CALYX_VAULT_SYNC_FAILED: &str = "CALYX_VAULT_SYNC_FAILED";
 pub(crate) const CALYX_VAULT_MODE_ROLLBACK_DENIED: &str = "CALYX_VAULT_MODE_ROLLBACK_DENIED";
@@ -55,6 +60,7 @@ pub(crate) struct ShadowVault {
 #[derive(Debug)]
 struct SqliteHandle {
     path: PathBuf,
+    read_path: PathBuf,
     conn: Option<Connection>,
     database_name: String,
 }
@@ -91,17 +97,6 @@ pub(crate) struct ShadowManifestReadback {
     pub features: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub(crate) struct PgContractReport {
-    pub tables: BTreeMap<String, Vec<ColumnSpec>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-pub(crate) struct ColumnSpec {
-    pub name: String,
-    pub declared_type: String,
-}
-
 impl ShadowVault {
     pub(crate) fn open(sqlite_path: &Path, calyx_dir: &Path) -> Result<Self, CalyxError> {
         let sqlite = SqliteHandle::open(sqlite_path)?;
@@ -110,12 +105,26 @@ impl ShadowVault {
         Ok(Self { sqlite, calyx })
     }
 
+    pub(crate) fn open_with_archived_sqlite(
+        sqlite_path: &Path,
+        archived_path: &Path,
+        calyx_dir: &Path,
+    ) -> Result<Self, CalyxError> {
+        let sqlite = SqliteHandle::open_logical(sqlite_path, archived_path)?;
+        verify_pg_contract_for(sqlite.conn.as_ref().expect("sqlite handle open"))?;
+        let calyx = CalyxHandle::open_or_create(calyx_dir, sqlite_path, &sqlite.database_name)?;
+        Ok(Self { sqlite, calyx })
+    }
+
     pub(crate) fn close(mut self) -> Result<(), CalyxError> {
         self.calyx.sync()?;
-        let conn = self.sqlite.conn.take().expect("sqlite handle open");
-        conn.close()
-            .map_err(|(_, error)| vault_sync(format!("close sqlite: {error}")))?;
-        sync_file(&self.sqlite.path)?;
+        if let Some(conn) = self.sqlite.conn.take() {
+            conn.close()
+                .map_err(|(_, error)| vault_sync(format!("close sqlite: {error}")))?;
+        }
+        if self.sqlite.path.is_file() {
+            sync_file(&self.sqlite.path)?;
+        }
         Ok(())
     }
 
@@ -125,6 +134,10 @@ impl ShadowVault {
 
     pub(crate) fn paths(&self) -> (&Path, &Path) {
         (&self.sqlite.path, &self.calyx.root)
+    }
+
+    pub(crate) fn sqlite_read_path(&self) -> &Path {
+        &self.sqlite.read_path
     }
 
     pub(crate) fn mode(&self) -> VaultMode {
@@ -167,11 +180,27 @@ impl ShadowVault {
     }
 
     pub(crate) fn verify_pg_contract(&self) -> Result<PgContractReport, CalyxError> {
-        verify_pg_contract_for(self.sqlite.conn.as_ref().expect("sqlite handle open"))
+        let conn = self
+            .sqlite
+            .conn
+            .as_ref()
+            .ok_or_else(|| vault_sync("sqlite handle is already released"))?;
+        verify_pg_contract_for(conn)
     }
 
     pub(crate) fn manifest_readback(&self) -> Result<ShadowManifestReadback, CalyxError> {
         read_shadow_manifest(&self.calyx.root)
+    }
+
+    pub(crate) fn release_sqlite_for_archive(&mut self) -> Result<(), CalyxError> {
+        if let Some(conn) = self.sqlite.conn.take() {
+            conn.close()
+                .map_err(|(_, error)| vault_sync(format!("close sqlite: {error}")))?;
+        }
+        if self.sqlite.path.is_file() {
+            sync_file(&self.sqlite.path)?;
+        }
+        Ok(())
     }
 
     #[cfg(test)]
@@ -202,24 +231,29 @@ pub(crate) fn read_shadow_manifest(vault: &Path) -> Result<ShadowManifestReadbac
 
 impl SqliteHandle {
     fn open(path: &Path) -> Result<Self, CalyxError> {
-        if !path.is_file() {
+        Self::open_logical(path, path)
+    }
+
+    fn open_logical(logical_path: &Path, read_path: &Path) -> Result<Self, CalyxError> {
+        if !read_path.is_file() {
             return Err(error(
                 CALYX_VAULT_NOT_FOUND,
-                format!("sqlite vault {} does not exist", path.display()),
+                format!("sqlite vault {} does not exist", read_path.display()),
                 "provide the existing Leapable vault .db path",
             ));
         }
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let conn = Connection::open_with_flags(path, flags).map_err(|err| {
+        let conn = Connection::open_with_flags(read_path, flags).map_err(|err| {
             error(
                 CALYX_VAULT_NOT_FOUND,
-                format!("open sqlite vault {}: {err}", path.display()),
+                format!("open sqlite vault {}: {err}", read_path.display()),
                 "provide a readable existing Leapable vault .db path",
             )
         })?;
         let database_name = read_database_name(&conn)?;
         Ok(Self {
-            path: path.to_path_buf(),
+            path: logical_path.to_path_buf(),
+            read_path: read_path.to_path_buf(),
             conn: Some(conn),
             database_name,
         })
@@ -366,77 +400,6 @@ fn read_database_name(conn: &Connection) -> Result<String, CalyxError> {
     Ok(name)
 }
 
-fn require_columns(
-    conn: &Connection,
-    table: &str,
-    expected: &[(&str, &str)],
-) -> Result<Vec<ColumnSpec>, CalyxError> {
-    let actual = table_columns(conn, table)?;
-    for (name, declared_type) in expected {
-        let Some(found) = actual.iter().find(|column| column.name == *name) else {
-            return Err(contract_violation(format!("{table} missing column {name}")));
-        };
-        if !found.declared_type.eq_ignore_ascii_case(declared_type) {
-            return Err(contract_violation(format!(
-                "{table}.{name} type {} != {declared_type}",
-                found.declared_type
-            )));
-        }
-    }
-    Ok(actual)
-}
-
-fn verify_pg_contract_for(conn: &Connection) -> Result<PgContractReport, CalyxError> {
-    let mut tables = BTreeMap::new();
-    tables.insert(
-        "creator_databases".to_string(),
-        require_columns(
-            conn,
-            "creator_databases",
-            &[
-                ("id", "INTEGER"),
-                ("database_name", "TEXT"),
-                ("created_at", "TEXT"),
-            ],
-        )?,
-    );
-    tables.insert(
-        "queries".to_string(),
-        require_columns(
-            conn,
-            "queries",
-            &[
-                ("id", "INTEGER"),
-                ("database_name", "TEXT"),
-                ("query_text", "TEXT"),
-            ],
-        )?,
-    );
-    Ok(PgContractReport { tables })
-}
-
-fn table_columns(conn: &Connection, table: &str) -> Result<Vec<ColumnSpec>, CalyxError> {
-    let sql = format!("PRAGMA table_info({table})");
-    let mut stmt = conn
-        .prepare(&sql)
-        .map_err(|error| contract_violation(format!("inspect {table}: {error}")))?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(ColumnSpec {
-                name: row.get::<_, String>(1)?,
-                declared_type: row.get::<_, String>(2)?,
-            })
-        })
-        .map_err(|error| contract_violation(format!("read {table} columns: {error}")))?;
-    let columns = rows
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .map_err(|error| contract_violation(format!("collect {table} columns: {error}")))?;
-    if columns.is_empty() {
-        return Err(contract_violation(format!("{table} table is absent")));
-    }
-    Ok(columns)
-}
-
 fn manifest_path(root: &Path) -> PathBuf {
     root.join(MANIFEST_NAME)
 }
@@ -446,12 +409,21 @@ fn shadow_wal_path(root: &Path) -> PathBuf {
 }
 
 fn sync_file(path: &Path) -> Result<(), CalyxError> {
-    File::open(path)
+    File::options()
+        .read(true)
+        .write(true)
+        .open(path)
         .and_then(|file| file.sync_all())
         .map_err(|error| vault_sync(format!("sync {}: {error}", path.display())))
 }
 
 fn sync_dir(path: &Path) -> Result<(), CalyxError> {
+    #[cfg(windows)]
+    {
+        let _ = path;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
     File::open(path)
         .and_then(|file| file.sync_all())
         .map_err(|error| vault_sync(format!("sync dir {}: {error}", path.display())))
@@ -465,14 +437,6 @@ fn system_time_ms(time: SystemTime) -> Option<u64> {
     time.duration_since(UNIX_EPOCH)
         .ok()
         .map(|duration| duration.as_millis() as u64)
-}
-
-fn contract_violation(message: impl Into<String>) -> CalyxError {
-    error(
-        CALYX_PG_CONTRACT_VIOLATION,
-        message,
-        "keep Leapable control-plane contract table names, columns, and declared types unchanged",
-    )
 }
 
 fn manifest_corrupt(message: impl Into<String>) -> CalyxError {
