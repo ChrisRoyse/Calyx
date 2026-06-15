@@ -11,7 +11,7 @@ pub use crate::time::Ts;
 pub use anchor::{Anchor, AnchorValue};
 pub use constellation::{Constellation, METADATA_CHUNK_ID, METADATA_DATABASE_NAME};
 pub use signal::{ConfidenceInterval, CxFlags, InputRef, LedgerRef, Signal};
-pub use slot::{Panel, Slot};
+pub use slot::{LensCost, Panel, Placement, Slot, SlotResource};
 pub use validation::CALYX_RECORD_SCHEMA_VIOLATION;
 pub use vector::{SlotVector, SparseEntry};
 
@@ -109,6 +109,7 @@ mod tests {
                 modality: Modality::Structured,
                 asymmetry: Asymmetry::None,
                 quant: QuantPolicy::Pq { m: 8, nbits: 4 },
+                resource: Default::default(),
                 axis: Some("label".to_string()),
                 retrieval_only: false,
                 excluded_from_dedup: false,
@@ -158,6 +159,7 @@ mod tests {
             modality: Modality::Text,
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,
+            resource: Default::default(),
             axis: Some("semantic".to_string()),
             retrieval_only: false,
             excluded_from_dedup: false,

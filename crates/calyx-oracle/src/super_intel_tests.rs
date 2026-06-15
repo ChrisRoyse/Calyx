@@ -414,6 +414,7 @@ fn slot(id: u16) -> Slot {
         modality: Modality::Code,
         asymmetry: Asymmetry::None,
         quant: QuantPolicy::None,
+        resource: Default::default(),
         axis: Some("ph50".to_string()),
         retrieval_only: false,
         excluded_from_dedup: false,

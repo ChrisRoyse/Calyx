@@ -11,6 +11,77 @@ use crate::{
 
 use super::{LedgerRef, Signal, Ts};
 
+/// Measured cost for a frozen lens in a slot.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LensCost {
+    /// Wall-clock profile cost over the probe batch.
+    #[serde(default)]
+    pub total_ms: f32,
+    /// Wall-clock profile cost per probe input.
+    #[serde(default)]
+    pub ms_per_input: f32,
+    /// Resident GPU memory required by the lens.
+    #[serde(default)]
+    pub vram_bytes: u64,
+    /// Resident CPU memory required by the lens.
+    #[serde(default)]
+    pub ram_bytes: u64,
+    /// Largest admitted batch size under the measured cost envelope.
+    #[serde(default)]
+    pub batch_ceiling: u32,
+}
+
+impl LensCost {
+    pub fn zero() -> Self {
+        Self {
+            total_ms: 0.0,
+            ms_per_input: 0.0,
+            vram_bytes: 0,
+            ram_bytes: 0,
+            batch_ceiling: u32::MAX,
+        }
+    }
+
+    pub fn is_zero_cost(&self) -> bool {
+        self.vram_bytes == 0
+            && self.ram_bytes == 0
+            && self.total_ms == 0.0
+            && self.ms_per_input == 0.0
+    }
+}
+
+impl Default for LensCost {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+/// Runtime placement for a frozen lens slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Placement {
+    #[default]
+    Cpu,
+    Gpu,
+}
+
+/// Persisted resource policy for a slot.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SlotResource {
+    /// Real measured lens cost.
+    #[serde(default)]
+    pub cost: LensCost,
+    /// CPU/GPU placement selected from the runtime and admission budget.
+    #[serde(default)]
+    pub placement: Placement,
+}
+
+impl SlotResource {
+    pub fn is_default(&self) -> bool {
+        self == &Self::default()
+    }
+}
+
 /// A frozen lens slot in a panel.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Slot {
@@ -28,6 +99,9 @@ pub struct Slot {
     pub asymmetry: Asymmetry,
     /// Quantization policy.
     pub quant: QuantPolicy,
+    /// Persisted cost and placement selected at admission time.
+    #[serde(default, skip_serializing_if = "SlotResource::is_default")]
+    pub resource: SlotResource,
     /// Optional semantic axis/grouping tag.
     pub axis: Option<String>,
     /// Slot participates only as a post-retrieval signal, not primary recall.

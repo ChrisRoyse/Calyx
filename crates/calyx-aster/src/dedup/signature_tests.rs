@@ -234,6 +234,7 @@ fn slot(id: u16, key: &str, temporal: bool) -> Slot {
         modality: Modality::Text,
         asymmetry: Asymmetry::None,
         quant: QuantPolicy::None,
+        resource: Default::default(),
         axis: Some(key.to_string()),
         retrieval_only: temporal,
         excluded_from_dedup: temporal,

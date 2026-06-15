@@ -133,8 +133,10 @@ fn issue583_storage_autotune_scope_fsv() {
     );
 
     let invalid_config_code = {
-        let mut bad = StorageConfig::default();
-        bad.prefetch_bytes = 123;
+        let bad = StorageConfig {
+            prefetch_bytes: 123,
+            ..StorageConfig::default()
+        };
         calyx_anneal::validate_storage_config(&bad)
             .unwrap_err()
             .code
