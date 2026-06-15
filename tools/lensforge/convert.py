@@ -121,11 +121,7 @@ def convert_entry(
             return None
         return convert_model2vec(model, output_root, log_path)
     if target_format == "candle-fp16":
-        if not python_module_exists("safetensors"):
-            log_event(log_path, "skip", model, target_format, {"reason": "dependency_missing"})
-            return None
-        log_event(log_path, "skip", model, target_format, {"reason": "fp16_export_not_configured"})
-        return None
+        return convert_candle_fp16(model, output_root, log_path)
     if target_format != "onnx-int8":
         log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format"})
         return None
@@ -220,6 +216,48 @@ def convert_onnx_int8(
     return {"name": manifest["name"], "manifest": str(manifest_path)}
 
 
+def convert_candle_fp16(
+    model: dict[str, Any], output_root: Path, log_path: Path
+) -> dict[str, Any] | None:
+    name = str(model.get("name") or safe_name(str(model["hf_id"])))
+    out_dir = output_root / safe_name(name) / "candle-fp16"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if "files" in model:
+        artifacts = copy_local_artifacts(model, out_dir)
+        license_value = model.get("license") or "unknown"
+    else:
+        info = hf_model_info(str(model["hf_id"]))
+        license_value = model.get("license") or hf_license(info) or "unknown"
+        artifacts = download_hf_candle_artifacts(model, info, out_dir, log_path)
+        if artifacts is None:
+            return None
+
+    config_file = role_path(artifacts, "config")
+    dim = int(model.get("dim") or dim_from_config(config_file))
+    dtype = normalize_candle_dtype(str(model.get("dtype") or "f16"))
+    manifest = build_manifest(
+        model={**model, "dtype": dtype},
+        target_format="candle-fp16",
+        artifacts=artifacts,
+        dim=dim,
+        license_value=license_value,
+    )
+    manifest_path = out_dir / "manifest.json"
+    write_json(manifest_path, manifest)
+    log_event(
+        log_path,
+        "manifest",
+        model,
+        "candle-fp16",
+        {
+            "manifest": str(manifest_path),
+            "weights_sha256": manifest["weights_sha256"],
+            "dtype": dtype,
+        },
+    )
+    return {"name": manifest["name"], "manifest": str(manifest_path)}
+
+
 def download_hf_onnx_artifacts(
     model: dict[str, Any],
     info: dict[str, Any],
@@ -248,6 +286,32 @@ def download_hf_onnx_artifacts(
         artifacts[role] = download_hf_file(str(model["hf_id"]), repo_path, out_dir)
     for role, repo_path in COMMON_OPTIONAL_FILES:
         if repo_path in siblings:
+            artifacts[role] = download_hf_file(str(model["hf_id"]), repo_path, out_dir)
+    return artifacts
+
+
+def download_hf_candle_artifacts(
+    model: dict[str, Any],
+    info: dict[str, Any],
+    out_dir: Path,
+    log_path: Path,
+) -> dict[str, Path] | None:
+    siblings = {entry["rfilename"] for entry in info.get("siblings", []) if "rfilename" in entry}
+    required = [("model", "model.safetensors"), ("tokenizer", "tokenizer.json"), ("config", "config.json")]
+    artifacts = {}
+    for role, repo_path in required:
+        if repo_path not in siblings:
+            log_event(
+                log_path,
+                "skip",
+                model,
+                "candle-fp16",
+                {"reason": f"required_{role}_missing", "repo_path": repo_path},
+            )
+            return None
+        artifacts[role] = download_hf_file(str(model["hf_id"]), repo_path, out_dir)
+    for role, repo_path in COMMON_OPTIONAL_FILES:
+        if repo_path in siblings and role not in artifacts:
             artifacts[role] = download_hf_file(str(model["hf_id"]), repo_path, out_dir)
     return artifacts
 
@@ -456,6 +520,17 @@ def model_artifact_path(artifacts: dict[str, Path]) -> Path:
         if role in artifacts:
             return artifacts[role]
     raise ValueError("missing artifact role model/weights/embeddings")
+
+
+def normalize_candle_dtype(dtype: str) -> str:
+    key = dtype.lower()
+    if key in {"f16", "fp16", "float16"}:
+        return "f16"
+    if key in {"bf16", "bfloat16"}:
+        return "bf16"
+    if key in {"f32", "float32"}:
+        return "f32"
+    raise ValueError(f"unsupported candle dtype {dtype}")
 
 
 def ordered_artifacts(artifacts: dict[str, Path]) -> list[tuple[str, Path]]:

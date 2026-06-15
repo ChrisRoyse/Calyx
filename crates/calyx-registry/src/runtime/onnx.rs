@@ -72,20 +72,24 @@ pub struct OnnxModelFiles {
     pub config: PathBuf,
     pub special_tokens_map: PathBuf,
     pub tokenizer_config: PathBuf,
+    pub contract_paths: Vec<PathBuf>,
 }
 
 impl OnnxModelFiles {
     pub fn artifact_paths(&self) -> Vec<PathBuf> {
+        if !self.contract_paths.is_empty() {
+            return self.contract_paths.clone();
+        }
         let mut paths = vec![
             self.model_file.clone(),
             self.tokenizer.clone(),
             self.config.clone(),
         ];
-        if !paths.contains(&self.special_tokens_map) {
-            paths.push(self.special_tokens_map.clone());
-        }
         if !paths.contains(&self.tokenizer_config) {
             paths.push(self.tokenizer_config.clone());
+        }
+        if !paths.contains(&self.special_tokens_map) {
+            paths.push(self.special_tokens_map.clone());
         }
         paths
     }
@@ -103,6 +107,7 @@ pub struct OnnxFileSpec {
     pub provider_policy: OnnxProviderPolicy,
     pub expected_shape: Option<SlotShape>,
     pub expected_weights_sha256: Option<[u8; 32]>,
+    pub contract_paths: Vec<PathBuf>,
 }
 
 impl OnnxFileSpec {
@@ -126,6 +131,7 @@ impl OnnxFileSpec {
             provider_policy: OnnxProviderPolicy::CudaFailLoud,
             expected_shape: None,
             expected_weights_sha256: None,
+            contract_paths: Vec::new(),
         }
     }
 
@@ -150,6 +156,7 @@ impl OnnxFileSpec {
             provider_policy: OnnxProviderPolicy::CpuExplicit,
             expected_shape: Some(spec.output),
             expected_weights_sha256: Some(spec.weights_sha256),
+            contract_paths: files.clone(),
         })
     }
 

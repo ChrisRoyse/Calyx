@@ -8,7 +8,7 @@ use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Panel, Result, SlotS
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AlgorithmicLens, ExternalCmdLens, LensRuntime, LensSpec, OnnxLens, Registry,
+    AlgorithmicLens, CandleLens, ExternalCmdLens, LensRuntime, LensSpec, OnnxLens, Registry,
     RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
 };
 
@@ -178,7 +178,7 @@ fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Option<Arc<dyn Lens>> {
             spec.modality,
             dense_dim(spec.output)?,
         )),
-        LensRuntime::CandleLocal { .. } => return None,
+        LensRuntime::CandleLocal { .. } => Arc::new(CandleLens::from_lens_spec(spec).ok()?),
         LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec).ok()?),
         LensRuntime::StaticLookup { .. } => Arc::new(StaticLookupLens::from_lens_spec(spec).ok()?),
     };

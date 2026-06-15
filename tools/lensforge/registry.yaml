@@ -7,6 +7,14 @@ models:
     pooling: mean
     norm: l2
 
+  - name: semantic-all-minilm-l6-v2-candle
+    hf_id: sentence-transformers/all-MiniLM-L6-v2
+    modality: text
+    formats: [candle-fp16]
+    pooling: mean
+    norm: l2
+    dtype: f16
+
   - name: semantic-potion-base-8m
     hf_id: minishlab/potion-base-8M
     modality: text

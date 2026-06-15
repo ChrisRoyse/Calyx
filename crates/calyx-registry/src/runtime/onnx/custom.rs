@@ -165,6 +165,7 @@ fn model_files(spec: &OnnxFileSpec) -> OnnxModelFiles {
         config: spec.config.clone(),
         special_tokens_map: spec.config.clone(),
         tokenizer_config: spec.tokenizer.clone(),
+        contract_paths: spec.contract_paths.clone(),
     }
 }
 

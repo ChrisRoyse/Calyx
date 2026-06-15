@@ -201,6 +201,8 @@ fn runtime_from_manifest(
         "candle" | "candle-fp16" | "candle-local" => Ok(LensRuntime::CandleLocal {
             model_id: manifest.source_hf_id.clone(),
             files,
+            dtype: manifest.dtype.clone(),
+            pooling: manifest.pooling.clone(),
         }),
         "model2vec" | "static_lookup" | "static-lookup" => {
             let embeddings_file = artifact_by_role(artifacts, is_model_role)?;
