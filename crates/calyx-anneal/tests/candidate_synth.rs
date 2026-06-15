@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use calyx_anneal::{
     AlgorithmicKind, AnchorGap, CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT, CandidateLens,
-    CorpusSampleSource, DeficitMap, MAX_SYNTHESIS_CORPUS_SAMPLE, describe, synthesize,
-    synthesize_algorithmic, synthesize_from_source,
+    CorpusSampleSource, DeficitMap, MAX_SYNTHESIS_CORPUS_SAMPLE, describe,
+    ranked_conversion_targets, synthesize, synthesize_algorithmic, synthesize_from_source,
 };
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CalyxError, Constellation, CxFlags, CxId, InputRef, LedgerRef,
@@ -42,10 +42,29 @@ fn audio_gap_falls_back_to_commission_spec() {
         CandidateLens::Commission { spec } => {
             assert_eq!(spec.target_modality, Modality::Audio);
             assert!(spec.endpoint.is_none());
+            assert_eq!(spec.axis, "speaker_identity");
+            assert_eq!(spec.model_id.as_deref(), Some("Xenova/wav2vec2-base-960h"));
+            assert_eq!(spec.suggested_targets[0].hf_id, "Xenova/wav2vec2-base-960h");
             assert!(spec.description.contains("audio"));
         }
         other => panic!("expected commission spec, got {other:?}"),
     }
+}
+
+#[test]
+fn protein_gap_ranks_lensforge_target_with_axis_and_expected_bits() {
+    let deficit = deficit("protein_binding", 2.5, 0.4, vec![Modality::Protein]);
+
+    let first = ranked_conversion_targets(&deficit);
+    let second = ranked_conversion_targets(&deficit);
+
+    assert_eq!(first, second);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].hf_id, "facebook/esm2_t6_8M_UR50D");
+    assert_eq!(first[0].modality, Modality::Protein);
+    assert_eq!(first[0].axis, "protein_sequence");
+    assert_eq!(first[0].formats, vec!["adapter"]);
+    assert!((first[0].expected_bits - 2.1).abs() <= 1e-9);
 }
 
 #[test]

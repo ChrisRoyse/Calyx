@@ -1,8 +1,9 @@
 use calyx_anneal::{
-    CALYX_REGISTRY_HOT_ADD_FAIL, ChangeId, GateOutcome, ProposalTerminalState, ProposeLens,
-    ProposeLensRequest, ShadowRevertReason,
+    CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, ChangeId, GateOutcome, ProposalTerminalState,
+    ProposeLens, ProposeLensRequest, RegistryHotAdder, ShadowRevertReason,
 };
-use calyx_core::FixedClock;
+use calyx_core::{FixedClock, Modality};
+use calyx_registry::Registry;
 
 #[path = "support/propose_lens.rs"]
 mod support;
@@ -215,4 +216,75 @@ fn hot_add_failure_restores_panel_and_rolls_back() {
     );
     assert_eq!(controller.panel().slots.len(), 1);
     assert_eq!(substrate.rolled_back, vec![ChangeId(421_006)]);
+}
+
+#[test]
+fn commissioned_conversion_target_hot_adds_factory_artifact_and_protein_slot() {
+    let root = std::env::temp_dir().join(format!(
+        "calyx-issue791-registry-hot-add-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).expect("create issue791 artifact root");
+    let clock = FixedClock::new(TEST_TS);
+    let mut controller = controller();
+    let mut substrate = TestSubstrate::promote(ChangeId(791_001));
+    let assay =
+        FixtureAssay::new([0.20, 0.85], 1.40).with_expected_modalities(vec![Modality::Protein]);
+    let profiler = StaticProfiler::new(0.14);
+    let nmi = StaticNmi::new(0.30);
+    let mut registry = Registry::new();
+    let mut hot_add = RegistryHotAdder::with_artifact_dir(&mut registry, &root);
+    let anchor = anchor();
+    let corpus = corpus();
+
+    let outcome = ProposeLens::new(&clock)
+        .propose_lens(ProposeLensRequest {
+            anchor: &anchor,
+            controller: &mut controller,
+            substrate: &mut substrate,
+            assay: &assay,
+            hot_add: &mut hot_add,
+            profiler: &profiler,
+            nmi: &nmi,
+            corpus: &corpus,
+        })
+        .unwrap();
+
+    assert_eq!(outcome.terminal_state, ProposalTerminalState::Admitted);
+    let CandidateLens::Commission { spec } = outcome.candidate.as_ref().unwrap() else {
+        panic!("expected commissioned conversion target");
+    };
+    assert_eq!(spec.target_modality, Modality::Protein);
+    assert_eq!(spec.axis, "protein_sequence");
+    assert_eq!(spec.suggested_targets[0].hf_id, "facebook/esm2_t6_8M_UR50D");
+    let slot = controller.panel().slots.last().expect("hot-added slot");
+    assert_eq!(slot.modality, Modality::Protein);
+    assert_eq!(slot.axis.as_deref(), Some("protein_sequence"));
+    assert_eq!(controller.panel().slots.len(), 2);
+    assert_eq!(substrate.proposed, 1);
+    assert!(substrate.rolled_back.is_empty());
+    assert!(commissioned_artifact_exists(&root));
+
+    let _ = std::fs::remove_dir_all(root);
+}
+
+fn commissioned_artifact_exists(root: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && commissioned_artifact_exists(&path) {
+            return true;
+        }
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(".commissioned.json"))
+        {
+            return true;
+        }
+    }
+    false
 }
