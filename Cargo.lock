@@ -366,6 +366,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "calyx-hazard-soak"
+version = "0.1.0"
+dependencies = [
+ "calyx-aster",
+ "calyx-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "calyx-ledger"
 version = "0.1.0"
 dependencies = [
