@@ -140,6 +140,62 @@ fn model2vec_manifest_maps_to_static_lookup_runtime() {
     );
 }
 
+#[test]
+fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
+    let root = temp_root("candle-fp16");
+    let weights = write(&root, "model.safetensors", b"tiny candle weights");
+    let tokenizer = write(&root, "tokenizer.json", br#"{"tokenizer":true}"#);
+    let config = write(&root, "config.json", br#"{"hidden_size":3}"#);
+    let files = vec![
+        file("model", &weights, b"tiny candle weights"),
+        file("tokenizer", &tokenizer, br#"{"tokenizer":true}"#),
+        file("config", &config, br#"{"hidden_size":3}"#),
+    ];
+    let manifest = LensForgeManifest {
+        name: "tiny-candle".to_string(),
+        modality: Modality::Text,
+        runtime: "candle-fp16".to_string(),
+        dim: 3,
+        dtype: "f16".to_string(),
+        weights_sha256: plain_sha256_hex(b"tiny candle weights"),
+        artifact_set_sha256: Some(artifact_hash(&[
+            b"tiny candle weights",
+            br#"{"tokenizer":true}"#,
+            br#"{"hidden_size":3}"#,
+        ])),
+        files,
+        pooling: "cls".to_string(),
+        norm: "l2".to_string(),
+        source_hf_id: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+        license: Some("apache-2.0".to_string()),
+        non_commercial: false,
+    };
+    let manifest_path = root.join("manifest.json");
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let spec = lens_spec_from_manifest_path(&manifest_path).unwrap();
+
+    assert_eq!(spec.output, SlotShape::Dense(3));
+    assert!(matches!(
+        spec.runtime,
+        LensRuntime::CandleLocal { ref model_id, ref files, ref dtype, ref pooling }
+            if model_id == "sentence-transformers/all-MiniLM-L6-v2"
+                && files[0].ends_with("model.safetensors")
+                && files[1].ends_with("tokenizer.json")
+                && files[2].ends_with("config.json")
+                && dtype == "f16"
+                && pooling == "cls"
+    ));
+    assert_eq!(
+        hex_from_bytes(&spec.weights_sha256),
+        manifest.artifact_set_sha256.unwrap()
+    );
+}
+
 fn temp_root(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)

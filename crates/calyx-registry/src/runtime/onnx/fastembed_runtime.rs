@@ -107,6 +107,7 @@ fn resolve_files(cache_dir: &Path, model_code: &str, model_file: &str) -> Result
         config: fetch(&repo, "config.json")?,
         special_tokens_map: fetch(&repo, "special_tokens_map.json")?,
         tokenizer_config: fetch(&repo, "tokenizer_config.json")?,
+        contract_paths: Vec::new(),
     })
 }
 
