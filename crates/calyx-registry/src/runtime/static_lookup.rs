@@ -176,6 +176,9 @@ impl StaticLookupLens {
             norm_policy: self.contract.norm_policy(),
             axis: None,
             asymmetry: calyx_core::Asymmetry::None,
+            quant_default: calyx_core::QuantPolicy::turboquant_default(),
+            truncate_dim: None,
+            recall_delta: crate::spec::default_recall_delta(),
             retrieval_only: false,
             excluded_from_dedup: false,
         }

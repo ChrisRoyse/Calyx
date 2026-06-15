@@ -123,6 +123,9 @@ impl MultimodalAdapterLens {
             norm_policy: NormPolicy::unit(),
             axis: Some(format!("{}:{}", self.axis.as_str(), self.model_id)),
             asymmetry: Asymmetry::None,
+            quant_default: calyx_core::QuantPolicy::turboquant_default(),
+            truncate_dim: None,
+            recall_delta: crate::spec::default_recall_delta(),
             retrieval_only: false,
             excluded_from_dedup: false,
         }

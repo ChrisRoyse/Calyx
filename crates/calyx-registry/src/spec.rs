@@ -3,7 +3,9 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
-use calyx_core::{Asymmetry, CalyxError, LensId, Modality, Result, SlotShape, content_address};
+use calyx_core::{
+    Asymmetry, CalyxError, LensId, Modality, QuantPolicy, Result, SlotShape, content_address,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::frozen::NormPolicy;
@@ -55,6 +57,12 @@ pub struct LensSpec {
     pub norm_policy: NormPolicy,
     pub axis: Option<String>,
     pub asymmetry: Asymmetry,
+    #[serde(default = "default_quant_default")]
+    pub quant_default: QuantPolicy,
+    #[serde(default)]
+    pub truncate_dim: Option<u32>,
+    #[serde(default = "default_recall_delta")]
+    pub recall_delta: f32,
     pub retrieval_only: bool,
     pub excluded_from_dedup: bool,
 }
@@ -135,6 +143,14 @@ fn default_candle_dtype() -> String {
 
 fn default_candle_pooling() -> String {
     "mean".to_string()
+}
+
+pub const fn default_quant_default() -> QuantPolicy {
+    QuantPolicy::turboquant_default()
+}
+
+pub const fn default_recall_delta() -> f32 {
+    0.02
 }
 
 fn probe_http(endpoint: &str) -> LensHealth {
