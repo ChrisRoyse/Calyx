@@ -377,6 +377,8 @@ dependencies = [
  "calyx-ledger",
  "calyx-registry",
  "calyx-sextant",
+ "criterion",
+ "rand 0.8.6",
  "serde",
  "serde_json",
 ]

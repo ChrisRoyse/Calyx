@@ -19,8 +19,16 @@ calyx-ledger = { path = "../calyx-ledger" }
 calyx-registry = { path = "../calyx-registry" }
 calyx-sextant = { path = "../calyx-sextant" }
 blake3.workspace = true
+rand = { workspace = true, features = ["small_rng"] }
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "bench_hazard_soak_throughput"
+harness = false
 
 [features]
 cuda = ["calyx-forge/cuda"]
