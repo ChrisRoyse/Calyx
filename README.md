@@ -13,7 +13,7 @@
 [![Status: pre-1.0](https://img.shields.io/badge/status-pre--1.0-yellow.svg)](#-project-status)
 [![Made with GPU](https://img.shields.io/badge/math-CPU%20SIMD%20%2B%20CUDA-2BD4A8.svg)](#-architecture)
 
-[Why Calyx](#-why-calyx) · [Concepts](#-the-core-idea-constellations) · [Quick Start](#-quick-start) · [Architecture](#-architecture) · [Developer Docs](#-developer-documentation) · [Roadmap](#-project-status)
+[Why Calyx](#-why-calyx) · [Concepts](#-the-core-idea-constellations) · [Build](#-build-from-source) · [Architecture](#-architecture) · [Roadmap](#-project-status)
 
 <img src="assets/hero.png" alt="A single grounded point blooming into a constellation of vectors" width="100%" />
 
@@ -77,7 +77,7 @@ Three principles make the results trustworthy:
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Build from source
 
 > [!IMPORTANT]
 > Calyx is a Rust workspace (`edition 2024`, toolchain `1.95`). It builds CPU-only by default; the GPU backend is an opt-in feature.
@@ -104,26 +104,8 @@ cargo test --workspace
 cargo build --release --workspace --features cuda
 ```
 
-**Try the CLI**
-
-The `calyx` binary is the operator surface. A few read-only examples:
-
-```bash
-# Verify your toolchain & environment are ready
-cargo run -p calyx-cli -- healthcheck
-
-# Inspect a vault's column families, manifest, or ledger
-cargo run -p calyx-cli -- readback manifest --vault ./my-vault
-cargo run -p calyx-cli -- readback cf --vault ./my-vault
-
-# Verify the provenance ledger's hash chain end-to-end
-cargo run -p calyx-cli -- verify-chain --vault ./my-vault
-
-# Migrate an existing SQLite database into a Calyx vault
-cargo run -p calyx-cli -- migrate --from ./app.db --to ./my-vault
-```
-
-See the [CLI reference](#cli-the-calyx-binary) for the full command surface.
+> [!NOTE]
+> The polished public CLI and the agent-facing MCP server are in active development. A dedicated usage guide will ship alongside them — see [Project status](#-project-status).
 
 ---
 
@@ -244,118 +226,12 @@ The search-shaped paradigms collapse into the association engine; the storage-sh
 
 ---
 
-## 📚 Developer Documentation
-
-Everything a developer needs to build with Calyx.
-
-### Building from source
-
-| Step | Command |
-|---|---|
-| Install the pinned toolchain | `rustup show` (reads `rust-toolchain.toml`) |
-| CPU build | `cargo build --release --workspace` |
-| GPU build (CUDA `sm_120`) | `cargo build --release --workspace --features cuda` |
-| Run tests | `cargo test --workspace` |
-| Format & lint | `cargo fmt` · `cargo clippy` |
-
-> [!NOTE]
-> The CPU backend uses portable SIMD and runs anywhere. The CUDA backend is gated behind the `cuda` feature and is verified for bit-near parity against the CPU backend (relative tolerance `1e-3`, absolute `1e-6`).
-
-### Binaries
-
-| Binary | Crate | Role |
-|---|---|---|
-| `calyx` | `calyx-cli` | Operator CLI: readback, migration, navigation, verification |
-| `calyxd` | `calyxd` | Loopback daemon: Prometheus `/metrics`, ledger verification loop, VRAM preflight, healthcheck |
-| `calyx-mcp` | `calyx-mcp` | JSON-RPC 2.0 [Model Context Protocol](https://modelcontextprotocol.io) server over stdio, for AI-agent integration |
-
-### Configuration
-
-`calyxd` is configured from a single TOML file (passed via `--config`) and validated **fail-closed** — any unknown key is rejected rather than ignored.
-
-```toml
-# calyx.toml
-bind_addr = "127.0.0.1:7700"     # must be a loopback address
-vault_path = "$CALYX_HOME/data/vault"
-vram_budget_mib = 8192           # 1..=30000
-log_dir = "/var/log/calyx"
-healthcheck_timeout_secs = 30
-```
-
-```bash
-# Validate a config before starting
-cargo run -p calyxd -- --config ./calyx.toml --validate-config
-```
-
-Selected environment variables the engine reads (all invalid values fail closed):
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `CALYX_HOME` | — | Root used to resolve `$CALYX_HOME` in paths and derive cache/tier roots |
-| `CALYX_FORGE_VRAM_BUDGET` | `12 GiB` | VRAM soft cap for the Forge math runtime (bytes) |
-| `CALYX_CAPABILITY_MIN_SIGNAL_BITS` | `0.05` | Minimum information a new lens must add to be admitted |
-| `CALYX_CAPABILITY_MAX_PAIRWISE_CORR` | `0.6` | Maximum correlation a new lens may have with existing lenses |
-| `HF_HOME` | `$CALYX_HOME/.hf-cache` | Cache directory for downloaded model weights |
-
-### Data model
-
-| Concept | Meaning |
-|---|---|
-| **Vault** | A Calyx database — a directory on disk |
-| **Constellation** | One record: one input measured through a panel of lenses (never called a "row" or "point") |
-| **Slot** | One typed vector within a constellation, produced by one lens |
-| **Lens** | A frozen, content-addressed embedder or feature extractor (never just a "model") |
-| **Panel** | A named set of lenses applied together |
-| **Anchor** | A real outcome a constellation is grounded against |
-| **Kernel** | The small set of constellations that explains a corpus |
-| **Signal** | The information (in bits) a lens carries about an outcome |
-
-### Storage tiers
-
-| Tier | What lives here | Survives restart? |
-|---|---|---|
-| **Durable (source of truth)** | Write-ahead log, on-disk tables, manifest, the hash-chained ledger | Yes — recovered by replaying the log after loading the manifest |
-| **Derived (regenerable)** | Secondary indexes, vector indexes, association cross-terms, kernel caches | Rebuildable from the durable tier |
-| **Ephemeral** | Memtables, reader snapshots, in-RAM caches | No |
-
-### Engine traits
-
-The whole engine is composed from a few traits defined in `calyx-core`, so each layer can be extended independently:
-
-| Trait | Responsibility |
-|---|---|
-| `Lens` | Turn an input into a typed slot-vector (an embedder/extractor) |
-| `Index` / `SextantIndex` | Index and search vectors for one slot |
-| `VaultStore` | Persist and read constellations and column families |
-| `Estimator` | Measure information / mutual information between signals |
-| `Backend` | Low-level math (GEMM, cosine, dot, top-k) — CPU or GPU |
-
-### CLI: the `calyx` binary
-
-Invoked as `calyx <command> [subcommand] [flags]`. Most commands emit JSON to stdout. Major command groups:
-
-| Group | What it does |
-|---|---|
-| `readback` | Read-only inspection of vault internals — column families, log records, manifest, temporal/recurrence state |
-| `migrate` | Import a SQLite database into a Calyx vault, with round-trip verification |
-| `verify-chain` · `merkle` · `provenance` | Verify the ledger hash chain, checkpoints, and lineage |
-| `navigate` · `sextant` · `lodestar` | Search, neighbor, consensus, traversal, and kernel exploration |
-| `lens` · `panel` | Inspect and manage lenses and panels |
-| `summarize` | Corpus and document summarization |
-| `healthcheck` | Confirm toolchain, environment, and (optionally) a running daemon are ready |
-
-### Error model
-
-Calyx defines a single, closed catalog of stable `CALYX_*` error codes in `calyx-core`, each with a fixed meaning and remediation. The pervasive discipline is **fail-closed**: invalid input, a missing lens contract, an uncalibrated guard, or a failed GPU preflight all abort with a typed error rather than degrading silently into a wrong answer.
-
----
-
 ## 🗺️ Project status
 
 > [!WARNING]
 > **Calyx is pre-1.0 software under active development.** The on-disk format and public interfaces may change before a stable release.
 
-The core engine — storage, math, the lens registry, multi-signal search, the association and information layers, the grounding kernel, the guard, the ledger, self-optimization, and the first oracle capabilities — is built and exercised by an extensive test suite.
+The core engine — storage, math, the lens registry, multi-signal search, the association and information layers, the grounding kernel, the guard, the ledger, self-optimization, and the first oracle capabilities — is built and working.
 
 Actively expanding toward 1.0:
 
@@ -366,18 +242,6 @@ Actively expanding toward 1.0:
 
 > [!NOTE]
 > Calyx's vision extends to a *grounded substrate for general intelligence* — measuring whether a domain has the signal to be predicted at all, and refusing to pretend when it doesn't. That north star is aspirational; the honesty gate that underpins it is already built.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome. A good change comes with a test that **fails when the behavior is wrong and passes when it is right** — see [`CONTRIBUTING.md`](CONTRIBUTING.md) for the testing philosophy and conventions.
-
-A few house rules:
-
-- Seed RNGs and inject the `Clock` — logic must never read wall-clock time or depend on locale.
-- Keep the controlled vocabulary: a frozen embedder is a **lens**, a record is a **constellation**, information-about-outcome is **signal**.
-- Run `cargo fmt`, `cargo clippy`, and `cargo test --workspace` before opening a PR.
 
 ---
 
