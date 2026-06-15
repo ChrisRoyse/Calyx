@@ -34,6 +34,7 @@ mod healthcheck;
 mod healthcheck_daemon;
 #[cfg(test)]
 mod healthcheck_tests;
+mod intelligence_commands;
 mod kernel_health_readback;
 mod leapable;
 mod ledger_store;
