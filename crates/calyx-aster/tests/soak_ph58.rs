@@ -123,7 +123,6 @@ mod soak_ph58 {
             .snapshot_version_gc_tick(&clock)
             .expect("snapshot GC after abort");
         store.flush_all_cfs().expect("flush after snapshot GC");
-        store.record_snapshot_gc_physical_bytes_freed(result.bytes_freed);
         let metrics_after = store.snapshot_gc_metrics(clock.now());
         let sst_bytes_after = tree_bytes(&vault_dir.join("cf"));
         let df_after = command_text("df", &["-B1", "/hotpool"]);
