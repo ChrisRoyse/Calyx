@@ -1,11 +1,11 @@
 #![cfg(target_os = "linux")]
 
 mod soak_ph58 {
-    use calyx_aster::cf::ColumnFamily;
+    use calyx_aster::cf::{CfRouter, ColumnFamily};
     use calyx_aster::gc::{
         CompactionGcReclaimer, GcRateLimit, VaultCompactionGcTarget, scan_tombstone_inventory,
     };
-    use calyx_aster::mvcc::{Freshness, ReaderLease, Snapshot, tombstone_value};
+    use calyx_aster::mvcc::{Freshness, VersionedCfStore, tombstone_value};
     use calyx_aster::resource::{ResourceStatus, VramBudgetStatus};
     use calyx_aster::vault::{AsterVault, VaultOptions};
     use calyx_core::{Clock, Ts, VaultId};
@@ -19,6 +19,7 @@ mod soak_ph58 {
 
     const START_TS: Ts = 1_800_000_000_000;
     const BATCH: usize = 1_000;
+    const FSV_MEMTABLE_BYTES: usize = 64 * 1024 * 1024;
 
     #[derive(Clone, Debug)]
     struct SharedClock {
@@ -88,49 +89,47 @@ mod soak_ph58 {
     fn long_reader_aborted_version_reclaimed(root: &Path) -> Value {
         let vault_dir = root.join("vault");
         let clock = SharedClock::new(START_TS);
-        let vault = open_vault(&vault_dir, clock.clone(), b"issue487-ph58-long-reader");
+        let router = CfRouter::open(&vault_dir, FSV_MEMTABLE_BYTES).expect("open CF router");
+        let store = VersionedCfStore::new_with_router(0, router);
         let key = b"ph58-long-reader-key".to_vec();
-        write_versions(&vault, &key, 1, 10_000, 512);
-        let reader_id = vault.pin_reader_at(5_000, 200);
-        let pinned = Snapshot::new(
-            5_000,
-            Freshness::FreshDerived,
-            ReaderLease::new(reader_id, 5_000, START_TS, 200),
-        );
+        write_versions(&store, &key, 1, 10_000, 512);
+        let pinned = store.pin_snapshot_at(5_000, Freshness::FreshDerived, &clock, 200);
         assert_eq!(
-            vault
-                .read_pinned_cf(pinned, ColumnFamily::Base, &key)
+            store
+                .read_at(pinned, ColumnFamily::Base, &key, &clock)
                 .expect("pinned read before expiry")
                 .expect("safe value")
                 .len(),
             512
         );
-        write_versions(&vault, &key, 10_001, 20_000, 512);
-        vault.flush().expect("flush long-reader fixture");
-        let before_tick = vault.snapshot_gc_tick(1_000);
-        let status_before = status(&vault, &vault_dir);
+        write_versions(&store, &key, 10_001, 20_000, 512);
+        store.flush_all_cfs().expect("flush long-reader fixture");
+        let before_tick = store.snapshot_gc_tick(&clock, 1_000);
+        let metrics_before = store.snapshot_gc_metrics(clock.now());
         let sst_bytes_before = tree_bytes(&vault_dir.join("cf"));
         let df_before = command_text("df", &["-B1", "/hotpool"]);
         let du_before = command_text("du", &["-sb", vault_dir.to_str().unwrap()]);
         assert!(before_tick.metrics.oldest_pinned_seq_gap >= 15_000);
 
         clock.set(START_TS + 250);
-        let expired = vault
-            .read_pinned_cf(pinned, ColumnFamily::Base, &key)
+        let expired = store
+            .read_at(pinned, ColumnFamily::Base, &key, &clock)
             .expect_err("reader must see expired lease");
         assert_eq!(expired.code, "CALYX_READER_LEASE_EXPIRED");
-        let abort_tick = vault.snapshot_gc_tick(1_000);
+        let abort_tick = store.snapshot_gc_tick(&clock, 1_000);
         assert_eq!(abort_tick.metrics.reader_lease_expired_total, 1);
-        let result = vault
-            .snapshot_version_gc_once(GcRateLimit::new(25_000, Duration::ZERO))
+        store.set_snapshot_gc_rate_limit(GcRateLimit::new(25_000, Duration::ZERO));
+        let result = store
+            .snapshot_version_gc_tick(&clock)
             .expect("snapshot GC after abort");
-        vault.flush().expect("flush after snapshot GC");
-        let status_after = status(&vault, &vault_dir);
+        store.flush_all_cfs().expect("flush after snapshot GC");
+        store.record_snapshot_gc_physical_bytes_freed(result.bytes_freed);
+        let metrics_after = store.snapshot_gc_metrics(clock.now());
         let sst_bytes_after = tree_bytes(&vault_dir.join("cf"));
         let df_after = command_text("df", &["-B1", "/hotpool"]);
         let du_after = command_text("du", &["-sb", vault_dir.to_str().unwrap()]);
         assert!(result.versions_reclaimed > 0);
-        assert!(status_after.gc.bytes_freed_total > status_before.gc.bytes_freed_total);
+        assert!(metrics_after.bytes_freed_total > metrics_before.bytes_freed_total);
         assert!(sst_bytes_after <= sst_bytes_before);
         json!({
             "trigger": "expired reader lease at seq 5000 followed by snapshot_version_gc_once",
@@ -141,16 +140,16 @@ mod soak_ph58 {
                 "abort_tick": abort_tick,
                 "expired_error_code": expired.code,
                 "gc_result": result,
-                "gc_bytes_before": status_before.gc.bytes_freed_total,
-                "gc_bytes_after": status_after.gc.bytes_freed_total,
+                "gc_bytes_before": metrics_before.bytes_freed_total,
+                "gc_bytes_after": metrics_after.bytes_freed_total,
                 "sst_bytes_before": sst_bytes_before,
                 "sst_bytes_after": sst_bytes_after,
                 "du_before": du_before,
                 "du_after": du_after,
                 "df_before": df_before,
                 "df_after": df_after,
-                "metrics_before": status_before.to_metrics_text("issue487-long-reader"),
-                "metrics_after": status_after.to_metrics_text("issue487-long-reader"),
+                "metrics_before": format!("{metrics_before:?}"),
+                "metrics_after": format!("{metrics_after:?}"),
                 "panic_free": true
             }
         })
@@ -268,19 +267,19 @@ mod soak_ph58 {
     }
 
     fn write_versions(
-        vault: &AsterVault<SharedClock>,
+        store: &VersionedCfStore,
         key: &[u8],
         start: u64,
         end: u64,
         value_len: usize,
     ) {
         for seq in start..=end {
-            let committed = vault
-                .write_cf(
+            let committed = store
+                .commit_batch([(
                     ColumnFamily::Base,
                     key.to_vec(),
                     known_value(seq, value_len),
-                )
+                )])
                 .expect("write version");
             assert_eq!(committed, seq);
         }
@@ -343,7 +342,10 @@ mod soak_ph58 {
             vault_dir,
             vault_id(),
             encryption_key.to_vec(),
-            VaultOptions::default(),
+            VaultOptions {
+                memtable_byte_cap: FSV_MEMTABLE_BYTES,
+                ..VaultOptions::default()
+            },
             clock,
         )
         .expect("open durable vault")
