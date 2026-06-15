@@ -1,8 +1,15 @@
 //! Garbage-collection and reclaimer scaffolding for Aster.
 
+pub mod ann_gc;
 pub mod compaction_gc;
 pub mod snapshot_gc;
+pub mod wal_recycler;
 
+pub use ann_gc::{
+    AnnGcReclaimer, AnnGcResult, AnnGcTarget, AnnIndexGraph, AnnTombstoneStats, CALYX_IO_ERROR,
+    DEFAULT_ANN_MAX_SERVING_IO_LOAD, DEFAULT_ANN_MAX_TOMBSTONE_RATIO,
+    DEFAULT_ANN_REBUILD_INTERVAL_MS, SharedAnnIndex, ann_io_error,
+};
 pub use compaction_gc::{
     CompactionCadence, CompactionGcReclaimer, CompactionGcResult, CompactionGcTarget,
     CompactionIoStats, CompactionThrottle, DEFAULT_COMPACTION_DEBT_ALERT_THRESHOLD,
@@ -16,4 +23,8 @@ pub use snapshot_gc::{
     GcMetrics, GcRateLimit, GcResult, GcScheduler, GcSchedulerTick, GcTask, ReadLease, ReaderId,
     SnapshotGcCounters, SnapshotGcReclaimer, SnapshotGcTick, SnapshotPinMetrics,
     SnapshotPinWatchdog, SnapshotVersionGc,
+};
+pub use wal_recycler::{
+    DEFAULT_FSYNC_BUDGET_PER_TICK, DEFAULT_FSYNC_P99_ALERT_US, DEFAULT_MAX_RECYCLE_PER_TICK,
+    DEFAULT_WAL_RECYCLER_MIN_INTERVAL_MS, WalRecycler, WalRecyclerResult,
 };

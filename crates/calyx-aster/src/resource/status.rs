@@ -208,6 +208,7 @@ impl ResourceStatus {
             self.backpressure.disk_pressure_events_total,
         );
         metric("calyx_wal_bytes", base.clone(), self.wal.bytes);
+        metric("calyx_wal_bytes_active", base.clone(), self.wal.bytes);
         metric("calyx_wal_segments", base, self.wal.segment_count as u64);
         out
     }

@@ -81,6 +81,31 @@ pub struct ReplayOutcome {
     pub torn_tail: Option<TornTail>,
 }
 
+/// Physical WAL segment readback used by recyclers and FSV.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalSegmentStatus {
+    pub index: u64,
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub first_seq: Option<u64>,
+    pub last_seq: Option<u64>,
+    pub record_count: usize,
+    pub active: bool,
+}
+
+/// Result of one bounded WAL recycle pass.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WalRecycleReport {
+    pub newest_durable_seq: u64,
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    pub segments_before: usize,
+    pub recyclable_segments_before: usize,
+    pub segments_recycled: usize,
+    pub bytes_recycled: u64,
+    pub recycled_paths: Vec<PathBuf>,
+}
+
 /// Durable WAL writer.
 #[derive(Debug)]
 pub struct Wal {
@@ -164,6 +189,66 @@ impl Wal {
         let _lock = crate::file_lock::FileLockGuard::acquire(&self.dir.join(".append.lock"))?;
         self.refresh_after_external_appends_locked()?;
         Ok(self.next_seq.saturating_sub(1))
+    }
+
+    /// Reads the physical WAL segment inventory behind the append lock.
+    pub fn segment_inventory(&mut self) -> Result<Vec<WalSegmentStatus>> {
+        let _lock = crate::file_lock::FileLockGuard::acquire(&self.dir.join(".append.lock"))?;
+        self.refresh_after_external_appends_locked()?;
+        segment_inventory_locked(&self.dir, self.active_index)
+    }
+
+    /// Returns total bytes in all canonical WAL segment files.
+    pub fn total_segment_bytes(&mut self) -> Result<u64> {
+        Ok(self
+            .segment_inventory()?
+            .iter()
+            .map(|segment| segment.bytes)
+            .sum())
+    }
+
+    /// Resets durable, non-active segments without deallocating segment files.
+    pub fn recycle_durable_segments(
+        &mut self,
+        newest_durable_seq: u64,
+        max_segments: usize,
+        fsync_budget: usize,
+    ) -> Result<WalRecycleReport> {
+        let _lock = crate::file_lock::FileLockGuard::acquire(&self.dir.join(".append.lock"))?;
+        self.refresh_after_external_appends_locked()?;
+        let before = segment_inventory_locked(&self.dir, self.active_index)?;
+        let bytes_before = total_bytes(&before);
+        let budget = max_segments.min(fsync_budget);
+        let candidates = recyclable_segments(&before, newest_durable_seq);
+        let mut report = WalRecycleReport {
+            newest_durable_seq,
+            bytes_before,
+            bytes_after: bytes_before,
+            segments_before: before.len(),
+            recyclable_segments_before: candidates.len(),
+            ..WalRecycleReport::default()
+        };
+        if budget == 0 {
+            return Ok(report);
+        }
+
+        for segment in candidates.into_iter().take(budget) {
+            let file = OpenOptions::new()
+                .write(true)
+                .open(&segment.path)
+                .map_err(|error| storage_error("open WAL segment for recycle", error))?;
+            file.set_len(0)
+                .map_err(|error| storage_error("truncate recycled WAL segment", error))?;
+            file.sync_data()
+                .map_err(|error| storage_error("fsync recycled WAL segment", error))?;
+            report.segments_recycled += 1;
+            report.bytes_recycled = report.bytes_recycled.saturating_add(segment.bytes);
+            report.recycled_paths.push(segment.path.clone());
+        }
+
+        let after = segment_inventory_locked(&self.dir, self.active_index)?;
+        report.bytes_after = total_bytes(&after);
+        Ok(report)
     }
 
     fn refresh_after_external_appends_locked(&mut self) -> Result<()> {
@@ -319,6 +404,74 @@ fn remove_later_segments(segments: &[(u64, PathBuf)]) -> Result<()> {
             .map_err(|error| storage_error("remove discarded WAL segment", error))?;
     }
     Ok(())
+}
+
+fn segment_inventory_locked(dir: &Path, active_index: u64) -> Result<Vec<WalSegmentStatus>> {
+    let mut inventory = Vec::new();
+    for (index, path) in segment::list_segments(dir)? {
+        let bytes = fs::metadata(&path)
+            .map_err(|error| storage_error("stat WAL segment", error))?
+            .len();
+        let (first_seq, last_seq, record_count) = read_segment_seq_bounds(&path)?;
+        inventory.push(WalSegmentStatus {
+            index,
+            path,
+            bytes,
+            first_seq,
+            last_seq,
+            record_count,
+            active: index == active_index,
+        });
+    }
+    Ok(inventory)
+}
+
+fn read_segment_seq_bounds(path: &Path) -> Result<(Option<u64>, Option<u64>, usize)> {
+    let mut file =
+        File::open(path).map_err(|error| storage_error("open WAL segment for inventory", error))?;
+    let mut offset = 0;
+    let mut first = None;
+    let mut last = None;
+    let mut count = 0;
+    loop {
+        match record::decode_at(&mut file, offset)
+            .map_err(|error| storage_error("decode WAL inventory", error))?
+        {
+            DecodeStatus::Complete(decoded) => {
+                first.get_or_insert(decoded.seq);
+                last = Some(decoded.seq);
+                count += 1;
+                offset = decoded.end_offset;
+            }
+            DecodeStatus::Eof => return Ok((first, last, count)),
+            DecodeStatus::Torn { offset, message } => {
+                return Err(CalyxError::aster_torn_wal(format!(
+                    "{} at byte {offset}: {message}",
+                    path.display()
+                )));
+            }
+        }
+    }
+}
+
+fn recyclable_segments(
+    inventory: &[WalSegmentStatus],
+    newest_durable_seq: u64,
+) -> Vec<&WalSegmentStatus> {
+    inventory
+        .iter()
+        .filter(|segment| {
+            !segment.active
+                && segment.bytes > 0
+                && segment
+                    .last_seq
+                    .is_some_and(|last_seq| last_seq <= newest_durable_seq)
+        })
+        .collect()
+}
+
+fn total_bytes(inventory: &[WalSegmentStatus]) -> u64 {
+    inventory.iter().map(|segment| segment.bytes).sum()
 }
 
 fn storage_error(context: &str, error: io::Error) -> CalyxError {

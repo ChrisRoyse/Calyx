@@ -176,14 +176,18 @@ impl HnswIndex {
     }
 
     pub(super) fn beam_search(&self, query: &[f32], entry: usize, ef: usize) -> Vec<(CxId, f32)> {
+        let effective_ef = ef
+            .saturating_add(self.tombstone_count())
+            .min(self.rows.len());
         self.beam_search_indices(
             query,
             entry,
-            ef,
+            effective_ef,
             self.rows.len(),
             SEARCH_VISIT_LIMIT_EF_MULTIPLIER,
         )
         .into_iter()
+        .filter(|(idx, _)| !self.rows[*idx].deleted)
         .map(|(idx, score)| (self.rows[idx].cx_id, score))
         .collect()
     }
