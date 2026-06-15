@@ -187,9 +187,17 @@ fn public_repo_internal_dev_tooling_is_not_reintroduced() {
     let repo = workspace_root();
     let script = repo.join("scripts/secret-scan.sh");
     let hook = repo.join(".pre-commit-config.yaml");
+    let git_config = fs::read_to_string(repo.join(".git/config")).unwrap_or_default();
+    let is_dev_repo = git_config.contains("Calyx-Dev.git");
 
-    assert!(!script.exists());
-    assert!(!hook.exists());
+    if is_dev_repo {
+        assert!(script.is_file());
+        assert!(hook.is_file());
+        assert!(git_config.contains("DISABLED_PUBLIC_PUSH"));
+    } else {
+        assert!(!script.exists());
+        assert!(!hook.exists());
+    }
     assert!(repo.join(".gitignore").is_file());
     assert!(repo.join("LICENSE").is_file());
     assert!(repo.join("README.md").is_file());
