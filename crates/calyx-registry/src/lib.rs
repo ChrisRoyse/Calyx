@@ -53,7 +53,10 @@ pub use profile::{
     profile_slot_with_assay,
 };
 pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};
-pub use runtime::candle::{CandleDevicePolicy, CandleLens, CandleModelFiles, DEFAULT_CANDLE_MODEL};
+pub use runtime::candle::{
+    CandleDevicePolicy, CandleFileSpec, CandleLens, CandleModelFiles, CandlePoolingPolicy,
+    CandlePrecision, DEFAULT_CANDLE_MODEL,
+};
 pub use runtime::external_cmd::ExternalCmdLens;
 pub use runtime::onnx::{
     OnnxFileSpec, OnnxLens, OnnxModelFiles, OnnxProviderPolicy, PoolingPolicy,

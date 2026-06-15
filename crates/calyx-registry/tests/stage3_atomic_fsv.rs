@@ -147,6 +147,8 @@ fn norm_health_dual_and_drift_readback(out: &mut BTreeMap<&'static str, serde_js
         LensRuntime::CandleLocal {
             model_id: "missing".to_string(),
             files: Vec::new(),
+            dtype: "f32".to_string(),
+            pooling: "mean".to_string(),
         },
         SlotShape::Dense(384),
         Modality::Text,
