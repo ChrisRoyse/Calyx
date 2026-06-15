@@ -4,6 +4,9 @@ mod dual_write_tests;
 pub(crate) mod dual_write_typed;
 mod issue612_fsv;
 pub(crate) mod panel_guard_enable;
+pub(crate) mod production_fsv;
+#[cfg(test)]
+mod production_fsv_tests;
 pub(crate) mod read_flip;
 #[cfg(test)]
 mod read_flip_tests;
@@ -37,6 +40,7 @@ pub(crate) fn run(topic: &str, args: &[String]) -> crate::error::CliResult {
         "ask" => read_flip::run_ask(args),
         "dual-write" => dual_write::run_dual_write(args),
         "issue612-fsv" => issue612_fsv::run(args),
+        "production-fsv" => production_fsv::run_production_fsv(args),
         "read-flip" => read_flip::run_read_flip(args),
         "recall-compare" => recall_comparator::run_recall_compare(args),
         "remove-shadow" => shadow_removal::run_remove_shadow(args),
