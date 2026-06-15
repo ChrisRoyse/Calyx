@@ -474,6 +474,7 @@ dependencies = [
  "calyx-assay",
  "calyx-aster",
  "calyx-core",
+ "calyx-ledger",
  "calyx-sextant",
  "candle-core",
  "candle-nn",
