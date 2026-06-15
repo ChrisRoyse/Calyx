@@ -476,6 +476,7 @@ dependencies = [
  "calyx-core",
  "calyx-forge",
  "calyx-ledger",
+ "calyx-loom",
  "calyx-sextant",
  "candle-core",
  "candle-nn",
