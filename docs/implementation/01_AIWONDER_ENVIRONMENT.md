@@ -16,9 +16,12 @@ verified** picture of the box (readback 2026-06-06) and the binding rule that
 3. **Non-interactive from Windows** (OpenSSH can't pipe a password) — use the
    `SSH_ASKPASS` mechanism documented at the bottom of `../../.env`. For
    multi-line remote work, base64-encode the script and `| base64 -d | bash`.
-4. **Rust on PATH:** non-login shells don't have it — every remote build/test
-   command must `source /home/croyse/.cargo/env` first (or use an absolute
-   `~/.cargo/bin/cargo`).
+4. **Rust/CUDA on PATH:** non-login shells don't have the full Calyx toolchain
+   environment. Every remote build/test command should
+   `source /home/croyse/calyx/repo/env.sh` first. That entrypoint sources
+   Rust, sets `CARGO_TARGET_DIR`, and pins CUDA discovery to
+   `/usr/local/cuda/bin/nvcc` so Rust CUDA build scripts derive
+   `/usr/local/cuda/include`, not `/usr/local/include`.
 
 ## 2. Verified hardware & OS (live readback 2026-06-06)
 
@@ -87,7 +90,7 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
   logs/                                 # structured logs (rotated, bounded)
   tmp/                                  # scratch (staged in-place; cleaned each turn)
   bin/                                  # locally-installed userspace tools (cmake, protoc)
-  env.sh                               # sources ~/.cargo/env + exports CALYX_* + CUDA paths
+  env.sh                               # sources ~/.cargo/env + exports CALYX_* + pinned CUDA paths
 ```
 
 **Toolchain reuse, output isolation:** reuse the already-installed

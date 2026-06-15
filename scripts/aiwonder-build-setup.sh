@@ -52,6 +52,16 @@ cat > "$CALYX_HOME/.cargo/config.toml" <<'EOF'
 # disk; line-tables-only debuginfo already keeps rebuilds fast.
 incremental = false
 
+[env]
+# Keep CUDA autodiscovery rooted at the real toolkit. Some Rust CUDA builders
+# derive include/lib paths from the literal nvcc path returned by PATH lookup;
+# /usr/local/bin/nvcc is a symlink whose parent would incorrectly resolve to
+# /usr/local/include instead of /usr/local/cuda/include.
+CUDA_HOME = "/usr/local/cuda"
+CUDA_PATH = "/usr/local/cuda"
+CUDA_ROOT = "/usr/local/cuda"
+NVCC = "/usr/local/cuda/bin/nvcc"
+
 [target.x86_64-unknown-linux-gnu]
 # mold is multi-threaded and links several-fold faster than the default
 # rust-lld, using all cores. clang is the link driver that invokes it.

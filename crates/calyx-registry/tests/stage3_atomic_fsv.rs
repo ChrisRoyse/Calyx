@@ -382,6 +382,9 @@ fn lens_spec(
         norm_policy: NormPolicy::None,
         axis: Some(name.to_string()),
         asymmetry,
+        quant_default: calyx_core::QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: calyx_registry::spec::default_recall_delta(),
         retrieval_only: false,
         excluded_from_dedup: false,
     }

@@ -14,6 +14,7 @@ candle-cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 calyx-assay = { path = "../calyx-assay" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-forge = { path = "../calyx-forge" }
 calyx-ledger = { path = "../calyx-ledger" }
 blake3.workspace = true
 candle-core = "0.10.2"
