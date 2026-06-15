@@ -15,6 +15,8 @@ pub(crate) fn usage() -> &'static str {
        calyx migrate readback <sqlite.db> <vault.calyx> <chunk_id>
        calyx healthcheck [--wait <secs>] [--out <json>] [--secret-env <env>] [--calyx-home <dir>] [--vault <dir>] [--metrics-url <url>] [--require-env <name>]
        calyx healthcheck --config <calyx.toml> [--wait <secs>] [--out <json>]   (daemon-readiness: CUDA + VRAM + vault read)
+       calyx lens add --manifest <manifest.json> [--home <dir>]
+       calyx lens list [--home <dir>]
        calyx anneal status --health --vault <dir>
        calyx anneal replay-status --vault <dir>
        calyx anneal head-status --kind <Predictor|Calibrator|FusionWeights> --vault <dir>

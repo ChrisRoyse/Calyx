@@ -1,0 +1,132 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use calyx_core::{Modality, SlotShape};
+use sha2::{Digest, Sha256};
+
+use super::{LensForgeFile, LensForgeManifest, lens_spec_from_manifest_path};
+use crate::frozen::{NormPolicy, sha256_digest};
+use crate::spec::LensRuntime;
+
+#[test]
+fn lensforge_manifest_round_trips_to_stable_lens_spec() {
+    let root = temp_root("round-trip");
+    let model = write(&root, "model_int8.onnx", b"tiny model bytes");
+    let tokenizer = write(&root, "tokenizer.json", br#"{"tiny":true}"#);
+    let config = write(&root, "config.json", br#"{"hidden_size":3}"#);
+    let files = vec![
+        file("model", &model, b"tiny model bytes"),
+        file("tokenizer", &tokenizer, br#"{"tiny":true}"#),
+        file("config", &config, br#"{"hidden_size":3}"#),
+    ];
+    let manifest = LensForgeManifest {
+        name: "tiny-text".to_string(),
+        modality: Modality::Text,
+        runtime: "onnx-int8".to_string(),
+        dim: 3,
+        dtype: "int8".to_string(),
+        weights_sha256: plain_sha256_hex(b"tiny model bytes"),
+        artifact_set_sha256: Some(artifact_hash(&[
+            b"tiny model bytes",
+            br#"{"tiny":true}"#,
+            br#"{"hidden_size":3}"#,
+        ])),
+        files,
+        pooling: "mean".to_string(),
+        norm: "l2".to_string(),
+        source_hf_id: "fixture/tiny".to_string(),
+        license: Some("apache-2.0".to_string()),
+        non_commercial: false,
+    };
+    let manifest_path = root.join("manifest.json");
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let first = lens_spec_from_manifest_path(&manifest_path).unwrap();
+    let second = lens_spec_from_manifest_path(&manifest_path).unwrap();
+
+    assert_eq!(first.lens_id(), second.lens_id());
+    assert_eq!(first.output, SlotShape::Dense(3));
+    assert_eq!(first.modality, Modality::Text);
+    assert_eq!(first.norm_policy, NormPolicy::unit());
+    assert!(matches!(
+        first.runtime,
+        LensRuntime::Onnx { ref model_id, .. } if model_id == "fixture/tiny"
+    ));
+    assert_eq!(
+        hex_from_bytes(&first.weights_sha256),
+        manifest.artifact_set_sha256.unwrap()
+    );
+}
+
+#[test]
+fn lensforge_manifest_missing_required_field_is_config_invalid() {
+    let root = temp_root("missing-field");
+    write(&root, "model_int8.onnx", b"model");
+    let manifest = root.join("manifest.json");
+    fs::write(
+        &manifest,
+        br#"{
+  "name": "bad",
+  "modality": "text",
+  "runtime": "onnx-int8",
+  "dtype": "int8",
+  "weights_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "files": [],
+  "pooling": "mean",
+  "norm": "l2",
+  "source_hf_id": "fixture/bad"
+}"#,
+    )
+    .unwrap();
+
+    let error = lens_spec_from_manifest_path(&manifest).unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LENS_CONFIG_INVALID");
+    assert!(error.message.contains("dim"), "{}", error.message);
+}
+
+fn temp_root(label: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "calyx-lensforge-{label}-{}-{nanos}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    root
+}
+
+fn write(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
+    let path = root.join(name);
+    fs::write(&path, bytes).unwrap();
+    path
+}
+
+fn file(role: &str, path: &Path, bytes: &[u8]) -> LensForgeFile {
+    LensForgeFile {
+        role: role.to_string(),
+        path: path.file_name().unwrap().into(),
+        sha256: plain_sha256_hex(bytes),
+        bytes: bytes.len() as u64,
+    }
+}
+
+fn artifact_hash(parts: &[&[u8]]) -> String {
+    hex_from_bytes(&sha256_digest(parts))
+}
+
+fn plain_sha256_hex(bytes: &[u8]) -> String {
+    let digest: [u8; 32] = Sha256::digest(bytes).into();
+    hex_from_bytes(&digest)
+}
+
+fn hex_from_bytes(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}

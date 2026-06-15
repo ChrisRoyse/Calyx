@@ -1,0 +1,468 @@
+#!/usr/bin/env python3
+"""LensForge conversion harness for PH73.
+
+The harness accepts a small YAML registry and emits deterministic artifacts plus
+manifest.json files under CALYX_HOME/lenses by default. It prefers already
+published int8 ONNX artifacts when a HuggingFace repository provides them, and
+logs explicit skip records when a requested format cannot be produced locally.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+from pathlib import Path
+from typing import Any, Iterable
+
+try:
+    import yaml
+except ImportError as exc:  # pragma: no cover - exercised on missing host deps.
+    raise SystemExit("PyYAML is required for tools/lensforge/convert.py") from exc
+
+
+VERSION = 1
+ONNX_MODEL_CANDIDATES = (
+    "onnx/model_int8.onnx",
+    "model_int8.onnx",
+    "onnx/model_quantized.onnx",
+    "onnx/model.onnx",
+    "model.onnx",
+)
+COMMON_OPTIONAL_FILES = (
+    ("tokenizer_config", "tokenizer_config.json"),
+    ("special_tokens_map", "special_tokens_map.json"),
+    ("preprocessor", "preprocessor_config.json"),
+)
+ROLE_ORDER = {
+    "model": 0,
+    "weights": 0,
+    "tokenizer": 1,
+    "config": 2,
+    "preprocessor": 3,
+    "tokenizer_config": 4,
+    "special_tokens_map": 5,
+}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Build Calyx lens artifacts")
+    parser.add_argument("registry", nargs="?", help="registry YAML path")
+    parser.add_argument("--output-root", help="override output root")
+    parser.add_argument("--log", help="JSONL log path")
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args(argv)
+
+    if args.self_test:
+        return self_test()
+    if not args.registry:
+        parser.error("registry YAML is required unless --self-test is set")
+
+    registry_path = Path(args.registry)
+    config = load_yaml(registry_path)
+    output_root = Path(
+        expand_env(args.output_root or config.get("output_root") or "${CALYX_HOME}/lenses")
+    )
+    log_path = Path(args.log) if args.log else output_root / "conversion-log.jsonl"
+    output_root.mkdir(parents=True, exist_ok=True)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    manifests: list[dict[str, Any]] = []
+    skips = 0
+    errors = 0
+    for model in normalize_models(config):
+        for target_format in model.get("formats", []):
+            try:
+                result = convert_entry(model, target_format, output_root, log_path)
+            except Exception as exc:  # noqa: BLE001 - logged as harness error.
+                errors += 1
+                log_event(log_path, "error", model, target_format, {"error": str(exc)})
+                continue
+            if result is None:
+                skips += 1
+            else:
+                manifests.append(result)
+
+    summary = {
+        "tool": "lensforge",
+        "version": VERSION,
+        "output_root": str(output_root),
+        "manifests": manifests,
+        "skips": skips,
+        "errors": errors,
+    }
+    print(json.dumps(summary, sort_keys=True))
+    return 1 if errors else 0
+
+
+def convert_entry(
+    model: dict[str, Any], target_format: str, output_root: Path, log_path: Path
+) -> dict[str, Any] | None:
+    modality = str(model.get("modality", "")).lower()
+    if target_format == "model2vec" and modality != "text":
+        log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format_modality"})
+        return None
+    if target_format == "model2vec":
+        if shutil.which("model2vec") is None:
+            log_event(log_path, "skip", model, target_format, {"reason": "dependency_missing"})
+            return None
+        log_event(log_path, "skip", model, target_format, {"reason": "distillation_not_configured"})
+        return None
+    if target_format == "candle-fp16":
+        if not python_module_exists("safetensors"):
+            log_event(log_path, "skip", model, target_format, {"reason": "dependency_missing"})
+            return None
+        log_event(log_path, "skip", model, target_format, {"reason": "fp16_export_not_configured"})
+        return None
+    if target_format != "onnx-int8":
+        log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format"})
+        return None
+    return convert_onnx_int8(model, output_root, log_path)
+
+
+def convert_onnx_int8(
+    model: dict[str, Any], output_root: Path, log_path: Path
+) -> dict[str, Any] | None:
+    name = str(model.get("name") or safe_name(str(model["hf_id"])))
+    out_dir = output_root / safe_name(name) / "onnx-int8"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if "files" in model:
+        artifacts = copy_local_artifacts(model, out_dir)
+        license_value = model.get("license") or "unknown"
+    else:
+        info = hf_model_info(str(model["hf_id"]))
+        license_value = model.get("license") or hf_license(info) or "unknown"
+        artifacts = download_hf_onnx_artifacts(model, info, out_dir, log_path)
+        if artifacts is None:
+            return None
+
+    config_file = role_path(artifacts, "config")
+    dim = int(model.get("dim") or dim_from_config(config_file))
+    manifest = build_manifest(
+        model=model,
+        target_format="onnx-int8",
+        artifacts=artifacts,
+        dim=dim,
+        license_value=license_value,
+    )
+    manifest_path = out_dir / "manifest.json"
+    write_json(manifest_path, manifest)
+    log_event(
+        log_path,
+        "manifest",
+        model,
+        "onnx-int8",
+        {"manifest": str(manifest_path), "weights_sha256": manifest["weights_sha256"]},
+    )
+    return {"name": manifest["name"], "manifest": str(manifest_path)}
+
+
+def download_hf_onnx_artifacts(
+    model: dict[str, Any],
+    info: dict[str, Any],
+    out_dir: Path,
+    log_path: Path,
+) -> dict[str, Path] | None:
+    siblings = {entry["rfilename"] for entry in info.get("siblings", []) if "rfilename" in entry}
+    model_file = next((candidate for candidate in ONNX_MODEL_CANDIDATES if candidate in siblings), None)
+    if model_file is None:
+        log_event(log_path, "skip", model, "onnx-int8", {"reason": "preconverted_onnx_missing"})
+        return None
+    required = [("model", model_file), ("config", "config.json")]
+    if str(model.get("modality", "")).lower() in {"text", "code", "mixed"}:
+        required.append(("tokenizer", "tokenizer.json"))
+    artifacts = {}
+    for role, repo_path in required:
+        if repo_path not in siblings:
+            log_event(
+                log_path,
+                "skip",
+                model,
+                "onnx-int8",
+                {"reason": f"required_{role}_missing", "repo_path": repo_path},
+            )
+            return None
+        artifacts[role] = download_hf_file(str(model["hf_id"]), repo_path, out_dir)
+    for role, repo_path in COMMON_OPTIONAL_FILES:
+        if repo_path in siblings:
+            artifacts[role] = download_hf_file(str(model["hf_id"]), repo_path, out_dir)
+    return artifacts
+
+
+def copy_local_artifacts(model: dict[str, Any], out_dir: Path) -> dict[str, Path]:
+    artifacts = {}
+    for entry in model["files"]:
+        role = str(entry["role"])
+        source = Path(expand_env(str(entry["path"])))
+        dest_name = str(entry.get("dest") or source.name)
+        dest = out_dir / dest_name
+        shutil.copyfile(source, dest)
+        artifacts[role] = dest
+    return artifacts
+
+
+def build_manifest(
+    model: dict[str, Any],
+    target_format: str,
+    artifacts: dict[str, Path],
+    dim: int,
+    license_value: str,
+) -> dict[str, Any]:
+    ordered = ordered_artifacts(artifacts)
+    file_entries = []
+    for role, path in ordered:
+        data = path.read_bytes()
+        file_entries.append(
+            {
+                "role": role,
+                "path": path.name,
+                "sha256": plain_sha256(data),
+                "bytes": len(data),
+            }
+        )
+    model_path = role_path(artifacts, "model")
+    model_hash = plain_sha256(model_path.read_bytes())
+    artifact_hash = length_delimited_sha256(path.read_bytes() for _, path in ordered)
+    return {
+        "name": str(model.get("name") or safe_name(str(model["hf_id"]))),
+        "modality": str(model["modality"]).lower(),
+        "runtime": target_format,
+        "target_format": target_format,
+        "dim": dim,
+        "dtype": "int8" if target_format == "onnx-int8" else str(model.get("dtype", "f32")),
+        "weights_sha256": model_hash,
+        "artifact_set_sha256": artifact_hash,
+        "files": file_entries,
+        "pooling": str(model.get("pooling", "mean")),
+        "norm": str(model.get("norm", "l2")),
+        "source_hf_id": str(model["hf_id"]),
+        "license": license_value,
+        "non_commercial": is_non_commercial(license_value),
+        "tool": {"name": "lensforge", "version": VERSION},
+        "created_by": "tools/lensforge/convert.py",
+    }
+
+
+def load_yaml(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle)
+    if isinstance(data, list):
+        return {"models": data}
+    if not isinstance(data, dict):
+        raise ValueError("registry YAML must be a list or object with models")
+    return data
+
+
+def normalize_models(config: dict[str, Any]) -> list[dict[str, Any]]:
+    models = config.get("models")
+    if not isinstance(models, list):
+        raise ValueError("registry YAML requires models list")
+    normalized = []
+    for raw in models:
+        if not isinstance(raw, dict):
+            raise ValueError("each registry model must be an object")
+        entry = dict(raw)
+        formats = entry.get("formats")
+        if isinstance(formats, str):
+            formats = [formats]
+        if not formats:
+            raise ValueError(f"registry model {entry.get('name', entry.get('hf_id'))} has no formats")
+        entry["formats"] = list(formats)
+        normalized.append(entry)
+    return normalized
+
+
+def hf_model_info(hf_id: str) -> dict[str, Any]:
+    req = urllib.request.Request(
+        f"https://huggingface.co/api/models/{hf_id}",
+        headers=auth_headers(),
+    )
+    with open_url(req, timeout=60) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def download_hf_file(hf_id: str, repo_path: str, out_dir: Path) -> Path:
+    url = f"https://huggingface.co/{hf_id}/resolve/main/{repo_path}"
+    dest = out_dir / Path(repo_path).name
+    req = urllib.request.Request(url, headers=auth_headers())
+    partial = dest.with_name(f"{dest.name}.part")
+    if partial.exists():
+        partial.unlink()
+    with open_url(req, timeout=600) as response:
+        with partial.open("wb") as handle:
+            shutil.copyfileobj(response, handle)
+    partial.replace(dest)
+    return dest
+
+
+def open_url(req: urllib.request.Request, timeout: int):
+    last_error: BaseException | None = None
+    for attempt in range(1, 4):
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except urllib.error.HTTPError as exc:
+            if exc.code < 500:
+                raise
+            last_error = exc
+        except (urllib.error.URLError, OSError) as exc:
+            last_error = exc
+        if attempt < 3:
+            time.sleep(float(2**attempt))
+    assert last_error is not None
+    raise last_error
+
+
+def auth_headers() -> dict[str, str]:
+    token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_HUB_TOKEN")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def hf_license(info: dict[str, Any]) -> str | None:
+    card = info.get("cardData")
+    if isinstance(card, dict):
+        value = card.get("license")
+        if isinstance(value, str):
+            return value
+    value = info.get("license")
+    return value if isinstance(value, str) else None
+
+
+def dim_from_config(path: Path) -> int:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    for key in ("hidden_size", "d_model", "projection_dim", "encoder_embed_dim", "num_features"):
+        value = data.get(key)
+        if isinstance(value, int) and value > 0:
+            return value
+    raise ValueError(f"cannot infer dim from {path}")
+
+
+def role_path(artifacts: dict[str, Path], role: str) -> Path:
+    if role in artifacts:
+        return artifacts[role]
+    raise ValueError(f"missing artifact role {role}")
+
+
+def ordered_artifacts(artifacts: dict[str, Path]) -> list[tuple[str, Path]]:
+    return sorted(artifacts.items(), key=lambda item: (ROLE_ORDER.get(item[0], 9), item[1].name))
+
+
+def plain_sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def length_delimited_sha256(parts: Iterable[bytes]) -> str:
+    digest = hashlib.sha256()
+    for part in parts:
+        digest.update(len(part).to_bytes(8, "big"))
+        digest.update(part)
+    return digest.hexdigest()
+
+
+def is_non_commercial(license_value: str) -> bool:
+    lowered = license_value.lower()
+    return any(token in lowered for token in ("non-commercial", "noncommercial", "nc", "cc-by-nc"))
+
+
+def safe_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-").lower()
+
+
+def expand_env(value: str) -> str:
+    return os.path.expandvars(value)
+
+
+def python_module_exists(name: str) -> bool:
+    result = subprocess.run(
+        [sys.executable, "-c", f"import {name}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    return result.returncode == 0
+
+
+def write_json(path: Path, value: dict[str, Any]) -> None:
+    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def log_event(
+    log_path: Path,
+    event: str,
+    model: dict[str, Any],
+    target_format: str,
+    fields: dict[str, Any],
+) -> None:
+    record = {
+        "ts": int(time.time()),
+        "event": event,
+        "hf_id": model.get("hf_id"),
+        "name": model.get("name"),
+        "modality": model.get("modality"),
+        "format": target_format,
+        **fields,
+    }
+    with log_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def self_test() -> int:
+    with tempfile.TemporaryDirectory(prefix="calyx-lensforge-") as tmp:
+        root = Path(tmp)
+        source = root / "source"
+        source.mkdir()
+        (source / "model_int8.onnx").write_bytes(b"tiny-model")
+        (source / "tokenizer.json").write_text('{"tiny": true}\n', encoding="utf-8")
+        (source / "config.json").write_text('{"hidden_size": 3}\n', encoding="utf-8")
+        registry = root / "registry.yaml"
+        output = root / "out"
+        registry.write_text(
+            f"""
+output_root: "{output}"
+models:
+  - name: tiny-fixture
+    hf_id: fixture/tiny
+    modality: text
+    formats: [onnx-int8]
+    pooling: mean
+    norm: l2
+    files:
+      - role: model
+        path: "{source / "model_int8.onnx"}"
+      - role: tokenizer
+        path: "{source / "tokenizer.json"}"
+      - role: config
+        path: "{source / "config.json"}"
+  - name: bad-audio
+    hf_id: fixture/audio
+    modality: audio
+    formats: [model2vec]
+""",
+            encoding="utf-8",
+        )
+        code = main([str(registry)])
+        if code != 0:
+            return code
+        manifest = output / "tiny-fixture" / "onnx-int8" / "manifest.json"
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        actual = plain_sha256((output / "tiny-fixture" / "onnx-int8" / "model_int8.onnx").read_bytes())
+        if data["weights_sha256"] != actual:
+            print("self-test weights_sha256 mismatch", file=sys.stderr)
+            return 1
+        log_text = (output / "conversion-log.jsonl").read_text(encoding="utf-8")
+        if "unsupported_format_modality" not in log_text:
+            print("self-test missing unsupported modality skip", file=sys.stderr)
+            return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
