@@ -9,8 +9,14 @@ use crate::spec::LensHealth;
 
 mod assay;
 mod cost;
+mod gating;
 pub use assay::{apply_assay_metrics, profile_slot_with_assay};
 pub use cost::CostMetrics;
+pub use gating::{
+    CAPABILITY_MAX_PAIRWISE_CORR_ENV, CAPABILITY_MIN_SIGNAL_BITS_ENV, CapabilityGateDecision,
+    CapabilityGateEvaluation, CapabilityGateThresholds, append_capability_gate_ledger,
+    capability_gate_json, evaluate_capability_gate, max_panel_pairwise_correlation,
+};
 
 /// One profiling probe, optionally labeled for silhouette separation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
