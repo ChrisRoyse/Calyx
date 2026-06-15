@@ -236,6 +236,8 @@ fn external_and_commissioned_readback(
         base_model: "algorithmic-base".to_string(),
         corpus: vec![b"alpha outcome".to_vec(), b"beta outcome".to_vec()],
         output_dim: 4,
+        modality: Modality::Text,
+        axis: Some("commissioned-axis".to_string()),
     };
     let first = commission_lens(&request, &root.join("commissioned")).unwrap();
     let second = commission_lens(&request, &root.join("commissioned-again")).unwrap();

@@ -134,6 +134,8 @@ impl LensHotAdder for TestHotAdder {
 pub struct FixtureAssay {
     sufficiency: Mutex<VecDeque<f64>>,
     entropy: f64,
+    expected: Vec<Modality>,
+    lens_modalities: BTreeMap<LensId, Modality>,
 }
 
 impl FixtureAssay {
@@ -141,7 +143,14 @@ impl FixtureAssay {
         Self {
             sufficiency: Mutex::new(VecDeque::from(sufficiency)),
             entropy,
+            expected: Vec::new(),
+            lens_modalities: BTreeMap::from([(existing_lens(), Modality::Structured)]),
         }
+    }
+
+    pub fn with_expected_modalities(mut self, expected: Vec<Modality>) -> Self {
+        self.expected = expected;
+        self
     }
 }
 
@@ -158,8 +167,12 @@ impl AssayAttribution for FixtureAssay {
         Ok(self.entropy)
     }
 
-    fn lens_modality(&self, _lens: &LensId) -> Result<Option<Modality>> {
-        Ok(Some(Modality::Structured))
+    fn expected_modalities(&self, _anchor: &AnchorId) -> Result<Vec<Modality>> {
+        Ok(self.expected.clone())
+    }
+
+    fn lens_modality(&self, lens: &LensId) -> Result<Option<Modality>> {
+        Ok(self.lens_modalities.get(lens).copied())
     }
 }
 
