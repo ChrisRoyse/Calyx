@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     AlgorithmicLens, ExternalCmdLens, LensRuntime, LensSpec, OnnxLens, Registry,
-    RegistryLensSnapshot, TeiHttpLens,
+    RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
 };
 
 const SNAPSHOT_VERSION: u16 = 1;
@@ -180,6 +180,7 @@ fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Option<Arc<dyn Lens>> {
         )),
         LensRuntime::CandleLocal { .. } => return None,
         LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec).ok()?),
+        LensRuntime::StaticLookup { .. } => Arc::new(StaticLookupLens::from_lens_spec(spec).ok()?),
     };
     if snapshot.contract.verify_registration(lens.as_ref()).is_ok() {
         Some(lens)

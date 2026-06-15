@@ -480,6 +480,7 @@ dependencies = [
  "candle-transformers",
  "fastembed",
  "hf-hub",
+ "memmap2",
  "ort",
  "proptest",
  "serde",

@@ -25,6 +25,11 @@ pub enum LensRuntime {
         model_id: String,
         files: Vec<PathBuf>,
     },
+    StaticLookup {
+        embeddings_file: PathBuf,
+        tokenizer: PathBuf,
+        dim: u32,
+    },
     ExternalCmd {
         cmd: String,
         args: Vec<String>,
@@ -77,6 +82,17 @@ impl LensSpec {
                     return LensHealth::Cold;
                 }
                 if files.iter().all(|path| path.exists()) {
+                    LensHealth::Loaded
+                } else {
+                    LensHealth::Cold
+                }
+            }
+            LensRuntime::StaticLookup {
+                embeddings_file,
+                tokenizer,
+                ..
+            } => {
+                if embeddings_file.is_file() && tokenizer.is_file() {
                     LensHealth::Loaded
                 } else {
                     LensHealth::Cold
