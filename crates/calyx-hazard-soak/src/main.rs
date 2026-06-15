@@ -1,5 +1,6 @@
 mod hazards;
 
+use hazards::numerical::run_hazards_9_12;
 use hazards::resource::{HazardResult, run_hazards_1_5};
 use hazards::resource_hazards_6_8::run_hazards_6_8;
 use serde_json::{Value, json};
@@ -64,6 +65,8 @@ fn run() -> Result<(), String> {
 enum Suite {
     Hazards1To5,
     Hazards6To8,
+    Hazards9To12,
+    Hazards1To8,
     AllImplemented,
 }
 
@@ -73,10 +76,12 @@ impl Suite {
             [] => Ok(Self::Hazards1To5),
             [flag, range] if flag == "--hazards" && range == "1-5" => Ok(Self::Hazards1To5),
             [flag, range] if flag == "--hazards" && range == "6-8" => Ok(Self::Hazards6To8),
-            [flag, range] if flag == "--hazards" && range == "1-8" => Ok(Self::AllImplemented),
+            [flag, range] if flag == "--hazards" && range == "9-12" => Ok(Self::Hazards9To12),
+            [flag, range] if flag == "--hazards" && range == "1-8" => Ok(Self::Hazards1To8),
+            [flag, range] if flag == "--hazards" && range == "1-12" => Ok(Self::AllImplemented),
             [flag] if flag == "--all-hazards" => Ok(Self::AllImplemented),
             _ => Err(format!(
-                "unsupported args {args:?}; supported: --hazards 1-5, --hazards 6-8, --hazards 1-8"
+                "unsupported args {args:?}; supported: --hazards 1-5, --hazards 6-8, --hazards 9-12, --hazards 1-8, --hazards 1-12"
             )),
         }
     }
@@ -85,9 +90,16 @@ impl Suite {
         match self {
             Self::Hazards1To5 => run_hazards_1_5(root),
             Self::Hazards6To8 => run_hazards_6_8(root),
+            Self::Hazards9To12 => run_hazards_9_12(root),
+            Self::Hazards1To8 => {
+                let mut results = run_hazards_1_5(root);
+                results.extend(run_hazards_6_8(root));
+                results
+            }
             Self::AllImplemented => {
                 let mut results = run_hazards_1_5(root);
                 results.extend(run_hazards_6_8(root));
+                results.extend(run_hazards_9_12(root));
                 results
             }
         }
@@ -97,7 +109,9 @@ impl Suite {
         match self {
             Self::Hazards1To5 => json!(488),
             Self::Hazards6To8 => json!(489),
-            Self::AllImplemented => json!([488, 489]),
+            Self::Hazards9To12 => json!(490),
+            Self::Hazards1To8 => json!([488, 489]),
+            Self::AllImplemented => json!([488, 489, 490]),
         }
     }
 
@@ -105,7 +119,9 @@ impl Suite {
         match self {
             Self::Hazards1To5 => "T01",
             Self::Hazards6To8 => "T02",
-            Self::AllImplemented => "T01_T02",
+            Self::Hazards9To12 => "T03",
+            Self::Hazards1To8 => "T01_T02",
+            Self::AllImplemented => "T01_T03",
         }
     }
 
@@ -113,7 +129,9 @@ impl Suite {
         match self {
             Self::Hazards1To5 => "hazards_1_5_resource_ops",
             Self::Hazards6To8 => "hazards_6_8_mvcc_vram_heap",
-            Self::AllImplemented => "hazards_1_8_resource_ops",
+            Self::Hazards9To12 => "hazards_9_12_numerical_index",
+            Self::Hazards1To8 => "hazards_1_8_resource_ops",
+            Self::AllImplemented => "hazards_1_12_resource_numerical_index",
         }
     }
 
@@ -121,7 +139,9 @@ impl Suite {
         match self {
             Self::Hazards1To5 => "ph59_t01",
             Self::Hazards6To8 => "ph59_t02",
-            Self::AllImplemented => "ph59_t01_t02",
+            Self::Hazards9To12 => "ph59_t03",
+            Self::Hazards1To8 => "ph59_t01_t02",
+            Self::AllImplemented => "ph59_t01_t03",
         }
     }
 
@@ -129,7 +149,9 @@ impl Suite {
         match self {
             Self::Hazards1To5 => "ph59_hazards_1_5.json",
             Self::Hazards6To8 => "ph59_hazards_6_8.json",
-            Self::AllImplemented => "ph59_hazards_1_8.json",
+            Self::Hazards9To12 => "ph59_hazards_9_12.json",
+            Self::Hazards1To8 => "ph59_hazards_1_8.json",
+            Self::AllImplemented => "ph59_hazards_1_12.json",
         }
     }
 
@@ -137,7 +159,9 @@ impl Suite {
         match self {
             Self::Hazards1To5 => "ph59_hazards_1_5.prom",
             Self::Hazards6To8 => "ph59_hazards_6_8.prom",
-            Self::AllImplemented => "ph59_hazards_1_8.prom",
+            Self::Hazards9To12 => "ph59_hazards_9_12.prom",
+            Self::Hazards1To8 => "ph59_hazards_1_8.prom",
+            Self::AllImplemented => "ph59_hazards_1_12.prom",
         }
     }
 
@@ -145,7 +169,9 @@ impl Suite {
         match self {
             Self::Hazards1To5 => "PH59_HAZARDS_1_5_ROOT",
             Self::Hazards6To8 => "PH59_HAZARDS_6_8_ROOT",
-            Self::AllImplemented => "PH59_HAZARDS_1_8_ROOT",
+            Self::Hazards9To12 => "PH59_HAZARDS_9_12_ROOT",
+            Self::Hazards1To8 => "PH59_HAZARDS_1_8_ROOT",
+            Self::AllImplemented => "PH59_HAZARDS_1_12_ROOT",
         }
     }
 
