@@ -34,6 +34,9 @@ const WAL_SEGMENT_BYTES: u64 = 256 * 1024;
 const WAL_BATCH_RECORDS: usize = 256;
 const WAL_RECYCLE_EVERY_GC_TICKS: u64 = 2_000;
 const GC_SWEEP_EVERY_GC_TICKS: u64 = 20_000;
+const MAX_OSCILLATION_REVERSALS: usize = 6;
+const TOMBSTONE_OSCILLATION_MIN_SWING: f64 = 0.02;
+const PINNED_GAP_OSCILLATION_MIN_SWING: f64 = 512.0;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SoakSample {
@@ -268,30 +271,63 @@ fn slope(samples: &[SoakSample], y: impl Fn(&SoakSample) -> f64) -> f64 {
 }
 
 fn oscillates(samples: &[SoakSample]) -> bool {
-    trend_changes(samples, |sample| sample.tombstone_ratio) > 6
-        || trend_changes(samples, |sample| sample.oldest_pinned_seq_gap as f64) > 6
+    hysteresis_reversals(
+        samples,
+        |sample| sample.tombstone_ratio,
+        TOMBSTONE_OSCILLATION_MIN_SWING,
+    ) > MAX_OSCILLATION_REVERSALS
+        || hysteresis_reversals(
+            samples,
+            |sample| sample.oldest_pinned_seq_gap as f64,
+            PINNED_GAP_OSCILLATION_MIN_SWING,
+        ) > MAX_OSCILLATION_REVERSALS
 }
 
-fn trend_changes(samples: &[SoakSample], y: impl Fn(&SoakSample) -> f64) -> usize {
-    let mut last = 0_i8;
-    let mut changes = 0;
-    for pair in samples.windows(2) {
-        let delta = y(&pair[1]) - y(&pair[0]);
-        let sign = if delta > 0.000_001 {
-            1
-        } else if delta < -0.000_001 {
-            -1
-        } else {
-            0
-        };
-        if sign != 0 && last != 0 && sign != last {
-            changes += 1;
-        }
-        if sign != 0 {
-            last = sign;
+fn hysteresis_reversals(
+    samples: &[SoakSample],
+    y: impl Fn(&SoakSample) -> f64,
+    min_swing: f64,
+) -> usize {
+    let Some(first) = samples.first() else {
+        return 0;
+    };
+    let mut direction = 0_i8;
+    let mut extreme = y(first);
+    let mut reversals = 0;
+    for sample in samples.iter().skip(1) {
+        let value = y(sample);
+        match direction {
+            0 => {
+                if value - extreme >= min_swing {
+                    direction = 1;
+                    extreme = value;
+                } else if extreme - value >= min_swing {
+                    direction = -1;
+                    extreme = value;
+                }
+            }
+            1 => {
+                if value > extreme {
+                    extreme = value;
+                } else if extreme - value >= min_swing {
+                    direction = -1;
+                    extreme = value;
+                    reversals += 1;
+                }
+            }
+            -1 => {
+                if value < extreme {
+                    extreme = value;
+                } else if value - extreme >= min_swing {
+                    direction = 1;
+                    extreme = value;
+                    reversals += 1;
+                }
+            }
+            _ => unreachable!("oscillation direction is ternary"),
         }
     }
-    changes
+    reversals
 }
 
 fn list_files(root: &Path) -> Result<Vec<String>, String> {
@@ -354,5 +390,78 @@ impl BudgetProbe for StaticBudget {
             vram_used_bytes: 0,
             nvml_available: true,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn soak_sample(op: u64, tombstone_ratio: f64, oldest_pinned_seq_gap: u64) -> SoakSample {
+        SoakSample {
+            op,
+            rss_kib: 100_000,
+            vram_mib: 0,
+            tombstone_ratio,
+            wal_bytes_active: 0,
+            oldest_pinned_seq_gap,
+        }
+    }
+
+    #[test]
+    fn bounded_tombstone_jitter_is_not_oscillation() {
+        let ratios = [
+            0.0, 0.1939, 0.1988, 0.1980, 0.1966, 0.1974, 0.1970, 0.1977, 0.1969, 0.1972, 0.2001,
+            0.2000,
+        ];
+        let samples: Vec<_> = ratios
+            .into_iter()
+            .enumerate()
+            .map(|(idx, ratio)| soak_sample(idx as u64 * SAMPLE_EVERY, ratio, 10_000 - idx as u64))
+            .collect();
+
+        assert!(!oscillates(&samples));
+    }
+
+    #[test]
+    fn large_tombstone_sawtooth_is_oscillation() {
+        let ratios = [
+            0.20, 0.35, 0.12, 0.34, 0.11, 0.33, 0.10, 0.32, 0.09, 0.31, 0.08, 0.30, 0.07, 0.29,
+            0.06,
+        ];
+        let samples: Vec<_> = ratios
+            .into_iter()
+            .enumerate()
+            .map(|(idx, ratio)| soak_sample(idx as u64 * SAMPLE_EVERY, ratio, 0))
+            .collect();
+
+        assert!(oscillates(&samples));
+    }
+
+    #[test]
+    fn monotone_pinned_gap_cleanup_is_not_oscillation() {
+        let gaps = [10_000, 9_999, 9_998, 9_997, 9_996, 8_000, 0];
+        let samples: Vec<_> = gaps
+            .into_iter()
+            .enumerate()
+            .map(|(idx, gap)| soak_sample(idx as u64 * SAMPLE_EVERY, 0.20, gap))
+            .collect();
+
+        assert!(!oscillates(&samples));
+    }
+
+    #[test]
+    fn large_pinned_gap_sawtooth_is_oscillation() {
+        let gaps = [
+            10_000, 8_000, 9_500, 7_500, 9_000, 7_000, 8_500, 6_500, 8_000, 6_000, 7_500, 5_500,
+            7_000, 5_000, 6_500,
+        ];
+        let samples: Vec<_> = gaps
+            .into_iter()
+            .enumerate()
+            .map(|(idx, gap)| soak_sample(idx as u64 * SAMPLE_EVERY, 0.20, gap))
+            .collect();
+
+        assert!(oscillates(&samples));
     }
 }
