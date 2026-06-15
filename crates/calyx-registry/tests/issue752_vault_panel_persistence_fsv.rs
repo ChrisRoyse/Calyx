@@ -174,6 +174,8 @@ fn unsupported_runtime_edge(vault_dir: &Path) -> serde_json::Value {
         LensRuntime::CandleLocal {
             model_id: "issue752-missing-model".to_string(),
             files: Vec::new(),
+            dtype: "f32".to_string(),
+            pooling: "mean".to_string(),
         },
         "issue752-cold-candle",
         300,

@@ -20,6 +20,10 @@ pub enum LensRuntime {
     CandleLocal {
         model_id: String,
         files: Vec<PathBuf>,
+        #[serde(default = "default_candle_dtype")]
+        dtype: String,
+        #[serde(default = "default_candle_pooling")]
+        pooling: String,
     },
     Onnx {
         model_id: String,
@@ -118,6 +122,14 @@ impl LensSpec {
             _ => Ok(health),
         }
     }
+}
+
+fn default_candle_dtype() -> String {
+    "f32".to_string()
+}
+
+fn default_candle_pooling() -> String {
+    "mean".to_string()
 }
 
 fn probe_http(endpoint: &str) -> LensHealth {
