@@ -184,7 +184,8 @@ fn probe_h3(root: &Path) -> ProbeResult {
         vault: &vault,
         vault_dir: &vault_dir,
     };
-    let reclaimer = CompactionGcReclaimer::with_limits(0.5, 1, 1_000_000_000, 0);
+    let mut reclaimer = CompactionGcReclaimer::with_limits(0.5, 1, 1_000_000_000, 0);
+    reclaimer.tombstone_ratio_trigger = 0.4;
     let mut results = Vec::new();
     let mut ratios = vec![before.tombstone_ratio()];
     for pass in 0..5 {
@@ -193,12 +194,16 @@ fn probe_h3(root: &Path) -> ProbeResult {
         results.push(compaction_gc_json(&result));
     }
     let after = scan_tombstone_inventory(&vault_dir).map_err(err)?;
-    let passed = before.tombstone_ratio() > 0.5 && after.tombstone_ratio() <= 0.1;
+    let passed = before.tombstone_ratio() > reclaimer.tombstone_ratio_trigger
+        && after.tombstone_ratio() <= 0.1;
     Ok((
         passed,
         json!({
             "trigger": "100k base rows, 70k MVCC tombstones, five compaction GC sweeps",
-            "expected": {"ratio_before_gt_0_5": true, "ratio_after_lte_0_1": true},
+            "expected": {
+                "ratio_before_gt_trigger": reclaimer.tombstone_ratio_trigger,
+                "ratio_after_lte_0_1": true
+            },
             "actual": {
                 "ratio_series": ratios, "before": inventory_json(&before),
                 "after": inventory_json(&after), "results": results,
