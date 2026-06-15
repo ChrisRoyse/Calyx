@@ -7,6 +7,14 @@ use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::spec::{LensRuntime, LensSpec};
 use crate::{Registry, ensure_input_modality};
 
+mod manifest;
+#[cfg(test)]
+mod tests;
+
+pub use manifest::{
+    LensForgeFile, LensForgeManifest, lens_spec_from_manifest, lens_spec_from_manifest_path,
+};
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommissionRequest {
     pub name: String,
