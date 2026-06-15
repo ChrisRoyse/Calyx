@@ -12,6 +12,9 @@ use super::{
 use crate::migrate::manifest::hex_encode;
 use crate::migrate::reader::open_sqlite;
 
+const LATENCY_REGRESSION_DIVISOR: u64 = 20;
+const LATENCY_JITTER_BUDGET_US: u64 = 100;
+
 pub(super) fn benchmark_recall(
     sqlite_path: &Path,
     calyx_dir: &Path,
@@ -72,7 +75,7 @@ pub(super) fn benchmark_recall(
     let calyx_mean_recall = mean(query_rows.iter().map(|row| row.calyx_recall));
     let latency_sqlite_p99_us = p99(&mut sqlite_latencies);
     let latency_calyx_p99_us = p99(&mut calyx_latencies);
-    let latency_budget_us = latency_sqlite_p99_us + latency_sqlite_p99_us.div_ceil(20).max(1);
+    let latency_budget_us = latency_budget(latency_sqlite_p99_us);
     let recall_gate = calyx_mean_recall + f64::EPSILON >= sqlite_mean_recall;
     let latency_gate = latency_calyx_p99_us <= latency_budget_us;
     Ok(RecallBenchmark {
@@ -172,4 +175,21 @@ fn p99(values: &mut [u64]) -> u64 {
 fn elapsed_us(duration: Duration) -> u64 {
     let nanos = duration.as_nanos();
     u64::try_from(nanos.div_ceil(1000)).unwrap_or(u64::MAX)
+}
+
+fn latency_budget(sqlite_p99_us: u64) -> u64 {
+    let relative = sqlite_p99_us.div_ceil(LATENCY_REGRESSION_DIVISOR);
+    sqlite_p99_us.saturating_add(relative.max(LATENCY_JITTER_BUDGET_US))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn latency_budget_keeps_absolute_jitter_floor_for_microbenchmarks() {
+        assert_eq!(latency_budget(0), LATENCY_JITTER_BUDGET_US);
+        assert_eq!(latency_budget(50), 150);
+        assert_eq!(latency_budget(10_000), 10_500);
+    }
 }

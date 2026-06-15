@@ -48,6 +48,7 @@ pub(crate) fn usage() -> &'static str {
        calyx leapable dual-write --sqlite <db> --calyx <dir>
        calyx leapable read-flip --sqlite <db> --calyx <dir> [--tau <f>] [--skip-backfill]
        calyx leapable remove-shadow --sqlite <db> (--calyx|--vault) <dir> --vault-type <text|code|civic|media>
+       calyx leapable production-fsv <snapshot-pg|verify-pg-unchanged|verify-contract|run> [args]
        calyx leapable ask --vault <dir> (--query-vector <json-array> | --query <text>) [--top-k <n>]
        calyx leapable recall-compare --sqlite <db> --calyx <dir> --queries <jsonl> [--top-k <n>]
        calyx leapable verify-round-trip --sqlite <db> --calyx <dir> [--output <json>] [--benchmark --queries <jsonl>] [--top-k <n>]

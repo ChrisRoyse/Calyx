@@ -67,7 +67,7 @@ fn benchmark_recall_exact_fixture_passes() {
 
     assert_eq!(bench.sqlite_mean_recall, 1.0);
     assert_eq!(bench.calyx_mean_recall, 1.0);
-    assert_eq!(bench.gate, "PASS");
+    assert_eq!(bench.gate, "PASS", "{bench:#?}");
     cleanup(root);
 }
 
