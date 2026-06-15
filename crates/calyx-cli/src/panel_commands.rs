@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{LensCost, Placement};
+use calyx_registry::{PanelSlotListing, list_panel, load_vault_panel_state};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
@@ -42,6 +43,16 @@ struct PanelStatusReport {
 }
 
 #[derive(Serialize)]
+struct VaultPanelStatusReport {
+    vault: PathBuf,
+    panel_version: u32,
+    slot_count: usize,
+    registry_lens_count: usize,
+    panel_ref: Option<String>,
+    slots: Vec<PanelSlotListing>,
+}
+
+#[derive(Serialize)]
 struct PanelLensStatus {
     lens_id: String,
     name: String,
@@ -65,6 +76,9 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
 
 fn status(args: &[String]) -> CliResult {
     let flags = Flags::parse(args)?;
+    if let Some(vault) = flags.vault {
+        return status_vault(vault);
+    }
     let catalog_path = catalog_path(flags.home.as_deref())?;
     let catalog = read_catalog(&catalog_path)?;
     let lenses = catalog
@@ -99,6 +113,27 @@ fn status(args: &[String]) -> CliResult {
     })
 }
 
+fn status_vault(vault: PathBuf) -> CliResult {
+    let state = load_vault_panel_state(&vault)?;
+    let slots = list_panel(&state.panel, &state.registry);
+    let panel_ref = state
+        .registry_snapshot
+        .as_ref()
+        .map(|snapshot| snapshot.panel_ref.logical_path.clone());
+    let registry_lens_count = state
+        .registry_snapshot
+        .as_ref()
+        .map_or(0, |snapshot| snapshot.lenses.len());
+    print_json(&VaultPanelStatusReport {
+        vault,
+        panel_version: state.panel.version,
+        slot_count: state.panel.slots.len(),
+        registry_lens_count,
+        panel_ref,
+        slots,
+    })
+}
+
 fn status_from_entry(entry: LensCatalogEntry) -> PanelLensStatus {
     PanelLensStatus {
         lens_id: entry.lens_id,
@@ -116,6 +151,7 @@ fn status_from_entry(entry: LensCatalogEntry) -> PanelLensStatus {
 #[derive(Default)]
 struct Flags {
     home: Option<PathBuf>,
+    vault: Option<PathBuf>,
 }
 
 impl Flags {
@@ -128,9 +164,18 @@ impl Flags {
                     idx += 1;
                     flags.home = Some(value(args, idx, "--home")?.into());
                 }
+                "--vault" => {
+                    idx += 1;
+                    flags.vault = Some(value(args, idx, "--vault")?.into());
+                }
                 other => return Err(CliError::usage(format!("unexpected panel flag {other}"))),
             }
             idx += 1;
+        }
+        if flags.home.is_some() && flags.vault.is_some() {
+            return Err(CliError::usage(
+                "calyx panel status accepts --home or --vault, not both",
+            ));
         }
         Ok(flags)
     }

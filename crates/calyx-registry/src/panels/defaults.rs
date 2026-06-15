@@ -77,15 +77,157 @@ pub fn civic_default() -> PanelTemplate {
     }
 }
 
+pub fn legal_default() -> PanelTemplate {
+    let mut slots = vec![
+        registry(
+            "legal_bert_small",
+            "legal-bert-small",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
+        registry(
+            "general_semantic",
+            "semantic-bge-small-en-v1-5",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
+        registry(
+            "keyword_splade",
+            "keyword-splade",
+            SlotShape::Sparse(30_522),
+            Modality::Text,
+        ),
+        registry("entity", "entity", SlotShape::Dense(768), Modality::Text),
+        registry(
+            "causal_dual",
+            "causal-dual",
+            SlotShape::Dense(768),
+            Modality::Text,
+        )
+        .with_asymmetry(Asymmetry::Dual {
+            a: SlotId::new(4),
+            b: SlotId::new(4),
+        }),
+    ];
+    append_temporal(&mut slots);
+    PanelTemplate {
+        name: "legal-default".to_string(),
+        slots,
+    }
+}
+
+pub fn medical_default() -> PanelTemplate {
+    let mut slots = vec![
+        registry(
+            "biomedbert_small_embeddings",
+            "biomedbert-small-embeddings",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
+        registry(
+            "general_semantic",
+            "semantic-bge-small-en-v1-5",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
+        registry(
+            "medical_entity",
+            "medical-entity",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
+    ];
+    append_temporal(&mut slots);
+    PanelTemplate {
+        name: "medical-default".to_string(),
+        slots,
+    }
+}
+
+pub fn bio_default() -> PanelTemplate {
+    let mut slots = vec![
+        registry(
+            "protein_esm2",
+            "protein-esm2-t6-8m-adapter",
+            SlotShape::Dense(16),
+            Modality::Protein,
+        ),
+        registry(
+            "dna_dnabert2",
+            "dna-dnabert2-117m-adapter",
+            SlotShape::Dense(16),
+            Modality::Dna,
+        ),
+        registry(
+            "molecule_chemberta",
+            "molecule-chemberta-zinc-adapter",
+            SlotShape::Dense(16),
+            Modality::Molecule,
+        ),
+        registry(
+            "general_semantic",
+            "semantic-bge-small-en-v1-5",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
+    ];
+    append_temporal(&mut slots);
+    PanelTemplate {
+        name: "bio-default".to_string(),
+        slots,
+    }
+}
+
 pub fn media_default() -> PanelTemplate {
     let mut slots = vec![
-        tei("semantic", SlotShape::Dense(768), Modality::Mixed),
-        external("image_clip", SlotShape::Dense(512), Modality::Image),
-        external("audio_wave", SlotShape::Dense(256), Modality::Audio),
-        external("audio_emotion", SlotShape::Dense(128), Modality::Audio),
-        external("speaker_wavlm", SlotShape::Dense(512), Modality::Audio),
-        tei("transcript", SlotShape::Dense(768), Modality::Text),
-        external("style_register", SlotShape::Dense(768), Modality::Text),
+        registry(
+            "media_semantic",
+            "media-semantic",
+            SlotShape::Dense(768),
+            Modality::Mixed,
+        ),
+        registry(
+            "image_siglip2",
+            "image-siglip2-b16-adapter",
+            SlotShape::Dense(16),
+            Modality::Image,
+        ),
+        registry(
+            "audio_clap",
+            "audio-clap-htsat-adapter",
+            SlotShape::Dense(16),
+            Modality::Audio,
+        ),
+        registry(
+            "audio_wave",
+            "audio-wave",
+            SlotShape::Dense(256),
+            Modality::Audio,
+        ),
+        registry(
+            "audio_emotion",
+            "audio-emotion",
+            SlotShape::Dense(128),
+            Modality::Audio,
+        ),
+        registry(
+            "speaker_wavlm",
+            "speaker-wavlm",
+            SlotShape::Dense(512),
+            Modality::Audio,
+        ),
+        registry(
+            "transcript",
+            "transcript-semantic",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
+        registry(
+            "style_register",
+            "style-register",
+            SlotShape::Dense(768),
+            Modality::Text,
+        ),
     ];
     append_temporal(&mut slots);
     PanelTemplate {
@@ -123,6 +265,15 @@ fn tei(name: impl Into<String>, output: SlotShape, modality: Modality) -> PanelS
     )
 }
 
+fn registry(
+    name: impl Into<String>,
+    registry_name: impl Into<String>,
+    output: SlotShape,
+    modality: Modality,
+) -> PanelSlotSpec {
+    PanelSlotSpec::registry(name, registry_name, output, modality)
+}
+
 fn alg(
     name: impl Into<String>,
     lens: AlgorithmicPanelLens,
@@ -132,16 +283,6 @@ fn alg(
     PanelSlotSpec::content(
         name,
         PanelLensRuntime::Algorithmic { lens },
-        output,
-        modality,
-    )
-}
-
-fn external(name: impl Into<String>, output: SlotShape, modality: Modality) -> PanelSlotSpec {
-    let name = name.into();
-    PanelSlotSpec::content(
-        name.clone(),
-        PanelLensRuntime::ExternalCmd { name },
         output,
         modality,
     )
