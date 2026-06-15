@@ -102,6 +102,7 @@ pub struct OnnxFileSpec {
     pub model_file: PathBuf,
     pub tokenizer: PathBuf,
     pub config: PathBuf,
+    pub modality: Modality,
     pub pooling: PoolingPolicy,
     pub norm_policy: NormPolicy,
     pub provider_policy: OnnxProviderPolicy,
@@ -126,6 +127,7 @@ impl OnnxFileSpec {
             model_file: model_file.into(),
             tokenizer: tokenizer.into(),
             config: config.into(),
+            modality: Modality::Text,
             pooling,
             norm_policy,
             provider_policy: OnnxProviderPolicy::CudaFailLoud,
@@ -151,6 +153,7 @@ impl OnnxFileSpec {
             model_file: model_file.clone(),
             tokenizer: tokenizer.clone(),
             config: config.clone(),
+            modality: spec.modality,
             pooling,
             norm_policy: spec.norm_policy,
             provider_policy: OnnxProviderPolicy::CpuExplicit,
@@ -314,7 +317,7 @@ impl Lens for OnnxLens {
     }
 
     fn modality(&self) -> Modality {
-        Modality::Text
+        self.contract.modality()
     }
 
     fn measure(&self, input: &Input) -> Result<SlotVector> {

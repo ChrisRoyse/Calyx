@@ -50,6 +50,9 @@ pub fn modality_strategy() -> BoxedStrategy<Modality> {
         Just(Modality::Image),
         Just(Modality::Audio),
         Just(Modality::Video),
+        Just(Modality::Protein),
+        Just(Modality::Dna),
+        Just(Modality::Molecule),
         Just(Modality::Structured),
         Just(Modality::Mixed),
     ]

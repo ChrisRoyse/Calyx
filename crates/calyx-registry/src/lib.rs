@@ -25,7 +25,7 @@ pub use calyx_core::{Input, Lens};
 pub use commission::{
     CommissionRequest, CommissionedLens, CommissionedLensArtifact, LensForgeFile,
     LensForgeManifest, commission_lens, lens_spec_from_manifest, lens_spec_from_manifest_path,
-    register_commissioned,
+    lens_spec_from_manifest_with_license_override, register_commissioned,
 };
 pub use drift::{DriftDecision, RuntimeGolden};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};
@@ -62,6 +62,12 @@ pub use profile::{
     SpreadMetrics, append_capability_gate_ledger, apply_assay_metrics, capability_gate_json,
     evaluate_capability_gate, max_panel_pairwise_correlation, profile_lens,
     profile_slot_with_assay,
+};
+pub use runtime::adapters::{
+    CALYX_ALLOW_NONCOMMERCIAL_LENSES_ENV, CALYX_LICENSE_DENIED, MultimodalAdapterLens,
+    MultimodalAdapterSpec, MultimodalAxis, MultimodalLensPackEntry, allow_noncommercial_from_env,
+    default_multimodal_lens_specs, ensure_license_allowed, is_non_commercial_license,
+    register_multimodal_lens_pack,
 };
 pub use runtime::algorithmic::{AlgorithmicEncoder, AlgorithmicLens};
 pub use runtime::candle::{

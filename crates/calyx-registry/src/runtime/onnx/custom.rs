@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CalyxError, Input, Lens, Modality, Result, SlotShape, SlotVector};
+use calyx_core::{CalyxError, Input, Lens, Result, SlotShape, SlotVector};
 use ort::session::{Session, SessionInputValue};
 use ort::value::{Tensor, ValueType};
 use serde_json::Value;
@@ -96,7 +96,7 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
         weights_sha256,
         corpus_hash,
         shape,
-        Modality::Text,
+        spec.modality,
         LensDType::F32,
         spec.norm_policy,
     );

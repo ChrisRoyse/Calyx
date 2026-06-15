@@ -5,8 +5,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use calyx_core::{Modality, SlotShape};
 use sha2::{Digest, Sha256};
 
-use super::{LensForgeFile, LensForgeManifest, lens_spec_from_manifest_path};
+use super::{
+    LensForgeFile, LensForgeManifest, lens_spec_from_manifest_path,
+    lens_spec_from_manifest_with_license_override,
+};
 use crate::frozen::{NormPolicy, sha256_digest};
+use crate::runtime::adapters::CALYX_LICENSE_DENIED;
 use crate::spec::LensRuntime;
 
 #[test]
@@ -194,6 +198,88 @@ fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
         hex_from_bytes(&spec.weights_sha256),
         manifest.artifact_set_sha256.unwrap()
     );
+}
+
+#[test]
+fn adapter_manifest_maps_to_multimodal_runtime() {
+    let root = temp_root("adapter-runtime");
+    let adapter = write(
+        &root,
+        "adapter.json",
+        br#"{"axis":"molecule","model_id":"fixture/mol"}"#,
+    );
+    let manifest = LensForgeManifest {
+        name: "tiny-molecule".to_string(),
+        modality: Modality::Molecule,
+        runtime: "multimodal-adapter".to_string(),
+        dim: 16,
+        dtype: "f32".to_string(),
+        weights_sha256: plain_sha256_hex(br#"{"axis":"molecule","model_id":"fixture/mol"}"#),
+        artifact_set_sha256: Some(artifact_hash(&[
+            br#"{"axis":"molecule","model_id":"fixture/mol"}"#,
+        ])),
+        files: vec![file(
+            "model",
+            &adapter,
+            br#"{"axis":"molecule","model_id":"fixture/mol"}"#,
+        )],
+        pooling: "mean".to_string(),
+        norm: "l2".to_string(),
+        source_hf_id: "fixture/mol".to_string(),
+        license: Some("mit".to_string()),
+        non_commercial: false,
+    };
+
+    let spec = lens_spec_from_manifest_with_license_override(&manifest, &root, false).unwrap();
+
+    assert_eq!(spec.modality, Modality::Molecule);
+    assert_eq!(spec.output, SlotShape::Dense(16));
+    assert!(matches!(
+        spec.runtime,
+        LensRuntime::MultimodalAdapter { ref axis, ref model_id }
+            if axis == "molecule" && model_id == "fixture/mol"
+    ));
+}
+
+#[test]
+fn noncommercial_manifest_requires_explicit_allow_flag() {
+    let root = temp_root("adapter-license");
+    let adapter = write(
+        &root,
+        "adapter.json",
+        br#"{"axis":"dna","model_id":"fixture/dna"}"#,
+    );
+    let manifest = LensForgeManifest {
+        name: "tiny-dna".to_string(),
+        modality: Modality::Dna,
+        runtime: "adapter".to_string(),
+        dim: 16,
+        dtype: "f32".to_string(),
+        weights_sha256: plain_sha256_hex(br#"{"axis":"dna","model_id":"fixture/dna"}"#),
+        artifact_set_sha256: Some(artifact_hash(&[
+            br#"{"axis":"dna","model_id":"fixture/dna"}"#,
+        ])),
+        files: vec![file(
+            "model",
+            &adapter,
+            br#"{"axis":"dna","model_id":"fixture/dna"}"#,
+        )],
+        pooling: "mean".to_string(),
+        norm: "l2".to_string(),
+        source_hf_id: "fixture/dna".to_string(),
+        license: Some("CC-BY-NC-SA-4.0".to_string()),
+        non_commercial: true,
+    };
+
+    let denied =
+        lens_spec_from_manifest_with_license_override(&manifest, &root, false).unwrap_err();
+    let allowed = lens_spec_from_manifest_with_license_override(&manifest, &root, true).unwrap();
+
+    assert_eq!(denied.code, CALYX_LICENSE_DENIED);
+    assert!(matches!(
+        allowed.runtime,
+        LensRuntime::MultimodalAdapter { ref axis, .. } if axis == "dna"
+    ));
 }
 
 fn temp_root(label: &str) -> PathBuf {
