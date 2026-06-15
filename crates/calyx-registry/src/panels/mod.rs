@@ -8,7 +8,10 @@ use calyx_core::{
 };
 use serde::{Deserialize, Serialize};
 
-pub use defaults::{civic_default, code_default, media_default, text_default};
+pub use defaults::{
+    bio_default, civic_default, code_default, legal_default, media_default, medical_default,
+    text_default,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PanelSlotSpec {
@@ -25,6 +28,7 @@ pub struct PanelSlotSpec {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PanelLensRuntime {
+    Registry { name: String },
     TeiHttp { endpoint: String },
     Algorithmic { lens: AlgorithmicPanelLens },
     ExternalCmd { name: String },
@@ -119,6 +123,22 @@ impl PanelSlotSpec {
         }
     }
 
+    pub fn registry(
+        name: impl Into<String>,
+        registry_name: impl Into<String>,
+        output: SlotShape,
+        modality: Modality,
+    ) -> Self {
+        Self::content(
+            name,
+            PanelLensRuntime::Registry {
+                name: registry_name.into(),
+            },
+            output,
+            modality,
+        )
+    }
+
     pub fn temporal(
         name: impl Into<String>,
         lens: AlgorithmicPanelLens,
@@ -142,7 +162,7 @@ impl PanelSlotSpec {
     }
 }
 
-fn slot_lens_id(template: &str, spec: &PanelSlotSpec) -> LensId {
+pub(super) fn slot_lens_id(template: &str, spec: &PanelSlotSpec) -> LensId {
     let spec_text = format!(
         "{template}:{}:{:?}:{:?}:{:?}:{}:{}",
         spec.name,
@@ -187,7 +207,14 @@ mod tests {
 
     #[test]
     fn all_default_panels_include_temporal_slots_last() {
-        for template in [code_default(), civic_default(), media_default()] {
+        for template in [
+            code_default(),
+            civic_default(),
+            media_default(),
+            legal_default(),
+            medical_default(),
+            bio_default(),
+        ] {
             let names = template
                 .slots
                 .iter()
@@ -199,6 +226,9 @@ mod tests {
         assert!(code_default().slots.len() >= 15);
         assert!(civic_default().slots.len() >= 24);
         assert!(media_default().slots.len() >= 10);
+        assert!(legal_default().slots.len() >= 8);
+        assert!(medical_default().slots.len() >= 6);
+        assert!(bio_default().slots.len() >= 7);
     }
 
     #[test]
