@@ -39,9 +39,9 @@ impl ManifestVersion {
 
     fn validate(self) -> Result<()> {
         if self.major != SUPPORTED_MANIFEST_MAJOR {
-            return Err(CalyxError::aster_corrupt_shard(format!(
-                "unsupported MANIFEST major version {}",
-                self.major
+            return Err(format_version_unsupported(format!(
+                "unsupported MANIFEST major version {}; supported major is {}",
+                self.major, SUPPORTED_MANIFEST_MAJOR
             )));
         }
         Ok(())
@@ -457,6 +457,14 @@ fn verify_immutable_ref(vault_dir: &Path, reference: &ImmutableRef) -> Result<()
 
 fn storage_error(context: &str, error: io::Error) -> CalyxError {
     CalyxError::disk_pressure(format!("{context}: {error}"))
+}
+
+fn format_version_unsupported(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: "CALYX_FORMAT_VERSION_UNSUPPORTED",
+        message: message.into(),
+        remediation: "refuse unknown format major; migrate through a compatible reader",
+    }
 }
 
 #[cfg(test)]

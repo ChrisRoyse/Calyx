@@ -4,6 +4,7 @@ mod budget;
 mod heal;
 mod integration_fsv;
 mod j;
+mod janitor;
 mod learn;
 mod ledger_anneal;
 mod propose;
@@ -79,6 +80,11 @@ pub use j::{
     read_gradient_snapshot_from_vault, read_intelligence_report_snapshot,
     read_objective_weights_from_vault, record_goodhart_report, report_diff, set_objective_weights,
     to_json, write_goodhart_state, write_gradient_snapshot, write_intelligence_report_snapshot,
+};
+pub use janitor::{
+    CALYX_IO_ERROR as CALYX_JANITOR_IO_ERROR, DatasetManifest, GcResult as JanitorGcResult,
+    Janitor, JanitorConfig, JanitorErrorReadback, JanitorMetrics, JanitorReadback,
+    MAX_JANITOR_BYTES_PER_TICK,
 };
 pub use learn::{
     AsterHeadStorage, AsterMistakeStorage, AsterOutcomeStorage, AsterReplayStorage,

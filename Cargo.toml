@@ -18,6 +18,7 @@ crc32fast = "1"
 criterion = "0.5"
 cudarc = { version = "0.19.7", default-features = false }
 ed25519-dalek = "2"
+filetime = "0.2"
 hkdf = "0.12"
 memmap2 = "0.9"
 nix = { version = "0.30", default-features = false, features = ["fs"] }
@@ -38,6 +39,7 @@ ulid = { version = "1", features = ["serde"] }
 uuid = { version = "1", features = ["serde"] }
 wide = "1"
 zeroize = "1"
+zstd = "0.13"
 
 # ── Build profiles ───────────────────────────────────────────────────────────
 # Tuned for this workspace's high-churn, multi-agent build cadence. The cargo
