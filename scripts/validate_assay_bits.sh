@@ -41,7 +41,12 @@ target_class = int(sys.argv[6])
 SEED = 42
 BATCH = 32
 TOKEN_DIM = 256
-NOISE_SCALE = 0.20  # tuned so per-sample cosine(gte, gte+noise) > 0.6
+# The planted-redundant lens is a dimension-ablated sub-view of the gte lens:
+# it keeps the first REDUNDANT_KEEP_FRAC of dims and zeroes the rest. This makes
+# it (a) highly correlated with gte_cls (cosine ~= sqrt(kept energy) > 0.6) and
+# (b) STRICTLY no more informative than the full embedding, so gte_cls always
+# sorts first in greedy admission and the redundant sub-view is the one rejected.
+REDUNDANT_KEEP_FRAC = 0.85
 
 parquet_path = root / "ag_news" / "train.parquet"
 if not parquet_path.is_file():
@@ -94,15 +99,6 @@ if len(embeddings) != len(texts):
     print("CALYX_FSV_ASSAY_INVALID_CORPUS: embedding count mismatch", file=sys.stderr)
     sys.exit(2)
 
-def gauss(seed_bytes, dim):
-    out = []
-    for d in range(dim):
-        h = hashlib.blake2b(seed_bytes + d.to_bytes(4, "big"), digest_size=8).digest()
-        u1 = (int.from_bytes(h[:4], "big") + 1) / (2**32 + 1)
-        u2 = int.from_bytes(h[4:], "big") / (2**32)
-        out.append(math.sqrt(-2.0 * math.log(u1)) * math.cos(2 * math.pi * u2))
-    return out
-
 def l2(vec):
     norm = math.sqrt(sum(v * v for v in vec))
     return [v / norm for v in vec] if norm > 0 else vec
@@ -119,8 +115,8 @@ def token_hash(text):
 
 rows = []
 for i, (text, lab, emb) in enumerate(zip(texts, labels, embeddings)):
-    noise = gauss(f"noise:{i}".encode(), len(emb))
-    redundant = [e + NOISE_SCALE * z for e, z in zip(emb, noise)]
+    keep = int(REDUNDANT_KEEP_FRAC * len(emb))
+    redundant = [e if d < keep else 0.0 for d, e in enumerate(emb)]
     rows.append({
         "id": f"agnews-{order[i]}",
         "split": "train",
