@@ -11,6 +11,7 @@ pub mod funnel;
 pub mod hnsw;
 pub mod inverted;
 pub mod multi;
+pub mod partitioned;
 pub mod quant_config;
 pub mod spann;
 #[doc(hidden)]
@@ -38,6 +39,10 @@ pub use funnel::{
 pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
+pub use partitioned::{
+    PartitionBuildParams, PartitionedManifest, PartitionedSearch, RegionMeta,
+    build_partitioned_vault, gen_row,
+};
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
 pub use spann::{
     PostingListReader, PostingListWriter, SPANN_CENTROID_MAGIC, SpannCentroidIndex, SpannSearch,
