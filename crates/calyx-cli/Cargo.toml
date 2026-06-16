@@ -23,6 +23,7 @@ calyx-oracle = { path = "../calyx-oracle" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-registry = { path = "../calyx-registry" }
 calyx-sextant = { path = "../calyx-sextant" }
+calyx-ward = { path = "../calyx-ward" }
 calyxd = { path = "../calyxd" }
 blake3.workspace = true
 rusqlite.workspace = true
@@ -31,5 +32,4 @@ serde_json.workspace = true
 ulid.workspace = true
 
 [dev-dependencies]
-calyx-ward = { path = "../calyx-ward" }
 proptest.workspace = true

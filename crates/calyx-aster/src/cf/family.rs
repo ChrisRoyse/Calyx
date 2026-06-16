@@ -42,6 +42,10 @@ pub enum ColumnFamily {
     Assay,
     /// `seq -> hash-chained provenance entry`.
     Ledger,
+    /// Persisted Lodestar grounding-kernel reports and indexes.
+    Kernel,
+    /// Persisted Ward guard calibration profiles.
+    Guard,
     /// `(CxId, OccurrenceId) -> recurrence occurrence or summary`.
     Recurrence,
     /// Plain collection graph rows: nodes, typed edges, reverse index, CSR projection.
@@ -84,7 +88,7 @@ pub enum ColumnFamily {
 
 impl ColumnFamily {
     /// Static non-slot families in manifest order.
-    pub const STATIC: [Self; 31] = [
+    pub const STATIC: [Self; 33] = [
         Self::Base,
         Self::Collections,
         Self::Relational,
@@ -116,6 +120,8 @@ impl ColumnFamily {
         Self::IndexBtree,
         Self::IndexInverted,
         Self::AnnealOperators,
+        Self::Kernel,
+        Self::Guard,
     ];
 
     /// Creates a quantized slot column family such as `slot_00`.
@@ -158,6 +164,8 @@ impl ColumnFamily {
             Self::Anchors => "anchors".to_string(),
             Self::Assay => "assay".to_string(),
             Self::Ledger => "ledger".to_string(),
+            Self::Kernel => "kernel".to_string(),
+            Self::Guard => "guard".to_string(),
             Self::Recurrence => "recurrence".to_string(),
             Self::Graph => "graph".to_string(),
             Self::Online => "online".to_string(),
@@ -207,10 +215,10 @@ impl ColumnFamily {
     /// (see [`crate::vault::keyspace`]).
     ///
     /// Non-slot CFs encode to a single discriminant byte — their position in
-    /// [`Self::STATIC`] (0..29), which stays in sync automatically if the
+    /// [`Self::STATIC`], which stays in sync automatically if the
     /// manifest order is extended. Slot CFs encode to
     /// `SLOT_TAG ‖ slot_id_be(2) ‖ kind_byte` so the slot index and
-    /// quantized/raw flavor round-trip exactly. `STATIC` has 29 entries, so no
+    /// quantized/raw flavor round-trip exactly. `STATIC` stays below 0xF0, so no
     /// static discriminant can collide with `SLOT_KEYSPACE_TAG` (`0xF0`).
     pub fn keyspace_tag(&self) -> Vec<u8> {
         match self {

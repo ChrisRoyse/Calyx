@@ -111,6 +111,8 @@ pub fn parse_cf_dir_name(value: &str) -> Result<ColumnFamily> {
         "blob" => ColumnFamily::Blob,
         "anchors" => ColumnFamily::Anchors,
         "ledger" => ColumnFamily::Ledger,
+        "kernel" => ColumnFamily::Kernel,
+        "guard" => ColumnFamily::Guard,
         "recurrence" => ColumnFamily::Recurrence,
         "graph" => ColumnFamily::Graph,
         "online" => ColumnFamily::Online,

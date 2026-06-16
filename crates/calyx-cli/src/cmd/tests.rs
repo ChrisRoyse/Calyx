@@ -185,6 +185,30 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             anchor: None,
             explain: false,
         })),
+        safe_name().prop_map(|vault| Subcommand::Bits(intelligence::BitsArgs {
+            vault,
+            anchor_kind: "test-pass".to_string(),
+            explain: true,
+        })),
+        safe_name().prop_map(|vault| Subcommand::Kernel(intelligence::KernelArgs {
+            vault,
+            anchor: Some("test-pass".to_string()),
+            rebuild: true,
+        })),
+        safe_name().prop_map(|vault| Subcommand::Abundance(intelligence::AbundanceArgs { vault })),
+        safe_name().prop_map(
+            |vault| Subcommand::ProposeLens(intelligence::ProposeLensArgs {
+                vault,
+                anchor: "test-pass".to_string(),
+            })
+        ),
+        safe_name().prop_map(|vault| Subcommand::Guard(intelligence::GuardArgs {
+            vault,
+            command: intelligence::GuardCommand::Check {
+                cx_id: "00000000000000000000000000000000".to_string(),
+                identity_cx: None,
+            },
+        })),
         Just(Subcommand::ProfileLens(ProfileLensArgs {
             name: Some("probe".to_string()),
             runtime: Some("algorithmic".to_string()),

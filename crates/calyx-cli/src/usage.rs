@@ -18,6 +18,11 @@ pub(crate) fn usage() -> &'static str {
        calyx measure <vault> --text <s>
        calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--explain] [--provenance|--no-provenance] [--fresh|--stale-ok] [--filter <json-predicate>]
        calyx kernel-answer <vault> <query> [--anchor <kind>] [--explain]
+       calyx bits <vault> <anchor-kind> [--explain]
+       calyx kernel <vault> [--anchor <kind>] [--rebuild]
+       calyx guard <vault> <calibrate|check|generate> [args]
+       calyx abundance <vault>
+       calyx propose-lens <vault> --anchor <kind>
        calyx resource-drill --vault <dir> --ops <n> --value-bytes <n> --memtable-cap <bytes> --pin-max-age-ms <ms>
        calyx migrate vault <sqlite.db> <vault.calyx> [--verify] [--backfill-default-panel] [--offline-backfill] [--batch-size <n>]
        calyx migrate backfill <sqlite.db> <vault.calyx> [--offline-backfill] [--batch-size <n>]

@@ -1,4 +1,5 @@
 mod ingest;
+mod intelligence;
 mod lens;
 mod search;
 pub(crate) mod vault;
@@ -30,6 +31,11 @@ pub(crate) enum Subcommand {
     Measure(MeasureArgs),
     Search(search::SearchArgs),
     KernelAnswer(search::KernelAnswerArgs),
+    Bits(intelligence::BitsArgs),
+    Kernel(intelligence::KernelArgs),
+    Guard(intelligence::GuardArgs),
+    Abundance(intelligence::AbundanceArgs),
+    ProposeLens(intelligence::ProposeLensArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -114,6 +120,11 @@ fn run(command: Subcommand) -> CliResult {
             ingest::run(command)
         }
         Subcommand::Search(_) | Subcommand::KernelAnswer(_) => search::run(command),
+        Subcommand::Bits(_)
+        | Subcommand::Kernel(_)
+        | Subcommand::Guard(_)
+        | Subcommand::Abundance(_)
+        | Subcommand::ProposeLens(_) => intelligence::run(command),
     }
 }
 
@@ -133,6 +144,11 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "measure" => ingest::parse_measure(rest),
         "search" => search::parse_search(rest),
         "kernel-answer" => search::parse_kernel_answer(rest),
+        "bits" => intelligence::parse_bits(rest),
+        "kernel" => intelligence::parse_kernel(rest),
+        "guard" => intelligence::parse_guard(rest),
+        "abundance" => intelligence::parse_abundance(rest),
+        "propose-lens" => intelligence::parse_propose_lens(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -151,6 +167,11 @@ fn is_cmd(command: &str) -> bool {
             | "measure"
             | "search"
             | "kernel-answer"
+            | "bits"
+            | "kernel"
+            | "guard"
+            | "abundance"
+            | "propose-lens"
     )
 }
 
@@ -421,6 +442,11 @@ impl Subcommand {
             ],
             Self::Search(args) => search::search_tokens(args),
             Self::KernelAnswer(args) => search::kernel_answer_tokens(args),
+            Self::Bits(args) => intelligence::bits_tokens(args),
+            Self::Kernel(args) => intelligence::kernel_tokens(args),
+            Self::Guard(args) => intelligence::guard_tokens(args),
+            Self::Abundance(args) => intelligence::abundance_tokens(args),
+            Self::ProposeLens(args) => intelligence::propose_lens_tokens(args),
             Self::ProfileLens(args) => {
                 let mut out = vec!["profile-lens".to_string()];
                 push_opt(&mut out, "--name", args.name.as_deref());
