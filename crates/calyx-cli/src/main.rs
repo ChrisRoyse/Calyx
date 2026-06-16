@@ -23,6 +23,7 @@ mod anneal_status;
 mod budget_readback;
 mod cf_read;
 mod cli_support;
+mod cmd;
 mod crash;
 mod dedup_audit_readback;
 mod dedup_readback;

@@ -11,6 +11,12 @@ pub(crate) fn main() -> ExitCode {
     if let Some(code) = super::healthcheck_daemon::try_run(&args) {
         return code;
     }
+    if let Some(result) = crate::cmd::try_run(&args) {
+        return match result {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => error.emit(),
+        };
+    }
     match crate::dispatch::run(args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => error.emit(),
