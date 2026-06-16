@@ -1,15 +1,14 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::MutexGuard;
 
 use serde_json::{Value, json};
 
 use crate::jsonrpc::decode_jsonrpc_request;
 use crate::protocol::JsonRpcError;
 use crate::server::McpServer;
-
-static ENV_LOCK: Mutex<()> = Mutex::new(());
+use crate::tools::test_support::ENV_LOCK;
 
 struct TestEnv {
     home: PathBuf,

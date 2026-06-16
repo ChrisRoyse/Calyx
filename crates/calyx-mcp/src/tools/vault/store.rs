@@ -21,11 +21,13 @@ pub(super) struct VaultIndexEntry {
 }
 
 #[derive(Clone, Debug)]
-struct ResolvedVault {
-    path: PathBuf,
+pub(in crate::tools) struct ResolvedVault {
+    pub(in crate::tools) path: PathBuf,
+    pub(in crate::tools) name: String,
+    pub(in crate::tools) vault_id: VaultId,
 }
 
-pub(super) fn home_dir() -> ToolResult<PathBuf> {
+pub(in crate::tools) fn home_dir() -> ToolResult<PathBuf> {
     env::var_os("CALYX_HOME")
         .map(PathBuf::from)
         .ok_or_else(|| CalyxError::vault_access_denied("CALYX_HOME is required").into())
@@ -56,18 +58,14 @@ pub(super) fn resolve_vault(home: &Path, vault: &str) -> ToolResult<PathBuf> {
     resolve_vault_info(home, vault).map(|resolved| resolved.path)
 }
 
-pub(super) fn vault_salt(vault_id: VaultId, name: &str) -> Vec<u8> {
-    format!("calyx-cli-vault:{vault_id}:{name}").into_bytes()
-}
-
-fn resolve_vault_info(home: &Path, vault: &str) -> ToolResult<ResolvedVault> {
+pub(in crate::tools) fn resolve_vault_info(home: &Path, vault: &str) -> ToolResult<ResolvedVault> {
     let index = read_index(home)?;
     let direct = PathBuf::from(vault);
     if direct.exists() {
         if let Some(resolved) = resolve_direct_indexed(home, &index, &direct)? {
             return Ok(resolved);
         }
-        direct
+        let vault_id = direct
             .file_name()
             .and_then(|name| name.to_str())
             .and_then(|name| name.parse::<VaultId>().ok())
@@ -76,12 +74,23 @@ fn resolve_vault_info(home: &Path, vault: &str) -> ToolResult<ResolvedVault> {
                     "direct vault path must end in a vault id or be present in the index",
                 )
             })?;
-        return Ok(ResolvedVault { path: direct });
+        return Ok(ResolvedVault {
+            path: direct,
+            name: vault_id.to_string(),
+            vault_id,
+        });
     }
     if let Ok(vault_id) = vault.parse::<VaultId>() {
         let path = home.join("vaults").join(vault_id.to_string());
         if path.exists() {
-            return Ok(ResolvedVault { path });
+            if let Some(entry) = index.vaults.iter().find(|entry| entry.vault_id == vault_id) {
+                return Ok(resolve_entry(home, entry));
+            }
+            return Ok(ResolvedVault {
+                path,
+                name: vault_id.to_string(),
+                vault_id,
+            });
         }
     }
     if let Some(entry) = index
@@ -95,6 +104,10 @@ fn resolve_vault_info(home: &Path, vault: &str) -> ToolResult<ResolvedVault> {
         }
     }
     Err(CalyxError::vault_access_denied(format!("vault {vault} does not exist")).into())
+}
+
+pub(in crate::tools) fn vault_salt(vault_id: VaultId, name: &str) -> Vec<u8> {
+    format!("calyx-cli-vault:{vault_id}:{name}").into_bytes()
 }
 
 fn resolve_direct_indexed(
@@ -122,6 +135,8 @@ fn resolve_direct_indexed(
 fn resolve_entry(home: &Path, entry: &VaultIndexEntry) -> ResolvedVault {
     ResolvedVault {
         path: home.join(&entry.path),
+        name: entry.name.clone(),
+        vault_id: entry.vault_id,
     }
 }
 

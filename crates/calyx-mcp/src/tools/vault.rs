@@ -1,7 +1,7 @@
 //! Vault and panel MCP tools for PH63 T02.
 
 mod lens;
-mod store;
+pub(super) mod store;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Asymmetry, CalyxError, Panel, Slot, SlotId, SlotState};
