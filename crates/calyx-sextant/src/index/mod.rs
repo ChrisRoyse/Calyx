@@ -14,10 +14,11 @@ pub mod spann;
 pub mod tokenizer;
 
 pub use diskann::{
-    ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey, DiskAnnBuildParams,
-    DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef, DiskAnnSearch,
-    DiskAnnSearchParams, TokenDiskAnnMaxSim, build_diskann_graph, node_block_size,
-    open_diskann_graph,
+    ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey, Direction, DirectionalBoost,
+    DiskAnnBuildParams, DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef,
+    DiskAnnSearch, DiskAnnSearchParams, DualDiskAnnSearch, TokenDiskAnnMaxSim, build_diskann_graph,
+    build_dual, build_dual_with_search, dual_graph_path, node_block_size, open_diskann_graph,
+    open_dual,
 };
 pub use dual::{DualIndex, DualSide};
 pub use hnsw::HnswIndex;

@@ -5,6 +5,7 @@
 
 pub mod build;
 pub mod concat;
+pub mod dual;
 pub mod graph;
 pub mod search;
 pub mod token;
@@ -12,6 +13,10 @@ mod token_sidecar;
 
 pub use build::{DiskAnnBuildParams, build_diskann_graph};
 pub use concat::{ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey};
+pub use dual::{
+    Direction, DirectionalBoost, DualDiskAnnSearch, build_dual, build_dual_with_search,
+    dual_graph_path, open_dual,
+};
 pub use graph::{
     DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef, node_block_size,
     open_diskann_graph,
