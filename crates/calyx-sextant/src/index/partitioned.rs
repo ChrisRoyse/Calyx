@@ -24,7 +24,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use calyx_core::{CxId, Result, SlotId};
 use rand::{Rng, SeedableRng};
@@ -164,9 +164,11 @@ pub fn build_partitioned_vault(
     let mut start = 0u64;
     while start < p.n_cx {
         let end = (start + p.chunk as u64).min(p.n_cx);
+        // Route assignment through the centroid HNSW (O(log R)) — an exact scan
+        // would be O(N*R) and quadratic in N once R grows with the dataset.
         let assigned: Vec<(u64, u32)> = (start..end)
             .into_par_iter()
-            .map(|idx| (idx, centroids.assign(&gen_row(p.seed, idx, p.dim))))
+            .map(|idx| (idx, centroids.assign_hnsw(&gen_row(p.seed, idx, p.dim))))
             .collect();
         for (idx, region) in assigned {
             buckets[region as usize].push(idx);
@@ -293,8 +295,12 @@ pub struct PartitionedSearch {
     manifest: PartitionedManifest,
     centroids: SpannCentroidIndex,
     region_meta: BTreeMap<u32, RegionMeta>,
-    cache: Mutex<BTreeMap<u32, (DiskAnnSearch, Vec<u64>)>>,
+    cache: Mutex<BTreeMap<u32, RegionHandle>>,
 }
+
+/// A reference-counted, opened region graph plus its local->global id map. Cloned
+/// out of the cache so probed regions can be searched in parallel without the lock.
+type RegionHandle = Arc<(DiskAnnSearch, Vec<u64>)>;
 
 impl PartitionedSearch {
     pub fn open(root: &Path) -> Result<Self> {
@@ -339,30 +345,46 @@ impl PartitionedSearch {
             rescore_k: region_beam.max(k),
             rescore_from_raw: false,
         };
-        let mut hits: Vec<(u64, f32)> = Vec::new();
-        for region in regions {
-            let Some(meta) = self.region_meta.get(&region) else {
-                continue;
-            };
+        // Open (or fetch from cache) every probed region's graph under the lock,
+        // cloning out reference-counted handles so the actual graph searches run
+        // WITHOUT holding the cache lock — and in parallel (the probed regions are
+        // independent, so per-query latency tracks the slowest single region, not
+        // their sum). This is the main lever that brings p99 under the SLO.
+        let mut handles: Vec<RegionHandle> = Vec::with_capacity(regions.len());
+        {
             let mut cache = self.cache.lock().expect("partitioned cache poisoned");
-            if let std::collections::btree_map::Entry::Vacant(slot) = cache.entry(region) {
-                let ids = read_ids(&self.root.join(&meta.ids_rel))?;
-                let search = DiskAnnSearch::open(
-                    SlotId::new(0),
-                    self.root.join(&meta.graph_rel),
-                    ids.iter().map(|&i| cx(i)).collect(),
-                    None,
-                    sp,
-                )?;
-                slot.insert((search, ids));
-            }
-            let (search, ids) = cache.get(&region).expect("just inserted");
-            for (pos, dist) in search.search_ids(query, k, &sp)? {
-                if let Some(&global) = ids.get(pos as usize) {
-                    hits.push((global, dist));
+            for region in regions {
+                let Some(meta) = self.region_meta.get(&region) else {
+                    continue;
+                };
+                if let std::collections::btree_map::Entry::Vacant(slot) = cache.entry(region) {
+                    let ids = read_ids(&self.root.join(&meta.ids_rel))?;
+                    let search = DiskAnnSearch::open(
+                        SlotId::new(0),
+                        self.root.join(&meta.graph_rel),
+                        ids.iter().map(|&i| cx(i)).collect(),
+                        None,
+                        sp,
+                    )?;
+                    slot.insert(Arc::new((search, ids)));
                 }
+                handles.push(cache.get(&region).expect("just inserted").clone());
             }
         }
+        let per_region: Vec<Vec<(u64, f32)>> = handles
+            .par_iter()
+            .map(|handle| -> Result<Vec<(u64, f32)>> {
+                let (search, ids) = handle.as_ref();
+                let mut local = Vec::with_capacity(k);
+                for (pos, dist) in search.search_ids(query, k, &sp)? {
+                    if let Some(&global) = ids.get(pos as usize) {
+                        local.push((global, dist));
+                    }
+                }
+                Ok(local)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let mut hits: Vec<(u64, f32)> = per_region.into_iter().flatten().collect();
         hits.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
         hits.dedup_by_key(|(id, _)| *id);
         hits.truncate(k);

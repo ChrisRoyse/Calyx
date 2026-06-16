@@ -104,6 +104,20 @@ impl SpannCentroidIndex {
         nearest_by_l2(&self.centroids, vector).unwrap_or(0)
     }
 
+    /// Approximate nearest-centroid assignment via the HNSW routing layer —
+    /// O(log R) instead of `assign`'s O(R) linear scan. The partitioned
+    /// billion-scale builder grows the centroid count R with N, so an exact scan
+    /// makes the assignment phase O(N*R*dim) ~ quadratic in N; routing through the
+    /// HNSW keeps it O(N*log R*dim). Falls back to the exact scan if the HNSW
+    /// returns nothing (degenerate/empty index) so assignment never silently drops
+    /// a vector.
+    pub fn assign_hnsw(&self, vector: &[f32]) -> u32 {
+        self.nearest_centroids(vector, 1)
+            .first()
+            .copied()
+            .unwrap_or_else(|| self.assign(vector))
+    }
+
     pub fn nearest_centroids(&self, query: &[f32], n_probe: usize) -> Vec<u32> {
         if self.centroids.is_empty() || n_probe == 0 || query.len() != self.dim as usize {
             return Vec::new();
