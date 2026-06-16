@@ -10,6 +10,7 @@ pub mod hnsw;
 pub mod inverted;
 pub mod multi;
 pub mod quant_config;
+pub mod spann;
 pub mod tokenizer;
 
 pub use diskann::{
@@ -23,6 +24,10 @@ pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
+pub use spann::{
+    PostingListReader, PostingListWriter, SPANN_CENTROID_MAGIC, SpannCentroidIndex, SpannSearch,
+    build_centroids,
+};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IndexSearchHit {

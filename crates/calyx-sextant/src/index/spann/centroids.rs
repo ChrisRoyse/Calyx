@@ -1,0 +1,465 @@
+//! SPANN centroid state persisted as `centroids.spn`.
+
+use std::collections::BTreeMap;
+use std::fs::{self, File};
+use std::io::{BufWriter, Write as _};
+use std::path::{Path, PathBuf};
+
+use calyx_core::{CxId, Result, SlotId, SlotVector};
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
+
+use crate::error::{
+    CALYX_INDEX_CORRUPT, CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO,
+    sextant_error,
+};
+use crate::index::{HnswIndex, SextantIndex};
+
+pub const SPANN_CENTROID_MAGIC: [u8; 8] = *b"CLXSP001";
+const FORMAT_VERSION: u32 = 1;
+const KMEANS_ITERS: usize = 12;
+const CENTROID_SLOT: SlotId = SlotId::new(u16::MAX - 1);
+
+#[derive(Clone, Debug)]
+pub struct SpannCentroidIndex {
+    dim: u32,
+    centroids: Vec<Vec<f32>>,
+    posting_list_offsets: Vec<u64>,
+    assignments: Vec<(u32, u32)>,
+    hnsw: HnswIndex,
+    centroid_lookup: BTreeMap<CxId, u32>,
+}
+
+impl SpannCentroidIndex {
+    pub fn empty(dim: u32) -> Self {
+        Self::from_parts(dim, Vec::new(), Vec::new(), Vec::new())
+            .expect("empty centroid index is valid")
+    }
+
+    pub fn from_parts(
+        dim: u32,
+        centroids: Vec<Vec<f32>>,
+        posting_list_offsets: Vec<u64>,
+        assignments: Vec<(u32, u32)>,
+    ) -> Result<Self> {
+        validate_centroids(dim, &centroids)?;
+        let mut offsets = posting_list_offsets;
+        if offsets.is_empty() {
+            offsets = (0..centroids.len() as u64).collect();
+        }
+        if offsets.len() != centroids.len() {
+            return Err(invalid(format!(
+                "posting offset count {} != centroid count {}",
+                offsets.len(),
+                centroids.len()
+            )));
+        }
+        for &(_, centroid_id) in &assignments {
+            if centroid_id as usize >= centroids.len() {
+                return Err(invalid(format!(
+                    "assignment references centroid {centroid_id} but count is {}",
+                    centroids.len()
+                )));
+            }
+        }
+        let (hnsw, lookup) = build_hnsw(dim, &centroids)?;
+        Ok(Self {
+            dim,
+            centroids,
+            posting_list_offsets: offsets,
+            assignments,
+            hnsw,
+            centroid_lookup: lookup,
+        })
+    }
+
+    pub fn dim(&self) -> u32 {
+        self.dim
+    }
+
+    pub fn centroid_count(&self) -> usize {
+        self.centroids.len()
+    }
+
+    pub fn centroids(&self) -> &[Vec<f32>] {
+        &self.centroids
+    }
+
+    pub fn posting_list_offsets(&self) -> &[u64] {
+        &self.posting_list_offsets
+    }
+
+    pub fn assignments(&self) -> &[(u32, u32)] {
+        &self.assignments
+    }
+
+    pub fn assignment(&self, vector_id: u32) -> Option<u32> {
+        self.assignments
+            .iter()
+            .find_map(|(id, centroid)| (*id == vector_id).then_some(*centroid))
+    }
+
+    pub fn assign(&self, vector: &[f32]) -> u32 {
+        nearest_by_l2(&self.centroids, vector).unwrap_or(0)
+    }
+
+    pub fn nearest_centroids(&self, query: &[f32], n_probe: usize) -> Vec<u32> {
+        if self.centroids.is_empty() || n_probe == 0 || query.len() != self.dim as usize {
+            return Vec::new();
+        }
+        let query = SlotVector::Dense {
+            dim: self.dim,
+            data: query.to_vec(),
+        };
+        let k = n_probe.min(self.centroids.len());
+        self.hnsw
+            .search(&query, k, Some(k.max(64)))
+            .map(|hits| {
+                hits.into_iter()
+                    .filter_map(|hit| self.centroid_lookup.get(&hit.cx_id).copied())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, slot_sparse_dir: impl AsRef<Path>) -> Result<()> {
+        self.save_to_path(slot_sparse_dir.as_ref().join("centroids.spn"))
+    }
+
+    pub fn save_to_path(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            fs::create_dir_all(parent).map_err(|e| io("create centroid dir", e))?;
+        }
+        let tmp = tmp_path(path);
+        let file = File::create(&tmp).map_err(|e| io("create centroid tmp", e))?;
+        let mut out = BufWriter::new(file);
+        write_header(&mut out, self)?;
+        for centroid in &self.centroids {
+            for value in centroid {
+                out.write_all(&value.to_le_bytes())
+                    .map_err(|e| io("write centroid f32", e))?;
+            }
+        }
+        for offset in &self.posting_list_offsets {
+            out.write_all(&offset.to_le_bytes())
+                .map_err(|e| io("write posting offset", e))?;
+        }
+        for (vector_id, centroid_id) in &self.assignments {
+            out.write_all(&vector_id.to_le_bytes())
+                .map_err(|e| io("write assignment id", e))?;
+            out.write_all(&centroid_id.to_le_bytes())
+                .map_err(|e| io("write assignment centroid", e))?;
+        }
+        let file = out
+            .into_inner()
+            .map_err(|e| io("flush centroid tmp", e.into_error()))?;
+        file.sync_all().map_err(|e| io("fsync centroid tmp", e))?;
+        drop(file);
+        fs::rename(&tmp, path).map_err(|e| io("publish centroids", e))
+    }
+
+    pub fn open(slot_sparse_dir: impl AsRef<Path>) -> Result<Self> {
+        Self::open_from_path(slot_sparse_dir.as_ref().join("centroids.spn"))
+    }
+
+    pub fn open_from_path(path: impl AsRef<Path>) -> Result<Self> {
+        let bytes = fs::read(path.as_ref()).map_err(|e| io("read centroids", e))?;
+        decode_centroids(&bytes)
+    }
+}
+
+pub fn build_centroids(
+    vectors: &[(u32, Vec<f32>)],
+    n_clusters: usize,
+    seed: u64,
+) -> SpannCentroidIndex {
+    try_build_centroids(vectors, n_clusters, seed).expect("valid SPANN centroid input")
+}
+
+pub fn try_build_centroids(
+    vectors: &[(u32, Vec<f32>)],
+    n_clusters: usize,
+    seed: u64,
+) -> Result<SpannCentroidIndex> {
+    if vectors.is_empty() {
+        return Ok(SpannCentroidIndex::empty(0));
+    }
+    let dim = vectors[0].1.len();
+    validate_rows(vectors, dim)?;
+    let k = effective_cluster_count(vectors.len(), n_clusters);
+    let mut centroids = kmeans_pp(vectors, k, seed);
+    for _ in 0..KMEANS_ITERS {
+        let mut sums = vec![vec![0.0_f32; dim]; k];
+        let mut counts = vec![0_usize; k];
+        for (_, vector) in vectors {
+            let cid = nearest_by_l2(&centroids, vector).expect("k > 0");
+            counts[cid as usize] += 1;
+            for (sum, value) in sums[cid as usize].iter_mut().zip(vector) {
+                *sum += *value;
+            }
+        }
+        for cid in 0..k {
+            if counts[cid] == 0 {
+                centroids[cid] = farthest_vector(vectors, &centroids).clone();
+            } else {
+                let inv = 1.0 / counts[cid] as f32;
+                for value in &mut sums[cid] {
+                    *value *= inv;
+                }
+                centroids[cid] = sums[cid].clone();
+            }
+        }
+    }
+    let assignments = vectors
+        .iter()
+        .map(|(id, vector)| (*id, nearest_by_l2(&centroids, vector).expect("k > 0")))
+        .collect();
+    SpannCentroidIndex::from_parts(dim as u32, centroids, (0..k as u64).collect(), assignments)
+}
+
+pub fn default_cluster_count(vector_count: usize) -> usize {
+    ((vector_count as f64).sqrt() as usize).max(1)
+}
+
+fn effective_cluster_count(vector_count: usize, requested: usize) -> usize {
+    let wanted = if requested == 0 {
+        default_cluster_count(vector_count)
+    } else {
+        requested
+    };
+    wanted.min(vector_count)
+}
+
+fn kmeans_pp(vectors: &[(u32, Vec<f32>)], k: usize, seed: u64) -> Vec<Vec<f32>> {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
+    let mut centroids = vec![vectors[rng.gen_range(0..vectors.len())].1.clone()];
+    while centroids.len() < k {
+        let distances: Vec<f32> = vectors
+            .iter()
+            .map(|(_, vector)| nearest_distance_sq(&centroids, vector))
+            .collect();
+        let total: f32 = distances.iter().sum();
+        if total <= f32::EPSILON {
+            for (_, vector) in vectors {
+                if !centroids.contains(vector) {
+                    centroids.push(vector.clone());
+                    break;
+                }
+            }
+            if centroids.len() < k {
+                centroids.push(vectors[centroids.len() % vectors.len()].1.clone());
+            }
+            continue;
+        }
+        let mut cut = rng.gen_range(0.0..total);
+        let mut chosen = vectors.len() - 1;
+        for (idx, distance) in distances.iter().enumerate() {
+            cut -= *distance;
+            if cut <= 0.0 {
+                chosen = idx;
+                break;
+            }
+        }
+        centroids.push(vectors[chosen].1.clone());
+    }
+    centroids
+}
+
+fn farthest_vector<'a>(vectors: &'a [(u32, Vec<f32>)], centroids: &[Vec<f32>]) -> &'a Vec<f32> {
+    vectors
+        .iter()
+        .max_by(|(_, a), (_, b)| {
+            nearest_distance_sq(centroids, a).total_cmp(&nearest_distance_sq(centroids, b))
+        })
+        .map(|(_, vector)| vector)
+        .expect("non-empty vectors")
+}
+
+fn nearest_by_l2(centroids: &[Vec<f32>], vector: &[f32]) -> Option<u32> {
+    centroids
+        .iter()
+        .enumerate()
+        .min_by(|(a_idx, a), (b_idx, b)| {
+            l2_sq(a, vector)
+                .total_cmp(&l2_sq(b, vector))
+                .then_with(|| a_idx.cmp(b_idx))
+        })
+        .map(|(idx, _)| idx as u32)
+}
+
+fn nearest_distance_sq(centroids: &[Vec<f32>], vector: &[f32]) -> f32 {
+    centroids
+        .iter()
+        .map(|centroid| l2_sq(centroid, vector))
+        .min_by(f32::total_cmp)
+        .unwrap_or(0.0)
+}
+
+fn l2_sq(a: &[f32], b: &[f32]) -> f32 {
+    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
+}
+
+fn build_hnsw(dim: u32, centroids: &[Vec<f32>]) -> Result<(HnswIndex, BTreeMap<CxId, u32>)> {
+    let mut hnsw = HnswIndex::new(CENTROID_SLOT, dim, 0x5A17_570A);
+    let mut lookup = BTreeMap::new();
+    for (idx, vector) in centroids.iter().enumerate() {
+        let id = centroid_cx_id(idx as u32);
+        hnsw.insert(
+            id,
+            SlotVector::Dense {
+                dim,
+                data: vector.clone(),
+            },
+            idx as u64,
+        )?;
+        lookup.insert(id, idx as u32);
+    }
+    Ok((hnsw, lookup))
+}
+
+fn centroid_cx_id(id: u32) -> CxId {
+    let mut bytes = [0_u8; 16];
+    bytes[0..8].copy_from_slice(b"CLXSPANN");
+    bytes[12..16].copy_from_slice(&id.to_be_bytes());
+    CxId::from_bytes(bytes)
+}
+
+fn validate_rows(vectors: &[(u32, Vec<f32>)], dim: usize) -> Result<()> {
+    for (id, vector) in vectors {
+        if vector.len() != dim {
+            return Err(sextant_error(
+                CALYX_INDEX_DIM_MISMATCH,
+                format!("vector {id} dim {} expected {dim}", vector.len()),
+            ));
+        }
+        if vector.iter().any(|value| !value.is_finite()) {
+            return Err(invalid(format!("vector {id} has non-finite component")));
+        }
+    }
+    Ok(())
+}
+
+fn validate_centroids(dim: u32, centroids: &[Vec<f32>]) -> Result<()> {
+    for (idx, centroid) in centroids.iter().enumerate() {
+        if centroid.len() != dim as usize {
+            return Err(sextant_error(
+                CALYX_INDEX_DIM_MISMATCH,
+                format!("centroid {idx} dim {} expected {dim}", centroid.len()),
+            ));
+        }
+        if centroid.iter().any(|value| !value.is_finite()) {
+            return Err(invalid(format!("centroid {idx} has non-finite component")));
+        }
+    }
+    Ok(())
+}
+
+fn write_header(out: &mut BufWriter<File>, index: &SpannCentroidIndex) -> Result<()> {
+    out.write_all(&SPANN_CENTROID_MAGIC)
+        .map_err(|e| io("write centroid magic", e))?;
+    out.write_all(&FORMAT_VERSION.to_le_bytes())
+        .map_err(|e| io("write centroid version", e))?;
+    out.write_all(&index.dim.to_le_bytes())
+        .map_err(|e| io("write centroid dim", e))?;
+    write_u64(out, index.centroids.len() as u64, "write centroid count")?;
+    write_u64(
+        out,
+        index.posting_list_offsets.len() as u64,
+        "write offset count",
+    )?;
+    write_u64(
+        out,
+        index.assignments.len() as u64,
+        "write assignment count",
+    )
+}
+
+fn decode_centroids(bytes: &[u8]) -> Result<SpannCentroidIndex> {
+    if bytes.len() < 40 {
+        return Err(corrupt(format!("centroid file is {} B", bytes.len())));
+    }
+    if bytes[0..8] != SPANN_CENTROID_MAGIC {
+        return Err(corrupt(format!("bad magic {:02x?}", &bytes[0..8])));
+    }
+    let mut cursor = 8;
+    let version = read_u32(bytes, &mut cursor)?;
+    if version != FORMAT_VERSION {
+        return Err(corrupt(format!("format_version {version}")));
+    }
+    let dim = read_u32(bytes, &mut cursor)?;
+    let centroid_count = read_u64(bytes, &mut cursor)? as usize;
+    let offset_count = read_u64(bytes, &mut cursor)? as usize;
+    let assignment_count = read_u64(bytes, &mut cursor)? as usize;
+    let mut centroids = Vec::with_capacity(centroid_count);
+    for _ in 0..centroid_count {
+        let mut centroid = Vec::with_capacity(dim as usize);
+        for _ in 0..dim {
+            centroid.push(f32::from_le_bytes(read_exact::<4>(bytes, &mut cursor)?));
+        }
+        centroids.push(centroid);
+    }
+    let mut offsets = Vec::with_capacity(offset_count);
+    for _ in 0..offset_count {
+        offsets.push(read_u64(bytes, &mut cursor)?);
+    }
+    let mut assignments = Vec::with_capacity(assignment_count);
+    for _ in 0..assignment_count {
+        assignments.push((read_u32(bytes, &mut cursor)?, read_u32(bytes, &mut cursor)?));
+    }
+    if cursor != bytes.len() {
+        return Err(corrupt(format!(
+            "{} trailing centroid bytes",
+            bytes.len() - cursor
+        )));
+    }
+    SpannCentroidIndex::from_parts(dim, centroids, offsets, assignments)
+}
+
+fn read_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32> {
+    Ok(u32::from_le_bytes(read_exact::<4>(bytes, cursor)?))
+}
+
+fn read_u64(bytes: &[u8], cursor: &mut usize) -> Result<u64> {
+    Ok(u64::from_le_bytes(read_exact::<8>(bytes, cursor)?))
+}
+
+fn read_exact<const N: usize>(bytes: &[u8], cursor: &mut usize) -> Result<[u8; N]> {
+    let end = cursor.saturating_add(N);
+    let slice = bytes
+        .get(*cursor..end)
+        .ok_or_else(|| corrupt("truncated centroid file"))?;
+    *cursor = end;
+    Ok(slice.try_into().expect("exact len"))
+}
+
+fn write_u64(out: &mut BufWriter<File>, value: u64, stage: &str) -> Result<()> {
+    out.write_all(&value.to_le_bytes())
+        .map_err(|e| io(stage, e))
+}
+
+fn tmp_path(path: &Path) -> PathBuf {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    PathBuf::from(tmp)
+}
+
+fn invalid(detail: impl std::fmt::Display) -> calyx_core::CalyxError {
+    sextant_error(
+        CALYX_INDEX_INVALID_PARAMS,
+        format!("spann centroids: {detail}"),
+    )
+}
+
+fn corrupt(detail: impl std::fmt::Display) -> calyx_core::CalyxError {
+    sextant_error(
+        CALYX_INDEX_CORRUPT,
+        format!("spann centroids corrupt: {detail}"),
+    )
+}
+
+fn io(stage: &str, error: std::io::Error) -> calyx_core::CalyxError {
+    sextant_error(CALYX_INDEX_IO, format!("spann centroids {stage}: {error}"))
+}

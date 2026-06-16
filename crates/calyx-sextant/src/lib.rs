@@ -41,8 +41,9 @@ pub use hit::{
     ProvenanceSource,
 };
 pub use index::{
-    DualIndex, HnswIndex, IndexSearchHit, IndexStats, InvertedIndex, MaxSimIndex, QuantConfig,
-    QuantKind, SextantIndex,
+    DualIndex, HnswIndex, IndexSearchHit, IndexStats, InvertedIndex, MaxSimIndex,
+    PostingListReader, PostingListWriter, QuantConfig, QuantKind, SPANN_CENTROID_MAGIC,
+    SextantIndex, SpannCentroidIndex, SpannSearch, build_centroids,
 };
 pub use navigation::{
     ConsensusHit, ConsensusMode, ConsensusReport, LensComparison, MAX_TRAVERSE_HOPS, SkillNode,

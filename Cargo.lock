@@ -544,6 +544,7 @@ dependencies = [
  "sha2",
  "tracing",
  "zeroize",
+ "zstd",
 ]
 
 [[package]]
