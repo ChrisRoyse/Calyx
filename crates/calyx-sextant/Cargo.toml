@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 blake3.workspace = true
+calyx-anneal = { path = "../calyx-anneal" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-paths = { path = "../calyx-paths" }
@@ -25,5 +26,10 @@ zstd.workspace = true
 [dev-dependencies]
 calyx-loom = { path = "../calyx-loom" }
 calyx-oracle = { path = "../calyx-oracle" }
+criterion.workspace = true
 proptest.workspace = true
 sha2.workspace = true
+
+[[bench]]
+name = "bench_diskann_1e6"
+harness = false

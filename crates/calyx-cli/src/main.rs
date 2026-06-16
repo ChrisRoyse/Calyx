@@ -61,6 +61,7 @@ mod recurrence_readback;
 mod resource_drill;
 mod resource_status;
 mod scan;
+mod sextant_bench;
 mod sextant_commands;
 mod sextant_diskann_validation;
 mod sextant_recall_validation;

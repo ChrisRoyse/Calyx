@@ -47,6 +47,7 @@ pub const CALYX_INDEX_INVALID_PARAMS: &str = "CALYX_INDEX_INVALID_PARAMS";
 pub const CALYX_INDEX_DIRECTION_UNAVAILABLE: &str = "CALYX_INDEX_DIRECTION_UNAVAILABLE";
 pub const CALYX_INDEX_FUNNEL_VAULT_TOO_SMALL: &str = "CALYX_INDEX_FUNNEL_VAULT_TOO_SMALL";
 pub const CALYX_INDEX_KERNEL_UNAVAILABLE: &str = "CALYX_INDEX_KERNEL_UNAVAILABLE";
+pub const CALYX_ANNEAL_UNAVAILABLE: &str = "CALYX_ANNEAL_UNAVAILABLE";
 pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxError {
     let remediation = match code {
         CALYX_SEXTANT_PLAN_UNBOUNDED => "tighten k/ef/slot limits or raise operator cap",
@@ -130,6 +131,9 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         }
         CALYX_INDEX_KERNEL_UNAVAILABLE => {
             "build or load the Lodestar kernel index before using KernelFirst search"
+        }
+        CALYX_ANNEAL_UNAVAILABLE => {
+            "run the tuner in standalone mode and reconnect the Anneal observer when available"
         }
         CALYX_TEMPORAL_AP60_VIOLATION => {
             "keep temporal signals post-retrieval only and never dominant"

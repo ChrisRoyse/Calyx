@@ -3,6 +3,7 @@
 use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
 use serde::{Deserialize, Serialize};
 
+pub mod autotune;
 pub mod bm25;
 pub mod diskann;
 pub mod dual;
@@ -12,8 +13,15 @@ pub mod inverted;
 pub mod multi;
 pub mod quant_config;
 pub mod spann;
+#[doc(hidden)]
+pub mod testutil;
 pub mod tokenizer;
 
+pub use autotune::{
+    BwPostcutoffAnnealRegistry, BwPostcutoffConfig, BwPostcutoffTuner, TuneDirection,
+    TunerAdjustment, TunerAdjustmentKind, TunerConfig, TunerLedgerEntry, TunerObservation,
+    TunerRange, TunerWarning, register_with_anneal,
+};
 pub use diskann::{
     ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey, Direction, DirectionalBoost,
     DiskAnnBuildParams, DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef,
@@ -35,6 +43,7 @@ pub use spann::{
     PostingListReader, PostingListWriter, SPANN_CENTROID_MAGIC, SpannCentroidIndex, SpannSearch,
     build_centroids,
 };
+pub use testutil::{SyntheticVault, build_synthetic_vault, synthetic_dense_rows};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IndexSearchHit {

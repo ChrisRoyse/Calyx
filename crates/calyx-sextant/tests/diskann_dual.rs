@@ -45,7 +45,9 @@ fn query(dim: usize) -> Vec<f32> {
     q
 }
 
-fn dual_rows(n: usize, dim: usize) -> (Vec<(u32, Vec<f32>)>, Vec<(u32, Vec<f32>)>) {
+type LocalRows = Vec<(u32, Vec<f32>)>;
+
+fn dual_rows(n: usize, dim: usize) -> (LocalRows, LocalRows) {
     let denom = (n.saturating_sub(1)).max(1) as f32;
     let mut forward = Vec::with_capacity(n);
     let mut reverse = Vec::with_capacity(n);
