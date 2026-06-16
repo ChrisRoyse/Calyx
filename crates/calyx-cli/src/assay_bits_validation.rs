@@ -1,0 +1,33 @@
+//! `calyx assay bits-validate` — labeled multi-lens bits/contract proof.
+//!
+//! Proves on a labeled multi-lens embedding corpus that each real lens carries
+//! `bits_about` >= `--min-bits` about a grounded binary anchor, that a planted
+//! representationally-redundant lens is rejected from the admitted panel, that
+//! `I(panel;anchor)` is reported with a confidence interval, and that
+//! per-stratum bits are present. All measurements use the real `calyx_assay`
+//! estimators and persist per-lens estimates to the Assay column family.
+
+mod data;
+mod engine;
+mod metrics;
+mod request;
+
+use data::AssayCorpus;
+use engine::evaluate_corpus;
+use metrics::write_metric_outputs;
+use request::AssayBitsRequest;
+
+pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
+    let request = AssayBitsRequest::parse(args)?;
+    let corpus = AssayCorpus::load(&request)?;
+    let report = evaluate_corpus(&corpus, &request)?;
+    let evidence = write_metric_outputs(&request, &report)?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&evidence).map_err(|error| error.to_string())?
+    );
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

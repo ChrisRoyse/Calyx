@@ -20,6 +20,7 @@ mod anneal_replay_readback;
 mod anneal_soak;
 mod anneal_soak_report;
 mod anneal_status;
+mod assay_bits_validation;
 mod budget_readback;
 mod cf_read;
 mod cli_support;
