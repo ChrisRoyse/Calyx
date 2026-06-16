@@ -36,6 +36,7 @@ mod healthcheck;
 mod healthcheck_daemon;
 #[cfg(test)]
 mod healthcheck_tests;
+mod htap_validation;
 mod intelligence_commands;
 mod kernel_health_readback;
 mod leapable;

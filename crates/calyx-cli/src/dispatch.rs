@@ -7,13 +7,13 @@ use crate::error::{CliError, CliResult};
 use crate::{
     anneal_commands, anneal_ledger_readback, anneal_mistakes_readback, anneal_status,
     assay_bits_validation, crash, dedup_audit_readback, dedup_readback, fsv, healthcheck,
-    intelligence_commands, kernel_health_readback, leapable, lens_commands, lodestar_commands,
-    manifest_readback, media_commands, merkle, migrate, navigate, ops, oracle_readback,
-    oracle_sufficiency_validation, panel_commands, ph42_readback, provenance, recurrence_readback,
-    resource_drill, resource_status, scan, sextant_bench, sextant_commands, summarize_command,
-    temporal_log_recurrence_readback, temporal_readback, time_prediction_readback,
-    timetravel_readback, trigger_readback, usage, vault_tree, verify, ward_guard_validation,
-    ward_tau_readback,
+    htap_validation, intelligence_commands, kernel_health_readback, leapable, lens_commands,
+    lodestar_commands, manifest_readback, media_commands, merkle, migrate, navigate, ops,
+    oracle_readback, oracle_sufficiency_validation, panel_commands, ph42_readback, provenance,
+    recurrence_readback, resource_drill, resource_status, scan, sextant_bench, sextant_commands,
+    summarize_command, temporal_log_recurrence_readback, temporal_readback,
+    time_prediction_readback, timetravel_readback, trigger_readback, usage, vault_tree, verify,
+    ward_guard_validation, ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -151,6 +151,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "oracle" && topic == "sufficiency-validate" => {
             oracle_sufficiency_validation::run(rest)
         }
+        [command, rest @ ..] if command == "htap-validate" => htap_validation::run(rest),
         [command, topic, rest @ ..] if command == "lens" => lens_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "panel" => panel_commands::run(topic, rest),
         [command, rest @ ..] if command == "summarize" => summarize_command::run(rest),

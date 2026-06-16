@@ -12,6 +12,7 @@ mod durable;
 pub mod encode;
 mod gc_bridge;
 pub mod grant;
+mod htap;
 pub mod key;
 pub mod keyspace;
 mod layer_commit;
@@ -47,6 +48,7 @@ pub use compaction_bridge::VaultCompactionScheduler;
 pub use context::VaultContext;
 pub use durable::VaultOptions;
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
+pub use htap::HtapDualRead;
 pub use key::{
     CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING, VaultKey,
 };
