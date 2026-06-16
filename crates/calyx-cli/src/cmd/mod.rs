@@ -2,6 +2,7 @@ mod ingest;
 mod intelligence;
 mod lens;
 mod provenance;
+mod readback;
 mod search;
 pub(crate) mod vault;
 
@@ -107,6 +108,9 @@ pub(crate) struct ProfileLensArgs {
 }
 
 pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
+    if let Some(result) = readback::try_run(args) {
+        return Some(result);
+    }
     if !args.first().is_some_and(|command| is_cmd(command)) {
         return None;
     }

@@ -325,6 +325,7 @@ dependencies = [
  "calyx-sextant",
  "calyx-ward",
  "calyxd",
+ "crc32fast",
  "proptest",
  "rusqlite",
  "serde",

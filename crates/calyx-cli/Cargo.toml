@@ -26,6 +26,7 @@ calyx-sextant = { path = "../calyx-sextant" }
 calyx-ward = { path = "../calyx-ward" }
 calyxd = { path = "../calyxd" }
 blake3.workspace = true
+crc32fast.workspace = true
 rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
