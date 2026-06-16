@@ -1,10 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="Calyx logo" width="120" />
+<img src="assets/banner.png" alt="Calyx — Store meaning, not tokens" width="100%" />
 
 # Calyx
-
-### Store meaning, not tokens.
 
 **Calyx is an association-native database.** Instead of storing rows and matching them, or storing one vector and finding its neighbors, Calyx stores *constellations* — one input measured through many frozen lenses — then fuses, grounds, and guards every answer. Built in Rust, with GPU linear algebra baked in.
 
@@ -115,37 +113,9 @@ Calyx is **not** a service mesh. It is an embedded engine — a stack of focused
 
 Every subsystem is named for an instrument of celestial navigation: a lens is a sighting instrument, the kernel is the guiding star, and search is navigation.
 
-```mermaid
-flowchart TB
-    subgraph Surfaces["Entry points"]
-        CLI["calyx · CLI"]
-        DAEMON["calyxd · daemon + metrics"]
-        MCP["calyx-mcp · agent interface"]
-    end
-
-    subgraph Intelligence["Intelligence layer"]
-        ORACLE["Oracle · consequence prediction"]
-        ANNEAL["Anneal · self-optimization"]
-        LODESTAR["Lodestar · grounding kernel"]
-    end
-
-    subgraph Engine["Association engine"]
-        SEXTANT["Sextant · search & fusion"]
-        LOOM["Loom · associations"]
-        ASSAY["Assay · information bits"]
-        WARD["Ward · the guard"]
-        REGISTRY["Registry · lenses"]
-    end
-
-    subgraph Foundation["Storage & math"]
-        ASTER["Aster · LSM storage"]
-        FORGE["Forge · CPU/GPU math"]
-        LEDGER["Ledger · provenance"]
-        CORE["Core · types & traits"]
-    end
-
-    Surfaces --> Intelligence --> Engine --> Foundation
-```
+<div align="center">
+<img src="assets/architecture.png" alt="Calyx architecture: four layered tiers — Entry points (calyx CLI, calyxd daemon, calyx-mcp agent) above the Intelligence layer (Oracle, Anneal, Lodestar), above the Association engine (Sextant, Loom, Assay, Ward, Registry), above Storage & math (Aster, Forge, Ledger, Core)" width="92%" />
+</div>
 
 | Subsystem | Crate | What it is |
 |---|---|---|
@@ -261,6 +231,8 @@ Each released version automatically converts to the open-source **Apache License
 ---
 
 <div align="center">
+
+<img src="assets/logo.png" alt="Calyx mark" width="84" />
 
 **Calyx** — *Intelligence is the calculus of association. Calyx is its engine.*
 
