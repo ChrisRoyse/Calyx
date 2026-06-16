@@ -145,6 +145,7 @@ pub(super) fn write_json_row<T: Serialize>(
     let bytes = serde_json::to_vec(value)
         .map_err(|error| CliError::usage(format!("serialize intelligence CF row: {error}")))?;
     vault.write_cf(cf, key, bytes.clone())?;
+    vault.flush()?;
     Ok(bytes)
 }
 
