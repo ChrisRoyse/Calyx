@@ -164,9 +164,11 @@ pub fn build_partitioned_vault(
     // 2. Stream-assign every cx to its nearest centroid -> per-region buckets.
     //    Pick the assignment method by centroid count: an exact flat scan is
     //    O(R) per point but cache-friendly/branch-free and wins for moderate R;
-    //    once R is large the scan's O(N*R) becomes quadratic in N, so route
-    //    through the centroid HNSW (O(log R)) instead. Crossover ~4k centroids.
-    const HNSW_ASSIGN_MIN_CENTROIDS: usize = 4096;
+    //    once R grows the scan's O(N*R) becomes quadratic in N AND, at dim 512,
+    //    memory-bandwidth-bound (the centroid table spills L2), so route through
+    //    the centroid HNSW (O(log R)) instead. Measured: HNSW already wins by
+    //    R~2500 at dim 512; keep flat only for trivially small centroid sets.
+    const HNSW_ASSIGN_MIN_CENTROIDS: usize = 256;
     let use_hnsw_assign = r > HNSW_ASSIGN_MIN_CENTROIDS;
     let mut buckets: Vec<Vec<u64>> = vec![Vec::new(); r];
     let mut start = 0u64;
