@@ -9,7 +9,7 @@
 use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
-use calyx_mcp::jsonrpc::decode_jsonrpc_request;
+use calyx_mcp::jsonrpc::{JsonRpcId, decode_jsonrpc_request};
 use calyx_mcp::server::McpServer;
 
 fn main() -> ExitCode {
@@ -18,6 +18,7 @@ fn main() -> ExitCode {
         eprintln!("calyx-mcp: {}: {}", error.code, error.message);
         return ExitCode::FAILURE;
     }
+    eprintln!("calyx-mcp: registered {} tools", server.tool_count());
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -47,7 +48,7 @@ fn main() -> ExitCode {
         };
 
         // Notifications (no id) get no response.
-        let is_notification = request.id.is_none();
+        let is_notification = request.id.is_none() || matches!(request.id, Some(JsonRpcId::Null));
         let response = server.dispatch(request);
         if is_notification {
             continue;

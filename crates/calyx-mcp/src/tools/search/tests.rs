@@ -1,9 +1,11 @@
 use std::ffi::OsString;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::MutexGuard;
 
 use serde_json::{Value, json};
+
+use calyx_aster::cf::{CfRouter, ColumnFamily, ledger_key};
 
 use crate::jsonrpc::decode_jsonrpc_request;
 use crate::protocol::JsonRpcError;
@@ -34,6 +36,10 @@ impl TestEnv {
             old_home,
             _guard: guard,
         }
+    }
+
+    fn vault_path(&self, vault_id: &str) -> PathBuf {
+        self.home.join("vaults").join(vault_id)
     }
 }
 
@@ -115,6 +121,23 @@ fn vault_with_algorithmic_data(server: &McpServer, name: &str) -> Vec<Value> {
         .collect()
 }
 
+fn tamper_ledger_row(vault: &Path, seq: u64) {
+    let mut router = CfRouter::open(vault, 0).expect("open CF router");
+    let key = ledger_key(seq);
+    let mut bytes = router
+        .get(ColumnFamily::Ledger, &key)
+        .expect("read ledger row")
+        .expect("ledger row exists");
+    let last = bytes.len().checked_sub(1).expect("non-empty ledger row");
+    bytes[last] ^= 0x55;
+    router
+        .put(ColumnFamily::Ledger, &key, &bytes)
+        .expect("write tampered ledger row");
+    router
+        .flush_cf(ColumnFamily::Ledger)
+        .expect("flush tampered ledger row");
+}
+
 #[test]
 fn minimal_search_returns_provenanced_hits() {
     let _env = TestEnv::new("minimal");
@@ -132,6 +155,40 @@ fn minimal_search_returns_provenanced_hits() {
     assert!(!hits.is_empty());
     assert!(hits.iter().all(|hit| hit["provenance"].is_object()));
     assert!(hits.iter().all(|hit| hit["per_lens"].is_null()));
+}
+
+#[test]
+fn search_fails_closed_when_ledger_chain_is_tampered() {
+    let env = TestEnv::new("ledger-tamper");
+    let server = server();
+    let created = call_ok(&server, 1, "calyx.create_vault", json!({"name": "v"}));
+    call_ok(
+        &server,
+        2,
+        "calyx.add_lens",
+        json!({"vault": "v", "name": "byte_axis", "runtime": "algorithmic"}),
+    );
+    call_ok(
+        &server,
+        3,
+        "calyx.ingest",
+        json!({"vault": "v", "input": "alpha"}),
+    );
+    let vault_id = created["vault_id"].as_str().unwrap();
+    tamper_ledger_row(&env.vault_path(vault_id), 0);
+
+    let error = call_err(
+        &server,
+        4,
+        "calyx.search",
+        json!({"vault": "v", "query": "alpha"}),
+    );
+
+    assert_eq!(error.code, -32000);
+    assert_eq!(
+        error.data.unwrap()["calyx_code"],
+        "CALYX_LEDGER_CHAIN_BROKEN"
+    );
 }
 
 #[test]

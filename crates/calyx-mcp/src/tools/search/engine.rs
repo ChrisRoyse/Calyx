@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
+use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
+use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    AnchorKind, AnchorValue, CalyxError, Constellation, CxId, Input, Modality, SlotId, SlotState,
-    SlotVector, VaultStore,
+    AnchorKind, AnchorValue, CalyxError, Constellation, CxId, Input, LedgerRef, Modality, SlotId,
+    SlotState, SlotVector, VaultStore,
 };
+use calyx_ledger::{LedgerCfStore, SubjectId, VerifyResult, decode, verify_chain};
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 use calyx_sextant::fusion;
 use calyx_sextant::{
@@ -47,6 +50,7 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
             docs,
         });
     }
+    let ledger_refs = verify_ledger_before_provenance(&resolved.path)?;
     let query_vectors = measure_query_vectors(&state, &request.query)?;
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());
@@ -65,9 +69,49 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
         stage1_slots: stage1_slots(&strategy, &query_vectors, &slots),
     };
     let mut hits = fusion::fuse(&per_slot, &context);
-    attach_stored_provenance(&mut hits, &docs, vault.latest_seq())?;
+    attach_stored_provenance(&mut hits, &docs, vault.latest_seq(), &ledger_refs)?;
     renumber_and_truncate(&mut hits, request.k);
     Ok(SearchOutcome { hits, docs })
+}
+
+fn verify_ledger_before_provenance(path: &Path) -> ToolResult<BTreeMap<CxId, LedgerRef>> {
+    let store = AsterLedgerCfStore::open(path).map_err(|error| {
+        if error.code == "CALYX_LEDGER_CORRUPT" {
+            CalyxError::ledger_chain_broken(format!(
+                "search provenance ledger chain unreadable: {}",
+                error.message
+            ))
+        } else {
+            error
+        }
+    })?;
+    let end = store.scan()?.len() as u64;
+    match verify_chain(&store, 0..end)? {
+        VerifyResult::Intact { .. } => latest_cx_refs(&store),
+        VerifyResult::Broken { at_seq, .. } | VerifyResult::Corrupt { at_seq, .. } => {
+            Err(CalyxError::ledger_chain_broken(format!(
+                "search provenance ledger chain broken at seq={at_seq}"
+            ))
+            .into())
+        }
+    }
+}
+
+fn latest_cx_refs(store: &AsterLedgerCfStore) -> ToolResult<BTreeMap<CxId, LedgerRef>> {
+    let mut refs = BTreeMap::new();
+    for row in store.scan()? {
+        let entry = decode(&row.bytes)?;
+        if let SubjectId::Cx(cx_id) = entry.subject {
+            refs.insert(
+                cx_id,
+                LedgerRef {
+                    seq: entry.seq,
+                    hash: entry.entry_hash,
+                },
+            );
+        }
+    }
+    Ok(refs)
 }
 
 pub(super) fn neighbors(request: &NeighborsRequest) -> ToolResult<Vec<NeighborOut>> {
@@ -234,6 +278,7 @@ fn attach_stored_provenance(
     hits: &mut [Hit],
     docs: &BTreeMap<CxId, Constellation>,
     seq: u64,
+    ledger_refs: &BTreeMap<CxId, LedgerRef>,
 ) -> ToolResult<()> {
     for hit in hits {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
@@ -242,7 +287,10 @@ fn attach_stored_provenance(
                 hit.cx_id
             ))
         })?;
-        hit.provenance = cx.provenance.clone();
+        hit.provenance = ledger_refs
+            .get(&hit.cx_id)
+            .cloned()
+            .unwrap_or_else(|| cx.provenance.clone());
         hit.provenance_source = ProvenanceSource::Stored;
         hit.freshness = if seq >= cx.provenance.seq {
             calyx_sextant::FreshnessTag::fresh(seq)
