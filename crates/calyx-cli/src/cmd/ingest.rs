@@ -8,7 +8,7 @@ use calyx_core::{
     AbsentReason, Anchor, AnchorKind, AnchorValue, CalyxError, Constellation, CxFlags, CxId, Input,
     InputRef, LedgerRef, Modality, SlotState, SlotVector, VaultStore,
 };
-use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
+use calyx_ledger::{ActorId, EntryKind, RedactionPolicy, SubjectId};
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 use serde::{Deserialize, Serialize};
 
@@ -199,7 +199,7 @@ fn anchor_command(args: AnchorArgs) -> CliResult {
     let kind = parse_anchor_kind(&args.kind)?;
     let anchor = Anchor {
         value: parse_anchor_value(&kind, &args.kind, &args.value)?,
-        kind,
+        kind: kind.clone(),
         source: args
             .source
             .unwrap_or_else(|| DEFAULT_ANCHOR_SOURCE.to_string()),
@@ -207,7 +207,7 @@ fn anchor_command(args: AnchorArgs) -> CliResult {
         confidence: args.confidence.unwrap_or(1.0),
     };
     vault.anchor(cx_id, anchor)?;
-    let ledger_seq = append_cli_ledger(&vault, EntryKind::Ingest, cx_id, "cli-anchor")?;
+    let ledger_seq = append_anchor_ledger(&vault, cx_id, &kind)?;
     vault.flush()?;
     print_json(&AnchorReport {
         status: "anchored",
@@ -291,9 +291,26 @@ fn append_cli_ledger(
     cx_id: CxId,
     mode: &'static str,
 ) -> CliResult<u64> {
-    let mut payload = PayloadBuilder::default();
-    payload.insert_str("mode", mode);
-    let bytes = RedactionPolicy::default().apply_to_payload(&payload);
+    let bytes = serde_json::to_vec(&serde_json::json!({ "mode": mode }))?;
+    RedactionPolicy::check_payload(&bytes)?;
+    append_ledger_payload(vault, kind, cx_id, bytes)
+}
+
+fn append_anchor_ledger(vault: &AsterVault, cx_id: CxId, kind: &AnchorKind) -> CliResult<u64> {
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "mode": "cli-anchor",
+        "anchor_kind": anchor_kind_key(kind),
+    }))?;
+    RedactionPolicy::check_payload(&bytes)?;
+    append_ledger_payload(vault, EntryKind::Ingest, cx_id, bytes)
+}
+
+fn append_ledger_payload(
+    vault: &AsterVault,
+    kind: EntryKind,
+    cx_id: CxId,
+    bytes: Vec<u8>,
+) -> CliResult<u64> {
     Ok(vault
         .append_ledger_entry(
             kind,
@@ -381,6 +398,19 @@ pub(crate) fn parse_anchor_kind(value: &str) -> CliResult<AnchorKind> {
         }
         other => return Err(CliError::usage(format!("unknown anchor kind {other}"))),
     })
+}
+
+fn anchor_kind_key(kind: &AnchorKind) -> String {
+    match kind {
+        AnchorKind::TestPass => "test_pass".to_string(),
+        AnchorKind::TieFormed => "tie_formed".to_string(),
+        AnchorKind::Thumbs => "thumbs".to_string(),
+        AnchorKind::Label(value) => format!("label:{value}"),
+        AnchorKind::Reward => "reward".to_string(),
+        AnchorKind::SpeakerMatch => "speaker_match".to_string(),
+        AnchorKind::StyleHold => "style_hold".to_string(),
+        AnchorKind::Recurrence => "recurrence".to_string(),
+    }
 }
 
 fn parse_anchor_value(kind: &AnchorKind, raw_kind: &str, value: &str) -> CliResult<AnchorValue> {

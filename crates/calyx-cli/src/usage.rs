@@ -23,6 +23,10 @@ pub(crate) fn usage() -> &'static str {
        calyx guard <vault> <calibrate|check|generate> [args]
        calyx abundance <vault>
        calyx propose-lens <vault> --anchor <kind>
+       calyx provenance <vault> <cx_id>
+       calyx verify-chain <vault> [--from <seq>] [--to <seq>]
+       calyx reproduce <vault> <answer_id>
+       calyx anneal-status <vault>
        calyx resource-drill --vault <dir> --ops <n> --value-bytes <n> --memtable-cap <bytes> --pin-max-age-ms <ms>
        calyx migrate vault <sqlite.db> <vault.calyx> [--verify] [--backfill-default-panel] [--offline-backfill] [--batch-size <n>]
        calyx migrate backfill <sqlite.db> <vault.calyx> [--offline-backfill] [--batch-size <n>]

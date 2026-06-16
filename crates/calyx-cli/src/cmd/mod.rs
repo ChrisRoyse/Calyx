@@ -1,6 +1,7 @@
 mod ingest;
 mod intelligence;
 mod lens;
+mod provenance;
 mod search;
 pub(crate) mod vault;
 
@@ -36,6 +37,10 @@ pub(crate) enum Subcommand {
     Guard(intelligence::GuardArgs),
     Abundance(intelligence::AbundanceArgs),
     ProposeLens(intelligence::ProposeLensArgs),
+    Provenance(provenance::ProvenanceArgs),
+    VerifyChain(provenance::VerifyChainArgs),
+    Reproduce(provenance::ReproduceArgs),
+    AnnealStatus(provenance::AnnealStatusArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -105,6 +110,13 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
     if !args.first().is_some_and(|command| is_cmd(command)) {
         return None;
     }
+    if args
+        .first()
+        .is_some_and(|command| command == "verify-chain")
+        && args.get(1).is_some_and(|arg| arg.starts_with("--"))
+    {
+        return None;
+    }
     Some(parse(args).and_then(run))
 }
 
@@ -125,6 +137,10 @@ fn run(command: Subcommand) -> CliResult {
         | Subcommand::Guard(_)
         | Subcommand::Abundance(_)
         | Subcommand::ProposeLens(_) => intelligence::run(command),
+        Subcommand::Provenance(_)
+        | Subcommand::VerifyChain(_)
+        | Subcommand::Reproduce(_)
+        | Subcommand::AnnealStatus(_) => provenance::run(command),
     }
 }
 
@@ -149,6 +165,10 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "guard" => intelligence::parse_guard(rest),
         "abundance" => intelligence::parse_abundance(rest),
         "propose-lens" => intelligence::parse_propose_lens(rest),
+        "provenance" => provenance::parse_provenance(rest),
+        "verify-chain" => provenance::parse_verify_chain(rest),
+        "reproduce" => provenance::parse_reproduce(rest),
+        "anneal-status" => provenance::parse_anneal_status(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -172,6 +192,10 @@ fn is_cmd(command: &str) -> bool {
             | "guard"
             | "abundance"
             | "propose-lens"
+            | "provenance"
+            | "verify-chain"
+            | "reproduce"
+            | "anneal-status"
     )
 }
 
@@ -370,121 +394,6 @@ pub(super) fn value<'a>(args: &'a [String], index: usize, flag: &str) -> CliResu
     args.get(index)
         .map(String::as_str)
         .ok_or_else(|| CliError::usage(format!("{flag} requires a value")))
-}
-
-#[cfg(test)]
-impl Subcommand {
-    fn to_cli_tokens(&self) -> Vec<String> {
-        match self {
-            Self::CreateVault(args) => {
-                let mut out = vec!["create-vault".to_string(), args.name.clone()];
-                if let Some(template) = &args.panel_template {
-                    out.extend(["--panel-template".to_string(), template.clone()]);
-                }
-                out
-            }
-            Self::AddLens(args) => {
-                let mut out = vec![
-                    "add-lens".to_string(),
-                    args.vault.clone(),
-                    "--name".to_string(),
-                    args.name.clone(),
-                    "--runtime".to_string(),
-                    args.runtime.clone(),
-                ];
-                push_opt(&mut out, "--endpoint", args.endpoint.as_deref());
-                push_opt(
-                    &mut out,
-                    "--weights",
-                    args.weights.as_ref().and_then(|p| p.to_str()),
-                );
-                push_opt(&mut out, "--shape", args.shape.as_deref());
-                push_opt(&mut out, "--modality", args.modality.as_deref());
-                out
-            }
-            Self::RetireLens(args) => slot_tokens("retire-lens", args),
-            Self::ParkLens(args) => slot_tokens("park-lens", args),
-            Self::ListPanel(args) => vec!["list-panel".to_string(), args.vault.clone()],
-            Self::Ingest(args) => {
-                let mut out = vec!["ingest".to_string(), args.vault.clone()];
-                push_opt(&mut out, "--text", args.text.as_deref());
-                push_opt(
-                    &mut out,
-                    "--batch",
-                    args.batch.as_ref().and_then(|path| path.to_str()),
-                );
-                if args.idempotent {
-                    out.push("--idempotent".to_string());
-                }
-                out
-            }
-            Self::Anchor(args) => {
-                let mut out = vec![
-                    "anchor".to_string(),
-                    args.vault.clone(),
-                    args.cx_id.clone(),
-                    "--kind".to_string(),
-                    args.kind.clone(),
-                    "--value".to_string(),
-                    args.value.clone(),
-                ];
-                if let Some(confidence) = args.confidence {
-                    out.extend(["--confidence".to_string(), confidence.to_string()]);
-                }
-                push_opt(&mut out, "--source", args.source.as_deref());
-                out
-            }
-            Self::Measure(args) => vec![
-                "measure".to_string(),
-                args.vault.clone(),
-                "--text".to_string(),
-                args.text.clone(),
-            ],
-            Self::Search(args) => search::search_tokens(args),
-            Self::KernelAnswer(args) => search::kernel_answer_tokens(args),
-            Self::Bits(args) => intelligence::bits_tokens(args),
-            Self::Kernel(args) => intelligence::kernel_tokens(args),
-            Self::Guard(args) => intelligence::guard_tokens(args),
-            Self::Abundance(args) => intelligence::abundance_tokens(args),
-            Self::ProposeLens(args) => intelligence::propose_lens_tokens(args),
-            Self::ProfileLens(args) => {
-                let mut out = vec!["profile-lens".to_string()];
-                push_opt(&mut out, "--name", args.name.as_deref());
-                push_opt(&mut out, "--runtime", args.runtime.as_deref());
-                push_opt(&mut out, "--endpoint", args.endpoint.as_deref());
-                push_opt(
-                    &mut out,
-                    "--weights",
-                    args.weights.as_ref().and_then(|p| p.to_str()),
-                );
-                push_opt(&mut out, "--shape", args.shape.as_deref());
-                push_opt(&mut out, "--modality", args.modality.as_deref());
-                push_opt(
-                    &mut out,
-                    "--probe",
-                    args.probe.as_ref().and_then(|p| p.to_str()),
-                );
-                out
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-fn push_opt(out: &mut Vec<String>, flag: &str, value: Option<&str>) {
-    if let Some(value) = value {
-        out.extend([flag.to_string(), value.to_string()]);
-    }
-}
-
-#[cfg(test)]
-fn slot_tokens(command: &str, args: &SlotCommandArgs) -> Vec<String> {
-    vec![
-        command.to_string(),
-        args.vault.clone(),
-        "--slot".to_string(),
-        args.slot.to_string(),
-    ]
 }
 
 #[cfg(test)]
