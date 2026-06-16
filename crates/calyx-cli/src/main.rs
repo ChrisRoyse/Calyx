@@ -77,6 +77,7 @@ mod usage;
 mod vault_tree;
 mod verify;
 mod verify_restore;
+mod ward_guard_validation;
 mod ward_tau_readback;
 use std::process::ExitCode;
 

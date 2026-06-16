@@ -12,7 +12,8 @@ use crate::{
     panel_commands, ph42_readback, provenance, recurrence_readback, resource_drill,
     resource_status, scan, sextant_bench, sextant_commands, summarize_command,
     temporal_log_recurrence_readback, temporal_readback, time_prediction_readback,
-    timetravel_readback, trigger_readback, usage, vault_tree, verify, ward_tau_readback,
+    timetravel_readback, trigger_readback, usage, vault_tree, verify, ward_guard_validation,
+    ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -143,6 +144,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "lodestar" => lodestar_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "assay" && topic == "bits-validate" => {
             assay_bits_validation::run(rest)
+        }
+        [command, topic, rest @ ..] if command == "ward" && topic == "guard-validate" => {
+            ward_guard_validation::run(rest)
         }
         [command, topic, rest @ ..] if command == "lens" => lens_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "panel" => panel_commands::run(topic, rest),
