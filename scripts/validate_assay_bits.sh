@@ -41,12 +41,12 @@ target_class = int(sys.argv[6])
 SEED = 42
 BATCH = 32
 TOKEN_DIM = 256
-# The planted-redundant lens is a dimension-ablated sub-view of the gte lens:
-# it keeps the first REDUNDANT_KEEP_FRAC of dims and zeroes the rest. This makes
-# it (a) highly correlated with gte_cls (cosine ~= sqrt(kept energy) > 0.6) and
-# (b) STRICTLY no more informative than the full embedding, so gte_cls always
-# sorts first in greedy admission and the redundant sub-view is the one rejected.
-REDUNDANT_KEEP_FRAC = 0.85
+# The planted-redundant lens is an EXACT duplicate of the gte lens (cosine = 1.0,
+# the canonical maximally-redundant case). Because the input is byte-identical,
+# the deterministic logistic-probe estimator yields identical bits, so the
+# engine's stable greedy admission keeps gte_cls (corpus index 0) and rejects the
+# duplicate (index 1) for redundancy (corr = 1.0 > 0.6). This avoids relying on a
+# fragile bits tie-break between two near-equally-informative lenses.
 
 parquet_path = root / "ag_news" / "train.parquet"
 if not parquet_path.is_file():
@@ -115,8 +115,7 @@ def token_hash(text):
 
 rows = []
 for i, (text, lab, emb) in enumerate(zip(texts, labels, embeddings)):
-    keep = int(REDUNDANT_KEEP_FRAC * len(emb))
-    redundant = [e if d < keep else 0.0 for d, e in enumerate(emb)]
+    redundant = list(emb)  # exact duplicate -> corr 1.0, identical bits
     rows.append({
         "id": f"agnews-{order[i]}",
         "split": "train",
