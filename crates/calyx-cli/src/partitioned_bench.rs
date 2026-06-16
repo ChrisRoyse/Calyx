@@ -121,12 +121,16 @@ struct SearchArgs {
     k: usize,
     n_probe: usize,
     region_beam: usize,
+    /// If > 0, brute-force the TRUE top-k for the first `ground_truth` queries and
+    /// report real recall@k (not just self-recall). Memory-bounded chunked scan.
+    ground_truth: usize,
 }
 
 impl SearchArgs {
     fn parse(args: &[String]) -> CliResult<Self> {
         let mut vault = None;
         let (mut n, mut k, mut n_probe, mut region_beam) = (1000usize, 10usize, 8usize, 64usize);
+        let mut ground_truth = 0usize;
         let mut it = args.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -140,6 +144,7 @@ impl SearchArgs {
                 "--k" => k = parse(&next()?, "--k")?,
                 "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
                 "--region-beam" => region_beam = parse(&next()?, "--region-beam")?,
+                "--ground-truth" => ground_truth = parse(&next()?, "--ground-truth")?,
                 // --seed and --report are accepted for harness symmetry; the query
                 // seed is taken from the vault manifest (must match the build seed).
                 "--seed" | "--report" => {
@@ -155,7 +160,82 @@ impl SearchArgs {
             k,
             n_probe,
             region_beam,
+            ground_truth,
         })
+    }
+}
+
+/// Brute-force the true top-`k` neighbours (by L2) for each query over the whole
+/// generated dataset. Memory-bounded: regenerates the dataset in `CHUNK`-sized
+/// batches (never materializes all N), parallel per chunk. Returns, per query, the
+/// set of true top-k cx indices — the ground truth recall@k is measured against.
+fn brute_force_topk(
+    seed: u64,
+    n_cx: u64,
+    dim: usize,
+    queries: &[Vec<f32>],
+    k: usize,
+) -> Vec<std::collections::HashSet<u64>> {
+    use rayon::prelude::*;
+    const CHUNK: u64 = 200_000;
+    // Per-query running top-k as a max-heap keyed by distance (largest at top so we
+    // can pop the worst once we exceed k).
+    let mut heaps: Vec<std::collections::BinaryHeap<(ordered_f32::OrdF32, u64)>> = (0..queries
+        .len())
+        .map(|_| std::collections::BinaryHeap::with_capacity(k + 1))
+        .collect();
+    let mut start = 0u64;
+    while start < n_cx {
+        let end = (start + CHUNK).min(n_cx);
+        // (idx, row) for this chunk, generated in parallel, then scored per query.
+        let rows: Vec<(u64, Vec<f32>)> = (start..end)
+            .into_par_iter()
+            .map(|idx| (idx, gen_row(seed, idx, dim)))
+            .collect();
+        // For each query, compute distances over the chunk in parallel and fold
+        // into that query's running top-k heap.
+        for (qi, q) in queries.iter().enumerate() {
+            let scored: Vec<(ordered_f32::OrdF32, u64)> = rows
+                .par_iter()
+                .map(|(idx, row)| {
+                    let mut d = 0.0f32;
+                    for j in 0..dim {
+                        let diff = q[j] - row[j];
+                        d += diff * diff;
+                    }
+                    (ordered_f32::OrdF32(d), *idx)
+                })
+                .collect();
+            let heap = &mut heaps[qi];
+            for item in scored {
+                heap.push(item);
+                if heap.len() > k {
+                    heap.pop();
+                }
+            }
+        }
+        start = end;
+    }
+    heaps
+        .into_iter()
+        .map(|h| h.into_iter().map(|(_, idx)| idx).collect())
+        .collect()
+}
+
+/// Minimal total-order wrapper over f32 for heap keys (no external dep needed).
+mod ordered_f32 {
+    #[derive(Clone, Copy, PartialEq)]
+    pub struct OrdF32(pub f32);
+    impl Eq for OrdF32 {}
+    impl PartialOrd for OrdF32 {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for OrdF32 {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.0.total_cmp(&other.0)
+        }
     }
 }
 
@@ -169,6 +249,11 @@ pub(crate) fn run_search(args: &[String]) -> CliResult {
 
     let mut latencies_us: Vec<u64> = Vec::with_capacity(args.n);
     let mut self_hits = 0usize;
+    // Record the ANN results + query vectors for the ground-truth subset so we can
+    // score true recall@k against brute force without re-running the search.
+    let gt_n = args.ground_truth.min(args.n);
+    let mut gt_queries: Vec<Vec<f32>> = Vec::with_capacity(gt_n);
+    let mut gt_ann: Vec<Vec<u64>> = Vec::with_capacity(gt_n);
     for i in 0..args.n {
         // Query an existing cx (deterministic) so self-recall is well-defined; the
         // query vector is generated on the fly — nothing is materialized.
@@ -183,9 +268,32 @@ pub(crate) fn run_search(args: &[String]) -> CliResult {
         if hits.iter().any(|(cx, _)| *cx == idx) {
             self_hits += 1;
         }
+        if i < gt_n {
+            gt_ann.push(hits.iter().map(|(cx, _)| *cx).collect());
+            gt_queries.push(q);
+        }
     }
     let summary = percentiles(&latencies_us);
     let self_recall = self_hits as f32 / args.n.max(1) as f32;
+
+    // True recall@k against brute-force ground truth (the real SLO metric).
+    let ground_truth_recall = if gt_n > 0 {
+        let truth = brute_force_topk(seed, n_cx, dim, &gt_queries, args.k);
+        let mut found = 0usize;
+        let mut total = 0usize;
+        for (ann, truth_set) in gt_ann.iter().zip(truth.iter()) {
+            for cx in ann {
+                if truth_set.contains(cx) {
+                    found += 1;
+                }
+            }
+            total += truth_set.len();
+        }
+        Some(found as f32 / total.max(1) as f32)
+    } else {
+        None
+    };
+
     let report = json!({
         "trigger": "calyx bench partitioned-search",
         "vault": args.vault.to_string_lossy(),
@@ -198,6 +306,8 @@ pub(crate) fn run_search(args: &[String]) -> CliResult {
         "region_beam": args.region_beam,
         "latency_us": summary,
         "self_recall_at_k": self_recall,
+        "ground_truth_queries": gt_n,
+        "ground_truth_recall_at_k": ground_truth_recall,
     });
     println!(
         "{}",

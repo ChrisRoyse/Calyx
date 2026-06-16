@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use calyx_core::{CxId, Result, SlotId, SlotVector};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use rayon::prelude::*;
 
 use crate::error::{
     CALYX_INDEX_CORRUPT, CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO,
@@ -192,10 +193,16 @@ pub fn try_build_centroids(
     let k = effective_cluster_count(vectors.len(), n_clusters);
     let mut centroids = kmeans_pp(vectors, k, seed);
     for _ in 0..KMEANS_ITERS {
+        // Assignment step is O(N*k*dim) and the hot loop — compute the nearest
+        // centroid for every vector in parallel, then accumulate sums serially in
+        // index order (so the float reduction stays deterministic / unchanged).
+        let assignments: Vec<u32> = vectors
+            .par_iter()
+            .map(|(_, vector)| nearest_by_l2(&centroids, vector).expect("k > 0"))
+            .collect();
         let mut sums = vec![vec![0.0_f32; dim]; k];
         let mut counts = vec![0_usize; k];
-        for (_, vector) in vectors {
-            let cid = nearest_by_l2(&centroids, vector).expect("k > 0");
+        for ((_, vector), &cid) in vectors.iter().zip(&assignments) {
             counts[cid as usize] += 1;
             for (sum, value) in sums[cid as usize].iter_mut().zip(vector) {
                 *sum += *value;
@@ -214,7 +221,7 @@ pub fn try_build_centroids(
         }
     }
     let assignments = vectors
-        .iter()
+        .par_iter()
         .map(|(id, vector)| (*id, nearest_by_l2(&centroids, vector).expect("k > 0")))
         .collect();
     SpannCentroidIndex::from_parts(dim as u32, centroids, (0..k as u64).collect(), assignments)
@@ -235,14 +242,25 @@ fn effective_cluster_count(vector_count: usize, requested: usize) -> usize {
 
 fn kmeans_pp(vectors: &[(u32, Vec<f32>)], k: usize, seed: u64) -> Vec<Vec<f32>> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let mut centroids = vec![vectors[rng.gen_range(0..vectors.len())].1.clone()];
+    let first = vectors[rng.gen_range(0..vectors.len())].1.clone();
+    // Canonical kmeans++ with a cached D^2 array: `min_dist[i]` is the squared
+    // distance from vector i to its NEAREST chosen centroid so far. Adding a
+    // centroid updates the cache in O(N*dim) instead of re-scanning the whole
+    // centroid set (the old code was O(N*k^2*dim) — the billion-scale build wall).
+    // The cache equals `nearest_distance_sq(&centroids, v)` at every step, so the
+    // RNG draws and chosen centroids are bit-identical to the naive version.
+    let mut min_dist: Vec<f32> = vectors
+        .par_iter()
+        .map(|(_, vector)| l2_sq(&first, vector))
+        .collect();
+    let mut centroids = vec![first];
     while centroids.len() < k {
-        let distances: Vec<f32> = vectors
-            .iter()
-            .map(|(_, vector)| nearest_distance_sq(&centroids, vector))
-            .collect();
-        let total: f32 = distances.iter().sum();
+        let total: f32 = min_dist.iter().sum();
         if total <= f32::EPSILON {
+            // Degenerate: every remaining point coincides with a centroid. Mirror
+            // the naive fallback exactly, then refresh the cache against the new
+            // centroid set (rare path — correctness over speed).
+            let before = centroids.len();
             for (_, vector) in vectors {
                 if !centroids.contains(vector) {
                     centroids.push(vector.clone());
@@ -252,18 +270,36 @@ fn kmeans_pp(vectors: &[(u32, Vec<f32>)], k: usize, seed: u64) -> Vec<Vec<f32>> 
             if centroids.len() < k {
                 centroids.push(vectors[centroids.len() % vectors.len()].1.clone());
             }
+            if centroids.len() != before {
+                let cset = &centroids;
+                min_dist = vectors
+                    .par_iter()
+                    .map(|(_, vector)| nearest_distance_sq(cset, vector))
+                    .collect();
+            }
             continue;
         }
         let mut cut = rng.gen_range(0.0..total);
         let mut chosen = vectors.len() - 1;
-        for (idx, distance) in distances.iter().enumerate() {
+        for (idx, distance) in min_dist.iter().enumerate() {
             cut -= *distance;
             if cut <= 0.0 {
                 chosen = idx;
                 break;
             }
         }
-        centroids.push(vectors[chosen].1.clone());
+        let new_centroid = vectors[chosen].1.clone();
+        // Fold the new centroid into the cached nearest-distance array in parallel.
+        min_dist
+            .par_iter_mut()
+            .zip(vectors.par_iter())
+            .for_each(|(md, (_, vector))| {
+                let d = l2_sq(&new_centroid, vector);
+                if d < *md {
+                    *md = d;
+                }
+            });
+        centroids.push(new_centroid);
     }
     centroids
 }

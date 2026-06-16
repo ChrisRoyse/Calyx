@@ -327,6 +327,7 @@ dependencies = [
  "calyxd",
  "crc32fast",
  "proptest",
+ "rayon",
  "rusqlite",
  "serde",
  "serde_json",

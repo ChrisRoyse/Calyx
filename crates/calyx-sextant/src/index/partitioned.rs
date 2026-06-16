@@ -174,7 +174,13 @@ pub fn build_partitioned_vault(
         start = end;
     }
 
-    // 3. Build one DiskANN graph per region (each fits RAM).
+    // 3. Build one DiskANN graph per region (each fits RAM). Regions are built
+    //    in PARALLEL across cores (#706): each region is small and serial row-gen
+    //    + a small-graph Vamana build under-utilizes the machine, so the regions
+    //    themselves are the unit of parallelism. Peak memory is bounded by
+    //    `rayon` thread count x region size (NOT N), preserving the memory-bound
+    //    guarantee. Each region writes to a distinct graph/ids path, so the
+    //    concurrent builds never contend.
     let build_params = DiskAnnBuildParams {
         dim: p.dim,
         m_max: p.m_max,
@@ -187,33 +193,43 @@ pub fn build_partitioned_vault(
         rescore_k: 64,
         rescore_from_raw: false,
     };
-    let mut regions = Vec::with_capacity(r);
-    for (region, members) in buckets.iter().enumerate() {
-        if members.is_empty() {
-            continue;
-        }
-        let region = region as u32;
-        let rows: Vec<(CxId, Vec<f32>)> = members
-            .par_iter()
-            .map(|&idx| (cx(idx), gen_row(p.seed, idx, p.dim)))
-            .collect();
-        let graph_path = root.join(graph_rel(region));
-        DiskAnnSearch::build(
-            SlotId::new(0),
-            &graph_path,
-            &rows,
-            build_params,
-            None,
-            search_params,
-        )?;
-        write_ids(&root.join(ids_rel(region)), members)?;
-        regions.push(RegionMeta {
-            id: region,
-            count: members.len(),
-            graph_rel: graph_rel(region),
-            ids_rel: ids_rel(region),
-        });
-    }
+    let nonempty: Vec<(u32, &Vec<u64>)> = buckets
+        .iter()
+        .enumerate()
+        .filter(|(_, members)| !members.is_empty())
+        .map(|(region, members)| (region as u32, members))
+        .collect();
+    let mut regions: Vec<RegionMeta> = nonempty
+        .par_iter()
+        .map(|(region, members)| -> Result<RegionMeta> {
+            let region = *region;
+            // Serial row-gen here: the outer par_iter already saturates cores, so
+            // nesting another parallel gen would only add scheduler overhead.
+            let rows: Vec<(CxId, Vec<f32>)> = members
+                .iter()
+                .map(|&idx| (cx(idx), gen_row(p.seed, idx, p.dim)))
+                .collect();
+            let graph_path = root.join(graph_rel(region));
+            DiskAnnSearch::build(
+                SlotId::new(0),
+                &graph_path,
+                &rows,
+                build_params,
+                None,
+                search_params,
+            )?;
+            write_ids(&root.join(ids_rel(region)), members)?;
+            Ok(RegionMeta {
+                id: region,
+                count: members.len(),
+                graph_rel: graph_rel(region),
+                ids_rel: ids_rel(region),
+            })
+        })
+        .collect::<Result<Vec<RegionMeta>>>()?;
+    // `par_iter().collect()` preserves input order, but make the on-disk manifest
+    // order explicit and deterministic regardless of scheduling.
+    regions.sort_by_key(|m| m.id);
 
     // 4. Root DiskANN graph over the region centroids (card's slot_00.ann + a
     //    second routing path). Tiny (R nodes).
