@@ -20,7 +20,11 @@ calyx-ledger = { path = "../calyx-ledger" }
 prometheus.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tokio = { workspace = true, features = ["full"] }
+tokio-util.workspace = true
 toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true

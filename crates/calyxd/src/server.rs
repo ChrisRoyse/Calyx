@@ -6,22 +6,29 @@
 //! path is 404, every other method is 405, and an unreadable request is 400.
 //! Failures are answered with explicit status codes and logged — never dropped.
 
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
+
+use tokio_util::sync::CancellationToken;
 
 use crate::error::DaemonError;
 use crate::metrics::CalyxMetrics;
 
 const REQUEST_HEAD_LIMIT: usize = 8192;
 const IO_TIMEOUT: Duration = Duration::from_secs(5);
+const ACCEPT_IDLE_SLEEP: Duration = Duration::from_millis(10);
+const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTENT_TYPE: &str = "text/plain; version=0.0.4";
 
 /// Loopback `/metrics` server.
 pub struct MetricsServer {
     listener: TcpListener,
     metrics: Arc<CalyxMetrics>,
+    active: Arc<AtomicUsize>,
 }
 
 impl MetricsServer {
@@ -34,7 +41,11 @@ impl MetricsServer {
         }
         let listener = TcpListener::bind(addr)
             .map_err(|error| DaemonError::bind_failed(format!("bind {addr}: {error}")))?;
-        Ok(Self { listener, metrics })
+        Ok(Self {
+            listener,
+            metrics,
+            active: Arc::new(AtomicUsize::new(0)),
+        })
     }
 
     /// The actually-bound address (port 0 resolves here).
@@ -44,24 +55,56 @@ impl MetricsServer {
             .map_err(|error| DaemonError::bind_failed(format!("local_addr: {error}")))
     }
 
+    /// Number of connection handlers currently in flight.
+    pub fn active_connections(&self) -> usize {
+        self.active.load(Ordering::SeqCst)
+    }
+
     /// Accept loop; each connection is served on its own thread so one stuck
-    /// client cannot block the next scrape.
-    pub fn run(self) -> ! {
-        loop {
+    /// client cannot block the next scrape. The loop returns only after
+    /// `cancel_token` fires and in-flight handlers have drained or timed out.
+    pub fn run(self, cancel_token: CancellationToken) -> Result<(), DaemonError> {
+        self.listener.set_nonblocking(true).map_err(|error| {
+            DaemonError::bind_failed(format!("set metrics listener nonblocking: {error}"))
+        })?;
+        while !cancel_token.is_cancelled() {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
                     let metrics = Arc::clone(&self.metrics);
+                    let active = Arc::clone(&self.active);
+                    active.fetch_add(1, Ordering::SeqCst);
                     std::thread::spawn(move || {
-                        if let Err(detail) = handle_connection(stream, &metrics) {
-                            eprintln!("calyxd: metrics connection from {peer}: {detail}");
+                        let outcome =
+                            catch_unwind(AssertUnwindSafe(|| handle_connection(stream, &metrics)));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        match outcome {
+                            Ok(Ok(())) => {}
+                            Ok(Err(detail)) => {
+                                eprintln!("calyxd: metrics connection from {peer}: {detail}");
+                            }
+                            Err(_panic) => {
+                                eprintln!(
+                                    "calyxd: CALYX_DAEMON_CONN_PANIC: metrics connection from \
+                                     {peer} panicked; connection dropped, server continues"
+                                );
+                            }
                         }
                     });
+                }
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    std::thread::sleep(ACCEPT_IDLE_SLEEP);
                 }
                 Err(error) => {
                     eprintln!("calyxd: accept on metrics listener failed: {error}");
                 }
             }
         }
+
+        let deadline = Instant::now() + DRAIN_TIMEOUT;
+        while self.active.load(Ordering::SeqCst) > 0 && Instant::now() < deadline {
+            std::thread::sleep(ACCEPT_IDLE_SLEEP);
+        }
+        Ok(())
     }
 }
 
@@ -209,5 +252,26 @@ mod tests {
             route("POST /metrics HTTP/1.1", &metrics).0,
             "405 Method Not Allowed"
         );
+    }
+
+    #[test]
+    fn cancellation_token_stops_accept_loop() {
+        let server = MetricsServer::bind("127.0.0.1:0".parse().unwrap(), metrics()).unwrap();
+        let addr = server.local_addr().unwrap();
+        assert_eq!(server.active_connections(), 0);
+        let token = CancellationToken::new();
+        let stop = token.clone();
+        let join = std::thread::spawn(move || server.run(token));
+
+        let mut stream = TcpStream::connect(addr).expect("connect before shutdown");
+        write!(stream, "GET /metrics HTTP/1.1\r\nHost: {addr}\r\n\r\n").expect("send request");
+        let mut response = String::new();
+        stream.read_to_string(&mut response).expect("read response");
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+
+        stop.cancel();
+        join.join()
+            .expect("server thread joins")
+            .expect("server returns Ok");
     }
 }

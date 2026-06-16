@@ -11,6 +11,7 @@
 // single source of truth, reused by `calyx-cli` and the T04 healthcheck. The
 // binary consumes them from the lib rather than recompiling its own copies.
 // `verify_loop` is the binary-only periodic chain-verify driver.
+mod startup;
 mod verify_loop;
 
 use std::net::SocketAddr;
@@ -19,12 +20,11 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-use calyxd::config::CalyxConfig;
-use calyxd::cuda_probe;
 use calyxd::error::DaemonError;
 use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics, collect_default_zfs_integrity};
 use calyxd::server::MetricsServer;
-use calyxd::vram;
+use startup::{run_server, validate_config};
+use tokio_util::sync::CancellationToken;
 use verify_loop::{TargetKind, VerifyTarget, run_cycle, spawn_loop};
 
 const USAGE: &str = "usage: calyxd (--vault <dir> | --ledger <dir>)... \
@@ -50,7 +50,8 @@ struct Config {
     audit_vram: bool,
 }
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     let config = match parse_args(std::env::args().skip(1).collect()) {
         Ok(config) => config,
         Err(error) => {
@@ -64,133 +65,10 @@ fn main() -> ExitCode {
     // Server mode: a --config (without --validate-config) boots the config-driven
     // daemon, which begins with a fatal CUDA preflight before any other init.
     if let Some(path) = config.config_path.clone() {
-        return run_server(&path, config.once, config.audit_vram);
+        return run_server(&path, config.once, config.audit_vram).await;
     }
     match run(config) {
         Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            ExitCode::from(2)
-        }
-    }
-}
-
-/// Server mode: load `calyx.toml`, run the fatal CUDA preflight (T02) and the
-/// VRAM budget audit honoring resident TEI (T03), then chain-verify the
-/// configured vault on the configured loopback. `--audit-vram` stops after the
-/// audit (no vault needed). T05/T06 add the MCP dispatch surface.
-///
-/// A CUDA or NVML failure — or an already-exhausted budget — is fatal with exit
-/// code 1 and a structured `CALYX_*` code; there is no CPU fallback.
-fn run_server(config_path: &std::path::Path, once: bool, audit_vram: bool) -> ExitCode {
-    let cfg = match CalyxConfig::from_file(config_path) {
-        Ok(cfg) => cfg,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            return ExitCode::from(2);
-        }
-    };
-    let device = match cuda_probe::probe_cuda_device() {
-        Ok(device) => device,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            return ExitCode::from(1);
-        }
-    };
-    println!(
-        "INFO calyxd: CUDA device ready device=\"{}\" vram={}MiB compute={}",
-        device.device_name, device.vram_total_mib, device.compute_cap
-    );
-    // PH65 T03: VRAM budget audit against live NVML usage, honoring resident TEI.
-    let nvml = match vram::NvmlVramUsage::init() {
-        Ok(nvml) => nvml,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            return ExitCode::from(1);
-        }
-    };
-    let budget = match vram::VramBudget::from_config(cfg.vram_budget_mib, &device, nvml) {
-        Ok(budget) => budget,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            return ExitCode::from(1);
-        }
-    };
-    let audit = match budget.startup_vram_audit() {
-        Ok(audit) => audit,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            return ExitCode::from(1);
-        }
-    };
-    println!(
-        "INFO calyxd: VRAM audit tei_used={}MiB calyx_budget={}MiB device_total={}MiB available={}MiB",
-        audit.tei_used_mib,
-        audit.calyx_budget_mib,
-        audit.device_total_mib,
-        audit.calyx_budget_mib.saturating_sub(audit.tei_used_mib)
-    );
-    // Startup readiness signal: would a representative Forge dispatch be admitted
-    // right now? Per-dispatch enforcement (the hard gate) happens at dispatch
-    // time once Forge work is wired (PH65 T05/T06); this is observability, not a
-    // hard gate, because resident usage fluctuates.
-    const PROBE_DISPATCH_MIB: u32 = 256;
-    let available = match budget.available_mib() {
-        Ok(available) => available,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            return ExitCode::from(1);
-        }
-    };
-    let dispatch_ready = budget.check_can_allocate(PROBE_DISPATCH_MIB).is_ok();
-    println!(
-        "INFO calyxd: dispatch readiness available={available}MiB probe={PROBE_DISPATCH_MIB}MiB admitted={dispatch_ready}"
-    );
-    if audit_vram {
-        return ExitCode::SUCCESS;
-    }
-    let server_config = Config {
-        targets: vec![VerifyTarget {
-            kind: TargetKind::Vault,
-            path: cfg.vault_path_resolved(),
-        }],
-        bind: cfg.bind_addr,
-        interval: Duration::from_secs(60),
-        once,
-        config_path: None,
-        validate_config: false,
-        audit_vram: false,
-    };
-    match run(server_config) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("calyxd: {error}");
-            ExitCode::from(2)
-        }
-    }
-}
-
-/// `--validate-config`: load the reference TOML, run fail-closed validation, and
-/// print the parsed config (which holds no secrets). Exits 0 on success, 2 with
-/// the stable `CALYX_*` error code on any failure.
-fn validate_config(path: Option<&std::path::Path>) -> ExitCode {
-    let Some(path) = path else {
-        eprintln!(
-            "calyxd: {}",
-            DaemonError::config_invalid("--validate-config requires --config <path>")
-        );
-        return ExitCode::from(2);
-    };
-    match CalyxConfig::from_file(path) {
-        Ok(config) => {
-            println!("calyxd: config {} OK", path.display());
-            println!("{config:#?}");
-            println!(
-                "calyxd: vault_path_resolved = {}",
-                config.vault_path_resolved().display()
-            );
-            ExitCode::SUCCESS
-        }
         Err(error) => {
             eprintln!("calyxd: {error}");
             ExitCode::from(2)
@@ -232,7 +110,7 @@ fn run(config: Config) -> Result<(), DaemonError> {
     );
     spawn_loop(config.targets, chain, config.interval);
     spawn_zfs_metrics_loop(Arc::clone(&surface), config.interval);
-    server.run()
+    server.run(CancellationToken::new())
 }
 
 fn refresh_zfs_metrics(metrics: &CalyxMetrics) {
@@ -311,16 +189,14 @@ fn parse_args(args: Vec<String>) -> Result<Config, DaemonError> {
         }
     }
 
-    // `--validate-config` and server mode (`--config <path>`) need no explicit
-    // verify targets — the config supplies them.
+    if (validate_config || audit_vram) && config_path.is_none() {
+        config_path = Some(PathBuf::from("calyx.toml"));
+    }
+    // `--validate-config`, `--audit-vram`, and server mode (`--config <path>`)
+    // need no explicit verify targets — the config supplies them.
     if !validate_config && config_path.is_none() && targets.is_empty() {
         return Err(DaemonError::config_invalid(
             "at least one --vault or --ledger target is required",
-        ));
-    }
-    if audit_vram && config_path.is_none() {
-        return Err(DaemonError::config_invalid(
-            "--audit-vram requires --config <calyx.toml>",
         ));
     }
     Ok(Config {

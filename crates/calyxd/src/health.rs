@@ -54,6 +54,15 @@ pub struct CalyxHealthResult {
     pub error_detail: Option<String>,
 }
 
+/// Clean-shutdown source-of-truth record written over `health_log_path`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CalyxShutdownResult {
+    /// Literal shutdown verdict consumed by monitoring.
+    pub status: &'static str,
+    /// ISO-8601 UTC timestamp of the clean shutdown.
+    pub timestamp_utc: String,
+}
+
 impl CalyxHealthResult {
     /// True only when every probe passed.
     pub fn is_pass(&self) -> bool {
@@ -146,6 +155,20 @@ fn probe_vault(vault_path: &Path) -> (bool, Option<DaemonError>) {
 /// `01 §4`), then `rename`s it into place. A reader therefore never observes a
 /// half-written file.
 pub fn write_health_result(result: &CalyxHealthResult, path: &Path) -> Result<(), DaemonError> {
+    write_json_atomic(result, path)
+}
+
+/// Atomically write `{"status":"shutdown","timestamp_utc":"…"}` to `path`.
+pub fn write_shutdown_status(path: &Path) -> Result<CalyxShutdownResult, DaemonError> {
+    let result = CalyxShutdownResult {
+        status: "shutdown",
+        timestamp_utc: iso8601_from_unix_secs(unix_secs_now()),
+    };
+    write_json_atomic(&result, path)?;
+    Ok(result)
+}
+
+fn write_json_atomic<T: Serialize>(value: &T, path: &Path) -> Result<(), DaemonError> {
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty());
     if let Some(parent) = parent {
         fs::create_dir_all(parent).map_err(|error| {
@@ -155,7 +178,7 @@ pub fn write_health_result(result: &CalyxHealthResult, path: &Path) -> Result<()
             ))
         })?;
     }
-    let json = serde_json::to_string_pretty(result)
+    let json = serde_json::to_string_pretty(value)
         .map_err(|error| DaemonError::health_failed(format!("serialize health result: {error}")))?;
     let tmp = temp_sibling(path);
     fs::write(&tmp, format!("{json}\n")).map_err(|error| {
@@ -305,6 +328,28 @@ mod tests {
         // No temp sibling left behind after the atomic rename.
         let leftover = temp_sibling(&path);
         assert!(!leftover.exists(), "temp sibling must be renamed away");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_shutdown_status_overwrites_health_file_with_shutdown_json() {
+        let dir =
+            std::env::temp_dir().join(format!("calyx-health-shutdown-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("latest.json");
+        write_health_result(&result("pass"), &path).expect("write pass");
+
+        let shutdown = write_shutdown_status(&path).expect("write shutdown");
+
+        assert_eq!(shutdown.status, "shutdown");
+        let text = fs::read_to_string(&path).expect("read shutdown file");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        assert_eq!(value["status"], "shutdown");
+        assert!(value["timestamp_utc"].as_str().unwrap().ends_with('Z'));
+        assert!(
+            value.get("vault_read_ok").is_none(),
+            "shutdown record must not look like a stale health probe: {text}"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

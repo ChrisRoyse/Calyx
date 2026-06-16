@@ -19,6 +19,7 @@ use calyxd::metrics::{
     ZfsIntegritySnapshot, ZfsPoolIntegrity,
 };
 use calyxd::server::MetricsServer;
+use tokio_util::sync::CancellationToken;
 
 const VAULT: &str = "/data/fsv-vault";
 
@@ -63,7 +64,9 @@ fn full_surface_served_over_real_http_with_recorded_values() {
     let server =
         MetricsServer::bind("127.0.0.1:0".parse().unwrap(), Arc::clone(&surface)).expect("bind");
     let addr = server.local_addr().expect("local_addr").to_string();
-    std::thread::spawn(move || server.run());
+    let cancel = CancellationToken::new();
+    let stop = cancel.clone();
+    let join = std::thread::spawn(move || server.run(cancel).expect("server run"));
 
     let body = http_get(&addr, "/metrics");
     assert!(body.starts_with("HTTP/1.1 200 OK"), "response: {body}");
@@ -163,6 +166,9 @@ fn full_surface_served_over_real_http_with_recorded_values() {
         response.starts_with("HTTP/1.1 405"),
         "non-GET must 405: {response}"
     );
+
+    stop.cancel();
+    join.join().expect("metrics server joins after cancel");
 }
 
 fn http_get(addr: &str, path: &str) -> String {
