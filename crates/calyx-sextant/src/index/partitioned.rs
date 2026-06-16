@@ -212,14 +212,28 @@ pub fn build_partitioned_vault(
                 .map(|&idx| (cx(idx), gen_row(p.seed, idx, p.dim)))
                 .collect();
             let graph_path = root.join(graph_rel(region));
-            DiskAnnSearch::build(
-                SlotId::new(0),
-                &graph_path,
-                &rows,
-                build_params,
-                None,
-                search_params,
-            )?;
+            // Build this region's graph SINGLE-THREADED. `build_diskann_graph` uses
+            // rayon internally, but a small region graph cannot use many cores; if
+            // it steals the global pool it starves the *other* regions, collapsing
+            // the build back to ~serial (measured ~2 regions/s on 32 cores). Pinning
+            // each region build to its own 1-thread pool lets `num_cpus` regions
+            // build truly concurrently — throughput scales with cores, not ~1.
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(1)
+                .build()
+                .map_err(|e| {
+                    crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string())
+                })?;
+            pool.install(|| {
+                DiskAnnSearch::build(
+                    SlotId::new(0),
+                    &graph_path,
+                    &rows,
+                    build_params,
+                    None,
+                    search_params,
+                )
+            })?;
             write_ids(&root.join(ids_rel(region)), members)?;
             Ok(RegionMeta {
                 id: region,
