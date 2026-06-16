@@ -1,6 +1,9 @@
 //! Search, kernel-answer, and neighbors MCP tools for PH63 T04.
 
 mod engine;
+#[cfg(test)]
+mod extension_tests;
+mod extensions;
 mod output;
 #[cfg(test)]
 mod tests;
@@ -22,6 +25,7 @@ pub fn register(server: &mut McpServer) -> Result<(), CalyxError> {
     server.register(Box::new(SearchTool))?;
     server.register(Box::new(KernelAnswerTool))?;
     server.register(Box::new(NeighborsTool))?;
+    extensions::register(server)?;
     Ok(())
 }
 
@@ -267,7 +271,7 @@ impl SearchGuard {
     }
 }
 
-fn parse_k(value: Option<usize>) -> ToolResult<usize> {
+pub(super) fn parse_k(value: Option<usize>) -> ToolResult<usize> {
     let k = value.unwrap_or(DEFAULT_K);
     if (1..=MAX_K).contains(&k) {
         Ok(k)
@@ -295,7 +299,7 @@ pub(super) fn parse_anchor_kind(value: &str) -> ToolResult<AnchorKind> {
     })
 }
 
-fn validate_text(value: &str, field: &str) -> ToolResult<()> {
+pub(super) fn validate_text(value: &str, field: &str) -> ToolResult<()> {
     if value.is_empty() {
         return Err(ToolError::invalid_params(format!(
             "{field} must not be empty"
@@ -304,7 +308,7 @@ fn validate_text(value: &str, field: &str) -> ToolResult<()> {
     Ok(())
 }
 
-fn decode<T: DeserializeOwned>(tool: &str, params: Value) -> ToolResult<T> {
+pub(super) fn decode<T: DeserializeOwned>(tool: &str, params: Value) -> ToolResult<T> {
     serde_json::from_value(params)
         .map_err(|err| ToolError::invalid_params(format!("{tool} invalid arguments: {err}")))
 }
@@ -313,7 +317,7 @@ fn encode_error(error: serde_json::Error) -> ToolError {
     CalyxError::aster_corrupt_shard(format!("encode search result: {error}")).into()
 }
 
-fn def(name: &str, description: &str, use_when: &str, input_schema: Value) -> ToolDef {
+pub(super) fn def(name: &str, description: &str, use_when: &str, input_schema: Value) -> ToolDef {
     ToolDef {
         name: name.to_string(),
         description: description.to_string(),
@@ -322,10 +326,10 @@ fn def(name: &str, description: &str, use_when: &str, input_schema: Value) -> To
     }
 }
 
-fn enum_string(values: &[&str]) -> Value {
+pub(super) fn enum_string(values: &[&str]) -> Value {
     json!({ "type": "string", "enum": values })
 }
 
-fn integer_range(min: usize, max: usize) -> Value {
+pub(super) fn integer_range(min: usize, max: usize) -> Value {
     json!({ "type": "integer", "minimum": min, "maximum": max })
 }

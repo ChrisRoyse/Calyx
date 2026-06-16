@@ -14,8 +14,11 @@ path = "src/main.rs"
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
+calyx-loom = { path = "../calyx-loom" }
+calyx-paths = { path = "../calyx-paths" }
 calyx-registry = { path = "../calyx-registry" }
 calyx-sextant = { path = "../calyx-sextant" }
+calyx-ward = { path = "../calyx-ward" }
 serde.workspace = true
 serde_json.workspace = true
 ulid.workspace = true

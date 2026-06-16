@@ -22,7 +22,7 @@ use super::output::KernelAnswerOut;
 use super::{NeighborsRequest, SearchRequest};
 use crate::tools::vault::store::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
 
-const HNSW_SEED: u64 = 0x0050_4836_3354_3034;
+pub(super) const HNSW_SEED: u64 = 0x0050_4836_3354_3034;
 
 pub(super) struct SearchOutcome {
     pub(super) hits: Vec<Hit>,
@@ -164,7 +164,7 @@ fn parse_filter(raw: Option<Value>) -> ToolResult<QueryFilters> {
     Ok(filters)
 }
 
-fn measure_query_vectors(
+pub(super) fn measure_query_vectors(
     state: &VaultPanelState,
     query: &str,
 ) -> ToolResult<Vec<(SlotId, SlotVector)>> {
@@ -253,7 +253,7 @@ fn attach_stored_provenance(
     Ok(())
 }
 
-fn load_docs(vault: &AsterVault) -> ToolResult<BTreeMap<CxId, Constellation>> {
+pub(super) fn load_docs(vault: &AsterVault) -> ToolResult<BTreeMap<CxId, Constellation>> {
     let snapshot = vault.snapshot();
     let mut docs = BTreeMap::new();
     for (key, _) in vault.scan_cf_at(snapshot, ColumnFamily::Base)? {
@@ -338,11 +338,11 @@ fn has_grounding(cx: &Constellation, anchor: Option<&AnchorKind>) -> bool {
         .any(|item| anchor.is_none_or(|kind| &item.kind == kind))
 }
 
-fn resolve_requested_vault(vault: &str) -> ToolResult<ResolvedVault> {
+pub(super) fn resolve_requested_vault(vault: &str) -> ToolResult<ResolvedVault> {
     resolve_vault_info(&home_dir()?, vault)
 }
 
-fn open_vault(resolved: &ResolvedVault) -> ToolResult<AsterVault> {
+pub(super) fn open_vault(resolved: &ResolvedVault) -> ToolResult<AsterVault> {
     Ok(AsterVault::open(
         &resolved.path,
         resolved.vault_id,
@@ -358,14 +358,14 @@ fn renumber_and_truncate(hits: &mut Vec<Hit>, k: usize) {
     }
 }
 
-fn indexable(vector: &SlotVector) -> bool {
+pub(super) fn indexable(vector: &SlotVector) -> bool {
     matches!(
         vector,
         SlotVector::Dense { .. } | SlotVector::Sparse { .. } | SlotVector::Multi { .. }
     )
 }
 
-fn same_index_shape(query: &SlotVector, stored: &SlotVector) -> bool {
+pub(super) fn same_index_shape(query: &SlotVector, stored: &SlotVector) -> bool {
     match (query, stored) {
         (SlotVector::Dense { dim: q, .. }, SlotVector::Dense { dim: s, .. }) => q == s,
         (SlotVector::Sparse { dim: q, .. }, SlotVector::Sparse { dim: s, .. }) => q == s,

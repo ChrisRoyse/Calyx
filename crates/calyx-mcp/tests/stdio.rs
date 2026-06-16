@@ -44,7 +44,7 @@ fn tools_list_returns_registered_vault_tools_and_clean_exit() {
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], 1);
     let tools = response["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 19);
     let names = tools
         .iter()
         .map(|tool| tool["name"].as_str().unwrap())
@@ -53,8 +53,12 @@ fn tools_list_returns_registered_vault_tools_and_clean_exit() {
         names,
         [
             "calyx.add_lens",
+            "calyx.agree",
             "calyx.anchor",
             "calyx.create_vault",
+            "calyx.define",
+            "calyx.disagree",
+            "calyx.guard_generate",
             "calyx.ingest",
             "calyx.kernel_answer",
             "calyx.list_panel",
@@ -64,6 +68,9 @@ fn tools_list_returns_registered_vault_tools_and_clean_exit() {
             "calyx.profile_lens",
             "calyx.retire_lens",
             "calyx.search",
+            "calyx.search_skill",
+            "calyx.skills",
+            "calyx.traverse",
         ]
     );
     assert!(response.get("error").is_none());
