@@ -50,6 +50,55 @@ fn retire_lens_missing_slot_is_usage_error() {
 }
 
 #[test]
+fn parse_ingest_text_command() {
+    let parsed = parse(&tokens(["ingest", "mydb", "--text", "hello"])).unwrap();
+    assert_eq!(
+        parsed,
+        Subcommand::Ingest(IngestArgs {
+            vault: "mydb".to_string(),
+            text: Some("hello".to_string()),
+            batch: None,
+            idempotent: true,
+        })
+    );
+}
+
+#[test]
+fn parse_anchor_label_command() {
+    let parsed = parse(&tokens([
+        "anchor",
+        "mydb",
+        "00000000000000000000000000000000",
+        "--kind",
+        "label:positive",
+        "--value",
+        "positive",
+        "--confidence",
+        "0.75",
+        "--source",
+        "unit",
+    ]))
+    .unwrap();
+    assert_eq!(
+        parsed,
+        Subcommand::Anchor(AnchorArgs {
+            vault: "mydb".to_string(),
+            cx_id: "00000000000000000000000000000000".to_string(),
+            kind: "label:positive".to_string(),
+            value: "positive".to_string(),
+            confidence: Some(0.75),
+            source: Some("unit".to_string()),
+        })
+    );
+}
+
+#[test]
+fn parse_measure_rejects_empty_text() {
+    let err = parse(&tokens(["measure", "mydb", "--text", ""])).unwrap_err();
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+}
+
+#[test]
 fn unknown_panel_template_is_usage_error_with_remediation_values() {
     let err = parse(&tokens([
         "create-vault",
@@ -101,6 +150,24 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
         (safe_name(), 0u16..128u16)
             .prop_map(|(vault, slot)| { Subcommand::ParkLens(SlotCommandArgs { vault, slot }) }),
         safe_name().prop_map(|vault| Subcommand::ListPanel(VaultRefArgs { vault })),
+        safe_name().prop_map(|vault| Subcommand::Ingest(IngestArgs {
+            vault,
+            text: Some("roundtrip".to_string()),
+            batch: None,
+            idempotent: true,
+        })),
+        safe_name().prop_map(|vault| Subcommand::Measure(MeasureArgs {
+            vault,
+            text: "roundtrip".to_string(),
+        })),
+        safe_name().prop_map(|vault| Subcommand::Anchor(AnchorArgs {
+            vault,
+            cx_id: "00000000000000000000000000000000".to_string(),
+            kind: "label:roundtrip".to_string(),
+            value: "roundtrip".to_string(),
+            confidence: None,
+            source: None,
+        })),
         Just(Subcommand::ProfileLens(ProfileLensArgs {
             name: Some("probe".to_string()),
             runtime: Some("algorithmic".to_string()),

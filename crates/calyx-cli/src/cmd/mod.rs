@@ -1,3 +1,4 @@
+mod ingest;
 mod lens;
 pub(crate) mod vault;
 
@@ -15,7 +16,7 @@ pub(crate) const PANEL_TEMPLATES: &[&str] = &[
     "media-default",
 ];
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum Subcommand {
     CreateVault(CreateVaultArgs),
     AddLens(AddLensArgs),
@@ -23,6 +24,9 @@ pub(crate) enum Subcommand {
     ParkLens(SlotCommandArgs),
     ListPanel(VaultRefArgs),
     ProfileLens(ProfileLensArgs),
+    Ingest(IngestArgs),
+    Anchor(AnchorArgs),
+    Measure(MeasureArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -54,6 +58,30 @@ pub(crate) struct VaultRefArgs {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct IngestArgs {
+    pub vault: String,
+    pub text: Option<String>,
+    pub batch: Option<PathBuf>,
+    pub idempotent: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AnchorArgs {
+    pub vault: String,
+    pub cx_id: String,
+    pub kind: String,
+    pub value: String,
+    pub confidence: Option<f32>,
+    pub source: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MeasureArgs {
+    pub vault: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProfileLensArgs {
     pub name: Option<String>,
     pub runtime: Option<String>,
@@ -68,7 +96,21 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
     if !args.first().is_some_and(|command| is_cmd(command)) {
         return None;
     }
-    Some(parse(args).and_then(vault::run))
+    Some(parse(args).and_then(run))
+}
+
+fn run(command: Subcommand) -> CliResult {
+    match command {
+        Subcommand::CreateVault(_)
+        | Subcommand::AddLens(_)
+        | Subcommand::RetireLens(_)
+        | Subcommand::ParkLens(_)
+        | Subcommand::ListPanel(_)
+        | Subcommand::ProfileLens(_) => vault::run(command),
+        Subcommand::Ingest(_) | Subcommand::Anchor(_) | Subcommand::Measure(_) => {
+            ingest::run(command)
+        }
+    }
 }
 
 pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
@@ -82,6 +124,9 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "park-lens" => parse_slot_command(rest).map(Subcommand::ParkLens),
         "list-panel" => parse_vault_ref(rest).map(Subcommand::ListPanel),
         "profile-lens" => parse_profile_lens(rest),
+        "ingest" => ingest::parse_ingest(rest),
+        "anchor" => ingest::parse_anchor(rest),
+        "measure" => ingest::parse_measure(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -89,7 +134,15 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
 fn is_cmd(command: &str) -> bool {
     matches!(
         command,
-        "create-vault" | "add-lens" | "retire-lens" | "park-lens" | "list-panel" | "profile-lens"
+        "create-vault"
+            | "add-lens"
+            | "retire-lens"
+            | "park-lens"
+            | "list-panel"
+            | "profile-lens"
+            | "ingest"
+            | "anchor"
+            | "measure"
     )
 }
 
@@ -284,7 +337,7 @@ impl LensFlags {
     }
 }
 
-fn value<'a>(args: &'a [String], index: usize, flag: &str) -> CliResult<&'a str> {
+pub(super) fn value<'a>(args: &'a [String], index: usize, flag: &str) -> CliResult<&'a str> {
     args.get(index)
         .map(String::as_str)
         .ok_or_else(|| CliError::usage(format!("{flag} requires a value")))
@@ -323,6 +376,41 @@ impl Subcommand {
             Self::RetireLens(args) => slot_tokens("retire-lens", args),
             Self::ParkLens(args) => slot_tokens("park-lens", args),
             Self::ListPanel(args) => vec!["list-panel".to_string(), args.vault.clone()],
+            Self::Ingest(args) => {
+                let mut out = vec!["ingest".to_string(), args.vault.clone()];
+                push_opt(&mut out, "--text", args.text.as_deref());
+                push_opt(
+                    &mut out,
+                    "--batch",
+                    args.batch.as_ref().and_then(|path| path.to_str()),
+                );
+                if args.idempotent {
+                    out.push("--idempotent".to_string());
+                }
+                out
+            }
+            Self::Anchor(args) => {
+                let mut out = vec![
+                    "anchor".to_string(),
+                    args.vault.clone(),
+                    args.cx_id.clone(),
+                    "--kind".to_string(),
+                    args.kind.clone(),
+                    "--value".to_string(),
+                    args.value.clone(),
+                ];
+                if let Some(confidence) = args.confidence {
+                    out.extend(["--confidence".to_string(), confidence.to_string()]);
+                }
+                push_opt(&mut out, "--source", args.source.as_deref());
+                out
+            }
+            Self::Measure(args) => vec![
+                "measure".to_string(),
+                args.vault.clone(),
+                "--text".to_string(),
+                args.text.clone(),
+            ],
             Self::ProfileLens(args) => {
                 let mut out = vec!["profile-lens".to_string()];
                 push_opt(&mut out, "--name", args.name.as_deref());

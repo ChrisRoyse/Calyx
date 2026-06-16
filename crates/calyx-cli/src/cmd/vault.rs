@@ -30,6 +30,7 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
         Subcommand::ParkLens(args) => set_lens_state(args, LensStateAction::Park),
         Subcommand::ListPanel(args) => list_panel_command(args),
         Subcommand::ProfileLens(args) => profile_lens_command(args),
+        _ => unreachable!("non-vault command routed to vault module"),
     }
 }
 
@@ -64,6 +65,13 @@ struct VaultIndexEntry {
     vault_id: VaultId,
     path: String,
     panel_template: String,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ResolvedVault {
+    pub path: PathBuf,
+    pub name: String,
+    pub vault_id: VaultId,
 }
 
 #[derive(Clone, Copy)]
@@ -275,7 +283,7 @@ fn panel_for_template(name: &str) -> CliResult<Panel> {
     Ok(calyx_registry::instantiate_panel(&template, now_ms()).panel)
 }
 
-fn home_dir() -> CliResult<PathBuf> {
+pub(crate) fn home_dir() -> CliResult<PathBuf> {
     env::var_os("CALYX_HOME")
         .map(PathBuf::from)
         .ok_or_else(|| CliError::usage("CALYX_HOME is required for vault commands"))
@@ -302,36 +310,86 @@ fn index_path(home: &Path) -> PathBuf {
     home.join("vaults").join("index.json")
 }
 
-fn resolve_vault(home: &Path, vault: &str) -> CliResult<PathBuf> {
+pub(crate) fn resolve_vault(home: &Path, vault: &str) -> CliResult<PathBuf> {
+    resolve_vault_info(home, vault).map(|resolved| resolved.path)
+}
+
+pub(crate) fn resolve_vault_info(home: &Path, vault: &str) -> CliResult<ResolvedVault> {
+    let index = read_index(home)?;
     let direct = PathBuf::from(vault);
     if direct.exists() {
-        return Ok(direct);
+        if let Some(resolved) = resolve_direct_indexed(home, &index, &direct)? {
+            return Ok(resolved);
+        }
+        let vault_id = direct
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| name.parse::<VaultId>().ok())
+            .ok_or_else(|| {
+                CalyxError::vault_access_denied(
+                    "direct vault path must end in a vault id or be present in the CLI index",
+                )
+            })?;
+        return Ok(ResolvedVault {
+            path: direct,
+            name: vault_id.to_string(),
+            vault_id,
+        });
     }
     if let Ok(vault_id) = vault.parse::<VaultId>() {
         let path = home.join("vaults").join(vault_id.to_string());
         if path.exists() {
-            return Ok(path);
+            if let Some(entry) = index.vaults.iter().find(|entry| entry.vault_id == vault_id) {
+                return Ok(resolve_entry(home, entry));
+            }
+            return Ok(ResolvedVault {
+                path,
+                name: vault_id.to_string(),
+                vault_id,
+            });
         }
     }
-    let index = read_index(home)?;
     if let Some(entry) = index
         .vaults
         .iter()
         .find(|entry| entry.name == vault || entry.vault_id.to_string() == vault)
     {
-        let path = home.join(&entry.path);
-        if path.exists() {
-            return Ok(path);
+        let resolved = resolve_entry(home, entry);
+        if resolved.path.exists() {
+            return Ok(resolved);
         }
     }
     Err(CalyxError::vault_access_denied(format!("vault {vault} does not exist")).into())
 }
 
-fn vault_salt(vault_id: VaultId, name: &str) -> Vec<u8> {
+fn resolve_direct_indexed(
+    home: &Path,
+    index: &VaultIndex,
+    direct: &Path,
+) -> CliResult<Option<ResolvedVault>> {
+    let direct = direct.canonicalize()?;
+    for entry in &index.vaults {
+        let path = home.join(&entry.path);
+        if path.exists() && path.canonicalize()? == direct {
+            return Ok(Some(resolve_entry(home, entry)));
+        }
+    }
+    Ok(None)
+}
+
+fn resolve_entry(home: &Path, entry: &VaultIndexEntry) -> ResolvedVault {
+    ResolvedVault {
+        path: home.join(&entry.path),
+        name: entry.name.clone(),
+        vault_id: entry.vault_id,
+    }
+}
+
+pub(crate) fn vault_salt(vault_id: VaultId, name: &str) -> Vec<u8> {
     format!("calyx-cli-vault:{vault_id}:{name}").into_bytes()
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as u64)
