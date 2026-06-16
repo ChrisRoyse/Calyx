@@ -16,6 +16,8 @@ pub(crate) fn usage() -> &'static str {
        calyx ingest <vault> (--text <s> | --batch <jsonl-path>) [--idempotent]
        calyx anchor <vault> <cx_id> --kind <test-pass|thumbs-up|thumbs-down|label:<s>|speaker-match|style-hold> --value <v> [--confidence <0..1>] [--source <s>]
        calyx measure <vault> --text <s>
+       calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--explain] [--provenance|--no-provenance] [--fresh|--stale-ok] [--filter <json-predicate>]
+       calyx kernel-answer <vault> <query> [--anchor <kind>] [--explain]
        calyx resource-drill --vault <dir> --ops <n> --value-bytes <n> --memtable-cap <bytes> --pin-max-age-ms <ms>
        calyx migrate vault <sqlite.db> <vault.calyx> [--verify] [--backfill-default-panel] [--offline-backfill] [--batch-size <n>]
        calyx migrate backfill <sqlite.db> <vault.calyx> [--offline-backfill] [--batch-size <n>]

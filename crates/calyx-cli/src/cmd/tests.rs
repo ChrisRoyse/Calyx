@@ -168,6 +168,23 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             confidence: None,
             source: None,
         })),
+        safe_name().prop_map(|vault| Subcommand::Search(search::SearchArgs {
+            vault,
+            query: "roundtrip".to_string(),
+            k: 5,
+            fusion: search::SearchFusionArg::Rrf,
+            guard: search::SearchGuardArg::Off,
+            explain: false,
+            provenance: true,
+            freshness: search::SearchFreshnessArg::Fresh,
+            filter: None,
+        })),
+        safe_name().prop_map(|vault| Subcommand::KernelAnswer(search::KernelAnswerArgs {
+            vault,
+            query: "roundtrip".to_string(),
+            anchor: None,
+            explain: false,
+        })),
         Just(Subcommand::ProfileLens(ProfileLensArgs {
             name: Some("probe".to_string()),
             runtime: Some("algorithmic".to_string()),

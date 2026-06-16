@@ -1,5 +1,6 @@
 mod ingest;
 mod lens;
+mod search;
 pub(crate) mod vault;
 
 use std::path::PathBuf;
@@ -27,6 +28,8 @@ pub(crate) enum Subcommand {
     Ingest(IngestArgs),
     Anchor(AnchorArgs),
     Measure(MeasureArgs),
+    Search(search::SearchArgs),
+    KernelAnswer(search::KernelAnswerArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -110,6 +113,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::Ingest(_) | Subcommand::Anchor(_) | Subcommand::Measure(_) => {
             ingest::run(command)
         }
+        Subcommand::Search(_) | Subcommand::KernelAnswer(_) => search::run(command),
     }
 }
 
@@ -127,6 +131,8 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "ingest" => ingest::parse_ingest(rest),
         "anchor" => ingest::parse_anchor(rest),
         "measure" => ingest::parse_measure(rest),
+        "search" => search::parse_search(rest),
+        "kernel-answer" => search::parse_kernel_answer(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -143,6 +149,8 @@ fn is_cmd(command: &str) -> bool {
             | "ingest"
             | "anchor"
             | "measure"
+            | "search"
+            | "kernel-answer"
     )
 }
 
@@ -411,6 +419,8 @@ impl Subcommand {
                 "--text".to_string(),
                 args.text.clone(),
             ],
+            Self::Search(args) => search::search_tokens(args),
+            Self::KernelAnswer(args) => search::kernel_answer_tokens(args),
             Self::ProfileLens(args) => {
                 let mut out = vec!["profile-lens".to_string()];
                 push_opt(&mut out, "--name", args.name.as_deref());

@@ -370,7 +370,7 @@ fn read_batch_texts(path: &Path) -> CliResult<Vec<String>> {
     Ok(texts)
 }
 
-fn parse_anchor_kind(value: &str) -> CliResult<AnchorKind> {
+pub(crate) fn parse_anchor_kind(value: &str) -> CliResult<AnchorKind> {
     Ok(match value {
         "test-pass" => AnchorKind::TestPass,
         "thumbs-up" | "thumbs-down" => AnchorKind::Thumbs,
