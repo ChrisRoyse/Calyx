@@ -71,12 +71,12 @@ fn search_outcome(args: &SearchArgs) -> CliResult<SearchOutcome> {
     }
     let query_vectors = measure_query_vectors(&state, &args.query)?;
     if query_vectors.is_empty() {
-        return Ok(SearchOutcome::empty(docs));
+        return Err(no_indexable_query_vectors().into());
     }
     let per_slot = search_slots(&docs, &query_vectors)?;
     let slots = per_slot.keys().copied().collect::<Vec<_>>();
     if slots.is_empty() {
-        return Ok(SearchOutcome::empty(docs));
+        return Err(no_indexable_stored_vectors().into());
     }
     let strategy = args.fusion.to_strategy(&slots)?;
     let context = FusionContext {
@@ -131,6 +131,18 @@ fn measure_query_vectors(
         }
     }
     Ok(out)
+}
+
+pub(super) fn no_indexable_query_vectors() -> CalyxError {
+    CalyxError::stale_derived(
+        "search has no indexable query vectors from active text lenses; re-enable a concrete lens or remeasure the panel",
+    )
+}
+
+pub(super) fn no_indexable_stored_vectors() -> CalyxError {
+    CalyxError::stale_derived(
+        "search has no indexable stored slot vectors matching active query lenses; reingest or backfill stale slot rows",
+    )
 }
 
 fn search_slots(

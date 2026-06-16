@@ -72,6 +72,18 @@ fn zero_constellations_render_empty_results() {
 }
 
 #[test]
+fn non_empty_search_without_indexable_vectors_fails_closed() {
+    assert_eq!(
+        engine::no_indexable_query_vectors().code,
+        "CALYX_STALE_DERIVED"
+    );
+    assert_eq!(
+        engine::no_indexable_stored_vectors().code,
+        "CALYX_STALE_DERIVED"
+    );
+}
+
+#[test]
 fn guard_rejects_orthogonal_dense_hit() {
     let slot = SlotId::new(0);
     let id = cx(2);
