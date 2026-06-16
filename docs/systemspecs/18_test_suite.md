@@ -8,8 +8,7 @@ Source files covered (representative):
 
 - `Cargo.toml` (workspace, build profiles)
 - `.config/nextest.toml` (parallel test runner config)
-- `.github/workflows/ci.yml` (GitHub Actions gate)
-- `scripts/check.sh` (the per-merge gate run on the aiwonder build host)
+- `scripts/check.sh` (the manual per-merge gate run on the aiwonder build host)
 - `scripts/fsv_ph36.sh`, `scripts/aiwonder-build-setup.sh`, `scripts/orphan_rs.sh`, `scripts/linecount.sh`, `scripts/verify_dataset.sh`, `scripts/check_manifest_coverage.sh`
 - `crates/calyx-testkit/src/lib.rs`, `crates/calyx-testkit/Cargo.toml`
 - `crates/calyx-cli/src/fsv.rs`
@@ -83,7 +82,7 @@ suites), and `issue<NNN>_*` (per-issue regression suites).
 | FSV (full-system-verification) | `*_fsv.rs` integration tests + `scripts/fsv_*.sh` | 130 `tests/*_fsv.rs` files; see section 3 |
 
 Doctests are also run as a separate category (`cargo test --workspace --doc`),
-since nextest does not execute them — see `scripts/check.sh` and `ci.yml`.
+since nextest does not execute them — see `scripts/check.sh`.
 
 ---
 
@@ -106,8 +105,8 @@ How FSV is realized in code:
   `"aiwonder FSV writes source-of-truth artifacts"`,
   `"requires aiwonder HF cache/network ..."`, and
   `"requires a CUDA GPU (run on aiwonder with --features cuda --ignored)"`.
-  The CI comment in `ci.yml` confirms: "aiwonder-only FSV suites are
-  `#[ignore]`d ... so the workspace is runner-safe."
+  The manual gate keeps aiwonder-only FSV suites `#[ignore]`d so ordinary
+  claim-check tests stay separate from the byte-readback FSV gate.
 
 - **Environment-rooted artifact emission.** An FSV test reads an env var
   pointing at the FSV root, creates a durable vault there, performs the real
@@ -142,7 +141,7 @@ host "aiwonder" (`README.md`: "All build, test, and verification work happens on
 aiwonder ..."). The per-merge gate is `scripts/check.sh`, run on aiwonder before
 every merge (README section "Run the gate on aiwonder before every merge").
 
-Standard commands (from `scripts/check.sh` and `.github/workflows/ci.yml`):
+Standard commands (from `scripts/check.sh`):
 
 ```sh
 cargo fmt --all -- --check
@@ -172,25 +171,24 @@ Build profiles (`Cargo.toml`): `[profile.dev] debug = "line-tables-only"` and
 dependencies stripped of debuginfo, to keep test/dev executables small on the
 shared build host. Machine-local accelerations (mold linker, incremental
 policy, target GC) are provisioned by `scripts/aiwonder-build-setup.sh` and kept
-out of the committed `.cargo/config.toml` so Windows/CI checkouts are not
-broken.
+out of the committed `.cargo/config.toml` so Windows/local authoring checkouts
+are not broken.
 
 ---
 
-## 5. CI scripts
+## 5. Manual gate scripts
 
 | Path | Purpose |
 |------|---------|
-| `.github/workflows/ci.yml` | GitHub Actions "CI / gate" job on `ubuntu-latest`, on push to `main` and all PRs. Steps: rustfmt check, `cargo check --workspace --all-targets`, `cargo clippy ... -D warnings`, `cargo nextest run --workspace`, `cargo test --workspace --doc`, `scripts/orphan_rs.sh`, `scripts/linecount.sh`. Uses `Swatinem/rust-cache` and `taiki-e/install-action@nextest`. FSV suites are `#[ignore]`d and the `cuda` feature is off, so the runner is safe. |
-| `scripts/check.sh` | The aiwonder per-merge gate (superset of CI; adds dataset/manifest self-tests). |
+| `scripts/check.sh` | The manual aiwonder per-merge gate: rustfmt check, `cargo check --workspace --all-targets`, `cargo clippy ... -D warnings`, `cargo nextest run --workspace`, `cargo test --workspace --doc`, `scripts/orphan_rs.sh`, `scripts/linecount.sh`, and dataset/manifest self-tests. |
 | `scripts/orphan_rs.sh` (+ `orphan_rs_allow.txt`) | Gate: detects `.rs` files not wired into the build. |
 | `scripts/linecount.sh` | Gate: line-count limits. |
 | `scripts/verify_dataset.sh` / `scripts/check_manifest_coverage.sh` | Dataset MANIFEST tooling self-tests (hermetic synthetic batteries). |
-| `scripts/fsv_ph36.sh`, `scripts/validate_*.sh`, `scripts/ph70_evidence_bundle.sh` | FSV / validation drivers (run manually on aiwonder, not in CI). |
+| `scripts/fsv_ph36.sh`, `scripts/validate_*.sh`, `scripts/ph70_evidence_bundle.sh` | FSV / validation drivers (run manually on aiwonder). |
 | `scripts/acquire_*.sh`, `scripts/dataset_acquire_lib.sh` | Dataset acquisition (not test runners). |
 
-There is no hosted CI beyond `ci.yml`; the README notes the aiwonder gate is the
-authoritative one ("There is no hosted CI for ...").
+Calyx has no hosted CI, no GitHub Actions gate, and no PR/push pipeline. Manual
+Full State Verification on aiwonder is the release gate.
 
 ---
 

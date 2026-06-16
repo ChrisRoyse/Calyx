@@ -1,6 +1,6 @@
 # 19. Verification Report
 
-**Source files covered:** whole-workspace metrics derived by enumeration over `crates/`, `fuzz/`, `Cargo.toml`, `rust-toolchain.toml`, `.github/workflows/`, `scripts/`. Counts were produced by `find`/`grep` over the tree on branch `issue569-ph71-remove-shadow` at commit `ac97a37` (2026-06-15). This document records measurements, not test execution results — see §1 note.
+**Source files covered:** whole-workspace metrics derived by enumeration over `crates/`, `fuzz/`, `Cargo.toml`, `rust-toolchain.toml`, and `scripts/`. Counts were produced by `find`/`grep` over the tree on branch `issue569-ph71-remove-shadow` at commit `ac97a37` (2026-06-15). This document records measurements, not test execution results — see §1 note.
 
 ---
 
@@ -14,7 +14,7 @@
 | Tests gated `#[ignore]` | 196 (176 reference aiwonder/FSV environments) | grep over `crates/` |
 | Pass/fail | Not determined from source (not executed locally) | — |
 
-> To run the gate, see [18_test_suite.md](18_test_suite.md) §"How to run". The standard command is `cargo nextest run` (plus `cargo test --doc`), per `scripts/check.sh` and `.github/workflows/ci.yml`.
+> To run the gate, see [18_test_suite.md](18_test_suite.md) §"How to run". The standard command is `cargo nextest run` (plus `cargo test --doc`), per `scripts/check.sh`.
 
 ## 2. Lint / gate configuration
 
@@ -22,9 +22,9 @@
 |---|---|---|
 | Format | `cargo fmt --check` (rustfmt component pinned) | `rust-toolchain.toml`, `scripts/check.sh` |
 | Type/check | `cargo check` | `scripts/check.sh` |
-| Lint | `cargo clippy` (clippy component pinned) | `rust-toolchain.toml`, CI |
-| Test | `cargo nextest run` | `.github/workflows/ci.yml` |
-| Doctests | `cargo test --doc` | CI |
+| Lint | `cargo clippy` (clippy component pinned) | `rust-toolchain.toml`, `scripts/check.sh` |
+| Test | `cargo nextest run` | `scripts/check.sh` |
+| Doctests | `cargo test --doc` | `scripts/check.sh` |
 | Pre-commit | `.pre-commit-config.yaml`, `.githooks/`, `.gitleaksignore` (secret scanning) | repo root |
 
 Status of lint runs: Not determined from source (not executed here).

@@ -23,7 +23,7 @@ There are two classes of setting and they live in two different places **on
 purpose**:
 
 ### Portable → committed in the repo
-These are machine-agnostic and benefit every checkout (Linux, Windows, CI), so
+These are machine-agnostic and benefit every checkout (Linux, Windows, aiwonder), so
 they belong in version control.
 
 - **`Cargo.toml` `[profile.dev]` `debug = "line-tables-only"`** — keeps function
@@ -38,8 +38,8 @@ they belong in version control.
 
 ### Machine-specific → NOT committed (provisioned on the host)
 A linker binary and a GC policy are properties of the *machine*, not the
-project. Putting them in the repo's `.cargo/config.toml` would break Windows/CI
-checkouts (an absolute mold path / a clang requirement they don't have) — the
+project. Putting them in the repo's `.cargo/config.toml` would break Windows/local
+authoring checkouts (an absolute mold path / a clang requirement they don't have) — the
 exact class of bug PR #662 removed. They are provisioned by
 **`scripts/aiwonder-build-setup.sh`**, which writes a Cargo config one level
 *above* the repo, inside `CALYX_HOME`:
@@ -54,7 +54,7 @@ exact class of bug PR #662 removed. They are provisioned by
 
 Cargo auto-discovers this for every build under `CALYX_HOME` (the repo and all
 worktrees are children of it) **without** affecting other projects on the box
-and **without** Windows/CI ever seeing it.
+and **without** Windows/local authoring checkouts ever seeing it.
 
 ## 3. Test suite: all cores, not one (cargo-nextest)
 
@@ -71,8 +71,8 @@ test across every binary in a single pool sized to all logical CPUs:
   test fails loudly, never masked), and a generous hang timeout (~20 min) so a
   genuinely stuck test can't block the gate while legitimately long FSV/dataset
   tests are never falsely killed.
-- Provisioned by `scripts/aiwonder-build-setup.sh`; in CI via
-  `taiki-e/install-action@nextest`.
+- Provisioned by `scripts/aiwonder-build-setup.sh`; no hosted pipeline installs
+  or runs it.
 
 ## 4. Keeping `target/` bounded forever
 
