@@ -1,120 +1,28 @@
 //! Argument dispatch for the `calyx` binary.
 
+mod early;
+
 use std::path::Path;
 
-use crate::cli_support::{parse_i32, parse_i64, readback_config, readback_hex};
+use crate::cli_support::readback_config;
 use crate::error::{CliError, CliResult};
 use crate::{
     anneal_commands, anneal_ledger_readback, anneal_mistakes_readback, anneal_status,
-    assay_bits_validation, crash, dedup_audit_readback, dedup_readback, fsv, healthcheck,
-    htap_validation, intelligence_commands, kernel_health_readback, leapable, lens_commands,
-    lodestar_commands, manifest_readback, media_commands, merkle, migrate, navigate, ops,
-    oracle_readback, oracle_sufficiency_validation, panel_commands, partitioned_bench,
-    ph42_readback, provenance, recurrence_readback, resource_drill, resource_status, scan,
+    assay_bits_validation, crash, dedup_audit_readback, fsv, healthcheck, htap_validation,
+    intelligence_commands, leapable, lens_commands, lodestar_commands, media_commands, merkle,
+    migrate, navigate, ops, oracle_readback, oracle_sufficiency_validation, panel_commands,
+    partitioned_bench, ph42_readback, provenance, resource_drill, resource_status, scan,
     sextant_bench, sextant_commands, summarize_command, temporal_log_recurrence_readback,
-    temporal_readback, time_prediction_readback, timetravel_readback, trigger_readback, usage,
-    vault_tree, verify, ward_guard_validation, ward_tau_readback,
+    time_prediction_readback, timetravel_readback, trigger_readback, usage, verify,
+    ward_guard_validation, ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
+    if let Some(result) = early::try_run(args.as_slice()) {
+        return result;
+    }
+
     match args.as_slice() {
-        [command, flag, value] if command == "readback" && flag == "--hex" => {
-            readback_hex(Path::new(value))
-        }
-        [command, flag, value] if command == "readback" && flag == "--vault-tree" => {
-            vault_tree::readback_vault_tree(Path::new(value))
-        }
-        [command, vault_flag, vault, verify_flag, sqlite]
-            if command == "readback"
-                && vault_flag == "--vault"
-                && verify_flag == "--verify-against" =>
-        {
-            leapable::readback_dual_write_verify(Path::new(vault), Path::new(sqlite))
-        }
-        [command, vault_flag, vault, show_flag]
-            if command == "readback"
-                && vault_flag == "--vault"
-                && show_flag == "--show-manifest" =>
-        {
-            leapable::readback_shadow_manifest(Path::new(vault))
-        }
-        [command, topic, field_flag, field, vault_flag, vault]
-            if command == "readback"
-                && topic == "vault-manifest"
-                && field_flag == "--field"
-                && vault_flag == "--vault" =>
-        {
-            manifest_readback::readback_vault_manifest_field(Path::new(vault), field)
-        }
-        [command, topic, explain_flag, clock_flag, clock, tz_flag, tz]
-            if command == "readback"
-                && topic == "temporal_search"
-                && explain_flag == "--explain"
-                && clock_flag == "--clock-fixed"
-                && tz_flag == "--tz-offset" =>
-        {
-            temporal_readback::readback_temporal_search(parse_i64(clock)?, parse_i32(tz)?)
-        }
-        [
-            command,
-            topic,
-            vault_flag,
-            vault,
-            cx_flag,
-            cx_id,
-            slot_flag,
-            slot,
-            tau_flag,
-            tau,
-            near_flag,
-            near_cos,
-            distinct_flag,
-            distinct_cos,
-            vault_id_flag,
-            vault_id,
-            salt_flag,
-            salt,
-        ] if command == "readback"
-            && topic == "dedup-check"
-            && vault_flag == "--vault"
-            && cx_flag == "--cx-id"
-            && slot_flag == "--slot"
-            && tau_flag == "--tau"
-            && near_flag == "--near-cos"
-            && distinct_flag == "--distinct-cos"
-            && vault_id_flag == "--vault-id"
-            && salt_flag == "--salt" =>
-        {
-            dedup_readback::readback_dedup_check(dedup_readback::DedupReadbackArgs {
-                vault: Path::new(vault),
-                cx_id,
-                slot,
-                tau,
-                near_cos,
-                distinct_cos,
-                vault_id,
-                salt,
-            })
-        }
-        [command, topic, root_flag, root, kernel_flag, kernel_id]
-            if command == "readback"
-                && topic == "kernel-health"
-                && root_flag == "--root"
-                && kernel_flag == "--kernel-id" =>
-        {
-            kernel_health_readback::readback_kernel_health(Path::new(root), kernel_id)
-        }
-        [command, topic, vault_flag, vault, cx_flag, cx_id]
-            if command == "readback"
-                && topic == "recurrence-series"
-                && vault_flag == "--vault"
-                && cx_flag == "--cx-id" =>
-        {
-            recurrence_readback::readback_recurrence_series(Path::new(vault), cx_id)
-        }
-        [command, topic, rest @ ..] if command == "readback" && topic == "periodic-recall" => {
-            recurrence_readback::readback_periodic_recall(rest)
-        }
         [command, rest @ ..] if command == "healthcheck" => healthcheck::run(rest),
         [command, topic, rest @ ..] if command == "migrate" => migrate::run(topic, rest),
         [command, topic, vault_flag, vault]
