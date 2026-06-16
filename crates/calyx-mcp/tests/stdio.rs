@@ -35,7 +35,7 @@ fn run_mcp(input: &str) -> (String, String, bool) {
 }
 
 #[test]
-fn tools_list_returns_empty_array_and_clean_exit() {
+fn tools_list_returns_registered_vault_tools_and_clean_exit() {
     let (stdout, stderr, ok) =
         run_mcp("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\",\"params\":{}}\n");
 
@@ -43,7 +43,23 @@ fn tools_list_returns_empty_array_and_clean_exit() {
         serde_json::from_str(stdout.trim()).expect("stdout is one JSON-RPC line");
     assert_eq!(response["jsonrpc"], "2.0");
     assert_eq!(response["id"], 1);
-    assert_eq!(response["result"]["tools"], serde_json::json!([]));
+    let tools = response["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 6);
+    let names = tools
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        [
+            "calyx.add_lens",
+            "calyx.create_vault",
+            "calyx.list_panel",
+            "calyx.park_lens",
+            "calyx.profile_lens",
+            "calyx.retire_lens",
+        ]
+    );
     assert!(response.get("error").is_none());
     // Valid request → nothing leaks to stderr; process exits 0.
     assert_eq!(stderr, "", "stderr must be empty for a valid request");

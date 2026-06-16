@@ -438,9 +438,12 @@ dependencies = [
 name = "calyx-mcp"
 version = "0.1.0"
 dependencies = [
+ "calyx-aster",
  "calyx-core",
+ "calyx-registry",
  "serde",
  "serde_json",
+ "ulid",
 ]
 
 [[package]]

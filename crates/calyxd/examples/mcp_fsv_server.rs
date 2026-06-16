@@ -8,8 +8,7 @@
 
 use std::sync::Arc;
 
-use calyx_core::CalyxError;
-use calyx_mcp::{McpServer, Tool, ToolDef};
+use calyx_mcp::{McpServer, Tool, ToolDef, ToolResult};
 use calyxd::mcp_server::CalyxMcpServer;
 use serde_json::{Value, json};
 
@@ -25,7 +24,7 @@ impl Tool for AdderTool {
         }
     }
 
-    fn call(&self, params: Value) -> Result<Value, CalyxError> {
+    fn call(&self, params: Value) -> ToolResult<Value> {
         let a = params.get("a").and_then(Value::as_i64).unwrap_or(0);
         let b = params.get("b").and_then(Value::as_i64).unwrap_or(0);
         Ok(json!({ "sum": a + b }))

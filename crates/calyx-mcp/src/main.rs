@@ -13,8 +13,11 @@ use calyx_mcp::jsonrpc::decode_jsonrpc_request;
 use calyx_mcp::server::McpServer;
 
 fn main() -> ExitCode {
-    // The scaffold registers no tools yet; tool groups land in later PH63 tasks.
-    let server = McpServer::new();
+    let mut server = McpServer::new();
+    if let Err(error) = calyx_mcp::tools::register_all(&mut server) {
+        eprintln!("calyx-mcp: {}: {}", error.code, error.message);
+        return ExitCode::FAILURE;
+    }
 
     let stdin = io::stdin();
     let stdout = io::stdout();

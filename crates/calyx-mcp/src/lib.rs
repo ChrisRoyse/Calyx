@@ -8,6 +8,7 @@ pub mod jsonrpc;
 pub mod protocol;
 pub mod schema;
 pub mod server;
+pub mod tools;
 
 pub use jsonrpc::{
     CALYX_MCP_JSONRPC_INVALID, JsonRpcId, JsonRpcRequest, JsonRpcWire, decode_jsonrpc_request,
@@ -17,7 +18,10 @@ pub use protocol::{
     ContentBlock, JSONRPC_CALYX_ERROR, JSONRPC_INTERNAL_ERROR, JSONRPC_INVALID_PARAMS,
     JSONRPC_METHOD_NOT_FOUND, JsonRpcError, JsonRpcResponse, ToolCallResult, ToolDef,
 };
-pub use server::{CALYX_MCP_TOOL_DUPLICATE, MCP_PROTOCOL_VERSION, McpServer, SERVER_NAME, Tool};
+pub use server::{
+    CALYX_MCP_TOOL_DUPLICATE, MCP_PROTOCOL_VERSION, McpServer, SERVER_NAME, Tool, ToolError,
+    ToolResult,
+};
 
 #[cfg(test)]
 mod tests {

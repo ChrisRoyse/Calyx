@@ -11,6 +11,9 @@ name = "calyx-mcp"
 path = "src/main.rs"
 
 [dependencies]
+calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
+calyx-registry = { path = "../calyx-registry" }
 serde.workspace = true
 serde_json.workspace = true
+ulid.workspace = true

@@ -23,13 +23,38 @@ pub const SERVER_NAME: &str = "calyx-mcp";
 /// kept MCP-local rather than widening the closed `calyx-core` catalog).
 pub const CALYX_MCP_TOOL_DUPLICATE: &str = "CALYX_MCP_TOOL_DUPLICATE";
 
+/// Failure class returned by a tool call.
+#[derive(Debug)]
+pub enum ToolError {
+    /// Structurally wrong arguments: maps to JSON-RPC `-32602`.
+    InvalidParams(String),
+    /// Calyx domain failure: maps to JSON-RPC `-32000` with `CALYX_*` data.
+    Calyx(CalyxError),
+}
+
+impl ToolError {
+    /// Builds an invalid-params error.
+    pub fn invalid_params(message: impl Into<String>) -> Self {
+        Self::InvalidParams(message.into())
+    }
+}
+
+impl From<CalyxError> for ToolError {
+    fn from(error: CalyxError) -> Self {
+        Self::Calyx(error)
+    }
+}
+
+/// Tool call result type.
+pub type ToolResult<T> = std::result::Result<T, ToolError>;
+
 /// A registerable MCP tool. Implementors are `Send + Sync` so a server can be
 /// shared across threads; `call` must be side-effect-honest and fail closed.
 pub trait Tool: Send + Sync {
     /// The descriptor advertised by `tools/list`.
     fn def(&self) -> ToolDef;
     /// Executes the tool against decoded `arguments`, returning a JSON payload.
-    fn call(&self, params: Value) -> Result<Value, CalyxError>;
+    fn call(&self, params: Value) -> ToolResult<Value>;
 }
 
 /// The dispatch surface: an ordered registry of tools keyed by name.
@@ -125,7 +150,12 @@ impl McpServer {
                     JsonRpcError::internal(format!("serialize tool result: {error}")),
                 ),
             },
-            Ok(Err(calyx)) => JsonRpcResponse::error(id, JsonRpcError::from_calyx(&calyx)),
+            Ok(Err(ToolError::InvalidParams(message))) => {
+                JsonRpcResponse::error(id, JsonRpcError::invalid_params(message))
+            }
+            Ok(Err(ToolError::Calyx(calyx))) => {
+                JsonRpcResponse::error(id, JsonRpcError::from_calyx(&calyx))
+            }
             Err(_panic) => {
                 JsonRpcResponse::error(id, JsonRpcError::internal("internal server error"))
             }
@@ -149,7 +179,7 @@ mod tests {
                 input_schema: object_schema(&[("msg", string_schema(), true)]),
             }
         }
-        fn call(&self, params: Value) -> Result<Value, CalyxError> {
+        fn call(&self, params: Value) -> ToolResult<Value> {
             Ok(json!({ "echoed": params["msg"] }))
         }
     }
@@ -164,8 +194,8 @@ mod tests {
                 input_schema: object_schema(&[]),
             }
         }
-        fn call(&self, _params: Value) -> Result<Value, CalyxError> {
-            Err(CalyxError::assay_insufficient_samples("n=30"))
+        fn call(&self, _params: Value) -> ToolResult<Value> {
+            Err(CalyxError::assay_insufficient_samples("n=30").into())
         }
     }
 
@@ -179,7 +209,7 @@ mod tests {
                 input_schema: object_schema(&[]),
             }
         }
-        fn call(&self, _params: Value) -> Result<Value, CalyxError> {
+        fn call(&self, _params: Value) -> ToolResult<Value> {
             panic!("boom");
         }
     }
