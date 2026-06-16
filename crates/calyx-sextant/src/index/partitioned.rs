@@ -41,6 +41,9 @@ const CENTROID_DIR: &str = "idx/slot_00.sparse";
 const ROOT_GRAPH: &str = "idx/slot_00.ann/graph.cda";
 /// Mixing constant for per-index RNG seeding (splitmix64 multiplier).
 const IDX_MIX: u64 = 0x9E37_79B9_7F4A_7C15;
+/// Floor for the per-region size cap used by region balancing (#713); regions are
+/// never split below this even when the mean region size is tiny.
+const MIN_REGION_CAP: usize = 2_048;
 
 /// Deterministic, per-index row generation. Independent of any other index, so
 /// rows can be streamed/regenerated per region without materializing `0..idx`.
@@ -156,7 +159,6 @@ pub fn build_partitioned_vault(
         })
         .collect();
     let centroids = build_centroids(&sample_rows, p.n_regions, p.seed);
-    centroids.save(root.join(CENTROID_DIR))?;
     let r = centroids.centroid_count();
 
     // 2. Stream-assign every cx to its nearest centroid -> per-region buckets.
@@ -187,6 +189,18 @@ pub fn build_partitioned_vault(
         }
         start = end;
     }
+
+    // 2b. Balance region sizes (#713). Nearest-centroid assignment is right-skewed,
+    //     and a few oversized regions dominate both the (super-linear) build tail
+    //     AND per-region search cost. Split any region above `cap` into sub-regions
+    //     via local k-means, then rebuild the routing layer over the FINAL centroid
+    //     set so search still routes correctly. cap = 2x the target mean.
+    let mean_region = (p.n_cx as usize).div_ceil(r.max(1));
+    let cap = (mean_region * 2).max(MIN_REGION_CAP);
+    let (final_centroids, buckets) = balance_regions(&centroids, buckets, p.seed, p.dim, cap);
+    let centroids =
+        SpannCentroidIndex::from_parts(p.dim as u32, final_centroids, Vec::new(), Vec::new())?;
+    centroids.save(root.join(CENTROID_DIR))?;
 
     // 3. Build one DiskANN graph per region (each fits RAM). Regions are built
     //    in PARALLEL across cores (#706): each region is small and serial row-gen
@@ -272,7 +286,7 @@ pub fn build_partitioned_vault(
         format: "calyx-partitioned-vault-v1".to_string(),
         n_cx: p.n_cx,
         dim: p.dim,
-        n_regions: r,
+        n_regions: centroids.centroid_count(),
         seed: p.seed,
         m_max: p.m_max,
         ef_construction: p.ef_construction,
@@ -285,6 +299,68 @@ pub fn build_partitioned_vault(
     std::fs::write(root.join(MANIFEST_FILE), bytes)
         .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
     Ok(manifest)
+}
+
+/// Split any region whose membership exceeds `cap` into sub-regions via a local
+/// k-means (#713), returning the FINAL centroid set and the matching member
+/// buckets (one centroid per final region, same order). Non-oversized regions pass
+/// through unchanged. Splitting per region is independent, so it runs in parallel;
+/// each split regenerates only its own members (memory stays bounded by region
+/// size, not N).
+fn balance_regions(
+    initial: &SpannCentroidIndex,
+    buckets: Vec<Vec<u64>>,
+    seed: u64,
+    dim: usize,
+    cap: usize,
+) -> (Vec<Vec<f32>>, Vec<Vec<u64>>) {
+    // (centroids, member-buckets) contributed by one input region after splitting.
+    type RegionSplit = (Vec<Vec<f32>>, Vec<Vec<u64>>);
+    let initial_centroids = initial.centroids();
+    let split: Vec<RegionSplit> = buckets
+        .par_iter()
+        .enumerate()
+        .map(|(region, members)| {
+            if members.is_empty() {
+                return (Vec::new(), Vec::new());
+            }
+            if members.len() <= cap {
+                return (
+                    vec![initial_centroids[region].clone()],
+                    vec![members.clone()],
+                );
+            }
+            // Oversized: re-cluster this region's members into ceil(count/cap) parts.
+            let k_sub = members.len().div_ceil(cap);
+            let rows: Vec<(u32, Vec<f32>)> = members
+                .iter()
+                .enumerate()
+                .map(|(i, &idx)| (i as u32, gen_row(seed, idx, dim)))
+                .collect();
+            let sub = build_centroids(&rows, k_sub, seed ^ (region as u64).wrapping_mul(IDX_MIX));
+            let mut sub_buckets: Vec<Vec<u64>> = vec![Vec::new(); sub.centroid_count()];
+            for (i, &idx) in members.iter().enumerate() {
+                sub_buckets[sub.assign(&rows[i].1) as usize].push(idx);
+            }
+            let mut cents = Vec::new();
+            let mut buks = Vec::new();
+            for (c, sb) in sub_buckets.into_iter().enumerate() {
+                if sb.is_empty() {
+                    continue;
+                }
+                cents.push(sub.centroids()[c].clone());
+                buks.push(sb);
+            }
+            (cents, buks)
+        })
+        .collect();
+    let mut final_centroids = Vec::new();
+    let mut final_buckets = Vec::new();
+    for (cents, buks) in split {
+        final_centroids.extend(cents);
+        final_buckets.extend(buks);
+    }
+    (final_centroids, final_buckets)
 }
 
 fn write_ids(path: &Path, ids: &[u64]) -> Result<()> {
@@ -426,6 +502,42 @@ mod tests {
         let norm = a.iter().map(|x| x * x).sum::<f32>().sqrt();
         assert!((norm - 1.0).abs() < 1e-5, "unit norm, got {norm}");
         assert_ne!(gen_row(42, 1, 64), gen_row(42, 2, 64));
+    }
+
+    #[test]
+    fn balance_regions_splits_oversized_and_preserves_all_members() {
+        let dim = 16;
+        // Two initial centroids over a small sample.
+        let sample: Vec<(u32, Vec<f32>)> =
+            (0..400).map(|i| (i, gen_row(9, i as u64, dim))).collect();
+        let initial = build_centroids(&sample, 2, 9);
+        // Bucket 0 is oversized (500 members), bucket 1 is small (40).
+        let buckets = vec![
+            (0..500u64).collect::<Vec<_>>(),
+            (500..540u64).collect::<Vec<_>>(),
+        ];
+        let cap = 100;
+        let (cents, final_buckets) = balance_regions(&initial, buckets, 9, dim, cap);
+
+        // Every member survives exactly once.
+        let total: usize = final_buckets.iter().map(Vec::len).sum();
+        assert_eq!(total, 540, "all members preserved across the split");
+        let mut all: Vec<u64> = final_buckets.iter().flatten().copied().collect();
+        all.sort_unstable();
+        all.dedup();
+        assert_eq!(all.len(), 540, "no member duplicated or dropped");
+        // One centroid per final region.
+        assert_eq!(cents.len(), final_buckets.len(), "centroid per region");
+        // The oversized region was actually split, shrinking the max region.
+        assert!(
+            final_buckets.len() >= 6,
+            "oversized region split into >=5 parts"
+        );
+        let max_region = final_buckets.iter().map(Vec::len).max().unwrap();
+        assert!(
+            max_region < 500,
+            "max region shrank from 500, got {max_region}"
+        );
     }
 
     #[test]
