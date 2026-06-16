@@ -6,6 +6,7 @@ pub mod error;
 pub mod generate;
 pub mod guard;
 pub mod identity;
+pub mod injection_lens;
 pub mod ledger;
 pub mod novelty;
 pub mod polis;
@@ -40,6 +41,10 @@ pub use guard::{
     guard_result_with_stakes, validate_non_inert_profile,
 };
 pub use identity::{IdentityProfile, IdentitySlotConfig};
+pub use injection_lens::{
+    DEFAULT_INJECTION_MODEL_PATH, DEFAULT_INJECTION_TOKENIZER_PATH, INJECTION_LABELS,
+    INJECTION_MAX_TOKENS, InjectionLens, InjectionProviderPolicy, InjectionScoreBackend,
+};
 pub use ledger::{
     WardLedgerError, WardLedgerResult, append_calibration_provenance, append_guard_verdict,
     calibrate_with_ledger, guard_with_ledger,
