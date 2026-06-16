@@ -9,11 +9,11 @@ use crate::{
     assay_bits_validation, crash, dedup_audit_readback, dedup_readback, fsv, healthcheck,
     htap_validation, intelligence_commands, kernel_health_readback, leapable, lens_commands,
     lodestar_commands, manifest_readback, media_commands, merkle, migrate, navigate, ops,
-    oracle_readback, oracle_sufficiency_validation, panel_commands, ph42_readback, provenance,
-    recurrence_readback, resource_drill, resource_status, scan, sextant_bench, sextant_commands,
-    summarize_command, temporal_log_recurrence_readback, temporal_readback,
-    time_prediction_readback, timetravel_readback, trigger_readback, usage, vault_tree, verify,
-    ward_guard_validation, ward_tau_readback,
+    oracle_readback, oracle_sufficiency_validation, panel_commands, partitioned_bench,
+    ph42_readback, provenance, recurrence_readback, resource_drill, resource_status, scan,
+    sextant_bench, sextant_commands, summarize_command, temporal_log_recurrence_readback,
+    temporal_readback, time_prediction_readback, timetravel_readback, trigger_readback, usage,
+    vault_tree, verify, ward_guard_validation, ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -138,6 +138,12 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, topic, rest @ ..] if command == "leapable" => leapable::run(topic, rest),
         [command, mode, rest @ ..] if command == "navigate" => navigate::run(mode, rest),
         [command, rest @ ..] if command == "build-bench-vault" => sextant_bench::run_build(rest),
+        [command, rest @ ..] if command == "build-partitioned-vault" => {
+            partitioned_bench::run_build(rest)
+        }
+        [command, topic, rest @ ..] if command == "bench" && topic == "partitioned-search" => {
+            partitioned_bench::run_search(rest)
+        }
         [command, topic, rest @ ..] if command == "bench" => sextant_bench::run_bench(topic, rest),
         [command, topic, rest @ ..] if command == "sextant" => sextant_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "media" => media_commands::run(topic, rest),

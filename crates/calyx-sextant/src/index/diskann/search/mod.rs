@@ -38,6 +38,11 @@ impl Default for DiskAnnSearchParams {
     }
 }
 
+/// Graphs at or below this on-disk size fit comfortably in the OS page cache, so
+/// per-node `posix_fadvise` prefetch is net-negative (syscall overhead with no
+/// readahead benefit). Above it, prefetch helps amortize cold-SSD latency.
+const PREFETCH_MIN_GRAPH_BYTES: u64 = 256 * 1024 * 1024;
+
 #[derive(Debug)]
 pub struct DiskAnnSearch {
     slot: SlotId,
@@ -301,6 +306,15 @@ impl DiskAnnSearch {
         let Some(file) = &self.graph_file else {
             return Ok(());
         };
+        // `posix_fadvise(WILLNEED)` is a syscall per candidate per beam step. It
+        // only pays off for graphs large enough that cold-SSD readahead matters;
+        // on a graph that already fits the page cache (e.g. a partitioned region
+        // graph) it is pure overhead — thousands of no-op syscalls per query that
+        // dominate latency. Skip prefetch for resident-sized graphs.
+        let graph_bytes = reader.node_count() * reader.node_block_size() as u64;
+        if graph_bytes <= PREFETCH_MIN_GRAPH_BYTES {
+            return Ok(());
+        }
         for candidate in candidates.iter().take(beamwidth) {
             prefetch_node(
                 file,

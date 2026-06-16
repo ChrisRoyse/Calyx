@@ -58,6 +58,7 @@ mod oracle_readback;
 mod oracle_sufficiency_validation;
 mod output;
 mod panel_commands;
+mod partitioned_bench;
 mod ph42_readback;
 mod provenance;
 mod recurrence_readback;
