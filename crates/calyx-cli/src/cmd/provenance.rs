@@ -20,6 +20,7 @@ use crate::error::{CliError, CliResult};
 use crate::ledger_store::AsterLedgerCfStore;
 use crate::output::print_json;
 
+mod lineage_support;
 mod status;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,22 +232,23 @@ fn lineage(resolved: &ResolvedVault, cx_id: CxId) -> CliResult<LineageOut> {
     })?;
     let store = AsterLedgerCfStore::open(&resolved.path)?;
     let entries = get_provenance(&store, &NoQuarantine, cx_id)?;
-    let ingest = entries
+    let current = entries
         .iter()
         .find(|entry| entry.seq == stored.provenance.seq)
         .ok_or_else(|| {
             CalyxError::ledger_corrupt(format!(
-                "missing ingest ledger seq {}",
+                "missing provenance ledger seq {}",
                 stored.provenance.seq
             ))
         })?;
-    if ingest.entry_hash != stored.provenance.hash {
+    if current.entry_hash != stored.provenance.hash {
         return Err(CalyxError::ledger_chain_broken(format!(
             "base provenance hash for {cx_id} does not match ledger seq {}",
             stored.provenance.seq
         ))
         .into());
     }
+    let ingest = lineage_support::primary_ingest_entry(cx_id, current, &entries)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let lens_measures = state
         .panel
@@ -260,11 +262,11 @@ fn lineage(resolved: &ResolvedVault, cx_id: CxId) -> CliResult<LineageOut> {
             })
         })
         .collect();
-    let anchors = anchor_outputs(cx_id, stored.provenance.seq, &stored.anchors, &entries)?;
+    let anchors = anchor_outputs(cx_id, ingest.seq, &stored.anchors, &entries)?;
     Ok(LineageOut {
         cx_id: cx_id.to_string(),
         ingest_seq: ingest.seq,
-        ledger_chain_hash: hex_bytes(&ingest.entry_hash),
+        ledger_chain_hash: hex_bytes(&current.entry_hash),
         lens_measures,
         anchors,
     })

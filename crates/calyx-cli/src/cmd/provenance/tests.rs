@@ -56,6 +56,48 @@ fn provenance_lineage_reports_ingest_hash_and_anchor_seq() {
 }
 
 #[test]
+fn provenance_lineage_handles_cli_anchor_base_provenance() {
+    let (root, resolved, vault) = test_vault("cli-anchor-lineage");
+    let cx = sample_constellation(&vault, resolved.vault_id);
+    let cx_id = cx.cx_id;
+    vault.put(cx).unwrap();
+    vault.flush().unwrap();
+    let ingest_ref = vault.get(cx_id, vault.snapshot()).unwrap().provenance;
+    let anchor = Anchor {
+        kind: AnchorKind::Label("issue691".to_string()),
+        value: AnchorValue::Enum("stable".to_string()),
+        source: "unit".to_string(),
+        observed_at: 13,
+        confidence: 0.75,
+    };
+    let anchor_ref = vault
+        .anchor_with_ledger_entry(
+            cx_id,
+            anchor,
+            EntryKind::Ingest,
+            SubjectId::Cx(cx_id),
+            serde_json::to_vec(&json!({
+                "mode": "cli-anchor",
+                "anchor_kind": "label:issue691",
+            }))
+            .unwrap(),
+            ActorId::Service("calyx-cli-test".to_string()),
+        )
+        .unwrap();
+    vault.flush().unwrap();
+    let anchored = vault.get(cx_id, vault.snapshot()).unwrap();
+    assert_eq!(anchored.provenance.seq, anchor_ref.seq);
+
+    let out = lineage(&resolved, cx_id).unwrap();
+
+    assert_eq!(out.ingest_seq, ingest_ref.seq);
+    assert_eq!(out.ledger_chain_hash, hex_bytes(&anchor_ref.hash));
+    assert_eq!(out.anchors[0].kind, "label:issue691");
+    assert_eq!(out.anchors[0].ledger_seq, anchor_ref.seq);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn verify_chain_intact_report_is_valid_json_shape() {
     let report = VerifyChainOut {
         status: "ok",
