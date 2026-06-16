@@ -160,15 +160,27 @@ pub fn build_partitioned_vault(
     let r = centroids.centroid_count();
 
     // 2. Stream-assign every cx to its nearest centroid -> per-region buckets.
+    //    Pick the assignment method by centroid count: an exact flat scan is
+    //    O(R) per point but cache-friendly/branch-free and wins for moderate R;
+    //    once R is large the scan's O(N*R) becomes quadratic in N, so route
+    //    through the centroid HNSW (O(log R)) instead. Crossover ~4k centroids.
+    const HNSW_ASSIGN_MIN_CENTROIDS: usize = 4096;
+    let use_hnsw_assign = r > HNSW_ASSIGN_MIN_CENTROIDS;
     let mut buckets: Vec<Vec<u64>> = vec![Vec::new(); r];
     let mut start = 0u64;
     while start < p.n_cx {
         let end = (start + p.chunk as u64).min(p.n_cx);
-        // Route assignment through the centroid HNSW (O(log R)) — an exact scan
-        // would be O(N*R) and quadratic in N once R grows with the dataset.
         let assigned: Vec<(u64, u32)> = (start..end)
             .into_par_iter()
-            .map(|idx| (idx, centroids.assign_hnsw(&gen_row(p.seed, idx, p.dim))))
+            .map(|idx| {
+                let row = gen_row(p.seed, idx, p.dim);
+                let region = if use_hnsw_assign {
+                    centroids.assign_hnsw(&row)
+                } else {
+                    centroids.assign(&row)
+                };
+                (idx, region)
+            })
             .collect();
         for (idx, region) in assigned {
             buckets[region as usize].push(idx);
@@ -212,28 +224,20 @@ pub fn build_partitioned_vault(
                 .map(|&idx| (cx(idx), gen_row(p.seed, idx, p.dim)))
                 .collect();
             let graph_path = root.join(graph_rel(region));
-            // Build this region's graph SINGLE-THREADED. `build_diskann_graph` uses
-            // rayon internally, but a small region graph cannot use many cores; if
-            // it steals the global pool it starves the *other* regions, collapsing
-            // the build back to ~serial (measured ~2 regions/s on 32 cores). Pinning
-            // each region build to its own 1-thread pool lets `num_cpus` regions
-            // build truly concurrently — throughput scales with cores, not ~1.
-            let pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(1)
-                .build()
-                .map_err(|e| {
-                    crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string())
-                })?;
-            pool.install(|| {
-                DiskAnnSearch::build(
-                    SlotId::new(0),
-                    &graph_path,
-                    &rows,
-                    build_params,
-                    None,
-                    search_params,
-                )
-            })?;
+            // NOTE: `build_diskann_graph` parallelizes internally. Running this
+            // outer loop with `par_iter` nests rayon pools; for skewed region sizes
+            // that is actually the safe choice — a few oversized regions still get
+            // full-core builds. A single-thread-per-region scheme stalls badly until
+            // region sizes are balanced (see #713: split oversized regions), which
+            // is the prerequisite for higher build throughput.
+            DiskAnnSearch::build(
+                SlotId::new(0),
+                &graph_path,
+                &rows,
+                build_params,
+                None,
+                search_params,
+            )?;
             write_ids(&root.join(ids_rel(region)), members)?;
             Ok(RegionMeta {
                 id: region,
