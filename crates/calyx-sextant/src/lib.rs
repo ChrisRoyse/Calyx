@@ -18,8 +18,9 @@ pub mod temporal;
 mod util;
 
 pub use error::{
-    CALYX_ANSWER_UNGROUNDED, CALYX_INDEX_DIRECTION_UNAVAILABLE, CALYX_INVALID_ARGUMENT,
-    CALYX_LENS_NOT_FOUND, CALYX_PLANNER_COST_CAP, CALYX_SEXTANT_ASSOC_GRAPH_MISSING,
+    CALYX_ANSWER_UNGROUNDED, CALYX_INDEX_DIRECTION_UNAVAILABLE, CALYX_INDEX_FUNNEL_VAULT_TOO_SMALL,
+    CALYX_INDEX_KERNEL_UNAVAILABLE, CALYX_INVALID_ARGUMENT, CALYX_LENS_NOT_FOUND,
+    CALYX_PLANNER_COST_CAP, CALYX_SEXTANT_ASSOC_GRAPH_MISSING,
     CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES, CALYX_SEXTANT_CX_MISSING,
     CALYX_SEXTANT_DIM_MISMATCH, CALYX_SEXTANT_EF_TOO_SMALL, CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE,
     CALYX_SEXTANT_INDEX_EMPTY, CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_PLAN_COST_EXCEEDED,
@@ -42,10 +43,12 @@ pub use hit::{
     ProvenanceSource,
 };
 pub use index::{
-    Direction, DirectionalBoost, DualDiskAnnSearch, DualIndex, HnswIndex, IndexSearchHit,
-    IndexStats, InvertedIndex, MaxSimIndex, PostingListReader, PostingListWriter, QuantConfig,
-    QuantKind, SPANN_CENTROID_MAGIC, SextantIndex, SpannCentroidIndex, SpannSearch,
-    build_centroids, build_dual, build_dual_with_search, dual_graph_path, open_dual,
+    Direction, DirectionalBoost, DualDiskAnnSearch, DualIndex, FUNNEL_MIN_VAULT_SIZE,
+    FinalCxSearch, FunnelHit, FunnelParams, FunnelPath, HnswIndex, IndexSearchHit, IndexStats,
+    InvertedIndex, KernelFirstSearch, KernelRegion, KernelRegionAnn, KernelRegionId, LocalCxId,
+    MaxSimIndex, PostingListReader, PostingListWriter, QuantConfig, QuantKind, RegionCandidate,
+    RegionId, RegionPartitions, SPANN_CENTROID_MAGIC, SextantIndex, SpannCentroidIndex,
+    SpannSearch, build_centroids, build_dual, build_dual_with_search, dual_graph_path, open_dual,
 };
 pub use navigation::{
     ConsensusHit, ConsensusMode, ConsensusReport, LensComparison, MAX_TRAVERSE_HOPS, SkillNode,

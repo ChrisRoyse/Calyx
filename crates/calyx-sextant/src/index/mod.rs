@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub mod bm25;
 pub mod diskann;
 pub mod dual;
+pub mod funnel;
 pub mod hnsw;
 pub mod inverted;
 pub mod multi;
@@ -21,6 +22,11 @@ pub use diskann::{
     open_dual,
 };
 pub use dual::{DualIndex, DualSide};
+pub use funnel::{
+    FUNNEL_MIN_VAULT_SIZE, FinalCxSearch, FunnelHit, FunnelParams, FunnelPath, KernelFirstSearch,
+    KernelRegion, KernelRegionAnn, KernelRegionId, LocalCxId, RegionCandidate, RegionId,
+    RegionPartitions,
+};
 pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
