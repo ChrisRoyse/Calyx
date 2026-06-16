@@ -11,6 +11,7 @@ name = "calyx-mcp"
 path = "src/main.rs"
 
 [dependencies]
+calyx-anneal = { path = "../calyx-anneal" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }
@@ -19,6 +20,7 @@ calyx-paths = { path = "../calyx-paths" }
 calyx-registry = { path = "../calyx-registry" }
 calyx-sextant = { path = "../calyx-sextant" }
 calyx-ward = { path = "../calyx-ward" }
+blake3.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 ulid.workspace = true

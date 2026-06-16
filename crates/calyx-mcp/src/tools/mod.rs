@@ -5,6 +5,7 @@ use calyx_core::CalyxError;
 use crate::server::McpServer;
 
 pub mod ingest;
+pub mod intelligence;
 pub mod search;
 #[cfg(test)]
 pub(crate) mod test_support;
@@ -15,4 +16,5 @@ pub fn register_all(server: &mut McpServer) -> Result<(), CalyxError> {
     vault::register(server)
         .and_then(|_| ingest::register(server))
         .and_then(|_| search::register(server))
+        .and_then(|_| intelligence::register(server))
 }
