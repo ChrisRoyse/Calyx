@@ -9,8 +9,8 @@ use crate::{
     assay_bits_validation, crash, dedup_audit_readback, dedup_readback, fsv, healthcheck,
     intelligence_commands, kernel_health_readback, leapable, lens_commands, lodestar_commands,
     manifest_readback, media_commands, merkle, migrate, navigate, ops, oracle_readback,
-    panel_commands, ph42_readback, provenance, recurrence_readback, resource_drill,
-    resource_status, scan, sextant_bench, sextant_commands, summarize_command,
+    oracle_sufficiency_validation, panel_commands, ph42_readback, provenance, recurrence_readback,
+    resource_drill, resource_status, scan, sextant_bench, sextant_commands, summarize_command,
     temporal_log_recurrence_readback, temporal_readback, time_prediction_readback,
     timetravel_readback, trigger_readback, usage, vault_tree, verify, ward_guard_validation,
     ward_tau_readback,
@@ -147,6 +147,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         }
         [command, topic, rest @ ..] if command == "ward" && topic == "guard-validate" => {
             ward_guard_validation::run(rest)
+        }
+        [command, topic, rest @ ..] if command == "oracle" && topic == "sufficiency-validate" => {
+            oracle_sufficiency_validation::run(rest)
         }
         [command, topic, rest @ ..] if command == "lens" => lens_commands::run(topic, rest),
         [command, topic, rest @ ..] if command == "panel" => panel_commands::run(topic, rest),

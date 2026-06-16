@@ -54,6 +54,7 @@ mod migrate;
 mod navigate;
 mod ops;
 mod oracle_readback;
+mod oracle_sufficiency_validation;
 mod output;
 mod panel_commands;
 mod ph42_readback;
