@@ -1,3 +1,4 @@
+mod healthcheck;
 mod ingest;
 mod intelligence;
 mod lens;
@@ -109,6 +110,9 @@ pub(crate) struct ProfileLensArgs {
 
 pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
     if let Some(result) = readback::try_run(args) {
+        return Some(result);
+    }
+    if let Some(result) = healthcheck::try_run(args) {
         return Some(result);
     }
     if !args.first().is_some_and(|command| is_cmd(command)) {

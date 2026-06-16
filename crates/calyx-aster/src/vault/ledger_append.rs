@@ -1,13 +1,70 @@
 use super::{AsterVault, encode, ledger_hook};
-use crate::cf::{ColumnFamily, ledger_key};
+use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key};
 use crate::ledger_view::parse_aster_ledger_seq;
-use calyx_core::{CalyxError, Clock, LedgerRef, Result, SystemClock, VaultStore};
+use calyx_core::{Anchor, CalyxError, Clock, CxId, LedgerRef, Result, SystemClock, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, LedgerCfStore, LedgerRow, SubjectId};
+
+struct LedgerEntryInput {
+    kind: EntryKind,
+    subject: SubjectId,
+    payload: Vec<u8>,
+    actor: ActorId,
+}
 
 impl<C> AsterVault<C>
 where
     C: Clock,
 {
+    /// Adds an anchor and stamps the stored base row with the same ledger ref.
+    pub fn anchor_with_ledger_entry(
+        &self,
+        id: CxId,
+        anchor: Anchor,
+        kind: EntryKind,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<LedgerRef> {
+        let entry = LedgerEntryInput {
+            kind,
+            subject,
+            payload,
+            actor,
+        };
+        anchor.validate_schema()?;
+        self.with_durable_commit_lock(|| {
+            let latest = self.snapshot();
+            let mut constellation = self.get(id, latest)?;
+            constellation.anchors.push(anchor.clone());
+            let Some(hook) = &self.ledger_hook else {
+                return self.anchor_with_raw_ledger_entry(id, &mut constellation, anchor, entry);
+            };
+            let mut guard = ledger_hook::lock_hook(hook)?;
+            let staged = guard.stage_with_checkpoints(
+                entry.kind,
+                entry.subject,
+                entry.payload,
+                entry.actor,
+            )?;
+            let ledger_ref = staged
+                .first()
+                .ok_or_else(|| CalyxError::ledger_group_commit_failed("no staged ledger rows"))?
+                .ledger_ref();
+            constellation.provenance = ledger_ref.clone();
+            let mut rows = anchor_rows(id, &constellation, &anchor)?;
+            rows.extend(staged.iter().map(|row| encode::WriteRow {
+                cf: ColumnFamily::Ledger,
+                key: row.key().to_vec(),
+                value: row.value().to_vec(),
+            }));
+            self.commit_rows_locked(&rows)?;
+            for row in &staged {
+                guard.commit_staged(row)?;
+            }
+            Ok(ledger_ref)
+        })
+    }
+
     /// Appends a provenance Ledger entry through Aster's durable group-commit path.
     pub fn append_ledger_entry(
         &self,
@@ -52,6 +109,28 @@ where
         let store = AsterRawLedgerStore { vault: self };
         let mut appender = LedgerAppender::open(store, SystemClock)?;
         appender.append(kind, subject, payload, actor)
+    }
+
+    fn anchor_with_raw_ledger_entry(
+        &self,
+        id: CxId,
+        constellation: &mut calyx_core::Constellation,
+        anchor: Anchor,
+        entry: LedgerEntryInput,
+    ) -> Result<LedgerRef> {
+        let store = AsterRawLedgerStore { vault: self };
+        let appender = LedgerAppender::open(store, SystemClock)?;
+        let prepared = appender.prepare(entry.kind, entry.subject, entry.payload, entry.actor)?;
+        let ledger_ref = prepared.ledger_ref();
+        constellation.provenance = ledger_ref.clone();
+        let mut rows = anchor_rows(id, constellation, &anchor)?;
+        rows.push(encode::WriteRow {
+            cf: ColumnFamily::Ledger,
+            key: ledger_key(prepared.seq()),
+            value: prepared.bytes().to_vec(),
+        });
+        self.commit_rows_locked(&rows)?;
+        Ok(ledger_ref)
     }
 
     pub(crate) fn has_real_ledger_hook(&self) -> bool {
@@ -116,6 +195,25 @@ where
         self.commit_rows_locked(&rows)?;
         Ok(ledger_ref)
     }
+}
+
+fn anchor_rows(
+    id: CxId,
+    constellation: &calyx_core::Constellation,
+    anchor: &Anchor,
+) -> Result<Vec<encode::WriteRow>> {
+    Ok(vec![
+        encode::WriteRow {
+            cf: ColumnFamily::Base,
+            key: base_key(id),
+            value: encode::encode_constellation_base(constellation)?,
+        },
+        encode::WriteRow {
+            cf: ColumnFamily::Anchors,
+            key: anchor_key(id, &anchor.kind),
+            value: encode::encode_anchor(anchor)?,
+        },
+    ])
 }
 
 struct AsterRawLedgerStore<'a, C> {

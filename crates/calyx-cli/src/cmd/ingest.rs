@@ -206,8 +206,7 @@ fn anchor_command(args: AnchorArgs) -> CliResult {
         observed_at: now_ms(),
         confidence: args.confidence.unwrap_or(1.0),
     };
-    vault.anchor(cx_id, anchor)?;
-    let ledger_seq = append_anchor_ledger(&vault, cx_id, &kind)?;
+    let ledger_seq = append_anchor_ledger(&vault, cx_id, &kind, anchor)?;
     vault.flush()?;
     print_json(&AnchorReport {
         status: "anchored",
@@ -296,13 +295,27 @@ fn append_cli_ledger(
     append_ledger_payload(vault, kind, cx_id, bytes)
 }
 
-fn append_anchor_ledger(vault: &AsterVault, cx_id: CxId, kind: &AnchorKind) -> CliResult<u64> {
+fn append_anchor_ledger(
+    vault: &AsterVault,
+    cx_id: CxId,
+    kind: &AnchorKind,
+    anchor: Anchor,
+) -> CliResult<u64> {
     let bytes = serde_json::to_vec(&serde_json::json!({
         "mode": "cli-anchor",
         "anchor_kind": anchor_kind_key(kind),
     }))?;
     RedactionPolicy::check_payload(&bytes)?;
-    append_ledger_payload(vault, EntryKind::Ingest, cx_id, bytes)
+    Ok(vault
+        .anchor_with_ledger_entry(
+            cx_id,
+            anchor,
+            EntryKind::Ingest,
+            SubjectId::Cx(cx_id),
+            bytes,
+            ActorId::Service("calyx-cli".to_string()),
+        )?
+        .seq)
 }
 
 fn append_ledger_payload(
