@@ -124,6 +124,78 @@ fn ph62_cli_workflow_readback_healthcheck_and_idempotency() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn batch_ingest_ledger_payload_mentions_each_new_cx() {
+    let root = reset_root("ph62-batch-ledger");
+    let vault = "ph62-batch-ledger";
+
+    let create = calyx(
+        &root,
+        ["create-vault", vault, "--panel-template", "text-default"],
+    );
+    assert_success(&create);
+    let vault_id = json(&create)["vault_id"].as_str().unwrap().to_string();
+    let vault_path = root.join("vaults").join(&vault_id);
+    let add_lens = calyx(
+        &root,
+        [
+            "add-lens",
+            vault,
+            "--name",
+            "ph62-batch-byte",
+            "--runtime",
+            "algorithmic",
+            "--modality",
+            "text",
+        ],
+    );
+    assert_success(&add_lens);
+
+    let batch_path = root.join("batch.jsonl");
+    fs::write(
+        &batch_path,
+        "{\"text\":\"PH62 batch alpha\"}\n{\"text\":\"PH62 batch beta\"}\n",
+    )
+    .unwrap();
+    let batch = calyx(
+        &root,
+        [
+            OsStr::new("ingest"),
+            OsStr::new(vault),
+            OsStr::new("--batch"),
+            batch_path.as_os_str(),
+        ],
+    );
+    assert_success(&batch);
+    let reports = json_lines(&batch);
+    assert_eq!(reports.len(), 2);
+    let ledger_seq = reports[0]["ledger_seq"].as_u64().unwrap();
+    let cx_ids = reports
+        .iter()
+        .map(|report| {
+            assert_eq!(report["new"], true);
+            assert_eq!(report["ledger_seq"].as_u64().unwrap(), ledger_seq);
+            report["cx_id"].as_str().unwrap().to_string()
+        })
+        .collect::<Vec<_>>();
+
+    let ledger = ledger_readback(&root, &vault_path, ledger_seq);
+    assert_success(&ledger);
+    let ledger_payload = hex_dump_ascii(&stdout(&ledger));
+    for cx_id in &cx_ids {
+        let row = cf_readback(&root, &vault_path, cx_id);
+        assert_success(&row);
+        assert!(compact_hex(&stdout(&row)).contains(cx_id));
+        assert!(ledger_payload.contains(cx_id));
+        let provenance = calyx(&root, ["provenance", vault, cx_id]);
+        assert_success(&provenance);
+        let lineage = json(&provenance);
+        assert_eq!(lineage["ingest_seq"].as_u64().unwrap(), ledger_seq);
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn cf_readback(root: &Path, vault_path: &Path, cx_id: &str) -> Output {
     calyx(
         root,
@@ -135,6 +207,20 @@ fn cf_readback(root: &Path, vault_path: &Path, cx_id: &str) -> Output {
             OsStr::new("base"),
             OsStr::new("--key"),
             OsStr::new(cx_id),
+        ],
+    )
+}
+
+fn ledger_readback(root: &Path, vault_path: &Path, seq: u64) -> Output {
+    let seq = seq.to_string();
+    calyx(
+        root,
+        [
+            OsStr::new("readback"),
+            OsStr::new("--ledger"),
+            vault_path.as_os_str(),
+            OsStr::new("--seq"),
+            OsStr::new(&seq),
         ],
     )
 }
@@ -170,8 +256,31 @@ fn json(output: &Output) -> Value {
     })
 }
 
+fn json_lines(output: &Output) -> Vec<Value> {
+    stdout(output)
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("parse JSON line"))
+        .collect()
+}
+
 fn compact_hex(output: &str) -> String {
     output.chars().filter(char::is_ascii_hexdigit).collect()
+}
+
+fn hex_dump_ascii(output: &str) -> String {
+    let mut bytes = Vec::new();
+    for line in output.lines() {
+        let Some((_, rest)) = line.split_once("  ") else {
+            continue;
+        };
+        let hex_part = rest.split('|').next().unwrap_or_default();
+        for token in hex_part.split_whitespace() {
+            if token.len() == 2 && token.chars().all(|ch| ch.is_ascii_hexdigit()) {
+                bytes.push(u8::from_str_radix(token, 16).expect("hex byte"));
+            }
+        }
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
 }
 
 fn spawn_http_endpoint() -> String {

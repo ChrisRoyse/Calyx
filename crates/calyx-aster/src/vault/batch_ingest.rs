@@ -126,14 +126,18 @@ fn accept_duplicate_or_error(incoming: &[u8], existing: &[u8]) -> Result<()> {
 
 fn batch_payload(constellations: &[Constellation]) -> Vec<u8> {
     let mut payload = PayloadBuilder::default();
+    let cx_ids = constellations
+        .iter()
+        .map(|cx| cx.cx_id.to_string())
+        .collect::<Vec<_>>();
     let hashes = constellations
         .iter()
-        .take(32)
         .map(|cx| hex(&cx.input_ref.hash))
         .collect::<Vec<_>>();
     payload
         .insert_str("mode", BATCH_ACTOR)
         .insert_u64("count", constellations.len() as u64)
+        .insert_value("cx_id", json!(cx_ids))
         .insert_str("first_cx_id", constellations[0].cx_id.to_string())
         .insert_str(
             "last_cx_id",
@@ -143,7 +147,7 @@ fn batch_payload(constellations: &[Constellation]) -> Vec<u8> {
                 .cx_id
                 .to_string(),
         )
-        .insert_value("input_hash_prefix", json!(hashes));
+        .insert_value("input_hash", json!(hashes));
     RedactionPolicy::default().apply_to_payload(&payload)
 }
 
