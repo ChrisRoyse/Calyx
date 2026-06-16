@@ -404,10 +404,10 @@ fn parse_general_value(value: &str) -> AnchorValue {
     if let Ok(parsed) = value.parse::<bool>() {
         return AnchorValue::Bool(parsed);
     }
-    if let Ok(parsed) = value.parse::<f64>() {
-        if parsed.is_finite() {
-            return AnchorValue::Number(parsed);
-        }
+    if let Ok(parsed) = value.parse::<f64>()
+        && parsed.is_finite()
+    {
+        return AnchorValue::Number(parsed);
     }
     AnchorValue::Text(value.to_string())
 }

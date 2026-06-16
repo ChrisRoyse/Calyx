@@ -308,7 +308,7 @@ fn sync_parent(path: &Path) -> Result<(), CalyxError> {
     #[cfg(windows)]
     {
         let _ = parent;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     File::open(parent)

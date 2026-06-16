@@ -421,7 +421,7 @@ fn sync_dir(path: &Path) -> Result<(), CalyxError> {
     #[cfg(windows)]
     {
         let _ = path;
-        return Ok(());
+        Ok(())
     }
     #[cfg(not(windows))]
     File::open(path)
