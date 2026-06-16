@@ -35,8 +35,29 @@ fn balance_regions_splits_oversized_and_preserves_all_members() {
     );
     let max_region = final_buckets.iter().map(Vec::len).max().unwrap();
     assert!(
-        max_region < 500,
-        "max region shrank from 500, got {max_region}"
+        max_region <= cap,
+        "max region must obey cap {cap}, got {max_region}"
+    );
+}
+
+#[test]
+fn balance_regions_recursively_enforces_cap() {
+    let dim = 16;
+    let sample: Vec<(u32, Vec<f32>)> = (0..800).map(|i| (i, gen_row(11, i as u64, dim))).collect();
+    let initial = build_centroids(&sample, 1, 11);
+    let buckets = vec![(0..900u64).collect::<Vec<_>>()];
+    let cap = 37;
+    let (cents, final_buckets) = balance_regions(&initial, buckets, 11, dim, cap);
+
+    assert_eq!(cents.len(), final_buckets.len(), "centroid per region");
+    assert_eq!(
+        final_buckets.iter().map(Vec::len).sum::<usize>(),
+        900,
+        "all members preserved"
+    );
+    assert!(
+        final_buckets.iter().all(|bucket| bucket.len() <= cap),
+        "every final bucket must be <= cap"
     );
 }
 

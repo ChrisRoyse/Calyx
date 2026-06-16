@@ -22,6 +22,8 @@
 //! Row generation is per-index deterministic (`gen_row`) so build and search never
 //! hold more than one region's vectors at a time.
 
+mod balance;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -35,6 +37,7 @@ use serde::{Deserialize, Serialize};
 use crate::index::{
     DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex, build_centroids,
 };
+use balance::balance_regions;
 
 const MANIFEST_FILE: &str = "partitioned-manifest.json";
 const CENTROID_DIR: &str = "idx/slot_00.sparse";
@@ -196,9 +199,10 @@ pub fn build_partitioned_vault(
     //     and a few oversized regions dominate both the (super-linear) build tail
     //     AND per-region search cost. Split any region above `cap` into sub-regions
     //     via local k-means, then rebuild the routing layer over the FINAL centroid
-    //     set so search still routes correctly. cap = 2x the target mean.
+    //     set so search still routes correctly. cap = target mean: the recursive
+    //     splitter enforces this hard bound, keeping final max/mean near 1-2x.
     let mean_region = (p.n_cx as usize).div_ceil(r.max(1));
-    let cap = (mean_region * 2).max(MIN_REGION_CAP);
+    let cap = mean_region.max(MIN_REGION_CAP);
     let (final_centroids, buckets) = balance_regions(&centroids, buckets, p.seed, p.dim, cap);
     let centroids =
         SpannCentroidIndex::from_parts(p.dim as u32, final_centroids, Vec::new(), Vec::new())?;
@@ -301,68 +305,6 @@ pub fn build_partitioned_vault(
     std::fs::write(root.join(MANIFEST_FILE), bytes)
         .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
     Ok(manifest)
-}
-
-/// Split any region whose membership exceeds `cap` into sub-regions via a local
-/// k-means (#713), returning the FINAL centroid set and the matching member
-/// buckets (one centroid per final region, same order). Non-oversized regions pass
-/// through unchanged. Splitting per region is independent, so it runs in parallel;
-/// each split regenerates only its own members (memory stays bounded by region
-/// size, not N).
-fn balance_regions(
-    initial: &SpannCentroidIndex,
-    buckets: Vec<Vec<u64>>,
-    seed: u64,
-    dim: usize,
-    cap: usize,
-) -> (Vec<Vec<f32>>, Vec<Vec<u64>>) {
-    // (centroids, member-buckets) contributed by one input region after splitting.
-    type RegionSplit = (Vec<Vec<f32>>, Vec<Vec<u64>>);
-    let initial_centroids = initial.centroids();
-    let split: Vec<RegionSplit> = buckets
-        .par_iter()
-        .enumerate()
-        .map(|(region, members)| {
-            if members.is_empty() {
-                return (Vec::new(), Vec::new());
-            }
-            if members.len() <= cap {
-                return (
-                    vec![initial_centroids[region].clone()],
-                    vec![members.clone()],
-                );
-            }
-            // Oversized: re-cluster this region's members into ceil(count/cap) parts.
-            let k_sub = members.len().div_ceil(cap);
-            let rows: Vec<(u32, Vec<f32>)> = members
-                .iter()
-                .enumerate()
-                .map(|(i, &idx)| (i as u32, gen_row(seed, idx, dim)))
-                .collect();
-            let sub = build_centroids(&rows, k_sub, seed ^ (region as u64).wrapping_mul(IDX_MIX));
-            let mut sub_buckets: Vec<Vec<u64>> = vec![Vec::new(); sub.centroid_count()];
-            for (i, &idx) in members.iter().enumerate() {
-                sub_buckets[sub.assign(&rows[i].1) as usize].push(idx);
-            }
-            let mut cents = Vec::new();
-            let mut buks = Vec::new();
-            for (c, sb) in sub_buckets.into_iter().enumerate() {
-                if sb.is_empty() {
-                    continue;
-                }
-                cents.push(sub.centroids()[c].clone());
-                buks.push(sb);
-            }
-            (cents, buks)
-        })
-        .collect();
-    let mut final_centroids = Vec::new();
-    let mut final_buckets = Vec::new();
-    for (cents, buks) in split {
-        final_centroids.extend(cents);
-        final_buckets.extend(buks);
-    }
-    (final_centroids, final_buckets)
 }
 
 fn write_ids(path: &Path, ids: &[u64]) -> Result<()> {
