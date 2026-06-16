@@ -5,13 +5,19 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     AbsentReason, Anchor, AnchorKind, AnchorValue, Asymmetry, CxId, LensId, Modality, Panel,
-    QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState, VaultId, VaultStore,
+    QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState, SlotVector, VaultId, VaultStore,
 };
 use calyx_registry::load_vault_panel_state;
 use proptest::prelude::*;
 use ulid::Ulid;
 
-use super::*;
+use super::super::vault::{ResolvedVault, now_ms, vault_salt};
+use super::anchor::parse_anchor_kind;
+use super::batch::read_batch_texts;
+use super::command::ingest_texts;
+use super::constellation::{measure_constellation, text_input};
+use super::parse::{parse_anchor, validate_text};
+use super::store::{ensure_base_exists, open_vault};
 
 #[test]
 fn ingest_same_text_twice_returns_same_cx_and_second_is_not_new() {
