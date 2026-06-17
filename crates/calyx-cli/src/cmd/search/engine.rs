@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
 
-use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     AnchorKind, CalyxError, Constellation, CxId, Input, Modality, SlotId, SlotState, SlotVector,
@@ -9,21 +8,19 @@ use calyx_core::{
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 use calyx_sextant::fusion;
 use calyx_sextant::{
-    FreshnessTag, FusionContext, FusionStrategy, Hit, HnswIndex, InvertedIndex, MaxSimIndex,
-    ProvenanceSource, RrfProfile, SextantIndex,
+    FreshnessTag, FusionContext, FusionStrategy, Hit, ProvenanceSource, RrfProfile,
 };
 
 use super::super::Subcommand;
 use super::super::ingest::parse_anchor_kind;
 use super::super::vault::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
-use super::filters;
 use super::output;
 use super::parse::{DEFAULT_K, KernelAnswerArgs, SearchArgs, SearchFreshnessArg, SearchGuardArg};
-use crate::error::{CliError, CliResult};
+use super::persisted::{PersistedSearchIndexes, load_docs};
+use crate::error::CliResult;
 use crate::output::print_json;
 
 const GUARD_TAU: f32 = 0.999;
-const HNSW_SEED: u64 = 0x0050_4836_3254_3034;
 
 pub(super) fn run(command: Subcommand) -> CliResult {
     match command {
@@ -56,8 +53,11 @@ fn kernel_answer_command(args: KernelAnswerArgs) -> CliResult {
         filter: None,
     };
     let anchor = args.anchor.as_deref().map(parse_anchor_kind).transpose()?;
+    let resolved = resolve_cli_vault(&search_args.vault)?;
+    let vault = open_vault(&resolved)?;
+    let docs = load_docs(&vault)?;
     let outcome = search_outcome(&search_args)?;
-    let report = kernel_report_from_docs(&outcome.docs, &outcome.hits, anchor.as_ref())?;
+    let report = kernel_report_from_docs(&docs, &outcome.hits, anchor.as_ref())?;
     print_json(&report)
 }
 
@@ -65,52 +65,50 @@ fn search_outcome(args: &SearchArgs) -> CliResult<SearchOutcome> {
     let resolved = resolve_cli_vault(&args.vault)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
-    let docs = filtered_docs(load_docs(&vault)?, args.filter.as_deref())?;
-    if docs.is_empty() {
-        return Ok(SearchOutcome::empty(docs));
+    if args.filter.is_some() {
+        return Err(CalyxError::stale_derived(
+            "persistent search metadata filters are not materialized yet; add indexed metadata filters before using --filter",
+        )
+        .into());
+    }
+    let indexes = match PersistedSearchIndexes::open(&resolved.path) {
+        Ok(indexes) => indexes,
+        Err(err) if err.code() == "CALYX_STALE_DERIVED" && vault_base_count(&vault)? == 0 => {
+            return Ok(SearchOutcome::empty());
+        }
+        Err(err) => return Err(err),
+    };
+    if indexes.max_len() == 0 {
+        return Ok(SearchOutcome::empty());
     }
     let query_vectors = measure_query_vectors(&state, &args.query)?;
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());
     }
-    let per_slot = search_slots(&docs, &query_vectors)?;
+    let per_slot = search_slots(&indexes, &query_vectors, args.k.max(64))?;
     let slots = per_slot.keys().copied().collect::<Vec<_>>();
     if slots.is_empty() {
         return Err(no_indexable_stored_vectors().into());
     }
     let strategy = args.fusion.to_strategy(&slots)?;
     let context = FusionContext {
-        k: docs.len().max(args.k),
+        k: args.k.max(64),
         explain: args.explain,
         strategy: strategy.clone(),
         weights: weights_for(&strategy, &slots),
         stage1_slots: stage1_slots(&strategy, &query_vectors, &slots),
     };
     let mut hits = fusion::fuse(&per_slot, &context);
-    attach_stored_provenance(&mut hits, &docs, vault.latest_seq())?;
+    let hit_docs = hit_docs(&vault, &hits)?;
+    attach_stored_provenance(&mut hits, &hit_docs, vault.latest_seq())?;
     let guard_tau = if args.guard == SearchGuardArg::InRegion {
-        hits = apply_in_region_guard(hits, &docs, &query_vectors)?;
+        hits = apply_in_region_guard(hits, &hit_docs, &query_vectors)?;
         Some(GUARD_TAU)
     } else {
         None
     };
     renumber_and_truncate(&mut hits, args.k);
-    Ok(SearchOutcome {
-        hits,
-        docs,
-        guard_tau,
-    })
-}
-
-fn filtered_docs(
-    docs: BTreeMap<CxId, Constellation>,
-    raw_filter: Option<&str>,
-) -> CliResult<BTreeMap<CxId, Constellation>> {
-    let filter = filters::parse(raw_filter)?;
-    Ok(docs
-        .into_iter()
-        .filter(|(_, cx)| filters::matches(cx, &filter))
-        .collect())
+    Ok(SearchOutcome { hits, guard_tau })
 }
 
 fn measure_query_vectors(
@@ -146,47 +144,18 @@ pub(super) fn no_indexable_stored_vectors() -> CalyxError {
 }
 
 fn search_slots(
-    docs: &BTreeMap<CxId, Constellation>,
+    indexes: &PersistedSearchIndexes,
     query_vectors: &[(SlotId, SlotVector)],
+    k: usize,
 ) -> CliResult<BTreeMap<SlotId, Vec<calyx_sextant::IndexSearchHit>>> {
     let mut out = BTreeMap::new();
     for (slot, query) in query_vectors {
-        let hits = search_one_slot(docs, *slot, query)?;
+        let hits = indexes.search(*slot, query, k)?;
         if !hits.is_empty() {
             out.insert(*slot, hits);
         }
     }
     Ok(out)
-}
-
-fn search_one_slot(
-    docs: &BTreeMap<CxId, Constellation>,
-    slot: SlotId,
-    query: &SlotVector,
-) -> CliResult<Vec<calyx_sextant::IndexSearchHit>> {
-    let mut index = new_index(slot, query)?;
-    let mut inserted = 0usize;
-    for cx in docs.values() {
-        if let Some(vector) = cx.slots.get(&slot)
-            && same_index_shape(query, vector)
-        {
-            index.insert(cx.cx_id, vector.clone(), cx.provenance.seq)?;
-            inserted += 1;
-        }
-    }
-    if inserted == 0 {
-        return Ok(Vec::new());
-    }
-    Ok(index.search(query, inserted, Some(inserted.max(64)))?)
-}
-
-fn new_index(slot: SlotId, query: &SlotVector) -> CliResult<Box<dyn SextantIndex>> {
-    match query {
-        SlotVector::Dense { dim, .. } => Ok(Box::new(HnswIndex::new(slot, *dim, HNSW_SEED))),
-        SlotVector::Sparse { .. } => Ok(Box::new(InvertedIndex::new(slot))),
-        SlotVector::Multi { token_dim, .. } => Ok(Box::new(MaxSimIndex::new(slot, *token_dim))),
-        SlotVector::Absent { .. } => Err(CliError::usage("query slot vector must be concrete")),
-    }
 }
 
 fn apply_in_region_guard(
@@ -245,17 +214,18 @@ fn attach_stored_provenance(
     Ok(())
 }
 
-fn load_docs(vault: &AsterVault) -> CliResult<BTreeMap<CxId, Constellation>> {
+fn hit_docs(vault: &AsterVault, hits: &[Hit]) -> CliResult<BTreeMap<CxId, Constellation>> {
     let snapshot = vault.snapshot();
     let mut docs = BTreeMap::new();
-    for (key, _) in vault.scan_cf_at(snapshot, ColumnFamily::Base)? {
-        let bytes: [u8; 16] = key.as_slice().try_into().map_err(|_| {
-            CalyxError::vault_access_denied(format!("base CF key has {} bytes", key.len()))
-        })?;
-        let cx_id = CxId::from_bytes(bytes);
+    for hit in hits {
+        let cx_id = hit.cx_id;
         docs.insert(cx_id, vault.get(cx_id, snapshot)?);
     }
     Ok(docs)
+}
+
+fn vault_base_count(vault: &AsterVault) -> CliResult<usize> {
+    Ok(load_docs(vault)?.len())
 }
 
 pub(super) fn kernel_report_from_docs(
@@ -329,15 +299,6 @@ fn indexable(vector: &SlotVector) -> bool {
     )
 }
 
-fn same_index_shape(query: &SlotVector, stored: &SlotVector) -> bool {
-    match (query, stored) {
-        (SlotVector::Dense { dim: q, .. }, SlotVector::Dense { dim: s, .. }) => q == s,
-        (SlotVector::Sparse { dim: q, .. }, SlotVector::Sparse { dim: s, .. }) => q == s,
-        (SlotVector::Multi { token_dim: q, .. }, SlotVector::Multi { token_dim: s, .. }) => q == s,
-        _ => false,
-    }
-}
-
 fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
     if left.len() != right.len() || left.is_empty() {
         return None;
@@ -393,15 +354,13 @@ fn stage1_slots(
 
 struct SearchOutcome {
     hits: Vec<Hit>,
-    docs: BTreeMap<CxId, Constellation>,
     guard_tau: Option<f32>,
 }
 
 impl SearchOutcome {
-    fn empty(docs: BTreeMap<CxId, Constellation>) -> Self {
+    fn empty() -> Self {
         Self {
             hits: Vec::new(),
-            docs,
             guard_tau: None,
         }
     }

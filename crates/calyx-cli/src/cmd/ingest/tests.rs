@@ -7,7 +7,7 @@ use calyx_core::{
     AbsentReason, Anchor, AnchorKind, AnchorValue, Asymmetry, CxId, LensId, Modality, Panel,
     QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState, SlotVector, VaultId, VaultStore,
 };
-use calyx_registry::load_vault_panel_state;
+use calyx_registry::{Registry, load_vault_panel_state, persist_vault_panel_state};
 use proptest::prelude::*;
 use ulid::Ulid;
 
@@ -29,6 +29,38 @@ fn ingest_same_text_twice_returns_same_cx_and_second_is_not_new() {
     assert_eq!(first[0].cx_id, second[0].cx_id);
     assert!(first[0].new);
     assert!(!second[0].new);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn ingest_registered_dense_lens_persists_search_index_files() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("persist-index");
+    let reports = ingest_texts(
+        &resolved,
+        &[
+            String::from("alpha north signal"),
+            String::from("beta south signal"),
+            String::from("gamma east signal"),
+        ],
+    )
+    .unwrap();
+
+    let manifest_path = resolved.path.join("idx/search/manifest.json");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    let slot = &manifest["slots"].as_array().unwrap()[0];
+    let graph_path = resolved.path.join(slot["graph_rel"].as_str().unwrap());
+    let ids_path = resolved.path.join(slot["id_map_rel"].as_str().unwrap());
+    let ids: serde_json::Value = serde_json::from_slice(&fs::read(&ids_path).unwrap()).unwrap();
+
+    assert!(reports.iter().all(|report| report.new));
+    assert_eq!(manifest["format"], "calyx-search-index-manifest-v1");
+    assert_eq!(slot["slot"], 0);
+    assert_eq!(slot["dim"], 16);
+    assert_eq!(slot["len"], 3);
+    assert!(graph_path.is_file());
+    assert_eq!(ids["format"], "calyx-search-index-idmap-v1");
+    assert_eq!(ids["ids"].as_array().unwrap().len(), 3);
     fs::remove_dir_all(root).ok();
 }
 
@@ -153,15 +185,57 @@ fn test_vault(name: &str, panel: Panel) -> (std::path::PathBuf, ResolvedVault) {
     )
 }
 
+fn test_vault_with_registered_dense_lens(name: &str) -> (std::path::PathBuf, ResolvedVault) {
+    let root = temp_root(name);
+    let vault_id = VaultId::from_ulid(Ulid::new());
+    let path = root.join("vaults").join(vault_id.to_string());
+    let mut registry = Registry::new();
+    let built = super::super::lens::build_lens(
+        "algo16",
+        "algorithmic",
+        None,
+        None,
+        Some("Dense(16)"),
+        Some("text"),
+    )
+    .unwrap();
+    let lens_id = built.lens_id;
+    built.register(&mut registry).unwrap();
+    let panel = panel_with_text_slot(lens_id, SlotShape::Dense(16));
+    AsterVault::new_durable(
+        &path,
+        vault_id,
+        vault_salt(vault_id, name),
+        VaultOptions {
+            panel: Some(panel.clone()),
+            ..VaultOptions::default()
+        },
+    )
+    .unwrap();
+    persist_vault_panel_state(&path, &panel, &registry).unwrap();
+    (
+        root,
+        ResolvedVault {
+            path,
+            name: name.to_string(),
+            vault_id,
+        },
+    )
+}
+
 fn panel_with_unregistered_text_slot() -> Panel {
+    panel_with_text_slot(LensId::from_bytes([7; 16]), SlotShape::Dense(3))
+}
+
+fn panel_with_text_slot(lens_id: LensId, shape: SlotShape) -> Panel {
     let slot = SlotId::new(0);
     Panel {
         version: 1,
         slots: vec![Slot {
             slot_id: slot,
             slot_key: SlotKey::new(slot, "synthetic"),
-            lens_id: LensId::from_bytes([7; 16]),
-            shape: SlotShape::Dense(3),
+            lens_id,
+            shape,
             modality: Modality::Text,
             asymmetry: Asymmetry::None,
             quant: QuantPolicy::None,

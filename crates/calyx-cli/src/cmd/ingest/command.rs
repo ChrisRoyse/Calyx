@@ -4,6 +4,7 @@ use calyx_core::{Anchor, CxId, VaultStore};
 use calyx_ledger::EntryKind;
 use calyx_registry::load_vault_panel_state;
 
+use super::super::search::rebuild_persistent_indexes;
 use super::super::vault::{ResolvedVault, now_ms};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
@@ -105,6 +106,7 @@ pub(super) fn ingest_texts(
         }
     }
     vault.flush()?;
+    rebuild_persistent_indexes(&resolved.path, &vault)?;
     let snapshot = vault.snapshot();
     let mut reports = Vec::with_capacity(prepared.len());
     for (cx_id, new) in prepared {
