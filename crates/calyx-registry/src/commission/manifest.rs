@@ -208,10 +208,7 @@ fn spec_weights_sha256(
     manifest: &LensForgeManifest,
     artifacts: &[VerifiedFile],
 ) -> Result<[u8; 32]> {
-    let model = artifacts
-        .iter()
-        .find(|file| is_model_role(&file.role))
-        .ok_or_else(|| config_invalid("lensforge manifest requires a model file"))?;
+    let model = weight_anchor(manifest, artifacts)?;
     let model_sha = plain_sha256_hex(&model.bytes);
     if !hex_eq(&model_sha, &manifest.weights_sha256) {
         return Err(CalyxError::lens_frozen_violation(format!(
@@ -235,6 +232,21 @@ fn spec_weights_sha256(
     } else {
         parse_hex_32(&manifest.weights_sha256)
     }
+}
+
+fn weight_anchor<'a>(
+    manifest: &LensForgeManifest,
+    artifacts: &'a [VerifiedFile],
+) -> Result<&'a VerifiedFile> {
+    artifacts
+        .iter()
+        .find(|file| is_model_role(&file.role))
+        .or_else(|| {
+            is_adapter_runtime(&manifest.runtime)
+                .then(|| artifacts.iter().find(|file| file.role == "adapter"))
+                .flatten()
+        })
+        .ok_or_else(|| config_invalid("lensforge manifest requires a model file"))
 }
 
 fn runtime_from_manifest(
@@ -279,9 +291,12 @@ fn runtime_from_manifest(
                 .collect::<Vec<_>>(),
         }),
         "adapter" | "multimodal-adapter" | "multimodal_adapter" => {
+            let adapter_config = artifact_by_role(artifacts, |role| role == "adapter")?;
             Ok(LensRuntime::MultimodalAdapter {
                 axis: modality_token(manifest.modality).to_string(),
                 model_id: manifest.source_hf_id.clone(),
+                adapter_config: Some(adapter_config),
+                files,
             })
         }
         "model2vec-external" => Ok(LensRuntime::ExternalCmd {
@@ -299,6 +314,13 @@ fn runtime_from_manifest(
 
 fn is_tei_runtime(runtime: &str) -> bool {
     matches!(runtime, "tei" | "tei-http" | "tei_http")
+}
+
+fn is_adapter_runtime(runtime: &str) -> bool {
+    matches!(
+        runtime,
+        "adapter" | "multimodal-adapter" | "multimodal_adapter"
+    )
 }
 
 fn ordered_manifest_files(files: &[LensForgeFile]) -> Vec<&LensForgeFile> {

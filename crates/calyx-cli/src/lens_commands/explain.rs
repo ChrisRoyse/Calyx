@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use calyx_core::{Input, Lens, SlotVector};
 use calyx_registry::{
-    CandleLens, LensRuntime, LensSpec, OnnxLens, StaticLookupLens, TeiHttpLens,
-    lens_spec_from_manifest_path,
+    CandleLens, LensRuntime, LensSpec, MultimodalAdapterLens, OnnxLens, StaticLookupLens,
+    TeiHttpLens, lens_spec_from_manifest_path,
 };
 use serde::Serialize;
 
@@ -27,6 +27,8 @@ struct ExplainReport {
     norm: f32,
     norm_ok: bool,
     first_values: Vec<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    full_vector: Option<Vec<f32>>,
     total_ms: f32,
     ms_per_input: f32,
     vram_bytes: u64,
@@ -45,16 +47,15 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
     let flags = Flags::parse(args)?;
     let manifest = flags
         .manifest
+        .clone()
         .ok_or_else(|| CliError::usage("calyx lens explain requires --manifest <path>"))?;
     let repeat = flags.repeat.unwrap_or(1);
     if repeat == 0 {
         return Err(CliError::usage("--repeat must be > 0"));
     }
     let spec = lens_spec_from_manifest_path(&manifest)?;
-    let input = flags
-        .input
-        .unwrap_or_else(|| "Calyx lens explain probe".to_string());
-    let probe = Input::new(spec.modality, input.into_bytes());
+    let input = input_bytes(&flags)?;
+    let probe = Input::new(spec.modality, input);
     let started = Instant::now();
     let measurement = measure_runtime(&spec, &probe, repeat)?;
     let total_ms = started.elapsed().as_secs_f64() as f32 * 1000.0;
@@ -72,6 +73,7 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
         norm,
         norm_ok: true,
         first_values: slot_prefix(&measurement.vector, 4),
+        full_vector: full_vector(&measurement.vector, flags.full_vector)?,
         total_ms,
         ms_per_input: total_ms / repeat as f32,
         vram_bytes: measurement.vram_bytes,
@@ -85,10 +87,34 @@ fn measure_runtime(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<M
         LensRuntime::TeiHttp { endpoint } => measure_tei(spec, endpoint, probe, repeat),
         LensRuntime::CandleLocal { .. } => measure_candle(spec, probe, repeat),
         LensRuntime::Onnx { .. } => measure_onnx(spec, probe, repeat),
+        LensRuntime::MultimodalAdapter { .. } => measure_multimodal(spec, probe, repeat),
         other => Err(CliError::usage(format!(
             "calyx lens explain does not support {} runtime measurement",
             runtime_name(other)
         ))),
+    }
+}
+
+fn full_vector(vector: &SlotVector, enabled: bool) -> CliResult<Option<Vec<f32>>> {
+    if !enabled {
+        return Ok(None);
+    }
+    match vector {
+        SlotVector::Dense { data, .. } => Ok(Some(data.clone())),
+        SlotVector::Sparse { .. } | SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(
+            CliError::usage("--full-vector is supported only for dense lens explain output"),
+        ),
+    }
+}
+
+fn input_bytes(flags: &Flags) -> CliResult<Vec<u8>> {
+    match (&flags.input, &flags.input_file) {
+        (Some(_), Some(_)) => Err(CliError::usage(
+            "calyx lens explain accepts only one of --input or --input-file",
+        )),
+        (Some(input), None) => Ok(input.clone().into_bytes()),
+        (None, Some(path)) => Ok(fs::read(path)?),
+        (None, None) => Ok(b"Calyx lens explain probe".to_vec()),
     }
 }
 
@@ -142,6 +168,18 @@ fn measure_onnx(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Meas
         rows: None,
         vram_bytes: files_size(&lens.files().artifact_paths())?,
         runtime_detail: format!("{};{}", lens.runtime_name(), lens.provider_policy()),
+    })
+}
+
+fn measure_multimodal(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Measurement> {
+    let lens = MultimodalAdapterLens::from_lens_spec(spec)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    Ok(Measurement {
+        vector,
+        dtype: "f32".to_string(),
+        rows: None,
+        vram_bytes: 0,
+        runtime_detail: "multimodal_adapter_onnx_external;cpu_explicit".to_string(),
     })
 }
 

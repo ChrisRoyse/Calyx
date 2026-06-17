@@ -304,10 +304,9 @@ fn declared_runtime(
         }),
         "multimodal-adapter" => Ok(LensRuntime::MultimodalAdapter {
             axis: endpoint.unwrap_or("mixed").to_string(),
-            model_id: weights
-                .and_then(Path::to_str)
-                .unwrap_or("declared-multimodal")
-                .to_string(),
+            model_id: "declared-multimodal".to_string(),
+            adapter_config: weights.map(Path::to_path_buf),
+            files: weights.into_iter().map(Path::to_path_buf).collect(),
         }),
         other => Err(CliError::usage(format!(
             "unknown runtime {other}; expected algorithmic, tei-http, external-cmd, candle-local, onnx, or multimodal-adapter"
