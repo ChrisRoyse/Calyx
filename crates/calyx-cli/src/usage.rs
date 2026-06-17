@@ -46,6 +46,7 @@ pub(crate) fn usage() -> &'static str {
        calyx build-bench-vault --vault <dir> --n-cx <n> --dim <n> --slots <n> --seed <n>
        calyx bench search --vault <dir> --strategy KernelFirst --n <n> --report p50,p99,p999 --seed <n> [--k <n>] [--beamwidth <n>] [--posting-cutoff <n>] [--tuner-slo-us <us>]
        calyx bench recall --vault <dir> --n <n> --k <n> [--seed <n>]
+       calyx bench partitioned-search --vault <dir> --n <n> --k <n> --n-probe <n> --region-beam <n> [--ground-truth <n> --recall-floor <f>]
        calyx anneal status --vault <dir> --tuner bw_postcutoff
        calyx anneal replay-status --vault <dir>
        calyx anneal head-status --kind <Predictor|Calibrator|FusionWeights> --vault <dir>

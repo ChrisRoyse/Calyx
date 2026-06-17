@@ -17,9 +17,22 @@ use serde_json::json;
 
 use crate::error::{CliError, CliResult};
 
+mod brute_force;
+use brute_force::{brute_force_topk, brute_force_topk_fbin};
+
 fn parse<T: std::str::FromStr>(v: &str, flag: &str) -> CliResult<T> {
     v.parse::<T>()
         .map_err(|_| CliError::usage(format!("{flag} expects a valid value, got {v}")))
+}
+
+fn parse_recall_floor(v: &str) -> CliResult<f32> {
+    let value: f32 = parse(v, "--recall-floor")?;
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return Err(CliError::usage(
+            "--recall-floor expects a finite value in [0, 1]",
+        ));
+    }
+    Ok(value)
 }
 
 struct BuildArgs {
@@ -148,6 +161,8 @@ struct SearchArgs {
     /// If > 0, brute-force the TRUE top-k for the first `ground_truth` queries and
     /// report real recall@k (not just self-recall). Memory-bounded chunked scan.
     ground_truth: usize,
+    /// Fail closed unless true brute-force recall@k is present and >= this floor.
+    recall_floor: Option<f32>,
 }
 
 impl SearchArgs {
@@ -157,6 +172,7 @@ impl SearchArgs {
         let mut corpus = None;
         let (mut n, mut k, mut n_probe, mut region_beam) = (1000usize, 10usize, 8usize, 64usize);
         let mut ground_truth = 0usize;
+        let mut recall_floor = None;
         let mut it = args.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -173,6 +189,7 @@ impl SearchArgs {
                 "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
                 "--region-beam" => region_beam = parse(&next()?, "--region-beam")?,
                 "--ground-truth" => ground_truth = parse(&next()?, "--ground-truth")?,
+                "--recall-floor" => recall_floor = Some(parse_recall_floor(&next()?)?),
                 // --seed and --report are accepted for harness symmetry; the query
                 // seed is taken from the vault manifest (must match the build seed).
                 "--seed" | "--report" => {
@@ -191,130 +208,42 @@ impl SearchArgs {
             n_probe,
             region_beam,
             ground_truth,
+            recall_floor,
         })
     }
 }
 
-/// Brute-force the true top-`k` neighbours (by L2) for each query over a REAL corpus
-/// `.fbin`. Memory-bounded: scans the mmap'd file in `CHUNK`-sized row windows,
-/// parallel per chunk. Returns, per query, the set of true top-k row ids.
-fn brute_force_topk_fbin(
-    corpus: &calyx_sextant::index::FbinVectors,
-    queries: &[Vec<f32>],
-    k: usize,
-) -> Vec<std::collections::HashSet<u64>> {
-    use rayon::prelude::*;
-    const CHUNK: u64 = 200_000;
-    let dim = corpus.dim();
-    let n_cx = corpus.count();
-    let mut heaps: Vec<std::collections::BinaryHeap<(ordered_f32::OrdF32, u64)>> = (0..queries
-        .len())
-        .map(|_| std::collections::BinaryHeap::with_capacity(k + 1))
-        .collect();
-    let mut start = 0u64;
-    while start < n_cx {
-        let end = (start + CHUNK).min(n_cx);
-        for (qi, q) in queries.iter().enumerate() {
-            let scored: Vec<(ordered_f32::OrdF32, u64)> = (start..end)
-                .into_par_iter()
-                .map(|idx| {
-                    let row = corpus.row(idx);
-                    let mut d = 0.0f32;
-                    for j in 0..dim {
-                        let diff = q[j] - row[j];
-                        d += diff * diff;
-                    }
-                    (ordered_f32::OrdF32(d), idx)
-                })
-                .collect();
-            let heap = &mut heaps[qi];
-            for item in scored {
-                heap.push(item);
-                if heap.len() > k {
-                    heap.pop();
-                }
-            }
-        }
-        start = end;
-    }
-    heaps
-        .into_iter()
-        .map(|h| h.into_iter().map(|(_, idx)| idx).collect())
-        .collect()
+fn partitioned_error(
+    code: &'static str,
+    message: impl Into<String>,
+    remediation: &'static str,
+) -> CliError {
+    CliError::Calyx(calyx_core::CalyxError {
+        code,
+        message: message.into(),
+        remediation,
+    })
 }
 
-/// Brute-force the true top-`k` neighbours (by L2) for each query over the whole
-/// generated dataset. Memory-bounded: regenerates the dataset in `CHUNK`-sized
-/// batches (never materializes all N), parallel per chunk. Returns, per query, the
-/// set of true top-k cx indices — the ground truth recall@k is measured against.
-fn brute_force_topk(
-    seed: u64,
-    n_cx: u64,
-    dim: usize,
-    queries: &[Vec<f32>],
-    k: usize,
-) -> Vec<std::collections::HashSet<u64>> {
-    use rayon::prelude::*;
-    const CHUNK: u64 = 200_000;
-    // Per-query running top-k as a max-heap keyed by distance (largest at top so we
-    // can pop the worst once we exceed k).
-    let mut heaps: Vec<std::collections::BinaryHeap<(ordered_f32::OrdF32, u64)>> = (0..queries
-        .len())
-        .map(|_| std::collections::BinaryHeap::with_capacity(k + 1))
-        .collect();
-    let mut start = 0u64;
-    while start < n_cx {
-        let end = (start + CHUNK).min(n_cx);
-        // (idx, row) for this chunk, generated in parallel, then scored per query.
-        let rows: Vec<(u64, Vec<f32>)> = (start..end)
-            .into_par_iter()
-            .map(|idx| (idx, gen_row(seed, idx, dim)))
-            .collect();
-        // For each query, compute distances over the chunk in parallel and fold
-        // into that query's running top-k heap.
-        for (qi, q) in queries.iter().enumerate() {
-            let scored: Vec<(ordered_f32::OrdF32, u64)> = rows
-                .par_iter()
-                .map(|(idx, row)| {
-                    let mut d = 0.0f32;
-                    for j in 0..dim {
-                        let diff = q[j] - row[j];
-                        d += diff * diff;
-                    }
-                    (ordered_f32::OrdF32(d), *idx)
-                })
-                .collect();
-            let heap = &mut heaps[qi];
-            for item in scored {
-                heap.push(item);
-                if heap.len() > k {
-                    heap.pop();
-                }
-            }
-        }
-        start = end;
+fn enforce_recall_floor(floor: Option<f32>, gt_n: usize, recall: Option<f32>) -> CliResult {
+    let Some(floor) = floor else {
+        return Ok(());
+    };
+    let Some(measured) = recall.filter(|_| gt_n > 0) else {
+        return Err(partitioned_error(
+            "CALYX_FSV_PARTITIONED_GROUND_TRUTH_REQUIRED",
+            format!("--recall-floor {floor:.6} requires --ground-truth > 0"),
+            "rerun with --ground-truth N and read ground_truth_recall_at_k",
+        ));
+    };
+    if measured + f32::EPSILON < floor {
+        return Err(partitioned_error(
+            "CALYX_FSV_PARTITIONED_RECALL_BELOW_FLOOR",
+            format!("ground_truth_recall_at_k={measured:.6} below recall_floor={floor:.6}"),
+            "increase n-probe/region-beam or rebuild/tune before claiming the recall gate",
+        ));
     }
-    heaps
-        .into_iter()
-        .map(|h| h.into_iter().map(|(_, idx)| idx).collect())
-        .collect()
-}
-
-/// Minimal total-order wrapper over f32 for heap keys (no external dep needed).
-mod ordered_f32 {
-    #[derive(Clone, Copy, PartialEq)]
-    pub struct OrdF32(pub f32);
-    impl Eq for OrdF32 {}
-    impl PartialOrd for OrdF32 {
-        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-            Some(self.cmp(other))
-        }
-    }
-    impl Ord for OrdF32 {
-        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-            self.0.total_cmp(&other.0)
-        }
-    }
+    Ok(())
 }
 
 pub(crate) fn run_search(args: &[String]) -> CliResult {
@@ -383,6 +312,7 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     } else {
         None
     };
+    enforce_recall_floor(args.recall_floor, gt_n, ground_truth_recall)?;
 
     let report = json!({
         "trigger": "calyx bench partitioned-search",
@@ -399,6 +329,7 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
         "latency_us": summary,
         "ground_truth_queries": gt_n,
         "ground_truth_recall_at_k": ground_truth_recall,
+        "recall_floor": args.recall_floor,
     });
     println!(
         "{}",
@@ -452,6 +383,7 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
     } else {
         None
     };
+    enforce_recall_floor(args.recall_floor, gt_n, ground_truth_recall)?;
 
     let report = json!({
         "trigger": "calyx bench partitioned-search",
@@ -468,6 +400,7 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
         "self_recall_at_k": self_recall,
         "ground_truth_queries": gt_n,
         "ground_truth_recall_at_k": ground_truth_recall,
+        "recall_floor": args.recall_floor,
     });
     println!(
         "{}",
@@ -489,3 +422,7 @@ fn percentiles(values: &[u64]) -> serde_json::Value {
     };
     json!({ "p50": pct(500), "p99": pct(990), "p999": pct(999), "max": s.last().copied().unwrap_or(0) })
 }
+
+#[cfg(test)]
+#[path = "partitioned_bench_tests.rs"]
+mod partitioned_bench_tests;
