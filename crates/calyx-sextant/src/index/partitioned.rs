@@ -137,8 +137,66 @@ fn ids_rel(region: u32) -> String {
     format!("idx/region_{region:05}.ids")
 }
 
-/// Build the partitioned vault under `root`. Memory-bounded: never holds more
-/// than `chunk` rows (assignment) or one region's rows (graph build).
+/// Source of the vectors a partitioned vault is built from. The real, production
+/// path reads genuine embeddings from a `.fbin` produced by the real embedder
+/// ([`FbinSource`]). [`SyntheticSource`] exists ONLY for builder-logic unit tests
+/// (does every cx land in one region? does balancing hold the cap?) and must NEVER
+/// back a recall or FSV claim — recall is meaningless on fabricated geometry.
+pub trait VectorSource: Sync {
+    fn dim(&self) -> usize;
+    fn len(&self) -> u64;
+    /// The embedding of row `idx` (`0..len`).
+    fn row(&self, idx: u64) -> Vec<f32>;
+}
+
+/// Real embeddings memory-mapped from a `.fbin` on disk — the billion-scale build
+/// path. No vectors are synthesised.
+pub struct FbinSource {
+    vectors: crate::index::vecfile::FbinVectors,
+}
+
+impl FbinSource {
+    pub fn open(path: &Path) -> Result<Self> {
+        Ok(Self {
+            vectors: crate::index::vecfile::FbinVectors::open(path)?,
+        })
+    }
+}
+
+impl VectorSource for FbinSource {
+    fn dim(&self) -> usize {
+        self.vectors.dim()
+    }
+    fn len(&self) -> u64 {
+        self.vectors.count()
+    }
+    fn row(&self, idx: u64) -> Vec<f32> {
+        self.vectors.row(idx).to_vec()
+    }
+}
+
+/// Deterministic synthetic rows. Builder-logic unit tests ONLY — never validation.
+pub struct SyntheticSource {
+    pub seed: u64,
+    pub dim: usize,
+    pub n_cx: u64,
+}
+
+impl VectorSource for SyntheticSource {
+    fn dim(&self) -> usize {
+        self.dim
+    }
+    fn len(&self) -> u64 {
+        self.n_cx
+    }
+    fn row(&self, idx: u64) -> Vec<f32> {
+        gen_row(self.seed, idx, self.dim)
+    }
+}
+
+/// Build a partitioned vault from a deterministic synthetic source. Unit-test /
+/// builder-logic helper only — for real validation use
+/// [`build_partitioned_vault_from_source`] with an [`FbinSource`].
 pub fn build_partitioned_vault(
     root: &Path,
     p: PartitionBuildParams,
@@ -149,16 +207,42 @@ pub fn build_partitioned_vault(
             "partitioned vault requires nonzero n_cx, dim, n_regions",
         ));
     }
+    let source = SyntheticSource {
+        seed: p.seed,
+        dim: p.dim,
+        n_cx: p.n_cx,
+    };
+    build_partitioned_vault_from_source(root, &source, p)
+}
+
+/// Build the partitioned vault under `root` from REAL vectors in `source`.
+/// Memory-bounded: never holds more than `chunk` rows (assignment) or one region's
+/// rows (graph build). `n_cx` and `dim` come from the source (the file is the source
+/// of truth); `p.n_cx`/`p.dim` are ignored.
+pub fn build_partitioned_vault_from_source(
+    root: &Path,
+    source: &dyn VectorSource,
+    p: PartitionBuildParams,
+) -> Result<PartitionedManifest> {
+    let dim = source.dim();
+    let n_cx = source.len();
+    if n_cx == 0 || dim == 0 || p.n_regions == 0 {
+        return Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_INVALID_PARAMS,
+            "partitioned vault requires nonzero source len, dim, n_regions",
+        ));
+    }
     std::fs::create_dir_all(root.join(CENTROID_DIR))
         .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
 
     // 1. Centroids from a deterministic sample (stride over the index space).
-    let stride = (p.n_cx / p.sample.max(1) as u64).max(1);
-    let sample_rows: Vec<(u32, Vec<f32>)> = (0..p.sample)
+    let sample = p.sample.min(n_cx as usize).max(1);
+    let stride = (n_cx / sample as u64).max(1);
+    let sample_rows: Vec<(u32, Vec<f32>)> = (0..sample)
         .into_par_iter()
         .map(|s| {
-            let idx = (s as u64 * stride) % p.n_cx;
-            (s as u32, gen_row(p.seed, idx, p.dim))
+            let idx = (s as u64 * stride) % n_cx;
+            (s as u32, source.row(idx))
         })
         .collect();
     let centroids = build_centroids(&sample_rows, p.n_regions, p.seed);
@@ -175,12 +259,12 @@ pub fn build_partitioned_vault(
     let use_hnsw_assign = r > HNSW_ASSIGN_MIN_CENTROIDS;
     let mut buckets: Vec<Vec<u64>> = vec![Vec::new(); r];
     let mut start = 0u64;
-    while start < p.n_cx {
-        let end = (start + p.chunk as u64).min(p.n_cx);
+    while start < n_cx {
+        let end = (start + p.chunk as u64).min(n_cx);
         let assigned: Vec<(u64, u32)> = (start..end)
             .into_par_iter()
             .map(|idx| {
-                let row = gen_row(p.seed, idx, p.dim);
+                let row = source.row(idx);
                 let region = if use_hnsw_assign {
                     centroids.assign_hnsw(&row)
                 } else {
@@ -201,11 +285,11 @@ pub fn build_partitioned_vault(
     //     via local k-means, then rebuild the routing layer over the FINAL centroid
     //     set so search still routes correctly. cap = target mean: the recursive
     //     splitter enforces this hard bound, keeping final max/mean near 1-2x.
-    let mean_region = (p.n_cx as usize).div_ceil(r.max(1));
+    let mean_region = (n_cx as usize).div_ceil(r.max(1));
     let cap = mean_region.max(MIN_REGION_CAP);
-    let (final_centroids, buckets) = balance_regions(&centroids, buckets, p.seed, p.dim, cap);
+    let (final_centroids, buckets) = balance_regions(&centroids, buckets, p.seed, dim, cap);
     let centroids =
-        SpannCentroidIndex::from_parts(p.dim as u32, final_centroids, Vec::new(), Vec::new())?;
+        SpannCentroidIndex::from_parts(dim as u32, final_centroids, Vec::new(), Vec::new())?;
     centroids.save(root.join(CENTROID_DIR))?;
 
     // 3. Build one DiskANN graph per region (each fits RAM). Regions are built
@@ -216,7 +300,7 @@ pub fn build_partitioned_vault(
     //    guarantee. Each region writes to a distinct graph/ids path, so the
     //    concurrent builds never contend.
     let build_params = DiskAnnBuildParams {
-        dim: p.dim,
+        dim,
         m_max: p.m_max,
         ef_construction: p.ef_construction,
         alpha: 1.2,
@@ -241,7 +325,7 @@ pub fn build_partitioned_vault(
             // nesting another parallel gen would only add scheduler overhead.
             let rows: Vec<(CxId, Vec<f32>)> = members
                 .iter()
-                .map(|&idx| (cx(idx), gen_row(p.seed, idx, p.dim)))
+                .map(|&idx| (cx(idx), source.row(idx)))
                 .collect();
             let graph_path = root.join(graph_rel(region));
             // NOTE: `build_diskann_graph` parallelizes internally. Running this
@@ -290,8 +374,8 @@ pub fn build_partitioned_vault(
 
     let manifest = PartitionedManifest {
         format: "calyx-partitioned-vault-v1".to_string(),
-        n_cx: p.n_cx,
-        dim: p.dim,
+        n_cx,
+        dim,
         n_regions: centroids.centroid_count(),
         seed: p.seed,
         m_max: p.m_max,

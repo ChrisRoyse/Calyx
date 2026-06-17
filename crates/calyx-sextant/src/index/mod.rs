@@ -17,6 +17,7 @@ pub mod spann;
 #[doc(hidden)]
 pub mod testutil;
 pub mod tokenizer;
+pub mod vecfile;
 
 pub use autotune::{
     BwPostcutoffAnnealRegistry, BwPostcutoffConfig, BwPostcutoffTuner, TuneDirection,
@@ -40,8 +41,9 @@ pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
 pub use partitioned::{
-    PartitionBuildParams, PartitionedManifest, PartitionedSearch, RegionMeta,
-    build_partitioned_vault, gen_row,
+    FbinSource, PartitionBuildParams, PartitionedManifest, PartitionedSearch, RegionMeta,
+    SyntheticSource, VectorSource, build_partitioned_vault, build_partitioned_vault_from_source,
+    gen_row,
 };
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
 pub use spann::{
@@ -49,6 +51,7 @@ pub use spann::{
     SpannSearch, build_centroids,
 };
 pub use testutil::{SyntheticVault, build_synthetic_vault, synthetic_dense_rows};
+pub use vecfile::{FbinVectors, VEC_MAGIC};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IndexSearchHit {
