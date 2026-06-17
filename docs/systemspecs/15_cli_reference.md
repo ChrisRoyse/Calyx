@@ -458,13 +458,15 @@ the same hash-verified catalog path as `lens add`. Optional flags: `--name`,
 `--endpoint` (TEI), `--dim`, `--license`, `--non-commercial`, `--pooling`,
 `--norm`, `--quant-target`.
 
-### `lens explain --manifest <manifest.json> [--input <text>] [--repeat <n>]`
+### `lens explain --manifest <manifest.json> [--input <text>|--input-file <path>] [--repeat <n>]`
 
 Not in the top-level usage string but present in `lens_commands.rs::run`.
-Supports `static_lookup`, `tei`, `candle-fp16`, and `onnx-int8` LensForge
-manifests. `--repeat` default 1 (must be > 0); `--input` default
-`Calyx lens explain probe`. Read-only; instantiates the real runtime, measures
-the probe, validates finite/dim/norm against the frozen spec, and prints
+Supports `static_lookup`, `tei`, `candle-fp16`, `onnx-int8`, and
+`multimodal-adapter` LensForge manifests. `--repeat` default 1 (must be > 0);
+`--input` default `Calyx lens explain probe`; `--input-file` reads binary bytes
+for media lenses and is mutually exclusive with `--input`. Read-only;
+instantiates the real runtime, measures the probe, validates finite/dim/norm
+against the frozen spec, and prints
 `ExplainReport` (timing/norm/first values/runtime detail). `--home` not used by
 `explain`.
 

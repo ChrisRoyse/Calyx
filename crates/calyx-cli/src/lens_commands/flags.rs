@@ -7,6 +7,7 @@ pub(crate) struct Flags {
     pub(crate) manifest: Option<PathBuf>,
     pub(crate) home: Option<PathBuf>,
     pub(crate) input: Option<String>,
+    pub(crate) input_file: Option<PathBuf>,
     pub(crate) repeat: Option<usize>,
 }
 
@@ -28,6 +29,10 @@ impl Flags {
                     idx += 1;
                     flags.input = Some(value(args, idx, "--input")?.to_string());
                 }
+                "--input-file" => {
+                    idx += 1;
+                    flags.input_file = Some(value(args, idx, "--input-file")?.into());
+                }
                 "--repeat" => {
                     idx += 1;
                     let raw = value(args, idx, "--repeat")?;
@@ -45,9 +50,9 @@ impl Flags {
     }
 
     pub(crate) fn reject_measure_flags(&self, command: &str) -> CliResult {
-        if self.input.is_some() || self.repeat.is_some() {
+        if self.input.is_some() || self.input_file.is_some() || self.repeat.is_some() {
             return Err(CliError::usage(format!(
-                "{command} does not accept --input or --repeat"
+                "{command} does not accept --input, --input-file, or --repeat"
             )));
         }
         Ok(())
