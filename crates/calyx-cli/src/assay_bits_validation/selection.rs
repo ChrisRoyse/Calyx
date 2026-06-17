@@ -146,7 +146,7 @@ pub(crate) fn compute_signal_density(
         b.zero_vram
             .cmp(&a.zero_vram)
             .then_with(|| match (a.zero_vram, b.zero_vram) {
-                (true, true) => compare_optional_density(b.bits_per_ms, a.bits_per_ms),
+                (true, true) => compare_optional_density(a.bits_per_ms, b.bits_per_ms),
                 _ => {
                     let av = a.bits_per_vram_mb.unwrap_or(f32::INFINITY);
                     let bv = b.bits_per_vram_mb.unwrap_or(f32::INFINITY);

@@ -138,13 +138,14 @@ fn signal_density_computed_and_ranked_cpu_first() {
     fs::create_dir_all(&corpus).unwrap();
     write_synthetic_corpus(&corpus, 200);
 
-    // Cost sidecar: real_a is CPU-only (zero VRAM), real_b + redundant on GPU.
+    // Cost sidecar: real_a + real_b are CPU-only (zero VRAM) with different
+    // latency densities; redundant stays on GPU so both ranking branches run.
     let cost_path = root.join("cost.json");
     fs::write(
         &cost_path,
         r#"{
           "real_a":    {"placement":"cpu", "vram_mb": 0.0,   "ms_per_input": 0.10, "ram_mb": 64.0},
-          "real_b":    {"placement":"gpu", "vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0},
+          "real_b":    {"placement":"cpu", "vram_mb": 0.0,   "ms_per_input": 2.0,  "ram_mb": 64.0},
           "redundant": {"placement":"gpu", "vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0}
         }"#,
     )
@@ -174,15 +175,27 @@ fn signal_density_computed_and_ranked_cpu_first() {
 
     let real_b = report.lenses.iter().find(|l| l.name == "real_b").unwrap();
     let d_b = real_b.density.expect("real_b density");
-    assert!(!d_b.zero_vram);
-    let expect_b_vram = real_b.bits_about.max(0.0) / 500.0;
+    assert!(d_b.zero_vram);
     assert!(
-        (d_b.bits_per_vram_mb.unwrap() - expect_b_vram).abs() < 1e-6,
-        "real_b bits/VRAM-MB {:?} != {expect_b_vram}",
-        d_b.bits_per_vram_mb
+        d_a.bits_per_ms.unwrap() > d_b.bits_per_ms.unwrap(),
+        "fixture must put real_a ahead of real_b on CPU bits/ms"
     );
 
-    // Ranking: the CPU-only lens sorts first; GPU lenses follow.
+    let redundant = report
+        .lenses
+        .iter()
+        .find(|l| l.name == "redundant")
+        .unwrap();
+    let d_redundant = redundant.density.expect("redundant density");
+    assert!(!d_redundant.zero_vram);
+    let expect_b_vram = redundant.bits_about.max(0.0) / 500.0;
+    assert!(
+        (d_redundant.bits_per_vram_mb.unwrap() - expect_b_vram).abs() < 1e-6,
+        "redundant bits/VRAM-MB {:?} != {expect_b_vram}",
+        d_redundant.bits_per_vram_mb
+    );
+
+    // Ranking: CPU-only lenses sort first by descending bits/ms; GPU follows.
     let density = report.signal_density.as_ref().expect("density report");
     assert_eq!(
         density.ranked.first().map(|r| r.name.as_str()),

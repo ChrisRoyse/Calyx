@@ -2,7 +2,7 @@ mod catalog;
 mod commission;
 mod explain;
 mod flags;
-mod support;
+pub(crate) mod support;
 
 #[cfg(test)]
 mod tests;
