@@ -65,6 +65,26 @@ fn protein_gap_ranks_lensforge_target_with_axis_and_expected_bits() {
     assert_eq!(first[0].axis, "protein_sequence");
     assert_eq!(first[0].formats, vec!["adapter"]);
     assert!((first[0].expected_bits - 2.1).abs() <= 1e-9);
+    assert!(first[0].expected_cost.vram_mb > 0.0);
+    assert!(first[0].expected_bits_per_ms > 0.0);
+}
+
+#[test]
+fn text_gap_ranks_small_cpu_target_by_expected_density() {
+    let deficit = deficit("semantic_text", 2.5, 0.4, vec![Modality::Text]);
+
+    let targets = ranked_conversion_targets(&deficit);
+    let first = targets.first().expect("text targets");
+    let bge = targets
+        .iter()
+        .find(|target| target.hf_id == "Xenova/bge-small-en-v1.5")
+        .expect("bge target");
+
+    assert_eq!(first.hf_id, "minishlab/potion-base-8M");
+    assert_eq!(first.expected_cost.placement, calyx_core::Placement::Cpu);
+    assert!(first.expected_bits < bge.expected_bits);
+    assert!(first.expected_bits_per_vram_mb.is_none());
+    assert!(first.expected_bits_per_ms > bge.expected_bits_per_ms);
 }
 
 #[test]

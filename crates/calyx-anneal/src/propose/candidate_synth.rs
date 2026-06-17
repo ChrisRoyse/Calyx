@@ -8,7 +8,7 @@ use crate::EndpointUrl;
 use super::{AnchorGap, DeficitMap, ModalityId};
 
 mod targets;
-pub use targets::{ConversionTarget, ranked_conversion_targets};
+pub use targets::{ConversionTarget, ExpectedTargetCost, ranked_conversion_targets};
 
 pub const MAX_SYNTHESIS_CORPUS_SAMPLE: usize = 1000;
 pub const CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT: &str = "CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT";

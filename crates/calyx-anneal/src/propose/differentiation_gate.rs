@@ -1,4 +1,10 @@
-use calyx_core::{CalyxError, Clock, Constellation, LensId, Result, SystemClock, Ts};
+use calyx_assay::{
+    CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED, PanelResourceBudget, ResourceAwareAdmissionDecision,
+    ResourceUsage, admit_lens_with_resources,
+};
+use calyx_core::{
+    CalyxError, Clock, Constellation, LensCost, LensId, Placement, Result, SystemClock, Ts,
+};
 use calyx_registry::CapabilityCard;
 use serde::{Deserialize, Serialize};
 
@@ -15,8 +21,15 @@ const METRIC_EPSILON: f64 = 1e-12;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum GateOutcome {
-    Admitted { bits: f64, max_corr: f64 },
-    Rejected { reason: RejectReason },
+    Admitted {
+        bits: f64,
+        max_corr: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        resource: Option<ResourceAwareAdmissionDecision>,
+    },
+    Rejected {
+        reason: RejectReason,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -32,6 +45,14 @@ pub enum RejectReason {
         threshold: f64,
     },
     ProfileTimeout,
+    ResourceBudgetExceeded {
+        vram_mb: f64,
+        ram_mb: f64,
+        ms_per_input: f64,
+        max_vram_mb: f64,
+        max_ram_mb: f64,
+        max_ms_per_input: f64,
+    },
 }
 
 pub trait LensProfiler {
@@ -55,6 +76,7 @@ pub trait PairNMI {
 pub struct DifferentiationGate<'a> {
     clock: &'a dyn Clock,
     profile_timeout_ms: Ts,
+    resource_budget: Option<PanelResourceBudget>,
 }
 
 impl<'a> DifferentiationGate<'a> {
@@ -62,7 +84,13 @@ impl<'a> DifferentiationGate<'a> {
         Self {
             clock,
             profile_timeout_ms: PROFILE_TIMEOUT_MS,
+            resource_budget: None,
         }
+    }
+
+    pub fn with_resource_budget(mut self, budget: PanelResourceBudget) -> Self {
+        self.resource_budget = Some(budget);
+        self
     }
 
     pub fn gate(
@@ -119,7 +147,24 @@ impl<'a> DifferentiationGate<'a> {
             });
         }
 
-        Ok(GateOutcome::Admitted { bits, max_corr })
+        let resource = match self.resource_budget {
+            Some(budget) => match admit_resource(bits, max_corr, &card, budget) {
+                Ok(decision) => Some(decision),
+                Err(error) if error.code == CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED => {
+                    return Ok(GateOutcome::Rejected {
+                        reason: resource_budget_exceeded(&card, budget),
+                    });
+                }
+                Err(error) => return Err(error),
+            },
+            None => None,
+        };
+
+        Ok(GateOutcome::Admitted {
+            bits,
+            max_corr,
+            resource,
+        })
     }
 }
 
@@ -136,9 +181,23 @@ pub fn gate(
 
 pub fn describe_gate_outcome(outcome: &GateOutcome) -> String {
     match outcome {
-        GateOutcome::Admitted { bits, max_corr } => format!(
-            "LensAdmitted bits={bits:.4} threshold={DIFFERENTIATION_MIN_BITS:.4} max_corr={max_corr:.4} threshold={DIFFERENTIATION_MAX_CORR:.4}"
-        ),
+        GateOutcome::Admitted {
+            bits,
+            max_corr,
+            resource,
+        } => {
+            format!(
+                "LensAdmitted bits={bits:.4} threshold={DIFFERENTIATION_MIN_BITS:.4} max_corr={max_corr:.4} threshold={DIFFERENTIATION_MAX_CORR:.4}"
+            ) + &resource
+                .as_ref()
+                .map(|decision| {
+                    format!(
+                        " vram_mb={:.3} ram_mb={:.3} ms_per_input={:.3}",
+                        decision.usage.vram_mb, decision.usage.ram_mb, decision.usage.ms_per_input
+                    )
+                })
+                .unwrap_or_default()
+        }
         GateOutcome::Rejected {
             reason: RejectReason::InsufficientBits { bits, threshold },
         } => format!("LensRejected insufficient_bits bits={bits:.4} threshold={threshold:.4}"),
@@ -157,6 +216,19 @@ pub fn describe_gate_outcome(outcome: &GateOutcome) -> String {
         } => format!(
             "LensRejected profile_timeout threshold_ms={}",
             PROFILE_TIMEOUT_MS
+        ),
+        GateOutcome::Rejected {
+            reason:
+                RejectReason::ResourceBudgetExceeded {
+                    vram_mb,
+                    ram_mb,
+                    ms_per_input,
+                    max_vram_mb,
+                    max_ram_mb,
+                    max_ms_per_input,
+                },
+        } => format!(
+            "LensRejected resource_budget_exceeded usage=({vram_mb:.3}MiB,{ram_mb:.3}MiB,{ms_per_input:.3}ms) budget=({max_vram_mb:.3}MiB,{max_ram_mb:.3}MiB,{max_ms_per_input:.3}ms)"
         ),
     }
 }
@@ -177,6 +249,42 @@ fn validate_corr(value: f64, lens: &LensId) -> Result<f64> {
         )));
     }
     Ok(value.min(1.0))
+}
+
+fn admit_resource(
+    bits: f64,
+    max_corr: f64,
+    card: &CapabilityCard,
+    budget: PanelResourceBudget,
+) -> Result<ResourceAwareAdmissionDecision> {
+    let cost: LensCost = card.cost.into();
+    admit_lens_with_resources(
+        bits as f32,
+        max_corr as f32,
+        cost,
+        placement_for_cost(cost),
+        budget,
+    )
+}
+
+fn resource_budget_exceeded(card: &CapabilityCard, budget: PanelResourceBudget) -> RejectReason {
+    let usage = ResourceUsage::from_lens_cost(card.cost.into());
+    RejectReason::ResourceBudgetExceeded {
+        vram_mb: f64::from(usage.vram_mb),
+        ram_mb: f64::from(usage.ram_mb),
+        ms_per_input: f64::from(usage.ms_per_input),
+        max_vram_mb: f64::from(budget.max_vram_mb),
+        max_ram_mb: f64::from(budget.max_ram_mb),
+        max_ms_per_input: f64::from(budget.max_ms_per_input),
+    }
+}
+
+fn placement_for_cost(cost: LensCost) -> Placement {
+    if cost.vram_bytes == 0 {
+        Placement::Cpu
+    } else {
+        Placement::Gpu
+    }
 }
 
 fn validate_nonnegative(name: &'static str, value: f64) -> Result<f64> {

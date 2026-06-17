@@ -9,6 +9,7 @@ use calyx_anneal::{
     DIFFERENTIATION_MAX_CORR, DIFFERENTIATION_MIN_BITS, DifferentiationGate, GateOutcome,
     LensProfiler, PairNMI, RejectReason,
 };
+use calyx_assay::PanelResourceBudget;
 use calyx_core::{CalyxError, Clock, Constellation, LensId, Result};
 use calyx_registry::{
     CapabilityCard, CostMetrics, CoverageMetrics, LensHealth, MetricSource, SeparationMetrics,
@@ -56,7 +57,8 @@ fn sufficient_bits_and_low_corr_are_admitted() {
         outcome,
         GateOutcome::Admitted {
             bits: f64::from(0.10_f32),
-            max_corr: f64::from(0.55_f32)
+            max_corr: f64::from(0.55_f32),
+            resource: None,
         }
     );
 }
@@ -69,9 +71,40 @@ fn empty_panel_and_exact_boundary_are_admitted() {
         outcome,
         GateOutcome::Admitted {
             bits: f64::from(0.05_f32),
-            max_corr: 0.0
+            max_corr: 0.0,
+            resource: None,
         }
     );
+}
+
+#[test]
+fn resource_budget_excess_rejects_profiled_candidate() {
+    let budget = PanelResourceBudget {
+        max_vram_mb: 128.0,
+        max_ram_mb: 1024.0,
+        max_ms_per_input: 5.0,
+    };
+    let outcome = gate_with_cost(
+        0.20,
+        &[],
+        0,
+        CostMetrics {
+            total_ms: 10.0,
+            ms_per_input: 1.0,
+            vram_bytes: 512 * 1024 * 1024,
+            ram_bytes: 0,
+            batch_ceiling: 1,
+        },
+        budget,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        outcome,
+        GateOutcome::Rejected {
+            reason: RejectReason::ResourceBudgetExceeded { .. }
+        }
+    ));
 }
 
 #[test]
@@ -135,6 +168,25 @@ fn gate_with(bits: f32, correlations: &[(LensId, f64)], elapsed_ms: u64) -> Resu
     DifferentiationGate::new(&clock).gate(&candidate(), &panel, &profiler, &nmi, &[])
 }
 
+fn gate_with_cost(
+    bits: f32,
+    correlations: &[(LensId, f64)],
+    elapsed_ms: u64,
+    cost: CostMetrics,
+    budget: PanelResourceBudget,
+) -> Result<GateOutcome> {
+    let clock = StepClock::new(1_785_500_420);
+    let profiler = StaticProfiler::new(lens(200), bits, clock.inner(), elapsed_ms).with_cost(cost);
+    let nmi = StaticNmi::from_pairs(correlations);
+    let panel = correlations
+        .iter()
+        .map(|(lens_id, _)| *lens_id)
+        .collect::<Vec<_>>();
+    DifferentiationGate::new(&clock)
+        .with_resource_budget(budget)
+        .gate(&candidate(), &panel, &profiler, &nmi, &[])
+}
+
 fn candidate() -> CandidateLens {
     CandidateLens::Commission {
         spec: calyx_anneal::CommissionSpec {
@@ -181,6 +233,7 @@ struct StaticProfiler {
     clock: Option<Arc<AtomicU64>>,
     elapsed_ms: u64,
     error: Option<CalyxError>,
+    cost: CostMetrics,
 }
 
 impl StaticProfiler {
@@ -191,6 +244,7 @@ impl StaticProfiler {
             clock: Some(clock),
             elapsed_ms,
             error: None,
+            cost: default_cost(),
         }
     }
 
@@ -205,7 +259,13 @@ impl StaticProfiler {
                 message: "fixture profile timeout".to_string(),
                 remediation: "retry profile with budget or repair lens runtime",
             }),
+            cost: default_cost(),
         }
+    }
+
+    fn with_cost(mut self, cost: CostMetrics) -> Self {
+        self.cost = cost;
+        self
     }
 }
 
@@ -221,7 +281,12 @@ impl LensProfiler for StaticProfiler {
         if let Some(clock) = &self.clock {
             clock.fetch_add(self.elapsed_ms, Ordering::SeqCst);
         }
-        Ok(card(self.lens_id, self.bits, corpus_sample.len()))
+        Ok(card(
+            self.lens_id,
+            self.bits,
+            corpus_sample.len(),
+            self.cost,
+        ))
     }
 }
 
@@ -265,7 +330,7 @@ impl PairNMI for StaticNmi {
     }
 }
 
-fn card(lens_id: LensId, bits: f32, probe_count: usize) -> CapabilityCard {
+fn card(lens_id: LensId, bits: f32, probe_count: usize, cost: CostMetrics) -> CapabilityCard {
     CapabilityCard {
         lens_id,
         probe_count,
@@ -289,13 +354,7 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> CapabilityCard {
             labeled_groups: 2,
             used_labels: true,
         },
-        cost: CostMetrics {
-            total_ms: 1.0,
-            ms_per_input: 1.0,
-            vram_bytes: 0,
-            ram_bytes: 0,
-            batch_ceiling: 1_000,
-        },
+        cost,
         coverage: CoverageMetrics {
             requested: probe_count,
             measured: probe_count,
@@ -304,5 +363,15 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> CapabilityCard {
         },
         health: LensHealth::Loaded,
         low_spread: false,
+    }
+}
+
+fn default_cost() -> CostMetrics {
+    CostMetrics {
+        total_ms: 1.0,
+        ms_per_input: 1.0,
+        vram_bytes: 0,
+        ram_bytes: 0,
+        batch_ceiling: 1_000,
     }
 }

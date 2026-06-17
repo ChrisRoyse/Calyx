@@ -18,6 +18,7 @@ pub mod periodicity;
 pub mod projection;
 pub mod recurrence_anchor;
 pub mod recurrence_hazard;
+pub mod resource_contract;
 mod samples;
 mod special_fn;
 pub mod store;
@@ -84,6 +85,12 @@ pub use recurrence_hazard::{
     InterEventHazardReport, MIN_CUSUM_GAPS, MIN_HAZARD_GAPS, RateShift, inter_event_hazard,
     inter_event_hazard_from_series, inter_event_hazard_with_alpha, recurrence_rate_cusum,
     recurrence_rate_cusum_from_series, recurrence_rate_cusum_with_config,
+};
+pub use resource_contract::{
+    CALYX_ASSAY_INVALID_RESOURCE, CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED, PanelAdmissionCandidate,
+    PanelLensDecision, PanelPackingReport, PanelResourceBudget, ResourceAwareAdmissionDecision,
+    ResourceDensity, ResourceUsage, admit_lens_with_resources, admit_lens_with_usage,
+    pack_panel_by_density,
 };
 pub use store::{AssayCacheKey, AssayRow, AssayStore, AssaySubject};
 pub use stratified::{StratifiedBits, StratumBits, stratified_bits};

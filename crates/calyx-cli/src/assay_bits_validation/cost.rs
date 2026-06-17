@@ -18,8 +18,8 @@
 //! A flat JSON object keyed by the same lens names used in `vectors.jsonl`:
 //! ```json
 //! {
-//!   "gte-base":   { "vram_mb": 1340.0, "ms_per_input": 4.2, "ram_mb": 0.0 },
-//!   "potion-256": { "vram_mb": 0.0,    "ms_per_input": 0.08, "ram_mb": 64.0 }
+//!   "gte-base":   { "placement": "gpu", "vram_mb": 1340.0, "ms_per_input": 4.2, "ram_mb": 0.0 },
+//!   "potion-256": { "placement": "cpu", "vram_mb": 0.0,    "ms_per_input": 0.08, "ram_mb": 64.0 }
 //! }
 //! ```
 //! There is no silent default: when `--cost-json` is supplied, every corpus
@@ -29,11 +29,15 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use calyx_assay::{PanelResourceBudget, ResourceUsage, pack_panel_by_density};
+use calyx_core::Placement;
 use serde::{Deserialize, Serialize};
 
 /// Measured resource cost of one lens over a profiling probe batch.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub(crate) struct LensCost {
+    /// Runtime placement selected by registry/Forge admission.
+    pub(crate) placement: Placement,
     /// Resident GPU memory in MiB (`vram_bytes / 2^20`). `0.0` for CPU-only
     /// lenses (static_lookup / algorithmic) — a first-class, preferred case.
     pub(crate) vram_mb: f32,
@@ -43,6 +47,16 @@ pub(crate) struct LensCost {
     /// Resident host memory in MiB. Informational; defaults to 0.0.
     #[serde(default)]
     pub(crate) ram_mb: f32,
+}
+
+impl LensCost {
+    pub(crate) fn usage(self) -> ResourceUsage {
+        ResourceUsage {
+            vram_mb: self.vram_mb,
+            ram_mb: self.ram_mb,
+            ms_per_input: self.ms_per_input,
+        }
+    }
 }
 
 /// Loaded, validated map of lens name -> measured cost.
@@ -99,41 +113,30 @@ impl LensCostMap {
     }
 }
 
-/// Per-lens signal density: measured bits divided by measured cost.
-#[derive(Clone, Copy, Debug, Serialize)]
-pub(crate) struct LensDensity {
-    pub(crate) vram_mb: f32,
-    pub(crate) ms_per_input: f32,
-    pub(crate) ram_mb: f32,
-    /// `bits / VRAM-MB`. `None` when the lens uses zero VRAM (CPU-only): the
-    /// GPU-density axis is undefined/unbounded there, which is the *best*
-    /// possible position on the scarce resource — callers rank these first.
-    pub(crate) bits_per_vram_mb: Option<f32>,
-    /// `bits / ms`. Always defined (`ms_per_input > 0`).
-    pub(crate) bits_per_ms: f32,
-    /// True iff this lens has zero GPU footprint.
-    pub(crate) zero_vram: bool,
-}
+pub(crate) struct PanelBudgetConfig;
 
-impl LensDensity {
-    /// Compute density from measured bits and measured cost. `bits` is clamped
-    /// at zero (a negative MI point estimate is noise around zero signal and
-    /// must not produce a negative density).
-    pub(crate) fn compute(bits: f32, cost: LensCost) -> Self {
-        let bits = bits.max(0.0);
-        let zero_vram = cost.vram_mb == 0.0;
-        let bits_per_vram_mb = if zero_vram {
-            None
-        } else {
-            Some(bits / cost.vram_mb)
-        };
-        LensDensity {
-            vram_mb: cost.vram_mb,
-            ms_per_input: cost.ms_per_input,
-            ram_mb: cost.ram_mb,
-            bits_per_vram_mb,
-            bits_per_ms: bits / cost.ms_per_input,
-            zero_vram,
-        }
+impl PanelBudgetConfig {
+    pub(crate) fn load(path: &Path) -> Result<PanelResourceBudget, String> {
+        let text = std::fs::read_to_string(path).map_err(|error| {
+            format!(
+                "CALYX_FSV_ASSAY_PANEL_BUDGET_IO: {}: {error}",
+                path.display()
+            )
+        })?;
+        let budget: PanelResourceBudget = serde_json::from_str(&text).map_err(|error| {
+            format!(
+                "CALYX_FSV_ASSAY_INVALID_PANEL_BUDGET: {}: {error}",
+                path.display()
+            )
+        })?;
+        pack_panel_by_density(&[], budget).map_err(|error| {
+            format!(
+                "CALYX_FSV_ASSAY_INVALID_PANEL_BUDGET: {}: {}: {}",
+                path.display(),
+                error.code,
+                error.message
+            )
+        })?;
+        Ok(budget)
     }
 }

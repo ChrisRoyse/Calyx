@@ -1,9 +1,10 @@
 use calyx_anneal::{
     CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, ChangeId, GateOutcome, ProposalTerminalState,
-    ProposeLens, ProposeLensRequest, RegistryHotAdder, ShadowRevertReason,
+    ProposeLens, ProposeLensRequest, RegistryHotAdder, RejectReason, ShadowRevertReason,
 };
+use calyx_assay::PanelResourceBudget;
 use calyx_core::{FixedClock, Modality};
-use calyx_registry::Registry;
+use calyx_registry::{CostMetrics, Registry};
 
 #[path = "support/propose_lens.rs"]
 mod support;
@@ -73,6 +74,55 @@ fn rejected_gate_skips_substrate_and_hot_add() {
     assert!(matches!(
         outcome.gate_outcome,
         Some(GateOutcome::Rejected { .. })
+    ));
+    assert_eq!(controller.panel().slots.len(), 1);
+    assert_eq!(substrate.proposed, 0);
+    assert_eq!(hot_add.apply_calls, 0);
+}
+
+#[test]
+fn resource_budget_rejection_skips_substrate_and_hot_add() {
+    let clock = FixedClock::new(TEST_TS);
+    let mut controller = controller();
+    let mut substrate = TestSubstrate::promote(ChangeId(421_007));
+    let assay = FixtureAssay::new([0.20], 1.00);
+    let profiler = StaticProfiler::new(0.12).with_cost(CostMetrics {
+        total_ms: 1.0,
+        ms_per_input: 1.0,
+        vram_bytes: 512 * 1024 * 1024,
+        ram_bytes: 0,
+        batch_ceiling: 1,
+    });
+    let nmi = StaticNmi::new(0.10);
+    let mut hot_add = TestHotAdder::succeed();
+    let anchor = anchor();
+    let corpus = corpus();
+    let budget = PanelResourceBudget {
+        max_vram_mb: 128.0,
+        max_ram_mb: 1024.0,
+        max_ms_per_input: 5.0,
+    };
+
+    let outcome = ProposeLens::new(&clock)
+        .with_resource_budget(budget)
+        .propose_lens(ProposeLensRequest {
+            anchor: &anchor,
+            controller: &mut controller,
+            substrate: &mut substrate,
+            assay: &assay,
+            hot_add: &mut hot_add,
+            profiler: &profiler,
+            nmi: &nmi,
+            corpus: &corpus,
+        })
+        .unwrap();
+
+    assert_eq!(outcome.terminal_state, ProposalTerminalState::GateRejected);
+    assert!(matches!(
+        outcome.gate_outcome,
+        Some(GateOutcome::Rejected {
+            reason: RejectReason::ResourceBudgetExceeded { .. }
+        })
     ));
     assert_eq!(controller.panel().slots.len(), 1);
     assert_eq!(substrate.proposed, 0);

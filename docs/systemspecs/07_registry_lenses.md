@@ -330,7 +330,15 @@ All three are algorithmic and deterministic, carry `TEMPORAL_FLAGS { retrieval_o
 
 `apply_capability_gate(controller, slot_id, evaluation, now)`: validates the slot's lens matches the evaluation, then maps `Admit`→active/unpark, `Park`→park, `Retire`→retire; returns `PanelCapabilityGateOutcome`.
 
-`list_panel` / `list_panel_with_assay` produce `PanelSlotListing { slot_id, key, lens_id, state, quant, bits_about, health }`. Built-in temporal slots are detected by `Structured` modality + retrieval-only + dedup-excluded + key in `{E2_recency, E3_periodic, E4_positional}`.
+`list_panel` / `list_panel_with_assay` produce `PanelSlotListing { slot_id, key, lens_id, state, quant, resource, bits_about, health }`. `resource` is the persisted `SlotResource { cost, placement }`, so status/readback surfaces use the same cost bytes chosen at admission. Built-in temporal slots are detected by `Structured` modality + retrieval-only + dedup-excluded + key in `{E2_recency, E3_periodic, E4_positional}`.
+
+### 5.5 Resource-aware panel admission
+
+Assay exposes `PanelResourceBudget { max_vram_mb, max_ram_mb, max_ms_per_input }`, `ResourceUsage`, `ResourceDensity`, and `pack_panel_by_density`. The admission path still enforces the differentiation contract first (`bits >= 0.05`, `corr <= 0.6`), then ranks feasible candidates by marginal signal density under the fixed budget. Rejections keep explicit reasons such as `CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED`; no default cost is invented.
+
+`calyx assay bits-validate --cost-json <costs> --panel-budget-json <budget>` is the FSV-facing path. `--cost-json` is keyed by corpus lens name and requires `placement`, `vram_mb`, `ms_per_input`, and optional `ram_mb`; missing or non-finite entries fail closed. When a budget is supplied the command writes `assay_packed_panel.json` with selected lenses, rejected lenses, used resources, remaining budget, and aggregate density.
+
+`calyx panel status --panel-budget-json <budget>` includes per-lens/slot cost, placement, remaining budget, and, when slot bits are present, density (`bits / VRAM-MB`, `bits / ms`, and budget-fraction density). Catalog status can report cost and remaining budget; vault status can additionally report bits and density from the persisted panel slots.
 
 ---
 

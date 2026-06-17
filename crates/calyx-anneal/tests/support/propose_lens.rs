@@ -178,11 +178,20 @@ impl AssayAttribution for FixtureAssay {
 
 pub struct StaticProfiler {
     bits: f32,
+    cost: CostMetrics,
 }
 
 impl StaticProfiler {
     pub fn new(bits: f32) -> Self {
-        Self { bits }
+        Self {
+            bits,
+            cost: default_cost(),
+        }
+    }
+
+    pub fn with_cost(mut self, cost: CostMetrics) -> Self {
+        self.cost = cost;
+        self
     }
 }
 
@@ -196,6 +205,7 @@ impl LensProfiler for StaticProfiler {
             LensId::from_bytes([0xC8; 16]),
             self.bits,
             corpus_sample.len(),
+            self.cost,
         ))
     }
 }
@@ -321,7 +331,12 @@ fn slot(slot: u16, lens_id: LensId, key: &str) -> Slot {
     }
 }
 
-fn card(lens_id: LensId, bits: f32, probe_count: usize) -> calyx_registry::CapabilityCard {
+fn card(
+    lens_id: LensId,
+    bits: f32,
+    probe_count: usize,
+    cost: CostMetrics,
+) -> calyx_registry::CapabilityCard {
     calyx_registry::CapabilityCard {
         lens_id,
         probe_count,
@@ -345,13 +360,7 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> calyx_registry::Capab
             labeled_groups: 2,
             used_labels: true,
         },
-        cost: CostMetrics {
-            total_ms: 1.0,
-            ms_per_input: 1.0,
-            vram_bytes: 0,
-            ram_bytes: 0,
-            batch_ceiling: 1_000,
-        },
+        cost,
         coverage: CoverageMetrics {
             requested: probe_count,
             measured: probe_count,
@@ -360,6 +369,16 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> calyx_registry::Capab
         },
         health: LensHealth::Loaded,
         low_spread: false,
+    }
+}
+
+fn default_cost() -> CostMetrics {
+    CostMetrics {
+        total_ms: 1.0,
+        ms_per_input: 1.0,
+        vram_bytes: 0,
+        ram_bytes: 0,
+        batch_ceiling: 1_000,
     }
 }
 

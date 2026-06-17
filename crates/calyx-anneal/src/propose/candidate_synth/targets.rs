@@ -1,4 +1,4 @@
-use calyx_core::Modality;
+use calyx_core::{Modality, Placement};
 use serde::{Deserialize, Serialize};
 
 use super::{AnchorGap, DeficitMap, ModalityId};
@@ -10,6 +10,37 @@ pub struct ConversionTarget {
     pub axis: String,
     pub formats: Vec<String>,
     pub expected_bits: f64,
+    pub expected_cost: ExpectedTargetCost,
+    pub expected_bits_per_vram_mb: Option<f64>,
+    pub expected_bits_per_ms: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ExpectedTargetCost {
+    pub placement: Placement,
+    pub vram_mb: f64,
+    pub ram_mb: f64,
+    pub ms_per_input: f64,
+}
+
+impl ExpectedTargetCost {
+    const fn cpu(ram_mb: f64, ms_per_input: f64) -> Self {
+        Self {
+            placement: Placement::Cpu,
+            vram_mb: 0.0,
+            ram_mb,
+            ms_per_input,
+        }
+    }
+
+    const fn gpu(vram_mb: f64, ram_mb: f64, ms_per_input: f64) -> Self {
+        Self {
+            placement: Placement::Gpu,
+            vram_mb,
+            ram_mb,
+            ms_per_input,
+        }
+    }
 }
 
 pub fn ranked_conversion_targets(deficit: &DeficitMap) -> Vec<ConversionTarget> {
@@ -26,8 +57,9 @@ pub fn ranked_conversion_targets(deficit: &DeficitMap) -> Vec<ConversionTarget> 
     }
     targets.sort_by(|left, right| {
         right
-            .expected_bits
-            .total_cmp(&left.expected_bits)
+            .expected_density_rank()
+            .total_cmp(&left.expected_density_rank())
+            .then_with(|| right.expected_bits.total_cmp(&left.expected_bits))
             .then_with(|| left.hf_id.cmp(&right.hf_id))
             .then_with(|| left.axis.cmp(&right.axis))
     });
@@ -48,6 +80,7 @@ fn targets_for_modality(
             &["adapter"],
             gap_bits,
             1.00,
+            ExpectedTargetCost::gpu(64.0, 128.0, 1.2),
         )],
         Modality::Dna => vec![target(
             "zhihan1996/DNABERT-2-117M",
@@ -56,6 +89,7 @@ fn targets_for_modality(
             &["adapter"],
             gap_bits,
             1.00,
+            ExpectedTargetCost::gpu(470.0, 512.0, 3.8),
         )],
         Modality::Molecule => vec![target(
             "seyonec/ChemBERTa-zinc-base-v1",
@@ -64,6 +98,7 @@ fn targets_for_modality(
             &["adapter"],
             gap_bits,
             1.00,
+            ExpectedTargetCost::gpu(420.0, 512.0, 3.2),
         )],
         Modality::Image => vec![target(
             "google/siglip2-base-patch16-224",
@@ -72,6 +107,7 @@ fn targets_for_modality(
             &["adapter"],
             gap_bits,
             0.95,
+            ExpectedTargetCost::gpu(900.0, 768.0, 5.5),
         )],
         Modality::Audio => audio_targets(modality, axis, top_gap, gap_bits),
         Modality::Text | Modality::Code | Modality::Mixed | Modality::Structured => {
@@ -84,6 +120,7 @@ fn targets_for_modality(
             &["adapter"],
             gap_bits,
             0.75,
+            ExpectedTargetCost::gpu(900.0, 768.0, 5.5),
         )],
     }
 }
@@ -102,6 +139,7 @@ fn audio_targets(
             &["adapter"],
             gap_bits,
             audio_weight(top_gap, "clap"),
+            ExpectedTargetCost::gpu(1300.0, 1024.0, 8.0),
         ),
         target(
             "Xenova/wav2vec2-base-960h",
@@ -110,6 +148,7 @@ fn audio_targets(
             &["onnx-int8"],
             gap_bits,
             audio_weight(top_gap, "wav2vec2"),
+            ExpectedTargetCost::gpu(360.0, 384.0, 3.0),
         ),
     ]
 }
@@ -123,6 +162,7 @@ fn text_targets(axis: String, top_gap: Option<&AnchorGap>, gap_bits: f64) -> Vec
             &["onnx-int8"],
             gap_bits,
             text_weight(top_gap, "bge"),
+            ExpectedTargetCost::gpu(130.0, 192.0, 1.2),
         ),
         target(
             "Xenova/scibert_scivocab_uncased",
@@ -131,6 +171,7 @@ fn text_targets(axis: String, top_gap: Option<&AnchorGap>, gap_bits: f64) -> Vec
             &["onnx-int8"],
             gap_bits,
             text_weight(top_gap, "scibert"),
+            ExpectedTargetCost::gpu(420.0, 512.0, 3.8),
         ),
         target(
             "sentence-transformers/all-MiniLM-L6-v2",
@@ -139,6 +180,7 @@ fn text_targets(axis: String, top_gap: Option<&AnchorGap>, gap_bits: f64) -> Vec
             &["candle-fp16"],
             gap_bits,
             text_weight(top_gap, "minilm"),
+            ExpectedTargetCost::gpu(90.0, 192.0, 0.9),
         ),
         target(
             "minishlab/potion-base-8M",
@@ -147,6 +189,7 @@ fn text_targets(axis: String, top_gap: Option<&AnchorGap>, gap_bits: f64) -> Vec
             &["model2vec"],
             gap_bits,
             text_weight(top_gap, "potion"),
+            ExpectedTargetCost::cpu(64.0, 0.08),
         ),
     ]
 }
@@ -158,13 +201,35 @@ fn target(
     formats: &[&str],
     gap_bits: f64,
     weight: f64,
+    expected_cost: ExpectedTargetCost,
 ) -> ConversionTarget {
+    let expected_bits = (gap_bits * weight).max(0.0).min(gap_bits);
     ConversionTarget {
         hf_id: hf_id.to_string(),
         modality,
         axis,
         formats: formats.iter().map(|format| (*format).to_string()).collect(),
-        expected_bits: (gap_bits * weight).max(0.0).min(gap_bits),
+        expected_bits,
+        expected_cost,
+        expected_bits_per_vram_mb: density_axis(expected_bits, expected_cost.vram_mb),
+        expected_bits_per_ms: expected_bits / expected_cost.ms_per_input,
+    }
+}
+
+impl ConversionTarget {
+    fn expected_density_rank(&self) -> f64 {
+        if self.expected_cost.vram_mb <= f64::EPSILON {
+            return self.expected_bits_per_ms;
+        }
+        self.expected_bits_per_vram_mb.unwrap_or(0.0)
+    }
+}
+
+fn density_axis(bits: f64, resource: f64) -> Option<f64> {
+    if resource <= f64::EPSILON {
+        None
+    } else {
+        Some(bits / resource)
     }
 }
 
