@@ -51,6 +51,10 @@ fn corpus_build_measures_algorithmic_code_and_sparse_lenses() {
     assert_eq!(evidence.n_samples, 60);
     assert!(out_dir.join("manifest.json").is_file());
     assert!(out_dir.join("vectors.jsonl").is_file());
+    let persisted_report: Value =
+        serde_json::from_slice(&fs::read(out_dir.join("corpus_build_report.json")).unwrap())
+            .unwrap();
+    assert_eq!(persisted_report["out_dir"], out_dir.display().to_string());
     let ast = evidence
         .lenses
         .iter()

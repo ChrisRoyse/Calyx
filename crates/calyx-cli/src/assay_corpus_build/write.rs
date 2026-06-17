@@ -80,7 +80,7 @@ fn write_all_files(
     write_vectors(rows, lenses, &vectors_path)?;
     write_cost(lenses, &cost_path)?;
     let evidence = CorpusBuildEvidence {
-        out_dir: display(dir),
+        out_dir: display(&request.out_dir),
         manifest_path: display_final(request, "manifest.json"),
         vectors_path: display_final(request, "vectors.jsonl"),
         cost_path: display_final(request, "cost.json"),
