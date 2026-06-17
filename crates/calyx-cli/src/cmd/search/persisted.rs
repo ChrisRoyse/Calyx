@@ -34,7 +34,7 @@ const INDEX_ROOT: &str = "idx/search";
 const MANIFEST_NAME: &str = "manifest.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct SearchIndexManifest {
+pub(crate) struct SearchIndexManifest {
     format: String,
     base_seq: u64,
     #[serde(default)]
@@ -43,7 +43,7 @@ pub(super) struct SearchIndexManifest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct SearchIndexEntry {
+pub(crate) struct SearchIndexEntry {
     slot: u16,
     kind: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -65,7 +65,7 @@ pub(super) struct SearchIndexEntry {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub(super) struct SlotIdMap {
+pub(crate) struct SlotIdMap {
     format: String,
     slot: u16,
     ids: Vec<CxId>,
@@ -87,13 +87,13 @@ struct RebuildSummary {
 }
 
 #[derive(Debug)]
-pub(super) struct PersistedSearchIndexes {
+pub(crate) struct PersistedSearchIndexes {
     vault_dir: PathBuf,
     manifest: SearchIndexManifest,
 }
 
 impl PersistedSearchIndexes {
-    pub(super) fn open(vault_dir: &Path) -> CliResult<Self> {
+    pub(crate) fn open(vault_dir: &Path) -> CliResult<Self> {
         let manifest_path = manifest_path(vault_dir);
         if !manifest_path.is_file() {
             return Err(stale(format!(
@@ -115,7 +115,7 @@ impl PersistedSearchIndexes {
         })
     }
 
-    pub(super) fn search(
+    pub(crate) fn search(
         &self,
         slot: SlotId,
         query: &SlotVector,
@@ -148,7 +148,7 @@ impl PersistedSearchIndexes {
         }
     }
 
-    pub(super) fn search_filtered(
+    pub(crate) fn search_filtered(
         &self,
         slot: SlotId,
         query: &SlotVector,
@@ -187,7 +187,7 @@ impl PersistedSearchIndexes {
         }
     }
 
-    pub(super) fn filter_candidates(
+    pub(crate) fn filter_candidates(
         &self,
         filters: &QueryFilters,
     ) -> CliResult<Option<BTreeSet<CxId>>> {
@@ -199,7 +199,7 @@ impl PersistedSearchIndexes {
         )
     }
 
-    pub(super) fn max_len(&self) -> usize {
+    pub(crate) fn max_len(&self) -> usize {
         self.manifest
             .slots
             .iter()
@@ -351,7 +351,7 @@ impl SearchIndexEntry {
     }
 }
 
-pub(super) fn rebuild_for_vault(vault_dir: &Path, vault: &AsterVault) -> CliResult {
+pub(crate) fn rebuild_for_vault(vault_dir: &Path, vault: &AsterVault) -> CliResult {
     let docs = load_docs(vault)?;
     let summary = rebuild_from_docs(vault_dir, &docs, vault.latest_seq())?;
     let _ = (summary.slots, summary.total_rows, &summary.manifest_path);
@@ -395,7 +395,7 @@ fn rebuild_from_docs(
     })
 }
 
-pub(super) fn load_docs(vault: &AsterVault) -> CliResult<BTreeMap<CxId, Constellation>> {
+pub(crate) fn load_docs(vault: &AsterVault) -> CliResult<BTreeMap<CxId, Constellation>> {
     let snapshot = vault.snapshot();
     let mut docs = BTreeMap::new();
     for (key, _) in vault.scan_cf_at(snapshot, ColumnFamily::Base)? {

@@ -119,7 +119,7 @@ fn search_outcome(args: &SearchArgs) -> CliResult<SearchOutcome> {
     Ok(SearchOutcome { hits, guard_tau })
 }
 
-fn measure_query_vectors(
+pub(super) fn measure_query_vectors(
     state: &VaultPanelState,
     query: &str,
 ) -> CliResult<Vec<(SlotId, SlotVector)>> {

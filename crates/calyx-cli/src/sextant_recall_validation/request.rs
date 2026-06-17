@@ -2,17 +2,26 @@ use std::path::PathBuf;
 
 pub(crate) const DEFAULT_VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const DEFAULT_VAULT_SALT: &str = "calyx-ph70-sextant-recall";
+const DEFAULT_RERANKER_ENDPOINT: &str = "http://127.0.0.1:8089";
+const DEFAULT_RERANKER_TIMEOUT_MS: u64 = 30_000;
+const DEFAULT_RERANK_DEPTH: usize = 64;
 
 #[derive(Clone, Debug)]
 pub(crate) struct RecallRequest {
     pub(crate) corpus_jsonl: PathBuf,
     pub(crate) queries_jsonl: PathBuf,
     pub(crate) qrels_tsv: PathBuf,
+    pub(crate) packed_panel_json: Option<PathBuf>,
+    pub(crate) lens_catalog: Option<PathBuf>,
     pub(crate) metrics_dir: PathBuf,
     pub(crate) vault: PathBuf,
     pub(crate) query_limit: usize,
     pub(crate) k: usize,
     pub(crate) min_delta: f64,
+    pub(crate) min_fusion_gain: f64,
+    pub(crate) reranker_endpoint: String,
+    pub(crate) reranker_timeout_ms: u64,
+    pub(crate) rerank_depth: usize,
     pub(crate) vault_id: String,
     pub(crate) vault_salt: String,
 }
@@ -23,11 +32,17 @@ impl RecallRequest {
             corpus_jsonl: PathBuf::new(),
             queries_jsonl: PathBuf::new(),
             qrels_tsv: PathBuf::new(),
+            packed_panel_json: None,
+            lens_catalog: None,
             metrics_dir: PathBuf::new(),
             vault: PathBuf::new(),
             query_limit: 50,
             k: 10,
             min_delta: 0.15,
+            min_fusion_gain: 0.0,
+            reranker_endpoint: DEFAULT_RERANKER_ENDPOINT.to_string(),
+            reranker_timeout_ms: DEFAULT_RERANKER_TIMEOUT_MS,
+            rerank_depth: DEFAULT_RERANK_DEPTH,
             vault_id: DEFAULT_VAULT_ID.to_string(),
             vault_salt: DEFAULT_VAULT_SALT.to_string(),
         };
@@ -44,6 +59,15 @@ impl RecallRequest {
                 }
                 "--qrels" => {
                     request.qrels_tsv = PathBuf::from(value(args, idx, "--qrels")?);
+                    idx += 2;
+                }
+                "--packed-panel-json" => {
+                    request.packed_panel_json =
+                        Some(PathBuf::from(value(args, idx, "--packed-panel-json")?));
+                    idx += 2;
+                }
+                "--lens-catalog" => {
+                    request.lens_catalog = Some(PathBuf::from(value(args, idx, "--lens-catalog")?));
                     idx += 2;
                 }
                 "--metrics-dir" => {
@@ -64,6 +88,23 @@ impl RecallRequest {
                 }
                 "--min-delta" => {
                     request.min_delta = parse_f64(args, idx, "--min-delta")?;
+                    idx += 2;
+                }
+                "--min-fusion-gain" => {
+                    request.min_fusion_gain = parse_f64(args, idx, "--min-fusion-gain")?;
+                    idx += 2;
+                }
+                "--reranker-endpoint" => {
+                    request.reranker_endpoint =
+                        value(args, idx, "--reranker-endpoint")?.to_string();
+                    idx += 2;
+                }
+                "--reranker-timeout-ms" => {
+                    request.reranker_timeout_ms = parse_u64(args, idx, "--reranker-timeout-ms")?;
+                    idx += 2;
+                }
+                "--rerank-depth" => {
+                    request.rerank_depth = parse_usize(args, idx, "--rerank-depth")?;
                     idx += 2;
                 }
                 "--vault-id" => {
@@ -105,13 +146,42 @@ impl RecallRequest {
                     .into(),
             );
         }
+        if !self.min_fusion_gain.is_finite() || self.min_fusion_gain < 0.0 {
+            return Err(
+                "CALYX_FSV_SEXTANT_INVALID_CONFIG: --min-fusion-gain must be finite and non-negative"
+                    .into(),
+            );
+        }
+        if !self.reranker_endpoint.starts_with("http://") {
+            return Err(
+                "CALYX_FSV_SEXTANT_INVALID_CONFIG: --reranker-endpoint must be http://".into(),
+            );
+        }
+        if self.reranker_timeout_ms == 0 {
+            return Err(
+                "CALYX_FSV_SEXTANT_INVALID_CONFIG: --reranker-timeout-ms must be positive".into(),
+            );
+        }
+        if self.rerank_depth < self.k {
+            return Err("CALYX_FSV_SEXTANT_INVALID_CONFIG: --rerank-depth must be >= --k".into());
+        }
         Ok(())
+    }
+
+    pub(crate) fn real_panel_enabled(&self) -> bool {
+        self.packed_panel_json.is_some()
     }
 }
 
 fn parse_usize(args: &[String], idx: usize, flag: &str) -> Result<usize, String> {
     value(args, idx, flag)?
         .parse::<usize>()
+        .map_err(|error| format!("invalid {flag}: {error}"))
+}
+
+fn parse_u64(args: &[String], idx: usize, flag: &str) -> Result<u64, String> {
+    value(args, idx, flag)?
+        .parse::<u64>()
         .map_err(|error| format!("invalid {flag}: {error}"))
 }
 

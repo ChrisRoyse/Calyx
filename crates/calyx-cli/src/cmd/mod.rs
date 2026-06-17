@@ -7,6 +7,14 @@ mod readback;
 mod search;
 pub(crate) mod vault;
 
+pub(crate) use ingest::{
+    measure_constellation as measure_ingest_constellation, text_input as ingest_text_input,
+};
+pub(crate) use search::{
+    PersistedSearchIndexes, load_docs as load_search_docs, measure_text_query_vectors,
+    rebuild_persistent_indexes,
+};
+
 use std::path::PathBuf;
 
 use crate::error::{CliError, CliResult};

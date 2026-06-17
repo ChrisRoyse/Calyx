@@ -68,6 +68,7 @@ fn perfect_single_lens_fails_delta_gate() {
         }],
         queries: BTreeMap::from([("q1".to_string(), "alpha".to_string())]),
         qrels: BTreeMap::from([("q1".to_string(), BTreeSet::from([cx_for_doc_id("even2")]))]),
+        graded_qrels: BTreeMap::new(),
         qrels_rows: 1,
     };
     let vault = AsterVault::new_durable(
@@ -106,6 +107,7 @@ fn empty_qrels_fail_closed() {
         }],
         queries: BTreeMap::from([("q1".to_string(), "alpha".to_string())]),
         qrels: BTreeMap::new(),
+        graded_qrels: BTreeMap::new(),
         qrels_rows: 0,
     };
     let vault = AsterVault::new_durable(
@@ -163,6 +165,7 @@ fn synthetic_data() -> ValidationData {
             ("q1".to_string(), BTreeSet::from([cx_for_doc_id(&alpha_id)])),
             ("q2".to_string(), BTreeSet::from([cx_for_doc_id(&beta_id)])),
         ]),
+        graded_qrels: BTreeMap::new(),
         qrels_rows: 2,
     }
 }
@@ -188,11 +191,17 @@ fn request_for(root: &std::path::Path, query_limit: usize, min_delta: f64) -> Re
         corpus_jsonl: root.join("corpus.jsonl"),
         queries_jsonl: root.join("queries.jsonl"),
         qrels_tsv: root.join("qrels.tsv"),
+        packed_panel_json: None,
+        lens_catalog: None,
         metrics_dir: root.join("metrics"),
         vault: root.join("vault"),
         query_limit,
         k: 10,
         min_delta,
+        min_fusion_gain: 0.0,
+        reranker_endpoint: "http://127.0.0.1:8089".to_string(),
+        reranker_timeout_ms: 30_000,
+        rerank_depth: 64,
         vault_id: DEFAULT_VAULT_ID.to_string(),
         vault_salt: "calyx-test-sextant-recall".to_string(),
     }

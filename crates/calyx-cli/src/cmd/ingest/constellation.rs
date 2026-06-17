@@ -9,7 +9,7 @@ use calyx_registry::VaultPanelState;
 
 use crate::error::CliResult;
 
-pub(super) fn measure_constellation(
+pub(crate) fn measure_constellation(
     vault: &AsterVault,
     state: &VaultPanelState,
     input: Input,
@@ -59,7 +59,7 @@ pub(super) fn measure_constellation(
     })
 }
 
-pub(super) fn text_input(text: String) -> Input {
+pub(crate) fn text_input(text: String) -> Input {
     Input::new(Modality::Text, text.into_bytes())
 }
 

@@ -42,7 +42,6 @@ pub struct PanelCapabilityGateOutcome {
 }
 
 pub const CALYX_PANEL_LENS_MISSING: &str = "CALYX_PANEL_LENS_MISSING";
-
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AppliedPanelTemplate {
     pub template_name: String,
@@ -335,7 +334,6 @@ mod tests {
     fn list_panel_uses_stored_slot_bits() {
         let (registry, lens_id) = registry_with_lens();
         let panel = panel_with_slot(lens_id, Some(0.31));
-
         let listing = list_panel(&panel, &registry);
 
         assert_eq!(listing[0].bits_about, Some(0.31));
