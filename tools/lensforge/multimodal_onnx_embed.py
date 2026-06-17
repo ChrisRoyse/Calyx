@@ -49,14 +49,22 @@ def load_session(model_file: Path, provider: str | None) -> ort.InferenceSession
 
 def load_processor(axis: str, model_id: str) -> Any:
     if axis == "image":
-        from transformers import AutoImageProcessor
-
-        return AutoImageProcessor.from_pretrained(model_id)
+        return load_image_processor(model_id)
     if axis == "audio":
         from transformers import AutoFeatureExtractor
 
         return AutoFeatureExtractor.from_pretrained(model_id)
     raise RuntimeError(f"unsupported multimodal axis {axis}")
+
+
+def load_image_processor(model_id: str) -> dict[str, Any]:
+    config_path = Path(model_id) / "preprocessor_config.json"
+    if not config_path.exists():
+        raise RuntimeError(f"missing image preprocessor config {config_path}")
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    if config.get("image_processor_type") != "SiglipImageProcessor":
+        raise RuntimeError(f"unsupported image processor {config.get('image_processor_type')!r}")
+    return config
 
 
 def embed_one(axis: str, processor: Any, session: ort.InferenceSession, payload: bytes) -> np.ndarray:
@@ -69,10 +77,7 @@ def embed_one(axis: str, processor: Any, session: ort.InferenceSession, payload:
 
 def preprocess(axis: str, processor: Any, payload: bytes) -> dict[str, np.ndarray]:
     if axis == "image":
-        from PIL import Image
-
-        image = Image.open(io.BytesIO(payload)).convert("RGB")
-        return dict(processor(images=image, return_tensors="np"))
+        return preprocess_image(processor, payload)
     if axis == "audio":
         samples, sampling_rate = decode_wav(payload)
         target_rate = int(getattr(processor, "sampling_rate", sampling_rate))
@@ -81,6 +86,55 @@ def preprocess(axis: str, processor: Any, payload: bytes) -> dict[str, np.ndarra
             sampling_rate = target_rate
         return dict(processor(samples, sampling_rate=sampling_rate, return_tensors="np"))
     raise RuntimeError(f"unsupported multimodal axis {axis}")
+
+
+def preprocess_image(config: dict[str, Any], payload: bytes) -> dict[str, np.ndarray]:
+    from PIL import Image
+
+    size = config.get("size")
+    if not isinstance(size, dict) or "height" not in size or "width" not in size:
+        raise RuntimeError("image preprocessor config missing size.height/size.width")
+    height = int(size["height"])
+    width = int(size["width"])
+    if height <= 0 or width <= 0:
+        raise RuntimeError(f"invalid image processor size {height}x{width}")
+
+    image = Image.open(io.BytesIO(payload))
+    if config.get("do_convert_rgb") is not False:
+        image = image.convert("RGB")
+    if config.get("do_resize", True):
+        image = image.resize((width, height), image_resample(config.get("resample", 2)))
+
+    pixels = np.asarray(image, dtype=np.float32)
+    if pixels.ndim != 3 or pixels.shape[2] != 3:
+        raise RuntimeError(f"image payload decoded to unsupported shape {pixels.shape}")
+    if config.get("do_rescale", True):
+        pixels = pixels * float(config.get("rescale_factor", 1.0 / 255.0))
+    if config.get("do_normalize", True):
+        mean = np.asarray(config.get("image_mean", [0.5, 0.5, 0.5]), dtype=np.float32)
+        std = np.asarray(config.get("image_std", [0.5, 0.5, 0.5]), dtype=np.float32)
+        if mean.shape != (3,) or std.shape != (3,) or np.any(std == 0.0):
+            raise RuntimeError("image normalization config must contain three nonzero std values")
+        pixels = (pixels - mean) / std
+    pixel_values = np.transpose(pixels, (2, 0, 1))[np.newaxis, ...].astype(np.float32, copy=False)
+    return {"pixel_values": pixel_values}
+
+
+def image_resample(value: Any) -> Any:
+    from PIL import Image
+
+    mapping = {
+        0: Image.Resampling.NEAREST,
+        1: Image.Resampling.LANCZOS,
+        2: Image.Resampling.BILINEAR,
+        3: Image.Resampling.BICUBIC,
+        4: Image.Resampling.BOX,
+        5: Image.Resampling.HAMMING,
+    }
+    code = int(value)
+    if code not in mapping:
+        raise RuntimeError(f"unsupported PIL image resample code {code}")
+    return mapping[code]
 
 
 def decode_wav(payload: bytes) -> tuple[np.ndarray, int]:
