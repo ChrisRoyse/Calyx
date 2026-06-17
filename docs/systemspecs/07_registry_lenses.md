@@ -70,7 +70,7 @@ Defined in `calyx-core` at `crates/calyx-core/src/traits.rs:38`. Every registry 
 | `OnnxLens` | `runtime/onnx.rs:18` | `Dense(dim)` | contract modality | FastEmbed `TextEmbedding::embed()` or a custom `ort` session run, then unit-normalizes | local CPU/GPU; deterministic |
 | `StaticLookupLens` | `runtime/static_lookup.rs:20` | `Dense(matrix.dim)` | `Text` | tokenizes, averages mmap'd per-token embedding rows, normalizes | local mmap read; deterministic |
 | `ExternalCmdLens` | `runtime/external_cmd.rs:14` | `Dense(dim)` | constructor-set | spawns subprocess, frames a length-prefixed JSON request/response over stdin/stdout | subprocess; deterministic per subprocess output |
-| `MultimodalAdapterLens` | `runtime/adapters/lens.rs:27` | `Dense(dim)` | `axis.modality()` | validates input magic bytes per axis, then derives the vector by SHA-256 projection of (axis, model_id, bytes, counter), unit-normalizes | fully deterministic, in-process; carries **no model weights** |
+| `MultimodalAdapterLens` | `runtime/adapters/lens.rs:29` | `Dense(dim)` | `axis.modality()` | validates input magic bytes per axis, then frames the bytes to the configured ONNX helper and unit-normalizes the returned embedding | local subprocess + ONNXRuntime CPU; fails closed when config/model/helper files are missing |
 
 ### 1.3 Runtime details
 
@@ -86,7 +86,7 @@ Defined in `calyx-core` at `crates/calyx-core/src/traits.rs:38`. Every registry 
 
 **ExternalCmdLens** — fields `cmd`, `args`, `dim`, `timeout` (default 30 s, `with_timeout`). Wire frame: 4-byte big-endian length prefix + JSON. Request `{modality, inputs: [bytes]}`, response `{vectors: [[f32]]}`. Spawns the process, uses a write thread + read thread + 5 ms poll, kills on timeout, requires exit status 0. `NormPolicy::None`; weight hash from `cmd` + null-joined `args`, corpus seed `b"external-cmd-runtime-v1"`.
 
-**MultimodalAdapterLens** — `MultimodalAxis { Image, Audio, Protein, Dna, Molecule }` (`adapters/axis.rs`) maps to a `Modality`. `measure` validates input shape per axis (PNG/JPEG magic, RIFF/WAVE, protein/DNA alphabet, SMILES charset) then runs `deterministic_projection`: repeated `sha256_digest(b"multimodal-adapter-vector-v1", axis, model_id, bytes, counter)`, packing 4-byte LE chunks into `[-1, 1]`, then unit-normalize. Built from `MultimodalAdapterSpec { name, axis, model_id, dim, license, allow_non_commercial }`.
+**MultimodalAdapterLens** — `MultimodalAxis { Image, Audio, Protein, Dna, Molecule }` (`adapters/axis.rs`) maps to a `Modality`. `measure` validates input shape per axis (PNG/JPEG magic, RIFF/WAVE, protein/DNA alphabet, SMILES charset), then runs a strict `calyx-multimodal-adapter-v2` descriptor through `tools/lensforge/multimodal_onnx_embed.py`. The descriptor names the local ONNX tower model, processor files, helper script, explicit CPU provider, and expected dimension. The lens hashes the real model/config/helper artifacts, rejects missing configs, rejects unsupported providers, rejects NaN/Inf or wrong dimensions, and has no byte-hash vector fallback. Built from `MultimodalAdapterSpec { name, axis, model_id, dim, license, allow_non_commercial, adapter_config, files }`.
 
 ### 1.4 License gating (multimodal adapters)
 
@@ -95,7 +95,7 @@ Defined in `calyx-core` at `crates/calyx-core/src/traits.rs:38`. Every registry 
 - `allow_noncommercial_from_env()` accepts `1/true/yes/allow/allowed` (case-insensitive).
 - `is_non_commercial_license(raw)` detects `non-commercial`, `noncommercial`, `cc-by-nc`, or bare token `nc` after normalizing separators.
 - `ensure_license_allowed(license, non_commercial, allow_non_commercial)` errors `CALYX_LICENSE_DENIED` when the lens is non-commercial and not explicitly allowed.
-- `default_multimodal_lens_specs()` returns five 16-dim specs: `image-siglip2-b16-adapter` (siglip2, apache-2.0), `audio-clap-htsat-adapter` (clap, apache-2.0), `protein-esm2-t6-8m-adapter` (esm2, mit), `dna-dnabert2-117m-adapter` (DNABERT-2, apache-2.0), `molecule-chemberta-zinc-adapter` (ChemBERTa, mit).
+- `default_multimodal_lens_specs()` returns the commissioned priority media specs when `CALYX_HOME` points at the LensForge bundle paths: `image-siglip2-b16-adapter` (SigLIP2 vision, 768D, apache-2.0) and `audio-clap-htsat-adapter` (LAION-CLAP audio, 512D, apache-2.0). Protein/DNA/molecule adapters are not advertised until real runtimes are commissioned.
 - `register_multimodal_lens_pack(registry, specs)` builds and registers each, returning `MultimodalLensPackEntry` records.
 
 ### 1.5 The `Registry`
@@ -170,7 +170,7 @@ Contract field hashes (`sha256_digest`, `frozen.rs:268`) are length-delimited SH
 
 `LensSpec` (`spec.rs:49`) is the serializable structured metadata: `name`, `runtime: LensRuntime`, `output: SlotShape`, `modality`, `weights_sha256`, `corpus_hash`, `norm_policy`, `axis`, `asymmetry`, `quant_default` (default `QuantPolicy::turboquant_default()`), `truncate_dim`, `recall_delta` (default `0.02`), `retrieval_only`, `excluded_from_dedup`.
 
-`LensHealth` (`spec.rs:70`): `Loaded`, `Cold`, `Failing { code, reason }`. `LensSpec::health()` (`spec.rs:92`) decides health by runtime: algorithmic/multimodal are always `Loaded`; TEI does a 250 ms TCP `connect_timeout` probe (`probe_http`); Candle/ONNX check file existence (empty → `Cold`); static-lookup checks both files; external-cmd resolves `cmd` on `PATH` (`command_exists`), else `Failing { code: "CALYX_LENS_UNREACHABLE" }`. `health_result()` converts `Failing` to `lens_unreachable` error.
+`LensHealth` (`spec.rs:70`): `Loaded`, `Cold`, `Failing { code, reason }`. `LensSpec::health()` (`spec.rs:92`) decides health by runtime: algorithmic is always `Loaded`; multimodal requires `adapter_config` and all declared files to exist (missing → `Cold`); TEI does a 250 ms TCP `connect_timeout` probe (`probe_http`); Candle/ONNX check file existence (empty → `Cold`); static-lookup checks both files; external-cmd resolves `cmd` on `PATH` (`command_exists`), else `Failing { code: "CALYX_LENS_UNREACHABLE" }`. `health_result()` converts `Failing` to `lens_unreachable` error.
 
 ---
 
@@ -302,7 +302,7 @@ Every default panel ends with three temporal slots `[E2_recency, E3_periodic, E4
 | `legal_default` | legal_bert_small (768D), general_semantic (768D), keyword_splade (Sparse ~30.5K), entity (768D), causal_dual (768D, Dual) — Registry, Text |
 | `medical_default` | biomedbert_small_embeddings (768D), general_semantic (768D), medical_entity (768D) — Registry, Text |
 | `bio_default` | protein_esm2 (16D Protein), dna_dnabert2 (16D Dna), molecule_chemberta (16D Molecule), general_semantic (768D Text) — Registry |
-| `media_default` | media_semantic (768D Mixed), image_siglip2 (16D Image), audio_clap (16D Audio), audio_wave (256D Audio), audio_emotion (128D Audio), speaker_wavlm (512D Audio), transcript (768D Text), style_register (768D Text) — Registry |
+| `media_default` | media_semantic (768D Mixed), image_siglip2 (768D Image), audio_clap (512D Audio), audio_wave (256D Audio), audio_emotion (128D Audio), speaker_wavlm (512D Audio), transcript (768D Text), style_register (768D Text) — Registry |
 
 Default TEI endpoint used by templates: `http://127.0.0.1:8088`.
 

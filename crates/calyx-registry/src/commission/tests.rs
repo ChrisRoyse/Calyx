@@ -277,7 +277,7 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
             br#"{"axis":"molecule","model_id":"fixture/mol"}"#,
         ])),
         files: vec![file(
-            "model",
+            "adapter",
             &adapter,
             br#"{"axis":"molecule","model_id":"fixture/mol"}"#,
         )],
@@ -298,8 +298,8 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
     assert_eq!(spec.output, SlotShape::Dense(16));
     assert!(matches!(
         spec.runtime,
-        LensRuntime::MultimodalAdapter { ref axis, ref model_id }
-            if axis == "molecule" && model_id == "fixture/mol"
+        LensRuntime::MultimodalAdapter { ref axis, ref model_id, ref adapter_config, .. }
+            if axis == "molecule" && model_id == "fixture/mol" && adapter_config.is_some()
     ));
 }
 
@@ -322,7 +322,7 @@ fn noncommercial_manifest_requires_explicit_allow_flag() {
             br#"{"axis":"dna","model_id":"fixture/dna"}"#,
         ])),
         files: vec![file(
-            "model",
+            "adapter",
             &adapter,
             br#"{"axis":"dna","model_id":"fixture/dna"}"#,
         )],

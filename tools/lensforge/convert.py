@@ -46,6 +46,20 @@ COMMON_OPTIONAL_FILES = (
     ("special_tokens_map", "special_tokens_map.json"),
     ("preprocessor", "preprocessor_config.json"),
 )
+ADAPTER_ONNX_DEFAULTS = {
+    "image": {
+        "onnx_repo": "onnx-community/siglip2-base-patch16-224-ONNX",
+        "onnx_file": "onnx/vision_model_quantized.onnx",
+        "model_name": "vision_model_quantized.onnx",
+        "dim": 768,
+    },
+    "audio": {
+        "onnx_repo": "Xenova/clap-htsat-unfused",
+        "onnx_file": "onnx/audio_model_quantized.onnx",
+        "model_name": "audio_model_quantized.onnx",
+        "dim": 512,
+    },
+}
 ROLE_ORDER = {
     "model": 0,
     "weights": 0,
@@ -134,27 +148,69 @@ def convert_adapter(
     model: dict[str, Any], output_root: Path, log_path: Path
 ) -> dict[str, Any] | None:
     name = str(model.get("name") or safe_name(str(model["hf_id"])))
-    out_dir = output_root / safe_name(name) / "adapter"
-    out_dir.mkdir(parents=True, exist_ok=True)
     modality = str(model["modality"]).lower()
-    dim = int(model.get("dim") or 16)
+    if modality not in ADAPTER_ONNX_DEFAULTS:
+        log_event(
+            log_path,
+            "skip",
+            model,
+            "multimodal-adapter",
+            {"reason": "real_multimodal_adapter_not_configured"},
+        )
+        return None
+    out_dir = output_root / safe_name(name) / "onnx-int8"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    defaults = ADAPTER_ONNX_DEFAULTS[modality]
+    if "files" in model:
+        artifacts = copy_local_artifacts(model, out_dir)
+        model_path = role_path(artifacts, "model")
+    else:
+        onnx_repo = str(model.get("onnx_repo") or defaults["onnx_repo"])
+        onnx_file = str(model.get("onnx_file") or defaults["onnx_file"])
+        model_path = download_hf_file(onnx_repo, onnx_file, out_dir)
+        model_dest = out_dir / str(model.get("onnx_dest") or defaults["model_name"])
+        if model_path != model_dest:
+            model_path.replace(model_dest)
+            model_path = model_dest
+        artifacts = {"model": model_path}
+        for role, repo_path in [
+            ("config", "config.json"),
+            ("preprocessor", "preprocessor_config.json"),
+            ("tokenizer_config", "tokenizer_config.json"),
+            ("special_tokens_map", "special_tokens_map.json"),
+        ]:
+            try:
+                artifacts[role] = download_hf_file(onnx_repo, repo_path, out_dir)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 404:
+                    raise
+    helper_source = Path(__file__).with_name("multimodal_onnx_embed.py")
+    helper_path = out_dir / helper_source.name
+    shutil.copyfile(helper_source, helper_path)
+    artifacts["helper"] = helper_path
+    dim = int(model.get("dim") or defaults["dim"])
     license_value = str(model.get("license") or "unknown")
     adapter = {
-        "schema": "calyx-multimodal-adapter-v1",
+        "schema": "calyx-multimodal-adapter-v2",
         "name": name,
         "axis": modality,
         "model_id": str(model["hf_id"]),
+        "processor_model_id": ".",
         "dim": dim,
-        "preprocessing": str(model.get("adapter") or default_adapter(modality)),
-        "pooling": str(model.get("pooling", "mean")),
-        "norm": str(model.get("norm", "l2")),
+        "engine": "onnx-external",
+        "python": str(model.get("python") or "/home/croyse/calyx/.venv-gpu/bin/python"),
+        "helper": helper_path.name,
+        "model_file": model_path.name,
+        "provider": "cpu_explicit",
+        "timeout_ms": int(model.get("timeout_ms") or 120000),
     }
     adapter_path = out_dir / "adapter.json"
     write_json(adapter_path, adapter)
+    artifacts["adapter"] = adapter_path
     manifest = build_manifest(
         model={**model, "dtype": model.get("dtype", "f32"), "norm": model.get("norm", "l2")},
         target_format="multimodal-adapter",
-        artifacts={"model": adapter_path},
+        artifacts=artifacts,
         dim=dim,
         license_value=license_value,
     )
@@ -668,8 +724,10 @@ def self_test() -> int:
         source = root / "source"
         source.mkdir()
         (source / "model_int8.onnx").write_bytes(b"tiny-model")
+        (source / "vision_model_quantized.onnx").write_bytes(b"tiny-vision")
         (source / "tokenizer.json").write_text('{"tiny": true}\n', encoding="utf-8")
         (source / "config.json").write_text('{"hidden_size": 3}\n', encoding="utf-8")
+        (source / "preprocessor_config.json").write_text('{"size": {"height": 2, "width": 2}}\n', encoding="utf-8")
         registry = root / "registry.yaml"
         output = root / "out"
         registry.write_text(
@@ -697,8 +755,15 @@ models:
     hf_id: fixture/image
     modality: image
     formats: [adapter]
-    dim: 16
+    dim: 768
     license: mit
+    files:
+      - role: model
+        path: {yaml_single_quote(source / "vision_model_quantized.onnx")}
+      - role: config
+        path: {yaml_single_quote(source / "config.json")}
+      - role: preprocessor
+        path: {yaml_single_quote(source / "preprocessor_config.json")}
 """,
             encoding="utf-8",
         )
@@ -711,10 +776,14 @@ models:
         if data["weights_sha256"] != actual:
             print("self-test weights_sha256 mismatch", file=sys.stderr)
             return 1
-        adapter_manifest = output / "tiny-image-adapter" / "adapter" / "manifest.json"
+        adapter_manifest = output / "tiny-image-adapter" / "onnx-int8" / "manifest.json"
         adapter_data = json.loads(adapter_manifest.read_text(encoding="utf-8"))
         if adapter_data["runtime"] != "multimodal-adapter" or adapter_data["modality"] != "image":
             print("self-test adapter manifest mismatch", file=sys.stderr)
+            return 1
+        adapter_roles = {entry["role"] for entry in adapter_data["files"]}
+        if not {"model", "adapter", "helper", "preprocessor"}.issubset(adapter_roles):
+            print("self-test adapter files missing", file=sys.stderr)
             return 1
         log_text = (output / "conversion-log.jsonl").read_text(encoding="utf-8")
         if "unsupported_format_modality" not in log_text:

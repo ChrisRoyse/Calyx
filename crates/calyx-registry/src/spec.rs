@@ -43,6 +43,10 @@ pub enum LensRuntime {
     MultimodalAdapter {
         axis: String,
         model_id: String,
+        #[serde(default)]
+        adapter_config: Option<PathBuf>,
+        #[serde(default)]
+        files: Vec<PathBuf>,
     },
     ExternalCmd {
         cmd: String,
@@ -96,7 +100,11 @@ impl LensSpec {
     pub fn health(&self) -> LensHealth {
         match &self.runtime {
             LensRuntime::Algorithmic { .. } => LensHealth::Loaded,
-            LensRuntime::MultimodalAdapter { .. } => LensHealth::Loaded,
+            LensRuntime::MultimodalAdapter {
+                adapter_config,
+                files,
+                ..
+            } => multimodal_adapter_health(adapter_config.as_ref(), files),
             LensRuntime::TeiHttp { endpoint } => probe_http(endpoint),
             LensRuntime::CandleLocal { files, .. } => candle_local_health(files),
             LensRuntime::Onnx { files, .. } => files_runtime_health(files),
@@ -165,6 +173,16 @@ fn files_runtime_health(files: &[PathBuf]) -> LensHealth {
     } else {
         LensHealth::Cold
     }
+}
+
+fn multimodal_adapter_health(adapter_config: Option<&PathBuf>, files: &[PathBuf]) -> LensHealth {
+    let Some(adapter_config) = adapter_config else {
+        return LensHealth::Cold;
+    };
+    if !adapter_config.is_file() {
+        return LensHealth::Cold;
+    }
+    files_runtime_health(files)
 }
 
 #[cfg(feature = "candle-cuda")]

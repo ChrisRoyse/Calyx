@@ -189,13 +189,13 @@ pub fn media_default() -> PanelTemplate {
         registry(
             "image_siglip2",
             "image-siglip2-b16-adapter",
-            SlotShape::Dense(16),
+            SlotShape::Dense(768),
             Modality::Image,
         ),
         registry(
             "audio_clap",
             "audio-clap-htsat-adapter",
-            SlotShape::Dense(16),
+            SlotShape::Dense(512),
             Modality::Audio,
         ),
         registry(

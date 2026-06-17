@@ -1,13 +1,17 @@
 use std::env;
+use std::path::PathBuf;
 
 use calyx_core::{
     Asymmetry, CalyxError, Input, Lens, LensId, Modality, Result, SlotShape, SlotVector,
 };
 
 use super::axis::MultimodalAxis;
+use super::bridge;
+use super::config::{MultimodalAdapterConfig, config_invalid, load_adapter_config};
+use super::validate::validate_input;
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::lens::ensure_input_modality;
-use crate::runtime::common::normalize_unit;
+use crate::runtime::common::{hash_files, normalize_unit};
 use crate::spec::{LensRuntime, LensSpec};
 
 pub const CALYX_LICENSE_DENIED: &str = "CALYX_LICENSE_DENIED";
@@ -21,6 +25,8 @@ pub struct MultimodalAdapterSpec {
     pub dim: u32,
     pub license: Option<String>,
     pub allow_non_commercial: bool,
+    pub adapter_config: Option<PathBuf>,
+    pub files: Vec<PathBuf>,
 }
 
 #[derive(Clone, Debug)]
@@ -29,6 +35,8 @@ pub struct MultimodalAdapterLens {
     axis: MultimodalAxis,
     model_id: String,
     dim: u32,
+    adapter_config: MultimodalAdapterConfig,
+    files: Vec<PathBuf>,
     weights_sha256: [u8; 32],
     corpus_hash: [u8; 32],
     id: LensId,
@@ -46,31 +54,50 @@ impl MultimodalAdapterLens {
                 .is_some_and(is_non_commercial_license),
             spec.allow_non_commercial,
         )?;
-        let license = spec.license.as_deref().unwrap_or("unknown");
-        let weights_sha256 = sha256_digest(&[
-            b"multimodal-adapter-v1",
-            spec.axis.as_str().as_bytes(),
-            spec.model_id.as_bytes(),
-            license.as_bytes(),
-        ]);
+        let adapter_config_path = spec
+            .adapter_config
+            .as_deref()
+            .ok_or_else(|| config_invalid("multimodal adapter config is required"))?;
+        let adapter_config = load_adapter_config(
+            adapter_config_path,
+            spec.axis,
+            &spec.model_id,
+            Some(spec.dim),
+        )?;
+        let contract_paths = if spec.files.is_empty() {
+            adapter_config.contract_paths()
+        } else {
+            spec.files.clone()
+        };
+        let weights_sha256 = hash_files(&contract_paths).map_err(|err| {
+            config_invalid(format!("hash multimodal adapter files failed: {err}"))
+        })?;
         let corpus_hash = sha256_digest(&[
-            b"ph74-multimodal-pack-v1",
+            b"multimodal-onnx-adapter-v2",
             spec.name.as_bytes(),
             spec.axis.as_str().as_bytes(),
             spec.model_id.as_bytes(),
         ]);
-        Self::from_parts(
-            spec.name,
-            spec.axis,
-            spec.model_id,
-            spec.dim,
+        Self::from_parts(AdapterParts {
+            name: spec.name,
+            axis: spec.axis,
+            model_id: spec.model_id,
+            dim: spec.dim,
+            adapter_config,
+            files: contract_paths,
             weights_sha256,
             corpus_hash,
-        )
+        })
     }
 
     pub fn from_lens_spec(spec: &LensSpec) -> Result<Self> {
-        let LensRuntime::MultimodalAdapter { axis, model_id } = &spec.runtime else {
+        let LensRuntime::MultimodalAdapter {
+            axis,
+            model_id,
+            adapter_config,
+            files,
+        } = &spec.runtime
+        else {
             return Err(config_invalid("LensSpec runtime is not multimodal_adapter"));
         };
         let axis = MultimodalAxis::parse(axis)?;
@@ -87,14 +114,20 @@ impl MultimodalAdapterLens {
                 "multimodal adapter requires dense output",
             ));
         };
-        Self::from_parts(
-            spec.name.clone(),
+        let adapter_config_path = adapter_config
+            .as_deref()
+            .ok_or_else(|| config_invalid("multimodal adapter config is required"))?;
+        let adapter_config = load_adapter_config(adapter_config_path, axis, model_id, Some(dim))?;
+        Self::from_parts(AdapterParts {
+            name: spec.name.clone(),
             axis,
-            model_id.clone(),
+            model_id: model_id.clone(),
             dim,
-            spec.weights_sha256,
-            spec.corpus_hash,
-        )
+            adapter_config,
+            files: files.clone(),
+            weights_sha256: spec.weights_sha256,
+            corpus_hash: spec.corpus_hash,
+        })
     }
 
     pub fn contract(&self) -> FrozenLensContract {
@@ -115,6 +148,8 @@ impl MultimodalAdapterLens {
             runtime: LensRuntime::MultimodalAdapter {
                 axis: self.axis.as_str().to_string(),
                 model_id: self.model_id.clone(),
+                adapter_config: Some(self.adapter_config.path.clone()),
+                files: self.files.clone(),
             },
             output: SlotShape::Dense(self.dim),
             modality: self.axis.modality(),
@@ -135,36 +170,42 @@ impl MultimodalAdapterLens {
         self.axis
     }
 
-    fn from_parts(
-        name: String,
-        axis: MultimodalAxis,
-        model_id: String,
-        dim: u32,
-        weights_sha256: [u8; 32],
-        corpus_hash: [u8; 32],
-    ) -> Result<Self> {
-        if dim == 0 {
+    fn from_parts(parts: AdapterParts) -> Result<Self> {
+        if parts.dim == 0 {
             return Err(config_invalid("multimodal adapter dim must be > 0"));
         }
         let contract = FrozenLensContract::new(
-            name.clone(),
-            weights_sha256,
-            corpus_hash,
-            SlotShape::Dense(dim),
-            axis.modality(),
+            parts.name.clone(),
+            parts.weights_sha256,
+            parts.corpus_hash,
+            SlotShape::Dense(parts.dim),
+            parts.axis.modality(),
             LensDType::F32,
             NormPolicy::unit(),
         );
         Ok(Self {
-            name,
-            axis,
-            model_id,
-            dim,
-            weights_sha256,
-            corpus_hash,
+            name: parts.name,
+            axis: parts.axis,
+            model_id: parts.model_id,
+            dim: parts.dim,
+            adapter_config: parts.adapter_config,
+            files: parts.files,
+            weights_sha256: parts.weights_sha256,
+            corpus_hash: parts.corpus_hash,
             id: contract.lens_id(),
         })
     }
+}
+
+struct AdapterParts {
+    name: String,
+    axis: MultimodalAxis,
+    model_id: String,
+    dim: u32,
+    adapter_config: MultimodalAdapterConfig,
+    files: Vec<PathBuf>,
+    weights_sha256: [u8; 32],
+    corpus_hash: [u8; 32],
 }
 
 impl Lens for MultimodalAdapterLens {
@@ -181,9 +222,44 @@ impl Lens for MultimodalAdapterLens {
     }
 
     fn measure(&self, input: &Input) -> Result<SlotVector> {
-        ensure_input_modality(self, input)?;
-        validate_input(self.axis, input)?;
-        let mut data = deterministic_projection(self.axis, &self.model_id, &input.bytes, self.dim);
+        let mut batch = self.measure_batch(std::slice::from_ref(input))?;
+        batch.pop().ok_or_else(|| {
+            CalyxError::lens_dim_mismatch(format!(
+                "multimodal adapter {} returned no vector",
+                self.id
+            ))
+        })
+    }
+
+    fn measure_batch(&self, inputs: &[Input]) -> Result<Vec<SlotVector>> {
+        if inputs.is_empty() {
+            return Ok(Vec::new());
+        }
+        for input in inputs {
+            ensure_input_modality(self, input)?;
+            validate_input(self.axis, input)?;
+        }
+        bridge::measure_batch(&self.adapter_config, inputs)?
+            .into_iter()
+            .map(|data| self.slot_from_row(data))
+            .collect()
+    }
+}
+
+impl MultimodalAdapterLens {
+    fn slot_from_row(&self, mut data: Vec<f32>) -> Result<SlotVector> {
+        if data.len() != self.dim as usize {
+            return Err(CalyxError::lens_dim_mismatch(format!(
+                "multimodal adapter dim {} != expected {}",
+                data.len(),
+                self.dim
+            )));
+        }
+        if data.iter().any(|value| !value.is_finite()) {
+            return Err(CalyxError::lens_numerical_invariant(
+                "multimodal adapter vector contains NaN or Inf",
+            ));
+        }
         normalize_unit(&mut data)?;
         Ok(SlotVector::Dense {
             dim: self.dim,
@@ -231,110 +307,4 @@ pub fn is_non_commercial_license(raw: &str) -> bool {
         || normalized
             .split(|ch: char| !ch.is_ascii_alphanumeric())
             .any(|token| token == "nc")
-}
-
-fn validate_input(axis: MultimodalAxis, input: &Input) -> Result<()> {
-    if input.bytes.is_empty() {
-        return Err(invalid_input(axis, "input is empty"));
-    }
-    match axis {
-        MultimodalAxis::Image => validate_image(&input.bytes),
-        MultimodalAxis::Audio => validate_audio(&input.bytes),
-        MultimodalAxis::Protein => validate_alpha(&input.bytes, axis, b"ACDEFGHIKLMNPQRSTVWY"),
-        MultimodalAxis::Dna => validate_alpha(&input.bytes, axis, b"ACGTN"),
-        MultimodalAxis::Molecule => validate_smiles(&input.bytes),
-    }
-}
-
-fn validate_image(bytes: &[u8]) -> Result<()> {
-    let png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
-    let jpeg = bytes.starts_with(&[0xff, 0xd8, 0xff]);
-    if png || jpeg {
-        Ok(())
-    } else {
-        Err(invalid_input(
-            MultimodalAxis::Image,
-            "expected PNG or JPEG bytes",
-        ))
-    }
-}
-
-fn validate_audio(bytes: &[u8]) -> Result<()> {
-    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE" {
-        Ok(())
-    } else {
-        Err(invalid_input(
-            MultimodalAxis::Audio,
-            "expected RIFF/WAVE bytes",
-        ))
-    }
-}
-
-fn validate_alpha(bytes: &[u8], axis: MultimodalAxis, allowed: &[u8]) -> Result<()> {
-    let ok = bytes
-        .iter()
-        .copied()
-        .all(|byte| allowed.contains(&byte.to_ascii_uppercase()));
-    if ok {
-        Ok(())
-    } else {
-        Err(invalid_input(axis, "contains unsupported sequence symbol"))
-    }
-}
-
-fn validate_smiles(bytes: &[u8]) -> Result<()> {
-    let text = std::str::from_utf8(bytes)
-        .map_err(|_| invalid_input(MultimodalAxis::Molecule, "SMILES input is not UTF-8"))?;
-    let allowed = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789[]()=#@+-/\\\\.%";
-    if text.chars().any(|ch| ch.is_ascii_alphabetic())
-        && text.chars().all(|ch| allowed.contains(ch))
-    {
-        Ok(())
-    } else {
-        Err(invalid_input(
-            MultimodalAxis::Molecule,
-            "SMILES contains unsupported token",
-        ))
-    }
-}
-
-fn deterministic_projection(
-    axis: MultimodalAxis,
-    model_id: &str,
-    bytes: &[u8],
-    dim: u32,
-) -> Vec<f32> {
-    let mut out = Vec::with_capacity(dim as usize);
-    let mut counter = 0_u32;
-    while out.len() < dim as usize {
-        let digest = sha256_digest(&[
-            b"multimodal-adapter-vector-v1",
-            axis.as_str().as_bytes(),
-            model_id.as_bytes(),
-            bytes,
-            &counter.to_le_bytes(),
-        ]);
-        for chunk in digest.chunks_exact(4) {
-            if out.len() == dim as usize {
-                break;
-            }
-            let raw = u32::from_le_bytes(chunk.try_into().expect("sha256 chunk is 4 bytes"));
-            let unit = (raw as f64 / u32::MAX as f64) * 2.0 - 1.0;
-            out.push(unit as f32);
-        }
-        counter = counter.wrapping_add(1);
-    }
-    out
-}
-
-fn invalid_input(axis: MultimodalAxis, message: &str) -> CalyxError {
-    CalyxError::lens_dim_mismatch(format!("{} adapter {message}", axis.as_str()))
-}
-
-fn config_invalid(message: impl Into<String>) -> CalyxError {
-    CalyxError {
-        code: "CALYX_LENS_CONFIG_INVALID",
-        message: message.into(),
-        remediation: "fix the multimodal adapter lens spec",
-    }
 }

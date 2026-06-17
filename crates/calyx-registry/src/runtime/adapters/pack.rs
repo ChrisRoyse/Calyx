@@ -1,3 +1,6 @@
+use std::env;
+use std::path::PathBuf;
+
 use calyx_core::{LensId, Result};
 
 use super::axis::MultimodalAxis;
@@ -19,31 +22,15 @@ pub fn default_multimodal_lens_specs() -> Vec<MultimodalAdapterSpec> {
             "image-siglip2-b16-adapter",
             MultimodalAxis::Image,
             "google/siglip2-base-patch16-224",
+            768,
             "apache-2.0",
         ),
         spec(
             "audio-clap-htsat-adapter",
             MultimodalAxis::Audio,
             "laion/clap-htsat-unfused",
+            512,
             "apache-2.0",
-        ),
-        spec(
-            "protein-esm2-t6-8m-adapter",
-            MultimodalAxis::Protein,
-            "facebook/esm2_t6_8M_UR50D",
-            "mit",
-        ),
-        spec(
-            "dna-dnabert2-117m-adapter",
-            MultimodalAxis::Dna,
-            "zhihan1996/DNABERT-2-117M",
-            "apache-2.0",
-        ),
-        spec(
-            "molecule-chemberta-zinc-adapter",
-            MultimodalAxis::Molecule,
-            "seyonec/ChemBERTa-zinc-base-v1",
-            "mit",
         ),
     ]
 }
@@ -68,13 +55,31 @@ pub fn register_multimodal_lens_pack(
     Ok(entries)
 }
 
-fn spec(name: &str, axis: MultimodalAxis, model_id: &str, license: &str) -> MultimodalAdapterSpec {
+fn spec(
+    name: &str,
+    axis: MultimodalAxis,
+    model_id: &str,
+    dim: u32,
+    license: &str,
+) -> MultimodalAdapterSpec {
+    let adapter_config = default_adapter_config_path(name);
     MultimodalAdapterSpec {
         name: name.to_string(),
         axis,
         model_id: model_id.to_string(),
-        dim: 16,
+        dim,
         license: Some(license.to_string()),
         allow_non_commercial: false,
+        adapter_config: adapter_config.clone(),
+        files: Vec::new(),
     }
+}
+
+fn default_adapter_config_path(name: &str) -> Option<PathBuf> {
+    env::var_os("CALYX_HOME").map(PathBuf::from).map(|home| {
+        home.join("lenses")
+            .join(name)
+            .join("onnx-int8")
+            .join("adapter.json")
+    })
 }
