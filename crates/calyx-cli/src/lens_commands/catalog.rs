@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use calyx_core::{Input, Lens, LensCost, Placement};
 use calyx_registry::{
-    LensRuntime, LensSpec, PlacementBudget, StaticLookupLens, choose_placement,
+    LensHealth, LensRuntime, LensSpec, PlacementBudget, StaticLookupLens, choose_placement,
     lens_spec_from_manifest_path,
 };
 use serde::{Deserialize, Serialize};
@@ -50,7 +50,14 @@ pub(crate) struct AddReport {
 struct ListReport {
     catalog: PathBuf,
     count: usize,
-    lenses: Vec<LensCatalogEntry>,
+    lenses: Vec<ListLensEntry>,
+}
+
+#[derive(Serialize)]
+struct ListLensEntry {
+    #[serde(flatten)]
+    entry: LensCatalogEntry,
+    health: LensHealth,
 }
 
 pub(crate) fn add(args: &[String]) -> CliResult {
@@ -76,7 +83,7 @@ pub(crate) fn list(args: &[String]) -> CliResult {
     print_json(&ListReport {
         catalog: catalog_path,
         count: catalog.lenses.len(),
-        lenses: catalog.lenses,
+        lenses: catalog.lenses.into_iter().map(list_entry).collect(),
     })
 }
 
@@ -125,6 +132,21 @@ fn read_catalog(path: &Path) -> CliResult<LensCatalog> {
     let bytes = fs::read(path)?;
     serde_json::from_slice(&bytes)
         .map_err(|err| CliError::usage(format!("parse lens catalog {}: {err}", path.display())))
+}
+
+fn list_entry(entry: LensCatalogEntry) -> ListLensEntry {
+    let health = health_from_manifest(&entry.manifest);
+    ListLensEntry { entry, health }
+}
+
+fn health_from_manifest(path: &Path) -> LensHealth {
+    match lens_spec_from_manifest_path(path) {
+        Ok(spec) => spec.health(),
+        Err(error) => LensHealth::Failing {
+            code: error.code.to_string(),
+            reason: error.message,
+        },
+    }
 }
 
 fn write_catalog(path: &Path, catalog: &LensCatalog) -> CliResult {

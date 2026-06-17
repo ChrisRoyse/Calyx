@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::frozen::NormPolicy;
 
+const LENS_UNREACHABLE: &str = "CALYX_LENS_UNREACHABLE";
+const CANDLE_CUDA_FEATURE_MISSING_REASON: &str =
+    "candle CUDA requested but calyx-registry was built without feature `candle-cuda`";
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LensRuntime {
@@ -94,16 +98,8 @@ impl LensSpec {
             LensRuntime::Algorithmic { .. } => LensHealth::Loaded,
             LensRuntime::MultimodalAdapter { .. } => LensHealth::Loaded,
             LensRuntime::TeiHttp { endpoint } => probe_http(endpoint),
-            LensRuntime::CandleLocal { files, .. } | LensRuntime::Onnx { files, .. } => {
-                if files.is_empty() {
-                    return LensHealth::Cold;
-                }
-                if files.iter().all(|path| path.exists()) {
-                    LensHealth::Loaded
-                } else {
-                    LensHealth::Cold
-                }
-            }
+            LensRuntime::CandleLocal { files, .. } => candle_local_health(files),
+            LensRuntime::Onnx { files, .. } => files_runtime_health(files),
             LensRuntime::StaticLookup {
                 embeddings_file,
                 tokenizer,
@@ -120,7 +116,7 @@ impl LensSpec {
                     LensHealth::Loaded
                 } else {
                     LensHealth::Failing {
-                        code: "CALYX_LENS_UNREACHABLE".to_string(),
+                        code: LENS_UNREACHABLE.to_string(),
                         reason: format!("external command {cmd} is not executable"),
                     }
                 }
@@ -153,10 +149,41 @@ pub const fn default_recall_delta() -> f32 {
     0.02
 }
 
+fn candle_local_health(files: &[PathBuf]) -> LensHealth {
+    match files_runtime_health(files) {
+        LensHealth::Loaded => candle_cuda_runtime_health(),
+        health => health,
+    }
+}
+
+fn files_runtime_health(files: &[PathBuf]) -> LensHealth {
+    if files.is_empty() {
+        return LensHealth::Cold;
+    }
+    if files.iter().all(|path| path.exists()) {
+        LensHealth::Loaded
+    } else {
+        LensHealth::Cold
+    }
+}
+
+#[cfg(feature = "candle-cuda")]
+fn candle_cuda_runtime_health() -> LensHealth {
+    LensHealth::Loaded
+}
+
+#[cfg(not(feature = "candle-cuda"))]
+fn candle_cuda_runtime_health() -> LensHealth {
+    LensHealth::Failing {
+        code: LENS_UNREACHABLE.to_string(),
+        reason: CANDLE_CUDA_FEATURE_MISSING_REASON.to_string(),
+    }
+}
+
 fn probe_http(endpoint: &str) -> LensHealth {
     let Some(rest) = endpoint.strip_prefix("http://") else {
         return LensHealth::Failing {
-            code: "CALYX_LENS_UNREACHABLE".to_string(),
+            code: LENS_UNREACHABLE.to_string(),
             reason: "endpoint is not http://".to_string(),
         };
     };
@@ -173,7 +200,7 @@ fn probe_http(endpoint: &str) -> LensHealth {
         Some(address) => address,
         None => {
             return LensHealth::Failing {
-                code: "CALYX_LENS_UNREACHABLE".to_string(),
+                code: LENS_UNREACHABLE.to_string(),
                 reason: format!("{endpoint} resolved no socket address"),
             };
         }
@@ -181,7 +208,7 @@ fn probe_http(endpoint: &str) -> LensHealth {
     match TcpStream::connect_timeout(&address, Duration::from_millis(250)) {
         Ok(_) => LensHealth::Loaded,
         Err(err) => LensHealth::Failing {
-            code: "CALYX_LENS_UNREACHABLE".to_string(),
+            code: LENS_UNREACHABLE.to_string(),
             reason: format!("connect {endpoint} failed: {err}"),
         },
     }
@@ -196,4 +223,69 @@ fn command_exists(cmd: &str) -> bool {
         .into_iter()
         .flat_map(|paths| env::split_paths(&paths).collect::<Vec<_>>())
         .any(|dir| dir.join(cmd).is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use calyx_core::{Asymmetry, Modality, QuantPolicy, SlotShape};
+    use std::fs;
+
+    fn candle_spec(files: Vec<PathBuf>) -> LensSpec {
+        LensSpec {
+            name: "fixture-candle".to_string(),
+            runtime: LensRuntime::CandleLocal {
+                model_id: "fixture/model".to_string(),
+                files,
+                dtype: "f16".to_string(),
+                pooling: "mean".to_string(),
+            },
+            output: SlotShape::Dense(384),
+            modality: Modality::Text,
+            weights_sha256: [1_u8; 32],
+            corpus_hash: [2_u8; 32],
+            norm_policy: NormPolicy::unit(),
+            axis: None,
+            asymmetry: Asymmetry::None,
+            quant_default: QuantPolicy::turboquant_default(),
+            truncate_dim: None,
+            recall_delta: default_recall_delta(),
+            retrieval_only: false,
+            excluded_from_dedup: false,
+        }
+    }
+
+    #[test]
+    fn candle_health_reflects_cuda_feature_availability() {
+        let root = std::env::temp_dir().join(format!("calyx-candle-health-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let weights = root.join("model.safetensors");
+        let tokenizer = root.join("tokenizer.json");
+        let config = root.join("config.json");
+        fs::write(&weights, b"weights").unwrap();
+        fs::write(&tokenizer, b"tokenizer").unwrap();
+        fs::write(&config, b"config").unwrap();
+
+        let health = candle_spec(vec![weights, tokenizer, config]).health();
+
+        if cfg!(feature = "candle-cuda") {
+            assert_eq!(health, LensHealth::Loaded);
+        } else {
+            assert_eq!(
+                health,
+                LensHealth::Failing {
+                    code: LENS_UNREACHABLE.to_string(),
+                    reason: CANDLE_CUDA_FEATURE_MISSING_REASON.to_string(),
+                }
+            );
+        }
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn candle_health_reports_cold_before_cuda_feature_check_when_files_missing() {
+        let spec = candle_spec(vec![std::env::temp_dir().join("calyx-missing-candle-file")]);
+
+        assert_eq!(spec.health(), LensHealth::Cold);
+    }
 }

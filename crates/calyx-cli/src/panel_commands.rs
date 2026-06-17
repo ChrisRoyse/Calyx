@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 
 use calyx_assay::{PanelResourceBudget, ResourceDensity, ResourceUsage, pack_panel_by_density};
 use calyx_core::{LensCost, Placement, SlotState};
-use calyx_registry::{PanelSlotListing, list_panel, load_vault_panel_state};
+use calyx_registry::{
+    LensHealth, PanelSlotListing, lens_spec_from_manifest_path, list_panel, load_vault_panel_state,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
@@ -72,6 +74,7 @@ struct PanelLensStatus {
     vram_mb: f32,
     batch_ceiling: u32,
     manifest: PathBuf,
+    health: LensHealth,
     #[serde(skip_serializing_if = "Option::is_none")]
     remaining_budget_after: Option<ResourceUsage>,
 }
@@ -201,8 +204,19 @@ fn status_from_entry(
         vram_mb: mib(entry.cost.vram_bytes),
         batch_ceiling: entry.cost.batch_ceiling,
         cost: entry.cost,
+        health: health_from_manifest(&entry.manifest),
         manifest: entry.manifest,
         remaining_budget_after,
+    }
+}
+
+fn health_from_manifest(path: &Path) -> LensHealth {
+    match lens_spec_from_manifest_path(path) {
+        Ok(spec) => spec.health(),
+        Err(error) => LensHealth::Failing {
+            code: error.code.to_string(),
+            reason: error.message,
+        },
     }
 }
 
