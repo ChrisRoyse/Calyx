@@ -4,4 +4,4 @@ pub mod centroids;
 pub mod posting;
 
 pub use centroids::{SPANN_CENTROID_MAGIC, SpannCentroidIndex, build_centroids};
-pub use posting::{PostingListReader, PostingListWriter, SpannSearch};
+pub use posting::{PostingListReader, PostingListWriter, PostingMember, SpannSearch};

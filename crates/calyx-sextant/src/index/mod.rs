@@ -45,8 +45,8 @@ pub use partitioned::{
 };
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
 pub use spann::{
-    PostingListReader, PostingListWriter, SPANN_CENTROID_MAGIC, SpannCentroidIndex, SpannSearch,
-    build_centroids,
+    PostingListReader, PostingListWriter, PostingMember, SPANN_CENTROID_MAGIC, SpannCentroidIndex,
+    SpannSearch, build_centroids,
 };
 pub use testutil::{SyntheticVault, build_synthetic_vault, synthetic_dense_rows};
 

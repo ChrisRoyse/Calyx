@@ -121,17 +121,25 @@ fn write_postings(
             .assignments()
             .iter()
             .filter(|(_, assigned)| *assigned == centroid_id)
-            .map(|(local_id, _)| (*local_id, score(rows, *local_id)))
+            .map(|(local_id, _)| {
+                crate::index::PostingMember::new(*local_id, dense_to_sparse(rows, *local_id))
+            })
             .collect::<Vec<_>>();
-        entries.sort_by_key(|(id, _)| *id);
+        entries.sort_by_key(|m| m.cx_id);
         writer.write_list(centroid_id, &entries)?;
     }
     Ok(())
 }
 
-fn score(rows: &[(u32, Vec<f32>)], local_id: u32) -> f32 {
-    let vector = &rows[local_id as usize].1;
-    vector.iter().map(|value| value.abs()).sum::<f32>()
+/// Posting members store the full member vector (#701) so SPANN search ranks by
+/// true query distance. Test fixtures are dense, so store every dim as an (idx,val).
+fn dense_to_sparse(rows: &[(u32, Vec<f32>)], local_id: u32) -> Vec<(u32, f32)> {
+    rows[local_id as usize]
+        .1
+        .iter()
+        .enumerate()
+        .map(|(idx, val)| (idx as u32, *val))
+        .collect()
 }
 
 fn validate_fixture_args(n_cx: usize, dim: usize, n_slots: usize) -> Result<()> {

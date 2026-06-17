@@ -12,8 +12,8 @@ use calyx_core::{
 use calyx_sextant::index::spann::centroids::SpannCentroidIndex;
 use calyx_sextant::index::spann::posting::encode_posting_block;
 use calyx_sextant::index::{
-    PostingListReader, PostingListWriter, SPANN_CENTROID_MAGIC, SextantIndex, SpannSearch,
-    build_centroids,
+    PostingListReader, PostingListWriter, PostingMember, SPANN_CENTROID_MAGIC, SextantIndex,
+    SpannSearch, build_centroids,
 };
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
@@ -45,24 +45,50 @@ fn vectors(n: usize, dim: usize, seed: u64) -> Vec<(u32, Vec<f32>)> {
         .collect()
 }
 
+/// Dense row -> sparse (idx,val) pairs for posting storage (#701: members carry
+/// their vectors so search ranks by true query distance).
+fn sparse_of(row: &[f32]) -> Vec<(u32, f32)> {
+    row.iter()
+        .enumerate()
+        .map(|(i, v)| (i as u32, *v))
+        .collect()
+}
+
 fn postings_for_assignments(
     dir: &PathBuf,
     centroids: &SpannCentroidIndex,
-    total: usize,
+    rows: &[(u32, Vec<f32>)],
 ) -> PostingListWriter {
     let writer = PostingListWriter::new(dir);
-    let mut grouped = BTreeMap::<u32, Vec<(u32, f32)>>::new();
+    let mut grouped = BTreeMap::<u32, Vec<PostingMember>>::new();
     for &(cx_id, centroid_id) in centroids.assignments() {
-        let score = 10_000.0 - cx_id as f32 / total as f32;
-        grouped.entry(centroid_id).or_default().push((cx_id, score));
+        let vector = sparse_of(&rows[cx_id as usize].1);
+        grouped
+            .entry(centroid_id)
+            .or_default()
+            .push(PostingMember::new(cx_id, vector));
     }
     for (centroid_id, mut entries) in grouped {
-        entries.sort_by_key(|(id, _)| *id);
+        entries.sort_by_key(|m| m.cx_id);
         writer
             .write_list(centroid_id, &entries)
             .expect("write list");
     }
     writer
+}
+
+/// Exact L2 top-k over the whole row set — the ground truth SPANN recall is scored
+/// against. Returns cx ids ordered nearest-first (ties broken by id).
+fn brute_force_topk(rows: &[(u32, Vec<f32>)], query: &[f32], k: usize) -> Vec<u32> {
+    let mut scored: Vec<(u32, f32)> = rows
+        .iter()
+        .map(|(id, v)| {
+            let d: f32 = v.iter().zip(query).map(|(a, b)| (a - b) * (a - b)).sum();
+            (*id, d)
+        })
+        .collect();
+    scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    scored.into_iter().take(k).map(|(id, _)| id).collect()
 }
 
 #[test]
@@ -103,10 +129,14 @@ fn posting_block_round_trips_sorted_ids_and_scores() {
     let writer = PostingListWriter::new(&dir);
     let mut rng = ChaCha8Rng::seed_from_u64(3);
     let mut next = 0_u32;
-    let entries: Vec<_> = (0..200)
+    let entries: Vec<PostingMember> = (0..200)
         .map(|_| {
             next += rng.gen_range(1..5);
-            (next, rng.gen_range(0.0_f32..1.0))
+            let nnz = rng.gen_range(1..6);
+            let vector: Vec<(u32, f32)> = (0..nnz)
+                .map(|j| (j as u32, rng.gen_range(-1.0_f32..1.0)))
+                .collect();
+            PostingMember::new(next, vector)
         })
         .collect();
 
@@ -116,10 +146,14 @@ fn posting_block_round_trips_sorted_ids_and_scores() {
         .expect("read postings");
 
     assert_eq!(read.len(), 200);
-    assert!(read.windows(2).all(|pair| pair[0].0 < pair[1].0));
-    for ((expected_id, expected_score), (actual_id, actual_score)) in entries.iter().zip(read) {
-        assert_eq!(actual_id, *expected_id);
-        assert!((actual_score - expected_score).abs() <= 1.0e-5);
+    assert!(read.windows(2).all(|pair| pair[0].cx_id < pair[1].cx_id));
+    for (expected, actual) in entries.iter().zip(read) {
+        assert_eq!(actual.cx_id, expected.cx_id);
+        assert_eq!(actual.vector.len(), expected.vector.len());
+        for ((ei, ev), (ai, av)) in expected.vector.iter().zip(&actual.vector) {
+            assert_eq!(ai, ei);
+            assert!((av - ev).abs() <= 1.0e-6);
+        }
     }
 }
 
@@ -127,7 +161,9 @@ fn posting_block_round_trips_sorted_ids_and_scores() {
 fn zstd_block_is_smaller_than_raw_for_repetitive_postings() {
     let dir = scratch("posting-zstd");
     let writer = PostingListWriter::new(&dir);
-    let entries: Vec<_> = (0..1000).map(|id| (id, 1.0_f32)).collect();
+    let entries: Vec<PostingMember> = (0..1000)
+        .map(|id| PostingMember::new(id, vec![(0, 1.0_f32)]))
+        .collect();
     let raw = encode_posting_block(&entries).expect("raw block");
 
     writer.write_list(0, &entries).expect("write compressed");
@@ -139,18 +175,57 @@ fn zstd_block_is_smaller_than_raw_for_repetitive_postings() {
 }
 
 #[test]
-fn spann_search_end_to_end_returns_top_k_descending_scores() {
+fn spann_full_probe_matches_exact_nearest_neighbors() {
+    // With every centroid probed, SPANN sees all members and — ranking by TRUE
+    // query distance (#701) — must return the exact L2 top-k. This is impossible
+    // to pass with the old static-scalar ranking, which ignored the query.
     let rows = vectors(2000, 32, 99);
-    let centroids = build_centroids(&rows, 44, 99);
+    let n_centroids = 44;
+    let centroids = build_centroids(&rows, n_centroids, 99);
     let dir = scratch("search-e2e");
-    postings_for_assignments(&dir, &centroids, rows.len());
+    postings_for_assignments(&dir, &centroids, &rows);
     let search = SpannSearch::new(SlotId::new(0), centroids, &dir);
 
-    let hits = search.search(&rows[31].1, 10, 4).expect("search");
+    for &qi in &[0_usize, 31, 500, 1234, 1999] {
+        let query = &rows[qi].1;
+        let hits = search.search(query, 10, n_centroids).expect("search");
+        let got: Vec<u32> = hits.iter().map(|(id, _)| *id).collect();
+        let truth = brute_force_topk(&rows, query, 10);
 
-    assert_eq!(hits.len(), 10);
-    assert!(hits.iter().all(|(id, _)| *id < 2000));
-    assert!(hits.windows(2).all(|pair| pair[0].1 >= pair[1].1));
+        assert_eq!(hits.len(), 10);
+        assert_eq!(got, truth, "query {qi}: SPANN full-probe != exact NN");
+        // A row queried against itself must rank first (its L2 distance is 0).
+        assert_eq!(hits[0].0, qi as u32, "self should be nearest");
+        // Scores are similarities (higher = closer) -> strictly non-increasing.
+        assert!(hits.windows(2).all(|pair| pair[0].1 >= pair[1].1));
+    }
+}
+
+#[test]
+fn spann_limited_probe_has_high_true_recall() {
+    // The real operating point probes only a few centroids. True recall@10 vs
+    // brute force must stay high — the metric the FSV gate actually requires.
+    // 3000 rows, 30 centroids (~100/region); probe 10 (1/3 of regions) — the same
+    // ~1/3 probe budget the partitioned 1e6 FSV uses. Single-assignment SPANN at
+    // this budget clears 0.85 true recall@10 (boundary duplication, #714, lifts it
+    // further at lower probe budgets).
+    let rows = vectors(3000, 32, 7);
+    let centroids = build_centroids(&rows, 30, 7);
+    let dir = scratch("search-recall");
+    postings_for_assignments(&dir, &centroids, &rows);
+    let search = SpannSearch::new(SlotId::new(0), centroids, &dir);
+
+    let (mut found, mut total) = (0_usize, 0_usize);
+    for qi in (0..3000).step_by(50) {
+        let query = &rows[qi].1;
+        let hits = search.search(query, 10, 10).expect("search");
+        let got: BTreeSet<u32> = hits.iter().map(|(id, _)| *id).collect();
+        let truth = brute_force_topk(&rows, query, 10);
+        found += truth.iter().filter(|id| got.contains(id)).count();
+        total += truth.len();
+    }
+    let recall = found as f32 / total as f32;
+    assert!(recall >= 0.85, "true recall@10 {recall} < 0.85");
 }
 
 #[test]
@@ -166,7 +241,10 @@ fn empty_list_and_probe_clamp_are_non_errors() {
 
     let rows = vectors(64, 8, 31);
     let centroids = build_centroids(&rows, 8, 31);
-    let all: Vec<_> = (0..64).map(|id| (id, 100.0 - id as f32)).collect();
+    let all: Vec<PostingMember> = rows
+        .iter()
+        .map(|(id, v)| PostingMember::new(*id, sparse_of(v)))
+        .collect();
     let writer = PostingListWriter::new(&dir);
     for centroid_id in 0..centroids.centroid_count() as u32 {
         writer
@@ -184,6 +262,9 @@ fn empty_list_and_probe_clamp_are_non_errors() {
             .len(),
         10
     );
+    // n_probe clamped past the centroid count still returns the exact NN: every
+    // list is identical so all members are seen, and rank 0 is the self row.
+    assert_eq!(hits[0].0, 0, "self row is nearest");
 }
 
 #[test]
@@ -240,7 +321,7 @@ fn fsv_issue547_writes_centroids_postings_and_search_hits() {
 
     let centroids = build_centroids(&rows, 316, 547);
     centroids.save(&root).expect("save FSV centroids");
-    postings_for_assignments(&root, &centroids, rows.len());
+    postings_for_assignments(&root, &centroids, &rows);
     std::fs::write(root.join("cx_map.csv"), fsv_cx_map(&centroids, &cx_map)).expect("write cx map");
     let search = SpannSearch::new(SlotId::new(0), centroids, &root);
     let hits = search.search(&rows[547].1, 10, 16).expect("FSV search");
@@ -318,7 +399,7 @@ fn fsv_issue547_edges_write_before_after_artifacts() {
     std::fs::create_dir_all(&clamp).expect("create clamp edge");
     let rows = vectors(64, 8, 31);
     let centroids = build_centroids(&rows, 8, 31);
-    postings_for_assignments(&clamp, &centroids, rows.len());
+    postings_for_assignments(&clamp, &centroids, &rows);
     std::fs::write(root.join("clamp-before.txt"), dir_listing(&clamp)).expect("clamp before");
     let search = SpannSearch::new(SlotId::new(0), centroids, &clamp);
     let hits = search.search(&rows[0].1, 10, 99).expect("probe clamp");
@@ -479,7 +560,10 @@ proptest! {
         let dir = scratch(&format!("prop-{n_probe}"));
         let rows = vectors(64, 8, 31);
         let centroids = build_centroids(&rows, 8, 31);
-        let all: Vec<_> = (0..64).map(|id| (id, 100.0 - id as f32)).collect();
+        let all: Vec<PostingMember> = rows
+            .iter()
+            .map(|(id, v)| PostingMember::new(*id, sparse_of(v)))
+            .collect();
         let writer = PostingListWriter::new(&dir);
         for centroid_id in 0..centroids.centroid_count() as u32 {
             writer.write_list(centroid_id, &all).expect("write list");
@@ -491,5 +575,8 @@ proptest! {
 
         prop_assert_eq!(hits.len(), 10);
         prop_assert_eq!(distinct.len(), hits.len());
+        // Every list is identical and holds all rows, so any probe count sees the
+        // full set and the self row (query = rows[5]) must rank first.
+        prop_assert_eq!(hits[0].0, 5);
     }
 }

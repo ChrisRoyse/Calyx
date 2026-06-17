@@ -16,6 +16,27 @@ use crate::index::{IndexSearchHit, IndexStats, SextantIndex, ranked};
 
 const ZSTD_LEVEL: i32 = 3;
 
+/// One member of a SPANN posting list: its local id plus the **sparse vector**
+/// (idx,val pairs) of the cx it points at.
+///
+/// #701 root cause: posting members used to carry a single static scalar (the sum
+/// of the vector's entries), so search ranked members by a query-independent
+/// number and returned the same order for every query. The faithful SPANN design
+/// (Microsoft SPANN, NeurIPS'21) stores the member vectors in the posting list so
+/// search can compute the *true* query-to-member distance and rank by it. We keep
+/// the SPARSE form (idx,val) so memory/disk stay bounded by nnz, not dim.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PostingMember {
+    pub cx_id: u32,
+    pub vector: Vec<(u32, f32)>,
+}
+
+impl PostingMember {
+    pub fn new(cx_id: u32, vector: Vec<(u32, f32)>) -> Self {
+        Self { cx_id, vector }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct PostingListWriter {
     dir: PathBuf,
@@ -45,22 +66,20 @@ impl PostingListWriter {
         Self { dir: dir.into() }
     }
 
-    pub fn append(&self, centroid_id: u32, cx_id: u32, score: f32) -> Result<()> {
-        if !score.is_finite() {
-            return Err(invalid("posting score is non-finite"));
-        }
+    pub fn append(&self, centroid_id: u32, cx_id: u32, vector: &[(u32, f32)]) -> Result<()> {
+        validate_sparse_vector(vector)?;
         let reader = PostingListReader::new(self.dir.clone());
         let mut entries = reader.read_list(centroid_id)?;
-        if let Some((_, existing)) = entries.iter_mut().find(|(id, _)| *id == cx_id) {
-            *existing = score;
+        if let Some(existing) = entries.iter_mut().find(|m| m.cx_id == cx_id) {
+            existing.vector = vector.to_vec();
         } else {
-            entries.push((cx_id, score));
+            entries.push(PostingMember::new(cx_id, vector.to_vec()));
         }
-        entries.sort_by_key(|(id, _)| *id);
+        entries.sort_by_key(|m| m.cx_id);
         self.write_list(centroid_id, &entries)
     }
 
-    pub fn write_list(&self, centroid_id: u32, entries: &[(u32, f32)]) -> Result<()> {
+    pub fn write_list(&self, centroid_id: u32, entries: &[PostingMember]) -> Result<()> {
         fs::create_dir_all(&self.dir).map_err(|e| io("create posting dir", e))?;
         let raw = encode_posting_block(entries)?;
         let compressed = zstd::stream::encode_all(Cursor::new(raw), ZSTD_LEVEL).map_err(|e| {
@@ -85,7 +104,7 @@ impl PostingListReader {
         Self { dir: dir.into() }
     }
 
-    pub fn read_list(&self, centroid_id: u32) -> Result<Vec<(u32, f32)>> {
+    pub fn read_list(&self, centroid_id: u32) -> Result<Vec<PostingMember>> {
         let path = posting_path(&self.dir, centroid_id);
         let compressed = match fs::read(&path) {
             Ok(bytes) => bytes,
@@ -142,22 +161,49 @@ impl SpannSearch {
         Ok(Self::new(slot, centroids, posting_dir))
     }
 
+    /// Region-restricted SPANN search. Probes the `n_probe` nearest centroids,
+    /// loads their posting lists (each member carries its sparse vector), and ranks
+    /// candidates by their **true distance to the query** — the #701 fix. The
+    /// returned f32 is a similarity (higher = closer), consistent with the DiskANN
+    /// path's `1.0 - dist`, so the KernelFirst funnel can rank either uniformly.
     pub fn search(&self, query: &[f32], k: usize, n_probe: usize) -> Result<Vec<(u32, f32)>> {
         if k == 0 || self.centroids.centroid_count() == 0 {
             return Ok(Vec::new());
         }
         validate_query(self.dim, query)?;
+        // ||q||^2 is constant across all members, so ranking by L2^2 =
+        // ||q||^2 - 2*<q,m> + ||m||^2 is order-equivalent to ranking by the
+        // similarity below; we still return the real L2 so scores are meaningful.
+        let query_norm_sq: f32 = query.iter().map(|v| v * v).sum();
         let reader = PostingListReader::new(self.posting_dir.clone());
-        let mut scores = BTreeMap::<u32, f32>::new();
+        // Keep the best (smallest-distance) sighting of each cx across probed lists.
+        let mut best = BTreeMap::<u32, f32>::new();
         for centroid_id in self.centroids.nearest_centroids(query, n_probe) {
-            for (cx_id, score) in reader.read_list(centroid_id)? {
-                scores
-                    .entry(cx_id)
-                    .and_modify(|existing| *existing = existing.max(score))
-                    .or_insert(score);
+            for member in reader.read_list(centroid_id)? {
+                let mut dot = 0.0_f32;
+                let mut member_norm_sq = 0.0_f32;
+                for (idx, val) in &member.vector {
+                    let qi = *query.get(*idx as usize).ok_or_else(|| {
+                        corrupt(format!(
+                            "posting member dim index {idx} >= query dim {}",
+                            query.len()
+                        ))
+                    })?;
+                    dot += qi * val;
+                    member_norm_sq += val * val;
+                }
+                let l2_sq = (query_norm_sq - 2.0 * dot + member_norm_sq).max(0.0);
+                let similarity = -l2_sq; // higher = closer
+                best.entry(member.cx_id)
+                    .and_modify(|existing| {
+                        if similarity > *existing {
+                            *existing = similarity;
+                        }
+                    })
+                    .or_insert(similarity);
             }
         }
-        let mut hits: Vec<_> = scores.into_iter().collect();
+        let mut hits: Vec<_> = best.into_iter().collect();
         hits.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         hits.truncate(k);
         Ok(hits)
@@ -209,8 +255,8 @@ impl SextantIndex for SpannSearch {
         let dense = dense_sparse(self.dim, &vector)?;
         let local = self.local_id_for(cx_id)?;
         let centroid_id = self.centroids.assign(&dense);
-        let score = sparse_score(&vector);
-        PostingListWriter::new(self.posting_dir.clone()).append(centroid_id, local, score)?;
+        let sparse = sparse_pairs(&vector)?;
+        PostingListWriter::new(self.posting_dir.clone()).append(centroid_id, local, &sparse)?;
         self.vectors.insert(cx_id, vector);
         self.built_at_seq = self.built_at_seq.max(seq);
         self.base_seq = self.base_seq.max(seq);
@@ -268,25 +314,31 @@ impl SextantIndex for SpannSearch {
     }
 }
 
-pub fn encode_posting_block(entries: &[(u32, f32)]) -> Result<Vec<u8>> {
+/// Block layout (v2, #701): `[u32 count]` then per member
+/// `[varint delta_cx_id][varint nnz]` followed by `nnz × ([varint idx][f32 val])`.
+/// cx_ids are stored as strictly-ascending deltas; each member carries its own
+/// sparse vector so search ranks by true query distance, not a static scalar.
+pub fn encode_posting_block(entries: &[PostingMember]) -> Result<Vec<u8>> {
     let mut previous = 0_u32;
     let mut raw = Vec::with_capacity(4 + entries.len() * 8);
     raw.extend_from_slice(&(entries.len() as u32).to_le_bytes());
-    for (idx, (cx_id, score)) in entries.iter().enumerate() {
-        if !score.is_finite() {
-            return Err(invalid(format!("posting {idx} has non-finite score")));
-        }
-        if idx > 0 && *cx_id <= previous {
+    for (i, member) in entries.iter().enumerate() {
+        if i > 0 && member.cx_id <= previous {
             return Err(invalid("posting cx_ids must be strictly ascending"));
         }
-        write_varint(cx_id.saturating_sub(previous), &mut raw);
-        raw.extend_from_slice(&score.to_le_bytes());
-        previous = *cx_id;
+        validate_sparse_vector(&member.vector)?;
+        write_varint(member.cx_id.saturating_sub(previous), &mut raw);
+        write_varint(member.vector.len() as u32, &mut raw);
+        for (idx, val) in &member.vector {
+            write_varint(*idx, &mut raw);
+            raw.extend_from_slice(&val.to_le_bytes());
+        }
+        previous = member.cx_id;
     }
     Ok(raw)
 }
 
-pub fn decode_posting_block(raw: &[u8]) -> Result<Vec<(u32, f32)>> {
+pub fn decode_posting_block(raw: &[u8]) -> Result<Vec<PostingMember>> {
     if raw.len() < 4 {
         return Err(corrupt(format!("raw posting block is {} B", raw.len())));
     }
@@ -299,15 +351,21 @@ pub fn decode_posting_block(raw: &[u8]) -> Result<Vec<(u32, f32)>> {
         let cx_id = previous
             .checked_add(delta)
             .ok_or_else(|| corrupt("posting cx_id delta overflow"))?;
-        let score_bytes = raw
-            .get(cursor..cursor + 4)
-            .ok_or_else(|| corrupt("truncated posting score"))?;
-        cursor += 4;
-        let score = f32::from_le_bytes(score_bytes.try_into().expect("4B"));
-        if !score.is_finite() {
-            return Err(corrupt(format!("posting {cx_id} has non-finite score")));
+        let nnz = read_varint(raw, &mut cursor)? as usize;
+        let mut vector = Vec::with_capacity(nnz);
+        for _ in 0..nnz {
+            let idx = read_varint(raw, &mut cursor)?;
+            let val_bytes = raw
+                .get(cursor..cursor + 4)
+                .ok_or_else(|| corrupt("truncated posting value"))?;
+            cursor += 4;
+            let val = f32::from_le_bytes(val_bytes.try_into().expect("4B"));
+            if !val.is_finite() {
+                return Err(corrupt(format!("posting {cx_id} has non-finite value")));
+            }
+            vector.push((idx, val));
         }
-        entries.push((cx_id, score));
+        entries.push(PostingMember { cx_id, vector });
         previous = cx_id;
     }
     if cursor != raw.len() {
@@ -345,11 +403,24 @@ fn dense_sparse(dim: u32, vector: &SlotVector) -> Result<Vec<f32>> {
     Ok(dense)
 }
 
-fn sparse_score(vector: &SlotVector) -> f32 {
+/// Extract the (idx,val) pairs of a sparse slot vector for storage in a posting.
+fn sparse_pairs(vector: &SlotVector) -> Result<Vec<(u32, f32)>> {
     match vector {
-        SlotVector::Sparse { entries, .. } => entries.iter().map(|entry| entry.val).sum(),
-        _ => 0.0,
+        SlotVector::Sparse { entries, .. } => Ok(entries.iter().map(|e| (e.idx, e.val)).collect()),
+        _ => Err(sextant_error(
+            CALYX_SEXTANT_VECTOR_SHAPE,
+            "spann requires sparse vectors",
+        )),
     }
+}
+
+/// A posting member's stored vector must have finite values (so distances stay
+/// well-defined). Indices are bounds-checked at search time against the query dim.
+fn validate_sparse_vector(vector: &[(u32, f32)]) -> Result<()> {
+    if vector.iter().any(|(_, val)| !val.is_finite()) {
+        return Err(invalid("posting member vector has non-finite value"));
+    }
+    Ok(())
 }
 
 fn validate_query(dim: u32, query: &[f32]) -> Result<()> {
