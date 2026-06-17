@@ -14,6 +14,8 @@ pub(crate) struct MetricEvidence {
     pub(crate) rejection_log_path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) signal_density_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) packed_panel_path: Option<String>,
     pub(crate) cf_root: String,
     pub(crate) assay_cf_rows_persisted: usize,
     pub(crate) assay_cf_rows_readback: usize,
@@ -73,6 +75,18 @@ pub(crate) fn write_metric_outputs(
         }
         None => None,
     };
+    let packed_panel_path = match &report.packed_panel {
+        Some(panel) => {
+            let path = request.metrics_dir.join("assay_packed_panel.json");
+            fs::write(
+                &path,
+                serde_json::to_vec_pretty(panel).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            Some(display(&path))
+        }
+        None => None,
+    };
 
     Ok(MetricEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),
@@ -80,6 +94,7 @@ pub(crate) fn write_metric_outputs(
         bits_per_lens_path: display(&bits_per_lens),
         rejection_log_path: display(&rejection_log),
         signal_density_path,
+        packed_panel_path,
         cf_root: report.cf_root.clone(),
         assay_cf_rows_persisted: report.assay_cf_rows_persisted,
         assay_cf_rows_readback: report.assay_cf_rows_readback,

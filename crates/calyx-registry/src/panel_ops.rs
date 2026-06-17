@@ -1,6 +1,7 @@
 use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
 use calyx_core::{
-    CalyxError, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotState, Ts,
+    CalyxError, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotResource,
+    SlotState, Ts,
 };
 use serde::{Deserialize, Serialize};
 
@@ -25,6 +26,7 @@ pub struct PanelSlotListing {
     pub lens_id: LensId,
     pub state: SlotState,
     pub quant: QuantPolicy,
+    pub resource: SlotResource,
     pub bits_about: Option<f32>,
     pub health: LensHealth,
 }
@@ -276,6 +278,7 @@ fn listing_for_slot(slot: &Slot, registry: &Registry) -> PanelSlotListing {
         lens_id: slot.lens_id,
         state: slot.state,
         quant: slot.quant,
+        resource: slot.resource.clone(),
         bits_about: slot_bits(slot),
         health: registry
             .health(slot.lens_id)

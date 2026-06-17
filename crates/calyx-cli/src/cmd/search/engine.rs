@@ -65,12 +65,7 @@ fn search_outcome(args: &SearchArgs) -> CliResult<SearchOutcome> {
     let resolved = resolve_cli_vault(&args.vault)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
-    if args.filter.is_some() {
-        return Err(CalyxError::stale_derived(
-            "persistent search metadata filters are not materialized yet; add indexed metadata filters before using --filter",
-        )
-        .into());
-    }
+    let filters = super::filters::parse(args.filter.as_deref())?;
     let indexes = match PersistedSearchIndexes::open(&resolved.path) {
         Ok(indexes) => indexes,
         Err(err) if err.code() == "CALYX_STALE_DERIVED" && vault_base_count(&vault)? == 0 => {
@@ -85,7 +80,20 @@ fn search_outcome(args: &SearchArgs) -> CliResult<SearchOutcome> {
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());
     }
-    let per_slot = search_slots(&indexes, &query_vectors, args.k.max(64))?;
+    let filter_candidates = indexes.filter_candidates(&filters)?;
+    if filter_candidates.as_ref().is_some_and(|ids| ids.is_empty()) {
+        return Ok(SearchOutcome::empty());
+    }
+    let search_k = filter_candidates
+        .as_ref()
+        .map(|ids| ids.len())
+        .unwrap_or_else(|| args.k.max(64));
+    let per_slot = search_slots(
+        &indexes,
+        &query_vectors,
+        search_k,
+        filter_candidates.as_ref(),
+    )?;
     let slots = per_slot.keys().copied().collect::<Vec<_>>();
     if slots.is_empty() {
         return Err(no_indexable_stored_vectors().into());
@@ -147,10 +155,15 @@ fn search_slots(
     indexes: &PersistedSearchIndexes,
     query_vectors: &[(SlotId, SlotVector)],
     k: usize,
+    filter_candidates: Option<&std::collections::BTreeSet<CxId>>,
 ) -> CliResult<BTreeMap<SlotId, Vec<calyx_sextant::IndexSearchHit>>> {
     let mut out = BTreeMap::new();
     for (slot, query) in query_vectors {
-        let hits = indexes.search(*slot, query, k)?;
+        let hits = if let Some(candidates) = filter_candidates {
+            indexes.search_filtered(*slot, query, k, candidates)?
+        } else {
+            indexes.search(*slot, query, k)?
+        };
         if !hits.is_empty() {
             out.insert(*slot, hits);
         }

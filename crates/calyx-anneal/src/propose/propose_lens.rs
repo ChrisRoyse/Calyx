@@ -1,3 +1,4 @@
+use calyx_assay::PanelResourceBudget;
 use calyx_core::{
     CalyxError, Clock, Constellation, LensId, Panel, Result, SlotState, SystemClock, Ts,
 };
@@ -12,7 +13,8 @@ use crate::{
 
 use super::{
     AnchorId, AssayAttribution, CALYX_ASSAY_INVALID_METRIC, CALYX_ASSAY_UNAVAILABLE, CandidateLens,
-    DeficitLocalizer, GateOutcome, LensProfiler, PairNMI, gate, has_deficit, synthesize,
+    DeficitLocalizer, DifferentiationGate, GateOutcome, LensProfiler, PairNMI, gate, has_deficit,
+    synthesize,
 };
 
 pub const CALYX_REGISTRY_HOT_ADD_FAIL: &str = "CALYX_REGISTRY_HOT_ADD_FAIL";
@@ -152,6 +154,7 @@ pub struct ProposeLensRequest<'a> {
 pub struct ProposeLens<'a> {
     clock: &'a dyn Clock,
     deficit_threshold_bits: f64,
+    resource_budget: Option<PanelResourceBudget>,
 }
 
 impl<'a> ProposeLens<'a> {
@@ -159,7 +162,13 @@ impl<'a> ProposeLens<'a> {
         Self {
             clock,
             deficit_threshold_bits: super::DEFAULT_DEFICIT_THRESHOLD_BITS,
+            resource_budget: None,
         }
+    }
+
+    pub fn with_resource_budget(mut self, budget: PanelResourceBudget) -> Self {
+        self.resource_budget = Some(budget);
+        self
     }
 
     pub fn propose_lens(&self, request: ProposeLensRequest<'_>) -> Result<ProposalOutcome> {
@@ -183,13 +192,24 @@ impl<'a> ProposeLens<'a> {
         }
 
         let candidate = synthesize(&deficit, request.corpus)?;
-        let gate_outcome = gate(
-            &candidate,
-            &panel_lenses,
-            request.profiler,
-            request.nmi,
-            request.corpus,
-        )?;
+        let gate_outcome = match self.resource_budget {
+            Some(budget) => DifferentiationGate::new(self.clock)
+                .with_resource_budget(budget)
+                .gate(
+                    &candidate,
+                    &panel_lenses,
+                    request.profiler,
+                    request.nmi,
+                    request.corpus,
+                )?,
+            None => gate(
+                &candidate,
+                &panel_lenses,
+                request.profiler,
+                request.nmi,
+                request.corpus,
+            )?,
+        };
         if !matches!(gate_outcome, GateOutcome::Admitted { .. }) {
             return Ok(ProposalOutcome::terminal(
                 Some(candidate),

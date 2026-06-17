@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_assay::{admit_lens, logistic_probe_mi};
+use calyx_assay::{PanelResourceBudget, admit_lens, logistic_probe_mi};
 
 use super::cost::LensCostMap;
 use super::data::AssayCorpus;
@@ -19,7 +19,7 @@ fn synthetic_three_lens_admits_real_rejects_redundant() {
     write_synthetic_corpus(&corpus, 200);
     let request = request_for(&root);
     let data = AssayCorpus::load(&request).unwrap();
-    let report = evaluate_corpus(&data, &request, None).unwrap();
+    let report = evaluate_corpus(&data, &request, None, None).unwrap();
     let evidence = write_metric_outputs(&request, &report).unwrap();
 
     let real_a = report
@@ -108,7 +108,7 @@ fn single_class_anchor_fails_closed_without_panic() {
     let mut request = request_for(&root);
     request.target_class = 9;
     let data = AssayCorpus::load(&request).unwrap();
-    let error = evaluate_corpus(&data, &request, None).unwrap_err();
+    let error = evaluate_corpus(&data, &request, None, None).unwrap_err();
     assert!(
         error.starts_with("CALYX_FSV_ASSAY_SINGLE_CLASS_ANCHOR"),
         "single-class anchor must fail closed, got {error}"
@@ -138,14 +138,15 @@ fn signal_density_computed_and_ranked_cpu_first() {
     fs::create_dir_all(&corpus).unwrap();
     write_synthetic_corpus(&corpus, 200);
 
-    // Cost sidecar: real_a is CPU-only (zero VRAM), real_b + redundant on GPU.
+    // Cost sidecar: real_a + real_b are CPU-only (zero VRAM) with different
+    // latency densities; redundant stays on GPU so both ranking branches run.
     let cost_path = root.join("cost.json");
     fs::write(
         &cost_path,
         r#"{
-          "real_a":    {"vram_mb": 0.0,   "ms_per_input": 0.10, "ram_mb": 64.0},
-          "real_b":    {"vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0},
-          "redundant": {"vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0}
+          "real_a":    {"placement":"cpu", "vram_mb": 0.0,   "ms_per_input": 0.10, "ram_mb": 64.0},
+          "real_b":    {"placement":"cpu", "vram_mb": 0.0,   "ms_per_input": 2.0,  "ram_mb": 64.0},
+          "redundant": {"placement":"gpu", "vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0}
         }"#,
     )
     .unwrap();
@@ -154,7 +155,7 @@ fn signal_density_computed_and_ranked_cpu_first() {
     request.cost_json = Some(cost_path.clone());
     let data = AssayCorpus::load(&request).unwrap();
     let cost = LensCostMap::load(&cost_path).unwrap();
-    let report = evaluate_corpus(&data, &request, Some(&cost)).unwrap();
+    let report = evaluate_corpus(&data, &request, Some(&cost), None).unwrap();
     let evidence = write_metric_outputs(&request, &report).unwrap();
 
     // Density is attached to every lens and arithmetically correct.
@@ -167,22 +168,34 @@ fn signal_density_computed_and_ranked_cpu_first() {
     );
     let expect_a_ms = real_a.bits_about.max(0.0) / 0.10;
     assert!(
-        (d_a.bits_per_ms - expect_a_ms).abs() < 1e-4,
+        (d_a.bits_per_ms.unwrap() - expect_a_ms).abs() < 1e-4,
         "real_a bits/ms {} != {expect_a_ms}",
-        d_a.bits_per_ms
+        d_a.bits_per_ms.unwrap()
     );
 
     let real_b = report.lenses.iter().find(|l| l.name == "real_b").unwrap();
     let d_b = real_b.density.expect("real_b density");
-    assert!(!d_b.zero_vram);
-    let expect_b_vram = real_b.bits_about.max(0.0) / 500.0;
+    assert!(d_b.zero_vram);
     assert!(
-        (d_b.bits_per_vram_mb.unwrap() - expect_b_vram).abs() < 1e-6,
-        "real_b bits/VRAM-MB {:?} != {expect_b_vram}",
-        d_b.bits_per_vram_mb
+        d_a.bits_per_ms.unwrap() > d_b.bits_per_ms.unwrap(),
+        "fixture must put real_a ahead of real_b on CPU bits/ms"
     );
 
-    // Ranking: the CPU-only lens sorts first; GPU lenses follow.
+    let redundant = report
+        .lenses
+        .iter()
+        .find(|l| l.name == "redundant")
+        .unwrap();
+    let d_redundant = redundant.density.expect("redundant density");
+    assert!(!d_redundant.zero_vram);
+    let expect_b_vram = redundant.bits_about.max(0.0) / 500.0;
+    assert!(
+        (d_redundant.bits_per_vram_mb.unwrap() - expect_b_vram).abs() < 1e-6,
+        "redundant bits/VRAM-MB {:?} != {expect_b_vram}",
+        d_redundant.bits_per_vram_mb
+    );
+
+    // Ranking: CPU-only lenses sort first by descending bits/ms; GPU follows.
     let density = report.signal_density.as_ref().expect("density report");
     assert_eq!(
         density.ranked.first().map(|r| r.name.as_str()),
@@ -205,6 +218,63 @@ fn signal_density_computed_and_ranked_cpu_first() {
 }
 
 #[test]
+fn panel_budget_packs_density_panel_and_writes_readback_artifact() {
+    let root = temp_root("assay-bits-packed-panel");
+    let corpus = root.join("corpus");
+    fs::create_dir_all(&corpus).unwrap();
+    write_synthetic_corpus(&corpus, 200);
+
+    let cost_path = root.join("cost.json");
+    fs::write(
+        &cost_path,
+        r#"{
+          "real_a":    {"placement":"cpu", "vram_mb": 0.0,   "ms_per_input": 0.10, "ram_mb": 64.0},
+          "real_b":    {"placement":"gpu", "vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0},
+          "redundant": {"placement":"gpu", "vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0}
+        }"#,
+    )
+    .unwrap();
+
+    let mut request = request_for(&root);
+    request.cost_json = Some(cost_path.clone());
+    let data = AssayCorpus::load(&request).unwrap();
+    let cost = LensCostMap::load(&cost_path).unwrap();
+    let budget = PanelResourceBudget {
+        max_vram_mb: 400.0,
+        max_ram_mb: 128.0,
+        max_ms_per_input: 5.0,
+    };
+    let report = evaluate_corpus(&data, &request, Some(&cost), Some(budget)).unwrap();
+    let evidence = write_metric_outputs(&request, &report).unwrap();
+    let packed = report.packed_panel.as_ref().expect("packed panel");
+
+    assert_eq!(packed.used.vram_mb, 0.0);
+    assert!(
+        packed
+            .selected
+            .iter()
+            .any(|decision| decision.lens == "real_a")
+    );
+    assert!(packed.rejected.iter().any(|decision| {
+        decision.lens == "real_b"
+            && decision
+                .rejection_reason
+                .as_deref()
+                .is_some_and(|reason| reason == "CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED")
+    }));
+    let path = evidence
+        .packed_panel_path
+        .as_ref()
+        .expect("packed panel path present");
+    let readback: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(readback["selected"][0]["lens"], "real_a");
+    assert_eq!(readback["remaining"]["vram_mb"], 400.0);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn missing_cost_entry_fails_closed() {
     let root = temp_root("assay-bits-density-missing");
     let corpus = root.join("corpus");
@@ -216,8 +286,8 @@ fn missing_cost_entry_fails_closed() {
     fs::write(
         &cost_path,
         r#"{
-          "real_a": {"vram_mb": 0.0,   "ms_per_input": 0.10},
-          "real_b": {"vram_mb": 500.0, "ms_per_input": 4.0}
+          "real_a": {"placement":"cpu", "vram_mb": 0.0,   "ms_per_input": 0.10},
+          "real_b": {"placement":"gpu", "vram_mb": 500.0, "ms_per_input": 4.0}
         }"#,
     )
     .unwrap();
@@ -226,7 +296,7 @@ fn missing_cost_entry_fails_closed() {
     request.cost_json = Some(cost_path.clone());
     let data = AssayCorpus::load(&request).unwrap();
     let cost = LensCostMap::load(&cost_path).unwrap();
-    let error = evaluate_corpus(&data, &request, Some(&cost)).unwrap_err();
+    let error = evaluate_corpus(&data, &request, Some(&cost), None).unwrap_err();
     assert!(
         error.starts_with("CALYX_FSV_ASSAY_MISSING_COST"),
         "missing cost must fail closed, got {error}"
@@ -240,14 +310,18 @@ fn invalid_cost_rejected() {
     fs::create_dir_all(&root).unwrap();
     // ms_per_input == 0 is a divisor -> must be rejected.
     let bad = root.join("bad.json");
-    fs::write(&bad, r#"{"real_a": {"vram_mb": 0.0, "ms_per_input": 0.0}}"#).unwrap();
+    fs::write(
+        &bad,
+        r#"{"real_a": {"placement":"cpu", "vram_mb": 0.0, "ms_per_input": 0.0}}"#,
+    )
+    .unwrap();
     let error = LensCostMap::load(&bad).unwrap_err();
     assert!(error.starts_with("CALYX_FSV_ASSAY_INVALID_COST"), "{error}");
     // Negative VRAM rejected.
     let bad2 = root.join("bad2.json");
     fs::write(
         &bad2,
-        r#"{"real_a": {"vram_mb": -1.0, "ms_per_input": 1.0}}"#,
+        r#"{"real_a": {"placement":"cpu", "vram_mb": -1.0, "ms_per_input": 1.0}}"#,
     )
     .unwrap();
     assert!(
@@ -269,6 +343,7 @@ fn request_for(root: &Path) -> AssayBitsRequest {
         target_class: 0,
         domain: "ag_news_test".to_string(),
         cost_json: None,
+        panel_budget_json: None,
     }
 }
 

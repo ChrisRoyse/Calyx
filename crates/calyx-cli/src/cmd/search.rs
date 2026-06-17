@@ -1,6 +1,4 @@
 mod engine;
-#[cfg(test)]
-#[allow(dead_code)]
 mod filters;
 mod output;
 mod parse;

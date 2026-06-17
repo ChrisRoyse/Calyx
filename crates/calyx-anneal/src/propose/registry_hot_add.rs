@@ -1,14 +1,16 @@
 use std::path::{Path, PathBuf};
 
-use calyx_core::{Asymmetry, CalyxError, Constellation, Modality, Panel, QuantPolicy, Result, Ts};
+use calyx_core::{
+    Asymmetry, CalyxError, Constellation, Modality, Panel, Placement, QuantPolicy, Result, Ts,
+};
 use calyx_registry::{
     AlgorithmicLens, CommissionRequest, Registry, SlotSpec, SwapController, commission_lens,
     register_commissioned,
 };
 
 use super::{
-    CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, CommissionSpec, ConversionTarget, HotAddAction,
-    HotAddPlan, HotAddReceipt, LensHotAdder,
+    CALYX_REGISTRY_HOT_ADD_FAIL, CandidateLens, CommissionSpec, ConversionTarget,
+    ExpectedTargetCost, HotAddAction, HotAddPlan, HotAddReceipt, LensHotAdder,
 };
 use crate::{ArtifactKey, ArtifactPtr};
 
@@ -187,6 +189,14 @@ fn primary_target(spec: &CommissionSpec) -> Result<ConversionTarget> {
         axis: spec.axis.clone(),
         formats: vec!["adapter".to_string()],
         expected_bits: 0.0,
+        expected_cost: ExpectedTargetCost {
+            placement: Placement::Cpu,
+            vram_mb: 0.0,
+            ram_mb: 0.0,
+            ms_per_input: 1.0,
+        },
+        expected_bits_per_vram_mb: None,
+        expected_bits_per_ms: 0.0,
     })
 }
 

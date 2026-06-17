@@ -1,4 +1,8 @@
-use calyx_core::{Input, Lens, LensId, Modality, Result, SlotShape, SlotVector};
+use std::collections::BTreeMap;
+
+use calyx_core::{
+    Input, Lens, LensId, Modality, Result, SlotShape, SlotVector, SparseEntry, content_address,
+};
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::lens::ensure_input_modality;
@@ -18,10 +22,14 @@ pub enum AlgorithmicEncoder {
     OneHot { buckets: u32 },
     /// Small AST/code-style feature vector.
     AstStyle,
+    /// Hashed whitespace terms in a sparse ambient space.
+    SparseKeywords { dim: u32 },
+    /// Hashed whitespace terms as per-token vectors for MaxSim.
+    TokenHash { token_dim: u32 },
 }
 
 impl AlgorithmicEncoder {
-    /// Returns the dense output dimension.
+    /// Returns the primary output dimension.
     pub const fn dim(self) -> u32 {
         match self {
             Self::ByteFeatures => BYTE_FEATURE_DIM,
@@ -34,6 +42,30 @@ impl AlgorithmicEncoder {
                 }
             }
             Self::AstStyle => 8,
+            Self::SparseKeywords { dim } => {
+                if dim == 0 {
+                    1
+                } else {
+                    dim
+                }
+            }
+            Self::TokenHash { token_dim } => {
+                if token_dim == 0 {
+                    1
+                } else {
+                    token_dim
+                }
+            }
+        }
+    }
+
+    pub const fn shape(self) -> SlotShape {
+        match self {
+            Self::SparseKeywords { dim } => SlotShape::Sparse(if dim == 0 { 1 } else { dim }),
+            Self::TokenHash { token_dim } => SlotShape::Multi {
+                token_dim: if token_dim == 0 { 1 } else { token_dim },
+            },
+            _ => SlotShape::Dense(self.dim()),
         }
     }
 }
@@ -65,6 +97,14 @@ impl AlgorithmicLens {
         Self::new(name, modality, AlgorithmicEncoder::AstStyle)
     }
 
+    pub fn sparse_keywords(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::SparseKeywords { dim })
+    }
+
+    pub fn token_hash(name: impl Into<String>, modality: Modality, token_dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::TokenHash { token_dim })
+    }
+
     /// Creates an algorithmic lens from an encoder.
     pub fn new(name: impl Into<String>, modality: Modality, encoder: AlgorithmicEncoder) -> Self {
         let name = name.into();
@@ -90,7 +130,7 @@ impl Lens for AlgorithmicLens {
     }
 
     fn shape(&self) -> SlotShape {
-        SlotShape::Dense(self.encoder.dim())
+        self.encoder.shape()
     }
 
     fn modality(&self) -> Modality {
@@ -99,14 +139,25 @@ impl Lens for AlgorithmicLens {
 
     fn measure(&self, input: &Input) -> Result<SlotVector> {
         ensure_input_modality(self, input)?;
-        Ok(SlotVector::Dense {
-            dim: self.encoder.dim(),
-            data: match self.encoder {
-                AlgorithmicEncoder::ByteFeatures => byte_features(&input.bytes),
-                AlgorithmicEncoder::Scalar => scalar_features(&input.bytes),
-                AlgorithmicEncoder::OneHot { buckets } => one_hot_features(&input.bytes, buckets),
-                AlgorithmicEncoder::AstStyle => ast_style_features(&input.bytes),
+        Ok(match self.encoder {
+            AlgorithmicEncoder::ByteFeatures => SlotVector::Dense {
+                dim: self.encoder.dim(),
+                data: byte_features(&input.bytes),
             },
+            AlgorithmicEncoder::Scalar => SlotVector::Dense {
+                dim: self.encoder.dim(),
+                data: scalar_features(&input.bytes),
+            },
+            AlgorithmicEncoder::OneHot { buckets } => SlotVector::Dense {
+                dim: self.encoder.dim(),
+                data: one_hot_features(&input.bytes, buckets),
+            },
+            AlgorithmicEncoder::AstStyle => SlotVector::Dense {
+                dim: self.encoder.dim(),
+                data: ast_style_features(&input.bytes),
+            },
+            AlgorithmicEncoder::SparseKeywords { dim } => sparse_keywords(&input.bytes, dim)?,
+            AlgorithmicEncoder::TokenHash { token_dim } => token_hash(&input.bytes, token_dim)?,
         })
     }
 }
@@ -124,7 +175,7 @@ fn algorithmic_contract(
         name,
         sha256_digest(&[b"algorithmic-runtime-v2", encoder_text.as_bytes()]),
         sha256_digest(&[b"algorithmic-data-oblivious"]),
-        SlotShape::Dense(encoder.dim()),
+        encoder.shape(),
         modality,
         LensDType::F32,
         NormPolicy::None,
@@ -228,6 +279,61 @@ fn ast_style_features(bytes: &[u8]) -> Vec<f32> {
         bytes.iter().filter(|b| **b == b'(').count() as f32 / len,
         bytes.iter().filter(|b| **b == b'\n').count() as f32 / len,
     ]
+}
+
+fn sparse_keywords(bytes: &[u8], dim: u32) -> Result<SlotVector> {
+    let dim = dim.max(1);
+    let mut counts = BTreeMap::<u32, f32>::new();
+    for term in String::from_utf8_lossy(bytes).split_whitespace() {
+        let digest = content_address([term.as_bytes()]);
+        let hash = u32::from_be_bytes(digest[..4].try_into().expect("content hash has bytes"));
+        *counts.entry(hash % dim).or_default() += 1.0;
+    }
+    let total = counts.values().sum::<f32>().max(1.0);
+    Ok(SlotVector::Sparse {
+        dim,
+        entries: counts
+            .into_iter()
+            .map(|(idx, val)| SparseEntry {
+                idx,
+                val: val / total,
+            })
+            .collect(),
+    })
+}
+
+fn token_hash(bytes: &[u8], token_dim: u32) -> Result<SlotVector> {
+    let token_dim = token_dim.max(1);
+    let mut tokens = String::from_utf8_lossy(bytes)
+        .split_whitespace()
+        .take(32)
+        .map(|term| token_vector(term.as_bytes(), token_dim))
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        tokens.push(token_vector(bytes, token_dim));
+    }
+    Ok(SlotVector::Multi { token_dim, tokens })
+}
+
+fn token_vector(seed: &[u8], dim: u32) -> Vec<f32> {
+    let mut out = Vec::with_capacity(dim as usize);
+    let mut counter = 0_u32;
+    while out.len() < dim as usize {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"calyx-algorithmic-token-hash-v1");
+        hasher.update(seed);
+        hasher.update(&counter.to_be_bytes());
+        for chunk in hasher.finalize().as_bytes().chunks_exact(4) {
+            let raw = u32::from_be_bytes(chunk.try_into().expect("blake3 chunk is 4 bytes"));
+            let unit = (raw as f32 / u32::MAX as f32) * 2.0 - 1.0;
+            out.push(unit);
+            if out.len() == dim as usize {
+                break;
+            }
+        }
+        counter = counter.saturating_add(1);
+    }
+    out
 }
 
 #[cfg(test)]

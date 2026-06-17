@@ -160,7 +160,7 @@ fn admitted_from_outcome(outcome: &ProposalOutcome, ts: LogicalTime) -> Result<L
         .as_ref()
         .ok_or_else(|| invalid_entry("admitted proposal is missing candidate"))?;
     let (bits_gain, max_corr) = match &outcome.gate_outcome {
-        Some(GateOutcome::Admitted { bits, max_corr }) => (*bits, *max_corr),
+        Some(GateOutcome::Admitted { bits, max_corr, .. }) => (*bits, *max_corr),
         _ => {
             return Err(invalid_entry(
                 "admitted proposal is missing admitted gate outcome",
@@ -284,6 +284,22 @@ fn validate_reject_reason(reason: &RejectReason) -> Result<()> {
             validate_unit_metric("reject.threshold", *threshold)
         }
         RejectReason::ProfileTimeout => Ok(()),
+        RejectReason::ResourceBudgetExceeded {
+            vram_mb,
+            ram_mb,
+            ms_per_input,
+            max_vram_mb,
+            max_ram_mb,
+            max_ms_per_input,
+        } => {
+            validate_metric("reject.vram_mb", *vram_mb)?;
+            validate_metric("reject.ram_mb", *ram_mb)?;
+            validate_metric("reject.ms_per_input", *ms_per_input)?;
+            validate_metric("reject.max_vram_mb", *max_vram_mb)?;
+            validate_metric("reject.max_ram_mb", *max_ram_mb)?;
+            validate_metric("reject.max_ms_per_input", *max_ms_per_input)?;
+            Ok(())
+        }
     }
 }
 
@@ -363,6 +379,7 @@ fn reject_label(reason: &RejectReason) -> &'static str {
         RejectReason::InsufficientBits { .. } => "insufficient_bits",
         RejectReason::TooCorrelated { .. } => "too_correlated",
         RejectReason::ProfileTimeout => "profile_timeout",
+        RejectReason::ResourceBudgetExceeded { .. } => "resource_budget_exceeded",
     }
 }
 

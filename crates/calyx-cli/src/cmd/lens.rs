@@ -115,15 +115,41 @@ fn build_algorithmic_lens(
     shape: Option<&str>,
     modality: Modality,
 ) -> CliResult<BuiltLens> {
+    let requested = shape.map(parse_shape).transpose()?;
     let lens = match kind {
         "byte" | "byte-features" => AlgorithmicLens::byte_features(name, modality),
         "scalar" => AlgorithmicLens::scalar(name, modality),
         "ast-style" => AlgorithmicLens::ast_style(name, modality),
+        "sparse" | "sparse-keywords" => AlgorithmicLens::sparse_keywords(
+            name,
+            modality,
+            sparse_dim(requested.unwrap_or(SlotShape::Sparse(30_522)))?,
+        ),
+        "token-hash" | "multi-hash" => AlgorithmicLens::token_hash(
+            name,
+            modality,
+            token_dim(requested.unwrap_or(SlotShape::Multi { token_dim: 16 }))?,
+        ),
         value if value.starts_with("one-hot:") => {
             let buckets = value["one-hot:".len()..]
                 .parse::<u32>()
                 .map_err(|err| CliError::usage(format!("parse algorithmic buckets: {err}")))?;
             AlgorithmicLens::one_hot(name, modality, buckets)
+        }
+        value if value.starts_with("sparse-keywords:") => {
+            let dim = value["sparse-keywords:".len()..]
+                .parse::<u32>()
+                .map_err(|err| CliError::usage(format!("parse sparse keyword dim: {err}")))?;
+            AlgorithmicLens::sparse_keywords(name, modality, dim)
+        }
+        value if value.starts_with("token-hash:") || value.starts_with("multi-hash:") => {
+            let dim = value
+                .split_once(':')
+                .map(|(_, dim)| dim)
+                .expect("prefix matched")
+                .parse::<u32>()
+                .map_err(|err| CliError::usage(format!("parse token dim: {err}")))?;
+            AlgorithmicLens::token_hash(name, modality, dim)
         }
         other => {
             return Err(CliError::usage(format!(
@@ -131,15 +157,14 @@ fn build_algorithmic_lens(
             )));
         }
     };
-    if let Some(shape) = shape {
-        let requested = parse_shape(shape)?;
-        if requested != lens.shape() {
-            return Err(CalyxError::lens_dim_mismatch(format!(
-                "requested shape {requested:?} does not match algorithmic {kind} shape {:?}",
-                lens.shape()
-            ))
-            .into());
-        }
+    if let Some(requested) = requested
+        && requested != lens.shape()
+    {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "requested shape {requested:?} does not match algorithmic {kind} shape {:?}",
+            lens.shape()
+        ))
+        .into());
     }
     let contract = lens.contract().clone();
     let spec = spec_from_contract(
@@ -312,7 +337,7 @@ fn spec_from_contract(name: &str, runtime: LensRuntime, contract: &FrozenLensCon
 fn parse_shape(value: &str) -> CliResult<SlotShape> {
     let Some((kind, dim)) = value.trim().split_once('(') else {
         return Err(CliError::usage(
-            "shape must be Dense(<dim>) or Sparse(<dim>)",
+            "shape must be Dense(<dim>), Sparse(<dim>), or Multi(<token_dim>)",
         ));
     };
     let dim = dim
@@ -325,8 +350,9 @@ fn parse_shape(value: &str) -> CliResult<SlotShape> {
     match kind.to_ascii_lowercase().as_str() {
         "dense" => Ok(SlotShape::Dense(dim)),
         "sparse" => Ok(SlotShape::Sparse(dim)),
+        "multi" => Ok(SlotShape::Multi { token_dim: dim }),
         _ => Err(CliError::usage(
-            "shape must be Dense(<dim>) or Sparse(<dim>)",
+            "shape must be Dense(<dim>), Sparse(<dim>), or Multi(<token_dim>)",
         )),
     }
 }
@@ -352,6 +378,26 @@ fn dense_dim(shape: SlotShape) -> CliResult<u32> {
         SlotShape::Dense(dim) => Ok(dim),
         other => Err(CalyxError::lens_dim_mismatch(format!(
             "runtime requires dense output, got {other:?}"
+        ))
+        .into()),
+    }
+}
+
+fn sparse_dim(shape: SlotShape) -> CliResult<u32> {
+    match shape {
+        SlotShape::Sparse(dim) => Ok(dim),
+        other => Err(CalyxError::lens_dim_mismatch(format!(
+            "runtime requires sparse output, got {other:?}"
+        ))
+        .into()),
+    }
+}
+
+fn token_dim(shape: SlotShape) -> CliResult<u32> {
+    match shape {
+        SlotShape::Multi { token_dim } => Ok(token_dim),
+        other => Err(CalyxError::lens_dim_mismatch(format!(
+            "runtime requires multi output, got {other:?}"
         ))
         .into()),
     }
@@ -407,41 +453,5 @@ impl Lens for DeclaredLens {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shape_parser_accepts_dense_and_sparse() {
-        assert_eq!(parse_shape("Dense(768)").unwrap(), SlotShape::Dense(768));
-        assert_eq!(
-            parse_shape("Sparse(30522)").unwrap(),
-            SlotShape::Sparse(30522)
-        );
-    }
-
-    #[test]
-    fn shape_parser_rejects_zero_and_unknown_kind() {
-        assert_eq!(
-            parse_shape("Dense(0)").unwrap_err().code(),
-            "CALYX_CLI_USAGE_ERROR"
-        );
-        assert_eq!(
-            parse_shape("Multi(32)").unwrap_err().code(),
-            "CALYX_CLI_USAGE_ERROR"
-        );
-    }
-
-    #[test]
-    fn algorithmic_shape_mismatch_is_calyx_dim_error() {
-        let err = build_lens(
-            "gte",
-            "algorithmic",
-            None,
-            None,
-            Some("Dense(8)"),
-            Some("text"),
-        )
-        .unwrap_err();
-        assert_eq!(err.code(), "CALYX_LENS_DIM_MISMATCH");
-    }
-}
+#[path = "lens/tests.rs"]
+mod tests;
