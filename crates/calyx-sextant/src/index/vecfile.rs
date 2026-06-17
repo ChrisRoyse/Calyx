@@ -73,7 +73,7 @@ impl FbinVectors {
         }
         // The f32 region begins at byte 20; mmap base is page-aligned and 20 % 4 == 0,
         // so the region is 4-byte aligned for zero-copy f32 reads.
-        if (mmap.as_ptr() as usize + HEADER_LEN) % std::mem::align_of::<f32>() != 0 {
+        if !(mmap.as_ptr() as usize + HEADER_LEN).is_multiple_of(std::mem::align_of::<f32>()) {
             return Err(sextant_error(
                 CALYX_INDEX_CORRUPT,
                 "vecfile f32 region misaligned for zero-copy read",

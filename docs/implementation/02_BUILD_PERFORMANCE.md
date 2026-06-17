@@ -5,8 +5,10 @@ binding rule for **where each setting lives** so we never reintroduce the
 machine-specific-config-in-git footgun (PR #662) or the runaway `target/` dir.
 
 All builds happen on aiwonder (see `01_AIWONDER_ENVIRONMENT.md`): a Ryzen 9
-9950X (16c/32t), 121 GiB RAM, RTX 5090, building a 18-crate Rust workspace into
-a shared `CARGO_TARGET_DIR=/home/croyse/calyx/target` used by several agents.
+9950X (16c/32t), 121 GiB RAM, RTX 5090, building a 18-crate Rust workspace.
+Each worktree builds into its own target dir by default. A shared target dir is
+allowed only when a command explicitly opts into it and then reads Cargo metadata
+back to prove the target directory and workspace identity.
 
 ---
 
@@ -74,7 +76,7 @@ test across every binary in a single pool sized to all logical CPUs:
 - Provisioned by `scripts/aiwonder-build-setup.sh`; no hosted pipeline installs
   or runs it.
 
-## 4. Keeping `target/` bounded forever
+## 4. Keeping target dirs bounded forever
 
 Cargo has no built-in GC, and on this box churn (not age) is the enemy — age-
 based pruning reclaims ~0 because everything is days old. So we bound by **size**:
@@ -83,22 +85,43 @@ based pruning reclaims ~0 because everything is days old. So we bound by **size*
   removing the oldest artifacts until the dir is under the cap. Worst case a
   stale crate recompiles next build — never a correctness issue.
 - **`scripts/aiwonder-build-setup.sh`** installs a **daily user cron** (04:00 UTC,
-  no sudo) that runs it, logging to `CALYX_HOME/logs/target-gc.log`.
+  no sudo) that runs it against the canonical checkout's explicit shared target
+  dir, logging to `CALYX_HOME/logs/target-gc.log`.
 - The `incremental/` cache is always safe to delete manually for an instant
   reclaim: `rm -rf "$CARGO_TARGET_DIR"/debug/incremental`.
 
-## 4. Provisioning a (re)built host
+## 5. Verified worktree builds
+
+FSV must never trust a `cargo build` return value alone. Use:
+
+```bash
+cd /home/croyse/calyx/wt-718
+scripts/build-verified-calyx.sh \
+  --target-dir "$PWD/target" \
+  --expect-head "$(git rev-parse --short HEAD)" \
+  --require-clean \
+  --require-string 'assay bits-validate'
+```
+
+The script sets `CARGO_TARGET_DIR` for that invocation, reads
+`cargo metadata --no-deps` back to confirm `workspace_root` and
+`target_directory`, builds `calyx-cli`, inspects the produced binary with
+`strings`, and prints `CALYX_VERIFIED_BINARY=<path>`. A missing command string,
+dirty worktree (when requested), wrong head, or mismatched Cargo metadata is a
+hard error.
+
+## 6. Provisioning a (re)built host
 
 ```bash
 cd /home/croyse/calyx/repo
 bash scripts/aiwonder-build-setup.sh        # writes machine-local config, installs cargo-sweep + cron
-cargo build -v 2>&1 | grep -- '-fuse-ld=mold'   # verify mold is the linker
+scripts/build-verified-calyx.sh --require-string calyx   # verify binary identity
 bash scripts/target-gc.sh                   # one manual GC pass (optional)
 ```
 
 Everything is userspace and idempotent; re-run any time.
 
-## 5. Why not also `target-cpu=native` / LTO / sccache?
+## 7. Why not also `target-cpu=native` / LTO / sccache?
 
 - `target-cpu=native` and LTO help **runtime** performance but slow the dev/gate
   build and bust the cache; keep them for release/bench artifacts only, not the

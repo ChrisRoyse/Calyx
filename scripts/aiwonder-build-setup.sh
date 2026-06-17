@@ -13,7 +13,8 @@
 #         - disable incremental compilation (its cache grew to ~61 GB on this
 #           shared, high-churn host and gives little benefit here)
 #    2. cargo-sweep (bounded target-dir GC tool)
-#    3. a daily user cron that runs scripts/target-gc.sh to cap target/ size
+#    3. a daily user cron that runs scripts/target-gc.sh to cap the canonical
+#       main checkout's opt-in target/ size
 #
 #  Safe to re-run. Fail-loud: missing prerequisites abort with a clear message.
 # ============================================================================
@@ -84,7 +85,7 @@ if ! command -v cargo-nextest >/dev/null 2>&1; then
 fi
 echo "[setup] cargo-nextest: $(command -v cargo-nextest) ($(cargo-nextest --version 2>/dev/null || echo '?'))"
 
-# 3) Daily user cron to bound the shared target dir.
+# 3) Daily user cron to bound the canonical checkout's opt-in shared target dir.
 #    Always reference the canonical checkout ($CALYX_HOME/repo), never $repo_root:
 #    this script may be run from an ephemeral worktree, but the cron must survive
 #    that worktree being removed.
@@ -97,8 +98,8 @@ echo "[setup] GC script: $gc_script"
 echo "[setup] installed daily target-gc cron (04:00 UTC):"
 crontab -l | grep 'target-gc.sh'
 
-echo "[setup] done. Verify a build links with mold:"
-echo "        cd $CALYX_HOME/repo && cargo build -v 2>&1 | grep -- '-fuse-ld=mold'"
+echo "[setup] done. Verify a build produces the expected binary:"
+echo "        cd $CALYX_HOME/repo && scripts/build-verified-calyx.sh --require-string calyx"
 
 # ----------------------------------------------------------------------------
 #  4. Install the repo pre-push hook (cargo fmt --check gate). Version-controlled

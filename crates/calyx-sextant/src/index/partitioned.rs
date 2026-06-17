@@ -176,6 +176,9 @@ fn stream_assign(
 pub trait VectorSource: Sync {
     fn dim(&self) -> usize;
     fn len(&self) -> u64;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     /// The embedding of row `idx` (`0..len`).
     fn row(&self, idx: u64) -> Vec<f32>;
 }

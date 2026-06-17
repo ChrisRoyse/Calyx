@@ -1,8 +1,8 @@
 # Machine-specific settings (e.g. build.target-dir) must NOT be committed
 # here: this file applies to every checkout on every machine, and an absolute
-# Unix path silently resolves to <drive>:\home\... on Windows. On aiwonder the
-# shared target dir is provided by env.sh via CARGO_TARGET_DIR, which takes
-# precedence over this file (CLI > env > config).
+# Unix path silently resolves to <drive>:\home\... on Windows. FSV builds must
+# use scripts/build-verified-calyx.sh, which sets and then readbacks an explicit
+# per-worktree target dir. Cargo precedence is CLI > env > config.
 
 [term]
 color = "auto"

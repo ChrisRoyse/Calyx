@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  target-gc.sh — bound the shared Cargo target dir on high-churn build hosts.
+#  target-gc.sh — bound an explicit Cargo target dir on high-churn build hosts.
 # ----------------------------------------------------------------------------
 #  Cargo never garbage-collects superseded build artifacts. With several agents
-#  rebuilding the workspace continuously, target/ accumulates a fresh set of
+#  rebuilding the workspace continuously, a target dir accumulates a fresh set of
 #  hashed dep/test executables on every build and grew ~190 GB within ~2 weeks
 #  on aiwonder (measured 2026-06-12). This caps the directory by removing the
 #  OLDEST artifacts (via cargo-sweep --maxsize) until it is under the limit,
