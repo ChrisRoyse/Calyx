@@ -204,6 +204,21 @@ fn readback_file(root: &Path, file: &ManifestFile) -> Result<FileReadback, Strin
         ));
     }
     let full_path = safe_join(root, &file.path)?;
+    if fs::symlink_metadata(&full_path)
+        .map_err(|error| {
+            format!(
+                "CALYX_FSV_CORPUS_FILE_READ_FAILED: {}: {error}",
+                full_path.display()
+            )
+        })?
+        .file_type()
+        .is_symlink()
+    {
+        return Err(format!(
+            "CALYX_FSV_CORPUS_SYMLINK_REJECTED: {}",
+            full_path.display()
+        ));
+    }
     if !full_path.is_file() {
         return Err(format!(
             "CALYX_FSV_CORPUS_FILE_NOT_FOUND: {}",
@@ -295,6 +310,7 @@ fn count_nonempty_lines(bytes: &[u8]) -> usize {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CorpusManifest {
     schema: String,
     bundle_id: String,
@@ -305,6 +321,7 @@ struct CorpusManifest {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct CorpusSource {
     id: String,
     url: String,
@@ -313,6 +330,7 @@ struct CorpusSource {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CorpusLane {
     name: String,
     modality: String,
@@ -324,6 +342,7 @@ struct CorpusLane {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ManifestFile {
     path: String,
     role: String,
@@ -334,6 +353,7 @@ struct ManifestFile {
 }
 
 #[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CorpusEdgeCase {
     name: String,
     lane: String,

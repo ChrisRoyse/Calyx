@@ -100,6 +100,29 @@ fn corpus_readback_requires_three_edge_cases() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn corpus_readback_fails_closed_on_unknown_manifest_fields() {
+    let root = temp_root("corpus-readback-unknown");
+    fs::create_dir_all(&root).unwrap();
+    let manifest = json!({
+        "schema": SCHEMA,
+        "bundle_id": "bad",
+        "unexpected": "field",
+        "sources": [{"id":"s","url":"https://example.invalid","license":"test","revision":"1"}],
+        "lanes": [],
+        "edge_cases": []
+    });
+    fs::write(
+        root.join("manifest.json"),
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let err = readback(&root).unwrap_err();
+    assert!(err.contains("CALYX_FSV_CORPUS_INVALID_MANIFEST"));
+    let _ = fs::remove_dir_all(root);
+}
+
 fn write_manifest(root: &Path, rows: &str, source: &str, modality: &str) {
     let row_path = root.join(rows);
     let edge_names = ["empty.bin", "wrong_modality.bin", "missing_label.bin"];
@@ -109,6 +132,7 @@ fn write_manifest(root: &Path, rows: &str, source: &str, modality: &str) {
             let rel = format!("edges/{name}");
             let path = root.join(&rel);
             let mut file = file_json(&rel, &path, None);
+            file.as_object_mut().unwrap().remove("role");
             file["expected_error"] = json!("CALYX_FSV_EDGE");
             file["lane"] = json!(modality);
             file["name"] = json!(name.trim_end_matches(".bin"));
