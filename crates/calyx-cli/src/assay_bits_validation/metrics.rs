@@ -12,6 +12,8 @@ pub(crate) struct MetricEvidence {
     pub(crate) abundance_path: String,
     pub(crate) bits_per_lens_path: String,
     pub(crate) rejection_log_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) signal_density_path: Option<String>,
     pub(crate) cf_root: String,
     pub(crate) assay_cf_rows_persisted: usize,
     pub(crate) assay_cf_rows_readback: usize,
@@ -57,11 +59,27 @@ pub(crate) fn write_metric_outputs(
     }
     fs::write(&rejection_log, rejection_lines).map_err(|error| error.to_string())?;
 
+    // Signal-density artifact (only when cost was supplied). This is the
+    // selection-facing source of truth consumed by the knapsack (#721/#729).
+    let signal_density_path = match &report.signal_density {
+        Some(density) => {
+            let path = request.metrics_dir.join("assay_signal_density.json");
+            fs::write(
+                &path,
+                serde_json::to_vec_pretty(density).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            Some(display(&path))
+        }
+        None => None,
+    };
+
     Ok(MetricEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),
         abundance_path: display(&abundance),
         bits_per_lens_path: display(&bits_per_lens),
         rejection_log_path: display(&rejection_log),
+        signal_density_path,
         cf_root: report.cf_root.clone(),
         assay_cf_rows_persisted: report.assay_cf_rows_persisted,
         assay_cf_rows_readback: report.assay_cf_rows_readback,

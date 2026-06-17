@@ -7,11 +7,13 @@
 //! per-stratum bits are present. All measurements use the real `calyx_assay`
 //! estimators and persist per-lens estimates to the Assay column family.
 
+mod cost;
 mod data;
 mod engine;
 mod metrics;
 mod request;
 
+use cost::LensCostMap;
 use data::AssayCorpus;
 use engine::evaluate_corpus;
 use metrics::write_metric_outputs;
@@ -20,7 +22,11 @@ use request::AssayBitsRequest;
 pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
     let request = AssayBitsRequest::parse(args)?;
     let corpus = AssayCorpus::load(&request)?;
-    let report = evaluate_corpus(&corpus, &request)?;
+    let cost = match &request.cost_json {
+        Some(path) => Some(LensCostMap::load(path)?),
+        None => None,
+    };
+    let report = evaluate_corpus(&corpus, &request, cost.as_ref())?;
     let evidence = write_metric_outputs(&request, &report)?;
     println!(
         "{}",

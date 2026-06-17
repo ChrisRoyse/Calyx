@@ -9,6 +9,10 @@ pub(crate) struct AssayBitsRequest {
     pub(crate) max_corr: f32,
     pub(crate) target_class: usize,
     pub(crate) domain: String,
+    /// Optional sidecar of measured per-lens resource cost. When present, the
+    /// engine emits signal-density (`bits / VRAM-MB`, `bits / ms`) and requires
+    /// a cost entry for every corpus lens.
+    pub(crate) cost_json: Option<PathBuf>,
 }
 
 impl AssayBitsRequest {
@@ -20,6 +24,7 @@ impl AssayBitsRequest {
         let mut max_corr = 0.6_f32;
         let mut target_class = 0_usize;
         let mut domain = "ag_news".to_string();
+        let mut cost_json: Option<PathBuf> = None;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -51,6 +56,10 @@ impl AssayBitsRequest {
                     domain = value(args, idx, "--domain")?.to_string();
                     idx += 2;
                 }
+                "--cost-json" => {
+                    cost_json = Some(PathBuf::from(value(args, idx, "--cost-json")?));
+                    idx += 2;
+                }
                 other => return Err(format!("unknown assay bits-validate arg: {other}")),
             }
         }
@@ -63,6 +72,7 @@ impl AssayBitsRequest {
             max_corr,
             target_class,
             domain,
+            cost_json,
         };
         request.validate()?;
         Ok(request)

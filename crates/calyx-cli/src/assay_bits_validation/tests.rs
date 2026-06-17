@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use calyx_assay::{admit_lens, logistic_probe_mi};
 
+use super::cost::LensCostMap;
 use super::data::AssayCorpus;
 use super::engine::evaluate_corpus;
 use super::metrics::write_metric_outputs;
@@ -18,7 +19,7 @@ fn synthetic_three_lens_admits_real_rejects_redundant() {
     write_synthetic_corpus(&corpus, 200);
     let request = request_for(&root);
     let data = AssayCorpus::load(&request).unwrap();
-    let report = evaluate_corpus(&data, &request).unwrap();
+    let report = evaluate_corpus(&data, &request, None).unwrap();
     let evidence = write_metric_outputs(&request, &report).unwrap();
 
     let real_a = report
@@ -107,7 +108,7 @@ fn single_class_anchor_fails_closed_without_panic() {
     let mut request = request_for(&root);
     request.target_class = 9;
     let data = AssayCorpus::load(&request).unwrap();
-    let error = evaluate_corpus(&data, &request).unwrap_err();
+    let error = evaluate_corpus(&data, &request, None).unwrap_err();
     assert!(
         error.starts_with("CALYX_FSV_ASSAY_SINGLE_CLASS_ANCHOR"),
         "single-class anchor must fail closed, got {error}"
@@ -130,6 +131,133 @@ fn too_few_samples_surface_insufficient_samples() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn signal_density_computed_and_ranked_cpu_first() {
+    let root = temp_root("assay-bits-density");
+    let corpus = root.join("corpus");
+    fs::create_dir_all(&corpus).unwrap();
+    write_synthetic_corpus(&corpus, 200);
+
+    // Cost sidecar: real_a is CPU-only (zero VRAM), real_b + redundant on GPU.
+    let cost_path = root.join("cost.json");
+    fs::write(
+        &cost_path,
+        r#"{
+          "real_a":    {"vram_mb": 0.0,   "ms_per_input": 0.10, "ram_mb": 64.0},
+          "real_b":    {"vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0},
+          "redundant": {"vram_mb": 500.0, "ms_per_input": 4.0,  "ram_mb": 0.0}
+        }"#,
+    )
+    .unwrap();
+
+    let mut request = request_for(&root);
+    request.cost_json = Some(cost_path.clone());
+    let data = AssayCorpus::load(&request).unwrap();
+    let cost = LensCostMap::load(&cost_path).unwrap();
+    let report = evaluate_corpus(&data, &request, Some(&cost)).unwrap();
+    let evidence = write_metric_outputs(&request, &report).unwrap();
+
+    // Density is attached to every lens and arithmetically correct.
+    let real_a = report.lenses.iter().find(|l| l.name == "real_a").unwrap();
+    let d_a = real_a.density.expect("real_a density");
+    assert!(d_a.zero_vram, "real_a is CPU-only");
+    assert!(
+        d_a.bits_per_vram_mb.is_none(),
+        "zero-VRAM => no GPU density"
+    );
+    let expect_a_ms = real_a.bits_about.max(0.0) / 0.10;
+    assert!(
+        (d_a.bits_per_ms - expect_a_ms).abs() < 1e-4,
+        "real_a bits/ms {} != {expect_a_ms}",
+        d_a.bits_per_ms
+    );
+
+    let real_b = report.lenses.iter().find(|l| l.name == "real_b").unwrap();
+    let d_b = real_b.density.expect("real_b density");
+    assert!(!d_b.zero_vram);
+    let expect_b_vram = real_b.bits_about.max(0.0) / 500.0;
+    assert!(
+        (d_b.bits_per_vram_mb.unwrap() - expect_b_vram).abs() < 1e-6,
+        "real_b bits/VRAM-MB {:?} != {expect_b_vram}",
+        d_b.bits_per_vram_mb
+    );
+
+    // Ranking: the CPU-only lens sorts first; GPU lenses follow.
+    let density = report.signal_density.as_ref().expect("density report");
+    assert_eq!(
+        density.ranked.first().map(|r| r.name.as_str()),
+        Some("real_a"),
+        "CPU-only lens must rank first by signal density"
+    );
+    assert!(density.ranked.iter().any(|r| !r.zero_vram));
+
+    // The density artifact is written and reads back identically.
+    let path = evidence
+        .signal_density_path
+        .as_ref()
+        .expect("signal_density_path present");
+    let readback: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(readback["ranked"][0]["name"], "real_a");
+    assert_eq!(readback["ranked"][0]["zero_vram"], true);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn missing_cost_entry_fails_closed() {
+    let root = temp_root("assay-bits-density-missing");
+    let corpus = root.join("corpus");
+    fs::create_dir_all(&corpus).unwrap();
+    write_synthetic_corpus(&corpus, 200);
+
+    // Omit "redundant" from the cost sidecar -> hard error, no silent default.
+    let cost_path = root.join("cost.json");
+    fs::write(
+        &cost_path,
+        r#"{
+          "real_a": {"vram_mb": 0.0,   "ms_per_input": 0.10},
+          "real_b": {"vram_mb": 500.0, "ms_per_input": 4.0}
+        }"#,
+    )
+    .unwrap();
+
+    let mut request = request_for(&root);
+    request.cost_json = Some(cost_path.clone());
+    let data = AssayCorpus::load(&request).unwrap();
+    let cost = LensCostMap::load(&cost_path).unwrap();
+    let error = evaluate_corpus(&data, &request, Some(&cost)).unwrap_err();
+    assert!(
+        error.starts_with("CALYX_FSV_ASSAY_MISSING_COST"),
+        "missing cost must fail closed, got {error}"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn invalid_cost_rejected() {
+    let root = temp_root("assay-bits-cost-invalid");
+    fs::create_dir_all(&root).unwrap();
+    // ms_per_input == 0 is a divisor -> must be rejected.
+    let bad = root.join("bad.json");
+    fs::write(&bad, r#"{"real_a": {"vram_mb": 0.0, "ms_per_input": 0.0}}"#).unwrap();
+    let error = LensCostMap::load(&bad).unwrap_err();
+    assert!(error.starts_with("CALYX_FSV_ASSAY_INVALID_COST"), "{error}");
+    // Negative VRAM rejected.
+    let bad2 = root.join("bad2.json");
+    fs::write(
+        &bad2,
+        r#"{"real_a": {"vram_mb": -1.0, "ms_per_input": 1.0}}"#,
+    )
+    .unwrap();
+    assert!(
+        LensCostMap::load(&bad2)
+            .unwrap_err()
+            .starts_with("CALYX_FSV_ASSAY_INVALID_COST")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
 fn request_for(root: &Path) -> AssayBitsRequest {
     let metrics = root.join("metrics");
     AssayBitsRequest {
@@ -140,6 +268,7 @@ fn request_for(root: &Path) -> AssayBitsRequest {
         max_corr: 0.6,
         target_class: 0,
         domain: "ag_news_test".to_string(),
+        cost_json: None,
     }
 }
 

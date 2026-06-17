@@ -7,6 +7,7 @@ use calyx_core::{AnchorKind, SlotId, VaultId};
 use serde::Serialize;
 use ulid::Ulid;
 
+use super::cost::{LensCostMap, LensDensity};
 use super::data::AssayCorpus;
 use super::request::AssayBitsRequest;
 
@@ -26,6 +27,10 @@ pub(crate) struct AssayBitsReport {
     pub(crate) lenses: Vec<LensReport>,
     pub(crate) panel: PanelReport,
     pub(crate) strata: Vec<StratumReport>,
+    /// Present only when `--cost-json` was supplied: per-lens signal density
+    /// (bits per resource) ranked for panel selection (#717 signal-density).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) signal_density: Option<SignalDensityReport>,
     pub(crate) cf_root: String,
     pub(crate) assay_cf_rows_persisted: usize,
     pub(crate) assay_cf_rows_readback: usize,
@@ -41,6 +46,31 @@ pub(crate) struct LensReport {
     pub(crate) max_pairwise_corr: f32,
     pub(crate) admitted: bool,
     pub(crate) rejection_reason: Option<String>,
+    /// Per-lens signal density, present only when `--cost-json` was supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) density: Option<LensDensity>,
+}
+
+/// Lenses ranked by signal density for panel selection. CPU-only (zero-VRAM)
+/// lenses are ranked first — they cost nothing on the scarce GPU resource —
+/// ordered among themselves by `bits_per_ms`; GPU lenses follow, ordered by
+/// `bits_per_vram_mb` descending. This is the descriptive ranking the
+/// resource-aware knapsack (#721/#729) consumes; it does not itself drop lenses.
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct SignalDensityReport {
+    pub(crate) note: String,
+    pub(crate) ranked: Vec<DensityRank>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct DensityRank {
+    pub(crate) name: String,
+    pub(crate) bits_about: f32,
+    pub(crate) zero_vram: bool,
+    pub(crate) vram_mb: f32,
+    pub(crate) ms_per_input: f32,
+    pub(crate) bits_per_vram_mb: Option<f32>,
+    pub(crate) bits_per_ms: f32,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -67,6 +97,7 @@ struct LensMeasurement {
 pub(crate) fn evaluate_corpus(
     corpus: &AssayCorpus,
     request: &AssayBitsRequest,
+    cost: Option<&LensCostMap>,
 ) -> Result<AssayBitsReport, String> {
     let anchor = corpus.anchor_labels(request.target_class);
     let positives = anchor.iter().filter(|&&v| v).count();
@@ -132,9 +163,10 @@ pub(crate) fn evaluate_corpus(
             max_pairwise_corr: max_corr,
             admitted,
             rejection_reason,
+            density: None,
         });
     }
-    let lenses: Vec<LensReport> = lens_reports
+    let mut lenses: Vec<LensReport> = lens_reports
         .into_iter()
         .map(|report| report.expect("every lens measured"))
         .collect();
@@ -154,6 +186,13 @@ pub(crate) fn evaluate_corpus(
             ));
         }
     }
+
+    // Signal density: join measured bits with measured cost (#717). Only when
+    // a `--cost-json` was supplied; fail-closed if any lens lacks a cost entry.
+    let signal_density = match cost {
+        Some(cost_map) => Some(compute_signal_density(&mut lenses, cost_map)?),
+        None => None,
+    };
 
     // Panel MI: concatenate admitted lens vectors per sample.
     let admitted_order: Vec<usize> = order
@@ -198,9 +237,60 @@ pub(crate) fn evaluate_corpus(
             ci_95: [panel.ci_low, panel.ci_high],
         },
         strata: strata_reports,
+        signal_density,
         cf_root: request.cf_root.display().to_string(),
         assay_cf_rows_persisted: persisted,
         assay_cf_rows_readback: readback,
+    })
+}
+
+/// Attach per-lens [`LensDensity`] to each lens report and build the ranked
+/// [`SignalDensityReport`]. Fail-closed: every lens must have a measured cost.
+fn compute_signal_density(
+    lenses: &mut [LensReport],
+    cost: &LensCostMap,
+) -> Result<SignalDensityReport, String> {
+    for lens in lenses.iter_mut() {
+        let lens_cost = cost.require(&lens.name)?;
+        lens.density = Some(LensDensity::compute(lens.bits_about, lens_cost));
+    }
+    // Rank for selection: zero-VRAM (CPU-only) lenses first — they are free on
+    // the scarce GPU resource — ordered by bits/ms; then GPU lenses by
+    // bits/VRAM-MB descending. Ties broken by name for determinism.
+    let mut ranked: Vec<DensityRank> = lenses
+        .iter()
+        .map(|lens| {
+            let d = lens.density.expect("density set above");
+            DensityRank {
+                name: lens.name.clone(),
+                bits_about: lens.bits_about,
+                zero_vram: d.zero_vram,
+                vram_mb: d.vram_mb,
+                ms_per_input: d.ms_per_input,
+                bits_per_vram_mb: d.bits_per_vram_mb,
+                bits_per_ms: d.bits_per_ms,
+            }
+        })
+        .collect();
+    ranked.sort_by(|a, b| {
+        // zero-VRAM lenses sort before VRAM-bearing ones.
+        b.zero_vram
+            .cmp(&a.zero_vram)
+            .then_with(|| match (a.zero_vram, b.zero_vram) {
+                (true, true) => b.bits_per_ms.total_cmp(&a.bits_per_ms),
+                _ => {
+                    let av = a.bits_per_vram_mb.unwrap_or(f32::INFINITY);
+                    let bv = b.bits_per_vram_mb.unwrap_or(f32::INFINITY);
+                    bv.total_cmp(&av)
+                }
+            })
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    Ok(SignalDensityReport {
+        note: "ranked by signal density: CPU-only (zero-VRAM) lenses first by \
+               bits/ms, then GPU lenses by bits/VRAM-MB descending"
+            .to_string(),
+        ranked,
     })
 }
 
