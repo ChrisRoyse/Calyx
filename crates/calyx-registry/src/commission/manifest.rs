@@ -1,13 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{Asymmetry, CalyxError, Modality, QuantPolicy, Result, SlotShape};
+use calyx_core::{Asymmetry, CalyxError, Modality, QuantPolicy, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::frozen::{NormPolicy, sha256_digest};
 use crate::runtime::adapters::{allow_noncommercial_from_env, ensure_license_allowed};
 use crate::spec::{LensRuntime, LensSpec};
+
+use super::algorithmic_manifest::{
+    algorithmic_kind, is_algorithmic_runtime, output_shape as algorithmic_output_shape,
+};
 
 const CONFIG_INVALID: &str = "CALYX_LENS_CONFIG_INVALID";
 
@@ -86,6 +90,7 @@ pub fn lens_spec_from_manifest_with_license_override(
         allow_non_commercial,
     )?;
     let artifacts = read_and_verify_files(manifest, base_dir)?;
+    let output = algorithmic_output_shape(&manifest.runtime, manifest.dim)?;
     let weights_sha256 = spec_weights_sha256(manifest, &artifacts)?;
     let corpus_hash = sha256_digest(&[
         b"lensforge-manifest-v1",
@@ -99,7 +104,7 @@ pub fn lens_spec_from_manifest_with_license_override(
     Ok(LensSpec {
         name: manifest.name.clone(),
         runtime: runtime_from_manifest(manifest, &artifacts)?,
-        output: SlotShape::Dense(manifest.dim),
+        output,
         modality: manifest.modality,
         weights_sha256,
         corpus_hash,
@@ -139,6 +144,7 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
     if manifest.dim == 0 {
         return Err(config_invalid("lensforge manifest dim must be > 0"));
     }
+    let _ = algorithmic_output_shape(&manifest.runtime, manifest.dim)?;
     if let Some(truncate_dim) = manifest.truncate_dim
         && (truncate_dim == 0 || truncate_dim > manifest.dim)
     {
@@ -152,7 +158,7 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
             "recall_delta must be finite and non-negative",
         ));
     }
-    if manifest.files.is_empty() {
+    if manifest.files.is_empty() && !is_algorithmic_runtime(&manifest.runtime) {
         return Err(config_invalid("lensforge manifest files are required"));
     }
     Ok(())
@@ -208,6 +214,15 @@ fn spec_weights_sha256(
     manifest: &LensForgeManifest,
     artifacts: &[VerifiedFile],
 ) -> Result<[u8; 32]> {
+    if is_algorithmic_runtime(&manifest.runtime) && artifacts.is_empty() {
+        return Ok(sha256_digest(&[
+            b"lensforge-algorithmic-v1",
+            manifest.name.as_bytes(),
+            manifest.runtime.as_bytes(),
+            &manifest.dim.to_be_bytes(),
+            modality_token(manifest.modality).as_bytes(),
+        ]));
+    }
     let model = weight_anchor(manifest, artifacts)?;
     let model_sha = plain_sha256_hex(&model.bytes);
     if !hex_eq(&model_sha, &manifest.weights_sha256) {
@@ -253,6 +268,11 @@ fn runtime_from_manifest(
     manifest: &LensForgeManifest,
     artifacts: &[VerifiedFile],
 ) -> Result<LensRuntime> {
+    if let Some(kind) = algorithmic_kind(&manifest.runtime) {
+        return Ok(LensRuntime::Algorithmic {
+            kind: kind.to_string(),
+        });
+    }
     let files = artifacts
         .iter()
         .map(|file| file.path.clone())

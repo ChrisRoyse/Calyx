@@ -7,6 +7,7 @@ use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::spec::{LensRuntime, LensSpec};
 use crate::{Registry, ensure_input_modality};
 
+mod algorithmic_manifest;
 mod manifest;
 #[cfg(test)]
 mod tests;

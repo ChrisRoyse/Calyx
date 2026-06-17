@@ -20,3 +20,6 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     let evidence = write::write_outputs(&request, &rows, &measured)?;
     print_json(&evidence)
 }
+
+#[cfg(test)]
+mod tests;
