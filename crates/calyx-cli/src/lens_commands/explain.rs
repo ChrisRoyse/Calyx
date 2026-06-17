@@ -27,6 +27,8 @@ struct ExplainReport {
     norm: f32,
     norm_ok: bool,
     first_values: Vec<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    full_vector: Option<Vec<f32>>,
     total_ms: f32,
     ms_per_input: f32,
     vram_bytes: u64,
@@ -71,6 +73,7 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
         norm,
         norm_ok: true,
         first_values: slot_prefix(&measurement.vector, 4),
+        full_vector: full_vector(&measurement.vector, flags.full_vector)?,
         total_ms,
         ms_per_input: total_ms / repeat as f32,
         vram_bytes: measurement.vram_bytes,
@@ -89,6 +92,18 @@ fn measure_runtime(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<M
             "calyx lens explain does not support {} runtime measurement",
             runtime_name(other)
         ))),
+    }
+}
+
+fn full_vector(vector: &SlotVector, enabled: bool) -> CliResult<Option<Vec<f32>>> {
+    if !enabled {
+        return Ok(None);
+    }
+    match vector {
+        SlotVector::Dense { data, .. } => Ok(Some(data.clone())),
+        SlotVector::Sparse { .. } | SlotVector::Multi { .. } | SlotVector::Absent { .. } => Err(
+            CliError::usage("--full-vector is supported only for dense lens explain output"),
+        ),
     }
 }
 

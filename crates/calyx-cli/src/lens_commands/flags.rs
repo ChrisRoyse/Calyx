@@ -9,6 +9,7 @@ pub(crate) struct Flags {
     pub(crate) input: Option<String>,
     pub(crate) input_file: Option<PathBuf>,
     pub(crate) repeat: Option<usize>,
+    pub(crate) full_vector: bool,
 }
 
 impl Flags {
@@ -40,6 +41,9 @@ impl Flags {
                         CliError::usage(format!("parse --repeat value {raw}: {err}"))
                     })?);
                 }
+                "--full-vector" => {
+                    flags.full_vector = true;
+                }
                 other => {
                     return Err(CliError::usage(format!("unexpected lens flag {other}")));
                 }
@@ -50,9 +54,13 @@ impl Flags {
     }
 
     pub(crate) fn reject_measure_flags(&self, command: &str) -> CliResult {
-        if self.input.is_some() || self.input_file.is_some() || self.repeat.is_some() {
+        if self.input.is_some()
+            || self.input_file.is_some()
+            || self.repeat.is_some()
+            || self.full_vector
+        {
             return Err(CliError::usage(format!(
-                "{command} does not accept --input, --input-file, or --repeat"
+                "{command} does not accept --input, --input-file, --repeat, or --full-vector"
             )));
         }
         Ok(())
