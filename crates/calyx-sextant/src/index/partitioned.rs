@@ -137,6 +137,37 @@ fn ids_rel(region: u32) -> String {
     format!("idx/region_{region:05}.ids")
 }
 
+/// Stream every cx through `centroids`, bucketing each by the SAME nearest-centroid
+/// routing a query uses at search time (`assign_hnsw`, i.e. `nearest_centroids`
+/// top-1). Using the identical routing path for assignment and search keeps a point's
+/// region equal to the region its own query probes (#711). Memory-bounded: vectors
+/// are pulled from the source in `chunk`-sized batches, never all at once.
+fn stream_assign(
+    centroids: &SpannCentroidIndex,
+    source: &dyn VectorSource,
+    chunk: usize,
+) -> Vec<Vec<u64>> {
+    let r = centroids.centroid_count();
+    let n = source.len();
+    let chunk = chunk.max(1) as u64;
+    let mut buckets: Vec<Vec<u64>> = vec![Vec::new(); r];
+    let mut start = 0u64;
+    while start < n {
+        let end = (start + chunk).min(n);
+        let assigned: Vec<(u64, u32)> = (start..end)
+            .into_par_iter()
+            .map(|idx| (idx, centroids.assign_hnsw(&source.row(idx))))
+            .collect();
+        for (idx, region) in assigned {
+            if let Some(bucket) = buckets.get_mut(region as usize) {
+                bucket.push(idx);
+            }
+        }
+        start = end;
+    }
+    buckets
+}
+
 /// Source of the vectors a partitioned vault is built from. The real, production
 /// path reads genuine embeddings from a `.fbin` produced by the real embedder
 /// ([`FbinSource`]). [`SyntheticSource`] exists ONLY for builder-logic unit tests
@@ -287,10 +318,21 @@ pub fn build_partitioned_vault_from_source(
     //     splitter enforces this hard bound, keeping final max/mean near 1-2x.
     let mean_region = (n_cx as usize).div_ceil(r.max(1));
     let cap = mean_region.max(MIN_REGION_CAP);
-    let (final_centroids, buckets) = balance_regions(&centroids, buckets, p.seed, dim, cap);
+    let (final_centroids, _provisional) = balance_regions(&centroids, buckets, p.seed, dim, cap);
     let centroids =
         SpannCentroidIndex::from_parts(dim as u32, final_centroids, Vec::new(), Vec::new())?;
     centroids.save(root.join(CENTROID_DIR))?;
+
+    // 2c. Re-bucket every cx against the FINAL centroids through the EXACT routing a
+    //     query uses (`assign_hnsw` == `nearest_centroids` top-1). Load-bearing for
+    //     recall (#711): step 2 bucketed against the INITIAL centroids (and, for
+    //     moderate R, by exact L2), but queries route via the FINAL centroid HNSW.
+    //     Those disagree, so a point's region was not the region its own query routes
+    //     to — proven on REAL msmarco: probing ALL regions recalls 0.999, but probing
+    //     the routed few recalls 0.38 (the right region was never probed). Re-bucketing
+    //     through the same routing path makes assignment and routing consistent, so the
+    //     routed regions actually contain a query's neighbours. Memory-bounded stream.
+    let buckets = stream_assign(&centroids, source, p.chunk);
 
     // 3. Build one DiskANN graph per region (each fits RAM). Regions are built
     //    in PARALLEL across cores (#706): each region is small and serial row-gen
