@@ -33,6 +33,7 @@ mod dispatch;
 mod entry;
 mod error;
 mod fsv;
+mod fsv_corpus;
 mod healthcheck;
 mod healthcheck_daemon;
 #[cfg(test)]
