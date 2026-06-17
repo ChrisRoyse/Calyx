@@ -38,6 +38,8 @@ pub(crate) fn usage() -> &'static str {
        calyx healthcheck --config <calyx.toml> [--wait <secs>] [--out <json>]   (daemon-readiness: CUDA + VRAM + vault read)
        calyx lens add --manifest <manifest.json> [--home <dir>]
        calyx lens list [--home <dir>]
+       calyx lens commission --hf <id> --runtime <onnx-int8|candle-fp16|tei> [--home <dir>] [--out <dir>] [--name <n>] [--endpoint <url>] [--dim <n>]
+       calyx lens explain --manifest <manifest.json> [--input <text>] [--repeat <n>]
        calyx anneal status --health --vault <dir>
        calyx build-bench-vault --vault <dir> --n-cx <n> --dim <n> --slots <n> --seed <n>
        calyx bench search --vault <dir> --strategy KernelFirst --n <n> --report p50,p99,p999 --seed <n> [--k <n>] [--beamwidth <n>] [--posting-cutoff <n>] [--tuner-slo-us <us>]

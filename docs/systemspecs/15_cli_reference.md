@@ -449,12 +449,24 @@ Reads lens spec, estimates cost, chooses placement (uses the
 
 Read-only; prints `ListReport`. Rejects `--manifest`, `--input`, `--repeat`.
 
+### `lens commission --hf <id> --runtime <onnx-int8|candle-fp16|tei> [flags]`
+
+First-class LensForge commissioning pipeline. Writes artifacts under `--out`
+or `<CALYX_HOME|--home>/lenses/commissioned/<hf>-<runtime>`, writes
+`conversion-log.jsonl`, writes `lensforge.manifest.json`, then registers it via
+the same hash-verified catalog path as `lens add`. Optional flags: `--name`,
+`--endpoint` (TEI), `--dim`, `--license`, `--non-commercial`, `--pooling`,
+`--norm`, `--quant-target`.
+
 ### `lens explain --manifest <manifest.json> [--input <text>] [--repeat <n>]`
 
 Not in the top-level usage string but present in `lens_commands.rs::run`.
-Currently supports only `static_lookup` manifests. `--repeat` default 1 (must be
-> 0); `--input` default `Calyx static lookup explain probe`. Read-only; prints
-`ExplainReport` (timing/norm/first values). `--home` not used by `explain`.
+Supports `static_lookup`, `tei`, `candle-fp16`, and `onnx-int8` LensForge
+manifests. `--repeat` default 1 (must be > 0); `--input` default
+`Calyx lens explain probe`. Read-only; instantiates the real runtime, measures
+the probe, validates finite/dim/norm against the frozen spec, and prints
+`ExplainReport` (timing/norm/first values/runtime detail). `--home` not used by
+`explain`.
 
 ### `panel status [--home <dir>] | [--vault <dir>]`
 

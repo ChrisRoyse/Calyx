@@ -35,6 +35,8 @@ pub struct LensForgeManifest {
     pub norm: String,
     pub source_hf_id: String,
     #[serde(default)]
+    pub endpoint: Option<String>,
+    #[serde(default)]
     pub license: Option<String>,
     #[serde(default)]
     pub non_commercial: bool,
@@ -123,6 +125,16 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
     }
     if manifest.runtime.trim().is_empty() {
         return Err(config_invalid("lensforge manifest runtime is required"));
+    }
+    if is_tei_runtime(&manifest.runtime)
+        && manifest
+            .endpoint
+            .as_deref()
+            .is_none_or(|endpoint| endpoint.trim().is_empty())
+    {
+        return Err(config_invalid(
+            "lensforge TEI manifest endpoint is required",
+        ));
     }
     if manifest.dim == 0 {
         return Err(config_invalid("lensforge manifest dim must be > 0"));
@@ -244,6 +256,12 @@ fn runtime_from_manifest(
             dtype: manifest.dtype.clone(),
             pooling: manifest.pooling.clone(),
         }),
+        "tei" | "tei-http" | "tei_http" => Ok(LensRuntime::TeiHttp {
+            endpoint: manifest
+                .endpoint
+                .clone()
+                .ok_or_else(|| config_invalid("lensforge TEI endpoint is required"))?,
+        }),
         "model2vec" | "static_lookup" | "static-lookup" => {
             let embeddings_file = artifact_by_role(artifacts, is_model_role)?;
             let tokenizer = artifact_by_role(artifacts, |role| role == "tokenizer")?;
@@ -277,6 +295,10 @@ fn runtime_from_manifest(
             "unsupported lensforge runtime {other}"
         ))),
     }
+}
+
+fn is_tei_runtime(runtime: &str) -> bool {
+    matches!(runtime, "tei" | "tei-http" | "tei_http")
 }
 
 fn ordered_manifest_files(files: &[LensForgeFile]) -> Vec<&LensForgeFile> {

@@ -40,6 +40,7 @@ fn lensforge_manifest_round_trips_to_stable_lens_spec() {
         pooling: "mean".to_string(),
         norm: "l2".to_string(),
         source_hf_id: "fixture/tiny".to_string(),
+        endpoint: None,
         license: Some("apache-2.0".to_string()),
         non_commercial: false,
         quant_default: QuantPolicy::turboquant_default(),
@@ -121,6 +122,7 @@ fn model2vec_manifest_maps_to_static_lookup_runtime() {
         pooling: "mean".to_string(),
         norm: "l2".to_string(),
         source_hf_id: "minishlab/potion-base-8M".to_string(),
+        endpoint: None,
         license: Some("mit".to_string()),
         non_commercial: false,
         quant_default: QuantPolicy::turboquant_default(),
@@ -177,6 +179,7 @@ fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
         pooling: "cls".to_string(),
         norm: "l2".to_string(),
         source_hf_id: "sentence-transformers/all-MiniLM-L6-v2".to_string(),
+        endpoint: None,
         license: Some("apache-2.0".to_string()),
         non_commercial: false,
         quant_default: QuantPolicy::turboquant_default(),
@@ -210,6 +213,52 @@ fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
 }
 
 #[test]
+fn tei_manifest_maps_descriptor_to_http_runtime() {
+    let root = temp_root("tei-runtime");
+    let descriptor_bytes =
+        br#"{"source_hf_id":"Alibaba-NLP/gte-base-en-v1.5","endpoint":"http://127.0.0.1:8088/embed","dim":768}"#;
+    let descriptor = write(&root, "tei-descriptor.json", descriptor_bytes);
+    let manifest = LensForgeManifest {
+        name: "resident-tei".to_string(),
+        modality: Modality::Text,
+        runtime: "tei".to_string(),
+        dim: 768,
+        dtype: "f32".to_string(),
+        weights_sha256: plain_sha256_hex(descriptor_bytes),
+        artifact_set_sha256: Some(artifact_hash(&[descriptor_bytes])),
+        files: vec![file("model", &descriptor, descriptor_bytes)],
+        pooling: "mean".to_string(),
+        norm: "unit".to_string(),
+        source_hf_id: "Alibaba-NLP/gte-base-en-v1.5".to_string(),
+        endpoint: Some("http://127.0.0.1:8088/embed".to_string()),
+        license: Some("apache-2.0".to_string()),
+        non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
+    };
+    let manifest_path = root.join("manifest.json");
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+
+    let spec = lens_spec_from_manifest_path(&manifest_path).unwrap();
+
+    assert_eq!(spec.output, SlotShape::Dense(768));
+    assert!(matches!(
+        spec.runtime,
+        LensRuntime::TeiHttp { ref endpoint }
+            if endpoint == "http://127.0.0.1:8088/embed"
+    ));
+    assert_eq!(
+        hex_from_bytes(&spec.weights_sha256),
+        manifest.artifact_set_sha256.unwrap()
+    );
+}
+
+#[test]
 fn adapter_manifest_maps_to_multimodal_runtime() {
     let root = temp_root("adapter-runtime");
     let adapter = write(
@@ -235,6 +284,7 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
         pooling: "mean".to_string(),
         norm: "l2".to_string(),
         source_hf_id: "fixture/mol".to_string(),
+        endpoint: None,
         license: Some("mit".to_string()),
         non_commercial: false,
         quant_default: QuantPolicy::turboquant_default(),
@@ -279,6 +329,7 @@ fn noncommercial_manifest_requires_explicit_allow_flag() {
         pooling: "mean".to_string(),
         norm: "l2".to_string(),
         source_hf_id: "fixture/dna".to_string(),
+        endpoint: None,
         license: Some("CC-BY-NC-SA-4.0".to_string()),
         non_commercial: true,
         quant_default: QuantPolicy::turboquant_default(),
