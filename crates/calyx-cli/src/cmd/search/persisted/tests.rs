@@ -274,3 +274,17 @@ fn scratch(tag: &str) -> PathBuf {
     fs::create_dir_all(&dir).expect("scratch");
     dir
 }
+
+fn cosine(left: &[f32], right: &[f32]) -> f32 {
+    let (mut dot, mut left_l2, mut right_l2) = (0.0, 0.0, 0.0);
+    for (left, right) in left.iter().zip(right) {
+        dot += left * right;
+        left_l2 += left * left;
+        right_l2 += right * right;
+    }
+    if left_l2 == 0.0 || right_l2 == 0.0 {
+        0.0
+    } else {
+        dot / (left_l2.sqrt() * right_l2.sqrt())
+    }
+}

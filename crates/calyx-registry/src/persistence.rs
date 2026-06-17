@@ -199,16 +199,46 @@ fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Option<AlgorithmicLens> {
         }
         "scalar" => Some(AlgorithmicLens::scalar(&spec.name, spec.modality)),
         "ast_style" | "ast-style" => Some(AlgorithmicLens::ast_style(&spec.name, spec.modality)),
+        "sparse" | "sparse_keywords" | "sparse-keywords" => Some(AlgorithmicLens::sparse_keywords(
+            &spec.name,
+            spec.modality,
+            sparse_dim(spec.output)?,
+        )),
+        "token_hash" | "token-hash" | "multi_hash" | "multi-hash" => Some(
+            AlgorithmicLens::token_hash(&spec.name, spec.modality, token_dim(spec.output)?),
+        ),
         "one_hot" | "one-hot" => Some(AlgorithmicLens::one_hot(
             &spec.name,
             spec.modality,
             dense_dim(spec.output)?,
         )),
-        value => value
-            .strip_prefix("one_hot:")
-            .or_else(|| value.strip_prefix("one-hot:"))
-            .and_then(|buckets| buckets.parse().ok())
-            .map(|buckets| AlgorithmicLens::one_hot(&spec.name, spec.modality, buckets)),
+        value => {
+            if let Some(dim) = value
+                .strip_prefix("sparse_keywords:")
+                .or_else(|| value.strip_prefix("sparse-keywords:"))
+                .and_then(|dim| dim.parse().ok())
+            {
+                return Some(AlgorithmicLens::sparse_keywords(
+                    &spec.name,
+                    spec.modality,
+                    dim,
+                ));
+            }
+            if let Some(dim) = value
+                .strip_prefix("token_hash:")
+                .or_else(|| value.strip_prefix("token-hash:"))
+                .or_else(|| value.strip_prefix("multi_hash:"))
+                .or_else(|| value.strip_prefix("multi-hash:"))
+                .and_then(|dim| dim.parse().ok())
+            {
+                return Some(AlgorithmicLens::token_hash(&spec.name, spec.modality, dim));
+            }
+            value
+                .strip_prefix("one_hot:")
+                .or_else(|| value.strip_prefix("one-hot:"))
+                .and_then(|buckets| buckets.parse().ok())
+                .map(|buckets| AlgorithmicLens::one_hot(&spec.name, spec.modality, buckets))
+        }
     }
 }
 
@@ -216,6 +246,20 @@ fn dense_dim(shape: SlotShape) -> Option<u32> {
     match shape {
         SlotShape::Dense(dim) => Some(dim),
         SlotShape::Sparse(_) | SlotShape::Multi { .. } => None,
+    }
+}
+
+fn sparse_dim(shape: SlotShape) -> Option<u32> {
+    match shape {
+        SlotShape::Sparse(dim) => Some(dim),
+        SlotShape::Dense(_) | SlotShape::Multi { .. } => None,
+    }
+}
+
+fn token_dim(shape: SlotShape) -> Option<u32> {
+    match shape {
+        SlotShape::Multi { token_dim } => Some(token_dim),
+        SlotShape::Dense(_) | SlotShape::Sparse(_) => None,
     }
 }
 

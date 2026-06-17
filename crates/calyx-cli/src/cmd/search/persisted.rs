@@ -1,5 +1,14 @@
+#[path = "persisted/dense.rs"]
+mod dense;
 #[path = "persisted/filter.rs"]
 mod filter;
+#[cfg(test)]
+#[path = "persisted/mixed_tests.rs"]
+mod mixed_tests;
+#[path = "persisted/multi.rs"]
+mod multi;
+#[path = "persisted/sparse.rs"]
+mod sparse;
 #[cfg(test)]
 #[path = "persisted/tests.rs"]
 mod tests;
@@ -13,10 +22,9 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector, VaultStore};
 use calyx_sextant::QueryFilters;
-use calyx_sextant::index::{
-    DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, IndexSearchHit, SextantIndex, ranked,
-};
+use calyx_sextant::index::IndexSearchHit;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 
 use crate::error::{CliError, CliResult};
 
@@ -35,18 +43,29 @@ pub(super) struct SearchIndexManifest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct SearchIndexEntry {
+pub(super) struct SearchIndexEntry {
     slot: u16,
     kind: String,
-    dim: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    dim: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token_dim: Option<u32>,
     len: usize,
     built_at_seq: u64,
-    graph_rel: String,
-    id_map_rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    graph_rel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    id_map_rel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    index_rel: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    token_count: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct SlotIdMap {
+pub(super) struct SlotIdMap {
     format: String,
     slot: u16,
     ids: Vec<CxId>,
@@ -71,11 +90,6 @@ struct RebuildSummary {
 pub(super) struct PersistedSearchIndexes {
     vault_dir: PathBuf,
     manifest: SearchIndexManifest,
-}
-
-struct DenseSlotRows {
-    dim: u32,
-    rows: Vec<(CxId, Vec<f32>)>,
 }
 
 impl PersistedSearchIndexes {
@@ -107,41 +121,31 @@ impl PersistedSearchIndexes {
         query: &SlotVector,
         k: usize,
     ) -> CliResult<Vec<IndexSearchHit>> {
-        let SlotVector::Dense { dim, .. } = query else {
-            return Err(stale(format!(
-                "persistent search currently supports dense ANN slots only; slot {slot} query is not dense"
-            )));
-        };
-        let Some(entry) = self.entry(slot) else {
-            return Ok(Vec::new());
-        };
-        if entry.kind != "diskann" {
-            return Err(stale(format!(
-                "persistent slot {slot} index kind {} is not diskann",
-                entry.kind
-            )));
+        let entry = self.require_entry(slot)?;
+        match query {
+            SlotVector::Dense { .. } => dense::search(&self.vault_dir, entry, slot, query, k),
+            SlotVector::Sparse { .. } => sparse::search(
+                &self.vault_dir,
+                entry,
+                self.manifest.base_seq,
+                slot,
+                query,
+                k,
+                None,
+            ),
+            SlotVector::Multi { .. } => multi::search(
+                &self.vault_dir,
+                entry,
+                self.manifest.base_seq,
+                slot,
+                query,
+                k,
+                None,
+            ),
+            SlotVector::Absent { .. } => Err(stale(format!(
+                "persistent search slot {slot} received an absent query vector; remeasure the active panel"
+            ))),
         }
-        if entry.dim != *dim {
-            return Err(stale(format!(
-                "persistent slot {slot} index dim {} != query dim {dim}; reingest/backfill the vault",
-                entry.dim
-            )));
-        }
-        let ids = self.read_ids(entry)?;
-        if ids.len() != entry.len {
-            return Err(stale(format!(
-                "persistent slot {slot} id map len {} != manifest len {}",
-                ids.len(),
-                entry.len
-            )));
-        }
-        let graph = self.vault_dir.join(&entry.graph_rel);
-        let mut index = DiskAnnSearch::open(slot, graph, ids, None, search_params(k.max(64)))?;
-        index.set_base_seq(entry.base_seq());
-        let want = k.max(1).min(entry.len);
-        index
-            .search(query, want, Some(want.max(64)))
-            .map_err(Into::into)
     }
 
     pub(super) fn search_filtered(
@@ -154,38 +158,33 @@ impl PersistedSearchIndexes {
         if candidates.is_empty() {
             return Ok(Vec::new());
         }
-        let SlotVector::Dense { dim, data } = query else {
-            return Err(stale(format!(
-                "persistent filtered search currently supports dense ANN slots only; slot {slot} query is not dense"
-            )));
-        };
-        let Some(entry) = self.entry(slot) else {
-            return Ok(Vec::new());
-        };
-        if entry.kind != "diskann" {
-            return Err(stale(format!(
-                "persistent slot {slot} index kind {} is not diskann",
-                entry.kind
-            )));
+        let entry = self.require_entry(slot)?;
+        match query {
+            SlotVector::Dense { .. } => {
+                dense::search_filtered(&self.vault_dir, entry, slot, query, k, candidates)
+            }
+            SlotVector::Sparse { .. } => sparse::search(
+                &self.vault_dir,
+                entry,
+                self.manifest.base_seq,
+                slot,
+                query,
+                k,
+                Some(candidates),
+            ),
+            SlotVector::Multi { .. } => multi::search(
+                &self.vault_dir,
+                entry,
+                self.manifest.base_seq,
+                slot,
+                query,
+                k,
+                Some(candidates),
+            ),
+            SlotVector::Absent { .. } => Err(stale(format!(
+                "persistent filtered search slot {slot} received an absent query vector; remeasure the active panel"
+            ))),
         }
-        if entry.dim != *dim {
-            return Err(stale(format!(
-                "persistent slot {slot} index dim {} != query dim {dim}; reingest/backfill the vault",
-                entry.dim
-            )));
-        }
-        let ids = self.read_ids(entry)?;
-        if ids.len() != entry.len {
-            return Err(stale(format!(
-                "persistent slot {slot} id map len {} != manifest len {}",
-                ids.len(),
-                entry.len
-            )));
-        }
-        let graph = self.vault_dir.join(&entry.graph_rel);
-        let mut index = DiskAnnSearch::open(slot, graph, ids, None, search_params(k.max(64)))?;
-        index.set_base_seq(entry.base_seq());
-        exact_filtered_hits(&index, data, k, candidates)
     }
 
     pub(super) fn filter_candidates(
@@ -209,89 +208,146 @@ impl PersistedSearchIndexes {
             .unwrap_or(0)
     }
 
-    fn entry(&self, slot: SlotId) -> Option<&SearchIndexEntry> {
+    fn require_entry(&self, slot: SlotId) -> CliResult<&SearchIndexEntry> {
         self.manifest
             .slots
             .iter()
             .find(|entry| entry.slot == slot.get())
-    }
-
-    fn read_ids(&self, entry: &SearchIndexEntry) -> CliResult<Vec<CxId>> {
-        let path = self.vault_dir.join(&entry.id_map_rel);
-        let map: SlotIdMap = serde_json::from_slice(&fs::read(&path)?)?;
-        if map.format != IDMAP_FORMAT {
-            return Err(stale(format!(
-                "persistent slot {} id map {} has format {}; expected {IDMAP_FORMAT}",
-                entry.slot,
-                path.display(),
-                map.format
-            )));
-        }
-        if map.slot != entry.slot {
-            return Err(stale(format!(
-                "persistent id map slot {} != manifest slot {}",
-                map.slot, entry.slot
-            )));
-        }
-        Ok(map.ids)
+            .ok_or_else(|| {
+                stale(format!(
+                    "persistent search manifest has no index for active slot {slot}; reingest or backfill the vault before search"
+                ))
+            })
     }
 }
 
 impl SearchIndexEntry {
-    fn base_seq(&self) -> u64 {
-        self.built_at_seq
-    }
-}
-
-fn exact_filtered_hits(
-    index: &DiskAnnSearch,
-    query: &[f32],
-    k: usize,
-    candidates: &BTreeSet<CxId>,
-) -> CliResult<Vec<IndexSearchHit>> {
-    if k == 0 {
-        return Ok(Vec::new());
-    }
-    let mut scored = Vec::new();
-    for cx_id in candidates {
-        let Some(vector) = index.vector(*cx_id) else {
-            continue;
-        };
-        let Some(values) = vector.as_dense() else {
-            return Err(stale(format!(
-                "persistent filtered search candidate {cx_id} is not dense; rebuild the vault search indexes"
-            )));
-        };
-        if values.len() != query.len() {
-            return Err(stale(format!(
-                "persistent filtered search candidate {cx_id} dim {} != query dim {}; rebuild the vault search indexes",
-                values.len(),
-                query.len()
-            )));
+    pub(super) fn dense(
+        slot: SlotId,
+        dim: u32,
+        len: usize,
+        base_seq: u64,
+        graph_rel: String,
+        id_map_rel: String,
+    ) -> Self {
+        Self {
+            slot: slot.get(),
+            kind: "diskann".to_string(),
+            dim: Some(dim),
+            token_dim: None,
+            len,
+            built_at_seq: base_seq,
+            graph_rel: Some(graph_rel),
+            id_map_rel: Some(id_map_rel),
+            index_rel: None,
+            sha256: None,
+            token_count: None,
         }
-        scored.push((*cx_id, cosine(query, values)));
     }
-    scored.sort_by(|left, right| {
-        right
-            .1
-            .total_cmp(&left.1)
-            .then_with(|| left.0.to_string().cmp(&right.0.to_string()))
-    });
-    scored.truncate(k);
-    Ok(ranked(scored))
-}
 
-fn cosine(left: &[f32], right: &[f32]) -> f32 {
-    let (mut dot, mut left_l2, mut right_l2) = (0.0, 0.0, 0.0);
-    for (left, right) in left.iter().zip(right) {
-        dot += left * right;
-        left_l2 += left * left;
-        right_l2 += right * right;
+    pub(super) fn sparse(
+        slot: SlotId,
+        dim: u32,
+        len: usize,
+        base_seq: u64,
+        index_rel: String,
+        sha256: String,
+    ) -> Self {
+        Self {
+            slot: slot.get(),
+            kind: "sparse_inverted".to_string(),
+            dim: Some(dim),
+            token_dim: None,
+            len,
+            built_at_seq: base_seq,
+            graph_rel: None,
+            id_map_rel: None,
+            index_rel: Some(index_rel),
+            sha256: Some(sha256),
+            token_count: None,
+        }
     }
-    if left_l2 == 0.0 || right_l2 == 0.0 {
-        0.0
-    } else {
-        dot / (left_l2.sqrt() * right_l2.sqrt())
+
+    pub(super) fn multi(
+        slot: SlotId,
+        token_dim: u32,
+        len: usize,
+        token_count: usize,
+        base_seq: u64,
+        index_rel: String,
+        sha256: String,
+    ) -> Self {
+        Self {
+            slot: slot.get(),
+            kind: "multi_maxsim".to_string(),
+            dim: None,
+            token_dim: Some(token_dim),
+            len,
+            built_at_seq: base_seq,
+            graph_rel: None,
+            id_map_rel: None,
+            index_rel: Some(index_rel),
+            sha256: Some(sha256),
+            token_count: Some(token_count),
+        }
+    }
+
+    pub(super) fn require_kind(&self, expected: &str, slot: SlotId) -> CliResult {
+        if self.kind == expected {
+            return Ok(());
+        }
+        Err(stale(format!(
+            "persistent slot {slot} index kind {} is not {expected}; rebuild the vault search indexes",
+            self.kind
+        )))
+    }
+
+    pub(super) fn require_dim(&self, slot: SlotId) -> CliResult<u32> {
+        self.dim.ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing dim; rebuild the vault search indexes"
+            ))
+        })
+    }
+
+    pub(super) fn require_token_dim(&self, slot: SlotId) -> CliResult<u32> {
+        self.token_dim.ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing token_dim; rebuild the vault search indexes"
+            ))
+        })
+    }
+
+    pub(super) fn require_graph_rel(&self, slot: SlotId) -> CliResult<&str> {
+        self.graph_rel.as_deref().ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing graph path; rebuild the vault search indexes"
+            ))
+        })
+    }
+
+    pub(super) fn require_id_map_rel(&self, slot: SlotId) -> CliResult<&str> {
+        self.id_map_rel.as_deref().ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing id map path; rebuild the vault search indexes"
+            ))
+        })
+    }
+
+    pub(super) fn require_index_rel(&self, slot: SlotId) -> CliResult<&str> {
+        self.index_rel.as_deref().ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing sidecar path; rebuild the vault search indexes"
+            ))
+        })
+    }
+
+    pub(super) fn require_sha256(&self, slot: SlotId) -> CliResult<&str> {
+        self.sha256.as_deref().ok_or_else(|| {
+            stale(format!(
+                "persistent slot {slot} manifest is missing sidecar sha256; rebuild the vault search indexes"
+            ))
+        })
     }
 }
 
@@ -311,9 +367,17 @@ fn rebuild_from_docs(
     fs::create_dir_all(&root)?;
     let mut entries = Vec::new();
     let mut total_rows = 0usize;
-    for (slot, rows) in collect_dense_slots(docs)? {
-        total_rows += rows.rows.len();
-        entries.push(write_dense_slot(vault_dir, &root, slot, rows, base_seq)?);
+    for (slot, rows) in dense::collect(docs)? {
+        total_rows += rows.len();
+        entries.push(dense::write(vault_dir, &root, slot, rows, base_seq)?);
+    }
+    for (slot, rows) in sparse::collect(docs)? {
+        total_rows += rows.len();
+        entries.push(sparse::write(vault_dir, &root, slot, rows, base_seq)?);
+    }
+    for (slot, rows) in multi::collect(docs)? {
+        total_rows += rows.len();
+        entries.push(multi::write(vault_dir, &root, slot, rows, base_seq)?);
     }
     entries.sort_by_key(|entry| entry.slot);
     let manifest = SearchIndexManifest {
@@ -329,114 +393,6 @@ fn rebuild_from_docs(
         total_rows,
         manifest_path,
     })
-}
-
-fn collect_dense_slots(
-    docs: &BTreeMap<CxId, Constellation>,
-) -> CliResult<BTreeMap<SlotId, DenseSlotRows>> {
-    let mut out = BTreeMap::<SlotId, DenseSlotRows>::new();
-    for cx in docs.values() {
-        for (slot, vector) in &cx.slots {
-            let SlotVector::Dense { dim, data } = vector else {
-                continue;
-            };
-            validate_dense(*slot, cx.cx_id, *dim, data)?;
-            let entry = out.entry(*slot).or_insert_with(|| DenseSlotRows {
-                dim: *dim,
-                rows: Vec::new(),
-            });
-            if entry.dim != *dim {
-                return Err(stale(format!(
-                    "slot {slot} has mixed dense dims: {} and {dim}",
-                    entry.dim
-                )));
-            }
-            entry.rows.push((cx.cx_id, data.clone()));
-        }
-    }
-    Ok(out)
-}
-
-fn validate_dense(slot: SlotId, cx_id: CxId, dim: u32, data: &[f32]) -> CliResult {
-    if dim == 0 || data.len() != dim as usize {
-        return Err(CalyxError::lens_dim_mismatch(format!(
-            "slot {slot} cx {cx_id} dense len {} != dim {dim}",
-            data.len()
-        ))
-        .into());
-    }
-    if data.iter().any(|value| !value.is_finite()) {
-        return Err(CalyxError::lens_numerical_invariant(format!(
-            "slot {slot} cx {cx_id} has non-finite dense component"
-        ))
-        .into());
-    }
-    Ok(())
-}
-
-fn write_dense_slot(
-    vault_dir: &Path,
-    root: &Path,
-    slot: SlotId,
-    rows: DenseSlotRows,
-    base_seq: u64,
-) -> CliResult<SearchIndexEntry> {
-    let dir_name = format!(
-        "slot_{:05}_seq_{:020}_n_{:010}.ann",
-        slot.get(),
-        base_seq,
-        rows.rows.len()
-    );
-    let dir = root.join(&dir_name);
-    if dir.exists() {
-        fs::remove_dir_all(&dir)?;
-    }
-    fs::create_dir_all(&dir)?;
-    let graph_path = dir.join("graph.cda");
-    DiskAnnSearch::build(
-        slot,
-        &graph_path,
-        &rows.rows,
-        build_params(rows.dim as usize),
-        None,
-        search_params(rows.rows.len().max(64)),
-    )?;
-    let id_map_path = dir.join("ids.json");
-    write_json_atomic(
-        &id_map_path,
-        &SlotIdMap {
-            format: IDMAP_FORMAT.to_string(),
-            slot: slot.get(),
-            ids: rows.rows.iter().map(|(cx_id, _)| *cx_id).collect(),
-        },
-    )?;
-    Ok(SearchIndexEntry {
-        slot: slot.get(),
-        kind: "diskann".to_string(),
-        dim: rows.dim,
-        len: rows.rows.len(),
-        built_at_seq: base_seq,
-        graph_rel: rel(vault_dir, &graph_path)?,
-        id_map_rel: rel(vault_dir, &id_map_path)?,
-    })
-}
-
-fn build_params(dim: usize) -> DiskAnnBuildParams {
-    DiskAnnBuildParams {
-        dim,
-        m_max: 32,
-        ef_construction: 64,
-        alpha: 1.2,
-    }
-}
-
-fn search_params(ef: usize) -> DiskAnnSearchParams {
-    DiskAnnSearchParams {
-        beamwidth: 32,
-        ef_search: ef,
-        rescore_k: ef,
-        rescore_from_raw: false,
-    }
 }
 
 pub(super) fn load_docs(vault: &AsterVault) -> CliResult<BTreeMap<CxId, Constellation>> {
@@ -457,16 +413,19 @@ fn manifest_path(vault_dir: &Path) -> PathBuf {
 }
 
 fn write_json_atomic<T: Serialize>(path: &Path, value: &T) -> CliResult {
+    write_bytes_atomic(path, &serde_json::to_vec_pretty(value)?)
+}
+
+fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> CliResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let bytes = serde_json::to_vec_pretty(value)?;
     let mut tmp = path.as_os_str().to_owned();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
     {
         let mut file = File::create(&tmp)?;
-        file.write_all(&bytes)?;
+        file.write_all(bytes)?;
         file.sync_all()?;
     }
     fs::rename(&tmp, path).inspect_err(|_| {
@@ -480,6 +439,15 @@ fn rel(root: &Path, path: &Path) -> CliResult<String> {
         .strip_prefix(root)
         .map_err(|err| CliError::usage(format!("index path is outside vault root: {err}")))?;
     Ok(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut out = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
 }
 
 fn stale(message: impl Into<String>) -> CliError {
