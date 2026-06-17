@@ -270,6 +270,17 @@ fn panel_budget_packs_density_panel_and_writes_readback_artifact() {
         serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
     assert_eq!(readback["selected"][0]["lens"], "real_a");
     assert_eq!(readback["remaining"]["vram_mb"], 400.0);
+    let comparison_path = evidence
+        .panel_comparison_path
+        .as_ref()
+        .expect("panel comparison path present");
+    let comparison: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(comparison_path).unwrap()).unwrap();
+    assert_eq!(
+        comparison["density_panel"]["lenses"][0],
+        serde_json::json!("real_a")
+    );
+    assert_eq!(comparison["control_lens_limit"], 2);
 
     let _ = fs::remove_dir_all(root);
 }

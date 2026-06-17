@@ -16,6 +16,8 @@ pub(crate) struct MetricEvidence {
     pub(crate) signal_density_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) packed_panel_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) panel_comparison_path: Option<String>,
     pub(crate) cf_root: String,
     pub(crate) assay_cf_rows_persisted: usize,
     pub(crate) assay_cf_rows_readback: usize,
@@ -87,6 +89,18 @@ pub(crate) fn write_metric_outputs(
         }
         None => None,
     };
+    let panel_comparison_path = match &report.panel_comparison {
+        Some(comparison) => {
+            let path = request.metrics_dir.join("assay_panel_comparison.json");
+            fs::write(
+                &path,
+                serde_json::to_vec_pretty(comparison).map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string())?;
+            Some(display(&path))
+        }
+        None => None,
+    };
 
     Ok(MetricEvidence {
         metrics_dir: request.metrics_dir.display().to_string(),
@@ -95,6 +109,7 @@ pub(crate) fn write_metric_outputs(
         rejection_log_path: display(&rejection_log),
         signal_density_path,
         packed_panel_path,
+        panel_comparison_path,
         cf_root: report.cf_root.clone(),
         assay_cf_rows_persisted: report.assay_cf_rows_persisted,
         assay_cf_rows_readback: report.assay_cf_rows_readback,
@@ -118,6 +133,24 @@ fn check_finite(report: &AssayBitsReport) -> Result<(), String> {
     for stratum in &report.strata {
         values.push(("stratum.bits", stratum.bits));
         values.push(("stratum.frequency", stratum.frequency));
+    }
+    if let Some(comparison) = &report.panel_comparison {
+        values.push((
+            "panel_comparison.density_panel.total_signal_bits",
+            comparison.density_panel.total_signal_bits,
+        ));
+        if let Some(control) = &comparison.best_few_lens_control {
+            values.push((
+                "panel_comparison.best_few_lens_control.total_signal_bits",
+                control.total_signal_bits,
+            ));
+        }
+        if let Some(gain) = comparison.signal_gain_bits {
+            values.push(("panel_comparison.signal_gain_bits", gain));
+        }
+        if let Some(ratio) = comparison.signal_gain_ratio {
+            values.push(("panel_comparison.signal_gain_ratio", ratio));
+        }
     }
     for (name, value) in values {
         if !value.is_finite() {

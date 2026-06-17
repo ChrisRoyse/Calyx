@@ -7,6 +7,7 @@
 //! per-stratum bits are present. All measurements use the real `calyx_assay`
 //! estimators and persist per-lens estimates to the Assay column family.
 
+mod comparison;
 pub(crate) mod cost;
 mod data;
 mod engine;

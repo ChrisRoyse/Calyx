@@ -8,6 +8,7 @@ use calyx_core::{AnchorKind, Placement, SlotId, VaultId};
 use serde::Serialize;
 use ulid::Ulid;
 
+use super::comparison::{PanelComparisonReport, compare_density_panel};
 use super::cost::LensCostMap;
 use super::data::AssayCorpus;
 use super::request::AssayBitsRequest;
@@ -40,6 +41,10 @@ pub(crate) struct AssayBitsReport {
     /// density-ordered panel packing verdict under the fixed resource budget.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) packed_panel: Option<PanelPackingReport>,
+    /// Present only when resource packing runs: the density panel compared
+    /// with best raw-signal one-/two-lens controls under the same budget.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) panel_comparison: Option<PanelComparisonReport>,
     pub(crate) cf_root: String,
     pub(crate) assay_cf_rows_persisted: usize,
     pub(crate) assay_cf_rows_readback: usize,
@@ -247,6 +252,18 @@ pub(crate) fn evaluate_corpus(
     };
     let packed_panel = panel_budget
         .map(|budget| packed_panel_report(budget, packed_selected, packed_rejected, used));
+    let panel_comparison = match (cost, panel_budget, &packed_panel) {
+        (Some(cost_map), Some(budget), Some(panel)) => Some(compare_density_panel(
+            corpus,
+            &measurements,
+            cost_map,
+            budget,
+            panel,
+            request.min_bits,
+            request.max_corr,
+        )?),
+        _ => None,
+    };
 
     // Panel MI: concatenate admitted lens vectors per sample.
     let admitted_order: Vec<usize> = order
@@ -293,6 +310,7 @@ pub(crate) fn evaluate_corpus(
         strata: strata_reports,
         signal_density,
         packed_panel,
+        panel_comparison,
         cf_root: request.cf_root.display().to_string(),
         assay_cf_rows_persisted: persisted,
         assay_cf_rows_readback: readback,
