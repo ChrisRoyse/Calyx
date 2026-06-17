@@ -18,6 +18,8 @@ use serde_json::json;
 use crate::error::{CliError, CliResult};
 
 mod brute_force;
+#[path = "partitioned_bench/multi_rrf.rs"]
+mod multi_rrf;
 use brute_force::{brute_force_topk, brute_force_topk_fbin};
 
 fn parse<T: std::str::FromStr>(v: &str, flag: &str) -> CliResult<T> {
@@ -253,6 +255,10 @@ pub(crate) fn run_search(args: &[String]) -> CliResult {
     } else {
         run_search_synthetic(&args)
     }
+}
+
+pub(crate) fn run_rrf(args: &[String]) -> CliResult {
+    multi_rrf::run(args)
 }
 
 /// REAL-data search: real query embeddings + brute-force ground truth over the REAL

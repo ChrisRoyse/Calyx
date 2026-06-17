@@ -5,13 +5,29 @@ use rayon::prelude::*;
 
 const CHUNK: u64 = 200_000;
 
-/// Brute-force the true top-`k` neighbours (by L2) for each query over a REAL
-/// corpus `.fbin`. Memory-bounded: scans the mmap'd file in row windows.
+/// Brute-force the true top-`k` neighbours (by cosine distance) for each query
+/// over a REAL corpus `.fbin`. Memory-bounded: scans the mmap'd file in row
+/// windows. This must match DiskANN search scoring; raw L2 is only equivalent for
+/// already-normalized embeddings.
 pub(super) fn brute_force_topk_fbin(
     corpus: &FbinVectors,
     queries: &[Vec<f32>],
     k: usize,
 ) -> Vec<HashSet<u64>> {
+    brute_force_topk_fbin_ranked(corpus, queries, k)
+        .into_iter()
+        .map(|row| row.into_iter().map(|(id, _)| id).collect())
+        .collect()
+}
+
+/// Brute-force exact ranked top-k rows (by cosine distance) for each real query
+/// over a real corpus `.fbin`. This preserves rank so RRF can build an exact
+/// fused ground truth, not just a set-overlap recall verdict.
+pub(super) fn brute_force_topk_fbin_ranked(
+    corpus: &FbinVectors,
+    queries: &[Vec<f32>],
+    k: usize,
+) -> Vec<Vec<(u64, f32)>> {
     let n_cx = corpus.count();
     let mut heaps: Vec<BinaryHeap<(OrdF32, u64)>> = (0..queries.len())
         .map(|_| BinaryHeap::with_capacity(k + 1))
@@ -24,14 +40,14 @@ pub(super) fn brute_force_topk_fbin(
                 .into_par_iter()
                 .map(|idx| {
                     let row = corpus.row(idx);
-                    (OrdF32(l2(q, row)), idx)
+                    (OrdF32(cosine_distance(q, row)), idx)
                 })
                 .collect();
             push_scored(&mut heaps[qi], scored, k);
         }
         start = end;
     }
-    heaps_to_sets(heaps)
+    heaps_to_ranked(heaps)
 }
 
 /// Brute-force the true top-`k` neighbours (by L2) for each query over the
@@ -56,7 +72,7 @@ pub(super) fn brute_force_topk(
         for (qi, q) in queries.iter().enumerate() {
             let scored: Vec<(OrdF32, u64)> = rows
                 .par_iter()
-                .map(|(idx, row)| (OrdF32(l2(q, row)), *idx))
+                .map(|(idx, row)| (OrdF32(cosine_distance(q, row)), *idx))
                 .collect();
             push_scored(&mut heaps[qi], scored, k);
         }
@@ -65,14 +81,20 @@ pub(super) fn brute_force_topk(
     heaps_to_sets(heaps)
 }
 
-fn l2(left: &[f32], right: &[f32]) -> f32 {
-    left.iter()
-        .zip(right)
-        .map(|(l, r)| {
-            let diff = l - r;
-            diff * diff
-        })
-        .sum()
+fn cosine_distance(left: &[f32], right: &[f32]) -> f32 {
+    let mut dot = 0.0;
+    let mut left_norm = 0.0;
+    let mut right_norm = 0.0;
+    for (left, right) in left.iter().zip(right) {
+        dot += left * right;
+        left_norm += left * left;
+        right_norm += right * right;
+    }
+    if left_norm == 0.0 || right_norm == 0.0 {
+        1.0
+    } else {
+        (1.0 - dot / (left_norm.sqrt() * right_norm.sqrt())).max(0.0)
+    }
 }
 
 fn push_scored(heap: &mut BinaryHeap<(OrdF32, u64)>, scored: Vec<(OrdF32, u64)>, k: usize) {
@@ -85,9 +107,27 @@ fn push_scored(heap: &mut BinaryHeap<(OrdF32, u64)>, scored: Vec<(OrdF32, u64)>,
 }
 
 fn heaps_to_sets(heaps: Vec<BinaryHeap<(OrdF32, u64)>>) -> Vec<HashSet<u64>> {
+    heaps_to_ranked(heaps)
+        .into_iter()
+        .map(|row| row.into_iter().map(|(idx, _)| idx).collect())
+        .collect()
+}
+
+fn heaps_to_ranked(heaps: Vec<BinaryHeap<(OrdF32, u64)>>) -> Vec<Vec<(u64, f32)>> {
     heaps
         .into_iter()
-        .map(|heap| heap.into_iter().map(|(_, idx)| idx).collect())
+        .map(|heap| {
+            let mut row = heap
+                .into_iter()
+                .map(|(distance, idx)| (idx, distance.0))
+                .collect::<Vec<_>>();
+            row.sort_by(|left, right| {
+                left.1
+                    .total_cmp(&right.1)
+                    .then_with(|| left.0.cmp(&right.0))
+            });
+            row
+        })
         .collect()
 }
 
@@ -106,5 +146,22 @@ impl PartialOrd for OrdF32 {
 impl Ord for OrdF32 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.total_cmp(&other.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cosine_distance_handles_unnormalized_vectors() {
+        let query = [10.0, 0.0];
+        let same_direction = [100.0, 0.0];
+        let l2_closer_but_worse_angle = [9.0, 1.0];
+
+        assert!(
+            cosine_distance(&query, &same_direction)
+                < cosine_distance(&query, &l2_closer_but_worse_angle)
+        );
     }
 }
