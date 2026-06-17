@@ -15,26 +15,40 @@ pub(crate) struct CorpusDoc {
 }
 
 #[derive(Clone, Debug)]
+pub(crate) struct Qrel {
+    pub(crate) doc_id: String,
+    pub(crate) relevance: u32,
+}
+
+#[derive(Clone, Debug)]
 pub(crate) struct ValidationData {
     pub(crate) corpus: Vec<CorpusDoc>,
     pub(crate) queries: BTreeMap<String, String>,
     pub(crate) qrels: BTreeMap<String, BTreeSet<CxId>>,
+    pub(crate) graded_qrels: BTreeMap<String, Vec<Qrel>>,
     pub(crate) qrels_rows: usize,
+}
+
+struct LoadedQrels {
+    hashed: BTreeMap<String, BTreeSet<CxId>>,
+    graded: BTreeMap<String, Vec<Qrel>>,
+    rows: usize,
 }
 
 impl ValidationData {
     pub(crate) fn load(request: &RecallRequest) -> Result<Self, String> {
         let corpus = load_corpus(&request.corpus_jsonl)?;
         let queries = load_queries(&request.queries_jsonl)?;
-        let (qrels, qrels_rows) = load_qrels(&request.qrels_tsv)?;
-        if qrels_rows == 0 || qrels.values().all(BTreeSet::is_empty) {
+        let qrels = load_qrels(&request.qrels_tsv)?;
+        if qrels.rows == 0 || qrels.hashed.values().all(BTreeSet::is_empty) {
             return Err("CALYX_FSV_EMPTY_QRELS".to_string());
         }
         Ok(Self {
             corpus,
             queries,
-            qrels,
-            qrels_rows,
+            qrels: qrels.hashed,
+            graded_qrels: qrels.graded,
+            qrels_rows: qrels.rows,
         })
     }
 }
@@ -105,9 +119,10 @@ fn load_queries(path: &Path) -> Result<BTreeMap<String, String>, String> {
     Ok(queries)
 }
 
-fn load_qrels(path: &Path) -> Result<(BTreeMap<String, BTreeSet<CxId>>, usize), String> {
+fn load_qrels(path: &Path) -> Result<LoadedQrels, String> {
     let lines = read_lines(path)?;
     let mut qrels = BTreeMap::<String, BTreeSet<CxId>>::new();
+    let mut graded = BTreeMap::<String, Vec<Qrel>>::new();
     let mut rows = 0;
     for line in lines {
         let line = line.trim();
@@ -123,13 +138,22 @@ fn load_qrels(path: &Path) -> Result<(BTreeMap<String, BTreeSet<CxId>>, usize), 
         };
         rows += 1;
         if relevance > 0 {
+            let relevance = relevance as u32;
             qrels
                 .entry(cols[0].to_string())
                 .or_default()
                 .insert(cx_for_doc_id(cols[1]));
+            graded.entry(cols[0].to_string()).or_default().push(Qrel {
+                doc_id: cols[1].to_string(),
+                relevance,
+            });
         }
     }
-    Ok((qrels, rows))
+    Ok(LoadedQrels {
+        hashed: qrels,
+        graded,
+        rows,
+    })
 }
 
 fn parse_relevance(cols: &[&str]) -> Option<i32> {
