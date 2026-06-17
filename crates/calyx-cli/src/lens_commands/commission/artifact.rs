@@ -5,6 +5,7 @@ use calyx_core::CalyxError;
 use calyx_registry::LensForgeFile;
 use calyx_registry::frozen::sha256_digest;
 use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 use super::super::support::hex_from_bytes;
 use crate::error::{CliError, CliResult};
@@ -29,7 +30,7 @@ pub(super) fn artifact(role: &str, path: PathBuf) -> CliResult<Artifact> {
     Ok(Artifact {
         role: role.to_string(),
         path,
-        sha256: hex_from_bytes(&sha256_digest(&[&bytes])),
+        sha256: plain_sha256_hex(&bytes),
         bytes: bytes.len() as u64,
     })
 }
@@ -177,4 +178,31 @@ fn collect_by_extension(root: &Path, extension: &str, out: &mut Vec<PathBuf>) ->
         }
     }
     Ok(())
+}
+
+fn plain_sha256_hex(bytes: &[u8]) -> String {
+    let digest: [u8; 32] = Sha256::digest(bytes).into();
+    hex_from_bytes(&digest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn artifact_file_hash_uses_plain_sha256_not_contract_digest() {
+        let root =
+            std::env::temp_dir().join(format!("calyx-cli-artifact-hash-{}", std::process::id()));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("artifact.bin");
+        let bytes = b"manifest file hash bytes";
+        fs::write(&path, bytes).unwrap();
+
+        let report = artifact("model", path).unwrap();
+        let plain = plain_sha256_hex(bytes);
+        let contract = hex_from_bytes(&sha256_digest(&[bytes]));
+
+        assert_eq!(report.sha256, plain);
+        assert_ne!(report.sha256, contract);
+    }
 }
