@@ -165,6 +165,8 @@ fn measure_algorithmic(
 ) -> Result<SlotVector> {
     Ok(match lens {
         AlgorithmicPanelLens::ByteFeatures => sparse_keywords(shape, &row.content)?,
+        AlgorithmicPanelLens::AstStyle => ast_style(&row.content),
+        AlgorithmicPanelLens::SparseKeywords => sparse_keywords(shape, &row.content)?,
         AlgorithmicPanelLens::TemporalRecent => SlotVector::Dense {
             dim: 1,
             data: vec![1.0 / (row.row_num as f32 + 1.0)],
@@ -211,6 +213,25 @@ fn sparse_keywords(shape: SlotShape, bytes: &[u8]) -> Result<SlotVector> {
             })
             .collect(),
     })
+}
+
+fn ast_style(bytes: &[u8]) -> SlotVector {
+    let text = String::from_utf8_lossy(bytes);
+    let len = bytes.len().max(1) as f32;
+    let count = |needle: &str| text.matches(needle).count() as f32 / len;
+    SlotVector::Dense {
+        dim: 8,
+        data: vec![
+            count("fn"),
+            count("let"),
+            count("struct"),
+            count("impl"),
+            bytes.iter().filter(|b| matches!(b, b'{' | b'}')).count() as f32 / len,
+            bytes.iter().filter(|b| **b == b';').count() as f32 / len,
+            bytes.iter().filter(|b| **b == b'(').count() as f32 / len,
+            bytes.iter().filter(|b| **b == b'\n').count() as f32 / len,
+        ],
+    }
 }
 
 fn vector_for_shape<T: RowBytes>(shape: SlotShape, row: &T, seed: &[u8]) -> Result<SlotVector> {

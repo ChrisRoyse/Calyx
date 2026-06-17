@@ -304,6 +304,65 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
 }
 
 #[test]
+fn algorithmic_manifest_supports_sparse_code_lenses_without_artifacts() {
+    let root = temp_root("algorithmic-sparse-code");
+    let sparse = LensForgeManifest {
+        name: "code-sparse-keywords".to_string(),
+        modality: Modality::Code,
+        runtime: "algorithmic:sparse-keywords".to_string(),
+        dim: 512,
+        dtype: "f32".to_string(),
+        weights_sha256: String::new(),
+        artifact_set_sha256: None,
+        files: Vec::new(),
+        pooling: "term-frequency".to_string(),
+        norm: "none".to_string(),
+        source_hf_id: "calyx/algorithmic-sparse-keywords".to_string(),
+        endpoint: None,
+        license: Some("apache-2.0".to_string()),
+        non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
+    };
+    let ast = LensForgeManifest {
+        name: "code-ast-style".to_string(),
+        modality: Modality::Code,
+        runtime: "algorithmic:ast-style".to_string(),
+        dim: 8,
+        dtype: "f32".to_string(),
+        weights_sha256: String::new(),
+        artifact_set_sha256: None,
+        files: Vec::new(),
+        pooling: "ast-style".to_string(),
+        norm: "none".to_string(),
+        source_hf_id: "calyx/algorithmic-ast-style".to_string(),
+        endpoint: None,
+        license: Some("apache-2.0".to_string()),
+        non_commercial: false,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
+    };
+
+    let sparse_spec = lens_spec_from_manifest_with_license_override(&sparse, &root, false).unwrap();
+    let ast_spec = lens_spec_from_manifest_with_license_override(&ast, &root, false).unwrap();
+
+    assert_eq!(sparse_spec.output, SlotShape::Sparse(512));
+    assert_eq!(sparse_spec.modality, Modality::Code);
+    assert!(matches!(
+        sparse_spec.runtime,
+        LensRuntime::Algorithmic { ref kind } if kind == "sparse-keywords"
+    ));
+    assert_eq!(ast_spec.output, SlotShape::Dense(8));
+    assert!(matches!(
+        ast_spec.runtime,
+        LensRuntime::Algorithmic { ref kind } if kind == "ast-style"
+    ));
+    assert_ne!(sparse_spec.weights_sha256, [0_u8; 32]);
+}
+
+#[test]
 fn noncommercial_manifest_requires_explicit_allow_flag() {
     let root = temp_root("adapter-license");
     let adapter = write(

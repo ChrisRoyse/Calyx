@@ -9,7 +9,7 @@ pub fn text_default() -> PanelTemplate {
         tei("E1_semantic", SlotShape::Dense(768), Modality::Text),
         alg(
             "keyword_splade",
-            AlgorithmicPanelLens::ByteFeatures,
+            AlgorithmicPanelLens::SparseKeywords,
             SlotShape::Sparse(30_522),
             Modality::Text,
         ),
@@ -44,14 +44,25 @@ pub fn code_default() -> PanelTemplate {
     ]
     .into_iter()
     .map(|name| {
-        alg(
-            name,
-            AlgorithmicPanelLens::ByteFeatures,
-            SlotShape::Dense(16),
-            Modality::Code,
-        )
+        let lens = if name == "ast" {
+            AlgorithmicPanelLens::AstStyle
+        } else {
+            AlgorithmicPanelLens::ByteFeatures
+        };
+        let output = if name == "ast" {
+            SlotShape::Dense(8)
+        } else {
+            SlotShape::Dense(16)
+        };
+        alg(name, lens, output, Modality::Code)
     })
     .collect::<Vec<_>>();
+    slots.push(alg(
+        "lexical_sparse",
+        AlgorithmicPanelLens::SparseKeywords,
+        SlotShape::Sparse(30_522),
+        Modality::Code,
+    ));
     append_temporal(&mut slots);
     PanelTemplate {
         name: "code-default".to_string(),

@@ -4,6 +4,7 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
+use calyx_core::SlotShape;
 use serde::Serialize;
 use serde_json::json;
 
@@ -26,7 +27,8 @@ pub(crate) struct CorpusBuildEvidence {
 pub(crate) struct LensEvidence {
     pub(crate) name: String,
     pub(crate) runtime: String,
-    pub(crate) dim: u32,
+    pub(crate) output_shape: String,
+    pub(crate) assay_projection: String,
     pub(crate) manifest: String,
     pub(crate) vram_mb: f32,
     pub(crate) ram_mb: f32,
@@ -172,7 +174,8 @@ fn lens_evidence(lens: &MeasuredLens) -> LensEvidence {
     LensEvidence {
         name: lens.name.clone(),
         runtime: lens.runtime.clone(),
-        dim: lens.dim,
+        output_shape: shape_text(lens.output),
+        assay_projection: lens.assay_projection.to_string(),
         manifest: display(&lens.manifest),
         vram_mb: lens.cost.vram_mb,
         ram_mb: lens.cost.ram_mb,
@@ -204,6 +207,14 @@ fn display_final(request: &CorpusBuildRequest, file: &str) -> String {
 
 fn display(path: &Path) -> String {
     path.display().to_string()
+}
+
+fn shape_text(shape: SlotShape) -> String {
+    match shape {
+        SlotShape::Dense(dim) => format!("dense:{dim}"),
+        SlotShape::Sparse(dim) => format!("sparse:{dim}"),
+        SlotShape::Multi { token_dim } => format!("multi:{token_dim}"),
+    }
 }
 
 fn io_error(error: std::io::Error) -> String {

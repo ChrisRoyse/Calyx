@@ -39,6 +39,8 @@ pub enum PanelLensRuntime {
 #[serde(rename_all = "snake_case")]
 pub enum AlgorithmicPanelLens {
     ByteFeatures,
+    AstStyle,
+    SparseKeywords,
     TemporalRecent,
     TemporalPeriodic,
     TemporalPositional,
@@ -253,5 +255,32 @@ mod tests {
 
         assert_eq!(style.output, SlotShape::Dense(768));
         assert_eq!(style.modality, Modality::Text);
+    }
+
+    #[test]
+    fn code_default_declares_ast_and_sparse_lexical_lenses() {
+        let slots = code_default().slots;
+        let ast = slots.iter().find(|slot| slot.name == "ast").unwrap();
+        let lexical = slots
+            .iter()
+            .find(|slot| slot.name == "lexical_sparse")
+            .unwrap();
+
+        assert_eq!(ast.output, SlotShape::Dense(8));
+        assert_eq!(ast.modality, Modality::Code);
+        assert!(matches!(
+            ast.runtime,
+            PanelLensRuntime::Algorithmic {
+                lens: AlgorithmicPanelLens::AstStyle
+            }
+        ));
+        assert_eq!(lexical.output, SlotShape::Sparse(30_522));
+        assert_eq!(lexical.modality, Modality::Code);
+        assert!(matches!(
+            lexical.runtime,
+            PanelLensRuntime::Algorithmic {
+                lens: AlgorithmicPanelLens::SparseKeywords
+            }
+        ));
     }
 }
