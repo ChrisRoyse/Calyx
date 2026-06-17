@@ -1,4 +1,10 @@
-use std::collections::BTreeMap;
+#[path = "persisted/filter.rs"]
+mod filter;
+#[cfg(test)]
+#[path = "persisted/tests.rs"]
+mod tests;
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -6,8 +12,9 @@ use std::path::{Path, PathBuf};
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector, VaultStore};
+use calyx_sextant::QueryFilters;
 use calyx_sextant::index::{
-    DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, IndexSearchHit, SextantIndex,
+    DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, IndexSearchHit, SextantIndex, ranked,
 };
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +29,8 @@ const MANIFEST_NAME: &str = "manifest.json";
 pub(super) struct SearchIndexManifest {
     format: String,
     base_seq: u64,
+    #[serde(default)]
+    filter: Option<FilterIndexEntry>,
     slots: Vec<SearchIndexEntry>,
 }
 
@@ -41,6 +50,14 @@ struct SlotIdMap {
     format: String,
     slot: u16,
     ids: Vec<CxId>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct FilterIndexEntry {
+    built_at_seq: u64,
+    len: usize,
+    index_rel: String,
+    sha256: String,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +144,62 @@ impl PersistedSearchIndexes {
             .map_err(Into::into)
     }
 
+    pub(super) fn search_filtered(
+        &self,
+        slot: SlotId,
+        query: &SlotVector,
+        k: usize,
+        candidates: &BTreeSet<CxId>,
+    ) -> CliResult<Vec<IndexSearchHit>> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let SlotVector::Dense { dim, data } = query else {
+            return Err(stale(format!(
+                "persistent filtered search currently supports dense ANN slots only; slot {slot} query is not dense"
+            )));
+        };
+        let Some(entry) = self.entry(slot) else {
+            return Ok(Vec::new());
+        };
+        if entry.kind != "diskann" {
+            return Err(stale(format!(
+                "persistent slot {slot} index kind {} is not diskann",
+                entry.kind
+            )));
+        }
+        if entry.dim != *dim {
+            return Err(stale(format!(
+                "persistent slot {slot} index dim {} != query dim {dim}; reingest/backfill the vault",
+                entry.dim
+            )));
+        }
+        let ids = self.read_ids(entry)?;
+        if ids.len() != entry.len {
+            return Err(stale(format!(
+                "persistent slot {slot} id map len {} != manifest len {}",
+                ids.len(),
+                entry.len
+            )));
+        }
+        let graph = self.vault_dir.join(&entry.graph_rel);
+        let mut index = DiskAnnSearch::open(slot, graph, ids, None, search_params(k.max(64)))?;
+        index.set_base_seq(entry.base_seq());
+        exact_filtered_hits(&index, data, k, candidates)
+    }
+
+    pub(super) fn filter_candidates(
+        &self,
+        filters: &QueryFilters,
+    ) -> CliResult<Option<BTreeSet<CxId>>> {
+        filter::candidates(
+            &self.vault_dir,
+            self.manifest.filter.as_ref(),
+            self.manifest.base_seq,
+            filters,
+        )
+    }
+
     pub(super) fn max_len(&self) -> usize {
         self.manifest
             .slots
@@ -170,6 +243,58 @@ impl SearchIndexEntry {
     }
 }
 
+fn exact_filtered_hits(
+    index: &DiskAnnSearch,
+    query: &[f32],
+    k: usize,
+    candidates: &BTreeSet<CxId>,
+) -> CliResult<Vec<IndexSearchHit>> {
+    if k == 0 {
+        return Ok(Vec::new());
+    }
+    let mut scored = Vec::new();
+    for cx_id in candidates {
+        let Some(vector) = index.vector(*cx_id) else {
+            continue;
+        };
+        let Some(values) = vector.as_dense() else {
+            return Err(stale(format!(
+                "persistent filtered search candidate {cx_id} is not dense; rebuild the vault search indexes"
+            )));
+        };
+        if values.len() != query.len() {
+            return Err(stale(format!(
+                "persistent filtered search candidate {cx_id} dim {} != query dim {}; rebuild the vault search indexes",
+                values.len(),
+                query.len()
+            )));
+        }
+        scored.push((*cx_id, cosine(query, values)));
+    }
+    scored.sort_by(|left, right| {
+        right
+            .1
+            .total_cmp(&left.1)
+            .then_with(|| left.0.to_string().cmp(&right.0.to_string()))
+    });
+    scored.truncate(k);
+    Ok(ranked(scored))
+}
+
+fn cosine(left: &[f32], right: &[f32]) -> f32 {
+    let (mut dot, mut left_l2, mut right_l2) = (0.0, 0.0, 0.0);
+    for (left, right) in left.iter().zip(right) {
+        dot += left * right;
+        left_l2 += left * left;
+        right_l2 += right * right;
+    }
+    if left_l2 == 0.0 || right_l2 == 0.0 {
+        0.0
+    } else {
+        dot / (left_l2.sqrt() * right_l2.sqrt())
+    }
+}
+
 pub(super) fn rebuild_for_vault(vault_dir: &Path, vault: &AsterVault) -> CliResult {
     let docs = load_docs(vault)?;
     let summary = rebuild_from_docs(vault_dir, &docs, vault.latest_seq())?;
@@ -194,6 +319,7 @@ fn rebuild_from_docs(
     let manifest = SearchIndexManifest {
         format: MANIFEST_FORMAT.to_string(),
         base_seq,
+        filter: Some(filter::write(vault_dir, &root, docs, base_seq)?),
         slots: entries,
     };
     let manifest_path = manifest_path(vault_dir);
@@ -358,125 +484,4 @@ fn rel(root: &Path, path: &Path) -> CliResult<String> {
 
 fn stale(message: impl Into<String>) -> CliError {
     CalyxError::stale_derived(message).into()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use calyx_core::{CxFlags, InputRef, LedgerRef, Modality, VaultId};
-    use ulid::Ulid;
-
-    #[test]
-    fn rebuild_writes_manifest_graph_idmap_and_searches() {
-        let root = scratch("happy");
-        let docs = docs([
-            (1, vec![1.0, 0.0]),
-            (2, vec![0.0, 1.0]),
-            (3, vec![0.8, 0.2]),
-        ]);
-
-        let summary = rebuild_from_docs(&root, &docs, 7).expect("rebuild");
-        let indexes = PersistedSearchIndexes::open(&root).expect("open");
-        let hits = indexes
-            .search(
-                SlotId::new(0),
-                &SlotVector::Dense {
-                    dim: 2,
-                    data: vec![1.0, 0.0],
-                },
-                2,
-            )
-            .expect("search");
-
-        assert_eq!(summary.slots, 1);
-        assert_eq!(summary.total_rows, 3);
-        assert!(summary.manifest_path.is_file());
-        assert_eq!(hits[0].cx_id, cx(1));
-        assert!(root.join("idx/search/manifest.json").is_file());
-        assert!(root.join("idx/search").read_dir().unwrap().count() >= 2);
-    }
-
-    #[test]
-    fn missing_manifest_fails_closed() {
-        let err = PersistedSearchIndexes::open(&scratch("missing")).unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_STALE_DERIVED");
-        assert!(err.message().contains("manifest missing"));
-    }
-
-    #[test]
-    fn query_dim_mismatch_fails_closed() {
-        let root = scratch("dim");
-        rebuild_from_docs(&root, &docs([(1, vec![1.0, 0.0])]), 2).expect("rebuild");
-        let indexes = PersistedSearchIndexes::open(&root).expect("open");
-
-        let err = indexes
-            .search(
-                SlotId::new(0),
-                &SlotVector::Dense {
-                    dim: 3,
-                    data: vec![1.0, 0.0, 0.0],
-                },
-                1,
-            )
-            .unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_STALE_DERIVED");
-        assert!(err.message().contains("dim 2 != query dim 3"));
-    }
-
-    fn docs<const N: usize>(rows: [(u8, Vec<f32>); N]) -> BTreeMap<CxId, Constellation> {
-        rows.into_iter()
-            .map(|(seed, vector)| {
-                let id = cx(seed);
-                (id, constellation(id, vector))
-            })
-            .collect()
-    }
-
-    fn constellation(cx_id: CxId, vector: Vec<f32>) -> Constellation {
-        let mut slots = BTreeMap::new();
-        slots.insert(
-            SlotId::new(0),
-            SlotVector::Dense {
-                dim: vector.len() as u32,
-                data: vector,
-            },
-        );
-        Constellation {
-            cx_id,
-            vault_id: VaultId::from_ulid(Ulid::from_bytes([9; 16])),
-            panel_version: 1,
-            created_at: 1,
-            input_ref: InputRef {
-                hash: [0; 32],
-                pointer: None,
-                redacted: false,
-            },
-            modality: Modality::Text,
-            slots,
-            scalars: BTreeMap::new(),
-            metadata: BTreeMap::new(),
-            anchors: Vec::new(),
-            provenance: LedgerRef {
-                seq: 1,
-                hash: [1; 32],
-            },
-            flags: CxFlags::default(),
-        }
-    }
-
-    fn cx(seed: u8) -> CxId {
-        CxId::from_bytes([seed; 16])
-    }
-
-    fn scratch(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "calyx-cli-persisted-search-{tag}-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).expect("scratch");
-        dir
-    }
 }

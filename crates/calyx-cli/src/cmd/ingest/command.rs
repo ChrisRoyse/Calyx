@@ -60,6 +60,7 @@ fn anchor_command(args: AnchorArgs) -> CliResult {
     };
     let ledger_seq = append_anchor_ledger(&vault, cx_id, &kind, anchor)?;
     vault.flush()?;
+    rebuild_persistent_indexes(&resolved.path, &vault)?;
     print_json(&AnchorReport {
         status: "anchored",
         cx_id: cx_id.to_string(),

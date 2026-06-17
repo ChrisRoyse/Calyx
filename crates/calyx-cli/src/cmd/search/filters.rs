@@ -1,5 +1,8 @@
+#[cfg(test)]
 use calyx_core::{AnchorValue, Constellation};
-use calyx_sextant::{AnchorPredicate, MetadataPredicate, QueryFilters, ScalarOp, ScalarPredicate};
+use calyx_sextant::QueryFilters;
+#[cfg(test)]
+use calyx_sextant::{AnchorPredicate, MetadataPredicate, ScalarOp, ScalarPredicate};
 
 use crate::error::{CliError, CliResult};
 
@@ -13,6 +16,7 @@ pub(super) fn parse(raw: Option<&str>) -> CliResult<QueryFilters> {
     Ok(filters)
 }
 
+#[cfg(test)]
 pub(super) fn matches(cx: &Constellation, filters: &QueryFilters) -> bool {
     filters
         .scalars
@@ -28,6 +32,7 @@ pub(super) fn matches(cx: &Constellation, filters: &QueryFilters) -> bool {
             .all(|filter| metadata_matches(cx, filter))
 }
 
+#[cfg(test)]
 fn scalar_matches(cx: &Constellation, filter: &ScalarPredicate) -> bool {
     cx.scalars
         .get(&filter.name)
@@ -40,6 +45,7 @@ fn scalar_matches(cx: &Constellation, filter: &ScalarPredicate) -> bool {
         })
 }
 
+#[cfg(test)]
 fn anchor_matches(cx: &Constellation, filter: &AnchorPredicate) -> bool {
     cx.anchors.iter().any(|anchor| {
         anchor.kind == filter.kind
@@ -57,10 +63,12 @@ fn anchor_matches(cx: &Constellation, filter: &AnchorPredicate) -> bool {
     })
 }
 
+#[cfg(test)]
 fn anchor_value_matches(actual: &AnchorValue, expected: &AnchorValue) -> bool {
     actual == expected
 }
 
+#[cfg(test)]
 fn metadata_matches(cx: &Constellation, filter: &MetadataPredicate) -> bool {
     match filter {
         MetadataPredicate::Vault(vault) => cx.vault_id == *vault,
