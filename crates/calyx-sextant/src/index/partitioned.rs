@@ -39,7 +39,7 @@ use crate::index::{
     SpannCentroidIndex, build_centroids,
 };
 use assignment::{
-    AssignmentRouting, AssignmentSink, read_ids, stream_assign_to_ids,
+    AssignmentRouting, AssignmentSink, read_ids, stream_assign_to_ids_bounded,
     stream_assign_to_ids_with_routing,
 };
 use balance::balance_region_files;
@@ -53,6 +53,10 @@ const IDX_MIX: u64 = 0x9E37_79B9_7F4A_7C15;
 /// Floor for the per-region size cap used by region balancing (#713); regions are
 /// never split below this even when the mean region size is tiny.
 const MIN_REGION_CAP: usize = 2_048;
+/// Final assignment only places a row into one of the regions the routing layer
+/// can return at normal low-probe search settings. If those regions are full, the
+/// build fails closed instead of hiding an unreachable assignment.
+const FINAL_ASSIGNMENT_PROBE: usize = 32;
 
 /// Deterministic, per-index row generation. Independent of any other index, so
 /// rows can be streamed/regenerated per region without materializing `0..idx`.
@@ -352,14 +356,23 @@ pub fn build_partitioned_vault_from_source_with_backend(
         SpannCentroidIndex::from_parts(dim as u32, final_centroids, Vec::new(), Vec::new())?;
     centroids.save(root.join(CENTROID_DIR))?;
 
-    // 2c. Re-assign every cx against the FINAL centroids through the EXACT routing a
-    //     query uses (`assign_hnsw` == `nearest_centroids` top-1), and spool that
-    //     compact region->cx mapping directly to per-region `.ids` files. These files
-    //     are the build source of truth: graph construction reads them back instead of
-    //     holding final buckets in heap, and interrupted builds leave restartable
-    //     assignment files behind (#709/#711).
-    let region_ids =
-        stream_assign_to_ids(root, AssignmentSink::Final, &centroids, source, p.chunk)?;
+    // 2c. Re-assign every cx against the FINAL centroids, but keep the result
+    //     capacity-bounded. Plain nearest-centroid rebucketing can merge split
+    //     sub-centroids back into a huge natural cell, recreating the #713 build
+    //     tail. Bounded assignment chooses the nearest still-open routed centroid
+    //     from the normal low-probe candidate set; if no routed candidate has
+    //     capacity, the build fails closed instead of creating an unreachable row.
+    let final_mean = (n_cx as usize).div_ceil(centroids.centroid_count().max(1));
+    let final_cap = final_mean.saturating_mul(2).max(MIN_REGION_CAP);
+    let region_ids = stream_assign_to_ids_bounded(
+        root,
+        AssignmentSink::Final,
+        &centroids,
+        source,
+        p.chunk,
+        final_cap,
+        FINAL_ASSIGNMENT_PROBE,
+    )?;
     let region_build_parallelism =
         effective_region_build_parallelism(p.region_build_parallelism, region_ids.len())?;
 
