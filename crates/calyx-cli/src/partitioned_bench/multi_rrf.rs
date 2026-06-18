@@ -21,6 +21,8 @@ use crate::error::{CliError, CliResult};
 mod a35;
 #[path = "multi_rrf/timeline.rs"]
 mod timeline;
+#[path = "multi_rrf/tuner.rs"]
+mod tuner;
 
 const DEFAULT_TRUTH_DEPTH: usize = 64;
 
@@ -35,6 +37,8 @@ struct Args {
     recall_floor: Option<f32>,
     truth_depth: Option<usize>,
     out: Option<PathBuf>,
+    anneal_vault: Option<PathBuf>,
+    tuner_slo_us: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -71,6 +75,8 @@ impl Args {
         let mut recall_floor = None;
         let mut truth_depth = None;
         let mut out = None;
+        let mut anneal_vault = None;
+        let mut tuner_slo_us = None;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -88,6 +94,14 @@ impl Args {
                 "--recall-floor" => recall_floor = Some(super::parse_recall_floor(&next()?)?),
                 "--truth-depth" => truth_depth = Some(parse(&next()?, "--truth-depth")?),
                 "--out" => out = Some(PathBuf::from(next()?)),
+                "--anneal-vault" => anneal_vault = Some(PathBuf::from(next()?)),
+                "--tuner-slo-us" => {
+                    let value = parse(&next()?, "--tuner-slo-us")?;
+                    if value == 0 {
+                        return Err(CliError::usage("--tuner-slo-us must be > 0"));
+                    }
+                    tuner_slo_us = Some(value);
+                }
                 other => return Err(CliError::usage(format!("unknown flag: {other}"))),
             }
         }
@@ -105,6 +119,8 @@ impl Args {
             recall_floor,
             truth_depth,
             out,
+            anneal_vault,
+            tuner_slo_us,
         })
     }
 }
@@ -173,7 +189,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             fused_hits_for_truth.push(fused_hit_ids(&fused, args.k));
         }
     }
-    let (fused_recall, per_slot_recall, best_single, sample_readback) = if truth_n > 0 {
+    let recall = if truth_n > 0 {
         recall_readback(
             &slots,
             truth_n,
@@ -184,10 +200,29 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             timeline.as_ref(),
         )
     } else {
-        (None, Vec::new(), None, Vec::new())
+        RecallReadback::default()
     };
-    enforce_recall_floor(args.recall_floor, truth_n, fused_recall)?;
+    enforce_recall_floor(args.recall_floor, truth_n, recall.fused_recall)?;
     let latency_us = percentiles(&fused_latencies_us);
+    let tuner_status_path = if let Some(vault) = &args.anneal_vault {
+        Some(tuner::write_status(tuner::StatusRequest {
+            vault,
+            latencies_us: &fused_latencies_us[..truth_n],
+            per_query_recall: &recall.per_query_recall,
+            region_beam: args.region_beam,
+            n_probe: args.n_probe,
+            tuner_slo_us: args.tuner_slo_us,
+            recall_floor: args.recall_floor,
+            report_path: args.out.as_deref(),
+            report_latency_us: &latency_us,
+            fused_recall: recall.fused_recall,
+            lens_count: slots.len(),
+            queries: n,
+            k: args.k,
+        })?)
+    } else {
+        None
+    };
     let report = json!({
         "trigger": "calyx bench partitioned-rrf",
         "mode": "real_multi_slot_rrf",
@@ -204,13 +239,14 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "truth_depth": truth_depth,
         "ground_truth_queries": truth_n,
         "latency_us": latency_us.clone(),
-        "fused_ground_truth_recall_at_k": fused_recall,
-        "fused_result": a35::fused_result(fused_recall, &latency_us, &sample_readback),
-        "best_single_lens_recall_vs_fused_truth": best_single,
-        "fusion_matches_or_beats_best_single": fused_recall.zip(best_single).map(|(fused, single)| fused + f32::EPSILON >= single),
-        "per_slot_recall_vs_fused_truth": per_slot_recall,
-        "sample_readback": sample_readback,
+        "fused_ground_truth_recall_at_k": recall.fused_recall,
+        "fused_result": a35::fused_result(recall.fused_recall, &latency_us, &recall.sample_readback),
+        "best_single_lens_recall_vs_fused_truth": recall.best_single,
+        "fusion_matches_or_beats_best_single": recall.fused_recall.zip(recall.best_single).map(|(fused, single)| fused + f32::EPSILON >= single),
+        "per_slot_recall_vs_fused_truth": recall.per_slot_recall,
+        "sample_readback": recall.sample_readback,
         "recall_floor": args.recall_floor,
+        "tuner_status_path": tuner_status_path,
     });
     let bytes = serde_json::to_vec_pretty(&report)?;
     if let Some(path) = &args.out {
@@ -218,6 +254,15 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     }
     println!("{}", String::from_utf8(bytes).expect("json is utf8"));
     Ok(())
+}
+
+#[derive(Default)]
+struct RecallReadback {
+    fused_recall: Option<f32>,
+    per_slot_recall: Vec<serde_json::Value>,
+    best_single: Option<f32>,
+    sample_readback: Vec<serde_json::Value>,
+    per_query_recall: Vec<f32>,
 }
 
 fn load_plan(path: &Path) -> CliResult<Plan> {
@@ -269,12 +314,7 @@ fn recall_readback(
     fused_hits: &[Vec<u64>],
     single_hits: &BTreeMap<SlotId, Vec<Vec<u64>>>,
     timeline: Option<&timeline::Timeline>,
-) -> (
-    Option<f32>,
-    Vec<serde_json::Value>,
-    Option<f32>,
-    Vec<serde_json::Value>,
-) {
+) -> RecallReadback {
     let mut single_found: BTreeMap<SlotId, usize> = slots
         .iter()
         .map(|slot| (slot_id(slot.spec.slot), 0))
@@ -282,6 +322,7 @@ fn recall_readback(
     let mut fused_found = 0usize;
     let mut total = 0usize;
     let mut sample_readback = Vec::new();
+    let mut per_query_recall = Vec::with_capacity(truth_n);
     for query_idx in 0..truth_n {
         let mut exact_per_slot = BTreeMap::new();
         let mut exact_slot_rows = Vec::new();
@@ -319,11 +360,14 @@ fn recall_readback(
             }
             sample_readback.push(row);
         }
-        total += truth.len();
-        fused_found += fused_hits[query_idx]
+        let truth_len = truth.len();
+        let query_found = fused_hits[query_idx]
             .iter()
             .filter(|id| truth.contains(id))
             .count();
+        total += truth_len;
+        fused_found += query_found;
+        per_query_recall.push(query_found as f32 / truth_len.max(1) as f32);
         for (slot, rows) in single_hits {
             let found = rows[query_idx]
                 .iter()
@@ -346,12 +390,13 @@ fn recall_readback(
         .iter()
         .filter_map(|row| row["recall_at_k"].as_f64().map(|value| value as f32))
         .max_by(f32::total_cmp);
-    (
-        Some(fused_found as f32 / denom),
-        per_slot,
-        best,
+    RecallReadback {
+        fused_recall: Some(fused_found as f32 / denom),
+        per_slot_recall: per_slot,
+        best_single: best,
         sample_readback,
-    )
+        per_query_recall,
+    }
 }
 
 fn fuse(per_slot: &BTreeMap<SlotId, Vec<IndexSearchHit>>, k: usize) -> Vec<calyx_sextant::Hit> {
@@ -446,50 +491,5 @@ fn low_u64(cx_id: CxId) -> u64 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn args_parse_plan_and_truth_depth() {
-        let args = Args::parse(&strings([
-            "--plan",
-            "plan.json",
-            "--n",
-            "12",
-            "--k",
-            "4",
-            "--n-probe",
-            "3",
-            "--region-beam",
-            "32",
-            "--ground-truth",
-            "5",
-            "--truth-depth",
-            "40",
-            "--recall-floor",
-            "0.8",
-        ]))
-        .unwrap();
-
-        assert_eq!(args.plan, PathBuf::from("plan.json"));
-        assert_eq!(args.n, 12);
-        assert_eq!(args.k, 4);
-        assert_eq!(args.truth_depth, Some(40));
-        assert_eq!(args.recall_floor, Some(0.8));
-        assert_eq!(args.out, None);
-    }
-
-    #[test]
-    fn to_index_hits_preserves_rank_and_cx_id() {
-        let hits = to_index_hits(vec![(9, 0.1), (3, 0.2)]);
-
-        assert_eq!(hits[0].rank, 1);
-        assert_eq!(low_u64(hits[0].cx_id), 9);
-        assert_eq!(hits[1].rank, 2);
-        assert_eq!(low_u64(hits[1].cx_id), 3);
-    }
-
-    fn strings(items: impl IntoIterator<Item = &'static str>) -> Vec<String> {
-        items.into_iter().map(str::to_string).collect()
-    }
-}
+#[path = "multi_rrf/tests.rs"]
+mod tests;
