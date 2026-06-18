@@ -75,8 +75,10 @@ fn partitioned_self_recall_and_region_restriction() {
         chunk: 1_000,
         m_max: 16,
         ef_construction: 64,
+        region_build_parallelism: 2,
     };
     let manifest = build_partitioned_vault(&dir, p).expect("build");
+    assert_eq!(manifest.region_build_parallelism, 2);
     let total: usize = manifest.regions.iter().map(|r| r.count).sum();
     assert_eq!(total, 5_000, "all cx partitioned exactly once");
 
@@ -130,8 +132,10 @@ fn search_readback_reports_only_touched_region_graphs() {
         chunk: 128,
         m_max: 12,
         ef_construction: 48,
+        region_build_parallelism: 2,
     };
     let manifest = build_partitioned_vault(&dir, p).expect("build");
+    assert_eq!(manifest.region_build_parallelism, 2);
     let search = PartitionedSearch::open(&dir).expect("open");
     let readback = search
         .search_with_readback(&gen_row(p.seed, 17, p.dim), 5, 3, 32)
@@ -149,6 +153,53 @@ fn search_readback_reports_only_touched_region_graphs() {
         assert!(dir.join(&meta.graph_rel).is_file());
         assert!(dir.join(&meta.ids_rel).is_file());
     }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn region_build_parallelism_is_effective_cap_and_zero_rejected() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-cap-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let mut p = PartitionBuildParams {
+        n_cx: 256,
+        dim: 16,
+        n_regions: 4,
+        seed: 23,
+        sample: 256,
+        chunk: 64,
+        m_max: 8,
+        ef_construction: 32,
+        region_build_parallelism: 64,
+    };
+
+    let manifest = build_partitioned_vault(&dir, p).expect("build");
+    assert_eq!(
+        manifest.region_build_parallelism,
+        manifest.regions.len().max(1),
+        "cap larger than region count is reduced to actual buildable regions"
+    );
+    let total: usize = manifest.regions.iter().map(|r| r.count).sum();
+    assert_eq!(total, p.n_cx as usize);
+    let raw_sidecars = manifest
+        .regions
+        .iter()
+        .filter(|meta| dir.join(&meta.graph_rel).with_extension("raw").exists())
+        .count();
+    assert_eq!(
+        raw_sidecars, 0,
+        "partitioned search does not rescore from raw sidecars"
+    );
+    assert!(
+        !dir.join(&manifest.root_graph_rel)
+            .with_extension("raw")
+            .exists()
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+    p.region_build_parallelism = 0;
+    let err = build_partitioned_vault(&dir, p).unwrap_err();
+    assert_eq!(err.code, crate::error::CALYX_INDEX_INVALID_PARAMS);
+    assert!(err.message.contains("region_build_parallelism"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

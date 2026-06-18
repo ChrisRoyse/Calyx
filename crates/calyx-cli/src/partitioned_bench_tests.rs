@@ -18,6 +18,24 @@ fn partitioned_search_parses_recall_floor() {
 }
 
 #[test]
+fn partitioned_build_parses_region_build_parallelism() {
+    let args = strings([
+        "--vault",
+        "vault",
+        "--n-cx",
+        "1000",
+        "--regions",
+        "8",
+        "--region-build-parallelism",
+        "3",
+    ]);
+
+    let parsed = BuildArgs::parse(&args).unwrap();
+
+    assert_eq!(parsed.p.region_build_parallelism, 3);
+}
+
+#[test]
 fn recall_floor_requires_ground_truth_readback() {
     let err = enforce_recall_floor(Some(0.85), 0, None).unwrap_err();
 

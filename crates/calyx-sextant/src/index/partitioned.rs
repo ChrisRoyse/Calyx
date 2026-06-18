@@ -31,7 +31,7 @@ use std::path::Path;
 use calyx_core::{CxId, Result, SlotId};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
-use rayon::prelude::*;
+use rayon::{ThreadPoolBuilder, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{
@@ -100,6 +100,8 @@ pub struct PartitionedManifest {
     pub seed: u64,
     pub m_max: usize,
     pub ef_construction: usize,
+    #[serde(default)]
+    pub region_build_parallelism: usize,
     pub centroids_rel: String,
     pub root_graph_rel: String,
     pub regions: Vec<RegionMeta>,
@@ -118,6 +120,7 @@ pub struct PartitionBuildParams {
     pub chunk: usize,
     pub m_max: usize,
     pub ef_construction: usize,
+    pub region_build_parallelism: usize,
 }
 
 impl PartitionBuildParams {
@@ -131,8 +134,27 @@ impl PartitionBuildParams {
             chunk: 100_000,
             m_max: 32,
             ef_construction: 96,
+            region_build_parallelism: Self::default_region_build_parallelism(n_regions),
         }
     }
+
+    pub fn default_region_build_parallelism(n_regions: usize) -> usize {
+        std::thread::available_parallelism()
+            .map(|threads| threads.get())
+            .unwrap_or(1)
+            .min(n_regions.max(1))
+            .max(1)
+    }
+}
+
+fn effective_region_build_parallelism(requested: usize, region_count: usize) -> Result<usize> {
+    if requested == 0 {
+        return Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_INVALID_PARAMS,
+            "region_build_parallelism must be > 0",
+        ));
+    }
+    Ok(requested.min(region_count.max(1)).max(1))
 }
 
 fn graph_rel(region: u32) -> String {
@@ -240,6 +262,12 @@ pub fn build_partitioned_vault_from_source(
             "partitioned vault requires nonzero source len, dim, n_regions",
         ));
     }
+    if p.region_build_parallelism == 0 {
+        return Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_INVALID_PARAMS,
+            "region_build_parallelism must be > 0",
+        ));
+    }
     std::fs::create_dir_all(root.join(CENTROID_DIR))
         .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
 
@@ -303,14 +331,13 @@ pub fn build_partitioned_vault_from_source(
     //     assignment files behind (#709/#711).
     let region_ids =
         stream_assign_to_ids(root, AssignmentSink::Final, &centroids, source, p.chunk)?;
+    let region_build_parallelism =
+        effective_region_build_parallelism(p.region_build_parallelism, region_ids.len())?;
 
     // 3. Build one DiskANN graph per region (each fits RAM). Regions are built
-    //    in PARALLEL across cores (#706): each region is small and serial row-gen
-    //    + a small-graph Vamana build under-utilizes the machine, so the regions
-    //    themselves are the unit of parallelism. Peak memory is bounded by
-    //    `rayon` thread count x region size (NOT N), preserving the memory-bound
-    //    guarantee. Each region writes to a distinct graph/ids path, so the
-    //    concurrent builds never contend.
+    //    in a LOCAL, capped rayon pool (#706). The cap bounds the number of
+    //    region row buffers that can exist at once and also contains nested
+    //    DiskANN parallelism inside the same worker budget.
     let build_params = DiskAnnBuildParams {
         dim,
         m_max: p.m_max,
@@ -323,50 +350,54 @@ pub fn build_partitioned_vault_from_source(
         rescore_k: 64,
         rescore_from_raw: false,
     };
-    let mut regions: Vec<RegionMeta> = region_ids
-        .par_iter()
-        .map(|meta| -> Result<RegionMeta> {
-            let region = meta.id;
-            let members = read_ids(&root.join(&meta.ids_rel))?;
-            if members.len() != meta.count {
-                return Err(crate::error::sextant_error(
-                    crate::error::CALYX_INDEX_CORRUPT,
-                    format!(
-                        "region {region} ids count {} != assignment count {}",
-                        members.len(),
-                        meta.count
-                    ),
-                ));
-            }
-            // Serial row-gen here: the outer par_iter already saturates cores, so
-            // nesting another parallel gen would only add scheduler overhead.
-            let rows: Vec<(CxId, Vec<f32>)> = members
-                .iter()
-                .map(|&idx| (cx(idx), source.row(idx)))
-                .collect();
-            let graph_path = root.join(graph_rel(region));
-            // NOTE: `build_diskann_graph` parallelizes internally. Running this
-            // outer loop with `par_iter` nests rayon pools; for skewed region sizes
-            // that is actually the safe choice — a few oversized regions still get
-            // full-core builds. A single-thread-per-region scheme stalls badly until
-            // region sizes are balanced (see #713: split oversized regions), which
-            // is the prerequisite for higher build throughput.
-            DiskAnnSearch::build(
-                SlotId::new(0),
-                &graph_path,
-                &rows,
-                build_params,
-                None,
-                search_params,
-            )?;
-            Ok(RegionMeta {
-                id: region,
-                count: members.len(),
-                graph_rel: graph_rel(region),
-                ids_rel: meta.ids_rel.clone(),
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(region_build_parallelism)
+        .thread_name(|idx| format!("calyx-region-build-{idx}"))
+        .build()
+        .map_err(|e| {
+            crate::error::sextant_error(
+                crate::error::CALYX_INDEX_INVALID_PARAMS,
+                format!("build region rayon pool: {e}"),
+            )
+        })?;
+    let mut regions: Vec<RegionMeta> = pool.install(|| {
+        region_ids
+            .par_iter()
+            .map(|meta| -> Result<RegionMeta> {
+                let region = meta.id;
+                let members = read_ids(&root.join(&meta.ids_rel))?;
+                if members.len() != meta.count {
+                    return Err(crate::error::sextant_error(
+                        crate::error::CALYX_INDEX_CORRUPT,
+                        format!(
+                            "region {region} ids count {} != assignment count {}",
+                            members.len(),
+                            meta.count
+                        ),
+                    ));
+                }
+                let rows: Vec<(CxId, Vec<f32>)> = members
+                    .iter()
+                    .map(|&idx| (cx(idx), source.row(idx)))
+                    .collect();
+                let graph_path = root.join(graph_rel(region));
+                DiskAnnSearch::build_without_default_raw_sidecar(
+                    SlotId::new(0),
+                    &graph_path,
+                    &rows,
+                    build_params,
+                    None,
+                    search_params,
+                )?;
+                Ok(RegionMeta {
+                    id: region,
+                    count: members.len(),
+                    graph_rel: graph_rel(region),
+                    ids_rel: meta.ids_rel.clone(),
+                })
             })
-        })
-        .collect::<Result<Vec<RegionMeta>>>()?;
+            .collect::<Result<Vec<RegionMeta>>>()
+    })?;
     // `par_iter().collect()` preserves input order, but make the on-disk manifest
     // order explicit and deterministic regardless of scheduling.
     regions.sort_by_key(|m| m.id);
@@ -379,7 +410,7 @@ pub fn build_partitioned_vault_from_source(
         .enumerate()
         .map(|(i, c)| (cx(i as u64), c.clone()))
         .collect();
-    DiskAnnSearch::build(
+    DiskAnnSearch::build_without_default_raw_sidecar(
         SlotId::new(0),
         root.join(ROOT_GRAPH),
         &centroid_rows,
@@ -396,6 +427,7 @@ pub fn build_partitioned_vault_from_source(
         seed: p.seed,
         m_max: p.m_max,
         ef_construction: p.ef_construction,
+        region_build_parallelism,
         centroids_rel: format!("{CENTROID_DIR}/centroids.spn"),
         root_graph_rel: ROOT_GRAPH.to_string(),
         regions,

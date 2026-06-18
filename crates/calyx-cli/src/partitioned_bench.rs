@@ -54,6 +54,7 @@ impl BuildArgs {
         let mut chunk: Option<usize> = None;
         let mut m_max = 32usize;
         let mut ef = 96usize;
+        let mut region_build_parallelism = None;
         let mut it = args.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -72,6 +73,9 @@ impl BuildArgs {
                 "--chunk" => chunk = Some(parse(&next()?, "--chunk")?),
                 "--m-max" => m_max = parse(&next()?, "--m-max")?,
                 "--ef" => ef = parse(&next()?, "--ef")?,
+                "--region-build-parallelism" => {
+                    region_build_parallelism = Some(parse(&next()?, "--region-build-parallelism")?)
+                }
                 other => return Err(CliError::usage(format!("unknown flag: {other}"))),
             }
         }
@@ -95,6 +99,8 @@ impl BuildArgs {
             chunk: chunk.unwrap_or(100_000),
             m_max,
             ef_construction: ef,
+            region_build_parallelism: region_build_parallelism
+                .unwrap_or_else(|| PartitionBuildParams::default_region_build_parallelism(regions)),
         };
         Ok(Self { vault, vectors, p })
     }
@@ -131,6 +137,7 @@ pub(crate) fn run_build(args: &[String]) -> CliResult {
         "seed": manifest.seed,
         "m_max": manifest.m_max,
         "ef_construction": manifest.ef_construction,
+        "region_build_parallelism": manifest.region_build_parallelism,
         "root_graph_rel": manifest.root_graph_rel,
         "centroids_rel": manifest.centroids_rel,
         "build_seconds": build_secs,
