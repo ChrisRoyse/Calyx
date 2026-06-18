@@ -11,6 +11,7 @@ use calyx_sextant::index::{
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
+use crate::sextant_bench_guard::require_flat_bench_budget;
 
 const MANIFEST_REL: &str = "bench/bench_manifest.json";
 const SEARCH_REPORT_REL: &str = "bench/search-report.json";
@@ -19,6 +20,7 @@ const TUNER_STATUS_REL: &str = "bench/bw_postcutoff_status.json";
 
 pub(crate) fn run_build(args: &[String]) -> CliResult {
     let args = BuildArgs::parse(args)?;
+    require_flat_bench_budget("calyx build-bench-vault", args.n_cx, args.dim)?;
     let vault = build_synthetic_vault(args.n_cx, args.dim, args.slots, args.seed, &args.vault)?;
     let manifest = BenchManifest {
         format: "calyx-sextant-bench-vault-v1".to_string(),
@@ -68,6 +70,7 @@ pub(crate) fn tuner_status(vault: &Path, tuner: &str) -> CliResult {
 fn bench_search(args: &[String]) -> CliResult {
     let args = SearchArgs::parse(args)?;
     let manifest = read_manifest(&args.vault)?;
+    require_flat_bench_budget("calyx bench search", manifest.n_cx, manifest.dim)?;
     let rows = synthetic_dense_rows(manifest.n_cx, manifest.dim, manifest.seed);
     let search = open_kernel_first(&args.vault, &manifest, &rows, args.beamwidth, args.k)?;
     let params = funnel_params(args.beamwidth, args.k, manifest.n_cx);
@@ -126,6 +129,7 @@ fn bench_search(args: &[String]) -> CliResult {
 fn bench_recall(args: &[String]) -> CliResult {
     let args = RecallArgs::parse(args)?;
     let manifest = read_manifest(&args.vault)?;
+    require_flat_bench_budget("calyx bench recall", manifest.n_cx, manifest.dim)?;
     let rows = synthetic_dense_rows(manifest.n_cx, manifest.dim, manifest.seed);
     let ids = rows.iter().map(|(cx, _)| *cx).collect::<Vec<_>>();
     let search = DiskAnnSearch::open(
@@ -203,7 +207,6 @@ fn diskann_params(width: usize) -> DiskAnnSearchParams {
         rescore_from_raw: false,
     }
 }
-
 fn funnel_params(beamwidth: usize, k: usize, n_cx: usize) -> FunnelParams {
     FunnelParams {
         n_region_beam: beamwidth.max(k).max(1),
@@ -212,7 +215,6 @@ fn funnel_params(beamwidth: usize, k: usize, n_cx: usize) -> FunnelParams {
         ..FunnelParams::default()
     }
 }
-
 fn query_indices(n: usize, n_cx: usize, seed: u64) -> Vec<usize> {
     (0..n)
         .map(|idx| ((seed as usize).wrapping_add(idx * 7_919)) % n_cx)
