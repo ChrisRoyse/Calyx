@@ -9,6 +9,7 @@ use calyx_sextant::fusion;
 use calyx_sextant::index::partitioned::cx;
 use calyx_sextant::index::{DenseVectorFile, PartitionedSearch};
 use calyx_sextant::{FusionContext, FusionStrategy, IndexSearchHit};
+use rayon::prelude::*;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -131,20 +132,25 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     for query_idx in 0..n {
         let started = Instant::now();
         let mut per_slot = BTreeMap::new();
-        for slot in &slots {
-            let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
-            let raw_hits = slot
-                .search
-                .search(&query, truth_depth, args.n_probe, args.region_beam)
-                .map_err(CliError::Calyx)?;
-            let hits = to_index_hits(raw_hits);
+        let slot_hits = slots
+            .par_iter()
+            .map(|slot| {
+                let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+                let raw_hits = slot
+                    .search
+                    .search(&query, truth_depth, args.n_probe, args.region_beam)
+                    .map_err(CliError::Calyx)?;
+                Ok((slot_id(slot.spec.slot), to_index_hits(raw_hits)))
+            })
+            .collect::<CliResult<Vec<_>>>()?;
+        for (slot, hits) in slot_hits {
             if query_idx < truth_n {
                 single_hits_for_truth
-                    .get_mut(&slot_id(slot.spec.slot))
+                    .get_mut(&slot)
                     .expect("slot seeded")
                     .push(hit_ids(&hits, args.k));
             }
-            per_slot.insert(slot_id(slot.spec.slot), hits);
+            per_slot.insert(slot, hits);
         }
         let fused = fuse(&per_slot, args.k);
         fused_latencies_us
