@@ -9,6 +9,7 @@ use calyx_core::{AnchorKind, Placement, SlotId, VaultId};
 use serde::Serialize;
 use ulid::Ulid;
 
+use super::calyx_error_detail;
 use super::comparison::{PanelComparisonReport, compare_density_panel};
 use super::correlation::lens_pair_correlation_evidence;
 use super::cost::LensCostMap;
@@ -123,7 +124,7 @@ pub(crate) fn evaluate_corpus(
             &anchor,
             Some(&corpus.anchor_groups),
         )
-        .map_err(|error| error.code.to_string())?;
+        .map_err(calyx_error_detail)?;
         measurements.push(LensMeasurement {
             index,
             name: lens.name.clone(),
@@ -358,7 +359,7 @@ fn panel_mi(
         }
     }
     let report = logistic_probe_mi_multiseed(&joint, anchor, Some(&corpus.anchor_groups))
-        .map_err(|error| error.code.to_string())?;
+        .map_err(calyx_error_detail)?;
     Ok(report.estimate)
 }
 
@@ -384,7 +385,7 @@ fn max_corr_evidence(
 fn stratify(corpus: &AssayCorpus, anchor: &[bool]) -> Result<calyx_assay::StratifiedBits, String> {
     let global =
         logistic_probe_mi_multiseed(&corpus.lens_vectors[0], anchor, Some(&corpus.anchor_groups))
-            .map_err(|error| error.code.to_string())?
+            .map_err(calyx_error_detail)?
             .estimate
             .bits;
     let mut classes: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
@@ -441,15 +442,14 @@ fn persist_estimates(
             measurement.index as u64,
         );
     }
-    let mut router = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)
-        .map_err(|error| error.code.to_string())?;
+    let mut router =
+        CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
     let persisted = store
         .persist_to_aster(&mut router)
-        .map_err(|error| error.code.to_string())?;
+        .map_err(calyx_error_detail)?;
     drop(router);
-    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)
-        .map_err(|error| error.code.to_string())?;
-    let loaded = AssayStore::load_from_aster(&reopened).map_err(|error| error.code.to_string())?;
+    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
+    let loaded = AssayStore::load_from_aster(&reopened).map_err(calyx_error_detail)?;
     Ok((persisted, loaded.len()))
 }
 

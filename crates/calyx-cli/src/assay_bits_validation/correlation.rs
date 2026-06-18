@@ -1,5 +1,7 @@
 use calyx_assay::{CorrelationEvidence, DEFAULT_BOOTSTRAP_RESAMPLES, bootstrap_mean_ci};
 
+use super::calyx_error_detail;
+
 const CORRELATION_BOOTSTRAP_SEED: u64 = 20_260_618;
 
 pub(crate) fn lens_pair_correlation_evidence(
@@ -8,7 +10,7 @@ pub(crate) fn lens_pair_correlation_evidence(
 ) -> Result<CorrelationEvidence, String> {
     let values = row_correlations(a, b);
     if values.is_empty() {
-        return CorrelationEvidence::new(0.0, 0.0, 0.0).map_err(|error| error.code.to_string());
+        return CorrelationEvidence::new(0.0, 0.0, 0.0).map_err(calyx_error_detail);
     }
     let point = values.iter().sum::<f32>() / values.len() as f32;
     let ci = bootstrap_mean_ci(
@@ -18,7 +20,7 @@ pub(crate) fn lens_pair_correlation_evidence(
     )
     .ok_or_else(|| "CALYX_ASSAY_UNRESOLVED: correlation CI requires samples".to_string())?;
     CorrelationEvidence::new(point.max(0.0), ci.ci_low.max(0.0), ci.ci_high.max(0.0))
-        .map_err(|error| error.code.to_string())
+        .map_err(calyx_error_detail)
 }
 
 fn row_correlations(a: &[Vec<f32>], b: &[Vec<f32>]) -> Vec<f32> {
