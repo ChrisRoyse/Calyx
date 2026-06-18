@@ -114,6 +114,62 @@ fn bounded_final_assignment_caps_regions_and_preserves_ids() {
 }
 
 #[test]
+fn assignment_writes_nofile_scale_region_count_without_stale_ids() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-fd-scale-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let region_count = 1_200usize;
+    let rows: Vec<Vec<f32>> = (0..region_count)
+        .map(|idx| vec![idx as f32 * 10.0, 0.0])
+        .collect();
+    let centroids =
+        SpannCentroidIndex::from_parts(2, rows.clone(), Vec::new(), Vec::new()).expect("centroids");
+    let source = StaticSource { rows };
+
+    let stale = dir.join("idx/assign-initial/region_00007.ids");
+    std::fs::create_dir_all(stale.parent().expect("parent")).expect("mkdir");
+    let mut stale_bytes = Vec::new();
+    stale_bytes.extend_from_slice(&9_999u64.to_le_bytes());
+    stale_bytes.extend_from_slice(&8_888u64.to_le_bytes());
+    std::fs::write(&stale, stale_bytes).expect("stale ids");
+
+    let provisional = stream_assign_to_ids_with_routing(
+        &dir,
+        AssignmentSink::Provisional,
+        &centroids,
+        &source,
+        37,
+        AssignmentRouting::Exact,
+    )
+    .expect("provisional assignment");
+    assert_eq!(provisional.len(), region_count);
+    assert_eq!(
+        read_ids(&dir.join("idx/assign-initial/region_00007.ids")).expect("ids"),
+        vec![7],
+        "assignment must clear stale bytes before append-mode chunk writes"
+    );
+
+    let final_regions = stream_assign_to_ids_bounded(
+        &dir,
+        AssignmentSink::Final,
+        &centroids,
+        &source,
+        41,
+        BoundedAssignmentConfig {
+            cap: 1,
+            routing_probe: 1,
+            routing: AssignmentRouting::Exact,
+        },
+    )
+    .expect("bounded assignment");
+    assert_eq!(final_regions.len(), region_count);
+    assert_eq!(
+        read_ids(&dir.join("idx/region_01199.ids")).expect("ids"),
+        vec![1_199]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn partitioned_self_recall_and_region_restriction() {
     let dir = std::env::temp_dir().join(format!("calyx-part-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);

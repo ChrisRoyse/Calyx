@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::OpenOptions;
 use std::io::{BufWriter, Write};
 use std::path::Path;
 
@@ -61,12 +61,11 @@ pub(super) fn stream_assign_to_ids_with_routing(
     let n = source.len();
     let chunk = chunk.max(1) as u64;
     let mut counts = vec![0usize; r];
-    let mut writers: Vec<Option<BufWriter<File>>> = (0..r).map(|_| None).collect();
     clear_stale_ids(root, sink, r)?;
     let mut start = 0u64;
     while start < n {
         let end = (start + chunk).min(n);
-        let assigned: Vec<(u64, u32)> = (start..end)
+        let mut assigned: Vec<(u64, u32)> = (start..end)
             .into_par_iter()
             .map(|idx| {
                 let row = source.row(idx);
@@ -78,23 +77,20 @@ pub(super) fn stream_assign_to_ids_with_routing(
                 (idx, region)
             })
             .collect();
-        for (idx, region) in assigned {
+        for &(idx, region) in &assigned {
             let region = region as usize;
-            let writer = writer_for_region(root, sink, region as u32, &mut writers[region])?;
-            writer.write_all(&idx.to_le_bytes()).map_err(|e| {
-                sextant_error(
-                    CALYX_INDEX_IO,
-                    format!("write region {region} id {idx}: {e}"),
-                )
-            })?;
+            if region >= counts.len() {
+                return Err(sextant_error(
+                    CALYX_INDEX_CORRUPT,
+                    format!(
+                        "assignment returned region {region} >= centroid count {r} for row {idx}"
+                    ),
+                ));
+            }
             counts[region] += 1;
         }
+        append_assigned_chunk(root, sink, &mut assigned)?;
         start = end;
-    }
-    for writer in writers.iter_mut().flatten() {
-        writer
-            .flush()
-            .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("flush ids: {e}")))?;
     }
     Ok(counts
         .into_iter()
@@ -134,12 +130,11 @@ pub(super) fn stream_assign_to_ids_bounded(
     let probe = config.routing_probe.min(r);
     let chunk = chunk.max(1) as u64;
     let mut counts = vec![0usize; r];
-    let mut writers: Vec<Option<BufWriter<File>>> = (0..r).map(|_| None).collect();
     clear_stale_ids(root, sink, r)?;
     let mut start = 0u64;
     while start < n {
         let end = (start + chunk).min(n);
-        let assigned: Vec<(u64, Vec<u32>)> = (start..end)
+        let rayon_assigned: Vec<(u64, Vec<u32>)> = (start..end)
             .into_par_iter()
             .map(|idx| {
                 let row = source.row(idx);
@@ -153,7 +148,8 @@ pub(super) fn stream_assign_to_ids_bounded(
                 (idx, candidates)
             })
             .collect();
-        for (idx, candidates) in assigned {
+        let mut assigned = Vec::with_capacity(rayon_assigned.len());
+        for (idx, candidates) in rayon_assigned {
             let region = choose_bounded_region(&counts, config.cap, &candidates).ok_or_else(|| {
                 sextant_error(
                     CALYX_INDEX_INVALID_PARAMS,
@@ -162,21 +158,11 @@ pub(super) fn stream_assign_to_ids_bounded(
                     ),
                 )
             })?;
-            let writer = writer_for_region(root, sink, region as u32, &mut writers[region])?;
-            writer.write_all(&idx.to_le_bytes()).map_err(|e| {
-                sextant_error(
-                    CALYX_INDEX_IO,
-                    format!("write region {region} id {idx}: {e}"),
-                )
-            })?;
             counts[region] += 1;
+            assigned.push((idx, region as u32));
         }
+        append_assigned_chunk(root, sink, &mut assigned)?;
         start = end;
-    }
-    for writer in writers.iter_mut().flatten() {
-        writer
-            .flush()
-            .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("flush ids: {e}")))?;
     }
     Ok(counts
         .into_iter()
@@ -197,27 +183,57 @@ fn choose_bounded_region(counts: &[usize], cap: usize, candidates: &[u32]) -> Op
     })
 }
 
-fn writer_for_region<'a>(
+fn append_assigned_chunk(
+    root: &Path,
+    sink: AssignmentSink,
+    assigned: &mut [(u64, u32)],
+) -> Result<()> {
+    assigned.sort_by_key(|(_, region)| *region);
+    let mut offset = 0usize;
+    while offset < assigned.len() {
+        let region = assigned[offset].1;
+        let start = offset;
+        while offset < assigned.len() && assigned[offset].1 == region {
+            offset += 1;
+        }
+        append_region_ids(root, sink, region, &assigned[start..offset])?;
+    }
+    Ok(())
+}
+
+fn append_region_ids(
     root: &Path,
     sink: AssignmentSink,
     region: u32,
-    slot: &'a mut Option<BufWriter<File>>,
-) -> Result<&'a mut BufWriter<File>> {
-    if slot.is_none() {
-        let path = root.join(assignment_ids_rel(sink, region));
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("create ids dir: {e}")))?;
-        }
-        let file = File::create(&path).map_err(|e| {
+    assigned: &[(u64, u32)],
+) -> Result<()> {
+    let path = root.join(assignment_ids_rel(sink, region));
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("create ids dir: {e}")))?;
+    }
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| {
             sextant_error(
                 CALYX_INDEX_IO,
-                format!("create ids {}: {e}", path.display()),
+                format!("open ids {} for append: {e}", path.display()),
             )
         })?;
-        *slot = Some(BufWriter::new(file));
+    let mut writer = BufWriter::new(file);
+    for &(idx, _) in assigned {
+        writer.write_all(&idx.to_le_bytes()).map_err(|e| {
+            sextant_error(
+                CALYX_INDEX_IO,
+                format!("write region {region} id {idx}: {e}"),
+            )
+        })?;
     }
-    Ok(slot.as_mut().expect("writer initialized"))
+    writer
+        .flush()
+        .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("flush ids {}: {e}", path.display())))
 }
 
 fn clear_stale_ids(root: &Path, sink: AssignmentSink, regions: usize) -> Result<()> {

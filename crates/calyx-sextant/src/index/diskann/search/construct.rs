@@ -1,15 +1,14 @@
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CxId, Result, SlotId};
 
-use super::helpers::{dense_rows, invalid, io, open_for_search, positions};
+use super::helpers::{dense_rows, invalid, open_for_search, positions};
 use super::pq_support::write_pq_sidecar;
 use super::storage::{
     build_search_graph_raw_l2_with_backend, build_search_graph_with_backend, default_raw_sidecar,
     read_distance_mode,
 };
-use super::{DiskAnnSearch, DiskAnnSearchParams, SearchBuildSidecars};
+use super::{DiskAnnSearch, DiskAnnSearchParams, SearchBuildSidecars, prefetch_file_for_graph};
 use crate::index::diskann::build::{DiskAnnBuildBackend, DiskAnnBuildParams};
 use crate::index::diskann::pq::{DiskAnnPqIndex, default_pq_sidecar};
 
@@ -37,7 +36,7 @@ impl DiskAnnSearch {
             path.is_dir().then_some(path)
         });
         let pq = DiskAnnPqIndex::read_if_exists(&default_pq_sidecar(&graph_path))?;
-        let graph_file = File::open(&graph_path).map_err(|e| io("open graph for prefetch", e))?;
+        let graph_file = prefetch_file_for_graph(&graph_path, &reader)?;
         let build_params = DiskAnnBuildParams {
             dim: header.dim as usize,
             m_max: header.m_max as usize,
@@ -51,7 +50,7 @@ impl DiskAnnSearch {
             raw_sidecar,
             pq,
             reader: Some(reader),
-            graph_file: Some(graph_file),
+            graph_file,
             distance_mode,
             positions: positions(&ids),
             ids,
