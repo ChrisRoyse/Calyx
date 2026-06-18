@@ -1,5 +1,5 @@
 use super::*;
-use calyx_assay::estimate::{EstimatorKind, MiEstimate, TrustTag};
+use calyx_assay::estimate::{EstimateReliability, EstimatorKind, MiEstimate, TrustTag};
 use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
 use calyx_core::{
     AnchorKind, Asymmetry, Lens, Modality, QuantPolicy, Slot, SlotId, SlotKey, SlotShape,
@@ -66,7 +66,7 @@ fn assay_rows_attach_signal_and_pair_gain_metrics() {
     store.put(
         cache_key.clone(),
         AssaySubject::Lens { slot: slot.slot_id },
-        estimate(0.42, EstimatorKind::Ksg),
+        reliable_estimate(0.42, EstimatorKind::Ksg),
         "unit lens signal",
         10,
     );
@@ -87,6 +87,10 @@ fn assay_rows_attach_signal_and_pair_gain_metrics() {
 
     assert_eq!(card.signal, Some(0.42));
     assert_eq!(card.signal_source, MetricSource::AssayStore);
+    let reliability = card.signal_reliability.expect("signal reliability");
+    assert_eq!(reliability.seed_count, 5);
+    assert!((reliability.seed_sigma - 0.01).abs() <= 1e-6);
+    assert!(!reliability.unresolved);
     assert_eq!(card.differentiation, Some(0.07));
     assert_eq!(card.differentiation_source, MetricSource::AssayStore);
     assert_eq!(json["signal_source"], "assay_store");
@@ -176,6 +180,18 @@ fn assay_key() -> AssayCacheKey {
 
 fn estimate(bits: f32, estimator: EstimatorKind) -> MiEstimate {
     MiEstimate::point(bits, 64, estimator, TrustTag::Trusted)
+}
+
+fn reliable_estimate(bits: f32, estimator: EstimatorKind) -> MiEstimate {
+    MiEstimate::new(
+        bits,
+        bits - 0.02,
+        bits + 0.02,
+        64,
+        estimator,
+        TrustTag::Trusted,
+    )
+    .with_reliability(EstimateReliability::new(5, 0.01, false).unwrap())
 }
 
 fn vault_id() -> VaultId {

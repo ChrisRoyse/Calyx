@@ -1,14 +1,17 @@
 use calyx_assay::{
-    AssayCacheKey, AssayStore, AssaySubject, MiEstimate, PanelLensDecision, PanelPackingReport,
-    PanelResourceBudget, ResourceDensity, ResourceUsage, StratumBits, admit_lens,
-    admit_lens_with_usage, entropy_bits, logistic_probe_mi, stratified_bits,
+    AssayCacheKey, AssayStore, AssaySubject, CorrelationEvidence, MiEstimate, PanelLensDecision,
+    PanelPackingReport, PanelResourceBudget, ResourceDensity, ResourceUsage, StratumBits,
+    admit_lens_estimate, admit_lens_with_usage, entropy_bits, logistic_probe_mi_multiseed,
+    stratified_bits,
 };
 use calyx_aster::cf::CfRouter;
 use calyx_core::{AnchorKind, Placement, SlotId, VaultId};
 use serde::Serialize;
 use ulid::Ulid;
 
+use super::calyx_error_detail;
 use super::comparison::{PanelComparisonReport, compare_density_panel};
+use super::correlation::lens_pair_correlation_evidence;
 use super::cost::LensCostMap;
 use super::data::AssayCorpus;
 use super::request::AssayBitsRequest;
@@ -56,8 +59,14 @@ pub(crate) struct LensReport {
     pub(crate) redundant: bool,
     pub(crate) bits_about: f32,
     pub(crate) ci: [f32; 2],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) seed_sigma_bits: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) seed_count: Option<usize>,
+    pub(crate) unresolved: bool,
     pub(crate) estimator: String,
     pub(crate) max_pairwise_corr: f32,
+    pub(crate) max_pairwise_corr_ci: [f32; 2],
     pub(crate) admitted: bool,
     pub(crate) rejection_reason: Option<String>,
     /// Per-lens signal density, present only when `--cost-json` was supplied.
@@ -110,8 +119,12 @@ pub(crate) fn evaluate_corpus(
     // Per-lens bits_about about the grounded binary anchor.
     let mut measurements = Vec::with_capacity(corpus.lenses.len());
     for (index, lens) in corpus.lenses.iter().enumerate() {
-        let report = logistic_probe_mi(&corpus.lens_vectors[index], &anchor)
-            .map_err(|error| error.code.to_string())?;
+        let report = logistic_probe_mi_multiseed(
+            &corpus.lens_vectors[index],
+            &anchor,
+            Some(&corpus.anchor_groups),
+        )
+        .map_err(calyx_error_detail)?;
         measurements.push(LensMeasurement {
             index,
             name: lens.name.clone(),
@@ -157,21 +170,16 @@ pub(crate) fn evaluate_corpus(
             }
             _ => None,
         };
-        let max_corr = admitted_indices
-            .iter()
-            .map(|&other| {
-                lens_pair_correlation(
-                    &corpus.lens_vectors[measurement.index],
-                    &corpus.lens_vectors[measurements[other].index],
-                )
-            })
-            .fold(0.0_f32, f32::max);
+        let corr = max_corr_evidence(corpus, &measurements, &admitted_indices, measurement)?;
+        let max_corr = corr.corr;
         let decision = match (resource, panel_budget) {
             (Some((usage, placement, _)), Some(budget)) => {
                 let remaining = remaining_budget(budget, used);
-                admit_lens_with_usage(bits, max_corr, usage, placement, remaining).map(|_| ())
+                admit_lens_estimate(&measurement.estimate, corr).and_then(|_| {
+                    admit_lens_with_usage(bits, max_corr, usage, placement, remaining).map(|_| ())
+                })
             }
-            _ => admit_lens(bits, max_corr).map(|_| ()),
+            _ => admit_lens_estimate(&measurement.estimate, corr).map(|_| ()),
         };
         let (admitted, rejection_reason) = match decision {
             Ok(_) => {
@@ -212,8 +220,24 @@ pub(crate) fn evaluate_corpus(
             redundant: measurement.redundant,
             bits_about: bits,
             ci: [measurement.estimate.ci_low, measurement.estimate.ci_high],
+            seed_sigma_bits: measurement
+                .estimate
+                .reliability
+                .as_ref()
+                .map(|reliability| reliability.seed_sigma),
+            seed_count: measurement
+                .estimate
+                .reliability
+                .as_ref()
+                .map(|reliability| reliability.seed_count),
+            unresolved: measurement
+                .estimate
+                .reliability
+                .as_ref()
+                .is_some_and(|reliability| reliability.unresolved),
             estimator: format!("{:?}", measurement.estimate.estimator),
             max_pairwise_corr: max_corr,
+            max_pairwise_corr_ci: [corr.ci_low, corr.ci_high],
             admitted,
             rejection_reason,
             density: resource.map(|(_, _, density)| density),
@@ -228,10 +252,10 @@ pub(crate) fn evaluate_corpus(
 
     // Fail-closed checks.
     for (lens, measurement) in lenses.iter().zip(&measurements) {
-        if !measurement.redundant && measurement.estimate.bits < request.min_bits {
+        if !measurement.redundant && measurement.estimate.ci_low < request.min_bits {
             return Err(format!(
-                "CALYX_FSV_ASSAY_BITS_BELOW_THRESHOLD: lens={} bits={:.6}",
-                lens.name, measurement.estimate.bits
+                "CALYX_FSV_ASSAY_BITS_CI_BELOW_THRESHOLD: lens={} ci_low={:.6} bits={:.6}",
+                lens.name, measurement.estimate.ci_low, measurement.estimate.bits
             ));
         }
         if measurement.redundant && lens.admitted {
@@ -334,15 +358,36 @@ fn panel_mi(
             joint[sample].extend_from_slice(row);
         }
     }
-    let report = logistic_probe_mi(&joint, anchor).map_err(|error| error.code.to_string())?;
+    let report = logistic_probe_mi_multiseed(&joint, anchor, Some(&corpus.anchor_groups))
+        .map_err(calyx_error_detail)?;
     Ok(report.estimate)
 }
 
+fn max_corr_evidence(
+    corpus: &AssayCorpus,
+    measurements: &[LensMeasurement],
+    admitted_indices: &[usize],
+    measurement: &LensMeasurement,
+) -> Result<CorrelationEvidence, String> {
+    let mut max_corr = CorrelationEvidence::point(0.0);
+    for &other in admitted_indices {
+        let evidence = lens_pair_correlation_evidence(
+            &corpus.lens_vectors[measurement.index],
+            &corpus.lens_vectors[measurements[other].index],
+        )?;
+        if evidence.corr > max_corr.corr {
+            max_corr = evidence;
+        }
+    }
+    Ok(max_corr)
+}
+
 fn stratify(corpus: &AssayCorpus, anchor: &[bool]) -> Result<calyx_assay::StratifiedBits, String> {
-    let global = logistic_probe_mi(&corpus.lens_vectors[0], anchor)
-        .map_err(|error| error.code.to_string())?
-        .estimate
-        .bits;
+    let global =
+        logistic_probe_mi_multiseed(&corpus.lens_vectors[0], anchor, Some(&corpus.anchor_groups))
+            .map_err(calyx_error_detail)?
+            .estimate
+            .bits;
     let mut classes: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for &label in &corpus.labels {
         classes.insert(label);
@@ -354,9 +399,13 @@ fn stratify(corpus: &AssayCorpus, anchor: &[bool]) -> Result<calyx_assay::Strati
         let member: Vec<bool> = corpus.labels.iter().map(|&l| l == class).collect();
         let frequency = member.iter().filter(|&&v| v).count() as f32 / total.max(1.0);
         // Stratum bits: lens-0 signal about "is this sample in this class".
-        let bits = logistic_probe_mi(&corpus.lens_vectors[0], &member)
-            .map(|report| report.estimate.bits)
-            .unwrap_or(0.0);
+        let bits = logistic_probe_mi_multiseed(
+            &corpus.lens_vectors[0],
+            &member,
+            Some(&corpus.anchor_groups),
+        )
+        .map(|report| report.estimate.bits)
+        .unwrap_or(0.0);
         strata.push(StratumBits {
             name: format!("class_{class}"),
             bits,
@@ -393,15 +442,14 @@ fn persist_estimates(
             measurement.index as u64,
         );
     }
-    let mut router = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)
-        .map_err(|error| error.code.to_string())?;
+    let mut router =
+        CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
     let persisted = store
         .persist_to_aster(&mut router)
-        .map_err(|error| error.code.to_string())?;
+        .map_err(calyx_error_detail)?;
     drop(router);
-    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)
-        .map_err(|error| error.code.to_string())?;
-    let loaded = AssayStore::load_from_aster(&reopened).map_err(|error| error.code.to_string())?;
+    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
+    let loaded = AssayStore::load_from_aster(&reopened).map_err(calyx_error_detail)?;
     Ok((persisted, loaded.len()))
 }
 
@@ -410,39 +458,4 @@ fn deterministic_vault_id(domain: &str) -> VaultId {
     let mut bytes = [0_u8; 16];
     bytes.copy_from_slice(&digest.as_bytes()[..16]);
     VaultId::from_ulid(Ulid::from_bytes(bytes))
-}
-
-/// Representational correlation between two lenses:
-/// `mean_i cosine(unit(A_i), unit(B_i))`.
-fn lens_pair_correlation(a: &[Vec<f32>], b: &[Vec<f32>]) -> f32 {
-    let n = a.len().min(b.len());
-    if n == 0 {
-        return 0.0;
-    }
-    // Representational correlation is only defined between same-shaped lenses;
-    // differently dimensioned lenses cannot be representational near-duplicates.
-    if a.first().map(Vec::len) != b.first().map(Vec::len) {
-        return 0.0;
-    }
-    let mut sum = 0.0_f32;
-    for (left, right) in a.iter().zip(b).take(n) {
-        sum += cosine(left, right);
-    }
-    sum / n as f32
-}
-
-fn cosine(a: &[f32], b: &[f32]) -> f32 {
-    let dim = a.len().min(b.len());
-    let mut dot = 0.0_f32;
-    let mut norm_a = 0.0_f32;
-    let mut norm_b = 0.0_f32;
-    for idx in 0..dim {
-        dot += a[idx] * b[idx];
-        norm_a += a[idx] * a[idx];
-        norm_b += b[idx] * b[idx];
-    }
-    if norm_a <= 0.0 || norm_b <= 0.0 {
-        return 0.0;
-    }
-    dot / (norm_a.sqrt() * norm_b.sqrt())
 }

@@ -23,6 +23,33 @@ pub enum EstimatorKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EstimateReliability {
+    pub seed_count: usize,
+    pub seed_sigma: f32,
+    pub unresolved: bool,
+}
+
+impl EstimateReliability {
+    pub fn new(seed_count: usize, seed_sigma: f32, unresolved: bool) -> Result<Self> {
+        if seed_count == 0 {
+            return Err(CalyxError::assay_insufficient_samples(
+                "assay reliability requires at least one seed",
+            ));
+        }
+        if !seed_sigma.is_finite() || seed_sigma < 0.0 {
+            return Err(CalyxError::assay_low_signal(
+                "assay seed_sigma must be finite and non-negative",
+            ));
+        }
+        Ok(Self {
+            seed_count,
+            seed_sigma,
+            unresolved,
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MiEstimate {
     pub bits: f32,
     pub ci_low: f32,
@@ -30,6 +57,8 @@ pub struct MiEstimate {
     pub n_samples: usize,
     pub estimator: EstimatorKind,
     pub trust: TrustTag,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reliability: Option<EstimateReliability>,
 }
 
 impl MiEstimate {
@@ -51,12 +80,18 @@ impl MiEstimate {
             n_samples,
             estimator,
             trust,
+            reliability: None,
         }
     }
 
     pub fn point(bits: f32, n_samples: usize, estimator: EstimatorKind, trust: TrustTag) -> Self {
         let band = (bits.abs() * 0.15).max(0.02);
         Self::new(bits, bits - band, bits + band, n_samples, estimator, trust)
+    }
+
+    pub fn with_reliability(mut self, reliability: EstimateReliability) -> Self {
+        self.reliability = Some(reliability);
+        self
     }
 }
 

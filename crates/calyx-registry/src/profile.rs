@@ -10,6 +10,7 @@ use crate::spec::LensHealth;
 mod assay;
 mod cost;
 mod gating;
+mod reliability;
 pub use assay::{apply_assay_metrics, profile_slot_with_assay};
 pub use cost::CostMetrics;
 pub use gating::{
@@ -45,6 +46,8 @@ pub struct CapabilityCard {
     pub probe_count: usize,
     pub signal: Option<f32>,
     pub signal_source: MetricSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signal_reliability: Option<CapabilitySignalReliability>,
     pub proxy_signal: f32,
     pub differentiation: Option<f32>,
     pub differentiation_source: MetricSource,
@@ -55,6 +58,15 @@ pub struct CapabilityCard {
     pub coverage: CoverageMetrics,
     pub health: LensHealth,
     pub low_spread: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CapabilitySignalReliability {
+    pub ci_low: f32,
+    pub ci_high: f32,
+    pub seed_sigma: f32,
+    pub seed_count: usize,
+    pub unresolved: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -177,6 +189,7 @@ impl Profiler {
             probe_count: probes.len(),
             signal: None,
             signal_source: MetricSource::AssayPending,
+            signal_reliability: None,
             proxy_signal,
             differentiation: None,
             differentiation_source: MetricSource::AssayPending,

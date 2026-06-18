@@ -12,6 +12,29 @@ use super::request::AssayBitsRequest;
 const DIM: usize = 16;
 
 #[test]
+fn cli_preserves_assay_runtime_code_and_detail() {
+    let error = super::assay_cli_error(
+        "CALYX_ASSAY_UNRESOLVED: anchor group g000 mixes positive and negative labels".to_string(),
+    );
+
+    assert_eq!(error.code(), "CALYX_ASSAY_UNRESOLVED");
+    assert!(
+        error.message().contains("anchor group g000"),
+        "{}",
+        error.message()
+    );
+    assert!(!error.remediation().contains("help"));
+}
+
+#[test]
+fn cli_keeps_unknown_args_as_usage_errors() {
+    let error = super::assay_cli_error("unknown assay bits-validate arg: --bogus".to_string());
+
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(error.remediation().contains("help"));
+}
+
+#[test]
 fn synthetic_three_lens_admits_real_rejects_redundant() {
     let root = temp_root("assay-bits-pass");
     let corpus = root.join("corpus");

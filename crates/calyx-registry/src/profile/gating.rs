@@ -5,6 +5,7 @@ use calyx_core::{CalyxError, Clock, LedgerRef, LensId, Panel, Result, SlotId, Sl
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, LedgerCfStore, SubjectId};
 use serde::{Deserialize, Serialize};
 
+use super::reliability::signal_floor;
 use super::{CapabilityCard, ProfileProbe, dense_projection};
 use crate::Registry;
 
@@ -90,6 +91,7 @@ pub fn evaluate_capability_gate(
             "capability signal_bits must be finite and non-negative",
         ));
     }
+    let (signal_floor, reliability_reason) = signal_floor(&card)?;
     let corr = max_pairwise_corr.min(1.0);
     let (decision, reason) = if corr > thresholds.max_pairwise_corr {
         (
@@ -109,11 +111,13 @@ pub fn evaluate_capability_gate(
             CapabilityGateDecision::Park,
             "low spread/collapsed lens".to_string(),
         )
-    } else if signal_bits < thresholds.min_signal_bits {
+    } else if let Some(reason) = reliability_reason {
+        (CapabilityGateDecision::Park, reason)
+    } else if signal_floor < thresholds.min_signal_bits {
         (
             CapabilityGateDecision::Park,
             format!(
-                "signal_bits {signal_bits:.4} below {:.4}",
+                "signal lower bound {signal_floor:.4} below {:.4}",
                 thresholds.min_signal_bits
             ),
         )
@@ -393,6 +397,7 @@ mod tests {
             } else {
                 MetricSource::AssayPending
             },
+            signal_reliability: None,
             proxy_signal: signal.unwrap_or(0.0),
             differentiation: Some(0.07),
             differentiation_source: MetricSource::AssayStore,

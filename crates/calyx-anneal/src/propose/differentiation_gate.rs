@@ -1,6 +1,7 @@
+use calyx_assay::contract::MIN_RELIABILITY_SEEDS;
 use calyx_assay::{
-    CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED, PanelResourceBudget, ResourceAwareAdmissionDecision,
-    ResourceUsage, admit_lens_with_resources,
+    CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED, CALYX_ASSAY_UNRESOLVED, PanelResourceBudget,
+    ResourceAwareAdmissionDecision, ResourceUsage, admit_lens_with_resources,
 };
 use calyx_core::{
     CalyxError, Clock, Constellation, LensCost, LensId, Placement, Result, SystemClock, Ts,
@@ -259,6 +260,25 @@ fn profile_bits(card: &CapabilityCard) -> Result<f64> {
         .signal
         .map(f64::from)
         .ok_or_else(|| invalid_metric("capability card missing assay signal bits_per_anchor"))?;
+    if let Some(reliability) = &card.signal_reliability {
+        for (name, value) in [
+            ("ci_low", reliability.ci_low),
+            ("ci_high", reliability.ci_high),
+            ("seed_sigma", reliability.seed_sigma),
+        ] {
+            validate_nonnegative(name, f64::from(value))?;
+        }
+        if reliability.seed_count < MIN_RELIABILITY_SEEDS || reliability.unresolved {
+            return Err(assay_unresolved(format!(
+                "capability signal unresolved: bits={bits:.6} ci=[{:.6},{:.6}] seed_sigma={:.6} seed_count={}",
+                reliability.ci_low,
+                reliability.ci_high,
+                reliability.seed_sigma,
+                reliability.seed_count
+            )));
+        }
+        return validate_nonnegative("bits_lower_ci", f64::from(reliability.ci_low));
+    }
     validate_nonnegative("bits_per_anchor", bits)
 }
 
@@ -326,5 +346,13 @@ fn invalid_metric(message: impl Into<String>) -> CalyxError {
         code: CALYX_ASSAY_INVALID_METRIC,
         message: message.into(),
         remediation: "re-measure candidate capability and pair NMI before gating a lens",
+    }
+}
+
+fn assay_unresolved(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_ASSAY_UNRESOLVED,
+        message: message.into(),
+        remediation: "collect more grouped anchors and re-run multi-seed Assay measurement",
     }
 }

@@ -8,6 +8,7 @@ pub mod estimate;
 pub mod formula_catalog;
 pub mod formulas;
 pub mod gate;
+pub mod group_split;
 pub mod ksg;
 pub mod logistic;
 pub mod loom_adapter;
@@ -40,9 +41,13 @@ pub use bootstrap::{
     BootstrapCi, BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED,
     bootstrap_mean_ci, bootstrap_mean_ci_with_config, bootstrap_paired_ci,
 };
-pub use contract::{AdmissionDecision, admit_lens, admit_lens_with_strata};
+pub use contract::{
+    AdmissionDecision, CALYX_ASSAY_UNRESOLVED, CorrelationEvidence, admit_lens,
+    admit_lens_estimate, admit_lens_with_strata,
+};
 pub use estimate::{
-    EstimatorKind, MiEstimate, TrustTag, require_grounded_anchor, trust_for_anchor,
+    EstimateReliability, EstimatorKind, MiEstimate, TrustTag, require_grounded_anchor,
+    trust_for_anchor,
 };
 pub use formula_catalog::{
     CALYX_FORMULA_COVERAGE_MISSING, FORMULA_COVERAGE_ARTIFACT_KIND,
@@ -53,11 +58,16 @@ pub use formula_catalog::{
 };
 pub use formulas::{dpi_ceiling, lens_signal, marginal_value, pair_redundancy};
 pub use gate::{AssayGate, LensSignal, PairGain};
+pub use group_split::{GroupSplit, group_holdout_split, row_groups};
 pub use ksg::{
     MIN_ASSAY_SAMPLES, ksg_mi_continuous, ksg_mi_continuous_discrete,
     ksg_mi_continuous_discrete_with_anchor, ksg_mi_continuous_with_anchor,
 };
-pub use logistic::{LogisticProbeReport, logistic_probe_mi, logistic_probe_mi_with_anchor};
+pub use logistic::{
+    DEFAULT_ASSAY_SEEDS, DEFAULT_HOLDOUT_FRACTION, LogisticProbeReport, logistic_probe_mi,
+    logistic_probe_mi_multiseed, logistic_probe_mi_multiseed_with_anchor,
+    logistic_probe_mi_with_anchor,
+};
 pub use loom_adapter::AsterAssayMaterializationGate;
 pub use mmd::{
     ChangePointReport, DEFAULT_MMD_ALPHA, DEFAULT_MMD_PERMUTATIONS, DEFAULT_MMD_SEED, MmdConfig,

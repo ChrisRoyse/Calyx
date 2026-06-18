@@ -42,8 +42,13 @@ pub(crate) fn write_metric_outputs(
     let mut lens_lines = String::new();
     for lens in &report.lenses {
         lens_lines.push_str(&format!(
-            "lens={} bits={:.6} admitted={}\n",
-            lens.name, lens.bits_about, lens.admitted
+            "lens={} bits={:.6} ci=[{:.6},{:.6}] seed_sigma={:.6} admitted={}\n",
+            lens.name,
+            lens.bits_about,
+            lens.ci[0],
+            lens.ci[1],
+            lens.seed_sigma_bits.unwrap_or(0.0),
+            lens.admitted
         ));
     }
     fs::write(&bits_per_lens, lens_lines).map_err(|error| error.to_string())?;
@@ -128,7 +133,18 @@ fn check_finite(report: &AssayBitsReport) -> Result<(), String> {
         values.push(("lens.bits_about", lens.bits_about));
         values.push(("lens.ci_low", lens.ci[0]));
         values.push(("lens.ci_high", lens.ci[1]));
+        if let Some(seed_sigma) = lens.seed_sigma_bits {
+            values.push(("lens.seed_sigma_bits", seed_sigma));
+        }
         values.push(("lens.max_pairwise_corr", lens.max_pairwise_corr));
+        values.push((
+            "lens.max_pairwise_corr_ci_low",
+            lens.max_pairwise_corr_ci[0],
+        ));
+        values.push((
+            "lens.max_pairwise_corr_ci_high",
+            lens.max_pairwise_corr_ci[1],
+        ));
     }
     for stratum in &report.strata {
         values.push(("stratum.bits", stratum.bits));

@@ -102,6 +102,7 @@ pub(super) fn capability_card(
         probe_count,
         signal: Some(bits),
         signal_source: MetricSource::AssayStore,
+        signal_reliability: None,
         proxy_signal: bits,
         differentiation: Some(bits),
         differentiation_source: MetricSource::AssayStore,
