@@ -25,6 +25,7 @@
 mod assignment;
 mod balance;
 mod search;
+mod sources;
 
 use std::path::Path;
 
@@ -44,6 +45,7 @@ use assignment::{
 };
 use balance::balance_region_files;
 pub use search::{PartitionedSearch, PartitionedSearchReadback};
+pub use sources::{FbinSource, I8BinSource, SyntheticSource, VectorSource};
 
 const MANIFEST_FILE: &str = "partitioned-manifest.json";
 const CENTROID_DIR: &str = "idx/slot_00.sparse";
@@ -175,69 +177,9 @@ fn ids_rel(region: u32) -> String {
     format!("idx/region_{region:05}.ids")
 }
 
-/// Source of the vectors a partitioned vault is built from. The real, production
-/// path reads genuine embeddings from a `.fbin` produced by the real embedder
-/// ([`FbinSource`]). [`SyntheticSource`] exists ONLY for builder-logic unit tests
-/// (does every cx land in one region? does balancing hold the cap?) and must NEVER
-/// back a recall or FSV claim — recall is meaningless on fabricated geometry.
-pub trait VectorSource: Sync {
-    fn dim(&self) -> usize;
-    fn len(&self) -> u64;
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-    /// The embedding of row `idx` (`0..len`).
-    fn row(&self, idx: u64) -> Vec<f32>;
-}
-
-/// Real embeddings memory-mapped from a `.fbin` on disk — the billion-scale build
-/// path. No vectors are synthesised.
-pub struct FbinSource {
-    vectors: crate::index::vecfile::FbinVectors,
-}
-
-impl FbinSource {
-    pub fn open(path: &Path) -> Result<Self> {
-        Ok(Self {
-            vectors: crate::index::vecfile::FbinVectors::open(path)?,
-        })
-    }
-}
-
-impl VectorSource for FbinSource {
-    fn dim(&self) -> usize {
-        self.vectors.dim()
-    }
-    fn len(&self) -> u64 {
-        self.vectors.count()
-    }
-    fn row(&self, idx: u64) -> Vec<f32> {
-        self.vectors.row(idx).to_vec()
-    }
-}
-
-/// Deterministic synthetic rows. Builder-logic unit tests ONLY — never validation.
-pub struct SyntheticSource {
-    pub seed: u64,
-    pub dim: usize,
-    pub n_cx: u64,
-}
-
-impl VectorSource for SyntheticSource {
-    fn dim(&self) -> usize {
-        self.dim
-    }
-    fn len(&self) -> u64 {
-        self.n_cx
-    }
-    fn row(&self, idx: u64) -> Vec<f32> {
-        gen_row(self.seed, idx, self.dim)
-    }
-}
-
 /// Build a partitioned vault from a deterministic synthetic source. Unit-test /
 /// builder-logic helper only — for real validation use
-/// [`build_partitioned_vault_from_source`] with an [`FbinSource`].
+/// [`build_partitioned_vault_from_source`] with a real file-backed source.
 pub fn build_partitioned_vault(
     root: &Path,
     p: PartitionBuildParams,

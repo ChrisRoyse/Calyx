@@ -7,12 +7,12 @@ use std::time::Instant;
 use calyx_core::{CxId, SlotId};
 use calyx_sextant::fusion;
 use calyx_sextant::index::partitioned::cx;
-use calyx_sextant::index::{FbinVectors, PartitionedSearch};
+use calyx_sextant::index::{DenseVectorFile, PartitionedSearch};
 use calyx_sextant::{FusionContext, FusionStrategy, IndexSearchHit};
 use serde::Deserialize;
 use serde_json::json;
 
-use super::brute_force::brute_force_topk_fbin_ranked;
+use super::brute_force::brute_force_topk_vecfile_ranked;
 use super::{enforce_recall_floor, percentiles};
 use crate::error::{CliError, CliResult};
 
@@ -47,8 +47,8 @@ struct PlanSlot {
 struct OpenSlot {
     spec: PlanSlot,
     search: PartitionedSearch,
-    queries: FbinVectors,
-    corpus: FbinVectors,
+    queries: DenseVectorFile,
+    corpus: DenseVectorFile,
 }
 
 impl Args {
@@ -124,10 +124,10 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         let started = Instant::now();
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
-            let query = slot.queries.row(query_idx as u64);
+            let query = slot.queries.row_f32(query_idx as u64);
             let raw_hits = slot
                 .search
-                .search(query, truth_depth, args.n_probe, args.region_beam)
+                .search(&query, truth_depth, args.n_probe, args.region_beam)
                 .map_err(CliError::Calyx)?;
             let hits = to_index_hits(raw_hits);
             if query_idx < truth_n {
@@ -210,8 +210,8 @@ fn open_slots(plan: &Plan) -> CliResult<Vec<OpenSlot>> {
         .iter()
         .map(|slot| {
             let search = PartitionedSearch::open(&slot.vault).map_err(CliError::Calyx)?;
-            let queries = FbinVectors::open(&slot.queries).map_err(CliError::Calyx)?;
-            let corpus = FbinVectors::open(&slot.corpus).map_err(CliError::Calyx)?;
+            let queries = DenseVectorFile::open(&slot.queries).map_err(CliError::Calyx)?;
+            let corpus = DenseVectorFile::open(&slot.corpus).map_err(CliError::Calyx)?;
             if queries.dim() != search.dim() || corpus.dim() != search.dim() {
                 return Err(CliError::usage(format!(
                     "slot {} dim mismatch: vault={} queries={} corpus={}",
@@ -255,8 +255,8 @@ fn recall_readback(
         let mut exact_per_slot = BTreeMap::new();
         let mut exact_slot_rows = Vec::new();
         for slot in slots {
-            let query = slot.queries.row(query_idx as u64).to_vec();
-            let exact = brute_force_topk_fbin_ranked(&slot.corpus, &[query], truth_depth)
+            let query = slot.queries.row_f32(query_idx as u64);
+            let exact = brute_force_topk_vecfile_ranked(&slot.corpus, &[query], truth_depth)
                 .pop()
                 .expect("one query");
             exact_slot_rows.push(json!({

@@ -1,30 +1,30 @@
 use std::collections::{BinaryHeap, HashSet};
 
-use calyx_sextant::index::{FbinVectors, gen_row};
+use calyx_sextant::index::{DenseVectorFile, gen_row};
 use rayon::prelude::*;
 
 const CHUNK: u64 = 200_000;
 
 /// Brute-force the true top-`k` neighbours (by cosine distance) for each query
-/// over a REAL corpus `.fbin`. Memory-bounded: scans the mmap'd file in row
+/// over a REAL corpus vector file. Memory-bounded: scans the mmap'd file in row
 /// windows. This must match DiskANN search scoring; raw L2 is only equivalent for
 /// already-normalized embeddings.
-pub(super) fn brute_force_topk_fbin(
-    corpus: &FbinVectors,
+pub(super) fn brute_force_topk_vecfile(
+    corpus: &DenseVectorFile,
     queries: &[Vec<f32>],
     k: usize,
 ) -> Vec<HashSet<u64>> {
-    brute_force_topk_fbin_ranked(corpus, queries, k)
+    brute_force_topk_vecfile_ranked(corpus, queries, k)
         .into_iter()
         .map(|row| row.into_iter().map(|(id, _)| id).collect())
         .collect()
 }
 
 /// Brute-force exact ranked top-k rows (by cosine distance) for each real query
-/// over a real corpus `.fbin`. This preserves rank so RRF can build an exact
-/// fused ground truth, not just a set-overlap recall verdict.
-pub(super) fn brute_force_topk_fbin_ranked(
-    corpus: &FbinVectors,
+/// over a real vector file. This preserves rank so RRF can build an exact fused
+/// ground truth, not just a set-overlap recall verdict.
+pub(super) fn brute_force_topk_vecfile_ranked(
+    corpus: &DenseVectorFile,
     queries: &[Vec<f32>],
     k: usize,
 ) -> Vec<Vec<(u64, f32)>> {
@@ -39,8 +39,8 @@ pub(super) fn brute_force_topk_fbin_ranked(
             let scored: Vec<(OrdF32, u64)> = (start..end)
                 .into_par_iter()
                 .map(|idx| {
-                    let row = corpus.row(idx);
-                    (OrdF32(cosine_distance(q, row)), idx)
+                    let row = corpus.row_f32(idx);
+                    (OrdF32(cosine_distance(q, &row)), idx)
                 })
                 .collect();
             push_scored(&mut heaps[qi], scored, k);

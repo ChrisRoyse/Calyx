@@ -1,4 +1,5 @@
 use super::*;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn partitioned_search_parses_recall_floor() {
@@ -69,6 +70,211 @@ fn partitioned_search_rejects_zero_probe_count() {
     assert!(err.message().contains("--n-probe must be > 0"));
 }
 
+#[test]
+fn i8bin_build_and_search_uses_real_vector_files() {
+    let root = temp_root("i8bin-happy");
+    let corpus = root.join("corpus.i8bin");
+    let queries = root.join("queries.i8bin");
+    let vault = root.join("vault");
+    write_i8bin(
+        &corpus,
+        3,
+        &[
+            &[10, 0, 0],
+            &[9, 1, 0],
+            &[0, 10, 0],
+            &[0, 9, 1],
+            &[0, 0, 10],
+            &[1, 0, 9],
+        ],
+    );
+    write_i8bin(&queries, 3, &[&[10, 0, 0], &[0, 10, 0], &[0, 0, 10]]);
+
+    run_build(&[
+        "--vault".into(),
+        path_arg(&vault),
+        "--vectors".into(),
+        path_arg(&corpus),
+        "--regions".into(),
+        "3".into(),
+        "--sample".into(),
+        "6".into(),
+        "--chunk".into(),
+        "2".into(),
+        "--m-max".into(),
+        "4".into(),
+        "--ef".into(),
+        "8".into(),
+        "--region-build-parallelism".into(),
+        "1".into(),
+    ])
+    .expect("build partitioned i8bin vault");
+
+    let manifest_path = vault.join("partitioned-manifest.json");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest["n_cx"], 6);
+    assert_eq!(manifest["dim"], 3);
+    assert_eq!(manifest["n_regions"], 3);
+    assert!(
+        vault
+            .join(manifest["root_graph_rel"].as_str().unwrap())
+            .is_file()
+    );
+    assert!(
+        vault
+            .join(manifest["centroids_rel"].as_str().unwrap())
+            .metadata()
+            .map(|meta| meta.len() > 0)
+            .unwrap_or(false)
+    );
+    assert!(
+        manifest["regions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|region| {
+                vault
+                    .join(region["graph_rel"].as_str().unwrap())
+                    .metadata()
+                    .map(|meta| meta.len() > 0)
+                    .unwrap_or(false)
+            })
+    );
+
+    run_search(&[
+        "--vault".into(),
+        path_arg(&vault),
+        "--queries".into(),
+        path_arg(&queries),
+        "--corpus".into(),
+        path_arg(&corpus),
+        "--n".into(),
+        "3".into(),
+        "--k".into(),
+        "1".into(),
+        "--n-probe".into(),
+        "3".into(),
+        "--region-beam".into(),
+        "16".into(),
+        "--ground-truth".into(),
+        "3".into(),
+        "--recall-floor".into(),
+        "1.0".into(),
+    ])
+    .expect("search i8bin vault with exact recall");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn i8bin_build_rejects_bad_vector_inputs_before_creating_vault() {
+    let root = temp_root("i8bin-bad-input");
+    let unsupported = root.join("corpus.bin");
+    let corrupt = root.join("corrupt.i8bin");
+    let unsupported_vault = root.join("unsupported-vault");
+    let corrupt_vault = root.join("corrupt-vault");
+    std::fs::write(&unsupported, b"not a supported vector extension").unwrap();
+    std::fs::write(&corrupt, [1_u8, 0, 0, 0, 3, 0, 0, 0, 1, 2]).unwrap();
+
+    let err = run_build(&[
+        "--vault".into(),
+        path_arg(&unsupported_vault),
+        "--vectors".into(),
+        path_arg(&unsupported),
+        "--regions".into(),
+        "2".into(),
+    ])
+    .unwrap_err();
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("must end in .fbin or .i8bin"));
+    assert!(!unsupported_vault.exists());
+
+    let err = run_build(&[
+        "--vault".into(),
+        path_arg(&corrupt_vault),
+        "--vectors".into(),
+        path_arg(&corrupt),
+        "--regions".into(),
+        "2".into(),
+    ])
+    .unwrap_err();
+    assert_eq!(err.code(), "CALYX_INDEX_CORRUPT");
+    assert!(err.message().contains("len 10 != expected 11"));
+    assert!(!corrupt_vault.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn i8bin_search_rejects_query_dimension_mismatch() {
+    let root = temp_root("i8bin-dim-mismatch");
+    let corpus = root.join("corpus.i8bin");
+    let queries = root.join("queries-dim2.i8bin");
+    let vault = root.join("vault");
+    write_i8bin(&corpus, 3, &[&[10, 0, 0], &[0, 10, 0], &[0, 0, 10]]);
+    write_i8bin(&queries, 2, &[&[10, 0]]);
+    run_build(&[
+        "--vault".into(),
+        path_arg(&vault),
+        "--vectors".into(),
+        path_arg(&corpus),
+        "--regions".into(),
+        "2".into(),
+        "--sample".into(),
+        "3".into(),
+        "--chunk".into(),
+        "2".into(),
+        "--m-max".into(),
+        "2".into(),
+        "--ef".into(),
+        "4".into(),
+        "--region-build-parallelism".into(),
+        "1".into(),
+    ])
+    .expect("build baseline i8bin vault");
+
+    let err = run_search(&[
+        "--vault".into(),
+        path_arg(&vault),
+        "--queries".into(),
+        path_arg(&queries),
+        "--n".into(),
+        "1".into(),
+    ])
+    .unwrap_err();
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("query dim 2 != vault dim 3"));
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn strings(items: impl IntoIterator<Item = &'static str>) -> Vec<String> {
     items.into_iter().map(str::to_string).collect()
+}
+
+fn temp_root(name: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "calyx-partitioned-{name}-{}-{nanos}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    root
+}
+
+fn path_arg(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn write_i8bin(path: &Path, dim: u32, rows: &[&[i8]]) {
+    let mut bytes = Vec::with_capacity(8 + rows.len() * dim as usize);
+    bytes.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&dim.to_le_bytes());
+    for row in rows {
+        assert_eq!(row.len(), dim as usize);
+        bytes.extend(row.iter().map(|value| *value as u8));
+    }
+    std::fs::write(path, bytes).unwrap();
 }
