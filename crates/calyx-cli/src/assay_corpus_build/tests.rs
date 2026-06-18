@@ -79,6 +79,9 @@ fn corpus_build_measures_algorithmic_code_and_sparse_lenses() {
         .unwrap()
         .to_string();
     let row: Value = serde_json::from_str(&first_line).unwrap();
+    assert_eq!(row["source_event_time_secs"], 1_704_153_600_i64);
+    assert_eq!(row["source_event_time_raw"], "2024-01-02T00:00:00Z");
+    assert_eq!(row["temporal_lane_state"], "active");
     assert_eq!(row["lenses"]["code-ast-style"].as_array().unwrap().len(), 8);
     let sparse_vec = row["lenses"]["code-sparse-keywords"].as_array().unwrap();
     assert_eq!(sparse_vec.len(), 128);
@@ -114,6 +117,38 @@ fn corpus_build_accepts_source_rows_with_string_labels() {
     assert_eq!(loaded.rows.len(), 60);
     assert_eq!(loaded.rows[0].id, "ag_news://train.parquet#row=0");
     assert_eq!(loaded.rows[1].label, 1);
+    assert_eq!(loaded.rows[0].event_time_secs, None);
+    assert_eq!(loaded.rows[0].temporal_lane_state, "inactive");
+    assert_eq!(
+        loaded.rows[0].temporal_inactive_reason.as_deref(),
+        Some("source_missing_created_at")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn corpus_build_rejects_malformed_timestamp() {
+    let root = temp_root("assay-corpus-bad-time");
+    let rows = root.join("rows.jsonl");
+    fs::write(
+        &rows,
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "source": "ag_news://train.parquet#row=0",
+                "text": "bad timestamp row with enough lexical content",
+                "label": "0",
+                "event_time": "not-a-timestamp"
+            })
+        ),
+    )
+    .unwrap();
+    let request = rows_request(&rows, &root.join("out"));
+
+    let error = data::load_rows(&request).unwrap_err();
+
+    assert!(error.contains("CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_TIMESTAMP"));
+    assert!(error.contains("not-a-timestamp"));
     let _ = fs::remove_dir_all(root);
 }
 
@@ -160,7 +195,8 @@ fn write_code_rows(path: &Path, rows: usize) {
                 "id": format!("row-{idx}"),
                 "split": "train",
                 "text": text,
-                "label": label
+                "label": label,
+                "event_time": format!("2024-01-02T00:{:02}:00Z", idx % 60)
             })
         ));
     }

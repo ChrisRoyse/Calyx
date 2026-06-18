@@ -11,6 +11,7 @@ use crate::error::{CliError, CliResult};
 
 use super::args::Args;
 use super::data::{self, BitsLens, LensMeta, VectorScan};
+use super::timeline::{self, TimelineScanBuilder};
 use super::{ExportEvidence, LensEvidence, io_error, local_error};
 
 struct FbinSink {
@@ -71,17 +72,24 @@ fn write_export_staged(
         &scan.lens_dims,
         &mut sinks,
         args.query_count,
+        &staging.join("timeline.jsonl"),
     )?;
     let lens_roster = finish_sinks(args, selected, &scan.lens_dims, meta, bits, sinks)?;
-    write_plan(&staging.join("partitioned_rrf_plan.json"), &lens_roster)?;
+    write_plan(
+        &staging.join("partitioned_rrf_plan.json"),
+        &display_final(args, "timeline.jsonl"),
+        &lens_roster,
+    )?;
     let evidence = ExportEvidence {
         out_dir: display(&args.out_dir),
         vectors_path: display(vectors_path),
         plan_path: display_final(args, "partitioned_rrf_plan.json"),
         export_report_path: display_final(args, "export_report.json"),
+        timeline_path: display_final(args, "timeline.jsonl"),
         vault_root: display_final(args, "vaults"),
         rows: scan.rows,
         query_count: args.query_count,
+        temporal: scan.timeline.clone(),
         lens_roster,
     };
     fs::write(
@@ -130,6 +138,7 @@ fn stream_vectors(
     dims: &BTreeMap<String, usize>,
     sinks: &mut BTreeMap<String, FbinSink>,
     query_count: usize,
+    timeline_path: &Path,
 ) -> CliResult {
     let text = fs::read_to_string(path).map_err(|error| {
         local_error(
@@ -139,6 +148,8 @@ fn stream_vectors(
         )
     })?;
     let selected_set = selected.iter().cloned().collect::<BTreeSet<_>>();
+    let mut timeline_writer = timeline::open_writer(timeline_path)?;
+    let mut timeline_scan = TimelineScanBuilder::default();
     let mut row_idx = 0usize;
     for (line_idx, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
@@ -157,7 +168,23 @@ fn stream_vectors(
                 query_count,
             )?;
         }
+        let timeline_row = timeline::timeline_row(row_idx, &row, query_count)?;
+        timeline_scan.push(&timeline_row);
+        timeline::write_row(&mut timeline_writer, &timeline_row)?;
         row_idx += 1;
+    }
+    let streamed_timeline = timeline_scan.finish();
+    timeline_writer.flush().map_err(io_error)?;
+    timeline_writer.get_ref().sync_all().map_err(io_error)?;
+    if row_idx == 0 || streamed_timeline.active_rows + streamed_timeline.inactive_rows != row_idx {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_TEMPORAL_INVALID",
+            format!(
+                "timeline rows={} vector rows={row_idx}",
+                streamed_timeline.active_rows + streamed_timeline.inactive_rows
+            ),
+            "timeline sidecar must contain one row per vector row",
+        ));
     }
     Ok(())
 }
@@ -229,7 +256,7 @@ fn finish_sinks(
     Ok(out)
 }
 
-fn write_plan(path: &Path, lenses: &[LensEvidence]) -> CliResult {
+fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliResult {
     let slots = lenses
         .iter()
         .map(|lens| {
@@ -246,7 +273,13 @@ fn write_plan(path: &Path, lenses: &[LensEvidence]) -> CliResult {
         .collect::<Vec<_>>();
     fs::write(
         path,
-        serde_json::to_vec_pretty(&json!({ "slots": slots })).map_err(CliError::from)?,
+        serde_json::to_vec_pretty(&json!({
+            "timeline": timeline_path,
+            "timeline_format": "calyx-assay-timeline-v1",
+            "temporal_counts_toward_a35": false,
+            "slots": slots
+        }))
+        .map_err(CliError::from)?,
     )
     .map_err(io_error)
 }

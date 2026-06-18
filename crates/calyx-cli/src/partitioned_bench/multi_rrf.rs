@@ -19,6 +19,8 @@ use crate::error::{CliError, CliResult};
 
 #[path = "multi_rrf/a35.rs"]
 mod a35;
+#[path = "multi_rrf/timeline.rs"]
+mod timeline;
 
 const DEFAULT_TRUTH_DEPTH: usize = 64;
 
@@ -37,6 +39,8 @@ struct Args {
 
 #[derive(Clone, Debug, Deserialize)]
 struct Plan {
+    #[serde(default)]
+    timeline: Option<PathBuf>,
     slots: Vec<PlanSlot>,
 }
 
@@ -113,6 +117,10 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let n = slots
         .iter()
         .fold(args.n, |acc, slot| acc.min(slot.queries.count() as usize));
+    let corpus_rows = slots
+        .iter()
+        .fold(u64::MAX, |acc, slot| acc.min(slot.corpus.count())) as usize;
+    let timeline = load_timeline(&args.plan, &plan, corpus_rows)?;
     let truth_n = args.ground_truth.min(n);
     let truth_depth = args
         .truth_depth
@@ -167,6 +175,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             args.k,
             &fused_hits_for_truth,
             &single_hits_for_truth,
+            timeline.as_ref(),
         )
     } else {
         (None, Vec::new(), None, Vec::new())
@@ -179,6 +188,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "plan": args.plan,
         "lens_roster": a35::lens_roster(&slots),
         "per_lens_bits": a35::per_lens_bits(&slots),
+        "temporal": timeline.as_ref().map(|timeline| timeline.report()),
         "slots": slot_report(&slots),
         "queries": n,
         "k": args.k,
@@ -218,6 +228,19 @@ fn load_plan(path: &Path) -> CliResult<Plan> {
     Ok(plan)
 }
 
+fn load_timeline(
+    plan_path: &Path,
+    plan: &Plan,
+    corpus_rows: usize,
+) -> CliResult<Option<timeline::Timeline>> {
+    plan.timeline
+        .as_ref()
+        .map(|path| {
+            timeline::Timeline::load(&timeline::resolve_plan_path(plan_path, path), corpus_rows)
+        })
+        .transpose()
+}
+
 fn open_slots(plan: &Plan) -> CliResult<Vec<OpenSlot>> {
     plan.slots
         .iter()
@@ -252,6 +275,7 @@ fn recall_readback(
     k: usize,
     fused_hits: &[Vec<u64>],
     single_hits: &BTreeMap<SlotId, Vec<Vec<u64>>>,
+    timeline: Option<&timeline::Timeline>,
 ) -> (
     Option<f32>,
     Vec<serde_json::Value>,
@@ -288,12 +312,19 @@ fn recall_readback(
         let exact_ids = fused_hit_ids(&exact_fused, k);
         let truth = exact_ids.iter().copied().collect::<BTreeSet<_>>();
         if sample_readback.len() < 3 {
-            sample_readback.push(json!({
+            let mut row = json!({
                 "query_idx": query_idx,
                 "partitioned_fused_top_k": fused_hits[query_idx],
                 "exact_fused_top_k": exact_ids,
                 "per_slot_exact_top_k": exact_slot_rows,
-            }));
+            });
+            if let Some(timeline) = timeline {
+                row["query_timeline"] = timeline.row_value(query_idx);
+                row["partitioned_fused_timeline"] = timeline.rows_value(&fused_hits[query_idx]);
+                row["exact_fused_timeline"] = timeline.rows_value(&exact_ids);
+                row["time_walk"] = timeline.time_walk(query_idx);
+            }
+            sample_readback.push(row);
         }
         total += truth.len();
         fused_found += fused_hits[query_idx]

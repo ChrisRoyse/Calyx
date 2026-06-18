@@ -5,6 +5,7 @@
 
 mod args;
 mod data;
+mod timeline;
 mod write;
 
 use calyx_core::CalyxError;
@@ -24,9 +25,11 @@ pub(super) struct ExportEvidence {
     pub(super) vectors_path: String,
     pub(super) plan_path: String,
     pub(super) export_report_path: String,
+    pub(super) timeline_path: String,
     pub(super) vault_root: String,
     pub(super) rows: usize,
     pub(super) query_count: usize,
+    pub(super) temporal: timeline::TimelineScan,
     pub(super) lens_roster: Vec<LensEvidence>,
 }
 

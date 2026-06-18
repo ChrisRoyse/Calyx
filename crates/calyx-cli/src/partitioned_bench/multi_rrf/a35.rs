@@ -151,6 +151,7 @@ mod tests {
     #[test]
     fn rejects_panel_below_a35_floor() {
         let plan = Plan {
+            timeline: None,
             slots: (0..3).map(slot).collect(),
         };
 
@@ -164,7 +165,10 @@ mod tests {
     fn rejects_missing_per_lens_bits() {
         let mut slots = (0..4).map(slot).collect::<Vec<_>>();
         slots[2].bits_about = None;
-        let plan = Plan { slots };
+        let plan = Plan {
+            timeline: None,
+            slots,
+        };
 
         let err = validate_plan(&plan).unwrap_err();
 
@@ -175,6 +179,7 @@ mod tests {
     #[test]
     fn accepts_four_frozen_lens_roster_with_bits() {
         let plan = Plan {
+            timeline: None,
             slots: (0..4).map(slot).collect(),
         };
 

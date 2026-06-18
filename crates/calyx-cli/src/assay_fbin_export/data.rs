@@ -7,12 +7,14 @@ use serde::Deserialize;
 
 use crate::error::CliResult;
 
+use super::timeline::{TimelineScan, TimelineScanBuilder, timeline_row};
 use super::{MIN_A35_LENSES, local_error};
 
 #[derive(Debug)]
 pub(super) struct VectorScan {
     pub(super) rows: usize,
     pub(super) lens_dims: BTreeMap<String, usize>,
+    pub(super) timeline: TimelineScan,
 }
 
 #[derive(Debug)]
@@ -32,6 +34,43 @@ pub(super) struct BitsLens {
 pub(super) struct VectorRow {
     pub(super) id: String,
     pub(super) lenses: BTreeMap<String, Vec<f32>>,
+    #[serde(default)]
+    pub(super) source_event_time_secs: Option<i64>,
+    #[serde(default)]
+    pub(super) event_time_secs: Option<i64>,
+    #[serde(default)]
+    pub(super) source_event_time_raw: Option<String>,
+    #[serde(default)]
+    pub(super) event_time_raw: Option<String>,
+    #[serde(default)]
+    pub(super) temporal_lane_state: Option<String>,
+    #[serde(default)]
+    pub(super) temporal_inactive_reason: Option<String>,
+    #[serde(default)]
+    pub(super) source_sequence: Option<String>,
+    #[serde(default)]
+    pub(super) source_sequence_index: Option<usize>,
+}
+
+impl VectorRow {
+    pub(super) fn event_time_secs(&self) -> CliResult<Option<i64>> {
+        match (self.source_event_time_secs, self.event_time_secs) {
+            (Some(source), Some(alias)) if source != alias => Err(local_error(
+                "CALYX_FSV_ASSAY_FBIN_EXPORT_TEMPORAL_INVALID",
+                format!("row {} has mismatched event time aliases", self.id),
+                "keep source_event_time_secs and event_time_secs identical when both are present",
+            )),
+            (Some(source), _) => Ok(Some(source)),
+            (_, Some(alias)) => Ok(Some(alias)),
+            _ => Ok(None),
+        }
+    }
+
+    pub(super) fn event_time_raw(&self) -> Option<&str> {
+        self.source_event_time_raw
+            .as_deref()
+            .or(self.event_time_raw.as_deref())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,12 +105,14 @@ pub(super) fn scan_vectors(path: &Path) -> CliResult<VectorScan> {
     })?;
     let mut rows = 0usize;
     let mut lens_dims: BTreeMap<String, usize> = BTreeMap::new();
+    let mut timeline = TimelineScanBuilder::default();
     for (line_idx, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
         }
         let row = parse_vector_row(line_idx, line)?;
         validate_row(line_idx, &row)?;
+        timeline.push(&timeline_row(rows, &row, 0)?);
         let dims = row_dims(line_idx, &row)?;
         if rows == 0 {
             lens_dims = dims;
@@ -91,7 +132,11 @@ pub(super) fn scan_vectors(path: &Path) -> CliResult<VectorScan> {
             "rerun corpus-build and inspect vectors.jsonl",
         ));
     }
-    Ok(VectorScan { rows, lens_dims })
+    Ok(VectorScan {
+        rows,
+        lens_dims,
+        timeline: timeline.finish(),
+    })
 }
 
 pub(super) fn parse_vector_row(line_idx: usize, line: &str) -> CliResult<VectorRow> {

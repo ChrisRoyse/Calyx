@@ -1,11 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 
+use calyx_core::{TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::migrate::temporal::parse_event_time_secs;
 
 use super::request::CorpusBuildRequest;
 
 const MIN_ROWS: usize = 50;
+const SOURCE_SEQUENCE: &str = "jsonl_line";
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct LabeledRow {
@@ -13,6 +18,12 @@ pub(crate) struct LabeledRow {
     pub(crate) split: String,
     pub(crate) text: String,
     pub(crate) label: usize,
+    pub(crate) event_time_secs: Option<i64>,
+    pub(crate) event_time_raw: Option<String>,
+    pub(crate) temporal_lane_state: String,
+    pub(crate) temporal_inactive_reason: Option<String>,
+    pub(crate) source_sequence: String,
+    pub(crate) source_sequence_index: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +44,16 @@ struct RawRow {
     split: String,
     text: String,
     label: RawLabel,
+    #[serde(default)]
+    event_time: Option<Value>,
+    #[serde(default)]
+    event_time_secs: Option<Value>,
+    #[serde(default)]
+    source_event_time_secs: Option<Value>,
+    #[serde(default)]
+    created_at: Option<Value>,
+    #[serde(default)]
+    timestamp: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -68,6 +89,7 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
             }
         }
         *counts.entry(label).or_insert(0) += 1;
+        let temporal = row_temporal(line_idx, &raw)?;
         rows.push(LabeledRow {
             id,
             split: if raw.split.trim().is_empty() {
@@ -77,6 +99,12 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
             },
             text: raw.text,
             label,
+            event_time_secs: temporal.event_time_secs,
+            event_time_raw: temporal.event_time_raw,
+            temporal_lane_state: temporal.lane_state,
+            temporal_inactive_reason: temporal.inactive_reason,
+            source_sequence: SOURCE_SEQUENCE.to_string(),
+            source_sequence_index: line_idx,
         });
     }
     validate_loaded_rows(request, &rows)?;
@@ -85,6 +113,81 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
         .map(|(label, count)| (label.to_string(), count))
         .collect();
     Ok(BuildRows { rows, label_counts })
+}
+
+struct RowTemporal {
+    event_time_secs: Option<i64>,
+    event_time_raw: Option<String>,
+    lane_state: String,
+    inactive_reason: Option<String>,
+}
+
+fn row_temporal(line_idx: usize, row: &RawRow) -> Result<RowTemporal, String> {
+    let Some((field, value)) = temporal_candidate(row) else {
+        return Ok(inactive_temporal());
+    };
+    if value.is_null() {
+        return Ok(inactive_temporal());
+    }
+    let raw = temporal_raw_text(line_idx, field, value)?;
+    let secs = parse_event_time_secs(&raw, line_idx as u64, field).map_err(|error| {
+        format!(
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_TIMESTAMP: line {line_idx} {}",
+            error.message()
+        )
+    })?;
+    let event_time_secs = i64::try_from(secs).map_err(|_| {
+        format!(
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_TIMESTAMP: line {line_idx} {field} exceeds i64"
+        )
+    })?;
+    Ok(RowTemporal {
+        event_time_secs: Some(event_time_secs),
+        event_time_raw: Some(raw),
+        lane_state: TEMPORAL_LANE_ACTIVE.to_string(),
+        inactive_reason: None,
+    })
+}
+
+fn inactive_temporal() -> RowTemporal {
+    RowTemporal {
+        event_time_secs: None,
+        event_time_raw: None,
+        lane_state: TEMPORAL_LANE_INACTIVE.to_string(),
+        inactive_reason: Some(TEMPORAL_MISSING_CREATED_AT.to_string()),
+    }
+}
+
+fn temporal_candidate(row: &RawRow) -> Option<(&'static str, &Value)> {
+    [
+        ("event_time", row.event_time.as_ref()),
+        ("event_time_secs", row.event_time_secs.as_ref()),
+        (
+            "source_event_time_secs",
+            row.source_event_time_secs.as_ref(),
+        ),
+        ("created_at", row.created_at.as_ref()),
+        ("timestamp", row.timestamp.as_ref()),
+    ]
+    .into_iter()
+    .find_map(|(field, value)| value.map(|value| (field, value)))
+}
+
+fn temporal_raw_text(line_idx: usize, field: &str, value: &Value) -> Result<String, String> {
+    match value {
+        Value::String(text) => Ok(text.clone()),
+        Value::Number(number) => number
+            .as_u64()
+            .map(|value| value.to_string())
+            .ok_or_else(|| invalid_temporal_type(line_idx, field)),
+        _ => Err(invalid_temporal_type(line_idx, field)),
+    }
+}
+
+fn invalid_temporal_type(line_idx: usize, field: &str) -> String {
+    format!(
+        "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_TIMESTAMP: line {line_idx} {field} must be a Unix timestamp integer or timestamp string"
+    )
 }
 
 fn validate_row(line_idx: usize, row: &RawRow) -> Result<(), String> {
