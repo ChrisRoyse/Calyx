@@ -8,6 +8,7 @@ use super::data::AssayCorpus;
 use super::engine::evaluate_corpus;
 use super::metrics::write_metric_outputs;
 use super::request::AssayBitsRequest;
+use super::selection::compute_signal_density;
 
 const DIM: usize = 16;
 
@@ -88,8 +89,6 @@ fn synthetic_three_lens_admits_real_rejects_redundant() {
 
 #[test]
 fn low_signal_lens_rejected_by_admit_lens() {
-    // Deterministic loop over every sub-threshold bits value: the admission
-    // contract must reject each with CALYX_ASSAY_LOW_SIGNAL.
     for step in 0..50_u32 {
         let bits = (step as f32) / 1000.0; // 0.000 .. 0.049, all < 0.05
         assert!(bits < 0.05);
@@ -97,8 +96,6 @@ fn low_signal_lens_rejected_by_admit_lens() {
         assert_eq!(error.code, "CALYX_ASSAY_LOW_SIGNAL", "bits={bits}");
     }
 
-    // A genuinely uninformative lens (constant vectors) measures ~0 bits and is
-    // therefore rejected by the admission contract end-to-end.
     let samples: Vec<Vec<f32>> = (0..120).map(|_| vec![1.0_f32; DIM]).collect();
     let labels: Vec<bool> = (0..120).map(|i| i % 2 == 0).collect();
     let bits = logistic_probe_mi(&samples, &labels).unwrap().estimate.bits;
@@ -127,7 +124,6 @@ fn single_class_anchor_fails_closed_without_panic() {
     let corpus = root.join("corpus");
     fs::create_dir_all(&corpus).unwrap();
     write_synthetic_corpus(&corpus, 200);
-    // target_class 9 never appears in labels -> anchor all-false -> single-class.
     let mut request = request_for(&root);
     request.target_class = 9;
     let data = AssayCorpus::load(&request).unwrap();
@@ -155,14 +151,12 @@ fn too_few_samples_surface_insufficient_samples() {
 }
 
 #[test]
-fn signal_density_computed_and_ranked_cpu_first() {
+fn signal_density_uses_budget_density_without_cpu_pre_rank() {
     let root = temp_root("assay-bits-density");
     let corpus = root.join("corpus");
     fs::create_dir_all(&corpus).unwrap();
     write_synthetic_corpus(&corpus, 200);
 
-    // Cost sidecar: real_a + real_b are CPU-only (zero VRAM) with different
-    // latency densities; redundant stays on GPU so both ranking branches run.
     let cost_path = root.join("cost.json");
     fs::write(
         &cost_path,
@@ -218,24 +212,61 @@ fn signal_density_computed_and_ranked_cpu_first() {
         d_redundant.bits_per_vram_mb
     );
 
-    // Ranking: CPU-only lenses sort first by descending bits/ms; GPU follows.
     let density = report.signal_density.as_ref().expect("density report");
-    assert_eq!(
-        density.ranked.first().map(|r| r.name.as_str()),
-        Some("real_a"),
-        "CPU-only lens must rank first by signal density"
+    assert!(
+        density.note.contains("bits per dominant budget fraction"),
+        "{}",
+        density.note
+    );
+    assert!(
+        density.note.contains("no CPU-only pre-rank"),
+        "{}",
+        density.note
     );
     assert!(density.ranked.iter().any(|r| !r.zero_vram));
+    for pair in density.ranked.windows(2) {
+        let left = pair[0]
+            .bits_per_budget_fraction
+            .expect("left budget density");
+        let right = pair[1]
+            .bits_per_budget_fraction
+            .expect("right budget density");
+        assert!(
+            left + 1e-6 >= right,
+            "{} density {left} sorted before {} density {right}",
+            pair[0].name,
+            pair[1].name
+        );
+    }
 
-    // The density artifact is written and reads back identically.
+    let mut fixed_budget_lenses = report.lenses.clone();
+    let fixed_budget_density = compute_signal_density(
+        &mut fixed_budget_lenses,
+        &cost,
+        PanelResourceBudget {
+            max_vram_mb: 1_000_000.0,
+            max_ram_mb: 128.0,
+            max_ms_per_input: 1_000_000.0,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        fixed_budget_density.ranked.first().map(|r| r.zero_vram),
+        Some(false),
+        "GPU lens must be able to outrank CPU lenses by budget density"
+    );
+
     let path = evidence
         .signal_density_path
         .as_ref()
         .expect("signal_density_path present");
     let readback: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap();
-    assert_eq!(readback["ranked"][0]["name"], "real_a");
-    assert_eq!(readback["ranked"][0]["zero_vram"], true);
+    assert_eq!(readback["ranked"][0]["name"], density.ranked[0].name);
+    assert_eq!(
+        readback["ranked"][0]["zero_vram"],
+        density.ranked[0].zero_vram
+    );
 
     let _ = fs::remove_dir_all(root);
 }
@@ -315,7 +346,6 @@ fn missing_cost_entry_fails_closed() {
     fs::create_dir_all(&corpus).unwrap();
     write_synthetic_corpus(&corpus, 200);
 
-    // Omit "redundant" from the cost sidecar -> hard error, no silent default.
     let cost_path = root.join("cost.json");
     fs::write(
         &cost_path,
@@ -342,7 +372,6 @@ fn missing_cost_entry_fails_closed() {
 fn invalid_cost_rejected() {
     let root = temp_root("assay-bits-cost-invalid");
     fs::create_dir_all(&root).unwrap();
-    // ms_per_input == 0 is a divisor -> must be rejected.
     let bad = root.join("bad.json");
     fs::write(
         &bad,
@@ -351,7 +380,6 @@ fn invalid_cost_rejected() {
     .unwrap();
     let error = LensCostMap::load(&bad).unwrap_err();
     assert!(error.starts_with("CALYX_FSV_ASSAY_INVALID_COST"), "{error}");
-    // Negative VRAM rejected.
     let bad2 = root.join("bad2.json");
     fs::write(
         &bad2,
@@ -381,10 +409,7 @@ fn request_for(root: &Path) -> AssayBitsRequest {
     }
 }
 
-/// Writes a deterministic 3-lens fixture (seed=42):
-/// - `real_a`: informative, vectors separable by binary label.
-/// - `real_b`: informative + independent (different separation axis).
-/// - `redundant`: `real_a` + tiny deterministic noise (corr > 0.6), redundant.
+/// Writes a deterministic three-lens fixture (seed=42).
 fn write_synthetic_corpus(dir: &Path, rows: usize) {
     let seed = 42_u64;
     let mut lines = String::new();
@@ -428,7 +453,6 @@ fn lens_real_b(seed: u64, i: u64, is_zero: bool) -> Vec<f32> {
     let offset = if is_zero { -1.0 } else { 1.0 };
     (0..DIM)
         .map(|d| {
-            // Separation lives in the second half -> independent axis from real_a.
             let base = if d >= DIM / 2 { offset } else { 0.0 };
             base + 0.15 * jitter(seed ^ 0xCD, i, d as u64)
         })

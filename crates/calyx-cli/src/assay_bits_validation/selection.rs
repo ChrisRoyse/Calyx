@@ -22,9 +22,8 @@ impl From<&LensMeasurement> for SelectionMeasurement {
     }
 }
 
-/// Lenses ranked by signal density for panel selection. CPU-only (zero-VRAM)
-/// lenses are ranked first for the descriptive report; the budgeted packer uses
-/// `bits_per_budget_fraction` for actual admission.
+/// Lenses ranked by the same signal-per-dominant-budget-fraction policy used
+/// by density-ordered panel admission.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct SignalDensityReport {
     pub(crate) note: String,
@@ -143,22 +142,15 @@ pub(crate) fn compute_signal_density(
         })
         .collect();
     ranked.sort_by(|a, b| {
-        b.zero_vram
-            .cmp(&a.zero_vram)
-            .then_with(|| match (a.zero_vram, b.zero_vram) {
-                (true, true) => compare_optional_density(a.bits_per_ms, b.bits_per_ms),
-                _ => {
-                    let av = a.bits_per_vram_mb.unwrap_or(f32::INFINITY);
-                    let bv = b.bits_per_vram_mb.unwrap_or(f32::INFINITY);
-                    bv.total_cmp(&av)
-                }
-            })
+        compare_optional_density(a.bits_per_budget_fraction, b.bits_per_budget_fraction)
+            .then_with(|| b.bits_about.total_cmp(&a.bits_about))
             .then_with(|| a.name.cmp(&b.name))
     });
     Ok(SignalDensityReport {
-        note: "ranked by signal density: CPU-only (zero-VRAM) lenses first by \
-               bits/ms, then GPU lenses by bits/VRAM-MB descending; packed_panel \
-               is the source of truth when --panel-budget-json is supplied"
+        note: "ranked by signal density: bits per dominant budget fraction \
+               descending, then raw bits, with no CPU-only pre-rank; \
+               packed_panel is the source of truth when --panel-budget-json \
+               is supplied"
             .to_string(),
         ranked,
     })
