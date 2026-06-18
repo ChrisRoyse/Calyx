@@ -51,6 +51,8 @@ struct SearchArgs {
     corpus: Option<PathBuf>,
     /// Precomputed exact top-k ground truth (`.i32bin`, query rows x neighbor ids).
     ground_truth_file: Option<PathBuf>,
+    /// Optional row-id -> external-id map for benchmark truth files such as SpaceV.
+    ground_truth_id_map: Option<PathBuf>,
     n: usize,
     k: usize,
     n_probe: usize,
@@ -68,6 +70,7 @@ impl SearchArgs {
         let mut queries = None;
         let mut corpus = None;
         let mut ground_truth_file = None;
+        let mut ground_truth_id_map = None;
         let (mut n, mut k, mut n_probe, mut region_beam) = (1000usize, 10usize, 8usize, 64usize);
         let mut ground_truth = 0usize;
         let mut recall_floor = None;
@@ -83,6 +86,7 @@ impl SearchArgs {
                 "--queries" => queries = Some(PathBuf::from(next()?)),
                 "--corpus" => corpus = Some(PathBuf::from(next()?)),
                 "--ground-truth-file" => ground_truth_file = Some(PathBuf::from(next()?)),
+                "--ground-truth-id-map" => ground_truth_id_map = Some(PathBuf::from(next()?)),
                 "--n" => n = parse(&next()?, "--n")?,
                 "--k" => k = parse(&next()?, "--k")?,
                 "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
@@ -110,11 +114,17 @@ impl SearchArgs {
         if region_beam == 0 {
             return Err(CliError::usage("--region-beam must be > 0"));
         }
+        if ground_truth_id_map.is_some() && ground_truth_file.is_none() {
+            return Err(CliError::usage(
+                "--ground-truth-id-map requires --ground-truth-file",
+            ));
+        }
         Ok(Self {
             vault,
             queries,
             corpus,
             ground_truth_file,
+            ground_truth_id_map,
             n,
             k,
             n_probe,
@@ -206,6 +216,47 @@ fn recall_from_i32bin_ground_truth(
     Ok(recall_from_truth_sets(ann, &truth_sets))
 }
 
+fn map_ann_rows_to_ground_truth_ids(
+    path: &std::path::Path,
+    ann: &[Vec<u64>],
+    expected_rows: u64,
+) -> CliResult<Vec<Vec<u64>>> {
+    let id_map = I32BinMatrix::open(path).map_err(CliError::Calyx)?;
+    if id_map.width() != 1 {
+        return Err(CliError::usage(format!(
+            "--ground-truth-id-map width must be 1, got {}",
+            id_map.width()
+        )));
+    }
+    if id_map.count() != expected_rows {
+        return Err(CliError::usage(format!(
+            "--ground-truth-id-map row count {} != vault n_cx {expected_rows}",
+            id_map.count()
+        )));
+    }
+    ann.iter()
+        .map(|row| {
+            row.iter()
+                .map(|&row_id| {
+                    if row_id >= id_map.count() {
+                        return Err(CliError::usage(format!(
+                            "ANN row id {row_id} is outside --ground-truth-id-map count {}",
+                            id_map.count()
+                        )));
+                    }
+                    let external_id = id_map.row(row_id)[0];
+                    if external_id < 0 {
+                        return Err(CliError::usage(format!(
+                            "--ground-truth-id-map row {row_id} contains negative id {external_id}"
+                        )));
+                    }
+                    Ok(external_id as u64)
+                })
+                .collect()
+        })
+        .collect()
+}
+
 fn recall_from_truth_sets(ann: &[Vec<u64>], truth: &[std::collections::HashSet<u64>]) -> f32 {
     let mut found = 0usize;
     let mut total = 0usize;
@@ -272,7 +323,14 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
 
     let ground_truth_recall = if gt_n > 0 {
         Some(if let Some(path) = &args.ground_truth_file {
-            recall_from_i32bin_ground_truth(path, &gt_ann, args.k)?
+            let mapped_ann;
+            let ann = if let Some(id_map) = &args.ground_truth_id_map {
+                mapped_ann = map_ann_rows_to_ground_truth_ids(id_map, &gt_ann, manifest.n_cx)?;
+                &mapped_ann
+            } else {
+                &gt_ann
+            };
+            recall_from_i32bin_ground_truth(path, ann, args.k)?
         } else {
             let corpus_path = args.corpus.as_ref().ok_or_else(|| {
                 CliError::usage(
@@ -316,6 +374,7 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
         "latency_us": summary,
         "ground_truth_queries": gt_n,
         "ground_truth_file": args.ground_truth_file.as_ref().map(|path| path.to_string_lossy()),
+        "ground_truth_id_map": args.ground_truth_id_map.as_ref().map(|path| path.to_string_lossy()),
         "ground_truth_recall_at_k": ground_truth_recall,
         "recall_floor": args.recall_floor,
     });
