@@ -5,7 +5,9 @@ use std::path::Path;
 use calyx_core::Result;
 use rayon::prelude::*;
 
-use crate::error::{CALYX_INDEX_CORRUPT, CALYX_INDEX_IO, sextant_error};
+use crate::error::{
+    CALYX_INDEX_CORRUPT, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO, sextant_error,
+};
 use crate::index::SpannCentroidIndex;
 
 use super::{VectorSource, ids_rel};
@@ -27,26 +29,6 @@ pub(super) enum AssignmentRouting {
 pub(super) enum AssignmentSink {
     Final,
     Provisional,
-}
-
-/// Stream assignment into compact per-region id files. The final region->cx mapping
-/// is the on-disk source of truth; graph build reads it back instead of retaining
-/// `Vec<Vec<u64>>` buckets in heap.
-pub(super) fn stream_assign_to_ids(
-    root: &Path,
-    sink: AssignmentSink,
-    centroids: &SpannCentroidIndex,
-    source: &dyn VectorSource,
-    chunk: usize,
-) -> Result<Vec<AssignmentRegion>> {
-    stream_assign_to_ids_with_routing(
-        root,
-        sink,
-        centroids,
-        source,
-        chunk,
-        AssignmentRouting::Hnsw,
-    )
 }
 
 pub(super) fn stream_assign_to_ids_with_routing(
@@ -105,6 +87,89 @@ pub(super) fn stream_assign_to_ids_with_routing(
             ids_rel: assignment_ids_rel(sink, region as u32),
         })
         .collect())
+}
+
+pub(super) fn stream_assign_to_ids_bounded(
+    root: &Path,
+    sink: AssignmentSink,
+    centroids: &SpannCentroidIndex,
+    source: &dyn VectorSource,
+    chunk: usize,
+    cap: usize,
+    routing_probe: usize,
+) -> Result<Vec<AssignmentRegion>> {
+    let r = centroids.centroid_count();
+    let n = source.len();
+    if cap == 0 || routing_probe == 0 {
+        return Err(sextant_error(
+            CALYX_INDEX_INVALID_PARAMS,
+            "bounded assignment requires cap > 0 and routing_probe > 0",
+        ));
+    }
+    let total_capacity = (cap as u128) * (r as u128);
+    if total_capacity < n as u128 {
+        return Err(sextant_error(
+            CALYX_INDEX_INVALID_PARAMS,
+            format!("bounded assignment capacity {total_capacity} < n_cx {n}"),
+        ));
+    }
+    let probe = routing_probe.min(r);
+    let chunk = chunk.max(1) as u64;
+    let mut counts = vec![0usize; r];
+    let mut writers: Vec<Option<BufWriter<File>>> = (0..r).map(|_| None).collect();
+    clear_stale_ids(root, sink, r)?;
+    let mut start = 0u64;
+    while start < n {
+        let end = (start + chunk).min(n);
+        let assigned: Vec<(u64, Vec<u32>)> = (start..end)
+            .into_par_iter()
+            .map(|idx| {
+                let row = source.row(idx);
+                (idx, centroids.nearest_centroids(&row, probe))
+            })
+            .collect();
+        for (idx, candidates) in assigned {
+            let region = choose_bounded_region(&counts, cap, &candidates).ok_or_else(|| {
+                sextant_error(
+                    CALYX_INDEX_INVALID_PARAMS,
+                    format!(
+                        "bounded assignment exhausted the top {probe} routed regions for row {idx}; increase regions or cap"
+                    ),
+                )
+            })?;
+            let writer = writer_for_region(root, sink, region as u32, &mut writers[region])?;
+            writer.write_all(&idx.to_le_bytes()).map_err(|e| {
+                sextant_error(
+                    CALYX_INDEX_IO,
+                    format!("write region {region} id {idx}: {e}"),
+                )
+            })?;
+            counts[region] += 1;
+        }
+        start = end;
+    }
+    for writer in writers.iter_mut().flatten() {
+        writer
+            .flush()
+            .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("flush ids: {e}")))?;
+    }
+    Ok(counts
+        .into_iter()
+        .enumerate()
+        .filter(|(_, count)| *count > 0)
+        .map(|(region, count)| AssignmentRegion {
+            id: region as u32,
+            count,
+            ids_rel: assignment_ids_rel(sink, region as u32),
+        })
+        .collect())
+}
+
+fn choose_bounded_region(counts: &[usize], cap: usize, candidates: &[u32]) -> Option<usize> {
+    candidates.iter().find_map(|&region| {
+        let region = region as usize;
+        (region < counts.len() && counts[region] < cap).then_some(region)
+    })
 }
 
 fn writer_for_region<'a>(

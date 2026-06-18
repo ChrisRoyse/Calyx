@@ -1,3 +1,4 @@
+use super::assignment::{AssignmentSink, read_ids, stream_assign_to_ids_bounded};
 use super::balance::balance_regions;
 use super::*;
 
@@ -60,6 +61,43 @@ fn balance_regions_recursively_enforces_cap() {
         final_buckets.iter().all(|bucket| bucket.len() <= cap),
         "every final bucket must be <= cap"
     );
+}
+
+#[test]
+fn bounded_final_assignment_caps_regions_and_preserves_ids() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-bounded-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        vec![vec![1.0, 0.0], vec![-1.0, 0.0]],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("centroids");
+    let mut rows = Vec::new();
+    for _ in 0..10 {
+        rows.push(vec![1.0, 0.0]);
+    }
+    for _ in 0..2 {
+        rows.push(vec![-1.0, 0.0]);
+    }
+    let source = StaticSource { rows };
+    let regions =
+        stream_assign_to_ids_bounded(&dir, AssignmentSink::Final, &centroids, &source, 4, 6, 2)
+            .expect("bounded assignment");
+
+    assert_eq!(regions.iter().map(|r| r.count).sum::<usize>(), 12);
+    assert!(
+        regions.iter().all(|region| region.count <= 6),
+        "bounded assignment must enforce the cap"
+    );
+    let mut ids = Vec::new();
+    for region in &regions {
+        ids.extend(read_ids(&dir.join(&region.ids_rel)).expect("ids"));
+    }
+    ids.sort_unstable();
+    assert_eq!(ids, (0..12).collect::<Vec<_>>());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -214,4 +252,22 @@ fn brute_force_topk(query: &[f32], seed: u64, n_cx: u64, dim: usize, k: usize) -
         .collect();
     scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     scored.into_iter().take(k).map(|(idx, _)| idx).collect()
+}
+
+struct StaticSource {
+    rows: Vec<Vec<f32>>,
+}
+
+impl VectorSource for StaticSource {
+    fn dim(&self) -> usize {
+        self.rows[0].len()
+    }
+
+    fn len(&self) -> u64 {
+        self.rows.len() as u64
+    }
+
+    fn row(&self, idx: u64) -> Vec<f32> {
+        self.rows[idx as usize].clone()
+    }
 }
