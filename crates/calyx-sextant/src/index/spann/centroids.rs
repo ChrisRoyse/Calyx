@@ -141,6 +141,21 @@ impl SpannCentroidIndex {
             .unwrap_or_default()
     }
 
+    pub fn nearest_centroids_exact_l2(&self, query: &[f32], n_probe: usize) -> Vec<u32> {
+        if self.centroids.is_empty() || n_probe == 0 || query.len() != self.dim as usize {
+            return Vec::new();
+        }
+        let k = n_probe.min(self.centroids.len());
+        let mut scored: Vec<(u32, f32)> = self
+            .centroids
+            .iter()
+            .enumerate()
+            .map(|(idx, centroid)| (idx as u32, l2_sq(centroid, query)))
+            .collect();
+        scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+        scored.into_iter().take(k).map(|(idx, _)| idx).collect()
+    }
+
     pub fn save(&self, slot_sparse_dir: impl AsRef<Path>) -> Result<()> {
         self.save_to_path(slot_sparse_dir.as_ref().join("centroids.spn"))
     }

@@ -9,7 +9,7 @@ use crate::index::{SpannCentroidIndex, build_centroids};
 use super::assignment::{AssignmentRegion, read_ids};
 #[cfg(test)]
 use super::gen_row;
-use super::{IDX_MIX, VectorSource, normalize};
+use super::{IDX_MIX, PartitionDistanceMetric, VectorSource, normalize};
 
 #[cfg(test)]
 type RegionSplit = (Vec<Vec<f32>>, Vec<Vec<u64>>);
@@ -27,6 +27,7 @@ pub(super) fn balance_region_files(
     source: &dyn VectorSource,
     seed: u64,
     cap: usize,
+    distance_metric: PartitionDistanceMetric,
 ) -> Result<Vec<Vec<f32>>> {
     let initial_centroids = initial.centroids();
     let balanced: Vec<Vec<Vec<f32>>> = regions
@@ -63,6 +64,7 @@ pub(super) fn balance_region_files(
                 cap,
                 region.id as u64,
                 0,
+                distance_metric,
             ))
         })
         .collect::<Result<Vec<_>>>()?;
@@ -105,12 +107,17 @@ fn split_oversized(
     cap: usize,
     salt: u64,
     depth: usize,
+    distance_metric: PartitionDistanceMetric,
 ) -> Vec<Vec<f32>> {
     if members.len() <= cap {
-        return vec![centroid_for_source_members(members, source)];
+        return vec![centroid_for_source_members(
+            members,
+            source,
+            distance_metric,
+        )];
     }
     if depth >= MAX_RECLUSTER_DEPTH {
-        return chunk_centroids_by_cap(members, source, cap);
+        return chunk_centroids_by_cap(members, source, cap, distance_metric);
     }
     let sample = sample_rows(members, source);
     let k_sub = members.len().div_ceil(cap).max(2).min(sample.len().max(1));
@@ -122,7 +129,7 @@ fn split_oversized(
     }
     let largest = sub_buckets.iter().map(Vec::len).max().unwrap_or(0);
     if largest >= members.len() {
-        return chunk_centroids_by_cap(members, source, cap);
+        return chunk_centroids_by_cap(members, source, cap, distance_metric);
     }
     let mut out = Vec::new();
     for (sub_idx, bucket) in sub_buckets.into_iter().enumerate() {
@@ -139,6 +146,7 @@ fn split_oversized(
                 cap,
                 salt ^ (sub_idx as u64).wrapping_mul(IDX_MIX),
                 depth + 1,
+                distance_metric,
             ));
         }
     }
@@ -157,14 +165,23 @@ fn sample_rows(members: &[u64], source: &dyn VectorSource) -> Vec<(u32, Vec<f32>
         .collect()
 }
 
-fn chunk_centroids_by_cap(members: &[u64], source: &dyn VectorSource, cap: usize) -> Vec<Vec<f32>> {
+fn chunk_centroids_by_cap(
+    members: &[u64],
+    source: &dyn VectorSource,
+    cap: usize,
+    distance_metric: PartitionDistanceMetric,
+) -> Vec<Vec<f32>> {
     members
         .chunks(cap.max(1))
-        .map(|chunk| centroid_for_source_members(chunk, source))
+        .map(|chunk| centroid_for_source_members(chunk, source, distance_metric))
         .collect()
 }
 
-fn centroid_for_source_members(members: &[u64], source: &dyn VectorSource) -> Vec<f32> {
+fn centroid_for_source_members(
+    members: &[u64],
+    source: &dyn VectorSource,
+    distance_metric: PartitionDistanceMetric,
+) -> Vec<f32> {
     let dim = source.dim();
     let mut center = vec![0.0; dim];
     for &idx in members {
@@ -173,7 +190,13 @@ fn centroid_for_source_members(members: &[u64], source: &dyn VectorSource) -> Ve
             *c += v;
         }
     }
-    normalize(&mut center);
+    let inv = 1.0 / members.len().max(1) as f32;
+    for value in &mut center {
+        *value *= inv;
+    }
+    if distance_metric == PartitionDistanceMetric::UnitL2 {
+        normalize(&mut center);
+    }
     center
 }
 
@@ -264,4 +287,41 @@ fn flatten(parts: Vec<RegionSplit>) -> RegionSplit {
         buckets.extend(buks);
     }
     (centroids, buckets)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct StaticSource {
+        rows: Vec<Vec<f32>>,
+    }
+
+    impl VectorSource for StaticSource {
+        fn dim(&self) -> usize {
+            self.rows[0].len()
+        }
+
+        fn len(&self) -> u64 {
+            self.rows.len() as u64
+        }
+
+        fn row(&self, idx: u64) -> Vec<f32> {
+            self.rows[idx as usize].clone()
+        }
+    }
+
+    #[test]
+    fn raw_l2_member_centroid_preserves_source_scale() {
+        let source = StaticSource {
+            rows: vec![vec![10.0, 0.0], vec![12.0, 0.0]],
+        };
+
+        let raw = centroid_for_source_members(&[0, 1], &source, PartitionDistanceMetric::RawL2);
+        let unit = centroid_for_source_members(&[0, 1], &source, PartitionDistanceMetric::UnitL2);
+
+        assert_eq!(raw, vec![11.0, 0.0]);
+        assert!((unit[0] - 1.0).abs() < 1e-6);
+        assert_eq!(unit[1], 0.0);
+    }
 }

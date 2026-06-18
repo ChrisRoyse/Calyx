@@ -41,8 +41,8 @@ use crate::index::{
     SpannCentroidIndex, build_centroids,
 };
 use assignment::{
-    AssignmentRouting, AssignmentSink, read_ids, stream_assign_to_ids_bounded,
-    stream_assign_to_ids_with_routing,
+    AssignmentRouting, AssignmentSink, BoundedAssignmentConfig, read_ids,
+    stream_assign_to_ids_bounded, stream_assign_to_ids_with_routing,
 };
 use balance::balance_region_files;
 pub use metric::PartitionDistanceMetric;
@@ -290,10 +290,10 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     //    R~2500 at dim 512; keep flat only for trivially small centroid sets.
     const HNSW_ASSIGN_MIN_CENTROIDS: usize = 256;
     let use_hnsw_assign = r > HNSW_ASSIGN_MIN_CENTROIDS;
-    let provisional_routing = if use_hnsw_assign {
-        AssignmentRouting::Hnsw
-    } else {
-        AssignmentRouting::Exact
+    let provisional_routing = match distance_metric {
+        PartitionDistanceMetric::RawL2 => AssignmentRouting::Exact,
+        PartitionDistanceMetric::UnitL2 if use_hnsw_assign => AssignmentRouting::Hnsw,
+        PartitionDistanceMetric::UnitL2 => AssignmentRouting::Exact,
     };
     let provisional = stream_assign_to_ids_with_routing(
         root,
@@ -312,8 +312,15 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     //     splitter enforces this hard bound, keeping final max/mean near 1-2x.
     let mean_region = (n_cx as usize).div_ceil(r.max(1));
     let cap = mean_region.max(MIN_REGION_CAP);
-    let final_centroids =
-        balance_region_files(root, &centroids, &provisional, source, p.seed, cap)?;
+    let final_centroids = balance_region_files(
+        root,
+        &centroids,
+        &provisional,
+        source,
+        p.seed,
+        cap,
+        distance_metric,
+    )?;
     let centroids =
         SpannCentroidIndex::from_parts(dim as u32, final_centroids, Vec::new(), Vec::new())?;
     centroids.save(root.join(CENTROID_DIR))?;
@@ -326,14 +333,21 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     //     capacity, the build fails closed instead of creating an unreachable row.
     let final_mean = (n_cx as usize).div_ceil(centroids.centroid_count().max(1));
     let final_cap = final_mean.saturating_mul(2).max(MIN_REGION_CAP);
+    let final_routing = match distance_metric {
+        PartitionDistanceMetric::RawL2 => AssignmentRouting::Exact,
+        PartitionDistanceMetric::UnitL2 => AssignmentRouting::Hnsw,
+    };
     let region_ids = stream_assign_to_ids_bounded(
         root,
         AssignmentSink::Final,
         &centroids,
         source,
         p.chunk,
-        final_cap,
-        FINAL_ASSIGNMENT_PROBE,
+        BoundedAssignmentConfig {
+            cap: final_cap,
+            routing_probe: FINAL_ASSIGNMENT_PROBE,
+            routing: final_routing,
+        },
     )?;
     let region_build_parallelism =
         effective_region_build_parallelism(p.region_build_parallelism, region_ids.len())?;
