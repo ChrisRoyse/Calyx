@@ -24,6 +24,7 @@
 
 mod assignment;
 mod balance;
+mod metric;
 mod search;
 mod sources;
 
@@ -44,6 +45,7 @@ use assignment::{
     stream_assign_to_ids_with_routing,
 };
 use balance::balance_region_files;
+pub use metric::PartitionDistanceMetric;
 pub use search::{PartitionedSearch, PartitionedSearchReadback};
 pub use sources::{FbinSource, I8BinSource, SyntheticSource, VectorSource};
 
@@ -107,6 +109,8 @@ pub struct PartitionedManifest {
     pub seed: u64,
     pub m_max: usize,
     pub ef_construction: usize,
+    #[serde(default)]
+    pub distance_metric: PartitionDistanceMetric,
     #[serde(default)]
     pub region_build_parallelism: usize,
     #[serde(default = "default_graph_build_backend")]
@@ -228,6 +232,22 @@ pub fn build_partitioned_vault_from_source_with_backend(
     source: &dyn VectorSource,
     p: PartitionBuildParams,
     backend: DiskAnnBuildBackend,
+) -> Result<PartitionedManifest> {
+    build_partitioned_vault_from_source_with_backend_and_metric(
+        root,
+        source,
+        p,
+        backend,
+        PartitionDistanceMetric::UnitL2,
+    )
+}
+
+pub fn build_partitioned_vault_from_source_with_backend_and_metric(
+    root: &Path,
+    source: &dyn VectorSource,
+    p: PartitionBuildParams,
+    backend: DiskAnnBuildBackend,
+    distance_metric: PartitionDistanceMetric,
 ) -> Result<PartitionedManifest> {
     let dim = source.dim();
     let n_cx = source.len();
@@ -365,14 +385,13 @@ pub fn build_partitioned_vault_from_source_with_backend(
                     .map(|&idx| (cx(idx), source.row(idx)))
                     .collect();
                 let graph_path = root.join(graph_rel(region));
-                DiskAnnSearch::build_without_default_raw_sidecar_with_backend(
-                    SlotId::new(0),
+                build_partitioned_graph(
                     &graph_path,
                     &rows,
                     build_params,
-                    None,
                     search_params,
                     backend,
+                    distance_metric,
                 )?;
                 Ok(RegionMeta {
                     id: region,
@@ -395,14 +414,13 @@ pub fn build_partitioned_vault_from_source_with_backend(
         .enumerate()
         .map(|(i, c)| (cx(i as u64), c.clone()))
         .collect();
-    DiskAnnSearch::build_without_default_raw_sidecar_with_backend(
-        SlotId::new(0),
-        root.join(ROOT_GRAPH),
+    build_partitioned_graph(
+        &root.join(ROOT_GRAPH),
         &centroid_rows,
         build_params,
-        None,
         search_params,
         backend,
+        distance_metric,
     )?;
 
     let manifest = PartitionedManifest {
@@ -413,6 +431,7 @@ pub fn build_partitioned_vault_from_source_with_backend(
         seed: p.seed,
         m_max: p.m_max,
         ef_construction: p.ef_construction,
+        distance_metric,
         region_build_parallelism,
         graph_build_backend: backend,
         centroids_rel: format!("{CENTROID_DIR}/centroids.spn"),
@@ -424,6 +443,41 @@ pub fn build_partitioned_vault_from_source_with_backend(
     std::fs::write(root.join(MANIFEST_FILE), bytes)
         .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
     Ok(manifest)
+}
+
+fn build_partitioned_graph(
+    graph_path: &Path,
+    rows: &[(CxId, Vec<f32>)],
+    build_params: DiskAnnBuildParams,
+    search_params: DiskAnnSearchParams,
+    backend: DiskAnnBuildBackend,
+    distance_metric: PartitionDistanceMetric,
+) -> Result<()> {
+    match distance_metric {
+        PartitionDistanceMetric::UnitL2 => {
+            DiskAnnSearch::build_without_default_raw_sidecar_with_backend(
+                SlotId::new(0),
+                graph_path,
+                rows,
+                build_params,
+                None,
+                search_params,
+                backend,
+            )?;
+        }
+        PartitionDistanceMetric::RawL2 => {
+            DiskAnnSearch::build_raw_l2_without_default_raw_sidecar_with_backend(
+                SlotId::new(0),
+                graph_path,
+                rows,
+                build_params,
+                None,
+                search_params,
+                backend,
+            )?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

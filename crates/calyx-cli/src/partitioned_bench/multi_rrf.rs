@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use super::brute_force::brute_force_topk_vecfile_ranked;
-use super::{enforce_recall_floor, percentiles};
+use super::{enforce_recall_floor, percentiles, row_for_metric};
 use crate::error::{CliError, CliResult};
 
 const DEFAULT_TRUTH_DEPTH: usize = 64;
@@ -49,6 +49,7 @@ struct OpenSlot {
     search: PartitionedSearch,
     queries: DenseVectorFile,
     corpus: DenseVectorFile,
+    distance_metric: calyx_sextant::index::PartitionDistanceMetric,
 }
 
 impl Args {
@@ -124,7 +125,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         let started = Instant::now();
         let mut per_slot = BTreeMap::new();
         for slot in &slots {
-            let query = slot.queries.row_f32(query_idx as u64);
+            let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
             let raw_hits = slot
                 .search
                 .search(&query, truth_depth, args.n_probe, args.region_beam)
@@ -223,6 +224,7 @@ fn open_slots(plan: &Plan) -> CliResult<Vec<OpenSlot>> {
             }
             Ok(OpenSlot {
                 spec: slot.clone(),
+                distance_metric: search.manifest().distance_metric,
                 search,
                 queries,
                 corpus,
@@ -255,10 +257,15 @@ fn recall_readback(
         let mut exact_per_slot = BTreeMap::new();
         let mut exact_slot_rows = Vec::new();
         for slot in slots {
-            let query = slot.queries.row_f32(query_idx as u64);
-            let exact = brute_force_topk_vecfile_ranked(&slot.corpus, &[query], truth_depth)
-                .pop()
-                .expect("one query");
+            let query = row_for_metric(&slot.queries, query_idx as u64, slot.distance_metric);
+            let exact = brute_force_topk_vecfile_ranked(
+                &slot.corpus,
+                &[query],
+                truth_depth,
+                slot.distance_metric,
+            )
+            .pop()
+            .expect("one query");
             exact_slot_rows.push(json!({
                 "slot": slot.spec.slot,
                 "exact_top_k": exact.iter().take(k).map(|(id, _)| *id).collect::<Vec<_>>(),

@@ -1,6 +1,6 @@
 use std::collections::{BinaryHeap, HashSet};
 
-use calyx_sextant::index::{DenseVectorFile, gen_row};
+use calyx_sextant::index::{DenseVectorFile, PartitionDistanceMetric, gen_row};
 use rayon::prelude::*;
 
 const CHUNK: u64 = 200_000;
@@ -13,8 +13,9 @@ pub(super) fn brute_force_topk_vecfile(
     corpus: &DenseVectorFile,
     queries: &[Vec<f32>],
     k: usize,
+    distance_metric: PartitionDistanceMetric,
 ) -> Vec<HashSet<u64>> {
-    brute_force_topk_vecfile_ranked(corpus, queries, k)
+    brute_force_topk_vecfile_ranked(corpus, queries, k, distance_metric)
         .into_iter()
         .map(|row| row.into_iter().map(|(id, _)| id).collect())
         .collect()
@@ -27,6 +28,7 @@ pub(super) fn brute_force_topk_vecfile_ranked(
     corpus: &DenseVectorFile,
     queries: &[Vec<f32>],
     k: usize,
+    distance_metric: PartitionDistanceMetric,
 ) -> Vec<Vec<(u64, f32)>> {
     let n_cx = corpus.count();
     let mut heaps: Vec<BinaryHeap<(OrdF32, u64)>> = (0..queries.len())
@@ -39,8 +41,8 @@ pub(super) fn brute_force_topk_vecfile_ranked(
             let scored: Vec<(OrdF32, u64)> = (start..end)
                 .into_par_iter()
                 .map(|idx| {
-                    let row = corpus.row_f32(idx);
-                    (OrdF32(cosine_distance(q, &row)), idx)
+                    let row = row_for_metric(corpus, idx, distance_metric);
+                    (OrdF32(distance(q, &row, distance_metric)), idx)
                 })
                 .collect();
             push_scored(&mut heaps[qi], scored, k);
@@ -94,6 +96,30 @@ fn cosine_distance(left: &[f32], right: &[f32]) -> f32 {
         1.0
     } else {
         (1.0 - dot / (left_norm.sqrt() * right_norm.sqrt())).max(0.0)
+    }
+}
+
+fn l2_distance(left: &[f32], right: &[f32]) -> f32 {
+    left.iter()
+        .zip(right)
+        .map(|(left, right)| {
+            let delta = left - right;
+            delta * delta
+        })
+        .sum()
+}
+
+fn distance(left: &[f32], right: &[f32], metric: PartitionDistanceMetric) -> f32 {
+    match metric {
+        PartitionDistanceMetric::UnitL2 => cosine_distance(left, right),
+        PartitionDistanceMetric::RawL2 => l2_distance(left, right),
+    }
+}
+
+fn row_for_metric(corpus: &DenseVectorFile, idx: u64, metric: PartitionDistanceMetric) -> Vec<f32> {
+    match metric {
+        PartitionDistanceMetric::UnitL2 => corpus.row_f32(idx),
+        PartitionDistanceMetric::RawL2 => corpus.row_f32_raw(idx),
     }
 }
 

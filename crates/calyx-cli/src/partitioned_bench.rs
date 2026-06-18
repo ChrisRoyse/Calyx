@@ -10,7 +10,9 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use calyx_sextant::index::{DenseVectorFile, PartitionedSearch, gen_row};
+use calyx_sextant::index::{
+    DenseVectorFile, I32BinMatrix, PartitionDistanceMetric, PartitionedSearch, gen_row,
+};
 use serde_json::json;
 
 use crate::error::{CliError, CliResult};
@@ -47,6 +49,8 @@ struct SearchArgs {
     queries: Option<PathBuf>,
     /// REAL corpus embeddings (`.fbin` or `.i8bin`) for brute-force ground truth.
     corpus: Option<PathBuf>,
+    /// Precomputed exact top-k ground truth (`.i32bin`, query rows x neighbor ids).
+    ground_truth_file: Option<PathBuf>,
     n: usize,
     k: usize,
     n_probe: usize,
@@ -63,6 +67,7 @@ impl SearchArgs {
         let mut vault = None;
         let mut queries = None;
         let mut corpus = None;
+        let mut ground_truth_file = None;
         let (mut n, mut k, mut n_probe, mut region_beam) = (1000usize, 10usize, 8usize, 64usize);
         let mut ground_truth = 0usize;
         let mut recall_floor = None;
@@ -77,6 +82,7 @@ impl SearchArgs {
                 "--vault" => vault = Some(PathBuf::from(next()?)),
                 "--queries" => queries = Some(PathBuf::from(next()?)),
                 "--corpus" => corpus = Some(PathBuf::from(next()?)),
+                "--ground-truth-file" => ground_truth_file = Some(PathBuf::from(next()?)),
                 "--n" => n = parse(&next()?, "--n")?,
                 "--k" => k = parse(&next()?, "--k")?,
                 "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
@@ -108,6 +114,7 @@ impl SearchArgs {
             vault,
             queries,
             corpus,
+            ground_truth_file,
             n,
             k,
             n_probe,
@@ -151,6 +158,64 @@ fn enforce_recall_floor(floor: Option<f32>, gt_n: usize, recall: Option<f32>) ->
     Ok(())
 }
 
+fn row_for_metric(
+    vectors: &DenseVectorFile,
+    idx: u64,
+    distance_metric: PartitionDistanceMetric,
+) -> Vec<f32> {
+    match distance_metric {
+        PartitionDistanceMetric::UnitL2 => vectors.row_f32(idx),
+        PartitionDistanceMetric::RawL2 => vectors.row_f32_raw(idx),
+    }
+}
+
+fn recall_from_i32bin_ground_truth(
+    path: &std::path::Path,
+    ann: &[Vec<u64>],
+    k: usize,
+) -> CliResult<f32> {
+    let truth = I32BinMatrix::open(path).map_err(CliError::Calyx)?;
+    if truth.count() < ann.len() as u64 {
+        return Err(CliError::usage(format!(
+            "ground-truth file has {} rows, need {}",
+            truth.count(),
+            ann.len()
+        )));
+    }
+    if truth.width() < k {
+        return Err(CliError::usage(format!(
+            "ground-truth file width {} is smaller than k {k}",
+            truth.width()
+        )));
+    }
+    let truth_sets = (0..ann.len())
+        .map(|idx| {
+            let row = truth.row(idx as u64);
+            let mut set = std::collections::HashSet::with_capacity(k);
+            for value in row.into_iter().take(k) {
+                if value < 0 {
+                    return Err(CliError::usage(format!(
+                        "ground-truth row {idx} contains negative id {value}"
+                    )));
+                }
+                set.insert(value as u64);
+            }
+            Ok(set)
+        })
+        .collect::<CliResult<Vec<_>>>()?;
+    Ok(recall_from_truth_sets(ann, &truth_sets))
+}
+
+fn recall_from_truth_sets(ann: &[Vec<u64>], truth: &[std::collections::HashSet<u64>]) -> f32 {
+    let mut found = 0usize;
+    let mut total = 0usize;
+    for (ann, truth_set) in ann.iter().zip(truth.iter()) {
+        found += ann.iter().filter(|cx| truth_set.contains(cx)).count();
+        total += truth_set.len();
+    }
+    found as f32 / total.max(1) as f32
+}
+
 pub(crate) fn run_search(args: &[String]) -> CliResult {
     let args = SearchArgs::parse(args)?;
     if args.queries.is_some() {
@@ -169,6 +234,7 @@ pub(crate) fn run_rrf(args: &[String]) -> CliResult {
 fn run_search_real(args: &SearchArgs) -> CliResult {
     let search = PartitionedSearch::open(&args.vault).map_err(CliError::Calyx)?;
     let manifest = search.manifest().clone();
+    let distance_metric = manifest.distance_metric;
     let queries_path = args.queries.as_ref().expect("real mode");
     let q_vecs = DenseVectorFile::open(queries_path).map_err(CliError::Calyx)?;
     if q_vecs.dim() != manifest.dim {
@@ -186,7 +252,7 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     let mut gt_queries: Vec<Vec<f32>> = Vec::with_capacity(gt_n);
     let mut gt_ann: Vec<Vec<u64>> = Vec::with_capacity(gt_n);
     for i in 0..n {
-        let q = q_vecs.row_f32(i as u64);
+        let q = row_for_metric(&q_vecs, i as u64, distance_metric);
         let started = Instant::now();
         let readback = search
             .search_with_readback(&q, args.k, args.n_probe, args.region_beam)
@@ -205,27 +271,25 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     let summary = percentiles(&latencies_us);
 
     let ground_truth_recall = if gt_n > 0 {
-        let corpus_path = args.corpus.as_ref().ok_or_else(|| {
-            CliError::usage(
-                "--corpus <file.fbin|file.i8bin> is required with --ground-truth in real mode",
-            )
-        })?;
-        let corpus = DenseVectorFile::open(corpus_path).map_err(CliError::Calyx)?;
-        if corpus.dim() != manifest.dim {
-            return Err(CliError::usage(format!(
-                "corpus dim {} != vault dim {}",
-                corpus.dim(),
-                manifest.dim
-            )));
-        }
-        let truth = brute_force_topk_vecfile(&corpus, &gt_queries, args.k);
-        let mut found = 0usize;
-        let mut total = 0usize;
-        for (ann, truth_set) in gt_ann.iter().zip(truth.iter()) {
-            found += ann.iter().filter(|cx| truth_set.contains(cx)).count();
-            total += truth_set.len();
-        }
-        Some(found as f32 / total.max(1) as f32)
+        Some(if let Some(path) = &args.ground_truth_file {
+            recall_from_i32bin_ground_truth(path, &gt_ann, args.k)?
+        } else {
+            let corpus_path = args.corpus.as_ref().ok_or_else(|| {
+                CliError::usage(
+                    "--corpus <file.fbin|file.i8bin> or --ground-truth-file <file.i32bin> is required with --ground-truth in real mode",
+                )
+            })?;
+            let corpus = DenseVectorFile::open(corpus_path).map_err(CliError::Calyx)?;
+            if corpus.dim() != manifest.dim {
+                return Err(CliError::usage(format!(
+                    "corpus dim {} != vault dim {}",
+                    corpus.dim(),
+                    manifest.dim
+                )));
+            }
+            let truth = brute_force_topk_vecfile(&corpus, &gt_queries, args.k, distance_metric);
+            recall_from_truth_sets(&gt_ann, &truth)
+        })
     } else {
         None
     };
@@ -244,12 +308,14 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
         "n_probe": args.n_probe,
         "region_beam": args.region_beam,
         "strategy": "KernelFirstPartitioned",
+        "distance_metric": distance_metric.as_str(),
         "region_touch_count": summarize_u64(&region_touch_counts),
         "max_touched_regions": region_touch_counts.iter().copied().max().unwrap_or(0),
         "first_touched_regions": first_touched_regions,
         "region_touch_bound": args.n_probe.min(manifest.n_regions),
         "latency_us": summary,
         "ground_truth_queries": gt_n,
+        "ground_truth_file": args.ground_truth_file.as_ref().map(|path| path.to_string_lossy()),
         "ground_truth_recall_at_k": ground_truth_recall,
         "recall_floor": args.recall_floor,
     });

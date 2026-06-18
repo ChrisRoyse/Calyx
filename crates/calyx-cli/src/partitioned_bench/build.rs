@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use calyx_sextant::index::{
-    DiskAnnBuildBackend, FbinSource, I8BinSource, PartitionBuildParams, VectorSource,
-    build_partitioned_vault_from_source_with_backend, build_partitioned_vault_with_backend,
+    DiskAnnBuildBackend, FbinSource, I8BinSource, PartitionBuildParams, PartitionDistanceMetric,
+    VectorSource, build_partitioned_vault_from_source_with_backend_and_metric,
+    build_partitioned_vault_with_backend,
 };
 use serde_json::json;
 
@@ -18,6 +19,7 @@ pub(crate) struct BuildArgs {
     pub(crate) vectors: Option<PathBuf>,
     pub(crate) p: PartitionBuildParams,
     pub(crate) backend: DiskAnnBuildBackend,
+    pub(crate) distance_metric: PartitionDistanceMetric,
 }
 
 impl BuildArgs {
@@ -31,6 +33,7 @@ impl BuildArgs {
         let mut ef = 96usize;
         let mut region_build_parallelism = None;
         let mut backend = DiskAnnBuildBackend::CpuVamana;
+        let mut distance_metric = PartitionDistanceMetric::UnitL2;
         let mut it = args.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -54,6 +57,9 @@ impl BuildArgs {
                 }
                 "--build-backend" => {
                     backend = next()?.parse().map_err(CliError::usage)?;
+                }
+                "--distance-metric" => {
+                    distance_metric = next()?.parse().map_err(CliError::usage)?;
                 }
                 other => return Err(CliError::usage(format!("unknown flag: {other}"))),
             }
@@ -84,6 +90,7 @@ impl BuildArgs {
             vectors,
             p,
             backend,
+            distance_metric,
         })
     }
 }
@@ -91,18 +98,19 @@ impl BuildArgs {
 pub(crate) fn run(args: &[String]) -> CliResult {
     let args = BuildArgs::parse(args)?;
     let source = match &args.vectors {
-        Some(path) => Some(open_vector_source(path)?),
+        Some(path) => Some(open_vector_source(path, args.distance_metric)?),
         None => None,
     };
     std::fs::create_dir_all(&args.vault)
         .map_err(|e| CliError::io(format!("create vault dir: {e}")))?;
     let started = Instant::now();
     let manifest = match source {
-        Some(source) => build_partitioned_vault_from_source_with_backend(
+        Some(source) => build_partitioned_vault_from_source_with_backend_and_metric(
             &args.vault,
             source.as_ref(),
             args.p,
             args.backend,
+            args.distance_metric,
         )
         .map_err(CliError::Calyx)?,
         None => build_partitioned_vault_with_backend(&args.vault, args.p, args.backend)
@@ -126,6 +134,7 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         "seed": manifest.seed,
         "m_max": manifest.m_max,
         "ef_construction": manifest.ef_construction,
+        "distance_metric": manifest.distance_metric.as_str(),
         "region_build_parallelism": manifest.region_build_parallelism,
         "graph_build_backend": manifest.graph_build_backend.as_str(),
         "root_graph_rel": manifest.root_graph_rel,
@@ -146,10 +155,20 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     Ok(())
 }
 
-fn open_vector_source(path: &std::path::Path) -> CliResult<Box<dyn VectorSource>> {
+fn open_vector_source(
+    path: &std::path::Path,
+    distance_metric: PartitionDistanceMetric,
+) -> CliResult<Box<dyn VectorSource>> {
     match path.extension().and_then(|ext| ext.to_str()) {
         Some("fbin") => Ok(Box::new(FbinSource::open(path).map_err(CliError::Calyx)?)),
-        Some("i8bin") => Ok(Box::new(I8BinSource::open(path).map_err(CliError::Calyx)?)),
+        Some("i8bin") => {
+            let source = match distance_metric {
+                PartitionDistanceMetric::UnitL2 => I8BinSource::open(path),
+                PartitionDistanceMetric::RawL2 => I8BinSource::open_raw(path),
+            }
+            .map_err(CliError::Calyx)?;
+            Ok(Box::new(source))
+        }
         _ => Err(CliError::usage(format!(
             "--vectors {} must end in .fbin or .i8bin",
             path.display()

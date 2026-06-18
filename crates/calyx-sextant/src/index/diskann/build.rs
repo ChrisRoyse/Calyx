@@ -5,13 +5,14 @@
 //! first pass, `params.alpha` on the second — with backward edges re-pruned on
 //! overflow.
 //!
-//! Construction geometry runs on L2-normalized copies so the distance kernel
-//! is a bare dot product (cosine is scale-invariant, so neighbor topology is
-//! identical to the search-time `1 - cosine`); the graph file still stores the
-//! original vectors verbatim. Each pass advances in batches: every point in a
-//! batch greedy-searches the *same frozen snapshot* of the graph in parallel
-//! (read-only), then edge updates apply sequentially in batch order — so the
-//! build is both parallel and fully deterministic regardless of thread count.
+//! Construction geometry is selected per build metric: unit-L2 builds operate
+//! on normalized copies so graph topology matches search-time cosine distance,
+//! while raw-L2 builds operate on the source coordinates directly. The graph
+//! file still stores the original vectors verbatim. Each pass advances in
+//! batches: every point in a batch greedy-searches the *same frozen snapshot*
+//! of the graph in parallel (read-only), then edge updates apply sequentially
+//! in batch order — so the build is both parallel and fully deterministic
+//! regardless of thread count.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
@@ -48,6 +49,12 @@ pub struct DiskAnnBuildParams {
     pub m_max: usize,
     pub ef_construction: usize,
     pub alpha: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiskAnnBuildMetric {
+    UnitL2,
+    RawL2,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,10 +128,29 @@ pub fn build_diskann_graph_with_backend(
     params: DiskAnnBuildParams,
     backend: DiskAnnBuildBackend,
 ) -> Result<()> {
+    build_diskann_graph_with_metric(path, vectors, params, backend, DiskAnnBuildMetric::UnitL2)
+}
+
+pub fn build_diskann_graph_raw_l2_with_backend(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+    backend: DiskAnnBuildBackend,
+) -> Result<()> {
+    build_diskann_graph_with_metric(path, vectors, params, backend, DiskAnnBuildMetric::RawL2)
+}
+
+fn build_diskann_graph_with_metric(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+    backend: DiskAnnBuildBackend,
+    metric: DiskAnnBuildMetric,
+) -> Result<()> {
     params.validate()?;
     validate_build_input(vectors, &params)?;
     match backend {
-        DiskAnnBuildBackend::CpuVamana => build_diskann_graph_cpu(path, vectors, params),
+        DiskAnnBuildBackend::CpuVamana => build_diskann_graph_cpu(path, vectors, params, metric),
         DiskAnnBuildBackend::CuvsCagra => build_diskann_graph_cuvs_cagra(path, vectors, params),
     }
 }
@@ -133,8 +159,9 @@ fn build_diskann_graph_cpu(
     path: &Path,
     vectors: &[(u32, Vec<f32>)],
     params: DiskAnnBuildParams,
+    metric: DiskAnnBuildMetric,
 ) -> Result<()> {
-    let (entry, adjacency) = vamana(vectors, &params);
+    let (entry, adjacency) = vamana(vectors, &params, metric);
     write_graph_from_adjacency(path, vectors, params, entry, &adjacency)
 }
 
@@ -245,19 +272,32 @@ pub(super) fn normalize(vectors: &[(u32, Vec<f32>)]) -> Vec<Vec<f32>> {
         .collect()
 }
 
-/// Distance between two unit vectors: `0.5 * L2^2` (equals `1 - cosine`).
-fn dist(a: &[f32], b: &[f32]) -> f32 {
-    0.5 * l2_sq(a, b)
+fn build_space(vectors: &[(u32, Vec<f32>)], metric: DiskAnnBuildMetric) -> Vec<Vec<f32>> {
+    match metric {
+        DiskAnnBuildMetric::UnitL2 => normalize(vectors),
+        DiskAnnBuildMetric::RawL2 => vectors.iter().map(|(_, vector)| vector.clone()).collect(),
+    }
+}
+
+fn dist(a: &[f32], b: &[f32], metric: DiskAnnBuildMetric) -> f32 {
+    match metric {
+        DiskAnnBuildMetric::UnitL2 => 0.5 * l2_sq(a, b),
+        DiskAnnBuildMetric::RawL2 => l2_sq(a, b),
+    }
 }
 
 /// Two-pass Vamana over an in-memory adjacency list, batched + parallel.
-fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec<Vec<u32>>) {
+fn vamana(
+    vectors: &[(u32, Vec<f32>)],
+    params: &DiskAnnBuildParams,
+    metric: DiskAnnBuildMetric,
+) -> (u32, Vec<Vec<u32>>) {
     let n = vectors.len();
     if n == 1 {
         return (0, vec![Vec::new()]);
     }
-    let norm = normalize(vectors);
-    let entry = medoid(&norm);
+    let space = build_space(vectors, metric);
+    let entry = medoid(&space, metric);
     let mut rng = ChaCha8Rng::seed_from_u64(BUILD_SEED);
     let mut all: Vec<u32> = (0..n as u32).collect();
     let mut adjacency: Vec<Vec<u32>> = Vec::with_capacity(n);
@@ -287,9 +327,12 @@ fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec
             let pruned: Vec<(u32, Vec<u32>)> = batch
                 .par_iter()
                 .map(|&i| {
-                    let mut candidates = greedy_search(&norm, &adjacency, entry, i, ef);
+                    let mut candidates = greedy_search(&space, &adjacency, entry, i, ef, metric);
                     candidates.extend(adjacency[i as usize].iter().copied());
-                    (i, robust_prune(&norm, i, candidates, alpha, params.m_max))
+                    (
+                        i,
+                        robust_prune(&space, i, candidates, alpha, params.m_max, metric),
+                    )
                 })
                 .collect();
             // Forward edges: sequential, cheap (assignment only).
@@ -318,7 +361,7 @@ fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec
                         }
                     }
                     let neighbors = if merged.len() > params.m_max {
-                        robust_prune(&norm, *j, merged, alpha, params.m_max)
+                        robust_prune(&space, *j, merged, alpha, params.m_max, metric)
                     } else {
                         merged
                     };
@@ -333,22 +376,22 @@ fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec
     (entry, adjacency)
 }
 
-/// Point closest to the (normalized) dataset centroid — the DiskANN entry.
-pub(super) fn medoid(norm: &[Vec<f32>]) -> u32 {
-    let dim = norm[0].len();
+/// Point closest to the active build-space centroid — the DiskANN entry.
+pub(super) fn medoid(space: &[Vec<f32>], metric: DiskAnnBuildMetric) -> u32 {
+    let dim = space[0].len();
     let mut centroid = vec![0.0_f32; dim];
-    for v in norm {
+    for v in space {
         for (c, x) in centroid.iter_mut().zip(v) {
             *c += x;
         }
     }
-    let inv = 1.0 / norm.len() as f32;
+    let inv = 1.0 / space.len() as f32;
     for c in &mut centroid {
         *c *= inv;
     }
     let mut best = (0_u32, f32::INFINITY);
-    for (id, v) in norm.iter().enumerate() {
-        let d = dist(&centroid, v);
+    for (id, v) in space.iter().enumerate() {
+        let d = dist(&centroid, v, metric);
         if d < best.1 {
             best = (id as u32, d);
         }
@@ -359,14 +402,15 @@ pub(super) fn medoid(norm: &[Vec<f32>]) -> u32 {
 /// Greedy beam search over the in-memory adjacency from `entry` toward
 /// `query` (a node id); returns every expanded node (the prune candidate set).
 fn greedy_search(
-    norm: &[Vec<f32>],
+    space: &[Vec<f32>],
     adjacency: &[Vec<u32>],
     entry: u32,
     query: u32,
     ef: usize,
+    metric: DiskAnnBuildMetric,
 ) -> Vec<u32> {
-    let q = &norm[query as usize];
-    let mut pool: Vec<(u32, f32)> = vec![(entry, dist(q, &norm[entry as usize]))];
+    let q = &space[query as usize];
+    let mut pool: Vec<(u32, f32)> = vec![(entry, dist(q, &space[entry as usize], metric))];
     let mut seen: HashSet<u32> = HashSet::from([entry]);
     let mut expanded: HashSet<u32> = HashSet::new();
     let mut visited: Vec<u32> = Vec::new();
@@ -375,7 +419,7 @@ fn greedy_search(
         visited.push(next);
         for &nb in &adjacency[next as usize] {
             if seen.insert(nb) {
-                pool.push((nb, dist(q, &norm[nb as usize])));
+                pool.push((nb, dist(q, &space[nb as usize], metric)));
             }
         }
         pool.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
@@ -386,14 +430,21 @@ fn greedy_search(
 
 /// RobustPrune(p, candidates, alpha, r): keep the closest candidate, drop any
 /// other whose distance to it (scaled by alpha) undercuts its distance to p.
-fn robust_prune(norm: &[Vec<f32>], p: u32, candidates: Vec<u32>, alpha: f32, r: usize) -> Vec<u32> {
-    let q = &norm[p as usize];
+fn robust_prune(
+    space: &[Vec<f32>],
+    p: u32,
+    candidates: Vec<u32>,
+    alpha: f32,
+    r: usize,
+    metric: DiskAnnBuildMetric,
+) -> Vec<u32> {
+    let q = &space[p as usize];
     let mut pool: Vec<(u32, f32)> = candidates
         .into_iter()
         .collect::<HashSet<_>>()
         .into_iter()
         .filter(|&c| c != p)
-        .map(|c| (c, dist(q, &norm[c as usize])))
+        .map(|c| (c, dist(q, &space[c as usize], metric)))
         .collect();
     pool.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
     let mut result: Vec<u32> = Vec::with_capacity(r);
@@ -402,8 +453,10 @@ fn robust_prune(norm: &[Vec<f32>], p: u32, candidates: Vec<u32>, alpha: f32, r: 
         if result.len() >= r {
             break;
         }
-        let star_vec = &norm[star as usize];
-        pool.retain(|&(c, d_pc)| c != star && alpha * dist(star_vec, &norm[c as usize]) > d_pc);
+        let star_vec = &space[star as usize];
+        pool.retain(|&(c, d_pc)| {
+            c != star && alpha * dist(star_vec, &space[c as usize], metric) > d_pc
+        });
     }
     result
 }
