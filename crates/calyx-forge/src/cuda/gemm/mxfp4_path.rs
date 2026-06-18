@@ -9,13 +9,13 @@ use crate::{CudaContext, ForgeError, MXFP4_BLOCK_SIZE, MXFP4_PACKED_BYTES, MxFp4
 
 const MXFP4_THREADS: u32 = 128;
 const MXFP4_DEVICE_REMEDIATION: &str =
-    "Run MXFP4 GEMM on Blackwell sm_120 with CUDA 13.2 and embedded Forge kernels";
+    "Run MXFP4 GEMM on Blackwell sm_120 with CUDA 13.3 and embedded Forge kernels";
 const MXFP4_NUMERICAL_REMEDIATION: &str =
     "Reject invalid MXFP4 GEMM dimensions or kernel outputs before using scores";
 
 /// Runs the PH15 MXFP4 GEMM path with fp32 accumulation on Blackwell.
 ///
-/// CUDA 13.2 on aiwonder exposes FP4 storage/conversion headers, but the
+/// CUDA 13.3 on aiwonder exposes FP4 storage/conversion headers, but the
 /// current cuBLAS C API surface used through `cudarc` does not expose a native
 /// FP4 GEMM entry point. The optimized tensor-core promotion path should use
 /// CUTLASS 3.x grouped GEMM with an MXFP4 dtype; see NVIDIA CUTLASS

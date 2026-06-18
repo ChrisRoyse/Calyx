@@ -28,7 +28,7 @@ VRAM coexistence: 3 resident TEI containers (general/legal/reranker) + dcgm-expo
 
 ## 2. systemd unit
 
-> **[SUPERSEDED — current dev path]** Rust (via rustup) and CUDA 13.2 are
+> **[SUPERSEDED — current dev path]** Rust (via rustup) and CUDA 13.3 are
 > installed on aiwonder; **build natively**. The project is self-contained under
 > `CALYX_HOME=/home/croyse/calyx` as user `croyse`. The `/opt/leapable/calyx`
 > paths, the `leapable` user, and the `/run/leapable/secrets` rendering shown
@@ -58,7 +58,7 @@ WantedBy=multi-user.target
 
 - Runs as `leapable` from `/opt/leapable/calyx/`; reads secrets from `/run/leapable/secrets/calyx.env` (add to `secrets-loader/secrets-map.json` → 13th file).
 - **Binds loopback only**; Cloudflare Tunnel + Caddy are the sole ingress (existing pattern). Add `calyx.env` to Infisical (`leapable-aiwonder-prod`).
-- **Native build (superseded the "no `rustc`" note):** Rust via rustup is installed on aiwonder, so `calyxd`/`calyx` are **built natively** there (CUDA 13.2, sm_120). A cross-built static binary + `.deb` is retained only as an optional minimal-deploy artifact, not the dev path.
+- **Native build (superseded the "no `rustc`" note):** Rust via rustup is installed on aiwonder, so `calyxd`/`calyx` are **built natively** there (CUDA 13.3, sm_120). A cross-built static binary + `.deb` is retained only as an optional minimal-deploy artifact, not the dev path.
 
 ## 3. Storage provisioning (ZFS)
 
@@ -74,7 +74,7 @@ zfs create archive/calyx-restic    -o mountpoint=/zfs/archive/calyx/restic
 ## 4. GPU/driver hygiene (from gotchas)
 
 - Driver/userspace skew after unattended-upgrades → `nvidia-smi` mismatch; cure is reboot. Calyx `healthcheck` MUST probe CUDA init and fail loud (A16), not silently CPU-fallback in server mode.
-- CUDA 13.2 from NVIDIA runfile, not the Ubuntu package; Forge links the runfile toolkit. Ship sm_120 cubin + PTX JIT fallback (`13`).
+- CUDA 13.3 from NVIDIA toolkit packages; Forge links `/usr/local/cuda` (currently `/usr/local/cuda-13.3`). Ship sm_120 cubin + PTX JIT fallback (`13`).
 
 ## 5. Networking & security
 

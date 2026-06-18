@@ -188,7 +188,7 @@ budgeter.
 |---|---|---|
 | `BYTES_PER_MIB` | `1048576` | `cuda/context.rs:7` |
 | `MIN_FREE_VRAM_MIB` | `4096` (4 GiB floor) | `cuda/context.rs:8` |
-| CUDA remediation target | "CUDA 13.2 at /usr/local/cuda-13.2, RTX 5090" | `cuda/context.rs` |
+| CUDA remediation target | "CUDA 13.3 at /usr/local/cuda-13.3, RTX 5090" | `cuda/context.rs` |
 
 Tests assert the deployment device reports compute capability `(12, 0)` and
 ≥30,000 MiB VRAM (RTX 5090).
@@ -231,7 +231,7 @@ the `--ptx` and `-cubin` nvcc invocations. The full deterministic flag list
 
 No `--use_fast_math`; FMA contraction is **off** (`--fmad=false`) — all for
 bit-parity with the CPU path. nvcc is located via `CUDA_PATH` env (default
-`/usr/local/cuda-13.2`); the build prints a warning unless it sees a CUDA 13.2
+`/usr/local/cuda-13.3`); the build prints a warning unless it sees a CUDA 13.3
 release. The kernel table (`KERNELS`) registers `distance`, `topk`, `mxfp4_gemm`,
 each emitting `FORGE_<NAME>_PTX_PATH` / `FORGE_<NAME>_CUBIN_PATH` env vars. If the
 `cuda` feature is off, nvcc is skipped entirely.
@@ -246,7 +246,7 @@ cuda = ["dep:cudarc"]    # Cargo.toml:9-11
 
 The entire `cuda` module is gated behind the `cuda` feature, which enables the
 optional `cudarc` dependency with features
-`["std","driver","cublas","nvrtc","dynamic-loading","cuda-13020"]` (CUDA 13.2,
+`["std","driver","cublas","nvrtc","dynamic-loading","cuda-13020"]` (CUDA 13.3 runtime,
 dynamic driver loading, NVRTC for PTX, cuBLAS for GEMM).
 
 ---

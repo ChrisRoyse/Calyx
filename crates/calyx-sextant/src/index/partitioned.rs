@@ -35,7 +35,8 @@ use rayon::{ThreadPoolBuilder, prelude::*};
 use serde::{Deserialize, Serialize};
 
 use crate::index::{
-    DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex, build_centroids,
+    DiskAnnBuildBackend, DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams,
+    SpannCentroidIndex, build_centroids,
 };
 use assignment::{
     AssignmentRouting, AssignmentSink, read_ids, stream_assign_to_ids,
@@ -102,9 +103,15 @@ pub struct PartitionedManifest {
     pub ef_construction: usize,
     #[serde(default)]
     pub region_build_parallelism: usize,
+    #[serde(default = "default_graph_build_backend")]
+    pub graph_build_backend: DiskAnnBuildBackend,
     pub centroids_rel: String,
     pub root_graph_rel: String,
     pub regions: Vec<RegionMeta>,
+}
+
+fn default_graph_build_backend() -> DiskAnnBuildBackend {
+    DiskAnnBuildBackend::CpuVamana
 }
 
 /// Parameters for a partitioned build.
@@ -231,6 +238,14 @@ pub fn build_partitioned_vault(
     root: &Path,
     p: PartitionBuildParams,
 ) -> Result<PartitionedManifest> {
+    build_partitioned_vault_with_backend(root, p, DiskAnnBuildBackend::CpuVamana)
+}
+
+pub fn build_partitioned_vault_with_backend(
+    root: &Path,
+    p: PartitionBuildParams,
+    backend: DiskAnnBuildBackend,
+) -> Result<PartitionedManifest> {
     if p.n_cx == 0 || p.dim == 0 || p.n_regions == 0 {
         return Err(crate::error::sextant_error(
             crate::error::CALYX_INDEX_INVALID_PARAMS,
@@ -242,7 +257,7 @@ pub fn build_partitioned_vault(
         dim: p.dim,
         n_cx: p.n_cx,
     };
-    build_partitioned_vault_from_source(root, &source, p)
+    build_partitioned_vault_from_source_with_backend(root, &source, p, backend)
 }
 
 /// Build the partitioned vault under `root` from REAL vectors in `source`.
@@ -253,6 +268,20 @@ pub fn build_partitioned_vault_from_source(
     root: &Path,
     source: &dyn VectorSource,
     p: PartitionBuildParams,
+) -> Result<PartitionedManifest> {
+    build_partitioned_vault_from_source_with_backend(
+        root,
+        source,
+        p,
+        DiskAnnBuildBackend::CpuVamana,
+    )
+}
+
+pub fn build_partitioned_vault_from_source_with_backend(
+    root: &Path,
+    source: &dyn VectorSource,
+    p: PartitionBuildParams,
+    backend: DiskAnnBuildBackend,
 ) -> Result<PartitionedManifest> {
     let dim = source.dim();
     let n_cx = source.len();
@@ -381,13 +410,14 @@ pub fn build_partitioned_vault_from_source(
                     .map(|&idx| (cx(idx), source.row(idx)))
                     .collect();
                 let graph_path = root.join(graph_rel(region));
-                DiskAnnSearch::build_without_default_raw_sidecar(
+                DiskAnnSearch::build_without_default_raw_sidecar_with_backend(
                     SlotId::new(0),
                     &graph_path,
                     &rows,
                     build_params,
                     None,
                     search_params,
+                    backend,
                 )?;
                 Ok(RegionMeta {
                     id: region,
@@ -410,13 +440,14 @@ pub fn build_partitioned_vault_from_source(
         .enumerate()
         .map(|(i, c)| (cx(i as u64), c.clone()))
         .collect();
-    DiskAnnSearch::build_without_default_raw_sidecar(
+    DiskAnnSearch::build_without_default_raw_sidecar_with_backend(
         SlotId::new(0),
         root.join(ROOT_GRAPH),
         &centroid_rows,
         build_params,
         None,
         search_params,
+        backend,
     )?;
 
     let manifest = PartitionedManifest {
@@ -428,6 +459,7 @@ pub fn build_partitioned_vault_from_source(
         m_max: p.m_max,
         ef_construction: p.ef_construction,
         region_build_parallelism,
+        graph_build_backend: backend,
         centroids_rel: format!("{CENTROID_DIR}/centroids.spn"),
         root_graph_rel: ROOT_GRAPH.to_string(),
         regions,

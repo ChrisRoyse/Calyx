@@ -4,10 +4,17 @@ use calyx_core::Result;
 
 use super::helpers::{distance, sorted};
 use super::{DiskAnnSearch, DiskAnnSearchParams, SearchBuildSidecars};
-use crate::index::diskann::build::DiskAnnBuildParams;
+use crate::index::diskann::build::{DiskAnnBuildBackend, DiskAnnBuildParams};
 use crate::index::diskann::pq::{DiskAnnPqBuildParams, DiskAnnPqIndex, default_pq_sidecar};
 use crate::index::distance::l2_normalize;
 use calyx_core::{CxId, SlotId};
+
+#[derive(Clone, Copy, Debug)]
+pub struct DiskAnnPqSearchBuild {
+    pub search: DiskAnnSearchParams,
+    pub pq: DiskAnnPqBuildParams,
+    pub backend: DiskAnnBuildBackend,
+}
 
 impl DiskAnnSearch {
     pub fn build_with_pq(
@@ -29,6 +36,30 @@ impl DiskAnnSearch {
             SearchBuildSidecars {
                 write_default_raw_sidecar: true,
                 pq: Some(pq_params),
+                backend: DiskAnnBuildBackend::CpuVamana,
+            },
+        )
+    }
+
+    pub fn build_with_pq_plan(
+        slot: SlotId,
+        graph_path: impl Into<std::path::PathBuf>,
+        rows: &[(CxId, Vec<f32>)],
+        build_params: DiskAnnBuildParams,
+        raw_sidecar: Option<std::path::PathBuf>,
+        plan: DiskAnnPqSearchBuild,
+    ) -> Result<Self> {
+        Self::build_with_default_raw_sidecar(
+            slot,
+            graph_path,
+            rows,
+            build_params,
+            raw_sidecar,
+            plan.search,
+            SearchBuildSidecars {
+                write_default_raw_sidecar: true,
+                pq: Some(plan.pq),
+                backend: plan.backend,
             },
         )
     }

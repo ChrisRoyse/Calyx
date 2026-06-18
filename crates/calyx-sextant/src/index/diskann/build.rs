@@ -15,12 +15,14 @@
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
+use std::str::FromStr;
 
 use calyx_core::Result;
 use rand::SeedableRng;
 use rand::seq::SliceRandom;
 use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use super::graph::{
     DISKANN_FORMAT_VERSION, DISKANN_MAX_DIM, DISKANN_MAX_M, DiskAnnGraphWriter, DiskAnnHeader,
@@ -46,6 +48,37 @@ pub struct DiskAnnBuildParams {
     pub m_max: usize,
     pub ef_construction: usize,
     pub alpha: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiskAnnBuildBackend {
+    #[default]
+    CpuVamana,
+    CuvsCagra,
+}
+
+impl DiskAnnBuildBackend {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::CpuVamana => "cpu-vamana",
+            Self::CuvsCagra => "cuvs-cagra",
+        }
+    }
+}
+
+impl FromStr for DiskAnnBuildBackend {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "cpu" | "cpu-vamana" => Ok(Self::CpuVamana),
+            "cuvs" | "cagra" | "gpu" | "cuvs-cagra" => Ok(Self::CuvsCagra),
+            other => Err(format!(
+                "unknown diskann build backend {other:?}; expected cpu-vamana or cuvs-cagra"
+            )),
+        }
+    }
 }
 
 impl DiskAnnBuildParams {
@@ -79,7 +112,36 @@ pub fn build_diskann_graph(
     vectors: &[(u32, Vec<f32>)],
     params: DiskAnnBuildParams,
 ) -> Result<()> {
+    build_diskann_graph_with_backend(path, vectors, params, DiskAnnBuildBackend::CpuVamana)
+}
+
+pub fn build_diskann_graph_with_backend(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+    backend: DiskAnnBuildBackend,
+) -> Result<()> {
     params.validate()?;
+    validate_build_input(vectors, &params)?;
+    match backend {
+        DiskAnnBuildBackend::CpuVamana => build_diskann_graph_cpu(path, vectors, params),
+        DiskAnnBuildBackend::CuvsCagra => build_diskann_graph_cuvs_cagra(path, vectors, params),
+    }
+}
+
+fn build_diskann_graph_cpu(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+) -> Result<()> {
+    let (entry, adjacency) = vamana(vectors, &params);
+    write_graph_from_adjacency(path, vectors, params, entry, &adjacency)
+}
+
+pub(super) fn validate_build_input(
+    vectors: &[(u32, Vec<f32>)],
+    params: &DiskAnnBuildParams,
+) -> Result<()> {
     if vectors.is_empty() {
         return Err(invalid("empty input: at least one vector is required"));
     }
@@ -104,7 +166,32 @@ pub fn build_diskann_graph(
             return Err(invalid(format!("vector {id} has non-finite component")));
         }
     }
-    let (entry, adjacency) = vamana(vectors, &params);
+    Ok(())
+}
+
+pub(super) fn write_graph_from_adjacency(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+    entry: u32,
+    adjacency: &[Vec<u32>],
+) -> Result<()> {
+    if adjacency.len() != vectors.len() {
+        return Err(invalid(format!(
+            "adjacency len {} != vector len {}",
+            adjacency.len(),
+            vectors.len()
+        )));
+    }
+    for (id, neighbors) in adjacency.iter().enumerate() {
+        if neighbors.len() > params.m_max {
+            return Err(invalid(format!(
+                "node {id} degree {} > m_max {}",
+                neighbors.len(),
+                params.m_max
+            )));
+        }
+    }
     let max_degree = adjacency.iter().map(Vec::len).max().unwrap_or(0);
     let header = DiskAnnHeader {
         format_version: DISKANN_FORMAT_VERSION,
@@ -112,7 +199,7 @@ pub fn build_diskann_graph(
         m_max: u32::try_from(params.m_max).expect("m_max <= 512"),
         max_degree: u32::try_from(max_degree).expect("<= m_max"),
         entry_point_id: entry,
-        node_count: n as u64,
+        node_count: adjacency.len() as u64,
     };
     let mut writer = DiskAnnGraphWriter::create(path, header)?;
     for (id, vector) in vectors {
@@ -121,10 +208,30 @@ pub fn build_diskann_graph(
     writer.finish()
 }
 
+#[cfg(feature = "cuda")]
+fn build_diskann_graph_cuvs_cagra(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+) -> Result<()> {
+    super::cuvs_cagra::build_diskann_graph_cuvs_cagra(path, vectors, params)
+}
+
+#[cfg(not(feature = "cuda"))]
+fn build_diskann_graph_cuvs_cagra(
+    _path: &Path,
+    _vectors: &[(u32, Vec<f32>)],
+    _params: DiskAnnBuildParams,
+) -> Result<()> {
+    Err(invalid(
+        "cuvs-cagra backend requires building calyx-sextant with --features cuda",
+    ))
+}
+
 /// L2-normalize every vector; a zero vector stays all-zero (dot == 0 with
 /// anything, i.e. distance 1 — matching cosine's zero-vector convention).
 /// `norm[id]` lines up with the dense id space validated above.
-fn normalize(vectors: &[(u32, Vec<f32>)]) -> Vec<Vec<f32>> {
+pub(super) fn normalize(vectors: &[(u32, Vec<f32>)]) -> Vec<Vec<f32>> {
     vectors
         .par_iter()
         .map(|(_, v)| {
@@ -227,7 +334,7 @@ fn vamana(vectors: &[(u32, Vec<f32>)], params: &DiskAnnBuildParams) -> (u32, Vec
 }
 
 /// Point closest to the (normalized) dataset centroid — the DiskANN entry.
-fn medoid(norm: &[Vec<f32>]) -> u32 {
+pub(super) fn medoid(norm: &[Vec<f32>]) -> u32 {
     let dim = norm[0].len();
     let mut centroid = vec![0.0_f32; dim];
     for v in norm {

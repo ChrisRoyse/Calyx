@@ -7,7 +7,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use calyx_core::{CxId, SlotId, SlotVector};
-use calyx_sextant::index::{DiskAnnPqBuildParams, DiskAnnSearch, SextantIndex};
+use calyx_sextant::index::{
+    DiskAnnPqBuildParams, DiskAnnPqSearchBuild, DiskAnnSearch, SextantIndex,
+};
 use serde::Serialize;
 
 use support::{
@@ -19,6 +21,7 @@ const SLOT: SlotId = SlotId::new(0);
 #[derive(Serialize)]
 struct Summary {
     mode: String,
+    build_backend: String,
     root: String,
     graph_path: String,
     raw_dir: String,
@@ -53,6 +56,7 @@ struct Summary {
 #[derive(Serialize)]
 struct EdgeReport {
     mode: String,
+    build_backend: String,
     root: String,
     graph_path: String,
     before_graph_exists: bool,
@@ -125,6 +129,7 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
     fs::write(&hits_path, hits_tsv).map_err(|error| error.to_string())?;
     let summary = Summary {
         mode: "happy".to_string(),
+        build_backend: request.build_backend.as_str().to_string(),
         root: request.root.display().to_string(),
         graph_path: paths.graph_path.display().to_string(),
         raw_dir: paths.raw_dir.display().to_string(),
@@ -202,18 +207,20 @@ fn enforce_recall_floor(
 fn run_empty_edge(request: &Request) -> crate::error::CliResult {
     let paths = Paths::for_root(&request.root);
     let before = file_len(&paths.graph_path);
-    let err = DiskAnnSearch::build(
+    let err = DiskAnnSearch::build_with_backend(
         SLOT,
         &paths.graph_path,
         &[],
         build_params(request),
         None,
         search_params(request),
+        request.build_backend,
     )
     .expect_err("empty graph build must fail closed");
     write_edge(
         &request.root,
         "empty",
+        request.build_backend.as_str(),
         before,
         file_len(&paths.graph_path),
         err.code,
@@ -237,6 +244,7 @@ fn run_dim_mismatch_edge(request: &Request) -> crate::error::CliResult {
     write_edge(
         &request.root,
         "dim-mismatch",
+        request.build_backend.as_str(),
         before,
         file_len(&paths.graph_path),
         err.code,
@@ -267,6 +275,7 @@ fn run_truncated_edge(request: &Request) -> crate::error::CliResult {
     write_edge(
         &request.root,
         "truncated",
+        request.build_backend.as_str(),
         before,
         file_len(&paths.graph_path),
         err.code,
@@ -287,6 +296,7 @@ fn run_missing_raw_edge(request: &Request) -> crate::error::CliResult {
     write_edge(
         &request.root,
         "missing-raw",
+        request.build_backend.as_str(),
         before,
         file_len(&paths.graph_path),
         err.code,
@@ -308,24 +318,28 @@ fn build_index(
     approx: &[(CxId, Vec<f32>)],
 ) -> Result<DiskAnnSearch, String> {
     if let Some(pq) = request.pq {
-        return DiskAnnSearch::build_with_pq(
+        return DiskAnnSearch::build_with_pq_plan(
             SLOT,
             &paths.graph_path,
             approx,
             build_params(request),
             Some(paths.raw_dir.clone()),
-            search_params(request),
-            pq,
+            DiskAnnPqSearchBuild {
+                search: search_params(request),
+                pq,
+                backend: request.build_backend,
+            },
         )
         .map_err(|error| error.to_string());
     }
-    DiskAnnSearch::build(
+    DiskAnnSearch::build_with_backend(
         SLOT,
         &paths.graph_path,
         approx,
         build_params(request),
         Some(paths.raw_dir.clone()),
         search_params(request),
+        request.build_backend,
     )
     .map_err(|error| error.to_string())
 }
@@ -356,6 +370,7 @@ fn run_corrupt_pq_edge(request: &Request) -> crate::error::CliResult {
     write_edge(
         &request.root,
         "corrupt-pq",
+        request.build_backend.as_str(),
         before,
         file_len(&paths.graph_path),
         err.code,
@@ -366,6 +381,7 @@ fn run_corrupt_pq_edge(request: &Request) -> crate::error::CliResult {
 fn write_edge(
     root: &Path,
     mode: &str,
+    build_backend: &str,
     before: Option<u64>,
     after: Option<u64>,
     code: &'static str,
@@ -374,6 +390,7 @@ fn write_edge(
     let paths = Paths::create(root)?;
     let report = EdgeReport {
         mode: mode.to_string(),
+        build_backend: build_backend.to_string(),
         root: root.display().to_string(),
         graph_path: paths.graph_path.display().to_string(),
         before_graph_exists: before.is_some(),
@@ -410,6 +427,7 @@ mod tests {
     fn summary_with_recall(min_recall: f64) -> Summary {
         Summary {
             mode: "happy".to_string(),
+            build_backend: "cpu-vamana".to_string(),
             root: "root".to_string(),
             graph_path: "root/idx/slot_00.ann/graph.cda".to_string(),
             raw_dir: "root/cf/slot_00.raw".to_string(),

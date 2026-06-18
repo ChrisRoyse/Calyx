@@ -2,7 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_core::CxId;
-use calyx_sextant::index::{DiskAnnBuildParams, DiskAnnPqBuildParams, DiskAnnSearchParams};
+use calyx_sextant::index::{
+    DiskAnnBuildBackend, DiskAnnBuildParams, DiskAnnPqBuildParams, DiskAnnSearchParams,
+};
 use serde::Serialize;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,6 +30,7 @@ pub(super) struct Request {
     pub(super) rescore_k: usize,
     pub(super) recall_floor: Option<f64>,
     pub(super) pq: Option<DiskAnnPqBuildParams>,
+    pub(super) build_backend: DiskAnnBuildBackend,
 }
 
 #[derive(Clone)]
@@ -87,6 +90,7 @@ impl Request {
             rescore_k: number(args, "--rescore-k", 64)?.max(k),
             recall_floor: recall_floor(args)?,
             pq: pq_params(args)?,
+            build_backend: build_backend(args)?,
         })
     }
 }
@@ -266,6 +270,13 @@ fn pq_params(args: &[String]) -> Result<Option<DiskAnnPqBuildParams>, String> {
     }))
 }
 
+fn build_backend(args: &[String]) -> Result<DiskAnnBuildBackend, String> {
+    value(args, "--build-backend")
+        .map(str::parse)
+        .transpose()
+        .map(|backend| backend.unwrap_or(DiskAnnBuildBackend::CpuVamana))
+}
+
 fn value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     args.windows(2)
         .find(|window| window[0] == flag)
@@ -315,5 +326,12 @@ mod tests {
                 iterations: 3
             })
         );
+    }
+
+    #[test]
+    fn parses_build_backend() {
+        let args = strings(&["--root", "vault", "--build-backend", "cuvs-cagra"]);
+        let request = Request::parse(&args).expect("parse");
+        assert_eq!(request.build_backend, DiskAnnBuildBackend::CuvsCagra);
     }
 }

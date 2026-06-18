@@ -2,7 +2,7 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const CUDA_PATH_DEFAULT: &str = "/usr/local/cuda-13.2";
+const CUDA_PATH_DEFAULT: &str = "/usr/local/cuda-13.3";
 const CUDA_ARCH: &str = "sm_120";
 
 struct Kernel {
@@ -76,7 +76,7 @@ fn locate_nvcc() -> PathBuf {
 
     if !nvcc.is_file() {
         panic!(
-            "nvcc not found at {}; set CUDA_PATH to CUDA 13.2 root",
+            "nvcc not found at {}; set CUDA_PATH to CUDA 13.3 root",
             nvcc.display()
         );
     }
@@ -100,7 +100,7 @@ fn warn_nvcc_version(nvcc: &Path) {
     .to_string();
     let summary = stdout
         .lines()
-        .find(|line| line.contains("release") || line.contains("V13.2"))
+        .find(|line| line.contains("release") || line.contains("V13.3"))
         .unwrap_or_else(|| stdout.lines().next().unwrap_or("unknown nvcc version"));
     println!("cargo:warning=nvcc detected: {summary}");
 }
