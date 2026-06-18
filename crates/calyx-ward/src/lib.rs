@@ -9,6 +9,7 @@ pub mod identity;
 pub mod injection_lens;
 pub mod ledger;
 pub mod novelty;
+mod ort_runtime;
 pub mod polis;
 pub mod profile;
 pub mod query;

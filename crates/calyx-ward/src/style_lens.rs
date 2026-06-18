@@ -347,6 +347,7 @@ fn build_session(model_path: &Path, policy: StyleProviderPolicy) -> Result<Sessi
             path: model_path.to_path_buf(),
         });
     }
+    let _ort_dylib = crate::ort_runtime::ensure_dynamic_ort()?;
     let builder = Session::builder()
         .map_err(runtime_error)?
         .with_optimization_level(GraphOptimizationLevel::Level3)
