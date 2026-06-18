@@ -276,9 +276,7 @@ fn manifest_path() -> PathBuf {
     std::env::var("CALYX_ISSUE787_STATIC_MANIFEST")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            PathBuf::from(
-                "/var/lib/calyx/lenses/semantic-potion-base-8m/model2vec/manifest.json",
-            )
+            PathBuf::from("/var/lib/calyx/lenses/semantic-potion-base-8m/model2vec/manifest.json")
         })
 }
 

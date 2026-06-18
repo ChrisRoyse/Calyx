@@ -33,9 +33,8 @@ fn issue396_rollback_store_fsv() {
     let storage = AsterRollbackStorage::new(&vault);
     let store = RollbackStore::open(&clock, 396, storage).expect("open rollback store");
     let key = ArtifactKey::HnswGraph([0x11; 32]);
-    let prior = ArtifactPtr::HnswGraphPath(
-        "/var/lib/calyx/data/fsv-issue396/prior-hnsw.graph".to_string(),
-    );
+    let prior =
+        ArtifactPtr::HnswGraphPath("/var/lib/calyx/data/fsv-issue396/prior-hnsw.graph".to_string());
     let candidate = ArtifactPtr::HnswGraphPath(
         "/var/lib/calyx/data/fsv-issue396/candidate-hnsw.graph".to_string(),
     );
