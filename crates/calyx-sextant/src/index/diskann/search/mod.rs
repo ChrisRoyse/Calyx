@@ -53,6 +53,19 @@ impl Default for DiskAnnSearchParams {
 /// readahead benefit). Above it, prefetch helps amortize cold-SSD latency.
 const PREFETCH_MIN_GRAPH_BYTES: u64 = 256 * 1024 * 1024;
 
+pub(super) fn prefetch_file_for_graph(
+    path: &Path,
+    reader: &DiskAnnGraphReader,
+) -> Result<Option<File>> {
+    let graph_bytes = reader.node_count() * reader.node_block_size() as u64;
+    if graph_bytes <= PREFETCH_MIN_GRAPH_BYTES {
+        return Ok(None);
+    }
+    File::open(path)
+        .map(Some)
+        .map_err(|e| io("open graph for prefetch", e))
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct SearchBuildSidecars {
     pub(super) write_default_raw_sidecar: bool,
@@ -262,8 +275,10 @@ impl SextantIndex for DiskAnnSearch {
         } else {
             DiskAnnPqIndex::read_if_exists(&default_pq_sidecar(&self.graph_path))?
         };
-        self.graph_file =
-            Some(File::open(&self.graph_path).map_err(|e| io("open graph for prefetch", e))?);
+        self.graph_file = prefetch_file_for_graph(
+            &self.graph_path,
+            self.reader.as_ref().expect("reader reopened"),
+        )?;
         self.distance_mode = read_distance_mode(&self.graph_path)?;
         self.built_at_seq = self.built_at_seq.max(seq);
         self.base_seq = self.base_seq.max(seq);
