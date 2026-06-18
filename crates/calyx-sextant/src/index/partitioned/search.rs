@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::index::{DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex};
 
-use super::{CENTROID_DIR, MANIFEST_FILE, PartitionedManifest, RegionMeta, cx, read_ids};
+use super::assignment::read_ids;
+use super::{CENTROID_DIR, MANIFEST_FILE, PartitionedManifest, RegionMeta, cx};
 
 /// Region-restricted searcher over a partitioned vault. Holds centroids in RAM
 /// and lazily mmaps region graphs on demand (only probed regions are resident).

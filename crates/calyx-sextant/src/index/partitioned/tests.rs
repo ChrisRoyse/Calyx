@@ -1,3 +1,4 @@
+use super::balance::balance_regions;
 use super::*;
 
 #[test]

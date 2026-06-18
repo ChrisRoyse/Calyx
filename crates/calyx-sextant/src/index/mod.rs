@@ -41,9 +41,9 @@ pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
 pub use partitioned::{
-    FbinSource, PartitionBuildParams, PartitionedManifest, PartitionedSearch, RegionMeta,
-    SyntheticSource, VectorSource, build_partitioned_vault, build_partitioned_vault_from_source,
-    gen_row,
+    FbinSource, PartitionBuildParams, PartitionedManifest, PartitionedSearch,
+    PartitionedSearchReadback, RegionMeta, SyntheticSource, VectorSource, build_partitioned_vault,
+    build_partitioned_vault_from_source, gen_row,
 };
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
 pub use spann::{
