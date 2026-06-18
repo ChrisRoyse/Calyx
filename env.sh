@@ -12,6 +12,7 @@ export CUDA_ROOT="$CUDA_HOME"
 export NVCC="$CUDA_HOME/bin/nvcc"
 export PATH="$CALYX_HOME/bin:$HOME/.local/bin:$CUDA_HOME/bin:$PATH"
 export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
+export CALYX_CARGO_TARGET_DIR="${CALYX_CARGO_TARGET_DIR:-$CALYX_HOME/target}"
 for calyx_nvidia_lib in "$CALYX_HOME"/.venv-gpu/lib/python*/site-packages/nvidia/*/lib; do
     if [ -d "$calyx_nvidia_lib" ]; then
         export LD_LIBRARY_PATH="$calyx_nvidia_lib:$LD_LIBRARY_PATH"
@@ -43,6 +44,14 @@ unset calyx_cuvs_site
 # Do not set CARGO_TARGET_DIR here and do not cd from a sourced env file.
 # Worktrees must keep their own target directories unless a command explicitly
 # opts into a shared target. Use scripts/build-verified-calyx.sh for FSV builds.
+# If the caller inherited another project's Cargo target, clear it so ad-hoc
+# Calyx cargo commands fall back inside this worktree instead of touching
+# resident projects. Scripts that want the shared Calyx target should export
+# CARGO_TARGET_DIR="$CALYX_CARGO_TARGET_DIR" explicitly.
+case "${CARGO_TARGET_DIR:-}" in
+    ""|"$CALYX_HOME"/*) ;;
+    *) unset CARGO_TARGET_DIR ;;
+esac
 
 # Secrets are optional here and wired in T-017. Keep values out of the repo.
 if [ -f "$HOME/.config/calyx/secrets.env" ]; then

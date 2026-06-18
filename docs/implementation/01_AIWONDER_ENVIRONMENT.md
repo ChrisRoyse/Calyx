@@ -19,9 +19,12 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
 4. **Rust/CUDA on PATH:** non-login shells don't have the full Calyx toolchain
    environment. Every remote build/test command should
    `source /home/croyse/calyx/repo/env.sh` first. That entrypoint sources
-   Rust, sets `CARGO_TARGET_DIR`, and pins CUDA discovery to
+   Rust, exposes `CALYX_CARGO_TARGET_DIR`, clears any inherited
+   `CARGO_TARGET_DIR` outside `CALYX_HOME`, and pins CUDA discovery to
    `/usr/local/cuda/bin/nvcc` so Rust CUDA build scripts derive
-   `/usr/local/cuda/include`, not `/usr/local/include`.
+   `/usr/local/cuda/include`, not `/usr/local/include`. Verified builds should
+   use `scripts/build-verified-calyx.sh`, which sets and readbacks
+   `CARGO_TARGET_DIR` for that command.
 
 ## 2. Verified hardware & OS (live readback 2026-06-18)
 
@@ -83,7 +86,7 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
 /home/croyse/calyx/                     # CALYX_HOME — the entire project
   repo/                                 # the git checkout (chrisroyse/calyx-dev)
     crates/  Cargo.toml  rust-toolchain.toml  …
-  target/                               # CARGO_TARGET_DIR (build output stays here)
+  target/                               # CALYX_CARGO_TARGET_DIR (explicit build output)
   data/                                 # Aster vaults (interim; → ZFS hot when provisioned)
   datasets/                             # downloaded real datasets (interim; → ZFS cold)
   .hf-cache/                            # HF_HOME (models/lenses pulled here)
@@ -95,10 +98,13 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
 ```
 
 **Toolchain reuse, output isolation:** reuse the already-installed
-`~/.cargo`/`~/.rustup` (don't duplicate a toolchain), but set
-`CARGO_TARGET_DIR=/home/croyse/calyx/target` and `HF_HOME=.../.hf-cache` so all
-*output* is inside `CALYX_HOME`. `repo/env.sh` is the single entrypoint every
-session sources.
+`~/.cargo`/`~/.rustup` (don't duplicate a toolchain), but keep build outputs
+inside `CALYX_HOME`. `repo/env.sh` exposes
+`CALYX_CARGO_TARGET_DIR=/home/croyse/calyx/target` and clears foreign inherited
+`CARGO_TARGET_DIR` values; verified builds set `CARGO_TARGET_DIR` explicitly via
+`scripts/build-verified-calyx.sh`. `HF_HOME=.../.hf-cache` keeps model/cache
+output inside `CALYX_HOME`. `repo/env.sh` is the single entrypoint every session
+sources.
 
 ### Target ZFS datasets (preferred for hot/cold data; sudo-gated, one-time)
 Matches PRD `04 §3` / `16 §3`. Create via authorized password-backed sudo

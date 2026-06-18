@@ -288,10 +288,15 @@ default.
 ### 6.3 Cargo target dir (build)
 
 Per `.cargo\config.toml` comments and the `.env.example` `CALYX_CARGO_TARGET_DIR`,
-the target directory is supplied on aiwonder via `CARGO_TARGET_DIR` in the
-environment, which Cargo resolves with precedence **CLI > env > config file**. The
-committed `.cargo\config.toml` deliberately omits `build.target-dir` (an absolute
-Unix path would misresolve on Windows).
+the target directory is supplied on aiwonder per command, not through committed
+Cargo config. Verified builds use `scripts/build-verified-calyx.sh`, which exports
+`CARGO_TARGET_DIR` for that invocation and reads Cargo metadata back to prove the
+resolved target directory. Sourced `env.sh` exposes `CALYX_CARGO_TARGET_DIR` and
+clears any inherited `CARGO_TARGET_DIR` outside `CALYX_HOME`; callers that want
+the shared target export `CARGO_TARGET_DIR="$CALYX_CARGO_TARGET_DIR"` explicitly.
+Cargo resolves precedence as **CLI > env > config file**. The committed
+`.cargo\config.toml` deliberately omits `build.target-dir` (an absolute Unix path
+would misresolve on Windows).
 
 ---
 
@@ -317,6 +322,7 @@ color = "auto"
 
 Only sets terminal color to `auto`. The leading comment block explicitly warns that
 **machine-specific settings (e.g. `build.target-dir`) must NOT be committed here**,
-because an absolute Unix path resolves incorrectly on Windows, and because on
-aiwonder the shared target dir comes from `CARGO_TARGET_DIR` in `env.sh`
+because an absolute Unix path resolves incorrectly on Windows. On aiwonder the
+shared target dir is exposed as `CALYX_CARGO_TARGET_DIR` by `env.sh`; verified
+builds set `CARGO_TARGET_DIR` for the command and read the resolved metadata back
 (precedence CLI > env > config).
