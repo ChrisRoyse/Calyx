@@ -28,9 +28,13 @@ pub(super) fn build_search_graph(
             Some(path)
         }
         None => {
-            let path = default_raw_sidecar(graph_path);
-            write_raw_sidecar_dir(&path, rows, build_params.dim)?;
-            Some(path)
+            if write_raw_sidecar {
+                let path = default_raw_sidecar(graph_path);
+                write_raw_sidecar_dir(&path, rows, build_params.dim)?;
+                Some(path)
+            } else {
+                None
+            }
         }
     };
     write_distance_mode(graph_path, DiskAnnDistanceMode::UnitL2)?;

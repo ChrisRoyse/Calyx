@@ -119,9 +119,48 @@ impl DiskAnnSearch {
         raw_sidecar: Option<PathBuf>,
         default_search: DiskAnnSearchParams,
     ) -> Result<Self> {
+        Self::build_with_default_raw_sidecar(
+            slot,
+            graph_path,
+            rows,
+            build_params,
+            raw_sidecar,
+            default_search,
+            true,
+        )
+    }
+
+    pub(crate) fn build_without_default_raw_sidecar(
+        slot: SlotId,
+        graph_path: impl Into<PathBuf>,
+        rows: &[(CxId, Vec<f32>)],
+        build_params: DiskAnnBuildParams,
+        raw_sidecar: Option<PathBuf>,
+        default_search: DiskAnnSearchParams,
+    ) -> Result<Self> {
+        Self::build_with_default_raw_sidecar(
+            slot,
+            graph_path,
+            rows,
+            build_params,
+            raw_sidecar,
+            default_search,
+            false,
+        )
+    }
+
+    fn build_with_default_raw_sidecar(
+        slot: SlotId,
+        graph_path: impl Into<PathBuf>,
+        rows: &[(CxId, Vec<f32>)],
+        build_params: DiskAnnBuildParams,
+        raw_sidecar: Option<PathBuf>,
+        default_search: DiskAnnSearchParams,
+        write_default_raw_sidecar: bool,
+    ) -> Result<Self> {
         let graph_path = graph_path.into();
         let dense_rows = dense_rows(rows, build_params.dim)?;
-        let write_raw_sidecar = raw_sidecar.is_none();
+        let write_raw_sidecar = raw_sidecar.is_none() && write_default_raw_sidecar;
         let raw_sidecar = build_search_graph(
             &graph_path,
             &dense_rows,
