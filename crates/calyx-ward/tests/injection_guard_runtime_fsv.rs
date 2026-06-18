@@ -220,6 +220,7 @@ fn injection_guard_runtime_block_and_frr_fsv() {
             "block_pass": block_pass,
             "frr_pass": frr_pass,
             "provider_policy": lens.provider_policy(),
+            "ort_dynamic_library": ort_dylib_report(),
         }),
     );
     write_sha_manifest(&root);
@@ -303,4 +304,25 @@ fn write_sha_manifest(root: &Path) {
         }
     }
     write_json(root, "sha256-manifest.json", &json!(entries));
+}
+
+fn ort_dylib_report() -> serde_json::Value {
+    let Ok(raw) = std::env::var("ORT_DYLIB_PATH") else {
+        return json!({
+            "env": "ORT_DYLIB_PATH",
+            "present": false,
+        });
+    };
+    let path = PathBuf::from(&raw);
+    let metadata = fs::metadata(&path).expect("stat ORT_DYLIB_PATH");
+    let bytes = fs::read(&path).expect("read ORT_DYLIB_PATH");
+    let digest = Sha256::digest(&bytes);
+    json!({
+        "env": "ORT_DYLIB_PATH",
+        "present": true,
+        "path": raw,
+        "is_file": metadata.is_file(),
+        "bytes": metadata.len(),
+        "sha256": digest.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+    })
 }

@@ -51,6 +51,7 @@ impl CustomOnnxRuntime {
 }
 
 pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
+    let _ort_dylib = super::dynamic_ort::ensure_dynamic_ort()?;
     ensure_file("model", &spec.model_file)?;
     ensure_file("tokenizer", &spec.tokenizer)?;
     ensure_file("config", &spec.config)?;
