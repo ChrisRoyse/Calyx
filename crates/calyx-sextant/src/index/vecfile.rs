@@ -16,6 +16,47 @@ use crate::error::{CALYX_INDEX_CORRUPT, CALYX_INDEX_IO, sextant_error};
 
 pub const VEC_MAGIC: [u8; 8] = *b"CLXVEC01";
 const HEADER_LEN: usize = 8 + 4 + 8;
+const I8BIN_HEADER_LEN: usize = 8;
+
+#[derive(Debug)]
+pub enum DenseVectorFile {
+    Fbin(FbinVectors),
+    I8Bin(I8BinVectors),
+}
+
+impl DenseVectorFile {
+    pub fn open(path: &Path) -> Result<Self> {
+        match path.extension().and_then(|ext| ext.to_str()) {
+            Some("fbin") => Ok(Self::Fbin(FbinVectors::open(path)?)),
+            Some("i8bin") => Ok(Self::I8Bin(I8BinVectors::open(path)?)),
+            _ => Err(sextant_error(
+                CALYX_INDEX_CORRUPT,
+                format!("unsupported vector file extension for {}", path.display()),
+            )),
+        }
+    }
+
+    pub fn dim(&self) -> usize {
+        match self {
+            Self::Fbin(file) => file.dim(),
+            Self::I8Bin(file) => file.dim(),
+        }
+    }
+
+    pub fn count(&self) -> u64 {
+        match self {
+            Self::Fbin(file) => file.count(),
+            Self::I8Bin(file) => file.count(),
+        }
+    }
+
+    pub fn row_f32(&self, idx: u64) -> Vec<f32> {
+        match self {
+            Self::Fbin(file) => file.row(idx).to_vec(),
+            Self::I8Bin(file) => file.row_f32_normalized(idx),
+        }
+    }
+}
 
 /// mmap-backed reader over a `.fbin` of real embeddings. Reads are zero-copy slices
 /// into the mapping, so build/search never materialise the whole file in heap.
@@ -109,5 +150,128 @@ impl FbinVectors {
             ));
         }
         Ok(self.row(idx))
+    }
+}
+
+/// mmap-backed reader for BigANN-style `.i8bin` signed-int8 vectors.
+///
+/// Layout (little-endian): `u32 count | u32 dim | i8[count*dim]` row-major.
+/// Rows are normalized when converted to f32 so Calyx's cosine DiskANN path and
+/// brute-force readback operate on the same byte-derived vectors.
+#[derive(Debug)]
+pub struct I8BinVectors {
+    mmap: Mmap,
+    dim: usize,
+    count: u64,
+}
+
+impl I8BinVectors {
+    pub fn open(path: &Path) -> Result<Self> {
+        let file = File::open(path).map_err(|e| {
+            sextant_error(
+                CALYX_INDEX_IO,
+                format!("open i8bin {}: {e}", path.display()),
+            )
+        })?;
+        let len = file
+            .metadata()
+            .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("stat i8bin: {e}")))?
+            .len();
+        if len < I8BIN_HEADER_LEN as u64 {
+            return Err(sextant_error(
+                CALYX_INDEX_CORRUPT,
+                format!("i8bin {} is {len} B, smaller than header", path.display()),
+            ));
+        }
+        // SAFETY: read-only map of an immutable dataset file.
+        let mmap = unsafe {
+            Mmap::map(&file)
+                .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("mmap i8bin: {e}")))?
+        };
+        let count = u32::from_le_bytes(mmap[0..4].try_into().expect("4B")) as u64;
+        let dim = u32::from_le_bytes(mmap[4..8].try_into().expect("4B")) as usize;
+        if dim == 0 {
+            return Err(sextant_error(CALYX_INDEX_CORRUPT, "i8bin dim is zero"));
+        }
+        let expect = I8BIN_HEADER_LEN as u64 + count * dim as u64;
+        if len != expect {
+            return Err(sextant_error(
+                CALYX_INDEX_CORRUPT,
+                format!(
+                    "i8bin {} len {len} != expected {expect} (count {count} x dim {dim} + {I8BIN_HEADER_LEN})",
+                    path.display()
+                ),
+            ));
+        }
+        Ok(Self { mmap, dim, count })
+    }
+
+    pub fn dim(&self) -> usize {
+        self.dim
+    }
+
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+
+    pub fn row_i8(&self, idx: u64) -> &[i8] {
+        let start = I8BIN_HEADER_LEN + (idx as usize) * self.dim;
+        let bytes = &self.mmap[start..start + self.dim];
+        // SAFETY: i8 has alignment 1 and accepts every byte pattern.
+        unsafe { std::slice::from_raw_parts(bytes.as_ptr().cast::<i8>(), self.dim) }
+    }
+
+    pub fn row_f32_normalized(&self, idx: u64) -> Vec<f32> {
+        let mut out = self
+            .row_i8(idx)
+            .iter()
+            .map(|value| f32::from(*value))
+            .collect::<Vec<_>>();
+        let norm = out.iter().map(|value| value * value).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for value in &mut out {
+                *value /= norm;
+            }
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn i8bin_rows_are_read_from_header_and_normalized() {
+        let path = std::env::temp_dir().join(format!(
+            "calyx-i8bin-{}-{}.i8bin",
+            std::process::id(),
+            "normalize"
+        ));
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2_u32.to_le_bytes());
+        bytes.extend_from_slice(&3_u32.to_le_bytes());
+        bytes.extend_from_slice(&[-3_i8 as u8, 0, 4, 1, 2, 2]);
+        fs::write(&path, bytes).expect("write i8bin");
+
+        let file = I8BinVectors::open(&path).expect("open i8bin");
+
+        assert_eq!(file.count(), 2);
+        assert_eq!(file.dim(), 3);
+        assert_close(&file.row_f32_normalized(0), &[-0.6, 0.0, 0.8]);
+        assert_close(
+            &DenseVectorFile::open(&path).unwrap().row_f32(1),
+            &[1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0],
+        );
+        let _ = fs::remove_file(path);
+    }
+
+    fn assert_close(actual: &[f32], expected: &[f32]) {
+        assert_eq!(actual.len(), expected.len());
+        for (actual, expected) in actual.iter().zip(expected) {
+            assert!((actual - expected).abs() < 0.00001);
+        }
     }
 }

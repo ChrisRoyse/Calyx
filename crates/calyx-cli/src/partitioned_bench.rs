@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use calyx_sextant::index::{PartitionedSearch, gen_row};
+use calyx_sextant::index::{DenseVectorFile, PartitionedSearch, gen_row};
 use serde_json::json;
 
 use crate::error::{CliError, CliResult};
@@ -20,7 +20,7 @@ mod brute_force;
 mod build;
 #[path = "partitioned_bench/multi_rrf.rs"]
 mod multi_rrf;
-use brute_force::{brute_force_topk, brute_force_topk_fbin};
+use brute_force::{brute_force_topk, brute_force_topk_vecfile};
 #[cfg(test)]
 pub(crate) use build::BuildArgs;
 pub(crate) use build::run as run_build;
@@ -42,10 +42,10 @@ fn parse_recall_floor(v: &str) -> CliResult<f32> {
 
 struct SearchArgs {
     vault: PathBuf,
-    /// REAL query embeddings (`.fbin`). When set, queries are real vectors, not
-    /// synthesised, and `--corpus` supplies the brute-force ground-truth set.
+    /// REAL query embeddings (`.fbin` or `.i8bin`). When set, queries are real
+    /// vectors, not synthesised, and `--corpus` supplies brute-force ground truth.
     queries: Option<PathBuf>,
-    /// REAL corpus embeddings (`.fbin`) for brute-force ground truth in real mode.
+    /// REAL corpus embeddings (`.fbin` or `.i8bin`) for brute-force ground truth.
     corpus: Option<PathBuf>,
     n: usize,
     k: usize,
@@ -170,7 +170,7 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     let search = PartitionedSearch::open(&args.vault).map_err(CliError::Calyx)?;
     let manifest = search.manifest().clone();
     let queries_path = args.queries.as_ref().expect("real mode");
-    let q_vecs = calyx_sextant::index::FbinVectors::open(queries_path).map_err(CliError::Calyx)?;
+    let q_vecs = DenseVectorFile::open(queries_path).map_err(CliError::Calyx)?;
     if q_vecs.dim() != manifest.dim {
         return Err(CliError::usage(format!(
             "query dim {} != vault dim {}",
@@ -186,7 +186,7 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     let mut gt_queries: Vec<Vec<f32>> = Vec::with_capacity(gt_n);
     let mut gt_ann: Vec<Vec<u64>> = Vec::with_capacity(gt_n);
     for i in 0..n {
-        let q = q_vecs.row(i as u64).to_vec();
+        let q = q_vecs.row_f32(i as u64);
         let started = Instant::now();
         let readback = search
             .search_with_readback(&q, args.k, args.n_probe, args.region_beam)
@@ -206,10 +206,11 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
 
     let ground_truth_recall = if gt_n > 0 {
         let corpus_path = args.corpus.as_ref().ok_or_else(|| {
-            CliError::usage("--corpus <file.fbin> is required with --ground-truth in real mode")
+            CliError::usage(
+                "--corpus <file.fbin|file.i8bin> is required with --ground-truth in real mode",
+            )
         })?;
-        let corpus =
-            calyx_sextant::index::FbinVectors::open(corpus_path).map_err(CliError::Calyx)?;
+        let corpus = DenseVectorFile::open(corpus_path).map_err(CliError::Calyx)?;
         if corpus.dim() != manifest.dim {
             return Err(CliError::usage(format!(
                 "corpus dim {} != vault dim {}",
@@ -217,7 +218,7 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
                 manifest.dim
             )));
         }
-        let truth = brute_force_topk_fbin(&corpus, &gt_queries, args.k);
+        let truth = brute_force_topk_vecfile(&corpus, &gt_queries, args.k);
         let mut found = 0usize;
         let mut total = 0usize;
         for (ann, truth_set) in gt_ann.iter().zip(truth.iter()) {
