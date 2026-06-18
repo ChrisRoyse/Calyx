@@ -23,7 +23,7 @@ This is the foundation all other PH13 cards build on.
 - [x] `src/cuda/context.rs`: `pub struct CudaContext { inner: Arc<cudarc::driver::CudaDevice>, determinism: bool }`
 - [x] `pub fn init_cuda(device_idx: u32, determinism: bool) -> Result<CudaContext, ForgeError>`
   — call `cudarc::driver::CudaDevice::new(device_idx)`; on `Err` → `ForgeError::DeviceUnavailable
-  { device: format!("cuda:{device_idx}"), detail: format!("{err}"), remediation: "Check that CUDA 13.2 is installed at /usr/local/cuda-13.2 and nvidia-smi shows the RTX 5090 available".to_string() }`
+  { device: format!("cuda:{device_idx}"), detail: format!("{err}"), remediation: "Check that CUDA 13.3 is installed at /usr/local/cuda-13.3 and nvidia-smi shows the RTX 5090 available".to_string() }`
 - [x] `pub fn query_device_info(ctx: &CudaContext) -> DeviceInfo` — populates
   `DeviceInfo { kind: BackendKind::Cuda, name: <device name string>, avx512: false, vram_mib: Some(<total_mem / 1024 / 1024>) }`
 - [x] VRAM soft-cap check: if `cuMemGetInfo` shows free VRAM < 4096 MiB at init time

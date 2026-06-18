@@ -10,6 +10,10 @@ publish.workspace = true
 name = "calyx"
 path = "src/main.rs"
 
+[features]
+default = []
+cuda = ["calyx-forge/cuda", "calyx-sextant/cuda"]
+
 [dependencies]
 calyx-assay = { path = "../calyx-assay" }
 calyx-anneal = { path = "../calyx-anneal" }

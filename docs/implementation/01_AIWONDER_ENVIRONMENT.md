@@ -1,7 +1,7 @@
 # 01 — aiwonder Environment & the Self-Contained Calyx Layout
 
 Everything Calyx is built/stored/run/tested here. This doc is the **live,
-verified** picture of the box (readback 2026-06-06) and the binding rule that
+verified** picture of the box (readback 2026-06-18) and the binding rule that
 **Calyx is self-contained under one root and touches nothing else.**
 
 ---
@@ -23,7 +23,7 @@ verified** picture of the box (readback 2026-06-06) and the binding rule that
    `/usr/local/cuda/bin/nvcc` so Rust CUDA build scripts derive
    `/usr/local/cuda/include`, not `/usr/local/include`.
 
-## 2. Verified hardware & OS (live readback 2026-06-06)
+## 2. Verified hardware & OS (live readback 2026-06-18)
 
 | Resource | Value (confirmed) |
 |---|---|
@@ -32,14 +32,14 @@ verified** picture of the box (readback 2026-06-06) and the binding rule that
 | CPU | 32 threads (Ryzen 9-class, 16c/32t) |
 | RAM | **121 GiB** total, ~90 GiB available steady-state, **0 swap** |
 | GPU | **RTX 5090**, Blackwell, **sm_120 (compute_cap 12.0)**, **32607 MiB**, driver **595.71.05** |
-| CUDA toolkit | **13.2** installed (`/usr/local/cuda` → 13.2; also 13.1, 13.0). `nvcc` V13.2.78 works |
+| CUDA toolkit | **13.3** installed (`/usr/local/cuda` → `/usr/local/cuda-13.3`; also 13.2, 13.1, 13.0). `nvcc` V13.3.33 works |
 | Root FS | `/dev/nvme0n1p2` ext4, 1.8 TB, **~880 GB free** (holds `/home/croyse`) |
 | ZFS hot | `hotpool` 1.81 TB, **~1.52 TB free** → `/zfs/hot/*` (no redundancy) |
 | ZFS cold | `archive` 9.09 TB, **~8.49 TB free** → `/zfs/archive/*` (HDD) |
 
 ### Toolchain present / missing
 - **Present:** `git`, `gh`, `python3`, `docker`, `clang`, `gcc`, `cc`, **Rust
-  via rustup** (`~/.cargo`, `~/.rustup`), **CUDA 13.2 + nvcc**, Infisical
+  via rustup** (`~/.cargo`, `~/.rustup`), **CUDA 13.3 + nvcc**, Infisical
   (`~/.infisical`), HF cache (`~/.cache/huggingface`), `cmake`
   (`/home/croyse/calyx/bin/cmake`, 4.3.3), and `protoc`
   (`/home/croyse/calyx/bin/protoc`, libprotoc 35.0).
@@ -90,6 +90,7 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
   logs/                                 # structured logs (rotated, bounded)
   tmp/                                  # scratch (staged in-place; cleaned each turn)
   bin/                                  # locally-installed userspace tools (cmake, protoc)
+  .venv-cuvs/                           # RAPIDS cuVS/cu13 wheel stack for DiskANN GPU builds
   env.sh                               # sources ~/.cargo/env + exports CALYX_* + pinned CUDA paths
 ```
 
@@ -143,6 +144,10 @@ host loss is accepted posture.
   `cmake version 4.3.3`.
 - **protoc:** installed at `/home/croyse/calyx/bin/protoc`; current readback:
   `libprotoc 35.0`.
+- **cuVS:** installed in `/home/croyse/calyx/.venv-cuvs` as
+  `libcuvs-cu13==26.6.0`. `env.sh` exports the wheel's cuVS/raft/rmm
+  CMake package directories and shared-library paths when the venv exists; do
+  not install RAPIDS packages into system Python.
 - **If reinstallation is needed:** download the official static tarball or
   prebuilt release into `CALYX_HOME/bin`, then prepend `CALYX_HOME/bin` and
   `~/.local/bin` to PATH in `env.sh`.
@@ -152,7 +157,7 @@ host loss is accepted posture.
 
 ## 7. Build / store / run / test — all here
 - **Build:** on aiwonder (`source ~/.cargo/env && cargo build`), output in
-  `CALYX_HOME/target`. GPU code compiles against CUDA 13.2 for sm_120.
+  `CALYX_HOME/target`. GPU code compiles against CUDA 13.3 for sm_120.
 - **Store:** Aster vaults + datasets under `CALYX_HOME` (→ ZFS when provisioned).
 - **Run:** `calyxd`/`calyx` CLI + reuse TEI lenses on aiwonder's RTX 5090.
 - **Test:** every test (synthetic mechanics + real-dataset intelligence) runs
@@ -162,7 +167,7 @@ host loss is accepted posture.
 ## 8. One-paragraph summary
 Calyx is built and lives **only** on aiwonder, under `/home/croyse/calyx`,
 reachable as `croyse@aiwonder.mst.com` over the Cisco VPN, using the box's
-already-installed Rust + CUDA 13.2 + RTX 5090 (sm_120) and its resident TEI
+already-installed Rust + CUDA 13.3 + RTX 5090 (sm_120) and its resident TEI
 lenses, with all build output, data, datasets, and caches kept inside that one
 root, dedicated ZFS datasets provisioned by a one-time authorized sudo step,
 password-backed sudo available for gated host work when needed, and absolutely

@@ -13,7 +13,7 @@
 ## Goal
 
 Write the `build.rs` that compiles the `.cu` SIMT kernel sources with
-`nvcc -arch=sm_120` against CUDA 13.2 at `/usr/local/cuda-13.2`, embeds PTX
+`nvcc -arch=sm_120` against CUDA 13.3 at `/usr/local/cuda-13.3`, embeds PTX
 bytes in the binary for JIT fallback, and places cubin as the fast path. The
 build succeeds only on aiwonder (feature-gated); on non-CUDA builds `build.rs`
 is a no-op. This is the kernel compilation infrastructure all other PH13 cards
@@ -22,8 +22,8 @@ depend on.
 ## Build (checklist of concrete, code-level steps)
 
 - [x] `build.rs`: check `cfg!(feature="cuda")`; if not set, print `cargo:warning=cuda feature not enabled, skipping kernel compilation` and exit `Ok(())`
-- [x] Locate `nvcc` at `$CUDA_PATH/bin/nvcc` (default `CUDA_PATH=/usr/local/cuda-13.2`);
-  if not found → `panic!("nvcc not found at {path}; set CUDA_PATH to CUDA 13.2 root")` (loud failure, not silent skip)
+- [x] Locate `nvcc` at `$CUDA_PATH/bin/nvcc` (default `CUDA_PATH=/usr/local/cuda-13.3`);
+  if not found → `panic!("nvcc not found at {path}; set CUDA_PATH to CUDA 13.3 root")` (loud failure, not silent skip)
 - [x] Compile each `.cu` with:
   `nvcc -arch=sm_120 -O3 --use_fast_math=false -Xcompiler -fPIC --ptx -o <out>.ptx <src>.cu`
   and separately:
@@ -49,7 +49,7 @@ depend on.
   is non-empty and starts with the PTX magic bytes `"//\n.version"` or `".version"` (PTX header)
 - [x] unit `#[cfg(feature="cuda")]`: PTX bytes for distance kernel contain the
   string `"cosine_batch_f32"` (kernel entry point name present in PTX)
-- [x] integration: `nvcc --version` on aiwonder prints `V13.2` (build.rs prints
+- [x] integration: `nvcc --version` on aiwonder prints `V13.3` (build.rs prints
   the detected nvcc version to stderr via `cargo:warning`)
 - [x] edge (≥3): (1) `CUDA_PATH` unset → `build.rs` checks default path; (2) `.cu`
   file missing → `build.rs` panics with file path in message; (3) `--use_fast_math`

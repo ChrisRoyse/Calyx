@@ -24,6 +24,22 @@ for calyx_nvidia_lib in "$CALYX_HOME"/.venv-cudnn/lib/python*/site-packages/nvid
 done
 unset calyx_nvidia_lib
 
+export CALYX_CUVS_VENV="$CALYX_HOME/.venv-cuvs"
+for calyx_cuvs_site in "$CALYX_CUVS_VENV"/lib/python*/site-packages; do
+    if [ -d "$calyx_cuvs_site/libcuvs/lib64/cmake/cuvs" ]; then
+        export CMAKE_PREFIX_PATH="$calyx_cuvs_site/libcuvs/lib64/cmake/cuvs:$calyx_cuvs_site/libraft/lib64/cmake/raft:$calyx_cuvs_site/librmm/lib64/cmake/rmm:$calyx_cuvs_site/rapids_logger/lib64/cmake/rapids_logger:$calyx_cuvs_site/librmm/lib64/cmake/nvtx3:$calyx_cuvs_site/libraft/lib64/rapids/cmake:$calyx_cuvs_site/librmm/lib64/rapids/cmake${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+        export LD_LIBRARY_PATH="$calyx_cuvs_site/libcuvs/lib64:$calyx_cuvs_site/libraft/lib64:$calyx_cuvs_site/librmm/lib64:$calyx_cuvs_site/rapids_logger/lib64:$LD_LIBRARY_PATH"
+        for calyx_nvidia_lib in "$CALYX_CUVS_VENV"/lib/python*/site-packages/nvidia/*/lib; do
+            if [ -d "$calyx_nvidia_lib" ]; then
+                export LD_LIBRARY_PATH="$calyx_nvidia_lib:$LD_LIBRARY_PATH"
+            fi
+        done
+        unset calyx_nvidia_lib
+        break
+    fi
+done
+unset calyx_cuvs_site
+
 # Do not set CARGO_TARGET_DIR here and do not cd from a sourced env file.
 # Worktrees must keep their own target directories unless a command explicitly
 # opts into a shared target. Use scripts/build-verified-calyx.sh for FSV builds.

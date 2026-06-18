@@ -5,7 +5,7 @@
 > CUDA sm_120 backend with a CPU↔GPU bit-parity suite, TurboQuant, MXFP4/MXFP8
 > microscaling + grouped/ragged GEMM, and the per-shape autotune cache. Stage 2
 > FSV evidence is recorded in the closed PH12-PH16 issues and context #23.
-> Build/test natively on aiwonder (CUDA 13.2, RTX 5090 sm_120) — no cross-build.
+> Build/test natively on aiwonder (CUDA 13.3, RTX 5090 sm_120) — no cross-build.
 > Downstream Stage 5 consumes Forge where applicable. Stage 4 currently uses
 > Sextant-owned CPU/index paths for HNSW, quantization, and fan-out; #299 records
 > that no Forge GPU HNSW or grouped fan-out path is wired yet. Next active stage
@@ -34,7 +34,7 @@
 Calyx's owned linear-algebra layer: a CPU SIMD path and a CUDA sm_120 path that
 are **bit-parity tested**, plus TurboQuant, MXFP4 microscaling, grouped GEMM,
 and per-shape autotuning. No external BLAS service on the hot path (A13).
-Builds **natively** on aiwonder against CUDA 13.2 for the RTX 5090 (sm_120) —
+Builds **natively** on aiwonder against CUDA 13.3 for the RTX 5090 (sm_120) —
 no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 `calyx-forge`. Deep array/compression model: PRD `23`.
 
@@ -64,7 +64,7 @@ no cross-build needed (corrects the PRD `13 §4` note; see `01 §3`). Lands in
 - **Deps.** PH12.
 - **Deliverables.** `cuda/` kernels (gemm via cudarc/cuBLAS, fused cosine/topk),
   ptx+cubin for sm_120 with JIT fallback, determinism mode (fixed reductions).
-- **Key tasks.** build against `/usr/local/cuda-13.2`; sm_120 codegen; pin
+- **Key tasks.** build against `/usr/local/cuda-13.3`; sm_120 codegen; pin
   reductions; `CALYX_FORGE_DEVICE_UNAVAILABLE` on CUDA init fail (no silent CPU
   fallback in server mode).
 - **FSV gate.** CPU↔GPU **≤1e-3 rel** on the golden set; matmul within **10% of

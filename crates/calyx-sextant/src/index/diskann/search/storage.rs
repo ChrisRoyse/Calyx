@@ -5,21 +5,24 @@ use calyx_core::Result;
 
 use super::helpers::{DiskAnnDistanceMode, io};
 use crate::error::{CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_IO, sextant_error};
-use crate::index::diskann::build::{DiskAnnBuildParams, build_diskann_graph};
+use crate::index::diskann::build::{
+    DiskAnnBuildBackend, DiskAnnBuildParams, build_diskann_graph_with_backend,
+};
 use crate::index::distance::l2_normalize;
 
 const DISTANCE_MODE_UNIT_L2: &str = "unit_l2";
 const DISTANCE_MODE_RAW_COSINE: &str = "raw_cosine";
 
-pub(super) fn build_search_graph(
+pub(super) fn build_search_graph_with_backend(
     graph_path: &Path,
     rows: &[(u32, Vec<f32>)],
     build_params: DiskAnnBuildParams,
     raw_sidecar: Option<PathBuf>,
     write_raw_sidecar: bool,
+    backend: DiskAnnBuildBackend,
 ) -> Result<Option<PathBuf>> {
     let graph_rows = normalized_rows(rows);
-    build_diskann_graph(graph_path, &graph_rows, build_params)?;
+    build_diskann_graph_with_backend(graph_path, &graph_rows, build_params, backend)?;
     let raw_sidecar = match raw_sidecar {
         Some(path) => {
             if write_raw_sidecar {

@@ -59,7 +59,7 @@ mode under `/home/croyse/calyx/data/fsv-issue316-grouped-gemm-mode-20260608`.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-Run on aiwonder (RTX 5090, sm_120, CUDA 13.2):
+Run on aiwonder (RTX 5090, sm_120, CUDA 13.3):
 
 ```bash
 source $CALYX_HOME/repo/env.sh

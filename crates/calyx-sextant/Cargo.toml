@@ -6,6 +6,10 @@ rust-version.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+default = []
+cuda = ["dep:cuvs-sys"]
+
 [dependencies]
 blake3.workspace = true
 calyx-anneal = { path = "../calyx-anneal" }
@@ -13,6 +17,7 @@ calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-ward = { path = "../calyx-ward" }
+cuvs-sys = { workspace = true, optional = true }
 memmap2.workspace = true
 rand.workspace = true
 rand_chacha.workspace = true

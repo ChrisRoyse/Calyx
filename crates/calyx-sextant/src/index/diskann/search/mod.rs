@@ -1,5 +1,6 @@
 //! DiskANN beam search and raw-f32 rescore (PH68 T02).
 
+mod construct;
 mod helpers;
 mod pq_support;
 mod scratch;
@@ -12,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
 
-use super::build::DiskAnnBuildParams;
+use super::build::{DiskAnnBuildBackend, DiskAnnBuildParams};
 use super::graph::DiskAnnGraphReader;
 use super::pq::{DiskAnnPqBuildParams, DiskAnnPqIndex, default_pq_sidecar};
 use crate::error::{CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_IO, sextant_error};
@@ -21,11 +22,12 @@ use crate::index::{IndexSearchHit, IndexStats, SextantIndex, ranked};
 use crate::util::dense;
 
 use helpers::{
-    Candidate, DiskAnnDistanceMode, dense_rows, distance, invalid, io, open_for_search, positions,
+    Candidate, DiskAnnDistanceMode, dense_rows, distance, invalid, io, open_for_search,
     prefetch_node, sorted,
 };
+pub use pq_support::DiskAnnPqSearchBuild;
 use pq_support::write_pq_sidecar;
-use storage::{build_search_graph, default_raw_sidecar, read_distance_mode};
+use storage::{build_search_graph_with_backend, read_distance_mode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DiskAnnSearchParams {
@@ -55,6 +57,7 @@ const PREFETCH_MIN_GRAPH_BYTES: u64 = 256 * 1024 * 1024;
 pub(super) struct SearchBuildSidecars {
     pub(super) write_default_raw_sidecar: bool,
     pub(super) pq: Option<DiskAnnPqBuildParams>,
+    pub(super) backend: DiskAnnBuildBackend,
 }
 
 #[derive(Debug)]
@@ -70,163 +73,13 @@ pub struct DiskAnnSearch {
     ids: Vec<CxId>,
     positions: HashMap<CxId, u32>,
     build_params: DiskAnnBuildParams,
+    build_backend: DiskAnnBuildBackend,
     default_search: DiskAnnSearchParams,
     built_at_seq: u64,
     base_seq: u64,
 }
 
 impl DiskAnnSearch {
-    pub fn open(
-        slot: SlotId,
-        graph_path: impl Into<PathBuf>,
-        ids: Vec<CxId>,
-        raw_sidecar: Option<PathBuf>,
-        default_search: DiskAnnSearchParams,
-    ) -> Result<Self> {
-        let graph_path = graph_path.into();
-        let reader = open_for_search(&graph_path)?;
-        let header = *reader.header();
-        let distance_mode = read_distance_mode(&graph_path)?;
-        if ids.len() != header.node_count as usize {
-            return Err(invalid(format!(
-                "id map len {} != graph node_count {}",
-                ids.len(),
-                header.node_count
-            )));
-        }
-        let raw_sidecar = raw_sidecar.or_else(|| {
-            let path = default_raw_sidecar(&graph_path);
-            path.is_dir().then_some(path)
-        });
-        let pq = DiskAnnPqIndex::read_if_exists(&default_pq_sidecar(&graph_path))?;
-        let graph_file = File::open(&graph_path).map_err(|e| io("open graph for prefetch", e))?;
-        let build_params = DiskAnnBuildParams {
-            dim: header.dim as usize,
-            m_max: header.m_max as usize,
-            ef_construction: default_search.ef_search.max(header.m_max as usize),
-            alpha: 1.2,
-        };
-        Ok(Self {
-            slot,
-            dim: header.dim,
-            graph_path,
-            raw_sidecar,
-            pq,
-            reader: Some(reader),
-            graph_file: Some(graph_file),
-            distance_mode,
-            positions: positions(&ids),
-            ids,
-            build_params,
-            default_search,
-            built_at_seq: 0,
-            base_seq: 0,
-        })
-    }
-
-    pub fn build(
-        slot: SlotId,
-        graph_path: impl Into<PathBuf>,
-        rows: &[(CxId, Vec<f32>)],
-        build_params: DiskAnnBuildParams,
-        raw_sidecar: Option<PathBuf>,
-        default_search: DiskAnnSearchParams,
-    ) -> Result<Self> {
-        Self::build_with_default_raw_sidecar(
-            slot,
-            graph_path,
-            rows,
-            build_params,
-            raw_sidecar,
-            default_search,
-            SearchBuildSidecars {
-                write_default_raw_sidecar: true,
-                pq: None,
-            },
-        )
-    }
-
-    pub(crate) fn build_without_default_raw_sidecar(
-        slot: SlotId,
-        graph_path: impl Into<PathBuf>,
-        rows: &[(CxId, Vec<f32>)],
-        build_params: DiskAnnBuildParams,
-        raw_sidecar: Option<PathBuf>,
-        default_search: DiskAnnSearchParams,
-    ) -> Result<Self> {
-        Self::build_with_default_raw_sidecar(
-            slot,
-            graph_path,
-            rows,
-            build_params,
-            raw_sidecar,
-            default_search,
-            SearchBuildSidecars {
-                write_default_raw_sidecar: false,
-                pq: None,
-            },
-        )
-    }
-
-    fn build_with_default_raw_sidecar(
-        slot: SlotId,
-        graph_path: impl Into<PathBuf>,
-        rows: &[(CxId, Vec<f32>)],
-        build_params: DiskAnnBuildParams,
-        raw_sidecar: Option<PathBuf>,
-        default_search: DiskAnnSearchParams,
-        sidecars: SearchBuildSidecars,
-    ) -> Result<Self> {
-        let graph_path = graph_path.into();
-        let dense_rows = dense_rows(rows, build_params.dim)?;
-        let write_raw_sidecar = raw_sidecar.is_none() && sidecars.write_default_raw_sidecar;
-        let raw_sidecar = build_search_graph(
-            &graph_path,
-            &dense_rows,
-            build_params,
-            raw_sidecar,
-            write_raw_sidecar,
-        )?;
-        if let Some(pq_params) = sidecars.pq {
-            write_pq_sidecar(&graph_path, &dense_rows, pq_params)?;
-        }
-        Self::open(
-            slot,
-            graph_path,
-            rows.iter().map(|(cx_id, _)| *cx_id).collect(),
-            raw_sidecar,
-            default_search,
-        )
-    }
-
-    pub fn empty(slot: SlotId, dim: u32, graph_path: impl Into<PathBuf>) -> Self {
-        Self {
-            slot,
-            dim,
-            graph_path: graph_path.into(),
-            raw_sidecar: None,
-            pq: None,
-            reader: None,
-            graph_file: None,
-            distance_mode: DiskAnnDistanceMode::UnitL2,
-            ids: Vec::new(),
-            positions: HashMap::new(),
-            build_params: DiskAnnBuildParams {
-                dim: dim as usize,
-                m_max: 32,
-                ef_construction: 64,
-                alpha: 1.2,
-            },
-            default_search: DiskAnnSearchParams::default(),
-            built_at_seq: 0,
-            base_seq: 0,
-        }
-    }
-
-    pub fn persist_path(&self) -> &Path {
-        &self.graph_path
-    }
-
     pub fn search_ids(
         &self,
         query: &[f32],
@@ -394,12 +247,13 @@ impl SextantIndex for DiskAnnSearch {
         let rows: Vec<_> = self.ids.iter().copied().zip(vectors).collect();
         let dense_rows = dense_rows(&rows, self.dim as usize)?;
         let pq_params = self.pq.as_ref().map(DiskAnnPqIndex::build_params);
-        self.raw_sidecar = build_search_graph(
+        self.raw_sidecar = build_search_graph_with_backend(
             &self.graph_path,
             &dense_rows,
             self.build_params,
             self.raw_sidecar.clone(),
             true,
+            self.build_backend,
         )?;
         self.reader = Some(open_for_search(&self.graph_path)?);
         self.pq = if let Some(pq_params) = pq_params {
@@ -442,12 +296,13 @@ impl SextantIndex for DiskAnnSearch {
         let rows: Vec<_> = self.ids.iter().copied().zip(vectors).collect();
         let dense_rows = dense_rows(&rows, self.dim as usize)?;
         let pq_params = self.pq.as_ref().map(DiskAnnPqIndex::build_params);
-        self.raw_sidecar = build_search_graph(
+        self.raw_sidecar = build_search_graph_with_backend(
             &self.graph_path,
             &dense_rows,
             self.build_params,
             self.raw_sidecar.clone(),
             true,
+            self.build_backend,
         )?;
         self.reader = Some(open_for_search(&self.graph_path)?);
         self.pq = if let Some(pq_params) = pq_params {

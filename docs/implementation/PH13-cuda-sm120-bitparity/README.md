@@ -6,7 +6,7 @@
 ## Objective
 
 Add the GPU compute path to `calyx-forge`: CUDA kernels targeting sm_120
-(RTX 5090, Blackwell GB202, CUDA 13.2) implementing the same `Backend` trait
+(RTX 5090, Blackwell GB202, CUDA 13.3) implementing the same `Backend` trait
 defined in PH12. Deliver cudarc/cuBLAS-backed GEMM, fused cosine/topk kernels via
 `cudarc`, PTX+cubin for sm_120 with a JIT fallback, and a determinism mode that
 pins reductions for FSV replay. The phase's defining gate is **CPU↔GPU ≤ 1e-3
@@ -29,7 +29,7 @@ failure in server mode — no silent CPU fallback.
 `calyx-forge` has the `Backend` trait, `CpuBackend`, error types, golden
 fixtures, CUDA context/device handling, cudarc/cuBLAS GEMM, fused distance/topk
 paths, and a CPU↔GPU parity suite. Build and FSV run natively on aiwonder with
-`source $CALYX_HOME/repo/env.sh`; no cross-build. sm_120 requires CUDA 13.2
+`source $CALYX_HOME/repo/env.sh`; no cross-build. sm_120 requires CUDA 13.3
 (`nvcc -arch=sm_120`); older CUDA versions produce `unsupported GPU architecture`
 errors — pin explicitly.
 
@@ -59,7 +59,7 @@ errors — pin explicitly.
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 
-Run on aiwonder (RTX 5090, sm_120, CUDA 13.2):
+Run on aiwonder (RTX 5090, sm_120, CUDA 13.3):
 
 ```bash
 source $CALYX_HOME/repo/env.sh
@@ -80,12 +80,12 @@ appears in the init-fail path test output.
 
 ## Risks / landmines
 
-- **sm_120 / CUDA 13.2 only on aiwonder:** never run GPU tests on Windows dev
+- **sm_120 / CUDA 13.3 only on aiwonder:** never run GPU tests on Windows dev
   machine (no GPU); all GPU-touching code is feature-gated `#[cfg(feature="cuda")]`
   so `cargo check` passes everywhere; tests are `#[cfg_attr(not(feature="cuda"), ignore)]`.
 - **cudarc API surface:** cudarc 0.12.x broke several APIs; pin the exact version in
   `Cargo.toml` (`cudarc = { version = "=0.12.x", features = ["cuda-12050"] }` — pick
-  the most recent that compiles against CUDA 13.2 headers).
+  the most recent that compiles against CUDA 13.3 headers).
 - **JIT fallback PTX:** embed PTX bytes (not cubin) so the driver JITs to the running
   SM; ship cubin as the fast path. On driver upgrade, the JIT path keeps working.
 - **Determinism mode:** GPU reductions (e.g. warp shuffles) are non-deterministic

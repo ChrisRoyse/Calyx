@@ -5,6 +5,8 @@
 
 pub mod build;
 pub mod concat;
+#[cfg(feature = "cuda")]
+mod cuvs_cagra;
 pub mod dual;
 pub mod graph;
 pub mod pq;
@@ -12,7 +14,9 @@ pub mod search;
 pub mod token;
 mod token_sidecar;
 
-pub use build::{DiskAnnBuildParams, build_diskann_graph};
+pub use build::{
+    DiskAnnBuildBackend, DiskAnnBuildParams, build_diskann_graph, build_diskann_graph_with_backend,
+};
 pub use concat::{ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey};
 pub use dual::{
     Direction, DirectionalBoost, DualDiskAnnSearch, build_dual, build_dual_with_search,
@@ -23,5 +27,5 @@ pub use graph::{
     open_diskann_graph,
 };
 pub use pq::{DiskAnnPqBuildParams, DiskAnnPqIndex};
-pub use search::{DiskAnnSearch, DiskAnnSearchParams};
+pub use search::{DiskAnnPqSearchBuild, DiskAnnSearch, DiskAnnSearchParams};
 pub use token::TokenDiskAnnMaxSim;

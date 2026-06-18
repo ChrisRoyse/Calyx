@@ -6,7 +6,7 @@ use crate::{BackendKind, DeviceInfo, ForgeError, Result};
 
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 const MIN_FREE_VRAM_MIB: u64 = 4096;
-const CUDA_REMEDIATION: &str = "Check that CUDA 13.2 is installed at /usr/local/cuda-13.2 and nvidia-smi shows the RTX 5090 available";
+const CUDA_REMEDIATION: &str = "Check that CUDA 13.3 is installed at /usr/local/cuda-13.3 and nvidia-smi shows the RTX 5090 available";
 
 #[derive(Clone, Debug)]
 pub struct CudaContext {
@@ -216,7 +216,7 @@ mod tests {
         assert!(matches!(err, ForgeError::DeviceUnavailable { .. }));
         assert!(display.starts_with("CALYX_FORGE_DEVICE_UNAVAILABLE"));
         assert!(display.contains("Remediation:"));
-        assert!(display.contains("/usr/local/cuda-13.2"));
+        assert!(display.contains("/usr/local/cuda-13.3"));
     }
 
     #[test]

@@ -4,7 +4,7 @@ use super::gemm_cublas;
 use crate::{CudaContext, ForgeError, MXFP8_BLOCK_SIZE, MxFp8Block, Result, decode_mxfp8};
 
 const MXFP8_DEVICE_REMEDIATION: &str =
-    "Run MXFP8 GEMM on Blackwell sm_120 with CUDA 13.2 and cuBLAS available";
+    "Run MXFP8 GEMM on Blackwell sm_120 with CUDA 13.3 and cuBLAS available";
 const MXFP8_NUMERICAL_REMEDIATION: &str =
     "Reject invalid MXFP8 GEMM dimensions or non-finite outputs before using scores";
 
