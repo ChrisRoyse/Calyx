@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_PROFILE_FSV_DIR"]
+    #[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_PROFILE_FSV_DIR"]
     fn profile_json_fsv_fixture_writes_readback_artifacts() {
         let root = std::env::var("CALYX_WARD_PROFILE_FSV_DIR")
             .expect("CALYX_WARD_PROFILE_FSV_DIR is required");

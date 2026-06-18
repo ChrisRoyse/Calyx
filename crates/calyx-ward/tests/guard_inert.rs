@@ -67,7 +67,7 @@ fn calibrated_kofn_zero_fails_before_slot_scores_and_ledger_append() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #650 inert GuardProfile surfaces"]
+#[ignore = "manual gpuhost FSV for issue #650 inert GuardProfile surfaces"]
 fn issue650_inert_guard_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_WARD_ISSUE650_FSV_DIR")
         .map(std::path::PathBuf::from)

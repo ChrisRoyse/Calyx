@@ -123,7 +123,7 @@ fn ward_ledger_wrappers_append_guard_rows_and_preserve_audit_quarantine_contract
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #279 Ward Ledger provenance"]
+#[ignore = "manual gpuhost FSV for issue #279 Ward Ledger provenance"]
 fn issue279_ward_ledger_provenance_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_WARD_LEDGER_ISSUE279_FSV_DIR")
         .map(PathBuf::from)
@@ -255,7 +255,7 @@ fn issue279_ward_ledger_provenance_fsv_writes_readbacks() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #649 high-stakes slot provenance"]
+#[ignore = "manual gpuhost FSV for issue #649 high-stakes slot provenance"]
 fn issue649_high_stakes_slot_provenance_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_WARD_ISSUE649_FSV_DIR")
         .map(PathBuf::from)

@@ -39,7 +39,7 @@ fn ph42_readback_rejects_mismatched_or_malformed_artifacts() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for #654 PH42 artifact schema validation"]
+#[ignore = "manual gpuhost FSV for #654 PH42 artifact schema validation"]
 fn issue654_ph42_artifact_schema_fsv_writes_readbacks() {
     let root = reset_fsv_root();
     let artifacts = root.join("artifacts");

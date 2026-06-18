@@ -18,7 +18,7 @@ use serde::Serialize;
 
 const DEFAULT_OUT: &str = "/zfs/hot/logs/calyx-health/latest.json";
 const DEFAULT_SECRET_ENV: &str = "/run/leapable/secrets/calyx.env";
-const DEFAULT_CALYX_HOME: &str = "/home/croyse/calyx";
+const DEFAULT_CALYX_HOME: &str = "/var/lib/calyx";
 const DEFAULT_REQUIRED_ENV: [&str; 2] = ["HF_HUB_TOKEN", "HF_TOKEN"];
 const CALYX_HEALTHCHECK_FAILED: &str = "CALYX_HEALTHCHECK_FAILED";
 const HEALTHCHECK_FAILED_REMEDIATION: &str =

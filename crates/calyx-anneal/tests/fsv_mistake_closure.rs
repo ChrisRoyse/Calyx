@@ -24,8 +24,8 @@ use closure::{
 };
 
 #[test]
-#[ignore = "requires CALYX_ISSUE411_FSV_ROOT on aiwonder"]
-fn fsv_mistake_closure_aiwonder() -> Result<()> {
+#[ignore = "requires CALYX_ISSUE411_FSV_ROOT on gpuhost"]
+fn fsv_mistake_closure_gpuhost() -> Result<()> {
     let root = PathBuf::from(env::var("CALYX_ISSUE411_FSV_ROOT").unwrap());
     support::reset_dir(&root);
 

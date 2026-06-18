@@ -54,8 +54,8 @@ fn string_metadata_survives_base_row_codec_and_durable_readback() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #601 string metadata SoT readback"]
-fn issue601_string_metadata_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for issue #601 string metadata SoT readback"]
+fn issue601_string_metadata_gpuhost_fsv() {
     let root = fsv_root().join("issue601");
     reset_dir(&root);
     let vault_dir = root.join("vault");

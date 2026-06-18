@@ -16,11 +16,11 @@ use serde_json::json;
 const TEST_TS: u64 = 1_785_500_409;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE409_FSV_ROOT on aiwonder"]
-fn fsv_frozen_lens_guard_aiwonder() {
+#[ignore = "requires CALYX_ISSUE409_FSV_ROOT on gpuhost"]
+fn fsv_frozen_lens_guard_gpuhost() {
     let root = PathBuf::from(
         std::env::var("CALYX_ISSUE409_FSV_ROOT")
-            .expect("CALYX_ISSUE409_FSV_ROOT must point at an aiwonder FSV root"),
+            .expect("CALYX_ISSUE409_FSV_ROOT must point at an gpuhost FSV root"),
     );
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();

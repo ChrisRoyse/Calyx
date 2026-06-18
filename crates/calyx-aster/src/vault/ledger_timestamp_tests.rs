@@ -7,8 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH35 ledger actor and monotonic timestamp rows"]
-fn ph35_actor_monotonic_ts_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH35 ledger actor and monotonic timestamp rows"]
+fn ph35_actor_monotonic_ts_gpuhost_fsv() {
     let root = fsv_root().join("actor-monotonic-ts");
     reset_dir(&root);
     let vault_dir = root.join("vault");

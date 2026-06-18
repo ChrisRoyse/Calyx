@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 const ARTIFACT_SOURCE_OF_TRUTH: &str = "PH59 compression report artifact";
 
 #[test]
-#[ignore = "requires CALYX_ISSUE613_FSV_ROOT on aiwonder"]
+#[ignore = "requires CALYX_ISSUE613_FSV_ROOT on gpuhost"]
 fn issue613_compression_report_full_doc23_fsv() {
     let root = fsv_root();
     assert!(
@@ -410,7 +410,7 @@ fn collect_pathbufs(root: &Path, current: &Path, files: &mut Vec<PathBuf>) {
 fn fsv_root() -> PathBuf {
     std::env::var_os("CALYX_ISSUE613_FSV_ROOT")
         .map(PathBuf::from)
-        .expect("set CALYX_ISSUE613_FSV_ROOT to a fresh aiwonder path")
+        .expect("set CALYX_ISSUE613_FSV_ROOT to a fresh gpuhost path")
 }
 
 fn display(path: &Path) -> String {

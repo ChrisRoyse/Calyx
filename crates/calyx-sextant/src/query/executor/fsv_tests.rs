@@ -17,7 +17,7 @@ use crate::query::{AggOp, AggSpec, CrossModelPlan, FieldOp, FieldPredicate, Plan
 use super::execute_at_snapshot;
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #465"]
+#[ignore = "manual gpuhost FSV for issue #465"]
 fn issue465_query_executor_fsv_writes_readback_artifacts() {
     let root = std::env::var_os("CALYX_FSV_ROOT")
         .map(PathBuf::from)

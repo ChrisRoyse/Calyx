@@ -13,7 +13,7 @@ use serde_json::json;
 use support::*;
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_SPEAKER_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_SPEAKER_FSV_DIR"]
 fn fsv_stage8_speaker_similarity_target_writes_readbacks() {
     let root = required_path_env("CALYX_WARD_SPEAKER_FSV_DIR");
     assert_empty_or_absent(&root);

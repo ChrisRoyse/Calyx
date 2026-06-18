@@ -13,7 +13,7 @@ use calyx_sextant::{CALYX_SEXTANT_QUERY_SHAPE, HnswIndex, Query, SearchEngine, S
 use serde_json::json;
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH60 issue #593 boundary validation"]
+#[ignore = "manual gpuhost FSV for PH60 issue #593 boundary validation"]
 fn issue593_input_validation_boundary_fsv() {
     let root = clean_dir(&fsv_root());
     let vault_dir = root.join("vault");

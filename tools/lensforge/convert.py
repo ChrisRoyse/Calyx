@@ -198,7 +198,7 @@ def convert_adapter(
         "processor_model_id": ".",
         "dim": dim,
         "engine": "onnx-external",
-        "python": str(model.get("python") or "/home/croyse/calyx/.venv-gpu/bin/python"),
+        "python": str(model.get("python") or "/var/lib/calyx/.venv-gpu/bin/python"),
         "helper": helper_path.name,
         "model_file": model_path.name,
         "provider": "cpu_explicit",

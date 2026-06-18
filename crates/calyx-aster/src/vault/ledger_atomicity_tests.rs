@@ -40,8 +40,8 @@ fn ledger_hook_stays_unadvanced_when_vault_commit_fails() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH35 group-commit atomicity"]
-fn ph35_group_commit_atomicity_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH35 group-commit atomicity"]
+fn ph35_group_commit_atomicity_gpuhost_fsv() {
     let root = fsv_root().join("group-commit-atomicity");
     reset_dir(&root);
 

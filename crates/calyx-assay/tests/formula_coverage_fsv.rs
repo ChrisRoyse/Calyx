@@ -26,7 +26,7 @@ use serde_json::{Value, json};
 const TEST_TS: u64 = 1_785_400_639;
 
 #[test]
-#[ignore = "manual aiwonder FSV for #639 PRD-22 formula coverage"]
+#[ignore = "manual gpuhost FSV for #639 PRD-22 formula coverage"]
 fn prd22_formula_coverage_persists_and_reads_back_from_aster() {
     let root = fsv_root();
     let vault_dir = root.join("vault");

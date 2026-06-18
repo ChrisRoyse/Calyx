@@ -161,7 +161,7 @@ proptest! {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_STYLE_LENS_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_STYLE_LENS_FSV_DIR"]
 fn issue271_style_lens_fsv_writes_readbacks() {
     let root = PathBuf::from(
         std::env::var("CALYX_WARD_STYLE_LENS_FSV_DIR")

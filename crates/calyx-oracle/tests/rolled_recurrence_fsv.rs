@@ -20,7 +20,7 @@ const WEEK_SECS: i64 = 604_800;
 
 #[test]
 #[ignore = "FSV: writes durable rolled recurrence support evidence under CALYX_FSV_ROOT"]
-fn issue634_rolled_recurrence_summary_aiwonder_fsv() {
+fn issue634_rolled_recurrence_summary_gpuhost_fsv() {
     let root = fsv_root().join("issue634-rolled-recurrence-summary");
     fs::create_dir_all(&root).expect("create fsv root");
     let vault_dir = root.join("vault");

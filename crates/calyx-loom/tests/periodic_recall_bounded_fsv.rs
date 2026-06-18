@@ -16,7 +16,7 @@ const WEEK_SECS: i64 = 604_800;
 
 #[test]
 #[ignore = "FSV: writes durable vault bytes and readback artifacts under CALYX_FSV_ROOT"]
-fn issue636_periodic_recall_bounded_readback_aiwonder_fsv() {
+fn issue636_periodic_recall_bounded_readback_gpuhost_fsv() {
     let root = fsv_root().join("issue636-periodic-recall-bounded");
     fs::create_dir_all(&root).expect("create fsv root");
     let vault_dir = root.join("vault");

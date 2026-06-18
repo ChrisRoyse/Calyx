@@ -392,8 +392,8 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "manual aiwonder FSV for #652 direct group-commit misuse"]
-    fn ph35_direct_on_commit_rejects_aiwonder_fsv() {
+    #[ignore = "manual gpuhost FSV for #652 direct group-commit misuse"]
+    fn ph35_direct_on_commit_rejects_gpuhost_fsv() {
         let root = std::env::var("CALYX_FSV_ROOT")
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph35-direct-on-commit-fsv"))

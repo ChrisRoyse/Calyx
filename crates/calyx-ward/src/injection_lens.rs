@@ -28,9 +28,9 @@ use backend::softmax_benign;
 use backend::{OnnxInjectionBackend, external_data_path, hash_parts, sha256_files};
 
 pub const DEFAULT_INJECTION_MODEL_PATH: &str =
-    "/home/croyse/calyx/models/injection-guard/model.onnx";
+    "/var/lib/calyx/models/injection-guard/model.onnx";
 pub const DEFAULT_INJECTION_TOKENIZER_PATH: &str =
-    "/home/croyse/calyx/models/injection-guard/tokenizer.json";
+    "/var/lib/calyx/models/injection-guard/tokenizer.json";
 /// RoBERTa positional embeddings cap usable tokens at 512 (514 incl. specials).
 pub const INJECTION_MAX_TOKENS: usize = 512;
 /// `RobertaForSequenceClassification` injection head: 2 logits.

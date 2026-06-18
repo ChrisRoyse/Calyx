@@ -13,7 +13,7 @@ use serde_json::json;
 use crate::query::{AskSpec, CrossModelPlan, PlanStep, ask, execute};
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #466"]
+#[ignore = "manual gpuhost FSV for issue #466"]
 fn issue466_ask_fsv_writes_readback_artifacts() {
     let root = std::env::var_os("CALYX_FSV_ROOT")
         .map(PathBuf::from)

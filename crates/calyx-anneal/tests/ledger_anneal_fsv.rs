@@ -15,7 +15,7 @@ use serde_json::{Value, json};
 const FSV_TS: u64 = 1_785_500_398;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE398_FSV_ROOT on aiwonder"]
+#[ignore = "requires CALYX_ISSUE398_FSV_ROOT on gpuhost"]
 fn issue398_anneal_ledger_writer_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE398_FSV_ROOT").expect("set CALYX_ISSUE398_FSV_ROOT"));

@@ -19,7 +19,7 @@ mod ph42_exit_gate_support;
 use ph42_exit_gate_support::*;
 
 #[test]
-#[ignore = "manual aiwonder FSV trigger for issue 393"]
+#[ignore = "manual gpuhost FSV trigger for issue 393"]
 fn issue393_ph42_exit_gate_fsv_writes_artifacts() {
     let (root, keep_root) = fsv_root();
     reset_dir(&root);
@@ -57,7 +57,7 @@ fn issue393_ph42_exit_gate_fsv_writes_artifacts() {
         &json!({
             "issue": 393,
             "commit_hint": "PH42 T07 exit gate",
-            "source_of_truth": "aiwonder durable Aster vault plus PH42 v1 artifacts",
+            "source_of_truth": "gpuhost durable Aster vault plus PH42 v1 artifacts",
             "vault_dir": vault_dir.display().to_string(),
             "before": before,
             "after": after,

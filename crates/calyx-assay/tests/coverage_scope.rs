@@ -68,8 +68,8 @@ fn invalid_coverage_and_duplicate_scopes_fail_closed() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes source-of-truth artifacts"]
-fn coverage_scope_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes source-of-truth artifacts"]
+fn coverage_scope_gpuhost_fsv() {
     let root =
         std::env::var("CALYX_ISSUE773_FSV_ROOT").expect("CALYX_ISSUE773_FSV_ROOT is required");
     std::fs::create_dir_all(&root).expect("create fsv root");
@@ -136,7 +136,7 @@ fn coverage_scope_aiwonder_fsv() {
     .unwrap_err()
     .code;
     let readback = json!({
-        "source_of_truth": "issue773 coverage/scope JSON bytes written by calyx-assay FSV test on aiwonder",
+        "source_of_truth": "issue773 coverage/scope JSON bytes written by calyx-assay FSV test on gpuhost",
         "coverage_input": {
             "cx_a": cx_a.to_string(),
             "cx_b": cx_b.to_string(),

@@ -66,8 +66,8 @@ fn audit_cli_fails_closed_on_manifest_quarantine() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH36 audit query CLI surface"]
-fn ph36_audit_query_cli_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH36 audit query CLI surface"]
+fn ph36_audit_query_cli_gpuhost_fsv() {
     let root = fsv_root().join("audit-query-surface");
     reset_dir(&root);
     let vault = root.join("vault");

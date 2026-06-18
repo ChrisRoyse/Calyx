@@ -272,7 +272,7 @@ fn assay_estimators_contracts_sufficiency_and_store_work() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV writes Stage 5 source-of-truth readbacks"]
+#[ignore = "manual gpuhost FSV writes Stage 5 source-of-truth readbacks"]
 fn stage5_full_stack_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();

@@ -223,7 +223,7 @@ fn ood_verdict_records_nearest_region_source() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_QUERY_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_QUERY_FSV_DIR"]
 fn guard_query_fsv_fixture_writes_readback_artifacts() {
     let root =
         std::env::var("CALYX_WARD_QUERY_FSV_DIR").expect("CALYX_WARD_QUERY_FSV_DIR is required");

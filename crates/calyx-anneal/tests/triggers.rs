@@ -165,9 +165,9 @@ fn monitor_applies_registry_state_and_logs_fault_event() {
     assert!(recent.iter().any(|entry| entry.fault.is_some()));
 }
 
-#[ignore = "manual aiwonder FSV for #401 fault ledger and health readback"]
+#[ignore = "manual gpuhost FSV for #401 fault ledger and health readback"]
 #[test]
-fn ph44_fault_detectors_aiwonder_fsv() {
+fn ph44_fault_detectors_gpuhost_fsv() {
     let root = fsv_root();
     let vault_dir = reset_dir(&root.join(format!("vault-{}", std::process::id())));
     let artifact = root.join("ann-index.bin");

@@ -19,9 +19,9 @@ use serde_json::{Value, json};
 
 const TEST_TS: u64 = 1_785_600_902;
 
-#[ignore = "manual aiwonder FSV for #402 rebuild scheduler SoT readback"]
+#[ignore = "manual gpuhost FSV for #402 rebuild scheduler SoT readback"]
 #[test]
-fn ph44_rebuild_scheduler_aiwonder_fsv() {
+fn ph44_rebuild_scheduler_gpuhost_fsv() {
     let root = reset_dir(&fsv_root().join(format!("issue402-{}", std::process::id())));
     let vault_dir = reset_dir(&root.join("vault"));
     let artifact_dir = reset_dir(&root.join("artifacts"));

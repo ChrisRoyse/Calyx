@@ -63,8 +63,8 @@ fn verify_chain_vault_quarantines_broken_range() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #250 verify-chain quarantine"]
-fn ph36_verify_chain_quarantine_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for issue #250 verify-chain quarantine"]
+fn ph36_verify_chain_quarantine_gpuhost_fsv() {
     let root = fsv_root().join("verify-chain-quarantine");
     reset_dir(&root);
     let vault_dir = root.join("vault");

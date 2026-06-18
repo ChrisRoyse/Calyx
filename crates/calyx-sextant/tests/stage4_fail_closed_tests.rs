@@ -92,7 +92,7 @@ fn weighted_rrf_temporal_profiles_exclude_ap60_slots_and_skip_unlisted_slots() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes source-of-truth artifacts"]
+#[ignore = "gpuhost FSV writes source-of-truth artifacts"]
 fn stage4_provenance_temporal_guard_fsv() {
     let expected_hash = [0xab; 32];
     let (hit_hash, explain_hash, per_lens_count) = provenance_probe(expected_hash);

@@ -11,7 +11,7 @@ const TOPK_BLOCK: usize = CUDA_EXACT_TOPK_MAX_K;
 const TOPK_REMEDIATION: &str =
     "Reject non-finite scores and keep deterministic score/index ordering";
 const DEVICE_REMEDIATION: &str =
-    "Check CUDA 13.3, embedded topk PTX, and the RTX 5090 device on aiwonder";
+    "Check CUDA 13.3, embedded topk PTX, and the RTX 5090 device on gpuhost";
 
 pub fn topk_gpu(
     ctx: &CudaContext,

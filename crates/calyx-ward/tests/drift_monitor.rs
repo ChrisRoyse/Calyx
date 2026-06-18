@@ -185,7 +185,7 @@ fn unknown_guard_health_returns_zero_snapshot() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_DRIFT_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_DRIFT_FSV_DIR"]
 fn drift_monitor_fsv_fixture_writes_readback_artifacts() {
     let root =
         std::env::var("CALYX_WARD_DRIFT_FSV_DIR").expect("CALYX_WARD_DRIFT_FSV_DIR is required");
@@ -238,7 +238,7 @@ fn drift_monitor_fsv_fixture_writes_readback_artifacts() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_PER_SLOT_CALIBRATION_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_PER_SLOT_CALIBRATION_FSV_DIR"]
 fn per_slot_calibration_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_PER_SLOT_CALIBRATION_FSV_DIR")
         .expect("CALYX_WARD_PER_SLOT_CALIBRATION_FSV_DIR is required");

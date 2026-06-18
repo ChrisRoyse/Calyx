@@ -190,8 +190,8 @@ fn supply_chain_fsv_readback_prints_known_outcomes() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV against real Cargo.lock, cargo audit, and TEI weights"]
-fn issue506_actual_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV against real Cargo.lock, cargo audit, and TEI weights"]
+fn issue506_actual_gpuhost_fsv() {
     let cargo_lock = std::env::var("CALYX_FSV_CARGO_LOCK")
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("Cargo.lock"));

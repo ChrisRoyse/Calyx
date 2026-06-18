@@ -8,8 +8,8 @@ use serde_json::json;
 use std::path::PathBuf;
 
 #[test]
-#[ignore = "manual aiwonder FSV test for PH22 default panels and temporal lenses"]
-fn ph22_panels_temporal_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV test for PH22 default panels and temporal lenses"]
+fn ph22_panels_temporal_gpuhost_fsv() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");
 

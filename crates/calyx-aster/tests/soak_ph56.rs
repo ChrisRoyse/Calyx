@@ -43,7 +43,7 @@ fn ph56_soak_smoke_bounds_rss_and_backpressure() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV: runs the PH56 1e7-op RSS/backpressure soak"]
+#[ignore = "gpuhost FSV: runs the PH56 1e7-op RSS/backpressure soak"]
 fn ph56_1e7_soak_rss_bounded_fsv() {
     let root = fsv_root();
     reset_dir(&root);

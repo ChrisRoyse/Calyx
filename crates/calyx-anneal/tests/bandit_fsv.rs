@@ -15,7 +15,7 @@ use serde_json::json;
 const SHAPE_KEY: &str = "issue412:forge:gemm:768x768:fp16:cuda:recall0.99";
 
 #[test]
-#[ignore = "requires CALYX_ISSUE412_FSV_ROOT on aiwonder"]
+#[ignore = "requires CALYX_ISSUE412_FSV_ROOT on gpuhost"]
 fn issue412_bandit_cf_fsv() {
     let root = PathBuf::from(env::var("CALYX_ISSUE412_FSV_ROOT").expect("set FSV root"));
     fs::create_dir_all(&root).expect("create FSV root");

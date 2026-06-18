@@ -162,7 +162,7 @@ mod tests {
     const BAD_DEVICE_IDX: u32 = 99;
 
     #[test]
-    fn cuda_backend_new_reports_aiwonder_gpu() -> Result<()> {
+    fn cuda_backend_new_reports_gpuhost_gpu() -> Result<()> {
         let backend = CudaBackend::new()?;
         let info = backend.device_info();
         let ctx = backend.context();

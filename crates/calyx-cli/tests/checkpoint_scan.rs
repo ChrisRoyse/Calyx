@@ -37,8 +37,8 @@ fn scan_ledger_vault_prints_checkpoint_admin_json() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #251 checkpoint scheduler"]
-fn ph36_checkpoint_scheduler_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for issue #251 checkpoint scheduler"]
+fn ph36_checkpoint_scheduler_gpuhost_fsv() {
     let root = fsv_root().join("checkpoint-scheduler");
     reset_dir(&root);
     let vault_dir = root.join("vault");

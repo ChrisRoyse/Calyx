@@ -15,7 +15,7 @@ const MXFP4_NUMERICAL_REMEDIATION: &str =
 
 /// Runs the PH15 MXFP4 GEMM path with fp32 accumulation on Blackwell.
 ///
-/// CUDA 13.3 on aiwonder exposes FP4 storage/conversion headers, but the
+/// CUDA 13.3 on gpuhost exposes FP4 storage/conversion headers, but the
 /// current cuBLAS C API surface used through `cudarc` does not expose a native
 /// FP4 GEMM entry point. The optimized tensor-core promotion path should use
 /// CUTLASS 3.x grouped GEMM with an MXFP4 dtype; see NVIDIA CUTLASS

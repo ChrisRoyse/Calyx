@@ -22,7 +22,7 @@ use calyx_paths::AssocGraph;
 use serde_json::{Value, json};
 
 #[test]
-#[ignore = "FSV trigger writes durable aiwonder evidence under CALYX_LODESTAR_ISSUE389_FSV_DIR"]
+#[ignore = "FSV trigger writes durable gpuhost evidence under CALYX_LODESTAR_ISSUE389_FSV_DIR"]
 fn issue389_lodestar_frequency_kernel_fsv_writes_artifacts() {
     let root = PathBuf::from(
         env::var("CALYX_LODESTAR_ISSUE389_FSV_DIR").expect("set CALYX_LODESTAR_ISSUE389_FSV_DIR"),

@@ -2,7 +2,7 @@
 //!
 //! This proves the *live* `cudaMemGetInfo` reading on a real device and the
 //! end-to-end budgeter wired to it. It is gated on the `cuda` feature and
-//! marked `#[ignore]` so it only runs on a GPU host (aiwonder, RTX 5090):
+//! marked `#[ignore]` so it only runs on a GPU host (gpuhost, RTX 5090):
 //!
 //! ```text
 //! cargo test -p calyx-forge --features cuda --test ph57_vram_cuda_fsv \
@@ -23,7 +23,7 @@ const GIB: usize = 1024 * 1024 * 1024;
 const VRAM_UPPER_BOUND: usize = 34_359_738_368;
 
 #[test]
-#[ignore = "requires a CUDA GPU (run on aiwonder with --features cuda --ignored)"]
+#[ignore = "requires a CUDA GPU (run on gpuhost with --features cuda --ignored)"]
 fn fsv_live_free_vram_query() {
     let ctx = init_cuda(0, false).expect("init_cuda on device 0");
     let probe = CudaVramProbe::new(Arc::new(ctx));
@@ -44,7 +44,7 @@ fn fsv_live_free_vram_query() {
 }
 
 #[test]
-#[ignore = "requires a CUDA GPU (run on aiwonder with --features cuda --ignored)"]
+#[ignore = "requires a CUDA GPU (run on gpuhost with --features cuda --ignored)"]
 fn fsv_budgeter_reserve_on_real_device() {
     let ctx = init_cuda(0, false).expect("init_cuda on device 0");
     let probe = CudaVramProbe::new(Arc::new(ctx));

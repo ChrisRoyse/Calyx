@@ -13,7 +13,7 @@ pub use mxfp8_path::gemm_mxfp8_fp32_accum;
 
 const GEMM_REMEDIATION: &str =
     "Check CUDA/cuBLAS status, dimensions, and device memory; fail closed instead of CPU fallback";
-const DEVICE_REMEDIATION: &str = "Check CUDA 13.3, the RTX 5090 device, and free VRAM on aiwonder";
+const DEVICE_REMEDIATION: &str = "Check CUDA 13.3, the RTX 5090 device, and free VRAM on gpuhost";
 const BENCH_WARMUP_ITERS: u32 = 5;
 
 pub fn gemm_cublas(

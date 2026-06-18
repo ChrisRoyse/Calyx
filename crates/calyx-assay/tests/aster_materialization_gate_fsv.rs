@@ -77,8 +77,8 @@ fn aster_gate_errors_are_observable_by_default() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV writes Aster-backed Loom materialization readbacks"]
-fn aster_materialization_gate_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV writes Aster-backed Loom materialization readbacks"]
+fn aster_materialization_gate_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
     let _ = fs::remove_dir_all(root.join("source-vault"));

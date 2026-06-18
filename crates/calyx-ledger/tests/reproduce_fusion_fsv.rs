@@ -12,8 +12,8 @@ use calyx_ledger::{
 use serde_json::{Value, json};
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH36 reproduce fusion ledger bytes"]
-fn reproduce_fusion_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH36 reproduce fusion ledger bytes"]
+fn reproduce_fusion_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).expect("create fsv root");
 

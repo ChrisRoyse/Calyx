@@ -3,7 +3,7 @@
 //! Synthetic known-I/O discipline: every planted input has a hand-computed
 //! expected output (planted period 7.0 -> detected period in [6.65, 7.35]).
 //! The `#[ignore]` test writes the byte-readback evidence JSON consumed by the
-//! manual aiwonder FSV (`CALYX_FSV_ROOT`).
+//! manual gpuhost FSV (`CALYX_FSV_ROOT`).
 
 use std::fs;
 use std::path::PathBuf;
@@ -209,12 +209,12 @@ fn fail_closed_error_codes_are_exact() {
     assert_eq!(bad_bin.code, "CALYX_ASSAY_INSUFFICIENT_SAMPLES");
 }
 
-/// Manual aiwonder FSV: writes the byte-readback SoT JSON. Run with
-/// `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue584-periodicity \
+/// Manual gpuhost FSV: writes the byte-readback SoT JSON. Run with
+/// `CALYX_FSV_ROOT=/var/lib/calyx/data/fsv-issue584-periodicity \
 ///  cargo test -p calyx-assay --test periodicity_fsv -- --ignored --nocapture`
 #[test]
-#[ignore = "manual aiwonder FSV writes periodicity source-of-truth readbacks"]
-fn periodicity_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV writes periodicity source-of-truth readbacks"]
+fn periodicity_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
 

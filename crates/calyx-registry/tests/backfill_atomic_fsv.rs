@@ -11,8 +11,8 @@ use calyx_registry::{
 use serde_json::json;
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH20 atomic backfill scheduler persistence"]
-fn ph20_backfill_atomic_persist_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH20 atomic backfill scheduler persistence"]
+fn ph20_backfill_atomic_persist_gpuhost_fsv() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");
     let good_path = root.join("atomic-backfill-watermark.json");

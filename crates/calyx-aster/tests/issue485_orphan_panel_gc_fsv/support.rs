@@ -82,7 +82,7 @@ pub fn fsv_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             let pid = std::process::id();
-            PathBuf::from(format!("/home/croyse/calyx/data/fsv-issue485-{pid}"))
+            PathBuf::from(format!("/var/lib/calyx/data/fsv-issue485-{pid}"))
         })
 }
 

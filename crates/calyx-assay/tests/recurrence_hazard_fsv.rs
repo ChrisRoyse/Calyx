@@ -7,7 +7,7 @@
 //! with `read_series`, and run the detectors on the read-back series — proving
 //! the SoT path end-to-end, never trusting a return value alone. The
 //! `#[ignore]` test writes the byte-readback evidence JSON consumed by the
-//! manual aiwonder FSV (`CALYX_FSV_ROOT`).
+//! manual gpuhost FSV (`CALYX_FSV_ROOT`).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -309,12 +309,12 @@ fn vault_readback_cusum_finds_planted_change_point() {
     assert_eq!(cp.direction, RateShift::SpeedUp);
 }
 
-/// Manual aiwonder FSV: writes the byte-readback SoT JSON. Run with
-/// `CALYX_FSV_ROOT=/home/croyse/calyx/data/fsv-issue585-recurrence-hazard \
+/// Manual gpuhost FSV: writes the byte-readback SoT JSON. Run with
+/// `CALYX_FSV_ROOT=/var/lib/calyx/data/fsv-issue585-recurrence-hazard \
 ///  cargo test -p calyx-assay --test recurrence_hazard_fsv -- --ignored --nocapture`
 #[test]
-#[ignore = "manual aiwonder FSV writes recurrence-hazard source-of-truth readbacks"]
-fn recurrence_hazard_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV writes recurrence-hazard source-of-truth readbacks"]
+fn recurrence_hazard_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).expect("create fsv root");
 

@@ -296,10 +296,10 @@ fn changed_data_value_removes_old_index_key_as_stale() {
 
 #[test]
 #[ignore]
-fn issue461_index_rebuild_fsv_aiwonder() {
+fn issue461_index_rebuild_fsv_gpuhost() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE461_FSV_ROOT")
-            .expect("CALYX_ISSUE461_FSV_ROOT must point at a fresh aiwonder evidence root"),
+            .expect("CALYX_ISSUE461_FSV_ROOT must point at a fresh gpuhost evidence root"),
     );
     if root.exists() {
         panic!("CALYX_ISSUE461_FSV_ROOT must be fresh: {}", root.display());

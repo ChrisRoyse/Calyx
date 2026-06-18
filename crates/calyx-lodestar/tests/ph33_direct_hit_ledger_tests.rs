@@ -113,8 +113,8 @@ fn direct_hit_answer_appends_complete_answer_ledger_row() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for #647 direct-hit answer ledger provenance"]
-fn ph33_direct_hit_ledger_provenance_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for #647 direct-hit answer ledger provenance"]
+fn ph33_direct_hit_ledger_provenance_gpuhost_fsv() {
     let root = fsv_root().join("ph33-direct-hit-ledger-provenance");
     reset_dir(&root);
     let ledger_dir = root.join("ledger-cf");

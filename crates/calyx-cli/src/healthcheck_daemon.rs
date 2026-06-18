@@ -199,7 +199,7 @@ mod tests {
     // On the gate (calyxd built WITHOUT the `cuda` feature) the CUDA probe fails
     // loud, so a real readiness run is Unhealthy and STILL writes the fail JSON
     // to the SoT — exercising parse → run_healthcheck → write_health_result end
-    // to end without a GPU. The hardware pass-path is the aiwonder FSV.
+    // to end without a GPU. The hardware pass-path is the gpuhost FSV.
     #[test]
     fn unhealthy_run_writes_fail_json_to_sot() {
         let dir = std::env::temp_dir().join(format!("calyx-hcd-{}", std::process::id()));

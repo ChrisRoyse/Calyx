@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #484 WAL recycler"]
+#[ignore = "manual gpuhost FSV for issue #484 WAL recycler"]
 fn ph58_wal_recycler_fsv() {
     let root = fsv_root().join("wal");
     let _ = fs::remove_dir_all(&root);

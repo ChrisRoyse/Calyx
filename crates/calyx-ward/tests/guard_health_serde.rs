@@ -18,7 +18,7 @@ fn guard_health_deserializes_pre_per_slot_far_bound_json() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_GUARD_HEALTH_SERDE_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_GUARD_HEALTH_SERDE_FSV_DIR"]
 fn guard_health_serde_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_GUARD_HEALTH_SERDE_FSV_DIR")
         .expect("CALYX_WARD_GUARD_HEALTH_SERDE_FSV_DIR is required");

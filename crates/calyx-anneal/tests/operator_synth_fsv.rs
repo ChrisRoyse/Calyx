@@ -19,8 +19,8 @@ mod support;
 const TEST_TS: u64 = 1_785_500_582;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE582_FSV_ROOT on aiwonder"]
-fn issue582_operator_synth_fsv_aiwonder() {
+#[ignore = "requires CALYX_ISSUE582_FSV_ROOT on gpuhost"]
+fn issue582_operator_synth_fsv_gpuhost() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE582_FSV_ROOT").expect("set CALYX_ISSUE582_FSV_ROOT"));
     support::reset_dir(&root);

@@ -143,7 +143,7 @@ proptest! {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_SPEAKER_LENS_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_SPEAKER_LENS_FSV_DIR"]
 fn issue270_speaker_lens_fsv_writes_readbacks() {
     let root = PathBuf::from(
         std::env::var("CALYX_WARD_SPEAKER_LENS_FSV_DIR")

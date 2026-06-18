@@ -13,7 +13,7 @@ use calyx_ledger::{
 use serde_json::{Value, json};
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #349 audit-query quarantine hardening"]
+#[ignore = "manual gpuhost FSV for issue #349 audit-query quarantine hardening"]
 fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_AUDIT_ISSUE349_FSV_DIR")
         .map(PathBuf::from)

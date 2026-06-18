@@ -4,7 +4,7 @@
 //! Complements `reranker_nonpersistence_fsv.rs` (mock server + Aster vault
 //! byte-scan): this test drives the real cross-encoder, and the operator
 //! follows it with an independent byte-scan of ALL persisted state on
-//! aiwonder (calyx data/logs/tmp, /tmp, TEI docker logs, journald).
+//! gpuhost (calyx data/logs/tmp, /tmp, TEI docker logs, journald).
 //!
 //! The sentinel is injected via `CALYX_FSV_SENTINEL` so it exists neither in
 //! this source file nor in the compiled binary — the scan therefore has no
@@ -23,7 +23,7 @@ fn required_env(name: &str) -> String {
 }
 
 #[test]
-#[ignore = "aiwonder FSV: requires resident TEI :8089 and an on-disk sentinel byte-scan"]
+#[ignore = "gpuhost FSV: requires resident TEI :8089 and an on-disk sentinel byte-scan"]
 fn reranker_candidate_text_never_persists_real_tei() {
     let sentinel = required_env("CALYX_FSV_SENTINEL");
     let root = std::path::PathBuf::from(required_env("CALYX_FSV_ROOT"));

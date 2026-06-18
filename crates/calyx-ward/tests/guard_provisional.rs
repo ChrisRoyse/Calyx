@@ -130,7 +130,7 @@ fn guard_result_with_stakes_propagates_provisional_before_ood_wrapping() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_PROVISIONAL_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_PROVISIONAL_FSV_DIR"]
 fn guard_provisional_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_PROVISIONAL_FSV_DIR")
         .expect("CALYX_WARD_PROVISIONAL_FSV_DIR is required");

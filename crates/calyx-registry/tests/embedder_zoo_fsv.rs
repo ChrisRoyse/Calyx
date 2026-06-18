@@ -201,7 +201,7 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
         &root.join("summary.json"),
         &json!({
             "issue": 792,
-            "source_of_truth": "durable aiwonder Aster vault plus Assay CF, XTerm CF, capability ledger, commissioned artifacts, and vault/intelligence/abundance.json",
+            "source_of_truth": "durable gpuhost Aster vault plus Assay CF, XTerm CF, capability ledger, commissioned artifacts, and vault/intelligence/abundance.json",
             "vault": vault_dir,
             "converted_models": converted.len(),
             "registered_lenses": registry.lens_snapshots().len(),

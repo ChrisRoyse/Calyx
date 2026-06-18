@@ -52,7 +52,7 @@ fn fsv_root() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|| {
             PathBuf::from(format!(
-                "/home/croyse/calyx/data/fsv-issue486-{}",
+                "/var/lib/calyx/data/fsv-issue486-{}",
                 std::process::id()
             ))
         })
@@ -308,13 +308,13 @@ fn run_temp_escape(root: &Path) -> serde_json::Value {
 fn run_temp_escape(root: &Path) -> serde_json::Value {
     json!({
         "skipped": true,
-        "reason": "symlink escape FSV is run on aiwonder Linux",
+        "reason": "symlink escape FSV is run on gpuhost Linux",
         "root": root
     })
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV trigger; inspect durable bytes separately"]
+#[ignore = "manual gpuhost FSV trigger; inspect durable bytes separately"]
 fn issue486_janitor_manual_fsv_bytes() {
     let root = fsv_root();
     assert!(

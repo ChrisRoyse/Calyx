@@ -128,14 +128,14 @@ fn resolved_input_hash_mismatch_fails_closed() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH36 reproduce re-measure bytes"]
-fn reproduce_remeasure_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH36 reproduce re-measure bytes"]
+fn reproduce_remeasure_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).expect("create fsv root");
     let ledger_dir = root.join("ledger-cf");
     reset_child_dir(&root, &ledger_dir);
 
-    let input = Input::new(Modality::Text, b"aiwonder reproduce slot zero".to_vec());
+    let input = Input::new(Modality::Text, b"gpuhost reproduce slot zero".to_vec());
     let slot = slot_with_input(9, 0, 52, input.clone());
     let expected = vector_for(&input.bytes);
     let answer_id = answer_id();

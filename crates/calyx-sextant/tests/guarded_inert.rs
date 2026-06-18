@@ -51,7 +51,7 @@ fn non_inert_uncalibrated_profile_keeps_provisional_guard_evidence() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #650 Sextant inert GuardProfile surfaces"]
+#[ignore = "manual gpuhost FSV for issue #650 Sextant inert GuardProfile surfaces"]
 fn issue650_sextant_inert_guard_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_SEXTANT_ISSUE650_FSV_DIR")
         .map(std::path::PathBuf::from)

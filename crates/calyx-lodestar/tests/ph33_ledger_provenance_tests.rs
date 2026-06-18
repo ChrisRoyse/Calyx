@@ -205,8 +205,8 @@ fn mid_hop_append_failure_leaves_untrusted_partial_trace() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH33 kernel/answer ledger provenance"]
-fn ph33_kernel_ledger_provenance_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH33 kernel/answer ledger provenance"]
+fn ph33_kernel_ledger_provenance_gpuhost_fsv() {
     let root = fsv_root().join("ph33-ledger-provenance");
     reset_dir(&root);
     let ledger_dir = root.join("ledger-cf");
@@ -289,8 +289,8 @@ fn ph33_kernel_ledger_provenance_aiwonder_fsv() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH36 T06 mid-hop append failure"]
-fn ph36_audit_mid_hop_failure_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH36 T06 mid-hop append failure"]
+fn ph36_audit_mid_hop_failure_gpuhost_fsv() {
     let root = fsv_root().join("ph36-audit-mid-hop-failure");
     reset_dir(&root);
     let ledger_dir = root.join("ledger-cf");

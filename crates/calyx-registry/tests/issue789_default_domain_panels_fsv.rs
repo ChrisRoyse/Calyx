@@ -120,7 +120,7 @@ fn issue789_default_domain_panels_fsv_readbacks() {
 
     let edge_path = missing_lens_edge(&root);
     let summary = json!({
-        "source_of_truth": "fresh aiwonder vault CURRENT plus immutable panel/registry assets",
+        "source_of_truth": "fresh gpuhost vault CURRENT plus immutable panel/registry assets",
         "templates": templates.iter().map(|template| template.name.clone()).collect::<Vec<_>>(),
         "status_files": status_files,
         "edge_file": edge_path,

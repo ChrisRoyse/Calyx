@@ -111,7 +111,7 @@ impl FrozenLensContract {
         )
     }
 
-    /// Creates the PH17 aiwonder TEI HTTP contract for `:8088`.
+    /// Creates the PH17 gpuhost TEI HTTP contract for `:8088`.
     pub fn tei_http_8088(name: impl Into<String>, dim: u32) -> Self {
         Self::tei_http(name, "http://127.0.0.1:8088/embed", Modality::Text, dim)
     }

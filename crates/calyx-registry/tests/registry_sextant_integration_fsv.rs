@@ -14,7 +14,7 @@ use calyx_registry::{
 use calyx_sextant::{HnswIndex, ProvenanceSource, Query, SearchEngine, SlotIndexMap};
 
 #[test]
-#[ignore = "manual aiwonder FSV writes Registry->Aster->Sextant source-of-truth readbacks"]
+#[ignore = "manual gpuhost FSV writes Registry->Aster->Sextant source-of-truth readbacks"]
 fn registry_add_lens_backfill_populates_sextant_index_fsv() {
     let root = clean_dir(&fsv_root().join("registry-sextant-integration"));
     let vault_dir = root.join("vault");

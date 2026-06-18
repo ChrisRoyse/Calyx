@@ -424,5 +424,5 @@ pub fn write_json(path: &Path, value: &impl Serialize) {
 pub fn calyx_home() -> PathBuf {
     std::env::var("CALYX_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/home/croyse/calyx"))
+        .unwrap_or_else(|_| PathBuf::from("/var/lib/calyx"))
 }
