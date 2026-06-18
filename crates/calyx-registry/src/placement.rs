@@ -66,16 +66,6 @@ pub fn choose_placement(
         ));
     }
 
-    if runtime_allows_cpu_fallback(runtime) {
-        ensure_cpu_budget(cost, budget)?;
-        return Ok(plan(
-            cost,
-            Placement::Cpu,
-            budget,
-            "GPU cap exhausted; placed CPU",
-        ));
-    }
-
     Err(vram_budget_error(format!(
         "lens requires {} VRAM bytes, available {} after TEI reservation {} and allocated {}",
         cost.vram_bytes,
@@ -107,10 +97,6 @@ fn runtime_prefers_cpu(runtime: &LensRuntime) -> bool {
             | LensRuntime::StaticLookup { .. }
             | LensRuntime::ExternalCmd { .. }
     )
-}
-
-fn runtime_allows_cpu_fallback(runtime: &LensRuntime) -> bool {
-    matches!(runtime, LensRuntime::Onnx { .. })
 }
 
 fn ensure_cpu_budget(cost: LensCost, budget: PlacementBudget) -> Result<(), CalyxError> {
@@ -265,14 +251,14 @@ mod tests {
     }
 
     #[test]
-    fn gpu_cap_exhaustion_places_fallback_cpu() {
+    fn gpu_cap_exhaustion_fails_closed_for_gpu_capable_onnx() {
         let budget = budget(4 * GIB, 2 * GIB, 1536 * MIB, 8 * GIB, 0, 4, 0);
 
-        let plan = choose_placement(&onnx_runtime(), cost(10, GIB, 64 * MIB), budget)
-            .expect("fallback CPU admits");
+        let error = choose_placement(&onnx_runtime(), cost(10, GIB, 64 * MIB), budget)
+            .expect_err("hidden CPU fallback is not allowed");
 
-        assert_eq!(plan.resource.placement, Placement::Cpu);
-        assert!(plan.reason.contains("GPU cap exhausted"));
+        assert_eq!(error.code, CALYX_VRAM_BUDGET_EXCEEDED);
+        assert!(error.message.contains("available"));
     }
 
     #[test]

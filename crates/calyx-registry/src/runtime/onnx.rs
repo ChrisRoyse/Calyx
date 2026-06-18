@@ -22,7 +22,7 @@ pub struct OnnxLens {
     contract: FrozenLensContract,
     files: OnnxModelFiles,
     provider_policy: OnnxProviderPolicy,
-    backend: OnnxBackend,
+    backend: Option<OnnxBackend>,
 }
 
 enum OnnxBackend {
@@ -157,7 +157,7 @@ impl OnnxFileSpec {
             modality: spec.modality,
             pooling,
             norm_policy: spec.norm_policy,
-            provider_policy: OnnxProviderPolicy::CpuExplicit,
+            provider_policy: OnnxProviderPolicy::CudaFailLoud,
             expected_shape: Some(spec.output),
             expected_weights_sha256: Some(spec.weights_sha256),
             contract_paths: files.clone(),
@@ -249,7 +249,7 @@ impl OnnxLens {
             contract,
             files,
             provider_policy,
-            backend: OnnxBackend::FastEmbed(Mutex::new(model)),
+            backend: Some(OnnxBackend::FastEmbed(Mutex::new(model))),
         }
     }
 
@@ -265,7 +265,7 @@ impl OnnxLens {
             contract,
             files,
             provider_policy,
-            backend: OnnxBackend::Custom(Mutex::new(runtime)),
+            backend: Some(OnnxBackend::Custom(Mutex::new(runtime))),
         }
     }
 
@@ -282,7 +282,7 @@ impl OnnxLens {
     }
 
     pub fn runtime_name(&self) -> &'static str {
-        match self.backend {
+        match self.backend_ref() {
             OnnxBackend::FastEmbed(_) => "onnx-fastembed",
             OnnxBackend::Custom(_) => "onnx-custom",
         }
@@ -335,7 +335,7 @@ impl Lens for OnnxLens {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
-        match &self.backend {
+        match self.backend_ref() {
             OnnxBackend::FastEmbed(model) => self.measure_fastembed(model, inputs),
             OnnxBackend::Custom(runtime) => {
                 let mut runtime = runtime.lock().map_err(|_| {
@@ -351,6 +351,12 @@ impl Lens for OnnxLens {
 }
 
 impl OnnxLens {
+    fn backend_ref(&self) -> &OnnxBackend {
+        self.backend
+            .as_ref()
+            .expect("ONNX backend is present until OnnxLens::drop")
+    }
+
     fn measure_fastembed(
         &self,
         model: &Mutex<TextEmbedding>,
@@ -390,6 +396,19 @@ impl OnnxLens {
                 })
             })
             .collect()
+    }
+}
+
+impl Drop for OnnxLens {
+    fn drop(&mut self) {
+        if self.provider_policy == OnnxProviderPolicy::CudaFailLoud
+            && let Some(backend) = self.backend.take()
+        {
+            // ORT CUDA provider teardown can corrupt glibc heap on aiwonder after
+            // successful inference. Keep CUDA sessions process-resident; setup and
+            // inference still fail loudly, and the OS reclaims pages at exit.
+            std::mem::forget(backend);
+        }
     }
 }
 

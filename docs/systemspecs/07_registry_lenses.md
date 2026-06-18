@@ -80,7 +80,7 @@ Defined in `calyx-core` at `crates/calyx-core/src/traits.rs:38`. Every registry 
 
 **CandleLens** — `DEFAULT_CANDLE_MODEL = "sentence-transformers/all-MiniLM-L6-v2"` (`candle.rs:15`). Enums in `candle/options.rs`: `CandleDevicePolicy { CpuExplicit, CudaFailLoud { ordinal } }`; `CandlePrecision { F32, F16, BF16 }`; `CandlePoolingPolicy { Mean, Cls }`. Constructors include `all_minilm_l6_v2`, `all_minilm_l6_v2_cuda_fail_loud`, `from_hf_cache`, `from_model[_with_options]`, `from_files`, `from_lens_spec`. `candle/load.rs` raises layer-norm eps to `1.0e-5` for half-precision CUDA. Pooling/normalization in `candle/pooling.rs` (`pool_tokens`, `apply_norm`). Corpus hash seeds with `b"candle-local-bert-v2"` over model id/tokens/precision/pooling/norm.
 
-**OnnxLens** — backend is `FastEmbed(Mutex<TextEmbedding>)` or `Custom(Mutex<CustomOnnxRuntime>)`. `OnnxProviderPolicy { CudaFailLoud, CpuExplicit }`; `PoolingPolicy { Mean, Cls, LastToken }`. `OnnxModelFiles` lists cache dir, model code/file, tokenizer, config, and `contract_paths` override. FastEmbed corpus hash seeds `b"onnx-fastembed-mean-pool-v1"`. Custom path (`onnx/custom.rs`) runs an `ort::session::Session`, pools, normalizes.
+**OnnxLens** — backend is `FastEmbed(Mutex<TextEmbedding>)` or `Custom(Mutex<CustomOnnxRuntime>)`. `OnnxProviderPolicy { CudaFailLoud, CpuExplicit }`; persisted `LensSpec`/LensForge manifest reload defaults to `CudaFailLoud` so GPU-capable production manifests use CUDA and fail loudly if the CUDA/ORT stack is unavailable. `CpuExplicit` remains an explicit constructor/test policy only. CUDA fail-loud ONNX backends are retained for process lifetime to avoid unsafe ORT CUDA provider teardown after successful inference; CPU-explicit backends drop normally. `PoolingPolicy { Mean, Cls, LastToken }`. `OnnxModelFiles` lists cache dir, model code/file, tokenizer, config, and `contract_paths` override. FastEmbed corpus hash seeds `b"onnx-fastembed-mean-pool-v1"`. Custom path (`onnx/custom.rs`) runs an `ort::session::Session`, pools, normalizes.
 
 **StaticLookupLens** — memory-maps a binary vocabulary matrix. File format (`static_lookup.rs`): magic `b"CXLKUP1\0"` (8 B), `rows: u32`, `dim: u32`, dtype byte (`I8=1, F16=2, F32=3`), 3 reserved, `scale: f32`, then `rows × dim` quantized values. `StaticLookupDType { Int8, F16, F32 }`, widths 1/2/4. Empty text returns a zero-safe unit vector; unknown tokens (`[UNK]`, `<unk>`, `<UNK>`) are skipped; remaining rows are averaged, scaled, normalized. `DEFAULT_MAX_TOKENS = 512`.
 
@@ -263,8 +263,7 @@ Persistence is atomic: write `.{file}.tmp-{pid}`, fsync, rename, fsync parent di
 1. Zero-cost algorithmic → CPU.
 2. CPU-native runtimes (Algorithmic, MultimodalAdapter, StaticLookup, ExternalCmd) → `ensure_cpu_budget` → CPU.
 3. GPU fit: `cost.vram_bytes <= available_vram_bytes()` → GPU.
-4. GPU overflow + CPU-fallback-capable (ONNX only) → `ensure_cpu_budget` → CPU ("GPU cap exhausted; placed CPU").
-5. Otherwise hard fail → `CALYX_VRAM_BUDGET_EXCEEDED` (remediation `LENS_VRAM_REMEDIATION`).
+4. GPU overflow for a GPU-capable runtime hard-fails → `CALYX_VRAM_BUDGET_EXCEEDED` (remediation `LENS_VRAM_REMEDIATION`); no hidden CPU fallback is selected.
 
 `PlacementBudget.available_vram_bytes()` = `vram_soft_cap − tei_reserved − vram_allocated` (saturating); `available_ram_bytes()` = `ram_soft_cap − ram_used`. `ensure_cpu_budget` fails with `CALYX_RAM_BUDGET_EXCEEDED` (remediation `LENS_RAM_REMEDIATION`) when the resident count is at limit or RAM is insufficient.
 
@@ -335,6 +334,8 @@ All three are algorithmic and deterministic, carry `TEMPORAL_FLAGS { retrieval_o
 ### 5.5 Resource-aware panel admission
 
 Assay exposes `PanelResourceBudget { max_vram_mb, max_ram_mb, max_ms_per_input }`, `ResourceUsage`, `ResourceDensity`, and `pack_panel_by_density`. The admission path still enforces the differentiation contract first (`bits >= 0.05`, `corr <= 0.6`), then ranks feasible candidates by marginal signal density under the fixed budget. Rejections keep explicit reasons such as `CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED`; no default cost is invented.
+
+`calyx assay corpus-build --cost-override-json <costs>` accepts measured resident-resource overrides for runtimes that cannot infer local resident bytes, but an override cannot downgrade a GPU runtime (ONNX, Candle-local, TEI HTTP) to CPU; that fails with `CALYX_FSV_ASSAY_CORPUS_BUILD_GPU_OVERRIDE_PLACEMENT`.
 
 `calyx assay bits-validate --cost-json <costs> --panel-budget-json <budget>` is the FSV-facing path. `--cost-json` is keyed by corpus lens name and requires `placement`, `vram_mb`, `ms_per_input`, and optional `ram_mb`; missing or non-finite entries fail closed. When a budget is supplied the command writes `assay_packed_panel.json` with selected lenses, rejected lenses, used resources, remaining budget, and aggregate density.
 

@@ -6,6 +6,7 @@ usage() {
   cat >&2 <<'USAGE'
 usage: scripts/build-verified-calyx.sh [--profile debug|release] [--target-dir PATH]
                                        [--expect-head SHA_PREFIX]
+                                       [--features CARGO_FEATURES]
                                        [--require-string TEXT]...
                                        [--require-clean]
 
@@ -18,6 +19,7 @@ USAGE
 profile="debug"
 target_dir=""
 expect_head=""
+features=""
 require_clean=0
 required_strings=()
 
@@ -36,6 +38,11 @@ while [[ $# -gt 0 ]]; do
     --expect-head)
       [[ $# -ge 2 ]] || { echo "ERROR: --expect-head requires a value" >&2; exit 2; }
       expect_head="$2"
+      shift 2
+      ;;
+    --features)
+      [[ $# -ge 2 ]] || { echo "ERROR: --features requires a value" >&2; exit 2; }
+      features="$2"
       shift 2
       ;;
     --require-string)
@@ -125,10 +132,17 @@ fi
 echo "[build-verified] repo_root=$repo_root"
 echo "[build-verified] head=$head_sha"
 echo "[build-verified] target_dir=$target_dir"
+if [[ -n "$features" ]]; then
+  echo "[build-verified] features=$features"
+  cargo_feature_args=(--features "$features")
+else
+  cargo_feature_args=()
+fi
 CARGO_TARGET_DIR="$target_dir" cargo build \
   --manifest-path "$repo_root/Cargo.toml" \
   -p calyx-cli \
   --bin calyx \
+  "${cargo_feature_args[@]}" \
   "${cargo_profile_args[@]}"
 
 exe_suffix=""

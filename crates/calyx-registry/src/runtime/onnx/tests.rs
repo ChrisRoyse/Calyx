@@ -32,6 +32,18 @@ fn execution_provider_policy_can_be_explicit_cpu() {
 }
 
 #[test]
+fn persisted_onnx_manifest_defaults_to_cuda_fail_loud() {
+    let fixture = Fixture::new("manifest-provider", &[3.0, 4.0, 0.0]);
+    let spec = OnnxLens::from_files(fixture.spec("custom-provider"))
+        .unwrap()
+        .lens_spec();
+
+    let file_spec = OnnxFileSpec::from_lens_spec(&spec).unwrap();
+
+    assert_eq!(file_spec.provider_policy, OnnxProviderPolicy::CudaFailLoud);
+}
+
+#[test]
 fn custom_onnx_from_files_measures_unit_norm_vector() {
     let fixture = Fixture::new("unit-norm", &[3.0, 4.0, 0.0]);
     let lens = OnnxLens::from_files(
