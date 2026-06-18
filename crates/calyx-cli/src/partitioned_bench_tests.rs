@@ -8,6 +8,10 @@ fn partitioned_search_parses_recall_floor() {
         "vault",
         "--ground-truth",
         "200",
+        "--ground-truth-file",
+        "truth.i32bin",
+        "--ground-truth-id-map",
+        "ids.i32bin",
         "--recall-floor",
         "0.85",
     ]);
@@ -15,6 +19,10 @@ fn partitioned_search_parses_recall_floor() {
     let parsed = SearchArgs::parse(&args).unwrap();
 
     assert_eq!(parsed.ground_truth, 200);
+    assert_eq!(
+        parsed.ground_truth_id_map.as_deref(),
+        Some(Path::new("ids.i32bin"))
+    );
     assert_eq!(parsed.recall_floor, Some(0.85));
 }
 
@@ -59,6 +67,52 @@ fn recall_floor_rejects_low_true_recall() {
 #[test]
 fn recall_floor_accepts_true_recall_at_floor() {
     enforce_recall_floor(Some(0.85), 200, Some(0.85)).unwrap();
+}
+
+#[test]
+fn ground_truth_id_map_requires_ground_truth_file() {
+    let args = strings(["--vault", "vault", "--ground-truth-id-map", "ids.i32bin"]);
+
+    let err = match SearchArgs::parse(&args) {
+        Ok(_) => panic!("id map without ground-truth file accepted"),
+        Err(err) => err,
+    };
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("--ground-truth-id-map requires --ground-truth-file")
+    );
+}
+
+#[test]
+fn i32bin_ground_truth_id_map_translates_ann_row_ids() {
+    let root = temp_root("i32bin-id-map");
+    let truth = root.join("truth.i32bin");
+    let id_map = root.join("ids.i32bin");
+    write_i32bin(&truth, 1, &[&[9001]]);
+    write_i32bin(&id_map, 1, &[&[7000], &[9001]]);
+
+    let ann = map_ann_rows_to_ground_truth_ids(&id_map, &[vec![1]], 2).unwrap();
+    assert_eq!(ann, vec![vec![9001]]);
+    assert_eq!(
+        recall_from_i32bin_ground_truth(&truth, &ann, 1).unwrap(),
+        1.0
+    );
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn ground_truth_id_map_rejects_non_vector_map() {
+    let root = temp_root("i32bin-id-map-width");
+    let id_map = root.join("ids.i32bin");
+    write_i32bin(&id_map, 2, &[&[1, 2], &[3, 4]]);
+
+    let err = map_ann_rows_to_ground_truth_ids(&id_map, &[vec![1]], 2).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("width must be 1, got 2"));
+    let _ = std::fs::remove_dir_all(root);
 }
 
 #[test]
