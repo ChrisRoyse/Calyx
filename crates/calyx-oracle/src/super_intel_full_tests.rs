@@ -372,6 +372,7 @@ fn panel_sufficiency(panel_bits: f32, anchor_entropy_bits: f32) -> PanelSufficie
         sufficient: panel_bits >= anchor_entropy_bits,
         deficit_bits: (anchor_entropy_bits - panel_bits).max(0.0),
         deficits: Vec::new(),
+        observation_scope: None,
         trust: TrustTag::Trusted,
     }
 }

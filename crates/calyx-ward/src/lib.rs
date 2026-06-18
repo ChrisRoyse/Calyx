@@ -68,8 +68,8 @@ pub use query::{
     guard_query_kernel_first,
 };
 pub use required::{
-    LOAD_BEARING_MIN_BITS, RequiredSlotDerivation, RequiredSlotEvidence, derive_required_profile,
-    derive_required_slots,
+    LOAD_BEARING_MIN_BITS, RequiredSlotDerivation, RequiredSlotEvidence, RequiredSlotObservation,
+    derive_required_profile, derive_required_slots, derive_required_slots_for_observations,
 };
 pub use speaker_lens::{
     DEFAULT_WAVLM_MODEL_PATH, SpeakerEmbeddingBackend, SpeakerLens, SpeakerProviderPolicy,

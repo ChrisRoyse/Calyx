@@ -29,7 +29,8 @@ pub mod total_correlation;
 pub mod transfer_entropy;
 
 pub use attribution::{
-    BitsReport, SlotAttribution, bits_report, bits_report_with_anchor, per_sensor_attribution,
+    BitsReport, CALYX_ASSAY_INVALID_COVERAGE, CoverageMask, SlotAttribution, bits_report,
+    bits_report_with_anchor, per_sensor_attribution, per_sensor_attribution_with_coverage,
 };
 pub use bayesian::{
     BAYESIAN_POSTERIOR_KEY_PREFIX, BayesianPosteriorRow, BetaBernoulli,
@@ -105,10 +106,11 @@ pub use resource_contract::{
 pub use store::{AssayCacheKey, AssayRow, AssayStore, AssaySubject};
 pub use stratified::{StratifiedBits, StratumBits, stratified_bits};
 pub use sufficiency::{
-    DeficitRoutingContext, DeficitSuggestedAction, InMemoryDeficitSink, PanelSufficiency,
-    SufficiencyDeficit, SufficiencyDeficitSink, entropy_bits, panel_sufficiency,
-    panel_sufficiency_with_anchor, panel_sufficiency_with_anchor_and_context,
-    panel_sufficiency_with_context,
+    CALYX_ASSAY_INVALID_SCOPE, DeficitRoutingContext, DeficitSuggestedAction, InMemoryDeficitSink,
+    ObservationScope, PanelSufficiency, ScopedSufficiencyReport, SufficiencyDeficit,
+    SufficiencyDeficitSink, SufficiencyScopeInput, entropy_bits, panel_sufficiency,
+    panel_sufficiency_by_scope, panel_sufficiency_with_anchor,
+    panel_sufficiency_with_anchor_and_context, panel_sufficiency_with_context,
 };
 pub use total_correlation::{
     CALYX_TC_INSUFFICIENT_SAMPLES, DEFAULT_TC_BOOTSTRAP_RESAMPLES, DEFAULT_TC_K, IIResult, IISign,

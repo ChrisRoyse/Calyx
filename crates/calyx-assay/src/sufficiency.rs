@@ -1,12 +1,14 @@
 //! Panel sufficiency and deficit routing.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
-use calyx_core::{Anchor, AnchorKind, SlotId};
+use calyx_core::{Anchor, AnchorKind, CalyxError, Result, SlotId};
 use serde::{Deserialize, Serialize};
 
 use crate::attribution::SlotAttribution;
 use crate::estimate::{TrustTag, provisional_without_anchor, trust_for_anchor};
+
+pub const CALYX_ASSAY_INVALID_SCOPE: &str = "CALYX_ASSAY_INVALID_SCOPE";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,6 +23,8 @@ pub struct DeficitRoutingContext {
     pub panel_id: String,
     pub anchor: AnchorKind,
     pub computed_at_seq: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_scope: Option<ObservationScope>,
 }
 
 impl Default for DeficitRoutingContext {
@@ -29,7 +33,48 @@ impl Default for DeficitRoutingContext {
             panel_id: "panel:unspecified".to_string(),
             anchor: AnchorKind::Reward,
             computed_at_seq: 0,
+            observation_scope: None,
         }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObservationScope {
+    pub id: String,
+    pub observed: usize,
+    pub total: usize,
+}
+
+impl ObservationScope {
+    pub fn new(id: impl Into<String>, observed: usize, total: usize) -> Result<ObservationScope> {
+        let scope = Self {
+            id: id.into(),
+            observed,
+            total,
+        };
+        scope.validate()?;
+        Ok(scope)
+    }
+
+    pub fn coverage_rate(&self) -> f32 {
+        if self.total == 0 {
+            0.0
+        } else {
+            self.observed as f32 / self.total as f32
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        if self.id.trim().is_empty() {
+            return Err(invalid_scope("observation scope id must not be empty"));
+        }
+        if self.observed > self.total {
+            return Err(invalid_scope(format!(
+                "scope {} observed {} rows but total is {}",
+                self.id, self.observed, self.total
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -37,6 +82,8 @@ impl Default for DeficitRoutingContext {
 pub struct SufficiencyDeficit {
     pub panel_id: String,
     pub anchor: AnchorKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_scope: Option<ObservationScope>,
     pub slot: Option<SlotId>,
     pub per_slot_gaps: BTreeMap<SlotId, f32>,
     pub deficit_bits: f32,
@@ -49,10 +96,29 @@ pub struct SufficiencyDeficit {
 pub struct PanelSufficiency {
     pub panel_bits: f32,
     pub anchor_entropy_bits: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observation_scope: Option<ObservationScope>,
     pub sufficient: bool,
     pub deficit_bits: f32,
     pub deficits: Vec<SufficiencyDeficit>,
     pub trust: TrustTag,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SufficiencyScopeInput {
+    pub scope: ObservationScope,
+    pub panel_bits: f32,
+    pub anchor_entropy_bits: f32,
+    pub slots: Vec<SlotAttribution>,
+    pub trust: TrustTag,
+    pub context: DeficitRoutingContext,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ScopedSufficiencyReport {
+    pub scopes: Vec<PanelSufficiency>,
+    pub best_scope: Option<ObservationScope>,
+    pub sufficient_scopes: Vec<ObservationScope>,
 }
 
 pub trait SufficiencyDeficitSink {
@@ -140,6 +206,50 @@ pub fn panel_sufficiency_with_anchor_and_context(
     )
 }
 
+pub fn panel_sufficiency_by_scope(
+    inputs: Vec<SufficiencyScopeInput>,
+) -> Result<ScopedSufficiencyReport> {
+    if inputs.is_empty() {
+        return Err(invalid_scope(
+            "sufficiency scope report requires at least one scope",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    let mut scopes = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        input.scope.validate()?;
+        if !seen.insert(input.scope.id.clone()) {
+            return Err(invalid_scope(format!(
+                "duplicate observation scope {}",
+                input.scope.id
+            )));
+        }
+        let mut context = input.context;
+        context.observation_scope = Some(input.scope);
+        scopes.push(panel_sufficiency_with_trust(
+            input.panel_bits,
+            input.anchor_entropy_bits,
+            &input.slots,
+            provisional_without_anchor(input.trust),
+            context,
+        ));
+    }
+    let best_scope = scopes
+        .iter()
+        .min_by(|left, right| left.deficit_bits.total_cmp(&right.deficit_bits))
+        .and_then(|scope| scope.observation_scope.clone());
+    let sufficient_scopes = scopes
+        .iter()
+        .filter(|scope| scope.sufficient)
+        .filter_map(|scope| scope.observation_scope.clone())
+        .collect();
+    Ok(ScopedSufficiencyReport {
+        scopes,
+        best_scope,
+        sufficient_scopes,
+    })
+}
+
 fn panel_sufficiency_with_trust(
     panel_bits: f32,
     anchor_entropy_bits: f32,
@@ -157,6 +267,7 @@ fn panel_sufficiency_with_trust(
     PanelSufficiency {
         panel_bits,
         anchor_entropy_bits,
+        observation_scope: context.observation_scope.clone(),
         sufficient,
         deficit_bits,
         deficits,
@@ -191,6 +302,7 @@ fn localized_deficits(
         return vec![SufficiencyDeficit {
             panel_id: context.panel_id.clone(),
             anchor: context.anchor.clone(),
+            observation_scope: context.observation_scope.clone(),
             slot: None,
             per_slot_gaps: BTreeMap::new(),
             deficit_bits,
@@ -211,6 +323,7 @@ fn localized_deficits(
             SufficiencyDeficit {
                 panel_id: context.panel_id.clone(),
                 anchor: context.anchor.clone(),
+                observation_scope: context.observation_scope.clone(),
                 slot: Some(slot.slot),
                 per_slot_gaps: per_slot_gaps.clone(),
                 deficit_bits: deficit_bits * weight / total_missing_weight,
@@ -234,4 +347,12 @@ fn per_slot_gap_map(deficit_bits: f32, slots: &[SlotAttribution]) -> BTreeMap<Sl
             (slot.slot, deficit_bits * weight / total_missing_weight)
         })
         .collect()
+}
+
+fn invalid_scope(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: CALYX_ASSAY_INVALID_SCOPE,
+        message: message.into(),
+        remediation: "provide unique observation scopes with observed <= total",
+    }
 }

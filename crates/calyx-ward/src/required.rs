@@ -49,6 +49,13 @@ pub struct RequiredSlotEvidence {
     pub bits: f32,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RequiredSlotObservation {
+    pub slot: SlotId,
+    pub bits: f32,
+    pub observed: bool,
+}
+
 /// Reads Assay bits from a panel and returns active load-bearing slots.
 pub fn derive_required_slots(
     panel: &Panel,
@@ -74,6 +81,37 @@ pub fn derive_required_slots(
                 .and_modify(|bits| *bits = bits.max(signal.bits))
                 .or_insert(signal.bits);
         }
+    }
+    Ok(slots
+        .into_iter()
+        .map(|(slot, bits)| RequiredSlotEvidence { slot, bits })
+        .collect())
+}
+
+/// Derives load-bearing slots for one coverage-filtered constellation.
+///
+/// Callers pass `observed=false` for slots whose Assay coverage mask marks the
+/// constellation absent. Such slots are not guard-required for that
+/// constellation.
+pub fn derive_required_slots_for_observations(
+    observations: &[RequiredSlotObservation],
+    config: &RequiredSlotDerivation,
+) -> Result<Vec<RequiredSlotEvidence>, WardError> {
+    validate_config(config)?;
+    let mut slots = BTreeMap::<SlotId, f32>::new();
+    for observation in observations {
+        if !observation.bits.is_finite() {
+            return Err(WardError::InvalidRequiredSlotDerivation {
+                reason: "slot attribution bits must be finite",
+            });
+        }
+        if !observation.observed || observation.bits < config.min_bits {
+            continue;
+        }
+        slots
+            .entry(observation.slot)
+            .and_modify(|bits| *bits = bits.max(observation.bits))
+            .or_insert(observation.bits);
     }
     Ok(slots
         .into_iter()

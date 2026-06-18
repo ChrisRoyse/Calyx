@@ -123,6 +123,7 @@ where
                 panel_id: format!("oracle:{domain}:panel:{}", panel.version),
                 anchor: AnchorKind::Reward,
                 computed_at_seq: clock.now(),
+                observation_scope: None,
             },
         ))
     }

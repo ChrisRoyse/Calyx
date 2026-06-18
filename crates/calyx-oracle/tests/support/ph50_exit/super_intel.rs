@@ -200,6 +200,7 @@ fn panel_sufficiency(panel_bits: f32, entropy_bits: f32) -> PanelSufficiency {
             panel_id: "swe-bench-lite-form-only".to_string(),
             anchor: AnchorKind::Reward,
             computed_at_seq: 439,
+            observation_scope: None,
         },
     )
 }

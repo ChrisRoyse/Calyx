@@ -244,6 +244,7 @@ fn report(panel_bits: f32, entropy_bits: f32, slots: &[(SlotId, f32)]) -> PanelS
             panel_id: "prop-panel".to_string(),
             anchor: AnchorKind::Reward,
             computed_at_seq: 1,
+            observation_scope: None,
         },
     )
 }

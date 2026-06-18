@@ -1,12 +1,14 @@
 use std::collections::BTreeMap;
 
+use calyx_assay::{CoverageMask, per_sensor_attribution_with_coverage};
 use calyx_core::{
-    AnchorKind, Asymmetry, ConfidenceInterval, LedgerRef, LensId, Modality, Panel, QuantPolicy,
-    Signal, Slot, SlotId, SlotKey, SlotShape, SlotState,
+    AnchorKind, Asymmetry, ConfidenceInterval, CxId, LedgerRef, LensId, Modality, Panel,
+    QuantPolicy, Signal, Slot, SlotId, SlotKey, SlotShape, SlotState,
 };
 use calyx_ward::{
     GuardId, GuardPolicy, GuardProfile, LOAD_BEARING_MIN_BITS, NoveltyAction,
-    RequiredSlotDerivation, WardError, derive_required_profile, derive_required_slots,
+    RequiredSlotDerivation, RequiredSlotObservation, WardError, derive_required_profile,
+    derive_required_slots, derive_required_slots_for_observations,
 };
 use serde_json::json;
 
@@ -135,6 +137,34 @@ fn inactive_high_bit_slot_is_not_required() {
     .expect("profile");
 
     assert_eq!(profile.required_slots, vec![slot(2)]);
+}
+
+#[test]
+fn coverage_masks_remove_unobserved_slots_from_ward_required_set() {
+    let covered = cx(0xA1);
+    let uncovered = cx(0xB2);
+    let attributions = per_sensor_attribution_with_coverage(
+        &[
+            (slot(1), 0.07, CoverageMask::Full),
+            (slot(2), 0.40, CoverageMask::partial(2, [covered]).unwrap()),
+        ],
+        LOAD_BEARING_MIN_BITS,
+    );
+    let config = RequiredSlotDerivation::assay_bits(AnchorKind::Reward);
+
+    let covered_observations = observations_for(&attributions, covered);
+    let uncovered_observations = observations_for(&attributions, uncovered);
+    let covered_required =
+        derive_required_slots_for_observations(&covered_observations, &config).expect("covered");
+    let uncovered_required =
+        derive_required_slots_for_observations(&uncovered_observations, &config)
+            .expect("uncovered");
+
+    assert_eq!(
+        covered_required,
+        vec![evidence_slot(1, 0.07), evidence_slot(2, 0.40)]
+    );
+    assert_eq!(uncovered_required, vec![evidence_slot(1, 0.07)]);
 }
 
 #[test]
@@ -271,6 +301,20 @@ fn evidence_slot(slot_id: u16, bits: f32) -> calyx_ward::RequiredSlotEvidence {
     }
 }
 
+fn observations_for(
+    attributions: &[calyx_assay::SlotAttribution],
+    cx: CxId,
+) -> Vec<RequiredSlotObservation> {
+    attributions
+        .iter()
+        .map(|attribution| RequiredSlotObservation {
+            slot: attribution.slot,
+            bits: attribution.marginal_bits,
+            observed: attribution.is_observed_for(cx),
+        })
+        .collect()
+}
+
 fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
     let path = std::path::Path::new(root).join(name);
     let file = std::fs::File::create(path).expect("create fsv json");
@@ -279,4 +323,8 @@ fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
 
 const fn slot(value: u16) -> SlotId {
     SlotId::new(value)
+}
+
+fn cx(byte: u8) -> CxId {
+    CxId::from_bytes([byte; 16])
 }

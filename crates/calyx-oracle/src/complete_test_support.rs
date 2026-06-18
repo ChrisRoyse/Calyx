@@ -86,6 +86,7 @@ impl FakeAssay {
                 sufficient: true,
                 deficit_bits: 0.0,
                 deficits: Vec::new(),
+                observation_scope: None,
                 trust: TrustTag::Trusted,
             },
         }
@@ -107,8 +108,10 @@ impl FakeAssay {
                     deficit_bits: 0.75,
                     suggested_action: DeficitSuggestedAction::ProposeLens,
                     computed_at_seq: 1,
+                    observation_scope: None,
                     reason: "synthetic panel below anchor entropy".to_string(),
                 }],
+                observation_scope: None,
                 trust: TrustTag::Provisional,
             },
         }
