@@ -120,7 +120,13 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let corpus_rows = slots
         .iter()
         .fold(u64::MAX, |acc, slot| acc.min(slot.corpus.count())) as usize;
-    let timeline = load_timeline(&args.plan, &plan, corpus_rows)?;
+    let timeline = plan
+        .timeline
+        .as_ref()
+        .map(|path| {
+            timeline::Timeline::load(&timeline::resolve_plan_path(&args.plan, path), corpus_rows)
+        })
+        .transpose()?;
     let truth_n = args.ground_truth.min(n);
     let truth_depth = args
         .truth_depth
@@ -226,19 +232,6 @@ fn load_plan(path: &Path) -> CliResult<Plan> {
         }
     }
     Ok(plan)
-}
-
-fn load_timeline(
-    plan_path: &Path,
-    plan: &Plan,
-    corpus_rows: usize,
-) -> CliResult<Option<timeline::Timeline>> {
-    plan.timeline
-        .as_ref()
-        .map(|path| {
-            timeline::Timeline::load(&timeline::resolve_plan_path(plan_path, path), corpus_rows)
-        })
-        .transpose()
 }
 
 fn open_slots(plan: &Plan) -> CliResult<Vec<OpenSlot>> {
