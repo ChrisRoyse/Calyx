@@ -19,6 +19,7 @@ pub(crate) struct CorpusBuildEvidence {
     pub(crate) vectors_path: String,
     pub(crate) cost_path: String,
     pub(crate) n_samples: usize,
+    pub(crate) batch_size: usize,
     pub(crate) label_counts: BTreeMap<String, usize>,
     pub(crate) lenses: Vec<LensEvidence>,
 }
@@ -30,6 +31,8 @@ pub(crate) struct LensEvidence {
     pub(crate) output_shape: String,
     pub(crate) assay_projection: String,
     pub(crate) manifest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) max_batch: Option<usize>,
     pub(crate) vram_mb: f32,
     pub(crate) ram_mb: f32,
     pub(crate) ms_per_input: f32,
@@ -85,6 +88,7 @@ fn write_all_files(
         vectors_path: display_final(request, "vectors.jsonl"),
         cost_path: display_final(request, "cost.json"),
         n_samples: rows.rows.len(),
+        batch_size: request.batch_size,
         label_counts: rows.label_counts.clone(),
         lenses: lenses.iter().map(lens_evidence).collect(),
     };
@@ -177,6 +181,7 @@ fn lens_evidence(lens: &MeasuredLens) -> LensEvidence {
         output_shape: shape_text(lens.output),
         assay_projection: lens.assay_projection.to_string(),
         manifest: display(&lens.manifest),
+        max_batch: lens.max_batch,
         vram_mb: lens.cost.vram_mb,
         ram_mb: lens.cost.ram_mb,
         ms_per_input: lens.cost.ms_per_input,

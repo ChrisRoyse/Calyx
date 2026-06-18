@@ -63,6 +63,8 @@ pub struct LensSpec {
     pub weights_sha256: [u8; 32],
     pub corpus_hash: [u8; 32],
     pub norm_policy: NormPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_batch: Option<usize>,
     pub axis: Option<String>,
     pub asymmetry: Asymmetry,
     #[serde(default = "default_quant_default")]
@@ -263,6 +265,7 @@ mod tests {
             weights_sha256: [1_u8; 32],
             corpus_hash: [2_u8; 32],
             norm_policy: NormPolicy::unit(),
+            max_batch: None,
             axis: None,
             asymmetry: Asymmetry::None,
             quant_default: QuantPolicy::turboquant_default(),

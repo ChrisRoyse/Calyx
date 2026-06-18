@@ -260,6 +260,7 @@ fn lens_spec(lens: &AlgorithmicLens, runtime: LensRuntime) -> LensSpec {
         weights_sha256: lens.contract().weights_sha256(),
         corpus_hash: lens.contract().corpus_hash(),
         norm_policy: lens.contract().norm_policy(),
+        max_batch: None,
         axis: Some("issue752".to_string()),
         asymmetry: Asymmetry::None,
         quant_default: QuantPolicy::turboquant_default(),

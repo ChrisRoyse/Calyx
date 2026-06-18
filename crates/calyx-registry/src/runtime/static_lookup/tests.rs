@@ -85,6 +85,7 @@ fn from_lens_spec_rejects_dim_mismatch() {
         weights_sha256: hash_files(&[fixture.matrix.clone(), fixture.tokenizer.clone()]).unwrap(),
         corpus_hash: sha256_digest(&[b"test"]),
         norm_policy: NormPolicy::unit(),
+        max_batch: None,
         axis: None,
         asymmetry: calyx_core::Asymmetry::None,
         quant_default: calyx_core::QuantPolicy::turboquant_default(),

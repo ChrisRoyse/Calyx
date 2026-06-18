@@ -25,14 +25,13 @@ impl CustomOnnxRuntime {
         self.dim
     }
 
-    pub fn measure(&mut self, lens: &dyn Lens, input: &Input) -> Result<SlotVector> {
-        let text = text_from_input(lens, input)?;
-        let encoded = self
-            .tokenizer
-            .encode(text, true)
-            .map_err(|err| config_invalid(format!("tokenizer encode failed: {err}")))?;
-        let (ids, mask) = token_inputs(&encoded);
-        let input_values = session_inputs(&self.session, &ids, &mask)?;
+    pub fn measure_batch(&mut self, lens: &dyn Lens, inputs: &[Input]) -> Result<Vec<SlotVector>> {
+        if inputs.is_empty() {
+            return Ok(Vec::new());
+        }
+        let encoded = encode_inputs(&self.tokenizer, lens, inputs)?;
+        let batch = build_batch(&encoded);
+        let input_values = session_inputs(&self.session, &batch)?;
         let outputs = self
             .session
             .run(input_values)
@@ -41,12 +40,16 @@ impl CustomOnnxRuntime {
         let (shape, values) = output.try_extract_tensor::<f32>().map_err(|err| {
             config_invalid(format!("custom ONNX output is not f32 tensor: {err}"))
         })?;
-        let mut data = pool_output(shape, values, &mask, self.pooling, self.dim)?;
-        apply_norm(self.norm_policy, &mut data)?;
-        Ok(SlotVector::Dense {
-            dim: self.dim,
-            data,
-        })
+        let rows = pool_output_batch(shape, values, &batch, self.pooling, self.dim)?;
+        rows.into_iter()
+            .map(|mut data| {
+                apply_norm(self.norm_policy, &mut data)?;
+                Ok(SlotVector::Dense {
+                    dim: self.dim,
+                    data,
+                })
+            })
+            .collect()
     }
 }
 
@@ -112,6 +115,7 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
         contract,
         files,
         spec.provider_policy,
+        spec.max_batch,
         runtime,
     ))
 }
@@ -133,6 +137,7 @@ pub fn pooling_from_config(path: &Path) -> Result<PoolingPolicy> {
     }
 }
 
+#[cfg(test)]
 pub(super) fn pool_output(
     shape: &[i64],
     values: &[f32],
@@ -140,14 +145,42 @@ pub(super) fn pool_output(
     policy: PoolingPolicy,
     dim: u32,
 ) -> Result<Vec<f32>> {
+    let batch = TokenBatch {
+        batch: 1,
+        seq: mask.len(),
+        ids: vec![0; mask.len()],
+        mask: mask.to_vec(),
+    };
+    let mut rows = pool_output_batch(shape, values, &batch, policy, dim)?;
+    rows.pop()
+        .ok_or_else(|| CalyxError::lens_dim_mismatch("custom ONNX returned no pooled row"))
+}
+
+fn pool_output_batch(
+    shape: &[i64],
+    values: &[f32],
+    batch: &TokenBatch,
+    policy: PoolingPolicy,
+    dim: u32,
+) -> Result<Vec<Vec<f32>>> {
     let dim = dim as usize;
     match shape {
-        [1, actual_dim] if *actual_dim as usize == dim => Ok(values.to_vec()),
-        [1, seq, actual_dim] if *actual_dim as usize == dim => {
-            pool_tokens(values, *seq as usize, dim, mask, policy)
+        [actual_batch, actual_dim]
+            if positive_usize(*actual_batch) == Some(batch.batch)
+                && positive_usize(*actual_dim) == Some(dim) =>
+        {
+            dense_rows(values, batch.batch, dim)
+        }
+        [actual_batch, seq, actual_dim]
+            if positive_usize(*actual_batch) == Some(batch.batch)
+                && positive_usize(*seq) == Some(batch.seq)
+                && positive_usize(*actual_dim) == Some(dim) =>
+        {
+            token_rows(values, batch, dim, policy)
         }
         _ => Err(CalyxError::lens_dim_mismatch(format!(
-            "custom ONNX output shape {shape:?} is incompatible with dense dim {dim}"
+            "custom ONNX output shape {shape:?} is incompatible with batch={} seq={} dim={dim}",
+            batch.batch, batch.seq
         ))),
     }
 }
@@ -215,6 +248,54 @@ fn output_dim(session: &Session) -> Result<u32> {
     u32::try_from(dim).map_err(|_| CalyxError::lens_dim_mismatch("custom ONNX dim exceeds u32"))
 }
 
+struct TokenBatch {
+    batch: usize,
+    seq: usize,
+    ids: Vec<i64>,
+    mask: Vec<i64>,
+}
+
+fn encode_inputs(
+    tokenizer: &Tokenizer,
+    lens: &dyn Lens,
+    inputs: &[Input],
+) -> Result<Vec<(Vec<i64>, Vec<i64>)>> {
+    inputs
+        .iter()
+        .map(|input| {
+            let text = text_from_input(lens, input)?;
+            let encoded = tokenizer
+                .encode(text, true)
+                .map_err(|err| config_invalid(format!("tokenizer encode failed: {err}")))?;
+            Ok(token_inputs(&encoded))
+        })
+        .collect()
+}
+
+fn build_batch(encoded: &[(Vec<i64>, Vec<i64>)]) -> TokenBatch {
+    let batch = encoded.len();
+    let seq = encoded
+        .iter()
+        .map(|(ids, _)| ids.len())
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let mut flat_ids = Vec::with_capacity(batch * seq);
+    let mut flat_mask = Vec::with_capacity(batch * seq);
+    for (ids, mask) in encoded {
+        for index in 0..seq {
+            flat_ids.push(ids.get(index).copied().unwrap_or(0));
+            flat_mask.push(mask.get(index).copied().unwrap_or(0));
+        }
+    }
+    TokenBatch {
+        batch,
+        seq,
+        ids: flat_ids,
+        mask: flat_mask,
+    }
+}
+
 fn token_inputs(encoding: &tokenizers::Encoding) -> (Vec<i64>, Vec<i64>) {
     let mut ids = encoding
         .get_ids()
@@ -240,21 +321,20 @@ fn token_inputs(encoding: &tokenizers::Encoding) -> (Vec<i64>, Vec<i64>) {
 
 fn session_inputs<'a>(
     session: &Session,
-    ids: &[i64],
-    mask: &[i64],
+    batch: &TokenBatch,
 ) -> Result<Vec<(String, SessionInputValue<'a>)>> {
-    let shape = vec![1_i64, ids.len() as i64];
+    let shape = vec![batch.batch as i64, batch.seq as i64];
     let mut values = Vec::with_capacity(session.inputs().len());
     for input in session.inputs() {
         let name = input.name();
         let tensor = if name.contains("token_type_ids") || name.contains("segment") {
-            Tensor::from_array((shape.clone(), vec![0_i64; ids.len()]))
+            Tensor::from_array((shape.clone(), vec![0_i64; batch.ids.len()]))
         } else if name.contains("input_ids") || name.contains("token") {
-            Tensor::from_array((shape.clone(), ids.to_vec()))
+            Tensor::from_array((shape.clone(), batch.ids.clone()))
         } else if name.contains("attention_mask") || name.contains("mask") {
-            Tensor::from_array((shape.clone(), mask.to_vec()))
+            Tensor::from_array((shape.clone(), batch.mask.clone()))
         } else if name.contains("position_ids") || name.contains("position") {
-            Tensor::from_array((shape.clone(), (0..ids.len() as i64).collect::<Vec<_>>()))
+            Tensor::from_array((shape.clone(), position_ids(batch)))
         } else {
             return Err(config_invalid(format!(
                 "unsupported custom ONNX input {}",
@@ -265,6 +345,18 @@ fn session_inputs<'a>(
         values.push((name.to_string(), SessionInputValue::from(tensor)));
     }
     Ok(values)
+}
+
+fn position_ids(batch: &TokenBatch) -> Vec<i64> {
+    let mut out = Vec::with_capacity(batch.batch * batch.seq);
+    for _ in 0..batch.batch {
+        out.extend(0..batch.seq as i64);
+    }
+    out
+}
+
+fn positive_usize(value: i64) -> Option<usize> {
+    usize::try_from(value).ok().filter(|value| *value > 0)
 }
 
 fn output_tensor<'a, 'r>(
@@ -328,6 +420,50 @@ fn pool_tokens(
             Ok(out)
         }
     }
+}
+
+fn dense_rows(values: &[f32], batch: usize, dim: usize) -> Result<Vec<Vec<f32>>> {
+    let expected = batch * dim;
+    if values.len() != expected {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "custom ONNX dense output has {} floats, expected {expected}",
+            values.len()
+        )));
+    }
+    Ok(values
+        .chunks_exact(dim)
+        .map(|row| row.to_vec())
+        .collect::<Vec<_>>())
+}
+
+fn token_rows(
+    values: &[f32],
+    batch: &TokenBatch,
+    dim: usize,
+    policy: PoolingPolicy,
+) -> Result<Vec<Vec<f32>>> {
+    let expected = batch.batch * batch.seq * dim;
+    if values.len() != expected {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "custom ONNX token output has {} floats, expected {expected}",
+            values.len()
+        )));
+    }
+    let mut rows = Vec::with_capacity(batch.batch);
+    for row in 0..batch.batch {
+        let token_start = row * batch.seq * dim;
+        let token_end = token_start + batch.seq * dim;
+        let mask_start = row * batch.seq;
+        let mask_end = mask_start + batch.seq;
+        rows.push(pool_tokens(
+            &values[token_start..token_end],
+            batch.seq,
+            dim,
+            &batch.mask[mask_start..mask_end],
+            policy,
+        )?);
+    }
+    Ok(rows)
 }
 
 fn apply_norm(policy: NormPolicy, data: &mut [f32]) -> Result<()> {

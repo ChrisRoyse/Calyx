@@ -97,6 +97,7 @@ pub fn commission_lens(
         weights_sha256,
         corpus_hash,
         norm_policy: NormPolicy::None,
+        max_batch: None,
         axis: Some(axis),
         asymmetry: calyx_core::Asymmetry::None,
         quant_default: calyx_core::QuantPolicy::turboquant_default(),

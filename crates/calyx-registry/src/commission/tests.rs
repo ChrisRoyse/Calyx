@@ -46,6 +46,7 @@ fn lensforge_manifest_round_trips_to_stable_lens_spec() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
     };
     let manifest_path = root.join("manifest.json");
     fs::write(
@@ -128,6 +129,7 @@ fn model2vec_manifest_maps_to_static_lookup_runtime() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
     };
     let manifest_path = root.join("manifest.json");
     fs::write(
@@ -185,6 +187,7 @@ fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
     };
     let manifest_path = root.join("manifest.json");
     fs::write(
@@ -236,6 +239,7 @@ fn tei_manifest_maps_descriptor_to_http_runtime() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
     };
     let manifest_path = root.join("manifest.json");
     fs::write(
@@ -290,6 +294,7 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: Some(8),
         recall_delta: 0.03,
+        max_batch: None,
     };
 
     let spec = lens_spec_from_manifest_with_license_override(&manifest, &root, false).unwrap();
@@ -324,6 +329,7 @@ fn algorithmic_manifest_supports_sparse_code_lenses_without_artifacts() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
     };
     let ast = LensForgeManifest {
         name: "code-ast-style".to_string(),
@@ -343,6 +349,7 @@ fn algorithmic_manifest_supports_sparse_code_lenses_without_artifacts() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
     };
 
     let sparse_spec = lens_spec_from_manifest_with_license_override(&sparse, &root, false).unwrap();
@@ -394,6 +401,7 @@ fn noncommercial_manifest_requires_explicit_allow_flag() {
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: crate::spec::default_recall_delta(),
+        max_batch: None,
     };
 
     let denied =

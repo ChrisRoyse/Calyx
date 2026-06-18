@@ -22,6 +22,7 @@ pub struct OnnxLens {
     contract: FrozenLensContract,
     files: OnnxModelFiles,
     provider_policy: OnnxProviderPolicy,
+    max_batch: Option<usize>,
     backend: Option<OnnxBackend>,
 }
 
@@ -106,6 +107,7 @@ pub struct OnnxFileSpec {
     pub modality: Modality,
     pub pooling: PoolingPolicy,
     pub norm_policy: NormPolicy,
+    pub max_batch: Option<usize>,
     pub provider_policy: OnnxProviderPolicy,
     pub expected_shape: Option<SlotShape>,
     pub expected_weights_sha256: Option<[u8; 32]>,
@@ -131,6 +133,7 @@ impl OnnxFileSpec {
             modality: Modality::Text,
             pooling,
             norm_policy,
+            max_batch: None,
             provider_policy: OnnxProviderPolicy::CudaFailLoud,
             expected_shape: None,
             expected_weights_sha256: None,
@@ -148,6 +151,9 @@ impl OnnxFileSpec {
             ));
         };
         let pooling = custom::pooling_from_config(config)?;
+        if spec.max_batch == Some(0) {
+            return Err(config_invalid("LensSpec max_batch must be > 0"));
+        }
         Ok(Self {
             name: spec.name.clone(),
             model_id: model_id.clone(),
@@ -157,6 +163,7 @@ impl OnnxFileSpec {
             modality: spec.modality,
             pooling,
             norm_policy: spec.norm_policy,
+            max_batch: spec.max_batch,
             provider_policy: OnnxProviderPolicy::CudaFailLoud,
             expected_shape: Some(spec.output),
             expected_weights_sha256: Some(spec.weights_sha256),
@@ -176,6 +183,11 @@ impl OnnxFileSpec {
 
     pub fn with_expected_weights_sha256(mut self, hash: [u8; 32]) -> Self {
         self.expected_weights_sha256 = Some(hash);
+        self
+    }
+
+    pub fn with_max_batch(mut self, max_batch: usize) -> Self {
+        self.max_batch = Some(max_batch.max(1));
         self
     }
 }
@@ -249,6 +261,7 @@ impl OnnxLens {
             contract,
             files,
             provider_policy,
+            max_batch: None,
             backend: Some(OnnxBackend::FastEmbed(Mutex::new(model))),
         }
     }
@@ -257,6 +270,7 @@ impl OnnxLens {
         contract: FrozenLensContract,
         files: OnnxModelFiles,
         provider_policy: OnnxProviderPolicy,
+        max_batch: Option<usize>,
         runtime: custom::CustomOnnxRuntime,
     ) -> Self {
         Self {
@@ -265,6 +279,7 @@ impl OnnxLens {
             contract,
             files,
             provider_policy,
+            max_batch,
             backend: Some(OnnxBackend::Custom(Mutex::new(runtime))),
         }
     }
@@ -300,6 +315,7 @@ impl OnnxLens {
             weights_sha256: self.contract.weights_sha256(),
             corpus_hash: self.contract.corpus_hash(),
             norm_policy: self.contract.norm_policy(),
+            max_batch: self.max_batch,
             axis: None,
             asymmetry: calyx_core::Asymmetry::None,
             quant_default: calyx_core::QuantPolicy::turboquant_default(),
@@ -341,10 +357,15 @@ impl Lens for OnnxLens {
                 let mut runtime = runtime.lock().map_err(|_| {
                     CalyxError::lens_unreachable("custom ONNX session mutex was poisoned")
                 })?;
-                inputs
-                    .iter()
-                    .map(|input| runtime.measure(self, input))
-                    .collect()
+                let chunk_size = self.max_batch.unwrap_or(inputs.len()).max(1);
+                if chunk_size >= inputs.len() {
+                    return runtime.measure_batch(self, inputs);
+                }
+                let mut out = Vec::with_capacity(inputs.len());
+                for chunk in inputs.chunks(chunk_size) {
+                    out.extend(runtime.measure_batch(self, chunk)?);
+                }
+                Ok(out)
             }
         }
     }

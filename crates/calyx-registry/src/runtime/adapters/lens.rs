@@ -156,6 +156,7 @@ impl MultimodalAdapterLens {
             weights_sha256: self.weights_sha256,
             corpus_hash: self.corpus_hash,
             norm_policy: NormPolicy::unit(),
+            max_batch: None,
             axis: Some(format!("{}:{}", self.axis.as_str(), self.model_id)),
             asymmetry: Asymmetry::None,
             quant_default: calyx_core::QuantPolicy::turboquant_default(),

@@ -385,6 +385,7 @@ fn lens_spec(
         weights_sha256: weights,
         corpus_hash: corpus,
         norm_policy: NormPolicy::None,
+        max_batch: None,
         axis: Some(name.to_string()),
         asymmetry: Asymmetry::None,
         quant_default,

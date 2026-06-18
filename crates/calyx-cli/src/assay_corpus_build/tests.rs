@@ -200,6 +200,7 @@ fn write_manifest(root: &Path, file_name: &str, name: &str, runtime: &str, dim: 
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: calyx_registry::spec::default_recall_delta(),
+        max_batch: None,
     };
     let path = root.join(file_name);
     fs::write(&path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();

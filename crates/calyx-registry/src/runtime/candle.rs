@@ -314,6 +314,7 @@ impl CandleLens {
             weights_sha256: self.contract.weights_sha256(),
             corpus_hash: self.contract.corpus_hash(),
             norm_policy: self.contract.norm_policy(),
+            max_batch: None,
             axis: None,
             asymmetry: calyx_core::Asymmetry::None,
             quant_default: calyx_core::QuantPolicy::turboquant_default(),

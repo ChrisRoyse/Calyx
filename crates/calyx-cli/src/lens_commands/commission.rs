@@ -429,6 +429,7 @@ fn write_manifest(
         quant_default: QuantPolicy::turboquant_default(),
         truncate_dim: None,
         recall_delta: calyx_registry::spec::default_recall_delta(),
+        max_batch: None,
     };
     let path = out.join(MANIFEST_NAME);
     write_json_file(&path, &manifest)?;

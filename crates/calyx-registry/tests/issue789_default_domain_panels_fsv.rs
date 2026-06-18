@@ -241,6 +241,7 @@ fn register_dummy_lens(registry: &mut Registry, name: &str, output: SlotShape, m
         weights_sha256: contract.weights_sha256(),
         corpus_hash: contract.corpus_hash(),
         norm_policy: contract.norm_policy(),
+        max_batch: None,
         axis: Some("issue789".to_string()),
         asymmetry: Asymmetry::None,
         quant_default: QuantPolicy::turboquant_default(),

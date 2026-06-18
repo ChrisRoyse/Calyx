@@ -50,6 +50,8 @@ pub struct LensForgeManifest {
     pub truncate_dim: Option<u32>,
     #[serde(default = "crate::spec::default_recall_delta")]
     pub recall_delta: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_batch: Option<usize>,
 }
 
 pub fn lens_spec_from_manifest_path(path: impl AsRef<Path>) -> Result<LensSpec> {
@@ -84,6 +86,9 @@ pub fn lens_spec_from_manifest_with_license_override(
     allow_non_commercial: bool,
 ) -> Result<LensSpec> {
     validate_required(manifest)?;
+    if manifest.max_batch == Some(0) {
+        return Err(config_invalid("lensforge manifest max_batch must be > 0"));
+    }
     ensure_license_allowed(
         manifest.license.as_deref(),
         manifest.non_commercial,
@@ -109,6 +114,7 @@ pub fn lens_spec_from_manifest_with_license_override(
         weights_sha256,
         corpus_hash,
         norm_policy: norm_policy(&manifest.norm)?,
+        max_batch: manifest.max_batch,
         axis: Some(manifest.name.clone()),
         asymmetry: Asymmetry::None,
         quant_default: manifest.quant_default,

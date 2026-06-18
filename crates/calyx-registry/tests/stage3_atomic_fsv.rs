@@ -382,6 +382,7 @@ fn lens_spec(
         weights_sha256: sha256_digest(&[name.as_bytes(), b"weights"]),
         corpus_hash: sha256_digest(&[name.as_bytes(), b"corpus"]),
         norm_policy: NormPolicy::None,
+        max_batch: None,
         axis: Some(name.to_string()),
         asymmetry,
         quant_default: calyx_core::QuantPolicy::turboquant_default(),
