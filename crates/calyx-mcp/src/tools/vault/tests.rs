@@ -153,6 +153,38 @@ fn add_lens_algorithmic_returns_active_lens_and_list_panel_sees_it() {
 }
 
 #[test]
+fn add_lens_algorithmic_video_preserves_modality_in_panel() {
+    let _env = TestEnv::new("add-video");
+    let server = server();
+    call_ok(
+        &server,
+        31,
+        "calyx.create_vault",
+        json!({"name": "panel", "panel_template": "media-default"}),
+    );
+
+    let added = call_ok(
+        &server,
+        32,
+        "calyx.add_lens",
+        json!({
+            "vault": "panel",
+            "name": "video_bytes",
+            "runtime": "algorithmic",
+            "modality": "video",
+            "shape": "Dense(16)"
+        }),
+    );
+    let listed = call_ok(&server, 33, "calyx.list_panel", json!({"vault": "panel"}));
+    let slots = listed["slots"].as_array().unwrap();
+    assert!(slots.iter().any(|slot| {
+        slot["name"] == "video_bytes"
+            && slot["modality"] == "video"
+            && slot["lens_id"] == added["lens_id"]
+    }));
+}
+
+#[test]
 fn unknown_panel_template_is_invalid_params() {
     let _env = TestEnv::new("unknown-panel");
     let server = server();

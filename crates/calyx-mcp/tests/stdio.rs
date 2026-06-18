@@ -27,6 +27,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "calyx.guard.check",
     "calyx.guard_generate",
     "calyx.ingest",
+    "calyx.ingest_media",
     "calyx.kernel",
     "calyx.kernel_answer",
     "calyx.list_panel",

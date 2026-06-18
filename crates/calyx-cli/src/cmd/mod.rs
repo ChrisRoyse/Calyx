@@ -17,6 +17,8 @@ pub(crate) use search::{
 
 use std::path::PathBuf;
 
+use calyx_core::Modality;
+
 use crate::error::{CliError, CliResult};
 
 pub(crate) const PANEL_TEMPLATES: &[&str] = &[
@@ -86,6 +88,8 @@ pub(crate) struct IngestArgs {
     pub vault: String,
     pub text: Option<String>,
     pub batch: Option<PathBuf>,
+    pub file: Option<PathBuf>,
+    pub modality: Option<Modality>,
     pub idempotent: bool,
 }
 

@@ -2,6 +2,7 @@
 
 mod anchor;
 mod input_retention;
+mod media;
 mod report;
 #[cfg(test)]
 mod tests;
@@ -36,6 +37,7 @@ const DEFAULT_ANCHOR_SOURCE: &str = "calyx-mcp";
 
 pub fn register(server: &mut McpServer) -> Result<(), CalyxError> {
     server.register(Box::new(IngestTool))?;
+    media::register(server)?;
     server.register(Box::new(AnchorTool))?;
     server.register(Box::new(MeasureTool))?;
     Ok(())
@@ -188,6 +190,11 @@ struct MeasuredConstellation {
     constellation: Constellation,
 }
 
+struct PreparedInput {
+    input: Input,
+    metadata: BTreeMap<String, String>,
+}
+
 fn ingest_texts_arg(input: Option<String>, batch: Option<Vec<String>>) -> ToolResult<Vec<String>> {
     match (input, batch) {
         (Some(_), Some(_)) => Err(ToolError::invalid_params(
@@ -213,18 +220,30 @@ fn ingest_texts_arg(input: Option<String>, batch: Option<Vec<String>>) -> ToolRe
 }
 
 fn ingest_texts(resolved: &ResolvedVault, texts: &[String]) -> ToolResult<Vec<IngestReport>> {
+    let inputs = texts
+        .iter()
+        .map(|text| {
+            Ok(PreparedInput {
+                input: retained_text_input(resolved, text)?,
+                metadata: BTreeMap::new(),
+            })
+        })
+        .collect::<ToolResult<Vec<_>>>()?;
+    ingest_prepared_inputs(resolved, inputs)
+}
+
+fn ingest_prepared_inputs(
+    resolved: &ResolvedVault,
+    inputs: Vec<PreparedInput>,
+) -> ToolResult<Vec<IngestReport>> {
     let vault = open_vault(resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let mut staged = Vec::new();
-    let mut prepared = Vec::with_capacity(texts.len());
+    let mut prepared = Vec::with_capacity(inputs.len());
     let mut first_new = BTreeSet::new();
-    for text in texts {
-        let measured = measure_constellation(
-            &vault,
-            &state,
-            retained_text_input(resolved, text)?,
-            now_ms(),
-        )?;
+    for input in inputs {
+        let mut measured = measure_constellation(&vault, &state, input.input, now_ms())?;
+        measured.constellation.metadata = input.metadata;
         let cx_id = measured.constellation.cx_id;
         let new = !base_exists(&vault, cx_id)? && first_new.insert(cx_id);
         if new {
@@ -286,9 +305,10 @@ fn measure_constellation(
         slots.insert(slot.slot_id, vector);
     }
     if applicable == 0 {
-        return Err(ToolError::invalid_params(
-            "panel has no active text-compatible slots",
-        ));
+        return Err(ToolError::invalid_params(format!(
+            "panel has no active {:?}-compatible slots",
+            input.modality
+        )));
     }
     if produced == 0 && unavailable == applicable {
         return Err(

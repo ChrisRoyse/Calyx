@@ -224,6 +224,37 @@ fn ingest_with_input_and_batch_is_invalid_params() {
 }
 
 #[test]
+fn ingest_media_rejects_unsupported_extension_before_write() {
+    let env = TestEnv::new("media-unsupported");
+    let server = server();
+    call_ok(
+        &server,
+        31,
+        "calyx.create_vault",
+        json!({"name": "media", "panel_template": "media-default"}),
+    );
+    let media_path = env.home.join("clip.txt");
+    fs::write(&media_path, b"not a video").unwrap();
+
+    let error = call_err(
+        &server,
+        32,
+        "calyx.ingest_media",
+        json!({"vault": "media", "file": media_path, "modality": "video"}),
+    );
+
+    assert_eq!(error.code, -32000);
+    assert_eq!(
+        error.data.unwrap()["calyx_code"],
+        "CALYX_MEDIA_UNSUPPORTED_EXTENSION"
+    );
+    let retained_inputs_exist = fs::read_dir(env.home.join("vaults"))
+        .unwrap()
+        .any(|entry| entry.unwrap().path().join("inputs").exists());
+    assert!(!retained_inputs_exist);
+}
+
+#[test]
 fn label_anchor_requires_label_field() {
     let _env = TestEnv::new("label");
     let server = server();

@@ -54,13 +54,15 @@ pub(super) fn build_lens(
     endpoint: Option<&str>,
     weights: Option<&str>,
     shape: Option<&str>,
+    modality: Option<&str>,
 ) -> ToolResult<BuiltLens> {
     validate_path_safe("lens name", name)?;
+    let modality = parse_modality(modality)?;
     match runtime.replace('_', "-").as_str() {
-        "algorithmic" => build_algorithmic_lens(name, DEFAULT_ALGORITHMIC_KIND, shape),
-        "tei-http" => build_tei_lens(name, endpoint, shape),
-        "onnx" => build_declared_lens(name, "onnx", endpoint, weights, shape),
-        "candle" => build_declared_lens(name, "candle", endpoint, weights, shape),
+        "algorithmic" => build_algorithmic_lens(name, DEFAULT_ALGORITHMIC_KIND, shape, modality),
+        "tei-http" => build_tei_lens(name, endpoint, shape, modality),
+        "onnx" => build_declared_lens(name, "onnx", endpoint, weights, shape, modality),
+        "candle" => build_declared_lens(name, "candle", endpoint, weights, shape, modality),
         other => Err(ToolError::invalid_params(format!(
             "unknown runtime {other}; expected tei-http, onnx, candle, or algorithmic"
         ))),
@@ -72,8 +74,16 @@ pub(super) fn profile_candidate(
     endpoint: Option<&str>,
     weights: Option<&str>,
     probe: Option<&str>,
+    modality: Option<&str>,
 ) -> ToolResult<CapabilityCard> {
-    let built = build_lens(DEFAULT_PROFILE_NAME, runtime, endpoint, weights, None)?;
+    let built = build_lens(
+        DEFAULT_PROFILE_NAME,
+        runtime,
+        endpoint,
+        weights,
+        None,
+        modality,
+    )?;
     let lens_id = built.lens_id;
     let modality = built.spec.modality;
     let mut registry = Registry::new();
@@ -82,8 +92,13 @@ pub(super) fn profile_candidate(
     Ok(profile_lens(&registry, lens_id, &probes)?)
 }
 
-fn build_algorithmic_lens(name: &str, kind: &str, shape: Option<&str>) -> ToolResult<BuiltLens> {
-    let lens = AlgorithmicLens::byte_features(name, Modality::Text);
+fn build_algorithmic_lens(
+    name: &str,
+    kind: &str,
+    shape: Option<&str>,
+    modality: Modality,
+) -> ToolResult<BuiltLens> {
+    let lens = AlgorithmicLens::byte_features(name, modality);
     if let Some(shape) = shape {
         let requested = parse_shape(shape)?;
         if requested != lens.shape() {
@@ -113,6 +128,7 @@ fn build_tei_lens(
     name: &str,
     endpoint: Option<&str>,
     shape: Option<&str>,
+    modality: Modality,
 ) -> ToolResult<BuiltLens> {
     let endpoint = endpoint.ok_or_else(|| {
         ToolError::Calyx(CalyxError::lens_unreachable(
@@ -124,8 +140,8 @@ fn build_tei_lens(
         .transpose()?
         .unwrap_or(SlotShape::Dense(768));
     let dim = dense_dim(output)?;
-    let lens = TeiHttpLens::new(name, endpoint, Modality::Text, dim);
-    let contract = FrozenLensContract::tei_http(name, endpoint, Modality::Text, dim);
+    let lens = TeiHttpLens::new(name, endpoint, modality, dim);
+    let contract = FrozenLensContract::tei_http(name, endpoint, modality, dim);
     let spec = spec_from_contract(
         name,
         LensRuntime::TeiHttp {
@@ -146,6 +162,7 @@ fn build_declared_lens(
     endpoint: Option<&str>,
     weights: Option<&str>,
     shape: Option<&str>,
+    modality: Modality,
 ) -> ToolResult<BuiltLens> {
     let output = shape
         .map(parse_shape)
@@ -157,7 +174,7 @@ fn build_declared_lens(
         weights_hash,
         sha256_digest(&[runtime.as_bytes(), endpoint.unwrap_or("").as_bytes()]),
         output,
-        Modality::Text,
+        modality,
         LensDType::F32,
         NormPolicy::finite_only(),
     );
@@ -169,13 +186,28 @@ fn build_declared_lens(
     let lens = DeclaredLens {
         id: contract.lens_id(),
         shape: output,
-        modality: Modality::Text,
+        modality,
     };
     Ok(BuiltLens {
         lens_id: contract.lens_id(),
         spec,
         runtime: BuiltRuntime::Declared(lens, contract),
     })
+}
+
+fn parse_modality(value: Option<&str>) -> ToolResult<Modality> {
+    match value.unwrap_or("text").trim().to_ascii_lowercase().as_str() {
+        "text" => Ok(Modality::Text),
+        "code" => Ok(Modality::Code),
+        "image" => Ok(Modality::Image),
+        "audio" => Ok(Modality::Audio),
+        "video" => Ok(Modality::Video),
+        "structured" => Ok(Modality::Structured),
+        "mixed" => Ok(Modality::Mixed),
+        other => Err(ToolError::invalid_params(format!(
+            "unknown modality {other}; expected text, code, image, audio, video, structured, or mixed"
+        ))),
+    }
 }
 
 fn declared_runtime(

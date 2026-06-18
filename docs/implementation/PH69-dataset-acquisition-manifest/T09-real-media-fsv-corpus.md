@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | **Phase** | PH69 - Dataset acquisition + MANIFEST + checksum FSV |
-| **Issue** | #756 |
+| **Issue** | #756, #758 |
 | **Script** | `scripts/acquire_media_fsv.py` |
 | **Dataset SoT** | `/home/croyse/calyx/data/datasets/media_fsv_mini` |
 | **Evidence SoT** | `/home/croyse/calyx/data/fsv-issue756-media-fsv-20260618T0120Z` |
@@ -40,7 +40,20 @@ cargo run -p calyx-cli -- media emotion-validate \
   --vault /home/croyse/calyx/data/fsv-issue756-media-fsv-<stamp>/vault \
   --min-bits 0.05 \
   --k 3
+
+cargo run -p calyx-cli -- media video-validate \
+  --metadata /home/croyse/calyx/data/datasets/media_fsv_mini/metadata/video_metadata.jsonl \
+  --metrics-dir /home/croyse/calyx/data/fsv-issue758-media-video-<stamp>/metrics \
+  --vault /home/croyse/calyx/data/fsv-issue758-media-video-<stamp>/vault
+
+cargo run -p calyx-cli -- media video-readback \
+  --vault /home/croyse/calyx/data/fsv-issue758-media-video-<stamp>/vault
 ```
+
+MCP raw media ingest uses `calyx.ingest_media` with `vault`, `file`, and
+`modality` (`audio` or `video`). Add an algorithmic media lens with
+`calyx.add_lens(..., runtime:"algorithmic", modality:"video")` before ingesting
+raw video into a general media vault.
 
 ## FSV Readback
 
@@ -55,6 +68,10 @@ The #756 FSV run proved:
 - Calyx persisted state: `calyx media emotion-validate` wrote 2 Assay rows and
   1 Online metric row into the evidence vault; `calyx readback --cf assay` and
   `calyx readback --cf online` read back the physical SST bytes.
+- #758 extends the same corpus to raw retained video: `calyx media
+  video-validate` persists video `Base` rows, retained media blobs, dense
+  video slot rows, Ledger rows, WAL records, and an Online metric summary, and
+  `calyx media video-readback` verifies those physical rows and retained bytes.
 
 Edges captured under the evidence root:
 
@@ -63,9 +80,9 @@ Edges captured under the evidence root:
 - duplicate audio sample ID -> `CALYX_FSV_MEDIA_EMOTION_DUPLICATE_SAMPLE_ID`,
   with no emotion summary/bits metric emitted.
 
-## Follow-Up
+## Larger Corpus
 
-#758 tracks the missing raw audio/video ingest and video validation path. Until
-that is implemented, this corpus can validate physical media acquisition and the
-currently supported audio-emotion Calyx persistence path, but raw video rows,
-vectors, provenance, and ledger entries are not yet wired.
+For broader media regression coverage, add a follow-up issue before importing
+Kaggle or other external sets. The current mini-corpus is intentionally small,
+redistributable enough for repeated FSV, and pinned by source URL, license,
+SHA256, decoded metadata, and dataset digest.
