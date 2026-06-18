@@ -90,6 +90,7 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
   logs/                                 # structured logs (rotated, bounded)
   tmp/                                  # scratch (staged in-place; cleaned each turn)
   bin/                                  # locally-installed userspace tools (cmake, protoc)
+  .venv-cuvs/                           # RAPIDS cuVS/cu13 wheel stack for DiskANN GPU builds
   env.sh                               # sources ~/.cargo/env + exports CALYX_* + pinned CUDA paths
 ```
 
@@ -143,6 +144,10 @@ host loss is accepted posture.
   `cmake version 4.3.3`.
 - **protoc:** installed at `/home/croyse/calyx/bin/protoc`; current readback:
   `libprotoc 35.0`.
+- **cuVS:** installed in `/home/croyse/calyx/.venv-cuvs` as
+  `libcuvs-cu13==26.6.0`. `env.sh` exports the wheel's cuVS/raft/rmm
+  CMake package directories and shared-library paths when the venv exists; do
+  not install RAPIDS packages into system Python.
 - **If reinstallation is needed:** download the official static tarball or
   prebuilt release into `CALYX_HOME/bin`, then prepend `CALYX_HOME/bin` and
   `~/.local/bin` to PATH in `env.sh`.
