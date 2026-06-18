@@ -3,7 +3,8 @@ use std::cmp::Ordering;
 
 use calyx_core::Result;
 
-use super::helpers::{Candidate, distance, invalid};
+use super::super::pq::DiskAnnPqQuery;
+use super::helpers::{Candidate, DiskAnnDistanceMode, distance, invalid};
 use super::{DiskAnnSearch, DiskAnnSearchParams};
 
 thread_local! {
@@ -57,16 +58,23 @@ impl SearchScratch {
             )));
         }
         let graph_query = index.graph_query(query);
+        let pq_query = match (&index.pq, index.distance_mode) {
+            (Some(pq), DiskAnnDistanceMode::UnitL2) => Some(pq.query(graph_query.as_ref())?),
+            _ => None,
+        };
+        let pq_scored = pq_query.is_some();
         let rescore_k = params.rescore_k.max(want).min(index.ids.len());
         let candidate_limit = params.ef_search.max(rescore_k).min(index.ids.len());
         self.prepare(index.ids.len(), candidate_limit);
 
         let entry = reader.header().entry_point_id;
-        let entry_distance = distance(
+        let entry_distance = score_node(
+            index,
+            reader,
+            pq_query.as_ref(),
             graph_query.as_ref(),
-            reader.read_node(entry)?.vector,
-            index.distance_mode,
-        );
+            entry,
+        )?;
         self.record_score(entry, entry_distance)?;
         self.insert_candidate(entry, entry_distance, candidate_limit)?;
         while self.expanded_count < params.ef_search.min(index.ids.len()) {
@@ -82,12 +90,13 @@ impl SearchScratch {
                 if self.is_expanded(neighbor)? {
                     continue;
                 }
-                let neighbor_node = reader.read_node(neighbor)?;
-                let d = distance(
+                let d = score_node(
+                    index,
+                    reader,
+                    pq_query.as_ref(),
                     graph_query.as_ref(),
-                    neighbor_node.vector,
-                    index.distance_mode,
-                );
+                    neighbor,
+                )?;
                 self.record_score(neighbor, d)?;
                 self.insert_candidate(neighbor, d, candidate_limit)?;
             }
@@ -97,7 +106,7 @@ impl SearchScratch {
         }
         let mut hits = self.sorted_hits(rescore_k);
         if params.rescore_from_raw {
-            hits = index.rescore_from_raw(query, &hits)?;
+            hits = index.rescore_final(query, graph_query.as_ref(), &hits, pq_scored)?;
         }
         hits.truncate(want);
         Ok(hits)
@@ -246,4 +255,21 @@ impl SearchScratch {
 
 fn cmp_hit(a: &(u32, f32), b: &(u32, f32)) -> Ordering {
     a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0))
+}
+
+fn score_node(
+    index: &DiskAnnSearch,
+    reader: &crate::index::diskann::DiskAnnGraphReader,
+    pq_query: Option<&DiskAnnPqQuery<'_>>,
+    graph_query: &[f32],
+    id: u32,
+) -> Result<f32> {
+    if let Some(pq_query) = pq_query {
+        return Ok(0.5 * pq_query.distance_l2(id)?);
+    }
+    Ok(distance(
+        graph_query,
+        reader.read_node(id)?.vector,
+        index.distance_mode,
+    ))
 }

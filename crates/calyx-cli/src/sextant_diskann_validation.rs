@@ -7,7 +7,7 @@ use std::path::Path;
 use std::time::Instant;
 
 use calyx_core::{CxId, SlotId, SlotVector};
-use calyx_sextant::index::{DiskAnnSearch, SextantIndex};
+use calyx_sextant::index::{DiskAnnPqBuildParams, DiskAnnSearch, SextantIndex};
 use serde::Serialize;
 
 use support::{
@@ -22,6 +22,7 @@ struct Summary {
     root: String,
     graph_path: String,
     raw_dir: String,
+    pq_path: Option<String>,
     metrics_dir: String,
     node_count: usize,
     dim: usize,
@@ -42,6 +43,10 @@ struct Summary {
     graph_bytes: u64,
     raw_file_count: usize,
     raw_bytes_total: u64,
+    pq_bytes: Option<u64>,
+    pq_ram_bytes: Option<usize>,
+    pq_subvectors: Option<usize>,
+    pq_centroids: Option<usize>,
     hits_tsv: String,
 }
 
@@ -70,6 +75,7 @@ pub(crate) fn run(args: &[String]) -> crate::error::CliResult {
         Mode::DimMismatch => run_dim_mismatch_edge(&request),
         Mode::Truncated => run_truncated_edge(&request),
         Mode::MissingRaw => run_missing_raw_edge(&request),
+        Mode::CorruptPq => run_corrupt_pq_edge(&request),
     }
 }
 
@@ -78,15 +84,7 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
     let raw = raw_vectors(request.nodes, request.dim);
     let approx = approx_rows(&raw);
     write_raw_sidecar(&paths.raw_dir, &raw)?;
-    let index = DiskAnnSearch::build(
-        SLOT,
-        &paths.graph_path,
-        &approx,
-        build_params(request),
-        Some(paths.raw_dir.clone()),
-        search_params(request),
-    )
-    .map_err(|error| error.to_string())?;
+    let index = build_index(request, &paths, &approx)?;
     let mut latencies = Vec::with_capacity(request.queries);
     let mut recalls = Vec::with_capacity(request.queries);
     let mut hits_tsv = String::from("query_id\trank\tnode_id\tdistance\texact_top10\n");
@@ -130,6 +128,10 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
         root: request.root.display().to_string(),
         graph_path: paths.graph_path.display().to_string(),
         raw_dir: paths.raw_dir.display().to_string(),
+        pq_path: request
+            .pq
+            .is_some()
+            .then(|| paths.pq_path.display().to_string()),
         metrics_dir: paths.metrics_dir.display().to_string(),
         node_count: request.nodes,
         dim: request.dim,
@@ -159,6 +161,10 @@ fn run_happy(request: &Request) -> crate::error::CliResult {
             .map_err(|error| error.to_string())?
             .count(),
         raw_bytes_total: dir_bytes(&paths.raw_dir)?,
+        pq_bytes: file_len(&paths.pq_path),
+        pq_ram_bytes: index.pq_ram_bytes(),
+        pq_subvectors: index.pq_summary().map(|(_, subvectors, _)| subvectors),
+        pq_centroids: index.pq_summary().map(|(_, _, centroids)| centroids),
         hits_tsv: hits_path.display().to_string(),
     };
     let summary_path = paths.metrics_dir.join("diskann_search_summary.json");
@@ -293,15 +299,68 @@ fn build_edge_index(
     paths: &Paths,
     raw: &[(CxId, Vec<f32>)],
 ) -> Result<DiskAnnSearch, String> {
+    build_index(request, paths, &approx_rows(raw))
+}
+
+fn build_index(
+    request: &Request,
+    paths: &Paths,
+    approx: &[(CxId, Vec<f32>)],
+) -> Result<DiskAnnSearch, String> {
+    if let Some(pq) = request.pq {
+        return DiskAnnSearch::build_with_pq(
+            SLOT,
+            &paths.graph_path,
+            approx,
+            build_params(request),
+            Some(paths.raw_dir.clone()),
+            search_params(request),
+            pq,
+        )
+        .map_err(|error| error.to_string());
+    }
     DiskAnnSearch::build(
         SLOT,
         &paths.graph_path,
-        &approx_rows(raw),
+        approx,
         build_params(request),
         Some(paths.raw_dir.clone()),
         search_params(request),
     )
     .map_err(|error| error.to_string())
+}
+
+fn run_corrupt_pq_edge(request: &Request) -> crate::error::CliResult {
+    let paths = Paths::create(&request.root)?;
+    let raw = raw_vectors(64, request.dim);
+    write_raw_sidecar(&paths.raw_dir, &raw)?;
+    let mut build_request = request.clone();
+    if build_request.pq.is_none() {
+        build_request.pq = Some(DiskAnnPqBuildParams {
+            subvectors: 4,
+            centroids: 16,
+            iterations: 2,
+        });
+    }
+    let _ = build_edge_index(&build_request, &paths, &raw)?;
+    let before = file_len(&paths.graph_path);
+    fs::write(&paths.pq_path, b"not-a-pq").map_err(|error| error.to_string())?;
+    let err = DiskAnnSearch::open(
+        SLOT,
+        &paths.graph_path,
+        (0..64).map(cx).collect(),
+        Some(paths.raw_dir.clone()),
+        search_params(request),
+    )
+    .expect_err("corrupt pq sidecar must fail closed");
+    write_edge(
+        &request.root,
+        "corrupt-pq",
+        before,
+        file_len(&paths.graph_path),
+        err.code,
+        &err.message,
+    )
 }
 
 fn write_edge(
@@ -339,6 +398,7 @@ fn expected_error(mode: &str) -> &'static str {
         "empty" => "CALYX_INDEX_INVALID_PARAMS",
         "dim-mismatch" => "CALYX_INDEX_DIM_MISMATCH",
         "truncated" | "missing-raw" => "CALYX_INDEX_IO",
+        "corrupt-pq" => "CALYX_INDEX_CORRUPT",
         _ => "CALYX_INDEX_INVALID_PARAMS",
     }
 }
@@ -353,6 +413,7 @@ mod tests {
             root: "root".to_string(),
             graph_path: "root/idx/slot_00.ann/graph.cda".to_string(),
             raw_dir: "root/cf/slot_00.raw".to_string(),
+            pq_path: None,
             metrics_dir: "root/metrics".to_string(),
             node_count: 10,
             dim: 4,
@@ -373,6 +434,10 @@ mod tests {
             graph_bytes: 1,
             raw_file_count: 10,
             raw_bytes_total: 160,
+            pq_bytes: None,
+            pq_ram_bytes: None,
+            pq_subvectors: None,
+            pq_centroids: None,
             hits_tsv: "root/metrics/diskann_hits.tsv".to_string(),
         }
     }
