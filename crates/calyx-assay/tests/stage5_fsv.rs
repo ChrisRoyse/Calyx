@@ -21,7 +21,6 @@ use serde_json::json;
 
 mod stage5_helpers;
 use stage5_helpers::*;
-
 #[test]
 fn loom_cross_terms_materialization_and_reports_work() {
     let a = vec![1.0, 0.0];
@@ -389,6 +388,7 @@ fn stage5_full_stack_fsv() {
             panel_id: "stage5-panel-v1".to_string(),
             anchor: AnchorKind::Label("stage5-passfail".to_string()),
             computed_at_seq: 101,
+            observation_scope: None,
         },
     );
     let mut sink = InMemoryDeficitSink::default();

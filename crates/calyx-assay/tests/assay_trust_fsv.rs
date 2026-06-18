@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use calyx_assay::{
-    AssayCacheKey, AssayGate, AssayStore, AssaySubject, MiEstimate, SlotAttribution, TrustTag,
-    bits_report, bits_report_with_anchor, entropy_bits, ksg_mi_continuous_discrete,
+    AssayCacheKey, AssayGate, AssayStore, AssaySubject, CoverageMask, MiEstimate, SlotAttribution,
+    TrustTag, bits_report, bits_report_with_anchor, entropy_bits, ksg_mi_continuous_discrete,
     ksg_mi_continuous_discrete_with_anchor, logistic_probe_mi, logistic_probe_mi_with_anchor,
     panel_sufficiency, panel_sufficiency_with_anchor,
 };
@@ -46,11 +46,13 @@ fn assay_trust_tags_follow_grounded_anchor_evidence() {
             slot: SlotId::new(1),
             marginal_bits: 0.31,
             sole_carrier: true,
+            coverage: CoverageMask::Full,
         },
         SlotAttribution {
             slot: SlotId::new(2),
             marginal_bits: 0.04,
             sole_carrier: false,
+            coverage: CoverageMask::Full,
         },
     ];
     let bits_no_anchor = bits_report(attributions.clone(), TrustTag::Trusted);

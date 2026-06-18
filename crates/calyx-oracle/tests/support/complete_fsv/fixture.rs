@@ -52,6 +52,7 @@ impl FakeAssay {
                 sufficient: true,
                 deficit_bits: 0.0,
                 deficits: Vec::new(),
+                observation_scope: None,
                 trust: TrustTag::Trusted,
             },
         }
@@ -73,8 +74,10 @@ impl FakeAssay {
                     deficit_bits: 0.7,
                     suggested_action: DeficitSuggestedAction::ProposeLens,
                     computed_at_seq: 42,
+                    observation_scope: None,
                     reason: "synthetic insufficient panel".to_string(),
                 }],
+                observation_scope: None,
                 trust: TrustTag::Provisional,
             },
         }
