@@ -8,7 +8,7 @@ use calyx_core::{CalyxError, Input, Modality};
 use crate::server::{ToolError, ToolResult};
 use crate::tools::vault::store::ResolvedVault;
 
-const INPUT_POINTER_PREFIX: &str = "calyx-vault://";
+pub(super) const INPUT_POINTER_PREFIX: &str = "calyx-vault://";
 
 pub(super) fn retained_text_input(resolved: &ResolvedVault, text: &str) -> ToolResult<Input> {
     let bytes = text.as_bytes().to_vec();
@@ -22,7 +22,7 @@ pub(super) fn input_hash(bytes: &[u8]) -> [u8; 32] {
     full_content_hash([bytes])
 }
 
-fn write_input_blob(path: &Path, bytes: &[u8]) -> ToolResult<()> {
+pub(super) fn write_input_blob(path: &Path, bytes: &[u8]) -> ToolResult<()> {
     if let Ok(existing) = fs::read(path) {
         if existing == bytes {
             return Ok(());

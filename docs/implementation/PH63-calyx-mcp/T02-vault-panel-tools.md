@@ -32,7 +32,8 @@ descriptions. These are the setup tools an agent calls once to configure a vault
   - Schema: `{"vault": string(required), "name": string(required), "runtime":
     string(required, enum:["tei-http","onnx","candle","algorithmic"]), "endpoint":
     string(optional), "weights": string(optional), "shape": string(optional,
-    e.g. "Dense(768)")}`
+    e.g. "Dense(768)"), "modality": string(optional,
+    enum:["text","code","image","audio","video","structured","mixed"])}`
   - Use when: `"add a measurement axis — the one call that replaces a whole pipeline"`
   - Returns: `{"lens_id":"<hex16>","slot_id":<u16>,"name":"…","state":"active"}`
   - `CALYX_LENS_DIM_MISMATCH` → error with `data.remediation: "fix lens or slot shape"`
@@ -46,12 +47,13 @@ descriptions. These are the setup tools an agent calls once to configure a vault
 - [ ] **`calyx.list_panel`** schema and impl:
   - Schema: `{"vault": string(required)}`
   - Use when: `"see lenses, their bits signal, and state"`
-  - Returns: `{"slots":[{"slot":0,"name":"…","state":"active","bits":0.72,
-    "ci":[0.61,0.83],"lens_id":"…"}]}`
+  - Returns: `{"slots":[{"slot":0,"name":"…","state":"active",
+    "modality":"text","bits":0.72,"ci":[0.61,0.83],"lens_id":"…"}]}`
 
 - [ ] **`calyx.profile_lens`** schema and impl:
   - Schema: `{"runtime": string(required), "endpoint": string(optional),
-    "weights": string(optional), "probe": string(optional, JSONL path)}`
+    "weights": string(optional), "probe": string(optional, JSONL path),
+    "modality": string(optional)}`
   - Use when: `"get a capability card before committing to a lens"`
   - Returns: `CapabilityCard` JSON with `signal`, `spread`, `separation`, `cost`
 

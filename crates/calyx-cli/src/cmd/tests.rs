@@ -1,5 +1,7 @@
 use proptest::prelude::*;
 
+use calyx_core::Modality;
+
 use super::*;
 
 #[test]
@@ -58,6 +60,32 @@ fn parse_ingest_text_command() {
             vault: "mydb".to_string(),
             text: Some("hello".to_string()),
             batch: None,
+            file: None,
+            modality: None,
+            idempotent: true,
+        })
+    );
+}
+
+#[test]
+fn parse_ingest_video_file_command() {
+    let parsed = parse(&tokens([
+        "ingest",
+        "media",
+        "--file",
+        "clip.webm",
+        "--modality",
+        "video",
+    ]))
+    .unwrap();
+    assert_eq!(
+        parsed,
+        Subcommand::Ingest(IngestArgs {
+            vault: "media".to_string(),
+            text: None,
+            batch: None,
+            file: Some("clip.webm".into()),
+            modality: Some(Modality::Video),
             idempotent: true,
         })
     );
@@ -187,6 +215,8 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             vault,
             text: Some("roundtrip".to_string()),
             batch: None,
+            file: None,
+            modality: None,
             idempotent: true,
         })),
         safe_name().prop_map(|vault| Subcommand::Measure(MeasureArgs {
@@ -362,10 +392,24 @@ fn ingest_tokens(args: &IngestArgs) -> Vec<String> {
         "--batch",
         args.batch.as_ref().and_then(|path| path.to_str()),
     );
+    push_opt(
+        &mut out,
+        "--file",
+        args.file.as_ref().and_then(|path| path.to_str()),
+    );
+    push_opt(&mut out, "--modality", args.modality.map(modality_name));
     if args.idempotent {
         out.push("--idempotent".to_string());
     }
     out
+}
+
+fn modality_name(value: Modality) -> &'static str {
+    match value {
+        Modality::Audio => "audio",
+        Modality::Video => "video",
+        _ => "media",
+    }
 }
 
 fn anchor_tokens(args: &AnchorArgs) -> Vec<String> {

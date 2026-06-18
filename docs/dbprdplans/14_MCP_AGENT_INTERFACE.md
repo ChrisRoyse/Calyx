@@ -24,7 +24,8 @@ Implements A17. Primary user = AI agent. Goal: **zero hand-written multi-embedde
 ### Ingest & measure
 | Tool | Use when |
 |---|---|
-| `calyx.ingest(vault, input | batch)` | store data → constellation (auto multi-lens, idempotent) |
+| `calyx.ingest(vault, input | batch)` | store text data → constellation (auto multi-lens, idempotent) |
+| `calyx.ingest_media(vault, file, modality)` | store retained audio/video bytes → constellation |
 | `calyx.anchor(vault, cx_id, outcome)` | attach a grounded outcome (test pass, thumbs, label) |
 | `calyx.measure(vault, input)` | get the constellation without storing (for guarding a candidate) |
 

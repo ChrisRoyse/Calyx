@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use calyx_core::{Anchor, CxId, VaultStore};
+use calyx_core::{Anchor, CxId, Input, VaultStore};
 use calyx_ledger::EntryKind;
 use calyx_registry::load_vault_panel_state;
 
@@ -15,6 +15,7 @@ use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vaul
 use super::types::{AnchorReport, IngestReport};
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
+use crate::raw_media::{media_metadata, retain_media_input};
 
 const DEFAULT_ANCHOR_SOURCE: &str = "calyx-cli";
 
@@ -29,12 +30,24 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 
 fn ingest_command(args: IngestArgs) -> CliResult {
     let resolved = resolve_cli_vault(&args.vault)?;
-    let texts = if let Some(text) = args.text {
-        vec![text]
+    let reports = if let Some(path) = args.file {
+        let modality = args.modality.expect("parser requires modality with --file");
+        let retained = retain_media_input(&resolved.path, &path, modality)?;
+        let metadata = media_metadata(&retained);
+        ingest_prepared_inputs(
+            &resolved,
+            vec![PreparedInput {
+                input: retained.input,
+                metadata,
+            }],
+        )?
+    } else if let Some(text) = args.text {
+        ingest_texts(&resolved, &[text])?
     } else {
-        read_batch_texts(args.batch.as_deref().expect("validated batch path"))?
+        let texts = read_batch_texts(args.batch.as_deref().expect("validated batch path"))?;
+        ingest_texts(&resolved, &texts)?
     };
-    for report in ingest_texts(&resolved, &texts)? {
+    for report in reports {
         print_json(&report)?;
     }
     Ok(())
@@ -83,14 +96,39 @@ pub(super) fn ingest_texts(
     if texts.is_empty() {
         return Ok(Vec::new());
     }
+    let prepared = texts
+        .iter()
+        .map(|text| {
+            super::parse::validate_text(text)?;
+            Ok(PreparedInput {
+                input: text_input(text.clone()),
+                metadata: BTreeMap::new(),
+            })
+        })
+        .collect::<CliResult<Vec<_>>>()?;
+    ingest_prepared_inputs(resolved, prepared)
+}
+
+struct PreparedInput {
+    input: Input,
+    metadata: BTreeMap<String, String>,
+}
+
+fn ingest_prepared_inputs(
+    resolved: &ResolvedVault,
+    inputs: Vec<PreparedInput>,
+) -> CliResult<Vec<IngestReport>> {
+    if inputs.is_empty() {
+        return Ok(Vec::new());
+    }
     let vault = open_vault(resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let mut staged = Vec::new();
-    let mut prepared = Vec::with_capacity(texts.len());
+    let mut prepared = Vec::with_capacity(inputs.len());
     let mut first_new = BTreeSet::new();
-    for text in texts {
-        super::parse::validate_text(text)?;
-        let cx = measure_constellation(&vault, &state, text_input(text.clone()), now_ms())?;
+    for prepared_input in inputs {
+        let mut cx = measure_constellation(&vault, &state, prepared_input.input, now_ms())?;
+        cx.metadata = prepared_input.metadata;
         let new = !base_exists(&vault, cx.cx_id)? && first_new.insert(cx.cx_id);
         if new {
             staged.push(cx.clone());

@@ -427,6 +427,17 @@ metrics dir; writes metric outputs; prints evidence.
 `--samples --metrics-dir --vault` (required); optional `--min-bits` (0.05),
 `--k` (3), `--vault-id`, `--salt` (`calyx-ph70-media-emotion`).
 
+### `media video-validate` / `media video-readback` (`media_video_validation`)
+
+`video-validate`: `--metadata --metrics-dir --vault` (required); optional
+`--dataset-root`, `--vault-id`, `--salt` (`calyx-ph70-media-video`). Reads
+real video files, validates extension/signature/`ffprobe` metadata, retains
+source bytes, writes video rows/slot vectors/Online evidence, and prints JSON.
+
+`video-readback`: `--vault` (required); optional `--vault-id`, `--salt`. Scans
+Base rows, verifies retained blob SHA256/byte counts, and decodes video slot
+rows for manual FSV.
+
 ### `lodestar kernel-validate` (`lodestar_commands`)
 
 `--corpora-dir --metrics-dir` (required); optional `--query-limit` (500),

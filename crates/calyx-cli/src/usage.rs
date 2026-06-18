@@ -13,7 +13,7 @@ pub(crate) fn usage() -> &'static str {
        calyx park-lens <vault> --slot <u16>
        calyx list-panel <vault>
        calyx profile-lens [--name <n>] [--runtime <r>] [--endpoint <url-or-runtime-id>] [--weights <path>] [--shape Dense(<dim>)|Sparse(<dim>)] [--modality <m>] [--probe <path>]
-       calyx ingest <vault> (--text <s> | --batch <jsonl-path>) [--idempotent]
+       calyx ingest <vault> (--text <s> | --batch <jsonl-path> | --file <path> --modality <audio|video>) [--idempotent]
        calyx anchor <vault> <cx_id> --kind <test-pass|thumbs-up|thumbs-down|label:<s>|speaker-match|style-hold> --value <v> [--confidence <0..1>] [--source <s>]
        calyx measure <vault> --text <s>
        calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--explain] [--provenance|--no-provenance] [--fresh|--stale-ok] [--filter <json-predicate>]
@@ -67,6 +67,8 @@ pub(crate) fn usage() -> &'static str {
        calyx summarize --vault <dir> --scope <json|@file> --out <json> [--graph <id>] [--as-of <ms>] [--anchor-label <label>] [--max-kernel-size <n>] [--require-grounded]
        calyx media image-validate --samples <jsonl> --metrics-dir <dir> --vault <dir> [--min-image-bits <f>] [--min-cross-modal-bits <f>] [--k <n>]
        calyx media emotion-validate --samples <jsonl> --metrics-dir <dir> --vault <dir> [--min-bits <f>] [--k <n>]
+       calyx media video-validate --metadata <jsonl> [--dataset-root <dir>] --metrics-dir <dir> --vault <dir> [--vault-id <id>] [--salt <s>]
+       calyx media video-readback --vault <dir> [--vault-id <id>] [--salt <s>]
        calyx anneal deficit-map --anchor <anchor_id> --fixture <json> [--threshold <bits>]
        calyx anneal propose-preview --anchor <anchor_id> --deficit <json> --corpus <json>
        calyx anneal lens-proposal-log --fixture <json> --last <n>

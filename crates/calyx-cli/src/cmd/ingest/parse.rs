@@ -8,6 +8,8 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
         .clone();
     let mut text = None;
     let mut batch = None;
+    let mut file = None;
+    let mut modality = None;
     let mut idempotent = true;
     let mut idx = 1;
     while idx < rest.len() {
@@ -22,6 +24,18 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 batch = Some(value(rest, idx, "--batch")?.into());
             }
+            "--file" => {
+                idx += 1;
+                file = Some(value(rest, idx, "--file")?.into());
+            }
+            "--modality" => {
+                idx += 1;
+                modality = Some(crate::raw_media::parse_audio_video_modality(value(
+                    rest,
+                    idx,
+                    "--modality",
+                )?)?);
+            }
             "--idempotent" => {
                 if let Some(raw) = rest.get(idx + 1).filter(|next| !next.starts_with("--")) {
                     idx += 1;
@@ -35,10 +49,20 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
         }
         idx += 1;
     }
-    if text.is_some() == batch.is_some() {
+    let payload_count =
+        usize::from(text.is_some()) + usize::from(batch.is_some()) + usize::from(file.is_some());
+    if payload_count != 1 {
         return Err(CliError::usage(
-            "ingest requires exactly one of --text <s> or --batch <jsonl-path>",
+            "ingest requires exactly one of --text <s>, --batch <jsonl-path>, or --file <path>",
         ));
+    }
+    if file.is_some() && modality.is_none() {
+        return Err(CliError::usage(
+            "ingest --file requires --modality <audio|video>",
+        ));
+    }
+    if file.is_none() && modality.is_some() {
+        return Err(CliError::usage("--modality is only valid with --file"));
     }
     if !idempotent {
         return Err(CliError::usage(
@@ -49,6 +73,8 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
         vault,
         text,
         batch,
+        file,
+        modality,
         idempotent,
     }))
 }

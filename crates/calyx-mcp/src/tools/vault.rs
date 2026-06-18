@@ -129,6 +129,19 @@ impl Tool for AddLensTool {
                 ("endpoint", string_schema(), false),
                 ("weights", string_schema(), false),
                 ("shape", string_schema(), false),
+                (
+                    "modality",
+                    enum_string(&[
+                        "text",
+                        "code",
+                        "image",
+                        "audio",
+                        "video",
+                        "structured",
+                        "mixed",
+                    ]),
+                    false,
+                ),
             ]),
         )
     }
@@ -145,6 +158,7 @@ impl Tool for AddLensTool {
             args.endpoint.as_deref(),
             args.weights.as_deref(),
             args.shape.as_deref(),
+            args.modality.as_deref(),
         )?;
         let lens_id = built.lens_id;
         let shape = built.spec.output;
@@ -249,6 +263,19 @@ impl Tool for ProfileLensTool {
                 ("endpoint", string_schema(), false),
                 ("weights", string_schema(), false),
                 ("probe", string_schema(), false),
+                (
+                    "modality",
+                    enum_string(&[
+                        "text",
+                        "code",
+                        "image",
+                        "audio",
+                        "video",
+                        "structured",
+                        "mixed",
+                    ]),
+                    false,
+                ),
             ]),
         )
     }
@@ -260,6 +287,7 @@ impl Tool for ProfileLensTool {
             args.endpoint.as_deref(),
             args.weights.as_deref(),
             args.probe.as_deref(),
+            args.modality.as_deref(),
         )?))
     }
 }
@@ -278,6 +306,7 @@ struct AddLensArgs {
     endpoint: Option<String>,
     weights: Option<String>,
     shape: Option<String>,
+    modality: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -297,6 +326,7 @@ struct ProfileLensArgs {
     endpoint: Option<String>,
     weights: Option<String>,
     probe: Option<String>,
+    modality: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -348,6 +378,7 @@ fn slot_report(slot: &Slot) -> Value {
         "slot": slot.slot_id.get(),
         "name": slot.slot_key.key(),
         "state": state_name(slot.state),
+        "modality": slot.modality,
         "bits": bits,
         "ci": ci,
         "lens_id": slot.lens_id.to_string(),
