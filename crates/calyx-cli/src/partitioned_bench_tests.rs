@@ -38,6 +38,19 @@ fn recall_floor_accepts_true_recall_at_floor() {
     enforce_recall_floor(Some(0.85), 200, Some(0.85)).unwrap();
 }
 
+#[test]
+fn partitioned_search_rejects_zero_probe_count() {
+    let args = strings(["--vault", "vault", "--n-probe", "0"]);
+
+    let err = match SearchArgs::parse(&args) {
+        Ok(_) => panic!("zero n-probe accepted"),
+        Err(err) => err,
+    };
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("--n-probe must be > 0"));
+}
+
 fn strings(items: impl IntoIterator<Item = &'static str>) -> Vec<String> {
     items.into_iter().map(str::to_string).collect()
 }

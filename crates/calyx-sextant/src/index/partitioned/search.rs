@@ -4,10 +4,12 @@ use std::sync::{Arc, Mutex};
 
 use calyx_core::{Result, SlotId};
 use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
 
 use crate::index::{DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex};
 
-use super::{CENTROID_DIR, MANIFEST_FILE, PartitionedManifest, RegionMeta, cx, read_ids};
+use super::assignment::read_ids;
+use super::{CENTROID_DIR, MANIFEST_FILE, PartitionedManifest, RegionMeta, cx};
 
 /// Region-restricted searcher over a partitioned vault. Holds centroids in RAM
 /// and lazily mmaps region graphs on demand (only probed regions are resident).
@@ -23,6 +25,12 @@ pub struct PartitionedSearch {
 /// A reference-counted, opened region graph plus its local->global id map. Cloned
 /// out of the cache so probed regions can be searched in parallel without the lock.
 type RegionHandle = Arc<(DiskAnnSearch, Vec<u64>)>;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PartitionedSearchReadback {
+    pub hits: Vec<(u64, f32)>,
+    pub touched_regions: Vec<u32>,
+}
 
 impl PartitionedSearch {
     pub fn open(root: &Path) -> Result<Self> {
@@ -57,8 +65,23 @@ impl PartitionedSearch {
         n_probe: usize,
         region_beam: usize,
     ) -> Result<Vec<(u64, f32)>> {
+        Ok(self
+            .search_with_readback(query, k, n_probe, region_beam)?
+            .hits)
+    }
+
+    pub fn search_with_readback(
+        &self,
+        query: &[f32],
+        k: usize,
+        n_probe: usize,
+        region_beam: usize,
+    ) -> Result<PartitionedSearchReadback> {
         if k == 0 {
-            return Ok(Vec::new());
+            return Ok(PartitionedSearchReadback {
+                hits: Vec::new(),
+                touched_regions: Vec::new(),
+            });
         }
         let regions = self.centroids.nearest_centroids(query, n_probe.max(1));
         let sp = DiskAnnSearchParams {
@@ -73,12 +96,14 @@ impl PartitionedSearch {
         // independent, so per-query latency tracks the slowest single region, not
         // their sum). This is the main lever that brings p99 under the SLO.
         let mut handles: Vec<RegionHandle> = Vec::with_capacity(regions.len());
+        let mut touched_regions = Vec::with_capacity(regions.len());
         {
             let mut cache = self.cache.lock().expect("partitioned cache poisoned");
             for region in regions {
                 let Some(meta) = self.region_meta.get(&region) else {
                     continue;
                 };
+                touched_regions.push(region);
                 if let std::collections::btree_map::Entry::Vacant(slot) = cache.entry(region) {
                     let ids = read_ids(&self.root.join(&meta.ids_rel))?;
                     let search = DiskAnnSearch::open(
@@ -110,7 +135,10 @@ impl PartitionedSearch {
         hits.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
         hits.dedup_by_key(|(id, _)| *id);
         hits.truncate(k);
-        Ok(hits)
+        Ok(PartitionedSearchReadback {
+            hits,
+            touched_regions,
+        })
     }
 
     pub fn dim(&self) -> usize {
