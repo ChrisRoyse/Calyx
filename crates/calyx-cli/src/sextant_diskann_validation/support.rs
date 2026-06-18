@@ -25,6 +25,7 @@ pub(super) struct Request {
     pub(super) beamwidth: usize,
     pub(super) ef_search: usize,
     pub(super) rescore_k: usize,
+    pub(super) recall_floor: Option<f64>,
 }
 
 #[derive(Clone)]
@@ -79,6 +80,7 @@ impl Request {
             beamwidth: number(args, "--beamwidth", 32)?,
             ef_search: number(args, "--ef-search", 128)?.max(k),
             rescore_k: number(args, "--rescore-k", 64)?.max(k),
+            recall_floor: recall_floor(args)?,
         })
     }
 }
@@ -230,8 +232,44 @@ fn number(args: &[String], flag: &str, default: usize) -> Result<usize, String> 
         })
 }
 
+fn recall_floor(args: &[String]) -> Result<Option<f64>, String> {
+    let Some(raw) = value(args, "--recall-floor") else {
+        return Ok(None);
+    };
+    let floor: f64 = raw
+        .parse()
+        .map_err(|error| format!("--recall-floor: {error}"))?;
+    if !floor.is_finite() || !(0.0..=1.0).contains(&floor) {
+        return Err("--recall-floor must be finite in [0, 1]".to_string());
+    }
+    Ok(Some(floor))
+}
+
 fn value<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
     args.windows(2)
         .find(|window| window[0] == flag)
         .map(|window| window[1].as_str())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|arg| (*arg).to_string()).collect()
+    }
+
+    #[test]
+    fn parses_recall_floor() {
+        let args = strings(&["--root", "vault", "--recall-floor", "0.85"]);
+        let request = Request::parse(&args).expect("parse");
+        assert_eq!(request.recall_floor, Some(0.85));
+    }
+
+    #[test]
+    fn rejects_invalid_recall_floor() {
+        let args = strings(&["--root", "vault", "--recall-floor", "1.1"]);
+        let error = Request::parse(&args).expect_err("recall floor > 1");
+        assert!(error.contains("--recall-floor must be finite in [0, 1]"));
+    }
 }
