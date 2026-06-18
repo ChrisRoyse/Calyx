@@ -23,11 +23,23 @@ pub(crate) struct BuildRows {
 
 #[derive(Deserialize)]
 struct RawRow {
-    id: String,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    source: Option<String>,
+    #[serde(default)]
+    row: Option<usize>,
     #[serde(default)]
     split: String,
     text: String,
-    label: usize,
+    label: RawLabel,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum RawLabel {
+    Number(usize),
+    String(String),
 }
 
 pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, String> {
@@ -47,22 +59,24 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
             format!("CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx}: {error}")
         })?;
         validate_row(line_idx, &raw)?;
+        let id = row_id(line_idx, &raw)?;
+        let label = row_label(line_idx, &raw.label)?;
         if let Some(limit) = request.limit_per_class {
-            let count = counts.get(&raw.label).copied().unwrap_or(0);
+            let count = counts.get(&label).copied().unwrap_or(0);
             if count >= limit {
                 continue;
             }
         }
-        *counts.entry(raw.label).or_insert(0) += 1;
+        *counts.entry(label).or_insert(0) += 1;
         rows.push(LabeledRow {
-            id: raw.id,
+            id,
             split: if raw.split.trim().is_empty() {
                 "unspecified".to_string()
             } else {
                 raw.split
             },
             text: raw.text,
-            label: raw.label,
+            label,
         });
     }
     validate_loaded_rows(request, &rows)?;
@@ -74,17 +88,38 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
 }
 
 fn validate_row(line_idx: usize, row: &RawRow) -> Result<(), String> {
-    if row.id.trim().is_empty() {
-        return Err(format!(
-            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} id is empty"
-        ));
-    }
     if row.text.trim().is_empty() {
         return Err(format!(
             "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} text is empty"
         ));
     }
     Ok(())
+}
+
+fn row_id(line_idx: usize, row: &RawRow) -> Result<String, String> {
+    row.id
+        .as_deref()
+        .or(row.source.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| row.row.map(|idx| format!("row:{idx}")))
+        .ok_or_else(|| {
+            format!(
+                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} requires id, source, or row"
+            )
+        })
+}
+
+fn row_label(line_idx: usize, label: &RawLabel) -> Result<usize, String> {
+    match label {
+        RawLabel::Number(value) => Ok(*value),
+        RawLabel::String(value) => value.trim().parse::<usize>().map_err(|error| {
+            format!(
+                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} label must be usize: {error}"
+            )
+        }),
+    }
 }
 
 fn validate_loaded_rows(request: &CorpusBuildRequest, rows: &[LabeledRow]) -> Result<(), String> {

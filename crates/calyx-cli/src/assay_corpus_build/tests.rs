@@ -90,6 +90,57 @@ fn corpus_build_measures_algorithmic_code_and_sparse_lenses() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn corpus_build_accepts_source_rows_with_string_labels() {
+    let root = temp_root("assay-corpus-source-labels");
+    let rows = root.join("rows.jsonl");
+    let mut lines = String::new();
+    for idx in 0..60 {
+        lines.push_str(&format!(
+            "{}\n",
+            serde_json::json!({
+                "source": format!("ag_news://train.parquet#row={idx}"),
+                "row": idx,
+                "text": format!("real news row {idx} with enough lexical content"),
+                "label": (idx % 2).to_string()
+            })
+        ));
+    }
+    fs::write(&rows, lines).unwrap();
+    let request = rows_request(&rows, &root.join("out"));
+
+    let loaded = data::load_rows(&request).unwrap();
+
+    assert_eq!(loaded.rows.len(), 60);
+    assert_eq!(loaded.rows[0].id, "ag_news://train.parquet#row=0");
+    assert_eq!(loaded.rows[1].label, 1);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn corpus_build_rejects_invalid_string_label() {
+    let root = temp_root("assay-corpus-bad-label");
+    let rows = root.join("rows.jsonl");
+    fs::write(
+        &rows,
+        format!(
+            "{}\n",
+            serde_json::json!({
+                "source": "ag_news://train.parquet#row=0",
+                "text": "bad label row",
+                "label": "business"
+            })
+        ),
+    )
+    .unwrap();
+    let request = rows_request(&rows, &root.join("out"));
+
+    let error = data::load_rows(&request).unwrap_err();
+
+    assert!(error.contains("label must be usize"));
+    let _ = fs::remove_dir_all(root);
+}
+
 fn write_code_rows(path: &Path, rows: usize) {
     let mut lines = String::new();
     for idx in 0..rows {
@@ -114,6 +165,20 @@ fn write_code_rows(path: &Path, rows: usize) {
         ));
     }
     fs::write(path, lines).unwrap();
+}
+
+fn rows_request(rows_jsonl: &Path, out_dir: &Path) -> CorpusBuildRequest {
+    CorpusBuildRequest {
+        rows_jsonl: rows_jsonl.to_path_buf(),
+        out_dir: out_dir.to_path_buf(),
+        dataset: "rows-fixture".to_string(),
+        target_class: 0,
+        manifests: Vec::new(),
+        limit_per_class: None,
+        batch_size: 8,
+        cost_override_json: None,
+        embedding_model_id: None,
+    }
 }
 
 fn write_manifest(root: &Path, file_name: &str, name: &str, runtime: &str, dim: u32) -> PathBuf {

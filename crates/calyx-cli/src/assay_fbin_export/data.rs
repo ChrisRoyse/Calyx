@@ -1,0 +1,280 @@
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use calyx_registry::lens_spec_from_manifest_path;
+use serde::Deserialize;
+
+use crate::error::CliResult;
+
+use super::{MIN_A35_LENSES, local_error};
+
+#[derive(Debug)]
+pub(super) struct VectorScan {
+    pub(super) rows: usize,
+    pub(super) lens_dims: BTreeMap<String, usize>,
+}
+
+#[derive(Debug)]
+pub(super) struct LensMeta {
+    pub(super) lens_id: String,
+    pub(super) weights_sha256: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct BitsLens {
+    pub(super) name: String,
+    pub(super) bits_about: f32,
+    pub(super) admitted: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub(super) struct VectorRow {
+    pub(super) id: String,
+    pub(super) lenses: BTreeMap<String, Vec<f32>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuildReport {
+    lenses: Vec<BuildLensRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BuildLensRef {
+    name: String,
+    manifest: PathBuf,
+}
+
+#[derive(Debug, Deserialize)]
+struct BitsReport {
+    lenses: Option<Vec<BitsLens>>,
+    report: Option<BitsReportInner>,
+}
+
+#[derive(Debug, Deserialize)]
+struct BitsReportInner {
+    lenses: Vec<BitsLens>,
+}
+
+pub(super) fn scan_vectors(path: &Path) -> CliResult<VectorScan> {
+    let text = fs::read_to_string(path).map_err(|error| {
+        local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_IO",
+            format!("read {} failed: {error}", path.display()),
+            "inspect the corpus-build output and rerun export-fbin",
+        )
+    })?;
+    let mut rows = 0usize;
+    let mut lens_dims: BTreeMap<String, usize> = BTreeMap::new();
+    for (line_idx, line) in text.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row = parse_vector_row(line_idx, line)?;
+        validate_row(line_idx, &row)?;
+        let dims = row_dims(line_idx, &row)?;
+        if rows == 0 {
+            lens_dims = dims;
+        } else if dims != lens_dims {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_FBIN_EXPORT_LENS_SET_MISMATCH",
+                format!("line {line_idx} lens set or dimensions differ from line 0"),
+                "rebuild the corpus so every row has the same frozen lens roster",
+            ));
+        }
+        rows += 1;
+    }
+    if rows == 0 {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_EMPTY",
+            format!("{} contains no vector rows", path.display()),
+            "rerun corpus-build and inspect vectors.jsonl",
+        ));
+    }
+    Ok(VectorScan { rows, lens_dims })
+}
+
+pub(super) fn parse_vector_row(line_idx: usize, line: &str) -> CliResult<VectorRow> {
+    serde_json::from_str(line).map_err(|error| {
+        local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_INVALID_VECTOR_ROW",
+            format!("line {line_idx}: {error}"),
+            "fix vectors.jsonl so every row has id and lenses",
+        )
+    })
+}
+
+pub(super) fn validate_row(line_idx: usize, row: &VectorRow) -> CliResult {
+    if row.id.trim().is_empty() {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_INVALID_VECTOR_ROW",
+            format!("line {line_idx} id is empty"),
+            "fix vectors.jsonl so every row has a stable id",
+        ));
+    }
+    if row.lenses.is_empty() {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_INVALID_VECTOR_ROW",
+            format!("line {line_idx} has no lenses"),
+            "rerun corpus-build with a real multi-lens panel",
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn row_dims(line_idx: usize, row: &VectorRow) -> CliResult<BTreeMap<String, usize>> {
+    let mut dims = BTreeMap::new();
+    for (name, vector) in &row.lenses {
+        if vector.is_empty() || vector.iter().any(|value| !value.is_finite()) {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_FBIN_EXPORT_INVALID_VECTOR",
+                format!("line {line_idx} lens {name} has empty or non-finite vector"),
+                "rerun corpus-build and inspect the offending vector row",
+            ));
+        }
+        dims.insert(name.clone(), vector.len());
+    }
+    Ok(dims)
+}
+
+pub(super) fn load_lens_meta(
+    corpus_dir: &Path,
+    dims: &BTreeMap<String, usize>,
+) -> CliResult<BTreeMap<String, LensMeta>> {
+    let path = corpus_dir.join("corpus_build_report.json");
+    let report: BuildReport = serde_json::from_slice(&fs::read(&path).map_err(|error| {
+        local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_BUILD_REPORT_IO",
+            format!("read {} failed: {error}", path.display()),
+            "export-fbin requires the corpus_build_report.json source of truth",
+        )
+    })?)
+    .map_err(|error| {
+        local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_BUILD_REPORT_INVALID",
+            format!("parse {} failed: {error}", path.display()),
+            "rerun assay corpus-build and inspect corpus_build_report.json",
+        )
+    })?;
+    let mut meta = BTreeMap::new();
+    for lens in report.lenses {
+        if dims.contains_key(&lens.name) {
+            meta.insert(lens.name.clone(), lens_meta(corpus_dir, &lens)?);
+        }
+    }
+    for name in dims.keys() {
+        if !meta.contains_key(name) {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_FBIN_EXPORT_METADATA_MISSING",
+                format!("lens {name} missing from corpus_build_report.json"),
+                "rerun assay corpus-build so every vector lens has a frozen manifest",
+            ));
+        }
+    }
+    Ok(meta)
+}
+
+fn lens_meta(corpus_dir: &Path, lens: &BuildLensRef) -> CliResult<LensMeta> {
+    let manifest = resolve_path(corpus_dir, &lens.manifest);
+    let spec = lens_spec_from_manifest_path(&manifest).map_err(|error| {
+        local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_MANIFEST_INVALID",
+            format!("{}: {}", manifest.display(), error.message),
+            "fix the frozen lens manifest referenced by corpus_build_report.json",
+        )
+    })?;
+    Ok(LensMeta {
+        lens_id: spec.lens_id().to_string(),
+        weights_sha256: hex32(&spec.weights_sha256),
+    })
+}
+
+pub(super) fn load_bits_report(path: &Path) -> CliResult<BTreeMap<String, BitsLens>> {
+    let report: BitsReport = serde_json::from_slice(&fs::read(path).map_err(|error| {
+        local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_BITS_IO",
+            format!("read {} failed: {error}", path.display()),
+            "run assay bits-validate and pass its assay_abundance.json or evidence JSON",
+        )
+    })?)
+    .map_err(|error| {
+        local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_BITS_INVALID",
+            format!("parse {} failed: {error}", path.display()),
+            "pass a valid assay bits report with per-lens bits_about",
+        )
+    })?;
+    let lenses = report
+        .lenses
+        .or_else(|| report.report.map(|inner| inner.lenses))
+        .ok_or_else(|| {
+            local_error(
+                "CALYX_FSV_ASSAY_FBIN_EXPORT_BITS_INVALID",
+                "bits report missing lenses".to_string(),
+                "pass assay_abundance.json or the full bits-validate evidence JSON",
+            )
+        })?;
+    Ok(lenses
+        .into_iter()
+        .map(|lens| (lens.name.clone(), lens))
+        .collect())
+}
+
+pub(super) fn selected_lenses(
+    dims: &BTreeMap<String, usize>,
+    meta: &BTreeMap<String, LensMeta>,
+    bits: &BTreeMap<String, BitsLens>,
+    min_bits: f32,
+) -> CliResult<Vec<String>> {
+    let selected = dims
+        .keys()
+        .filter(|name| meta.contains_key(*name))
+        .filter(|name| admitted(bits.get(*name), min_bits))
+        .cloned()
+        .collect::<Vec<_>>();
+    if selected.len() < MIN_A35_LENSES {
+        return Err(local_error(
+            "CALYX_FSV_ASSAY_FBIN_EXPORT_PANEL_TOO_SMALL",
+            format!(
+                "selected {} admitted lenses; A35 requires at least {MIN_A35_LENSES}",
+                selected.len()
+            ),
+            "run bits-validate on a real panel and export at least four admitted signal-bearing lenses",
+        ));
+    }
+    Ok(selected)
+}
+
+pub(super) fn ensure_selected_present(
+    row: &VectorRow,
+    selected: &BTreeSet<String>,
+    line_idx: usize,
+) -> CliResult {
+    for name in selected {
+        if !row.lenses.contains_key(name) {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_FBIN_EXPORT_LENS_MISSING",
+                format!("line {line_idx} missing lens {name}"),
+                "rebuild the corpus so every row has the same selected lens roster",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn admitted(lens: Option<&BitsLens>, min_bits: f32) -> bool {
+    lens.map(|lens| lens.admitted && lens.bits_about.is_finite() && lens.bits_about >= min_bits)
+        .unwrap_or(false)
+}
+
+fn resolve_path(base: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    }
+}
+
+fn hex32(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
