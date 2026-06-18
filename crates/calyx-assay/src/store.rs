@@ -407,6 +407,7 @@ mod tests {
             n_samples: 120,
             estimator: EstimatorKind::Ksg,
             trust: TrustTag::Trusted,
+            reliability: None,
         }
     }
 

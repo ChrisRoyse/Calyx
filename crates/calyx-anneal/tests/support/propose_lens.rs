@@ -342,6 +342,7 @@ fn card(
         probe_count,
         signal: Some(bits),
         signal_source: MetricSource::AssayStore,
+        signal_reliability: None,
         proxy_signal: bits,
         differentiation: None,
         differentiation_source: MetricSource::AssayPending,

@@ -8,6 +8,7 @@
 //! estimators and persist per-lens estimates to the Assay column family.
 
 mod comparison;
+mod correlation;
 pub(crate) mod cost;
 mod data;
 mod engine;

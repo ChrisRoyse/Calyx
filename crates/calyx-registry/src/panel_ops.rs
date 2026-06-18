@@ -1,15 +1,14 @@
+use crate::Registry;
+use crate::panels::{PanelLensRuntime, PanelTemplate, instantiate_panel};
+use crate::profile::{CapabilityGateDecision, CapabilityGateEvaluation};
+use crate::spec::LensHealth;
+use crate::swap::{LifecycleOutcome, SwapController};
 use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
 use calyx_core::{
     CalyxError, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotResource,
     SlotState, Ts,
 };
 use serde::{Deserialize, Serialize};
-
-use crate::Registry;
-use crate::panels::{PanelLensRuntime, PanelTemplate, instantiate_panel};
-use crate::profile::{CapabilityGateDecision, CapabilityGateEvaluation};
-use crate::spec::LensHealth;
-use crate::swap::{LifecycleOutcome, SwapController};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PanelDiff {
@@ -461,6 +460,7 @@ mod tests {
                 probe_count: 4,
                 signal: Some(0.08),
                 signal_source: MetricSource::AssayStore,
+                signal_reliability: None,
                 proxy_signal: 0.08,
                 differentiation: Some(0.07),
                 differentiation_source: MetricSource::AssayStore,

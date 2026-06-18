@@ -1,7 +1,9 @@
 use calyx_assay::store::{AssayCacheKey, AssayStore, AssaySubject};
 use calyx_core::{Result, Slot, SlotId};
 
-use super::{CapabilityCard, MetricSource, ProfileProbe, profile_lens};
+use super::{
+    CapabilityCard, CapabilitySignalReliability, MetricSource, ProfileProbe, profile_lens,
+};
 use crate::lens::Registry;
 
 pub fn profile_slot_with_assay(
@@ -25,6 +27,17 @@ pub fn apply_assay_metrics(
     if let Some(row) = assay_store.get(cache_key, &AssaySubject::Lens { slot }) {
         card.signal = Some(row.estimate.bits);
         card.signal_source = MetricSource::AssayStore;
+        card.signal_reliability =
+            row.estimate
+                .reliability
+                .as_ref()
+                .map(|reliability| CapabilitySignalReliability {
+                    ci_low: row.estimate.ci_low,
+                    ci_high: row.estimate.ci_high,
+                    seed_sigma: reliability.seed_sigma,
+                    seed_count: reliability.seed_count,
+                    unresolved: reliability.unresolved,
+                });
     }
     if let Some(bits) = max_pair_gain_bits(slot, assay_store, cache_key) {
         card.differentiation = Some(bits);

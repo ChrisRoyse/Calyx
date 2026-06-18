@@ -9,7 +9,7 @@ use super::request::AssayBitsRequest;
 const MIN_SAMPLES: usize = 50;
 const MIN_LENSES: usize = 2;
 
-type LoadedVectors = (Vec<usize>, BTreeMap<String, Vec<Vec<f32>>>);
+type LoadedVectors = (Vec<usize>, Vec<String>, BTreeMap<String, Vec<Vec<f32>>>);
 
 /// A loaded, validated labeled multi-lens embedding corpus.
 #[derive(Clone, Debug)]
@@ -18,6 +18,7 @@ pub(crate) struct AssayCorpus {
     pub(crate) embedding_model_id: String,
     pub(crate) lenses: Vec<LensSpec>,
     pub(crate) labels: Vec<usize>,
+    pub(crate) anchor_groups: Vec<String>,
     /// Per-lens vectors, indexed identically to `lenses`; each inner vec is one
     /// row per sample (same order as `labels`).
     pub(crate) lens_vectors: Vec<Vec<Vec<f32>>>,
@@ -60,7 +61,7 @@ impl AssayCorpus {
                 lens_names.len()
             ));
         }
-        let (labels, raw_lens_vectors) = read_vectors(&vectors_path, &lens_names)?;
+        let (labels, anchor_groups, raw_lens_vectors) = read_vectors(&vectors_path, &lens_names)?;
         if labels.len() < MIN_SAMPLES {
             return Err(format!(
                 "CALYX_FSV_ASSAY_INVALID_CORPUS: need >={MIN_SAMPLES} samples, got {}",
@@ -91,6 +92,7 @@ impl AssayCorpus {
             embedding_model_id: manifest.embedding_model_id,
             lenses,
             labels,
+            anchor_groups,
             lens_vectors,
         })
     }
@@ -141,6 +143,7 @@ fn read_manifest(path: &Path) -> Result<ManifestJson, String> {
 fn read_vectors(path: &Path, lens_names: &[String]) -> Result<LoadedVectors, String> {
     let text = fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
     let mut labels = Vec::new();
+    let mut groups = Vec::new();
     let mut lens_vectors: BTreeMap<String, Vec<Vec<f32>>> = lens_names
         .iter()
         .map(|name| (name.clone(), Vec::new()))
@@ -152,6 +155,7 @@ fn read_vectors(path: &Path, lens_names: &[String]) -> Result<LoadedVectors, Str
         let row: VectorRow = serde_json::from_str(line)
             .map_err(|error| invalid(format!("line {line_idx}: {error}")))?;
         labels.push(row.label);
+        groups.push(row.group_id(line_idx));
         for name in lens_names {
             let vector = row
                 .lenses
@@ -163,7 +167,7 @@ fn read_vectors(path: &Path, lens_names: &[String]) -> Result<LoadedVectors, Str
                 .push(vector.clone());
         }
     }
-    Ok((labels, lens_vectors))
+    Ok((labels, groups, lens_vectors))
 }
 
 fn invalid(detail: impl AsRef<str>) -> String {
@@ -193,12 +197,30 @@ struct ManifestLens {
 
 #[derive(Deserialize)]
 struct VectorRow {
-    #[allow(dead_code)]
     #[serde(default)]
     id: String,
     #[allow(dead_code)]
     #[serde(default)]
     split: String,
+    #[serde(default, alias = "group", alias = "anchor_group")]
+    group_id: Option<String>,
     label: usize,
     lenses: BTreeMap<String, Vec<f32>>,
+}
+
+impl VectorRow {
+    fn group_id(&self, line_idx: usize) -> String {
+        self.group_id
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+            .cloned()
+            .or_else(|| {
+                if self.id.trim().is_empty() {
+                    None
+                } else {
+                    Some(self.id.clone())
+                }
+            })
+            .unwrap_or_else(|| format!("row_{line_idx}"))
+    }
 }
