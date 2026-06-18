@@ -1,4 +1,7 @@
-use super::assignment::{AssignmentSink, read_ids, stream_assign_to_ids_bounded};
+use super::assignment::{
+    AssignmentRouting, AssignmentSink, BoundedAssignmentConfig, read_ids,
+    stream_assign_to_ids_bounded,
+};
 use super::balance::balance_regions;
 use super::*;
 
@@ -82,9 +85,19 @@ fn bounded_final_assignment_caps_regions_and_preserves_ids() {
         rows.push(vec![-1.0, 0.0]);
     }
     let source = StaticSource { rows };
-    let regions =
-        stream_assign_to_ids_bounded(&dir, AssignmentSink::Final, &centroids, &source, 4, 6, 2)
-            .expect("bounded assignment");
+    let regions = stream_assign_to_ids_bounded(
+        &dir,
+        AssignmentSink::Final,
+        &centroids,
+        &source,
+        4,
+        BoundedAssignmentConfig {
+            cap: 6,
+            routing_probe: 2,
+            routing: AssignmentRouting::Hnsw,
+        },
+    )
+    .expect("bounded assignment");
 
     assert_eq!(regions.iter().map(|r| r.count).sum::<usize>(), 12);
     assert!(
@@ -239,6 +252,20 @@ fn region_build_parallelism_is_effective_cap_and_zero_rejected() {
     assert_eq!(err.code, crate::error::CALYX_INDEX_INVALID_PARAMS);
     assert!(err.message.contains("region_build_parallelism"));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn raw_l2_centroid_routing_uses_exact_l2_not_cosine() {
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        vec![vec![100.0, 0.0], vec![9.0, 1.0]],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("centroids");
+
+    let raw_l2 = centroids.nearest_centroids_exact_l2(&[10.0, 0.0], 1);
+    assert_eq!(raw_l2, vec![1], "[9,1] is nearest by raw L2");
 }
 
 /// Exact L2 top-k over the deterministic dataset — ground truth for recall.

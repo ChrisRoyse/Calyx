@@ -31,6 +31,13 @@ pub(super) enum AssignmentSink {
     Provisional,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BoundedAssignmentConfig {
+    pub cap: usize,
+    pub routing_probe: usize,
+    pub routing: AssignmentRouting,
+}
+
 pub(super) fn stream_assign_to_ids_with_routing(
     root: &Path,
     sink: AssignmentSink,
@@ -95,25 +102,24 @@ pub(super) fn stream_assign_to_ids_bounded(
     centroids: &SpannCentroidIndex,
     source: &dyn VectorSource,
     chunk: usize,
-    cap: usize,
-    routing_probe: usize,
+    config: BoundedAssignmentConfig,
 ) -> Result<Vec<AssignmentRegion>> {
     let r = centroids.centroid_count();
     let n = source.len();
-    if cap == 0 || routing_probe == 0 {
+    if config.cap == 0 || config.routing_probe == 0 {
         return Err(sextant_error(
             CALYX_INDEX_INVALID_PARAMS,
             "bounded assignment requires cap > 0 and routing_probe > 0",
         ));
     }
-    let total_capacity = (cap as u128) * (r as u128);
+    let total_capacity = (config.cap as u128) * (r as u128);
     if total_capacity < n as u128 {
         return Err(sextant_error(
             CALYX_INDEX_INVALID_PARAMS,
             format!("bounded assignment capacity {total_capacity} < n_cx {n}"),
         ));
     }
-    let probe = routing_probe.min(r);
+    let probe = config.routing_probe.min(r);
     let chunk = chunk.max(1) as u64;
     let mut counts = vec![0usize; r];
     let mut writers: Vec<Option<BufWriter<File>>> = (0..r).map(|_| None).collect();
@@ -125,11 +131,15 @@ pub(super) fn stream_assign_to_ids_bounded(
             .into_par_iter()
             .map(|idx| {
                 let row = source.row(idx);
-                (idx, centroids.nearest_centroids(&row, probe))
+                let candidates = match config.routing {
+                    AssignmentRouting::Exact => centroids.nearest_centroids_exact_l2(&row, probe),
+                    AssignmentRouting::Hnsw => centroids.nearest_centroids(&row, probe),
+                };
+                (idx, candidates)
             })
             .collect();
         for (idx, candidates) in assigned {
-            let region = choose_bounded_region(&counts, cap, &candidates).ok_or_else(|| {
+            let region = choose_bounded_region(&counts, config.cap, &candidates).ok_or_else(|| {
                 sextant_error(
                     CALYX_INDEX_INVALID_PARAMS,
                     format!(

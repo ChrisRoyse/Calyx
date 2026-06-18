@@ -9,7 +9,9 @@ use serde::{Deserialize, Serialize};
 use crate::index::{DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex};
 
 use super::assignment::read_ids;
-use super::{CENTROID_DIR, MANIFEST_FILE, PartitionedManifest, RegionMeta, cx};
+use super::{
+    CENTROID_DIR, MANIFEST_FILE, PartitionDistanceMetric, PartitionedManifest, RegionMeta, cx,
+};
 
 /// Region-restricted searcher over a partitioned vault. Holds centroids in RAM
 /// and lazily mmaps region graphs on demand (only probed regions are resident).
@@ -83,7 +85,14 @@ impl PartitionedSearch {
                 touched_regions: Vec::new(),
             });
         }
-        let regions = self.centroids.nearest_centroids(query, n_probe.max(1));
+        let regions = match self.manifest.distance_metric {
+            PartitionDistanceMetric::UnitL2 => {
+                self.centroids.nearest_centroids(query, n_probe.max(1))
+            }
+            PartitionDistanceMetric::RawL2 => self
+                .centroids
+                .nearest_centroids_exact_l2(query, n_probe.max(1)),
+        };
         let sp = DiskAnnSearchParams {
             beamwidth: region_beam.max(k),
             ef_search: region_beam.max(k),
