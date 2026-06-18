@@ -93,6 +93,7 @@ impl DiskAnnSearch {
         match self.distance_mode {
             DiskAnnDistanceMode::RawCosine => Cow::Borrowed(query),
             DiskAnnDistanceMode::UnitL2 => Cow::Owned(l2_normalize(query)),
+            DiskAnnDistanceMode::RawL2 => Cow::Borrowed(query),
         }
     }
 
@@ -119,7 +120,7 @@ impl DiskAnnSearch {
         let mut rescored = Vec::with_capacity(hits.len());
         for &(id, _) in hits {
             let raw = self.read_raw_vector(raw_dir, id)?;
-            rescored.push((id, distance(query, &raw, DiskAnnDistanceMode::RawCosine)));
+            rescored.push((id, distance(query, &raw, self.distance_mode)));
         }
         Ok(sorted(rescored))
     }

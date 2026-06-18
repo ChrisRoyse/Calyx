@@ -44,9 +44,11 @@ pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
 pub use partitioned::{
-    FbinSource, I8BinSource, PartitionBuildParams, PartitionedManifest, PartitionedSearch,
-    PartitionedSearchReadback, RegionMeta, SyntheticSource, VectorSource, build_partitioned_vault,
-    build_partitioned_vault_from_source, build_partitioned_vault_from_source_with_backend,
+    FbinSource, I8BinSource, PartitionBuildParams, PartitionDistanceMetric, PartitionedManifest,
+    PartitionedSearch, PartitionedSearchReadback, RegionMeta, SyntheticSource, VectorSource,
+    build_partitioned_vault, build_partitioned_vault_from_source,
+    build_partitioned_vault_from_source_with_backend,
+    build_partitioned_vault_from_source_with_backend_and_metric,
     build_partitioned_vault_with_backend, gen_row,
 };
 pub use quant_config::{QuantConfig, QuantKind, QuantizedVector};
@@ -55,7 +57,7 @@ pub use spann::{
     SpannSearch, build_centroids,
 };
 pub use testutil::{SyntheticVault, build_synthetic_vault, synthetic_dense_rows};
-pub use vecfile::{DenseVectorFile, FbinVectors, I8BinVectors, VEC_MAGIC};
+pub use vecfile::{DenseVectorFile, FbinVectors, I8BinVectors, I32BinMatrix, VEC_MAGIC};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct IndexSearchHit {

@@ -45,12 +45,21 @@ impl VectorSource for FbinSource {
 /// Real signed-int8 BigANN vectors, normalized to Calyx's cosine geometry.
 pub struct I8BinSource {
     vectors: I8BinVectors,
+    normalize: bool,
 }
 
 impl I8BinSource {
     pub fn open(path: &Path) -> Result<Self> {
         Ok(Self {
             vectors: I8BinVectors::open(path)?,
+            normalize: true,
+        })
+    }
+
+    pub fn open_raw(path: &Path) -> Result<Self> {
+        Ok(Self {
+            vectors: I8BinVectors::open(path)?,
+            normalize: false,
         })
     }
 }
@@ -63,7 +72,11 @@ impl VectorSource for I8BinSource {
         self.vectors.count()
     }
     fn row(&self, idx: u64) -> Vec<f32> {
-        self.vectors.row_f32_normalized(idx)
+        if self.normalize {
+            self.vectors.row_f32_normalized(idx)
+        } else {
+            self.vectors.row_f32_raw(idx)
+        }
     }
 }
 

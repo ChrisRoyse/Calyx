@@ -56,6 +56,13 @@ impl DenseVectorFile {
             Self::I8Bin(file) => file.row_f32_normalized(idx),
         }
     }
+
+    pub fn row_f32_raw(&self, idx: u64) -> Vec<f32> {
+        match self {
+            Self::Fbin(file) => file.row(idx).to_vec(),
+            Self::I8Bin(file) => file.row_f32_raw(idx),
+        }
+    }
 }
 
 /// mmap-backed reader over a `.fbin` of real embeddings. Reads are zero-copy slices
@@ -235,6 +242,78 @@ impl I8BinVectors {
         }
         out
     }
+
+    pub fn row_f32_raw(&self, idx: u64) -> Vec<f32> {
+        self.row_i8(idx)
+            .iter()
+            .map(|value| f32::from(*value))
+            .collect()
+    }
+}
+
+#[derive(Debug)]
+pub struct I32BinMatrix {
+    mmap: Mmap,
+    width: usize,
+    count: u64,
+}
+
+impl I32BinMatrix {
+    pub fn open(path: &Path) -> Result<Self> {
+        let file = File::open(path).map_err(|e| {
+            sextant_error(
+                CALYX_INDEX_IO,
+                format!("open i32bin {}: {e}", path.display()),
+            )
+        })?;
+        let len = file
+            .metadata()
+            .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("stat i32bin: {e}")))?
+            .len();
+        if len < I8BIN_HEADER_LEN as u64 {
+            return Err(sextant_error(
+                CALYX_INDEX_CORRUPT,
+                format!("i32bin {} is {len} B, smaller than header", path.display()),
+            ));
+        }
+        // SAFETY: read-only map of an immutable dataset file.
+        let mmap = unsafe {
+            Mmap::map(&file)
+                .map_err(|e| sextant_error(CALYX_INDEX_IO, format!("mmap i32bin: {e}")))?
+        };
+        let count = u32::from_le_bytes(mmap[0..4].try_into().expect("4B")) as u64;
+        let width = u32::from_le_bytes(mmap[4..8].try_into().expect("4B")) as usize;
+        if width == 0 {
+            return Err(sextant_error(CALYX_INDEX_CORRUPT, "i32bin width is zero"));
+        }
+        let expect = I8BIN_HEADER_LEN as u64 + count * width as u64 * 4;
+        if len != expect {
+            return Err(sextant_error(
+                CALYX_INDEX_CORRUPT,
+                format!(
+                    "i32bin {} len {len} != expected {expect} (count {count} x width {width} x 4 + {I8BIN_HEADER_LEN})",
+                    path.display()
+                ),
+            ));
+        }
+        Ok(Self { mmap, width, count })
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn count(&self) -> u64 {
+        self.count
+    }
+
+    pub fn row(&self, idx: u64) -> Vec<i32> {
+        let start = I8BIN_HEADER_LEN + (idx as usize) * self.width * 4;
+        self.mmap[start..start + self.width * 4]
+            .chunks_exact(4)
+            .map(|chunk| i32::from_le_bytes(chunk.try_into().expect("4B")))
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -260,11 +339,36 @@ mod tests {
 
         assert_eq!(file.count(), 2);
         assert_eq!(file.dim(), 3);
+        assert_eq!(file.row_f32_raw(0), [-3.0, 0.0, 4.0]);
         assert_close(&file.row_f32_normalized(0), &[-0.6, 0.0, 0.8]);
         assert_close(
             &DenseVectorFile::open(&path).unwrap().row_f32(1),
             &[1.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0],
         );
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn i32bin_matrix_reads_header_and_rows() {
+        let path = std::env::temp_dir().join(format!(
+            "calyx-i32bin-{}-{}.i32bin",
+            std::process::id(),
+            "truth"
+        ));
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&2_u32.to_le_bytes());
+        bytes.extend_from_slice(&3_u32.to_le_bytes());
+        for value in [9_i32, 8, 7, 6, 5, 4] {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        fs::write(&path, bytes).expect("write i32bin");
+
+        let file = I32BinMatrix::open(&path).expect("open i32bin");
+
+        assert_eq!(file.count(), 2);
+        assert_eq!(file.width(), 3);
+        assert_eq!(file.row(0), [9, 8, 7]);
+        assert_eq!(file.row(1), [6, 5, 4]);
         let _ = fs::remove_file(path);
     }
 

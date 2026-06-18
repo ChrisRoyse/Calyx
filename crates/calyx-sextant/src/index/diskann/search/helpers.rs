@@ -9,12 +9,13 @@ use crate::error::{
     CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO, sextant_error,
 };
 use crate::index::diskann::graph::{DiskAnnGraphReader, open_diskann_graph};
-use crate::index::distance::{cosine_distance, unit_l2_cosine_distance};
+use crate::index::distance::{cosine_distance, l2_sq, unit_l2_cosine_distance};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum DiskAnnDistanceMode {
     RawCosine,
     UnitL2,
+    RawL2,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -66,6 +67,7 @@ pub(super) fn distance(a: &[f32], b: &[f32], mode: DiskAnnDistanceMode) -> f32 {
     match mode {
         DiskAnnDistanceMode::RawCosine => cosine_distance(a, b),
         DiskAnnDistanceMode::UnitL2 => unit_l2_cosine_distance(a, b),
+        DiskAnnDistanceMode::RawL2 => l2_sq(a, b),
     }
 }
 

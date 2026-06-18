@@ -34,6 +34,10 @@ fn partitioned_build_parses_region_build_parallelism() {
     let parsed = BuildArgs::parse(&args).unwrap();
 
     assert_eq!(parsed.p.region_build_parallelism, 3);
+    assert_eq!(
+        parsed.distance_metric,
+        calyx_sextant::index::PartitionDistanceMetric::UnitL2
+    );
 }
 
 #[test]
@@ -246,6 +250,68 @@ fn i8bin_search_rejects_query_dimension_mismatch() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+#[test]
+fn raw_l2_i8bin_search_accepts_i32bin_ground_truth() {
+    let root = temp_root("i8bin-raw-l2");
+    let corpus = root.join("corpus.i8bin");
+    let queries = root.join("queries.i8bin");
+    let truth = root.join("truth.i32bin");
+    let vault = root.join("vault");
+    write_i8bin(&corpus, 2, &[&[100, 0], &[9, 1], &[0, 100]]);
+    write_i8bin(&queries, 2, &[&[10, 0]]);
+    write_i32bin(&truth, 1, &[&[1]]);
+
+    run_build(&[
+        "--vault".into(),
+        path_arg(&vault),
+        "--vectors".into(),
+        path_arg(&corpus),
+        "--regions".into(),
+        "1".into(),
+        "--distance-metric".into(),
+        "raw-l2".into(),
+        "--sample".into(),
+        "3".into(),
+        "--chunk".into(),
+        "3".into(),
+        "--m-max".into(),
+        "2".into(),
+        "--ef".into(),
+        "4".into(),
+        "--region-build-parallelism".into(),
+        "1".into(),
+    ])
+    .expect("build raw-l2 partitioned i8bin vault");
+
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(vault.join("partitioned-manifest.json")).unwrap())
+            .unwrap();
+    assert_eq!(manifest["distance_metric"], "raw-l2");
+
+    run_search(&[
+        "--vault".into(),
+        path_arg(&vault),
+        "--queries".into(),
+        path_arg(&queries),
+        "--ground-truth-file".into(),
+        path_arg(&truth),
+        "--n".into(),
+        "1".into(),
+        "--k".into(),
+        "1".into(),
+        "--n-probe".into(),
+        "1".into(),
+        "--region-beam".into(),
+        "8".into(),
+        "--ground-truth".into(),
+        "1".into(),
+        "--recall-floor".into(),
+        "1.0".into(),
+    ])
+    .expect("raw-l2 i32bin ground truth should pass");
+    let _ = std::fs::remove_dir_all(root);
+}
+
 fn strings(items: impl IntoIterator<Item = &'static str>) -> Vec<String> {
     items.into_iter().map(str::to_string).collect()
 }
@@ -275,6 +341,19 @@ fn write_i8bin(path: &Path, dim: u32, rows: &[&[i8]]) {
     for row in rows {
         assert_eq!(row.len(), dim as usize);
         bytes.extend(row.iter().map(|value| *value as u8));
+    }
+    std::fs::write(path, bytes).unwrap();
+}
+
+fn write_i32bin(path: &Path, width: u32, rows: &[&[i32]]) {
+    let mut bytes = Vec::with_capacity(8 + rows.len() * width as usize * 4);
+    bytes.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    bytes.extend_from_slice(&width.to_le_bytes());
+    for row in rows {
+        assert_eq!(row.len(), width as usize);
+        for value in *row {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
     }
     std::fs::write(path, bytes).unwrap();
 }

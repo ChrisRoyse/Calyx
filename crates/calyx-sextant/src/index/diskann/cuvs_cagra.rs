@@ -20,7 +20,7 @@ pub(super) fn build_diskann_graph_cuvs_cagra(
         return write_graph_from_adjacency(path, vectors, params, 0, &[Vec::new()]);
     }
     let norm = normalize(vectors);
-    let entry = medoid(&norm);
+    let entry = medoid(&norm, super::build::DiskAnnBuildMetric::UnitL2);
     let graph_degree = params.m_max.min(vectors.len() - 1);
     let mut dataset = flatten(&norm, params.dim);
 
