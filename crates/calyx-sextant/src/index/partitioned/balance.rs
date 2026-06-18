@@ -146,7 +146,7 @@ fn split_oversized(
 }
 
 fn sample_rows(members: &[u64], source: &dyn VectorSource) -> Vec<(u32, Vec<f32>)> {
-    let sample_len = members.len().min(MAX_SPLIT_SAMPLE).max(1);
+    let sample_len = members.len().clamp(1, MAX_SPLIT_SAMPLE);
     let stride = members.len().div_ceil(sample_len).max(1);
     members
         .iter()
