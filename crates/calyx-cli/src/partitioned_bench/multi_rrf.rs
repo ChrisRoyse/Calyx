@@ -16,6 +16,9 @@ use super::brute_force::brute_force_topk_vecfile_ranked;
 use super::{enforce_recall_floor, percentiles, row_for_metric};
 use crate::error::{CliError, CliResult};
 
+#[path = "multi_rrf/a35.rs"]
+mod a35;
+
 const DEFAULT_TRUTH_DEPTH: usize = 64;
 
 #[derive(Clone, Debug)]
@@ -39,6 +42,9 @@ struct Plan {
 #[derive(Clone, Debug, Deserialize)]
 struct PlanSlot {
     slot: u16,
+    lens_id: Option<String>,
+    weights_sha256: Option<String>,
+    bits_about: Option<f32>,
     vault: PathBuf,
     queries: PathBuf,
     corpus: PathBuf,
@@ -101,6 +107,7 @@ impl Args {
 pub(crate) fn run(raw: &[String]) -> CliResult {
     let args = Args::parse(raw)?;
     let plan = load_plan(&args.plan)?;
+    a35::validate_plan(&plan)?;
     let slots = open_slots(&plan)?;
     let n = slots
         .iter()
@@ -159,10 +166,13 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         (None, Vec::new(), None, Vec::new())
     };
     enforce_recall_floor(args.recall_floor, truth_n, fused_recall)?;
+    let latency_us = percentiles(&fused_latencies_us);
     let report = json!({
         "trigger": "calyx bench partitioned-rrf",
         "mode": "real_multi_slot_rrf",
         "plan": args.plan,
+        "lens_roster": a35::lens_roster(&slots),
+        "per_lens_bits": a35::per_lens_bits(&slots),
         "slots": slot_report(&slots),
         "queries": n,
         "k": args.k,
@@ -171,8 +181,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "per_slot_search_depth": truth_depth,
         "truth_depth": truth_depth,
         "ground_truth_queries": truth_n,
-        "latency_us": percentiles(&fused_latencies_us),
+        "latency_us": latency_us.clone(),
         "fused_ground_truth_recall_at_k": fused_recall,
+        "fused_result": a35::fused_result(fused_recall, &latency_us, &sample_readback),
         "best_single_lens_recall_vs_fused_truth": best_single,
         "fusion_matches_or_beats_best_single": fused_recall.zip(best_single).map(|(fused, single)| fused + f32::EPSILON >= single),
         "per_slot_recall_vs_fused_truth": per_slot_recall,
@@ -189,11 +200,6 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
 
 fn load_plan(path: &Path) -> CliResult<Plan> {
     let plan: Plan = serde_json::from_slice(&std::fs::read(path)?)?;
-    if plan.slots.len() < 2 {
-        return Err(CliError::usage(
-            "partitioned-rrf plan requires at least two slots",
-        ));
-    }
     let mut seen = BTreeSet::new();
     for slot in &plan.slots {
         if !seen.insert(slot.slot) {
@@ -380,6 +386,9 @@ fn slot_report(slots: &[OpenSlot]) -> Vec<serde_json::Value> {
         .map(|slot| {
             json!({
                 "slot": slot.spec.slot,
+                "lens_id": slot.spec.lens_id.as_deref().expect("A35 validated"),
+                "weights_sha256": slot.spec.weights_sha256.as_deref().expect("A35 validated"),
+                "bits_about": slot.spec.bits_about.expect("A35 validated"),
                 "vault": slot.spec.vault,
                 "queries": slot.spec.queries,
                 "corpus": slot.spec.corpus,
