@@ -13,6 +13,9 @@ export NVCC="$CUDA_HOME/bin/nvcc"
 export PATH="$CALYX_HOME/bin:$HOME/.local/bin:$CUDA_HOME/bin:$PATH"
 export LD_LIBRARY_PATH="$CUDA_HOME/lib64:${LD_LIBRARY_PATH:-}"
 export CALYX_CARGO_TARGET_DIR="${CALYX_CARGO_TARGET_DIR:-$CALYX_HOME/target}"
+export CALYX_ORT_LIB_DIR="${CALYX_ORT_LIB_DIR:-$CALYX_HOME/vendor/onnxruntime-v1.26.0/build/Linux/Release}"
+export ORT_DYLIB_PATH="${ORT_DYLIB_PATH:-$CALYX_ORT_LIB_DIR/libonnxruntime.so}"
+export LD_LIBRARY_PATH="$CALYX_ORT_LIB_DIR:$LD_LIBRARY_PATH"
 for calyx_nvidia_lib in "$CALYX_HOME"/.venv-gpu/lib/python*/site-packages/nvidia/*/lib; do
     if [ -d "$calyx_nvidia_lib" ]; then
         export LD_LIBRARY_PATH="$calyx_nvidia_lib:$LD_LIBRARY_PATH"

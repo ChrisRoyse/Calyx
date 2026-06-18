@@ -28,9 +28,10 @@ build Calyx, touching nothing else.
 **Deliverables.**
 - `CALYX_HOME` tree (`repo/ target/ data/ datasets/ .hf-cache/ logs/ tmp/ bin/`).
 - `repo/env.sh` — sources `~/.cargo/env`, exports `CALYX_*`,
-  `CALYX_CARGO_TARGET_DIR`, `HF_HOME`, CUDA paths, prepends `bin/` +
-  `~/.local/bin` to PATH, and clears inherited `CARGO_TARGET_DIR` values that
-  point outside `CALYX_HOME`.
+  `CALYX_CARGO_TARGET_DIR`, `HF_HOME`, CUDA paths, the aiwonder-built ONNX
+  Runtime CUDA 13 dynamic library path, prepends `bin/` + `~/.local/bin` to
+  PATH, and clears inherited `CARGO_TARGET_DIR` values that point outside
+  `CALYX_HOME`.
 - A recorded **system baseline** (FSV readback file) in the repo planning notes.
 - Userspace `cmake` + `protoc` in `CALYX_HOME/bin` (no sudo).
 

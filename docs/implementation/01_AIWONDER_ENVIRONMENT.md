@@ -20,7 +20,8 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
    environment. Every remote build/test command should
    `source /home/croyse/calyx/repo/env.sh` first. That entrypoint sources
    Rust, exposes `CALYX_CARGO_TARGET_DIR`, clears any inherited
-   `CARGO_TARGET_DIR` outside `CALYX_HOME`, and pins CUDA discovery to
+   `CARGO_TARGET_DIR` outside `CALYX_HOME`, exports the aiwonder-built ONNX
+   Runtime CUDA 13 dynamic library path, and pins CUDA discovery to
    `/usr/local/cuda/bin/nvcc` so Rust CUDA build scripts derive
    `/usr/local/cuda/include`, not `/usr/local/include`. Verified builds should
    use `scripts/build-verified-calyx.sh`, which sets and readbacks
@@ -94,6 +95,7 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
   tmp/                                  # scratch (staged in-place; cleaned each turn)
   bin/                                  # locally-installed userspace tools (cmake, protoc)
   .venv-cuvs/                           # RAPIDS cuVS/cu13 wheel stack for DiskANN GPU builds
+  vendor/onnxruntime-v1.26.0/           # aiwonder-built ORT CUDA 13 dynamic library
   env.sh                               # sources ~/.cargo/env + exports CALYX_* + pinned CUDA paths
 ```
 
@@ -102,9 +104,13 @@ These are noted in the `[CONTEXT] Landmines` issue (PRD `29`).
 inside `CALYX_HOME`. `repo/env.sh` exposes
 `CALYX_CARGO_TARGET_DIR=/home/croyse/calyx/target` and clears foreign inherited
 `CARGO_TARGET_DIR` values; verified builds set `CARGO_TARGET_DIR` explicitly via
-`scripts/build-verified-calyx.sh`. `HF_HOME=.../.hf-cache` keeps model/cache
-output inside `CALYX_HOME`. `repo/env.sh` is the single entrypoint every session
-sources.
+`scripts/build-verified-calyx.sh`. It also exports
+`CALYX_ORT_LIB_DIR=/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release`,
+`ORT_DYLIB_PATH=$CALYX_ORT_LIB_DIR/libonnxruntime.so`, and prepends that
+directory to `LD_LIBRARY_PATH`; the `ort/load-dynamic` crates intentionally
+fail closed if those bytes are missing. `HF_HOME=.../.hf-cache` keeps
+model/cache output inside `CALYX_HOME`. `repo/env.sh` is the single entrypoint
+every session sources.
 
 ### Target ZFS datasets (preferred for hot/cold data; sudo-gated, one-time)
 Matches PRD `04 §3` / `16 §3`. Create via authorized password-backed sudo

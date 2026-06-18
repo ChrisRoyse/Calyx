@@ -17,6 +17,7 @@ Anything not derivable from source is marked "Not determined from source".
 - `C:\code\Calyx\crates\calyx-forge\build.rs`
 - `C:\code\Calyx\crates\calyx-registry\src\profile\gating.rs`
 - `C:\code\Calyx\crates\calyx-registry\src\runtime\common.rs`
+- `C:\code\Calyx\crates\calyx-registry\src\runtime\onnx\dynamic_ort.rs`
 - `C:\code\Calyx\crates\calyx-registry\src\runtime\adapters\lens.rs`
 - `C:\code\Calyx\crates\calyx-registry\src\spec.rs`
 - `C:\code\Calyx\crates\calyx-assay\src\contract.rs`
@@ -27,6 +28,7 @@ Anything not derivable from source is marked "Not determined from source".
 - `C:\code\Calyx\crates\calyx-cli\src\ops.rs`
 - `C:\code\Calyx\crates\calyx-cli\src\lens_commands.rs`
 - `C:\code\Calyx\crates\calyx-cli\src\panel_commands.rs`
+- `C:\code\Calyx\crates\calyx-ward\src\ort_runtime.rs`
 - `C:\code\Calyx\crates\calyx-anneal\src\propose\registry_hot_add.rs`
 - `C:\code\Calyx\crates\calyx-anneal\src\budget.rs`, `j\j_composite.rs`, `j\goodhart.rs`, `tripwire.rs`
 
@@ -63,6 +65,8 @@ Variables declared in `.env.example` (`C:\code\Calyx\.env.example`):
 | `CALYX_COLD_PATH` | `/zfs/archive/calyx` | ZFS archive mount path |
 | `CALYX_CARGO_TARGET_DIR` | `/home/croyse/calyx/target` | Shared cargo target dir |
 | `CALYX_RUST_ENV` | `/home/croyse/.cargo/env` | Path to rustup `env` script |
+| `CALYX_ORT_LIB_DIR` | `/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release` | aiwonder-built ONNX Runtime CUDA 13 library directory |
+| `ORT_DYLIB_PATH` | `/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release/libonnxruntime.so` | Dynamic ONNX Runtime library loaded by `ort/load-dynamic` |
 | `AIWONDER_TEI_GENERAL` | `http://127.0.0.1:8088` | Resident TEI general embeddings server |
 | `AIWONDER_TEI_RERANKER` | `http://127.0.0.1:8089` | Resident TEI reranker server |
 | `AIWONDER_TEI_LEGAL` | `http://127.0.0.1:8090` | Resident TEI legal embeddings server |
@@ -70,12 +74,12 @@ Variables declared in `.env.example` (`C:\code\Calyx\.env.example`):
 | `HF_TOKEN` | (blank) | Hugging Face token (secret) |
 | `HF_HUB_TOKEN` | (blank) | Hugging Face Hub token (secret) |
 | `HF_HOME` | `/home/croyse/calyx/.hf-cache` | HF cache home (also read by the code — see §4) |
-| `CALYX_REPO` | `chrisroyse/calyx` | GitHub dev-state repo |
+| `CALYX_REPO` | `chrisroyse/calyx-dev` | GitHub dev-state repo |
 
 Note: most of these names (VPN/SSH/dataset/TEI/Prometheus/`CALYX_REPO`) are **not**
 read by any `std::env::var` call in `crates/` — they are consumed by deployment
 scripts, not the Rust binaries. The Rust code reads only `CALYX_HOME`, `HF_HOME`,
-`HF_HUB_TOKEN`, and `HF_TOKEN` from this set (see §4).
+`HF_HUB_TOKEN`, `HF_TOKEN`, and `ORT_DYLIB_PATH` from this set (see §4).
 
 ### 1.2 `infra/aiwonder/calyx.toml` — the daemon config (TOML)
 
