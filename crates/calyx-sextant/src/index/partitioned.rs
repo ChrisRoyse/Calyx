@@ -1,26 +1,11 @@
-//! PH68 T06 — memory-bounded **partitioned** billion-scale vault (#550; fixes
-//! #702/#703, sidesteps #701).
-//!
-//! The flat in-memory Vamana builder cannot reach 1e8 (it materializes the whole
-//! dataset ~600 GB and the build is super-linear). This module builds a real
-//! billion-scale vault whose build memory AND query cost scale with *region size*,
-//! not N:
-//!
-//! 1. **Centroids from a sample** — `build_centroids` (k-means++) on a deterministic
-//!    sample yields `R` region centroids (the routing layer; saved as
-//!    `idx/slot_00.sparse/centroids.spn`).
-//! 2. **Stream-assign** — every cx is generated in chunks (never all at once),
-//!    assigned to its nearest centroid, and spooled to compact region `.ids`.
-//! 3. **Per-region DiskANN graphs** — each region (<= region_cap rows, fits RAM) is
-//!    regenerated and built into its own `idx/region_NNNNN.ann/graph.cda` via the
-//!    existing (correct, query-distance) DiskANN builder.
-//! 4. **Region-restricted search** — a query routes to its nearest `n_probe`
-//!    regions via the centroid HNSW and searches ONLY those region graphs (each
-//!    small + mmap'd), then merges. No full-graph scan, no post-filter, no SPANN
-//!    static-score rerank.
-//!
-//! Row generation is per-index deterministic (`gen_row`) so build and search never
-//! hold more than one region's vectors at a time.
+//! PH68 T06 memory-bounded partitioned billion-scale vault (#550; fixes
+//! #702/#703, sidesteps #701). The flat in-memory Vamana builder cannot reach
+//! 1e8 because it materializes the whole dataset and builds super-linearly.
+//! This module keeps build memory and query cost tied to region size:
+//! deterministic sample centroids, streamed `.ids` assignment, per-region
+//! DiskANN graphs, and region-restricted search. Row generation is per-index
+//! deterministic (`gen_row`), so build/search never hold more than one region's
+//! vectors at a time.
 
 mod assignment;
 mod balance;
@@ -115,6 +100,10 @@ pub struct PartitionedManifest {
     pub region_build_parallelism: usize,
     #[serde(default = "default_graph_build_backend")]
     pub graph_build_backend: DiskAnnBuildBackend,
+    #[serde(default)]
+    pub provisional_assignment_routing: String,
+    #[serde(default)]
+    pub final_assignment_routing: String,
     pub centroids_rel: String,
     pub root_graph_rel: String,
     pub regions: Vec<RegionMeta>,
@@ -284,15 +273,15 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     //    never retains all region buckets in heap.
     //    Pick the assignment method by centroid count: an exact flat scan is
     //    O(R) per point but cache-friendly/branch-free and wins for moderate R;
-    //    once R grows the scan's O(N*R) becomes quadratic in N AND, at dim 512,
-    //    memory-bandwidth-bound (the centroid table spills L2), so route through
-    //    the centroid HNSW (O(log R)) instead. Measured: HNSW already wins by
-    //    R~2500 at dim 512; keep flat only for trivially small centroid sets.
-    const HNSW_ASSIGN_MIN_CENTROIDS: usize = 256;
-    let use_hnsw_assign = r > HNSW_ASSIGN_MIN_CENTROIDS;
+    //    once R grows the scan's O(N*R*dim) dominates. Unit-L2 can use the
+    //    existing cosine HNSW; raw-L2 must use the metric-aware centroid graph so
+    //    raw magnitude is preserved instead of normalized away.
+    const ROUTED_ASSIGN_MIN_CENTROIDS: usize = 256;
+    let use_routed_assign = r > ROUTED_ASSIGN_MIN_CENTROIDS;
     let provisional_routing = match distance_metric {
+        PartitionDistanceMetric::RawL2 if use_routed_assign => AssignmentRouting::RawL2Graph,
         PartitionDistanceMetric::RawL2 => AssignmentRouting::Exact,
-        PartitionDistanceMetric::UnitL2 if use_hnsw_assign => AssignmentRouting::Hnsw,
+        PartitionDistanceMetric::UnitL2 if use_routed_assign => AssignmentRouting::Hnsw,
         PartitionDistanceMetric::UnitL2 => AssignmentRouting::Exact,
     };
     let provisional = stream_assign_to_ids_with_routing(
@@ -333,7 +322,9 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     //     capacity, the build fails closed instead of creating an unreachable row.
     let final_mean = (n_cx as usize).div_ceil(centroids.centroid_count().max(1));
     let final_cap = final_mean.saturating_mul(2).max(MIN_REGION_CAP);
+    let use_final_routed_assign = centroids.centroid_count() > ROUTED_ASSIGN_MIN_CENTROIDS;
     let final_routing = match distance_metric {
+        PartitionDistanceMetric::RawL2 if use_final_routed_assign => AssignmentRouting::RawL2Graph,
         PartitionDistanceMetric::RawL2 => AssignmentRouting::Exact,
         PartitionDistanceMetric::UnitL2 => AssignmentRouting::Hnsw,
     };
@@ -448,6 +439,8 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         distance_metric,
         region_build_parallelism,
         graph_build_backend: backend,
+        provisional_assignment_routing: provisional_routing.as_str().to_string(),
+        final_assignment_routing: final_routing.as_str().to_string(),
         centroids_rel: format!("{CENTROID_DIR}/centroids.spn"),
         root_graph_rel: ROOT_GRAPH.to_string(),
         regions,

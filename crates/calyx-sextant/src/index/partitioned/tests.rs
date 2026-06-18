@@ -1,6 +1,6 @@
 use super::assignment::{
     AssignmentRouting, AssignmentSink, BoundedAssignmentConfig, read_ids,
-    stream_assign_to_ids_bounded,
+    stream_assign_to_ids_bounded, stream_assign_to_ids_with_routing,
 };
 use super::balance::balance_regions;
 use super::*;
@@ -266,6 +266,58 @@ fn raw_l2_centroid_routing_uses_exact_l2_not_cosine() {
 
     let raw_l2 = centroids.nearest_centroids_exact_l2(&[10.0, 0.0], 1);
     assert_eq!(raw_l2, vec![1], "[9,1] is nearest by raw L2");
+}
+
+#[test]
+fn raw_l2_graph_centroid_routing_preserves_raw_l2_order() {
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        (0..80).map(|idx| vec![idx as f32 * 10.0, 0.0]).collect(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("centroids");
+
+    let routed = centroids.nearest_centroids_raw_l2_graph(&[410.0, 0.0], 1);
+    assert_eq!(
+        routed,
+        vec![41],
+        "raw-L2 graph routes to raw-nearest centroid"
+    );
+}
+
+#[test]
+fn raw_l2_graph_assignment_writes_nearest_raw_region_ids() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-raw-l2-graph-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        (0..80).map(|idx| vec![idx as f32 * 10.0, 0.0]).collect(),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("centroids");
+    let source = StaticSource {
+        rows: vec![vec![410.0, 0.0]],
+    };
+
+    let regions = stream_assign_to_ids_with_routing(
+        &dir,
+        AssignmentSink::Final,
+        &centroids,
+        &source,
+        1,
+        AssignmentRouting::RawL2Graph,
+    )
+    .expect("raw l2 graph assignment");
+
+    assert_eq!(regions.len(), 1);
+    assert_eq!(regions[0].id, 41);
+    assert_eq!(
+        read_ids(&dir.join(&regions[0].ids_rel)).expect("ids"),
+        vec![0]
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// Exact L2 top-k over the deterministic dataset — ground truth for recall.
