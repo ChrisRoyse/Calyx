@@ -12,8 +12,8 @@ use calyx_anneal::{
 use calyx_assay::PanelResourceBudget;
 use calyx_core::{CalyxError, Clock, Constellation, LensId, Result};
 use calyx_registry::{
-    CapabilityCard, CostMetrics, CoverageMetrics, LensHealth, MetricSource, SeparationMetrics,
-    SpreadMetrics,
+    CapabilityCard, CapabilitySignalKind, CostMetrics, CoverageMetrics, LensHealth, MetricSource,
+    SeparationMetrics, SpreadMetrics,
 };
 use proptest::prelude::*;
 
@@ -75,6 +75,27 @@ fn empty_panel_and_exact_boundary_are_admitted() {
             resource: None,
         }
     );
+}
+
+#[test]
+fn non_learned_high_bits_are_rejected_before_hot_add() {
+    for signal_kind in [
+        CapabilitySignalKind::Placeholder,
+        CapabilitySignalKind::Algorithmic,
+        CapabilitySignalKind::Unknown,
+    ] {
+        let outcome = gate_with_signal_kind(signal_kind, 0.90, &[], 0).unwrap();
+
+        assert_eq!(
+            outcome,
+            GateOutcome::Rejected {
+                reason: RejectReason::NonLearnedSignal {
+                    signal_kind,
+                    required: CapabilitySignalKind::LearnedEncoder,
+                }
+            }
+        );
+    }
 }
 
 #[test]
@@ -158,8 +179,23 @@ proptest! {
 }
 
 fn gate_with(bits: f32, correlations: &[(LensId, f64)], elapsed_ms: u64) -> Result<GateOutcome> {
+    gate_with_signal_kind(
+        CapabilitySignalKind::LearnedEncoder,
+        bits,
+        correlations,
+        elapsed_ms,
+    )
+}
+
+fn gate_with_signal_kind(
+    signal_kind: CapabilitySignalKind,
+    bits: f32,
+    correlations: &[(LensId, f64)],
+    elapsed_ms: u64,
+) -> Result<GateOutcome> {
     let clock = StepClock::new(1_785_500_420);
-    let profiler = StaticProfiler::new(lens(200), bits, clock.inner(), elapsed_ms);
+    let profiler = StaticProfiler::new(lens(200), bits, clock.inner(), elapsed_ms)
+        .with_signal_kind(signal_kind);
     let nmi = StaticNmi::from_pairs(correlations);
     let panel = correlations
         .iter()
@@ -234,6 +270,7 @@ struct StaticProfiler {
     elapsed_ms: u64,
     error: Option<CalyxError>,
     cost: CostMetrics,
+    signal_kind: CapabilitySignalKind,
 }
 
 impl StaticProfiler {
@@ -245,6 +282,7 @@ impl StaticProfiler {
             elapsed_ms,
             error: None,
             cost: default_cost(),
+            signal_kind: CapabilitySignalKind::LearnedEncoder,
         }
     }
 
@@ -260,11 +298,17 @@ impl StaticProfiler {
                 remediation: "retry profile with budget or repair lens runtime",
             }),
             cost: default_cost(),
+            signal_kind: CapabilitySignalKind::LearnedEncoder,
         }
     }
 
     fn with_cost(mut self, cost: CostMetrics) -> Self {
         self.cost = cost;
+        self
+    }
+
+    fn with_signal_kind(mut self, signal_kind: CapabilitySignalKind) -> Self {
+        self.signal_kind = signal_kind;
         self
     }
 }
@@ -286,6 +330,7 @@ impl LensProfiler for StaticProfiler {
             self.bits,
             corpus_sample.len(),
             self.cost,
+            self.signal_kind,
         ))
     }
 }
@@ -330,12 +375,19 @@ impl PairNMI for StaticNmi {
     }
 }
 
-fn card(lens_id: LensId, bits: f32, probe_count: usize, cost: CostMetrics) -> CapabilityCard {
+fn card(
+    lens_id: LensId,
+    bits: f32,
+    probe_count: usize,
+    cost: CostMetrics,
+    signal_kind: CapabilitySignalKind,
+) -> CapabilityCard {
     CapabilityCard {
         lens_id,
         probe_count,
         signal: Some(bits),
         signal_source: MetricSource::AssayStore,
+        signal_kind,
         signal_reliability: None,
         proxy_signal: bits,
         differentiation: None,

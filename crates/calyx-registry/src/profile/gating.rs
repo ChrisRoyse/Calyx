@@ -6,7 +6,7 @@ use calyx_ledger::{ActorId, EntryKind, LedgerAppender, LedgerCfStore, SubjectId}
 use serde::{Deserialize, Serialize};
 
 use super::reliability::signal_floor;
-use super::{CapabilityCard, ProfileProbe, dense_projection};
+use super::{CapabilityCard, CapabilitySignalKind, ProfileProbe, dense_projection};
 use crate::Registry;
 
 pub const CAPABILITY_MIN_SIGNAL_BITS_ENV: &str = "CALYX_CAPABILITY_MIN_SIGNAL_BITS";
@@ -105,6 +105,14 @@ pub fn evaluate_capability_gate(
         (
             CapabilityGateDecision::Park,
             "missing grounded assay signal bits".to_string(),
+        )
+    } else if card.signal_kind != CapabilitySignalKind::LearnedEncoder {
+        (
+            CapabilityGateDecision::Park,
+            format!(
+                "signal kind {} cannot close a sufficiency deficit; need learned_encoder",
+                card.signal_kind.as_str()
+            ),
         )
     } else if card.low_spread {
         (
@@ -325,6 +333,18 @@ mod tests {
     }
 
     #[test]
+    fn non_learned_grounded_signal_parks() {
+        let thresholds = CapabilityGateThresholds::default();
+        let mut candidate = card(Some(0.20), false);
+        candidate.signal_kind = CapabilitySignalKind::Placeholder;
+
+        let evaluation = evaluate_capability_gate(candidate, 0.0, thresholds).unwrap();
+
+        assert_eq!(evaluation.decision, CapabilityGateDecision::Park);
+        assert!(evaluation.reason.contains("placeholder"));
+    }
+
+    #[test]
     fn pearson_abs_matches_hand_computed_cases() {
         let duplicate = pearson_abs(&[1.0, 2.0, 1.0], &[1.0, 2.0, 1.0]).unwrap();
         let orthogonal = pearson_abs(&[-1.0, 0.0, 1.0], &[1.0, 0.0, 1.0]).unwrap();
@@ -397,6 +417,7 @@ mod tests {
             } else {
                 MetricSource::AssayPending
             },
+            signal_kind: CapabilitySignalKind::LearnedEncoder,
             signal_reliability: None,
             proxy_signal: signal.unwrap_or(0.0),
             differentiation: Some(0.07),

@@ -11,6 +11,7 @@ mod assay;
 mod cost;
 mod gating;
 mod reliability;
+mod signal_kind;
 pub use assay::{apply_assay_metrics, profile_slot_with_assay};
 pub use cost::CostMetrics;
 pub use gating::{
@@ -18,6 +19,8 @@ pub use gating::{
     CapabilityGateEvaluation, CapabilityGateThresholds, append_capability_gate_ledger,
     capability_gate_json, evaluate_capability_gate, max_panel_pairwise_correlation,
 };
+use signal_kind::registry_signal_kind;
+pub use signal_kind::{CapabilitySignalKind, signal_kind_from_runtime};
 
 /// One profiling probe, optionally labeled for silhouette separation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -46,6 +49,8 @@ pub struct CapabilityCard {
     pub probe_count: usize,
     pub signal: Option<f32>,
     pub signal_source: MetricSource,
+    #[serde(default)]
+    pub signal_kind: CapabilitySignalKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal_reliability: Option<CapabilitySignalReliability>,
     pub proxy_signal: f32,
@@ -189,6 +194,7 @@ impl Profiler {
             probe_count: probes.len(),
             signal: None,
             signal_source: MetricSource::AssayPending,
+            signal_kind: registry_signal_kind(registry, lens_id),
             signal_reliability: None,
             proxy_signal,
             differentiation: None,

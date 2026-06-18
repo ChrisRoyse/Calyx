@@ -6,7 +6,7 @@ use calyx_assay::{
 use calyx_core::{
     CalyxError, Clock, Constellation, LensCost, LensId, Placement, Result, SystemClock, Ts,
 };
-use calyx_registry::CapabilityCard;
+use calyx_registry::{CapabilityCard, CapabilitySignalKind};
 use serde::{Deserialize, Serialize};
 
 use crate::ShadowRevertReason;
@@ -41,6 +41,10 @@ pub enum RejectReason {
     InsufficientBits {
         bits: f64,
         threshold: f64,
+    },
+    NonLearnedSignal {
+        signal_kind: CapabilitySignalKind,
+        required: CapabilitySignalKind,
     },
     TooCorrelated {
         corr: f64,
@@ -139,6 +143,14 @@ impl<'a> DifferentiationGate<'a> {
                 },
             });
         }
+        if !card.signal_kind.is_learned_encoder() {
+            return Ok(GateOutcome::Rejected {
+                reason: RejectReason::NonLearnedSignal {
+                    signal_kind: card.signal_kind,
+                    required: CapabilitySignalKind::LearnedEncoder,
+                },
+            });
+        }
 
         let mut max_corr = 0.0;
         let mut offending_lens = None;
@@ -214,6 +226,17 @@ pub fn describe_gate_outcome(outcome: &GateOutcome) -> String {
         GateOutcome::Rejected {
             reason: RejectReason::InsufficientBits { bits, threshold },
         } => format!("LensRejected insufficient_bits bits={bits:.4} threshold={threshold:.4}"),
+        GateOutcome::Rejected {
+            reason:
+                RejectReason::NonLearnedSignal {
+                    signal_kind,
+                    required,
+                },
+        } => format!(
+            "LensRejected non_learned_signal signal_kind={} required={}",
+            signal_kind.as_str(),
+            required.as_str()
+        ),
         GateOutcome::Rejected {
             reason:
                 RejectReason::TooCorrelated {

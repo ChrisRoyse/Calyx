@@ -306,6 +306,17 @@ fn validate_reject_reason(reason: &RejectReason) -> Result<()> {
             validate_metric("reject.threshold", *threshold)?;
             Ok(())
         }
+        RejectReason::NonLearnedSignal {
+            signal_kind,
+            required,
+        } => {
+            if signal_kind == required {
+                return Err(invalid_metric(
+                    "non_learned_signal reject reason cannot already satisfy required kind",
+                ));
+            }
+            Ok(())
+        }
         RejectReason::TooCorrelated {
             corr, threshold, ..
         } => {
@@ -425,6 +436,7 @@ fn validate_metric(name: &'static str, value: f64) -> Result<f64> {
 fn reject_label(reason: &RejectReason) -> &'static str {
     match reason {
         RejectReason::InsufficientBits { .. } => "insufficient_bits",
+        RejectReason::NonLearnedSignal { .. } => "non_learned_signal",
         RejectReason::TooCorrelated { .. } => "too_correlated",
         RejectReason::ProfileTimeout => "profile_timeout",
         RejectReason::ResourceBudgetExceeded { .. } => "resource_budget_exceeded",
