@@ -72,14 +72,14 @@ fn persist_assay_rows(vault: &AsterVault, report: &EmotionReport) -> Result<usiz
             slot: AUDIO_EMOTION_SLOT,
         },
         report.emotion_bits.clone(),
-        "PH70 media audio-emotion lens bits vs RAVDESS/IEMOCAP labels",
+        "PH70 media audio-emotion lens bits vs verified labels",
         6060,
     );
     store.put(
         key,
         AssaySubject::Panel,
         panel_estimate(report),
-        "PH70 media panel sufficiency summary for audio-emotion anchors",
+        "PH70 media panel sufficiency summary for verified audio-emotion anchors",
         6061,
     );
     store

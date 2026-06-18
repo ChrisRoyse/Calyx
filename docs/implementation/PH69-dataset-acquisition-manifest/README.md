@@ -43,6 +43,7 @@ added to Infisical only if a Kaggle dataset is actually used (A34 — free sourc
 | `scripts/acquire_dedup.sh` | Fetch Quora Question Pairs/PAWS (≤500 lines) |
 | `scripts/acquire_audio.sh` | Fetch VoxCeleb1/2/LibriSpeech/RAVDESS/IEMOCAP (≤500 lines) |
 | `scripts/acquire_image.sh` | Fetch ImageNet-subset/CIFAR-100/COCO (≤500 lines) |
+| `scripts/acquire_media_fsv.py` | Fetch the small real audio/video FSV corpus under `$CALYX_HOME/data/datasets` |
 | `scripts/acquire_temporal_adversarial.sh` | Fetch event logs/financial tick/prompt-injection/jailbreak/OOD/personas/drift (≤500 lines) |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -57,6 +58,7 @@ added to Infisical only if a Kaggle dataset is actually used (A34 — free sourc
 | T06 | Dedup corpora acquisition (QQP/PAWS) | T01 |
 | T07 | Audio/image corpora acquisition (VoxCeleb/LibriSpeech/RAVDESS/IEMOCAP/ImageNet/CIFAR-100/COCO) | T01 |
 | T08 | Temporal/adversarial/persona/drift acquisition + coverage gate | T02, T03, T04, T05, T06, T07 |
+| T09 | Real media FSV mini-corpus (RAVDESS audio + Commons NASA video) | T01 |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

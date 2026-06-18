@@ -56,6 +56,28 @@ fn invalid_feature_fails_closed_before_metrics() {
 }
 
 #[test]
+fn duplicate_sample_id_fails_closed_before_metrics() {
+    let root = temp_root("media-emotion-duplicate-id");
+    let samples = root.join("samples.jsonl");
+    write_samples(
+        &samples,
+        [
+            r#"{"sample_id":"dup","dataset":"synthetic","audio_features":[1.0,2.0],"emotion_label":0,"source_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}"#,
+            r#"{"sample_id":"dup","dataset":"synthetic","audio_features":[3.0,4.0],"emotion_label":1,"source_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}"#,
+        ]
+        .join("\n")
+            + "\n",
+    );
+
+    assert!(
+        ValidationData::load(&samples)
+            .unwrap_err()
+            .contains("CALYX_FSV_MEDIA_EMOTION_DUPLICATE_SAMPLE_ID")
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn single_class_domain_fails_closed() {
     let root = temp_root("media-emotion-one-class");
     let request = request_for(&root, 0.05);

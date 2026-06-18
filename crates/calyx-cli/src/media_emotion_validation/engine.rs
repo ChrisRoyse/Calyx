@@ -52,7 +52,7 @@ pub(crate) fn evaluate_emotion(
         min_bits: request.min_bits,
         panel_version: MEDIA_PANEL_VERSION,
         audio_emotion_slot: AUDIO_EMOTION_SLOT.get(),
-        trigger: "calyx media emotion-validate on PH69 RAVDESS/IEMOCAP samples".to_string(),
+        trigger: "calyx media emotion-validate on verified audio-emotion samples".to_string(),
         intended_outcome: "persist trusted audio-emotion lens bits against emotion labels"
             .to_string(),
     })
@@ -119,8 +119,8 @@ fn rectangular_dim<'a>(mut rows: impl Iterator<Item = &'a [f32]>) -> Result<usiz
 fn grounded_anchor() -> Anchor {
     Anchor {
         kind: AnchorKind::Label("media_audio_emotion".to_string()),
-        value: AnchorValue::Text("PH69 verified RAVDESS/IEMOCAP emotion labels".to_string()),
-        source: "PH69 dataset MANIFEST and RAVDESS/IEMOCAP emotion labels".to_string(),
+        value: AnchorValue::Text("PH69 verified audio-emotion labels".to_string()),
+        source: "PH69 dataset MANIFEST and verified audio-emotion labels".to_string(),
         observed_at: 70,
         confidence: 1.0,
     }

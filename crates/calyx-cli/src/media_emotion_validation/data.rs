@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -24,6 +24,8 @@ impl ValidationData {
             fs::read_to_string(path).map_err(|error| format!("{}: {error}", path.display()))?;
         let mut samples = Vec::new();
         let mut dataset_counts = BTreeMap::<String, usize>::new();
+        let mut sample_ids = BTreeSet::<String>::new();
+        let mut source_hashes = BTreeSet::<String>::new();
         let mut source_sha256_count = 0;
         let mut total_rows = 0;
         for (idx, line) in text.lines().enumerate() {
@@ -33,13 +35,23 @@ impl ValidationData {
             let row: SampleJson = serde_json::from_str(line)
                 .map_err(|error| format!("{}:{}: {error}", path.display(), idx + 1))?;
             row.validate(idx + 1)?;
+            if !sample_ids.insert(row.sample_id.clone()) {
+                return Err(format!(
+                    "CALYX_FSV_MEDIA_EMOTION_DUPLICATE_SAMPLE_ID: line {} repeats sample_id {:?}",
+                    idx + 1,
+                    row.sample_id
+                ));
+            }
             total_rows += 1;
             *dataset_counts.entry(row.dataset).or_default() += 1;
-            if row
-                .source_sha256
-                .as_ref()
-                .is_some_and(|value| !value.is_empty())
-            {
+            if let Some(value) = row.source_sha256.as_ref().filter(|value| !value.is_empty()) {
+                if !source_hashes.insert(value.clone()) {
+                    return Err(format!(
+                        "CALYX_FSV_MEDIA_EMOTION_DUPLICATE_SOURCE_SHA256: line {} repeats source_sha256 {}",
+                        idx + 1,
+                        value
+                    ));
+                }
                 source_sha256_count += 1;
             }
             samples.push(EmotionSample {
