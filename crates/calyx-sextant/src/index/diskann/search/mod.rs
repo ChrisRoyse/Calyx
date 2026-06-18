@@ -1,10 +1,11 @@
 //! DiskANN beam search and raw-f32 rescore (PH68 T02).
 
 mod helpers;
+mod scratch;
 mod storage;
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
@@ -19,7 +20,7 @@ use crate::util::dense;
 
 use helpers::{
     Candidate, DiskAnnDistanceMode, dense_rows, distance, invalid, io, open_for_search, positions,
-    prefetch_node, sorted, stop_search,
+    prefetch_node, sorted,
 };
 use storage::{build_search_graph, default_raw_sidecar, read_distance_mode};
 
@@ -170,82 +171,7 @@ impl DiskAnnSearch {
         k: usize,
         params: &DiskAnnSearchParams,
     ) -> Result<Vec<(u32, f32)>> {
-        if k == 0 || self.ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        self.validate_query(query)?;
-        params.validate()?;
-        let reader = match &self.reader {
-            Some(reader) => reader,
-            None => return Ok(Vec::new()),
-        };
-        let want = k.min(self.ids.len());
-        if params.ef_search < want {
-            return Err(invalid(format!(
-                "ef_search {} below requested candidate count {want}",
-                params.ef_search
-            )));
-        }
-        let graph_query = self.graph_query(query);
-        let rescore_k = params.rescore_k.max(want).min(self.ids.len());
-        let mut scores = BTreeMap::<u32, f32>::new();
-        let mut expanded = BTreeSet::<u32>::new();
-        let mut candidates = vec![Candidate::new(
-            reader.header().entry_point_id,
-            distance(
-                graph_query.as_ref(),
-                reader.read_node(reader.header().entry_point_id)?.vector,
-                self.distance_mode,
-            ),
-        )];
-        while expanded.len() < params.ef_search.min(self.ids.len()) {
-            candidates.sort();
-            self.prefetch(&candidates, params.beamwidth, reader)?;
-            let Some(next) = candidates
-                .iter()
-                .find(|candidate| !expanded.contains(&candidate.id))
-                .copied()
-            else {
-                break;
-            };
-            if !expanded.insert(next.id) {
-                continue;
-            }
-            scores
-                .entry(next.id)
-                .and_modify(|score| *score = score.min(next.distance))
-                .or_insert(next.distance);
-            let node = reader.read_node(next.id)?;
-            for &neighbor in node.neighbors {
-                if expanded.contains(&neighbor) {
-                    continue;
-                }
-                let neighbor_node = reader.read_node(neighbor)?;
-                let d = distance(
-                    graph_query.as_ref(),
-                    neighbor_node.vector,
-                    self.distance_mode,
-                );
-                scores
-                    .entry(neighbor)
-                    .and_modify(|score| *score = score.min(d))
-                    .or_insert(d);
-                candidates.push(Candidate::new(neighbor, d));
-            }
-            candidates.sort();
-            candidates.dedup_by_key(|candidate| candidate.id);
-            candidates.truncate(params.ef_search.max(rescore_k));
-            if stop_search(&candidates, &scores, &expanded, rescore_k) {
-                break;
-            }
-        }
-        let mut hits = sorted(scores.into_iter().collect());
-        hits.truncate(rescore_k);
-        if params.rescore_from_raw {
-            hits = self.rescore_from_raw(query, &hits)?;
-        }
-        hits.truncate(want);
-        Ok(hits)
+        scratch::search_ids(self, query, k, params)
     }
 
     fn graph_query<'a>(&self, query: &'a [f32]) -> Cow<'a, [f32]> {

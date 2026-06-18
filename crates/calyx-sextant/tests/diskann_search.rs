@@ -291,6 +291,34 @@ fn sextant_index_adapter_returns_cxid_hits_and_vectors() {
     assert!(index.vector(rows[3].0).is_some());
 }
 
+#[test]
+fn flat_search_scratch_reuse_does_not_leak_previous_graph_hits() {
+    let large_rows = vectors(96, 16, 705);
+    let small_rows = vectors(12, 16, 706);
+    let large = build_index("scratch-large", &large_rows);
+    let small = build_index("scratch-small", &small_rows);
+    let params = search_params(8, 32, false);
+
+    let first_large = large
+        .search_ids(&large_rows[5].1, 8, &params)
+        .expect("large search");
+    let small_hits = small
+        .search_ids(&small_rows[2].1, 8, &params)
+        .expect("small search after large");
+    let second_large = large
+        .search_ids(&large_rows[5].1, 8, &params)
+        .expect("large search after small");
+
+    assert_eq!(first_large, second_large);
+    assert!(
+        small_hits
+            .iter()
+            .all(|(id, _)| *id < small_rows.len() as u32)
+    );
+    let distinct: BTreeSet<_> = small_hits.iter().map(|(id, _)| *id).collect();
+    assert_eq!(distinct.len(), small_hits.len());
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(16))]
 
