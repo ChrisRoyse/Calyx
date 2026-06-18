@@ -89,7 +89,7 @@ require_tool strings
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 if [[ -z "$target_dir" ]]; then
-  target_dir="$repo_root/target"
+  target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
 fi
 mkdir -p "$target_dir"
 target_dir="$(cd "$target_dir" && pwd -P)"
