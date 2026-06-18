@@ -1,23 +1,27 @@
 //! DiskANN beam search and raw-f32 rescore (PH68 T02).
 
 mod helpers;
+mod storage;
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
 
-use super::build::{DiskAnnBuildParams, build_diskann_graph};
+use super::build::DiskAnnBuildParams;
 use super::graph::DiskAnnGraphReader;
 use crate::error::{CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_IO, sextant_error};
+use crate::index::distance::l2_normalize;
 use crate::index::{IndexSearchHit, IndexStats, SextantIndex, ranked};
 use crate::util::dense;
 
 use helpers::{
-    Candidate, dense_rows, distance, invalid, io, open_for_search, positions, prefetch_node,
-    sorted, stop_search,
+    Candidate, DiskAnnDistanceMode, dense_rows, distance, invalid, io, open_for_search, positions,
+    prefetch_node, sorted, stop_search,
 };
+use storage::{build_search_graph, default_raw_sidecar, read_distance_mode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DiskAnnSearchParams {
@@ -42,7 +46,6 @@ impl Default for DiskAnnSearchParams {
 /// per-node `posix_fadvise` prefetch is net-negative (syscall overhead with no
 /// readahead benefit). Above it, prefetch helps amortize cold-SSD latency.
 const PREFETCH_MIN_GRAPH_BYTES: u64 = 256 * 1024 * 1024;
-
 #[derive(Debug)]
 pub struct DiskAnnSearch {
     slot: SlotId,
@@ -51,6 +54,7 @@ pub struct DiskAnnSearch {
     raw_sidecar: Option<PathBuf>,
     reader: Option<DiskAnnGraphReader>,
     graph_file: Option<File>,
+    distance_mode: DiskAnnDistanceMode,
     ids: Vec<CxId>,
     positions: HashMap<CxId, u32>,
     build_params: DiskAnnBuildParams,
@@ -70,6 +74,7 @@ impl DiskAnnSearch {
         let graph_path = graph_path.into();
         let reader = open_for_search(&graph_path)?;
         let header = *reader.header();
+        let distance_mode = read_distance_mode(&graph_path)?;
         if ids.len() != header.node_count as usize {
             return Err(invalid(format!(
                 "id map len {} != graph node_count {}",
@@ -77,6 +82,10 @@ impl DiskAnnSearch {
                 header.node_count
             )));
         }
+        let raw_sidecar = raw_sidecar.or_else(|| {
+            let path = default_raw_sidecar(&graph_path);
+            path.is_dir().then_some(path)
+        });
         let graph_file = File::open(&graph_path).map_err(|e| io("open graph for prefetch", e))?;
         let build_params = DiskAnnBuildParams {
             dim: header.dim as usize,
@@ -91,6 +100,7 @@ impl DiskAnnSearch {
             raw_sidecar,
             reader: Some(reader),
             graph_file: Some(graph_file),
+            distance_mode,
             positions: positions(&ids),
             ids,
             build_params,
@@ -110,7 +120,14 @@ impl DiskAnnSearch {
     ) -> Result<Self> {
         let graph_path = graph_path.into();
         let dense_rows = dense_rows(rows, build_params.dim)?;
-        build_diskann_graph(&graph_path, &dense_rows, build_params)?;
+        let write_raw_sidecar = raw_sidecar.is_none();
+        let raw_sidecar = build_search_graph(
+            &graph_path,
+            &dense_rows,
+            build_params,
+            raw_sidecar,
+            write_raw_sidecar,
+        )?;
         Self::open(
             slot,
             graph_path,
@@ -128,6 +145,7 @@ impl DiskAnnSearch {
             raw_sidecar: None,
             reader: None,
             graph_file: None,
+            distance_mode: DiskAnnDistanceMode::UnitL2,
             ids: Vec::new(),
             positions: HashMap::new(),
             build_params: DiskAnnBuildParams {
@@ -168,14 +186,16 @@ impl DiskAnnSearch {
                 params.ef_search
             )));
         }
+        let graph_query = self.graph_query(query);
         let rescore_k = params.rescore_k.max(want).min(self.ids.len());
         let mut scores = BTreeMap::<u32, f32>::new();
         let mut expanded = BTreeSet::<u32>::new();
         let mut candidates = vec![Candidate::new(
             reader.header().entry_point_id,
             distance(
-                query,
+                graph_query.as_ref(),
                 reader.read_node(reader.header().entry_point_id)?.vector,
+                self.distance_mode,
             ),
         )];
         while expanded.len() < params.ef_search.min(self.ids.len()) {
@@ -201,7 +221,11 @@ impl DiskAnnSearch {
                     continue;
                 }
                 let neighbor_node = reader.read_node(neighbor)?;
-                let d = distance(query, neighbor_node.vector);
+                let d = distance(
+                    graph_query.as_ref(),
+                    neighbor_node.vector,
+                    self.distance_mode,
+                );
                 scores
                     .entry(neighbor)
                     .and_modify(|score| *score = score.min(d))
@@ -222,6 +246,13 @@ impl DiskAnnSearch {
         }
         hits.truncate(want);
         Ok(hits)
+    }
+
+    fn graph_query<'a>(&self, query: &'a [f32]) -> Cow<'a, [f32]> {
+        match self.distance_mode {
+            DiskAnnDistanceMode::RawCosine => Cow::Borrowed(query),
+            DiskAnnDistanceMode::UnitL2 => Cow::Owned(l2_normalize(query)),
+        }
     }
 
     fn validate_query(&self, query: &[f32]) -> Result<()> {
@@ -247,7 +278,7 @@ impl DiskAnnSearch {
         let mut rescored = Vec::with_capacity(hits.len());
         for &(id, _) in hits {
             let raw = self.read_raw_vector(raw_dir, id)?;
-            rescored.push((id, distance(query, &raw)));
+            rescored.push((id, distance(query, &raw, DiskAnnDistanceMode::RawCosine)));
         }
         Ok(sorted(rescored))
     }
@@ -333,6 +364,21 @@ impl DiskAnnSearch {
             .map(|id| reader.read_node(id).map(|node| node.vector.to_vec()))
             .collect()
     }
+
+    fn vectors_for_rebuild(&self) -> Result<Vec<Vec<f32>>> {
+        let Some(raw_dir) = &self.raw_sidecar else {
+            return self.vectors_from_graph();
+        };
+        if !raw_dir.is_dir() {
+            return Err(sextant_error(
+                CALYX_INDEX_IO,
+                format!("raw sidecar {} is not a directory", raw_dir.display()),
+            ));
+        }
+        (0..self.ids.len() as u32)
+            .map(|id| self.read_raw_vector(raw_dir, id))
+            .collect()
+    }
 }
 
 impl SextantIndex for DiskAnnSearch {
@@ -347,7 +393,7 @@ impl SextantIndex for DiskAnnSearch {
     fn insert(&mut self, cx_id: CxId, vector: SlotVector, seq: u64) -> Result<()> {
         let values = dense(&vector)?;
         self.validate_query(values)?;
-        let mut vectors = self.vectors_from_graph()?;
+        let mut vectors = self.vectors_for_rebuild()?;
         if let Some(&id) = self.positions.get(&cx_id) {
             vectors[id as usize] = values.to_vec();
         } else {
@@ -359,10 +405,17 @@ impl SextantIndex for DiskAnnSearch {
         }
         let rows: Vec<_> = self.ids.iter().copied().zip(vectors).collect();
         let dense_rows = dense_rows(&rows, self.dim as usize)?;
-        build_diskann_graph(&self.graph_path, &dense_rows, self.build_params)?;
+        self.raw_sidecar = build_search_graph(
+            &self.graph_path,
+            &dense_rows,
+            self.build_params,
+            self.raw_sidecar.clone(),
+            true,
+        )?;
         self.reader = Some(open_for_search(&self.graph_path)?);
         self.graph_file =
             Some(File::open(&self.graph_path).map_err(|e| io("open graph for prefetch", e))?);
+        self.distance_mode = read_distance_mode(&self.graph_path)?;
         self.built_at_seq = self.built_at_seq.max(seq);
         self.base_seq = self.base_seq.max(seq);
         Ok(())
@@ -388,19 +441,35 @@ impl SextantIndex for DiskAnnSearch {
     }
 
     fn rebuild(&mut self) -> Result<()> {
-        let vectors = self.vectors_from_graph()?;
+        let vectors = self.vectors_for_rebuild()?;
         if vectors.is_empty() {
             return Ok(());
         }
         let rows: Vec<_> = self.ids.iter().copied().zip(vectors).collect();
         let dense_rows = dense_rows(&rows, self.dim as usize)?;
-        build_diskann_graph(&self.graph_path, &dense_rows, self.build_params)?;
+        self.raw_sidecar = build_search_graph(
+            &self.graph_path,
+            &dense_rows,
+            self.build_params,
+            self.raw_sidecar.clone(),
+            true,
+        )?;
         self.reader = Some(open_for_search(&self.graph_path)?);
+        self.distance_mode = read_distance_mode(&self.graph_path)?;
         Ok(())
     }
 
     fn vector(&self, cx_id: CxId) -> Option<SlotVector> {
         let id = *self.positions.get(&cx_id)?;
+        if let Some(raw_dir) = &self.raw_sidecar
+            && raw_dir.is_dir()
+            && let Ok(vector) = self.read_raw_vector(raw_dir, id)
+        {
+            return Some(SlotVector::Dense {
+                dim: self.dim,
+                data: vector,
+            });
+        }
         let reader = self.reader.as_ref()?;
         let vector = reader.read_node(id).ok()?.vector.to_vec();
         Some(SlotVector::Dense {

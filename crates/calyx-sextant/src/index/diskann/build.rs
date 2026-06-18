@@ -26,6 +26,7 @@ use super::graph::{
     DISKANN_FORMAT_VERSION, DISKANN_MAX_DIM, DISKANN_MAX_M, DiskAnnGraphWriter, DiskAnnHeader,
     invalid,
 };
+use crate::index::distance::l2_sq;
 
 /// Deterministic build seed (Vamana insert order + random init edges).
 const BUILD_SEED: u64 = 42;
@@ -137,9 +138,9 @@ fn normalize(vectors: &[(u32, Vec<f32>)]) -> Vec<Vec<f32>> {
         .collect()
 }
 
-/// Distance between two unit vectors: `1 - dot` (equals `1 - cosine`).
+/// Distance between two unit vectors: `0.5 * L2^2` (equals `1 - cosine`).
 fn dist(a: &[f32], b: &[f32]) -> f32 {
-    1.0 - a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>()
+    0.5 * l2_sq(a, b)
 }
 
 /// Two-pass Vamana over an in-memory adjacency list, batched + parallel.

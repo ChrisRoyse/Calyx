@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use calyx_core::{CxId, SlotId, SlotVector};
-use calyx_sextant::index::{DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, SextantIndex};
+use calyx_sextant::index::{
+    DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, SextantIndex, open_diskann_graph,
+};
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
@@ -149,6 +151,53 @@ fn raw_rescore_reads_sidecar_and_matches_exact_distances() {
             "node {id}: {distance} != {exact}"
         );
     }
+}
+
+#[test]
+fn build_writes_unit_l2_marker_normalized_graph_and_raw_sidecar() {
+    let dir = scratch("unit-l2-marker");
+    let path = dir.join("idx/slot_00.ann/graph.cda");
+    let rows = vec![
+        (cx(0), vec![3.0_f32, 4.0, 0.0, 0.0]),
+        (cx(1), vec![0.0_f32, 5.0, 0.0, 0.0]),
+        (cx(2), vec![0.0_f32, 0.0, 12.0, 16.0]),
+    ];
+    let index = DiskAnnSearch::build(
+        SlotId::new(0),
+        &path,
+        &rows,
+        DiskAnnBuildParams {
+            dim: 4,
+            m_max: 2,
+            ef_construction: 8,
+            alpha: 1.2,
+        },
+        None,
+        search_params(3, 8, false),
+    )
+    .expect("build");
+
+    let marker = std::fs::read_to_string(path.with_extension("metric")).expect("read marker");
+    assert_eq!(marker.trim(), "unit_l2");
+
+    let reader = open_diskann_graph(&path).expect("open graph");
+    let node = reader.read_node(0).expect("read node 0");
+    assert_eq!(node.vector, &[0.6_f32, 0.8, 0.0, 0.0]);
+
+    let raw_bytes = std::fs::read(path.with_extension("raw").join("0")).expect("read raw");
+    let raw: Vec<f32> = raw_bytes
+        .chunks_exact(4)
+        .map(|chunk| f32::from_le_bytes(chunk.try_into().expect("4B")))
+        .collect();
+    assert_eq!(raw, rows[0].1);
+
+    assert_eq!(
+        index.vector(rows[0].0),
+        Some(SlotVector::Dense {
+            dim: 4,
+            data: rows[0].1.clone(),
+        })
+    );
 }
 
 #[test]
