@@ -201,6 +201,18 @@ impl SearchArgs {
             }
         }
         let vault = vault.ok_or_else(|| CliError::usage("--vault <dir> is required"))?;
+        if n == 0 {
+            return Err(CliError::usage("--n must be > 0"));
+        }
+        if k == 0 {
+            return Err(CliError::usage("--k must be > 0"));
+        }
+        if n_probe == 0 {
+            return Err(CliError::usage("--n-probe must be > 0"));
+        }
+        if region_beam == 0 {
+            return Err(CliError::usage("--region-beam must be > 0"));
+        }
         Ok(Self {
             vault,
             queries,
@@ -277,15 +289,22 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     }
     let n = args.n.min(q_vecs.count() as usize);
     let mut latencies_us: Vec<u64> = Vec::with_capacity(n);
+    let mut region_touch_counts = Vec::with_capacity(n);
+    let mut first_touched_regions = Vec::new();
     let gt_n = args.ground_truth.min(n);
     let mut gt_queries: Vec<Vec<f32>> = Vec::with_capacity(gt_n);
     let mut gt_ann: Vec<Vec<u64>> = Vec::with_capacity(gt_n);
     for i in 0..n {
         let q = q_vecs.row(i as u64).to_vec();
         let started = Instant::now();
-        let hits = search
-            .search(&q, args.k, args.n_probe, args.region_beam)
+        let readback = search
+            .search_with_readback(&q, args.k, args.n_probe, args.region_beam)
             .map_err(CliError::Calyx)?;
+        let hits = readback.hits;
+        if first_touched_regions.is_empty() {
+            first_touched_regions = readback.touched_regions.clone();
+        }
+        region_touch_counts.push(readback.touched_regions.len() as u64);
         latencies_us.push((started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64).max(1));
         if i < gt_n {
             gt_ann.push(hits.iter().map(|(cx, _)| *cx).collect());
@@ -332,6 +351,11 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
         "k": args.k,
         "n_probe": args.n_probe,
         "region_beam": args.region_beam,
+        "strategy": "KernelFirstPartitioned",
+        "region_touch_count": summarize_u64(&region_touch_counts),
+        "max_touched_regions": region_touch_counts.iter().copied().max().unwrap_or(0),
+        "first_touched_regions": first_touched_regions,
+        "region_touch_bound": args.n_probe.min(manifest.n_regions),
         "latency_us": summary,
         "ground_truth_queries": gt_n,
         "ground_truth_recall_at_k": ground_truth_recall,
@@ -353,6 +377,8 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
     let seed = manifest.seed;
 
     let mut latencies_us: Vec<u64> = Vec::with_capacity(args.n);
+    let mut region_touch_counts = Vec::with_capacity(args.n);
+    let mut first_touched_regions = Vec::new();
     let mut self_hits = 0usize;
     let gt_n = args.ground_truth.min(args.n);
     let mut gt_queries: Vec<Vec<f32>> = Vec::with_capacity(gt_n);
@@ -361,9 +387,14 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
         let idx = (seed.wrapping_add(i as u64 * 7919)) % n_cx;
         let q = gen_row(seed, idx, dim);
         let started = Instant::now();
-        let hits = search
-            .search(&q, args.k, args.n_probe, args.region_beam)
+        let readback = search
+            .search_with_readback(&q, args.k, args.n_probe, args.region_beam)
             .map_err(CliError::Calyx)?;
+        let hits = readback.hits;
+        if first_touched_regions.is_empty() {
+            first_touched_regions = readback.touched_regions.clone();
+        }
+        region_touch_counts.push(readback.touched_regions.len() as u64);
         let us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
         latencies_us.push(us.max(1));
         if hits.iter().any(|(cx, _)| *cx == idx) {
@@ -402,6 +433,11 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
         "k": args.k,
         "n_probe": args.n_probe,
         "region_beam": args.region_beam,
+        "strategy": "KernelFirstPartitioned",
+        "region_touch_count": summarize_u64(&region_touch_counts),
+        "max_touched_regions": region_touch_counts.iter().copied().max().unwrap_or(0),
+        "first_touched_regions": first_touched_regions,
+        "region_touch_bound": args.n_probe.min(manifest.n_regions),
         "latency_us": summary,
         "self_recall_at_k": self_recall,
         "ground_truth_queries": gt_n,
@@ -416,6 +452,10 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
 }
 
 fn percentiles(values: &[u64]) -> serde_json::Value {
+    summarize_u64(values)
+}
+
+fn summarize_u64(values: &[u64]) -> serde_json::Value {
     let mut s = values.to_vec();
     s.sort_unstable();
     let pct = |p: usize| -> u64 {

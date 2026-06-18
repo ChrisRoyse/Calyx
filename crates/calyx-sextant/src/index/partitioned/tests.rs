@@ -116,6 +116,41 @@ fn partitioned_self_recall_and_region_restriction() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn search_readback_reports_only_touched_region_graphs() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-readback-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let p = PartitionBuildParams {
+        n_cx: 512,
+        dim: 24,
+        n_regions: 8,
+        seed: 19,
+        sample: 512,
+        chunk: 128,
+        m_max: 12,
+        ef_construction: 48,
+    };
+    let manifest = build_partitioned_vault(&dir, p).expect("build");
+    let search = PartitionedSearch::open(&dir).expect("open");
+    let readback = search
+        .search_with_readback(&gen_row(p.seed, 17, p.dim), 5, 3, 32)
+        .expect("search readback");
+
+    assert!(!readback.hits.is_empty());
+    assert!(!readback.touched_regions.is_empty());
+    assert!(readback.touched_regions.len() <= 3);
+    for region in &readback.touched_regions {
+        let meta = manifest
+            .regions
+            .iter()
+            .find(|meta| meta.id == *region)
+            .expect("region in manifest");
+        assert!(dir.join(&meta.graph_rel).is_file());
+        assert!(dir.join(&meta.ids_rel).is_file());
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Exact L2 top-k over the deterministic dataset — ground truth for recall.
 fn brute_force_topk(query: &[f32], seed: u64, n_cx: u64, dim: usize, k: usize) -> Vec<u64> {
     let mut scored: Vec<(u64, f32)> = (0..n_cx)
