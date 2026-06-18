@@ -139,6 +139,21 @@ fn candidate_slot_spec(candidate: &CandidateLens) -> Result<(AlgorithmicLens, Sl
                     Modality::Structured,
                     Some("periodic".to_string()),
                 ),
+                super::AlgorithmicKind::ValueDivergence => (
+                    AlgorithmicLens::scalar(&name, Modality::Structured),
+                    Modality::Structured,
+                    Some("runtime_value".to_string()),
+                ),
+                super::AlgorithmicKind::ExceptionValue => (
+                    AlgorithmicLens::scalar(&name, Modality::Structured),
+                    Modality::Structured,
+                    Some("exception_value".to_string()),
+                ),
+                super::AlgorithmicKind::ControlFlow => (
+                    AlgorithmicLens::scalar(&name, Modality::Structured),
+                    Modality::Structured,
+                    Some("control_flow".to_string()),
+                ),
                 super::AlgorithmicKind::Pca => (
                     AlgorithmicLens::scalar(&name, Modality::Structured),
                     Modality::Structured,
@@ -255,6 +270,9 @@ fn algorithmic_key(kind: super::AlgorithmicKind) -> &'static str {
         super::AlgorithmicKind::Pca => "pca",
         super::AlgorithmicKind::TimeLag => "time_lag",
         super::AlgorithmicKind::FrequencyBand => "frequency_band",
+        super::AlgorithmicKind::ValueDivergence => "value_divergence",
+        super::AlgorithmicKind::ExceptionValue => "exception_value",
+        super::AlgorithmicKind::ControlFlow => "control_flow",
         super::AlgorithmicKind::Tfidf => "tfidf",
     }
 }

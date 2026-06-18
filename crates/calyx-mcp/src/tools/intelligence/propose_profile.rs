@@ -347,9 +347,12 @@ fn algorithmic_lens(kind: AlgorithmicKind, params: &AlgParams) -> AlgorithmicLen
     let name = format!("anneal-{}-{}", algorithmic_key(kind), params.seed);
     match kind {
         AlgorithmicKind::Tfidf => AlgorithmicLens::byte_features(name, Modality::Text),
-        AlgorithmicKind::TimeLag | AlgorithmicKind::FrequencyBand | AlgorithmicKind::Pca => {
-            AlgorithmicLens::scalar(name, Modality::Structured)
-        }
+        AlgorithmicKind::TimeLag
+        | AlgorithmicKind::FrequencyBand
+        | AlgorithmicKind::ValueDivergence
+        | AlgorithmicKind::ExceptionValue
+        | AlgorithmicKind::ControlFlow
+        | AlgorithmicKind::Pca => AlgorithmicLens::scalar(name, Modality::Structured),
     }
 }
 
@@ -358,6 +361,9 @@ fn algorithmic_key(kind: AlgorithmicKind) -> &'static str {
         AlgorithmicKind::Pca => "pca",
         AlgorithmicKind::TimeLag => "time_lag",
         AlgorithmicKind::FrequencyBand => "frequency_band",
+        AlgorithmicKind::ValueDivergence => "value_divergence",
+        AlgorithmicKind::ExceptionValue => "exception_value",
+        AlgorithmicKind::ControlFlow => "control_flow",
         AlgorithmicKind::Tfidf => "tfidf",
     }
 }

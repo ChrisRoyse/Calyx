@@ -22,6 +22,9 @@ pub enum AlgorithmicKind {
     Pca,
     TimeLag,
     FrequencyBand,
+    ValueDivergence,
+    ExceptionValue,
+    ControlFlow,
     #[serde(rename = "TFIDF")]
     Tfidf,
 }
@@ -71,29 +74,24 @@ pub fn synthesize_algorithmic(
     if sample.is_empty() {
         return None;
     }
+    let mut kinds = Vec::new();
+    if has_value_target(deficit, sample) {
+        kinds.push(AlgorithmicKind::ValueDivergence);
+    }
+    if has_exception_target(deficit, sample) {
+        kinds.push(AlgorithmicKind::ExceptionValue);
+    }
+    if has_control_flow_target(deficit, sample) {
+        kinds.push(AlgorithmicKind::ControlFlow);
+    }
     if has_frequency_target(deficit, sample) {
-        return Some(algorithmic_candidate(
-            AlgorithmicKind::FrequencyBand,
-            deficit,
-            top,
-            sample,
-        ));
+        kinds.push(AlgorithmicKind::FrequencyBand);
     }
     if has_temporal_target(deficit, sample) {
-        return Some(algorithmic_candidate(
-            AlgorithmicKind::TimeLag,
-            deficit,
-            top,
-            sample,
-        ));
+        kinds.push(AlgorithmicKind::TimeLag);
     }
     if has_text_target(deficit) {
-        return Some(algorithmic_candidate(
-            AlgorithmicKind::Tfidf,
-            deficit,
-            top,
-            sample,
-        ));
+        kinds.push(AlgorithmicKind::Tfidf);
     }
     if deficit.underrepresented_modalities.is_empty()
         || deficit
@@ -101,14 +99,17 @@ pub fn synthesize_algorithmic(
             .iter()
             .any(|modality| matches!(modality, Modality::Structured | Modality::Mixed))
     {
-        return Some(algorithmic_candidate(
-            AlgorithmicKind::Pca,
-            deficit,
-            top,
-            sample,
-        ));
+        kinds.push(AlgorithmicKind::Pca);
     }
-    None
+    kinds.sort_by(|left, right| {
+        right
+            .channel_prior_rank()
+            .cmp(&left.channel_prior_rank())
+            .then_with(|| algorithmic_name(*left).cmp(algorithmic_name(*right)))
+    });
+    kinds
+        .first()
+        .map(|kind| algorithmic_candidate(*kind, deficit, top, sample))
 }
 
 pub fn build_commission_spec(deficit: &DeficitMap) -> CandidateLens {
@@ -217,7 +218,45 @@ fn algorithmic_features(
         "created_at_span".to_string(),
         created_at_span(sample).to_string(),
     );
+    features.insert(
+        "channel_prior".to_string(),
+        kind.channel_family().to_string(),
+    );
+    features.insert(
+        "channel_prior_weight".to_string(),
+        format!("{:.3}", kind.channel_prior_weight()),
+    );
+    features.insert(
+        "channel_prior_source".to_string(),
+        "issue774_value_density_prior".to_string(),
+    );
+    features.insert(
+        "independence_contract".to_string(),
+        "max_pairwise_corr<=0.600000".to_string(),
+    );
     match kind {
+        AlgorithmicKind::ValueDivergence => {
+            features.insert(
+                "value_axis".to_string(),
+                "runtime-return-intermediate".to_string(),
+            );
+        }
+        AlgorithmicKind::ExceptionValue => {
+            features.insert(
+                "exception_axis".to_string(),
+                "exception-error-value".to_string(),
+            );
+            features.insert(
+                "complementary_channel".to_string(),
+                "value_divergence".to_string(),
+            );
+        }
+        AlgorithmicKind::ControlFlow => {
+            features.insert(
+                "flow_axis".to_string(),
+                "branch-path-control-flow".to_string(),
+            );
+        }
         AlgorithmicKind::Pca => {
             features.insert("basis".to_string(), "scalar-slot-covariance".to_string());
         }
@@ -294,6 +333,23 @@ fn has_frequency_target(deficit: &DeficitMap, sample: &[Constellation]) -> bool 
         || sample_has_key(sample, &["frequency", "band", "spectrum"])
 }
 
+fn has_value_target(deficit: &DeficitMap, sample: &[Constellation]) -> bool {
+    target_contains(
+        deficit,
+        &["value", "return", "runtime", "state", "intermediate"],
+    ) || sample_has_key(sample, &["value", "return_value", "runtime", "state"])
+}
+
+fn has_exception_target(deficit: &DeficitMap, sample: &[Constellation]) -> bool {
+    target_contains(deficit, &["exception", "error", "panic", "throw"])
+        || sample_has_key(sample, &["exception", "error", "panic"])
+}
+
+fn has_control_flow_target(deficit: &DeficitMap, sample: &[Constellation]) -> bool {
+    target_contains(deficit, &["control", "branch", "cfg", "path", "trace"])
+        || sample_has_key(sample, &["control_flow", "branch", "cfg", "path"])
+}
+
 fn has_text_target(deficit: &DeficitMap) -> bool {
     deficit
         .underrepresented_modalities
@@ -365,7 +421,39 @@ fn algorithmic_name(kind: AlgorithmicKind) -> &'static str {
         AlgorithmicKind::Pca => "PCA",
         AlgorithmicKind::TimeLag => "TimeLag",
         AlgorithmicKind::FrequencyBand => "FrequencyBand",
+        AlgorithmicKind::ValueDivergence => "ValueDivergence",
+        AlgorithmicKind::ExceptionValue => "ExceptionValue",
+        AlgorithmicKind::ControlFlow => "ControlFlow",
         AlgorithmicKind::Tfidf => "TFIDF",
+    }
+}
+
+impl AlgorithmicKind {
+    fn channel_family(self) -> &'static str {
+        match self {
+            Self::ValueDivergence => "runtime_value",
+            Self::ExceptionValue => "exception_value",
+            Self::ControlFlow => "control_flow",
+            Self::FrequencyBand => "frequency_value",
+            Self::TimeLag => "temporal_value",
+            Self::Tfidf => "semantic_structure",
+            Self::Pca => "state_value",
+        }
+    }
+
+    fn channel_prior_rank(self) -> u8 {
+        match self {
+            Self::ValueDivergence => 80,
+            Self::ExceptionValue => 70,
+            Self::FrequencyBand | Self::TimeLag => 60,
+            Self::ControlFlow => 50,
+            Self::Tfidf => 40,
+            Self::Pca => 30,
+        }
+    }
+
+    fn channel_prior_weight(self) -> f64 {
+        f64::from(self.channel_prior_rank()) / 50.0
     }
 }
 

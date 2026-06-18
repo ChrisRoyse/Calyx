@@ -10,6 +10,7 @@ use calyx_core::{
     Modality, Result, VaultId,
 };
 use proptest::prelude::*;
+use serde_json::json;
 
 #[test]
 fn temporal_deficit_synthesizes_time_lag_candidate() {
@@ -117,6 +118,170 @@ fn no_underrepresented_modality_uses_pca_default_candidate() {
             ..
         }
     ));
+}
+
+#[test]
+fn value_density_prior_beats_control_flow_when_both_are_plausible() {
+    let deficit = deficit(
+        "runtime_value_control_flow",
+        2.0,
+        0.4,
+        vec![Modality::Structured],
+    );
+    let corpus = vec![constellation(
+        0x51,
+        100,
+        Modality::Structured,
+        &[("return_value", 4.0), ("branch", 1.0)],
+    )];
+
+    let candidate = synthesize_algorithmic(&deficit, &corpus).unwrap();
+
+    let (kind, features) = algorithmic(&candidate);
+    assert_eq!(kind, AlgorithmicKind::ValueDivergence);
+    assert_eq!(features["channel_prior"], "runtime_value");
+    assert_eq!(
+        features["independence_contract"],
+        "max_pairwise_corr<=0.600000"
+    );
+}
+
+#[test]
+fn control_flow_channel_is_selected_when_no_value_channel_exists() {
+    let deficit = deficit("control_flow_branch_path", 2.0, 0.4, vec![Modality::Code]);
+    let corpus = vec![constellation(
+        0x52,
+        100,
+        Modality::Code,
+        &[("branch", 1.0), ("cfg", 1.0)],
+    )];
+
+    let candidate = synthesize_algorithmic(&deficit, &corpus).unwrap();
+
+    let (kind, features) = algorithmic(&candidate);
+    assert_eq!(kind, AlgorithmicKind::ControlFlow);
+    assert_eq!(features["channel_prior"], "control_flow");
+}
+
+#[test]
+fn exception_value_channel_records_value_complementarity() {
+    let deficit = deficit("exception_error_path", 2.0, 0.4, vec![Modality::Structured]);
+    let corpus = vec![constellation(
+        0x53,
+        100,
+        Modality::Structured,
+        &[("exception", 1.0), ("error", 1.0)],
+    )];
+
+    let candidate = synthesize_algorithmic(&deficit, &corpus).unwrap();
+
+    let (kind, features) = algorithmic(&candidate);
+    assert_eq!(kind, AlgorithmicKind::ExceptionValue);
+    assert_eq!(features["channel_prior"], "exception_value");
+    assert_eq!(features["complementary_channel"], "value_divergence");
+}
+
+#[test]
+#[ignore = "aiwonder FSV writes source-of-truth artifacts"]
+fn issue774_channel_prior_aiwonder_fsv() {
+    let root =
+        std::env::var("CALYX_ISSUE774_FSV_ROOT").expect("CALYX_ISSUE774_FSV_ROOT is required");
+    std::fs::create_dir_all(&root).expect("create issue774 fsv root");
+    let value_control = synthesize_algorithmic(
+        &deficit(
+            "runtime_value_control_flow",
+            2.0,
+            0.4,
+            vec![Modality::Structured],
+        ),
+        &[constellation(
+            0x61,
+            100,
+            Modality::Structured,
+            &[("return_value", 4.0), ("branch", 1.0)],
+        )],
+    )
+    .unwrap();
+    let control_only = synthesize_algorithmic(
+        &deficit("control_flow_branch_path", 2.0, 0.4, vec![Modality::Code]),
+        &[constellation(
+            0x62,
+            100,
+            Modality::Code,
+            &[("branch", 1.0), ("cfg", 1.0)],
+        )],
+    )
+    .unwrap();
+    let exception_only = synthesize_algorithmic(
+        &deficit("exception_error_path", 2.0, 0.4, vec![Modality::Structured]),
+        &[constellation(
+            0x63,
+            100,
+            Modality::Structured,
+            &[("exception", 1.0), ("error", 1.0)],
+        )],
+    )
+    .unwrap();
+    let mut invalid = deficit("runtime_value", 2.0, 0.4, vec![Modality::Structured]);
+    invalid.top_gaps[0].mutual_info_i = f64::NAN;
+    let invalid_code = synthesize(
+        &invalid,
+        &[constellation(
+            0x64,
+            100,
+            Modality::Structured,
+            &[("return_value", 4.0)],
+        )],
+    )
+    .unwrap_err()
+    .code;
+    let readback = json!({
+        "source_of_truth": "issue774 channel-prior JSON bytes written by calyx-anneal FSV test on aiwonder",
+        "happy_path": {
+            "before": {"anchor": "runtime_value_control_flow", "signals": ["return_value", "branch"]},
+            "expected_after": {"kind": "ValueDivergence", "channel_prior": "runtime_value"},
+            "after": algorithmic_summary(&value_control),
+        },
+        "edge_cases": [
+            {
+                "name": "control_flow_without_value_stays_control_flow",
+                "before": {"anchor": "control_flow_branch_path", "signals": ["branch", "cfg"]},
+                "expected_after": {"kind": "ControlFlow", "channel_prior": "control_flow"},
+                "after": algorithmic_summary(&control_only),
+            },
+            {
+                "name": "exception_value_records_complementarity",
+                "before": {"anchor": "exception_error_path", "signals": ["exception", "error"]},
+                "expected_after": {"kind": "ExceptionValue", "channel_prior": "exception_value", "complementary_channel": "value_divergence"},
+                "after": algorithmic_summary(&exception_only),
+            },
+            {
+                "name": "invalid_metric_fails_closed",
+                "before": {"mutual_info_i": "NaN"},
+                "expected_after": {"error_code": CALYX_ANNEAL_CANDIDATE_INVALID_DEFICIT},
+                "after": {"error_code": invalid_code},
+            }
+        ]
+    });
+    assert_eq!(
+        readback["happy_path"]["after"],
+        readback["happy_path"]["expected_after"]
+    );
+    assert_eq!(
+        readback["edge_cases"][0]["after"],
+        readback["edge_cases"][0]["expected_after"]
+    );
+    assert_eq!(
+        readback["edge_cases"][1]["after"],
+        readback["edge_cases"][1]["expected_after"]
+    );
+    assert_eq!(
+        readback["edge_cases"][2]["after"],
+        readback["edge_cases"][2]["expected_after"]
+    );
+    let path = std::path::Path::new(&root).join("issue774-channel-prior-readback.json");
+    std::fs::write(&path, serde_json::to_vec_pretty(&readback).unwrap()).unwrap();
+    println!("ISSUE774_CHANNEL_PRIOR_READBACK={}", path.display());
 }
 
 #[test]
@@ -249,6 +414,25 @@ fn constellation(
         },
         flags: CxFlags::default(),
     }
+}
+
+fn algorithmic(candidate: &CandidateLens) -> (AlgorithmicKind, &BTreeMap<String, String>) {
+    match candidate {
+        CandidateLens::Algorithmic { kind, params } => (*kind, &params.features),
+        other => panic!("expected algorithmic candidate, got {other:?}"),
+    }
+}
+
+fn algorithmic_summary(candidate: &CandidateLens) -> serde_json::Value {
+    let (kind, features) = algorithmic(candidate);
+    let mut value = json!({
+        "kind": format!("{kind:?}"),
+        "channel_prior": features["channel_prior"],
+    });
+    if let Some(channel) = features.get("complementary_channel") {
+        value["complementary_channel"] = json!(channel);
+    }
+    value
 }
 
 struct FailingCorpus;
