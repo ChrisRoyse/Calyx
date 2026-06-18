@@ -119,6 +119,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     let build_secs = started.elapsed().as_secs_f64();
     let non_empty = manifest.regions.len();
     let total: usize = manifest.regions.iter().map(|r| r.count).sum();
+    let max_replication = manifest.final_assignment_max_replication.max(1);
+    let max_total = (manifest.n_cx as usize).saturating_mul(max_replication);
     let max_region = manifest.regions.iter().map(|r| r.count).max().unwrap_or(0);
     let min_region = manifest.regions.iter().map(|r| r.count).min().unwrap_or(0);
     let report = json!({
@@ -129,6 +131,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         "n_regions": manifest.n_regions,
         "non_empty_regions": non_empty,
         "assigned_total": total,
+        "stored_region_members": manifest.stored_region_members,
+        "assignment_replication_factor": total as f64 / manifest.n_cx.max(1) as f64,
         "max_region_count": max_region,
         "min_region_count": min_region,
         "seed": manifest.seed,
@@ -139,15 +143,23 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         "graph_build_backend": manifest.graph_build_backend.as_str(),
         "provisional_assignment_routing": manifest.provisional_assignment_routing,
         "final_assignment_routing": manifest.final_assignment_routing,
+        "final_assignment_boundary_epsilon": manifest.final_assignment_boundary_epsilon,
+        "final_assignment_max_replication": manifest.final_assignment_max_replication,
         "root_graph_rel": manifest.root_graph_rel,
         "centroids_rel": manifest.centroids_rel,
         "build_seconds": build_secs,
     });
-    if total as u64 != manifest.n_cx {
+    if total < manifest.n_cx as usize
+        || total > max_total
+        || total != manifest.stored_region_members
+    {
         return Err(CliError::Calyx(calyx_core::CalyxError {
             code: "CALYX_FSV_PARTITION_COUNT_MISMATCH",
-            message: format!("assigned {total} != n_cx {}", manifest.n_cx),
-            remediation: "every cx must land in exactly one region",
+            message: format!(
+                "stored_region_members={total} outside [{}, {max_total}] or manifest mismatch",
+                manifest.n_cx
+            ),
+            remediation: "every cx must land at least once and bounded replication must not exceed max_replication",
         }));
     }
     println!(
