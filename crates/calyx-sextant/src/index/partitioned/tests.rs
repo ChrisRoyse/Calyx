@@ -95,6 +95,8 @@ fn bounded_final_assignment_caps_regions_and_preserves_ids() {
             cap: 6,
             routing_probe: 2,
             routing: AssignmentRouting::Hnsw,
+            boundary_epsilon: 0.0,
+            max_replication: 1,
         },
     )
     .expect("bounded assignment");
@@ -110,6 +112,49 @@ fn bounded_final_assignment_caps_regions_and_preserves_ids() {
     }
     ids.sort_unstable();
     assert_eq!(ids, (0..12).collect::<Vec<_>>());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn bounded_assignment_duplicates_boundary_rows_to_adjacent_ids_files() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-boundary-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        vec![vec![0.0, 0.0], vec![10.0, 0.0]],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("centroids");
+    let source = StaticSource {
+        rows: vec![vec![5.0, 0.0]],
+    };
+
+    let regions = stream_assign_to_ids_bounded(
+        &dir,
+        AssignmentSink::Final,
+        &centroids,
+        &source,
+        1,
+        BoundedAssignmentConfig {
+            cap: 2,
+            routing_probe: 2,
+            routing: AssignmentRouting::Exact,
+            boundary_epsilon: 3.0,
+            max_replication: 2,
+        },
+    )
+    .expect("bounded replicated assignment");
+
+    assert_eq!(regions.iter().map(|r| r.count).sum::<usize>(), 2);
+    assert_eq!(
+        read_ids(&dir.join("idx/region_00000.ids")).unwrap(),
+        vec![0]
+    );
+    assert_eq!(
+        read_ids(&dir.join("idx/region_00001.ids")).unwrap(),
+        vec![0]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -158,6 +203,8 @@ fn assignment_writes_nofile_scale_region_count_without_stale_ids() {
             cap: 1,
             routing_probe: 1,
             routing: AssignmentRouting::Exact,
+            boundary_epsilon: 0.0,
+            max_replication: 1,
         },
     )
     .expect("bounded assignment");
@@ -187,7 +234,9 @@ fn partitioned_self_recall_and_region_restriction() {
     let manifest = build_partitioned_vault(&dir, p).expect("build");
     assert_eq!(manifest.region_build_parallelism, 2);
     let total: usize = manifest.regions.iter().map(|r| r.count).sum();
-    assert_eq!(total, 5_000, "all cx partitioned exactly once");
+    assert!(total >= 5_000, "all cx persisted at least once");
+    assert!(total <= 10_000, "replication is bounded to 2x");
+    assert_eq!(manifest.stored_region_members, total);
 
     let search = PartitionedSearch::open(&dir).expect("open");
     let mut hits = 0;
@@ -286,7 +335,9 @@ fn region_build_parallelism_is_effective_cap_and_zero_rejected() {
         "cap larger than region count is reduced to actual buildable regions"
     );
     let total: usize = manifest.regions.iter().map(|r| r.count).sum();
-    assert_eq!(total, p.n_cx as usize);
+    assert!(total >= p.n_cx as usize);
+    assert!(total <= p.n_cx as usize * 2);
+    assert_eq!(manifest.stored_region_members, total);
     let raw_sidecars = manifest
         .regions
         .iter()

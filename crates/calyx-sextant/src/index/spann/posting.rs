@@ -14,10 +14,13 @@ use crate::error::{
     CALYX_INDEX_CORRUPT, CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO,
     CALYX_SEXTANT_INDEX_EMPTY, CALYX_SEXTANT_VECTOR_SHAPE, sextant_error,
 };
+use crate::index::distance::l2_sq;
 use crate::index::{IndexSearchHit, IndexStats, SextantIndex, ranked};
 pub use codec::{decode_posting_block, encode_posting_block};
 
 const ZSTD_LEVEL: i32 = 3;
+const DEFAULT_BOUNDARY_EPSILON: f32 = 0.10;
+const DEFAULT_MAX_REPLICATION: usize = 2;
 
 /// One member of a SPANN posting list: its local id plus the **sparse vector**
 /// (idx,val pairs) of the cx it points at.
@@ -60,6 +63,8 @@ pub struct SpannSearch {
     cx_to_local: BTreeMap<CxId, u32>,
     vectors: BTreeMap<CxId, SlotVector>,
     default_n_probe: usize,
+    boundary_epsilon: f32,
+    max_replication: usize,
     built_at_seq: u64,
     base_seq: u64,
 }
@@ -135,6 +140,8 @@ impl SpannSearch {
             cx_to_local: BTreeMap::new(),
             vectors: BTreeMap::new(),
             default_n_probe: 8,
+            boundary_epsilon: DEFAULT_BOUNDARY_EPSILON,
+            max_replication: DEFAULT_MAX_REPLICATION,
             built_at_seq: 0,
             base_seq: 0,
         }
@@ -152,6 +159,12 @@ impl SpannSearch {
 
     pub fn with_default_n_probe(mut self, n_probe: usize) -> Self {
         self.default_n_probe = n_probe.max(1);
+        self
+    }
+
+    pub fn with_boundary_duplication(mut self, epsilon: f32, max_replication: usize) -> Self {
+        self.boundary_epsilon = epsilon.max(0.0);
+        self.max_replication = max_replication.max(1);
         self
     }
 
@@ -257,9 +270,16 @@ impl SextantIndex for SpannSearch {
         }
         let dense = dense_sparse(self.dim, &vector)?;
         let local = self.local_id_for(cx_id)?;
-        let centroid_id = self.centroids.assign(&dense);
         let sparse = sparse_pairs(&vector)?;
-        PostingListWriter::new(self.posting_dir.clone()).append(centroid_id, local, &sparse)?;
+        let writer = PostingListWriter::new(self.posting_dir.clone());
+        for centroid_id in boundary_centroids(
+            &self.centroids,
+            &dense,
+            self.boundary_epsilon,
+            self.max_replication,
+        ) {
+            writer.append(centroid_id, local, &sparse)?;
+        }
         self.vectors.insert(cx_id, vector);
         self.built_at_seq = self.built_at_seq.max(seq);
         self.base_seq = self.base_seq.max(seq);
@@ -374,6 +394,37 @@ fn validate_query(dim: u32, query: &[f32]) -> Result<()> {
         return Err(invalid("query has non-finite component"));
     }
     Ok(())
+}
+
+fn boundary_centroids(
+    centroids: &SpannCentroidIndex,
+    vector: &[f32],
+    epsilon: f32,
+    max_replication: usize,
+) -> Vec<u32> {
+    if centroids.centroid_count() == 0 || vector.len() != centroids.dim() as usize {
+        return Vec::new();
+    }
+    let mut scored: Vec<(u32, f32)> = centroids
+        .centroids()
+        .iter()
+        .enumerate()
+        .map(|(idx, centroid)| (idx as u32, l2_sq(centroid, vector)))
+        .collect();
+    scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    let nearest = scored[0].1;
+    let threshold = nearest * (1.0 + epsilon.max(0.0));
+    let mut selected = scored
+        .iter()
+        .copied()
+        .filter(|(_, distance)| *distance <= threshold)
+        .take(max_replication.max(1))
+        .map(|(idx, _)| idx)
+        .collect::<Vec<_>>();
+    if selected.is_empty() {
+        selected.push(scored[0].0);
+    }
+    selected
 }
 
 fn posting_path(dir: &Path, centroid_id: u32) -> PathBuf {

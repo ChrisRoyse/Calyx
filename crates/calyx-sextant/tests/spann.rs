@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use calyx_aster::cf::base_key;
-use calyx_core::{CxId, SlotId};
+use calyx_core::{CxId, SlotId, SlotVector, SparseEntry};
 use calyx_sextant::index::spann::centroids::SpannCentroidIndex;
 use calyx_sextant::index::spann::posting::encode_posting_block;
 use calyx_sextant::index::{
@@ -232,6 +232,31 @@ fn spann_limited_probe_has_high_true_recall() {
 }
 
 #[test]
+fn spann_boundary_duplication_writes_member_to_adjacent_postings() {
+    let dir = scratch("boundary-duplication");
+    let centroids =
+        SpannCentroidIndex::from_parts(1, vec![vec![0.0], vec![10.0]], Vec::new(), Vec::new())
+            .expect("centroids");
+    let mut search =
+        SpannSearch::new(SlotId::new(0), centroids, &dir).with_boundary_duplication(3.0, 2);
+    let vector = sparse_vector(1, &[(0, 5.0)]);
+
+    search
+        .insert(cx(42), vector.clone(), 1)
+        .expect("insert boundary vector");
+
+    let first = PostingListReader::new(&dir).read_list(0).expect("first");
+    let second = PostingListReader::new(&dir).read_list(1).expect("second");
+    assert_eq!(first.iter().map(|m| m.cx_id).collect::<Vec<_>>(), vec![0]);
+    assert_eq!(second.iter().map(|m| m.cx_id).collect::<Vec<_>>(), vec![0]);
+    assert_eq!(first[0].vector, sparse_of(&[5.0]));
+    assert_eq!(second[0].vector, sparse_of(&[5.0]));
+
+    let hits = SextantIndex::search(&search, &vector, 1, Some(1)).expect("adapter search");
+    assert_eq!(hits[0].cx_id, cx(42));
+}
+
+#[test]
 fn empty_list_and_probe_clamp_are_non_errors() {
     let dir = scratch("edges");
     let reader = PostingListReader::new(&dir);
@@ -268,6 +293,19 @@ fn empty_list_and_probe_clamp_are_non_errors() {
     // n_probe clamped past the centroid count still returns the exact NN: every
     // list is identical so all members are seen, and rank 0 is the self row.
     assert_eq!(hits[0].0, 0, "self row is nearest");
+}
+
+fn sparse_vector(dim: u32, entries: &[(u32, f32)]) -> SlotVector {
+    SlotVector::Sparse {
+        dim,
+        entries: entries
+            .iter()
+            .map(|(idx, val)| SparseEntry {
+                idx: *idx,
+                val: *val,
+            })
+            .collect(),
+    }
 }
 
 #[test]

@@ -46,6 +46,8 @@ const MIN_REGION_CAP: usize = 2_048;
 /// can return at normal low-probe search settings. If those regions are full, the
 /// build fails closed instead of hiding an unreachable assignment.
 const FINAL_ASSIGNMENT_PROBE: usize = 32;
+const FINAL_ASSIGNMENT_BOUNDARY_EPSILON: f32 = 0.10;
+const FINAL_ASSIGNMENT_MAX_REPLICATION: usize = 2;
 
 /// Deterministic, per-index row generation. Independent of any other index, so
 /// rows can be streamed/regenerated per region without materializing `0..idx`.
@@ -104,6 +106,12 @@ pub struct PartitionedManifest {
     pub provisional_assignment_routing: String,
     #[serde(default)]
     pub final_assignment_routing: String,
+    #[serde(default)]
+    pub final_assignment_boundary_epsilon: f32,
+    #[serde(default)]
+    pub final_assignment_max_replication: usize,
+    #[serde(default)]
+    pub stored_region_members: usize,
     pub centroids_rel: String,
     pub root_graph_rel: String,
     pub regions: Vec<RegionMeta>,
@@ -293,12 +301,8 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         provisional_routing,
     )?;
 
-    // 2b. Balance region sizes (#713). Nearest-centroid assignment is right-skewed,
-    //     and a few oversized regions dominate both the (super-linear) build tail
-    //     AND per-region search cost. Split any region above `cap` into sub-regions
-    //     via local k-means, then rebuild the routing layer over the FINAL centroid
-    //     set so search still routes correctly. cap = target mean: the recursive
-    //     splitter enforces this hard bound, keeping final max/mean near 1-2x.
+    // 2b. Balance region sizes (#713), then rebuild the routing layer over the
+    //     final centroids so search still routes correctly.
     let mean_region = (n_cx as usize).div_ceil(r.max(1));
     let cap = mean_region.max(MIN_REGION_CAP);
     let final_centroids = balance_region_files(
@@ -314,12 +318,8 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         SpannCentroidIndex::from_parts(dim as u32, final_centroids, Vec::new(), Vec::new())?;
     centroids.save(root.join(CENTROID_DIR))?;
 
-    // 2c. Re-assign every cx against the FINAL centroids, but keep the result
-    //     capacity-bounded. Plain nearest-centroid rebucketing can merge split
-    //     sub-centroids back into a huge natural cell, recreating the #713 build
-    //     tail. Bounded assignment chooses the nearest still-open routed centroid
-    //     from the normal low-probe candidate set; if no routed candidate has
-    //     capacity, the build fails closed instead of creating an unreachable row.
+    // 2c. Re-assign every cx against the final centroids, capacity-bounded, with
+    //     bounded boundary replication for low-probe recall.
     let final_mean = (n_cx as usize).div_ceil(centroids.centroid_count().max(1));
     let final_cap = final_mean.saturating_mul(2).max(MIN_REGION_CAP);
     let use_final_routed_assign = centroids.centroid_count() > ROUTED_ASSIGN_MIN_CENTROIDS;
@@ -338,6 +338,8 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
             cap: final_cap,
             routing_probe: FINAL_ASSIGNMENT_PROBE,
             routing: final_routing,
+            boundary_epsilon: FINAL_ASSIGNMENT_BOUNDARY_EPSILON,
+            max_replication: FINAL_ASSIGNMENT_MAX_REPLICATION,
         },
     )?;
     let region_build_parallelism =
@@ -441,6 +443,9 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         graph_build_backend: backend,
         provisional_assignment_routing: provisional_routing.as_str().to_string(),
         final_assignment_routing: final_routing.as_str().to_string(),
+        final_assignment_boundary_epsilon: FINAL_ASSIGNMENT_BOUNDARY_EPSILON,
+        final_assignment_max_replication: FINAL_ASSIGNMENT_MAX_REPLICATION,
+        stored_region_members: regions.iter().map(|region| region.count).sum(),
         centroids_rel: format!("{CENTROID_DIR}/centroids.spn"),
         root_graph_rel: ROOT_GRAPH.to_string(),
         regions,

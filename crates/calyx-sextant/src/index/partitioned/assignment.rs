@@ -9,6 +9,7 @@ use crate::error::{
     CALYX_INDEX_CORRUPT, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO, sextant_error,
 };
 use crate::index::SpannCentroidIndex;
+use crate::index::distance::l2_sq;
 
 use super::{VectorSource, ids_rel};
 
@@ -47,6 +48,8 @@ pub(super) struct BoundedAssignmentConfig {
     pub cap: usize,
     pub routing_probe: usize,
     pub routing: AssignmentRouting,
+    pub boundary_epsilon: f32,
+    pub max_replication: usize,
 }
 
 pub(super) fn stream_assign_to_ids_with_routing(
@@ -114,10 +117,15 @@ pub(super) fn stream_assign_to_ids_bounded(
 ) -> Result<Vec<AssignmentRegion>> {
     let r = centroids.centroid_count();
     let n = source.len();
-    if config.cap == 0 || config.routing_probe == 0 {
+    if config.cap == 0
+        || config.routing_probe == 0
+        || config.max_replication == 0
+        || !config.boundary_epsilon.is_finite()
+        || config.boundary_epsilon < 0.0
+    {
         return Err(sextant_error(
             CALYX_INDEX_INVALID_PARAMS,
-            "bounded assignment requires cap > 0 and routing_probe > 0",
+            "bounded assignment requires cap > 0, routing_probe > 0, max_replication > 0, and finite nonnegative boundary_epsilon",
         ));
     }
     let total_capacity = (config.cap as u128) * (r as u128);
@@ -129,12 +137,13 @@ pub(super) fn stream_assign_to_ids_bounded(
     }
     let probe = config.routing_probe.min(r);
     let chunk = chunk.max(1) as u64;
-    let mut counts = vec![0usize; r];
+    let mut primary_counts = vec![0usize; r];
+    let mut stored_counts = vec![0usize; r];
     clear_stale_ids(root, sink, r)?;
     let mut start = 0u64;
     while start < n {
         let end = (start + chunk).min(n);
-        let rayon_assigned: Vec<(u64, Vec<u32>)> = (start..end)
+        let rayon_assigned: Vec<(u64, Vec<(usize, f32)>)> = (start..end)
             .into_par_iter()
             .map(|idx| {
                 let row = source.row(idx);
@@ -145,12 +154,20 @@ pub(super) fn stream_assign_to_ids_bounded(
                         centroids.nearest_centroids_raw_l2_graph(&row, probe)
                     }
                 };
-                (idx, candidates)
+                (idx, score_candidates(centroids, &row, &candidates))
             })
             .collect();
         let mut assigned = Vec::with_capacity(rayon_assigned.len());
         for (idx, candidates) in rayon_assigned {
-            let region = choose_bounded_region(&counts, config.cap, &candidates).ok_or_else(|| {
+            let regions = choose_bounded_regions(
+                &primary_counts,
+                &stored_counts,
+                config.cap,
+                &candidates,
+                config.boundary_epsilon,
+                config.max_replication,
+            )
+            .ok_or_else(|| {
                 sextant_error(
                     CALYX_INDEX_INVALID_PARAMS,
                     format!(
@@ -158,13 +175,18 @@ pub(super) fn stream_assign_to_ids_bounded(
                     ),
                 )
             })?;
-            counts[region] += 1;
-            assigned.push((idx, region as u32));
+            for (pos, region) in regions.into_iter().enumerate() {
+                if pos == 0 {
+                    primary_counts[region] += 1;
+                }
+                stored_counts[region] += 1;
+                assigned.push((idx, region as u32));
+            }
         }
         append_assigned_chunk(root, sink, &mut assigned)?;
         start = end;
     }
-    Ok(counts
+    Ok(stored_counts
         .into_iter()
         .enumerate()
         .filter(|(_, count)| *count > 0)
@@ -176,11 +198,54 @@ pub(super) fn stream_assign_to_ids_bounded(
         .collect())
 }
 
-fn choose_bounded_region(counts: &[usize], cap: usize, candidates: &[u32]) -> Option<usize> {
-    candidates.iter().find_map(|&region| {
-        let region = region as usize;
-        (region < counts.len() && counts[region] < cap).then_some(region)
-    })
+fn score_candidates(
+    centroids: &SpannCentroidIndex,
+    row: &[f32],
+    candidates: &[u32],
+) -> Vec<(usize, f32)> {
+    let mut scored = Vec::with_capacity(candidates.len());
+    for &candidate in candidates {
+        let region = candidate as usize;
+        let Some(centroid) = centroids.centroids().get(region) else {
+            continue;
+        };
+        if !scored.iter().any(|(seen, _)| *seen == region) {
+            scored.push((region, l2_sq(centroid, row)));
+        }
+    }
+    scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    scored
+}
+
+fn choose_bounded_regions(
+    primary_counts: &[usize],
+    stored_counts: &[usize],
+    cap: usize,
+    candidates: &[(usize, f32)],
+    boundary_epsilon: f32,
+    max_replication: usize,
+) -> Option<Vec<usize>> {
+    let &(primary, primary_distance) = candidates.iter().find(|(region, _)| {
+        primary_counts
+            .get(*region)
+            .is_some_and(|count| *count < cap)
+    })?;
+    let threshold = primary_distance * (1.0 + boundary_epsilon);
+    let duplicate_cap = cap.saturating_mul(max_replication.saturating_sub(1));
+    let mut selected = vec![primary];
+    for &(region, distance) in candidates {
+        if selected.len() >= max_replication {
+            break;
+        }
+        if region == primary || distance > threshold {
+            continue;
+        }
+        let duplicates = stored_counts[region].saturating_sub(primary_counts[region]);
+        if duplicates < duplicate_cap {
+            selected.push(region);
+        }
+    }
+    Some(selected)
 }
 
 fn append_assigned_chunk(
