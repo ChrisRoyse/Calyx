@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub mod autotune;
 pub mod bm25;
 pub mod diskann;
+pub mod distance;
 pub mod dual;
 pub mod funnel;
 pub mod hnsw;
@@ -31,6 +32,7 @@ pub use diskann::{
     build_dual, build_dual_with_search, dual_graph_path, node_block_size, open_diskann_graph,
     open_dual,
 };
+pub use distance::{cosine_distance, dot, kernel_backend, l2_normalize, l2_sq};
 pub use dual::{DualIndex, DualSide};
 pub use funnel::{
     FUNNEL_MIN_VAULT_SIZE, FinalCxSearch, FunnelHit, FunnelParams, FunnelPath, KernelFirstSearch,

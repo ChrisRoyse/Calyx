@@ -16,6 +16,7 @@ use crate::error::{
     CALYX_INDEX_CORRUPT, CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO,
     sextant_error,
 };
+use crate::index::distance::l2_sq;
 use crate::index::{HnswIndex, SextantIndex};
 use codec::{decode_centroids, write_header};
 
@@ -349,10 +350,6 @@ fn nearest_distance_sq(centroids: &[Vec<f32>], vector: &[f32]) -> f32 {
         .map(|centroid| l2_sq(centroid, vector))
         .min_by(f32::total_cmp)
         .unwrap_or(0.0)
-}
-
-fn l2_sq(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
 }
 
 fn build_hnsw(dim: u32, centroids: &[Vec<f32>]) -> Result<(HnswIndex, BTreeMap<CxId, u32>)> {
