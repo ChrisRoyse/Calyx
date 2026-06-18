@@ -252,7 +252,7 @@ fn scalar_features(bytes: &[u8]) -> Vec<f32> {
         return vec![0.0];
     }
     let mean = bytes.iter().map(|byte| f32::from(*byte)).sum::<f32>() / bytes.len() as f32;
-    vec![mean / 255.0]
+    vec![(mean - 80.0) / 80.0]
 }
 
 fn one_hot_features(bytes: &[u8], buckets: u32) -> Vec<f32> {
@@ -373,6 +373,19 @@ mod tests {
                 }
             }
         );
+    }
+
+    #[test]
+    fn scalar_feature_is_centered_for_cosine_assay() {
+        let lens = AlgorithmicLens::scalar("scalar-fsv", Modality::Structured);
+        let low = Input::new(Modality::Structured, b"!!!!!!!!!!!!!!!!".to_vec());
+        let high = Input::new(Modality::Structured, b"zzzzzzzzzzzzzzzz".to_vec());
+
+        let low = lens.measure(&low).unwrap();
+        let high = lens.measure(&high).unwrap();
+
+        assert!(matches!(low, SlotVector::Dense { data, .. } if data[0] < 0.0));
+        assert!(matches!(high, SlotVector::Dense { data, .. } if data[0] > 0.0));
     }
 
     #[test]

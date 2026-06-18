@@ -118,6 +118,30 @@ fn parse_action(value: &str) -> Result<AnnealLedgerAction, String> {
         "GoodhartFailed" => Ok(AnnealLedgerAction::GoodhartFailed),
         "Promote" | "promote" => Ok(AnnealLedgerAction::Promote),
         "Revert" | "revert" => Ok(AnnealLedgerAction::Revert),
+        "Propose" | "propose" => Ok(AnnealLedgerAction::Propose),
+        "LensAdmitted" | "lens_admitted" => Ok(AnnealLedgerAction::LensAdmitted),
+        "LensRejected" | "lens_rejected" => Ok(AnnealLedgerAction::LensRejected),
         other => Err(format!("unsupported Anneal ledger action: {other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_action_accepts_proposal_ledger_actions() {
+        assert_eq!(
+            parse_action("Propose").unwrap(),
+            AnnealLedgerAction::Propose
+        );
+        assert_eq!(
+            parse_action("LensAdmitted").unwrap(),
+            AnnealLedgerAction::LensAdmitted
+        );
+        assert_eq!(
+            parse_action("LensRejected").unwrap(),
+            AnnealLedgerAction::LensRejected
+        );
     }
 }

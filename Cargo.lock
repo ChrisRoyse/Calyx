@@ -443,6 +443,7 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "calyx-anneal",
+ "calyx-assay",
  "calyx-aster",
  "calyx-core",
  "calyx-ledger",

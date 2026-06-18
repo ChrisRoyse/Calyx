@@ -8,6 +8,8 @@ use calyx_core::{
 use calyx_registry::CapabilityCard;
 use serde::{Deserialize, Serialize};
 
+use crate::ShadowRevertReason;
+
 use super::candidate_synth::CandidateLens;
 use super::deficit_localize::CALYX_ASSAY_INVALID_METRIC;
 
@@ -52,6 +54,16 @@ pub enum RejectReason {
         max_vram_mb: f64,
         max_ram_mb: f64,
         max_ms_per_input: f64,
+    },
+    HotAddFailed {
+        code: String,
+    },
+    SubstrateReverted {
+        shadow_reason: ShadowRevertReason,
+    },
+    NoSufficiencyGain {
+        before: f64,
+        after: f64,
     },
 }
 
@@ -230,6 +242,15 @@ pub fn describe_gate_outcome(outcome: &GateOutcome) -> String {
         } => format!(
             "LensRejected resource_budget_exceeded usage=({vram_mb:.3}MiB,{ram_mb:.3}MiB,{ms_per_input:.3}ms) budget=({max_vram_mb:.3}MiB,{max_ram_mb:.3}MiB,{max_ms_per_input:.3}ms)"
         ),
+        GateOutcome::Rejected {
+            reason: RejectReason::HotAddFailed { code },
+        } => format!("LensRejected hot_add_failed code={code}"),
+        GateOutcome::Rejected {
+            reason: RejectReason::SubstrateReverted { shadow_reason },
+        } => format!("LensRejected substrate_reverted reason={shadow_reason:?}"),
+        GateOutcome::Rejected {
+            reason: RejectReason::NoSufficiencyGain { before, after },
+        } => format!("LensRejected no_sufficiency_gain sufficiency={before:.6}->{after:.6}"),
     }
 }
 

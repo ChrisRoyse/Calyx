@@ -267,16 +267,15 @@ pub struct ProcStatBudgetProbe {
 
 impl BudgetProbe for ProcStatBudgetProbe {
     fn sample(&self) -> BudgetProbeSample {
-        let cpu_used_fraction = read_proc_stat().map_or(1.0, |current| {
-            let mut previous = self.previous.lock().ok();
+        let cpu_used_fraction = read_proc_stat().map_or(0.0, |current| {
+            let Ok(mut previous) = self.previous.lock() else {
+                return 0.0;
+            };
             let cpu = previous
-                .as_deref()
-                .and_then(|prev| prev.as_ref())
+                .as_ref()
                 .and_then(|prev| current.usage_since(*prev))
-                .unwrap_or(1.0);
-            if let Some(prev) = previous.as_deref_mut() {
-                *prev = Some(current);
-            }
+                .unwrap_or(0.0);
+            *previous = Some(current);
             cpu
         });
         BudgetProbeSample {

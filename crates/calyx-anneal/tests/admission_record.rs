@@ -1,7 +1,11 @@
+use std::collections::BTreeMap;
+
 use calyx_anneal::{
-    AdmissionRecord, AnnealLedger, AnnealLedgerAction, AnnealLedgerEntry, CALYX_LEDGER_WRITE_FAIL,
-    ChangeId, LensAdmittedEntry, LensRejectedEntry, MetricSnapshot, RejectReason, proposal_history,
-    proposal_history_with_refs, record_admitted, record_rejected,
+    AdmissionRecord, AlgParams, AlgorithmicKind, AnnealLedger, AnnealLedgerAction,
+    AnnealLedgerEntry, CALYX_LEDGER_WRITE_FAIL, CandidateLens, ChangeId, GateOutcome,
+    LensAdmittedEntry, LensRejectedEntry, MetricSnapshot, ProposalOutcome, ProposalTerminalState,
+    RejectReason, proposal_history, proposal_history_with_refs, record_admitted,
+    record_proposal_outcome, record_rejected,
 };
 use calyx_core::{CalyxError, FixedClock, Result};
 use calyx_ledger::{ActorId, LedgerAppender, LedgerCfStore, LedgerRow, MemoryLedgerStore};
@@ -38,6 +42,45 @@ fn record_rejected_roundtrips_from_history() {
         ledger.read_recent(1).unwrap()[0].action,
         AnnealLedgerAction::LensRejected
     );
+}
+
+#[test]
+fn no_sufficiency_gain_outcome_records_lens_rejected() {
+    let mut ledger = memory_ledger();
+    let outcome = ProposalOutcome {
+        candidate: Some(candidate()),
+        gate_outcome: Some(GateOutcome::Admitted {
+            bits: 0.20,
+            max_corr: 0.10,
+            resource: None,
+        }),
+        sufficiency_before: 0.50,
+        sufficiency_after: Some(0.50),
+        admitted: false,
+        change_id: Some(ChangeId(422_010)),
+        hot_add: None,
+        terminal_state: ProposalTerminalState::NoSufficiencyGain,
+    };
+
+    let ledger_ref = record_proposal_outcome(&outcome, &mut ledger, TEST_TS + 2, 0.40)
+        .expect("record no-gain outcome")
+        .expect("no-gain should write a rejection");
+    let history = proposal_history_with_refs(&ledger, 1).expect("history");
+
+    assert_eq!(history[0].ledger_ref, ledger_ref);
+    match &history[0].record {
+        AdmissionRecord::LensRejected(entry) => {
+            assert_eq!(entry.deficit_gap, 0.40);
+            assert_eq!(
+                entry.reason,
+                RejectReason::NoSufficiencyGain {
+                    before: 0.50,
+                    after: 0.50
+                }
+            );
+        }
+        other => panic!("expected LensRejected, got {other:?}"),
+    }
 }
 
 #[test]
@@ -151,6 +194,18 @@ fn rejected_entry(bits: f64) -> LensRejectedEntry {
         },
         deficit_gap: 0.80,
         ts: TEST_TS + 1,
+    }
+}
+
+fn candidate() -> CandidateLens {
+    CandidateLens::Algorithmic {
+        kind: AlgorithmicKind::Pca,
+        params: AlgParams {
+            target_anchor: "quality".to_string(),
+            sample_count: 64,
+            seed: 42,
+            features: BTreeMap::new(),
+        },
     }
 }
 

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -15,13 +16,18 @@ use crate::tools::vault::store::{ResolvedVault, home_dir, resolve_vault_info, va
 pub(super) struct VaultContext {
     pub(super) vault: AsterVault,
     pub(super) state: VaultPanelState,
+    pub(super) vault_dir: PathBuf,
 }
 
 pub(super) fn load_context(vault_name: &str) -> ToolResult<VaultContext> {
     let resolved = resolve_requested_vault(vault_name)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
-    Ok(VaultContext { vault, state })
+    Ok(VaultContext {
+        vault,
+        state,
+        vault_dir: resolved.path,
+    })
 }
 
 fn resolve_requested_vault(vault: &str) -> ToolResult<ResolvedVault> {

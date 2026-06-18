@@ -52,8 +52,8 @@ impl LensHotAdder for RegistryHotAdder<'_> {
             candidate_action: HotAddAction::stable(),
             incumbent_action: HotAddAction::stable(),
             description: format!(
-                "lens_proposal hot_add candidate_hash={}",
-                hex32(candidate_hash)
+                "lens_proposal hot_add candidate={}",
+                hex_prefix(candidate_hash, 12)
             ),
         })
     }

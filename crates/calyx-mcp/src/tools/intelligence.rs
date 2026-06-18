@@ -5,11 +5,15 @@ mod guard;
 mod metrics;
 mod model;
 mod propose;
+mod propose_backfill;
+mod propose_live;
+mod propose_profile;
 #[cfg(test)]
 mod tests;
 
 use std::path::PathBuf;
 
+use calyx_assay::PanelResourceBudget;
 use calyx_aster::cf::ColumnFamily;
 use calyx_core::CalyxError;
 use serde::Deserialize;
@@ -179,13 +183,16 @@ impl Tool for ProposeLensTool {
             object_schema(&[
                 ("vault", string_schema(), true),
                 ("anchor", string_schema(), true),
+                ("max_vram_mb", number_schema(), false),
+                ("max_ram_mb", number_schema(), false),
+                ("max_ms_per_input", number_schema(), false),
             ]),
         )
     }
 
     fn call(&self, params: Value) -> ToolResult<Value> {
         let args: ProposeLensArgs = decode("calyx.propose_lens", params)?;
-        propose::run(&args.vault, &args.anchor)
+        propose::run(&args.vault, &args.anchor, args.panel_budget()?)
     }
 }
 
@@ -227,6 +234,34 @@ struct GuardCheckArgs {
 struct ProposeLensArgs {
     vault: String,
     anchor: String,
+    max_vram_mb: Option<f64>,
+    max_ram_mb: Option<f64>,
+    max_ms_per_input: Option<f64>,
+}
+
+impl ProposeLensArgs {
+    fn panel_budget(&self) -> ToolResult<Option<PanelResourceBudget>> {
+        match (self.max_vram_mb, self.max_ram_mb, self.max_ms_per_input) {
+            (None, None, None) => Ok(None),
+            (Some(vram), Some(ram), Some(ms)) => Ok(Some(PanelResourceBudget {
+                max_vram_mb: finite_f32("max_vram_mb", vram)?,
+                max_ram_mb: finite_f32("max_ram_mb", ram)?,
+                max_ms_per_input: finite_f32("max_ms_per_input", ms)?,
+            })),
+            _ => Err(ToolError::invalid_params(
+                "max_vram_mb, max_ram_mb, and max_ms_per_input must be supplied together",
+            )),
+        }
+    }
+}
+
+fn finite_f32(field: &'static str, value: f64) -> ToolResult<f32> {
+    if !value.is_finite() || value < 0.0 || value > f64::from(f32::MAX) {
+        return Err(ToolError::invalid_params(format!(
+            "{field} must be a finite non-negative f32"
+        )));
+    }
+    Ok(value as f32)
 }
 
 fn decode<T: DeserializeOwned>(tool: &str, params: Value) -> ToolResult<T> {

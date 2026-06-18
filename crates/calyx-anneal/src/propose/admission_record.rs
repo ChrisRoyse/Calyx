@@ -95,10 +95,13 @@ where
             let record = rejected_from_outcome(outcome, ts, deficit_gap)?;
             record_rejected(&record, ledger).map(Some)
         }
-        ProposalTerminalState::NoDeficit => Ok(None),
         ProposalTerminalState::HotAddFailed { .. }
         | ProposalTerminalState::SubstrateReverted { .. }
-        | ProposalTerminalState::NoSufficiencyGain => Ok(None),
+        | ProposalTerminalState::NoSufficiencyGain => {
+            let record = rejected_from_outcome(outcome, ts, deficit_gap)?;
+            record_rejected(&record, ledger).map(Some)
+        }
+        ProposalTerminalState::NoDeficit => Ok(None),
     }
 }
 
@@ -193,16 +196,42 @@ fn rejected_from_outcome(
         .candidate
         .as_ref()
         .ok_or_else(|| invalid_entry("rejected proposal is missing candidate"))?;
-    let reason = match &outcome.gate_outcome {
-        Some(GateOutcome::Rejected { reason }) => reason.clone(),
-        _ => return Err(invalid_entry("rejected proposal is missing reject reason")),
-    };
+    let reason = reject_reason_from_outcome(outcome)?;
     Ok(LensRejectedEntry {
         candidate_desc: describe(candidate),
         reason,
         deficit_gap,
         ts,
     })
+}
+
+fn reject_reason_from_outcome(outcome: &ProposalOutcome) -> Result<RejectReason> {
+    match &outcome.terminal_state {
+        ProposalTerminalState::GateRejected => match &outcome.gate_outcome {
+            Some(GateOutcome::Rejected { reason }) => Ok(reason.clone()),
+            _ => Err(invalid_entry("gate rejection is missing reject reason")),
+        },
+        ProposalTerminalState::HotAddFailed { code } => {
+            Ok(RejectReason::HotAddFailed { code: code.clone() })
+        }
+        ProposalTerminalState::SubstrateReverted { reason } => {
+            Ok(RejectReason::SubstrateReverted {
+                shadow_reason: reason.clone(),
+            })
+        }
+        ProposalTerminalState::NoSufficiencyGain => {
+            let after = outcome
+                .sufficiency_after
+                .ok_or_else(|| invalid_entry("no-gain proposal is missing sufficiency_after"))?;
+            Ok(RejectReason::NoSufficiencyGain {
+                before: outcome.sufficiency_before,
+                after,
+            })
+        }
+        ProposalTerminalState::NoDeficit | ProposalTerminalState::Admitted => {
+            Err(invalid_entry("terminal state is not a rejection"))
+        }
+    }
 }
 
 fn ledger_entry(record: AdmissionRecord) -> Result<AnnealLedgerEntry> {
@@ -300,6 +329,25 @@ fn validate_reject_reason(reason: &RejectReason) -> Result<()> {
             validate_metric("reject.max_ms_per_input", *max_ms_per_input)?;
             Ok(())
         }
+        RejectReason::HotAddFailed { code } => {
+            if code.trim().is_empty() {
+                return Err(invalid_entry(
+                    "reject.hot_add_failed code must not be empty",
+                ));
+            }
+            Ok(())
+        }
+        RejectReason::SubstrateReverted { .. } => Ok(()),
+        RejectReason::NoSufficiencyGain { before, after } => {
+            validate_metric("reject.before", *before)?;
+            validate_metric("reject.after", *after)?;
+            if after > before {
+                return Err(invalid_metric(
+                    "no_sufficiency_gain reject reason cannot improve sufficiency",
+                ));
+            }
+            Ok(())
+        }
     }
 }
 
@@ -380,6 +428,9 @@ fn reject_label(reason: &RejectReason) -> &'static str {
         RejectReason::TooCorrelated { .. } => "too_correlated",
         RejectReason::ProfileTimeout => "profile_timeout",
         RejectReason::ResourceBudgetExceeded { .. } => "resource_budget_exceeded",
+        RejectReason::HotAddFailed { .. } => "hot_add_failed",
+        RejectReason::SubstrateReverted { .. } => "substrate_reverted",
+        RejectReason::NoSufficiencyGain { .. } => "no_sufficiency_gain",
     }
 }
 

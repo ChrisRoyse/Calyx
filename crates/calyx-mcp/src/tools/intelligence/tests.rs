@@ -17,6 +17,8 @@ use crate::tools::test_support::ENV_LOCK;
 
 use super::{metrics, model};
 
+mod propose_driver;
+
 struct TestEnv {
     home: PathBuf,
     old_home: Option<OsString>,
@@ -251,7 +253,7 @@ fn mcp_kernel_and_propose_lens_edges() {
         "calyx.kernel",
         json!({"vault": "v", "anchor": "test_pass"}),
     );
-    let proposal = call_ok(
+    let proposal = call_err(
         &server,
         31,
         "calyx.propose_lens",
@@ -262,8 +264,10 @@ fn mcp_kernel_and_propose_lens_edges() {
         kernel.data.unwrap()["calyx_code"],
         "CALYX_KERNEL_UNGROUNDED"
     );
-    assert!(proposal["name"].as_str().unwrap().len() > 3);
-    assert!(proposal["predicted_bits_gain"].as_f64().unwrap() >= 0.0);
+    assert_eq!(
+        proposal.data.unwrap()["calyx_code"],
+        "CALYX_ASSAY_INSUFFICIENT_SAMPLES"
+    );
 }
 
 fn one_dense_doc(server: &McpServer, vault: &str) -> String {

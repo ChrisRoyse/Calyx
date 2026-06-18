@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 calyx-anneal = { path = "../calyx-anneal" }
+calyx-assay = { path = "../calyx-assay" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-ledger = { path = "../calyx-ledger" }

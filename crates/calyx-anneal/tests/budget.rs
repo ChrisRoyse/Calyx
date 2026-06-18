@@ -5,8 +5,8 @@ use std::sync::{Arc, Mutex};
 
 use calyx_anneal::{
     BudgetConfig, BudgetEnforcer, BudgetHandle, BudgetProbe, BudgetProbeSample,
-    CALYX_ANNEAL_BUDGET_EXHAUSTED, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, budget_config_path,
-    read_budget_config_from_vault,
+    CALYX_ANNEAL_BUDGET_EXHAUSTED, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, ProcStatBudgetProbe,
+    budget_config_path, read_budget_config_from_vault,
 };
 use calyx_core::FixedClock;
 use proptest::prelude::*;
@@ -110,6 +110,23 @@ fn nvml_unavailable_uses_static_pool_warning() {
     assert_eq!(status.vram_used_bytes, 256);
     let handle = enforcer.acquire(0.01, 256).expect("static pool capacity");
     assert_eq!(enforcer.status().unwrap().vram_used_bytes, 512);
+    drop(handle);
+}
+
+#[test]
+fn proc_stat_probe_first_sample_establishes_cpu_baseline() {
+    let clock = FixedClock::new(TEST_TS);
+    let enforcer = BudgetEnforcer::with_probe(
+        config(0.01, MIB, 100),
+        &clock,
+        ProcStatBudgetProbe::default(),
+    )
+    .unwrap();
+
+    let handle = enforcer
+        .acquire(0.01, 0)
+        .expect("first proc sample baseline");
+    assert_eq!(enforcer.status().unwrap().handles_active, 1);
     drop(handle);
 }
 

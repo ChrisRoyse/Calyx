@@ -82,6 +82,22 @@ pub(super) struct ProposeLensOut {
     pub runtime_hint: String,
     pub estimated_cost: String,
     pub candidate: serde_json::Value,
+    pub admitted: bool,
+    pub terminal_state: String,
+    pub sufficiency_before: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sufficiency_after: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gate_outcome: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hot_add: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ledger_ref: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub panel_write: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub backfill: Option<serde_json::Value>,
+    pub measured: BitsOut,
 }
 
 pub(super) fn assay_key(anchor: &str) -> Vec<u8> {

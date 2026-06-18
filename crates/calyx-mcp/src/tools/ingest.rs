@@ -1,13 +1,14 @@
 //! Ingest, anchor, and measure MCP tools for PH63 T03.
 
 mod anchor;
+mod input_retention;
 mod report;
 #[cfg(test)]
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use calyx_aster::cf::{ColumnFamily, base_key, full_content_hash};
+use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     AbsentReason, Anchor, CalyxError, Constellation, CxFlags, CxId, Input, InputRef, LedgerRef,
@@ -26,6 +27,7 @@ use crate::server::{McpServer, Tool, ToolError, ToolResult};
 use self::anchor::{
     append_anchor_ledger, parse_anchor_kind, parse_anchor_value, validate_confidence,
 };
+use self::input_retention::{input_hash, retained_text_input};
 use self::report::constellation_report;
 use super::vault::now_ms;
 use super::vault::store::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
@@ -217,7 +219,12 @@ fn ingest_texts(resolved: &ResolvedVault, texts: &[String]) -> ToolResult<Vec<In
     let mut prepared = Vec::with_capacity(texts.len());
     let mut first_new = BTreeSet::new();
     for text in texts {
-        let measured = measure_constellation(&vault, &state, text_input(text.clone()), now_ms())?;
+        let measured = measure_constellation(
+            &vault,
+            &state,
+            retained_text_input(resolved, text)?,
+            now_ms(),
+        )?;
         let cx_id = measured.constellation.cx_id;
         let new = !base_exists(&vault, cx_id)? && first_new.insert(cx_id);
         if new {
@@ -419,10 +426,6 @@ fn text_input(text: String) -> Input {
 
 fn absent(reason: AbsentReason) -> SlotVector {
     SlotVector::Absent { reason }
-}
-
-fn input_hash(bytes: &[u8]) -> [u8; 32] {
-    full_content_hash([bytes])
 }
 
 fn decode<T: DeserializeOwned>(tool: &str, params: Value) -> ToolResult<T> {
