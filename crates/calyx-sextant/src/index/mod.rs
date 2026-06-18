@@ -28,9 +28,9 @@ pub use autotune::{
 pub use diskann::{
     ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey, Direction, DirectionalBoost,
     DiskAnnBuildParams, DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef,
-    DiskAnnSearch, DiskAnnSearchParams, DualDiskAnnSearch, TokenDiskAnnMaxSim, build_diskann_graph,
-    build_dual, build_dual_with_search, dual_graph_path, node_block_size, open_diskann_graph,
-    open_dual,
+    DiskAnnPqBuildParams, DiskAnnPqIndex, DiskAnnSearch, DiskAnnSearchParams, DualDiskAnnSearch,
+    TokenDiskAnnMaxSim, build_diskann_graph, build_dual, build_dual_with_search, dual_graph_path,
+    node_block_size, open_diskann_graph, open_dual,
 };
 pub use distance::{cosine_distance, dot, kernel_backend, l2_normalize, l2_sq};
 pub use dual::{DualIndex, DualSide};

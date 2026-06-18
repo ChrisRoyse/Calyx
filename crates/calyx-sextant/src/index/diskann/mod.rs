@@ -7,6 +7,7 @@ pub mod build;
 pub mod concat;
 pub mod dual;
 pub mod graph;
+pub mod pq;
 pub mod search;
 pub mod token;
 mod token_sidecar;
@@ -21,5 +22,6 @@ pub use graph::{
     DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader, DiskAnnNodeRef, node_block_size,
     open_diskann_graph,
 };
+pub use pq::{DiskAnnPqBuildParams, DiskAnnPqIndex};
 pub use search::{DiskAnnSearch, DiskAnnSearchParams};
 pub use token::TokenDiskAnnMaxSim;

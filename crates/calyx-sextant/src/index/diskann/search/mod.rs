@@ -1,6 +1,7 @@
 //! DiskANN beam search and raw-f32 rescore (PH68 T02).
 
 mod helpers;
+mod pq_support;
 mod scratch;
 mod storage;
 
@@ -13,6 +14,7 @@ use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
 
 use super::build::DiskAnnBuildParams;
 use super::graph::DiskAnnGraphReader;
+use super::pq::{DiskAnnPqBuildParams, DiskAnnPqIndex, default_pq_sidecar};
 use crate::error::{CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_IO, sextant_error};
 use crate::index::distance::l2_normalize;
 use crate::index::{IndexSearchHit, IndexStats, SextantIndex, ranked};
@@ -22,6 +24,7 @@ use helpers::{
     Candidate, DiskAnnDistanceMode, dense_rows, distance, invalid, io, open_for_search, positions,
     prefetch_node, sorted,
 };
+use pq_support::write_pq_sidecar;
 use storage::{build_search_graph, default_raw_sidecar, read_distance_mode};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,12 +50,20 @@ impl Default for DiskAnnSearchParams {
 /// per-node `posix_fadvise` prefetch is net-negative (syscall overhead with no
 /// readahead benefit). Above it, prefetch helps amortize cold-SSD latency.
 const PREFETCH_MIN_GRAPH_BYTES: u64 = 256 * 1024 * 1024;
+
+#[derive(Clone, Copy)]
+pub(super) struct SearchBuildSidecars {
+    pub(super) write_default_raw_sidecar: bool,
+    pub(super) pq: Option<DiskAnnPqBuildParams>,
+}
+
 #[derive(Debug)]
 pub struct DiskAnnSearch {
     slot: SlotId,
     dim: u32,
     graph_path: PathBuf,
     raw_sidecar: Option<PathBuf>,
+    pq: Option<DiskAnnPqIndex>,
     reader: Option<DiskAnnGraphReader>,
     graph_file: Option<File>,
     distance_mode: DiskAnnDistanceMode,
@@ -87,6 +98,7 @@ impl DiskAnnSearch {
             let path = default_raw_sidecar(&graph_path);
             path.is_dir().then_some(path)
         });
+        let pq = DiskAnnPqIndex::read_if_exists(&default_pq_sidecar(&graph_path))?;
         let graph_file = File::open(&graph_path).map_err(|e| io("open graph for prefetch", e))?;
         let build_params = DiskAnnBuildParams {
             dim: header.dim as usize,
@@ -99,6 +111,7 @@ impl DiskAnnSearch {
             dim: header.dim,
             graph_path,
             raw_sidecar,
+            pq,
             reader: Some(reader),
             graph_file: Some(graph_file),
             distance_mode,
@@ -126,7 +139,10 @@ impl DiskAnnSearch {
             build_params,
             raw_sidecar,
             default_search,
-            true,
+            SearchBuildSidecars {
+                write_default_raw_sidecar: true,
+                pq: None,
+            },
         )
     }
 
@@ -145,7 +161,10 @@ impl DiskAnnSearch {
             build_params,
             raw_sidecar,
             default_search,
-            false,
+            SearchBuildSidecars {
+                write_default_raw_sidecar: false,
+                pq: None,
+            },
         )
     }
 
@@ -156,11 +175,11 @@ impl DiskAnnSearch {
         build_params: DiskAnnBuildParams,
         raw_sidecar: Option<PathBuf>,
         default_search: DiskAnnSearchParams,
-        write_default_raw_sidecar: bool,
+        sidecars: SearchBuildSidecars,
     ) -> Result<Self> {
         let graph_path = graph_path.into();
         let dense_rows = dense_rows(rows, build_params.dim)?;
-        let write_raw_sidecar = raw_sidecar.is_none() && write_default_raw_sidecar;
+        let write_raw_sidecar = raw_sidecar.is_none() && sidecars.write_default_raw_sidecar;
         let raw_sidecar = build_search_graph(
             &graph_path,
             &dense_rows,
@@ -168,6 +187,9 @@ impl DiskAnnSearch {
             raw_sidecar,
             write_raw_sidecar,
         )?;
+        if let Some(pq_params) = sidecars.pq {
+            write_pq_sidecar(&graph_path, &dense_rows, pq_params)?;
+        }
         Self::open(
             slot,
             graph_path,
@@ -183,6 +205,7 @@ impl DiskAnnSearch {
             dim,
             graph_path: graph_path.into(),
             raw_sidecar: None,
+            pq: None,
             reader: None,
             graph_file: None,
             distance_mode: DiskAnnDistanceMode::UnitL2,
@@ -370,6 +393,7 @@ impl SextantIndex for DiskAnnSearch {
         }
         let rows: Vec<_> = self.ids.iter().copied().zip(vectors).collect();
         let dense_rows = dense_rows(&rows, self.dim as usize)?;
+        let pq_params = self.pq.as_ref().map(DiskAnnPqIndex::build_params);
         self.raw_sidecar = build_search_graph(
             &self.graph_path,
             &dense_rows,
@@ -378,6 +402,11 @@ impl SextantIndex for DiskAnnSearch {
             true,
         )?;
         self.reader = Some(open_for_search(&self.graph_path)?);
+        self.pq = if let Some(pq_params) = pq_params {
+            Some(write_pq_sidecar(&self.graph_path, &dense_rows, pq_params)?)
+        } else {
+            DiskAnnPqIndex::read_if_exists(&default_pq_sidecar(&self.graph_path))?
+        };
         self.graph_file =
             Some(File::open(&self.graph_path).map_err(|e| io("open graph for prefetch", e))?);
         self.distance_mode = read_distance_mode(&self.graph_path)?;
@@ -412,6 +441,7 @@ impl SextantIndex for DiskAnnSearch {
         }
         let rows: Vec<_> = self.ids.iter().copied().zip(vectors).collect();
         let dense_rows = dense_rows(&rows, self.dim as usize)?;
+        let pq_params = self.pq.as_ref().map(DiskAnnPqIndex::build_params);
         self.raw_sidecar = build_search_graph(
             &self.graph_path,
             &dense_rows,
@@ -420,6 +450,11 @@ impl SextantIndex for DiskAnnSearch {
             true,
         )?;
         self.reader = Some(open_for_search(&self.graph_path)?);
+        self.pq = if let Some(pq_params) = pq_params {
+            Some(write_pq_sidecar(&self.graph_path, &dense_rows, pq_params)?)
+        } else {
+            DiskAnnPqIndex::read_if_exists(&default_pq_sidecar(&self.graph_path))?
+        };
         self.distance_mode = read_distance_mode(&self.graph_path)?;
         Ok(())
     }

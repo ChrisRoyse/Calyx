@@ -5,7 +5,8 @@ use std::path::PathBuf;
 
 use calyx_core::{CxId, SlotId, SlotVector};
 use calyx_sextant::index::{
-    DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, SextantIndex, open_diskann_graph,
+    DiskAnnBuildParams, DiskAnnPqBuildParams, DiskAnnSearch, DiskAnnSearchParams, SextantIndex,
+    open_diskann_graph,
 };
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
@@ -198,6 +199,84 @@ fn build_writes_unit_l2_marker_normalized_graph_and_raw_sidecar() {
             data: rows[0].1.clone(),
         })
     );
+}
+
+#[test]
+fn build_with_pq_writes_sidecar_searches_and_reranks_from_raw() {
+    let dir = scratch("pq-sidecar");
+    let path = dir.join("idx/slot_00.ann/graph.cda");
+    let rows = vectors(256, 16, 707);
+    let params = search_params(32, 128, true);
+    let index = DiskAnnSearch::build_with_pq(
+        SlotId::new(0),
+        &path,
+        &rows,
+        build_params(16),
+        None,
+        params,
+        DiskAnnPqBuildParams {
+            subvectors: 4,
+            centroids: 32,
+            iterations: 4,
+        },
+    )
+    .expect("build pq diskann");
+
+    assert!(path.with_extension("pq").is_file());
+    assert_eq!(index.pq_summary(), Some((256, 4, 32)));
+    assert!(
+        index
+            .pq_ram_bytes()
+            .is_some_and(|bytes| bytes < 256 * 16 * 4)
+    );
+
+    let hits = index
+        .search_ids(&rows[7].1, 10, &params)
+        .expect("pq search");
+
+    assert_eq!(hits.len(), 10);
+    assert_eq!(hits[0].0, 7);
+    assert!(hits.windows(2).all(|pair| pair[0].1 <= pair[1].1));
+    for (id, distance) in hits {
+        let exact = 1.0 - cosine(&rows[7].1, &rows[id as usize].1);
+        assert!(
+            (distance - exact.max(0.0)).abs() <= 1.0e-5,
+            "node {id}: {distance} != {exact}"
+        );
+    }
+}
+
+#[test]
+fn corrupt_pq_sidecar_fails_closed_on_open() {
+    let dir = scratch("pq-corrupt");
+    let path = dir.join("idx/slot_00.ann/graph.cda");
+    let rows = vectors(64, 16, 708);
+    let _ = DiskAnnSearch::build_with_pq(
+        SlotId::new(0),
+        &path,
+        &rows,
+        build_params(16),
+        None,
+        search_params(16, 64, true),
+        DiskAnnPqBuildParams {
+            subvectors: 4,
+            centroids: 16,
+            iterations: 2,
+        },
+    )
+    .expect("build pq diskann");
+    std::fs::write(path.with_extension("pq"), b"bad-pq").expect("corrupt pq");
+
+    let err = DiskAnnSearch::open(
+        SlotId::new(0),
+        &path,
+        rows.iter().map(|(cx_id, _)| *cx_id).collect(),
+        None,
+        search_params(16, 64, true),
+    )
+    .expect_err("corrupt pq must fail");
+
+    assert_eq!(err.code, "CALYX_INDEX_CORRUPT");
 }
 
 #[test]
