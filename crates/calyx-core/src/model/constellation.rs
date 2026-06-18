@@ -14,6 +14,22 @@ use super::{
 pub const METADATA_CHUNK_ID: &str = "chunk_id";
 /// Leapable Vault contract key for the owning database identifier.
 pub const METADATA_DATABASE_NAME: &str = "database_name";
+/// Source-system event timestamp in Unix seconds, when the source provided one.
+pub const METADATA_SOURCE_EVENT_TIME_SECS: &str = "source_event_time_secs";
+/// Verbatim source timestamp text or integer used to derive event seconds.
+pub const METADATA_SOURCE_EVENT_TIME_RAW: &str = "source_event_time_raw";
+/// Temporal lane activation state for this constellation.
+pub const METADATA_TEMPORAL_LANE_STATE: &str = "temporal_lane_state";
+/// Stable reason code when temporal lanes are inactive for this constellation.
+pub const METADATA_TEMPORAL_INACTIVE_REASON: &str = "temporal_inactive_reason";
+/// Documented ordering source used by sequence/positional temporal slots.
+pub const METADATA_SOURCE_SEQUENCE: &str = "source_sequence";
+/// Temporal lanes have a real event-time source and may be scored.
+pub const TEMPORAL_LANE_ACTIVE: &str = "active";
+/// Temporal lanes are suppressed because no real event-time source exists.
+pub const TEMPORAL_LANE_INACTIVE: &str = "inactive";
+/// Stable reason for timeless source rows.
+pub const TEMPORAL_MISSING_CREATED_AT: &str = "source_missing_created_at";
 
 /// One input measured by one panel of frozen lenses.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -59,6 +75,16 @@ impl Constellation {
     /// Returns the preserved Leapable database identifier, when this row came from a Vault chunk.
     pub fn database_name(&self) -> Option<&str> {
         self.metadata_value(METADATA_DATABASE_NAME)
+    }
+
+    /// Returns the preserved source event timestamp, suppressing explicitly
+    /// inactive temporal lanes instead of falling back to storage time.
+    pub fn source_event_time_secs(&self) -> Option<i64> {
+        if self.metadata_value(METADATA_TEMPORAL_LANE_STATE) == Some(TEMPORAL_LANE_INACTIVE) {
+            return None;
+        }
+        self.metadata_value(METADATA_SOURCE_EVENT_TIME_SECS)
+            .and_then(|value| value.parse::<i64>().ok())
     }
 
     /// Validates this record at storage/API boundaries.

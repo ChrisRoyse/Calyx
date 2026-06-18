@@ -187,6 +187,8 @@ fn typed_chunk_row(rowid: u64, record: &ChunkRecord) -> ChunkRow {
         database_name: record.metadata.database_name.clone(),
         content: record.text_hash.as_bytes().to_vec(),
         embedding: record.vector.clone(),
+        event_time_secs: None,
+        event_time_raw: None,
     }
 }
 

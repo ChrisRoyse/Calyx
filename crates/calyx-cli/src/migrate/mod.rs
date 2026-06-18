@@ -3,6 +3,7 @@ pub(crate) mod backfill;
 pub(crate) mod errors;
 pub(crate) mod manifest;
 pub(crate) mod reader;
+pub(crate) mod temporal;
 #[cfg(test)]
 mod tests;
 pub(crate) mod verifier;

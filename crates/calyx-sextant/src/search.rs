@@ -2,7 +2,10 @@
 
 use std::collections::BTreeMap;
 
-use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotState, SlotVector};
+use calyx_core::{
+    CalyxError, Constellation, CxId, METADATA_TEMPORAL_LANE_STATE, Result, SlotId, SlotState,
+    SlotVector, TEMPORAL_LANE_INACTIVE,
+};
 
 use crate::fusion::{self, FusionContext, FusionStrategy};
 use crate::guarded::{GuardedSearchReport, apply_query_guard};
@@ -400,7 +403,14 @@ impl SearchEngine {
             });
         for hit in hits {
             if let Some(cx) = self.docs.get(&hit.cx_id) {
-                hit.event_time_secs = event_time_secs_from_ts(cx.created_at);
+                hit.event_time_secs = if cx.metadata_value(METADATA_TEMPORAL_LANE_STATE)
+                    == Some(TEMPORAL_LANE_INACTIVE)
+                {
+                    None
+                } else {
+                    cx.source_event_time_secs()
+                        .or_else(|| event_time_secs_from_ts(cx.created_at))
+                };
                 hit.provenance = cx.provenance.clone();
                 hit.provenance_source = ProvenanceSource::Stored;
             } else if require_stored {

@@ -1,10 +1,15 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
 use calyx_aster::vault::encode::decode_constellation_base;
-use calyx_core::{Constellation, CxId, Result, Seq, SlotId, SlotVector, VaultStore};
+use calyx_core::{
+    Constellation, CxId, METADATA_SOURCE_EVENT_TIME_RAW, METADATA_SOURCE_EVENT_TIME_SECS,
+    METADATA_TEMPORAL_INACTIVE_REASON, METADATA_TEMPORAL_LANE_STATE, Result, Seq, SlotId,
+    SlotVector, TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT,
+    VaultStore,
+};
 use calyx_ledger::{LedgerCfStore, VerifyResult, verify_chain};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -47,6 +52,10 @@ pub struct StatusReport {
     pub first_chunk_id: Option<String>,
     pub last_chunk_id: Option<String>,
     pub latest_seq: u64,
+    pub temporal_active_rows: usize,
+    pub temporal_inactive_rows: usize,
+    pub temporal_duplicate_event_time_rows: usize,
+    pub temporal_out_of_order_rows: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -171,6 +180,7 @@ fn verify_base_row(
             row.chunk_id
         )));
     }
+    verify_temporal_metadata(row, cx)?;
     if !slot_matches(
         vault.read_slot_vector_at(snapshot, cx_id, BASE_SLOT)?,
         &row.embedding,
@@ -196,6 +206,7 @@ pub fn status(vault: &AsterVault, vault_dir: &Path) -> Result<StatusReport> {
     }
     let base_rows = vault.scan_cf_at(snapshot, ColumnFamily::Base)?;
     let (first_chunk_id, last_chunk_id) = chunk_id_extents(&base_rows)?;
+    let temporal = temporal_counts(&base_rows)?;
     Ok(StatusReport {
         base_rows: base_rows.len(),
         slot_rows,
@@ -203,6 +214,10 @@ pub fn status(vault: &AsterVault, vault_dir: &Path) -> Result<StatusReport> {
         first_chunk_id,
         last_chunk_id,
         latest_seq: snapshot,
+        temporal_active_rows: temporal.active,
+        temporal_inactive_rows: temporal.inactive,
+        temporal_duplicate_event_time_rows: temporal.duplicates,
+        temporal_out_of_order_rows: temporal.out_of_order,
     })
 }
 
@@ -224,11 +239,49 @@ pub fn readback_chunk(
         "database_name": row.database_name,
         "cx_id": cx_id.to_string(),
         "snapshot": snapshot,
+        "created_at": cx.created_at,
+        "source_event_time_secs": row.event_time_secs,
         "input_hash": hex_encode(&cx.input_ref.hash),
         "expected_content_hash": hex_encode(&row.content_hash()),
+        "temporal_lane_state": cx.metadata.get(METADATA_TEMPORAL_LANE_STATE),
+        "temporal_inactive_reason": cx.metadata.get(METADATA_TEMPORAL_INACTIVE_REASON),
         "metadata": cx.metadata,
         "slots": slots,
     }))
+}
+
+fn verify_temporal_metadata(row: &ChunkRow, cx: &Constellation) -> Result<()> {
+    match row.event_time_secs {
+        Some(secs) => {
+            if cx.created_at != secs
+                || cx.metadata.get(METADATA_SOURCE_EVENT_TIME_SECS) != Some(&secs.to_string())
+                || cx.metadata.get(METADATA_TEMPORAL_LANE_STATE)
+                    != Some(&TEMPORAL_LANE_ACTIVE.to_string())
+                || row
+                    .event_time_raw
+                    .as_ref()
+                    .is_some_and(|raw| cx.metadata.get(METADATA_SOURCE_EVENT_TIME_RAW) != Some(raw))
+            {
+                return Err(errors::verify_mismatch(format!(
+                    "{} temporal metadata mismatch",
+                    row.chunk_id
+                )));
+            }
+        }
+        None => {
+            if cx.metadata.get(METADATA_TEMPORAL_LANE_STATE)
+                != Some(&TEMPORAL_LANE_INACTIVE.to_string())
+                || cx.metadata.get(METADATA_TEMPORAL_INACTIVE_REASON)
+                    != Some(&TEMPORAL_MISSING_CREATED_AT.to_string())
+            {
+                return Err(errors::verify_mismatch(format!(
+                    "{} temporal inactive metadata mismatch",
+                    row.chunk_id
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn slot_matches(vector: Option<SlotVector>, expected: &[f32]) -> bool {
@@ -251,11 +304,73 @@ fn slot_json(_slot: SlotId, vector: Option<SlotVector>) -> Result<serde_json::Va
         SlotVector::Multi { token_dim, tokens } => format!("multi:{token_dim}:{}", tokens.len()),
         SlotVector::Absent { .. } => "absent".to_string(),
     };
-    Ok(json!({
+    let mut payload = json!({
         "present": true,
         "kind": kind,
         "json_sha256": hex_encode(blake3::hash(&bytes).as_bytes()),
-    }))
+    });
+    if let Some(object) = payload.as_object_mut() {
+        match vector {
+            SlotVector::Dense { dim, data } if dim <= 8 => {
+                object.insert("dense_values".to_string(), json!(data));
+            }
+            SlotVector::Absent { reason } => {
+                object.insert("absent_reason".to_string(), json!(reason));
+            }
+            _ => {}
+        }
+    }
+    Ok(payload)
+}
+
+#[derive(Default)]
+struct TemporalCounts {
+    active: usize,
+    inactive: usize,
+    duplicates: usize,
+    out_of_order: usize,
+}
+
+fn temporal_counts(rows: &[(Vec<u8>, Vec<u8>)]) -> Result<TemporalCounts> {
+    let mut entries = Vec::new();
+    for (idx, (_, bytes)) in rows.iter().enumerate() {
+        let cx = decode_constellation_base(bytes)?;
+        let row_num = cx
+            .metadata
+            .get(METADATA_ROWID)
+            .and_then(|value| value.parse::<u64>().ok())
+            .unwrap_or(idx as u64);
+        let source_time = cx
+            .metadata
+            .get(METADATA_SOURCE_EVENT_TIME_SECS)
+            .and_then(|value| value.parse::<u64>().ok());
+        let state = cx
+            .metadata
+            .get(METADATA_TEMPORAL_LANE_STATE)
+            .map(String::as_str);
+        entries.push((row_num, state == Some(TEMPORAL_LANE_INACTIVE), source_time));
+    }
+    entries.sort_by_key(|(row_num, _, _)| *row_num);
+    let mut counts = TemporalCounts::default();
+    let mut seen = BTreeSet::new();
+    let mut previous = None;
+    for (_, inactive, source_time) in entries {
+        match (inactive, source_time) {
+            (true, _) => counts.inactive += 1,
+            (false, Some(time)) => {
+                counts.active += 1;
+                if !seen.insert(time) {
+                    counts.duplicates += 1;
+                }
+                if previous.is_some_and(|prev| time < prev) {
+                    counts.out_of_order += 1;
+                }
+                previous = Some(time);
+            }
+            (false, None) => counts.inactive += 1,
+        }
+    }
+    Ok(counts)
 }
 
 fn chunk_id_extents(rows: &[(Vec<u8>, Vec<u8>)]) -> Result<(Option<String>, Option<String>)> {

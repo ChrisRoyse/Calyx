@@ -259,6 +259,106 @@ fn custom_gte_lens_id_is_persisted_in_readback_metadata() {
     std::fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn created_at_is_preserved_and_temporal_vectors_are_active() {
+    let root = temp_root("temporal-active");
+    let sqlite = root.join("vault.db");
+    let vault = root.join("vault.calyx");
+    std::fs::create_dir_all(&root).unwrap();
+    seed_temporal_sqlite(
+        &sqlite,
+        &[
+            ("kernel-1", "alpha beta", 1.0, "2024-01-02T14:00:00Z"),
+            ("hot-2", "gamma delta", 0.0, "2024-01-02T15:00:00Z"),
+        ],
+    );
+
+    let report = migrate_vault(
+        &sqlite,
+        &vault,
+        MigrationOptions {
+            verify: true,
+            backfill: true,
+            mode: Some(BackfillMode::OfflineDeterministic),
+            ..MigrationOptions::default()
+        },
+    )
+    .unwrap();
+    let readback = run_readback(&sqlite, &vault, "hot-2").unwrap();
+
+    assert_eq!(report.status.as_ref().unwrap().temporal_active_rows, 2);
+    assert_eq!(report.status.as_ref().unwrap().temporal_inactive_rows, 0);
+    assert_eq!(readback["created_at"], 1_704_207_600_u64);
+    assert_eq!(readback["source_event_time_secs"], 1_704_207_600_u64);
+    assert_eq!(readback["temporal_lane_state"], "active");
+    assert_eq!(
+        readback["slots"]["5"]["dense_values"],
+        serde_json::json!([1.0])
+    );
+    assert_eq!(readback["slots"]["6"]["kind"], "dense:2");
+    assert_eq!(readback["slots"]["7"]["kind"], "dense:4");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn timeless_fixture_backfill_marks_temporal_slots_absent() {
+    let root = temp_root("temporal-inactive");
+    let sqlite = root.join("vault.db");
+    let vault = root.join("vault.calyx");
+    std::fs::create_dir_all(&root).unwrap();
+    seed_sqlite(&sqlite);
+
+    let report = migrate_vault(
+        &sqlite,
+        &vault,
+        MigrationOptions {
+            verify: true,
+            backfill: true,
+            mode: Some(BackfillMode::OfflineDeterministic),
+            ..MigrationOptions::default()
+        },
+    )
+    .unwrap();
+    let readback = run_readback(&sqlite, &vault, "kernel-1").unwrap();
+
+    assert_eq!(report.status.as_ref().unwrap().temporal_active_rows, 0);
+    assert_eq!(report.status.as_ref().unwrap().temporal_inactive_rows, 2);
+    assert_eq!(readback["source_event_time_secs"], serde_json::Value::Null);
+    assert_eq!(readback["temporal_lane_state"], "inactive");
+    for slot in ["5", "6", "7"] {
+        assert_eq!(readback["slots"][slot]["kind"], "absent");
+        assert_eq!(
+            readback["slots"][slot]["absent_reason"]["error"],
+            "source_missing_created_at"
+        );
+    }
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn status_reports_duplicate_and_out_of_order_source_times() {
+    let root = temp_root("temporal-order");
+    let sqlite = root.join("vault.db");
+    let vault = root.join("vault.calyx");
+    std::fs::create_dir_all(&root).unwrap();
+    seed_temporal_sqlite(
+        &sqlite,
+        &[
+            ("first", "alpha", 1.0, "2024-01-02T15:00:00Z"),
+            ("dupe", "beta", 2.0, "2024-01-02T15:00:00Z"),
+            ("older", "gamma", 3.0, "2024-01-02T14:00:00Z"),
+        ],
+    );
+
+    let report = migrate_vault(&sqlite, &vault, MigrationOptions::default()).unwrap();
+
+    let status = report.status.unwrap();
+    assert_eq!(status.temporal_active_rows, 3);
+    assert_eq!(status.temporal_duplicate_event_time_rows, 1);
+    assert_eq!(status.temporal_out_of_order_rows, 1);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 fn temp_root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
         "calyx-migrate-{name}-{}-{}",
@@ -313,9 +413,30 @@ fn seed_duplicate_content_sqlite(path: &Path) {
     .unwrap();
 }
 
+fn seed_temporal_sqlite(path: &Path, rows: &[(&str, &str, f32, &str)]) {
+    let conn = Connection::open(path).unwrap();
+    create_chunks_table_with_created_at(&conn);
+    for (chunk_id, content, first, created_at) in rows {
+        conn.execute(
+            "INSERT INTO chunks VALUES(?1,'db',?2,?3,?4)",
+            params![chunk_id, content, embedding(*first), created_at],
+        )
+        .unwrap();
+    }
+}
+
 fn create_chunks_table(conn: &Connection) {
     conn.execute(
         "CREATE TABLE chunks(chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB)",
+        [],
+    )
+    .unwrap();
+}
+
+fn create_chunks_table_with_created_at(conn: &Connection) {
+    conn.execute(
+        "CREATE TABLE chunks(
+            chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB,created_at TEXT)",
         [],
     )
     .unwrap();

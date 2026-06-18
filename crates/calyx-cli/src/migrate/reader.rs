@@ -4,12 +4,13 @@ use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OpenFlags, Row};
 
 use super::errors;
+use super::temporal::parse_event_time_secs;
 use crate::error::{CliError, CliResult};
 
 const GTE_EMBEDDING_DIM: usize = 768;
 const GTE_EMBEDDING_BYTES: usize = GTE_EMBEDDING_DIM * std::mem::size_of::<f32>();
 const FIXTURE_COLUMNS: [&str; 4] = ["chunk_id", "database_name", "content", "embedding"];
-const LEAPABLE_CHUNK_COLUMNS: [&str; 2] = ["id", "text"];
+const LEAPABLE_CHUNK_COLUMNS: [&str; 3] = ["id", "text", "created_at"];
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum SourceSchema {
@@ -24,6 +25,8 @@ pub struct ChunkRow {
     pub database_name: String,
     pub content: Vec<u8>,
     pub embedding: Vec<f32>,
+    pub event_time_secs: Option<u64>,
+    pub event_time_raw: Option<String>,
 }
 
 impl ChunkRow {
@@ -72,7 +75,16 @@ fn source_schema(conn: &Connection) -> CliResult<SourceSchema> {
     if has_columns(&chunks, &FIXTURE_COLUMNS) {
         return Ok(SourceSchema::CalyxFixture);
     }
-    if has_columns(&chunks, &LEAPABLE_CHUNK_COLUMNS) && has_leapable_vector_tables(conn)? {
+    let has_leapable_tables = has_leapable_vector_tables(conn)?;
+    if has_columns(&chunks, &["id", "text"]) && has_leapable_tables {
+        for required in LEAPABLE_CHUNK_COLUMNS {
+            if !chunks.iter().any(|column| column == required) {
+                return Err(errors::schema(format!(
+                    "Leapable chunks table missing required column {required}"
+                ))
+                .into());
+            }
+        }
         validate_leapable_source(conn)?;
         return Ok(SourceSchema::LeapableVec);
     }
@@ -152,11 +164,18 @@ fn scalar_count(conn: &Connection, sql: &str, op: &'static str) -> CliResult<u64
 }
 
 fn stream_fixture_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
+    let has_created_at = table_columns(conn, "chunks")?
+        .iter()
+        .any(|column| column == "created_at");
+    let sql = if has_created_at {
+        "SELECT rowid, chunk_id, database_name, content, embedding, created_at \
+         FROM chunks ORDER BY rowid"
+    } else {
+        "SELECT rowid, chunk_id, database_name, content, embedding, NULL AS created_at \
+         FROM chunks ORDER BY rowid"
+    };
     let mut stmt = conn
-        .prepare(
-            "SELECT rowid, chunk_id, database_name, content, embedding \
-             FROM chunks ORDER BY rowid",
-        )
+        .prepare(sql)
         .map_err(|err| errors::sqlite("prepare chunk scan", err))?;
     let mut rows = stmt
         .query([])
@@ -176,7 +195,7 @@ fn stream_leapable_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
         .prepare(
             "SELECT c.rowid, c.id, \
                     (SELECT database_name FROM database_metadata ORDER BY id LIMIT 1), \
-                    c.text, vc.vectors, r.chunk_offset \
+                    c.text, vc.vectors, r.chunk_offset, c.created_at \
              FROM chunks c \
              JOIN embeddings e ON e.chunk_id = c.id \
              JOIN vec_embeddings_rowids r ON r.id = e.id \
@@ -198,11 +217,18 @@ fn stream_leapable_rows(conn: &Connection) -> CliResult<Vec<ChunkRow>> {
 }
 
 fn read_fixture_chunk(conn: &Connection, chunk_id: &str) -> CliResult<ChunkRow> {
+    let has_created_at = table_columns(conn, "chunks")?
+        .iter()
+        .any(|column| column == "created_at");
+    let sql = if has_created_at {
+        "SELECT rowid, chunk_id, database_name, content, embedding, created_at \
+         FROM chunks WHERE chunk_id = ?1 ORDER BY rowid LIMIT 1"
+    } else {
+        "SELECT rowid, chunk_id, database_name, content, embedding, NULL AS created_at \
+         FROM chunks WHERE chunk_id = ?1 ORDER BY rowid LIMIT 1"
+    };
     let mut stmt = conn
-        .prepare(
-            "SELECT rowid, chunk_id, database_name, content, embedding \
-             FROM chunks WHERE chunk_id = ?1 ORDER BY rowid LIMIT 1",
-        )
+        .prepare(sql)
         .map_err(|err| errors::sqlite("prepare chunk read", err))?;
     let mut rows = stmt
         .query([chunk_id])
@@ -221,7 +247,7 @@ fn read_leapable_chunk(conn: &Connection, chunk_id: &str) -> CliResult<ChunkRow>
         .prepare(
             "SELECT c.rowid, c.id, \
                     (SELECT database_name FROM database_metadata ORDER BY id LIMIT 1), \
-                    c.text, vc.vectors, r.chunk_offset \
+                    c.text, vc.vectors, r.chunk_offset, c.created_at \
              FROM chunks c \
              JOIN embeddings e ON e.chunk_id = c.id \
              JOIN vec_embeddings_rowids r ON r.id = e.id \
@@ -256,6 +282,11 @@ fn table_columns(conn: &Connection, table: &str) -> CliResult<Vec<String>> {
 
 fn row_from_sqlite(row: &Row<'_>) -> CliResult<ChunkRow> {
     let row_num = row_num(row)?;
+    let (event_time_secs, event_time_raw) = optional_event_time(
+        row.get_ref(5)
+            .map_err(|err| errors::sqlite(&format!("read created_at at row {row_num}"), err))?,
+        row_num,
+    )?;
     Ok(ChunkRow {
         row_num,
         chunk_id: text_field(
@@ -287,6 +318,8 @@ fn row_from_sqlite(row: &Row<'_>) -> CliResult<ChunkRow> {
             )?,
             row_num,
         )?,
+        event_time_secs,
+        event_time_raw,
     })
 }
 
@@ -301,6 +334,11 @@ fn row_from_leapable(row: &Row<'_>) -> CliResult<ChunkRow> {
     let chunk_offset: i64 = row
         .get(5)
         .map_err(|err| errors::sqlite(&format!("read chunk_offset at row {row_num}"), err))?;
+    let (event_time_secs, event_time_raw) = required_event_time(
+        row.get_ref(6)
+            .map_err(|err| errors::sqlite(&format!("read created_at at row {row_num}"), err))?,
+        row_num,
+    )?;
     let offset = usize::try_from(chunk_offset).map_err(|_| {
         errors::embedding(format!(
             "row {row_num} sqlite-vec chunk_offset {chunk_offset} is negative"
@@ -340,6 +378,8 @@ fn row_from_leapable(row: &Row<'_>) -> CliResult<ChunkRow> {
             row_num,
         )?,
         embedding: decode_embedding(vector.to_vec(), row_num)?,
+        event_time_secs: Some(event_time_secs),
+        event_time_raw: Some(event_time_raw),
     })
 }
 
@@ -362,6 +402,40 @@ fn text_field(value: ValueRef<'_>, field: &str, row_num: u64) -> CliResult<Strin
             ))
             .into()
         })
+}
+
+fn optional_event_time(
+    value: ValueRef<'_>,
+    row_num: u64,
+) -> CliResult<(Option<u64>, Option<String>)> {
+    match value {
+        ValueRef::Null => Ok((None, None)),
+        _ => required_event_time(value, row_num).map(|(secs, raw)| (Some(secs), Some(raw))),
+    }
+}
+
+fn required_event_time(value: ValueRef<'_>, row_num: u64) -> CliResult<(u64, String)> {
+    let raw = event_time_text(value, row_num)?;
+    parse_event_time_secs(&raw, row_num, "created_at").map(|secs| (secs, raw))
+}
+
+fn event_time_text(value: ValueRef<'_>, row_num: u64) -> CliResult<String> {
+    match value {
+        ValueRef::Integer(value) => Ok(value.to_string()),
+        ValueRef::Text(bytes) | ValueRef::Blob(bytes) => std::str::from_utf8(bytes)
+            .map(str::to_string)
+            .map_err(|err| {
+                errors::schema(format!(
+                    "row {row_num} created_at is not valid UTF-8: {err}; raw_hex={}",
+                    super::manifest::hex_encode(bytes)
+                ))
+                .into()
+            }),
+        ValueRef::Null => Err(errors::schema(format!("row {row_num} created_at is NULL")).into()),
+        ValueRef::Real(_) => {
+            Err(errors::schema(format!("row {row_num} created_at must be TEXT or INTEGER")).into())
+        }
+    }
 }
 
 fn value_bytes(value: ValueRef<'_>, field: &str, row_num: u64) -> CliResult<Vec<u8>> {

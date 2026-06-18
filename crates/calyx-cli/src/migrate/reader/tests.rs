@@ -30,6 +30,7 @@ fn streams_rows_in_rowid_order_and_preserves_empty_identity_fields() {
     assert_eq!(rows[0].content, b"gamma");
     assert_eq!(rows[0].embedding.len(), GTE_EMBEDDING_DIM);
     assert_eq!(rows[0].embedding[0], 3.0);
+    assert_eq!(rows[0].event_time_secs, None);
     assert_eq!(rows[1].chunk_id, "");
     assert_eq!(rows[2].database_name, "");
 }
@@ -54,9 +55,57 @@ fn streams_leapable_sqlite_vec_rows_from_backing_tables() {
     assert_eq!(rows[0].database_name, "contracts-general");
     assert_eq!(rows[0].content, b"alpha text");
     assert_eq!(rows[0].embedding[0], 11.0);
+    assert_eq!(rows[0].event_time_secs, Some(1_704_204_000));
     assert_eq!(rows[1].embedding[0], 22.0);
     assert_eq!(read.content, b"beta text");
     assert_eq!(read.embedding[0], 22.0);
+    assert_eq!(read.event_time_raw.as_deref(), Some("2024-01-02T14:00:00Z"));
+}
+
+#[test]
+fn fixture_created_at_parses_as_source_event_time() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE chunks(
+            chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB,created_at TEXT)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO chunks VALUES('c1','db','alpha',?1,'2024-01-02 14:00:00')",
+        [embedding_blob(1.0)],
+    )
+    .unwrap();
+
+    let rows = stream_rows(&conn).unwrap();
+
+    assert_eq!(rows[0].event_time_secs, Some(1_704_204_000));
+    assert_eq!(
+        rows[0].event_time_raw.as_deref(),
+        Some("2024-01-02 14:00:00")
+    );
+}
+
+#[test]
+fn malformed_fixture_created_at_fails_closed() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute(
+        "CREATE TABLE chunks(
+            chunk_id TEXT,database_name TEXT,content TEXT,embedding BLOB,created_at TEXT)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO chunks VALUES('c1','db','alpha',?1,'now')",
+        [embedding_blob(1.0)],
+    )
+    .unwrap();
+
+    let error = stream_rows(&conn).unwrap_err();
+
+    assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
+    assert!(error.message().contains("created_at"));
+    assert!(error.message().contains("invalid source event timestamp"));
 }
 
 #[test]
@@ -68,7 +117,8 @@ fn leapable_schema_without_one_vector_per_chunk_fails_closed() {
         "INSERT INTO chunks(id, document_id, ocr_result_id, text, text_hash, chunk_index,
          character_start, character_end, overlap_previous, overlap_next, provenance_id,
          created_at, embedding_status)
-         VALUES('chunk-b','doc','ocr','beta text','hash-b',1,0,9,0,0,'prov-b','now','complete')",
+         VALUES('chunk-b','doc','ocr','beta text','hash-b',1,0,9,0,0,'prov-b',
+                '2024-01-02T14:00:00Z','complete')",
         [],
     )
     .unwrap();
@@ -84,6 +134,40 @@ fn leapable_schema_without_one_vector_per_chunk_fails_closed() {
     assert!(error.message().contains("one embedding vector per chunk"));
     assert!(error.message().contains("chunks=2"));
     assert!(error.message().contains("vector_rows=1"));
+}
+
+#[test]
+fn leapable_without_created_at_fails_on_timestamp_column() {
+    let conn = Connection::open_in_memory().unwrap();
+    create_leapable_schema_without_created_at(&conn);
+
+    let error = source_schema(&conn).unwrap_err();
+
+    assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
+    assert!(error.message().contains("created_at"));
+}
+
+#[test]
+fn malformed_leapable_created_at_fails_closed_after_vector_join() {
+    let conn = Connection::open_in_memory().unwrap();
+    create_leapable_schema(&conn);
+    insert_leapable_chunk(&conn, "chunk-a", "embed-a", 1, 0, "alpha text");
+    conn.execute(
+        "UPDATE chunks SET created_at = 'now' WHERE id = 'chunk-a'",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO vec_embeddings_vector_chunks00(rowid, vectors) VALUES(1, ?1)",
+        [vectors_blob(&[11.0])],
+    )
+    .unwrap();
+
+    let error = stream_rows(&conn).unwrap_err();
+
+    assert_eq!(error.code(), errors::CALYX_MIGRATE_SQLITE_SCHEMA);
+    assert!(error.message().contains("row 1"));
+    assert!(error.message().contains("created_at"));
 }
 
 #[test]
@@ -239,6 +323,34 @@ fn create_leapable_schema(conn: &Connection) {
     .unwrap();
 }
 
+fn create_leapable_schema_without_created_at(conn: &Connection) {
+    conn.execute(
+        "CREATE TABLE database_metadata(id INTEGER PRIMARY KEY, database_name TEXT NOT NULL)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE chunks(id TEXT PRIMARY KEY, text TEXT NOT NULL)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE embeddings(id TEXT PRIMARY KEY, chunk_id TEXT, document_id TEXT NOT NULL)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE vec_embeddings_rowids(id TEXT UNIQUE NOT NULL, chunk_id INTEGER, chunk_offset INTEGER)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "CREATE TABLE vec_embeddings_vector_chunks00(rowid PRIMARY KEY, vectors BLOB NOT NULL)",
+        [],
+    )
+    .unwrap();
+}
+
 fn insert_leapable_chunk(
     conn: &Connection,
     chunk_id: &str,
@@ -251,7 +363,8 @@ fn insert_leapable_chunk(
         "INSERT INTO chunks(id, document_id, ocr_result_id, text, text_hash, chunk_index,
          character_start, character_end, overlap_previous, overlap_next, provenance_id,
          created_at, embedding_status)
-         VALUES(?1,'doc','ocr',?2,'hash',?3,0,length(?2),0,0,?4,'now','complete')",
+         VALUES(?1,'doc','ocr',?2,'hash',?3,0,length(?2),0,0,?4,
+                '2024-01-02T14:00:00Z','complete')",
         (chunk_id, text, chunk_offset, format!("prov-{chunk_id}")),
     )
     .unwrap();

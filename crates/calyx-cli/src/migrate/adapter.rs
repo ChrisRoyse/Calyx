@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use calyx_core::{
     CalyxError, CxFlags, CxId, InputRef, LedgerRef, LensId, METADATA_CHUNK_ID,
-    METADATA_DATABASE_NAME, Modality, SlotId, SlotVector, VaultId, content_address,
+    METADATA_DATABASE_NAME, METADATA_SOURCE_EVENT_TIME_RAW, METADATA_SOURCE_EVENT_TIME_SECS,
+    METADATA_SOURCE_SEQUENCE, METADATA_TEMPORAL_INACTIVE_REASON, METADATA_TEMPORAL_LANE_STATE,
+    Modality, SlotId, SlotVector, TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE,
+    TEMPORAL_MISSING_CREATED_AT, VaultId, content_address,
 };
 use calyx_registry::{instantiate_panel, text_default};
 
@@ -75,6 +78,10 @@ impl VaultSqliteAdapter {
         );
         metadata.insert(METADATA_ROWID.to_string(), row.row_num.to_string());
         metadata.insert(
+            METADATA_SOURCE_SEQUENCE.to_string(),
+            "sqlite_rowid".to_string(),
+        );
+        metadata.insert(
             METADATA_CONTENT_HASH.to_string(),
             hex_encode(&row.content_hash()),
         );
@@ -82,11 +89,38 @@ impl VaultSqliteAdapter {
             METADATA_GTE_LENS_ID.to_string(),
             self.gte_lens_id.to_string(),
         );
+        let created_at = match row.event_time_secs {
+            Some(secs) => {
+                metadata.insert(
+                    METADATA_TEMPORAL_LANE_STATE.to_string(),
+                    TEMPORAL_LANE_ACTIVE.to_string(),
+                );
+                metadata.insert(
+                    METADATA_SOURCE_EVENT_TIME_SECS.to_string(),
+                    secs.to_string(),
+                );
+                if let Some(raw) = &row.event_time_raw {
+                    metadata.insert(METADATA_SOURCE_EVENT_TIME_RAW.to_string(), raw.clone());
+                }
+                secs
+            }
+            None => {
+                metadata.insert(
+                    METADATA_TEMPORAL_LANE_STATE.to_string(),
+                    TEMPORAL_LANE_INACTIVE.to_string(),
+                );
+                metadata.insert(
+                    METADATA_TEMPORAL_INACTIVE_REASON.to_string(),
+                    TEMPORAL_MISSING_CREATED_AT.to_string(),
+                );
+                now_ms()
+            }
+        };
         Ok(calyx_core::Constellation {
             cx_id,
             vault_id: self.vault_id,
             panel_version: self.panel_version,
-            created_at: now_ms(),
+            created_at,
             input_ref: InputRef {
                 hash: row.content_hash(),
                 pointer: Some(row.pointer()),
@@ -164,6 +198,8 @@ mod tests {
             database_name: "mydb".to_string(),
             content: b"hello".to_vec(),
             embedding: vec![1.0; GTE_EMBEDDING_DIM],
+            event_time_secs: Some(1_704_204_000),
+            event_time_raw: Some("2024-01-02T14:00:00Z".to_string()),
         };
 
         let cx = adapter.constellation(&row).unwrap();
@@ -178,6 +214,11 @@ mod tests {
         assert_eq!(
             cx.metadata.get(METADATA_GTE_LENS_ID),
             Some(&default_base_lens_id())
+        );
+        assert_eq!(cx.created_at, 1_704_204_000);
+        assert_eq!(
+            cx.metadata.get(METADATA_TEMPORAL_LANE_STATE),
+            Some(&TEMPORAL_LANE_ACTIVE.to_string())
         );
         assert!(matches!(
             cx.slots.get(&BASE_SLOT),
@@ -315,6 +356,8 @@ mod tests {
             database_name: database_name.to_string(),
             content: content.to_vec(),
             embedding,
+            event_time_secs: Some(1_704_204_000),
+            event_time_raw: Some("2024-01-02T14:00:00Z".to_string()),
         }
     }
 }
