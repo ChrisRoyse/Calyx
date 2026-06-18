@@ -13,8 +13,8 @@ use calyx_anneal::{
 use calyx_core::{CalyxError, Clock, Constellation, LedgerRef, LensId, Result as CalyxResult};
 use calyx_ledger::{EntryKind, LedgerCfStore, decode};
 use calyx_registry::{
-    CapabilityCard, CostMetrics, CoverageMetrics, LensHealth, MetricSource, SeparationMetrics,
-    SpreadMetrics,
+    CapabilityCard, CapabilitySignalKind, CostMetrics, CoverageMetrics, LensHealth, MetricSource,
+    SeparationMetrics, SpreadMetrics,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -185,6 +185,8 @@ struct FixtureEvent {
     candidate: CandidateLens,
     candidate_lens_id: LensId,
     profile_bits: MetricFixture,
+    #[serde(default = "default_profile_signal_kind")]
+    profile_signal_kind: CapabilitySignalKind,
     #[serde(default)]
     profile_elapsed_ms: u64,
     #[serde(default)]
@@ -225,6 +227,7 @@ fn run_event(clock_ts: u64, event: FixtureEvent) -> Result<serde_json::Value, St
     let profiler = FixtureProfiler {
         lens_id: event.candidate_lens_id,
         bits: event.profile_bits.value()?,
+        signal_kind: event.profile_signal_kind,
         elapsed_ms: event.profile_elapsed_ms,
         clock: clock.inner(),
     };
@@ -268,6 +271,7 @@ impl Clock for SharedClock {
 struct FixtureProfiler {
     lens_id: LensId,
     bits: f64,
+    signal_kind: CapabilitySignalKind,
     elapsed_ms: u64,
     clock: Arc<AtomicU64>,
 }
@@ -279,7 +283,12 @@ impl LensProfiler for FixtureProfiler {
         corpus_sample: &[Constellation],
     ) -> CalyxResult<CapabilityCard> {
         self.clock.fetch_add(self.elapsed_ms, Ordering::SeqCst);
-        Ok(card(self.lens_id, self.bits as f32, corpus_sample.len()))
+        Ok(card(
+            self.lens_id,
+            self.bits as f32,
+            self.signal_kind,
+            corpus_sample.len(),
+        ))
     }
 }
 
@@ -325,12 +334,18 @@ impl PairNMI for FixtureNmi {
     }
 }
 
-fn card(lens_id: LensId, bits: f32, probe_count: usize) -> CapabilityCard {
+fn card(
+    lens_id: LensId,
+    bits: f32,
+    signal_kind: CapabilitySignalKind,
+    probe_count: usize,
+) -> CapabilityCard {
     CapabilityCard {
         lens_id,
         probe_count,
         signal: Some(bits),
         signal_source: MetricSource::AssayStore,
+        signal_kind,
         signal_reliability: None,
         proxy_signal: bits,
         differentiation: None,
@@ -370,4 +385,8 @@ fn card(lens_id: LensId, bits: f32, probe_count: usize) -> CapabilityCard {
 
 fn format_calyx_error(error: CalyxError) -> String {
     format!("{}: {} ({})", error.code, error.message, error.remediation)
+}
+
+fn default_profile_signal_kind() -> CapabilitySignalKind {
+    CapabilitySignalKind::LearnedEncoder
 }

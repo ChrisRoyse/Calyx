@@ -1,0 +1,52 @@
+use calyx_core::LensId;
+use serde::{Deserialize, Serialize};
+
+use crate::lens::Registry;
+use crate::spec::LensRuntime;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilitySignalKind {
+    #[default]
+    Unknown,
+    LearnedEncoder,
+    Algorithmic,
+    Placeholder,
+}
+
+impl CapabilitySignalKind {
+    pub fn is_learned_encoder(self) -> bool {
+        matches!(self, Self::LearnedEncoder)
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unknown => "unknown",
+            Self::LearnedEncoder => "learned_encoder",
+            Self::Algorithmic => "algorithmic",
+            Self::Placeholder => "placeholder",
+        }
+    }
+}
+
+pub fn signal_kind_from_runtime(runtime: &LensRuntime) -> CapabilitySignalKind {
+    match runtime {
+        LensRuntime::Algorithmic { kind } if kind.starts_with("commissioned:") => {
+            CapabilitySignalKind::Placeholder
+        }
+        LensRuntime::Algorithmic { .. } => CapabilitySignalKind::Algorithmic,
+        LensRuntime::TeiHttp { .. }
+        | LensRuntime::CandleLocal { .. }
+        | LensRuntime::Onnx { .. }
+        | LensRuntime::StaticLookup { .. }
+        | LensRuntime::MultimodalAdapter { .. } => CapabilitySignalKind::LearnedEncoder,
+        LensRuntime::ExternalCmd { .. } => CapabilitySignalKind::Unknown,
+    }
+}
+
+pub(super) fn registry_signal_kind(registry: &Registry, lens_id: LensId) -> CapabilitySignalKind {
+    registry
+        .lens_spec(lens_id)
+        .map(|spec| signal_kind_from_runtime(&spec.runtime))
+        .unwrap_or(CapabilitySignalKind::Unknown)
+}

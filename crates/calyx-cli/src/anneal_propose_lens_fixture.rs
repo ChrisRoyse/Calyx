@@ -14,8 +14,8 @@ use calyx_core::{
     SlotState, VaultId,
 };
 use calyx_registry::{
-    AlgorithmicLens, BackfillCandidate, CostMetrics, CoverageMetrics, LensHealth, MetricSource,
-    Registry, SeparationMetrics, SlotSpec, SpreadMetrics, SwapController,
+    AlgorithmicLens, BackfillCandidate, CapabilitySignalKind, CostMetrics, CoverageMetrics,
+    LensHealth, MetricSource, Registry, SeparationMetrics, SlotSpec, SpreadMetrics, SwapController,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -26,6 +26,8 @@ pub(crate) struct Fixture {
     entropy: MetricFixture,
     sufficiency: Vec<MetricFixture>,
     profile_bits: MetricFixture,
+    #[serde(default = "default_profile_signal_kind")]
+    profile_signal_kind: CapabilitySignalKind,
     corr: MetricFixture,
     #[serde(default = "default_clock")]
     clock_ts: u64,
@@ -92,6 +94,7 @@ pub(crate) fn execute_fixture(
     let assay = FixtureAssay::new(fixture.panel.clone(), sufficiency, entropy);
     let profiler = FixtureProfiler {
         bits: fixture.profile_bits.value()? as f32,
+        signal_kind: fixture.profile_signal_kind,
     };
     let nmi = FixtureNmi {
         corr: fixture.corr.value()?,
@@ -265,6 +268,7 @@ impl AssayAttribution for FixtureAssay {
 
 struct FixtureProfiler {
     bits: f32,
+    signal_kind: CapabilitySignalKind,
 }
 
 impl LensProfiler for FixtureProfiler {
@@ -277,6 +281,7 @@ impl LensProfiler for FixtureProfiler {
             LensId::from_bytes([0xC8; 16]),
             self.bits,
             corpus_sample.len(),
+            self.signal_kind,
         ))
     }
 }
@@ -406,12 +411,18 @@ fn corpus(rows: usize, ts: u64) -> Vec<Constellation> {
         .collect()
 }
 
-fn card(lens_id: LensId, bits: f32, probe_count: usize) -> calyx_registry::CapabilityCard {
+fn card(
+    lens_id: LensId,
+    bits: f32,
+    probe_count: usize,
+    signal_kind: CapabilitySignalKind,
+) -> calyx_registry::CapabilityCard {
     calyx_registry::CapabilityCard {
         lens_id,
         probe_count,
         signal: Some(bits),
         signal_source: MetricSource::AssayStore,
+        signal_kind,
         signal_reliability: None,
         proxy_signal: bits,
         differentiation: None,
@@ -463,6 +474,10 @@ fn default_substrate() -> SubstrateMode {
 
 fn default_hot_add() -> HotAddMode {
     HotAddMode::Succeed
+}
+
+fn default_profile_signal_kind() -> CapabilitySignalKind {
+    CapabilitySignalKind::LearnedEncoder
 }
 
 fn default_corpus_rows() -> usize {

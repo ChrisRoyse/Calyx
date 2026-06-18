@@ -1,16 +1,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_aster::cf::{ColumnFamily, slot_key};
+use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{SlotId, SlotVector, VaultStore};
+use calyx_core::{SlotId, VaultStore};
 use calyx_ledger::LedgerAppender;
 use serde_json::{Value, json};
 
 use super::*;
 
 #[test]
-fn mcp_propose_lens_runs_engine_hot_adds_and_backfills() {
+fn mcp_propose_lens_rejects_algorithmic_signal_before_hot_add() {
     let env = TestEnv::new("propose-driver");
     let server = server();
     call_ok(&server, 100, "calyx.create_vault", json!({"name": "v"}));
@@ -37,46 +37,41 @@ fn mcp_propose_lens_runs_engine_hot_adds_and_backfills() {
 
     assert_eq!(
         proposal["admitted"],
-        true,
+        false,
         "proposal={}",
         serde_json::to_string_pretty(&proposal).unwrap()
     );
-    assert_eq!(proposal["terminal_state"], "admitted");
-    assert!(
-        proposal["sufficiency_after"].as_f64().unwrap()
-            > proposal["sufficiency_before"].as_f64().unwrap()
+    assert_eq!(proposal["terminal_state"], "gate_rejected");
+    assert_eq!(
+        proposal["gate_outcome"]["reason"]["reason"],
+        "non_learned_signal"
     );
-    assert_eq!(proposal["backfill"]["rows_written"], 60);
+    assert_eq!(
+        proposal["gate_outcome"]["reason"]["signal_kind"],
+        "algorithmic"
+    );
+    assert!(proposal["backfill"].is_null());
     assert!(proposal["ledger_ref"]["seq"].as_u64().unwrap() > 0);
 
     let after_panel = calyx_registry::load_vault_panel_state(&vault_dir).unwrap();
-    assert_eq!(after_panel.panel.slots.len(), before_slots + 1);
-    let slot_id = SlotId::new(proposal["backfill"]["slot_id"].as_u64().unwrap() as u16);
-    assert!(
-        after_panel
-            .panel
-            .slots
-            .iter()
-            .any(|slot| slot.slot_id == slot_id)
-    );
+    assert_eq!(after_panel.panel.slots.len(), before_slots);
 
     let vault = open_test_vault(&env, "v");
     let docs = super::super::core::load_docs(&vault).unwrap();
     assert_eq!(docs.len(), 60);
     let sample = docs.values().next().expect("stored docs");
-    assert!(matches!(
-        sample.slots.get(&slot_id),
-        Some(SlotVector::Dense { dim: 1, data }) if !data.is_empty()
-    ));
+    let candidate_slots = after_panel
+        .panel
+        .slots
+        .iter()
+        .filter(|slot| slot.slot_id != SlotId::new(0))
+        .collect::<Vec<_>>();
+    assert_eq!(candidate_slots.len(), before_slots.saturating_sub(1));
     assert!(
-        vault
-            .read_cf_at(
-                vault.snapshot(),
-                ColumnFamily::slot(slot_id),
-                &slot_key(sample.cx_id)
-            )
-            .unwrap()
-            .is_some()
+        sample
+            .slots
+            .keys()
+            .all(|slot| slot.get() < before_slots as u16)
     );
     assert!(
         vault
@@ -97,13 +92,17 @@ fn mcp_propose_lens_runs_engine_hot_adds_and_backfills() {
         .unwrap()
         .expect("proposal row");
     let operator_json: Value = serde_json::from_slice(&operator_row).unwrap();
-    assert_eq!(operator_json["terminal_state"], "admitted");
+    assert_eq!(operator_json["terminal_state"], "gate_rejected");
+    assert_eq!(
+        operator_json["gate_outcome"]["reason"]["reason"],
+        "non_learned_signal"
+    );
 
     let history = proposal_history(&vault);
     assert!(
         history
             .iter()
-            .any(|record| matches!(record, calyx_anneal::AdmissionRecord::LensAdmitted(_)))
+            .any(|record| matches!(record, calyx_anneal::AdmissionRecord::LensRejected(_)))
     );
 }
 

@@ -9,8 +9,8 @@ use calyx_core::{
     CalyxError, Constellation, CxId, Lens, LensId, Modality, Result, SlotId, SlotVector,
 };
 use calyx_registry::{
-    AlgorithmicLens, CapabilityCard, CostMetrics, CoverageMetrics, LensHealth, MetricSource,
-    Registry, SeparationMetrics, SpreadMetrics,
+    AlgorithmicLens, CapabilityCard, CapabilitySignalKind, CostMetrics, CoverageMetrics,
+    LensHealth, MetricSource, Registry, SeparationMetrics, SpreadMetrics,
 };
 
 use super::core::{cosine, dense, has_anchor, has_anchor_kind};
@@ -26,6 +26,7 @@ pub(super) struct ProfileMeasurement {
     pub(super) ordered: Vec<Vec<f32>>,
     pub(super) vectors: BTreeMap<CxId, SlotVector>,
     pub(super) cost: Option<CostMetrics>,
+    pub(super) signal_kind: CapabilitySignalKind,
 }
 
 pub(super) fn measure_candidate(
@@ -37,7 +38,15 @@ pub(super) fn measure_candidate(
     match candidate {
         CandidateLens::Algorithmic { kind, params } => {
             let lens = algorithmic_lens(*kind, params);
-            measure_with_lens(vault_dir, anchor, corpus, &lens, lens.modality(), None)
+            measure_with_lens(
+                vault_dir,
+                anchor,
+                corpus,
+                &lens,
+                lens.modality(),
+                None,
+                CapabilitySignalKind::Algorithmic,
+            )
         }
         CandidateLens::Commission { spec } => {
             let target = spec
@@ -72,6 +81,7 @@ pub(super) fn measure_registered_lens(
         ordered,
         vectors,
         cost: None,
+        signal_kind: CapabilitySignalKind::Unknown,
     })
 }
 
@@ -95,6 +105,7 @@ pub(super) fn capability_card(
     bits: f64,
     probe_count: usize,
     cost: CostMetrics,
+    signal_kind: CapabilitySignalKind,
 ) -> CapabilityCard {
     let bits = bits.max(0.0).min(f64::from(f32::MAX)) as f32;
     CapabilityCard {
@@ -102,6 +113,7 @@ pub(super) fn capability_card(
         probe_count,
         signal: Some(bits),
         signal_source: MetricSource::AssayStore,
+        signal_kind,
         signal_reliability: None,
         proxy_signal: bits,
         differentiation: Some(bits),
@@ -187,6 +199,7 @@ fn measure_with_lens(
     lens: &dyn Lens,
     modality: Modality,
     cost: Option<CostMetrics>,
+    signal_kind: CapabilitySignalKind,
 ) -> Result<ProfileMeasurement> {
     let mut ordered = Vec::with_capacity(corpus.len());
     let mut vectors = BTreeMap::new();
@@ -202,6 +215,7 @@ fn measure_with_lens(
         ordered,
         vectors,
         cost,
+        signal_kind,
     })
 }
 
@@ -234,6 +248,7 @@ fn measure_commission_target(
         ordered,
         vectors,
         cost: Some(target_cost(target.expected_cost, corpus.len())),
+        signal_kind: CapabilitySignalKind::Placeholder,
     })
 }
 

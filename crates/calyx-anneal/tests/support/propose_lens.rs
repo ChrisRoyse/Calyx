@@ -12,8 +12,8 @@ use calyx_core::{
     Modality, Panel, QuantPolicy, Result, Slot, SlotId, SlotKey, SlotShape, SlotState, VaultId,
 };
 use calyx_registry::{
-    AlgorithmicLens, BackfillCandidate, CostMetrics, CoverageMetrics, LensHealth, MetricSource,
-    Registry, SeparationMetrics, SlotSpec, SpreadMetrics, SwapController,
+    AlgorithmicLens, BackfillCandidate, CapabilitySignalKind, CostMetrics, CoverageMetrics,
+    LensHealth, MetricSource, Registry, SeparationMetrics, SlotSpec, SpreadMetrics, SwapController,
 };
 
 pub const TEST_TS: u64 = 1_785_500_421;
@@ -179,6 +179,7 @@ impl AssayAttribution for FixtureAssay {
 pub struct StaticProfiler {
     bits: f32,
     cost: CostMetrics,
+    signal_kind: CapabilitySignalKind,
 }
 
 impl StaticProfiler {
@@ -186,11 +187,17 @@ impl StaticProfiler {
         Self {
             bits,
             cost: default_cost(),
+            signal_kind: CapabilitySignalKind::LearnedEncoder,
         }
     }
 
     pub fn with_cost(mut self, cost: CostMetrics) -> Self {
         self.cost = cost;
+        self
+    }
+
+    pub fn with_signal_kind(mut self, signal_kind: CapabilitySignalKind) -> Self {
+        self.signal_kind = signal_kind;
         self
     }
 }
@@ -206,6 +213,7 @@ impl LensProfiler for StaticProfiler {
             self.bits,
             corpus_sample.len(),
             self.cost,
+            self.signal_kind,
         ))
     }
 }
@@ -336,12 +344,14 @@ fn card(
     bits: f32,
     probe_count: usize,
     cost: CostMetrics,
+    signal_kind: CapabilitySignalKind,
 ) -> calyx_registry::CapabilityCard {
     calyx_registry::CapabilityCard {
         lens_id,
         probe_count,
         signal: Some(bits),
         signal_source: MetricSource::AssayStore,
+        signal_kind,
         signal_reliability: None,
         proxy_signal: bits,
         differentiation: None,
