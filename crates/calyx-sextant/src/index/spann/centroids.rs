@@ -1,6 +1,7 @@
 //! SPANN centroid state persisted as `centroids.spn`.
 
 mod codec;
+mod raw_l2_graph;
 
 use std::collections::BTreeMap;
 use std::fs::{self, File};
@@ -19,10 +20,12 @@ use crate::error::{
 use crate::index::distance::l2_sq;
 use crate::index::{HnswIndex, SextantIndex};
 use codec::{decode_centroids, write_header};
+use raw_l2_graph::RawL2CentroidGraph;
 
 pub const SPANN_CENTROID_MAGIC: [u8; 8] = *b"CLXSP001";
 const FORMAT_VERSION: u32 = 1;
 const KMEANS_ITERS: usize = 12;
+const RAW_L2_GRAPH_EF_FLOOR: usize = 128;
 const CENTROID_SLOT: SlotId = SlotId::new(u16::MAX - 1);
 
 #[derive(Clone, Debug)]
@@ -33,6 +36,7 @@ pub struct SpannCentroidIndex {
     assignments: Vec<(u32, u32)>,
     hnsw: HnswIndex,
     centroid_lookup: BTreeMap<CxId, u32>,
+    raw_l2_graph: RawL2CentroidGraph,
 }
 
 impl SpannCentroidIndex {
@@ -68,6 +72,7 @@ impl SpannCentroidIndex {
             }
         }
         let (hnsw, lookup) = build_hnsw(dim, &centroids)?;
+        let raw_l2_graph = RawL2CentroidGraph::build(&centroids);
         Ok(Self {
             dim,
             centroids,
@@ -75,6 +80,7 @@ impl SpannCentroidIndex {
             assignments,
             hnsw,
             centroid_lookup: lookup,
+            raw_l2_graph,
         })
     }
 
@@ -122,6 +128,16 @@ impl SpannCentroidIndex {
             .unwrap_or_else(|| self.assign(vector))
     }
 
+    /// Approximate raw-L2 nearest-centroid assignment through the metric-aware
+    /// centroid graph. This avoids the cosine-only HNSW route while keeping the
+    /// assignment phase sublinear in the final centroid count.
+    pub fn assign_raw_l2_graph(&self, vector: &[f32]) -> u32 {
+        self.nearest_centroids_raw_l2_graph(vector, 1)
+            .first()
+            .copied()
+            .unwrap_or_else(|| self.assign(vector))
+    }
+
     pub fn nearest_centroids(&self, query: &[f32], n_probe: usize) -> Vec<u32> {
         if self.centroids.is_empty() || n_probe == 0 || query.len() != self.dim as usize {
             return Vec::new();
@@ -154,6 +170,12 @@ impl SpannCentroidIndex {
             .collect();
         scored.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
         scored.into_iter().take(k).map(|(idx, _)| idx).collect()
+    }
+
+    pub fn nearest_centroids_raw_l2_graph(&self, query: &[f32], n_probe: usize) -> Vec<u32> {
+        let ef = n_probe.saturating_mul(4).max(RAW_L2_GRAPH_EF_FLOOR);
+        self.raw_l2_graph
+            .search(&self.centroids, query, n_probe, ef)
     }
 
     pub fn save(&self, slot_sparse_dir: impl AsRef<Path>) -> Result<()> {

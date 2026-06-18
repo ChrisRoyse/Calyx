@@ -137,6 +137,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         "distance_metric": manifest.distance_metric.as_str(),
         "region_build_parallelism": manifest.region_build_parallelism,
         "graph_build_backend": manifest.graph_build_backend.as_str(),
+        "provisional_assignment_routing": manifest.provisional_assignment_routing,
+        "final_assignment_routing": manifest.final_assignment_routing,
         "root_graph_rel": manifest.root_graph_rel,
         "centroids_rel": manifest.centroids_rel,
         "build_seconds": build_secs,
