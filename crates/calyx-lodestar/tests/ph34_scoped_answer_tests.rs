@@ -168,8 +168,8 @@ fn scoped_answer_fails_closed_when_scope_removes_all_anchor_candidates() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for #646 scoped answer candidate narrowing"]
-fn ph34_scoped_answer_candidate_narrowing_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for #646 scoped answer candidate narrowing"]
+fn ph34_scoped_answer_candidate_narrowing_gpuhost_fsv() {
     let readback = scoped_answer_readback();
     write_readback(
         "fsv",

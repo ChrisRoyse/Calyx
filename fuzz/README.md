@@ -1,6 +1,6 @@
 # Calyx Fuzz Targets
 
-Run on aiwonder from the repo root:
+Run on gpuhost from the repo root:
 
 ```bash
 cargo fuzz list
@@ -21,4 +21,4 @@ Targets map to PRD `28 §6c` untrusted-input boundaries:
 - `lens_output_decode`: SlotVector JSON/raw f32 output schema validation for dense, sparse, and multi-vector payloads.
 - `mcp_jsonrpc_decode`: MCP JSON-RPC request/batch wire decode.
 
-Seed corpora should include real persisted bytes copied from aiwonder evidence vaults for Aster SST/WAL/MANIFEST cases. Fuzzer artifacts are evidence until triaged: every crash input gets a GitHub issue plus a regression test.
+Seed corpora should include real persisted bytes copied from gpuhost evidence vaults for Aster SST/WAL/MANIFEST cases. Fuzzer artifacts are evidence until triaged: every crash input gets a GitHub issue plus a regression test.

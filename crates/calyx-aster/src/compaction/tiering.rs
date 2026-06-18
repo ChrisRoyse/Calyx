@@ -51,7 +51,7 @@ impl TieringPolicy {
         }
     }
 
-    pub fn aiwonder(
+    pub fn gpuhost(
         active_slots: impl IntoIterator<Item = SlotId>,
         current_panel_version: u32,
     ) -> Self {
@@ -169,7 +169,7 @@ fn tier_root(zfs_path: &str, fallback_dir: &str) -> PathBuf {
     }
     env::var_os("CALYX_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/home/croyse/calyx"))
+        .unwrap_or_else(|| PathBuf::from("/var/lib/calyx"))
         .join(fallback_dir)
 }
 

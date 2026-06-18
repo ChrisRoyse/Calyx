@@ -14,8 +14,8 @@ use calyx_registry::{
 use std::path::PathBuf;
 
 #[test]
-#[ignore = "manual aiwonder FSV test for PH21 capability cards"]
-fn ph21_profile_card_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV test for PH21 capability cards"]
+fn ph21_profile_card_gpuhost_fsv() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");
 

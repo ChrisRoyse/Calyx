@@ -22,8 +22,8 @@ use serde_json::{Value, json};
 const TEST_TS: u64 = 1_785_500_404;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE404_FSV_ROOT on aiwonder"]
-fn fsv_tau_recalibration_and_lens_park_aiwonder() {
+#[ignore = "requires CALYX_ISSUE404_FSV_ROOT on gpuhost"]
+fn fsv_tau_recalibration_and_lens_park_gpuhost() {
     let root = PathBuf::from(env::var("CALYX_ISSUE404_FSV_ROOT").unwrap());
     reset_dir(&root);
     let (vault_dir, vault) = open_durable_vault(&root);

@@ -28,14 +28,14 @@ fn living_concert_synthetic_known_io_smoke() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV: requires verified BEIR SciFact dataset under CALYX_HOME"]
-fn living_concert_aiwonder_scifact_fsv() {
+#[ignore = "gpuhost FSV: requires verified BEIR SciFact dataset under CALYX_HOME"]
+fn living_concert_gpuhost_scifact_fsv() {
     let root = env::var_os("CALYX_ISSUE641_FSV_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| temp_root("issue641-scifact"));
     let dataset = env::var_os("CALYX_SCIFACT_DATASET")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/home/croyse/calyx/data/datasets/beir-scifact/scifact"));
+        .unwrap_or_else(|| PathBuf::from("/var/lib/calyx/data/datasets/beir-scifact/scifact"));
 
     let readback = run_living_concert(
         &root,

@@ -174,8 +174,8 @@ fn status_reports_budget_tripwires_and_recent_changes() {
 }
 
 #[test]
-#[ignore = "requires CALYX_ISSUE399_FSV_ROOT on aiwonder"]
-fn fsv_bad_change_aiwonder() {
+#[ignore = "requires CALYX_ISSUE399_FSV_ROOT on gpuhost"]
+fn fsv_bad_change_gpuhost() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE399_FSV_ROOT").expect("set CALYX_ISSUE399_FSV_ROOT"));
     reset_dir(&root);

@@ -17,8 +17,8 @@ use tokenizers::Tokenizer;
 
 use crate::error::WardError;
 
-pub const DEFAULT_STYLE_MODEL_PATH: &str = "/home/croyse/calyx/models/style/style-embed-v1.onnx";
-pub const DEFAULT_STYLE_TOKENIZER_PATH: &str = "/home/croyse/calyx/models/style/tokenizer.json";
+pub const DEFAULT_STYLE_MODEL_PATH: &str = "/var/lib/calyx/models/style/style-embed-v1.onnx";
+pub const DEFAULT_STYLE_TOKENIZER_PATH: &str = "/var/lib/calyx/models/style/tokenizer.json";
 pub const STYLE_DIM: usize = 768;
 pub const STYLE_MAX_TOKENS: usize = 512;
 const STYLE_LENS_NAME: &str = "style-embed-v1";

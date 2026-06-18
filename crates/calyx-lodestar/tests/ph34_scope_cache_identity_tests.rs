@@ -173,8 +173,8 @@ fn build_kernel_cache_identity_includes_anchor_and_corpus() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes issue #328 source-of-truth readback bytes"]
-fn ph34_scope_cache_identity_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes issue #328 source-of-truth readback bytes"]
+fn ph34_scope_cache_identity_gpuhost_fsv() {
     let store = store();
     let scope = collection_scope();
     let mut cache = ScopeCache::new(8);

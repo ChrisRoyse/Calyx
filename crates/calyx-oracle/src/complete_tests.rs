@@ -253,7 +253,7 @@ proptest! {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #442 completion primitive"]
+#[ignore = "manual gpuhost FSV for issue #442 completion primitive"]
 fn issue442_complete_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_FSV_ROOT").expect("CALYX_FSV_ROOT required");
     let root = std::path::PathBuf::from(root);

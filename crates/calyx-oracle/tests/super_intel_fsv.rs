@@ -26,7 +26,7 @@ use serde_json::json;
 const DOMAIN: &str = "ph50_t02_fsv";
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #436 PH50 T02 tier 1-3 readbacks"]
+#[ignore = "manual gpuhost FSV for issue #436 PH50 T02 tier 1-3 readbacks"]
 fn issue436_super_intel_tiers_1_to_3_fsv_writes_readbacks() {
     let root = std::env::var_os("CALYX_FSV_ROOT")
         .map(std::path::PathBuf::from)

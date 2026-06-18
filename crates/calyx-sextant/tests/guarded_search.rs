@@ -137,7 +137,7 @@ fn multi_slot_guard_uses_distinct_query_vectors() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_SEXTANT_PH38_T06_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_SEXTANT_PH38_T06_FSV_DIR"]
 fn ph38_t06_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_SEXTANT_PH38_T06_FSV_DIR")
         .expect("CALYX_SEXTANT_PH38_T06_FSV_DIR is required");
@@ -187,7 +187,7 @@ fn ph38_t06_fsv_fixture_writes_readback_artifacts() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_SEXTANT_PH38_T06_MULTISLOT_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_SEXTANT_PH38_T06_MULTISLOT_FSV_DIR"]
 fn ph38_t06_multi_slot_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_SEXTANT_PH38_T06_MULTISLOT_FSV_DIR")
         .expect("CALYX_SEXTANT_PH38_T06_MULTISLOT_FSV_DIR is required");

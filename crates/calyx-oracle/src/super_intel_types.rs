@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "manual aiwonder FSV for issue #435 PH50 T01 type readbacks"]
+    #[ignore = "manual gpuhost FSV for issue #435 PH50 T01 type readbacks"]
     fn issue435_super_intel_types_fsv_writes_readbacks() {
         let root = std::env::var_os("CALYX_FSV_ROOT")
             .map(std::path::PathBuf::from)

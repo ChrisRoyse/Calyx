@@ -118,7 +118,7 @@ fn missing_ground_truth_is_provisional_zero_validity() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV fixture for issue #430 durable readbacks"]
+#[ignore = "gpuhost FSV fixture for issue #430 durable readbacks"]
 fn issue430_oracle_self_consistency_fsv_fixture() {
     let root =
         PathBuf::from(std::env::var("CALYX_ISSUE430_FSV_ROOT").expect("CALYX_ISSUE430_FSV_ROOT"));

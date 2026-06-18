@@ -22,7 +22,7 @@ const UCI_IRIS_SOURCE: &str =
 const UCI_IRIS_BLAKE3: &str = "8578940c6c00041901b00392034412b20e2f574eba595bcc6b979ca4148178e6";
 
 #[test]
-#[ignore = "manual aiwonder FSV requires CALYX_STAGE5_CLASSIFICATION_CSV real dataset path"]
+#[ignore = "manual gpuhost FSV requires CALYX_STAGE5_CLASSIFICATION_CSV real dataset path"]
 fn real_iris_classification_assay_loom_fsv() {
     let dataset = dataset_path();
     let raw = fs::read(&dataset).expect("read real classification dataset");

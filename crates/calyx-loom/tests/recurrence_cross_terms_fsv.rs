@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 const LEAD_LAG_F64_OFFSET: usize = 37;
 
 #[test]
-#[ignore = "FSV trigger writes durable aiwonder evidence under CALYX_LOOM_ISSUE388_FSV_DIR"]
+#[ignore = "FSV trigger writes durable gpuhost evidence under CALYX_LOOM_ISSUE388_FSV_DIR"]
 fn issue388_temporal_cross_term_fsv_writes_artifact() {
     let root = PathBuf::from(
         env::var("CALYX_LOOM_ISSUE388_FSV_DIR").expect("set CALYX_LOOM_ISSUE388_FSV_DIR"),

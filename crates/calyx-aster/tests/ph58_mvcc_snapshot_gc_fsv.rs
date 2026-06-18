@@ -36,7 +36,7 @@ impl Clock for SharedClock {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV writes PH58 MVCC snapshot-GC source-of-truth artifacts"]
+#[ignore = "manual gpuhost FSV writes PH58 MVCC snapshot-GC source-of-truth artifacts"]
 fn ph58_mvcc_snapshot_gc_fsv() {
     let root = fsv_root();
     reset_dir(&root);

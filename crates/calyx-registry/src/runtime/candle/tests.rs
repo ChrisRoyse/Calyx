@@ -184,9 +184,9 @@ fn write_device_policy_readback(root: &Path, cuda_feature: bool, cuda_error: Opt
 }
 
 #[test]
-#[ignore = "requires aiwonder HF cache/network and downloads all-MiniLM weights"]
-fn candle_all_minilm_aiwonder_fsv() {
-    let lens = CandleLens::all_minilm_l6_v2("candle-aiwonder-fsv").unwrap();
+#[ignore = "requires gpuhost HF cache/network and downloads all-MiniLM weights"]
+fn candle_all_minilm_gpuhost_fsv() {
+    let lens = CandleLens::all_minilm_l6_v2("candle-gpuhost-fsv").unwrap();
     println!("CANDLE_FSV_DEVICE_POLICY={}", lens.device_policy().as_str());
     let input = Input::new(Modality::Text, b"Calyx PH19 candle local probe".to_vec());
     let vector = lens.measure(&input).unwrap();
@@ -205,9 +205,9 @@ fn candle_all_minilm_aiwonder_fsv() {
 }
 
 #[test]
-#[ignore = "requires aiwonder HF cache/network and downloads all-MiniLM weights"]
-fn candle_dim_guard_aiwonder_fsv() {
-    let lens = CandleLens::all_minilm_l6_v2("candle-aiwonder-dim-guard").unwrap();
+#[ignore = "requires gpuhost HF cache/network and downloads all-MiniLM weights"]
+fn candle_dim_guard_gpuhost_fsv() {
+    let lens = CandleLens::all_minilm_l6_v2("candle-gpuhost-dim-guard").unwrap();
     let error = lens
         .contract()
         .verify_vector(
@@ -249,8 +249,8 @@ fn candle_dim_guard_aiwonder_fsv() {
 }
 
 #[test]
-#[ignore = "requires aiwonder CUDA, candle-cuda feature, and CALYX_CANDLE_FSV_MANIFEST"]
-fn candle_fp16_cuda_manifest_aiwonder_fsv() {
+#[ignore = "requires gpuhost CUDA, candle-cuda feature, and CALYX_CANDLE_FSV_MANIFEST"]
+fn candle_fp16_cuda_manifest_gpuhost_fsv() {
     let manifest = std::env::var("CALYX_CANDLE_FSV_MANIFEST")
         .expect("CALYX_CANDLE_FSV_MANIFEST points to candle-fp16 manifest");
     let expected_precision = std::env::var("CALYX_CANDLE_FSV_EXPECT_DTYPE")
@@ -303,8 +303,8 @@ fn candle_fp16_cuda_manifest_aiwonder_fsv() {
 }
 
 #[test]
-#[ignore = "requires aiwonder CUDA plus candle and ONNX sibling manifests"]
-fn candle_fp16_vs_onnx_sibling_parity_aiwonder_fsv() {
+#[ignore = "requires gpuhost CUDA plus candle and ONNX sibling manifests"]
+fn candle_fp16_vs_onnx_sibling_parity_gpuhost_fsv() {
     let candle_manifest = std::env::var("CALYX_CANDLE_FSV_MANIFEST")
         .expect("CALYX_CANDLE_FSV_MANIFEST points to candle-fp16 manifest");
     let onnx_manifest = std::env::var("CALYX_CANDLE_FSV_ONNX_MANIFEST")

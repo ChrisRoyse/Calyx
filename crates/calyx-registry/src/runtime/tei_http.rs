@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use crate::frozen::FrozenLensContract;
 use crate::lens::ensure_input_modality;
 
-/// Resident TEI endpoint on aiwonder.
+/// Resident TEI endpoint on gpuhost.
 pub const DEFAULT_TEI_ENDPOINT: &str = "http://127.0.0.1:8088/embed";
 
 /// Blocking HTTP TEI lens runtime.
@@ -44,7 +44,7 @@ impl TeiHttpLens {
         }
     }
 
-    /// Builds a text lens for aiwonder's resident `:8088` TEI service.
+    /// Builds a text lens for gpuhost's resident `:8088` TEI service.
     pub fn resident_8088(name: impl Into<String>, dim: u32) -> Self {
         Self::new(name, DEFAULT_TEI_ENDPOINT, Modality::Text, dim)
     }
@@ -361,9 +361,9 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires aiwonder resident TEI on 127.0.0.1:8088"]
-    fn tei_http_aiwonder_determinism() {
-        let lens = TeiHttpLens::resident_8088("tei-aiwonder-8088", 768)
+    #[ignore = "requires gpuhost resident TEI on 127.0.0.1:8088"]
+    fn tei_http_gpuhost_determinism() {
+        let lens = TeiHttpLens::resident_8088("tei-gpuhost-8088", 768)
             .with_timeout(Duration::from_secs(15));
         let input = Input::new(Modality::Text, b"Calyx PH17 resident TEI probe".to_vec());
 

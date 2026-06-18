@@ -14,8 +14,8 @@ use serde_json::json;
 const VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
 
 #[test]
-#[ignore = "manual aiwonder FSV writes source-of-truth evidence under CALYX_FSV_OUT"]
-fn ph48_growth_curve_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV writes source-of-truth evidence under CALYX_FSV_OUT"]
+fn ph48_growth_curve_gpuhost_fsv() {
     let out = PathBuf::from(std::env::var_os("CALYX_FSV_OUT").expect("CALYX_FSV_OUT"));
     let _ = fs::remove_dir_all(&out);
     fs::create_dir_all(&out).expect("create fsv out");

@@ -15,7 +15,7 @@ use crate::query::{AskSpec, FieldOp, FieldPredicate, KvLookup, RelationalFilter,
 use super::plan;
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #464"]
+#[ignore = "manual gpuhost FSV for issue #464"]
 fn issue464_query_planner_fsv_writes_readback_artifacts() {
     let root = std::env::var_os("CALYX_FSV_ROOT")
         .map(PathBuf::from)

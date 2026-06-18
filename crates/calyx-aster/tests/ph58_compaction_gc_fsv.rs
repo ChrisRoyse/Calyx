@@ -38,7 +38,7 @@ impl Clock for SharedClock {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV writes PH58 compaction-GC source-of-truth artifacts"]
+#[ignore = "manual gpuhost FSV writes PH58 compaction-GC source-of-truth artifacts"]
 fn ph58_compaction_gc_tombstone_fsv() {
     let root = fsv_root();
     reset_dir(&root);

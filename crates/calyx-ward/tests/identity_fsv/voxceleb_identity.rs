@@ -26,7 +26,7 @@ use edge::write_edge_readbacks;
 use evaluation::evaluate_embeddings;
 
 const DEFAULT_DATASET_ROOT: &str = "/zfs/archive/calyx/datasets/voxceleb1_mini_issue608";
-const DEFAULT_WAVLM_MODEL_PATH: &str = "/home/croyse/calyx/models/wavlm/wavlm-base-plus-sv.onnx";
+const DEFAULT_WAVLM_MODEL_PATH: &str = "/var/lib/calyx/models/wavlm/wavlm-base-plus-sv.onnx";
 const GUARD_UUID: &str = "60800000-7070-7000-8000-000000000608";
 const SPEAKER_SLOT: u16 = 8;
 const CALIBRATION_TS: i64 = 1_786_147_200;
@@ -66,7 +66,7 @@ fn issue608_voxceleb_edges_fail_closed_with_codes() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for #608 VoxCeleb Ward speaker identity-lock"]
+#[ignore = "manual gpuhost FSV for #608 VoxCeleb Ward speaker identity-lock"]
 fn issue608_voxceleb_speaker_identity_fsv_writes_readbacks() {
     let root = required_path_env("CALYX_ISSUE608_FSV_ROOT");
     assert!(

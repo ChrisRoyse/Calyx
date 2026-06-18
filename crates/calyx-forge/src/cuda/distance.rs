@@ -12,7 +12,7 @@ const BLOCK_THREADS: u32 = 256;
 const DISTANCE_REMEDIATION: &str =
     "Check CUDA distance kernel inputs and fail closed instead of returning invalid scores";
 const DEVICE_REMEDIATION: &str =
-    "Check CUDA 13.3, embedded distance PTX, and the RTX 5090 device on aiwonder";
+    "Check CUDA 13.3, embedded distance PTX, and the RTX 5090 device on gpuhost";
 
 pub fn cosine_batch_gpu(
     ctx: &CudaContext,

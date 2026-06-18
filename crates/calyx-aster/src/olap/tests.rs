@@ -96,7 +96,7 @@ fn olap_edges_fail_closed() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #586 columnar OLAP aggregate"]
+#[ignore = "manual gpuhost FSV for issue #586 columnar OLAP aggregate"]
 fn issue586_columnar_olap_fsv() {
     let root = fsv_root();
     let vault_dir = root.join("vault.calyx");

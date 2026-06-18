@@ -14,7 +14,7 @@ const READ_LEN: usize = 1_048_576;
 const RSS_DELTA_LIMIT: u64 = 2 * 1024 * 1024;
 
 #[test]
-#[ignore = "aiwonder FSV maps a 1GiB cold column and records RSS readback"]
+#[ignore = "gpuhost FSV maps a 1GiB cold column and records RSS readback"]
 fn issue472_mmap_column_fsv() {
     let root = fsv_root();
     reset_dir(&root);

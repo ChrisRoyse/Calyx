@@ -1,7 +1,7 @@
-//! Ignored aiwonder FSV for PH54 T04 atomic data+index write maintenance.
+//! Ignored gpuhost FSV for PH54 T04 atomic data+index write maintenance.
 //!
 //! Trigger with:
-//! `CALYX_ISSUE460_FSV_ROOT=/home/croyse/calyx/data/fsv-issue460-atomic-index-<stamp> \
+//! `CALYX_ISSUE460_FSV_ROOT=/var/lib/calyx/data/fsv-issue460-atomic-index-<stamp> \
 //! cargo test -p calyx-aster --test issue460_atomic_index_write_fsv -- --ignored --nocapture`
 
 use std::fs;
@@ -101,10 +101,10 @@ fn order_row(item: &str, qty: i64) -> Row {
 
 #[test]
 #[ignore]
-fn issue460_atomic_index_write_fsv_aiwonder() {
+fn issue460_atomic_index_write_fsv_gpuhost() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE460_FSV_ROOT")
-            .expect("CALYX_ISSUE460_FSV_ROOT must point at an aiwonder evidence root"),
+            .expect("CALYX_ISSUE460_FSV_ROOT must point at an gpuhost evidence root"),
     );
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();

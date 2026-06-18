@@ -55,7 +55,7 @@ zstd = "0.13"
 # dependencies get no debuginfo at all since we never step into them.
 #
 # Portable and machine-agnostic: these apply identically on Linux, Windows, and
-# aiwonder, so they live here (not in .cargo/config.toml, which must stay free
+# gpuhost, so they live here (not in .cargo/config.toml, which must stay free
 # of machine-specific settings). Linker choice (mold) and incremental policy are
 # machine-local on the build host — see docs/implementation/02_BUILD_PERFORMANCE.md.
 [profile.dev]

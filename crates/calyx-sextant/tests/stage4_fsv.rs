@@ -194,7 +194,7 @@ fn pipeline_and_reranker_keep_candidate_text_request_scoped() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes source-of-truth artifacts"]
+#[ignore = "gpuhost FSV writes source-of-truth artifacts"]
 fn stage4_full_stack_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(std::path::PathBuf::from)

@@ -186,7 +186,7 @@ fn erase_tombstones(entries: &[LedgerEntry]) -> Vec<calyx_ledger::ErasureTombsto
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture for issue #503"]
+#[ignore = "manual gpuhost FSV fixture for issue #503"]
 fn issue503_erasure_ledger_fsv_fixture() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)

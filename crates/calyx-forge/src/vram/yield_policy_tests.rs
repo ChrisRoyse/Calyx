@@ -193,7 +193,7 @@ fn cuda_stream_priorities_put_serving_above_anneal() -> Result<()> {
 
 #[cfg(feature = "cuda")]
 #[test]
-fn power_query_returns_plausible_watts_on_aiwonder() -> Result<()> {
+fn power_query_returns_plausible_watts_on_gpuhost() -> Result<()> {
     let power_w = YieldPolicy::query_power_draw_w()?;
 
     println!("GPU_POWER_W {power_w}");

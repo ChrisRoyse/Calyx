@@ -19,7 +19,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-const DEFAULT_FIXTURE_DIR: &str = "/home/croyse/calyx/data/identity_fsv";
+const DEFAULT_FIXTURE_DIR: &str = "/var/lib/calyx/data/identity_fsv";
 const CLOCK_TS: u64 = 273_000;
 
 #[derive(Clone, Debug, Deserialize)]
@@ -114,7 +114,7 @@ impl Lens for UnusedSpeakerLens {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_IDENTITY_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_IDENTITY_FSV_DIR"]
 fn issue273_identity_injection_quarantine_fsv_writes_readbacks() {
     let root = required_path_env("CALYX_WARD_IDENTITY_FSV_DIR");
     assert_empty_or_absent(&root);

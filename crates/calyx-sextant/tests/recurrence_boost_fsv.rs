@@ -27,7 +27,7 @@ const CX_A: u8 = 0xA1;
 const CX_B: u8 = 0xB2;
 
 #[test]
-#[ignore = "issue #391 aiwonder FSV trigger; set CALYX_SEXTANT_ISSUE391_FSV_DIR"]
+#[ignore = "issue #391 gpuhost FSV trigger; set CALYX_SEXTANT_ISSUE391_FSV_DIR"]
 fn issue391_recurrence_boost_fsv_artifacts() {
     let root = fsv_root();
     reset_dir(&root);

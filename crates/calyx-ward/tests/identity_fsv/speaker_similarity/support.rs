@@ -16,18 +16,18 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-pub(super) const DEFAULT_IDENTITY_DIR: &str = "/home/croyse/calyx/data/identity_fsv";
+pub(super) const DEFAULT_IDENTITY_DIR: &str = "/var/lib/calyx/data/identity_fsv";
 pub(super) const DEFAULT_SPEAKER_FIXTURE: &str = "speaker_tts_espeak_ng_20260609_v2";
 pub(super) const DEFAULT_WAVLM_MODEL_PATH: &str =
-    "/home/croyse/calyx/models/wavlm/wavlm-base-plus-sv.onnx";
+    "/var/lib/calyx/models/wavlm/wavlm-base-plus-sv.onnx";
 pub(super) const CLOCK_TS: u64 = 274_000;
 pub(super) const MIN_IN_REGION: usize = 20;
 pub(super) const MIN_CROSS: usize = 5;
-const DEFAULT_PH37_ROOT: &str = "/home/croyse/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7";
+const DEFAULT_PH37_ROOT: &str = "/var/lib/calyx/data/fsv-issue263-ph37-t06-20260609-4cde3b7";
 const DEFAULT_PH38_ROOT: &str =
-    "/home/croyse/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995";
+    "/var/lib/calyx/data/fsv-issue352-ph38-heldout-injection-20260609-210d995";
 const DEFAULT_PH39_STYLE_ROOT: &str =
-    "/home/croyse/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120";
+    "/var/lib/calyx/data/fsv-issue273-ph39-t05-20260609-8d2572b-ort126-sm120";
 
 #[derive(Clone, Debug, Deserialize)]
 pub(super) struct SpeakerFixtureSpec {

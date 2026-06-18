@@ -25,7 +25,7 @@ const UTC_MINUS_FIVE_SECS: i32 = -18_000;
 
 #[test]
 #[ignore = "FSV: writes durable cross-engine timezone evidence under CALYX_FSV_ROOT"]
-fn issue635_temporal_timezone_alignment_aiwonder_fsv() {
+fn issue635_temporal_timezone_alignment_gpuhost_fsv() {
     let root = fsv_root().join("issue635-timezone-alignment");
     fs::create_dir_all(&root).expect("create fsv root");
     let vault_dir = root.join("vault");

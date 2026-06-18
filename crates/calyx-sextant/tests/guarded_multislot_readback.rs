@@ -50,7 +50,7 @@ fn multi_slot_guard_sparse_slot_aware_vector_fails_closed() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_SEXTANT_ISSUE359_MULTISLOT_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_SEXTANT_ISSUE359_MULTISLOT_FSV_DIR"]
 fn issue359_multislot_guard_vector_readback_fsv_fixture_writes_artifacts() {
     let root = std::env::var("CALYX_SEXTANT_ISSUE359_MULTISLOT_FSV_DIR")
         .expect("CALYX_SEXTANT_ISSUE359_MULTISLOT_FSV_DIR is required");

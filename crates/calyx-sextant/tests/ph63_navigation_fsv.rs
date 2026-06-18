@@ -1,4 +1,4 @@
-//! Issue #600 aiwonder FSV driver: agree/disagree/traverse/skills/search_skill.
+//! Issue #600 gpuhost FSV driver: agree/disagree/traverse/skills/search_skill.
 //!
 //! Writes the full navigation readback to `$CALYX_FSV_ROOT`, re-reads the
 //! bytes from disk (the Source of Truth), and asserts every hand-computed
@@ -113,8 +113,8 @@ fn fsv_engine() -> SearchEngine {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes issue #600 navigation source-of-truth artifacts"]
-fn navigation_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes issue #600 navigation source-of-truth artifacts"]
+fn navigation_gpuhost_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-issue600-navigation-fsv"));

@@ -319,7 +319,7 @@ where
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture for issue #504"]
+#[ignore = "manual gpuhost FSV fixture for issue #504"]
 fn issue504_retention_fsv_fixture() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)

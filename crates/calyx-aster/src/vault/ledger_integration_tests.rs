@@ -7,8 +7,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH35 ledger integration smoke"]
-fn ph35_ledger_integration_smoke_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH35 ledger integration smoke"]
+fn ph35_ledger_integration_smoke_gpuhost_fsv() {
     let root = fsv_root().join("ledger-integration-smoke");
     reset_dir(&root);
     let vault_dir = root.join("vault");

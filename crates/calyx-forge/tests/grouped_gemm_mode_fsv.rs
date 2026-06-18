@@ -14,8 +14,8 @@ const SENTINEL: f32 = -316.0;
 
 #[cfg(feature = "cuda")]
 #[test]
-#[ignore = "manual aiwonder FSV for PH15 grouped GEMM execution mode"]
-fn ph15_grouped_gemm_execution_mode_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH15 grouped GEMM execution mode"]
+fn ph15_grouped_gemm_execution_mode_gpuhost_fsv() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");
     let _guard = CUDA_LOCK.lock().unwrap_or_else(|err| err.into_inner());

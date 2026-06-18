@@ -34,8 +34,8 @@ fn planned_explain_search_carries_plan_and_hit_explain() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes PH26 planned explain source-of-truth artifacts"]
-fn planned_explain_search_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes PH26 planned explain source-of-truth artifacts"]
+fn planned_explain_search_gpuhost_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-planner-explain-path-fsv"));

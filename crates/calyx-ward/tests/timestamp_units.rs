@@ -29,7 +29,7 @@ fn timestamp_conversion_edges_are_saturating_millis() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_TIMESTAMP_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_TIMESTAMP_FSV_DIR"]
 fn timestamp_units_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_TIMESTAMP_FSV_DIR")
         .expect("CALYX_WARD_TIMESTAMP_FSV_DIR is required");

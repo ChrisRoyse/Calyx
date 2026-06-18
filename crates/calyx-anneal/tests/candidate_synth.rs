@@ -182,8 +182,8 @@ fn exception_value_channel_records_value_complementarity() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes source-of-truth artifacts"]
-fn issue774_channel_prior_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes source-of-truth artifacts"]
+fn issue774_channel_prior_gpuhost_fsv() {
     let root =
         std::env::var("CALYX_ISSUE774_FSV_ROOT").expect("CALYX_ISSUE774_FSV_ROOT is required");
     std::fs::create_dir_all(&root).expect("create issue774 fsv root");
@@ -236,7 +236,7 @@ fn issue774_channel_prior_aiwonder_fsv() {
     .unwrap_err()
     .code;
     let readback = json!({
-        "source_of_truth": "issue774 channel-prior JSON bytes written by calyx-anneal FSV test on aiwonder",
+        "source_of_truth": "issue774 channel-prior JSON bytes written by calyx-anneal FSV test on gpuhost",
         "happy_path": {
             "before": {"anchor": "runtime_value_control_flow", "signals": ["return_value", "branch"]},
             "expected_after": {"kind": "ValueDivergence", "channel_prior": "runtime_value"},

@@ -20,7 +20,7 @@ use calyx_ward::{
 use serde_json::{Value, json};
 
 #[test]
-#[ignore = "FSV trigger writes durable aiwonder evidence under CALYX_WARD_ISSUE390_FSV_DIR"]
+#[ignore = "FSV trigger writes durable gpuhost evidence under CALYX_WARD_ISSUE390_FSV_DIR"]
 fn issue390_ward_novelty_recurrence_fsv_writes_artifacts() {
     let root = PathBuf::from(
         env::var("CALYX_WARD_ISSUE390_FSV_DIR").expect("set CALYX_WARD_ISSUE390_FSV_DIR"),

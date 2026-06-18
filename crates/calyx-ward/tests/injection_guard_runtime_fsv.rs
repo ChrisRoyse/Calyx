@@ -12,8 +12,8 @@
 //! degenerate block-everything guard now FAILS the FRR gate — the hollow gate is
 //! structurally impossible.
 //!
-//! Manual aiwonder GPU fixture (real model + real corpus, no mocks):
-//!   CALYX_INJECTION_GUARD_FSV_DIR=/home/croyse/calyx/data/fsv-issue697-... \
+//! Manual gpuhost GPU fixture (real model + real corpus, no mocks):
+//!   CALYX_INJECTION_GUARD_FSV_DIR=/var/lib/calyx/data/fsv-issue697-... \
 //!   cargo test -p calyx-ward --test injection_guard_runtime_fsv -- --ignored --nocapture
 
 use std::fs;
@@ -89,7 +89,7 @@ fn write_json(root: &Path, name: &str, value: &serde_json::Value) {
 }
 
 #[test]
-#[ignore = "manual aiwonder GPU fixture; set CALYX_INJECTION_GUARD_FSV_DIR"]
+#[ignore = "manual gpuhost GPU fixture; set CALYX_INJECTION_GUARD_FSV_DIR"]
 fn injection_guard_runtime_block_and_frr_fsv() {
     let root = PathBuf::from(
         std::env::var("CALYX_INJECTION_GUARD_FSV_DIR")

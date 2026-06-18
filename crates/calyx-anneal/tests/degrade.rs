@@ -180,9 +180,9 @@ proptest! {
     }
 }
 
-#[ignore = "manual aiwonder FSV for #400 anneal_health CF and status readback"]
+#[ignore = "manual gpuhost FSV for #400 anneal_health CF and status readback"]
 #[test]
-fn ph44_degrade_registry_aiwonder_fsv() {
+fn ph44_degrade_registry_gpuhost_fsv() {
     let root = fsv_root();
     let vault_dir = reset_dir(&root.join(format!("vault-{}", std::process::id())));
     let vault = AsterVault::new_durable(

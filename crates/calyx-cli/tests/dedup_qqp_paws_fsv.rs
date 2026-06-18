@@ -210,7 +210,7 @@ fn fail_closed_codes_are_exact() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV: real QQP/PAWS pairs + resident TEI :8088 + durable-vault byte readback"]
+#[ignore = "manual gpuhost FSV: real QQP/PAWS pairs + resident TEI :8088 + durable-vault byte readback"]
 fn qqp_paws_dedup_intelligence_fsv() {
     let out = PathBuf::from(require_env("CALYX_FSV_OUT"));
     fs::create_dir_all(&out).expect("create FSV out root");
@@ -453,7 +453,7 @@ fn qqp_paws_dedup_intelligence_fsv() {
 }
 
 fn require_env(name: &str) -> String {
-    env::var(name).unwrap_or_else(|_| panic!("{name} must be set for the aiwonder FSV run"))
+    env::var(name).unwrap_or_else(|_| panic!("{name} must be set for the gpuhost FSV run"))
 }
 
 fn temp_root(tag: &str) -> PathBuf {

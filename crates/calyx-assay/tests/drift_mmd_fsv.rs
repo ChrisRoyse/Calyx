@@ -98,8 +98,8 @@ fn fail_closed_error_codes_are_exact() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV reads drift-pair bytes and writes PH70 source-of-truth evidence"]
-fn drift_pair_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV reads drift-pair bytes and writes PH70 source-of-truth evidence"]
+fn drift_pair_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
     let dataset_dir = drift_pair_dir(&root);

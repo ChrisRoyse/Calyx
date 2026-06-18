@@ -28,8 +28,8 @@ fn pipeline_recall_k_headroom_recovers_dense_candidate() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes PH25 Pipeline recall headroom source-of-truth artifacts"]
-fn pipeline_recall_headroom_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes PH25 Pipeline recall headroom source-of-truth artifacts"]
+fn pipeline_recall_headroom_gpuhost_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-pipeline-recall-headroom-fsv"));

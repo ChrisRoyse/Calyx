@@ -107,8 +107,8 @@ fn merkle_export_bundle_is_canonical_json_serializable() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV writes PH36 Merkle readback artifacts"]
-fn ph36_merkle_root_ed25519_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV writes PH36 Merkle readback artifacts"]
+fn ph36_merkle_root_ed25519_gpuhost_fsv() {
     let root = fsv_root().join("merkle-root-ed25519");
     let ledger_dir = root.join("ledger-cf");
     reset_child_dir(&root, &ledger_dir);

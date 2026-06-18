@@ -39,8 +39,8 @@ fn public_estimator_paths_attach_seeded_bootstrap_ci() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV writes Assay CF source-of-truth readbacks"]
-fn bootstrap_ci_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV writes Assay CF source-of-truth readbacks"]
+fn bootstrap_ci_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
     let cf_root = root.join("bootstrap-ci-assay-cf");

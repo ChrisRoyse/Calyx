@@ -196,7 +196,7 @@ fn http_scrape_serves_gauge_on_loopback() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #602: builds synthetic ledgers under CALYX_FSV_ROOT"]
+#[ignore = "manual gpuhost FSV for issue #602: builds synthetic ledgers under CALYX_FSV_ROOT"]
 fn issue602_fsv_build_synthetic_ledgers() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)

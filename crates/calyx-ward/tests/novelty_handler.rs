@@ -132,7 +132,7 @@ fn novelty_error_constants_are_exported_from_crate_root() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_NOVELTY_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_NOVELTY_FSV_DIR"]
 fn novelty_handler_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_NOVELTY_FSV_DIR")
         .expect("CALYX_WARD_NOVELTY_FSV_DIR is required");

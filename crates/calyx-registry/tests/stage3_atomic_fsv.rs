@@ -13,8 +13,8 @@ use calyx_registry::{
 use serde_json::json;
 
 #[test]
-#[ignore = "manual aiwonder FSV for Stage 3 atomic blindspots"]
-fn stage3_atomic_blindspots_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for Stage 3 atomic blindspots"]
+fn stage3_atomic_blindspots_gpuhost_fsv() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).unwrap();
     let mut out = BTreeMap::new();

@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use super::request::RecallRequest;
 
-const DEFAULT_LENS_CATALOG: &str = "/home/croyse/calyx/lenses/registry.json";
+const DEFAULT_LENS_CATALOG: &str = "/var/lib/calyx/lenses/registry.json";
 const REAL_PANEL_VERSION: u32 = 727;
 
 #[derive(Clone)]

@@ -274,7 +274,7 @@ fn oracle_error_display_contains_codes_and_remediation() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #429 Oracle contract readbacks"]
+#[ignore = "manual gpuhost FSV for issue #429 Oracle contract readbacks"]
 fn issue429_oracle_types_fsv_writes_readbacks() {
     let root = std::env::var_os("CALYX_ORACLE_TYPES_FSV_DIR")
         .map(std::path::PathBuf::from)

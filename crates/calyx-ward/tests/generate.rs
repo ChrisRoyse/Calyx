@@ -286,7 +286,7 @@ proptest! {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_GENERATE_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_GENERATE_FSV_DIR"]
 fn issue272_guard_generate_fsv_writes_readbacks() {
     let root = PathBuf::from(
         std::env::var("CALYX_WARD_GENERATE_FSV_DIR")

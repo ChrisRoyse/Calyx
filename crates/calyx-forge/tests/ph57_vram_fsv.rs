@@ -9,7 +9,7 @@
 //! The GPU free-VRAM reading is supplied by a deterministic probe so the
 //! accounting decisions run against hand-computed byte counts (the 2+2=4
 //! discipline). The live `cudaMemGetInfo` path is exercised separately on
-//! aiwonder (see the closing FSV comment on the issue). Here the system under
+//! gpuhost (see the closing FSV comment on the issue). Here the system under
 //! test — the accounting + admission logic — runs on real in-memory bytes.
 //!
 //! Run with `cargo test -p calyx-forge --test ph57_vram_fsv -- --nocapture`

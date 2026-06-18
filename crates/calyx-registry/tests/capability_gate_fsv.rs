@@ -15,7 +15,7 @@ use calyx_registry::{
 use serde_json::json;
 
 #[test]
-#[ignore = "manual aiwonder FSV for #787 capability-card gating"]
+#[ignore = "manual gpuhost FSV for #787 capability-card gating"]
 fn issue787_capability_gate_fsv_writes_readback_artifacts() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");
@@ -277,7 +277,7 @@ fn manifest_path() -> PathBuf {
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             PathBuf::from(
-                "/home/croyse/calyx/lenses/semantic-potion-base-8m/model2vec/manifest.json",
+                "/var/lib/calyx/lenses/semantic-potion-base-8m/model2vec/manifest.json",
             )
         })
 }
@@ -285,7 +285,7 @@ fn manifest_path() -> PathBuf {
 fn fsv_root() -> PathBuf {
     std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("/home/croyse/calyx/tmp/issue787-capability-gate-fsv"))
+        .unwrap_or_else(|_| PathBuf::from("/var/lib/calyx/tmp/issue787-capability-gate-fsv"))
 }
 
 fn vault_id() -> VaultId {

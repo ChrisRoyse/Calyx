@@ -217,7 +217,7 @@ fn handbuilt_vault(dir: &Path, chain_len: u64) -> Vec<(u64, Vec<u8>)> {
 /// `$CALYX_ISSUE543_FSV_ROOT/vault` and keeps it for byte-level inspection
 /// with `calyx verify-restore` / `xxd` (issue #543 evidence).
 #[test]
-#[ignore = "manual aiwonder FSV seeder for issue 543"]
+#[ignore = "manual gpuhost FSV seeder for issue 543"]
 fn fsv_seed_vault_for_manual_inspection() {
     let root = std::env::var("CALYX_ISSUE543_FSV_ROOT").expect("set CALYX_ISSUE543_FSV_ROOT");
     let dir = PathBuf::from(root).join("vault");

@@ -8,8 +8,8 @@ use issue640_support::*;
 use serde_json::{Value, json};
 
 #[test]
-#[ignore = "aiwonder release FSV writes issue #640 latency-series source-of-truth artifacts"]
-fn embedded_scale_perf_aiwonder_fsv() {
+#[ignore = "gpuhost release FSV writes issue #640 latency-series source-of-truth artifacts"]
+fn embedded_scale_perf_gpuhost_fsv() {
     let scale_cx = env_usize("CALYX_ISSUE640_SCALE_CX", DEFAULT_SCALE_CX);
     let dim = env_usize("CALYX_ISSUE640_DIM", DEFAULT_DIM);
     let queries = env_usize("CALYX_ISSUE640_QUERY_COUNT", DEFAULT_QUERY_COUNT);

@@ -168,7 +168,7 @@ fn coverage_masks_remove_unobserved_slots_from_ward_required_set() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_REQUIRED_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_REQUIRED_FSV_DIR"]
 fn required_slots_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_REQUIRED_FSV_DIR")
         .expect("CALYX_WARD_REQUIRED_FSV_DIR is required");

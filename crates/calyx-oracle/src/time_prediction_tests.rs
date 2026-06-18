@@ -173,8 +173,8 @@ fn rolled_frequency_without_active_cadence_fails_closed_explicitly() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes #657 interval-bound readback artifact"]
-fn time_prediction_interval_bounds_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes #657 interval-bound readback artifact"]
+fn time_prediction_interval_bounds_gpuhost_fsv() {
     let root = std::env::var("CALYX_ISSUE657_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-issue657-time-bounds-fsv"));

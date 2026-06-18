@@ -66,7 +66,7 @@ fn verify_chain_vault_quarantines_key_encoded_seq_mismatch() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #651 physical verify-chain quarantine"]
+#[ignore = "manual gpuhost FSV for issue #651 physical verify-chain quarantine"]
 fn issue651_verify_chain_physical_quarantine_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_CLI_ISSUE651_FSV_DIR")
         .map(PathBuf::from)

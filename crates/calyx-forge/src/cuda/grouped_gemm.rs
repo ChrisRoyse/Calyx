@@ -7,7 +7,7 @@ use crate::{CudaContext, ForgeError, Result};
 const GROUPED_REMEDIATION: &str =
     "Validate grouped GEMM slab offsets, dimensions, and cuBLAS grouped support";
 const DEVICE_REMEDIATION: &str =
-    "Check CUDA 13.3/cuBLAS grouped GEMM support and the RTX 5090 on aiwonder";
+    "Check CUDA 13.3/cuBLAS grouped GEMM support and the RTX 5090 on gpuhost";
 pub(crate) const ABSENT_SENTINEL: f32 = f32::NAN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

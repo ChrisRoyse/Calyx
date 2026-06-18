@@ -94,8 +94,8 @@ fn rerank_request_owns_zeroizing_candidate_text() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes reranker request/result source-of-truth artifacts"]
-fn search_with_reranker_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes reranker request/result source-of-truth artifacts"]
+fn search_with_reranker_gpuhost_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-reranker-search-fsv"));

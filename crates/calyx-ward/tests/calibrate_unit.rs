@@ -220,7 +220,7 @@ fn alpha_changes_tau_when_sample_supports_confidence_bound() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_CALIBRATE_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_CALIBRATE_FSV_DIR"]
 fn calibrate_fsv_fixture_writes_readback_artifacts() {
     let root = std::env::var("CALYX_WARD_CALIBRATE_FSV_DIR")
         .expect("CALYX_WARD_CALIBRATE_FSV_DIR is required");

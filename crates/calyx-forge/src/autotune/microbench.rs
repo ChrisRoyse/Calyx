@@ -23,7 +23,7 @@ pub enum BenchCudaContext {}
 const MICROBENCH_REMEDIATION: &str =
     "Use a supported op, non-zero shape, iters > 0, and a CUDA context when benchmarking CUDA";
 const CUDA_REQUIRED_REMEDIATION: &str =
-    "Initialize CUDA on aiwonder and pass Some(&CudaContext), or benchmark BackendKind::Cpu";
+    "Initialize CUDA on gpuhost and pass Some(&CudaContext), or benchmark BackendKind::Cpu";
 const CV_WARN_PCT: f64 = 20.0;
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -355,8 +355,8 @@ fn durable_memtable_oversize_rejects_before_wal_append() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH35 ledger group-commit WAL rows"]
-fn ph35_ledger_group_commit_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH35 ledger group-commit WAL rows"]
+fn ph35_ledger_group_commit_gpuhost_fsv() {
     let root = fsv_root().join("group-commit-hook");
     reset_dir(&root);
     let vault_dir = root.join("vault");

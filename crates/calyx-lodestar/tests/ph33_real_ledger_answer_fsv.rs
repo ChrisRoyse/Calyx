@@ -83,8 +83,8 @@ struct DecodedLedgerRow {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV: real SciFact kernel_answer_with_ledger readback"]
-fn ph33_real_kernel_answer_with_ledger_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV: real SciFact kernel_answer_with_ledger readback"]
+fn ph33_real_kernel_answer_with_ledger_gpuhost_fsv() {
     let home = calyx_home();
     let root = fsv_root(&home);
     reset_dir(&root);

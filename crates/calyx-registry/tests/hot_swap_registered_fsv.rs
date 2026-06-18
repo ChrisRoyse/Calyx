@@ -12,8 +12,8 @@ use calyx_registry::{
 use serde_json::json;
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH20 registered hot-swap fail-closed guard"]
-fn ph20_unregistered_hot_swap_fails_closed_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH20 registered hot-swap fail-closed guard"]
+fn ph20_unregistered_hot_swap_fails_closed_gpuhost_fsv() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");
     let scheduler_path = root.join("registered-hot-swap-watermark.json");
@@ -81,8 +81,8 @@ fn ph20_unregistered_hot_swap_fails_closed_aiwonder_fsv() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH20 lifecycle idempotency and backfill cancellation"]
-fn ph20_lifecycle_idempotency_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH20 lifecycle idempotency and backfill cancellation"]
+fn ph20_lifecycle_idempotency_gpuhost_fsv() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");
 

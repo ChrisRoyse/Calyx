@@ -3,7 +3,7 @@
 //!
 //! This ignored test deliberately does not run restic itself. The agent creates
 //! the source bytes with Calyx's `VaultKey`, runs `restic backup` / `restore`
-//! manually on aiwonder, then re-runs this test in restore-verify mode against
+//! manually on gpuhost, then re-runs this test in restore-verify mode against
 //! the restored bytes. That keeps the restic snapshot as the Source of Truth.
 
 use std::error::Error;
@@ -24,7 +24,7 @@ const TOMBSTONE_FILE: &str = "ledger/tombstone-issue597.json";
 const KEY_STATE_FILE: &str = "key-state/vault-a.key-state";
 
 #[test]
-#[ignore = "manual aiwonder FSV: seed, restic backup/restore, then verify restored bytes"]
+#[ignore = "manual gpuhost FSV: seed, restic backup/restore, then verify restored bytes"]
 fn real_restic_crypto_shred_fixture() -> Result<(), Box<dyn Error>> {
     if let Ok(restored_vault) = std::env::var("CALYX_ISSUE597_RESTORED_VAULT") {
         verify_restored_vault(Path::new(&restored_vault))

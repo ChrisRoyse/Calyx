@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 const FSV_TS: u64 = 1_785_500_415;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE415_FSV_ROOT on aiwonder"]
+#[ignore = "requires CALYX_ISSUE415_FSV_ROOT on gpuhost"]
 fn issue415_loom_scope_tuner_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE415_FSV_ROOT").expect("set CALYX_ISSUE415_FSV_ROOT"));

@@ -1,7 +1,7 @@
 //! PH54 T06 FSV: same-seq data/index writes and no half-indexed crash state.
 //!
-//! Trigger on aiwonder with:
-//! `CALYX_ISSUE462_FSV_ROOT=/home/croyse/calyx/data/fsv-issue462-ph54-<stamp> \
+//! Trigger on gpuhost with:
+//! `CALYX_ISSUE462_FSV_ROOT=/var/lib/calyx/data/fsv-issue462-ph54-<stamp> \
 //! cargo test -p calyx-aster --test ph54_fsv -- --ignored --nocapture`
 
 use std::fs;
@@ -21,10 +21,10 @@ fn ph54_fsv_same_seq_crash_range_rebuild() {
 
 #[test]
 #[ignore]
-fn ph54_fsv_aiwonder() {
+fn ph54_fsv_gpuhost() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE462_FSV_ROOT")
-            .expect("CALYX_ISSUE462_FSV_ROOT must point at a fresh aiwonder evidence root"),
+            .expect("CALYX_ISSUE462_FSV_ROOT must point at a fresh gpuhost evidence root"),
     );
     if root.exists() {
         panic!("CALYX_ISSUE462_FSV_ROOT must be fresh: {}", root.display());

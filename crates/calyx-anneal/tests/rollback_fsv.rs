@@ -15,7 +15,7 @@ use serde_json::json;
 const FSV_TS: u64 = 1_785_500_396;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE396_FSV_ROOT on aiwonder"]
+#[ignore = "requires CALYX_ISSUE396_FSV_ROOT on gpuhost"]
 fn issue396_rollback_store_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE396_FSV_ROOT").expect("set CALYX_ISSUE396_FSV_ROOT"));
@@ -34,10 +34,10 @@ fn issue396_rollback_store_fsv() {
     let store = RollbackStore::open(&clock, 396, storage).expect("open rollback store");
     let key = ArtifactKey::HnswGraph([0x11; 32]);
     let prior = ArtifactPtr::HnswGraphPath(
-        "/home/croyse/calyx/data/fsv-issue396/prior-hnsw.graph".to_string(),
+        "/var/lib/calyx/data/fsv-issue396/prior-hnsw.graph".to_string(),
     );
     let candidate = ArtifactPtr::HnswGraphPath(
-        "/home/croyse/calyx/data/fsv-issue396/candidate-hnsw.graph".to_string(),
+        "/var/lib/calyx/data/fsv-issue396/candidate-hnsw.graph".to_string(),
     );
 
     store

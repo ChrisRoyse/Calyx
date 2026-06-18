@@ -87,7 +87,7 @@ fn independent_streams_are_unclear_and_near_zero() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV exercises the default 500-resample TE bootstrap"]
+#[ignore = "manual gpuhost FSV exercises the default 500-resample TE bootstrap"]
 fn transfer_entropy_default_bootstrap_fsv() {
     let lag = 2;
     let (a, b) = planted_a_to_b(100, lag);

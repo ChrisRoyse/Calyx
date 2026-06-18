@@ -81,7 +81,7 @@ fn issue612_cli_edges_fail_closed_without_output() {
 }
 
 #[test]
-#[ignore = "requires CALYX_ISSUE612_FSV_ROOT on aiwonder"]
+#[ignore = "requires CALYX_ISSUE612_FSV_ROOT on gpuhost"]
 fn issue612_latency_and_pg_snapshot_fsv_writes_readbacks() {
     let root = fsv_root();
     assert!(
@@ -309,7 +309,7 @@ fn reset_temp_root(prefix: &str) -> PathBuf {
 fn fsv_root() -> PathBuf {
     std::env::var_os("CALYX_ISSUE612_FSV_ROOT")
         .map(PathBuf::from)
-        .expect("set CALYX_ISSUE612_FSV_ROOT to a fresh aiwonder path")
+        .expect("set CALYX_ISSUE612_FSV_ROOT to a fresh gpuhost path")
 }
 
 fn stdout(output: &Output) -> String {

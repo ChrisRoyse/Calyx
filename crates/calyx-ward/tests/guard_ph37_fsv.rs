@@ -99,7 +99,7 @@ fn invalid_vector_tau_zero_still_fails_closed() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV fixture; set CALYX_WARD_PH37_FSV_DIR"]
+#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_PH37_FSV_DIR"]
 fn guard_ph37_fsv_fixture_writes_readback_artifacts() {
     let root =
         std::env::var("CALYX_WARD_PH37_FSV_DIR").expect("CALYX_WARD_PH37_FSV_DIR is required");

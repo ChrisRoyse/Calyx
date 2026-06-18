@@ -276,8 +276,8 @@ fn failing_handler_propagates_before_shredding() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for PH61 T01 erase byte readback"]
-fn ph61_t01_erase_aiwonder_fsv() {
+#[ignore = "manual gpuhost FSV for PH61 T01 erase byte readback"]
+fn ph61_t01_erase_gpuhost_fsv() {
     struct Failing;
     impl EraseHandler for Failing {
         fn erase(&self, _scope: &EraseScope, _vault_id: VaultId) -> Result<()> {

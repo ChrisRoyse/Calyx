@@ -60,8 +60,8 @@ fn queue_cap_zero_rejects_immediately_without_queue_growth() {
 }
 
 #[test]
-#[ignore = "aiwonder FSV writes PH56 query-admission source-of-truth artifacts"]
-fn query_admission_aiwonder_fsv() {
+#[ignore = "gpuhost FSV writes PH56 query-admission source-of-truth artifacts"]
+fn query_admission_gpuhost_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
     let rss_before_kib = rss_kib();

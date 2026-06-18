@@ -54,7 +54,7 @@ fn issue611_edges_fail_closed_with_codes() {
 }
 
 #[test]
-#[ignore = "manual aiwonder FSV for issue #611 Polis civic synthetic personas"]
+#[ignore = "manual gpuhost FSV for issue #611 Polis civic synthetic personas"]
 fn issue611_polis_civic_guard_fsv_writes_readbacks() {
     let root = fsv_root();
     assert!(
@@ -234,7 +234,7 @@ fn collect_files(root: &Path, current: &Path, files: &mut Vec<PathBuf>) {
 fn fsv_root() -> PathBuf {
     std::env::var_os("CALYX_ISSUE611_FSV_ROOT")
         .map(PathBuf::from)
-        .expect("set CALYX_ISSUE611_FSV_ROOT to a fresh aiwonder path")
+        .expect("set CALYX_ISSUE611_FSV_ROOT to a fresh gpuhost path")
 }
 
 fn display(path: &Path) -> String {
