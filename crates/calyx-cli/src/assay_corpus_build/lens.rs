@@ -16,6 +16,8 @@ use crate::lens_commands::support::{dim, runtime_name, validate_vector_contract}
 use super::data::BuildRows;
 use super::request::CorpusBuildRequest;
 
+mod progress;
+
 #[derive(Clone, Debug)]
 pub(crate) struct MeasuredLens {
     pub(crate) name: String,
@@ -93,6 +95,7 @@ pub(crate) fn measure_lenses(
             .iter()
             .map(|row| Input::new(lens.spec.modality, row.text.as_bytes().to_vec()))
             .collect::<Vec<_>>();
+        progress::emit_start(request, rows, &lens);
         let started = Instant::now();
         let slots = measure_batches(&lens, &inputs, request.batch_size)?;
         let total_ms = started.elapsed().as_secs_f64() as f32 * 1000.0;
@@ -105,6 +108,7 @@ pub(crate) fn measure_lenses(
         }
         let (vectors, assay_projection) = assay_vectors(&lens, slots)?;
         let cost = lens_cost(&lens, overrides.get(&lens.name).copied(), ms_per_input)?;
+        progress::emit_finish(request, rows, &lens, total_ms, &cost);
         measured.push(MeasuredLens {
             name: lens.name,
             manifest: lens.manifest,
