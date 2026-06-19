@@ -64,6 +64,7 @@ pub enum AssaySubject {
     Pair { a: SlotId, b: SlotId },
     Panel,
     OutcomeEntropy,
+    EnsembleCard,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -73,6 +74,8 @@ pub struct AssayRow {
     pub estimate: MiEstimate,
     pub provenance: String,
     pub written_at_seq: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -95,6 +98,27 @@ impl AssayStore {
             estimate,
             provenance: provenance.into(),
             written_at_seq,
+            payload: None,
+        };
+        self.rows.insert((cache_key, subject), row);
+    }
+
+    pub fn put_with_payload(
+        &mut self,
+        cache_key: AssayCacheKey,
+        subject: AssaySubject,
+        estimate: MiEstimate,
+        provenance: impl Into<String>,
+        written_at_seq: u64,
+        payload: serde_json::Value,
+    ) {
+        let row = AssayRow {
+            cache_key: cache_key.clone(),
+            subject: subject.clone(),
+            estimate,
+            provenance: provenance.into(),
+            written_at_seq,
+            payload: Some(payload),
         };
         self.rows.insert((cache_key, subject), row);
     }
@@ -215,6 +239,7 @@ fn assay_key(cache_key: &AssayCacheKey, subject: &AssaySubject) -> Vec<u8> {
         }
         AssaySubject::Panel => key.push(2),
         AssaySubject::OutcomeEntropy => key.push(3),
+        AssaySubject::EnsembleCard => key.push(4),
     }
     key
 }
@@ -324,6 +349,7 @@ mod tests {
             estimate: estimate(0.42),
             provenance: "legacy unscoped row".to_string(),
             written_at_seq: 9,
+            payload: None,
         };
         router
             .put(
@@ -384,6 +410,7 @@ mod tests {
             estimate: estimate(0.42),
             provenance: "bad-key-test".to_string(),
             written_at_seq: 9,
+            payload: None,
         };
         router
             .put(
@@ -396,6 +423,37 @@ mod tests {
 
         let err = AssayStore::load_from_aster(&router).unwrap_err();
         assert_eq!(err.code, "CALYX_ASTER_CORRUPT_SHARD");
+        cleanup(dir);
+    }
+
+    #[test]
+    fn ensemble_card_payload_roundtrips_through_assay_cf() {
+        let dir = test_dir("assay-ensemble-card");
+        let mut router = CfRouter::open(&dir, 1024).unwrap();
+        let mut store = AssayStore::default();
+        let key = AssayCacheKey::scoped(9, "ensemble", vault_a(), AnchorKind::Label("gold".into()));
+        let payload = serde_json::json!({
+            "schema_version": 1,
+            "panel_lens_count": 10,
+            "n_eff": 7.5
+        });
+        store.put_with_payload(
+            key.clone(),
+            AssaySubject::EnsembleCard,
+            estimate(1.25),
+            "ensemble-card-fixture",
+            101,
+            payload.clone(),
+        );
+
+        assert_eq!(store.persist_to_aster(&mut router).unwrap(), 1);
+        drop(router);
+        let reopened = CfRouter::open(&dir, 1024).unwrap();
+        let loaded = AssayStore::load_from_aster(&reopened).unwrap();
+        let row = loaded.get(&key, &AssaySubject::EnsembleCard).unwrap();
+
+        assert_eq!(row.payload.as_ref(), Some(&payload));
+        assert_eq!(row.estimate.bits, 1.25);
         cleanup(dir);
     }
 

@@ -10,10 +10,10 @@
 mod comparison;
 mod correlation;
 pub(crate) mod cost;
-mod data;
+pub(crate) mod data;
 mod engine;
 mod metrics;
-mod request;
+pub(crate) mod request;
 mod selection;
 
 use calyx_assay::{

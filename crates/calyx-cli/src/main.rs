@@ -22,6 +22,7 @@ mod anneal_soak_report;
 mod anneal_status;
 mod assay_bits_validation;
 mod assay_corpus_build;
+mod assay_ensemble_card;
 mod assay_fbin_export;
 mod assay_gdelt_rows;
 mod assay_stream_fbin;

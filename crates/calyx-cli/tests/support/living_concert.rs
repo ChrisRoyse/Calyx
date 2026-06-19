@@ -243,6 +243,7 @@ fn admit_growth_lens(
         estimate: MiEstimate::point(0.12, 4, EstimatorKind::LogisticProbe, TrustTag::Trusted),
         provenance: "issue641 living concert qrels anchor".to_string(),
         written_at_seq: 0,
+        payload: None,
     };
     let payload = json!({"tag":"living_assay_v1","lens_id":lens_id,"decision":decision});
     let mut rows = vec![(
