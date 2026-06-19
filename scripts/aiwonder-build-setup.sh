@@ -77,7 +77,10 @@ LD_LIBRARY_PATH = { value = "/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3
 linker = "clang"
 rustflags = [
   "-C", "link-arg=-fuse-ld=mold",
-  "-C", "link-arg=-Wl,--enable-new-dtags",
+  # RAPIDS wheels carry transitive shared-library dependencies (cuVS -> RMM ->
+  # rapids_logger). Linux RUNPATH is not applied recursively for those
+  # transitive loads, so aiwonder release binaries need old-style RPATH.
+  "-C", "link-arg=-Wl,--disable-new-dtags",
   "-C", "link-arg=-Wl,-rpath,/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libcuvs/lib64",
   "-C", "link-arg=-Wl,-rpath,/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libraft/lib64",
   "-C", "link-arg=-Wl,-rpath,/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/librmm/lib64",
