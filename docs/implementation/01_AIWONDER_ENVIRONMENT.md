@@ -63,6 +63,14 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
 | `127.0.0.1:9090/9091/9093/9094` | Prometheus / pushgateway / Alertmanager |
 | `*:8080` | existing app surface (leapable) — **do not touch** |
 
+The TEI services use `infra/aiwonder/bin/tei-driver610-entrypoint.sh` as the
+host-mounted entrypoint on driver-610 hosts. That wrapper parses both
+`CUDA Version` and `CUDA UMD Version` from `nvidia-smi`, strips stale
+`/usr/local/cuda/compat` from `LD_LIBRARY_PATH` on CUDA 13.3, and fails closed
+if `text-embeddings-router` would still map the CUDA 12.9 compat `libcuda`.
+Install or refresh the systemd drop-ins with
+`sudo infra/aiwonder/bin/install-tei-driver610-runtime.sh --restart`.
+
 ### Existing projects on the box — **off-limits**
 `leapable`/`leapable-build*`, `contextgraph` (home + `/zfs/hot/contextgraph`,
 `/zfs/archive/contextgraph`), PostgreSQL (`/zfs/hot/postgres*`), Redis,
