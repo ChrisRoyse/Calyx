@@ -189,13 +189,13 @@ impl TemplateStore {
     ) -> CliResult<TemplateSwap> {
         let mut template = self.load(selector)?;
         template.validate()?;
+        let template_id = id_for_loaded(&template)?;
         let mut state = load_vault_panel_state(vault_dir)?;
         let registered_lenses_added = register_template_lenses(&mut state.registry, &mut template)?;
         let mut panel = state.panel;
         let target = template.to_target_panel(now_ms);
         let diff = swap_panel_to_target(&mut panel, &target, now_ms);
         let write = persist_vault_panel_state(vault_dir, &panel, &state.registry)?;
-        let template_id = id_for_loaded(&template)?;
         Ok(TemplateSwap {
             template_id,
             template_name: template.name,
