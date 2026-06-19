@@ -8,7 +8,7 @@ use super::DiskAnnSearchParams;
 use crate::error::{
     CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_INVALID_PARAMS, CALYX_INDEX_IO, sextant_error,
 };
-use crate::index::diskann::graph::{DiskAnnGraphReader, open_diskann_graph};
+use crate::index::diskann::graph::{DiskAnnGraphReader, DiskAnnVectorRef, open_diskann_graph};
 use crate::index::distance::{cosine_distance, l2_sq, unit_l2_cosine_distance};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,6 +69,49 @@ pub(super) fn distance(a: &[f32], b: &[f32], mode: DiskAnnDistanceMode) -> f32 {
         DiskAnnDistanceMode::UnitL2 => unit_l2_cosine_distance(a, b),
         DiskAnnDistanceMode::RawL2 => l2_sq(a, b),
     }
+}
+
+pub(super) fn distance_to_node(
+    a: &[f32],
+    b: DiskAnnVectorRef<'_>,
+    mode: DiskAnnDistanceMode,
+) -> f32 {
+    match b {
+        DiskAnnVectorRef::F32(values) => distance(a, values, mode),
+        DiskAnnVectorRef::I8(values) => match mode {
+            DiskAnnDistanceMode::RawL2 => l2_sq_i8(a, values),
+            DiskAnnDistanceMode::RawCosine | DiskAnnDistanceMode::UnitL2 => cosine_i8(a, values),
+        },
+    }
+}
+
+fn cosine_i8(a: &[f32], b: &[i8]) -> f32 {
+    let len = a.len().min(b.len());
+    let mut dot = 0.0;
+    let mut an = 0.0;
+    let mut bn = 0.0;
+    for i in 0..len {
+        let x = a[i];
+        let y = f32::from(b[i]);
+        dot += x * y;
+        an += x * x;
+        bn += y * y;
+    }
+    if an == 0.0 || bn == 0.0 {
+        1.0
+    } else {
+        (1.0 - dot / (an.sqrt() * bn.sqrt())).max(0.0)
+    }
+}
+
+fn l2_sq_i8(a: &[f32], b: &[i8]) -> f32 {
+    let len = a.len().min(b.len());
+    let mut sum = 0.0;
+    for i in 0..len {
+        let d = a[i] - f32::from(b[i]);
+        sum += d * d;
+    }
+    sum
 }
 
 pub(super) fn sorted(mut hits: Vec<(u32, f32)>) -> Vec<(u32, f32)> {

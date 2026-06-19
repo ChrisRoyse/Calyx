@@ -18,7 +18,7 @@ const MODE: &str = "per_slot_ranked_rrf_reference";
 const ROW_ID_SPACE: &str = "partitioned_rrf_plan_corpus_row_idx";
 const BACKEND: &str = "cuvs-bruteforce-chunked-v1";
 const DEFAULT_CHUNK_ROWS: usize = 100_000;
-const MIN_A35_LENSES: usize = 4;
+const MIN_A35_LENSES: usize = 10;
 #[derive(Clone, Debug)]
 struct Args {
     plan: PathBuf,
@@ -274,7 +274,7 @@ fn validate_plan(plan: &Plan) -> CliResult {
                 "plan has {} lenses; A35 requires at least {MIN_A35_LENSES}",
                 plan.slots.len()
             ),
-            "export a real frozen panel with at least four content lenses",
+            "export a real frozen panel with at least ten content lenses",
         ));
     }
     let mut seen_slots = BTreeSet::new();

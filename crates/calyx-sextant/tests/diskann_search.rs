@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use calyx_core::{CxId, SlotId, SlotVector};
+use calyx_sextant::index::diskann::graph::DiskAnnVectorRef;
 use calyx_sextant::index::{
     DiskAnnBuildParams, DiskAnnPqBuildParams, DiskAnnSearch, DiskAnnSearchParams, SextantIndex,
     open_diskann_graph,
@@ -183,7 +184,10 @@ fn build_writes_unit_l2_marker_normalized_graph_and_raw_sidecar() {
 
     let reader = open_diskann_graph(&path).expect("open graph");
     let node = reader.read_node(0).expect("read node 0");
-    assert_eq!(node.vector, &[0.6_f32, 0.8, 0.0, 0.0]);
+    let DiskAnnVectorRef::I8(vector) = node.vector else {
+        panic!("unit-l2 graph should store v3 i8 directional payloads");
+    };
+    assert_eq!(vector, &[95_i8, 127, 0, 0]);
 
     let raw_bytes = std::fs::read(path.with_extension("raw").join("0")).expect("read raw");
     let raw: Vec<f32> = raw_bytes
@@ -315,7 +319,7 @@ fn query_dim_mismatch_fails_closed() {
 }
 
 #[test]
-fn truncated_graph_open_fails_as_index_io_for_search() {
+fn truncated_graph_open_preserves_corrupt_code_for_search() {
     let rows = vectors(16, 8, 13);
     let dir = scratch("truncate");
     let path = dir.join("idx/slot_00.ann/graph.cda");
@@ -340,7 +344,7 @@ fn truncated_graph_open_fails_as_index_io_for_search() {
     )
     .expect_err("truncated graph must fail");
 
-    assert_eq!(err.code, "CALYX_INDEX_IO");
+    assert_eq!(err.code, "CALYX_INDEX_CORRUPT");
 }
 
 #[test]

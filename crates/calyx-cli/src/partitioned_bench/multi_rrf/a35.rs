@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::{OpenSlot, Plan};
 use crate::error::{CliError, CliResult};
 
-const MIN_LENSES: usize = 4;
+const MIN_LENSES: usize = 10;
 const MIN_BITS_ABOUT: f32 = 0.05;
 
 pub(super) fn validate_plan(plan: &Plan) -> CliResult {
@@ -17,7 +17,7 @@ pub(super) fn validate_plan(plan: &Plan) -> CliResult {
                 "partitioned-rrf plan has {} lenses; A35 requires at least {MIN_LENSES}",
                 plan.slots.len()
             ),
-            "run the gate with a persisted real panel of at least four frozen lenses",
+            "run the gate with a persisted real panel of at least ten frozen content lenses",
         ));
     }
     let mut lens_ids = BTreeSet::new();
@@ -62,7 +62,7 @@ pub(super) fn validate_plan(plan: &Plan) -> CliResult {
             return Err(a35_error(
                 "CALYX_FSV_A35_DUPLICATE_LENS",
                 format!("duplicate lens_id {lens_id} in partitioned-rrf plan"),
-                "use four distinct frozen lenses in the panel",
+                "use ten distinct frozen content lenses in the panel",
             ));
         }
     }
@@ -163,7 +163,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_per_lens_bits() {
-        let mut slots = (0..4).map(slot).collect::<Vec<_>>();
+        let mut slots = (0..10).map(slot).collect::<Vec<_>>();
         slots[2].bits_about = None;
         let plan = Plan {
             timeline: None,
@@ -177,10 +177,10 @@ mod tests {
     }
 
     #[test]
-    fn accepts_four_frozen_lens_roster_with_bits() {
+    fn accepts_ten_frozen_lens_roster_with_bits() {
         let plan = Plan {
             timeline: None,
-            slots: (0..4).map(slot).collect(),
+            slots: (0..10).map(slot).collect(),
         };
 
         validate_plan(&plan).unwrap();

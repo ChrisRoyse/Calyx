@@ -6,7 +6,10 @@
 
 use std::path::PathBuf;
 
-use calyx_sextant::index::diskann::graph::{DISKANN_BLOCK_ALIGN, DISKANN_MAGIC};
+use calyx_sextant::index::diskann::graph::{
+    DISKANN_BLOCK_ALIGN, DISKANN_FORMAT_VERSION, DISKANN_MAGIC, DISKANN_NODE_ALIGN,
+    DiskAnnVectorRef,
+};
 use calyx_sextant::index::{
     DiskAnnBuildParams, build_diskann_graph, node_block_size, open_diskann_graph,
 };
@@ -45,23 +48,44 @@ fn params(dim: usize, m_max: usize) -> DiskAnnBuildParams {
     }
 }
 
+fn expected_i8_direction(vector: &[f32]) -> Vec<i8> {
+    let max_abs = vector
+        .iter()
+        .fold(0.0_f32, |acc, value| acc.max(value.abs()));
+    if max_abs == 0.0 {
+        return vec![0; vector.len()];
+    }
+    let scale = 127.0 / max_abs;
+    vector
+        .iter()
+        .map(|value| (value * scale).round().clamp(-127.0, 127.0) as i8)
+        .collect()
+}
+
+fn assert_i8_direction(node: DiskAnnVectorRef<'_>, expected: &[f32], label: &str) {
+    let DiskAnnVectorRef::I8(actual) = node else {
+        panic!("{label} should be a v3 i8 directional graph node");
+    };
+    assert_eq!(actual, expected_i8_direction(expected), "{label}");
+}
+
 #[test]
-fn node_block_size_is_page_multiple_for_known_pairs() {
+fn node_block_size_is_cacheline_multiple_for_known_pairs() {
     for (dim, m_max) in [(4, 8), (128, 32), (768, 64), (1536, 48)] {
         let size = node_block_size(dim, m_max);
         assert_eq!(
-            size % 4096,
+            size % DISKANN_NODE_ALIGN,
             0,
-            "({dim},{m_max}) -> {size} not a 4096 multiple"
+            "({dim},{m_max}) -> {size} not a 64-byte multiple"
         );
-        assert!(size >= 4096);
+        assert!(size >= dim.div_ceil(4) * 4 + 4 + m_max * 4);
     }
-    // Hand-computed (2+2=4 discipline): dim=4, m_max=8 -> 16+4+32 = 52 -> 4096.
-    assert_eq!(node_block_size(4, 8), 4096);
-    // dim=768, m_max=64 -> 3072+4+256 = 3332 -> 4096.
-    assert_eq!(node_block_size(768, 64), 4096);
-    // dim=1536, m_max=48 -> 6144+4+192 = 6340 -> 8192.
-    assert_eq!(node_block_size(1536, 48), 8192);
+    // Hand-computed (2+2=4 discipline): dim=4, m_max=8 -> 4+4+32 = 40 -> 64.
+    assert_eq!(node_block_size(4, 8), 64);
+    // dim=768, m_max=64 -> 768+4+256 = 1028 -> 1088.
+    assert_eq!(node_block_size(768, 64), 1088);
+    // dim=1536, m_max=48 -> 1536+4+192 = 1732 -> 1792.
+    assert_eq!(node_block_size(1536, 48), 1792);
 }
 
 #[test]
@@ -111,7 +135,7 @@ fn non_finite_vector_is_invalid_params() {
 
 #[test]
 #[ignore = "server-only"]
-fn hundred_node_graph_round_trips_byte_exact() {
+fn hundred_node_graph_round_trips_quantized_direction() {
     let dir = scratch("rt100");
     let path = dir.join("graph.cda");
     let vectors = synthetic_vectors(100, 4, 42);
@@ -120,11 +144,7 @@ fn hundred_node_graph_round_trips_byte_exact() {
     assert_eq!(reader.node_count(), 100);
     for (id, vector) in &vectors {
         let node = reader.read_node(*id).expect("read node");
-        assert_eq!(
-            node.vector,
-            vector.as_slice(),
-            "node {id} vector byte-exact"
-        );
+        assert_i8_direction(node.vector, vector, &format!("node {id} direction"));
         assert!(
             node.neighbors.len() <= 8,
             "node {id} degree {} > m_max",
@@ -143,7 +163,7 @@ fn header_round_trips_all_fields() {
     build_diskann_graph(&path, &vectors, params(16, 12)).expect("build");
     let reader = open_diskann_graph(&path).expect("open");
     let header = reader.header();
-    assert_eq!(header.format_version, 1);
+    assert_eq!(header.format_version, DISKANN_FORMAT_VERSION);
     assert_eq!(header.dim, 16);
     assert_eq!(header.m_max, 12);
     assert_eq!(header.node_count, 50);
@@ -170,7 +190,7 @@ fn single_node_graph_is_parseable_with_empty_neighbors() {
     assert_eq!(reader.header().entry_point_id, 0);
     assert_eq!(reader.node_count(), 1);
     let node = reader.read_node(0).expect("read node 0");
-    assert_eq!(node.vector, vectors[0].1.as_slice());
+    assert_i8_direction(node.vector, &vectors[0].1, "single node direction");
     assert!(node.neighbors.is_empty(), "single node has no neighbors");
 }
 
@@ -218,7 +238,7 @@ fn read_node_out_of_range_is_invalid_params() {
 /// Prints hand-computed expected size vs actual bytes for independent `xxd`/`ls` readback.
 #[test]
 #[ignore = "server-only"]
-fn fsv_issue545_thousand_node_graph() {
+fn fsv_issue545_thousand_node_graph_i8_v3() {
     let path = PathBuf::from(
         std::env::var("CALYX_DISKANN_FSV_SOT")
             .expect("set CALYX_DISKANN_FSV_SOT to the graph.cda SoT path"),
@@ -226,10 +246,10 @@ fn fsv_issue545_thousand_node_graph() {
     let (dim, m_max, n) = (128_usize, 32_usize, 1000_usize);
     let vectors = synthetic_vectors(n, dim, 42);
     build_diskann_graph(&path, &vectors, params(dim, m_max)).expect("build 1000-node graph");
-    // Hand-computed: block = 128*4 + 4 + 32*4 = 644 -> 4096; file = 4096 + 1000*4096.
+    // Hand-computed: block = 128+4+32*4 = 260 -> 320; file = 4096 + 1000*320.
     let expected = DISKANN_BLOCK_ALIGN + n * node_block_size(dim, m_max);
-    assert_eq!(node_block_size(dim, m_max), 4096);
-    assert_eq!(expected, 4_100_096);
+    assert_eq!(node_block_size(dim, m_max), 320);
+    assert_eq!(expected, 324_096);
     let actual = std::fs::metadata(&path).expect("stat SoT").len();
     println!("FSV SoT: {}", path.display());
     println!("FSV expected file size: {expected} B; actual: {actual} B");
@@ -238,16 +258,16 @@ fn fsv_issue545_thousand_node_graph() {
     println!("FSV header: {:?}", reader.header());
     for id in [0_u32, 999] {
         let node = reader.read_node(id).expect("read node");
-        assert_eq!(
-            node.vector,
-            vectors[id as usize].1.as_slice(),
-            "node {id} byte-exact"
-        );
+        let expected = expected_i8_direction(&vectors[id as usize].1);
+        let DiskAnnVectorRef::I8(vector) = node.vector else {
+            panic!("node {id} should be v3 i8");
+        };
+        assert_eq!(vector, expected.as_slice(), "node {id} direction");
         assert!(node.neighbors.len() <= m_max);
         println!(
-            "FSV node {id}: first f32 = {} (expected {}), degree = {}",
-            node.vector[0],
-            vectors[id as usize].1[0],
+            "FSV node {id}: first i8 = {} (expected {}), degree = {}",
+            vector[0],
+            expected[0],
             node.neighbors.len()
         );
     }
@@ -259,8 +279,8 @@ proptest! {
     #[test]
     fn node_block_size_never_truncates(dim in 1_usize..=2048, m_max in 1_usize..=96) {
         let size = node_block_size(dim, m_max);
-        prop_assert!(size >= dim * 4 + 4 + m_max * 4);
-        prop_assert_eq!(size % 4096, 0);
+        prop_assert!(size >= dim.div_ceil(4) * 4 + 4 + m_max * 4);
+        prop_assert_eq!(size % DISKANN_NODE_ALIGN, 0);
     }
 }
 
@@ -269,7 +289,7 @@ proptest! {
 
     #[test]
     #[ignore = "server-only"]
-    fn build_preserves_vectors_byte_exact(
+    fn build_preserves_direction_as_i8(
         n in 2_usize..40,
         dim in 1_usize..32,
         m_max in 1_usize..16,
@@ -283,7 +303,11 @@ proptest! {
         let reader = open_diskann_graph(&path).expect("open");
         for (id, vector) in &vectors {
             let node = reader.read_node(*id).expect("read");
-            prop_assert_eq!(node.vector, vector.as_slice());
+            let DiskAnnVectorRef::I8(actual) = node.vector else {
+                return Err(TestCaseError::fail("node should be v3 i8"));
+            };
+            let expected = expected_i8_direction(vector);
+            prop_assert_eq!(actual, expected.as_slice());
             prop_assert!(node.neighbors.len() <= m_max);
         }
     }

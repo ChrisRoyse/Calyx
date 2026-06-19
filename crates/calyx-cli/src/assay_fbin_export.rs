@@ -16,7 +16,7 @@ use crate::output::print_json;
 
 use args::Args;
 
-pub(super) const MIN_A35_LENSES: usize = 4;
+pub(super) const MIN_A35_LENSES: usize = 10;
 pub(super) const DEFAULT_MIN_BITS: f32 = 0.05;
 
 #[derive(Clone, Debug, Serialize)]

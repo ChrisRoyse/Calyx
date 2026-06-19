@@ -236,7 +236,7 @@ fn selected_lenses(args: &Args) -> CliResult<Vec<(BuildLens, BitsLens)>> {
                 "selected {} admitted lenses; A35 requires at least {MIN_A35_LENSES}",
                 selected.len()
             ),
-            "provide at least four real frozen content lens manifests",
+            "provide at least ten real frozen content lens manifests",
         ));
     }
     Ok(selected)

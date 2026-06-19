@@ -284,7 +284,7 @@ pub(super) fn selected_lenses(
                 "selected {} admitted lenses; A35 requires at least {MIN_A35_LENSES}",
                 selected.len()
             ),
-            "run bits-validate on a real panel and export at least four admitted signal-bearing lenses",
+            "run bits-validate on a real panel and export at least ten admitted signal-bearing content lenses",
         ));
     }
     Ok(selected)

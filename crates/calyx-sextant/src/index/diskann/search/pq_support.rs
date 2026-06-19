@@ -2,7 +2,7 @@ use std::path::Path;
 
 use calyx_core::Result;
 
-use super::helpers::{distance, sorted};
+use super::helpers::{distance_to_node, sorted};
 use super::{DiskAnnSearch, DiskAnnSearchParams, SearchBuildSidecars};
 use crate::index::diskann::build::{DiskAnnBuildBackend, DiskAnnBuildParams};
 use crate::index::diskann::pq::{DiskAnnPqBuildParams, DiskAnnPqIndex, default_pq_sidecar};
@@ -104,7 +104,10 @@ impl DiskAnnSearch {
             .iter()
             .map(|&(id, _)| {
                 let node = reader.read_node(id)?;
-                Ok((id, distance(graph_query, node.vector, self.distance_mode)))
+                Ok((
+                    id,
+                    distance_to_node(graph_query, node.vector, self.distance_mode),
+                ))
             })
             .collect();
         Ok(sorted(rescored?))

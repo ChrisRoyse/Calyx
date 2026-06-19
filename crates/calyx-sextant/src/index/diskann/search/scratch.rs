@@ -4,7 +4,7 @@ use std::cmp::Ordering;
 use calyx_core::Result;
 
 use super::super::pq::DiskAnnPqQuery;
-use super::helpers::{Candidate, DiskAnnDistanceMode, distance, invalid};
+use super::helpers::{Candidate, DiskAnnDistanceMode, distance_to_node, invalid};
 use super::{DiskAnnSearch, DiskAnnSearchParams};
 
 thread_local! {
@@ -267,7 +267,7 @@ fn score_node(
     if let Some(pq_query) = pq_query {
         return Ok(0.5 * pq_query.distance_l2(id)?);
     }
-    Ok(distance(
+    Ok(distance_to_node(
         graph_query,
         reader.read_node(id)?.vector,
         index.distance_mode,

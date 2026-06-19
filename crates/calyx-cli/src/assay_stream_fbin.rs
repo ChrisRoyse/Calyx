@@ -12,7 +12,7 @@ use calyx_core::CalyxError;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
-pub(crate) const MIN_A35_LENSES: usize = 4;
+pub(crate) const MIN_A35_LENSES: usize = 10;
 pub(crate) const DEFAULT_MIN_BITS: f32 = 0.05;
 
 pub(crate) fn run(raw: &[String]) -> CliResult {

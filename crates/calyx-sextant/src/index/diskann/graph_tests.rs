@@ -6,8 +6,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::*;
 
 #[test]
-fn writer_emits_compact_v2_blocks_and_reader_follows_offsets() {
-    let root = temp_root("diskann-graph-v2");
+fn writer_emits_compact_v3_i8_blocks_and_reader_follows_offsets() {
+    let root = temp_root("diskann-graph-v3");
     let path = root.join("graph.cda");
     let header = DiskAnnHeader {
         format_version: DISKANN_FORMAT_VERSION,
@@ -29,7 +29,44 @@ fn writer_emits_compact_v2_blocks_and_reader_follows_offsets() {
     assert_eq!(fs::metadata(&path).unwrap().len(), 4096 + 2 * 64);
     assert_eq!(reader.node_block_offset(1).unwrap(), 4096 + 64);
     let node = reader.read_node(0).unwrap();
-    assert_eq!(node.vector, &[1.0, 0.0, 0.0]);
+    let DiskAnnVectorRef::I8(vector) = node.vector else {
+        panic!("v3 graph must expose i8 vectors");
+    };
+    assert_eq!(vector, &[127, 0, 0]);
+    assert_eq!(node.neighbors, &[1]);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn reader_keeps_compact_v2_f32_graphs_readable() {
+    let root = temp_root("diskann-graph-v2");
+    let path = root.join("graph.cda");
+    let header = DiskAnnHeader {
+        format_version: DISKANN_F32_FORMAT_VERSION,
+        dim: 3,
+        m_max: 2,
+        max_degree: 1,
+        entry_point_id: 0,
+        node_count: 2,
+    };
+    let mut file = File::create(&path).unwrap();
+    file.write_all(&header.encode()).unwrap();
+    file.write_all(&node_block(64, &[1.0, 0.0, 0.0], &[1]))
+        .unwrap();
+    file.write_all(&node_block(64, &[0.0, 1.0, 0.0], &[0]))
+        .unwrap();
+    file.sync_all().unwrap();
+
+    let reader = DiskAnnGraphReader::open(&path).unwrap();
+
+    assert_eq!(reader.header().format_version, DISKANN_F32_FORMAT_VERSION);
+    assert_eq!(reader.node_block_size(), 64);
+    assert_eq!(fs::metadata(&path).unwrap().len(), 4096 + 2 * 64);
+    let node = reader.read_node(0).unwrap();
+    let DiskAnnVectorRef::F32(vector) = node.vector else {
+        panic!("v2 graph must expose f32 vectors");
+    };
+    assert_eq!(vector, &[1.0, 0.0, 0.0]);
     assert_eq!(node.neighbors, &[1]);
     let _ = fs::remove_dir_all(root);
 }
@@ -63,7 +100,10 @@ fn reader_keeps_legacy_v1_page_aligned_graphs_readable() {
     assert_eq!(reader.node_block_size(), 4096);
     assert_eq!(fs::metadata(&path).unwrap().len(), 4096 * 3);
     let node = reader.read_node(1).unwrap();
-    assert_eq!(node.vector, &[0.0, 1.0]);
+    let DiskAnnVectorRef::F32(vector) = node.vector else {
+        panic!("v1 graph must expose f32 vectors");
+    };
+    assert_eq!(vector, &[0.0, 1.0]);
     assert_eq!(node.neighbors, &[0]);
     let _ = fs::remove_dir_all(root);
 }

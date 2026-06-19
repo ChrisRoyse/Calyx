@@ -7,7 +7,10 @@ use std::ptr;
 use calyx_core::Result;
 use cuvs_sys as ffi;
 
-use super::build::{DiskAnnBuildParams, medoid, normalize, write_graph_from_adjacency};
+use super::build::{
+    DiskAnnBuildMetric, DiskAnnBuildParams, medoid, normalize, write_graph_from_adjacency,
+    write_graph_from_adjacency_f32,
+};
 use super::graph::invalid;
 use crate::error::{CALYX_INDEX_IO, sextant_error};
 
@@ -15,14 +18,15 @@ pub(super) fn build_diskann_graph_cuvs_cagra(
     path: &Path,
     vectors: &[(u32, Vec<f32>)],
     params: DiskAnnBuildParams,
+    metric: DiskAnnBuildMetric,
 ) -> Result<()> {
     if vectors.len() == 1 {
-        return write_graph_from_adjacency(path, vectors, params, 0, &[Vec::new()]);
+        return write_cagra_graph(path, vectors, params, 0, &[Vec::new()], metric);
     }
-    let norm = normalize(vectors);
-    let entry = medoid(&norm, super::build::DiskAnnBuildMetric::UnitL2);
+    let space = cagra_build_space(vectors, metric);
+    let entry = medoid(&space, metric);
     let graph_degree = params.m_max.min(vectors.len() - 1);
-    let mut dataset = flatten(&norm, params.dim);
+    let mut dataset = flatten(&space, params.dim);
 
     let res = Resources::new()?;
     let index_params = CagraParams::new()?;
@@ -41,7 +45,32 @@ pub(super) fn build_diskann_graph_cuvs_cagra(
 
     let graph = index.copy_graph_to_host(&res, vectors.len(), graph_degree)?;
     let adjacency = graph_to_adjacency(&graph, vectors.len(), graph_degree, params.m_max)?;
-    write_graph_from_adjacency(path, vectors, params, entry, &adjacency)
+    write_cagra_graph(path, vectors, params, entry, &adjacency, metric)
+}
+
+fn write_cagra_graph(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+    entry: u32,
+    adjacency: &[Vec<u32>],
+    metric: DiskAnnBuildMetric,
+) -> Result<()> {
+    match metric {
+        DiskAnnBuildMetric::UnitL2 => {
+            write_graph_from_adjacency(path, vectors, params, entry, adjacency)
+        }
+        DiskAnnBuildMetric::RawL2 => {
+            write_graph_from_adjacency_f32(path, vectors, params, entry, adjacency)
+        }
+    }
+}
+
+fn cagra_build_space(vectors: &[(u32, Vec<f32>)], metric: DiskAnnBuildMetric) -> Vec<Vec<f32>> {
+    match metric {
+        DiskAnnBuildMetric::UnitL2 => normalize(vectors),
+        DiskAnnBuildMetric::RawL2 => vectors.iter().map(|(_, vector)| vector.clone()).collect(),
+    }
 }
 
 fn flatten(norm: &[Vec<f32>], dim: usize) -> Vec<f32> {
@@ -50,6 +79,26 @@ fn flatten(norm: &[Vec<f32>], dim: usize) -> Vec<f32> {
         out.extend_from_slice(row);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cagra_build_space_preserves_raw_l2_magnitude() {
+        let vectors = vec![(0, vec![3.0_f32, 4.0]), (1, vec![6.0, 8.0])];
+
+        let raw = cagra_build_space(&vectors, DiskAnnBuildMetric::RawL2);
+        assert_eq!(raw[0], vec![3.0, 4.0]);
+        assert_eq!(raw[1], vec![6.0, 8.0]);
+
+        let unit = cagra_build_space(&vectors, DiskAnnBuildMetric::UnitL2);
+        assert!((unit[0][0] - 0.6).abs() <= f32::EPSILON);
+        assert!((unit[0][1] - 0.8).abs() <= f32::EPSILON);
+        assert!((unit[1][0] - 0.6).abs() <= f32::EPSILON);
+        assert!((unit[1][1] - 0.8).abs() <= f32::EPSILON);
+    }
 }
 
 fn graph_to_adjacency(

@@ -7,12 +7,12 @@
 //!
 //! Construction geometry is selected per build metric: unit-L2 builds operate
 //! on normalized copies so graph topology matches search-time cosine distance,
-//! while raw-L2 builds operate on the source coordinates directly. The graph
-//! file still stores the original vectors verbatim. Each pass advances in
-//! batches: every point in a batch greedy-searches the *same frozen snapshot*
-//! of the graph in parallel (read-only), then edge updates apply sequentially
-//! in batch order — so the build is both parallel and fully deterministic
-//! regardless of thread count.
+//! while raw-L2 builds operate on the source coordinates directly. Unit-L2
+//! graphs store compact v3 signed-int8 directional payloads; raw-L2 graphs
+//! store compact v2 f32 payloads. Each pass advances in batches: every point in
+//! a batch greedy-searches the *same frozen snapshot* of the graph in parallel
+//! (read-only), then edge updates apply sequentially in batch order — so the
+//! build is both parallel and fully deterministic regardless of thread count.
 
 use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
@@ -25,11 +25,17 @@ use rand_chacha::ChaCha8Rng;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
+mod metric;
+
 use super::graph::{
-    DISKANN_FORMAT_VERSION, DISKANN_MAX_DIM, DISKANN_MAX_M, DiskAnnGraphWriter, DiskAnnHeader,
-    invalid,
+    DISKANN_F32_FORMAT_VERSION, DISKANN_FORMAT_VERSION, DISKANN_MAX_DIM, DISKANN_MAX_M,
+    DiskAnnGraphWriter, DiskAnnHeader, invalid,
 };
-use crate::index::distance::l2_sq;
+
+pub use metric::DiskAnnBuildMetric;
+#[cfg(feature = "cuda")]
+pub(super) use metric::normalize;
+use metric::{build_space, dist};
 
 /// Deterministic build seed (Vamana insert order + random init edges).
 const BUILD_SEED: u64 = 42;
@@ -49,12 +55,6 @@ pub struct DiskAnnBuildParams {
     pub m_max: usize,
     pub ef_construction: usize,
     pub alpha: f32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DiskAnnBuildMetric {
-    UnitL2,
-    RawL2,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,7 +151,9 @@ fn build_diskann_graph_with_metric(
     validate_build_input(vectors, &params)?;
     match backend {
         DiskAnnBuildBackend::CpuVamana => build_diskann_graph_cpu(path, vectors, params, metric),
-        DiskAnnBuildBackend::CuvsCagra => build_diskann_graph_cuvs_cagra(path, vectors, params),
+        DiskAnnBuildBackend::CuvsCagra => {
+            build_diskann_graph_cuvs_cagra(path, vectors, params, metric)
+        }
     }
 }
 
@@ -162,7 +164,14 @@ fn build_diskann_graph_cpu(
     metric: DiskAnnBuildMetric,
 ) -> Result<()> {
     let (entry, adjacency) = vamana(vectors, &params, metric);
-    write_graph_from_adjacency(path, vectors, params, entry, &adjacency)
+    match metric {
+        DiskAnnBuildMetric::UnitL2 => {
+            write_graph_from_adjacency(path, vectors, params, entry, &adjacency)
+        }
+        DiskAnnBuildMetric::RawL2 => {
+            write_graph_from_adjacency_f32(path, vectors, params, entry, &adjacency)
+        }
+    }
 }
 
 pub(super) fn validate_build_input(
@@ -203,6 +212,41 @@ pub(super) fn write_graph_from_adjacency(
     entry: u32,
     adjacency: &[Vec<u32>],
 ) -> Result<()> {
+    write_graph_from_adjacency_with_format(
+        path,
+        vectors,
+        params,
+        entry,
+        adjacency,
+        DISKANN_FORMAT_VERSION,
+    )
+}
+
+pub(super) fn write_graph_from_adjacency_f32(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+    entry: u32,
+    adjacency: &[Vec<u32>],
+) -> Result<()> {
+    write_graph_from_adjacency_with_format(
+        path,
+        vectors,
+        params,
+        entry,
+        adjacency,
+        DISKANN_F32_FORMAT_VERSION,
+    )
+}
+
+fn write_graph_from_adjacency_with_format(
+    path: &Path,
+    vectors: &[(u32, Vec<f32>)],
+    params: DiskAnnBuildParams,
+    entry: u32,
+    adjacency: &[Vec<u32>],
+    format_version: u32,
+) -> Result<()> {
     if adjacency.len() != vectors.len() {
         return Err(invalid(format!(
             "adjacency len {} != vector len {}",
@@ -221,7 +265,7 @@ pub(super) fn write_graph_from_adjacency(
     }
     let max_degree = adjacency.iter().map(Vec::len).max().unwrap_or(0);
     let header = DiskAnnHeader {
-        format_version: DISKANN_FORMAT_VERSION,
+        format_version,
         dim: u32::try_from(params.dim).expect("dim <= 8192"),
         m_max: u32::try_from(params.m_max).expect("m_max <= 512"),
         max_degree: u32::try_from(max_degree).expect("<= m_max"),
@@ -240,8 +284,9 @@ fn build_diskann_graph_cuvs_cagra(
     path: &Path,
     vectors: &[(u32, Vec<f32>)],
     params: DiskAnnBuildParams,
+    metric: DiskAnnBuildMetric,
 ) -> Result<()> {
-    super::cuvs_cagra::build_diskann_graph_cuvs_cagra(path, vectors, params)
+    super::cuvs_cagra::build_diskann_graph_cuvs_cagra(path, vectors, params, metric)
 }
 
 #[cfg(not(feature = "cuda"))]
@@ -249,41 +294,11 @@ fn build_diskann_graph_cuvs_cagra(
     _path: &Path,
     _vectors: &[(u32, Vec<f32>)],
     _params: DiskAnnBuildParams,
+    _metric: DiskAnnBuildMetric,
 ) -> Result<()> {
     Err(invalid(
         "cuvs-cagra backend requires building calyx-sextant with --features cuda",
     ))
-}
-
-/// L2-normalize every vector; a zero vector stays all-zero (dot == 0 with
-/// anything, i.e. distance 1 — matching cosine's zero-vector convention).
-/// `norm[id]` lines up with the dense id space validated above.
-pub(super) fn normalize(vectors: &[(u32, Vec<f32>)]) -> Vec<Vec<f32>> {
-    vectors
-        .par_iter()
-        .map(|(_, v)| {
-            let mag = v.iter().map(|x| x * x).sum::<f32>().sqrt();
-            if mag == 0.0 {
-                v.clone()
-            } else {
-                v.iter().map(|x| x / mag).collect()
-            }
-        })
-        .collect()
-}
-
-fn build_space(vectors: &[(u32, Vec<f32>)], metric: DiskAnnBuildMetric) -> Vec<Vec<f32>> {
-    match metric {
-        DiskAnnBuildMetric::UnitL2 => normalize(vectors),
-        DiskAnnBuildMetric::RawL2 => vectors.iter().map(|(_, vector)| vector.clone()).collect(),
-    }
-}
-
-fn dist(a: &[f32], b: &[f32], metric: DiskAnnBuildMetric) -> f32 {
-    match metric {
-        DiskAnnBuildMetric::UnitL2 => 0.5 * l2_sq(a, b),
-        DiskAnnBuildMetric::RawL2 => l2_sq(a, b),
-    }
 }
 
 /// Two-pass Vamana over an in-memory adjacency list, batched + parallel.

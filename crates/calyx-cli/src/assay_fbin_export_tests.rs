@@ -11,20 +11,20 @@ use super::export_fbin;
 
 #[test]
 fn export_fbin_writes_headers_plan_and_readback_report() {
-    let fixture = Fixture::new("export-fbin-happy", 4, 6);
+    let fixture = Fixture::new("export-fbin-happy", 10, 6);
     let args = fixture.args(2);
 
     let evidence = export_fbin(&args).unwrap();
 
     assert_eq!(evidence.rows, 6);
     assert_eq!(evidence.query_count, 2);
-    assert_eq!(evidence.lens_roster.len(), 4);
+    assert_eq!(evidence.lens_roster.len(), 10);
     assert_fbin_header(&fixture.out.join("fbin/slot_00_lens-0_corpus.fbin"), 3, 6);
     assert_fbin_header(&fixture.out.join("fbin/slot_00_lens-0_queries.fbin"), 3, 2);
     let plan: Value =
         serde_json::from_slice(&fs::read(fixture.out.join("partitioned_rrf_plan.json")).unwrap())
             .unwrap();
-    assert_eq!(plan["slots"].as_array().unwrap().len(), 4);
+    assert_eq!(plan["slots"].as_array().unwrap().len(), 10);
     assert_eq!(
         plan["timeline"].as_str().unwrap(),
         fixture.out.join("timeline.jsonl").display().to_string()
@@ -58,7 +58,7 @@ fn export_fbin_writes_headers_plan_and_readback_report() {
 
 #[test]
 fn export_fbin_rejects_query_count_above_rows() {
-    let fixture = Fixture::new("export-fbin-query-too-large", 4, 3);
+    let fixture = Fixture::new("export-fbin-query-too-large", 10, 3);
     let args = fixture.args(4);
 
     let error = export_fbin(&args).unwrap_err();
@@ -82,7 +82,7 @@ fn export_fbin_rejects_panel_below_a35_floor() {
 
 #[test]
 fn export_fbin_rejects_inconsistent_vector_dimensions() {
-    let fixture = Fixture::new("export-fbin-bad-dim", 4, 6);
+    let fixture = Fixture::new("export-fbin-bad-dim", 10, 6);
     let mut lines = fs::read_to_string(fixture.corpus.join("vectors.jsonl")).unwrap();
     lines.push_str(
         &serde_json::json!({
@@ -91,7 +91,13 @@ fn export_fbin_rejects_inconsistent_vector_dimensions() {
                 "lens-0": [1.0, 2.0],
                 "lens-1": [1.0, 2.0, 3.0],
                 "lens-2": [1.0, 2.0, 3.0],
-                "lens-3": [1.0, 2.0, 3.0]
+                "lens-3": [1.0, 2.0, 3.0],
+                "lens-4": [1.0, 2.0, 3.0],
+                "lens-5": [1.0, 2.0, 3.0],
+                "lens-6": [1.0, 2.0, 3.0],
+                "lens-7": [1.0, 2.0, 3.0],
+                "lens-8": [1.0, 2.0, 3.0],
+                "lens-9": [1.0, 2.0, 3.0]
             }
         })
         .to_string(),
@@ -125,11 +131,11 @@ impl Fixture {
         let out = root.join("out");
         fs::create_dir_all(&corpus).unwrap();
         fs::create_dir_all(&manifests).unwrap();
-        let manifest_paths = write_manifests(&manifests, 4);
-        write_vectors(&corpus.join("vectors.jsonl"), 4, rows);
+        let manifest_paths = write_manifests(&manifests, 10);
+        write_vectors(&corpus.join("vectors.jsonl"), 10, rows);
         write_build_report(&corpus.join("corpus_build_report.json"), &manifest_paths);
         let bits = root.join("assay_abundance.json");
-        write_bits(&bits, 4, admitted_lenses);
+        write_bits(&bits, 10, admitted_lenses);
         Self {
             root,
             corpus,

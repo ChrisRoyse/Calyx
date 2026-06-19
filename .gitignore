@@ -41,8 +41,8 @@ env/
 .python-version
 *.egg-info/
 .eggs/
-build/
-dist/
+/build/
+/dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
