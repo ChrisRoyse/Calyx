@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use calyx_assay::EnsembleCard;
@@ -77,6 +77,18 @@ fn validate(card: &EnsembleCard, plan: &Plan) -> CliResult {
             card_slots, plan_slots
         )));
     }
+    let plan_names = plan_slot_names(plan)?;
+    let card_names = card
+        .lenses
+        .iter()
+        .map(|lens| (lens.slot.get(), lens.name.clone()))
+        .collect::<BTreeMap<_, _>>();
+    if card_names != plan_names {
+        return Err(stale(format!(
+            "ensemble card slot/name roster {:?} != plan roster {:?}",
+            card_names, plan_names
+        )));
+    }
     let expected_pairs = expected.saturating_sub(1) * expected / 2;
     if card.pairs.len() != expected_pairs {
         return Err(error(
@@ -88,7 +100,83 @@ fn validate(card: &EnsembleCard, plan: &Plan) -> CliResult {
             "regenerate ensemble_card.json so every pairwise cross-term is present",
         ));
     }
+    validate_pair_names(card, &card_names)?;
     finite(card)?;
+    Ok(())
+}
+
+fn plan_slot_names(plan: &Plan) -> CliResult<BTreeMap<u16, String>> {
+    let mut names = BTreeMap::new();
+    for slot in &plan.slots {
+        let Some(name) = slot.name.as_deref().filter(|name| !name.trim().is_empty()) else {
+            return Err(error(
+                "CALYX_FSV_A35_PLAN_NAME_REQUIRED",
+                format!(
+                    "slot {} missing lens name for ensemble-card binding",
+                    slot.slot
+                ),
+                "re-export partitioned_rrf_plan.json with the current assay export-fbin or stream-fbin writer",
+            ));
+        };
+        names.insert(slot.slot, name.to_owned());
+    }
+    Ok(names)
+}
+
+fn validate_pair_names(card: &EnsembleCard, card_names: &BTreeMap<u16, String>) -> CliResult {
+    let mut pairs = BTreeSet::new();
+    for pair in &card.pairs {
+        let slot_a = pair.slot_a.get();
+        let slot_b = pair.slot_b.get();
+        let Some(name_a) = card_names.get(&slot_a) else {
+            return Err(error(
+                "CALYX_FSV_A35_ENSEMBLE_CARD_INVALID",
+                format!("pair references missing slot_a {slot_a}"),
+                "regenerate ensemble_card.json so every pair references a panel lens",
+            ));
+        };
+        let Some(name_b) = card_names.get(&slot_b) else {
+            return Err(error(
+                "CALYX_FSV_A35_ENSEMBLE_CARD_INVALID",
+                format!("pair references missing slot_b {slot_b}"),
+                "regenerate ensemble_card.json so every pair references a panel lens",
+            ));
+        };
+        if pair.a != *name_a || pair.b != *name_b {
+            return Err(error(
+                "CALYX_FSV_A35_ENSEMBLE_CARD_INVALID",
+                format!(
+                    "pair ({slot_a}, {slot_b}) names ({}, {}) do not match lens roster ({name_a}, {name_b})",
+                    pair.a, pair.b
+                ),
+                "regenerate ensemble_card.json so pair cross-terms use the exact panel roster",
+            ));
+        }
+        if !pairs.insert((slot_a, slot_b)) {
+            return Err(error(
+                "CALYX_FSV_A35_ENSEMBLE_CARD_INVALID",
+                format!("duplicate pair ({slot_a}, {slot_b}) in ensemble card"),
+                "regenerate ensemble_card.json so every pairwise cross-term is unique",
+            ));
+        }
+    }
+    let slots = card_names.keys().copied().collect::<Vec<_>>();
+    let mut expected_pairs = BTreeSet::new();
+    for (idx, slot_a) in slots.iter().enumerate() {
+        for slot_b in slots.iter().skip(idx + 1) {
+            expected_pairs.insert((*slot_a, *slot_b));
+        }
+    }
+    if pairs != expected_pairs {
+        return Err(error(
+            "CALYX_FSV_A35_ENSEMBLE_CARD_INVALID",
+            format!(
+                "ensemble card pair slots {:?} != expected {:?}",
+                pairs, expected_pairs
+            ),
+            "regenerate ensemble_card.json so every canonical pairwise cross-term is present",
+        ));
+    }
     Ok(())
 }
 
@@ -248,6 +336,51 @@ mod tests {
         let _ = std::fs::remove_dir_all(root);
     }
 
+    #[test]
+    fn stale_card_name_roster_fails_closed() {
+        let root = temp_root("rrf-ensemble-stale-name");
+        let path = root.join("ensemble_card.json");
+        let mut card = card(10, 0);
+        card.lenses[3].name = "wrong-lens".to_string();
+        std::fs::write(&path, serde_json::to_vec(&card).unwrap()).unwrap();
+
+        let err = load(Some(&path), &plan(10), true).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_A35_ENSEMBLE_CARD_STALE");
+        assert!(err.message().contains("slot/name roster"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_plan_name_fails_closed() {
+        let root = temp_root("rrf-ensemble-missing-plan-name");
+        let path = root.join("ensemble_card.json");
+        std::fs::write(&path, serde_json::to_vec(&card(10, 0)).unwrap()).unwrap();
+        let mut plan = plan(10);
+        plan.slots[0].name = None;
+
+        let err = load(Some(&path), &plan, true).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_A35_PLAN_NAME_REQUIRED");
+        assert!(err.message().contains("slot 0"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn invalid_pair_slot_set_fails_closed() {
+        let root = temp_root("rrf-ensemble-pair-set");
+        let path = root.join("ensemble_card.json");
+        let mut card = card(10, 0);
+        card.pairs[0] = pair_value(1, 0);
+        std::fs::write(&path, serde_json::to_vec(&card).unwrap()).unwrap();
+
+        let err = load(Some(&path), &plan(10), true).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_A35_ENSEMBLE_CARD_INVALID");
+        assert!(err.message().contains("pair slots"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
     fn plan(count: u16) -> Plan {
         Plan {
             timeline: None,
@@ -258,6 +391,7 @@ mod tests {
     fn plan_slot(slot: u16) -> PlanSlot {
         PlanSlot {
             slot,
+            name: Some(format!("lens-{slot}")),
             lens_id: Some(format!("{:032x}", slot + 1)),
             weights_sha256: Some(format!("{:064x}", slot + 1)),
             bits_about: Some(0.1),

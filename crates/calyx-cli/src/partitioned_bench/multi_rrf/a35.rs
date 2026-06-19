@@ -75,6 +75,7 @@ pub(super) fn lens_roster(slots: &[OpenSlot]) -> Vec<Value> {
         .map(|slot| {
             json!({
                 "slot": slot.spec.slot,
+                "name": slot.spec.name.as_deref(),
                 "lens_id": slot.spec.lens_id.as_deref().expect("A35 validated"),
                 "weights_sha256": slot.spec.weights_sha256.as_deref().expect("A35 validated"),
             })
@@ -88,6 +89,7 @@ pub(super) fn per_lens_bits(slots: &[OpenSlot]) -> Vec<Value> {
         .map(|slot| {
             json!({
                 "slot": slot.spec.slot,
+                "name": slot.spec.name.as_deref(),
                 "lens_id": slot.spec.lens_id.as_deref().expect("A35 validated"),
                 "bits_about": slot.spec.bits_about.expect("A35 validated"),
             })
@@ -189,6 +191,7 @@ mod tests {
     fn slot(idx: u16) -> PlanSlot {
         PlanSlot {
             slot: idx,
+            name: Some(format!("lens-{idx}")),
             lens_id: Some(format!("{:032x}", idx + 1)),
             weights_sha256: Some(format!("{:064x}", idx + 1)),
             bits_about: Some(0.05 + f32::from(idx) * 0.01),

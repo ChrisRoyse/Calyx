@@ -437,6 +437,7 @@ fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliR
         .map(|lens| {
             json!({
                 "slot": lens.slot,
+                "name": lens.name,
                 "lens_id": lens.lens_id,
                 "weights_sha256": lens.weights_sha256,
                 "bits_about": lens.bits_about,

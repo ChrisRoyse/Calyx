@@ -66,6 +66,7 @@ struct Plan {
 #[derive(Clone, Debug, Deserialize)]
 struct PlanSlot {
     slot: u16,
+    name: Option<String>,
     lens_id: Option<String>,
     weights_sha256: Option<String>,
     bits_about: Option<f32>,

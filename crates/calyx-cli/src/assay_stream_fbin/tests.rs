@@ -80,6 +80,7 @@ fn stream_fbin_can_emit_i8bin_vector_sources() {
     let plan: Value =
         serde_json::from_slice(&fs::read(fixture.out.join("partitioned_rrf_plan.json")).unwrap())
             .unwrap();
+    assert_eq!(plan["slots"][0]["name"], "lens-0");
     assert!(
         plan["slots"][0]["corpus"]
             .as_str()

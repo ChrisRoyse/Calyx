@@ -30,6 +30,7 @@ fn export_fbin_writes_headers_plan_and_readback_report() {
         fixture.out.join("timeline.jsonl").display().to_string()
     );
     assert_eq!(plan["temporal_counts_toward_a35"], false);
+    assert_eq!(plan["slots"][0]["name"], "lens-0");
     let bits = plan["slots"][0]["bits_about"].as_f64().unwrap();
     assert!((bits - 0.2).abs() < 0.00001);
     let timeline = fs::read_to_string(fixture.out.join("timeline.jsonl")).unwrap();
