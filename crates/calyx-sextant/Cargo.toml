@@ -8,7 +8,7 @@ publish.workspace = true
 
 [features]
 default = []
-cuda = ["dep:cuvs-sys"]
+cuda = ["dep:cudarc", "dep:cuvs-sys"]
 
 [dependencies]
 blake3.workspace = true
@@ -17,6 +17,7 @@ calyx-aster = { path = "../calyx-aster" }
 calyx-core = { path = "../calyx-core" }
 calyx-paths = { path = "../calyx-paths" }
 calyx-ward = { path = "../calyx-ward" }
+cudarc = { workspace = true, optional = true, features = ["std", "driver", "dynamic-loading", "cuda-13020"] }
 cuvs-sys = { workspace = true, optional = true }
 memmap2.workspace = true
 rand.workspace = true

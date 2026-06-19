@@ -22,6 +22,8 @@ mod brute_force;
 mod build;
 #[path = "partitioned_bench/multi_rrf.rs"]
 mod multi_rrf;
+#[path = "partitioned_bench/slot_truth_generate.rs"]
+mod slot_truth_generate;
 use brute_force::{brute_force_topk, brute_force_topk_vecfile};
 #[cfg(test)]
 pub(crate) use build::BuildArgs;
@@ -278,6 +280,10 @@ pub(crate) fn run_search(args: &[String]) -> CliResult {
 
 pub(crate) fn run_rrf(args: &[String]) -> CliResult {
     multi_rrf::run(args)
+}
+
+pub(crate) fn run_rrf_slot_truth(args: &[String]) -> CliResult {
+    slot_truth_generate::run(args)
 }
 
 /// REAL-data search: real query embeddings + brute-force ground truth over the REAL

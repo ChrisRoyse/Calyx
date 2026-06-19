@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod autotune;
 pub mod bm25;
+pub mod cuvs_bruteforce;
 pub mod diskann;
 pub mod distance;
 pub mod dual;
@@ -25,6 +26,7 @@ pub use autotune::{
     TunerAdjustment, TunerAdjustmentKind, TunerConfig, TunerLedgerEntry, TunerObservation,
     TunerRange, TunerWarning, register_with_anneal,
 };
+pub use cuvs_bruteforce::{CuvsBruteForceTopK, cuvs_bruteforce_topk};
 pub use diskann::{
     ConcatCrossTermDiskAnn, ConcatCrossTermHit, ConcatCrossTermKey, Direction, DirectionalBoost,
     DiskAnnBuildBackend, DiskAnnBuildParams, DiskAnnGraphReader, DiskAnnGraphWriter, DiskAnnHeader,

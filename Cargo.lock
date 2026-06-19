@@ -541,6 +541,7 @@ dependencies = [
  "calyx-paths",
  "calyx-ward",
  "criterion",
+ "cudarc 0.19.7",
  "cuvs-sys",
  "memmap2",
  "proptest",
