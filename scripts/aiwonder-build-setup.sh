@@ -54,14 +54,21 @@ cat > "$CALYX_HOME/.cargo/config.toml" <<'EOF'
 incremental = false
 
 [env]
-# Keep CUDA autodiscovery rooted at the real toolkit. Some Rust CUDA builders
-# derive include/lib paths from the literal nvcc path returned by PATH lookup;
-# /usr/local/bin/nvcc is a symlink whose parent would incorrectly resolve to
-# /usr/local/include instead of /usr/local/cuda/include.
-CUDA_HOME = "/usr/local/cuda"
-CUDA_PATH = "/usr/local/cuda"
-CUDA_ROOT = "/usr/local/cuda"
-NVCC = "/usr/local/cuda/bin/nvcc"
+# Keep CUDA autodiscovery rooted at the real CUDA 13.3 toolkit. Some Rust and
+# CMake CUDA builders derive include/lib paths from the literal nvcc path
+# returned by PATH lookup; /usr/local/bin/nvcc is a symlink whose parent would
+# incorrectly resolve to /usr/local/include.
+CUDA_HOME = { value = "/usr/local/cuda-13.3", force = true }
+CUDA_PATH = { value = "/usr/local/cuda-13.3", force = true }
+CUDA_ROOT = { value = "/usr/local/cuda-13.3", force = true }
+CUDAToolkit_ROOT = { value = "/usr/local/cuda-13.3", force = true }
+NVCC = { value = "/usr/local/cuda-13.3/bin/nvcc", force = true }
+
+# cuvs-sys 26.6 needs the CMake package dirs for cuVS and its RAPIDS
+# dependencies plus the runtime shared-library dirs. These packages live in the
+# aiwonder Python 3.14 venv under CALYX_HOME and are not portable repo config.
+CMAKE_PREFIX_PATH = { value = "/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libcuvs/lib64/cmake/cuvs:/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libraft/lib64/cmake/raft:/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/librmm/lib64/cmake/rmm:/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/rapids_logger/lib64/cmake/rapids_logger", force = true }
+LD_LIBRARY_PATH = { value = "/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libcuvs/lib64:/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libraft/lib64:/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/librmm/lib64:/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/rapids_logger/lib64:/usr/local/cuda-13.3/targets/x86_64-linux/lib", force = true }
 
 [target.x86_64-unknown-linux-gnu]
 # mold is multi-threaded and links several-fold faster than the default
