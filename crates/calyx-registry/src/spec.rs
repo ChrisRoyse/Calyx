@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::frozen::NormPolicy;
 
 const LENS_UNREACHABLE: &str = "CALYX_LENS_UNREACHABLE";
+#[cfg(not(feature = "candle-cuda"))]
 const CANDLE_CUDA_FEATURE_MISSING_REASON: &str =
     "candle CUDA requested but calyx-registry was built without feature `candle-cuda`";
 
