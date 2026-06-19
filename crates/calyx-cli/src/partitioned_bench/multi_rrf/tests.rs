@@ -17,6 +17,10 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
         "5",
         "--truth-depth",
         "40",
+        "--fused-ground-truth-file",
+        "truth.i32bin",
+        "--fused-ground-truth-manifest",
+        "truth.manifest.json",
         "--recall-floor",
         "0.8",
         "--anneal-vault",
@@ -30,6 +34,14 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
     assert_eq!(args.n, 12);
     assert_eq!(args.k, 4);
     assert_eq!(args.truth_depth, Some(40));
+    assert_eq!(
+        args.fused_ground_truth_file,
+        Some(PathBuf::from("truth.i32bin"))
+    );
+    assert_eq!(
+        args.fused_ground_truth_manifest,
+        Some(PathBuf::from("truth.manifest.json"))
+    );
     assert_eq!(args.recall_floor, Some(0.8));
     assert_eq!(args.out, None);
     assert_eq!(args.anneal_vault, Some(PathBuf::from("anneal-out")));
@@ -42,6 +54,43 @@ fn args_reject_zero_tuner_slo() {
 
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
     assert!(err.message().contains("--tuner-slo-us must be > 0"));
+}
+
+#[test]
+fn args_require_fused_truth_file_and_manifest_pair() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--fused-ground-truth-file",
+        "truth.i32bin",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("--fused-ground-truth-file requires --fused-ground-truth-manifest")
+    );
+}
+
+#[test]
+fn args_reject_consuming_and_writing_fused_truth_in_one_run() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--fused-ground-truth-file",
+        "truth.i32bin",
+        "--fused-ground-truth-manifest",
+        "truth.manifest.json",
+        "--write-fused-ground-truth-file",
+        "new.i32bin",
+        "--write-fused-ground-truth-manifest",
+        "new.manifest.json",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("mutually exclusive"));
 }
 
 #[test]
