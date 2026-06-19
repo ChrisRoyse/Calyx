@@ -10,6 +10,7 @@ use crate::frozen::{FrozenLensContract, NormPolicy};
 use crate::runtime::common::{normalize_unit, text_from_input};
 use crate::spec::{LensRuntime, LensSpec};
 
+mod cuda_guard;
 mod custom;
 mod dynamic_ort;
 mod fastembed_runtime;

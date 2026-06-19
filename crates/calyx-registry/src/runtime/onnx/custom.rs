@@ -7,6 +7,7 @@ use ort::value::{Tensor, ValueType};
 use serde_json::Value;
 use tokenizers::Tokenizer;
 
+use super::cuda_guard::CudaDropGuard;
 use super::fastembed_runtime::execution_providers;
 use super::{OnnxFileSpec, OnnxLens, OnnxModelFiles, PoolingPolicy, config_invalid};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
@@ -78,7 +79,8 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
         .map_err(|err| config_invalid(format!("ONNX provider config failed: {err}")))?
         .commit_from_file(&spec.model_file)
         .map_err(|err| config_invalid(format!("load custom ONNX model failed: {err}")))?;
-    let dim = output_dim(&session)?;
+    let session = CudaDropGuard::new(session, spec.provider_policy);
+    let dim = output_dim(session.as_ref())?;
     let shape = SlotShape::Dense(dim);
     if let Some(expected) = spec.expected_shape
         && expected != shape
@@ -105,7 +107,7 @@ pub fn from_files(spec: OnnxFileSpec) -> Result<OnnxLens> {
         spec.norm_policy,
     );
     let runtime = CustomOnnxRuntime {
-        session,
+        session: session.into_inner(),
         tokenizer,
         pooling: spec.pooling,
         norm_policy: spec.norm_policy,

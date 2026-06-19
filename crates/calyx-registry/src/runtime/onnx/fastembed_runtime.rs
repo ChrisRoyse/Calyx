@@ -6,6 +6,7 @@ use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
 use hf_hub::api::sync::ApiBuilder;
 use ort::ep;
 
+use super::cuda_guard::CudaDropGuard;
 use super::{OnnxLens, OnnxModelFiles, OnnxProviderPolicy};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::common::{default_hf_cache_root, fastembed_cache_root, hash_files};
@@ -50,6 +51,7 @@ pub fn from_model_with_policy(
             .with_execution_providers(execution_providers(provider_policy)),
     )
     .map_err(|err| CalyxError::lens_unreachable(format!("ONNX runtime init failed: {err}")))?;
+    let model = CudaDropGuard::new(model, provider_policy);
     let effective_cache = fastembed_cache_root(&cache_dir);
     let files = resolve_files(
         &effective_cache,
@@ -81,7 +83,7 @@ pub fn from_model_with_policy(
         contract,
         files,
         provider_policy,
-        model,
+        model.into_inner(),
     ))
 }
 
