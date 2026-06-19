@@ -60,7 +60,7 @@ pub(crate) fn usage() -> &'static str {
        calyx bench recall --vault <dir> --n <n> --k <n> [--seed <n>]
        calyx bench partitioned-search --vault <dir> --n <n> --k <n> --n-probe <n> --region-beam <n> [--ground-truth <n> --recall-floor <f>]
        calyx bench partitioned-search --vault <dir> --queries <file.fbin|file.i8bin> [--corpus <file.fbin|file.i8bin>|--ground-truth-file <file.i32bin> [--ground-truth-id-map <file.i32bin>]] --n <n> --k <n> --n-probe <n> --region-beam <n> --ground-truth <n> --recall-floor <f>
-       calyx bench partitioned-rrf --plan <json> --n <n> --k <n> --n-probe <n> --region-beam <n> --ground-truth <n> [--truth-depth <n>] [--fused-ground-truth-file <i32bin> --fused-ground-truth-manifest <json>|--slot-ground-truth-manifest <json>] [--write-fused-ground-truth-file <i32bin> --write-fused-ground-truth-manifest <json>] [--recall-floor <f>] [--out <json>] [--anneal-vault <dir>] [--tuner-slo-us <us>]
+       calyx bench partitioned-rrf --plan <json> --n <n> --k <n> --n-probe <n> --region-beam <n> --ground-truth <n> [--truth-depth <n>] [--ensemble-card <ensemble_card.json>] [--fused-ground-truth-file <i32bin> --fused-ground-truth-manifest <json>|--slot-ground-truth-manifest <json>] [--write-fused-ground-truth-file <i32bin> --write-fused-ground-truth-manifest <json>] [--recall-floor <f>] [--out <json>] [--anneal-vault <dir>] [--tuner-slo-us <us>]
        calyx bench partitioned-rrf-slot-truth --plan <json> --out-dir <dir> --query-count <n> --truth-depth <n> [--chunk-rows <n>]
        calyx anneal status --vault <dir> --tuner bw_postcutoff
        calyx anneal replay-status --vault <dir>

@@ -16,12 +16,16 @@ use crate::error::{CliError, CliResult};
 
 #[path = "multi_rrf/a35.rs"]
 mod a35;
+#[path = "multi_rrf/ensemble.rs"]
+mod ensemble;
 #[path = "multi_rrf/ground_truth.rs"]
 mod ground_truth;
 #[path = "multi_rrf/io.rs"]
 mod io;
 #[path = "multi_rrf/recall.rs"]
 mod recall;
+#[path = "multi_rrf/report.rs"]
+mod report;
 #[path = "multi_rrf/slot_truth.rs"]
 mod slot_truth;
 #[path = "multi_rrf/timeline.rs"]
@@ -44,6 +48,7 @@ struct Args {
     fused_ground_truth_file: Option<PathBuf>,
     fused_ground_truth_manifest: Option<PathBuf>,
     slot_ground_truth_manifest: Option<PathBuf>,
+    ensemble_card: Option<PathBuf>,
     write_fused_ground_truth_file: Option<PathBuf>,
     write_fused_ground_truth_manifest: Option<PathBuf>,
     out: Option<PathBuf>,
@@ -87,6 +92,7 @@ impl Args {
         let mut fused_ground_truth_file = None;
         let mut fused_ground_truth_manifest = None;
         let mut slot_ground_truth_manifest = None;
+        let mut ensemble_card = None;
         let mut write_fused_ground_truth_file = None;
         let mut write_fused_ground_truth_manifest = None;
         let mut out = None;
@@ -117,6 +123,7 @@ impl Args {
                 "--slot-ground-truth-manifest" => {
                     slot_ground_truth_manifest = Some(PathBuf::from(next()?))
                 }
+                "--ensemble-card" => ensemble_card = Some(PathBuf::from(next()?)),
                 "--write-fused-ground-truth-file" => {
                     write_fused_ground_truth_file = Some(PathBuf::from(next()?))
                 }
@@ -158,6 +165,7 @@ impl Args {
             fused_ground_truth_file,
             fused_ground_truth_manifest,
             slot_ground_truth_manifest,
+            ensemble_card,
             write_fused_ground_truth_file,
             write_fused_ground_truth_manifest,
             out,
@@ -201,6 +209,11 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let args = Args::parse(raw)?;
     let plan = load_plan(&args.plan)?;
     a35::validate_plan(&plan)?;
+    let ensemble_readback = ensemble::load(
+        args.ensemble_card.as_deref(),
+        &plan,
+        args.recall_floor.is_some(),
+    )?;
     let slots = open_slots(&plan)?;
     let n = slots
         .iter()
@@ -356,8 +369,9 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "plan": args.plan,
         "lens_roster": a35::lens_roster(&slots),
         "per_lens_bits": a35::per_lens_bits(&slots),
+        "ensemble_decomposition": ensemble_readback,
         "temporal": timeline.as_ref().map(|timeline| timeline.report()),
-        "slots": slot_report(&slots),
+        "slots": report::slot_report(&slots),
         "queries": n,
         "k": args.k,
         "n_probe": args.n_probe,
@@ -454,26 +468,6 @@ fn hit_ids(hits: &[IndexSearchHit], k: usize) -> Vec<u64> {
 
 fn fused_hit_ids(hits: &[calyx_sextant::Hit], k: usize) -> Vec<u64> {
     hits.iter().take(k).map(|hit| low_u64(hit.cx_id)).collect()
-}
-
-fn slot_report(slots: &[OpenSlot]) -> Vec<serde_json::Value> {
-    slots
-        .iter()
-        .map(|slot| {
-            json!({
-                "slot": slot.spec.slot,
-                "lens_id": slot.spec.lens_id.as_deref().expect("A35 validated"),
-                "weights_sha256": slot.spec.weights_sha256.as_deref().expect("A35 validated"),
-                "bits_about": slot.spec.bits_about.expect("A35 validated"),
-                "vault": slot.spec.vault,
-                "queries": slot.spec.queries,
-                "corpus": slot.spec.corpus,
-                "n_cx": slot.search.manifest().n_cx,
-                "dim": slot.search.dim(),
-                "n_regions": slot.search.manifest().n_regions,
-            })
-        })
-        .collect()
 }
 
 fn parse<T: std::str::FromStr>(value: &str, flag: &str) -> CliResult<T> {
