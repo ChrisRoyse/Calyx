@@ -338,7 +338,8 @@ fn register_template_lenses(
             continue;
         }
         let spec = lens_spec_from_manifest_path(Path::new(&lens.manifest))?;
-        if spec.lens_id() != lens.lens_id {
+        let spec_lens_id = spec.lens_id();
+        if spec_lens_id != lens.lens_id {
             return Err(template_error(
                 TEMPLATE_INVALID,
                 format!(
@@ -347,6 +348,29 @@ fn register_template_lenses(
                 ),
                 "rebuild the template from the current frozen lens manifest",
             ));
+        }
+        if let Some(existing) = registry.find_lens_by_spec_id(spec_lens_id) {
+            if registry.lens_spec(existing) != Some(&spec) {
+                return Err(template_error(
+                    TEMPLATE_INVALID,
+                    format!(
+                        "registry lens {existing} does not match manifest {}",
+                        lens.manifest
+                    ),
+                    "recommission the lens so the registry snapshot and manifest are identical",
+                ));
+            }
+            if let Some(expected) = lens.runtime_lens_id
+                && existing != expected
+            {
+                return Err(template_error(
+                    TEMPLATE_INVALID,
+                    format!("runtime resolved {existing}, expected {expected}"),
+                    "recommission the lens so runtime and manifest contracts agree",
+                ));
+            }
+            lens.runtime_lens_id = Some(existing);
+            continue;
         }
         let registered = register_manifest_runtime(registry, spec)?;
         if let Some(expected) = lens.runtime_lens_id

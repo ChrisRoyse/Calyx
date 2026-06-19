@@ -1,7 +1,8 @@
 use super::*;
-use calyx_core::{Modality, SlotShape};
+use calyx_core::{Asymmetry, Modality, QuantPolicy, SlotShape};
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
+use crate::spec::LensRuntime;
 
 #[test]
 fn plain_register_fails_closed_without_frozen_contract() {
@@ -94,6 +95,20 @@ fn frozen_lens_snapshots_return_weight_hashes_in_id_order() {
             .unwrap()
             .weights_sha256
     );
+}
+
+#[test]
+fn registry_finds_runtime_lens_by_spec_id() {
+    let mut registry = Registry::new();
+    let lens = OneDimLens::new("spec-id-runtime");
+    let spec = lens_spec_for(&lens);
+    let spec_id = spec.lens_id();
+    let runtime_id = registry
+        .register_frozen_with_spec(lens.clone(), lens.contract.clone(), spec.clone())
+        .unwrap();
+
+    assert_eq!(registry.find_lens_by_spec_id(spec_id), Some(runtime_id));
+    assert_eq!(registry.lens_spec(runtime_id), Some(&spec));
 }
 
 #[test]
@@ -261,4 +276,26 @@ fn contract(name: &str) -> FrozenLensContract {
         LensDType::F32,
         NormPolicy::None,
     )
+}
+
+fn lens_spec_for(lens: &OneDimLens) -> LensSpec {
+    LensSpec {
+        name: lens.contract.name().to_string(),
+        runtime: LensRuntime::Algorithmic {
+            kind: "scalar".to_string(),
+        },
+        output: SlotShape::Dense(1),
+        modality: Modality::Text,
+        weights_sha256: lens.contract.weights_sha256(),
+        corpus_hash: lens.contract.corpus_hash(),
+        norm_policy: NormPolicy::None,
+        max_batch: None,
+        axis: None,
+        asymmetry: Asymmetry::None,
+        quant_default: QuantPolicy::turboquant_default(),
+        truncate_dim: None,
+        recall_delta: crate::spec::default_recall_delta(),
+        retrieval_only: false,
+        excluded_from_dedup: false,
+    }
 }

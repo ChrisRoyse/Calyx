@@ -126,6 +126,19 @@ impl Registry {
             .map(|(lens_id, _)| *lens_id)
     }
 
+    /// Finds a registered runtime lens by the content-addressed LensSpec id.
+    pub fn find_lens_by_spec_id(&self, spec_lens_id: LensId) -> Option<LensId> {
+        self.lenses
+            .iter()
+            .find(|(_, entry)| {
+                entry
+                    .spec
+                    .as_ref()
+                    .is_some_and(|spec| spec.lens_id() == spec_lens_id)
+            })
+            .map(|(lens_id, _)| *lens_id)
+    }
+
     /// Measures one input with a registered lens.
     pub fn measure(&self, lens_id: LensId, input: &Input) -> Result<SlotVector> {
         let entry = self.lookup(lens_id)?;
