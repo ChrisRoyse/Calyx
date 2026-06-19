@@ -2,6 +2,21 @@
 # Build the calyx CLI from this exact worktree and verify the binary identity.
 set -euo pipefail
 
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+sourced_env="not-found"
+if [[ -f "$repo_root/env.sh" ]]; then
+  case "$repo_root" in
+    /home/croyse/calyx|/home/croyse/calyx/*)
+      # shellcheck source=../env.sh
+      source "$repo_root/env.sh"
+      sourced_env="$repo_root/env.sh"
+      ;;
+    *)
+      sourced_env="skipped-non-aiwonder:$repo_root/env.sh"
+      ;;
+  esac
+fi
+
 usage() {
   cat >&2 <<'USAGE'
 usage: scripts/build-verified-calyx.sh [--profile debug|release] [--target-dir PATH]
@@ -87,7 +102,6 @@ require_tool git
 require_tool python3
 require_tool strings
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 if [[ -z "$target_dir" ]]; then
   target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
 fi
@@ -130,6 +144,7 @@ if [[ "$metadata_target" != "$target_dir" ]]; then
 fi
 
 echo "[build-verified] repo_root=$repo_root"
+echo "[build-verified] env=$sourced_env"
 echo "[build-verified] head=$head_sha"
 echo "[build-verified] target_dir=$target_dir"
 if [[ -n "$features" ]]; then
