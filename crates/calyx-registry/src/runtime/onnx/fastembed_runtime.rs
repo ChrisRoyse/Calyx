@@ -167,8 +167,8 @@ fn resolve_files(
         model_file.clone(),
         tokenizer.clone(),
         config.clone(),
-        special_tokens_map.clone(),
         tokenizer_config.clone(),
+        special_tokens_map.clone(),
     ];
     for file in additional_files {
         contract_paths.push(fetch(&repo, file)?);
