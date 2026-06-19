@@ -1,10 +1,11 @@
-//! DiskANN on-disk graph format: header, page-aligned node blocks, writer,
+//! DiskANN on-disk graph format: header, compact node blocks, writer,
 //! mmap reader (PH68 T01). Construction lives in [`super::build`].
 //!
-//! Layout: one page-aligned header block (`CLXDA001`), then one page-aligned
+//! Layout: one page-aligned header block (`CLXDA001`), then one fixed-size
 //! block per node holding `[raw f32 vector | neighbor_count: u32 | neighbors:
-//! [u32; m_max] zero-padded]` so a single read fetches a node's full search
-//! state. Node `id` lives at byte offset `HEADER + id * node_block_size`.
+//! [u32; m_max] zero-padded]` so a single offset calculation fetches a node's
+//! full search state. Node `id` lives at byte offset
+//! `HEADER + id * node_block_size`.
 //!
 //! Server-only: embedded vaults keep the in-RAM HNSW from PH23.
 
@@ -22,18 +23,42 @@ use crate::error::{
 /// File magic at offset 0 of every `graph.cda`.
 pub const DISKANN_MAGIC: [u8; 8] = *b"CLXDA001";
 /// On-disk format version written into the header.
-pub const DISKANN_FORMAT_VERSION: u32 = 1;
-/// Every block (header and node) is padded to a multiple of this.
+pub const DISKANN_FORMAT_VERSION: u32 = 2;
+/// Legacy v1 node records were padded to 4 KiB.
+pub const DISKANN_LEGACY_FORMAT_VERSION: u32 = 1;
+/// The header remains one 4 KiB page for mmap/old-reader stability.
 pub const DISKANN_BLOCK_ALIGN: usize = 4096;
+/// v2 node records are cache-line aligned instead of page padded.
+pub const DISKANN_NODE_ALIGN: usize = 64;
 /// Upper bound on vector dimensionality accepted by the format.
 pub const DISKANN_MAX_DIM: usize = 8192;
 /// Upper bound on `m_max` (graph out-degree capacity) accepted by the format.
 pub const DISKANN_MAX_M: usize = 512;
 
 /// Size in bytes of one node block: vector + count + padded neighbor list,
-/// rounded up to the next `DISKANN_BLOCK_ALIGN` boundary (4 KiB minimum).
+/// rounded up to the v2 compact node alignment.
 pub const fn node_block_size(dim: usize, m_max: usize) -> usize {
+    compact_node_block_size(dim, m_max)
+}
+
+const fn compact_node_block_size(dim: usize, m_max: usize) -> usize {
+    (dim * 4 + 4 + m_max * 4).div_ceil(DISKANN_NODE_ALIGN) * DISKANN_NODE_ALIGN
+}
+
+const fn legacy_node_block_size(dim: usize, m_max: usize) -> usize {
     (dim * 4 + 4 + m_max * 4).div_ceil(DISKANN_BLOCK_ALIGN) * DISKANN_BLOCK_ALIGN
+}
+
+const fn node_block_size_for_header(header: &DiskAnnHeader) -> usize {
+    match header.format_version {
+        DISKANN_LEGACY_FORMAT_VERSION => {
+            legacy_node_block_size(header.dim as usize, header.m_max as usize)
+        }
+        DISKANN_FORMAT_VERSION => {
+            compact_node_block_size(header.dim as usize, header.m_max as usize)
+        }
+        _ => 0,
+    }
 }
 
 fn corrupt(detail: impl std::fmt::Display) -> calyx_core::CalyxError {
@@ -94,7 +119,10 @@ impl DiskAnnHeader {
             entry_point_id: le_u32(24),
             node_count: u64::from_le_bytes(block[28..36].try_into().expect("8B")),
         };
-        if header.format_version != DISKANN_FORMAT_VERSION {
+        if !matches!(
+            header.format_version,
+            DISKANN_LEGACY_FORMAT_VERSION | DISKANN_FORMAT_VERSION
+        ) {
             return Err(corrupt(format!("format_version {}", header.format_version)));
         }
         if header.dim == 0 || header.dim as usize > DISKANN_MAX_DIM {
@@ -159,7 +187,7 @@ impl DiskAnnGraphWriter {
             tmp_path,
             final_path: path.to_path_buf(),
             header,
-            block: node_block_size(header.dim as usize, header.m_max as usize),
+            block: node_block_size_for_header(&header),
             next_id: 0,
         })
     }
@@ -282,7 +310,7 @@ impl DiskAnnGraphReader {
         // an external violation of the vault's exclusive index ownership.
         let mmap = unsafe { Mmap::map(&file).map_err(|e| io_err("mmap graph file", e))? };
         let header = DiskAnnHeader::decode(&mmap[..DISKANN_BLOCK_ALIGN])?;
-        let block = node_block_size(header.dim as usize, header.m_max as usize);
+        let block = node_block_size_for_header(&header);
         let expected = DISKANN_BLOCK_ALIGN as u64 + header.node_count * block as u64;
         if len != expected {
             return Err(corrupt(format!(
@@ -362,3 +390,7 @@ fn cast_le_slice<'a, T>(bytes: &'a [u8], what: &str) -> Result<&'a [T]> {
 pub fn open_diskann_graph(path: &Path) -> Result<DiskAnnGraphReader> {
     DiskAnnGraphReader::open(path)
 }
+
+#[cfg(test)]
+#[path = "graph_tests.rs"]
+mod graph_tests;
