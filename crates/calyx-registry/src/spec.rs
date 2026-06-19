@@ -290,9 +290,12 @@ mod tests {
 
         let health = candle_spec(vec![weights, tokenizer, config]).health();
 
-        if cfg!(feature = "candle-cuda") {
+        #[cfg(feature = "candle-cuda")]
+        {
             assert_eq!(health, LensHealth::Loaded);
-        } else {
+        }
+        #[cfg(not(feature = "candle-cuda"))]
+        {
             assert_eq!(
                 health,
                 LensHealth::Failing {
