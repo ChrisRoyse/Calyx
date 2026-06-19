@@ -42,6 +42,7 @@ pub(crate) fn usage() -> &'static str {
        calyx lens explain --manifest <manifest.json> [--input <text>|--input-file <path>] [--repeat <n>] [--full-vector]
        calyx assay corpus-build --rows-jsonl <rows.jsonl> --out-dir <dir> --dataset <name> --target-class <n> --manifest <manifest.json> --manifest <manifest.json> [--limit-per-class <n>] [--batch-size <n>] [--cost-override-json <json>]
        calyx assay export-fbin --corpus-dir <dir> --out-dir <dir> --bits-report <assay_abundance.json> --query-count <n> [--min-bits <f>]
+       calyx assay stream-fbin --rows-jsonl <rows.jsonl> --out-dir <dir> --dataset <name> --target-class <n> --bits-report <assay_abundance.json> --query-count <n> --manifest <manifest.json> [--manifest <manifest.json> ...] [--limit-per-class <n>] [--batch-size <n>] [--cost-override-json <json>] [--min-bits <f>]
        calyx fsv corpus-readback --root <dir>
        calyx anneal status --health --vault <dir>
        calyx build-bench-vault --vault <dir> --n-cx <n> --dim <n> --slots <n> --seed <n>

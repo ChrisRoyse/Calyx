@@ -5,8 +5,8 @@
 //! FSV does not depend on an out-of-tree embedding script.
 
 mod data;
-mod lens;
-mod request;
+pub(crate) mod lens;
+pub(crate) mod request;
 mod write;
 
 use crate::error::CliResult;

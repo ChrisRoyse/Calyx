@@ -17,6 +17,9 @@ use super::data::BuildRows;
 use super::request::CorpusBuildRequest;
 
 mod progress;
+mod stream;
+
+pub(crate) use stream::measure_text_batch;
 
 #[derive(Clone, Debug)]
 pub(crate) struct MeasuredLens {

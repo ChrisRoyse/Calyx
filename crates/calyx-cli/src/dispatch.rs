@@ -8,13 +8,14 @@ use crate::cli_support::readback_config;
 use crate::error::{CliError, CliResult};
 use crate::{
     anneal_commands, anneal_ledger_readback, anneal_mistakes_readback, anneal_status,
-    assay_bits_validation, assay_corpus_build, assay_fbin_export, crash, dedup_audit_readback, fsv,
-    fsv_corpus, healthcheck, htap_validation, intelligence_commands, leapable, lens_commands,
-    lodestar_commands, media_commands, merkle, migrate, navigate, ops, oracle_readback,
-    oracle_sufficiency_validation, panel_commands, partitioned_bench, ph42_readback, provenance,
-    resource_drill, resource_status, scan, sextant_bench, sextant_commands, summarize_command,
-    temporal_log_recurrence_readback, time_prediction_readback, timetravel_readback,
-    trigger_readback, usage, verify, ward_guard_validation, ward_tau_readback,
+    assay_bits_validation, assay_corpus_build, assay_fbin_export, assay_stream_fbin, crash,
+    dedup_audit_readback, fsv, fsv_corpus, healthcheck, htap_validation, intelligence_commands,
+    leapable, lens_commands, lodestar_commands, media_commands, merkle, migrate, navigate, ops,
+    oracle_readback, oracle_sufficiency_validation, panel_commands, partitioned_bench,
+    ph42_readback, provenance, resource_drill, resource_status, scan, sextant_bench,
+    sextant_commands, summarize_command, temporal_log_recurrence_readback,
+    time_prediction_readback, timetravel_readback, trigger_readback, usage, verify,
+    ward_guard_validation, ward_tau_readback,
 };
 
 pub(crate) fn run(args: Vec<String>) -> CliResult {
@@ -75,6 +76,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         }
         [command, topic, rest @ ..] if command == "assay" && topic == "export-fbin" => {
             assay_fbin_export::run(rest)
+        }
+        [command, topic, rest @ ..] if command == "assay" && topic == "stream-fbin" => {
+            assay_stream_fbin::run(rest)
         }
         [command, topic, rest @ ..] if command == "ward" && topic == "guard-validate" => {
             ward_guard_validation::run(rest)
