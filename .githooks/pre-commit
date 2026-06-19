@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Calyx pre-commit gate — rejects internal infra identifiers in public-bound
+# source before they enter a commit. See scripts/public-leak-scan.sh for the
+# rationale and the forbidden-identifier list.
+#
+# Install (once per clone): git config core.hooksPath .githooks
+# (scripts/aiwonder-build-setup.sh does this automatically.)
+#
+# Fail-loud: a forbidden identifier in an allowlisted path REJECTS the commit.
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+exec "$repo_root/scripts/public-leak-scan.sh" --cached

@@ -1,0 +1,23 @@
+name: public-leak-scan
+
+# Server-side backstop for the public-source leak gate. The PRIMARY enforcement
+# is local: .githooks/pre-commit and .githooks/pre-push (installed via
+# `git config core.hooksPath .githooks`). GitHub Actions billing may be disabled
+# on this repo, in which case this workflow stays dormant until Actions are
+# enabled — the local hooks still gate every commit and push.
+#
+# It rejects internal infra identifiers (build-host codename, developer home-dir
+# paths, internal domain) in the allowlisted paths that are mirrored to the
+# public repo (ChrisRoyse/Calyx). See scripts/public-leak-scan.sh.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan public-bound source for internal identifiers
+        run: bash scripts/public-leak-scan.sh

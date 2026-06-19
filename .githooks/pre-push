@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Calyx pre-push gate — rejects a push whose tree is not cargo-fmt clean.
+# Calyx pre-push gate — rejects a push that leaks internal identifiers into
+# public-bound source, or whose tree is not cargo-fmt clean.
 #
 # WHY: GitHub Actions is billing-disabled and `gh pr merge` runs server-side,
 # so the ONLY place to stop unformatted code from reaching main is before it
@@ -14,6 +15,15 @@
 # rather than silently skipping the check.
 set -euo pipefail
 
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+# Public-source leak gate (no cargo needed) — reject internal infra identifiers
+# in public-bound paths before they leave this machine. See
+# scripts/public-leak-scan.sh.
+echo "pre-push: scanning public-bound source for internal identifiers ..." >&2
+"$repo_root/scripts/public-leak-scan.sh"
+
 if [[ -f "$HOME/.cargo/env" ]]; then source "$HOME/.cargo/env"; fi
 
 if ! command -v cargo >/dev/null 2>&1; then
@@ -21,9 +31,6 @@ if ! command -v cargo >/dev/null 2>&1; then
   echo "pre-push: install Rust or fix PATH, then retry. Refusing to push unverified." >&2
   exit 1
 fi
-
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root"
 
 echo "pre-push: cargo fmt --all -- --check ..." >&2
 if ! cargo fmt --all -- --check; then

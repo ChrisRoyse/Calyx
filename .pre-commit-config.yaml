@@ -6,3 +6,9 @@ repos:
         entry: scripts/secret-scan.sh
         language: system
         pass_filenames: false
+      - id: calyx-public-leak-scan
+        name: Calyx public-source leak scan
+        entry: scripts/public-leak-scan.sh
+        args: ['--cached']
+        language: system
+        pass_filenames: false
