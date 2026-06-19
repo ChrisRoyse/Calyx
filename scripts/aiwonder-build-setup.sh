@@ -38,7 +38,8 @@ require clang
 require cargo
 require crontab
 
-# 1) Machine-local cargo config (mold linker + no incremental).
+# 1) Machine-local cargo config (mold linker + no incremental + aiwonder
+#    CUDA/cuVS runtime search paths for standalone release binaries).
 mkdir -p "$CALYX_HOME/.cargo"
 cat > "$CALYX_HOME/.cargo/config.toml" <<'EOF'
 # ============================================================================
@@ -74,7 +75,15 @@ LD_LIBRARY_PATH = { value = "/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3
 # mold is multi-threaded and links several-fold faster than the default
 # rust-lld, using all cores. clang is the link driver that invokes it.
 linker = "clang"
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+rustflags = [
+  "-C", "link-arg=-fuse-ld=mold",
+  "-C", "link-arg=-Wl,--enable-new-dtags",
+  "-C", "link-arg=-Wl,-rpath,/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libcuvs/lib64",
+  "-C", "link-arg=-Wl,-rpath,/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/libraft/lib64",
+  "-C", "link-arg=-Wl,-rpath,/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/librmm/lib64",
+  "-C", "link-arg=-Wl,-rpath,/home/croyse/calyx/venvs/cuvs-cu13-26.6/lib/python3.14/site-packages/rapids_logger/lib64",
+  "-C", "link-arg=-Wl,-rpath,/usr/local/cuda-13.3/targets/x86_64-linux/lib",
+]
 EOF
 echo "[setup] wrote $CALYX_HOME/.cargo/config.toml"
 
