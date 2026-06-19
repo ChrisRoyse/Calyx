@@ -4,9 +4,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_core::{Modality, QuantPolicy};
 use calyx_registry::LensForgeManifest;
+use calyx_sextant::index::I8BinVectors;
 use serde_json::Value;
 
 use super::args::Args;
+use super::format::VectorFormat;
 use super::write;
 
 #[test]
@@ -28,6 +30,11 @@ fn stream_fbin_writes_structured_progress_snapshot() {
     assert_eq!(progress["lenses_completed"], 4);
     assert_eq!(progress["completed_corpus_rows"], 200);
     assert_eq!(progress["completed_query_rows"], 32);
+    assert_eq!(progress["vector_format"], "fbin");
+    assert_eq!(
+        progress["vector_storage_contract"],
+        "f32-row-major-calyx-fbin"
+    );
     assert_eq!(progress["total_lens_corpus_rows_expected"], 200);
     assert_eq!(progress["total_lens_query_rows_expected"], 32);
     assert_eq!(progress["current_lens"], Value::Null);
@@ -48,6 +55,59 @@ fn stream_fbin_writes_structured_progress_snapshot() {
     assert_eq!(
         report["progress_path"].as_str().unwrap(),
         progress_path.display().to_string()
+    );
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_can_emit_i8bin_vector_sources() {
+    let fixture = Fixture::new("stream-i8bin-output", 4, 4, 50);
+    let mut args = fixture.args(8);
+    args.vector_format = VectorFormat::I8Bin;
+
+    write::run(&args).unwrap();
+
+    let corpus_path = fixture.out.join("i8bin/slot_00_lens-0_corpus.i8bin");
+    let queries_path = fixture.out.join("i8bin/slot_00_lens-0_queries.i8bin");
+    let corpus = I8BinVectors::open(&corpus_path).unwrap();
+    let queries = I8BinVectors::open(&queries_path).unwrap();
+    assert_eq!(corpus.count(), 50);
+    assert_eq!(corpus.dim(), 4);
+    assert_eq!(queries.count(), 8);
+    assert_eq!(queries.dim(), 4);
+    assert_eq!(fs::metadata(&corpus_path).unwrap().len(), 8 + 50 * 4);
+
+    let plan: Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("partitioned_rrf_plan.json")).unwrap())
+            .unwrap();
+    assert!(
+        plan["slots"][0]["corpus"]
+            .as_str()
+            .unwrap()
+            .ends_with(".i8bin")
+    );
+    assert!(
+        plan["slots"][0]["queries"]
+            .as_str()
+            .unwrap()
+            .ends_with(".i8bin")
+    );
+
+    let report: Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("stream_fbin_report.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["vector_format"], "i8bin");
+    assert_eq!(report["fbin_dir"], Value::Null);
+    assert!(
+        report["vector_dir"]
+            .as_str()
+            .unwrap()
+            .replace('\\', "/")
+            .ends_with("/i8bin")
+    );
+    assert_eq!(
+        report["vector_storage_contract"],
+        "per-row-directional-symmetric-int8-normalized-on-read"
     );
     let _ = fs::remove_dir_all(fixture.root);
 }
@@ -120,6 +180,7 @@ impl Fixture {
             cost_override_json: None,
             embedding_model_id: None,
             min_bits: 0.05,
+            vector_format: VectorFormat::Fbin,
         }
     }
 }

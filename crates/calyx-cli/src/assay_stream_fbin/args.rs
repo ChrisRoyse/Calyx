@@ -4,6 +4,7 @@ use crate::assay_corpus_build::request::CorpusBuildRequest;
 use crate::error::{CliError, CliResult};
 
 use super::DEFAULT_MIN_BITS;
+use super::format::VectorFormat;
 
 #[derive(Clone, Debug)]
 pub(crate) struct Args {
@@ -19,6 +20,7 @@ pub(crate) struct Args {
     pub(crate) cost_override_json: Option<PathBuf>,
     pub(crate) embedding_model_id: Option<String>,
     pub(crate) min_bits: f32,
+    pub(crate) vector_format: VectorFormat,
 }
 
 impl Args {
@@ -35,6 +37,7 @@ impl Args {
         let mut cost_override_json = None;
         let mut embedding_model_id = None;
         let mut min_bits = DEFAULT_MIN_BITS;
+        let mut vector_format = VectorFormat::default();
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -55,6 +58,7 @@ impl Args {
                 "--cost-override-json" => cost_override_json = Some(PathBuf::from(next()?)),
                 "--embedding-model-id" => embedding_model_id = Some(next()?),
                 "--min-bits" => min_bits = parse_f32(&next()?, flag)?,
+                "--vector-format" => vector_format = VectorFormat::parse(&next()?)?,
                 other => {
                     return Err(CliError::usage(format!(
                         "unknown assay stream-fbin arg: {other}"
@@ -79,6 +83,7 @@ impl Args {
             cost_override_json,
             embedding_model_id,
             min_bits,
+            vector_format,
         };
         args.validate()?;
         Ok(args)

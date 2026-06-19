@@ -3,7 +3,6 @@ use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
-use calyx_sextant::index::VEC_MAGIC;
 use serde::Serialize;
 use serde_json::json;
 
@@ -18,6 +17,7 @@ mod bits;
 mod paths;
 mod progress;
 
+use super::format::{self, VectorFormat};
 use bits::{BitsLens, load_bits};
 use paths::{display, display_final, lens_prefix};
 
@@ -29,9 +29,12 @@ pub(crate) struct Evidence {
     timeline_path: String,
     progress_path: String,
     export_report_path: String,
-    fbin_dir: String,
+    vector_dir: String,
+    fbin_dir: Option<String>,
     vault_root: String,
     dataset: String,
+    vector_format: VectorFormat,
+    vector_storage_contract: &'static str,
     rows: RowStats,
     query_count: usize,
     batch_size: usize,
@@ -60,6 +63,7 @@ struct LensEvidence {
 struct FbinSink {
     corpus: BufWriter<File>,
     queries: BufWriter<File>,
+    format: VectorFormat,
     corpus_written: usize,
     query_written: usize,
 }
@@ -103,9 +107,9 @@ fn run_staged(
     lenses: Vec<(BuildLens, BitsLens)>,
     staging: &Path,
 ) -> CliResult<StagedExport> {
-    let fbin_dir = staging.join("fbin");
+    let vector_dir = staging.join(args.vector_format.dir_name());
     let vault_root = staging.join("vaults");
-    fs::create_dir_all(&fbin_dir).map_err(io_error)?;
+    fs::create_dir_all(&vector_dir).map_err(io_error)?;
     fs::create_dir_all(&vault_root).map_err(io_error)?;
     let mut roster = Vec::with_capacity(lenses.len());
     let mut progress = progress::ProgressLog::create(
@@ -117,8 +121,9 @@ fn run_staged(
     )?;
     for (slot, (lens, bits)) in lenses.into_iter().enumerate() {
         let prefix = lens_prefix(slot, lens.name());
-        let corpus_path = fbin_dir.join(format!("{prefix}_corpus.fbin"));
-        let queries_path = fbin_dir.join(format!("{prefix}_queries.fbin"));
+        let ext = args.vector_format.extension();
+        let corpus_path = vector_dir.join(format!("{prefix}_corpus.{ext}"));
+        let queries_path = vector_dir.join(format!("{prefix}_queries.{ext}"));
         let mut sink = create_sink(&corpus_path, &queries_path, lens.dim(), stats.rows, args)?;
         let write_timeline = slot == 0;
         let timeline_path = staging.join("timeline.jsonl");
@@ -143,8 +148,14 @@ fn run_staged(
             dim: lens.dim(),
             max_batch: lens.max_batch(),
             manifest: display(lens.manifest()),
-            corpus_path: display_final(args, &format!("fbin/{prefix}_corpus.fbin")),
-            queries_path: display_final(args, &format!("fbin/{prefix}_queries.fbin")),
+            corpus_path: display_final(
+                args,
+                &format!("{}/{prefix}_corpus.{ext}", args.vector_format.dir_name()),
+            ),
+            queries_path: display_final(
+                args,
+                &format!("{}/{prefix}_queries.{ext}", args.vector_format.dir_name()),
+            ),
             vault_path: display_final(args, &format!("vaults/{prefix}")),
             corpus_rows_written: sink.corpus_written,
             query_rows_written: sink.query_written,
@@ -162,9 +173,13 @@ fn run_staged(
         timeline_path: display_final(args, "timeline.jsonl"),
         progress_path: display_final(args, progress::FILE_NAME),
         export_report_path: display_final(args, "stream_fbin_report.json"),
-        fbin_dir: display_final(args, "fbin"),
+        vector_dir: display_final(args, args.vector_format.dir_name()),
+        fbin_dir: (args.vector_format == VectorFormat::Fbin)
+            .then(|| display_final(args, args.vector_format.dir_name())),
         vault_root: display_final(args, "vaults"),
         dataset: args.dataset.clone(),
+        vector_format: args.vector_format,
+        vector_storage_contract: args.vector_format.storage_contract(),
         rows: stats.clone(),
         query_count: args.query_count,
         batch_size: args.batch_size,
@@ -236,11 +251,12 @@ fn create_sink(
 ) -> CliResult<FbinSink> {
     let mut corpus = BufWriter::new(File::create(corpus_path).map_err(io_error)?);
     let mut queries = BufWriter::new(File::create(queries_path).map_err(io_error)?);
-    write_fbin_header(&mut corpus, dim, rows)?;
-    write_fbin_header(&mut queries, dim, args.query_count)?;
+    format::write_header(&mut corpus, args.vector_format, dim, rows)?;
+    format::write_header(&mut queries, args.vector_format, dim, args.query_count)?;
     Ok(FbinSink {
         corpus,
         queries,
+        format: args.vector_format,
         corpus_written: 0,
         query_written: 0,
     })
@@ -350,10 +366,10 @@ fn flush_batch(
     }
     for (vector, (row_idx, row)) in vectors.iter().zip(metas.iter()) {
         validate_vector(lens, vector)?;
-        write_f32_row(&mut sink.corpus, vector)?;
+        format::write_row(&mut sink.corpus, sink.format, vector)?;
         sink.corpus_written += 1;
         if *row_idx < args.query_count {
-            write_f32_row(&mut sink.queries, vector)?;
+            format::write_row(&mut sink.queries, sink.format, vector)?;
             sink.query_written += 1;
         }
         if let Some(writer) = timeline.as_mut() {
@@ -440,31 +456,6 @@ fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliR
         .map_err(CliError::from)?,
     )
     .map_err(io_error)
-}
-
-fn write_fbin_header(writer: &mut BufWriter<File>, dim: usize, count: usize) -> CliResult {
-    writer.write_all(&VEC_MAGIC).map_err(io_error)?;
-    writer
-        .write_all(
-            &u32::try_from(dim)
-                .map_err(|_| CliError::usage("fbin dim exceeds u32"))?
-                .to_le_bytes(),
-        )
-        .map_err(io_error)?;
-    writer
-        .write_all(
-            &u64::try_from(count)
-                .map_err(|_| CliError::usage("fbin count exceeds u64"))?
-                .to_le_bytes(),
-        )
-        .map_err(io_error)
-}
-
-fn write_f32_row(writer: &mut BufWriter<File>, vector: &[f32]) -> CliResult {
-    for value in vector {
-        writer.write_all(&value.to_le_bytes()).map_err(io_error)?;
-    }
-    Ok(())
 }
 
 fn fail_if_exists(path: &Path) -> CliResult {

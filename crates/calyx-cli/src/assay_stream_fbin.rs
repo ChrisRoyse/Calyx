@@ -1,6 +1,7 @@
-//! Stream real corpus rows through frozen lenses directly into per-slot FBIN.
+//! Stream real corpus rows through frozen lenses directly into per-slot vector files.
 
 mod args;
+mod format;
 mod rows;
 #[cfg(test)]
 mod tests;
