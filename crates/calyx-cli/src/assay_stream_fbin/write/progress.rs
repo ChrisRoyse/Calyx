@@ -183,13 +183,16 @@ impl ProgressLog {
             lens.query_rows_written = query_rows_written;
             lens.last_row_idx = Some(last_row_idx);
         }
-        if corpus_rows_written == self.state.rows_total
-            || corpus_rows_written.saturating_sub(self.last_snapshot_row) >= SNAPSHOT_ROW_INTERVAL
-        {
+        if self.snapshot_due(corpus_rows_written) {
             self.last_snapshot_row = corpus_rows_written;
             self.write_snapshot("batch_written")?;
         }
         Ok(())
+    }
+
+    pub(super) fn snapshot_due(&self, corpus_rows_written: usize) -> bool {
+        corpus_rows_written == self.state.rows_total
+            || corpus_rows_written.saturating_sub(self.last_snapshot_row) >= SNAPSHOT_ROW_INTERVAL
     }
 
     pub(super) fn lens_finished(
@@ -313,4 +316,48 @@ fn sync_parent_dir(path: &Path) -> CliResult {
 #[cfg(not(unix))]
 fn sync_parent_dir(_path: &Path) -> CliResult {
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_due_only_at_interval_or_lens_end() {
+        let mut log = ProgressLog {
+            path: PathBuf::new(),
+            tmp_path: PathBuf::new(),
+            published_path: PathBuf::new(),
+            state: ProgressState {
+                state: "running",
+                dataset: "unit".to_string(),
+                rows_jsonl: "rows.jsonl".to_string(),
+                out_dir: "out".to_string(),
+                staging_dir: "staging".to_string(),
+                rows_total: 25_000,
+                query_count: 100,
+                batch_size: 64,
+                min_bits: 0.05,
+                vector_format: "i8bin",
+                vector_storage_contract: "contract",
+                streaming_fbin_source: true,
+                temporal_counts_toward_a35: false,
+                temporal_lane_role: TEMPORAL_LANE_ROLE,
+                lens_total: 10,
+                lenses_completed: 0,
+                completed_corpus_rows: 0,
+                completed_query_rows: 0,
+                current_lens: None,
+            },
+            sequence: 0,
+            last_snapshot_row: 10_000,
+        };
+
+        assert!(!log.snapshot_due(19_999));
+        assert!(log.snapshot_due(20_000));
+        assert!(log.snapshot_due(25_000));
+
+        log.last_snapshot_row = 25_000;
+        assert!(!log.snapshot_due(25_001));
+    }
 }

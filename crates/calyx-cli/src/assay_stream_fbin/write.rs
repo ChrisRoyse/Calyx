@@ -342,6 +342,9 @@ fn flush_batch(
             write_timeline_row(writer, *row_idx, row, stream.args.query_count)?;
         }
     }
+    if stream.progress.snapshot_due(stream.sink.corpus_written) {
+        sync_sink(stream.sink)?;
+    }
     stream.progress.batch_written(
         stream.sink.corpus_written,
         stream.sink.query_written,
@@ -398,6 +401,10 @@ fn write_timeline_row(
 }
 
 fn finish_sink(sink: &mut FbinSink) -> CliResult {
+    sync_sink(sink)
+}
+
+fn sync_sink(sink: &mut FbinSink) -> CliResult {
     sink.corpus.flush().map_err(io_error)?;
     sink.queries.flush().map_err(io_error)?;
     sink.corpus.get_ref().sync_all().map_err(io_error)?;
