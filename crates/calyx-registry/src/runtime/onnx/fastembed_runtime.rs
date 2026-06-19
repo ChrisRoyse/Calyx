@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use calyx_core::{CalyxError, Modality, Result, SlotShape};
 use fastembed::{EmbeddingModel, TextEmbedding, TextInitOptions};
@@ -50,7 +51,12 @@ pub fn from_model_with_policy(
     )
     .map_err(|err| CalyxError::lens_unreachable(format!("ONNX runtime init failed: {err}")))?;
     let effective_cache = fastembed_cache_root(&cache_dir);
-    let files = resolve_files(&effective_cache, &info.model_code, &info.model_file)?;
+    let files = resolve_files(
+        &effective_cache,
+        &info.model_code,
+        &info.model_file,
+        &info.additional_files,
+    )?;
     let weights_sha256 = hash_files(&files.artifact_paths())?;
     let corpus_hash = sha256_digest(&[
         b"onnx-fastembed-mean-pool-v1",
@@ -79,6 +85,53 @@ pub fn from_model_with_policy(
     ))
 }
 
+pub fn from_model_name_with_policy(
+    name: impl Into<String>,
+    model_name: &str,
+    cache_dir: PathBuf,
+    provider_policy: OnnxProviderPolicy,
+) -> Result<OnnxLens> {
+    let model_name = model_from_name(model_name)?;
+    from_model_with_policy(name, model_name, cache_dir, provider_policy)
+}
+
+pub fn model_from_name(raw: &str) -> Result<EmbeddingModel> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(CalyxError::lens_unreachable(
+            "fastembed model name must not be empty",
+        ));
+    }
+    if let Ok(model) = EmbeddingModel::from_str(trimmed) {
+        return Ok(model);
+    }
+    match normalized(trimmed).as_str() {
+        "baai/bge-m3" | "bge-m3" => Ok(EmbeddingModel::BGEM3),
+        "nomic-ai/nomic-embed-text-v1.5" | "nomic-embed-text-v1.5" => {
+            Ok(EmbeddingModel::NomicEmbedTextV15)
+        }
+        "nomic-ai/nomic-embed-text-v1.5-q" | "nomic-embed-text-v1.5-q" => {
+            Ok(EmbeddingModel::NomicEmbedTextV15Q)
+        }
+        "intfloat/multilingual-e5-base" | "multilingual-e5-base" => {
+            Ok(EmbeddingModel::MultilingualE5Base)
+        }
+        "jinaai/jina-embeddings-v2-base-en" | "jina-embeddings-v2-base-en" => {
+            Ok(EmbeddingModel::JinaEmbeddingsV2BaseEN)
+        }
+        "snowflake/snowflake-arctic-embed-m" | "snowflake-arctic-embed-m" => {
+            Ok(EmbeddingModel::SnowflakeArcticEmbedM)
+        }
+        "snowflake/snowflake-arctic-embed-m-q" | "snowflake-arctic-embed-m-q" => {
+            Ok(EmbeddingModel::SnowflakeArcticEmbedMQ)
+        }
+        "alibaba-nlp/gte-base-en-v1.5" | "gte-base-en-v1.5" => Ok(EmbeddingModel::GTEBaseENV15),
+        other => Err(CalyxError::lens_unreachable(format!(
+            "unsupported fastembed model {other}; use a fastembed EmbeddingModel enum name or a supported HF repo id"
+        ))),
+    }
+}
+
 pub fn execution_providers(
     policy: OnnxProviderPolicy,
 ) -> Vec<fastembed::ExecutionProviderDispatch> {
@@ -93,26 +146,50 @@ pub fn execution_providers(
     }
 }
 
-fn resolve_files(cache_dir: &Path, model_code: &str, model_file: &str) -> Result<OnnxModelFiles> {
+fn resolve_files(
+    cache_dir: &Path,
+    model_code: &str,
+    model_file: &str,
+    additional_files: &[String],
+) -> Result<OnnxModelFiles> {
     let api = ApiBuilder::new()
         .with_cache_dir(cache_dir.to_path_buf())
         .with_progress(false)
         .build()
         .map_err(|err| CalyxError::lens_unreachable(format!("HF API init failed: {err}")))?;
     let repo = api.model(model_code.to_string());
+    let model_file = fetch(&repo, model_file)?;
+    let tokenizer = fetch(&repo, "tokenizer.json")?;
+    let config = fetch(&repo, "config.json")?;
+    let special_tokens_map = fetch(&repo, "special_tokens_map.json")?;
+    let tokenizer_config = fetch(&repo, "tokenizer_config.json")?;
+    let mut contract_paths = vec![
+        model_file.clone(),
+        tokenizer.clone(),
+        config.clone(),
+        special_tokens_map.clone(),
+        tokenizer_config.clone(),
+    ];
+    for file in additional_files {
+        contract_paths.push(fetch(&repo, file)?);
+    }
     Ok(OnnxModelFiles {
         cache_dir: cache_dir.to_path_buf(),
         model_code: model_code.to_string(),
-        model_file: fetch(&repo, model_file)?,
-        tokenizer: fetch(&repo, "tokenizer.json")?,
-        config: fetch(&repo, "config.json")?,
-        special_tokens_map: fetch(&repo, "special_tokens_map.json")?,
-        tokenizer_config: fetch(&repo, "tokenizer_config.json")?,
-        contract_paths: Vec::new(),
+        model_file,
+        tokenizer,
+        config,
+        special_tokens_map,
+        tokenizer_config,
+        contract_paths,
     })
 }
 
 fn fetch(repo: &hf_hub::api::sync::ApiRepo, filename: &str) -> Result<PathBuf> {
     repo.get(filename)
         .map_err(|err| CalyxError::lens_unreachable(format!("fetch {filename} failed: {err}")))
+}
+
+fn normalized(raw: &str) -> String {
+    raw.trim().to_ascii_lowercase()
 }

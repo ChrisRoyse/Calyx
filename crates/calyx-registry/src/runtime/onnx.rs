@@ -239,6 +239,15 @@ impl OnnxLens {
         fastembed_runtime::from_model_with_policy(name, model_name, cache_dir, provider_policy)
     }
 
+    pub fn from_model_name_with_policy(
+        name: impl Into<String>,
+        model_name: &str,
+        cache_dir: PathBuf,
+        provider_policy: OnnxProviderPolicy,
+    ) -> Result<Self> {
+        fastembed_runtime::from_model_name_with_policy(name, model_name, cache_dir, provider_policy)
+    }
+
     pub fn from_files(spec: OnnxFileSpec) -> Result<Self> {
         custom::from_files(spec)
     }

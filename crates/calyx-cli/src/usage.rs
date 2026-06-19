@@ -38,7 +38,7 @@ pub(crate) fn usage() -> &'static str {
        calyx healthcheck --config <calyx.toml> [--wait <secs>] [--out <json>]   (daemon-readiness: CUDA + VRAM + vault read)
        calyx lens add --manifest <manifest.json> [--home <dir>]
        calyx lens list [--home <dir>]
-       calyx lens commission --hf <id> --runtime <onnx-int8|candle-fp16|tei> [--home <dir>] [--out <dir>] [--name <n>] [--endpoint <url>] [--dim <n>]
+       calyx lens commission --hf <id|fastembed-model> --runtime <onnx-int8|fastembed-onnx|candle-fp16|tei> [--home <dir>] [--out <dir>] [--name <n>] [--endpoint <url>] [--dim <n>]
        calyx lens explain --manifest <manifest.json> [--input <text>|--input-file <path>] [--repeat <n>] [--full-vector]
        calyx assay corpus-build --rows-jsonl <rows.jsonl> --out-dir <dir> --dataset <name> --target-class <n> --manifest <manifest.json> --manifest <manifest.json> [--limit-per-class <n>] [--batch-size <n>] [--cost-override-json <json>]
        calyx assay gdelt-rows --source-dir <dir> --out <rows.jsonl> --manifest <manifest.json> [--dataset <name>] [--limit-per-class <n>|--max-rows <n>] [--actor-country <ISO3>] [--action-country <ISO2>] [--action-name-contains <text>]
