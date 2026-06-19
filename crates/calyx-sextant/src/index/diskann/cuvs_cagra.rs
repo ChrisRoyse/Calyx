@@ -136,7 +136,7 @@ impl CagraParams {
                 .max(graph_degree * 2)
                 .max(graph_degree + 1);
             (*self.0).build_algo = ffi::cuvsCagraGraphBuildAlgo::AUTO_SELECT;
-            (*self.0).nn_descent_niter = params.ef_construction.max(10).min(64);
+            (*self.0).nn_descent_niter = params.ef_construction.clamp(10, 64);
         }
     }
 }
