@@ -57,6 +57,11 @@ pub(crate) fn register_manifest_runtime(registry: &mut Registry, spec: LensSpec)
     }
 }
 
+pub(crate) fn manifest_runtime_id(spec: &LensSpec) -> Result<LensId> {
+    let mut registry = Registry::new();
+    register_manifest_runtime(&mut registry, spec.clone())
+}
+
 pub(crate) fn dim(shape: SlotShape) -> u32 {
     match shape {
         SlotShape::Dense(dim) | SlotShape::Sparse(dim) => dim,

@@ -8,7 +8,7 @@ use calyx_registry::{LensHealth, lens_spec_from_manifest_path};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
-use crate::lens_commands::support::runtime_name;
+use crate::lens_commands::support::{manifest_runtime_id, runtime_name};
 
 pub(super) const MIN_CONTENT_LENSES: usize = 10;
 pub(super) const CATALOG_VERSION: u16 = 1;
@@ -58,6 +58,8 @@ pub(super) struct TemplateLensRef {
     pub slot_key: String,
     pub lens_name: String,
     pub lens_id: LensId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_lens_id: Option<LensId>,
     pub weights_sha256: String,
     pub runtime: String,
     pub modality: Modality,
@@ -155,7 +157,7 @@ impl SavedPanelTemplate {
             slots.push(Slot {
                 slot_id,
                 slot_key: SlotKey::new(slot_id, lens.slot_key.clone()),
-                lens_id: lens.lens_id,
+                lens_id: lens.runtime_lens_id.unwrap_or(lens.lens_id),
                 shape: lens.shape,
                 modality: lens.modality,
                 asymmetry: Asymmetry::None,
@@ -218,6 +220,7 @@ pub(super) fn lens_ref_from_catalog(entry: &super::LensCatalogEntry) -> CliResul
             .lens_id
             .parse()
             .map_err(|err| CliError::usage(format!("parse lens_id {}: {err}", entry.lens_id)))?,
+        runtime_lens_id: Some(manifest_runtime_id(&spec)?),
         weights_sha256: entry.weights_sha256.clone(),
         runtime: runtime_name(&spec.runtime).to_string(),
         modality: spec.modality,
@@ -243,12 +246,25 @@ pub(super) fn template_error(
 
 fn validate_lenses(template: &SavedPanelTemplate) -> CliResult {
     let mut ids = BTreeSet::new();
+    let mut runtime_ids = BTreeSet::new();
     for lens in &template.lenses {
         if !ids.insert(lens.lens_id) {
             return Err(template_error(
                 TEMPLATE_INVALID,
                 format!("template {} repeats lens {}", template.name, lens.lens_id),
                 "remove duplicate lens ids from the template",
+            ));
+        }
+        if let Some(runtime_lens_id) = lens.runtime_lens_id
+            && !runtime_ids.insert(runtime_lens_id)
+        {
+            return Err(template_error(
+                TEMPLATE_INVALID,
+                format!(
+                    "template {} repeats runtime lens {}",
+                    template.name, runtime_lens_id
+                ),
+                "remove duplicate runtime lens ids from the template",
             ));
         }
         validate_weight_hash(&lens.weights_sha256)?;

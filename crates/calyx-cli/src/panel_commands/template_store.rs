@@ -334,7 +334,17 @@ fn register_template_lenses(
 ) -> CliResult<usize> {
     let mut added = 0;
     for lens in &template.lenses {
-        if registry.contains(lens.lens_id) {
+        let runtime_lens_id = lens.runtime_lens_id.ok_or_else(|| {
+            template_error(
+                TEMPLATE_INVALID,
+                format!(
+                    "template {} lens {} is missing runtime_lens_id",
+                    template.name, lens.lens_name
+                ),
+                "re-save the template from the current lens catalog before swapping it into a vault",
+            )
+        })?;
+        if registry.contains(runtime_lens_id) {
             continue;
         }
         let spec = lens_spec_from_manifest_path(Path::new(&lens.manifest))?;
@@ -349,10 +359,10 @@ fn register_template_lenses(
             ));
         }
         let registered = register_manifest_runtime(registry, spec)?;
-        if registered != lens.lens_id {
+        if registered != runtime_lens_id {
             return Err(template_error(
                 TEMPLATE_INVALID,
-                format!("runtime registered {registered}, expected {}", lens.lens_id),
+                format!("runtime registered {registered}, expected {runtime_lens_id}"),
                 "recommission the lens so runtime and manifest contracts agree",
             ));
         }
