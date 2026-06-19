@@ -121,4 +121,60 @@ swap_panel(vault, panel_template) -> diff          # bulk add/retire to match a 
 explain_lens(lens_id) -> {corpus_hash, axis, bits, redundancy, cost}
 ```
 
-**One sentence:** the Registry turns "frozen embedder" into a database object with a lifecycle, a capability card, and a one-call hot-swap — so the multi-lens system builds itself.
+## 7b. Templates are first-class, situation-specific, swappable (A36)
+
+A **panel template** is a named, versioned, content-addressed set of **≥ 10 lens specs** plus its measured ensemble signal — a real database object, not a hardcoded default. The right 10+ lenses **differ by what is being measured**, so the operator develops a library of templates and **swaps them in/out per vault or per query** without re-embedding existing constellations (A5).
+
+| Template (example) | ≥ 10 lenses | When |
+|---|---|---|
+| `video-capture` | semantic · image(SigLIP2) · image(DINOv2) · audio(CLAP) · speech-emotion · speaker(WavLM) · transcript(Whisper) · OCR-text · motion/scene · E2/E3/E4 temporal | video / multimodal streams |
+| `literary-essence` | semantic · style/register · syntax-meter/prosody · rhetorical-device · affect/sentiment · persona/voice · lexical-archaism · entity · paraphrase · E4 positional | replicating an author's voice/spirit (e.g. Shakespeare) |
+| `code-oracle` | semantic · AST · CFG · dataflow · type-graph · trace · diff · static-analysis · reasoning · oracle(anchor) · E2/E3/E4 | code understanding + pass/fail oracle |
+| `text-deep` | GTE/Qwen3 semantic · BGE-M3 dense · E5-Mistral · Nomic · Jina · SPLADE sparse · paraphrase · entity · causal(dual) · E2/E3/E4 | high-recall text retrieval at scale |
+
+**Same situation, same template; different situation, different template.** Video capture and "replicate Shakespeare's essence" share almost no lenses — the system must let us template each set and load it on demand. Template API (extends `§8`):
+
+```
+save_template(name, [lens_spec...], notes) -> TemplateId      # content-addressed; versioned
+list_templates() -> [TemplateId + ensemble_signal + n_lenses]
+swap_panel(vault, template) -> diff                           # bulk add/retire to match (≥10 enforced)
+profile_template(template, probe_set) -> EnsembleCard         # the template's measured fitness (§9)
+fork_template(template) -> editable copy                      # develop a new one from an existing
+```
+
+A template is admitted for testing only if it has **≥ 10 lenses** (A35) and a recorded `EnsembleCard` (§9); its **fitness for a situation is itself a number**, so picking a template is a measurement, not a guess.
+
+## 9. The 10+ roster: which lenses to try first, where to get them, how to value them
+
+**Where to get them (all free / open-weight, A34; HuggingFace via `hf_hub_token`).** Run dense lenses on the resident TEI services (`§2`, never throwaway TEI); image/audio via `external-cmd`/`onnx`; temporal/graph/scalar via `algorithmic`.
+
+**Text (dense + sparse) — try first, pick 5–7 *diverse* ones (diversity = low redundancy, A7):**
+- `gte-multilingual-base` (already live, TEI `:8088`) · `Qwen3-Embedding` (top MTEB multilingual/code) · `BGE-M3` (dense+sparse+multi-vector, 100+ langs) · `intfloat/e5-mistral-7b-instruct` · `nomic-embed-text-v1.5` · `jinaai/jina-embeddings-v3` · `NV-Embed-v2` · `Alibaba-NLP/gte-Qwen2` · `dunzhang/stella_en_1.5B_v5`.
+- **Sparse / lexical (a different signal, not just another dense model):** `naver/splade-v3` (the full-text lens, `DOCTRINE §3`).
+- **Reranker (cross-encoder, asymmetric):** the resident `gte` reranker (TEI `:8089`).
+
+**Multimodal / image:** `google/siglip2` (vision-language, multilingual) · `facebook/dinov2` (self-supervised — **diverse from CLIP/SigLIP**, different signal) · CLIP (baseline).
+
+**Audio / speech:** `laion/CLAP` (audio↔text) · `microsoft/wavlm-base-plus-sv` (speaker, the `media-default` identity-lock lens) · Whisper encoder (transcript) · a wav2vec2-based **speech-emotion** model.
+
+**Algorithmic (no weights, always available):** E2/E3/E4 temporal · AST/CFG/dataflow (code) · entity/graph/scalar encoders.
+
+**Choose for diversity, not just leaderboard rank.** Two top-MTEB dense models are often **redundant** (corr > 0.6 → A7 rejects the second); the panel's *intelligence* comes from **complementary** signal — a dense semantic model + a sparse lexical model + a reranker + an image model + an audio model carry far more joint bits than ten near-identical dense models. The capability card (`§5`) and the Ensemble Card (below) make this measurable.
+
+**How to value them in Calyx (value is associational — `07`, A35).** A lens's worth is **not** its solo benchmark; it is the signal it adds *given the others*. So we never profile one lens in isolation for a keep/cut decision — we measure it **inside the panel** of ≥ 10:
+
+```
+# the protocol (all numbers from Assay, 07; read back from the persisted assay store)
+1. assemble the ≥10-lens candidate panel over a real labeled probe corpus (BEIR/MS MARCO + domain anchors)
+2. per-lens solo signal     I(slot_k; anchor)                          # cheap first pass, NOT the decision
+3. per-lens MARGINAL value  I(panel; anchor) − I(panel∖k; anchor)      # the load-bearing number — needs the panel
+4. cross-term / SYNERGY     I(a,b; anchor) − max(I(a;anchor),I(b;anchor))   # the bits a pair adds together
+5. PID per lens             unique / redundant / synergistic bits      # partial-information decomposition
+6. pairwise redundancy      corr / NMI ≤ 0.6 to keep (A7)
+7. n_eff + panel sufficiency I(panel; anchor) vs H(anchor)             # is the 10+ panel even sufficient?
+→ EnsembleCard: keep / park / retire each lens by its *marginal* contribution; propose a new lens for any deficit (12)
+```
+
+> **You cannot do steps 3–5 with one or two lenses.** Marginal value, synergy, and PID are *defined only relative to the rest of the panel*; a triple (≥ 3) is the smallest system with non-trivial structure, and ≥ 10 is needed for stable estimates. This is the information-theoretic reason the testing floor is 10 (A35), not a preference.
+
+**One sentence:** the Registry turns "frozen embedder" into a database object with a lifecycle, a capability card, and a one-call hot-swap; templates turn "the right 10+ lenses for *this* job" into a swappable, measured object — so the multi-lens system builds itself.
