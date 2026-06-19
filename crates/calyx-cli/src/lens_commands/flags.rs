@@ -65,6 +65,15 @@ impl Flags {
         }
         Ok(())
     }
+
+    pub(crate) fn reject_list_flags(&self, command: &str) -> CliResult {
+        if self.home.is_some() || self.repeat.is_some() || self.full_vector {
+            return Err(CliError::usage(format!(
+                "{command} does not accept --home, --repeat, or --full-vector"
+            )));
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn value<'a>(args: &'a [String], index: usize, flag: &str) -> CliResult<&'a str> {

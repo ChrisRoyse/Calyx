@@ -37,6 +37,7 @@ pub(crate) fn usage() -> &'static str {
        calyx healthcheck [--wait <secs>] [--out <json>] [--secret-env <env>] [--calyx-home <dir>] [--vault <dir>] [--metrics-url <url>] [--require-env <name>]
        calyx healthcheck --config <calyx.toml> [--wait <secs>] [--out <json>]   (daemon-readiness: CUDA + VRAM + vault read)
        calyx lens add --manifest <manifest.json> [--home <dir>]
+       calyx lens card --manifest <manifest.json> [--input <text>|--input-file <path>]
        calyx lens list [--home <dir>]
        calyx lens commission --hf <id|fastembed-model> --runtime <onnx-int8|fastembed-onnx|candle-fp16|tei> [--home <dir>] [--out <dir>] [--name <n>] [--endpoint <url>] [--dim <n>]
        calyx lens explain --manifest <manifest.json> [--input <text>|--input-file <path>] [--repeat <n>] [--full-vector]
