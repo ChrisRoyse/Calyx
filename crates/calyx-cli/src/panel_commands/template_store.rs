@@ -187,10 +187,10 @@ impl TemplateStore {
         vault_dir: &Path,
         now_ms: u64,
     ) -> CliResult<TemplateSwap> {
-        let template = self.load(selector)?;
+        let mut template = self.load(selector)?;
         template.validate()?;
         let mut state = load_vault_panel_state(vault_dir)?;
-        let registered_lenses_added = register_template_lenses(&mut state.registry, &template)?;
+        let registered_lenses_added = register_template_lenses(&mut state.registry, &mut template)?;
         let mut panel = state.panel;
         let target = template.to_target_panel(now_ms);
         let diff = swap_panel_to_target(&mut panel, &target, now_ms);
@@ -330,21 +330,11 @@ fn version_ref<'a>(
 
 fn register_template_lenses(
     registry: &mut Registry,
-    template: &SavedPanelTemplate,
+    template: &mut SavedPanelTemplate,
 ) -> CliResult<usize> {
     let mut added = 0;
-    for lens in &template.lenses {
-        let runtime_lens_id = lens.runtime_lens_id.ok_or_else(|| {
-            template_error(
-                TEMPLATE_INVALID,
-                format!(
-                    "template {} lens {} is missing runtime_lens_id",
-                    template.name, lens.lens_name
-                ),
-                "re-save the template from the current lens catalog before swapping it into a vault",
-            )
-        })?;
-        if registry.contains(runtime_lens_id) {
+    for lens in &mut template.lenses {
+        if lens.runtime_lens_id.is_some_and(|id| registry.contains(id)) {
             continue;
         }
         let spec = lens_spec_from_manifest_path(Path::new(&lens.manifest))?;
@@ -359,13 +349,16 @@ fn register_template_lenses(
             ));
         }
         let registered = register_manifest_runtime(registry, spec)?;
-        if registered != runtime_lens_id {
+        if let Some(expected) = lens.runtime_lens_id
+            && registered != expected
+        {
             return Err(template_error(
                 TEMPLATE_INVALID,
-                format!("runtime registered {registered}, expected {runtime_lens_id}"),
+                format!("runtime registered {registered}, expected {expected}"),
                 "recommission the lens so runtime and manifest contracts agree",
             ));
         }
+        lens.runtime_lens_id = Some(registered);
         added += 1;
     }
     Ok(added)

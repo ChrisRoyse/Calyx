@@ -8,7 +8,7 @@ use calyx_registry::{LensHealth, lens_spec_from_manifest_path};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
-use crate::lens_commands::support::{manifest_runtime_id, runtime_name};
+use crate::lens_commands::support::runtime_name;
 
 pub(super) const MIN_CONTENT_LENSES: usize = 10;
 pub(super) const CATALOG_VERSION: u16 = 1;
@@ -220,7 +220,7 @@ pub(super) fn lens_ref_from_catalog(entry: &super::LensCatalogEntry) -> CliResul
             .lens_id
             .parse()
             .map_err(|err| CliError::usage(format!("parse lens_id {}: {err}", entry.lens_id)))?,
-        runtime_lens_id: Some(manifest_runtime_id(&spec)?),
+        runtime_lens_id: None,
         weights_sha256: entry.weights_sha256.clone(),
         runtime: runtime_name(&spec.runtime).to_string(),
         modality: spec.modality,
