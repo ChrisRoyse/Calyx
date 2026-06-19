@@ -5,6 +5,8 @@ use super::assignment::{
 use super::balance::balance_regions;
 use super::*;
 
+mod validation;
+
 #[test]
 fn gen_row_is_deterministic_and_normalized() {
     let a = gen_row(42, 12345, 64);

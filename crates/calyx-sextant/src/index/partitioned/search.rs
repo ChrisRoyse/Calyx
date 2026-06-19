@@ -6,7 +6,7 @@ use calyx_core::{Result, SlotId};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::index::{DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex};
+use crate::index::{DiskAnnSearch, DiskAnnSearchParams, SpannCentroidIndex, open_diskann_graph};
 
 use super::assignment::read_ids;
 use super::{
@@ -42,6 +42,7 @@ impl PartitionedSearch {
         let manifest: PartitionedManifest = serde_json::from_slice(&bytes).map_err(|e| {
             crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string())
         })?;
+        validate_manifest_artifacts(root, &manifest)?;
         let centroids = SpannCentroidIndex::open(root.join(CENTROID_DIR))?;
         let region_meta = manifest.regions.iter().map(|m| (m.id, m.clone())).collect();
         Ok(Self {
@@ -153,4 +154,73 @@ impl PartitionedSearch {
     pub fn dim(&self) -> usize {
         self.dim
     }
+}
+
+fn validate_manifest_artifacts(root: &Path, manifest: &PartitionedManifest) -> Result<()> {
+    validate_graph(
+        root,
+        &manifest.root_graph_rel,
+        manifest.dim,
+        manifest.n_regions as u64,
+        "root graph",
+    )?;
+    for meta in &manifest.regions {
+        let label = format!("region {} graph", meta.id);
+        validate_graph(
+            root,
+            &meta.graph_rel,
+            manifest.dim,
+            meta.count as u64,
+            &label,
+        )?;
+        let ids = read_ids(&root.join(&meta.ids_rel))?;
+        if ids.len() != meta.count {
+            return Err(corrupt(format!(
+                "region {} ids {} count {} != manifest count {}",
+                meta.id,
+                meta.ids_rel,
+                ids.len(),
+                meta.count
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_graph(
+    root: &Path,
+    rel: &str,
+    expected_dim: usize,
+    expected_nodes: u64,
+    label: &str,
+) -> Result<()> {
+    let path = root.join(rel);
+    let reader = open_diskann_graph(&path).map_err(|error| {
+        crate::error::sextant_error(
+            error.code,
+            format!(
+                "{label} {} failed validation: {}",
+                path.display(),
+                error.message
+            ),
+        )
+    })?;
+    let header = reader.header();
+    if header.dim as usize != expected_dim {
+        return Err(corrupt(format!(
+            "{label} {rel} dim {} != manifest dim {expected_dim}",
+            header.dim
+        )));
+    }
+    if header.node_count != expected_nodes {
+        return Err(corrupt(format!(
+            "{label} {rel} node_count {} != manifest count {expected_nodes}",
+            header.node_count
+        )));
+    }
+    Ok(())
+}
+
+fn corrupt(detail: impl std::fmt::Display) -> calyx_core::CalyxError {
+    crate::error::sextant_error(crate::error::CALYX_INDEX_CORRUPT, detail.to_string())
 }

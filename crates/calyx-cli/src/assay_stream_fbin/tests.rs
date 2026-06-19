@@ -125,6 +125,18 @@ fn stream_fbin_rejects_panel_below_a35_floor() {
 }
 
 #[test]
+fn stream_fbin_rejects_panel_floor_before_row_floor() {
+    let fixture = Fixture::new("stream-fbin-too-small-before-rows", 4, 4, 8);
+    let args = fixture.args(2);
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_PANEL_TOO_SMALL");
+    assert!(!fixture.out.exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn stream_fbin_rejects_existing_output_before_loading_inputs() {
     let fixture = Fixture::new("stream-fbin-output-exists-first", 10, 10, 50);
     fs::create_dir_all(&fixture.out).unwrap();

@@ -14,6 +14,7 @@ use super::rows::{self, Row, RowStats};
 use super::{MIN_A35_LENSES, io_error, local_error};
 
 mod bits;
+mod panel;
 mod paths;
 mod progress;
 
@@ -77,8 +78,9 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
     let staging = staging_dir(&args.out_dir);
     fail_if_exists(&args.out_dir)?;
     fail_if_exists(&staging)?;
-    let stats = rows::scan(args)?;
+    panel::validate_floor_before_runtime(args)?;
     let lenses = selected_lenses(args)?;
+    let stats = rows::scan(args)?;
     create_parent(&args.out_dir)?;
     fs::create_dir(&staging).map_err(io_error)?;
     let result = run_staged(args, &stats, lenses, &staging);
