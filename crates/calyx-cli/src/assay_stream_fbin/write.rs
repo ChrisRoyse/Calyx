@@ -15,8 +15,11 @@ use super::rows::{self, Row, RowStats};
 use super::{MIN_A35_LENSES, io_error, local_error};
 
 mod bits;
+mod paths;
+mod progress;
 
 use bits::{BitsLens, load_bits};
+use paths::{display, display_final, lens_prefix};
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Evidence {
@@ -24,6 +27,7 @@ pub(crate) struct Evidence {
     rows_jsonl: String,
     plan_path: String,
     timeline_path: String,
+    progress_path: String,
     export_report_path: String,
     fbin_dir: String,
     vault_root: String,
@@ -60,6 +64,11 @@ struct FbinSink {
     query_written: usize,
 }
 
+struct StagedExport {
+    evidence: Evidence,
+    progress: progress::ProgressLog,
+}
+
 pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
     let stats = rows::scan(args)?;
     let lenses = selected_lenses(args)?;
@@ -70,9 +79,16 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
     fs::create_dir(&staging).map_err(io_error)?;
     let result = run_staged(args, &stats, lenses, &staging);
     match result {
-        Ok(evidence) => {
-            fs::rename(&staging, &args.out_dir).map_err(io_error)?;
-            Ok(evidence)
+        Ok(mut staged) => {
+            if let Err(error) = fs::rename(&staging, &args.out_dir) {
+                let _ = fs::remove_dir_all(&staging);
+                return Err(io_error(error));
+            }
+            if let Err(error) = staged.progress.export_finished_after_promotion() {
+                let _ = fs::remove_dir_all(&args.out_dir);
+                return Err(error);
+            }
+            Ok(staged.evidence)
         }
         Err(error) => {
             let _ = fs::remove_dir_all(&staging);
@@ -86,12 +102,19 @@ fn run_staged(
     stats: &RowStats,
     lenses: Vec<(BuildLens, BitsLens)>,
     staging: &Path,
-) -> CliResult<Evidence> {
+) -> CliResult<StagedExport> {
     let fbin_dir = staging.join("fbin");
     let vault_root = staging.join("vaults");
     fs::create_dir_all(&fbin_dir).map_err(io_error)?;
     fs::create_dir_all(&vault_root).map_err(io_error)?;
     let mut roster = Vec::with_capacity(lenses.len());
+    let mut progress = progress::ProgressLog::create(
+        &staging.join(progress::FILE_NAME),
+        args,
+        stats,
+        lenses.len(),
+        staging,
+    )?;
     for (slot, (lens, bits)) in lenses.into_iter().enumerate() {
         let prefix = lens_prefix(slot, lens.name());
         let corpus_path = fbin_dir.join(format!("{prefix}_corpus.fbin"));
@@ -99,6 +122,7 @@ fn run_staged(
         let mut sink = create_sink(&corpus_path, &queries_path, lens.dim(), stats.rows, args)?;
         let write_timeline = slot == 0;
         let timeline_path = staging.join("timeline.jsonl");
+        progress.lens_started(slot, &lens, bits.bits_about)?;
         stream_lens(
             args,
             stats,
@@ -106,8 +130,10 @@ fn run_staged(
             &mut sink,
             write_timeline,
             &timeline_path,
+            &mut progress,
         )?;
         finish_sink(&mut sink)?;
+        progress.lens_finished(sink.corpus_written, sink.query_written)?;
         roster.push(LensEvidence {
             slot: u16::try_from(slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
             name: lens.name().to_string(),
@@ -134,6 +160,7 @@ fn run_staged(
         rows_jsonl: display(&args.rows_jsonl),
         plan_path: display_final(args, "partitioned_rrf_plan.json"),
         timeline_path: display_final(args, "timeline.jsonl"),
+        progress_path: display_final(args, progress::FILE_NAME),
         export_report_path: display_final(args, "stream_fbin_report.json"),
         fbin_dir: display_final(args, "fbin"),
         vault_root: display_final(args, "vaults"),
@@ -150,7 +177,7 @@ fn run_staged(
         serde_json::to_vec_pretty(&evidence).map_err(CliError::from)?,
     )
     .map_err(io_error)?;
-    Ok(evidence)
+    Ok(StagedExport { evidence, progress })
 }
 
 fn selected_lenses(args: &Args) -> CliResult<Vec<(BuildLens, BitsLens)>> {
@@ -226,6 +253,7 @@ fn stream_lens(
     sink: &mut FbinSink,
     write_timeline: bool,
     timeline_path: &Path,
+    progress: &mut progress::ProgressLog,
 ) -> CliResult {
     let mut timeline = if write_timeline {
         Some(BufWriter::new(
@@ -240,11 +268,27 @@ fn stream_lens(
         texts.push(row.text.clone());
         metas.push((row_idx, row));
         if texts.len() >= lens.effective_batch_size(args.batch_size) {
-            flush_batch(args, lens, sink, &mut timeline, &mut texts, &mut metas)?;
+            flush_batch(
+                args,
+                lens,
+                sink,
+                &mut timeline,
+                &mut texts,
+                &mut metas,
+                progress,
+            )?;
         }
         Ok(())
     })?;
-    flush_batch(args, lens, sink, &mut timeline, &mut texts, &mut metas)?;
+    flush_batch(
+        args,
+        lens,
+        sink,
+        &mut timeline,
+        &mut texts,
+        &mut metas,
+        progress,
+    )?;
     if sink.corpus_written != stats.rows || sink.query_written != args.query_count {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_COUNT_MISMATCH",
@@ -273,10 +317,18 @@ fn flush_batch(
     timeline: &mut Option<BufWriter<File>>,
     texts: &mut Vec<String>,
     metas: &mut Vec<(usize, Row)>,
+    progress: &mut progress::ProgressLog,
 ) -> CliResult {
     if texts.is_empty() {
         return Ok(());
     }
+    let last_row_idx = metas.last().map(|(row_idx, _)| *row_idx).ok_or_else(|| {
+        local_error(
+            "CALYX_FSV_ASSAY_STREAM_FBIN_BATCH_EMPTY",
+            "batch metadata is empty while text batch is non-empty",
+            "fix stream-fbin batching before trusting progress or FBIN output",
+        )
+    })?;
     let vectors = measure_text_batch(lens, texts, args.batch_size).map_err(|error| {
         local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_MEASURE",
@@ -308,6 +360,7 @@ fn flush_batch(
             write_timeline_row(writer, *row_idx, row, args.query_count)?;
         }
     }
+    progress.batch_written(sink.corpus_written, sink.query_written, last_row_idx)?;
     texts.clear();
     metas.clear();
     Ok(())
@@ -440,25 +493,4 @@ fn staging_dir(out_dir: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("assay-stream-fbin");
     out_dir.with_file_name(format!(".{name}.tmp-{}", process::id()))
-}
-
-fn lens_prefix(slot: usize, name: &str) -> String {
-    format!("slot_{slot:02}_{}", safe_name(name))
-}
-
-fn safe_name(name: &str) -> String {
-    name.chars()
-        .map(|ch| match ch {
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => ch,
-            _ => '_',
-        })
-        .collect()
-}
-
-fn display_final(args: &Args, rel: &str) -> String {
-    display(&args.out_dir.join(rel))
-}
-
-fn display(path: &Path) -> String {
-    path.display().to_string()
 }

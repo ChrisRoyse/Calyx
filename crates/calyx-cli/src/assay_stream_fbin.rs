@@ -2,6 +2,8 @@
 
 mod args;
 mod rows;
+#[cfg(test)]
+mod tests;
 mod write;
 
 use calyx_core::CalyxError;
