@@ -16,6 +16,20 @@ if [[ -f "$repo_root/env.sh" ]]; then
       ;;
   esac
 fi
+calyx_home_real=""
+strict_calyx_home=0
+if [[ -n "${CALYX_HOME:-}" && -d "${CALYX_HOME:-}" ]]; then
+  calyx_home_real="$(cd "$CALYX_HOME" && pwd -P)"
+  case "$repo_root" in
+    "$calyx_home_real"|"$calyx_home_real"/*)
+      strict_calyx_home=1
+      ;;
+  esac
+fi
+if [[ "$strict_calyx_home" -eq 1 && -z "${CALYX_ELF_RUNPATH:-}" ]]; then
+  echo "ERROR: CALYX_ELF_RUNPATH is empty after sourcing env.sh; refusing a verified aiwonder build" >&2
+  exit 1
+fi
 
 usage() {
   cat >&2 <<'USAGE'
@@ -105,8 +119,35 @@ require_tool strings
 if [[ -z "$target_dir" ]]; then
   target_dir="${CARGO_TARGET_DIR:-${CALYX_CARGO_TARGET_DIR:-$repo_root/target}}"
 fi
+target_parent="$(dirname "$target_dir")"
+target_name="$(basename "$target_dir")"
+mkdir -p "$target_parent"
+target_parent="$(cd "$target_parent" && pwd -P)"
+target_dir="$target_parent/$target_name"
+if [[ "$strict_calyx_home" -eq 1 ]]; then
+  case "$target_dir" in
+    "$calyx_home_real"|"$calyx_home_real"/*) ;;
+    *)
+      echo "ERROR: verified aiwonder builds must keep target output under CALYX_HOME" >&2
+      echo "ERROR: target_dir=$target_dir" >&2
+      echo "ERROR: CALYX_HOME=$calyx_home_real" >&2
+      exit 1
+      ;;
+  esac
+fi
 mkdir -p "$target_dir"
 target_dir="$(cd "$target_dir" && pwd -P)"
+if [[ "$strict_calyx_home" -eq 1 ]]; then
+  case "$target_dir" in
+    "$calyx_home_real"|"$calyx_home_real"/*) ;;
+    *)
+      echo "ERROR: verified aiwonder target resolves outside CALYX_HOME after canonicalization" >&2
+      echo "ERROR: target_dir=$target_dir" >&2
+      echo "ERROR: CALYX_HOME=$calyx_home_real" >&2
+      exit 1
+      ;;
+  esac
+fi
 
 head_sha="$(git -C "$repo_root" rev-parse --verify HEAD)"
 if [[ -n "$expect_head" && "$head_sha" != "$expect_head"* ]]; then
