@@ -103,7 +103,7 @@ require_tool python3
 require_tool strings
 
 if [[ -z "$target_dir" ]]; then
-  target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
+  target_dir="${CARGO_TARGET_DIR:-${CALYX_CARGO_TARGET_DIR:-$repo_root/target}}"
 fi
 mkdir -p "$target_dir"
 target_dir="$(cd "$target_dir" && pwd -P)"
@@ -187,5 +187,31 @@ if stat --version >/dev/null 2>&1; then
   stat -c '[build-verified] binary size=%s mtime=%y path=%n' "$binary"
 else
   stat "$binary"
+fi
+
+if [[ "$(uname -s 2>/dev/null || true)" == "Linux" && -n "${CALYX_ELF_RUNPATH:-}" ]]; then
+  require_tool readelf
+  dynamic_section="$(readelf -d "$binary")"
+  if ! grep -Fq 'RPATH' <<<"$dynamic_section"; then
+    echo "ERROR: binary is missing ELF RPATH; source env.sh and rebuild" >&2
+    exit 1
+  fi
+  IFS=: read -r -a runpath_dirs <<< "$CALYX_ELF_RUNPATH"
+  for runpath_dir in "${runpath_dirs[@]}"; do
+    if ! grep -Fq -- "$runpath_dir" <<<"$dynamic_section"; then
+      echo "ERROR: binary RPATH is missing required directory: $runpath_dir" >&2
+      exit 1
+    fi
+  done
+  ldd_output="$(env -u LD_LIBRARY_PATH ldd "$binary")"
+  if grep -Fq 'not found' <<<"$ldd_output"; then
+    echo "ERROR: binary has unresolved dynamic libraries without LD_LIBRARY_PATH:" >&2
+    grep -F 'not found' <<<"$ldd_output" >&2
+    exit 1
+  fi
+  echo "[build-verified] elf_rpath=$CALYX_ELF_RUNPATH"
+  grep -E 'libcuvs|libraft|librmm|librapids|libcudart|libcuda|libnvrtc|libcurand|libcublas' \
+    <<<"$ldd_output" || true
+  unset dynamic_section ldd_output runpath_dir runpath_dirs
 fi
 echo "CALYX_VERIFIED_BINARY=$binary"

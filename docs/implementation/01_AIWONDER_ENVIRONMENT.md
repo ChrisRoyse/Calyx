@@ -21,11 +21,14 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
    `source /home/croyse/calyx/repo/env.sh` first. That entrypoint sources
    Rust, exposes `CALYX_CARGO_TARGET_DIR`, clears any inherited
    `CARGO_TARGET_DIR` outside `CALYX_HOME`, exports the aiwonder-built ONNX
-   Runtime CUDA 13 dynamic library path, and pins CUDA discovery to
+   Runtime CUDA 13 dynamic library path, exports the cuVS/RAFT/RMM/CUDA
+   runtime library path, bakes those paths into verified Linux release builds
+   as ELF `RPATH`, and pins CUDA discovery to
    `/usr/local/cuda/bin/nvcc` so Rust CUDA build scripts derive
    `/usr/local/cuda/include`, not `/usr/local/include`. Verified builds should
    use `scripts/build-verified-calyx.sh`, which sets and readbacks
-   `CARGO_TARGET_DIR` for that command.
+   `CARGO_TARGET_DIR` for that command and rejects unresolved ELF dynamic
+   dependencies without relying on `LD_LIBRARY_PATH`.
 
 ## 2. Verified hardware & OS (live readback 2026-06-18)
 
@@ -35,8 +38,8 @@ verified** picture of the box (readback 2026-06-18) and the binding rule that
 | OS | Ubuntu **26.04 LTS**, kernel **7.0.0-15-generic**, systemd, UTC |
 | CPU | 32 threads (Ryzen 9-class, 16c/32t) |
 | RAM | **121 GiB** total, ~90 GiB available steady-state, **0 swap** |
-| GPU | **RTX 5090**, Blackwell, **sm_120 (compute_cap 12.0)**, **32607 MiB**, driver **595.71.05** |
-| CUDA toolkit | **13.3** installed (`/usr/local/cuda` → `/usr/local/cuda-13.3`; also 13.2, 13.1, 13.0). `nvcc` V13.3.33 works |
+| GPU | **RTX 5090**, Blackwell, **sm_120 (compute_cap 12.0)**, **32607 MiB**, driver **610.43.02** |
+| CUDA toolkit | **13.3** installed (`/usr/local/cuda` → `/usr/local/cuda-13.3`; also 13.2, 13.1, 13.0). `nvcc` V13.3.33 works; `nvidia-smi` reports CUDA UMD 13.3 |
 | Root FS | `/dev/nvme0n1p2` ext4, 1.8 TB, **~880 GB free** (holds `/home/croyse`) |
 | ZFS hot | `hotpool` 1.81 TB, **~1.52 TB free** → `/zfs/hot/*` (no redundancy) |
 | ZFS cold | `archive` 9.09 TB, **~8.49 TB free** → `/zfs/archive/*` (HDD) |
@@ -108,9 +111,15 @@ inside `CALYX_HOME`. `repo/env.sh` exposes
 `CALYX_ORT_LIB_DIR=/home/croyse/calyx/vendor/onnxruntime-v1.26.0/build/Linux/Release`,
 `ORT_DYLIB_PATH=$CALYX_ORT_LIB_DIR/libonnxruntime.so`, and prepends that
 directory to `LD_LIBRARY_PATH`; the `ort/load-dynamic` crates intentionally
-fail closed if those bytes are missing. `HF_HOME=.../.hf-cache` keeps
-model/cache output inside `CALYX_HOME`. `repo/env.sh` is the single entrypoint
-every session sources.
+fail closed if those bytes are missing. It also discovers the aiwonder cuVS
+wheel (`libcuvs-cu13==26.6.0`), CUDA 13.3 runtime libraries, RAFT/RMM support
+libraries, and NVIDIA wheel libraries, exports their joined
+`CALYX_ELF_RUNPATH`, and appends matching `-Wl,-rpath,...` flags to Rust builds
+that source the entrypoint. `scripts/build-verified-calyx.sh` reads the
+produced ELF dynamic section and runs `ldd` with `LD_LIBRARY_PATH` cleared, so a
+release binary that would only run in a specially sourced shell fails the gate
+instead. `HF_HOME=.../.hf-cache` keeps model/cache output inside `CALYX_HOME`.
+`repo/env.sh` is the single entrypoint every session sources.
 
 ### Target ZFS datasets (preferred for hot/cold data; sudo-gated, one-time)
 Matches PRD `04 §3` / `16 §3`. Create via authorized password-backed sudo

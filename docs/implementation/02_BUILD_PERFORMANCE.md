@@ -103,12 +103,15 @@ scripts/build-verified-calyx.sh \
   --require-string 'assay bits-validate'
 ```
 
-The script sets `CARGO_TARGET_DIR` for that invocation, reads
+The script defaults to `CALYX_CARGO_TARGET_DIR` when present, sets
+`CARGO_TARGET_DIR` for that invocation, reads
 `cargo metadata --no-deps` back to confirm `workspace_root` and
 `target_directory`, builds `calyx-cli`, inspects the produced binary with
-`strings`, and prints `CALYX_VERIFIED_BINARY=<path>`. A missing command string,
-dirty worktree (when requested), wrong head, or mismatched Cargo metadata is a
-hard error.
+`strings`, reads the ELF dynamic section, and runs `ldd` with
+`LD_LIBRARY_PATH` cleared to prove all startup shared libraries resolve from
+the binary's `RPATH` or system loader paths. A missing command string, dirty
+worktree (when requested), wrong head, mismatched Cargo metadata, missing
+`RPATH`, or unresolved dynamic library is a hard error.
 
 ## 6. Provisioning a (re)built host
 
