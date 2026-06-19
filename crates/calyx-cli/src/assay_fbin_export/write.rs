@@ -158,7 +158,7 @@ fn stream_vectors(
         let row = data::parse_vector_row(line_idx, line)?;
         data::validate_row(line_idx, &row)?;
         data::ensure_selected_present(&row, &selected_set, line_idx)?;
-        for name in &selected_set {
+        for name in selected {
             let vector = &row.lenses[name];
             validate_selected_vector(line_idx, name, vector, dims[name])?;
             write_selected_row(

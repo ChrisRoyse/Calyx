@@ -23,6 +23,12 @@ pub(super) struct LensMeta {
     pub(super) weights_sha256: String,
 }
 
+#[derive(Debug)]
+pub(super) struct LensCatalog {
+    pub(super) order: Vec<String>,
+    pub(super) meta: BTreeMap<String, LensMeta>,
+}
+
 #[derive(Debug, Deserialize)]
 pub(super) struct BitsLens {
     pub(super) name: String,
@@ -182,10 +188,10 @@ pub(super) fn row_dims(line_idx: usize, row: &VectorRow) -> CliResult<BTreeMap<S
     Ok(dims)
 }
 
-pub(super) fn load_lens_meta(
+pub(super) fn load_lens_catalog(
     corpus_dir: &Path,
     dims: &BTreeMap<String, usize>,
-) -> CliResult<BTreeMap<String, LensMeta>> {
+) -> CliResult<LensCatalog> {
     let path = corpus_dir.join("corpus_build_report.json");
     let report: BuildReport = serde_json::from_slice(&fs::read(&path).map_err(|error| {
         local_error(
@@ -201,10 +207,24 @@ pub(super) fn load_lens_meta(
             "rerun assay corpus-build and inspect corpus_build_report.json",
         )
     })?;
+    let mut order = Vec::new();
     let mut meta = BTreeMap::new();
+    let mut seen = BTreeSet::new();
     for lens in report.lenses {
+        if !seen.insert(lens.name.clone()) {
+            return Err(local_error(
+                "CALYX_FSV_ASSAY_FBIN_EXPORT_METADATA_DUPLICATE",
+                format!(
+                    "lens {} appears more than once in corpus_build_report.json",
+                    lens.name
+                ),
+                "rerun assay corpus-build so the frozen lens roster has unique names",
+            ));
+        }
         if dims.contains_key(&lens.name) {
-            meta.insert(lens.name.clone(), lens_meta(corpus_dir, &lens)?);
+            let name = lens.name.clone();
+            meta.insert(name.clone(), lens_meta(corpus_dir, &lens)?);
+            order.push(name);
         }
     }
     for name in dims.keys() {
@@ -216,7 +236,7 @@ pub(super) fn load_lens_meta(
             ));
         }
     }
-    Ok(meta)
+    Ok(LensCatalog { order, meta })
 }
 
 fn lens_meta(corpus_dir: &Path, lens: &BuildLensRef) -> CliResult<LensMeta> {
@@ -266,13 +286,13 @@ pub(super) fn load_bits_report(path: &Path) -> CliResult<BTreeMap<String, BitsLe
 }
 
 pub(super) fn selected_lenses(
-    dims: &BTreeMap<String, usize>,
+    lens_order: &[String],
     meta: &BTreeMap<String, LensMeta>,
     bits: &BTreeMap<String, BitsLens>,
     min_bits: f32,
 ) -> CliResult<Vec<String>> {
-    let selected = dims
-        .keys()
+    let selected = lens_order
+        .iter()
         .filter(|name| meta.contains_key(*name))
         .filter(|name| admitted(bits.get(*name), min_bits))
         .cloned()

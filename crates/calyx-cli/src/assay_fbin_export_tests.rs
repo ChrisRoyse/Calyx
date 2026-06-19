@@ -58,6 +58,56 @@ fn export_fbin_writes_headers_plan_and_readback_report() {
 }
 
 #[test]
+fn export_fbin_preserves_corpus_build_lens_order() {
+    let names = vec![
+        "zulu-lens",
+        "alpha-lens",
+        "mercury-lens",
+        "bravo-lens",
+        "theta-lens",
+        "charlie-lens",
+        "omega-lens",
+        "delta-lens",
+        "kappa-lens",
+        "echo-lens",
+    ];
+    let fixture = Fixture::with_names("export-fbin-corpus-order", &names, 10, 4);
+    let args = fixture.args(2);
+
+    let evidence = export_fbin(&args).unwrap();
+
+    let evidence_names = evidence
+        .lens_roster
+        .iter()
+        .map(|lens| lens.name.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(evidence_names, names);
+    let plan: Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("partitioned_rrf_plan.json")).unwrap())
+            .unwrap();
+    let plan_names = plan["slots"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|slot| slot["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(plan_names, names);
+    assert!(
+        fixture
+            .out
+            .join("fbin/slot_00_zulu-lens_corpus.fbin")
+            .is_file()
+    );
+    assert!(
+        fixture
+            .out
+            .join("fbin/slot_01_alpha-lens_corpus.fbin")
+            .is_file()
+    );
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn export_fbin_rejects_query_count_above_rows() {
     let fixture = Fixture::new("export-fbin-query-too-large", 10, 3);
     let args = fixture.args(4);
@@ -126,17 +176,35 @@ struct Fixture {
 
 impl Fixture {
     fn new(name: &str, admitted_lenses: usize, rows: usize) -> Self {
+        let names = (0..10).map(|idx| format!("lens-{idx}")).collect::<Vec<_>>();
+        Self::with_names(name, &names, admitted_lenses, rows)
+    }
+
+    fn with_names(
+        name: &str,
+        names: &[impl AsRef<str>],
+        admitted_lenses: usize,
+        rows: usize,
+    ) -> Self {
         let root = temp_root(name);
         let corpus = root.join("corpus");
         let manifests = root.join("manifests");
         let out = root.join("out");
         fs::create_dir_all(&corpus).unwrap();
         fs::create_dir_all(&manifests).unwrap();
-        let manifest_paths = write_manifests(&manifests, 10);
-        write_vectors(&corpus.join("vectors.jsonl"), 10, rows);
-        write_build_report(&corpus.join("corpus_build_report.json"), &manifest_paths);
+        let names = names
+            .iter()
+            .map(|name| name.as_ref().to_string())
+            .collect::<Vec<_>>();
+        let manifest_paths = write_manifests(&manifests, &names);
+        write_vectors(&corpus.join("vectors.jsonl"), &names, rows);
+        write_build_report(
+            &corpus.join("corpus_build_report.json"),
+            &names,
+            &manifest_paths,
+        );
         let bits = root.join("assay_abundance.json");
-        write_bits(&bits, 10, admitted_lenses);
+        write_bits(&bits, &names, admitted_lenses);
         Self {
             root,
             corpus,
@@ -156,14 +224,16 @@ impl Fixture {
     }
 }
 
-fn write_vectors(path: &Path, lenses: usize, rows: usize) {
+fn write_vectors(path: &Path, lenses: &[String], rows: usize) {
     let mut lines = String::new();
     for row in 0..rows {
-        let lens_map = (0..lenses)
-            .map(|lens| {
+        let lens_map = lenses
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| {
                 (
-                    format!("lens-{lens}"),
-                    serde_json::json!([row as f32 + 0.1, lens as f32 + 0.2, 1.0]),
+                    name.clone(),
+                    serde_json::json!([row as f32 + 0.1, idx as f32 + 0.2, 1.0]),
                 )
             })
             .collect::<serde_json::Map<_, _>>();
@@ -184,13 +254,13 @@ fn write_vectors(path: &Path, lenses: usize, rows: usize) {
     fs::write(path, lines).unwrap();
 }
 
-fn write_build_report(path: &Path, manifests: &[PathBuf]) {
+fn write_build_report(path: &Path, names: &[String], manifests: &[PathBuf]) {
     let lenses = manifests
         .iter()
-        .enumerate()
-        .map(|(idx, manifest)| {
+        .zip(names)
+        .map(|(manifest, name)| {
             serde_json::json!({
-                "name": format!("lens-{idx}"),
+                "name": name,
                 "manifest": manifest
             })
         })
@@ -202,11 +272,13 @@ fn write_build_report(path: &Path, manifests: &[PathBuf]) {
     .unwrap();
 }
 
-fn write_bits(path: &Path, lenses: usize, admitted: usize) {
-    let lenses = (0..lenses)
-        .map(|idx| {
+fn write_bits(path: &Path, lenses: &[String], admitted: usize) {
+    let lenses = lenses
+        .iter()
+        .enumerate()
+        .map(|(idx, name)| {
             serde_json::json!({
-                "name": format!("lens-{idx}"),
+                "name": name,
                 "bits_about": 0.2,
                 "admitted": idx < admitted
             })
@@ -219,12 +291,13 @@ fn write_bits(path: &Path, lenses: usize, admitted: usize) {
     .unwrap();
 }
 
-fn write_manifests(root: &Path, count: usize) -> Vec<PathBuf> {
-    (0..count)
-        .map(|idx| {
-            let path = root.join(format!("lens-{idx}.json"));
+fn write_manifests(root: &Path, names: &[String]) -> Vec<PathBuf> {
+    names
+        .iter()
+        .map(|name| {
+            let path = root.join(format!("{name}.json"));
             let manifest = LensForgeManifest {
-                name: format!("lens-{idx}"),
+                name: name.clone(),
                 modality: Modality::Text,
                 runtime: "algorithmic:one-hot:3".to_string(),
                 dim: 3,
@@ -234,7 +307,7 @@ fn write_manifests(root: &Path, count: usize) -> Vec<PathBuf> {
                 files: Vec::new(),
                 pooling: "algorithmic".to_string(),
                 norm: "none".to_string(),
-                source_hf_id: format!("calyx/lens-{idx}"),
+                source_hf_id: format!("calyx/{name}"),
                 endpoint: None,
                 license: Some("apache-2.0".to_string()),
                 non_commercial: false,

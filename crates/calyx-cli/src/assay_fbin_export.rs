@@ -67,10 +67,10 @@ fn export_fbin(args: &Args) -> CliResult<ExportEvidence> {
             "choose a query-count at or below the persisted vectors.jsonl row count",
         ));
     }
-    let meta = data::load_lens_meta(&args.corpus_dir, &scan.lens_dims)?;
+    let catalog = data::load_lens_catalog(&args.corpus_dir, &scan.lens_dims)?;
     let bits = data::load_bits_report(&args.bits_report)?;
-    let selected = data::selected_lenses(&scan.lens_dims, &meta, &bits, args.min_bits)?;
-    write::write_export(args, &vectors_path, &scan, &meta, &bits, &selected)
+    let selected = data::selected_lenses(&catalog.order, &catalog.meta, &bits, args.min_bits)?;
+    write::write_export(args, &vectors_path, &scan, &catalog.meta, &bits, &selected)
 }
 
 pub(super) fn local_error(
