@@ -1,5 +1,8 @@
-use calyx_core::{CalyxError, SlotShape, SlotVector};
-use calyx_registry::{LensRuntime, NormPolicy};
+use calyx_core::{CalyxError, LensId, Modality, Result, SlotShape, SlotVector};
+use calyx_registry::{
+    AlgorithmicLens, CandleLens, FrozenLensContract, LensRuntime, LensSpec, MultimodalAdapterLens,
+    NormPolicy, OnnxLens, Registry, StaticLookupLens, TeiHttpLens,
+};
 
 use crate::error::{CliError, CliResult};
 
@@ -15,11 +18,73 @@ pub(crate) fn runtime_name(runtime: &LensRuntime) -> &'static str {
     }
 }
 
+pub(crate) fn register_manifest_runtime(registry: &mut Registry, spec: LensSpec) -> Result<LensId> {
+    match &spec.runtime {
+        LensRuntime::Onnx { .. } => {
+            let lens = OnnxLens::from_lens_spec(&spec)?;
+            let contract = lens.contract().clone();
+            registry.register_frozen_with_spec(lens, contract, spec)
+        }
+        LensRuntime::CandleLocal { .. } => {
+            let lens = CandleLens::from_lens_spec(&spec)?;
+            let contract = lens.contract().clone();
+            registry.register_frozen_with_spec(lens, contract, spec)
+        }
+        LensRuntime::StaticLookup { .. } => {
+            let lens = StaticLookupLens::from_lens_spec(&spec)?;
+            let contract = lens.contract().clone();
+            registry.register_frozen_with_spec(lens, contract, spec)
+        }
+        LensRuntime::MultimodalAdapter { .. } => {
+            let lens = MultimodalAdapterLens::from_lens_spec(&spec)?;
+            let contract = lens.contract();
+            registry.register_frozen_with_spec(lens, contract, spec)
+        }
+        LensRuntime::TeiHttp { endpoint } => {
+            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
+            let contract =
+                FrozenLensContract::tei_http(&spec.name, endpoint, spec.modality, dim(spec.output));
+            registry.register_frozen_with_spec(lens, contract, spec)
+        }
+        LensRuntime::Algorithmic { kind } => {
+            let lens = algorithmic_lens(&spec.name, spec.modality, kind, spec.output)?;
+            let contract = lens.contract().clone();
+            registry.register_frozen_with_spec(lens, contract, spec)
+        }
+        LensRuntime::ExternalCmd { .. } => Err(CalyxError::lens_unreachable(
+            "manifest runtime registration does not load external-cmd lenses",
+        )),
+    }
+}
+
 pub(crate) fn dim(shape: SlotShape) -> u32 {
     match shape {
         SlotShape::Dense(dim) | SlotShape::Sparse(dim) => dim,
         SlotShape::Multi { token_dim } => token_dim,
     }
+}
+
+fn algorithmic_lens(
+    name: &str,
+    modality: Modality,
+    kind: &str,
+    shape: SlotShape,
+) -> Result<AlgorithmicLens> {
+    let lens = match kind {
+        "byte" | "byte-features" => AlgorithmicLens::byte_features(name, modality),
+        "scalar" => AlgorithmicLens::scalar(name, modality),
+        "ast-style" => AlgorithmicLens::ast_style(name, modality),
+        "sparse" | "sparse-keywords" => {
+            AlgorithmicLens::sparse_keywords(name, modality, dim(shape))
+        }
+        "token-hash" | "multi-hash" => AlgorithmicLens::token_hash(name, modality, dim(shape)),
+        other => {
+            return Err(CalyxError::lens_unreachable(format!(
+                "manifest runtime registration does not support algorithmic kind {other}"
+            )));
+        }
+    };
+    Ok(lens)
 }
 
 pub(crate) fn hex_from_bytes(bytes: &[u8; 32]) -> String {

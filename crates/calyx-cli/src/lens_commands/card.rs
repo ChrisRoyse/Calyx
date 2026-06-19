@@ -1,13 +1,10 @@
 use std::fs;
 
-use calyx_core::{Input, Modality, SlotShape};
-use calyx_registry::{
-    AlgorithmicLens, CandleLens, FrozenLensContract, LensRuntime, MultimodalAdapterLens, OnnxLens,
-    Registry, StaticLookupLens, TeiHttpLens, lens_spec_from_manifest_path, profile_lens,
-};
+use calyx_core::{Input, Modality};
+use calyx_registry::{Registry, lens_spec_from_manifest_path, profile_lens};
 
 use super::flags::Flags;
-use super::support::dim;
+use super::support::register_manifest_runtime;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
@@ -26,71 +23,6 @@ pub(crate) fn card(args: &[String]) -> CliResult {
     let mut card = profile_lens(&registry, runtime_lens_id, &probes)?;
     card.lens_id = catalog_lens_id;
     print_json(&card)
-}
-
-fn register_manifest_runtime(
-    registry: &mut Registry,
-    spec: calyx_registry::LensSpec,
-) -> calyx_core::Result<calyx_core::LensId> {
-    match &spec.runtime {
-        LensRuntime::Onnx { .. } => {
-            let lens = OnnxLens::from_lens_spec(&spec)?;
-            let contract = lens.contract().clone();
-            registry.register_frozen_with_spec(lens, contract, spec)
-        }
-        LensRuntime::CandleLocal { .. } => {
-            let lens = CandleLens::from_lens_spec(&spec)?;
-            let contract = lens.contract().clone();
-            registry.register_frozen_with_spec(lens, contract, spec)
-        }
-        LensRuntime::StaticLookup { .. } => {
-            let lens = StaticLookupLens::from_lens_spec(&spec)?;
-            let contract = lens.contract().clone();
-            registry.register_frozen_with_spec(lens, contract, spec)
-        }
-        LensRuntime::MultimodalAdapter { .. } => {
-            let lens = MultimodalAdapterLens::from_lens_spec(&spec)?;
-            let contract = lens.contract();
-            registry.register_frozen_with_spec(lens, contract, spec)
-        }
-        LensRuntime::TeiHttp { endpoint } => {
-            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
-            let contract =
-                FrozenLensContract::tei_http(&spec.name, endpoint, spec.modality, dim(spec.output));
-            registry.register_frozen_with_spec(lens, contract, spec)
-        }
-        LensRuntime::Algorithmic { kind } => {
-            let lens = algorithmic_lens(&spec.name, spec.modality, kind, spec.output)?;
-            let contract = lens.contract().clone();
-            registry.register_frozen_with_spec(lens, contract, spec)
-        }
-        LensRuntime::ExternalCmd { .. } => Err(calyx_core::CalyxError::lens_unreachable(
-            "calyx lens card does not profile external-cmd runtimes",
-        )),
-    }
-}
-
-fn algorithmic_lens(
-    name: &str,
-    modality: Modality,
-    kind: &str,
-    shape: SlotShape,
-) -> calyx_core::Result<AlgorithmicLens> {
-    let lens = match kind {
-        "byte" | "byte-features" => AlgorithmicLens::byte_features(name, modality),
-        "scalar" => AlgorithmicLens::scalar(name, modality),
-        "ast-style" => AlgorithmicLens::ast_style(name, modality),
-        "sparse" | "sparse-keywords" => {
-            AlgorithmicLens::sparse_keywords(name, modality, dim(shape))
-        }
-        "token-hash" | "multi-hash" => AlgorithmicLens::token_hash(name, modality, dim(shape)),
-        other => {
-            return Err(calyx_core::CalyxError::lens_unreachable(format!(
-                "calyx lens card does not support algorithmic kind {other}"
-            )));
-        }
-    };
-    Ok(lens)
 }
 
 fn probes_for(flags: &Flags, modality: Modality) -> CliResult<Vec<calyx_registry::ProfileProbe>> {

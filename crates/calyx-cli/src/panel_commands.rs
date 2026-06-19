@@ -2,6 +2,11 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod template_cards;
+mod template_model;
+mod template_store;
+mod templates;
+
 use calyx_assay::{PanelResourceBudget, ResourceDensity, ResourceUsage, pack_panel_by_density};
 use calyx_core::{LensCost, Placement, SlotState};
 use calyx_registry::{
@@ -96,8 +101,9 @@ struct PanelSlotStatus {
 pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
     match topic {
         "status" => status(rest),
+        "template" => templates::run(rest),
         other => Err(CliError::usage(format!(
-            "unknown panel subcommand {other}; expected status"
+            "unknown panel subcommand {other}; expected status or template"
         ))),
     }
 }
