@@ -4,6 +4,7 @@ use calyx_core::SlotId;
 use serde_json::{Value, json};
 
 use super::ground_truth::PrecomputedTruth;
+use super::slot_truth::SlotTruth;
 use super::timeline;
 use super::{OpenSlot, fuse, fused_hit_ids, row_for_metric, slot_id, to_index_hits};
 use crate::partitioned_bench::brute_force::brute_force_topk_vecfile_ranked;
@@ -17,6 +18,7 @@ pub(super) struct Request<'a> {
     pub(super) single_hits: &'a BTreeMap<SlotId, Vec<Vec<u64>>>,
     pub(super) timeline: Option<&'a timeline::Timeline>,
     pub(super) precomputed_truth: Option<&'a PrecomputedTruth>,
+    pub(super) slot_truth: Option<&'a SlotTruth>,
 }
 
 #[derive(Default)]
@@ -88,6 +90,9 @@ fn exact_truth_for_query(req: &Request<'_>, query_idx: usize) -> (Vec<u64>, Vec<
             Vec::from([json!({"source": "precomputed_fused_rrf_i32bin"})]),
         );
     }
+    if let Some(slot_truth) = req.slot_truth {
+        return fused_from_slot_truth(req, query_idx, slot_truth);
+    }
     let mut exact_per_slot = BTreeMap::new();
     let mut exact_slot_rows = Vec::new();
     for slot in req.slots {
@@ -105,6 +110,33 @@ fn exact_truth_for_query(req: &Request<'_>, query_idx: usize) -> (Vec<u64>, Vec<
             "exact_top_k": exact.iter().take(req.k).map(|(id, _)| *id).collect::<Vec<_>>(),
         }));
         exact_per_slot.insert(slot_id(slot.spec.slot), to_index_hits(exact));
+    }
+    let exact_fused = fuse(&exact_per_slot, req.k);
+    (fused_hit_ids(&exact_fused, req.k), exact_slot_rows)
+}
+
+fn fused_from_slot_truth(
+    req: &Request<'_>,
+    query_idx: usize,
+    slot_truth: &SlotTruth,
+) -> (Vec<u64>, Vec<Value>) {
+    let mut exact_per_slot = BTreeMap::new();
+    let mut exact_slot_rows = Vec::new();
+    for slot in req.slots {
+        let slot_id = slot_id(slot.spec.slot);
+        let rows = slot_truth.row_ids(slot_id, query_idx).to_vec();
+        exact_slot_rows.push(json!({
+            "slot": slot.spec.slot,
+            "source": "precomputed_slot_rrf_i32bin",
+            "exact_top_k": rows.iter().take(req.k).copied().collect::<Vec<_>>(),
+            "truth_depth": rows.len(),
+        }));
+        let ranked = rows
+            .into_iter()
+            .enumerate()
+            .map(|(idx, row_id)| (row_id, idx as f32))
+            .collect();
+        exact_per_slot.insert(slot_id, to_index_hits(ranked));
     }
     let exact_fused = fuse(&exact_per_slot, req.k);
     (fused_hit_ids(&exact_fused, req.k), exact_slot_rows)
@@ -146,6 +178,7 @@ fn per_slot_recall(single_found: BTreeMap<SlotId, usize>, denom: f32) -> Vec<Val
 fn ground_truth_source(req: &Request<'_>) -> Value {
     req.precomputed_truth
         .map(PrecomputedTruth::source)
+        .or_else(|| req.slot_truth.map(SlotTruth::source))
         .unwrap_or_else(|| {
             json!({
                 "mode": "cpu_bruteforce_slot_corpora",

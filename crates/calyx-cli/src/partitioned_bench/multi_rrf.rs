@@ -1,6 +1,4 @@
 use std::collections::BTreeMap;
-use std::fs::{self, File};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -20,8 +18,12 @@ use crate::error::{CliError, CliResult};
 mod a35;
 #[path = "multi_rrf/ground_truth.rs"]
 mod ground_truth;
+#[path = "multi_rrf/io.rs"]
+mod io;
 #[path = "multi_rrf/recall.rs"]
 mod recall;
+#[path = "multi_rrf/slot_truth.rs"]
+mod slot_truth;
 #[path = "multi_rrf/timeline.rs"]
 mod timeline;
 #[path = "multi_rrf/tuner.rs"]
@@ -41,6 +43,7 @@ struct Args {
     truth_depth: Option<usize>,
     fused_ground_truth_file: Option<PathBuf>,
     fused_ground_truth_manifest: Option<PathBuf>,
+    slot_ground_truth_manifest: Option<PathBuf>,
     write_fused_ground_truth_file: Option<PathBuf>,
     write_fused_ground_truth_manifest: Option<PathBuf>,
     out: Option<PathBuf>,
@@ -83,6 +86,7 @@ impl Args {
         let mut truth_depth = None;
         let mut fused_ground_truth_file = None;
         let mut fused_ground_truth_manifest = None;
+        let mut slot_ground_truth_manifest = None;
         let mut write_fused_ground_truth_file = None;
         let mut write_fused_ground_truth_manifest = None;
         let mut out = None;
@@ -110,6 +114,9 @@ impl Args {
                 "--fused-ground-truth-manifest" => {
                     fused_ground_truth_manifest = Some(PathBuf::from(next()?))
                 }
+                "--slot-ground-truth-manifest" => {
+                    slot_ground_truth_manifest = Some(PathBuf::from(next()?))
+                }
                 "--write-fused-ground-truth-file" => {
                     write_fused_ground_truth_file = Some(PathBuf::from(next()?))
                 }
@@ -135,6 +142,7 @@ impl Args {
         validate_truth_args(
             fused_ground_truth_file.as_ref(),
             fused_ground_truth_manifest.as_ref(),
+            slot_ground_truth_manifest.as_ref(),
             write_fused_ground_truth_file.as_ref(),
             write_fused_ground_truth_manifest.as_ref(),
         )?;
@@ -149,6 +157,7 @@ impl Args {
             truth_depth,
             fused_ground_truth_file,
             fused_ground_truth_manifest,
+            slot_ground_truth_manifest,
             write_fused_ground_truth_file,
             write_fused_ground_truth_manifest,
             out,
@@ -161,6 +170,7 @@ impl Args {
 fn validate_truth_args(
     fused_file: Option<&PathBuf>,
     fused_manifest: Option<&PathBuf>,
+    slot_manifest: Option<&PathBuf>,
     write_file: Option<&PathBuf>,
     write_manifest: Option<&PathBuf>,
 ) -> CliResult {
@@ -177,6 +187,11 @@ fn validate_truth_args(
     if fused_file.is_some() && write_file.is_some() {
         return Err(CliError::usage(
             "precomputed and generated fused ground truth are mutually exclusive in one run",
+        ));
+    }
+    if fused_file.is_some() && slot_manifest.is_some() {
+        return Err(CliError::usage(
+            "--fused-ground-truth-file and --slot-ground-truth-manifest are mutually exclusive",
         ));
     }
     Ok(())
@@ -222,6 +237,22 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             },
         )?),
         _ => None,
+    };
+    let slot_truth = match args.slot_ground_truth_manifest.as_ref() {
+        Some(manifest) if truth_n > 0 => Some(slot_truth::SlotTruth::load(slot_truth::Context {
+            manifest_file: manifest,
+            plan_path: &args.plan,
+            plan: &plan,
+            truth_n,
+            truth_depth,
+            corpus_rows,
+        })?),
+        Some(_) => {
+            return Err(CliError::usage(
+                "--slot-ground-truth-manifest requires --ground-truth > 0",
+            ));
+        }
+        None => None,
     };
     if n == 0 {
         return Err(CliError::usage(
@@ -274,6 +305,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
             single_hits: &single_hits_for_truth,
             timeline: timeline.as_ref(),
             precomputed_truth: precomputed_truth.as_ref(),
+            slot_truth: slot_truth.as_ref(),
         })
     } else {
         recall::RecallReadback::default()
@@ -347,7 +379,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     });
     let bytes = serde_json::to_vec_pretty(&report)?;
     if let Some(path) = &args.out {
-        write_bytes_atomic(path, &bytes)?;
+        io::write_bytes_atomic(path, &bytes)?;
     }
     println!("{}", String::from_utf8(bytes).expect("json is utf8"));
     Ok(())
@@ -422,32 +454,6 @@ fn hit_ids(hits: &[IndexSearchHit], k: usize) -> Vec<u64> {
 
 fn fused_hit_ids(hits: &[calyx_sextant::Hit], k: usize) -> Vec<u64> {
     hits.iter().take(k).map(|hit| low_u64(hit.cx_id)).collect()
-}
-
-fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> CliResult {
-    if path.exists() {
-        return Err(CliError::usage(format!(
-            "--out {} already exists; remove it before re-running",
-            path.display()
-        )));
-    }
-    if let Some(parent) = path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        fs::create_dir_all(parent)?;
-    }
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    let tmp = PathBuf::from(tmp);
-    {
-        let mut file = File::create(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-    fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = fs::remove_file(&tmp);
-    })?;
-    Ok(())
 }
 
 fn slot_report(slots: &[OpenSlot]) -> Vec<serde_json::Value> {

@@ -42,10 +42,29 @@ fn args_parse_plan_truth_depth_and_tuner_vault() {
         args.fused_ground_truth_manifest,
         Some(PathBuf::from("truth.manifest.json"))
     );
+    assert_eq!(args.slot_ground_truth_manifest, None);
     assert_eq!(args.recall_floor, Some(0.8));
     assert_eq!(args.out, None);
     assert_eq!(args.anneal_vault, Some(PathBuf::from("anneal-out")));
     assert_eq!(args.tuner_slo_us, Some(100));
+}
+
+#[test]
+fn args_parse_slot_ground_truth_manifest() {
+    let args = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--ground-truth",
+        "5",
+        "--slot-ground-truth-manifest",
+        "slot-truth.manifest.json",
+    ]))
+    .unwrap();
+
+    assert_eq!(
+        args.slot_ground_truth_manifest,
+        Some(PathBuf::from("slot-truth.manifest.json"))
+    );
 }
 
 #[test]
@@ -91,6 +110,27 @@ fn args_reject_consuming_and_writing_fused_truth_in_one_run() {
 
     assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
     assert!(err.message().contains("mutually exclusive"));
+}
+
+#[test]
+fn args_reject_fused_and_slot_truth_sources_together() {
+    let err = Args::parse(&strings([
+        "--plan",
+        "plan.json",
+        "--fused-ground-truth-file",
+        "truth.i32bin",
+        "--fused-ground-truth-manifest",
+        "truth.manifest.json",
+        "--slot-ground-truth-manifest",
+        "slot-truth.manifest.json",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("--fused-ground-truth-file and --slot-ground-truth-manifest")
+    );
 }
 
 #[test]
