@@ -1,0 +1,51 @@
+use serde::Serialize;
+
+use super::super::format::VectorFormat;
+use super::super::rows::RowStats;
+
+pub(crate) const TEMPORAL_COUNTS_TOWARD_A35: bool = false;
+pub(crate) const TEMPORAL_LANE_ROLE: &str = "event_time_forward_backward_as_of_sidecar";
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct Evidence {
+    pub(crate) out_dir: String,
+    pub(crate) rows_jsonl: String,
+    pub(crate) plan_path: String,
+    pub(crate) timeline_path: String,
+    pub(crate) progress_path: String,
+    pub(crate) export_report_path: String,
+    pub(crate) vector_dir: String,
+    pub(crate) fbin_dir: Option<String>,
+    pub(crate) vault_root: String,
+    pub(crate) dataset: String,
+    pub(crate) vector_format: VectorFormat,
+    pub(crate) vector_storage_contract: &'static str,
+    pub(crate) rows: RowStats,
+    pub(crate) query_count: usize,
+    pub(crate) batch_size: usize,
+    pub(crate) min_bits: f32,
+    pub(crate) streaming: bool,
+    pub(crate) temporal_counts_toward_a35: bool,
+    pub(crate) temporal_lane_role: &'static str,
+    pub(crate) lens_roster: Vec<LensEvidence>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct LensEvidence {
+    pub(crate) slot: u16,
+    pub(crate) name: String,
+    pub(crate) lens_id: String,
+    pub(crate) weights_sha256: String,
+    pub(crate) bits_about: f32,
+    pub(crate) dim: usize,
+    pub(crate) max_batch: Option<usize>,
+    pub(crate) effective_batch_size: usize,
+    pub(crate) elapsed_ms: u64,
+    pub(crate) ms_per_input: f64,
+    pub(crate) manifest: String,
+    pub(crate) corpus_path: String,
+    pub(crate) queries_path: String,
+    pub(crate) vault_path: String,
+    pub(crate) corpus_rows_written: usize,
+    pub(crate) query_rows_written: usize,
+}

@@ -11,6 +11,7 @@ use crate::error::{CliError, CliResult};
 use super::super::args::Args;
 use super::super::rows::RowStats;
 use super::super::{io_error, local_error};
+use super::evidence::{TEMPORAL_COUNTS_TOWARD_A35, TEMPORAL_LANE_ROLE};
 use super::paths::display;
 
 pub(super) const FILE_NAME: &str = "stream_fbin_progress.json";
@@ -59,7 +60,10 @@ struct LensProgress {
     bits_about: f32,
     dim: usize,
     max_batch: Option<usize>,
+    effective_batch_size: usize,
     manifest: String,
+    started_unix_ms: u64,
+    elapsed_ms: Option<u64>,
     corpus_rows_written: usize,
     query_rows_written: usize,
     last_row_idx: Option<usize>,
@@ -91,6 +95,7 @@ struct Snapshot<'a> {
     completed_corpus_rows: usize,
     completed_query_rows: usize,
     current_lens: Option<&'a LensProgress>,
+    current_lens_elapsed_ms: Option<u64>,
     total_lens_corpus_rows_expected: usize,
     total_lens_query_rows_expected: usize,
     percent_complete_basis: &'static str,
@@ -124,8 +129,8 @@ impl ProgressLog {
                 vector_format: args.vector_format.as_str(),
                 vector_storage_contract: args.vector_format.storage_contract(),
                 streaming_fbin_source: true,
-                temporal_counts_toward_a35: false,
-                temporal_lane_role: "event_time_forward_backward_as_of_sidecar",
+                temporal_counts_toward_a35: TEMPORAL_COUNTS_TOWARD_A35,
+                temporal_lane_role: TEMPORAL_LANE_ROLE,
                 lens_total,
                 lenses_completed: 0,
                 completed_corpus_rows: 0,
@@ -144,7 +149,9 @@ impl ProgressLog {
         slot: usize,
         lens: &BuildLens,
         bits_about: f32,
+        effective_batch_size: usize,
     ) -> CliResult {
+        let started_unix_ms = unix_ms()?;
         self.state.current_lens = Some(LensProgress {
             slot: u16::try_from(slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
             name: lens.name().to_string(),
@@ -153,7 +160,10 @@ impl ProgressLog {
             bits_about,
             dim: lens.dim(),
             max_batch: lens.max_batch(),
+            effective_batch_size,
             manifest: display(lens.manifest()),
+            started_unix_ms,
+            elapsed_ms: None,
             corpus_rows_written: 0,
             query_rows_written: 0,
             last_row_idx: None,
@@ -186,10 +196,12 @@ impl ProgressLog {
         &mut self,
         corpus_rows_written: usize,
         query_rows_written: usize,
+        elapsed_ms: u64,
     ) -> CliResult {
         if let Some(lens) = self.state.current_lens.as_mut() {
             lens.corpus_rows_written = corpus_rows_written;
             lens.query_rows_written = query_rows_written;
+            lens.elapsed_ms = Some(elapsed_ms);
             lens.last_row_idx = corpus_rows_written.checked_sub(1);
         }
         self.state.lenses_completed += 1;
@@ -228,6 +240,11 @@ impl ProgressLog {
             .map(|lens| lens.corpus_rows_written)
             .unwrap_or(0);
         let completed = self.state.completed_corpus_rows.saturating_add(in_flight);
+        let now = unix_ms()?;
+        let current_lens_elapsed_ms = self.state.current_lens.as_ref().map(|lens| {
+            lens.elapsed_ms
+                .unwrap_or_else(|| now.saturating_sub(lens.started_unix_ms))
+        });
         let percent_complete = if expected_corpus == 0 {
             1.0
         } else {
@@ -258,6 +275,7 @@ impl ProgressLog {
             completed_corpus_rows: self.state.completed_corpus_rows,
             completed_query_rows: self.state.completed_query_rows,
             current_lens: self.state.current_lens.as_ref(),
+            current_lens_elapsed_ms,
             total_lens_corpus_rows_expected: expected_corpus,
             total_lens_query_rows_expected: expected_queries,
             percent_complete_basis: "completed_content_lens_corpus_rows",

@@ -2,8 +2,8 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
+use std::time::{Duration, Instant};
 
-use serde::Serialize;
 use serde_json::json;
 
 use crate::assay_corpus_build::lens::{BuildLens, load_lenses, measure_text_batch};
@@ -14,52 +14,15 @@ use super::rows::{self, Row, RowStats};
 use super::{MIN_A35_LENSES, io_error, local_error};
 
 mod bits;
+mod evidence;
 mod panel;
 mod paths;
 mod progress;
 
 use super::format::{self, VectorFormat};
 use bits::{BitsLens, load_bits};
+use evidence::{Evidence, LensEvidence, TEMPORAL_COUNTS_TOWARD_A35, TEMPORAL_LANE_ROLE};
 use paths::{display, display_final, lens_prefix};
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct Evidence {
-    out_dir: String,
-    rows_jsonl: String,
-    plan_path: String,
-    timeline_path: String,
-    progress_path: String,
-    export_report_path: String,
-    vector_dir: String,
-    fbin_dir: Option<String>,
-    vault_root: String,
-    dataset: String,
-    vector_format: VectorFormat,
-    vector_storage_contract: &'static str,
-    rows: RowStats,
-    query_count: usize,
-    batch_size: usize,
-    min_bits: f32,
-    streaming: bool,
-    lens_roster: Vec<LensEvidence>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-struct LensEvidence {
-    slot: u16,
-    name: String,
-    lens_id: String,
-    weights_sha256: String,
-    bits_about: f32,
-    dim: usize,
-    max_batch: Option<usize>,
-    manifest: String,
-    corpus_path: String,
-    queries_path: String,
-    vault_path: String,
-    corpus_rows_written: usize,
-    query_rows_written: usize,
-}
 
 struct FbinSink {
     corpus: BufWriter<File>,
@@ -67,6 +30,15 @@ struct FbinSink {
     format: VectorFormat,
     corpus_written: usize,
     query_written: usize,
+}
+
+struct LensStream<'a> {
+    args: &'a Args,
+    stats: &'a RowStats,
+    lens: &'a BuildLens,
+    effective_batch_size: usize,
+    sink: &'a mut FbinSink,
+    progress: &'a mut progress::ProgressLog,
 }
 
 struct StagedExport {
@@ -129,18 +101,25 @@ fn run_staged(
         let mut sink = create_sink(&corpus_path, &queries_path, lens.dim(), stats.rows, args)?;
         let write_timeline = slot == 0;
         let timeline_path = staging.join("timeline.jsonl");
-        progress.lens_started(slot, &lens, bits.bits_about)?;
+        let effective_batch_size = lens.effective_batch_size(args.batch_size);
+        progress.lens_started(slot, &lens, bits.bits_about, effective_batch_size)?;
+        let lens_started = Instant::now();
         stream_lens(
-            args,
-            stats,
-            &lens,
-            &mut sink,
+            LensStream {
+                args,
+                stats,
+                lens: &lens,
+                effective_batch_size,
+                sink: &mut sink,
+                progress: &mut progress,
+            },
             write_timeline,
             &timeline_path,
-            &mut progress,
         )?;
+        let elapsed_ms = elapsed_ms(lens_started.elapsed())?;
+        let ms_per_input = elapsed_ms as f64 / stats.rows.max(1) as f64;
         finish_sink(&mut sink)?;
-        progress.lens_finished(sink.corpus_written, sink.query_written)?;
+        progress.lens_finished(sink.corpus_written, sink.query_written, elapsed_ms)?;
         roster.push(LensEvidence {
             slot: u16::try_from(slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
             name: lens.name().to_string(),
@@ -149,6 +128,9 @@ fn run_staged(
             bits_about: bits.bits_about,
             dim: lens.dim(),
             max_batch: lens.max_batch(),
+            effective_batch_size,
+            elapsed_ms,
+            ms_per_input,
             manifest: display(lens.manifest()),
             corpus_path: display_final(
                 args,
@@ -187,6 +169,8 @@ fn run_staged(
         batch_size: args.batch_size,
         min_bits: args.min_bits,
         streaming: true,
+        temporal_counts_toward_a35: TEMPORAL_COUNTS_TOWARD_A35,
+        temporal_lane_role: TEMPORAL_LANE_ROLE,
         lens_roster: roster,
     };
     fs::write(
@@ -265,13 +249,9 @@ fn create_sink(
 }
 
 fn stream_lens(
-    args: &Args,
-    stats: &RowStats,
-    lens: &BuildLens,
-    sink: &mut FbinSink,
+    mut stream: LensStream<'_>,
     write_timeline: bool,
     timeline_path: &Path,
-    progress: &mut progress::ProgressLog,
 ) -> CliResult {
     let mut timeline = if write_timeline {
         Some(BufWriter::new(
@@ -280,43 +260,29 @@ fn stream_lens(
     } else {
         None
     };
-    let mut texts = Vec::with_capacity(lens.effective_batch_size(args.batch_size));
-    let mut metas = Vec::with_capacity(lens.effective_batch_size(args.batch_size));
-    rows::for_each_selected(args, |row_idx, row| {
+    let mut texts = Vec::with_capacity(stream.effective_batch_size);
+    let mut metas = Vec::with_capacity(stream.effective_batch_size);
+    rows::for_each_selected(stream.args, |row_idx, row| {
         texts.push(row.text.clone());
         metas.push((row_idx, row));
-        if texts.len() >= lens.effective_batch_size(args.batch_size) {
-            flush_batch(
-                args,
-                lens,
-                sink,
-                &mut timeline,
-                &mut texts,
-                &mut metas,
-                progress,
-            )?;
+        if texts.len() >= stream.effective_batch_size {
+            flush_batch(&mut stream, &mut timeline, &mut texts, &mut metas)?;
         }
         Ok(())
     })?;
-    flush_batch(
-        args,
-        lens,
-        sink,
-        &mut timeline,
-        &mut texts,
-        &mut metas,
-        progress,
-    )?;
-    if sink.corpus_written != stats.rows || sink.query_written != args.query_count {
+    flush_batch(&mut stream, &mut timeline, &mut texts, &mut metas)?;
+    if stream.sink.corpus_written != stream.stats.rows
+        || stream.sink.query_written != stream.args.query_count
+    {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_COUNT_MISMATCH",
             format!(
                 "lens {} wrote corpus={} queries={} expected corpus={} queries={}",
-                lens.name(),
-                sink.corpus_written,
-                sink.query_written,
-                stats.rows,
-                args.query_count
+                stream.lens.name(),
+                stream.sink.corpus_written,
+                stream.sink.query_written,
+                stream.stats.rows,
+                stream.args.query_count
             ),
             "inspect rows-jsonl selection and rerun stream-fbin",
         ));
@@ -329,13 +295,10 @@ fn stream_lens(
 }
 
 fn flush_batch(
-    args: &Args,
-    lens: &BuildLens,
-    sink: &mut FbinSink,
+    stream: &mut LensStream<'_>,
     timeline: &mut Option<BufWriter<File>>,
     texts: &mut Vec<String>,
     metas: &mut Vec<(usize, Row)>,
-    progress: &mut progress::ProgressLog,
 ) -> CliResult {
     if texts.is_empty() {
         return Ok(());
@@ -347,19 +310,20 @@ fn flush_batch(
             "fix stream-fbin batching before trusting progress or FBIN output",
         )
     })?;
-    let vectors = measure_text_batch(lens, texts, args.batch_size).map_err(|error| {
-        local_error(
-            "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_MEASURE",
-            error,
-            "inspect the lens runtime and source row batch",
-        )
-    })?;
+    let vectors =
+        measure_text_batch(stream.lens, texts, stream.effective_batch_size).map_err(|error| {
+            local_error(
+                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_MEASURE",
+                error,
+                "inspect the lens runtime and source row batch",
+            )
+        })?;
     if vectors.len() != metas.len() {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_VECTOR_COUNT_MISMATCH",
             format!(
                 "lens {} returned {} vectors for {} rows",
-                lens.name(),
+                stream.lens.name(),
                 vectors.len(),
                 metas.len()
             ),
@@ -367,21 +331,30 @@ fn flush_batch(
         ));
     }
     for (vector, (row_idx, row)) in vectors.iter().zip(metas.iter()) {
-        validate_vector(lens, vector)?;
-        format::write_row(&mut sink.corpus, sink.format, vector)?;
-        sink.corpus_written += 1;
-        if *row_idx < args.query_count {
-            format::write_row(&mut sink.queries, sink.format, vector)?;
-            sink.query_written += 1;
+        validate_vector(stream.lens, vector)?;
+        format::write_row(&mut stream.sink.corpus, stream.sink.format, vector)?;
+        stream.sink.corpus_written += 1;
+        if *row_idx < stream.args.query_count {
+            format::write_row(&mut stream.sink.queries, stream.sink.format, vector)?;
+            stream.sink.query_written += 1;
         }
         if let Some(writer) = timeline.as_mut() {
-            write_timeline_row(writer, *row_idx, row, args.query_count)?;
+            write_timeline_row(writer, *row_idx, row, stream.args.query_count)?;
         }
     }
-    progress.batch_written(sink.corpus_written, sink.query_written, last_row_idx)?;
+    stream.progress.batch_written(
+        stream.sink.corpus_written,
+        stream.sink.query_written,
+        last_row_idx,
+    )?;
     texts.clear();
     metas.clear();
     Ok(())
+}
+
+fn elapsed_ms(duration: Duration) -> CliResult<u64> {
+    u64::try_from(duration.as_millis())
+        .map_err(|_| CliError::usage("stream-fbin lens elapsed_ms exceeds u64"))
 }
 
 fn validate_vector(lens: &BuildLens, vector: &[f32]) -> CliResult {
@@ -452,7 +425,8 @@ fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliR
         serde_json::to_vec_pretty(&json!({
             "timeline": timeline_path,
             "timeline_format": "calyx-assay-timeline-v1",
-            "temporal_counts_toward_a35": false,
+            "temporal_counts_toward_a35": TEMPORAL_COUNTS_TOWARD_A35,
+            "temporal_lane_role": TEMPORAL_LANE_ROLE,
             "streaming_fbin_source": true,
             "slots": slots
         }))

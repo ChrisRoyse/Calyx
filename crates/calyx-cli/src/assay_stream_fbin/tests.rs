@@ -38,6 +38,7 @@ fn stream_fbin_writes_structured_progress_snapshot() {
     assert_eq!(progress["total_lens_corpus_rows_expected"], 500);
     assert_eq!(progress["total_lens_query_rows_expected"], 80);
     assert_eq!(progress["current_lens"], Value::Null);
+    assert_eq!(progress["current_lens_elapsed_ms"], Value::Null);
     assert_eq!(progress["streaming_fbin_source"], true);
     assert_eq!(progress["temporal_counts_toward_a35"], false);
     assert_eq!(
@@ -55,6 +56,26 @@ fn stream_fbin_writes_structured_progress_snapshot() {
     assert_eq!(
         report["progress_path"].as_str().unwrap(),
         progress_path.display().to_string()
+    );
+    assert_eq!(report["temporal_counts_toward_a35"], false);
+    assert_eq!(
+        report["temporal_lane_role"],
+        "event_time_forward_backward_as_of_sidecar"
+    );
+    let first_lens = &report["lens_roster"][0];
+    assert_eq!(first_lens["effective_batch_size"], 7);
+    assert!(first_lens["elapsed_ms"].as_u64().is_some());
+    let ms_per_input = first_lens["ms_per_input"].as_f64().unwrap();
+    assert!(ms_per_input.is_finite());
+    assert!(ms_per_input >= 0.0);
+
+    let plan: Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("partitioned_rrf_plan.json")).unwrap())
+            .unwrap();
+    assert_eq!(plan["temporal_counts_toward_a35"], false);
+    assert_eq!(
+        plan["temporal_lane_role"],
+        "event_time_forward_backward_as_of_sidecar"
     );
     let _ = fs::remove_dir_all(fixture.root);
 }
