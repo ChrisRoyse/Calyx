@@ -70,11 +70,11 @@ struct StagedExport {
 }
 
 pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
-    let stats = rows::scan(args)?;
-    let lenses = selected_lenses(args)?;
     let staging = staging_dir(&args.out_dir);
     fail_if_exists(&args.out_dir)?;
     fail_if_exists(&staging)?;
+    let stats = rows::scan(args)?;
+    let lenses = selected_lenses(args)?;
     create_parent(&args.out_dir)?;
     fs::create_dir(&staging).map_err(io_error)?;
     let result = run_staged(args, &stats, lenses, &staging);

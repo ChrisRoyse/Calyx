@@ -64,6 +64,21 @@ fn stream_fbin_rejects_panel_below_a35_floor() {
     let _ = fs::remove_dir_all(fixture.root);
 }
 
+#[test]
+fn stream_fbin_rejects_existing_output_before_loading_inputs() {
+    let fixture = Fixture::new("stream-fbin-output-exists-first", 4, 4, 50);
+    fs::create_dir_all(&fixture.out).unwrap();
+    let mut args = fixture.args(8);
+    args.rows_jsonl = fixture.root.join("missing-rows.jsonl");
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_OUTPUT_EXISTS");
+    assert!(fixture.out.exists());
+    assert_eq!(fs::read_dir(&fixture.out).unwrap().count(), 0);
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
 struct Fixture {
     root: PathBuf,
     rows: PathBuf,
