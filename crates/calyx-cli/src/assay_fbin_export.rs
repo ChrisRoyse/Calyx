@@ -39,6 +39,7 @@ pub(super) struct LensEvidence {
     pub(super) name: String,
     pub(super) lens_id: String,
     pub(super) weights_sha256: String,
+    pub(super) signal_kind: String,
     pub(super) bits_about: f32,
     pub(super) dim: usize,
     pub(super) corpus_path: String,

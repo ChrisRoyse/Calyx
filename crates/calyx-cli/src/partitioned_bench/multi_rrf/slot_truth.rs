@@ -51,6 +51,8 @@ struct ManifestSlot {
     slot: u16,
     lens_id: String,
     weights_sha256: String,
+    #[serde(default)]
+    signal_kind: String,
     file: PathBuf,
     file_sha256: String,
     rows: usize,
@@ -98,6 +100,7 @@ impl SlotTruth {
                 "slot": spec.slot,
                 "lens_id": spec.lens_id,
                 "weights_sha256": spec.weights_sha256,
+                "signal_kind": spec.signal_kind,
                 "file": file,
                 "file_sha256": sha,
                 "rows": matrix.count(),
@@ -253,15 +256,22 @@ fn checked_id(
     Ok(id)
 }
 
-fn manifest_slots(manifest: &SlotTruthManifest) -> Vec<(u16, String, String)> {
+fn manifest_slots(manifest: &SlotTruthManifest) -> Vec<(u16, String, String, String)> {
     manifest
         .slots
         .iter()
-        .map(|slot| (slot.slot, slot.lens_id.clone(), slot.weights_sha256.clone()))
+        .map(|slot| {
+            (
+                slot.slot,
+                slot.lens_id.clone(),
+                slot.weights_sha256.clone(),
+                slot.signal_kind.clone(),
+            )
+        })
         .collect()
 }
 
-fn plan_slots(plan: &Plan) -> Vec<(u16, String, String)> {
+fn plan_slots(plan: &Plan) -> Vec<(u16, String, String, String)> {
     plan.slots
         .iter()
         .map(|slot| {
@@ -269,6 +279,7 @@ fn plan_slots(plan: &Plan) -> Vec<(u16, String, String)> {
                 slot.slot,
                 slot.lens_id.clone().unwrap_or_default(),
                 slot.weights_sha256.clone().unwrap_or_default(),
+                slot.signal_kind.clone().unwrap_or_default(),
             )
         })
         .collect()
@@ -395,6 +406,7 @@ mod tests {
                     "slot": idx,
                     "lens_id": format!("{:032x}", idx + offset),
                     "weights_sha256": format!("{:064x}", idx + offset),
+                    "signal_kind": "learned_encoder",
                     "file": format!("slot-{idx}.i32bin"),
                     "file_sha256": sha256_file(&file).unwrap(),
                     "rows": 2,
@@ -433,7 +445,7 @@ mod tests {
         let slots = (0..4)
             .map(|idx| {
                 format!(
-                    r#"{{"slot":{idx},"lens_id":"{:032x}","weights_sha256":"{:064x}","bits_about":0.1,"vault":"vault-{idx}","queries":"queries-{idx}.fbin","corpus":"corpus-{idx}.fbin"}}"#,
+                    r#"{{"slot":{idx},"lens_id":"{:032x}","weights_sha256":"{:064x}","signal_kind":"learned_encoder","bits_about":0.1,"vault":"vault-{idx}","queries":"queries-{idx}.fbin","corpus":"corpus-{idx}.fbin"}}"#,
                     idx + offset,
                     idx + offset
                 )

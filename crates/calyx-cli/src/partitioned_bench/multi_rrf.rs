@@ -69,6 +69,7 @@ struct PlanSlot {
     name: Option<String>,
     lens_id: Option<String>,
     weights_sha256: Option<String>,
+    signal_kind: Option<String>,
     bits_about: Option<f32>,
     vault: PathBuf,
     queries: PathBuf,

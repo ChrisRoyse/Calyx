@@ -1,17 +1,21 @@
 use std::collections::{BTreeSet, HashSet};
 use std::fs::{self, File};
-use std::io::{BufWriter, Read, Write};
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Instant;
 
-use calyx_core::CalyxError;
 use calyx_sextant::index::{DenseVectorFile, cuvs_bruteforce_topk};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
+use crate::a35_signal::require_recorded_learned_signal_kind;
 use crate::error::{CliError, CliResult};
+
+#[path = "slot_truth_generate/support.rs"]
+mod support;
+
+use support::{io_error, sha256_file, st_error};
 
 const FORMAT: &str = "calyx-partitioned-rrf-slot-ground-truth-v1";
 const MODE: &str = "per_slot_ranked_rrf_reference";
@@ -34,8 +38,10 @@ struct Plan {
 #[derive(Clone, Debug, Deserialize)]
 struct PlanSlot {
     slot: u16,
+    name: Option<String>,
     lens_id: Option<String>,
     weights_sha256: Option<String>,
+    signal_kind: Option<String>,
     corpus: PathBuf,
     queries: PathBuf,
 }
@@ -44,6 +50,7 @@ struct SlotEvidence {
     slot: u16,
     lens_id: String,
     weights_sha256: String,
+    signal_kind: String,
     file: String,
     file_sha256: String,
     rows: usize,
@@ -222,6 +229,7 @@ fn generate_slot(
         slot: slot.slot,
         lens_id: required(&slot.lens_id, "lens_id", slot.slot)?,
         weights_sha256: required(&slot.weights_sha256, "weights_sha256", slot.slot)?,
+        signal_kind: required(&slot.signal_kind, "signal_kind", slot.slot)?,
         file: file_name,
         file_sha256: sha256_file(&file_path)?,
         rows: args.query_count,
@@ -280,6 +288,12 @@ fn validate_plan(plan: &Plan) -> CliResult {
     let mut seen_slots = BTreeSet::new();
     let mut seen_lenses = HashSet::new();
     for slot in &plan.slots {
+        let name = slot.name.as_deref().unwrap_or("<unnamed>");
+        require_recorded_learned_signal_kind(
+            name,
+            slot.signal_kind.as_deref(),
+            "partitioned-rrf-slot-truth A35 gate",
+        )?;
         if !seen_slots.insert(slot.slot)
             || !seen_lenses.insert(required(&slot.lens_id, "lens_id", slot.slot)?)
         {
@@ -374,6 +388,7 @@ fn manifest(args: &Args, plan_sha256: &str, corpus_rows: usize, slots: &[SlotEvi
             "slot": slot.slot,
             "lens_id": slot.lens_id,
             "weights_sha256": slot.weights_sha256,
+            "signal_kind": slot.signal_kind,
             "file": slot.file,
             "file_sha256": slot.file_sha256,
             "rows": slot.rows,
@@ -387,6 +402,7 @@ fn slot_report(slot: &SlotEvidence) -> Value {
         "slot": slot.slot,
         "lens_id": slot.lens_id,
         "weights_sha256": slot.weights_sha256,
+        "signal_kind": slot.signal_kind,
         "file": slot.file,
         "file_sha256": slot.file_sha256,
         "rows": slot.rows,
@@ -457,43 +473,4 @@ fn staging_dir(out_dir: &Path) -> PathBuf {
         .and_then(|name| name.to_str())
         .unwrap_or("partitioned-rrf-slot-truth");
     out_dir.with_file_name(format!(".{name}.tmp-{}", process::id()))
-}
-
-fn sha256_file(path: &Path) -> CliResult<String> {
-    let mut file = File::open(path).map_err(io_error)?;
-    let mut hasher = Sha256::new();
-    let mut buf = [0_u8; 1024 * 1024];
-    loop {
-        let n = file.read(&mut buf).map_err(io_error)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hex_lower(&hasher.finalize()))
-}
-
-fn hex_lower(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        use std::fmt::Write as _;
-        write!(&mut out, "{byte:02x}").expect("hex write");
-    }
-    out
-}
-
-fn io_error(error: std::io::Error) -> CliError {
-    st_error(
-        "CALYX_FSV_PARTITIONED_RRF_SLOT_TRUTH_IO",
-        error.to_string(),
-        "inspect the named path and retry with readable/writable files",
-    )
-}
-
-fn st_error(code: &'static str, message: impl Into<String>, remediation: &'static str) -> CliError {
-    CliError::Calyx(CalyxError {
-        code,
-        message: message.into(),
-        remediation,
-    })
 }

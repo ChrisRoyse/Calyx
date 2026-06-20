@@ -10,6 +10,7 @@ pub const MIN_SIGNAL_BITS: f32 = 0.05;
 pub const MAX_PAIRWISE_CORR: f32 = 0.6;
 pub const MIN_RELIABILITY_SEEDS: usize = 5;
 pub const CALYX_ASSAY_UNRESOLVED: &str = "CALYX_ASSAY_UNRESOLVED";
+pub const LEARNED_SIGNAL_KIND: &str = "learned_encoder";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AdmissionDecision {
@@ -59,6 +60,15 @@ pub fn admit_lens_estimate(
     signal: &MiEstimate,
     corr: CorrelationEvidence,
 ) -> Result<AdmissionDecision> {
+    decide_estimate(signal, corr, false)
+}
+
+pub fn admit_lens_estimate_with_signal_kind(
+    signal: &MiEstimate,
+    corr: CorrelationEvidence,
+    signal_kind: &str,
+) -> Result<AdmissionDecision> {
+    validate_learned_signal_kind(signal_kind)?;
     decide_estimate(signal, corr, false)
 }
 
@@ -194,6 +204,19 @@ fn validate_corr_evidence(corr: CorrelationEvidence) -> Result<()> {
     Ok(())
 }
 
+fn validate_learned_signal_kind(signal_kind: &str) -> Result<()> {
+    if signal_kind == LEARNED_SIGNAL_KIND {
+        return Ok(());
+    }
+    Err(CalyxError {
+        code: "CALYX_ASSAY_NON_LEARNED_LENS",
+        message: format!(
+            "lens signal_kind={signal_kind}; Assay A35 admission requires learned_encoder content lenses"
+        ),
+        remediation: "use frozen learned content encoders; algorithmic, placeholder, unknown, and temporal lenses are diagnostic/sidecar only",
+    })
+}
+
 fn unresolved(message: impl Into<String>) -> CalyxError {
     CalyxError {
         code: CALYX_ASSAY_UNRESOLVED,
@@ -282,5 +305,27 @@ mod tests {
                 .code,
             CALYX_ASSAY_UNRESOLVED
         );
+    }
+
+    #[test]
+    fn estimate_admission_with_signal_kind_rejects_non_learned() {
+        let signal = MiEstimate::new(
+            0.20,
+            0.10,
+            0.25,
+            120,
+            crate::estimate::EstimatorKind::LogisticProbe,
+            crate::estimate::TrustTag::Trusted,
+        )
+        .with_reliability(crate::estimate::EstimateReliability::new(5, 0.01, false).unwrap());
+
+        let err = admit_lens_estimate_with_signal_kind(
+            &signal,
+            CorrelationEvidence::point(0.2),
+            "algorithmic",
+        )
+        .unwrap_err();
+
+        assert_eq!(err.code, "CALYX_ASSAY_NON_LEARNED_LENS");
     }
 }

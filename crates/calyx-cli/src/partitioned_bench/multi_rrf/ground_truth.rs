@@ -53,6 +53,8 @@ struct TruthSlot {
     slot: u16,
     lens_id: String,
     weights_sha256: String,
+    #[serde(default)]
+    signal_kind: String,
 }
 
 impl PrecomputedTruth {
@@ -315,6 +317,7 @@ fn plan_slots(plan: &Plan) -> Vec<TruthSlot> {
             slot: slot.slot,
             lens_id: slot.lens_id.clone().unwrap_or_default(),
             weights_sha256: slot.weights_sha256.clone().unwrap_or_default(),
+            signal_kind: slot.signal_kind.clone().unwrap_or_default(),
         })
         .collect()
 }
@@ -459,7 +462,7 @@ mod tests {
         let slots = (0..4)
             .map(|idx| {
                 format!(
-                    r#"{{"slot":{idx},"lens_id":"{:032x}","weights_sha256":"{:064x}","bits_about":0.1,"vault":"vault-{idx}","queries":"queries-{idx}.fbin","corpus":"corpus-{idx}.fbin"}}"#,
+                    r#"{{"slot":{idx},"lens_id":"{:032x}","weights_sha256":"{:064x}","signal_kind":"learned_encoder","bits_about":0.1,"vault":"vault-{idx}","queries":"queries-{idx}.fbin","corpus":"corpus-{idx}.fbin"}}"#,
                     idx + offset,
                     idx + offset
                 )

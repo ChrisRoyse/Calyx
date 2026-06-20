@@ -35,6 +35,10 @@ impl BuildLens {
             .collect()
     }
 
+    pub(crate) fn signal_kind(&self) -> &'static str {
+        crate::a35_signal::runtime_signal_kind_name(&self.spec.runtime)
+    }
+
     pub(crate) fn effective_batch_size(&self, requested: usize) -> usize {
         self.max_batch()
             .filter(|value| *value > 0)

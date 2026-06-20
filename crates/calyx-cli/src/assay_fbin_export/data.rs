@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use calyx_registry::lens_spec_from_manifest_path;
 use serde::Deserialize;
 
+use crate::a35_signal::{require_learned_signal_kind, runtime_signal_kind_name};
 use crate::error::CliResult;
 
 use super::timeline::{TimelineScan, TimelineScanBuilder, timeline_row};
@@ -21,6 +22,7 @@ pub(super) struct VectorScan {
 pub(super) struct LensMeta {
     pub(super) lens_id: String,
     pub(super) weights_sha256: String,
+    pub(super) signal_kind: String,
 }
 
 #[derive(Debug)]
@@ -251,6 +253,7 @@ fn lens_meta(corpus_dir: &Path, lens: &BuildLensRef) -> CliResult<LensMeta> {
     Ok(LensMeta {
         lens_id: spec.lens_id().to_string(),
         weights_sha256: hex32(&spec.weights_sha256),
+        signal_kind: runtime_signal_kind_name(&spec.runtime).to_string(),
     })
 }
 
@@ -291,12 +294,20 @@ pub(super) fn selected_lenses(
     bits: &BTreeMap<String, BitsLens>,
     min_bits: f32,
 ) -> CliResult<Vec<String>> {
-    let selected = lens_order
-        .iter()
-        .filter(|name| meta.contains_key(*name))
-        .filter(|name| admitted(bits.get(*name), min_bits))
-        .cloned()
-        .collect::<Vec<_>>();
+    let mut selected = Vec::new();
+    for name in lens_order {
+        let Some(lens_meta) = meta.get(name) else {
+            continue;
+        };
+        if admitted(bits.get(name), min_bits) {
+            require_learned_signal_kind(
+                name,
+                &lens_meta.signal_kind,
+                "assay-fbin-export A35 gate",
+            )?;
+            selected.push(name.clone());
+        }
+    }
     if selected.len() < MIN_A35_LENSES {
         return Err(local_error(
             "CALYX_FSV_ASSAY_FBIN_EXPORT_PANEL_TOO_SMALL",

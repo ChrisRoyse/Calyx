@@ -51,7 +51,7 @@ pub use calibration::{
 };
 pub use contract::{
     AdmissionDecision, CALYX_ASSAY_UNRESOLVED, CorrelationEvidence, admit_lens,
-    admit_lens_estimate, admit_lens_with_strata,
+    admit_lens_estimate, admit_lens_estimate_with_signal_kind, admit_lens_with_strata,
 };
 pub use ensemble::{
     CALYX_ASSAY_PANEL_TOO_SMALL, DEFAULT_GATE_PANEL_LENSES, DEFAULT_MAX_REDUNDANCY,

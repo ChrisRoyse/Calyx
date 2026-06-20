@@ -1,15 +1,17 @@
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use calyx_core::{Modality, QuantPolicy};
-use calyx_registry::LensForgeManifest;
 use calyx_sextant::index::I8BinVectors;
 use serde_json::Value;
 
-use super::args::Args;
 use super::format::VectorFormat;
 use super::write;
+
+#[path = "tests/support.rs"]
+mod support;
+
+use support::{
+    Fixture, staging_dir, write_bits_with_gate, write_bits_with_panel_names, write_legacy_bits,
+};
 
 #[test]
 fn stream_fbin_writes_structured_progress_snapshot() {
@@ -83,6 +85,7 @@ fn stream_fbin_writes_structured_progress_snapshot() {
         "event_time_forward_backward_as_of_sidecar"
     );
     let first_lens = &report["lens_roster"][0];
+    assert_eq!(first_lens["signal_kind"], "learned_encoder");
     assert_eq!(first_lens["effective_batch_size"], 7);
     assert!(first_lens["elapsed_ms"].as_u64().is_some());
     let ms_per_input = first_lens["ms_per_input"].as_f64().unwrap();
@@ -93,6 +96,7 @@ fn stream_fbin_writes_structured_progress_snapshot() {
         serde_json::from_slice(&fs::read(fixture.out.join("partitioned_rrf_plan.json")).unwrap())
             .unwrap();
     assert_eq!(plan["temporal_counts_toward_a35"], false);
+    assert_eq!(plan["slots"][0]["signal_kind"], "learned_encoder");
     assert_eq!(
         plan["temporal_lane_role"],
         "event_time_forward_backward_as_of_sidecar"
@@ -175,6 +179,20 @@ fn stream_fbin_rejects_panel_floor_before_row_floor() {
 
     assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_PANEL_TOO_SMALL");
     assert!(!fixture.out.exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_rejects_algorithmic_manifest_before_rows() {
+    let fixture = Fixture::new_algorithmic("stream-fbin-algorithmic-reject", 10, 10, 50);
+    let mut args = fixture.args(8);
+    args.rows_jsonl = fixture.root.join("missing-rows.jsonl");
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_A35_NON_LEARNED_LENS");
+    assert!(!fixture.out.exists());
+    assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
 }
 
@@ -265,197 +283,4 @@ fn stream_fbin_pre_gate_rejects_mismatched_panel() {
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
-}
-
-struct Fixture {
-    root: PathBuf,
-    rows: PathBuf,
-    out: PathBuf,
-    bits: PathBuf,
-    manifests: Vec<PathBuf>,
-}
-
-impl Fixture {
-    fn new(name: &str, manifest_count: usize, admitted_lenses: usize, rows: usize) -> Self {
-        let root = temp_root(name);
-        let manifest_root = root.join("manifests");
-        fs::create_dir_all(&manifest_root).unwrap();
-        let manifests = write_manifests(&manifest_root, manifest_count);
-        let rows_path = root.join("rows.jsonl");
-        write_rows(&rows_path, rows);
-        let bits = root.join("assay_abundance.json");
-        write_bits(&bits, manifest_count, admitted_lenses);
-        Self {
-            out: root.join("out"),
-            root,
-            rows: rows_path,
-            bits,
-            manifests,
-        }
-    }
-
-    fn args(&self, query_count: usize) -> Args {
-        Args {
-            rows_jsonl: self.rows.clone(),
-            out_dir: self.out.clone(),
-            dataset: "unit_stream_fbin".to_string(),
-            target_class: 1,
-            manifests: self.manifests.clone(),
-            bits_report: self.bits.clone(),
-            query_count,
-            limit_per_class: None,
-            batch_size: 7,
-            cost_override_json: None,
-            embedding_model_id: None,
-            min_bits: 0.05,
-            vector_format: VectorFormat::Fbin,
-        }
-    }
-}
-
-fn write_rows(path: &Path, rows: usize) {
-    let mut lines = String::new();
-    for row in 0..rows {
-        lines.push_str(
-            &serde_json::json!({
-                "id": format!("row-{row}"),
-                "text": format!("unit stream fbin row {row}"),
-                "label": row % 2,
-                "event_time": 1_704_153_600_i64 + row as i64
-            })
-            .to_string(),
-        );
-        lines.push('\n');
-    }
-    fs::write(path, lines).unwrap();
-}
-
-fn write_bits(path: &Path, lenses: usize, admitted: usize) {
-    write_bits_with_gate(path, lenses, admitted, 1.25, "passed", 1.0);
-}
-
-fn write_legacy_bits(path: &Path, lenses: usize, admitted: usize) {
-    let lenses = (0..lenses)
-        .map(|idx| {
-            serde_json::json!({
-                "name": format!("lens-{idx}"),
-                "bits_about": 0.2,
-                "admitted": idx < admitted
-            })
-        })
-        .collect::<Vec<_>>();
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(&serde_json::json!({ "lenses": lenses })).unwrap(),
-    )
-    .unwrap();
-}
-
-fn write_bits_with_gate(
-    path: &Path,
-    lenses: usize,
-    admitted: usize,
-    sufficiency_basis_bits: f32,
-    power_status: &str,
-    power_recovery_ratio: f32,
-) {
-    let admitted_names = (0..admitted)
-        .map(|idx| format!("lens-{idx}"))
-        .collect::<Vec<_>>();
-    write_bits_with_panel_names(
-        path,
-        lenses,
-        admitted,
-        admitted_names,
-        sufficiency_basis_bits,
-        power_status,
-        power_recovery_ratio,
-    );
-}
-
-fn write_bits_with_panel_names(
-    path: &Path,
-    lenses: usize,
-    admitted: usize,
-    admitted_names: Vec<String>,
-    sufficiency_basis_bits: f32,
-    power_status: &str,
-    power_recovery_ratio: f32,
-) {
-    let lenses = (0..lenses)
-        .map(|idx| {
-            serde_json::json!({
-                "name": format!("lens-{idx}"),
-                "bits_about": 0.2,
-                "admitted": idx < admitted
-            })
-        })
-        .collect::<Vec<_>>();
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(&serde_json::json!({
-            "anchor_entropy_bits": 1.0,
-            "min_informative_target_entropy_bits": 0.30,
-            "lenses": lenses,
-            "panel": {
-                "admitted_lenses": admitted_names,
-                "i_panel_anchor": sufficiency_basis_bits + 0.01,
-                "ci_95": [sufficiency_basis_bits, sufficiency_basis_bits + 0.02],
-                "estimate_bound": "lower_bound",
-                "sufficiency_basis_bits": sufficiency_basis_bits,
-                "power_calibration_status": power_status,
-                "power_recovery_ratio": power_recovery_ratio,
-                "power_recovered_bits": power_recovery_ratio,
-                "power_planted_bits": 1.0
-            }
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-}
-
-fn write_manifests(root: &Path, count: usize) -> Vec<PathBuf> {
-    (0..count)
-        .map(|idx| {
-            let path = root.join(format!("lens-{idx}.json"));
-            let manifest = LensForgeManifest {
-                name: format!("lens-{idx}"),
-                modality: Modality::Text,
-                runtime: "algorithmic:one-hot:4".to_string(),
-                dim: 4,
-                dtype: "f32".to_string(),
-                weights_sha256: String::new(),
-                artifact_set_sha256: None,
-                files: Vec::new(),
-                pooling: "algorithmic".to_string(),
-                norm: "none".to_string(),
-                source_hf_id: format!("calyx/lens-{idx}"),
-                endpoint: None,
-                license: Some("apache-2.0".to_string()),
-                non_commercial: false,
-                quant_default: QuantPolicy::turboquant_default(),
-                truncate_dim: None,
-                recall_delta: calyx_registry::spec::default_recall_delta(),
-                max_batch: None,
-            };
-            fs::write(&path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
-            path
-        })
-        .collect()
-}
-
-fn temp_root(name: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()));
-    fs::create_dir_all(&root).unwrap();
-    root
-}
-
-fn staging_dir(fixture: &Fixture) -> PathBuf {
-    fixture
-        .out
-        .with_file_name(format!(".out.tmp-{}", std::process::id()))
 }

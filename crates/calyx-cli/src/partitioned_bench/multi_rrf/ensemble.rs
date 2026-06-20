@@ -394,6 +394,7 @@ mod tests {
             name: Some(format!("lens-{slot}")),
             lens_id: Some(format!("{:032x}", slot + 1)),
             weights_sha256: Some(format!("{:064x}", slot + 1)),
+            signal_kind: Some("learned_encoder".to_string()),
             bits_about: Some(0.1),
             vault: PathBuf::from(format!("vault-{slot}")),
             queries: PathBuf::from(format!("queries-{slot}.i8bin")),

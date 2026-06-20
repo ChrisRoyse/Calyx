@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_core::{Modality, QuantPolicy};
-use calyx_registry::LensForgeManifest;
+use calyx_registry::{LensForgeFile, LensForgeManifest};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 
 use super::args::Args;
 use super::export_fbin;
@@ -31,6 +32,7 @@ fn export_fbin_writes_headers_plan_and_readback_report() {
     );
     assert_eq!(plan["temporal_counts_toward_a35"], false);
     assert_eq!(plan["slots"][0]["name"], "lens-0");
+    assert_eq!(plan["slots"][0]["signal_kind"], "learned_encoder");
     let bits = plan["slots"][0]["bits_about"].as_f64().unwrap();
     assert!((bits - 0.2).abs() < 0.00001);
     let timeline = fs::read_to_string(fixture.out.join("timeline.jsonl")).unwrap();
@@ -54,6 +56,7 @@ fn export_fbin_writes_headers_plan_and_readback_report() {
         fixture.out.join("timeline.jsonl").display().to_string()
     );
     assert_eq!(report["temporal"]["active_rows"], 6);
+    assert_eq!(report["lens_roster"][0]["signal_kind"], "learned_encoder");
     let _ = fs::remove_dir_all(fixture.root);
 }
 
@@ -132,6 +135,18 @@ fn export_fbin_rejects_panel_below_a35_floor() {
 }
 
 #[test]
+fn export_fbin_rejects_algorithmic_manifest_as_a35_lens() {
+    let fixture = Fixture::new_algorithmic("export-fbin-algorithmic", 10, 6);
+    let args = fixture.args(2);
+
+    let error = export_fbin(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_A35_NON_LEARNED_LENS");
+    assert!(!fixture.out.exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn export_fbin_rejects_inconsistent_vector_dimensions() {
     let fixture = Fixture::new("export-fbin-bad-dim", 10, 6);
     let mut lines = fs::read_to_string(fixture.corpus.join("vectors.jsonl")).unwrap();
@@ -180,11 +195,32 @@ impl Fixture {
         Self::with_names(name, &names, admitted_lenses, rows)
     }
 
+    fn new_algorithmic(name: &str, admitted_lenses: usize, rows: usize) -> Self {
+        let names = (0..10).map(|idx| format!("lens-{idx}")).collect::<Vec<_>>();
+        Self::with_names_and_writer(
+            name,
+            &names,
+            admitted_lenses,
+            rows,
+            write_algorithmic_manifests,
+        )
+    }
+
     fn with_names(
         name: &str,
         names: &[impl AsRef<str>],
         admitted_lenses: usize,
         rows: usize,
+    ) -> Self {
+        Self::with_names_and_writer(name, names, admitted_lenses, rows, write_manifests)
+    }
+
+    fn with_names_and_writer(
+        name: &str,
+        names: &[impl AsRef<str>],
+        admitted_lenses: usize,
+        rows: usize,
+        writer: fn(&Path, &[String]) -> Vec<PathBuf>,
     ) -> Self {
         let root = temp_root(name);
         let corpus = root.join("corpus");
@@ -196,7 +232,7 @@ impl Fixture {
             .iter()
             .map(|name| name.as_ref().to_string())
             .collect::<Vec<_>>();
-        let manifest_paths = write_manifests(&manifests, &names);
+        let manifest_paths = writer(&manifests, &names);
         write_vectors(&corpus.join("vectors.jsonl"), &names, rows);
         write_build_report(
             &corpus.join("corpus_build_report.json"),
@@ -292,6 +328,44 @@ fn write_bits(path: &Path, lenses: &[String], admitted: usize) {
 }
 
 fn write_manifests(root: &Path, names: &[String]) -> Vec<PathBuf> {
+    let matrix = static_matrix_bytes();
+    let tokenizer = tokenizer_bytes();
+    fs::write(root.join("embeddings.cslm"), &matrix).unwrap();
+    fs::write(root.join("tokenizer.json"), &tokenizer).unwrap();
+    names
+        .iter()
+        .map(|name| {
+            let path = root.join(format!("{name}.json"));
+            let manifest = LensForgeManifest {
+                name: name.clone(),
+                modality: Modality::Text,
+                runtime: "model2vec".to_string(),
+                dim: 3,
+                dtype: "int8".to_string(),
+                weights_sha256: plain_sha256_hex(&matrix),
+                artifact_set_sha256: Some(artifact_hash(&[&matrix, &tokenizer])),
+                files: vec![
+                    file("embeddings", "embeddings.cslm", &matrix),
+                    file("tokenizer", "tokenizer.json", &tokenizer),
+                ],
+                pooling: "mean".to_string(),
+                norm: "unit".to_string(),
+                source_hf_id: format!("calyx/{name}"),
+                endpoint: None,
+                license: Some("apache-2.0".to_string()),
+                non_commercial: false,
+                quant_default: QuantPolicy::turboquant_default(),
+                truncate_dim: None,
+                recall_delta: calyx_registry::spec::default_recall_delta(),
+                max_batch: None,
+            };
+            fs::write(&path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+            path
+        })
+        .collect()
+}
+
+fn write_algorithmic_manifests(root: &Path, names: &[String]) -> Vec<PathBuf> {
     names
         .iter()
         .map(|name| {
@@ -320,6 +394,53 @@ fn write_manifests(root: &Path, names: &[String]) -> Vec<PathBuf> {
             path
         })
         .collect()
+}
+
+fn static_matrix_bytes() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"CXLKUP1\0");
+    bytes.extend_from_slice(&4_u32.to_le_bytes());
+    bytes.extend_from_slice(&3_u32.to_le_bytes());
+    bytes.push(1);
+    bytes.extend_from_slice(&[0, 0, 0]);
+    bytes.extend_from_slice(&1.0_f32.to_le_bytes());
+    bytes.extend_from_slice(&[0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 5]);
+    bytes
+}
+
+fn tokenizer_bytes() -> Vec<u8> {
+    serde_json::to_vec(&serde_json::json!({
+        "version": "1.0", "truncation": null, "padding": null, "added_tokens": [],
+        "normalizer": null, "pre_tokenizer": {"type": "Whitespace"},
+        "post_processor": null, "decoder": null,
+        "model": {"type": "WordLevel", "vocab": {"[UNK]": 0, "alpha": 1, "beta": 2, "gamma": 3}, "unk_token": "[UNK]"}
+    })).unwrap()
+}
+
+fn file(role: &str, path: &str, bytes: &[u8]) -> LensForgeFile {
+    LensForgeFile {
+        role: role.to_string(),
+        path: PathBuf::from(path),
+        sha256: plain_sha256_hex(bytes),
+        bytes: bytes.len() as u64,
+    }
+}
+
+fn artifact_hash(parts: &[&[u8]]) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update((part.len() as u64).to_be_bytes());
+        hasher.update(part);
+    }
+    hex_from_bytes(&hasher.finalize())
+}
+
+fn plain_sha256_hex(bytes: &[u8]) -> String {
+    hex_from_bytes(&Sha256::digest(bytes))
+}
+
+fn hex_from_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn assert_fbin_header(path: &Path, dim: u32, count: u64) {

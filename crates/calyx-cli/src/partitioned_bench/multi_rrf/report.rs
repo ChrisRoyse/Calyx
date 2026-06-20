@@ -15,6 +15,7 @@ pub(super) fn slot_report(slots: &[OpenSlot]) -> Vec<Value> {
                 "name": slot.spec.name.as_deref(),
                 "lens_id": slot.spec.lens_id.as_deref().expect("A35 validated"),
                 "weights_sha256": slot.spec.weights_sha256.as_deref().expect("A35 validated"),
+                "signal_kind": slot.spec.signal_kind.as_deref().expect("A35 validated"),
                 "bits_about": slot.spec.bits_about.expect("A35 validated"),
                 "vault": slot.spec.vault,
                 "queries": slot.spec.queries,

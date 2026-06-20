@@ -52,6 +52,7 @@ pub(crate) struct LensEvidence {
     pub(crate) name: String,
     pub(crate) lens_id: String,
     pub(crate) weights_sha256: String,
+    pub(crate) signal_kind: &'static str,
     pub(crate) bits_about: f32,
     pub(crate) dim: usize,
     pub(crate) max_batch: Option<usize>,

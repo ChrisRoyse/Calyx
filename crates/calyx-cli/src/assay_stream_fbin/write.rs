@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use crate::a35_signal::require_learned_signal_kind;
 use crate::assay_corpus_build::lens::{BuildLens, load_lenses, measure_text_batch};
 use crate::error::{CliError, CliResult};
 
@@ -128,6 +129,7 @@ fn run_staged(
             name: lens.name().to_string(),
             lens_id: lens.lens_id(),
             weights_sha256: lens.weights_sha256_hex(),
+            signal_kind: lens.signal_kind(),
             bits_about: bits.bits_about,
             dim: lens.dim(),
             max_batch: lens.max_batch(),
@@ -217,6 +219,11 @@ fn selected_lenses(args: &Args) -> CliResult<Vec<(BuildLens, BitsLens)>> {
                 "stream only admitted signal-bearing lenses or lower --min-bits deliberately",
             ));
         }
+        require_learned_signal_kind(
+            lens.name(),
+            lens.signal_kind(),
+            "assay stream-fbin runtime A35 gate",
+        )?;
         selected.push((lens, bits));
     }
     if selected.len() < MIN_A35_LENSES {
@@ -424,6 +431,7 @@ fn write_plan(path: &Path, timeline_path: &str, lenses: &[LensEvidence]) -> CliR
                 "name": lens.name,
                 "lens_id": lens.lens_id,
                 "weights_sha256": lens.weights_sha256,
+                "signal_kind": lens.signal_kind,
                 "bits_about": lens.bits_about,
                 "vault": lens.vault_path,
                 "queries": lens.queries_path,

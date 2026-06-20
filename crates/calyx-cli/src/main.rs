@@ -1,4 +1,5 @@
 //! Calyx command-line entry point.
+mod a35_signal;
 mod anneal_ab_log;
 mod anneal_autotune_report;
 mod anneal_bandit_readback;
