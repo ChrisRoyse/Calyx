@@ -14,6 +14,9 @@ mod cuda_guard;
 mod custom;
 mod dynamic_ort;
 mod fastembed_runtime;
+mod special;
+
+pub use special::{FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens};
 
 #[cfg(test)]
 mod tests;

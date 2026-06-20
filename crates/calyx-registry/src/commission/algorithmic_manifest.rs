@@ -16,7 +16,7 @@ pub(super) fn algorithmic_kind(runtime: &str) -> Option<&str> {
 
 pub(super) fn output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
     let Some(kind) = algorithmic_kind(runtime) else {
-        return Ok(SlotShape::Dense(dim));
+        return learned_output_shape(runtime, dim);
     };
     let shape = match kind {
         "byte" | "byte-features" => checked_dense(kind, dim, 16)?,
@@ -55,6 +55,18 @@ pub(super) fn output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
         }
     };
     Ok(shape)
+}
+
+fn learned_output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
+    match runtime {
+        "fastembed-sparse" | "fastembed-bgem3-sparse" => {
+            Ok(SlotShape::Sparse(checked_positive(runtime, dim)?))
+        }
+        "fastembed-bgem3-colbert" => Ok(SlotShape::Multi {
+            token_dim: checked_positive(runtime, dim)?,
+        }),
+        _ => Ok(SlotShape::Dense(dim)),
+    }
 }
 
 fn checked_dense(kind: &str, got: u32, expected: u32) -> Result<SlotShape> {
@@ -141,5 +153,21 @@ mod tests {
 
         assert_eq!(error.code, CONFIG_INVALID);
         assert!(error.message.contains("token-hash dim must be"));
+    }
+
+    #[test]
+    fn learned_special_runtimes_declare_non_dense_shapes() {
+        assert_eq!(
+            output_shape("fastembed-sparse", 30_522).unwrap(),
+            SlotShape::Sparse(30_522)
+        );
+        assert_eq!(
+            output_shape("fastembed-bgem3-sparse", 250_002).unwrap(),
+            SlotShape::Sparse(250_002)
+        );
+        assert_eq!(
+            output_shape("fastembed-bgem3-colbert", 1024).unwrap(),
+            SlotShape::Multi { token_dim: 1024 }
+        );
     }
 }

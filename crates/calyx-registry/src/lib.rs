@@ -87,13 +87,14 @@ pub use runtime::candle::{
 };
 pub use runtime::external_cmd::ExternalCmdLens;
 pub use runtime::onnx::{
-    OnnxFileSpec, OnnxLens, OnnxModelFiles, OnnxProviderPolicy, PoolingPolicy,
+    FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens, OnnxFileSpec, OnnxLens,
+    OnnxModelFiles, OnnxProviderPolicy, PoolingPolicy,
 };
 pub use runtime::static_lookup::{
     StaticLookupDType, StaticLookupFileSpec, StaticLookupFiles, StaticLookupLens,
 };
 pub use runtime::tei_http::{DEFAULT_TEI_ENDPOINT, TeiHttpLens};
-pub use spec::{LensHealth, LensRuntime, LensSpec};
+pub use spec::{FastembedBgem3Output, LensHealth, LensRuntime, LensSpec};
 pub use swap::{BackfillCandidate, BackfillQueue, SlotSpec, SwapController};
 pub use temporal::{
     DecayFunction, E2RecencyConfig, E2RecencyLens, E3PeriodicConfig, E3PeriodicLens,

@@ -1,7 +1,8 @@
 use calyx_core::{CalyxError, Lens, Modality, Placement};
 use calyx_registry::{
-    AlgorithmicLens, CandleLens, LensRuntime, LensSpec, MultimodalAdapterLens, OnnxLens,
-    StaticLookupLens, TeiHttpLens,
+    AlgorithmicLens, CandleLens, FastembedBgem3Lens, FastembedBgem3Output, FastembedRerankerLens,
+    FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens, OnnxLens, StaticLookupLens,
+    TeiHttpLens,
 };
 
 use super::super::support::dim;
@@ -30,6 +31,49 @@ pub(super) fn runtime_lens(spec: &LensSpec) -> Result<RuntimeLens, CalyxError> {
                 placement: Placement::Gpu,
                 native_batching: true,
                 max_batch: spec.max_batch,
+                proof: format!("ort_cuda_provider_registered:{provider}"),
+                gpu_process_required: true,
+            })
+        }
+        LensRuntime::FastembedSparse { .. } => {
+            let lens = FastembedSparseLens::from_lens_spec(spec)?;
+            let provider = lens.provider_policy().to_string();
+            Ok(RuntimeLens {
+                lens: Box::new(lens),
+                detail: format!("fastembed_sparse;{provider}"),
+                provider: provider.clone(),
+                placement: Placement::Gpu,
+                native_batching: true,
+                max_batch: spec.max_batch,
+                proof: format!("ort_cuda_provider_registered:{provider}"),
+                gpu_process_required: true,
+            })
+        }
+        LensRuntime::FastembedBgem3 { .. } => {
+            let lens = FastembedBgem3Lens::from_lens_spec(spec)?;
+            let provider = lens.provider_policy().to_string();
+            let detail = format!("{};{provider}", lens.runtime_name());
+            Ok(RuntimeLens {
+                lens: Box::new(lens),
+                detail,
+                provider: provider.clone(),
+                placement: Placement::Gpu,
+                native_batching: true,
+                max_batch: spec.max_batch,
+                proof: format!("ort_cuda_provider_registered:{provider}"),
+                gpu_process_required: true,
+            })
+        }
+        LensRuntime::FastembedReranker { .. } => {
+            let lens = FastembedRerankerLens::from_lens_spec(spec)?;
+            let provider = lens.provider_policy().to_string();
+            Ok(RuntimeLens {
+                lens: Box::new(lens),
+                detail: format!("fastembed_reranker;{provider}"),
+                provider: provider.clone(),
+                placement: Placement::Gpu,
+                native_batching: false,
+                max_batch: Some(1),
                 proof: format!("ort_cuda_provider_registered:{provider}"),
                 gpu_process_required: true,
             })
@@ -125,6 +169,20 @@ pub(super) fn association_family(spec: &LensSpec) -> &'static str {
         LensRuntime::Algorithmic { .. } => "algorithmic",
         LensRuntime::StaticLookup { .. } => "static_lookup_semantic",
         LensRuntime::MultimodalAdapter { .. } => "multimodal_adapter",
+        LensRuntime::FastembedSparse { .. } => "lexical_sparse",
+        LensRuntime::FastembedBgem3 {
+            output: FastembedBgem3Output::Sparse,
+            ..
+        } => "lexical_sparse",
+        LensRuntime::FastembedBgem3 {
+            output: FastembedBgem3Output::Colbert,
+            ..
+        } => "late_interaction_token",
+        LensRuntime::FastembedBgem3 {
+            output: FastembedBgem3Output::Dense,
+            ..
+        } => "dense_semantic",
+        LensRuntime::FastembedReranker { .. } => "retrieval_reranker",
         LensRuntime::Onnx { .. }
         | LensRuntime::CandleLocal { .. }
         | LensRuntime::TeiHttp { .. } => "dense_semantic",

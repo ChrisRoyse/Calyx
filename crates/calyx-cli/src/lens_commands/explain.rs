@@ -4,8 +4,9 @@ use std::time::Instant;
 
 use calyx_core::{Input, Lens, SlotVector};
 use calyx_registry::{
-    CandleLens, LensRuntime, LensSpec, MultimodalAdapterLens, OnnxLens, StaticLookupLens,
-    TeiHttpLens, lens_spec_from_manifest_path,
+    CandleLens, FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens, LensRuntime,
+    LensSpec, MultimodalAdapterLens, OnnxLens, StaticLookupLens, TeiHttpLens,
+    lens_spec_from_manifest_path,
 };
 use serde::Serialize;
 
@@ -87,6 +88,9 @@ fn measure_runtime(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<M
         LensRuntime::TeiHttp { endpoint } => measure_tei(spec, endpoint, probe, repeat),
         LensRuntime::CandleLocal { .. } => measure_candle(spec, probe, repeat),
         LensRuntime::Onnx { .. } => measure_onnx(spec, probe, repeat),
+        LensRuntime::FastembedSparse { .. } => measure_fastembed_sparse(spec, probe, repeat),
+        LensRuntime::FastembedBgem3 { .. } => measure_fastembed_bgem3(spec, probe, repeat),
+        LensRuntime::FastembedReranker { .. } => measure_fastembed_reranker(spec, probe, repeat),
         LensRuntime::MultimodalAdapter { .. } => measure_multimodal(spec, probe, repeat),
         other => Err(CliError::usage(format!(
             "calyx lens explain does not support {} runtime measurement",
@@ -168,6 +172,54 @@ fn measure_onnx(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Meas
         rows: None,
         vram_bytes: files_size(&lens.files().artifact_paths())?,
         runtime_detail: format!("{};{}", lens.runtime_name(), lens.provider_policy()),
+    })
+}
+
+fn measure_fastembed_sparse(
+    spec: &LensSpec,
+    probe: &Input,
+    repeat: usize,
+) -> CliResult<Measurement> {
+    let lens = FastembedSparseLens::from_lens_spec(spec)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    Ok(Measurement {
+        vector,
+        dtype: "f32".to_string(),
+        rows: None,
+        vram_bytes: files_size(&lens.files().artifact_paths())?,
+        runtime_detail: format!("fastembed-sparse;{}", lens.provider_policy()),
+    })
+}
+
+fn measure_fastembed_bgem3(
+    spec: &LensSpec,
+    probe: &Input,
+    repeat: usize,
+) -> CliResult<Measurement> {
+    let lens = FastembedBgem3Lens::from_lens_spec(spec)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    Ok(Measurement {
+        vector,
+        dtype: "f32".to_string(),
+        rows: None,
+        vram_bytes: files_size(&lens.files().artifact_paths())?,
+        runtime_detail: format!("{};{}", lens.runtime_name(), lens.provider_policy()),
+    })
+}
+
+fn measure_fastembed_reranker(
+    spec: &LensSpec,
+    probe: &Input,
+    repeat: usize,
+) -> CliResult<Measurement> {
+    let lens = FastembedRerankerLens::from_lens_spec(spec)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    Ok(Measurement {
+        vector,
+        dtype: "f32".to_string(),
+        rows: None,
+        vram_bytes: files_size(&lens.files().artifact_paths())?,
+        runtime_detail: format!("fastembed-reranker;{}", lens.provider_policy()),
     })
 }
 

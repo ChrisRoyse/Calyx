@@ -5,7 +5,7 @@ use calyx_core::{Asymmetry, CalyxError, Result};
 
 use crate::frozen::{NormPolicy, sha256_digest};
 use crate::runtime::adapters::{allow_noncommercial_from_env, ensure_license_allowed};
-use crate::spec::{LensRuntime, LensSpec};
+use crate::spec::{FastembedBgem3Output, LensRuntime, LensSpec};
 
 use super::algorithmic_manifest::{
     algorithmic_kind, is_algorithmic_runtime, output_shape as algorithmic_output_shape,
@@ -53,6 +53,7 @@ pub fn lens_spec_metadata_from_manifest(
         manifest.pooling.as_bytes(),
         manifest.norm.as_bytes(),
     ]);
+    let retrieval_only = is_retrieval_only_runtime(&manifest.runtime);
     Ok(LensSpec {
         name: manifest.name.clone(),
         runtime: metadata_runtime_from_manifest(manifest, base_dir)?,
@@ -67,9 +68,13 @@ pub fn lens_spec_metadata_from_manifest(
         quant_default: manifest.quant_default,
         truncate_dim: manifest.truncate_dim,
         recall_delta: manifest.recall_delta,
-        retrieval_only: false,
-        excluded_from_dedup: false,
+        retrieval_only,
+        excluded_from_dedup: retrieval_only,
     })
+}
+
+fn is_retrieval_only_runtime(runtime: &str) -> bool {
+    matches!(runtime, "fastembed-reranker")
 }
 
 fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
@@ -162,6 +167,29 @@ fn metadata_runtime_from_manifest(
         .collect::<Vec<_>>();
     match manifest.runtime.as_str() {
         "onnx" | "onnx-int8" | "onnx-custom" | "onnx-fastembed" => Ok(LensRuntime::Onnx {
+            model_id: manifest.source_hf_id.clone(),
+            files: file_paths,
+        }),
+        "fastembed-sparse" => Ok(LensRuntime::FastembedSparse {
+            model_id: manifest.source_hf_id.clone(),
+            files: file_paths,
+        }),
+        "fastembed-bgem3-dense" => Ok(LensRuntime::FastembedBgem3 {
+            model_id: manifest.source_hf_id.clone(),
+            files: file_paths,
+            output: FastembedBgem3Output::Dense,
+        }),
+        "fastembed-bgem3-sparse" => Ok(LensRuntime::FastembedBgem3 {
+            model_id: manifest.source_hf_id.clone(),
+            files: file_paths,
+            output: FastembedBgem3Output::Sparse,
+        }),
+        "fastembed-bgem3-colbert" => Ok(LensRuntime::FastembedBgem3 {
+            model_id: manifest.source_hf_id.clone(),
+            files: file_paths,
+            output: FastembedBgem3Output::Colbert,
+        }),
+        "fastembed-reranker" => Ok(LensRuntime::FastembedReranker {
             model_id: manifest.source_hf_id.clone(),
             files: file_paths,
         }),

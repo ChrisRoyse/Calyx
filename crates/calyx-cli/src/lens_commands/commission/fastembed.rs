@@ -47,7 +47,7 @@ pub(super) fn commission(
     Ok(FastembedCommission { artifacts, dim })
 }
 
-fn cache_dir(flags: &CommissionFlags) -> CliResult<PathBuf> {
+pub(super) fn cache_dir(flags: &CommissionFlags) -> CliResult<PathBuf> {
     if let Some(home) = &flags.home {
         return Ok(home.join(".hf-cache"));
     }
@@ -62,7 +62,7 @@ fn cache_dir(flags: &CommissionFlags) -> CliResult<PathBuf> {
         })
 }
 
-fn copy_artifacts(files: &OnnxModelFiles, out: &Path) -> CliResult<Vec<Artifact>> {
+pub(super) fn copy_artifacts(files: &OnnxModelFiles, out: &Path) -> CliResult<Vec<Artifact>> {
     let sources = files.artifact_paths();
     let root = common_root(&sources)?;
     let dest_root = out.join("fastembed-artifacts");

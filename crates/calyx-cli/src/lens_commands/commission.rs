@@ -8,6 +8,7 @@ use serde_json::json;
 
 mod artifact;
 mod fastembed;
+mod fastembed_special;
 mod log;
 mod options;
 
@@ -83,6 +84,14 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         }
         CommissionRuntime::FastembedOnnx => {
             let commissioned = fastembed::commission(&flags, &out, &mut log)?;
+            CommissionOutput::with_dim(commissioned.artifacts, commissioned.dim)
+        }
+        CommissionRuntime::FastembedSparse
+        | CommissionRuntime::FastembedBgem3Dense
+        | CommissionRuntime::FastembedBgem3Sparse
+        | CommissionRuntime::FastembedBgem3Colbert
+        | CommissionRuntime::FastembedReranker => {
+            let commissioned = fastembed_special::commission(&flags, &out, &mut log)?;
             CommissionOutput::with_dim(commissioned.artifacts, commissioned.dim)
         }
     };
@@ -324,7 +333,7 @@ fn write_manifest(
         artifact_set_sha256: Some(artifact_set_sha256(artifacts)?),
         files: manifest_files(out, artifacts)?,
         pooling: flags.pooling.clone(),
-        norm: flags.norm.clone(),
+        norm: flags.manifest_norm(),
         source_hf_id: flags.hf.clone(),
         endpoint: flags.endpoint_for_manifest(),
         license: flags.license.clone(),

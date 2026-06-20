@@ -148,7 +148,7 @@ pub fn execution_providers(
     }
 }
 
-fn resolve_files(
+pub(super) fn resolve_files(
     cache_dir: &Path,
     model_code: &str,
     model_file: &str,
@@ -187,7 +187,7 @@ fn resolve_files(
     })
 }
 
-fn fetch(repo: &hf_hub::api::sync::ApiRepo, filename: &str) -> Result<PathBuf> {
+pub(super) fn fetch(repo: &hf_hub::api::sync::ApiRepo, filename: &str) -> Result<PathBuf> {
     repo.get(filename)
         .map_err(|err| CalyxError::lens_unreachable(format!("fetch {filename} failed: {err}")))
 }

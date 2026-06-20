@@ -7,11 +7,12 @@ use sha2::{Digest, Sha256};
 
 use crate::frozen::{NormPolicy, sha256_digest};
 use crate::runtime::adapters::{allow_noncommercial_from_env, ensure_license_allowed};
-use crate::spec::{LensRuntime, LensSpec};
+use crate::spec::LensSpec;
 
 use super::algorithmic_manifest::{
-    algorithmic_kind, is_algorithmic_runtime, output_shape as algorithmic_output_shape,
+    is_algorithmic_runtime, output_shape as algorithmic_output_shape,
 };
+use super::manifest_runtime::runtime_from_manifest;
 
 const CONFIG_INVALID: &str = "CALYX_LENS_CONFIG_INVALID";
 
@@ -106,6 +107,7 @@ pub fn lens_spec_from_manifest_with_license_override(
         manifest.pooling.as_bytes(),
         manifest.norm.as_bytes(),
     ]);
+    let retrieval_only = is_retrieval_only_runtime(&manifest.runtime);
     Ok(LensSpec {
         name: manifest.name.clone(),
         runtime: runtime_from_manifest(manifest, &artifacts)?,
@@ -120,9 +122,13 @@ pub fn lens_spec_from_manifest_with_license_override(
         quant_default: manifest.quant_default,
         truncate_dim: manifest.truncate_dim,
         recall_delta: manifest.recall_delta,
-        retrieval_only: false,
-        excluded_from_dedup: false,
+        retrieval_only,
+        excluded_from_dedup: retrieval_only,
     })
+}
+
+fn is_retrieval_only_runtime(runtime: &str) -> bool {
+    matches!(runtime, "fastembed-reranker")
 }
 
 fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
@@ -171,9 +177,9 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
 }
 
 #[derive(Clone, Debug)]
-struct VerifiedFile {
-    role: String,
-    path: PathBuf,
+pub(super) struct VerifiedFile {
+    pub(super) role: String,
+    pub(super) path: PathBuf,
     bytes: Vec<u8>,
 }
 
@@ -270,74 +276,6 @@ fn weight_anchor<'a>(
         .ok_or_else(|| config_invalid("lensforge manifest requires a model file"))
 }
 
-fn runtime_from_manifest(
-    manifest: &LensForgeManifest,
-    artifacts: &[VerifiedFile],
-) -> Result<LensRuntime> {
-    if let Some(kind) = algorithmic_kind(&manifest.runtime) {
-        return Ok(LensRuntime::Algorithmic {
-            kind: kind.to_string(),
-        });
-    }
-    let files = artifacts
-        .iter()
-        .map(|file| file.path.clone())
-        .collect::<Vec<_>>();
-    match manifest.runtime.as_str() {
-        "onnx" | "onnx-int8" | "onnx-custom" | "onnx-fastembed" => Ok(LensRuntime::Onnx {
-            model_id: manifest.source_hf_id.clone(),
-            files,
-        }),
-        "candle" | "candle-fp16" | "candle-local" => Ok(LensRuntime::CandleLocal {
-            model_id: manifest.source_hf_id.clone(),
-            files,
-            dtype: manifest.dtype.clone(),
-            pooling: manifest.pooling.clone(),
-        }),
-        "tei" | "tei-http" | "tei_http" => Ok(LensRuntime::TeiHttp {
-            endpoint: manifest
-                .endpoint
-                .clone()
-                .ok_or_else(|| config_invalid("lensforge TEI endpoint is required"))?,
-        }),
-        "model2vec" | "static_lookup" | "static-lookup" => {
-            let embeddings_file = artifact_by_role(artifacts, is_model_role)?;
-            let tokenizer = artifact_by_role(artifacts, |role| role == "tokenizer")?;
-            Ok(LensRuntime::StaticLookup {
-                embeddings_file,
-                tokenizer,
-                dim: manifest.dim,
-            })
-        }
-        "external-cmd" | "external_cmd" => Ok(LensRuntime::ExternalCmd {
-            cmd: manifest.source_hf_id.clone(),
-            args: artifacts
-                .iter()
-                .map(|file| file.path.display().to_string())
-                .collect::<Vec<_>>(),
-        }),
-        "adapter" | "multimodal-adapter" | "multimodal_adapter" => {
-            let adapter_config = artifact_by_role(artifacts, |role| role == "adapter")?;
-            Ok(LensRuntime::MultimodalAdapter {
-                axis: modality_token(manifest.modality).to_string(),
-                model_id: manifest.source_hf_id.clone(),
-                adapter_config: Some(adapter_config),
-                files,
-            })
-        }
-        "model2vec-external" => Ok(LensRuntime::ExternalCmd {
-            cmd: "model2vec".to_string(),
-            args: files
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>(),
-        }),
-        other => Err(config_invalid(format!(
-            "unsupported lensforge runtime {other}"
-        ))),
-    }
-}
-
 fn is_tei_runtime(runtime: &str) -> bool {
     matches!(runtime, "tei" | "tei-http" | "tei_http")
 }
@@ -380,13 +318,6 @@ fn contract_artifacts<'a>(
     }
 }
 
-fn artifact_by_role(
-    artifacts: &[VerifiedFile],
-    predicate: impl Fn(&str) -> bool,
-) -> Result<PathBuf> {
-    Ok(artifact_ref_by_role(artifacts, predicate)?.path.clone())
-}
-
 fn artifact_ref_by_role(
     artifacts: &[VerifiedFile],
     predicate: impl Fn(&str) -> bool,
@@ -420,7 +351,7 @@ fn norm_policy(raw: &str) -> Result<NormPolicy> {
     }
 }
 
-fn modality_token(modality: Modality) -> &'static str {
+pub(super) fn modality_token(modality: Modality) -> &'static str {
     match modality {
         Modality::Text => "text",
         Modality::Code => "code",

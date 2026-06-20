@@ -8,8 +8,9 @@ use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Panel, Result, SlotS
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AlgorithmicLens, CandleLens, ExternalCmdLens, LensRuntime, LensSpec, MultimodalAdapterLens,
-    OnnxLens, Registry, RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
+    AlgorithmicLens, CandleLens, ExternalCmdLens, FastembedBgem3Lens, FastembedRerankerLens,
+    FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens, OnnxLens, Registry,
+    RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
 };
 
 const SNAPSHOT_VERSION: u16 = 1;
@@ -180,6 +181,15 @@ fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Option<Arc<dyn Lens>> {
         )),
         LensRuntime::CandleLocal { .. } => Arc::new(CandleLens::from_lens_spec(spec).ok()?),
         LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec).ok()?),
+        LensRuntime::FastembedSparse { .. } => {
+            Arc::new(FastembedSparseLens::from_lens_spec(spec).ok()?)
+        }
+        LensRuntime::FastembedBgem3 { .. } => {
+            Arc::new(FastembedBgem3Lens::from_lens_spec(spec).ok()?)
+        }
+        LensRuntime::FastembedReranker { .. } => {
+            Arc::new(FastembedRerankerLens::from_lens_spec(spec).ok()?)
+        }
         LensRuntime::StaticLookup { .. } => Arc::new(StaticLookupLens::from_lens_spec(spec).ok()?),
         LensRuntime::MultimodalAdapter { .. } => {
             Arc::new(MultimodalAdapterLens::from_lens_spec(spec).ok()?)

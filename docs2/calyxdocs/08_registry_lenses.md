@@ -6,7 +6,9 @@ content-addressed by a `FrozenLensContract`, registered fail-closed, validated o
 every measurement, and hot-swapped into a versioned `Panel` with priority-ordered
 lazy backfill. Seven concrete runtimes implement the trait (algorithmic, TEI HTTP,
 candle-local BERT, ONNX, static-lookup, multimodal-adapter, external-cmd) plus three
-closed-form temporal lenses (E2/E3/E4) and a commissioned algorithmic lens.
+specialised fastembed lenses (sparse/SPLADE, BGE-M3 multi-vector, cross-encoder
+reranker), three closed-form temporal lenses (E2/E3/E4), and a commissioned
+algorithmic lens.
 
 **Source files covered:**
 - `crates/calyx-registry/src/lib.rs`
@@ -23,6 +25,7 @@ closed-form temporal lenses (E2/E3/E4) and a commissioned algorithmic lens.
 - `crates/calyx-registry/src/runtime/candle/options.rs`
 - `crates/calyx-registry/src/runtime/onnx.rs`
 - `crates/calyx-registry/src/runtime/onnx/custom.rs`
+- `crates/calyx-registry/src/runtime/onnx/special/{mod,models,vectors}.rs`
 - `crates/calyx-registry/src/runtime/static_lookup.rs`
 - `crates/calyx-registry/src/runtime/external_cmd.rs`
 - `crates/calyx-registry/src/runtime/adapters/{mod,axis,lens,pack}.rs`
@@ -164,6 +167,30 @@ special_tokens_map, tokenizer_config, contract_paths) and `OnnxFileSpec`. Constr
 (takes a `fastembed::EmbeddingModel`), `from_files`, `from_lens_spec`. Config errors use
 `CALYX_LENS_CONFIG_INVALID`; inference failure → `CALYX_LENS_UNREACHABLE`. Dependencies:
 `ort = =2.0.0-rc.12` (cuda), `fastembed 5.16`, `tokenizers 0.22`.
+
+#### 2.4a Special fastembed lenses — `runtime/onnx/special/{mod,models,vectors}.rs`
+
+Three additional fastembed-backed lenses cover retrieval shapes the plain dense
+`OnnxLens` cannot express. Each holds a `Mutex<…>` model, an `OnnxModelFiles` set, and an
+`OnnxProviderPolicy`; `mod.rs` defines the lenses, `models.rs` resolves model names →
+fastembed enums plus dims/shapes/norms, and `vectors.rs` holds the batching, CUDA-leak,
+and contract helpers.
+
+- **`FastembedSparseLens`** — SPLADE-style sparse term vectors (`SparseTextEmbedding`).
+  `runtime_name()` `"fastembed-sparse"`; output sparse (`finite` norm).
+- **`FastembedBgem3Lens`** — BGE-M3 multi-vector (`Bgem3Embedding`). One lens type, three
+  output modes via `FastembedBgem3Output` (`Dense | Sparse | Colbert`); the dense path is
+  unit-normalised, sparse/colbert use `finite` norm. `runtime_name()`
+  `"fastembed-bgem3-dense|sparse|colbert"`.
+- **`FastembedRerankerLens`** — cross-encoder reranker (`TextRerank`); scores query↔doc
+  pairs (`finite` norm).
+
+Exported from `lib.rs` as `FastembedSparseLens`, `FastembedBgem3Lens`,
+`FastembedRerankerLens`, and `FastembedBgem3Output`. Commission these with
+`--runtime fastembed-sparse | fastembed-bgem3-{dense,sparse,colbert} | fastembed-reranker`
+(`lens commission`, see [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md));
+`--norm` defaults per-runtime (`unit` for dense, `finite` for sparse/colbert/reranker)
+unless given explicitly.
 
 ### 2.5 `StaticLookupLens` — `runtime/static_lookup.rs`
 
@@ -350,8 +377,11 @@ retrieval_only, excluded_from_dedup`.
 
 `LensRuntime` variants (serde snake_case): `Algorithmic{kind}`, `TeiHttp{endpoint}`,
 `CandleLocal{model_id,files,dtype,pooling}`, `Onnx{model_id,files}`,
+`FastembedSparse{model_id,files}`, `FastembedBgem3{model_id,files,output}` (output =
+`FastembedBgem3Output::{Dense,Sparse,Colbert}`), `FastembedReranker{model_id,files}`,
 `StaticLookup{embeddings_file,tokenizer,dim}`, `MultimodalAdapter{axis,model_id}`,
-`ExternalCmd{cmd,args}`. `LensHealth`: `Loaded | Cold | Failing{code,reason}`;
+`ExternalCmd{cmd,args}`. The three fastembed-special variants share `files`-existence
+health probing with `Onnx`. `LensHealth`: `Loaded | Cold | Failing{code,reason}`;
 `LensSpec::health()` probes (TCP probe for TEI with 250ms timeout, file existence for
 candle/onnx/static, `PATH`/file check for external-cmd).
 

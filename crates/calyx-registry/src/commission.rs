@@ -10,6 +10,7 @@ use crate::{Registry, ensure_input_modality};
 mod algorithmic_manifest;
 mod manifest;
 mod manifest_metadata;
+mod manifest_runtime;
 #[cfg(test)]
 mod tests;
 

@@ -190,7 +190,11 @@ fn estimate_lens_cost(spec: &LensSpec) -> CliResult<LensCost> {
             tokenizer,
             ..
         } => measure_static_lookup_cost(spec, embeddings_file, tokenizer),
-        LensRuntime::CandleLocal { files, .. } | LensRuntime::Onnx { files, .. } => {
+        LensRuntime::CandleLocal { files, .. }
+        | LensRuntime::Onnx { files, .. }
+        | LensRuntime::FastembedSparse { files, .. }
+        | LensRuntime::FastembedBgem3 { files, .. }
+        | LensRuntime::FastembedReranker { files, .. } => {
             let bytes = files_size(files)?;
             Ok(LensCost {
                 total_ms: 0.0,

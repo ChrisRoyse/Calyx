@@ -40,6 +40,9 @@ pub fn signal_kind_from_runtime(runtime: &LensRuntime) -> CapabilitySignalKind {
         LensRuntime::TeiHttp { .. }
         | LensRuntime::CandleLocal { .. }
         | LensRuntime::Onnx { .. }
+        | LensRuntime::FastembedSparse { .. }
+        | LensRuntime::FastembedBgem3 { .. }
+        | LensRuntime::FastembedReranker { .. }
         | LensRuntime::StaticLookup { .. }
         | LensRuntime::MultimodalAdapter { .. } => CapabilitySignalKind::LearnedEncoder,
         LensRuntime::ExternalCmd { .. } => CapabilitySignalKind::Unknown,

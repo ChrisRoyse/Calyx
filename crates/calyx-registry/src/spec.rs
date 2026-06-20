@@ -15,6 +15,14 @@ const LENS_UNREACHABLE: &str = "CALYX_LENS_UNREACHABLE";
 const CANDLE_CUDA_FEATURE_MISSING_REASON: &str =
     "candle CUDA requested but calyx-registry was built without feature `candle-cuda`";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FastembedBgem3Output {
+    Dense,
+    Sparse,
+    Colbert,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LensRuntime {
@@ -33,6 +41,19 @@ pub enum LensRuntime {
         pooling: String,
     },
     Onnx {
+        model_id: String,
+        files: Vec<PathBuf>,
+    },
+    FastembedSparse {
+        model_id: String,
+        files: Vec<PathBuf>,
+    },
+    FastembedBgem3 {
+        model_id: String,
+        files: Vec<PathBuf>,
+        output: FastembedBgem3Output,
+    },
+    FastembedReranker {
         model_id: String,
         files: Vec<PathBuf>,
     },
@@ -110,7 +131,10 @@ impl LensSpec {
             } => multimodal_adapter_health(adapter_config.as_ref(), files),
             LensRuntime::TeiHttp { endpoint } => probe_http(endpoint),
             LensRuntime::CandleLocal { files, .. } => candle_local_health(files),
-            LensRuntime::Onnx { files, .. } => files_runtime_health(files),
+            LensRuntime::Onnx { files, .. }
+            | LensRuntime::FastembedSparse { files, .. }
+            | LensRuntime::FastembedBgem3 { files, .. }
+            | LensRuntime::FastembedReranker { files, .. } => files_runtime_health(files),
             LensRuntime::StaticLookup {
                 embeddings_file,
                 tokenizer,
