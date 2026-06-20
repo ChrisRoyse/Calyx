@@ -6,7 +6,7 @@ use super::super::format::VectorFormat;
 use super::super::rows::RowStats;
 
 pub(crate) const TEMPORAL_COUNTS_TOWARD_A35: bool = false;
-pub(crate) const TEMPORAL_LANE_ROLE: &str = "event_time_forward_backward_as_of_sidecar";
+pub(crate) const TEMPORAL_LANE_ROLE: &str = "time_manipulation_walk_forward_backward_as_of_sidecar";
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Evidence {

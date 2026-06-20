@@ -46,7 +46,7 @@ fn stream_fbin_writes_structured_progress_snapshot() {
     assert_eq!(progress["temporal_counts_toward_a35"], false);
     assert_eq!(
         progress["temporal_lane_role"],
-        "event_time_forward_backward_as_of_sidecar"
+        "time_manipulation_walk_forward_backward_as_of_sidecar"
     );
     assert_eq!(
         progress["progress_path"].as_str().unwrap(),
@@ -83,7 +83,7 @@ fn stream_fbin_writes_structured_progress_snapshot() {
     assert_eq!(report["temporal_counts_toward_a35"], false);
     assert_eq!(
         report["temporal_lane_role"],
-        "event_time_forward_backward_as_of_sidecar"
+        "time_manipulation_walk_forward_backward_as_of_sidecar"
     );
     let first_lens = &report["lens_roster"][0];
     assert_eq!(first_lens["signal_kind"], "learned_encoder");
@@ -100,7 +100,7 @@ fn stream_fbin_writes_structured_progress_snapshot() {
     assert_eq!(plan["slots"][0]["signal_kind"], "learned_encoder");
     assert_eq!(
         plan["temporal_lane_role"],
-        "event_time_forward_backward_as_of_sidecar"
+        "time_manipulation_walk_forward_backward_as_of_sidecar"
     );
     let _ = fs::remove_dir_all(fixture.root);
 }

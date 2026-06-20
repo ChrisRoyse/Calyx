@@ -85,7 +85,7 @@ pub fn a37_diversity_gate(
         content_lens_count,
         temporal_sidecar_count: temporal_sidecar_slots.len(),
         temporal_counts_toward_content_floor: false,
-        temporal_lane_role: "event_time_forward_backward_as_of_sidecar".to_string(),
+        temporal_lane_role: "time_manipulation_walk_forward_backward_as_of_sidecar".to_string(),
         association_family_count,
         association_families: families,
         temporal_sidecar_slots,
@@ -154,4 +154,50 @@ where
     F: Fn(&EnsemblePairValue) -> f32,
 {
     pairs.iter().map(value).sum::<f32>() / pairs.len().max(1) as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use calyx_core::SlotId;
+
+    use super::*;
+    use crate::ensemble::model::{EnsembleDecision, PidBits};
+
+    #[test]
+    fn a37_records_temporal_lane_as_time_manipulation_sidecar() {
+        let lenses = vec![
+            lens("semantic-general", 0),
+            lens("temporal-as-of-sidecar", 1),
+        ];
+        let gate = a37_diversity_gate(&lenses, &[], 1.0, &EnsembleConfig::default());
+
+        assert_eq!(
+            gate.temporal_lane_role,
+            "time_manipulation_walk_forward_backward_as_of_sidecar"
+        );
+        assert!(!gate.temporal_counts_toward_content_floor);
+        assert_eq!(gate.temporal_sidecar_count, 1);
+        assert_eq!(gate.content_lens_count, 1);
+    }
+
+    fn lens(name: &str, slot: u16) -> EnsembleLensValue {
+        EnsembleLensValue {
+            name: name.to_string(),
+            slot: SlotId::new(slot),
+            solo_bits: 0.2,
+            solo_ci: [0.1, 0.3],
+            panel_without_bits: 0.15,
+            marginal_bits: 0.05,
+            marginal_ci: [0.02, 0.08],
+            pid: PidBits {
+                unique_bits: 0.05,
+                redundant_bits: 0.1,
+                synergistic_bits: 0.01,
+            },
+            max_pairwise_corr: 0.1,
+            max_pairwise_nmi: 0.1,
+            decision: EnsembleDecision::Keep,
+            decision_reason: "unit".to_string(),
+        }
+    }
 }

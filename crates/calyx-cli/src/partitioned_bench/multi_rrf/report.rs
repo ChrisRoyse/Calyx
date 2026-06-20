@@ -48,7 +48,7 @@ pub(super) fn grounded_phase_exit_contract() -> Value {
             "lodestar": "grounding-kernel coverage >= 0.95 * full over the same valid outcome scope",
             "oracle": "oracle flakiness and validity must bound the trusted confidence",
         },
-        "temporal_role": "event-time forward/backward/as-of sidecar for time navigation; not a content lens and not a grounding substitute",
+        "temporal_role": "time manipulation sidecar for walking state forward/backward/as-of; not a content lens and not a grounding substitute",
     })
 }
 
