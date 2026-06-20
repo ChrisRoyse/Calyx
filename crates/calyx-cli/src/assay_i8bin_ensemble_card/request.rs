@@ -15,6 +15,26 @@ pub(crate) struct I8binEnsembleRequest {
     pub(crate) min_marginal_bits: f32,
     pub(crate) max_redundancy: f32,
     pub(crate) nmi_bins: usize,
+    pub(crate) mode: A37CardMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum A37CardMode {
+    Gate,
+    Diagnostic,
+}
+
+impl A37CardMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Gate => "gate",
+            Self::Diagnostic => "diagnostic",
+        }
+    }
+
+    pub(crate) fn requires_gate(self) -> bool {
+        matches!(self, Self::Gate)
+    }
 }
 
 impl I8binEnsembleRequest {
@@ -32,6 +52,7 @@ impl I8binEnsembleRequest {
         let mut min_marginal_bits = calyx_assay::DEFAULT_MIN_MARGINAL_BITS;
         let mut max_redundancy = calyx_assay::DEFAULT_MAX_REDUNDANCY;
         let mut nmi_bins = 10_usize;
+        let mut mode = A37CardMode::Gate;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -87,6 +108,14 @@ impl I8binEnsembleRequest {
                     nmi_bins = parse_usize(args, idx, "--nmi-bins")?;
                     idx += 2;
                 }
+                "--mode" => {
+                    mode = parse_mode(value(args, idx, "--mode")?)?;
+                    idx += 2;
+                }
+                "--diagnostic" | "--baseline" => {
+                    mode = A37CardMode::Diagnostic;
+                    idx += 1;
+                }
                 other => {
                     return Err(format!(
                         "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: unknown arg {other}"
@@ -109,6 +138,7 @@ impl I8binEnsembleRequest {
             min_marginal_bits,
             max_redundancy,
             nmi_bins,
+            mode,
         };
         request.validate()?;
         Ok(request)
@@ -177,6 +207,16 @@ fn parse_signature_rows(value: &str) -> Result<Option<usize>, String> {
     value.parse::<usize>().map(Some).map_err(|error| {
         format!("CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: invalid --signature-rows: {error}")
     })
+}
+
+fn parse_mode(value: &str) -> Result<A37CardMode, String> {
+    match value {
+        "gate" => Ok(A37CardMode::Gate),
+        "diagnostic" | "baseline" => Ok(A37CardMode::Diagnostic),
+        other => Err(format!(
+            "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG: --mode must be gate or diagnostic, got {other}"
+        )),
+    }
 }
 
 fn parse_usize(args: &[String], idx: usize, flag: &str) -> Result<usize, String> {

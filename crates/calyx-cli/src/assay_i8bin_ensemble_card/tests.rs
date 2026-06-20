@@ -1,9 +1,9 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::engine::evaluate;
+use super::engine::{enforce_a37_mode, evaluate};
 use super::metrics::write_outputs;
-use super::request::I8binEnsembleRequest;
+use super::request::{A37CardMode, I8binEnsembleRequest};
 
 const DIM: usize = 4;
 
@@ -24,14 +24,17 @@ fn i8bin_card_reads_vector_bytes_and_persists_payload() {
     assert_eq!(report.card.pairs.len(), 45);
     assert_eq!(report.sample_rows_selected, 80);
     assert_eq!(report.signature_rows, 60);
+    assert_eq!(report.a37_mode, "diagnostic");
+    assert!(!report.a37_gate_required);
     assert_eq!(report.diversity.association_family_count, 1);
     assert!(
         report
             .diversity
             .association_families
-            .contains_key("dense-semantic")
+            .contains_key("dense_semantic_general")
     );
     assert_eq!(report.diversity.status, "diagnostic_only");
+    assert_eq!(report.card.a37_diversity.status, "diagnostic_only");
     assert_eq!(evidence.assay_cf_rows_persisted, 58);
     assert_eq!(evidence.assay_cf_subject_counts["lens"], 10);
     assert_eq!(evidence.assay_cf_subject_counts["ensemble_card"], 1);
@@ -46,6 +49,26 @@ fn i8bin_card_reads_vector_bytes_and_persists_payload() {
         serde_json::from_str(&fs::read_to_string(&evidence.ensemble_card_path).unwrap()).unwrap();
     assert_eq!(card_json["panel_lens_count"], 10);
 
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn default_gate_mode_refuses_homogeneous_panel_before_outputs() {
+    let root = temp_root("i8bin-ensemble-card-a37-gate-refuses");
+    fs::create_dir_all(&root).unwrap();
+    let rows = root.join("rows.jsonl");
+    write_rows(&rows, 120);
+    let plan = write_plan(&root, 10, 120);
+    let mut request = request_for(&root, plan, rows, None, 80, Some(60));
+    request.mode = A37CardMode::Gate;
+
+    let report = evaluate(&request).unwrap();
+    let error = enforce_a37_mode(&request, &report).unwrap_err();
+
+    assert_eq!(report.diversity.status, "diagnostic_only");
+    assert!(error.starts_with("CALYX_FSV_ASSAY_A37_DIVERSITY_GATE_REFUSED"));
+    assert!(!request.metrics_dir.exists());
+    assert!(!request.cf_root.exists());
     let _ = fs::remove_dir_all(root);
 }
 
@@ -152,6 +175,7 @@ fn request_for(
         min_marginal_bits: 0.05,
         max_redundancy: 0.6,
         nmi_bins: 8,
+        mode: A37CardMode::Diagnostic,
     }
 }
 

@@ -11,6 +11,7 @@ use crate::n_eff::stable_rank;
 use crate::nmi::partitioned_histogram_nmi;
 use crate::sufficiency::{PanelSufficiency, entropy_bits, panel_sufficiency_from_estimate};
 
+use super::a37::a37_diversity_gate;
 use super::model::{
     DeficitProposal, ENSEMBLE_CARD_PID_METHOD, ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleCard,
     EnsembleConfig, EnsembleDecision, EnsembleLensInput, EnsembleLensValue, EnsemblePairValue,
@@ -81,6 +82,7 @@ pub fn ensemble_card(
         .iter()
         .map(|lens| (lens.slot, lens.marginal_bits))
         .collect::<Vec<_>>();
+    let a37_diversity = a37_diversity_gate(&lens_values, &pairs, n_eff, config);
     let sufficiency = panel_sufficiency_from_estimate(
         &panel.estimate,
         entropy_bits(labels),
@@ -100,6 +102,7 @@ pub fn ensemble_card(
         n_eff,
         sufficient: sufficiency.sufficient,
         deficit_bits: sufficiency.deficit_bits,
+        a37_diversity,
         deficit_proposal: deficit_proposal(&sufficiency, &lens_values),
         sufficiency,
         lenses: lens_values,

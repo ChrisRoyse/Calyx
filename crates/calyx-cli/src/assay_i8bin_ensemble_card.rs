@@ -9,7 +9,7 @@ use calyx_core::CalyxError;
 
 use crate::error::{CliError, CliResult};
 
-use engine::evaluate;
+use engine::{enforce_a37_mode, evaluate};
 use metrics::write_outputs;
 use request::I8binEnsembleRequest;
 
@@ -20,6 +20,7 @@ pub(crate) fn run(args: &[String]) -> CliResult {
     let request = I8binEnsembleRequest::parse(args).map_err(i8bin_card_error)?;
     request.ensure_fresh_outputs().map_err(i8bin_card_error)?;
     let report = evaluate(&request).map_err(i8bin_card_error)?;
+    enforce_a37_mode(&request, &report).map_err(i8bin_card_error)?;
     let evidence = write_outputs(&request, &report).map_err(i8bin_card_error)?;
     println!(
         "{}",
@@ -83,6 +84,7 @@ const I8BIN_CARD_CODES: &[&str] = &[
     "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_PLAN",
     "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_ROWS",
     "CALYX_FSV_ASSAY_I8BIN_CARD_VECTOR_MISMATCH",
+    "CALYX_FSV_ASSAY_A37_DIVERSITY_GATE_REFUSED",
     "CALYX_FSV_ASSAY_I8BIN_CARD_OUTPUT_EXISTS",
     "CALYX_FSV_ASSAY_CARD_READBACK_MISSING",
     "CALYX_FSV_ASSAY_CARD_READBACK_MISMATCH",

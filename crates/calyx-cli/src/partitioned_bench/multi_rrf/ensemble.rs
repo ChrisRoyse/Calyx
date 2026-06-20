@@ -194,6 +194,7 @@ fn report(path: &Path, bytes: &[u8], card: &EnsembleCard) -> Value {
         "panel_bits": card.panel_bits,
         "panel_ci": card.panel_ci,
         "n_eff": card.n_eff,
+        "a37_diversity": card.a37_diversity,
         "panel_sufficiency": card.sufficiency,
         "sufficient": card.sufficient,
         "deficit_bits": card.deficit_bits,
@@ -291,7 +292,10 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     use calyx_assay::sufficiency::PanelSufficiency;
-    use calyx_assay::{EnsembleDecision, EnsembleLensValue, EnsemblePairValue, PidBits, TrustTag};
+    use calyx_assay::{
+        EnsembleConfig, EnsembleDecision, EnsembleLensValue, EnsemblePairValue, PidBits, TrustTag,
+        a37_diversity_gate,
+    };
     use calyx_core::SlotId;
 
     use super::super::PlanSlot;
@@ -412,6 +416,7 @@ mod tests {
                 pairs.push(pair_value(a + slot_offset, b + slot_offset));
             }
         }
+        let a37_diversity = a37_diversity_gate(&lenses, &pairs, 8.5, &EnsembleConfig::default());
         EnsembleCard {
             schema_version: 1,
             source: "unit-test".to_string(),
@@ -424,6 +429,7 @@ mod tests {
             n_eff: 8.5,
             sufficient: false,
             deficit_bits: 0.5,
+            a37_diversity,
             deficit_proposal: None,
             sufficiency: PanelSufficiency {
                 panel_bits: 0.5,

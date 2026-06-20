@@ -1,6 +1,9 @@
 use std::collections::BTreeMap;
 
-use calyx_assay::{EnsembleCard, EnsembleConfig, ensemble_card};
+use calyx_assay::{
+    A37_DIVERSITY_GATE_PASSED, A37DiversityGate, EnsembleCard, EnsembleConfig,
+    a37_association_family, a37_diversity_gate, ensemble_card,
+};
 use serde::Serialize;
 
 use crate::assay_bits_validation::calyx_error_detail;
@@ -24,9 +27,11 @@ pub(crate) struct I8binEnsembleReport {
     pub(crate) sample_positive_rows: usize,
     pub(crate) sample_negative_rows: usize,
     pub(crate) signature_rows: usize,
+    pub(crate) a37_mode: String,
+    pub(crate) a37_gate_required: bool,
     pub(crate) lens_roster: Vec<LensReadout>,
     pub(crate) matrix: MatrixReadout,
-    pub(crate) diversity: DiversityReadout,
+    pub(crate) diversity: A37DiversityGate,
     pub(crate) card: EnsembleCard,
 }
 
@@ -49,25 +54,6 @@ pub(crate) struct LensReadout {
     pub(crate) manifest: Option<String>,
     pub(crate) corpus_rows_written: Option<usize>,
     pub(crate) query_rows_written: Option<usize>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct DiversityReadout {
-    pub(crate) role: String,
-    pub(crate) status: String,
-    pub(crate) association_family_count: usize,
-    pub(crate) association_families: BTreeMap<String, Vec<u16>>,
-    pub(crate) family_span_pass: bool,
-    pub(crate) redundancy_bound_pass: bool,
-    pub(crate) no_collapse_pass: bool,
-    pub(crate) n_eff: f32,
-    pub(crate) n_eff_floor: f32,
-    pub(crate) mean_pairwise_corr: f32,
-    pub(crate) mean_pairwise_nmi: f32,
-    pub(crate) max_redundancy: f32,
-    pub(crate) sum_unique_pid_bits: f32,
-    pub(crate) min_marginal_bits: f32,
-    pub(crate) verdict: String,
 }
 
 pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleReport, String> {
@@ -110,13 +96,14 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
     )
     .map_err(calyx_error_detail)?;
     apply_full_matrix_redundancy(&mut card, &vectors.matrix);
+    card.a37_diversity = a37_diversity_gate(&card.lenses, &card.pairs, card.n_eff, &config);
     let lens_roster = plan
         .slots
         .iter()
         .zip(vectors.dims)
         .map(|(slot, dim)| lens_readout(slot, dim))
         .collect::<Vec<_>>();
-    let diversity = diversity_readout(&lens_roster, &card, &vectors.matrix, request);
+    let diversity = card.a37_diversity.clone();
     Ok(I8binEnsembleReport {
         plan_path: request.plan.display().to_string(),
         rows_jsonl: request.rows_jsonl.display().to_string(),
@@ -133,11 +120,26 @@ pub(crate) fn evaluate(request: &I8binEnsembleRequest) -> Result<I8binEnsembleRe
         sample_positive_rows: sample.positives,
         sample_negative_rows: sample.negatives,
         signature_rows: vectors.matrix.signature_rows,
+        a37_mode: request.mode.as_str().to_string(),
+        a37_gate_required: request.mode.requires_gate(),
         lens_roster,
         matrix: vectors.matrix,
         diversity,
         card,
     })
+}
+
+pub(crate) fn enforce_a37_mode(
+    request: &I8binEnsembleRequest,
+    report: &I8binEnsembleReport,
+) -> Result<(), String> {
+    if !request.mode.requires_gate() || report.diversity.status == A37_DIVERSITY_GATE_PASSED {
+        return Ok(());
+    }
+    Err(format!(
+        "CALYX_FSV_ASSAY_A37_DIVERSITY_GATE_REFUSED: A37 gate mode requires status={} but got {}; {}",
+        A37_DIVERSITY_GATE_PASSED, report.diversity.status, report.diversity.verdict
+    ))
 }
 
 fn apply_full_matrix_redundancy(card: &mut EnsembleCard, matrix: &MatrixReadout) {
@@ -185,7 +187,7 @@ fn lens_readout(slot: &PlanSlot, dim: usize) -> LensReadout {
                 .then_some(slot.corpus_rows_written.unwrap_or(0) as f64 * 1000.0 / elapsed as f64)
         }),
         bits_about: slot.bits_about,
-        association_family: association_family(&slot.name).to_string(),
+        association_family: a37_association_family(&slot.name).to_string(),
         corpus: slot.corpus.display().to_string(),
         queries: slot.queries.display().to_string(),
         vault: slot.vault.display().to_string(),
@@ -195,84 +197,5 @@ fn lens_readout(slot: &PlanSlot, dim: usize) -> LensReadout {
             .map(|path| path.display().to_string()),
         corpus_rows_written: slot.corpus_rows_written,
         query_rows_written: slot.query_rows_written,
-    }
-}
-
-fn diversity_readout(
-    lenses: &[LensReadout],
-    card: &EnsembleCard,
-    matrix: &MatrixReadout,
-    request: &I8binEnsembleRequest,
-) -> DiversityReadout {
-    let mut families = BTreeMap::<String, Vec<u16>>::new();
-    for lens in lenses {
-        families
-            .entry(lens.association_family.clone())
-            .or_default()
-            .push(lens.slot);
-    }
-    let n_eff_floor = lenses.len() as f32 * 0.6;
-    let family_span_pass = families.len() >= 2;
-    let redundancy_bound_pass = matrix.n_eff >= n_eff_floor
-        && matrix.mean_pairwise_corr <= request.max_redundancy
-        && matrix.mean_pairwise_nmi <= request.max_redundancy;
-    let no_collapse_pass = card
-        .lenses
-        .iter()
-        .all(|lens| lens.marginal_bits >= request.min_marginal_bits);
-    let sum_unique_pid_bits = card
-        .lenses
-        .iter()
-        .map(|lens| lens.pid.unique_bits)
-        .sum::<f32>();
-    let status = if family_span_pass && redundancy_bound_pass && no_collapse_pass {
-        "gate_candidate"
-    } else {
-        "diagnostic_only"
-    };
-    DiversityReadout {
-        role: "a37_homogeneous_baseline_control".to_string(),
-        status: status.to_string(),
-        association_family_count: families.len(),
-        association_families: families,
-        family_span_pass,
-        redundancy_bound_pass,
-        no_collapse_pass,
-        n_eff: matrix.n_eff,
-        n_eff_floor,
-        mean_pairwise_corr: matrix.mean_pairwise_corr,
-        mean_pairwise_nmi: matrix.mean_pairwise_nmi,
-        max_redundancy: request.max_redundancy,
-        sum_unique_pid_bits,
-        min_marginal_bits: request.min_marginal_bits,
-        verdict: format!(
-            "A37 status={status}; family_span={family_span_pass}; redundancy_bound={redundancy_bound_pass}; no_collapse={no_collapse_pass}"
-        ),
-    }
-}
-
-fn association_family(name: &str) -> &'static str {
-    let lower = name.to_ascii_lowercase();
-    let tokens = lower
-        .split(|ch: char| !ch.is_ascii_alphanumeric())
-        .filter(|token| !token.is_empty())
-        .collect::<Vec<_>>();
-    if lower.contains("splade") || lower.contains("sparse") || lower.contains("lexical") {
-        "lexical-sparse"
-    } else if lower.contains("entity") || lower.contains("cameo") || lower.contains("graph") {
-        "entity-graph"
-    } else if lower.contains("byte") || lower.contains("char") {
-        "char-byte"
-    } else if tokens.iter().any(|token| matches!(*token, "ast" | "cfg"))
-        || lower.contains("structural")
-        || lower.contains("dataflow")
-    {
-        "structural"
-    } else if lower.contains("rerank") || lower.contains("cross-encoder") {
-        "reranker-asymmetric"
-    } else if lower.contains("temporal") || lower.contains("time") {
-        "temporal-sidecar"
-    } else {
-        "dense-semantic"
     }
 }

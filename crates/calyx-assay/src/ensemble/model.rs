@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::sufficiency::PanelSufficiency;
 
+use super::a37::A37DiversityGate;
+
 pub const ENSEMBLE_CARD_SCHEMA_VERSION: u32 = 1;
 pub const ENSEMBLE_CARD_PID_METHOD: &str = "bounded_decision_surrogate_v1";
 pub const MIN_ENSEMBLE_PANEL_LENSES: usize = 3;
@@ -61,6 +63,7 @@ pub struct EnsembleCard {
     pub n_eff: f32,
     pub sufficient: bool,
     pub deficit_bits: f32,
+    pub a37_diversity: A37DiversityGate,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deficit_proposal: Option<DeficitProposal>,
     pub sufficiency: PanelSufficiency,

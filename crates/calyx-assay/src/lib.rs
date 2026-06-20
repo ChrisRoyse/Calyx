@@ -54,11 +54,12 @@ pub use contract::{
     admit_lens_estimate, admit_lens_estimate_with_signal_kind, admit_lens_with_strata,
 };
 pub use ensemble::{
-    CALYX_ASSAY_PANEL_TOO_SMALL, DEFAULT_GATE_PANEL_LENSES, DEFAULT_MAX_REDUNDANCY,
-    DEFAULT_MIN_MARGINAL_BITS, DeficitProposal, ENSEMBLE_CARD_PID_METHOD,
+    A37_DIVERSITY_DIAGNOSTIC_ONLY, A37_DIVERSITY_GATE_PASSED, A37_DIVERSITY_SCHEMA_VERSION,
+    A37DiversityGate, CALYX_ASSAY_PANEL_TOO_SMALL, DEFAULT_GATE_PANEL_LENSES,
+    DEFAULT_MAX_REDUNDANCY, DEFAULT_MIN_MARGINAL_BITS, DeficitProposal, ENSEMBLE_CARD_PID_METHOD,
     ENSEMBLE_CARD_SCHEMA_VERSION, EnsembleCard, EnsembleConfig, EnsembleDecision,
     EnsembleLensInput, EnsembleLensValue, EnsemblePairValue, MIN_ENSEMBLE_PANEL_LENSES, PidBits,
-    ensemble_card,
+    a37_association_family, a37_diversity_gate, ensemble_card,
 };
 pub use estimate::{
     EstimateBound, EstimateReliability, EstimatorKind, MiEstimate, TrustTag,

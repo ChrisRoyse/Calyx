@@ -76,6 +76,11 @@ the GDELT scale path, while keeping temporal/time capture as a forward/backward
 / as-of traversal sidecar instead of a content-lens substitute. It also satisfies
 A37 D1 family span for this domain: dense general/domain, static semantic,
 byte/character, lexical sparse, late-interaction token, and entity/CAMEO graph.
+`calyx assay i8bin-ensemble-card` now defaults to `--mode gate`, so this A37
+readout must return `a37_diversity.status=gate_passed` before a panel card can
+stand as gate evidence. Homogeneous baseline/control runs must use
+`--diagnostic` or `--baseline`; they still write the redundancy/PID matrix but
+remain `diagnostic_only`.
 
 Boundary evidence for the same roster:
 

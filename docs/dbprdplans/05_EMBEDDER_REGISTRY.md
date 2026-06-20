@@ -198,6 +198,16 @@ D4 diversity number EnsembleCard records {n_eff, mean_redundancy, sum_unique_pid
   exactly like a <10 panel.
 ```
 
+`calyx assay i8bin-ensemble-card` enforces this split in its command contract:
+default `--mode gate` refuses to write metrics or Assay CF rows unless the
+persisted `EnsembleCard.a37_diversity.status` is `gate_passed`. Homogeneous or
+control runs must say `--diagnostic` / `--baseline`; those runs still persist
+the matrix, marginal/PID readout, and temporal sidecar evidence, but the card is
+marked `diagnostic_only` and cannot be used as an A37 gate verdict. Temporal
+lanes remain the time-control surface for as-of, forward, and backward traversal;
+they are serialized in the A37 readout but never count toward the content-family
+floor.
+
 **A genuinely diverse text panel** (vs the 10-clone anti-pattern) mixes families: 2–3 dense-semantic anchors (one general + one domain) · a **lexical/sparse** lens (exact terms/names/acronyms dense models blur) · an **entity** lens (for GDELT: actors/orgs/CAMEO codes/country pairs — often the highest-unique-info axis) · a **character/byte** lens (name transliteration robustness) · the **temporal** sidecar for as-of/forward/backward time traversal. That mix maximizes unique + synergistic PID per slot; ten dense clones maximize redundancy.
 
 **PH68 GDELT scale template (#801; cross-ref #796/#787):** the current proven
