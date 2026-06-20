@@ -8,6 +8,7 @@ use crate::lens_commands::flags::value;
 pub(super) enum CommissionRuntime {
     OnnxInt8,
     OnnxFp32,
+    OnnxColbert,
     FastembedOnnx,
     FastembedSparse,
     FastembedBgem3Dense,
@@ -24,6 +25,7 @@ impl CommissionRuntime {
         match raw {
             "onnx-int8" => Ok(Self::OnnxInt8),
             "onnx-fp32" | "onnx" => Ok(Self::OnnxFp32),
+            "onnx-colbert" | "colbert-onnx" | "answerai-colbert" => Ok(Self::OnnxColbert),
             "fastembed-onnx" | "onnx-fastembed" => Ok(Self::FastembedOnnx),
             "fastembed-sparse" => Ok(Self::FastembedSparse),
             "fastembed-bgem3-dense" | "fastembed-bge-m3-dense" => Ok(Self::FastembedBgem3Dense),
@@ -36,7 +38,7 @@ impl CommissionRuntime {
             "candle-fp16" => Ok(Self::CandleFp16),
             "tei" | "tei-http" | "tei_http" => Ok(Self::Tei),
             other => Err(CliError::usage(format!(
-                "unsupported --runtime {other}; expected onnx-int8, onnx-fp32, fastembed-onnx, fastembed-sparse, fastembed-bgem3-*, fastembed-reranker, fastembed-qwen3, candle-fp16, or tei"
+                "unsupported --runtime {other}; expected onnx-int8, onnx-fp32, onnx-colbert, fastembed-onnx, fastembed-sparse, fastembed-bgem3-*, fastembed-reranker, fastembed-qwen3, candle-fp16, or tei"
             ))),
         }
     }
@@ -45,6 +47,7 @@ impl CommissionRuntime {
         match self {
             Self::OnnxInt8 => "onnx-int8",
             Self::OnnxFp32 => "onnx",
+            Self::OnnxColbert => "onnx-colbert",
             Self::FastembedOnnx => "onnx-fastembed",
             Self::FastembedSparse => "fastembed-sparse",
             Self::FastembedBgem3Dense => "fastembed-bgem3-dense",
@@ -61,6 +64,7 @@ impl CommissionRuntime {
         match self {
             Self::OnnxInt8 => "int8",
             Self::OnnxFp32 => "f32",
+            Self::OnnxColbert => "int8",
             Self::FastembedOnnx
             | Self::FastembedSparse
             | Self::FastembedBgem3Dense
@@ -75,7 +79,8 @@ impl CommissionRuntime {
 
     pub(super) const fn default_norm(self) -> &'static str {
         match self {
-            Self::FastembedSparse
+            Self::OnnxColbert
+            | Self::FastembedSparse
             | Self::FastembedBgem3Sparse
             | Self::FastembedBgem3Colbert
             | Self::FastembedReranker => "finite",

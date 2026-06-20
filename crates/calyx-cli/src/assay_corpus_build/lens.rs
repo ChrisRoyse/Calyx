@@ -5,8 +5,8 @@ use std::time::Instant;
 
 use calyx_core::{Input, Lens, Placement, SlotShape, SlotVector};
 use calyx_registry::{
-    CandleLens, FastembedQwen3Lens, LensRuntime, LensSpec as RegistryLensSpec, OnnxLens,
-    StaticLookupLens, TeiHttpLens, lens_spec_from_manifest_path,
+    CandleLens, FastembedQwen3Lens, LensRuntime, LensSpec as RegistryLensSpec, OnnxColbertLens,
+    OnnxLens, StaticLookupLens, TeiHttpLens, lens_spec_from_manifest_path,
 };
 use serde::{Deserialize, Serialize};
 
@@ -176,17 +176,11 @@ fn build_lens(manifest: PathBuf, spec: RegistryLensSpec) -> Result<BuildLens, St
         }
         LensRuntime::Onnx { files, .. } => {
             let lens = OnnxLens::from_lens_spec(&spec).map_err(lens_error)?;
-            let vram_mb = paths_mb(&files)?;
-            Ok(BuildLens {
-                name: spec.name.clone(),
-                manifest,
-                spec,
-                runtime_name: runtime,
-                lens: Box::new(lens),
-                placement: Placement::Gpu,
-                default_vram_mb: vram_mb,
-                default_ram_mb: 0.0,
-            })
+            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
+        }
+        LensRuntime::OnnxColbert { files, .. } => {
+            let lens = OnnxColbertLens::from_lens_spec(&spec).map_err(lens_error)?;
+            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
         }
         LensRuntime::StaticLookup {
             embeddings_file,
@@ -222,31 +216,11 @@ fn build_lens(manifest: PathBuf, spec: RegistryLensSpec) -> Result<BuildLens, St
         }
         LensRuntime::CandleLocal { files, .. } => {
             let lens = CandleLens::from_lens_spec(&spec).map_err(lens_error)?;
-            let vram_mb = paths_mb(&files)?;
-            Ok(BuildLens {
-                name: spec.name.clone(),
-                manifest,
-                spec,
-                runtime_name: runtime,
-                lens: Box::new(lens),
-                placement: Placement::Gpu,
-                default_vram_mb: vram_mb,
-                default_ram_mb: 0.0,
-            })
+            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
         }
         LensRuntime::FastembedQwen3 { files, .. } => {
             let lens = FastembedQwen3Lens::from_lens_spec(&spec).map_err(lens_error)?;
-            let vram_mb = paths_mb(&files)?;
-            Ok(BuildLens {
-                name: spec.name.clone(),
-                manifest,
-                spec,
-                runtime_name: runtime,
-                lens: Box::new(lens),
-                placement: Placement::Gpu,
-                default_vram_mb: vram_mb,
-                default_ram_mb: 0.0,
-            })
+            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
         }
         other => Err(format!(
             "CALYX_FSV_ASSAY_CORPUS_BUILD_UNSUPPORTED_RUNTIME: lens={} runtime={}",
@@ -254,6 +228,25 @@ fn build_lens(manifest: PathBuf, spec: RegistryLensSpec) -> Result<BuildLens, St
             runtime_name(&other)
         )),
     }
+}
+
+fn gpu_build_lens(
+    manifest: PathBuf,
+    spec: RegistryLensSpec,
+    runtime_name: String,
+    lens: Box<dyn Lens>,
+    files: &[PathBuf],
+) -> Result<BuildLens, String> {
+    Ok(BuildLens {
+        name: spec.name.clone(),
+        manifest,
+        spec,
+        runtime_name,
+        lens,
+        placement: Placement::Gpu,
+        default_vram_mb: paths_mb(files)?,
+        default_ram_mb: 0.0,
+    })
 }
 
 fn measure_batches(

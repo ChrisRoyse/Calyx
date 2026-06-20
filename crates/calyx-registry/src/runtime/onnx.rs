@@ -10,12 +10,16 @@ use crate::frozen::{FrozenLensContract, NormPolicy};
 use crate::runtime::common::{normalize_unit, text_from_input};
 use crate::spec::{LensRuntime, LensSpec};
 
+mod colbert;
+mod colbert_files;
+mod colbert_tokens;
 mod cuda_guard;
 mod custom;
 mod dynamic_ort;
 mod fastembed_runtime;
 mod special;
 
+pub use colbert::{DEFAULT_ANSWERAI_COLBERT_MODEL, OnnxColbertFileSpec, OnnxColbertLens};
 pub use special::{FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens};
 
 #[cfg(test)]

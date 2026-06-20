@@ -15,8 +15,8 @@ mod manifest_runtime;
 mod tests;
 
 pub use manifest::{
-    LensForgeFile, LensForgeManifest, lens_spec_from_manifest, lens_spec_from_manifest_path,
-    lens_spec_from_manifest_with_license_override,
+    LensForgeFile, LensForgeManifest, LensForgeShape, lens_spec_from_manifest,
+    lens_spec_from_manifest_path, lens_spec_from_manifest_with_license_override,
 };
 pub use manifest_metadata::{
     lens_spec_metadata_from_manifest, lens_spec_metadata_from_manifest_path,

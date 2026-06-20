@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{Asymmetry, CalyxError, Modality, QuantPolicy, Result};
+use calyx_core::{Asymmetry, CalyxError, Modality, QuantPolicy, Result, SlotShape};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -25,12 +25,47 @@ pub struct LensForgeFile {
     pub bytes: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LensForgeShape {
+    Dense { dim: u32 },
+    Sparse { dim: u32 },
+    Multi { token_dim: u32 },
+}
+
+impl LensForgeShape {
+    pub fn from_slot_shape(shape: SlotShape) -> Self {
+        match shape {
+            SlotShape::Dense(dim) => Self::Dense { dim },
+            SlotShape::Sparse(dim) => Self::Sparse { dim },
+            SlotShape::Multi { token_dim } => Self::Multi { token_dim },
+        }
+    }
+
+    pub fn to_slot_shape(self) -> SlotShape {
+        match self {
+            Self::Dense { dim } => SlotShape::Dense(dim),
+            Self::Sparse { dim } => SlotShape::Sparse(dim),
+            Self::Multi { token_dim } => SlotShape::Multi { token_dim },
+        }
+    }
+
+    pub fn dim(self) -> u32 {
+        match self {
+            Self::Dense { dim } | Self::Sparse { dim } => dim,
+            Self::Multi { token_dim } => token_dim,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LensForgeManifest {
     pub name: String,
     pub modality: Modality,
     pub runtime: String,
     pub dim: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<LensForgeShape>,
     pub dtype: String,
     pub weights_sha256: String,
     #[serde(default)]
@@ -53,6 +88,30 @@ pub struct LensForgeManifest {
     pub recall_delta: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_batch: Option<usize>,
+}
+
+impl LensForgeManifest {
+    pub fn output_shape(&self) -> Result<SlotShape> {
+        let derived = algorithmic_output_shape(&self.runtime, self.dim)?;
+        let Some(shape) = self.shape else {
+            return Ok(derived);
+        };
+        if shape.dim() != self.dim {
+            return Err(config_invalid(format!(
+                "lensforge manifest shape dim {} != dim {}",
+                shape.dim(),
+                self.dim
+            )));
+        }
+        let declared = shape.to_slot_shape();
+        if declared != derived {
+            return Err(config_invalid(format!(
+                "lensforge manifest shape {declared:?} does not match runtime {} dim {} ({derived:?})",
+                self.runtime, self.dim
+            )));
+        }
+        Ok(declared)
+    }
 }
 
 pub fn lens_spec_from_manifest_path(path: impl AsRef<Path>) -> Result<LensSpec> {
@@ -96,7 +155,7 @@ pub fn lens_spec_from_manifest_with_license_override(
         allow_non_commercial,
     )?;
     let artifacts = read_and_verify_files(manifest, base_dir)?;
-    let output = algorithmic_output_shape(&manifest.runtime, manifest.dim)?;
+    let output = manifest.output_shape()?;
     let weights_sha256 = spec_weights_sha256(manifest, &artifacts)?;
     let corpus_hash = sha256_digest(&[
         b"lensforge-manifest-v1",
@@ -156,7 +215,7 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
     if manifest.dim == 0 {
         return Err(config_invalid("lensforge manifest dim must be > 0"));
     }
-    let _ = algorithmic_output_shape(&manifest.runtime, manifest.dim)?;
+    let _ = manifest.output_shape()?;
     if let Some(truncate_dim) = manifest.truncate_dim
         && (truncate_dim == 0 || truncate_dim > manifest.dim)
     {

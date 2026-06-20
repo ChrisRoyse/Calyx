@@ -7,9 +7,7 @@ use crate::frozen::{NormPolicy, sha256_digest};
 use crate::runtime::adapters::{allow_noncommercial_from_env, ensure_license_allowed};
 use crate::spec::{FastembedBgem3Output, LensRuntime, LensSpec};
 
-use super::algorithmic_manifest::{
-    algorithmic_kind, is_algorithmic_runtime, output_shape as algorithmic_output_shape,
-};
+use super::algorithmic_manifest::{algorithmic_kind, is_algorithmic_runtime};
 use super::manifest::{LensForgeFile, LensForgeManifest};
 
 const CONFIG_INVALID: &str = "CALYX_LENS_CONFIG_INVALID";
@@ -42,7 +40,7 @@ pub fn lens_spec_metadata_from_manifest(
         manifest.non_commercial,
         allow_noncommercial_from_env(),
     )?;
-    let output = algorithmic_output_shape(&manifest.runtime, manifest.dim)?;
+    let output = manifest.output_shape()?;
     let weights_sha256 = metadata_weights_sha256(manifest)?;
     let corpus_hash = sha256_digest(&[
         b"lensforge-manifest-v1",
@@ -102,7 +100,7 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
     if manifest.dim == 0 {
         return Err(config_invalid("lensforge manifest dim must be > 0"));
     }
-    let _ = algorithmic_output_shape(&manifest.runtime, manifest.dim)?;
+    let _ = manifest.output_shape()?;
     if let Some(max_batch) = manifest.max_batch
         && max_batch == 0
     {
@@ -167,6 +165,10 @@ fn metadata_runtime_from_manifest(
         .collect::<Vec<_>>();
     match manifest.runtime.as_str() {
         "onnx" | "onnx-int8" | "onnx-custom" | "onnx-fastembed" => Ok(LensRuntime::Onnx {
+            model_id: manifest.source_hf_id.clone(),
+            files: file_paths,
+        }),
+        "onnx-colbert" => Ok(LensRuntime::OnnxColbert {
             model_id: manifest.source_hf_id.clone(),
             files: file_paths,
         }),
@@ -363,6 +365,7 @@ mod tests {
             modality: Modality::Text,
             runtime: "onnx-int8".to_string(),
             dim: 384,
+            shape: None,
             dtype: "int8".to_string(),
             weights_sha256: "11".repeat(32),
             artifact_set_sha256: None,

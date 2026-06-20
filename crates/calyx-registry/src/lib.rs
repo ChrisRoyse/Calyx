@@ -25,9 +25,9 @@ pub use backfill::{
 pub use calyx_core::{Input, Lens};
 pub use commission::{
     CommissionRequest, CommissionedLens, CommissionedLensArtifact, LensForgeFile,
-    LensForgeManifest, commission_lens, lens_spec_from_manifest, lens_spec_from_manifest_path,
-    lens_spec_from_manifest_with_license_override, lens_spec_metadata_from_manifest,
-    lens_spec_metadata_from_manifest_path, register_commissioned,
+    LensForgeManifest, LensForgeShape, commission_lens, lens_spec_from_manifest,
+    lens_spec_from_manifest_path, lens_spec_from_manifest_with_license_override,
+    lens_spec_metadata_from_manifest, lens_spec_metadata_from_manifest_path, register_commissioned,
 };
 pub use compression::{
     CALYX_VECTOR_COMPRESSION_EMPTY, CALYX_VECTOR_COMPRESSION_INVALID, COMPRESSED_SLOT_TAG,
@@ -87,8 +87,9 @@ pub use runtime::candle::{
 };
 pub use runtime::external_cmd::ExternalCmdLens;
 pub use runtime::onnx::{
-    FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens, OnnxFileSpec, OnnxLens,
-    OnnxModelFiles, OnnxProviderPolicy, PoolingPolicy,
+    DEFAULT_ANSWERAI_COLBERT_MODEL, FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens,
+    OnnxColbertFileSpec, OnnxColbertLens, OnnxFileSpec, OnnxLens, OnnxModelFiles,
+    OnnxProviderPolicy, PoolingPolicy,
 };
 pub use runtime::qwen3::{
     DEFAULT_QWEN3_MAX_TOKENS, DEFAULT_QWEN3_MODEL, FastembedQwen3Lens, Qwen3FileSpec,

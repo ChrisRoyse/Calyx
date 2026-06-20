@@ -18,6 +18,7 @@ fn onnx_fastembed_manifest_preserves_core_file_order_and_sidecars() {
         modality: Modality::Text,
         runtime: "onnx-fastembed".to_string(),
         dim: 3,
+        shape: None,
         dtype: "f32".to_string(),
         weights_sha256: plain_sha256_hex(b"model"),
         artifact_set_sha256: None,

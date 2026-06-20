@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use calyx_core::{Input, Lens, SlotVector};
+use calyx_core::{Input, Lens, SlotShape, SlotVector};
 use calyx_registry::{
     CandleLens, FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens, LensRuntime,
-    LensSpec, MultimodalAdapterLens, OnnxLens, StaticLookupLens, TeiHttpLens,
+    LensSpec, MultimodalAdapterLens, OnnxColbertLens, OnnxLens, StaticLookupLens, TeiHttpLens,
     lens_spec_from_manifest_path,
 };
 use serde::Serialize;
@@ -23,10 +23,13 @@ struct ExplainReport {
     runtime: String,
     runtime_detail: String,
     dtype: String,
+    shape: ShapeReport,
     dim: u32,
     retrieval_only: bool,
     excluded_from_dedup: bool,
     rows: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_count: Option<usize>,
     norm: f32,
     norm_ok: bool,
     first_values: Vec<f32>,
@@ -36,6 +39,14 @@ struct ExplainReport {
     ms_per_input: f32,
     vram_bytes: u64,
     vram_mb: f32,
+}
+
+#[derive(Serialize)]
+struct ShapeReport {
+    kind: &'static str,
+    dim: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    token_dim: Option<u32>,
 }
 
 struct Measurement {
@@ -71,10 +82,12 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
         runtime: runtime_name(&spec.runtime).to_string(),
         runtime_detail: measurement.runtime_detail,
         dtype: measurement.dtype,
+        shape: shape_report(spec.output),
         dim: dim(spec.output),
         retrieval_only: spec.retrieval_only,
         excluded_from_dedup: spec.excluded_from_dedup,
         rows: measurement.rows,
+        token_count: token_count(&measurement.vector),
         norm,
         norm_ok: true,
         first_values: slot_prefix(&measurement.vector, 4),
@@ -86,12 +99,40 @@ pub(crate) fn explain(args: &[String]) -> CliResult {
     })
 }
 
+fn shape_report(shape: SlotShape) -> ShapeReport {
+    match shape {
+        SlotShape::Dense(dim) => ShapeReport {
+            kind: "dense",
+            dim,
+            token_dim: None,
+        },
+        SlotShape::Sparse(dim) => ShapeReport {
+            kind: "sparse",
+            dim,
+            token_dim: None,
+        },
+        SlotShape::Multi { token_dim } => ShapeReport {
+            kind: "multi",
+            dim: token_dim,
+            token_dim: Some(token_dim),
+        },
+    }
+}
+
+fn token_count(vector: &SlotVector) -> Option<usize> {
+    match vector {
+        SlotVector::Multi { tokens, .. } => Some(tokens.len()),
+        _ => None,
+    }
+}
+
 fn measure_runtime(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Measurement> {
     match &spec.runtime {
         LensRuntime::StaticLookup { .. } => measure_static_lookup(spec, probe, repeat),
         LensRuntime::TeiHttp { endpoint } => measure_tei(spec, endpoint, probe, repeat),
         LensRuntime::CandleLocal { .. } => measure_candle(spec, probe, repeat),
         LensRuntime::Onnx { .. } => measure_onnx(spec, probe, repeat),
+        LensRuntime::OnnxColbert { .. } => measure_onnx_colbert(spec, probe, repeat),
         LensRuntime::FastembedSparse { .. } => measure_fastembed_sparse(spec, probe, repeat),
         LensRuntime::FastembedBgem3 { .. } => measure_fastembed_bgem3(spec, probe, repeat),
         LensRuntime::FastembedReranker { .. } => measure_fastembed_reranker(spec, probe, repeat),
@@ -177,6 +218,18 @@ fn measure_onnx(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Meas
         rows: None,
         vram_bytes: files_size(&lens.files().artifact_paths())?,
         runtime_detail: format!("{};{}", lens.runtime_name(), lens.provider_policy()),
+    })
+}
+
+fn measure_onnx_colbert(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Measurement> {
+    let lens = OnnxColbertLens::from_lens_spec(spec)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    Ok(Measurement {
+        vector,
+        dtype: "f32".to_string(),
+        rows: None,
+        vram_bytes: files_size(&lens.files().artifact_paths())?,
+        runtime_detail: format!("onnx-colbert;{}", lens.provider_policy()),
     })
 }
 

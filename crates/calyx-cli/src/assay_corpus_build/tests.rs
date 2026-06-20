@@ -271,6 +271,7 @@ fn write_manifest(root: &Path, file_name: &str, name: &str, runtime: &str, dim: 
         modality: Modality::Code,
         runtime: runtime.to_string(),
         dim,
+        shape: None,
         dtype: "f32".to_string(),
         weights_sha256: String::new(),
         artifact_set_sha256: None,

@@ -2,7 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{Input, Lens, Modality, QuantPolicy, SlotShape};
-use calyx_registry::{DEFAULT_TEI_ENDPOINT, LensForgeManifest, NormPolicy, TeiHttpLens};
+use calyx_registry::{
+    DEFAULT_TEI_ENDPOINT, LensForgeManifest, LensForgeShape, NormPolicy, TeiHttpLens,
+};
 use serde::Serialize;
 use serde_json::json;
 
@@ -10,6 +12,7 @@ mod artifact;
 mod fastembed;
 mod fastembed_special;
 mod log;
+mod onnx_colbert;
 mod options;
 
 use artifact::{
@@ -84,6 +87,10 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         }
         CommissionRuntime::FastembedOnnx => {
             let commissioned = fastembed::commission(&flags, &out, &mut log)?;
+            CommissionOutput::with_dim(commissioned.artifacts, commissioned.dim)
+        }
+        CommissionRuntime::OnnxColbert => {
+            let commissioned = onnx_colbert::commission(&flags, &out, &mut log)?;
             CommissionOutput::with_dim(commissioned.artifacts, commissioned.dim)
         }
         CommissionRuntime::FastembedSparse
@@ -329,11 +336,15 @@ fn write_manifest(
         modality: Modality::Text,
         runtime: flags.runtime.manifest_runtime().to_string(),
         dim: inferred_dim,
+        shape: Some(LensForgeShape::from_slot_shape(manifest_shape(
+            flags.runtime,
+            inferred_dim,
+        ))),
         dtype: flags.runtime.default_dtype().to_string(),
         weights_sha256: model.sha256.clone(),
         artifact_set_sha256: Some(artifact_set_sha256(artifacts)?),
         files: manifest_files(out, artifacts)?,
-        pooling: flags.pooling.clone(),
+        pooling: manifest_pooling(flags),
         norm: flags.manifest_norm(),
         source_hf_id: flags.hf.clone(),
         endpoint: flags.endpoint_for_manifest(),
@@ -348,6 +359,29 @@ fn write_manifest(
     write_json_file(&path, &manifest)?;
     log.event(json!({"event": "manifest_written", "path": path}))?;
     Ok(path)
+}
+
+fn manifest_shape(runtime: CommissionRuntime, dim: u32) -> SlotShape {
+    match runtime {
+        CommissionRuntime::FastembedSparse | CommissionRuntime::FastembedBgem3Sparse => {
+            SlotShape::Sparse(dim)
+        }
+        CommissionRuntime::OnnxColbert | CommissionRuntime::FastembedBgem3Colbert => {
+            SlotShape::Multi { token_dim: dim }
+        }
+        _ => SlotShape::Dense(dim),
+    }
+}
+
+fn manifest_pooling(flags: &CommissionFlags) -> String {
+    if matches!(
+        flags.runtime,
+        CommissionRuntime::OnnxColbert | CommissionRuntime::FastembedBgem3Colbert
+    ) {
+        "late-interaction".to_string()
+    } else {
+        flags.pooling.clone()
+    }
 }
 
 #[derive(Serialize)]

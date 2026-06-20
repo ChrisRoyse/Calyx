@@ -10,12 +10,12 @@ use crate::runtime::common::{DEFAULT_MAX_TOKENS, text_from_input};
 
 use super::config_invalid;
 
-pub(super) struct TokenBatch {
-    pub(super) batch: usize,
-    pub(super) seq: usize,
-    pub(super) ids: Vec<i64>,
-    pub(super) mask: Vec<i64>,
-    pub(super) indices: Vec<usize>,
+pub(in crate::runtime::onnx) struct TokenBatch {
+    pub(in crate::runtime::onnx) batch: usize,
+    pub(in crate::runtime::onnx) seq: usize,
+    pub(in crate::runtime::onnx) ids: Vec<i64>,
+    pub(in crate::runtime::onnx) mask: Vec<i64>,
+    pub(in crate::runtime::onnx) indices: Vec<usize>,
 }
 
 struct EncodedInput {
@@ -25,7 +25,7 @@ struct EncodedInput {
     mask: Vec<i64>,
 }
 
-pub(super) fn max_tokens_from_config(value: &Value) -> Result<usize> {
+pub(in crate::runtime::onnx) fn max_tokens_from_config(value: &Value) -> Result<usize> {
     let max_tokens = value
         .get("max_position_embeddings")
         .or_else(|| value.get("max_sequence_length"))
@@ -41,7 +41,7 @@ pub(super) fn max_tokens_from_config(value: &Value) -> Result<usize> {
     Ok(max_tokens)
 }
 
-pub(super) fn token_batches(
+pub(in crate::runtime::onnx) fn token_batches(
     tokenizer: &Tokenizer,
     lens: &dyn Lens,
     inputs: &[Input],
@@ -133,7 +133,7 @@ fn token_inputs(encoding: &tokenizers::Encoding, max_tokens: usize) -> (Vec<i64>
     (ids, mask)
 }
 
-pub(super) fn session_inputs<'a>(
+pub(in crate::runtime::onnx) fn session_inputs<'a>(
     session: &Session,
     batch: &TokenBatch,
 ) -> Result<Vec<(String, SessionInputValue<'a>)>> {

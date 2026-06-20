@@ -42,6 +42,18 @@ fn commission_accepts_onnx_fp32_runtime_name() {
 }
 
 #[test]
+fn commission_accepts_onnx_colbert_runtime_name() {
+    let error = run(
+        "commission",
+        &["--runtime".to_string(), "onnx-colbert".to_string()],
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(error.message().contains("--hf is required"));
+}
+
+#[test]
 fn commission_accepts_fastembed_qwen3_runtime_name() {
     let error = run(
         "commission",

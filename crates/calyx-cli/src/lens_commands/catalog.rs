@@ -99,10 +99,10 @@ pub(crate) fn add_manifest_to_catalog(
     let catalog_path = catalog_path(home)?;
     let mut catalog = read_catalog(&catalog_path)?;
     let lens_id = spec.lens_id().to_string();
-    catalog.lenses.retain(|item| item.lens_id != lens_id);
+    retain_unrelated_entries(&mut catalog, &lens_id, &spec.name, &manifest);
     let budget = placement_budget_from_catalog(&catalog)?;
     let entry = entry_from_spec(&spec, manifest, budget)?;
-    catalog.lenses.retain(|item| item.lens_id != entry.lens_id);
+    retain_unrelated_entries(&mut catalog, &entry.lens_id, &entry.name, &entry.manifest);
     catalog.lenses.push(entry.clone());
     catalog
         .lenses
@@ -117,6 +117,21 @@ pub(crate) fn add_manifest_to_catalog(
         placement: entry.placement,
         count: catalog.lenses.len(),
     })
+}
+
+fn retain_unrelated_entries(catalog: &mut LensCatalog, lens_id: &str, name: &str, manifest: &Path) {
+    catalog
+        .lenses
+        .retain(|item| !same_catalog_identity(item, lens_id, name, manifest));
+}
+
+fn same_catalog_identity(
+    entry: &LensCatalogEntry,
+    lens_id: &str,
+    name: &str,
+    manifest: &Path,
+) -> bool {
+    entry.lens_id == lens_id || entry.name == name || entry.manifest == manifest
 }
 
 fn catalog_path(home: Option<&Path>) -> CliResult<PathBuf> {
@@ -198,6 +213,7 @@ fn estimate_lens_cost(spec: &LensSpec) -> CliResult<LensCost> {
         } => measure_static_lookup_cost(spec, embeddings_file, tokenizer),
         LensRuntime::CandleLocal { files, .. }
         | LensRuntime::Onnx { files, .. }
+        | LensRuntime::OnnxColbert { files, .. }
         | LensRuntime::FastembedSparse { files, .. }
         | LensRuntime::FastembedBgem3 { files, .. }
         | LensRuntime::FastembedReranker { files, .. }
@@ -307,4 +323,47 @@ fn env_usize(name: &str, default: usize) -> CliResult<usize> {
 
 const fn gib() -> u64 {
     1024 * 1024 * 1024
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn catalog_replacement_removes_prior_name_manifest_or_id() {
+        let mut catalog = LensCatalog {
+            lenses: vec![
+                entry("same-id", "old", "old.json"),
+                entry("other-id", "same-name", "other.json"),
+                entry("third-id", "third", "same-path.json"),
+                entry("keep-id", "keep", "keep.json"),
+            ],
+        };
+
+        retain_unrelated_entries(
+            &mut catalog,
+            "same-id",
+            "same-name",
+            Path::new("same-path.json"),
+        );
+
+        assert_eq!(catalog.lenses.len(), 1);
+        assert_eq!(catalog.lenses[0].lens_id, "keep-id");
+    }
+
+    fn entry(lens_id: &str, name: &str, manifest: &str) -> LensCatalogEntry {
+        LensCatalogEntry {
+            lens_id: lens_id.to_string(),
+            name: name.to_string(),
+            modality: "text".to_string(),
+            runtime: "onnx_colbert".to_string(),
+            dim: 384,
+            retrieval_only: false,
+            excluded_from_dedup: false,
+            weights_sha256: "00".repeat(32),
+            manifest: PathBuf::from(manifest),
+            cost: LensCost::zero(),
+            placement: Placement::Cpu,
+        }
+    }
 }

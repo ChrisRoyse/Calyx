@@ -44,6 +44,10 @@ pub enum LensRuntime {
         model_id: String,
         files: Vec<PathBuf>,
     },
+    OnnxColbert {
+        model_id: String,
+        files: Vec<PathBuf>,
+    },
     FastembedSparse {
         model_id: String,
         files: Vec<PathBuf>,
@@ -138,6 +142,7 @@ impl LensSpec {
             LensRuntime::TeiHttp { endpoint } => probe_http(endpoint),
             LensRuntime::CandleLocal { files, .. } => candle_local_health(files),
             LensRuntime::Onnx { files, .. }
+            | LensRuntime::OnnxColbert { files, .. }
             | LensRuntime::FastembedSparse { files, .. }
             | LensRuntime::FastembedBgem3 { files, .. }
             | LensRuntime::FastembedReranker { files, .. }

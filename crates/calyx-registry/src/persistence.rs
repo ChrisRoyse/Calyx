@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     AlgorithmicLens, CandleLens, ExternalCmdLens, FastembedBgem3Lens, FastembedQwen3Lens,
     FastembedRerankerLens, FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens,
-    OnnxLens, Registry, RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
+    OnnxColbertLens, OnnxLens, Registry, RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
 };
 
 const SNAPSHOT_VERSION: u16 = 1;
@@ -181,6 +181,7 @@ fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Option<Arc<dyn Lens>> {
         )),
         LensRuntime::CandleLocal { .. } => Arc::new(CandleLens::from_lens_spec(spec).ok()?),
         LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec).ok()?),
+        LensRuntime::OnnxColbert { .. } => Arc::new(OnnxColbertLens::from_lens_spec(spec).ok()?),
         LensRuntime::FastembedSparse { .. } => {
             Arc::new(FastembedSparseLens::from_lens_spec(spec).ok()?)
         }

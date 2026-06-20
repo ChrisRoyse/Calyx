@@ -40,6 +40,7 @@ pub fn signal_kind_from_runtime(runtime: &LensRuntime) -> CapabilitySignalKind {
         LensRuntime::TeiHttp { .. }
         | LensRuntime::CandleLocal { .. }
         | LensRuntime::Onnx { .. }
+        | LensRuntime::OnnxColbert { .. }
         | LensRuntime::FastembedSparse { .. }
         | LensRuntime::FastembedBgem3 { .. }
         | LensRuntime::FastembedReranker { .. }

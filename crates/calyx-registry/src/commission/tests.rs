@@ -29,6 +29,7 @@ fn lensforge_manifest_round_trips_to_stable_lens_spec() {
         modality: Modality::Text,
         runtime: "onnx-int8".to_string(),
         dim: 3,
+        shape: None,
         dtype: "int8".to_string(),
         weights_sha256: plain_sha256_hex(b"tiny model bytes"),
         artifact_set_sha256: Some(artifact_hash(&[
@@ -113,6 +114,7 @@ fn model2vec_manifest_maps_to_static_lookup_runtime() {
         modality: Modality::Text,
         runtime: "model2vec".to_string(),
         dim: 2,
+        shape: None,
         dtype: "int8".to_string(),
         weights_sha256: plain_sha256_hex(&static_matrix_bytes()),
         artifact_set_sha256: Some(artifact_hash(&[
@@ -170,6 +172,7 @@ fn candle_fp16_manifest_preserves_runtime_dtype_and_pooling() {
         modality: Modality::Text,
         runtime: "candle-fp16".to_string(),
         dim: 3,
+        shape: None,
         dtype: "f16".to_string(),
         weights_sha256: plain_sha256_hex(b"tiny candle weights"),
         artifact_set_sha256: Some(artifact_hash(&[
@@ -226,6 +229,7 @@ fn tei_manifest_maps_descriptor_to_http_runtime() {
         modality: Modality::Text,
         runtime: "tei".to_string(),
         dim: 768,
+        shape: None,
         dtype: "f32".to_string(),
         weights_sha256: plain_sha256_hex(descriptor_bytes),
         artifact_set_sha256: Some(artifact_hash(&[descriptor_bytes])),
@@ -275,6 +279,7 @@ fn adapter_manifest_maps_to_multimodal_runtime() {
         modality: Modality::Molecule,
         runtime: "multimodal-adapter".to_string(),
         dim: 16,
+        shape: None,
         dtype: "f32".to_string(),
         weights_sha256: plain_sha256_hex(br#"{"axis":"molecule","model_id":"fixture/mol"}"#),
         artifact_set_sha256: Some(artifact_hash(&[
@@ -316,6 +321,7 @@ fn algorithmic_manifest_supports_sparse_code_lenses_without_artifacts() {
         modality: Modality::Code,
         runtime: "algorithmic:sparse-keywords".to_string(),
         dim: 512,
+        shape: None,
         dtype: "f32".to_string(),
         weights_sha256: String::new(),
         artifact_set_sha256: None,
@@ -336,6 +342,7 @@ fn algorithmic_manifest_supports_sparse_code_lenses_without_artifacts() {
         modality: Modality::Code,
         runtime: "algorithmic:ast-style".to_string(),
         dim: 8,
+        shape: None,
         dtype: "f32".to_string(),
         weights_sha256: String::new(),
         artifact_set_sha256: None,
@@ -382,6 +389,7 @@ fn noncommercial_manifest_requires_explicit_allow_flag() {
         modality: Modality::Dna,
         runtime: "adapter".to_string(),
         dim: 16,
+        shape: None,
         dtype: "f32".to_string(),
         weights_sha256: plain_sha256_hex(br#"{"axis":"dna","model_id":"fixture/dna"}"#),
         artifact_set_sha256: Some(artifact_hash(&[

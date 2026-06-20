@@ -24,6 +24,10 @@ pub(super) fn runtime_from_manifest(
             model_id: manifest.source_hf_id.clone(),
             files,
         }),
+        "onnx-colbert" => Ok(LensRuntime::OnnxColbert {
+            model_id: manifest.source_hf_id.clone(),
+            files,
+        }),
         "fastembed-sparse" => Ok(LensRuntime::FastembedSparse {
             model_id: manifest.source_hf_id.clone(),
             files,

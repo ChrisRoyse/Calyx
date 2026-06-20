@@ -62,7 +62,7 @@ fn learned_output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
         "fastembed-sparse" | "fastembed-bgem3-sparse" => {
             Ok(SlotShape::Sparse(checked_positive(runtime, dim)?))
         }
-        "fastembed-bgem3-colbert" => Ok(SlotShape::Multi {
+        "fastembed-bgem3-colbert" | "onnx-colbert" => Ok(SlotShape::Multi {
             token_dim: checked_positive(runtime, dim)?,
         }),
         _ => Ok(SlotShape::Dense(dim)),
@@ -168,6 +168,10 @@ mod tests {
         assert_eq!(
             output_shape("fastembed-bgem3-colbert", 1024).unwrap(),
             SlotShape::Multi { token_dim: 1024 }
+        );
+        assert_eq!(
+            output_shape("onnx-colbert", 96).unwrap(),
+            SlotShape::Multi { token_dim: 96 }
         );
     }
 }

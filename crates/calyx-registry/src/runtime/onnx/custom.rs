@@ -7,7 +7,7 @@ use ort::value::ValueType;
 use serde_json::Value;
 use tokenizers::Tokenizer;
 
-mod batch;
+pub(in crate::runtime::onnx) mod batch;
 
 use super::cuda_guard::CudaDropGuard;
 use super::fastembed_runtime::execution_providers;
