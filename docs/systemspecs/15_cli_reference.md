@@ -460,19 +460,24 @@ Reads lens spec, estimates cost, chooses placement (uses the
 
 Read-only; prints `ListReport`. Rejects `--manifest`, `--input`, `--repeat`.
 
-### `lens commission --hf <id> --runtime <onnx-int8|candle-fp16|tei> [flags]`
+### `lens commission --hf <id> --runtime <onnx-int8|onnx-fp32|candle-fp16|tei> [flags]`
 
 First-class LensForge commissioning pipeline. Writes artifacts under `--out`
 or `<CALYX_HOME|--home>/lenses/commissioned/<hf>-<runtime>`, writes
 `conversion-log.jsonl`, writes `lensforge.manifest.json`, then registers it via
 the same hash-verified catalog path as `lens add`. Optional flags: `--name`,
 `--endpoint` (TEI), `--dim`, `--license`, `--non-commercial`, `--pooling`,
-`--norm`, `--quant-target`.
+`--norm`, `--quant-target`, `--max-batch`. `--max-batch` writes the manifest
+batch ceiling that later scale runs clamp to after it is proven. `onnx-int8`
+runs Optimum export plus ONNX Runtime quantization. `onnx-fp32` runs the same
+Optimum feature-extraction export without the quantization step and writes an
+`onnx`/`f32` manifest for strict batch-stable GPU lenses when dynamic int8
+quantization drifts.
 
 ### `lens explain --manifest <manifest.json> [--input <text>|--input-file <path>] [--repeat <n>] [--full-vector]`
 
 Not in the top-level usage string but present in `lens_commands.rs::run`.
-Supports `static_lookup`, `tei`, `candle-fp16`, `onnx-int8`, and
+Supports `static_lookup`, `tei`, `candle-fp16`, `onnx-int8`, `onnx-fp32`, and
 `multimodal-adapter` LensForge manifests. `--repeat` default 1 (must be > 0);
 `--input` default `Calyx lens explain probe`; `--input-file` reads binary bytes
 for media lenses and is mutually exclusive with `--input`. Read-only;

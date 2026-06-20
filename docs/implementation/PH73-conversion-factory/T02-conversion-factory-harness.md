@@ -4,7 +4,7 @@
 
 `tools/lensforge/convert.py` is the PH73 conversion entry point. It accepts a YAML list of `{hf_id, modality, formats}` entries and writes lightweight lens artifacts plus a deterministic `manifest.json` under `CALYX_HOME/lenses` by default.
 
-The first runtime path is `onnx-int8`. The harness prefers public HuggingFace repositories that already publish `onnx/model_int8.onnx`, then records the exact model/config/tokenizer or preprocessor bytes Calyx will freeze. Hooks for `model2vec` and `candle-fp16` are fail-closed: unsupported modality or missing local conversion dependencies produces a JSONL skip record instead of a crash.
+The first runtime path is `onnx-int8`. The harness prefers public HuggingFace repositories that already publish `onnx/model_int8.onnx`, then records the exact model/config/tokenizer or preprocessor bytes Calyx will freeze. `onnx-fp32` is also supported for domain lenses whose dynamic int8 graph fails strict batch stability; it uses preconverted `model.onnx` when present or an Optimum feature-extraction export when `optimum-cli` is installed. Hooks for `model2vec` and `candle-fp16` are fail-closed: unsupported modality or missing local conversion dependencies produces a JSONL skip record instead of a crash.
 
 ## Manifest Contract
 
@@ -28,7 +28,7 @@ Each manifest includes:
 `tools/lensforge/registry.yaml` currently covers three real aiwonder FSV models:
 
 - semantic text: `Xenova/bge-small-en-v1.5`
-- domain text: `Xenova/scibert_scivocab_uncased`
+- domain/scientific text: `malteos/scincl` via `onnx-fp32` (`max_batch=64`)
 - non-text audio: `Xenova/wav2vec2-base-960h`
 
 ## Verification

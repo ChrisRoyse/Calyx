@@ -89,6 +89,23 @@ fn text_gap_ranks_small_cpu_target_by_expected_density() {
 }
 
 #[test]
+fn scientific_text_gap_includes_scincl_fp32_domain_target() {
+    let deficit = deficit("scientific_domain", 2.5, 0.4, vec![Modality::Text]);
+
+    let targets = ranked_conversion_targets(&deficit);
+    let scincl = targets
+        .iter()
+        .find(|target| target.hf_id == "malteos/scincl")
+        .expect("SciNCL domain target");
+
+    assert_eq!(scincl.axis, "scientific_text");
+    assert_eq!(scincl.formats, vec!["onnx-fp32"]);
+    assert_eq!(scincl.expected_cost.placement, calyx_core::Placement::Gpu);
+    assert!(scincl.expected_cost.ms_per_input > 1.0);
+    assert!(scincl.expected_bits > 0.0);
+}
+
+#[test]
 fn empty_corpus_has_no_algorithmic_candidate_and_commissions() {
     let deficit = deficit("speaker_identity", 1.8, 0.2, vec![Modality::Audio]);
 

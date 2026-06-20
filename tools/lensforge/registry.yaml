@@ -23,12 +23,14 @@ models:
     norm: l2
     dtype: int8
 
-  - name: domain-scibert-scivocab-uncased
-    hf_id: Xenova/scibert_scivocab_uncased
+  - name: domain-scincl-onnx-fp32
+    hf_id: malteos/scincl
     modality: text
-    formats: [onnx-int8]
+    formats: [onnx-fp32]
     pooling: mean
     norm: l2
+    license: mit
+    max_batch: 64
 
   - name: audio-wav2vec2-base-960h
     hf_id: Xenova/wav2vec2-base-960h

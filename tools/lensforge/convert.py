@@ -41,6 +41,7 @@ ONNX_MODEL_CANDIDATES = (
     "onnx/model.onnx",
     "model.onnx",
 )
+ONNX_FP32_MODEL_CANDIDATES = ("onnx/model.onnx", "model.onnx")
 COMMON_OPTIONAL_FILES = (
     ("tokenizer_config", "tokenizer_config.json"),
     ("special_tokens_map", "special_tokens_map.json"),
@@ -138,6 +139,8 @@ def convert_entry(
         return convert_model2vec(model, output_root, log_path)
     if target_format == "candle-fp16":
         return convert_candle_fp16(model, output_root, log_path)
+    if target_format == "onnx-fp32":
+        return convert_onnx_fp32(model, output_root, log_path)
     if target_format != "onnx-int8":
         log_event(log_path, "skip", model, target_format, {"reason": "unsupported_format"})
         return None
@@ -289,7 +292,7 @@ def convert_onnx_int8(
     else:
         info = hf_model_info(str(model["hf_id"]))
         license_value = model.get("license") or hf_license(info) or "unknown"
-        artifacts = download_hf_onnx_artifacts(model, info, out_dir, log_path)
+        artifacts = download_hf_onnx_artifacts(model, info, out_dir, log_path, "onnx-int8", ONNX_MODEL_CANDIDATES)
         if artifacts is None:
             return None
 
@@ -309,6 +312,45 @@ def convert_onnx_int8(
         "manifest",
         model,
         "onnx-int8",
+        {"manifest": str(manifest_path), "weights_sha256": manifest["weights_sha256"]},
+    )
+    return {"name": manifest["name"], "manifest": str(manifest_path)}
+
+
+def convert_onnx_fp32(
+    model: dict[str, Any], output_root: Path, log_path: Path
+) -> dict[str, Any] | None:
+    name = str(model.get("name") or safe_name(str(model["hf_id"])))
+    out_dir = output_root / safe_name(name) / "onnx-fp32"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    if "files" in model:
+        artifacts = copy_local_artifacts(model, out_dir)
+        license_value = model.get("license") or "unknown"
+    else:
+        info = hf_model_info(str(model["hf_id"]))
+        license_value = model.get("license") or hf_license(info) or "unknown"
+        artifacts = download_hf_onnx_artifacts(model, info, out_dir, log_path, "onnx-fp32", ONNX_FP32_MODEL_CANDIDATES)
+        if artifacts is None:
+            artifacts = export_onnx_fp32(model, out_dir, log_path)
+        if artifacts is None:
+            return None
+
+    config_file = role_path(artifacts, "config")
+    dim = int(model.get("dim") or dim_from_config(config_file))
+    manifest = build_manifest(
+        model={**model, "dtype": model.get("dtype", "f32")},
+        target_format="onnx",
+        artifacts=artifacts,
+        dim=dim,
+        license_value=license_value,
+    )
+    manifest_path = out_dir / "manifest.json"
+    write_json(manifest_path, manifest)
+    log_event(
+        log_path,
+        "manifest",
+        model,
+        "onnx-fp32",
         {"manifest": str(manifest_path), "weights_sha256": manifest["weights_sha256"]},
     )
     return {"name": manifest["name"], "manifest": str(manifest_path)}
@@ -361,11 +403,13 @@ def download_hf_onnx_artifacts(
     info: dict[str, Any],
     out_dir: Path,
     log_path: Path,
+    target_format: str,
+    candidates: tuple[str, ...],
 ) -> dict[str, Path] | None:
     siblings = {entry["rfilename"] for entry in info.get("siblings", []) if "rfilename" in entry}
-    model_file = next((candidate for candidate in ONNX_MODEL_CANDIDATES if candidate in siblings), None)
+    model_file = next((candidate for candidate in candidates if candidate in siblings), None)
     if model_file is None:
-        log_event(log_path, "skip", model, "onnx-int8", {"reason": "preconverted_onnx_missing"})
+        log_event(log_path, "skip", model, target_format, {"reason": "preconverted_onnx_missing"})
         return None
     required = [("model", model_file), ("config", "config.json")]
     if str(model.get("modality", "")).lower() in {
@@ -384,7 +428,7 @@ def download_hf_onnx_artifacts(
                 log_path,
                 "skip",
                 model,
-                "onnx-int8",
+                target_format,
                 {"reason": f"required_{role}_missing", "repo_path": repo_path},
             )
             return None
@@ -392,6 +436,50 @@ def download_hf_onnx_artifacts(
     for role, repo_path in COMMON_OPTIONAL_FILES:
         if repo_path in siblings:
             artifacts[role] = download_hf_file(str(model["hf_id"]), repo_path, out_dir)
+    return artifacts
+
+
+def export_onnx_fp32(model: dict[str, Any], out_dir: Path, log_path: Path) -> dict[str, Path] | None:
+    optimum = shutil.which("optimum-cli")
+    if optimum is None:
+        log_event(log_path, "skip", model, "onnx-fp32", {"reason": "dependency_missing", "program": "optimum-cli"})
+        return None
+    command = [
+        optimum,
+        "export",
+        "onnx",
+        "--model",
+        str(model["hf_id"]),
+        "--task",
+        "feature-extraction",
+        str(out_dir),
+    ]
+    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    if result.returncode != 0:
+        log_event(
+            log_path,
+            "skip",
+            model,
+            "onnx-fp32",
+            {
+                "reason": "optimum_export_failed",
+                "status": result.returncode,
+                "stderr": result.stderr[-4096:],
+            },
+        )
+        return None
+    required = {"model": out_dir / "model.onnx", "config": out_dir / "config.json"}
+    if str(model.get("modality", "")).lower() in {"text", "code", "mixed", "protein", "dna", "molecule"}:
+        required["tokenizer"] = out_dir / "tokenizer.json"
+    if any(not path.is_file() for path in required.values()):
+        missing = [role for role, path in required.items() if not path.is_file()]
+        log_event(log_path, "skip", model, "onnx-fp32", {"reason": "export_artifact_missing", "roles": missing})
+        return None
+    artifacts = dict(required)
+    for role, repo_path in COMMON_OPTIONAL_FILES:
+        path = out_dir / Path(repo_path).name
+        if path.is_file():
+            artifacts[role] = path
     return artifacts
 
 
@@ -501,7 +589,7 @@ def build_manifest(
     model_path = model_artifact_path(artifacts)
     model_hash = plain_sha256(model_path.read_bytes())
     artifact_hash = length_delimited_sha256(path.read_bytes() for _, path in ordered)
-    return {
+    manifest = {
         "name": str(model.get("name") or safe_name(str(model["hf_id"]))),
         "modality": str(model["modality"]).lower(),
         "runtime": target_format,
@@ -519,6 +607,12 @@ def build_manifest(
         "tool": {"name": "lensforge", "version": VERSION},
         "created_by": "tools/lensforge/convert.py",
     }
+    if "max_batch" in model:
+        max_batch = int(model["max_batch"])
+        if max_batch <= 0:
+            raise ValueError("max_batch must be > 0")
+        manifest["max_batch"] = max_batch
+    return manifest
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -724,6 +818,7 @@ def self_test() -> int:
         source = root / "source"
         source.mkdir()
         (source / "model_int8.onnx").write_bytes(b"tiny-model")
+        (source / "model.onnx").write_bytes(b"tiny-fp32-model")
         (source / "vision_model_quantized.onnx").write_bytes(b"tiny-vision")
         (source / "tokenizer.json").write_text('{"tiny": true}\n', encoding="utf-8")
         (source / "config.json").write_text('{"hidden_size": 3}\n', encoding="utf-8")
@@ -743,6 +838,19 @@ models:
     files:
       - role: model
         path: {yaml_single_quote(source / "model_int8.onnx")}
+      - role: tokenizer
+        path: {yaml_single_quote(source / "tokenizer.json")}
+      - role: config
+        path: {yaml_single_quote(source / "config.json")}
+  - name: tiny-fp32-fixture
+    hf_id: fixture/tiny-fp32
+    modality: text
+    formats: [onnx-fp32]
+    pooling: mean
+    norm: l2
+    files:
+      - role: model
+        path: {yaml_single_quote(source / "model.onnx")}
       - role: tokenizer
         path: {yaml_single_quote(source / "tokenizer.json")}
       - role: config
@@ -775,6 +883,11 @@ models:
         actual = plain_sha256((output / "tiny-fixture" / "onnx-int8" / "model_int8.onnx").read_bytes())
         if data["weights_sha256"] != actual:
             print("self-test weights_sha256 mismatch", file=sys.stderr)
+            return 1
+        fp32_manifest = output / "tiny-fp32-fixture" / "onnx-fp32" / "manifest.json"
+        fp32_data = json.loads(fp32_manifest.read_text(encoding="utf-8"))
+        if fp32_data["runtime"] != "onnx" or fp32_data["dtype"] != "f32":
+            print("self-test onnx-fp32 manifest mismatch", file=sys.stderr)
             return 1
         adapter_manifest = output / "tiny-image-adapter" / "onnx-int8" / "manifest.json"
         adapter_data = json.loads(adapter_manifest.read_text(encoding="utf-8"))

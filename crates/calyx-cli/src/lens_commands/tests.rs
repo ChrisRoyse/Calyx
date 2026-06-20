@@ -28,3 +28,32 @@ fn commission_rejects_unsupported_runtime_before_side_effects() {
     assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
     assert!(error.message().contains("unsupported --runtime"));
 }
+
+#[test]
+fn commission_accepts_onnx_fp32_runtime_name() {
+    let error = run(
+        "commission",
+        &["--runtime".to_string(), "onnx-fp32".to_string()],
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(error.message().contains("--hf is required"));
+}
+
+#[test]
+fn commission_rejects_zero_max_batch() {
+    let error = run(
+        "commission",
+        &[
+            "--runtime".to_string(),
+            "onnx-fp32".to_string(),
+            "--max-batch".to_string(),
+            "0".to_string(),
+        ],
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(error.message().contains("--max-batch must be > 0"));
+}

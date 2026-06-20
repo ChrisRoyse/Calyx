@@ -165,13 +165,13 @@ fn text_targets(axis: String, top_gap: Option<&AnchorGap>, gap_bits: f64) -> Vec
             ExpectedTargetCost::gpu(130.0, 192.0, 1.2),
         ),
         target(
-            "Xenova/scibert_scivocab_uncased",
+            "malteos/scincl",
             Modality::Text,
             axis.clone(),
-            &["onnx-int8"],
+            &["onnx-fp32"],
             gap_bits,
-            text_weight(top_gap, "scibert"),
-            ExpectedTargetCost::gpu(420.0, 512.0, 3.8),
+            text_weight(top_gap, "scincl"),
+            ExpectedTargetCost::gpu(750.0, 512.0, 64.0),
         ),
         target(
             "sentence-transformers/all-MiniLM-L6-v2",
@@ -263,7 +263,7 @@ fn text_weight(top_gap: Option<&AnchorGap>, model: &str) -> f64 {
         .map(|gap| gap.anchor_class.to_ascii_lowercase())
         .unwrap_or_default();
     match model {
-        "scibert" if anchor.contains("science") || anchor.contains("domain") => 1.05,
+        "scincl" | "scibert" if anchor.contains("science") || anchor.contains("domain") => 1.05,
         "bge" => 1.00,
         "minilm" => 0.92,
         "potion" => 0.82,

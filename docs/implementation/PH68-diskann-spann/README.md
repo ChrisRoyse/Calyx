@@ -88,15 +88,33 @@ the redundancy/PID matrix but remain `diagnostic_only`.
 
 Custom ONNX text lenses must not derive padding length from the longest row in
 the current batch. That made vectors depend on batch composition and forced the
-SciBERT control lens to `max_batch=1`. The runtime now groups inputs by stable
-per-row sequence buckets and reassembles output order. aiwonder FSV at
-`/home/croyse/calyx/fsv/issue803-custom-onnx-bucket-fix-postsync-LATEST`
-shows the bucket fix removes drift for a narrow two-probe SciBERT audit through
-batch `16`, but the broader default-probe audit still rejects SciBERT at every
-batch `>1` under the strict scale-audit gate. Keep
-`domain-scibert-scivocab-uncased` at `max_batch=1` until a newer scale-audit
-root proves a higher ceiling across the default probe set or a replacement
-domain lens is commissioned.
+legacy SciBERT control lens to `max_batch=1`. The runtime now groups inputs by
+stable per-row sequence buckets and reassembles output order, but #812 proved
+that BERT-family dynamic int8 graphs can still drift below the strict
+`min_batch_cosine=0.999` default probe gate. The accepted replacement
+domain/scientific lens is `domain-scincl-onnx-fp32`. Future runs should use the
+stable aiwonder manifest:
+
+`/home/croyse/calyx/lenses/commissioned/domain-scincl-onnx-fp32/lensforge.manifest.json`
+
+The first-class FSV proof root for that same lens is:
+
+`/home/croyse/calyx/fsv/issue812-scincl-fp32-firstclass-20260620T114251Z/commission/domain-scincl-onnx-fp32/lensforge.manifest.json`
+
+aiwonder readback for the first-class `onnx-fp32` commission shows
+`runtime=onnx`, `dtype=f32`, `license=mit`, `max_batch=64`, `placement=gpu`,
+and `gpu_process_observed=true`. The strict scale-audit report at
+`/home/croyse/calyx/fsv/issue812-scincl-fp32-firstclass-20260620T114251Z/reports/scale-audit-b64-min8.json`
+is accepted with `effective_batch_size=64`, `min_cosine=0.9999995`, and
+`rejected_count=0`. The replacement also passed the multi-embedder roster floor
+at
+`/home/croyse/calyx/fsv/issue812-scincl-11content-scale-byte-20260620T121315Z/scale-audit-11content-b64.json`:
+`accepted=true`, `content_lens_count=11`, `gpu_content_lens_count=7`,
+`rejected_count=0`, and temporal capture remains a
+`time_manipulation_walk_forward_backward_as_of_sidecar` that does not count
+toward the content floor. Future PH68/#803 stream-FBIN runs should replace
+`domain-scibert-scivocab-uncased` with this SciNCL FP32 manifest unless they are
+explicitly running the old SciBERT baseline for comparison.
 
 Boundary evidence for the same roster:
 
