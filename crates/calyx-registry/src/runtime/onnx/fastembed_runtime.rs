@@ -109,6 +109,12 @@ pub fn model_from_name(raw: &str) -> Result<EmbeddingModel> {
     }
     match normalized(trimmed).as_str() {
         "baai/bge-m3" | "bge-m3" => Ok(EmbeddingModel::BGEM3),
+        "baai/bge-base-en-v1.5" | "xenova/bge-base-en-v1.5" | "bge-base-en-v1.5" => {
+            Ok(EmbeddingModel::BGEBaseENV15)
+        }
+        "qdrant/bge-base-en-v1.5-onnx-q" | "bge-base-en-v1.5-q" => {
+            Ok(EmbeddingModel::BGEBaseENV15Q)
+        }
         "nomic-ai/nomic-embed-text-v1.5" | "nomic-embed-text-v1.5" => {
             Ok(EmbeddingModel::NomicEmbedTextV15)
         }
@@ -120,6 +126,19 @@ pub fn model_from_name(raw: &str) -> Result<EmbeddingModel> {
         }
         "jinaai/jina-embeddings-v2-base-en" | "jina-embeddings-v2-base-en" => {
             Ok(EmbeddingModel::JinaEmbeddingsV2BaseEN)
+        }
+        "jinaai/jina-embeddings-v2-base-code" | "jina-embeddings-v2-base-code" | "jina-code" => {
+            Ok(EmbeddingModel::JinaEmbeddingsV2BaseCode)
+        }
+        "google/embeddinggemma-300m"
+        | "onnx-community/embeddinggemma-300m-onnx"
+        | "embeddinggemma-300m"
+        | "embedding-gemma-300m" => Ok(EmbeddingModel::EmbeddingGemma300M),
+        "google/embeddinggemma-300m-q4" | "embeddinggemma-300m-q4" => {
+            Ok(EmbeddingModel::EmbeddingGemma300MQ4)
+        }
+        "google/embeddinggemma-300m-q" | "embeddinggemma-300m-q" => {
+            Ok(EmbeddingModel::EmbeddingGemma300MQ)
         }
         "snowflake/snowflake-arctic-embed-m" | "snowflake-arctic-embed-m" => {
             Ok(EmbeddingModel::SnowflakeArcticEmbedM)
@@ -194,4 +213,41 @@ pub(super) fn fetch(repo: &hf_hub::api::sync::ApiRepo, filename: &str) -> Result
 
 fn normalized(raw: &str) -> String {
     raw.trim().to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn roster_aliases_resolve_to_fastembed_dense_models() {
+        assert!(matches!(
+            model_from_name("BAAI/bge-base-en-v1.5").unwrap(),
+            EmbeddingModel::BGEBaseENV15
+        ));
+        assert!(matches!(
+            model_from_name("jinaai/jina-embeddings-v2-base-code").unwrap(),
+            EmbeddingModel::JinaEmbeddingsV2BaseCode
+        ));
+        assert!(matches!(
+            model_from_name("google/embeddinggemma-300m").unwrap(),
+            EmbeddingModel::EmbeddingGemma300M
+        ));
+    }
+
+    #[test]
+    fn roster_quantized_aliases_resolve_to_explicit_variants() {
+        assert!(matches!(
+            model_from_name("bge-base-en-v1.5-q").unwrap(),
+            EmbeddingModel::BGEBaseENV15Q
+        ));
+        assert!(matches!(
+            model_from_name("embeddinggemma-300m-q4").unwrap(),
+            EmbeddingModel::EmbeddingGemma300MQ4
+        ));
+        assert!(matches!(
+            model_from_name("embeddinggemma-300m-q").unwrap(),
+            EmbeddingModel::EmbeddingGemma300MQ
+        ));
+    }
 }
