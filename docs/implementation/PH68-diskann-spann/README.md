@@ -90,11 +90,13 @@ Custom ONNX text lenses must not derive padding length from the longest row in
 the current batch. That made vectors depend on batch composition and forced the
 SciBERT control lens to `max_batch=1`. The runtime now groups inputs by stable
 per-row sequence buckets and reassembles output order. aiwonder FSV at
-`/home/croyse/calyx/fsv/issue803-custom-onnx-bucket-fix-LATEST` proves
-`domain-scibert-scivocab-uncased` is stable through effective batch `16`
-(`min_cosine=1.0`, `max_abs_delta=0.0`, GPU process observed) and still rejects
-batch `32` under the strict scale-audit gate. Use `max_batch=16` for future
-SciBERT stream-FBIN runs unless a newer scale-audit root proves a higher value.
+`/home/croyse/calyx/fsv/issue803-custom-onnx-bucket-fix-postsync-LATEST`
+shows the bucket fix removes drift for a narrow two-probe SciBERT audit through
+batch `16`, but the broader default-probe audit still rejects SciBERT at every
+batch `>1` under the strict scale-audit gate. Keep
+`domain-scibert-scivocab-uncased` at `max_batch=1` until a newer scale-audit
+root proves a higher ceiling across the default probe set or a replacement
+domain lens is commissioned.
 
 Boundary evidence for the same roster:
 
