@@ -27,6 +27,10 @@ pub(crate) struct LensCatalogEntry {
     pub(crate) modality: String,
     pub(crate) runtime: String,
     pub(crate) dim: u32,
+    #[serde(default)]
+    pub(crate) retrieval_only: bool,
+    #[serde(default)]
+    pub(crate) excluded_from_dedup: bool,
     pub(crate) weights_sha256: String,
     pub(crate) manifest: PathBuf,
     #[serde(default)]
@@ -172,6 +176,8 @@ fn entry_from_spec(
         modality: format!("{:?}", spec.modality).to_lowercase(),
         runtime: runtime_name(&spec.runtime).to_string(),
         dim: dim(spec.output),
+        retrieval_only: spec.retrieval_only,
+        excluded_from_dedup: spec.excluded_from_dedup,
         weights_sha256: hex_from_bytes(&spec.weights_sha256),
         manifest,
         cost,
