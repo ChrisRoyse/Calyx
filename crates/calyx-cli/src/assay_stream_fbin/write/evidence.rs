@@ -24,10 +24,26 @@ pub(crate) struct Evidence {
     pub(crate) query_count: usize,
     pub(crate) batch_size: usize,
     pub(crate) min_bits: f32,
+    pub(crate) pre_encode_gate: PreEncodeGateEvidence,
     pub(crate) streaming: bool,
     pub(crate) temporal_counts_toward_a35: bool,
     pub(crate) temporal_lane_role: &'static str,
     pub(crate) lens_roster: Vec<LensEvidence>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct PreEncodeGateEvidence {
+    pub(crate) bits_report: String,
+    pub(crate) anchor_entropy_bits: f32,
+    pub(crate) sufficiency_basis_bits: f32,
+    pub(crate) deficit_bits: f32,
+    pub(crate) estimate_bound: String,
+    pub(crate) power_calibration_status: String,
+    pub(crate) power_recovery_ratio: f32,
+    pub(crate) min_power_recovery_ratio: f32,
+    pub(crate) sufficient: bool,
+    pub(crate) admitted_lenses: Vec<String>,
+    pub(crate) streamed_lenses: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]

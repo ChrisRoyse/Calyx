@@ -17,6 +17,7 @@ mod bits;
 mod evidence;
 mod panel;
 mod paths;
+mod pre_gate;
 mod progress;
 
 use super::format::{self, VectorFormat};
@@ -51,11 +52,12 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
     fail_if_exists(&args.out_dir)?;
     fail_if_exists(&staging)?;
     panel::validate_floor_before_runtime(args)?;
+    let pre_encode_gate = pre_gate::validate_before_full_encode(args)?;
     let lenses = selected_lenses(args)?;
     let stats = rows::scan(args)?;
     create_parent(&args.out_dir)?;
     fs::create_dir(&staging).map_err(io_error)?;
-    let result = run_staged(args, &stats, lenses, &staging);
+    let result = run_staged(args, &stats, lenses, &staging, pre_encode_gate);
     match result {
         Ok(mut staged) => {
             if let Err(error) = fs::rename(&staging, &args.out_dir) {
@@ -80,6 +82,7 @@ fn run_staged(
     stats: &RowStats,
     lenses: Vec<(BuildLens, BitsLens)>,
     staging: &Path,
+    pre_encode_gate: evidence::PreEncodeGateEvidence,
 ) -> CliResult<StagedExport> {
     let vector_dir = staging.join(args.vector_format.dir_name());
     let vault_root = staging.join("vaults");
@@ -168,6 +171,7 @@ fn run_staged(
         query_count: args.query_count,
         batch_size: args.batch_size,
         min_bits: args.min_bits,
+        pre_encode_gate,
         streaming: true,
         temporal_counts_toward_a35: TEMPORAL_COUNTS_TOWARD_A35,
         temporal_lane_role: TEMPORAL_LANE_ROLE,

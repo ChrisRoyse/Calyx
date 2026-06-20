@@ -57,6 +57,26 @@ fn stream_fbin_writes_structured_progress_snapshot() {
         report["progress_path"].as_str().unwrap(),
         progress_path.display().to_string()
     );
+    assert_eq!(report["pre_encode_gate"]["sufficient"], true);
+    assert_eq!(
+        report["pre_encode_gate"]["estimate_bound"]
+            .as_str()
+            .unwrap(),
+        "lower_bound"
+    );
+    assert_eq!(
+        report["pre_encode_gate"]["power_calibration_status"]
+            .as_str()
+            .unwrap(),
+        "passed"
+    );
+    assert_eq!(
+        report["pre_encode_gate"]["streamed_lenses"]
+            .as_array()
+            .unwrap()
+            .len(),
+        10
+    );
     assert_eq!(report["temporal_counts_toward_a35"], false);
     assert_eq!(
         report["temporal_lane_role"],
@@ -173,6 +193,80 @@ fn stream_fbin_rejects_existing_output_before_loading_inputs() {
     let _ = fs::remove_dir_all(fixture.root);
 }
 
+#[test]
+fn stream_fbin_pre_gate_refuses_before_row_scan() {
+    let fixture = Fixture::new("stream-fbin-pre-gate-refused", 10, 10, 8);
+    write_bits_with_gate(&fixture.bits, 10, 10, 0.42, "passed", 1.0);
+    let mut args = fixture.args(2);
+    args.rows_jsonl = fixture.root.join("missing-rows.jsonl");
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_REFUSED");
+    assert!(!fixture.out.exists());
+    assert!(!staging_dir(&fixture).exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_pre_gate_fails_closed_on_legacy_bits_report() {
+    let fixture = Fixture::new("stream-fbin-pre-gate-missing", 10, 10, 50);
+    write_legacy_bits(&fixture.bits, 10, 10);
+    let args = fixture.args(8);
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_MISSING");
+    assert!(!fixture.out.exists());
+    assert!(!staging_dir(&fixture).exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_pre_gate_rejects_unpowered_panel() {
+    let fixture = Fixture::new("stream-fbin-pre-gate-unpowered", 10, 10, 50);
+    write_bits_with_gate(&fixture.bits, 10, 10, 1.25, "underpowered", 0.25);
+    let args = fixture.args(8);
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(
+        error.code(),
+        "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_UNPOWERED"
+    );
+    assert!(!fixture.out.exists());
+    assert!(!staging_dir(&fixture).exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_pre_gate_rejects_mismatched_panel() {
+    let fixture = Fixture::new("stream-fbin-pre-gate-mismatch", 10, 10, 50);
+    write_bits_with_panel_names(
+        &fixture.bits,
+        10,
+        10,
+        (0..9)
+            .map(|idx| format!("lens-{idx}"))
+            .chain(std::iter::once("lens-other".to_string()))
+            .collect(),
+        1.25,
+        "passed",
+        1.0,
+    );
+    let args = fixture.args(8);
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(
+        error.code(),
+        "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_PANEL_MISMATCH"
+    );
+    assert!(!fixture.out.exists());
+    assert!(!staging_dir(&fixture).exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
 struct Fixture {
     root: PathBuf,
     rows: PathBuf,
@@ -237,6 +331,10 @@ fn write_rows(path: &Path, rows: usize) {
 }
 
 fn write_bits(path: &Path, lenses: usize, admitted: usize) {
+    write_bits_with_gate(path, lenses, admitted, 1.25, "passed", 1.0);
+}
+
+fn write_legacy_bits(path: &Path, lenses: usize, admitted: usize) {
     let lenses = (0..lenses)
         .map(|idx| {
             serde_json::json!({
@@ -249,6 +347,69 @@ fn write_bits(path: &Path, lenses: usize, admitted: usize) {
     fs::write(
         path,
         serde_json::to_vec_pretty(&serde_json::json!({ "lenses": lenses })).unwrap(),
+    )
+    .unwrap();
+}
+
+fn write_bits_with_gate(
+    path: &Path,
+    lenses: usize,
+    admitted: usize,
+    sufficiency_basis_bits: f32,
+    power_status: &str,
+    power_recovery_ratio: f32,
+) {
+    let admitted_names = (0..admitted)
+        .map(|idx| format!("lens-{idx}"))
+        .collect::<Vec<_>>();
+    write_bits_with_panel_names(
+        path,
+        lenses,
+        admitted,
+        admitted_names,
+        sufficiency_basis_bits,
+        power_status,
+        power_recovery_ratio,
+    );
+}
+
+fn write_bits_with_panel_names(
+    path: &Path,
+    lenses: usize,
+    admitted: usize,
+    admitted_names: Vec<String>,
+    sufficiency_basis_bits: f32,
+    power_status: &str,
+    power_recovery_ratio: f32,
+) {
+    let lenses = (0..lenses)
+        .map(|idx| {
+            serde_json::json!({
+                "name": format!("lens-{idx}"),
+                "bits_about": 0.2,
+                "admitted": idx < admitted
+            })
+        })
+        .collect::<Vec<_>>();
+    fs::write(
+        path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "anchor_entropy_bits": 1.0,
+            "min_informative_target_entropy_bits": 0.30,
+            "lenses": lenses,
+            "panel": {
+                "admitted_lenses": admitted_names,
+                "i_panel_anchor": sufficiency_basis_bits + 0.01,
+                "ci_95": [sufficiency_basis_bits, sufficiency_basis_bits + 0.02],
+                "estimate_bound": "lower_bound",
+                "sufficiency_basis_bits": sufficiency_basis_bits,
+                "power_calibration_status": power_status,
+                "power_recovery_ratio": power_recovery_ratio,
+                "power_recovered_bits": power_recovery_ratio,
+                "power_planted_bits": 1.0
+            }
+        }))
+        .unwrap(),
     )
     .unwrap();
 }
@@ -291,4 +452,10 @@ fn temp_root(name: &str) -> PathBuf {
     let root = std::env::temp_dir().join(format!("{name}-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&root).unwrap();
     root
+}
+
+fn staging_dir(fixture: &Fixture) -> PathBuf {
+    fixture
+        .out
+        .with_file_name(format!(".out.tmp-{}", std::process::id()))
 }
