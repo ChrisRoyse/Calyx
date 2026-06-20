@@ -18,13 +18,14 @@
 
 | # | Doc | Owns |
 |---|---|---|
-| — | `DOCTRINE.md` | **Canonical binding charter — read first, overrides everything.** Thesis, strict-Royse-theory rule, 34 axioms, universality + AGI + plug-in-lens mandates, FSV, anti-patterns |
+| — | `DOCTRINE.md` | **Canonical binding charter — read first, overrides everything.** Thesis, strict-Royse-theory rule, 38 axioms, universality + AGI + plug-in-lens mandates, FSV, anti-patterns |
 | 00 | `00_INDEX.md` | This index, glossary, `BUILD_DONE`, doc map |
 | 01 | `01_BRAND_AND_NAMING.md` | Name, rationale, glyph, color, voice, subsystem naming, alternates |
-| 02 | `02_VISION_AND_AXIOMS.md` | Calculus→DB primitive mapping, 34 design axioms, why-not-a-vector-DB |
+| 02 | `02_VISION_AND_AXIOMS.md` | Calculus→DB primitive mapping, 38 design axioms, why-not-a-vector-DB |
 | 03 | `03_DATA_MODEL.md` | Constellation/TCT logical model, slots, cross-terms, scalars, IDs |
 | 04 | `04_ASTER_STORAGE_FORMAT.md` | `Aster` on-disk columnar format, LSM, column families, tiering, ZFS layout, crash safety |
 | 05 | `05_EMBEDDER_REGISTRY.md` | Lenses as designable instruments, hot-swap, versioning, frozen contract, capability assay |
+| 05a | `05a_EMBEDDER_ROSTER_VRAM_BUDGET.md` | **A38, #1 priority** — exhaustive embedder catalogue + the optimal diverse panel ("Constellation-24") that fits one 24 GB GPU under ≤ 20 GB resident weights, covering every modality/domain, INT8/quantised |
 | 06 | `06_LOOM_DDA_ENGINE.md` | Derived Data Abundance, cross-term weaving, combinatorics, lazy/eager, effective-rank cap |
 | 07 | `07_ASSAY_SIGNAL_BITS.md` | MI estimation (KSG/partitioned-NMI), differentiation contract (≥0.05 bits, ≤0.6 corr), `n_eff` |
 | 08 | `08_LODESTAR_KERNEL.md` | Grounding-kernel discovery (directed MFVS), kernel-as-index, kernel-based answering |

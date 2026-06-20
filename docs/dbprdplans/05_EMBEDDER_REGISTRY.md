@@ -237,4 +237,19 @@ late-interaction token, and entity/CAMEO graph.
 
 **Homogeneous panels are valid as labeled controls.** Deliberately running a single-family panel to **measure** the redundancy collapse — its correlation matrix, marginal-bits decay, `n_eff`, and fused-RRF gain vs the best single lens — is the empirical evidence for this gate and is encouraged; it is diagnostic, never a production gate (`DOCTRINE §0`).
 
+## 9c. The resource-bounded roster (A38, #1 priority) — see `05a`
+
+The **canonical candidate catalogue** (every embedder worth considering, by family,
+with params / dim / quantised VRAM) and the **binding default panel "Constellation-24"**
+(the optimal diverse set that fits one 24 GB GPU under ≤ 20 GB resident lens weights,
+covering text general + legal/medical/clinical/biomedical/scientific/financial/code/
+multilingual · multiple image (CLIP-style + DINO-style) · audio speech/speaker/music/
+environmental · doc-image · protein/DNA/molecule) live in
+**`05a_EMBEDDER_ROSTER_VRAM_BUDGET.md`** (A38, `DOCTRINE §10.29`). That document is the
+roster source-of-truth; this §9/§9b define *how* a roster is measured and gated, `05a`
+defines *which* lenses and *under what hardware budget*. Maximise count × measured
+`bits / VRAM-MB` (#729); quantise (INT8/FP16/MRL/static) to fit more lenses; admit only
+on A35 + A37 `gate_passed` + measured `Σ VRAM ≤ 20 GB` + fused-RRF beats the 1–2-lens
+control.
+
 **One sentence:** the Registry turns "frozen embedder" into a database object with a lifecycle, a capability card, and a one-call hot-swap; templates turn "the right 10+ lenses for *this* job" into a swappable, measured object — so the multi-lens system builds itself.
