@@ -43,6 +43,7 @@ pub fn signal_kind_from_runtime(runtime: &LensRuntime) -> CapabilitySignalKind {
         | LensRuntime::FastembedSparse { .. }
         | LensRuntime::FastembedBgem3 { .. }
         | LensRuntime::FastembedReranker { .. }
+        | LensRuntime::FastembedQwen3 { .. }
         | LensRuntime::StaticLookup { .. }
         | LensRuntime::MultimodalAdapter { .. } => CapabilitySignalKind::LearnedEncoder,
         LensRuntime::ExternalCmd { .. } => CapabilitySignalKind::Unknown,

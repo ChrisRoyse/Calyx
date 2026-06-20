@@ -42,6 +42,18 @@ fn commission_accepts_onnx_fp32_runtime_name() {
 }
 
 #[test]
+fn commission_accepts_fastembed_qwen3_runtime_name() {
+    let error = run(
+        "commission",
+        &["--runtime".to_string(), "fastembed-qwen3".to_string()],
+    )
+    .unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(error.message().contains("--hf is required"));
+}
+
+#[test]
 fn commission_rejects_zero_max_batch() {
     let error = run(
         "commission",

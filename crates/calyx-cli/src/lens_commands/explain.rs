@@ -95,6 +95,7 @@ fn measure_runtime(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<M
         LensRuntime::FastembedSparse { .. } => measure_fastembed_sparse(spec, probe, repeat),
         LensRuntime::FastembedBgem3 { .. } => measure_fastembed_bgem3(spec, probe, repeat),
         LensRuntime::FastembedReranker { .. } => measure_fastembed_reranker(spec, probe, repeat),
+        LensRuntime::FastembedQwen3 { .. } => measure_fastembed_qwen3(spec, probe, repeat),
         LensRuntime::MultimodalAdapter { .. } => measure_multimodal(spec, probe, repeat),
         other => Err(CliError::usage(format!(
             "calyx lens explain does not support {} runtime measurement",
@@ -224,6 +225,26 @@ fn measure_fastembed_reranker(
         rows: None,
         vram_bytes: files_size(&lens.files().artifact_paths())?,
         runtime_detail: format!("fastembed-reranker;{}", lens.provider_policy()),
+    })
+}
+
+fn measure_fastembed_qwen3(
+    spec: &LensSpec,
+    probe: &Input,
+    repeat: usize,
+) -> CliResult<Measurement> {
+    let lens = calyx_registry::FastembedQwen3Lens::from_lens_spec(spec)?;
+    let vector = measure_repeated(&lens, probe, repeat)?;
+    Ok(Measurement {
+        vector,
+        dtype: lens.precision().as_str().to_string(),
+        rows: None,
+        vram_bytes: files_size(&lens.files().artifact_paths())?,
+        runtime_detail: format!(
+            "fastembed-qwen3;{};max_tokens={}",
+            lens.device_policy().as_str(),
+            lens.max_tokens()
+        ),
     })
 }
 

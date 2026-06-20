@@ -47,6 +47,11 @@ pub(super) fn runtime_from_manifest(
             model_id: manifest.source_hf_id.clone(),
             files,
         }),
+        "fastembed-qwen3" => Ok(LensRuntime::FastembedQwen3 {
+            model_id: manifest.source_hf_id.clone(),
+            files,
+            dtype: manifest.dtype.clone(),
+        }),
         "candle" | "candle-fp16" | "candle-local" => Ok(LensRuntime::CandleLocal {
             model_id: manifest.source_hf_id.clone(),
             files,

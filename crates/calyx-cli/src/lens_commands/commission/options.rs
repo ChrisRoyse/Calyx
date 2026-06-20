@@ -14,6 +14,7 @@ pub(super) enum CommissionRuntime {
     FastembedBgem3Sparse,
     FastembedBgem3Colbert,
     FastembedReranker,
+    FastembedQwen3,
     CandleFp16,
     Tei,
 }
@@ -31,10 +32,11 @@ impl CommissionRuntime {
                 Ok(Self::FastembedBgem3Colbert)
             }
             "fastembed-reranker" => Ok(Self::FastembedReranker),
+            "fastembed-qwen3" | "qwen3" => Ok(Self::FastembedQwen3),
             "candle-fp16" => Ok(Self::CandleFp16),
             "tei" | "tei-http" | "tei_http" => Ok(Self::Tei),
             other => Err(CliError::usage(format!(
-                "unsupported --runtime {other}; expected onnx-int8, onnx-fp32, fastembed-onnx, fastembed-sparse, fastembed-bgem3-*, fastembed-reranker, candle-fp16, or tei"
+                "unsupported --runtime {other}; expected onnx-int8, onnx-fp32, fastembed-onnx, fastembed-sparse, fastembed-bgem3-*, fastembed-reranker, fastembed-qwen3, candle-fp16, or tei"
             ))),
         }
     }
@@ -49,6 +51,7 @@ impl CommissionRuntime {
             Self::FastembedBgem3Sparse => "fastembed-bgem3-sparse",
             Self::FastembedBgem3Colbert => "fastembed-bgem3-colbert",
             Self::FastembedReranker => "fastembed-reranker",
+            Self::FastembedQwen3 => "fastembed-qwen3",
             Self::CandleFp16 => "candle-fp16",
             Self::Tei => "tei",
         }
@@ -65,6 +68,7 @@ impl CommissionRuntime {
             | Self::FastembedBgem3Colbert
             | Self::FastembedReranker
             | Self::Tei => "f32",
+            Self::FastembedQwen3 => "bf16",
             Self::CandleFp16 => "f16",
         }
     }

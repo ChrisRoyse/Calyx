@@ -90,6 +90,10 @@ pub use runtime::onnx::{
     FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens, OnnxFileSpec, OnnxLens,
     OnnxModelFiles, OnnxProviderPolicy, PoolingPolicy,
 };
+pub use runtime::qwen3::{
+    DEFAULT_QWEN3_MAX_TOKENS, DEFAULT_QWEN3_MODEL, FastembedQwen3Lens, Qwen3FileSpec,
+    Qwen3ModelFiles,
+};
 pub use runtime::static_lookup::{
     StaticLookupDType, StaticLookupFileSpec, StaticLookupFiles, StaticLookupLens,
 };

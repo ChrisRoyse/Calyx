@@ -1,8 +1,8 @@
 use calyx_core::{CalyxError, Lens, Modality, Placement};
 use calyx_registry::{
-    AlgorithmicLens, CandleLens, FastembedBgem3Lens, FastembedBgem3Output, FastembedRerankerLens,
-    FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens, OnnxLens, StaticLookupLens,
-    TeiHttpLens,
+    AlgorithmicLens, CandleLens, FastembedBgem3Lens, FastembedBgem3Output, FastembedQwen3Lens,
+    FastembedRerankerLens, FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens,
+    OnnxLens, StaticLookupLens, TeiHttpLens,
 };
 
 use super::super::support::dim;
@@ -75,6 +75,25 @@ pub(super) fn runtime_lens(spec: &LensSpec) -> Result<RuntimeLens, CalyxError> {
                 native_batching: false,
                 max_batch: Some(1),
                 proof: format!("ort_cuda_provider_registered:{provider}"),
+                gpu_process_required: true,
+            })
+        }
+        LensRuntime::FastembedQwen3 { .. } => {
+            let lens = FastembedQwen3Lens::from_lens_spec(spec)?;
+            let provider = lens.device_policy().as_str().to_string();
+            let detail = format!(
+                "fastembed_qwen3;{};max_tokens={}",
+                lens.precision().as_str(),
+                lens.max_tokens()
+            );
+            Ok(RuntimeLens {
+                lens: Box::new(lens),
+                detail,
+                provider: provider.clone(),
+                placement: Placement::Gpu,
+                native_batching: true,
+                max_batch: spec.max_batch,
+                proof: format!("candle_device_initialized:{provider}"),
                 gpu_process_required: true,
             })
         }
@@ -183,6 +202,7 @@ pub(super) fn association_family(spec: &LensSpec) -> &'static str {
             ..
         } => "dense_semantic",
         LensRuntime::FastembedReranker { .. } => "retrieval_reranker",
+        LensRuntime::FastembedQwen3 { .. } => "dense_semantic",
         LensRuntime::Onnx { .. }
         | LensRuntime::CandleLocal { .. }
         | LensRuntime::TeiHttp { .. } => "dense_semantic",

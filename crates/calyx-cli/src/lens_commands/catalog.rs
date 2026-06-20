@@ -200,7 +200,8 @@ fn estimate_lens_cost(spec: &LensSpec) -> CliResult<LensCost> {
         | LensRuntime::Onnx { files, .. }
         | LensRuntime::FastembedSparse { files, .. }
         | LensRuntime::FastembedBgem3 { files, .. }
-        | LensRuntime::FastembedReranker { files, .. } => {
+        | LensRuntime::FastembedReranker { files, .. }
+        | LensRuntime::FastembedQwen3 { files, .. } => {
             let bytes = files_size(files)?;
             Ok(LensCost {
                 total_ms: 0.0,

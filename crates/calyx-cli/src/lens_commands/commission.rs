@@ -90,7 +90,8 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         | CommissionRuntime::FastembedBgem3Dense
         | CommissionRuntime::FastembedBgem3Sparse
         | CommissionRuntime::FastembedBgem3Colbert
-        | CommissionRuntime::FastembedReranker => {
+        | CommissionRuntime::FastembedReranker
+        | CommissionRuntime::FastembedQwen3 => {
             let commissioned = fastembed_special::commission(&flags, &out, &mut log)?;
             CommissionOutput::with_dim(commissioned.artifacts, commissioned.dim)
         }

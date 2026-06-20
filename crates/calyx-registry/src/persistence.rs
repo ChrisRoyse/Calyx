@@ -8,9 +8,9 @@ use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Panel, Result, SlotS
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    AlgorithmicLens, CandleLens, ExternalCmdLens, FastembedBgem3Lens, FastembedRerankerLens,
-    FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens, OnnxLens, Registry,
-    RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
+    AlgorithmicLens, CandleLens, ExternalCmdLens, FastembedBgem3Lens, FastembedQwen3Lens,
+    FastembedRerankerLens, FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens,
+    OnnxLens, Registry, RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
 };
 
 const SNAPSHOT_VERSION: u16 = 1;
@@ -189,6 +189,9 @@ fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Option<Arc<dyn Lens>> {
         }
         LensRuntime::FastembedReranker { .. } => {
             Arc::new(FastembedRerankerLens::from_lens_spec(spec).ok()?)
+        }
+        LensRuntime::FastembedQwen3 { .. } => {
+            Arc::new(FastembedQwen3Lens::from_lens_spec(spec).ok()?)
         }
         LensRuntime::StaticLookup { .. } => Arc::new(StaticLookupLens::from_lens_spec(spec).ok()?),
         LensRuntime::MultimodalAdapter { .. } => {

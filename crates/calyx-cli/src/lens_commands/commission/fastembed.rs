@@ -85,7 +85,7 @@ pub(super) fn copy_artifacts(files: &OnnxModelFiles, out: &Path) -> CliResult<Ve
     Ok(artifacts)
 }
 
-fn common_root(paths: &[PathBuf]) -> CliResult<PathBuf> {
+pub(super) fn common_root(paths: &[PathBuf]) -> CliResult<PathBuf> {
     let first = paths
         .first()
         .ok_or_else(|| CliError::usage("fastembed produced no artifact files"))?;
