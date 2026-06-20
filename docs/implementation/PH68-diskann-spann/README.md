@@ -44,6 +44,66 @@ full 1e8+ ANN/index SLO soak. The vault physical layout (`04 §3`) reserves
 token DiskANN, `idx/xterm.concat.ann/` for materialized concat xterm DiskANN,
 and `idx/slot_NN.sparse/` for SPANN.
 
+## PH68 GDELT Scale Roster Template (#801, #796, #787)
+
+For GDELT/civic text-scale streams, the current gate-eligible roster template is
+the #801 scale-audit panel proven on aiwonder at:
+
+`/home/croyse/calyx/fsv/issue801-gdelt-entity-roster-20260620T0610Z/gdelt_roster_happy.json`
+
+Readback: `accepted=true`, `content_lens_count=11`, `gpu_content_lens_count=5`,
+`temporal_sidecar_count=1`, `temporal_counts_toward_content_floor=false`,
+`temporal_lane_role=time_manipulation_walk_forward_backward_as_of_sidecar`, and
+`rejected_count=0`.
+
+| Role | Lens | Family | Runtime/provider | Placement | Effective batch |
+|---|---|---|---|---|---|
+| Time control, not content | `temporal-as-of-time-manipulation-sidecar` | `temporal_sidecar` | `algorithmic:scalar;cpu_explicit` | CPU | 1 |
+| Content | `semantic-gte-base-tei` | `dense_semantic` | TEI `:8088` resident GPU service | GPU | 8 |
+| Content | `domain-modernbert-legal-tei` | `dense_semantic` | TEI `:8090` resident GPU service | GPU | 8 |
+| Content | `semantic-potion-base-8m` | `static_lookup_semantic` | `static_lookup_mmap;cpu_explicit` | CPU | 1 |
+| Content | `semantic-all-minilm-l6-v2-candle` | `dense_semantic` | Candle CUDA, no CPU fallback | GPU | 1 |
+| Content | `semantic-multilingual-e5-base-fastembed` | `dense_semantic` | ONNX CUDA EP, no CPU fallback | GPU | 8 |
+| Content | `semantic-bge-small-en-v1-5` | `dense_semantic` | ONNX CUDA EP, no CPU fallback | GPU | 8 |
+| Content | `a37-byte-char-features` | `byte_char` | `algorithmic:byte-features;cpu_explicit` | CPU | 1 |
+| Content | `a37-lexical-sparse-keywords` | `lexical_sparse` | `algorithmic:sparse-keywords;cpu_explicit` | CPU | 1 |
+| Content | `a37-late-interaction-token-hash` | `late_interaction_token` | `algorithmic:token-hash;cpu_explicit` | CPU | 1 |
+| Content | `gdelt-cameo-event-code` | `entity_cameo_graph` | `algorithmic:gdelt-cameo;cpu_explicit` | CPU | 1 |
+| Content | `gdelt-actor-geo-entity` | `entity_cameo_graph` | `algorithmic:gdelt-actor-geo;cpu_explicit` | CPU | 1 |
+
+This roster satisfies the #787 >=10-lens floor and the #796 template mandate for
+the GDELT scale path, while keeping temporal/time capture as a forward/backward
+/ as-of traversal sidecar instead of a content-lens substitute. It also satisfies
+A37 D1 family span for this domain: dense general/domain, static semantic,
+byte/character, lexical sparse, late-interaction token, and entity/CAMEO graph.
+
+Boundary evidence for the same roster:
+
+- Content floor edge:
+  `/home/croyse/calyx/fsv/issue801-gdelt-edge-content-floor-20260620T0625Z/content_floor_edge.json`
+  read back `accepted=false`, `content=11`, `temporal=1`, and
+  `CALYX_LENS_SCALE_CONTENT_FLOOR` when the floor was raised to 12.
+- GPU floor edge:
+  `/home/croyse/calyx/fsv/issue801-gdelt-edge-gpu-floor-20260620T0630Z/gpu_floor_edge.json`
+  read back `accepted=false`, `gpu=5`, and
+  `CALYX_LENS_SCALE_GPU_CONTENT_FLOOR` when the floor was raised to 6.
+- Invalid GDELT actor/geo edge:
+  `/home/croyse/calyx/fsv/issue801-gdelt-edge-invalid-dim-20260620T0635Z/invalid_dim_edge.json`
+  read back the invalid manifest (`dim=0`) and the aggregate rejection with the
+  worker stderr tail containing `CALYX_LENS_CONFIG_INVALID`.
+
+Final gate log for the implementation bytes:
+
+`/home/croyse/calyx/fsv/issue801-gdelt-final-gate-20260620T0640Z/gate.log`
+
+Gate readback: CUDA 13.3 / RTX 5090 detected; `cargo fmt --check`,
+`git diff --check`, line-count gate, `cargo check -p calyx-cli`,
+`cargo test -p calyx-registry algorithmic -- --nocapture`,
+`cargo test -p calyx-cli lens_commands::scale_audit -- --nocapture`,
+`cargo build -p calyx-cli --features cuda`, and
+`cargo clippy -p calyx-cli --all-targets --features cuda -- -D warnings` all
+completed.
+
 ## Deliverables (file plan, each ≤500 lines)
 
 | File | Responsibility |

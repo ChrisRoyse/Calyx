@@ -200,6 +200,15 @@ D4 diversity number EnsembleCard records {n_eff, mean_redundancy, sum_unique_pid
 
 **A genuinely diverse text panel** (vs the 10-clone anti-pattern) mixes families: 2–3 dense-semantic anchors (one general + one domain) · a **lexical/sparse** lens (exact terms/names/acronyms dense models blur) · an **entity** lens (for GDELT: actors/orgs/CAMEO codes/country pairs — often the highest-unique-info axis) · a **character/byte** lens (name transliteration robustness) · the **temporal** sidecar for as-of/forward/backward time traversal. That mix maximizes unique + synergistic PID per slot; ten dense clones maximize redundancy.
 
+**PH68 GDELT scale template (#801; cross-ref #796/#787):** the current proven
+GDELT/civic scale roster is documented in
+`docs/implementation/PH68-diskann-spann/README.md` under "PH68 GDELT Scale
+Roster Template". Its aiwonder report reads back 11 content lenses, 5 GPU
+content lenses, and 1 temporal sidecar with
+`temporal_counts_toward_content_floor=false`; families span dense
+general/domain, static semantic, byte/character, lexical sparse,
+late-interaction token, and entity/CAMEO graph.
+
 **Homogeneous panels are valid as labeled controls.** Deliberately running a single-family panel to **measure** the redundancy collapse — its correlation matrix, marginal-bits decay, `n_eff`, and fused-RRF gain vs the best single lens — is the empirical evidence for this gate and is encouraged; it is diagnostic, never a production gate (`DOCTRINE §0`).
 
 **One sentence:** the Registry turns "frozen embedder" into a database object with a lifecycle, a capability card, and a one-call hot-swap; templates turn "the right 10+ lenses for *this* job" into a swappable, measured object — so the multi-lens system builds itself.
