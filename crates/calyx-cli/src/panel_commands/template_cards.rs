@@ -1,18 +1,20 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use calyx_assay::{A37_DIVERSITY_GATE_PASSED, EnsembleCard, a37_association_family};
 use calyx_registry::{CapabilityCard, LensHealth};
 
 use super::template_model::{
-    CARD_VERSION, CapabilityCardRef, SavedPanelTemplate, TEMPLATE_INVALID, TemplateEnsembleCard,
-    template_error,
+    A37_ADMISSION_VERSION, CARD_VERSION, CapabilityCardRef, SavedPanelTemplate, TEMPLATE_INVALID,
+    TemplateA37Admission, TemplateA37CardRef, TemplateEnsembleCard, template_error,
 };
 use crate::error::CliResult;
 
 pub(super) fn ensemble_card_from_capability_cards(
     template: &SavedPanelTemplate,
     card_paths: &[PathBuf],
+    a37_card_path: Option<&Path>,
 ) -> CliResult<TemplateEnsembleCard> {
     let mut refs = Vec::new();
     for path in card_paths {
@@ -34,6 +36,8 @@ pub(super) fn ensemble_card_from_capability_cards(
         .iter()
         .map(|item| item.coverage_rate)
         .fold(f32::INFINITY, f32::min);
+    let (a37_admission, a37_ensemble_card_ref) =
+        a37_admission_from_assay_card(template, a37_card_path)?;
     Ok(TemplateEnsembleCard {
         schema_version: CARD_VERSION,
         source: "capability_card_rollup_v1".to_string(),
@@ -47,7 +51,128 @@ pub(super) fn ensemble_card_from_capability_cards(
         total_ram_bytes: sum_ram(template),
         mean_ms_per_input: mean_ms(template),
         card_refs: refs,
+        a37_admission,
+        a37_ensemble_card_ref,
     })
+}
+
+fn a37_admission_from_assay_card(
+    template: &SavedPanelTemplate,
+    path: Option<&Path>,
+) -> CliResult<(TemplateA37Admission, Option<TemplateA37CardRef>)> {
+    let Some(path) = path else {
+        return Ok((missing_a37_admission(template), None));
+    };
+    let bytes = fs::read(path)?;
+    let hash = blake3::hash(&bytes).to_hex().to_string();
+    let card = serde_json::from_slice::<EnsembleCard>(&bytes).map_err(|error| {
+        template_error(
+            TEMPLATE_INVALID,
+            format!(
+                "A37 assay card {} is not an EnsembleCard: {error}",
+                path.display()
+            ),
+            "pass the JSON produced by calyx assay i8bin-ensemble-card",
+        )
+    })?;
+    ensure_a37_card_matches_template(template, &card, path)?;
+    let gate = &card.a37_diversity;
+    let admission = TemplateA37Admission {
+        schema_version: A37_ADMISSION_VERSION,
+        source: "assay_ensemble_card_a37".to_string(),
+        gate_eligible: gate.status == A37_DIVERSITY_GATE_PASSED,
+        status: gate.status.clone(),
+        verdict: gate.verdict.clone(),
+        content_lens_count: gate.content_lens_count,
+        temporal_sidecar_count: gate.temporal_sidecar_count,
+        temporal_counts_toward_content_floor: gate.temporal_counts_toward_content_floor,
+        association_family_count: gate.association_family_count,
+        n_eff: Some(gate.n_eff),
+        mean_pairwise_corr: Some(gate.mean_pairwise_corr),
+        mean_pairwise_nmi: Some(gate.mean_pairwise_nmi),
+        sum_unique_pid_bits: Some(gate.sum_unique_pid_bits),
+    };
+    let card_ref = TemplateA37CardRef {
+        path: path.display().to_string(),
+        blake3_hex: hash,
+        card_schema_version: card.schema_version,
+        card_source: card.source.clone(),
+        panel_lens_count: card.panel_lens_count,
+        status: gate.status.clone(),
+    };
+    Ok((admission, Some(card_ref)))
+}
+
+fn missing_a37_admission(template: &SavedPanelTemplate) -> TemplateA37Admission {
+    let families = template
+        .lenses
+        .iter()
+        .filter(|lens| lens.counts_toward_a35)
+        .map(|lens| a37_association_family(&lens.lens_name))
+        .filter(|family| *family != "temporal_sidecar")
+        .collect::<BTreeSet<_>>();
+    let temporal_lens_count = template
+        .lenses
+        .iter()
+        .filter(|lens| {
+            !lens.counts_toward_a35 || a37_association_family(&lens.lens_name) == "temporal_sidecar"
+        })
+        .count();
+    TemplateA37Admission {
+        schema_version: A37_ADMISSION_VERSION,
+        source: "capability_card_rollup_missing_a37_pid".to_string(),
+        gate_eligible: false,
+        status: "missing_a37_ensemble_card".to_string(),
+        verdict: "A37 gate not evaluated; capability-card rollup proves load and coverage only, not D2/D3/D4 diversity".to_string(),
+        content_lens_count: template.content_lens_count(),
+        temporal_sidecar_count: template.time_controls.len() + temporal_lens_count,
+        temporal_counts_toward_content_floor: false,
+        association_family_count: families.len(),
+        n_eff: None,
+        mean_pairwise_corr: None,
+        mean_pairwise_nmi: None,
+        sum_unique_pid_bits: None,
+    }
+}
+
+fn ensure_a37_card_matches_template(
+    template: &SavedPanelTemplate,
+    card: &EnsembleCard,
+    path: &Path,
+) -> CliResult {
+    let wanted = template
+        .lenses
+        .iter()
+        .filter(|lens| lens.counts_toward_a35)
+        .map(|lens| lens.lens_name.as_str())
+        .collect::<BTreeSet<_>>();
+    let measured = card
+        .lenses
+        .iter()
+        .filter(|lens| a37_association_family(&lens.name) != "temporal_sidecar")
+        .map(|lens| lens.name.as_str())
+        .collect::<BTreeSet<_>>();
+    let missing = wanted.difference(&measured).copied().collect::<Vec<_>>();
+    let extra = measured.difference(&wanted).copied().collect::<Vec<_>>();
+    if missing.is_empty()
+        && extra.is_empty()
+        && card.a37_diversity.content_lens_count == template.content_lens_count()
+    {
+        return Ok(());
+    }
+    Err(template_error(
+        TEMPLATE_INVALID,
+        format!(
+            "A37 assay card {} does not match template {}; missing={:?}; extra={:?}; a37_content_lenses={}; template_content_lenses={}",
+            path.display(),
+            template.name,
+            missing,
+            extra,
+            card.a37_diversity.content_lens_count,
+            template.content_lens_count()
+        ),
+        "generate the Assay EnsembleCard from the same content-lens roster before profiling",
+    ))
 }
 
 fn ensure_all_template_lenses_measured(

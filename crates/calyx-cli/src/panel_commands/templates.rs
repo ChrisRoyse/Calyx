@@ -27,6 +27,8 @@ struct Flags {
     lenses: Vec<String>,
     cards: Vec<PathBuf>,
     card_dir: Option<PathBuf>,
+    assay_card: Option<PathBuf>,
+    require_a37_gate: bool,
 }
 
 #[derive(Serialize)]
@@ -40,6 +42,8 @@ struct SaveReport {
     content_lens_count: usize,
     time_control_count: usize,
     has_ensemble_card: bool,
+    a37_gate_eligible: bool,
+    a37_status: String,
 }
 
 #[derive(Serialize)]
@@ -161,12 +165,14 @@ fn profile(args: &[String]) -> CliResult {
     let flags = Flags::parse(args)?;
     let home = home(flags.home.clone())?;
     let cards = card_paths(&flags)?;
-    let selector = flags.template.ok_or_else(|| {
-        CliError::usage("panel template profile requires --template <name-or-id>")
-    })?;
+    let selector = flags
+        .template
+        .as_deref()
+        .ok_or_else(|| CliError::usage("panel template profile requires --template <name-or-id>"))?
+        .to_string();
     let store = TemplateStore::open(&home);
     let template = store.load(&selector)?;
-    let card = ensemble_card_from_capability_cards(&template, &cards)?;
+    let card = ensemble_card_from_capability_cards(&template, &cards, flags.assay_card.as_deref())?;
     let save = store.profile(&selector, card, vault::now_ms())?;
     print_json(&save_report("profile", save))
 }
@@ -182,7 +188,12 @@ fn swap(args: &[String]) -> CliResult {
         .ok_or_else(|| CliError::usage("panel template swap requires --vault <vault>"))?;
     let vault_dir = vault::resolve_vault(&home, &vault_name)?;
     let store = TemplateStore::open(&home);
-    let report = store.swap_into_vault(&selector, &vault_dir, vault::now_ms())?;
+    let report = store.swap_into_vault(
+        &selector,
+        &vault_dir,
+        vault::now_ms(),
+        flags.require_a37_gate,
+    )?;
     print_json(&report)
 }
 
@@ -339,6 +350,11 @@ impl Flags {
                     idx += 1;
                     flags.card_dir = Some(value(args, idx, "--card-dir")?.into());
                 }
+                "--assay-card" => {
+                    idx += 1;
+                    flags.assay_card = Some(value(args, idx, "--assay-card")?.into());
+                }
+                "--require-a37-gate" => flags.require_a37_gate = true,
                 other => return Err(CliError::usage(format!("unexpected template flag {other}"))),
             }
             idx += 1;
@@ -351,6 +367,7 @@ fn save_report(action: &'static str, save: TemplateSave) -> SaveReport {
     let content_lens_count = save.template.content_lens_count();
     let time_control_count = save.template.time_controls.len();
     let has_ensemble_card = save.template.ensemble_card.is_some();
+    let a37 = save.template.a37_admission();
     SaveReport {
         action,
         template_id: save.template_id,
@@ -361,6 +378,8 @@ fn save_report(action: &'static str, save: TemplateSave) -> SaveReport {
         content_lens_count,
         time_control_count,
         has_ensemble_card,
+        a37_gate_eligible: a37.gate_eligible,
+        a37_status: a37.status,
     }
 }
 
@@ -428,6 +447,25 @@ mod tests {
 
         assert_eq!(flags.name.as_deref(), Some("text-deep"));
         assert_eq!(flags.lenses, ["a", "b"]);
+    }
+
+    #[test]
+    fn parses_a37_template_flags() {
+        let flags = Flags::parse(&[
+            "--template".to_string(),
+            "text-deep".to_string(),
+            "--assay-card".to_string(),
+            "ensemble_card.json".to_string(),
+            "--require-a37-gate".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(flags.template.as_deref(), Some("text-deep"));
+        assert_eq!(
+            flags.assay_card.as_deref(),
+            Some(Path::new("ensemble_card.json"))
+        );
+        assert!(flags.require_a37_gate);
     }
 
     #[test]

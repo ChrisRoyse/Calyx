@@ -39,6 +39,8 @@ pub(super) struct TemplateSummary {
     pub content_lens_count: usize,
     pub time_control_count: usize,
     pub has_ensemble_card: bool,
+    pub a37_gate_eligible: bool,
+    pub a37_status: String,
     pub object_path: String,
 }
 
@@ -48,6 +50,8 @@ pub(super) struct TemplateSwap {
     pub template_name: String,
     pub vault: PathBuf,
     pub content_lens_count: usize,
+    pub a37_gate_eligible: bool,
+    pub a37_status: String,
     pub registered_lenses_added: usize,
     pub manifest_seq: u64,
     pub panel_ref: String,
@@ -142,6 +146,7 @@ impl TemplateStore {
             .map(|entry| {
                 let active = version_ref(entry, &entry.active_template_id)?;
                 let template = self.read_object(&active.object_path, &active.blake3_hex)?;
+                let a37 = template.a37_admission();
                 Ok(TemplateSummary {
                     name: entry.name.clone(),
                     active_template_id: entry.active_template_id.clone(),
@@ -149,6 +154,8 @@ impl TemplateStore {
                     content_lens_count: template.content_lens_count(),
                     time_control_count: template.time_controls.len(),
                     has_ensemble_card: template.ensemble_card.is_some(),
+                    a37_gate_eligible: template.a37_gate_eligible(),
+                    a37_status: a37.status,
                     object_path: active.object_path.clone(),
                 })
             })
@@ -186,9 +193,14 @@ impl TemplateStore {
         selector: &str,
         vault_dir: &Path,
         now_ms: u64,
+        require_a37_gate: bool,
     ) -> CliResult<TemplateSwap> {
         let mut template = self.load(selector)?;
         template.validate()?;
+        if require_a37_gate {
+            template.require_a37_gate()?;
+        }
+        let a37 = template.a37_admission();
         let template_id = id_for_loaded(&template)?;
         let mut state = load_vault_panel_state(vault_dir)?;
         let registered_lenses_added = register_template_lenses(&mut state.registry, &mut template)?;
@@ -205,6 +217,8 @@ impl TemplateStore {
                 .iter()
                 .filter(|slot| !slot.retrieval_only && !slot.excluded_from_dedup)
                 .count(),
+            a37_gate_eligible: a37.gate_eligible,
+            a37_status: a37.status,
             registered_lenses_added,
             manifest_seq: write.manifest_seq,
             panel_ref: write.panel_ref.logical_path,

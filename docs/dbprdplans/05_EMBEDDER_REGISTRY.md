@@ -143,6 +143,16 @@ fork_template(template) -> editable copy                      # develop a new on
 ```
 
 A template is admitted for testing only if it has **≥ 10 lenses** (A35) and a recorded `EnsembleCard` (§9); its **fitness for a situation is itself a number**, so picking a template is a measurement, not a guess.
+The CLI stores this as immutable template-object bytes: `panel template profile`
+may attach `--assay-card <ensemble_card.json>`, copies
+`EnsembleCard.a37_diversity` into `ensemble_card.a37_admission`, records the
+assay-card path + BLAKE3, and marks `a37_gate_eligible=true` only when the
+persisted Assay status is `gate_passed`. `panel template list` prints the A37
+status for operator readback. `panel template swap --require-a37-gate` is
+fail-closed: it refuses with `CALYX_PANEL_TEMPLATE_A37_GATE_REFUSED` before
+touching the vault unless the immutable template object carries a gate-passed
+Assay EnsembleCard for the same content-lens roster. Temporal time-control lanes
+remain serialized as sidecars and never count toward the content-lens floor.
 
 ## 9. The 10+ roster: which lenses to try first, where to get them, how to value them
 
