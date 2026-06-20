@@ -4,7 +4,7 @@ use calyx_core::CalyxError;
 use serde_json::{Value, json};
 
 use super::{OpenSlot, Plan, report};
-use crate::a35_signal::require_recorded_learned_signal_kind;
+use crate::a35_signal::require_recorded_countable_content_signal_kind;
 use crate::error::{CliError, CliResult};
 
 const MIN_LENSES: usize = 10;
@@ -24,7 +24,7 @@ pub(super) fn validate_plan(plan: &Plan) -> CliResult {
     let mut lens_ids = BTreeSet::new();
     for slot in &plan.slots {
         let name = slot.name.as_deref().unwrap_or("<unnamed>");
-        require_recorded_learned_signal_kind(
+        require_recorded_countable_content_signal_kind(
             name,
             slot.signal_kind.as_deref(),
             "partitioned-rrf A35 gate",
@@ -203,6 +203,18 @@ mod tests {
     }
 
     #[test]
+    fn accepts_deterministic_content_feature_signal_kind() {
+        let mut slots = (0..10).map(slot).collect::<Vec<_>>();
+        slots[3].signal_kind = Some("deterministic_content_feature".to_string());
+        let plan = Plan {
+            timeline: None,
+            slots,
+        };
+
+        validate_plan(&plan).unwrap();
+    }
+
+    #[test]
     fn rejects_missing_signal_kind() {
         let mut slots = (0..10).map(slot).collect::<Vec<_>>();
         slots[0].signal_kind = None;
@@ -218,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_learned_signal_kind() {
+    fn rejects_legacy_algorithmic_signal_kind() {
         let mut slots = (0..10).map(slot).collect::<Vec<_>>();
         slots[3].signal_kind = Some("algorithmic".to_string());
         let plan = Plan {
@@ -230,6 +242,22 @@ mod tests {
 
         assert_eq!(err.code(), "CALYX_FSV_A35_NON_LEARNED_LENS");
         assert!(err.message().contains("lens-3"));
+    }
+
+    #[test]
+    fn rejects_temporal_sidecar_as_countable_content() {
+        let mut slots = (0..10).map(slot).collect::<Vec<_>>();
+        slots[3].name = Some("temporal-as-of-time-manipulation-sidecar".to_string());
+        slots[3].signal_kind = Some("deterministic_content_feature".to_string());
+        let plan = Plan {
+            timeline: None,
+            slots,
+        };
+
+        let err = validate_plan(&plan).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_A35_TEMPORAL_SIDECAR_NOT_CONTENT");
+        assert!(err.message().contains("temporal-as-of"));
     }
 
     #[test]

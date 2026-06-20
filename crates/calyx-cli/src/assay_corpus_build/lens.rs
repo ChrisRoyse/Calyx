@@ -5,8 +5,8 @@ use std::time::Instant;
 
 use calyx_core::{Input, Lens, Placement, SlotShape, SlotVector};
 use calyx_registry::{
-    AlgorithmicLens, CandleLens, LensRuntime, LensSpec as RegistryLensSpec, OnnxLens,
-    StaticLookupLens, TeiHttpLens, lens_spec_from_manifest_path,
+    CandleLens, LensRuntime, LensSpec as RegistryLensSpec, OnnxLens, StaticLookupLens, TeiHttpLens,
+    lens_spec_from_manifest_path,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,9 +16,13 @@ use crate::lens_commands::support::{dim, runtime_name, validate_vector_contract}
 use super::data::BuildRows;
 use super::request::CorpusBuildRequest;
 
+mod algorithmic;
 mod progress;
+mod projection;
 mod stream;
 
+use algorithmic::algorithmic_lens;
+use projection::{project_multi, project_sparse};
 pub(crate) use stream::measure_text_batch;
 
 #[derive(Clone, Debug)]
@@ -268,77 +272,29 @@ fn assay_vectors(
                     dim(lens.spec.output)
                 ));
             }
+            SlotVector::Multi { token_dim, tokens } if token_dim == dim(lens.spec.output) => {
+                projection.get_or_insert("multi_mean_dense");
+                vectors.push(project_multi(&lens.name, idx, token_dim, tokens)?);
+            }
+            SlotVector::Multi {
+                token_dim,
+                tokens: _,
+            } => {
+                return Err(format!(
+                    "CALYX_FSV_ASSAY_CORPUS_BUILD_DIM_MISMATCH: lens={} row={idx} token_dim={token_dim} expected={}",
+                    lens.name,
+                    dim(lens.spec.output)
+                ));
+            }
             other => {
                 return Err(format!(
-                    "CALYX_FSV_ASSAY_CORPUS_BUILD_UNSUPPORTED_VECTOR_SHAPE: lens={} row={idx} shape {:?} must be dense or sparse",
+                    "CALYX_FSV_ASSAY_CORPUS_BUILD_UNSUPPORTED_VECTOR_SHAPE: lens={} row={idx} shape {:?} must be dense, sparse, or multi",
                     lens.name, other
                 ));
             }
         }
     }
     Ok((vectors, projection.unwrap_or("native_dense")))
-}
-
-fn project_sparse(
-    lens: &str,
-    row_idx: usize,
-    sparse_dim: u32,
-    entries: Vec<calyx_core::SparseEntry>,
-) -> Result<Vec<f32>, String> {
-    let mut data = vec![0.0_f32; sparse_dim as usize];
-    for entry in entries {
-        let Some(value) = data.get_mut(entry.idx as usize) else {
-            return Err(format!(
-                "CALYX_FSV_ASSAY_CORPUS_BUILD_SPARSE_INDEX_OUT_OF_RANGE: lens={lens} row={row_idx} idx={} dim={sparse_dim}",
-                entry.idx
-            ));
-        };
-        *value = entry.val;
-    }
-    Ok(data)
-}
-
-fn algorithmic_lens(spec: &RegistryLensSpec, kind: &str) -> Result<AlgorithmicLens, String> {
-    let lens = match kind {
-        "byte" | "byte-features" | "byte_features" => {
-            AlgorithmicLens::byte_features(&spec.name, spec.modality)
-        }
-        "scalar" => AlgorithmicLens::scalar(&spec.name, spec.modality),
-        "ast-style" | "ast_style" => AlgorithmicLens::ast_style(&spec.name, spec.modality),
-        value if value.starts_with("one-hot:") || value.starts_with("one_hot:") => {
-            let buckets = parse_kind_dim(value)?;
-            AlgorithmicLens::one_hot(&spec.name, spec.modality, buckets)
-        }
-        "sparse" | "sparse-keywords" | "sparse_keywords" => {
-            AlgorithmicLens::sparse_keywords(&spec.name, spec.modality, dim(spec.output))
-        }
-        value if value.starts_with("sparse-keywords:") || value.starts_with("sparse_keywords:") => {
-            let parsed = parse_kind_dim(value)?;
-            AlgorithmicLens::sparse_keywords(&spec.name, spec.modality, parsed)
-        }
-        other => {
-            return Err(format!(
-                "CALYX_FSV_ASSAY_CORPUS_BUILD_UNSUPPORTED_ALGORITHMIC_LENS: lens={} kind={other}",
-                spec.name
-            ));
-        }
-    };
-    if lens.shape() != spec.output {
-        return Err(format!(
-            "CALYX_FSV_ASSAY_CORPUS_BUILD_ALGORITHMIC_SHAPE_MISMATCH: lens={} runtime_shape={:?} manifest_shape={:?}",
-            spec.name,
-            lens.shape(),
-            spec.output
-        ));
-    }
-    Ok(lens)
-}
-
-fn parse_kind_dim(kind: &str) -> Result<u32, String> {
-    kind.split_once(':')
-        .and_then(|(_, value)| value.parse::<u32>().ok())
-        .filter(|dim| *dim > 0)
-        .ok_or_else(|| format!("CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ALGORITHMIC_DIM: kind={kind}"))
 }
 
 fn lens_cost(

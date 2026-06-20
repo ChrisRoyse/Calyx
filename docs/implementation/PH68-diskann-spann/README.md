@@ -76,6 +76,10 @@ the GDELT scale path, while keeping temporal/time capture as a forward/backward
 / as-of traversal sidecar instead of a content-lens substitute. It also satisfies
 A37 D1 family span for this domain: dense general/domain, static semantic,
 byte/character, lexical sparse, late-interaction token, and entity/CAMEO graph.
+The non-neural content-feature rows must persist
+`signal_kind=deterministic_content_feature`; stale `signal_kind=algorithmic`
+artifacts are rejected by the A35/A37 gate surfaces so placeholders cannot
+masquerade as content lenses.
 `calyx assay stream-fbin` and `calyx assay i8bin-ensemble-card` now default to
 `--mode gate`, so full encodes and A37 readouts must carry eligible gate
 evidence before they can stand as gate evidence. Homogeneous baseline/control

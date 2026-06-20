@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use calyx_registry::lens_spec_from_manifest_path;
 use serde::Deserialize;
 
-use crate::a35_signal::{require_learned_signal_kind, runtime_signal_kind_name};
+use crate::a35_signal::{require_countable_content_signal_kind, runtime_signal_kind_name};
 use crate::assay_anchor_audit::AnchorAudit;
 use crate::error::CliResult;
 
@@ -329,7 +329,7 @@ pub(super) fn selected_lenses(
             continue;
         };
         if admitted(bits.get(name), min_bits) {
-            require_learned_signal_kind(
+            require_countable_content_signal_kind(
                 name,
                 &lens_meta.signal_kind,
                 "assay-fbin-export A35 gate",

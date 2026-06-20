@@ -10,6 +10,7 @@ pub enum CapabilitySignalKind {
     #[default]
     Unknown,
     LearnedEncoder,
+    DeterministicContentFeature,
     Algorithmic,
     Placeholder,
 }
@@ -23,6 +24,7 @@ impl CapabilitySignalKind {
         match self {
             Self::Unknown => "unknown",
             Self::LearnedEncoder => "learned_encoder",
+            Self::DeterministicContentFeature => "deterministic_content_feature",
             Self::Algorithmic => "algorithmic",
             Self::Placeholder => "placeholder",
         }
@@ -34,7 +36,7 @@ pub fn signal_kind_from_runtime(runtime: &LensRuntime) -> CapabilitySignalKind {
         LensRuntime::Algorithmic { kind } if kind.starts_with("commissioned:") => {
             CapabilitySignalKind::Placeholder
         }
-        LensRuntime::Algorithmic { .. } => CapabilitySignalKind::Algorithmic,
+        LensRuntime::Algorithmic { .. } => CapabilitySignalKind::DeterministicContentFeature,
         LensRuntime::TeiHttp { .. }
         | LensRuntime::CandleLocal { .. }
         | LensRuntime::Onnx { .. }

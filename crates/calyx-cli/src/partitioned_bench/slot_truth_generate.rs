@@ -9,7 +9,7 @@ use calyx_sextant::index::{DenseVectorFile, cuvs_bruteforce_topk};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::a35_signal::require_recorded_learned_signal_kind;
+use crate::a35_signal::require_recorded_countable_content_signal_kind;
 use crate::error::{CliError, CliResult};
 
 #[path = "slot_truth_generate/support.rs"]
@@ -289,7 +289,7 @@ fn validate_plan(plan: &Plan) -> CliResult {
     let mut seen_lenses = HashSet::new();
     for slot in &plan.slots {
         let name = slot.name.as_deref().unwrap_or("<unnamed>");
-        require_recorded_learned_signal_kind(
+        require_recorded_countable_content_signal_kind(
             name,
             slot.signal_kind.as_deref(),
             "partitioned-rrf-slot-truth A35 gate",

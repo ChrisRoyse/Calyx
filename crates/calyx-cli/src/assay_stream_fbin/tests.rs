@@ -184,16 +184,42 @@ fn stream_fbin_rejects_panel_floor_before_row_floor() {
 }
 
 #[test]
-fn stream_fbin_rejects_algorithmic_manifest_before_rows() {
-    let fixture = Fixture::new_algorithmic("stream-fbin-algorithmic-reject", 10, 10, 50);
-    let mut args = fixture.args(8);
-    args.rows_jsonl = fixture.root.join("missing-rows.jsonl");
+fn stream_fbin_accepts_deterministic_content_feature_manifest() {
+    let fixture = Fixture::new_algorithmic("stream-fbin-algorithmic-content", 10, 10, 50);
+    let args = fixture.args(8);
+
+    let evidence = write::run(&args).unwrap();
+    let plan: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("partitioned_rrf_plan.json")).unwrap())
+            .unwrap();
+
+    assert_eq!(evidence.lens_roster.len(), 10);
+    assert_eq!(
+        plan["slots"][0]["signal_kind"],
+        "deterministic_content_feature"
+    );
+    assert!(fixture.out.join("fbin/slot_00_lens-0_corpus.fbin").exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_rejects_temporal_sidecar_as_content_feature() {
+    let fixture = Fixture::new_algorithmic("stream-fbin-temporal-sidecar", 10, 10, 50);
+    let temporal_manifest = fixture.root.join("algorithmic/lens-0.json");
+    let mut manifest: Value =
+        serde_json::from_slice(&fs::read(&temporal_manifest).unwrap()).unwrap();
+    manifest["name"] = serde_json::json!("temporal-as-of-time-manipulation-sidecar");
+    fs::write(
+        &temporal_manifest,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let args = fixture.args(8);
 
     let error = write::run(&args).unwrap_err();
 
-    assert_eq!(error.code(), "CALYX_FSV_A35_NON_LEARNED_LENS");
+    assert_eq!(error.code(), "CALYX_FSV_A35_TEMPORAL_SIDECAR_NOT_CONTENT");
     assert!(!fixture.out.exists());
-    assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
 }
 

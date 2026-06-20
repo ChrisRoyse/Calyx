@@ -218,6 +218,12 @@ Temporal lanes remain the time-control surface for as-of, forward, and backward
 traversal; they are serialized in the A37 readout but never count toward the
 content-family floor.
 
+Countable content signals are explicitly typed. Learned neural encoders persist
+`signal_kind=learned_encoder`; deterministic lexical/byte/entity/structural
+feature lenses persist `signal_kind=deterministic_content_feature`. Legacy
+`signal_kind=algorithmic`, placeholders, unknown runtimes, and temporal/as-of
+sidecars fail closed for gate-bearing content counts.
+
 **A genuinely diverse text panel** (vs the 10-clone anti-pattern) mixes families: 2–3 dense-semantic anchors (one general + one domain) · a **lexical/sparse** lens (exact terms/names/acronyms dense models blur) · an **entity** lens (for GDELT: actors/orgs/CAMEO codes/country pairs — often the highest-unique-info axis) · a **character/byte** lens (name transliteration robustness) · the **temporal** sidecar for as-of/forward/backward time traversal. That mix maximizes unique + synergistic PID per slot; ten dense clones maximize redundancy.
 
 **PH68 GDELT scale template (#801; cross-ref #796/#787):** the current proven

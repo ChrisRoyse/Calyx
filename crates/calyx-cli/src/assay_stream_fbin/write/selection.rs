@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use calyx_registry::lens_spec_from_manifest_path;
 
-use crate::a35_signal::{require_learned_signal_kind, runtime_signal_kind_name};
+use crate::a35_signal::{require_countable_content_signal_kind, runtime_signal_kind_name};
 use crate::assay_corpus_build::lens::{BuildLens, load_lenses};
 use crate::error::CliResult;
 
@@ -79,7 +79,7 @@ pub(super) fn selected_lenses(args: &Args) -> CliResult<Vec<SelectedLens>> {
                 "stream only admitted signal-bearing lenses or lower --min-bits deliberately",
             ));
         }
-        require_learned_signal_kind(
+        require_countable_content_signal_kind(
             &spec.name,
             runtime_signal_kind_name(&spec.runtime),
             "assay stream-fbin runtime A35 gate",
