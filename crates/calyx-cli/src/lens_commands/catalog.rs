@@ -6,7 +6,7 @@ use std::time::Instant;
 use calyx_core::{Input, Lens, LensCost, Placement};
 use calyx_registry::{
     LensHealth, LensRuntime, LensSpec, PlacementBudget, StaticLookupLens, choose_placement,
-    lens_spec_from_manifest_path,
+    lens_spec_from_manifest_path, lens_spec_metadata_from_manifest_path,
 };
 use serde::{Deserialize, Serialize};
 
@@ -159,7 +159,7 @@ fn list_entry(entry: LensCatalogEntry) -> ListLensEntry {
 }
 
 fn health_from_manifest(path: &Path) -> LensHealth {
-    match lens_spec_from_manifest_path(path) {
+    match lens_spec_metadata_from_manifest_path(path) {
         Ok(spec) => spec.health(),
         Err(error) => LensHealth::Failing {
             code: error.code.to_string(),
@@ -328,6 +328,7 @@ const fn gib() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn catalog_replacement_removes_prior_name_manifest_or_id() {
@@ -365,5 +366,52 @@ mod tests {
             cost: LensCost::zero(),
             placement: Placement::Cpu,
         }
+    }
+
+    #[test]
+    fn list_health_uses_metadata_without_reading_missing_artifact() {
+        let root = temp_root("list-health-metadata");
+        let manifest = root.join("manifest.json");
+        fs::write(
+            &manifest,
+            r#"{
+  "name": "missing-artifact",
+  "modality": "text",
+  "runtime": "onnx-int8",
+  "dim": 384,
+  "shape": {"kind": "dense", "dim": 384},
+  "dtype": "int8",
+  "weights_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "artifact_set_sha256": null,
+  "files": [
+    {"role": "model", "path": "missing.onnx", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "bytes": 123}
+  ],
+  "pooling": "mean",
+  "norm": "unit",
+  "source_hf_id": "fixture/missing",
+  "license": "apache-2.0",
+  "non_commercial": false,
+  "quant_default": {"turbo_quant": {"bits_per_channel_x2": 7}},
+  "truncate_dim": null,
+  "recall_delta": 0.02
+}"#,
+        )
+        .unwrap();
+
+        assert_eq!(health_from_manifest(&manifest), LensHealth::Cold);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn temp_root(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "calyx-catalog-{label}-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        root
     }
 }
