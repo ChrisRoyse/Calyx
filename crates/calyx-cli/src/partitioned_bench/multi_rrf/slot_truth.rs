@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::{Plan, slot_id};
+use super::{Plan, report, slot_id};
 use crate::error::{CliError, CliResult};
 
 const FORMAT: &str = "calyx-partitioned-rrf-slot-ground-truth-v1";
@@ -106,6 +106,11 @@ impl SlotTruth {
         }
         let source = json!({
             "mode": "precomputed_slot_rrf_i32bin",
+            "metric_class": report::METRIC_CLASS,
+            "metric_scope": report::METRIC_SCOPE,
+            "truth_reference_class": report::TRUTH_REFERENCE_CLASS,
+            "valid_real_outcome": false,
+            "grounded_phase_exit_eligible": false,
             "format": FORMAT,
             "manifest": ctx.manifest_file,
             "manifest_sha256": sha256_bytes(&manifest_bytes),
@@ -359,6 +364,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(loaded.source()["mode"], "precomputed_slot_rrf_i32bin");
+        assert_eq!(loaded.source()["metric_class"], report::METRIC_CLASS);
+        assert_eq!(loaded.source()["valid_real_outcome"], false);
+        assert_eq!(loaded.source()["grounded_phase_exit_eligible"], false);
         assert_eq!(loaded.row_ids(slot_id(2), 0), &[2, 4, 5, 6]);
 
         write_plan(&plan_path, 10);

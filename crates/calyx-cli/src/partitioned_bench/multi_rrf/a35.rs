@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use calyx_core::CalyxError;
 use serde_json::{Value, json};
 
-use super::{OpenSlot, Plan};
+use super::{OpenSlot, Plan, report};
 use crate::error::{CliError, CliResult};
 
 const MIN_LENSES: usize = 10;
@@ -104,6 +104,11 @@ pub(super) fn fused_result(
 ) -> Value {
     json!({
         "fusion": "rrf",
+        "metric_class": report::METRIC_CLASS,
+        "metric_scope": report::METRIC_SCOPE,
+        "truth_reference_class": report::TRUTH_REFERENCE_CLASS,
+        "valid_real_outcome": false,
+        "grounded_phase_exit_eligible": false,
         "ground_truth_recall_at_k": fused_recall,
         "latency_us": latency_us,
         "sample_fused_top_k": sample_readback
@@ -186,6 +191,15 @@ mod tests {
         };
 
         validate_plan(&plan).unwrap();
+    }
+
+    #[test]
+    fn fused_result_marks_recall_as_ann_correctness_only() {
+        let result = fused_result(Some(0.9), &json!({"p99": 25}), &[]);
+
+        assert_eq!(result["metric_class"], report::METRIC_CLASS);
+        assert_eq!(result["valid_real_outcome"], false);
+        assert_eq!(result["grounded_phase_exit_eligible"], false);
     }
 
     fn slot(idx: u16) -> PlanSlot {

@@ -15,9 +15,10 @@
 Implement `BwPostcutoffTuner`: the Anneal hook that observes per-query p99 latency
 and recall@10 for DiskANN beamwidth and SPANN posting-cutoff (n_probe), uses the
 Anneal bandit (PH46) to propose incremental adjustments, and fires a tripwire + auto-
-revert if recall@10 drops below the floor. Then execute the **definitive FSV soak**:
-a 1e8-cx server vault on aiwonder's `hotpool` NVMe, 1000 queries, `KernelFirst`
-strategy, measured p99 < 25 ms. This is the PH68 phase exit gate.
+revert if ANN recall@10 drops below the floor. Then execute the **definitive
+ANN/index FSV soak**: a 1e8-cx server vault on aiwonder's `hotpool` NVMe, 1000
+queries, `KernelFirst` strategy, measured p99 < 25 ms. This is the PH68
+Sextant/index SLO gate, not a grounded-intelligence or "the system works" gate.
 
 > **Scale boundary:** the 1e8-cx soak is a **server-only** FSV run on aiwonder.
 > The autotune unit tests use synthetic small vaults. No laptop promise.
@@ -45,7 +46,14 @@ strategy, measured p99 < 25 ms. This is the PH68 phase exit gate.
 
 ## FSV (read the bytes on aiwonder — the truth gate)
 
-This card owns the **PH68 phase exit gate** — the definitive billion-scale SLO proof.
+This card owns the **PH68 ANN/index SLO proof**. Recall here is
+`metric_class=ann_correctness`: overlap with exact or accepted-reference vector
+nearest-neighbor truth. It must not be cited as grounded intelligence,
+substrate sufficiency, or the product-level phase-exit verdict.
+
+Grounded phase-exit evidence is separate and load-bearing: power-calibrated
+`I(panel;oracle)` against a validity-audited real outcome, plus Lodestar
+grounding-kernel coverage `>= 0.95 * full` over that same outcome scope.
 
 - **SoT:** live p99 latency measurement on a 1e8-cx server vault on `hotpool` NVMe
   (`/zfs/hot/calyx/ph68-1e8/`) and Ledger autotune entries
@@ -86,8 +94,9 @@ This card owns the **PH68 phase exit gate** — the definitive billion-scale SLO
      (`10 §8`) met on aiwonder hardware.
   3. `calyx anneal status` shows at least one autotune Ledger event — Anneal
      actually ran the tuner during the soak.
-  4. No recall regression: `calyx bench recall --vault ph68-1e8 --n 200 --k 10`
-     prints `recall@10 ≥ 0.85` — tripwire floor not breached post-autotune.
+  4. No ANN/index regression: `calyx bench recall --vault ph68-1e8 --n 200 --k 10`
+     prints `recall@10 ≥ 0.85` with `metric_class=ann_correctness`; this proves
+     index fidelity only.
   5. Full output (bench report + anneal status + recall) attached as screenshot /
      text to the PH68 GitHub issue.
 
@@ -98,5 +107,8 @@ This card owns the **PH68 phase exit gate** — the definitive billion-scale SLO
 - [ ] **1e8-cx soak on aiwonder: p99 < 25 ms** — the `KernelFirst@1e8` SLO (`10 §8`) met
 - [ ] DiskANN graph + SPANN lists physically on disk at correct paths (verified with `ls` + `xxd`)
 - [ ] Anneal autotune logged ≥1 Ledger event during soak; no oscillation; no recall revert
+- [ ] Bench artifacts read back `metric_class=ann_correctness` and
+      `grounded_phase_exit_eligible=false`; any intelligence/phase-exit claim is
+      backed by separate Assay + Lodestar grounded evidence
 - [ ] FSV evidence (full bench output + anneal status + recall measurement + ls/xxd) attached to the PH68 GitHub issue
 - [ ] no anti-pattern (DOCTRINE §9): no flatten / no `C(N,2)` past DPI / nothing "trusted" without grounding / no frozen-lens mutation / no harness-as-FSV

@@ -29,6 +29,9 @@ use brute_force::{brute_force_topk, brute_force_topk_vecfile};
 pub(crate) use build::BuildArgs;
 pub(crate) use build::run as run_build;
 
+const METRIC_CLASS_ANN_CORRECTNESS: &str = "ann_correctness";
+const GROUNDED_PHASE_EXIT_ELIGIBLE: bool = false;
+
 fn parse<T: std::str::FromStr>(v: &str, flag: &str) -> CliResult<T> {
     v.parse::<T>()
         .map_err(|_| CliError::usage(format!("{flag} expects a valid value, got {v}")))
@@ -46,23 +49,15 @@ fn parse_recall_floor(v: &str) -> CliResult<f32> {
 
 struct SearchArgs {
     vault: PathBuf,
-    /// REAL query embeddings (`.fbin` or `.i8bin`). When set, queries are real
-    /// vectors, not synthesised, and `--corpus` supplies brute-force ground truth.
     queries: Option<PathBuf>,
-    /// REAL corpus embeddings (`.fbin` or `.i8bin`) for brute-force ground truth.
     corpus: Option<PathBuf>,
-    /// Precomputed exact top-k ground truth (`.i32bin`, query rows x neighbor ids).
     ground_truth_file: Option<PathBuf>,
-    /// Optional row-id -> external-id map for benchmark truth files such as SpaceV.
     ground_truth_id_map: Option<PathBuf>,
     n: usize,
     k: usize,
     n_probe: usize,
     region_beam: usize,
-    /// If > 0, brute-force the TRUE top-k for the first `ground_truth` queries and
-    /// report real recall@k (not just self-recall). Memory-bounded chunked scan.
     ground_truth: usize,
-    /// Fail closed unless true brute-force recall@k is present and >= this floor.
     recall_floor: Option<f32>,
 }
 
@@ -362,6 +357,8 @@ fn run_search_real(args: &SearchArgs) -> CliResult {
     let report = json!({
         "trigger": "calyx bench partitioned-search",
         "mode": "real",
+        "metric_class": METRIC_CLASS_ANN_CORRECTNESS,
+        "grounded_phase_exit_eligible": GROUNDED_PHASE_EXIT_ELIGIBLE,
         "vault": args.vault.to_string_lossy(),
         "queries_file": queries_path.to_string_lossy(),
         "n_cx": manifest.n_cx,
@@ -448,6 +445,8 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
     let report = json!({
         "trigger": "calyx bench partitioned-search",
         "mode": "synthetic",
+        "metric_class": METRIC_CLASS_ANN_CORRECTNESS,
+        "grounded_phase_exit_eligible": GROUNDED_PHASE_EXIT_ELIGIBLE,
         "vault": args.vault.to_string_lossy(),
         "n_cx": n_cx,
         "dim": dim,

@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use super::ground_truth::PrecomputedTruth;
 use super::slot_truth::SlotTruth;
 use super::timeline;
-use super::{OpenSlot, fuse, fused_hit_ids, row_for_metric, slot_id, to_index_hits};
+use super::{OpenSlot, fuse, fused_hit_ids, report, row_for_metric, slot_id, to_index_hits};
 use crate::partitioned_bench::brute_force::brute_force_topk_vecfile_ranked;
 
 pub(super) struct Request<'a> {
@@ -182,6 +182,11 @@ fn ground_truth_source(req: &Request<'_>) -> Value {
         .unwrap_or_else(|| {
             json!({
                 "mode": "cpu_bruteforce_slot_corpora",
+                "metric_class": report::METRIC_CLASS,
+                "metric_scope": report::METRIC_SCOPE,
+                "truth_reference_class": report::TRUTH_REFERENCE_CLASS,
+                "valid_real_outcome": false,
+                "grounded_phase_exit_eligible": false,
                 "scale_suitable": false,
                 "query_count": req.truth_n,
                 "truth_depth": req.truth_depth,

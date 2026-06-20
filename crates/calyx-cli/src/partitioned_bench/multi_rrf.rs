@@ -367,6 +367,10 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
     let report = json!({
         "trigger": "calyx bench partitioned-rrf",
         "mode": "real_multi_slot_rrf",
+        "metric_class": report::METRIC_CLASS,
+        "metric_scope": report::METRIC_SCOPE,
+        "ann_correctness_contract": report::ann_correctness_contract(),
+        "grounded_phase_exit_contract": report::grounded_phase_exit_contract(),
         "plan": args.plan,
         "lens_roster": a35::lens_roster(&slots),
         "per_lens_bits": a35::per_lens_bits(&slots),

@@ -11,7 +11,11 @@ billion-scale indexes: DiskANN on-disk graph for dense slots and SPANN
 asymmetric slots and the kernel-first 3-hop funnel (kernel-of-regions → region →
 cx) that keeps huge-vault queries sublinear. Wire Anneal to autotune beamwidth and
 posting-cutoff online. Deliver a 1e8–1e9-cx server vault that answers within the
-search SLO: **KernelFirst@1e8 p99 < 25 ms** (`10 §8`).
+search SLO: **KernelFirst@1e8 p99 < 25 ms** (`10 §8`). Recall evidence in this
+phase is ANN/index correctness only: overlap with exact or accepted-reference
+nearest-neighbor truth. It is not grounded-intelligence evidence and cannot close
+a "system works" claim without separate Assay `I(panel;oracle)` and Lodestar
+grounding-kernel coverage over a valid real outcome.
 
 > **SCALE HONESTY (binding, `17 §3.4`):** Billion-scale is a **SERVER** target,
 > running on aiwonder's `hotpool` NVMe + HDD (RTX 5090, 1.5 TB hot). It is
@@ -35,7 +39,7 @@ search SLO: **KernelFirst@1e8 p99 < 25 ms** (`10 §8`).
 `calyx-sextant` has per-slot HNSW (PH23), inverted index (PH25), DiskANN graph
 format/search, token DiskANN + segmented MaxSim, and concat cross-term DiskANN.
 The remaining PH68 work is SPANN, dual DiskANN, kernel-first routing, and the
-full 1e8+ phase-exit soak. The vault physical layout (`04 §3`) reserves
+full 1e8+ ANN/index SLO soak. The vault physical layout (`04 §3`) reserves
 `idx/slot_NN.ann/` for dense DiskANN, `idx/slot_NN.token.ann/` for multi-vector
 token DiskANN, `idx/xterm.concat.ann/` for materialized concat xterm DiskANN,
 and `idx/slot_NN.sparse/` for SPANN.
@@ -78,7 +82,8 @@ On aiwonder (`hotpool` NVMe, `/zfs/hot/calyx/`):
    contain byte-populated files (non-zero size).
 2. Run `calyx bench search --vault <vault> --strategy KernelFirst --n 1000
    --report p99` on aiwonder. Observed p99 must be **< 25 ms** (the
-   `KernelFirst@1e8 p99 < 25 ms` SLO from `10 §8`).
+   `KernelFirst@1e8 p99 < 25 ms` SLO from `10 §8`). Recall artifacts must read
+   back `metric_class=ann_correctness` and `grounded_phase_exit_eligible=false`.
 3. Verify beamwidth and posting-cutoff were autotuned: `calyx anneal status
    --vault <vault> --tuner bw_postcutoff` prints non-default values and shows at
    least one Ledger-logged autotune event.
@@ -88,8 +93,10 @@ On aiwonder (`hotpool` NVMe, `/zfs/hot/calyx/`):
    root contains populated `idx/slot_00.token.ann/{graph.cda,docs.cdt,token_docs.u32,tokens.f32}`
    and `idx/xterm.concat.ann/{graph.cda,keys.cdx}`, with recall checked against
    brute-force and byte headers read back with `xxd`/`stat` on aiwonder.
-6. All byte-level evidence (file sizes, p99 measurement, autotune log) attached to
-   the PH68 GitHub issue.
+6. All byte-level evidence (file sizes, p99 measurement, ANN metric-class
+   readback, autotune log) attached to the PH68 GitHub issue. Grounded
+   intelligence evidence, when claimed, is attached separately from Assay and
+   Lodestar against a validity-audited real outcome.
 
 ## Risks / landmines
 
