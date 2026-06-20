@@ -44,8 +44,7 @@ fn corpus_build_measures_algorithmic_code_and_sparse_lenses() {
     };
 
     let rows = data::load_rows(&request).unwrap();
-    let lenses = lens::load_lenses(&request).unwrap();
-    let measured = lens::measure_lenses(&request, &rows, lenses).unwrap();
+    let measured = lens::measure_requested_lenses(&request, &rows).unwrap();
     let evidence = write::write_outputs(&request, &rows, &measured).unwrap();
 
     assert_eq!(evidence.n_samples, 60);

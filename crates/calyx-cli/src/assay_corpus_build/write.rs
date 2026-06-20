@@ -50,15 +50,19 @@ pub(crate) struct LensEvidence {
     pub(crate) ms_per_input: f32,
 }
 
+pub(crate) fn ensure_fresh_output(request: &CorpusBuildRequest) -> Result<(), String> {
+    fail_if_final_exists(&request.out_dir)?;
+    fail_if_final_exists(&staging_dir(&request.out_dir))
+}
+
 pub(crate) fn write_outputs(
     request: &CorpusBuildRequest,
     rows: &BuildRows,
     lenses: &[MeasuredLens],
 ) -> Result<CorpusBuildEvidence, String> {
     validate_measurements(rows, lenses)?;
-    fail_if_final_exists(&request.out_dir)?;
+    ensure_fresh_output(request)?;
     let staging = staging_dir(&request.out_dir);
-    fail_if_final_exists(&staging)?;
     if let Some(parent) = request.out_dir.parent()
         && !parent.as_os_str().is_empty()
     {

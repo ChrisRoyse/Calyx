@@ -56,6 +56,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
 }
 
 fn export_fbin(args: &Args) -> CliResult<ExportEvidence> {
+    write::ensure_fresh_output(args)?;
     let vectors_path = args.corpus_dir.join("vectors.jsonl");
     let scan = data::scan_vectors(&vectors_path)?;
     if args.query_count > scan.rows {

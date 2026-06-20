@@ -123,6 +123,19 @@ fn export_fbin_rejects_query_count_above_rows() {
 }
 
 #[test]
+fn export_fbin_rejects_existing_output_before_scanning_vectors() {
+    let fixture = Fixture::new("export-fbin-output-exists-early", 10, 3);
+    let args = fixture.args(2);
+    fs::create_dir_all(&fixture.out).unwrap();
+    fs::write(fixture.corpus.join("vectors.jsonl"), "{not json}\n").unwrap();
+
+    let error = export_fbin(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_FBIN_EXPORT_OUTPUT_EXISTS");
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn export_fbin_rejects_panel_below_a35_floor() {
     let fixture = Fixture::new("export-fbin-too-small", 3, 6);
     let args = fixture.args(2);

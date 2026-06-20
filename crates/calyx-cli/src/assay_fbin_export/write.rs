@@ -21,6 +21,11 @@ struct FbinSink {
     query_written: usize,
 }
 
+pub(super) fn ensure_fresh_output(args: &Args) -> CliResult {
+    fail_if_exists(&args.out_dir)?;
+    fail_if_exists(&staging_dir(&args.out_dir))
+}
+
 pub(super) fn write_export(
     args: &Args,
     vectors_path: &Path,
@@ -30,8 +35,7 @@ pub(super) fn write_export(
     selected: &[String],
 ) -> CliResult<ExportEvidence> {
     let staging = staging_dir(&args.out_dir);
-    fail_if_exists(&args.out_dir)?;
-    fail_if_exists(&staging)?;
+    ensure_fresh_output(args)?;
     create_parent(&args.out_dir)?;
     fs::create_dir(&staging).map_err(io_error)?;
     let result = write_export_staged(args, vectors_path, scan, meta, bits, selected, &staging);

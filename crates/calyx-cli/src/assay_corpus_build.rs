@@ -14,9 +14,9 @@ use crate::output::print_json;
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = request::CorpusBuildRequest::parse(args)?;
+    write::ensure_fresh_output(&request)?;
     let rows = data::load_rows(&request)?;
-    let lenses = lens::load_lenses(&request)?;
-    let measured = lens::measure_lenses(&request, &rows, lenses)?;
+    let measured = lens::measure_requested_lenses(&request, &rows)?;
     let evidence = write::write_outputs(&request, &rows, &measured)?;
     print_json(&evidence)
 }
