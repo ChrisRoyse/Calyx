@@ -6,6 +6,25 @@ use crate::error::{CliError, CliResult};
 use super::DEFAULT_MIN_BITS;
 use super::format::VectorFormat;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StreamMode {
+    Gate,
+    Diagnostic,
+}
+
+impl StreamMode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Gate => "gate",
+            Self::Diagnostic => "diagnostic",
+        }
+    }
+
+    pub(crate) fn requires_gate(self) -> bool {
+        matches!(self, Self::Gate)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Args {
     pub(crate) rows_jsonl: PathBuf,
@@ -21,6 +40,7 @@ pub(crate) struct Args {
     pub(crate) embedding_model_id: Option<String>,
     pub(crate) min_bits: f32,
     pub(crate) vector_format: VectorFormat,
+    pub(crate) mode: StreamMode,
 }
 
 impl Args {
@@ -38,6 +58,7 @@ impl Args {
         let mut embedding_model_id = None;
         let mut min_bits = DEFAULT_MIN_BITS;
         let mut vector_format = VectorFormat::default();
+        let mut mode = StreamMode::Gate;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -59,6 +80,8 @@ impl Args {
                 "--embedding-model-id" => embedding_model_id = Some(next()?),
                 "--min-bits" => min_bits = parse_f32(&next()?, flag)?,
                 "--vector-format" => vector_format = VectorFormat::parse(&next()?)?,
+                "--mode" => mode = parse_mode(&next()?)?,
+                "--diagnostic" | "--baseline" => mode = StreamMode::Diagnostic,
                 other => {
                     return Err(CliError::usage(format!(
                         "unknown assay stream-fbin arg: {other}"
@@ -84,6 +107,7 @@ impl Args {
             embedding_model_id,
             min_bits,
             vector_format,
+            mode,
         };
         args.validate()?;
         Ok(args)
@@ -137,4 +161,14 @@ fn parse_f32(value: &str, flag: &str) -> CliResult<f32> {
     value
         .parse()
         .map_err(|error| CliError::usage(format!("{flag} expects f32: {error}")))
+}
+
+fn parse_mode(value: &str) -> CliResult<StreamMode> {
+    match value {
+        "gate" => Ok(StreamMode::Gate),
+        "diagnostic" | "baseline" => Ok(StreamMode::Diagnostic),
+        other => Err(CliError::usage(format!(
+            "--mode must be gate or diagnostic, got {other}"
+        ))),
+    }
 }

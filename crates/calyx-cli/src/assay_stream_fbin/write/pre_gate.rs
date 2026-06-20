@@ -9,7 +9,7 @@ use serde::Deserialize;
 use crate::assay_anchor_audit::AnchorAudit;
 use crate::error::CliResult;
 
-use super::super::args::Args;
+use super::super::args::{Args, StreamMode};
 use super::super::{MIN_A35_LENSES, io_error, local_error};
 use super::evidence::PreEncodeGateEvidence;
 use super::paths::display;
@@ -70,24 +70,31 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
         )
     })?;
     let gate = gate_inputs(&report)?;
-    gate.anchor_audit
-        .require_gate_eligible("assay stream-fbin pre-encode grounded anchor gate")?;
+    let grounded_gate_eligible = is_grounded_gate_eligible(&gate.anchor_audit);
+    if args.mode.requires_gate() {
+        gate.anchor_audit
+            .require_gate_eligible("assay stream-fbin pre-encode grounded anchor gate")?;
+    }
     let streamed_lenses = streamed_manifest_names(args)?;
     validate_panel_identity(&gate.admitted_lenses, &streamed_lenses)?;
     validate_target_entropy(&gate)?;
     validate_lower_bound(&gate)?;
     validate_power(&gate)?;
-    validate_sufficiency(&gate)?;
+    let (sufficient, deficit_bits) = validate_sufficiency(&gate, args.mode)?;
     Ok(PreEncodeGateEvidence {
+        mode: args.mode.as_str(),
+        diagnostic_only: !args.mode.requires_gate() || !grounded_gate_eligible || !sufficient,
         bits_report: display(&args.bits_report),
         anchor_entropy_bits: gate.anchor_entropy_bits,
         sufficiency_basis_bits: gate.sufficiency_basis_bits,
-        deficit_bits: 0.0,
+        deficit_bits,
         estimate_bound: gate.estimate_bound,
         power_calibration_status: gate.power_calibration_status,
         power_recovery_ratio: gate.power_recovery_ratio,
         min_power_recovery_ratio: DEFAULT_MIN_POWER_RECOVERY_RATIO,
-        sufficient: true,
+        sufficient,
+        grounded_gate_eligible,
+        anchor_audit: gate.anchor_audit,
         admitted_lenses: gate.admitted_lenses,
         streamed_lenses,
     })
@@ -240,7 +247,7 @@ fn validate_power(gate: &GateInputs) -> CliResult {
     Ok(())
 }
 
-fn validate_sufficiency(gate: &GateInputs) -> CliResult {
+fn validate_sufficiency(gate: &GateInputs, mode: StreamMode) -> CliResult<(bool, f32)> {
     if !gate.sufficiency_basis_bits.is_finite() || gate.sufficiency_basis_bits < 0.0 {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_INVALID",
@@ -251,7 +258,8 @@ fn validate_sufficiency(gate: &GateInputs) -> CliResult {
             "regenerate the bits report with a valid panel lower bound",
         ));
     }
-    if gate.sufficiency_basis_bits < gate.anchor_entropy_bits {
+    let deficit_bits = (gate.anchor_entropy_bits - gate.sufficiency_basis_bits).max(0.0);
+    if deficit_bits > 0.0 && mode.requires_gate() {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PRE_GATE_REFUSED",
             format!(
@@ -263,7 +271,14 @@ fn validate_sufficiency(gate: &GateInputs) -> CliResult {
             "acquire or admit stronger grounded content lenses before full encode",
         ));
     }
-    Ok(())
+    Ok((deficit_bits == 0.0, deficit_bits))
+}
+
+fn is_grounded_gate_eligible(audit: &AnchorAudit) -> bool {
+    audit.grounded_gate_eligible
+        && !audit.anchor_leaks_into_input
+        && !audit.trivial_anchor
+        && !audit.label_recoverable_from_input
 }
 
 fn streamed_manifest_names(args: &Args) -> CliResult<Vec<String>> {

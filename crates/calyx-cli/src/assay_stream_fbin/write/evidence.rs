@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use crate::assay_anchor_audit::AnchorAudit;
+
 use super::super::format::VectorFormat;
 use super::super::rows::RowStats;
 
@@ -33,6 +35,8 @@ pub(crate) struct Evidence {
 
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct PreEncodeGateEvidence {
+    pub(crate) mode: &'static str,
+    pub(crate) diagnostic_only: bool,
     pub(crate) bits_report: String,
     pub(crate) anchor_entropy_bits: f32,
     pub(crate) sufficiency_basis_bits: f32,
@@ -42,6 +46,8 @@ pub(crate) struct PreEncodeGateEvidence {
     pub(crate) power_recovery_ratio: f32,
     pub(crate) min_power_recovery_ratio: f32,
     pub(crate) sufficient: bool,
+    pub(crate) grounded_gate_eligible: bool,
+    pub(crate) anchor_audit: AnchorAudit,
     pub(crate) admitted_lenses: Vec<String>,
     pub(crate) streamed_lenses: Vec<String>,
 }

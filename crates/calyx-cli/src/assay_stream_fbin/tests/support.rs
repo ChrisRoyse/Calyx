@@ -6,7 +6,7 @@ use calyx_core::{Modality, QuantPolicy};
 use calyx_registry::{LensForgeFile, LensForgeManifest};
 use sha2::{Digest, Sha256};
 
-use super::super::args::Args;
+use super::super::args::{Args, StreamMode};
 use super::super::format::VectorFormat;
 
 pub(super) struct Fixture {
@@ -68,6 +68,7 @@ impl Fixture {
             embedding_model_id: None,
             min_bits: 0.05,
             vector_format: VectorFormat::Fbin,
+            mode: StreamMode::Gate,
         }
     }
 }

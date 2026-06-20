@@ -6,13 +6,12 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use crate::a35_signal::require_learned_signal_kind;
-use crate::assay_corpus_build::lens::{BuildLens, load_lenses, measure_text_batch};
+use crate::assay_corpus_build::lens::{BuildLens, measure_text_batch};
 use crate::error::{CliError, CliResult};
 
 use super::args::Args;
 use super::rows::{self, Row, RowStats};
-use super::{MIN_A35_LENSES, io_error, local_error};
+use super::{io_error, local_error};
 
 mod bits;
 mod evidence;
@@ -20,11 +19,12 @@ mod panel;
 mod paths;
 mod pre_gate;
 mod progress;
+mod selection;
 
 use super::format::{self, VectorFormat};
-use bits::{BitsLens, load_bits};
 use evidence::{Evidence, LensEvidence, TEMPORAL_COUNTS_TOWARD_A35, TEMPORAL_LANE_ROLE};
 use paths::{display, display_final, lens_prefix};
+use selection::{SelectedLens, selected_lenses};
 
 struct FbinSink {
     corpus: BufWriter<File>,
@@ -81,7 +81,7 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
 fn run_staged(
     args: &Args,
     stats: &RowStats,
-    lenses: Vec<(BuildLens, BitsLens)>,
+    lenses: Vec<SelectedLens>,
     staging: &Path,
     pre_encode_gate: evidence::PreEncodeGateEvidence,
 ) -> CliResult<StagedExport> {
@@ -97,7 +97,9 @@ fn run_staged(
         lenses.len(),
         staging,
     )?;
-    for (slot, (lens, bits)) in lenses.into_iter().enumerate() {
+    for (slot, selected) in lenses.into_iter().enumerate() {
+        let lens = selected.load_runtime(args)?;
+        let bits = selected.bits;
         let prefix = lens_prefix(slot, lens.name());
         let ext = args.vector_format.extension();
         let corpus_path = vector_dir.join(format!("{prefix}_corpus.{ext}"));
@@ -185,58 +187,6 @@ fn run_staged(
     )
     .map_err(io_error)?;
     Ok(StagedExport { evidence, progress })
-}
-
-fn selected_lenses(args: &Args) -> CliResult<Vec<(BuildLens, BitsLens)>> {
-    let request = args.corpus_request();
-    let lenses = load_lenses(&request).map_err(|error| {
-        local_error(
-            "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_LOAD",
-            error,
-            "fix the frozen lens manifests before streaming FBIN",
-        )
-    })?;
-    let bits = load_bits(args)?;
-    let mut selected = Vec::new();
-    for lens in lenses {
-        let Some(bits) = bits.get(lens.name()).cloned() else {
-            return Err(local_error(
-                "CALYX_FSV_ASSAY_STREAM_FBIN_BITS_MISSING",
-                format!("lens {} missing from bits report", lens.name()),
-                "run bits-validate and pass a report containing every streamed lens",
-            ));
-        };
-        if !bits.admitted || !bits.bits_about.is_finite() || bits.bits_about < args.min_bits {
-            return Err(local_error(
-                "CALYX_FSV_ASSAY_STREAM_FBIN_LENS_REJECTED",
-                format!(
-                    "lens {} admitted={} bits_about={} min_bits={}",
-                    lens.name(),
-                    bits.admitted,
-                    bits.bits_about,
-                    args.min_bits
-                ),
-                "stream only admitted signal-bearing lenses or lower --min-bits deliberately",
-            ));
-        }
-        require_learned_signal_kind(
-            lens.name(),
-            lens.signal_kind(),
-            "assay stream-fbin runtime A35 gate",
-        )?;
-        selected.push((lens, bits));
-    }
-    if selected.len() < MIN_A35_LENSES {
-        return Err(local_error(
-            "CALYX_FSV_ASSAY_STREAM_FBIN_PANEL_TOO_SMALL",
-            format!(
-                "selected {} admitted lenses; A35 requires at least {MIN_A35_LENSES}",
-                selected.len()
-            ),
-            "provide at least ten real frozen content lens manifests",
-        ));
-    }
-    Ok(selected)
 }
 
 fn create_sink(

@@ -3,6 +3,7 @@ use std::fs;
 use calyx_sextant::index::I8BinVectors;
 use serde_json::Value;
 
+use super::args::StreamMode;
 use super::format::VectorFormat;
 use super::write;
 
@@ -208,6 +209,51 @@ fn stream_fbin_rejects_leaked_anchor_bits_before_rows() {
     assert_eq!(error.code(), "CALYX_FSV_ASSAY_TRIVIAL_ANCHOR");
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_diagnostic_mode_records_insufficient_panel() {
+    let fixture = Fixture::new("stream-fbin-diagnostic-insufficient", 10, 10, 50);
+    write_bits_with_gate(&fixture.bits, 10, 10, 0.42, "passed", 1.0);
+    let mut args = fixture.args(8);
+    args.mode = StreamMode::Diagnostic;
+
+    write::run(&args).unwrap();
+
+    let report: Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("stream_fbin_report.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["pre_encode_gate"]["mode"], "diagnostic");
+    assert_eq!(report["pre_encode_gate"]["diagnostic_only"], true);
+    assert_eq!(report["pre_encode_gate"]["sufficient"], false);
+    let deficit = report["pre_encode_gate"]["deficit_bits"].as_f64().unwrap();
+    assert!((deficit - 0.58).abs() < 0.000001);
+    assert_eq!(report["lens_roster"].as_array().unwrap().len(), 10);
+    assert!(fixture.out.join("partitioned_rrf_plan.json").exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
+fn stream_fbin_diagnostic_mode_records_leaked_anchor() {
+    let fixture = Fixture::new("stream-fbin-diagnostic-anchor-leak", 10, 10, 50);
+    mark_bits_as_leaked(&fixture.bits);
+    let mut args = fixture.args(8);
+    args.mode = StreamMode::Diagnostic;
+
+    write::run(&args).unwrap();
+
+    let report: Value =
+        serde_json::from_slice(&fs::read(fixture.out.join("stream_fbin_report.json")).unwrap())
+            .unwrap();
+    assert_eq!(report["pre_encode_gate"]["mode"], "diagnostic");
+    assert_eq!(report["pre_encode_gate"]["diagnostic_only"], true);
+    assert_eq!(report["pre_encode_gate"]["grounded_gate_eligible"], false);
+    assert_eq!(
+        report["pre_encode_gate"]["anchor_audit"]["anchor_leaks_into_input"],
+        true
+    );
+    assert_eq!(report["lens_roster"].as_array().unwrap().len(), 10);
     let _ = fs::remove_dir_all(fixture.root);
 }
 
