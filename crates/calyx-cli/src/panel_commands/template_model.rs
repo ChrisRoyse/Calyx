@@ -4,7 +4,7 @@ use calyx_core::{
     Asymmetry, CalyxError, LensCost, LensId, Modality, Panel, Placement, QuantPolicy, Slot, SlotId,
     SlotKey, SlotResource, SlotShape, SlotState, content_address,
 };
-use calyx_registry::{LensHealth, lens_spec_from_manifest_path};
+use calyx_registry::{LensHealth, lens_spec_metadata_from_manifest_path};
 use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
@@ -295,7 +295,7 @@ pub(super) fn default_time_controls() -> Vec<TemplateTimeControl> {
 }
 
 pub(super) fn lens_ref_from_catalog(entry: &super::LensCatalogEntry) -> CliResult<TemplateLensRef> {
-    let spec = lens_spec_from_manifest_path(&entry.manifest)?;
+    let spec = lens_spec_metadata_from_manifest_path(&entry.manifest)?;
     Ok(TemplateLensRef {
         slot_key: slug(&entry.name),
         lens_name: entry.name.clone(),
@@ -421,59 +421,4 @@ fn slug(value: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lens_commands::support::hex_from_bytes;
-
-    #[test]
-    fn rejects_sub_ten_content_templates() {
-        let template = SavedPanelTemplate {
-            schema_version: OBJECT_VERSION,
-            name: "too-small".to_string(),
-            version: 1,
-            notes: String::new(),
-            min_content_lenses: MIN_CONTENT_LENSES,
-            lenses: Vec::new(),
-            time_controls: default_time_controls(),
-            ensemble_card: None,
-        };
-
-        let error = template.validate().unwrap_err();
-        assert_eq!(error.code(), TEMPLATE_INVALID);
-    }
-
-    #[test]
-    fn temporal_controls_never_count_toward_a35() {
-        for control in default_time_controls() {
-            assert!(!control.counts_toward_a35);
-        }
-    }
-
-    #[test]
-    fn templates_without_a37_card_are_not_gate_eligible() {
-        let template = SavedPanelTemplate {
-            schema_version: OBJECT_VERSION,
-            name: "diagnostic".to_string(),
-            version: 1,
-            notes: String::new(),
-            min_content_lenses: MIN_CONTENT_LENSES,
-            lenses: Vec::new(),
-            time_controls: default_time_controls(),
-            ensemble_card: None,
-        };
-
-        assert!(!template.a37_gate_eligible());
-        assert_eq!(
-            template.require_a37_gate().unwrap_err().code(),
-            TEMPLATE_A37_GATE_REFUSED
-        );
-    }
-
-    #[test]
-    fn hash_from_bytes_stays_lower_hex() {
-        assert_eq!(
-            hex_from_bytes(&[0xabu8; 32]),
-            "abababababababababababababababababababababababababababababababab"
-        );
-    }
-}
+mod tests;

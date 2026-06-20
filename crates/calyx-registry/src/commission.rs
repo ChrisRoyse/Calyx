@@ -9,12 +9,16 @@ use crate::{Registry, ensure_input_modality};
 
 mod algorithmic_manifest;
 mod manifest;
+mod manifest_metadata;
 #[cfg(test)]
 mod tests;
 
 pub use manifest::{
     LensForgeFile, LensForgeManifest, lens_spec_from_manifest, lens_spec_from_manifest_path,
     lens_spec_from_manifest_with_license_override,
+};
+pub use manifest_metadata::{
+    lens_spec_metadata_from_manifest, lens_spec_metadata_from_manifest_path,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
