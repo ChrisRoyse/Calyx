@@ -41,6 +41,7 @@ pub(crate) fn usage() -> &'static str {
        calyx lens list [--home <dir>]
        calyx lens commission --hf <id|fastembed-model> --runtime <onnx-int8|fastembed-onnx|candle-fp16|tei> [--home <dir>] [--out <dir>] [--name <n>] [--endpoint <url>] [--dim <n>]
        calyx lens explain --manifest <manifest.json> [--input <text>|--input-file <path>] [--repeat <n>] [--full-vector]
+       calyx lens scale-audit --manifest <manifest.json> [--manifest <manifest.json> ...] --out <report.json> [--batch-size <n>] [--min-content-lenses <n>] [--min-gpu-content-lenses <n>] [--min-effective-batch <n>] [--lens-timeout-secs <n>] [--probe <text>]
        calyx panel template seed [--home <dir>]
        calyx panel template save --name <name> (--all-current [--modality <m>] | --lens <name-or-id> ...) [--home <dir>] [--notes <text>]
        calyx panel template list [--home <dir>]

@@ -1,0 +1,329 @@
+use std::path::PathBuf;
+use std::process::Command;
+use std::time::Instant;
+
+use calyx_core::{CalyxError, Input, Lens, Modality, Placement, SlotVector};
+use calyx_registry::LensSpec;
+
+use super::model::{BatchStability, Flags, LensAudit, reject};
+use super::runtime::{association_family, is_content_modality, is_temporal_sidecar, runtime_lens};
+use crate::lens_commands::support::{dim, hex_from_bytes, runtime_name, validate_vector_contract};
+
+pub(super) fn audit_lens(manifest: PathBuf, spec: LensSpec, flags: &Flags) -> LensAudit {
+    let temporal = is_temporal_sidecar(&spec);
+    let counts = !temporal && is_content_modality(spec.modality);
+    let runtime = runtime_name(&spec.runtime).to_string();
+    let family = association_family(&spec).to_string();
+    let lens_id = spec.lens_id().to_string();
+    let weights_sha256 = hex_from_bytes(&spec.weights_sha256);
+    let shape_dim = dim(spec.output);
+    let mut rejections = Vec::new();
+
+    let runtime_lens = match runtime_lens(&spec) {
+        Ok(value) => value,
+        Err(error) => {
+            rejections.push(reject(
+                "CALYX_LENS_SCALE_RUNTIME_LOAD",
+                format!("{}: {}", error.code, error.message),
+            ));
+            return LensAudit {
+                manifest,
+                lens_id,
+                name: spec.name,
+                modality: spec.modality,
+                runtime,
+                runtime_detail: "runtime_load_failed".to_string(),
+                provider: "unproven".to_string(),
+                placement: Placement::Cpu,
+                association_family: family,
+                temporal_sidecar: temporal,
+                counts_toward_content_floor: counts,
+                weights_sha256,
+                dim: shape_dim,
+                max_batch: spec.max_batch,
+                requested_batch_size: flags.batch_size,
+                effective_batch_size: 0,
+                native_batching: false,
+                provider_placement_proof: String::new(),
+                gpu_process_observed: None,
+                rows_per_sec: None,
+                batch_stability: None,
+                accepted: false,
+                rejections,
+            };
+        }
+    };
+
+    let effective = effective_batch(flags.batch_size, runtime_lens.max_batch);
+    if counts && runtime_lens.placement == Placement::Gpu && effective < flags.min_effective_batch {
+        rejections.push(reject(
+            "CALYX_LENS_SCALE_BATCH_TOO_SMALL",
+            format!(
+                "lens {} effective_batch_size={} below min_effective_batch={}",
+                spec.name, effective, flags.min_effective_batch
+            ),
+        ));
+    }
+    if counts && runtime_lens.placement == Placement::Gpu && runtime_lens.proof.trim().is_empty() {
+        rejections.push(reject(
+            "CALYX_LENS_SCALE_PROVIDER_PROOF_MISSING",
+            format!(
+                "lens {} has GPU placement without provider proof",
+                spec.name
+            ),
+        ));
+    }
+
+    let mut rows_per_sec = None;
+    let mut batch_stability = None;
+    let mut gpu_process_observed = None;
+    if counts && spec.modality == Modality::Text {
+        match measure_runtime(&*runtime_lens.lens, &spec, flags, effective) {
+            Ok(result) => {
+                rows_per_sec = Some(result.rows_per_sec);
+                batch_stability = Some(result.stability.clone());
+                if !result.stability.acceptable {
+                    rejections.push(reject(
+                        "CALYX_LENS_SCALE_BATCH_STABILITY",
+                        format!(
+                            "lens {} batch stability min_cosine={} max_abs_delta={}",
+                            spec.name, result.stability.min_cosine, result.stability.max_abs_delta
+                        ),
+                    ));
+                }
+            }
+            Err(error) => rejections.push(reject(
+                "CALYX_LENS_SCALE_MEASUREMENT_FAILED",
+                format!("{}: {}", error.code, error.message),
+            )),
+        }
+    } else if counts {
+        rejections.push(reject(
+            "CALYX_LENS_SCALE_MODALITY_UNSUPPORTED",
+            format!(
+                "lens {} modality {:?} is not PH68 text-stream auditable",
+                spec.name, spec.modality
+            ),
+        ));
+    }
+    if runtime_lens.gpu_process_required {
+        match current_pid_seen_by_nvidia_smi() {
+            Ok(seen) => {
+                gpu_process_observed = Some(seen);
+                if !seen {
+                    rejections.push(reject(
+                        "CALYX_LENS_SCALE_GPU_PROCESS_UNOBSERVED",
+                        format!(
+                            "lens {} claimed GPU provider {} but current pid was absent from nvidia-smi compute apps",
+                            spec.name, runtime_lens.provider
+                        ),
+                    ));
+                }
+            }
+            Err(error) => {
+                gpu_process_observed = Some(false);
+                rejections.push(reject(
+                    "CALYX_LENS_SCALE_GPU_PROCESS_READBACK_FAILED",
+                    format!(
+                        "lens {} could not read nvidia-smi process evidence: {error}",
+                        spec.name
+                    ),
+                ));
+            }
+        }
+    }
+
+    LensAudit {
+        manifest,
+        lens_id,
+        name: spec.name,
+        modality: spec.modality,
+        runtime,
+        runtime_detail: runtime_lens.detail,
+        provider: runtime_lens.provider,
+        placement: runtime_lens.placement,
+        association_family: family,
+        temporal_sidecar: temporal,
+        counts_toward_content_floor: counts,
+        weights_sha256,
+        dim: shape_dim,
+        max_batch: runtime_lens.max_batch,
+        requested_batch_size: flags.batch_size,
+        effective_batch_size: effective,
+        native_batching: runtime_lens.native_batching,
+        provider_placement_proof: runtime_lens.proof,
+        gpu_process_observed,
+        rows_per_sec,
+        batch_stability,
+        accepted: rejections.is_empty(),
+        rejections,
+    }
+}
+
+fn current_pid_seen_by_nvidia_smi() -> Result<bool, String> {
+    let output = Command::new("nvidia-smi")
+        .args(["--query-compute-apps=pid", "--format=csv,noheader,nounits"])
+        .output()
+        .map_err(|error| format!("spawn nvidia-smi failed: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "nvidia-smi exited {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let pid = std::process::id().to_string();
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .any(|line| line.trim() == pid))
+}
+
+#[derive(Clone)]
+struct Measurement {
+    rows_per_sec: f64,
+    stability: BatchStability,
+}
+
+fn measure_runtime(
+    lens: &dyn Lens,
+    spec: &LensSpec,
+    flags: &Flags,
+    effective_batch: usize,
+) -> Result<Measurement, CalyxError> {
+    let inputs = probe_inputs(flags, spec.modality, effective_batch.max(1));
+    let started = Instant::now();
+    let measured = measure_chunks(lens, &inputs, effective_batch)?;
+    let elapsed = started.elapsed().as_secs_f64().max(0.000_001);
+    for vector in &measured {
+        validate_vector_contract(vector, spec.output, spec.norm_policy)
+            .map_err(|error| CalyxError::lens_unreachable(error.to_string()))?;
+    }
+    let singles = inputs
+        .iter()
+        .map(|input| lens.measure(input))
+        .collect::<Result<Vec<_>, _>>()?;
+    let stability = compare_vectors(
+        &singles,
+        &measured,
+        flags.min_batch_cosine,
+        flags.max_abs_delta,
+    )?;
+    Ok(Measurement {
+        rows_per_sec: inputs.len() as f64 / elapsed,
+        stability,
+    })
+}
+
+pub(super) fn effective_batch(requested: usize, max_batch: Option<usize>) -> usize {
+    max_batch
+        .filter(|value| *value > 0)
+        .map(|value| value.min(requested))
+        .unwrap_or(requested)
+}
+
+fn measure_chunks(
+    lens: &dyn Lens,
+    inputs: &[Input],
+    effective_batch: usize,
+) -> Result<Vec<SlotVector>, CalyxError> {
+    let mut out = Vec::with_capacity(inputs.len());
+    for chunk in inputs.chunks(effective_batch.max(1)) {
+        out.extend(lens.measure_batch(chunk)?);
+    }
+    Ok(out)
+}
+
+fn compare_vectors(
+    singles: &[SlotVector],
+    batched: &[SlotVector],
+    min_batch_cosine: f32,
+    max_allowed_abs_delta: f32,
+) -> Result<BatchStability, CalyxError> {
+    if singles.len() != batched.len() {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "single vector count {} != batched count {}",
+            singles.len(),
+            batched.len()
+        )));
+    }
+    let mut min_cosine = f32::INFINITY;
+    let mut max_abs_delta = 0.0_f32;
+    for (single, batch) in singles.iter().zip(batched) {
+        let (a, b) = dense_pair(single, batch)?;
+        min_cosine = min_cosine.min(cosine(a, b)?);
+        max_abs_delta = max_abs_delta.max(max_delta(a, b));
+    }
+    Ok(BatchStability {
+        sample_rows: singles.len(),
+        min_cosine,
+        max_abs_delta,
+        min_batch_cosine,
+        max_allowed_abs_delta,
+        acceptable: min_cosine >= min_batch_cosine && max_abs_delta <= max_allowed_abs_delta,
+    })
+}
+
+fn dense_pair<'a>(
+    left: &'a SlotVector,
+    right: &'a SlotVector,
+) -> Result<(&'a [f32], &'a [f32]), CalyxError> {
+    match (left, right) {
+        (
+            SlotVector::Dense {
+                dim: a_dim,
+                data: a,
+            },
+            SlotVector::Dense {
+                dim: b_dim,
+                data: b,
+            },
+        ) if a_dim == b_dim && a.len() == b.len() => Ok((a, b)),
+        _ => Err(CalyxError::lens_dim_mismatch(
+            "batch stability requires matching dense vectors",
+        )),
+    }
+}
+
+fn cosine(a: &[f32], b: &[f32]) -> Result<f32, CalyxError> {
+    let dot = a.iter().zip(b).map(|(x, y)| x * y).sum::<f32>();
+    let an = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let bn = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if an > 0.0 && bn > 0.0 {
+        Ok(dot / (an * bn))
+    } else {
+        Err(CalyxError::lens_numerical_invariant(
+            "batch stability saw zero-norm vector",
+        ))
+    }
+}
+
+fn max_delta(a: &[f32], b: &[f32]) -> f32 {
+    a.iter()
+        .zip(b)
+        .map(|(x, y)| (x - y).abs())
+        .fold(0.0_f32, f32::max)
+}
+
+fn probe_inputs(flags: &Flags, modality: Modality, sample_rows: usize) -> Vec<Input> {
+    let probes = if flags.probes.is_empty() {
+        default_probes()
+    } else {
+        flags.probes.clone()
+    };
+    (0..sample_rows)
+        .map(|idx| Input::new(modality, probes[idx % probes.len()].as_bytes().to_vec()))
+        .collect()
+}
+
+fn default_probes() -> Vec<String> {
+    vec![
+        "Calyx PH68 scale audit uses real frozen lens measurements".to_string(),
+        "GPU-native batching must preserve the single-row vector contract".to_string(),
+        "Temporal capture walks forward backward and as-of outside content floors".to_string(),
+        "Provider placement evidence must fail closed on CPU fallback".to_string(),
+        "Associational panels need enough independent content lenses".to_string(),
+        "Source of truth bytes are read after the trigger finishes".to_string(),
+        "Dense semantic and lexical signals should not collapse into one axis".to_string(),
+        "The RTX 5090 path needs batchable runtime placement proof".to_string(),
+    ]
+}
