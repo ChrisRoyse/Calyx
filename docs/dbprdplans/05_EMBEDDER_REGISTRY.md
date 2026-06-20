@@ -107,7 +107,7 @@ The `speaker(WavLM)` and `style` slots in `media-default` power **identity-locke
 
 A vault picks a panel and immediately gets DDA + Assay + kernel + guard. Custom panels are `add_lens` calls.
 
-**Temporal family in every panel (A27, `25`).** All default panels include the three temporal lenses **E2 Temporal-Recent, E3 Temporal-Periodic, E4 Temporal-Positional** (from ContextGraph): **algorithmic** (closed-form, no trained weights), **search/retrieval-only** under AP-60 (never dominant; post-retrieval boost), excluded from dedup agreement (`25 §5`). They make every Calyx database time-aware by default.
+**Temporal family in every panel (A27, `25`).** All default panels include the three temporal lenses **E2 Temporal-Recent, E3 Temporal-Periodic, E4 Temporal-Positional** (from ContextGraph): **algorithmic** (closed-form, no trained weights), **search/retrieval-only** under AP-60 (never dominant; post-retrieval boost), excluded from dedup agreement (`25 §5`). They make every Calyx database time-aware by default and feed the separate time-capture sidecar used for as-of reads and walking state forward/backward through time.
 
 ## 8. Registry API (agent-facing summary; full in `18`)
 
@@ -176,5 +176,30 @@ A template is admitted for testing only if it has **≥ 10 lenses** (A35) and a 
 ```
 
 > **You cannot do steps 3–5 with one or two lenses.** Marginal value, synergy, and PID are *defined only relative to the rest of the panel*; a triple (≥ 3) is the smallest system with non-trivial structure, and ≥ 10 is needed for stable estimates. This is the information-theoretic reason the testing floor is 10 (A35), not a preference.
+
+## 9b. The diversity gate (A37) — count is necessary, not sufficient
+
+**≥ 10 (A35) is a *count* gate; it does not guarantee a *diverse* panel.** Ten general-purpose dense semantic embedders (bge / e5 / gte / mpnet / MiniLM / nomic / jina …) are **one association family**: on the same text they are near-synonyms, so by PID their bits are **redundant**, not unique/synergistic — the panel passes "10 lenses" while adding almost nothing past the first few. The pairwise differentiation contract (A7, corr ≤ 0.6) is **necessary but not sufficient**: it is per-pair and per-admission, so a panel can be **collectively rank-deficient** (low `n_eff`) while *every* pair sits under 0.6.
+
+A panel admitted for any **gate** (test/bench/FSV/SLO/`J`/scale) MUST therefore also clear a **panel-level diversity gate**:
+
+```
+# diversity gate (numbers from Assay 07 + the panel matrix; read back from the persisted artifact)
+D1 family span      ≥2 distinct association families present, fit to the job (A36):
+                    dense-semantic(general)·dense-semantic(domain: legal/clinical/scientific/financial)·
+                    lexical/sparse(SPLADE/keyword)·entity/graph·character/byte·structural(AST/CFG)·
+                    reranker/asymmetric · temporal-sidecar(A27 time-control/as-of traversal, NOT counted toward the ≥10 floor)
+D2 redundancy bound n_eff(panel) ≥ threshold AND mean pairwise corr/NMI ≤ threshold  # panel-WIDE, not per-pair
+D3 no collapse      every admitted lens contributes measurable UNIQUE PID bits given the rest (§9 step 5);
+                    the marginal-bits curve does not flatten to ~0 after the first few lenses
+D4 diversity number EnsembleCard records {n_eff, mean_redundancy, sum_unique_pid_bits} so "diverse enough?"
+                    is answered by the bytes, not asserted; a template (A36) carries this with its signal
+→ a panel that hits 10 by COUNT but fails D1–D3 is DIAGNOSTIC-ONLY and FAILS CLOSED for gates (A16),
+  exactly like a <10 panel.
+```
+
+**A genuinely diverse text panel** (vs the 10-clone anti-pattern) mixes families: 2–3 dense-semantic anchors (one general + one domain) · a **lexical/sparse** lens (exact terms/names/acronyms dense models blur) · an **entity** lens (for GDELT: actors/orgs/CAMEO codes/country pairs — often the highest-unique-info axis) · a **character/byte** lens (name transliteration robustness) · the **temporal** sidecar for as-of/forward/backward time traversal. That mix maximizes unique + synergistic PID per slot; ten dense clones maximize redundancy.
+
+**Homogeneous panels are valid as labeled controls.** Deliberately running a single-family panel to **measure** the redundancy collapse — its correlation matrix, marginal-bits decay, `n_eff`, and fused-RRF gain vs the best single lens — is the empirical evidence for this gate and is encouraged; it is diagnostic, never a production gate (`DOCTRINE §0`).
 
 **One sentence:** the Registry turns "frozen embedder" into a database object with a lifecycle, a capability card, and a one-call hot-swap; templates turn "the right 10+ lenses for *this* job" into a swappable, measured object — so the multi-lens system builds itself.

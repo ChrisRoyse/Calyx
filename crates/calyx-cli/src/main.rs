@@ -25,6 +25,7 @@ mod assay_corpus_build;
 mod assay_ensemble_card;
 mod assay_fbin_export;
 mod assay_gdelt_rows;
+mod assay_i8bin_ensemble_card;
 mod assay_stream_fbin;
 mod budget_readback;
 mod cf_read;
