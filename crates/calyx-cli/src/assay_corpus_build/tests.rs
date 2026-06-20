@@ -105,7 +105,13 @@ fn corpus_build_accepts_source_rows_with_string_labels() {
                 "source": format!("ag_news://train.parquet#row={idx}"),
                 "row": idx,
                 "text": format!("real news row {idx} with enough lexical content"),
-                "label": (idx % 2).to_string()
+                "label": (idx % 2).to_string(),
+                "anchor_audit": {
+                    "anchor_leaks_into_input": true,
+                    "trivial_anchor": true,
+                    "grounded_gate_eligible": false,
+                    "reason": "fixture label is present in input text"
+                }
             })
         ));
     }
@@ -123,6 +129,9 @@ fn corpus_build_accepts_source_rows_with_string_labels() {
         loaded.rows[0].temporal_inactive_reason.as_deref(),
         Some("source_missing_created_at")
     );
+    assert!(loaded.anchor_audit.anchor_leaks_into_input);
+    assert!(loaded.anchor_audit.trivial_anchor);
+    assert!(!loaded.anchor_audit.grounded_gate_eligible);
     let _ = fs::remove_dir_all(root);
 }
 

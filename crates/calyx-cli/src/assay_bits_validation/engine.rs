@@ -30,6 +30,7 @@ pub(crate) fn evaluate_corpus(
     cost: Option<&LensCostMap>,
     panel_budget: Option<PanelResourceBudget>,
 ) -> Result<AssayBitsReport, String> {
+    let anchor_audit = corpus.anchor_audit.clone();
     let anchor = corpus.anchor_labels(request.target_class);
     let positives = anchor.iter().filter(|&&v| v).count();
     if positives == 0 || positives == anchor.len() {
@@ -145,6 +146,9 @@ pub(crate) fn evaluate_corpus(
             name: measurement.name.clone(),
             redundant: measurement.redundant,
             bits_about: bits,
+            anchor_leaks_into_input: anchor_audit.anchor_leaks_into_input,
+            trivial_anchor: anchor_audit.trivial_anchor,
+            grounded_gate_eligible: anchor_audit.grounded_gate_eligible,
             ci: [measurement.estimate.ci_low, measurement.estimate.ci_high],
             estimate_bound: estimate_bound_name(measurement.estimate.bound).to_string(),
             power_calibration_status: calibration_status(&measurement.estimate),
@@ -265,6 +269,10 @@ pub(crate) fn evaluate_corpus(
         domain: request.domain.clone(),
         n_samples: corpus.n_samples(),
         target_class: request.target_class,
+        anchor_leaks_into_input: anchor_audit.anchor_leaks_into_input,
+        trivial_anchor: anchor_audit.trivial_anchor,
+        grounded_gate_eligible: anchor_audit.grounded_gate_eligible,
+        anchor_audit,
         anchor_entropy_bits,
         min_informative_target_entropy_bits: calyx_assay::MIN_INFORMATIVE_TARGET_ENTROPY_BITS,
         min_bits: request.min_bits,

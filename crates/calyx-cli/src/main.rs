@@ -21,6 +21,7 @@ mod anneal_replay_readback;
 mod anneal_soak;
 mod anneal_soak_report;
 mod anneal_status;
+mod assay_anchor_audit;
 mod assay_bits_validation;
 mod assay_corpus_build;
 mod assay_ensemble_card;

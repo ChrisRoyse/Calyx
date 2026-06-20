@@ -4,6 +4,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::assay_anchor_audit::AnchorAudit;
+
 use super::request::AssayBitsRequest;
 
 const MIN_SAMPLES: usize = 50;
@@ -19,6 +21,7 @@ pub(crate) struct AssayCorpus {
     pub(crate) lenses: Vec<LensSpec>,
     pub(crate) labels: Vec<usize>,
     pub(crate) anchor_groups: Vec<String>,
+    pub(crate) anchor_audit: AnchorAudit,
     /// Per-lens vectors, indexed identically to `lenses`; each inner vec is one
     /// row per sample (same order as `labels`).
     pub(crate) lens_vectors: Vec<Vec<Vec<f32>>>,
@@ -93,6 +96,12 @@ impl AssayCorpus {
             lenses,
             labels,
             anchor_groups,
+            anchor_audit: AnchorAudit::from_parts(
+                manifest.anchor_audit,
+                manifest.anchor_leaks_into_input,
+                manifest.trivial_anchor,
+                manifest.grounded_gate_eligible,
+            ),
             lens_vectors,
         })
     }
@@ -186,6 +195,14 @@ struct ManifestJson {
     label_counts: BTreeMap<String, usize>,
     lenses: Vec<ManifestLens>,
     target_class: usize,
+    #[serde(default)]
+    anchor_audit: Option<AnchorAudit>,
+    #[serde(default)]
+    anchor_leaks_into_input: Option<bool>,
+    #[serde(default)]
+    trivial_anchor: Option<bool>,
+    #[serde(default)]
+    grounded_gate_eligible: Option<bool>,
 }
 
 #[derive(Deserialize)]

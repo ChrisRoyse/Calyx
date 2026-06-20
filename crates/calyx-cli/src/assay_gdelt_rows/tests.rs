@@ -38,9 +38,15 @@ fn converts_real_shape_rows_with_event_times_and_manifest_hashes() {
     let rows = fs::read_to_string(root.join("rows.jsonl")).unwrap();
     assert!(rows.contains("\"event_time\":\"2024-01-02T00:00:00Z\""));
     assert!(rows.contains("\"label\":1"));
+    let first_row: serde_json::Value = serde_json::from_str(rows.lines().next().unwrap()).unwrap();
+    assert_eq!(first_row["anchor_leaks_into_input"], true);
+    assert_eq!(first_row["anchor_audit"]["grounded_gate_eligible"], false);
     let manifest = fs::read_to_string(root.join("manifest.json")).unwrap();
     assert!(manifest.contains("rows_jsonl_sha256"));
     assert!(manifest.contains("calyx-gdelt-rows-source-v1"));
+    let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+    assert_eq!(manifest["anchor_leaks_into_input"], true);
+    assert_eq!(manifest["anchor_audit"]["trivial_anchor"], true);
 }
 
 #[test]

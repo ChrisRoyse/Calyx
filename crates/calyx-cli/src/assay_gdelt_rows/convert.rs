@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use super::args::Args;
 use super::local_error;
 use super::report::{Report, SourceFile};
+use crate::assay_anchor_audit::AnchorAudit;
 use crate::error::CliResult;
 
 const GDELT_FIELD_COUNT: usize = 61;
@@ -316,11 +317,14 @@ fn row_json(fields: &[&str], label: usize) -> CliResult<Value> {
     let date_added = fields[DATE_ADDED].trim();
     let event_time = gdelt_stamp_to_utc(fields[DATE_ADDED])?;
     let text = gdelt_text(fields);
+    let anchor_audit = AnchorAudit::gdelt_country_text_leak();
     Ok(json!({
         "id": format!("gdelt-v2://{}/{}", &date_added[0..8], event_id),
         "split": "fsv",
         "text": text,
         "label": label,
+        "anchor_leaks_into_input": anchor_audit.anchor_leaks_into_input,
+        "anchor_audit": anchor_audit,
         "event_time": event_time,
         "source_url": fields[SOURCE_URL].trim(),
         "gdelt_dateadded": fields[DATE_ADDED].trim(),
@@ -428,10 +432,15 @@ fn validate_state(args: &Args, state: &State) -> CliResult {
 }
 
 fn manifest_value(args: &Args, state: &State, sources: &[SourceFile], rows_hash: &str) -> Value {
+    let anchor_audit = AnchorAudit::gdelt_country_text_leak();
     json!({
         "format": "calyx-gdelt-rows-source-v1",
         "source": "GDELT 2.0 Event Database export.CSV",
         "dataset": args.dataset,
+        "anchor_leaks_into_input": anchor_audit.anchor_leaks_into_input,
+        "trivial_anchor": anchor_audit.trivial_anchor,
+        "grounded_gate_eligible": anchor_audit.grounded_gate_eligible,
+        "anchor_audit": anchor_audit,
         "label_definition": {
             "positive_label": 1,
             "actor_country": args.actor_country,

@@ -147,6 +147,19 @@ fn export_fbin_rejects_algorithmic_manifest_as_a35_lens() {
 }
 
 #[test]
+fn export_fbin_rejects_leaked_anchor_bits_before_writing() {
+    let fixture = Fixture::new("export-fbin-leaked-anchor", 10, 6);
+    mark_bits_as_leaked(&fixture.bits);
+    let args = fixture.args(2);
+
+    let error = export_fbin(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_TRIVIAL_ANCHOR");
+    assert!(!fixture.out.exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn export_fbin_rejects_inconsistent_vector_dimensions() {
     let fixture = Fixture::new("export-fbin-bad-dim", 10, 6);
     let mut lines = fs::read_to_string(fixture.corpus.join("vectors.jsonl")).unwrap();
@@ -325,6 +338,16 @@ fn write_bits(path: &Path, lenses: &[String], admitted: usize) {
         serde_json::to_vec_pretty(&serde_json::json!({ "lenses": lenses })).unwrap(),
     )
     .unwrap();
+}
+
+fn mark_bits_as_leaked(path: &Path) {
+    let mut bits: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    bits["anchor_audit"] = serde_json::json!({
+        "anchor_leaks_into_input": true,
+        "trivial_anchor": true,
+        "grounded_gate_eligible": false
+    });
+    fs::write(path, serde_json::to_vec_pretty(&bits).unwrap()).unwrap();
 }
 
 fn write_manifests(root: &Path, names: &[String]) -> Vec<PathBuf> {

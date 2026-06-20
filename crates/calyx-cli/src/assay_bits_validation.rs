@@ -30,6 +30,7 @@ use engine::evaluate_corpus;
 use metrics::write_metric_outputs;
 use request::AssayBitsRequest;
 
+use crate::assay_anchor_audit::CALYX_FSV_ASSAY_TRIVIAL_ANCHOR;
 use crate::error::{CliError, CliResult};
 
 const FSV_REMEDIATION: &str = "inspect the assay corpus, metrics files, and Assay CF readback";
@@ -95,6 +96,11 @@ fn assay_cli_error(error: String) -> CliError {
         "CALYX_FSV_ASSAY_PANEL_CONTROL_NOT_BEATEN" => local_error(code, message, FSV_REMEDIATION),
         "CALYX_FSV_ASSAY_NONFINITE_METRIC" => local_error(code, message, FSV_REMEDIATION),
         "CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA" => local_error(code, message, FSV_REMEDIATION),
+        CALYX_FSV_ASSAY_TRIVIAL_ANCHOR => local_error(
+            code,
+            message,
+            "use a validity-audited non-linguistic outcome anchor",
+        ),
         _ => CliError::usage(error),
     }
 }
@@ -169,6 +175,7 @@ const ASSAY_LOCAL_CODES: &[&str] = &[
     "CALYX_FSV_ASSAY_PANEL_CONTROL_NOT_BEATEN",
     "CALYX_FSV_ASSAY_NONFINITE_METRIC",
     "CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA",
+    CALYX_FSV_ASSAY_TRIVIAL_ANCHOR,
 ];
 
 #[cfg(test)]

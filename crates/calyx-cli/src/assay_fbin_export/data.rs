@@ -6,6 +6,7 @@ use calyx_registry::lens_spec_from_manifest_path;
 use serde::Deserialize;
 
 use crate::a35_signal::{require_learned_signal_kind, runtime_signal_kind_name};
+use crate::assay_anchor_audit::AnchorAudit;
 use crate::error::CliResult;
 
 use super::timeline::{TimelineScan, TimelineScanBuilder, timeline_row};
@@ -95,12 +96,20 @@ struct BuildLensRef {
 #[derive(Debug, Deserialize)]
 struct BitsReport {
     lenses: Option<Vec<BitsLens>>,
+    anchor_audit: Option<AnchorAudit>,
+    anchor_leaks_into_input: Option<bool>,
+    trivial_anchor: Option<bool>,
+    grounded_gate_eligible: Option<bool>,
     report: Option<BitsReportInner>,
 }
 
 #[derive(Debug, Deserialize)]
 struct BitsReportInner {
     lenses: Vec<BitsLens>,
+    anchor_audit: Option<AnchorAudit>,
+    anchor_leaks_into_input: Option<bool>,
+    trivial_anchor: Option<bool>,
+    grounded_gate_eligible: Option<bool>,
 }
 
 pub(super) fn scan_vectors(path: &Path) -> CliResult<VectorScan> {
@@ -272,6 +281,7 @@ pub(super) fn load_bits_report(path: &Path) -> CliResult<BTreeMap<String, BitsLe
             "pass a valid assay bits report with per-lens bits_about",
         )
     })?;
+    report_anchor_audit(&report).require_gate_eligible("assay export-fbin grounded anchor gate")?;
     let lenses = report
         .lenses
         .or_else(|| report.report.map(|inner| inner.lenses))
@@ -286,6 +296,25 @@ pub(super) fn load_bits_report(path: &Path) -> CliResult<BTreeMap<String, BitsLe
         .into_iter()
         .map(|lens| (lens.name.clone(), lens))
         .collect())
+}
+
+fn report_anchor_audit(report: &BitsReport) -> AnchorAudit {
+    let inner = report.report.as_ref();
+    AnchorAudit::from_parts(
+        report
+            .anchor_audit
+            .clone()
+            .or_else(|| inner.and_then(|value| value.anchor_audit.clone())),
+        report
+            .anchor_leaks_into_input
+            .or_else(|| inner.and_then(|value| value.anchor_leaks_into_input)),
+        report
+            .trivial_anchor
+            .or_else(|| inner.and_then(|value| value.trivial_anchor)),
+        report
+            .grounded_gate_eligible
+            .or_else(|| inner.and_then(|value| value.grounded_gate_eligible)),
+    )
 }
 
 pub(super) fn selected_lenses(

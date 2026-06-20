@@ -109,6 +109,49 @@ fn synthetic_three_lens_admits_real_rejects_redundant() {
 }
 
 #[test]
+fn leaked_anchor_bits_report_is_flagged_but_still_measurable_control() {
+    let root = temp_root("assay-bits-leaked-anchor");
+    let corpus = root.join("corpus");
+    fs::create_dir_all(&corpus).unwrap();
+    write_synthetic_corpus(&corpus, 200);
+    let manifest_path = corpus.join("manifest.json");
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    manifest["anchor_audit"] = serde_json::json!({
+        "anchor_leaks_into_input": true,
+        "trivial_anchor": true,
+        "grounded_gate_eligible": false,
+        "label_recoverable_from_input": true,
+        "reason": "fixture label is recoverable from text"
+    });
+    fs::write(
+        &manifest_path,
+        serde_json::to_vec_pretty(&manifest).unwrap(),
+    )
+    .unwrap();
+    let request = request_for(&root);
+    let data = AssayCorpus::load(&request).unwrap();
+
+    let report = evaluate_corpus(&data, &request, None, None).unwrap();
+    let evidence = write_metric_outputs(&request, &report).unwrap();
+
+    assert!(report.anchor_leaks_into_input);
+    assert!(report.trivial_anchor);
+    assert!(!report.grounded_gate_eligible);
+    assert!(
+        report
+            .lenses
+            .iter()
+            .all(|lens| lens.anchor_leaks_into_input)
+    );
+    let readback: serde_json::Value =
+        serde_json::from_slice(&fs::read(&evidence.abundance_path).unwrap()).unwrap();
+    assert_eq!(readback["anchor_audit"]["grounded_gate_eligible"], false);
+    assert_eq!(readback["lenses"][0]["anchor_leaks_into_input"], true);
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn low_signal_lens_rejected_by_admit_lens() {
     for step in 0..50_u32 {
         let bits = (step as f32) / 1000.0; // 0.000 .. 0.049, all < 0.05

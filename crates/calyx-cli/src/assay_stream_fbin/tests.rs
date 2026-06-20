@@ -197,6 +197,21 @@ fn stream_fbin_rejects_algorithmic_manifest_before_rows() {
 }
 
 #[test]
+fn stream_fbin_rejects_leaked_anchor_bits_before_rows() {
+    let fixture = Fixture::new("stream-fbin-leaked-anchor", 10, 10, 50);
+    mark_bits_as_leaked(&fixture.bits);
+    let mut args = fixture.args(8);
+    args.rows_jsonl = fixture.root.join("missing-rows.jsonl");
+
+    let error = write::run(&args).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_FSV_ASSAY_TRIVIAL_ANCHOR");
+    assert!(!fixture.out.exists());
+    assert!(!staging_dir(&fixture).exists());
+    let _ = fs::remove_dir_all(fixture.root);
+}
+
+#[test]
 fn stream_fbin_rejects_existing_output_before_loading_inputs() {
     let fixture = Fixture::new("stream-fbin-output-exists-first", 10, 10, 50);
     fs::create_dir_all(&fixture.out).unwrap();
@@ -283,4 +298,16 @@ fn stream_fbin_pre_gate_rejects_mismatched_panel() {
     assert!(!fixture.out.exists());
     assert!(!staging_dir(&fixture).exists());
     let _ = fs::remove_dir_all(fixture.root);
+}
+
+fn mark_bits_as_leaked(path: &std::path::Path) {
+    let mut report: Value = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    report["anchor_audit"] = serde_json::json!({
+        "anchor_leaks_into_input": true,
+        "trivial_anchor": true,
+        "grounded_gate_eligible": false,
+        "label_recoverable_from_input": true,
+        "reason": "unit fixture label is present in text"
+    });
+    fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
 }

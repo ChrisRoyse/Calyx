@@ -5,6 +5,7 @@ use calyx_core::{TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::assay_anchor_audit::AnchorAudit;
 use crate::migrate::temporal::parse_event_time_secs;
 
 use super::request::CorpusBuildRequest;
@@ -24,12 +25,14 @@ pub(crate) struct LabeledRow {
     pub(crate) temporal_inactive_reason: Option<String>,
     pub(crate) source_sequence: String,
     pub(crate) source_sequence_index: usize,
+    pub(crate) anchor_audit: AnchorAudit,
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct BuildRows {
     pub(crate) rows: Vec<LabeledRow>,
     pub(crate) label_counts: BTreeMap<String, usize>,
+    pub(crate) anchor_audit: AnchorAudit,
 }
 
 #[derive(Deserialize)]
@@ -54,6 +57,14 @@ struct RawRow {
     created_at: Option<Value>,
     #[serde(default)]
     timestamp: Option<Value>,
+    #[serde(default)]
+    anchor_audit: Option<AnchorAudit>,
+    #[serde(default)]
+    anchor_leaks_into_input: Option<bool>,
+    #[serde(default)]
+    trivial_anchor: Option<bool>,
+    #[serde(default)]
+    grounded_gate_eligible: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -72,6 +83,7 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
     })?;
     let mut rows = Vec::new();
     let mut counts: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut row_audits = Vec::new();
     for (line_idx, line) in text.lines().enumerate() {
         if line.trim().is_empty() {
             continue;
@@ -90,6 +102,13 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
         }
         *counts.entry(label).or_insert(0) += 1;
         let temporal = row_temporal(line_idx, &raw)?;
+        let anchor_audit = AnchorAudit::from_parts(
+            raw.anchor_audit.clone(),
+            raw.anchor_leaks_into_input,
+            raw.trivial_anchor,
+            raw.grounded_gate_eligible,
+        );
+        row_audits.push(anchor_audit.clone());
         rows.push(LabeledRow {
             id,
             split: if raw.split.trim().is_empty() {
@@ -105,6 +124,7 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
             temporal_inactive_reason: temporal.inactive_reason,
             source_sequence: SOURCE_SEQUENCE.to_string(),
             source_sequence_index: line_idx,
+            anchor_audit,
         });
     }
     validate_loaded_rows(request, &rows)?;
@@ -112,7 +132,11 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
         .into_iter()
         .map(|(label, count)| (label.to_string(), count))
         .collect();
-    Ok(BuildRows { rows, label_counts })
+    Ok(BuildRows {
+        rows,
+        label_counts,
+        anchor_audit: AnchorAudit::merge_rows(&row_audits),
+    })
 }
 
 struct RowTemporal {

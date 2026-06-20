@@ -6,6 +6,7 @@ use calyx_assay::{DEFAULT_MIN_POWER_RECOVERY_RATIO, MIN_INFORMATIVE_TARGET_ENTRO
 use calyx_registry::LensForgeManifest;
 use serde::Deserialize;
 
+use crate::assay_anchor_audit::AnchorAudit;
 use crate::error::CliResult;
 
 use super::super::args::Args;
@@ -18,6 +19,10 @@ struct BitsReport {
     anchor_entropy_bits: Option<f32>,
     min_informative_target_entropy_bits: Option<f32>,
     panel: Option<PanelGateRaw>,
+    anchor_audit: Option<AnchorAudit>,
+    anchor_leaks_into_input: Option<bool>,
+    trivial_anchor: Option<bool>,
+    grounded_gate_eligible: Option<bool>,
     report: Option<BitsReportInner>,
 }
 
@@ -26,6 +31,10 @@ struct BitsReportInner {
     anchor_entropy_bits: Option<f32>,
     min_informative_target_entropy_bits: Option<f32>,
     panel: Option<PanelGateRaw>,
+    anchor_audit: Option<AnchorAudit>,
+    anchor_leaks_into_input: Option<bool>,
+    trivial_anchor: Option<bool>,
+    grounded_gate_eligible: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -46,6 +55,7 @@ struct GateInputs {
     power_calibration_status: String,
     power_recovery_ratio: f32,
     admitted_lenses: Vec<String>,
+    anchor_audit: AnchorAudit,
 }
 
 pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGateEvidence> {
@@ -60,6 +70,8 @@ pub(super) fn validate_before_full_encode(args: &Args) -> CliResult<PreEncodeGat
         )
     })?;
     let gate = gate_inputs(&report)?;
+    gate.anchor_audit
+        .require_gate_eligible("assay stream-fbin pre-encode grounded anchor gate")?;
     let streamed_lenses = streamed_manifest_names(args)?;
     validate_panel_identity(&gate.admitted_lenses, &streamed_lenses)?;
     validate_target_entropy(&gate)?;
@@ -129,10 +141,30 @@ fn gate_inputs(report: &BitsReport) -> CliResult<GateInputs> {
             "panel.power_recovery_ratio",
         )?,
         admitted_lenses,
+        anchor_audit: report_anchor_audit(report),
     };
     required_f32(panel.power_recovered_bits, "panel.power_recovered_bits")?;
     required_f32(panel.power_planted_bits, "panel.power_planted_bits")?;
     Ok(gate)
+}
+
+fn report_anchor_audit(report: &BitsReport) -> AnchorAudit {
+    let inner = report.report.as_ref();
+    AnchorAudit::from_parts(
+        report
+            .anchor_audit
+            .clone()
+            .or_else(|| inner.and_then(|value| value.anchor_audit.clone())),
+        report
+            .anchor_leaks_into_input
+            .or_else(|| inner.and_then(|value| value.anchor_leaks_into_input)),
+        report
+            .trivial_anchor
+            .or_else(|| inner.and_then(|value| value.trivial_anchor)),
+        report
+            .grounded_gate_eligible
+            .or_else(|| inner.and_then(|value| value.grounded_gate_eligible)),
+    )
 }
 
 fn validate_panel_identity(admitted_lenses: &[String], streamed_lenses: &[String]) -> CliResult {

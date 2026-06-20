@@ -2,6 +2,8 @@ use calyx_assay::{MiEstimate, PanelPackingReport, ResourceDensity, ResourceUsage
 use calyx_core::Placement;
 use serde::Serialize;
 
+use crate::assay_anchor_audit::AnchorAudit;
+
 use super::comparison::PanelComparisonReport;
 use super::selection::SignalDensityReport;
 
@@ -12,6 +14,10 @@ pub(crate) struct AssayBitsReport {
     pub(crate) domain: String,
     pub(crate) n_samples: usize,
     pub(crate) target_class: usize,
+    pub(crate) anchor_audit: AnchorAudit,
+    pub(crate) anchor_leaks_into_input: bool,
+    pub(crate) trivial_anchor: bool,
+    pub(crate) grounded_gate_eligible: bool,
     pub(crate) anchor_entropy_bits: f32,
     pub(crate) min_informative_target_entropy_bits: f32,
     pub(crate) min_bits: f32,
@@ -41,6 +47,9 @@ pub(crate) struct LensReport {
     pub(crate) name: String,
     pub(crate) redundant: bool,
     pub(crate) bits_about: f32,
+    pub(crate) anchor_leaks_into_input: bool,
+    pub(crate) trivial_anchor: bool,
+    pub(crate) grounded_gate_eligible: bool,
     pub(crate) ci: [f32; 2],
     pub(crate) estimate_bound: String,
     #[serde(skip_serializing_if = "Option::is_none")]
