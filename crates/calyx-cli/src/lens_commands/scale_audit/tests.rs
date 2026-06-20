@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use calyx_core::{Asymmetry, Modality, Placement, QuantPolicy, SlotShape};
+use calyx_core::{Asymmetry, Modality, Placement, QuantPolicy, SlotShape, SlotVector, SparseEntry};
 use calyx_registry::{LensRuntime, LensSpec, NormPolicy};
 
-use super::measure::effective_batch;
+use super::measure::{compare_vectors, effective_batch};
 use super::model::{
     DEFAULT_MAX_ABS_DELTA, DEFAULT_MIN_BATCH_COSINE, Flags, LensAudit, TEMPORAL_LANE_ROLE,
 };
@@ -59,6 +59,51 @@ fn panel_floor_rejects_when_gpu_count_is_short() {
             .iter()
             .any(|r| r.code == "CALYX_LENS_SCALE_GPU_CONTENT_FLOOR")
     );
+}
+
+#[test]
+fn sparse_batch_stability_accepts_identical_sparse_vectors() {
+    let vector = SlotVector::Sparse {
+        dim: 64,
+        entries: vec![
+            SparseEntry { idx: 3, val: 0.25 },
+            SparseEntry { idx: 17, val: 0.75 },
+        ],
+    };
+
+    let stability = compare_vectors(
+        std::slice::from_ref(&vector),
+        std::slice::from_ref(&vector),
+        0.999,
+        0.0,
+    )
+    .expect("sparse batch compare");
+
+    assert!(stability.acceptable);
+    assert_eq!(stability.sample_rows, 1);
+    assert!((stability.min_cosine - 1.0).abs() <= f32::EPSILON);
+    assert_eq!(stability.max_abs_delta, 0.0);
+}
+
+#[test]
+fn multi_batch_stability_accepts_identical_token_vectors() {
+    let vector = SlotVector::Multi {
+        token_dim: 4,
+        tokens: vec![vec![0.5, 0.0, 0.0, 0.5], vec![0.0, 0.25, 0.75, 0.0]],
+    };
+
+    let stability = compare_vectors(
+        std::slice::from_ref(&vector),
+        std::slice::from_ref(&vector),
+        0.999,
+        0.0,
+    )
+    .expect("multi batch compare");
+
+    assert!(stability.acceptable);
+    assert_eq!(stability.sample_rows, 1);
+    assert!((stability.min_cosine - 1.0).abs() <= f32::EPSILON);
+    assert_eq!(stability.max_abs_delta, 0.0);
 }
 
 fn accepted_cpu_lens() -> LensAudit {

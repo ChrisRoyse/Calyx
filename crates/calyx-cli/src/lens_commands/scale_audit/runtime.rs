@@ -112,6 +112,9 @@ pub(super) fn association_family(spec: &LensSpec) -> &'static str {
         return "temporal_sidecar";
     }
     match &spec.runtime {
+        LensRuntime::Algorithmic { kind } if kind.contains("token") || kind.contains("multi") => {
+            "late_interaction_token"
+        }
         LensRuntime::Algorithmic { kind } if kind.contains("sparse") => "lexical_sparse",
         LensRuntime::Algorithmic { kind } if kind.contains("byte") => "byte_char",
         LensRuntime::Algorithmic { .. } => "algorithmic",
@@ -151,6 +154,9 @@ fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Result<AlgorithmicLens, Caly
             spec.modality,
             dim(spec.output),
         )),
+        "token-hash" | "token_hash" | "multi-hash" | "multi_hash" => Ok(
+            AlgorithmicLens::token_hash(&spec.name, spec.modality, dim(spec.output)),
+        ),
         other => Err(CalyxError::lens_unreachable(format!(
             "scale-audit does not support algorithmic kind {other}"
         ))),

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 
-use calyx_core::{CalyxError, Input, Lens, Modality, Placement, SlotVector};
+use calyx_core::{CalyxError, Input, Lens, Modality, Placement, SlotVector, SparseEntry};
 use calyx_registry::LensSpec;
 
 use super::model::{BatchStability, Flags, LensAudit, reject};
@@ -233,7 +233,7 @@ fn measure_chunks(
     Ok(out)
 }
 
-fn compare_vectors(
+pub(super) fn compare_vectors(
     singles: &[SlotVector],
     batched: &[SlotVector],
     min_batch_cosine: f32,
@@ -249,9 +249,9 @@ fn compare_vectors(
     let mut min_cosine = f32::INFINITY;
     let mut max_abs_delta = 0.0_f32;
     for (single, batch) in singles.iter().zip(batched) {
-        let (a, b) = dense_pair(single, batch)?;
-        min_cosine = min_cosine.min(cosine(a, b)?);
-        max_abs_delta = max_abs_delta.max(max_delta(a, b));
+        let metrics = vector_metrics(single, batch)?;
+        min_cosine = min_cosine.min(metrics.cosine);
+        max_abs_delta = max_abs_delta.max(metrics.max_abs_delta);
     }
     Ok(BatchStability {
         sample_rows: singles.len(),
@@ -263,10 +263,12 @@ fn compare_vectors(
     })
 }
 
-fn dense_pair<'a>(
-    left: &'a SlotVector,
-    right: &'a SlotVector,
-) -> Result<(&'a [f32], &'a [f32]), CalyxError> {
+struct PairMetrics {
+    cosine: f32,
+    max_abs_delta: f32,
+}
+
+fn vector_metrics(left: &SlotVector, right: &SlotVector) -> Result<PairMetrics, CalyxError> {
     match (left, right) {
         (
             SlotVector::Dense {
@@ -277,11 +279,102 @@ fn dense_pair<'a>(
                 dim: b_dim,
                 data: b,
             },
-        ) if a_dim == b_dim && a.len() == b.len() => Ok((a, b)),
+        ) if a_dim == b_dim && a.len() == b.len() => dense_metrics(a, b),
+        (
+            SlotVector::Sparse {
+                dim: a_dim,
+                entries: a,
+            },
+            SlotVector::Sparse {
+                dim: b_dim,
+                entries: b,
+            },
+        ) if a_dim == b_dim => sparse_metrics(a, b),
+        (
+            SlotVector::Multi {
+                token_dim: a_dim,
+                tokens: a,
+            },
+            SlotVector::Multi {
+                token_dim: b_dim,
+                tokens: b,
+            },
+        ) if a_dim == b_dim => multi_metrics(a, b),
         _ => Err(CalyxError::lens_dim_mismatch(
-            "batch stability requires matching dense vectors",
+            "batch stability requires matching slot-vector shapes",
         )),
     }
+}
+
+fn dense_metrics(a: &[f32], b: &[f32]) -> Result<PairMetrics, CalyxError> {
+    Ok(PairMetrics {
+        cosine: cosine(a, b)?,
+        max_abs_delta: max_delta(a, b),
+    })
+}
+
+fn sparse_metrics(a: &[SparseEntry], b: &[SparseEntry]) -> Result<PairMetrics, CalyxError> {
+    let an = a.iter().map(|entry| entry.val * entry.val).sum::<f32>();
+    let bn = b.iter().map(|entry| entry.val * entry.val).sum::<f32>();
+    let mut dot = 0.0_f32;
+    let mut max_abs_delta = 0.0_f32;
+    let mut left = 0;
+    let mut right = 0;
+    while left < a.len() || right < b.len() {
+        match (a.get(left), b.get(right)) {
+            (Some(l), Some(r)) if l.idx == r.idx => {
+                dot += l.val * r.val;
+                max_abs_delta = max_abs_delta.max((l.val - r.val).abs());
+                left += 1;
+                right += 1;
+            }
+            (Some(l), Some(r)) if l.idx < r.idx => {
+                max_abs_delta = max_abs_delta.max(l.val.abs());
+                left += 1;
+            }
+            (Some(_), Some(r)) => {
+                max_abs_delta = max_abs_delta.max(r.val.abs());
+                right += 1;
+            }
+            (Some(l), None) => {
+                max_abs_delta = max_abs_delta.max(l.val.abs());
+                left += 1;
+            }
+            (None, Some(r)) => {
+                max_abs_delta = max_abs_delta.max(r.val.abs());
+                right += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    if an > 0.0 && bn > 0.0 {
+        Ok(PairMetrics {
+            cosine: dot / (an.sqrt() * bn.sqrt()),
+            max_abs_delta,
+        })
+    } else {
+        Err(CalyxError::lens_numerical_invariant(
+            "batch stability saw zero-norm sparse vector",
+        ))
+    }
+}
+
+fn multi_metrics(a: &[Vec<f32>], b: &[Vec<f32>]) -> Result<PairMetrics, CalyxError> {
+    if a.len() != b.len() {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "single token count {} != batched token count {}",
+            a.len(),
+            b.len()
+        )));
+    }
+    let left = a.iter().flatten().copied().collect::<Vec<_>>();
+    let right = b.iter().flatten().copied().collect::<Vec<_>>();
+    if left.len() != right.len() {
+        return Err(CalyxError::lens_dim_mismatch(
+            "batch stability saw mismatched multi-vector token dimensions",
+        ));
+    }
+    dense_metrics(&left, &right)
 }
 
 fn cosine(a: &[f32], b: &[f32]) -> Result<f32, CalyxError> {

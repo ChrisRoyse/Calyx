@@ -217,7 +217,9 @@ fn metadata_family(runtime: &str, temporal: bool) -> String {
         return "temporal_sidecar".to_string();
     }
     let runtime = runtime.to_ascii_lowercase();
-    if runtime.contains("sparse") {
+    if runtime.contains("token") || runtime.contains("multi") {
+        "late_interaction_token".to_string()
+    } else if runtime.contains("sparse") {
         "lexical_sparse".to_string()
     } else if runtime.contains("byte") {
         "byte_char".to_string()
