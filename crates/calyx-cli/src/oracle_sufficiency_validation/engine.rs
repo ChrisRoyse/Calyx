@@ -1,11 +1,16 @@
 use calyx_assay::{
-    AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, TrustTag, entropy_bits,
-    logistic_probe_mi,
+    AssayCacheKey, AssayStore, AssaySubject, EstimatorKind, MiEstimate, TrustTag,
+    ensure_informative_binary_labels, logistic_probe_mi_calibrated,
 };
 use calyx_aster::cf::CfRouter;
-use calyx_core::{AnchorKind, SlotId, VaultId};
+use calyx_core::{AnchorKind, CalyxError, SlotId, VaultId};
 use serde::Serialize;
 use ulid::Ulid;
+
+use crate::assay_verdict_metadata::{
+    calibration_planted_bits, calibration_recovered_bits, calibration_recovery_ratio,
+    calibration_status, estimate_bound_name,
+};
 
 use super::data::OracleCorpus;
 use super::request::OracleSufficiencyRequest;
@@ -25,6 +30,12 @@ pub(crate) struct OracleSufficiencyReport {
     pub(crate) h_y: f32,
     pub(crate) i_panel_oracle: f32,
     pub(crate) i_panel_ci: [f32; 2],
+    pub(crate) estimate_bound: String,
+    pub(crate) sufficiency_basis_bits: f32,
+    pub(crate) power_calibration_status: Option<String>,
+    pub(crate) power_recovery_ratio: Option<f32>,
+    pub(crate) power_recovered_bits: Option<f32>,
+    pub(crate) power_planted_bits: Option<f32>,
     pub(crate) deficit: f32,
     pub(crate) sufficient: bool,
     pub(crate) refused: bool,
@@ -40,6 +51,11 @@ pub(crate) struct LensReport {
     pub(crate) name: String,
     pub(crate) bits: f32,
     pub(crate) ci: [f32; 2],
+    pub(crate) estimate_bound: String,
+    pub(crate) power_calibration_status: Option<String>,
+    pub(crate) power_recovery_ratio: Option<f32>,
+    pub(crate) power_recovered_bits: Option<f32>,
+    pub(crate) power_planted_bits: Option<f32>,
     pub(crate) accuracy: f32,
     pub(crate) estimator: String,
 }
@@ -63,13 +79,13 @@ pub(crate) fn evaluate_corpus(
 ) -> Result<OracleSufficiencyReport, String> {
     // Lens-agnostic binary oracle labels: true iff the instance was resolved.
     let labels: &[bool] = &corpus.labels;
-    let h_y = entropy_bits(labels);
+    let h_y = ensure_informative_binary_labels(labels).map_err(calyx_error_detail)?;
 
     // Per-lens form-only bits about the oracle.
     let mut measurements = Vec::with_capacity(corpus.lenses.len());
     for (index, lens) in corpus.lenses.iter().enumerate() {
-        let report = logistic_probe_mi(&corpus.lens_vectors[index], labels)
-            .map_err(|error| error.code.to_string())?;
+        let report = logistic_probe_mi_calibrated(&corpus.lens_vectors[index], labels)
+            .map_err(calyx_error_detail)?;
         measurements.push(LensMeasurement {
             index,
             name: lens.name.clone(),
@@ -81,12 +97,11 @@ pub(crate) fn evaluate_corpus(
     // Panel I(panel;oracle): concatenate ALL lens vectors per instance.
     let panel = panel_mi(corpus, labels)?;
     let i_panel_oracle = panel.bits;
+    let sufficiency_basis_bits = panel.ci_low;
 
-    // Sufficiency bound (calyx_oracle honesty_gate.rs:49:
-    // sufficient = panel_bits >= anchor_entropy_bits).
-    let sufficient = i_panel_oracle >= h_y;
+    let sufficient = sufficiency_basis_bits >= h_y;
     let refused = !sufficient;
-    let deficit = (h_y - i_panel_oracle).max(0.0);
+    let deficit = (h_y - sufficiency_basis_bits).max(0.0);
 
     // Fail-closed: the binding outcome is that the form-only panel is
     // insufficient and refusal fires. A sufficient form-only panel (or a gate
@@ -108,6 +123,11 @@ pub(crate) fn evaluate_corpus(
             name: m.name.clone(),
             bits: m.estimate.bits,
             ci: [m.estimate.ci_low, m.estimate.ci_high],
+            estimate_bound: estimate_bound_name(m.estimate.bound).to_string(),
+            power_calibration_status: calibration_status(&m.estimate),
+            power_recovery_ratio: calibration_recovery_ratio(&m.estimate),
+            power_recovered_bits: calibration_recovered_bits(&m.estimate),
+            power_planted_bits: calibration_planted_bits(&m.estimate),
             accuracy: m.accuracy,
             estimator: format!("{:?}", m.estimate.estimator),
         })
@@ -136,6 +156,12 @@ pub(crate) fn evaluate_corpus(
         h_y,
         i_panel_oracle,
         i_panel_ci: [panel.ci_low, panel.ci_high],
+        estimate_bound: estimate_bound_name(panel.bound).to_string(),
+        sufficiency_basis_bits,
+        power_calibration_status: calibration_status(&panel),
+        power_recovery_ratio: calibration_recovery_ratio(&panel),
+        power_recovered_bits: calibration_recovered_bits(&panel),
+        power_planted_bits: calibration_planted_bits(&panel),
         deficit,
         sufficient,
         refused,
@@ -158,7 +184,7 @@ fn panel_mi(corpus: &OracleCorpus, labels: &[bool]) -> Result<MiEstimate, String
             joint[sample].extend_from_slice(row);
         }
     }
-    let report = logistic_probe_mi(&joint, labels).map_err(|error| error.code.to_string())?;
+    let report = logistic_probe_mi_calibrated(&joint, labels).map_err(calyx_error_detail)?;
     Ok(report.estimate)
 }
 
@@ -213,15 +239,14 @@ fn persist_estimates(
         (measurements.len() + 1) as u64,
     );
 
-    let mut router = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)
-        .map_err(|error| error.code.to_string())?;
+    let mut router =
+        CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
     let persisted = store
         .persist_to_aster(&mut router)
-        .map_err(|error| error.code.to_string())?;
+        .map_err(calyx_error_detail)?;
     drop(router);
-    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP)
-        .map_err(|error| error.code.to_string())?;
-    let loaded = AssayStore::load_from_aster(&reopened).map_err(|error| error.code.to_string())?;
+    let reopened = CfRouter::open(&request.cf_root, CF_MEMTABLE_CAP).map_err(calyx_error_detail)?;
+    let loaded = AssayStore::load_from_aster(&reopened).map_err(calyx_error_detail)?;
     Ok((persisted, loaded.len()))
 }
 
@@ -230,4 +255,8 @@ fn deterministic_vault_id(domain: &str) -> VaultId {
     let mut bytes = [0_u8; 16];
     bytes.copy_from_slice(&digest.as_bytes()[..16]);
     VaultId::from_ulid(Ulid::from_bytes(bytes))
+}
+
+fn calyx_error_detail(error: CalyxError) -> String {
+    format!("{}: {}", error.code, error.message)
 }

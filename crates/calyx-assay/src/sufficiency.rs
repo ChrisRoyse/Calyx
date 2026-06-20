@@ -6,7 +6,10 @@ use calyx_core::{Anchor, AnchorKind, CalyxError, Result, SlotId};
 use serde::{Deserialize, Serialize};
 
 use crate::attribution::SlotAttribution;
-use crate::estimate::{TrustTag, provisional_without_anchor, trust_for_anchor};
+use crate::calibration::{PowerCalibration, PowerCalibrationStatus, underpowered};
+use crate::estimate::{
+    EstimateBound, MiEstimate, TrustTag, provisional_without_anchor, trust_for_anchor,
+};
 
 pub const CALYX_ASSAY_INVALID_SCOPE: &str = "CALYX_ASSAY_INVALID_SCOPE";
 
@@ -95,6 +98,7 @@ pub struct SufficiencyDeficit {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PanelSufficiency {
     pub panel_bits: f32,
+    pub sufficiency_basis_bits: f32,
     pub anchor_entropy_bits: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observation_scope: Option<ObservationScope>,
@@ -102,6 +106,9 @@ pub struct PanelSufficiency {
     pub deficit_bits: f32,
     pub deficits: Vec<SufficiencyDeficit>,
     pub trust: TrustTag,
+    pub estimate_bound: EstimateBound,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_calibration: Option<PowerCalibration>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -157,6 +164,27 @@ pub fn panel_sufficiency(
         provisional_without_anchor(trust),
         DeficitRoutingContext::default(),
     )
+}
+
+pub fn panel_sufficiency_from_estimate(
+    estimate: &MiEstimate,
+    anchor_entropy_bits: f32,
+    slots: &[SlotAttribution],
+    trust: TrustTag,
+) -> Result<PanelSufficiency> {
+    let calibration = passing_calibration(estimate)?;
+    Ok(panel_sufficiency_with_trust_and_basis(
+        SufficiencyBasis {
+            panel_bits: estimate.bits,
+            sufficiency_basis_bits: estimate.ci_low,
+            estimate_bound: estimate.bound,
+            power_calibration: Some(calibration),
+        },
+        anchor_entropy_bits,
+        slots,
+        provisional_without_anchor(trust),
+        DeficitRoutingContext::default(),
+    ))
 }
 
 pub fn panel_sufficiency_with_anchor(
@@ -257,22 +285,73 @@ fn panel_sufficiency_with_trust(
     trust: TrustTag,
     context: DeficitRoutingContext,
 ) -> PanelSufficiency {
-    let deficit_bits = (anchor_entropy_bits - panel_bits).max(0.0);
-    let sufficient = panel_bits >= anchor_entropy_bits;
+    panel_sufficiency_with_trust_and_basis(
+        SufficiencyBasis::diagnostic(panel_bits),
+        anchor_entropy_bits,
+        slots,
+        trust,
+        context,
+    )
+}
+
+struct SufficiencyBasis {
+    panel_bits: f32,
+    sufficiency_basis_bits: f32,
+    estimate_bound: EstimateBound,
+    power_calibration: Option<PowerCalibration>,
+}
+
+impl SufficiencyBasis {
+    fn diagnostic(panel_bits: f32) -> Self {
+        Self {
+            panel_bits,
+            sufficiency_basis_bits: panel_bits,
+            estimate_bound: EstimateBound::LowerBound,
+            power_calibration: None,
+        }
+    }
+}
+
+fn panel_sufficiency_with_trust_and_basis(
+    basis: SufficiencyBasis,
+    anchor_entropy_bits: f32,
+    slots: &[SlotAttribution],
+    trust: TrustTag,
+    context: DeficitRoutingContext,
+) -> PanelSufficiency {
+    let deficit_bits = (anchor_entropy_bits - basis.sufficiency_basis_bits).max(0.0);
+    let sufficient = basis.sufficiency_basis_bits >= anchor_entropy_bits;
     let deficits = if sufficient {
         Vec::new()
     } else {
         localized_deficits(deficit_bits, slots, &context)
     };
     PanelSufficiency {
-        panel_bits,
+        panel_bits: basis.panel_bits,
+        sufficiency_basis_bits: basis.sufficiency_basis_bits,
         anchor_entropy_bits,
         observation_scope: context.observation_scope.clone(),
         sufficient,
         deficit_bits,
         deficits,
         trust,
+        estimate_bound: basis.estimate_bound,
+        power_calibration: basis.power_calibration,
     }
+}
+
+fn passing_calibration(estimate: &MiEstimate) -> Result<PowerCalibration> {
+    let calibration = estimate.power_calibration.clone().ok_or_else(|| {
+        underpowered("panel sufficiency requires a passing planted-signal power calibration")
+    })?;
+    if calibration.status != PowerCalibrationStatus::Passed {
+        return Err(underpowered(format!(
+            "panel sufficiency estimator calibration status is {:?}",
+            calibration.status
+        )));
+    }
+    calibration.require_passed()?;
+    Ok(calibration)
 }
 
 pub fn entropy_bits<T>(labels: &[T]) -> f32

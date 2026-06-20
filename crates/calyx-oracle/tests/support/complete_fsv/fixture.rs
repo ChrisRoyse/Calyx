@@ -48,12 +48,15 @@ impl FakeAssay {
         Self {
             report: PanelSufficiency {
                 panel_bits: 2.0,
+                sufficiency_basis_bits: 2.0,
                 anchor_entropy_bits: 1.0,
                 sufficient: true,
                 deficit_bits: 0.0,
                 deficits: Vec::new(),
                 observation_scope: None,
                 trust: TrustTag::Trusted,
+                estimate_bound: calyx_assay::EstimateBound::LowerBound,
+                power_calibration: None,
             },
         }
     }
@@ -63,6 +66,7 @@ impl FakeAssay {
         Self {
             report: PanelSufficiency {
                 panel_bits: 0.3,
+                sufficiency_basis_bits: 0.3,
                 anchor_entropy_bits: 1.0,
                 sufficient: false,
                 deficit_bits: 0.7,
@@ -79,6 +83,8 @@ impl FakeAssay {
                 }],
                 observation_scope: None,
                 trust: TrustTag::Provisional,
+                estimate_bound: calyx_assay::EstimateBound::LowerBound,
+                power_calibration: None,
             },
         }
     }

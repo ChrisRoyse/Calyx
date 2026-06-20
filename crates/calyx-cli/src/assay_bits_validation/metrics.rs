@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use super::engine::AssayBitsReport;
+use super::report::AssayBitsReport;
 use super::request::AssayBitsRequest;
 
 #[derive(Clone, Debug, Serialize)]
@@ -41,13 +41,22 @@ pub(crate) fn write_metric_outputs(
     let bits_per_lens = request.metrics_dir.join("assay_bits_per_lens.txt");
     let mut lens_lines = String::new();
     for lens in &report.lenses {
+        let seed_sigma = required_f32(lens.seed_sigma_bits, "lens.seed_sigma_bits")?;
+        let power_recovery = required_f32(lens.power_recovery_ratio, "lens.power_recovery_ratio")?;
+        let power_status = required_str(
+            lens.power_calibration_status.as_deref(),
+            "lens.power_calibration_status",
+        )?;
         lens_lines.push_str(&format!(
-            "lens={} bits={:.6} ci=[{:.6},{:.6}] seed_sigma={:.6} admitted={}\n",
+            "lens={} bits={:.6} ci=[{:.6},{:.6}] bound={} seed_sigma={:.6} power_status={} power_recovery={:.6} admitted={}\n",
             lens.name,
             lens.bits_about,
             lens.ci[0],
             lens.ci[1],
-            lens.seed_sigma_bits.unwrap_or(0.0),
+            lens.estimate_bound,
+            seed_sigma,
+            power_status,
+            power_recovery,
             lens.admitted
         ));
     }
@@ -128,14 +137,57 @@ fn check_finite(report: &AssayBitsReport) -> Result<(), String> {
         ("panel.i_panel_anchor", report.panel.i_panel_anchor),
         ("panel.ci_low", report.panel.ci_95[0]),
         ("panel.ci_high", report.panel.ci_95[1]),
+        (
+            "panel.sufficiency_basis_bits",
+            report.panel.sufficiency_basis_bits,
+        ),
     ];
+    values.push((
+        "panel.power_recovery_ratio",
+        required_f32(
+            report.panel.power_recovery_ratio,
+            "panel.power_recovery_ratio",
+        )?,
+    ));
+    values.push((
+        "panel.power_recovered_bits",
+        required_f32(
+            report.panel.power_recovered_bits,
+            "panel.power_recovered_bits",
+        )?,
+    ));
+    values.push((
+        "panel.power_planted_bits",
+        required_f32(report.panel.power_planted_bits, "panel.power_planted_bits")?,
+    ));
+    required_str(
+        report.panel.power_calibration_status.as_deref(),
+        "panel.power_calibration_status",
+    )?;
     for lens in &report.lenses {
         values.push(("lens.bits_about", lens.bits_about));
         values.push(("lens.ci_low", lens.ci[0]));
         values.push(("lens.ci_high", lens.ci[1]));
-        if let Some(seed_sigma) = lens.seed_sigma_bits {
-            values.push(("lens.seed_sigma_bits", seed_sigma));
-        }
+        values.push((
+            "lens.power_recovery_ratio",
+            required_f32(lens.power_recovery_ratio, "lens.power_recovery_ratio")?,
+        ));
+        values.push((
+            "lens.power_recovered_bits",
+            required_f32(lens.power_recovered_bits, "lens.power_recovered_bits")?,
+        ));
+        values.push((
+            "lens.power_planted_bits",
+            required_f32(lens.power_planted_bits, "lens.power_planted_bits")?,
+        ));
+        values.push((
+            "lens.seed_sigma_bits",
+            required_f32(lens.seed_sigma_bits, "lens.seed_sigma_bits")?,
+        ));
+        required_str(
+            lens.power_calibration_status.as_deref(),
+            "lens.power_calibration_status",
+        )?;
         values.push(("lens.max_pairwise_corr", lens.max_pairwise_corr));
         values.push((
             "lens.max_pairwise_corr_ci_low",
@@ -174,6 +226,14 @@ fn check_finite(report: &AssayBitsReport) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn required_f32(value: Option<f32>, name: &str) -> Result<f32, String> {
+    value.ok_or_else(|| format!("CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA: {name} absent"))
+}
+
+fn required_str<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, String> {
+    value.ok_or_else(|| format!("CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA: {name} absent"))
 }
 
 fn display(path: &Path) -> String {

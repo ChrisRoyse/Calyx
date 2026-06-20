@@ -175,13 +175,16 @@ fn write_plan(root: &Path, lens_count: usize, rows: usize) -> PathBuf {
         let queries = vector_dir.join(format!("slot_{slot:02}_lens_{slot}_queries.i8bin"));
         write_i8bin(&corpus, rows, slot);
         write_i8bin(&queries, 2, slot);
+        let lens_id = format!("{:032x}", slot + 1);
+        let weights_sha256 = format!("{:064x}", slot + 1);
+        let vault = root.join(format!("vault-{slot}"));
         slots.push(format!(
             "{{\"slot\":{slot},\"name\":\"semantic-fastembed-lens-{slot}\",\"lens_id\":\"{}\",\"weights_sha256\":\"{}\",\"bits_about\":0.5,\"corpus\":\"{}\",\"queries\":\"{}\",\"vault\":\"{}\"}}",
-            format!("{:032x}", slot + 1),
-            format!("{:064x}", slot + 1),
+            lens_id,
+            weights_sha256,
             json_path(&corpus),
             json_path(&queries),
-            json_path(&root.join(format!("vault-{slot}")))
+            json_path(&vault)
         ));
     }
     let plan = root.join("partitioned_rrf_plan.json");

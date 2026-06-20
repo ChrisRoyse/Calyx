@@ -5,7 +5,7 @@ use calyx_core::Placement;
 use serde::Serialize;
 
 use super::cost::LensCostMap;
-use super::engine::{LensMeasurement, LensReport};
+use super::report::{LensMeasurement, LensReport};
 
 #[derive(Clone, Debug)]
 pub(crate) struct SelectionMeasurement {

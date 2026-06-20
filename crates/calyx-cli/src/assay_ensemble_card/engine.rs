@@ -143,12 +143,7 @@ fn persist_and_readback(
     store.put(
         key.clone(),
         AssaySubject::Panel,
-        estimate(
-            card.panel_bits,
-            card.panel_ci,
-            card.n_samples,
-            EstimatorKind::LogisticProbe,
-        ),
+        panel_estimate(card, EstimatorKind::LogisticProbe),
         "assay ensemble-card panel",
         2_000,
     );
@@ -168,12 +163,7 @@ fn persist_and_readback(
     store.put_with_payload(
         key.clone(),
         AssaySubject::EnsembleCard,
-        MiEstimate::point(
-            card.panel_bits,
-            card.n_samples,
-            EstimatorKind::PanelSufficiency,
-            TrustTag::Provisional,
-        ),
+        panel_estimate(card, EstimatorKind::PanelSufficiency),
         "assay ensemble-card payload",
         2_002,
         payload,
@@ -220,6 +210,15 @@ fn persist_and_readback(
 
 fn estimate(bits: f32, ci: [f32; 2], n: usize, estimator: EstimatorKind) -> MiEstimate {
     MiEstimate::new(bits, ci[0], ci[1], n, estimator, TrustTag::Provisional)
+}
+
+fn panel_estimate(card: &EnsembleCard, estimator: EstimatorKind) -> MiEstimate {
+    let mut estimate = estimate(card.panel_bits, card.panel_ci, card.n_samples, estimator)
+        .with_bound(card.sufficiency.estimate_bound);
+    if let Some(calibration) = card.sufficiency.power_calibration.clone() {
+        estimate = estimate.with_power_calibration(calibration);
+    }
+    estimate
 }
 
 fn subject_counts(rows: &[calyx_assay::AssayRow]) -> BTreeMap<String, usize> {

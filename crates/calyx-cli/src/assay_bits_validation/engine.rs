@@ -1,103 +1,28 @@
 use calyx_assay::{
     AssayCacheKey, AssayStore, AssaySubject, CorrelationEvidence, MiEstimate, PanelLensDecision,
-    PanelPackingReport, PanelResourceBudget, ResourceDensity, ResourceUsage, StratumBits,
-    admit_lens_estimate, admit_lens_with_usage, entropy_bits, logistic_probe_mi_multiseed,
-    stratified_bits,
+    PanelResourceBudget, ResourceDensity, ResourceUsage, StratumBits, admit_lens_estimate,
+    admit_lens_with_usage, ensure_informative_binary_labels,
+    logistic_probe_mi_multiseed_calibrated, stratified_bits,
 };
 use calyx_aster::cf::CfRouter;
-use calyx_core::{AnchorKind, Placement, SlotId, VaultId};
-use serde::Serialize;
+use calyx_core::{AnchorKind, SlotId, VaultId};
 use ulid::Ulid;
 
 use super::calyx_error_detail;
-use super::comparison::{PanelComparisonReport, compare_density_panel};
+use super::comparison::compare_density_panel;
 use super::correlation::lens_pair_correlation_evidence;
 use super::cost::LensCostMap;
 use super::data::AssayCorpus;
+use super::report::{AssayBitsReport, LensMeasurement, LensReport, PanelReport, StratumReport};
 use super::request::AssayBitsRequest;
 use super::selection::{
-    SelectionMeasurement, SignalDensityReport, budget_usage, compute_signal_density,
-    density_budget, density_order, packed_panel_report, raw_bits_order, remaining_budget,
+    SelectionMeasurement, budget_usage, compute_signal_density, density_budget, density_order,
+    packed_panel_report, raw_bits_order, remaining_budget,
 };
+use crate::assay_verdict_metadata::{calibration_status, estimate_bound_name};
 
 const PANEL_VERSION: u32 = 70;
 const CF_MEMTABLE_CAP: usize = 1_048_576;
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct AssayBitsReport {
-    pub(crate) dataset: String,
-    pub(crate) embedding_model_id: String,
-    pub(crate) domain: String,
-    pub(crate) n_samples: usize,
-    pub(crate) target_class: usize,
-    pub(crate) anchor_entropy_bits: f32,
-    pub(crate) min_bits: f32,
-    pub(crate) max_corr: f32,
-    pub(crate) lenses: Vec<LensReport>,
-    pub(crate) panel: PanelReport,
-    pub(crate) strata: Vec<StratumReport>,
-    /// Present only when `--cost-json` was supplied: per-lens signal density
-    /// (bits per resource) ranked for panel selection (#717 signal-density).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) signal_density: Option<SignalDensityReport>,
-    /// Present only when `--panel-budget-json` was supplied: the actual
-    /// density-ordered panel packing verdict under the fixed resource budget.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) packed_panel: Option<PanelPackingReport>,
-    /// Present only when resource packing runs: the density panel compared
-    /// with best raw-signal one-/two-lens controls under the same budget.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) panel_comparison: Option<PanelComparisonReport>,
-    pub(crate) cf_root: String,
-    pub(crate) assay_cf_rows_persisted: usize,
-    pub(crate) assay_cf_rows_readback: usize,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct LensReport {
-    pub(crate) name: String,
-    pub(crate) redundant: bool,
-    pub(crate) bits_about: f32,
-    pub(crate) ci: [f32; 2],
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) seed_sigma_bits: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) seed_count: Option<usize>,
-    pub(crate) unresolved: bool,
-    pub(crate) estimator: String,
-    pub(crate) max_pairwise_corr: f32,
-    pub(crate) max_pairwise_corr_ci: [f32; 2],
-    pub(crate) admitted: bool,
-    pub(crate) rejection_reason: Option<String>,
-    /// Per-lens signal density, present only when `--cost-json` was supplied.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) density: Option<ResourceDensity>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) usage: Option<ResourceUsage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) placement: Option<Placement>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct PanelReport {
-    pub(crate) admitted_lenses: Vec<String>,
-    pub(crate) i_panel_anchor: f32,
-    pub(crate) ci_95: [f32; 2],
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub(crate) struct StratumReport {
-    pub(crate) name: String,
-    pub(crate) bits: f32,
-    pub(crate) frequency: f32,
-}
-
-pub(crate) struct LensMeasurement {
-    pub(crate) index: usize,
-    pub(crate) name: String,
-    pub(crate) redundant: bool,
-    pub(crate) estimate: MiEstimate,
-}
 
 pub(crate) fn evaluate_corpus(
     corpus: &AssayCorpus,
@@ -114,12 +39,13 @@ pub(crate) fn evaluate_corpus(
             anchor.len()
         ));
     }
-    let anchor_entropy_bits = entropy_bits(&anchor);
+    let anchor_entropy_bits =
+        ensure_informative_binary_labels(&anchor).map_err(calyx_error_detail)?;
 
     // Per-lens bits_about about the grounded binary anchor.
     let mut measurements = Vec::with_capacity(corpus.lenses.len());
     for (index, lens) in corpus.lenses.iter().enumerate() {
-        let report = logistic_probe_mi_multiseed(
+        let report = logistic_probe_mi_multiseed_calibrated(
             &corpus.lens_vectors[index],
             &anchor,
             Some(&corpus.anchor_groups),
@@ -220,6 +146,23 @@ pub(crate) fn evaluate_corpus(
             redundant: measurement.redundant,
             bits_about: bits,
             ci: [measurement.estimate.ci_low, measurement.estimate.ci_high],
+            estimate_bound: estimate_bound_name(measurement.estimate.bound).to_string(),
+            power_calibration_status: calibration_status(&measurement.estimate),
+            power_recovery_ratio: measurement
+                .estimate
+                .power_calibration
+                .as_ref()
+                .map(|calibration| calibration.recovery_ratio),
+            power_recovered_bits: measurement
+                .estimate
+                .power_calibration
+                .as_ref()
+                .map(|calibration| calibration.recovered_bits),
+            power_planted_bits: measurement
+                .estimate
+                .power_calibration
+                .as_ref()
+                .map(|calibration| calibration.planted_bits),
             seed_sigma_bits: measurement
                 .estimate
                 .reliability
@@ -323,6 +266,7 @@ pub(crate) fn evaluate_corpus(
         n_samples: corpus.n_samples(),
         target_class: request.target_class,
         anchor_entropy_bits,
+        min_informative_target_entropy_bits: calyx_assay::MIN_INFORMATIVE_TARGET_ENTROPY_BITS,
         min_bits: request.min_bits,
         max_corr: request.max_corr,
         lenses,
@@ -330,6 +274,21 @@ pub(crate) fn evaluate_corpus(
             admitted_lenses: admitted_lens_names,
             i_panel_anchor: panel.bits,
             ci_95: [panel.ci_low, panel.ci_high],
+            estimate_bound: estimate_bound_name(panel.bound).to_string(),
+            sufficiency_basis_bits: panel.ci_low,
+            power_calibration_status: calibration_status(&panel),
+            power_recovery_ratio: panel
+                .power_calibration
+                .as_ref()
+                .map(|calibration| calibration.recovery_ratio),
+            power_recovered_bits: panel
+                .power_calibration
+                .as_ref()
+                .map(|calibration| calibration.recovered_bits),
+            power_planted_bits: panel
+                .power_calibration
+                .as_ref()
+                .map(|calibration| calibration.planted_bits),
         },
         strata: strata_reports,
         signal_density,
@@ -358,8 +317,9 @@ fn panel_mi(
             joint[sample].extend_from_slice(row);
         }
     }
-    let report = logistic_probe_mi_multiseed(&joint, anchor, Some(&corpus.anchor_groups))
-        .map_err(calyx_error_detail)?;
+    let report =
+        logistic_probe_mi_multiseed_calibrated(&joint, anchor, Some(&corpus.anchor_groups))
+            .map_err(calyx_error_detail)?;
     Ok(report.estimate)
 }
 
@@ -383,11 +343,14 @@ fn max_corr_evidence(
 }
 
 fn stratify(corpus: &AssayCorpus, anchor: &[bool]) -> Result<calyx_assay::StratifiedBits, String> {
-    let global =
-        logistic_probe_mi_multiseed(&corpus.lens_vectors[0], anchor, Some(&corpus.anchor_groups))
-            .map_err(calyx_error_detail)?
-            .estimate
-            .bits;
+    let global = logistic_probe_mi_multiseed_calibrated(
+        &corpus.lens_vectors[0],
+        anchor,
+        Some(&corpus.anchor_groups),
+    )
+    .map_err(calyx_error_detail)?
+    .estimate
+    .bits;
     let mut classes: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
     for &label in &corpus.labels {
         classes.insert(label);
@@ -399,13 +362,13 @@ fn stratify(corpus: &AssayCorpus, anchor: &[bool]) -> Result<calyx_assay::Strati
         let member: Vec<bool> = corpus.labels.iter().map(|&l| l == class).collect();
         let frequency = member.iter().filter(|&&v| v).count() as f32 / total.max(1.0);
         // Stratum bits: lens-0 signal about "is this sample in this class".
-        let bits = logistic_probe_mi_multiseed(
+        let bits = logistic_probe_mi_multiseed_calibrated(
             &corpus.lens_vectors[0],
             &member,
             Some(&corpus.anchor_groups),
         )
         .map(|report| report.estimate.bits)
-        .unwrap_or(0.0);
+        .map_err(|error| format!("{}: stratum=class_{class}", calyx_error_detail(error)))?;
         strata.push(StratumBits {
             name: format!("class_{class}"),
             bits,

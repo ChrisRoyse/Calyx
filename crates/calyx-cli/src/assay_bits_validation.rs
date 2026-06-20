@@ -13,10 +13,14 @@ pub(crate) mod cost;
 pub(crate) mod data;
 mod engine;
 mod metrics;
+mod report;
 pub(crate) mod request;
 mod selection;
+#[cfg(test)]
+mod test_support;
 
 use calyx_assay::{
+    CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY, CALYX_ASSAY_ESTIMATOR_UNDERPOWERED,
     CALYX_ASSAY_INVALID_RESOURCE, CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED, CALYX_ASSAY_UNRESOLVED,
 };
 use calyx_core::{CalyxError, CalyxErrorCode};
@@ -70,6 +74,8 @@ fn assay_cli_error(error: String) -> CliError {
         "CALYX_ASSAY_LOW_SIGNAL" => CliError::from(CalyxError::assay_low_signal(message)),
         "CALYX_ASSAY_REDUNDANT" => CliError::from(CalyxError::assay_redundant(message)),
         CALYX_ASSAY_UNRESOLVED => local_error(code, message, UNRESOLVED_REMEDIATION),
+        CALYX_ASSAY_ESTIMATOR_UNDERPOWERED => local_error(code, message, FSV_REMEDIATION),
+        CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY => local_error(code, message, FSV_REMEDIATION),
         CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED => local_error(code, message, RESOURCE_REMEDIATION),
         CALYX_ASSAY_INVALID_RESOURCE => local_error(code, message, INVALID_RESOURCE_REMEDIATION),
         "CALYX_FSV_ASSAY_INVALID_CONFIG" => local_error(code, message, FSV_REMEDIATION),
@@ -88,6 +94,7 @@ fn assay_cli_error(error: String) -> CliError {
         "CALYX_FSV_ASSAY_EMPTY_PANEL" => local_error(code, message, FSV_REMEDIATION),
         "CALYX_FSV_ASSAY_PANEL_CONTROL_NOT_BEATEN" => local_error(code, message, FSV_REMEDIATION),
         "CALYX_FSV_ASSAY_NONFINITE_METRIC" => local_error(code, message, FSV_REMEDIATION),
+        "CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA" => local_error(code, message, FSV_REMEDIATION),
         _ => CliError::usage(error),
     }
 }
@@ -143,6 +150,8 @@ fn local_error(code: &'static str, message: String, remediation: &'static str) -
 
 const ASSAY_LOCAL_CODES: &[&str] = &[
     CALYX_ASSAY_UNRESOLVED,
+    CALYX_ASSAY_ESTIMATOR_UNDERPOWERED,
+    CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY,
     CALYX_ASSAY_RESOURCE_BUDGET_EXCEEDED,
     CALYX_ASSAY_INVALID_RESOURCE,
     "CALYX_FSV_ASSAY_INVALID_CONFIG",
@@ -159,6 +168,7 @@ const ASSAY_LOCAL_CODES: &[&str] = &[
     "CALYX_FSV_ASSAY_EMPTY_PANEL",
     "CALYX_FSV_ASSAY_PANEL_CONTROL_NOT_BEATEN",
     "CALYX_FSV_ASSAY_NONFINITE_METRIC",
+    "CALYX_FSV_ASSAY_MISSING_VERDICT_METADATA",
 ];
 
 #[cfg(test)]

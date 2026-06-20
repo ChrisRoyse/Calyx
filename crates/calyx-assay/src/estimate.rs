@@ -3,6 +3,8 @@
 use calyx_core::{Anchor, CalyxError, Result};
 use serde::{Deserialize, Serialize};
 
+use crate::calibration::PowerCalibration;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TrustTag {
@@ -20,6 +22,15 @@ pub enum EstimatorKind {
     PanelSufficiency,
     OutcomeEntropy,
     PairGain,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EstimateBound {
+    #[default]
+    LowerBound,
+    Point,
+    UpperBound,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -57,6 +68,10 @@ pub struct MiEstimate {
     pub n_samples: usize,
     pub estimator: EstimatorKind,
     pub trust: TrustTag,
+    #[serde(default)]
+    pub bound: EstimateBound,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub power_calibration: Option<PowerCalibration>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reliability: Option<EstimateReliability>,
 }
@@ -80,6 +95,8 @@ impl MiEstimate {
             n_samples,
             estimator,
             trust,
+            bound: EstimateBound::LowerBound,
+            power_calibration: None,
             reliability: None,
         }
     }
@@ -87,10 +104,21 @@ impl MiEstimate {
     pub fn point(bits: f32, n_samples: usize, estimator: EstimatorKind, trust: TrustTag) -> Self {
         let band = (bits.abs() * 0.15).max(0.02);
         Self::new(bits, bits - band, bits + band, n_samples, estimator, trust)
+            .with_bound(EstimateBound::Point)
     }
 
     pub fn with_reliability(mut self, reliability: EstimateReliability) -> Self {
         self.reliability = Some(reliability);
+        self
+    }
+
+    pub fn with_power_calibration(mut self, calibration: PowerCalibration) -> Self {
+        self.power_calibration = Some(calibration);
+        self
+    }
+
+    pub fn with_bound(mut self, bound: EstimateBound) -> Self {
+        self.bound = bound;
         self
     }
 }

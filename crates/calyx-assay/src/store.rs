@@ -458,15 +458,14 @@ mod tests {
     }
 
     fn estimate(bits: f32) -> MiEstimate {
-        MiEstimate {
+        MiEstimate::new(
             bits,
-            ci_low: bits - 0.01,
-            ci_high: bits + 0.01,
-            n_samples: 120,
-            estimator: EstimatorKind::Ksg,
-            trust: TrustTag::Trusted,
-            reliability: None,
-        }
+            bits - 0.01,
+            bits + 0.01,
+            120,
+            EstimatorKind::Ksg,
+            TrustTag::Trusted,
+        )
     }
 
     fn test_dir(name: &str) -> PathBuf {

@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use super::cost::LensCostMap;
 use super::data::AssayCorpus;
-use super::engine::LensMeasurement;
+use super::report::LensMeasurement;
 use super::selection::budget_usage;
 
 const CONTROL_LENS_LIMIT: usize = 2;

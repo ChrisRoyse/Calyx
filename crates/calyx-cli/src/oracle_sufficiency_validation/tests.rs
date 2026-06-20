@@ -45,21 +45,34 @@ fn form_only_panel_is_insufficient_and_refusal_fires() {
 }
 
 #[test]
-fn separable_panel_fails_closed_as_unexpectedly_sufficient() {
+fn separable_panel_refuses_when_lower_bound_does_not_prove_sufficiency() {
     // Lens vectors CLEANLY separate the label: the panel recovers the oracle,
-    // so the gate must detect sufficiency and fail closed rather than
-    // rubber-stamping a refusal that did not actually fire.
+    // but lower-bound honesty only proves sufficiency when ci_low >= H(Y).
     let root = temp_root("oracle-suff-separable");
     let corpus_dir = root.join("corpus");
     fs::create_dir_all(&corpus_dir).unwrap();
     write_separable_corpus(&corpus_dir, 200);
     let request = request_for(&root);
     let data = OracleCorpus::load(&request).unwrap();
-    let error = evaluate_corpus(&data, &request).unwrap_err();
+    let report = evaluate_corpus(&data, &request).unwrap();
     assert!(
-        error.starts_with("CALYX_FSV_ORACLE_PANEL_UNEXPECTEDLY_SUFFICIENT"),
-        "separable panel must fail closed, got {error}"
+        report.i_panel_oracle >= report.h_y,
+        "fixture should recover the point MI: i_panel={} h_y={}",
+        report.i_panel_oracle,
+        report.h_y
     );
+    assert!(
+        report.sufficiency_basis_bits < report.h_y,
+        "lower-bound basis must remain below H(Y): basis={} h_y={}",
+        report.sufficiency_basis_bits,
+        report.h_y
+    );
+    assert!(
+        report.refused,
+        "refusal remains honest until ci_low >= H(Y)"
+    );
+    assert_eq!(report.estimate_bound, "lower_bound");
+    assert_eq!(report.power_calibration_status.as_deref(), Some("passed"));
     let _ = fs::remove_dir_all(root);
 }
 

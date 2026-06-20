@@ -6,6 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::bootstrap::{
     BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED, bootstrap_paired_ci,
 };
+use crate::calibration::{
+    DEFAULT_MIN_POWER_RECOVERY_RATIO, PowerCalibration, ensure_informative_binary_labels,
+};
 use crate::estimate::{EstimateReliability, EstimatorKind, MiEstimate, TrustTag, trust_for_anchor};
 use crate::group_split::{GroupSplit, group_holdout_split, row_groups};
 use crate::ksg::MIN_ASSAY_SAMPLES;
@@ -27,6 +30,17 @@ pub fn logistic_probe_mi(samples: &[Vec<f32>], labels: &[bool]) -> Result<Logist
     logistic_probe_mi_with_trust(samples, labels, TrustTag::Provisional)
 }
 
+pub fn logistic_probe_mi_calibrated(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+) -> Result<LogisticProbeReport> {
+    ensure_informative_binary_labels(labels)?;
+    let calibration = logistic_power_calibration(samples, labels, None, TrustTag::Provisional)?;
+    let mut report = logistic_probe_mi_with_trust(samples, labels, TrustTag::Provisional)?;
+    report.estimate = report.estimate.with_power_calibration(calibration);
+    Ok(report)
+}
+
 pub fn logistic_probe_mi_with_anchor(
     samples: &[Vec<f32>],
     labels: &[bool],
@@ -43,6 +57,19 @@ pub fn logistic_probe_mi_multiseed(
     logistic_probe_mi_multiseed_with_trust(samples, labels, groups, TrustTag::Provisional)
 }
 
+pub fn logistic_probe_mi_multiseed_calibrated(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    groups: Option<&[String]>,
+) -> Result<LogisticProbeReport> {
+    logistic_probe_mi_multiseed_calibrated_with_trust(
+        samples,
+        labels,
+        groups,
+        TrustTag::Provisional,
+    )
+}
+
 pub fn logistic_probe_mi_multiseed_with_anchor(
     samples: &[Vec<f32>],
     labels: &[bool],
@@ -50,6 +77,20 @@ pub fn logistic_probe_mi_multiseed_with_anchor(
     anchor: &Anchor,
 ) -> Result<LogisticProbeReport> {
     logistic_probe_mi_multiseed_with_trust(samples, labels, groups, trust_for_anchor(Some(anchor)))
+}
+
+pub fn logistic_probe_mi_multiseed_calibrated_with_anchor(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    groups: Option<&[String]>,
+    anchor: &Anchor,
+) -> Result<LogisticProbeReport> {
+    logistic_probe_mi_multiseed_calibrated_with_trust(
+        samples,
+        labels,
+        groups,
+        trust_for_anchor(Some(anchor)),
+    )
 }
 
 pub(crate) fn logistic_probe_mi_with_min_samples(
@@ -139,6 +180,19 @@ fn logistic_probe_mi_multiseed_with_trust(
         ),
         selected_field: "logistic_probe_multiseed_group_holdout",
     })
+}
+
+fn logistic_probe_mi_multiseed_calibrated_with_trust(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    groups: Option<&[String]>,
+    trust: TrustTag,
+) -> Result<LogisticProbeReport> {
+    ensure_informative_binary_labels(labels)?;
+    let calibration = logistic_power_calibration(samples, labels, groups, trust)?;
+    let mut report = logistic_probe_mi_multiseed_with_trust(samples, labels, groups, trust)?;
+    report.estimate = report.estimate.with_power_calibration(calibration);
+    Ok(report)
 }
 
 fn logistic_probe_mi_with_trust_and_min_samples(
@@ -371,4 +425,45 @@ fn binary_mi(labels: &[bool], predictions: &[bool]) -> f32 {
         }
     }
     mi.max(0.0)
+}
+
+fn logistic_power_calibration(
+    samples: &[Vec<f32>],
+    labels: &[bool],
+    groups: Option<&[String]>,
+    trust: TrustTag,
+) -> Result<PowerCalibration> {
+    let planted_bits = ensure_informative_binary_labels(labels)?;
+    let dim = validate_rectangular_finite("logistic power calibration", samples)?;
+    if dim == 0 {
+        return Err(crate::calibration::underpowered(
+            "power calibration requires at least one feature column",
+        ));
+    }
+    let planted_column = dim - 1;
+    let planted = plant_binary_signal(samples, labels, planted_column);
+    let report = match groups {
+        Some(groups) => {
+            logistic_probe_mi_multiseed_with_trust(&planted, labels, Some(groups), trust)?
+        }
+        None => logistic_probe_mi_with_trust(&planted, labels, trust)?,
+    };
+    let calibration = PowerCalibration::new(
+        planted_bits,
+        report.estimate.bits,
+        DEFAULT_MIN_POWER_RECOVERY_RATIO,
+        labels.len(),
+        dim,
+        planted_column,
+    )?;
+    calibration.require_passed()?;
+    Ok(calibration)
+}
+
+fn plant_binary_signal(samples: &[Vec<f32>], labels: &[bool], column: usize) -> Vec<Vec<f32>> {
+    let mut planted = samples.to_vec();
+    for (row, label) in planted.iter_mut().zip(labels) {
+        row[column] = if *label { 1.0 } else { -1.0 };
+    }
+    planted
 }

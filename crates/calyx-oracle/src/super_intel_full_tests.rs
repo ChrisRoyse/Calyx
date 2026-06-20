@@ -368,12 +368,15 @@ fn measure_report(fixtures: FixtureSet) -> Result<SuperIntelReport, OracleError>
 fn panel_sufficiency(panel_bits: f32, anchor_entropy_bits: f32) -> PanelSufficiency {
     PanelSufficiency {
         panel_bits,
+        sufficiency_basis_bits: panel_bits,
         anchor_entropy_bits,
         sufficient: panel_bits >= anchor_entropy_bits,
         deficit_bits: (anchor_entropy_bits - panel_bits).max(0.0),
         deficits: Vec::new(),
         observation_scope: None,
         trust: TrustTag::Trusted,
+        estimate_bound: calyx_assay::EstimateBound::LowerBound,
+        power_calibration: None,
     }
 }
 

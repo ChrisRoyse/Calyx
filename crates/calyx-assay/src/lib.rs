@@ -3,6 +3,7 @@
 pub mod attribution;
 pub mod bayesian;
 pub mod bootstrap;
+pub mod calibration;
 pub mod contract;
 pub mod ensemble;
 pub mod estimate;
@@ -43,6 +44,11 @@ pub use bootstrap::{
     BootstrapCi, BootstrapConfig, DEFAULT_BOOTSTRAP_RESAMPLES, DEFAULT_BOOTSTRAP_SEED,
     bootstrap_mean_ci, bootstrap_mean_ci_with_config, bootstrap_paired_ci,
 };
+pub use calibration::{
+    CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY, CALYX_ASSAY_ESTIMATOR_UNDERPOWERED,
+    DEFAULT_MIN_POWER_RECOVERY_RATIO, MIN_INFORMATIVE_TARGET_ENTROPY_BITS, PowerCalibration,
+    PowerCalibrationStatus, ensure_informative_binary_labels,
+};
 pub use contract::{
     AdmissionDecision, CALYX_ASSAY_UNRESOLVED, CorrelationEvidence, admit_lens,
     admit_lens_estimate, admit_lens_with_strata,
@@ -55,8 +61,8 @@ pub use ensemble::{
     ensemble_card,
 };
 pub use estimate::{
-    EstimateReliability, EstimatorKind, MiEstimate, TrustTag, require_grounded_anchor,
-    trust_for_anchor,
+    EstimateBound, EstimateReliability, EstimatorKind, MiEstimate, TrustTag,
+    require_grounded_anchor, trust_for_anchor,
 };
 pub use formula_catalog::{
     CALYX_FORMULA_COVERAGE_MISSING, FORMULA_COVERAGE_ARTIFACT_KIND,
@@ -74,8 +80,9 @@ pub use ksg::{
 };
 pub use logistic::{
     DEFAULT_ASSAY_SEEDS, DEFAULT_HOLDOUT_FRACTION, LogisticProbeReport, logistic_probe_mi,
-    logistic_probe_mi_multiseed, logistic_probe_mi_multiseed_with_anchor,
-    logistic_probe_mi_with_anchor,
+    logistic_probe_mi_calibrated, logistic_probe_mi_multiseed,
+    logistic_probe_mi_multiseed_calibrated, logistic_probe_mi_multiseed_calibrated_with_anchor,
+    logistic_probe_mi_multiseed_with_anchor, logistic_probe_mi_with_anchor,
 };
 pub use loom_adapter::AsterAssayMaterializationGate;
 pub use mmd::{
@@ -117,7 +124,7 @@ pub use sufficiency::{
     CALYX_ASSAY_INVALID_SCOPE, DeficitRoutingContext, DeficitSuggestedAction, InMemoryDeficitSink,
     ObservationScope, PanelSufficiency, ScopedSufficiencyReport, SufficiencyDeficit,
     SufficiencyDeficitSink, SufficiencyScopeInput, entropy_bits, panel_sufficiency,
-    panel_sufficiency_by_scope, panel_sufficiency_with_anchor,
+    panel_sufficiency_by_scope, panel_sufficiency_from_estimate, panel_sufficiency_with_anchor,
     panel_sufficiency_with_anchor_and_context, panel_sufficiency_with_context,
 };
 pub use total_correlation::{

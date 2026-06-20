@@ -39,6 +39,10 @@ fn i8bin_card_error(error: String) -> CliError {
         }
         "CALYX_ASSAY_LOW_SIGNAL" => CliError::from(CalyxError::assay_low_signal(message)),
         "CALYX_ASSAY_REDUNDANT" => CliError::from(CalyxError::assay_redundant(message)),
+        calyx_assay::CALYX_ASSAY_ESTIMATOR_UNDERPOWERED
+        | calyx_assay::CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY => {
+            local_error(code, message, FSV_REMEDIATION)
+        }
         _ => local_error(code, message, FSV_REMEDIATION),
     }
 }
@@ -72,6 +76,8 @@ const I8BIN_CARD_CODES: &[&str] = &[
     "CALYX_ASSAY_INSUFFICIENT_SAMPLES",
     "CALYX_ASSAY_LOW_SIGNAL",
     "CALYX_ASSAY_REDUNDANT",
+    calyx_assay::CALYX_ASSAY_ESTIMATOR_UNDERPOWERED,
+    calyx_assay::CALYX_ASSAY_DEGENERATE_TARGET_ENTROPY,
     "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_CONFIG",
     "CALYX_FSV_ASSAY_I8BIN_CARD_NOT_FOUND",
     "CALYX_FSV_ASSAY_I8BIN_CARD_INVALID_PLAN",

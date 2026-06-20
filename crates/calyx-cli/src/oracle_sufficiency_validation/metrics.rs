@@ -74,12 +74,45 @@ fn check_finite(report: &OracleSufficiencyReport) -> Result<(), String> {
         ("i_panel_oracle", report.i_panel_oracle),
         ("i_panel_ci_low", report.i_panel_ci[0]),
         ("i_panel_ci_high", report.i_panel_ci[1]),
+        ("sufficiency_basis_bits", report.sufficiency_basis_bits),
+        (
+            "power_recovery_ratio",
+            required_f32(report.power_recovery_ratio, "power_recovery_ratio")?,
+        ),
+        (
+            "power_recovered_bits",
+            required_f32(report.power_recovered_bits, "power_recovered_bits")?,
+        ),
+        (
+            "power_planted_bits",
+            required_f32(report.power_planted_bits, "power_planted_bits")?,
+        ),
         ("deficit", report.deficit),
     ];
+    required_str(
+        report.power_calibration_status.as_deref(),
+        "power_calibration_status",
+    )?;
     for lens in &report.lenses {
         values.push(("lens.bits", lens.bits));
         values.push(("lens.ci_low", lens.ci[0]));
         values.push(("lens.ci_high", lens.ci[1]));
+        values.push((
+            "lens.power_recovery_ratio",
+            required_f32(lens.power_recovery_ratio, "lens.power_recovery_ratio")?,
+        ));
+        values.push((
+            "lens.power_recovered_bits",
+            required_f32(lens.power_recovered_bits, "lens.power_recovered_bits")?,
+        ));
+        values.push((
+            "lens.power_planted_bits",
+            required_f32(lens.power_planted_bits, "lens.power_planted_bits")?,
+        ));
+        required_str(
+            lens.power_calibration_status.as_deref(),
+            "lens.power_calibration_status",
+        )?;
         values.push(("lens.accuracy", lens.accuracy));
     }
     for sensor in &report.per_sensor_deficit {
@@ -91,6 +124,14 @@ fn check_finite(report: &OracleSufficiencyReport) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn required_f32(value: Option<f32>, name: &str) -> Result<f32, String> {
+    value.ok_or_else(|| format!("CALYX_FSV_ORACLE_MISSING_VERDICT_METADATA: {name} absent"))
+}
+
+fn required_str<'a>(value: Option<&'a str>, name: &str) -> Result<&'a str, String> {
+    value.ok_or_else(|| format!("CALYX_FSV_ORACLE_MISSING_VERDICT_METADATA: {name} absent"))
 }
 
 fn display(path: &Path) -> String {
