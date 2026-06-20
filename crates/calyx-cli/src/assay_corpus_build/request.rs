@@ -13,6 +13,7 @@ pub(crate) struct CorpusBuildRequest {
     pub(crate) batch_size: usize,
     pub(crate) cost_override_json: Option<PathBuf>,
     pub(crate) embedding_model_id: Option<String>,
+    pub(crate) worker_report: Option<PathBuf>,
 }
 
 impl CorpusBuildRequest {
@@ -26,6 +27,7 @@ impl CorpusBuildRequest {
         let mut batch_size = DEFAULT_BATCH_SIZE;
         let mut cost_override_json = None;
         let mut embedding_model_id = None;
+        let mut worker_report = None;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -67,6 +69,10 @@ impl CorpusBuildRequest {
                         Some(value(args, idx, "--embedding-model-id")?.to_string());
                     idx += 2;
                 }
+                "--worker-report" => {
+                    worker_report = Some(PathBuf::from(value(args, idx, "--worker-report")?));
+                    idx += 2;
+                }
                 other => return Err(format!("unknown assay corpus-build arg: {other}")),
             }
         }
@@ -80,6 +86,7 @@ impl CorpusBuildRequest {
             batch_size,
             cost_override_json,
             embedding_model_id,
+            worker_report,
         };
         request.validate()?;
         Ok(request)
@@ -98,7 +105,13 @@ impl CorpusBuildRequest {
                     .to_string(),
             );
         }
-        if self.manifests.len() < 2 {
+        if self.worker_report.is_some() && self.manifests.len() != 1 {
+            return Err(
+                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: worker mode requires exactly one --manifest"
+                    .to_string(),
+            );
+        }
+        if self.worker_report.is_none() && self.manifests.len() < 2 {
             return Err(
                 "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: provide at least two --manifest entries"
                     .to_string(),

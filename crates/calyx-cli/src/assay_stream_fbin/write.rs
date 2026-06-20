@@ -2,7 +2,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::json;
 
@@ -20,10 +20,11 @@ mod paths;
 mod pre_gate;
 mod progress;
 mod selection;
+mod worker;
 
 use super::format::{self, VectorFormat};
 use evidence::{Evidence, LensEvidence, TEMPORAL_COUNTS_TOWARD_A35, TEMPORAL_LANE_ROLE};
-use paths::{display, display_final, lens_prefix};
+use paths::{display, display_final};
 use selection::{SelectedLens, selected_lenses};
 
 struct FbinSink {
@@ -40,7 +41,7 @@ struct LensStream<'a> {
     lens: &'a BuildLens,
     effective_batch_size: usize,
     sink: &'a mut FbinSink,
-    progress: &'a mut progress::ProgressLog,
+    progress: Option<&'a mut progress::ProgressLog>,
 }
 
 struct StagedExport {
@@ -78,6 +79,10 @@ pub(crate) fn run(args: &Args) -> CliResult<Evidence> {
     }
 }
 
+pub(crate) fn run_worker(args: &Args) -> CliResult<worker::StreamWorkerReport> {
+    worker::run_worker(args)
+}
+
 fn run_staged(
     args: &Args,
     stats: &RowStats,
@@ -90,6 +95,8 @@ fn run_staged(
     fs::create_dir_all(&vector_dir).map_err(io_error)?;
     fs::create_dir_all(&vault_root).map_err(io_error)?;
     let mut roster = Vec::with_capacity(lenses.len());
+    let worker_root = worker::worker_root(&args.out_dir);
+    fs::create_dir_all(&worker_root).map_err(io_error)?;
     let mut progress = progress::ProgressLog::create(
         &staging.join(progress::FILE_NAME),
         args,
@@ -98,59 +105,15 @@ fn run_staged(
         staging,
     )?;
     for (slot, selected) in lenses.into_iter().enumerate() {
-        let lens = selected.load_runtime(args)?;
-        let bits = selected.bits;
-        let prefix = lens_prefix(slot, lens.name());
-        let ext = args.vector_format.extension();
-        let corpus_path = vector_dir.join(format!("{prefix}_corpus.{ext}"));
-        let queries_path = vector_dir.join(format!("{prefix}_queries.{ext}"));
-        let mut sink = create_sink(&corpus_path, &queries_path, lens.dim(), stats.rows, args)?;
-        let write_timeline = slot == 0;
-        let timeline_path = staging.join("timeline.jsonl");
-        let effective_batch_size = lens.effective_batch_size(args.batch_size);
-        progress.lens_started(slot, &lens, bits.bits_about, effective_batch_size)?;
-        let lens_started = Instant::now();
-        stream_lens(
-            LensStream {
-                args,
-                stats,
-                lens: &lens,
-                effective_batch_size,
-                sink: &mut sink,
-                progress: &mut progress,
-            },
-            write_timeline,
-            &timeline_path,
+        let meta = worker::lens_meta(args, slot, &selected)?;
+        progress.lens_started(&meta)?;
+        let report = worker::run_one_worker(args, stats, slot, &selected, staging, &worker_root)?;
+        progress.lens_finished(
+            report.corpus_rows_written,
+            report.query_rows_written,
+            report.elapsed_ms,
         )?;
-        let elapsed_ms = elapsed_ms(lens_started.elapsed())?;
-        let ms_per_input = elapsed_ms as f64 / stats.rows.max(1) as f64;
-        finish_sink(&mut sink)?;
-        progress.lens_finished(sink.corpus_written, sink.query_written, elapsed_ms)?;
-        roster.push(LensEvidence {
-            slot: u16::try_from(slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
-            name: lens.name().to_string(),
-            lens_id: lens.lens_id(),
-            weights_sha256: lens.weights_sha256_hex(),
-            signal_kind: lens.signal_kind(),
-            bits_about: bits.bits_about,
-            dim: lens.dim(),
-            max_batch: lens.max_batch(),
-            effective_batch_size,
-            elapsed_ms,
-            ms_per_input,
-            manifest: display(lens.manifest()),
-            corpus_path: display_final(
-                args,
-                &format!("{}/{prefix}_corpus.{ext}", args.vector_format.dir_name()),
-            ),
-            queries_path: display_final(
-                args,
-                &format!("{}/{prefix}_queries.{ext}", args.vector_format.dir_name()),
-            ),
-            vault_path: display_final(args, &format!("vaults/{prefix}")),
-            corpus_rows_written: sink.corpus_written,
-            query_rows_written: sink.query_written,
-        });
+        roster.push(report.into_lens_evidence(args)?);
     }
     write_plan(
         &staging.join("partitioned_rrf_plan.json"),
@@ -303,14 +266,20 @@ fn flush_batch(
             write_timeline_row(writer, *row_idx, row, stream.args.query_count)?;
         }
     }
-    if stream.progress.snapshot_due(stream.sink.corpus_written) {
+    if stream
+        .progress
+        .as_ref()
+        .is_some_and(|progress| progress.snapshot_due(stream.sink.corpus_written))
+    {
         sync_sink(stream.sink)?;
     }
-    stream.progress.batch_written(
-        stream.sink.corpus_written,
-        stream.sink.query_written,
-        last_row_idx,
-    )?;
+    if let Some(progress) = stream.progress.as_mut() {
+        progress.batch_written(
+            stream.sink.corpus_written,
+            stream.sink.query_written,
+            last_row_idx,
+        )?;
+    }
     texts.clear();
     metas.clear();
     Ok(())

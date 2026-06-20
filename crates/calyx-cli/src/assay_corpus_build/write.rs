@@ -48,6 +48,12 @@ pub(crate) struct LensEvidence {
     pub(crate) vram_mb: f32,
     pub(crate) ram_mb: f32,
     pub(crate) ms_per_input: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_report_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_stderr_path: Option<String>,
 }
 
 pub(crate) fn ensure_fresh_output(request: &CorpusBuildRequest) -> Result<(), String> {
@@ -230,12 +236,15 @@ fn lens_evidence(lens: &MeasuredLens) -> LensEvidence {
         name: lens.name.clone(),
         runtime: lens.runtime.clone(),
         output_shape: shape_text(lens.output),
-        assay_projection: lens.assay_projection.to_string(),
+        assay_projection: lens.assay_projection.clone(),
         manifest: display(&lens.manifest),
         max_batch: lens.max_batch,
         vram_mb: lens.cost.vram_mb,
         ram_mb: lens.cost.ram_mb,
         ms_per_input: lens.cost.ms_per_input,
+        worker_pid: lens.worker_pid,
+        worker_report_path: lens.worker_report_path.as_ref().map(|path| display(path)),
+        worker_stderr_path: lens.worker_stderr_path.as_ref().map(|path| display(path)),
     }
 }
 

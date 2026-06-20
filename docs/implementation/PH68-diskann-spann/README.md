@@ -86,6 +86,24 @@ evidence before they can stand as gate evidence. Homogeneous baseline/control
 runs must use `--diagnostic` or `--baseline`; they still write streamed bytes and
 the redundancy/PID matrix but remain `diagnostic_only`.
 
+`calyx assay corpus-build` and `calyx assay stream-fbin` isolate each measured
+lens in a short-lived worker process. This is required for ONNX CUDA runtimes:
+the registry intentionally avoids unsafe ORT CUDA provider teardown in-process,
+so the parent must not accumulate leaked provider state across a 10-lens panel.
+The parent fails closed if a worker exits nonzero, omits its report, or reports
+row counts that do not match the selected corpus. The worker report files are
+part of the FSV source of truth and record per-slot PID, row counts, elapsed
+time, manifest, and the final vector paths.
+
+Current aiwonder FSV roots for this contract:
+
+- Corpus-build 10-semantic happy path:
+  `/home/croyse/calyx/fsv/issue803-corpusbuild-isolated-currenthead-20260620T124058Z`.
+- Stream-FBIN 10-semantic happy path:
+  `/home/croyse/calyx/fsv/issue803-stream-worker-10k-currenthead-20260620T130036Z`.
+- Worker edge audit:
+  `/home/croyse/calyx/fsv/issue803-worker-edge-fsv-20260620T130529Z`.
+
 Custom ONNX text lenses must not derive padding length from the longest row in
 the current batch. That made vectors depend on batch composition and forced the
 legacy SciBERT control lens to `max_batch=1`. The runtime now groups inputs by

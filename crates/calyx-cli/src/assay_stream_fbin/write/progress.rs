@@ -5,7 +5,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use crate::assay_corpus_build::lens::BuildLens;
 use crate::error::{CliError, CliResult};
 
 use super::super::args::Args;
@@ -26,6 +25,18 @@ pub(super) struct ProgressLog {
     state: ProgressState,
     sequence: u64,
     last_snapshot_row: usize,
+}
+
+pub(super) struct LensProgressMeta {
+    pub(super) slot: usize,
+    pub(super) name: String,
+    pub(super) lens_id: String,
+    pub(super) weights_sha256: String,
+    pub(super) bits_about: f32,
+    pub(super) dim: usize,
+    pub(super) max_batch: Option<usize>,
+    pub(super) effective_batch_size: usize,
+    pub(super) manifest: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -144,24 +155,18 @@ impl ProgressLog {
         Ok(log)
     }
 
-    pub(super) fn lens_started(
-        &mut self,
-        slot: usize,
-        lens: &BuildLens,
-        bits_about: f32,
-        effective_batch_size: usize,
-    ) -> CliResult {
+    pub(super) fn lens_started(&mut self, lens: &LensProgressMeta) -> CliResult {
         let started_unix_ms = unix_ms()?;
         self.state.current_lens = Some(LensProgress {
-            slot: u16::try_from(slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
-            name: lens.name().to_string(),
-            lens_id: lens.lens_id(),
-            weights_sha256: lens.weights_sha256_hex(),
-            bits_about,
-            dim: lens.dim(),
-            max_batch: lens.max_batch(),
-            effective_batch_size,
-            manifest: display(lens.manifest()),
+            slot: u16::try_from(lens.slot).map_err(|_| CliError::usage("slot exceeds u16"))?,
+            name: lens.name.clone(),
+            lens_id: lens.lens_id.clone(),
+            weights_sha256: lens.weights_sha256.clone(),
+            bits_about: lens.bits_about,
+            dim: lens.dim,
+            max_batch: lens.max_batch,
+            effective_batch_size: lens.effective_batch_size,
+            manifest: lens.manifest.clone(),
             started_unix_ms,
             elapsed_ms: None,
             corpus_rows_written: 0,

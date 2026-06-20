@@ -25,16 +25,22 @@ use algorithmic::algorithmic_lens;
 use projection::{project_multi, project_sparse};
 pub(crate) use stream::measure_text_batch;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub(crate) struct MeasuredLens {
     pub(crate) name: String,
     pub(crate) manifest: PathBuf,
     pub(crate) runtime: String,
     pub(crate) output: SlotShape,
     pub(crate) max_batch: Option<usize>,
-    pub(crate) assay_projection: &'static str,
+    pub(crate) assay_projection: String,
     pub(crate) vectors: Vec<Vec<f32>>,
     pub(crate) cost: LensCost,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_report_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_stderr_path: Option<PathBuf>,
 }
 
 pub(crate) struct BuildLens {
@@ -143,9 +149,12 @@ fn measure_one_lens(
         runtime: lens.runtime_name,
         output: lens.spec.output,
         max_batch: lens.spec.max_batch,
-        assay_projection,
+        assay_projection: assay_projection.to_string(),
         vectors,
         cost,
+        worker_pid: None,
+        worker_report_path: None,
+        worker_stderr_path: None,
     })
 }
 

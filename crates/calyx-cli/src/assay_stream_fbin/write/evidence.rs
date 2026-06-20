@@ -58,7 +58,7 @@ pub(crate) struct LensEvidence {
     pub(crate) name: String,
     pub(crate) lens_id: String,
     pub(crate) weights_sha256: String,
-    pub(crate) signal_kind: &'static str,
+    pub(crate) signal_kind: String,
     pub(crate) bits_about: f32,
     pub(crate) dim: usize,
     pub(crate) max_batch: Option<usize>,
@@ -71,4 +71,10 @@ pub(crate) struct LensEvidence {
     pub(crate) vault_path: String,
     pub(crate) corpus_rows_written: usize,
     pub(crate) query_rows_written: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_report_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) worker_stderr_path: Option<String>,
 }

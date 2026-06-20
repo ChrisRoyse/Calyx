@@ -69,6 +69,8 @@ impl Fixture {
             min_bits: 0.05,
             vector_format: VectorFormat::Fbin,
             mode: StreamMode::Gate,
+            worker_report: None,
+            worker_slot: None,
         }
     }
 }

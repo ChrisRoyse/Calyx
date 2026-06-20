@@ -17,6 +17,10 @@ pub(crate) const DEFAULT_MIN_BITS: f32 = 0.05;
 
 pub(crate) fn run(raw: &[String]) -> CliResult {
     let args = args::Args::parse(raw)?;
+    if args.worker_report.is_some() {
+        let evidence = write::run_worker(&args)?;
+        return print_json(&evidence);
+    }
     let evidence = write::run(&args)?;
     print_json(&evidence)
 }

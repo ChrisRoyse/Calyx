@@ -7,6 +7,7 @@
 mod data;
 pub(crate) mod lens;
 pub(crate) mod request;
+mod worker;
 mod write;
 
 use crate::error::CliResult;
@@ -14,9 +15,12 @@ use crate::output::print_json;
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let request = request::CorpusBuildRequest::parse(args)?;
+    if request.worker_report.is_some() {
+        return worker::run_worker(&request);
+    }
     write::ensure_fresh_output(&request)?;
     let rows = data::load_rows(&request)?;
-    let measured = lens::measure_requested_lenses(&request, &rows)?;
+    let measured = worker::measure_requested_lenses(&request, &rows)?;
     let evidence = write::write_outputs(&request, &rows, &measured)?;
     print_json(&evidence)
 }

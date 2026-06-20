@@ -39,6 +39,14 @@ impl SelectedLens {
 }
 
 pub(super) fn selected_lenses(args: &Args) -> CliResult<Vec<SelectedLens>> {
+    selected_lenses_with_min(args, MIN_A35_LENSES)
+}
+
+pub(super) fn selected_lenses_for_worker(args: &Args) -> CliResult<Vec<SelectedLens>> {
+    selected_lenses_with_min(args, 1)
+}
+
+fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<SelectedLens>> {
     let bits = load_bits(args)?;
     let mut names = BTreeMap::new();
     let mut selected = Vec::with_capacity(args.manifests.len());
@@ -89,12 +97,12 @@ pub(super) fn selected_lenses(args: &Args) -> CliResult<Vec<SelectedLens>> {
             bits,
         });
     }
-    if selected.len() < MIN_A35_LENSES {
+    if selected.len() < min_lenses {
         return Err(local_error(
             "CALYX_FSV_ASSAY_STREAM_FBIN_PANEL_TOO_SMALL",
             format!(
-                "selected {} admitted lenses; A35 requires at least {MIN_A35_LENSES}",
-                selected.len()
+                "selected {} admitted lenses; requires at least {min_lenses}",
+                selected.len(),
             ),
             "provide at least ten real frozen content lens manifests",
         ));

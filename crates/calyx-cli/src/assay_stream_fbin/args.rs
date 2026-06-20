@@ -41,6 +41,8 @@ pub(crate) struct Args {
     pub(crate) min_bits: f32,
     pub(crate) vector_format: VectorFormat,
     pub(crate) mode: StreamMode,
+    pub(crate) worker_report: Option<PathBuf>,
+    pub(crate) worker_slot: Option<usize>,
 }
 
 impl Args {
@@ -59,6 +61,8 @@ impl Args {
         let mut min_bits = DEFAULT_MIN_BITS;
         let mut vector_format = VectorFormat::default();
         let mut mode = StreamMode::Gate;
+        let mut worker_report = None;
+        let mut worker_slot = None;
         let mut it = raw.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -82,6 +86,8 @@ impl Args {
                 "--vector-format" => vector_format = VectorFormat::parse(&next()?)?,
                 "--mode" => mode = parse_mode(&next()?)?,
                 "--diagnostic" | "--baseline" => mode = StreamMode::Diagnostic,
+                "--worker-report" => worker_report = Some(PathBuf::from(next()?)),
+                "--worker-slot" => worker_slot = Some(parse_usize(&next()?, flag)?),
                 other => {
                     return Err(CliError::usage(format!(
                         "unknown assay stream-fbin arg: {other}"
@@ -108,6 +114,8 @@ impl Args {
             min_bits,
             vector_format,
             mode,
+            worker_report,
+            worker_slot,
         };
         args.validate()?;
         Ok(args)
@@ -124,6 +132,7 @@ impl Args {
             batch_size: self.batch_size,
             cost_override_json: self.cost_override_json.clone(),
             embedding_model_id: self.embedding_model_id.clone(),
+            worker_report: None,
         }
     }
 
@@ -131,7 +140,17 @@ impl Args {
         if self.dataset.trim().is_empty() {
             return Err(CliError::usage("--dataset must be non-empty"));
         }
-        if self.manifests.len() < 2 {
+        let worker_mode = self.worker_report.is_some() || self.worker_slot.is_some();
+        if worker_mode
+            && (self.worker_report.is_none()
+                || self.worker_slot.is_none()
+                || self.manifests.len() != 1)
+        {
+            return Err(CliError::usage(
+                "stream-fbin worker mode requires --worker-report, --worker-slot, and exactly one --manifest",
+            ));
+        }
+        if !worker_mode && self.manifests.len() < 2 {
             return Err(CliError::usage("provide at least two --manifest entries"));
         }
         if self.query_count == 0 || self.batch_size == 0 {
