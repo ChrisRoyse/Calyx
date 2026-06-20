@@ -112,6 +112,11 @@ pub(super) fn association_family(spec: &LensSpec) -> &'static str {
         return "temporal_sidecar";
     }
     match &spec.runtime {
+        LensRuntime::Algorithmic { kind }
+            if kind.contains("cameo") || kind.contains("actor") || kind.contains("geo") =>
+        {
+            "entity_cameo_graph"
+        }
         LensRuntime::Algorithmic { kind } if kind.contains("token") || kind.contains("multi") => {
             "late_interaction_token"
         }
@@ -149,6 +154,14 @@ fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Result<AlgorithmicLens, Caly
         "byte" | "byte-features" => Ok(AlgorithmicLens::byte_features(&spec.name, spec.modality)),
         "scalar" => Ok(AlgorithmicLens::scalar(&spec.name, spec.modality)),
         "ast-style" => Ok(AlgorithmicLens::ast_style(&spec.name, spec.modality)),
+        "gdelt-cameo" | "gdelt_cameo" => {
+            Ok(AlgorithmicLens::gdelt_cameo(&spec.name, spec.modality))
+        }
+        "gdelt-actor-geo" | "gdelt_actor_geo" => Ok(AlgorithmicLens::gdelt_actor_geo(
+            &spec.name,
+            spec.modality,
+            dim(spec.output),
+        )),
         "sparse" | "sparse-keywords" => Ok(AlgorithmicLens::sparse_keywords(
             &spec.name,
             spec.modality,

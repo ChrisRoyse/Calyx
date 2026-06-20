@@ -7,6 +7,8 @@ use calyx_core::{
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::lens::ensure_input_modality;
 
+mod gdelt;
+
 const BYTE_FEATURE_DIM: u32 = 16;
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
@@ -26,6 +28,10 @@ pub enum AlgorithmicEncoder {
     SparseKeywords { dim: u32 },
     /// Hashed whitespace terms as per-token vectors for MaxSim.
     TokenHash { token_dim: u32 },
+    /// Dense CAMEO/event-code features from GDELT text rows.
+    GdeltCameo,
+    /// Sparse actor/country/geography entity features from GDELT text rows.
+    GdeltActorGeo { dim: u32 },
 }
 
 impl AlgorithmicEncoder {
@@ -56,12 +62,22 @@ impl AlgorithmicEncoder {
                     token_dim
                 }
             }
+            Self::GdeltCameo => 16,
+            Self::GdeltActorGeo { dim } => {
+                if dim == 0 {
+                    1
+                } else {
+                    dim
+                }
+            }
         }
     }
 
     pub const fn shape(self) -> SlotShape {
         match self {
-            Self::SparseKeywords { dim } => SlotShape::Sparse(if dim == 0 { 1 } else { dim }),
+            Self::SparseKeywords { dim } | Self::GdeltActorGeo { dim } => {
+                SlotShape::Sparse(if dim == 0 { 1 } else { dim })
+            }
             Self::TokenHash { token_dim } => SlotShape::Multi {
                 token_dim: if token_dim == 0 { 1 } else { token_dim },
             },
@@ -103,6 +119,14 @@ impl AlgorithmicLens {
 
     pub fn token_hash(name: impl Into<String>, modality: Modality, token_dim: u32) -> Self {
         Self::new(name, modality, AlgorithmicEncoder::TokenHash { token_dim })
+    }
+
+    pub fn gdelt_cameo(name: impl Into<String>, modality: Modality) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltCameo)
+    }
+
+    pub fn gdelt_actor_geo(name: impl Into<String>, modality: Modality, dim: u32) -> Self {
+        Self::new(name, modality, AlgorithmicEncoder::GdeltActorGeo { dim })
     }
 
     /// Creates an algorithmic lens from an encoder.
@@ -158,6 +182,11 @@ impl Lens for AlgorithmicLens {
             },
             AlgorithmicEncoder::SparseKeywords { dim } => sparse_keywords(&input.bytes, dim)?,
             AlgorithmicEncoder::TokenHash { token_dim } => token_hash(&input.bytes, token_dim)?,
+            AlgorithmicEncoder::GdeltCameo => SlotVector::Dense {
+                dim: self.encoder.dim(),
+                data: gdelt::cameo_features(&input.bytes),
+            },
+            AlgorithmicEncoder::GdeltActorGeo { dim } => gdelt::actor_geo(&input.bytes, dim)?,
         })
     }
 }

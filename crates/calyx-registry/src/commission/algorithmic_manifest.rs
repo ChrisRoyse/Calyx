@@ -21,11 +21,15 @@ pub(super) fn output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
     let shape = match kind {
         "byte" | "byte-features" => checked_dense(kind, dim, 16)?,
         "ast-style" | "ast_style" => checked_dense(kind, dim, 8)?,
+        "gdelt-cameo" | "gdelt_cameo" => checked_dense(kind, dim, 16)?,
+        "gdelt-actor-geo" | "gdelt_actor_geo" => SlotShape::Sparse(checked_positive(kind, dim)?),
         "scalar" => checked_dense(kind, dim, 1)?,
-        "sparse" | "sparse-keywords" | "sparse_keywords" => SlotShape::Sparse(dim),
-        "token-hash" | "token_hash" | "multi-hash" | "multi_hash" => {
-            SlotShape::Multi { token_dim: dim }
+        "sparse" | "sparse-keywords" | "sparse_keywords" => {
+            SlotShape::Sparse(checked_positive(kind, dim)?)
         }
+        "token-hash" | "token_hash" | "multi-hash" | "multi_hash" => SlotShape::Multi {
+            token_dim: checked_positive(kind, dim)?,
+        },
         value if value.starts_with("one-hot:") || value.starts_with("one_hot:") => {
             checked_dense(kind, dim, parse_dim(value)?)?
         }
@@ -67,6 +71,15 @@ fn checked_match(kind: &str, got: u32, expected: u32) -> Result<()> {
     )))
 }
 
+fn checked_positive(kind: &str, dim: u32) -> Result<u32> {
+    if dim > 0 {
+        return Ok(dim);
+    }
+    Err(config_invalid(format!(
+        "algorithmic lens {kind} dim must be greater than zero"
+    )))
+}
+
 fn parse_dim(kind: &str) -> Result<u32> {
     kind.split_once(':')
         .and_then(|(_, dim)| dim.parse::<u32>().ok())
@@ -79,5 +92,54 @@ fn config_invalid(message: impl Into<String>) -> CalyxError {
         code: CONFIG_INVALID,
         message: message.into(),
         remediation: "fix the lensforge manifest or regenerated artifacts",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gdelt_algorithmic_shapes_are_explicit() {
+        assert_eq!(
+            output_shape("algorithmic:gdelt-cameo", 16).unwrap(),
+            SlotShape::Dense(16)
+        );
+        assert_eq!(
+            output_shape("algorithmic:gdelt-actor-geo", 512).unwrap(),
+            SlotShape::Sparse(512)
+        );
+    }
+
+    #[test]
+    fn gdelt_cameo_rejects_wrong_manifest_dim() {
+        let error = output_shape("algorithmic:gdelt-cameo", 8).unwrap_err();
+
+        assert_eq!(error.code, CONFIG_INVALID);
+        assert!(error.message.contains("gdelt-cameo dim 8"));
+    }
+
+    #[test]
+    fn gdelt_actor_geo_rejects_zero_manifest_dim() {
+        let error = output_shape("algorithmic:gdelt-actor-geo", 0).unwrap_err();
+
+        assert_eq!(error.code, CONFIG_INVALID);
+        assert!(error.message.contains("gdelt-actor-geo dim must be"));
+    }
+
+    #[test]
+    fn sparse_algorithmic_kinds_reject_zero_manifest_dim() {
+        let error = output_shape("algorithmic:sparse-keywords", 0).unwrap_err();
+
+        assert_eq!(error.code, CONFIG_INVALID);
+        assert!(error.message.contains("sparse-keywords dim must be"));
+    }
+
+    #[test]
+    fn token_algorithmic_kinds_reject_zero_manifest_dim() {
+        let error = output_shape("algorithmic:token-hash", 0).unwrap_err();
+
+        assert_eq!(error.code, CONFIG_INVALID);
+        assert!(error.message.contains("token-hash dim must be"));
     }
 }

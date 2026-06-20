@@ -85,7 +85,13 @@ fn wait_for_worker(
                 ),
                 lenses,
             )?;
-            return read_worker_report_or_reject(paths.report, status, manifest.clone(), flags);
+            return read_worker_report_or_reject(
+                paths.report,
+                paths.stderr,
+                status,
+                manifest.clone(),
+                flags,
+            );
         }
         if started.elapsed() >= timeout {
             let kill_result = child.kill();
@@ -120,6 +126,7 @@ fn wait_for_worker(
 
 fn read_worker_report_or_reject(
     report: PathBuf,
+    stderr: PathBuf,
     status: ExitStatus,
     manifest: PathBuf,
     flags: &Flags,
@@ -127,28 +134,45 @@ fn read_worker_report_or_reject(
     let bytes = match fs::read(&report) {
         Ok(bytes) => bytes,
         Err(error) => {
+            let cause = worker_failure_cause(&stderr);
             return Ok(rejected_worker_audit(
                 manifest,
                 flags,
                 "CALYX_LENS_SCALE_WORKER_REPORT_MISSING",
                 format!(
-                    "worker status={status}; read worker report {} failed: {error}",
-                    report.display()
+                    "worker status={status}; read worker report {} failed: {error}; {cause}",
+                    report.display(),
                 ),
             ));
         }
     };
     match serde_json::from_slice(&bytes) {
         Ok(audit) => Ok(audit),
-        Err(error) => Ok(rejected_worker_audit(
-            manifest,
-            flags,
-            "CALYX_LENS_SCALE_WORKER_REPORT_INVALID",
-            format!(
-                "worker status={status}; parse report {} failed: {error}",
-                report.display()
-            ),
-        )),
+        Err(error) => {
+            let cause = worker_failure_cause(&stderr);
+            Ok(rejected_worker_audit(
+                manifest,
+                flags,
+                "CALYX_LENS_SCALE_WORKER_REPORT_INVALID",
+                format!(
+                    "worker status={status}; parse report {} failed: {error}; {cause}",
+                    report.display(),
+                ),
+            ))
+        }
+    }
+}
+
+fn worker_failure_cause(stderr: &Path) -> String {
+    const TAIL_BYTES: usize = 4096;
+    match fs::read(stderr) {
+        Ok(bytes) if bytes.is_empty() => format!("stderr {} was empty", stderr.display()),
+        Ok(bytes) => {
+            let start = bytes.len().saturating_sub(TAIL_BYTES);
+            let tail = String::from_utf8_lossy(&bytes[start..]).trim().to_string();
+            format!("stderr_tail {}: {tail}", stderr.display())
+        }
+        Err(error) => format!("read stderr {} failed: {error}", stderr.display()),
     }
 }
 
@@ -217,7 +241,9 @@ fn metadata_family(runtime: &str, temporal: bool) -> String {
         return "temporal_sidecar".to_string();
     }
     let runtime = runtime.to_ascii_lowercase();
-    if runtime.contains("token") || runtime.contains("multi") {
+    if runtime.contains("cameo") || runtime.contains("actor") || runtime.contains("geo") {
+        "entity_cameo_graph".to_string()
+    } else if runtime.contains("token") || runtime.contains("multi") {
         "late_interaction_token".to_string()
     } else if runtime.contains("sparse") {
         "lexical_sparse".to_string()
