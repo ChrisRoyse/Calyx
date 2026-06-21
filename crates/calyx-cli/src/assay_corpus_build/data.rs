@@ -1,7 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::path::{Path, PathBuf};
 
-use calyx_core::{TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT};
+use calyx_core::{
+    Input, Modality, TEMPORAL_LANE_ACTIVE, TEMPORAL_LANE_INACTIVE, TEMPORAL_MISSING_CREATED_AT,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -18,6 +21,8 @@ pub(crate) struct LabeledRow {
     pub(crate) id: String,
     pub(crate) split: String,
     pub(crate) text: String,
+    pub(crate) input_bytes: Vec<u8>,
+    pub(crate) input_pointer: String,
     pub(crate) label: usize,
     pub(crate) event_time_secs: Option<i64>,
     pub(crate) event_time_raw: Option<String>,
@@ -45,7 +50,10 @@ struct RawRow {
     row: Option<usize>,
     #[serde(default)]
     split: String,
-    text: String,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    input_path: Option<PathBuf>,
     label: RawLabel,
     #[serde(default)]
     event_time: Option<Value>,
@@ -94,6 +102,7 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
         validate_row(line_idx, &raw)?;
         let id = row_id(line_idx, &raw)?;
         let label = row_label(line_idx, &raw.label)?;
+        let input = row_input(line_idx, &raw, &request.rows_jsonl)?;
         if let Some(limit) = request.limit_per_class {
             let count = counts.get(&label).copied().unwrap_or(0);
             if count >= limit {
@@ -116,7 +125,9 @@ pub(crate) fn load_rows(request: &CorpusBuildRequest) -> Result<BuildRows, Strin
             } else {
                 raw.split
             },
-            text: raw.text,
+            text: input.text,
+            input_bytes: input.bytes,
+            input_pointer: input.pointer,
             label,
             event_time_secs: temporal.event_time_secs,
             event_time_raw: temporal.event_time_raw,
@@ -182,6 +193,18 @@ fn inactive_temporal() -> RowTemporal {
     }
 }
 
+impl LabeledRow {
+    pub(crate) fn input_for(&self, modality: Modality) -> Input {
+        Input::new(modality, self.input_bytes.clone()).with_pointer(self.input_pointer.clone())
+    }
+}
+
+struct RowInput {
+    bytes: Vec<u8>,
+    pointer: String,
+    text: String,
+}
+
 fn temporal_candidate(row: &RawRow) -> Option<(&'static str, &Value)> {
     [
         ("event_time", row.event_time.as_ref()),
@@ -215,12 +238,64 @@ fn invalid_temporal_type(line_idx: usize, field: &str) -> String {
 }
 
 fn validate_row(line_idx: usize, row: &RawRow) -> Result<(), String> {
-    if row.text.trim().is_empty() {
+    let has_text = row
+        .text
+        .as_deref()
+        .is_some_and(|text| !text.trim().is_empty());
+    let has_path = row
+        .input_path
+        .as_ref()
+        .is_some_and(|path| !path.as_os_str().is_empty());
+    if has_text == has_path {
         return Err(format!(
-            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} text is empty"
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} requires exactly one of text or input_path"
         ));
     }
     Ok(())
+}
+
+fn row_input(line_idx: usize, row: &RawRow, rows_jsonl: &Path) -> Result<RowInput, String> {
+    if let Some(text) = row.text.as_deref().filter(|value| !value.trim().is_empty()) {
+        return Ok(RowInput {
+            bytes: text.as_bytes().to_vec(),
+            pointer: format!("jsonl://line/{line_idx}#field=text"),
+            text: text.to_string(),
+        });
+    }
+    let path = row.input_path.as_ref().ok_or_else(|| {
+        format!(
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} requires text or input_path"
+        )
+    })?;
+    let resolved = resolve_input_path(rows_jsonl, path);
+    let bytes = fs::read(&resolved).map_err(|error| {
+        format!(
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_INPUT_IO: line {line_idx} read {} failed: {error}",
+            resolved.display()
+        )
+    })?;
+    if bytes.is_empty() {
+        return Err(format!(
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_ROW: line {line_idx} input_path {} is empty",
+            resolved.display()
+        ));
+    }
+    Ok(RowInput {
+        bytes,
+        pointer: format!("file://{}", resolved.display()),
+        text: String::new(),
+    })
+}
+
+fn resolve_input_path(rows_jsonl: &Path, input_path: &Path) -> PathBuf {
+    if input_path.is_absolute() {
+        return input_path.to_path_buf();
+    }
+    rows_jsonl
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."))
+        .join(input_path)
 }
 
 fn row_id(line_idx: usize, row: &RawRow) -> Result<String, String> {

@@ -57,6 +57,10 @@ impl Tool for AgreeTool {
     fn call(&self, params: Value) -> ToolResult<Value> {
         consensus_call(decode("calyx.agree", params)?, ConsensusPolarity::Agree)
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for DisagreeTool {
@@ -78,6 +82,10 @@ impl Tool for DisagreeTool {
             decode("calyx.disagree", params)?,
             ConsensusPolarity::Disagree,
         )
+    }
+
+    fn requires_authn(&self) -> bool {
+        true
     }
 }
 
@@ -107,6 +115,10 @@ impl Tool for DefineTool {
             .unwrap_or_else(|_| render::empty_definition(args.lens, args.index));
         Ok(json!({ "definition": definition }))
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
 impl Tool for GuardGenerateTool {
@@ -128,6 +140,10 @@ impl Tool for GuardGenerateTool {
         validate_text(&args.candidate_text, "candidate_text")?;
         let runtime = load_runtime(&args.vault)?;
         guard_generate::run(&runtime, &args.candidate_text, args.identity_cx.as_deref())
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 
@@ -172,6 +188,10 @@ impl Tool for TraverseTool {
             })).collect::<Vec<_>>()
         }))
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
 impl Tool for SkillsTool {
@@ -188,6 +208,10 @@ impl Tool for SkillsTool {
         let args: SkillsArgs = decode("calyx.skills", params)?;
         let runtime = load_runtime(&args.vault)?;
         Ok(json!({ "skill_tree": skill_tree(&runtime.engine)? }))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 
@@ -225,6 +249,10 @@ impl Tool for SearchSkillTool {
         query.freshness = calyx_sextant::FreshnessRequirement::StaleOk { seq_lag: u64::MAX };
         let hits = calyx_sextant::search_skill(&runtime.engine, &tree, &args.skill, &query)?;
         Ok(json!({ "hits": output::render_hits(&hits, false, None) }))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 

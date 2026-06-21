@@ -25,6 +25,7 @@ pub(super) struct Flags {
     pub(super) max_abs_delta: f32,
     pub(super) lens_timeout_secs: u64,
     pub(super) probes: Vec<String>,
+    pub(super) probe_files: Vec<PathBuf>,
     pub(super) worker: bool,
 }
 
@@ -71,10 +72,19 @@ pub(super) struct LensAudit {
     pub(super) native_batching: bool,
     pub(super) provider_placement_proof: String,
     pub(super) gpu_process_observed: Option<bool>,
+    pub(super) probe_evidence: Vec<ProbeEvidence>,
     pub(super) rows_per_sec: Option<f64>,
     pub(super) batch_stability: Option<BatchStability>,
     pub(super) accepted: bool,
     pub(super) rejections: Vec<Rejection>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(super) struct ProbeEvidence {
+    pub(super) source: String,
+    pub(super) path: Option<PathBuf>,
+    pub(super) sha256: String,
+    pub(super) bytes: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

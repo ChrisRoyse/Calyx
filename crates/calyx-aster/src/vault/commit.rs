@@ -103,6 +103,9 @@ where
 
         durable.ensure_disk_write_allowed(self.rows.resource_counters())?;
         let durable_seq = durable.append_batch(rows)?;
+        if let Some(anchor) = crate::ledger_head::newest_anchor_from_rows(rows)? {
+            crate::ledger_head::write_head_anchor(durable.root(), &anchor)?;
+        }
         let mvcc_seq = match self.commit_rows_to_mvcc(rows) {
             Ok(seq) => seq,
             Err(error) => {

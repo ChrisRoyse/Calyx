@@ -1,12 +1,13 @@
 use super::*;
 use crate::cf::ledger_key;
+use crate::sst::write_sst;
 use calyx_core::{Clock, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultStore};
 use calyx_ledger::{
     ErasureScope as LedgerErasureScope, LedgerEntry, decode as decode_ledger, tombstone_from_entry,
 };
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use ulid::Ulid;
 
 fn vault_id() -> VaultId {
@@ -147,23 +148,24 @@ fn empty_vault_erase_writes_vault_scope_tombstone() {
 
 #[test]
 fn corrupt_ledger_aborts_before_delete_or_shred() {
-    let (_dir, vault) = durable_vault("corrupt-ledger");
+    let (dir, vault) = durable_vault("corrupt-ledger");
     let mut ctx = context();
     let registry = EraseRegistry::new();
     let first = cx(&vault, b"kept-after-ledger-error");
     let first_id = first.cx_id;
-    let nonce = [9_u8; 12];
-    let ciphertext = ctx
-        .encrypt_value(&nonce, b"still-readable", b"aad")
-        .unwrap();
+    let ciphertext = ctx.encrypt_value(b"still-readable", b"aad").unwrap();
     vault.put(first).unwrap();
-    vault
-        .write_cf(
-            ColumnFamily::Ledger,
-            ledger_key(0),
-            b"corrupt-ledger".to_vec(),
-        )
-        .unwrap();
+    vault.flush().unwrap();
+    drop(vault);
+    let _ = fs::remove_dir_all(dir.join("wal"));
+    replace_ledger_ssts_with_corrupt_row(&dir);
+    let vault = AsterVault::open(
+        &dir,
+        vault_id(),
+        b"salt",
+        crate::vault::VaultOptions::default(),
+    )
+    .unwrap();
 
     let error = vault
         .erase(EraseScope::Cx(first_id), &mut ctx, &registry)
@@ -173,9 +175,28 @@ fn corrupt_ledger_aborts_before_delete_or_shred() {
     assert!(vault.get(first_id, vault.snapshot()).is_ok());
     assert!(!ctx.is_key_shredded_for_erasure());
     assert_eq!(
-        ctx.decrypt_value(&nonce, &ciphertext, b"aad").unwrap(),
+        ctx.decrypt_value(&ciphertext, b"aad").unwrap(),
         b"still-readable"
     );
+}
+
+fn replace_ledger_ssts_with_corrupt_row(vault_dir: &Path) {
+    let ledger_dir = vault_dir.join("cf").join(ColumnFamily::Ledger.name());
+    let mut paths = fs::read_dir(&ledger_dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sst"))
+        .collect::<Vec<_>>();
+    paths.sort();
+    assert!(!paths.is_empty());
+    for path in paths {
+        fs::remove_file(path).unwrap();
+    }
+    write_sst(
+        ledger_dir.join("00000000000000000000.sst"),
+        [(ledger_key(0).as_slice(), b"corrupt-ledger".as_slice())],
+    )
+    .unwrap();
 }
 
 fn erase_tombstones(entries: &[LedgerEntry]) -> Vec<calyx_ledger::ErasureTombstone> {
@@ -295,9 +316,8 @@ fn issue503_erasure_ledger_fsv_fixture() {
     let mut corrupt_ctx = context();
     let corrupt_record = cx(&corrupt_vault, b"FSV_ISSUE_503_CORRUPT_EDGE");
     let corrupt_id = corrupt_record.cx_id;
-    let nonce = [7_u8; 12];
     let ciphertext = corrupt_ctx
-        .encrypt_value(&nonce, b"corrupt-edge-readable", b"aad")
+        .encrypt_value(b"corrupt-edge-readable", b"aad")
         .unwrap();
     corrupt_vault.put(corrupt_record).unwrap();
     let corrupt_before_present = corrupt_vault
@@ -316,9 +336,7 @@ fn issue503_erasure_ledger_fsv_fixture() {
     let corrupt_after_present = corrupt_vault
         .get(corrupt_id, corrupt_vault.snapshot())
         .is_ok();
-    let corrupt_after_decrypt = corrupt_ctx
-        .decrypt_value(&nonce, &ciphertext, b"aad")
-        .unwrap();
+    let corrupt_after_decrypt = corrupt_ctx.decrypt_value(&ciphertext, b"aad").unwrap();
     println!("FSV_ISSUE503_CORRUPT_VAULT={}", corrupt_dir.display());
     println!("FSV_ISSUE503_CORRUPT_ERROR={}", corrupt_error.code);
     println!("FSV_ISSUE503_CORRUPT_BEFORE_PRESENT={corrupt_before_present}");

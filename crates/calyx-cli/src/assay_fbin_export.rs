@@ -42,6 +42,8 @@ pub(super) struct LensEvidence {
     pub(super) signal_kind: String,
     pub(super) bits_about: f32,
     pub(super) dim: usize,
+    pub(super) native_dim: usize,
+    pub(super) assay_projection: String,
     pub(super) corpus_path: String,
     pub(super) queries_path: String,
     pub(super) vault_path: String,

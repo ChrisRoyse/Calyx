@@ -1,28 +1,23 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use calyx_core::{Input, Lens, Placement, SlotShape, SlotVector};
-use calyx_registry::{
-    CandleLens, FastembedQwen3Lens, LensRuntime, LensSpec as RegistryLensSpec, OnnxColbertLens,
-    OnnxLens, StaticLookupLens, TeiHttpLens, lens_spec_from_manifest_path,
-};
+use calyx_registry::{LensSpec as RegistryLensSpec, lens_spec_from_manifest_path};
 use serde::{Deserialize, Serialize};
-
-use crate::assay_bits_validation::cost::LensCost;
-use crate::lens_commands::support::{dim, runtime_name, validate_vector_contract};
 
 use super::data::BuildRows;
 use super::request::CorpusBuildRequest;
-
+use crate::assay_bits_validation::cost::LensCost;
+use crate::lens_commands::support::{dim, validate_vector_contract};
 mod algorithmic;
 mod progress;
-mod projection;
+pub(crate) mod projection;
+mod runtime;
 mod stream;
-
-use algorithmic::algorithmic_lens;
 use projection::{project_multi, project_sparse};
+use runtime::build_lens;
 pub(crate) use stream::measure_text_batch;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -127,7 +122,7 @@ fn measure_one_lens(
     let inputs = rows
         .rows
         .iter()
-        .map(|row| Input::new(lens.spec.modality, row.text.as_bytes().to_vec()))
+        .map(|row| row.input_for(lens.spec.modality))
         .collect::<Vec<_>>();
     progress::emit_start(request, rows, &lens);
     let started = Instant::now();
@@ -155,97 +150,6 @@ fn measure_one_lens(
         worker_pid: None,
         worker_report_path: None,
         worker_stderr_path: None,
-    })
-}
-
-fn build_lens(manifest: PathBuf, spec: RegistryLensSpec) -> Result<BuildLens, String> {
-    let runtime = runtime_name(&spec.runtime).to_string();
-    match spec.runtime.clone() {
-        LensRuntime::Algorithmic { kind } => {
-            let lens = algorithmic_lens(&spec, &kind)?;
-            Ok(BuildLens {
-                name: spec.name.clone(),
-                manifest,
-                spec,
-                runtime_name: runtime,
-                lens: Box::new(lens),
-                placement: Placement::Cpu,
-                default_vram_mb: 0.0,
-                default_ram_mb: 0.0,
-            })
-        }
-        LensRuntime::Onnx { files, .. } => {
-            let lens = OnnxLens::from_lens_spec(&spec).map_err(lens_error)?;
-            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
-        }
-        LensRuntime::OnnxColbert { files, .. } => {
-            let lens = OnnxColbertLens::from_lens_spec(&spec).map_err(lens_error)?;
-            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
-        }
-        LensRuntime::StaticLookup {
-            embeddings_file,
-            tokenizer,
-            ..
-        } => {
-            let lens = StaticLookupLens::from_lens_spec(&spec).map_err(lens_error)?;
-            let files = vec![embeddings_file.clone(), tokenizer.clone()];
-            let ram_mb = paths_mb(&files)?;
-            Ok(BuildLens {
-                name: spec.name.clone(),
-                manifest,
-                spec,
-                runtime_name: runtime,
-                lens: Box::new(lens),
-                placement: Placement::Cpu,
-                default_vram_mb: 0.0,
-                default_ram_mb: ram_mb,
-            })
-        }
-        LensRuntime::TeiHttp { endpoint } => {
-            let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));
-            Ok(BuildLens {
-                name: spec.name.clone(),
-                manifest,
-                spec,
-                runtime_name: runtime,
-                lens: Box::new(lens),
-                placement: Placement::Gpu,
-                default_vram_mb: f32::NAN,
-                default_ram_mb: 0.0,
-            })
-        }
-        LensRuntime::CandleLocal { files, .. } => {
-            let lens = CandleLens::from_lens_spec(&spec).map_err(lens_error)?;
-            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
-        }
-        LensRuntime::FastembedQwen3 { files, .. } => {
-            let lens = FastembedQwen3Lens::from_lens_spec(&spec).map_err(lens_error)?;
-            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
-        }
-        other => Err(format!(
-            "CALYX_FSV_ASSAY_CORPUS_BUILD_UNSUPPORTED_RUNTIME: lens={} runtime={}",
-            spec.name,
-            runtime_name(&other)
-        )),
-    }
-}
-
-fn gpu_build_lens(
-    manifest: PathBuf,
-    spec: RegistryLensSpec,
-    runtime_name: String,
-    lens: Box<dyn Lens>,
-    files: &[PathBuf],
-) -> Result<BuildLens, String> {
-    Ok(BuildLens {
-        name: spec.name.clone(),
-        manifest,
-        spec,
-        runtime_name,
-        lens,
-        placement: Placement::Gpu,
-        default_vram_mb: paths_mb(files)?,
-        default_ram_mb: 0.0,
     })
 }
 
@@ -294,7 +198,7 @@ fn assay_vectors(
                 ));
             }
             SlotVector::Sparse { dim: got, entries } if got == dim(lens.spec.output) => {
-                projection.get_or_insert("sparse_to_dense");
+                projection.get_or_insert(projection::slot_projection_name(lens.spec.output));
                 vectors.push(project_sparse(&lens.name, idx, got, entries)?);
             }
             SlotVector::Sparse {
@@ -432,24 +336,6 @@ fn validate_cost_basis(cost: &RuntimeCostBasis<'_>) -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-fn paths_mb(paths: &[PathBuf]) -> Result<f32, String> {
-    let bytes = paths.iter().try_fold(0_u64, |acc, path| {
-        Ok::<u64, String>(acc.saturating_add(file_len(path)?))
-    })?;
-    Ok(bytes as f32 / (1024.0 * 1024.0))
-}
-
-fn file_len(path: &Path) -> Result<u64, String> {
-    fs::metadata(path)
-        .map(|metadata| metadata.len())
-        .map_err(|error| {
-            format!(
-                "CALYX_FSV_ASSAY_CORPUS_BUILD_FILE_IO: {}: {error}",
-                path.display()
-            )
-        })
 }
 
 fn lens_error(error: calyx_core::CalyxError) -> String {

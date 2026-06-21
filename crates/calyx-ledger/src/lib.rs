@@ -4,8 +4,10 @@ pub mod append;
 pub mod audit;
 pub mod checkpoint;
 pub mod codec;
+mod directory_store;
 pub mod entry;
 pub mod group_commit;
+pub mod head_anchor;
 pub mod kind;
 pub mod merkle;
 pub mod redaction;
@@ -31,6 +33,7 @@ pub use group_commit::{
     DefaultLedgerHook, LedgerBatchRow, LedgerWriteBatch, StagedLedgerRow, WriteBatch, WriteOp,
     ingest_kind_for, ledger_batch_key,
 };
+pub use head_anchor::LedgerHeadAnchor;
 pub use kind::EntryKind;
 pub use merkle::{
     MERKLE_EMPTY_ROOT, MERKLE_SIGNING_DOMAIN, MerkleExportBundle, combine_hash, leaf_hash,

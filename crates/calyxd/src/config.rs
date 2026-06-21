@@ -13,6 +13,7 @@
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
+use calyx_core::MtlsConfig;
 use serde::Deserialize;
 
 use crate::error::DaemonError;
@@ -67,6 +68,10 @@ pub struct CalyxConfig {
     /// Healthcheck timeout in seconds. Default `30`.
     #[serde(default = "default_healthcheck_timeout_secs")]
     pub healthcheck_timeout_secs: u32,
+    /// Optional MCP mTLS block. MCP startup requires this; config parsing keeps
+    /// it optional so non-MCP daemon tasks can still load minimal config.
+    #[serde(default)]
+    pub mcp_mtls: Option<MtlsConfig>,
 }
 
 impl CalyxConfig {
@@ -109,6 +114,9 @@ impl CalyxConfig {
                 self.vram_budget_mib
             )));
         }
+        if let Some(mtls) = &self.mcp_mtls {
+            validate_mcp_mtls(mtls)?;
+        }
         Ok(self)
     }
 
@@ -118,6 +126,22 @@ impl CalyxConfig {
     pub fn vault_path_resolved(&self) -> PathBuf {
         resolve_home(&self.vault_path, std::env::var(VAULT_PATH_HOME_VAR).ok())
     }
+}
+
+fn validate_mcp_mtls(mtls: &MtlsConfig) -> Result<(), DaemonError> {
+    if !mtls.require_client_cert {
+        return Err(DaemonError::tls_config_invalid(
+            "mcp_mtls.require_client_cert must be true; anonymous MCP clients are refused",
+        ));
+    }
+    if mtls.tls.ca_pem_path.is_none() {
+        return Err(DaemonError::tls_config_invalid(
+            "mcp_mtls.tls.ca_pem_path is required when client certificates are required",
+        ));
+    }
+    mtls.tls.validate().map_err(|error| {
+        DaemonError::tls_config_invalid(format!("{}: {}", error.code, error.message))
+    })
 }
 
 /// Pure interpolation helper: substitute `home` for `$CALYX_HOME`/`${CALYX_HOME}`
@@ -281,5 +305,25 @@ log_dir = \"/data/logs\"
         let resolved = resolve_home(&path, None);
         // Unchanged literal path — no silent expansion to empty.
         assert_eq!(resolved, PathBuf::from("$CALYX_HOME/vault"));
+    }
+
+    #[test]
+    fn mcp_mtls_rejects_missing_ca_when_client_cert_required() {
+        let toml = format!(
+            "{VALID_TOML}\n[mcp_mtls]\nrequire_client_cert = true\n\n[mcp_mtls.tls]\ncert_pem_path = \"C:/tmp/server.pem\"\nkey_pem_path = \"C:/tmp/server.key\"\n"
+        );
+        let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
+        assert_eq!(error.code(), "CALYX_TLS_CONFIG_INVALID");
+        assert!(error.to_string().contains("ca_pem_path"));
+    }
+
+    #[test]
+    fn mcp_mtls_rejects_optional_client_cert_policy() {
+        let toml = format!(
+            "{VALID_TOML}\n[mcp_mtls]\nrequire_client_cert = false\n\n[mcp_mtls.tls]\ncert_pem_path = \"C:/tmp/server.pem\"\nkey_pem_path = \"C:/tmp/server.key\"\nca_pem_path = \"C:/tmp/ca.pem\"\n"
+        );
+        let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
+        assert_eq!(error.code(), "CALYX_TLS_CONFIG_INVALID");
+        assert!(error.to_string().contains("require_client_cert"));
     }
 }

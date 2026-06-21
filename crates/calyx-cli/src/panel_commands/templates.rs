@@ -28,6 +28,7 @@ struct Flags {
     cards: Vec<PathBuf>,
     card_dir: Option<PathBuf>,
     assay_card: Option<PathBuf>,
+    a37_admission_card: Option<PathBuf>,
     require_a37_gate: bool,
 }
 
@@ -172,7 +173,12 @@ fn profile(args: &[String]) -> CliResult {
         .to_string();
     let store = TemplateStore::open(&home);
     let template = store.load(&selector)?;
-    let card = ensemble_card_from_capability_cards(&template, &cards, flags.assay_card.as_deref())?;
+    let card = ensemble_card_from_capability_cards(
+        &template,
+        &cards,
+        flags.assay_card.as_deref(),
+        flags.a37_admission_card.as_deref(),
+    )?;
     let save = store.profile(&selector, card, vault::now_ms())?;
     print_json(&save_report("profile", save))
 }
@@ -354,6 +360,11 @@ impl Flags {
                     idx += 1;
                     flags.assay_card = Some(value(args, idx, "--assay-card")?.into());
                 }
+                "--a37-admission-card" => {
+                    idx += 1;
+                    flags.a37_admission_card =
+                        Some(value(args, idx, "--a37-admission-card")?.into());
+                }
                 "--require-a37-gate" => flags.require_a37_gate = true,
                 other => return Err(CliError::usage(format!("unexpected template flag {other}"))),
             }
@@ -457,6 +468,8 @@ mod tests {
             "--assay-card".to_string(),
             "ensemble_card.json".to_string(),
             "--require-a37-gate".to_string(),
+            "--a37-admission-card".to_string(),
+            "multi_anchor_card.json".to_string(),
         ])
         .unwrap();
 
@@ -464,6 +477,10 @@ mod tests {
         assert_eq!(
             flags.assay_card.as_deref(),
             Some(Path::new("ensemble_card.json"))
+        );
+        assert_eq!(
+            flags.a37_admission_card.as_deref(),
+            Some(Path::new("multi_anchor_card.json"))
         );
         assert!(flags.require_a37_gate);
     }

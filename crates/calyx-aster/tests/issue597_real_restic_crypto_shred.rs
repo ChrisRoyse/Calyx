@@ -2,7 +2,7 @@
 //! restic snapshot.
 //!
 //! This ignored test deliberately does not run restic itself. The agent creates
-//! the source bytes with Calyx's `VaultKey`, runs `restic backup` / `restore`
+//! the source bytes with Calyx's `VaultContext`, runs `restic backup` / `restore`
 //! manually on gpuhost, then re-runs this test in restore-verify mode against
 //! the restored bytes. That keeps the restic snapshot as the Source of Truth.
 
@@ -10,14 +10,13 @@ use std::error::Error;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_aster::vault::{CALYX_DECRYPTION_FAILED, VaultKey};
+use calyx_aster::vault::{CALYX_DECRYPTION_FAILED, QuotaConfig, VaultContext};
 use calyx_core::VaultId;
 use rand::RngCore;
 use serde_json::json;
 use ulid::Ulid;
 
 const SENTINEL: &[u8] = b"CALYX_ISSUE597_ERASED_SENTINEL_DO_NOT_RECOVER";
-const NONCE: [u8; 12] = *b"issue597-fsv";
 const AAD: &[u8] = b"calyx-issue597/vault-a/cx-0001";
 const CX_FILE: &str = "cf/base/cx-issue597.cipher";
 const TOMBSTONE_FILE: &str = "ledger/tombstone-issue597.json";
@@ -44,17 +43,16 @@ fn seed_source_vault() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(vault.join("ledger"))?;
     fs::create_dir_all(vault.join("key-state"))?;
 
-    let vault_id = VaultId::from_ulid(Ulid::from_bytes([0x59; 16]));
     let mut master = [0_u8; 32];
     rand::rngs::OsRng.fill_bytes(&mut master);
 
-    let key = VaultKey::derive(&master, &vault_id)?;
-    let ciphertext = key.encrypt(&NONCE, SENTINEL, AAD)?;
-    let before = key.decrypt(&NONCE, &ciphertext, AAD)?;
+    let mut ctx = vault_context(&master)?;
+    let ciphertext = ctx.encrypt_value(SENTINEL, AAD)?;
+    let before = ctx.decrypt_value(&ciphertext, AAD)?;
     assert_eq!(before, SENTINEL, "pre-shred key must decrypt the sentinel");
 
-    let shredded = VaultKey::from_raw([0_u8; 32]);
-    let err = shredded.decrypt(&NONCE, &ciphertext, AAD).unwrap_err();
+    ctx.shred_key_for_erasure();
+    let err = ctx.decrypt_value(&ciphertext, AAD).unwrap_err();
     assert_eq!(err.code, CALYX_DECRYPTION_FAILED);
 
     fs::write(vault.join(CX_FILE), &ciphertext)?;
@@ -100,8 +98,9 @@ fn verify_restored_vault(vault: &Path) -> Result<(), Box<dyn Error>> {
         "restored key state must prove shred"
     );
 
-    let shredded = VaultKey::from_raw([0_u8; 32]);
-    let err = shredded.decrypt(&NONCE, &ciphertext, AAD).unwrap_err();
+    let mut shredded = vault_context(b"restored-key-material-for-issue597")?;
+    shredded.shred_key_for_erasure();
+    let err = shredded.decrypt_value(&ciphertext, AAD).unwrap_err();
     assert_eq!(err.code, CALYX_DECRYPTION_FAILED);
 
     println!("issue597 restored_vault={}", vault.display());
@@ -129,6 +128,16 @@ fn tombstone_json(ciphertext: &[u8]) -> Vec<u8> {
         "contains_content_bytes": false
     }))
     .expect("tombstone json")
+}
+
+fn vault_context(master: &[u8]) -> Result<VaultContext, Box<dyn Error>> {
+    let vault_id = VaultId::from_ulid(Ulid::from_bytes([0x59; 16]));
+    Ok(VaultContext::new(
+        vault_id,
+        master,
+        QuotaConfig::default(),
+        "tank/calyx",
+    )?)
 }
 
 fn required_path(name: &str) -> Result<PathBuf, Box<dyn Error>> {

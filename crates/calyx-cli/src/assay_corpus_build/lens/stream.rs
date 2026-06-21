@@ -4,6 +4,7 @@ use calyx_core::Input;
 
 use crate::lens_commands::support::dim;
 
+use super::projection::{projected_slot_dim, slot_projection_name};
 use super::{BuildLens, assay_vectors, measure_batches};
 
 impl BuildLens {
@@ -16,7 +17,15 @@ impl BuildLens {
     }
 
     pub(crate) fn dim(&self) -> usize {
+        projected_slot_dim(self.spec.output) as usize
+    }
+
+    pub(crate) fn native_dim(&self) -> usize {
         dim(self.spec.output) as usize
+    }
+
+    pub(crate) fn assay_projection(&self) -> &'static str {
+        slot_projection_name(self.spec.output)
     }
 
     pub(crate) fn max_batch(&self) -> Option<usize> {

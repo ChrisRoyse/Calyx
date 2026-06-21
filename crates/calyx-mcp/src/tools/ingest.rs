@@ -73,6 +73,10 @@ impl Tool for IngestTool {
             Ok(json!({ "results": reports }))
         }
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for AnchorTool {
@@ -129,6 +133,10 @@ impl Tool for AnchorTool {
             "ledger_seq": ledger_seq,
         }))
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for MeasureTool {
@@ -152,6 +160,10 @@ impl Tool for MeasureTool {
         let state = load_vault_panel_state(&resolved.path)?;
         let measured = measure_constellation(&vault, &state, text_input(args.input), now_ms())?;
         Ok(constellation_report(&measured.constellation, &state))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 

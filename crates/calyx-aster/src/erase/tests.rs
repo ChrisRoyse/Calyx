@@ -162,17 +162,14 @@ fn erase_vault_counts_constellations_and_shreds_key() {
     for seed in [b"one".as_slice(), b"two".as_slice(), b"three".as_slice()] {
         vault.put(cx(&vault, seed, None)).unwrap();
     }
-    let nonce = [5_u8; 12];
-    let ciphertext = ctx.encrypt_value(&nonce, b"erase-me", b"aad").unwrap();
+    let ciphertext = ctx.encrypt_value(b"erase-me", b"aad").unwrap();
 
     let result = vault.erase(EraseScope::Vault, &mut ctx, &registry).unwrap();
 
     assert_eq!(result.records_deleted, 3);
     assert!(ctx.is_key_shredded_for_erasure());
     assert_eq!(
-        ctx.decrypt_value(&nonce, &ciphertext, b"aad")
-            .unwrap_err()
-            .code,
+        ctx.decrypt_value(&ciphertext, b"aad").unwrap_err().code,
         "CALYX_DECRYPTION_FAILED"
     );
     assert!(
@@ -217,10 +214,7 @@ fn unknown_cx_is_idempotent_and_preserves_key() {
     let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(111));
     let mut ctx = context();
     let registry = EraseRegistry::new();
-    let nonce = [1_u8; 12];
-    let ciphertext = ctx
-        .encrypt_value(&nonce, b"still-readable", b"aad")
-        .unwrap();
+    let ciphertext = ctx.encrypt_value(b"still-readable", b"aad").unwrap();
 
     let result = vault
         .erase(
@@ -233,7 +227,7 @@ fn unknown_cx_is_idempotent_and_preserves_key() {
     assert_eq!(result.records_deleted, 0);
     assert!(!ctx.is_key_shredded_for_erasure());
     assert_eq!(
-        ctx.decrypt_value(&nonce, &ciphertext, b"aad").unwrap(),
+        ctx.decrypt_value(&ciphertext, b"aad").unwrap(),
         b"still-readable"
     );
 }
@@ -254,8 +248,7 @@ fn failing_handler_propagates_before_shredding() {
     let stored = cx(&vault, b"fail", None);
     let id = stored.cx_id;
     vault.put(stored).unwrap();
-    let nonce = [2_u8; 12];
-    let ciphertext = ctx.encrypt_value(&nonce, b"key-survives", b"aad").unwrap();
+    let ciphertext = ctx.encrypt_value(b"key-survives", b"aad").unwrap();
 
     let err = vault
         .erase(EraseScope::Cx(id), &mut ctx, &registry)
@@ -270,7 +263,7 @@ fn failing_handler_propagates_before_shredding() {
             .is_some()
     );
     assert_eq!(
-        ctx.decrypt_value(&nonce, &ciphertext, b"aad").unwrap(),
+        ctx.decrypt_value(&ciphertext, b"aad").unwrap(),
         b"key-survives"
     );
 }
@@ -287,7 +280,6 @@ fn ph61_t01_erase_gpuhost_fsv() {
 
     let root = fsv_root().join("issue502-erase");
     reset_dir(&root);
-    let nonce = [9_u8; 12];
     let registry = EraseRegistry::new();
 
     let happy_dir = root.join("happy").join("vault");
@@ -316,7 +308,7 @@ fn ph61_t01_erase_gpuhost_fsv() {
         )
         .unwrap();
     let ciphertext = happy_ctx
-        .encrypt_value(&nonce, b"FSV_ERASE_SENTINEL_502", b"issue502")
+        .encrypt_value(b"FSV_ERASE_SENTINEL_502", b"issue502")
         .unwrap();
     let happy_before_base = happy
         .scan_cf_at(happy.snapshot(), ColumnFamily::Base)
@@ -342,7 +334,7 @@ fn ph61_t01_erase_gpuhost_fsv() {
     let unknown = durable_vault(&unknown_dir);
     let mut unknown_ctx = context();
     let unknown_ct = unknown_ctx
-        .encrypt_value(&nonce, b"UNKNOWN_EDGE_KEY_SURVIVES", b"issue502")
+        .encrypt_value(b"UNKNOWN_EDGE_KEY_SURVIVES", b"issue502")
         .unwrap();
     let unknown_result = unknown
         .erase(
@@ -356,7 +348,7 @@ fn ph61_t01_erase_gpuhost_fsv() {
     let empty = durable_vault(&empty_dir);
     let mut empty_ctx = context();
     let empty_ct = empty_ctx
-        .encrypt_value(&nonce, b"EMPTY_VAULT_KEY_SHRED", b"issue502")
+        .encrypt_value(b"EMPTY_VAULT_KEY_SHRED", b"issue502")
         .unwrap();
     let empty_result = empty
         .erase(EraseScope::Vault, &mut empty_ctx, &registry)
@@ -371,7 +363,7 @@ fn ph61_t01_erase_gpuhost_fsv() {
     let fail_id = fail_cx.cx_id;
     failing.put(fail_cx).unwrap();
     let failing_ct = failing_ctx
-        .encrypt_value(&nonce, b"FAILING_HANDLER_KEY_SURVIVES", b"issue502")
+        .encrypt_value(b"FAILING_HANDLER_KEY_SURVIVES", b"issue502")
         .unwrap();
     let failing_error = failing
         .erase(EraseScope::Cx(fail_id), &mut failing_ctx, &failing_registry)
@@ -391,7 +383,7 @@ fn ph61_t01_erase_gpuhost_fsv() {
             "survivor_second_present": happy.get(second_id, happy.snapshot()).is_ok(),
             "raw_slot_after_present": happy.read_cf_at(happy.snapshot(), ColumnFamily::slot_raw(SlotId::new(0)), &slot_key(first_id)).unwrap().is_some(),
             "key_shredded": happy_ctx.is_key_shredded_for_erasure(),
-            "decrypt_after_code": happy_ctx.decrypt_value(&nonce, &ciphertext, b"issue502").unwrap_err().code,
+            "decrypt_after_code": happy_ctx.decrypt_value(&ciphertext, b"issue502").unwrap_err().code,
             "wal_record_count": replay.records.len(),
             "wal_tombstone_rows": tombstone_rows,
             "cf_sentinel_hits_after": &cf_sentinel_hits,
@@ -400,18 +392,18 @@ fn ph61_t01_erase_gpuhost_fsv() {
             "records_deleted": unknown_result.records_deleted,
             "after_base_count": unknown.scan_cf_at(unknown.snapshot(), ColumnFamily::Base).unwrap().len(),
             "key_shredded": unknown_ctx.is_key_shredded_for_erasure(),
-            "decrypt_after": String::from_utf8(unknown_ctx.decrypt_value(&nonce, &unknown_ct, b"issue502").unwrap()).unwrap(),
+            "decrypt_after": String::from_utf8(unknown_ctx.decrypt_value(&unknown_ct, b"issue502").unwrap()).unwrap(),
         },
         "empty_vault_edge": {
             "records_deleted": empty_result.records_deleted,
             "after_base_count": empty.scan_cf_at(empty.snapshot(), ColumnFamily::Base).unwrap().len(),
             "key_shredded": empty_ctx.is_key_shredded_for_erasure(),
-            "decrypt_after_code": empty_ctx.decrypt_value(&nonce, &empty_ct, b"issue502").unwrap_err().code,
+            "decrypt_after_code": empty_ctx.decrypt_value(&empty_ct, b"issue502").unwrap_err().code,
         },
         "failing_handler_edge": {
             "error_code": failing_error.code,
             "key_shredded": failing_ctx.is_key_shredded_for_erasure(),
-            "decrypt_after": String::from_utf8(failing_ctx.decrypt_value(&nonce, &failing_ct, b"issue502").unwrap()).unwrap(),
+            "decrypt_after": String::from_utf8(failing_ctx.decrypt_value(&failing_ct, b"issue502").unwrap()).unwrap(),
             "target_base_after_present": failing.read_cf_at(failing.snapshot(), ColumnFamily::Base, &base_key(fail_id)).unwrap().is_some(),
         },
         "paths": {

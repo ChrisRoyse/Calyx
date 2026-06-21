@@ -41,6 +41,19 @@ pub fn verify_chain(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<Veri
             range.start, range.end
         )));
     }
+    let anchor = store.head_anchor()?;
+    if range.start == 0
+        && let Some(anchor) = &anchor
+        && range.end != anchor.height
+    {
+        return Ok(corrupt_result(
+            range.end.min(anchor.height),
+            format!(
+                "ledger head anchor mismatch: requested head {}, anchored head {}",
+                range.end, anchor.height
+            ),
+        ));
+    }
     if range.start == range.end {
         return Ok(VerifyResult::Intact { count: 0 });
     }
@@ -95,6 +108,18 @@ pub fn verify_chain(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<Veri
         }
         expected_prev = entry.entry_hash;
         count += 1;
+    }
+
+    if range.start == 0
+        && let Some(anchor) = &anchor
+        && range.end == anchor.height
+        && expected_prev != anchor.tip_hash
+    {
+        return Ok(VerifyResult::Broken {
+            at_seq: range.end.saturating_sub(1),
+            expected: anchor.tip_hash,
+            found: expected_prev,
+        });
     }
 
     Ok(VerifyResult::Intact { count })
@@ -236,6 +261,33 @@ mod tests {
             verify_chain(&store, 4..7).unwrap(),
             VerifyResult::Intact { count: 3 }
         );
+    }
+
+    #[test]
+    fn newest_row_truncation_reports_anchor_mismatch() {
+        let mut store = chain_store(3);
+        store.remove_raw(2);
+
+        let result = verify_chain(&store, 0..2).unwrap();
+
+        assert!(matches!(
+            result,
+            VerifyResult::Corrupt {
+                at_seq: 2,
+                ref reason
+            } if reason.contains("anchored head 3")
+        ));
+    }
+
+    #[test]
+    fn appender_recovery_rejects_newest_row_truncation() {
+        let mut store = chain_store(3);
+        store.remove_raw(2);
+
+        let err = LedgerAppender::open(store, FixedClock::new(20)).unwrap_err();
+
+        assert_eq!(err.code, "CALYX_LEDGER_CHAIN_BROKEN");
+        assert!(err.message.contains("end-truncated"));
     }
 
     fn chain_store(count: usize) -> MemoryLedgerStore {

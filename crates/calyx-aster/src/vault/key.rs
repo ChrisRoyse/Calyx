@@ -75,11 +75,9 @@ impl VaultKey {
         Ok(Self { inner: okm })
     }
 
-    /// Wraps a pre-derived 32-byte key directly.
-    ///
-    /// For tests and embedded vaults whose host supplies an already-derived key
-    /// (e.g. read from a provisioned secret) rather than master material.
-    pub fn from_raw(bytes: [u8; KEY_LEN]) -> Self {
+    /// Wraps a pre-derived 32-byte key directly for cryptographic KATs.
+    #[cfg(test)]
+    pub(crate) fn from_raw(bytes: [u8; KEY_LEN]) -> Self {
         Self {
             inner: Zeroizing::new(bytes),
         }
@@ -102,13 +100,13 @@ impl VaultKey {
 
     /// AES-256-GCM encrypts `plaintext` under `nonce`, binding `aad`.
     ///
-    /// Returns `ciphertext || tag` (the 16-byte GCM tag is appended). The caller
-    /// owns nonce uniqueness: a `(key, nonce)` pair must never encrypt two
-    /// different messages.
+    /// Returns `ciphertext || tag` (the 16-byte GCM tag is appended). This is a
+    /// crate-internal primitive; public value encryption goes through
+    /// `VaultContext::encrypt_value`, which generates and stores a fresh nonce.
     ///
     /// # Errors
     /// [`CALYX_ENCRYPTION_FAILED`] on any cipher error.
-    pub fn encrypt(
+    pub(crate) fn encrypt(
         &self,
         nonce: &[u8; NONCE_LEN],
         plaintext: &[u8],
@@ -134,7 +132,7 @@ impl VaultKey {
     ///
     /// # Errors
     /// [`CALYX_DECRYPTION_FAILED`] on tag/AAD mismatch or truncated input.
-    pub fn decrypt(
+    pub(crate) fn decrypt(
         &self,
         nonce: &[u8; NONCE_LEN],
         ciphertext: &[u8],

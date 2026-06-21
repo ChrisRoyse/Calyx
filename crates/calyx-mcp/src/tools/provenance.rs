@@ -49,6 +49,10 @@ impl Tool for ProvenanceTool {
         let args: ProvenanceArgs = decode("calyx.provenance", params)?;
         Ok(json!(core::lineage(&args.vault, &args.cx_id)?))
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
 impl Tool for AnswerTraceTool {
@@ -64,6 +68,10 @@ impl Tool for AnswerTraceTool {
     fn call(&self, params: Value) -> ToolResult<Value> {
         let args: AnswerTraceArgs = decode("calyx.answer_trace", params)?;
         Ok(json!(core::answer_trace(&args.answer_id)?))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 
@@ -88,6 +96,10 @@ impl Tool for VerifyChainTool {
             args.from_seq,
             args.to_seq,
         )?))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 
@@ -117,6 +129,10 @@ impl Tool for ReproduceTool {
             .into())
         }
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
 impl Tool for AnnealStatusTool {
@@ -132,6 +148,10 @@ impl Tool for AnnealStatusTool {
     fn call(&self, params: Value) -> ToolResult<Value> {
         let args: VaultArgs = decode("calyx.anneal.status", params)?;
         Ok(json!(status::anneal_status(&args.vault)?))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 

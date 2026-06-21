@@ -1,11 +1,9 @@
-//! Loopback-only MCP-over-socket transport for `calyxd` (PH65 · T05).
+//! Loopback-only mTLS MCP-over-socket transport for `calyxd` (PH65 · T05).
 //!
 //! This module is *transport*, not protocol: it owns the length-prefixed
-//! framing on a loopback TCP socket and hands each decoded JSON-RPC request to a
-//! shared [`calyx_mcp::McpServer`], whose dispatch already implements the three
-//! MCP methods, per-tool panic isolation, and the `CalyxError` → `-32000`
-//! mapping. T05 deliberately does not reimplement any of that, and it does not
-//! register production tools (that is PH63's tool groups + T06's `main` wiring).
+//! framing on a loopback TCP socket, requires a verified client certificate,
+//! then hands each decoded JSON-RPC request to a shared [`calyx_mcp::McpServer`]
+//! with an [`calyx_core::AuthN::MtlsToken`] identity.
 //!
 //! ## Why std threads, not tokio
 //! The whole workspace is synchronous — there is no tokio dependency anywhere.
@@ -14,15 +12,15 @@
 //! same grain rather than dragging in an async runtime for one accept loop.
 //!
 //! ## Wire format
-//! Each message is a 4-byte big-endian `u32` length prefix followed by exactly
-//! that many bytes of UTF-8 JSON (one JSON-RPC request or response). A length
-//! over [`MAX_FRAME_BYTES`] is refused before any allocation — the documented
-//! DoS guard for length-prefixed framing — and desyncs the stream, so the
-//! connection is closed. A clean EOF at a frame boundary is a normal close.
+//! After the TLS handshake, each message is a 4-byte big-endian `u32` length
+//! prefix followed by exactly that many bytes of UTF-8 JSON. A length over
+//! [`MAX_FRAME_BYTES`] is refused before allocation and closes the connection.
 //!
 //! ## Fail-closed posture
 //! - Non-loopback bind → [`DaemonError::bind_failed`] (`CALYX_DAEMON_BIND_FAILED`);
 //!   the server never starts.
+//! - Missing/invalid `mcp_mtls` config or absent client cert →
+//!   [`CALYX_TLS_CONFIG_INVALID`] / TLS handshake failure before dispatch.
 //! - Oversized/garbage frame prefix → [`CALYX_DAEMON_FRAME_INVALID`], connection
 //!   closed (the byte stream can no longer be trusted).
 //! - Malformed JSON inside a valid frame → a JSON-RPC error response is written
@@ -38,10 +36,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use calyx_core::{AuthN, MtlsConfig};
 use calyx_mcp::{JsonRpcError, JsonRpcResponse, McpServer, decode_jsonrpc_request};
+use rustls::ServerConfig;
 
 use crate::config::CalyxConfig;
 use crate::error::DaemonError;
+
+mod tls;
 
 /// Daemon-local code for an unrecoverable framing error (oversized length prefix
 /// or a truncated/garbage frame). Kept MCP-local rather than widening the closed
@@ -83,6 +85,7 @@ enum FrameRead {
 pub struct CalyxMcpServer {
     listener: TcpListener,
     dispatcher: Arc<McpServer>,
+    tls_config: Arc<ServerConfig>,
     shutdown: Arc<AtomicBool>,
     active: Arc<AtomicUsize>,
 }
@@ -91,17 +94,23 @@ impl CalyxMcpServer {
     /// Binds `addr`, refusing any non-loopback IP before touching the OS so a
     /// misconfiguration can never expose the daemon off-host (A16/A17). Cloudflare
     /// Tunnel + Caddy are the sole external ingress.
-    pub fn bind(addr: SocketAddr, dispatcher: Arc<McpServer>) -> Result<Self, DaemonError> {
+    pub fn bind(
+        addr: SocketAddr,
+        dispatcher: Arc<McpServer>,
+        mtls: MtlsConfig,
+    ) -> Result<Self, DaemonError> {
         if !addr.ip().is_loopback() {
             return Err(DaemonError::bind_failed(format!(
                 "refused non-loopback bind address {addr}; calyxd MCP serves loopback only"
             )));
         }
+        let tls_config = tls::build_server_config(&mtls)?;
         let listener = TcpListener::bind(addr)
             .map_err(|error| DaemonError::bind_failed(format!("bind {addr}: {error}")))?;
         Ok(Self {
             listener,
             dispatcher,
+            tls_config,
             shutdown: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicUsize::new(0)),
         })
@@ -110,7 +119,12 @@ impl CalyxMcpServer {
     /// Binds the configured `cfg.bind_addr` (already validated loopback at config
     /// parse — this re-asserts it at the OS boundary per the card).
     pub fn from_config(cfg: &CalyxConfig, dispatcher: Arc<McpServer>) -> Result<Self, DaemonError> {
-        Self::bind(cfg.bind_addr, dispatcher)
+        let mtls = cfg.mcp_mtls.clone().ok_or_else(|| {
+            DaemonError::tls_config_invalid(
+                "mcp_mtls is required before calyxd MCP can accept network connections",
+            )
+        })?;
+        Self::bind(cfg.bind_addr, dispatcher, mtls)
     }
 
     /// The actually-bound address (resolves an OS-assigned port when `:0`).
@@ -145,10 +159,11 @@ impl CalyxMcpServer {
                     }
                     self.active.fetch_add(1, Ordering::SeqCst);
                     let dispatcher = Arc::clone(&self.dispatcher);
+                    let tls_config = Arc::clone(&self.tls_config);
                     let active = Arc::clone(&self.active);
                     std::thread::spawn(move || {
                         let outcome = catch_unwind(AssertUnwindSafe(|| {
-                            serve_connection(stream, &dispatcher)
+                            tls::serve_connection(stream, &dispatcher, tls_config)
                         }));
                         active.fetch_sub(1, Ordering::SeqCst);
                         match outcome {
@@ -210,19 +225,17 @@ impl ShutdownHandle {
     }
 }
 
-/// Serves length-prefixed JSON-RPC requests on `stream` until EOF or an
-/// unrecoverable framing error. Each decoded request is dispatched through the
-/// shared [`McpServer`]; notifications (no `id`) get no reply, per JSON-RPC 2.0.
-fn serve_connection(mut stream: TcpStream, dispatcher: &McpServer) -> Result<(), String> {
-    stream
-        .set_read_timeout(Some(IO_TIMEOUT))
-        .map_err(|error| format!("set read timeout: {error}"))?;
-    stream
-        .set_write_timeout(Some(IO_TIMEOUT))
-        .map_err(|error| format!("set write timeout: {error}"))?;
-
+/// Serves length-prefixed JSON-RPC requests on an already-authenticated stream
+/// until EOF or an unrecoverable framing error. Each decoded request is
+/// dispatched through the shared [`McpServer`] with the caller identity derived
+/// by the transport; notifications (no `id`) get no reply, per JSON-RPC 2.0.
+fn serve_stream(
+    stream: &mut impl ReadWrite,
+    dispatcher: &McpServer,
+    authn: Option<&AuthN>,
+) -> Result<(), String> {
     loop {
-        let payload = match read_frame(&mut stream)? {
+        let payload = match read_frame(stream)? {
             FrameRead::Payload(bytes) => bytes,
             FrameRead::Eof => return Ok(()),
         };
@@ -230,25 +243,29 @@ fn serve_connection(mut stream: TcpStream, dispatcher: &McpServer) -> Result<(),
         match decode_jsonrpc_request(&payload) {
             Ok(request) => {
                 let is_notification = request.id.is_none();
-                let response = dispatcher.dispatch(request);
+                let response = dispatcher.dispatch_with_authn(request, authn);
                 if is_notification {
                     continue;
                 }
-                write_response(&mut stream, &response)?;
+                write_response(stream, &response)?;
             }
             Err(calyx) => {
                 // Malformed JSON in an otherwise valid frame is a per-message
                 // error, not a stream error: answer with a structured JSON-RPC
                 // error (id unknown → null) and keep serving the next frame.
                 let response = JsonRpcResponse::error(None, JsonRpcError::from_calyx(&calyx));
-                write_response(&mut stream, &response)?;
+                write_response(stream, &response)?;
             }
         }
     }
 }
 
+trait ReadWrite: Read + Write {}
+
+impl<T: Read + Write> ReadWrite for T {}
+
 /// Serializes `response` and writes it as one length-prefixed frame.
-fn write_response(stream: &mut TcpStream, response: &JsonRpcResponse) -> Result<(), String> {
+fn write_response(stream: &mut impl Write, response: &JsonRpcResponse) -> Result<(), String> {
     let body = serde_json::to_vec(response)
         .map_err(|error| format!("serialize JSON-RPC response: {error}"))?;
     write_frame(stream, &body)
@@ -333,103 +350,4 @@ fn read_full_or_eof(reader: &mut impl Read, buf: &mut [u8]) -> Result<ReadState,
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Cursor;
-
-    fn dispatcher() -> Arc<McpServer> {
-        Arc::new(McpServer::new())
-    }
-
-    #[test]
-    fn bind_refuses_non_loopback_address() {
-        let Err(error) = CalyxMcpServer::bind("0.0.0.0:7700".parse().unwrap(), dispatcher()) else {
-            panic!("non-loopback bind must fail");
-        };
-        assert_eq!(error.code(), "CALYX_DAEMON_BIND_FAILED");
-        assert!(error.to_string().contains("0.0.0.0:7700"));
-    }
-
-    #[test]
-    fn bind_accepts_ipv4_loopback() {
-        let server = CalyxMcpServer::bind("127.0.0.1:0".parse().unwrap(), dispatcher()).unwrap();
-        assert!(server.local_addr().unwrap().ip().is_loopback());
-    }
-
-    #[test]
-    fn bind_accepts_ipv6_loopback() {
-        let server = CalyxMcpServer::bind("[::1]:0".parse().unwrap(), dispatcher()).unwrap();
-        assert!(server.local_addr().unwrap().ip().is_loopback());
-    }
-
-    #[test]
-    fn from_config_binds_validated_loopback_addr() {
-        let cfg = CalyxConfig::from_toml_str(
-            "bind_addr = \"127.0.0.1:0\"\nvault_path = \"/v\"\nvram_budget_mib = 8192\nlog_dir = \"/l\"\n",
-        )
-        .unwrap();
-        let server = CalyxMcpServer::from_config(&cfg, dispatcher()).unwrap();
-        assert!(server.local_addr().unwrap().ip().is_loopback());
-    }
-
-    #[test]
-    fn frame_round_trips_through_codec() {
-        // write_frame then read_frame must reconstruct the exact payload bytes.
-        let payload = br#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
-        let mut buf = Vec::new();
-        write_frame(&mut buf, payload).unwrap();
-        // 4-byte BE prefix == payload length, by hand: 46 bytes.
-        assert_eq!(payload.len(), 46);
-        assert_eq!(buf[..4], 46_u32.to_be_bytes());
-        let mut cursor = Cursor::new(buf);
-        match read_frame(&mut cursor).unwrap() {
-            FrameRead::Payload(bytes) => assert_eq!(bytes, payload),
-            FrameRead::Eof => panic!("expected a payload, got EOF"),
-        }
-    }
-
-    #[test]
-    fn read_frame_reports_clean_eof_at_boundary() {
-        let mut cursor = Cursor::new(Vec::new());
-        assert!(matches!(read_frame(&mut cursor).unwrap(), FrameRead::Eof));
-    }
-
-    #[test]
-    fn read_frame_refuses_oversize_length_before_allocating() {
-        // Prefix claims MAX+1 bytes with no body present: must be refused on the
-        // prefix alone, never attempting the allocation/read.
-        let oversize = MAX_FRAME_BYTES + 1;
-        let mut cursor = Cursor::new(oversize.to_be_bytes().to_vec());
-        let error = read_frame(&mut cursor).unwrap_err();
-        assert!(error.contains(CALYX_DAEMON_FRAME_INVALID));
-        assert!(error.contains(&oversize.to_string()));
-    }
-
-    #[test]
-    fn read_frame_rejects_zero_length_frame() {
-        let mut cursor = Cursor::new(0_u32.to_be_bytes().to_vec());
-        let error = read_frame(&mut cursor).unwrap_err();
-        assert!(error.contains(CALYX_DAEMON_FRAME_INVALID));
-        assert!(error.contains("zero-length"));
-    }
-
-    #[test]
-    fn read_frame_rejects_truncated_prefix() {
-        // Only 2 of the 4 prefix bytes arrive, then EOF: a truncated frame, not a
-        // clean boundary close.
-        let mut cursor = Cursor::new(vec![0x00, 0x01]);
-        let error = read_frame(&mut cursor).unwrap_err();
-        assert!(error.contains(CALYX_DAEMON_FRAME_INVALID));
-        assert!(error.contains("truncated"));
-    }
-
-    #[test]
-    fn read_frame_rejects_truncated_body() {
-        // Prefix says 8 bytes, only 3 follow: read_exact must error.
-        let mut bytes = 8_u32.to_be_bytes().to_vec();
-        bytes.extend_from_slice(b"abc");
-        let mut cursor = Cursor::new(bytes);
-        let error = read_frame(&mut cursor).unwrap_err();
-        assert!(error.contains("frame body"));
-    }
-}
+mod tests;

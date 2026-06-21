@@ -91,6 +91,10 @@ impl Tool for MediaIngestTool {
             CalyxError::aster_corrupt_shard(format!("encode media ingest: {err}"))
         })?)
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 pub(super) fn retain_media_input(
