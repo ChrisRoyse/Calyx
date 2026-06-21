@@ -90,7 +90,7 @@ fn jitter(seed: u64, i: u64, d: u64) -> f32 {
     (raw as f32 / u32::MAX as f32) * 2.0 - 1.0
 }
 
-fn vec_json(values: &[f32]) -> String {
+pub(super) fn vec_json(values: &[f32]) -> String {
     let parts: Vec<String> = values.iter().map(|v| format!("{v:.6}")).collect();
     format!("[{}]", parts.join(","))
 }

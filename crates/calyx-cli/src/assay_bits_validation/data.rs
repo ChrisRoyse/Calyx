@@ -9,7 +9,7 @@ use crate::assay_anchor_audit::AnchorAudit;
 use super::request::AssayBitsRequest;
 
 const MIN_SAMPLES: usize = 50;
-const MIN_LENSES: usize = 2;
+const MIN_LENSES: usize = 1;
 
 type LoadedVectors = (Vec<usize>, Vec<String>, BTreeMap<String, Vec<Vec<f32>>>);
 

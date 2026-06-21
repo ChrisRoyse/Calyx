@@ -111,9 +111,9 @@ impl CorpusBuildRequest {
                     .to_string(),
             );
         }
-        if self.worker_report.is_none() && self.manifests.len() < 2 {
+        if self.worker_report.is_none() && self.manifests.is_empty() {
             return Err(
-                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: provide at least two --manifest entries"
+                "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_CONFIG: provide at least one --manifest entry"
                     .to_string(),
             );
         }

@@ -212,9 +212,9 @@ fn write_cost(lenses: &[MeasuredLens], path: &Path) -> Result<(), String> {
 }
 
 fn validate_measurements(rows: &BuildRows, lenses: &[MeasuredLens]) -> Result<(), String> {
-    if lenses.len() < 2 {
+    if lenses.is_empty() {
         return Err(
-            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_MEASUREMENT: need at least two measured lenses"
+            "CALYX_FSV_ASSAY_CORPUS_BUILD_INVALID_MEASUREMENT: need at least one measured lens"
                 .to_string(),
         );
     }

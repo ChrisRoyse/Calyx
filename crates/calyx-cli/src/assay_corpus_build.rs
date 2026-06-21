@@ -26,4 +26,6 @@ pub(crate) fn run(args: &[String]) -> CliResult {
 }
 
 #[cfg(test)]
+mod request_tests;
+#[cfg(test)]
 mod tests;
