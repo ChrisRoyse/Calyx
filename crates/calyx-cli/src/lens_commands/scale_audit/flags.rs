@@ -19,6 +19,7 @@ impl Flags {
             max_abs_delta: DEFAULT_MAX_ABS_DELTA,
             lens_timeout_secs: DEFAULT_LENS_TIMEOUT_SECS,
             probes: Vec::new(),
+            probe_files: Vec::new(),
             worker: false,
         };
         let mut idx = 0;
@@ -80,6 +81,12 @@ impl Flags {
                 "--probe" => {
                     idx += 1;
                     flags.probes.push(value(args, idx, "--probe")?.to_string());
+                }
+                "--probe-file" => {
+                    idx += 1;
+                    flags
+                        .probe_files
+                        .push(value(args, idx, "--probe-file")?.into());
                 }
                 "--worker" => {
                     flags.worker = true;

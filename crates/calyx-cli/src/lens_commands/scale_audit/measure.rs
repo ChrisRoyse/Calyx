@@ -2,10 +2,11 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 
-use calyx_core::{CalyxError, Input, Lens, Modality, Placement, SlotVector, SparseEntry};
+use calyx_core::{CalyxError, Input, Lens, Placement, SlotVector, SparseEntry};
 use calyx_registry::LensSpec;
 
-use super::model::{BatchStability, Flags, LensAudit, reject};
+use super::model::{BatchStability, Flags, LensAudit, ProbeEvidence, reject};
+use super::probe::{probe_set, supports_probe_measurement};
 use super::runtime::{association_family, is_content_modality, is_temporal_sidecar, runtime_lens};
 use crate::lens_commands::support::{dim, hex_from_bytes, runtime_name, validate_vector_contract};
 
@@ -46,6 +47,7 @@ pub(super) fn audit_lens(manifest: PathBuf, spec: LensSpec, flags: &Flags) -> Le
                 native_batching: false,
                 provider_placement_proof: String::new(),
                 gpu_process_observed: None,
+                probe_evidence: Vec::new(),
                 rows_per_sec: None,
                 batch_stability: None,
                 accepted: false,
@@ -77,11 +79,13 @@ pub(super) fn audit_lens(manifest: PathBuf, spec: LensSpec, flags: &Flags) -> Le
     let mut rows_per_sec = None;
     let mut batch_stability = None;
     let mut gpu_process_observed = None;
-    if counts && spec.modality == Modality::Text {
+    let mut probe_evidence = Vec::new();
+    if counts && supports_probe_measurement(spec.modality) {
         match measure_runtime(&*runtime_lens.lens, &spec, flags, effective) {
             Ok(result) => {
                 rows_per_sec = Some(result.rows_per_sec);
                 batch_stability = Some(result.stability.clone());
+                probe_evidence = result.probe_evidence;
                 if !result.stability.acceptable {
                     rejections.push(reject(
                         "CALYX_LENS_SCALE_BATCH_STABILITY",
@@ -92,16 +96,19 @@ pub(super) fn audit_lens(manifest: PathBuf, spec: LensSpec, flags: &Flags) -> Le
                     ));
                 }
             }
-            Err(error) => rejections.push(reject(
-                "CALYX_LENS_SCALE_MEASUREMENT_FAILED",
-                format!("{}: {}", error.code, error.message),
-            )),
+            Err(failure) => {
+                probe_evidence = failure.probe_evidence;
+                rejections.push(reject(
+                    "CALYX_LENS_SCALE_MEASUREMENT_FAILED",
+                    format!("{}: {}", failure.error.code, failure.error.message),
+                ));
+            }
         }
     } else if counts {
         rejections.push(reject(
             "CALYX_LENS_SCALE_MODALITY_UNSUPPORTED",
             format!(
-                "lens {} modality {:?} is not PH68 text-stream auditable",
+                "lens {} modality {:?} has no scale-audit probe support",
                 spec.name, spec.modality
             ),
         ));
@@ -153,6 +160,7 @@ pub(super) fn audit_lens(manifest: PathBuf, spec: LensSpec, flags: &Flags) -> Le
         native_batching: runtime_lens.native_batching,
         provider_placement_proof: runtime_lens.proof,
         gpu_process_observed,
+        probe_evidence,
         rows_per_sec,
         batch_stability,
         accepted: rejections.is_empty(),
@@ -182,6 +190,12 @@ fn current_pid_seen_by_nvidia_smi() -> Result<bool, String> {
 struct Measurement {
     rows_per_sec: f64,
     stability: BatchStability,
+    probe_evidence: Vec<ProbeEvidence>,
+}
+
+struct MeasurementFailure {
+    error: CalyxError,
+    probe_evidence: Vec<ProbeEvidence>,
 }
 
 fn measure_runtime(
@@ -189,29 +203,48 @@ fn measure_runtime(
     spec: &LensSpec,
     flags: &Flags,
     effective_batch: usize,
-) -> Result<Measurement, CalyxError> {
-    let inputs = probe_inputs(flags, spec.modality, effective_batch.max(1));
+) -> Result<Measurement, MeasurementFailure> {
+    let probes = probe_set(flags, spec.modality, effective_batch.max(1)).map_err(|error| {
+        MeasurementFailure {
+            error,
+            probe_evidence: Vec::new(),
+        }
+    })?;
+    let probe_evidence = probes.evidence.clone();
     let started = Instant::now();
-    let measured = measure_chunks(lens, &inputs, effective_batch)?;
+    let measured = measure_chunks(lens, &probes.inputs, effective_batch)
+        .map_err(|error| measurement_failure(error, &probe_evidence))?;
     let elapsed = started.elapsed().as_secs_f64().max(0.000_001);
     for vector in &measured {
         validate_vector_contract(vector, spec.output, spec.norm_policy)
-            .map_err(|error| CalyxError::lens_unreachable(error.to_string()))?;
+            .map_err(|error| CalyxError::lens_unreachable(error.to_string()))
+            .map_err(|error| measurement_failure(error, &probe_evidence))?;
     }
-    let singles = inputs
+    let singles = probes
+        .inputs
         .iter()
         .map(|input| lens.measure(input))
-        .collect::<Result<Vec<_>, _>>()?;
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| measurement_failure(error, &probe_evidence))?;
     let stability = compare_vectors(
         &singles,
         &measured,
         flags.min_batch_cosine,
         flags.max_abs_delta,
-    )?;
+    )
+    .map_err(|error| measurement_failure(error, &probe_evidence))?;
     Ok(Measurement {
-        rows_per_sec: inputs.len() as f64 / elapsed,
+        rows_per_sec: probes.inputs.len() as f64 / elapsed,
         stability,
+        probe_evidence,
     })
+}
+
+fn measurement_failure(error: CalyxError, probe_evidence: &[ProbeEvidence]) -> MeasurementFailure {
+    MeasurementFailure {
+        error,
+        probe_evidence: probe_evidence.to_vec(),
+    }
 }
 
 pub(super) fn effective_batch(requested: usize, max_batch: Option<usize>) -> usize {
@@ -395,28 +428,4 @@ fn max_delta(a: &[f32], b: &[f32]) -> f32 {
         .zip(b)
         .map(|(x, y)| (x - y).abs())
         .fold(0.0_f32, f32::max)
-}
-
-fn probe_inputs(flags: &Flags, modality: Modality, sample_rows: usize) -> Vec<Input> {
-    let probes = if flags.probes.is_empty() {
-        default_probes()
-    } else {
-        flags.probes.clone()
-    };
-    (0..sample_rows)
-        .map(|idx| Input::new(modality, probes[idx % probes.len()].as_bytes().to_vec()))
-        .collect()
-}
-
-fn default_probes() -> Vec<String> {
-    vec![
-        "Calyx PH68 scale audit uses real frozen lens measurements".to_string(),
-        "GPU-native batching must preserve the single-row vector contract".to_string(),
-        "Temporal capture walks forward backward and as-of outside content floors".to_string(),
-        "Provider placement evidence must fail closed on CPU fallback".to_string(),
-        "Associational panels need enough independent content lenses".to_string(),
-        "Source of truth bytes are read after the trigger finishes".to_string(),
-        "Dense semantic and lexical signals should not collapse into one axis".to_string(),
-        "The RTX 5090 path needs batchable runtime placement proof".to_string(),
-    ]
 }

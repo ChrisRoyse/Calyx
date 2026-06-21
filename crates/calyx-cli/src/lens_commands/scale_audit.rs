@@ -1,6 +1,7 @@
 mod flags;
 mod measure;
 mod model;
+mod probe;
 mod report;
 mod runtime;
 mod worker;

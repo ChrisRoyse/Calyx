@@ -222,6 +222,7 @@ fn rejected_worker_audit(
         native_batching: false,
         provider_placement_proof: String::new(),
         gpu_process_observed: None,
+        probe_evidence: Vec::new(),
         rows_per_sec: None,
         batch_stability: None,
         accepted: false,
@@ -313,6 +314,9 @@ fn add_worker_args(
         .arg(flags.lens_timeout_secs.to_string());
     for probe in &flags.probes {
         command.arg("--probe").arg(probe);
+    }
+    for probe_file in &flags.probe_files {
+        command.arg("--probe-file").arg(probe_file);
     }
 }
 
