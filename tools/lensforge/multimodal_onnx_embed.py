@@ -62,9 +62,7 @@ def load_image_processor(model_id: str) -> dict[str, Any]:
     if not config_path.exists():
         raise RuntimeError(f"missing image preprocessor config {config_path}")
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    if config.get("image_processor_type") != "SiglipImageProcessor":
-        raise RuntimeError(f"unsupported image processor {config.get('image_processor_type')!r}")
-    return config
+    return {"kind": "manual", "config": config}
 
 
 def embed_one(axis: str, processor: Any, session: ort.InferenceSession, payload: bytes) -> np.ndarray:
@@ -91,19 +89,16 @@ def preprocess(axis: str, processor: Any, payload: bytes) -> dict[str, np.ndarra
 def preprocess_image(config: dict[str, Any], payload: bytes) -> dict[str, np.ndarray]:
     from PIL import Image
 
-    size = config.get("size")
-    if not isinstance(size, dict) or "height" not in size or "width" not in size:
-        raise RuntimeError("image preprocessor config missing size.height/size.width")
-    height = int(size["height"])
-    width = int(size["width"])
-    if height <= 0 or width <= 0:
-        raise RuntimeError(f"invalid image processor size {height}x{width}")
-
+    config = config["config"]
     image = Image.open(io.BytesIO(payload))
     if config.get("do_convert_rgb") is not False:
         image = image.convert("RGB")
     if config.get("do_resize", True):
+        width, height = image_resize_size(image, config.get("size"))
         image = image.resize((width, height), image_resample(config.get("resample", 2)))
+    if config.get("do_center_crop", False):
+        width, height = image_crop_size(config)
+        image = center_crop(image, width, height)
 
     pixels = np.asarray(image, dtype=np.float32)
     if pixels.ndim != 3 or pixels.shape[2] != 3:
@@ -118,6 +113,72 @@ def preprocess_image(config: dict[str, Any], payload: bytes) -> dict[str, np.nda
         pixels = (pixels - mean) / std
     pixel_values = np.transpose(pixels, (2, 0, 1))[np.newaxis, ...].astype(np.float32, copy=False)
     return {"pixel_values": pixel_values}
+
+
+def image_resize_size(image: Any, size: Any) -> tuple[int, int]:
+    if isinstance(size, int):
+        return validate_image_size(size, size)
+    if not isinstance(size, dict):
+        raise RuntimeError("image preprocessor config missing size")
+    if "height" in size and "width" in size:
+        return validate_image_size(size["width"], size["height"])
+    if "shortest_edge" in size:
+        shortest_edge = int(size["shortest_edge"])
+        if shortest_edge <= 0:
+            raise RuntimeError(f"invalid image shortest_edge {shortest_edge}")
+        width, height = image.size
+        if width <= 0 or height <= 0:
+            raise RuntimeError(f"invalid decoded image size {width}x{height}")
+        if width <= height:
+            return validate_image_size(shortest_edge, round(height * shortest_edge / width))
+        return validate_image_size(round(width * shortest_edge / height), shortest_edge)
+    raise RuntimeError("image preprocessor config missing size.height/width or size.shortest_edge")
+
+
+def image_crop_size(config: dict[str, Any]) -> tuple[int, int]:
+    crop_size = config.get("crop_size")
+    if isinstance(crop_size, int):
+        return validate_image_size(crop_size, crop_size)
+    if isinstance(crop_size, dict) and "height" in crop_size and "width" in crop_size:
+        return validate_image_size(crop_size["width"], crop_size["height"])
+    size = config.get("size")
+    if isinstance(size, int):
+        return validate_image_size(size, size)
+    if isinstance(size, dict) and "height" in size and "width" in size:
+        return validate_image_size(size["width"], size["height"])
+    if isinstance(size, dict) and "shortest_edge" in size:
+        edge = int(size["shortest_edge"])
+        return validate_image_size(edge, edge)
+    raise RuntimeError("image preprocessor config missing crop_size")
+
+
+def validate_image_size(width: Any, height: Any) -> tuple[int, int]:
+    width = int(width)
+    height = int(height)
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"invalid image processor size {width}x{height}")
+    return width, height
+
+
+def center_crop(image: Any, width: int, height: int) -> Any:
+    from PIL import ImageOps
+
+    image_width, image_height = image.size
+    pad_width = max(width - image_width, 0)
+    pad_height = max(height - image_height, 0)
+    if pad_width > 0 or pad_height > 0:
+        left = pad_width // 2
+        top = pad_height // 2
+        image = ImageOps.expand(
+            image,
+            border=(left, top, pad_width - left, pad_height - top),
+            fill=0,
+        )
+        image_width, image_height = image.size
+
+    left = max((image_width - width) // 2, 0)
+    top = max((image_height - height) // 2, 0)
+    return image.crop((left, top, left + width, top + height))
 
 
 def image_resample(value: Any) -> Any:
@@ -187,7 +248,7 @@ def select_vector(axis: str, session: ort.InferenceSession, outputs: list[np.nda
     names = (
         ["image_embeds", "pooler_output", "last_hidden_state"]
         if axis == "image"
-        else ["audio_embeds", "pooler_output", "last_hidden_state"]
+        else ["audio_embeds", "embeddings", "pooler_output", "last_hidden_state"]
     )
     for name in names:
         if name in by_name:
