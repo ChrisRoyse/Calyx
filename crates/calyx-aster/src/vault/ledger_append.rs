@@ -2,7 +2,9 @@ use super::{AsterVault, encode, ledger_hook};
 use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key};
 use crate::ledger_view::parse_aster_ledger_seq;
 use calyx_core::{Anchor, CalyxError, Clock, CxId, LedgerRef, Result, SystemClock, VaultStore};
-use calyx_ledger::{ActorId, EntryKind, LedgerAppender, LedgerCfStore, LedgerRow, SubjectId};
+use calyx_ledger::{
+    ActorId, EntryKind, LedgerAppender, LedgerCfStore, LedgerHeadAnchor, LedgerRow, SubjectId,
+};
 
 struct LedgerEntryInput {
     kind: EntryKind,
@@ -253,6 +255,20 @@ where
         self.vault
             .write_cf(ColumnFamily::Ledger, key, bytes.to_vec())
             .map(|_| ())
+    }
+
+    fn head_anchor(&self) -> Result<Option<LedgerHeadAnchor>> {
+        match &self.vault.durable {
+            Some(durable) => crate::ledger_head::read_head_anchor(durable.root()),
+            None => Ok(None),
+        }
+    }
+
+    fn put_head_anchor(&mut self, anchor: &LedgerHeadAnchor) -> Result<()> {
+        if let Some(durable) = &self.vault.durable {
+            crate::ledger_head::write_head_anchor(durable.root(), anchor)?;
+        }
+        Ok(())
     }
 }
 

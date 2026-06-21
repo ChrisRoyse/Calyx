@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use calyx_core::{CalyxError, Result as CalyxResult};
-use calyx_ledger::{LedgerCfStore, LedgerRow};
+use calyx_ledger::{LedgerCfStore, LedgerHeadAnchor, LedgerRow};
 
 use crate::cf::{CfRouter, ColumnFamily};
 use crate::sst::SstEntry;
@@ -19,6 +19,7 @@ use crate::wal::replay_dir;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AsterLedgerCfStore {
     rows: Vec<LedgerRow>,
+    anchor: Option<LedgerHeadAnchor>,
 }
 
 impl AsterLedgerCfStore {
@@ -51,6 +52,7 @@ impl AsterLedgerCfStore {
         }
 
         Ok(Self {
+            anchor: crate::ledger_head::read_head_anchor(vault)?,
             rows: rows
                 .into_iter()
                 .map(|(seq, bytes)| LedgerRow { seq, bytes })
@@ -68,6 +70,10 @@ impl LedgerCfStore for AsterLedgerCfStore {
         Err(CalyxError::ledger_append_only_violation(format!(
             "read-only Aster ledger view rejected append for seq {seq}"
         )))
+    }
+
+    fn head_anchor(&self) -> CalyxResult<Option<LedgerHeadAnchor>> {
+        Ok(self.anchor.clone())
     }
 }
 

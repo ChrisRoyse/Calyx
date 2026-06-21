@@ -18,6 +18,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_aster::cf::{ColumnFamily, slot_key};
+use calyx_aster::ledger_head::read_head_anchor;
 use calyx_aster::ledger_view::parse_aster_ledger_seq;
 use calyx_aster::sst::SstEntry;
 use calyx_aster::sst::level::SstLevel;
@@ -27,7 +28,8 @@ use calyx_aster::vault::encode::{
 use calyx_aster::wal::replay_dir;
 use calyx_core::{CalyxError, Result as CalyxResult};
 use calyx_ledger::{
-    LedgerCfStore, LedgerRow, VerifyResult, decode as decode_ledger_entry, verify_chain,
+    LedgerCfStore, LedgerHeadAnchor, LedgerRow, VerifyResult, decode as decode_ledger_entry,
+    verify_chain,
 };
 use serde::Serialize;
 
@@ -165,6 +167,7 @@ pub fn verify_restore(vault_path: &Path) -> Result<VerifyRestoreReport, DaemonEr
 
     let store = RestoredLedgerRows {
         rows: scan.ledger_rows,
+        anchor: scan.ledger_anchor,
     };
     let head = store.rows.last().map_or(0, |row| row.seq.saturating_add(1));
     match verify_chain(&store, 0..head) {
@@ -191,6 +194,7 @@ struct VaultScan {
     anchor_count: u64,
     first_cx_id: Option<String>,
     ledger_rows: Vec<LedgerRow>,
+    ledger_anchor: Option<LedgerHeadAnchor>,
 }
 
 fn scan_vault(vault: &Path) -> CalyxResult<VaultScan> {
@@ -198,6 +202,7 @@ fn scan_vault(vault: &Path) -> CalyxResult<VaultScan> {
     let base = merged_cf(vault, ColumnFamily::Base, &overlay)?;
     let anchors = merged_cf(vault, ColumnFamily::Anchors, &overlay)?;
     let ledger_rows = merged_ledger_rows(vault, &overlay)?;
+    let ledger_anchor = read_head_anchor(vault)?;
     let first_cx_id = match base.iter().next() {
         Some((key, value)) => Some(read_back_first_constellation(vault, &overlay, key, value)?),
         None => None,
@@ -207,6 +212,7 @@ fn scan_vault(vault: &Path) -> CalyxResult<VaultScan> {
         anchor_count: anchors.len() as u64,
         first_cx_id,
         ledger_rows,
+        ledger_anchor,
     })
 }
 
@@ -388,6 +394,7 @@ fn read_error(path: &Path, action: &str, detail: &str) -> CalyxError {
 /// In-memory read-only ledger view over the restored rows.
 struct RestoredLedgerRows {
     rows: Vec<LedgerRow>,
+    anchor: Option<LedgerHeadAnchor>,
 }
 
 impl LedgerCfStore for RestoredLedgerRows {
@@ -399,6 +406,10 @@ impl LedgerCfStore for RestoredLedgerRows {
         Err(CalyxError::ledger_append_only_violation(format!(
             "verify-restore is read-only; rejected append for seq {seq}"
         )))
+    }
+
+    fn head_anchor(&self) -> CalyxResult<Option<LedgerHeadAnchor>> {
+        Ok(self.anchor.clone())
     }
 }
 
