@@ -299,7 +299,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
                 single_hits_for_truth
                     .get_mut(&slot)
                     .expect("slot seeded")
-                    .push(hit_ids(&hits, args.k));
+                    .push(hit_ids(&hits, truth_depth));
             }
             per_slot.insert(slot, hits);
         }
@@ -392,6 +392,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         "fused_result": a35::fused_result(recall.fused_recall, &latency_us, &recall.sample_readback),
         "best_single_lens_recall_vs_fused_truth": recall.best_single,
         "fusion_matches_or_beats_best_single": recall.fused_recall.zip(recall.best_single).map(|(fused, single)| fused + f32::EPSILON >= single),
+        "best_two_lens_rrf_control": recall.best_two_lens_rrf_control,
         "per_slot_recall_vs_fused_truth": recall.per_slot_recall,
         "sample_readback": recall.sample_readback,
         "recall_floor": args.recall_floor,
