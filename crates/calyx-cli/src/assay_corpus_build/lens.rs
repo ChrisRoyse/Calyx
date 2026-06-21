@@ -5,22 +5,20 @@ use std::time::Instant;
 
 use calyx_core::{Input, Lens, Placement, SlotShape, SlotVector};
 use calyx_registry::{
-    CandleLens, FastembedQwen3Lens, LensRuntime, LensSpec as RegistryLensSpec, OnnxColbertLens,
-    OnnxLens, StaticLookupLens, TeiHttpLens, lens_spec_from_manifest_path,
+    CandleLens, FastembedBgem3Lens, FastembedQwen3Lens, FastembedRerankerLens, FastembedSparseLens,
+    LensRuntime, LensSpec as RegistryLensSpec, OnnxColbertLens, OnnxLens, StaticLookupLens,
+    TeiHttpLens, lens_spec_from_manifest_path,
 };
 use serde::{Deserialize, Serialize};
 
-use crate::assay_bits_validation::cost::LensCost;
-use crate::lens_commands::support::{dim, runtime_name, validate_vector_contract};
-
 use super::data::BuildRows;
 use super::request::CorpusBuildRequest;
-
+use crate::assay_bits_validation::cost::LensCost;
+use crate::lens_commands::support::{dim, runtime_name, validate_vector_contract};
 mod algorithmic;
 mod progress;
 mod projection;
 mod stream;
-
 use algorithmic::algorithmic_lens;
 use projection::{project_multi, project_sparse};
 pub(crate) use stream::measure_text_batch;
@@ -220,6 +218,18 @@ fn build_lens(manifest: PathBuf, spec: RegistryLensSpec) -> Result<BuildLens, St
         }
         LensRuntime::FastembedQwen3 { files, .. } => {
             let lens = FastembedQwen3Lens::from_lens_spec(&spec).map_err(lens_error)?;
+            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
+        }
+        LensRuntime::FastembedSparse { files, .. } => {
+            let lens = FastembedSparseLens::from_lens_spec(&spec).map_err(lens_error)?;
+            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
+        }
+        LensRuntime::FastembedBgem3 { files, .. } => {
+            let lens = FastembedBgem3Lens::from_lens_spec(&spec).map_err(lens_error)?;
+            gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
+        }
+        LensRuntime::FastembedReranker { files, .. } => {
+            let lens = FastembedRerankerLens::from_lens_spec(&spec).map_err(lens_error)?;
             gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
         }
         other => Err(format!(
