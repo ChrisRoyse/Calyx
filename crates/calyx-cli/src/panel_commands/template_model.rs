@@ -97,6 +97,8 @@ pub(super) struct TemplateEnsembleCard {
     pub a37_admission: TemplateA37Admission,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub a37_ensemble_card_ref: Option<TemplateA37CardRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub a37_admission_card_ref: Option<TemplateA37CardRef>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
