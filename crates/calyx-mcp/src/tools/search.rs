@@ -74,6 +74,10 @@ impl Tool for SearchTool {
         let outcome = engine::search(&request)?;
         Ok(json!({ "hits": output::render_hits(&outcome.hits, request.explain, None) }))
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
 impl Tool for KernelAnswerTool {
@@ -112,6 +116,10 @@ impl Tool for KernelAnswerTool {
         )?)
         .map_err(encode_error)
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
 impl Tool for NeighborsTool {
@@ -133,6 +141,10 @@ impl Tool for NeighborsTool {
         let args: NeighborsArgs = decode("calyx.neighbors", params)?;
         let request = NeighborsRequest::from_args(args)?;
         Ok(json!({ "neighbors": engine::neighbors(&request)? }))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 

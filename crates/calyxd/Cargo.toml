@@ -18,8 +18,11 @@ calyx-mcp = { path = "../calyx-mcp" }
 nvml-wrapper = { workspace = true }
 calyx-ledger = { path = "../calyx-ledger" }
 prometheus.workspace = true
+rustls = "0.23.40"
+rustls-pki-types = "1.14.1"
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tokio = { workspace = true, features = ["full"] }
 tokio-util.workspace = true
 toml.workspace = true
@@ -28,6 +31,7 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true
+rcgen = "0.14.8"
 
 [features]
 default = []

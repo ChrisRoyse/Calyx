@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use calyx_core::CalyxError;
+use calyx_core::{AuthN, CalyxError, no_anonymous_write};
 use serde_json::{Value, json};
 
 use crate::jsonrpc::JsonRpcRequest;
@@ -53,6 +53,9 @@ pub type ToolResult<T> = std::result::Result<T, ToolError>;
 pub trait Tool: Send + Sync {
     /// The descriptor advertised by `tools/list`.
     fn def(&self) -> ToolDef;
+    /// Whether this tool can mutate durable Calyx state and therefore requires
+    /// a caller identity before dispatch.
+    fn requires_authn(&self) -> bool;
     /// Executes the tool against decoded `arguments`, returning a JSON payload.
     fn call(&self, params: Value) -> ToolResult<Value>;
 }
@@ -91,10 +94,22 @@ impl McpServer {
 
     /// Routes a decoded request to its handler, always returning a response.
     pub fn dispatch(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        self.dispatch_with_authn(request, None)
+    }
+
+    /// Routes a decoded request with an optional authenticated caller identity.
+    ///
+    /// Mutating tools are rejected before their `call` body runs when `authn` is
+    /// absent. Read-only tools continue to work anonymously.
+    pub fn dispatch_with_authn(
+        &self,
+        request: JsonRpcRequest,
+        authn: Option<&AuthN>,
+    ) -> JsonRpcResponse {
         match request.method.as_str() {
             "initialize" => self.handle_initialize(request),
             "tools/list" => self.handle_tools_list(request),
-            "tools/call" => self.handle_tools_call(request),
+            "tools/call" => self.handle_tools_call(request, authn),
             other => JsonRpcResponse::error(request.id, JsonRpcError::method_not_found(other)),
         }
     }
@@ -116,7 +131,7 @@ impl McpServer {
         JsonRpcResponse::success(request.id, json!({ "tools": defs }))
     }
 
-    fn handle_tools_call(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+    fn handle_tools_call(&self, request: JsonRpcRequest, authn: Option<&AuthN>) -> JsonRpcResponse {
         let id = request.id.clone();
         let params = request.params.unwrap_or(Value::Null);
 
@@ -137,6 +152,11 @@ impl McpServer {
         let Some(tool) = self.tools.get(&name) else {
             return JsonRpcResponse::error(id, JsonRpcError::method_not_found(&name));
         };
+        if tool.requires_authn()
+            && let Err(error) = no_anonymous_write(authn)
+        {
+            return JsonRpcResponse::error(id, JsonRpcError::from_calyx(&error));
+        }
 
         // A tool is third-party logic: isolate panics so one bad call cannot take
         // down the stdio loop. AssertUnwindSafe is sound here — on panic we only
@@ -168,6 +188,8 @@ mod tests {
     use super::*;
     use crate::jsonrpc::{JsonRpcId, decode_jsonrpc_request};
     use crate::schema::{object_schema, string_schema};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct EchoTool;
     impl Tool for EchoTool {
@@ -178,6 +200,9 @@ mod tests {
                 use_when: "you need a round-trip probe".into(),
                 input_schema: object_schema(&[("msg", string_schema(), true)]),
             }
+        }
+        fn requires_authn(&self) -> bool {
+            false
         }
         fn call(&self, params: Value) -> ToolResult<Value> {
             Ok(json!({ "echoed": params["msg"] }))
@@ -194,6 +219,9 @@ mod tests {
                 input_schema: object_schema(&[]),
             }
         }
+        fn requires_authn(&self) -> bool {
+            false
+        }
         fn call(&self, _params: Value) -> ToolResult<Value> {
             Err(CalyxError::assay_insufficient_samples("n=30").into())
         }
@@ -209,8 +237,33 @@ mod tests {
                 input_schema: object_schema(&[]),
             }
         }
+        fn requires_authn(&self) -> bool {
+            false
+        }
         fn call(&self, _params: Value) -> ToolResult<Value> {
             panic!("boom");
+        }
+    }
+
+    struct MutatingTool {
+        writes: Arc<AtomicUsize>,
+    }
+
+    impl Tool for MutatingTool {
+        fn def(&self) -> ToolDef {
+            ToolDef {
+                name: "mutate".into(),
+                description: "increments a durable-state stand-in".into(),
+                use_when: "security regression probe".into(),
+                input_schema: object_schema(&[]),
+            }
+        }
+        fn requires_authn(&self) -> bool {
+            true
+        }
+        fn call(&self, _params: Value) -> ToolResult<Value> {
+            let count = self.writes.fetch_add(1, Ordering::SeqCst) + 1;
+            Ok(json!({ "writes": count }))
         }
     }
 
@@ -269,6 +322,54 @@ mod tests {
         let text = content.as_str().unwrap();
         let payload: Value = serde_json::from_str(text).unwrap();
         assert_eq!(payload["echoed"], "hi");
+    }
+
+    #[test]
+    fn unauthenticated_mutating_tool_rejected_before_side_effect() {
+        let writes = Arc::new(AtomicUsize::new(0));
+        let mut server = McpServer::new();
+        server
+            .register(Box::new(MutatingTool {
+                writes: Arc::clone(&writes),
+            }))
+            .unwrap();
+        let resp = server.dispatch(req(
+            r#"{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"mutate","arguments":{}}}"#,
+        ));
+        let error = resp.error.unwrap();
+        assert_eq!(error.code, -32000);
+        assert_eq!(
+            error.data.unwrap()["calyx_code"],
+            calyx_core::CALYX_AUTHN_REQUIRED
+        );
+        assert_eq!(writes.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn authenticated_mutating_tool_executes() {
+        let writes = Arc::new(AtomicUsize::new(0));
+        let mut server = McpServer::new();
+        server
+            .register(Box::new(MutatingTool {
+                writes: Arc::clone(&writes),
+            }))
+            .unwrap();
+        let authn = AuthN::InProcess {
+            host_app_id: "calyx-mcp-test".into(),
+        };
+        let resp = server.dispatch_with_authn(
+            req(
+                r#"{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"mutate","arguments":{}}}"#,
+            ),
+            Some(&authn),
+        );
+        let text = resp.result.unwrap()["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let payload: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(payload["writes"], 1);
+        assert_eq!(writes.load(Ordering::SeqCst), 1);
     }
 
     #[test]

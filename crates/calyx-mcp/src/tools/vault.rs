@@ -110,6 +110,10 @@ impl Tool for CreateVaultTool {
             "panel_template": template,
         }))
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for AddLensTool {
@@ -193,6 +197,10 @@ impl Tool for AddLensTool {
             "state": "active",
         }))
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for RetireLensTool {
@@ -207,6 +215,10 @@ impl Tool for RetireLensTool {
     fn call(&self, params: Value) -> ToolResult<Value> {
         set_lens_state(params, SlotStateAction::Retire)
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for ParkLensTool {
@@ -220,6 +232,10 @@ impl Tool for ParkLensTool {
 
     fn call(&self, params: Value) -> ToolResult<Value> {
         set_lens_state(params, SlotStateAction::Park)
+    }
+
+    fn requires_authn(&self) -> bool {
+        true
     }
 }
 
@@ -245,6 +261,10 @@ impl Tool for ListPanelTool {
             .map(slot_report)
             .collect::<Vec<_>>();
         Ok(json!({ "slots": slots }))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 
@@ -289,6 +309,10 @@ impl Tool for ProfileLensTool {
             args.probe.as_deref(),
             args.modality.as_deref(),
         )?))
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 

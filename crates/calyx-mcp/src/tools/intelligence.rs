@@ -58,6 +58,10 @@ impl Tool for AbundanceTool {
         let slots = core::active_slot_ids(&ctx.state.panel);
         Ok(json!(metrics::abundance(&docs, &slots)))
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
 impl Tool for BitsTool {
@@ -97,6 +101,10 @@ impl Tool for BitsTool {
         )?;
         Ok(json!(report))
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for KernelTool {
@@ -128,6 +136,10 @@ impl Tool for KernelTool {
         }
         Ok(json!(report))
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for GuardCalibrateTool {
@@ -152,6 +164,10 @@ impl Tool for GuardCalibrateTool {
         }
         guard::calibrate(&args.vault, &args.domain, &args.set, args.target_far)
     }
+
+    fn requires_authn(&self) -> bool {
+        true
+    }
 }
 
 impl Tool for GuardCheckTool {
@@ -171,6 +187,10 @@ impl Tool for GuardCheckTool {
     fn call(&self, params: Value) -> ToolResult<Value> {
         let args: GuardCheckArgs = decode("calyx.guard.check", params)?;
         guard::check(&args.vault, args.cx_id.as_deref(), args.text.as_deref())
+    }
+
+    fn requires_authn(&self) -> bool {
+        false
     }
 }
 
@@ -193,6 +213,10 @@ impl Tool for ProposeLensTool {
     fn call(&self, params: Value) -> ToolResult<Value> {
         let args: ProposeLensArgs = decode("calyx.propose_lens", params)?;
         propose::run(&args.vault, &args.anchor, args.panel_budget()?)
+    }
+
+    fn requires_authn(&self) -> bool {
+        true
     }
 }
 

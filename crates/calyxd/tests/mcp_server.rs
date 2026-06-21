@@ -1,20 +1,23 @@
 //! Integration FSV for the PH65 · T05 loopback MCP dispatch transport.
 //!
 //! These tests drive the *real* server over a *real* loopback TCP socket: bind
-//! `127.0.0.1:0`, run the accept loop on a thread, connect with a plain
-//! `TcpStream`, and exchange length-prefixed JSON-RPC frames. The dispatcher is a
-//! genuine `calyx_mcp::McpServer`; the one registered tool ([`AdderTool`]) does a
-//! real, hand-verifiable computation (`a + b`) so the round-trip asserts on bytes
-//! whose expected value is computed by hand (the 2+2=4 discipline) — no mocks.
+//! `127.0.0.1:0`, run the accept loop on a thread, complete an mTLS handshake,
+//! and exchange length-prefixed JSON-RPC frames. The dispatcher is a genuine
+//! `calyx_mcp::McpServer`; the registered [`AdderTool`] performs real arithmetic
+//! (`a + b`) so round-trips assert on hand-computed bytes — no mocks.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use calyx_core::CalyxError;
+use calyx_core::{CalyxError, MtlsConfig, TlsConfig};
 use calyx_mcp::{McpServer, Tool, ToolDef, ToolResult};
 use calyxd::mcp_server::{CalyxMcpServer, ShutdownHandle};
+use rcgen::{CertifiedKey, generate_simple_self_signed};
+use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
+use rustls_pki_types::{CertificateDer, PrivateKeyDer, ServerName, pem::PemObject};
 use serde_json::{Value, json};
 
 /// A real, deterministic MCP tool: returns `{"sum": a + b}` for integer inputs.
@@ -55,34 +58,120 @@ impl Tool for AdderTool {
             })?;
         Ok(json!({ "sum": a + b }))
     }
+
+    fn requires_authn(&self) -> bool {
+        false
+    }
 }
 
-/// Boots a server with `AdderTool` registered on an OS-assigned loopback port,
-/// returning the bound address, a shutdown handle, and the join handle for the
-/// accept thread.
-fn boot_server() -> (SocketAddr, ShutdownHandle, std::thread::JoinHandle<()>) {
+#[derive(Clone)]
+struct TestIdentity {
+    mtls: MtlsConfig,
+    cert_pem: String,
+    key_pem: String,
+}
+
+type TlsClient = StreamOwned<ClientConnection, TcpStream>;
+
+static NEXT_MTLS_ID: AtomicU64 = AtomicU64::new(0);
+
+/// Boots a server with `AdderTool` registered on an OS-assigned loopback port.
+fn boot_server() -> (
+    SocketAddr,
+    ShutdownHandle,
+    std::thread::JoinHandle<()>,
+    TestIdentity,
+) {
+    let identity = test_identity();
     let mut dispatcher = McpServer::new();
     dispatcher
         .register(Box::new(AdderTool))
         .expect("register adder tool");
-    let server =
-        CalyxMcpServer::bind("127.0.0.1:0".parse().unwrap(), Arc::new(dispatcher)).unwrap();
+    let server = CalyxMcpServer::bind(
+        "127.0.0.1:0".parse().unwrap(),
+        Arc::new(dispatcher),
+        identity.mtls.clone(),
+    )
+    .unwrap();
     let addr = server.local_addr().unwrap();
     let handle = server.shutdown_handle().unwrap();
     let join = std::thread::spawn(move || {
         server.run().expect("server run");
     });
-    (addr, handle, join)
+    (addr, handle, join, identity)
 }
 
-fn send_frame(stream: &mut TcpStream, payload: &[u8]) {
+fn test_identity() -> TestIdentity {
+    let CertifiedKey { cert, signing_key } =
+        generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+    let cert_pem = cert.pem();
+    let key_pem = signing_key.serialize_pem();
+    let nonce = NEXT_MTLS_ID.fetch_add(1, Ordering::SeqCst);
+    let root = std::env::temp_dir().join(format!(
+        "calyxd_mcp_integration_{}_{}",
+        std::process::id(),
+        nonce
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let cert_path = root.join("server-cert.pem");
+    let key_path = root.join("server-key.pem");
+    let ca_path = root.join("client-ca.pem");
+    std::fs::write(&cert_path, &cert_pem).unwrap();
+    std::fs::write(&key_path, &key_pem).unwrap();
+    std::fs::write(&ca_path, &cert_pem).unwrap();
+    TestIdentity {
+        mtls: MtlsConfig {
+            tls: TlsConfig {
+                cert_pem_path: cert_path,
+                key_pem_path: key_path,
+                ca_pem_path: Some(ca_path),
+            },
+            require_client_cert: true,
+        },
+        cert_pem,
+        key_pem,
+    }
+}
+
+fn connect_tls(addr: SocketAddr, identity: &TestIdentity) -> TlsClient {
+    let mut roots = RootCertStore::empty();
+    let (added, ignored) = roots.add_parsable_certificates(certs_from_pem(&identity.cert_pem));
+    assert_eq!(added, 1);
+    assert_eq!(ignored, 0);
+    let config = ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_client_auth_cert(
+            certs_from_pem(&identity.cert_pem),
+            key_from_pem(&identity.key_pem),
+        )
+        .unwrap();
+    let server_name = ServerName::try_from("localhost").unwrap().to_owned();
+    let conn = ClientConnection::new(Arc::new(config), server_name).unwrap();
+    let mut client = StreamOwned::new(conn, TcpStream::connect(addr).unwrap());
+    while client.conn.is_handshaking() {
+        client.conn.complete_io(&mut client.sock).unwrap();
+    }
+    client
+}
+
+fn certs_from_pem(pem: &str) -> Vec<CertificateDer<'static>> {
+    CertificateDer::pem_slice_iter(pem.as_bytes())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap()
+}
+
+fn key_from_pem(pem: &str) -> PrivateKeyDer<'static> {
+    PrivateKeyDer::from_pem_slice(pem.as_bytes()).unwrap()
+}
+
+fn send_frame(stream: &mut impl Write, payload: &[u8]) {
     let len = u32::try_from(payload.len()).unwrap().to_be_bytes();
     stream.write_all(&len).unwrap();
     stream.write_all(payload).unwrap();
     stream.flush().unwrap();
 }
 
-fn recv_frame(stream: &mut TcpStream) -> Vec<u8> {
+fn recv_frame(stream: &mut impl Read) -> Vec<u8> {
     let mut len = [0_u8; 4];
     stream.read_exact(&mut len).unwrap();
     let n = u32::from_be_bytes(len) as usize;
@@ -91,7 +180,7 @@ fn recv_frame(stream: &mut TcpStream) -> Vec<u8> {
     body
 }
 
-fn round_trip(stream: &mut TcpStream, request: &Value) -> Value {
+fn round_trip(stream: &mut TlsClient, request: &Value) -> Value {
     let bytes = serde_json::to_vec(request).unwrap();
     send_frame(stream, &bytes);
     let response = recv_frame(stream);
@@ -100,8 +189,8 @@ fn round_trip(stream: &mut TcpStream, request: &Value) -> Value {
 
 #[test]
 fn search_style_tool_call_round_trips_with_hand_computed_result() {
-    let (addr, handle, join) = boot_server();
-    let mut client = TcpStream::connect(addr).unwrap();
+    let (addr, handle, join, identity) = boot_server();
+    let mut client = connect_tls(addr, &identity);
 
     // initialize: a real MCP handshake against the real dispatcher.
     let init = round_trip(
@@ -137,8 +226,8 @@ fn search_style_tool_call_round_trips_with_hand_computed_result() {
 
 #[test]
 fn unknown_tool_returns_method_not_found_and_connection_survives() {
-    let (addr, handle, join) = boot_server();
-    let mut client = TcpStream::connect(addr).unwrap();
+    let (addr, handle, join, identity) = boot_server();
+    let mut client = connect_tls(addr, &identity);
 
     // The card's `CALYX_MCP_UNKNOWN_TOOL` is realized as the existing calyx-mcp
     // contract: JSON-RPC -32601 method-not-found (the transport does not fork the
@@ -170,8 +259,8 @@ fn unknown_tool_returns_method_not_found_and_connection_survives() {
 
 #[test]
 fn malformed_json_frame_yields_error_response_and_keeps_connection() {
-    let (addr, handle, join) = boot_server();
-    let mut client = TcpStream::connect(addr).unwrap();
+    let (addr, handle, join, identity) = boot_server();
+    let mut client = connect_tls(addr, &identity);
 
     // A complete frame whose body is not valid JSON-RPC.
     send_frame(&mut client, b"this is not json");
@@ -200,8 +289,8 @@ fn malformed_json_frame_yields_error_response_and_keeps_connection() {
 
 #[test]
 fn notification_without_id_receives_no_reply() {
-    let (addr, handle, join) = boot_server();
-    let mut client = TcpStream::connect(addr).unwrap();
+    let (addr, handle, join, identity) = boot_server();
+    let mut client = connect_tls(addr, &identity);
 
     // A JSON-RPC notification (no `id`) must produce no response frame. Send one,
     // then a real request; the only frame we read back must be the request's.
@@ -223,10 +312,34 @@ fn notification_without_id_receives_no_reply() {
 }
 
 #[test]
-fn mid_request_disconnect_leaves_no_leaked_connection() {
-    let (addr, handle, join) = boot_server();
+fn plaintext_jsonrpc_frame_is_rejected_before_dispatch() {
+    let (addr, handle, join, _identity) = boot_server();
+    let mut client = TcpStream::connect(addr).unwrap();
+    client
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    send_frame(
+        &mut client,
+        b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}",
+    );
+    let mut prefix = [0_u8; 4];
+    if client.read_exact(&mut prefix).is_ok() {
+        let claimed_len = u32::from_be_bytes(prefix);
+        assert!(
+            claimed_len > 1024,
+            "plaintext must not receive a small length-prefixed JSON-RPC response"
+        );
+    }
 
-    // Send a partial frame prefix (2 of 4 bytes), then drop the socket.
+    handle.shutdown();
+    join.join().unwrap();
+}
+
+#[test]
+fn pre_handshake_disconnect_leaves_no_leaked_connection() {
+    let (addr, handle, join, _identity) = boot_server();
+
+    // Send two non-TLS bytes, then drop the socket before any MCP frame exists.
     {
         let mut client = TcpStream::connect(addr).unwrap();
         client.write_all(&[0x00, 0x01]).unwrap();
@@ -234,7 +347,7 @@ fn mid_request_disconnect_leaves_no_leaked_connection() {
         // Give the server thread a beat to accept and increment the counter.
         wait_until(Duration::from_secs(2), || handle.active_connections() >= 1);
     }
-    // After the client drops, the handler sees EOF mid-prefix, errors, and exits:
+    // After the client drops, the TLS handler errors and exits:
     // the live-connection count must return to 0 (no leak).
     assert!(
         wait_until(Duration::from_secs(3), || handle.active_connections() == 0),
@@ -247,10 +360,10 @@ fn mid_request_disconnect_leaves_no_leaked_connection() {
 
 #[test]
 fn shutdown_stops_accepting_new_connections() {
-    let (addr, handle, join) = boot_server();
+    let (addr, handle, join, identity) = boot_server();
     // Prove it serves first.
     {
-        let mut client = TcpStream::connect(addr).unwrap();
+        let mut client = connect_tls(addr, &identity);
         let reply = round_trip(
             &mut client,
             &json!({"jsonrpc":"2.0","id":1,"method":"tools/list"}),

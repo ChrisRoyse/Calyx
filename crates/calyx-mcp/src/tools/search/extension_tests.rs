@@ -3,6 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::MutexGuard;
 
+use calyx_core::AuthN;
 use serde_json::{Value, json};
 
 use crate::jsonrpc::decode_jsonrpc_request;
@@ -61,6 +62,12 @@ fn server() -> McpServer {
     server
 }
 
+fn authn() -> AuthN {
+    AuthN::InProcess {
+        host_app_id: "calyx-mcp-test".into(),
+    }
+}
+
 fn call_ok(server: &McpServer, id: u64, name: &str, arguments: Value) -> Value {
     let request = decode_jsonrpc_request(
         json!({
@@ -73,7 +80,8 @@ fn call_ok(server: &McpServer, id: u64, name: &str, arguments: Value) -> Value {
         .as_bytes(),
     )
     .unwrap();
-    let response = server.dispatch(request);
+    let authn = authn();
+    let response = server.dispatch_with_authn(request, Some(&authn));
     assert!(response.error.is_none(), "{:?}", response.error);
     let result = response.result.unwrap();
     let text = result["content"][0]["text"].as_str().unwrap();
@@ -92,7 +100,11 @@ fn call_err(server: &McpServer, id: u64, name: &str, arguments: Value) -> JsonRp
         .as_bytes(),
     )
     .unwrap();
-    server.dispatch(request).error.unwrap()
+    let authn = authn();
+    server
+        .dispatch_with_authn(request, Some(&authn))
+        .error
+        .unwrap()
 }
 
 fn populated_vault(server: &McpServer, name: &str) -> Vec<Value> {

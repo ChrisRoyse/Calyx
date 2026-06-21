@@ -7,6 +7,8 @@
 
 use std::fmt;
 
+use calyx_core::CALYX_TLS_CONFIG_INVALID;
+
 /// Fail-closed daemon startup/runtime errors.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DaemonError {
@@ -14,6 +16,8 @@ pub enum DaemonError {
     BindFailed { detail: String },
     /// Invalid CLI arguments, config file, or verify-target paths.
     ConfigInvalid { detail: String },
+    /// Invalid TLS/mTLS material or policy.
+    TlsConfigInvalid { detail: String },
     /// VRAM budget out of the daemon's accepted range (`0 < x <= ceiling`).
     VramBudget { detail: String },
     /// CUDA device init failed (or was force-failed for FSV). Server mode is
@@ -35,6 +39,12 @@ impl DaemonError {
 
     pub fn config_invalid(detail: impl Into<String>) -> Self {
         Self::ConfigInvalid {
+            detail: detail.into(),
+        }
+    }
+
+    pub fn tls_config_invalid(detail: impl Into<String>) -> Self {
+        Self::TlsConfigInvalid {
             detail: detail.into(),
         }
     }
@@ -62,6 +72,7 @@ impl DaemonError {
         match self {
             Self::BindFailed { .. } => "CALYX_DAEMON_BIND_FAILED",
             Self::ConfigInvalid { .. } => "CALYX_DAEMON_CONFIG_INVALID",
+            Self::TlsConfigInvalid { .. } => CALYX_TLS_CONFIG_INVALID,
             Self::VramBudget { .. } => "CALYX_FORGE_VRAM_BUDGET",
             Self::DeviceUnavailable { .. } => "CALYX_FORGE_DEVICE_UNAVAILABLE",
             Self::HealthFailed { .. } => "CALYX_DAEMON_HEALTH_FAIL",
@@ -78,6 +89,9 @@ impl DaemonError {
             }
             Self::ConfigInvalid { .. } => {
                 "fix the calyx.toml key or CLI argument named in the detail and retry"
+            }
+            Self::TlsConfigInvalid { .. } => {
+                "point mcp_mtls cert_pem_path/key_pem_path/ca_pem_path at readable PEM files and require client certificates"
             }
             Self::VramBudget { .. } => {
                 "lower vram_budget_mib in calyx.toml or free resident GPU memory, then retry"
@@ -98,6 +112,7 @@ impl DaemonError {
         match self {
             Self::BindFailed { detail }
             | Self::ConfigInvalid { detail }
+            | Self::TlsConfigInvalid { detail }
             | Self::VramBudget { detail }
             | Self::DeviceUnavailable { detail }
             | Self::HealthFailed { detail } => detail,
@@ -153,6 +168,16 @@ mod tests {
     }
 
     #[test]
+    fn tls_config_invalid_displays_code_detail_and_remediation() {
+        let error = DaemonError::tls_config_invalid("mcp_mtls.ca_pem_path missing");
+        assert_eq!(error.code(), CALYX_TLS_CONFIG_INVALID);
+        let shown = error.to_string();
+        assert!(shown.contains(CALYX_TLS_CONFIG_INVALID));
+        assert!(shown.contains("ca_pem_path"));
+        assert!(shown.contains("remediation:"));
+    }
+
+    #[test]
     fn device_unavailable_displays_code_and_remediation() {
         let error = DaemonError::device_unavailable("CUDA init on device 0 failed: no device");
         assert_eq!(error.code(), "CALYX_FORGE_DEVICE_UNAVAILABLE");
@@ -179,6 +204,7 @@ mod tests {
         let variants = [
             DaemonError::bind_failed("d"),
             DaemonError::config_invalid("d"),
+            DaemonError::tls_config_invalid("d"),
             DaemonError::vram_budget("d"),
             DaemonError::device_unavailable("d"),
             DaemonError::health_failed("d"),

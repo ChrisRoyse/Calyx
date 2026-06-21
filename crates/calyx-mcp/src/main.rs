@@ -9,6 +9,7 @@
 use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
+use calyx_core::AuthN;
 use calyx_mcp::jsonrpc::{JsonRpcId, decode_jsonrpc_request};
 use calyx_mcp::server::McpServer;
 
@@ -19,6 +20,9 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     eprintln!("calyx-mcp: registered {} tools", server.tool_count());
+    let authn = AuthN::InProcess {
+        host_app_id: "calyx-mcp-stdio".to_string(),
+    };
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -49,7 +53,7 @@ fn main() -> ExitCode {
 
         // Notifications (no id) get no response.
         let is_notification = request.id.is_none() || matches!(request.id, Some(JsonRpcId::Null));
-        let response = server.dispatch(request);
+        let response = server.dispatch_with_authn(request, Some(&authn));
         if is_notification {
             continue;
         }

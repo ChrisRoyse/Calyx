@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::MutexGuard;
 
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, Asymmetry, CxFlags, CxId, InputRef, LedgerRef, LensId,
+    Anchor, AnchorKind, AnchorValue, Asymmetry, AuthN, CxFlags, CxId, InputRef, LedgerRef, LensId,
     Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState, SlotVector, VaultId,
 };
 use serde_json::{Value, json};
@@ -74,9 +74,16 @@ fn server() -> McpServer {
     server
 }
 
+fn authn() -> AuthN {
+    AuthN::InProcess {
+        host_app_id: "calyx-mcp-test".into(),
+    }
+}
+
 fn call_ok(server: &McpServer, id: u64, name: &str, arguments: Value) -> Value {
     let request = request(id, name, arguments);
-    let response = server.dispatch(request);
+    let authn = authn();
+    let response = server.dispatch_with_authn(request, Some(&authn));
     assert!(response.error.is_none(), "{:?}", response.error);
     let result = response.result.unwrap();
     let text = result["content"][0]["text"].as_str().unwrap();
@@ -84,7 +91,11 @@ fn call_ok(server: &McpServer, id: u64, name: &str, arguments: Value) -> Value {
 }
 
 fn call_err(server: &McpServer, id: u64, name: &str, arguments: Value) -> JsonRpcError {
-    server.dispatch(request(id, name, arguments)).error.unwrap()
+    let authn = authn();
+    server
+        .dispatch_with_authn(request(id, name, arguments), Some(&authn))
+        .error
+        .unwrap()
 }
 
 fn request(id: u64, name: &str, arguments: Value) -> crate::jsonrpc::JsonRpcRequest {
