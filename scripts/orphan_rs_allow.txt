@@ -7,3 +7,9 @@
 # usually contains cuda dep-info anyway; this entry keeps the gate exact on
 # CPU-only machines.
 crates/calyx-forge/src/cuda/
+
+# cuVS CAGRA DiskANN backend is wired as
+# `#[cfg(feature = "cuda")] mod cuvs_cagra;` under calyx-sextant. The default
+# CPU workspace gate cannot compile optional cuVS deps, so the source is
+# intentionally unreachable unless the cuda feature is enabled.
+crates/calyx-sextant/src/index/diskann/cuvs_cagra.rs

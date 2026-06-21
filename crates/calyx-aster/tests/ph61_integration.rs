@@ -27,6 +27,7 @@ use calyx_ledger::{
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use ulid::Ulid;
 
 // A25 forbids deleting-to-compress, NOT lawful/user-requested deletion.
@@ -184,8 +185,10 @@ fn public_repo_internal_dev_tooling_is_not_reintroduced() {
     let repo = workspace_root();
     let script = repo.join("scripts/secret-scan.sh");
     let hook = repo.join(".pre-commit-config.yaml");
-    let git_config = fs::read_to_string(repo.join(".git/config")).unwrap_or_default();
-    let is_dev_repo = git_config.contains("Calyx-Dev.git");
+    let git_config = git_config_readback(&repo);
+    let remote_origin = git_output(&repo, &["config", "--get", "remote.origin.url"]);
+    let is_dev_repo =
+        git_config.contains("Calyx-Dev.git") || remote_origin.contains("Calyx-Dev.git");
 
     if is_dev_repo {
         assert!(script.is_file());
@@ -198,6 +201,35 @@ fn public_repo_internal_dev_tooling_is_not_reintroduced() {
     assert!(repo.join(".gitignore").is_file());
     assert!(repo.join("LICENSE").is_file());
     assert!(repo.join("README.md").is_file());
+}
+
+fn git_config_readback(repo: &Path) -> String {
+    let mut config = fs::read_to_string(repo.join(".git/config")).unwrap_or_default();
+    let common_dir = git_output(repo, &["rev-parse", "--git-common-dir"]);
+    let common_dir = common_dir.trim();
+    if !common_dir.is_empty() {
+        let common_path = Path::new(common_dir);
+        let common_config = if common_path.is_absolute() {
+            common_path.join("config")
+        } else {
+            repo.join(common_path).join("config")
+        };
+        if let Ok(text) = fs::read_to_string(common_config) {
+            config.push_str(&text);
+        }
+    }
+    config
+}
+
+fn git_output(repo: &Path, args: &[&str]) -> String {
+    Command::new("git")
+        .args(args)
+        .current_dir(repo)
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| String::from_utf8_lossy(&output.stdout).into_owned())
+        .unwrap_or_default()
 }
 
 fn fail_closed_codes_are_exercised(root: &Path, reerase_code: &str) {
