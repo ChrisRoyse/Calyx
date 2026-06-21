@@ -446,11 +446,32 @@ def synthesize_feature(name: str, features: dict[str, np.ndarray]) -> np.ndarray
 def select_vector(axis: str, session: ort.InferenceSession, outputs: list[np.ndarray]) -> np.ndarray:
     by_name = {meta.name: np.asarray(value) for meta, value in zip(session.get_outputs(), outputs)}
     if axis == "image":
-        names = ["image_embeds", "embeddings", "pooler_output", "last_hidden_state"]
+        names = [
+            "l2norm_image_embeddings",
+            "image_embeddings",
+            "image_embeds",
+            "embeddings",
+            "pooler_output",
+            "last_hidden_state",
+        ]
     elif axis == "audio":
-        names = ["audio_embeds", "embeddings", "pooler_output", "last_hidden_state"]
+        names = [
+            "l2norm_audio_embeddings",
+            "audio_embeddings",
+            "audio_embeds",
+            "embeddings",
+            "pooler_output",
+            "last_hidden_state",
+        ]
     else:
-        names = ["sentence_embedding", "embeddings", "pooler_output", "last_hidden_state"]
+        names = [
+            "l2norm_text_embeddings",
+            "text_embeddings",
+            "sentence_embedding",
+            "embeddings",
+            "pooler_output",
+            "last_hidden_state",
+        ]
     for name in names:
         if name in by_name:
             return flatten_output(by_name[name])
