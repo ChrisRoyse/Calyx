@@ -14,12 +14,19 @@
 use crate::cf::ColumnFamily;
 use crate::security::zfs::{ZfsEncryptionStatus, probe_zfs_encryption};
 use crate::vault::grant::GrantStore;
-use crate::vault::key::VaultKey;
+use crate::vault::key::{CALYX_DECRYPTION_FAILED, VaultKey};
 use crate::vault::keyspace::KeyspaceGuard;
 use crate::vault::quota::{QuotaConfig, QuotaGuard};
-use calyx_core::{Result, Ts, VaultId};
+use calyx_core::{CalyxError, Result, Ts, VaultId};
 use calyx_ledger::ActorId;
+use rand::RngCore;
+use rand::rngs::OsRng;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+
+/// AES-GCM nonce length embedded at the front of every encrypted value.
+const VALUE_NONCE_LEN: usize = 12;
+/// AES-GCM authentication tag length appended by `VaultKey`.
+const VALUE_TAG_LEN: usize = 16;
 
 /// The single per-vault security aggregate threaded through every storage op.
 #[derive(Debug)]
@@ -108,18 +115,35 @@ impl VaultContext {
     }
 
     /// AES-256-GCM encrypts a value under this vault's key.
-    pub fn encrypt_value(&self, nonce: &[u8; 12], plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
-        self.key.encrypt(nonce, plaintext, aad)
+    ///
+    /// Returns `nonce || ciphertext || tag`, with a fresh 96-bit nonce generated
+    /// internally for every call. Callers never supply value nonces.
+    pub fn encrypt_value(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+        let mut nonce = [0_u8; VALUE_NONCE_LEN];
+        OsRng.fill_bytes(&mut nonce);
+        let mut ciphertext = self.key.encrypt(&nonce, plaintext, aad)?;
+        let mut sealed = Vec::with_capacity(VALUE_NONCE_LEN + ciphertext.len());
+        sealed.extend_from_slice(&nonce);
+        sealed.append(&mut ciphertext);
+        Ok(sealed)
     }
 
-    /// AES-256-GCM decrypts a value under this vault's key (fails closed).
-    pub fn decrypt_value(
-        &self,
-        nonce: &[u8; 12],
-        ciphertext: &[u8],
-        aad: &[u8],
-    ) -> Result<Vec<u8>> {
-        self.key.decrypt(nonce, ciphertext, aad)
+    /// AES-256-GCM decrypts a `nonce || ciphertext || tag` value (fails closed).
+    pub fn decrypt_value(&self, sealed_value: &[u8], aad: &[u8]) -> Result<Vec<u8>> {
+        if sealed_value.len() < VALUE_NONCE_LEN + VALUE_TAG_LEN {
+            return Err(CalyxError {
+                code: CALYX_DECRYPTION_FAILED,
+                message: format!(
+                    "encrypted value is {} bytes, shorter than nonce plus GCM tag",
+                    sealed_value.len()
+                ),
+                remediation: "read the complete encrypted value envelope before decrypting",
+            });
+        }
+        let mut nonce = [0_u8; VALUE_NONCE_LEN];
+        nonce.copy_from_slice(&sealed_value[..VALUE_NONCE_LEN]);
+        let ciphertext = &sealed_value[VALUE_NONCE_LEN..];
+        self.key.decrypt(&nonce, ciphertext, aad)
     }
 
     /// Crypto-shreds the live vault key for lawful/user-requested erasure.
@@ -175,12 +199,65 @@ mod tests {
             VaultContext::new(vault(0xA1), master, QuotaConfig::default(), "tank/calyx").unwrap();
         let b =
             VaultContext::new(vault(0xB2), master, QuotaConfig::default(), "tank/calyx").unwrap();
-        // Same plaintext+nonce+aad encrypts differently because HKDF info (the
-        // vault id) differs -> different derived keys.
-        let nonce = [7u8; 12];
-        let ca = a.encrypt_value(&nonce, b"x", b"aad").unwrap();
-        let cb = b.encrypt_value(&nonce, b"x", b"aad").unwrap();
-        assert_ne!(ca, cb, "distinct vaults must derive distinct keys");
+        let sealed = a.encrypt_value(b"x", b"aad").unwrap();
+        assert_eq!(a.decrypt_value(&sealed, b"aad").unwrap(), b"x");
+        assert_eq!(
+            b.decrypt_value(&sealed, b"aad").unwrap_err().code,
+            "CALYX_DECRYPTION_FAILED",
+            "distinct vaults must derive distinct keys"
+        );
+    }
+
+    #[test]
+    fn encrypt_value_embeds_fresh_nonce_and_round_trips() {
+        let ctx = VaultContext::new(
+            vault(0xA1),
+            b"k0123456789abcdef",
+            QuotaConfig::default(),
+            "tank/calyx",
+        )
+        .unwrap();
+        let first = ctx.encrypt_value(b"same plaintext", b"aad").unwrap();
+        let second = ctx.encrypt_value(b"same plaintext", b"aad").unwrap();
+        assert_eq!(first.len(), 12 + "same plaintext".len() + 16);
+        assert_eq!(second.len(), first.len());
+        assert_ne!(&first[..12], &second[..12], "value nonces must be fresh");
+        assert_ne!(first, second, "fresh nonces must change the sealed value");
+        assert_eq!(
+            ctx.decrypt_value(&first, b"aad").unwrap(),
+            b"same plaintext"
+        );
+        assert_eq!(
+            ctx.decrypt_value(&second, b"aad").unwrap(),
+            b"same plaintext"
+        );
+    }
+
+    #[test]
+    fn decrypt_value_rejects_truncated_envelope() {
+        let ctx = VaultContext::new(
+            vault(0xA1),
+            b"k0123456789abcdef",
+            QuotaConfig::default(),
+            "tank/calyx",
+        )
+        .unwrap();
+        let err = ctx.decrypt_value(&[0_u8; 27], b"aad").unwrap_err();
+        assert_eq!(err.code, "CALYX_DECRYPTION_FAILED");
+    }
+
+    #[test]
+    fn decrypt_value_rejects_wrong_aad() {
+        let ctx = VaultContext::new(
+            vault(0xA1),
+            b"k0123456789abcdef",
+            QuotaConfig::default(),
+            "tank/calyx",
+        )
+        .unwrap();
+        let sealed = ctx.encrypt_value(b"x", b"aad").unwrap();
+        let err = ctx.decrypt_value(&sealed, b"other-aad").unwrap_err();
+        assert_eq!(err.code, "CALYX_DECRYPTION_FAILED");
     }
 
     #[test]

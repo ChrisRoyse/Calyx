@@ -152,10 +152,7 @@ fn corrupt_ledger_aborts_before_delete_or_shred() {
     let registry = EraseRegistry::new();
     let first = cx(&vault, b"kept-after-ledger-error");
     let first_id = first.cx_id;
-    let nonce = [9_u8; 12];
-    let ciphertext = ctx
-        .encrypt_value(&nonce, b"still-readable", b"aad")
-        .unwrap();
+    let ciphertext = ctx.encrypt_value(b"still-readable", b"aad").unwrap();
     vault.put(first).unwrap();
     vault
         .write_cf(
@@ -173,7 +170,7 @@ fn corrupt_ledger_aborts_before_delete_or_shred() {
     assert!(vault.get(first_id, vault.snapshot()).is_ok());
     assert!(!ctx.is_key_shredded_for_erasure());
     assert_eq!(
-        ctx.decrypt_value(&nonce, &ciphertext, b"aad").unwrap(),
+        ctx.decrypt_value(&ciphertext, b"aad").unwrap(),
         b"still-readable"
     );
 }
@@ -295,9 +292,8 @@ fn issue503_erasure_ledger_fsv_fixture() {
     let mut corrupt_ctx = context();
     let corrupt_record = cx(&corrupt_vault, b"FSV_ISSUE_503_CORRUPT_EDGE");
     let corrupt_id = corrupt_record.cx_id;
-    let nonce = [7_u8; 12];
     let ciphertext = corrupt_ctx
-        .encrypt_value(&nonce, b"corrupt-edge-readable", b"aad")
+        .encrypt_value(b"corrupt-edge-readable", b"aad")
         .unwrap();
     corrupt_vault.put(corrupt_record).unwrap();
     let corrupt_before_present = corrupt_vault
@@ -316,9 +312,7 @@ fn issue503_erasure_ledger_fsv_fixture() {
     let corrupt_after_present = corrupt_vault
         .get(corrupt_id, corrupt_vault.snapshot())
         .is_ok();
-    let corrupt_after_decrypt = corrupt_ctx
-        .decrypt_value(&nonce, &ciphertext, b"aad")
-        .unwrap();
+    let corrupt_after_decrypt = corrupt_ctx.decrypt_value(&ciphertext, b"aad").unwrap();
     println!("FSV_ISSUE503_CORRUPT_VAULT={}", corrupt_dir.display());
     println!("FSV_ISSUE503_CORRUPT_ERROR={}", corrupt_error.code);
     println!("FSV_ISSUE503_CORRUPT_BEFORE_PRESENT={corrupt_before_present}");

@@ -47,10 +47,7 @@ fn ph61_integration_full_phase_fsv() {
     let vault = durable_vault(&vault_dir);
     let mut ctx = context(vault_id(0xA5));
     let registry = EraseRegistry::new();
-    let nonce = [0x51; 12];
-    let ciphertext = ctx
-        .encrypt_value(&nonce, ORIGINAL, b"ph61-issue508")
-        .unwrap();
+    let ciphertext = ctx.encrypt_value(ORIGINAL, b"ph61-issue508").unwrap();
     let row = cx(&vault, ORIGINAL, Some(INGESTED_AT));
     let cx_id = row.cx_id;
     vault.put(row).unwrap();
@@ -71,7 +68,7 @@ fn ph61_integration_full_phase_fsv() {
         .windows(ORIGINAL.len())
         .any(|window| window == ORIGINAL);
     let decrypt_error = ctx
-        .decrypt_value(&nonce, &ciphertext, b"ph61-issue508")
+        .decrypt_value(&ciphertext, b"ph61-issue508")
         .unwrap_err();
     let reerase_error = vault
         .erase(EraseScope::Cx(cx_id), &mut ctx, &registry)

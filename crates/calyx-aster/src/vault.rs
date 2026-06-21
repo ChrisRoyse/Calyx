@@ -13,7 +13,7 @@ pub mod encode;
 mod gc_bridge;
 pub mod grant;
 mod htap;
-pub mod key;
+mod key;
 pub mod keyspace;
 mod layer_commit;
 mod ledger_append;
@@ -49,9 +49,7 @@ pub use context::VaultContext;
 pub use durable::VaultOptions;
 pub use grant::{AuditEvent, GrantEntry, GrantStore};
 pub use htap::HtapDualRead;
-pub use key::{
-    CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING, VaultKey,
-};
+pub use key::{CALYX_DECRYPTION_FAILED, CALYX_ENCRYPTION_FAILED, CALYX_VAULT_KEY_MISSING};
 pub use keyspace::{
     CALYX_VAULT_KEYSPACE_MISMATCH, KeyspaceGuard, VaultWriteLock, VaultWriteLockGuard, vault_prefix,
 };

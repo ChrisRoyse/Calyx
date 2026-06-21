@@ -53,10 +53,9 @@ fn ph60_full_stack_tenant_isolation_fsv() {
 
     // ── Gate 2a: encrypt-at-rest round trip through a real CF store ──────────
     let plaintext = b"synthetic constellation payload v1";
-    let nonce = [0x11u8; 12];
     let aad = b"cx:base";
     let key = ctx_a.encode_key(ColumnFamily::Base, b"cx-0001");
-    let ciphertext = ctx_a.encrypt_value(&nonce, plaintext, aad).unwrap();
+    let ciphertext = ctx_a.encrypt_value(plaintext, aad).unwrap();
 
     let mut router = CfRouter::open(&dir, 1 << 20).unwrap();
     router.put(ColumnFamily::Base, &key, &ciphertext).unwrap();
@@ -69,13 +68,14 @@ fn ph60_full_stack_tenant_isolation_fsv() {
     println!("[gate2] stored key        = {}", hex(&key));
     println!("[gate2] stored ciphertext = {}", hex(&stored));
     assert_eq!(stored, ciphertext, "ciphertext must persist byte-exact");
+    assert_eq!(stored.len(), 12 + plaintext.len() + 16);
     assert_ne!(stored, plaintext, "value at rest must NOT be plaintext");
 
     // Vault A decodes its own key + decrypts the bytes back to plaintext.
     let (cf, user_key) = ctx_a.decode_key(&key).unwrap();
     assert_eq!(cf, ColumnFamily::Base);
     assert_eq!(user_key, b"cx-0001");
-    let recovered = ctx_a.decrypt_value(&nonce, &stored, aad).unwrap();
+    let recovered = ctx_a.decrypt_value(&stored, aad).unwrap();
     println!(
         "[gate2] decrypted (vault A) = {:?}",
         String::from_utf8_lossy(&recovered)
@@ -126,7 +126,7 @@ fn ph60_full_stack_tenant_isolation_fsv() {
     );
 
     // ── Gate 2b: vault B cannot decrypt vault A's ciphertext ────────────────
-    let cross = ctx_b.decrypt_value(&nonce, &stored, aad).unwrap_err();
+    let cross = ctx_b.decrypt_value(&stored, aad).unwrap_err();
     println!(
         "[gate2] ctx_b.decrypt_value(vault_a_ciphertext) = Err({})",
         cross.code
