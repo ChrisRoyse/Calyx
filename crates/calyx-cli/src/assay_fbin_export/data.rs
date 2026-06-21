@@ -7,6 +7,7 @@ use serde::Deserialize;
 
 use crate::a35_signal::{require_countable_content_signal_kind, runtime_signal_kind_name};
 use crate::assay_anchor_audit::AnchorAudit;
+use crate::assay_corpus_build::lens::projection::{projected_slot_dim, slot_projection_name};
 use crate::error::CliResult;
 
 use super::timeline::{TimelineScan, TimelineScanBuilder, timeline_row};
@@ -24,6 +25,9 @@ pub(super) struct LensMeta {
     pub(super) lens_id: String,
     pub(super) weights_sha256: String,
     pub(super) signal_kind: String,
+    pub(super) native_dim: usize,
+    pub(super) projected_dim: usize,
+    pub(super) assay_projection: String,
 }
 
 #[derive(Debug)]
@@ -234,7 +238,19 @@ pub(super) fn load_lens_catalog(
         }
         if dims.contains_key(&lens.name) {
             let name = lens.name.clone();
-            meta.insert(name.clone(), lens_meta(corpus_dir, &lens)?);
+            let lens_meta = lens_meta(corpus_dir, &lens)?;
+            let actual_dim = dims[&name];
+            if actual_dim != lens_meta.projected_dim {
+                return Err(local_error(
+                    "CALYX_FSV_ASSAY_FBIN_EXPORT_PROJECTION_MISMATCH",
+                    format!(
+                        "lens {name} vector dim={actual_dim} but manifest native_dim={} projects to {} via {}",
+                        lens_meta.native_dim, lens_meta.projected_dim, lens_meta.assay_projection
+                    ),
+                    "rerun corpus-build or stream-fbin with the bounded sparse projection build",
+                ));
+            }
+            meta.insert(name.clone(), lens_meta);
             order.push(name);
         }
     }
@@ -263,6 +279,9 @@ fn lens_meta(corpus_dir: &Path, lens: &BuildLensRef) -> CliResult<LensMeta> {
         lens_id: spec.lens_id().to_string(),
         weights_sha256: hex32(&spec.weights_sha256),
         signal_kind: runtime_signal_kind_name(&spec.runtime).to_string(),
+        native_dim: crate::lens_commands::support::dim(spec.output) as usize,
+        projected_dim: projected_slot_dim(spec.output) as usize,
+        assay_projection: slot_projection_name(spec.output).to_string(),
     })
 }
 

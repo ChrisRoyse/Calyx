@@ -17,7 +17,7 @@ use crate::assay_bits_validation::cost::LensCost;
 use crate::lens_commands::support::{dim, runtime_name, validate_vector_contract};
 mod algorithmic;
 mod progress;
-mod projection;
+pub(crate) mod projection;
 mod stream;
 use algorithmic::algorithmic_lens;
 use projection::{project_multi, project_sparse};
@@ -304,7 +304,7 @@ fn assay_vectors(
                 ));
             }
             SlotVector::Sparse { dim: got, entries } if got == dim(lens.spec.output) => {
-                projection.get_or_insert("sparse_to_dense");
+                projection.get_or_insert(projection::slot_projection_name(lens.spec.output));
                 vectors.push(project_sparse(&lens.name, idx, got, entries)?);
             }
             SlotVector::Sparse {

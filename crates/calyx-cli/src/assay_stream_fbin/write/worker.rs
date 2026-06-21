@@ -10,8 +10,8 @@ use calyx_registry::lens_spec_from_manifest_path;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use crate::assay_corpus_build::lens::projection::projected_slot_dim;
 use crate::error::CliResult;
-use crate::lens_commands::support::dim;
 
 use super::super::args::Args;
 use super::super::rows::{self, RowStats};
@@ -31,6 +31,8 @@ pub(crate) struct StreamWorkerReport {
     pub(crate) signal_kind: String,
     pub(crate) bits_about: f32,
     pub(crate) dim: usize,
+    pub(crate) native_dim: usize,
+    pub(crate) assay_projection: String,
     pub(crate) max_batch: Option<usize>,
     pub(crate) effective_batch_size: usize,
     pub(crate) elapsed_ms: u64,
@@ -55,6 +57,8 @@ impl StreamWorkerReport {
             signal_kind: self.signal_kind,
             bits_about: self.bits_about,
             dim: self.dim,
+            native_dim: self.native_dim,
+            assay_projection: self.assay_projection,
             max_batch: self.max_batch,
             effective_batch_size: self.effective_batch_size,
             elapsed_ms: self.elapsed_ms,
@@ -111,7 +115,7 @@ pub(super) fn lens_meta(
         lens_id,
         weights_sha256: hex(&spec.weights_sha256),
         bits_about: selected.bits.bits_about,
-        dim: dim(spec.output) as usize,
+        dim: projected_slot_dim(spec.output) as usize,
         max_batch: spec.max_batch,
         effective_batch_size,
         manifest: display(&selected.manifest),
@@ -264,6 +268,8 @@ pub(crate) fn run_worker(args: &Args) -> CliResult<StreamWorkerReport> {
         signal_kind: lens.signal_kind().to_string(),
         bits_about: selected.bits.bits_about,
         dim: lens.dim(),
+        native_dim: lens.native_dim(),
+        assay_projection: lens.assay_projection().to_string(),
         max_batch: lens.max_batch(),
         effective_batch_size,
         elapsed_ms,

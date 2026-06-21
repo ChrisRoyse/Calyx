@@ -61,6 +61,8 @@ pub(crate) struct LensEvidence {
     pub(crate) signal_kind: String,
     pub(crate) bits_about: f32,
     pub(crate) dim: usize,
+    pub(crate) native_dim: usize,
+    pub(crate) assay_projection: String,
     pub(crate) max_batch: Option<usize>,
     pub(crate) effective_batch_size: usize,
     pub(crate) elapsed_ms: u64,
