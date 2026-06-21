@@ -17,7 +17,6 @@ use calyx_sextant::{RerankCandidateText, RerankRequest, RerankerClient};
 use serde_json::json;
 
 #[test]
-#[ignore = "manual gpuhost FSV for #594 reranker candidate-text non-persistence"]
 fn issue594_reranker_candidate_text_non_persistence_gpuhost_fsv() {
     let root = fsv_root().join("issue594-reranker-candidate-nonpersistence");
     reset_dir(&root);
