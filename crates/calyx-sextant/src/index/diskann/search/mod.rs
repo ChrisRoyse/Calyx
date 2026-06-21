@@ -17,7 +17,7 @@ use super::build::{DiskAnnBuildBackend, DiskAnnBuildParams};
 use super::graph::DiskAnnGraphReader;
 use super::pq::{DiskAnnPqBuildParams, DiskAnnPqIndex, default_pq_sidecar};
 use crate::error::{CALYX_INDEX_DIM_MISMATCH, CALYX_INDEX_IO, sextant_error};
-use crate::index::distance::l2_normalize;
+use crate::index::distance::{cosine_distance, l2_normalize};
 use crate::index::{IndexSearchHit, IndexStats, SextantIndex, ranked};
 use crate::util::dense;
 
@@ -133,7 +133,7 @@ impl DiskAnnSearch {
         let mut rescored = Vec::with_capacity(hits.len());
         for &(id, _) in hits {
             let raw = self.read_raw_vector(raw_dir, id)?;
-            rescored.push((id, distance(query, &raw, self.distance_mode)));
+            rescored.push((id, raw_rescore_distance(query, &raw, self.distance_mode)));
         }
         Ok(sorted(rescored))
     }
@@ -233,6 +233,13 @@ impl DiskAnnSearch {
         (0..self.ids.len() as u32)
             .map(|id| self.read_raw_vector(raw_dir, id))
             .collect()
+    }
+}
+
+fn raw_rescore_distance(query: &[f32], raw: &[f32], mode: DiskAnnDistanceMode) -> f32 {
+    match mode {
+        DiskAnnDistanceMode::UnitL2 => cosine_distance(query, raw),
+        _ => distance(query, raw, mode),
     }
 }
 

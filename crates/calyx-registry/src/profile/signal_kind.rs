@@ -34,7 +34,7 @@ impl CapabilitySignalKind {
 pub fn signal_kind_from_runtime(runtime: &LensRuntime) -> CapabilitySignalKind {
     match runtime {
         LensRuntime::Algorithmic { kind } if kind.starts_with("commissioned:") => {
-            CapabilitySignalKind::Placeholder
+            CapabilitySignalKind::LearnedEncoder
         }
         LensRuntime::Algorithmic { .. } => CapabilitySignalKind::DeterministicContentFeature,
         LensRuntime::TeiHttp { .. }
@@ -56,4 +56,33 @@ pub(super) fn registry_signal_kind(registry: &Registry, lens_id: LensId) -> Capa
         .lens_spec(lens_id)
         .map(|spec| signal_kind_from_runtime(&spec.runtime))
         .unwrap_or(CapabilitySignalKind::Unknown)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn commissioned_algorithmic_runtime_is_learned_encoder_signal() {
+        let runtime = LensRuntime::Algorithmic {
+            kind: "commissioned:facebook/esm2_t6_8M_UR50D".to_string(),
+        };
+
+        assert_eq!(
+            signal_kind_from_runtime(&runtime),
+            CapabilitySignalKind::LearnedEncoder
+        );
+    }
+
+    #[test]
+    fn plain_algorithmic_runtime_stays_deterministic_feature_signal() {
+        let runtime = LensRuntime::Algorithmic {
+            kind: "byte_features".to_string(),
+        };
+
+        assert_eq!(
+            signal_kind_from_runtime(&runtime),
+            CapabilitySignalKind::DeterministicContentFeature
+        );
+    }
 }

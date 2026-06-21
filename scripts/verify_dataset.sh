@@ -407,6 +407,9 @@ self_test() {
   local pass=0
 
   step() { pass=$((pass + 1)); echo "[SELF-TEST $pass] $1"; }
+  run_self() {
+    bash "$SCRIPT_PATH" "$@"
+  }
   show_sot() {
     echo "--- SoT $1 ---"
     if [[ -f "$manifest" ]]; then grep -E '^\| synthetic_fixture' "$manifest" || echo "(no row)"; else echo "(no MANIFEST.md)"; fi
@@ -414,7 +417,7 @@ self_test() {
   expect_fail() {
     local code="$1"; shift
     local err_log="$tmp_root/err.log"
-    if "$SCRIPT_PATH" "$@" >"$tmp_root/out.log" 2>"$err_log"; then
+    if run_self "$@" >"$tmp_root/out.log" 2>"$err_log"; then
       echo "SELF-TEST FAILED: expected $code but command succeeded: $*" >&2
       exit 1
     fi
@@ -430,7 +433,7 @@ self_test() {
   mkdir -p "$tmp_root/synthetic_fixture"
   printf 'id,value\n1,alpha\n2,beta\n3,gamma\n' > "$tmp_root/synthetic_fixture/data.csv"
   show_sot "before register"
-  "$SCRIPT_PATH" register synthetic_fixture \
+  run_self register synthetic_fixture \
     --source "self-test inline fixture" --revision "v1" \
     --license "n/a (synthetic)" --tests "verify_dataset.sh self-test"
   show_sot "after register"
@@ -442,8 +445,8 @@ self_test() {
     || { echo "SELF-TEST FAILED: manifest.json file sha != hand-computed" >&2; exit 1; }
 
   step "verify passes and is idempotent (same stdout + exit twice)"
-  "$SCRIPT_PATH" synthetic_fixture > "$tmp_root/run1.log"
-  "$SCRIPT_PATH" synthetic_fixture > "$tmp_root/run2.log"
+  run_self synthetic_fixture > "$tmp_root/run1.log"
+  run_self synthetic_fixture > "$tmp_root/run2.log"
   cmp "$tmp_root/run1.log" "$tmp_root/run2.log"
   grep -q '^\[OK\] synthetic_fixture ' "$tmp_root/run1.log"
 
@@ -467,7 +470,7 @@ self_test() {
   echo "--- data.csv after tamper ---"; cat "$tmp_root/synthetic_fixture/data.csv"
   expect_fail CALYX_DATASET_CHECKSUM_MISMATCH synthetic_fixture
   printf 'id,value\n1,alpha\n2,beta\n3,gamma\n' > "$tmp_root/synthetic_fixture/data.csv"
-  "$SCRIPT_PATH" synthetic_fixture >/dev/null
+  run_self synthetic_fixture >/dev/null
 
   step "edge 3b: undecodable bytes in data file -> CALYX_DATASET_CHECKSUM_MISMATCH (not a traceback)"
   printf '\xff\xfe\x00garbage' > "$tmp_root/synthetic_fixture/data.csv"
@@ -477,7 +480,7 @@ self_test() {
     exit 1
   fi
   printf 'id,value\n1,alpha\n2,beta\n3,gamma\n' > "$tmp_root/synthetic_fixture/data.csv"
-  "$SCRIPT_PATH" synthetic_fixture >/dev/null
+  run_self synthetic_fixture >/dev/null
 
   step "edge 4: dataset dir missing -> CALYX_DATASET_NOT_FOUND"
   mv "$tmp_root/synthetic_fixture" "$tmp_root/.hidden_fixture"
@@ -506,12 +509,12 @@ self_test() {
 2,b
 ' > "$tmp_root/archive_fixture/meta.csv"
   printf 'not-countable-binary' > "$tmp_root/archive_fixture/payload.zip"
-  "$SCRIPT_PATH" register archive_fixture     --source "self-test" --revision "rows-from-excludes-countable"     --license "n/a" --tests "verify must reproduce register-time counting"     --rows-from "payload.zip"
+  run_self register archive_fixture     --source "self-test" --revision "rows-from-excludes-countable"     --license "n/a" --tests "verify must reproduce register-time counting"     --rows-from "payload.zip"
   grep -E '^\| archive_fixture \|' "$manifest" | grep -q '| 0 |'     || { echo "SELF-TEST FAILED: archive_fixture rows != 0 in MANIFEST" >&2; exit 1; }
-  "$SCRIPT_PATH" archive_fixture     || { echo "SELF-TEST FAILED: verify red after register with excluded countable file (rows_from empty-list collapse)" >&2; exit 1; }
+  run_self archive_fixture     || { echo "SELF-TEST FAILED: verify red after register with excluded countable file (rows_from empty-list collapse)" >&2; exit 1; }
 
   step "final: verify ALL green"
-  "$SCRIPT_PATH" ALL
+  run_self ALL
   echo "[SELF-TEST] all $pass steps passed"
 }
 

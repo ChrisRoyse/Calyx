@@ -105,7 +105,7 @@ fn planted_exact_query_returns_node_seven_rank_zero() {
     let index = build_index("exact7", &rows);
 
     let hits = index
-        .search_ids(&rows[7].1, 10, &search_params(10, 96, false))
+        .search_ids(&rows[7].1, 10, &search_params(10, 96, true))
         .expect("search exact");
 
     assert_eq!(hits[0].0, 7);

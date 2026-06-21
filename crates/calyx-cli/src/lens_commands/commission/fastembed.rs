@@ -88,7 +88,7 @@ fn copy_artifacts_from_root(
     let dest_root = out.join(dirname);
     let mut artifacts = Vec::with_capacity(sources.len());
     for source in sources {
-        let relative = source.strip_prefix(&root).map_err(|_| {
+        let relative = source.strip_prefix(root).map_err(|_| {
             CliError::usage(format!(
                 "fastembed artifact {} is outside common root {}",
                 source.display(),

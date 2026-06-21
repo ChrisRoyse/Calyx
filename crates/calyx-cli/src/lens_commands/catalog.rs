@@ -203,9 +203,18 @@ fn entry_from_spec(
 fn estimate_lens_cost(spec: &LensSpec) -> CliResult<LensCost> {
     match &spec.runtime {
         LensRuntime::Algorithmic { .. }
-        | LensRuntime::MultimodalAdapter { .. }
         | LensRuntime::ExternalCmd { .. }
         | LensRuntime::TeiHttp { .. } => Ok(LensCost::zero()),
+        LensRuntime::MultimodalAdapter { files, .. } => {
+            let bytes = files_size(files)?;
+            Ok(LensCost {
+                total_ms: 0.0,
+                ms_per_input: 0.0,
+                vram_bytes: 0,
+                ram_bytes: bytes,
+                batch_ceiling: u32::MAX,
+            })
+        }
         LensRuntime::StaticLookup {
             embeddings_file,
             tokenizer,
@@ -350,6 +359,44 @@ mod tests {
 
         assert_eq!(catalog.lenses.len(), 1);
         assert_eq!(catalog.lenses[0].lens_id, "keep-id");
+    }
+
+    #[test]
+    fn multimodal_adapter_cost_counts_files_as_cpu_ram() {
+        let root = temp_root("multimodal-cost");
+        let model = root.join("model.onnx");
+        let adapter = root.join("adapter.json");
+        fs::write(&model, [1_u8; 11]).unwrap();
+        fs::write(&adapter, [2_u8; 7]).unwrap();
+        let spec = LensSpec {
+            name: "fixture-image-adapter".to_string(),
+            runtime: LensRuntime::MultimodalAdapter {
+                axis: "image".to_string(),
+                model_id: "fixture/model".to_string(),
+                adapter_config: Some(adapter.clone()),
+                files: vec![model, adapter],
+            },
+            output: calyx_core::SlotShape::Dense(16),
+            modality: calyx_core::Modality::Image,
+            weights_sha256: [1_u8; 32],
+            corpus_hash: [2_u8; 32],
+            norm_policy: calyx_registry::NormPolicy::unit(),
+            max_batch: None,
+            axis: Some("image:fixture/model".to_string()),
+            asymmetry: calyx_core::Asymmetry::None,
+            quant_default: calyx_core::QuantPolicy::turboquant_default(),
+            truncate_dim: None,
+            recall_delta: 0.02,
+            retrieval_only: false,
+            excluded_from_dedup: false,
+        };
+
+        let cost = estimate_lens_cost(&spec).unwrap();
+
+        assert_eq!(cost.vram_bytes, 0);
+        assert_eq!(cost.ram_bytes, 18);
+        assert_eq!(cost.batch_ceiling, u32::MAX);
+        let _ = fs::remove_dir_all(root);
     }
 
     fn entry(lens_id: &str, name: &str, manifest: &str) -> LensCatalogEntry {

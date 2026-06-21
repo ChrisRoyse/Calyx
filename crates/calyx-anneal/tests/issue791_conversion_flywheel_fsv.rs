@@ -70,11 +70,11 @@ fn issue791_conversion_flywheel_fsv() {
         .expect("record budget edge");
     vault.flush().expect("flush budget edge");
     let budget_after = ledger_rows(&vault);
-    assert_eq!(budget_ref, None);
-    assert_eq!(budget_before, budget_after);
+    assert!(budget_ref.is_some());
+    assert_eq!(budget_after.len(), budget_before.len() + 1);
 
     let history = calyx_anneal::proposal_history_with_refs(&ledger, 5).expect("history");
-    assert_eq!(history.len(), 2);
+    assert_eq!(history.len(), 3);
     assert!(matches!(
         history[0].record,
         AdmissionRecord::LensAdmitted(_)
@@ -82,6 +82,15 @@ fn issue791_conversion_flywheel_fsv() {
     assert!(matches!(
         history[1].record,
         AdmissionRecord::LensRejected(_)
+    ));
+    assert!(matches!(
+        &history[2].record,
+        AdmissionRecord::LensRejected(entry)
+            if matches!(
+                &entry.reason,
+                RejectReason::SubstrateReverted { shadow_reason }
+                    if *shadow_reason == ShadowRevertReason::BudgetExhausted
+            )
     ));
 
     let summary = json!({
@@ -94,6 +103,7 @@ fn issue791_conversion_flywheel_fsv() {
         "ledger_refs": {
             "admitted": admitted_ref,
             "duplicate": duplicate_ref,
+            "budget_deferred": budget_ref,
         },
         "proposal_history": history,
         "panel_after": panel_after,
