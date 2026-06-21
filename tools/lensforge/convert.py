@@ -43,9 +43,16 @@ ONNX_MODEL_CANDIDATES = (
 )
 ONNX_FP32_MODEL_CANDIDATES = ("onnx/model.onnx", "model.onnx")
 COMMON_OPTIONAL_FILES = (
+    ("config", "config.json"),
+    ("tokenizer", "tokenizer.json"),
     ("tokenizer_config", "tokenizer_config.json"),
     ("special_tokens_map", "special_tokens_map.json"),
     ("preprocessor", "preprocessor_config.json"),
+    ("vocab", "vocab.json"),
+    ("vocab", "vocab.txt"),
+    ("merges", "merges.txt"),
+    ("added_tokens", "added_tokens.json"),
+    ("chat_template", "chat_template.json"),
 )
 ADAPTER_ONNX_DEFAULTS = {
     "image": {
@@ -152,7 +159,17 @@ def convert_adapter(
 ) -> dict[str, Any] | None:
     name = str(model.get("name") or safe_name(str(model["hf_id"])))
     modality = str(model["modality"]).lower()
-    if modality not in ADAPTER_ONNX_DEFAULTS:
+    if modality not in {"image", "audio", "protein", "dna", "molecule"}:
+        log_event(
+            log_path,
+            "skip",
+            model,
+            "multimodal-adapter",
+            {"reason": "unsupported_adapter_modality"},
+        )
+        return None
+    defaults = ADAPTER_ONNX_DEFAULTS.get(modality)
+    if defaults is None and "files" not in model:
         log_event(
             log_path,
             "skip",
@@ -163,11 +180,11 @@ def convert_adapter(
         return None
     out_dir = output_root / safe_name(name) / "onnx-int8"
     out_dir.mkdir(parents=True, exist_ok=True)
-    defaults = ADAPTER_ONNX_DEFAULTS[modality]
     if "files" in model:
         artifacts = copy_local_artifacts(model, out_dir)
         model_path = role_path(artifacts, "model")
     else:
+        assert defaults is not None
         onnx_repo = str(model.get("onnx_repo") or defaults["onnx_repo"])
         onnx_file = str(model.get("onnx_file") or defaults["onnx_file"])
         model_path = download_hf_file(onnx_repo, onnx_file, out_dir)
@@ -176,12 +193,7 @@ def convert_adapter(
             model_path.replace(model_dest)
             model_path = model_dest
         artifacts = {"model": model_path}
-        for role, repo_path in [
-            ("config", "config.json"),
-            ("preprocessor", "preprocessor_config.json"),
-            ("tokenizer_config", "tokenizer_config.json"),
-            ("special_tokens_map", "special_tokens_map.json"),
-        ]:
+        for role, repo_path in COMMON_OPTIONAL_FILES:
             try:
                 artifacts[role] = download_hf_file(onnx_repo, repo_path, out_dir)
             except urllib.error.HTTPError as exc:
@@ -191,14 +203,16 @@ def convert_adapter(
     helper_path = out_dir / helper_source.name
     shutil.copyfile(helper_source, helper_path)
     artifacts["helper"] = helper_path
-    dim = int(model.get("dim") or defaults["dim"])
+    dim = int(model.get("dim") or (defaults or {}).get("dim") or 0)
+    if dim <= 0:
+        raise ValueError("multimodal adapter dim is required for this modality")
     license_value = str(model.get("license") or "unknown")
     adapter = {
         "schema": "calyx-multimodal-adapter-v2",
         "name": name,
         "axis": modality,
         "model_id": str(model["hf_id"]),
-        "processor_model_id": ".",
+        "processor_model_id": str(model.get("processor_model_id") or "."),
         "dim": dim,
         "engine": "onnx-external",
         "python": str(model.get("python") or "/var/lib/calyx/.venv-gpu/bin/python"),
@@ -207,6 +221,8 @@ def convert_adapter(
         "provider": "cpu_explicit",
         "timeout_ms": int(model.get("timeout_ms") or 120000),
     }
+    if "kmer" in model:
+        adapter["kmer"] = int(model["kmer"])
     adapter_path = out_dir / "adapter.json"
     write_json(adapter_path, adapter)
     artifacts["adapter"] = adapter_path

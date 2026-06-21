@@ -28,7 +28,7 @@ def main() -> int:
     axis = config["axis"]
     session = load_session(resolve(base, config["model_file"]), config.get("provider"))
     processor_id = processor_reference(base, config.get("processor_model_id") or config["model_id"])
-    processor = load_processor(axis, processor_id)
+    processor = load_processor(axis, processor_id, config)
     request = read_frame(sys.stdin.buffer)
     vectors = [
         embed_one(axis, processor, session, bytes(row)).tolist()
@@ -47,22 +47,47 @@ def load_session(model_file: Path, provider: str | None) -> ort.InferenceSession
     return ort.InferenceSession(str(model_file), providers=["CPUExecutionProvider"])
 
 
-def load_processor(axis: str, model_id: str) -> Any:
+def load_processor(axis: str, model_id: str, config: dict[str, Any]) -> Any:
     if axis == "image":
         return load_image_processor(model_id)
     if axis == "audio":
         from transformers import AutoFeatureExtractor
 
         return AutoFeatureExtractor.from_pretrained(model_id)
+    if axis in {"protein", "dna", "molecule"}:
+        return load_sequence_processor(axis, model_id, config)
     raise RuntimeError(f"unsupported multimodal axis {axis}")
 
 
 def load_image_processor(model_id: str) -> dict[str, Any]:
-    config_path = Path(model_id) / "preprocessor_config.json"
+    root = Path(model_id)
+    config_path = root / "preprocessor_config.json"
     if not config_path.exists():
         raise RuntimeError(f"missing image preprocessor config {config_path}")
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    return {"kind": "manual", "config": config}
+    tokenizer = None
+    if (root / "tokenizer.json").exists():
+        from transformers import AutoTokenizer
+
+        tokenizer = AutoTokenizer.from_pretrained(str(root), trust_remote_code=True)
+    return {
+        "kind": "manual_image",
+        "config": config,
+        "tokenizer": tokenizer,
+        "prompt": "Represent this document page.",
+    }
+
+
+def load_sequence_processor(axis: str, model_id: str, config: dict[str, Any]) -> dict[str, Any]:
+    from transformers import AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+    return {
+        "kind": "tokenizer",
+        "axis": axis,
+        "tokenizer": tokenizer,
+        "kmer": int(config.get("kmer") or 0),
+    }
 
 
 def embed_one(axis: str, processor: Any, session: ort.InferenceSession, payload: bytes) -> np.ndarray:
@@ -83,23 +108,48 @@ def preprocess(axis: str, processor: Any, payload: bytes) -> dict[str, np.ndarra
             samples = resample(samples, sampling_rate, target_rate)
             sampling_rate = target_rate
         return dict(processor(samples, sampling_rate=sampling_rate, return_tensors="np"))
+    if axis in {"protein", "dna", "molecule"}:
+        return preprocess_sequence(processor, payload)
     raise RuntimeError(f"unsupported multimodal axis {axis}")
 
 
-def preprocess_image(config: dict[str, Any], payload: bytes) -> dict[str, np.ndarray]:
+def preprocess_image(processor: dict[str, Any], payload: bytes) -> dict[str, np.ndarray]:
     from PIL import Image
 
-    config = config["config"]
+    config = processor["config"]
     image = Image.open(io.BytesIO(payload))
     if config.get("do_convert_rgb") is not False:
         image = image.convert("RGB")
+    if config.get("do_image_splitting"):
+        return preprocess_split_image(processor, image)
     if config.get("do_resize", True):
-        width, height = image_resize_size(image, config.get("size"))
+        width, height = image_resize_size(image, image_resize_config(config))
         image = image.resize((width, height), image_resample(config.get("resample", 2)))
     if config.get("do_center_crop", False):
         width, height = image_crop_size(config)
         image = center_crop(image, width, height)
+    if config.get("do_pad", False):
+        width, height = image_pad_size(image, config)
+        image = pad_to_size(image, width, height)
 
+    pixel_values = image_pixels(config, image)[np.newaxis, ...]
+    features = {"pixel_values": pixel_values}
+    add_image_tokens(features, processor)
+    return features
+
+
+def preprocess_split_image(processor: dict[str, Any], image: Any) -> dict[str, np.ndarray]:
+    config = processor["config"]
+    images = split_page_images(config, image)
+    pixel_values = np.stack([image_pixels(config, item) for item in images], axis=0)[
+        np.newaxis, ...
+    ]
+    features = {"pixel_values": pixel_values.astype(np.float32, copy=False)}
+    add_image_tokens(features, processor)
+    return features
+
+
+def image_pixels(config: dict[str, Any], image: Any) -> np.ndarray:
     pixels = np.asarray(image, dtype=np.float32)
     if pixels.ndim != 3 or pixels.shape[2] != 3:
         raise RuntimeError(f"image payload decoded to unsupported shape {pixels.shape}")
@@ -111,8 +161,79 @@ def preprocess_image(config: dict[str, Any], payload: bytes) -> dict[str, np.nda
         if mean.shape != (3,) or std.shape != (3,) or np.any(std == 0.0):
             raise RuntimeError("image normalization config must contain three nonzero std values")
         pixels = (pixels - mean) / std
-    pixel_values = np.transpose(pixels, (2, 0, 1))[np.newaxis, ...].astype(np.float32, copy=False)
-    return {"pixel_values": pixel_values}
+    return np.transpose(pixels, (2, 0, 1)).astype(np.float32, copy=False)
+
+
+def add_image_tokens(features: dict[str, np.ndarray], processor: dict[str, Any]) -> None:
+    tokenizer = processor.get("tokenizer")
+    if tokenizer is not None:
+        features.update(
+            dict(tokenizer(processor.get("prompt", ""), return_tensors="np", truncation=True))
+        )
+
+
+def split_page_images(config: dict[str, Any], image: Any) -> list[Any]:
+    tile_size = split_tile_size(config)
+    canvas_width, canvas_height = split_canvas_size(config, image, tile_size)
+    canvas = fit_to_canvas(image, canvas_width, canvas_height)
+    tiles = []
+    for top in range(0, canvas_height, tile_size):
+        for left in range(0, canvas_width, tile_size):
+            tiles.append(canvas.crop((left, top, left + tile_size, top + tile_size)))
+    global_image = fit_to_canvas(image, tile_size, tile_size)
+    return [global_image, *tiles]
+
+
+def split_tile_size(config: dict[str, Any]) -> int:
+    max_size = config.get("max_image_size")
+    if isinstance(max_size, dict) and "longest_edge" in max_size:
+        return validate_image_size(max_size["longest_edge"], max_size["longest_edge"])[0]
+    return image_pad_size_from_config(config)[0]
+
+
+def split_canvas_size(config: dict[str, Any], image: Any, tile_size: int) -> tuple[int, int]:
+    size = config.get("size")
+    if isinstance(size, dict) and "longest_edge" in size:
+        long_edge = int(size["longest_edge"])
+    else:
+        long_edge = tile_size * 4
+    long_tiles = max(1, round(long_edge / tile_size))
+    short_tiles = max(1, long_tiles - 1)
+    width, height = image.size
+    if width >= height:
+        return tile_size * long_tiles, tile_size * short_tiles
+    return tile_size * short_tiles, tile_size * long_tiles
+
+
+def fit_to_canvas(image: Any, width: int, height: int) -> Any:
+    from PIL import Image
+
+    source_width, source_height = image.size
+    if source_width <= 0 or source_height <= 0:
+        raise RuntimeError(f"invalid decoded image size {source_width}x{source_height}")
+    scale = min(width / source_width, height / source_height)
+    resized = image.resize(
+        validate_image_size(round(source_width * scale), round(source_height * scale)),
+        Image.Resampling.BILINEAR,
+    )
+    return pad_to_size(resized, width, height)
+
+
+def preprocess_sequence(processor: dict[str, Any], payload: bytes) -> dict[str, np.ndarray]:
+    text = payload.decode("utf-8")
+    if processor.get("axis") == "dna" and processor.get("kmer", 0) > 0:
+        text = dna_kmers(text, int(processor["kmer"]))
+    tokenizer = processor["tokenizer"]
+    return dict(tokenizer(text, return_tensors="np", truncation=True))
+
+
+def dna_kmers(text: str, kmer: int) -> str:
+    sequence = "".join(text.split()).upper()
+    if kmer <= 0:
+        return sequence
+    if len(sequence) < kmer:
+        return sequence
+    return " ".join(sequence[index : index + kmer] for index in range(len(sequence) - kmer + 1))
 
 
 def image_resize_size(image: Any, size: Any) -> tuple[int, int]:
@@ -122,6 +243,16 @@ def image_resize_size(image: Any, size: Any) -> tuple[int, int]:
         raise RuntimeError("image preprocessor config missing size")
     if "height" in size and "width" in size:
         return validate_image_size(size["width"], size["height"])
+    if "longest_edge" in size:
+        longest_edge = int(size["longest_edge"])
+        if longest_edge <= 0:
+            raise RuntimeError(f"invalid image longest_edge {longest_edge}")
+        width, height = image.size
+        if width <= 0 or height <= 0:
+            raise RuntimeError(f"invalid decoded image size {width}x{height}")
+        if width >= height:
+            return validate_image_size(longest_edge, round(height * longest_edge / width))
+        return validate_image_size(round(width * longest_edge / height), longest_edge)
     if "shortest_edge" in size:
         shortest_edge = int(size["shortest_edge"])
         if shortest_edge <= 0:
@@ -135,6 +266,12 @@ def image_resize_size(image: Any, size: Any) -> tuple[int, int]:
     raise RuntimeError("image preprocessor config missing size.height/width or size.shortest_edge")
 
 
+def image_resize_config(config: dict[str, Any]) -> Any:
+    if config.get("do_image_splitting") and isinstance(config.get("max_image_size"), dict):
+        return config["max_image_size"]
+    return config.get("size")
+
+
 def image_crop_size(config: dict[str, Any]) -> tuple[int, int]:
     crop_size = config.get("crop_size")
     if isinstance(crop_size, int):
@@ -146,10 +283,38 @@ def image_crop_size(config: dict[str, Any]) -> tuple[int, int]:
         return validate_image_size(size, size)
     if isinstance(size, dict) and "height" in size and "width" in size:
         return validate_image_size(size["width"], size["height"])
+    if isinstance(size, dict) and "longest_edge" in size:
+        edge = int(size["longest_edge"])
+        return validate_image_size(edge, edge)
     if isinstance(size, dict) and "shortest_edge" in size:
         edge = int(size["shortest_edge"])
         return validate_image_size(edge, edge)
     raise RuntimeError("image preprocessor config missing crop_size")
+
+
+def image_pad_size(image: Any, config: dict[str, Any]) -> tuple[int, int]:
+    configured = image_pad_size_from_config(config)
+    if configured is not None:
+        return configured
+    width, height = image.size
+    edge = max(width, height)
+    return validate_image_size(edge, edge)
+
+
+def image_pad_size_from_config(config: dict[str, Any]) -> tuple[int, int] | None:
+    for key in ("max_image_size", "size"):
+        size = config.get(key)
+        if isinstance(size, dict) and "height" in size and "width" in size:
+            return validate_image_size(size["width"], size["height"])
+        if isinstance(size, dict) and "longest_edge" in size:
+            edge = int(size["longest_edge"])
+            return validate_image_size(edge, edge)
+        if isinstance(size, dict) and "shortest_edge" in size:
+            edge = int(size["shortest_edge"])
+            return validate_image_size(edge, edge)
+        if isinstance(size, int):
+            return validate_image_size(size, size)
+    return None
 
 
 def validate_image_size(width: Any, height: Any) -> tuple[int, int]:
@@ -158,6 +323,22 @@ def validate_image_size(width: Any, height: Any) -> tuple[int, int]:
     if width <= 0 or height <= 0:
         raise RuntimeError(f"invalid image processor size {width}x{height}")
     return width, height
+
+
+def pad_to_size(image: Any, width: int, height: int) -> Any:
+    if image.size == (width, height):
+        return image
+    if image.size[0] > width or image.size[1] > height:
+        image = center_crop(image, width, height)
+        if image.size == (width, height):
+            return image
+    from PIL import Image
+
+    padded = Image.new(image.mode, (width, height), color=0)
+    left = max((width - image.size[0]) // 2, 0)
+    top = max((height - image.size[1]) // 2, 0)
+    padded.paste(image, (left, top))
+    return padded
 
 
 def center_crop(image: Any, width: int, height: int) -> Any:
@@ -229,8 +410,10 @@ def build_feed(session: ort.InferenceSession, features: dict[str, np.ndarray]) -
     feed = {}
     for spec in session.get_inputs():
         if spec.name not in features:
-            raise RuntimeError(f"processor did not produce required ONNX input {spec.name}")
+            features[spec.name] = synthesize_feature(spec.name, features)
         value = np.asarray(features[spec.name])
+        if spec.name == "pixel_values" and value.ndim == 4 and len(spec.shape) == 5:
+            value = value[:, np.newaxis, ...]
         if "int64" in spec.type:
             value = value.astype(np.int64, copy=False)
         elif "float" in spec.type:
@@ -243,13 +426,31 @@ def build_feed(session: ort.InferenceSession, features: dict[str, np.ndarray]) -
     return feed
 
 
+def synthesize_feature(name: str, features: dict[str, np.ndarray]) -> np.ndarray:
+    if name == "attention_mask" and "input_ids" in features:
+        return np.ones_like(np.asarray(features["input_ids"]), dtype=np.int64)
+    if name == "token_type_ids" and "input_ids" in features:
+        return np.zeros_like(np.asarray(features["input_ids"]), dtype=np.int64)
+    if name == "pixel_attention_mask" and "pixel_values" in features:
+        pixels = np.asarray(features["pixel_values"])
+        if pixels.ndim == 4:
+            return np.ones((pixels.shape[0], 1, pixels.shape[2], pixels.shape[3]), dtype=np.int64)
+        if pixels.ndim == 5:
+            return np.ones(
+                (pixels.shape[0], pixels.shape[1], pixels.shape[3], pixels.shape[4]),
+                dtype=np.int64,
+            )
+    raise RuntimeError(f"processor did not produce required ONNX input {name}")
+
+
 def select_vector(axis: str, session: ort.InferenceSession, outputs: list[np.ndarray]) -> np.ndarray:
     by_name = {meta.name: np.asarray(value) for meta, value in zip(session.get_outputs(), outputs)}
-    names = (
-        ["image_embeds", "pooler_output", "last_hidden_state"]
-        if axis == "image"
-        else ["audio_embeds", "embeddings", "pooler_output", "last_hidden_state"]
-    )
+    if axis == "image":
+        names = ["image_embeds", "embeddings", "pooler_output", "last_hidden_state"]
+    elif axis == "audio":
+        names = ["audio_embeds", "embeddings", "pooler_output", "last_hidden_state"]
+    else:
+        names = ["sentence_embedding", "embeddings", "pooler_output", "last_hidden_state"]
     for name in names:
         if name in by_name:
             return flatten_output(by_name[name])
