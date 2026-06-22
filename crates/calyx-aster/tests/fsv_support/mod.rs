@@ -1,5 +1,8 @@
+#![allow(dead_code)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub(crate) fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) {
     if let Ok(root) = std::env::var(env_key) {
@@ -9,6 +12,25 @@ pub(crate) fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) 
         std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id())),
         false,
     )
+}
+
+pub(crate) fn named_fsv_root(env_key: &str, name: &str, counter: &AtomicU64) -> (PathBuf, bool) {
+    if let Ok(root) = std::env::var(env_key) {
+        return (PathBuf::from(root), true);
+    }
+    (named_temp_root(name, counter), false)
+}
+
+pub(crate) fn named_fsv_root_os(env_key: &str, name: &str, counter: &AtomicU64) -> (PathBuf, bool) {
+    if let Some(root) = std::env::var_os(env_key) {
+        return (PathBuf::from(root), true);
+    }
+    (named_temp_root(name, counter), false)
+}
+
+fn named_temp_root(name: &str, counter: &AtomicU64) -> PathBuf {
+    let id = counter.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id()))
 }
 
 pub(crate) fn reset_dir(dir: &Path) {
