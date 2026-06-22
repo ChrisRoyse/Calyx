@@ -14,6 +14,14 @@ pub(crate) fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) 
     )
 }
 
+pub(crate) fn fsv_root_os(env_key: &str, fallback_prefix: &str) -> PathBuf {
+    std::env::var_os(env_key)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id()))
+        })
+}
+
 pub(crate) fn named_fsv_root(env_key: &str, name: &str, counter: &AtomicU64) -> (PathBuf, bool) {
     if let Ok(root) = std::env::var(env_key) {
         return (PathBuf::from(root), true);

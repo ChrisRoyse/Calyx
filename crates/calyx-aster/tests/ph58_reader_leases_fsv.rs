@@ -10,10 +10,13 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Clock, Ts, VaultId};
 use serde_json::json;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+mod fsv_support;
+use fsv_support::{fsv_root_os, reset_dir};
 
 #[derive(Clone, Debug)]
 struct SharedClock {
@@ -41,7 +44,7 @@ impl Clock for SharedClock {
 #[test]
 #[ignore = "manual gpuhost FSV writes PH58 reader-lease source-of-truth artifacts"]
 fn ph58_reader_lease_watchdog_fsv() {
-    let root = fsv_root();
+    let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-ph58-reader-leases");
     reset_dir(&root);
     let vault_dir = root.join("vault");
     fs::create_dir_all(&vault_dir).expect("create vault dir");
@@ -213,19 +216,6 @@ fn df_text(path: &Path) -> String {
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8(output.stdout).expect("df stdout utf8")
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("calyx-ph58-reader-leases-{}", std::process::id()))
-        })
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create fsv root");
 }
 
 fn vault_id() -> VaultId {
