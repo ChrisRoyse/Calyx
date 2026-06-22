@@ -3,7 +3,6 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::AtomicU64;
 
 use calyx_aster::manifest::ManifestStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -13,8 +12,6 @@ use calyx_core::{
 };
 use serde_json::json;
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
-
 mod fsv_support;
 use fsv_support::named_fsv_root_os;
 
@@ -23,7 +20,6 @@ fn explicit_panel_manifest_is_json_and_survives_default_reopen_flush() {
     let (root, keep_root) = named_fsv_root_os(
         "CALYX_ISSUE752_PANEL_MANIFEST_FSV_ROOT",
         "issue752-panel-manifest",
-        &NEXT_DIR,
     );
     let _ = fs::remove_dir_all(&root);
     let panel = panel();

@@ -13,12 +13,9 @@ use calyx_core::VaultId;
 use calyx_ledger::{EntryKind, SubjectId, decode as decode_ledger};
 use std::fs;
 use std::path::Path;
-use std::sync::atomic::AtomicU64;
 
 mod fsv_support;
 use fsv_support::{named_fsv_root, reset_dir};
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
@@ -69,7 +66,7 @@ fn find_residency_audit(
 
 #[test]
 fn vault_residency_fsv() {
-    let (root, keep) = named_fsv_root("CALYX_ASTER_RESIDENCY_FSV_ROOT", "residency-fsv", &NEXT_DIR);
+    let (root, keep) = named_fsv_root("CALYX_ASTER_RESIDENCY_FSV_ROOT", "residency-fsv");
     reset_dir(&root);
     let vault_dir = root.join("vault");
     let dataset_root = vault_dir.clone();

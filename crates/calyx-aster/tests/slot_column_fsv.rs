@@ -9,20 +9,13 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU64;
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 mod fsv_support;
 use fsv_support::{named_fsv_root, reset_dir, write_json};
 
 #[test]
 fn slot_column_materialization_fsv_writes_readbacks() {
-    let (root, keep_root) = named_fsv_root(
-        "CALYX_ASTER_SLOT_COLUMN_FSV_ROOT",
-        "slot-column-fsv",
-        &NEXT_DIR,
-    );
+    let (root, keep_root) = named_fsv_root("CALYX_ASTER_SLOT_COLUMN_FSV_ROOT", "slot-column-fsv");
     reset_dir(&root);
 
     let vault_dir = root.join("vault");

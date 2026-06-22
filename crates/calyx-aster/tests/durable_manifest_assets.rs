@@ -4,15 +4,12 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, VaultId, VaultStore,
 };
 use serde_json::json;
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 mod fsv_support;
 use fsv_support::named_fsv_root_os;
@@ -22,7 +19,6 @@ fn durable_manifest_assets_are_not_rewritten_on_reopen() {
     let (root, keep_root) = named_fsv_root_os(
         "CALYX_DURABLE_MANIFEST_ASSETS_FSV_ROOT",
         "durable-manifest-assets",
-        &NEXT_DIR,
     );
     let _ = fs::remove_dir_all(&root);
 

@@ -4,6 +4,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+static TEMP_ROOT_SEQ: AtomicU64 = AtomicU64::new(0);
+
 pub(crate) fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) {
     if let Ok(root) = std::env::var(env_key) {
         return (PathBuf::from(root), true);
@@ -36,22 +38,22 @@ pub(crate) fn fsv_root_env_subdir(
     )
 }
 
-pub(crate) fn named_fsv_root(env_key: &str, name: &str, counter: &AtomicU64) -> (PathBuf, bool) {
+pub(crate) fn named_fsv_root(env_key: &str, name: &str) -> (PathBuf, bool) {
     if let Ok(root) = std::env::var(env_key) {
         return (PathBuf::from(root), true);
     }
-    (named_temp_root(name, counter), false)
+    (named_temp_root(name), false)
 }
 
-pub(crate) fn named_fsv_root_os(env_key: &str, name: &str, counter: &AtomicU64) -> (PathBuf, bool) {
+pub(crate) fn named_fsv_root_os(env_key: &str, name: &str) -> (PathBuf, bool) {
     if let Some(root) = std::env::var_os(env_key) {
         return (PathBuf::from(root), true);
     }
-    (named_temp_root(name, counter), false)
+    (named_temp_root(name), false)
 }
 
-fn named_temp_root(name: &str, counter: &AtomicU64) -> PathBuf {
-    let id = counter.fetch_add(1, Ordering::Relaxed);
+fn named_temp_root(name: &str) -> PathBuf {
+    let id = TEMP_ROOT_SEQ.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id()))
 }
 
