@@ -8,6 +8,8 @@ use calyx_core::{
     Constellation, CxFlags, InputRef, LedgerRef, METADATA_CHUNK_ID, METADATA_DATABASE_NAME,
     Modality, SlotId, SlotVector, VaultId, VaultStore,
 };
+mod fsv_support;
+use fsv_support::{fsv_root_os, reset_dir};
 
 const CHUNK_ID: &str = "chunk:PH64/001 with spaces";
 const DATABASE_NAME: &str = "leapable_db_contract__stage15";
@@ -56,7 +58,8 @@ fn string_metadata_survives_base_row_codec_and_durable_readback() {
 #[test]
 #[ignore = "manual gpuhost FSV for issue #601 string metadata SoT readback"]
 fn issue601_string_metadata_gpuhost_fsv() {
-    let root = fsv_root().join("issue601");
+    let root =
+        fsv_root_os("CALYX_FSV_ROOT", "calyx-issue601-string-metadata-manual").join("issue601");
     reset_dir(&root);
     let vault_dir = root.join("vault");
     let vault = open_vault(&vault_dir);
@@ -261,22 +264,11 @@ fn vault_id() -> VaultId {
         .expect("valid vault id")
 }
 
-fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| temp_root("manual"))
-}
-
 fn temp_root(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "calyx-issue601-string-metadata-{name}-{}",
         std::process::id()
     ))
-}
-
-fn reset_dir(path: &Path) {
-    let _ = fs::remove_dir_all(path);
-    fs::create_dir_all(path).expect("create dir");
 }
 
 fn cleanup(path: &Path) {

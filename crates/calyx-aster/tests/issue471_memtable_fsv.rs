@@ -5,9 +5,11 @@ use calyx_aster::memtable::Memtable;
 use calyx_aster::resource::{ResourceStatus, VramBudgetStatus};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::VaultId;
+mod fsv_support;
+use fsv_support::{fsv_root_os, reset_dir};
 use serde_json::json;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const CAP_BYTES: usize = 128;
 const VALUE_BYTES: usize = 52;
@@ -15,7 +17,7 @@ const VALUE_BYTES: usize = 52;
 #[test]
 #[ignore = "gpuhost FSV writes PH56 memtable source-of-truth artifacts"]
 fn issue471_bounded_memtable_backpressure_fsv() {
-    let root = fsv_root();
+    let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-issue471-fsv");
     reset_dir(&root);
     let vault_dir = root.join("vault");
     fs::create_dir_all(&vault_dir).expect("create vault dir");
@@ -195,19 +197,6 @@ fn collect_ssts(dir: &Path, files: &mut Vec<String>) {
             files.push(path.display().to_string());
         }
     }
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("calyx-issue471-fsv-{}", std::process::id()))
-        })
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create fsv root");
 }
 
 fn vault_id() -> VaultId {
