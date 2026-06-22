@@ -4,6 +4,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
+static TEMP_ROOT_SEQ: AtomicU64 = AtomicU64::new(0);
+
 pub fn fsv_root(env_key: &str, fallback: &str) -> PathBuf {
     std::env::var(env_key)
         .map(PathBuf::from)
@@ -37,6 +39,11 @@ pub fn case_fsv_root(
         )),
         false,
     )
+}
+
+pub fn named_temp_root(prefix: &str, name: &str) -> PathBuf {
+    let id = TEMP_ROOT_SEQ.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}-{name}-{}-{id}", std::process::id()))
 }
 
 pub fn reset_dir(dir: &Path) {

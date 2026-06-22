@@ -12,11 +12,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use support::fsv_io::{fsv_root, list_files, reset_dir, write_json};
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{fsv_root, list_files, named_temp_root, reset_dir, write_json};
 
 #[test]
 fn verify_chain_ledger_reports_intact_and_broken_seq() {
@@ -300,11 +297,7 @@ fn sst_files(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "calyx-cli-verify-chain-{name}-{}-{id}",
-        std::process::id()
-    ))
+    named_temp_root("calyx-cli-verify-chain", name)
 }
 
 fn cleanup(dir: PathBuf) {

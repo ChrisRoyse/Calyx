@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_aster::manifest::{ManifestStore, is_quarantined};
 use calyx_aster::sst::{SstEntry, SstReader, write_sst};
@@ -13,9 +12,7 @@ use calyx_core::{
     Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId, VaultStore,
 };
 use serde_json::{Value, json};
-use support::fsv_io::{list_files, reset_dir, write_blake3_sums, write_json};
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{list_files, named_temp_root, reset_dir, write_blake3_sums, write_json};
 
 #[test]
 fn verify_chain_vault_quarantines_missing_physical_row() {
@@ -323,11 +320,7 @@ fn vault_id() -> VaultId {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "calyx-cli-verify-chain-physical-{name}-{}-{id}",
-        std::process::id()
-    ))
+    named_temp_root("calyx-cli-verify-chain-physical", name)
 }
 
 fn cleanup(dir: PathBuf) {

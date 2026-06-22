@@ -12,11 +12,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-use support::fsv_io::{fsv_root, list_files, reset_dir, write_json};
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{fsv_root, list_files, named_temp_root, reset_dir, write_json};
 
 #[test]
 fn scan_ledger_vault_prints_checkpoint_admin_json() {
@@ -234,11 +231,7 @@ fn stderr(output: &Output) -> String {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "calyx-cli-checkpoint-{name}-{}-{id}",
-        std::process::id()
-    ))
+    named_temp_root("calyx-cli-checkpoint", name)
 }
 
 fn cleanup(dir: PathBuf) {
