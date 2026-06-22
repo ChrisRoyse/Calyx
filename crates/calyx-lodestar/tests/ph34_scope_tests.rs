@@ -1,67 +1,18 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{AnchorKind, CxId, Ts};
+use calyx_core::AnchorKind;
 use calyx_lodestar::{
-    AssocStore, CollectionId, FilterExpr, LodestarError, Scope, TenantId, materialize_scope,
-    scope_hash,
+    CollectionId, FilterExpr, LodestarError, Scope, TenantId, materialize_scope, scope_hash,
 };
 use calyx_paths::AssocGraph;
 use serde_json::json;
 
+mod memory_assoc_support;
+use memory_assoc_support::{MemoryAssocStore, cx, ids};
+
 const EXPECTED_ALL_HASH: &str = "9bcc9eef3da72eaed03ea54c2b0086368d119cf274516e1fb6706aaf487fe7d5";
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-#[derive(Clone)]
-struct MemoryAssocStore {
-    graph: AssocGraph,
-    collections: BTreeMap<CollectionId, BTreeSet<CxId>>,
-    anchors: BTreeMap<AnchorKind, Vec<CxId>>,
-    timestamps: Option<BTreeMap<CxId, Ts>>,
-    tenants: BTreeMap<TenantId, BTreeSet<CxId>>,
-    filters: BTreeMap<FilterExpr, BTreeSet<CxId>>,
-}
-
-impl AssocStore for MemoryAssocStore {
-    fn full_graph(&self) -> calyx_lodestar::Result<AssocGraph> {
-        Ok(self.graph.clone())
-    }
-
-    fn collection_nodes(
-        &self,
-        id: &CollectionId,
-    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(self.collections.get(id).cloned())
-    }
-
-    fn domain_anchors(&self, kind: &AnchorKind) -> calyx_lodestar::Result<Vec<CxId>> {
-        Ok(self.anchors.get(kind).cloned().unwrap_or_default())
-    }
-
-    fn time_window_nodes(&self, t0: Ts, t1: Ts) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        let Some(timestamps) = &self.timestamps else {
-            return Ok(None);
-        };
-        Ok(Some(
-            timestamps
-                .iter()
-                .filter_map(|(cx_id, ts)| ((*ts >= t0) && (*ts <= t1)).then_some(*cx_id))
-                .collect(),
-        ))
-    }
-
-    fn tenant_nodes(&self, id: &TenantId) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(self.tenants.get(id).cloned())
-    }
-
-    fn filter_nodes(&self, expr: &FilterExpr) -> calyx_lodestar::Result<BTreeSet<CxId>> {
-        Ok(self.filters.get(expr).cloned().unwrap_or_default())
-    }
-}
 
 fn store(temporal_ready: bool) -> MemoryAssocStore {
     let mut builder = AssocGraph::builder();
@@ -77,22 +28,18 @@ fn store(temporal_ready: bool) -> MemoryAssocStore {
     let filter = FilterExpr::Named {
         name: "even".to_string(),
     };
-    MemoryAssocStore {
-        graph: builder.build(),
-        collections: BTreeMap::from([(c1, ids([1, 2, 3, 4])), (c2, ids([4, 5, 6]))]),
-        anchors: BTreeMap::from([(AnchorKind::Label("domain".to_string()), vec![cx(1)])]),
-        timestamps: temporal_ready.then(|| {
+    MemoryAssocStore::with_indexes(
+        builder.build(),
+        BTreeMap::from([(c1, ids([1, 2, 3, 4])), (c2, ids([4, 5, 6]))]),
+        BTreeMap::from([(AnchorKind::Label("domain".to_string()), vec![cx(1)])]),
+        temporal_ready.then(|| {
             (1..=10)
                 .map(|seed| (cx(seed), 1_000_u64 + seed as u64))
                 .collect()
         }),
-        tenants: BTreeMap::from([(tenant, ids([7, 8]))]),
-        filters: BTreeMap::from([(filter, ids([2, 4, 6, 8, 10]))]),
-    }
-}
-
-fn ids<const N: usize>(values: [u8; N]) -> BTreeSet<CxId> {
-    values.into_iter().map(cx).collect()
+        BTreeMap::from([(tenant, ids([7, 8]))]),
+        BTreeMap::from([(filter, ids([2, 4, 6, 8, 10]))]),
+    )
 }
 
 fn fsv_root(case: &str) -> PathBuf {

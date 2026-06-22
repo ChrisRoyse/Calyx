@@ -6,15 +6,18 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use calyx_core::{AnchorKind, CxId, FixedClock, Ts};
+use calyx_core::{AnchorKind, CxId, FixedClock};
 use calyx_ledger::{EntryKind, LedgerAppender, MemoryLedgerStore, SubjectId};
 use calyx_lodestar::{
-    AssocStore, CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING,
-    CALYX_TIMETRAVEL_BEFORE_HORIZON, CollectionId, FilterExpr, SUMMARIZE_INVOKED_MARKER, Scope,
-    ScopeCache, SummarizeCtx, SummarizeParams, TenantId, scope_hash, summarize, summarize_as_of,
+    CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING,
+    CALYX_TIMETRAVEL_BEFORE_HORIZON, CollectionId, SUMMARIZE_INVOKED_MARKER, Scope, ScopeCache,
+    SummarizeCtx, SummarizeParams, scope_hash, summarize, summarize_as_of,
 };
 use calyx_paths::AssocGraph;
 use proptest::prelude::*;
+
+mod memory_assoc_support;
+use memory_assoc_support::{MemoryAssocStore, cx, ids};
 
 /// Bundles the engine plumbing into a [`SummarizeCtx`] for one call. The returned
 /// context's borrows of `cache`/`ledger` end with the enclosing statement.
@@ -27,56 +30,6 @@ fn ctx<'a>(
         cache,
         clock,
         ledger,
-    }
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-fn ids<const N: usize>(values: [u8; N]) -> BTreeSet<CxId> {
-    values.into_iter().map(cx).collect()
-}
-
-#[derive(Clone)]
-struct MemoryAssocStore {
-    graph: AssocGraph,
-    collections: BTreeMap<CollectionId, BTreeSet<CxId>>,
-    anchors: BTreeMap<AnchorKind, Vec<CxId>>,
-    timestamps: Option<BTreeMap<CxId, Ts>>,
-    tenants: BTreeMap<TenantId, BTreeSet<CxId>>,
-    filters: BTreeMap<FilterExpr, BTreeSet<CxId>>,
-}
-
-impl AssocStore for MemoryAssocStore {
-    fn full_graph(&self) -> calyx_lodestar::Result<AssocGraph> {
-        Ok(self.graph.clone())
-    }
-    fn collection_nodes(
-        &self,
-        id: &CollectionId,
-    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(self.collections.get(id).cloned())
-    }
-    fn domain_anchors(&self, kind: &AnchorKind) -> calyx_lodestar::Result<Vec<CxId>> {
-        Ok(self.anchors.get(kind).cloned().unwrap_or_default())
-    }
-    fn time_window_nodes(&self, t0: Ts, t1: Ts) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        let Some(timestamps) = &self.timestamps else {
-            return Ok(None);
-        };
-        Ok(Some(
-            timestamps
-                .iter()
-                .filter_map(|(id, ts)| ((*ts >= t0) && (*ts <= t1)).then_some(*id))
-                .collect(),
-        ))
-    }
-    fn tenant_nodes(&self, id: &TenantId) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(self.tenants.get(id).cloned())
-    }
-    fn filter_nodes(&self, expr: &FilterExpr) -> calyx_lodestar::Result<BTreeSet<CxId>> {
-        Ok(self.filters.get(expr).cloned().unwrap_or_default())
     }
 }
 
@@ -114,37 +67,37 @@ fn corpus(anchored: bool, temporal_ready: bool) -> MemoryAssocStore {
         builder.add_edge(cx(*a), cx(*b), 1.0).unwrap();
     }
     let domain = AnchorKind::Label("domain".to_string());
-    MemoryAssocStore {
-        graph: builder.build(),
-        collections: BTreeMap::from([
+    MemoryAssocStore::with_indexes(
+        builder.build(),
+        BTreeMap::from([
             (CollectionId::from("coll-a"), ids([1, 2, 3, 4, 5])),
             (CollectionId::from("coll-b"), ids([6, 7, 8, 9, 10])),
             (CollectionId::from("empty"), BTreeSet::new()),
         ]),
-        anchors: if anchored {
+        if anchored {
             BTreeMap::from([(domain, vec![cx(1)])])
         } else {
             BTreeMap::new()
         },
-        timestamps: temporal_ready.then(|| {
+        temporal_ready.then(|| {
             (1..=20u8)
                 .map(|seed| (cx(seed), 1_000_u64 + seed as u64))
                 .collect()
         }),
-        tenants: BTreeMap::new(),
-        filters: BTreeMap::new(),
-    }
+        BTreeMap::new(),
+        BTreeMap::new(),
+    )
 }
 
 fn empty_store() -> MemoryAssocStore {
-    MemoryAssocStore {
-        graph: AssocGraph::builder().build(),
-        collections: BTreeMap::new(),
-        anchors: BTreeMap::new(),
-        timestamps: Some(BTreeMap::new()),
-        tenants: BTreeMap::new(),
-        filters: BTreeMap::new(),
-    }
+    MemoryAssocStore::with_indexes(
+        AssocGraph::builder().build(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+        Some(BTreeMap::new()),
+        BTreeMap::new(),
+        BTreeMap::new(),
+    )
 }
 
 fn appender() -> LedgerAppender<MemoryLedgerStore, FixedClock> {

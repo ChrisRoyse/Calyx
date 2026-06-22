@@ -2,57 +2,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{AnchorKind, CxId, Ts};
+use calyx_core::{AnchorKind, CxId};
 use calyx_lodestar::{
-    AssocStore, CollectionId, FilterExpr, GroundednessReport, Kernel, RecallReport, Scope,
-    TenantId, build_kernel_index, kernel_answer_scoped, kernel_search, materialize_scope,
+    CollectionId, GroundednessReport, Kernel, RecallReport, Scope, build_kernel_index,
+    kernel_answer_scoped, kernel_search, materialize_scope,
 };
 use calyx_paths::AssocGraph;
 use serde_json::json;
 
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-#[derive(Clone)]
-struct MemoryAssocStore {
-    graph: AssocGraph,
-    collections: BTreeMap<CollectionId, BTreeSet<CxId>>,
-    anchors: BTreeMap<AnchorKind, Vec<CxId>>,
-}
-
-impl AssocStore for MemoryAssocStore {
-    fn full_graph(&self) -> calyx_lodestar::Result<AssocGraph> {
-        Ok(self.graph.clone())
-    }
-
-    fn collection_nodes(
-        &self,
-        id: &CollectionId,
-    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(self.collections.get(id).cloned())
-    }
-
-    fn domain_anchors(&self, kind: &AnchorKind) -> calyx_lodestar::Result<Vec<CxId>> {
-        Ok(self.anchors.get(kind).cloned().unwrap_or_default())
-    }
-
-    fn time_window_nodes(
-        &self,
-        _t0: Ts,
-        _t1: Ts,
-    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(None)
-    }
-
-    fn tenant_nodes(&self, _id: &TenantId) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(None)
-    }
-
-    fn filter_nodes(&self, _expr: &FilterExpr) -> calyx_lodestar::Result<BTreeSet<CxId>> {
-        Ok(BTreeSet::new())
-    }
-}
+mod memory_assoc_support;
+use memory_assoc_support::{MemoryAssocStore, cx, ids};
 
 fn scoped_ranking_store() -> MemoryAssocStore {
     let mut builder = AssocGraph::builder();
@@ -64,15 +23,11 @@ fn scoped_ranking_store() -> MemoryAssocStore {
         .unwrap()
         .add_edge(cx(9), cx(2), 1.0)
         .unwrap();
-    MemoryAssocStore {
-        graph: builder.build(),
-        collections: BTreeMap::from([(CollectionId::from("answer-scope"), ids([1, 2]))]),
-        anchors: BTreeMap::from([(domain_anchor(), vec![cx(9), cx(1)])]),
-    }
-}
-
-fn ids<const N: usize>(values: [u8; N]) -> BTreeSet<CxId> {
-    values.into_iter().map(cx).collect()
+    MemoryAssocStore::with_scope_data(
+        builder.build(),
+        BTreeMap::from([(CollectionId::from("answer-scope"), ids([1, 2]))]),
+        BTreeMap::from([(domain_anchor(), vec![cx(9), cx(1)])]),
+    )
 }
 
 fn domain_anchor() -> AnchorKind {

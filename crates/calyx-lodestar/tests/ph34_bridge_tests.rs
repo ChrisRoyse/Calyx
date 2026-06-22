@@ -2,58 +2,17 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{AnchorKind, CxId, Ts};
+use calyx_core::{AnchorKind, CxId};
 use calyx_lodestar::{
-    AssocStore, CollectionId, FilterExpr, GroundednessReport, Kernel, KernelGraphParams,
-    KernelParams, RecallReport, Scope, ScopeCache, TenantId, bridges, build_kernel,
-    build_kernel_index, kernel_answer, kernel_answer_scoped, report_all_scopes,
+    AssocStore, CollectionId, GroundednessReport, Kernel, KernelGraphParams, KernelParams,
+    RecallReport, Scope, ScopeCache, bridges, build_kernel, build_kernel_index, kernel_answer,
+    kernel_answer_scoped, report_all_scopes,
 };
 use calyx_paths::AssocGraph;
 use serde_json::json;
 
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-#[derive(Clone)]
-struct MemoryAssocStore {
-    graph: AssocGraph,
-    collections: BTreeMap<CollectionId, BTreeSet<CxId>>,
-    anchors: BTreeMap<AnchorKind, Vec<CxId>>,
-}
-
-impl AssocStore for MemoryAssocStore {
-    fn full_graph(&self) -> calyx_lodestar::Result<AssocGraph> {
-        Ok(self.graph.clone())
-    }
-
-    fn collection_nodes(
-        &self,
-        id: &CollectionId,
-    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(self.collections.get(id).cloned())
-    }
-
-    fn domain_anchors(&self, kind: &AnchorKind) -> calyx_lodestar::Result<Vec<CxId>> {
-        Ok(self.anchors.get(kind).cloned().unwrap_or_default())
-    }
-
-    fn time_window_nodes(
-        &self,
-        _t0: Ts,
-        _t1: Ts,
-    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(None)
-    }
-
-    fn tenant_nodes(&self, _id: &TenantId) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(None)
-    }
-
-    fn filter_nodes(&self, _expr: &FilterExpr) -> calyx_lodestar::Result<BTreeSet<CxId>> {
-        Ok(BTreeSet::new())
-    }
-}
+mod memory_assoc_support;
+use memory_assoc_support::{MemoryAssocStore, cx, ids};
 
 fn bridge_store() -> MemoryAssocStore {
     let mut builder = AssocGraph::builder();
@@ -71,16 +30,16 @@ fn bridge_store() -> MemoryAssocStore {
     add_cycle(&mut builder, [2, 9, 10]);
     add_cycle(&mut builder, [11, 12, 13]);
 
-    MemoryAssocStore {
-        graph: builder.build(),
-        collections: BTreeMap::from([
+    MemoryAssocStore::with_scope_data(
+        builder.build(),
+        BTreeMap::from([
             (CollectionId::from("a"), ids([1, 2, 3, 4, 5, 6])),
             (CollectionId::from("b"), ids([1, 2, 7, 8, 9, 10])),
             (CollectionId::from("disjoint"), ids([11, 12, 13])),
             (CollectionId::from("empty"), BTreeSet::new()),
         ]),
-        anchors: BTreeMap::from([(domain_anchor(), vec![cx(1), cx(2), cx(11)])]),
-    }
+        BTreeMap::from([(domain_anchor(), vec![cx(1), cx(2), cx(11)])]),
+    )
 }
 
 fn naive_union_store() -> MemoryAssocStore {
@@ -90,14 +49,14 @@ fn naive_union_store() -> MemoryAssocStore {
     }
     add_cycle(&mut builder, [1, 2, 3]);
     add_cycle(&mut builder, [2, 3, 4]);
-    MemoryAssocStore {
-        graph: builder.build(),
-        collections: BTreeMap::from([
+    MemoryAssocStore::with_scope_data(
+        builder.build(),
+        BTreeMap::from([
             (CollectionId::from("a"), ids([1, 2, 3])),
             (CollectionId::from("b"), ids([2, 3, 4])),
         ]),
-        anchors: BTreeMap::from([(domain_anchor(), vec![cx(1), cx(2)])]),
-    }
+        BTreeMap::from([(domain_anchor(), vec![cx(1), cx(2)])]),
+    )
 }
 
 fn scoped_answer_store() -> MemoryAssocStore {
@@ -114,11 +73,11 @@ fn scoped_answer_store() -> MemoryAssocStore {
         .unwrap()
         .add_edge(cx(3), cx(2), 1.0)
         .unwrap();
-    MemoryAssocStore {
-        graph: builder.build(),
-        collections: BTreeMap::new(),
-        anchors: BTreeMap::from([(domain_anchor(), vec![cx(1)])]),
-    }
+    MemoryAssocStore::with_scope_data(
+        builder.build(),
+        BTreeMap::new(),
+        BTreeMap::from([(domain_anchor(), vec![cx(1)])]),
+    )
 }
 
 fn add_cycle(builder: &mut calyx_paths::AssocGraphBuilder, cycle: [u8; 3]) {
@@ -129,10 +88,6 @@ fn add_cycle(builder: &mut calyx_paths::AssocGraphBuilder, cycle: [u8; 3]) {
         .unwrap()
         .add_edge(cx(cycle[2]), cx(cycle[0]), 1.0)
         .unwrap();
-}
-
-fn ids<const N: usize>(values: [u8; N]) -> BTreeSet<CxId> {
-    values.into_iter().map(cx).collect()
 }
 
 fn coll(name: &str) -> Scope {

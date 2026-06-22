@@ -12,19 +12,18 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{AnchorKind, CxId, FixedClock, Ts};
+use calyx_core::{AnchorKind, CxId, FixedClock};
 use calyx_ledger::{
     DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, LedgerEntry, SubjectId, decode,
 };
 use calyx_lodestar::{
-    AssocStore, CollectionId, FilterExpr, SUMMARIZE_INVOKED_MARKER, Scope, ScopeCache,
-    SummarizeCtx, SummarizeParams, TenantId, scope_hash, summarize, summarize_as_of,
+    CollectionId, SUMMARIZE_INVOKED_MARKER, Scope, ScopeCache, SummarizeCtx, SummarizeParams,
+    scope_hash, summarize, summarize_as_of,
 };
 use calyx_paths::AssocGraph;
 
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
+mod memory_assoc_support;
+use memory_assoc_support::{MemoryAssocStore, cx};
 
 /// Bundles the engine plumbing into a [`SummarizeCtx`] for one call.
 fn ctx<'a>(
@@ -36,43 +35,6 @@ fn ctx<'a>(
         cache,
         clock,
         ledger,
-    }
-}
-
-#[derive(Clone)]
-struct MemoryAssocStore {
-    graph: AssocGraph,
-    collections: BTreeMap<CollectionId, BTreeSet<CxId>>,
-    anchors: BTreeMap<AnchorKind, Vec<CxId>>,
-    timestamps: BTreeMap<CxId, Ts>,
-}
-
-impl AssocStore for MemoryAssocStore {
-    fn full_graph(&self) -> calyx_lodestar::Result<AssocGraph> {
-        Ok(self.graph.clone())
-    }
-    fn collection_nodes(
-        &self,
-        id: &CollectionId,
-    ) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(self.collections.get(id).cloned())
-    }
-    fn domain_anchors(&self, kind: &AnchorKind) -> calyx_lodestar::Result<Vec<CxId>> {
-        Ok(self.anchors.get(kind).cloned().unwrap_or_default())
-    }
-    fn time_window_nodes(&self, t0: Ts, t1: Ts) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(Some(
-            self.timestamps
-                .iter()
-                .filter_map(|(id, ts)| ((*ts >= t0) && (*ts <= t1)).then_some(*id))
-                .collect(),
-        ))
-    }
-    fn tenant_nodes(&self, _id: &TenantId) -> calyx_lodestar::Result<Option<BTreeSet<CxId>>> {
-        Ok(None)
-    }
-    fn filter_nodes(&self, _expr: &FilterExpr) -> calyx_lodestar::Result<BTreeSet<CxId>> {
-        Ok(BTreeSet::new())
     }
 }
 
@@ -103,13 +65,15 @@ fn corpus() -> MemoryAssocStore {
         builder.add_edge(cx(*a), cx(*b), 1.0).unwrap();
     }
     let domain = AnchorKind::Label("domain".to_string());
-    MemoryAssocStore {
-        graph: builder.build(),
-        collections: BTreeMap::from([(CollectionId::from("empty"), BTreeSet::new())]),
+    MemoryAssocStore::with_indexes(
+        builder.build(),
+        BTreeMap::from([(CollectionId::from("empty"), BTreeSet::new())]),
         // anchor one node per cycle so grounded_fraction is genuinely non-trivial.
-        anchors: BTreeMap::from([(domain, vec![cx(1), cx(6), cx(11)])]),
-        timestamps: (1..=30u8).map(|s| (cx(s), 1_000_u64 + s as u64)).collect(),
-    }
+        BTreeMap::from([(domain, vec![cx(1), cx(6), cx(11)])]),
+        Some((1..=30u8).map(|s| (cx(s), 1_000_u64 + s as u64)).collect()),
+        BTreeMap::new(),
+        BTreeMap::new(),
+    )
 }
 
 fn fsv_root() -> PathBuf {
