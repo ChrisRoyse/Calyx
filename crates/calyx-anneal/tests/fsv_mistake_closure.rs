@@ -24,8 +24,8 @@ use closure::{
 };
 
 #[test]
-#[ignore = "requires CALYX_ISSUE411_FSV_ROOT on gpuhost"]
-fn fsv_mistake_closure_gpuhost() -> Result<()> {
+#[ignore = "requires CALYX_ISSUE411_FSV_ROOT in a manual verification run"]
+fn fsv_mistake_closure_manual() -> Result<()> {
     let root = PathBuf::from(env::var("CALYX_ISSUE411_FSV_ROOT").unwrap());
     support::reset_dir(&root);
 

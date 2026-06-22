@@ -22,7 +22,7 @@ use fsv_support::write_json;
 const FSV_TS: u64 = 1_785_500_415;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE415_FSV_ROOT on gpuhost"]
+#[ignore = "requires CALYX_ISSUE415_FSV_ROOT in a manual verification run"]
 fn issue415_loom_scope_tuner_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE415_FSV_ROOT").expect("set CALYX_ISSUE415_FSV_ROOT"));

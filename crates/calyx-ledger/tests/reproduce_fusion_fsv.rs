@@ -15,8 +15,8 @@ use reproduce_support::{
 };
 
 #[test]
-#[ignore = "manual gpuhost FSV for PH36 reproduce fusion ledger bytes"]
-fn reproduce_fusion_gpuhost_fsv() {
+#[ignore = "manual FSV for PH36 reproduce fusion ledger bytes"]
+fn reproduce_fusion_manual_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).expect("create fsv root");
 

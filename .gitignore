@@ -2,9 +2,7 @@
 .claude/
 *.local.json
 
-# ── Secrets (Infisical is source of truth — never commit values) ──────
-# NOTE: docs2/infisical-secrets-guide.md is intentionally tracked; it
-# documents key NAMES only and contains no secret values.
+# ── Secrets (secret manager is source of truth — never commit values) ──────
 .env
 .env.*
 !.env.example

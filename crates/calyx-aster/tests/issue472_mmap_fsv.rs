@@ -16,7 +16,7 @@ const READ_LEN: usize = 1_048_576;
 const RSS_DELTA_LIMIT: u64 = 2 * 1024 * 1024;
 
 #[test]
-#[ignore = "gpuhost FSV maps a 1GiB cold column and records RSS readback"]
+#[ignore = "manual FSV maps a 1GiB cold column and records RSS readback"]
 fn issue472_mmap_column_fsv() {
     let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-issue472-fsv");
     reset_dir(&root);

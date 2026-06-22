@@ -66,7 +66,7 @@ fn issue608_voxceleb_edges_fail_closed_with_codes() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV for #608 VoxCeleb Ward speaker identity-lock"]
+#[ignore = "manual FSV for #608 VoxCeleb Ward speaker identity-lock"]
 fn issue608_voxceleb_speaker_identity_fsv_writes_readbacks() {
     let root = required_path_env("CALYX_ISSUE608_FSV_ROOT");
     assert!(

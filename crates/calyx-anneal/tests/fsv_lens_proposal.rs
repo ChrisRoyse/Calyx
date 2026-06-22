@@ -24,7 +24,7 @@ use support::*;
 const FSV_TS: u64 = 1_785_500_422;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE422_FSV_ROOT on gpuhost"]
+#[ignore = "requires CALYX_ISSUE422_FSV_ROOT in a manual verification run"]
 fn lens_proposal_integration() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE422_FSV_ROOT").expect("set CALYX_ISSUE422_FSV_ROOT"));

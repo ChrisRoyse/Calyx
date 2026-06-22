@@ -389,8 +389,8 @@ fn issue463_fsv_local_readback_artifact() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV writes transaction readback evidence bytes"]
-fn issue463_fsv_gpuhost_readback_artifact() {
+#[ignore = "manual FSV writes transaction readback evidence bytes"]
+fn issue463_fsv_manual_readback_artifact() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE463_FSV_ROOT")
             .expect("CALYX_ISSUE463_FSV_ROOT must point at a fresh evidence root"),

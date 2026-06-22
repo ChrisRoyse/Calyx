@@ -26,8 +26,8 @@ use fsv_support::{reset_dir, vault_id, write_json};
 const TEST_TS: u64 = 1_785_500_404;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE404_FSV_ROOT on gpuhost"]
-fn fsv_tau_recalibration_and_lens_park_gpuhost() {
+#[ignore = "requires CALYX_ISSUE404_FSV_ROOT in a manual verification run"]
+fn fsv_tau_recalibration_and_lens_park_manual() {
     let root = PathBuf::from(env::var("CALYX_ISSUE404_FSV_ROOT").unwrap());
     reset_dir(&root);
     let (vault_dir, vault) = open_durable_vault(&root);

@@ -114,7 +114,7 @@ impl Lens for UnusedSpeakerLens {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV fixture; set CALYX_WARD_IDENTITY_FSV_DIR"]
+#[ignore = "manual FSV fixture; set CALYX_WARD_IDENTITY_FSV_DIR"]
 fn issue273_identity_injection_quarantine_fsv_writes_readbacks() {
     let root = required_path_env("CALYX_WARD_IDENTITY_FSV_DIR");
     assert_empty_or_absent(&root);

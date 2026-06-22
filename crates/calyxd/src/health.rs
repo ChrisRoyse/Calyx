@@ -292,7 +292,7 @@ mod tests {
         CalyxHealthResult {
             status,
             timestamp_utc: "2026-06-13T00:00:00Z".to_string(),
-            cuda_device: Some("NVIDIA GeForce RTX 5090".to_string()),
+            cuda_device: Some("NVIDIA CUDA GPU".to_string()),
             vram_budget_mib: 8192,
             vault_read_ok: status == "pass",
             error_code: (status != "pass").then(|| "CALYX_DAEMON_HEALTH_FAIL".to_string()),
@@ -306,7 +306,7 @@ mod tests {
         assert_eq!(json["status"], "pass");
         assert_eq!(json["vault_read_ok"], true);
         assert_eq!(json["vram_budget_mib"], 8192);
-        assert_eq!(json["cuda_device"], "NVIDIA GeForce RTX 5090");
+        assert_eq!(json["cuda_device"], "NVIDIA CUDA GPU");
         assert!(json["timestamp_utc"].is_string());
         // A healthy result carries no error fields.
         assert!(json["error_code"].is_null());

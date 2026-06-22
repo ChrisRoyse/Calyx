@@ -54,10 +54,9 @@ zstd = "0.13"
 # size and link time several-fold. First-party crates keep line tables;
 # dependencies get no debuginfo at all since we never step into them.
 #
-# Portable and machine-agnostic: these apply identically on Linux, Windows, and
-# gpuhost, so they live here (not in .cargo/config.toml, which must stay free
-# of machine-specific settings). Linker choice (mold) and incremental policy are
-# machine-local on the build host — see docs/implementation/02_BUILD_PERFORMANCE.md.
+# Portable and machine-agnostic: these apply identically wherever the workspace
+# builds, so they live here instead of a machine-local Cargo config. Linker
+# choice and incremental policy remain local build-host concerns.
 [profile.dev]
 debug = "line-tables-only"
 

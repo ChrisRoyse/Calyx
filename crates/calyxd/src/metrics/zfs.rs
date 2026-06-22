@@ -1,7 +1,7 @@
 //! ZFS integrity metric collector for calyxd (issue #729).
 //!
-//! The collector reads the same source-of-truth surfaces as
-//! `infra/gpuhost/bin/verify-zfs-integrity.sh`: `zfs get checksum`,
+//! The collector reads the same source-of-truth surfaces as a local ZFS
+//! integrity check: `zfs get checksum`,
 //! `zpool status -x`, and the `zpool status -v` scan/error rows. Unknown or
 //! unreadable state is recorded fail-closed by the metric handles initialized at
 //! registration time.

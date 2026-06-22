@@ -81,8 +81,8 @@ fn record_outcome_fail_closed_edges_do_not_write_rows() -> Result<()> {
 }
 
 #[test]
-#[ignore = "requires CALYX_ISSUE580_FSV_ROOT on gpuhost"]
-fn fsv_record_outcome_gpuhost() -> Result<()> {
+#[ignore = "requires CALYX_ISSUE580_FSV_ROOT in a manual verification run"]
+fn fsv_record_outcome_manual() -> Result<()> {
     let root = PathBuf::from(env::var("CALYX_ISSUE580_FSV_ROOT").unwrap());
     support::reset_dir(&root);
 

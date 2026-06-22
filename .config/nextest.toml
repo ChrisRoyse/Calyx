@@ -1,7 +1,7 @@
 # cargo-nextest configuration — parallel test execution for the whole workspace.
 # nextest runs every test across every binary in ONE pool sized to the machine,
 # unlike `cargo test` which runs test binaries one after another. See
-# docs/implementation/02_BUILD_PERFORMANCE.md.
+# local build-performance notes.
 
 [profile.default]
 # Saturate every logical CPU. This is nextest's default; set explicitly so the

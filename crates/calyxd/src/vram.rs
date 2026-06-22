@@ -1,23 +1,21 @@
 //! Daemon-level VRAM budget enforcer (PH65 · T03).
 //!
-//! `calyxd` shares one RTX 5090 (32607 MiB board) with three resident TEI
-//! containers (`:8088` general, `:8089` reranker, `:8090` legal ModernBERT)
-//! plus other GPU residents. Before any Forge dispatch the daemon must confirm
+//! `calyxd` can share one CUDA GPU with co-resident embedding services and
+//! other GPU workloads. Before any Forge dispatch the daemon must confirm
 //! the configured `vram_budget_mib` ceiling is not breached *given whatever is
 //! already resident*. Any request that would breach it fails closed with
 //! `CALYX_FORGE_VRAM_BUDGET` — no silent over-allocation.
 //!
 //! Live usage is read via **NVML** (`nvml-wrapper`), not `cudaMemGetInfo`: NVML
 //! is the library `nvidia-smi` itself uses, so it reports the true board total
-//! (32607 MiB) and device-wide used bytes consistent with `nvidia-smi`, whereas
+//! and device-wide used bytes consistent with `nvidia-smi`, whereas
 //! `cudaMemGetInfo` reports the runtime-usable total (~32110 MiB, net of the
 //! CUDA context + driver reserve) and only post-context free. NVML is the right
-//! source of truth for honoring every resident. The usage probe is injected
+//! source of truth for honoring every co-resident workload. The usage probe is injected
 //! behind [`VramUsage`] so the budget arithmetic is unit-tested with
 //! hand-computed MiB on any host.
 //!
-//! Power: the OS-level `leapable-gpu-max-power.service` enforces the 600 W cap
-//! (`16 §1`); Calyx does not schedule against power — it only stays within the
+//! Power: Calyx does not schedule against power directly — it stays within the
 //! VRAM budget, which keeps concurrent kernel pressure (and thus power) bounded.
 
 use serde::Serialize;
@@ -33,7 +31,7 @@ const TEI_ENDPOINTS: &str = ":8088 (general), :8089 (reranker), :8090 (legal)";
 /// A point-in-time device VRAM reading in MiB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct VramReading {
-    /// Total board VRAM (NVML board total, e.g. 32607 on the RTX 5090).
+    /// Total board VRAM reported by NVML.
     pub total_mib: u32,
     /// Device-wide VRAM currently in use by ALL processes (incl. resident TEI).
     pub used_mib: u32,
@@ -231,7 +229,7 @@ mod tests {
 
     fn device() -> CudaDeviceInfo {
         CudaDeviceInfo {
-            device_name: "NVIDIA GeForce RTX 5090".into(),
+            device_name: "NVIDIA CUDA GPU".into(),
             vram_total_mib: 32110,
             compute_cap: "12.0".into(),
         }

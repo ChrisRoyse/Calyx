@@ -3,9 +3,9 @@
 //!
 //! Every daemon tunable (bind address, vault path, VRAM budget, log directory,
 //! healthcheck output path, TEI endpoints) is declared here with a documented
-//! key and populated from a TOML file (`infra/gpuhost/calyx.toml`). Secrets
+//! key and populated from a TOML file (`calyx.toml`). Secrets
 //! never appear in the config struct or file — they enter via environment
-//! variables or an Infisical-rendered `calyx.env`. Validation is fail-closed:
+//! variables or an environment-rendered secret file. Validation is fail-closed:
 //! a non-loopback bind address, an out-of-range VRAM budget, a missing key, or
 //! a TOML syntax error each yields a stable `CALYX_*` error, never a silent
 //! default.
@@ -21,8 +21,8 @@ use crate::learner_origin::LearnerOriginConfig;
 
 /// Upper bound on the VRAM the daemon may budget for Forge, in MiB.
 ///
-/// The gpuhost RTX 5090 exposes 32 607 MiB; this ceiling leaves headroom for
-/// the resident TEI servers (`:8088`/`:8089`/`:8090`) and CUDA context.
+/// Conservative ceiling for high-memory CUDA devices; leaves headroom for
+/// co-resident GPU services and CUDA context overhead.
 const VRAM_BUDGET_MIB_CEILING: u32 = 30_000;
 
 /// Environment variable interpolated into `vault_path` for portability.
@@ -114,7 +114,7 @@ impl CalyxConfig {
         if self.vram_budget_mib == 0 || self.vram_budget_mib > VRAM_BUDGET_MIB_CEILING {
             return Err(DaemonError::vram_budget(format!(
                 "vram_budget_mib {} out of range (must be 1..={VRAM_BUDGET_MIB_CEILING}); \
-                 the gpuhost RTX 5090 has 32607 MiB — leave headroom for resident TEI",
+                 leave headroom for co-resident GPU services",
                 self.vram_budget_mib
             )));
         }

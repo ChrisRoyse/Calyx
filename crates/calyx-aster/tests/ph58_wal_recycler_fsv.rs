@@ -9,7 +9,7 @@ mod fsv_support;
 use fsv_support::write_json;
 
 #[test]
-#[ignore = "manual gpuhost FSV for issue #484 WAL recycler"]
+#[ignore = "manual FSV for issue #484 WAL recycler"]
 fn ph58_wal_recycler_fsv() {
     let root = fsv_root().join("wal");
     let _ = fs::remove_dir_all(&root);

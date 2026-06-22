@@ -6,7 +6,8 @@ use crate::{BackendKind, DeviceInfo, ForgeError, Result};
 
 const BYTES_PER_MIB: u64 = 1024 * 1024;
 const MIN_FREE_VRAM_MIB: u64 = 4096;
-const CUDA_REMEDIATION: &str = "Check that CUDA 13.3 is installed at /usr/local/cuda-13.3 and nvidia-smi shows the RTX 5090 available";
+const CUDA_REMEDIATION: &str =
+    "Check that CUDA is installed and nvidia-smi shows an available CUDA GPU";
 
 #[derive(Clone, Debug)]
 pub struct CudaContext {
@@ -162,7 +163,7 @@ mod tests {
     const BAD_DEVICE_IDX: u32 = 99;
 
     #[test]
-    fn cuda_backend_new_reports_gpuhost_gpu() -> Result<()> {
+    fn cuda_backend_new_reports_manual_gpu() -> Result<()> {
         let backend = CudaBackend::new()?;
         let info = backend.device_info();
         let ctx = backend.context();

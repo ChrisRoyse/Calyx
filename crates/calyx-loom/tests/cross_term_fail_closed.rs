@@ -39,8 +39,8 @@ fn cross_terms_fail_closed_on_invalid_vectors() {
 }
 
 #[test]
-#[ignore = "gpuhost FSV writes Loom fail-closed source-of-truth artifacts"]
-fn loom_cross_term_fail_closed_gpuhost_fsv() {
+#[ignore = "manual FSV writes Loom fail-closed source-of-truth artifacts"]
+fn loom_cross_term_fail_closed_manual_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();
     let cf_root = root.join("loom-xterm-cf");

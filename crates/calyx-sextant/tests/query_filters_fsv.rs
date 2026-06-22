@@ -103,8 +103,8 @@ fn query_filters_scan_full_candidate_set_when_needed() {
 }
 
 #[test]
-#[ignore = "gpuhost FSV writes filter rows and result/provenance source-of-truth artifacts"]
-fn query_filters_gpuhost_fsv() {
+#[ignore = "manual FSV writes filter rows and result/provenance source-of-truth artifacts"]
+fn query_filters_manual_fsv() {
     let root = std::env::var("CALYX_FSV_ROOT")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-query-filters-fsv"));

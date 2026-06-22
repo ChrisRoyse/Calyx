@@ -28,8 +28,8 @@ fn living_concert_synthetic_known_io_smoke() {
 }
 
 #[test]
-#[ignore = "gpuhost FSV: requires verified BEIR SciFact dataset under CALYX_HOME"]
-fn living_concert_gpuhost_scifact_fsv() {
+#[ignore = "manual FSV: requires verified BEIR SciFact dataset under CALYX_HOME"]
+fn living_concert_manual_scifact_fsv() {
     let root = env::var_os("CALYX_ISSUE641_FSV_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| temp_root("issue641-scifact"));

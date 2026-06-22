@@ -15,7 +15,7 @@ mod fsv_support;
 use fsv_support::vault_id;
 
 #[test]
-#[ignore = "manual gpuhost FSV fixture for issue #406 anneal_mistakes bytes"]
+#[ignore = "manual FSV fixture for issue #406 anneal_mistakes bytes"]
 fn issue406_manual_fsv_fixture_writes_anneal_mistakes_bytes() {
     let root = fsv_root();
     assert!(

@@ -178,7 +178,7 @@ fn fsv_determinism_across_thread_counts_and_recall() {
 }
 
 #[test]
-#[ignore = "timing demo — run explicitly with --ignored on gpuhost"]
+#[ignore = "timing demo — run explicitly with --ignored in a manual verification run"]
 fn fsv_parallel_build_speedup() {
     let rows = corpus(20000, 128, 32, 99);
     let d1 = scratch("spd1");

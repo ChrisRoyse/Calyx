@@ -172,7 +172,7 @@ fn default_text_probes() -> Vec<&'static str> {
         "Associational panels need enough independent content lenses",
         "Source of truth bytes are read after the trigger finishes",
         "Dense semantic and lexical signals should not collapse into one axis",
-        "The RTX 5090 path needs batchable runtime placement proof",
+        "The CUDA GPU path needs batchable runtime placement proof",
     ]
 }
 

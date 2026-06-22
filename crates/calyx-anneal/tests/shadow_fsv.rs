@@ -18,7 +18,7 @@ use fsv_support::{write_json, write_manifest};
 const FSV_TS: u64 = 1_785_500_395;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE395_FSV_ROOT on gpuhost"]
+#[ignore = "requires CALYX_ISSUE395_FSV_ROOT in a manual verification run"]
 fn issue395_shadow_executor_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE395_FSV_ROOT").expect("set CALYX_ISSUE395_FSV_ROOT"));

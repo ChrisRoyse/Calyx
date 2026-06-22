@@ -97,8 +97,8 @@ fn write_path_rejects_before_wal_and_allows_after_pressure_drops() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV driver; run, then read evidence files separately"]
-fn gpuhost_real_statvfs_disk_pressure_readback() {
+#[ignore = "manual FSV driver; run, then read evidence files separately"]
+fn manual_real_statvfs_disk_pressure_readback() {
     let root = env_or_prepared_temp_root("CALYX_FSV_ROOT", "calyx-issue473", "fsv-readback");
     let vault_dir = root.join("vault");
     fs::create_dir_all(&vault_dir).unwrap();

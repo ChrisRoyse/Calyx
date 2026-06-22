@@ -104,8 +104,8 @@ proptest! {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV for PH35 LedgerAppender disk rows"]
-fn ph35_ledger_appender_gpuhost_fsv() {
+#[ignore = "manual FSV for PH35 LedgerAppender disk rows"]
+fn ph35_ledger_appender_manual_fsv() {
     let root = fsv_root();
     fs::create_dir_all(&root).expect("create fsv root");
     let ledger_dir = root.join("ledger-cf");
@@ -176,8 +176,8 @@ fn ph35_ledger_appender_gpuhost_fsv() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV for PH35 ledger redaction policy disk rows"]
-fn ph35_ledger_redaction_gpuhost_fsv() {
+#[ignore = "manual FSV for PH35 ledger redaction policy disk rows"]
+fn ph35_ledger_redaction_manual_fsv() {
     let root = fsv_root().join("redaction-policy");
     fs::create_dir_all(&root).expect("create fsv root");
     let ledger_dir = root.join("ledger-cf");

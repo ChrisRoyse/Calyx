@@ -1,7 +1,7 @@
 //! VRAM budgeting + admission control for `calyx-forge`.
 //!
-//! `calyx-forge` shares a single RTX 5090 (32 GiB) with three resident TEI
-//! containers and dcgm-exporter. Every large GPU dispatch must therefore be
+//! `calyx-forge` can share a single CUDA GPU with co-resident embedding and
+//! telemetry services. Every large GPU dispatch must therefore be
 //! *admitted* against two independent limits before it runs:
 //!
 //! 1. a **soft cap** (`CALYX_FORGE_VRAM_BUDGET`) on Forge's own cumulative

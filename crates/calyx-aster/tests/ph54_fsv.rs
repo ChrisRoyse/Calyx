@@ -1,6 +1,6 @@
 //! PH54 T06 FSV: same-seq data/index writes and no half-indexed crash state.
 //!
-//! Trigger on gpuhost with:
+//! Trigger on a CUDA host with:
 //! `CALYX_ISSUE462_FSV_ROOT=/var/lib/calyx/data/fsv-issue462-ph54-<stamp> \
 //! cargo test -p calyx-aster --test ph54_fsv -- --ignored --nocapture`
 
@@ -20,11 +20,11 @@ fn ph54_fsv_same_seq_crash_range_rebuild() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV writes PH54 same-seq crash/rebuild evidence bytes"]
-fn ph54_fsv_gpuhost() {
+#[ignore = "manual FSV writes PH54 same-seq crash/rebuild evidence bytes"]
+fn ph54_fsv_manual() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE462_FSV_ROOT")
-            .expect("CALYX_ISSUE462_FSV_ROOT must point at a fresh gpuhost evidence root"),
+            .expect("CALYX_ISSUE462_FSV_ROOT must point at a fresh manual evidence root"),
     );
     if root.exists() {
         panic!("CALYX_ISSUE462_FSV_ROOT must be fresh: {}", root.display());

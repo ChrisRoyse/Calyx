@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[test]
-#[ignore = "manual gpuhost FSV for issue #484 ANN tombstone GC"]
+#[ignore = "manual FSV for issue #484 ANN tombstone GC"]
 fn ph58_ann_tombstone_gc_fsv() {
     let root = fsv_root().join("ann");
     let _ = fs::remove_dir_all(&root);

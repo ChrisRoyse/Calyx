@@ -31,7 +31,7 @@ impl<T> Drop for CudaDropGuard<T> {
         if self.leak_on_drop
             && let Some(value) = self.value.take()
         {
-            // ORT CUDA provider teardown can corrupt glibc heap on gpuhost.
+            // ORT CUDA provider teardown can corrupt glibc heap in a manual verification run.
             // Successful lenses leak in OnnxLens::drop; this guard applies the
             // same policy to construction errors after a CUDA session exists.
             std::mem::forget(value);

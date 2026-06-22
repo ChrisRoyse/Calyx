@@ -23,7 +23,7 @@ use serde_json::{Value, json};
 const FSV_TS: u64 = 1_785_500_417;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE417_FSV_ROOT on gpuhost"]
+#[ignore = "requires CALYX_ISSUE417_FSV_ROOT in a manual verification run"]
 fn issue417_soak_harness_cf_ledger_and_report_fsv() {
     let root = PathBuf::from(env::var("CALYX_ISSUE417_FSV_ROOT").expect("set FSV root"));
     reset_dir(&root);

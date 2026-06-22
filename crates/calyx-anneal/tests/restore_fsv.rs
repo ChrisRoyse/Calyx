@@ -21,9 +21,9 @@ use fsv_support::{strict_physical_files as physical_files, vault_id};
 
 const TEST_TS: u64 = 1_785_600_903;
 
-#[ignore = "manual gpuhost FSV for #403 base-shard fail-closed restore path"]
+#[ignore = "manual FSV for #403 base-shard fail-closed restore path"]
 #[test]
-fn ph44_base_shard_restore_gpuhost_fsv() {
+fn ph44_base_shard_restore_manual_fsv() {
     let root = reset_dir(&fsv_root().join(format!("issue403-{}", std::process::id())));
     let vault_dir = reset_dir(&root.join("vault"));
     let vault = AsterVault::new_durable(

@@ -29,8 +29,8 @@ mod support;
 const TEST_TS: u64 = 1_785_500_410;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE410_FSV_ROOT on gpuhost"]
-fn fsv_regression_assert_gpuhost() -> Result<()> {
+#[ignore = "requires CALYX_ISSUE410_FSV_ROOT in a manual verification run"]
+fn fsv_regression_assert_manual() -> Result<()> {
     let root = std::path::PathBuf::from(env::var("CALYX_ISSUE410_FSV_ROOT").unwrap());
     support::reset_dir(&root);
 

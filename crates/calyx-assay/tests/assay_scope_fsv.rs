@@ -19,8 +19,8 @@ fn assay_cache_scope_separates_vaults_and_anchors() {
 }
 
 #[test]
-#[ignore = "gpuhost FSV writes source-of-truth artifacts"]
-fn assay_scope_gpuhost_fsv() {
+#[ignore = "manual FSV writes source-of-truth artifacts"]
+fn assay_scope_manual_fsv() {
     let (readback, _) = scoped_store_probe();
     let root = fsv_root();
     fs::create_dir_all(&root).unwrap();

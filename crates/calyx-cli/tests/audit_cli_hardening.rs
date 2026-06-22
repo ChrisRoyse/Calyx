@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use support::fsv_io::{reset_dir, write_json, write_manifest_asset};
 
 #[test]
-#[ignore = "manual gpuhost FSV for issue #349 audit-query quarantine hardening"]
+#[ignore = "manual FSV for issue #349 audit-query quarantine hardening"]
 fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
     let root = std::env::var("CALYX_AUDIT_ISSUE349_FSV_DIR")
         .map(PathBuf::from)

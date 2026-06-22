@@ -295,11 +295,11 @@ fn changed_data_value_removes_old_index_key_as_stale() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV writes index rebuild evidence bytes"]
-fn issue461_index_rebuild_fsv_gpuhost() {
+#[ignore = "manual FSV writes index rebuild evidence bytes"]
+fn issue461_index_rebuild_fsv_manual() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE461_FSV_ROOT")
-            .expect("CALYX_ISSUE461_FSV_ROOT must point at a fresh gpuhost evidence root"),
+            .expect("CALYX_ISSUE461_FSV_ROOT must point at a fresh manual evidence root"),
     );
     if root.exists() {
         panic!("CALYX_ISSUE461_FSV_ROOT must be fresh: {}", root.display());

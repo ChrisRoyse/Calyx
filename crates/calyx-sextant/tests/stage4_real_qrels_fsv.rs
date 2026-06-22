@@ -7,7 +7,7 @@ use calyx_sextant::{FusionStrategy, HnswIndex, InvertedIndex, Query, SearchEngin
 use serde_json::Value;
 
 #[test]
-#[ignore = "gpuhost FSV requires BEIR SciFact under CALYX_QRELS_ROOT"]
+#[ignore = "manual FSV requires BEIR SciFact under CALYX_QRELS_ROOT"]
 fn beir_scifact_rrf_beats_single_lens_qrels() {
     let dataset = std::env::var("CALYX_QRELS_ROOT")
         .map(PathBuf::from)

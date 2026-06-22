@@ -71,8 +71,8 @@ struct AnchorSearchReport {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV: reads real corpora and writes durable anchor-search readback"]
-fn ph33_real_anchor_search_exhaustive_fallback_gpuhost() {
+#[ignore = "manual FSV: reads real corpora and writes durable anchor-search readback"]
+fn ph33_real_anchor_search_exhaustive_fallback_manual() {
     let home = calyx_home();
     let report_dir = report_dir(&home);
     fs::create_dir_all(&report_dir).expect("create fsv dir");

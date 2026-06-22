@@ -68,8 +68,8 @@ fn audit_cli_fails_closed_on_manifest_quarantine() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV for PH36 audit query CLI surface"]
-fn ph36_audit_query_cli_gpuhost_fsv() {
+#[ignore = "manual FSV for PH36 audit query CLI surface"]
+fn ph36_audit_query_cli_manual_fsv() {
     let root = fsv_root("CALYX_FSV_ROOT", "calyx-ph36-audit-query-fsv").join("audit-query-surface");
     reset_dir(&root);
     let vault = root.join("vault");

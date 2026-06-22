@@ -21,7 +21,7 @@ use fsv_support::{ManifestPathStyle, vault_id, write_json, write_tree_manifest};
 const MAIN_SEED: u8 = 0x39;
 
 #[test]
-#[ignore = "manual gpuhost FSV trigger for issue 392"]
+#[ignore = "manual FSV trigger for issue 392"]
 fn issue392_compression_anneal_fsv_artifacts() {
     let (root, keep_root) = fsv_root();
     let vault_dir = root.join("vault");

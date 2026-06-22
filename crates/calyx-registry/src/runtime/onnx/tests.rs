@@ -161,9 +161,9 @@ proptest! {
 }
 
 #[test]
-#[ignore = "requires gpuhost HF cache/network and downloads ONNX all-MiniLM"]
-fn onnx_all_minilm_gpuhost_fsv() {
-    let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-gpuhost-fsv").unwrap();
+#[ignore = "requires manual HF cache/network and downloads ONNX all-MiniLM"]
+fn onnx_all_minilm_manual_fsv() {
+    let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-manual-fsv").unwrap();
     let input = Input::new(Modality::Text, b"Calyx PH19 ONNX local probe".to_vec());
     let vector = lens.measure(&input).unwrap();
 
@@ -182,10 +182,10 @@ fn onnx_all_minilm_gpuhost_fsv() {
 }
 
 #[test]
-#[ignore = "requires gpuhost CUDA/ONNX stack; validates fail-loud GPU policy"]
-fn onnx_cuda_fail_loud_gpuhost_fsv() {
+#[ignore = "requires manual CUDA/ONNX stack; validates fail-loud GPU policy"]
+fn onnx_cuda_fail_loud_manual_fsv() {
     let input = Input::new(Modality::Text, b"Calyx PH19 CUDA fail-loud probe".to_vec());
-    match OnnxLens::all_minilm_l6_v2("onnx-gpuhost-cuda-fail-loud") {
+    match OnnxLens::all_minilm_l6_v2("onnx-manual-cuda-fail-loud") {
         Ok(lens) => match lens.measure(&input) {
             Ok(vector) => {
                 println!("ONNX_CUDA_RESULT=success");
@@ -213,9 +213,9 @@ fn onnx_cuda_fail_loud_gpuhost_fsv() {
 }
 
 #[test]
-#[ignore = "requires gpuhost HF cache/network and downloads ONNX all-MiniLM"]
-fn onnx_dim_guard_gpuhost_fsv() {
-    let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-gpuhost-dim-guard").unwrap();
+#[ignore = "requires manual HF cache/network and downloads ONNX all-MiniLM"]
+fn onnx_dim_guard_manual_fsv() {
+    let lens = OnnxLens::all_minilm_l6_v2_cpu_explicit("onnx-manual-dim-guard").unwrap();
     let error = lens
         .contract()
         .verify_vector(
@@ -232,14 +232,14 @@ fn onnx_dim_guard_gpuhost_fsv() {
 }
 
 #[test]
-#[ignore = "requires explicit custom ONNX env paths on gpuhost"]
-fn custom_onnx_gpuhost_fsv_from_files() {
+#[ignore = "requires explicit custom ONNX env paths in a manual verification run"]
+fn custom_onnx_manual_fsv_from_files() {
     let model = std::env::var("CALYX_CUSTOM_ONNX_MODEL").unwrap();
     let tokenizer = std::env::var("CALYX_CUSTOM_ONNX_TOKENIZER").unwrap();
     let config = std::env::var("CALYX_CUSTOM_ONNX_CONFIG").unwrap();
     let lens = OnnxLens::from_files(
         OnnxFileSpec::text(
-            "onnx-custom-gpuhost-fsv",
+            "onnx-custom-manual-fsv",
             "Xenova/bge-small-en-v1.5",
             model,
             tokenizer,
@@ -286,7 +286,7 @@ fn custom_onnx_gpuhost_fsv_from_files() {
 
 #[test]
 #[ignore = "manual PH73 edge FSV prints source-of-truth file states"]
-fn custom_onnx_edges_gpuhost_fsv() {
+fn custom_onnx_edges_manual_fsv() {
     let missing = Fixture::new("edge-missing-tokenizer", &[3.0, 4.0, 0.0]);
     println!(
         "EDGE_MISSING_TOKENIZER_BEFORE_EXISTS={}",

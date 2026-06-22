@@ -18,9 +18,9 @@ pub const FORCE_FAIL_ENV: &str = "CALYX_FORCE_CUDA_FAIL";
 /// by the VRAM budget enforcer (T03) and the healthcheck (T04).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CudaDeviceInfo {
-    /// Marketing name, e.g. `"NVIDIA GeForce RTX 5090"`.
+    /// Marketing name reported by the CUDA/NVML stack.
     pub device_name: String,
-    /// Total device VRAM in MiB (e.g. `32607` on the gpuhost RTX 5090).
+    /// Total device VRAM in MiB.
     pub vram_total_mib: u32,
     /// Compute capability as `"major.minor"`, e.g. `"12.0"` (sm_120).
     pub compute_cap: String,

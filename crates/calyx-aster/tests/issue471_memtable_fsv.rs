@@ -15,7 +15,7 @@ const CAP_BYTES: usize = 128;
 const VALUE_BYTES: usize = 52;
 
 #[test]
-#[ignore = "gpuhost FSV writes PH56 memtable source-of-truth artifacts"]
+#[ignore = "manual FSV writes PH56 memtable source-of-truth artifacts"]
 fn issue471_bounded_memtable_backpressure_fsv() {
     let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-issue471-fsv");
     reset_dir(&root);

@@ -18,7 +18,7 @@ mod recurrence_anchor_support;
 use recurrence_anchor_support::{append_outcomes, base_cx, cx_id, vault_id};
 
 #[test]
-#[ignore = "FSV trigger writes durable gpuhost evidence under CALYX_ASSAY_ISSUE387_FSV_DIR"]
+#[ignore = "FSV trigger writes durable manual evidence under CALYX_ASSAY_ISSUE387_FSV_DIR"]
 fn issue387_oracle_self_consistency_fsv_writes_assay_report() {
     let root = PathBuf::from(
         env::var("CALYX_ASSAY_ISSUE387_FSV_DIR").expect("set CALYX_ASSAY_ISSUE387_FSV_DIR"),

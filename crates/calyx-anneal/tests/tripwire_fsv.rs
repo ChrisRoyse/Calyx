@@ -12,7 +12,7 @@ use fsv_support::{write_json, write_manifest};
 use serde_json::json;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE394_FSV_ROOT on gpuhost"]
+#[ignore = "requires CALYX_ISSUE394_FSV_ROOT in a manual verification run"]
 fn issue394_tripwire_registry_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE394_FSV_ROOT").expect("set CALYX_ISSUE394_FSV_ROOT"));

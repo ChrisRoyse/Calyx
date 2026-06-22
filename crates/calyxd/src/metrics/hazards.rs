@@ -1,7 +1,7 @@
 //! The PH59 25-hazard register exposed as one gauge per hazard (PH66 T03).
 //!
-//! Each hazard from PRD `24 §7` / the PH59 register (`docs/implementation/
-//! PH59-hazard-register-soak`) gets a `calyx_hazard_<id>` gauge carrying a
+//! Each hazard from PRD `24 §7` / the PH59 hazard register gets a
+//! `calyx_hazard_<id>` gauge carrying a
 //! `hazard` label equal to its id. The value is 1 when that hazard's mitigation
 //! tripwire is currently firing and 0 when nominal. Distinct metric *names* (not
 //! one name with 25 label values) are intentional: the Grafana 25-row table and

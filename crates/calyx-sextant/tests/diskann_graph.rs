@@ -1,7 +1,7 @@
 //! PH68 T01 — DiskANN graph format + builder tests (issue #545).
 //!
 //! Graph-constructing tests are `#[ignore = "server-only"]` per the PH68 scale
-//! boundary and run explicitly on gpuhost:
+//! boundary and run explicitly in a manual verification run:
 //! `cargo test -p calyx-sextant --test diskann_graph -- --include-ignored`
 
 use std::path::PathBuf;
@@ -233,7 +233,7 @@ fn read_node_out_of_range_is_invalid_params() {
     assert_eq!(err.code, "CALYX_INDEX_INVALID_PARAMS");
 }
 
-/// PH68 T01 FSV (issue #545): 1000-node graph on gpuhost hotpool NVMe.
+/// PH68 T01 FSV (issue #545): 1000-node graph in a manual verification run hotpool NVMe.
 /// SoT: `$CALYX_DISKANN_FSV_SOT` (e.g. `/zfs/hot/calyx/fsv-issue545/idx/slot_00.ann/graph.cda`).
 /// Prints hand-computed expected size vs actual bytes for independent `xxd`/`ls` readback.
 #[test]

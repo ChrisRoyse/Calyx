@@ -74,8 +74,8 @@ fn vault_merkle_fails_closed_without_aster_layout() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV for issue #348"]
-fn ph36_merkle_vault_real_aster_cf_gpuhost_fsv() {
+#[ignore = "manual FSV for issue #348"]
+fn ph36_merkle_vault_real_aster_cf_manual_fsv() {
     let root = fsv_root("CALYX_FSV_ROOT", "calyx-ph36-merkle-vault-fsv")
         .join("merkle-vault-real-aster-cf");
     reset_dir(&root);

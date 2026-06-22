@@ -19,11 +19,11 @@ use fsv_support::write_json;
 const TEST_TS: u64 = 1_785_500_409;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE409_FSV_ROOT on gpuhost"]
-fn fsv_frozen_lens_guard_gpuhost() {
+#[ignore = "requires CALYX_ISSUE409_FSV_ROOT in a manual verification run"]
+fn fsv_frozen_lens_guard_manual() {
     let root = PathBuf::from(
         std::env::var("CALYX_ISSUE409_FSV_ROOT")
-            .expect("CALYX_ISSUE409_FSV_ROOT must point at an gpuhost FSV root"),
+            .expect("CALYX_ISSUE409_FSV_ROOT must point at a manual FSV root"),
     );
     let _ = fs::remove_dir_all(&root);
     fs::create_dir_all(&root).unwrap();

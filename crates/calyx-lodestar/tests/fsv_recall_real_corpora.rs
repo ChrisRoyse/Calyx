@@ -12,8 +12,8 @@ use real_corpora::{
 };
 
 #[test]
-#[ignore = "manual gpuhost FSV: reads real corpora and writes $CALYX_HOME/fsv reports"]
-fn fsv_recall_real_corpora_gpuhost() {
+#[ignore = "manual FSV: reads real corpora and writes $CALYX_HOME/fsv reports"]
+fn fsv_recall_real_corpora_manual() {
     let home = calyx_home();
     let report_dir = home.join("fsv");
     fs::create_dir_all(&report_dir).expect("create fsv dir");

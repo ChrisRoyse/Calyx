@@ -51,7 +51,7 @@ impl TieringPolicy {
         }
     }
 
-    pub fn gpuhost(
+    pub fn manual(
         active_slots: impl IntoIterator<Item = SlotId>,
         current_panel_version: u32,
     ) -> Self {

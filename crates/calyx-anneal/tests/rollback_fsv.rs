@@ -18,7 +18,7 @@ use serde_json::json;
 const FSV_TS: u64 = 1_785_500_396;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE396_FSV_ROOT on gpuhost"]
+#[ignore = "requires CALYX_ISSUE396_FSV_ROOT in a manual verification run"]
 fn issue396_rollback_store_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE396_FSV_ROOT").expect("set CALYX_ISSUE396_FSV_ROOT"));

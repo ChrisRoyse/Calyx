@@ -1,4 +1,4 @@
-//! Ignored gpuhost FSV for PH54 T04 atomic data+index write maintenance.
+//! Ignored manual FSV for PH54 T04 atomic data+index write maintenance.
 //!
 //! Trigger with:
 //! `CALYX_ISSUE460_FSV_ROOT=/var/lib/calyx/data/fsv-issue460-atomic-index-<stamp> \
@@ -103,11 +103,11 @@ fn order_row(item: &str, qty: i64) -> Row {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV writes atomic data/index evidence bytes"]
-fn issue460_atomic_index_write_fsv_gpuhost() {
+#[ignore = "manual FSV writes atomic data/index evidence bytes"]
+fn issue460_atomic_index_write_fsv_manual() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE460_FSV_ROOT")
-            .expect("CALYX_ISSUE460_FSV_ROOT must point at an gpuhost evidence root"),
+            .expect("CALYX_ISSUE460_FSV_ROOT must point at a manual evidence root"),
     );
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();

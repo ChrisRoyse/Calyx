@@ -480,7 +480,7 @@ impl Drop for OnnxLens {
         if self.provider_policy == OnnxProviderPolicy::CudaFailLoud
             && let Some(backend) = self.backend.take()
         {
-            // ORT CUDA provider teardown can corrupt glibc heap on gpuhost after
+            // ORT CUDA provider teardown can corrupt glibc heap in a manual verification run after
             // successful inference. Keep CUDA sessions process-resident; setup and
             // inference still fail loudly, and the OS reclaims pages at exit.
             std::mem::forget(backend);

@@ -15,7 +15,7 @@ use calyx_registry::{
 use serde_json::json;
 
 #[test]
-#[ignore = "manual gpuhost FSV for #787 capability-card gating"]
+#[ignore = "manual FSV for #787 capability-card gating"]
 fn issue787_capability_gate_fsv_writes_readback_artifacts() {
     let root = fsv_root();
     std::fs::create_dir_all(&root).expect("create fsv root");

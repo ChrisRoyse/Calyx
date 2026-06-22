@@ -18,7 +18,7 @@ use reranker_support::spawn_reranker;
 use sextant_support::{cx_u8_fill as cx, hex, raw_blake3_hex as blake3_hex};
 
 #[test]
-fn issue594_reranker_candidate_text_non_persistence_gpuhost_fsv() {
+fn issue594_reranker_candidate_text_non_persistence_manual_fsv() {
     let root = fsv_root().join("issue594-reranker-candidate-nonpersistence");
     reset_dir(&root);
     let vault_dir = root.join("vault");

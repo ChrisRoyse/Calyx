@@ -41,7 +41,7 @@ impl Clock for SharedClock {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV writes PH58 compaction-GC source-of-truth artifacts"]
+#[ignore = "manual FSV writes PH58 compaction-GC source-of-truth artifacts"]
 fn ph58_compaction_gc_tombstone_fsv() {
     let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-ph58-compaction-gc");
     reset_dir(&root);

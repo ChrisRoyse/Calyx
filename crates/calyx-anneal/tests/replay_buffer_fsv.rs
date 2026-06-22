@@ -16,7 +16,7 @@ mod fsv_support;
 use fsv_support::vault_id;
 
 #[test]
-#[ignore = "manual gpuhost FSV fixture for issue #407 anneal_replay bytes"]
+#[ignore = "manual FSV fixture for issue #407 anneal_replay bytes"]
 fn issue407_manual_fsv_fixture_writes_anneal_replay_bytes() {
     let root = fsv_root();
     assert!(

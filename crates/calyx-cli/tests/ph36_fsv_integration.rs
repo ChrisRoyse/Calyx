@@ -40,8 +40,8 @@ fn verify_chain_edges_cover_intact_seq0_and_entry_hash_flip() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV for PH36 exit integration"]
-fn ph36_fsv_integration_gpuhost() {
+#[ignore = "manual FSV for PH36 exit integration"]
+fn ph36_fsv_integration_manual() {
     let root = fsv_root().join("ph36-exit-fsv");
     reset_dir(&root);
 

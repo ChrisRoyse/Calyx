@@ -42,7 +42,7 @@ impl Clock for SharedClock {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV writes PH58 reader-lease source-of-truth artifacts"]
+#[ignore = "manual FSV writes PH58 reader-lease source-of-truth artifacts"]
 fn ph58_reader_lease_watchdog_fsv() {
     let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-ph58-reader-leases");
     reset_dir(&root);

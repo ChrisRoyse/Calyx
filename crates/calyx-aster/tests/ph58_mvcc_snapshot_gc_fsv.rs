@@ -39,7 +39,7 @@ impl Clock for SharedClock {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV writes PH58 MVCC snapshot-GC source-of-truth artifacts"]
+#[ignore = "manual FSV writes PH58 MVCC snapshot-GC source-of-truth artifacts"]
 fn ph58_mvcc_snapshot_gc_fsv() {
     let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-ph58-mvcc-gc");
     reset_dir(&root);

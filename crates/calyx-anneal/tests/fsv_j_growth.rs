@@ -22,8 +22,8 @@ use support::{
 };
 
 #[test]
-#[ignore = "requires CALYX_ISSUE428_FSV_ROOT on gpuhost"]
-fn ph48_j_growth_goodhart_gpuhost_fsv() {
+#[ignore = "requires CALYX_ISSUE428_FSV_ROOT in a manual verification run"]
+fn ph48_j_growth_goodhart_manual_fsv() {
     let root = PathBuf::from(
         std::env::var("CALYX_ISSUE428_FSV_ROOT").expect("set CALYX_ISSUE428_FSV_ROOT"),
     );

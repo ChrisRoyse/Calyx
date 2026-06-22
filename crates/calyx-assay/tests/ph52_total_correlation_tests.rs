@@ -102,7 +102,7 @@ fn interaction_information_classifies_redundant_and_synergistic() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV exercises the default 500-resample TC bootstrap"]
+#[ignore = "manual FSV exercises the default 500-resample TC bootstrap"]
 fn total_correlation_default_bootstrap_fsv() {
     let panel = redundant_panel(180);
     let result = total_correlation(&panel, &clock()).unwrap();

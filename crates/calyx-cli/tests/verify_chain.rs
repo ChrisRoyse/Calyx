@@ -64,8 +64,8 @@ fn verify_chain_vault_quarantines_broken_range() {
 }
 
 #[test]
-#[ignore = "manual gpuhost FSV for issue #250 verify-chain quarantine"]
-fn ph36_verify_chain_quarantine_gpuhost_fsv() {
+#[ignore = "manual FSV for issue #250 verify-chain quarantine"]
+fn ph36_verify_chain_quarantine_manual_fsv() {
     let root =
         fsv_root("CALYX_FSV_ROOT", "calyx-ph36-verify-chain-fsv").join("verify-chain-quarantine");
     reset_dir(&root);

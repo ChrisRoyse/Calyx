@@ -43,7 +43,7 @@ fn ph56_soak_smoke_bounds_rss_and_backpressure() {
 }
 
 #[test]
-#[ignore = "gpuhost FSV: runs the PH56 1e7-op RSS/backpressure soak"]
+#[ignore = "manual FSV: runs the PH56 1e7-op RSS/backpressure soak"]
 fn ph56_1e7_soak_rss_bounded_fsv() {
     let root = env_or_temp_root("CALYX_FSV_ROOT", "calyx-ph56-soak", "fsv");
     reset_dir(&root);

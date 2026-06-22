@@ -21,7 +21,7 @@ use fsv_support::write_json;
 const FSV_TS: u64 = 1_785_500_414;
 
 #[test]
-#[ignore = "requires CALYX_ISSUE614_FSV_ROOT on gpuhost"]
+#[ignore = "requires CALYX_ISSUE614_FSV_ROOT in a manual verification run"]
 fn issue614_quant_promotion_ledger_details_fsv() {
     let root =
         PathBuf::from(env::var("CALYX_ISSUE614_FSV_ROOT").expect("set CALYX_ISSUE614_FSV_ROOT"));
