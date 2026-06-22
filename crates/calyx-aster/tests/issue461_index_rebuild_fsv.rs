@@ -295,7 +295,7 @@ fn changed_data_value_removes_old_index_key_as_stale() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "manual gpuhost FSV writes index rebuild evidence bytes"]
 fn issue461_index_rebuild_fsv_gpuhost() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE461_FSV_ROOT")

@@ -210,7 +210,7 @@ mod tests {
 
     /// Deterministic signal stand-in. `occurrence_count` increments on every call
     /// (simulating one new occurrence per ingest); novelty/drift are fixed.
-    struct MockSignals {
+    struct ScriptedSignals {
         occ: Cell<u64>,
         novelty: NoveltyOutcome,
         drift: f32,
@@ -222,7 +222,7 @@ mod tests {
         Ungrounded,
     }
 
-    impl MockSignals {
+    impl ScriptedSignals {
         fn recurring() -> Self {
             Self {
                 occ: Cell::new(0),
@@ -246,7 +246,7 @@ mod tests {
         }
     }
 
-    impl ReactiveSignals for MockSignals {
+    impl ReactiveSignals for ScriptedSignals {
         fn novelty(&self, _cx_id: CxId, _tau: Option<f32>) -> Result<NoveltyVerdict> {
             match self.novelty {
                 NoveltyOutcome::Verdict(v) => Ok(v),
@@ -298,7 +298,7 @@ mod tests {
                 None,
             )
             .unwrap();
-        let signals = MockSignals::recurring();
+        let signals = ScriptedSignals::recurring();
 
         // counts 1, 2 → no fire
         assert_eq!(
@@ -338,8 +338,10 @@ mod tests {
         let mut eng = engine();
         eng.register(TriggerCondition::NewRegion { tau_override: None }, None)
             .unwrap();
-        let novel = MockSignals::with_novelty(NoveltyOutcome::Verdict(NoveltyVerdict::NewRegion));
-        let grounded = MockSignals::with_novelty(NoveltyOutcome::Verdict(NoveltyVerdict::Grounded));
+        let novel =
+            ScriptedSignals::with_novelty(NoveltyOutcome::Verdict(NoveltyVerdict::NewRegion));
+        let grounded =
+            ScriptedSignals::with_novelty(NoveltyOutcome::Verdict(NoveltyVerdict::Grounded));
 
         assert_eq!(eng.evaluate_post_ingest(cx(), lref(1), &novel).unwrap(), 1);
         assert_eq!(
@@ -362,13 +364,13 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            eng.evaluate_post_ingest(cx(), lref(1), &MockSignals::with_drift(0.05))
+            eng.evaluate_post_ingest(cx(), lref(1), &ScriptedSignals::with_drift(0.05))
                 .unwrap(),
             0,
             "below threshold → no fire"
         );
         assert_eq!(
-            eng.evaluate_post_ingest(cx(), lref(2), &MockSignals::with_drift(0.15))
+            eng.evaluate_post_ingest(cx(), lref(2), &ScriptedSignals::with_drift(0.15))
                 .unwrap(),
             1,
             "at/above threshold → fire"
@@ -396,7 +398,7 @@ mod tests {
         }
         // One evaluation: every trigger's first count is 1 ≥ 1 → fires once each.
         let fired = eng
-            .evaluate_post_ingest(cx(), lref(1), &MockSignals::recurring())
+            .evaluate_post_ingest(cx(), lref(1), &ScriptedSignals::recurring())
             .unwrap();
         assert_eq!(fired, 50);
         assert_eq!(eng.queue().len(), 50);
@@ -407,7 +409,8 @@ mod tests {
         let mut eng = ReactiveEngine::with_caps(Arc::new(FixedClock::new(1_000)), 8, 2, 1024);
         eng.register(TriggerCondition::NewRegion { tau_override: None }, None)
             .unwrap();
-        let novel = MockSignals::with_novelty(NoveltyOutcome::Verdict(NoveltyVerdict::NewRegion));
+        let novel =
+            ScriptedSignals::with_novelty(NoveltyOutcome::Verdict(NoveltyVerdict::NewRegion));
 
         // Fill the queue to capacity (2).
         eng.evaluate_post_ingest(cx(), lref(1), &novel).unwrap();
@@ -444,7 +447,7 @@ mod tests {
         assert!(eng.deregister(drop));
         // Only the kept EventRecurs trigger evaluates (count 1 ≥ 1 → fire).
         let fired = eng
-            .evaluate_post_ingest(cx(), lref(1), &MockSignals::recurring())
+            .evaluate_post_ingest(cx(), lref(1), &ScriptedSignals::recurring())
             .unwrap();
         assert_eq!(fired, 1);
         let fired_events = eng.drain_fired();
@@ -464,7 +467,7 @@ mod tests {
             .evaluate_post_ingest(
                 cx(),
                 lref(1),
-                &MockSignals::with_novelty(NoveltyOutcome::Ungrounded),
+                &ScriptedSignals::with_novelty(NoveltyOutcome::Ungrounded),
             )
             .unwrap_err();
         assert_eq!(err.code, "CALYX_WARD_UNGROUNDED");

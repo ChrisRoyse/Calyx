@@ -20,7 +20,7 @@ fn ph54_fsv_same_seq_crash_range_rebuild() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "manual gpuhost FSV writes PH54 same-seq crash/rebuild evidence bytes"]
 fn ph54_fsv_gpuhost() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE462_FSV_ROOT")

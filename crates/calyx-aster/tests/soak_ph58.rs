@@ -107,7 +107,7 @@ mod soak_ph58 {
         let before_tick = store.snapshot_gc_tick(&clock, 1_000);
         let metrics_before = store.snapshot_gc_metrics(clock.now());
         let sst_bytes_before = tree_bytes(&vault_dir.join("cf"));
-        let df_before = command_text("df", &["-B1", "/hotpool"]);
+        let df_before = hotpool_df_text();
         let du_before = command_text("du", &["-sb", vault_dir.to_str().unwrap()]);
         assert!(before_tick.metrics.oldest_pinned_seq_gap >= 15_000);
 
@@ -125,7 +125,7 @@ mod soak_ph58 {
         store.flush_all_cfs().expect("flush after snapshot GC");
         let metrics_after = store.snapshot_gc_metrics(clock.now());
         let sst_bytes_after = tree_bytes(&vault_dir.join("cf"));
-        let df_after = command_text("df", &["-B1", "/hotpool"]);
+        let df_after = hotpool_df_text();
         let du_after = command_text("du", &["-sb", vault_dir.to_str().unwrap()]);
         assert!(result.versions_reclaimed > 0);
         assert!(metrics_after.bytes_freed_total > metrics_before.bytes_freed_total);
@@ -202,7 +202,7 @@ mod soak_ph58 {
                 "metrics_after": status_after.to_metrics_text("issue487-tombstone"),
                 "tombstone_metrics": format!("calyx_tombstone_ratio{{vault=\"issue487-tombstone\"}} {:.6}\n", after.tombstone_ratio()),
                 "du_after": command_text("du", &["-sb", vault_dir.to_str().unwrap()]),
-                "df_after": command_text("df", &["-B1", "/hotpool"]),
+                "df_after": hotpool_df_text(),
                 "panic_free": true
             }
         })
@@ -438,6 +438,13 @@ mod soak_ph58 {
             String::from_utf8_lossy(&output.stderr)
         );
         String::from_utf8(output.stdout).expect("stdout utf8")
+    }
+
+    fn hotpool_df_text() -> String {
+        if !Path::new("/hotpool").exists() {
+            return "skipped: /hotpool is not mounted on this host".to_string();
+        }
+        command_text("df", &["-B1", "/hotpool"])
     }
 
     fn case_root(name: &str) -> PathBuf {

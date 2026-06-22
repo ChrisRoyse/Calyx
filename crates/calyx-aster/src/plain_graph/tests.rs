@@ -134,7 +134,7 @@ fn failed_wal_append_leaves_neither_edge_row() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "manual gpuhost FSV writes plain graph evidence bytes"]
 fn issue638_plain_graph_fsv() {
     let root = std::env::var_os("CALYX_ISSUE638_FSV_ROOT")
         .map(std::path::PathBuf::from)

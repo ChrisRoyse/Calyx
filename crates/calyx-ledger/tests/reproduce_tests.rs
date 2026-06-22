@@ -14,8 +14,8 @@ use serde_json::json;
 #[test]
 fn remeasure_slots_is_idempotent_for_same_seed() {
     let ctx = context_with_slots(vec![slot(1, 9, b"alpha"), slot(2, 10, b"bravo")]);
-    let registry = MockRegistry::from_slots(&ctx.recorded_slots);
-    let mut forge = MockForge::default();
+    let registry = RecordingRegistry::from_slots(&ctx.recorded_slots);
+    let mut forge = RecordingForge::default();
 
     let first = remeasure_slots(&ctx, &registry, &mut forge).unwrap();
     let second = remeasure_slots(&ctx, &registry, &mut forge).unwrap();
@@ -28,7 +28,7 @@ fn remeasure_slots_is_idempotent_for_same_seed() {
 #[test]
 fn weights_mismatch_fails_with_frozen_violation() {
     let slot = slot(3, 8, b"charlie");
-    let mut registry = MockRegistry::from_slots(std::slice::from_ref(&slot));
+    let mut registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
     registry.weights.insert(slot.lens_id, [0xff; 32]);
 
     let error = lookup_frozen_lens(&registry, slot.lens_id, &slot.weights_sha256).unwrap_err();
@@ -39,8 +39,8 @@ fn weights_mismatch_fails_with_frozen_violation() {
 #[test]
 fn forge_seed_zero_is_activated_and_repeatable() {
     let ctx = context_with_slots(vec![slot(4, 0, b"delta")]);
-    let registry = MockRegistry::from_slots(&ctx.recorded_slots);
-    let mut forge = MockForge::default();
+    let registry = RecordingRegistry::from_slots(&ctx.recorded_slots);
+    let mut forge = RecordingForge::default();
 
     let first = remeasure_slots(&ctx, &registry, &mut forge).unwrap();
     let second = remeasure_slots(&ctx, &registry, &mut forge).unwrap();
@@ -52,8 +52,8 @@ fn forge_seed_zero_is_activated_and_repeatable() {
 #[test]
 fn empty_recorded_slots_returns_empty_remeasurement() {
     let ctx = context_with_slots(Vec::new());
-    let registry = MockRegistry::default();
-    let mut forge = MockForge::default();
+    let registry = RecordingRegistry::default();
+    let mut forge = RecordingForge::default();
 
     let out = remeasure_slots(&ctx, &registry, &mut forge).unwrap();
 
@@ -64,9 +64,9 @@ fn empty_recorded_slots_returns_empty_remeasurement() {
 #[test]
 fn retired_lens_succeeds_only_when_frozen_snapshot_is_present() {
     let slot = slot(5, 12, b"echo");
-    let present = MockRegistry::from_slots(std::slice::from_ref(&slot));
-    let absent = MockRegistry::default();
-    let mut forge = MockForge::default();
+    let present = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
+    let absent = RecordingRegistry::default();
+    let mut forge = RecordingForge::default();
 
     let ok = remeasure_slots(
         &context_with_slots(vec![slot.clone()]),
@@ -119,8 +119,8 @@ fn resolved_input_hash_mismatch_fails_closed() {
     let mut slot = slot(8, 18, b"hotel");
     slot.input_hash = [0xaa; 32];
     let ctx = context_with_slots(vec![slot]);
-    let registry = MockRegistry::from_slots(&ctx.recorded_slots);
-    let mut forge = MockForge::default();
+    let registry = RecordingRegistry::from_slots(&ctx.recorded_slots);
+    let mut forge = RecordingForge::default();
 
     let error = remeasure_slots(&ctx, &registry, &mut forge).unwrap_err();
 
@@ -156,18 +156,18 @@ fn reproduce_remeasure_gpuhost_fsv() {
 
     let store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
     let ctx = build_reproduce_context(&store, &answer_id).unwrap();
-    let registry = MockRegistry::from_slots(std::slice::from_ref(&slot));
+    let registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
     let resolver = SingleInputResolver { input };
-    let mut forge = MockForge::default();
+    let mut forge = RecordingForge::default();
     let remeasured =
         remeasure_slots_with_input_resolver(&ctx, &registry, &mut forge, &resolver).unwrap();
 
-    let mut bad_registry = MockRegistry::from_slots(std::slice::from_ref(&slot));
+    let mut bad_registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
     bad_registry.weights.insert(slot.lens_id, [0xee; 32]);
     let mismatch = remeasure_slots_with_input_resolver(
         &ctx,
         &bad_registry,
-        &mut MockForge::default(),
+        &mut RecordingForge::default(),
         &resolver,
     )
     .unwrap_err();
@@ -207,11 +207,11 @@ fn reproduce_remeasure_gpuhost_fsv() {
 }
 
 #[derive(Default)]
-struct MockForge {
+struct RecordingForge {
     seeds: Vec<u64>,
 }
 
-impl ForgeBackend for MockForge {
+impl ForgeBackend for RecordingForge {
     fn activate_determinism(&mut self, seed: u64) -> calyx_core::Result<()> {
         self.seeds.push(seed);
         Ok(())
@@ -219,11 +219,11 @@ impl ForgeBackend for MockForge {
 }
 
 #[derive(Default)]
-struct MockRegistry {
+struct RecordingRegistry {
     weights: BTreeMap<LensId, [u8; 32]>,
 }
 
-impl MockRegistry {
+impl RecordingRegistry {
     fn from_slots(slots: &[RecordedSlot]) -> Self {
         Self {
             weights: slots
@@ -234,7 +234,7 @@ impl MockRegistry {
     }
 }
 
-impl ReproduceLensRegistry for MockRegistry {
+impl ReproduceLensRegistry for RecordingRegistry {
     fn frozen_weights_sha256(&self, lens_id: LensId) -> calyx_core::Result<[u8; 32]> {
         self.weights.get(&lens_id).copied().ok_or_else(|| {
             calyx_core::CalyxError::lens_frozen_violation(format!(

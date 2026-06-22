@@ -17,13 +17,13 @@ use calyx_loom::{
 const SALT: &[u8] = b"issue573-reactive-subscription";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
-struct MockSignals {
+struct ScriptedSignals {
     occ: Cell<u64>,
     novelty: NoveltyVerdict,
     drift: f32,
 }
 
-impl ReactiveSignals for MockSignals {
+impl ReactiveSignals for ScriptedSignals {
     fn novelty(&self, _cx_id: CxId, _tau: Option<f32>) -> Result<NoveltyVerdict> {
         Ok(self.novelty)
     }
@@ -176,8 +176,8 @@ fn subscription_capacity_rejects_without_leaking_trigger() {
     assert_eq!(engine.registry().len(), 1);
 }
 
-fn novel_signals() -> MockSignals {
-    MockSignals {
+fn novel_signals() -> ScriptedSignals {
+    ScriptedSignals {
         occ: Cell::new(0),
         novelty: NoveltyVerdict::NewRegion,
         drift: 0.0,

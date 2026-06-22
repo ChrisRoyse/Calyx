@@ -111,9 +111,9 @@ fn reproduce_end_to_end_writes_reproduce_admin_entry() {
     let answer_id = answer_id();
     append_answer(&mut appender, &answer_id, &[0, 1], &fusion, &original);
     let mut store = appender.into_store();
-    let registry = MockRegistry::from_slots(&slots);
+    let registry = RecordingRegistry::from_slots(&slots);
     let resolver = Resolver::from_slots(&slots);
-    let mut forge = MockForge::default();
+    let mut forge = RecordingForge::default();
 
     let result =
         reproduce_with_input_resolver(&mut store, &registry, &mut forge, &resolver, &answer_id)
@@ -148,9 +148,9 @@ fn missing_fusion_weights_fails_without_reproduce_row() {
         )
         .unwrap();
     let mut store = appender.into_store();
-    let registry = MockRegistry::from_slots(std::slice::from_ref(&slot));
+    let registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
     let resolver = Resolver::from_slots(std::slice::from_ref(&slot));
-    let mut forge = MockForge::default();
+    let mut forge = RecordingForge::default();
 
     let error =
         reproduce_with_input_resolver(&mut store, &registry, &mut forge, &resolver, &answer_id)
@@ -183,9 +183,9 @@ fn remeasure_error_is_propagated_without_partial_reproduce_row() {
         &[hit(cx(1), rrf(1.0, 1))],
     );
     let mut store = appender.into_store();
-    let registry = MockRegistry::default();
+    let registry = RecordingRegistry::default();
     let resolver = Resolver::from_slots(std::slice::from_ref(&slot));
-    let mut forge = MockForge::default();
+    let mut forge = RecordingForge::default();
 
     let error =
         reproduce_with_input_resolver(&mut store, &registry, &mut forge, &resolver, &answer_id)
@@ -196,11 +196,11 @@ fn remeasure_error_is_propagated_without_partial_reproduce_row() {
 }
 
 #[derive(Default)]
-struct MockForge {
+struct RecordingForge {
     seeds: Vec<u64>,
 }
 
-impl ForgeBackend for MockForge {
+impl ForgeBackend for RecordingForge {
     fn activate_determinism(&mut self, seed: u64) -> calyx_core::Result<()> {
         self.seeds.push(seed);
         Ok(())
@@ -208,12 +208,12 @@ impl ForgeBackend for MockForge {
 }
 
 #[derive(Default)]
-struct MockRegistry {
+struct RecordingRegistry {
     weights: BTreeMap<LensId, [u8; 32]>,
     vectors: BTreeMap<LensId, SlotVector>,
 }
 
-impl MockRegistry {
+impl RecordingRegistry {
     fn from_slots(slots: &[RecordedSlot]) -> Self {
         Self {
             weights: slots
@@ -229,7 +229,7 @@ impl MockRegistry {
     }
 }
 
-impl ReproduceLensRegistry for MockRegistry {
+impl ReproduceLensRegistry for RecordingRegistry {
     fn frozen_weights_sha256(&self, lens_id: LensId) -> calyx_core::Result<[u8; 32]> {
         self.weights.get(&lens_id).copied().ok_or_else(|| {
             calyx_core::CalyxError::lens_frozen_violation(format!(

@@ -10,39 +10,19 @@ use calyx_core::{
 };
 
 #[test]
-fn compression_ratio_frequency_one_has_no_gain() {
+fn compression_ratio_frequency_edges_match_contract() {
     let vault = vault();
-    vault.put(row(1, Some(1.0))).expect("put base");
+    for (seed, frequency, original_count, expected_ratio) in
+        [(1, 1.0, 1, 1.0), (50, 50.0, 50, 50.0), (0, 0.0, 0, 1.0)]
+    {
+        vault.put(row(seed, Some(frequency))).expect("put base");
 
-    let ratio = compression_ratio(cx(1), &vault).expect("ratio");
+        let ratio = compression_ratio(cx(seed), &vault).expect("ratio");
 
-    assert_eq!(ratio.original_count, 1);
-    assert_eq!(ratio.stored_count, 1);
-    assert_eq!(ratio.ratio, 1.0);
-}
-
-#[test]
-fn compression_ratio_frequency_fifty_is_fifty_to_one() {
-    let vault = vault();
-    vault.put(row(50, Some(50.0))).expect("put base");
-
-    let ratio = compression_ratio(cx(50), &vault).expect("ratio");
-
-    assert_eq!(ratio.original_count, 50);
-    assert_eq!(ratio.stored_count, 1);
-    assert_eq!(ratio.ratio, 50.0);
-}
-
-#[test]
-fn compression_ratio_zero_frequency_reports_no_gain() {
-    let vault = vault();
-    vault.put(row(0, Some(0.0))).expect("put base");
-
-    let ratio = compression_ratio(cx(0), &vault).expect("ratio");
-
-    assert_eq!(ratio.original_count, 0);
-    assert_eq!(ratio.stored_count, 1);
-    assert_eq!(ratio.ratio, 1.0);
+        assert_eq!(ratio.original_count, original_count);
+        assert_eq!(ratio.stored_count, 1);
+        assert_eq!(ratio.ratio, expected_ratio);
+    }
 }
 
 #[test]

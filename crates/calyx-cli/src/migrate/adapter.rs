@@ -36,11 +36,6 @@ pub struct VaultSqliteAdapter {
 }
 
 impl VaultSqliteAdapter {
-    #[allow(dead_code)]
-    pub fn new(vault_id: VaultId, _vault_salt: Vec<u8>, panel_version: u32) -> Self {
-        Self::new_with_lens_slot(vault_id, panel_version, default_gte_lens_id(), BASE_SLOT)
-    }
-
     pub fn new_with_lens_slot(
         vault_id: VaultId,
         panel_version: u32,
@@ -187,11 +182,7 @@ mod tests {
 
     #[test]
     fn from_chunk_row_is_deterministic_and_preserves_metadata() {
-        let adapter = VaultSqliteAdapter::new(
-            "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
-            b"salt".to_vec(),
-            default_panel_version(),
-        );
+        let adapter = adapter();
         let row = ChunkRow {
             row_num: 7,
             chunk_id: "abc123".to_string(),
@@ -342,10 +333,11 @@ mod tests {
     }
 
     fn adapter() -> VaultSqliteAdapter {
-        VaultSqliteAdapter::new(
+        VaultSqliteAdapter::new_with_lens_slot(
             "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
-            b"salt".to_vec(),
             default_panel_version(),
+            default_gte_lens_id(),
+            BASE_SLOT,
         )
     }
 

@@ -100,7 +100,7 @@ fn order_row(item: &str, qty: i64) -> Row {
 }
 
 #[test]
-#[ignore]
+#[ignore = "manual gpuhost FSV writes atomic data/index evidence bytes"]
 fn issue460_atomic_index_write_fsv_gpuhost() {
     let root = PathBuf::from(
         std::env::var_os("CALYX_ISSUE460_FSV_ROOT")
