@@ -9,6 +9,7 @@ use calyx_core::{
 use calyx_ledger::{
     ActorId, EntryKind, LedgerAppender, LedgerCfStore, MemoryLedgerStore, SubjectId,
 };
+use ulid::Ulid;
 
 use super::*;
 use crate::dedup::{
@@ -55,7 +56,7 @@ fn undo_rejects_token_from_wrong_vault() {
     let mut token = dedup_audit(&vault, new_id(first))
         .expect("audit")
         .reversal_token;
-    token.vault_id = "01ARZ3NDEKTSV4RRFFQ69G5FAW".parse().expect("other vault");
+    token.vault_id = other_vault_id();
 
     let error = dedup_undo(&vault, &token).expect_err("wrong vault rejected");
 
@@ -341,6 +342,12 @@ fn slot(value: u16) -> SlotId {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("vault id")
+}
+
+fn other_vault_id() -> VaultId {
+    let mut bytes = vault_id().as_ulid().to_bytes();
+    bytes[15] ^= 1;
+    VaultId::from_ulid(Ulid::from_bytes(bytes))
 }
 
 fn test_root(name: &str) -> std::path::PathBuf {
