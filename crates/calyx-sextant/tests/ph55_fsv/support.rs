@@ -26,6 +26,10 @@ use calyx_sextant::query::{
 use calyx_sextant::{CALYX_INVALID_ARGUMENT, CALYX_PLANNER_COST_CAP};
 use serde_json::{Value, json};
 
+#[path = "../sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::hex;
+
 pub(super) const FIXED_TS: u64 = 1_785_500_467;
 const VAULT_SALT: &[u8] = b"issue467-ph55";
 
@@ -480,8 +484,4 @@ fn query_steps(steps: &[calyx_sextant::query::ExplainStep]) -> Vec<Value> {
             })
         })
         .collect()
-}
-
-fn hex(bytes: &[u8; 32]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

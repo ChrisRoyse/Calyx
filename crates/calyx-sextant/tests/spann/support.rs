@@ -9,6 +9,10 @@ use calyx_core::{
 };
 use calyx_sextant::index::spann::centroids::SpannCentroidIndex;
 
+#[path = "../sextant_support/mod.rs"]
+mod sextant_support;
+pub(crate) use sextant_support::{cx_usize_be, hex};
+
 pub(crate) fn fsv_roots() -> (PathBuf, Option<PathBuf>) {
     if let Ok(vault) = std::env::var("CALYX_SPANN_FSV_VAULT") {
         let vault = PathBuf::from(vault);
@@ -108,10 +112,6 @@ fn fsv_vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV"
         .parse()
         .expect("valid vault id")
-}
-
-pub(crate) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 pub(crate) fn dir_listing(dir: &Path) -> String {

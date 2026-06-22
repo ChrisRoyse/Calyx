@@ -9,15 +9,17 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_aster::wal::WalOptions;
-use calyx_core::{
-    CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId, VaultStore,
-    content_address,
-};
+use calyx_core::{CxFlags, InputRef, LedgerRef, Modality, SlotId, VaultId, VaultStore};
 use calyx_sextant::{
     CALYX_SEXTANT_DIM_MISMATCH, CALYX_SEXTANT_EF_TOO_SMALL, CALYX_SEXTANT_INDEX_EMPTY,
     FusionStrategy, HnswIndex, InvertedIndex, Query, SearchEngine, SextantIndex, SlotIndexMap,
 };
 use serde_json::{Value, json};
+
+#[path = "../sextant_support/mod.rs"]
+mod sextant_support;
+pub use sextant_support::digest_hex;
+use sextant_support::{cx_usize_be as cx, dense};
 
 pub const ISSUE: u64 = 640;
 pub const DEFAULT_SCALE_CX: usize = 1_000_000;
@@ -305,13 +307,6 @@ pub fn dir_bytes(path: &Path) -> u64 {
         .sum()
 }
 
-pub fn digest_hex(bytes: &[u8]) -> String {
-    content_address([bytes])
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
-}
-
 fn measure_ingest_series(
     vault: &AsterVault,
     dim: usize,
@@ -430,17 +425,6 @@ fn normalize(mut data: Vec<f32>) -> Vec<f32> {
         *value /= norm;
     }
     data
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
-fn cx(value: usize) -> CxId {
-    CxId::from_bytes((value as u128).to_be_bytes())
 }
 
 fn vault_id() -> VaultId {

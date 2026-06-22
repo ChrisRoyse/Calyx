@@ -18,6 +18,10 @@ use calyx_oracle::{
 use calyx_sextant::{PeriodicOptions, score_e3_periodic, temporal_time_bucket};
 use serde_json::json;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::hex;
+
 const TUESDAY_2024_01_02_14H_UTC: i64 = 1_704_204_000;
 const TUESDAY_2024_01_02_19H_UTC: i64 = TUESDAY_2024_01_02_14H_UTC + 5 * 3_600;
 const WEEK_SECS: i64 = 604_800;
@@ -240,14 +244,4 @@ fn fsv_root() -> PathBuf {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("vault id")
-}
-
-fn hex(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(HEX[(byte >> 4) as usize] as char);
-        out.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    out
 }
