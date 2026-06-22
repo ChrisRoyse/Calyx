@@ -10,6 +10,69 @@ use proptest::prelude::*;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
+pub mod fsv {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use serde::Serialize;
+
+    pub fn fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) {
+        let keep = std::env::var_os(env_key).is_some();
+        let dir = std::env::var_os(env_key)
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id()))
+            });
+        (dir, keep)
+    }
+
+    pub fn write_json<T: Serialize + ?Sized>(path: &Path, value: &T) {
+        fs::write(path, serde_json::to_vec_pretty(value).unwrap()).expect("write json");
+    }
+
+    pub fn write_blake3_sums(root: &Path) {
+        let mut lines = Vec::new();
+        for relative in list_files(root) {
+            if relative == "BLAKE3SUMS.txt" {
+                continue;
+            }
+            let path = root.join(&relative);
+            if path.is_file() {
+                let bytes = fs::read(&path).expect("read checksum input");
+                lines.push(format!("{}  {}", blake3::hash(&bytes), relative));
+            }
+        }
+        lines.sort();
+        fs::write(root.join("BLAKE3SUMS.txt"), lines.join("\n")).expect("write sums");
+    }
+
+    pub fn list_files(root: &Path) -> Vec<String> {
+        let mut files = Vec::new();
+        collect_files(root, root, &mut files);
+        files.sort();
+        files
+    }
+
+    fn collect_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
+        let Ok(entries) = fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_files(root, &path, files);
+            } else if let Ok(relative) = path.strip_prefix(root) {
+                files.push(relative.to_string_lossy().replace('\\', "/"));
+            }
+        }
+    }
+
+    pub fn reset_dir(path: &Path) {
+        let _ = fs::remove_dir_all(path);
+        fs::create_dir_all(path).expect("create fsv root");
+    }
+}
+
 /// Default seed for deterministic Calyx tests.
 pub const DEFAULT_TEST_SEED: u64 = 0xCA1A_CAFE_D15C_1A11;
 

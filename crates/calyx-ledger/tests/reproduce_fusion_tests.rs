@@ -1,13 +1,16 @@
-use std::collections::BTreeMap;
-
 use calyx_core::{CxId, FixedClock, Input, LensId, Modality, SlotId, SlotVector};
 use calyx_ledger::{
-    ActorId, EntryKind, ForgeBackend, FusionMode, FusionWeights, HitRef, LedgerAppender,
-    LedgerCfStore, MemoryLedgerStore, QueryId, RecordedSlot, ReproduceInputResolver,
-    ReproduceLensRegistry, SlotWeight, SubjectId, assert_reproduced, assert_within_tolerance,
-    decode, reproduce_with_input_resolver, rerun_fusion,
+    ActorId, EntryKind, FusionMode, FusionWeights, HitRef, LedgerAppender, LedgerCfStore,
+    MemoryLedgerStore, QueryId, RecordedSlot, SlotWeight, SubjectId, assert_reproduced,
+    assert_within_tolerance, decode, reproduce_with_input_resolver, rerun_fusion,
 };
 use serde_json::json;
+
+mod reproduce_support;
+use reproduce_support::{
+    RecordingForge, RecordingRegistry, SlotInputResolver, cx, decode_vector_bytes, dense,
+    encode_vector_bytes, hex, rrf,
+};
 
 #[test]
 fn tolerance_accepts_sub_millidrift() {
@@ -111,8 +114,8 @@ fn reproduce_end_to_end_writes_reproduce_admin_entry() {
     let answer_id = answer_id();
     append_answer(&mut appender, &answer_id, &[0, 1], &fusion, &original);
     let mut store = appender.into_store();
-    let registry = RecordingRegistry::from_slots(&slots);
-    let resolver = Resolver::from_slots(&slots);
+    let registry = RecordingRegistry::from_slots_with_vectors(&slots, vector_for_encoded_slot);
+    let resolver = SlotInputResolver::from_slots(&slots, "missing test input");
     let mut forge = RecordingForge::default();
 
     let result =
@@ -148,8 +151,11 @@ fn missing_fusion_weights_fails_without_reproduce_row() {
         )
         .unwrap();
     let mut store = appender.into_store();
-    let registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
-    let resolver = Resolver::from_slots(std::slice::from_ref(&slot));
+    let registry = RecordingRegistry::from_slots_with_vectors(
+        std::slice::from_ref(&slot),
+        vector_for_encoded_slot,
+    );
+    let resolver = SlotInputResolver::from_slots(std::slice::from_ref(&slot), "missing test input");
     let mut forge = RecordingForge::default();
 
     let error =
@@ -184,7 +190,7 @@ fn remeasure_error_is_propagated_without_partial_reproduce_row() {
     );
     let mut store = appender.into_store();
     let registry = RecordingRegistry::default();
-    let resolver = Resolver::from_slots(std::slice::from_ref(&slot));
+    let resolver = SlotInputResolver::from_slots(std::slice::from_ref(&slot), "missing test input");
     let mut forge = RecordingForge::default();
 
     let error =
@@ -193,81 +199,6 @@ fn remeasure_error_is_propagated_without_partial_reproduce_row() {
 
     assert_eq!(error.code, "CALYX_LENS_FROZEN_VIOLATION");
     assert_eq!(store.scan().unwrap().len(), 2);
-}
-
-#[derive(Default)]
-struct RecordingForge {
-    seeds: Vec<u64>,
-}
-
-impl ForgeBackend for RecordingForge {
-    fn activate_determinism(&mut self, seed: u64) -> calyx_core::Result<()> {
-        self.seeds.push(seed);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct RecordingRegistry {
-    weights: BTreeMap<LensId, [u8; 32]>,
-    vectors: BTreeMap<LensId, SlotVector>,
-}
-
-impl RecordingRegistry {
-    fn from_slots(slots: &[RecordedSlot]) -> Self {
-        Self {
-            weights: slots
-                .iter()
-                .map(|slot| (slot.lens_id, slot.weights_sha256))
-                .collect(),
-            vectors: slots
-                .iter()
-                .map(|slot| (slot.lens_id, slot.input.clone().unwrap().bytes))
-                .map(|(lens, bytes)| (lens, decode_vector_bytes(&bytes)))
-                .collect(),
-        }
-    }
-}
-
-impl ReproduceLensRegistry for RecordingRegistry {
-    fn frozen_weights_sha256(&self, lens_id: LensId) -> calyx_core::Result<[u8; 32]> {
-        self.weights.get(&lens_id).copied().ok_or_else(|| {
-            calyx_core::CalyxError::lens_frozen_violation(format!(
-                "lens {lens_id} has no frozen snapshot"
-            ))
-        })
-    }
-
-    fn measure_frozen(&self, lens_id: LensId, _input: &Input) -> calyx_core::Result<SlotVector> {
-        self.vectors
-            .get(&lens_id)
-            .cloned()
-            .ok_or_else(|| calyx_core::CalyxError::lens_unreachable("missing vector"))
-    }
-}
-
-struct Resolver {
-    inputs: BTreeMap<[u8; 32], Input>,
-}
-
-impl Resolver {
-    fn from_slots(slots: &[RecordedSlot]) -> Self {
-        Self {
-            inputs: slots
-                .iter()
-                .map(|slot| (slot.input_hash, slot.input.clone().unwrap()))
-                .collect(),
-        }
-    }
-}
-
-impl ReproduceInputResolver for Resolver {
-    fn resolve_input(&self, slot: &RecordedSlot) -> calyx_core::Result<Input> {
-        self.inputs
-            .get(&slot.input_hash)
-            .cloned()
-            .ok_or_else(|| calyx_core::CalyxError::ledger_corrupt("missing test input"))
-    }
 }
 
 fn recorded_slot(slot_id: u16, seed: u64, label: &[u8], vector: SlotVector) -> RecordedSlot {
@@ -362,41 +293,14 @@ fn remeasured_slot(slot: u16, vector: SlotVector) -> calyx_ledger::RemeasuredSlo
     }
 }
 
-fn dense(scores: &[f32]) -> SlotVector {
-    SlotVector::Dense {
-        dim: scores.len() as u32,
-        data: scores.to_vec(),
-    }
-}
-
-fn encode_vector_bytes(label: &[u8], vector: &SlotVector) -> Vec<u8> {
-    let mut bytes = label.to_vec();
-    bytes.push(0xff);
-    bytes.extend_from_slice(&serde_json::to_vec(vector).unwrap());
-    bytes
-}
-
-fn decode_vector_bytes(bytes: &[u8]) -> SlotVector {
-    let json = bytes.split(|byte| *byte == 0xff).nth(1).unwrap();
-    serde_json::from_slice(json).unwrap()
-}
-
 fn hit(cx_id: CxId, score: f32) -> HitRef {
     HitRef { cx_id, score }
 }
 
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-fn rrf(weight: f32, rank: usize) -> f32 {
-    weight / (rank as f32 + 60.0)
+fn vector_for_encoded_slot(slot: &RecordedSlot) -> SlotVector {
+    decode_vector_bytes(&slot.input.as_ref().unwrap().bytes)
 }
 
 fn answer_id() -> QueryId {
     b"answer-fusion-test".to_vec()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

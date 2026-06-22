@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -14,6 +14,9 @@ use calyx_core::{
     Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId, VaultStore,
 };
 use calyx_loom::recurrence::{OccurrenceContext, SeriesStore};
+use calyx_testkit::fsv::{
+    fsv_root as test_fsv_root, list_files, reset_dir, write_blake3_sums, write_json,
+};
 use serde_json::{Value, json};
 
 const VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
@@ -23,7 +26,10 @@ const INGEST_WORKERS: usize = 12;
 
 #[test]
 fn recurrence_concurrency_readback_proves_unique_ids_and_fail_closed_retry() {
-    let (root, keep_root) = fsv_root();
+    let (root, keep_root) = test_fsv_root(
+        "CALYX_RECURRENCE_CONCURRENCY_FSV_ROOT",
+        "calyx-recurrence-concurrency-fsv",
+    );
     let before = json!({
         "root_exists_before_reset": root.exists(),
         "files_before_reset": list_files(&root),
@@ -365,65 +371,6 @@ fn command(args: &[&str]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_calyx"));
     command.args(args);
     command.output().expect("run calyx")
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_string_pretty(value).unwrap()).expect("write json");
-}
-
-fn write_blake3_sums(root: &Path) {
-    let mut lines = Vec::new();
-    for relative in list_files(root) {
-        if relative == "BLAKE3SUMS.txt" {
-            continue;
-        }
-        let path = root.join(&relative);
-        if path.is_file() {
-            let bytes = fs::read(&path).expect("read checksum input");
-            lines.push(format!("{}  {}", blake3::hash(&bytes), relative));
-        }
-    }
-    lines.sort();
-    fs::write(root.join("BLAKE3SUMS.txt"), lines.join("\n")).expect("write sums");
-}
-
-fn list_files(root: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files);
-    files.sort();
-    files
-}
-
-fn collect_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_files(root, &path, files);
-        } else if let Ok(relative) = path.strip_prefix(root) {
-            files.push(relative.to_string_lossy().replace('\\', "/"));
-        }
-    }
-}
-
-fn reset_dir(path: &Path) {
-    let _ = fs::remove_dir_all(path);
-    fs::create_dir_all(path).expect("create fsv root");
-}
-
-fn fsv_root() -> (PathBuf, bool) {
-    let keep = std::env::var_os("CALYX_RECURRENCE_CONCURRENCY_FSV_ROOT").is_some();
-    let dir = std::env::var_os("CALYX_RECURRENCE_CONCURRENCY_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!(
-                "calyx-recurrence-concurrency-fsv-{}",
-                std::process::id()
-            ))
-        });
-    (dir, keep)
 }
 
 fn display(path: &Path) -> String {

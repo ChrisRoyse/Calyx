@@ -1,20 +1,24 @@
-use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use calyx_core::{CxId, FixedClock, Input, LensId, Modality, SlotId, SlotVector};
 use calyx_ledger::{
-    ActorId, DirectoryLedgerStore, EntryKind, ForgeBackend, LedgerAppender, LedgerCfStore,
-    MemoryLedgerStore, QueryId, RecordedSlot, ReproduceContext, ReproduceInputResolver,
-    ReproduceLensRegistry, SubjectId, build_reproduce_context, decode, lookup_frozen_lens,
-    remeasure_slots, remeasure_slots_with_input_resolver,
+    ActorId, DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, MemoryLedgerStore,
+    QueryId, RecordedSlot, ReproduceContext, SubjectId, build_reproduce_context, decode,
+    lookup_frozen_lens, remeasure_slots, remeasure_slots_with_input_resolver,
 };
 use serde_json::json;
+
+mod reproduce_support;
+use reproduce_support::{
+    RecordingForge, RecordingRegistry, SlotInputResolver, hex, reset_child_dir,
+};
 
 #[test]
 fn remeasure_slots_is_idempotent_for_same_seed() {
     let ctx = context_with_slots(vec![slot(1, 9, b"alpha"), slot(2, 10, b"bravo")]);
-    let registry = RecordingRegistry::from_slots(&ctx.recorded_slots);
+    let registry =
+        RecordingRegistry::from_slots_with_input_fn(&ctx.recorded_slots, vector_for_input);
     let mut forge = RecordingForge::default();
 
     let first = remeasure_slots(&ctx, &registry, &mut forge).unwrap();
@@ -28,7 +32,8 @@ fn remeasure_slots_is_idempotent_for_same_seed() {
 #[test]
 fn weights_mismatch_fails_with_frozen_violation() {
     let slot = slot(3, 8, b"charlie");
-    let mut registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
+    let mut registry =
+        RecordingRegistry::from_slots_with_input_fn(std::slice::from_ref(&slot), vector_for_input);
     registry.weights.insert(slot.lens_id, [0xff; 32]);
 
     let error = lookup_frozen_lens(&registry, slot.lens_id, &slot.weights_sha256).unwrap_err();
@@ -39,7 +44,8 @@ fn weights_mismatch_fails_with_frozen_violation() {
 #[test]
 fn forge_seed_zero_is_activated_and_repeatable() {
     let ctx = context_with_slots(vec![slot(4, 0, b"delta")]);
-    let registry = RecordingRegistry::from_slots(&ctx.recorded_slots);
+    let registry =
+        RecordingRegistry::from_slots_with_input_fn(&ctx.recorded_slots, vector_for_input);
     let mut forge = RecordingForge::default();
 
     let first = remeasure_slots(&ctx, &registry, &mut forge).unwrap();
@@ -64,7 +70,8 @@ fn empty_recorded_slots_returns_empty_remeasurement() {
 #[test]
 fn retired_lens_succeeds_only_when_frozen_snapshot_is_present() {
     let slot = slot(5, 12, b"echo");
-    let present = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
+    let present =
+        RecordingRegistry::from_slots_with_input_fn(std::slice::from_ref(&slot), vector_for_input);
     let absent = RecordingRegistry::default();
     let mut forge = RecordingForge::default();
 
@@ -119,7 +126,8 @@ fn resolved_input_hash_mismatch_fails_closed() {
     let mut slot = slot(8, 18, b"hotel");
     slot.input_hash = [0xaa; 32];
     let ctx = context_with_slots(vec![slot]);
-    let registry = RecordingRegistry::from_slots(&ctx.recorded_slots);
+    let registry =
+        RecordingRegistry::from_slots_with_input_fn(&ctx.recorded_slots, vector_for_input);
     let mut forge = RecordingForge::default();
 
     let error = remeasure_slots(&ctx, &registry, &mut forge).unwrap_err();
@@ -156,13 +164,15 @@ fn reproduce_remeasure_gpuhost_fsv() {
 
     let store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
     let ctx = build_reproduce_context(&store, &answer_id).unwrap();
-    let registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
-    let resolver = SingleInputResolver { input };
+    let registry =
+        RecordingRegistry::from_slots_with_input_fn(std::slice::from_ref(&slot), vector_for_input);
+    let resolver = SlotInputResolver::from_slots(std::slice::from_ref(&slot), "missing test input");
     let mut forge = RecordingForge::default();
     let remeasured =
         remeasure_slots_with_input_resolver(&ctx, &registry, &mut forge, &resolver).unwrap();
 
-    let mut bad_registry = RecordingRegistry::from_slots(std::slice::from_ref(&slot));
+    let mut bad_registry =
+        RecordingRegistry::from_slots_with_input_fn(std::slice::from_ref(&slot), vector_for_input);
     bad_registry.weights.insert(slot.lens_id, [0xee; 32]);
     let mismatch = remeasure_slots_with_input_resolver(
         &ctx,
@@ -204,58 +214,6 @@ fn reproduce_remeasure_gpuhost_fsv() {
     assert_eq!(rows.len(), 2);
     assert!(max_diff <= 1.0e-3);
     assert_eq!(mismatch.code, "CALYX_LENS_FROZEN_VIOLATION");
-}
-
-#[derive(Default)]
-struct RecordingForge {
-    seeds: Vec<u64>,
-}
-
-impl ForgeBackend for RecordingForge {
-    fn activate_determinism(&mut self, seed: u64) -> calyx_core::Result<()> {
-        self.seeds.push(seed);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct RecordingRegistry {
-    weights: BTreeMap<LensId, [u8; 32]>,
-}
-
-impl RecordingRegistry {
-    fn from_slots(slots: &[RecordedSlot]) -> Self {
-        Self {
-            weights: slots
-                .iter()
-                .map(|slot| (slot.lens_id, slot.weights_sha256))
-                .collect(),
-        }
-    }
-}
-
-impl ReproduceLensRegistry for RecordingRegistry {
-    fn frozen_weights_sha256(&self, lens_id: LensId) -> calyx_core::Result<[u8; 32]> {
-        self.weights.get(&lens_id).copied().ok_or_else(|| {
-            calyx_core::CalyxError::lens_frozen_violation(format!(
-                "lens {lens_id} has no frozen snapshot"
-            ))
-        })
-    }
-
-    fn measure_frozen(&self, _lens_id: LensId, input: &Input) -> calyx_core::Result<SlotVector> {
-        Ok(vector_for(&input.bytes))
-    }
-}
-
-struct SingleInputResolver {
-    input: Input,
-}
-
-impl ReproduceInputResolver for SingleInputResolver {
-    fn resolve_input(&self, _slot: &RecordedSlot) -> calyx_core::Result<Input> {
-        Ok(self.input.clone())
-    }
 }
 
 fn context_with_slots(recorded_slots: Vec<RecordedSlot>) -> ReproduceContext {
@@ -363,6 +321,10 @@ fn vector_for(bytes: &[u8]) -> SlotVector {
     }
 }
 
+fn vector_for_input(input: &Input) -> SlotVector {
+    vector_for(&input.bytes)
+}
+
 fn max_abs_diff(a: &SlotVector, b: &SlotVector) -> f32 {
     let (Some(a), Some(b)) = (a.as_dense(), b.as_dense()) else {
         return f32::INFINITY;
@@ -381,18 +343,4 @@ fn fsv_root() -> PathBuf {
     std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph36-reproduce-fsv"))
-}
-
-fn reset_child_dir(root: &Path, child: &Path) {
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    if child.exists() {
-        let child_canonical = child.canonicalize().expect("canonical child path");
-        assert!(child_canonical.starts_with(&root));
-        fs::remove_dir_all(&child_canonical).expect("remove stale child dir");
-    }
-    fs::create_dir_all(child).expect("create child dir");
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

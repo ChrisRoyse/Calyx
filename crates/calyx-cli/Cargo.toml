@@ -39,4 +39,5 @@ sha2.workspace = true
 ulid.workspace = true
 
 [dev-dependencies]
+calyx-testkit = { path = "../calyx-testkit" }
 proptest.workspace = true

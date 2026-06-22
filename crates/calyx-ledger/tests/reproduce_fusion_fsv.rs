@@ -1,15 +1,18 @@
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CxId, FixedClock, Input, LensId, Modality, SlotId, SlotVector};
+use calyx_core::{FixedClock, Input, LensId, Modality, SlotId, SlotVector};
 use calyx_ledger::{
-    ActorId, DirectoryLedgerStore, EntryKind, ForgeBackend, FusionMode, FusionWeights, HitRef,
-    LedgerAppender, LedgerCfStore, LedgerRow, QueryId, RecordedSlot, ReproduceInputResolver,
-    ReproduceLensRegistry, SlotWeight, SubjectId, VerifyResult, assert_reproduced, decode,
-    reproduce_with_input_resolver, verify_chain,
+    ActorId, DirectoryLedgerStore, EntryKind, FusionMode, FusionWeights, HitRef, LedgerAppender,
+    LedgerCfStore, LedgerRow, QueryId, RecordedSlot, SlotWeight, SubjectId, VerifyResult,
+    assert_reproduced, decode, reproduce_with_input_resolver, verify_chain,
 };
 use serde_json::{Value, json};
+
+mod reproduce_support;
+use reproduce_support::{
+    RecordingForge, RecordingRegistry, SlotInputResolver, cx, dense, hex, reset_child_dir, rrf,
+};
 
 #[test]
 #[ignore = "manual gpuhost FSV for PH36 reproduce fusion ledger bytes"]
@@ -86,8 +89,8 @@ fn run_happy_path(root: &Path) -> Value {
         .len();
 
     let mut store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
-    let registry = RecordingRegistry::from_slots(&slots);
-    let resolver = Resolver::from_slots(&slots);
+    let registry = RecordingRegistry::from_slots_with_vectors(&slots, vector_for_recorded_slot);
+    let resolver = SlotInputResolver::from_slots(&slots, "missing fsv input");
     let mut forge = RecordingForge::default();
     let result =
         reproduce_with_input_resolver(&mut store, &registry, &mut forge, &resolver, &answer_id)
@@ -129,9 +132,9 @@ fn run_missing_fusion_edge(root: &Path) -> Value {
     let mut store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
     let error = reproduce_with_input_resolver(
         &mut store,
-        &RecordingRegistry::from_slots(&slots),
+        &RecordingRegistry::from_slots_with_vectors(&slots, vector_for_recorded_slot),
         &mut RecordingForge::default(),
-        &Resolver::from_slots(&slots),
+        &SlotInputResolver::from_slots(&slots, "missing fsv input"),
         &answer_id,
     )
     .unwrap_err();
@@ -155,9 +158,9 @@ fn run_drift_edge(root: &Path) -> Value {
     let mut store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
     let result = reproduce_with_input_resolver(
         &mut store,
-        &RecordingRegistry::from_slots(&slots),
+        &RecordingRegistry::from_slots_with_vectors(&slots, vector_for_recorded_slot),
         &mut RecordingForge::default(),
-        &Resolver::from_slots(&slots),
+        &SlotInputResolver::from_slots(&slots, "missing fsv input"),
         &answer_id,
     )
     .unwrap();
@@ -186,14 +189,14 @@ fn run_remeasure_error_edge(root: &Path) -> Value {
         .unwrap()
         .len();
 
-    let mut registry = RecordingRegistry::from_slots(&slots);
+    let mut registry = RecordingRegistry::from_slots_with_vectors(&slots, vector_for_recorded_slot);
     registry.weights.insert(slots[0].lens_id, [0xee; 32]);
     let mut store = DirectoryLedgerStore::open(&ledger_dir).unwrap();
     let error = reproduce_with_input_resolver(
         &mut store,
         &registry,
         &mut RecordingForge::default(),
-        &Resolver::from_slots(&slots),
+        &SlotInputResolver::from_slots(&slots, "missing fsv input"),
         &answer_id,
     )
     .unwrap_err();
@@ -269,80 +272,6 @@ where
         .unwrap();
 }
 
-#[derive(Default)]
-struct RecordingForge {
-    seeds: Vec<u64>,
-}
-
-impl ForgeBackend for RecordingForge {
-    fn activate_determinism(&mut self, seed: u64) -> calyx_core::Result<()> {
-        self.seeds.push(seed);
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct RecordingRegistry {
-    weights: BTreeMap<LensId, [u8; 32]>,
-    vectors: BTreeMap<LensId, SlotVector>,
-}
-
-impl RecordingRegistry {
-    fn from_slots(slots: &[RecordedSlot]) -> Self {
-        Self {
-            weights: slots
-                .iter()
-                .map(|slot| (slot.lens_id, slot.weights_sha256))
-                .collect(),
-            vectors: slots
-                .iter()
-                .map(|slot| (slot.lens_id, vector_for_slot(slot.slot_id)))
-                .collect(),
-        }
-    }
-}
-
-impl ReproduceLensRegistry for RecordingRegistry {
-    fn frozen_weights_sha256(&self, lens_id: LensId) -> calyx_core::Result<[u8; 32]> {
-        self.weights.get(&lens_id).copied().ok_or_else(|| {
-            calyx_core::CalyxError::lens_frozen_violation(format!(
-                "lens {lens_id} has no frozen snapshot"
-            ))
-        })
-    }
-
-    fn measure_frozen(&self, lens_id: LensId, _input: &Input) -> calyx_core::Result<SlotVector> {
-        self.vectors
-            .get(&lens_id)
-            .cloned()
-            .ok_or_else(|| calyx_core::CalyxError::lens_unreachable("missing vector"))
-    }
-}
-
-struct Resolver {
-    inputs: BTreeMap<[u8; 32], Input>,
-}
-
-impl Resolver {
-    fn from_slots(slots: &[RecordedSlot]) -> Self {
-        Self {
-            inputs: slots
-                .iter()
-                .map(|slot| (slot.input_hash, slot.input.clone().unwrap()))
-                .collect(),
-        }
-    }
-}
-
-impl ReproduceInputResolver for Resolver {
-    fn resolve_input(&self, slot: &RecordedSlot) -> calyx_core::Result<Input> {
-        self.inputs
-            .get(&slot.input_hash)
-            .cloned()
-            .ok_or_else(|| calyx_core::CalyxError::ledger_corrupt("missing fsv input"))
-    }
-}
-
 fn scenario() -> (Vec<RecordedSlot>, QueryId, FusionWeights, Vec<HitRef>) {
     let candidates = vec![cx(1), cx(2)];
     let slots = vec![recorded_slot(0, 101), recorded_slot(1, 102)];
@@ -400,6 +329,10 @@ fn vector_for_slot(slot: SlotId) -> SlotVector {
     }
 }
 
+fn vector_for_recorded_slot(slot: &RecordedSlot) -> SlotVector {
+    vector_for_slot(slot.slot_id)
+}
+
 fn row_readback(rows: &[LedgerRow]) -> Vec<Value> {
     rows.iter()
         .enumerate()
@@ -446,37 +379,8 @@ fn row_files(rows: &[LedgerRow]) -> Vec<String> {
         .collect()
 }
 
-fn dense(scores: &[f32]) -> SlotVector {
-    SlotVector::Dense {
-        dim: scores.len() as u32,
-        data: scores.to_vec(),
-    }
-}
-
-fn reset_child_dir(root: &Path, child: &Path) {
-    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    if child.exists() {
-        let child_canonical = child.canonicalize().expect("canonical child path");
-        assert!(child_canonical.starts_with(&root));
-        fs::remove_dir_all(&child_canonical).expect("remove stale child dir");
-    }
-    fs::create_dir_all(child).expect("create child dir");
-}
-
 fn fsv_root() -> PathBuf {
     std::env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph36-reproduce-fusion-fsv"))
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-fn rrf(weight: f32, rank: usize) -> f32 {
-    weight / (rank as f32 + 60.0)
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
