@@ -45,14 +45,18 @@ pub(super) fn build_lens(manifest: PathBuf, spec: RegistryLensSpec) -> Result<Bu
         }
         LensRuntime::MultimodalAdapter { files, .. } => {
             let lens = MultimodalAdapterLens::from_lens_spec(&spec).map_err(lens_error)?;
-            let ram_mb = paths_mb(&files)?;
-            Ok(cpu_build_lens(
-                manifest,
-                spec,
-                runtime,
-                Box::new(lens),
-                ram_mb,
-            ))
+            if lens.provider().is_gpu() {
+                gpu_build_lens(manifest, spec, runtime, Box::new(lens), &files)
+            } else {
+                let ram_mb = paths_mb(&files)?;
+                Ok(cpu_build_lens(
+                    manifest,
+                    spec,
+                    runtime,
+                    Box::new(lens),
+                    ram_mb,
+                ))
+            }
         }
         LensRuntime::TeiHttp { endpoint } => {
             let lens = TeiHttpLens::new(&spec.name, endpoint, spec.modality, dim(spec.output));

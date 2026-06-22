@@ -218,7 +218,7 @@ def convert_adapter(
         "python": str(model.get("python") or "/var/lib/calyx/.venv-gpu/bin/python"),
         "helper": helper_path.name,
         "model_file": model_path.name,
-        "provider": "cpu_explicit",
+        "provider": str(model.get("provider") or "cpu_explicit"),
         "timeout_ms": int(model.get("timeout_ms") or 120000),
     }
     if "kmer" in model:

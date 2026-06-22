@@ -17,6 +17,8 @@ import numpy as np
 import onnxruntime as ort
 from scipy import signal
 
+CUDA_FAIL_LOUD_DETAIL = "cuda:0,error_on_failure,no_cpu_fallback"
+
 
 def main() -> int:
     parser = argparse.ArgumentParser()
@@ -39,12 +41,36 @@ def main() -> int:
 
 
 def load_session(model_file: Path, provider: str | None) -> ort.InferenceSession:
-    if provider != "cpu_explicit":
-        raise RuntimeError(f"unsupported provider {provider!r}")
+    if provider is None or provider == "cpu_explicit":
+        return load_cpu_session(model_file)
+    if provider in {"cuda_fail_loud", CUDA_FAIL_LOUD_DETAIL}:
+        return load_cuda_session(model_file, allow_cpu_fallback=False)
+    if provider in {"cuda_preferred", "cuda:0,allow_cpu_fallback"}:
+        return load_cuda_session(model_file, allow_cpu_fallback=True)
+    raise RuntimeError(f"unsupported provider {provider!r}")
+
+
+def load_cpu_session(model_file: Path) -> ort.InferenceSession:
     available = ort.get_available_providers()
     if "CPUExecutionProvider" not in available:
         raise RuntimeError(f"CPUExecutionProvider unavailable: {available}")
     return ort.InferenceSession(str(model_file), providers=["CPUExecutionProvider"])
+
+
+def load_cuda_session(model_file: Path, allow_cpu_fallback: bool) -> ort.InferenceSession:
+    available = ort.get_available_providers()
+    if "CUDAExecutionProvider" not in available:
+        raise RuntimeError(f"CUDAExecutionProvider unavailable: {available}")
+    options = ort.SessionOptions()
+    providers: list[Any] = [("CUDAExecutionProvider", {"device_id": 0})]
+    if allow_cpu_fallback:
+        providers.append("CPUExecutionProvider")
+    else:
+        options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+    session = ort.InferenceSession(str(model_file), sess_options=options, providers=providers)
+    if "CUDAExecutionProvider" not in session.get_providers():
+        raise RuntimeError(f"CUDAExecutionProvider did not load: {session.get_providers()}")
+    return session
 
 
 def load_processor(axis: str, model_id: str, config: dict[str, Any]) -> Any:
@@ -140,12 +166,18 @@ def preprocess_image(processor: dict[str, Any], payload: bytes) -> dict[str, np.
 
 def preprocess_split_image(processor: dict[str, Any], image: Any) -> dict[str, np.ndarray]:
     config = processor["config"]
+    tile_size = split_tile_size(config)
+    canvas_width, canvas_height = split_canvas_size(config, image, tile_size)
     images = split_page_images(config, image)
     pixel_values = np.stack([image_pixels(config, item) for item in images], axis=0)[
         np.newaxis, ...
     ]
     features = {"pixel_values": pixel_values.astype(np.float32, copy=False)}
-    add_image_tokens(features, processor)
+    add_image_tokens(
+        features,
+        processor,
+        grid=(canvas_height // tile_size, canvas_width // tile_size),
+    )
     return features
 
 
@@ -164,12 +196,47 @@ def image_pixels(config: dict[str, Any], image: Any) -> np.ndarray:
     return np.transpose(pixels, (2, 0, 1)).astype(np.float32, copy=False)
 
 
-def add_image_tokens(features: dict[str, np.ndarray], processor: dict[str, Any]) -> None:
+def add_image_tokens(
+    features: dict[str, np.ndarray],
+    processor: dict[str, Any],
+    grid: tuple[int, int] | None = None,
+) -> None:
     tokenizer = processor.get("tokenizer")
     if tokenizer is not None:
-        features.update(
-            dict(tokenizer(processor.get("prompt", ""), return_tensors="np", truncation=True))
-        )
+        prompt = image_prompt(processor, grid)
+        features.update(dict(tokenizer(prompt, return_tensors="np", truncation=True)))
+
+
+def image_prompt(processor: dict[str, Any], grid: tuple[int, int] | None = None) -> str:
+    config = processor["config"]
+    prompt = processor.get("prompt", "")
+    image_seq_length = int(config.get("image_seq_length") or config.get("num_image_tokens") or 0)
+    if image_seq_length <= 0:
+        if grid is not None:
+            split_tokens = split_image_tokens(processor, grid)
+            if split_tokens:
+                return f"{split_tokens}{prompt}"
+        return prompt
+    image_token = config.get("image_token") or "<image>"
+    return f"{image_token * image_seq_length}{prompt}"
+
+
+def split_image_tokens(processor: dict[str, Any], grid: tuple[int, int]) -> str:
+    tokenizer = processor.get("tokenizer")
+    if tokenizer is None:
+        return ""
+    vocab = tokenizer.get_vocab()
+    if "<global-img>" not in vocab:
+        return ""
+    rows, cols = grid
+    tokens = ["<global-img>"]
+    for row in range(1, rows + 1):
+        for col in range(1, cols + 1):
+            token = f"<row_{row}_col_{col}>"
+            if token not in vocab:
+                return ""
+            tokens.append(token)
+    return "".join(tokens)
 
 
 def split_page_images(config: dict[str, Any], image: Any) -> list[Any]:

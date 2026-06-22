@@ -168,14 +168,25 @@ pub(super) fn runtime_lens(spec: &LensSpec) -> Result<RuntimeLens, CalyxError> {
         }
         LensRuntime::MultimodalAdapter { .. } => {
             let lens = MultimodalAdapterLens::from_lens_spec(spec)?;
+            let provider = lens.provider_detail().to_string();
+            let placement = if lens.provider().is_gpu() {
+                Placement::Gpu
+            } else {
+                Placement::Cpu
+            };
+            let proof = if lens.provider().is_gpu() {
+                format!("multimodal_onnx_provider_configured:{provider}")
+            } else {
+                "cpu_runtime_not_gpu_claim".to_string()
+            };
             Ok(RuntimeLens {
                 lens: Box::new(lens),
-                detail: "multimodal_adapter;cpu_explicit".to_string(),
-                provider: "cpu_explicit".to_string(),
-                placement: Placement::Cpu,
+                detail: format!("multimodal_adapter;{provider}"),
+                provider,
+                placement,
                 native_batching: true,
                 max_batch: spec.max_batch,
-                proof: "cpu_runtime_not_gpu_claim".to_string(),
+                proof,
                 gpu_process_required: false,
             })
         }

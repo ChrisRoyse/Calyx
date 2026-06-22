@@ -10,6 +10,51 @@ use super::axis::MultimodalAxis;
 const ADAPTER_SCHEMA: &str = "calyx-multimodal-adapter-v2";
 const ENGINE_ONNX_EXTERNAL: &str = "onnx-external";
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
+const PROVIDER_CPU_EXPLICIT: &str = "cpu_explicit";
+const PROVIDER_CUDA_FAIL_LOUD: &str = "cuda_fail_loud";
+const PROVIDER_CUDA_PREFERRED: &str = "cuda_preferred";
+const PROVIDER_CUDA_DETAIL: &str = "cuda:0,error_on_failure,no_cpu_fallback";
+const PROVIDER_CUDA_PREFERRED_DETAIL: &str = "cuda:0,allow_cpu_fallback";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MultimodalAdapterProvider {
+    CpuExplicit,
+    CudaFailLoud,
+    CudaPreferred,
+}
+
+impl MultimodalAdapterProvider {
+    pub fn parse(raw: &str) -> Result<Self> {
+        match raw.trim() {
+            PROVIDER_CPU_EXPLICIT => Ok(Self::CpuExplicit),
+            PROVIDER_CUDA_FAIL_LOUD | PROVIDER_CUDA_DETAIL => Ok(Self::CudaFailLoud),
+            PROVIDER_CUDA_PREFERRED | PROVIDER_CUDA_PREFERRED_DETAIL => Ok(Self::CudaPreferred),
+            other => Err(config_invalid(format!(
+                "unsupported multimodal adapter provider {other}"
+            ))),
+        }
+    }
+
+    pub const fn config_value(self) -> &'static str {
+        match self {
+            Self::CpuExplicit => PROVIDER_CPU_EXPLICIT,
+            Self::CudaFailLoud => PROVIDER_CUDA_FAIL_LOUD,
+            Self::CudaPreferred => PROVIDER_CUDA_PREFERRED,
+        }
+    }
+
+    pub const fn detail(self) -> &'static str {
+        match self {
+            Self::CpuExplicit => "cpu_explicit,no_cuda",
+            Self::CudaFailLoud => PROVIDER_CUDA_DETAIL,
+            Self::CudaPreferred => PROVIDER_CUDA_PREFERRED_DETAIL,
+        }
+    }
+
+    pub const fn is_gpu(self) -> bool {
+        matches!(self, Self::CudaFailLoud | Self::CudaPreferred)
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct MultimodalAdapterConfig {
@@ -21,7 +66,7 @@ pub struct MultimodalAdapterConfig {
     pub command: String,
     pub helper: PathBuf,
     pub model_file: PathBuf,
-    pub provider: String,
+    pub provider: MultimodalAdapterProvider,
     pub timeout: Duration,
 }
 
@@ -99,12 +144,7 @@ pub fn load_adapter_config(
             raw.dim, expected
         )));
     }
-    if raw.provider != "cpu_explicit" {
-        return Err(config_invalid(format!(
-            "unsupported multimodal adapter provider {}",
-            raw.provider
-        )));
-    }
+    let provider = MultimodalAdapterProvider::parse(&raw.provider)?;
     let base = path.parent().unwrap_or_else(|| Path::new("."));
     let helper = resolve_path(base, raw.helper);
     let model_file = resolve_path(base, raw.model_file);
@@ -121,7 +161,7 @@ pub fn load_adapter_config(
         command: raw.python.unwrap_or_else(|| "python3".to_string()),
         helper,
         model_file,
-        provider: raw.provider,
+        provider,
         timeout: Duration::from_millis(raw.timeout_ms),
     })
 }
@@ -137,7 +177,7 @@ impl MultimodalAdapterConfig {
 }
 
 fn default_provider() -> String {
-    "cpu_explicit".to_string()
+    PROVIDER_CPU_EXPLICIT.to_string()
 }
 
 const fn default_timeout_ms() -> u64 {

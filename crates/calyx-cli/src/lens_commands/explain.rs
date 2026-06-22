@@ -304,12 +304,21 @@ fn measure_fastembed_qwen3(
 fn measure_multimodal(spec: &LensSpec, probe: &Input, repeat: usize) -> CliResult<Measurement> {
     let lens = MultimodalAdapterLens::from_lens_spec(spec)?;
     let vector = measure_repeated(&lens, probe, repeat)?;
+    let vram_bytes = match &spec.runtime {
+        LensRuntime::MultimodalAdapter { files, .. } if lens.provider().is_gpu() => {
+            files_size(files)?
+        }
+        _ => 0,
+    };
     Ok(Measurement {
         vector,
         dtype: "f32".to_string(),
         rows: None,
-        vram_bytes: 0,
-        runtime_detail: "multimodal_adapter_onnx_external;cpu_explicit".to_string(),
+        vram_bytes,
+        runtime_detail: format!(
+            "multimodal_adapter_onnx_external;{}",
+            lens.provider_detail()
+        ),
     })
 }
 

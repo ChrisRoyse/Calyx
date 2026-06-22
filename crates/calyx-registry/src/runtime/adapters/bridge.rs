@@ -1,4 +1,7 @@
+use std::env;
+use std::ffi::OsString;
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
@@ -46,20 +49,25 @@ fn run_frame(config: &MultimodalAdapterConfig, request: &[u8]) -> Result<Vec<u8>
             "multimodal adapter timed out before spawn",
         ));
     }
-    let mut child = Command::new(&config.command)
+    let mut command = Command::new(&config.command);
+    command
         .arg(&config.helper)
         .arg("--config")
         .arg(&config.path)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| {
-            CalyxError::lens_unreachable(format!(
-                "spawn multimodal adapter {} failed: {err}",
-                config.command
-            ))
-        })?;
+        .stderr(Stdio::piped());
+    if config.provider.is_gpu()
+        && let Some(path) = cuda_ld_library_path(&config.command)
+    {
+        command.env("LD_LIBRARY_PATH", path);
+    }
+    let mut child = command.spawn().map_err(|err| {
+        CalyxError::lens_unreachable(format!(
+            "spawn multimodal adapter {} failed: {err}",
+            config.command
+        ))
+    })?;
     let mut stdin = child
         .stdin
         .take()
@@ -213,4 +221,44 @@ fn read_response(stdout: &mut impl Read) -> Result<Vec<u8>> {
 
 fn finish_child(child: &mut std::process::Child) {
     let _ = child.wait();
+}
+
+fn cuda_ld_library_path(command: &str) -> Option<OsString> {
+    let mut dirs = nvidia_library_dirs(command);
+    if dirs.is_empty() {
+        return env::var_os("LD_LIBRARY_PATH");
+    }
+    if let Some(existing) = env::var_os("LD_LIBRARY_PATH") {
+        dirs.extend(env::split_paths(&existing));
+    }
+    env::join_paths(dirs).ok()
+}
+
+fn nvidia_library_dirs(command: &str) -> Vec<PathBuf> {
+    let python = Path::new(command);
+    let Some(venv_root) = python.parent().and_then(Path::parent) else {
+        return Vec::new();
+    };
+    let lib_root = venv_root.join("lib");
+    let Ok(python_dirs) = std::fs::read_dir(lib_root) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for python_dir in python_dirs.flatten() {
+        let site = python_dir.path().join("site-packages").join("nvidia");
+        collect_nvidia_lib_dirs(&site, &mut out);
+    }
+    out
+}
+
+fn collect_nvidia_lib_dirs(root: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(packages) = std::fs::read_dir(root) else {
+        return;
+    };
+    for package in packages.flatten() {
+        let candidate = package.path().join("lib");
+        if candidate.is_dir() {
+            out.push(candidate);
+        }
+    }
 }
