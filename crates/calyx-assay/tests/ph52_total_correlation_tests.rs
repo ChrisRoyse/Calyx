@@ -1,6 +1,3 @@
-use std::fs;
-use std::path::PathBuf;
-
 use calyx_assay::{
     CALYX_TC_INSUFFICIENT_SAMPLES, IISign, TotalCorrelationConfig, interaction_information,
     interaction_information_with_config, min_quorum_tc, total_correlation,
@@ -9,6 +6,14 @@ use calyx_assay::{
 use calyx_core::FixedClock;
 use proptest::prelude::*;
 use serde_json::json;
+
+mod ph52_signal_support;
+mod ph52_support;
+
+use ph52_signal_support::noise;
+use ph52_support::write_readback;
+
+const READBACK_LABEL: &str = "PH52_TC_READBACK";
 
 fn clock() -> FixedClock {
     FixedClock::new(1_786_100_000)
@@ -19,16 +24,6 @@ fn fast_config() -> TotalCorrelationConfig {
         bootstrap_resamples: 20,
         ..TotalCorrelationConfig::default()
     }
-}
-
-fn write_readback(name: &str, value: serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
-        return;
-    };
-    let path = PathBuf::from(root).join(name);
-    fs::create_dir_all(path.parent().expect("readback parent")).unwrap();
-    fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
-    println!("PH52_TC_READBACK={}", path.display());
 }
 
 #[test]
@@ -44,6 +39,7 @@ fn total_correlation_redundant_panel_lowers_n_eff() {
         min_quorum_tc(panel.len())
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-tc-redundant.json",
         json!({ "case": "redundant_panel", "result": result }),
     );
@@ -63,6 +59,7 @@ fn total_correlation_independent_panel_preserves_n_eff() {
         result.tc, result.n_eff, result.ci_95.0, result.ci_95.1
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-tc-independent.json",
         json!({ "case": "independent_panel", "result": result }),
     );
@@ -89,6 +86,7 @@ fn interaction_information_classifies_redundant_and_synergistic() {
         synergy.sign, synergy.ii, synergy.ci_95.0, synergy.ci_95.1
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-tc-ii.json",
         json!({
             "case": "interaction_information",
@@ -113,6 +111,7 @@ fn total_correlation_default_bootstrap_fsv() {
         result.tc, result.n_eff, result.ci_95.0, result.ci_95.1
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-tc-default-bootstrap.json",
         json!({ "case": "default_500_bootstrap_redundant_panel", "result": result }),
     );
@@ -134,6 +133,7 @@ fn total_correlation_edges_fail_closed_with_code() {
     let unclear = independent_interaction_sign(180);
 
     write_readback(
+        READBACK_LABEL,
         "ph52-tc-edges.json",
         json!({
             "single_slot": single_result,
@@ -269,14 +269,4 @@ fn jittered(base: &[f32], salt: u64, scale: f32) -> Vec<f32> {
 
 fn normalish(t: u64, salt: u64) -> f32 {
     (0..6).map(|offset| noise(t, salt + offset)).sum::<f32>() - 3.0
-}
-
-fn noise(t: u64, salt: u64) -> f32 {
-    let mut x = t.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 30;
-    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 27;
-    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^= x >> 31;
-    ((x >> 40) as f32) / ((1_u64 << 24) as f32)
 }
