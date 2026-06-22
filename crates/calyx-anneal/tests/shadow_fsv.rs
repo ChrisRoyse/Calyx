@@ -11,6 +11,10 @@ use calyx_anneal::{
 use calyx_core::{CxId, FixedClock};
 use serde_json::json;
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
+use fsv_support::{write_json, write_manifest};
+
 const FSV_TS: u64 = 1_785_500_395;
 
 #[test]
@@ -287,23 +291,4 @@ fn replay(count: usize) -> HeldOutReplay {
             })
             .collect(),
     }
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) {
-    let bytes = serde_json::to_vec_pretty(value).expect("serialize JSON artifact");
-    fs::write(path, bytes).expect("write JSON artifact");
-}
-
-fn write_manifest(root: &Path, paths: &[PathBuf]) {
-    let mut lines = String::new();
-    for path in paths {
-        let bytes = fs::read(path).expect("read manifest artifact");
-        let rel = path.strip_prefix(root).unwrap_or(path);
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            rel.display()
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
 }

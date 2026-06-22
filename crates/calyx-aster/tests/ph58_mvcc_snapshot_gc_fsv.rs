@@ -16,6 +16,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+mod fsv_support;
+use fsv_support::{fsv_root_os, reset_dir};
+
 #[derive(Clone, Debug)]
 struct SharedClock {
     now: Arc<AtomicU64>,
@@ -38,7 +41,7 @@ impl Clock for SharedClock {
 #[test]
 #[ignore = "manual gpuhost FSV writes PH58 MVCC snapshot-GC source-of-truth artifacts"]
 fn ph58_mvcc_snapshot_gc_fsv() {
-    let root = fsv_root();
+    let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-ph58-mvcc-gc");
     reset_dir(&root);
     fs::write(
         root.join("cleanup-tag.txt"),
@@ -386,19 +389,6 @@ fn command_text(command: &str, args: &[&str]) -> String {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("calyx-ph58-mvcc-gc-{}", std::process::id()))
-        })
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create fsv root");
 }
 
 fn vault_id() -> VaultId {

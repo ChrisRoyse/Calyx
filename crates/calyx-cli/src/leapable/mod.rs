@@ -1,7 +1,6 @@
 pub(crate) mod dual_write;
 #[cfg(test)]
 mod dual_write_tests;
-pub(crate) mod dual_write_typed;
 mod issue612_fsv;
 pub(crate) mod panel_guard_enable;
 pub(crate) mod production_fsv;

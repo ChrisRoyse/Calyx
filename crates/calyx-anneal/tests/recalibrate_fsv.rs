@@ -15,9 +15,13 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CalyxError, CxId, FixedClock, LensId, Result, SlotId, SystemClock, VaultId};
+use calyx_core::{CalyxError, CxId, FixedClock, LensId, Result, SlotId, SystemClock};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use serde_json::{Value, json};
+
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
+use fsv_support::{reset_dir, vault_id, write_json};
 
 const TEST_TS: u64 = 1_785_500_404;
 
@@ -456,19 +460,6 @@ fn lens(seed: u8) -> LensId {
         &[seed.wrapping_add(1); 32],
         b"2",
     )
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).unwrap();
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
 
 fn read_text(path: &Path) -> String {

@@ -10,12 +10,15 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
+
+mod support;
+use support::fsv_io::{
+    case_fsv_root, reset_dir, write_blake3_sums_by_path as write_blake3_sums, write_json,
+    write_text,
+};
 
 const VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const SALT: &str = "cli-compact-recovery-salt";
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn compact_cli_uses_durable_recovery_safe_sst_and_cold_open_survives() {
@@ -320,48 +323,6 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).trim().to_string()
 }
 
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).expect("json")).expect("write json");
-}
-
-fn write_text(path: &Path, value: String) {
-    fs::write(path, value).expect("write text");
-}
-
-fn write_blake3_sums(root: &Path) {
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files);
-    files.sort();
-    let mut lines = String::new();
-    for relative in files {
-        if relative == Path::new("BLAKE3SUMS.txt") {
-            continue;
-        }
-        let bytes = fs::read(root.join(&relative)).expect("read checksum file");
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3_hex(&bytes),
-            relative.to_string_lossy().replace('\\', "/")
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write checksum manifest");
-}
-
-fn collect_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("read dir") {
-        let path = entry.expect("dir entry").path();
-        if path.is_dir() {
-            collect_files(root, &path, files);
-        } else {
-            files.push(
-                path.strip_prefix(root)
-                    .expect("relative path")
-                    .to_path_buf(),
-            );
-        }
-    }
-}
-
 fn list_names(dir: &Path) -> Vec<String> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
@@ -392,22 +353,7 @@ fn vault_id() -> VaultId {
 }
 
 fn test_root(name: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_CLI_COMPACT_FSV_ROOT") {
-        return (PathBuf::from(root).join(name), true);
-    }
-    let seq = NEXT_DIR.fetch_add(1, Ordering::SeqCst);
-    (
-        std::env::temp_dir().join(format!(
-            "calyx-cli-compact-{name}-{}-{seq}",
-            std::process::id()
-        )),
-        false,
-    )
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create test root");
+    case_fsv_root("CALYX_CLI_COMPACT_FSV_ROOT", "calyx-cli-compact", name)
 }
 
 fn cleanup(root: PathBuf, keep_root: bool) {

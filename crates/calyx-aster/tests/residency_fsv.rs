@@ -12,24 +12,13 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::VaultId;
 use calyx_ledger::{EntryKind, SubjectId, decode as decode_ledger};
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::path::Path;
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::{named_fsv_root, reset_dir};
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_ASTER_RESIDENCY_FSV_ROOT") {
-        return (PathBuf::from(root), true);
-    }
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    (
-        std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id())),
-        false,
-    )
 }
 
 fn options_with_residency(pin: Residency) -> VaultOptions {
@@ -77,9 +66,8 @@ fn find_residency_audit(
 
 #[test]
 fn vault_residency_fsv() {
-    let (root, keep) = fsv_root("residency-fsv");
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).expect("create fsv root");
+    let (root, keep) = named_fsv_root("CALYX_ASTER_RESIDENCY_FSV_ROOT", "residency-fsv");
+    reset_dir(&root);
     let vault_dir = root.join("vault");
     let dataset_root = vault_dir.clone();
 

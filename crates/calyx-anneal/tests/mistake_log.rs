@@ -8,8 +8,11 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{AnchorKind, CalyxError, Clock, CxId, FixedClock, Result, VaultId};
+use calyx_core::{AnchorKind, CalyxError, Clock, CxId, FixedClock, Result};
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[test]
 fn append_three_entries_computes_surprise_and_rate() {
@@ -157,8 +160,4 @@ fn memory_log(window_size: usize, ts: u64) -> MistakeLog<MemoryMistakeStorage> {
 
 fn cx(byte: u8) -> CxId {
     CxId::from_bytes([byte; 16])
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

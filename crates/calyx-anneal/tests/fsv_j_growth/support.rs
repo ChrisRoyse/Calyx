@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,10 +8,15 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, Result as CalyxResult, VaultId};
+use calyx_core::{FixedClock, Result as CalyxResult};
 use calyx_ledger::{ActorId, LedgerAppender};
 use serde_json::json;
 use sha2::{Digest, Sha256};
+
+#[allow(clippy::duplicate_mod)]
+#[path = "../fsv_support/mod.rs"]
+mod fsv_support;
+pub(crate) use fsv_support::write_json;
 
 pub(crate) const FSV_TS: u64 = 1_785_800_428;
 const VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
@@ -130,7 +134,7 @@ impl WardGtau for StaticWard {
 pub(crate) fn open_vault(path: &Path) -> AsterVault {
     AsterVault::new_durable(
         path,
-        vault_id(),
+        fsv_support::vault_id(),
         VAULT_SALT.to_vec(),
         VaultOptions::default(),
     )
@@ -168,14 +172,6 @@ pub(crate) fn cf_rows(vault: &AsterVault, cf: ColumnFamily) -> Vec<serde_json::V
         .into_iter()
         .map(|(key, value)| row_json(&(key, value)))
         .collect()
-}
-
-pub(crate) fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(value).expect("serialize evidence"),
-    )
-    .expect("write evidence");
 }
 
 pub(crate) fn report_for_growth_step(
@@ -224,10 +220,6 @@ pub(crate) fn open_ledger(
     )
     .unwrap();
     AnnealLedger::new(appender, ActorId::Service("calyx-issue428-fsv".to_string())).unwrap()
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn row_json((key, value): &(Vec<u8>, Vec<u8>)) -> serde_json::Value {

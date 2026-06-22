@@ -7,9 +7,9 @@ mod sextant_support;
 use calyx_core::{Result, SlotId};
 use calyx_sextant::{HnswIndex, SextantIndex};
 use serde_json::json;
-use sextant_support::{cx_usize_be as cx, dense};
+use sextant_support::{cx_usize_be as cx, dense, raw_blake3_hex, write_json};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Duration;
 
 #[test]
@@ -96,7 +96,10 @@ fn ph58_ann_tombstone_gc_fsv() {
     let summary_bytes = fs::read(&summary_path).expect("read summary");
     println!("PH58_ANN_GC_FSV_ROOT={}", root.display());
     println!("PH58_ANN_GC_SUMMARY={}", summary_path.display());
-    println!("PH58_ANN_GC_SUMMARY_BLAKE3={}", digest_hex(&summary_bytes));
+    println!(
+        "PH58_ANN_GC_SUMMARY_BLAKE3={}",
+        raw_blake3_hex(&summary_bytes)
+    );
     println!("{}", serde_json::to_string_pretty(&summary).unwrap());
 
     assert!(happy.triggered);
@@ -236,16 +239,8 @@ fn result_json(result: &calyx_aster::gc::AnnGcResult) -> serde_json::Value {
     })
 }
 
-fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).expect("write json");
-}
-
 fn fsv_root() -> PathBuf {
     std::env::var_os("CALYX_PH58_WAL_ANN_GC_FSV_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| std::env::temp_dir().join("calyx-ph58-wal-ann-gc-fsv"))
-}
-
-fn digest_hex(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
 }

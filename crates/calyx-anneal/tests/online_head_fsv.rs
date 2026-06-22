@@ -1,6 +1,5 @@
 use std::env;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use calyx_anneal::{
@@ -12,9 +11,12 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{CxId, FixedClock};
 use serde_json::{Value, json};
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 #[allow(dead_code)]
 #[path = "support/fsv_bad_change.rs"]
 mod support;
+use fsv_support::write_json;
 
 const TEST_TS: u64 = 1_785_500_408;
 
@@ -191,10 +193,6 @@ fn cf_hash(vault: &AsterVault, cf: ColumnFamily) -> String {
         parts.push(value);
     }
     hex(&full_content_hash(parts.iter().map(Vec::as_slice)))
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
 }
 
 fn hex(bytes: &[u8]) -> String {

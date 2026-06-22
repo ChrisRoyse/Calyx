@@ -1,21 +1,19 @@
-use std::collections::BTreeMap;
-
 use calyx_assay::{
-    CALYX_ASSAY_MISSING_OUTCOME_SLOT, Domain, OutcomeAgreement, default_outcome_anchor,
-    frequency_anchor_for, measure_outcome_agreement, oracle_self_consistency,
-    oracle_self_consistency_from_agreements, outcome_agreement_from_observations,
-    outcome_occurrence_context,
+    CALYX_ASSAY_MISSING_OUTCOME_SLOT, Domain, OutcomeAgreement, frequency_anchor_for,
+    measure_outcome_agreement, oracle_self_consistency, oracle_self_consistency_from_agreements,
+    outcome_agreement_from_observations, outcome_occurrence_context,
 };
 use calyx_aster::dedup::EpochSecs;
 use calyx_aster::recurrence::{
     FREQUENCY_SCALAR, OccurrenceContext, RetentionPolicy, append_occurrence,
 };
 use calyx_aster::vault::AsterVault;
-use calyx_core::{
-    AnchorKind, AnchorValue, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, VaultId,
-    VaultStore,
-};
+use calyx_core::{AnchorKind, AnchorValue, CxId, VaultStore};
 use proptest::prelude::*;
+
+#[path = "recurrence_anchor_support/mod.rs"]
+mod recurrence_anchor_support;
+use recurrence_anchor_support::{append_outcomes, base_cx, cx_id, vault_id};
 
 #[test]
 fn frequency_anchor_reads_base_scalar_without_recurrence_rows() {
@@ -207,63 +205,10 @@ fn put_base_with_frequency(vault: &AsterVault, cx_id: CxId, frequency: u64) {
     vault.put(cx).expect("put base");
 }
 
-fn append_outcomes(vault: &AsterVault, cx_id: CxId, outcomes: &[&str]) {
-    for (index, outcome) in outcomes.iter().enumerate() {
-        let context = outcome_occurrence_context(
-            default_outcome_anchor(),
-            AnchorValue::Text((*outcome).to_string()),
-        )
-        .expect("context");
-        append_occurrence(
-            vault,
-            cx_id,
-            EpochSecs(1_000 + index as i64),
-            context,
-            EpochSecs(1_000 + index as i64),
-            RetentionPolicy::default(),
-        )
-        .expect("append occurrence");
-    }
-}
-
 fn assert_rate(agreement: &OutcomeAgreement, expected: f32) {
     let actual = agreement.agreement_rate().expect("agreement rate");
     assert!(
         (actual - expected).abs() < 0.000_001,
         "expected {expected}, got {actual}"
     );
-}
-
-fn base_cx(cx_id: CxId) -> Constellation {
-    Constellation {
-        cx_id,
-        vault_id: vault_id(),
-        panel_version: 42,
-        created_at: 1_786_406_600,
-        input_ref: InputRef {
-            hash: [cx_id.to_bytes()[0]; 32],
-            pointer: None,
-            redacted: false,
-        },
-        modality: Modality::Text,
-        slots: BTreeMap::new(),
-        scalars: BTreeMap::new(),
-        metadata: BTreeMap::new(),
-        anchors: Vec::new(),
-        provenance: LedgerRef {
-            seq: 0,
-            hash: [0; 32],
-        },
-        flags: CxFlags::default(),
-    }
-}
-
-fn cx_id(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-        .parse()
-        .expect("valid vault id")
 }

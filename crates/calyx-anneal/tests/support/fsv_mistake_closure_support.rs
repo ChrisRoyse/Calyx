@@ -10,12 +10,14 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, full_content_hash, ledger_key};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{
-    Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, Result, VaultId,
-};
+use calyx_core::{Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, Result};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use calyx_registry::{AlgorithmicLens, Registry};
 use serde_json::{Value, json};
+
+#[allow(clippy::duplicate_mod)]
+#[path = "../fsv_support/mod.rs"]
+mod fsv_support;
 
 pub const TEST_TS: u64 = 1_785_500_412;
 
@@ -160,7 +162,7 @@ pub fn write_json<T: serde::Serialize>(root: &Path, name: &str, value: &T) {
 pub fn cx(seed: u8) -> Constellation {
     Constellation {
         cx_id: CxId::from_bytes([seed; 16]),
-        vault_id: vault_id(),
+        vault_id: fsv_support::vault_id(),
         panel_version: 1,
         created_at: TEST_TS,
         input_ref: InputRef {
@@ -188,10 +190,6 @@ fn cf_hash(vault: &AsterVault, cf: ColumnFamily) -> String {
         parts.push(value);
     }
     hex(&full_content_hash(parts.iter().map(Vec::as_slice)))
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {

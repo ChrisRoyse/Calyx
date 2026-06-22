@@ -9,15 +9,14 @@ use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::{named_fsv_root, reset_dir, write_json};
 
 #[test]
 fn slot_column_materialization_fsv_writes_readbacks() {
-    let (root, keep_root) = fsv_root("slot-column-fsv");
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).expect("create fsv root");
+    let (root, keep_root) = named_fsv_root("CALYX_ASTER_SLOT_COLUMN_FSV_ROOT", "slot-column-fsv");
+    reset_dir(&root);
 
     let vault_dir = root.join("vault");
     let vault = AsterVault::new_durable(
@@ -264,25 +263,10 @@ fn collect_files(dir: &Path, entries: &mut Vec<PathBuf>) {
     }
 }
 
-fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).expect("json")).expect("write json");
-}
-
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_ASTER_SLOT_COLUMN_FSV_ROOT") {
-        return (PathBuf::from(root), true);
-    }
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    (
-        std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id())),
-        false,
-    )
 }

@@ -12,7 +12,10 @@ use support::{
 
 #[test]
 fn dedup_invariants_readback_proves_ph41_exit_gate() {
-    let (root, keep_root) = fsv_root();
+    let (root, keep_root) = fsv_root(
+        "CALYX_DEDUP_INVARIANTS_FSV_ROOT",
+        "calyx-dedup-invariants-fsv",
+    );
     let before = json!({
         "root_exists_before_reset": root.exists(),
         "files_before_reset": list_files(&root),

@@ -1,3 +1,5 @@
+mod support;
+
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::encode::decode_write_batch;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -10,9 +12,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{fsv_root, list_files, named_temp_root, reset_dir, write_json};
 
 #[test]
 fn scan_ledger_vault_prints_checkpoint_admin_json() {
@@ -39,7 +40,7 @@ fn scan_ledger_vault_prints_checkpoint_admin_json() {
 #[test]
 #[ignore = "manual gpuhost FSV for issue #251 checkpoint scheduler"]
 fn ph36_checkpoint_scheduler_gpuhost_fsv() {
-    let root = fsv_root().join("checkpoint-scheduler");
+    let root = fsv_root("CALYX_FSV_ROOT", "calyx-ph36-checkpoint-fsv").join("checkpoint-scheduler");
     reset_dir(&root);
     let vault_dir = root.join("vault");
     reset_dir(&vault_dir);
@@ -77,11 +78,7 @@ fn ph36_checkpoint_scheduler_gpuhost_fsv() {
         "wal_segment_files": list_files(&vault_dir.join("wal")),
     });
     let readback_path = root.join("checkpoint-readback.json");
-    fs::write(
-        &readback_path,
-        serde_json::to_vec_pretty(&readback).unwrap(),
-    )
-    .unwrap();
+    write_json(&readback_path, &readback);
 
     println!("PH36_CHECKPOINT_FSV_ROOT={}", root.display());
     println!("PH36_CHECKPOINT_READBACK={}", readback_path.display());
@@ -233,42 +230,8 @@ fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).trim().to_string()
 }
 
-fn list_files(dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut files = entries
-        .map(|entry| {
-            entry
-                .unwrap()
-                .path()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-        })
-        .collect::<Vec<_>>();
-    files.sort();
-    files
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph36-checkpoint-fsv"))
-}
-
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "calyx-cli-checkpoint-{name}-{}-{id}",
-        std::process::id()
-    ))
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).unwrap();
+    named_temp_root("calyx-cli-checkpoint", name)
 }
 
 fn cleanup(dir: PathBuf) {

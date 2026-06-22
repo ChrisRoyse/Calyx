@@ -1,6 +1,3 @@
-use std::fs;
-use std::path::PathBuf;
-
 use calyx_assay::{
     CALYX_TE_INSUFFICIENT_SAMPLES, Direction, TransferEntropyConfig, max_transfer_entropy_lag,
     transfer_entropy, transfer_entropy_sweep_with_config, transfer_entropy_with_config,
@@ -9,7 +6,14 @@ use calyx_core::FixedClock;
 use proptest::prelude::*;
 use serde_json::json;
 
+mod ph52_signal_support;
+mod ph52_support;
+
+use ph52_signal_support::noise;
+use ph52_support::write_readback;
+
 type TestStream = Vec<(u64, f32)>;
+const READBACK_LABEL: &str = "PH52_TE_READBACK";
 
 fn clock() -> FixedClock {
     FixedClock::new(1_786_000_000)
@@ -20,16 +24,6 @@ fn fast_config() -> TransferEntropyConfig {
         bootstrap_resamples: 20,
         ..TransferEntropyConfig::default()
     }
-}
-
-fn write_readback(name: &str, value: serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
-        return;
-    };
-    let path = PathBuf::from(root).join(name);
-    fs::create_dir_all(path.parent().expect("readback parent")).unwrap();
-    fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
-    println!("PH52_TE_READBACK={}", path.display());
 }
 
 #[test]
@@ -49,6 +43,7 @@ fn planted_lag_two_a_drives_b_directionally() {
         result.ci_95.1
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-te-planted.json",
         json!({
             "case": "planted_a_to_b_lag2",
@@ -76,6 +71,7 @@ fn independent_streams_are_unclear_and_near_zero() {
         result.t_a_to_b, result.t_b_to_a, result.dominant_direction
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-te-independent.json",
         json!({ "case": "independent_streams", "result": result }),
     );
@@ -97,6 +93,7 @@ fn transfer_entropy_default_bootstrap_fsv() {
         result.t_a_to_b, result.t_b_to_a, result.dominant_direction
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-te-default-bootstrap.json",
         json!({
             "case": "default_500_bootstrap_planted_a_to_b",
@@ -125,6 +122,7 @@ fn transfer_entropy_edges_fail_closed_with_code() {
     .unwrap();
 
     write_readback(
+        READBACK_LABEL,
         "ph52-te-edges.json",
         json!({
             "empty": empty_result,
@@ -189,14 +187,4 @@ fn simple_stream(n: usize, salt: u64) -> TestStream {
     (0..n)
         .map(|t| (t as u64, 0.2 + 0.6 * noise(t as u64, salt)))
         .collect()
-}
-
-fn noise(t: u64, salt: u64) -> f32 {
-    let mut x = t.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 30;
-    x = x.wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    x ^= x >> 27;
-    x = x.wrapping_mul(0x94D0_49BB_1331_11EB);
-    x ^= x >> 31;
-    ((x >> 40) as f32) / ((1_u64 << 24) as f32)
 }

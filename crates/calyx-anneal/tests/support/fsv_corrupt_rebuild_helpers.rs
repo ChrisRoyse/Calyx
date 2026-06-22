@@ -12,7 +12,7 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, KeyRange, base_key, slot_key};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CxId, FixedClock, LensId, SlotId, SystemClock, VaultId};
+use calyx_core::{CxId, FixedClock, LensId, SlotId, SystemClock};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -331,10 +331,6 @@ pub(crate) fn collect_files(path: &Path, out: &mut Vec<String>) {
     for entry in fs::read_dir(path).unwrap() {
         collect_files(&entry.unwrap().path(), out);
     }
-}
-
-pub(crate) fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 pub(crate) fn hex(bytes: &[u8]) -> String {

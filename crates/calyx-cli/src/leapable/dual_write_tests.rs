@@ -3,29 +3,36 @@ use std::path::{Path, PathBuf};
 use proptest::prelude::*;
 use rusqlite::{Connection, params};
 
-use super::dual_write::{CALYX_SHADOW_WRITE_FAILED, replay_existing_sqlite, verify_against};
-use super::dual_write_typed::{
-    CALYX_INVALID_TEXT_HASH, ChunkMeta, ChunkRecord, DualWriteIngest, TextHash,
+use super::dual_write::{
+    CALYX_SHADOW_WRITE_FAILED, DUAL_WRITE_RECEIPTS, replay_existing_sqlite, run_dual_write,
+    verify_against,
 };
 use super::recall_comparator::{
     CALYX_INVALID_TOP_K, CALYX_INVALID_VECTOR, QuerySpec, RecallComparator,
 };
 
 #[test]
-fn typed_ingest_writes_five_chunks_and_reingest_is_idempotent() {
-    let root = temp_root("typed-five");
-    let sqlite = root.join("typed.db");
+fn dual_write_replay_writes_five_chunks_and_rereplay_is_idempotent() {
+    let root = temp_root("replay-five");
+    let sqlite = root.join("vault.db");
     let vault = root.join("vault.calyx");
     std::fs::create_dir_all(&root).unwrap();
-    let mut ingest = DualWriteIngest::open(&sqlite, &vault).unwrap();
-    let chunks = records(5);
+    seed_dual_write_sqlite(&sqlite, 5);
 
-    let first = ingest.batch_ingest(&chunks);
-    let second = ingest.batch_ingest(&chunks);
+    let first = replay_existing_sqlite(&sqlite, &vault).unwrap();
+    let second = replay_existing_sqlite(&sqlite, &vault).unwrap();
 
+    assert_eq!(first.gate, "PASS");
+    assert_eq!(second.gate, "PASS");
     assert_eq!(first.receipts.len(), 5);
     assert!(first.failures.is_empty());
+    assert_eq!(first.written_rows, 5);
+    assert_eq!(first.skipped_rows, 0);
+    assert_eq!(first.shadow_manifest.chunk_count, 5);
     assert_eq!(second.receipts, first.receipts);
+    assert_eq!(second.written_rows, 0);
+    assert_eq!(second.skipped_rows, 5);
+    assert_eq!(second.shadow_manifest.chunk_count, 5);
     assert_eq!(sqlite_count(&sqlite), 5);
     for receipt in &first.receipts {
         let json = serde_json::to_value(receipt).unwrap().to_string();
@@ -33,6 +40,9 @@ fn typed_ingest_writes_five_chunks_and_reingest_is_idempotent() {
         assert!(!json.contains("candidate_text"));
         assert!(!json.contains("persisted_text"));
     }
+    let receipt_log = std::fs::read_to_string(vault.join(DUAL_WRITE_RECEIPTS)).unwrap();
+    assert!(!receipt_log.contains("content-"));
+    assert!(!receipt_log.contains("raw text"));
     cleanup(root);
 }
 
@@ -69,17 +79,17 @@ fn recall_comparator_identical_query_passes_v0_gate() {
 #[test]
 fn injected_shadow_failure_preserves_sqlite_row() {
     let root = temp_root("injected-failure");
-    let sqlite = root.join("typed.db");
+    let sqlite = root.join("vault.db");
     let vault = root.join("vault.calyx");
     std::fs::create_dir_all(&root).unwrap();
-    let mut ingest = DualWriteIngest::open(&sqlite, &vault).unwrap();
-    ingest.inject_shadow_failure_for_tests(true);
-    let mut chunks = records(1);
+    seed_dual_write_sqlite(&sqlite, 1);
 
-    let error = ingest.ingest(chunks.remove(0)).unwrap_err();
+    let error = run_dual_write(&dual_write_args(&sqlite, &vault, true)).unwrap_err();
 
     assert_eq!(error.code(), CALYX_SHADOW_WRITE_FAILED);
     assert_eq!(sqlite_count(&sqlite), 1);
+    let readback = super::shadow_harness::read_shadow_manifest(&vault).unwrap();
+    assert_eq!(readback.chunk_count, 0);
     cleanup(root);
 }
 
@@ -106,10 +116,20 @@ fn comparator_rejects_zero_vector_and_zero_top_k() {
 }
 
 #[test]
-fn text_hash_hex_requires_exact_32_bytes() {
-    let error = TextHash::from_hex("abcd").unwrap_err();
+fn dual_write_rejects_bad_args_before_touching_sqlite() {
+    let root = temp_root("bad-args");
+    let sqlite = root.join("vault.db");
+    let vault = root.join("vault.calyx");
+    std::fs::create_dir_all(&root).unwrap();
+    seed_dual_write_sqlite(&sqlite, 1);
 
-    assert_eq!(error.code, CALYX_INVALID_TEXT_HASH);
+    let error =
+        run_dual_write(&["--sqlite".to_string(), sqlite.display().to_string()]).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_CLI_USAGE_ERROR");
+    assert_eq!(sqlite_count(&sqlite), 1);
+    assert!(!vault.exists());
+    cleanup(root);
 }
 
 proptest! {
@@ -117,33 +137,19 @@ proptest! {
     #[test]
     fn receipt_preserves_chunk_id_byte_exact(count in 1usize..20) {
         let root = temp_root("prop-receipts");
-        let sqlite = root.join("typed.db");
+        let sqlite = root.join("vault.db");
         let vault = root.join("vault.calyx");
         std::fs::create_dir_all(&root).unwrap();
-        let mut ingest = DualWriteIngest::open(&sqlite, &vault).unwrap();
-        let chunks = records(count);
+        seed_dual_write_sqlite(&sqlite, count);
 
-        let report = ingest.batch_ingest(&chunks);
+        let report = replay_existing_sqlite(&sqlite, &vault).unwrap();
 
         prop_assert!(report.failures.is_empty());
         for (idx, receipt) in report.receipts.iter().enumerate() {
-            prop_assert_eq!(&receipt.chunk_id, &chunks[idx].chunk_id);
+            prop_assert_eq!(receipt.chunk_id.as_str(), format!("c{idx:03}"));
         }
         cleanup(root);
     }
-}
-
-fn records(count: usize) -> Vec<ChunkRecord> {
-    (0..count)
-        .map(|idx| ChunkRecord {
-            chunk_id: format!("c{idx:03}"),
-            text_hash: TextHash::from_bytes([idx as u8; 32]),
-            vector: vector(idx as f32 + 1.0),
-            metadata: ChunkMeta {
-                database_name: "typed_db".to_string(),
-            },
-        })
-        .collect()
 }
 
 fn seed_dual_write_sqlite(path: &Path, rows: usize) {
@@ -191,6 +197,19 @@ fn seed_dual_write_sqlite(path: &Path, rows: usize) {
         )
         .unwrap();
     }
+}
+
+fn dual_write_args(sqlite: &Path, vault: &Path, inject: bool) -> Vec<String> {
+    let mut args = vec![
+        "--sqlite".to_string(),
+        sqlite.display().to_string(),
+        "--calyx".to_string(),
+        vault.display().to_string(),
+    ];
+    if inject {
+        args.push("--inject-shadow-failure".to_string());
+    }
+    args
 }
 
 fn vector(first: f32) -> Vec<f32> {

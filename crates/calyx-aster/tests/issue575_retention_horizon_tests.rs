@@ -10,21 +10,16 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::prepared_temp_root;
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    let dir =
-        std::env::temp_dir().join(format!("calyx-issue575-{name}-{}-{id}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).expect("create test dir");
-    dir
+    prepared_temp_root("calyx-issue575", name)
 }
 
 fn constellation(vault: &AsterVault, input: &[u8], tag: f32) -> Constellation {

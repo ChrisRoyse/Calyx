@@ -1,7 +1,8 @@
+mod support;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_aster::manifest::{
     ImmutableRef, ManifestStore, QuarantineRecord, VaultManifest, is_vault_seq_quarantined,
@@ -13,8 +14,9 @@ use calyx_ledger::{
     MemoryLedgerStore, SlotWeight, SubjectId,
 };
 use serde_json::{Value, json};
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{
+    fsv_root, list_files, numbered_temp_root, reset_dir, write_json, write_manifest_asset,
+};
 
 #[test]
 fn audit_cli_commands_print_expected_json() {
@@ -68,7 +70,7 @@ fn audit_cli_fails_closed_on_manifest_quarantine() {
 #[test]
 #[ignore = "manual gpuhost FSV for PH36 audit query CLI surface"]
 fn ph36_audit_query_cli_gpuhost_fsv() {
-    let root = fsv_root().join("audit-query-surface");
+    let root = fsv_root("CALYX_FSV_ROOT", "calyx-ph36-audit-query-fsv").join("audit-query-surface");
     reset_dir(&root);
     let vault = root.join("vault");
     let partial_vault = root.join("partial-vault");
@@ -122,11 +124,7 @@ fn ph36_audit_query_cli_gpuhost_fsv() {
         "quarantined_trace_stderr": stderr(&quarantined_trace),
     });
     let readback_path = root.join("audit-query-readback.json");
-    fs::write(
-        &readback_path,
-        serde_json::to_vec_pretty(&readback).unwrap(),
-    )
-    .unwrap();
+    write_json(&readback_path, &readback);
 
     println!("PH36_AUDIT_QUERY_FSV_ROOT={}", root.display());
     println!("PH36_AUDIT_QUERY_READBACK={}", readback_path.display());
@@ -258,12 +256,6 @@ fn write_quarantine_manifest(vault: &Path, start: u64, end: u64, broken: u64) {
         .expect("write quarantine manifest");
 }
 
-fn write_manifest_asset(vault: &Path, logical_path: &str, bytes: &[u8]) {
-    let path = vault.join(logical_path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, bytes).unwrap();
-}
-
 fn append_json<S, C>(
     appender: &mut LedgerAppender<S, C>,
     kind: EntryKind,
@@ -334,40 +326,13 @@ fn stderr(output: &Output) -> String {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "calyx-{name}-{}",
-        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
-    ))
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph36-audit-query-fsv"))
-}
-
-fn reset_dir(path: &Path) {
-    if path.exists() {
-        fs::remove_dir_all(path).unwrap();
-    }
-    fs::create_dir_all(path).unwrap();
+    numbered_temp_root("calyx", name)
 }
 
 fn cleanup(path: PathBuf) {
     if path.starts_with(std::env::temp_dir()) {
         let _ = fs::remove_dir_all(path);
     }
-}
-
-fn list_files(dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut files = entries
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    files.sort();
-    files
 }
 
 fn cx(seed: u8) -> CxId {

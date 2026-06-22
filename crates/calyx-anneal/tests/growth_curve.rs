@@ -9,8 +9,11 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CalyxError, FixedClock, VaultId};
+use calyx_core::{CalyxError, FixedClock};
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[test]
 fn rising_samples_compute_delta_summary_and_persist() {
@@ -222,10 +225,6 @@ fn terms(j: f64) -> JTerms {
         p_ungrounded: 0.0,
         p_goodhart: 0.0,
     }
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {

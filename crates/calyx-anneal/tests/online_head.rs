@@ -11,8 +11,11 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, FixedClock, Result, VaultId};
+use calyx_core::{CxId, FixedClock, Result};
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_500_408;
 
@@ -295,8 +298,4 @@ impl Drop for TestRoot {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.0);
     }
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

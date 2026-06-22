@@ -11,10 +11,12 @@ use calyx_aster::recurrence::{
 };
 use calyx_aster::vault::{AsterVault, VaultOptions, encode};
 use calyx_core::{
-    CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
-    VaultStore,
+    CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultStore,
 };
 use serde_json::json;
+
+mod fsv_support;
+use fsv_support::{ManifestPathStyle, vault_id, write_json, write_tree_manifest};
 
 const MAIN_SEED: u8 = 0x39;
 
@@ -42,7 +44,7 @@ fn issue392_compression_anneal_fsv_artifacts() {
 
     write_main_artifacts(&root, &vault, &clock);
     write_edge_artifact(&root, &vault, &clock);
-    write_blake3_sums(&root);
+    write_tree_manifest(&root, ManifestPathStyle::Slash);
     println!("issue392_fsv_root={}", root.display());
 
     if !keep_root {
@@ -74,7 +76,7 @@ fn write_main_artifacts(root: &Path, vault: &AsterVault, clock: &FixedClock) {
         "domain_stats": domain_stats,
         "base_cf_readback": base,
     });
-    write_json(root.join("compression-ratio.json"), &compression_json);
+    write_json(&root.join("compression-ratio.json"), &compression_json);
 
     let schedule_json = json!({
         "surface": "anneal-schedule",
@@ -95,7 +97,7 @@ fn write_main_artifacts(root: &Path, vault: &AsterVault, clock: &FixedClock) {
         "last_occurrence_t": series.occurrences.last().map(|occurrence| occurrence.t_k.0),
         "base_cf_readback": base,
     });
-    write_json(root.join("anneal-schedule.json"), &schedule_json);
+    write_json(&root.join("anneal-schedule.json"), &schedule_json);
 }
 
 fn write_edge_artifact(root: &Path, vault: &AsterVault, clock: &FixedClock) {
@@ -142,7 +144,7 @@ fn write_edge_artifact(root: &Path, vault: &AsterVault, clock: &FixedClock) {
             "retention_tier": format!("{cold_tier:?}"),
         }
     });
-    write_json(root.join("edge-readbacks.json"), &edge_json);
+    write_json(&root.join("edge-readbacks.json"), &edge_json);
 }
 
 fn append_occurrence_at(vault: &AsterVault, seed: u8, time: i64, context: impl Into<String>) {
@@ -214,50 +216,8 @@ fn fsv_root() -> (PathBuf, bool) {
     )
 }
 
-fn write_json(path: impl AsRef<Path>, value: &serde_json::Value) {
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(value).expect("serialize json"),
-    )
-    .expect("write json");
-}
-
-fn write_blake3_sums(root: &Path) {
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files);
-    files.sort();
-    let mut lines = String::new();
-    for relative in files {
-        if relative == Path::new("BLAKE3SUMS.txt") {
-            continue;
-        }
-        let bytes = fs::read(root.join(&relative)).expect("read checksum file");
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            relative.to_string_lossy().replace('\\', "/")
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write sums");
-}
-
-fn collect_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("read dir") {
-        let path = entry.expect("dir entry").path();
-        if path.is_dir() {
-            collect_files(root, &path, files);
-        } else {
-            files.push(path.strip_prefix(root).expect("relative").to_path_buf());
-        }
-    }
-}
-
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("vault id")
 }
 
 fn cx(seed: u8) -> CxId {

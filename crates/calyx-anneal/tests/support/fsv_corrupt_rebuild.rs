@@ -11,6 +11,7 @@ use calyx_anneal::{
 use calyx_core::SlotId;
 use serde_json::json;
 
+use crate::fsv_support::vault_id;
 use edges::{
     run_base_corruption_edge, run_corrupt_ann_fault, run_empty_scheduler_edge,
     run_failing_lens_route, run_tripwire_failure_edge,
@@ -19,7 +20,7 @@ use helpers::{
     FsvRegistry, artifact_readback, brute_force_recall_readback, cf_sha256, fsv_paths,
     ledger_has_lens_degrade_change, ledger_has_rebuild_with_hashes,
     ledger_has_tripwire_revert_metrics, ledger_rows, list_files, reset_dir, sha256_file, substrate,
-    vault_id, write_ann_file, write_source_rows,
+    write_ann_file, write_source_rows,
 };
 
 pub fn run_issue405_fsv() {

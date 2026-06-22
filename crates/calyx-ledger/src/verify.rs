@@ -41,6 +41,9 @@ pub fn verify_chain(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<Veri
             range.start, range.end
         )));
     }
+    if range.start == range.end {
+        return Ok(VerifyResult::Intact { count: 0 });
+    }
     let anchor = store.head_anchor()?;
     if range.start == 0
         && let Some(anchor) = &anchor
@@ -54,10 +57,6 @@ pub fn verify_chain(store: &dyn LedgerCfStore, range: Range<u64>) -> Result<Veri
             ),
         ));
     }
-    if range.start == range.end {
-        return Ok(VerifyResult::Intact { count: 0 });
-    }
-
     let rows = store
         .scan()?
         .into_iter()
@@ -213,6 +212,16 @@ mod tests {
 
         assert_eq!(
             verify_chain(&store, 1..1).unwrap(),
+            VerifyResult::Intact { count: 0 }
+        );
+    }
+
+    #[test]
+    fn empty_zero_range_skips_head_anchor_check() {
+        let store = chain_store(3);
+
+        assert_eq!(
+            verify_chain(&store, 0..0).unwrap(),
             VerifyResult::Intact { count: 0 }
         );
     }

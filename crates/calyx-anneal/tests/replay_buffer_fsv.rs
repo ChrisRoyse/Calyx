@@ -9,8 +9,11 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{AnchorKind, CalyxError, Clock, CxId, FixedClock, Result, VaultId};
+use calyx_core::{AnchorKind, CalyxError, Clock, CxId, FixedClock, Result};
 use serde_json::{Value, json};
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[test]
 #[ignore = "manual gpuhost FSV fixture for issue #407 anneal_replay bytes"]
@@ -240,8 +243,4 @@ fn entry(byte: u8, surprise: f64, seq: u64) -> ReplayEntry {
 
 fn cx(byte: u8) -> CxId {
     CxId::from_bytes([byte; 16])
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

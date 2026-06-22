@@ -13,10 +13,13 @@ use calyx_aster::cf::{ColumnFamily, anchor_key, ledger_key};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef,
-    Modality, Result, VaultId, VaultStore,
+    Modality, Result, VaultStore,
 };
 use calyx_ledger::{EntryKind, decode as decode_ledger};
 use serde_json::{Value, json};
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[allow(dead_code)]
 #[path = "support/fsv_bad_change.rs"]
@@ -423,10 +426,6 @@ fn test_root(label: &str) -> PathBuf {
     ));
     support::reset_dir(&root);
     root
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn display(path: &Path) -> String {

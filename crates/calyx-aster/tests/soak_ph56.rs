@@ -9,7 +9,6 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 const ARENA_CAP: usize = 4 * 1024 * 1024;
@@ -27,7 +26,8 @@ const SMOKE_OPS: u64 = 50_000;
 const SMOKE_FLOOD_OPS: u64 = 1_000;
 const PROCESS_RSS_HEADROOM: usize = 64 * 1024 * 1024;
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::{env_or_temp_root, reset_dir, temp_root};
 
 #[test]
 fn ph56_soak_smoke_bounds_rss_and_backpressure() {
@@ -45,7 +45,7 @@ fn ph56_soak_smoke_bounds_rss_and_backpressure() {
 #[test]
 #[ignore = "gpuhost FSV: runs the PH56 1e7-op RSS/backpressure soak"]
 fn ph56_1e7_soak_rss_bounded_fsv() {
-    let root = fsv_root();
+    let root = env_or_temp_root("CALYX_FSV_ROOT", "calyx-ph56-soak", "fsv");
     reset_dir(&root);
     let ops = env_u64("PH56_SOAK_OPS").unwrap_or(FULL_OPS);
     let flood_ops = env_u64("PH56_SOAK_FLOOD_OPS").unwrap_or(FULL_FLOOD_OPS);
@@ -387,17 +387,7 @@ fn metrics_text(report: &SoakReport) -> String {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "calyx-ph56-soak-{name}-{}-{id}",
-        std::process::id()
-    ))
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| test_dir("fsv"))
+    temp_root("calyx-ph56-soak", name)
 }
 
 fn workspace_target_path(name: &str) -> PathBuf {
@@ -407,11 +397,6 @@ fn workspace_target_path(name: &str) -> PathBuf {
         .unwrap()
         .join("target")
         .join(name)
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).unwrap();
 }
 
 fn env_u64(name: &str) -> Option<u64> {

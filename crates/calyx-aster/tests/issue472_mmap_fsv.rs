@@ -3,11 +3,13 @@
 //! PH56 T05 FSV for mmap-backed cold column reads.
 
 use calyx_aster::mmap_col::{CALYX_BOUNDS_EXCEEDED, CALYX_NOT_FOUND, MmapColumn};
+mod fsv_support;
+use fsv_support::{fsv_root_os, reset_dir};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fs::{self, OpenOptions};
 use std::io::{Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const COLD_FILE_LEN: u64 = 1_073_741_824;
 const READ_LEN: usize = 1_048_576;
@@ -16,7 +18,7 @@ const RSS_DELTA_LIMIT: u64 = 2 * 1024 * 1024;
 #[test]
 #[ignore = "gpuhost FSV maps a 1GiB cold column and records RSS readback"]
 fn issue472_mmap_column_fsv() {
-    let root = fsv_root();
+    let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-issue472-fsv");
     reset_dir(&root);
     let cold_path = root.join("cold-column-1g.bin");
     let f32_path = root.join("f32-column.bin");
@@ -141,17 +143,4 @@ fn rss_bytes() -> u64 {
         }
     }
     panic!("VmRSS not found");
-}
-
-fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            std::env::temp_dir().join(format!("calyx-issue472-fsv-{}", std::process::id()))
-        })
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create fsv root");
 }

@@ -15,7 +15,7 @@ mod reranker_support;
 #[path = "sextant_support/mod.rs"]
 mod sextant_support;
 use reranker_support::spawn_reranker;
-use sextant_support::{cx_u8_fill as cx, hex};
+use sextant_support::{cx_u8_fill as cx, hex, raw_blake3_hex as blake3_hex};
 
 #[test]
 fn issue594_reranker_candidate_text_non_persistence_gpuhost_fsv() {
@@ -276,8 +276,4 @@ fn relative_path(root: &Path, path: &Path) -> String {
         .unwrap_or(path)
         .display()
         .to_string()
-}
-
-fn blake3_hex(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
 }

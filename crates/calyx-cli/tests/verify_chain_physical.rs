@@ -1,8 +1,9 @@
+mod support;
+
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_aster::manifest::{ManifestStore, is_quarantined};
 use calyx_aster::sst::{SstEntry, SstReader, write_sst};
@@ -11,8 +12,7 @@ use calyx_core::{
     Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId, VaultStore,
 };
 use serde_json::{Value, json};
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{list_files, named_temp_root, reset_dir, write_blake3_sums, write_json};
 
 #[test]
 fn verify_chain_vault_quarantines_missing_physical_row() {
@@ -87,8 +87,8 @@ fn issue651_verify_chain_physical_quarantine_fsv_writes_readbacks() {
         "corrupt_payload": corrupt,
         "seq_mismatch": mismatch,
     });
-    write_json(&root, "issue651-readback.json", &readback);
-    write_blake3_manifest(&root);
+    write_json(&root.join("issue651-readback.json"), &readback);
+    write_blake3_sums(&root);
 
     println!(
         "ISSUE651_VERIFY_CHAIN_FSV happy={} missing={} corrupt={} mismatch={}",
@@ -285,53 +285,6 @@ fn sst_files(dir: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn list_files(dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut files = entries
-        .map(|entry| {
-            entry
-                .unwrap()
-                .path()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-        })
-        .collect::<Vec<_>>();
-    files.sort();
-    files
-}
-
-fn write_json(root: &Path, name: &str, value: &Value) {
-    fs::write(
-        root.join(name),
-        serde_json::to_vec_pretty(value).expect("serialize json"),
-    )
-    .expect("write json");
-}
-
-fn write_blake3_manifest(root: &Path) {
-    let mut lines = Vec::new();
-    collect_hashes(root, root, &mut lines);
-    lines.sort();
-    fs::write(root.join("BLAKE3SUMS.txt"), lines.concat()).expect("write manifest");
-}
-
-fn collect_hashes(root: &Path, path: &Path, lines: &mut Vec<String>) {
-    for entry in fs::read_dir(path).expect("read fsv dir") {
-        let path = entry.expect("dir entry").path();
-        if path.is_dir() {
-            collect_hashes(root, &path, lines);
-        } else if path.file_name().unwrap() != "BLAKE3SUMS.txt" {
-            let bytes = fs::read(&path).expect("read fsv file");
-            let rel = path.strip_prefix(root).unwrap().to_string_lossy();
-            lines.push(format!("{}  {}\n", blake3::hash(&bytes).to_hex(), rel));
-        }
-    }
-}
-
 fn assert_stderr_code_and_message(case: &Value, field: &str, code: &str, message_part: &str) {
     let stderr = case[field].as_str().unwrap();
     let parsed: Value = serde_json::from_str(stderr)
@@ -367,16 +320,7 @@ fn vault_id() -> VaultId {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "calyx-cli-verify-chain-physical-{name}-{}-{id}",
-        std::process::id()
-    ))
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).unwrap();
+    named_temp_root("calyx-cli-verify-chain-physical", name)
 }
 
 fn cleanup(dir: PathBuf) {

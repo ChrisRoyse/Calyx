@@ -4,7 +4,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
@@ -12,11 +11,15 @@ use calyx_core::{
 };
 use serde_json::json;
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::named_fsv_root_os;
 
 #[test]
 fn durable_manifest_assets_are_not_rewritten_on_reopen() {
-    let (root, keep_root) = fsv_root("durable-manifest-assets");
+    let (root, keep_root) = named_fsv_root_os(
+        "CALYX_DURABLE_MANIFEST_ASSETS_FSV_ROOT",
+        "durable-manifest-assets",
+    );
     let _ = fs::remove_dir_all(&root);
 
     let vault = durable_vault(&root);
@@ -117,15 +120,4 @@ fn list_files(root: &PathBuf) -> Vec<String> {
         .collect::<Vec<_>>();
     files.sort();
     files
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    if let Some(root) = std::env::var_os("CALYX_DURABLE_MANIFEST_ASSETS_FSV_ROOT") {
-        return (PathBuf::from(root), true);
-    }
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    (
-        std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id())),
-        false,
-    )
 }

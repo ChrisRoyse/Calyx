@@ -1,8 +1,9 @@
 use calyx_aster::vault::{CALYX_DECRYPTION_FAILED, QuotaConfig, VaultContext};
 use calyx_core::VaultId;
+mod fsv_support;
+use fsv_support::{fsv_root_env_subdir, reset_dir};
 use serde_json::json;
 use std::fs;
-use std::path::PathBuf;
 use ulid::Ulid;
 
 const PLAINTEXT: &[u8] = b"ISSUE815_NONCE_SENTINEL_VALUE";
@@ -12,7 +13,11 @@ const TAG_LEN: usize = 16;
 
 #[test]
 fn issue815_nonce_envelope_fsv() {
-    let (root, preserve) = fsv_root();
+    let (root, preserve) = fsv_root_env_subdir(
+        "CALYX_FSV_ROOT",
+        "issue815-nonce-envelope",
+        "calyx-issue815",
+    );
     reset_dir(&root);
 
     let ctx = VaultContext::new(
@@ -82,22 +87,6 @@ fn issue815_nonce_envelope_fsv() {
     if !preserve {
         fs::remove_dir_all(&root).unwrap();
     }
-}
-
-fn fsv_root() -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        (PathBuf::from(root).join("issue815-nonce-envelope"), true)
-    } else {
-        (
-            std::env::temp_dir().join(format!("calyx-issue815-{}", std::process::id())),
-            false,
-        )
-    }
-}
-
-fn reset_dir(path: &PathBuf) {
-    let _ = fs::remove_dir_all(path);
-    fs::create_dir_all(path).unwrap();
 }
 
 fn contains(haystack: &[u8], needle: &[u8]) -> bool {

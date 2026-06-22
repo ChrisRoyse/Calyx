@@ -11,24 +11,12 @@ use calyx_aster::plain_column::PlainColumn;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Clock, Seq, VaultId};
 use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::{named_fsv_root, reset_dir};
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_ASTER_PLAIN_COLUMN_FSV_ROOT") {
-        return (PathBuf::from(root), true);
-    }
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    (
-        std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id())),
-        false,
-    )
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -53,9 +41,8 @@ fn dump_wide_rows<C: Clock>(vault: &AsterVault<C>, snapshot: Seq) -> Vec<(String
 
 #[test]
 fn plain_column_wide_store_fsv() {
-    let (root, keep) = fsv_root("plain-column-fsv");
-    let _ = fs::remove_dir_all(&root);
-    fs::create_dir_all(&root).expect("create fsv root");
+    let (root, keep) = named_fsv_root("CALYX_ASTER_PLAIN_COLUMN_FSV_ROOT", "plain-column-fsv");
+    reset_dir(&root);
     let vault_dir = root.join("vault");
     let vault = AsterVault::new_durable(
         &vault_dir,

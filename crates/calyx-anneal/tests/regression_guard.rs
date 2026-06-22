@@ -10,8 +10,11 @@ use calyx_anneal::{
 };
 use calyx_core::{
     AnchorKind, CalyxError, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef,
-    Modality, Result, VaultId,
+    Modality, Result,
 };
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_500_411;
 
@@ -261,8 +264,4 @@ fn cx(seed: u8) -> Constellation {
         },
         flags: CxFlags::default(),
     }
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

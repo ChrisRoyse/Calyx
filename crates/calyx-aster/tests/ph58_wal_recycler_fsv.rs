@@ -5,6 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod fsv_support;
+use fsv_support::write_json;
+
 #[test]
 #[ignore = "manual gpuhost FSV for issue #484 WAL recycler"]
 fn ph58_wal_recycler_fsv() {
@@ -202,10 +205,6 @@ fn result_json(result: &calyx_aster::gc::WalRecyclerResult) -> serde_json::Value
         "fsync_p99_us": result.fsync_p99_us,
         "wal_segments_recycled_total": result.wal_segments_recycled_total,
     })
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).expect("write json");
 }
 
 fn fsv_root() -> PathBuf {

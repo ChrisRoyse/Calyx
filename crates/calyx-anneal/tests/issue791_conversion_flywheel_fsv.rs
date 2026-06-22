@@ -9,7 +9,7 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, Input, Modality, VaultId};
+use calyx_core::{FixedClock, Input, Modality};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use calyx_registry::Registry;
 use serde_json::{Value, json};
@@ -18,6 +18,12 @@ use serde_json::{Value, json};
 #[allow(dead_code)]
 mod support;
 use support::*;
+
+mod fsv_support;
+use fsv_support::{
+    ManifestPathStyle, reset_dir, vault_id, write_json, write_physical_size_list,
+    write_tree_manifest,
+};
 
 const FSV_TS: u64 = 1_785_500_791;
 
@@ -130,8 +136,8 @@ fn issue791_conversion_flywheel_fsv() {
         }
     });
     write_json(&root.join("summary.json"), &summary);
-    write_physical_files(&root.join("physical-files.txt"), &root);
-    write_manifest(&root);
+    write_physical_size_list(&root.join("physical-files.txt"), &root);
+    write_tree_manifest(&root, ManifestPathStyle::Display);
     println!("ISSUE791_FSV_ROOT={}", root.display());
 }
 
@@ -333,75 +339,10 @@ fn ledger_rows(vault: &AsterVault) -> Vec<Value> {
         .collect()
 }
 
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).expect("write json");
-}
-
-fn write_physical_files(path: &Path, root: &Path) {
-    let mut lines = Vec::new();
-    collect_files(root, root, &mut lines);
-    lines.sort();
-    fs::write(path, lines.join("\n")).expect("write physical files");
-}
-
-fn collect_files(root: &Path, dir: &Path, lines: &mut Vec<String>) {
-    for entry in fs::read_dir(dir).expect("read dir") {
-        let path = entry.expect("dir entry").path();
-        if path.is_dir() {
-            collect_files(root, &path, lines);
-        } else {
-            let rel = path.strip_prefix(root).unwrap_or(&path);
-            lines.push(format!(
-                "{} bytes {}",
-                fs::metadata(&path).unwrap().len(),
-                rel.display()
-            ));
-        }
-    }
-}
-
-fn write_manifest(root: &Path) {
-    let manifest = root.join("BLAKE3SUMS.txt");
-    let mut files = Vec::new();
-    collect_manifest_files(root, root, &manifest, &mut files);
-    files.sort();
-    let lines = files
-        .into_iter()
-        .map(|path| {
-            let bytes = fs::read(root.join(&path)).unwrap();
-            format!("{}  {}\n", blake3::hash(&bytes).to_hex(), path.display())
-        })
-        .collect::<String>();
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
-}
-
-fn collect_manifest_files(root: &Path, dir: &Path, manifest: &Path, out: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("read manifest dir") {
-        let path = entry.expect("manifest entry").path();
-        if path == manifest {
-            continue;
-        }
-        if path.is_dir() {
-            collect_manifest_files(root, &path, manifest, out);
-        } else {
-            out.push(path.strip_prefix(root).unwrap().to_path_buf());
-        }
-    }
-}
-
 fn fsv_root() -> PathBuf {
     env::var("CALYX_FSV_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| env::temp_dir().join(format!("issue791-fsv-{}", std::process::id())))
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create dir");
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {

@@ -9,12 +9,18 @@ use calyx_core::{FixedClock, VaultId};
 use calyx_ledger::{
     ActorId, EntryKind, LedgerAppender, LedgerCfStore, SubjectId, VerifyResult, verify_chain,
 };
+mod fsv_support;
+use fsv_support::{fsv_root_env_subdir, reset_dir};
 use serde_json::json;
 use ulid::Ulid;
 
 #[test]
 fn issue816_aster_external_head_anchor_detects_newest_sst_truncation() {
-    let (root, preserve) = fsv_root();
+    let (root, preserve) = fsv_root_env_subdir(
+        "CALYX_FSV_ROOT",
+        "issue816-ledger-head-anchor",
+        "calyx-issue816",
+    );
     reset_dir(&root);
     let vault_dir = root.join("vault");
     let vault_id = VaultId::from_ulid(Ulid::from_bytes([0x16; 16]));
@@ -154,25 +160,6 @@ fn verify_result_name(result: &VerifyResult) -> &'static str {
         VerifyResult::Broken { .. } => "broken",
         VerifyResult::Corrupt { .. } => "corrupt",
     }
-}
-
-fn fsv_root() -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_FSV_ROOT") {
-        (
-            PathBuf::from(root).join("issue816-ledger-head-anchor"),
-            true,
-        )
-    } else {
-        (
-            std::env::temp_dir().join(format!("calyx-issue816-{}", std::process::id())),
-            false,
-        )
-    }
-}
-
-fn reset_dir(path: &Path) {
-    let _ = fs::remove_dir_all(path);
-    fs::create_dir_all(path).unwrap();
 }
 
 fn hex(bytes: &[u8]) -> String {

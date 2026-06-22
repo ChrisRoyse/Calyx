@@ -30,6 +30,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use ulid::Ulid;
 
+mod fsv_support;
+use fsv_support::{fsv_root as support_fsv_root, reset_dir};
+
 // A25 forbids deleting-to-compress, NOT lawful/user-requested deletion.
 // erase() is A33-required. No reviewer may refuse this citing A25.
 // See: dbprdplans/30 section 4 (binding clarification).
@@ -41,7 +44,7 @@ const NOW: Ts = 180_000;
 
 #[test]
 fn ph61_integration_full_phase_fsv() {
-    let root = fsv_root();
+    let (root, _) = support_fsv_root("CALYX_FSV_ROOT", "calyx-ph61-issue508");
     fs::create_dir_all(&root).unwrap();
     let vault_dir = root.join("vault-a");
     reset_dir(&vault_dir);
@@ -416,14 +419,6 @@ fn vault_id(byte: u8) -> VaultId {
     VaultId::from_ulid(Ulid::from_bytes([byte; 16]))
 }
 
-fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::temp_dir().join(format!("calyx-ph61-issue508-{}", std::process::id()))
-        })
-}
-
 fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -431,11 +426,6 @@ fn workspace_root() -> PathBuf {
         .parent()
         .unwrap()
         .to_path_buf()
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).unwrap();
 }
 
 struct AsterLedgerStore<'a, C> {

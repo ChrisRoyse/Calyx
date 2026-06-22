@@ -6,8 +6,11 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{AnchorKind, Clock, CxId, FixedClock, Result, VaultId};
+use calyx_core::{AnchorKind, Clock, CxId, FixedClock, Result};
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[test]
 fn capacity_evicts_lowest_surprise() {
@@ -157,8 +160,4 @@ fn entry(byte: u8, surprise: f64, seq: u64) -> ReplayEntry {
 
 fn cx(byte: u8) -> CxId {
     CxId::from_bytes([byte; 16])
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

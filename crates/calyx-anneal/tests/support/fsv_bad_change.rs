@@ -13,11 +13,17 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CalyxError, CxId, FixedClock, Result, Seq, SystemClock, VaultId};
+use calyx_core::{CalyxError, CxId, FixedClock, Result, Seq, SystemClock};
 use calyx_ledger::{
     ActorId, EntryKind, LedgerAppender, LedgerCfStore, LedgerRow, decode as decode_ledger,
 };
 use serde_json::{Value, json};
+
+#[allow(clippy::duplicate_mod)]
+#[path = "../fsv_support/mod.rs"]
+mod fsv_support;
+#[allow(unused_imports)]
+pub use fsv_support::write_json;
 
 pub const TEST_TS: u64 = 1_785_500_399;
 const PRIOR: [u8; 32] = [0x11; 32];
@@ -158,8 +164,13 @@ pub fn open_durable_vault(root: &Path, label: &str) -> (PathBuf, AsterVault) {
     let vault_dir = root.join(label);
     fs::create_dir_all(&vault_dir).unwrap();
     let salt = format!("issue399-{label}-salt").into_bytes();
-    let vault = AsterVault::new_durable(&vault_dir, vault_id(), salt, VaultOptions::default())
-        .expect("open durable vault");
+    let vault = AsterVault::new_durable(
+        &vault_dir,
+        fsv_support::vault_id(),
+        salt,
+        VaultOptions::default(),
+    )
+    .expect("open durable vault");
     (vault_dir, vault)
 }
 
@@ -205,10 +216,6 @@ pub fn read_rollback_rows(vault: &AsterVault) -> Vec<Value> {
         .collect()
 }
 
-pub fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
-}
-
 pub fn reset_dir(dir: &Path) {
     let _ = fs::remove_dir_all(dir);
     fs::create_dir_all(dir).unwrap();
@@ -236,10 +243,6 @@ pub fn prior_ptr() -> ArtifactPtr {
 
 pub fn candidate_ptr() -> ArtifactPtr {
     ArtifactPtr::ConfigCacheKeyHash(CANDIDATE)
-}
-
-pub fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn tripwires(root: &Path) -> TripwireRegistry {

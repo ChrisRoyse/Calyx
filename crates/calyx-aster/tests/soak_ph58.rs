@@ -1,5 +1,7 @@
 #![cfg(target_os = "linux")]
 
+mod fsv_support;
+
 mod soak_ph58 {
     use calyx_aster::cf::{CfRouter, ColumnFamily};
     use calyx_aster::gc::{
@@ -16,6 +18,8 @@ mod soak_ph58 {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{Duration, Instant};
+
+    use super::fsv_support::{fsv_root_os, reset_dir};
 
     const START_TS: Ts = 1_800_000_000_000;
     const BATCH: usize = 1_000;
@@ -402,7 +406,7 @@ mod soak_ph58 {
     }
 
     fn write_artifact(name: &str, value: &Value) {
-        let root = fsv_root();
+        let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-soak-ph58");
         fs::create_dir_all(&root).expect("create FSV root");
         fs::write(root.join(name), serde_json::to_vec_pretty(value).unwrap()).unwrap();
         let target = repo_root().join("target");
@@ -448,7 +452,7 @@ mod soak_ph58 {
     }
 
     fn case_root(name: &str) -> PathBuf {
-        let root = fsv_root();
+        let root = fsv_root_os("CALYX_FSV_ROOT", "calyx-soak-ph58");
         fs::create_dir_all(&root).expect("create FSV root");
         fs::write(
             root.join("cleanup-tag.txt"),
@@ -456,14 +460,6 @@ mod soak_ph58 {
         )
         .expect("write cleanup tag");
         root.join(name)
-    }
-
-    fn fsv_root() -> PathBuf {
-        std::env::var_os("CALYX_FSV_ROOT")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                std::env::temp_dir().join(format!("calyx-soak-ph58-{}", std::process::id()))
-            })
     }
 
     fn repo_root() -> PathBuf {
@@ -476,11 +472,6 @@ mod soak_ph58 {
 
     fn cargo_bin() -> String {
         std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string())
-    }
-
-    fn reset_dir(dir: &Path) {
-        let _ = fs::remove_dir_all(dir);
-        fs::create_dir_all(dir).expect("create dir");
     }
 
     fn vault_id() -> VaultId {

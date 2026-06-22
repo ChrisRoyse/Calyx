@@ -13,7 +13,10 @@ use serde_json::json;
 
 #[test]
 fn dedup_ingest_at_writes_event_time_merge_and_ledger_bytes() {
-    let (root, keep_root) = fsv_root();
+    let (root, keep_root) = fsv_root(
+        "CALYX_DEDUP_INGEST_AT_FSV_ROOT",
+        "calyx-dedup-ingest-at-fsv",
+    );
     let before = json!({
         "root_exists_before_reset": root.exists(),
         "files_before_reset": list_files(&root),

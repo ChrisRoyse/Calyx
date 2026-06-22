@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Output};
 
 use calyx_aster::dedup::{
@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 #[path = "support/dedup_invariants_io.rs"]
 mod io;
 
-use io::{list_files, reset_dir, write_blake3_sums, write_json};
+use io::{fsv_root, list_files, reset_dir, write_blake3_sums, write_json};
 
 const VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const SALT: &str = "dedup-anchor-conflict-property-salt";
@@ -27,7 +27,10 @@ const SPEAKERS: [&str; 4] = ["alice", "alice", "bob", "bob"];
 
 #[test]
 fn anchor_conflict_property_never_merges_forbidden_pairs_readback() {
-    let (root, keep_root) = fsv_root();
+    let (root, keep_root) = fsv_root(
+        "CALYX_DEDUP_ANCHOR_PROPERTY_FSV_ROOT",
+        "calyx-dedup-anchor-property-fsv",
+    );
     let before = json!({
         "root_exists_before_reset": root.exists(),
         "files_before_reset": list_files(&root),
@@ -450,17 +453,4 @@ fn slot(value: u16) -> SlotId {
 
 fn vault_id() -> VaultId {
     VAULT_ID.parse().expect("valid vault id")
-}
-
-fn fsv_root() -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_DEDUP_ANCHOR_PROPERTY_FSV_ROOT") {
-        return (PathBuf::from(root), true);
-    }
-    (
-        std::env::temp_dir().join(format!(
-            "calyx-dedup-anchor-property-fsv-{}",
-            std::process::id()
-        )),
-        false,
-    )
 }

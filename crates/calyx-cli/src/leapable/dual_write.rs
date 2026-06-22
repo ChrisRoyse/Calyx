@@ -6,7 +6,9 @@ use calyx_core::{CalyxError, VaultStore};
 use serde::{Deserialize, Serialize};
 
 use super::ShadowVault;
-use super::shadow_harness::{ShadowManifestReadback, read_shadow_manifest};
+use super::shadow_harness::{
+    ShadowManifestReadback, read_shadow_manifest, update_shadow_chunk_count,
+};
 use crate::error::{CliError, CliResult};
 use crate::migrate;
 use crate::migrate::adapter::{default_base_lens_id, default_panel_version};
@@ -127,7 +129,6 @@ fn replay_existing_sqlite_with_options(
     inject_failure: bool,
 ) -> CliResult<DualWriteReport> {
     let shadow = ShadowVault::open(sqlite, calyx_dir)?;
-    let shadow_manifest = shadow.manifest_readback()?;
     shadow.close()?;
     let conn = open_sqlite(sqlite)?;
     let source_rows = usize::try_from(row_count(&conn)?)
@@ -184,10 +185,11 @@ fn replay_existing_sqlite_with_options(
         let verify = verify_migration(&vault, &rows, &adapter, false)?;
         let current_status = status(&vault, &aster)?;
         let gate = verify.gate.clone();
-        (Some(verify), Some(current_status), gate)
+        (Some(verify), current_status, gate)
     } else {
-        (None, Some(status(&vault, &aster)?), "FAIL".to_string())
+        (None, status(&vault, &aster)?, "FAIL".to_string())
     };
+    let shadow_manifest = update_shadow_chunk_count(calyx_dir, current_status.base_rows as u64)?;
     Ok(DualWriteReport {
         sqlite_path: sqlite.to_path_buf(),
         calyx_dir: calyx_dir.to_path_buf(),
@@ -199,7 +201,7 @@ fn replay_existing_sqlite_with_options(
         failures,
         receipts,
         verify,
-        status: current_status,
+        status: Some(current_status),
         receipts_log,
         gate,
     })

@@ -10,9 +10,12 @@ use calyx_anneal::{
     TripwireRegistry, check_oscillation,
 };
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CalyxError, FixedClock, Result, VaultId};
+use calyx_core::{CalyxError, FixedClock, Result};
 use calyx_forge::AutotuneCache;
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_500_417;
 
@@ -248,10 +251,6 @@ fn sample(query_count: u64, p99_ns: u64) -> MetricSample {
 
 fn vault() -> AsterVault<FixedClock> {
     AsterVault::with_clock(vault_id(), b"soak-test".to_vec(), FixedClock::new(TEST_TS))
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
 }
 
 fn temp_cache() -> std::path::PathBuf {

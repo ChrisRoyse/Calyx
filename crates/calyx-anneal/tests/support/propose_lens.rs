@@ -9,12 +9,16 @@ use calyx_anneal::{
 };
 use calyx_core::{
     Anchor, Asymmetry, CalyxError, Constellation, CxFlags, CxId, InputRef, LedgerRef, LensId,
-    Modality, Panel, QuantPolicy, Result, Slot, SlotId, SlotKey, SlotShape, SlotState, VaultId,
+    Modality, Panel, QuantPolicy, Result, Slot, SlotId, SlotKey, SlotShape, SlotState,
 };
 use calyx_registry::{
     AlgorithmicLens, BackfillCandidate, CapabilitySignalKind, CostMetrics, CoverageMetrics,
     LensHealth, MetricSource, Registry, SeparationMetrics, SlotSpec, SpreadMetrics, SwapController,
 };
+
+#[allow(clippy::duplicate_mod)]
+#[path = "../fsv_support/mod.rs"]
+mod fsv_support;
 
 pub const TEST_TS: u64 = 1_785_500_421;
 
@@ -264,7 +268,7 @@ pub fn controller() -> SwapController {
 pub fn corpus() -> Vec<Constellation> {
     vec![Constellation {
         cx_id: CxId::from_bytes([1; 16]),
-        vault_id: vault_id(),
+        vault_id: fsv_support::vault_id(),
         panel_version: 1,
         created_at: TEST_TS,
         input_ref: InputRef {
@@ -395,8 +399,4 @@ fn default_cost() -> CostMetrics {
 
 fn existing_lens() -> LensId {
     LensId::from_bytes([1; 16])
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

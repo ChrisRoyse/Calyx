@@ -14,10 +14,13 @@ use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
     AnchorKind, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, Result,
-    VaultId, VaultStore,
+    VaultStore,
 };
 use calyx_ledger::{EntryKind, decode as decode_ledger};
 use serde_json::{Value, json};
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[allow(dead_code)]
 #[path = "support/fsv_bad_change.rs"]
@@ -339,10 +342,6 @@ fn cx(seed: u8) -> Constellation {
 
 fn cx_id(seed: u8) -> CxId {
     CxId::from_bytes([seed; 16])
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {

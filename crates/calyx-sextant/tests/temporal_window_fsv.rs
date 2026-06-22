@@ -1,15 +1,20 @@
 use std::fs;
-use std::path::{Path, PathBuf};
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{CALYX_TEMPORAL_INVALID_WINDOW, CxId, LedgerRef};
 use calyx_sextant::{
     FreshnessTag, Hit, ProvenanceSource, TemporalFixedClock, TimeWindow, filter_hits_by_window,
 };
 use serde_json::json;
+use sextant_support::{fsv_root, reset_dir, write_json, write_root_file_blake3_sums};
 
 #[test]
 fn temporal_window_fsv_writes_filter_readbacks() {
-    let (root, keep_root) = fsv_root();
+    let (root, keep_root) = fsv_root(
+        "CALYX_TEMPORAL_WINDOW_FSV_ROOT",
+        "calyx-temporal-window-fsv",
+    );
     reset_dir(&root);
     let output_path = root.join("temporal-window-readback.json");
     let before_output_exists = output_path.exists();
@@ -72,7 +77,7 @@ fn temporal_window_fsv_writes_filter_readbacks() {
         }
     });
     write_json(&output_path, &readback);
-    write_blake3_sums(&root);
+    write_root_file_blake3_sums(&root);
 
     println!("temporal_window_fsv_root={}", root.display());
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
@@ -137,46 +142,4 @@ fn hit_readback(hits: &[Hit]) -> Vec<serde_json::Value> {
             })
         })
         .collect()
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).expect("json")).expect("write json");
-}
-
-fn write_blake3_sums(root: &Path) {
-    let mut entries = fs::read_dir(root)
-        .expect("read root")
-        .map(|entry| entry.expect("entry").path())
-        .filter(|path| path.is_file())
-        .collect::<Vec<_>>();
-    entries.sort();
-    let mut lines = String::new();
-    for path in entries {
-        if path.file_name().and_then(|name| name.to_str()) == Some("BLAKE3SUMS.txt") {
-            continue;
-        }
-        let bytes = fs::read(&path).expect("read artifact");
-        let name = path.file_name().expect("file name").to_string_lossy();
-        lines.push_str(&format!("{}  {}\n", blake3_hex(&bytes), name));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write checksums");
-}
-
-fn blake3_hex(bytes: &[u8]) -> String {
-    blake3::hash(bytes).to_hex().to_string()
-}
-
-fn fsv_root() -> (PathBuf, bool) {
-    if let Ok(root) = std::env::var("CALYX_TEMPORAL_WINDOW_FSV_ROOT") {
-        return (PathBuf::from(root), true);
-    }
-    (
-        std::env::temp_dir().join(format!("calyx-temporal-window-fsv-{}", std::process::id())),
-        false,
-    )
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create fsv root");
 }

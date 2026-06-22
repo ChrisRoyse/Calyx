@@ -10,10 +10,12 @@ use calyx_aster::recurrence::{
 };
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
-    CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
-    VaultStore,
+    CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultStore,
 };
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[test]
 fn recurrence_schedule_prioritizes_cadence_bands() {
@@ -160,10 +162,6 @@ fn row(seed: u8, frequency: Option<f64>) -> calyx_core::Constellation {
 
 fn vault() -> AsterVault {
     AsterVault::new(vault_id(), b"anneal-recurrence")
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("vault id")
 }
 
 fn cx(seed: u8) -> CxId {

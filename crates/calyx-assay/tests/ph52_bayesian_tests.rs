@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_assay::{
     BetaBernoulli, CALYX_BAYES_INVALID_INTERVAL, GammaPoisson, bayesian_posterior_for_domain,
@@ -12,15 +12,11 @@ use calyx_core::{AnchorKind, VaultId};
 use proptest::prelude::*;
 use serde_json::json;
 
-fn write_readback(name: &str, value: serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
-        return;
-    };
-    let path = PathBuf::from(root).join(name);
-    fs::create_dir_all(path.parent().expect("readback parent")).unwrap();
-    fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
-    println!("PH52_BAYES_READBACK={}", path.display());
-}
+mod ph52_support;
+
+use ph52_support::write_readback;
+
+const READBACK_LABEL: &str = "PH52_BAYES_READBACK";
 
 #[test]
 fn gamma_poisson_and_beta_bernoulli_match_planted_small_sample() {
@@ -52,6 +48,7 @@ fn gamma_poisson_and_beta_bernoulli_match_planted_small_sample() {
         reliable_at_090
     );
     write_readback(
+        READBACK_LABEL,
         "ph52-bayes-planted.json",
         json!({
             "gamma_poisson": {
@@ -114,6 +111,7 @@ fn bayesian_posterior_roundtrips_through_aster_assay_cf() {
     let loaded_beta = beta_bernoulli_for_domain(&vault, &domain).unwrap();
 
     write_readback(
+        READBACK_LABEL,
         "ph52-bayes-aster-row.json",
         json!({
             "source_of_truth": "AsterVault Assay CF row",
@@ -148,6 +146,7 @@ fn bayesian_edges_fail_closed_with_codes() {
     let roundtrip: BetaBernoulli = serde_json::from_slice(&serialized).unwrap();
 
     write_readback(
+        READBACK_LABEL,
         "ph52-bayes-edges.json",
         json!({
             "default_rate": {

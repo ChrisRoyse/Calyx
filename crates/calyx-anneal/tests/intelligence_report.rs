@@ -10,7 +10,10 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, VaultId};
+use calyx_core::FixedClock;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 #[test]
 fn report_gradient_is_descending_by_priority() {
@@ -300,10 +303,6 @@ fn nan_terms() -> calyx_anneal::JTerms {
         p_ungrounded: f64::NAN,
         p_goodhart: f64::NAN,
     }
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn temp_dir(name: &str) -> std::path::PathBuf {

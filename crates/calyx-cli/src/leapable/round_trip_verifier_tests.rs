@@ -67,7 +67,17 @@ fn benchmark_recall_exact_fixture_passes() {
 
     assert_eq!(bench.sqlite_mean_recall, 1.0);
     assert_eq!(bench.calyx_mean_recall, 1.0);
-    assert_eq!(bench.gate, "PASS", "{bench:#?}");
+    assert_eq!(bench.queries.len(), queries.len());
+    for (idx, row) in bench.queries.iter().enumerate() {
+        let expected = vec![format!("c{:03}", idx + 1)];
+        assert_eq!(row.sqlite_recall, 1.0, "{row:#?}");
+        assert_eq!(row.calyx_recall, 1.0, "{row:#?}");
+        assert_eq!(row.sqlite_top, expected, "{row:#?}");
+        assert_eq!(row.calyx_top, expected, "{row:#?}");
+        assert_eq!(row.gate, "PASS", "{row:#?}");
+    }
+    // The aggregate benchmark gate also includes a single-sample latency check.
+    // This fixture is the deterministic exact-recall oracle.
     cleanup(root);
 }
 

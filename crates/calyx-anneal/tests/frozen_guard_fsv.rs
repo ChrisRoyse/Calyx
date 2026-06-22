@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -10,8 +10,11 @@ use calyx_anneal::{
 };
 use calyx_core::{CalyxError, CxId, FixedClock, LensId, Modality, Result};
 use calyx_registry::{AlgorithmicLens, FrozenLensSnapshot, Registry};
-use serde::Serialize;
 use serde_json::json;
+
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
+use fsv_support::write_json;
 
 const TEST_TS: u64 = 1_785_500_409;
 
@@ -239,9 +242,4 @@ fn snapshot(id: u8, hash: u8) -> FrozenLensSnapshot {
 
 fn lens(seed: u8) -> LensId {
     LensId::from_bytes([seed; 16])
-}
-
-fn write_json<T: Serialize>(path: &Path, value: &T) {
-    let bytes = serde_json::to_vec_pretty(value).unwrap();
-    fs::write(path, bytes).unwrap();
 }

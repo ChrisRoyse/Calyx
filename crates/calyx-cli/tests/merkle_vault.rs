@@ -1,3 +1,5 @@
+mod support;
+
 use calyx_aster::cf::{CfRouter, ColumnFamily};
 use calyx_aster::sst::SstEntry;
 use calyx_aster::vault::encode::decode_write_batch;
@@ -12,9 +14,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{fsv_root, list_files, named_temp_root, reset_dir, write_json};
 
 #[test]
 fn vault_merkle_reads_flushed_aster_ledger_cf_without_side_dirs() {
@@ -75,7 +76,8 @@ fn vault_merkle_fails_closed_without_aster_layout() {
 #[test]
 #[ignore = "manual gpuhost FSV for issue #348"]
 fn ph36_merkle_vault_real_aster_cf_gpuhost_fsv() {
-    let root = fsv_root().join("merkle-vault-real-aster-cf");
+    let root = fsv_root("CALYX_FSV_ROOT", "calyx-ph36-merkle-vault-fsv")
+        .join("merkle-vault-real-aster-cf");
     reset_dir(&root);
     let vault_dir = root.join("vault");
     reset_dir(&vault_dir);
@@ -126,11 +128,7 @@ fn ph36_merkle_vault_real_aster_cf_gpuhost_fsv() {
         }
     });
     let readback_path = root.join("merkle-vault-readback.json");
-    fs::write(
-        &readback_path,
-        serde_json::to_vec_pretty(&readback).unwrap(),
-    )
-    .unwrap();
+    write_json(&readback_path, &readback);
 
     println!("PH36_MERKLE_VAULT_FSV_ROOT={}", root.display());
     println!("PH36_MERKLE_VAULT_READBACK={}", readback_path.display());
@@ -321,25 +319,6 @@ fn assert_no_side_ledger_dirs(vault: &Path) {
     assert_eq!(side_ledger_dirs(vault), Vec::<String>::new());
 }
 
-fn list_files(dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut files = entries
-        .map(|entry| {
-            entry
-                .unwrap()
-                .path()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-        })
-        .collect::<Vec<_>>();
-    files.sort();
-    files
-}
-
 fn remove_sst_files(dir: &Path) {
     for file in list_files(dir) {
         if file.ends_with(".sst") {
@@ -348,23 +327,8 @@ fn remove_sst_files(dir: &Path) {
     }
 }
 
-fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph36-merkle-vault-fsv"))
-}
-
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
-        "calyx-cli-merkle-vault-{name}-{}-{id}",
-        std::process::id()
-    ))
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).unwrap();
+    named_temp_root("calyx-cli-merkle-vault", name)
 }
 
 fn cleanup(dir: PathBuf) {

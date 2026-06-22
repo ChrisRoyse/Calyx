@@ -9,6 +9,9 @@ use calyx_forge::{
 };
 use serde_json::{Value, json};
 
+mod support;
+use support::fsv_io::write_json;
+
 const ARTIFACT_SOURCE_OF_TRUTH: &str = "PH59 compression report artifact";
 
 #[test]
@@ -369,10 +372,6 @@ fn first_hex(bytes: &[u8], count: usize) -> String {
         .take(count)
         .map(|byte| format!("{byte:02x}"))
         .collect::<String>()
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).expect("write json")
 }
 
 fn write_blake3_manifest(root: &Path) -> PathBuf {
