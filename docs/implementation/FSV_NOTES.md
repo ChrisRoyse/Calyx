@@ -48,6 +48,41 @@ such as `dedup-undo`: it prints bytes, rows, or listings and exits. The agent
 compares those bytes to the expected state and records evidence in the GitHub
 issue.
 
+## Bounded Output Protocol (#831)
+
+Codex terminals have repeatedly crashed while agents generated or streamed large
+FSV final-readback JSON, registry catalogs, and one-line Calyx JSON log records.
+Treat terminal output volume as a reliability constraint until the host-side
+root cause is proven.
+
+Keep full evidence on aiwonder under the FSV root. In the Codex terminal and in
+issue comments, emit only:
+
+- artifact path;
+- byte count;
+- SHA256;
+- command exit status;
+- exact scalar or boolean leaves needed to prove the state.
+
+Do not `cat`, `Get-Content -Raw`, `grep`, `tail`, or broad-`jq` a full
+readback, registry, catalog, or log artifact into Codex output. `grep` and
+`tail` are unsafe for one-line JSON producers because a single matching line can
+be the whole catalog or report. Write the full readback to a file first, then
+read back `wc -c`, `sha256sum`, and a bounded projection such as:
+
+```bash
+jq '{gate:.gate,total:.total,matched:.matched}' "$FSV/final-readback.json"
+```
+
+For nested reports, select scalar leaves rather than whole sections:
+
+```bash
+jq '.lenses[] | {name,bits:.bits_about,admitted}' "$FSV/assay-report.json"
+```
+
+The full artifact remains the source of truth; the terminal summary is only a
+bounded pointer to the bytes.
+
 ## Synapse Mapping
 
 Use Synapse as the perception and action surface for FSV:
