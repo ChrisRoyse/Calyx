@@ -9,13 +9,16 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, VaultId};
+use calyx_core::FixedClock;
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use serde_json::{Value, json};
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 #[path = "support/propose_lens.rs"]
 #[allow(dead_code)]
 mod support;
+use fsv_support::{reset_dir, vault_id, write_json, write_manifest};
 use support::*;
 
 const FSV_TS: u64 = 1_785_500_422;
@@ -262,11 +265,6 @@ fn read_ledger_rows(vault: &AsterVault) -> Vec<Value> {
         .collect()
 }
 
-fn write_json(path: &Path, value: &Value) {
-    let bytes = serde_json::to_vec_pretty(value).expect("serialize JSON artifact");
-    fs::write(path, bytes).expect("write JSON artifact");
-}
-
 fn write_physical_files(path: &Path, vault_dir: &Path) {
     let mut lines = Vec::new();
     collect_files(vault_dir, vault_dir, &mut lines);
@@ -286,29 +284,6 @@ fn collect_files(root: &Path, dir: &Path, lines: &mut Vec<String>) {
             lines.push(format!("{} bytes {}", size, rel.display()));
         }
     }
-}
-
-fn write_manifest(root: &Path, paths: &[PathBuf]) {
-    let mut lines = String::new();
-    for path in paths {
-        let bytes = fs::read(path).expect("read manifest artifact");
-        let rel = path.strip_prefix(root).unwrap_or(path);
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            rel.display()
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create dir");
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {

@@ -8,8 +8,12 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, VaultId};
+use calyx_core::FixedClock;
 use serde_json::json;
+
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
+use fsv_support::{vault_id, write_json};
 
 const VAULT_SALT: &[u8] = b"calyx-anneal-intelligence-report";
 
@@ -214,18 +218,6 @@ fn sst_files(dir: &Path) -> Vec<String> {
         .collect::<Vec<_>>();
     files.sort();
     files
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(value).expect("serialize evidence"),
-    )
-    .expect("write evidence");
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {
