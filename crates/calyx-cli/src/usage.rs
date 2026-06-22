@@ -49,6 +49,8 @@ pub(crate) fn usage() -> &'static str {
        calyx panel template fork --from <name-or-id> --name <name> [--home <dir>] [--notes <text>]
        calyx panel template profile --template <name-or-id> (--card <json> ... | --card-dir <dir>) [--assay-card <ensemble_card.json>] [--home <dir>]
        calyx panel template swap --template <name-or-id> --vault <vault> [--require-a37-gate] [--home <dir>]
+       calyx panel a38-bundle save --name <name> --base-template <name-or-id> --required-modality <m> --include-lens <name-or-id> --evidence <json> [--home <dir>] [--budget-vram-mib <n>]
+       calyx panel a38-bundle list [--home <dir>]
        calyx assay corpus-build --rows-jsonl <rows.jsonl> --out-dir <dir> --dataset <name> --target-class <n> --manifest <manifest.json> [--manifest <manifest.json> ...] [--limit-per-class <n>] [--batch-size <n>] [--cost-override-json <json>]   (rows require exactly one of text or input_path)
        calyx assay ensemble-card --corpus-dir <dir> --metrics-dir <dir> [--cf-root <dir>] [--target-class <n>] [--domain <domain>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>]
        calyx assay i8bin-ensemble-card --plan <partitioned_rrf_plan.json> --rows-jsonl <rows.jsonl> --metrics-dir <dir> [--stream-report <stream_fbin_report.json>] [--cf-root <dir>] [--target-class <n>] [--domain <domain>] [--sample-rows <n>] [--signature-rows <n|all>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>] [--mode <gate|diagnostic>|--diagnostic|--baseline]
