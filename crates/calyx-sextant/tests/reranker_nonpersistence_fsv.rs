@@ -6,14 +6,16 @@ use std::time::Duration;
 use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
-    VaultStore,
+    Constellation, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId, VaultStore,
 };
 use calyx_sextant::{RerankCandidateText, RerankRequest, RerankerClient};
 use serde_json::json;
 
 mod reranker_support;
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use reranker_support::spawn_reranker;
+use sextant_support::{cx_u8_fill as cx, hex};
 
 #[test]
 fn issue594_reranker_candidate_text_non_persistence_gpuhost_fsv() {
@@ -212,10 +214,6 @@ fn persisted_constellation() -> Constellation {
     }
 }
 
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
-}
-
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV"
         .parse()
@@ -282,8 +280,4 @@ fn relative_path(root: &Path, path: &Path) -> String {
 
 fn blake3_hex(bytes: &[u8]) -> String {
     blake3::hash(bytes).to_hex().to_string()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

@@ -18,6 +18,10 @@ use calyx_sextant::{
 };
 use serde_json::json;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::cx_u8_fill as cx;
+
 #[test]
 fn tokenizer_varint_and_bm25_are_byte_exact() {
     assert_eq!(tokenize("Cat, hat! CAT"), ["cat", "hat", "cat"]);
@@ -439,10 +443,6 @@ fn multi_vec(tokens: &[[f32; 2]]) -> SlotVector {
         token_dim: 2,
         tokens: tokens.iter().map(|t| t.to_vec()).collect(),
     }
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }
 
 fn sample_constellation(cx_id: CxId, seq: u64) -> calyx_core::Constellation {

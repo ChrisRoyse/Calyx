@@ -2,11 +2,15 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{CxId, SlotId};
+use calyx_core::SlotId;
 use calyx_sextant::fusion::profiles::lookup;
 use calyx_sextant::fusion::weighted_rrf_fuse;
 use calyx_sextant::{FusionContext, FusionStrategy, IndexSearchHit, RrfProfile};
 use serde_json::json;
+
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::cx_u8_fill as cx;
 
 #[test]
 fn issue723_multimodal_weighted_rrf_readback() {
@@ -121,10 +125,6 @@ fn hit(value: u8, rank: usize, score: f32) -> IndexSearchHit {
         score,
         rank,
     }
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }
 
 fn edge_case_readback(

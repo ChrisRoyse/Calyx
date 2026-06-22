@@ -4,6 +4,10 @@ use calyx_sextant::{
     ScalarOp, ScalarPredicate, SearchEngine, SlotIndexMap,
 };
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::dense;
+
 #[test]
 fn malformed_query_vector_fails_before_index_state_changes() {
     let engine = vector_engine();
@@ -101,13 +105,6 @@ fn vector_engine() -> SearchEngine {
         .insert(slot(), CxId::from_bytes([1; 16]), dense(vec![1.0, 0.0]), 1)
         .unwrap();
     engine
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
 }
 
 const fn slot() -> SlotId {

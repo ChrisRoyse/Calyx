@@ -11,6 +11,10 @@ use calyx_sextant::{
 use calyx_ward::{GuardId, GuardPolicy, GuardProfile, NoveltyAction};
 use serde_json::json;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::{cx_u8_fill as cx, dense};
+
 const GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101";
 
 #[test]
@@ -412,13 +416,6 @@ fn ids_from_dropped(hits: &[calyx_sextant::DroppedGuardHit]) -> Vec<CxId> {
     hits.iter().map(|hit| hit.cx_id).collect()
 }
 
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
 fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
     let path = std::path::Path::new(root).join(name);
     let file = std::fs::File::create(path).expect("create fsv json");
@@ -427,10 +424,6 @@ fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
 
 fn guard_id() -> GuardId {
     GUARD_UUID.parse().expect("guard id")
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }
 
 fn vault() -> VaultId {

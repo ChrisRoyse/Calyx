@@ -2,13 +2,17 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, VaultId,
+    Anchor, AnchorKind, AnchorValue, CxFlags, InputRef, LedgerRef, Modality, SlotId, VaultId,
 };
 use calyx_sextant::{
     AnchorPredicate, CALYX_SEXTANT_QUERY_SHAPE, InvertedIndex, MetadataPredicate, Query,
     QueryFilters, ScalarOp, ScalarPredicate, SearchEngine, SlotIndexMap,
 };
 use serde_json::json;
+
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::{cx_u8_fill as cx, hex};
 
 #[test]
 fn query_filters_apply_scalars_anchors_and_metadata() {
@@ -369,14 +373,6 @@ fn include_alpha_filters() -> QueryFilters {
 
 fn ids(hits: &[calyx_sextant::Hit]) -> Vec<String> {
     hits.iter().map(|hit| hit.cx_id.to_string()).collect()
-}
-
-fn hex(bytes: &[u8; 32]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }
 
 fn vault() -> VaultId {

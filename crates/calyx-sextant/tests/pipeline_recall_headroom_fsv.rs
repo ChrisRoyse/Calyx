@@ -8,7 +8,10 @@ use calyx_sextant::{
 use serde_json::json;
 
 mod reranker_support;
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use reranker_support::spawn_reranker;
+use sextant_support::cx_u8_fill as cx;
 
 #[test]
 fn pipeline_recall_k_headroom_recovers_dense_candidate() {
@@ -154,8 +157,4 @@ fn basis_vec(index: usize) -> SlotVector {
     let mut data = vec![0.0; 3];
     data[index % 3] = 1.0;
     SlotVector::Dense { dim: 3, data }
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }

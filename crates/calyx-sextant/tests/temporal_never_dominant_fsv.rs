@@ -1,13 +1,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, CxId, DecayFunction, LedgerRef};
+use calyx_core::{BoostConfig, CALYX_TEMPORAL_AP60_VIOLATION, DecayFunction, LedgerRef};
 use calyx_sextant::{
     FreshnessTag, FusionWeights, Hit, PeriodicOptions, ProvenanceSource, TemporalFixedClock,
     TemporalPolicy, TemporalSearchInput, TimeWindow, apply_temporal_boost,
     temporal_search_from_primary, temporal_search_pipeline, validate_primary_temporal_weight,
 };
 use serde_json::json;
+
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::cx_u8_fill as cx;
 
 const QUERY_TIME: i64 = 1_000_000;
 
@@ -289,10 +293,6 @@ fn hit_readback(hits: &[Hit]) -> Vec<serde_json::Value> {
 
 fn id_hex(seed: u8) -> String {
     cx(seed).to_string()
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
 }
 
 fn write_json(path: &Path, value: &serde_json::Value) {

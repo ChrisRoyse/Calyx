@@ -4,6 +4,10 @@ use calyx_core::{CxId, SlotId, SlotVector, SparseEntry};
 use calyx_sextant::{InvertedIndex, SextantIndex};
 use serde_json::json;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use sextant_support::cx_u8_fill as cx;
+
 #[test]
 fn sparse_vector_readback_preserves_non_contiguous_ids_and_weights() {
     let mut index = InvertedIndex::new(SlotId::new(1));
@@ -137,8 +141,4 @@ fn entries_json(entries: &[(u32, f32)]) -> Vec<serde_json::Value> {
         .iter()
         .map(|(idx, val)| json!({ "idx": idx, "val": val }))
         .collect()
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }

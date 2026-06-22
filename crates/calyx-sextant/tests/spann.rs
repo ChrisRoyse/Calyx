@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use calyx_aster::cf::base_key;
-use calyx_core::{CxId, SlotId, SlotVector, SparseEntry};
+use calyx_core::{SlotId, SlotVector, SparseEntry};
 use calyx_sextant::index::spann::centroids::SpannCentroidIndex;
 use calyx_sextant::index::spann::posting::encode_posting_block;
 use calyx_sextant::index::{
@@ -15,9 +15,12 @@ use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 #[path = "spann/support.rs"]
 mod support;
 
+use sextant_support::cx_usize_be as cx;
 use support::{
     dir_listing, file_state, first_bytes, fsv_cx_map, fsv_roots, hex, sparse, write_fsv_vault,
 };
@@ -29,12 +32,6 @@ fn scratch(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create scratch dir");
     dir
-}
-
-fn cx(idx: usize) -> CxId {
-    let mut bytes = [0_u8; 16];
-    bytes[8..16].copy_from_slice(&(idx as u64).to_be_bytes());
-    CxId::from_bytes(bytes)
 }
 
 fn vectors(n: usize, dim: usize, seed: u64) -> Vec<(u32, Vec<f32>)> {
