@@ -10,6 +10,16 @@ pub fn fsv_root(env_key: &str, fallback: &str) -> PathBuf {
         .unwrap_or_else(|_| std::env::temp_dir().join(fallback))
 }
 
+pub fn preserved_fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, bool) {
+    if let Ok(root) = std::env::var(env_key) {
+        return (PathBuf::from(root), true);
+    }
+    (
+        std::env::temp_dir().join(format!("{fallback_prefix}-{}", std::process::id())),
+        false,
+    )
+}
+
 pub fn case_fsv_root(
     env_key: &str,
     fallback_prefix: &str,
@@ -41,6 +51,15 @@ pub fn list_files(dir: &Path) -> Vec<String> {
     let mut files = entries
         .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
         .collect::<Vec<_>>();
+    files.sort();
+    files
+}
+
+pub fn list_tree_files(dir: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    if dir.exists() {
+        collect_tree_files(dir, dir, &mut files);
+    }
     files.sort();
     files
 }
@@ -116,6 +135,22 @@ fn collect_paths(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
                 path.strip_prefix(root)
                     .expect("relative path")
                     .to_path_buf(),
+            );
+        }
+    }
+}
+
+fn collect_tree_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).expect("read dir") {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            collect_tree_files(root, &path, files);
+        } else {
+            files.push(
+                path.strip_prefix(root)
+                    .expect("relative")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
             );
         }
     }
