@@ -49,6 +49,74 @@ fn missing_adapter_config_fails_closed() {
 }
 
 #[test]
+fn cuda_fail_loud_provider_loads_from_real_config() {
+    let fixture = adapter_fixture_with_provider(
+        "cuda-provider",
+        MultimodalAxis::Image,
+        128,
+        "cuda_fail_loud",
+    );
+    let lens = MultimodalAdapterLens::from_adapter_spec(adapter_spec(
+        "fixture-cuda-image",
+        MultimodalAxis::Image,
+        128,
+        Some(fixture.config),
+        None,
+        false,
+    ))
+    .unwrap();
+
+    assert!(lens.provider().is_gpu());
+    assert_eq!(
+        lens.provider_detail(),
+        "cuda:0,error_on_failure,no_cpu_fallback"
+    );
+}
+
+#[test]
+fn cuda_preferred_provider_loads_from_real_config() {
+    let fixture = adapter_fixture_with_provider(
+        "cuda-preferred-provider",
+        MultimodalAxis::Image,
+        128,
+        "cuda_preferred",
+    );
+    let lens = MultimodalAdapterLens::from_adapter_spec(adapter_spec(
+        "fixture-cuda-preferred-image",
+        MultimodalAxis::Image,
+        128,
+        Some(fixture.config),
+        None,
+        false,
+    ))
+    .unwrap();
+
+    assert!(lens.provider().is_gpu());
+    assert_eq!(lens.provider_detail(), "cuda:0,allow_cpu_fallback");
+}
+
+#[test]
+fn unsupported_adapter_provider_fails_closed() {
+    let fixture = adapter_fixture_with_provider("bad-provider", MultimodalAxis::Image, 128, "auto");
+    let error = MultimodalAdapterLens::from_adapter_spec(adapter_spec(
+        "fixture-bad-provider",
+        MultimodalAxis::Image,
+        128,
+        Some(fixture.config),
+        None,
+        false,
+    ))
+    .unwrap_err();
+
+    assert_eq!(error.code, "CALYX_LENS_CONFIG_INVALID");
+    assert!(
+        error
+            .message
+            .contains("unsupported multimodal adapter provider auto")
+    );
+}
+
+#[test]
 fn malformed_inputs_return_typed_errors_before_helper_spawn() {
     let cases = [
         (
@@ -123,6 +191,15 @@ struct AdapterFixture {
 }
 
 fn adapter_fixture(label: &str, axis: MultimodalAxis, dim: u32) -> AdapterFixture {
+    adapter_fixture_with_provider(label, axis, dim, "cpu_explicit")
+}
+
+fn adapter_fixture_with_provider(
+    label: &str,
+    axis: MultimodalAxis,
+    dim: u32,
+    provider: &str,
+) -> AdapterFixture {
     let root = temp_root(label);
     let helper = root.join("helper.py");
     let marker = root.join("helper-ran.marker");
@@ -150,12 +227,13 @@ fn adapter_fixture(label: &str, axis: MultimodalAxis, dim: u32) -> AdapterFixtur
   "python": "python3",
   "helper": "helper.py",
   "model_file": "model.onnx",
-  "provider": "cpu_explicit"
+  "provider": "{}"
 }}"#,
             axis.as_str(),
             axis.as_str(),
             axis.as_str(),
-            dim
+            dim,
+            provider
         ),
     )
     .unwrap();

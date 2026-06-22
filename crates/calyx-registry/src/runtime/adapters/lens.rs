@@ -7,7 +7,9 @@ use calyx_core::{
 
 use super::axis::MultimodalAxis;
 use super::bridge;
-use super::config::{MultimodalAdapterConfig, config_invalid, load_adapter_config};
+use super::config::{
+    MultimodalAdapterConfig, MultimodalAdapterProvider, config_invalid, load_adapter_config,
+};
 use super::validate::validate_input;
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::lens::ensure_input_modality;
@@ -169,6 +171,14 @@ impl MultimodalAdapterLens {
 
     pub const fn axis(&self) -> MultimodalAxis {
         self.axis
+    }
+
+    pub const fn provider(&self) -> MultimodalAdapterProvider {
+        self.adapter_config.provider
+    }
+
+    pub fn provider_detail(&self) -> &'static str {
+        self.adapter_config.provider.detail()
     }
 
     fn from_parts(parts: AdapterParts) -> Result<Self> {

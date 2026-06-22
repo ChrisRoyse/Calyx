@@ -18,3 +18,6 @@ d912619fade20164b99550715194ae951c9ae65f:docs2/infisical-secrets-guide.md:generi
 
 # Deterministic synthetic UUID used by the audit tests, not a credential.
 cd36ec3bde859ac50519299bcf1cc198f7852fcb:crates/calyx-aster/src/dedup/audit_tests.rs:generic-api-key:58
+
+# Same deterministic ULID fixture in the squashed public-release history.
+c6a4556309b6e0e523b2c30fd9e20b024133b9cd:crates/calyx-aster/src/dedup/audit_tests.rs:generic-api-key:58

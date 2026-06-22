@@ -27,6 +27,36 @@ fn partitioned_search_parses_recall_floor() {
 }
 
 #[test]
+fn partitioned_search_parses_tuner_status_flags() {
+    let args = strings([
+        "--vault",
+        "vault",
+        "--anneal-vault",
+        "anneal",
+        "--tuner-slo-us",
+        "100",
+    ]);
+
+    let parsed = SearchArgs::parse(&args).unwrap();
+
+    assert_eq!(parsed.anneal_vault, Some(PathBuf::from("anneal")));
+    assert_eq!(parsed.tuner_slo_us, Some(100));
+}
+
+#[test]
+fn partitioned_search_rejects_zero_tuner_slo() {
+    let args = strings(["--vault", "vault", "--tuner-slo-us", "0"]);
+
+    let err = match SearchArgs::parse(&args) {
+        Ok(_) => panic!("zero tuner SLO accepted"),
+        Err(err) => err,
+    };
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("--tuner-slo-us must be > 0"));
+}
+
+#[test]
 fn partitioned_build_parses_region_build_parallelism() {
     let args = strings([
         "--vault",

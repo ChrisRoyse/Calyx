@@ -49,6 +49,8 @@ pub(crate) fn usage() -> &'static str {
        calyx panel template fork --from <name-or-id> --name <name> [--home <dir>] [--notes <text>]
        calyx panel template profile --template <name-or-id> (--card <json> ... | --card-dir <dir>) [--assay-card <ensemble_card.json>] [--home <dir>]
        calyx panel template swap --template <name-or-id> --vault <vault> [--require-a37-gate] [--home <dir>]
+       calyx panel a38-bundle save --name <name> --base-template <name-or-id> --required-modality <m> --include-lens <name-or-id> --evidence <json> [--home <dir>] [--budget-vram-mib <n>]
+       calyx panel a38-bundle list [--home <dir>]
        calyx assay corpus-build --rows-jsonl <rows.jsonl> --out-dir <dir> --dataset <name> --target-class <n> --manifest <manifest.json> [--manifest <manifest.json> ...] [--limit-per-class <n>] [--batch-size <n>] [--cost-override-json <json>]   (rows require exactly one of text or input_path)
        calyx assay ensemble-card --corpus-dir <dir> --metrics-dir <dir> [--cf-root <dir>] [--target-class <n>] [--domain <domain>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>]
        calyx assay i8bin-ensemble-card --plan <partitioned_rrf_plan.json> --rows-jsonl <rows.jsonl> --metrics-dir <dir> [--stream-report <stream_fbin_report.json>] [--cf-root <dir>] [--target-class <n>] [--domain <domain>] [--sample-rows <n>] [--signature-rows <n|all>] [--min-lenses <n>] [--min-marginal-bits <f>] [--max-redundancy <f>] [--mode <gate|diagnostic>|--diagnostic|--baseline]
@@ -62,7 +64,7 @@ pub(crate) fn usage() -> &'static str {
        calyx build-partitioned-vault --vault <dir> (--vectors <file.fbin|file.i8bin>|--n-cx <n> --dim <n>) --regions <n> [--distance-metric <unit-l2|raw-l2>] [--sample <n>] [--chunk <n>] [--m-max <n>] [--ef <n>] [--region-build-parallelism <n>] [--build-backend <cpu-vamana|cuvs-cagra>]
        calyx bench search --vault <dir> --strategy KernelFirst --n <n> --report p50,p99,p999 --seed <n> [--k <n>] [--beamwidth <n>] [--posting-cutoff <n>] [--tuner-slo-us <us>]
        calyx bench recall --vault <dir> --n <n> --k <n> [--seed <n>]
-       calyx bench partitioned-search --vault <dir> --n <n> --k <n> --n-probe <n> --region-beam <n> [--ground-truth <n> --recall-floor <f>]
+       calyx bench partitioned-search --vault <dir> --n <n> --k <n> --n-probe <n> --region-beam <n> [--ground-truth <n> --recall-floor <f>] [--anneal-vault <dir> --tuner-slo-us <us>]
        calyx bench partitioned-search --vault <dir> --queries <file.fbin|file.i8bin> [--corpus <file.fbin|file.i8bin>|--ground-truth-file <file.i32bin> [--ground-truth-id-map <file.i32bin>]] --n <n> --k <n> --n-probe <n> --region-beam <n> --ground-truth <n> --recall-floor <f>
        calyx bench partitioned-rrf --plan <json> --n <n> --k <n> --n-probe <n> --region-beam <n> --ground-truth <n> [--truth-depth <n>] [--ensemble-card <ensemble_card.json>] [--fused-ground-truth-file <i32bin> --fused-ground-truth-manifest <json>|--slot-ground-truth-manifest <json>] [--write-fused-ground-truth-file <i32bin> --write-fused-ground-truth-manifest <json>] [--recall-floor <f>] [--out <json>] [--anneal-vault <dir>] [--tuner-slo-us <us>]
        calyx bench partitioned-rrf-slot-truth --plan <json> --out-dir <dir> --query-count <n> --truth-depth <n> [--chunk-rows <n>]
