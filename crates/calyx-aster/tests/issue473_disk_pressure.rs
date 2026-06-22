@@ -99,7 +99,7 @@ fn write_path_rejects_before_wal_and_allows_after_pressure_drops() {
 #[test]
 #[ignore = "manual gpuhost FSV driver; run, then read evidence files separately"]
 fn gpuhost_real_statvfs_disk_pressure_readback() {
-    let root = fsv_root();
+    let root = env_or_prepared_temp_root("CALYX_FSV_ROOT", "calyx-issue473", "fsv-readback");
     let vault_dir = root.join("vault");
     fs::create_dir_all(&vault_dir).unwrap();
     fs::write(
@@ -238,10 +238,6 @@ fn gpuhost_real_statvfs_disk_pressure_readback() {
 
 fn test_dir(name: &str) -> PathBuf {
     prepared_temp_root("calyx-issue473", name)
-}
-
-fn fsv_root() -> PathBuf {
-    env_or_prepared_temp_root("CALYX_FSV_ROOT", "calyx-issue473", "fsv-readback")
 }
 
 fn open_vault(dir: &Path, options: VaultOptions) -> AsterVault<FixedClock> {

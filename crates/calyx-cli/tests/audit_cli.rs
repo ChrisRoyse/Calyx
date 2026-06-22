@@ -3,7 +3,6 @@ mod support;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 use calyx_aster::manifest::{
     ImmutableRef, ManifestStore, QuarantineRecord, VaultManifest, is_vault_seq_quarantined,
@@ -15,9 +14,9 @@ use calyx_ledger::{
     MemoryLedgerStore, SlotWeight, SubjectId,
 };
 use serde_json::{Value, json};
-use support::fsv_io::{fsv_root, list_files, reset_dir, write_json, write_manifest_asset};
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+use support::fsv_io::{
+    fsv_root, list_files, numbered_temp_root, reset_dir, write_json, write_manifest_asset,
+};
 
 #[test]
 fn audit_cli_commands_print_expected_json() {
@@ -327,10 +326,7 @@ fn stderr(output: &Output) -> String {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "calyx-{name}-{}",
-        NEXT_DIR.fetch_add(1, Ordering::Relaxed)
-    ))
+    numbered_temp_root("calyx", name)
 }
 
 fn cleanup(path: PathBuf) {

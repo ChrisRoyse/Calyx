@@ -45,7 +45,7 @@ fn ph56_soak_smoke_bounds_rss_and_backpressure() {
 #[test]
 #[ignore = "gpuhost FSV: runs the PH56 1e7-op RSS/backpressure soak"]
 fn ph56_1e7_soak_rss_bounded_fsv() {
-    let root = fsv_root();
+    let root = env_or_temp_root("CALYX_FSV_ROOT", "calyx-ph56-soak", "fsv");
     reset_dir(&root);
     let ops = env_u64("PH56_SOAK_OPS").unwrap_or(FULL_OPS);
     let flood_ops = env_u64("PH56_SOAK_FLOOD_OPS").unwrap_or(FULL_FLOOD_OPS);
@@ -388,10 +388,6 @@ fn metrics_text(report: &SoakReport) -> String {
 
 fn test_dir(name: &str) -> PathBuf {
     temp_root("calyx-ph56-soak", name)
-}
-
-fn fsv_root() -> PathBuf {
-    env_or_temp_root("CALYX_FSV_ROOT", "calyx-ph56-soak", "fsv")
 }
 
 fn workspace_target_path(name: &str) -> PathBuf {

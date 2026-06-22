@@ -22,16 +22,11 @@ pub fn preserved_fsv_root(env_key: &str, fallback_prefix: &str) -> (PathBuf, boo
     )
 }
 
-pub fn case_fsv_root(
-    env_key: &str,
-    fallback_prefix: &str,
-    name: &str,
-    counter: &AtomicU64,
-) -> (PathBuf, bool) {
+pub fn case_fsv_root(env_key: &str, fallback_prefix: &str, name: &str) -> (PathBuf, bool) {
     if let Ok(root) = std::env::var(env_key) {
         return (PathBuf::from(root).join(name), true);
     }
-    let seq = counter.fetch_add(1, Ordering::SeqCst);
+    let seq = TEMP_ROOT_SEQ.fetch_add(1, Ordering::SeqCst);
     (
         std::env::temp_dir().join(format!(
             "{fallback_prefix}-{name}-{}-{seq}",
@@ -44,6 +39,11 @@ pub fn case_fsv_root(
 pub fn named_temp_root(prefix: &str, name: &str) -> PathBuf {
     let id = TEMP_ROOT_SEQ.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!("{prefix}-{name}-{}-{id}", std::process::id()))
+}
+
+pub fn numbered_temp_root(prefix: &str, name: &str) -> PathBuf {
+    let id = TEMP_ROOT_SEQ.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("{prefix}-{name}-{id}"))
 }
 
 pub fn reset_dir(dir: &Path) {

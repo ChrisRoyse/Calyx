@@ -10,7 +10,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
-use std::sync::atomic::AtomicU64;
 
 mod support;
 use support::fsv_io::{
@@ -20,8 +19,6 @@ use support::fsv_io::{
 
 const VAULT_ID: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 const SALT: &str = "cli-compact-recovery-salt";
-
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
 fn compact_cli_uses_durable_recovery_safe_sst_and_cold_open_survives() {
@@ -356,12 +353,7 @@ fn vault_id() -> VaultId {
 }
 
 fn test_root(name: &str) -> (PathBuf, bool) {
-    case_fsv_root(
-        "CALYX_CLI_COMPACT_FSV_ROOT",
-        "calyx-cli-compact",
-        name,
-        &NEXT_DIR,
-    )
+    case_fsv_root("CALYX_CLI_COMPACT_FSV_ROOT", "calyx-cli-compact", name)
 }
 
 fn cleanup(root: PathBuf, keep_root: bool) {
