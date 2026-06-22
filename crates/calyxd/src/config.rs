@@ -17,6 +17,7 @@ use calyx_core::MtlsConfig;
 use serde::Deserialize;
 
 use crate::error::DaemonError;
+use crate::learner_origin::LearnerOriginConfig;
 
 /// Upper bound on the VRAM the daemon may budget for Forge, in MiB.
 ///
@@ -72,6 +73,9 @@ pub struct CalyxConfig {
     /// it optional so non-MCP daemon tasks can still load minimal config.
     #[serde(default)]
     pub mcp_mtls: Option<MtlsConfig>,
+    /// Optional Worker-only learner-origin API backed by a dedicated Aster vault.
+    #[serde(default)]
+    pub learner_origin: Option<LearnerOriginConfig>,
 }
 
 impl CalyxConfig {
@@ -116,6 +120,9 @@ impl CalyxConfig {
         }
         if let Some(mtls) = &self.mcp_mtls {
             validate_mcp_mtls(mtls)?;
+        }
+        if let Some(origin) = &self.learner_origin {
+            origin.validate(&self.vault_path, &self.vault_path_resolved())?;
         }
         Ok(self)
     }
@@ -325,5 +332,26 @@ log_dir = \"/data/logs\"
         let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
         assert_eq!(error.code(), "CALYX_TLS_CONFIG_INVALID");
         assert!(error.to_string().contains("require_client_cert"));
+    }
+
+    #[test]
+    fn learner_origin_block_parses_with_defaults() {
+        let toml = format!(
+            "{VALID_TOML}\n[learner_origin]\nvault_path = \"/zfs/hot/calyx/learner-origin\"\nvault_id = \"01ARZ3NDEKTSV4RRFFQ69G5FAV\"\nvault_salt = \"learner-origin-salt\"\n"
+        );
+        let config = CalyxConfig::from_toml_str(&toml).expect("origin config parses");
+        let origin = config.learner_origin.expect("origin block present");
+        assert_eq!(origin.shared_secret_env, "CALYX_ORIGIN_SHARED_SECRET");
+        assert_eq!(origin.max_body_bytes, 256 * 1024);
+    }
+
+    #[test]
+    fn learner_origin_rejects_main_vault_reuse() {
+        let toml = format!(
+            "{VALID_TOML}\n[learner_origin]\nvault_path = \"/zfs/hot/calyx/vault\"\nvault_id = \"01ARZ3NDEKTSV4RRFFQ69G5FAV\"\nvault_salt = \"learner-origin-salt\"\n"
+        );
+        let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
+        assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
+        assert!(error.to_string().contains("dedicated learner vault"));
     }
 }

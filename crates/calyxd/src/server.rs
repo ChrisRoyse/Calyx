@@ -1,12 +1,14 @@
-//! Loopback-only HTTP listener serving `GET /metrics` (PH65 bind rules).
+//! Loopback-only HTTP listener serving `GET /metrics` and optional origin APIs.
 //!
 //! Binding any non-loopback address is a hard `CALYX_DAEMON_BIND_FAILED`; the
 //! daemon does not start. The handler speaks just enough HTTP/1.1 for a
-//! Prometheus scrape: `GET /metrics` returns text format v0.0.4, every other
-//! path is 404, every other method is 405, and an unreadable request is 400.
-//! Failures are answered with explicit status codes and logged — never dropped.
+//! Prometheus scrape compatibility is preserved: `GET /metrics` returns text
+//! format v0.0.4. When configured, issue #813 Worker-origin routes are also
+//! served on the same loopback listener with bounded JSON bodies and bearer auth.
 
-use std::io::{ErrorKind, Read, Write};
+mod http;
+
+use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -16,24 +18,45 @@ use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use crate::error::DaemonError;
+use crate::learner_origin::LearnerOriginService;
 use crate::metrics::CalyxMetrics;
+use http::{
+    DEFAULT_BODY_LIMIT, HttpRequest, HttpResponse, IO_TIMEOUT, read_request, write_response,
+};
 
-const REQUEST_HEAD_LIMIT: usize = 8192;
-const IO_TIMEOUT: Duration = Duration::from_secs(5);
 const ACCEPT_IDLE_SLEEP: Duration = Duration::from_millis(10);
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(5);
 const CONTENT_TYPE: &str = "text/plain; version=0.0.4";
+const PLAIN_CONTENT_TYPE: &str = "text/plain; charset=utf-8";
+const JSON_CONTENT_TYPE: &str = "application/json";
 
 /// Loopback `/metrics` server.
 pub struct MetricsServer {
     listener: TcpListener,
     metrics: Arc<CalyxMetrics>,
+    origin: Option<Arc<LearnerOriginService>>,
     active: Arc<AtomicUsize>,
 }
 
 impl MetricsServer {
     /// Binds `addr`, refusing any non-loopback IP before touching the OS.
     pub fn bind(addr: SocketAddr, metrics: Arc<CalyxMetrics>) -> Result<Self, DaemonError> {
+        Self::bind_inner(addr, metrics, None)
+    }
+
+    pub fn bind_with_origin(
+        addr: SocketAddr,
+        metrics: Arc<CalyxMetrics>,
+        origin: Arc<LearnerOriginService>,
+    ) -> Result<Self, DaemonError> {
+        Self::bind_inner(addr, metrics, Some(origin))
+    }
+
+    fn bind_inner(
+        addr: SocketAddr,
+        metrics: Arc<CalyxMetrics>,
+        origin: Option<Arc<LearnerOriginService>>,
+    ) -> Result<Self, DaemonError> {
         if !addr.ip().is_loopback() {
             return Err(DaemonError::bind_failed(format!(
                 "refused non-loopback bind address {addr}; calyxd serves loopback only"
@@ -44,6 +67,7 @@ impl MetricsServer {
         Ok(Self {
             listener,
             metrics,
+            origin,
             active: Arc::new(AtomicUsize::new(0)),
         })
     }
@@ -71,11 +95,13 @@ impl MetricsServer {
             match self.listener.accept() {
                 Ok((stream, peer)) => {
                     let metrics = Arc::clone(&self.metrics);
+                    let origin = self.origin.as_ref().map(Arc::clone);
                     let active = Arc::clone(&self.active);
                     active.fetch_add(1, Ordering::SeqCst);
                     std::thread::spawn(move || {
-                        let outcome =
-                            catch_unwind(AssertUnwindSafe(|| handle_connection(stream, &metrics)));
+                        let outcome = catch_unwind(AssertUnwindSafe(|| {
+                            handle_connection(stream, &metrics, origin.as_deref())
+                        }));
                         active.fetch_sub(1, Ordering::SeqCst);
                         match outcome {
                             Ok(Ok(())) => {}
@@ -109,7 +135,11 @@ impl MetricsServer {
 }
 
 /// Serves exactly one HTTP request on `stream`.
-fn handle_connection(mut stream: TcpStream, metrics: &CalyxMetrics) -> Result<(), String> {
+fn handle_connection(
+    mut stream: TcpStream,
+    metrics: &CalyxMetrics,
+    origin: Option<&LearnerOriginService>,
+) -> Result<(), String> {
     stream
         .set_read_timeout(Some(IO_TIMEOUT))
         .map_err(|error| format!("set read timeout: {error}"))?;
@@ -117,90 +147,112 @@ fn handle_connection(mut stream: TcpStream, metrics: &CalyxMetrics) -> Result<()
         .set_write_timeout(Some(IO_TIMEOUT))
         .map_err(|error| format!("set write timeout: {error}"))?;
 
-    let request_line = match read_request_line(&mut stream) {
-        Ok(line) => line,
-        Err(detail) => {
-            write_response(&mut stream, "400 Bad Request", "bad request\n")?;
-            return Err(format!("unreadable request head: {detail}"));
+    let max_body = origin
+        .map(LearnerOriginService::max_body_bytes)
+        .unwrap_or(DEFAULT_BODY_LIMIT);
+    let request = match read_request(&mut stream, max_body) {
+        Ok(request) => request,
+        Err(error) => {
+            let response = HttpResponse {
+                status: error.status(),
+                content_type: PLAIN_CONTENT_TYPE,
+                body: error.body(),
+            };
+            write_response(&mut stream, &response)?;
+            return Err(format!("unreadable request: {error:?}"));
         }
     };
 
-    let (status, body) = route(&request_line, metrics);
-    write_response(&mut stream, status, &body)
+    let response = route(&request, metrics, origin);
+    write_response(&mut stream, &response)
 }
 
-/// Routes one request line to a status + body.
-fn route(request_line: &str, metrics: &CalyxMetrics) -> (&'static str, String) {
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or_default();
-    let path = parts.next().unwrap_or_default();
-    match (method, path) {
-        ("GET", "/metrics") => match metrics.encode_text() {
-            Ok(text) => ("200 OK", text),
-            Err(detail) => {
-                eprintln!("calyxd: {detail}");
-                ("500 Internal Server Error", format!("{detail}\n"))
-            }
-        },
-        ("GET", _) => ("404 Not Found", "only /metrics is served\n".to_string()),
-        _ => (
-            "405 Method Not Allowed",
-            "only GET /metrics is served\n".to_string(),
-        ),
+/// Routes one parsed request to a response.
+fn route(
+    request: &HttpRequest,
+    metrics: &CalyxMetrics,
+    origin: Option<&LearnerOriginService>,
+) -> HttpResponse {
+    if let Some(origin) = origin
+        && origin.handles_path(&request.path)
+        && request.path != "/metrics"
+    {
+        let response = origin.handle(
+            &request.method,
+            &request.path,
+            request.header("authorization"),
+            &request.body,
+        );
+        return HttpResponse {
+            status: response.status,
+            content_type: JSON_CONTENT_TYPE,
+            body: response.body,
+        };
     }
-}
-
-/// Reads the full request head (through the blank line ending the headers),
-/// bounded by `REQUEST_HEAD_LIMIT` bytes, and returns the request line.
-/// Consuming the whole head matters: closing a socket with unread request
-/// bytes sends TCP RST instead of FIN and aborts the scraper's read.
-fn read_request_line(stream: &mut TcpStream) -> Result<String, String> {
-    let mut head = Vec::new();
-    let mut byte = [0_u8; 1];
-    while head.len() < REQUEST_HEAD_LIMIT {
-        match stream.read(&mut byte) {
-            Ok(0) => break,
-            Ok(_) => {
-                head.push(byte[0]);
-                if head.ends_with(b"\r\n\r\n") || head.ends_with(b"\n\n") {
-                    break;
+    match (request.method.as_str(), request.path.as_str()) {
+        ("GET", "/metrics") => match metrics.encode_text() {
+            Ok(mut text) => {
+                if let Some(origin) = origin {
+                    match origin.metrics().encode_text() {
+                        Ok(origin_text) => text.push_str(&origin_text),
+                        Err(detail) => {
+                            eprintln!("calyxd: {detail}");
+                            return HttpResponse {
+                                status: "500 Internal Server Error",
+                                content_type: PLAIN_CONTENT_TYPE,
+                                body: format!("{detail}\n"),
+                            };
+                        }
+                    }
+                }
+                HttpResponse {
+                    status: "200 OK",
+                    content_type: CONTENT_TYPE,
+                    body: text,
                 }
             }
-            Err(error) => return Err(format!("read: {error}")),
-        }
+            Err(detail) => {
+                eprintln!("calyxd: {detail}");
+                HttpResponse {
+                    status: "500 Internal Server Error",
+                    content_type: PLAIN_CONTENT_TYPE,
+                    body: format!("{detail}\n"),
+                }
+            }
+        },
+        ("GET", _) => HttpResponse {
+            status: "404 Not Found",
+            content_type: PLAIN_CONTENT_TYPE,
+            body: "only /metrics is served\n".to_string(),
+        },
+        _ => HttpResponse {
+            status: "405 Method Not Allowed",
+            content_type: PLAIN_CONTENT_TYPE,
+            body: "only GET /metrics is served unless learner_origin is configured\n".to_string(),
+        },
     }
-    if head.len() >= REQUEST_HEAD_LIMIT {
-        return Err(format!("request head exceeds {REQUEST_HEAD_LIMIT} bytes"));
-    }
-    let text =
-        String::from_utf8(head).map_err(|error| format!("request head is not utf-8: {error}"))?;
-    let line = text
-        .lines()
-        .next()
-        .ok_or_else(|| "empty request head".to_string())?;
-    Ok(line.to_string())
-}
-
-/// Writes a minimal HTTP/1.1 response and closes the connection.
-fn write_response(stream: &mut TcpStream, status: &str, body: &str) -> Result<(), String> {
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {CONTENT_TYPE}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    stream
-        .write_all(response.as_bytes())
-        .map_err(|error| format!("write response: {error}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::metrics::ChainVerifyMetrics;
+    use std::io::{Read, Write};
 
     fn metrics() -> Arc<CalyxMetrics> {
         let labels = ["/tmp/vault".to_string()];
         let chain = Arc::new(ChainVerifyMetrics::new(&labels));
         Arc::new(CalyxMetrics::new(chain, &labels))
+    }
+
+    fn request(line: &str) -> HttpRequest {
+        let mut parts = line.split_whitespace();
+        HttpRequest {
+            method: parts.next().unwrap().to_string(),
+            path: parts.next().unwrap().to_string(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        }
     }
 
     #[test]
@@ -221,16 +273,17 @@ mod tests {
     #[test]
     fn route_serves_full_metric_surface() {
         let metrics = metrics();
-        let (status, body) = route("GET /metrics HTTP/1.1", &metrics);
-        assert_eq!(status, "200 OK");
+        let response = route(&request("GET /metrics HTTP/1.1"), &metrics, None);
+        assert_eq!(response.status, "200 OK");
         // Chain-verify family (issue #602) plus the PH66 T03 families and the
         // 25 hazard gauges are all served from the one route.
-        assert!(body.contains("calyx_ledger_chain_verify_ok"));
-        assert!(body.contains("calyx_ingest_duration_seconds"));
-        assert!(body.contains("calyx_search_recall_tripwire"));
-        assert!(body.contains("calyx_vram_budget_limit_mib"));
-        assert!(body.contains("calyx_zfs_pool_healthy"));
-        let hazard_lines = body
+        assert!(response.body.contains("calyx_ledger_chain_verify_ok"));
+        assert!(response.body.contains("calyx_ingest_duration_seconds"));
+        assert!(response.body.contains("calyx_search_recall_tripwire"));
+        assert!(response.body.contains("calyx_vram_budget_limit_mib"));
+        assert!(response.body.contains("calyx_zfs_pool_healthy"));
+        let hazard_lines = response
+            .body
             .lines()
             .filter(|line| line.starts_with("calyx_hazard_"))
             .count();
@@ -247,9 +300,12 @@ mod tests {
     #[test]
     fn route_rejects_unknown_path_and_method() {
         let metrics = metrics();
-        assert_eq!(route("GET /health HTTP/1.1", &metrics).0, "404 Not Found");
         assert_eq!(
-            route("POST /metrics HTTP/1.1", &metrics).0,
+            route(&request("GET /health HTTP/1.1"), &metrics, None).status,
+            "404 Not Found"
+        );
+        assert_eq!(
+            route(&request("POST /metrics HTTP/1.1"), &metrics, None).status,
             "405 Method Not Allowed"
         );
     }

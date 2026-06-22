@@ -83,6 +83,7 @@ fn from_config_binds_when_mtls_present() {
         tei_endpoints: Vec::new(),
         healthcheck_timeout_secs: 30,
         mcp_mtls: Some(mtls_config()),
+        learner_origin: None,
     };
     let server = CalyxMcpServer::from_config(&cfg, dispatcher()).unwrap();
     assert!(server.local_addr().unwrap().ip().is_loopback());

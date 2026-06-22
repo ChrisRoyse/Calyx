@@ -16,6 +16,7 @@ pub mod config;
 pub mod cuda_probe;
 pub mod error;
 pub mod health;
+pub mod learner_origin;
 pub mod mcp_server;
 pub mod metrics;
 pub mod server;

@@ -7,6 +7,7 @@ use calyxd::config::CalyxConfig;
 use calyxd::cuda_probe;
 use calyxd::error::DaemonError;
 use calyxd::health::{run_healthcheck, write_health_result, write_shutdown_status};
+use calyxd::learner_origin::LearnerOriginService;
 use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics};
 use calyxd::server::MetricsServer;
 use calyxd::verify::verify_restore;
@@ -62,12 +63,25 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
     run_cycle(std::slice::from_ref(&target), &chain);
     let surface = Arc::new(CalyxMetrics::new(Arc::clone(&chain), &labels));
     refresh_zfs_metrics(&surface);
+    let origin = match cfg.learner_origin.as_ref() {
+        Some(origin_cfg) => match LearnerOriginService::from_config(origin_cfg) {
+            Ok(service) => Some(Arc::new(service)),
+            Err(error) => return fatal(error),
+        },
+        None => None,
+    };
 
     if once {
-        return print_once(&surface);
+        return print_once(&surface, origin.as_deref());
     }
 
-    let server = match MetricsServer::bind(cfg.bind_addr, Arc::clone(&surface)) {
+    let server = match &origin {
+        Some(origin) => {
+            MetricsServer::bind_with_origin(cfg.bind_addr, Arc::clone(&surface), Arc::clone(origin))
+        }
+        None => MetricsServer::bind(cfg.bind_addr, Arc::clone(&surface)),
+    };
+    let server = match server {
         Ok(server) => server,
         Err(error) => return fatal(error),
     };
@@ -88,12 +102,13 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
     }
 
     println!(
-        "INFO calyxd {} starting device=\"{}\" vram_budget={}MiB bind={} vault={}",
+        "INFO calyxd {} starting device=\"{}\" vram_budget={}MiB bind={} vault={} learner_origin={}",
         env!("CARGO_PKG_VERSION"),
         device.device_name,
         cfg.vram_budget_mib,
         cfg.bind_addr,
-        vault_path.display()
+        vault_path.display(),
+        origin.is_some()
     );
     spawn_loop(
         vec![target],
@@ -162,9 +177,15 @@ fn open_vault_for_startup(path: &Path) -> Result<(), DaemonError> {
     })
 }
 
-fn print_once(surface: &CalyxMetrics) -> ExitCode {
+fn print_once(surface: &CalyxMetrics, origin: Option<&LearnerOriginService>) -> ExitCode {
     match surface.encode_text() {
-        Ok(text) => {
+        Ok(mut text) => {
+            if let Some(origin) = origin {
+                match origin.metrics().encode_text() {
+                    Ok(origin_text) => text.push_str(&origin_text),
+                    Err(error) => return fatal(DaemonError::config_invalid(error)),
+                }
+            }
             print!("{text}");
             ExitCode::SUCCESS
         }
