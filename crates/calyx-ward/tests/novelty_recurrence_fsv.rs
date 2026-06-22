@@ -1,23 +1,21 @@
-use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::dedup::EpochSecs;
-use calyx_aster::recurrence::{
-    FREQUENCY_SCALAR, OccurrenceContext, RetentionPolicy, append_occurrence,
-};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{
-    Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, VaultId, VaultStore,
-};
+use calyx_core::{CxId, FixedClock, VaultStore};
 use calyx_ward::{
     CALYX_WARD_INVALID_FREQUENCY, CALYX_WARD_MISSING_FREQUENCY, Domain, NoveltySignal,
     SurpriseScore, classify_novelty, novelty_action_for_signal, overdue_recurrence_scan,
     surprise_bits,
 };
 use serde_json::{Value, json};
+
+#[path = "novelty_recurrence_support/mod.rs"]
+mod novelty_recurrence_support;
+use novelty_recurrence_support::{append_times, cx, put_base, vault_id};
 
 #[test]
 #[ignore = "FSV trigger writes durable gpuhost evidence under CALYX_WARD_ISSUE390_FSV_DIR"]
@@ -176,28 +174,6 @@ fn edge_invalid_frequency(vault: &AsterVault, id: CxId, clock: &FixedClock) -> V
     json!({ "expected_code": CALYX_WARD_INVALID_FREQUENCY, "actual_code": error.code(), "before": before, "after": after })
 }
 
-fn append_times(vault: &AsterVault, cx_id: CxId, times: &[i64]) {
-    for time in times {
-        append_occurrence(
-            vault,
-            cx_id,
-            EpochSecs(*time),
-            OccurrenceContext::new(format!("t={time}").into_bytes()).unwrap(),
-            EpochSecs(*time),
-            RetentionPolicy::default(),
-        )
-        .unwrap();
-    }
-}
-
-fn put_base(vault: &AsterVault, cx_id: CxId, frequency: Option<f64>) {
-    let mut cx = base_cx(cx_id);
-    if let Some(frequency) = frequency {
-        cx.scalars.insert(FREQUENCY_SCALAR.to_string(), frequency);
-    }
-    vault.put(cx).unwrap();
-}
-
 fn raw_state(vault: &AsterVault) -> Value {
     json!({
         "snapshot": vault.snapshot(),
@@ -215,30 +191,6 @@ fn raw_rows(vault: &AsterVault, cf: ColumnFamily) -> Value {
             json!({ "key_hex": hex(key), "value_hex": hex(value) })
         }).collect::<Vec<_>>()
     })
-}
-
-fn base_cx(cx_id: CxId) -> Constellation {
-    Constellation {
-        cx_id,
-        vault_id: vault_id(),
-        panel_version: 42,
-        created_at: 1_786_406_600,
-        input_ref: InputRef {
-            hash: [cx_id.to_bytes()[0]; 32],
-            pointer: None,
-            redacted: false,
-        },
-        modality: Modality::Text,
-        slots: BTreeMap::new(),
-        scalars: BTreeMap::new(),
-        metadata: BTreeMap::new(),
-        anchors: Vec::new(),
-        provenance: LedgerRef {
-            seq: 0,
-            hash: [0; 32],
-        },
-        flags: CxFlags::default(),
-    }
 }
 
 fn write_json(path: &Path, value: &Value) {
@@ -268,14 +220,4 @@ fn f32_hex(value: f32) -> String {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-        .parse()
-        .expect("valid vault id")
 }
