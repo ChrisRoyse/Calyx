@@ -46,10 +46,10 @@ pub use hnsw::HnswIndex;
 pub use inverted::InvertedIndex;
 pub use multi::MaxSimIndex;
 pub use partitioned::{
-    FbinSource, I8BinSource, PartitionBuildParams, PartitionDistanceMetric, PartitionedManifest,
-    PartitionedSearch, PartitionedSearchReadback, RegionMeta, SyntheticSource, VectorSource,
-    build_partitioned_vault, build_partitioned_vault_from_source,
-    build_partitioned_vault_from_source_with_backend,
+    DEFAULT_FINAL_ASSIGNMENT_PROBE, FbinSource, I8BinSource, PartitionBuildParams,
+    PartitionDistanceMetric, PartitionedManifest, PartitionedSearch, PartitionedSearchReadback,
+    RegionMeta, SyntheticSource, VectorSource, build_partitioned_vault,
+    build_partitioned_vault_from_source, build_partitioned_vault_from_source_with_backend,
     build_partitioned_vault_from_source_with_backend_and_metric,
     build_partitioned_vault_with_backend, gen_row,
 };

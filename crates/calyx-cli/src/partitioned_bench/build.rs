@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use calyx_sextant::index::{
-    DiskAnnBuildBackend, FbinSource, I8BinSource, PartitionBuildParams, PartitionDistanceMetric,
-    VectorSource, build_partitioned_vault_from_source_with_backend_and_metric,
+    DEFAULT_FINAL_ASSIGNMENT_PROBE, DiskAnnBuildBackend, FbinSource, I8BinSource,
+    PartitionBuildParams, PartitionDistanceMetric, VectorSource,
+    build_partitioned_vault_from_source_with_backend_and_metric,
     build_partitioned_vault_with_backend,
 };
 use serde_json::json;
@@ -32,6 +33,8 @@ impl BuildArgs {
         let mut m_max = 32usize;
         let mut ef = 96usize;
         let mut region_build_parallelism = None;
+        let mut final_assignment_probe = DEFAULT_FINAL_ASSIGNMENT_PROBE;
+        let mut final_assignment_cap = None;
         let mut backend = DiskAnnBuildBackend::CpuVamana;
         let mut distance_metric = PartitionDistanceMetric::UnitL2;
         let mut it = args.iter();
@@ -55,6 +58,12 @@ impl BuildArgs {
                 "--region-build-parallelism" => {
                     region_build_parallelism = Some(parse(&next()?, "--region-build-parallelism")?)
                 }
+                "--final-assignment-probe" => {
+                    final_assignment_probe = parse(&next()?, "--final-assignment-probe")?
+                }
+                "--final-assignment-cap" => {
+                    final_assignment_cap = Some(parse(&next()?, "--final-assignment-cap")?)
+                }
                 "--build-backend" => {
                     backend = next()?.parse().map_err(CliError::usage)?;
                 }
@@ -67,6 +76,12 @@ impl BuildArgs {
         let vault = vault.ok_or_else(|| CliError::usage("--vault <dir> is required"))?;
         if regions == 0 {
             return Err(CliError::usage("--regions must be > 0"));
+        }
+        if final_assignment_probe == 0 {
+            return Err(CliError::usage("--final-assignment-probe must be > 0"));
+        }
+        if final_assignment_cap == Some(0) {
+            return Err(CliError::usage("--final-assignment-cap must be > 0"));
         }
         if vectors.is_none() && n_cx == 0 {
             return Err(CliError::usage(
@@ -84,6 +99,8 @@ impl BuildArgs {
             ef_construction: ef,
             region_build_parallelism: region_build_parallelism
                 .unwrap_or_else(|| PartitionBuildParams::default_region_build_parallelism(regions)),
+            final_assignment_probe,
+            final_assignment_cap,
         };
         Ok(Self {
             vault,
@@ -143,6 +160,8 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         "graph_build_backend": manifest.graph_build_backend.as_str(),
         "provisional_assignment_routing": manifest.provisional_assignment_routing,
         "final_assignment_routing": manifest.final_assignment_routing,
+        "final_assignment_probe": manifest.final_assignment_probe,
+        "final_assignment_cap": manifest.final_assignment_cap,
         "final_assignment_boundary_epsilon": manifest.final_assignment_boundary_epsilon,
         "final_assignment_max_replication": manifest.final_assignment_max_replication,
         "root_graph_rel": manifest.root_graph_rel,

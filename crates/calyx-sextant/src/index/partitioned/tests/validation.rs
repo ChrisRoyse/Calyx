@@ -51,6 +51,8 @@ fn params(seed: u64) -> PartitionBuildParams {
         m_max: 8,
         ef_construction: 32,
         region_build_parallelism: 2,
+        final_assignment_probe: crate::index::DEFAULT_FINAL_ASSIGNMENT_PROBE,
+        final_assignment_cap: None,
     }
 }
 

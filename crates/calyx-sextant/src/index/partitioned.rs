@@ -1,11 +1,4 @@
-//! PH68 T06 memory-bounded partitioned billion-scale vault (#550; fixes
-//! #702/#703, sidesteps #701). The flat in-memory Vamana builder cannot reach
-//! 1e8 because it materializes the whole dataset and builds super-linearly.
-//! This module keeps build memory and query cost tied to region size:
-//! deterministic sample centroids, streamed `.ids` assignment, per-region
-//! DiskANN graphs, and region-restricted search. Row generation is per-index
-//! deterministic (`gen_row`), so build/search never hold more than one region's
-//! vectors at a time.
+//! PH68 T06 memory-bounded partitioned billion-scale vault (#550).
 
 mod assignment;
 mod balance;
@@ -39,19 +32,12 @@ const CENTROID_DIR: &str = "idx/slot_00.sparse";
 const ROOT_GRAPH: &str = "idx/slot_00.ann/graph.cda";
 /// Mixing constant for per-index RNG seeding (splitmix64 multiplier).
 const IDX_MIX: u64 = 0x9E37_79B9_7F4A_7C15;
-/// Floor for the per-region size cap used by region balancing (#713); regions are
-/// never split below this even when the mean region size is tiny.
+/// Floor for the per-region size cap used by region balancing (#713).
 const MIN_REGION_CAP: usize = 2_048;
-/// Final assignment only places a row into one of the regions the routing layer
-/// can return at normal low-probe search settings. If those regions are full, the
-/// build fails closed instead of hiding an unreachable assignment.
-const FINAL_ASSIGNMENT_PROBE: usize = 32;
+pub const DEFAULT_FINAL_ASSIGNMENT_PROBE: usize = 32;
 const FINAL_ASSIGNMENT_BOUNDARY_EPSILON: f32 = 0.10;
 const FINAL_ASSIGNMENT_MAX_REPLICATION: usize = 2;
 
-/// Deterministic, per-index row generation. Independent of any other index, so
-/// rows can be streamed/regenerated per region without materializing `0..idx`.
-/// Dense-with-spike structure (cluster by `idx % dim`), unit-normalized.
 pub fn gen_row(seed: u64, idx: u64, dim: usize) -> Vec<f32> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed ^ idx.wrapping_mul(IDX_MIX));
     let mut v: Vec<f32> = (0..dim)
@@ -72,7 +58,6 @@ fn normalize(v: &mut [f32]) {
     }
 }
 
-/// `CxId` carrying a dense `u64` index in its low 8 bytes.
 pub fn cx(idx: u64) -> CxId {
     let mut bytes = [0u8; 16];
     bytes[8..16].copy_from_slice(&idx.to_be_bytes());
@@ -107,6 +92,10 @@ pub struct PartitionedManifest {
     #[serde(default)]
     pub final_assignment_routing: String,
     #[serde(default)]
+    pub final_assignment_probe: usize,
+    #[serde(default)]
+    pub final_assignment_cap: Option<usize>,
+    #[serde(default)]
     pub final_assignment_boundary_epsilon: f32,
     #[serde(default)]
     pub final_assignment_max_replication: usize,
@@ -121,20 +110,19 @@ fn default_graph_build_backend() -> DiskAnnBuildBackend {
     DiskAnnBuildBackend::CpuVamana
 }
 
-/// Parameters for a partitioned build.
 #[derive(Debug, Clone, Copy)]
 pub struct PartitionBuildParams {
     pub n_cx: u64,
     pub dim: usize,
     pub n_regions: usize,
     pub seed: u64,
-    /// Sample size for centroid k-means (<= n_cx).
     pub sample: usize,
-    /// Streaming assignment chunk size (rows generated per batch).
     pub chunk: usize,
     pub m_max: usize,
     pub ef_construction: usize,
     pub region_build_parallelism: usize,
+    pub final_assignment_probe: usize,
+    pub final_assignment_cap: Option<usize>,
 }
 
 impl PartitionBuildParams {
@@ -149,6 +137,8 @@ impl PartitionBuildParams {
             m_max: 32,
             ef_construction: 96,
             region_build_parallelism: Self::default_region_build_parallelism(n_regions),
+            final_assignment_probe: DEFAULT_FINAL_ASSIGNMENT_PROBE,
+            final_assignment_cap: None,
         }
     }
 
@@ -178,9 +168,6 @@ fn ids_rel(region: u32) -> String {
     format!("idx/region_{region:05}.ids")
 }
 
-/// Build a partitioned vault from a deterministic synthetic source. Unit-test /
-/// builder-logic helper only — for real validation use
-/// [`build_partitioned_vault_from_source`] with a real file-backed source.
 pub fn build_partitioned_vault(
     root: &Path,
     p: PartitionBuildParams,
@@ -193,10 +180,10 @@ pub fn build_partitioned_vault_with_backend(
     p: PartitionBuildParams,
     backend: DiskAnnBuildBackend,
 ) -> Result<PartitionedManifest> {
-    if p.n_cx == 0 || p.dim == 0 || p.n_regions == 0 {
+    if p.n_cx == 0 || p.dim == 0 || p.n_regions == 0 || p.final_assignment_probe == 0 {
         return Err(crate::error::sextant_error(
             crate::error::CALYX_INDEX_INVALID_PARAMS,
-            "partitioned vault requires nonzero n_cx, dim, n_regions",
+            "partitioned vault requires nonzero n_cx, dim, n_regions, final_assignment_probe",
         ));
     }
     let source = SyntheticSource {
@@ -207,10 +194,6 @@ pub fn build_partitioned_vault_with_backend(
     build_partitioned_vault_from_source_with_backend(root, &source, p, backend)
 }
 
-/// Build the partitioned vault under `root` from REAL vectors in `source`.
-/// Memory-bounded: never holds more than `chunk` rows (assignment) or one region's
-/// rows (graph build). `n_cx` and `dim` come from the source (the file is the source
-/// of truth); `p.n_cx`/`p.dim` are ignored.
 pub fn build_partitioned_vault_from_source(
     root: &Path,
     source: &dyn VectorSource,
@@ -248,10 +231,16 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
 ) -> Result<PartitionedManifest> {
     let dim = source.dim();
     let n_cx = source.len();
-    if n_cx == 0 || dim == 0 || p.n_regions == 0 {
+    if n_cx == 0 || dim == 0 || p.n_regions == 0 || p.final_assignment_probe == 0 {
         return Err(crate::error::sextant_error(
             crate::error::CALYX_INDEX_INVALID_PARAMS,
-            "partitioned vault requires nonzero source len, dim, n_regions",
+            "partitioned vault requires nonzero source len, dim, n_regions, final_assignment_probe",
+        ));
+    }
+    if p.final_assignment_cap == Some(0) {
+        return Err(crate::error::sextant_error(
+            crate::error::CALYX_INDEX_INVALID_PARAMS,
+            "final_assignment_cap must be > 0 when set",
         ));
     }
     if p.region_build_parallelism == 0 {
@@ -263,7 +252,6 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     std::fs::create_dir_all(root.join(CENTROID_DIR))
         .map_err(|e| crate::error::sextant_error(crate::error::CALYX_INDEX_IO, e.to_string()))?;
 
-    // 1. Centroids from a deterministic sample (stride over the index space).
     let sample = p.sample.min(n_cx as usize).max(1);
     let stride = (n_cx / sample as u64).max(1);
     let sample_rows: Vec<(u32, Vec<f32>)> = (0..sample)
@@ -276,14 +264,6 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
     let centroids = build_centroids(&sample_rows, p.n_regions, p.seed);
     let r = centroids.centroid_count();
 
-    // 2. Stream-assign every cx to its nearest centroid -> provisional region
-    //    files. The ids on disk are the source of truth for balancing; the build
-    //    never retains all region buckets in heap.
-    //    Pick the assignment method by centroid count: an exact flat scan is
-    //    O(R) per point but cache-friendly/branch-free and wins for moderate R;
-    //    once R grows the scan's O(N*R*dim) dominates. Unit-L2 can use the
-    //    existing cosine HNSW; raw-L2 must use the metric-aware centroid graph so
-    //    raw magnitude is preserved instead of normalized away.
     const ROUTED_ASSIGN_MIN_CENTROIDS: usize = 256;
     let use_routed_assign = r > ROUTED_ASSIGN_MIN_CENTROIDS;
     let provisional_routing = match distance_metric {
@@ -301,8 +281,6 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         provisional_routing,
     )?;
 
-    // 2b. Balance region sizes (#713), then rebuild the routing layer over the
-    //     final centroids so search still routes correctly.
     let mean_region = (n_cx as usize).div_ceil(r.max(1));
     let cap = mean_region.max(MIN_REGION_CAP);
     let final_centroids = balance_region_files(
@@ -318,10 +296,10 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         SpannCentroidIndex::from_parts(dim as u32, final_centroids, Vec::new(), Vec::new())?;
     centroids.save(root.join(CENTROID_DIR))?;
 
-    // 2c. Re-assign every cx against the final centroids, capacity-bounded, with
-    //     bounded boundary replication for low-probe recall.
     let final_mean = (n_cx as usize).div_ceil(centroids.centroid_count().max(1));
-    let final_cap = final_mean.saturating_mul(2).max(MIN_REGION_CAP);
+    let final_cap = p
+        .final_assignment_cap
+        .unwrap_or_else(|| final_mean.saturating_mul(2).max(MIN_REGION_CAP));
     let use_final_routed_assign = centroids.centroid_count() > ROUTED_ASSIGN_MIN_CENTROIDS;
     let final_routing = match distance_metric {
         PartitionDistanceMetric::RawL2 if use_final_routed_assign => AssignmentRouting::RawL2Graph,
@@ -336,7 +314,7 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         p.chunk,
         BoundedAssignmentConfig {
             cap: final_cap,
-            routing_probe: FINAL_ASSIGNMENT_PROBE,
+            routing_probe: p.final_assignment_probe,
             routing: final_routing,
             boundary_epsilon: FINAL_ASSIGNMENT_BOUNDARY_EPSILON,
             max_replication: FINAL_ASSIGNMENT_MAX_REPLICATION,
@@ -443,6 +421,8 @@ pub fn build_partitioned_vault_from_source_with_backend_and_metric(
         graph_build_backend: backend,
         provisional_assignment_routing: provisional_routing.as_str().to_string(),
         final_assignment_routing: final_routing.as_str().to_string(),
+        final_assignment_probe: p.final_assignment_probe,
+        final_assignment_cap: Some(final_cap),
         final_assignment_boundary_epsilon: FINAL_ASSIGNMENT_BOUNDARY_EPSILON,
         final_assignment_max_replication: FINAL_ASSIGNMENT_MAX_REPLICATION,
         stored_region_members: regions.iter().map(|region| region.count).sum(),

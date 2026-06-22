@@ -232,6 +232,8 @@ fn partitioned_self_recall_and_region_restriction() {
         m_max: 16,
         ef_construction: 64,
         region_build_parallelism: 2,
+        final_assignment_probe: DEFAULT_FINAL_ASSIGNMENT_PROBE,
+        final_assignment_cap: None,
     };
     let manifest = build_partitioned_vault(&dir, p).expect("build");
     assert_eq!(manifest.region_build_parallelism, 2);
@@ -291,6 +293,8 @@ fn search_readback_reports_only_touched_region_graphs() {
         m_max: 12,
         ef_construction: 48,
         region_build_parallelism: 2,
+        final_assignment_probe: DEFAULT_FINAL_ASSIGNMENT_PROBE,
+        final_assignment_cap: None,
     };
     let manifest = build_partitioned_vault(&dir, p).expect("build");
     assert_eq!(manifest.region_build_parallelism, 2);
@@ -328,6 +332,8 @@ fn region_build_parallelism_is_effective_cap_and_zero_rejected() {
         m_max: 8,
         ef_construction: 32,
         region_build_parallelism: 64,
+        final_assignment_probe: 4,
+        final_assignment_cap: Some(128),
     };
 
     let manifest = build_partitioned_vault(&dir, p).expect("build");
@@ -340,6 +346,8 @@ fn region_build_parallelism_is_effective_cap_and_zero_rejected() {
     assert!(total >= p.n_cx as usize);
     assert!(total <= p.n_cx as usize * 2);
     assert_eq!(manifest.stored_region_members, total);
+    assert_eq!(manifest.final_assignment_probe, 4);
+    assert_eq!(manifest.final_assignment_cap, Some(128));
     let raw_sidecars = manifest
         .regions
         .iter()
@@ -360,6 +368,13 @@ fn region_build_parallelism_is_effective_cap_and_zero_rejected() {
     let err = build_partitioned_vault(&dir, p).unwrap_err();
     assert_eq!(err.code, crate::error::CALYX_INDEX_INVALID_PARAMS);
     assert!(err.message.contains("region_build_parallelism"));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    p.region_build_parallelism = 2;
+    p.final_assignment_probe = 0;
+    let err = build_partitioned_vault(&dir, p).unwrap_err();
+    assert_eq!(err.code, crate::error::CALYX_INDEX_INVALID_PARAMS);
+    assert!(err.message.contains("final_assignment_probe"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

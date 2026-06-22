@@ -67,15 +67,68 @@ fn partitioned_build_parses_region_build_parallelism() {
         "8",
         "--region-build-parallelism",
         "3",
+        "--final-assignment-probe",
+        "128",
+        "--final-assignment-cap",
+        "8192",
     ]);
 
     let parsed = BuildArgs::parse(&args).unwrap();
 
     assert_eq!(parsed.p.region_build_parallelism, 3);
+    assert_eq!(parsed.p.final_assignment_probe, 128);
+    assert_eq!(parsed.p.final_assignment_cap, Some(8192));
     assert_eq!(
         parsed.distance_metric,
         calyx_sextant::index::PartitionDistanceMetric::UnitL2
     );
+}
+
+#[test]
+fn partitioned_build_rejects_zero_final_assignment_probe() {
+    let args = strings([
+        "--vault",
+        "vault",
+        "--n-cx",
+        "1000",
+        "--regions",
+        "8",
+        "--final-assignment-probe",
+        "0",
+    ]);
+
+    let err = match BuildArgs::parse(&args) {
+        Ok(_) => panic!("zero final assignment probe accepted"),
+        Err(err) => err,
+    };
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("--final-assignment-probe must be > 0")
+    );
+}
+
+#[test]
+fn partitioned_build_rejects_zero_final_assignment_cap() {
+    let args = strings([
+        "--vault",
+        "vault",
+        "--n-cx",
+        "1000",
+        "--regions",
+        "8",
+        "--final-assignment-cap",
+        "0",
+    ]);
+
+    let err = match BuildArgs::parse(&args) {
+        Ok(_) => panic!("zero final assignment cap accepted"),
+        Err(err) => err,
+    };
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("--final-assignment-cap must be > 0"));
 }
 
 #[test]
