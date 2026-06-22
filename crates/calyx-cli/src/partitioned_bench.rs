@@ -7,7 +7,6 @@
 //! KernelFirst SLO soak (the flat `build-bench-vault`/`bench` paths materialize
 //! everything and cannot scale — see #703).
 
-use std::path::PathBuf;
 use std::time::Instant;
 
 use calyx_sextant::index::{
@@ -17,6 +16,8 @@ use serde_json::json;
 
 use crate::error::{CliError, CliResult};
 
+#[path = "partitioned_bench/args.rs"]
+mod args;
 mod brute_force;
 #[path = "partitioned_bench/build.rs"]
 mod build;
@@ -24,113 +25,19 @@ mod build;
 mod multi_rrf;
 #[path = "partitioned_bench/slot_truth_generate.rs"]
 mod slot_truth_generate;
+#[path = "partitioned_bench/summary.rs"]
+mod summary;
+#[path = "partitioned_bench/tuner_status.rs"]
+mod tuner_status;
+use args::{SearchArgs, parse, parse_recall_floor};
 use brute_force::{brute_force_topk, brute_force_topk_vecfile};
 #[cfg(test)]
 pub(crate) use build::BuildArgs;
 pub(crate) use build::run as run_build;
+use summary::{percentiles, summarize_u64};
 
 const METRIC_CLASS_ANN_CORRECTNESS: &str = "ann_correctness";
 const GROUNDED_PHASE_EXIT_ELIGIBLE: bool = false;
-
-fn parse<T: std::str::FromStr>(v: &str, flag: &str) -> CliResult<T> {
-    v.parse::<T>()
-        .map_err(|_| CliError::usage(format!("{flag} expects a valid value, got {v}")))
-}
-
-fn parse_recall_floor(v: &str) -> CliResult<f32> {
-    let value: f32 = parse(v, "--recall-floor")?;
-    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-        return Err(CliError::usage(
-            "--recall-floor expects a finite value in [0, 1]",
-        ));
-    }
-    Ok(value)
-}
-
-struct SearchArgs {
-    vault: PathBuf,
-    queries: Option<PathBuf>,
-    corpus: Option<PathBuf>,
-    ground_truth_file: Option<PathBuf>,
-    ground_truth_id_map: Option<PathBuf>,
-    n: usize,
-    k: usize,
-    n_probe: usize,
-    region_beam: usize,
-    ground_truth: usize,
-    recall_floor: Option<f32>,
-}
-
-impl SearchArgs {
-    fn parse(args: &[String]) -> CliResult<Self> {
-        let mut vault = None;
-        let mut queries = None;
-        let mut corpus = None;
-        let mut ground_truth_file = None;
-        let mut ground_truth_id_map = None;
-        let (mut n, mut k, mut n_probe, mut region_beam) = (1000usize, 10usize, 8usize, 64usize);
-        let mut ground_truth = 0usize;
-        let mut recall_floor = None;
-        let mut it = args.iter();
-        while let Some(flag) = it.next() {
-            let mut next = || {
-                it.next()
-                    .cloned()
-                    .ok_or_else(|| CliError::usage(format!("{flag} requires a value")))
-            };
-            match flag.as_str() {
-                "--vault" => vault = Some(PathBuf::from(next()?)),
-                "--queries" => queries = Some(PathBuf::from(next()?)),
-                "--corpus" => corpus = Some(PathBuf::from(next()?)),
-                "--ground-truth-file" => ground_truth_file = Some(PathBuf::from(next()?)),
-                "--ground-truth-id-map" => ground_truth_id_map = Some(PathBuf::from(next()?)),
-                "--n" => n = parse(&next()?, "--n")?,
-                "--k" => k = parse(&next()?, "--k")?,
-                "--n-probe" => n_probe = parse(&next()?, "--n-probe")?,
-                "--region-beam" => region_beam = parse(&next()?, "--region-beam")?,
-                "--ground-truth" => ground_truth = parse(&next()?, "--ground-truth")?,
-                "--recall-floor" => recall_floor = Some(parse_recall_floor(&next()?)?),
-                // --seed and --report are accepted for harness symmetry; the query
-                // seed is taken from the vault manifest (must match the build seed).
-                "--seed" | "--report" => {
-                    let _ = next()?;
-                }
-                other => return Err(CliError::usage(format!("unknown flag: {other}"))),
-            }
-        }
-        let vault = vault.ok_or_else(|| CliError::usage("--vault <dir> is required"))?;
-        if n == 0 {
-            return Err(CliError::usage("--n must be > 0"));
-        }
-        if k == 0 {
-            return Err(CliError::usage("--k must be > 0"));
-        }
-        if n_probe == 0 {
-            return Err(CliError::usage("--n-probe must be > 0"));
-        }
-        if region_beam == 0 {
-            return Err(CliError::usage("--region-beam must be > 0"));
-        }
-        if ground_truth_id_map.is_some() && ground_truth_file.is_none() {
-            return Err(CliError::usage(
-                "--ground-truth-id-map requires --ground-truth-file",
-            ));
-        }
-        Ok(Self {
-            vault,
-            queries,
-            corpus,
-            ground_truth_file,
-            ground_truth_id_map,
-            n,
-            k,
-            n_probe,
-            region_beam,
-            ground_truth,
-            recall_floor,
-        })
-    }
-}
 
 fn partitioned_error(
     code: &'static str,
@@ -284,6 +191,13 @@ pub(crate) fn run_rrf_slot_truth(args: &[String]) -> CliResult {
 /// REAL-data search: real query embeddings + brute-force ground truth over the REAL
 /// corpus `.fbin`. This is the path that actually validates the system as used.
 fn run_search_real(args: &SearchArgs) -> CliResult {
+    if args.anneal_vault.is_some() {
+        return Err(partitioned_error(
+            "CALYX_FSV_PARTITIONED_SEARCH_TUNER_REAL_RECALL_REQUIRED",
+            "partitioned-search tuner status needs per-query recall; real multi-lens gates should use partitioned-rrf",
+            "rerun real fused evidence with bench partitioned-rrf --anneal-vault and ground truth",
+        ));
+    }
     let search = PartitionedSearch::open(&args.vault).map_err(CliError::Calyx)?;
     let manifest = search.manifest().clone();
     let distance_metric = manifest.distance_metric;
@@ -400,6 +314,7 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
     let mut region_touch_counts = Vec::with_capacity(args.n);
     let mut first_touched_regions = Vec::new();
     let mut self_hits = 0usize;
+    let mut self_recall_rows = Vec::with_capacity(args.n);
     let gt_n = args.ground_truth.min(args.n);
     let mut gt_queries: Vec<Vec<f32>> = Vec::with_capacity(gt_n);
     let mut gt_ann: Vec<Vec<u64>> = Vec::with_capacity(gt_n);
@@ -417,9 +332,9 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
         region_touch_counts.push(readback.touched_regions.len() as u64);
         let us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
         latencies_us.push(us.max(1));
-        if hits.iter().any(|(cx, _)| *cx == idx) {
-            self_hits += 1;
-        }
+        let self_hit = hits.iter().any(|(cx, _)| *cx == idx);
+        self_hits += usize::from(self_hit);
+        self_recall_rows.push(if self_hit { 1.0 } else { 0.0 });
         if i < gt_n {
             gt_ann.push(hits.iter().map(|(cx, _)| *cx).collect());
             gt_queries.push(q);
@@ -441,6 +356,23 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
         None
     };
     enforce_recall_floor(args.recall_floor, gt_n, ground_truth_recall)?;
+    let tuner_status_path = if let Some(vault) = &args.anneal_vault {
+        Some(tuner_status::write(tuner_status::Request {
+            vault,
+            latencies_us: &latencies_us,
+            per_query_recall: &self_recall_rows,
+            region_beam: args.region_beam,
+            n_probe: args.n_probe,
+            tuner_slo_us: args.tuner_slo_us,
+            recall_floor: args.recall_floor,
+            aggregate_recall: self_recall,
+            latency_us: &summary,
+            queries: args.n,
+            k: args.k,
+        })?)
+    } else {
+        None
+    };
 
     let report = json!({
         "trigger": "calyx bench partitioned-search",
@@ -465,30 +397,13 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
         "ground_truth_queries": gt_n,
         "ground_truth_recall_at_k": ground_truth_recall,
         "recall_floor": args.recall_floor,
+        "tuner_status_path": tuner_status_path,
     });
     println!(
         "{}",
         serde_json::to_string_pretty(&report).map_err(CliError::from)?
     );
     Ok(())
-}
-
-fn percentiles(values: &[u64]) -> serde_json::Value {
-    summarize_u64(values)
-}
-
-fn summarize_u64(values: &[u64]) -> serde_json::Value {
-    let mut s = values.to_vec();
-    s.sort_unstable();
-    let pct = |p: usize| -> u64 {
-        if s.is_empty() {
-            return 0;
-        }
-        // p in tenths-of-percent (e.g. 999 = 99.9th). idx = ceil(p/1000 * n) - 1.
-        let rank = ((p as f64 / 1000.0) * s.len() as f64).ceil() as usize;
-        s[rank.saturating_sub(1).min(s.len() - 1)]
-    };
-    json!({ "p50": pct(500), "p99": pct(990), "p999": pct(999), "max": s.last().copied().unwrap_or(0) })
 }
 
 #[cfg(test)]
