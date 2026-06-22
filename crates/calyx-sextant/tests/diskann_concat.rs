@@ -2,10 +2,13 @@
 
 use std::path::PathBuf;
 
-use calyx_core::{CxId, SlotId};
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use calyx_core::SlotId;
 use calyx_sextant::index::{
     ConcatCrossTermDiskAnn, ConcatCrossTermKey, DiskAnnBuildParams, DiskAnnSearchParams,
 };
+use sextant_support::cx_usize_be as cx;
 
 fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir()
@@ -14,12 +17,6 @@ fn scratch(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create scratch");
     dir
-}
-
-fn cx(idx: usize) -> CxId {
-    let mut bytes = [0_u8; 16];
-    bytes[8..].copy_from_slice(&(idx as u64).to_be_bytes());
-    CxId::from_bytes(bytes)
 }
 
 fn vector(row: usize, dim: usize) -> Vec<f32> {

@@ -3,7 +3,9 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CxId, SlotVector};
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use calyx_core::SlotVector;
 use calyx_sextant::index::diskann::graph::DISKANN_MAGIC;
 use calyx_sextant::index::{
     Direction, DirectionalBoost, DiskAnnBuildParams, DiskAnnSearchParams, DualDiskAnnSearch,
@@ -11,6 +13,7 @@ use calyx_sextant::index::{
     open_dual,
 };
 use proptest::prelude::*;
+use sextant_support::cx_usize_be as cx;
 
 fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir()
@@ -364,12 +367,6 @@ fn edge_k_above_count(root: &Path) {
         format!("returned_hits={}\n", hits.len()),
     )
     .unwrap();
-}
-
-fn cx(idx: usize) -> CxId {
-    let mut bytes = [0_u8; 16];
-    bytes[8..16].copy_from_slice(&(idx as u64).to_be_bytes());
-    CxId::from_bytes(bytes)
 }
 
 fn hit_report(forward: &[(u32, f32)], reverse: &[(u32, f32)]) -> String {

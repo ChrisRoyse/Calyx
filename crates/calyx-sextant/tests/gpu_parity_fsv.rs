@@ -1,15 +1,18 @@
 use std::collections::BTreeMap;
 use std::fs;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId,
-    SlotVector, VaultId,
+    Anchor, AnchorKind, AnchorValue, CxFlags, InputRef, LedgerRef, Modality, SlotId, SlotVector,
+    VaultId,
 };
 use calyx_sextant::{
     CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE, HnswIndex, MaxSimIndex, QuantConfig, Query, SearchEngine,
     SlotIndexMap,
 };
 use serde_json::json;
+use sextant_support::{cx_u8_fill as cx, hex};
 
 #[test]
 fn gpu_parity_shims_fail_loud_and_search_fanout_is_explicit_cpu() {
@@ -174,18 +177,10 @@ fn ids(hits: &[calyx_sextant::Hit]) -> Vec<String> {
     hits.iter().map(|hit| hit.cx_id.to_string()).collect()
 }
 
-fn hex(bytes: &[u8; 32]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 fn basis_vec(index: usize) -> SlotVector {
     let mut data = vec![0.0; 3];
     data[index % 3] = 1.0;
     SlotVector::Dense { dim: 3, data }
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }
 
 fn vault() -> VaultId {

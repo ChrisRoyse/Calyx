@@ -1,12 +1,15 @@
 use std::fs;
 use std::time::Duration;
 
-use calyx_core::{CxId, SlotId, SlotVector};
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use calyx_core::{SlotId, SlotVector};
 use calyx_sextant::{
     FusionStrategy, HnswIndex, InvertedIndex, Query, RerankCandidateText, RerankRequest,
     RerankerClient, SearchEngine, SlotIndexMap,
 };
 use serde_json::json;
+use sextant_support::cx_u8_fill as cx;
 
 mod reranker_support;
 use reranker_support::spawn_reranker;
@@ -210,8 +213,4 @@ fn basis_vec(index: usize) -> SlotVector {
     let mut data = vec![0.0; 3];
     data[index % 3] = 1.0;
     SlotVector::Dense { dim: 3, data }
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }

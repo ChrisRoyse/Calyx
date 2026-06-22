@@ -3,13 +3,16 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CxId, SlotId};
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use calyx_core::SlotId;
 use calyx_sextant::index::{
     DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, FinalCxSearch, FunnelParams,
     KernelFirstSearch, KernelRegion, KernelRegionAnn, RegionPartitions,
 };
 use proptest::prelude::*;
 use serde::Serialize;
+use sextant_support::cx_u32_be as cx;
 
 fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir()
@@ -36,12 +39,6 @@ fn search_params(n: usize) -> DiskAnnSearchParams {
         rescore_k: n.max(16),
         rescore_from_raw: false,
     }
-}
-
-fn cx(idx: u32) -> CxId {
-    let mut bytes = [0_u8; 16];
-    bytes[8..16].copy_from_slice(&u64::from(idx).to_be_bytes());
-    CxId::from_bytes(bytes)
 }
 
 fn region_vector(region: u32, dim: usize) -> Vec<f32> {

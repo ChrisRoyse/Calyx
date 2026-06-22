@@ -9,10 +9,13 @@
 
 use std::path::{Path, PathBuf};
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{CxId, SlotId};
 use calyx_sextant::index::{DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams};
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use sextant_support::cx_usize_be as cx;
 use sha2::{Digest, Sha256};
 
 fn scratch(tag: &str) -> PathBuf {
@@ -20,12 +23,6 @@ fn scratch(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("scratch");
     dir
-}
-
-fn cx(idx: usize) -> CxId {
-    let mut b = [0u8; 16];
-    b[8..16].copy_from_slice(&(idx as u64).to_be_bytes());
-    CxId::from_bytes(b)
 }
 
 /// Planted clustered corpus: each vector gets a strong +4.0 spike at dim

@@ -1,12 +1,15 @@
 use std::collections::BTreeMap;
 use std::fs;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId,
     SlotVector, VaultId,
 };
 use calyx_sextant::{HnswIndex, Query, QueryPlanner, RrfProfile, SearchEngine, SlotIndexMap};
 use serde_json::json;
+use sextant_support::cx_u8_fill as cx;
 
 #[test]
 fn planned_explain_search_carries_plan_and_hit_explain() {
@@ -139,8 +142,4 @@ fn sample_constellation(cx_id: CxId, seq: u64) -> calyx_core::Constellation {
         },
         flags: CxFlags::default(),
     }
-}
-
-fn cx(value: u8) -> CxId {
-    CxId::from_bytes([value; 16])
 }

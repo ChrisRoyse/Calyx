@@ -3,6 +3,8 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{CxId, SlotId, SlotVector};
 use calyx_sextant::index::diskann::graph::DiskAnnVectorRef;
 use calyx_sextant::index::{
@@ -12,6 +14,7 @@ use calyx_sextant::index::{
 use proptest::prelude::*;
 use rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha8Rng;
+use sextant_support::cx_usize_be as cx;
 
 fn scratch(tag: &str) -> PathBuf {
     let dir = std::env::temp_dir()
@@ -20,12 +23,6 @@ fn scratch(tag: &str) -> PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("create scratch dir");
     dir
-}
-
-fn cx(idx: usize) -> CxId {
-    let mut bytes = [0_u8; 16];
-    bytes[8..16].copy_from_slice(&(idx as u64).to_be_bytes());
-    CxId::from_bytes(bytes)
 }
 
 fn vectors(n: usize, dim: usize, seed: u64) -> Vec<(CxId, Vec<f32>)> {
