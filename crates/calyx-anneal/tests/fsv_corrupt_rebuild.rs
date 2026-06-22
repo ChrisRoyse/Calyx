@@ -1,3 +1,5 @@
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 #[path = "support/fsv_corrupt_rebuild.rs"]
 mod support;
 

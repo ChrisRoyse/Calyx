@@ -82,6 +82,13 @@ pub fn physical_files(root: &Path) -> Vec<String> {
     files
 }
 
+pub fn strict_physical_files(root: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    collect_strict_physical_files(root, root, &mut files);
+    files.sort();
+    files
+}
+
 pub fn collect_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
@@ -96,6 +103,17 @@ pub fn collect_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
                         .to_string(),
                 );
             }
+        }
+    }
+}
+
+fn collect_strict_physical_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect_strict_physical_files(root, &path, out);
+        } else {
+            out.push(path.strip_prefix(root).unwrap().display().to_string());
         }
     }
 }

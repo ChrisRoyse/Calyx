@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 mod fsv_support;
-use fsv_support::vault_id;
+use fsv_support::{strict_physical_files as physical_files, vault_id};
 
 const TEST_TS: u64 = 1_785_600_903;
 
@@ -211,24 +211,6 @@ fn wal_files(vault: &Path) -> Vec<String> {
         .collect::<Vec<_>>();
     files.sort();
     files
-}
-
-fn physical_files(root: &Path) -> Vec<String> {
-    let mut out = Vec::new();
-    collect_files(root, root, &mut out);
-    out.sort();
-    out
-}
-
-fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
-    for entry in fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.is_dir() {
-            collect_files(root, &path, out);
-        } else {
-            out.push(path.strip_prefix(root).unwrap().display().to_string());
-        }
-    }
 }
 
 fn reset_dir(path: &Path) -> PathBuf {
