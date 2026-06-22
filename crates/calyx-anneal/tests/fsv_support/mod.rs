@@ -17,6 +17,12 @@ pub fn parse_vault_id(value: &str) -> VaultId {
     value.parse().expect("valid ULID")
 }
 
+#[derive(Clone, Copy)]
+pub enum ManifestPathStyle {
+    Display,
+    Slash,
+}
+
 pub fn write_json<T: Serialize + ?Sized>(path: &Path, value: &T) {
     let bytes = serde_json::to_vec_pretty(value).expect("serialize JSON artifact");
     fs::write(path, bytes).expect("write JSON artifact");
@@ -38,6 +44,30 @@ pub fn write_manifest(root: &Path, paths: &[PathBuf]) {
         ));
     }
     fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
+}
+
+pub fn write_tree_manifest(root: &Path, style: ManifestPathStyle) {
+    let manifest = root.join("BLAKE3SUMS.txt");
+    let mut files = Vec::new();
+    collect_manifest_files(root, root, &manifest, &mut files);
+    files.sort();
+    let mut lines = String::new();
+    for relative in files {
+        let bytes = fs::read(root.join(&relative)).expect("read checksum file");
+        let path = match style {
+            ManifestPathStyle::Display => relative.display().to_string(),
+            ManifestPathStyle::Slash => relative.to_string_lossy().replace('\\', "/"),
+        };
+        lines.push_str(&format!("{}  {}\n", blake3::hash(&bytes).to_hex(), path));
+    }
+    fs::write(manifest, lines).expect("write manifest");
+}
+
+pub fn write_physical_size_list(path: &Path, root: &Path) {
+    let mut lines = Vec::new();
+    collect_physical_size_lines(root, root, &mut lines);
+    lines.sort();
+    fs::write(path, lines.join("\n")).expect("write physical file list");
 }
 
 pub fn reset_dir(dir: &Path) {
@@ -66,6 +96,33 @@ pub fn collect_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
                         .to_string(),
                 );
             }
+        }
+    }
+}
+
+fn collect_manifest_files(root: &Path, dir: &Path, manifest: &Path, out: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).expect("read manifest dir") {
+        let path = entry.expect("manifest entry").path();
+        if path == manifest {
+            continue;
+        }
+        if path.is_dir() {
+            collect_manifest_files(root, &path, manifest, out);
+        } else {
+            out.push(path.strip_prefix(root).expect("relative").to_path_buf());
+        }
+    }
+}
+
+fn collect_physical_size_lines(root: &Path, dir: &Path, lines: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).expect("read dir") {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            collect_physical_size_lines(root, &path, lines);
+        } else {
+            let rel = path.strip_prefix(root).unwrap_or(&path);
+            let size = fs::metadata(&path).expect("metadata").len();
+            lines.push(format!("{} bytes {}", size, rel.display()));
         }
     }
 }

@@ -18,7 +18,7 @@ mod fsv_support;
 #[path = "support/propose_lens.rs"]
 #[allow(dead_code)]
 mod support;
-use fsv_support::{reset_dir, vault_id, write_json, write_manifest};
+use fsv_support::{reset_dir, vault_id, write_json, write_manifest, write_physical_size_list};
 use support::*;
 
 const FSV_TS: u64 = 1_785_500_422;
@@ -157,7 +157,7 @@ fn lens_proposal_integration() {
     );
 
     let physical_path = root.join("physical-files.txt");
-    write_physical_files(&physical_path, &vault_dir);
+    write_physical_size_list(&physical_path, &vault_dir);
     write_manifest(&root, &[readback_path, physical_path]);
 }
 
@@ -263,27 +263,6 @@ fn read_ledger_rows(vault: &AsterVault) -> Vec<Value> {
             })
         })
         .collect()
-}
-
-fn write_physical_files(path: &Path, vault_dir: &Path) {
-    let mut lines = Vec::new();
-    collect_files(vault_dir, vault_dir, &mut lines);
-    lines.sort();
-    fs::write(path, lines.join("\n")).expect("write physical file list");
-}
-
-fn collect_files(root: &Path, dir: &Path, lines: &mut Vec<String>) {
-    for entry in fs::read_dir(dir).expect("read vault dir") {
-        let entry = entry.expect("dir entry");
-        let path = entry.path();
-        if path.is_dir() {
-            collect_files(root, &path, lines);
-        } else {
-            let rel = path.strip_prefix(root).unwrap_or(&path);
-            let size = fs::metadata(&path).expect("metadata").len();
-            lines.push(format!("{} bytes {}", size, rel.display()));
-        }
-    }
 }
 
 fn hex(bytes: &[u8]) -> String {

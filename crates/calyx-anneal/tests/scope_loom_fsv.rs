@@ -15,6 +15,10 @@ use calyx_forge::AutotuneCache;
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use serde_json::{Value, json};
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
+use fsv_support::write_json;
+
 const FSV_TS: u64 = 1_785_500_415;
 
 #[test]
@@ -307,10 +311,6 @@ fn eager_plan(a: LensId, b: LensId) -> MatPlanConfig {
         eager_pairs: vec![(a, b)],
         indexed_concat_keys: Vec::new(),
     }
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).expect("write json");
 }
 
 fn reset_dir(path: &Path) {

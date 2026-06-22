@@ -14,6 +14,10 @@ use calyx_forge::AutotuneCache;
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use serde_json::{Value, json};
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
+use fsv_support::write_json;
+
 const FSV_TS: u64 = 1_785_500_414;
 
 #[test]
@@ -424,14 +428,6 @@ fn quant_evidence() -> QuantPromotionEvidence {
         guard_far_before: 0.001,
         guard_far_after: 0.001,
     }
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(
-        path,
-        serde_json::to_vec_pretty(value).expect("serialize readback"),
-    )
-    .expect("write readback");
 }
 
 fn reset_dir(path: &Path) {
