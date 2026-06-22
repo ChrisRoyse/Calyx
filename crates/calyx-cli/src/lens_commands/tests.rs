@@ -8,7 +8,7 @@ fn lens_dispatch_rejects_unknown_subcommand() {
     assert!(
         error
             .message()
-            .contains("expected add, list, card, explain")
+            .contains("expected add, list, remove, card, explain")
     );
 }
 

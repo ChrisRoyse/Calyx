@@ -134,7 +134,7 @@ fn same_catalog_identity(
     entry.lens_id == lens_id || entry.name == name || entry.manifest == manifest
 }
 
-fn catalog_path(home: Option<&Path>) -> CliResult<PathBuf> {
+pub(super) fn catalog_path(home: Option<&Path>) -> CliResult<PathBuf> {
     let root = match home {
         Some(path) => path.to_path_buf(),
         None => env::var_os("CALYX_HOME")
@@ -144,7 +144,7 @@ fn catalog_path(home: Option<&Path>) -> CliResult<PathBuf> {
     Ok(root.join("lenses").join("registry.json"))
 }
 
-fn read_catalog(path: &Path) -> CliResult<LensCatalog> {
+pub(super) fn read_catalog(path: &Path) -> CliResult<LensCatalog> {
     if !path.exists() {
         return Ok(LensCatalog { lenses: Vec::new() });
     }
@@ -168,7 +168,7 @@ fn health_from_manifest(path: &Path) -> LensHealth {
     }
 }
 
-fn write_catalog(path: &Path, catalog: &LensCatalog) -> CliResult {
+pub(super) fn write_catalog(path: &Path, catalog: &LensCatalog) -> CliResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
