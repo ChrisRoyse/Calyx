@@ -2,20 +2,21 @@ use std::collections::BTreeMap;
 
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId,
-    SlotVector, VaultId,
+    SlotVector,
 };
 use calyx_sextant::{
     CALYX_SEXTANT_VECTOR_SHAPE, HitGuardMode, HnswIndex, Query, QueryGuard, SearchEngine,
     SlotIndexMap,
 };
-use calyx_ward::{GuardId, GuardPolicy, GuardProfile, NoveltyAction};
+use calyx_ward::{GuardPolicy, GuardProfile, NoveltyAction};
 use serde_json::json;
 
 #[path = "sextant_support/mod.rs"]
 mod sextant_support;
-use sextant_support::{cx_u8_fill as cx, dense};
-
-const GUARD_UUID: &str = "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101";
+use sextant_support::{
+    cx_u8_fill as cx, default_vault_id as vault, dense, guarded_test_guard_id as guard_id,
+    write_named_json as write_json,
+};
 
 #[test]
 fn in_region_only_drops_ood_and_attaches_verdict() {
@@ -414,20 +415,6 @@ fn ids(hits: &[calyx_sextant::Hit]) -> Vec<CxId> {
 
 fn ids_from_dropped(hits: &[calyx_sextant::DroppedGuardHit]) -> Vec<CxId> {
     hits.iter().map(|hit| hit.cx_id).collect()
-}
-
-fn write_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
-    let path = std::path::Path::new(root).join(name);
-    let file = std::fs::File::create(path).expect("create fsv json");
-    serde_json::to_writer_pretty(file, value).expect("write fsv json");
-}
-
-fn guard_id() -> GuardId {
-    GUARD_UUID.parse().expect("guard id")
-}
-
-fn vault() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 const fn slot() -> SlotId {

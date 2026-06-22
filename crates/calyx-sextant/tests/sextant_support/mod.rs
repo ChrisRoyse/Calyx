@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CxId, SlotVector, content_address};
+use calyx_core::{CxId, SlotVector, VaultId, content_address};
 
 pub fn dense(data: Vec<f32>) -> SlotVector {
     SlotVector::Dense {
@@ -80,4 +80,20 @@ pub fn fsv_root(env_key: &str, temp_prefix: &str) -> (PathBuf, bool) {
 pub fn reset_dir(dir: &Path) {
     let _ = fs::remove_dir_all(dir);
     fs::create_dir_all(dir).expect("create fsv root");
+}
+
+pub fn write_named_json<T: serde::Serialize>(root: &str, name: &str, value: &T) {
+    let path = Path::new(root).join(name);
+    let file = fs::File::create(path).expect("create fsv json");
+    serde_json::to_writer_pretty(file, value).expect("write fsv json");
+}
+
+pub fn guarded_test_guard_id() -> calyx_ward::GuardId {
+    "018f48a4-9a79-74d2-8a5c-9ad7f6b8c101"
+        .parse()
+        .expect("guard id")
+}
+
+pub fn default_vault_id() -> VaultId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
