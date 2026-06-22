@@ -1,7 +1,9 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 use calyx_anneal::{
     AsterBanditStorage, BanditPolicy, BanditStorage, CALYX_ANNEAL_BANDIT_EMPTY,
     CALYX_ANNEAL_BANDIT_INVALID_CONFIG, ConfigBandit, bandit_key, encode_config_bandit,
@@ -9,7 +11,7 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::VaultId;
+use fsv_support::{hex_bytes, parse_vault_id, write_json};
 use serde_json::json;
 
 const SHAPE_KEY: &str = "issue412:forge:gemm:768x768:fp16:cuda:recall0.99";
@@ -173,27 +175,6 @@ where
         .collect()
 }
 
-fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
-}
-
-fn vault_id() -> VaultId {
-    "01J00000000000000000000412".parse().unwrap()
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble out of range"),
-    }
+fn vault_id() -> calyx_core::VaultId {
+    parse_vault_id("01J00000000000000000000412")
 }

@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 use calyx_anneal::{
     ABPromotionConfig, ABResult, ABRunner, ABVerdict, AnnealLedger, AsterAnnealLedgerStore,
     BanditPolicy, ConfigBandit, DType, ForgeConfig, NoopABBudget, ShapeKey, TripwireRegistry,
@@ -10,9 +12,10 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, VaultId};
+use calyx_core::FixedClock;
 use calyx_forge::AutotuneCache;
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
+use fsv_support::{hex, reset_dir, vault_id, write_json, write_manifest};
 use serde_json::{Value, json};
 
 const FSV_TS: u64 = 1_785_500_416;
@@ -300,35 +303,4 @@ fn result(arm_idx: usize, latency_ns: u64, recall_k: f64) -> ABResult {
         bits_per_anchor: 1.0,
         ts: FSV_TS,
     }
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
-}
-
-fn write_manifest(root: &Path, paths: &[PathBuf]) {
-    let mut lines = String::new();
-    for path in paths {
-        let bytes = fs::read(path).expect("read manifest artifact");
-        let rel = path.strip_prefix(root).unwrap_or(path);
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            rel.display()
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create dir");
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

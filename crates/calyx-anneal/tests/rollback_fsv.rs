@@ -2,6 +2,8 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 use calyx_anneal::{
     ArtifactKey, ArtifactPtr, AsterRollbackStorage, CALYX_ANNEAL_CHANGE_COMMITTED,
     CALYX_ANNEAL_INVALID_ROLLBACK_STATE, CALYX_ANNEAL_UNKNOWN_CHANGE_ID, ChangeId, RollbackStore,
@@ -9,7 +11,8 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, VaultId};
+use calyx_core::FixedClock;
+use fsv_support::{hex_bytes, vault_id, write_json, write_manifest};
 use serde_json::json;
 
 const FSV_TS: u64 = 1_785_500_396;
@@ -216,46 +219,6 @@ fn scan_cf(vault: &AsterVault) -> Vec<serde_json::Value> {
         .collect()
 }
 
-fn write_json(path: &Path, value: &serde_json::Value) {
-    let bytes = serde_json::to_vec_pretty(value).expect("serialize JSON artifact");
-    fs::write(path, bytes).expect("write JSON artifact");
-}
-
 fn write_bytes(path: &Path, value: &[u8]) {
     fs::write(path, value).expect("write binary artifact");
-}
-
-fn write_manifest(root: &Path, paths: &[PathBuf]) {
-    let mut lines = String::new();
-    for path in paths {
-        let bytes = fs::read(path).expect("read manifest artifact");
-        let rel = path.strip_prefix(root).unwrap_or(path);
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            rel.display()
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn hex_bytes(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        out.push(hex_digit(byte >> 4));
-        out.push(hex_digit(byte & 0x0f));
-    }
-    out
-}
-
-fn hex_digit(value: u8) -> char {
-    match value {
-        0..=9 => char::from(b'0' + value),
-        10..=15 => char::from(b'a' + value - 10),
-        _ => unreachable!("nibble"),
-    }
 }

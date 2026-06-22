@@ -1,14 +1,17 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 use calyx_anneal::{
     BACKGROUND_NICE, BudgetConfig, BudgetEnforcer, BudgetProbe, BudgetProbeSample, BudgetStatus,
     CALYX_ANNEAL_BUDGET_EXHAUSTED, CALYX_ANNEAL_BUDGET_NVML_UNAVAILABLE, budget_config_path,
     read_budget_config_from_vault,
 };
 use calyx_core::FixedClock;
+use fsv_support::{write_json, write_manifest};
 use serde_json::json;
 
 const FSV_TS: u64 = 1_785_500_397;
@@ -211,23 +214,4 @@ impl BudgetProbe for ScriptedProbe {
     fn sample(&self) -> BudgetProbeSample {
         self.sample.lock().unwrap().clone()
     }
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) {
-    let bytes = serde_json::to_vec_pretty(value).expect("serialize JSON artifact");
-    fs::write(path, bytes).expect("write JSON artifact");
-}
-
-fn write_manifest(root: &Path, paths: &[PathBuf]) {
-    let mut lines = String::new();
-    for path in paths {
-        let bytes = fs::read(path).expect("read manifest artifact");
-        let rel = path.strip_prefix(root).unwrap_or(path);
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            rel.display()
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
 }

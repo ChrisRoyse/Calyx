@@ -3,6 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 use calyx_anneal::{
     ABRunner, AnnealLedger, AsterAnnealLedgerStore, AsterSoakStorage, CALYX_ASTER_CF_UNAVAILABLE,
     NoopABBudget, SoakConfig, SoakHarness, SoakRowKind, TripwireRegistry,
@@ -10,9 +12,12 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, VaultId};
+use calyx_core::FixedClock;
 use calyx_forge::AutotuneCache;
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
+use fsv_support::{
+    hex, physical_files, read_json, reset_dir, vault_id, write_json, write_manifest,
+};
 use serde_json::{Value, json};
 
 const FSV_TS: u64 = 1_785_500_417;
@@ -170,64 +175,4 @@ fn open_vault(vault_dir: &Path) -> AsterVault {
         VaultOptions::default(),
     )
     .expect("open durable vault")
-}
-
-fn read_json(path: &Path) -> Value {
-    serde_json::from_slice(&fs::read(path).unwrap_or_default()).unwrap_or(Value::Null)
-}
-
-fn write_json(path: &Path, value: &Value) {
-    fs::write(path, serde_json::to_vec_pretty(value).unwrap()).unwrap();
-}
-
-fn write_manifest(root: &Path, paths: &[PathBuf]) {
-    let mut lines = String::new();
-    for path in paths {
-        let bytes = fs::read(path).expect("read manifest artifact");
-        let rel = path.strip_prefix(root).unwrap_or(path);
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            rel.display()
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
-}
-
-fn physical_files(root: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files);
-    files.sort();
-    files
-}
-
-fn collect_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                collect_files(root, &path, files);
-            } else {
-                files.push(
-                    path.strip_prefix(root)
-                        .unwrap_or(&path)
-                        .display()
-                        .to_string(),
-                );
-            }
-        }
-    }
-}
-
-fn reset_dir(dir: &Path) {
-    let _ = fs::remove_dir_all(dir);
-    fs::create_dir_all(dir).expect("create dir");
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

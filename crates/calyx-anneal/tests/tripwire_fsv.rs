@@ -1,11 +1,14 @@
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+#[path = "fsv_support/mod.rs"]
+mod fsv_support;
 use calyx_anneal::{
     CALYX_TRIPWIRE_INVALID_CONFIG, CALYX_TRIPWIRE_INVALID_METRIC, TripwireMetric, TripwireRegistry,
     TripwireResult, tripwire_config_path,
 };
+use fsv_support::{write_json, write_manifest};
 use serde_json::json;
 
 #[test]
@@ -152,23 +155,4 @@ fn issue394_tripwire_registry_fsv() {
             root.join("tripwire-edge-readback.json"),
         ],
     );
-}
-
-fn write_json(path: &Path, value: &serde_json::Value) {
-    let bytes = serde_json::to_vec_pretty(value).expect("serialize JSON artifact");
-    fs::write(path, bytes).expect("write JSON artifact");
-}
-
-fn write_manifest(root: &Path, paths: &[PathBuf]) {
-    let mut lines = String::new();
-    for path in paths {
-        let bytes = fs::read(path).expect("read manifest artifact");
-        let rel = path.strip_prefix(root).unwrap_or(path);
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            rel.display()
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write manifest");
 }
