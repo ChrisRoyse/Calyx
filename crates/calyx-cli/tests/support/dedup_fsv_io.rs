@@ -76,3 +76,28 @@ pub(crate) fn list_dir_files(dir: &Path) -> Vec<String> {
     files.sort();
     files
 }
+
+pub(crate) fn list_tree_files(dir: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    if dir.exists() {
+        collect_tree_files(dir, dir, &mut files);
+    }
+    files.sort();
+    files
+}
+
+fn collect_tree_files(root: &Path, dir: &Path, files: &mut Vec<String>) {
+    for entry in fs::read_dir(dir).expect("read dir") {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            collect_tree_files(root, &path, files);
+        } else {
+            files.push(
+                path.strip_prefix(root)
+                    .expect("relative")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
+        }
+    }
+}

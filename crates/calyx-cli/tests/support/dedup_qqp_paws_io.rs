@@ -1,8 +1,7 @@
 //! Support for the PH70 / issue #605 QQP+PAWS dedup intelligence FSV.
 
 use std::collections::BTreeMap;
-use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::dedup::{
@@ -14,6 +13,11 @@ use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Modality, SlotId, SlotVector, VaultId, VaultStore,
 };
 use serde_json::json;
+
+#[path = "dedup_fsv_io.rs"]
+mod dedup_fsv_io;
+
+pub(crate) use dedup_fsv_io::{write_blake3_sums, write_json};
 
 pub const CONTENT_SLOT: u16 = 0;
 pub const PANEL_VERSION: u32 = 70;
@@ -207,48 +211,6 @@ pub fn merged(result: &DedupResult) -> bool {
 /// Unit vector at an exact hand-computed cosine to `[1, 0]`.
 pub fn vector_at_cos(cos: f32) -> Vec<f32> {
     vec![cos, (1.0 - cos * cos).sqrt()]
-}
-
-pub fn write_json(path: &Path, value: &serde_json::Value) {
-    fs::write(
-        path,
-        serde_json::to_string_pretty(value).expect("encode json"),
-    )
-    .unwrap_or_else(|error| panic!("write {}: {error}", path.display()));
-}
-
-pub fn write_blake3_sums(root: &Path) {
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files);
-    files.sort();
-    let mut lines = String::new();
-    for relative in files {
-        if relative == Path::new("BLAKE3SUMS.txt") {
-            continue;
-        }
-        let bytes = fs::read(root.join(&relative)).expect("read checksum file");
-        lines.push_str(&format!(
-            "{}  {}\n",
-            blake3::hash(&bytes).to_hex(),
-            relative.to_string_lossy().replace('\\', "/")
-        ));
-    }
-    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write checksum manifest");
-}
-
-fn collect_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(dir).expect("read dir") {
-        let path = entry.expect("dir entry").path();
-        if path.is_dir() {
-            collect_files(root, &path, files);
-        } else {
-            files.push(
-                path.strip_prefix(root)
-                    .expect("relative path")
-                    .to_path_buf(),
-            );
-        }
-    }
 }
 
 /// Reads the contested_with rows and both Base CF rows back from the vault
