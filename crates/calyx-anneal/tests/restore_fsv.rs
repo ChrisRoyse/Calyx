@@ -11,10 +11,13 @@ use calyx_anneal::{
 use calyx_aster::cf::{ColumnFamily, KeyRange, base_key};
 use calyx_aster::mvcc::CALYX_ASTER_BASE_CORRUPT;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, FixedClock, VaultId};
+use calyx_core::{CxId, FixedClock};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_600_903;
 
@@ -261,8 +264,4 @@ fn ascii(bytes: &[u8]) -> String {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }

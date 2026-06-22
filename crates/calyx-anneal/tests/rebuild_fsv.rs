@@ -13,9 +13,12 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, FixedClock, SlotId, SystemClock, VaultId};
+use calyx_core::{CxId, FixedClock, SlotId, SystemClock};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use serde_json::{Value, json};
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_600_902;
 
@@ -356,10 +359,6 @@ fn fsv_root() -> PathBuf {
     env::var_os("CALYX_ISSUE402_FSV_ROOT")
         .map(PathBuf::from)
         .unwrap_or_else(|| env::temp_dir().join("calyx-issue402-rebuild-fsv"))
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn ascii(bytes: &[u8]) -> String {

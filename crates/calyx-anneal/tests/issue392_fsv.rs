@@ -11,10 +11,12 @@ use calyx_aster::recurrence::{
 };
 use calyx_aster::vault::{AsterVault, VaultOptions, encode};
 use calyx_core::{
-    CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
-    VaultStore,
+    CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultStore,
 };
 use serde_json::json;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const MAIN_SEED: u8 = 0x39;
 
@@ -254,10 +256,6 @@ fn collect_files(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("vault id")
 }
 
 fn cx(seed: u8) -> CxId {

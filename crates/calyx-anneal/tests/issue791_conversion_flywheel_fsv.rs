@@ -9,7 +9,7 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{FixedClock, Input, Modality, VaultId};
+use calyx_core::{FixedClock, Input, Modality};
 use calyx_ledger::{ActorId, EntryKind, LedgerAppender, decode as decode_ledger};
 use calyx_registry::Registry;
 use serde_json::{Value, json};
@@ -18,6 +18,9 @@ use serde_json::{Value, json};
 #[allow(dead_code)]
 mod support;
 use support::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const FSV_TS: u64 = 1_785_500_791;
 
@@ -398,10 +401,6 @@ fn fsv_root() -> PathBuf {
 fn reset_dir(dir: &Path) {
     let _ = fs::remove_dir_all(dir);
     fs::create_dir_all(dir).expect("create dir");
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn hex(bytes: &[u8]) -> String {

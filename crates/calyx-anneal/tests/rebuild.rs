@@ -15,9 +15,12 @@ use calyx_anneal::{
 };
 use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CalyxError, CxId, FixedClock, Result, Seq, SlotId, VaultId};
+use calyx_core::{CalyxError, CxId, FixedClock, Result, Seq, SlotId};
 use calyx_ledger::{ActorId, LedgerAppender, LedgerCfStore, MemoryLedgerStore};
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_600_402;
 
@@ -426,10 +429,6 @@ fn budget_config(cpu_fraction: f64) -> BudgetConfig {
         vram_bytes: 1024,
         tick_interval_ms: 100,
     }
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);

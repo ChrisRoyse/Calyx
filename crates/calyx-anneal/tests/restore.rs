@@ -12,9 +12,12 @@ use calyx_anneal::{
 use calyx_aster::cf::{ColumnFamily, KeyRange, base_key};
 use calyx_aster::mvcc::CALYX_ASTER_BASE_CORRUPT;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CxId, FixedClock, VaultId};
+use calyx_core::{CxId, FixedClock};
 use calyx_ledger::{ActorId, LedgerAppender, MemoryLedgerStore};
 use proptest::prelude::*;
+
+mod fsv_support;
+use fsv_support::vault_id;
 
 const TEST_TS: u64 = 1_785_600_403;
 
@@ -242,10 +245,6 @@ fn temp_dir(label: &str) -> PathBuf {
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-fn vault_id() -> VaultId {
-    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 static NEXT_TEMP: AtomicUsize = AtomicUsize::new(0);
