@@ -28,9 +28,11 @@ fn dual_write_replay_writes_five_chunks_and_rereplay_is_idempotent() {
     assert!(first.failures.is_empty());
     assert_eq!(first.written_rows, 5);
     assert_eq!(first.skipped_rows, 0);
+    assert_eq!(first.shadow_manifest.chunk_count, 5);
     assert_eq!(second.receipts, first.receipts);
     assert_eq!(second.written_rows, 0);
     assert_eq!(second.skipped_rows, 5);
+    assert_eq!(second.shadow_manifest.chunk_count, 5);
     assert_eq!(sqlite_count(&sqlite), 5);
     for receipt in &first.receipts {
         let json = serde_json::to_value(receipt).unwrap().to_string();
@@ -86,6 +88,8 @@ fn injected_shadow_failure_preserves_sqlite_row() {
 
     assert_eq!(error.code(), CALYX_SHADOW_WRITE_FAILED);
     assert_eq!(sqlite_count(&sqlite), 1);
+    let readback = super::shadow_harness::read_shadow_manifest(&vault).unwrap();
+    assert_eq!(readback.chunk_count, 0);
     cleanup(root);
 }
 

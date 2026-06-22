@@ -229,6 +229,26 @@ pub(crate) fn read_shadow_manifest(vault: &Path) -> Result<ShadowManifestReadbac
     decode_manifest_bytes(vault, &bytes)
 }
 
+pub(crate) fn update_shadow_chunk_count(
+    vault: &Path,
+    chunk_count: u64,
+) -> Result<ShadowManifestReadback, CalyxError> {
+    let path = manifest_path(vault);
+    let mut bytes = Vec::new();
+    File::open(&path)
+        .map_err(|error| manifest_corrupt(format!("open {}: {error}", path.display())))?
+        .read_to_end(&mut bytes)
+        .map_err(|error| manifest_corrupt(format!("read {}: {error}", path.display())))?;
+    let mut manifest = decode_manifest_model(&bytes)?;
+    manifest.calyx_chunk_count = chunk_count;
+    let handle = CalyxHandle {
+        root: vault.to_path_buf(),
+        manifest,
+    };
+    handle.write_manifest()?;
+    read_shadow_manifest(vault)
+}
+
 impl SqliteHandle {
     fn open(path: &Path) -> Result<Self, CalyxError> {
         Self::open_logical(path, path)
@@ -345,7 +365,7 @@ impl CalyxHandle {
     }
 }
 
-fn decode_manifest_bytes(vault: &Path, bytes: &[u8]) -> Result<ShadowManifestReadback, CalyxError> {
+fn decode_manifest_model(bytes: &[u8]) -> Result<ShadowManifest, CalyxError> {
     if bytes.len() <= MANIFEST_MAGIC.len() {
         return Err(manifest_corrupt("shadow manifest is truncated"));
     }
@@ -360,13 +380,19 @@ fn decode_manifest_bytes(vault: &Path, bytes: &[u8]) -> Result<ShadowManifestRea
     if manifest.schema_version != 1 || manifest.mode != mode {
         return Err(manifest_corrupt("shadow manifest header/body mismatch"));
     }
+    Ok(manifest)
+}
+
+fn decode_manifest_bytes(vault: &Path, bytes: &[u8]) -> Result<ShadowManifestReadback, CalyxError> {
+    let manifest = decode_manifest_model(bytes)?;
+    let mode = manifest.mode;
     let wal_path = shadow_wal_path(vault);
     let wal_bytes = fs::metadata(&wal_path).map_or(0, |metadata| metadata.len());
     Ok(ShadowManifestReadback {
         manifest_path: manifest_path(vault),
         magic: String::from_utf8_lossy(MANIFEST_MAGIC).to_string(),
         mode,
-        mode_byte,
+        mode_byte: mode.byte(),
         database_name: manifest.database_name,
         sqlite_path_digest: manifest.sqlite_path_digest,
         chunk_count: manifest.calyx_chunk_count,
