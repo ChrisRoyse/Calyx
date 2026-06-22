@@ -14,20 +14,13 @@ use calyx_aster::vault::{GrantEntry, VaultContext};
 use calyx_core::VaultId;
 use calyx_ledger::ActorId;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
 use ulid::Ulid;
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::prepared_temp_root;
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!(
-        "calyx-aster-ph60-{name}-{}-{id}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    prepared_temp_root("calyx-aster-ph60", name)
 }
 
 fn vault(byte: u8) -> VaultId {

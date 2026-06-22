@@ -10,11 +10,11 @@ use calyx_core::{Clock, FixedClock, Result, VaultId};
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
-static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+mod fsv_support;
+use fsv_support::{env_or_prepared_temp_root, prepared_temp_root};
 
 #[derive(Debug)]
 struct SharedProbe {
@@ -237,18 +237,11 @@ fn gpuhost_real_statvfs_disk_pressure_readback() {
 }
 
 fn test_dir(name: &str) -> PathBuf {
-    let id = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
-    let dir =
-        std::env::temp_dir().join(format!("calyx-issue473-{name}-{}-{id}", std::process::id()));
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir).unwrap();
-    dir
+    prepared_temp_root("calyx-issue473", name)
 }
 
 fn fsv_root() -> PathBuf {
-    std::env::var_os("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| test_dir("fsv-readback"))
+    env_or_prepared_temp_root("CALYX_FSV_ROOT", "calyx-issue473", "fsv-readback")
 }
 
 fn open_vault(dir: &Path, options: VaultOptions) -> AsterVault<FixedClock> {

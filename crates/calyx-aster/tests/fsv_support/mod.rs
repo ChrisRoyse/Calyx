@@ -53,8 +53,38 @@ pub(crate) fn named_fsv_root_os(env_key: &str, name: &str) -> (PathBuf, bool) {
 }
 
 fn named_temp_root(name: &str) -> PathBuf {
+    temp_root("calyx-aster", name)
+}
+
+pub(crate) fn temp_root(prefix: &str, name: &str) -> PathBuf {
     let id = TEMP_ROOT_SEQ.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("calyx-aster-{name}-{}-{id}", std::process::id()))
+    std::env::temp_dir().join(format!("{prefix}-{name}-{}-{id}", std::process::id()))
+}
+
+pub(crate) fn prepared_temp_root(prefix: &str, name: &str) -> PathBuf {
+    let dir = temp_root(prefix, name);
+    reset_dir(&dir);
+    dir
+}
+
+pub(crate) fn env_or_temp_root(
+    env_key: &str,
+    fallback_prefix: &str,
+    fallback_name: &str,
+) -> PathBuf {
+    std::env::var_os(env_key)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| temp_root(fallback_prefix, fallback_name))
+}
+
+pub(crate) fn env_or_prepared_temp_root(
+    env_key: &str,
+    fallback_prefix: &str,
+    fallback_name: &str,
+) -> PathBuf {
+    std::env::var_os(env_key)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| prepared_temp_root(fallback_prefix, fallback_name))
 }
 
 pub(crate) fn reset_dir(dir: &Path) {
