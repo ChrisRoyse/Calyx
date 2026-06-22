@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 
@@ -7,6 +8,25 @@ pub fn fsv_root(env_key: &str, fallback: &str) -> PathBuf {
     std::env::var(env_key)
         .map(PathBuf::from)
         .unwrap_or_else(|_| std::env::temp_dir().join(fallback))
+}
+
+pub fn case_fsv_root(
+    env_key: &str,
+    fallback_prefix: &str,
+    name: &str,
+    counter: &AtomicU64,
+) -> (PathBuf, bool) {
+    if let Ok(root) = std::env::var(env_key) {
+        return (PathBuf::from(root).join(name), true);
+    }
+    let seq = counter.fetch_add(1, Ordering::SeqCst);
+    (
+        std::env::temp_dir().join(format!(
+            "{fallback_prefix}-{name}-{}-{seq}",
+            std::process::id()
+        )),
+        false,
+    )
 }
 
 pub fn reset_dir(dir: &Path) {
@@ -33,11 +53,34 @@ pub fn write_json(path: &Path, value: &Value) {
     .expect("write json");
 }
 
+pub fn write_text(path: &Path, value: impl AsRef<str>) {
+    fs::write(path, value.as_ref()).expect("write text");
+}
+
 pub fn write_blake3_sums(root: &Path) {
     let mut lines = Vec::new();
     collect_hashes(root, root, &mut lines);
     lines.sort();
     fs::write(root.join("BLAKE3SUMS.txt"), lines.concat()).expect("write manifest");
+}
+
+pub fn write_blake3_sums_by_path(root: &Path) {
+    let mut files = Vec::new();
+    collect_paths(root, root, &mut files);
+    files.sort();
+    let mut lines = String::new();
+    for relative in files {
+        if relative == Path::new("BLAKE3SUMS.txt") {
+            continue;
+        }
+        let bytes = fs::read(root.join(&relative)).expect("read checksum file");
+        lines.push_str(&format!(
+            "{}  {}\n",
+            blake3::hash(&bytes).to_hex(),
+            relative.to_string_lossy().replace('\\', "/")
+        ));
+    }
+    fs::write(root.join("BLAKE3SUMS.txt"), lines).expect("write checksum manifest");
 }
 
 fn collect_hashes(root: &Path, path: &Path, lines: &mut Vec<String>) {
@@ -53,6 +96,21 @@ fn collect_hashes(root: &Path, path: &Path, lines: &mut Vec<String>) {
                 .to_string_lossy()
                 .replace('\\', "/");
             lines.push(format!("{}  {}\n", blake3::hash(&bytes).to_hex(), rel));
+        }
+    }
+}
+
+fn collect_paths(root: &Path, dir: &Path, files: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).expect("read dir") {
+        let path = entry.expect("dir entry").path();
+        if path.is_dir() {
+            collect_paths(root, &path, files);
+        } else {
+            files.push(
+                path.strip_prefix(root)
+                    .expect("relative path")
+                    .to_path_buf(),
+            );
         }
     }
 }
