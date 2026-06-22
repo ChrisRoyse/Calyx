@@ -96,6 +96,21 @@ pub(crate) fn write_json(path: &Path, value: &serde_json::Value) {
     fs::write(path, serde_json::to_vec_pretty(value).expect("json")).expect("write json");
 }
 
+pub(crate) fn collect_physical_file_states(root: &Path, files: &mut Vec<serde_json::Value>) {
+    for entry in fs::read_dir(root).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+        if path.is_dir() {
+            collect_physical_file_states(&path, files);
+        } else {
+            files.push(serde_json::json!({
+                "path": path.display().to_string(),
+                "bytes": entry.metadata().unwrap().len(),
+            }));
+        }
+    }
+}
+
 pub(crate) fn write_blake3_sums(root: &Path) {
     let mut files = Vec::new();
     collect_files(root, root, &mut files);

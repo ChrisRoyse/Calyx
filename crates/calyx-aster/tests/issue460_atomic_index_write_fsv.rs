@@ -24,6 +24,9 @@ use calyx_aster::wal::replay_dir;
 use calyx_core::{Clock, VaultId};
 use serde_json::{Value, json};
 
+mod fsv_support;
+use fsv_support::collect_physical_file_states;
+
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
@@ -456,21 +459,9 @@ fn pk_hexes(keys: &[RecordKey]) -> Vec<String> {
 
 fn physical_files(root: &Path) -> Vec<Value> {
     let mut files = Vec::new();
-    collect_files(root, &mut files);
+    collect_physical_file_states(root, &mut files);
     files.sort_by(|a, b| a["path"].as_str().cmp(&b["path"].as_str()));
     files
-}
-
-fn collect_files(root: &Path, files: &mut Vec<Value>) {
-    for entry in fs::read_dir(root).unwrap() {
-        let entry = entry.unwrap();
-        let path = entry.path();
-        if path.is_dir() {
-            collect_files(&path, files);
-        } else {
-            files.push(json!({"path": path.display().to_string(), "bytes": entry.metadata().unwrap().len()}));
-        }
-    }
 }
 
 fn hex(bytes: &[u8]) -> String {
