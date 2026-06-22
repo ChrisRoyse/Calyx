@@ -1,4 +1,6 @@
 #[allow(dead_code)]
+pub mod fsv_io;
+#[allow(dead_code)]
 pub mod living_concert;
 #[allow(dead_code)]
 pub mod living_concert_data;

@@ -1,3 +1,5 @@
+mod support;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -13,6 +15,7 @@ use calyx_ledger::{
     MemoryLedgerStore, SlotWeight, SubjectId,
 };
 use serde_json::{Value, json};
+use support::fsv_io::{fsv_root, list_files, reset_dir, write_json};
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -68,7 +71,7 @@ fn audit_cli_fails_closed_on_manifest_quarantine() {
 #[test]
 #[ignore = "manual gpuhost FSV for PH36 audit query CLI surface"]
 fn ph36_audit_query_cli_gpuhost_fsv() {
-    let root = fsv_root().join("audit-query-surface");
+    let root = fsv_root("CALYX_FSV_ROOT", "calyx-ph36-audit-query-fsv").join("audit-query-surface");
     reset_dir(&root);
     let vault = root.join("vault");
     let partial_vault = root.join("partial-vault");
@@ -122,11 +125,7 @@ fn ph36_audit_query_cli_gpuhost_fsv() {
         "quarantined_trace_stderr": stderr(&quarantined_trace),
     });
     let readback_path = root.join("audit-query-readback.json");
-    fs::write(
-        &readback_path,
-        serde_json::to_vec_pretty(&readback).unwrap(),
-    )
-    .unwrap();
+    write_json(&readback_path, &readback);
 
     println!("PH36_AUDIT_QUERY_FSV_ROOT={}", root.display());
     println!("PH36_AUDIT_QUERY_READBACK={}", readback_path.display());
@@ -340,34 +339,10 @@ fn test_dir(name: &str) -> PathBuf {
     ))
 }
 
-fn fsv_root() -> PathBuf {
-    std::env::var("CALYX_FSV_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir().join("calyx-ph36-audit-query-fsv"))
-}
-
-fn reset_dir(path: &Path) {
-    if path.exists() {
-        fs::remove_dir_all(path).unwrap();
-    }
-    fs::create_dir_all(path).unwrap();
-}
-
 fn cleanup(path: PathBuf) {
     if path.starts_with(std::env::temp_dir()) {
         let _ = fs::remove_dir_all(path);
     }
-}
-
-fn list_files(dir: &Path) -> Vec<String> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    let mut files = entries
-        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
-        .collect::<Vec<_>>();
-    files.sort();
-    files
 }
 
 fn cx(seed: u8) -> CxId {
