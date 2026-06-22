@@ -18,7 +18,11 @@ use fsv_support::{named_fsv_root, reset_dir, write_json};
 
 #[test]
 fn slot_column_materialization_fsv_writes_readbacks() {
-    let (root, keep_root) = fsv_root("slot-column-fsv");
+    let (root, keep_root) = named_fsv_root(
+        "CALYX_ASTER_SLOT_COLUMN_FSV_ROOT",
+        "slot-column-fsv",
+        &NEXT_DIR,
+    );
     reset_dir(&root);
 
     let vault_dir = root.join("vault");
@@ -272,8 +276,4 @@ fn hex(bytes: &[u8]) -> String {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    named_fsv_root("CALYX_ASTER_SLOT_COLUMN_FSV_ROOT", name, &NEXT_DIR)
 }

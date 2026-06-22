@@ -19,7 +19,11 @@ use fsv_support::named_fsv_root_os;
 
 #[test]
 fn durable_manifest_assets_are_not_rewritten_on_reopen() {
-    let (root, keep_root) = fsv_root("durable-manifest-assets");
+    let (root, keep_root) = named_fsv_root_os(
+        "CALYX_DURABLE_MANIFEST_ASSETS_FSV_ROOT",
+        "durable-manifest-assets",
+        &NEXT_DIR,
+    );
     let _ = fs::remove_dir_all(&root);
 
     let vault = durable_vault(&root);
@@ -120,8 +124,4 @@ fn list_files(root: &PathBuf) -> Vec<String> {
         .collect::<Vec<_>>();
     files.sort();
     files
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    named_fsv_root_os("CALYX_DURABLE_MANIFEST_ASSETS_FSV_ROOT", name, &NEXT_DIR)
 }

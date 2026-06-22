@@ -14,7 +14,6 @@ use calyx_core::{
 };
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 
 mod fsv_support;
@@ -24,10 +23,6 @@ static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    named_fsv_root("CALYX_ASTER_TIMETRAVEL_FSV_ROOT", name, &NEXT_DIR)
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -74,7 +69,11 @@ fn constellation(vault: &AsterVault<impl Clock>, input: &[u8], tag: f32) -> Cons
 
 #[test]
 fn timetravel_as_of_fsv() {
-    let (root, keep) = fsv_root("timetravel-fsv");
+    let (root, keep) = named_fsv_root(
+        "CALYX_ASTER_TIMETRAVEL_FSV_ROOT",
+        "timetravel-fsv",
+        &NEXT_DIR,
+    );
     reset_dir(&root);
     let vault_dir = root.join("vault");
     let vault = AsterVault::new_durable(

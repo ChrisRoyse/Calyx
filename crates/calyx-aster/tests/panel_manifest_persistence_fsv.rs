@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::AtomicU64;
 
 use calyx_aster::manifest::ManifestStore;
@@ -20,7 +20,11 @@ use fsv_support::named_fsv_root_os;
 
 #[test]
 fn explicit_panel_manifest_is_json_and_survives_default_reopen_flush() {
-    let (root, keep_root) = fsv_root("issue752-panel-manifest");
+    let (root, keep_root) = named_fsv_root_os(
+        "CALYX_ISSUE752_PANEL_MANIFEST_FSV_ROOT",
+        "issue752-panel-manifest",
+        &NEXT_DIR,
+    );
     let _ = fs::remove_dir_all(&root);
     let panel = panel();
     let options = VaultOptions {
@@ -161,8 +165,4 @@ fn write_readback(root: &Path, initial_panel_ref: &str, final_panel_ref: &str) {
         serde_json::to_vec_pretty(&readback).unwrap(),
     )
     .expect("write readback");
-}
-
-fn fsv_root(name: &str) -> (PathBuf, bool) {
-    named_fsv_root_os("CALYX_ISSUE752_PANEL_MANIFEST_FSV_ROOT", name, &NEXT_DIR)
 }
