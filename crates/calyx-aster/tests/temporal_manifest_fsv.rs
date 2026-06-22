@@ -2,7 +2,7 @@ mod fsv_support;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::manifest::ManifestStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
@@ -16,7 +16,10 @@ use serde_json::json;
 
 #[test]
 fn temporal_manifest_fsv_writes_vault_manifest_readbacks() {
-    let (root, keep_root) = fsv_root();
+    let (root, keep_root) = fsv_support::fsv_root(
+        "CALYX_TEMPORAL_POLICY_FSV_ROOT",
+        "calyx-temporal-manifest-fsv",
+    );
     reset_dir(&root);
     let vault_dir = root.join("vault");
     let before_current_exists = vault_dir.join("CURRENT").exists();
@@ -265,11 +268,4 @@ fn hex_prefix(bytes: &[u8], limit: usize) -> String {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn fsv_root() -> (PathBuf, bool) {
-    fsv_support::fsv_root(
-        "CALYX_TEMPORAL_POLICY_FSV_ROOT",
-        "calyx-temporal-manifest-fsv",
-    )
 }

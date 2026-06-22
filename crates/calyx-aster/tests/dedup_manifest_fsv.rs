@@ -2,7 +2,7 @@ mod fsv_support;
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use calyx_aster::dedup::{
     CALYX_DEDUP_NO_REQUIRED_SLOTS, CALYX_DEDUP_SLOT_NOT_IN_PANEL,
@@ -19,7 +19,8 @@ use serde_json::json;
 
 #[test]
 fn dedup_manifest_fsv_writes_vault_manifest_readbacks() {
-    let (root, keep_root) = fsv_root();
+    let (root, keep_root) =
+        fsv_support::fsv_root("CALYX_DEDUP_POLICY_FSV_ROOT", "calyx-dedup-manifest-fsv");
     reset_dir(&root);
     let vault_dir = root.join("vault");
     let panel = sample_panel();
@@ -425,8 +426,4 @@ fn hex_bytes(bytes: &[u8]) -> String {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().expect("valid ULID")
-}
-
-fn fsv_root() -> (PathBuf, bool) {
-    fsv_support::fsv_root("CALYX_DEDUP_POLICY_FSV_ROOT", "calyx-dedup-manifest-fsv")
 }
