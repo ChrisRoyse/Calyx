@@ -15,7 +15,7 @@ use calyx_ledger::{
     MemoryLedgerStore, SlotWeight, SubjectId,
 };
 use serde_json::{Value, json};
-use support::fsv_io::{fsv_root, list_files, reset_dir, write_json};
+use support::fsv_io::{fsv_root, list_files, reset_dir, write_json, write_manifest_asset};
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -255,12 +255,6 @@ fn write_quarantine_manifest(vault: &Path, start: u64, end: u64, broken: u64) {
     ManifestStore::open(vault)
         .write_current(&manifest)
         .expect("write quarantine manifest");
-}
-
-fn write_manifest_asset(vault: &Path, logical_path: &str, bytes: &[u8]) {
-    let path = vault.join(logical_path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, bytes).unwrap();
 }
 
 fn append_json<S, C>(

@@ -53,6 +53,12 @@ pub fn write_json(path: &Path, value: &Value) {
     .expect("write json");
 }
 
+pub fn write_manifest_asset(vault: &Path, logical_path: &str, bytes: &[u8]) {
+    let path = vault.join(logical_path);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, bytes).unwrap();
+}
+
 pub fn write_text(path: &Path, value: impl AsRef<str>) {
     fs::write(path, value.as_ref()).expect("write text");
 }

@@ -1,3 +1,5 @@
+mod support;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -11,6 +13,7 @@ use calyx_ledger::{
     ActorId, EntryKind, LedgerAppender, LedgerCfStore, MemoryLedgerStore, SubjectId,
 };
 use serde_json::{Value, json};
+use support::fsv_io::{reset_dir, write_json, write_manifest_asset};
 
 #[test]
 #[ignore = "manual gpuhost FSV for issue #349 audit-query quarantine hardening"]
@@ -59,27 +62,26 @@ fn issue349_audit_query_quarantine_filter_fsv_writes_readbacks() {
         "provenance_status": provenance.status.code(),
         "provenance_stdout": json_stdout(&provenance),
     });
-    write_json(&root, "issue349-readback.json", &readback);
-    write_json(&root, "audit-filter-ingest.json", &audit_request);
+    write_json(&root.join("issue349-readback.json"), &readback);
+    write_json(&root.join("audit-filter-ingest.json"), &audit_request);
     write_json(
-        &root,
-        "audit-filter-measure-quarantined.json",
+        &root.join("audit-filter-measure-quarantined.json"),
         &matching_quarantine_request,
     );
-    write_json(&root, "provenance-cx1-request.json", &provenance_request);
     write_json(
-        &root,
-        "audit-ingest-result.json",
+        &root.join("provenance-cx1-request.json"),
+        &provenance_request,
+    );
+    write_json(
+        &root.join("audit-ingest-result.json"),
         &json_stdout(&audit_ingest),
     );
     write_json(
-        &root,
-        "audit-measure-error.json",
+        &root.join("audit-measure-error.json"),
         &json!({"status": audit_measure.status.code(), "stderr": stderr(&audit_measure)}),
     );
     write_json(
-        &root,
-        "provenance-cx1-result.json",
+        &root.join("provenance-cx1-result.json"),
         &json_stdout(&provenance),
     );
 
@@ -233,12 +235,6 @@ fn write_quarantine_manifest(vault: &Path, start: u64, end: u64, durable_seq: u6
         .expect("write quarantine manifest");
 }
 
-fn write_manifest_asset(vault: &Path, logical_path: &str, bytes: &[u8]) {
-    let path = vault.join(logical_path);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(path, bytes).unwrap();
-}
-
 fn append_json<S, C>(
     appender: &mut LedgerAppender<S, C>,
     kind: EntryKind,
@@ -293,19 +289,6 @@ fn stdout(output: &Output) -> String {
 
 fn stderr(output: &Output) -> String {
     String::from_utf8_lossy(&output.stderr).trim().to_string()
-}
-
-fn reset_dir(path: &Path) {
-    let _ = fs::remove_dir_all(path);
-    fs::create_dir_all(path).unwrap();
-}
-
-fn write_json(root: &Path, name: &str, value: &Value) {
-    fs::write(
-        root.join(name),
-        serde_json::to_vec_pretty(value).expect("serialize json"),
-    )
-    .expect("write json");
 }
 
 fn cx(seed: u8) -> CxId {
