@@ -6,6 +6,15 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$HOME/.cargo/env"
 cd "$repo_root"
 
+tmp_guard_baseline="$(mktemp -t calyx-check-tmp-baseline.XXXXXX)"
+cleanup_tmp_guard() {
+  local status=$?
+  bash "$repo_root/scripts/tmp_scratch_guard.sh" post "$tmp_guard_baseline" || true
+  rm -f "$tmp_guard_baseline"
+  exit "$status"
+}
+trap cleanup_tmp_guard EXIT
+
 if [[ -f "$repo_root/env.sh" ]]; then
   source "$repo_root/env.sh"
 fi
@@ -15,6 +24,8 @@ fi
 # shared build host). Disable it for the manual aiwonder gate; interactive dev
 # keeps its own default. This project has no Actions/hosted CI gate.
 export CARGO_INCREMENTAL=0
+
+bash "$repo_root/scripts/tmp_scratch_guard.sh" pre "$tmp_guard_baseline"
 
 cargo fmt --all -- --check
 cargo check --workspace --all-targets
