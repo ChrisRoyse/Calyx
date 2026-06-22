@@ -2,9 +2,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CALYX_TEMPORAL_AP60_VIOLATION, CxFlags, CxId, DecayFunction,
-    InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
+    InputRef, LedgerRef, Modality, SlotId, VaultId,
 };
 use calyx_sextant::{
     FreshnessTag, Hit, HnswIndex, PeriodicOptions, ProvenanceSource, Query, SearchEngine,
@@ -13,6 +15,7 @@ use calyx_sextant::{
     validate_primary_temporal_weight,
 };
 use serde_json::json;
+use sextant_support::{cx_u8_fill as cx, dense};
 
 const CONTENT_SLOT: SlotId = SlotId::new(8);
 const TEMPORAL_SLOT: SlotId = SlotId::new(20);
@@ -320,13 +323,6 @@ fn raw_hit(seed: u8, score: f32, rank: usize, event_time_secs: Option<i64>) -> H
     }
 }
 
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
 fn score_for(hits: &[Hit], seed: u8) -> f32 {
     hits.iter()
         .find(|hit| hit.cx_id == cx(seed))
@@ -344,10 +340,6 @@ fn ids_from_cx(ids: &[CxId]) -> Vec<u8> {
 
 fn id_hex(seed: u8) -> String {
     cx(seed).to_string()
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
 }
 
 fn write_json(path: &Path, value: &serde_json::Value) {

@@ -1,13 +1,16 @@
 use std::fs;
 use std::time::Instant;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_aster::gc::{AnnGcReclaimer, AnnIndexGraph, SharedAnnIndex};
-use calyx_core::{CxId, SlotId, SlotVector, content_address};
+use calyx_core::{CxId, SlotId};
 use calyx_sextant::{
     CALYX_SEXTANT_DIM_MISMATCH, CALYX_SEXTANT_EF_TOO_SMALL, CALYX_SEXTANT_INDEX_EMPTY, HnswIndex,
     SextantIndex,
 };
 use serde_json::json;
+use sextant_support::{cx_usize_be as cx, dense, digest_hex};
 
 #[test]
 fn hnsw_ef_search_recalls_bruteforce_neighbors() {
@@ -262,25 +265,7 @@ fn recall_at_k(got: &[calyx_sextant::IndexSearchHit], exact: &[(CxId, f32)], k: 
         / k as f32
 }
 
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
-fn cx(value: usize) -> CxId {
-    CxId::from_bytes((value as u128).to_be_bytes())
-}
-
 fn p99(values: &mut [u128]) -> u128 {
     values.sort_unstable();
     values[((values.len() as f32 * 0.99).ceil() as usize).saturating_sub(1)]
-}
-
-fn digest_hex(bytes: &[u8]) -> String {
-    content_address([bytes])
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
 }

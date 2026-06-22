@@ -2,9 +2,12 @@ use calyx_aster::gc::{
     AnnGcReclaimer, AnnGcTarget, AnnIndexGraph, AnnTombstoneStats, CALYX_IO_ERROR, SharedAnnIndex,
     ann_io_error,
 };
-use calyx_core::{CxId, Result, SlotId, SlotVector};
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
+use calyx_core::{Result, SlotId};
 use calyx_sextant::{HnswIndex, SextantIndex};
 use serde_json::json;
+use sextant_support::{cx_usize_be as cx, dense};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -199,17 +202,6 @@ fn normalize(mut data: Vec<f32>) -> Vec<f32> {
         *value /= norm;
     }
     data
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
-fn cx(value: usize) -> CxId {
-    CxId::from_bytes((value as u128).to_be_bytes())
 }
 
 fn hit_ids(hits: &[calyx_sextant::IndexSearchHit]) -> Vec<String> {

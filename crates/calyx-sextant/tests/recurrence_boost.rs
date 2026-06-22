@@ -1,19 +1,22 @@
 use std::collections::BTreeMap;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_aster::dedup::EpochSecs;
 use calyx_aster::recurrence::{
     FREQUENCY_SCALAR, OccurrenceContext, RetentionPolicy, append_occurrence,
 };
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality,
-    RecurrenceBoostConfig, SlotId, SlotVector, VaultId, VaultStore,
+    Anchor, AnchorKind, AnchorValue, CxFlags, InputRef, LedgerRef, Modality, RecurrenceBoostConfig,
+    SlotId, SlotVector, VaultId, VaultStore,
 };
 use calyx_sextant::{
     CALYX_SEXTANT_RECURRENCE_READ_ERROR, CausalConfidence, FreshnessTag, Hit, ProvenanceSource,
     TemporalPolicy, TemporalScores, apply_temporal_boost, apply_temporal_boost_with_recurrence,
     frequency_kernel_bonus, recurrence_boost_evidence, recurrence_boost_score,
 };
+use sextant_support::cx_u8_fill as cx;
 
 const QUERY_TIME: i64 = 1_000_000;
 const EPSILON: f32 = 1.0e-5;
@@ -212,10 +215,6 @@ fn vault() -> AsterVault {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse::<VaultId>().unwrap()
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
 }
 
 fn assert_close(actual: f32, expected: f32) {

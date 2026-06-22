@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CALYX_TEMPORAL_AP60_VIOLATION, CxFlags, CxId, DecayFunction,
-    InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId,
+    InputRef, LedgerRef, Modality, SlotId, VaultId,
 };
 use calyx_sextant::{
     CALYX_SEXTANT_INDEX_EMPTY, FreshnessTag, FusionStrategy, Hit, HnswIndex, PeriodicOptions,
@@ -11,6 +13,7 @@ use calyx_sextant::{
     temporal_search_from_primary, temporal_search_pipeline, validate_primary_temporal_weight,
 };
 use proptest::prelude::*;
+use sextant_support::{cx_u8_fill as cx, dense};
 
 const CONTENT_SLOT: SlotId = SlotId::new(8);
 const EMPTY_PRIMARY_SLOT: SlotId = SlotId::new(9);
@@ -337,17 +340,6 @@ fn raw_hit(seed: u8, score: f32, rank: usize, event_time_secs: Option<i64>) -> H
         freshness: FreshnessTag::fresh(0),
         explain: None,
     }
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
 }
 
 fn ids(hits: &[Hit]) -> Vec<u8> {

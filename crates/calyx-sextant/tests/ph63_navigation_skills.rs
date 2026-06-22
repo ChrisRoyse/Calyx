@@ -9,29 +9,20 @@
 
 use std::collections::BTreeMap;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId,
-    SlotVector, VaultId,
+    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, VaultId,
 };
 use calyx_sextant::{
     CALYX_SEXTANT_CX_MISSING, CALYX_SEXTANT_SKILL_BUDGET_EXCEEDED,
     CALYX_SEXTANT_SKILL_PAIR_NO_OVERLAP, CALYX_SEXTANT_SKILL_PARAMS, CALYX_SEXTANT_SKILL_UNKNOWN,
     HnswIndex, Query, SearchEngine, SextantIndex, SkillParams, SlotIndexMap, search_skill, skills,
 };
+use sextant_support::{cx_u128_be as cx, dense};
 
 fn slot() -> SlotId {
     SlotId::new(1)
-}
-
-fn cx(value: u128) -> CxId {
-    CxId::from_bytes(value.to_be_bytes())
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
 }
 
 fn row(cx_id: CxId, seq: u64) -> calyx_core::Constellation {

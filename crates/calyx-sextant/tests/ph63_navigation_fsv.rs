@@ -7,9 +7,11 @@
 use std::collections::BTreeMap;
 use std::fs;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{
-    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId,
-    SlotVector, VaultId, content_address,
+    Anchor, AnchorKind, AnchorValue, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, VaultId,
+    content_address,
 };
 use calyx_paths::AssocGraphBuilder;
 use calyx_sextant::{
@@ -19,6 +21,7 @@ use calyx_sextant::{
     SlotIndexMap, TraverseDirection, agree, disagree, search_skill, skills, traverse,
 };
 use serde_json::json;
+use sextant_support::{cx_u128_be as cx, dense};
 
 fn slot_a() -> SlotId {
     SlotId::new(1)
@@ -26,17 +29,6 @@ fn slot_a() -> SlotId {
 
 fn slot_b() -> SlotId {
     SlotId::new(2)
-}
-
-fn cx(value: u128) -> CxId {
-    CxId::from_bytes(value.to_be_bytes())
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
 }
 
 fn row(cx_id: CxId, seq: u64) -> calyx_core::Constellation {

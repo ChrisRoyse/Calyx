@@ -13,15 +13,18 @@
 
 use std::collections::BTreeMap;
 
+#[path = "sextant_support/mod.rs"]
+mod sextant_support;
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, CxFlags, CxId, DecayFunction, InputRef, LedgerRef, Modality,
-    PeriodicOptions, SlotId, SlotVector, VaultId,
+    PeriodicOptions, SlotId, VaultId,
 };
 use calyx_sextant::{
     CALYX_SEXTANT_QUERY_SHAPE, CALYX_TEMPORAL_WINDOW_BUDGET_EXHAUSTED, Hit, HnswIndex, Query,
     SearchEngine, SlotIndexMap, TemporalFixedClock, TemporalPolicy, TimeWindow, WindowRecallPolicy,
     temporal_search, temporal_search_with_recall,
 };
+use sextant_support::{cx_u8_fill as cx, dense};
 
 const SLOT_A: SlotId = SlotId::new(8);
 const SLOT_B: SlotId = SlotId::new(9);
@@ -271,17 +274,6 @@ fn row(seed: u8, created_at: u64) -> calyx_core::Constellation {
         },
         flags: CxFlags::default(),
     }
-}
-
-fn dense(data: Vec<f32>) -> SlotVector {
-    SlotVector::Dense {
-        dim: data.len() as u32,
-        data,
-    }
-}
-
-fn cx(seed: u8) -> CxId {
-    CxId::from_bytes([seed; 16])
 }
 
 fn ids(hits: &[Hit]) -> Vec<u8> {
