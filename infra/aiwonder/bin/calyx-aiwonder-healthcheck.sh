@@ -6,6 +6,8 @@ CALYX_BIN="${CALYX_BIN:-$CALYX_HOME/target/release/calyx}"
 CALYX_HEALTH_LOG_PATH="${CALYX_HEALTH_LOG_PATH:-/zfs/hot/logs/calyx-health/latest.json}"
 CALYX_SECRET_ENV="${CALYX_SECRET_ENV:-/run/leapable/secrets/calyx.env}"
 CALYX_HEALTH_WAIT_SECS="${CALYX_HEALTH_WAIT_SECS:-30}"
+CALYX_HEALTH_VAULT="${CALYX_HEALTH_VAULT:-$CALYX_HOME/data/vault}"
+CALYX_HEALTH_METRICS_URL="${CALYX_HEALTH_METRICS_URL:-http://127.0.0.1:7700/metrics}"
 
 args=(
   healthcheck
