@@ -231,6 +231,7 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         })
         .transpose()?;
     let truth_n = args.ground_truth.min(n);
+    timeline::enforce_gate(args.recall_floor.is_some(), timeline.as_ref(), truth_n)?;
     let truth_depth = args
         .truth_depth
         .unwrap_or_else(|| DEFAULT_TRUTH_DEPTH.max(args.k * 8))

@@ -193,6 +193,35 @@ impl Timeline {
     }
 }
 
+pub(super) fn enforce_gate(
+    required: bool,
+    timeline: Option<&Timeline>,
+    truth_n: usize,
+) -> CliResult {
+    if !required || truth_n == 0 {
+        return Ok(());
+    }
+    let Some(timeline) = timeline else {
+        return Err(timeline_error(
+            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_REQUIRED",
+            "gate-bearing partitioned-rrf recall requires plan.timeline",
+            "provide a timeline.jsonl with real source_event_time_secs for every corpus row",
+        ));
+    };
+    if timeline.active_order.len() != timeline.rows.len() {
+        return Err(timeline_error(
+            "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INACTIVE",
+            format!(
+                "timeline active rows {} != corpus rows {}",
+                timeline.active_order.len(),
+                timeline.rows.len()
+            ),
+            "use timestamped source data or run only as diagnostic/non-gate evidence",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn resolve_plan_path(plan_path: &Path, path: &Path) -> PathBuf {
     if path.is_absolute() {
         path.to_path_buf()
@@ -292,6 +321,44 @@ mod tests {
         let walk = timeline.time_walk(1);
         assert_eq!(walk["after_row_ids_asc"][0], 2);
         assert_eq!(walk["after_row_ids_asc"][1], 0);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn gate_requires_timeline_for_recall_floor_truth() {
+        let err = enforce_gate(true, None, 2).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_PARTITIONED_RRF_TIMELINE_REQUIRED");
+    }
+
+    #[test]
+    fn gate_rejects_inactive_rows() {
+        let root = temp_root("partitioned-rrf-timeline-gate-inactive");
+        let path = root.join("timeline.jsonl");
+        fs::write(
+            &path,
+            [row(0, Some(10), "active"), row(1, None, "inactive")].join("\n") + "\n",
+        )
+        .unwrap();
+        let timeline = Timeline::load(&path, 2).unwrap();
+        let err = enforce_gate(true, Some(&timeline), 2).unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_FSV_PARTITIONED_RRF_TIMELINE_INACTIVE");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn gate_accepts_all_active_rows() {
+        let root = temp_root("partitioned-rrf-timeline-gate-active");
+        let path = root.join("timeline.jsonl");
+        fs::write(
+            &path,
+            [row(0, Some(10), "active"), row(1, Some(20), "active")].join("\n") + "\n",
+        )
+        .unwrap();
+        let timeline = Timeline::load(&path, 2).unwrap();
+
+        enforce_gate(true, Some(&timeline), 2).unwrap();
         let _ = fs::remove_dir_all(root);
     }
 
