@@ -56,11 +56,27 @@ restic backup "$SOURCE" \
   --json 2>&1 | tee -a "$LOG"
 
 # Record the snapshot ID from the --json summary so the DR drill can target it.
-SNAPSHOT_ID=$(grep -o '"snapshot_id":"[a-f0-9]*"' "$LOG" | tail -1 | cut -d'"' -f4 || true)
+SNAPSHOT_ID=$(
+  python3 - "$LOG" <<'PY'
+import json
+import sys
+
+snapshot_id = ""
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    for line in handle:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("message_type") == "summary" and event.get("snapshot_id"):
+            snapshot_id = event["snapshot_id"]
+print(snapshot_id)
+PY
+)
 echo "$(date -u +%FT%TZ) Snapshot ID: ${SNAPSHOT_ID:-<unknown>}" | tee -a "$LOG"
 
 # Verify the snapshot just created
 echo "$(date -u +%FT%TZ) Running restic check" | tee -a "$LOG"
-restic check 2>&1 | tee -a "$LOG"
+restic --retry-lock 30s check 2>&1 | tee -a "$LOG"
 
 echo "$(date -u +%FT%TZ) Backup complete (snapshot ${SNAPSHOT_ID:-<unknown>})" | tee -a "$LOG"
