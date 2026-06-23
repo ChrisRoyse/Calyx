@@ -16,6 +16,19 @@ CALYXD_BIN="/home/croyse/calyx/target/release/calyxd"
   echo "ERROR: calyxd not built at $CALYXD_BIN"
   exit 1
 }
+CALYX_BIN="/home/croyse/calyx/target/release/calyx"
+[[ -x "$CALYX_BIN" ]] || {
+  echo "ERROR: calyx CLI not built at $CALYX_BIN"
+  exit 1
+}
+[[ -f /run/leapable/secrets/calyx.env ]] || {
+  echo "ERROR: /run/leapable/secrets/calyx.env is missing; render it from Infisical first"
+  exit 1
+}
+[[ -d /home/croyse/calyx/data/vault ]] || {
+  echo "ERROR: /home/croyse/calyx/data/vault is missing; seed or restore the configured vault first"
+  exit 1
+}
 
 # Pre-flight: no existing process on port 7700
 if ss -tlnp | grep -q ':7700'; then

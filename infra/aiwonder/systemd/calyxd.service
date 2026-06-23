@@ -17,9 +17,10 @@ Wants=leapable-secrets-load.service
 User=croyse
 Group=croyse
 EnvironmentFile=/run/leapable/secrets/calyx.env
+Environment=CALYX_HOME=/home/croyse/calyx
 WorkingDirectory=/home/croyse/calyx/repo
 ExecStart=/home/croyse/calyx/target/release/calyxd --config /home/croyse/calyx/repo/infra/aiwonder/calyx.toml
-ExecStartPost=/home/croyse/calyx/target/release/calyx healthcheck --wait 30
+ExecStartPost=/home/croyse/calyx/target/release/calyx healthcheck --wait 30 --out /zfs/hot/logs/calyx-health/latest.json --secret-env /run/leapable/secrets/calyx.env --calyx-home /home/croyse/calyx --vault /home/croyse/calyx/data/vault --metrics-url http://127.0.0.1:7700/metrics
 Restart=on-failure
 RestartSec=5s
 LimitNOFILE=1048576
