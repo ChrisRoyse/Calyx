@@ -276,11 +276,13 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         }
         None => None,
     };
-    truth_gate::enforce(
-        args.recall_floor.is_some(),
-        truth_n,
-        precomputed_truth.is_some() || slot_truth.is_some(),
-    )?;
+    let scale_truth = precomputed_truth
+        .as_ref()
+        .is_some_and(ground_truth::PrecomputedTruth::scale_suitable)
+        || slot_truth
+            .as_ref()
+            .is_some_and(slot_truth::SlotTruth::scale_suitable);
+    truth_gate::enforce(args.recall_floor.is_some(), truth_n, scale_truth)?;
     if n == 0 {
         return Err(CliError::usage(
             "partitioned-rrf has zero query rows across plan slots",

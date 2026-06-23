@@ -20,6 +20,7 @@ const ROW_ID_SPACE: &str = "partitioned_rrf_plan_corpus_row_idx";
 pub(super) struct SlotTruth {
     rows_by_slot: BTreeMap<SlotId, Vec<Vec<u64>>>,
     source: Value,
+    scale_suitable: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -130,6 +131,7 @@ impl SlotTruth {
         Ok(Self {
             rows_by_slot,
             source,
+            scale_suitable: manifest.scale_suitable,
         })
     }
 
@@ -139,6 +141,10 @@ impl SlotTruth {
 
     pub(super) fn source(&self) -> Value {
         self.source.clone()
+    }
+
+    pub(super) fn scale_suitable(&self) -> bool {
+        self.scale_suitable
     }
 }
 
