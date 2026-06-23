@@ -7,6 +7,7 @@ use super::metrics::write_metric_outputs;
 use super::request::OracleSufficiencyRequest;
 
 const DIM: usize = 16;
+const LENS_COUNT: usize = 10;
 
 #[test]
 fn form_only_panel_is_insufficient_and_refusal_fires() {
@@ -118,6 +119,21 @@ fn too_few_samples_surface_invalid_corpus() {
     let _ = fs::remove_dir_all(root);
 }
 
+#[test]
+fn too_few_lenses_fail_closed() {
+    let root = temp_root("oracle-suff-too-few-lenses");
+    let corpus_dir = root.join("corpus");
+    fs::create_dir_all(&corpus_dir).unwrap();
+    write_random_corpus_with_lenses(&corpus_dir, 200, 2);
+    let request = request_for(&root);
+    let error = OracleCorpus::load(&request).unwrap_err();
+    assert!(
+        error.contains("need >=10 lens"),
+        "under-rostered corpus must fail closed, got {error}"
+    );
+    let _ = fs::remove_dir_all(root);
+}
+
 fn request_for(root: &Path) -> OracleSufficiencyRequest {
     let metrics = root.join("metrics");
     OracleSufficiencyRequest {
@@ -128,9 +144,13 @@ fn request_for(root: &Path) -> OracleSufficiencyRequest {
     }
 }
 
-/// Writes a 2-lens fixture (seed=42) whose labels are RANDOM with respect to
+/// Writes a 10-lens fixture (seed=42) whose labels are RANDOM with respect to
 /// the lens vectors: ~25% positive, vectors independent of the label.
 fn write_random_corpus(dir: &Path, rows: usize) {
+    write_random_corpus_with_lenses(dir, rows, LENS_COUNT);
+}
+
+fn write_random_corpus_with_lenses(dir: &Path, rows: usize, lens_count: usize) {
     let seed = 42_u64;
     let mut lines = String::new();
     let mut resolved = 0_usize;
@@ -139,19 +159,16 @@ fn write_random_corpus(dir: &Path, rows: usize) {
         let label = u8::from(label_bucket(seed ^ 0x5151, i as u64) < 0.25);
         resolved += usize::from(label == 1);
         // Vectors derived from the index only — no dependence on the label.
-        let problem = independent_lens(seed, i as u64);
-        let hints = independent_lens(seed ^ 0xCD, i as u64);
         lines.push_str(&format!(
-            "{{\"id\":\"s{i}\",\"split\":\"train\",\"label\":{label},\"lenses\":{{\"problem\":{},\"hints\":{}}}}}\n",
-            vec_json(&problem),
-            vec_json(&hints)
+            "{{\"id\":\"s{i}\",\"split\":\"train\",\"label\":{label},\"lenses\":{}}}\n",
+            random_lenses_json(seed, i as u64, lens_count)
         ));
     }
     fs::write(dir.join("vectors.jsonl"), lines).unwrap();
-    write_manifest(dir, rows, resolved);
+    write_manifest(dir, rows, resolved, lens_count);
 }
 
-/// Writes a 2-lens fixture whose lens vectors CLEANLY separate the binary label
+/// Writes a 10-lens fixture whose lens vectors CLEANLY separate the binary label
 /// (label fully recoverable from the surface form).
 fn write_separable_corpus(dir: &Path, rows: usize) {
     let seed = 7_u64;
@@ -161,16 +178,13 @@ fn write_separable_corpus(dir: &Path, rows: usize) {
         let label = (i % 2) as u8;
         let is_one = label == 1;
         resolved += usize::from(label == 1);
-        let problem = separable_lens(seed, i as u64, is_one);
-        let hints = separable_lens(seed ^ 0xCD, i as u64, is_one);
         lines.push_str(&format!(
-            "{{\"id\":\"s{i}\",\"split\":\"train\",\"label\":{label},\"lenses\":{{\"problem\":{},\"hints\":{}}}}}\n",
-            vec_json(&problem),
-            vec_json(&hints)
+            "{{\"id\":\"s{i}\",\"split\":\"train\",\"label\":{label},\"lenses\":{}}}\n",
+            separable_lenses_json(seed, i as u64, is_one, LENS_COUNT)
         ));
     }
     fs::write(dir.join("vectors.jsonl"), lines).unwrap();
-    write_manifest(dir, rows, resolved);
+    write_manifest(dir, rows, resolved, LENS_COUNT);
 }
 
 /// Writes a corpus where every instance is resolved (single label).
@@ -178,23 +192,51 @@ fn write_single_label_corpus(dir: &Path, rows: usize) {
     let seed = 99_u64;
     let mut lines = String::new();
     for i in 0..rows {
-        let problem = independent_lens(seed, i as u64);
-        let hints = independent_lens(seed ^ 0xCD, i as u64);
         lines.push_str(&format!(
-            "{{\"id\":\"s{i}\",\"split\":\"train\",\"label\":1,\"lenses\":{{\"problem\":{},\"hints\":{}}}}}\n",
-            vec_json(&problem),
-            vec_json(&hints)
+            "{{\"id\":\"s{i}\",\"split\":\"train\",\"label\":1,\"lenses\":{}}}\n",
+            random_lenses_json(seed, i as u64, LENS_COUNT)
         ));
     }
     fs::write(dir.join("vectors.jsonl"), lines).unwrap();
-    write_manifest(dir, rows, rows);
+    write_manifest(dir, rows, rows, LENS_COUNT);
 }
 
-fn write_manifest(dir: &Path, rows: usize, resolved: usize) {
+fn write_manifest(dir: &Path, rows: usize, resolved: usize, lens_count: usize) {
+    let lenses = (0..lens_count)
+        .map(|idx| format!("{{\"name\":\"lens_{idx:02}\"}}"))
+        .collect::<Vec<_>>()
+        .join(",");
     let manifest = format!(
-        "{{\"oracle_model\":\"test-model\",\"dataset\":\"synthetic\",\"anchor\":\"test_pass_fail\",\"n\":{rows},\"resolved\":{resolved},\"embedding_model_id\":\"test-embed\",\"lenses\":[{{\"name\":\"problem\"}},{{\"name\":\"hints\"}}]}}\n"
+        "{{\"oracle_model\":\"test-model\",\"dataset\":\"synthetic\",\"anchor\":\"test_pass_fail\",\"n\":{rows},\"resolved\":{resolved},\"embedding_model_id\":\"test-embed\",\"lenses\":[{lenses}]}}\n"
     );
     fs::write(dir.join("manifest.json"), manifest).unwrap();
+}
+
+fn random_lenses_json(seed: u64, i: u64, lens_count: usize) -> String {
+    lens_json(seed, i, lens_count, |lens_seed, row, _| {
+        independent_lens(lens_seed, row)
+    })
+}
+
+fn separable_lenses_json(seed: u64, i: u64, is_one: bool, lens_count: usize) -> String {
+    lens_json(seed, i, lens_count, |lens_seed, row, _| {
+        separable_lens(lens_seed, row, is_one)
+    })
+}
+
+fn lens_json(
+    seed: u64,
+    i: u64,
+    lens_count: usize,
+    vector: impl Fn(u64, u64, usize) -> Vec<f32>,
+) -> String {
+    let parts = (0..lens_count)
+        .map(|idx| {
+            let lens_seed = seed ^ ((idx as u64 + 1) * 0x9E37_79B9);
+            format!("\"lens_{idx:02}\":{}", vec_json(&vector(lens_seed, i, idx)))
+        })
+        .collect::<Vec<_>>();
+    format!("{{{}}}", parts.join(","))
 }
 
 /// Lens vectors that depend on the index only (independent of any label).

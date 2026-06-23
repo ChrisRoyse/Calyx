@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use super::request::OracleSufficiencyRequest;
 
-const MIN_LENSES: usize = 1;
+const MIN_LENSES: usize = 10;
 
 type LoadedVectors = (Vec<bool>, BTreeMap<String, Vec<Vec<f32>>>);
 
@@ -93,9 +93,13 @@ impl OracleCorpus {
             lens_vectors.push(rows.clone());
         }
         Ok(Self {
-            oracle_model: manifest.oracle_model,
+            oracle_model: manifest
+                .oracle_model
+                .unwrap_or_else(|| manifest.dataset.clone()),
             dataset: manifest.dataset,
-            anchor: manifest.anchor,
+            anchor: manifest
+                .anchor
+                .unwrap_or_else(|| "test_pass_fail(resolved)".to_string()),
             embedding_model_id: manifest.embedding_model_id,
             lenses,
             labels,
@@ -179,9 +183,11 @@ fn invalid(detail: impl AsRef<str>) -> String {
 
 #[derive(Deserialize)]
 struct ManifestJson {
-    oracle_model: String,
+    #[serde(default)]
+    oracle_model: Option<String>,
     dataset: String,
-    anchor: String,
+    #[serde(default)]
+    anchor: Option<String>,
     #[allow(dead_code)]
     #[serde(default)]
     n: usize,
