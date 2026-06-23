@@ -2,9 +2,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use calyx_core::{CxId, SlotId};
+use calyx_core::SlotId;
 use calyx_sextant::fusion;
-use calyx_sextant::index::partitioned::cx;
 use calyx_sextant::index::{DenseVectorFile, PartitionedSearch};
 use calyx_sextant::{FusionContext, FusionStrategy, IndexSearchHit};
 use rayon::prelude::*;
@@ -13,6 +12,9 @@ use serde_json::json;
 
 use super::{enforce_recall_floor, percentiles, row_for_metric};
 use crate::error::{CliError, CliResult};
+#[cfg(test)]
+use ids::low_u64;
+use ids::{fused_hit_ids, hit_ids, slot_id, to_index_hits};
 
 #[path = "multi_rrf/a35.rs"]
 mod a35;
@@ -20,6 +22,8 @@ mod a35;
 mod ensemble;
 #[path = "multi_rrf/ground_truth.rs"]
 mod ground_truth;
+#[path = "multi_rrf/ids.rs"]
+mod ids;
 #[path = "multi_rrf/io.rs"]
 mod io;
 #[path = "multi_rrf/recall.rs"]
@@ -30,6 +34,8 @@ mod report;
 mod slot_truth;
 #[path = "multi_rrf/timeline.rs"]
 mod timeline;
+#[path = "multi_rrf/truth_gate.rs"]
+mod truth_gate;
 #[path = "multi_rrf/tuner.rs"]
 mod tuner;
 
@@ -270,6 +276,11 @@ pub(crate) fn run(raw: &[String]) -> CliResult {
         }
         None => None,
     };
+    truth_gate::enforce(
+        args.recall_floor.is_some(),
+        truth_n,
+        precomputed_truth.is_some() || slot_truth.is_some(),
+    )?;
     if n == 0 {
         return Err(CliError::usage(
             "partitioned-rrf has zero query rows across plan slots",
@@ -459,38 +470,10 @@ fn fuse(per_slot: &BTreeMap<SlotId, Vec<IndexSearchHit>>, k: usize) -> Vec<calyx
     fusion::fuse(per_slot, &context)
 }
 
-fn to_index_hits(rows: Vec<(u64, f32)>) -> Vec<IndexSearchHit> {
-    rows.into_iter()
-        .enumerate()
-        .map(|(idx, (id, score))| IndexSearchHit {
-            cx_id: cx(id),
-            score,
-            rank: idx + 1,
-        })
-        .collect()
-}
-
-fn hit_ids(hits: &[IndexSearchHit], k: usize) -> Vec<u64> {
-    hits.iter().take(k).map(|hit| low_u64(hit.cx_id)).collect()
-}
-
-fn fused_hit_ids(hits: &[calyx_sextant::Hit], k: usize) -> Vec<u64> {
-    hits.iter().take(k).map(|hit| low_u64(hit.cx_id)).collect()
-}
-
 fn parse<T: std::str::FromStr>(value: &str, flag: &str) -> CliResult<T> {
     value
         .parse::<T>()
         .map_err(|_| CliError::usage(format!("{flag} expects a valid value, got {value}")))
-}
-
-fn slot_id(value: u16) -> SlotId {
-    SlotId::new(value)
-}
-
-fn low_u64(cx_id: CxId) -> u64 {
-    let bytes = cx_id.as_bytes();
-    u64::from_be_bytes(bytes[8..16].try_into().expect("CxId is 16 bytes"))
 }
 
 #[cfg(test)]
