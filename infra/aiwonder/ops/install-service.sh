@@ -9,6 +9,11 @@ set -euo pipefail
 
 UNIT_SRC="$(dirname "$0")/../systemd/calyxd.service"
 UNIT_DST="/etc/systemd/system/calyxd.service"
+SERVICE_USER="croyse"
+SERVICE_GROUP="croyse"
+LOG_DIR="/zfs/hot/logs/calyx"
+HEALTH_DIR="/zfs/hot/logs/calyx-health"
+HEALTH_LOG="$HEALTH_DIR/latest.json"
 
 # Pre-flight: ensure calyxd binary exists
 CALYXD_BIN="/home/croyse/calyx/target/release/calyxd"
@@ -25,10 +30,19 @@ CALYX_BIN="/home/croyse/calyx/target/release/calyx"
   echo "ERROR: /run/leapable/secrets/calyx.env is missing; render it from Infisical first"
   exit 1
 }
+sudo -u "$SERVICE_USER" test -r /run/leapable/secrets/calyx.env || {
+  echo "ERROR: /run/leapable/secrets/calyx.env is not readable by $SERVICE_USER"
+  exit 1
+}
 [[ -d /home/croyse/calyx/data/vault ]] || {
   echo "ERROR: /home/croyse/calyx/data/vault is missing; seed or restore the configured vault first"
   exit 1
 }
+sudo install -d -o "$SERVICE_USER" -g "$SERVICE_GROUP" -m 0755 "$LOG_DIR" "$HEALTH_DIR"
+if [[ -e "$HEALTH_LOG" ]]; then
+  sudo chown "$SERVICE_USER:$SERVICE_GROUP" "$HEALTH_LOG"
+  sudo chmod 0644 "$HEALTH_LOG"
+fi
 
 # Pre-flight: no existing process on port 7700
 if ss -tlnp | grep -q ':7700'; then
