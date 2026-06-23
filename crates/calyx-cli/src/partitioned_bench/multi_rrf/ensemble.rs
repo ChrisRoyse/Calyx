@@ -9,6 +9,8 @@ use sha2::{Digest, Sha256};
 use super::Plan;
 use crate::error::{CliError, CliResult};
 
+#[path = "ensemble_a37_gate.rs"]
+mod a37_gate;
 const MIN_LENSES: usize = 10;
 
 pub(super) fn load(path: Option<&Path>, plan: &Plan, required: bool) -> CliResult<Option<Value>> {
@@ -37,11 +39,10 @@ pub(super) fn load(path: Option<&Path>, plan: &Plan, required: bool) -> CliResul
             "regenerate the ensemble card from the same panel corpus",
         )
     })?;
-    validate(&card, plan)?;
+    validate(&card, plan, required)?;
     Ok(Some(report(path, &bytes, &card)))
 }
-
-fn validate(card: &EnsembleCard, plan: &Plan) -> CliResult {
+fn validate(card: &EnsembleCard, plan: &Plan, required: bool) -> CliResult {
     let expected = plan.slots.len();
     if card.panel_lens_count < MIN_LENSES || card.lenses.len() < MIN_LENSES {
         return Err(error(
@@ -102,9 +103,9 @@ fn validate(card: &EnsembleCard, plan: &Plan) -> CliResult {
     }
     validate_pair_names(card, &card_names)?;
     finite(card)?;
+    a37_gate::validate(&card.a37_diversity, required)?;
     Ok(())
 }
-
 fn plan_slot_names(plan: &Plan) -> CliResult<BTreeMap<u16, String>> {
     let mut names = BTreeMap::new();
     for slot in &plan.slots {
@@ -122,7 +123,6 @@ fn plan_slot_names(plan: &Plan) -> CliResult<BTreeMap<u16, String>> {
     }
     Ok(names)
 }
-
 fn validate_pair_names(card: &EnsembleCard, card_names: &BTreeMap<u16, String>) -> CliResult {
     let mut pairs = BTreeSet::new();
     for pair in &card.pairs {
@@ -314,7 +314,7 @@ mod tests {
         let path = root.join("ensemble_card.json");
         std::fs::write(&path, serde_json::to_vec(&card(10, 0)).unwrap()).unwrap();
 
-        let report = load(Some(&path), &plan(10), true).unwrap().unwrap();
+        let report = load(Some(&path), &plan(10), false).unwrap().unwrap();
 
         assert_eq!(report["panel_lens_count"], 10);
         assert_eq!(report["n_eff"], 8.5);
