@@ -28,8 +28,9 @@ SNAPSHOT_ID="latest"   # or a specific snapshot ID
 STAGING="/zfs/archive/calyx/dr-staging"
 bash infra/aiwonder/backup/restic-restore.sh "$SNAPSHOT_ID" "$STAGING"
 # restic recreates the source's absolute path under the target, so the restored
-# vault root is NESTED, e.g. $STAGING/zfs/hot/calyx. The script prints the exact
-# "Restored vault root:" path and the verify-restore command — use that path.
+# vault root is nested, e.g. $STAGING/home/croyse/calyx/data/vault. The script
+# prints the exact "Restored vault root:" path and the verify-restore command —
+# use that path.
 ```
 
 ## Step 3 — Byte-verify the restored vault (THE FSV GATE)

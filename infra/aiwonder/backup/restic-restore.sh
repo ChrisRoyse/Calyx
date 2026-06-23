@@ -8,9 +8,11 @@
 #          Whole-host loss is accepted posture for this deployment.
 #
 # restic recreates the snapshot's ABSOLUTE source path under --target (there is
-# no --strip-components), so a vault backed up from /zfs/hot/calyx lands at
-# <target>/zfs/hot/calyx. This script locates the restored vault root (the parent
-# of the restored wal/ dir) and prints the exact verify-restore command.
+# no --strip-components), so a vault backed up from
+# /home/croyse/calyx/data/vault lands at
+# <target>/home/croyse/calyx/data/vault. This script locates the restored vault
+# root (the parent of the restored wal/ dir) and prints the exact
+# verify-restore command.
 set -euo pipefail
 
 SNAPSHOT="${1:?Usage: $0 <snapshot-id|latest> <restore-target-dir>}"

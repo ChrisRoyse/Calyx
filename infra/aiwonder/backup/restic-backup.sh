@@ -23,12 +23,14 @@
 #     logs/       backup + daemon logs (this log lives here; never back up logs)
 #
 # REPO/SOURCE default to the aiwonder production paths but are env-overridable so
-# the include/exclude logic can be FSV'd against a synthetic tree.
+# the include/exclude logic can be FSV'd against a synthetic tree. SOURCE matches
+# infra/aiwonder/calyx.toml's resolved vault path; do not back up the parent data
+# root, which can also contain large PH68 scale-run scratch vaults.
 set -euo pipefail
 
 REPO="${CALYX_RESTIC_REPO:-/zfs/archive/calyx/restic}"
-SOURCE="${CALYX_BACKUP_SOURCE:-/zfs/hot/calyx}"
-LOG="$SOURCE/logs/backup-$(date -u +%Y%m%dT%H%M%SZ).log"
+SOURCE="${CALYX_BACKUP_SOURCE:-/home/croyse/calyx/data/vault}"
+LOG="${CALYX_BACKUP_LOG:-/zfs/hot/logs/calyx/backup-$(date -u +%Y%m%dT%H%M%SZ).log}"
 mkdir -p "$(dirname "$LOG")"
 
 : "${CALYX_RESTIC_PASSWORD:?CALYX_RESTIC_PASSWORD not set}"

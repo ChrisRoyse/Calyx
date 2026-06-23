@@ -1,9 +1,10 @@
 # Calyx backup timer + ZFS snapshots (PH67 T02)
 
-Two durability layers for `/zfs/hot/calyx`, both single-host (no off-machine
-replica; whole-host loss is the accepted posture):
+Two durability layers for the configured Calyx vault
+(`/home/croyse/calyx/data/vault` → `/zfs/hot/calyx/vault`), both single-host
+(no off-machine replica; whole-host loss is the accepted posture):
 
-1. **restic** (off-dataset, to `archive/calyx-restic`) — hourly via systemd timer.
+1. **restic** (off-dataset, to `/zfs/archive/calyx/restic`) — hourly via systemd timer.
 2. **ZFS auto-snapshots** (in-pool, crash-consistent point-in-time) — hourly/
    daily/weekly.
 
