@@ -61,7 +61,7 @@ pub(crate) fn usage() -> &'static str {
        calyx fsv corpus-readback --root <dir>
        calyx anneal status --health --vault <dir>
        calyx build-bench-vault --vault <dir> --n-cx <n> --dim <n> --slots <n> --seed <n>
-       calyx build-partitioned-vault --vault <dir> (--vectors <file.fbin|file.i8bin>|--n-cx <n> --dim <n>) --regions <n> [--distance-metric <unit-l2|raw-l2>] [--sample <n>] [--chunk <n>] [--m-max <n>] [--ef <n>] [--region-build-parallelism <n>] [--final-assignment-probe <n>] [--final-assignment-cap <n>] [--build-backend <cpu-vamana|cuvs-cagra>]
+       calyx build-partitioned-vault --vault <dir> (--vectors <file.fbin|file.i8bin>|--n-cx <n> --dim <n>) --regions <n> [--distance-metric <unit-l2|raw-l2>] [--sample <n>] [--chunk <n>] [--m-max <n>] [--ef <n>] [--region-build-parallelism <n>] [--final-assignment-probe <n>] [--final-assignment-cap <n>] [--build-backend <cpu-vamana|cuvs-cagra>] [--progress-file <json>]
        calyx bench search --vault <dir> --strategy KernelFirst --n <n> --report p50,p99,p999 --seed <n> [--k <n>] [--beamwidth <n>] [--posting-cutoff <n>] [--tuner-slo-us <us>]
        calyx bench recall --vault <dir> --n <n> --k <n> [--seed <n>]
        calyx bench partitioned-search --vault <dir> --n <n> --k <n> --n-probe <n> --region-beam <n> [--ground-truth <n> --recall-floor <f>] [--anneal-vault <dir> --tuner-slo-us <us>]

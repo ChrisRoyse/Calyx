@@ -71,6 +71,8 @@ fn partitioned_build_parses_region_build_parallelism() {
         "128",
         "--final-assignment-cap",
         "8192",
+        "--progress-file",
+        "progress.json",
     ]);
 
     let parsed = BuildArgs::parse(&args).unwrap();
@@ -78,6 +80,7 @@ fn partitioned_build_parses_region_build_parallelism() {
     assert_eq!(parsed.p.region_build_parallelism, 3);
     assert_eq!(parsed.p.final_assignment_probe, 128);
     assert_eq!(parsed.p.final_assignment_cap, Some(8192));
+    assert_eq!(parsed.progress_file, Some(PathBuf::from("progress.json")));
     assert_eq!(
         parsed.distance_metric,
         calyx_sextant::index::PartitionDistanceMetric::UnitL2

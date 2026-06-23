@@ -23,6 +23,8 @@ mod brute_force;
 mod build;
 #[path = "partitioned_bench/multi_rrf.rs"]
 mod multi_rrf;
+#[path = "partitioned_bench/progress.rs"]
+mod progress;
 #[path = "partitioned_bench/slot_truth_generate.rs"]
 mod slot_truth_generate;
 #[path = "partitioned_bench/summary.rs"]
@@ -406,6 +408,9 @@ fn run_search_synthetic(args: &SearchArgs) -> CliResult {
     Ok(())
 }
 
+#[cfg(test)]
+#[path = "partitioned_bench/progress_tests.rs"]
+mod partitioned_bench_progress_tests;
 #[cfg(test)]
 #[path = "partitioned_bench_tests.rs"]
 mod partitioned_bench_tests;

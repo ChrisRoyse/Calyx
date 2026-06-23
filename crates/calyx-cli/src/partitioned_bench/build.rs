@@ -11,7 +11,7 @@ use serde_json::json;
 
 use crate::error::{CliError, CliResult};
 
-use super::parse;
+use super::{parse, progress};
 
 pub(crate) struct BuildArgs {
     pub(crate) vault: PathBuf,
@@ -21,6 +21,12 @@ pub(crate) struct BuildArgs {
     pub(crate) p: PartitionBuildParams,
     pub(crate) backend: DiskAnnBuildBackend,
     pub(crate) distance_metric: PartitionDistanceMetric,
+    pub(crate) progress_file: Option<PathBuf>,
+}
+
+struct PreparedBuild {
+    source: Option<Box<dyn VectorSource>>,
+    params: PartitionBuildParams,
 }
 
 impl BuildArgs {
@@ -37,6 +43,7 @@ impl BuildArgs {
         let mut final_assignment_cap = None;
         let mut backend = DiskAnnBuildBackend::CpuVamana;
         let mut distance_metric = PartitionDistanceMetric::UnitL2;
+        let mut progress_file = None;
         let mut it = args.iter();
         while let Some(flag) = it.next() {
             let mut next = || {
@@ -70,6 +77,7 @@ impl BuildArgs {
                 "--distance-metric" => {
                     distance_metric = next()?.parse().map_err(CliError::usage)?;
                 }
+                "--progress-file" => progress_file = Some(PathBuf::from(next()?)),
                 other => return Err(CliError::usage(format!("unknown flag: {other}"))),
             }
         }
@@ -108,31 +116,37 @@ impl BuildArgs {
             p,
             backend,
             distance_metric,
+            progress_file,
         })
     }
 }
 
 pub(crate) fn run(args: &[String]) -> CliResult {
     let args = BuildArgs::parse(args)?;
-    let source = match &args.vectors {
-        Some(path) => Some(open_vector_source(path, args.distance_metric)?),
-        None => None,
+    let prepared = match prepare_build(&args) {
+        Ok(prepared) => prepared,
+        Err(error) => {
+            progress::write_failure(
+                args.progress_file.as_deref(),
+                progress_config(&args, args.p),
+                &error,
+            )?;
+            return Err(error);
+        }
     };
-    std::fs::create_dir_all(&args.vault)
-        .map_err(|e| CliError::io(format!("create vault dir: {e}")))?;
+    let progress = progress::BuildProgress::start(
+        args.progress_file.as_deref(),
+        progress_config(&args, prepared.params),
+    )?;
     let started = Instant::now();
-    let manifest = match source {
-        Some(source) => build_partitioned_vault_from_source_with_backend_and_metric(
-            &args.vault,
-            source.as_ref(),
-            args.p,
-            args.backend,
-            args.distance_metric,
-        )
-        .map_err(CliError::Calyx)?,
-        None => build_partitioned_vault_with_backend(&args.vault, args.p, args.backend)
-            .map_err(CliError::Calyx)?,
+    let manifest = match run_prepared_build(&args, &prepared) {
+        Ok(manifest) => manifest,
+        Err(error) => {
+            progress.fail(&error)?;
+            return Err(error);
+        }
     };
+    progress.complete()?;
     let build_secs = started.elapsed().as_secs_f64();
     let non_empty = manifest.regions.len();
     let total: usize = manifest.regions.iter().map(|r| r.count).sum();
@@ -186,6 +200,50 @@ pub(crate) fn run(args: &[String]) -> CliResult {
         serde_json::to_string_pretty(&report).map_err(CliError::from)?
     );
     Ok(())
+}
+
+fn prepare_build(args: &BuildArgs) -> CliResult<PreparedBuild> {
+    let mut params = args.p;
+    let source = match &args.vectors {
+        Some(path) => {
+            let source = open_vector_source(path, args.distance_metric)?;
+            params.n_cx = source.len();
+            params.dim = source.dim();
+            Some(source)
+        }
+        None => None,
+    };
+    Ok(PreparedBuild { source, params })
+}
+
+fn progress_config(
+    args: &BuildArgs,
+    params: PartitionBuildParams,
+) -> progress::BuildProgressConfig {
+    progress::BuildProgressConfig {
+        vault: args.vault.clone(),
+        params,
+        backend: args.backend,
+        distance_metric: args.distance_metric,
+    }
+}
+
+fn run_prepared_build(
+    args: &BuildArgs,
+    prepared: &PreparedBuild,
+) -> CliResult<calyx_sextant::index::PartitionedManifest> {
+    match prepared.source.as_deref() {
+        Some(source) => build_partitioned_vault_from_source_with_backend_and_metric(
+            &args.vault,
+            source,
+            prepared.params,
+            args.backend,
+            args.distance_metric,
+        )
+        .map_err(CliError::Calyx),
+        None => build_partitioned_vault_with_backend(&args.vault, prepared.params, args.backend)
+            .map_err(CliError::Calyx),
+    }
 }
 
 fn open_vector_source(
