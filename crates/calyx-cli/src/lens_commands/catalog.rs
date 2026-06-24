@@ -9,6 +9,7 @@ use calyx_registry::{
     MultimodalAdapterLens, PlacementBudget, StaticLookupLens, choose_placement,
     lens_spec_from_manifest_path, lens_spec_metadata_from_manifest_path,
 };
+use calyxd::vram::{NvmlVramUsage, VramUsage};
 use serde::{Deserialize, Serialize};
 
 use super::flags::Flags;
@@ -325,9 +326,25 @@ fn placement_budget_from_catalog(catalog: &LensCatalog) -> CliResult<PlacementBu
         .iter()
         .filter(|entry| entry.placement == Placement::Cpu)
         .count();
+    let (vram_soft_cap_bytes, tei_reserved_bytes) = resolve_gpu_vram_budget()?;
+    let available = vram_soft_cap_bytes
+        .saturating_sub(tei_reserved_bytes)
+        .saturating_sub(vram_allocated_bytes);
+    // Operator-facing diagnostic: make the GPU placement budget visible so a
+    // CPU spill is never silent. cap/reservation source is env-override vs live
+    // NVML probe (see resolve_gpu_vram_budget).
+    let mib = 1024 * 1024;
+    eprintln!(
+        "[placement] vram cap={} MiB reserved(other)={} MiB allocated(gpu lenses)={} MiB \
+         available={} MiB",
+        vram_soft_cap_bytes / mib,
+        tei_reserved_bytes / mib,
+        vram_allocated_bytes / mib,
+        available / mib,
+    );
     Ok(PlacementBudget {
-        vram_soft_cap_bytes: env_u64("CALYX_PANEL_VRAM_SOFT_CAP_BYTES", 32 * gib())?,
-        tei_reserved_bytes: env_u64("CALYX_TEI_RESERVED_BYTES", 20 * gib())?,
+        vram_soft_cap_bytes,
+        tei_reserved_bytes,
         vram_allocated_bytes,
         ram_soft_cap_bytes: env_u64("CALYX_PANEL_RAM_SOFT_CAP_BYTES", 121 * gib())?,
         ram_used_bytes,
@@ -354,6 +371,96 @@ fn batch_ceiling(ms_per_input: f32) -> u32 {
         return u32::MAX;
     }
     (1_000.0 / ms_per_input).floor().clamp(1.0, u32::MAX as f32) as u32
+}
+
+/// VRAM carved out of the board for non-Calyx GPU users + allocation spikes
+/// (a model's declared FP32 cost underestimates its real peak working set). On a
+/// 32 GiB board this leaves ~28 GiB usable, matching the operator's ceiling.
+/// Override with `CALYX_GPU_HEADROOM_BYTES`.
+const DEFAULT_GPU_HEADROOM_BYTES: u64 = 4 * gib();
+
+/// Resolve the GPU VRAM soft cap and co-resident reservation that gate lens
+/// placement, from **live device reality** rather than a fixed board assumption.
+///
+/// Why this exists: a hard-coded 20 GiB TEI reservation (the historic default)
+/// starved the placement budget so small ONNX lenses silently spilled to CPU and
+/// new GPU commissions failed with `CALYX_VRAM_BUDGET_EXCEEDED` — the root cause
+/// of the throughput collapse. The cap now defaults to `board_total - headroom`
+/// and the reservation to the VRAM *already in use by every other process on the
+/// device* (resident TEI servers, the operator's other GPU apps), read via the
+/// same NVML probe the daemon uses. Placement therefore self-adjusts to whatever
+/// GPU it runs on, on a fresh checkout, with no machine-specific tuning.
+///
+/// Explicit env overrides (`CALYX_PANEL_VRAM_SOFT_CAP_BYTES`,
+/// `CALYX_TEI_RESERVED_BYTES`) always win. If a needed value has no override and
+/// the probe fails, this fails loud with remediation — it never falls back to a
+/// guessed budget (doctrine: fail closed, no silent workaround).
+///
+/// Note: the live `used` reading also counts any Calyx lenses already resident in
+/// a running daemon. At commission time the CLI holds no panel, so `used` ≈ the
+/// non-Calyx footprint, which is exactly the reservation we want; if a daemon is
+/// mid-ingest the reservation is conservatively larger, which fails safe (fewer
+/// GPU placements, never an over-commit).
+fn resolve_gpu_vram_budget() -> CliResult<(u64, u64)> {
+    let cap_override = env_opt_u64("CALYX_PANEL_VRAM_SOFT_CAP_BYTES")?;
+    let tei_override = env_opt_u64("CALYX_TEI_RESERVED_BYTES")?;
+    let headroom = env_u64("CALYX_GPU_HEADROOM_BYTES", DEFAULT_GPU_HEADROOM_BYTES)?;
+    let probe = if cap_override.is_some() && tei_override.is_some() {
+        None
+    } else {
+        Some(probe_gpu_vram_bytes().map_err(|err| {
+            CliError::usage(format!(
+                "GPU VRAM probe via NVML failed and CALYX_PANEL_VRAM_SOFT_CAP_BYTES / \
+                 CALYX_TEI_RESERVED_BYTES are not both set ({err}); set both to explicit byte \
+                 budgets, or ensure the NVIDIA driver (libnvidia-ml.so.1) is reachable"
+            ))
+        })?)
+    };
+    compute_vram_budget(cap_override, tei_override, probe, headroom)
+}
+
+/// Pure budget arithmetic, separated from env/NVML IO so the resolution logic is
+/// unit-testable on a CPU-only host with hand-set readings.
+fn compute_vram_budget(
+    cap_override: Option<u64>,
+    tei_override: Option<u64>,
+    probe: Option<(u64, u64)>,
+    headroom: u64,
+) -> CliResult<(u64, u64)> {
+    if let (Some(cap), Some(tei)) = (cap_override, tei_override) {
+        return Ok((cap, tei));
+    }
+    let (total_bytes, used_bytes) = probe.ok_or_else(|| {
+        CliError::usage(
+            "VRAM probe reading required to derive placement budget but none was supplied"
+                .to_string(),
+        )
+    })?;
+    let cap = cap_override.unwrap_or_else(|| total_bytes.saturating_sub(headroom));
+    let tei = tei_override.unwrap_or(used_bytes);
+    Ok((cap, tei))
+}
+
+/// Live `(total, used)` device VRAM in bytes via NVML — the same source of truth
+/// the daemon's budget enforcer uses, so the CLI and daemon agree on the device.
+fn probe_gpu_vram_bytes() -> Result<(u64, u64), calyxd::error::DaemonError> {
+    let reading = NvmlVramUsage::init()?.read()?;
+    const BYTES_PER_MIB: u64 = 1024 * 1024;
+    Ok((
+        u64::from(reading.total_mib) * BYTES_PER_MIB,
+        u64::from(reading.used_mib) * BYTES_PER_MIB,
+    ))
+}
+
+fn env_opt_u64(name: &str) -> CliResult<Option<u64>> {
+    match env::var(name) {
+        Ok(raw) => raw
+            .parse()
+            .map(Some)
+            .map_err(|err| CliError::usage(format!("parse {name}={raw}: {err}"))),
+        Err(env::VarError::NotPresent) => Ok(None),
+        Err(err) => Err(CliError::usage(format!("read {name}: {err}"))),
+    }
 }
 
 fn env_u64(name: &str, default: u64) -> CliResult<u64> {

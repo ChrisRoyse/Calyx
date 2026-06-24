@@ -232,6 +232,9 @@ fn commission_onnx_int8(
         ],
     )?;
     let model = find_preferred(&quant_dir, &["model_quantized.onnx", "model.onnx"], "onnx")?;
+    // See commission_onnx_fp32: register the external-data weights sidecar so it
+    // is hashed and counted toward VRAM cost, never a silent multi-GB undercount.
+    let model_data = model.with_extension("onnx_data");
     let tokenizer = require_named_fallback(&quant_dir, &export_dir, "tokenizer.json")?;
     let config = require_named_fallback(&quant_dir, &export_dir, "config.json")?;
     let dim = flags.dim.unwrap_or(read_hidden_size(&config)?);
@@ -241,6 +244,7 @@ fn commission_onnx_int8(
         artifact("tokenizer", tokenizer)?,
         artifact("config", config)?,
     ];
+    add_optional(&mut artifacts, "model_data", model_data)?;
     add_optional(
         &mut artifacts,
         "tokenizer_config",
@@ -261,6 +265,11 @@ fn commission_onnx_fp32(
 ) -> CliResult<Vec<Artifact>> {
     let export_dir = export_onnx(flags, out, log)?;
     let model = find_preferred(&export_dir, &["model.onnx"], "onnx")?;
+    // Large models export weights to an external-data sidecar (`model.onnx_data`)
+    // that the .onnx graph references at load. It must be in the manifest so its
+    // bytes are hashed/verified AND counted toward the lens VRAM cost — otherwise
+    // a multi-GB model is admitted as a few-MB graph and over-commits the GPU.
+    let model_data = model.with_extension("onnx_data");
     let tokenizer = require_named(&export_dir, "tokenizer.json")?;
     let config = require_named(&export_dir, "config.json")?;
     let dim = flags.dim.unwrap_or(read_hidden_size(&config)?);
@@ -270,6 +279,7 @@ fn commission_onnx_fp32(
         artifact("tokenizer", tokenizer)?,
         artifact("config", config)?,
     ];
+    add_optional(&mut artifacts, "model_data", model_data)?;
     add_optional(
         &mut artifacts,
         "tokenizer_config",

@@ -176,6 +176,47 @@ fn list_health_uses_metadata_without_reading_missing_artifact() {
     let _ = fs::remove_dir_all(root);
 }
 
+const GIB: u64 = 1024 * 1024 * 1024;
+
+#[test]
+fn vram_budget_env_overrides_win_without_probe() {
+    // Both overrides set: returned verbatim, probe (deliberately bogus) ignored.
+    let (cap, tei) =
+        compute_vram_budget(Some(30 * GIB), Some(3 * GIB), Some((1, 1)), 4 * GIB).unwrap();
+    assert_eq!(cap, 30 * GIB);
+    assert_eq!(tei, 3 * GIB);
+}
+
+#[test]
+fn vram_budget_derives_from_live_reading() {
+    // No overrides: cap = board_total - headroom, reservation = live used. This
+    // is the fresh-checkout path that the old fixed 20 GiB default broke.
+    let total = 32607 * 1024 * 1024; // a 5090 board, NVML MiB -> bytes
+    let used = 3182 * 1024 * 1024; // the resident TEI footprint
+    let (cap, tei) = compute_vram_budget(None, None, Some((total, used)), 4 * GIB).unwrap();
+    assert_eq!(cap, total - 4 * GIB);
+    assert_eq!(tei, used);
+    // The lens budget left for new GPU lenses is healthy, not starved to near-zero.
+    assert!(cap - tei > 24 * GIB);
+}
+
+#[test]
+fn vram_budget_partial_override_blends_with_probe() {
+    // Cap pinned by operator, reservation derived from live device usage.
+    let used = 5 * GIB;
+    let (cap, tei) =
+        compute_vram_budget(Some(28 * GIB), None, Some((40 * GIB, used)), 4 * GIB).unwrap();
+    assert_eq!(cap, 28 * GIB);
+    assert_eq!(tei, used);
+}
+
+#[test]
+fn vram_budget_fails_closed_without_probe_or_override() {
+    // No overrides AND no probe reading: must error, never guess a budget.
+    let err = compute_vram_budget(None, None, None, 4 * GIB).unwrap_err();
+    assert!(err.to_string().contains("VRAM probe reading required"));
+}
+
 fn temp_root(label: &str) -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
