@@ -157,17 +157,16 @@ pub fn execution_providers(
     policy: OnnxProviderPolicy,
 ) -> Vec<fastembed::ExecutionProviderDispatch> {
     match policy {
-        // SameAsRequested arena strategy (vs ORT's default kNextPowerOfTwo, which
-        // doubles on each grow) keeps per-session GPU allocation tight. With a
-        // panel of ~18 resident ONNX sessions on one card the default strategy's
-        // over-allocation compounds into >15 GiB of dead arena; SameAsRequested
-        // lets the whole diverse panel stay resident inside the VRAM budget. ORT
-        // docs note a minor per-alloc cost, negligible for our fixed-shape
-        // repeated batches.
+        // Keep ORT's default kNextPowerOfTwo arena: it pre-grows a pooled block
+        // that absorbs the large, variable transient attention buffers real
+        // (long) clinical sequences demand. SameAsRequested was tried to shrink
+        // resident VRAM but fragmented the arena and failed to allocate a 256 MiB
+        // attention buffer mid-ingest on long PubMedQA inputs. VRAM is instead
+        // controlled by sizing the panel (fewer, less-redundant lenses), which
+        // does not risk a hard OOM on a sequence-length spike.
         OnnxProviderPolicy::CudaFailLoud => vec![
             ep::CUDA::default()
                 .with_device_id(0)
-                .with_arena_extend_strategy(ep::ArenaExtendStrategy::SameAsRequested)
                 .build()
                 .error_on_failure(),
         ],

@@ -20,12 +20,26 @@ use crate::raw_media::{media_metadata, retain_media_input};
 
 const DEFAULT_ANCHOR_SOURCE: &str = "calyx-cli";
 
-/// Inputs measured per GPU microbatch (one batched forward pass per lens). Bigger
-/// = faster GPU utilization, bounded by the per-lens microbatch byte cap below.
-const MEASURE_BATCH: usize = 16;
+/// Default inputs measured per GPU microbatch (one batched forward pass per lens).
+/// Bigger = faster GPU utilization, but peak VRAM scales with
+/// `batch x sequence_len^2` (the transient attention buffers): long clinical
+/// sequences make large batches spike VRAM and can OOM mid-ingest. The default is
+/// conservative; raise `CALYX_MEASURE_BATCH` on a dedicated GPU with short inputs.
+const DEFAULT_MEASURE_BATCH: usize = 8;
 /// Constellations per WAL commit. Small because ColBERT multi-vectors are large;
-/// decoupled from MEASURE_BATCH so we measure big but commit WAL-safe.
+/// decoupled from the measure batch so we measure big but commit WAL-safe.
 const PUT_CHUNK: usize = 8;
+
+/// Resolve the measure microbatch from `CALYX_MEASURE_BATCH` (>=1), else the
+/// conservative default. Operator-tunable so the VRAM/throughput trade-off does
+/// not require a recompile.
+fn measure_batch_size() -> usize {
+    std::env::var("CALYX_MEASURE_BATCH")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .filter(|&n| n >= 1)
+        .unwrap_or(DEFAULT_MEASURE_BATCH)
+}
 
 pub(crate) fn run(command: Subcommand) -> CliResult {
     match command {
@@ -201,13 +215,14 @@ pub(super) fn ingest_batch_streaming(
     let vault = open_vault(resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let mut seen = BTreeSet::new();
-    let mut chunk: Vec<(String, BTreeMap<String, String>)> = Vec::with_capacity(MEASURE_BATCH);
+    let measure_batch = measure_batch_size();
+    let mut chunk: Vec<(String, BTreeMap<String, String>)> = Vec::with_capacity(measure_batch);
     for (index, line) in reader.lines().enumerate() {
         let line =
             line.map_err(|err| CliError::io(format!("read batch line {}: {err}", index + 1)))?;
         if let Some(row) = parse_batch_line(index, &line)? {
             chunk.push(row);
-            if chunk.len() >= MEASURE_BATCH {
+            if chunk.len() >= measure_batch {
                 flush_measure_batch(&vault, &state, &mut chunk, &mut seen)?;
             }
         }
