@@ -1,15 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use calyx_aster::vault::AsterVault;
 use calyx_core::{Anchor, CxId, Input, VaultStore};
 use calyx_ledger::EntryKind;
-use calyx_registry::load_vault_panel_state;
+use calyx_registry::{VaultPanelState, load_vault_panel_state};
 
 use super::super::search::rebuild_persistent_indexes;
 use super::super::vault::{ResolvedVault, now_ms};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
-use super::batch::read_batch_texts;
-use super::constellation::{measure_constellation, text_input};
+use super::batch::parse_batch_line;
+use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
 use super::ledger::{append_anchor_ledger, append_cli_ledger};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
 use super::types::{AnchorReport, IngestReport};
@@ -18,6 +19,13 @@ use crate::output::print_json;
 use crate::raw_media::{media_metadata, retain_media_input};
 
 const DEFAULT_ANCHOR_SOURCE: &str = "calyx-cli";
+
+/// Inputs measured per GPU microbatch (one batched forward pass per lens). Bigger
+/// = faster GPU utilization, bounded by the per-lens microbatch byte cap below.
+const MEASURE_BATCH: usize = 16;
+/// Constellations per WAL commit. Small because ColBERT multi-vectors are large;
+/// decoupled from MEASURE_BATCH so we measure big but commit WAL-safe.
+const PUT_CHUNK: usize = 8;
 
 pub(crate) fn run(command: Subcommand) -> CliResult {
     match command {
@@ -30,25 +38,31 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 
 fn ingest_command(args: IngestArgs) -> CliResult {
     let resolved = resolve_cli_vault(&args.vault)?;
-    let reports = if let Some(path) = args.file {
+    if let Some(path) = args.file {
         let modality = args.modality.expect("parser requires modality with --file");
         let retained = retain_media_input(&resolved.path, &path, modality)?;
         let metadata = media_metadata(&retained);
-        ingest_prepared_inputs(
+        let reports = ingest_prepared_inputs(
             &resolved,
             vec![PreparedInput {
                 input: retained.input,
                 metadata,
             }],
-        )?
+        )?;
+        for report in reports {
+            print_json(&report)?;
+        }
     } else if let Some(text) = args.text {
-        ingest_texts(&resolved, &[text])?
+        for report in ingest_texts(&resolved, &[text])? {
+            print_json(&report)?;
+        }
     } else {
-        let texts = read_batch_texts(args.batch.as_deref().expect("validated batch path"))?;
-        ingest_texts(&resolved, &texts)?
-    };
-    for report in reports {
-        print_json(&report)?;
+        // Streaming batch path: warm models, WAL-safe chunked commits, bounded
+        // memory — required for massive datasets (millions of rows).
+        ingest_batch_streaming(
+            &resolved,
+            args.batch.as_deref().expect("validated batch path"),
+        )?;
     }
     Ok(())
 }
@@ -93,16 +107,27 @@ pub(super) fn ingest_texts(
     resolved: &ResolvedVault,
     texts: &[String],
 ) -> CliResult<Vec<IngestReport>> {
-    if texts.is_empty() {
+    let rows = texts
+        .iter()
+        .map(|text| (text.clone(), BTreeMap::new()))
+        .collect();
+    ingest_text_rows(resolved, rows)
+}
+
+pub(super) fn ingest_text_rows(
+    resolved: &ResolvedVault,
+    rows: Vec<(String, BTreeMap<String, String>)>,
+) -> CliResult<Vec<IngestReport>> {
+    if rows.is_empty() {
         return Ok(Vec::new());
     }
-    let prepared = texts
-        .iter()
-        .map(|text| {
-            super::parse::validate_text(text)?;
+    let prepared = rows
+        .into_iter()
+        .map(|(text, metadata)| {
+            super::parse::validate_text(&text)?;
             Ok(PreparedInput {
-                input: text_input(text.clone()),
-                metadata: BTreeMap::new(),
+                input: text_input(text),
+                metadata,
             })
         })
         .collect::<CliResult<Vec<_>>>()?;
@@ -163,4 +188,85 @@ fn ingest_prepared_inputs(
     }
     vault.flush()?;
     Ok(reports)
+}
+
+pub(super) fn ingest_batch_streaming(
+    resolved: &ResolvedVault,
+    path: &std::path::Path,
+) -> CliResult<()> {
+    use std::io::BufRead;
+    let file = std::fs::File::open(path)
+        .map_err(|err| CliError::io(format!("open batch {}: {err}", path.display())))?;
+    let reader = std::io::BufReader::new(file);
+    let vault = open_vault(resolved)?;
+    let state = load_vault_panel_state(&resolved.path)?;
+    let mut seen = BTreeSet::new();
+    let mut chunk: Vec<(String, BTreeMap<String, String>)> = Vec::with_capacity(MEASURE_BATCH);
+    for (index, line) in reader.lines().enumerate() {
+        let line =
+            line.map_err(|err| CliError::io(format!("read batch line {}: {err}", index + 1)))?;
+        if let Some(row) = parse_batch_line(index, &line)? {
+            chunk.push(row);
+            if chunk.len() >= MEASURE_BATCH {
+                flush_measure_batch(&vault, &state, &mut chunk, &mut seen)?;
+            }
+        }
+    }
+    if !chunk.is_empty() {
+        flush_measure_batch(&vault, &state, &mut chunk, &mut seen)?;
+    }
+    rebuild_persistent_indexes(&resolved.path, &vault)?;
+    Ok(())
+}
+
+fn flush_measure_batch(
+    vault: &AsterVault,
+    state: &VaultPanelState,
+    chunk: &mut Vec<(String, BTreeMap<String, String>)>,
+    seen: &mut BTreeSet<CxId>,
+) -> CliResult<()> {
+    let rows: Vec<(String, BTreeMap<String, String>)> = chunk.drain(..).collect();
+    let inputs: Vec<Input> = rows
+        .iter()
+        .map(|(text, _)| text_input(text.clone()))
+        .collect();
+    let mut constellations = measure_constellation_microbatch(vault, state, &inputs, now_ms())?;
+    for (cx, (_, metadata)) in constellations.iter_mut().zip(rows) {
+        cx.metadata = metadata;
+    }
+    for sub in constellations.chunks(PUT_CHUNK) {
+        let mut staged = Vec::new();
+        let mut order = Vec::with_capacity(sub.len());
+        for cx in sub {
+            let new = !base_exists(vault, cx.cx_id)? && seen.insert(cx.cx_id);
+            if new {
+                staged.push(cx.clone());
+            }
+            order.push((cx.cx_id, new));
+        }
+        match staged.len() {
+            0 => {}
+            1 => {
+                vault.put(staged.pop().expect("one staged constellation"))?;
+            }
+            _ => {
+                vault.put_batch(staged)?;
+            }
+        }
+        vault.flush()?;
+        let snapshot = vault.snapshot();
+        for (cx_id, new) in order {
+            let ledger_seq = if new {
+                vault.get(cx_id, snapshot)?.provenance.seq
+            } else {
+                append_cli_ledger(vault, EntryKind::Ingest, cx_id, "cli-idempotent-ingest")?
+            };
+            print_json(&IngestReport {
+                cx_id: cx_id.to_string(),
+                new,
+                ledger_seq,
+            })?;
+        }
+    }
+    Ok(())
 }
