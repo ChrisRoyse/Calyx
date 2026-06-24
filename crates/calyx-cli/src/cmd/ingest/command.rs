@@ -225,7 +225,7 @@ fn flush_measure_batch(
     chunk: &mut Vec<(String, BTreeMap<String, String>)>,
     seen: &mut BTreeSet<CxId>,
 ) -> CliResult<()> {
-    let rows: Vec<(String, BTreeMap<String, String>)> = chunk.drain(..).collect();
+    let rows: Vec<(String, BTreeMap<String, String>)> = std::mem::take(chunk);
     let inputs: Vec<Input> = rows
         .iter()
         .map(|(text, _)| text_input(text.clone()))
