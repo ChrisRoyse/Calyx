@@ -21,11 +21,15 @@ use crate::raw_media::{media_metadata, retain_media_input};
 const DEFAULT_ANCHOR_SOURCE: &str = "calyx-cli";
 
 /// Default inputs measured per GPU microbatch (one batched forward pass per lens).
-/// Bigger = faster GPU utilization, but peak VRAM scales with
-/// `batch x sequence_len^2` (the transient attention buffers): long clinical
-/// sequences make large batches spike VRAM and can OOM mid-ingest. The default is
-/// conservative; raise `CALYX_MEASURE_BATCH` on a dedicated GPU with short inputs.
-const DEFAULT_MEASURE_BATCH: usize = 8;
+/// Bigger = faster GPU utilization, but peak VRAM scales with the transient
+/// attention/MLP activation buffers, which grow with `batch x sequence_len`: a
+/// single unlucky microbatch of max-length rows can spike past VRAM and OOM
+/// mid-ingest (an ingest crash also desyncs the vault ledger — see #866 — so a
+/// crash is expensive, not just a retry). Measured on a 14-lens FP32 panel /
+/// RTX 5090: batch=8 peaked ~32 GiB and OOM'd on long medmcqa rows, while batch=4
+/// peaks ~19.6 GiB on the worst-case longest corpus rows (13 GiB headroom). So
+/// the default is 4; raise `CALYX_MEASURE_BATCH` on a dedicated GPU / short inputs.
+const DEFAULT_MEASURE_BATCH: usize = 4;
 /// Constellations per WAL commit. Small because ColBERT multi-vectors are large;
 /// decoupled from the measure batch so we measure big but commit WAL-safe.
 const PUT_CHUNK: usize = 8;
