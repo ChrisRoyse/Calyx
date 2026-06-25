@@ -77,6 +77,25 @@ aiwonder archived-source FSV:
 - aiwonder `cargo fmt --all -- --check`: exit 0.
 - aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
 
+aiwonder final live-checkout FSV after dev push:
+- Dev commit: `28feb5dd`
+- FSV root: `/home/croyse/calyx/fsv/issue871-kernel-build-final-20260625T124200Z`
+- Happy artifact: `/home/croyse/calyx/fsv/issue871-kernel-build-final-20260625T124200Z/happy/issue871_kernel_build_readback.json`
+- Happy artifact bytes: `1094`
+- Happy artifact SHA256: `13ce0a6f7b704fd018a440ddd51150e562cbaafdce84f03a47b356bc56836743`
+- Happy scalar leaves: `source_nodes=3`, `source_edges=3`, `kernel_file_bytes=1561`, `index_file_bytes=219`, `member_count=1`, `kernel_graph_count=3`, `groundedness_fraction=1.0`, `recall_ratio=1.0`, `tau_star_estimate=1`, `tau_star_exact=true`, `health_recall_pass_mode=passed`, `health_recall_n_queries=1`
+- Recall-fail artifact: `/home/croyse/calyx/fsv/issue871-kernel-build-final-20260625T124200Z/edges/issue871_kernel_recall_fail.json`
+- Recall-fail artifact bytes: `166`
+- Recall-fail artifact SHA256: `7ff7c84e9276cc791fe570b1811871ff635e57792702cbd90213f287147c3526`
+- Recall-fail scalar leaves: `error_code=CALYX_KERNEL_RECALL_BELOW_GATE`, `kernel_member=01010101010101010101010101010101`, `full_top_expected=09090909090909090909090909090909`
+- Error artifact: `/home/croyse/calyx/fsv/issue871-kernel-build-final-20260625T124200Z/edges/issue871_kernel_build_errors.json`
+- Error artifact bytes: `106`
+- Error artifact SHA256: `937ce758db81eb847e5a8f6dee3f015e58a05425fd2ecaba73b2f1aad5c70b41`
+- Error scalar leaves: `missing_embedding=CALYX_KERNEL_EMBEDDING_MISSING`, `empty_corpus=CALYX_RECALL_EMPTY_CORPUS`
+- aiwonder live tests: 3 passed, 0 failed, 0 ignored.
+- aiwonder live `cargo fmt --all -- --check`: exit 0.
+- aiwonder live `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+
 ## Findings (honest)
 
 - The existing kernel pipeline, recall gate, artifact write/read, and health readback are sufficient to record the #871 acceptance metrics once #869 and #870 produce the real anchored association graph.
