@@ -90,17 +90,28 @@ PY
 }
 
 write_issue_body() {
+  local manifest="$OUT_DIR/ph70_evidence_manifest.json"
+  local manifest_bytes
+  local manifest_sha
+  local manifest_file_count
+  manifest_bytes="$(wc -c <"$manifest")"
+  manifest_sha="$(sha256sum "$manifest" | cut -d' ' -f1)"
+  manifest_file_count="$(python3 - "$manifest" <<'PY'
+import json, sys
+with open(sys.argv[1], "r", encoding="utf-8") as handle:
+    print(json.load(handle)["file_count"])
+PY
+)"
   cat >"$OUT_DIR/github_issue_comment.md" <<EOF
 PH70 evidence bundle generated.
 
 - Metrics source: \`$METRICS_DIR\`
 - Bundle: \`$OUT_DIR/ph70_evidence_bundle.tar.gz\`
 - Manifest: \`$OUT_DIR/ph70_evidence_manifest.json\`
+- Manifest bytes: \`$manifest_bytes\`
+- Manifest SHA256: \`$manifest_sha\`
+- Manifest file count: \`$manifest_file_count\`
 - Synapse audit request: \`$OUT_DIR/synapse_audit_export_request.json\`
-
-\`\`\`json
-$(cat "$OUT_DIR/ph70_evidence_manifest.json")
-\`\`\`
 EOF
 }
 

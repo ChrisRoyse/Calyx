@@ -20,6 +20,7 @@ METRICS_DIR="${CALYX_ORACLE_METRICS_DIR:-/zfs/hot/calyx/metrics}"
 SOURCE_DIR="$EVIDENCE_ROOT/source_rows"
 CORPUS_DIR="$EVIDENCE_ROOT/corpus"
 CF_ROOT="$EVIDENCE_ROOT/oracle_cf"
+FSV_BOUNDED="$REPO_ROOT/scripts/fsv_bounded.py"
 ORACLE_MODEL="${CALYX_ORACLE_MODEL:-20240402_sweagent_gpt4}"
 A38_READBACK="${CALYX_A38_GATE_READBACK:-/home/croyse/calyx/fsv/issue832-bgem3-colbert-roster-20260621T141356Z/final_readback.json}"
 REGISTRY_JSON="${CALYX_LENS_REGISTRY:-/home/croyse/calyx/lenses/registry.json}"
@@ -98,12 +99,18 @@ for manifest in "${MANIFESTS[@]}"; do
 done
 
 # Step 2: build grounded SWE-bench oracle source rows from a real experiments run.
-"$GPU_PY" "$REPO_ROOT/scripts/build_oracle_corpus.py" "$ORACLE_MODEL" "$SOURCE_DIR" | tee "$EVIDENCE_ROOT/source_rows_build.log"
+"$GPU_PY" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/source_rows_build.log" \
+  --stderr "$EVIDENCE_ROOT/source_rows_build.stderr" \
+  -- "$GPU_PY" "$REPO_ROOT/scripts/build_oracle_corpus.py" "$ORACLE_MODEL" "$SOURCE_DIR"
 ROWS_JSONL="$SOURCE_DIR/rows.jsonl"
 
 # Step 3: measure the rows through the accepted A38 lenses and persist vectors.
 cd "$REPO_ROOT"
-cargo run -p calyx-cli -- assay corpus-build \
+"$GPU_PY" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/assay_corpus_build.log" \
+  --stderr "$EVIDENCE_ROOT/assay_corpus_build.stderr" \
+  -- cargo run -p calyx-cli -- assay corpus-build \
   --rows-jsonl "$ROWS_JSONL" \
   --out-dir "$CORPUS_DIR" \
   --dataset "swebench_lite_oracle_${ORACLE_MODEL}" \
@@ -111,14 +118,17 @@ cargo run -p calyx-cli -- assay corpus-build \
   --batch-size "$BATCH_SIZE" \
   --cost-override-json "$A38_COST_JSON" \
   --embedding-model-id "a38:issue832-accepted-10" \
-  "${MANIFEST_ARGS[@]}" | tee "$EVIDENCE_ROOT/assay_corpus_build.log"
+  "${MANIFEST_ARGS[@]}"
 
 # Step 4: oracle sufficiency validation (real calyx-assay MI; gate per honesty_gate).
-cargo run -p calyx-cli -- oracle sufficiency-validate \
+"$GPU_PY" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/oracle_sufficiency_validate.log" \
+  --stderr "$EVIDENCE_ROOT/oracle_sufficiency_validate.stderr" \
+  -- cargo run -p calyx-cli -- oracle sufficiency-validate \
   --corpus-dir "$CORPUS_DIR" \
   --metrics-dir "$METRICS_DIR" \
   --cf-root "$CF_ROOT" \
-  --domain swebench_lite | tee "$EVIDENCE_ROOT/oracle_sufficiency_validate.log"
+  --domain swebench_lite
 
 # Step 5: independent readback of the source-of-truth metric files.
 echo "=== READBACK ==="

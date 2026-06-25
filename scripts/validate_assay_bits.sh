@@ -14,6 +14,7 @@ CORPUS_DIR="$EVIDENCE_ROOT/corpus"
 METRICS_DIR="${CALYX_ASSAY_METRICS_DIR:-/zfs/hot/calyx/metrics}"
 CF_ROOT="$EVIDENCE_ROOT/assay_cf"
 SOURCE_READBACK="$EVIDENCE_ROOT/assay_source_readback.json"
+FSV_BOUNDED="$REPO_ROOT/scripts/fsv_bounded.py"
 TEI="${CALYX_TEI_ENDPOINT:-http://127.0.0.1:8088/embed}"
 N="${CALYX_ASSAY_N:-600}"
 TARGET_CLASS="${CALYX_ASSAY_TARGET_CLASS:-2}" # AG News class 2 = Business
@@ -156,20 +157,27 @@ readback = {
     "embedding_dim": len(embeddings[0]),
 }
 readback_path.write_text(json.dumps(readback, indent=2) + "\n", encoding="utf-8")
-print(json.dumps(readback, indent=2))
 # Emit the resolved target class for the shell to consume.
 (out_dir / ".target_class").write_text(str(target_class), encoding="utf-8")
 PY
 
 TARGET_CLASS="$(cat "$CORPUS_DIR/.target_class")"
+"$PYTHON" "$FSV_BOUNDED" summarize "$SOURCE_READBACK" \
+  --field dataset=.dataset \
+  --field n_samples=.n_samples \
+  --field target_class=.target_class \
+  --field embedding_dim=.embedding_dim
 
 cd "$REPO_ROOT"
-cargo run -p calyx-cli -- assay bits-validate \
+"$PYTHON" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/assay_bits_validate.log" \
+  --stderr "$EVIDENCE_ROOT/assay_bits_validate.stderr" \
+  -- cargo run -p calyx-cli -- assay bits-validate \
   --corpus-dir "$CORPUS_DIR" \
   --metrics-dir "$METRICS_DIR" \
   --cf-root "$CF_ROOT" \
   --target-class "$TARGET_CLASS" \
-  --domain "ag_news" | tee "$EVIDENCE_ROOT/assay_bits_validate.log"
+  --domain "ag_news"
 
 printf 'ASSAY_FSV_ROOT=%s\n' "$EVIDENCE_ROOT"
 printf 'ASSAY_CORPUS_DIR=%s\n' "$CORPUS_DIR"

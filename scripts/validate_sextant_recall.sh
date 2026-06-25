@@ -3,6 +3,7 @@ set -euo pipefail
 
 CALYX_HOME="${CALYX_HOME:-/home/croyse/calyx}"
 REPO="${CALYX_REPO:-$CALYX_HOME/repo}"
+FSV_BOUNDED="$REPO/scripts/fsv_bounded.py"
 DATASET="${CALYX_QRELS_ROOT:-$CALYX_HOME/data/datasets/beir-scifact/scifact}"
 CORPUS_JSONL="$DATASET/corpus.jsonl"
 QUERIES_JSONL="$DATASET/queries.jsonl"
@@ -113,16 +114,22 @@ safe_reset_vault
 cargo build -p calyx-cli
 BIN="$REPO/target/debug/calyx"
 
-"$BIN" sextant recall-validate \
+python3 "$FSV_BOUNDED" capture \
+  --stdout "$METRICS_DIR/sextant_recall_command_output.json" \
+  --stderr "$METRICS_DIR/sextant_recall_command_output.stderr" \
+  -- "$BIN" sextant recall-validate \
   --corpus-jsonl "$CORPUS_JSONL" \
   --queries-jsonl "$QUERIES_JSONL" \
   --qrels "$QRELS_TSV" \
   --metrics-dir "$METRICS_DIR" \
   --vault "$VAULT" \
   --query-limit "$QUERY_LIMIT" \
-  --min-delta "$MIN_DELTA" | tee "$METRICS_DIR/sextant_recall_command_output.json"
+  --min-delta "$MIN_DELTA"
 
-"$BIN" readback --cf online --vault "$VAULT" | tee "$METRICS_DIR/sextant_online_cf_readback.txt"
+python3 "$FSV_BOUNDED" capture \
+  --stdout "$METRICS_DIR/sextant_online_cf_readback.txt" \
+  --stderr "$METRICS_DIR/sextant_online_cf_readback.stderr" \
+  -- "$BIN" readback --cf online --vault "$VAULT"
 
 echo "AFTER_METRIC_BYTES"
 cat "$METRICS_DIR/sextant_single_recall.txt"

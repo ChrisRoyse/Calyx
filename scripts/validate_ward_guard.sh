@@ -13,6 +13,7 @@ GPU_PY="${CALYX_GPU_PYTHON:-/home/croyse/calyx/.venv-gpu/bin/python}"
 STAMP="${CALYX_FSV_STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 EVIDENCE_ROOT="${CALYX_FSV_ROOT:-/home/croyse/calyx/data/fsv-issue562-ward-$STAMP}"
 METRICS_DIR="${CALYX_WARD_METRICS_DIR:-/zfs/hot/calyx/metrics}"
+FSV_BOUNDED="$REPO_ROOT/scripts/fsv_bounded.py"
 MODEL="${CALYX_WARD_MODEL:-roberta-base}"
 # Train on a diverse union of public injection corpora (lower confident-error
 # rate -> robust >=99% block); evaluate/validate on the largest clean held-out
@@ -58,23 +59,29 @@ print(f"train n={len(train)} inj={sum(r['label'] for r in train)} | test n={len(
 PY
 
 # Step 2: fine-tune the injection classifier on GPU and emit guard scores.
-"$GPU_PY" "$REPO_ROOT/scripts/finetune_injection_guard.py" \
+"$GPU_PY" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/finetune.log" \
+  --stderr "$EVIDENCE_ROOT/finetune.stderr" \
+  -- "$GPU_PY" "$REPO_ROOT/scripts/finetune_injection_guard.py" \
   --model "$MODEL" \
   --train "$EVIDENCE_ROOT/train.json" \
   --test "$EVIDENCE_ROOT/test.json" \
   --out "$EVIDENCE_ROOT/model" \
   --scores-out "$SCORES" \
-  --epochs "$EPOCHS" --bs 32 --lr 2e-5 | tee "$EVIDENCE_ROOT/finetune.log"
+  --epochs "$EPOCHS" --bs 32 --lr 2e-5
 
 # Step 3: Ward conformal validation over the classifier scores (gates block + FRR).
 cd "$REPO_ROOT"
-cargo run -p calyx-cli -- ward guard-validate \
+"$GPU_PY" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/ward_guard_validate.log" \
+  --stderr "$EVIDENCE_ROOT/ward_guard_validate.stderr" \
+  -- cargo run -p calyx-cli -- ward guard-validate \
   --scores "$SCORES" \
   --metrics-dir "$METRICS_DIR" \
   --eval-split test \
   --target-far "${CALYX_WARD_TARGET_FAR:-0.01}" \
   --required-block-rate "${CALYX_WARD_REQUIRED_BLOCK:-0.99}" \
-  --max-frr "${CALYX_WARD_MAX_FRR:-0.01}" | tee "$EVIDENCE_ROOT/ward_guard_validate.log"
+  --max-frr "${CALYX_WARD_MAX_FRR:-0.01}"
 
 # Step 4: independent readback of the source-of-truth metric files.
 echo "=== READBACK ==="
@@ -84,7 +91,7 @@ echo "ward_far.txt=$(cat "$METRICS_DIR/ward_far.txt")"
 echo "ward_frr.txt=$(cat "$METRICS_DIR/ward_frr.txt")"
 echo "ward_novelty_routed.txt=$(cat "$METRICS_DIR/ward_novelty_routed.txt")"
 "$GPU_PY" -c "rate=float(open('$METRICS_DIR/ward_block_rate.txt').read()); frr=float(open('$METRICS_DIR/ward_frr.txt').read()); print('PASS' if rate>=0.99 and frr<=0.01 else 'FAIL', 'block=%.4f frr=%.4f'%(rate,frr))"
-echo "verdicts_head:"; head -3 "$METRICS_DIR/ward_guard_verdicts.jsonl"
+"$GPU_PY" "$FSV_BOUNDED" summarize "$METRICS_DIR/ward_guard_verdicts.jsonl"
 
 printf 'WARD_FSV_ROOT=%s\n' "$EVIDENCE_ROOT"
 printf 'WARD_METRICS_DIR=%s\n' "$METRICS_DIR"

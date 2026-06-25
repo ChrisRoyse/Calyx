@@ -217,7 +217,15 @@ summary = {
     "p99_under_slo": readback["p99_under_slo"],
     "recall_ge_085": readback["recall_ge_085"],
 }
-print(json.dumps(summary, indent=2, sort_keys=True))
+artifact = summary["readback"]
+print(f"readback_path={artifact['path']}")
+print(f"readback_bytes={artifact['bytes']}")
+print(f"readback_sha256={artifact['sha256']}")
+print(f"phase={summary['phase']}")
+print(f"exit_code={summary['exit_code']}")
+print(f"error_code={summary['error_code']}")
+print(f"p99_under_slo={summary['p99_under_slo']}")
+print(f"recall_ge_085={summary['recall_ge_085']}")
 PY
 }
 

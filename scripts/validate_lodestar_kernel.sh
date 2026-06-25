@@ -8,6 +8,7 @@ STAMP="${CALYX_FSV_STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 EVIDENCE_ROOT="${CALYX_FSV_ROOT:-/home/croyse/calyx/data/fsv-issue561-lodestar-kernel-$STAMP}"
 CORPORA_DIR="$EVIDENCE_ROOT/corpora"
 SOURCE_READBACK="$EVIDENCE_ROOT/lodestar_source_readback.json"
+FSV_BOUNDED="$REPO_ROOT/scripts/fsv_bounded.py"
 METRICS_DIR="${CALYX_LODESTAR_METRICS_DIR:-/zfs/hot/calyx/metrics}"
 
 if [[ ! -x "$PYTHON" ]]; then
@@ -168,16 +169,23 @@ def conceptnet():
 out_dir.mkdir(parents=True, exist_ok=True)
 summary = {"corpora": [wordnet(), cora(), conceptnet()]}
 readback_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-print(json.dumps(summary, indent=2, sort_keys=True))
 PY
 
+"$PYTHON" "$FSV_BOUNDED" summarize "$SOURCE_READBACK" \
+  --field wordnet_nodes=.corpora[0].nodes \
+  --field cora_nodes=.corpora[1].nodes \
+  --field conceptnet_nodes=.corpora[2].nodes
+
 cd "$REPO_ROOT"
-cargo run -p calyx-cli -- lodestar kernel-validate \
+"$PYTHON" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/lodestar_kernel_validate.log" \
+  --stderr "$EVIDENCE_ROOT/lodestar_kernel_validate.stderr" \
+  -- cargo run -p calyx-cli -- lodestar kernel-validate \
   --corpora-dir "$CORPORA_DIR" \
   --metrics-dir "$METRICS_DIR" \
   --query-limit "${CALYX_LODESTAR_QUERY_LIMIT:-500}" \
   --top-k "${CALYX_LODESTAR_TOP_K:-10}" \
-  --min-ratio "${CALYX_LODESTAR_MIN_RATIO:-0.95}" | tee "$EVIDENCE_ROOT/lodestar_kernel_validate.log"
+  --min-ratio "${CALYX_LODESTAR_MIN_RATIO:-0.95}"
 
 printf 'LODESTAR_KERNEL_FSV_ROOT=%s\n' "$EVIDENCE_ROOT"
 printf 'LODESTAR_KERNEL_METRICS_DIR=%s\n' "$METRICS_DIR"

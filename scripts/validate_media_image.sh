@@ -8,6 +8,7 @@ STAMP="${CALYX_FSV_STAMP:-$(date -u +%Y%m%dT%H%M%SZ)}"
 EVIDENCE_ROOT="${CALYX_FSV_ROOT:-/home/croyse/calyx/data/fsv-issue607-media-image-$STAMP}"
 SAMPLES="$EVIDENCE_ROOT/media_image_samples.jsonl"
 SOURCE_READBACK="$EVIDENCE_ROOT/media_image_source_readback.json"
+FSV_BOUNDED="$REPO_ROOT/scripts/fsv_bounded.py"
 METRICS_DIR="$EVIDENCE_ROOT/metrics"
 VAULT_DIR="$EVIDENCE_ROOT/vault"
 
@@ -198,16 +199,22 @@ summary["sample_jsonl"] = str(sample_path)
 summary["sample_rows"] = sum(1 for _ in sample_path.open("r", encoding="utf-8"))
 summary["sample_sha256"] = sha256(sample_path.read_bytes())
 readback_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-print(json.dumps(summary, indent=2, sort_keys=True))
 PY
 
+"$PYTHON" "$FSV_BOUNDED" summarize "$SOURCE_READBACK" \
+  --field sample_rows=.sample_rows \
+  --field sample_sha256=.sample_sha256
+
 cd "$REPO_ROOT"
-cargo run -p calyx-cli -- media image-validate \
+"$PYTHON" "$FSV_BOUNDED" capture \
+  --stdout "$EVIDENCE_ROOT/media_image_validate.log" \
+  --stderr "$EVIDENCE_ROOT/media_image_validate.stderr" \
+  -- cargo run -p calyx-cli -- media image-validate \
   --samples "$SAMPLES" \
   --metrics-dir "$METRICS_DIR" \
   --vault "$VAULT_DIR" \
   --min-image-bits "${CALYX_MEDIA_MIN_IMAGE_BITS:-0.05}" \
   --min-cross-modal-bits "${CALYX_MEDIA_MIN_CROSS_MODAL_BITS:-0.05}" \
-  --k "${CALYX_MEDIA_K:-3}" | tee "$EVIDENCE_ROOT/media_image_validate.log"
+  --k "${CALYX_MEDIA_K:-3}"
 
 printf 'MEDIA_IMAGE_FSV_ROOT=%s\n' "$EVIDENCE_ROOT"

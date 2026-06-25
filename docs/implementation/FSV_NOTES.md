@@ -83,6 +83,25 @@ jq '.lenses[] | {name,bits:.bits_about,admitted}' "$FSV/assay-report.json"
 The full artifact remains the source of truth; the terminal summary is only a
 bounded pointer to the bytes.
 
+Use `scripts/fsv_bounded.py` when a command might emit a large JSON/log/readback
+payload. It captures stdout/stderr to files and prints only exit status, path,
+bytes, SHA256, and selected scalar JSON leaves:
+
+```bash
+python3 scripts/fsv_bounded.py capture \
+  --stdout "$FSV/final_readback.json" \
+  --stderr "$FSV/final_readback.stderr" \
+  --field accepted=.accepted \
+  -- calyx readback some-large-surface --vault "$VAULT"
+
+python3 scripts/fsv_bounded.py summarize "$FSV/final_readback.json" \
+  --field accepted=.accepted \
+  --field row_count=.row_count
+```
+
+Prefer this helper over `tee` in FSV scripts. `tee` persists bytes but still
+streams them into the Codex terminal.
+
 ## Synapse Mapping
 
 Use Synapse as the perception and action surface for FSV:
