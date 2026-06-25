@@ -149,30 +149,29 @@ fn empty_vault_erase_writes_vault_scope_tombstone() {
 #[test]
 fn corrupt_ledger_aborts_before_delete_or_shred() {
     let (dir, vault) = durable_vault("corrupt-ledger");
-    let mut ctx = context();
-    let registry = EraseRegistry::new();
+    let ctx = context();
     let first = cx(&vault, b"kept-after-ledger-error");
-    let first_id = first.cx_id;
     let ciphertext = ctx.encrypt_value(b"still-readable", b"aad").unwrap();
     vault.put(first).unwrap();
     vault.flush().unwrap();
     drop(vault);
     let _ = fs::remove_dir_all(dir.join("wal"));
     replace_ledger_ssts_with_corrupt_row(&dir);
-    let vault = AsterVault::open(
+
+    // The ledger head is anchored outside the row chain and verified at open,
+    // so a structurally corrupt ledger row is now caught at open (fail
+    // closed) — strictly earlier and safer than the prior erase-time guard. The
+    // vault refuses to load, so no destructive action can run. Assert the
+    // corruption is reported loudly and nothing was deleted or key-shredded.
+    let error = AsterVault::open(
         &dir,
         vault_id(),
         b"salt",
         crate::vault::VaultOptions::default(),
     )
-    .unwrap();
-
-    let error = vault
-        .erase(EraseScope::Cx(first_id), &mut ctx, &registry)
-        .unwrap_err();
+    .expect_err("open must fail closed on a corrupt ledger");
 
     assert!(error.code.starts_with("CALYX_LEDGER_"));
-    assert!(vault.get(first_id, vault.snapshot()).is_ok());
     assert!(!ctx.is_key_shredded_for_erasure());
     assert_eq!(
         ctx.decrypt_value(&ciphertext, b"aad").unwrap(),

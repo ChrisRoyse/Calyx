@@ -104,7 +104,11 @@ fn same_cxid_with_different_bytes_fails_closed() {
     let vault = AsterVault::with_clock(vault_id(), b"salt".to_vec(), FixedClock::new(123));
     let cx = sample_constellation(&vault);
     let mut changed = cx.clone();
-    changed.created_at += 1;
+    // `created_at` is deliberately excluded from constellation identity
+    // (`normalized_anchor_identity` zeroes it) so a re-put with a newer
+    // timestamp stays idempotent. Mutate an identity-bearing content field (the
+    // input-reference bytes) to exercise the same-cxid/different-bytes invariant.
+    changed.input_ref.hash[0] ^= 0xFF;
 
     vault.put(cx).expect("first put");
     let error = vault.put(changed).expect_err("collision rejected");
