@@ -829,7 +829,11 @@ name = "calyx-web-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "calyx-aster",
+ "calyx-core",
+ "calyx-registry",
  "http-body-util",
+ "serde",
  "serde_json",
  "tokio",
  "tower",
