@@ -1,4 +1,11 @@
-use crate::index::partitioned::{PartitionBuildParams, PartitionedSearch, build_partitioned_vault};
+use super::super::assignment::{
+    AssignmentRouting, AssignmentSink, BoundedAssignmentConfig, read_ids,
+    stream_assign_to_ids_bounded,
+};
+use crate::index::SpannCentroidIndex;
+use crate::index::partitioned::{
+    PartitionBuildParams, PartitionedSearch, VectorSource, build_partitioned_vault,
+};
 
 #[test]
 fn partitioned_open_rejects_corrupt_root_graph() {
@@ -40,6 +47,48 @@ fn partitioned_open_rejects_corrupt_unprobed_region_graph() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn bounded_assignment_cap_is_hard_stored_region_cap() {
+    let dir = std::env::temp_dir().join(format!("calyx-part-hard-cap-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let centroids = SpannCentroidIndex::from_parts(
+        2,
+        vec![vec![0.0, 0.0], vec![10.0, 0.0]],
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("centroids");
+    let source = StaticSource {
+        rows: vec![vec![5.0, 0.0]; 4],
+    };
+
+    let regions = stream_assign_to_ids_bounded(
+        &dir,
+        AssignmentSink::Final,
+        &centroids,
+        &source,
+        2,
+        BoundedAssignmentConfig {
+            cap: 2,
+            routing_probe: 2,
+            routing: AssignmentRouting::Exact,
+            boundary_epsilon: 3.0,
+            max_replication: 2,
+        },
+    )
+    .expect("bounded assignment");
+
+    assert_eq!(regions.iter().map(|region| region.count).sum::<usize>(), 4);
+    assert!(regions.iter().all(|region| region.count <= 2));
+    for region in &regions {
+        assert_eq!(
+            read_ids(&dir.join(&region.ids_rel)).unwrap().len(),
+            region.count
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 fn params(seed: u64) -> PartitionBuildParams {
     PartitionBuildParams {
         n_cx: 128,
@@ -66,4 +115,22 @@ fn corrupt_format_version(path: &std::path::Path) {
     file.seek(SeekFrom::Start(8)).expect("seek format version");
     file.write_all(&99_u32.to_le_bytes())
         .expect("write bad format version");
+}
+
+struct StaticSource {
+    rows: Vec<Vec<f32>>,
+}
+
+impl VectorSource for StaticSource {
+    fn dim(&self) -> usize {
+        self.rows[0].len()
+    }
+
+    fn len(&self) -> u64 {
+        self.rows.len() as u64
+    }
+
+    fn row(&self, idx: u64) -> Vec<f32> {
+        self.rows[idx as usize].clone()
+    }
 }

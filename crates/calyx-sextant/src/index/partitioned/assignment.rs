@@ -139,6 +139,7 @@ pub(super) fn stream_assign_to_ids_bounded(
     let chunk = chunk.max(1) as u64;
     let mut primary_counts = vec![0usize; r];
     let mut stored_counts = vec![0usize; r];
+    let mut duplicate_budget = usize::try_from(total_capacity - n as u128).unwrap_or(usize::MAX);
     clear_stale_ids(root, sink, r)?;
     let mut start = 0u64;
     while start < n {
@@ -166,6 +167,7 @@ pub(super) fn stream_assign_to_ids_bounded(
                 &candidates,
                 config.boundary_epsilon,
                 config.max_replication,
+                duplicate_budget,
             )
             .ok_or_else(|| {
                 sextant_error(
@@ -178,6 +180,8 @@ pub(super) fn stream_assign_to_ids_bounded(
             for (pos, region) in regions.into_iter().enumerate() {
                 if pos == 0 {
                     primary_counts[region] += 1;
+                } else {
+                    duplicate_budget = duplicate_budget.saturating_sub(1);
                 }
                 stored_counts[region] += 1;
                 assigned.push((idx, region as u32));
@@ -224,11 +228,13 @@ fn choose_bounded_regions(
     candidates: &[(usize, f32)],
     boundary_epsilon: f32,
     max_replication: usize,
+    duplicate_budget: usize,
 ) -> Option<Vec<usize>> {
     let &(primary, primary_distance) = candidates.iter().find(|(region, _)| {
         primary_counts
             .get(*region)
             .is_some_and(|count| *count < cap)
+            && stored_counts.get(*region).is_some_and(|count| *count < cap)
     })?;
     let threshold = primary_distance * (1.0 + boundary_epsilon);
     let duplicate_cap = cap.saturating_mul(max_replication.saturating_sub(1));
@@ -237,11 +243,14 @@ fn choose_bounded_regions(
         if selected.len() >= max_replication {
             break;
         }
+        if selected.len() > duplicate_budget {
+            break;
+        }
         if region == primary || distance > threshold {
             continue;
         }
         let duplicates = stored_counts[region].saturating_sub(primary_counts[region]);
-        if duplicates < duplicate_cap {
+        if stored_counts[region] < cap && duplicates < duplicate_cap {
             selected.push(region);
         }
     }

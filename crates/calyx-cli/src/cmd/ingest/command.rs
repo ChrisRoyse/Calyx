@@ -271,12 +271,12 @@ fn flush_measure_batch(
         for (cx, oracle) in sub {
             let exists = base_exists(vault, cx.cx_id)?;
             let new = !exists && seen.insert(cx.cx_id);
-            if !known_anchor_kinds.contains_key(&cx.cx_id) {
-                known_anchor_kinds.insert(cx.cx_id, current_anchor_kinds(vault, cx.cx_id, exists)?);
-            }
-            let known = known_anchor_kinds
-                .get_mut(&cx.cx_id)
-                .expect("known anchor kinds inserted");
+            let known = match known_anchor_kinds.entry(cx.cx_id) {
+                std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert(current_anchor_kinds(vault, cx.cx_id, exists)?)
+                }
+            };
             let mut marker_kinds = Vec::new();
             for anchor in &cx.anchors {
                 if known.insert(anchor.kind.clone()) {
