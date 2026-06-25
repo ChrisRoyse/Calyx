@@ -21,7 +21,7 @@ use super::store::{ensure_base_exists, open_vault};
 
 #[test]
 fn ingest_same_text_twice_returns_same_cx_and_second_is_not_new() {
-    let (root, resolved) = test_vault("idem", panel_with_unregistered_text_slot());
+    let (root, resolved) = test_vault_with_registered_dense_lens("idem");
 
     let first = ingest_texts(&resolved, &[String::from("hello")]).unwrap();
     let second = ingest_texts(&resolved, &[String::from("hello")]).unwrap();
@@ -29,6 +29,29 @@ fn ingest_same_text_twice_returns_same_cx_and_second_is_not_new() {
     assert_eq!(first[0].cx_id, second[0].cx_id);
     assert!(first[0].new);
     assert!(!second[0].new);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn ingest_into_fully_unregistered_panel_fails_loud_not_silently_empty() {
+    // Doctrine #1273 rule 3: a vault whose every content lens is unavailable must
+    // refuse ingest (loud, named), never silently persist an unsearchable cx.
+    let (root, resolved) = test_vault("unbound", panel_with_unregistered_text_slot());
+    let err = match ingest_texts(&resolved, &[String::from("hello")]) {
+        Ok(_) => panic!("ingest into a fully-unregistered panel must fail loud, not Ok"),
+        Err(e) => e,
+    };
+    assert_eq!(
+        err.code(),
+        "CALYX_LENS_UNREACHABLE",
+        "got: {}",
+        err.to_json()
+    );
+    assert!(
+        err.message().contains("0/") && err.message().contains("content lenses"),
+        "message must name the unavailable lenses: {}",
+        err.message()
+    );
     fs::remove_dir_all(root).ok();
 }
 

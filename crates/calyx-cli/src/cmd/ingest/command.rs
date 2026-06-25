@@ -10,7 +10,9 @@ use super::super::vault::{ResolvedVault, now_ms};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
 use super::batch::{BatchRow, parse_batch_line};
-use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
+use super::constellation::{
+    ensure_content_panel_floor, measure_constellation, measure_constellation_microbatch, text_input,
+};
 use super::ledger::{append_anchor_ledger, append_anchor_marker_ledger, append_cli_ledger};
 use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
@@ -173,6 +175,7 @@ fn ingest_prepared_inputs(
     for prepared_input in inputs {
         let mut cx = measure_constellation(&vault, &state, prepared_input.input, now_ms())?;
         cx.metadata = prepared_input.metadata;
+        ensure_content_panel_floor(&cx, &state)?;
         let new = !base_exists(&vault, cx.cx_id)? && first_new.insert(cx.cx_id);
         if new {
             staged.push(cx.clone());
@@ -263,6 +266,11 @@ fn flush_measure_batch(
         cx.flags.ungrounded = anchors.is_empty();
         cx.anchors = anchors;
         measured.push((cx, oracle));
+    }
+    // Doctrine #1273 rule 3: validate the whole flush before any put so a fully
+    // degraded constellation aborts the batch loudly instead of being persisted.
+    for (cx, _) in &measured {
+        ensure_content_panel_floor(cx, state)?;
     }
     for sub in measured.chunks(PUT_CHUNK) {
         let mut staged = Vec::new();

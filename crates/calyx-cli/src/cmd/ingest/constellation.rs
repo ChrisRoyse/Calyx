@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
-    AbsentReason, Constellation, CxFlags, Input, InputRef, LedgerRef, LensId, Modality, Placement,
-    SlotState, SlotVector,
+    AbsentReason, CalyxError, CalyxErrorCode, Constellation, CxFlags, Input, InputRef, LedgerRef,
+    LensId, Modality, Placement, SlotState, SlotVector,
 };
 use calyx_registry::VaultPanelState;
 use rayon::prelude::*;
@@ -58,6 +58,51 @@ pub(crate) fn measure_constellation(
             redacted_input: false,
         },
     })
+}
+
+/// Doctrine #1273 rule 3 ("never single — fail hard"): an ingest that leaves
+/// every declared, applicable content lens unmeasured would silently persist a
+/// constellation weaker than the panel promises and yield illusory retrieval
+/// (the search-returns-`[]` footgun). When EVERY content lens for the input
+/// modality is absent we refuse to persist and name each absent slot + reason so
+/// the operator can bind/repair the runtime. Partial degradation still records
+/// the `degraded` flag (full panel-floor enforcement is tracked separately).
+pub(crate) fn ensure_content_panel_floor(
+    cx: &Constellation,
+    state: &VaultPanelState,
+) -> CliResult<()> {
+    let mut declared = 0usize;
+    let mut absent: Vec<String> = Vec::new();
+    for slot in &state.panel.slots {
+        if !slot.counts_toward_degraded(cx.modality) {
+            continue;
+        }
+        declared += 1;
+        if let Some(SlotVector::Absent { reason }) = cx.slots.get(&slot.slot_id) {
+            absent.push(format!(
+                "slot {:?} lens {:?} reason={:?}",
+                slot.slot_id, slot.lens_id, reason
+            ));
+        }
+    }
+    if declared > 0 && absent.len() == declared {
+        return Err(CalyxError::from_code(
+            CalyxErrorCode::LensUnreachable,
+            format!(
+                "ingest refused for cx {:?}: 0/{} declared content lenses materialized for \
+                 modality {:?} — every content lens is unavailable, so this constellation \
+                 would be silently empty and unsearchable. Bind/repair the lens runtimes \
+                 (calyx add-lens / verify runtime endpoints) and re-ingest. Absent content \
+                 slots: [{}]",
+                cx.cx_id,
+                declared,
+                cx.modality,
+                absent.join("; ")
+            ),
+        )
+        .into());
+    }
+    Ok(())
 }
 
 pub(crate) fn text_input(text: String) -> Input {
