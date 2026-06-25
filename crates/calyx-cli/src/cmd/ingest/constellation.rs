@@ -29,7 +29,7 @@ pub(crate) fn measure_constellation(
         } else {
             state.registry.measure(slot.lens_id, &input)?
         };
-        degraded |= vector.is_absent();
+        degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();
         slots.insert(slot.slot_id, vector);
     }
     Ok(Constellation {
@@ -148,7 +148,7 @@ pub(crate) fn measure_constellation_microbatch(
                     _ => absent(AbsentReason::LensUnavailable),
                 }
             };
-            degraded |= vector.is_absent();
+            degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();
             slots.insert(slot.slot_id, vector);
         }
         out.push(Constellation {

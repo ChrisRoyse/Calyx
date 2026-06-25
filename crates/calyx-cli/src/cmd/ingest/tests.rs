@@ -93,6 +93,10 @@ fn measure_outputs_absent_not_zero_filled_and_does_not_store() {
             reason: AbsentReason::LensUnavailable
         })
     ));
+    assert!(
+        cx.flags.degraded,
+        "missing applicable content lens degrades"
+    );
     assert_eq!(
         vault
             .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
@@ -100,6 +104,42 @@ fn measure_outputs_absent_not_zero_filled_and_does_not_store() {
             .len(),
         0
     );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn retrieval_only_temporal_absence_does_not_degrade_content_ingest() {
+    let (root, resolved) =
+        test_vault_with_registered_dense_lens_and_temporal_sidecar("temporal-sidecar-degraded");
+    let jsonl = resolved.path.join("plain.jsonl");
+    fs::write(&jsonl, "{\"text\":\"alpha temporal sidecar signal\"}\n").unwrap();
+
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let vault = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault.cx_id_for_input(
+        "alpha temporal sidecar signal".as_bytes(),
+        state.panel.version,
+    );
+    let snapshot = vault.snapshot();
+    let cx = vault.get(cx_id, snapshot).unwrap();
+
+    assert!(
+        !cx.flags.degraded,
+        "expected temporal sidecar absence must not mark content degraded"
+    );
+    assert!(matches!(
+        cx.slots.get(&SlotId::new(0)),
+        Some(SlotVector::Dense { dim: 16, .. })
+    ));
+    assert!(matches!(
+        cx.slots.get(&SlotId::new(1)),
+        Some(SlotVector::Absent {
+            reason: AbsentReason::NotApplicable
+        })
+    ));
+
     fs::remove_dir_all(root).ok();
 }
 
@@ -338,6 +378,19 @@ fn test_vault(name: &str, panel: Panel) -> (std::path::PathBuf, ResolvedVault) {
 }
 
 fn test_vault_with_registered_dense_lens(name: &str) -> (std::path::PathBuf, ResolvedVault) {
+    test_vault_with_registered_dense_lens_and_panel(name, false)
+}
+
+fn test_vault_with_registered_dense_lens_and_temporal_sidecar(
+    name: &str,
+) -> (std::path::PathBuf, ResolvedVault) {
+    test_vault_with_registered_dense_lens_and_panel(name, true)
+}
+
+fn test_vault_with_registered_dense_lens_and_panel(
+    name: &str,
+    temporal_sidecar: bool,
+) -> (std::path::PathBuf, ResolvedVault) {
     let root = temp_root(name);
     let vault_id = VaultId::from_ulid(Ulid::new());
     let path = root.join("vaults").join(vault_id.to_string());
@@ -353,7 +406,11 @@ fn test_vault_with_registered_dense_lens(name: &str) -> (std::path::PathBuf, Res
     .unwrap();
     let lens_id = built.lens_id;
     built.register(&mut registry).unwrap();
-    let panel = panel_with_text_slot(lens_id, SlotShape::Dense(16));
+    let panel = if temporal_sidecar {
+        panel_with_text_slot_and_temporal_sidecar(lens_id, SlotShape::Dense(16))
+    } else {
+        panel_with_text_slot(lens_id, SlotShape::Dense(16))
+    };
     AsterVault::new_durable(
         &path,
         vault_id,
@@ -377,6 +434,29 @@ fn test_vault_with_registered_dense_lens(name: &str) -> (std::path::PathBuf, Res
 
 fn panel_with_unregistered_text_slot() -> Panel {
     panel_with_text_slot(LensId::from_bytes([7; 16]), SlotShape::Dense(3))
+}
+
+fn panel_with_text_slot_and_temporal_sidecar(lens_id: LensId, shape: SlotShape) -> Panel {
+    let mut panel = panel_with_text_slot(lens_id, shape);
+    let slot = SlotId::new(1);
+    panel.version = 2;
+    panel.slots.push(Slot {
+        slot_id: slot,
+        slot_key: SlotKey::new(slot, "E2_recency"),
+        lens_id: LensId::from_bytes([8; 16]),
+        shape: SlotShape::Dense(1),
+        modality: Modality::Structured,
+        asymmetry: Asymmetry::None,
+        quant: QuantPolicy::None,
+        resource: Default::default(),
+        axis: Some("E2_recency".to_string()),
+        retrieval_only: true,
+        excluded_from_dedup: true,
+        bits_about: BTreeMap::new(),
+        state: SlotState::Active,
+        added_at_panel_version: 2,
+    });
+    panel
 }
 
 fn panel_with_text_slot(lens_id: LensId, shape: SlotShape) -> Panel {

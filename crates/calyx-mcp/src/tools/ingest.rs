@@ -313,7 +313,7 @@ fn measure_constellation(
             &mut produced,
             &mut unavailable,
         )?;
-        degraded |= vector.is_absent();
+        degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();
         slots.insert(slot.slot_id, vector);
     }
     if applicable == 0 {

@@ -119,6 +119,14 @@ pub struct Slot {
     pub added_at_panel_version: u32,
 }
 
+impl Slot {
+    /// Returns true when an absent value in this slot means the primary content
+    /// measurement degraded for the current input.
+    pub fn counts_toward_degraded(&self, input_modality: Modality) -> bool {
+        self.state == SlotState::Active && self.modality == input_modality && !self.retrieval_only
+    }
+}
+
 /// Versioned panel of slots.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Panel {
