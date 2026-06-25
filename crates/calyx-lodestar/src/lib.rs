@@ -3,6 +3,7 @@
 //! Lodestar grounding-kernel discovery and maintenance.
 
 pub mod aster_bridge;
+pub mod blind_spot_sweep;
 pub mod dfvs;
 pub mod discovery_chain;
 mod error;
@@ -31,6 +32,10 @@ pub use aster_bridge::{
     ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, AsterAssocSnapshot,
     AsterSummarizeRequest, DEFAULT_ASTER_ASSOC_COLLECTION, encode_assoc_node_props,
     summarize_vault_as_of, summarize_vault_latest, write_assoc_metadata,
+};
+pub use blind_spot_sweep::{
+    BLIND_SPOT_SWEEP_SCHEMA_VERSION, BlindSpotCandidate, BlindSpotGateVerdict, BlindSpotNeighbor,
+    BlindSpotObservation, BlindSpotSweepLog, BlindSpotSweepParams, sweep_blind_spots,
 };
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,

@@ -26,6 +26,7 @@ still requires experimental confirmation.
 | `05_degraded_flag_fix.md` | #872 degraded flag ignores retrieval-only temporal sidecar absence | done + FSV |
 | `06_calibration_fsv.md` | #873 planted signal calibration and gate readback | done + FSV |
 | `07_power_gate_verify.md` | #874 assay power-calibration and entropy-floor gate verification | done + FSV |
+| `08_blind_spot_sweep.md` | #875 blind-spot sweep/ranking log | implementation slice + synthetic FSV; corpus sweep pending |
 | `11_discovery_harness.md` | #878 gated discovery chain harness | implementation slice + synthetic FSV; corpus run pending |
 | `12_probe_matrix.md` | #879 probe matrix planner and productive-combination log | implementation slice + synthetic FSV; corpus run pending |
 | `16_refusal_driven_expansion.md` | #883 refusal-expansion planner and before/after verifier | implementation slice + synthetic FSV; real evidence addition pending |
