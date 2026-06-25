@@ -20,6 +20,12 @@ ssh aiwonder "tar -xf /home/croyse/calyx/fsv/issue880-chain-walks-20260625T11544
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue880-chain-walks-20260625T115442Z/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=/home/croyse/calyx/fsv/issue880-chain-walks-20260625T115442Z cargo test -p calyx-lodestar --test issue880_chain_walks_tests -- --nocapture"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue880-chain-walks-20260625T115442Z/repo && cargo fmt --all -- --check"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue880-chain-walks-20260625T115442Z/repo && bash scripts/linecount.sh"
+
+# final live-checkout FSV after push/pull on aiwonder
+ssh aiwonder "cd /home/croyse/calyx/repo && git pull --ff-only"
+ssh aiwonder "root=/home/croyse/calyx/fsv/issue880-chain-walks-final-20260625T115700Z; mkdir -p \"$root\"; cd /home/croyse/calyx/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=\"$root\" cargo test -p calyx-lodestar --test issue880_chain_walks_tests -- --nocapture"
+ssh aiwonder "cd /home/croyse/calyx/repo && cargo fmt --all -- --check"
+ssh aiwonder "cd /home/croyse/calyx/repo && bash scripts/linecount.sh"
 ```
 
 ## Raw evidence / FSV
@@ -39,6 +45,12 @@ aiwonder archived-source FSV:
 - Artifact: `/home/croyse/calyx/fsv/issue880-chain-walks-20260625T115442Z/issue880_chain_walks_readback.json`
 - Artifact bytes: `13017`
 - Artifact SHA256: `085e82acf830f7ec13dd850016ec913966926badcf298388eec86a50e515a455`
+
+aiwonder final live-checkout FSV:
+- FSV root: `/home/croyse/calyx/fsv/issue880-chain-walks-final-20260625T115700Z`
+- Artifact: `/home/croyse/calyx/fsv/issue880-chain-walks-final-20260625T115700Z/issue880_chain_walks_readback.json`
+- Artifact bytes: `13017`
+- Artifact SHA256: `085e82acf830f7ec13dd850016ec913966926badcf298388eec86a50e515a455`
 - Readback scalar leaves:
   - `schema_version=1`
   - `seed_count=2`
@@ -51,8 +63,9 @@ aiwonder archived-source FSV:
   - `top_rank_score=0.746999979019165`
   - `top_cross_domain_distance=2`
 - aiwonder tests from archived source: 4 passed, 0 failed, 0 ignored.
-- aiwonder `cargo fmt --all -- --check`: exit 0.
-- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+- aiwonder tests from final live checkout: 4 passed, 0 failed, 0 ignored.
+- aiwonder `cargo fmt --all -- --check`: exit 0 for archived source and final live checkout.
+- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines` for archived source and final live checkout.
 
 Boundary and edge behavior covered by tests:
 - Static top-candidate seed and operator-question seed both run through the #878 grounded discovery harness.
