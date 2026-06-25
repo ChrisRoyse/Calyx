@@ -233,6 +233,41 @@ if [ ! -f "$vault/partitioned-manifest.json" ]; then
   write_readback 75 precondition_failed CALYX_FSV_PARTITIONED_MANIFEST_MISSING "$vault/partitioned-manifest.json"
   exit 75
 fi
+cap_check_message=$(python3 - "$vault/partitioned-manifest.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+try:
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+except Exception as error:
+    print(f"manifest {path} is not valid JSON: {error}")
+    sys.exit(2)
+cap = manifest.get("final_assignment_cap")
+regions = manifest.get("regions") or []
+if not isinstance(cap, int):
+    sys.exit(0)
+over = [
+    (region.get("id"), region.get("count"))
+    for region in regions
+    if isinstance(region, dict) and int(region.get("count", 0)) > cap
+]
+if over:
+    sample = ", ".join(f"{region_id}:{count}" for region_id, count in over[:5])
+    print(f"{len(over)} regions exceed final_assignment_cap={cap}; sample={sample}")
+    sys.exit(1)
+sys.exit(0)
+PY
+)
+cap_check_code=$?
+if [ "$cap_check_code" -eq 1 ]; then
+  write_readback 76 precondition_failed CALYX_FSV_PARTITIONED_CAP_VIOLATION "$cap_check_message"
+  exit 76
+elif [ "$cap_check_code" -ne 0 ]; then
+  write_readback 77 precondition_failed CALYX_FSV_PARTITIONED_MANIFEST_INVALID "$cap_check_message"
+  exit 77
+fi
 
 sha256sum "$bin_path" "$vault/partitioned-manifest.json" > "$out_dir/pre_search_hashes.txt"
 "$bin_path" bench partitioned-search \
