@@ -26,6 +26,7 @@ pub mod refusal_expansion;
 pub mod scope;
 pub mod scope_cache;
 pub mod scope_report;
+pub mod spectral_communities;
 pub mod summarize;
 pub mod temporal_kernel;
 
@@ -114,6 +115,11 @@ pub use scope::{
 };
 pub use scope_cache::{CacheStats, ScopeCache, ScopeCacheKey, scope_cache_anchor_identity};
 pub use scope_report::{ScopeKernelReport, report_all_scopes};
+pub use spectral_communities::{
+    InterCommunityBridgeCandidate, SPECTRAL_COMMUNITY_SCHEMA_VERSION, SpectralCentralityCandidate,
+    SpectralCommunityMember, SpectralCommunityParams, SpectralCommunityReport,
+    SpectralCommunitySummary, spectral_community_report,
+};
 pub use summarize::{
     CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING,
     CALYX_TIMETRAVEL_BEFORE_HORIZON, SUMMARIZE_INVOKED_MARKER, SummarizeCtx, SummarizeParams,

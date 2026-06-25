@@ -153,3 +153,12 @@ impl From<calyx_mincut::MincutError> for LodestarError {
         }
     }
 }
+
+impl From<calyx_mincut::SpectralError> for LodestarError {
+    fn from(value: calyx_mincut::SpectralError) -> Self {
+        Self::Graph {
+            code: value.code(),
+            message: value.to_string(),
+        }
+    }
+}
