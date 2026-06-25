@@ -20,6 +20,7 @@ pub mod kernel_health;
 pub mod kernel_index;
 pub mod label_propagation;
 pub mod loom_assoc;
+pub mod loom_weave_report;
 pub mod molecular_bridges;
 pub mod multi_scope;
 pub mod probe_matrix;
@@ -102,6 +103,10 @@ pub use label_propagation::{
 pub use loom_assoc::{
     LoomAssocEdgeProvenance, LoomAssocGraphInput, LoomDirectionalConfidence, LoomSlotNode,
     build_assoc_graph_from_loom, loom_assoc_graph_input,
+};
+pub use loom_weave_report::{
+    LOOM_WEAVE_REPORT_SCHEMA_VERSION, LoomWeaveEdgeReadback, LoomWeaveReport,
+    LoomWeaveReportParams, loom_weave_report,
 };
 pub use molecular_bridges::{
     ClinicalMolecularSeed, MOLECULAR_BRIDGE_SCHEMA_VERSION, MolecularBridgeCandidate,
