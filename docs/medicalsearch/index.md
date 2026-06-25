@@ -31,6 +31,7 @@ still requires experimental confirmation.
 | `10_spectral_communities.md` | #877 spectral community and inter-community bridge report | implementation slice + synthetic FSV; corpus run pending |
 | `11_discovery_harness.md` | #878 gated discovery chain harness | implementation slice + synthetic FSV; corpus run pending |
 | `12_probe_matrix.md` | #879 probe matrix planner and productive-combination log | implementation slice + synthetic FSV; corpus run pending |
+| `13_chain_walks_synthetic.md` | #880 grounded chain-walk report for static/operator seeds | implementation slice + synthetic FSV; corpus chain walks pending |
 | `16_refusal_driven_expansion.md` | #883 refusal-expansion planner and before/after verifier | implementation slice + synthetic FSV; real evidence addition pending |
 | `17_discovery_vault_molecular.md` | #884 molecular discovery vault source-data preflight | preflight + FSV |
 | `18_oracle_event_structuring.md` | #885 Oracle event/domain structuring for recurrence reverse-query | done + FSV |
