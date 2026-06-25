@@ -829,8 +829,11 @@ name = "calyx-web-api"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "http-body-util",
  "serde_json",
  "tokio",
+ "tower",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
 ]
@@ -4588,10 +4591,12 @@ dependencies = [
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
  "pin-project-lite",
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
  "url",
 ]
 
