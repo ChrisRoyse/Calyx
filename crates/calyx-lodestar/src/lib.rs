@@ -20,6 +20,7 @@ pub mod multi_scope;
 pub mod probe_matrix;
 pub mod provenance;
 pub mod recall_test;
+pub mod refusal_expansion;
 pub mod scope;
 pub mod scope_cache;
 pub mod scope_report;
@@ -91,6 +92,11 @@ pub use recall_test::{
     AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,
     RecallQuery, RecallTestParams, RecallTestReport, enforce_recall_gate, kernel_recall_gate,
     kernel_recall_gate_with_clock, kernel_recall_test, kernel_recall_test_with_clock,
+};
+pub use refusal_expansion::{
+    REFUSAL_EXPANSION_SCHEMA_VERSION, RefusalExpansionAction, RefusalExpansionActionKind,
+    RefusalExpansionParams, RefusalExpansionPlan, RefusalExpansionVerification,
+    plan_refusal_expansion, verify_refusal_expansion,
 };
 pub use scope::{
     AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, scope_hash,

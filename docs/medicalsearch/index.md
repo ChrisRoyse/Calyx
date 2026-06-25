@@ -28,6 +28,7 @@ still requires experimental confirmation.
 | `07_power_gate_verify.md` | #874 assay power-calibration and entropy-floor gate verification | done + FSV |
 | `11_discovery_harness.md` | #878 gated discovery chain harness | implementation slice + synthetic FSV; corpus run pending |
 | `12_probe_matrix.md` | #879 probe matrix planner and productive-combination log | implementation slice + synthetic FSV; corpus run pending |
+| `16_refusal_driven_expansion.md` | #883 refusal-expansion planner and before/after verifier | implementation slice + synthetic FSV; real evidence addition pending |
 | `17_discovery_vault_molecular.md` | #884 molecular discovery vault source-data preflight | preflight + FSV |
 | `18_oracle_event_structuring.md` | #885 Oracle event/domain structuring for recurrence reverse-query | done + FSV |
 | (added as work proceeds) | | |
