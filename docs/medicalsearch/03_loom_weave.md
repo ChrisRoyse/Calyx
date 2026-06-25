@@ -83,6 +83,25 @@ aiwonder archived-source FSV:
 - aiwonder `cargo fmt --all -- --check`: exit 0.
 - aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
 
+aiwonder final live-checkout FSV after dev push:
+- Dev commit: `66e79f59`
+- FSV root: `/home/croyse/calyx/fsv/issue870-loom-weave-final-20260625T123500Z`
+- Happy artifact: `/home/croyse/calyx/fsv/issue870-loom-weave-final-20260625T123500Z/happy/issue870_loom_weave_readback.json`
+- Happy artifact bytes: `1123`
+- Happy artifact SHA256: `9e4f5c18f571f67fff914d733ca0136084c6666dfcccbe5552a15c071bb3519a`
+- Happy scalar leaves: `persisted_xterms=1`, `cf_row_count=1`, `schema_version=1`, `node_count=2`, `edge_count=2`, `provenance_count=2`, `unique_xterm_count=1`, `anchor_count=1`, `grounded_node_count=2`, `groundedness_fraction=1.0`, `gate_passed=true`, `graph_density=1.0`, `top_edge_edge_weight=0.800000011920929`
+- Ungrounded artifact: `/home/croyse/calyx/fsv/issue870-loom-weave-final-20260625T123500Z/edges/issue870_loom_weave_ungrounded.json`
+- Ungrounded artifact bytes: `124`
+- Ungrounded artifact SHA256: `9af8f43b41e96952805389e47fddf6e4ab6a281495415c7e03f43341a1607b0d`
+- Ungrounded scalar leaves: `node_count=2`, `edge_count=1`, `grounded_node_count=0`, `groundedness_fraction=0.0`, `gate_passed=false`
+- Error artifact: `/home/croyse/calyx/fsv/issue870-loom-weave-final-20260625T123500Z/edges/issue870_loom_weave_errors.json`
+- Error artifact bytes: `146`
+- Error artifact SHA256: `15b46b67acc70b8ca0544edec1cfc293f0929b9c3176c443a485c028f550f556`
+- Error scalar leaves: `empty_graph=CALYX_KERNEL_EMPTY_GRAPH`, `bad_fraction=CALYX_KERNEL_INVALID_PARAMS`, `bad_top_edges=CALYX_KERNEL_INVALID_PARAMS`
+- aiwonder live tests: 3 passed, 0 failed, 0 ignored.
+- aiwonder live `cargo fmt --all -- --check`: exit 0.
+- aiwonder live `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+
 ## Findings (honest)
 
 - The existing Loom adapter can populate a Lodestar association graph from XTerm agreement rows and directional confidence rows.
