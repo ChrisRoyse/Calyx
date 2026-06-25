@@ -117,6 +117,12 @@ counts = sorted(
     for region in regions or []
     if isinstance(region, dict)
 )
+final_assignment_cap = manifest.get("final_assignment_cap") if isinstance(manifest, dict) else None
+regions_over_cap = (
+    sum(1 for count in counts if count > final_assignment_cap)
+    if isinstance(final_assignment_cap, int)
+    else None
+)
 search = load_json(out_dir / "search_stdout.json") or {}
 status = load_json(out_dir / "anneal_partitioned_search/bench/bw_postcutoff_status.json") or {}
 latency = search.get("latency_us") if isinstance(search, dict) else None
@@ -151,16 +157,27 @@ readback = {
     "n_cx": manifest.get("n_cx") if isinstance(manifest, dict) else None,
     "dim": manifest.get("dim") if isinstance(manifest, dict) else None,
     "n_regions": manifest.get("n_regions") if isinstance(manifest, dict) else None,
+    "manifest_region_entries": len(regions or []) if isinstance(regions, list) else None,
     "stored_region_members": manifest.get("stored_region_members") if isinstance(manifest, dict) else None,
     "final_assignment_probe": manifest.get("final_assignment_probe") if isinstance(manifest, dict) else None,
-    "final_assignment_cap": manifest.get("final_assignment_cap") if isinstance(manifest, dict) else None,
+    "final_assignment_cap": final_assignment_cap,
+    "final_assignment_boundary_epsilon": manifest.get("final_assignment_boundary_epsilon") if isinstance(manifest, dict) else None,
+    "final_assignment_max_replication": manifest.get("final_assignment_max_replication") if isinstance(manifest, dict) else None,
     "m_max": manifest.get("m_max") if isinstance(manifest, dict) else None,
     "ef_construction": manifest.get("ef_construction") if isinstance(manifest, dict) else None,
     "graph_build_backend": manifest.get("graph_build_backend") if isinstance(manifest, dict) else None,
+    "region_count_min": counts[0] if counts else None,
     "region_count_p50": pct(counts, 50),
     "region_count_p90": pct(counts, 90),
     "region_count_p95": pct(counts, 95),
     "region_count_p99": pct(counts, 99),
+    "region_count_max": counts[-1] if counts else None,
+    "regions_over_final_assignment_cap": regions_over_cap,
+    "final_assignment_cap_compliant": (
+        regions_over_cap == 0
+        if isinstance(regions_over_cap, int)
+        else None
+    ),
     "search_stdout": meta(out_dir / "search_stdout.json"),
     "search_stderr": meta(out_dir / "search_stderr.log"),
     "search": {
