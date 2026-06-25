@@ -23,6 +23,7 @@ pub mod loom_assoc;
 pub mod multi_scope;
 pub mod probe_matrix;
 pub mod provenance;
+pub mod ranked_hypotheses;
 pub mod recall_test;
 pub mod refusal_expansion;
 pub mod scope;
@@ -110,6 +111,10 @@ pub use probe_matrix::{
 pub use provenance::{
     AnswerHopEvidence, KernelBuildReceipt, append_answer_hop_entry, append_kernel_build_entry,
     build_kernel_pipeline_with_ledger, kernel_members_hash,
+};
+pub use ranked_hypotheses::{
+    RANKED_HYPOTHESIS_SCHEMA_VERSION, RankedHypothesis, RankedHypothesisParams,
+    RankedHypothesisReport, TraceableHypothesisInput, rank_traceable_hypotheses,
 };
 pub use recall_test::{
     AnnIndex, CALYX_KERNEL_RECALL_BELOW_GATE, CorpusReader, InMemoryAnnIndex, InMemoryCorpus,
