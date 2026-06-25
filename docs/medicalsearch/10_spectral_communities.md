@@ -20,6 +20,12 @@ ssh aiwonder "tar -xf /home/croyse/calyx/fsv/issue877-spectral-communities-20260
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue877-spectral-communities-20260625T114455Z/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=/home/croyse/calyx/fsv/issue877-spectral-communities-20260625T114455Z cargo test -p calyx-lodestar --test issue877_spectral_communities_tests -- --nocapture"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue877-spectral-communities-20260625T114455Z/repo && cargo fmt --all -- --check"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue877-spectral-communities-20260625T114455Z/repo && bash scripts/linecount.sh"
+
+# final live-checkout FSV after push/pull on aiwonder
+ssh aiwonder "cd /home/croyse/calyx/repo && git pull --ff-only"
+ssh aiwonder "root=/home/croyse/calyx/fsv/issue877-spectral-communities-final-20260625T114900Z; mkdir -p \"$root\"; cd /home/croyse/calyx/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=\"$root\" cargo test -p calyx-lodestar --test issue877_spectral_communities_tests -- --nocapture"
+ssh aiwonder "cd /home/croyse/calyx/repo && cargo fmt --all -- --check"
+ssh aiwonder "cd /home/croyse/calyx/repo && bash scripts/linecount.sh"
 ```
 
 ## Raw evidence / FSV
@@ -35,9 +41,15 @@ Local test evidence:
 - `git diff --check`: exit 0.
 - `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
 
-aiwonder FSV:
+aiwonder archived-source FSV:
 - FSV root: `/home/croyse/calyx/fsv/issue877-spectral-communities-20260625T114455Z`
 - Artifact: `/home/croyse/calyx/fsv/issue877-spectral-communities-20260625T114455Z/issue877_spectral_communities_readback.json`
+- Artifact bytes: `4859`
+- Artifact SHA256: `2d469e91a7518d9fc3abfb77d7c0e3cf96545ace1abed1325b8af818158e7c90`
+
+aiwonder final live-checkout FSV:
+- FSV root: `/home/croyse/calyx/fsv/issue877-spectral-communities-final-20260625T114900Z`
+- Artifact: `/home/croyse/calyx/fsv/issue877-spectral-communities-final-20260625T114900Z/issue877_spectral_communities_readback.json`
 - Artifact bytes: `4859`
 - Artifact SHA256: `2d469e91a7518d9fc3abfb77d7c0e3cf96545ace1abed1325b8af818158e7c90`
 - Readback scalar leaves:
@@ -52,8 +64,9 @@ aiwonder FSV:
   - `top_bridge_dst=1279c8633841c89a2f8ccb64620effcb`
   - `top_bridge_rank_score=0.9499999284744263`
 - aiwonder tests from archived source: 4 passed, 0 failed, 0 ignored.
-- aiwonder `cargo fmt --all -- --check`: exit 0.
-- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+- aiwonder tests from final live checkout: 4 passed, 0 failed, 0 ignored.
+- aiwonder `cargo fmt --all -- --check`: exit 0 for archived source and final live checkout.
+- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines` for archived source and final live checkout.
 
 Boundary and edge behavior covered by tests:
 - Planted two-clique graph partitions into two three-member communities through the Fiedler vector.
