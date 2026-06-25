@@ -6,6 +6,7 @@ pub mod aster_bridge;
 pub mod blind_spot_sweep;
 pub mod dfvs;
 pub mod discovery_chain;
+pub mod domain_bridges;
 mod error;
 pub mod grounding_gaps;
 pub mod hierarchical;
@@ -45,6 +46,11 @@ pub use discovery_chain::{
     DISCOVERY_CHAIN_SCHEMA_VERSION, DiscoveryAcceptedHop, DiscoveryCandidate,
     DiscoveryCandidateLog, DiscoveryChainLog, DiscoveryChainParams, DiscoveryGateVerdict,
     DiscoveryTermination, run_discovery_chain_with_gate, run_grounded_discovery_chain,
+};
+pub use domain_bridges::{
+    DOMAIN_BRIDGE_SCHEMA_VERSION, DomainBridgeCandidate, DomainBridgeGateVerdict,
+    DomainBridgeInput, DomainBridgePairReport, DomainBridgeParams, DomainBridgeReport, DomainPair,
+    rank_domain_bridges,
 };
 pub use error::{LodestarError, Result};
 pub use grounding_gaps::{CALYX_KERNEL_UNGROUNDED, GroundingGapReport, grounding_gaps};
