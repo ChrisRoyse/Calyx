@@ -6,59 +6,10 @@ use calyx_core::{
     LensId, Modality, Placement, SlotState, SlotVector,
 };
 use calyx_registry::VaultPanelState;
+pub(crate) use calyx_registry::measure::{absent, input_hash, measure_constellation};
 use rayon::prelude::*;
 
 use crate::error::CliResult;
-
-pub(crate) fn measure_constellation(
-    vault: &AsterVault,
-    state: &VaultPanelState,
-    input: Input,
-    now: u64,
-) -> CliResult<Constellation> {
-    let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
-    let mut slots = BTreeMap::new();
-    let mut degraded = false;
-    for slot in &state.panel.slots {
-        let vector = if slot.state != SlotState::Active {
-            absent(AbsentReason::LensInactive)
-        } else if slot.modality != input.modality {
-            absent(AbsentReason::NotApplicable)
-        } else if !state.registry.contains(slot.lens_id) {
-            absent(AbsentReason::LensUnavailable)
-        } else {
-            state.registry.measure(slot.lens_id, &input)?
-        };
-        degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();
-        slots.insert(slot.slot_id, vector);
-    }
-    Ok(Constellation {
-        cx_id,
-        vault_id: vault.vault_id(),
-        panel_version: state.panel.version,
-        created_at: now,
-        input_ref: InputRef {
-            hash: input_hash(&input.bytes),
-            pointer: input.pointer,
-            redacted: false,
-        },
-        modality: input.modality,
-        slots,
-        scalars: BTreeMap::new(),
-        metadata: BTreeMap::new(),
-        anchors: Vec::new(),
-        provenance: LedgerRef {
-            seq: vault.latest_seq().saturating_add(1),
-            hash: [0; 32],
-        },
-        flags: CxFlags {
-            ungrounded: true,
-            degraded,
-            novel_region: false,
-            redacted_input: false,
-        },
-    })
-}
 
 /// Doctrine #1273 rule 3 ("never single — fail hard"): an ingest that leaves
 /// every declared, applicable content lens unmeasured would silently persist a
@@ -107,14 +58,6 @@ pub(crate) fn ensure_content_panel_floor(
 
 pub(crate) fn text_input(text: String) -> Input {
     Input::new(Modality::Text, text.into_bytes())
-}
-
-fn absent(reason: AbsentReason) -> SlotVector {
-    SlotVector::Absent { reason }
-}
-
-fn input_hash(bytes: &[u8]) -> [u8; 32] {
-    *blake3::hash(bytes).as_bytes()
 }
 
 /// Batch-measure a modality-uniform microbatch of inputs through every applicable

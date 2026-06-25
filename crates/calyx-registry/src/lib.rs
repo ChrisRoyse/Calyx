@@ -8,6 +8,7 @@ pub mod explain;
 pub mod frozen;
 pub mod ingest_microbatch;
 pub mod lens;
+pub mod measure;
 pub mod panel_ops;
 pub mod panels;
 pub mod persistence;
