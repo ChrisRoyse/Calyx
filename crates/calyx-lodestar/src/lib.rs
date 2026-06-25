@@ -11,6 +11,7 @@ pub mod domain_bridges;
 mod error;
 pub mod grounding_gaps;
 pub mod hierarchical;
+pub mod hypothesis_evaluation;
 pub mod incremental;
 pub mod kernel;
 pub mod kernel_answer;
@@ -63,6 +64,11 @@ pub use grounding_gaps::{CALYX_KERNEL_UNGROUNDED, GroundingGapReport, grounding_
 pub use hierarchical::{
     HierarchicalKernel, HierarchicalKernelParams, RegionDescriptor, RegionId, RegionStore,
     build_hierarchical_kernel,
+};
+pub use hypothesis_evaluation::{
+    EvaluatorRun, HYPOTHESIS_EVALUATION_SCHEMA_VERSION, HypothesisEvaluation,
+    HypothesisEvaluationInput, HypothesisEvaluationParams, HypothesisEvaluationReport,
+    HypothesisEvaluationVerdict, RetrievedEvidence, aggregate_hypothesis_evaluations,
 };
 pub use incremental::{IncrementalKernelEval, IncrementalResult, NodeAddEdge};
 pub use kernel::{
