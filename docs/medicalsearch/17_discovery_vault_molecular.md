@@ -82,3 +82,72 @@ Downloader script readback:
 ## Conclusion & next step
 
 The #884 data substrate is ready enough for converter design and later GPU-free-to-GPU transition. Once #869 completes and the GPU is free, build a small molecular vault slice first: ChEMBL/BindingDB molecule-target rows plus Open Targets target/disease/drug links, with anchors for binding/activity/clinical indication, then FSV a clinical-to-molecular bridge before scaling.
+
+## CPU-safe implementation slice: molecular bridge report
+
+Implemented source:
+- `crates/calyx-lodestar/src/molecular_bridges.rs`
+- `crates/calyx-lodestar/tests/issue884_molecular_bridges_tests.rs`
+- `crates/calyx-lodestar/src/lib.rs` public exports
+
+What it does:
+- Consumes grounded clinical seeds plus ChEMBL/BindingDB/Open Targets-style molecular evidence rows.
+- Validates identifiers, affinity/activity scores, target/disease confidence, uppercase protein sequence shape, and provenance.
+- Ranks clinical-to-target-to-molecule bridge candidates by binding strength, target confidence, disease confidence, and seed groundedness.
+- Emits testable claims and provenance chains for later real molecular-vault rows.
+
+Exact commands:
+```bash
+# Windows authoring checkout
+cargo fmt --all
+cargo test -p calyx-lodestar --test issue884_molecular_bridges_tests -- --nocapture
+cargo fmt --all -- --check
+git diff --check
+bash scripts/linecount.sh
+
+# aiwonder source-of-truth FSV archive
+git archive --format=tar -o issue884-20260625T121814Z.tar HEAD
+ssh aiwonder "mkdir -p /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo"
+scp issue884-20260625T121814Z.tar aiwonder:/home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo.tar
+ssh aiwonder "tar -xf /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo.tar -C /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo"
+ssh aiwonder "cd /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=/home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z cargo test -p calyx-lodestar --test issue884_molecular_bridges_tests -- --nocapture"
+ssh aiwonder "cd /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo && cargo fmt --all -- --check"
+ssh aiwonder "cd /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo && bash scripts/linecount.sh"
+```
+
+Local test evidence:
+- `cargo test -p calyx-lodestar --test issue884_molecular_bridges_tests -- --nocapture`: 6 passed, 0 failed, 0 ignored.
+- `cargo fmt --all -- --check`: exit 0.
+- `git diff --check`: exit 0.
+- `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+
+aiwonder archived-source FSV:
+- FSV root: `/home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z`
+- Artifact: `/home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/issue884_molecular_bridges_readback.json`
+- Artifact bytes: `3254`
+- Artifact SHA256: `d89557526526549a7dbe3aa48f67c4964414bfaae5ab3b663a77b9a45c08c2f1`
+- Readback scalar leaves:
+  - `schema_version=1`
+  - `seed_count=2`
+  - `evidence_count=4`
+  - `candidate_count=3`
+  - `top_compound_id=CHEMBL-TOP`
+  - `top_target_id=TARG-IL6`
+  - `top_disease_id=EFO-DISEASE-1`
+  - `top_affinity_nm=8.0`
+  - `top_binding_score=0.8096910715103149`
+  - `top_rank_score=0.8663918972015381`
+- aiwonder tests from archived source: 6 passed, 0 failed, 0 ignored.
+- aiwonder `cargo fmt --all -- --check`: exit 0.
+- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+
+Boundary and edge behavior covered by tests:
+- Clinical seed disease IDs filter ChEMBL/BindingDB/Open Targets-style evidence rows.
+- Target hints constrain candidate target space.
+- Affinity-derived binding score beats weaker candidates and can be replaced by activity-only mode when explicitly configured.
+- `max_candidates` and score floor truncate after deterministic ranking.
+- Empty seed list, zero/non-finite affinity, lowercase protein sequence, and missing required affinity fail closed with `CALYX_KERNEL_INVALID_PARAMS`.
+
+Honest status:
+- This is not final #884 acceptance. It proves the bridge-ranking/report surface synthetically while #869 owns the GPU.
+- Remaining #884 work: commission the real molecular vault with ESM2/ChemBERTa/DNA/text lenses, ingest anchored ChEMBL/BindingDB/Open Targets slice, and prove a real clinical-to-molecular bridge by reading the Calyx source-of-truth bytes.
