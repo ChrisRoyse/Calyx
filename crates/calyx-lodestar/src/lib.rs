@@ -20,6 +20,7 @@ pub mod kernel_health;
 pub mod kernel_index;
 pub mod label_propagation;
 pub mod loom_assoc;
+pub mod molecular_bridges;
 pub mod multi_scope;
 pub mod probe_matrix;
 pub mod provenance;
@@ -101,6 +102,10 @@ pub use label_propagation::{
 pub use loom_assoc::{
     LoomAssocEdgeProvenance, LoomAssocGraphInput, LoomDirectionalConfidence, LoomSlotNode,
     build_assoc_graph_from_loom, loom_assoc_graph_input,
+};
+pub use molecular_bridges::{
+    ClinicalMolecularSeed, MOLECULAR_BRIDGE_SCHEMA_VERSION, MolecularBridgeCandidate,
+    MolecularBridgeParams, MolecularBridgeReport, MolecularEvidenceRow, rank_molecular_bridges,
 };
 pub use multi_scope::{anchors_for_scope, bridges, build_kernel, kernel_answer_scoped};
 pub use probe_matrix::{
