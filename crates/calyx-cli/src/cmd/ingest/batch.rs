@@ -9,6 +9,7 @@ use serde::Deserialize;
 
 use super::super::vault::now_ms;
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
+use super::oracle_event::{OracleEvent, OracleEventSpec, parse_oracle_event};
 use super::parse::{validate_confidence, validate_text};
 use crate::error::{CliError, CliResult};
 
@@ -49,12 +50,21 @@ struct BatchLine {
     /// per-row seal pass. Empty by default (ungrounded ingest, unchanged behaviour).
     #[serde(default)]
     anchors: Vec<AnchorSpec>,
+    /// Optional Oracle recurrence/event structuring. When present, ingest stores
+    /// oracle.domain/action metadata and appends a bounded Recurrence CF context.
+    #[serde(default)]
+    oracle: Option<OracleEventSpec>,
 }
 
 /// A parsed batch row: input text, provenance metadata, and the typed anchors to
 /// ground it at ingest. Shared by the in-memory `read_batch_texts` and the
 /// streaming ingest path.
-pub(super) type BatchRow = (String, BTreeMap<String, String>, Vec<Anchor>);
+pub(super) type BatchRow = (
+    String,
+    BTreeMap<String, String>,
+    Vec<Anchor>,
+    Option<OracleEvent>,
+);
 
 /// Parse one batch JSONL line; `None` for a blank line.
 ///
@@ -72,7 +82,11 @@ pub(super) fn parse_batch_line(index: usize, line: &str) -> CliResult<Option<Bat
     for spec in parsed.anchors {
         anchors.push(parse_anchor_spec(index, spec)?);
     }
-    Ok(Some((parsed.text, parsed.metadata, anchors)))
+    let oracle = parsed
+        .oracle
+        .map(|spec| parse_oracle_event(index, spec))
+        .transpose()?;
+    Ok(Some((parsed.text, parsed.metadata, anchors, oracle)))
 }
 
 /// Build a validated `Anchor` from a JSONL `AnchorSpec`, reusing the exact same

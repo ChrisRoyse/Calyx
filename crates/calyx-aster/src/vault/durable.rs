@@ -287,8 +287,8 @@ impl DurableVault {
             }
         }
         by_cf.sort_by_key(|(cf, _)| cf.name());
-        for (cf, mut rows) in by_cf {
-            rows.sort_by(|(_, left), (_, right)| left.key.cmp(&right.key));
+        for (cf, rows) in by_cf {
+            let rows = latest_rows_by_key(rows);
             let first_index = rows.first().map_or(0, |(index, _)| *index);
             let dir = self.cf_dir(cf);
             fs::create_dir_all(&dir).map_err(|error| storage_error("create CF dir", error))?;
@@ -329,6 +329,14 @@ impl DurableVault {
             |policy| policy.place_current_cf(cf).absolute_dir(),
         )
     }
+}
+
+fn latest_rows_by_key<'a>(rows: Vec<(usize, &'a WriteRow)>) -> Vec<(usize, &'a WriteRow)> {
+    let mut latest = BTreeMap::<Vec<u8>, (usize, &'a WriteRow)>::new();
+    for (index, row) in rows {
+        latest.insert(row.key.clone(), (index, row));
+    }
+    latest.into_values().collect()
 }
 
 fn validate_dedup_policy(policy: &DedupPolicy, panel: Option<&Panel>) -> Result<()> {
