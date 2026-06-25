@@ -139,7 +139,11 @@ where
         DurableVault::validate_options(&options)?;
         let vault_root = vault_dir.as_ref().to_path_buf();
         let recovery = DurableVault::recover_batches(vault_dir.as_ref(), &options)?;
-        let ledger_hook = ledger_hook::recover_hook(&recovery, options.ledger_checkpoint.clone())?;
+        let ledger_hook = ledger_hook::recover_hook_from_vault_dir(
+            vault_dir.as_ref(),
+            &recovery,
+            options.ledger_checkpoint.clone(),
+        )?;
         let recovery_report = VaultRecoveryReport {
             last_recovered_seq: recovery.last_recovered_seq,
             torn_tail: recovery.torn_tail.clone(),

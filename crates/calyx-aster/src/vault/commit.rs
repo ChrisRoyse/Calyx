@@ -47,7 +47,12 @@ where
         let current = self.latest_seq();
         let recovered = durable.recover_current_batches()?;
         if let Some(hook) = &self.ledger_hook {
-            ledger_hook::refresh_hook(hook, &recovered, durable.ledger_checkpoint())?;
+            ledger_hook::refresh_hook(
+                hook,
+                durable.root(),
+                &recovered,
+                durable.ledger_checkpoint(),
+            )?;
         }
         self.replace_retention_horizon(recovered.retention_horizon.clone())?;
         for batch in &recovered.batches {

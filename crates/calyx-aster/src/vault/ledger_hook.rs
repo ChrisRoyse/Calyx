@@ -1,15 +1,17 @@
 use super::durable::RecoveredBatches;
 use super::encode::WriteRow;
 use crate::cf::ColumnFamily;
+use crate::ledger_view::AsterLedgerCfStore;
 use calyx_core::{
     CalyxError, Constellation, LedgerRef, METADATA_CHUNK_ID, METADATA_DATABASE_NAME, Result,
     SystemClock,
 };
 use calyx_ledger::{
-    ActorId, CheckpointConfig, DefaultLedgerHook, EntryKind, LedgerAppender, MemoryLedgerStore,
-    PayloadBuilder, StagedLedgerRow, SubjectId,
+    ActorId, CheckpointConfig, DefaultLedgerHook, EntryKind, LedgerAppender, LedgerCfStore,
+    MemoryLedgerStore, PayloadBuilder, StagedLedgerRow, SubjectId,
 };
 use serde_json::json;
+use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 
 pub(super) type AsterLedgerHook = Mutex<DefaultLedgerHook<MemoryLedgerStore, SystemClock>>;
@@ -20,6 +22,34 @@ pub(super) fn recover_hook(
     recovery: &RecoveredBatches,
     checkpoint: Option<CheckpointConfig>,
 ) -> Result<AsterLedgerHook> {
+    recover_hook_from_store(recovered_ledger_store(recovery)?, checkpoint)
+}
+
+pub(super) fn recover_hook_from_vault_dir(
+    vault_dir: &Path,
+    recovery: &RecoveredBatches,
+    checkpoint: Option<CheckpointConfig>,
+) -> Result<AsterLedgerHook> {
+    let store = match physical_ledger_store(vault_dir)? {
+        Some(store) => store,
+        None => recovered_ledger_store(recovery)?,
+    };
+    recover_hook_from_store(store, checkpoint)
+}
+
+fn recover_hook_from_store(
+    store: MemoryLedgerStore,
+    checkpoint: Option<CheckpointConfig>,
+) -> Result<AsterLedgerHook> {
+    let appender = LedgerAppender::open(store, SystemClock)?;
+    let hook = match checkpoint {
+        Some(config) => DefaultLedgerHook::with_checkpoint_config(appender, config)?,
+        None => DefaultLedgerHook::new(appender),
+    };
+    Ok(Mutex::new(hook))
+}
+
+fn recovered_ledger_store(recovery: &RecoveredBatches) -> Result<MemoryLedgerStore> {
     let mut store = MemoryLedgerStore::default();
     for batch in &recovery.batches {
         for row in &batch.rows {
@@ -28,12 +58,33 @@ pub(super) fn recover_hook(
             }
         }
     }
-    let appender = LedgerAppender::open(store, SystemClock)?;
-    let hook = match checkpoint {
-        Some(config) => DefaultLedgerHook::with_checkpoint_config(appender, config)?,
-        None => DefaultLedgerHook::new(appender),
+    Ok(store)
+}
+
+fn physical_ledger_store(vault_dir: &Path) -> Result<Option<MemoryLedgerStore>> {
+    let view = match AsterLedgerCfStore::open(vault_dir) {
+        Ok(view) => view,
+        Err(error)
+            if error.code == "CALYX_LEDGER_CORRUPT"
+                && error.message.contains("requires real Aster ledger state") =>
+        {
+            return Ok(None);
+        }
+        Err(error) => return Err(error),
     };
-    Ok(Mutex::new(hook))
+    let rows = view.scan()?;
+    let anchor = view.head_anchor()?;
+    if rows.is_empty() && anchor.is_none() {
+        return Ok(None);
+    }
+    let mut store = MemoryLedgerStore::default();
+    for row in rows {
+        store.insert_raw(row.seq, row.bytes);
+    }
+    if let Some(anchor) = anchor {
+        store.put_head_anchor(&anchor)?;
+    }
+    Ok(Some(store))
 }
 
 pub(super) fn lock_hook(hook: &AsterLedgerHook) -> Result<AsterLedgerHookGuard<'_>> {
@@ -43,10 +94,11 @@ pub(super) fn lock_hook(hook: &AsterLedgerHook) -> Result<AsterLedgerHookGuard<'
 
 pub(super) fn refresh_hook(
     hook: &AsterLedgerHook,
+    vault_dir: &Path,
     recovery: &RecoveredBatches,
     checkpoint: Option<CheckpointConfig>,
 ) -> Result<()> {
-    let replacement = recover_hook(recovery, checkpoint)?
+    let replacement = recover_hook_from_vault_dir(vault_dir, recovery, checkpoint)?
         .into_inner()
         .map_err(|_| CalyxError::ledger_group_commit_failed("new ledger hook lock poisoned"))?;
     let mut guard = lock_hook(hook)?;
@@ -156,8 +208,13 @@ fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::*;
     use crate::cf::ledger_key;
-    use calyx_ledger::{LedgerCfStore, decode};
+    use crate::ledger_view::AsterLedgerCfStore;
+    use crate::vault::{AsterVault, VaultOptions};
+    use calyx_core::VaultStore;
+    use calyx_ledger::{LedgerCfStore, VerifyResult, decode, verify_chain};
     use std::collections::BTreeMap;
+    use std::fs;
+    use std::path::PathBuf;
 
     #[test]
     fn aster_batch_uses_big_endian_ledger_keys() {
@@ -206,15 +263,78 @@ mod tests {
         assert_eq!(guard.appender().store().scan().unwrap().len(), 1);
     }
 
+    #[test]
+    fn physical_ledger_rows_recover_hook_when_manifest_view_has_gap() {
+        let dir = test_dir("issue866-physical-ledger");
+        let vault = AsterVault::new_durable(
+            &dir,
+            "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
+            b"issue866-salt",
+            VaultOptions::default(),
+        )
+        .expect("open durable vault");
+        for seed in 0..4 {
+            vault
+                .put(sample_constellation_with_seed(seed))
+                .expect("put sample");
+        }
+        vault.flush().expect("flush physical ledger");
+        drop(vault);
+
+        let physical = AsterLedgerCfStore::open(&dir).expect("open physical ledger");
+        let physical_rows = physical.scan().expect("scan physical ledger");
+        let physical_anchor = physical.head_anchor().expect("read physical head anchor");
+        assert_eq!(physical_rows.len(), 4);
+        assert_eq!(
+            verify_chain(&physical, 0..4).expect("verify physical ledger"),
+            VerifyResult::Intact { count: 4 }
+        );
+        let last = physical_rows.last().expect("last ledger row");
+        let gapped_recovery = RecoveredBatches {
+            batches: vec![crate::vault::durable::RecoveredBatch {
+                seq: 4,
+                rows: vec![WriteRow {
+                    cf: ColumnFamily::Ledger,
+                    key: ledger_key(last.seq),
+                    value: last.bytes.clone(),
+                }],
+            }],
+            last_recovered_seq: 4,
+            torn_tail: None,
+            temporal_policy: None,
+            dedup_policy: None,
+            retention_horizon: crate::timetravel::RetentionHorizon::default(),
+        };
+
+        let manifest_only_error = recover_hook(&gapped_recovery, None).unwrap_err();
+        assert_eq!(manifest_only_error.code, "CALYX_LEDGER_CHAIN_BROKEN");
+        let mut recovered =
+            recover_hook_from_vault_dir(&dir, &gapped_recovery, None).expect("physical recovery");
+        let guard = recovered.get_mut().expect("hook guard");
+
+        assert_eq!(guard.appender().next_seq(), 4);
+        write_issue866_artifact(
+            physical_rows.len(),
+            physical_anchor.as_ref().map(|anchor| anchor.height),
+            manifest_only_error.code,
+            guard.appender().next_seq(),
+        );
+        cleanup(dir);
+    }
+
     fn sample_constellation() -> Constellation {
+        sample_constellation_with_seed(7)
+    }
+
+    fn sample_constellation_with_seed(seed: u8) -> Constellation {
         Constellation {
-            cx_id: calyx_core::CxId::from_bytes([7; 16]),
+            cx_id: calyx_core::CxId::from_bytes([seed; 16]),
             vault_id: "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap(),
             panel_version: 1,
-            created_at: 42,
+            created_at: 42 + u64::from(seed),
             input_ref: calyx_core::InputRef {
-                hash: [3; 32],
-                pointer: Some("synthetic://ledger-hook".to_string()),
+                hash: [seed; 32],
+                pointer: Some(format!("synthetic://ledger-hook/{seed}")),
                 redacted: false,
             },
             modality: calyx_core::Modality::Text,
@@ -226,10 +346,46 @@ mod tests {
             ]),
             anchors: Vec::new(),
             provenance: LedgerRef {
-                seq: 99,
-                hash: [9; 32],
+                seq: u64::from(seed),
+                hash: [seed; 32],
             },
             flags: calyx_core::CxFlags::default(),
         }
+    }
+
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("{name}-{}", std::process::id()));
+        fs::remove_dir_all(&dir).ok();
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn cleanup(dir: PathBuf) {
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn write_issue866_artifact(
+        physical_rows: usize,
+        head_anchor_height: Option<u64>,
+        manifest_only_error_code: &'static str,
+        recovered_next_seq: u64,
+    ) {
+        let Some(root) = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from) else {
+            return;
+        };
+        fs::create_dir_all(&root).unwrap();
+        let artifact = serde_json::json!({
+            "schema": "calyx-issue866-manifest-ledger-recovery-v1",
+            "physical_ledger_rows": physical_rows,
+            "head_anchor_height": head_anchor_height,
+            "manifest_only_error_code": manifest_only_error_code,
+            "recovered_next_seq": recovered_next_seq,
+            "physical_recovery_used": true
+        });
+        fs::write(
+            root.join("issue866_manifest_ledger_recovery_readback.json"),
+            serde_json::to_vec_pretty(&artifact).unwrap(),
+        )
+        .unwrap();
     }
 }
