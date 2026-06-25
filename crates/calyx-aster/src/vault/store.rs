@@ -1,10 +1,9 @@
 use crate::cf::{ColumnFamily, anchor_key, base_key, ledger_key, slot_key};
-use crate::dedup::{AnchorConflictResult, check_anchor_conflict};
 use crate::mvcc::CfRead;
 use calyx_core::{Anchor, CalyxError, Clock, Constellation, CxId, Result, Seq, SlotId, VaultStore};
 use std::collections::BTreeMap;
 
-use super::{AsterVault, encode, ledger_hook, ledger_stub};
+use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
 
 impl<C> VaultStore for AsterVault<C>
 where
@@ -33,23 +32,13 @@ where
                 if existing == base_bytes {
                     return Ok(id);
                 }
-                if encode::same_constellation_identity(&existing, &base_bytes)? {
-                    let existing_cx = encode::decode_constellation_base(&existing)?;
-                    let incoming_cx = encode::decode_constellation_base(&base_bytes)?;
-                    if let AnchorConflictResult::Conflicting {
-                        anchor_type,
-                        reason,
-                    } = check_anchor_conflict(&incoming_cx, &existing_cx)
-                    {
-                        return Err(CalyxError::aster_corrupt_shard(format!(
-                            "CxId duplicate has conflicting {anchor_type:?} anchor: {reason:?}"
-                        )));
-                    }
-                    return Ok(id);
+                let mut merged = self.get(id, latest)?;
+                let added = anchor_merge::merge_duplicate_anchors(&mut merged, &constellation)?;
+                if !added.is_empty() {
+                    let rows = anchor_merge::stage_anchor_merge_rows(id, &merged, &added)?;
+                    self.commit_rows_locked(&rows)?;
                 }
-                return Err(CalyxError::aster_corrupt_shard(
-                    "CxId collision or non-idempotent duplicate constellation",
-                ));
+                return Ok(id);
             }
 
             let mut rows = Vec::new();

@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 
-use super::{AsterVault, encode, ledger_hook, ledger_stub};
+use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
 use crate::cf::{ColumnFamily, base_key, ledger_key};
-use crate::dedup::{AnchorConflictResult, check_anchor_conflict};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, LedgerRef, Result, VaultStore};
 use calyx_ledger::{PayloadBuilder, RedactionPolicy};
 use serde_json::json;
@@ -26,7 +25,9 @@ where
 
     fn put_batch_locked(&self, input: Vec<Constellation>) -> Result<Vec<CxId>> {
         let latest = self.snapshot();
-        let mut accepted_bases = BTreeMap::<Vec<u8>, Vec<u8>>::new();
+        let mut accepted_indexes = BTreeMap::<Vec<u8>, usize>::new();
+        let mut existing_merges = BTreeMap::<Vec<u8>, Constellation>::new();
+        let mut anchor_merge_rows = Vec::new();
         let mut accepted = Vec::<Constellation>::new();
         let mut ids = Vec::with_capacity(input.len());
         for constellation in input {
@@ -45,23 +46,42 @@ where
                 &key,
                 &self.clock,
             )? {
-                accept_duplicate_or_error(&base, &existing)?;
+                if existing == base {
+                    ids.push(id);
+                    continue;
+                }
+                let merged = if let Some(merged) = existing_merges.get_mut(&key) {
+                    merged
+                } else {
+                    existing_merges.insert(key.clone(), self.get(id, latest)?);
+                    existing_merges
+                        .get_mut(&key)
+                        .expect("inserted existing merge")
+                };
+                let added = anchor_merge::merge_duplicate_anchors(merged, &constellation)?;
+                if !added.is_empty() {
+                    anchor_merge_rows
+                        .extend(anchor_merge::stage_anchor_merge_rows(id, merged, &added)?);
+                }
                 ids.push(id);
                 continue;
             }
-            if let Some(existing) = accepted_bases.get(&key) {
-                accept_duplicate_or_error(&base, existing)?;
+            if let Some(index) = accepted_indexes.get(&key).copied() {
+                anchor_merge::merge_duplicate_anchors(&mut accepted[index], &constellation)?;
                 ids.push(id);
                 continue;
             }
-            accepted_bases.insert(key, base);
+            accepted_indexes.insert(key, accepted.len());
             ids.push(id);
             accepted.push(constellation);
         }
         if accepted.is_empty() {
+            if !anchor_merge_rows.is_empty() {
+                self.commit_rows_locked(&anchor_merge_rows)?;
+            }
             return Ok(ids);
         }
-        let mut rows = Vec::new();
+        let mut rows = anchor_merge_rows;
         let mut hook_guard = match &self.ledger_hook {
             Some(hook) => Some(ledger_hook::lock_hook(hook)?),
             None => None,
@@ -99,29 +119,6 @@ where
         }
         Ok(ids)
     }
-}
-
-fn accept_duplicate_or_error(incoming: &[u8], existing: &[u8]) -> Result<()> {
-    if existing == incoming {
-        return Ok(());
-    }
-    if encode::same_constellation_identity(existing, incoming)? {
-        let existing_cx = encode::decode_constellation_base(existing)?;
-        let incoming_cx = encode::decode_constellation_base(incoming)?;
-        if let AnchorConflictResult::Conflicting {
-            anchor_type,
-            reason,
-        } = check_anchor_conflict(&incoming_cx, &existing_cx)
-        {
-            return Err(CalyxError::aster_corrupt_shard(format!(
-                "CxId duplicate has conflicting {anchor_type:?} anchor: {reason:?}"
-            )));
-        }
-        return Ok(());
-    }
-    Err(CalyxError::aster_corrupt_shard(
-        "CxId collision or non-idempotent duplicate constellation",
-    ))
 }
 
 fn batch_payload(constellations: &[Constellation]) -> Vec<u8> {

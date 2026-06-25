@@ -22,11 +22,7 @@ pub(super) fn append_anchor_ledger(
     kind: &AnchorKind,
     anchor: Anchor,
 ) -> CliResult<u64> {
-    let bytes = serde_json::to_vec(&serde_json::json!({
-        "mode": "cli-anchor",
-        "anchor_kind": anchor_kind_key(kind),
-    }))?;
-    RedactionPolicy::check_payload(&bytes)?;
+    let bytes = anchor_payload(kind)?;
     Ok(vault
         .anchor_with_ledger_entry(
             cx_id,
@@ -37,6 +33,15 @@ pub(super) fn append_anchor_ledger(
             ActorId::Service("calyx-cli".to_string()),
         )?
         .seq)
+}
+
+pub(super) fn append_anchor_marker_ledger(
+    vault: &AsterVault,
+    cx_id: CxId,
+    kind: &AnchorKind,
+) -> CliResult<u64> {
+    let bytes = anchor_payload(kind)?;
+    append_ledger_payload(vault, EntryKind::Ingest, cx_id, bytes)
 }
 
 fn append_ledger_payload(
@@ -53,4 +58,13 @@ fn append_ledger_payload(
             ActorId::Service("calyx-cli".to_string()),
         )?
         .seq)
+}
+
+fn anchor_payload(kind: &AnchorKind) -> CliResult<Vec<u8>> {
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "mode": "cli-anchor",
+        "anchor_kind": anchor_kind_key(kind),
+    }))?;
+    RedactionPolicy::check_payload(&bytes)?;
+    Ok(bytes)
 }

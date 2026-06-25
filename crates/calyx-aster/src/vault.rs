@@ -1,6 +1,7 @@
 //! Aster `VaultStore` implementation over the PH08 MVCC CF table.
 
 mod anchor_codec;
+mod anchor_merge;
 mod batch_ingest;
 mod cf_codec;
 mod commit;
@@ -486,6 +487,9 @@ mod ledger_atomicity_tests;
 
 #[cfg(test)]
 mod ledger_checkpoint_tests;
+
+#[cfg(test)]
+mod anchor_merge_tests;
 
 #[cfg(test)]
 mod tests;

@@ -172,6 +172,59 @@ fn batch_ingest_threads_anchors_into_base_cf_and_anchors_cf() {
 }
 
 #[test]
+fn batch_reingest_merges_anchors_for_existing_cx() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-backfill");
+    let plain = resolved.path.join("plain-backfill.jsonl");
+    let anchored = resolved.path.join("anchored-backfill.jsonl");
+    fs::write(&plain, "{\"text\":\"alpha north signal\"}\n").unwrap();
+    fs::write(
+        &anchored,
+        concat!(
+            r#"{"text":"alpha north signal","#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &plain).unwrap();
+    let vault_before = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault_before.cx_id_for_input("alpha north signal".as_bytes(), state.panel.version);
+    let before = vault_before.get(cx_id, vault_before.snapshot()).unwrap();
+    assert!(before.anchors.is_empty());
+    assert!(before.flags.ungrounded);
+    drop(vault_before);
+
+    ingest_batch_streaming(&resolved, &anchored).unwrap();
+
+    let vault_after = open_vault(&resolved).unwrap();
+    let snapshot = vault_after.snapshot();
+    let after = vault_after.get(cx_id, snapshot).unwrap();
+    let anchor_rows = vault_after
+        .scan_cf_at(snapshot, ColumnFamily::Anchors)
+        .unwrap();
+    let ledger_rows = vault_after
+        .scan_cf_at(snapshot, ColumnFamily::Ledger)
+        .unwrap();
+
+    assert_eq!(after.anchors.len(), 1);
+    assert_eq!(
+        after.anchors[0].kind,
+        AnchorKind::Label("answer".to_string())
+    );
+    assert_eq!(after.anchors[0].value, AnchorValue::Enum("B".to_string()));
+    assert!(!after.flags.ungrounded);
+    assert_eq!(anchor_rows.len(), 1);
+    assert!(
+        ledger_rows.len() >= 3,
+        "ingest, idempotent, and anchor ledger rows"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn batch_ingest_without_anchors_stays_ungrounded() {
     let (root, resolved) = test_vault_with_registered_dense_lens("no-anchors-at-ingest");
     let jsonl = resolved.path.join("plain.jsonl");

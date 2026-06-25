@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Anchor, CxId, Input, VaultStore};
+use calyx_core::{Anchor, AnchorKind, CxId, Input, VaultStore};
 use calyx_ledger::EntryKind;
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 
@@ -11,7 +11,7 @@ use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
 use super::batch::{BatchRow, parse_batch_line};
 use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
-use super::ledger::{append_anchor_ledger, append_cli_ledger};
+use super::ledger::{append_anchor_ledger, append_anchor_marker_ledger, append_cli_ledger};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
 use super::types::{AnchorReport, IngestReport};
 use crate::error::{CliError, CliResult};
@@ -261,12 +261,26 @@ fn flush_measure_batch(
     for sub in constellations.chunks(PUT_CHUNK) {
         let mut staged = Vec::new();
         let mut order = Vec::with_capacity(sub.len());
+        let mut known_anchor_kinds = BTreeMap::<CxId, BTreeSet<AnchorKind>>::new();
         for cx in sub {
-            let new = !base_exists(vault, cx.cx_id)? && seen.insert(cx.cx_id);
-            if new {
+            let exists = base_exists(vault, cx.cx_id)?;
+            let new = !exists && seen.insert(cx.cx_id);
+            if !known_anchor_kinds.contains_key(&cx.cx_id) {
+                known_anchor_kinds.insert(cx.cx_id, current_anchor_kinds(vault, cx.cx_id, exists)?);
+            }
+            let known = known_anchor_kinds
+                .get_mut(&cx.cx_id)
+                .expect("known anchor kinds inserted");
+            let mut marker_kinds = Vec::new();
+            for anchor in &cx.anchors {
+                if known.insert(anchor.kind.clone()) {
+                    marker_kinds.push(anchor.kind.clone());
+                }
+            }
+            if new || !cx.anchors.is_empty() {
                 staged.push(cx.clone());
             }
-            order.push((cx.cx_id, new));
+            order.push((cx.cx_id, new, marker_kinds));
         }
         match staged.len() {
             0 => {}
@@ -279,18 +293,38 @@ fn flush_measure_batch(
         }
         vault.flush()?;
         let snapshot = vault.snapshot();
-        for (cx_id, new) in order {
+        for (cx_id, new, marker_kinds) in order {
             let ledger_seq = if new {
                 vault.get(cx_id, snapshot)?.provenance.seq
             } else {
                 append_cli_ledger(vault, EntryKind::Ingest, cx_id, "cli-idempotent-ingest")?
             };
+            for kind in marker_kinds {
+                append_anchor_marker_ledger(vault, cx_id, &kind)?;
+            }
             print_json(&IngestReport {
                 cx_id: cx_id.to_string(),
                 new,
                 ledger_seq,
             })?;
         }
+        vault.flush()?;
     }
     Ok(())
+}
+
+fn current_anchor_kinds(
+    vault: &AsterVault,
+    cx_id: CxId,
+    exists: bool,
+) -> CliResult<BTreeSet<AnchorKind>> {
+    if !exists {
+        return Ok(BTreeSet::new());
+    }
+    Ok(vault
+        .get(cx_id, vault.snapshot())?
+        .anchors
+        .into_iter()
+        .map(|anchor| anchor.kind)
+        .collect())
 }
