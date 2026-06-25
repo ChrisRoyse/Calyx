@@ -179,6 +179,8 @@ const ASSAY_LOCAL_CODES: &[&str] = &[
 ];
 
 #[cfg(test)]
+mod power_gate_tests;
+#[cfg(test)]
 mod single_lens_tests;
 #[cfg(test)]
 mod tests;

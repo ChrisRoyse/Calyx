@@ -24,4 +24,5 @@ still requires experimental confirmation.
 | `_TEMPLATE.md` | findings template | — |
 | `01_anchors_at_ingest.md` | #868 anchors-at-ingest: thread typed anchors through streaming ingest | ✅ done + FSV |
 | `05_degraded_flag_fix.md` | #872 degraded flag ignores retrieval-only temporal sidecar absence | done + FSV |
+| `07_power_gate_verify.md` | #874 assay power-calibration and entropy-floor gate verification | done + FSV |
 | (added as work proceeds) | | |
