@@ -37,7 +37,8 @@ ALLOW_PATHS=(
 #   aiwonder  -> build-host codename        -> use a neutral placeholder (gpuhost)
 #   croyse    -> developer username / homedir -> /var/lib/calyx/...
 #   mst.com   -> internal domain
-FORBIDDEN='aiwonder|croyse|mst\.com'
+#   Calyx-Dev -> private development repo name
+FORBIDDEN='aiwonder|croyse|mst\.com|Calyx-Dev'
 
 # Only scan allowlisted paths that actually exist in this checkout.
 paths=()
@@ -66,6 +67,7 @@ if [[ -n "$hits" ]]; then
   echo "Genericize before committing, e.g.:" >&2
   echo "    aiwonder         -> gpuhost" >&2
   echo "    /home/croyse/... -> /var/lib/calyx/..." >&2
+  echo "    Calyx-Dev        -> Calyx" >&2
   echo "" >&2
   echo "Dev-only trees (infra/, scripts/, docs/, datasets/) may keep the real" >&2
   echo "names — they are not scanned and are not published." >&2
