@@ -20,6 +20,12 @@ ssh aiwonder "tar -xf /home/croyse/calyx/fsv/issue882-ranked-hypotheses-20260625
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue882-ranked-hypotheses-20260625T120857Z/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=/home/croyse/calyx/fsv/issue882-ranked-hypotheses-20260625T120857Z cargo test -p calyx-lodestar --test issue882_ranked_hypotheses_tests -- --nocapture"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue882-ranked-hypotheses-20260625T120857Z/repo && cargo fmt --all -- --check"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue882-ranked-hypotheses-20260625T120857Z/repo && bash scripts/linecount.sh"
+
+# final live-checkout FSV after push/pull on aiwonder
+ssh aiwonder "cd /home/croyse/calyx/repo && git pull --ff-only"
+ssh aiwonder "root=/home/croyse/calyx/fsv/issue882-ranked-hypotheses-final-20260625T121100Z; mkdir -p \"$root\"; cd /home/croyse/calyx/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=\"$root\" cargo test -p calyx-lodestar --test issue882_ranked_hypotheses_tests -- --nocapture"
+ssh aiwonder "cd /home/croyse/calyx/repo && cargo fmt --all -- --check"
+ssh aiwonder "cd /home/croyse/calyx/repo && bash scripts/linecount.sh"
 ```
 
 ## Raw evidence / FSV
@@ -39,6 +45,12 @@ aiwonder archived-source FSV:
 - Artifact: `/home/croyse/calyx/fsv/issue882-ranked-hypotheses-20260625T120857Z/issue882_ranked_hypotheses_readback.json`
 - Artifact bytes: `2817`
 - Artifact SHA256: `460fdd90d759a774c750e6c6d021d725b98dbf666b4fbc05fd2fa793c7366124`
+
+aiwonder final live-checkout FSV:
+- FSV root: `/home/croyse/calyx/fsv/issue882-ranked-hypotheses-final-20260625T121100Z`
+- Artifact: `/home/croyse/calyx/fsv/issue882-ranked-hypotheses-final-20260625T121100Z/issue882_ranked_hypotheses_readback.json`
+- Artifact bytes: `2817`
+- Artifact SHA256: `460fdd90d759a774c750e6c6d021d725b98dbf666b4fbc05fd2fa793c7366124`
 - Readback scalar leaves:
   - `schema_version=1`
   - `input_count=3`
@@ -50,8 +62,9 @@ aiwonder archived-source FSV:
   - `top_human_review_flag=True`
   - `top_evidence_count=1`
 - aiwonder tests from archived source: 4 passed, 0 failed, 0 ignored.
-- aiwonder `cargo fmt --all -- --check`: exit 0.
-- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+- aiwonder tests from final live checkout: 4 passed, 0 failed, 0 ignored.
+- aiwonder `cargo fmt --all -- --check`: exit 0 for archived source and final live checkout.
+- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines` for archived source and final live checkout.
 
 Boundary and edge behavior covered by tests:
 - Rank score combines novelty, grounded confidence, normalized cross-domain distance, and evaluator plausibility.
