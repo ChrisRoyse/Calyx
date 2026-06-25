@@ -9,7 +9,7 @@ use super::super::search::rebuild_persistent_indexes;
 use super::super::vault::{ResolvedVault, now_ms};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
-use super::batch::parse_batch_line;
+use super::batch::{BatchRow, parse_batch_line};
 use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
 use super::ledger::{append_anchor_ledger, append_cli_ledger};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
@@ -220,7 +220,7 @@ pub(super) fn ingest_batch_streaming(
     let state = load_vault_panel_state(&resolved.path)?;
     let mut seen = BTreeSet::new();
     let measure_batch = measure_batch_size();
-    let mut chunk: Vec<(String, BTreeMap<String, String>)> = Vec::with_capacity(measure_batch);
+    let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_batch);
     for (index, line) in reader.lines().enumerate() {
         let line =
             line.map_err(|err| CliError::io(format!("read batch line {}: {err}", index + 1)))?;
@@ -241,17 +241,22 @@ pub(super) fn ingest_batch_streaming(
 fn flush_measure_batch(
     vault: &AsterVault,
     state: &VaultPanelState,
-    chunk: &mut Vec<(String, BTreeMap<String, String>)>,
+    chunk: &mut Vec<BatchRow>,
     seen: &mut BTreeSet<CxId>,
 ) -> CliResult<()> {
-    let rows: Vec<(String, BTreeMap<String, String>)> = std::mem::take(chunk);
+    let rows: Vec<BatchRow> = std::mem::take(chunk);
     let inputs: Vec<Input> = rows
         .iter()
-        .map(|(text, _)| text_input(text.clone()))
+        .map(|(text, _, _)| text_input(text.clone()))
         .collect();
     let mut constellations = measure_constellation_microbatch(vault, state, &inputs, now_ms())?;
-    for (cx, (_, metadata)) in constellations.iter_mut().zip(rows) {
+    for (cx, (_, metadata, anchors)) in constellations.iter_mut().zip(rows) {
         cx.metadata = metadata;
+        // A constellation carrying its own anchor is grounded at distance 0; mirror
+        // the canonical `ungrounded = anchors.is_empty()` rule (dedup/ingest_input.rs)
+        // so the flag reflects reality rather than the measure-time default of true.
+        cx.flags.ungrounded = anchors.is_empty();
+        cx.anchors = anchors;
     }
     for sub in constellations.chunks(PUT_CHUNK) {
         let mut staged = Vec::new();

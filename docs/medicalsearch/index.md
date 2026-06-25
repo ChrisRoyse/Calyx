@@ -22,4 +22,5 @@ still requires experimental confirmation.
 | File | Task / topic | Status |
 |---|---|---|
 | `_TEMPLATE.md` | findings template | — |
+| `01_anchors_at_ingest.md` | #868 anchors-at-ingest: thread typed anchors through streaming ingest | ✅ done + FSV |
 | (added as work proceeds) | | |

@@ -162,7 +162,7 @@ pub(super) fn validate_text(value: &str) -> CliResult {
     Ok(())
 }
 
-fn validate_confidence(value: f32) -> CliResult {
+pub(super) fn validate_confidence(value: f32) -> CliResult {
     if value.is_finite() && (0.0..=1.0).contains(&value) {
         return Ok(());
     }

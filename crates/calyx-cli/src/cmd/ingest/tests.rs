@@ -13,8 +13,8 @@ use ulid::Ulid;
 
 use super::super::vault::{ResolvedVault, now_ms, vault_salt};
 use super::anchor::parse_anchor_kind;
-use super::batch::read_batch_texts;
-use super::command::ingest_texts;
+use super::batch::{parse_batch_line, read_batch_texts};
+use super::command::{ingest_batch_streaming, ingest_texts};
 use super::constellation::{measure_constellation, text_input};
 use super::parse::{parse_anchor, validate_text};
 use super::store::{ensure_base_exists, open_vault};
@@ -117,6 +117,105 @@ fn batch_jsonl_empty_and_invalid_edges() {
     assert_eq!(err.code(), "CALYX_CLI_IO_ERROR");
     assert!(err.message().contains("line 2"));
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_ingest_threads_anchors_into_base_cf_and_anchors_cf() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-at-ingest");
+    let jsonl = resolved.path.join("anchored.jsonl");
+    fs::write(
+        &jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"},{"kind":"test-pass","value":"true"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    // FSV: read the anchors back from the stored constellation (base-CF), not from
+    // the ingest return value. cx_id is derived from the input bytes + panel version.
+    let vault = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault.cx_id_for_input("alpha north signal".as_bytes(), state.panel.version);
+    let snapshot = vault.snapshot();
+    let cx = vault.get(cx_id, snapshot).unwrap();
+
+    assert_eq!(
+        cx.anchors.len(),
+        2,
+        "both anchors persisted on the constellation"
+    );
+    assert!(cx.anchors.iter().any(|anchor| {
+        anchor.kind == AnchorKind::Label("answer".to_string())
+            && anchor.value == AnchorValue::Enum("B".to_string())
+            && anchor.source == "calyx-ingest"
+            && anchor.confidence == 1.0
+    }));
+    assert!(cx.anchors.iter().any(|anchor| {
+        anchor.kind == AnchorKind::TestPass && anchor.value == AnchorValue::Bool(true)
+    }));
+    // A constellation carrying its own anchor is grounded at distance 0.
+    assert!(
+        !cx.flags.ungrounded,
+        "anchored constellation is not ungrounded"
+    );
+
+    // FSV: anchors are physically present in the Anchors CF — the index the kernel's
+    // `domain_anchors(kind)` reads to find grounded nodes. One row per (cx, kind).
+    let anchor_rows = vault.scan_cf_at(snapshot, ColumnFamily::Anchors).unwrap();
+    assert_eq!(anchor_rows.len(), 2, "two anchor rows in the Anchors CF");
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_ingest_without_anchors_stays_ungrounded() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("no-anchors-at-ingest");
+    let jsonl = resolved.path.join("plain.jsonl");
+    fs::write(&jsonl, "{\"text\":\"beta south signal\"}\n").unwrap();
+
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let vault = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault.cx_id_for_input("beta south signal".as_bytes(), state.panel.version);
+    let snapshot = vault.snapshot();
+    let cx = vault.get(cx_id, snapshot).unwrap();
+
+    assert!(cx.anchors.is_empty());
+    assert!(cx.flags.ungrounded, "no anchors => ungrounded stays true");
+    assert!(
+        vault
+            .scan_cf_at(snapshot, ColumnFamily::Anchors)
+            .unwrap()
+            .is_empty()
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_jsonl_malformed_anchor_is_loud_usage_error() {
+    // Unknown anchor kind must fail loudly (no silent drop of a grounding truth).
+    let bad_kind = parse_batch_line(
+        0,
+        "{\"text\":\"x\",\"anchors\":[{\"kind\":\"bogus\",\"value\":\"y\"}]}",
+    )
+    .unwrap_err();
+    assert_eq!(bad_kind.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(bad_kind.message().contains("line 1"));
+
+    // Out-of-range confidence is rejected at parse time.
+    let bad_conf = parse_batch_line(
+        4,
+        "{\"text\":\"x\",\"anchors\":[{\"kind\":\"label:a\",\"value\":\"v\",\"confidence\":1.5}]}",
+    )
+    .unwrap_err();
+    assert_eq!(bad_conf.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(bad_conf.message().contains("line 5"));
 }
 
 #[test]
