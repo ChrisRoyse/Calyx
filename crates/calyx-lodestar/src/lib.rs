@@ -17,6 +17,7 @@ pub mod kernel_index;
 pub mod label_propagation;
 pub mod loom_assoc;
 pub mod multi_scope;
+pub mod probe_matrix;
 pub mod provenance;
 pub mod recall_test;
 pub mod scope;
@@ -77,6 +78,11 @@ pub use loom_assoc::{
     build_assoc_graph_from_loom, loom_assoc_graph_input,
 };
 pub use multi_scope::{anchors_for_scope, bridges, build_kernel, kernel_answer_scoped};
+pub use probe_matrix::{
+    PROBE_MATRIX_SCHEMA_VERSION, ProbeFusionMode, ProbeHit, ProbeLength, ProbeLensEmphasis,
+    ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing, ProbeProductivity, ProbeRecord, ProbeRefusal,
+    ProbeResponse, ProbeVariant, build_probe_matrix, run_probe_matrix,
+};
 pub use provenance::{
     AnswerHopEvidence, KernelBuildReceipt, append_answer_hop_entry, append_kernel_build_entry,
     build_kernel_pipeline_with_ledger, kernel_members_hash,
