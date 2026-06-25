@@ -21,7 +21,7 @@ This is not a generic codebase. The non-obvious facts that change how you work:
 - **Zero-cost & self-built** (A34): everything is free and hand-built in Rust — no paid services/SaaS/cloud/CI/scanners. The only conceivable paid item is a great embedder (doubted). OSS only: `cargo`, `clippy`, `proptest`, `cargo-fuzz`, `cargo-mutants`, `criterion`, `cargo audit`, ZFS, restic, Prometheus/Grafana, `gh` Free.
 - **Strict Royse theory for intelligence** (A24): every intelligence construct (DDA, `Gτ`, the differentiation contract ≥0.05 bits / ≤0.6 corr, the grounding kernel, the Oracle, temporal/recurrence) comes **only** from the Royse corpus. External technique is engineering scaffolding only (TurboQuant, grouped GEMM, CUDA, ZFS, FoundationDB-style layering) — never a source of intelligence theory.
 - **Secrets via Infisical** (`leapable-aiwonder-prod`). Calyx most likely needs only `hf_hub_token`. Never write a secret *value* into the repo/issue/PR/chat — env-var **names** only.
-- **Dev state lives in GitHub Issues** on **`ChrisRoyse/Calyx-Dev`** (`type:context` pinned and read every turn; `type:task`/`decision`/`discovery`/`blocker`; `area:<engine>`; `phase:PHnn`; `p0`–`p3`; `status:in-progress`/`blocked`). `ChrisRoyse/Calyx` is public-facing only. See PRD `29` and §3.
+- **Dev state lives in GitHub Issues** on **`ChrisRoyse/Calyx-Dev`** (`type:context` pinned and read every turn; `type:task`/`decision`/`discovery`/`blocker`; `area:<engine>`; `phase:PHnn`; `p0`–`p3`; `status:in-progress`/`blocked`). `ChrisRoyse/Calyx` is public-facing only. Never use `gh issue comment --edit-last` for state corrections: it can target an older comment on long context issues. Edit only by explicit comment ID/URL through the GitHub API, then read the exact comment back. See PRD `29` and §3.
 - **Synapse is the computer-use & orchestration runtime** (PRD `31`): perceive/act on the real machine and open terminals to command Claude (`cldy`)/Codex (`codex --yolo`) workers — preferred over the built-in subagent tool for anything touching the machine, because it runs in real terminals with real FSV against real bytes. Synapse perception **is** FSV's perception arm (PRD `28 §2c`).
 
 ---
@@ -232,6 +232,8 @@ When found, **don't pick a side** — verify against SoT. Often both are wrong a
 ## §3 — GITHUB ISSUES AS THE COORDINATION SURFACE
 
 Open issues = active state. Closed issues = institutional knowledge. Comments = chronological journal. Labels = taxonomy. Milestones = sweeps/phases. Pinned issues = current mission. Use issue types to organize knowledge: `type:context` for mission / phase / scope; `type:decision` for ADRs (closed when locked, reopened if overturned); `type:discovery` for constraints / gotchas / edge cases; `type:pattern` for reusable conventions; `status:blocked` for unresolved walls with cross-linked blocker.
+
+State comments are append-first and edit-with-ID-only. Do **not** use `gh issue comment --edit-last` on Calyx state issues: on long pinned context threads it has overwritten older comments. If a comment must be corrected, first read the exact comment URL/ID, then patch that ID directly, e.g. `gh api -X PATCH repos/ChrisRoyse/Calyx-Dev/issues/comments/<comment_id> -f body="$body"`, and read back that same URL/ID to verify the intended comment changed. If an accidental edit happens, tombstone the damaged historical comment and create/update an issue recording the state-integrity event.
 
 ### 3.2 The two cardinal coordination rules
 
