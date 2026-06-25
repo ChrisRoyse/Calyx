@@ -113,6 +113,12 @@ ssh aiwonder "tar -xf /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=/home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z cargo test -p calyx-lodestar --test issue884_molecular_bridges_tests -- --nocapture"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo && cargo fmt --all -- --check"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/repo && bash scripts/linecount.sh"
+
+# final live-checkout FSV after push/pull on aiwonder
+ssh aiwonder "cd /home/croyse/calyx/repo && git pull --ff-only"
+ssh aiwonder "root=/home/croyse/calyx/fsv/issue884-molecular-bridges-final-20260625T122100Z; mkdir -p \"$root\"; cd /home/croyse/calyx/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=\"$root\" cargo test -p calyx-lodestar --test issue884_molecular_bridges_tests -- --nocapture"
+ssh aiwonder "cd /home/croyse/calyx/repo && cargo fmt --all -- --check"
+ssh aiwonder "cd /home/croyse/calyx/repo && bash scripts/linecount.sh"
 ```
 
 Local test evidence:
@@ -124,6 +130,12 @@ Local test evidence:
 aiwonder archived-source FSV:
 - FSV root: `/home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z`
 - Artifact: `/home/croyse/calyx/fsv/issue884-molecular-bridges-20260625T121814Z/issue884_molecular_bridges_readback.json`
+- Artifact bytes: `3254`
+- Artifact SHA256: `d89557526526549a7dbe3aa48f67c4964414bfaae5ab3b663a77b9a45c08c2f1`
+
+aiwonder final live-checkout FSV:
+- FSV root: `/home/croyse/calyx/fsv/issue884-molecular-bridges-final-20260625T122100Z`
+- Artifact: `/home/croyse/calyx/fsv/issue884-molecular-bridges-final-20260625T122100Z/issue884_molecular_bridges_readback.json`
 - Artifact bytes: `3254`
 - Artifact SHA256: `d89557526526549a7dbe3aa48f67c4964414bfaae5ab3b663a77b9a45c08c2f1`
 - Readback scalar leaves:
@@ -138,8 +150,9 @@ aiwonder archived-source FSV:
   - `top_binding_score=0.8096910715103149`
   - `top_rank_score=0.8663918972015381`
 - aiwonder tests from archived source: 6 passed, 0 failed, 0 ignored.
-- aiwonder `cargo fmt --all -- --check`: exit 0.
-- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+- aiwonder tests from final live checkout: 6 passed, 0 failed, 0 ignored.
+- aiwonder `cargo fmt --all -- --check`: exit 0 for archived source and final live checkout.
+- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines` for archived source and final live checkout.
 
 Boundary and edge behavior covered by tests:
 - Clinical seed disease IDs filter ChEMBL/BindingDB/Open Targets-style evidence rows.
