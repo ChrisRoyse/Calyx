@@ -282,7 +282,45 @@ sha256sum "$bin_path" "$vault/partitioned-manifest.json" > "$out_dir/pre_search_
 search_code=$?
 
 if [ "$search_code" -eq 0 ]; then
-  write_readback 0 complete "" ""
+  gate_message=$(READBACK_SLO_US="$slo_us" python3 - "$out_dir/search_stdout.json" <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+try:
+    search = json.loads(path.read_text(encoding="utf-8"))
+except Exception as error:
+    print(f"search output {path} is not valid JSON: {error}")
+    sys.exit(2)
+latency = search.get("latency_us") or {}
+p99 = latency.get("p99")
+recall = search.get("ground_truth_recall_at_k")
+if recall is None:
+    recall = search.get("self_recall_at_k")
+slo_us = int(os.environ["READBACK_SLO_US"])
+failures = []
+if p99 is None or p99 >= slo_us:
+    failures.append(f"p99={p99} >= slo_us={slo_us}")
+if recall is None or recall < 0.85:
+    failures.append(f"recall_at_k={recall} < 0.85")
+if failures:
+    print("; ".join(failures))
+    sys.exit(1)
+sys.exit(0)
+PY
+)
+  gate_code=$?
+  if [ "$gate_code" -eq 0 ]; then
+    write_readback 0 complete "" ""
+  elif [ "$gate_code" -eq 1 ]; then
+    write_readback 78 metric_failed CALYX_FSV_PARTITIONED_GATE_FAILED "$gate_message"
+    exit 78
+  else
+    write_readback 79 metric_failed CALYX_FSV_PARTITIONED_SEARCH_OUTPUT_INVALID "$gate_message"
+    exit 79
+  fi
 else
   write_readback "$search_code" search_failed CALYX_FSV_PINNED_SEARCH_FAILED "partitioned-search exited $search_code"
 fi
