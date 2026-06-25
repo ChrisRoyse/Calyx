@@ -14,6 +14,7 @@ mod fastembed_special;
 mod log;
 mod onnx_colbert;
 mod options;
+mod tei;
 
 use artifact::{
     Artifact, FileReport, add_optional, artifact, artifact_set_sha256, file_report, find_preferred,
@@ -45,6 +46,7 @@ struct CommissionReport {
 struct CommissionOutput {
     artifacts: Vec<Artifact>,
     dim_override: Option<u32>,
+    source_hf_id: Option<String>,
 }
 
 impl CommissionOutput {
@@ -52,6 +54,7 @@ impl CommissionOutput {
         Self {
             artifacts,
             dim_override: None,
+            source_hf_id: None,
         }
     }
 
@@ -59,6 +62,15 @@ impl CommissionOutput {
         Self {
             artifacts,
             dim_override: Some(dim),
+            source_hf_id: None,
+        }
+    }
+
+    fn with_source_hf_id(artifacts: Vec<Artifact>, source_hf_id: String) -> Self {
+        Self {
+            artifacts,
+            dim_override: None,
+            source_hf_id: Some(source_hf_id),
         }
     }
 }
@@ -75,7 +87,10 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         "output_dir": out,
     }))?;
     let output = match flags.runtime {
-        CommissionRuntime::Tei => CommissionOutput::new(commission_tei(&flags, &out, &mut log)?),
+        CommissionRuntime::Tei => {
+            let commissioned = commission_tei(&flags, &out, &mut log)?;
+            CommissionOutput::with_source_hf_id(commissioned.artifacts, commissioned.source_hf_id)
+        }
         CommissionRuntime::CandleFp16 => {
             CommissionOutput::new(commission_candle(&flags, &out, &mut log)?)
         }
@@ -108,6 +123,7 @@ pub(crate) fn commission(args: &[String]) -> CliResult {
         &out,
         &output.artifacts,
         output.dim_override,
+        output.source_hf_id.as_deref(),
         &mut log,
     )?;
     let registered = add_manifest_to_catalog(flags.home.as_deref(), manifest_path.clone())?;
@@ -131,7 +147,7 @@ fn commission_tei(
     flags: &CommissionFlags,
     out: &Path,
     log: &mut ConversionLog,
-) -> CliResult<Vec<Artifact>> {
+) -> CliResult<tei::CommissionedTei> {
     let endpoint = flags
         .endpoint
         .as_deref()
@@ -142,21 +158,15 @@ fn commission_tei(
     let probe = Input::new(Modality::Text, b"Calyx TEI commission probe".to_vec());
     let vector = lens.measure(&probe)?;
     validate_vector_contract(&vector, SlotShape::Dense(dim), NormPolicy::unit())?;
-    let descriptor = TeiDescriptor {
-        source_hf_id: flags.hf.clone(),
-        endpoint,
-        modality: "text".to_string(),
-        dim,
-        norm: "unit".to_string(),
-    };
-    let path = out.join("tei-descriptor.json");
-    write_json_file(&path, &descriptor)?;
+    let commissioned = tei::write_descriptor(&flags.hf, endpoint, dim, out)?;
     log.event(json!({
         "event": "tei_probe_verified",
-        "descriptor": path,
+        "descriptor": commissioned.descriptor_path,
+        "source_hf_id": commissioned.source_hf_id,
+        "requested_hf_id": commissioned.requested_hf_id,
         "dim": dim,
     }))?;
-    Ok(vec![artifact("model", path)?])
+    Ok(commissioned)
 }
 
 fn commission_candle(
@@ -317,6 +327,7 @@ fn write_manifest(
     out: &Path,
     artifacts: &[Artifact],
     dim_override: Option<u32>,
+    source_hf_id: Option<&str>,
     log: &mut ConversionLog,
 ) -> CliResult<PathBuf> {
     let model = artifacts
@@ -356,7 +367,7 @@ fn write_manifest(
         files: manifest_files(out, artifacts)?,
         pooling: manifest_pooling(flags),
         norm: flags.manifest_norm(),
-        source_hf_id: flags.hf.clone(),
+        source_hf_id: source_hf_id.unwrap_or(&flags.hf).to_string(),
         endpoint: flags.endpoint_for_manifest(),
         license: flags.license.clone(),
         non_commercial: flags.non_commercial,
@@ -392,13 +403,4 @@ fn manifest_pooling(flags: &CommissionFlags) -> String {
     } else {
         flags.pooling.clone()
     }
-}
-
-#[derive(Serialize)]
-struct TeiDescriptor {
-    source_hf_id: String,
-    endpoint: String,
-    modality: String,
-    dim: u32,
-    norm: String,
 }
