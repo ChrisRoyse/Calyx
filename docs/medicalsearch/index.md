@@ -26,4 +26,5 @@ still requires experimental confirmation.
 | `05_degraded_flag_fix.md` | #872 degraded flag ignores retrieval-only temporal sidecar absence | done + FSV |
 | `06_calibration_fsv.md` | #873 planted signal calibration and gate readback | done + FSV |
 | `07_power_gate_verify.md` | #874 assay power-calibration and entropy-floor gate verification | done + FSV |
+| `18_oracle_event_structuring.md` | #885 Oracle event/domain structuring for recurrence reverse-query | done + FSV |
 | (added as work proceeds) | | |

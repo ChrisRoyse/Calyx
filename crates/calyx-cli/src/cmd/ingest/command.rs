@@ -12,6 +12,7 @@ use super::anchor::{parse_anchor_kind, parse_anchor_value};
 use super::batch::{BatchRow, parse_batch_line};
 use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
 use super::ledger::{append_anchor_ledger, append_anchor_marker_ledger, append_cli_ledger};
+use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
 use super::types::{AnchorReport, IngestReport};
 use crate::error::{CliError, CliResult};
@@ -247,22 +248,27 @@ fn flush_measure_batch(
     let rows: Vec<BatchRow> = std::mem::take(chunk);
     let inputs: Vec<Input> = rows
         .iter()
-        .map(|(text, _, _)| text_input(text.clone()))
+        .map(|(text, _, _, _)| text_input(text.clone()))
         .collect();
-    let mut constellations = measure_constellation_microbatch(vault, state, &inputs, now_ms())?;
-    for (cx, (_, metadata, anchors)) in constellations.iter_mut().zip(rows) {
+    let constellations = measure_constellation_microbatch(vault, state, &inputs, now_ms())?;
+    let mut measured = Vec::with_capacity(constellations.len());
+    for (mut cx, (_, mut metadata, anchors, oracle)) in constellations.into_iter().zip(rows) {
+        if let Some(event) = &oracle {
+            event.apply_metadata(&mut metadata)?;
+        }
         cx.metadata = metadata;
         // A constellation carrying its own anchor is grounded at distance 0; mirror
         // the canonical `ungrounded = anchors.is_empty()` rule (dedup/ingest_input.rs)
         // so the flag reflects reality rather than the measure-time default of true.
         cx.flags.ungrounded = anchors.is_empty();
         cx.anchors = anchors;
+        measured.push((cx, oracle));
     }
-    for sub in constellations.chunks(PUT_CHUNK) {
+    for sub in measured.chunks(PUT_CHUNK) {
         let mut staged = Vec::new();
         let mut order = Vec::with_capacity(sub.len());
         let mut known_anchor_kinds = BTreeMap::<CxId, BTreeSet<AnchorKind>>::new();
-        for cx in sub {
+        for (cx, oracle) in sub {
             let exists = base_exists(vault, cx.cx_id)?;
             let new = !exists && seen.insert(cx.cx_id);
             if !known_anchor_kinds.contains_key(&cx.cx_id) {
@@ -280,7 +286,7 @@ fn flush_measure_batch(
             if new || !cx.anchors.is_empty() {
                 staged.push(cx.clone());
             }
-            order.push((cx.cx_id, new, marker_kinds));
+            order.push((cx.cx_id, new, marker_kinds, oracle.clone()));
         }
         match staged.len() {
             0 => {}
@@ -292,8 +298,9 @@ fn flush_measure_batch(
             }
         }
         vault.flush()?;
+        append_oracle_events(vault, &order)?;
         let snapshot = vault.snapshot();
-        for (cx_id, new, marker_kinds) in order {
+        for (cx_id, new, marker_kinds, _) in order {
             let ledger_seq = if new {
                 vault.get(cx_id, snapshot)?.provenance.seq
             } else {
@@ -309,6 +316,18 @@ fn flush_measure_batch(
             })?;
         }
         vault.flush()?;
+    }
+    Ok(())
+}
+
+fn append_oracle_events(
+    vault: &AsterVault,
+    order: &[(CxId, bool, Vec<AnchorKind>, Option<OracleEvent>)],
+) -> CliResult<()> {
+    for (cx_id, _, _, oracle) in order {
+        if let Some(event) = oracle {
+            append_recurrence_if_absent(vault, *cx_id, event, now_ms())?;
+        }
     }
     Ok(())
 }
