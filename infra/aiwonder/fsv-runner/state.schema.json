@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "calyx long-run state.json (#888)",
+  "description": "Mutable per-run state written by longrun-supervise.sh next to the immutable spec.json. Survives reboot; read by resume to decide no-op vs continue.",
+  "type": "object",
+  "required": ["run_id", "status", "attempts", "sot", "resume_command"],
+  "properties": {
+    "run_id": {"type": "string", "description": "Unique run identifier == systemd instance name (%i)."},
+    "status": {"enum": ["pending", "running", "completed", "failed"], "description": "Desired/observed state. Only 'completed' triggers the idempotent no-op on re-entry."},
+    "attempts": {"type": "integer", "minimum": 0, "description": "Supervisor entries (each restart/resume increments)."},
+    "completed_units": {"type": ["integer", "null"], "description": "Final committed unit count read from the SoT on success."},
+    "total_units": {"type": ["integer", "null"], "description": "Expected total when known."},
+    "last_cursor": {"type": ["integer", "null"], "description": "Live committed cursor read from the real SoT (SQLite COUNT, vault cx rows), refreshed on heartbeat."},
+    "started_at": {"type": ["string", "null"], "description": "First-attempt start (UTC, retained across resumes)."},
+    "last_heartbeat": {"type": ["string", "null"], "description": "UTC timestamp of the most recent state write; staleness => stuck/dead supervisor."},
+    "next_action": {"enum": ["start", "run", "resume", "none"], "description": "What a resumer should do."},
+    "sot": {"type": "object", "required": ["kind", "handle"], "properties": {"kind": {"enum": ["sqlite", "calyx-vault"]}, "handle": {"type": "string", "description": "SQLite path or vault directory."}}},
+    "resume_command": {"type": "string", "description": "Human-readable, copy-pasteable command to resume this run by hand."},
+    "last_exit": {"type": ["integer", "null"], "description": "Exit code of the most recent worker run."}
+  }
+}

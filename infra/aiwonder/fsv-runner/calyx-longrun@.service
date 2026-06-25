@@ -1,0 +1,26 @@
+[Unit]
+# Reboot-resilient supervisor for one long-running Calyx FSV/ingest job (#888).
+# Instance %i is the run-id; its immutable spec + mutable state live under
+# ${CALYX_LONGRUN_ROOT:-/home/croyse/calyx/fsv/runs}/%i/. Requires user linger
+# (loginctl enable-linger) so the unit — and the job — return after a reboot,
+# where the supervisor resumes idempotently from the real source-of-truth cursor.
+Description=Calyx long-run supervisor (%i) — reboot-resilient FSV/ingest (#888)
+After=network.target
+# Turn a persistently-failing job into a loud, visible "failed" unit rather than
+# an infinite silent crash-loop. (StartLimit* live in [Unit] in modern systemd.)
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+Environment=CALYX_LONGRUN_ROOT=/home/croyse/calyx/fsv/runs
+ExecStart=/home/croyse/calyx/repo/infra/aiwonder/fsv-runner/longrun-supervise.sh /home/croyse/calyx/fsv/runs/%i
+# A failed job exits non-zero and is restarted (the supervisor resumes from the
+# SoT cursor). A completed job exits 0 and is NOT restarted.
+Restart=on-failure
+RestartSec=10
+# Re-entry after success is a fast no-op (the supervisor checks status first).
+RemainAfterExit=no
+
+[Install]
+WantedBy=default.target
