@@ -262,3 +262,27 @@ async fn error_code_catalog_is_closed_unique_and_complete() {
     }
     assert_eq!(seen.len(), ErrorCode::ALL.len());
 }
+
+// --- #572: MeasureCtx fail-loud config (no mocks, no silent fallback) ---
+
+#[test]
+fn measure_ctx_load_fails_loud_on_unopenable_vault() {
+    let err = match calyx_web_api::MeasureCtx::load(
+        std::path::Path::new("/nonexistent-calyx/01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+        "absent",
+    ) {
+        Ok(_) => panic!("an unopenable vault dir must fail loud, never silently succeed"),
+        Err(e) => e,
+    };
+    assert!(err.contains("vault"), "error must name the failure: {err}");
+}
+
+#[test]
+fn measure_ctx_load_rejects_non_vault_id_dir_name() {
+    let err =
+        match calyx_web_api::MeasureCtx::load(std::path::Path::new("/tmp/not-a-vault-id"), "x") {
+            Ok(_) => panic!("a dir name that is not a vault id must fail loud"),
+            Err(e) => e,
+        };
+    assert!(err.contains("not a vault id"), "got: {err}");
+}

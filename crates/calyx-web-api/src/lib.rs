@@ -41,6 +41,15 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, post},
 };
+use std::path::{Path as FsPath, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use calyx_aster::vault::{AsterVault, VaultOptions};
+use calyx_core::{Input, Modality, VaultId};
+use calyx_registry::VaultPanelState;
+use calyx_registry::measure::measure_constellation;
+use calyx_registry::persistence::load_vault_panel_state;
+use serde::Deserialize;
 use serde_json::json;
 use tower_http::catch_panic::CatchPanicLayer;
 
@@ -288,11 +297,17 @@ pub fn build_app(limiter: Arc<Guardrails>) -> Router {
         .layer(panic_catch_layer())
 }
 
-/// The read-only route surface.
+/// The read-only route surface (measure scaffolded to 501; the wired variant is
+/// [`build_app_with_measure`]).
 fn routes() -> Router {
+    routes_base().route("/v1/measure", post(not_implemented))
+}
+
+/// Every read-only route except `/v1/measure`, so the wired and scaffolded
+/// builders can each attach their own measure handler without route overlap.
+fn routes_base() -> Router {
     Router::new()
         .route("/v1/health", get(health))
-        .route("/v1/measure", post(not_implemented))
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
         .route("/v1/kernel", get(not_implemented))
@@ -365,6 +380,99 @@ async fn health() -> impl IntoResponse {
 /// Fail-loud placeholder for a scaffolded-but-unwired endpoint.
 async fn not_implemented() -> ApiError {
     ApiError::of(ErrorCode::NotImplemented)
+}
+
+/// Vault + panel loaded once at startup, shared read-only across requests, used
+/// by the wired `/v1/measure` endpoint.
+pub struct MeasureCtx {
+    vault: AsterVault,
+    state: VaultPanelState,
+}
+
+impl MeasureCtx {
+    /// Open the vault at `vault_dir` (whose final path component is the vault
+    /// id) using the CLI-compatible salt `calyx-cli-vault:{id}:{name}` and load
+    /// its panel. Fails loud at every step — there is no default or fallback.
+    pub fn load(vault_dir: &FsPath, name: &str) -> Result<Self, String> {
+        let vault_id: VaultId = vault_dir
+            .file_name()
+            .and_then(|component| component.to_str())
+            .ok_or_else(|| format!("vault dir has no final component: {}", vault_dir.display()))?
+            .parse()
+            .map_err(|error| {
+                format!(
+                    "vault dir name is not a vault id ({}): {error}",
+                    vault_dir.display()
+                )
+            })?;
+        let salt = format!("calyx-cli-vault:{vault_id}:{name}").into_bytes();
+        let vault = AsterVault::open(vault_dir, vault_id, salt, VaultOptions::default())
+            .map_err(|error| format!("open vault {}: {error:?}", vault_dir.display()))?;
+        let state = load_vault_panel_state(vault_dir)
+            .map_err(|error| format!("load panel state {}: {error:?}", vault_dir.display()))?;
+        Ok(Self { vault, state })
+    }
+
+    /// Load from the required `CALYX_WEB_API_VAULT_DIR` + `CALYX_WEB_API_VAULT_NAME`
+    /// env vars. Fail loud if either is unset.
+    pub fn from_env() -> Result<Self, String> {
+        let dir = std::env::var("CALYX_WEB_API_VAULT_DIR").map_err(|_| {
+            "CALYX_WEB_API_VAULT_DIR is required (absolute path to the vault directory)".to_string()
+        })?;
+        let name = std::env::var("CALYX_WEB_API_VAULT_NAME").map_err(|_| {
+            "CALYX_WEB_API_VAULT_NAME is required (vault name used at creation, for the salt)"
+                .to_string()
+        })?;
+        Self::load(PathBuf::from(dir).as_path(), &name)
+    }
+}
+
+/// Request body for `POST /v1/measure`.
+#[derive(Deserialize)]
+struct MeasureReq {
+    text: String,
+}
+
+/// Measure the input text through the loaded vault panel and return the full
+/// per-lens constellation (no-flatten). Byte-identical to the CLI `calyx
+/// measure` for the same input (minus the call-time `created_at`/provenance).
+/// A lens-runtime failure is logged in full and returned as a generic 500 (the
+/// caller envelope never carries engine internals).
+async fn measure(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<MeasureReq>) -> Response {
+    let input = Input::new(Modality::Text, req.text.into_bytes());
+    match measure_constellation(&ctx.vault, &ctx.state, input, now_ms()) {
+        Ok(cx) => (StatusCode::OK, Json(cx)).into_response(),
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_MEASURE_FAILED");
+            ApiError::of(ErrorCode::Internal).into_response()
+        }
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Build the app with `/v1/measure` wired to the loaded vault. Mirrors
+/// [`build_app`] but attaches the stateful measure route.
+pub fn build_app_with_measure(limiter: Arc<Guardrails>, ctx: Arc<MeasureCtx>) -> Router {
+    let measure_route = Router::new()
+        .route("/v1/measure", post(measure))
+        .with_state(ctx);
+    routes_base()
+        .merge(measure_route)
+        .fallback(fallback_404)
+        .method_not_allowed_fallback(fallback_405)
+        .layer(middleware::from_fn_with_state(limiter, guardrails))
+        .layer(panic_catch_layer())
+}
+
+/// Production app with the measure endpoint wired (used by the binary).
+pub fn app_with_measure(ctx: Arc<MeasureCtx>) -> Router {
+    build_app_with_measure(Arc::new(Guardrails::production()), ctx)
 }
 
 /// `/v1/provenance/{id}` echoes the requested id into the fail-loud 501 so the
