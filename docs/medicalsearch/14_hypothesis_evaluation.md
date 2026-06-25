@@ -20,6 +20,12 @@ ssh aiwonder "tar -xf /home/croyse/calyx/fsv/issue881-hypothesis-evaluation-2026
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue881-hypothesis-evaluation-20260625T120221Z/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=/home/croyse/calyx/fsv/issue881-hypothesis-evaluation-20260625T120221Z cargo test -p calyx-lodestar --test issue881_hypothesis_evaluation_tests -- --nocapture"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue881-hypothesis-evaluation-20260625T120221Z/repo && cargo fmt --all -- --check"
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue881-hypothesis-evaluation-20260625T120221Z/repo && bash scripts/linecount.sh"
+
+# final live-checkout FSV after push/pull on aiwonder
+ssh aiwonder "cd /home/croyse/calyx/repo && git pull --ff-only"
+ssh aiwonder "root=/home/croyse/calyx/fsv/issue881-hypothesis-evaluation-final-20260625T120500Z; mkdir -p \"$root\"; cd /home/croyse/calyx/repo && CARGO_INCREMENTAL=0 CARGO_TARGET_DIR=/home/croyse/calyx/repo/target CALYX_FSV_ROOT=\"$root\" cargo test -p calyx-lodestar --test issue881_hypothesis_evaluation_tests -- --nocapture"
+ssh aiwonder "cd /home/croyse/calyx/repo && cargo fmt --all -- --check"
+ssh aiwonder "cd /home/croyse/calyx/repo && bash scripts/linecount.sh"
 ```
 
 ## Raw evidence / FSV
@@ -39,6 +45,12 @@ aiwonder archived-source FSV:
 - Artifact: `/home/croyse/calyx/fsv/issue881-hypothesis-evaluation-20260625T120221Z/issue881_hypothesis_evaluation_readback.json`
 - Artifact bytes: `3365`
 - Artifact SHA256: `e5a70ad454b238b44222e0bf6a93fb17e23176e67e0365e7ea2e25d90e8ed936`
+
+aiwonder final live-checkout FSV:
+- FSV root: `/home/croyse/calyx/fsv/issue881-hypothesis-evaluation-final-20260625T120500Z`
+- Artifact: `/home/croyse/calyx/fsv/issue881-hypothesis-evaluation-final-20260625T120500Z/issue881_hypothesis_evaluation_readback.json`
+- Artifact bytes: `3365`
+- Artifact SHA256: `e5a70ad454b238b44222e0bf6a93fb17e23176e67e0365e7ea2e25d90e8ed936`
 - Readback scalar leaves:
   - `schema_version=1`
   - `input_count=2`
@@ -51,8 +63,9 @@ aiwonder archived-source FSV:
   - `top_temperature_variant_count=2`
   - `top_evidence_count=1`
 - aiwonder tests from archived source: 5 passed, 0 failed, 0 ignored.
-- aiwonder `cargo fmt --all -- --check`: exit 0.
-- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines`.
+- aiwonder tests from final live checkout: 5 passed, 0 failed, 0 ignored.
+- aiwonder `cargo fmt --all -- --check`: exit 0 for archived source and final live checkout.
+- aiwonder `bash scripts/linecount.sh`: `all .rs <= 500 lines` for archived source and final live checkout.
 
 Boundary and edge behavior covered by tests:
 - Multiple prompt IDs and multiple temperature settings are required and counted.
