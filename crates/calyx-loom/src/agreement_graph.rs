@@ -199,6 +199,25 @@ impl LoomStore {
         Ok(self.xterm_cf.len())
     }
 
+    /// Encode all in-memory XTerm rows as `(key, value)` byte pairs using the
+    /// exact same key/value encoding as [`Self::persist_xterms_to_aster`].
+    ///
+    /// This lets callers persist the XTerm CF through a higher-level write path
+    /// (e.g. an `AsterVault`'s WAL/MVCC `write_cf_batch`) instead of a raw
+    /// `CfRouter`, keeping the on-disk encoding identical so
+    /// [`Self::load_xterms_from_aster`] round-trips either way. Returns the rows
+    /// in `CrossTermKey` order (the `BTreeMap` iteration order).
+    pub fn xterm_kv_rows(&self) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        let mut out = Vec::with_capacity(self.xterm_cf.len());
+        for row in self.xterm_cf.values() {
+            let key = xterm_key(&row.key);
+            let value = serde_json::to_vec(row)
+                .map_err(|error| CalyxError::disk_pressure(format!("encode xterm row: {error}")))?;
+            out.push((key, value));
+        }
+        Ok(out)
+    }
+
     pub fn load_xterms_from_aster(router: &CfRouter, cache_capacity: usize) -> Result<Self> {
         let mut store = Self::new(cache_capacity);
         for entry in router.iter_cf(ColumnFamily::XTerm)? {
@@ -277,6 +296,36 @@ mod tests {
 
         assert_eq!(loaded.xterm_count(), 1);
         assert_eq!(loaded.agreement_graph()[0].n, 1);
+        cleanup(dir);
+    }
+
+    #[test]
+    fn xterm_kv_rows_match_router_persist_encoding() {
+        let dir = test_dir("xterm-kv");
+        let mut router = CfRouter::open(&dir, 1024).unwrap();
+        let mut store = LoomStore::new(8);
+        let slots = BTreeMap::from([
+            (SlotId::new(1), vec![1.0, 0.0]),
+            (SlotId::new(2), vec![0.0, 1.0]),
+            (SlotId::new(3), vec![0.5, 0.5]),
+        ]);
+        store.weave(CxId::from_bytes([7; 16]), &slots).unwrap();
+
+        // The same three rows, written through the explicit kv-row path used by
+        // the corpus weave-loom command (vault.write_cf_batch), must produce a CF
+        // that load_xterms_from_aster reads back identically to the in-memory store.
+        let kv = store.xterm_kv_rows().unwrap();
+        assert_eq!(kv.len(), store.xterm_count());
+        for (key, value) in &kv {
+            router.put(ColumnFamily::XTerm, key, value).unwrap();
+        }
+        router.flush_cf(ColumnFamily::XTerm).unwrap();
+        drop(router);
+
+        let reopened = CfRouter::open(&dir, 1024).unwrap();
+        let loaded = LoomStore::load_xterms_from_aster(&reopened, 8).unwrap();
+        assert_eq!(loaded.xterm_count(), store.xterm_count());
+        assert_eq!(loaded.xterm_rows(), store.xterm_rows());
         cleanup(dir);
     }
 

@@ -155,3 +155,104 @@ aiwonder final live-checkout FSV after dev push:
 ## Conclusion & next step
 
 Use this report after #869 completes to record the real corpus cross-term CF counts, agreement graph node/edge counts, and `groundedness_fraction > 0` from the live Calyx source-of-truth bytes.
+
+---
+
+# 03b — `calyx weave-loom` corpus implementation (2026-06-27)
+
+The grounded design above is now **implemented** as a CLI command and verified end-to-end with
+full-state verification against the real Calyx column families. Branch `issue870-loom-weave`.
+
+## What was built
+
+`calyx weave-loom <vault> [--content-slot <u16>] [--knn <n>] [--edge-cos-threshold <0..1>]
+[--max-groundedness-distance <n>] [--batch <n>] [--limit <n>]` — a single streaming command that
+populates two CFs and emits the acceptance report. New/changed source:
+
+- `crates/calyx-cli/src/cmd/weave.rs` — entry, args/parse, orchestration, JSON report + FSV readback.
+- `crates/calyx-cli/src/cmd/weave/passes.rs` — Pass A (within-doc weave + graph nodes) and Pass B
+  (between-doc DiskANN k-NN edges), both streamed/batched and fail-closed.
+- `crates/calyx-loom/src/agreement_graph.rs` — `LoomStore::xterm_kv_rows()` (persist XTerm through the
+  vault WAL/MVCC `write_cf_batch`, not a raw `CfRouter`, so the on-disk encoding round-trips).
+- `crates/calyx-lodestar/src/corpus_weave_report.rs` — pure, tested `corpus_weave_report()` measuring
+  node/edge/density and **anchor-grounded `groundedness_fraction` + gate** over the between-doc graph.
+
+### Algorithm (both structures, one Base-CF scan + one DiskANN pass)
+
+1. **Within-doc agreement → XTerm CF.** Per constellation, the content lenses (panel slots with
+   `state=Active && !retrieval_only`) are grouped by vector dimension — cosine agreement is only
+   defined between equal-dimension lenses — and `LoomStore::weave` materializes the C(n,2) agreement
+   scalars per dimension group into the XTerm CF (batched). The corpus 14 content lenses split
+   768×12 / 384×1 / 256×1, so the 768-group yields **C(12,2)=66** agreement pairs/constellation;
+   the singleton-dim lenses contribute none (recorded honestly, not silently dropped).
+2. **Between-doc directed k-NN AssocGraph → `graph` CF (`PlainGraph`).** Node props = the content-slot
+   embedding + anchor kinds + metadata; directed edges from the **persisted DiskANN index**
+   (`PersistedSearchIndexes::search`, O(N·log N)) — top-k neighbours with cosine ≥ threshold. This is
+   the graph the kernel (#871) consumes via `AsterAssocSnapshot`/`summarize_vault_latest`. The
+   topology deliberately matches what `vault_kernel::build_vault_kernel_inputs` would produce
+   (same content slot, threshold, top-k) but built scalably — the existing path is brute-force
+   O(N²) and intractable at 199k (filed as #943).
+
+Root cause of the prior gap: the corpus-scale construction (node assignment + directional confidence)
+was undefined in code; the per-(cx,slot) `build_assoc_graph_from_loom` adapter does **not** model the
+§4.3 between-constellation graph, so the command builds the between-doc graph directly via
+`AssocGraph::builder()` + DiskANN k-NN.
+
+## Synthetic full-state verification (CPU, deterministic — 2026-06-27)
+
+Isolated vault `fsv` (`CALYX_HOME=/tmp/weave-fsv3`, vault
+`01KW5A8EE9E4XSY6T0617Z4VXT`), text-default panel + 3 `algorithmic` Dense(16) lenses (slots 8/9/10).
+Six synthetic docs in two token-clusters (aspirin/heart × 3, photosynthesis × 3); **4 anchored**
+(`label:answer=yes` on C1,C2,C4,C5), 2 unanchored (C3,C6). `rebuild-search-index`, then
+`weave-loom fsv --content-slot 8 --knn 5 --edge-cos-threshold 0.5`.
+
+Command report (stdout): `constellations_processed=6`, `xterm.rows_persisted=18`,
+`xterm.slot_pairs=[(8,9),(8,10),(9,10)]` each `n=6` `mean_agreement=1.0`,
+`assoc_graph.edges_persisted=30`, `report.node_count=6`, `edge_count=30`, `anchor_count=4`,
+`grounded_node_count=6`, `groundedness_fraction=1.0`, `gate_passed=true`, `graph_density=1.0`.
+
+**Source-of-truth readback (not the return value — the actual CF bytes via `calyx readback`):**
+- XTerm CF: **18 distinct keys** (= 6 docs × 3 lens-pairs); sample key `…0008000902` decodes to
+  `{a:8,b:9,kind:agreement,value.scalar:0.99999994,tag:derived}`. ✓ matches `rows_persisted=18`.
+- `graph` CF: **6 node keys** + **60 edge keys** (= 30 directed edges × out+in rows). ✓ matches
+  `node_count=6`, `edge_count=30`.
+- Each node-row value decodes to `AsterAssocNodeProps` with a **16-dim embedding** and the correct
+  anchors: **exactly 4 nodes carry `anchors:[{label:answer}]`, 2 carry none** — matching the 4 docs
+  anchored vs 2 left unanchored. ✓
+
+**Boundary / edge-case audit (all fail-closed):**
+- `--content-slot 0` (an Active lens with no materialized vector) → `CALYX_KERNEL_INVALID_PARAMS`
+  naming the constellation + slot.
+- `--content-slot 99` (not a content lens) → `CALYX_CLI_USAGE_ERROR` listing the valid slots.
+- empty vault → fails closed (`CALYX_STALE_DERIVED`: search-index manifest missing — rebuild first).
+- Unit tests: `corpus_weave_report` (4: groundedness, distance cap, no-anchor zero, empty/bad-params),
+  `xterm_kv_rows_match_router_persist_encoding` (1), weave parse + round-trip (9). All pass on aiwonder.
+
+## Real corpus run (#869 vault — FSV recorded 2026-06-27)
+
+Ran `weave-loom corpus-anchored-869-20260625T080546Z` (defaults: content slots 8–21, knn_slot 8,
+knn 16, edge-cos-threshold 0.5, max_groundedness_distance 3) on the 198,993-constellation anchored
+corpus (`CALYX_HOME=/home/croyse/calyx`, vault `01KVYX0KYVBQSGVC6N2S00FX6J`).
+
+**Full-state verification from the live CF bytes (`calyx readback`, distinct-key counts — not the
+return value):**
+- **`graph` CF: 198,993 node keys** (exactly one node per constellation) **+ 4,871,633 edge-rows →
+  ~2,435,816 directed k-NN edges** (each edge = out-key + in-key). Avg out-degree ≈ 12.2 (≤ knn 16;
+  neighbours below cosine 0.5 are dropped).
+- **`XTerm` CF populated** (9.9 GB on disk pre-compaction): within-doc agreement cross-terms over the
+  12 same-dimension (768-d) content lenses → C(12,2)=66 pairs/constellation; the 384-d (slot 18) and
+  256-d (slot 21) lenses are singletons and contribute no pairs (recorded, not silently dropped).
+  **Logical distinct-key count = 13,133,538 = exactly 198,993 × 66** — i.e. every constellation
+  materialized all 12 of the 768-d lenses (no Absent), the clean expected count.
+- **`groundedness_fraction = 1.0`** — every constellation carries QA anchors (`Label("answer")`,
+  `Label("dataset")` from #869), so every node is grounded at distance 0; gate passed.
+
+Node props verified earlier (synthetic) carry the content-slot embedding + anchor kinds, so the kernel
+(#871) can read this graph via `AsterAssocSnapshot`.
+
+**Perf**: the corpus-scale read path was rewritten mid-run from per-doc `vault.get` (random reads across
+17 slot CFs — intractable, ~16 h projected) to **sequential bulk scans** (one Base scan + one scan per
+content-slot CF). The acceptance report's groundedness loop was likewise rewritten from O(N²)
+(`anchors.contains` per node on a fully-anchored corpus) to O(N) via a `HashSet`. Re-running into
+already-populated CFs is pathologically slow (LSM compaction thrash) — run once into the empty CFs, or
+clear them first.
