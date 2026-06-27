@@ -1428,6 +1428,170 @@ pub fn build_app_with_search(
         .layer(panic_catch_layer())
 }
 
+// ---------------------------------------------------------------------------
+// Calyx-native Prometheus metrics surface (#1249 G11, #597)
+// ---------------------------------------------------------------------------
+
+/// State for the `/metrics` collector: the SAME loaded vault panel
+/// ([`MeasureCtx`]) and on-disk ledger ([`ProvenanceCtx`]) the `/v1` data
+/// endpoints serve, so every gauge reflects the EXACT state the origin answers
+/// from — never a separate, drift-prone health view.
+pub struct MetricsCtx {
+    measure: Arc<MeasureCtx>,
+    prov: Arc<ProvenanceCtx>,
+}
+
+/// A point-in-time snapshot of the engine-native signals exported on `/metrics`.
+/// Split out from gathering so the Prometheus exposition rendering is a PURE
+/// function over plain values (synthetically testable for every code path,
+/// including the broken/corrupt-chain and scan-failure edges).
+struct MetricsSnapshot {
+    /// 1 iff the measure panel/vault loaded and answered a probe query.
+    vault_ready: i64,
+    /// 1 iff the embedder produced a dense query vector (GPU path live).
+    gpu_ready: i64,
+    /// 1 iff the HHEM faithfulness backend probe returned ok.
+    faithfulness_ready: i64,
+    /// The loaded panel version (monotonic; bumps on vault rebuild).
+    panel_version: u64,
+    /// 1 iff the on-disk ledger scanned without error.
+    scan_ok: i64,
+    /// Number of entries in the append-only ledger.
+    ledger_rows: u64,
+    /// 1 iff `verify_chain` returned `Intact` over the whole ledger.
+    chain_intact: i64,
+    /// The seq of the first broken/corrupt entry, or `-1` when intact/unknown.
+    chain_broken_seq: i64,
+    /// How long gathering this snapshot took (collector self-instrumentation).
+    scrape_duration_seconds: f64,
+}
+
+/// Render a [`MetricsSnapshot`] as Prometheus text exposition format (v0.0.4).
+///
+/// PURE: no I/O, deterministic for a given snapshot. Metric names are
+/// `calyx_`-prefixed per the Prometheus exporter naming convention; all are
+/// gauges (state snapshots that can go down). `calyx_origin_healthy` is the
+/// single roll-up the breaker/alerts gate on: vault + gpu + faithfulness +
+/// chain all green.
+fn render_metrics(s: &MetricsSnapshot) -> String {
+    let healthy = i64::from(
+        s.vault_ready == 1 && s.gpu_ready == 1 && s.faithfulness_ready == 1 && s.chain_intact == 1,
+    );
+    format!(
+        "# HELP calyx_up Whether the calyx-web-api origin process is serving (1 whenever scraped).\n\
+         # TYPE calyx_up gauge\n\
+         calyx_up 1\n\
+         # HELP calyx_origin_healthy Roll-up: 1 iff vault+gpu+faithfulness+ledger-chain are all green.\n\
+         # TYPE calyx_origin_healthy gauge\n\
+         calyx_origin_healthy {healthy}\n\
+         # HELP calyx_vault_ready Whether the measure panel/vault is loaded and answering (1) or not (0).\n\
+         # TYPE calyx_vault_ready gauge\n\
+         calyx_vault_ready {vault_ready}\n\
+         # HELP calyx_gpu_ready Whether the embedder produced a dense query vector (GPU path live).\n\
+         # TYPE calyx_gpu_ready gauge\n\
+         calyx_gpu_ready {gpu_ready}\n\
+         # HELP calyx_faithfulness_ready Whether the HHEM faithfulness backend probe returned ok.\n\
+         # TYPE calyx_faithfulness_ready gauge\n\
+         calyx_faithfulness_ready {faithfulness_ready}\n\
+         # HELP calyx_panel_version Loaded vault panel version (bumps on vault rebuild).\n\
+         # TYPE calyx_panel_version gauge\n\
+         calyx_panel_version {panel_version}\n\
+         # HELP calyx_ledger_scan_ok Whether the on-disk ledger scanned without error.\n\
+         # TYPE calyx_ledger_scan_ok gauge\n\
+         calyx_ledger_scan_ok {scan_ok}\n\
+         # HELP calyx_ledger_rows Number of entries in the append-only ledger.\n\
+         # TYPE calyx_ledger_rows gauge\n\
+         calyx_ledger_rows {ledger_rows}\n\
+         # HELP calyx_ledger_chain_intact Whether verify_chain returned Intact over the whole ledger.\n\
+         # TYPE calyx_ledger_chain_intact gauge\n\
+         calyx_ledger_chain_intact {chain_intact}\n\
+         # HELP calyx_ledger_chain_broken_seq Seq of the first broken/corrupt ledger entry, or -1 when intact.\n\
+         # TYPE calyx_ledger_chain_broken_seq gauge\n\
+         calyx_ledger_chain_broken_seq {chain_broken_seq}\n\
+         # HELP calyx_scrape_duration_seconds How long gathering the metrics snapshot took.\n\
+         # TYPE calyx_scrape_duration_seconds gauge\n\
+         calyx_scrape_duration_seconds {scrape:.6}\n",
+        healthy = healthy,
+        vault_ready = s.vault_ready,
+        gpu_ready = s.gpu_ready,
+        faithfulness_ready = s.faithfulness_ready,
+        panel_version = s.panel_version,
+        scan_ok = s.scan_ok,
+        ledger_rows = s.ledger_rows,
+        chain_intact = s.chain_intact,
+        chain_broken_seq = s.chain_broken_seq,
+        scrape = s.scrape_duration_seconds,
+    )
+}
+
+/// `GET /metrics` — Prometheus exposition of engine-native health surfaces
+/// (#1249 G11, #597). Gathers the live vault/gpu/faithfulness probe and a
+/// source-of-truth ledger `scan()` + `verify_chain()`, then renders via the
+/// pure [`render_metrics`]. Bearer-locked like every other route (the box
+/// Prometheus presents the shared secret via `bearer_token_file`); served only
+/// on the loopback bind, never exposed through the public tunnel ingress.
+async fn metrics_handler(State(ctx): State<Arc<MetricsCtx>>) -> Response {
+    let started = Instant::now();
+
+    let (gpu_ready, vault_ready) = match measure_query_vectors(&ctx.measure.state, "health") {
+        Ok(measured) => {
+            let dense = measured
+                .iter()
+                .any(|(_, vector)| vector.as_dense().is_some());
+            (i64::from(dense), 1)
+        }
+        Err(error) => {
+            tracing::warn!(error = ?error, "CALYX_WEB_API_METRICS_EMBEDDER_PROBE_FAILED");
+            (0, 0)
+        }
+    };
+    let faithfulness_ready = i64::from(probe_hhem_faithfulness().await == "ok");
+    let panel_version = u64::from(ctx.measure.state.panel.version);
+
+    // Source-of-truth: scan the on-disk ledger and verify the hash chain on
+    // every scrape (the ledger is small; #1898 caches the per-answer path, but
+    // the chain verdict must be live so a tamper is observable within one
+    // scrape interval).
+    let (scan_ok, ledger_rows, chain_intact, chain_broken_seq) = match ctx.prov.store.scan() {
+        Ok(entries) => {
+            let rows = entries.len() as u64;
+            match verify_chain(&ctx.prov.store, 0..rows) {
+                Ok(VerifyResult::Intact { count }) => (1, count, 1, -1),
+                Ok(VerifyResult::Broken { at_seq, .. }) => (1, rows, 0, at_seq as i64),
+                Ok(VerifyResult::Corrupt { at_seq, .. }) => (1, rows, 0, at_seq as i64),
+                Err(error) => {
+                    tracing::error!(error = ?error, "CALYX_WEB_API_METRICS_VERIFY_FAILED");
+                    (1, rows, 0, -1)
+                }
+            }
+        }
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_METRICS_SCAN_FAILED");
+            (0, 0, 0, -1)
+        }
+    };
+
+    let snapshot = MetricsSnapshot {
+        vault_ready,
+        gpu_ready,
+        faithfulness_ready,
+        panel_version,
+        scan_ok,
+        ledger_rows,
+        chain_intact,
+        chain_broken_seq,
+        scrape_duration_seconds: started.elapsed().as_secs_f64(),
+    };
+    (
+        [(
+            header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        render_metrics(&snapshot),
+    )
+        .into_response()
+}
+
 /// Build the production app with BOTH `/v1/measure` (vault) and
 /// `/v1/provenance/{id}` (ledger) wired. Each stateful route is its own
 /// `with_state` sub-router merged onto the shared base, avoiding route overlap.
@@ -1437,6 +1601,15 @@ pub fn build_app_with_measure_and_provenance(
     prov: Arc<ProvenanceCtx>,
     auth: Arc<AuthCtx>,
 ) -> Router {
+    // The `/metrics` collector shares the SAME vault + ledger handles the data
+    // endpoints use, so its gauges can never drift from what the origin serves.
+    let metrics_ctx = Arc::new(MetricsCtx {
+        measure: Arc::clone(&measure_ctx),
+        prov: Arc::clone(&prov),
+    });
+    let metrics_route = Router::new()
+        .route("/metrics", get(metrics_handler))
+        .with_state(metrics_ctx);
     let measure_route = Router::new()
         .route("/v1/health", get(health_full))
         .route("/v1/measure", post(measure))
@@ -1448,6 +1621,7 @@ pub fn build_app_with_measure_and_provenance(
         .route("/v1/provenance/{id}", get(provenance_wired))
         .with_state(prov);
     routes_base()
+        .merge(metrics_route)
         .merge(measure_route)
         .merge(prov_route)
         .fallback(fallback_404)
@@ -1595,6 +1769,93 @@ mod cache_tests {
             age >= Duration::from_millis(25),
             "age tracks elapsed: {age:?}"
         );
+    }
+
+    // --- /metrics exposition rendering (#1249 G11, #597) ----------------
+    // PURE render path exercised with synthetic snapshots: a healthy origin,
+    // a tampered (broken-chain) ledger, and a total scan failure. Each asserts
+    // the EXACT series a Prometheus scrape would parse — no mocks, no I/O.
+
+    fn metric_value(body: &str, name: &str) -> Option<f64> {
+        body.lines()
+            .find(|l| !l.starts_with('#') && l.split(' ').next() == Some(name))
+            .and_then(|l| l.split(' ').nth(1))
+            .and_then(|v| v.parse::<f64>().ok())
+    }
+
+    #[test]
+    fn render_metrics_healthy_origin_all_green() {
+        let body = render_metrics(&MetricsSnapshot {
+            vault_ready: 1,
+            gpu_ready: 1,
+            faithfulness_ready: 1,
+            panel_version: 7,
+            scan_ok: 1,
+            ledger_rows: 126,
+            chain_intact: 1,
+            chain_broken_seq: -1,
+            scrape_duration_seconds: 0.012_345,
+        });
+        // Content-shape: a TYPE line precedes every sample (Prometheus requires
+        // the TYPE before the first sample for a name).
+        assert!(body.contains("# TYPE calyx_origin_healthy gauge"));
+        assert_eq!(metric_value(&body, "calyx_up"), Some(1.0));
+        assert_eq!(metric_value(&body, "calyx_origin_healthy"), Some(1.0));
+        assert_eq!(metric_value(&body, "calyx_ledger_rows"), Some(126.0));
+        assert_eq!(metric_value(&body, "calyx_ledger_chain_intact"), Some(1.0));
+        assert_eq!(
+            metric_value(&body, "calyx_ledger_chain_broken_seq"),
+            Some(-1.0)
+        );
+        assert_eq!(metric_value(&body, "calyx_panel_version"), Some(7.0));
+    }
+
+    #[test]
+    fn render_metrics_broken_chain_flips_healthy_and_exposes_seq() {
+        // Tamper edge: chain broken at seq 42 → not intact, not healthy, the
+        // broken seq is surfaced so an alert can name the failing entry.
+        let body = render_metrics(&MetricsSnapshot {
+            vault_ready: 1,
+            gpu_ready: 1,
+            faithfulness_ready: 1,
+            panel_version: 7,
+            scan_ok: 1,
+            ledger_rows: 100,
+            chain_intact: 0,
+            chain_broken_seq: 42,
+            scrape_duration_seconds: 0.001,
+        });
+        assert_eq!(metric_value(&body, "calyx_ledger_chain_intact"), Some(0.0));
+        assert_eq!(
+            metric_value(&body, "calyx_ledger_chain_broken_seq"),
+            Some(42.0)
+        );
+        assert_eq!(
+            metric_value(&body, "calyx_origin_healthy"),
+            Some(0.0),
+            "a broken chain must drop the health roll-up even with gpu/vault up"
+        );
+    }
+
+    #[test]
+    fn render_metrics_scan_failure_is_unhealthy_with_zero_rows() {
+        // Edge: ledger unreadable → scan_ok 0, rows 0, not intact, not healthy.
+        let body = render_metrics(&MetricsSnapshot {
+            vault_ready: 0,
+            gpu_ready: 0,
+            faithfulness_ready: 0,
+            panel_version: 0,
+            scan_ok: 0,
+            ledger_rows: 0,
+            chain_intact: 0,
+            chain_broken_seq: -1,
+            scrape_duration_seconds: 0.0,
+        });
+        assert_eq!(metric_value(&body, "calyx_ledger_scan_ok"), Some(0.0));
+        assert_eq!(metric_value(&body, "calyx_ledger_rows"), Some(0.0));
+        assert_eq!(metric_value(&body, "calyx_origin_healthy"), Some(0.0));
+        // calyx_up is still 1: the process answered the scrape.
+        assert_eq!(metric_value(&body, "calyx_up"), Some(1.0));
     }
 
     #[test]
