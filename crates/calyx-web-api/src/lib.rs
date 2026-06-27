@@ -319,6 +319,7 @@ pub fn build_app(limiter: Arc<Guardrails>) -> Router {
 /// [`build_app_with_measure_and_provenance`].
 fn routes() -> Router {
     routes_base()
+        .route("/v1/health", get(health))
         .route("/v1/measure", post(not_implemented))
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
@@ -326,12 +327,13 @@ fn routes() -> Router {
         .route("/v1/provenance/{id}", get(provenance_stub))
 }
 
-/// Every read-only route except the stateful ones (`/v1/measure`, `/v1/search`,
-/// `/v1/guard`, `/v1/kernel`, `/v1/provenance/{id}`), so the wired and scaffolded
-/// builders can each attach their own stateful handler without a route-overlap
-/// panic.
+/// The shared base with NO route attached — every endpoint (including the now
+/// stateful `/v1/health`) is added by the scaffolded or wired builder, so each
+/// can choose its handler without a route-overlap panic. The deployed origin
+/// uses the stateful [`health_full`] (real gpu/vault/panelVersion for the edge
+/// circuit breaker); the scaffold uses the stateless [`health`].
 fn routes_base() -> Router {
-    Router::new().route("/v1/health", get(health))
+    Router::new()
 }
 
 /// Per-request resource guardrails. Order: rate limit (cheapest reject) → body
@@ -384,7 +386,9 @@ pub async fn guardrails(
     }
 }
 
-/// Liveness of the web-API process itself (NOT `calyxd`). Real now.
+/// Stateless liveness of the web-API process itself (used by the scaffold
+/// builders, which have no loaded vault). The deployed origin serves
+/// [`health_full`] instead.
 async fn health() -> impl IntoResponse {
     (
         StatusCode::OK,
@@ -392,6 +396,45 @@ async fn health() -> impl IntoResponse {
             "status": "ok",
             "service": "calyx-web-api",
             "readOnly": true,
+            "upstream": UPSTREAM_CALYXD,
+        })),
+    )
+}
+
+/// Full origin health for the edge circuit breaker (#579/#1903): liveness PLUS
+/// the REAL dependency state the breaker gates on — `gpu`, `vault`,
+/// `panelVersion`. `vault` is `ready` (the vault loaded fail-loud at startup or
+/// the service would not be up). `gpu` is probed HONESTLY by measuring a tiny
+/// probe through the content embedder (the GPU-backed dependency): an
+/// unreachable/empty embedder yields `degraded`, NEVER a fake `ok`. Always 200
+/// (the breaker decides via the gpu/vault fields); `status` is `ok` only when
+/// both are good.
+async fn health_full(State(ctx): State<Arc<MeasureCtx>>) -> impl IntoResponse {
+    let gpu = match measure_query_vectors(&ctx.state, "health") {
+        Ok(measured)
+            if measured
+                .iter()
+                .any(|(_, vector)| vector.as_dense().is_some()) =>
+        {
+            "ok"
+        }
+        Ok(_) => "degraded",
+        Err(error) => {
+            tracing::warn!(error = ?error, "CALYX_WEB_API_HEALTH_EMBEDDER_PROBE_FAILED");
+            "degraded"
+        }
+    };
+    let vault = "ready";
+    let status = if gpu == "ok" { "ok" } else { "degraded" };
+    (
+        StatusCode::OK,
+        Json(json!({
+            "status": status,
+            "service": "calyx-web-api",
+            "readOnly": true,
+            "gpu": gpu,
+            "vault": vault,
+            "panelVersion": u64::from(ctx.state.panel.version),
             "upstream": UPSTREAM_CALYXD,
         })),
     )
@@ -960,6 +1003,7 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
         .route("/v1/provenance/{id}", get(provenance_wired))
         .with_state(prov);
     routes_base()
+        .route("/v1/health", get(health))
         .route("/v1/measure", post(not_implemented))
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
@@ -971,12 +1015,13 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
         .layer(panic_catch_layer())
 }
 
-/// Build the app with the vault-backed routes (`/v1/measure`, `/v1/search`,
-/// `/v1/guard`, `/v1/kernel`) wired (provenance still scaffolded). Used by the
-/// vault-endpoint FSV tests so the real Sextant + Ward + Lodestar paths are
-/// exercised over HTTP without needing a ledger.
+/// Build the app with the vault-backed routes (`/v1/health` full, `/v1/measure`,
+/// `/v1/search`, `/v1/guard`, `/v1/kernel`) wired (provenance still scaffolded).
+/// Used by the vault-endpoint FSV tests so the real Sextant + Ward + Lodestar
+/// paths are exercised over HTTP without needing a ledger.
 pub fn build_app_with_search(limiter: Arc<Guardrails>, measure_ctx: Arc<MeasureCtx>) -> Router {
     let vault_route = Router::new()
+        .route("/v1/health", get(health_full))
         .route("/v1/measure", post(measure))
         .route("/v1/search", post(search))
         .route("/v1/guard", post(guard_handler))
@@ -1000,6 +1045,7 @@ pub fn build_app_with_measure_and_provenance(
     prov: Arc<ProvenanceCtx>,
 ) -> Router {
     let measure_route = Router::new()
+        .route("/v1/health", get(health_full))
         .route("/v1/measure", post(measure))
         .route("/v1/search", post(search))
         .route("/v1/guard", post(guard_handler))
