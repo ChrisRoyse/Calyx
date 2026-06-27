@@ -45,11 +45,12 @@ use std::path::{Path as FsPath, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_aster::cf::ColumnFamily;
+use calyx_aster::ledger_view::AsterLedgerCfStore;
+use calyx_aster::manifest::is_vault_seq_quarantined;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{Input, Modality, VaultId, VaultStore};
+use calyx_core::{Input, Modality, Result as CalyxResult, VaultId, VaultStore};
 use calyx_ledger::{
-    DirectoryLedgerStore, LedgerCfStore, LedgerEntry, QuarantineSet, VerifyResult,
-    get_answer_trace, verify_chain,
+    LedgerCfStore, LedgerEntry, QuarantineLookup, VerifyResult, get_answer_trace, verify_chain,
 };
 use calyx_lodestar::{KernelParams, RecallTestParams, measured_kernel_from_vault};
 use calyx_registry::VaultPanelState;
@@ -800,38 +801,57 @@ fn now_ms() -> u64 {
 // /v1/provenance/{id} — real Ledger answer-trace (#577)
 // ---------------------------------------------------------------------------
 
-/// The Ledger (provenance source of truth) opened once at startup, shared
-/// read-only across requests. Reads come straight off the on-disk append-only
-/// ledger CF; this service NEVER appends (read-only by construction).
+/// Real vault-manifest-backed quarantine: a ledger seq is quarantined iff the
+/// vault manifest says so (mirrors the CLI `calyx provenance` path). Never
+/// silently treats a quarantined entry as trusted.
+struct VaultQuarantine {
+    vault_dir: PathBuf,
+}
+
+impl QuarantineLookup for VaultQuarantine {
+    fn contains_quarantined(&self, range: std::ops::Range<u64>) -> CalyxResult<bool> {
+        for seq in range {
+            if is_vault_seq_quarantined(&self.vault_dir, seq)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+}
+
+/// The vault's OWN append-only Ledger CF (via [`AsterLedgerCfStore`]) + its
+/// manifest quarantine, opened once at startup. Unifies the origin: provenance
+/// reads the SAME vault as measure/search/guard/kernel — no separate ledger
+/// directory. Read-only by construction (this service never appends).
 pub struct ProvenanceCtx {
-    store: DirectoryLedgerStore,
-    quarantine: QuarantineSet,
+    store: AsterLedgerCfStore,
+    quarantine: VaultQuarantine,
 }
 
 impl ProvenanceCtx {
-    /// Open the ledger CF directory at `ledger_dir`. Fails loud if the directory
-    /// cannot be opened or its rows cannot be scanned at startup — the service
-    /// does not serve a provenance endpoint over an unreadable ledger.
-    pub fn open(ledger_dir: &FsPath) -> Result<Self, String> {
-        let store = DirectoryLedgerStore::open(ledger_dir)
-            .map_err(|error| format!("open ledger dir {}: {error:?}", ledger_dir.display()))?;
-        // Fail-loud startup probe: an unscannable ledger is a hard error now,
-        // not a per-request 500 later.
+    /// Open the vault's Ledger CF at `vault_dir`. Fails loud if the vault holds
+    /// no real Aster ledger state — the service never serves provenance over an
+    /// unreadable ledger.
+    pub fn open(vault_dir: &FsPath) -> Result<Self, String> {
+        let store = AsterLedgerCfStore::open(vault_dir)
+            .map_err(|error| format!("open vault ledger {}: {error:?}", vault_dir.display()))?;
+        // Fail-loud startup probe: an unscannable ledger is a hard error now.
         store
             .scan()
-            .map_err(|error| format!("scan ledger dir {}: {error:?}", ledger_dir.display()))?;
+            .map_err(|error| format!("scan vault ledger {}: {error:?}", vault_dir.display()))?;
         Ok(Self {
             store,
-            quarantine: QuarantineSet::default(),
+            quarantine: VaultQuarantine {
+                vault_dir: vault_dir.to_path_buf(),
+            },
         })
     }
 
-    /// Load from the required `CALYX_WEB_API_LEDGER_DIR` env var. Fail loud if
-    /// unset (no default, no fallback).
+    /// Load from the required `CALYX_WEB_API_VAULT_DIR` env var (the SAME vault
+    /// as measure). Fail loud if unset (no default, no fallback).
     pub fn from_env() -> Result<Self, String> {
-        let dir = std::env::var("CALYX_WEB_API_LEDGER_DIR").map_err(|_| {
-            "CALYX_WEB_API_LEDGER_DIR is required (absolute path to the ledger CF directory)"
-                .to_string()
+        let dir = std::env::var("CALYX_WEB_API_VAULT_DIR").map_err(|_| {
+            "CALYX_WEB_API_VAULT_DIR is required (absolute path to the vault directory)".to_string()
         })?;
         Self::open(PathBuf::from(dir).as_path())
     }
