@@ -26,6 +26,7 @@ pub(crate) fn usage() -> &'static str {
        calyx provenance <vault> <cx_id>
        calyx verify-chain <vault> [--from <seq>] [--to <seq>]
        calyx rebuild-search-index <vault>
+       calyx kernel-build <vault> [--held-out-fraction <0..1>] [--top-k <n>] [--min-recall <0..1>]
        calyx reproduce <vault> <answer_id>
        calyx anneal-status <vault>
        calyx healthcheck [--vault <vault>] [--json|--no-json] [--tei <http://host:port[/path]>]

@@ -298,6 +298,14 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             modality: Some("text".to_string()),
             probe: None,
         })),
+        (safe_name(), 1usize..64).prop_map(|(vault, top_k)| {
+            Subcommand::KernelBuild(kernel_build::KernelBuildArgs {
+                vault,
+                held_out_fraction: 0.5,
+                top_k,
+                min_recall: 0.95,
+            })
+        }),
     ]
 }
 
@@ -371,6 +379,16 @@ impl Subcommand {
             Self::RebuildSearchIndex(args) => {
                 vec!["rebuild-search-index".to_string(), args.vault.clone()]
             }
+            Self::KernelBuild(args) => vec![
+                "kernel-build".to_string(),
+                args.vault.clone(),
+                "--held-out-fraction".to_string(),
+                args.held_out_fraction.to_string(),
+                "--top-k".to_string(),
+                args.top_k.to_string(),
+                "--min-recall".to_string(),
+                args.min_recall.to_string(),
+            ],
             Self::ProfileLens(args) => profile_lens_tokens(args),
         }
     }
