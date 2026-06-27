@@ -361,3 +361,87 @@ fn auth_ctx_rejects_empty_secret_loud() {
         "an empty/blank bearer secret must fail loud, never anonymous"
     );
 }
+
+// ---------------------------------------------------------------------------
+// #1908: HHEM faithfulness liveness probe aggregated into /v1/health.
+//
+// FSV with REAL loopback sockets (no mocks): each test binds a synthetic TCP
+// listener exhibiting one HHEM failure/success mode and asserts the probe's
+// verdict. Known synthetic input -> known expected output. Covers the happy
+// path (live, even a 401), and three edges: silent hang (timeout), non-HTTP
+// bytes, and connection refused (truly down). The socket-activation rationale
+// (#1807) is exactly why a bare TCP connect is INSUFFICIENT and we read a
+// status line instead.
+// ---------------------------------------------------------------------------
+
+use calyx_web_api::probe_hhem_faithfulness_at;
+
+/// Bind a loopback listener, run `behavior` on the first accepted connection in
+/// a background task, and return the bound address string for the probe.
+async fn spawn_synthetic_hhem<F, Fut>(behavior: F) -> String
+where
+    F: FnOnce(tokio::net::TcpStream) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send,
+{
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind synthetic HHEM listener");
+    let addr = listener.local_addr().expect("local_addr").to_string();
+    tokio::spawn(async move {
+        if let Ok((stream, _)) = listener.accept().await {
+            behavior(stream).await;
+        }
+    });
+    addr
+}
+
+#[tokio::test]
+async fn hhem_probe_ok_when_server_speaks_http_even_401() {
+    // A live-but-unauthorized HHEM still proves the process is SERVING.
+    let addr = spawn_synthetic_hhem(|mut stream| async move {
+        use tokio::io::AsyncWriteExt;
+        let _ = stream
+            .write_all(b"HTTP/1.0 401 Unauthorized\r\nContent-Length: 0\r\n\r\n")
+            .await;
+        let _ = stream.shutdown().await;
+    })
+    .await;
+    assert_eq!(probe_hhem_faithfulness_at(&addr).await, "ok");
+}
+
+#[tokio::test]
+async fn hhem_probe_degraded_on_silent_hang_timeout() {
+    // Accepts the connection (socket-activation would do this) but NEVER writes
+    // a response: a bare TCP connect would falsely report "up"; the HTTP read
+    // must time out -> degraded.
+    let addr = spawn_synthetic_hhem(|stream| async move {
+        // Hold the connection open well past HHEM_PROBE_TIMEOUT (1500ms).
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        drop(stream);
+    })
+    .await;
+    assert_eq!(probe_hhem_faithfulness_at(&addr).await, "degraded");
+}
+
+#[tokio::test]
+async fn hhem_probe_degraded_on_non_http_bytes() {
+    let addr = spawn_synthetic_hhem(|mut stream| async move {
+        use tokio::io::AsyncWriteExt;
+        let _ = stream.write_all(b"GARBAGE-NOT-HTTP\r\n").await;
+        let _ = stream.shutdown().await;
+    })
+    .await;
+    assert_eq!(probe_hhem_faithfulness_at(&addr).await, "degraded");
+}
+
+#[tokio::test]
+async fn hhem_probe_degraded_when_connection_refused() {
+    // Reserve a port, then drop the listener so nothing is listening: connect
+    // is refused -> degraded (the genuinely-down case).
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind");
+    let addr = listener.local_addr().expect("local_addr").to_string();
+    drop(listener);
+    assert_eq!(probe_hhem_faithfulness_at(&addr).await, "degraded");
+}

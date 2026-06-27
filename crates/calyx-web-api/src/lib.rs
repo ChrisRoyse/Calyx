@@ -31,6 +31,8 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
 use axum::{
     Json, Router,
@@ -68,6 +70,16 @@ use tower_http::catch_panic::CatchPanicLayer;
 pub const BIND_ADDR: &str = "127.0.0.1:8121";
 /// The `calyxd` daemon this read API will query (wired by later endpoint work).
 const UPSTREAM_CALYXD: &str = "127.0.0.1:8120";
+
+/// The HHEM faithfulness backend (#1272) whose liveness this origin aggregates
+/// so the single edge circuit breaker (#1908) covers BOTH backends. Loopback;
+/// overridable via `CALYX_WEB_API_HHEM_ADDR` for FSV/tests. HHEM is systemd
+/// socket-activated (#1807), so a bare TCP connect always succeeds even when the
+/// service is dead — the liveness probe MUST speak HTTP and read a status line.
+const HHEM_ORIGIN_ADDR_DEFAULT: &str = "127.0.0.1:8799";
+/// Hard ceiling on the HHEM liveness probe so a hung/socket-activated-but-dead
+/// HHEM cannot stall `/v1/health` (the edge cron hits it every 300s).
+const HHEM_PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 
 /// Global request-body byte cap. Loopback inputs are small; anything larger is
 /// rejected before a handler runs.
@@ -489,6 +501,70 @@ async fn health() -> impl IntoResponse {
 /// unreachable/empty embedder yields `degraded`, NEVER a fake `ok`. Always 200
 /// (the breaker decides via the gpu/vault fields); `status` is `ok` only when
 /// both are good.
+/// Probe the HHEM faithfulness backend (#1272) for liveness over loopback so the
+/// single edge circuit breaker (#1908) trips when EITHER backend fails. Returns
+/// `"ok"` iff HHEM answers an HTTP request within [`HHEM_PROBE_TIMEOUT`] — a 401
+/// `unauthorized` still proves the process is serving, so we check ONLY that it
+/// spoke HTTP/1.x, never that auth succeeded. Returns `"degraded"` (fail-LOUD via
+/// a `tracing::warn!`, NEVER a fabricated `"ok"`) on connect refusal, timeout, or
+/// non-HTTP bytes.
+///
+/// Why an HTTP request and not a bare TCP connect: HHEM's listening socket is
+/// systemd socket-activated (#1807), so the kernel ACCEPTS connections even when
+/// `hhem-origin.service` is down — only an actual request-then-read distinguishes
+/// a live service (fast status line) from a dead one (hangs -> timeout).
+async fn probe_hhem_faithfulness() -> &'static str {
+    let addr = std::env::var("CALYX_WEB_API_HHEM_ADDR")
+        .unwrap_or_else(|_| HHEM_ORIGIN_ADDR_DEFAULT.to_string());
+    probe_hhem_faithfulness_at(&addr).await
+}
+
+/// The address-explicit core of [`probe_hhem_faithfulness`], exposed so FSV/unit
+/// tests can drive it against synthetic loopback listeners (live HTTP, silent
+/// hang, non-HTTP bytes, no listener) with deterministic expected outcomes — no
+/// env races, no dependence on the deployed HHEM.
+pub async fn probe_hhem_faithfulness_at(addr: &str) -> &'static str {
+    let probe = async {
+        let mut stream = TcpStream::connect(&addr)
+            .await
+            .map_err(|error| format!("connect {addr}: {error}"))?;
+        stream
+            .write_all(
+                b"GET /v1/health HTTP/1.0
+Host: 127.0.0.1
+Connection: close
+
+",
+            )
+            .await
+            .map_err(|error| format!("write {addr}: {error}"))?;
+        let mut buf = [0u8; 16];
+        let n = stream
+            .read(&mut buf)
+            .await
+            .map_err(|error| format!("read {addr}: {error}"))?;
+        if buf[..n].starts_with(b"HTTP/") {
+            Ok(())
+        } else {
+            Err(format!("non-HTTP response from {addr}: {:?}", &buf[..n]))
+        }
+    };
+    match tokio::time::timeout(HHEM_PROBE_TIMEOUT, probe).await {
+        Ok(Ok(())) => "ok",
+        Ok(Err(detail)) => {
+            tracing::warn!(detail = %detail, "CALYX_WEB_API_HHEM_PROBE_FAILED");
+            "degraded"
+        }
+        Err(_) => {
+            tracing::warn!(
+                timeout_ms = HHEM_PROBE_TIMEOUT.as_millis() as u64,
+                "CALYX_WEB_API_HHEM_PROBE_TIMEOUT"
+            );
+            "degraded"
+        }
+    }
+}
+
 async fn health_full(State(ctx): State<Arc<MeasureCtx>>) -> impl IntoResponse {
     let gpu = match measure_query_vectors(&ctx.state, "health") {
         Ok(measured)
@@ -505,7 +581,12 @@ async fn health_full(State(ctx): State<Arc<MeasureCtx>>) -> impl IntoResponse {
         }
     };
     let vault = "ready";
-    let status = if gpu == "ok" { "ok" } else { "degraded" };
+    let faithfulness = probe_hhem_faithfulness().await;
+    let status = if gpu == "ok" && faithfulness == "ok" {
+        "ok"
+    } else {
+        "degraded"
+    };
     (
         StatusCode::OK,
         Json(json!({
@@ -514,6 +595,7 @@ async fn health_full(State(ctx): State<Arc<MeasureCtx>>) -> impl IntoResponse {
             "readOnly": true,
             "gpu": gpu,
             "vault": vault,
+            "faithfulness": faithfulness,
             "panelVersion": u64::from(ctx.state.panel.version),
             "upstream": UPSTREAM_CALYXD,
         })),
