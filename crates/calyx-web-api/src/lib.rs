@@ -105,18 +105,22 @@ pub enum ErrorCode {
     /// The request body was malformed or carried an invalid value (e.g. k=0,
     /// unknown fusion mode). Fail loud — never silently clamp/default.
     BadRequest,
+    /// The request lacked a valid shared-secret bearer (fail-closed; the origin
+    /// is never anonymous — #1906/#587).
+    Unauthorized,
     /// An unhandled internal fault (including a caught panic). Never leaks detail.
     Internal,
 }
 
 impl ErrorCode {
     /// The complete closed catalog (for documentation + invariant tests).
-    pub const ALL: [ErrorCode; 8] = [
+    pub const ALL: [ErrorCode; 9] = [
         Self::NotImplemented,
         Self::NotFound,
         Self::MethodNotAllowed,
         Self::PayloadTooLarge,
         Self::RateLimited,
+        Self::Unauthorized,
         Self::Timeout,
         Self::BadRequest,
         Self::Internal,
@@ -132,6 +136,7 @@ impl ErrorCode {
             Self::RateLimited => "CALYX_WEB_API_RATE_LIMITED",
             Self::Timeout => "CALYX_WEB_API_TIMEOUT",
             Self::BadRequest => "CALYX_WEB_API_BAD_REQUEST",
+            Self::Unauthorized => "CALYX_WEB_API_UNAUTHORIZED",
             Self::Internal => "CALYX_WEB_API_INTERNAL",
         }
     }
@@ -146,6 +151,7 @@ impl ErrorCode {
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::GATEWAY_TIMEOUT,
             Self::BadRequest => StatusCode::BAD_REQUEST,
+            Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -162,6 +168,7 @@ impl ErrorCode {
             Self::RateLimited => "slow down and retry after the Retry-After interval",
             Self::Timeout => "retry; if it persists, the upstream calyxd call is too slow",
             Self::BadRequest => "fix the request body field named in the message and resend",
+            Self::Unauthorized => "present a valid Authorization: Bearer <shared-secret> header",
             Self::Internal => {
                 "retry; if it persists, inspect the calyx-web-api server logs for the logged fault"
             }
@@ -178,6 +185,7 @@ impl ErrorCode {
             Self::RateLimited => "too many requests for this route",
             Self::Timeout => "the request exceeded the server time budget",
             Self::BadRequest => "the request body is malformed or carries an invalid value",
+            Self::Unauthorized => "missing or invalid shared-secret bearer",
             Self::Internal => "an internal error occurred",
         }
     }
@@ -384,6 +392,76 @@ pub async fn guardrails(
             ApiError::of(ErrorCode::Timeout).into_response()
         }
     }
+}
+
+/// The shared-secret bearer the deployed origin requires on EVERY request
+/// (#1906/#587). Loaded once at startup from `CALYX_WEB_API_BEARER_SECRET`
+/// (fail-loud if unset — the origin is never anonymous). Must equal the value the
+/// Worker sends as `Authorization: Bearer <CALYX_ORIGIN_SHARED_SECRET>`.
+pub struct AuthCtx {
+    expected_bearer: String,
+}
+
+impl AuthCtx {
+    /// Construct from an explicit secret (used by tests).
+    pub fn new(secret: impl Into<String>) -> Result<Self, String> {
+        let secret = secret.into();
+        if secret.trim().is_empty() {
+            return Err("bearer secret must be non-empty".to_string());
+        }
+        Ok(Self {
+            expected_bearer: secret,
+        })
+    }
+
+    /// Load from the required `CALYX_WEB_API_BEARER_SECRET` env var. Fail loud if
+    /// unset/empty — there is NO anonymous mode.
+    pub fn from_env() -> Result<Self, String> {
+        let secret = std::env::var("CALYX_WEB_API_BEARER_SECRET").map_err(|_| {
+            "CALYX_WEB_API_BEARER_SECRET is required (the shared-secret bearer; no anonymous access)"
+                .to_string()
+        })?;
+        Self::new(secret)
+    }
+}
+
+/// Constant-time byte-equality (no early-exit timing oracle on the secret).
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Fail-closed bearer auth: EVERY request must carry
+/// `Authorization: Bearer <expected>` or it gets a 401 closed envelope +
+/// `WWW-Authenticate: Bearer realm="calyx-origin"` (matching the HHEM origin
+/// contract). Runs before the handlers; no route is anonymous.
+pub async fn require_bearer(
+    State(auth): State<Arc<AuthCtx>>,
+    req: Request,
+    next: Next,
+) -> Response {
+    let presented = req
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "));
+    let ok = matches!(presented, Some(token)
+        if constant_time_eq(token.as_bytes(), auth.expected_bearer.as_bytes()));
+    if !ok {
+        let mut resp = ApiError::of(ErrorCode::Unauthorized).into_response();
+        resp.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            header::HeaderValue::from_static("Bearer realm=\"calyx-origin\""),
+        );
+        return resp;
+    }
+    next.run(req).await
 }
 
 /// Stateless liveness of the web-API process itself (used by the scaffold
@@ -1019,7 +1097,11 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
 /// `/v1/search`, `/v1/guard`, `/v1/kernel`) wired (provenance still scaffolded).
 /// Used by the vault-endpoint FSV tests so the real Sextant + Ward + Lodestar
 /// paths are exercised over HTTP without needing a ledger.
-pub fn build_app_with_search(limiter: Arc<Guardrails>, measure_ctx: Arc<MeasureCtx>) -> Router {
+pub fn build_app_with_search(
+    limiter: Arc<Guardrails>,
+    measure_ctx: Arc<MeasureCtx>,
+    auth: Arc<AuthCtx>,
+) -> Router {
     let vault_route = Router::new()
         .route("/v1/health", get(health_full))
         .route("/v1/measure", post(measure))
@@ -1033,6 +1115,7 @@ pub fn build_app_with_search(limiter: Arc<Guardrails>, measure_ctx: Arc<MeasureC
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
         .layer(middleware::from_fn_with_state(limiter, guardrails))
+        .layer(middleware::from_fn_with_state(auth, require_bearer))
         .layer(panic_catch_layer())
 }
 
@@ -1043,6 +1126,7 @@ pub fn build_app_with_measure_and_provenance(
     limiter: Arc<Guardrails>,
     measure_ctx: Arc<MeasureCtx>,
     prov: Arc<ProvenanceCtx>,
+    auth: Arc<AuthCtx>,
 ) -> Router {
     let measure_route = Router::new()
         .route("/v1/health", get(health_full))
@@ -1060,15 +1144,22 @@ pub fn build_app_with_measure_and_provenance(
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
         .layer(middleware::from_fn_with_state(limiter, guardrails))
+        .layer(middleware::from_fn_with_state(auth, require_bearer))
         .layer(panic_catch_layer())
 }
 
-/// Production app with measure + provenance wired (used by the binary).
+/// Production app with measure + provenance + bearer auth wired (used by the binary).
 pub fn app_with_measure_and_provenance(
     measure_ctx: Arc<MeasureCtx>,
     prov: Arc<ProvenanceCtx>,
+    auth: Arc<AuthCtx>,
 ) -> Router {
-    build_app_with_measure_and_provenance(Arc::new(Guardrails::production()), measure_ctx, prov)
+    build_app_with_measure_and_provenance(
+        Arc::new(Guardrails::production()),
+        measure_ctx,
+        prov,
+        auth,
+    )
 }
 
 /// `/v1/provenance/{id}` scaffold (used by [`build_app`]/[`app`]): echoes the

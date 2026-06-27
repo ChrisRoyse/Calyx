@@ -18,7 +18,9 @@ use axum::{
     middleware::from_fn_with_state,
     routing::get,
 };
-use calyx_web_api::{ErrorCode, Guardrails, app, build_app, guardrails, panic_catch_layer};
+use calyx_web_api::{
+    AuthCtx, ErrorCode, Guardrails, app, build_app, guardrails, panic_catch_layer, require_bearer,
+};
 use http_body_util::BodyExt;
 use serde_json::Value;
 use tower::ServiceExt;
@@ -285,4 +287,77 @@ fn measure_ctx_load_rejects_non_vault_id_dir_name() {
             Err(e) => e,
         };
     assert!(err.contains("not a vault id"), "got: {err}");
+}
+
+// --- #1906: fail-closed bearer auth (the origin is never anonymous) ---
+
+async fn bearer_ok() -> StatusCode {
+    StatusCode::OK
+}
+
+/// Build a minimal router behind the REAL `require_bearer` layer with a known
+/// secret — exercises the actual middleware, not a stand-in.
+fn bearer_app(secret: &str) -> Router {
+    let auth = Arc::new(AuthCtx::new(secret).expect("non-empty secret"));
+    Router::new()
+        .route("/v1/measure", get(bearer_ok))
+        .layer(from_fn_with_state(auth, require_bearer))
+}
+
+#[tokio::test]
+async fn missing_bearer_is_401_envelope_with_www_authenticate() {
+    let app = bearer_app("s3cret-FSV");
+    let resp = app
+        .oneshot(Request::get("/v1/measure").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        resp.headers()
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|v| v.to_str().ok()),
+        Some("Bearer realm=\"calyx-origin\""),
+        "401 must carry the Bearer challenge"
+    );
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_envelope(&body, ErrorCode::Unauthorized);
+}
+
+#[tokio::test]
+async fn wrong_bearer_is_401() {
+    let app = bearer_app("s3cret-FSV");
+    let (status, body) = call(
+        app,
+        Request::get("/v1/measure")
+            .header(header::AUTHORIZATION, "Bearer not-the-secret")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_envelope(&body, ErrorCode::Unauthorized);
+}
+
+#[tokio::test]
+async fn valid_bearer_reaches_the_handler() {
+    let app = bearer_app("s3cret-FSV");
+    let resp = app
+        .oneshot(
+            Request::get("/v1/measure")
+                .header(header::AUTHORIZATION, "Bearer s3cret-FSV")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "valid bearer passes through");
+}
+
+#[test]
+fn auth_ctx_rejects_empty_secret_loud() {
+    assert!(
+        AuthCtx::new("   ").is_err(),
+        "an empty/blank bearer secret must fail loud, never anonymous"
+    );
 }
