@@ -141,6 +141,7 @@ pub(super) fn speaker_identity_profile(
             frr: 0.0,
             confidence: 0.99,
             ts: CLOCK_TS as i64,
+            slot_kind: None,
         },
     )]);
     IdentityProfile::new(

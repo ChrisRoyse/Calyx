@@ -8,6 +8,8 @@ use calyx_core::{Clock, GuardTauProfile, SlotId};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::calibrate::SlotKind;
+
 /// Stable identifier for a guard profile.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -84,6 +86,12 @@ pub struct SlotCalibrationMeta {
     pub frr: f32,
     pub confidence: f32,
     pub ts: i64,
+    /// The slot's aspect (Identity/Content/Stylistic), persisted at calibration
+    /// time so the guard surface can label `perSlot.aspect` and report conformal
+    /// FAR per aspect class (#1899). `None` for profiles calibrated before this
+    /// field existed — surfaced honestly as a null aspect, never defaulted.
+    #[serde(default)]
+    pub slot_kind: Option<SlotKind>,
 }
 
 impl CalibrationMeta {
@@ -109,7 +117,7 @@ impl CalibrationMeta {
 }
 
 impl SlotCalibrationMeta {
-    pub fn from_calibration(meta: &CalibrationMeta) -> Self {
+    pub fn from_calibration(meta: &CalibrationMeta, slot_kind: SlotKind) -> Self {
         Self {
             corpus_hash: meta.corpus_hash,
             estimator: meta.estimator.clone(),
@@ -117,6 +125,7 @@ impl SlotCalibrationMeta {
             frr: meta.frr,
             confidence: meta.confidence,
             ts: meta.ts,
+            slot_kind: Some(slot_kind),
         }
     }
 }

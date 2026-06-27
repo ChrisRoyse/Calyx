@@ -452,3 +452,64 @@ fn guard_id() -> GuardId {
 const fn slot(value: u16) -> SlotId {
     SlotId::new(value)
 }
+
+// #1899 — per-slot aspect (SlotKind) is persisted in the calibrated profile and
+// surfaced via the per-slot calibration meta. Real calibrate(), no mocks.
+#[test]
+fn calibration_persists_per_slot_aspect() {
+    let clock = FixedClock::new(1_785_400_000);
+    let identity = calibration_input(slot(1), SlotKind::Identity, 0.01);
+    let content = calibration_input(slot(3), SlotKind::Content, 0.03);
+
+    let profile = calibrate(profile_template(), vec![identity, content], 0.05, &clock)
+        .expect("calibrate two slots");
+    let per_slot = &profile
+        .calibration
+        .as_ref()
+        .expect("calibration present")
+        .per_slot;
+
+    assert_eq!(
+        per_slot.get(&slot(1)).and_then(|meta| meta.slot_kind),
+        Some(SlotKind::Identity),
+        "slot 1 aspect persisted as Identity"
+    );
+    assert_eq!(
+        per_slot.get(&slot(3)).and_then(|meta| meta.slot_kind),
+        Some(SlotKind::Content),
+        "slot 3 aspect persisted as Content"
+    );
+
+    // Survives a serde round-trip (the wire form the vault Guard CF stores).
+    let json = serde_json::to_string(&profile).expect("serialize");
+    let restored: GuardProfile = serde_json::from_str(&json).expect("deserialize");
+    let restored_per_slot = &restored.calibration.expect("calibration").per_slot;
+    assert_eq!(
+        restored_per_slot
+            .get(&slot(1))
+            .and_then(|meta| meta.slot_kind),
+        Some(SlotKind::Identity),
+        "aspect survives serialize/deserialize"
+    );
+}
+
+#[test]
+fn legacy_per_slot_without_aspect_deserializes_as_none() {
+    // A profile calibrated before slot_kind existed: the field is absent from the
+    // JSON. It must deserialize to None (honest unknown aspect), never a default.
+    let zeros: [u8; 32] = [0; 32];
+    let legacy = json!({
+        "corpus_hash": zeros,
+        "estimator": "conformal_quantile_v1",
+        "far": 0.01,
+        "frr": 0.0,
+        "confidence": 0.95,
+        "ts": 1_785_400_000
+    });
+    let meta: calyx_ward::SlotCalibrationMeta =
+        serde_json::from_value(legacy).expect("legacy per-slot meta deserializes");
+    assert_eq!(
+        meta.slot_kind, None,
+        "absent aspect -> None, not a fabricated default"
+    );
+}

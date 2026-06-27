@@ -172,6 +172,7 @@ fn slot_calibration() -> SlotCalibrationMeta {
         frr: 0.02,
         confidence: 0.95,
         ts: 65_000,
+        slot_kind: None,
     }
 }
 

@@ -210,6 +210,7 @@ fn calibration_meta() -> CalibrationMeta {
                 frr: 0.0,
                 confidence: 0.99,
                 ts: 27_200,
+                slot_kind: None,
             },
         );
     }

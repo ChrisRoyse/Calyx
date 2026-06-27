@@ -957,18 +957,42 @@ async fn guard_handler(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<Guard
             Some(NoveltyAction::RejectClosed) | None => "refuse",
         }
     };
+    // Per-slot aspect from the persisted calibration (#1899): each calibrated
+    // slot carries its SlotKind (Identity/Content/Stylistic) + conformal FAR.
+    // Aspect is null for a slot the profile did not calibrate, or one calibrated
+    // before slot_kind was persisted — surfaced honestly, never fabricated.
+    let calib_per_slot = profile.calibration.as_ref().map(|meta| &meta.per_slot);
     let per_slot: Vec<Value> = verdict
         .per_slot
         .iter()
         .map(|slot| {
+            let aspect = calib_per_slot
+                .and_then(|map| map.get(&slot.slot))
+                .and_then(|meta| meta.slot_kind)
+                .map(|kind| kind.label());
             json!({
                 "slot": slot.slot.get(),
                 "cosine": slot.cos,
                 "tau": slot.tau,
                 "pass": slot.pass,
+                "aspect": aspect,
             })
         })
         .collect();
+    // Conformal FAR per aspect class — the worst-case (max) calibrated FAR bound
+    // across the slots sharing an aspect.
+    let mut far_by_aspect: std::collections::BTreeMap<&'static str, f32> =
+        std::collections::BTreeMap::new();
+    if let Some(map) = calib_per_slot {
+        for meta in map.values() {
+            if let Some(kind) = meta.slot_kind {
+                far_by_aspect
+                    .entry(kind.label())
+                    .and_modify(|far| *far = far.max(meta.far))
+                    .or_insert(meta.far);
+            }
+        }
+    }
     let far = profile.calibration.as_ref().map(|meta| meta.far);
     let body = json!({
         "verdict": verdict_str,
@@ -976,6 +1000,7 @@ async fn guard_handler(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<Guard
         "provisional": verdict.provisional,
         "highStakes": high_stakes,
         "far": far,
+        "farByAspect": far_by_aspect,
         "perSlot": per_slot,
     });
     (StatusCode::OK, Json(body)).into_response()

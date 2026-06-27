@@ -248,6 +248,7 @@ fn civic_profile(corpus_hash: [u8; 32]) -> GuardProfile {
                 frr: 0.0,
                 confidence: 1.0,
                 ts: CALIBRATION_TS,
+                slot_kind: None,
             },
         );
     }

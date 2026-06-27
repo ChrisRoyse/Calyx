@@ -30,6 +30,15 @@ impl SlotKind {
             Self::Content => 0.03,
         }
     }
+
+    /// Stable lowercase wire label for the aspect (`/v1/guard perSlot.aspect`).
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Identity => "identity",
+            Self::Stylistic => "stylistic",
+            Self::Content => "content",
+        }
+    }
 }
 
 /// Grounded calibration scores for one slot.
@@ -115,7 +124,7 @@ pub fn calibrate(
         if !profile_template.required_slots.contains(&input.slot) {
             profile_template.required_slots.push(input.slot);
         }
-        metas.push((input.slot, meta));
+        metas.push((input.slot, input.slot_kind, meta));
     }
     profile_template.required_slots.sort_unstable();
     profile_template.required_slots.dedup();
@@ -226,7 +235,7 @@ fn binomial_cdf_at_most(successes: usize, trials: usize, probability: f64) -> f6
 }
 
 fn merge_meta(
-    metas: &[(SlotId, CalibrationMeta)],
+    metas: &[(SlotId, SlotKind, CalibrationMeta)],
     alpha: f32,
     clock: &dyn Clock,
 ) -> Result<CalibrationMeta, WardError> {
@@ -239,12 +248,15 @@ fn merge_meta(
     let mut far = 0.0_f32;
     let mut frr = 0.0_f32;
     let mut per_slot = BTreeMap::new();
-    for (slot, meta) in metas {
+    for (slot, slot_kind, meta) in metas {
         hasher.update(slot.get().to_be_bytes());
         hasher.update(meta.corpus_hash);
         far = far.max(meta.far);
         frr = frr.max(meta.frr);
-        per_slot.insert(*slot, SlotCalibrationMeta::from_calibration(meta));
+        per_slot.insert(
+            *slot,
+            SlotCalibrationMeta::from_calibration(meta, *slot_kind),
+        );
     }
     let hash = hasher.finalize();
     let mut corpus_hash = [0_u8; 32];

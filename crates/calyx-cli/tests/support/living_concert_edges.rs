@@ -16,7 +16,7 @@ use calyx_oracle::predict_next_occurrence;
 use calyx_registry::{AlgorithmicLens, Input, Registry};
 use calyx_ward::{
     CalibrationMeta, GuardId, GuardPolicy, GuardProfile, MatchedSlots, NoveltyAction,
-    ProducedSlots, SlotCalibrationMeta, guard_with_ledger,
+    ProducedSlots, SlotCalibrationMeta, SlotKind, guard_with_ledger,
 };
 use serde_json::{Value, json};
 
@@ -257,9 +257,10 @@ fn guard_profile(clock: &dyn Clock) -> GuardProfile {
     let mut tau = BTreeMap::new();
     tau.insert(slot(0), 0.7);
     let mut calibration = CalibrationMeta::new([0x41; 32], "issue641-fixed", 0.0, 0.0, 0.99, clock);
-    calibration
-        .per_slot
-        .insert(slot(0), SlotCalibrationMeta::from_calibration(&calibration));
+    calibration.per_slot.insert(
+        slot(0),
+        SlotCalibrationMeta::from_calibration(&calibration, SlotKind::Identity),
+    );
     GuardProfile {
         guard_id: "018f48a4-9a79-74d2-8a5c-9ad7f6b8c641"
             .parse::<GuardId>()

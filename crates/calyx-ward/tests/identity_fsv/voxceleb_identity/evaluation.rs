@@ -216,6 +216,7 @@ fn guard_profile(tau: f32, clips: &[EmbeddedClip]) -> GuardProfile {
             frr: 0.0,
             confidence: 1.0,
             ts: CALIBRATION_TS,
+            slot_kind: None,
         },
     )]);
     GuardProfile {
