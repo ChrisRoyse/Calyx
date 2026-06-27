@@ -298,13 +298,28 @@ pub(super) fn default_time_controls() -> Vec<TemplateTimeControl> {
 
 pub(super) fn lens_ref_from_catalog(entry: &super::LensCatalogEntry) -> CliResult<TemplateLensRef> {
     let spec = lens_spec_metadata_from_manifest_path(&entry.manifest)?;
+    let catalog_lens_id: LensId = entry
+        .lens_id
+        .parse()
+        .map_err(|err| CliError::usage(format!("parse lens_id {}: {err}", entry.lens_id)))?;
+    let manifest_lens_id = spec.lens_id();
+    if catalog_lens_id != manifest_lens_id {
+        return Err(template_error(
+            TEMPLATE_INVALID,
+            format!(
+                "lens catalog entry {} has lens_id {}, but manifest {} resolves to {}",
+                entry.name,
+                catalog_lens_id,
+                entry.manifest.display(),
+                manifest_lens_id
+            ),
+            "repair the lens catalog with `calyx lens add --manifest <manifest> --home <dir>` before saving templates",
+        ));
+    }
     Ok(TemplateLensRef {
         slot_key: slug(&entry.name),
         lens_name: entry.name.clone(),
-        lens_id: entry
-            .lens_id
-            .parse()
-            .map_err(|err| CliError::usage(format!("parse lens_id {}: {err}", entry.lens_id)))?,
+        lens_id: catalog_lens_id,
         runtime_lens_id: None,
         weights_sha256: entry.weights_sha256.clone(),
         runtime: runtime_name(&spec.runtime).to_string(),

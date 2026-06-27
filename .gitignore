@@ -59,6 +59,8 @@ env/
 models/
 checkpoints/
 lenses/
+# HuggingFace model cache (multi-GB downloads — never commit)
+.hf-cache/
 
 # ── Data, datasets, on-disk DB state (Aster storage, ZFS-backed) ─────
 data/

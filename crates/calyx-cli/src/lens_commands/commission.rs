@@ -316,6 +316,8 @@ fn export_onnx(flags: &CommissionFlags, out: &Path, log: &mut ConversionLog) -> 
             &flags.hf,
             "--task",
             "feature-extraction",
+            "--library-name",
+            "transformers",
             &export_dir.display().to_string(),
         ],
     )?;

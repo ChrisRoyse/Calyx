@@ -7,6 +7,7 @@ import argparse
 import io
 import json
 import math
+import os
 import struct
 import sys
 import wave
@@ -18,31 +19,119 @@ import onnxruntime as ort
 from scipy import signal
 
 CUDA_FAIL_LOUD_DETAIL = "cuda:0,error_on_failure,no_cpu_fallback"
+TENSORRT_CUDA_FAIL_LOUD_DETAIL = "tensorrt:0,cuda:0,error_on_failure,no_cpu_fallback"
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", required=True)
+    parser.add_argument("--config")
+    parser.add_argument("--mux", action="store_true")
     args = parser.parse_args()
+    if args.mux:
+        if args.config:
+            parser.error("--mux cannot be combined with --config")
+        return run_mux()
+    if not args.config:
+        parser.error("--config is required unless --mux is set")
     config_path = Path(args.config)
+    state = load_adapter_state(config_path)
+    run_adapter_loop(state)
+    return 0
+
+
+class AdapterState:
+    def __init__(
+        self,
+        *,
+        config_path: Path,
+        config: dict[str, Any],
+        axis: str,
+        session: ort.InferenceSession,
+        processor: Any,
+    ) -> None:
+        self.config_path = config_path
+        self.config = config
+        self.axis = axis
+        self.session = session
+        self.processor = processor
+
+
+def load_adapter_state(config_path: Path) -> AdapterState:
+    config_path = config_path.resolve()
     config = json.loads(config_path.read_text(encoding="utf-8"))
     base = config_path.parent
     axis = config["axis"]
     session = load_session(resolve(base, config["model_file"]), config.get("provider"))
     processor_id = processor_reference(base, config.get("processor_model_id") or config["model_id"])
     processor = load_processor(axis, processor_id, config)
-    request = read_frame(sys.stdin.buffer)
-    vectors = [
-        embed_one(axis, processor, session, bytes(row)).tolist()
-        for row in request.get("inputs", [])
-    ]
-    write_frame(sys.stdout.buffer, {"vectors": vectors})
+    print(
+        "CALYX_MULTIMODAL_ADAPTER_LOADED "
+        f"config={config_path} axis={axis} provider={config.get('provider')} model={config['model_id']}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return AdapterState(
+        config_path=config_path,
+        config=config,
+        axis=axis,
+        session=session,
+        processor=processor,
+    )
+
+
+def run_adapter_loop(state: AdapterState) -> None:
+    while True:
+        request = read_frame(sys.stdin.buffer)
+        if request is None:
+            break
+        vectors = [
+            embed_one(state.axis, state.processor, state.session, bytes(row)).tolist()
+            for row in request.get("inputs", [])
+        ]
+        write_frame(sys.stdout.buffer, {"vectors": vectors})
+
+
+def run_mux() -> int:
+    states: dict[str, AdapterState] = {}
+    while True:
+        request = read_frame(sys.stdin.buffer)
+        if request is None:
+            break
+        config_raw = request.get("config")
+        if not isinstance(config_raw, str) or not config_raw.strip():
+            raise RuntimeError("mux request missing non-empty config path")
+        config_path = Path(config_raw).resolve()
+        key = str(config_path)
+        state = states.get(key)
+        if state is None:
+            try:
+                state = load_adapter_state(config_path)
+            except Exception as exc:  # noqa: BLE001 - stderr is surfaced by Rust.
+                print(
+                    f"CALYX_MULTIMODAL_MUX_LOAD_FAILED config={config_path}: {exc}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                raise
+            states[key] = state
+            print(
+                f"CALYX_MULTIMODAL_MUX_STATE loaded={len(states)} latest={config_path}",
+                file=sys.stderr,
+                flush=True,
+            )
+        vectors = [
+            embed_one(state.axis, state.processor, state.session, bytes(row)).tolist()
+            for row in request.get("inputs", [])
+        ]
+        write_frame(sys.stdout.buffer, {"vectors": vectors, "loaded_configs": len(states)})
     return 0
 
 
 def load_session(model_file: Path, provider: str | None) -> ort.InferenceSession:
     if provider is None or provider == "cpu_explicit":
         return load_cpu_session(model_file)
+    if provider in {"tensorrt_cuda_fail_loud", TENSORRT_CUDA_FAIL_LOUD_DETAIL}:
+        return load_tensorrt_cuda_session(model_file)
     if provider in {"cuda_fail_loud", CUDA_FAIL_LOUD_DETAIL}:
         return load_cuda_session(model_file, allow_cpu_fallback=False)
     if provider in {"cuda_preferred", "cuda:0,allow_cpu_fallback"}:
@@ -70,6 +159,37 @@ def load_cuda_session(model_file: Path, allow_cpu_fallback: bool) -> ort.Inferen
     session = ort.InferenceSession(str(model_file), sess_options=options, providers=providers)
     if "CUDAExecutionProvider" not in session.get_providers():
         raise RuntimeError(f"CUDAExecutionProvider did not load: {session.get_providers()}")
+    return session
+
+
+def load_tensorrt_cuda_session(model_file: Path) -> ort.InferenceSession:
+    available = ort.get_available_providers()
+    missing = [
+        name
+        for name in ("TensorrtExecutionProvider", "CUDAExecutionProvider")
+        if name not in available
+    ]
+    if missing:
+        raise RuntimeError(f"required ONNX Runtime GPU providers unavailable: {missing}; available={available}")
+    cache_root = Path(os.environ.get("CALYX_TRT_ENGINE_CACHE") or model_file.parent / "trt-cache")
+    cache_root.mkdir(parents=True, exist_ok=True)
+    options = ort.SessionOptions()
+    options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
+    providers: list[Any] = [
+        (
+            "TensorrtExecutionProvider",
+            {
+                "device_id": 0,
+                "trt_engine_cache_enable": True,
+                "trt_engine_cache_path": str(cache_root),
+            },
+        ),
+        ("CUDAExecutionProvider", {"device_id": 0}),
+    ]
+    session = ort.InferenceSession(str(model_file), sess_options=options, providers=providers)
+    loaded = session.get_providers()
+    if "TensorrtExecutionProvider" not in loaded or "CUDAExecutionProvider" not in loaded:
+        raise RuntimeError(f"TensorRT/CUDA providers did not load: {loaded}")
     return session
 
 
@@ -105,15 +225,79 @@ def load_image_processor(model_id: str) -> dict[str, Any]:
 
 
 def load_sequence_processor(axis: str, model_id: str, config: dict[str, Any]) -> dict[str, Any]:
-    from transformers import AutoTokenizer
+    backend = load_tokenizers_backend_if_declared(model_id)
+    if backend is not None:
+        tokenizer = backend
+    else:
+        from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
     return {
         "kind": "tokenizer",
         "axis": axis,
         "tokenizer": tokenizer,
         "kmer": int(config.get("kmer") or 0),
     }
+
+
+def load_tokenizers_backend_if_declared(model_id: str) -> Any | None:
+    root = Path(model_id)
+    if not root.exists():
+        return None
+    tokenizer_path = root / "tokenizer.json"
+    config_path = root / "tokenizer_config.json"
+    if not tokenizer_path.exists() or not config_path.exists():
+        return None
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    tokenizer_class = config.get("tokenizer_class")
+    if tokenizer_class == "TokenizersBackend":
+        pass
+    elif config.get("backend") == "tokenizers" and tokenizer_class is None:
+        pass
+    else:
+        return None
+    from tokenizers import Tokenizer
+
+    tokenizer = Tokenizer.from_file(str(tokenizer_path))
+    return TokenizersBackend(
+        tokenizer,
+        max_length=int(config.get("model_max_length") or 0),
+    )
+
+
+class TokenizersBackend:
+    def __init__(self, tokenizer: Any, max_length: int) -> None:
+        self._tokenizer = tokenizer
+        self._max_length = max_length
+
+    def __call__(
+        self,
+        text: str,
+        *,
+        return_tensors: str = "np",
+        truncation: bool = True,
+    ) -> dict[str, np.ndarray]:
+        if return_tensors != "np":
+            raise RuntimeError(
+                f"TokenizersBackend only supports return_tensors='np', got {return_tensors!r}"
+            )
+        encoding = self._tokenizer.encode(text)
+        ids = encoding.ids
+        attention_mask = encoding.attention_mask
+        type_ids = encoding.type_ids
+        if truncation and self._max_length > 0:
+            ids = ids[: self._max_length]
+            attention_mask = attention_mask[: self._max_length]
+            type_ids = type_ids[: self._max_length]
+        if not ids:
+            raise RuntimeError("TokenizersBackend produced no input_ids")
+        output = {
+            "input_ids": np.asarray([ids], dtype=np.int64),
+            "attention_mask": np.asarray([attention_mask], dtype=np.int64),
+        }
+        if any(type_ids):
+            output["token_type_ids"] = np.asarray([type_ids], dtype=np.int64)
+        return output
 
 
 def embed_one(axis: str, processor: Any, session: ort.InferenceSession, payload: bytes) -> np.ndarray:
@@ -565,8 +749,10 @@ def normalize(vector: np.ndarray) -> np.ndarray:
     return vector / norm
 
 
-def read_frame(stream: Any) -> dict[str, Any]:
+def read_frame(stream: Any) -> dict[str, Any] | None:
     header = stream.read(4)
+    if len(header) == 0:
+        return None
     if len(header) != 4:
         raise RuntimeError("missing request frame header")
     length = struct.unpack(">I", header)[0]

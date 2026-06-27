@@ -7,11 +7,13 @@ mod template_cards;
 mod template_model;
 mod template_store;
 mod templates;
+mod warm;
 
 use calyx_assay::{PanelResourceBudget, ResourceDensity, ResourceUsage, pack_panel_by_density};
-use calyx_core::{LensCost, Placement, SlotState};
+use calyx_core::{LensCost, Panel, Placement, SlotState};
 use calyx_registry::{
-    LensHealth, PanelSlotListing, lens_spec_from_manifest_path, list_panel, load_vault_panel_state,
+    LensHealth, PanelSlotListing, Registry, lens_spec_from_manifest_path, list_panel,
+    load_vault_panel_state,
 };
 use serde::{Deserialize, Serialize};
 
@@ -99,15 +101,83 @@ struct PanelSlotStatus {
     remaining_budget_after: Option<ResourceUsage>,
 }
 
+pub(crate) struct SavedTemplatePanelBuild {
+    pub template_id: String,
+    pub template_name: String,
+    pub panel: Panel,
+    pub registry: Registry,
+    pub content_lens_count: usize,
+    pub a37_gate_eligible: bool,
+    pub a37_status: String,
+    pub registered_lenses_added: usize,
+}
+
+pub(crate) fn build_saved_template_panel(
+    home: &Path,
+    selector: &str,
+    now_ms: u64,
+) -> CliResult<SavedTemplatePanelBuild> {
+    build_saved_template_panel_with_progress(home, selector, now_ms, None)
+}
+
+fn build_saved_template_panel_with_progress(
+    home: &Path,
+    selector: &str,
+    now_ms: u64,
+    progress: Option<&mut dyn FnMut(template_store::TemplateLensProgress) -> CliResult<()>>,
+) -> CliResult<SavedTemplatePanelBuild> {
+    let store = template_store::TemplateStore::open(home);
+    let mut template = store.load(selector)?;
+    template.validate()?;
+    let a37 = template.a37_admission();
+    let template_id = template_store::id_for_loaded(&template)?;
+    let mut registry = Registry::new();
+    let registered_lenses_added = template_store::register_template_lenses_with_progress(
+        &mut registry,
+        &mut template,
+        progress,
+    )?;
+    let panel = template.to_target_panel(now_ms);
+    let content_lens_count = a37.content_lens_count.max(panel_content_lens_count(&panel));
+    Ok(SavedTemplatePanelBuild {
+        template_id,
+        template_name: template.name,
+        panel,
+        registry,
+        content_lens_count,
+        a37_gate_eligible: a37.gate_eligible,
+        a37_status: a37.status,
+        registered_lenses_added,
+    })
+}
+
+pub(crate) fn saved_template_names(home: &Path) -> CliResult<Vec<String>> {
+    let store = template_store::TemplateStore::open(home);
+    Ok(store
+        .list()?
+        .into_iter()
+        .map(|template| template.name)
+        .collect())
+}
+
 pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
     match topic {
         "a38-bundle" => a38_bundle::run(rest),
         "status" => status(rest),
         "template" => templates::run(rest),
+        "warm" => warm::run(rest),
         other => Err(CliError::usage(format!(
-            "unknown panel subcommand {other}; expected a38-bundle, status, or template"
+            "unknown panel subcommand {other}; expected a38-bundle, status, template, or warm"
         ))),
     }
+}
+
+fn panel_content_lens_count(panel: &Panel) -> usize {
+    panel
+        .slots
+        .iter()
+        .filter(|slot| !slot.retrieval_only && !slot.excluded_from_dedup)
+        .count()
 }
 
 fn status(args: &[String]) -> CliResult {

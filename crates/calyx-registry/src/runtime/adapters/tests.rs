@@ -96,6 +96,31 @@ fn cuda_preferred_provider_loads_from_real_config() {
 }
 
 #[test]
+fn tensorrt_cuda_fail_loud_provider_loads_from_real_config() {
+    let fixture = adapter_fixture_with_provider(
+        "tensorrt-cuda-provider",
+        MultimodalAxis::Image,
+        128,
+        "tensorrt_cuda_fail_loud",
+    );
+    let lens = MultimodalAdapterLens::from_adapter_spec(adapter_spec(
+        "fixture-tensorrt-cuda-image",
+        MultimodalAxis::Image,
+        128,
+        Some(fixture.config),
+        None,
+        false,
+    ))
+    .unwrap();
+
+    assert!(lens.provider().is_gpu());
+    assert_eq!(
+        lens.provider_detail(),
+        "tensorrt:0,cuda:0,error_on_failure,no_cpu_fallback"
+    );
+}
+
+#[test]
 fn unsupported_adapter_provider_fails_closed() {
     let fixture = adapter_fixture_with_provider("bad-provider", MultimodalAxis::Image, 128, "auto");
     let error = MultimodalAdapterLens::from_adapter_spec(adapter_spec(

@@ -19,6 +19,7 @@ use super::{
 };
 use crate::error::{CliError, CliResult};
 use crate::output::{print_json, print_table};
+use crate::panel_commands::{build_saved_template_panel, saved_template_names};
 
 const DEFAULT_TEMPLATE: &str = "text-default";
 const DEFAULT_PROFILE_NAME: &str = "profile-lens";
@@ -39,6 +40,12 @@ struct CreateVaultReport {
     vault_id: String,
     name: String,
     panel_template: String,
+    template_source: String,
+    content_lens_count: usize,
+    registered_lenses_added: usize,
+    registry_snapshot_written: bool,
+    a37_gate_eligible: bool,
+    a37_status: String,
 }
 
 #[derive(Serialize)]
@@ -80,6 +87,16 @@ enum LensStateAction {
     Park,
 }
 
+struct PreparedVaultPanel {
+    panel: Panel,
+    registry: Option<Registry>,
+    template_source: String,
+    content_lens_count: usize,
+    registered_lenses_added: usize,
+    a37_gate_eligible: bool,
+    a37_status: String,
+}
+
 fn create_vault(args: CreateVaultArgs) -> CliResult {
     let home = home_dir()?;
     let template = args.panel_template.as_deref().unwrap_or(DEFAULT_TEMPLATE);
@@ -92,6 +109,7 @@ fn create_vault(args: CreateVaultArgs) -> CliResult {
         )));
     }
 
+    let prepared = prepare_vault_panel(&home, template)?;
     let vault_id = VaultId::from_ulid(Ulid::new());
     let relative = format!("vaults/{vault_id}");
     let vault_dir = home.join(&relative);
@@ -100,9 +118,8 @@ fn create_vault(args: CreateVaultArgs) -> CliResult {
             "vault directory for {vault_id} already exists"
         )));
     }
-    let panel = panel_for_template(template)?;
     let options = VaultOptions {
-        panel: Some(panel),
+        panel: Some(prepared.panel.clone()),
         ..VaultOptions::default()
     };
     AsterVault::new_durable(
@@ -111,6 +128,13 @@ fn create_vault(args: CreateVaultArgs) -> CliResult {
         vault_salt(vault_id, &args.name),
         options,
     )?;
+    let registry_snapshot_written = match prepared.registry.as_ref() {
+        Some(registry) => {
+            persist_vault_panel_state(&vault_dir, &prepared.panel, registry)?;
+            true
+        }
+        None => false,
+    };
 
     index.vaults.push(VaultIndexEntry {
         name: args.name.clone(),
@@ -126,6 +150,12 @@ fn create_vault(args: CreateVaultArgs) -> CliResult {
         vault_id: vault_id.to_string(),
         name: args.name,
         panel_template: template.to_string(),
+        template_source: prepared.template_source,
+        content_lens_count: prepared.content_lens_count,
+        registered_lenses_added: prepared.registered_lenses_added,
+        registry_snapshot_written,
+        a37_gate_eligible: prepared.a37_gate_eligible,
+        a37_status: prepared.a37_status,
     })
 }
 
@@ -281,6 +311,54 @@ fn panel_for_template(name: &str) -> CliResult<Panel> {
         }
     };
     Ok(calyx_registry::instantiate_panel(&template, now_ms()).panel)
+}
+
+fn prepare_vault_panel(home: &Path, template: &str) -> CliResult<PreparedVaultPanel> {
+    if super::PANEL_TEMPLATES.contains(&template) {
+        let panel = panel_for_template(template)?;
+        return Ok(PreparedVaultPanel {
+            content_lens_count: panel_content_lens_count(&panel),
+            panel,
+            registry: None,
+            template_source: "built_in".to_string(),
+            registered_lenses_added: 0,
+            a37_gate_eligible: false,
+            a37_status: "built_in_template_not_a37_profiled".to_string(),
+        });
+    }
+
+    match build_saved_template_panel(home, template, now_ms()) {
+        Ok(saved) => Ok(PreparedVaultPanel {
+            panel: saved.panel,
+            registry: Some(saved.registry),
+            template_source: format!("saved:{}:{}", saved.template_name, saved.template_id),
+            content_lens_count: saved.content_lens_count,
+            registered_lenses_added: saved.registered_lenses_added,
+            a37_gate_eligible: saved.a37_gate_eligible,
+            a37_status: saved.a37_status,
+        }),
+        Err(error) if error.code() == "CALYX_PANEL_TEMPLATE_NOT_FOUND" => {
+            let saved = saved_template_names(home).unwrap_or_default();
+            Err(CliError::usage(format!(
+                "unknown --panel-template {template}; built-ins are {}; saved templates in {} are [{}]",
+                super::PANEL_TEMPLATES.join(", "),
+                home.join("panels")
+                    .join("templates")
+                    .join("index.json")
+                    .display(),
+                saved.join(", ")
+            )))
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn panel_content_lens_count(panel: &Panel) -> usize {
+    panel
+        .slots
+        .iter()
+        .filter(|slot| !slot.retrieval_only && !slot.excluded_from_dedup)
+        .count()
 }
 
 pub(crate) fn home_dir() -> CliResult<PathBuf> {

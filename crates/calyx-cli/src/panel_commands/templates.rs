@@ -69,10 +69,11 @@ pub(super) fn run(rest: &[String]) -> CliResult {
         "save" => save(args),
         "list" => list(args),
         "fork" => fork(args),
+        "refresh" => refresh(args),
         "profile" => profile(args),
         "swap" => swap(args),
         other => Err(CliError::usage(format!(
-            "unknown panel template subcommand {other}; expected seed, save, list, fork, profile, or swap"
+            "unknown panel template subcommand {other}; expected seed, save, list, fork, refresh, profile, or swap"
         ))),
     }
 }
@@ -160,6 +161,63 @@ fn fork(args: &[String]) -> CliResult {
     let store = TemplateStore::open(&home);
     let save = store.fork(&from, name, flags.notes, vault::now_ms())?;
     print_json(&save_report("fork", save))
+}
+
+fn refresh(args: &[String]) -> CliResult {
+    let flags = Flags::parse(args)?;
+    let home = home(flags.home.clone())?;
+    let selector = flags.template.ok_or_else(|| {
+        CliError::usage("panel template refresh requires --template <name-or-id>")
+    })?;
+    let catalog = read_catalog(&catalog_path(Some(&home))?)?;
+    let store = TemplateStore::open(&home);
+    let source = store.load(&selector)?;
+    let mut lenses = Vec::with_capacity(source.lenses.len());
+    for old in &source.lenses {
+        let entry = catalog
+            .lenses
+            .iter()
+            .find(|entry| entry.name == old.lens_name)
+            .ok_or_else(|| {
+                template_error(
+                    TEMPLATE_INVALID,
+                    format!(
+                        "template {} lens {} is not present in the current catalog",
+                        source.name, old.lens_name
+                    ),
+                    "repair the lens catalog with `calyx lens add --manifest <manifest> --home <dir>` before refreshing",
+                )
+            })?;
+        let mut refreshed = lens_ref_from_catalog(entry)?;
+        if refreshed.modality != old.modality || refreshed.shape != old.shape {
+            return Err(template_error(
+                TEMPLATE_INVALID,
+                format!(
+                    "template {} lens {} changed contract from {:?}/{:?} to {:?}/{:?}",
+                    source.name,
+                    old.lens_name,
+                    old.modality,
+                    old.shape,
+                    refreshed.modality,
+                    refreshed.shape
+                ),
+                "do not refresh across modality or shape changes; save an intentional new template instead",
+            ));
+        }
+        refreshed.slot_key.clone_from(&old.slot_key);
+        refreshed.counts_toward_a35 = old.counts_toward_a35;
+        lenses.push(refreshed);
+    }
+    let save = store.save(
+        TemplateDraft {
+            name: source.name,
+            notes: flags.notes.unwrap_or(source.notes),
+            lenses,
+            ensemble_card: source.ensemble_card,
+        },
+        vault::now_ms(),
+    )?;
+    print_json(&save_report("refresh", save))
 }
 
 fn profile(args: &[String]) -> CliResult {

@@ -19,6 +19,22 @@ use crate::error::CliResult;
 use crate::lens_commands::support::register_manifest_runtime;
 
 #[derive(Clone, Debug)]
+pub(super) struct TemplateLensProgress {
+    pub phase: &'static str,
+    pub ordinal: usize,
+    pub total: usize,
+    pub slot_key: String,
+    pub lens_name: String,
+    pub lens_id: String,
+    pub runtime_lens_id: Option<String>,
+    pub runtime: String,
+    pub modality: String,
+    pub shape: String,
+    pub placement: String,
+    pub manifest: String,
+}
+
+#[derive(Clone, Debug)]
 pub(super) struct TemplateStore {
     root: PathBuf,
 }
@@ -342,13 +358,28 @@ fn version_ref<'a>(
         })
 }
 
-fn register_template_lenses(
+pub(super) fn register_template_lenses(
     registry: &mut Registry,
     template: &mut SavedPanelTemplate,
 ) -> CliResult<usize> {
+    register_template_lenses_with_progress(registry, template, None)
+}
+
+pub(super) fn register_template_lenses_with_progress(
+    registry: &mut Registry,
+    template: &mut SavedPanelTemplate,
+    progress: Option<&mut dyn FnMut(TemplateLensProgress) -> CliResult<()>>,
+) -> CliResult<usize> {
+    let mut progress = progress;
     let mut added = 0;
-    for lens in &mut template.lenses {
+    let total = template.lenses.len();
+    for (idx, lens) in template.lenses.iter_mut().enumerate() {
+        emit_progress(&mut progress, lens_progress("load_start", idx, total, lens))?;
         if lens.runtime_lens_id.is_some_and(|id| registry.contains(id)) {
+            emit_progress(
+                &mut progress,
+                lens_progress("already_registered", idx, total, lens),
+            )?;
             continue;
         }
         let spec = lens_spec_from_manifest_path(Path::new(&lens.manifest))?;
@@ -384,8 +415,16 @@ fn register_template_lenses(
                 ));
             }
             lens.runtime_lens_id = Some(existing);
+            emit_progress(
+                &mut progress,
+                lens_progress("existing_matched", idx, total, lens),
+            )?;
             continue;
         }
+        emit_progress(
+            &mut progress,
+            lens_progress("runtime_register_start", idx, total, lens),
+        )?;
         let registered = register_manifest_runtime(registry, spec)?;
         if let Some(expected) = lens.runtime_lens_id
             && registered != expected
@@ -397,12 +436,48 @@ fn register_template_lenses(
             ));
         }
         lens.runtime_lens_id = Some(registered);
+        emit_progress(
+            &mut progress,
+            lens_progress("runtime_register_ok", idx, total, lens),
+        )?;
         added += 1;
     }
     Ok(added)
 }
 
-fn id_for_loaded(template: &SavedPanelTemplate) -> CliResult<String> {
+fn emit_progress(
+    progress: &mut Option<&mut dyn FnMut(TemplateLensProgress) -> CliResult<()>>,
+    event: TemplateLensProgress,
+) -> CliResult<()> {
+    if let Some(progress) = progress.as_deref_mut() {
+        progress(event)?;
+    }
+    Ok(())
+}
+
+fn lens_progress(
+    phase: &'static str,
+    idx: usize,
+    total: usize,
+    lens: &TemplateLensRef,
+) -> TemplateLensProgress {
+    TemplateLensProgress {
+        phase,
+        ordinal: idx + 1,
+        total,
+        slot_key: lens.slot_key.clone(),
+        lens_name: lens.lens_name.clone(),
+        lens_id: lens.lens_id.to_string(),
+        runtime_lens_id: lens.runtime_lens_id.map(|id| id.to_string()),
+        runtime: lens.runtime.clone(),
+        modality: format!("{:?}", lens.modality),
+        shape: format!("{:?}", lens.shape),
+        placement: format!("{:?}", lens.placement),
+        manifest: lens.manifest.clone(),
+    }
+}
+
+pub(super) fn id_for_loaded(template: &SavedPanelTemplate) -> CliResult<String> {
     Ok(blake3::hash(&object_bytes(template)?).to_hex().to_string())
 }
 

@@ -1,14 +1,17 @@
 use std::fs;
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use calyx_core::CalyxError;
 use calyx_registry::LensForgeFile;
-use calyx_registry::frozen::sha256_digest;
+use calyx_registry::frozen::LengthDelimitedSha256;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::super::support::hex_from_bytes;
 use crate::error::{CliError, CliResult};
+
+const STREAM_HASH_BUFFER_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Serialize)]
 pub(super) struct FileReport {
@@ -26,24 +29,24 @@ pub(super) struct Artifact {
 }
 
 pub(super) fn artifact(role: &str, path: PathBuf) -> CliResult<Artifact> {
-    let bytes = fs::read(&path)?;
+    let digest = plain_sha256_file(&path)?;
     Ok(Artifact {
         role: role.to_string(),
         path,
-        sha256: plain_sha256_hex(&bytes),
-        bytes: bytes.len() as u64,
+        sha256: digest.sha256,
+        bytes: digest.bytes,
     })
 }
 
 pub(super) fn artifact_set_sha256(artifacts: &[Artifact]) -> CliResult<String> {
     let mut ordered = artifacts.iter().collect::<Vec<_>>();
     ordered.sort_by_key(|item| (role_rank(&item.role), item.path.clone()));
-    let mut owned = Vec::with_capacity(ordered.len());
+    let mut hasher = LengthDelimitedSha256::new();
+    let mut buffer = vec![0_u8; STREAM_HASH_BUFFER_BYTES];
     for item in ordered {
-        owned.push(fs::read(&item.path)?);
+        hash_artifact_into(item, &mut hasher, &mut buffer)?;
     }
-    let parts = owned.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    Ok(hex_from_bytes(&sha256_digest(&parts)))
+    Ok(hex_from_bytes(&hasher.finalize()))
 }
 
 pub(super) fn manifest_files(base: &Path, artifacts: &[Artifact]) -> CliResult<Vec<LensForgeFile>> {
@@ -180,6 +183,70 @@ fn collect_by_extension(root: &Path, extension: &str, out: &mut Vec<PathBuf>) ->
     Ok(())
 }
 
+struct FileDigest {
+    sha256: String,
+    bytes: u64,
+}
+
+fn plain_sha256_file(path: &Path) -> CliResult<FileDigest> {
+    let file = fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; STREAM_HASH_BUFFER_BYTES];
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            let digest: [u8; 32] = hasher.finalize().into();
+            return Ok(FileDigest {
+                sha256: hex_from_bytes(&digest),
+                bytes: metadata.len(),
+            });
+        }
+        hasher.update(&buffer[..read]);
+    }
+}
+
+fn hash_artifact_into(
+    artifact: &Artifact,
+    hasher: &mut LengthDelimitedSha256,
+    buffer: &mut [u8],
+) -> CliResult<()> {
+    let file = fs::File::open(&artifact.path)?;
+    let metadata = file.metadata()?;
+    if metadata.len() != artifact.bytes {
+        return Err(CliError::from(CalyxError::lens_frozen_violation(format!(
+            "artifact {} byte count changed from {} to {} while hashing artifact_set",
+            artifact.path.display(),
+            artifact.bytes,
+            metadata.len()
+        ))));
+    }
+    hasher.begin_part(artifact.bytes);
+    let mut plain = Sha256::new();
+    let mut reader = BufReader::new(file);
+    loop {
+        let read = reader.read(buffer)?;
+        if read == 0 {
+            let digest: [u8; 32] = plain.finalize().into();
+            let actual = hex_from_bytes(&digest);
+            if !actual.eq_ignore_ascii_case(&artifact.sha256) {
+                return Err(CliError::from(CalyxError::lens_frozen_violation(format!(
+                    "artifact {} sha256 changed from {} to {} while hashing artifact_set",
+                    artifact.path.display(),
+                    artifact.sha256,
+                    actual
+                ))));
+            }
+            return Ok(());
+        }
+        let chunk = &buffer[..read];
+        plain.update(chunk);
+        hasher.update_chunk(chunk);
+    }
+}
+
+#[cfg(test)]
 fn plain_sha256_hex(bytes: &[u8]) -> String {
     let digest: [u8; 32] = Sha256::digest(bytes).into();
     hex_from_bytes(&digest)
@@ -188,6 +255,7 @@ fn plain_sha256_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use calyx_registry::frozen::sha256_digest;
 
     #[test]
     fn artifact_file_hash_uses_plain_sha256_not_contract_digest() {

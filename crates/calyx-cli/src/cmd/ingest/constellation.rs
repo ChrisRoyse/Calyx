@@ -10,6 +10,7 @@ pub(crate) use calyx_registry::measure::{absent, input_hash, measure_constellati
 use rayon::prelude::*;
 
 use crate::error::CliResult;
+use crate::lens_commands::support::runtime_name;
 
 /// Doctrine #1273 rule 3 ("never single — fail hard"): an ingest that leaves
 /// every declared, applicable content lens unmeasured would silently persist a
@@ -30,9 +31,24 @@ pub(crate) fn ensure_content_panel_floor(
         }
         declared += 1;
         if let Some(SlotVector::Absent { reason }) = cx.slots.get(&slot.slot_id) {
+            let spec = state.registry.lens_spec(slot.lens_id);
+            let runtime = spec
+                .map(|spec| runtime_name(&spec.runtime))
+                .unwrap_or("unregistered");
+            let spec_name = spec
+                .map(|spec| spec.name.as_str())
+                .unwrap_or("missing_registry_snapshot");
             absent.push(format!(
-                "slot {:?} lens {:?} reason={:?}",
-                slot.slot_id, slot.lens_id, reason
+                "slot={} key={} lens={} spec_name={} runtime={} modality={:?} shape={:?} placement={:?} reason={:?}",
+                slot.slot_id.get(),
+                slot.slot_key.key(),
+                slot.lens_id,
+                spec_name,
+                runtime,
+                slot.modality,
+                slot.shape,
+                slot.resource.placement,
+                reason
             ));
         }
     }

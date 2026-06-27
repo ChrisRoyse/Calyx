@@ -72,7 +72,7 @@ fn locate_nvcc() -> PathBuf {
     let cuda_path = env::var_os("CUDA_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(CUDA_PATH_DEFAULT));
-    let nvcc = cuda_path.join("bin").join("nvcc");
+    let nvcc = cuda_path.join("bin").join(nvcc_exe_name());
 
     if !nvcc.is_file() {
         panic!(
@@ -81,6 +81,10 @@ fn locate_nvcc() -> PathBuf {
         );
     }
     nvcc
+}
+
+fn nvcc_exe_name() -> &'static str {
+    if cfg!(windows) { "nvcc.exe" } else { "nvcc" }
 }
 
 fn warn_nvcc_version(nvcc: &Path) {
@@ -124,20 +128,24 @@ fn compile_cubin(nvcc: &Path, src: &Path, out: &Path) {
 }
 
 fn deterministic_args(src: &Path, out: &Path, output_kind: &str) -> Vec<String> {
-    vec![
+    let mut args = vec![
         format!("-arch={CUDA_ARCH}"),
         "-O3".to_string(),
         "--ftz=false".to_string(),
         "--prec-div=true".to_string(),
         "--prec-sqrt=true".to_string(),
         "--fmad=false".to_string(),
-        "-Xcompiler".to_string(),
-        "-fPIC".to_string(),
+    ];
+    if !cfg!(windows) {
+        args.extend(["-Xcompiler".to_string(), "-fPIC".to_string()]);
+    }
+    args.extend([
         output_kind.to_string(),
         "-o".to_string(),
         out.display().to_string(),
         src.display().to_string(),
-    ]
+    ]);
+    args
 }
 
 fn assert_source_exists(src: &Path) {

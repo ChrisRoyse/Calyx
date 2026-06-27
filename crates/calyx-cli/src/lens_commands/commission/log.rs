@@ -50,10 +50,39 @@ pub(super) fn run_command(log: &mut ConversionLog, program: &str, args: &[&str])
     if output.status.success() {
         return Ok(());
     }
+    let stderr_tail = stderr
+        .lines()
+        .rev()
+        .filter(|line| !line.trim().is_empty())
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+    let stdout_tail = stdout
+        .lines()
+        .rev()
+        .filter(|line| !line.trim().is_empty())
+        .take(6)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
     Err(CliError::from(CalyxError::lens_unreachable(format!(
-        "{program} exited with {:?}: {}",
+        "{program} exited with {:?}; stderr_tail={}{}",
         output.status.code(),
-        stderr.lines().next().unwrap_or("no stderr")
+        if stderr_tail.is_empty() {
+            "no stderr"
+        } else {
+            &stderr_tail
+        },
+        if stdout_tail.is_empty() {
+            String::new()
+        } else {
+            format!("\nstdout_tail={stdout_tail}")
+        }
     ))))
 }
 

@@ -18,5 +18,9 @@ pub use pack::{
     MultimodalLensPackEntry, default_multimodal_lens_specs, register_multimodal_lens_pack,
 };
 
+pub fn shutdown_multimodal_gpu_workers() {
+    bridge::shutdown_shared_gpu_workers();
+}
+
 #[cfg(test)]
 mod tests;

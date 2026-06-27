@@ -1,5 +1,7 @@
 use std::env;
+use std::fmt;
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use calyx_core::{
     Asymmetry, CalyxError, Input, Lens, LensId, Modality, Result, SlotShape, SlotVector,
@@ -31,7 +33,6 @@ pub struct MultimodalAdapterSpec {
     pub files: Vec<PathBuf>,
 }
 
-#[derive(Clone, Debug)]
 pub struct MultimodalAdapterLens {
     name: String,
     axis: MultimodalAxis,
@@ -42,6 +43,21 @@ pub struct MultimodalAdapterLens {
     weights_sha256: [u8; 32],
     corpus_hash: [u8; 32],
     id: LensId,
+    worker: Mutex<Option<bridge::AdapterWorker>>,
+}
+
+impl fmt::Debug for MultimodalAdapterLens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MultimodalAdapterLens")
+            .field("name", &self.name)
+            .field("axis", &self.axis)
+            .field("model_id", &self.model_id)
+            .field("dim", &self.dim)
+            .field("provider", &self.adapter_config.provider)
+            .field("files", &self.files)
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
 }
 
 impl MultimodalAdapterLens {
@@ -204,6 +220,7 @@ impl MultimodalAdapterLens {
             weights_sha256: parts.weights_sha256,
             corpus_hash: parts.corpus_hash,
             id: contract.lens_id(),
+            worker: Mutex::new(None),
         })
     }
 }
@@ -250,7 +267,7 @@ impl Lens for MultimodalAdapterLens {
             ensure_input_modality(self, input)?;
             validate_input(self.axis, input)?;
         }
-        bridge::measure_batch(&self.adapter_config, inputs)?
+        bridge::measure_batch(&self.adapter_config, inputs, &self.worker)?
             .into_iter()
             .map(|data| self.slot_from_row(data))
             .collect()

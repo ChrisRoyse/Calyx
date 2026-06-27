@@ -266,12 +266,42 @@ impl FrozenLensContract {
 
 /// Computes a length-delimited SHA-256 digest for contract fields.
 pub fn sha256_digest(parts: &[&[u8]]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
+    let mut hasher = LengthDelimitedSha256::new();
     for part in parts {
-        hasher.update((part.len() as u64).to_be_bytes());
-        hasher.update(part);
+        hasher.update_part(part);
     }
-    hasher.finalize().into()
+    hasher.finalize()
+}
+
+/// Incremental equivalent of [`sha256_digest`] for large contract parts.
+#[derive(Debug, Default)]
+pub struct LengthDelimitedSha256 {
+    hasher: Sha256,
+}
+
+impl LengthDelimitedSha256 {
+    pub fn new() -> Self {
+        Self {
+            hasher: Sha256::new(),
+        }
+    }
+
+    pub fn update_part(&mut self, part: &[u8]) {
+        self.begin_part(part.len() as u64);
+        self.update_chunk(part);
+    }
+
+    pub fn begin_part(&mut self, len: u64) {
+        self.hasher.update(len.to_be_bytes());
+    }
+
+    pub fn update_chunk(&mut self, chunk: &[u8]) {
+        self.hasher.update(chunk);
+    }
+
+    pub fn finalize(self) -> [u8; 32] {
+        self.hasher.finalize().into()
+    }
 }
 
 fn shape_fingerprint(shape: SlotShape) -> String {

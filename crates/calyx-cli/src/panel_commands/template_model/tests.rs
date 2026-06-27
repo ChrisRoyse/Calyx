@@ -81,8 +81,9 @@ fn catalog_lens_ref_uses_manifest_metadata_without_artifact_read() {
         .to_string(),
     )
     .unwrap();
+    let manifest_spec = calyx_registry::lens_spec_metadata_from_manifest_path(&manifest).unwrap();
     let entry = super::super::LensCatalogEntry {
-        lens_id: LensId::from_bytes([7_u8; 16]).to_string(),
+        lens_id: manifest_spec.lens_id().to_string(),
         name: "metadata-only".to_string(),
         modality: "text".to_string(),
         runtime: "onnx".to_string(),
@@ -99,5 +100,53 @@ fn catalog_lens_ref_uses_manifest_metadata_without_artifact_read() {
     assert_eq!(reference.shape, SlotShape::Dense(384));
     assert_eq!(reference.modality, Modality::Text);
     assert_eq!(reference.lens_name, "metadata-only");
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn catalog_lens_ref_rejects_stale_catalog_id() {
+    let root = std::env::temp_dir().join(format!("calyx-template-stale-id-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let manifest = root.join("manifest.json");
+    std::fs::write(
+        &manifest,
+        serde_json::json!({
+            "name": "metadata-only",
+            "modality": "text",
+            "runtime": "onnx-int8",
+            "dim": 384,
+            "dtype": "int8",
+            "weights_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "files": [{
+                "role": "model",
+                "path": "missing-model.onnx",
+                "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+                "bytes": 123456789
+            }],
+            "pooling": "mean",
+            "norm": "l2",
+            "source_hf_id": "fixture/missing",
+            "license": "apache-2.0"
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let entry = super::super::LensCatalogEntry {
+        lens_id: LensId::from_bytes([7_u8; 16]).to_string(),
+        name: "metadata-only".to_string(),
+        modality: "text".to_string(),
+        runtime: "onnx".to_string(),
+        dim: 384,
+        weights_sha256: "11".repeat(32),
+        manifest,
+        cost: LensCost::default(),
+        placement: Placement::Cpu,
+    };
+
+    let error = lens_ref_from_catalog(&entry).unwrap_err();
+
+    assert_eq!(error.code(), TEMPLATE_INVALID);
+    assert!(error.message().contains("manifest"));
+    assert!(error.message().contains("resolves to"));
     std::fs::remove_dir_all(root).unwrap();
 }

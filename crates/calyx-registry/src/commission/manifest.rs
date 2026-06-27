@@ -1,11 +1,12 @@
 use std::fs;
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
 use calyx_core::{Asymmetry, CalyxError, Modality, QuantPolicy, Result, SlotShape};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::frozen::{NormPolicy, sha256_digest};
+use crate::frozen::{LengthDelimitedSha256, NormPolicy, sha256_digest};
 use crate::runtime::adapters::{allow_noncommercial_from_env, ensure_license_allowed};
 use crate::spec::LensSpec;
 
@@ -15,6 +16,7 @@ use super::algorithmic_manifest::{
 use super::manifest_runtime::runtime_from_manifest;
 
 const CONFIG_INVALID: &str = "CALYX_LENS_CONFIG_INVALID";
+const STREAM_HASH_BUFFER_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LensForgeFile {
@@ -239,7 +241,8 @@ fn validate_required(manifest: &LensForgeManifest) -> Result<()> {
 pub(super) struct VerifiedFile {
     pub(super) role: String,
     pub(super) path: PathBuf,
-    bytes: Vec<u8>,
+    sha256: String,
+    bytes: u64,
 }
 
 fn read_and_verify_files(
@@ -249,33 +252,28 @@ fn read_and_verify_files(
     let mut files = Vec::with_capacity(manifest.files.len());
     for file in ordered_manifest_files(&manifest.files) {
         let path = resolve_manifest_path(base_dir, &file.path);
-        let bytes = fs::read(&path).map_err(|err| {
-            config_invalid(format!(
-                "read lensforge artifact {} failed: {err}",
-                path.display()
-            ))
-        })?;
-        let actual = plain_sha256_hex(&bytes);
-        if !hex_eq(&actual, &file.sha256) {
+        let actual = plain_sha256_file(&path)?;
+        if !hex_eq(&actual.sha256, &file.sha256) {
             return Err(CalyxError::lens_frozen_violation(format!(
                 "lensforge artifact {} sha256 {} != manifest {}",
                 path.display(),
-                actual,
+                actual.sha256,
                 file.sha256
             )));
         }
-        if file.bytes != 0 && file.bytes != bytes.len() as u64 {
+        if file.bytes != 0 && file.bytes != actual.bytes {
             return Err(config_invalid(format!(
                 "lensforge artifact {} byte count {} != manifest {}",
                 path.display(),
-                bytes.len(),
+                actual.bytes,
                 file.bytes
             )));
         }
         files.push(VerifiedFile {
             role: file.role.clone(),
             path,
-            bytes,
+            sha256: actual.sha256,
+            bytes: actual.bytes,
         });
     }
     Ok(files)
@@ -295,20 +293,15 @@ fn spec_weights_sha256(
         ]));
     }
     let model = weight_anchor(manifest, artifacts)?;
-    let model_sha = plain_sha256_hex(&model.bytes);
-    if !hex_eq(&model_sha, &manifest.weights_sha256) {
+    if !hex_eq(&model.sha256, &manifest.weights_sha256) {
         return Err(CalyxError::lens_frozen_violation(format!(
-            "lensforge model weights sha256 {model_sha} != manifest {}",
-            manifest.weights_sha256
+            "lensforge model weights sha256 {} != manifest {}",
+            model.sha256, manifest.weights_sha256
         )));
     }
     if let Some(expected) = &manifest.artifact_set_sha256 {
         let contract_artifacts = contract_artifacts(manifest, artifacts)?;
-        let parts = contract_artifacts
-            .iter()
-            .map(|file| file.bytes.as_slice())
-            .collect::<Vec<_>>();
-        let actual = hex_from_bytes(&sha256_digest(&parts));
+        let actual = artifact_set_sha256_hex(&contract_artifacts)?;
         if !hex_eq(&actual, expected) {
             return Err(CalyxError::lens_frozen_violation(format!(
                 "lensforge artifact_set_sha256 {actual} != manifest {expected}"
@@ -399,6 +392,108 @@ fn resolve_manifest_path(base_dir: &Path, path: &Path) -> PathBuf {
     }
 }
 
+struct FileDigest {
+    sha256: String,
+    bytes: u64,
+}
+
+fn plain_sha256_file(path: &Path) -> Result<FileDigest> {
+    let file = fs::File::open(path).map_err(|err| {
+        config_invalid(format!(
+            "open lensforge artifact {} for hashing failed: {err}",
+            path.display()
+        ))
+    })?;
+    let metadata = file.metadata().map_err(|err| {
+        config_invalid(format!(
+            "stat lensforge artifact {} for hashing failed: {err}",
+            path.display()
+        ))
+    })?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0_u8; STREAM_HASH_BUFFER_BYTES];
+    loop {
+        let read = reader.read(&mut buffer).map_err(|err| {
+            config_invalid(format!(
+                "read lensforge artifact {} while hashing failed: {err}",
+                path.display()
+            ))
+        })?;
+        if read == 0 {
+            let digest: [u8; 32] = hasher.finalize().into();
+            return Ok(FileDigest {
+                sha256: hex_from_bytes(&digest),
+                bytes: metadata.len(),
+            });
+        }
+        hasher.update(&buffer[..read]);
+    }
+}
+
+fn artifact_set_sha256_hex(files: &[&VerifiedFile]) -> Result<String> {
+    let mut contract = LengthDelimitedSha256::new();
+    let mut buffer = vec![0_u8; STREAM_HASH_BUFFER_BYTES];
+    for file in files {
+        hash_verified_file_into(file, &mut contract, &mut buffer)?;
+    }
+    Ok(hex_from_bytes(&contract.finalize()))
+}
+
+fn hash_verified_file_into(
+    file: &VerifiedFile,
+    contract: &mut LengthDelimitedSha256,
+    buffer: &mut [u8],
+) -> Result<()> {
+    let handle = fs::File::open(&file.path).map_err(|err| {
+        config_invalid(format!(
+            "open lensforge artifact {} for artifact_set hashing failed: {err}",
+            file.path.display()
+        ))
+    })?;
+    let metadata = handle.metadata().map_err(|err| {
+        config_invalid(format!(
+            "stat lensforge artifact {} for artifact_set hashing failed: {err}",
+            file.path.display()
+        ))
+    })?;
+    if metadata.len() != file.bytes {
+        return Err(config_invalid(format!(
+            "lensforge artifact {} byte count changed from {} to {} while hashing artifact_set",
+            file.path.display(),
+            file.bytes,
+            metadata.len()
+        )));
+    }
+    contract.begin_part(file.bytes);
+    let mut plain = Sha256::new();
+    let mut reader = BufReader::new(handle);
+    loop {
+        let read = reader.read(buffer).map_err(|err| {
+            config_invalid(format!(
+                "read lensforge artifact {} while hashing artifact_set failed: {err}",
+                file.path.display()
+            ))
+        })?;
+        if read == 0 {
+            let digest: [u8; 32] = plain.finalize().into();
+            let actual = hex_from_bytes(&digest);
+            if !hex_eq(&actual, &file.sha256) {
+                return Err(CalyxError::lens_frozen_violation(format!(
+                    "lensforge artifact {} sha256 changed from {} to {} while hashing artifact_set",
+                    file.path.display(),
+                    file.sha256,
+                    actual
+                )));
+            }
+            return Ok(());
+        }
+        let chunk = &buffer[..read];
+        plain.update(chunk);
+        contract.update_chunk(chunk);
+    }
+}
+
 fn norm_policy(raw: &str) -> Result<NormPolicy> {
     match raw {
         "l2" | "unit" => Ok(NormPolicy::unit()),
@@ -423,11 +518,6 @@ pub(super) fn modality_token(modality: Modality) -> &'static str {
         Modality::Structured => "structured",
         Modality::Mixed => "mixed",
     }
-}
-
-fn plain_sha256_hex(bytes: &[u8]) -> String {
-    let digest: [u8; 32] = Sha256::digest(bytes).into();
-    hex_from_bytes(&digest)
 }
 
 fn parse_hex_32(raw: &str) -> Result<[u8; 32]> {

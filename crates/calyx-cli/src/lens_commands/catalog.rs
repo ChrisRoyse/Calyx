@@ -412,7 +412,7 @@ fn resolve_gpu_vram_budget() -> CliResult<(u64, u64)> {
             CliError::usage(format!(
                 "GPU VRAM probe via NVML failed and CALYX_PANEL_VRAM_SOFT_CAP_BYTES / \
                  CALYX_TEI_RESERVED_BYTES are not both set ({err}); set both to explicit byte \
-                 budgets, or ensure the NVIDIA driver (libnvidia-ml.so.1) is reachable"
+                 budgets, or ensure the NVIDIA driver NVML library is reachable"
             ))
         })?)
     };

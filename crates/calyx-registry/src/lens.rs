@@ -94,6 +94,21 @@ impl Registry {
         self.register_frozen_inner(lens, contract, None, Some(spec))
     }
 
+    /// Registers an already-constructed frozen lens with structured registry metadata.
+    pub fn register_frozen_arc_with_spec(
+        &mut self,
+        lens: Arc<dyn Lens>,
+        contract: FrozenLensContract,
+        spec: LensSpec,
+    ) -> Result<LensId> {
+        self.register_persisted_arc(
+            lens,
+            contract,
+            Some(spec),
+            DeterminismProof::ContractOnlyExemption,
+        )
+    }
+
     /// Registers a frozen lens after a deterministic two-pass probe.
     pub fn register_frozen_with_probe<L>(
         &mut self,

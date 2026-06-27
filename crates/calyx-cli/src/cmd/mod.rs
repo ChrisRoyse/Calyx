@@ -235,13 +235,18 @@ pub(crate) fn validate_vault_name(name: &str) -> CliResult {
 }
 
 pub(crate) fn validate_panel_template_name(value: &str) -> CliResult {
-    if PANEL_TEMPLATES.contains(&value) {
-        Ok(())
-    } else {
+    if value.is_empty()
+        || value.contains(['/', '\\'])
+        || value == "."
+        || value == ".."
+        || value.chars().any(char::is_whitespace)
+    {
         Err(CliError::usage(format!(
-            "unknown --panel-template {value}; expected one of {}",
+            "invalid --panel-template {value}; use a built-in template ({}) or a saved path-safe template name",
             PANEL_TEMPLATES.join(", ")
         )))
+    } else {
+        Ok(())
     }
 }
 

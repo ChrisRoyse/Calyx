@@ -13,14 +13,17 @@ const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const PROVIDER_CPU_EXPLICIT: &str = "cpu_explicit";
 const PROVIDER_CUDA_FAIL_LOUD: &str = "cuda_fail_loud";
 const PROVIDER_CUDA_PREFERRED: &str = "cuda_preferred";
+const PROVIDER_TENSORRT_CUDA_FAIL_LOUD: &str = "tensorrt_cuda_fail_loud";
 const PROVIDER_CUDA_DETAIL: &str = "cuda:0,error_on_failure,no_cpu_fallback";
 const PROVIDER_CUDA_PREFERRED_DETAIL: &str = "cuda:0,allow_cpu_fallback";
+const PROVIDER_TENSORRT_CUDA_DETAIL: &str = "tensorrt:0,cuda:0,error_on_failure,no_cpu_fallback";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum MultimodalAdapterProvider {
     CpuExplicit,
     CudaFailLoud,
     CudaPreferred,
+    TensorRtCudaFailLoud,
 }
 
 impl MultimodalAdapterProvider {
@@ -29,6 +32,9 @@ impl MultimodalAdapterProvider {
             PROVIDER_CPU_EXPLICIT => Ok(Self::CpuExplicit),
             PROVIDER_CUDA_FAIL_LOUD | PROVIDER_CUDA_DETAIL => Ok(Self::CudaFailLoud),
             PROVIDER_CUDA_PREFERRED | PROVIDER_CUDA_PREFERRED_DETAIL => Ok(Self::CudaPreferred),
+            PROVIDER_TENSORRT_CUDA_FAIL_LOUD | PROVIDER_TENSORRT_CUDA_DETAIL => {
+                Ok(Self::TensorRtCudaFailLoud)
+            }
             other => Err(config_invalid(format!(
                 "unsupported multimodal adapter provider {other}"
             ))),
@@ -40,6 +46,7 @@ impl MultimodalAdapterProvider {
             Self::CpuExplicit => PROVIDER_CPU_EXPLICIT,
             Self::CudaFailLoud => PROVIDER_CUDA_FAIL_LOUD,
             Self::CudaPreferred => PROVIDER_CUDA_PREFERRED,
+            Self::TensorRtCudaFailLoud => PROVIDER_TENSORRT_CUDA_FAIL_LOUD,
         }
     }
 
@@ -48,11 +55,15 @@ impl MultimodalAdapterProvider {
             Self::CpuExplicit => "cpu_explicit,no_cuda",
             Self::CudaFailLoud => PROVIDER_CUDA_DETAIL,
             Self::CudaPreferred => PROVIDER_CUDA_PREFERRED_DETAIL,
+            Self::TensorRtCudaFailLoud => PROVIDER_TENSORRT_CUDA_DETAIL,
         }
     }
 
     pub const fn is_gpu(self) -> bool {
-        matches!(self, Self::CudaFailLoud | Self::CudaPreferred)
+        matches!(
+            self,
+            Self::CudaFailLoud | Self::CudaPreferred | Self::TensorRtCudaFailLoud
+        )
     }
 }
 
