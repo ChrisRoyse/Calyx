@@ -831,6 +831,7 @@ dependencies = [
  "axum",
  "calyx-aster",
  "calyx-core",
+ "calyx-ledger",
  "calyx-registry",
  "http-body-util",
  "serde",

@@ -46,11 +46,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Input, Modality, VaultId};
+use calyx_ledger::{
+    DirectoryLedgerStore, LedgerCfStore, LedgerEntry, QuarantineSet, VerifyResult,
+    get_answer_trace, verify_chain,
+};
 use calyx_registry::VaultPanelState;
 use calyx_registry::measure::measure_constellation;
 use calyx_registry::persistence::load_vault_panel_state;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use tower_http::catch_panic::CatchPanicLayer;
 
 /// Loopback bind address. Loopback by construction; asserted by the binary.
@@ -297,21 +301,24 @@ pub fn build_app(limiter: Arc<Guardrails>) -> Router {
         .layer(panic_catch_layer())
 }
 
-/// The read-only route surface (measure scaffolded to 501; the wired variant is
-/// [`build_app_with_measure`]).
+/// The read-only route surface fully scaffolded (`measure` + `provenance` to
+/// 501). The wired variants are [`build_app_with_provenance`] and
+/// [`build_app_with_measure_and_provenance`].
 fn routes() -> Router {
-    routes_base().route("/v1/measure", post(not_implemented))
+    routes_base()
+        .route("/v1/measure", post(not_implemented))
+        .route("/v1/provenance/{id}", get(provenance_stub))
 }
 
-/// Every read-only route except `/v1/measure`, so the wired and scaffolded
-/// builders can each attach their own measure handler without route overlap.
+/// Every read-only route except the stateful ones (`/v1/measure`,
+/// `/v1/provenance/{id}`), so the wired and scaffolded builders can each attach
+/// their own stateful handler without a route-overlap panic.
 fn routes_base() -> Router {
     Router::new()
         .route("/v1/health", get(health))
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
         .route("/v1/kernel", get(not_implemented))
-        .route("/v1/provenance/{id}", get(provenance))
 }
 
 /// Per-request resource guardrails. Order: rate limit (cheapest reject) → body
@@ -456,28 +463,193 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Build the app with `/v1/measure` wired to the loaded vault. Mirrors
-/// [`build_app`] but attaches the stateful measure route.
-pub fn build_app_with_measure(limiter: Arc<Guardrails>, ctx: Arc<MeasureCtx>) -> Router {
-    let measure_route = Router::new()
-        .route("/v1/measure", post(measure))
-        .with_state(ctx);
+// ---------------------------------------------------------------------------
+// /v1/provenance/{id} — real Ledger answer-trace (#577)
+// ---------------------------------------------------------------------------
+
+/// The Ledger (provenance source of truth) opened once at startup, shared
+/// read-only across requests. Reads come straight off the on-disk append-only
+/// ledger CF; this service NEVER appends (read-only by construction).
+pub struct ProvenanceCtx {
+    store: DirectoryLedgerStore,
+    quarantine: QuarantineSet,
+}
+
+impl ProvenanceCtx {
+    /// Open the ledger CF directory at `ledger_dir`. Fails loud if the directory
+    /// cannot be opened or its rows cannot be scanned at startup — the service
+    /// does not serve a provenance endpoint over an unreadable ledger.
+    pub fn open(ledger_dir: &FsPath) -> Result<Self, String> {
+        let store = DirectoryLedgerStore::open(ledger_dir)
+            .map_err(|error| format!("open ledger dir {}: {error:?}", ledger_dir.display()))?;
+        // Fail-loud startup probe: an unscannable ledger is a hard error now,
+        // not a per-request 500 later.
+        store
+            .scan()
+            .map_err(|error| format!("scan ledger dir {}: {error:?}", ledger_dir.display()))?;
+        Ok(Self {
+            store,
+            quarantine: QuarantineSet::default(),
+        })
+    }
+
+    /// Load from the required `CALYX_WEB_API_LEDGER_DIR` env var. Fail loud if
+    /// unset (no default, no fallback).
+    pub fn from_env() -> Result<Self, String> {
+        let dir = std::env::var("CALYX_WEB_API_LEDGER_DIR").map_err(|_| {
+            "CALYX_WEB_API_LEDGER_DIR is required (absolute path to the ledger CF directory)"
+                .to_string()
+        })?;
+        Self::open(PathBuf::from(dir).as_path())
+    }
+}
+
+/// Lower-hex encode a fixed hash (BLAKE3 chain hashes are surfaced as hex).
+fn hex_hash(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push_str(&format!("{byte:02x}"));
+    }
+    out
+}
+
+/// Serialize one ledger entry to the #577 wire shape
+/// `{seq,kind,subject,prevHash,entryHash,payload}`. The payload is decoded back
+/// to JSON for the caller; an undecodable payload surfaces as `null` (the entry
+/// hashes still prove what bytes were committed).
+fn entry_json(entry: &LedgerEntry) -> Value {
+    json!({
+        "seq": entry.seq,
+        "kind": serde_json::to_value(entry.kind).unwrap_or(Value::Null),
+        "subject": serde_json::to_value(&entry.subject).unwrap_or(Value::Null),
+        "prevHash": hex_hash(&entry.prev_hash),
+        "entryHash": hex_hash(&entry.entry_hash),
+        "payload": serde_json::from_slice::<Value>(&entry.payload).unwrap_or(Value::Null),
+    })
+}
+
+/// Surface the real `verify_chain` verdict (Intact / Broken / Corrupt).
+fn chain_json(result: &VerifyResult) -> Value {
+    match result {
+        VerifyResult::Intact { count } => json!({ "result": "intact", "count": count }),
+        VerifyResult::Broken { at_seq, .. } => json!({ "result": "broken", "atSeq": at_seq }),
+        VerifyResult::Corrupt { at_seq, reason } => {
+            json!({ "result": "corrupt", "atSeq": at_seq, "reason": reason })
+        }
+    }
+}
+
+/// `GET /v1/provenance/{id}` — the real Ledger answer-trace for an answer id.
+///
+/// The `{id}` path segment is the answer id (matched against the `Query`
+/// subject bytes of `Answer` ledger entries). Returns the answer trace's
+/// constituent entries (answer + linked kernel + guard) in the #577 shape, the
+/// `verify_chain` verdict over the whole ledger, and a `trusted` bool that is
+/// true ONLY when the answer trace is itself trusted (complete + no warnings,
+/// mirroring `AnswerTrace::is_trusted`) AND the hash chain verifies Intact. An
+/// unknown id returns a structured `found:false` body (200), never a 500.
+async fn provenance_wired(
+    State(ctx): State<Arc<ProvenanceCtx>>,
+    Path(id): Path<String>,
+) -> Response {
+    // Source-of-truth scan: every read is straight off the on-disk ledger.
+    let row_count = match ctx.store.scan() {
+        Ok(rows) => rows.len() as u64,
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_PROVENANCE_SCAN_FAILED");
+            return ApiError::of(ErrorCode::Internal).into_response();
+        }
+    };
+    let chain = match verify_chain(&ctx.store, 0..row_count) {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_PROVENANCE_VERIFY_FAILED");
+            return ApiError::of(ErrorCode::Internal).into_response();
+        }
+    };
+    let trace = match get_answer_trace(&ctx.store, &ctx.quarantine, id.as_bytes()) {
+        Ok(trace) => trace,
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_PROVENANCE_TRACE_FAILED");
+            return ApiError::of(ErrorCode::Internal).into_response();
+        }
+    };
+
+    let mut entries: Vec<Value> = [
+        trace.answer_entry.as_ref(),
+        trace.kernel_entry.as_ref(),
+        trace.guard_entry.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(entry_json)
+    .collect();
+    entries.sort_by_key(|value| value["seq"].as_u64().unwrap_or(0));
+
+    let chain_intact = matches!(chain, VerifyResult::Intact { .. });
+    let body = json!({
+        "id": id,
+        "found": trace.answer_entry.is_some(),
+        "trusted": trace.is_trusted() && chain_intact,
+        "complete": trace.complete,
+        "warnings": trace.warnings.iter().map(|warning| format!("{warning:?}")).collect::<Vec<_>>(),
+        "chain": chain_json(&chain),
+        "entries": entries,
+    });
+    (StatusCode::OK, Json(body)).into_response()
+}
+
+/// Build the app with `/v1/provenance/{id}` wired to a real Ledger but
+/// `/v1/measure` still scaffolded (501). Used by the provenance FSV tests so a
+/// real on-disk ledger can be exercised over HTTP without a loaded vault.
+pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceCtx>) -> Router {
+    let prov_route = Router::new()
+        .route("/v1/provenance/{id}", get(provenance_wired))
+        .with_state(prov);
     routes_base()
-        .merge(measure_route)
+        .route("/v1/measure", post(not_implemented))
+        .merge(prov_route)
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
         .layer(middleware::from_fn_with_state(limiter, guardrails))
         .layer(panic_catch_layer())
 }
 
-/// Production app with the measure endpoint wired (used by the binary).
-pub fn app_with_measure(ctx: Arc<MeasureCtx>) -> Router {
-    build_app_with_measure(Arc::new(Guardrails::production()), ctx)
+/// Build the production app with BOTH `/v1/measure` (vault) and
+/// `/v1/provenance/{id}` (ledger) wired. Each stateful route is its own
+/// `with_state` sub-router merged onto the shared base, avoiding route overlap.
+pub fn build_app_with_measure_and_provenance(
+    limiter: Arc<Guardrails>,
+    measure_ctx: Arc<MeasureCtx>,
+    prov: Arc<ProvenanceCtx>,
+) -> Router {
+    let measure_route = Router::new()
+        .route("/v1/measure", post(measure))
+        .with_state(measure_ctx);
+    let prov_route = Router::new()
+        .route("/v1/provenance/{id}", get(provenance_wired))
+        .with_state(prov);
+    routes_base()
+        .merge(measure_route)
+        .merge(prov_route)
+        .fallback(fallback_404)
+        .method_not_allowed_fallback(fallback_405)
+        .layer(middleware::from_fn_with_state(limiter, guardrails))
+        .layer(panic_catch_layer())
 }
 
-/// `/v1/provenance/{id}` echoes the requested id into the fail-loud 501 so the
-/// unwired route is unambiguous in logs.
-async fn provenance(Path(id): Path<String>) -> ApiError {
+/// Production app with measure + provenance wired (used by the binary).
+pub fn app_with_measure_and_provenance(
+    measure_ctx: Arc<MeasureCtx>,
+    prov: Arc<ProvenanceCtx>,
+) -> Router {
+    build_app_with_measure_and_provenance(Arc::new(Guardrails::production()), measure_ctx, prov)
+}
+
+/// `/v1/provenance/{id}` scaffold (used by [`build_app`]/[`app`]): echoes the
+/// requested id into the fail-loud 501 so the unwired route is unambiguous in
+/// logs.
+async fn provenance_stub(Path(id): Path<String>) -> ApiError {
     ApiError::new(
         ErrorCode::NotImplemented,
         format!("/v1/provenance/{id} is scaffolded but not yet wired to calyxd"),

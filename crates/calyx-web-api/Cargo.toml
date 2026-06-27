@@ -24,6 +24,7 @@ tower-http = { version = "0.6", features = ["catch-panic"] }
 calyx-core = { path = "../calyx-core" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-registry = { path = "../calyx-registry" }
+calyx-ledger = { path = "../calyx-ledger" }
 serde = { workspace = true }
 
 [dev-dependencies]

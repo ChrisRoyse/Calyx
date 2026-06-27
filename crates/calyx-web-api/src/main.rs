@@ -7,7 +7,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use calyx_web_api::{BIND_ADDR, MeasureCtx, app_with_measure};
+use calyx_web_api::{BIND_ADDR, MeasureCtx, ProvenanceCtx, app_with_measure_and_provenance};
 
 #[tokio::main]
 async fn main() {
@@ -17,6 +17,11 @@ async fn main() {
     // does not serve a degraded surface with an unusable measure endpoint.
     let ctx = MeasureCtx::from_env()
         .unwrap_or_else(|error| panic!("CALYX_WEB_API_VAULT_LOAD_FAILED: {error}"));
+
+    // Fail loud at startup if the ledger is not configured/readable — the
+    // provenance endpoint is never served over an unreadable ledger.
+    let prov = ProvenanceCtx::from_env()
+        .unwrap_or_else(|error| panic!("CALYX_WEB_API_LEDGER_LOAD_FAILED: {error}"));
 
     let addr: SocketAddr = BIND_ADDR
         .parse()
@@ -30,9 +35,14 @@ async fn main() {
         .await
         .unwrap_or_else(|e| panic!("CALYX_WEB_API_BIND_FAILED: cannot bind {addr}: {e}"));
 
-    tracing::info!("calyx-web-api listening on http://{addr} (read-only, measure wired)");
+    tracing::info!(
+        "calyx-web-api listening on http://{addr} (read-only, measure + provenance wired)"
+    );
 
-    axum::serve(listener, app_with_measure(Arc::new(ctx)))
-        .await
-        .unwrap_or_else(|e| panic!("CALYX_WEB_API_SERVE_FAILED: {e}"));
+    axum::serve(
+        listener,
+        app_with_measure_and_provenance(Arc::new(ctx), Arc::new(prov)),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("CALYX_WEB_API_SERVE_FAILED: {e}"));
 }
