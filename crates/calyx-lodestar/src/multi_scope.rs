@@ -89,6 +89,10 @@ pub fn kernel_answer_scoped(
     )
 }
 
+// Legitimately wide API surface (kernel index, store, query, scope, anchors,
+// hop budget, ledger appender) — matches the accepted `#[allow]` precedent used
+// elsewhere in this crate for the scoped kernel-answer entry points. See #944.
+#[allow(clippy::too_many_arguments)]
 pub fn kernel_answer_scoped_with_ledger<S, C>(
     kernel_index: &KernelIndex,
     store: &dyn AssocStore,
