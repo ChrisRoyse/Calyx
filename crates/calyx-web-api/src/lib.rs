@@ -523,6 +523,150 @@ async fn not_implemented() -> ApiError {
     ApiError::of(ErrorCode::NotImplemented)
 }
 
+// ---------------------------------------------------------------------------
+// Bounded TTL response cache for the idempotent read endpoints (#1898)
+// ---------------------------------------------------------------------------
+
+/// One cached response: the EXACT serialized body bytes (so a hit replays
+/// byte-for-byte) plus the monotonic instant it was stored (for TTL + `Age`).
+struct CacheEntry {
+    body: Arc<[u8]>,
+    stored: Instant,
+}
+
+/// A bounded, TTL-expiring in-memory response cache keyed by a request-derived
+/// string.
+///
+/// `/v1/search` (by `(query,k,guard,fusion)`) and `/v1/provenance/{id}` (by id)
+/// are PURE for a given vault/ledger state — provenance in particular does a
+/// full `scan()` + `verify_chain()` on every call (#1898). A short TTL bounds
+/// staleness against an out-of-band vault rebuild (which also restarts this
+/// process and so clears the cache) while cutting that per-request work.
+///
+/// Bounded two ways so memory can never run away: an expired entry is dropped
+/// the moment it is read, and an insertion beyond `capacity` evicts expired
+/// entries first and then the oldest-stored key. A **zero TTL disables caching
+/// entirely** (every request recomputes), so the layer can be turned off via
+/// env without a code change. Never caches a non-200 / error response.
+pub struct ResponseCache {
+    ttl: Duration,
+    capacity: usize,
+    entries: Mutex<HashMap<String, CacheEntry>>,
+}
+
+impl ResponseCache {
+    /// Explicit construction (tests inject a tiny TTL/capacity deterministically).
+    /// `capacity` is floored at 1 so the cache always holds at least one entry.
+    pub fn new(ttl: Duration, capacity: usize) -> Self {
+        Self {
+            ttl,
+            capacity: capacity.max(1),
+            entries: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Build from the optional `CALYX_WEB_API_CACHE_TTL_SECS` (default 30, `0`
+    /// disables) and `CALYX_WEB_API_CACHE_CAPACITY` (default 256) env vars. A
+    /// present-but-unparseable value is a HARD error (fail loud — never a silent
+    /// fallback to the default).
+    pub fn from_env() -> Result<Self, String> {
+        let ttl_secs = parse_env_u64("CALYX_WEB_API_CACHE_TTL_SECS", 30)?;
+        let capacity = parse_env_u64("CALYX_WEB_API_CACHE_CAPACITY", 256)? as usize;
+        Ok(Self::new(Duration::from_secs(ttl_secs), capacity))
+    }
+
+    /// Caching is on iff the TTL is non-zero.
+    fn enabled(&self) -> bool {
+        !self.ttl.is_zero()
+    }
+
+    /// Look up `key`. Returns the cached body bytes + their current age when a
+    /// FRESH (non-expired) entry exists; drops the entry and returns `None` when
+    /// it has expired or is absent (so an expired entry can never be served).
+    fn get(&self, key: &str) -> Option<(Arc<[u8]>, Duration)> {
+        if !self.enabled() {
+            return None;
+        }
+        let mut entries = self.entries.lock().expect("response-cache mutex poisoned");
+        if let Some(entry) = entries.get(key) {
+            let age = entry.stored.elapsed();
+            if age < self.ttl {
+                return Some((Arc::clone(&entry.body), age));
+            }
+        }
+        entries.remove(key);
+        None
+    }
+
+    /// Store `body` under `key`. Evicts expired entries, then the oldest-stored
+    /// key, until `len <= capacity` — a hard memory bound.
+    fn put(&self, key: String, body: Arc<[u8]>) {
+        if !self.enabled() {
+            return;
+        }
+        let now = Instant::now();
+        let mut entries = self.entries.lock().expect("response-cache mutex poisoned");
+        entries.insert(key, CacheEntry { body, stored: now });
+        if entries.len() > self.capacity {
+            let ttl = self.ttl;
+            entries.retain(|_, entry| now.duration_since(entry.stored) < ttl);
+            while entries.len() > self.capacity {
+                let Some(oldest) = entries
+                    .iter()
+                    .min_by_key(|(_, entry)| entry.stored)
+                    .map(|(key, _)| key.clone())
+                else {
+                    break;
+                };
+                entries.remove(&oldest);
+            }
+        }
+    }
+}
+
+/// Parse a non-negative integer env var, returning `default` when unset and a
+/// LOUD error when present-but-unparseable (never silently defaulted).
+fn parse_env_u64(name: &str, default: u64) -> Result<u64, String> {
+    match std::env::var(name) {
+        Err(_) => Ok(default),
+        Ok(raw) => raw.trim().parse::<u64>().map_err(|error| {
+            format!("{name} must be a non-negative integer ({error}); got {raw:?}")
+        }),
+    }
+}
+
+/// Build a `200 OK` JSON response from already-serialized `body` bytes, tagging
+/// it with the standard cache-observability headers: `X-Cache: HIT|MISS`
+/// (Varnish/CloudFront/Fastly convention) and `Age` (seconds since stored,
+/// RFC 9111 §5.1). A HIT replays the EXACT cached bytes, so it is byte-identical
+/// to the MISS that populated it.
+fn cached_json_response(body: Arc<[u8]>, cache_status: &'static str, age: Duration) -> Response {
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-cache", cache_status)
+        .header(header::AGE, age.as_secs())
+        .body(Body::from(body.to_vec()))
+        .expect("static headers + byte body is always a valid response")
+}
+
+/// Serialize `body`, store it in `cache` under `key`, and return the `MISS`
+/// response carrying the freshly-serialized bytes. A serialization failure is
+/// logged in full and returned as a generic 500 (never cached).
+fn store_and_respond(cache: &ResponseCache, key: String, body: &Value) -> Response {
+    match serde_json::to_vec(body) {
+        Ok(bytes) => {
+            let bytes: Arc<[u8]> = Arc::from(bytes.into_boxed_slice());
+            cache.put(key, Arc::clone(&bytes));
+            cached_json_response(bytes, "MISS", Duration::ZERO)
+        }
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_CACHE_SERIALIZE_FAILED");
+            ApiError::of(ErrorCode::Internal).into_response()
+        }
+    }
+}
+
 /// Vault + panel loaded once at startup, shared read-only across requests, used
 /// by the wired `/v1/measure` endpoint.
 pub struct MeasureCtx {
@@ -531,6 +675,8 @@ pub struct MeasureCtx {
     /// The vault directory — needed by `/v1/search` to open the persisted
     /// search indexes (`idx/search/*`) under it.
     vault_dir: PathBuf,
+    /// Bounded TTL cache for the idempotent `/v1/search` results (#1898).
+    cache: ResponseCache,
 }
 
 impl MeasureCtx {
@@ -558,6 +704,7 @@ impl MeasureCtx {
             vault,
             state,
             vault_dir: vault_dir.to_path_buf(),
+            cache: ResponseCache::from_env()?,
         })
     }
 
@@ -620,12 +767,12 @@ async fn search(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<SearchReq>) 
     if k == 0 {
         return ApiError::new(ErrorCode::BadRequest, "k must be greater than zero").into_response();
     }
-    let fusion = match req.fusion.as_deref() {
-        None | Some("rrf") => FusionChoice::Rrf,
-        Some("weighted-rrf") => FusionChoice::WeightedRrf,
-        Some("single-lens") => FusionChoice::SingleLens,
-        Some("kernel-first") => FusionChoice::KernelFirst,
-        Some("pipeline") => FusionChoice::Pipeline,
+    let (fusion, fusion_label) = match req.fusion.as_deref() {
+        None | Some("rrf") => (FusionChoice::Rrf, "rrf"),
+        Some("weighted-rrf") => (FusionChoice::WeightedRrf, "weighted-rrf"),
+        Some("single-lens") => (FusionChoice::SingleLens, "single-lens"),
+        Some("kernel-first") => (FusionChoice::KernelFirst, "kernel-first"),
+        Some("pipeline") => (FusionChoice::Pipeline, "pipeline"),
         Some(other) => {
             return ApiError::new(
                 ErrorCode::BadRequest,
@@ -636,11 +783,25 @@ async fn search(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<SearchReq>) 
             .into_response();
         }
     };
-    let guard = if req.guard.unwrap_or(false) {
+    let guard_on = req.guard.unwrap_or(false);
+    let guard = if guard_on {
         GuardChoice::InRegion
     } else {
         GuardChoice::Off
     };
+
+    // Idempotent for (query,k,guard,fusion) at a fixed vault state — serve a
+    // fresh cache hit byte-for-byte rather than re-running Sextant (#1898). The
+    // \u{1f} (unit separator) cannot appear in the label/bool fields and so
+    // keeps the composite key unambiguous across the free-text query.
+    let cache_key = format!(
+        "search\u{1f}{k}\u{1f}{guard_on}\u{1f}{fusion_label}\u{1f}{}",
+        req.query
+    );
+    if let Some((body, age)) = ctx.cache.get(&cache_key) {
+        return cached_json_response(body, "HIT", age);
+    }
+
     match search_outcome(
         &ctx.vault,
         &ctx.state,
@@ -674,7 +835,7 @@ async fn search(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<SearchReq>) 
                 "guardTau": outcome.guard_tau,
                 "hits": hits,
             });
-            (StatusCode::OK, Json(body)).into_response()
+            store_and_respond(&ctx.cache, cache_key, &body)
         }
         Err(error) => {
             tracing::error!(error = ?error, "CALYX_WEB_API_SEARCH_FAILED");
@@ -947,6 +1108,9 @@ impl QuarantineLookup for VaultQuarantine {
 pub struct ProvenanceCtx {
     store: AsterLedgerCfStore,
     quarantine: VaultQuarantine,
+    /// Bounded TTL cache for `/v1/provenance/{id}` (#1898) — the headline win,
+    /// since each miss does a full ledger `scan()` + `verify_chain()`.
+    cache: ResponseCache,
 }
 
 impl ProvenanceCtx {
@@ -965,6 +1129,7 @@ impl ProvenanceCtx {
             quarantine: VaultQuarantine {
                 vault_dir: vault_dir.to_path_buf(),
             },
+            cache: ResponseCache::from_env()?,
         })
     }
 
@@ -1026,6 +1191,14 @@ async fn provenance_wired(
     State(ctx): State<Arc<ProvenanceCtx>>,
     Path(id): Path<String>,
 ) -> Response {
+    // Serve a fresh cache hit byte-for-byte rather than re-scanning the whole
+    // ledger + re-verifying the chain (#1898). Keyed by the answer id; the TTL
+    // bounds staleness against an out-of-band ledger append.
+    let cache_key = format!("provenance\u{1f}{id}");
+    if let Some((body, age)) = ctx.cache.get(&cache_key) {
+        return cached_json_response(body, "HIT", age);
+    }
+
     // Source-of-truth scan: every read is straight off the on-disk ledger.
     let row_count = match ctx.store.scan() {
         Ok(rows) => rows.len() as u64,
@@ -1070,7 +1243,7 @@ async fn provenance_wired(
         "chain": chain_json(&chain),
         "entries": entries,
     });
-    (StatusCode::OK, Json(body)).into_response()
+    store_and_respond(&ctx.cache, cache_key, &body)
 }
 
 /// Build the app with `/v1/provenance/{id}` wired to a real Ledger but
@@ -1207,4 +1380,102 @@ fn on_panic(payload: Box<dyn Any + Send + 'static>) -> Response {
     };
     tracing::error!("CALYX_WEB_API_INTERNAL: a request handler panicked: {detail}");
     ApiError::of(ErrorCode::Internal).into_response()
+}
+
+// ---------------------------------------------------------------------------
+// ResponseCache unit tests (#1898) — real cache, synthetic keys/bodies, no mocks
+// ---------------------------------------------------------------------------
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    fn bytes(s: &str) -> Arc<[u8]> {
+        Arc::from(s.as_bytes().to_vec().into_boxed_slice())
+    }
+
+    #[test]
+    fn hit_returns_byte_identical_body() {
+        let cache = ResponseCache::new(Duration::from_secs(60), 16);
+        let body = bytes(r#"{"id":"a","found":true}"#);
+        cache.put("k".to_string(), Arc::clone(&body));
+        let (got, age) = cache.get("k").expect("fresh entry must hit");
+        assert_eq!(&*got, &*body, "hit must replay the exact stored bytes");
+        assert!(age < Duration::from_secs(60), "fresh entry age < ttl");
+    }
+
+    #[test]
+    fn absent_key_misses() {
+        let cache = ResponseCache::new(Duration::from_secs(60), 16);
+        assert!(cache.get("never-stored").is_none());
+    }
+
+    #[test]
+    fn entry_expires_after_ttl_and_is_dropped() {
+        let cache = ResponseCache::new(Duration::from_millis(40), 16);
+        cache.put("k".to_string(), bytes("v"));
+        assert!(cache.get("k").is_some(), "before TTL: HIT");
+        std::thread::sleep(Duration::from_millis(70));
+        assert!(cache.get("k").is_none(), "after TTL: MISS (expired)");
+        // The expired entry must have been evicted, not merely hidden.
+        assert!(
+            !cache.entries.lock().unwrap().contains_key("k"),
+            "expired entry must be dropped on read"
+        );
+    }
+
+    #[test]
+    fn zero_ttl_disables_caching() {
+        let cache = ResponseCache::new(Duration::ZERO, 16);
+        cache.put("k".to_string(), bytes("v"));
+        assert!(cache.get("k").is_none(), "TTL=0 never serves a hit");
+        assert!(
+            cache.entries.lock().unwrap().is_empty(),
+            "TTL=0 never stores an entry"
+        );
+    }
+
+    #[test]
+    fn capacity_is_a_hard_bound_evicting_oldest() {
+        let cache = ResponseCache::new(Duration::from_secs(60), 2);
+        cache.put("a".to_string(), bytes("1"));
+        std::thread::sleep(Duration::from_millis(5));
+        cache.put("b".to_string(), bytes("2"));
+        std::thread::sleep(Duration::from_millis(5));
+        cache.put("c".to_string(), bytes("3")); // exceeds capacity 2
+        let len = cache.entries.lock().unwrap().len();
+        assert_eq!(len, 2, "len never exceeds capacity");
+        assert!(cache.get("a").is_none(), "oldest-stored key 'a' evicted");
+        assert!(cache.get("b").is_some(), "'b' retained");
+        assert!(cache.get("c").is_some(), "'c' retained");
+    }
+
+    #[test]
+    fn age_reflects_time_since_store() {
+        let cache = ResponseCache::new(Duration::from_secs(60), 16);
+        cache.put("k".to_string(), bytes("v"));
+        std::thread::sleep(Duration::from_millis(30));
+        let (_, age) = cache.get("k").expect("hit");
+        assert!(
+            age >= Duration::from_millis(25),
+            "age tracks elapsed: {age:?}"
+        );
+    }
+
+    #[test]
+    fn parse_env_u64_defaults_when_unset_and_fails_loud_when_garbage() {
+        // Unset → default (use a name no test sets).
+        assert_eq!(
+            parse_env_u64("CALYX_WEB_API_CACHE_TTL_SECS_UNSET_XYZ", 30).unwrap(),
+            30
+        );
+        // Present-but-garbage → loud error, never silent default.
+        // SAFETY: single-threaded test; var removed immediately after assert.
+        unsafe { std::env::set_var("CALYX_WEB_API_TEST_BAD_INT", "not-a-number") };
+        let err = parse_env_u64("CALYX_WEB_API_TEST_BAD_INT", 7).unwrap_err();
+        unsafe { std::env::remove_var("CALYX_WEB_API_TEST_BAD_INT") };
+        assert!(
+            err.contains("non-negative integer"),
+            "loud parse error: {err}"
+        );
+    }
 }
