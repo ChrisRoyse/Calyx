@@ -849,6 +849,7 @@ dependencies = [
  "calyx-ledger",
  "calyx-registry",
  "calyx-search",
+ "calyx-ward",
  "http-body-util",
  "serde",
  "serde_json",

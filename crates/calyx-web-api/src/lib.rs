@@ -44,8 +44,9 @@ use axum::{
 use std::path::{Path as FsPath, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{Input, Modality, VaultId};
+use calyx_core::{Input, Modality, VaultId, VaultStore};
 use calyx_ledger::{
     DirectoryLedgerStore, LedgerCfStore, LedgerEntry, QuarantineSet, VerifyResult,
     get_answer_trace, verify_chain,
@@ -53,7 +54,8 @@ use calyx_ledger::{
 use calyx_registry::VaultPanelState;
 use calyx_registry::measure::measure_constellation;
 use calyx_registry::persistence::load_vault_panel_state;
-use calyx_search::{FusionChoice, GuardChoice, search_outcome};
+use calyx_search::{FusionChoice, GuardChoice, measure_query_vectors, search_outcome};
+use calyx_ward::{GuardProfile, NoveltyAction, guard as ward_guard};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tower_http::catch_panic::CatchPanicLayer;
@@ -317,16 +319,16 @@ fn routes() -> Router {
     routes_base()
         .route("/v1/measure", post(not_implemented))
         .route("/v1/search", post(not_implemented))
+        .route("/v1/guard", post(not_implemented))
         .route("/v1/provenance/{id}", get(provenance_stub))
 }
 
 /// Every read-only route except the stateful ones (`/v1/measure`, `/v1/search`,
-/// `/v1/provenance/{id}`), so the wired and scaffolded builders can each attach
-/// their own stateful handler without a route-overlap panic.
+/// `/v1/guard`, `/v1/provenance/{id}`), so the wired and scaffolded builders can
+/// each attach their own stateful handler without a route-overlap panic.
 fn routes_base() -> Router {
     Router::new()
         .route("/v1/health", get(health))
-        .route("/v1/guard", post(not_implemented))
         .route("/v1/kernel", get(not_implemented))
 }
 
@@ -558,6 +560,141 @@ async fn search(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<SearchReq>) 
     }
 }
 
+/// The Guard CF key for the default calibrated profile (`profile\0default`),
+/// matching the CLI `calyx guard calibrate` write. Read-only here.
+const GUARD_DEFAULT_KEY: &[u8] = b"profile\0default";
+
+/// Read the calibrated [`GuardProfile`] from the vault's Guard CF. `Ok(None)`
+/// when no profile has been calibrated (caller maps to a structured error — the
+/// guard is NEVER run against an uncalibrated/absent profile).
+fn read_guard_profile(vault: &AsterVault) -> Result<Option<GuardProfile>, String> {
+    let snapshot = vault.snapshot();
+    let Some(bytes) = vault
+        .read_cf_at(snapshot, ColumnFamily::Guard, GUARD_DEFAULT_KEY)
+        .map_err(|error| format!("read guard CF: {error:?}"))?
+    else {
+        return Ok(None);
+    };
+    serde_json::from_slice::<GuardProfile>(&bytes)
+        .map(Some)
+        .map_err(|error| format!("decode guard profile: {error}"))
+}
+
+/// Measure `text` through the active text lenses and extract the dense vector for
+/// every `required_slot` of the profile. Fails if any required slot is not
+/// measurable (fail loud — never guard on a partial slot set).
+fn required_dense(
+    state: &VaultPanelState,
+    text: &str,
+    profile: &GuardProfile,
+) -> Result<std::collections::BTreeMap<calyx_core::SlotId, Vec<f32>>, ApiError> {
+    let measured = measure_query_vectors(state, text).map_err(|error| {
+        tracing::error!(error = ?error, "CALYX_WEB_API_GUARD_MEASURE_FAILED");
+        ApiError::of(ErrorCode::Internal)
+    })?;
+    let by_slot: std::collections::BTreeMap<_, _> = measured.into_iter().collect();
+    let mut out = std::collections::BTreeMap::new();
+    for slot in &profile.required_slots {
+        let dense = by_slot
+            .get(slot)
+            .and_then(|vector| vector.as_dense())
+            .ok_or_else(|| {
+                ApiError::new(
+                    ErrorCode::BadRequest,
+                    format!("input is not measurable for required guard slot {slot}"),
+                )
+            })?;
+        out.insert(*slot, dense.to_vec());
+    }
+    Ok(out)
+}
+
+/// Request body for `POST /v1/guard`: an answer + its evidence, both measured
+/// fresh through the panel into the profile's required slots.
+#[derive(Deserialize)]
+struct GuardReq {
+    answer: String,
+    evidence: String,
+    #[serde(default)]
+    high_stakes: Option<bool>,
+}
+
+/// `POST /v1/guard` — real calibrated Ward verdict. Loads the calibrated profile
+/// from the vault, measures answer + evidence into the required slots, and runs
+/// `calyx_ward::guard` (per-slot cosine vs conformal tau — NO flattened average,
+/// INVARIANT A3). Returns accept|new-region|quarantine|refuse + the full
+/// per-slot decomposition + the conformal FAR.
+async fn guard_handler(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<GuardReq>) -> Response {
+    if req.answer.trim().is_empty() || req.evidence.trim().is_empty() {
+        return ApiError::new(
+            ErrorCode::BadRequest,
+            "answer and evidence must both be non-empty",
+        )
+        .into_response();
+    }
+    let profile = match read_guard_profile(&ctx.vault) {
+        Ok(Some(profile)) => profile,
+        Ok(None) => {
+            return ApiError::new(
+                ErrorCode::BadRequest,
+                "no calibrated guard profile in this vault; run `calyx guard calibrate` first",
+            )
+            .into_response();
+        }
+        Err(detail) => {
+            tracing::error!("CALYX_WEB_API_GUARD_PROFILE_FAILED: {detail}");
+            return ApiError::of(ErrorCode::Internal).into_response();
+        }
+    };
+    let produced = match required_dense(&ctx.state, &req.answer, &profile) {
+        Ok(slots) => slots,
+        Err(error) => return error.into_response(),
+    };
+    let matched = match required_dense(&ctx.state, &req.evidence, &profile) {
+        Ok(slots) => slots,
+        Err(error) => return error.into_response(),
+    };
+    let high_stakes = req.high_stakes.unwrap_or(true);
+    let verdict = match ward_guard(&profile, &produced, &matched, high_stakes) {
+        Ok(verdict) => verdict,
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_GUARD_FAILED");
+            return ApiError::of(ErrorCode::Internal).into_response();
+        }
+    };
+    let verdict_str = if verdict.overall_pass {
+        "accept"
+    } else {
+        match verdict.action {
+            Some(NoveltyAction::NewRegion) => "new-region",
+            Some(NoveltyAction::Quarantine) => "quarantine",
+            Some(NoveltyAction::RejectClosed) | None => "refuse",
+        }
+    };
+    let per_slot: Vec<Value> = verdict
+        .per_slot
+        .iter()
+        .map(|slot| {
+            json!({
+                "slot": slot.slot.get(),
+                "cosine": slot.cos,
+                "tau": slot.tau,
+                "pass": slot.pass,
+            })
+        })
+        .collect();
+    let far = profile.calibration.as_ref().map(|meta| meta.far);
+    let body = json!({
+        "verdict": verdict_str,
+        "overallPass": verdict.overall_pass,
+        "provisional": verdict.provisional,
+        "highStakes": high_stakes,
+        "far": far,
+        "perSlot": per_slot,
+    });
+    (StatusCode::OK, Json(body)).into_response()
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -711,6 +848,7 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
     routes_base()
         .route("/v1/measure", post(not_implemented))
         .route("/v1/search", post(not_implemented))
+        .route("/v1/guard", post(not_implemented))
         .merge(prov_route)
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
@@ -718,13 +856,15 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
         .layer(panic_catch_layer())
 }
 
-/// Build the app with `/v1/measure` AND `/v1/search` wired to the loaded vault
-/// (provenance still scaffolded). Used by the search FSV tests so the real
-/// Sextant search path is exercised over HTTP without needing a ledger.
+/// Build the app with the vault-backed routes (`/v1/measure`, `/v1/search`,
+/// `/v1/guard`) wired (provenance still scaffolded). Used by the search/guard
+/// FSV tests so the real Sextant + Ward paths are exercised over HTTP without
+/// needing a ledger.
 pub fn build_app_with_search(limiter: Arc<Guardrails>, measure_ctx: Arc<MeasureCtx>) -> Router {
     let vault_route = Router::new()
         .route("/v1/measure", post(measure))
         .route("/v1/search", post(search))
+        .route("/v1/guard", post(guard_handler))
         .with_state(measure_ctx);
     routes_base()
         .route("/v1/provenance/{id}", get(provenance_stub))
@@ -746,6 +886,7 @@ pub fn build_app_with_measure_and_provenance(
     let measure_route = Router::new()
         .route("/v1/measure", post(measure))
         .route("/v1/search", post(search))
+        .route("/v1/guard", post(guard_handler))
         .with_state(measure_ctx);
     let prov_route = Router::new()
         .route("/v1/provenance/{id}", get(provenance_wired))
