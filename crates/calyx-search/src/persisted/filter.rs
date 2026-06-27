@@ -1,14 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::Path;
 
 use calyx_core::{Anchor, AnchorValue, Constellation, CxId};
 use calyx_sextant::{AnchorPredicate, MetadataPredicate, QueryFilters, ScalarOp, ScalarPredicate};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{FilterIndexEntry, rel, stale};
+use super::{FilterIndexEntry, rel, stale, write_json_atomic_hashed};
 use crate::error::CliResult;
 
 const FILTER_FORMAT: &str = "calyx-search-filter-index-v1";
@@ -53,9 +52,7 @@ pub(super) fn write(
         base_seq,
         rows: docs.values().map(FilterRow::from).collect(),
     };
-    let bytes = serde_json::to_vec_pretty(&index)?;
-    let sha256 = sha256_hex(&bytes);
-    write_bytes_atomic(&path, &bytes)?;
+    let sha256 = write_json_atomic_hashed(&path, &index)?;
     Ok(FilterIndexEntry {
         built_at_seq: base_seq,
         len: docs.len(),
@@ -262,28 +259,6 @@ fn compare_scalar(actual: f64, op: ScalarOp, expected: f64) -> bool {
 
 fn anchor_value_matches(actual: &AnchorValue, expected: &AnchorValue) -> bool {
     actual == expected
-}
-
-fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> CliResult {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    let tmp = tmp_path(path);
-    {
-        let mut file = File::create(&tmp)?;
-        file.write_all(bytes)?;
-        file.sync_all()?;
-    }
-    fs::rename(&tmp, path).inspect_err(|_| {
-        let _ = fs::remove_file(&tmp);
-    })?;
-    Ok(())
-}
-
-fn tmp_path(path: &Path) -> PathBuf {
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    PathBuf::from(tmp)
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {

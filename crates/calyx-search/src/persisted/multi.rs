@@ -6,7 +6,7 @@ use calyx_core::{Constellation, CxId, SlotId, SlotVector};
 use calyx_sextant::index::{IndexSearchHit, MaxSimIndex, ranked};
 use serde::{Deserialize, Serialize};
 
-use super::{SearchIndexEntry, rel, sha256_hex, stale, write_bytes_atomic};
+use super::{SearchIndexEntry, rel, sha256_hex, stale, write_json_atomic_hashed};
 use crate::error::CliResult;
 
 const MULTI_FORMAT: &str = "calyx-search-multi-maxsim-index-v1";
@@ -83,9 +83,7 @@ pub(super) fn write(
         rows.rows.len()
     ));
     let index = build_index(slot, rows.token_dim, rows.rows, base_seq);
-    let bytes = serde_json::to_vec_pretty(&index)?;
-    let sha256 = sha256_hex(&bytes);
-    write_bytes_atomic(&path, &bytes)?;
+    let sha256 = write_json_atomic_hashed(&path, &index)?;
     Ok(SearchIndexEntry::multi(
         slot,
         index.token_dim,

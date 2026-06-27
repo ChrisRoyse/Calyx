@@ -7,7 +7,7 @@ use calyx_sextant::index::bm25::Bm25;
 use calyx_sextant::index::{IndexSearchHit, ranked};
 use serde::{Deserialize, Serialize};
 
-use super::{SearchIndexEntry, rel, sha256_hex, stale, write_bytes_atomic};
+use super::{SearchIndexEntry, rel, sha256_hex, stale, write_json_atomic_hashed};
 use crate::error::CliResult;
 
 const SPARSE_FORMAT: &str = "calyx-search-sparse-index-v1";
@@ -91,9 +91,7 @@ pub(super) fn write(
         rows.rows.len()
     ));
     let index = build_index(slot, rows.dim, rows.rows, base_seq);
-    let bytes = serde_json::to_vec_pretty(&index)?;
-    let sha256 = sha256_hex(&bytes);
-    write_bytes_atomic(&path, &bytes)?;
+    let sha256 = write_json_atomic_hashed(&path, &index)?;
     Ok(SearchIndexEntry::sparse(
         slot,
         index.dim,

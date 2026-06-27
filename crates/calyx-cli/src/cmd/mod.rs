@@ -53,6 +53,7 @@ pub(crate) enum Subcommand {
     VerifyChain(provenance::VerifyChainArgs),
     Reproduce(provenance::ReproduceArgs),
     AnnealStatus(provenance::AnnealStatusArgs),
+    RebuildSearchIndex(VaultRefArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -151,7 +152,9 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::Ingest(_) | Subcommand::Anchor(_) | Subcommand::Measure(_) => {
             ingest::run(command)
         }
-        Subcommand::Search(_) | Subcommand::KernelAnswer(_) => search::run(command),
+        Subcommand::Search(_) | Subcommand::KernelAnswer(_) | Subcommand::RebuildSearchIndex(_) => {
+            search::run(command)
+        }
         Subcommand::Bits(_)
         | Subcommand::Kernel(_)
         | Subcommand::Guard(_)
@@ -189,6 +192,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "verify-chain" => provenance::parse_verify_chain(rest),
         "reproduce" => provenance::parse_reproduce(rest),
         "anneal-status" => provenance::parse_anneal_status(rest),
+        "rebuild-search-index" => parse_vault_ref(rest).map(Subcommand::RebuildSearchIndex),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -216,6 +220,7 @@ fn is_cmd(command: &str) -> bool {
             | "verify-chain"
             | "reproduce"
             | "anneal-status"
+            | "rebuild-search-index"
     )
 }
 

@@ -137,6 +137,29 @@ fn query_dim_mismatch_fails_closed() {
     fs::remove_dir_all(root).ok();
 }
 
+#[test]
+fn sidecars_are_streamed_compact_with_matching_hash() {
+    // Regression guard for the post-ingest finalization hang: sidecars must be streamed
+    // as compact JSON via the shared hashing writer (not materialized with to_vec_pretty),
+    // and the manifest sha256 must equal the hash of exactly the bytes written to disk.
+    let root = scratch("compact");
+    rebuild_from_docs(&root, &rich_docs(), 21).expect("rebuild");
+    let indexes = PersistedSearchIndexes::open(&root).expect("open");
+    let entry = indexes.manifest.filter.as_ref().expect("filter entry");
+    let path = root.join(&entry.index_rel);
+    let bytes = fs::read(&path).expect("read sidecar");
+
+    // The pretty printer emits newlines + indentation; the streamed compact path has none.
+    assert!(
+        !bytes.contains(&b'\n'),
+        "sidecar must be compact (streamed), not pretty-printed"
+    );
+    serde_json::from_slice::<serde_json::Value>(&bytes).expect("sidecar is valid json");
+    // The streamed hash must equal the hash of the bytes actually on disk.
+    assert_eq!(sha256_hex(&bytes), entry.sha256);
+    fs::remove_dir_all(root).ok();
+}
+
 fn selective_filters() -> QueryFilters {
     QueryFilters {
         scalars: vec![ScalarPredicate {

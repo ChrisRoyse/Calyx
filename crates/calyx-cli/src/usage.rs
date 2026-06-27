@@ -25,6 +25,7 @@ pub(crate) fn usage() -> &'static str {
        calyx propose-lens <vault> --anchor <kind>
        calyx provenance <vault> <cx_id>
        calyx verify-chain <vault> [--from <seq>] [--to <seq>]
+       calyx rebuild-search-index <vault>
        calyx reproduce <vault> <answer_id>
        calyx anneal-status <vault>
        calyx healthcheck [--vault <vault>] [--json|--no-json] [--tei <http://host:port[/path]>]

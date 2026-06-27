@@ -368,6 +368,9 @@ impl Subcommand {
                 args.answer_id.clone(),
             ],
             Self::AnnealStatus(args) => vec!["anneal-status".to_string(), args.vault.clone()],
+            Self::RebuildSearchIndex(args) => {
+                vec!["rebuild-search-index".to_string(), args.vault.clone()]
+            }
             Self::ProfileLens(args) => profile_lens_tokens(args),
         }
     }

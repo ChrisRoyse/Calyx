@@ -23,6 +23,7 @@ still requires experimental confirmation.
 |---|---|---|
 | `_TEMPLATE.md` | findings template | — |
 | `01_anchors_at_ingest.md` | #868 anchors-at-ingest: thread typed anchors through streaming ingest | ✅ done + FSV |
+| `02_anchored_reingest.md` | #869 anchored re-ingest of ~199k clinical-QA corpus (dedup + resume) | ✅ done + FSV (198,993 cx, chain ok) |
 | `05_degraded_flag_fix.md` | #872 degraded flag ignores retrieval-only temporal sidecar absence | done + FSV |
 | `06_calibration_fsv.md` | #873 planted signal calibration and gate readback | done + FSV |
 | `07_power_gate_verify.md` | #874 assay power-calibration and entropy-floor gate verification | done + FSV |
