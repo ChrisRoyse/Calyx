@@ -1,0 +1,23 @@
+[package]
+name = "calyx-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lib]
+name = "calyx_search"
+path = "src/lib.rs"
+
+[dependencies]
+calyx-core = { path = "../calyx-core" }
+calyx-aster = { path = "../calyx-aster" }
+calyx-sextant = { path = "../calyx-sextant" }
+calyx-registry = { path = "../calyx-registry" }
+serde = { workspace = true }
+serde_json.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+ulid = { workspace = true }

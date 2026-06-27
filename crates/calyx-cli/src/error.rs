@@ -263,3 +263,13 @@ mod tests {
         }
     }
 }
+
+impl From<calyx_search::SearchError> for CliError {
+    fn from(error: calyx_search::SearchError) -> Self {
+        match error {
+            calyx_search::SearchError::Calyx(inner) => CliError::Calyx(inner),
+            calyx_search::SearchError::Io(message) => CliError::Io(message),
+            calyx_search::SearchError::Usage(message) => CliError::Usage(message),
+        }
+    }
+}

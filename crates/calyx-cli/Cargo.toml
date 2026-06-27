@@ -25,6 +25,7 @@ calyx-lodestar = { path = "../calyx-lodestar" }
 calyx-loom = { path = "../calyx-loom" }
 calyx-oracle = { path = "../calyx-oracle" }
 calyx-paths = { path = "../calyx-paths" }
+calyx-search = { path = "../calyx-search" }
 calyx-registry = { path = "../calyx-registry" }
 calyx-sextant = { path = "../calyx-sextant" }
 calyx-ward = { path = "../calyx-ward" }

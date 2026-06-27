@@ -1,13 +1,5 @@
-use calyx_core::SlotId;
-use calyx_sextant::{FusionStrategy, RrfProfile};
-
 use super::super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
-
-#[cfg(test)]
-use super::filters;
-#[cfg(test)]
-use calyx_sextant::{FreshnessRequirement, Query};
 
 pub(super) const DEFAULT_K: usize = 10;
 
@@ -178,24 +170,6 @@ impl SearchFusionArg {
             other => Err(CliError::usage(format!("unknown --fusion {other}"))),
         }
     }
-
-    pub(super) fn to_strategy(self, slots: &[SlotId]) -> CliResult<FusionStrategy> {
-        match self {
-            Self::Rrf => Ok(FusionStrategy::Rrf),
-            Self::WeightedRrf => Ok(FusionStrategy::WeightedRrf {
-                profile: RrfProfile::General,
-            }),
-            Self::SingleLens => slots
-                .first()
-                .copied()
-                .map(|slot| FusionStrategy::SingleLens { slot })
-                .ok_or_else(|| CliError::usage("single-lens search has no active lens slot")),
-            Self::KernelFirst => Ok(FusionStrategy::WeightedRrf {
-                profile: RrfProfile::Kernel,
-            }),
-            Self::Pipeline => Ok(FusionStrategy::Pipeline),
-        }
-    }
 }
 
 impl SearchGuardArg {
@@ -205,23 +179,6 @@ impl SearchGuardArg {
             "in-region" => Ok(Self::InRegion),
             other => Err(CliError::usage(format!("unknown --guard {other}"))),
         }
-    }
-}
-
-#[cfg(test)]
-impl SearchArgs {
-    pub(crate) fn to_query(&self, slots: &[SlotId]) -> CliResult<Query> {
-        let mut query = Query::new(self.query.clone());
-        query.k = self.k;
-        query.explain = self.explain;
-        query.require_stored_provenance = self.provenance;
-        query.freshness = match self.freshness {
-            SearchFreshnessArg::Fresh => FreshnessRequirement::FreshDerived,
-            SearchFreshnessArg::StaleOk => FreshnessRequirement::StaleOk { seq_lag: u64::MAX },
-        };
-        query.fusion = Some(self.fusion.to_strategy(slots)?);
-        query.filters = filters::parse(self.filter.as_deref())?;
-        Ok(query)
     }
 }
 

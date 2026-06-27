@@ -1,8 +1,5 @@
-use calyx_core::{CalyxError, CxId};
 use calyx_sextant::Hit;
 use serde::Serialize;
-
-use crate::error::{CliError, CliResult};
 
 #[derive(Debug, Serialize)]
 pub(super) struct KernelAnswerOut {
@@ -47,16 +44,6 @@ struct ProvenanceOut {
     chain_hash: String,
 }
 
-#[derive(Serialize)]
-struct GuardWarning {
-    code: &'static str,
-    message: String,
-    remediation: &'static str,
-    cx_id: String,
-    cosine: Option<f32>,
-    tau: f32,
-}
-
 pub(super) fn render_hits(
     hits: &[Hit],
     explain: bool,
@@ -90,24 +77,6 @@ pub(super) fn render_hits(
             }),
         })
         .collect()
-}
-
-pub(super) fn warn_guard_blocked(cx_id: CxId, cosine: Option<f32>, tau: f32) -> CliResult {
-    let error = CalyxError::guard_ood(format!(
-        "search guard blocked {cx_id}: cosine below in-region tau"
-    ));
-    let warning = GuardWarning {
-        code: error.code,
-        message: error.message,
-        remediation: error.remediation,
-        cx_id: cx_id.to_string(),
-        cosine: cosine.filter(|value| value.is_finite()),
-        tau,
-    };
-    let json = serde_json::to_string(&warning)
-        .map_err(|err| CliError::usage(format!("serialize guard warning: {err}")))?;
-    eprintln!("{json}");
-    Ok(())
 }
 
 fn hex32(bytes: &[u8; 32]) -> String {

@@ -1,13 +1,11 @@
 mod engine;
-mod filters;
 mod output;
 mod parse;
-mod persisted;
 
+pub(crate) use calyx_search::{PersistedSearchIndexes, load_docs};
 pub(crate) use parse::{KernelAnswerArgs, SearchArgs};
 #[cfg(test)]
 pub(crate) use parse::{SearchFreshnessArg, SearchFusionArg, SearchGuardArg};
-pub(crate) use persisted::{PersistedSearchIndexes, load_docs};
 
 use super::Subcommand;
 use crate::error::CliResult;
@@ -19,14 +17,14 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 }
 
 pub(crate) fn rebuild_persistent_indexes(vault_dir: &Path, vault: &AsterVault) -> CliResult {
-    persisted::rebuild_for_vault(vault_dir, vault)
+    Ok(calyx_search::rebuild_for_vault(vault_dir, vault)?)
 }
 
 pub(crate) fn measure_text_query_vectors(
     state: &calyx_registry::VaultPanelState,
     query: &str,
 ) -> CliResult<Vec<(calyx_core::SlotId, calyx_core::SlotVector)>> {
-    engine::measure_query_vectors(state, query)
+    Ok(calyx_search::measure_query_vectors(state, query)?)
 }
 
 pub(crate) fn parse_search(rest: &[String]) -> CliResult<Subcommand> {

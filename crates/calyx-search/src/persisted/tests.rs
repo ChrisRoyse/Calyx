@@ -164,7 +164,7 @@ fn exact_reference(
 ) -> Vec<CxId> {
     let mut scored = docs
         .values()
-        .filter(|cx| crate::cmd::search::filters::matches(cx, filters))
+        .filter(|cx| crate::filters::matches(cx, filters))
         .filter_map(|cx| {
             cx.slots
                 .get(&SlotId::new(0))?

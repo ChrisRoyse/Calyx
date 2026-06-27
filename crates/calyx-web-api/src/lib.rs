@@ -53,6 +53,7 @@ use calyx_ledger::{
 use calyx_registry::VaultPanelState;
 use calyx_registry::measure::measure_constellation;
 use calyx_registry::persistence::load_vault_panel_state;
+use calyx_search::{FusionChoice, GuardChoice, search_outcome};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tower_http::catch_panic::CatchPanicLayer;
@@ -97,19 +98,23 @@ pub enum ErrorCode {
     RateLimited,
     /// The request exceeded [`REQUEST_TIMEOUT`] (slow upstream aborted).
     Timeout,
+    /// The request body was malformed or carried an invalid value (e.g. k=0,
+    /// unknown fusion mode). Fail loud — never silently clamp/default.
+    BadRequest,
     /// An unhandled internal fault (including a caught panic). Never leaks detail.
     Internal,
 }
 
 impl ErrorCode {
     /// The complete closed catalog (for documentation + invariant tests).
-    pub const ALL: [ErrorCode; 7] = [
+    pub const ALL: [ErrorCode; 8] = [
         Self::NotImplemented,
         Self::NotFound,
         Self::MethodNotAllowed,
         Self::PayloadTooLarge,
         Self::RateLimited,
         Self::Timeout,
+        Self::BadRequest,
         Self::Internal,
     ];
 
@@ -122,6 +127,7 @@ impl ErrorCode {
             Self::PayloadTooLarge => "CALYX_WEB_API_PAYLOAD_TOO_LARGE",
             Self::RateLimited => "CALYX_WEB_API_RATE_LIMITED",
             Self::Timeout => "CALYX_WEB_API_TIMEOUT",
+            Self::BadRequest => "CALYX_WEB_API_BAD_REQUEST",
             Self::Internal => "CALYX_WEB_API_INTERNAL",
         }
     }
@@ -135,6 +141,7 @@ impl ErrorCode {
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::GATEWAY_TIMEOUT,
+            Self::BadRequest => StatusCode::BAD_REQUEST,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -150,6 +157,7 @@ impl ErrorCode {
             Self::PayloadTooLarge => "shrink the request body below the route's byte cap",
             Self::RateLimited => "slow down and retry after the Retry-After interval",
             Self::Timeout => "retry; if it persists, the upstream calyxd call is too slow",
+            Self::BadRequest => "fix the request body field named in the message and resend",
             Self::Internal => {
                 "retry; if it persists, inspect the calyx-web-api server logs for the logged fault"
             }
@@ -165,6 +173,7 @@ impl ErrorCode {
             Self::PayloadTooLarge => "the request body is larger than this route allows",
             Self::RateLimited => "too many requests for this route",
             Self::Timeout => "the request exceeded the server time budget",
+            Self::BadRequest => "the request body is malformed or carries an invalid value",
             Self::Internal => "an internal error occurred",
         }
     }
@@ -307,16 +316,16 @@ pub fn build_app(limiter: Arc<Guardrails>) -> Router {
 fn routes() -> Router {
     routes_base()
         .route("/v1/measure", post(not_implemented))
+        .route("/v1/search", post(not_implemented))
         .route("/v1/provenance/{id}", get(provenance_stub))
 }
 
-/// Every read-only route except the stateful ones (`/v1/measure`,
+/// Every read-only route except the stateful ones (`/v1/measure`, `/v1/search`,
 /// `/v1/provenance/{id}`), so the wired and scaffolded builders can each attach
 /// their own stateful handler without a route-overlap panic.
 fn routes_base() -> Router {
     Router::new()
         .route("/v1/health", get(health))
-        .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
         .route("/v1/kernel", get(not_implemented))
 }
@@ -394,6 +403,9 @@ async fn not_implemented() -> ApiError {
 pub struct MeasureCtx {
     vault: AsterVault,
     state: VaultPanelState,
+    /// The vault directory — needed by `/v1/search` to open the persisted
+    /// search indexes (`idx/search/*`) under it.
+    vault_dir: PathBuf,
 }
 
 impl MeasureCtx {
@@ -417,7 +429,11 @@ impl MeasureCtx {
             .map_err(|error| format!("open vault {}: {error:?}", vault_dir.display()))?;
         let state = load_vault_panel_state(vault_dir)
             .map_err(|error| format!("load panel state {}: {error:?}", vault_dir.display()))?;
-        Ok(Self { vault, state })
+        Ok(Self {
+            vault,
+            state,
+            vault_dir: vault_dir.to_path_buf(),
+        })
     }
 
     /// Load from the required `CALYX_WEB_API_VAULT_DIR` + `CALYX_WEB_API_VAULT_NAME`
@@ -451,6 +467,92 @@ async fn measure(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<MeasureReq>
         Ok(cx) => (StatusCode::OK, Json(cx)).into_response(),
         Err(error) => {
             tracing::error!(error = ?error, "CALYX_WEB_API_MEASURE_FAILED");
+            ApiError::of(ErrorCode::Internal).into_response()
+        }
+    }
+}
+
+/// Request body for `POST /v1/search`. `k`/`guard`/`fusion` are optional with
+/// safe defaults (10 / off / rrf); invalid values fail loud (BadRequest), never
+/// silently clamp.
+#[derive(Deserialize)]
+struct SearchReq {
+    query: String,
+    #[serde(default)]
+    k: Option<usize>,
+    #[serde(default)]
+    guard: Option<bool>,
+    #[serde(default)]
+    fusion: Option<String>,
+}
+
+/// Run the real Sextant search over the loaded vault and return ranked evidence
+/// with stored provenance. The ranking path is the SAME `calyx_search::
+/// search_outcome` the CLI `calyx search` uses (no duplication, no mocks), so
+/// HTTP results match the CLI byte-for-byte on the same vault.
+async fn search(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<SearchReq>) -> Response {
+    let k = req.k.unwrap_or(10);
+    if k == 0 {
+        return ApiError::new(ErrorCode::BadRequest, "k must be greater than zero").into_response();
+    }
+    let fusion = match req.fusion.as_deref() {
+        None | Some("rrf") => FusionChoice::Rrf,
+        Some("weighted-rrf") => FusionChoice::WeightedRrf,
+        Some("single-lens") => FusionChoice::SingleLens,
+        Some("kernel-first") => FusionChoice::KernelFirst,
+        Some("pipeline") => FusionChoice::Pipeline,
+        Some(other) => {
+            return ApiError::new(
+                ErrorCode::BadRequest,
+                format!(
+                    "unknown fusion '{other}' (rrf|weighted-rrf|single-lens|kernel-first|pipeline)"
+                ),
+            )
+            .into_response();
+        }
+    };
+    let guard = if req.guard.unwrap_or(false) {
+        GuardChoice::InRegion
+    } else {
+        GuardChoice::Off
+    };
+    match search_outcome(
+        &ctx.vault,
+        &ctx.state,
+        &ctx.vault_dir,
+        &req.query,
+        k,
+        fusion,
+        guard,
+        None,
+        false,
+    ) {
+        Ok(outcome) => {
+            let hits: Vec<Value> = outcome
+                .hits
+                .iter()
+                .map(|hit| {
+                    json!({
+                        "rank": hit.rank,
+                        "cxId": hit.cx_id.to_string(),
+                        "score": hit.score,
+                        "provenance": {
+                            "ledgerSeq": hit.provenance.seq,
+                            "chainHash": hex_hash(&hit.provenance.hash),
+                        },
+                    })
+                })
+                .collect();
+            let body = json!({
+                "query": req.query,
+                "k": k,
+                "guardTau": outcome.guard_tau,
+                "hits": hits,
+            });
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_SEARCH_FAILED");
             ApiError::of(ErrorCode::Internal).into_response()
         }
     }
@@ -608,7 +710,25 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
         .with_state(prov);
     routes_base()
         .route("/v1/measure", post(not_implemented))
+        .route("/v1/search", post(not_implemented))
         .merge(prov_route)
+        .fallback(fallback_404)
+        .method_not_allowed_fallback(fallback_405)
+        .layer(middleware::from_fn_with_state(limiter, guardrails))
+        .layer(panic_catch_layer())
+}
+
+/// Build the app with `/v1/measure` AND `/v1/search` wired to the loaded vault
+/// (provenance still scaffolded). Used by the search FSV tests so the real
+/// Sextant search path is exercised over HTTP without needing a ledger.
+pub fn build_app_with_search(limiter: Arc<Guardrails>, measure_ctx: Arc<MeasureCtx>) -> Router {
+    let vault_route = Router::new()
+        .route("/v1/measure", post(measure))
+        .route("/v1/search", post(search))
+        .with_state(measure_ctx);
+    routes_base()
+        .route("/v1/provenance/{id}", get(provenance_stub))
+        .merge(vault_route)
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
         .layer(middleware::from_fn_with_state(limiter, guardrails))
@@ -625,6 +745,7 @@ pub fn build_app_with_measure_and_provenance(
 ) -> Router {
     let measure_route = Router::new()
         .route("/v1/measure", post(measure))
+        .route("/v1/search", post(search))
         .with_state(measure_ctx);
     let prov_route = Router::new()
         .route("/v1/provenance/{id}", get(provenance_wired))
