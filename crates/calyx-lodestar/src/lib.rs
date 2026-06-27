@@ -34,6 +34,7 @@ pub mod scope_report;
 pub mod spectral_communities;
 pub mod summarize;
 pub mod temporal_kernel;
+pub mod vault_kernel;
 
 pub use aster_bridge::{
     ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, AsterAssocSnapshot,
@@ -158,3 +159,5 @@ pub use temporal_kernel::{
     KernelScope, KernelWeight, TimeWindow, active_cxids_in_window, apply_frequency_bonuses,
     frequency_kernel_bonus, kernel_for_window, kernel_for_window_from_graph, kernel_weight_rows,
 };
+
+pub use vault_kernel::{MeasuredVaultKernel, measured_kernel_from_vault};

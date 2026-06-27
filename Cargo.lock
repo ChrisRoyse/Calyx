@@ -847,6 +847,7 @@ dependencies = [
  "calyx-aster",
  "calyx-core",
  "calyx-ledger",
+ "calyx-lodestar",
  "calyx-registry",
  "calyx-search",
  "calyx-ward",

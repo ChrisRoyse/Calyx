@@ -51,6 +51,7 @@ use calyx_ledger::{
     DirectoryLedgerStore, LedgerCfStore, LedgerEntry, QuarantineSet, VerifyResult,
     get_answer_trace, verify_chain,
 };
+use calyx_lodestar::{KernelParams, RecallTestParams, measured_kernel_from_vault};
 use calyx_registry::VaultPanelState;
 use calyx_registry::measure::measure_constellation;
 use calyx_registry::persistence::load_vault_panel_state;
@@ -320,16 +321,16 @@ fn routes() -> Router {
         .route("/v1/measure", post(not_implemented))
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
+        .route("/v1/kernel", get(not_implemented))
         .route("/v1/provenance/{id}", get(provenance_stub))
 }
 
 /// Every read-only route except the stateful ones (`/v1/measure`, `/v1/search`,
-/// `/v1/guard`, `/v1/provenance/{id}`), so the wired and scaffolded builders can
-/// each attach their own stateful handler without a route-overlap panic.
+/// `/v1/guard`, `/v1/kernel`, `/v1/provenance/{id}`), so the wired and scaffolded
+/// builders can each attach their own stateful handler without a route-overlap
+/// panic.
 fn routes_base() -> Router {
-    Router::new()
-        .route("/v1/health", get(health))
-        .route("/v1/kernel", get(not_implemented))
+    Router::new().route("/v1/health", get(health))
 }
 
 /// Per-request resource guardrails. Order: rate limit (cheapest reject) → body
@@ -695,6 +696,99 @@ async fn guard_handler(State(ctx): State<Arc<MeasureCtx>>, Json(req): Json<Guard
     (StatusCode::OK, Json(body)).into_response()
 }
 
+/// The recall gate for the website kernel (calyxdocs/12: kernel must recall the
+/// corpus at >= 0.95).
+const KERNEL_RECALL_GATE: f32 = 0.95;
+
+/// `GET /v1/kernel` — the real doc-corpus kernel for the loaded vault, with
+/// MEASURED kernel-only recall (built by `calyx_lodestar::measured_kernel_from_vault`
+/// reading per-concept embeddings straight from the constellations — no mock, no
+/// fabricated recall). Members carry their A2 trust (anchored/provisional);
+/// recall is measured against the full corpus index at gate 0.95.
+async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Response {
+    // The content slot is the active dense text lens (probe-measured so we don't
+    // guess); without one there is nothing to embed a kernel over.
+    let content_slot = match measure_query_vectors(&ctx.state, "calyx") {
+        Ok(measured) => match measured
+            .iter()
+            .find_map(|(slot, vector)| vector.as_dense().map(|_| *slot))
+        {
+            Some(slot) => slot,
+            None => {
+                return ApiError::new(
+                    ErrorCode::BadRequest,
+                    "vault has no active dense text lens to build a kernel over",
+                )
+                .into_response();
+            }
+        },
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_KERNEL_PROBE_FAILED");
+            return ApiError::of(ErrorCode::Internal).into_response();
+        }
+    };
+    let kernel_params = KernelParams::default();
+    let recall_params = RecallTestParams {
+        min_recall_ratio: KERNEL_RECALL_GATE,
+        ..RecallTestParams::default()
+    };
+    let measured = match measured_kernel_from_vault(
+        &ctx.vault,
+        content_slot,
+        &kernel_params,
+        &recall_params,
+        8,
+        0.5,
+    ) {
+        Ok(measured) => measured,
+        Err(error) => {
+            tracing::error!(error = ?error, "CALYX_WEB_API_KERNEL_FAILED");
+            return ApiError::of(ErrorCode::Internal).into_response();
+        }
+    };
+    let unanchored: std::collections::BTreeSet<_> = measured
+        .kernel
+        .groundedness
+        .unanchored_members
+        .iter()
+        .copied()
+        .collect();
+    let members: Vec<Value> = measured
+        .kernel
+        .members
+        .iter()
+        .map(|cx_id| {
+            json!({
+                "id": cx_id.to_string(),
+                "trust": if unanchored.contains(cx_id) { "provisional" } else { "anchored" },
+            })
+        })
+        .collect();
+    let recall = &measured.recall;
+    let body = json!({
+        "kernelId": measured.kernel.kernel_id.to_string(),
+        "panelVersion": measured.kernel.panel_version,
+        "recallGate": KERNEL_RECALL_GATE,
+        "members": members,
+        "kernelSize": measured.kernel.members.len(),
+        "corpusSize": measured.corpus_size,
+        "groundedFraction": measured.kernel.groundedness.reached_anchor,
+        "recall": {
+            "measured": true,
+            "kernelOnly": recall.kernel_only,
+            "full": recall.full,
+            "ratio": recall.ratio,
+            "gate": KERNEL_RECALL_GATE,
+            "passed": recall.ratio >= KERNEL_RECALL_GATE,
+            "nQueriesTested": recall.n_queries_tested,
+            "approxFactor": recall.approx_factor,
+            "warning": recall.warning,
+        },
+        "ts": now_ms(),
+    });
+    (StatusCode::OK, Json(body)).into_response()
+}
+
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -849,6 +943,7 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
         .route("/v1/measure", post(not_implemented))
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
+        .route("/v1/kernel", get(not_implemented))
         .merge(prov_route)
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
@@ -857,14 +952,15 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
 }
 
 /// Build the app with the vault-backed routes (`/v1/measure`, `/v1/search`,
-/// `/v1/guard`) wired (provenance still scaffolded). Used by the search/guard
-/// FSV tests so the real Sextant + Ward paths are exercised over HTTP without
-/// needing a ledger.
+/// `/v1/guard`, `/v1/kernel`) wired (provenance still scaffolded). Used by the
+/// vault-endpoint FSV tests so the real Sextant + Ward + Lodestar paths are
+/// exercised over HTTP without needing a ledger.
 pub fn build_app_with_search(limiter: Arc<Guardrails>, measure_ctx: Arc<MeasureCtx>) -> Router {
     let vault_route = Router::new()
         .route("/v1/measure", post(measure))
         .route("/v1/search", post(search))
         .route("/v1/guard", post(guard_handler))
+        .route("/v1/kernel", get(kernel_handler))
         .with_state(measure_ctx);
     routes_base()
         .route("/v1/provenance/{id}", get(provenance_stub))
@@ -887,6 +983,7 @@ pub fn build_app_with_measure_and_provenance(
         .route("/v1/measure", post(measure))
         .route("/v1/search", post(search))
         .route("/v1/guard", post(guard_handler))
+        .route("/v1/kernel", get(kernel_handler))
         .with_state(measure_ctx);
     let prov_route = Router::new()
         .route("/v1/provenance/{id}", get(provenance_wired))

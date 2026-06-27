@@ -25,6 +25,7 @@ calyx-core = { path = "../calyx-core" }
 calyx-aster = { path = "../calyx-aster" }
 calyx-search = { path = "../calyx-search" }
 calyx-ward = { path = "../calyx-ward" }
+calyx-lodestar = { path = "../calyx-lodestar" }
 calyx-registry = { path = "../calyx-registry" }
 calyx-ledger = { path = "../calyx-ledger" }
 serde = { workspace = true }
