@@ -15,6 +15,8 @@
 //!   [`CALYX_SCOPE_INVALID_TIME_WINDOW`] — no kernel is built;
 //! - `require_grounded` with `grounded_fraction < 0.5` returns
 //!   [`CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING`] (no partial result);
+//! - `require_grounded` with an empty kernel returns
+//!   [`CALYX_SUMMARIZE_EMPTY_SCOPE`] (no empty anchored-looking result);
 //! - an as-of read before the retention horizon returns
 //!   [`CALYX_TIMETRAVEL_BEFORE_HORIZON`] unchanged (no data).
 //!
@@ -51,6 +53,9 @@ pub const CALYX_SCOPE_INVALID_TIME_WINDOW: &str = "CALYX_SCOPE_INVALID_TIME_WIND
 /// `require_grounded` was set but the kernel grounded fraction is `< 0.5`; the
 /// summary is withheld rather than returned partially grounded (fail-closed, A16).
 pub const CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING: &str = "CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING";
+/// `require_grounded` was set but the selected kernel has no members; no
+/// answer-like empty summary is returned (fail-closed).
+pub const CALYX_SUMMARIZE_EMPTY_SCOPE: &str = "CALYX_SUMMARIZE_EMPTY_SCOPE";
 /// An as-of summarization asked for a time before the retention horizon; no
 /// historical data is materialized (fail-closed).
 pub const CALYX_TIMETRAVEL_BEFORE_HORIZON: &str = "CALYX_TIMETRAVEL_BEFORE_HORIZON";
@@ -248,6 +253,9 @@ where
     .map_err(to_calyx)?;
 
     let grounded_fraction = kernel.groundedness.reached_anchor;
+    if params.require_grounded && kernel.members.is_empty() {
+        return Err(empty_scope_requires_grounding(&scope_h));
+    }
     if params.require_grounded && grounded_fraction < MIN_GROUNDED_FRACTION {
         return Err(insufficient_grounding(grounded_fraction));
     }
@@ -420,6 +428,17 @@ fn insufficient_grounding(grounded_fraction: f32) -> CalyxError {
             "grounded_fraction {grounded_fraction:.6} < required {MIN_GROUNDED_FRACTION}"
         ),
         remediation: "anchor more of the scope or drop require_grounded",
+    }
+}
+
+fn empty_scope_requires_grounding(scope_h: &[u8; 32]) -> CalyxError {
+    CalyxError {
+        code: CALYX_SUMMARIZE_EMPTY_SCOPE,
+        message: format!(
+            "require_grounded=true but scope {} produced an empty kernel",
+            hex32(scope_h)
+        ),
+        remediation: "ingest and anchor data in the scope, or drop require_grounded",
     }
 }
 

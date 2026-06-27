@@ -9,7 +9,7 @@ use std::fs;
 use calyx_core::CxId;
 use serde::{Deserialize, Serialize};
 
-use crate::grounding_gaps::CALYX_KERNEL_UNGROUNDED;
+use crate::grounding_gaps::{CALYX_KERNEL_EMPTY, CALYX_KERNEL_UNGROUNDED};
 use crate::{FsKernelStore, Kernel, LodestarError, RecallTestParams, Result};
 
 pub const KERNEL_ARTIFACT_FORMAT_VERSION: u32 = 1;
@@ -88,6 +88,7 @@ pub fn read_kernel_artifact(kernel_id: CxId, store: &dyn KernelArtifactStore) ->
 pub enum KernelTrust {
     Anchored,
     Provisional,
+    Empty,
 }
 
 /// Gate status of the persisted recall report (A10: measured, never assumed).
@@ -183,6 +184,15 @@ fn recall_health(kernel: &Kernel) -> KernelRecallHealth {
 }
 
 fn trust_tag(kernel: &Kernel) -> KernelTrust {
+    if kernel.members.is_empty()
+        || kernel.estimator_provenance.contains("trust=empty")
+        || kernel
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with(CALYX_KERNEL_EMPTY))
+    {
+        return KernelTrust::Empty;
+    }
     let ungrounded_warning = kernel
         .warnings
         .iter()

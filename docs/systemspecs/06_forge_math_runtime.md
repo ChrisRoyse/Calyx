@@ -287,14 +287,14 @@ CUDA-gated tests are `#[ignore]` without the `cuda` feature.
 | `QuantLevel` | bits/channel | lossy? | Codec |
 |---|---|---|---|
 | `F32` | 32.0 | no | (raw) |
-| `Bits8` | 8.0 | no | Not determined from source (no dedicated codec read) |
-| `Bits8Fp` | 8.0 | yes | MXFP8 fallback (`MxFp4Codec`) |
+| `Bits8` | 8.0 | yes | Scalar INT8 (`ScalarInt8Codec`) |
+| `Bits8Fp` | 8.0 | yes | MXFP8 (`MxFp4Codec`) |
 | `Bits4Fp` | 4.0 | yes | MXFP4 (`MxFp4Codec`) |
 | `Bits3p5` | 3.5 | yes | TurboQuant (7-bit code) |
 | `Bits2p5` | 2.5 | yes | TurboQuant (base-5 code) |
 | `Bits1` | 1.0 | yes | `BinaryCodec` |
 
-`is_lossy()` returns true for everything except `F32` and `Bits8`.
+`is_lossy()` returns false only for `F32`.
 
 `Quantizer` trait (`src/quant/mod.rs:70`): `encode(&[f32]) -> QuantizedVec`,
 `decode(&QuantizedVec) -> Vec<f32>`, `dot_estimate(a,b) -> f32`, `level()`, `dim()`.

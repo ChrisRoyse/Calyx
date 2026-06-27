@@ -166,15 +166,7 @@ pub fn lp_round_kernel_graph_from_solution(
         }
     }
     let ids: Vec<_> = kernel_graph.graph.node_ids().collect();
-    if solution.values.len() != ids.len() {
-        return Err(LodestarError::KernelInvalidParams {
-            detail: format!(
-                "LP solution has {} values for {} nodes",
-                solution.values.len(),
-                ids.len()
-            ),
-        });
-    }
+    validate_lp_solution_values(solution, ids.len())?;
     let selected: Vec<_> = ids
         .iter()
         .zip(&solution.values)
@@ -196,6 +188,39 @@ pub fn lp_round_kernel_graph_from_solution(
         Some(lp_fraction),
         kernel_graph.warnings.clone(),
     )
+}
+
+fn validate_lp_solution_values(solution: &LpSolution, expected_len: usize) -> Result<()> {
+    if solution.values.len() != expected_len {
+        return Err(LodestarError::KernelInvalidParams {
+            detail: format!(
+                "LP solution has {} values for {} nodes",
+                solution.values.len(),
+                expected_len
+            ),
+        });
+    }
+    if !solution.objective_value.is_finite() {
+        return Err(LodestarError::KernelInvalidParams {
+            detail: format!(
+                "LP solution objective_value must be finite, got {}",
+                solution.objective_value
+            ),
+        });
+    }
+    for (idx, value) in solution.values.iter().copied().enumerate() {
+        if !value.is_finite() {
+            return Err(LodestarError::KernelInvalidParams {
+                detail: format!("LP solution value at index {idx} must be finite, got {value}"),
+            });
+        }
+        if !(0.0..=1.0).contains(&value) {
+            return Err(LodestarError::KernelInvalidParams {
+                detail: format!("LP solution value at index {idx}={value} is outside [0, 1]"),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn score_nodes(

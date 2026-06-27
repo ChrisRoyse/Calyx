@@ -12,8 +12,9 @@ use calyx_aster::vault::AsterVault;
 use calyx_core::{CxId, FixedClock, LensId, VaultId};
 use proptest::prelude::*;
 use serde_json::json;
+use std::collections::BTreeSet;
 
-use crate::error::CALYX_SEXTANT_ASSOC_GRAPH_MISSING;
+use crate::error::{CALYX_SEXTANT_ASSOC_GRAPH_MISSING, CALYX_SEXTANT_VECTOR_FUSION_UNWIRED};
 use crate::query::{
     AggOp, AggSpec, CrossModelPlan, DocPathFilter, FieldOp, FieldPredicate, PlanStep,
 };
@@ -332,6 +333,27 @@ fn vector_empty_candidates_stays_empty() {
     )
     .unwrap();
     assert!(vector.rows.is_empty());
+}
+
+#[test]
+fn vector_candidates_fail_closed_without_wired_slot_indexes() {
+    let vault = vault();
+    let cx = CxId::from_input(b"candidate", 1, b"salt");
+    let mut state = super::ExecState {
+        rows: Vec::new(),
+        candidates: BTreeSet::from([cx]),
+        total_scanned: 0,
+    };
+    let before_candidates = state.candidates.clone();
+    let err =
+        super::execute_vector_fusion(&vault, vault.latest_seq(), &mut state, 1, &[0.1, 0.2], 3)
+            .unwrap_err();
+
+    assert_eq!(err.code, CALYX_SEXTANT_VECTOR_FUSION_UNWIRED);
+    assert!(err.message.contains("refusing synthetic ranking"));
+    assert_eq!(state.candidates, before_candidates);
+    assert!(state.rows.is_empty());
+    assert_eq!(vault.latest_seq(), 0);
 }
 
 #[test]

@@ -17,8 +17,8 @@ use calyx_ledger::{
     DirectoryLedgerStore, EntryKind, LedgerAppender, LedgerCfStore, LedgerEntry, SubjectId, decode,
 };
 use calyx_lodestar::{
-    CollectionId, SUMMARIZE_INVOKED_MARKER, Scope, ScopeCache, SummarizeCtx, SummarizeParams,
-    scope_hash, summarize, summarize_as_of,
+    CALYX_SUMMARIZE_EMPTY_SCOPE, CollectionId, SUMMARIZE_INVOKED_MARKER, Scope, ScopeCache,
+    SummarizeCtx, SummarizeParams, scope_hash, summarize, summarize_as_of,
 };
 use calyx_paths::AssocGraph;
 
@@ -224,9 +224,9 @@ fn ph72_t06_summarize_full_state_verification() {
     );
 
     // ---- Edge audit (≥3), each printing SoT state BEFORE and AFTER.
-    edge_empty_scope(&store, &clock, &ledger_dir);
-    edge_inverted_window_fails_closed(&store, &clock, &ledger_dir);
-    edge_before_horizon_fails_closed(&store, &clock, &ledger_dir);
+    let empty_edge = edge_empty_scope(&store, &clock, &ledger_dir);
+    let inverted_edge = edge_inverted_window_fails_closed(&store, &clock, &ledger_dir);
+    let horizon_edge = edge_before_horizon_fails_closed(&store, &clock, &ledger_dir);
 
     // ---- Evidence artifact: the data residing in the SoT after execution.
     let final_entries = read_back(&ledger_dir);
@@ -245,6 +245,11 @@ fn ph72_t06_summarize_full_state_verification() {
         "historical_as_of_1010": {
             "kernel_size": historical.kernel_size,
             "ledger_seq": historical.ledger_ref.seq,
+        },
+        "edge_cases": {
+            "empty_scope": empty_edge,
+            "inverted_window": inverted_edge,
+            "before_horizon": horizon_edge,
         },
         "on_disk_ledger_rows": final_entries.len(),
         "ledger_kinds": final_entries.iter().map(|e| format!("{:?}", e.kind)).collect::<Vec<_>>(),
@@ -270,7 +275,7 @@ fn ph72_t06_summarize_full_state_verification() {
 
 /// Edge 1 (empty scope): a collection with zero nodes → empty summary, still
 /// provenanced. BEFORE/AFTER printed from the on-disk SoT.
-fn edge_empty_scope(store: &MemoryAssocStore, clock: &FixedClock, dir: &Path) {
+fn edge_empty_scope(store: &MemoryAssocStore, clock: &FixedClock, dir: &Path) -> serde_json::Value {
     let before = ledger_files(dir);
     println!("[edge:empty] BEFORE on-disk rows = {before}");
     let mut cache = ScopeCache::new(4);
@@ -292,14 +297,63 @@ fn edge_empty_scope(store: &MemoryAssocStore, clock: &FixedClock, dir: &Path) {
     );
     assert_eq!(result.kernel_size, 0, "empty scope ⇒ empty kernel");
     assert_eq!(
+        result.grounded_fraction, 0.0,
+        "empty scope must not be reported as grounded"
+    );
+    assert_eq!(
         after,
         before + 1,
         "empty summary is still audited (one new row)"
     );
+
+    let before_required = ledger_files(dir);
+    println!("[edge:empty-required] BEFORE on-disk rows = {before_required}");
+    let mut cache = ScopeCache::new(4);
+    let mut led = appender(dir);
+    let err = summarize(
+        store,
+        Scope::Collection {
+            id: CollectionId::from("empty"),
+        },
+        Some(SummarizeParams {
+            require_grounded: true,
+            ..Default::default()
+        }),
+        &mut ctx(&mut cache, clock, &mut led),
+    )
+    .expect_err("empty require_grounded summary must fail closed");
+    drop(led);
+    let after_required = ledger_files(dir);
+    println!(
+        "[edge:empty-required] AFTER on-disk rows  = {after_required} (err={})",
+        err.code
+    );
+    assert_eq!(err.code, CALYX_SUMMARIZE_EMPTY_SCOPE);
+    assert_eq!(
+        after_required, before_required,
+        "require_grounded empty scope writes no row"
+    );
+    serde_json::json!({
+        "allowed_empty": {
+            "before_rows": before,
+            "after_rows": after,
+            "kernel_size": result.kernel_size,
+            "grounded_fraction": result.grounded_fraction,
+        },
+        "require_grounded": {
+            "before_rows": before_required,
+            "after_rows": after_required,
+            "error_code": err.code,
+        }
+    })
 }
 
 /// Edge 2 (invalid format): inverted time window → fail closed, SoT UNCHANGED.
-fn edge_inverted_window_fails_closed(store: &MemoryAssocStore, clock: &FixedClock, dir: &Path) {
+fn edge_inverted_window_fails_closed(
+    store: &MemoryAssocStore,
+    clock: &FixedClock,
+    dir: &Path,
+) -> serde_json::Value {
     let before = ledger_files(dir);
     println!("[edge:inverted] BEFORE on-disk rows = {before}");
     let mut cache = ScopeCache::new(4);
@@ -322,10 +376,19 @@ fn edge_inverted_window_fails_closed(store: &MemoryAssocStore, clock: &FixedCloc
     );
     assert_eq!(err.code, "CALYX_SCOPE_INVALID_TIME_WINDOW");
     assert_eq!(after, before, "no row written on a fail-closed evaluation");
+    serde_json::json!({
+        "before_rows": before,
+        "after_rows": after,
+        "error_code": err.code,
+    })
 }
 
 /// Edge 3 (boundary): as-of before the retention horizon → fail closed, SoT UNCHANGED.
-fn edge_before_horizon_fails_closed(store: &MemoryAssocStore, clock: &FixedClock, dir: &Path) {
+fn edge_before_horizon_fails_closed(
+    store: &MemoryAssocStore,
+    clock: &FixedClock,
+    dir: &Path,
+) -> serde_json::Value {
     let before = ledger_files(dir);
     println!("[edge:horizon] BEFORE on-disk rows = {before}");
     let mut cache = ScopeCache::new(4);
@@ -347,6 +410,11 @@ fn edge_before_horizon_fails_closed(store: &MemoryAssocStore, clock: &FixedClock
     );
     assert_eq!(err.code, "CALYX_TIMETRAVEL_BEFORE_HORIZON");
     assert_eq!(after, before, "no row written before the retention horizon");
+    serde_json::json!({
+        "before_rows": before,
+        "after_rows": after,
+        "error_code": err.code,
+    })
 }
 
 fn hex(bytes: &[u8; 32]) -> String {

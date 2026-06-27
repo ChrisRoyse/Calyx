@@ -257,7 +257,7 @@ One numeric backend implemented twice: `CpuBackend` (SIMD via `wide`) and `CudaB
 (`cudarc`), both implementing the `Backend` trait (7 ops: gemm, cosine, dot, l2,
 normalize, topk, device_info). No runtime auto-dispatch — callers pick a `dyn Backend`;
 an `AutotuneCache` records but does not auto-apply winning configs. 7 quantization levels
-(`QuantLevel`): F32, Bits8 (no codec ships), Bits8Fp (MXFP8), Bits4Fp (MXFP4), Bits3p5,
+(`QuantLevel`): F32, Bits8 (ScalarInt8), Bits8Fp (MXFP8), Bits4Fp (MXFP4), Bits3p5,
 Bits2p5 (TurboQuant + QJL residual), Bits1 (sign bits). The `cuda` feature (off by
 default) compiles 3 `.cu` kernels to PTX+cubin with `--fmad=false` for bit-near CPU/GPU
 parity; **fail-closed, no silent CPU fallback**. Default VRAM soft cap 12 GiB.
@@ -301,7 +301,7 @@ anchor_entropy_bits` (no slack). Persists to Aster `Assay` CF.
 Discovers the minimal record set (the ~1% MFVS) explaining a corpus via a staged
 approximate directed-MFVS pipeline: Tarjan SCC → Brandes betweenness → greedy top-fraction
 candidate selection (score = `0.40·degree + 0.40·betweenness + 0.20·groundedness`) →
-LP-round (heuristic fallback) → `dfvs_approx`. The kernel doubles as an HNSW index and an
+heuristic candidate graph → `dfvs_approx`. The kernel doubles as an HNSW index and an
 answer path (BFS reach with `hop_score = edge_weight·0.9^hop`). Recall gate default 0.95;
 kernel artifact `FORMAT_VERSION = 1`. The LP relaxation is not wired to a solver and the
 build pipeline does not measure recall (defaults to 0).
@@ -347,7 +347,8 @@ plans are not implemented here.
 `calyx-mincut`: Tarjan SCC + condensation, Brandes betweenness, eigenvector centrality,
 Laplacian eigenmaps / GFT, spectral gap. Despite the name, there is **no min-cut/max-flow
 or feedback-vertex-set solver** — only an LP scaffold that formulates (no cycle
-constraints, no solver), so Lodestar falls back to heuristic DFVS. `calyx-paths`:
+constraints, no solver), so Lodestar fails closed for LP-round requests unless a valid
+external `LpSolution` is injected. `calyx-paths`:
 `AssocGraph` (CSR adjacency), `reach` (bidirectional BFS), `reach_scored` (weighted
 best-first, `score·0.9^hops`).
 
@@ -396,9 +397,9 @@ over stdio JSON-RPC with no auth/consent gate (vault resolution via `CALYX_HOME`
   absence fails loudly rather than falling back.
 - **Unwired/partial paths**: the MCP-over-socket transport in `calyxd` is library-complete
   but not served by the live daemon; the LP solver for kernel DFVS is not wired
-  (heuristic fallback only); `Bits8` quantization has no codec; multimodal/commissioned
+  (LP requests fail closed unless a valid external solution is supplied); multimodal/commissioned
   lenses emit hash projections, not learned vectors; `AnnealHook` is an interim pre-PH48
-  shim; MCP `search.fresh` is parsed but unused and `search.guard=in_region` always errors.
+  shim; CLI and MCP search still use divergent implementations pending a shared search crate.
 - **No code-coverage tooling** exists in the repo (see [21_test_suite.md](21_test_suite.md)).
 - **Design-vs-code divergences** (e.g. column-family numbering in the PRD vs implemented
   tags, Loom interaction being Hadamard-only) are captured in the relevant per-subsystem

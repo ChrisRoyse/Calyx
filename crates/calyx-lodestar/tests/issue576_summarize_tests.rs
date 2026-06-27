@@ -9,9 +9,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use calyx_core::{AnchorKind, CxId, FixedClock};
 use calyx_ledger::{EntryKind, LedgerAppender, MemoryLedgerStore, SubjectId};
 use calyx_lodestar::{
-    CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING,
-    CALYX_TIMETRAVEL_BEFORE_HORIZON, CollectionId, SUMMARIZE_INVOKED_MARKER, Scope, ScopeCache,
-    SummarizeCtx, SummarizeParams, scope_hash, summarize, summarize_as_of,
+    CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_EMPTY_SCOPE,
+    CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING, CALYX_TIMETRAVEL_BEFORE_HORIZON, CollectionId,
+    SUMMARIZE_INVOKED_MARKER, Scope, ScopeCache, SummarizeCtx, SummarizeParams, scope_hash,
+    summarize, summarize_as_of,
 };
 use calyx_paths::AssocGraph;
 use proptest::prelude::*;
@@ -264,10 +265,34 @@ fn empty_vault_yields_empty_summary_with_provenance() {
     assert_eq!(result.kernel_size, 0);
     assert!(result.kernel_ids.is_empty());
     assert_eq!(result.kernel_only_recall, 0.0);
+    assert_eq!(result.grounded_fraction, 0.0);
     // Provenance is still written — an empty summary is a real, audited event.
     let (kind, _, payload) = last_entry(&ledger);
     assert_eq!(kind, EntryKind::Kernel);
     assert_eq!(payload["kernel_size"].as_u64().unwrap(), 0);
+    assert_eq!(payload["grounded_fraction"].as_f64().unwrap(), 0.0);
+}
+
+#[test]
+fn empty_scope_with_required_grounding_fails_without_provenance() {
+    let store = empty_store();
+    let mut cache = ScopeCache::new(8);
+    let clock = FixedClock::new(1);
+    let mut ledger = appender();
+
+    let err = summarize(
+        &store,
+        Scope::AllAssociations,
+        Some(SummarizeParams {
+            require_grounded: true,
+            ..Default::default()
+        }),
+        &mut ctx(&mut cache, &clock, &mut ledger),
+    )
+    .expect_err("empty require_grounded summary must fail closed");
+
+    assert_eq!(err.code, CALYX_SUMMARIZE_EMPTY_SCOPE);
+    assert!(ledger.scan_entries().unwrap().is_empty());
 }
 
 #[test]

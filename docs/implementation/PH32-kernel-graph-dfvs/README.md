@@ -9,8 +9,8 @@ Implement the staged kernel-discovery pipeline inside `calyx-lodestar`: score
 the association graph, select the ~10% kernel-graph, optionally round a supplied
 LP solution, then run verified directed FVS selection to find the grounding
 kernel. The current LP path is intentionally a scaffold: no external LP solver is
-configured. Strict mode fails with `CALYX_KERNEL_LP_UNAVAILABLE`; fallback mode
-returns the heuristic kernel-graph with that warning. Generic DFVS uses exact
+configured. Direct LP-round requests fail with `CALYX_KERNEL_LP_UNAVAILABLE`;
+the fallback flag is rejected rather than returning a heuristic graph as LP output. Generic DFVS uses exact
 search on small graphs or greedy local search on larger graphs, plus tournament
 2-approx and bounded-genus specializations.
 
@@ -23,7 +23,7 @@ search on small graphs or greedy local search on larger graphs, plus tournament
 ## Current state
 
 DONE / FSV-signed-off on aiwonder. `calyx-lodestar` owns kernel-graph scoring,
-LP-round scaffold handling with explicit fallback warnings, verified DFVS
+LP-round scaffold handling with fail-closed unavailable errors, verified DFVS
 members, specializations, the serializable `Kernel` pipeline, and the
 incremental evaluation hook.
 
@@ -40,9 +40,9 @@ link or import the live ContextGraph project.
 | File | Responsibility |
 |---|---|
 | `crates/calyx-lodestar/src/lib.rs` | crate root; re-exports `kernel_graph`, `dfvs`, `kernel`, `incremental` |
-| `crates/calyx-lodestar/src/kernel_graph.rs` | `select_kernel_graph(...) -> KernelGraph`; score-based top-fraction selection; LP-round scaffold/injected-solution adapter; strict unavailable or heuristic fallback when no solver is configured |
+| `crates/calyx-lodestar/src/kernel_graph.rs` | `select_kernel_graph(...) -> KernelGraph`; score-based top-fraction selection; LP-round scaffold/injected-solution adapter; strict unavailable when no solver is configured |
 | `crates/calyx-lodestar/src/dfvs.rs` | `dfvs_approx(...) -> DfvsResult`; exact-or-greedy local search for the generic path; `tournament_2approx`; `bounded_genus_approx`; verified members and auditable method/approx fields |
-| `crates/calyx-lodestar/src/kernel.rs` | `Kernel` struct; `build_kernel_pipeline(graph, anchors, params) -> Kernel`; wires selection -> LP scaffold/fallback -> DFVS |
+| `crates/calyx-lodestar/src/kernel.rs` | `Kernel` struct; `build_kernel_pipeline(graph, anchors, params) -> Kernel`; wires selection -> explicit heuristic candidate graph -> DFVS |
 | `crates/calyx-lodestar/src/incremental.rs` | `IncrementalKernelEval`; delta-update hook for Anneal |
 
 ## Tasks
@@ -65,7 +65,7 @@ On a synthetic graph with a planted FVS:
 3. The emitted method and approximation fields describe the actual algorithm
    used; they do not claim a configured LP solver.
 4. LP scaffold FSV proves both strict fail-loud
-   `CALYX_KERNEL_LP_UNAVAILABLE` and heuristic fallback warning bytes.
+   `CALYX_KERNEL_LP_UNAVAILABLE` and fallback-flag fail-closed behavior.
 
 Base readbacks live under `/home/croyse/calyx/data/fsv-ph32-20260608`.
 Issue #329 readbacks live under
@@ -74,7 +74,7 @@ Issue #329 readbacks live under
 ## Risks / Landmines
 
 - **LP solver dependency:** no external LP solver is configured today. Strict
-  mode must fail loud; fallback must carry `CALYX_KERNEL_LP_UNAVAILABLE`.
+  mode and the fallback flag must both fail loud with `CALYX_KERNEL_LP_UNAVAILABLE`.
 - **Injected LP solutions are test adapters:** `lp_round_kernel_graph_from_solution`
   rounds a supplied `LpSolution`; it is not proof that Calyx solved LP
   constraints.

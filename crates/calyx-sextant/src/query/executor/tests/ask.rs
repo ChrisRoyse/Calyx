@@ -7,7 +7,7 @@ use crate::query::PlanStep;
 use super::{execute, plan, vault, vault_id};
 
 #[test]
-fn ask_step_appends_grounding_rows_with_provenance() {
+fn ask_step_fails_closed_until_real_synthesis_is_wired() {
     let vault = vault();
     let cx_id = CxId::from_input(b"ask-executor", 1, b"salt");
     vault
@@ -19,8 +19,9 @@ fn ask_step_appends_grounding_rows_with_provenance() {
             },
         ))
         .unwrap();
+    let before_seq = vault.latest_seq();
 
-    let result = execute(
+    let err = execute(
         &vault,
         plan(vec![PlanStep::Ask {
             question: "which orders?".to_string(),
@@ -29,11 +30,14 @@ fn ask_step_appends_grounding_rows_with_provenance() {
             oracle: false,
         }]),
     )
-    .unwrap();
+    .unwrap_err();
+    let after_seq = vault.latest_seq();
+    let stored = vault.get(cx_id, after_seq).unwrap();
 
-    assert_eq!(result.rows.len(), 1);
-    assert_eq!(result.rows[0].key.as_bytes(), cx_id.as_bytes());
-    assert_eq!(result.rows[0].ledger_ref.as_ref().unwrap().seq, 42);
+    assert_eq!(err.code, crate::error::CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert_eq!(after_seq, before_seq);
+    assert_eq!(stored.provenance.seq, 42);
+    assert_eq!(stored.provenance.hash, [7; 32]);
 }
 
 fn sample_constellation(cx_id: CxId, provenance: LedgerRef) -> calyx_core::Constellation {

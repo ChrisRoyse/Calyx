@@ -97,7 +97,8 @@ of anchor `CxId`s, and `&KernelParams`. Steps:
 5. **Optional frequency adjustment** — the closure `adjust_heuristic` runs here. For
    `build_kernel_pipeline` it is a no-op; for `build_kernel_pipeline_with_frequency`
    it calls `apply_frequency_bonuses` (§2.4).
-6. **LP rounding** — `rounded = lp_round_kernel_graph(&heuristic, &params.lp_round)` (§2.3).
+6. **LP rounding** — currently fails closed without an external solver, so the build
+   pipeline uses the explicit heuristic candidate graph path (§2.3).
 7. **DFVS approximation (≈1%)** — `dfvs = dfvs_approx(&rounded)?` (§2.5).
 8. **Grounding gaps** — `grounding_gaps_for_members(&dfvs.members, graph, anchors, params.kernel_graph.max_groundedness_distance)?` (§2.6).
 9. **Warnings + provenance** — assemble warnings and `estimator_provenance`.
@@ -155,23 +156,22 @@ The MFVS (members) within that kernel graph is computed separately in §2.5.
 
 The LP-relaxation rounding step is **not wired to an external solver**. Two paths:
 
-- `lp_round_kernel_graph(kernel_graph, params)`: if `params.fallback_to_heuristic`
-  (default `true`), it clones the kernel graph, pushes warning
-  `CALYX_KERNEL_LP_UNAVAILABLE: external LP solver not configured`, sets
-  `lp_fraction = source_fraction`, and returns it unchanged. If `fallback_to_heuristic == false`,
-  it returns `Err(KernelLpUnavailable)`.
+- `lp_round_kernel_graph(kernel_graph, params)`: always returns
+  `Err(KernelLpUnavailable)` because no external solver is configured. Setting
+  `params.fallback_to_heuristic` is rejected too; no heuristic graph is returned as an LP result.
 - `lp_round_kernel_graph_from_solution(kernel_graph, params, &LpSolution)`: the real
   rounding path. Requires `solution.status == SolveStatus::Optimal` (else
-  `KernelLpInfeasible` on `Infeasible`, or falls back for other statuses). Selects
+  `KernelLpInfeasible` on `Infeasible`, or `KernelLpUnavailable` for other statuses). Selects
   node `i` iff `solution.values[i] >= params.threshold` (default 0.5). `solution.values`
-  length must equal node count; empty selection on a non-empty graph → `KernelEmptyResult`.
+  length must equal node count, `objective_value` must be finite, and every value must
+  be finite and in `[0,1]`; empty selection on a non-empty graph → `KernelEmptyResult`.
 
 `LpRoundParams`: `threshold: f64` (default 0.5, must be finite in `[0,1]`),
-`fallback_to_heuristic: bool` (default `true`).
+`fallback_to_heuristic: bool` (default `false`).
 
-**Gap:** in the default `build_kernel_pipeline`, LP rounding is the no-op fallback;
-the MFVS therefore runs on the full greedy-selected kernel graph. A real LP solution
-must be supplied via `lp_round_kernel_graph_from_solution` to exercise relaxation rounding.
+**Gap:** the default build pipeline does not automatically run LP relaxation; it uses
+the honest greedy candidate graph path and DFVS approximation. A real LP solution must
+be supplied via `lp_round_kernel_graph_from_solution` to exercise relaxation rounding.
 
 ### 2.4 Frequency bonus (temporal_kernel.rs)
 
@@ -322,12 +322,14 @@ routes a query through the kernel then walks association edges. Steps:
 
 `AnswerHop`: `from, to: CxId`, `edge_weight: f32`, `hop_index: u32`, `hop_score: f32`,
 `ledger_ref: LedgerRef`. `AnswerPath`: `query_cx`, `anchor_kernel_node`, `hops: Vec<AnswerHop>`,
-`total_score: f32`, `provenance: Vec<LedgerRef>` (collected from the hops).
+`total_score: f32`, `provenance: Vec<LedgerRef>` (hop refs followed by the final
+complete-answer ref when using `kernel_answer_with_ledger`).
 
-`kernel_answer` uses a deterministic **stub** ledger ref (`stub_ledger_ref`: blake3
-over `"ph33-kernel-answer-ledger-stub"`, from/to/hop). The provenanced variant
+`kernel_answer` only returns direct self-hits without ledger provenance; multi-hop answers
+fail closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. The provenanced variant
 `kernel_answer_with_ledger` writes real entries: per-hop `append_answer_hop_entry`
-plus a final `append_answer_complete_entry` (see §6).
+plus a final `append_answer_complete_entry`, and returns that completion ref in
+`AnswerPath.provenance` (see §6).
 
 ### 3.3 Recall test / trust gate (`src/recall_test.rs`)
 
@@ -592,16 +594,15 @@ upstream code, e.g. `CALYX_PATHS_MAX_HOPS`).
 
 ## 9. Gaps / not covered
 
-- **LP relaxation is not wired to a solver.** Default `build_kernel_pipeline` always
-  takes the heuristic fallback in `lp_round_kernel_graph` (warns
-  `CALYX_KERNEL_LP_UNAVAILABLE`) and runs the MFVS on the full greedy kernel graph.
-  Real LP rounding requires the caller to compute an `LpSolution` and use
-  `lp_round_kernel_graph_from_solution`. The plan's "LP-relaxation `O(log τ* log log τ*)`"
-  approximation is therefore **not implemented** as an automatic step.
+- **LP relaxation is not wired to a solver.** Direct LP-round requests fail closed with
+  `CALYX_KERNEL_LP_UNAVAILABLE`; the build pipeline uses the honest heuristic candidate
+  graph plus DFVS approximation. Real LP rounding requires the caller to compute a valid
+  `LpSolution` and use `lp_round_kernel_graph_from_solution`. The plan's "LP-relaxation
+  `O(log τ* log log τ*)`" approximation is therefore **not implemented** as an automatic step.
 - **The build pipeline does not measure recall.** `Kernel.recall.kernel_only/full/ratio`
   are 0 until a separate `kernel_recall_test` runs (and is fed back, e.g. via `summarize_with_recall`).
-- **`kernel_answer`'s default ledger ref is a stub** (`stub_ledger_ref`); only
-  `kernel_answer_with_ledger` writes genuine ledger entries.
+- **`kernel_answer` requires ledger wiring for multi-hop provenance**; callers must use
+  `kernel_answer_with_ledger` for multi-hop answers so hop and complete-answer refs are persisted.
 - **Incremental rebuild is whole-graph.** `rebuild_dirty` re-runs the full pipeline;
   dirty-SCC tracking decides *whether* to rebuild, not a localized recompute.
 - **Aster time-travel summarization is partial.** Per the `summarize.rs` module docs, a

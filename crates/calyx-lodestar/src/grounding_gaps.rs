@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::{Kernel, Result, groundedness_distance};
 
 pub const CALYX_KERNEL_UNGROUNDED: &str = "CALYX_KERNEL_UNGROUNDED";
+pub const CALYX_KERNEL_EMPTY: &str = "CALYX_KERNEL_EMPTY";
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GroundingGapReport {
@@ -42,12 +43,16 @@ pub(crate) fn grounding_gaps_for_members(
     gaps.sort();
     let grounded_count = members.len().saturating_sub(gaps.len());
     let grounded_fraction = if members.is_empty() {
-        1.0
+        0.0
     } else {
         grounded_count as f32 / members.len() as f32
     };
-    let warning = (grounded_fraction == 0.0 && !members.is_empty())
-        .then(|| format!("{CALYX_KERNEL_UNGROUNDED}: all kernel members are provisional"));
+    let warning = if members.is_empty() {
+        Some(format!("{CALYX_KERNEL_EMPTY}: kernel has no members"))
+    } else {
+        (grounded_fraction == 0.0)
+            .then(|| format!("{CALYX_KERNEL_UNGROUNDED}: all kernel members are provisional"))
+    };
     Ok(GroundingGapReport {
         gaps,
         grounded_fraction,

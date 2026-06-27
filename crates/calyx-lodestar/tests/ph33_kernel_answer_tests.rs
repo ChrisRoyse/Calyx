@@ -134,7 +134,7 @@ fn kernel_answer_chain_scores_and_real_ledger_provenance_are_deterministic() {
     assert_eq!(answer.anchor_kernel_node, cx(10));
     assert_eq!(answer.hops.len(), 3);
     assert_eq!(scores, vec![1.0, 0.9, 0.80999994]);
-    assert_eq!(seqs, vec![0, 1, 2]);
+    assert_eq!(seqs, vec![0, 1, 2, 3]);
     assert_eq!(ledger_seqs, vec![0, 1, 2, 3]);
     assert!(
         answer

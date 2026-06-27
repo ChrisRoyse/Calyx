@@ -189,13 +189,13 @@ Consolidated in [24_roadmap.md](24_roadmap.md) §4. Highlights:
 
 | Gap | Subsystem | Source doc |
 |---|---|---|
-| LP/min-cut/FVS solver not implemented — heuristic DFVS fallback only | mincut / lodestar | [17](17_graph_mincut_paths.md), [12](12_lodestar_kernel.md) |
+| LP/min-cut/FVS solver not implemented — direct LP-round requests fail closed unless a valid external solution is supplied | mincut / lodestar | [17](17_graph_mincut_paths.md), [12](12_lodestar_kernel.md) |
 | Kernel build pipeline does not measure recall (defaults to 0) | lodestar | [12](12_lodestar_kernel.md) |
 | MCP-over-socket transport not wired into the live daemon | calyxd | [20](20_cli_and_daemon_reference.md) |
-| `Bits8` quantization level has no shipping codec | forge | [07](07_forge_math_runtime.md) |
+| RawF32 compression rows still need a verifiable envelope | registry / aster | GitHub #925 |
 | Multimodal / commissioned lenses emit hash projections, not learned vectors | registry | [08](08_registry_lenses.md) |
 | `AnnealHook` is an interim pre-PH48 shim | ward / anneal | [13](13_ward_guard.md) |
-| MCP `search.fresh` parsed-but-unused; `search.guard=in_region` always errors | mcp | [19](19_mcp_api_tools_reference.md) |
+| CLI and MCP search implementations still diverge instead of sharing one persisted-index path | cli / mcp / sextant | GitHub #923 |
 | Aster compaction cadence fixed (`FIXME(PH46)`); crate self-labeled "skeleton" | aster | [06](06_aster_storage_engine.md) |
 | PRD column-family numbering (Ledger=2/Assay=6) ≠ implemented tags (Ledger=8/Assay=7) | aster | [04](04_storage_and_schema.md) |
 | No code-coverage tooling | repo-wide | [21](21_test_suite.md) |

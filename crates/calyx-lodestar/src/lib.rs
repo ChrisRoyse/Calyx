@@ -64,7 +64,9 @@ pub use domain_bridges::{
     rank_domain_bridges,
 };
 pub use error::{LodestarError, Result};
-pub use grounding_gaps::{CALYX_KERNEL_UNGROUNDED, GroundingGapReport, grounding_gaps};
+pub use grounding_gaps::{
+    CALYX_KERNEL_EMPTY, CALYX_KERNEL_UNGROUNDED, GroundingGapReport, grounding_gaps,
+};
 pub use hierarchical::{
     HierarchicalKernel, HierarchicalKernelParams, RegionDescriptor, RegionId, RegionStore,
     build_hierarchical_kernel,
@@ -151,10 +153,10 @@ pub use spectral_communities::{
     SpectralCommunitySummary, spectral_community_report,
 };
 pub use summarize::{
-    CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING,
-    CALYX_TIMETRAVEL_BEFORE_HORIZON, SUMMARIZE_INVOKED_MARKER, SummarizeCtx, SummarizeParams,
-    SummarizeRecall, SummarizeResult, summarize, summarize_as_of, summarize_with_ledger,
-    summarize_with_recall,
+    CALYX_SCOPE_INVALID_TIME_WINDOW, CALYX_SUMMARIZE_EMPTY_SCOPE,
+    CALYX_SUMMARIZE_INSUFFICIENT_GROUNDING, CALYX_TIMETRAVEL_BEFORE_HORIZON,
+    SUMMARIZE_INVOKED_MARKER, SummarizeCtx, SummarizeParams, SummarizeRecall, SummarizeResult,
+    summarize, summarize_as_of, summarize_with_ledger, summarize_with_recall,
 };
 pub use temporal_kernel::{
     CALYX_LODESTAR_INVALID_FREQUENCY, CALYX_LODESTAR_INVALID_WINDOW,

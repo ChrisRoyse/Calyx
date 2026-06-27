@@ -360,7 +360,7 @@ One numeric backend implemented twice: `CpuBackend` (SIMD via `wide`) and `CudaB
 (`cudarc`), both implementing the `Backend` trait (7 ops: gemm, cosine, dot, l2,
 normalize, topk, device_info). No runtime auto-dispatch — callers pick a `dyn Backend`;
 an `AutotuneCache` records but does not auto-apply winning configs. 7 quantization levels
-(`QuantLevel`): F32, Bits8 (no codec ships), Bits8Fp (MXFP8), Bits4Fp (MXFP4), Bits3p5,
+(`QuantLevel`): F32, Bits8 (ScalarInt8), Bits8Fp (MXFP8), Bits4Fp (MXFP4), Bits3p5,
 Bits2p5 (TurboQuant + QJL residual), Bits1 (sign bits). The `cuda` feature (off by
 default) compiles 3 `.cu` kernels to PTX+cubin with `--fmad=false` for bit-near CPU/GPU
 parity; **fail-closed, no silent CPU fallback**. Default VRAM soft cap 12 GiB.
@@ -404,7 +404,7 @@ anchor_entropy_bits` (no slack). Persists to Aster `Assay` CF.
 Discovers the minimal record set (the ~1% MFVS) explaining a corpus via a staged
 approximate directed-MFVS pipeline: Tarjan SCC → Brandes betweenness → greedy top-fraction
 candidate selection (score = `0.40·degree + 0.40·betweenness + 0.20·groundedness`) →
-LP-round (heuristic fallback) → `dfvs_approx`. The kernel doubles as an HNSW index and an
+heuristic candidate graph → `dfvs_approx`. The kernel doubles as an HNSW index and an
 answer path (BFS reach with `hop_score = edge_weight·0.9^hop`). Recall gate default 0.95;
 kernel artifact `FORMAT_VERSION = 1`. The LP relaxation is not wired to a solver and the
 build pipeline does not measure recall (defaults to 0).
@@ -450,7 +450,8 @@ plans are not implemented here.
 `calyx-mincut`: Tarjan SCC + condensation, Brandes betweenness, eigenvector centrality,
 Laplacian eigenmaps / GFT, spectral gap. Despite the name, there is **no min-cut/max-flow
 or feedback-vertex-set solver** — only an LP scaffold that formulates (no cycle
-constraints, no solver), so Lodestar falls back to heuristic DFVS. `calyx-paths`:
+constraints, no solver), so Lodestar fails closed for LP-round requests unless a valid
+external `LpSolution` is injected. `calyx-paths`:
 `AssocGraph` (CSR adjacency), `reach` (bidirectional BFS), `reach_scored` (weighted
 best-first, `score·0.9^hops`).
 
@@ -499,9 +500,9 @@ over stdio JSON-RPC with no auth/consent gate (vault resolution via `CALYX_HOME`
   absence fails loudly rather than falling back.
 - **Unwired/partial paths**: the MCP-over-socket transport in `calyxd` is library-complete
   but not served by the live daemon; the LP solver for kernel DFVS is not wired
-  (heuristic fallback only); `Bits8` quantization has no codec; multimodal/commissioned
+  (LP requests fail closed unless a valid external solution is supplied); multimodal/commissioned
   lenses emit hash projections, not learned vectors; `AnnealHook` is an interim pre-PH48
-  shim; MCP `search.fresh` is parsed but unused and `search.guard=in_region` always errors.
+  shim; CLI and MCP search still use divergent implementations pending a shared search crate.
 - **No code-coverage tooling** exists in the repo (see [21_test_suite.md](21_test_suite.md)).
 - **Design-vs-code divergences** (e.g. column-family numbering in the PRD vs implemented
   tags, Loom interaction being Hadamard-only) are captured in the relevant per-subsystem
@@ -4188,16 +4189,15 @@ container is `QuantizedVec { level, dim, bytes: Vec<u8>, scale: f32, seed_id:
 | `QuantLevel` | `bits_per_channel()` | `is_lossy()` | Codec | Scheme |
 |---|---|---|---|---|
 | `F32` | 32.0 | false | (none / passthrough) | full precision |
-| `Bits8` | 8.0 | false | — (declared non-lossy; no scalar-int8 codec ships) | 8-bit |
-| `Bits8Fp` | 8.0 | true | `MxFp4Codec` (MXFP8 fallback) | MXFP8 microscaling (E4M3 + E8M0) |
+| `Bits8` | 8.0 | true | `ScalarInt8Codec` | scalar signed INT8 with scale |
+| `Bits8Fp` | 8.0 | true | `MxFp4Codec` (MXFP8) | MXFP8 microscaling (E4M3 + E8M0) |
 | `Bits4Fp` | 4.0 | true | `MxFp4Codec` | MXFP4 microscaling (E8M0 block scale) |
 | `Bits3p5` | 3.5 | true | `TurboQuantCodec` | rotate → 7-bit scalar quant + 1-bit QJL residual |
 | `Bits2p5` | 2.5 | true | `TurboQuantCodec` | rotate → base-5 scalar quant + 1-bit QJL residual |
 | `Bits1` | 1.0 | true | `BinaryCodec` | rotate → sign bits (1-bit) |
 
-`is_lossy()` is `false` only for `F32` and `Bits8`. (`Bits8` has no encode/decode
-implementation in this crate — it is declared in the enum but no codec produces
-it; the only 8-bit codec output is `Bits8Fp` via MXFP8.)
+`is_lossy()` is `false` only for `F32`. `Bits8` is implemented by the scalar INT8
+codec; FP8 uses the separate `Bits8Fp` level.
 
 ### 5.2 Rotation (`src/quant/rotation.rs`) — shared front-end
 
@@ -4417,8 +4417,6 @@ ethos).
   `bilinear_cross_term`, `graph_ops`, `colbert_maxsim` are declared in
   `FORGE_DEFERRED_BACKEND_OPS` but **not implemented** as `Backend` methods. The
   planning-doc catalogs (13/23) list them as design targets only (issue #338).
-- **`Bits8`:** present in `QuantLevel`, declared non-lossy, but no codec in this
-  crate produces or consumes it (the only 8-bit output is `Bits8Fp` via MXFP8).
 - **No native FP4 cuBLAS GEMM:** the MXFP4 device path is a custom one-cell-per-
   thread kernel (fp32 accumulate); an optimized CUTLASS grouped MXFP4 tensor-core
   path is referenced in comments as future work. MXFP8 GEMM decodes to fp32 and
@@ -4450,7 +4448,9 @@ content-addressed by a `FrozenLensContract`, registered fail-closed, validated o
 every measurement, and hot-swapped into a versioned `Panel` with priority-ordered
 lazy backfill. Seven concrete runtimes implement the trait (algorithmic, TEI HTTP,
 candle-local BERT, ONNX, static-lookup, multimodal-adapter, external-cmd) plus three
-closed-form temporal lenses (E2/E3/E4) and a commissioned algorithmic lens.
+specialised fastembed lenses (sparse/SPLADE, BGE-M3 multi-vector, cross-encoder
+reranker), three closed-form temporal lenses (E2/E3/E4), and a commissioned
+algorithmic lens.
 
 **Source files covered:**
 - `crates/calyx-registry/src/lib.rs`
@@ -4467,6 +4467,7 @@ closed-form temporal lenses (E2/E3/E4) and a commissioned algorithmic lens.
 - `crates/calyx-registry/src/runtime/candle/options.rs`
 - `crates/calyx-registry/src/runtime/onnx.rs`
 - `crates/calyx-registry/src/runtime/onnx/custom.rs`
+- `crates/calyx-registry/src/runtime/onnx/special/{mod,models,vectors}.rs`
 - `crates/calyx-registry/src/runtime/static_lookup.rs`
 - `crates/calyx-registry/src/runtime/external_cmd.rs`
 - `crates/calyx-registry/src/runtime/adapters/{mod,axis,lens,pack}.rs`
@@ -4608,6 +4609,30 @@ special_tokens_map, tokenizer_config, contract_paths) and `OnnxFileSpec`. Constr
 (takes a `fastembed::EmbeddingModel`), `from_files`, `from_lens_spec`. Config errors use
 `CALYX_LENS_CONFIG_INVALID`; inference failure → `CALYX_LENS_UNREACHABLE`. Dependencies:
 `ort = =2.0.0-rc.12` (cuda), `fastembed 5.16`, `tokenizers 0.22`.
+
+#### 2.4a Special fastembed lenses — `runtime/onnx/special/{mod,models,vectors}.rs`
+
+Three additional fastembed-backed lenses cover retrieval shapes the plain dense
+`OnnxLens` cannot express. Each holds a `Mutex<…>` model, an `OnnxModelFiles` set, and an
+`OnnxProviderPolicy`; `mod.rs` defines the lenses, `models.rs` resolves model names →
+fastembed enums plus dims/shapes/norms, and `vectors.rs` holds the batching, CUDA-leak,
+and contract helpers.
+
+- **`FastembedSparseLens`** — SPLADE-style sparse term vectors (`SparseTextEmbedding`).
+  `runtime_name()` `"fastembed-sparse"`; output sparse (`finite` norm).
+- **`FastembedBgem3Lens`** — BGE-M3 multi-vector (`Bgem3Embedding`). One lens type, three
+  output modes via `FastembedBgem3Output` (`Dense | Sparse | Colbert`); the dense path is
+  unit-normalised, sparse/colbert use `finite` norm. `runtime_name()`
+  `"fastembed-bgem3-dense|sparse|colbert"`.
+- **`FastembedRerankerLens`** — cross-encoder reranker (`TextRerank`); scores query↔doc
+  pairs (`finite` norm).
+
+Exported from `lib.rs` as `FastembedSparseLens`, `FastembedBgem3Lens`,
+`FastembedRerankerLens`, and `FastembedBgem3Output`. Commission these with
+`--runtime fastembed-sparse | fastembed-bgem3-{dense,sparse,colbert} | fastembed-reranker`
+(`lens commission`, see [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md));
+`--norm` defaults per-runtime (`unit` for dense, `finite` for sparse/colbert/reranker)
+unless given explicitly.
 
 ### 2.5 `StaticLookupLens` — `runtime/static_lookup.rs`
 
@@ -4794,8 +4819,11 @@ retrieval_only, excluded_from_dedup`.
 
 `LensRuntime` variants (serde snake_case): `Algorithmic{kind}`, `TeiHttp{endpoint}`,
 `CandleLocal{model_id,files,dtype,pooling}`, `Onnx{model_id,files}`,
+`FastembedSparse{model_id,files}`, `FastembedBgem3{model_id,files,output}` (output =
+`FastembedBgem3Output::{Dense,Sparse,Colbert}`), `FastembedReranker{model_id,files}`,
 `StaticLookup{embeddings_file,tokenizer,dim}`, `MultimodalAdapter{axis,model_id}`,
-`ExternalCmd{cmd,args}`. `LensHealth`: `Loaded | Cold | Failing{code,reason}`;
+`ExternalCmd{cmd,args}`. The three fastembed-special variants share `files`-existence
+health probing with `Onnx`. `LensHealth`: `Loaded | Cold | Failing{code,reason}`;
 `LensSpec::health()` probes (TCP probe for TEI with 250ms timeout, file existence for
 candle/onnx/static, `PATH`/file check for external-cmd).
 
@@ -6263,7 +6291,8 @@ of anchor `CxId`s, and `&KernelParams`. Steps:
 5. **Optional frequency adjustment** — the closure `adjust_heuristic` runs here. For
    `build_kernel_pipeline` it is a no-op; for `build_kernel_pipeline_with_frequency`
    it calls `apply_frequency_bonuses` (§2.4).
-6. **LP rounding** — `rounded = lp_round_kernel_graph(&heuristic, &params.lp_round)` (§2.3).
+6. **LP rounding** — currently fails closed without an external solver, so the build
+   pipeline uses the explicit heuristic candidate graph path (§2.3).
 7. **DFVS approximation (≈1%)** — `dfvs = dfvs_approx(&rounded)?` (§2.5).
 8. **Grounding gaps** — `grounding_gaps_for_members(&dfvs.members, graph, anchors, params.kernel_graph.max_groundedness_distance)?` (§2.6).
 9. **Warnings + provenance** — assemble warnings and `estimator_provenance`.
@@ -6321,23 +6350,22 @@ The MFVS (members) within that kernel graph is computed separately in §2.5.
 
 The LP-relaxation rounding step is **not wired to an external solver**. Two paths:
 
-- `lp_round_kernel_graph(kernel_graph, params)`: if `params.fallback_to_heuristic`
-  (default `true`), it clones the kernel graph, pushes warning
-  `CALYX_KERNEL_LP_UNAVAILABLE: external LP solver not configured`, sets
-  `lp_fraction = source_fraction`, and returns it unchanged. If `fallback_to_heuristic == false`,
-  it returns `Err(KernelLpUnavailable)`.
+- `lp_round_kernel_graph(kernel_graph, params)`: always returns
+  `Err(KernelLpUnavailable)` because no external solver is configured. Setting
+  `params.fallback_to_heuristic` is rejected too; no heuristic graph is returned as an LP result.
 - `lp_round_kernel_graph_from_solution(kernel_graph, params, &LpSolution)`: the real
   rounding path. Requires `solution.status == SolveStatus::Optimal` (else
-  `KernelLpInfeasible` on `Infeasible`, or falls back for other statuses). Selects
+  `KernelLpInfeasible` on `Infeasible`, or `KernelLpUnavailable` for other statuses). Selects
   node `i` iff `solution.values[i] >= params.threshold` (default 0.5). `solution.values`
-  length must equal node count; empty selection on a non-empty graph → `KernelEmptyResult`.
+  length must equal node count, `objective_value` must be finite, and every value must
+  be finite and in `[0,1]`; empty selection on a non-empty graph → `KernelEmptyResult`.
 
 `LpRoundParams`: `threshold: f64` (default 0.5, must be finite in `[0,1]`),
-`fallback_to_heuristic: bool` (default `true`).
+`fallback_to_heuristic: bool` (default `false`).
 
-**Gap:** in the default `build_kernel_pipeline`, LP rounding is the no-op fallback;
-the MFVS therefore runs on the full greedy-selected kernel graph. A real LP solution
-must be supplied via `lp_round_kernel_graph_from_solution` to exercise relaxation rounding.
+**Gap:** the default build pipeline does not automatically run LP relaxation; it uses
+the honest greedy candidate graph path and DFVS approximation. A real LP solution must
+be supplied via `lp_round_kernel_graph_from_solution` to exercise relaxation rounding.
 
 ### 2.4 Frequency bonus (temporal_kernel.rs)
 
@@ -6488,12 +6516,14 @@ routes a query through the kernel then walks association edges. Steps:
 
 `AnswerHop`: `from, to: CxId`, `edge_weight: f32`, `hop_index: u32`, `hop_score: f32`,
 `ledger_ref: LedgerRef`. `AnswerPath`: `query_cx`, `anchor_kernel_node`, `hops: Vec<AnswerHop>`,
-`total_score: f32`, `provenance: Vec<LedgerRef>` (collected from the hops).
+`total_score: f32`, `provenance: Vec<LedgerRef>` (hop refs followed by the final
+complete-answer ref when using `kernel_answer_with_ledger`).
 
-`kernel_answer` uses a deterministic **stub** ledger ref (`stub_ledger_ref`: blake3
-over `"ph33-kernel-answer-ledger-stub"`, from/to/hop). The provenanced variant
+`kernel_answer` only returns direct self-hits without ledger provenance; multi-hop answers
+fail closed with `CALYX_KERNEL_ANSWER_LEDGER_REQUIRED`. The provenanced variant
 `kernel_answer_with_ledger` writes real entries: per-hop `append_answer_hop_entry`
-plus a final `append_answer_complete_entry` (see §6).
+plus a final `append_answer_complete_entry`, and returns that completion ref in
+`AnswerPath.provenance` (see §6).
 
 ### 3.3 Recall test / trust gate (`src/recall_test.rs`)
 
@@ -6758,16 +6788,15 @@ upstream code, e.g. `CALYX_PATHS_MAX_HOPS`).
 
 ## 9. Gaps / not covered
 
-- **LP relaxation is not wired to a solver.** Default `build_kernel_pipeline` always
-  takes the heuristic fallback in `lp_round_kernel_graph` (warns
-  `CALYX_KERNEL_LP_UNAVAILABLE`) and runs the MFVS on the full greedy kernel graph.
-  Real LP rounding requires the caller to compute an `LpSolution` and use
-  `lp_round_kernel_graph_from_solution`. The plan's "LP-relaxation `O(log τ* log log τ*)`"
-  approximation is therefore **not implemented** as an automatic step.
+- **LP relaxation is not wired to a solver.** Direct LP-round requests fail closed with
+  `CALYX_KERNEL_LP_UNAVAILABLE`; the build pipeline uses the honest heuristic candidate
+  graph plus DFVS approximation. Real LP rounding requires the caller to compute a valid
+  `LpSolution` and use `lp_round_kernel_graph_from_solution`. The plan's "LP-relaxation
+  `O(log τ* log log τ*)`" approximation is therefore **not implemented** as an automatic step.
 - **The build pipeline does not measure recall.** `Kernel.recall.kernel_only/full/ratio`
   are 0 until a separate `kernel_recall_test` runs (and is fed back, e.g. via `summarize_with_recall`).
-- **`kernel_answer`'s default ledger ref is a stub** (`stub_ledger_ref`); only
-  `kernel_answer_with_ledger` writes genuine ledger entries.
+- **`kernel_answer` requires ledger wiring for multi-hop provenance**; callers must use
+  `kernel_answer_with_ledger` for multi-hop answers so hop and complete-answer refs are persisted.
 - **Incremental rebuild is whole-graph.** `rebuild_dirty` re-runs the full pipeline;
   dirty-SCC tracking decides *whether* to rebuild, not a localized recompute.
 - **Aster time-travel summarization is partial.** Per the `summarize.rs` module docs, a
@@ -9039,7 +9068,7 @@ Methods / functions:
 - `LpProblem::validate(&self) -> Result<()>` — checks each var's `id` equals its dense index, bounds finite & `lb<=ub`; every objective and constraint variable reference is `< vars.len()` (`validate_var_ref`); every coefficient and rhs is finite (`validate_finite`). Errors `LpInvalid`.
 - `pub fn mfvs_lp_problem(graph: &AssocGraph) -> Result<LpProblem>` — one variable `x_{id}` per node with bounds `[0,1]`; objective coefficient `1.0` per variable; `sense = Minimize`; **`constraints` is empty** (cycle-elimination constraints are NOT generated). Calls `validate()` before returning.
 
-So `mfvs_lp_problem` produces the *objective* of "minimize sum of node indicators" with box constraints but no cycle constraints, and there is no solver. The lodestar doc confirms LP rounding is not wired to a solver and the kernel falls back to a heuristic DFVS (see [12_lodestar_kernel.md](12_lodestar_kernel.md) §2.4, Gaps). Test `lp_scaffold_roundtrips_and_triangle_problem_has_unit_bounds` checks JSON round-trip and that a 3-node triangle yields 3 unit-bound vars and objective `[(0,1),(1,1),(2,1)]`.
+So `mfvs_lp_problem` produces the *objective* of "minimize sum of node indicators" with box constraints but no cycle constraints, and there is no solver. The lodestar doc confirms LP rounding is not wired to a solver and direct LP-round requests fail closed unless a valid external `LpSolution` is supplied (see [12_lodestar_kernel.md](12_lodestar_kernel.md) §2.4, Gaps). Test `lp_scaffold_roundtrips_and_triangle_problem_has_unit_bounds` checks JSON round-trip and that a 3-node triangle yields 3 unit-bound vars and objective `[(0,1),(1,1),(2,1)]`.
 
 ### 5. Betweenness centrality (`betweenness.rs`)
 
@@ -9236,7 +9265,7 @@ From [12_lodestar_kernel.md](12_lodestar_kernel.md) §1, §2, §3, §6, §8 — 
 | Underlying graph type / builder | `AssocGraph` / `AssocGraphBuilder` (node `frequency_weight ∈ (0,∞)`, edge `weight ∈ [0,1]`) | calyx-paths |
 | Pipeline step 2: SCC condensation; incremental SCC tracking; acyclicity test; cyclic-SCC lower bound | `tarjan_scc → SccResult{components, component_of}`, `condensate`, `CondensedGraph::is_dag` | calyx-mincut |
 | Pipeline step 3: candidate centrality scoring (`betweenness_score`) | `betweenness → BTreeMap<CxId,f64>` (Brandes, reciprocal weights, `(n-1)(n-2)` norm) | calyx-mincut |
-| MFVS LP rounding input (`lp_round_kernel_graph_from_solution`) | `LpSolution`, `SolveStatus` (LP scaffold) — **solver not wired; heuristic fallback used by default** | calyx-mincut |
+| MFVS LP rounding input (`lp_round_kernel_graph_from_solution`) | `LpSolution`, `SolveStatus` (LP scaffold) — **solver not wired; direct LP-round requests fail closed unless a valid external solution is supplied** | calyx-mincut |
 | `kernel_answer`: anchor→query path | `reach(graph, from, to, max_hops) → Option<Vec<CxId>>` (bidirectional BFS) | calyx-paths |
 | Per-hop answer score decay | `attenuate(score, hops) = score * 0.9^hops` (`HOP_DECAY=0.9`) | calyx-paths |
 | `groundedness_distance` / `groundedness_score` | BFS hops to nearest anchor (uses `reach`/graph hop search), capped at `max_groundedness_distance` | calyx-paths |
@@ -9248,7 +9277,7 @@ The spectral module (`eigenvector_centrality`, `laplacian_eigenmaps`, GFT, `Spec
 
 ## 6. Gaps / not covered
 
-- **No min-cut / max-flow / feedback-vertex-set solver in calyx-mincut** despite the crate name. `lp_scaffold` only *formulates* the MFVS LP (box-bounded node indicators, minimize-sum objective) and is missing cycle-elimination constraints; there is no solver. `LpSolution`/`SolveStatus` are inert data carriers. Per the lodestar doc the kernel falls back to a heuristic DFVS approximation and emits `CALYX_KERNEL_LP_UNAVAILABLE`.
+- **No min-cut / max-flow / feedback-vertex-set solver in calyx-mincut** despite the crate name. `lp_scaffold` only *formulates* the MFVS LP (box-bounded node indicators, minimize-sum objective) and is missing cycle-elimination constraints; there is no solver. `LpSolution`/`SolveStatus` are inert data carriers. Per the lodestar doc direct LP-round requests fail closed with `CALYX_KERNEL_LP_UNAVAILABLE`; the build pipeline uses an explicitly heuristic candidate graph plus DFVS approximation.
 - **`MincutError::NodeNotFound`** (`CALYX_MINCUT_NODE_NOT_FOUND`) is defined but not constructed anywhere in this crate as read.
 - **`reach` ignores edge weights** (pure hop-count BFS); only `reach_scored` uses weights.
 - **In-edge access is O(E)** (no reverse adjacency), affecting `in_degree`, `incoming_edges_by_index`, and the backward half of bidirectional `reach`.
@@ -10123,9 +10152,9 @@ Everyday multi-lens search. *Use when:* RRF-default, provenance-attached search.
 | `query` | string | yes | — | non-empty | — |
 | `k` | integer | no | `10` | `1..=1000` | result cap (`MAX_K=1000`) |
 | `fusion` | string | no | `rrf` | `rrf`, `weighted_rrf`, `single_lens`, `kernel_first`, `pipeline` | dash/underscore both accepted |
-| `guard` | string | no | `off` | `off`, `in_region` | see error below |
+| `guard` | string | no | `off` | `off`, `in_region` | loads the persisted default guard profile; fails closed when unavailable |
 | `explain` | boolean | no | `false` | — | adds `per_lens` breakdown |
-| `fresh` | boolean | no | `false` | — | **parsed but unused** (`_fresh_requested`) |
+| `fresh` | boolean | no | `false` | — | applies freshness labeling to returned hits |
 | `filter` | object | no | — | `QueryFilters` JSON | must be a JSON object; validated |
 
 **Returns:** `{ hits: [ { rank, cx_id, score, per_lens?, guard?, provenance:{ledger_seq,chain_hash} } ] }`
@@ -10136,8 +10165,8 @@ hash-chain before attaching provenance** (`verify_ledger_before_provenance`), me
 query vectors over active text lenses, builds per-slot ad-hoc indexes (HNSW for dense,
 Inverted for sparse, MaxSim for multi; `HNSW_SEED = 0x0050483633543034`), fuses, attaches
 stored provenance, renumbers, truncates to `k`.
-**Errors:** if `guard == in_region` → **always** `CALYX_GUARD_PROVISIONAL` ("search guard
-is not calibrated for this vault") — in-region guarding is not wired into search;
+**Errors:** if `guard == in_region` and the persisted default guard profile is missing or unusable,
+search fails closed with the Ward/guard error instead of returning unguarded hits;
 `InvalidParams` (bad fusion/guard/k, non-object filter, empty query, no active lens for
 `single_lens`); `CALYX_STALE_DERIVED` (no indexable query/stored vectors);
 `CALYX_LEDGER_CHAIN_BROKEN`/`CALYX_LEDGER_CORRUPT` if the provenance chain is broken.
@@ -10514,11 +10543,12 @@ deltas:
   `verify_chain / reproduce`, `guard.calibrate / guard.check` are each distinct tools).
 - **Transport:** plan §4 describes both embedded stdio MCP **and** a `calyxd` HTTP-ingress
   server. Only **stdio** exists in this crate; there is no socket/HTTP code here.
-- **`search.guard=in_region`:** the plan implies in-region guarding on search; the code
-  **always rejects** it with `CALYX_GUARD_PROVISIONAL` (not wired). Guarding is reachable
-  via the separate `guard.check` / `guard_generate` tools.
-- **`search.fresh`:** advertised in the schema but the value is parsed and discarded
-  (`_fresh_requested`); search always reads the current snapshot.
+- **`search.guard=in_region`:** search now loads the persisted default guard profile and
+  applies the guard in the search path; missing profile/model state fails closed rather
+  than returning unguarded hits.
+- **`search.fresh`:** returned hit freshness labels are populated from current
+  provenance/snapshot state, but MCP and CLI still have divergent search implementations
+  pending a shared search crate.
 - **`add_lens` for onnx/candle:** lenses are *declared*, not executed in-process; their
   `measure()` returns `CALYX_LENS_UNREACHABLE`, so ingest/measure/search over an
   onnx/candle lens fall back to `Absent`/degraded unless a runtime is present.
@@ -10533,8 +10563,8 @@ deltas:
   server's `2024-11-05` is fixed.
 - **No `resources`, `prompts`, or `logging` MCP capabilities** — `capabilities` advertises
   only `{ tools: {} }`.
-- **`search.fresh`** is a no-op (above).
-- **`search.guard=in_region`** is unreachable (always errors, above).
+- **Search implementation sharing:** CLI and MCP search both enforce guard/freshness
+  contracts, but they do not yet share one persisted-index execution path.
 - Several output structs are private (`pub(super)`) serde types; their exact field sets
   are documented above but are not part of a published Rust API.
 - The xterm materialization in `agree`/`disagree` is the only write performed by an
@@ -11532,13 +11562,13 @@ Consolidated in [24_roadmap.md](24_roadmap.md) §4. Highlights:
 
 | Gap | Subsystem | Source doc |
 |---|---|---|
-| LP/min-cut/FVS solver not implemented — heuristic DFVS fallback only | mincut / lodestar | [17](17_graph_mincut_paths.md), [12](12_lodestar_kernel.md) |
+| LP/min-cut/FVS solver not implemented — direct LP-round requests fail closed unless a valid external solution is supplied | mincut / lodestar | [17](17_graph_mincut_paths.md), [12](12_lodestar_kernel.md) |
 | Kernel build pipeline does not measure recall (defaults to 0) | lodestar | [12](12_lodestar_kernel.md) |
 | MCP-over-socket transport not wired into the live daemon | calyxd | [20](20_cli_and_daemon_reference.md) |
-| `Bits8` quantization level has no shipping codec | forge | [07](07_forge_math_runtime.md) |
+| RawF32 compression rows still need a verifiable envelope | registry / aster | GitHub #925 |
 | Multimodal / commissioned lenses emit hash projections, not learned vectors | registry | [08](08_registry_lenses.md) |
 | `AnnealHook` is an interim pre-PH48 shim | ward / anneal | [13](13_ward_guard.md) |
-| MCP `search.fresh` parsed-but-unused; `search.guard=in_region` always errors | mcp | [19](19_mcp_api_tools_reference.md) |
+| CLI and MCP search implementations still diverge instead of sharing one persisted-index path | cli / mcp / sextant | GitHub #923 |
 | Aster compaction cadence fixed (`FIXME(PH46)`); crate self-labeled "skeleton" | aster | [06](06_aster_storage_engine.md) |
 | PRD column-family numbering (Ledger=2/Assay=6) ≠ implemented tags (Ledger=8/Assay=7) | aster | [04](04_storage_and_schema.md) |
 | No code-coverage tooling | repo-wide | [21](21_test_suite.md) |
@@ -11941,22 +11971,22 @@ distinct from open-issue work and from aspirations. Source doc in the last colum
 |---|---|---|
 | calyx-core | `CALYX_TEMPORAL_INVALID_WINDOW` declared but raised by no core path; module-local error codes sit outside the closed PRD-18 catalog (pending governance). | 05_core.md |
 | calyx-aster | No quantization/compression codec here — slot CFs are raw big-endian IEEE bits; ANN/DiskANN/SPANN live in Sextant, not aster; single-level `SstLevel` (no L0/L1 fan-out); JSON manifest; compaction cadence fixed (`FIXME(PH46)` Anneal hook not wired). | 06_aster_storage_engine.md |
-| calyx-forge | `Bits8` declared non-lossy but **no codec produces/consumes it**; deferred backend ops (`knn`, `histogram_nmi`, `spmm_sparse_ops`, `bilinear_cross_term`, `graph_ops`, `colbert_maxsim`) declared, not implemented; no native FP4 cuBLAS GEMM (custom kernel); no runtime CPU↔GPU auto-dispatch/fallback. | 07_forge_math_runtime.md |
+| calyx-forge | Deferred backend ops (`knn`, `histogram_nmi`, `spmm_sparse_ops`, `bilinear_cross_term`, `graph_ops`, `colbert_maxsim`) declared, not implemented; no native FP4 cuBLAS GEMM (custom kernel); no runtime CPU↔GPU auto-dispatch/fallback. | 07_forge_math_runtime.md |
 | calyx-registry | `MultimodalAdapterLens` / `CommissionedLens` produce **hash-derived** vectors, not learned outputs; `bits`/`redundancy` in `LensExplanation` are placeholders pending Assay; real model paths are `#[ignore]`/env-gated. | 08_registry_lenses.md |
 | calyx-sextant | GPU parity unimplemented (`cpu_gpu_delta` always returns `CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE`); DiskANN prefetch is Unix-only (no-op on Windows); DiskANN/token-DiskANN inserts are **non-incremental** (full rebuild); planner cost model is a heuristic, not measured latency. | 09_sextant_search.md |
 | calyx-loom | Interaction is **Hadamard only** (no low-rank `vₐᵀW vᵦ`); only `StaticPairGainGate` (constant) — no live Assay/Sextant integration; `mean_agreement` == `raw_mean_agreement`; `n_eff`/DPI are carried inputs, not computed; `SignatureResult::NewContent` never produced; graph recomputed per call (no persisted adjacency). | 10_loom_associations.md |
 | calyx-assay | No Forge/GPU execution (`project_gpu` is a stub; all math CPU, O(n²)); thresholds hard-coded consts (not per-vault config); logistic "probe" is a mean-difference linear classifier, not fitted regression; no auto park/retire loop; `n_eff` reports but does not prune; `admit_lens` never returns `admitted:false` (rejects via `Err`). | 11_assay_signal_bits.md |
-| calyx-lodestar | **LP relaxation not wired to a solver** — default pipeline always takes the heuristic DFVS fallback (`CALYX_KERNEL_LP_UNAVAILABLE`); build pipeline does not measure recall (fields 0 until separate test); `kernel_answer` default ledger ref is a stub; incremental rebuild is whole-graph; time-travel summarization partial. | 12_lodestar_kernel.md |
-| calyx-mincut / calyx-paths | **No min-cut / max-flow / FVS solver** despite the crate name — `lp_scaffold` only formulates the LP (missing cycle-elim constraints); `LpSolution`/`SolveStatus` are inert; `reach` ignores edge weights; in-edge access O(E); `gft_project/reconstruct` panic on mismatch; spectral routines treat directed graph as undirected, dense O(n²)/O(n³); recursive Tarjan SCC (stack-overflow risk). | 17_graph_mincut_paths.md |
+| calyx-lodestar | **LP relaxation not wired to a solver** — direct LP-round requests fail closed with `CALYX_KERNEL_LP_UNAVAILABLE` unless a valid external solution is supplied; build pipeline does not measure recall (fields 0 until separate test); multi-hop `kernel_answer` requires the ledger-backed variant; incremental rebuild is whole-graph; time-travel summarization partial. | 12_lodestar_kernel.md |
+| calyx-mincut / calyx-paths | **No min-cut / max-flow / FVS solver** despite the crate name — `lp_scaffold` only formulates the LP (missing cycle-elim constraints); `LpSolution`/`SolveStatus` are data carriers until an external solver supplies validated values; `reach` ignores edge weights; in-edge access O(E); `gft_project/reconstruct` panic on mismatch; spectral routines treat directed graph as undirected, dense O(n²)/O(n³); recursive Tarjan SCC (stack-overflow risk). | 17_graph_mincut_paths.md |
 | calyx-ward | `AnnealHook` is an interim object-safe seam ("until Anneal's PH48 queue is live"); ONNX needs real model files + CUDA (no CPU fallback); novelty classification fails closed when recurrence data absent; Polis civic guard is a synthetic-persona proof surface. | 13_ward_guard.md |
 | calyx-ledger | Payload schemas are conventions, not types (`payload: Vec<u8>` opaque, enforced only by readers); no key management (caller supplies `[u8;32]`); `DirectoryLedgerStore` is "manual FSV before Aster group-commit"; `LedgerGroupCommitHook::on_commit` is a **disabled stub**; plan API name drift (`verify_chain` returns enum). | 14_ledger_provenance.md |
 | calyx-anneal | `heal/` and `j/` (Objective-J machinery) summarized, not detailed; no `todo!()`/stub paths observed in the core files read (tripwire/shadow/rollback/budget/ledger are real). | 15_anneal_optimization.md |
 | calyx-oracle | `OracleError::FlakyAnchor` declared but **never constructed** (dead constructor); no confidence-based refusal beyond the sufficiency gate; **no code for Objective `J` / `intelligence_report` / `growth_curve`** in this crate; PRD-22 butterfly/reverse operate on a generic graph, separate from the vault-backed production path. | 16_oracle_prediction.md |
 | calyx-hazard-soak / testkit | No crate module doc; **H24 (DR drill) intentionally incomplete** — restic restore gated behind `CALYX_PH59_RESTIC_DR=1`, skipped pending PH66 (passes on skip with `dr_restore_verified:false`); benchmark is a no-op off Linux; hazard probes reachable only via the binary. | 18_hazard_soak_and_testkit.md |
-| calyx-mcp | No batch JSON-RPC at the binary; `initialize` ignores client params/version (fixed `2024-11-05`); only `{tools:{}}` advertised (no resources/prompts/logging); `search.fresh` is a no-op; `search.guard=in_region` is unreachable (always errors). | 19_mcp_api_tools_reference.md |
+| calyx-mcp | No batch JSON-RPC at the binary; `initialize` ignores client params/version (fixed `2024-11-05`); only `{tools:{}}` advertised (no resources/prompts/logging); CLI/MCP search implementations still diverge and need a shared persisted-index execution path (#923). | 19_mcp_api_tools_reference.md |
 | calyx-cli / calyxd | **MCP transport (T05) not wired into the running daemon** — `calyxd` serves only `/metrics`; production tool registration deferred (PH63/T06); CUDA path feature-gated (default build cannot serve in server mode, fails loud); most `CalyxMetrics` observers dormant in the daemon; many CLI subcommands are FSV/diagnostic harnesses, not production ops. | 20_cli_and_daemon_reference.md |
 
-Several of these gaps have an explicit phase owner: Forge `Bits8`/deferred ops (#338),
+Several of these gaps have an explicit phase owner: Forge deferred ops (#338),
 aster compaction cadence (PH46/Anneal), Sextant GPU parity & incremental DiskANN
 (PH68 / #550), Lodestar LP-rounding + mincut solver (PH31/PH32 follow-up), Loom live
 Assay/Sextant promotion (PH28+), MCP/daemon transport (PH63/PH64), DR drill (PH66/PH67).

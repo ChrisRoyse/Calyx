@@ -20,8 +20,7 @@ use calyx_core::{
     VaultStore,
 };
 use calyx_sextant::query::{
-    AskSpec, FieldOp, FieldPredicate, GraphHop, KvLookup, RelationalFilter, UniversalQuery,
-    VectorQuery, execute, plan,
+    AskSpec, FieldOp, FieldPredicate, KvLookup, RelationalFilter, UniversalQuery, execute, plan,
 };
 use calyx_sextant::{CALYX_INVALID_ARGUMENT, CALYX_PLANNER_COST_CAP};
 use serde_json::{Value, json};
@@ -29,6 +28,9 @@ use serde_json::{Value, json};
 #[path = "../sextant_support/mod.rs"]
 mod sextant_support;
 use sextant_support::hex;
+
+#[path = "unwired_edges.rs"]
+mod unwired_edges;
 
 pub(super) const FIXED_TS: u64 = 1_785_500_467;
 const VAULT_SALT: &[u8] = b"issue467-ph55";
@@ -160,22 +162,12 @@ pub(super) fn scenario_b(
             ns: "kv_state:1".to_string(),
             key: b"last_order".to_vec(),
         }),
-        graph_hop: Some(GraphHop {
-            from_cx_ids: vec![cx_id],
-            hop_kind: "related".to_string(),
-            max_hops: 1,
-        }),
-        vector: Some(VectorQuery {
-            lens_ids: vec![cols.lens_id],
-            query_vec: vec![0.1, 0.2],
-            limit: 5,
-        }),
         cost_cap_ms: Some(10_000),
         explain: true,
         ..UniversalQuery::default()
     };
     let planned = plan(vault, &query).unwrap();
-    assert!(planned.steps.len() >= 4);
+    assert!(planned.steps.len() >= 2);
     let explain = planned.explain.clone().unwrap();
     assert!(
         explain
@@ -187,17 +179,18 @@ pub(super) fn scenario_b(
     assert!(result.elapsed_ms <= 10_000);
     assert!(has_qty_row(&result.rows, 7));
     assert!(has_kv_row(&result.rows, b"1"));
-    assert!(result.rows.iter().any(|row| {
-        row.key.as_bytes() == cx_id.as_bytes() && row.score.is_some() && row.ledger_ref.is_some()
-    }));
     let row_seqs = row_seq_summary(vault, cols, cx_id, commit_seq);
+    let graph_edge = unwired_edges::graph_hop_fail_closed(vault, cx_id);
+    let vector_empty_rows = unwired_edges::vector_empty_rows(vault, cols.lens_id);
     json!({
         "planned_steps": query_steps(&explain.steps),
         "estimated_cost_ms": explain.total_cost_ms,
         "elapsed_ms": result.elapsed_ms,
         "total_scanned": result.total_scanned,
         "rows": serde_json::to_value(&result.rows).unwrap(),
-        "row_seqs": row_seqs
+        "row_seqs": row_seqs,
+        "edge_graph_hop_fail_closed": graph_edge,
+        "edge_vector_empty_rows": vector_empty_rows
     })
 }
 
@@ -234,29 +227,7 @@ pub(super) fn scenario_d(vault: &AsterVault<FixedClock>) -> Value {
     vault.put(cx).unwrap();
     let stored = vault.get(cx_id, vault.latest_seq()).unwrap();
     assert_ne!(stored.provenance.hash, [0; 32]);
-    let query = UniversalQuery {
-        ask: Some(AskSpec {
-            question: "test question".to_string(),
-            context_cx_ids: vec![cx_id],
-            top_k: 1,
-            oracle: false,
-        }),
-        cost_cap_ms: Some(5_000),
-        explain: true,
-        ..UniversalQuery::default()
-    };
-    let result = execute(vault, plan(vault, &query).unwrap()).unwrap();
-    assert_eq!(result.rows.len(), 1);
-    let ledger = result.rows[0].ledger_ref.as_ref().unwrap();
-    assert_eq!(ledger, &stored.provenance);
-    let ledger_hex = hex(&ledger.hash);
-    println!("PH55 ASK ledger_ref seq={} hash={ledger_hex}", ledger.seq);
-    json!({
-        "cx_id": cx_id.to_string(),
-        "rows": serde_json::to_value(&result.rows).unwrap(),
-        "ledger_ref_seq": ledger.seq,
-        "ledger_ref_hash": ledger_hex
-    })
+    unwired_edges::ask_synthesis_fail_closed(vault, cx_id, stored.provenance)
 }
 
 pub(super) fn edge_empty_ask(vault: &AsterVault<FixedClock>, cx_id: CxId) -> Value {

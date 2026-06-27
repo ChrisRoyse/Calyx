@@ -355,18 +355,18 @@ Assay exposes `PanelResourceBudget { max_vram_mb, max_ram_mb, max_ms_per_input }
 
 ### 6.2 Compression (`src/compression/`)
 
-`StoredSlotCodec { RawF32, TurboQuantBits3p5, TurboQuantBits2p5, MxFp4, MxFp8, Binary }`. `StoredSlotEnvelope { codec, level, raw_dim, stored_dim, fallback, truncated, payload_bytes }`.
+`StoredSlotCodec { RawF32, TurboQuantBits3p5, TurboQuantBits2p5, ScalarInt8, MxFp4, MxFp8, Binary }`. `StoredSlotEnvelope { codec, level, raw_dim, stored_dim, truncated, payload_bytes }`.
 
 Envelope wire format (`compression/codec.rs`):
 
 ```
 byte 0      : COMPRESSED_SLOT_TAG (16 / 0x10)
 byte 1      : COMPRESSED_SLOT_VERSION (1)
-byte 2      : codec code (0–5)
+byte 2      : codec code (0=RawF32, 1=TurboQuantBits3p5, 2=TurboQuantBits2p5, 3=ScalarInt8, 4=MxFp4, 5=MxFp8, 6=Binary)
 byte 3      : quant level code (0–6)
 bytes 4..8  : raw_dim    (u32 big-endian)
 bytes 8..12 : stored_dim (u32 big-endian)
-byte 12     : flags (bit0 fallback, bit1 truncated)
+byte 12     : flags (bit1 truncated)
 bytes 13..49: reserved (36 bytes)
 bytes 49..53: payload_len (u32 big-endian)
 bytes 53..  : quantized payload
@@ -374,7 +374,7 @@ bytes 53..  : quantized payload
 
 `matryoshka_truncate_renormalize(raw, truncate_dim)`: require `0 < truncate_dim <= len`, slice `raw[0..truncate_dim]`, renormalize to unit L2.
 
-`compress_slot_batch`: encode with `lens.quant_default`; if `recall_drop <= lens.recall_delta` keep it; else try `fallback_policy` (TurboQuant 2.5/Binary/PQ→3.5, MxFp4→Float8, others→raw); if still over delta, fall back to raw f32. `decode_stored_slot_envelope` returns a `RawF32` envelope when the tag is absent, else parses the header. Errors: `CALYX_VECTOR_COMPRESSION_EMPTY`, `CALYX_VECTOR_COMPRESSION_INVALID`.
+`compress_slot_batch`: encode with `lens.quant_default`; if `recall_drop <= lens.recall_delta` keep it, otherwise fail closed without storing substitute bytes. PQ requires a trained codebook artifact before real PQ codes can be stored. `decode_stored_slot_envelope` requires the compressed envelope tag and fails closed when it is absent or malformed. Errors: `CALYX_VECTOR_COMPRESSION_EMPTY`, `CALYX_VECTOR_COMPRESSION_INVALID`.
 
 ---
 

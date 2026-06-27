@@ -18,9 +18,9 @@ variants. This contract is what PH15 (MXFP4) and PH16 (autotune) depend on.
 
 ## Build (checklist of concrete, code-level steps)
 
-- [x] `src/quant/mod.rs`: `pub enum QuantLevel { F32, Bits8, Bits3p5, Bits2p5, Bits1 }`
-  — `bits_per_channel()` method returns `32.0_f32, 8.0, 3.5, 2.5, 1.0` respectively;
-  `is_lossy()` returns `false` for F32/Bits8, `true` for others;
+- [x] `src/quant/mod.rs`: `pub enum QuantLevel { F32, Bits8, Bits8Fp, Bits4Fp, Bits3p5, Bits2p5, Bits1 }`
+  — `bits_per_channel()` method returns `32.0_f32, 8.0, 8.0, 4.0, 3.5, 2.5, 1.0` respectively;
+  `is_lossy()` returns `false` only for F32;
   `serde::{Serialize, Deserialize}`, `Clone`, `Copy`, `Debug`, `PartialEq`
 - [x] `pub trait Quantizer: Send + Sync` with methods:
   `fn encode(&self, vec: &[f32]) -> Result<QuantizedVec, ForgeError>`;

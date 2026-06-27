@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use calyx_core::CxId;
 use calyx_lodestar::{
-    CALYX_KERNEL_UNGROUNDED, GroundednessReport, Kernel, RecallReport, build_kernel_pipeline,
-    grounding_gaps,
+    CALYX_KERNEL_EMPTY, CALYX_KERNEL_UNGROUNDED, GroundednessReport, Kernel, RecallReport,
+    build_kernel_pipeline, grounding_gaps,
 };
 use calyx_paths::AssocGraph;
 use proptest::prelude::*;
@@ -143,8 +143,16 @@ fn grounding_gaps_all_no_anchor_empty_and_zero_distance_edges() {
             .unwrap()
             .starts_with(CALYX_KERNEL_UNGROUNDED)
     );
-    assert_eq!(empty.grounded_fraction, 1.0);
-    assert_eq!(empty.warning, None);
+    assert_eq!(empty.grounded_fraction, 0.0);
+    assert_eq!(empty.grounded_count, 0);
+    assert_eq!(empty.member_count, 0);
+    assert!(
+        empty
+            .warning
+            .as_deref()
+            .unwrap()
+            .starts_with(CALYX_KERNEL_EMPTY)
+    );
     assert_eq!(zero.gaps, vec![cx(1)]);
     assert_eq!(zero.grounded_count, 1);
 }

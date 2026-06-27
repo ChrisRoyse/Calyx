@@ -85,13 +85,40 @@ fn lp_round_selects_solution_values_and_missing_solver_fails_closed() {
     let not_solved_err =
         lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &not_solved)
             .unwrap_err();
+    let nan_value = LpSolution {
+        values: vec![0.9, f64::NAN, 0.7, 0.1],
+        objective_value: 1.7,
+        status: SolveStatus::Optimal,
+    };
+    let nan_value_err =
+        lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &nan_value)
+            .unwrap_err();
+    let inf_objective = LpSolution {
+        values: vec![0.9, 0.3, 0.7, 0.1],
+        objective_value: f64::INFINITY,
+        status: SolveStatus::Optimal,
+    };
+    let inf_objective_err =
+        lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &inf_objective)
+            .unwrap_err();
+    let out_of_range = LpSolution {
+        values: vec![0.9, 1.2, 0.7, 0.1],
+        objective_value: 2.9,
+        status: SolveStatus::Optimal,
+    };
+    let out_of_range_err =
+        lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &out_of_range)
+            .unwrap_err();
 
     println!(
-        "LP_ROUND_READBACK rounded={:?} missing_solver={} fallback_flag_error={} not_solved={}",
+        "LP_ROUND_READBACK rounded={:?} missing_solver={} fallback_flag_error={} not_solved={} nan_value={} inf_objective={} out_of_range={}",
         rounded.selected,
         missing_solver.code(),
         fallback_flag_err.code(),
-        not_solved_err.code()
+        not_solved_err.code(),
+        nan_value_err.code(),
+        inf_objective_err.code(),
+        out_of_range_err.code()
     );
     write_readback(
         "ph32-lp-round-readback.json",
@@ -106,6 +133,14 @@ fn lp_round_selects_solution_values_and_missing_solver_fails_closed() {
             "fallback_flag_error_message": fallback_flag_err.to_string(),
             "not_solved_error": not_solved_err.code(),
             "not_solved_error_message": not_solved_err.to_string(),
+            "invalid_solution_edges": {
+                "nan_value_error": nan_value_err.code(),
+                "nan_value_message": nan_value_err.to_string(),
+                "inf_objective_error": inf_objective_err.code(),
+                "inf_objective_message": inf_objective_err.to_string(),
+                "out_of_range_error": out_of_range_err.code(),
+                "out_of_range_message": out_of_range_err.to_string(),
+            },
             "heuristic_selected": heuristic.selected,
             "heuristic_source_fraction": heuristic.source_fraction,
         }),
@@ -114,6 +149,9 @@ fn lp_round_selects_solution_values_and_missing_solver_fails_closed() {
     assert_eq!(missing_solver.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
     assert_eq!(fallback_flag_err.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
     assert_eq!(not_solved_err.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
+    assert_eq!(nan_value_err.code(), "CALYX_KERNEL_INVALID_PARAMS");
+    assert_eq!(inf_objective_err.code(), "CALYX_KERNEL_INVALID_PARAMS");
+    assert_eq!(out_of_range_err.code(), "CALYX_KERNEL_INVALID_PARAMS");
 }
 
 #[test]
@@ -152,12 +190,22 @@ fn dfvs_triangle_planted_and_dag_cases_are_verified() {
             "planted_method": planted_kernel.estimator_provenance,
             "dag_members": dag_kernel.members,
             "dag_method": dag_kernel.estimator_provenance,
+            "dag_grounded_fraction": dag_kernel.groundedness.reached_anchor,
+            "dag_warnings": dag_kernel.warnings,
         }),
     );
     assert!(triangle_kernel.recall.approx_factor <= 3.0);
     assert!(planted_members.contains(&cx(1)));
     assert!(planted_members.contains(&cx(4)));
     assert!(dag_kernel.members.is_empty());
+    assert_eq!(dag_kernel.groundedness.reached_anchor, 0.0);
+    assert!(dag_kernel.estimator_provenance.contains("trust=empty"));
+    assert!(
+        dag_kernel
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("CALYX_KERNEL_EMPTY"))
+    );
 }
 
 #[test]

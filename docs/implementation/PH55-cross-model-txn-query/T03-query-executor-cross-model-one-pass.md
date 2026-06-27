@@ -42,8 +42,8 @@ across different seq values during a query.
   2. `DocScan`: scan document IDs when no input rows exist, then call `get_subtree_at`.
   3. `KvGet`: point-read with absent/expired values skipped.
   4. `TsRangeScan`: snapshot-pinned range read emitting `(ts, value)` rows.
-  5. `GraphHop`: PH27 stub returns input `CxId`s unchanged and logs `[INFO] graph hop stubbed`.
-  6. `VectorFusion`: call PH24 restricted RRF over accumulated candidate `CxId`s.
+  5. `GraphHop`: fail closed with `CALYX_SEXTANT_ASSOC_GRAPH_MISSING` until a real association graph is wired; no pass-through rows.
+  6. `VectorFusion`: returns empty for an empty candidate set, and fails closed with `CALYX_SEXTANT_VECTOR_FUSION_UNWIRED` for candidate-backed fusion until real slot-index search is wired; no synthetic rankings.
   7. `Aggregate`: count/sum/min/max/avg over accumulated numeric values.
   8. `Ask`: delegated to T04 and fails closed with `CALYX_SEXTANT_QUERY_SHAPE`.
 - [x] Add snapshot-pinned Aster helpers `KvLayer::kv_get_at` and `TimeSeriesLayer::ts_range_at`.
@@ -57,15 +57,15 @@ across different seq values during a query.
 - [x] Unit TS: `[TsRangeScan(0..MAX)]` returns three points in ascending timestamp order.
 - [x] Unit aggregate: `[RelationalScan, Aggregate(count)]` returns one count row with value `3`.
 - [x] Proptest: non-empty combinations of relational/KV/TS/aggregate storage steps exclude post-snapshot writes.
-- [x] Edge cases: empty collection returns zero rows; expired KV returns zero rows without error; graph stub passes input `CxId`s through; vector fusion with no candidates returns empty.
-- [x] Fail-closed: ASK returns `CALYX_SEXTANT_QUERY_SHAPE` and no partial `QueryResult`.
+- [x] Edge cases: empty collection returns zero rows; expired KV returns zero rows without error; graph hop without a wired association graph fails closed; vector fusion with no candidates returns empty.
+- [x] Fail-closed: candidate-backed vector fusion returns `CALYX_SEXTANT_VECTOR_FUSION_UNWIRED`; ASK returns `CALYX_ANSWER_SYNTHESIS_UNAVAILABLE` and no partial `QueryResult`.
 
 ## FSV
 
 - **SoT:** Aster durable CF files under `/home/croyse/calyx/data/fsv-issue465-query-executor-final-20260614T154344Z/vault/cf` on aiwonder, plus `issue465-query-executor-readback.json`.
 - **Trigger:** `CALYX_FSV_ROOT=<root> cargo test -p calyx-sextant --lib query::executor::fsv_tests::issue465_query_executor_fsv_writes_readback_artifacts -- --ignored --nocapture`.
 - **Manual readback:** `cat` of the readback JSON, `find` of physical CF files, `sha256sum` of SST files, and `xxd` hex samples for relational, KV, timeseries, and ledger SSTs.
-- **Proved:** before counts were zero; after counts were `relational_rows=6`, `kv_rows=2`, `timeseries_rows=6`, `ledger_rows=10`, `latest_seq=11`; happy path returned relational keys `3,5,7` and KV bytes `active`; TS returned `10,20,30`; aggregate returned count `3`; empty collection, expired KV, graph stub, vector-empty, pinned-snapshot post-write exclusion, and fail-closed ASK matched expected results.
+- **Proved:** before counts were zero; after counts were `relational_rows=6`, `kv_rows=2`, `timeseries_rows=6`, `ledger_rows=10`, `latest_seq=11`; happy path returned relational keys `3,5,7` and KV bytes `active`; TS returned `10,20,30`; aggregate returned count `3`; empty collection, expired KV, graph fail-closed, vector-empty, pinned-snapshot post-write exclusion, and fail-closed ASK matched expected results.
 
 ## Completion Evidence
 

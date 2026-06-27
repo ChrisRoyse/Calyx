@@ -37,7 +37,8 @@ handle.
 
 | File | Responsibility |
 |---|---|
-| `src/quant/mod.rs` | Module declarations; `Quantizer` trait; `QuantLevel` enum (Bits1/Bits2p5/Bits3p5/Bits8/F32) |
+| `src/quant/mod.rs` | Module declarations; `Quantizer` trait; `QuantLevel` enum (Bits1/Bits2p5/Bits3p5/Bits4Fp/Bits8Fp/Bits8/F32) |
+| `src/quant/int8.rs` | Scalar INT8 codec for `Bits8` |
 | `src/quant/turboquant.rs` | `TurboQuantCodec`: seed gen, rotation matrix build, encode (rotate→scalar-quant+QJL), decode, unbiased dot estimator |
 | `src/quant/rotation.rs` | Content-addressed `RotationSeed`: versioned seed generation, rotation matrix construction (Hadamard + diagonal random signs), storage |
 | `src/quant/qjl.rs` | 1-bit QJL transform on residual; unbiased inner-product correction |

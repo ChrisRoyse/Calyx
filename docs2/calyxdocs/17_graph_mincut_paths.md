@@ -133,7 +133,7 @@ Methods / functions:
 - `LpProblem::validate(&self) -> Result<()>` — checks each var's `id` equals its dense index, bounds finite & `lb<=ub`; every objective and constraint variable reference is `< vars.len()` (`validate_var_ref`); every coefficient and rhs is finite (`validate_finite`). Errors `LpInvalid`.
 - `pub fn mfvs_lp_problem(graph: &AssocGraph) -> Result<LpProblem>` — one variable `x_{id}` per node with bounds `[0,1]`; objective coefficient `1.0` per variable; `sense = Minimize`; **`constraints` is empty** (cycle-elimination constraints are NOT generated). Calls `validate()` before returning.
 
-So `mfvs_lp_problem` produces the *objective* of "minimize sum of node indicators" with box constraints but no cycle constraints, and there is no solver. The lodestar doc confirms LP rounding is not wired to a solver and the kernel falls back to a heuristic DFVS (see [12_lodestar_kernel.md](12_lodestar_kernel.md) §2.4, Gaps). Test `lp_scaffold_roundtrips_and_triangle_problem_has_unit_bounds` checks JSON round-trip and that a 3-node triangle yields 3 unit-bound vars and objective `[(0,1),(1,1),(2,1)]`.
+So `mfvs_lp_problem` produces the *objective* of "minimize sum of node indicators" with box constraints but no cycle constraints, and there is no solver. The lodestar doc confirms LP rounding is not wired to a solver and direct LP-round requests fail closed unless a valid external `LpSolution` is supplied (see [12_lodestar_kernel.md](12_lodestar_kernel.md) §2.4, Gaps). Test `lp_scaffold_roundtrips_and_triangle_problem_has_unit_bounds` checks JSON round-trip and that a 3-node triangle yields 3 unit-bound vars and objective `[(0,1),(1,1),(2,1)]`.
 
 ### 5. Betweenness centrality (`betweenness.rs`)
 
@@ -330,7 +330,7 @@ From [12_lodestar_kernel.md](12_lodestar_kernel.md) §1, §2, §3, §6, §8 — 
 | Underlying graph type / builder | `AssocGraph` / `AssocGraphBuilder` (node `frequency_weight ∈ (0,∞)`, edge `weight ∈ [0,1]`) | calyx-paths |
 | Pipeline step 2: SCC condensation; incremental SCC tracking; acyclicity test; cyclic-SCC lower bound | `tarjan_scc → SccResult{components, component_of}`, `condensate`, `CondensedGraph::is_dag` | calyx-mincut |
 | Pipeline step 3: candidate centrality scoring (`betweenness_score`) | `betweenness → BTreeMap<CxId,f64>` (Brandes, reciprocal weights, `(n-1)(n-2)` norm) | calyx-mincut |
-| MFVS LP rounding input (`lp_round_kernel_graph_from_solution`) | `LpSolution`, `SolveStatus` (LP scaffold) — **solver not wired; heuristic fallback used by default** | calyx-mincut |
+| MFVS LP rounding input (`lp_round_kernel_graph_from_solution`) | `LpSolution`, `SolveStatus` (LP scaffold) — **solver not wired; direct LP-round requests fail closed unless a valid external solution is supplied** | calyx-mincut |
 | `kernel_answer`: anchor→query path | `reach(graph, from, to, max_hops) → Option<Vec<CxId>>` (bidirectional BFS) | calyx-paths |
 | Per-hop answer score decay | `attenuate(score, hops) = score * 0.9^hops` (`HOP_DECAY=0.9`) | calyx-paths |
 | `groundedness_distance` / `groundedness_score` | BFS hops to nearest anchor (uses `reach`/graph hop search), capped at `max_groundedness_distance` | calyx-paths |
@@ -342,7 +342,7 @@ The spectral module (`eigenvector_centrality`, `laplacian_eigenmaps`, GFT, `Spec
 
 ## 6. Gaps / not covered
 
-- **No min-cut / max-flow / feedback-vertex-set solver in calyx-mincut** despite the crate name. `lp_scaffold` only *formulates* the MFVS LP (box-bounded node indicators, minimize-sum objective) and is missing cycle-elimination constraints; there is no solver. `LpSolution`/`SolveStatus` are inert data carriers. Per the lodestar doc the kernel falls back to a heuristic DFVS approximation and emits `CALYX_KERNEL_LP_UNAVAILABLE`.
+- **No min-cut / max-flow / feedback-vertex-set solver in calyx-mincut** despite the crate name. `lp_scaffold` only *formulates* the MFVS LP (box-bounded node indicators, minimize-sum objective) and is missing cycle-elimination constraints; there is no solver. `LpSolution`/`SolveStatus` are inert data carriers. Per the lodestar doc direct LP-round requests fail closed with `CALYX_KERNEL_LP_UNAVAILABLE`; the build pipeline uses an explicitly heuristic candidate graph plus DFVS approximation.
 - **`MincutError::NodeNotFound`** (`CALYX_MINCUT_NODE_NOT_FOUND`) is defined but not constructed anywhere in this crate as read.
 - **`reach` ignores edge weights** (pure hop-count BFS); only `reach_scored` uses weights.
 - **In-edge access is O(E)** (no reverse adjacency), affecting `in_degree`, `incoming_edges_by_index`, and the backward half of bidirectional `reach`.

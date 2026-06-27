@@ -30,6 +30,8 @@ readbacks:
   by default.
 - [x] `lp_round_kernel_graph_from_solution(...)` accepts only explicit
   `SolveStatus::Optimal`; `Infeasible` maps to `CALYX_KERNEL_LP_INFEASIBLE`.
+  The injected objective must be finite and every value must be finite and in
+  `[0,1]`, otherwise `CALYX_KERNEL_INVALID_PARAMS`.
 - [x] Injected solution rounding includes values `>= threshold`.
 - [x] Empty rounded selection fails closed with `CALYX_KERNEL_EMPTY_RESULT`.
 - [x] `lp_round_kernel_graph(...)` with `fallback_to_heuristic=false` returns
@@ -46,6 +48,8 @@ readbacks:
   `CALYX_KERNEL_LP_UNAVAILABLE`.
 - [x] unit: fallback mode fails closed with `CALYX_KERNEL_LP_UNAVAILABLE`.
 - [x] edge: all injected values below threshold fail closed as empty result.
+- [x] edge: NaN, infinite objective, and out-of-range injected values fail closed
+  with `CALYX_KERNEL_INVALID_PARAMS`.
 - [x] fail-closed: infeasible injected solution returns
   `CALYX_KERNEL_LP_INFEASIBLE`.
 

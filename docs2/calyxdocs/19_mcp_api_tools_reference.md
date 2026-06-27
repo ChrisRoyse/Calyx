@@ -362,9 +362,9 @@ Everyday multi-lens search. *Use when:* RRF-default, provenance-attached search.
 | `query` | string | yes | — | non-empty | — |
 | `k` | integer | no | `10` | `1..=1000` | result cap (`MAX_K=1000`) |
 | `fusion` | string | no | `rrf` | `rrf`, `weighted_rrf`, `single_lens`, `kernel_first`, `pipeline` | dash/underscore both accepted |
-| `guard` | string | no | `off` | `off`, `in_region` | see error below |
+| `guard` | string | no | `off` | `off`, `in_region` | loads the persisted default guard profile; fails closed when unavailable |
 | `explain` | boolean | no | `false` | — | adds `per_lens` breakdown |
-| `fresh` | boolean | no | `false` | — | **parsed but unused** (`_fresh_requested`) |
+| `fresh` | boolean | no | `false` | — | applies freshness labeling to returned hits |
 | `filter` | object | no | — | `QueryFilters` JSON | must be a JSON object; validated |
 
 **Returns:** `{ hits: [ { rank, cx_id, score, per_lens?, guard?, provenance:{ledger_seq,chain_hash} } ] }`
@@ -375,8 +375,8 @@ hash-chain before attaching provenance** (`verify_ledger_before_provenance`), me
 query vectors over active text lenses, builds per-slot ad-hoc indexes (HNSW for dense,
 Inverted for sparse, MaxSim for multi; `HNSW_SEED = 0x0050483633543034`), fuses, attaches
 stored provenance, renumbers, truncates to `k`.
-**Errors:** if `guard == in_region` → **always** `CALYX_GUARD_PROVISIONAL` ("search guard
-is not calibrated for this vault") — in-region guarding is not wired into search;
+**Errors:** if `guard == in_region` and the persisted default guard profile is missing or unusable,
+search fails closed with the Ward/guard error instead of returning unguarded hits;
 `InvalidParams` (bad fusion/guard/k, non-object filter, empty query, no active lens for
 `single_lens`); `CALYX_STALE_DERIVED` (no indexable query/stored vectors);
 `CALYX_LEDGER_CHAIN_BROKEN`/`CALYX_LEDGER_CORRUPT` if the provenance chain is broken.
@@ -753,11 +753,12 @@ deltas:
   `verify_chain / reproduce`, `guard.calibrate / guard.check` are each distinct tools).
 - **Transport:** plan §4 describes both embedded stdio MCP **and** a `calyxd` HTTP-ingress
   server. Only **stdio** exists in this crate; there is no socket/HTTP code here.
-- **`search.guard=in_region`:** the plan implies in-region guarding on search; the code
-  **always rejects** it with `CALYX_GUARD_PROVISIONAL` (not wired). Guarding is reachable
-  via the separate `guard.check` / `guard_generate` tools.
-- **`search.fresh`:** advertised in the schema but the value is parsed and discarded
-  (`_fresh_requested`); search always reads the current snapshot.
+- **`search.guard=in_region`:** search now loads the persisted default guard profile and
+  applies the guard in the search path; missing profile/model state fails closed rather
+  than returning unguarded hits.
+- **`search.fresh`:** returned hit freshness labels are populated from current
+  provenance/snapshot state, but MCP and CLI still have divergent search implementations
+  pending a shared search crate.
 - **`add_lens` for onnx/candle:** lenses are *declared*, not executed in-process; their
   `measure()` returns `CALYX_LENS_UNREACHABLE`, so ingest/measure/search over an
   onnx/candle lens fall back to `Absent`/degraded unless a runtime is present.
@@ -772,8 +773,8 @@ deltas:
   server's `2024-11-05` is fixed.
 - **No `resources`, `prompts`, or `logging` MCP capabilities** — `capabilities` advertises
   only `{ tools: {} }`.
-- **`search.fresh`** is a no-op (above).
-- **`search.guard=in_region`** is unreachable (always errors, above).
+- **Search implementation sharing:** CLI and MCP search both enforce guard/freshness
+  contracts, but they do not yet share one persisted-index execution path.
 - Several output structs are private (`pub(super)`) serde types; their exact field sets
   are documented above but are not part of a published Rust API.
 - The xterm materialization in `agree`/`disagree` is the only write performed by an

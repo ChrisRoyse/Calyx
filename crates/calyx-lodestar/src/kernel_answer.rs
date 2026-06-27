@@ -35,6 +35,18 @@ impl AnswerPath {
             provenance,
         })
     }
+
+    fn checked_with_complete_ref(
+        query_cx: CxId,
+        anchor_kernel_node: CxId,
+        hops: Vec<AnswerHop>,
+        total_score: f32,
+        complete_ref: LedgerRef,
+    ) -> Result<Self> {
+        let mut answer = Self::checked(query_cx, anchor_kernel_node, hops, total_score)?;
+        answer.provenance.push(complete_ref);
+        Ok(answer)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -96,8 +108,21 @@ where
         max_hops,
     )?;
     if path.len() == 1 {
-        append_answer_complete_entry(ledger, query_cx, anchor, kernel_index.kernel_id, &[], 1.0)?;
-        return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
+        let complete_ref = append_answer_complete_entry(
+            ledger,
+            query_cx,
+            anchor,
+            kernel_index.kernel_id,
+            &[],
+            1.0,
+        )?;
+        return AnswerPath::checked_with_complete_ref(
+            query_cx,
+            anchor,
+            Vec::new(),
+            1.0,
+            complete_ref,
+        );
     }
     let hops = answer_hops_with(
         graph,
@@ -129,7 +154,7 @@ where
             ledger_ref: hop.ledger_ref.clone(),
         })
         .collect::<Vec<_>>();
-    append_answer_complete_entry(
+    let complete_ref = append_answer_complete_entry(
         ledger,
         query_cx,
         anchor,
@@ -137,7 +162,7 @@ where
         &complete_hops,
         total_score,
     )?;
-    AnswerPath::checked(query_cx, anchor, hops, total_score)
+    AnswerPath::checked_with_complete_ref(query_cx, anchor, hops, total_score, complete_ref)
 }
 
 fn nearest_answerable_anchored_path(

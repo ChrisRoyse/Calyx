@@ -244,6 +244,41 @@ fn ungrounded_kernel_surfaces_provisional_trust() {
 }
 
 #[test]
+fn empty_kernel_surfaces_empty_trust() {
+    let store = store("empty");
+    let mut kernel = known_kernel();
+    kernel.kernel_id = cx(46);
+    kernel.members.clear();
+    kernel.kernel_graph.clear();
+    kernel.groundedness = GroundednessReport {
+        reached_anchor: 0.0,
+        unanchored_members: Vec::new(),
+    };
+    kernel.warnings = vec!["CALYX_KERNEL_EMPTY: kernel has no members".to_string()];
+    kernel.estimator_provenance = "ph32::empty; trust=empty".to_string();
+    write_kernel_artifact(&kernel, &store).expect("write artifact");
+
+    let health = kernel_health(kernel.kernel_id, &store).expect("health");
+    assert_eq!(health.trust, KernelTrust::Empty);
+    assert_eq!(health.size, 0);
+    assert_eq!(health.kernel_graph_size, 0);
+    assert_eq!(health.grounded_fraction, 0.0);
+    assert_eq!(health.unanchored_count, 0);
+    assert!(
+        health
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("CALYX_KERNEL_EMPTY"))
+    );
+
+    write_readback(
+        "empty",
+        "kernel-health-empty.json",
+        json!({ "health": health }),
+    );
+}
+
+#[test]
 fn pass_mode_reflects_persisted_recall_state() {
     let store = store("pass-mode");
 

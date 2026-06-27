@@ -364,16 +364,15 @@ container is `QuantizedVec { level, dim, bytes: Vec<u8>, scale: f32, seed_id:
 | `QuantLevel` | `bits_per_channel()` | `is_lossy()` | Codec | Scheme |
 |---|---|---|---|---|
 | `F32` | 32.0 | false | (none / passthrough) | full precision |
-| `Bits8` | 8.0 | false | — (declared non-lossy; no scalar-int8 codec ships) | 8-bit |
-| `Bits8Fp` | 8.0 | true | `MxFp4Codec` (MXFP8 fallback) | MXFP8 microscaling (E4M3 + E8M0) |
+| `Bits8` | 8.0 | true | `ScalarInt8Codec` | scalar signed INT8 with scale |
+| `Bits8Fp` | 8.0 | true | `MxFp4Codec` (MXFP8) | MXFP8 microscaling (E4M3 + E8M0) |
 | `Bits4Fp` | 4.0 | true | `MxFp4Codec` | MXFP4 microscaling (E8M0 block scale) |
 | `Bits3p5` | 3.5 | true | `TurboQuantCodec` | rotate → 7-bit scalar quant + 1-bit QJL residual |
 | `Bits2p5` | 2.5 | true | `TurboQuantCodec` | rotate → base-5 scalar quant + 1-bit QJL residual |
 | `Bits1` | 1.0 | true | `BinaryCodec` | rotate → sign bits (1-bit) |
 
-`is_lossy()` is `false` only for `F32` and `Bits8`. (`Bits8` has no encode/decode
-implementation in this crate — it is declared in the enum but no codec produces
-it; the only 8-bit codec output is `Bits8Fp` via MXFP8.)
+`is_lossy()` is `false` only for `F32`. `Bits8` is implemented by the scalar INT8
+codec; FP8 uses the separate `Bits8Fp` level.
 
 ### 5.2 Rotation (`src/quant/rotation.rs`) — shared front-end
 
@@ -593,8 +592,6 @@ ethos).
   `bilinear_cross_term`, `graph_ops`, `colbert_maxsim` are declared in
   `FORGE_DEFERRED_BACKEND_OPS` but **not implemented** as `Backend` methods. The
   planning-doc catalogs (13/23) list them as design targets only (issue #338).
-- **`Bits8`:** present in `QuantLevel`, declared non-lossy, but no codec in this
-  crate produces or consumes it (the only 8-bit output is `Bits8Fp` via MXFP8).
 - **No native FP4 cuBLAS GEMM:** the MXFP4 device path is a custom one-cell-per-
   thread kernel (fp32 accumulate); an optimized CUTLASS grouped MXFP4 tensor-core
   path is referenced in comments as future work. MXFP8 GEMM decodes to fp32 and

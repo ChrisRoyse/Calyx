@@ -108,23 +108,27 @@ fn kernel_build_and_answer_append_real_ledger_refs() {
     assert_eq!(kinds[0], EntryKind::Kernel);
     assert_eq!(kinds[1..], vec![EntryKind::Answer; answer.hops.len() + 1]);
     assert_eq!(entries.len(), 2 + answer.hops.len());
-    assert_eq!(seqs, vec![1, 2, 3]);
+    assert_eq!(seqs, vec![1, 2, 3, 4]);
+    let expected_hop_refs = answer
+        .hops
+        .iter()
+        .map(|hop| hop.ledger_ref.clone())
+        .collect::<Vec<_>>();
     assert_eq!(
-        answer.provenance,
-        answer
-            .hops
-            .iter()
-            .map(|hop| hop.ledger_ref.clone())
-            .collect::<Vec<_>>()
+        &answer.provenance[..answer.hops.len()],
+        expected_hop_refs.as_slice()
     );
     assert_eq!(entries[0].entry_hash, receipt.ledger_ref.hash);
     for (entry, ledger_ref) in entries[1..=answer.hops.len()]
         .iter()
-        .zip(&answer.provenance)
+        .zip(&answer.provenance[..answer.hops.len()])
     {
         assert_eq!(entry.entry_hash, ledger_ref.hash);
         assert_eq!(entry.seq, ledger_ref.seq);
     }
+    let complete = answer.provenance.last().unwrap();
+    assert_eq!(complete.seq, entries.last().unwrap().seq);
+    assert_eq!(complete.hash, entries.last().unwrap().entry_hash);
     assert!(trace.is_trusted());
     assert_eq!(trace.path.len(), answer.hops.len());
     assert_eq!(

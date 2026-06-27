@@ -98,7 +98,9 @@ fn direct_hit_answer_appends_complete_answer_ledger_row() {
         serde_json::from_slice(&entries[1].payload).expect("answer payload json");
 
     assert!(answer.hops.is_empty());
-    assert!(answer.provenance.is_empty());
+    assert_eq!(answer.provenance.len(), 1);
+    assert_eq!(answer.provenance[0].seq, 1);
+    assert_eq!(answer.provenance[0].hash, entries[1].entry_hash);
     assert_eq!(answer.total_score, 1.0);
     assert_eq!(entries.len(), 2);
     assert_eq!(entries[0].kind, EntryKind::Kernel);
@@ -165,6 +167,7 @@ fn ph33_direct_hit_ledger_provenance_manual_fsv() {
         "trace_trusted": trace.is_trusted(),
         "trace_path_len": trace.path.len(),
         "trace_answer_entry_seq": trace.answer_entry.as_ref().map(|entry| entry.seq),
+        "trace_answer_entry_hash": trace.answer_entry.as_ref().map(|entry| hex(&entry.entry_hash)),
         "trace_warnings": trace.warnings,
         "ledger_dir": ledger_dir,
     });
@@ -186,6 +189,9 @@ fn ph33_direct_hit_ledger_provenance_manual_fsv() {
     assert_eq!(before_rows.len(), 0);
     assert_eq!(entries.len(), 2);
     assert_eq!(readback["answer_entry_count"], 1);
+    assert_eq!(answer.provenance.len(), 1);
+    assert_eq!(answer.provenance[0].seq, 1);
+    assert_eq!(answer.provenance[0].hash, entries[1].entry_hash);
     assert!(trace.is_trusted());
     assert!(trace.complete);
 }

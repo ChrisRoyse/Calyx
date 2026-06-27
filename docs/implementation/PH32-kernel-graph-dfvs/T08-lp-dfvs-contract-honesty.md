@@ -14,7 +14,8 @@
 
 Make PH32's solver contract match the implementation. Calyx has LP scaffold
 types and an injected-solution rounding seam, but no configured external LP
-solver. Strict mode must fail loud; fallback mode must be visibly heuristic.
+solver. Strict mode and fallback mode both fail loud; heuristic DFVS is reported
+as heuristic, not as LP output.
 The generic DFVS path must identify itself as exact/greedy local search rather
 than LP local search.
 
@@ -33,15 +34,15 @@ FSV root:
 - [x] Rename generic `DfvsMethod` from `LpLocalSearch` to
   `ExactOrGreedyLocalSearch`.
 - [x] Keep `lp_round_kernel_graph` strict fail-loud when no solver is configured.
-- [x] Keep heuristic fallback explicit with `CALYX_KERNEL_LP_UNAVAILABLE`.
-- [x] Expand PH32 readbacks with strict error, fallback-is-heuristic, and method
+- [x] Reject the fallback flag with `CALYX_KERNEL_LP_UNAVAILABLE`; no heuristic graph is returned as LP output.
+- [x] Expand PH32 readbacks with strict error, fallback-flag error, and method
   provenance.
 - [x] Update PH32 docs/task cards to avoid configured-solver and LP-bound claims.
 
 ## Tests
 
 - [x] unit: strict LP path returns `CALYX_KERNEL_LP_UNAVAILABLE`.
-- [x] unit: fallback path returns the heuristic selected set and warning bytes.
+- [x] unit: fallback flag fails closed with `CALYX_KERNEL_LP_UNAVAILABLE`.
 - [x] unit: injected `LpSolution` rounding is labeled as test-provided input, not
   solver output.
 - [x] unit: DFVS readback method/provenance no longer contains `LpLocalSearch`.
@@ -53,8 +54,8 @@ FSV root:
 - **SoT:** `/home/croyse/calyx/data/fsv-issue329-lp-dfvs-contract-20260608`
 - **Readbacks:** `ph32-lp-round-readback.json`, `ph32-dfvs-readback.json`, and
   `01-lp-dfvs-contract-test.out`.
-- **Prove:** strict unavailable error exists, fallback warning exists, fallback
-  selection matches the heuristic selection, and generic DFVS method/provenance
+- **Prove:** strict unavailable error exists, fallback-flag error exists, no LP
+  path returns a heuristic selection, and generic DFVS method/provenance
   is exact/greedy local search.
 
 ## Done when

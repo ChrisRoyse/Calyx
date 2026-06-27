@@ -2,7 +2,7 @@
 
 mod support;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::time::Instant;
 
 use calyx_aster::cf::ColumnFamily;
@@ -13,19 +13,17 @@ use calyx_aster::layers::kv::kv_key;
 use calyx_aster::layers::relational::{RecordKey, RecordValue, RelationalLayer, Row};
 use calyx_aster::layers::{DocumentLayer, KvLayer, TimeSeriesLayer};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Clock, CxId, Result, Seq, SlotId};
+use calyx_core::{Clock, CxId, Result, Seq};
 use serde_json::Value;
-
-use crate::fusion::rrf::rrf_fuse_restricted;
-use crate::fusion::{FusionContext, FusionStrategy};
-use crate::index::IndexSearchHit;
 
 use super::ask::ask as ask_query;
 use super::{
     AggOp, AggSpec, AskSpec, CrossModelPlan, DocPathFilter, FieldPredicate, PlanStep,
     ProvenancedRow, QueryResult,
 };
-use crate::error::{CALYX_SEXTANT_ASSOC_GRAPH_MISSING, sextant_error};
+use crate::error::{
+    CALYX_SEXTANT_ASSOC_GRAPH_MISSING, CALYX_SEXTANT_VECTOR_FUSION_UNWIRED, sextant_error,
+};
 use support::{
     cx_from_key, default_collection, doc_value_matches, fold_numeric, index_bounds, json_row,
     ledger_ref, numeric_values, parse_record_pk, plain_row, relational_prefix, require_mode,
@@ -302,8 +300,8 @@ where
 }
 
 fn execute_vector_fusion<C>(
-    vault: &AsterVault<C>,
-    snapshot: Seq,
+    _vault: &AsterVault<C>,
+    _snapshot: Seq,
     state: &mut ExecState,
     lens_count: usize,
     query_vec: &[f32],
@@ -321,67 +319,14 @@ where
         state.rows.clear();
         return Ok(());
     }
-    let mut per_slot = BTreeMap::new();
-    for idx in 0..lens_count.max(1).min(u16::MAX as usize) {
-        per_slot.insert(
-            SlotId::new(idx as u16),
-            state
-                .candidates
-                .iter()
-                .enumerate()
-                .map(|(rank, cx_id)| IndexSearchHit {
-                    cx_id: *cx_id,
-                    score: 1.0 / (rank + 1) as f32,
-                    rank: rank + 1,
-                })
-                .collect::<Vec<_>>(),
-        );
-    }
-    let hits = rrf_fuse_restricted(
-        &per_slot,
-        &FusionContext {
-            k: limit,
-            explain: false,
-            strategy: FusionStrategy::Rrf,
-            weights: BTreeMap::new(),
-            stage1_slots: Vec::new(),
-        },
-        &state.candidates,
-    );
-    let hit_rows = hits
-        .into_iter()
-        .map(|hit| ProvenancedRow {
-            key: RecordKey::from_bytes(hit.cx_id.as_bytes().to_vec()).expect("CxId key"),
-            value: None,
-            score: Some(hit.score),
-            ledger_ref: ledger_ref(vault, snapshot, hit.cx_id),
-        })
-        .collect();
-    merge_vector_hits(state, hit_rows);
-    Ok(())
-}
-
-fn merge_vector_hits(state: &mut ExecState, hit_rows: Vec<ProvenancedRow>) {
-    if state.rows.is_empty() {
-        state.rows = hit_rows;
-        return;
-    }
-    let mut hits = hit_rows
-        .into_iter()
-        .map(|row| (row.key.as_bytes().to_vec(), row))
-        .collect::<BTreeMap<_, _>>();
-    let mut merged = Vec::with_capacity(state.rows.len() + hits.len());
-    for row in state.rows.drain(..) {
-        if cx_from_key(&row.key).is_some() {
-            if let Some(hit) = hits.remove(row.key.as_bytes()) {
-                merged.push(hit);
-            }
-        } else {
-            merged.push(row);
-        }
-    }
-    merged.extend(hits.into_values());
-    state.rows = merged;
+    Err(sextant_error(
+        CALYX_SEXTANT_VECTOR_FUSION_UNWIRED,
+        format!(
+            "VectorFusion requested over {} candidate id(s), {} lens id(s), and limit {limit}, but executor has no wired slot-index search; refusing synthetic ranking",
+            state.candidates.len(),
+            lens_count
+        ),
+    ))
 }
 
 fn execute_ask<C>(
