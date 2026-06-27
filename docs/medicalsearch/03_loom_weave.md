@@ -25,6 +25,50 @@ ssh aiwonder "cd /home/croyse/calyx/fsv/issue870-loom-weave-20260625T123001Z/rep
 ssh aiwonder "cd /home/croyse/calyx/fsv/issue870-loom-weave-20260625T123001Z/repo && bash scripts/linecount.sh"
 ```
 
+## Corpus AssocGraph design (grounded) — resolves the #870 node/edge/confidence question
+
+The synthetic slice below exercises the mechanical path but leaves the **corpus-scale construction**
+undefined (`build_assoc_graph_from_loom` needs `slot_nodes` + a `directional_confidence` per pair; the
+test hand-codes both). Resolved from the operator's published theory + the LBD literature:
+
+**Two distinct structures (both built by the corpus weave):**
+
+1. **Within-doc DDA cross-terms (the literal "Loom weave").** For each constellation, the C(N,2)
+   cross-lens **agreement** scalars across the (≤14) content lenses = the doc's *definition* /
+   constellation signature (*Calculus of Association* §2.5: "meaning is the cross-space binding";
+   differentiation contract: ≥0.05 bits/instrument, no pair corr >0.6). Materialized eagerly into the
+   **XTerm CF** via `LoomStore::weave` → `persist_xterms_to_aster`. Satisfies "cross-term CF populated".
+   Also yields the **blind-spot** signal (cross-lens disagreement = novelty) used downstream (#875).
+
+2. **Between-doc directed AssocGraph (the discovery/kernel graph).** Per *The Oracle and the Kernel*
+   §4.3: **nodes = constellations (artifacts); directed edge `X ← Y` ("X is definable from Y by
+   association") when, given grounded `Y`, the panel predicts `X` above a confidence threshold —
+   a constellation-membership test in representation space.** Operationally for the corpus:
+   - **Edge candidates:** nearest neighbors of `X` in the **fused panel representation** (the
+     RRF/search index already built for the vault) — kNN, `k` bounded.
+   - **Directional confidence `conf(X←Y) ∈ [0,1]`:** asymmetric panel-prediction confidence that
+     grounded `Y` predicts `X` (membership cosine, weighted by `Y`'s rank in `X`'s neighbor list).
+     Asymmetric by construction (kNN is asymmetric) — matches the field's **asymmetric-transitivity**
+     requirement for LBD graph embedding (Alzheimer's LBD link-prediction, ScienceDirect S1532046423001855).
+   - **Node weight = groundedness:** anchored nodes (QA-label anchors from #869) weight 1.0;
+     `groundedness_fraction` = fraction of nodes that reach an anchor within `max_groundedness_distance`.
+   - Edge weight = `agreement_or_membership × directional_confidence` (`calyx_mincut` graph builder).
+
+   This is the graph the **kernel (#871)** runs **SCC → Brandes betweenness → top-fraction kernel →
+   MFVS (≈1% Minimum Grounding Set)** over — the MFVS = *minimum feedback vertex set*
+   (Vincent-Lamarre et al. 2016, *The Latent Structure of Dictionaries*; NP-hard, Karp 1972).
+
+**Implementation:** new `calyx weave-loom <vault>` CLI command (mirrors `rebuild-search-index`):
+iterate Base CF → weave within-doc cross-terms into XTerm CF → build the between-doc directed AssocGraph
+(nodes=constellations, asymmetric kNN edges in fused space, anchor-grounded node weights) → emit
+node/edge/provenance/unique-xterm/groundedness_fraction → record here. Acceptance: XTerm CF populated,
+edge/node counts recorded, `groundedness_fraction > 0`.
+
+**Sources:** *The Oracle and the Kernel* §4.3; *The Calculus of Association* §2.3/§2.5 (cross-terms,
+cross-space binding, differentiation contract); Vincent-Lamarre et al. 2016 *Topics in Cognitive Science*
+(MinSet = MFVS ≈1%); graph-embedding LBD with asymmetric transitivity (ScienceDirect S1532046423001855).
+Validated 2026-06-27.
+
 ## Raw evidence / FSV
 
 Implementation source:
