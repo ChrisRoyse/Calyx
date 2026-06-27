@@ -63,6 +63,12 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
     run_cycle(std::slice::from_ref(&target), &chain);
     let surface = Arc::new(CalyxMetrics::new(Arc::clone(&chain), &labels));
     refresh_zfs_metrics(&surface);
+    // #1934: surface the configured VRAM budget ceiling on /metrics. The limit is
+    // the static configured ceiling from calyx.toml (always known, independent of
+    // GPU mode), sourced from the real startup VRAM audit. calyxd runs CPU-only and
+    // reserves no VRAM of its own budget, so used is 0 — an honest reading; the
+    // device-wide TEI footprint is a separate concern, not Calyx budget consumption.
+    surface.set_vram_budget(0, i64::from(audit.calyx_budget_mib));
     let origin = match cfg.learner_origin.as_ref() {
         Some(origin_cfg) => match LearnerOriginService::from_config(origin_cfg) {
             Ok(service) => Some(Arc::new(service)),
