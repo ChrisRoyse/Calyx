@@ -37,7 +37,7 @@ use tokio::net::TcpStream;
 use axum::{
     Json, Router,
     body::Body,
-    extract::{Path, Request, State},
+    extract::{MatchedPath, Path, Request, State},
     http::{Method, StatusCode, Uri, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
@@ -1439,6 +1439,159 @@ pub fn build_app_with_search(
 pub struct MetricsCtx {
     measure: Arc<MeasureCtx>,
     prov: Arc<ProvenanceCtx>,
+    /// Per-route request RED metrics (rate/errors/duration), accumulated by the
+    /// [`track_metrics`] middleware and rendered alongside the engine gauges.
+    http: Arc<HttpMetrics>,
+}
+
+// ---------------------------------------------------------------------------
+// Per-route HTTP request metrics (RED: rate, errors, duration) — #597
+// ---------------------------------------------------------------------------
+
+/// Histogram bucket upper bounds (seconds), matching the axum/Prometheus
+/// reference exponential ladder. Cumulative `le` semantics are produced at
+/// observe time (each observation increments every bucket whose bound it falls
+/// under), so the rendered `_bucket{le=...}` series are already monotonic.
+const DURATION_BUCKETS: [f64; 11] = [
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
+];
+
+/// A single route's latency histogram: cumulative bucket counts + sum + count.
+#[derive(Default)]
+struct DurationHisto {
+    /// `bucket_counts[i]` = observations with latency <= `DURATION_BUCKETS[i]`.
+    bucket_counts: [u64; DURATION_BUCKETS.len()],
+    /// Sum of all observed latencies (seconds) — the `_sum` series.
+    sum: f64,
+    /// Total observations — the `+Inf` bucket and `_count` series.
+    count: u64,
+}
+
+impl DurationHisto {
+    fn observe(&mut self, secs: f64) {
+        for (i, upper) in DURATION_BUCKETS.iter().enumerate() {
+            if secs <= *upper {
+                self.bucket_counts[i] += 1;
+            }
+        }
+        self.sum += secs;
+        self.count += 1;
+    }
+}
+
+/// Thread-safe accumulator for per-route request metrics. Cardinality is bounded
+/// because the route label is the matched route TEMPLATE (e.g. `/v1/provenance/{id}`),
+/// never the concrete path — so `{id}` values can never explode the series count.
+pub struct HttpMetrics {
+    /// `(method, route_template, status_code)` -> request count.
+    requests: Mutex<HashMap<(String, String, u16), u64>>,
+    /// `(method, route_template)` -> latency histogram.
+    durations: Mutex<HashMap<(String, String), DurationHisto>>,
+}
+
+impl HttpMetrics {
+    fn new() -> Self {
+        Self {
+            requests: Mutex::new(HashMap::new()),
+            durations: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Record one completed request. Mutex poisoning is a hard, fail-loud bug
+    /// (a panic while holding the lock) — we surface it rather than mask it.
+    fn record(&self, method: &str, route: &str, code: u16, latency_secs: f64) {
+        let key = (method.to_string(), route.to_string(), code);
+        *self
+            .requests
+            .lock()
+            .expect("HttpMetrics.requests mutex poisoned")
+            .entry(key)
+            .or_insert(0) += 1;
+        self.durations
+            .lock()
+            .expect("HttpMetrics.durations mutex poisoned")
+            .entry((method.to_string(), route.to_string()))
+            .or_default()
+            .observe(latency_secs);
+    }
+
+    /// Render the per-route counter + histogram in Prometheus text format.
+    /// Series are sorted so the exposition is byte-stable for a given state.
+    fn render(&self) -> String {
+        let mut out = String::new();
+        out.push_str(
+            "# HELP calyx_http_requests_total Total HTTP requests by method, matched route, and status code.\n\
+             # TYPE calyx_http_requests_total counter\n",
+        );
+        let requests = self
+            .requests
+            .lock()
+            .expect("HttpMetrics.requests mutex poisoned");
+        let mut rows: Vec<(&(String, String, u16), &u64)> = requests.iter().collect();
+        rows.sort_by(|a, b| a.0.cmp(b.0));
+        for ((method, route, code), count) in rows {
+            out.push_str(&format!(
+                "calyx_http_requests_total{{method=\"{method}\",route=\"{route}\",code=\"{code}\"}} {count}\n"
+            ));
+        }
+        drop(requests);
+
+        out.push_str(
+            "# HELP calyx_http_request_duration_seconds HTTP request latency by method and matched route.\n\
+             # TYPE calyx_http_request_duration_seconds histogram\n",
+        );
+        let durations = self
+            .durations
+            .lock()
+            .expect("HttpMetrics.durations mutex poisoned");
+        let mut hist: Vec<(&(String, String), &DurationHisto)> = durations.iter().collect();
+        hist.sort_by(|a, b| a.0.cmp(b.0));
+        for ((method, route), histo) in hist {
+            for (i, upper) in DURATION_BUCKETS.iter().enumerate() {
+                out.push_str(&format!(
+                    "calyx_http_request_duration_seconds_bucket{{method=\"{method}\",route=\"{route}\",le=\"{upper}\"}} {}\n",
+                    histo.bucket_counts[i]
+                ));
+            }
+            out.push_str(&format!(
+                "calyx_http_request_duration_seconds_bucket{{method=\"{method}\",route=\"{route}\",le=\"+Inf\"}} {count}\n\
+                 calyx_http_request_duration_seconds_sum{{method=\"{method}\",route=\"{route}\"}} {sum:.6}\n\
+                 calyx_http_request_duration_seconds_count{{method=\"{method}\",route=\"{route}\"}} {count}\n",
+                count = histo.count,
+                sum = histo.sum,
+            ));
+        }
+        out
+    }
+}
+
+/// Middleware: time every matched request and record it under its route
+/// TEMPLATE label. Applied as a `route_layer` so `MatchedPath` is populated
+/// (a global `layer` runs before routing and would see no matched path). The
+/// `/metrics` scrape itself is excluded so a scrape never inflates its own
+/// counters.
+async fn track_metrics(
+    State(http): State<Arc<HttpMetrics>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let route = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(|matched| matched.as_str().to_owned())
+        .unwrap_or_else(|| "unmatched".to_owned());
+    let method = request.method().as_str().to_owned();
+    let started = Instant::now();
+    let response = next.run(request).await;
+    if route != "/metrics" {
+        http.record(
+            &method,
+            &route,
+            response.status().as_u16(),
+            started.elapsed().as_secs_f64(),
+        );
+    }
+    response
 }
 
 /// A point-in-time snapshot of the engine-native signals exported on `/metrics`.
@@ -1582,12 +1735,14 @@ async fn metrics_handler(State(ctx): State<Arc<MetricsCtx>>) -> Response {
         chain_broken_seq,
         scrape_duration_seconds: started.elapsed().as_secs_f64(),
     };
+    // Engine gauges (pure) + per-route RED metrics (#597), one exposition body.
+    let body = render_metrics(&snapshot) + &ctx.http.render();
     (
         [(
             header::CONTENT_TYPE,
             "text/plain; version=0.0.4; charset=utf-8",
         )],
-        render_metrics(&snapshot),
+        body,
     )
         .into_response()
 }
@@ -1601,11 +1756,15 @@ pub fn build_app_with_measure_and_provenance(
     prov: Arc<ProvenanceCtx>,
     auth: Arc<AuthCtx>,
 ) -> Router {
+    // Shared per-route request-metrics accumulator: written by the track_metrics
+    // route_layer, read by the /metrics handler — one source of truth (#597).
+    let http_metrics = Arc::new(HttpMetrics::new());
     // The `/metrics` collector shares the SAME vault + ledger handles the data
     // endpoints use, so its gauges can never drift from what the origin serves.
     let metrics_ctx = Arc::new(MetricsCtx {
         measure: Arc::clone(&measure_ctx),
         prov: Arc::clone(&prov),
+        http: Arc::clone(&http_metrics),
     });
     let metrics_route = Router::new()
         .route("/metrics", get(metrics_handler))
@@ -1626,6 +1785,9 @@ pub fn build_app_with_measure_and_provenance(
         .merge(prov_route)
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
+        // route_layer runs AFTER routing (so MatchedPath is set) but inside the
+        // global guardrails/bearer layers; it records the per-route RED metrics.
+        .route_layer(middleware::from_fn_with_state(http_metrics, track_metrics))
         .layer(middleware::from_fn_with_state(limiter, guardrails))
         .layer(middleware::from_fn_with_state(auth, require_bearer))
         .layer(panic_catch_layer())
@@ -1856,6 +2018,89 @@ mod cache_tests {
         assert_eq!(metric_value(&body, "calyx_origin_healthy"), Some(0.0));
         // calyx_up is still 1: the process answered the scrape.
         assert_eq!(metric_value(&body, "calyx_up"), Some(1.0));
+    }
+
+    // --- per-route HTTP RED metrics (#597) -------------------------------
+    // Synthetic requests with KNOWN inputs → assert the exact counter and
+    // histogram series a Prometheus scrape would parse.
+
+    #[test]
+    fn http_metrics_counts_requests_by_method_route_code() {
+        let m = HttpMetrics::new();
+        // 2 OK + 1 error on the same route, plus a different route once.
+        m.record("POST", "/v1/measure", 200, 0.02);
+        m.record("POST", "/v1/measure", 200, 0.2);
+        m.record("POST", "/v1/measure", 500, 1.5);
+        m.record("GET", "/v1/health", 200, 0.001);
+        let body = m.render();
+        assert!(body.contains(
+            "calyx_http_requests_total{method=\"POST\",route=\"/v1/measure\",code=\"200\"} 2"
+        ));
+        assert!(body.contains(
+            "calyx_http_requests_total{method=\"POST\",route=\"/v1/measure\",code=\"500\"} 1"
+        ));
+        assert!(body.contains(
+            "calyx_http_requests_total{method=\"GET\",route=\"/v1/health\",code=\"200\"} 1"
+        ));
+        assert!(body.contains("# TYPE calyx_http_request_duration_seconds histogram"));
+    }
+
+    #[test]
+    fn http_histogram_buckets_are_cumulative_and_inf_equals_count() {
+        let m = HttpMetrics::new();
+        // latencies: 0.02 (<=0.025), 0.2 (<=0.25), 1.5 (<=2.5)
+        for (s, lat) in [(200u16, 0.02f64), (200, 0.2), (500, 1.5)] {
+            m.record("POST", "/v1/measure", s, lat);
+        }
+        let body = m.render();
+        // le=0.025 covers only the 0.02 obs → 1
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_bucket{method=\"POST\",route=\"/v1/measure\",le=\"0.025\"} 1"
+        ));
+        // le=0.25 covers 0.02 and 0.2 → 2 (cumulative)
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_bucket{method=\"POST\",route=\"/v1/measure\",le=\"0.25\"} 2"
+        ));
+        // le=2.5 covers all three → 3
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_bucket{method=\"POST\",route=\"/v1/measure\",le=\"2.5\"} 3"
+        ));
+        // +Inf == _count == 3, _sum == 1.72
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_bucket{method=\"POST\",route=\"/v1/measure\",le=\"+Inf\"} 3"
+        ));
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_count{method=\"POST\",route=\"/v1/measure\"} 3"
+        ));
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_sum{method=\"POST\",route=\"/v1/measure\"} 1.720000"
+        ));
+    }
+
+    #[test]
+    fn http_metrics_empty_renders_headers_only_no_samples() {
+        // Edge: zero requests → TYPE/HELP present, no sample lines.
+        let body = HttpMetrics::new().render();
+        assert!(body.contains("# TYPE calyx_http_requests_total counter"));
+        assert!(
+            !body.contains("calyx_http_requests_total{"),
+            "no sample lines when nothing recorded"
+        );
+    }
+
+    #[test]
+    fn http_histogram_slow_request_only_in_inf_bucket() {
+        // Edge: a 12s request exceeds every finite bound — it must NOT appear in
+        // le=10 but must be in +Inf and _count.
+        let m = HttpMetrics::new();
+        m.record("GET", "/v1/kernel", 504, 12.0);
+        let body = m.render();
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_bucket{method=\"GET\",route=\"/v1/kernel\",le=\"10\"} 0"
+        ));
+        assert!(body.contains(
+            "calyx_http_request_duration_seconds_bucket{method=\"GET\",route=\"/v1/kernel\",le=\"+Inf\"} 1"
+        ));
     }
 
     #[test]
