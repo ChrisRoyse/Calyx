@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use calyx_core::CxId;
 use calyx_mincut::{LpSolution, SccResult, SolveStatus};
@@ -223,25 +223,41 @@ fn validate_lp_solution_values(solution: &LpSolution, expected_len: usize) -> Re
     Ok(())
 }
 
+/// Total (in + out) degree per node index, in one O(V+E) pass over the edge
+/// list. Replaces per-node `in_degree` calls, each of which is O(E).
+fn total_degrees(graph: &AssocGraph) -> Result<Vec<usize>> {
+    let mut degrees = vec![0_usize; graph.node_count()];
+    for edge in graph.edges() {
+        degrees[edge.src] += 1;
+        degrees[edge.dst] += 1;
+    }
+    Ok(degrees)
+}
+
 fn score_nodes(
     graph: &AssocGraph,
     betweenness: &BTreeMap<CxId, f64>,
     anchors: &[CxId],
     params: &KernelGraphParams,
 ) -> Result<Vec<NodeScore>> {
-    let max_degree = graph
-        .node_ids()
-        .map(|id| Ok(graph.in_degree(id)? + graph.out_degree(id)?))
-        .collect::<calyx_paths::Result<Vec<_>>>()?
-        .into_iter()
-        .max()
-        .unwrap_or(1)
-        .max(1) as f64;
+    // Precompute total degree per node in a single O(V+E) pass. `in_degree` is
+    // O(E) per call (it scans every edge), so the previous per-node calls were
+    // O(V·E) — intractable on the corpus graph. `out_degree` is O(1) (adjacency
+    // ranges); in-degrees we count once over all edges.
+    let degrees = total_degrees(graph)?;
+    let max_degree = degrees.iter().copied().max().unwrap_or(1).max(1) as f64;
+    // Anchor membership in O(1); a node that is itself an anchor is grounded at
+    // distance 0 without the BFS (corpus is fully anchored → no BFS at all).
+    let anchor_set: HashSet<CxId> = anchors.iter().copied().collect();
     let mut scored = Vec::new();
-    for id in graph.node_ids() {
-        let degree = (graph.in_degree(id)? + graph.out_degree(id)?) as f64 / max_degree;
+    for (index, id) in graph.node_ids().enumerate() {
+        let degree = degrees[index] as f64 / max_degree;
         let bet = *betweenness.get(&id).unwrap_or(&0.0);
-        let gnd = groundedness_distance(graph, id, anchors, params.max_groundedness_distance)?;
+        let gnd = if anchor_set.contains(&id) {
+            Some(0)
+        } else {
+            groundedness_distance(graph, id, anchors, params.max_groundedness_distance)?
+        };
         let gnd_score = match gnd {
             Some(distance) => {
                 1.0 - (distance.min(params.max_groundedness_distance) as f64

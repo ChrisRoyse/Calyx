@@ -1,6 +1,6 @@
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, CxId, content_address};
-use calyx_mincut::{betweenness, tarjan_scc};
+use calyx_mincut::{betweenness_auto, tarjan_scc};
 use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +11,13 @@ use crate::{
     DfvsResult, KernelGraph, KernelGraphParams, LpRoundParams, Result, dfvs_approx,
     select_kernel_graph,
 };
+
+/// Graphs with at most this many nodes use exact Brandes betweenness; larger
+/// graphs switch to the sampled estimator. Exact betweenness is O(V·(E+V·log V)),
+/// so unbounded use is intractable on the 10^5-node corpus graph.
+const BETWEENNESS_EXACT_MAX_NODES: usize = 2_000;
+/// Pivot count for sampled betweenness on large graphs (cost O(k·(E+V·log V))).
+const BETWEENNESS_PIVOTS: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GroundednessReport {
@@ -121,7 +128,11 @@ fn build_kernel_pipeline_with_adjustment(
         return Ok(empty_kernel(params));
     }
     let scc = tarjan_scc(graph);
-    let bet = betweenness(graph)?;
+    // Exact Brandes betweenness up to BETWEENNESS_EXACT_MAX_NODES; beyond that the
+    // sampled estimator (BETWEENNESS_PIVOTS pivots) keeps corpus-scale graphs
+    // (10^5+ nodes) tractable while preserving the centrality ranking used for
+    // kernel selection.
+    let bet = betweenness_auto(graph, BETWEENNESS_EXACT_MAX_NODES, BETWEENNESS_PIVOTS)?;
     let mut heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
     adjust_heuristic(&mut heuristic)?;
     let candidate_graph = heuristic;
