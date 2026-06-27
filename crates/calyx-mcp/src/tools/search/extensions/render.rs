@@ -12,15 +12,6 @@ pub(super) fn definition(cx: Constellation) -> Value {
     })
 }
 
-pub(super) fn empty_definition(lens: u16, index: usize) -> Value {
-    json!({
-        "lens": lens,
-        "index": index,
-        "cx_id": Value::Null,
-        "slots": [],
-    })
-}
-
 pub(super) fn direction_key(direction: TraverseDirection) -> &'static str {
     match direction {
         TraverseDirection::Forward => "forward",

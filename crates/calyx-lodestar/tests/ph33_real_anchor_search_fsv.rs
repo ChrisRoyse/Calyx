@@ -9,9 +9,10 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use calyx_core::CxId;
+use calyx_core::{CxId, FixedClock};
+use calyx_ledger::{LedgerAppender, MemoryLedgerStore};
 use calyx_lodestar::{
-    AnswerPath, Kernel, RecallQuery, build_kernel_index, kernel_answer, kernel_search,
+    AnswerPath, Kernel, RecallQuery, build_kernel_index, kernel_answer_with_ledger, kernel_search,
 };
 use calyx_paths::reach;
 use serde::Serialize;
@@ -103,13 +104,17 @@ fn ph33_real_anchor_search_exhaustive_fallback_manual() {
     assert!(!top_window.iter().any(|(cx_id, _)| *cx_id == fixture.anchor));
 
     let answer_started = Instant::now();
-    let answer = kernel_answer(
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(1_785_631_000))
+            .expect("open memory ledger");
+    let answer = kernel_answer_with_ledger(
         &index,
         case.graph(),
         fixture.query.cx_id,
         &fixture.query.vector,
         &fixture.anchored_nodes,
         MAX_ANSWER_HOPS,
+        &mut appender,
     )
     .expect("kernel answer should find selected real anchor");
     let answer_elapsed = answer_started.elapsed();
@@ -226,13 +231,17 @@ fn best_case_fixture(
     let mut best: Option<AnchorSearchFixture> = None;
 
     for query in &case.rows {
-        let Ok(answer) = kernel_answer(
+        let mut appender =
+            LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(1_785_631_000))
+                .ok()?;
+        let Ok(answer) = kernel_answer_with_ledger(
             index,
             case.graph(),
             query.cx_id,
             &query.vector,
             anchors,
             MAX_ANSWER_HOPS,
+            &mut appender,
         ) else {
             continue;
         };

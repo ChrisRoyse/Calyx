@@ -135,6 +135,19 @@ fn populated_vault(server: &McpServer, name: &str) -> Vec<Value> {
     .collect()
 }
 
+fn maybe_write_fsv_json(name: &str, value: &Value) {
+    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    fs::create_dir_all(&root).expect("create fsv root");
+    fs::write(
+        root.join(name),
+        serde_json::to_vec_pretty(value).expect("fsv json"),
+    )
+    .expect("write fsv json");
+}
+
 #[test]
 fn agree_and_disagree_return_bounded_constellations() {
     let _env = TestEnv::new("agree");
@@ -171,19 +184,34 @@ fn agree_and_disagree_return_bounded_constellations() {
 }
 
 #[test]
-fn define_allows_empty_stub_for_missing_coordinate() {
+fn define_missing_coordinate_fails_closed() {
     let _env = TestEnv::new("define");
     let server = server();
     populated_vault(&server, "v");
 
-    let result = call_ok(
+    let error = call_err(
         &server,
         22,
         "calyx.define",
         json!({"vault": "v", "lens": 0, "index": 42}),
     );
 
-    assert!(result["definition"]["slots"].as_array().is_some());
+    assert_eq!(error.code, -32000);
+    assert_eq!(
+        error.data.as_ref().unwrap()["calyx_code"],
+        "CALYX_STALE_DERIVED"
+    );
+    maybe_write_fsv_json(
+        "mcp-search-extensions-define-fail-closed.json",
+        &json!({
+            "source_of_truth": "JSON-RPC error payload from calyx.define",
+            "define_missing_coordinate": {
+                "jsonrpc_code": error.code,
+                "calyx_code": error.data.as_ref().unwrap()["calyx_code"],
+                "message": error.message,
+            }
+        }),
+    );
 }
 
 #[test]
@@ -253,13 +281,13 @@ fn traverse_returns_bounded_path_and_validates_hops() {
 }
 
 #[test]
-fn skills_empty_vault_and_unknown_skill_are_non_errors() {
+fn skills_empty_vault_and_unknown_skill_fail_closed() {
     let _env = TestEnv::new("skills-empty");
     let server = server();
     call_ok(&server, 28, "calyx.create_vault", json!({"name": "v"}));
 
     let tree = call_ok(&server, 29, "calyx.skills", json!({"vault": "v"}));
-    let hits = call_ok(
+    let error = call_err(
         &server,
         30,
         "calyx.search_skill",
@@ -267,7 +295,23 @@ fn skills_empty_vault_and_unknown_skill_are_non_errors() {
     );
 
     assert!(tree["skill_tree"].is_object());
-    assert_eq!(hits["hits"].as_array().unwrap().len(), 0);
+    assert_eq!(error.code, -32000);
+    assert_eq!(
+        error.data.as_ref().unwrap()["calyx_code"],
+        "CALYX_SEXTANT_SKILL_UNKNOWN"
+    );
+    maybe_write_fsv_json(
+        "mcp-search-extensions-skill-fail-closed.json",
+        &json!({
+            "source_of_truth": "JSON-RPC error payload from calyx.search_skill",
+            "skills_empty_vault": tree,
+            "unknown_skill": {
+                "jsonrpc_code": error.code,
+                "calyx_code": error.data.as_ref().unwrap()["calyx_code"],
+                "message": error.message,
+            }
+        }),
+    );
 }
 
 #[test]

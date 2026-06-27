@@ -10,6 +10,7 @@ use calyx_core::{
 };
 use serde_json::json;
 
+use crate::error::CALYX_ANSWER_SYNTHESIS_UNAVAILABLE;
 use crate::query::{AskSpec, CrossModelPlan, PlanStep, ask, execute};
 
 #[test]
@@ -17,7 +18,8 @@ use crate::query::{AskSpec, CrossModelPlan, PlanStep, ask, execute};
 fn issue466_ask_fsv_writes_readback_artifacts() {
     let root = std::env::var_os("CALYX_FSV_ROOT")
         .map(PathBuf::from)
-        .expect("set CALYX_FSV_ROOT to the issue #466 FSV directory");
+        .expect("set CALYX_FSV_ROOT to the FSV directory")
+        .join("issue466-ask");
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();
     let vault_dir = root.join("vault");
@@ -37,7 +39,7 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
     vault.flush().unwrap();
     let snapshot = vault.latest_seq();
 
-    let happy = ask(
+    let grounded = ask(
         &vault,
         &AskSpec {
             question: "Which synthetic constellations ground the answer?".to_string(),
@@ -47,7 +49,7 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
         },
         snapshot,
     )
-    .unwrap();
+    .unwrap_err();
     let top_one = ask(
         &vault,
         &AskSpec {
@@ -58,7 +60,7 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
         },
         snapshot,
     )
-    .unwrap();
+    .unwrap_err();
     let full_vault = ask(
         &vault,
         &AskSpec {
@@ -69,7 +71,7 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
         },
         snapshot,
     )
-    .unwrap();
+    .unwrap_err();
     let executor = execute(
         &vault,
         CrossModelPlan {
@@ -83,7 +85,7 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
             explain: None,
         },
     )
-    .unwrap();
+    .unwrap_err();
     let empty_question = ask(
         &vault,
         &AskSpec {
@@ -120,36 +122,54 @@ fn issue466_ask_fsv_writes_readback_artifacts() {
     vault.flush().unwrap();
     let after = raw_state(&vault);
     println!("[AFTER ] {}", after);
-    println!("[ASK   ] answer = {}", happy.answer);
-    println!("[ASK   ] grounding = {:?}", rows_json(&happy.grounding));
+    println!("[ASK   ] grounded = {}", grounded.code);
+    println!("[ASK   ] top_one = {}", top_one.code);
+    println!("[ASK   ] full_vault = {}", full_vault.code);
+    println!("[ASK   ] executor = {}", executor.code);
     println!("[EDGE  ] empty_question = {}", empty_question.code);
     println!("[EDGE  ] ungrounded = {}", ungrounded.code);
     println!("[EDGE  ] unavailable = {}", unavailable.code);
 
+    assert_eq!(grounded.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert_eq!(top_one.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert_eq!(full_vault.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert_eq!(executor.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert!(grounded.message.contains(&hex(first.as_bytes())));
+    assert!(grounded.message.contains(&hex(second.as_bytes())));
+
     let readback = json!({
-        "source_of_truth": "Aster durable Base/Ledger/slot_00 CF rows plus ASK readback JSON",
+        "source_of_truth": "Aster durable Base/Ledger/slot_00 CF rows plus ASK error payload readback",
         "trigger": "query::ask and executor PlanStep::Ask at pinned snapshot",
         "snapshot": snapshot,
         "before": before,
         "after": after,
-        "happy": {
-            "answer": happy.answer,
-            "grounding": rows_json(&happy.grounding),
-            "gaps": happy.gaps,
-            "oracle_conf": happy.oracle_conf,
+        "fail_closed_after_grounding": {
+            "code": grounded.code,
+            "message": grounded.message,
+            "expected_grounding_cx_ids": [first.to_string(), second.to_string()],
+            "expected_grounding_hex": [hex(first.as_bytes()), hex(second.as_bytes())],
         },
-        "top_one_grounding_count": top_one.grounding.len(),
-        "full_vault_grounding_count": full_vault.grounding.len(),
-        "executor_rows": rows_json(&executor.rows),
+        "top_one_error": {
+            "code": top_one.code,
+            "message": top_one.message,
+        },
+        "full_vault_error": {
+            "code": full_vault.code,
+            "message": full_vault.message,
+        },
+        "executor_error": {
+            "code": executor.code,
+            "message": executor.message,
+        },
         "edges": {
             "empty_question_code": empty_question.code,
             "ungrounded_code": ungrounded.code,
             "unavailable_lens_code": unavailable.code,
-            "oracle_stub_conf": top_one.oracle_conf,
         },
         "fixture_requested_ledger_seqs": [101, 102],
-        "observed_happy_ledger_seqs": ledger_seqs(&happy.grounding),
-        "observed_executor_ledger_seqs": ledger_seqs(&executor.rows),
+        "observed_base_keys_hex": raw_keys_hex(&vault, ColumnFamily::Base),
+        "observed_ledger_rows": vault.scan_cf_at(vault.latest_seq(), ColumnFamily::Ledger).unwrap().len(),
+        "observed_slot_00_keys_hex": raw_keys_hex(&vault, ColumnFamily::slot(SlotId::new(0))),
         "physical_cf_files": {
             "base": physical_files(&vault_dir.join("cf").join("base")),
             "ledger": physical_files(&vault_dir.join("cf").join("ledger")),
@@ -228,21 +248,12 @@ fn constellation(
     }
 }
 
-fn rows_json(rows: &[crate::query::ProvenancedRow]) -> Vec<serde_json::Value> {
-    rows.iter()
-        .map(|row| {
-            json!({
-                "key_hex": hex(row.key.as_bytes()),
-                "score": row.score,
-                "ledger_ref": row.ledger_ref,
-            })
-        })
-        .collect()
-}
-
-fn ledger_seqs(rows: &[crate::query::ProvenancedRow]) -> Vec<u64> {
-    rows.iter()
-        .filter_map(|row| row.ledger_ref.as_ref().map(|ledger| ledger.seq))
+fn raw_keys_hex(vault: &AsterVault, cf: ColumnFamily) -> Vec<String> {
+    vault
+        .scan_cf_at(vault.latest_seq(), cf)
+        .unwrap()
+        .into_iter()
+        .map(|(key, _)| hex(&key))
         .collect()
 }
 

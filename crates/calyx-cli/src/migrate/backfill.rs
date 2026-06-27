@@ -31,10 +31,13 @@ pub enum BackfillMode {
 pub struct BackfillSummary {
     pub panel_template: String,
     pub panel_version: u32,
+    pub backfill_mode: String,
     pub source_rows: usize,
     pub scheduled_slots: usize,
     pub batches_completed: usize,
     pub slot_rows_written: usize,
+    pub learned_tei_slot_rows_written: usize,
+    pub offline_deterministic_slot_rows_written: usize,
     pub scheduler_path: String,
 }
 
@@ -83,6 +86,8 @@ pub fn backfill_default_panel(
     let temporal = TemporalContext::from_rows(rows);
     let mut batches_completed = 0;
     let mut slot_rows_written = 0;
+    let mut learned_tei_slot_rows_written = 0;
+    let mut offline_deterministic_slot_rows_written = 0;
     while let Some(batch) = scheduler.claim_next_batch(now_ms())? {
         if batch.throttled {
             continue;
@@ -101,8 +106,13 @@ pub fn backfill_default_panel(
             let position = *positions
                 .get(cx_id)
                 .ok_or_else(|| errors::backfill_incomplete(format!("{cx_id} missing position")))?;
-            let vector = measure_slot(spec, row, mode, position, temporal)?;
-            vault.put_slot_vector(*cx_id, batch.slot_id, &vector)?;
+            let measured = measure_slot(spec, row, mode, position, temporal)?;
+            match measured.origin {
+                SlotOrigin::LearnedTei => learned_tei_slot_rows_written += 1,
+                SlotOrigin::OfflineDeterministic => offline_deterministic_slot_rows_written += 1,
+                SlotOrigin::Algorithmic => {}
+            }
+            vault.put_slot_vector(*cx_id, batch.slot_id, &measured.vector)?;
             slot_rows_written += 1;
         }
         scheduler.complete_batch(batch.slot_id, batch.lens_id, now_ms())?;
@@ -112,12 +122,24 @@ pub fn backfill_default_panel(
     Ok(BackfillSummary {
         panel_template: instantiated.template_name,
         panel_version: instantiated.panel.version,
+        backfill_mode: mode.as_str().to_string(),
         source_rows: rows.len(),
         scheduled_slots: instantiated.panel.slots.len().saturating_sub(1),
         batches_completed,
         slot_rows_written,
+        learned_tei_slot_rows_written,
+        offline_deterministic_slot_rows_written,
         scheduler_path: scheduler_file.display().to_string(),
     })
+}
+
+impl BackfillMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::RealTei => "real_tei",
+            Self::OfflineDeterministic => "offline_deterministic",
+        }
+    }
 }
 
 pub fn default_slot_ids() -> Vec<SlotId> {
@@ -179,21 +201,57 @@ impl TemporalContext {
     }
 }
 
+struct MeasuredSlot {
+    vector: SlotVector,
+    origin: SlotOrigin,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SlotOrigin {
+    LearnedTei,
+    Algorithmic,
+    OfflineDeterministic,
+}
+
 fn measure_slot(
     spec: &PanelSlotSpec,
     row: &ChunkRow,
     mode: BackfillMode,
     position: u64,
     temporal: TemporalContext,
-) -> Result<SlotVector> {
+) -> Result<MeasuredSlot> {
     match &spec.runtime {
         PanelLensRuntime::TeiHttp { endpoint } if mode == BackfillMode::RealTei => {
-            measure_tei(spec, endpoint, row)
+            Ok(MeasuredSlot {
+                vector: measure_tei(spec, endpoint, row)?,
+                origin: SlotOrigin::LearnedTei,
+            })
         }
-        PanelLensRuntime::Algorithmic { lens } => {
-            measure_algorithmic(lens.clone(), spec.output, row, position, temporal)
+        PanelLensRuntime::Algorithmic { lens } => Ok(MeasuredSlot {
+            vector: measure_algorithmic(lens.clone(), spec.output, row, position, temporal)?,
+            origin: SlotOrigin::Algorithmic,
+        }),
+        PanelLensRuntime::TeiHttp { .. }
+        | PanelLensRuntime::Registry { .. }
+        | PanelLensRuntime::ExternalCmd { .. }
+        | PanelLensRuntime::Placeholder { .. }
+            if mode == BackfillMode::OfflineDeterministic =>
+        {
+            Ok(MeasuredSlot {
+                vector: vector_for_shape(spec.output, row, spec.name.as_bytes())?,
+                origin: SlotOrigin::OfflineDeterministic,
+            })
         }
-        _ => vector_for_shape(spec.output, row, spec.name.as_bytes()),
+        PanelLensRuntime::Registry { name }
+        | PanelLensRuntime::ExternalCmd { name }
+        | PanelLensRuntime::Placeholder { name } => Err(errors::backfill_incomplete(format!(
+            "slot {} runtime {name} is not wired for real backfill; use --offline-backfill to write explicitly marked deterministic vectors",
+            spec.name
+        ))),
+        PanelLensRuntime::TeiHttp { endpoint } => Err(errors::backfill_incomplete(format!(
+            "slot {} TEI endpoint {endpoint} is not available in the selected backfill mode",
+            spec.name
+        ))),
     }
 }
 

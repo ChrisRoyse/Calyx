@@ -224,10 +224,10 @@ total = degree * degree_weight
 
 `groundedness_distance(graph, node, anchors, max_hops)`: BFS over out-edges. Returns `Some(0)` if the node is itself an anchor; `None` if no anchors are present in the graph; otherwise the hop count to the first anchor reached within `max_hops`, else `None`.
 
-### LP rounding (`LpRoundParams`, defaults `threshold = 0.5`, `fallback_to_heuristic = true`)
+### LP rounding (`LpRoundParams`, defaults `threshold = 0.5`, `fallback_to_heuristic = false`)
 
-- `lp_round_kernel_graph(kernel_graph, params)`: **no external solver is wired**. With `fallback_to_heuristic = true` (default) it clones the heuristic, pushes warning `CALYX_KERNEL_LP_UNAVAILABLE: external LP solver not configured`, sets `lp_fraction = source_fraction`, and returns it. With the flag false it errors `KernelLpUnavailable`.
-- `lp_round_kernel_graph_from_solution(kernel_graph, params, solution)`: the real rounding path given an externally produced `LpSolution`. `Optimal` → keep nodes whose value `>= threshold`; `Infeasible` → `KernelLpInfeasible`; any other status → fall back to the heuristic path. Value count must match node count (`KernelInvalidParams`). Empty selection over a non-empty graph → `KernelEmptyResult`. Sets `lp_fraction = selected/total`.
+- `lp_round_kernel_graph(kernel_graph, params)`: **no external solver is wired**. It fails closed with `KernelLpUnavailable`; `fallback_to_heuristic = true` is rejected and no heuristic graph is returned as an LP result.
+- `lp_round_kernel_graph_from_solution(kernel_graph, params, solution)`: the real rounding path given an externally produced `LpSolution`. `Optimal` → keep nodes whose value `>= threshold`; `Infeasible` → `KernelLpInfeasible`; any other status → `KernelLpUnavailable`. Value count must match node count (`KernelInvalidParams`). Empty selection over a non-empty graph → `KernelEmptyResult`. Sets `lp_fraction = selected/total`.
 
 `validate_lp_params`: `threshold` must be finite and within `[0,1]`.
 
@@ -280,8 +280,8 @@ Acyclicity test (`is_acyclic_after_removing`): rebuild the graph without removed
 1. Empty graph → `empty_kernel` (grounded fraction `1.0`, provenance `ph32::empty; trust=anchored`).
 2. `scc = tarjan_scc(graph)`; `bet = betweenness(graph)`.
 3. `heuristic = select_kernel_graph(...)`; apply optional adjustment closure (frequency bonuses for the `_with_frequency` variant).
-4. `rounded = lp_round_kernel_graph(heuristic, lp_round_params)` (fallback path by default).
-5. `dfvs = dfvs_approx(rounded)` → kernel `members`.
+4. Use the heuristic candidate graph truthfully. Callers that need LP rounding must provide a real optimal `LpSolution` through the explicit rounding API.
+5. `dfvs = dfvs_approx(candidate_graph)` → kernel `members`.
 6. `grounding_gaps_for_members(members, graph, anchors, max_groundedness_distance)` → unanchored members.
 7. Assemble `Kernel`: `groundedness_report` sets `reached_anchor = reached/members` (or `1.0` if empty). The only `RecallReport` fields populated at build time are `approx_factor`, `tau_star_estimate`, `tau_star_exact`; the rest default (recall is measured later, A10).
 8. `kernel_id = CxId::from_bytes(content_address([panel_version_be, anchor_kind, corpus_shard_hash, members…, kernel_graph…]))`.

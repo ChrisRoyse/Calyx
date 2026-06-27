@@ -353,7 +353,6 @@ fn match_anchor_entry(
     entries: &[LedgerEntry],
     used: &mut BTreeSet<u64>,
 ) -> ToolResult<u64> {
-    let mut fallback = None;
     for entry in entries {
         if used.contains(&entry.seq) || entry.seq <= ingest_seq {
             continue;
@@ -370,22 +369,11 @@ fn match_anchor_entry(
             used.insert(entry.seq);
             return Ok(entry.seq);
         }
-        if fallback.is_none()
-            && (matches!(mode, Some("mcp-anchor" | "cli-anchor"))
-                || (mode.is_none() && anchor_kind.is_none()))
-        {
-            fallback = Some(entry.seq);
-        }
     }
-    if let Some(seq) = fallback {
-        used.insert(seq);
-        Ok(seq)
-    } else {
-        Err(CalyxError::ledger_corrupt(format!(
-            "anchor {kind} for {cx_id} has no matching ledger row"
-        ))
-        .into())
-    }
+    Err(CalyxError::ledger_corrupt(format!(
+        "anchor {kind} for {cx_id} has no exact mcp/cli anchor ledger row"
+    ))
+    .into())
 }
 
 fn latest_reproduce_payload(

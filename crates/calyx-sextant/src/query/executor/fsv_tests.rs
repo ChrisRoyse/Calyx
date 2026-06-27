@@ -12,6 +12,7 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, LensId, VaultId};
 use serde_json::json;
 
+use crate::error::CALYX_SEXTANT_ASSOC_GRAPH_MISSING;
 use crate::query::{AggOp, AggSpec, CrossModelPlan, FieldOp, FieldPredicate, PlanStep, execute};
 
 use super::execute_at_snapshot;
@@ -21,7 +22,8 @@ use super::execute_at_snapshot;
 fn issue465_query_executor_fsv_writes_readback_artifacts() {
     let root = std::env::var_os("CALYX_FSV_ROOT")
         .map(PathBuf::from)
-        .expect("set CALYX_FSV_ROOT to the issue #465 FSV directory");
+        .expect("set CALYX_FSV_ROOT to the FSV directory")
+        .join("issue465-query-executor");
     fs::remove_dir_all(&root).ok();
     fs::create_dir_all(&root).unwrap();
     let vault_dir = root.join("vault");
@@ -118,7 +120,7 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
             hop_kind: "related".to_string(),
         }]),
     )
-    .unwrap();
+    .unwrap_err();
     let vector_empty = execute(
         &vault,
         plan(vec![PlanStep::VectorFusion {
@@ -151,6 +153,10 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
     vault.flush().unwrap();
     let after = raw_state(&vault);
     println!("[AFTER ] {}", after);
+    println!("[GRAPH] {}", graph.code);
+
+    assert_eq!(graph.code, CALYX_SEXTANT_ASSOC_GRAPH_MISSING);
+    assert!(graph.message.contains("refusing pass-through stub"));
 
     let readback = json!({
         "source_of_truth": "Aster durable CF rows under vault/cf plus executor readback JSON",
@@ -165,7 +171,11 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
         "aggregate_count_row": rows_json(&aggregate.rows),
         "edge_empty_rows": empty.rows.len(),
         "edge_expired_kv_rows": expired.rows.len(),
-        "edge_graph_stub_keys": rows_json(&graph.rows),
+        "edge_graph_hop_error": {
+            "code": graph.code,
+            "message": graph.message,
+            "source_ids": [first.to_string(), second.to_string()],
+        },
         "edge_vector_empty_rows": vector_empty.rows.len(),
         "pinned_snapshot_after_post_write_keys": rows_json(&pinned_result.rows),
         "fail_closed_code": fail_closed.code,

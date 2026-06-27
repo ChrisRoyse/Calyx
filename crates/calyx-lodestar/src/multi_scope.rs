@@ -1,13 +1,14 @@
 use std::collections::BTreeSet;
 
-use calyx_core::{AnchorKind, CxId};
+use calyx_core::{AnchorKind, Clock, CxId};
+use calyx_ledger::{LedgerAppender, LedgerCfStore};
 use calyx_paths::AssocGraph;
 
 use crate::grounding_gaps::CALYX_KERNEL_UNGROUNDED;
 use crate::{
     AnswerPath, AssocStore, Kernel, KernelIndex, KernelParams, LodestarError, Result, Scope,
-    ScopeCache, ScopeCacheKey, build_kernel_pipeline, kernel_answer, materialize_scope,
-    scope_cache_anchor_identity, scope_hash,
+    ScopeCache, ScopeCacheKey, build_kernel_pipeline, kernel_answer, kernel_answer_with_ledger,
+    materialize_scope, scope_cache_anchor_identity, scope_hash,
 };
 
 const UNGROUNDED_EPSILON: f32 = 0.01;
@@ -85,6 +86,42 @@ pub fn kernel_answer_scoped(
         query_vec,
         &scoped_anchors,
         max_hops,
+    )
+}
+
+pub fn kernel_answer_scoped_with_ledger<S, C>(
+    kernel_index: &KernelIndex,
+    store: &dyn AssocStore,
+    query_cx: CxId,
+    query_vec: &[f32],
+    scope: &Scope,
+    anchored_kernel_nodes: &[CxId],
+    max_hops: usize,
+    ledger: &mut LedgerAppender<S, C>,
+) -> Result<AnswerPath>
+where
+    S: LedgerCfStore,
+    C: Clock,
+{
+    let scoped_graph = materialize_scope(scope, store)?;
+    let scoped_nodes: BTreeSet<_> = scoped_graph.node_ids().collect();
+    let scoped_anchors = anchored_kernel_nodes
+        .iter()
+        .copied()
+        .filter(|anchor| scoped_nodes.contains(anchor))
+        .collect::<Vec<_>>();
+    if scoped_anchors.is_empty() {
+        return Err(LodestarError::KernelNoAnchoredNode);
+    }
+    let scoped_index = scoped_index_or_no_anchor(kernel_index, &scoped_nodes)?;
+    kernel_answer_with_ledger(
+        &scoped_index,
+        &scoped_graph,
+        query_cx,
+        query_vec,
+        &scoped_anchors,
+        max_hops,
+        ledger,
     )
 }
 

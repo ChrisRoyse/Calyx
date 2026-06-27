@@ -37,7 +37,7 @@ pub struct Query {
     #[serde(default)]
     pub recall_k: Option<usize>,
     pub explain: bool,
-    #[serde(default)]
+    #[serde(default = "default_require_stored_provenance")]
     pub require_stored_provenance: bool,
     pub freshness: FreshnessRequirement,
     pub fusion: Option<FusionStrategy>,
@@ -58,7 +58,7 @@ impl Query {
             ef: Some(64),
             recall_k: None,
             explain: false,
-            require_stored_provenance: false,
+            require_stored_provenance: true,
             freshness: FreshnessRequirement::FreshDerived,
             fusion: None,
             filters: QueryFilters::default(),
@@ -108,6 +108,11 @@ impl Query {
 
     /// Validates caller-supplied query shape before index/search execution.
     pub fn validate(&self) -> Result<()> {
+        if !self.require_stored_provenance {
+            return Err(query_shape_error(
+                "search requires stored provenance; stub provenance is disabled",
+            ));
+        }
         if self.k == 0 {
             return Err(query_shape_error("query k must be greater than zero"));
         }
@@ -137,6 +142,10 @@ impl Query {
         }
         Ok(())
     }
+}
+
+fn default_require_stored_provenance() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

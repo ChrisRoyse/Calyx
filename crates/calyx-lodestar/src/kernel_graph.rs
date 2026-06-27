@@ -38,7 +38,7 @@ impl Default for LpRoundParams {
     fn default() -> Self {
         Self {
             threshold: 0.5,
-            fallback_to_heuristic: true,
+            fallback_to_heuristic: false,
         }
     }
 }
@@ -130,17 +130,14 @@ pub fn groundedness_distance(
 }
 
 pub fn lp_round_kernel_graph(
-    kernel_graph: &KernelGraph,
+    _kernel_graph: &KernelGraph,
     params: &LpRoundParams,
 ) -> Result<KernelGraph> {
     validate_lp_params(params)?;
     if params.fallback_to_heuristic {
-        let mut fallback = kernel_graph.clone();
-        fallback
-            .warnings
-            .push("CALYX_KERNEL_LP_UNAVAILABLE: external LP solver not configured".to_string());
-        fallback.lp_fraction = Some(fallback.source_fraction);
-        return Ok(fallback);
+        return Err(LodestarError::KernelLpUnavailable {
+            detail: "external LP solver not configured; heuristic fallback is disabled".to_string(),
+        });
     }
     Err(LodestarError::KernelLpUnavailable {
         detail: "external LP solver not configured".to_string(),
@@ -160,7 +157,13 @@ pub fn lp_round_kernel_graph_from_solution(
                 detail: "LP solution status is infeasible".to_string(),
             });
         }
-        _ => return lp_round_kernel_graph(kernel_graph, params),
+        other => {
+            return Err(LodestarError::KernelLpUnavailable {
+                detail: format!(
+                    "LP solution status {other:?} is not optimal; heuristic fallback is disabled"
+                ),
+            });
+        }
     }
     let ids: Vec<_> = kernel_graph.graph.node_ids().collect();
     if solution.values.len() != ids.len() {

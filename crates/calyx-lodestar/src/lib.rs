@@ -113,7 +113,10 @@ pub use molecular_bridges::{
     ClinicalMolecularSeed, MOLECULAR_BRIDGE_SCHEMA_VERSION, MolecularBridgeCandidate,
     MolecularBridgeParams, MolecularBridgeReport, MolecularEvidenceRow, rank_molecular_bridges,
 };
-pub use multi_scope::{anchors_for_scope, bridges, build_kernel, kernel_answer_scoped};
+pub use multi_scope::{
+    anchors_for_scope, bridges, build_kernel, kernel_answer_scoped,
+    kernel_answer_scoped_with_ledger,
+};
 pub use probe_matrix::{
     PROBE_MATRIX_SCHEMA_VERSION, ProbeFusionMode, ProbeHit, ProbeLength, ProbeLensEmphasis,
     ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing, ProbeProductivity, ProbeRecord, ProbeRefusal,

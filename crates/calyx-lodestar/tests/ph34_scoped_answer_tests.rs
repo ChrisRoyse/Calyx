@@ -2,10 +2,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{AnchorKind, CxId};
+use calyx_core::{AnchorKind, CxId, FixedClock};
+use calyx_ledger::{LedgerAppender, LedgerCfStore, MemoryLedgerStore};
 use calyx_lodestar::{
     CollectionId, GroundednessReport, Kernel, RecallReport, Scope, build_kernel_index,
-    kernel_answer_scoped, kernel_search, materialize_scope,
+    kernel_answer_scoped, kernel_answer_scoped_with_ledger, kernel_search, materialize_scope,
 };
 use calyx_paths::AssocGraph;
 use serde_json::json;
@@ -92,6 +93,7 @@ fn scoped_answer_filters_global_index_before_ranking() {
     assert_eq!(readback["scoped_anchors"], json!([cx(1).to_string()]));
     assert_eq!(readback["selected_anchor"], json!(cx(1).to_string()));
     assert_eq!(readback["hop_count"], json!(1));
+    assert_eq!(readback["ledger_row_seqs"], json!([0, 1]));
 }
 
 #[test]
@@ -149,7 +151,9 @@ fn scoped_answer_readback() -> serde_json::Value {
         .into_iter()
         .filter(|anchor| scoped_nodes.contains(anchor))
         .collect::<Vec<_>>();
-    let answer = kernel_answer_scoped(
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(1_785_631_000)).unwrap();
+    let answer = kernel_answer_scoped_with_ledger(
         &index,
         &store,
         cx(2),
@@ -157,8 +161,16 @@ fn scoped_answer_readback() -> serde_json::Value {
         &scope,
         &[cx(9), cx(1)],
         2,
+        &mut appender,
     )
     .unwrap();
+    let ledger_row_seqs = appender
+        .store()
+        .scan()
+        .unwrap()
+        .into_iter()
+        .map(|row| row.seq)
+        .collect::<Vec<_>>();
 
     json!({
         "scope": scope,
@@ -171,6 +183,7 @@ fn scoped_answer_readback() -> serde_json::Value {
         "scoped_anchors": ids_to_strings(scoped_anchors.into_iter()),
         "selected_anchor": answer.anchor_kernel_node.to_string(),
         "hop_count": answer.hops.len(),
+        "ledger_row_seqs": ledger_row_seqs,
         "answer": answer,
     })
 }

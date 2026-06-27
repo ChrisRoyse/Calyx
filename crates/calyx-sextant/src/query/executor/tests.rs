@@ -13,6 +13,7 @@ use calyx_core::{CxId, FixedClock, LensId, VaultId};
 use proptest::prelude::*;
 use serde_json::json;
 
+use crate::error::CALYX_SEXTANT_ASSOC_GRAPH_MISSING;
 use crate::query::{
     AggOp, AggSpec, CrossModelPlan, DocPathFilter, FieldOp, FieldPredicate, PlanStep,
 };
@@ -292,7 +293,7 @@ fn empty_collection_and_expired_kv_are_absent_not_errors() {
 }
 
 #[test]
-fn graph_stub_passes_input_cx_ids_and_vector_empty_candidates_stays_empty() {
+fn graph_hop_fails_closed_without_wired_association_graph() {
     let first = CxId::from_input(b"first", 1, b"salt");
     let second = CxId::from_input(b"second", 1, b"salt");
     let graph = execute(
@@ -302,11 +303,25 @@ fn graph_stub_passes_input_cx_ids_and_vector_empty_candidates_stays_empty() {
             hop_kind: "related".to_string(),
         }]),
     )
-    .unwrap();
-    assert_eq!(graph.rows.len(), 2);
-    assert_eq!(graph.rows[0].key.as_bytes(), first.as_bytes());
-    assert_eq!(graph.rows[1].key.as_bytes(), second.as_bytes());
+    .unwrap_err();
 
+    assert_eq!(graph.code, CALYX_SEXTANT_ASSOC_GRAPH_MISSING);
+    assert!(graph.message.contains("refusing pass-through stub"));
+
+    let vector = execute(
+        &vault(),
+        plan(vec![PlanStep::VectorFusion {
+            lens_ids: vec![LensId::from_parts("sem", b"w", b"c", b"shape")],
+            query_vec: vec![0.1, 0.2],
+            limit: 3,
+        }]),
+    )
+    .unwrap();
+    assert!(vector.rows.is_empty());
+}
+
+#[test]
+fn vector_empty_candidates_stays_empty() {
     let vector = execute(
         &vault(),
         plan(vec![PlanStep::VectorFusion {

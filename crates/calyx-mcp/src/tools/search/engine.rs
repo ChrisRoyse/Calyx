@@ -12,17 +12,19 @@ use calyx_ledger::{LedgerCfStore, SubjectId, VerifyResult, decode, verify_chain}
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 use calyx_sextant::fusion;
 use calyx_sextant::{
-    AnchorPredicate, FusionContext, FusionStrategy, Hit, HnswIndex, IndexSearchHit, InvertedIndex,
-    MaxSimIndex, MetadataPredicate, ProvenanceSource, QueryFilters, RrfProfile, ScalarOp,
-    ScalarPredicate, SextantIndex,
+    AnchorPredicate, DroppedGuardHit, FreshnessRequirement, FusionContext, FusionStrategy, Hit,
+    HnswIndex, IndexSearchHit, InvertedIndex, MaxSimIndex, MetadataPredicate, ProvenanceSource,
+    QueryFilters, RrfProfile, ScalarOp, ScalarPredicate, SextantIndex,
+    apply_in_region_guard_to_hits,
 };
+use calyx_ward::GuardProfile;
 use serde::Serialize;
 use serde_json::Value;
 
 use crate::server::{ToolError, ToolResult};
 
 use super::output::KernelAnswerOut;
-use super::{NeighborsRequest, SearchRequest};
+use super::{NeighborsRequest, SearchGuard, SearchRequest};
 use crate::tools::vault::store::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
 
 pub(super) const HNSW_SEED: u64 = 0x0050_4836_3354_3034;
@@ -30,6 +32,7 @@ pub(super) const HNSW_SEED: u64 = 0x0050_4836_3354_3034;
 pub(super) struct SearchOutcome {
     pub(super) hits: Vec<Hit>,
     pub(super) docs: BTreeMap<CxId, Constellation>,
+    pub(super) dropped_guard_hits: Vec<DroppedGuardHit>,
 }
 
 #[derive(Serialize)]
@@ -48,6 +51,7 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
         return Ok(SearchOutcome {
             hits: Vec::new(),
             docs,
+            dropped_guard_hits: Vec::new(),
         });
     }
     let ledger_refs = verify_ledger_before_provenance(&resolved.path)?;
@@ -69,9 +73,66 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
         stage1_slots: stage1_slots(&strategy, &query_vectors, &slots),
     };
     let mut hits = fusion::fuse(&per_slot, &context);
-    attach_stored_provenance(&mut hits, &docs, vault.latest_seq(), &ledger_refs)?;
+    attach_stored_provenance(
+        &mut hits,
+        &docs,
+        vault.latest_seq(),
+        &ledger_refs,
+        &request.freshness,
+    )?;
+    let dropped_guard_hits = if request.guard == SearchGuard::InRegion {
+        let before = hits.len();
+        let profile = load_default_guard_profile(&vault, &state)?;
+        let dropped =
+            apply_in_region_guard_to_hits(&docs, &profile, &query_vectors, &mut hits, true)?;
+        if before > 0 && hits.is_empty() {
+            return Err(CalyxError::guard_ood(format!(
+                "in-region guard blocked all {before} search candidates"
+            ))
+            .into());
+        }
+        dropped
+    } else {
+        Vec::new()
+    };
     renumber_and_truncate(&mut hits, request.k);
-    Ok(SearchOutcome { hits, docs })
+    Ok(SearchOutcome {
+        hits,
+        docs,
+        dropped_guard_hits,
+    })
+}
+
+fn load_default_guard_profile(
+    vault: &AsterVault,
+    state: &VaultPanelState,
+) -> ToolResult<GuardProfile> {
+    let Some(bytes) =
+        vault.read_cf_at(vault.snapshot(), ColumnFamily::Guard, default_guard_key())?
+    else {
+        return Err(CalyxError::guard_provisional(
+            "search guard requires a calibrated default guard profile",
+        )
+        .into());
+    };
+    let profile: GuardProfile = serde_json::from_slice(&bytes).map_err(|error| {
+        CalyxError::guard_provisional(format!("decode default guard profile: {error}"))
+    })?;
+    if profile.panel_version != u64::from(state.panel.version) {
+        return Err(CalyxError::guard_provisional(format!(
+            "guard profile panel_version {} does not match active panel {}",
+            profile.panel_version, state.panel.version
+        ))
+        .into());
+    }
+    if !profile.is_calibrated() {
+        return Err(CalyxError::guard_provisional("search guard profile is not calibrated").into());
+    }
+    Ok(profile)
+}
+
+fn default_guard_key() -> &'static [u8] {
+    b"profile\0default"
 }
 
 fn verify_ledger_before_provenance(path: &Path) -> ToolResult<BTreeMap<CxId, LedgerRef>> {
@@ -279,6 +340,7 @@ fn attach_stored_provenance(
     docs: &BTreeMap<CxId, Constellation>,
     seq: u64,
     ledger_refs: &BTreeMap<CxId, LedgerRef>,
+    freshness: &FreshnessRequirement,
 ) -> ToolResult<()> {
     for hit in hits {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
@@ -292,10 +354,12 @@ fn attach_stored_provenance(
             .cloned()
             .unwrap_or_else(|| cx.provenance.clone());
         hit.provenance_source = ProvenanceSource::Stored;
-        hit.freshness = if seq >= cx.provenance.seq {
-            calyx_sextant::FreshnessTag::fresh(seq)
-        } else {
-            calyx_sextant::FreshnessTag::fresh(cx.provenance.seq)
+        let base_seq = seq.max(cx.provenance.seq);
+        hit.freshness = match freshness {
+            FreshnessRequirement::FreshDerived => calyx_sextant::FreshnessTag::fresh(base_seq),
+            FreshnessRequirement::StaleOk { .. } => {
+                calyx_sextant::FreshnessTag::stale_ok(base_seq, base_seq)
+            }
         };
     }
     Ok(())

@@ -4,7 +4,10 @@ mod runtime;
 mod xterms;
 
 use calyx_core::{CalyxError, CxId, SlotId};
-use calyx_sextant::{MAX_TRAVERSE_HOPS, SearchEngine, TraverseDirection, agree, disagree};
+use calyx_sextant::{
+    CALYX_SEXTANT_SKILL_UNKNOWN, MAX_TRAVERSE_HOPS, SearchEngine, TraverseDirection, agree,
+    disagree, sextant_error,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -108,11 +111,20 @@ impl Tool for DefineTool {
         let runtime = load_runtime(&args.vault)?;
         let lens = SlotId::new(args.lens);
         let Some(cx_id) = runtime.docs.keys().copied().nth(args.index) else {
-            return Ok(json!({ "definition": render::empty_definition(args.lens, args.index) }));
+            return Err(CalyxError::stale_derived(format!(
+                "definition coordinate lens={} index={} is outside the loaded vault documents",
+                args.lens, args.index
+            ))
+            .into());
         };
         let definition = calyx_sextant::define(&runtime.engine, cx_id, lens, CONSENSUS_K)
             .map(render::definition)
-            .unwrap_or_else(|_| render::empty_definition(args.lens, args.index));
+            .map_err(|error| {
+                CalyxError::stale_derived(format!(
+                    "definition coordinate lens={} index={} failed: {}",
+                    args.lens, args.index, error.message
+                ))
+            })?;
         Ok(json!({ "definition": definition }))
     }
 
@@ -236,10 +248,17 @@ impl Tool for SearchSkillTool {
         let runtime = load_runtime(&args.vault)?;
         let tree = skill_tree(&runtime.engine)?;
         if !tree.nodes.contains_key(&args.skill) {
-            return Ok(json!({ "hits": [] }));
+            return Err(sextant_error(
+                CALYX_SEXTANT_SKILL_UNKNOWN,
+                format!("skill {} does not exist in this vault", args.skill),
+            )
+            .into());
         }
         let Some((slot, vector)) = query_vector_for_skill(&runtime, &args.query)? else {
-            return Ok(json!({ "hits": [] }));
+            return Err(CalyxError::stale_derived(
+                "search_skill could not produce a query vector for any active skill slot",
+            )
+            .into());
         };
         let mut query = calyx_sextant::Query::new(args.query)
             .with_vector(vector)

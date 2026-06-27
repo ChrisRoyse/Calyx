@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::fs;
 
 use calyx_aster::cf::ColumnFamily;
+use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Asymmetry, CxFlags, CxId, FixedClock, InputRef, LedgerRef,
@@ -10,11 +11,12 @@ use calyx_core::{
 };
 use calyx_ledger::{
     ActorId, EntryKind, FusionMode, FusionWeights, LedgerAppender, LedgerCfStore, LedgerEntry,
-    LedgerRow, MemoryLedgerStore, REPRODUCE_PAYLOAD_TAG, SubjectId,
+    LedgerRow, MemoryLedgerStore, REPRODUCE_PAYLOAD_TAG, SubjectId, get_provenance,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use ulid::Ulid;
 
+use super::quarantine::NoQuarantine;
 use super::{core, status};
 use crate::tools::test_support::ENV_LOCK;
 use crate::tools::vault::store::{ResolvedVault, vault_salt};
@@ -60,6 +62,55 @@ fn lineage_reports_original_ingest_and_mcp_anchor_sequences() {
     assert_eq!(out["lens_measures"][0]["slot"], 0);
     assert_eq!(out["anchors"][0]["kind"], "test_pass");
     assert_eq!(out["anchors"][0]["ledger_seq"], anchor_ref.seq);
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn lineage_refuses_generic_anchor_ledger_fallback() {
+    let (root, resolved, vault) = test_vault("anchor-fail-closed");
+    let cx = sample_constellation(&vault, resolved.vault_id);
+    let cx_id = cx.cx_id;
+    vault.put(cx).unwrap();
+    vault.flush().unwrap();
+    let anchor = Anchor {
+        kind: AnchorKind::TestPass,
+        value: AnchorValue::Bool(true),
+        source: "unit".to_string(),
+        observed_at: 12,
+        confidence: 1.0,
+    };
+    vault.anchor(cx_id, anchor).unwrap();
+    let generic_ref = vault
+        .append_ledger_entry(
+            EntryKind::Ingest,
+            SubjectId::Cx(cx_id),
+            serde_json::to_vec(&json!({
+                "mode": "mcp-anchor",
+            }))
+            .unwrap(),
+            ActorId::Service("calyx-mcp-test".to_string()),
+        )
+        .unwrap();
+    vault.flush().unwrap();
+
+    let stored = vault.get(cx_id, vault.snapshot()).unwrap();
+    let ledger_store = AsterLedgerCfStore::open(&resolved.path).unwrap();
+    let entries = get_provenance(&ledger_store, &NoQuarantine, cx_id).unwrap();
+    let err = core::lineage_for_resolved(&resolved, cx_id).unwrap_err();
+
+    assert_eq!(stored.anchors.len(), 1);
+    assert_eq!(generic_ref.seq, entries.last().unwrap().seq);
+    assert_eq!(err_code(&err), "CALYX_LEDGER_CORRUPT");
+    let err_message = tool_error_message(&err);
+    assert!(err_message.contains("no exact mcp/cli anchor ledger row"));
+    write_anchor_fsv(
+        "mcp-provenance-anchor-fail-closed.json",
+        cx_id,
+        &stored,
+        &entries,
+        err_code(&err),
+        &err_message,
+    );
     fs::remove_dir_all(root).ok();
 }
 
@@ -316,6 +367,13 @@ fn err_code(err: &crate::server::ToolError) -> &str {
     }
 }
 
+fn tool_error_message(err: &crate::server::ToolError) -> String {
+    match err {
+        crate::server::ToolError::Calyx(error) => error.to_string(),
+        crate::server::ToolError::InvalidParams(message) => message.clone(),
+    }
+}
+
 fn temp_root(name: &str) -> std::path::PathBuf {
     std::env::temp_dir().join(format!(
         "calyx-mcp-provenance-{name}-{}-{}",
@@ -333,4 +391,50 @@ fn restore_home(old_home: Option<std::ffi::OsString>) {
             std::env::remove_var("CALYX_HOME");
         },
     }
+}
+
+fn write_anchor_fsv(
+    name: &str,
+    cx_id: CxId,
+    stored: &calyx_core::Constellation,
+    entries: &[LedgerEntry],
+    error_code: &str,
+    error_message: &str,
+) {
+    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root);
+    fs::create_dir_all(&root).unwrap();
+    let payload = json!({
+        "source_of_truth": "Aster durable Base anchor list plus Ledger CF rows read through AsterLedgerCfStore",
+        "trigger": "MCP provenance lineage for base anchor with only a generic mcp-anchor ledger row",
+        "cx_id": cx_id.to_string(),
+        "base_anchor_kinds": stored
+            .anchors
+            .iter()
+            .map(|anchor| format!("{:?}", anchor.kind))
+            .collect::<Vec<_>>(),
+        "ledger_entries": entries
+            .iter()
+            .map(|entry| {
+                let payload = serde_json::from_slice::<Value>(&entry.payload).unwrap_or_else(|_| json!({}));
+                json!({
+                    "seq": entry.seq,
+                    "kind": format!("{:?}", entry.kind),
+                    "mode": payload.get("mode").cloned().unwrap_or(Value::Null),
+                    "anchor_kind": payload.get("anchor_kind").cloned().unwrap_or(Value::Null),
+                })
+            })
+            .collect::<Vec<_>>(),
+        "error": {
+            "code": error_code,
+            "message": error_message,
+        },
+    });
+    fs::write(
+        root.join(name),
+        serde_json::to_vec_pretty(&payload).unwrap(),
+    )
+    .unwrap();
 }

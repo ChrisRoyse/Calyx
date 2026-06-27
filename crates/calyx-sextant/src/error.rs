@@ -24,6 +24,7 @@ pub const CALYX_SEXTANT_VECTOR_SHAPE: &str = "CALYX_SEXTANT_VECTOR_SHAPE";
 pub const CALYX_SEXTANT_QUERY_SHAPE: &str = "CALYX_SEXTANT_QUERY_SHAPE";
 pub const CALYX_INVALID_ARGUMENT: &str = "CALYX_INVALID_ARGUMENT";
 pub const CALYX_ANSWER_UNGROUNDED: &str = "CALYX_ANSWER_UNGROUNDED";
+pub const CALYX_ANSWER_SYNTHESIS_UNAVAILABLE: &str = "CALYX_ANSWER_SYNTHESIS_UNAVAILABLE";
 pub const CALYX_LENS_NOT_FOUND: &str = "CALYX_LENS_NOT_FOUND";
 pub const CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE: &str = "CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE";
 pub const CALYX_SEXTANT_POSTINGS_CORRUPT: &str = "CALYX_SEXTANT_POSTINGS_CORRUPT";
@@ -81,6 +82,9 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
         CALYX_INVALID_ARGUMENT => "submit a non-empty ASK question and valid query arguments",
         CALYX_ANSWER_UNGROUNDED => {
             "seed ASK with at least one visible grounded constellation candidate"
+        }
+        CALYX_ANSWER_SYNTHESIS_UNAVAILABLE => {
+            "wire a real answer synthesis/oracle implementation before enabling ASK answers"
         }
         CALYX_LENS_NOT_FOUND => "register or load a visible lens slot for ASK retrieval",
         CALYX_SEXTANT_GPU_PARITY_UNAVAILABLE => {

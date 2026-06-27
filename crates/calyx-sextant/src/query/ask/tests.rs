@@ -6,7 +6,10 @@ use calyx_core::{
     VaultStore,
 };
 
-use crate::error::{CALYX_ANSWER_UNGROUNDED, CALYX_INVALID_ARGUMENT, CALYX_LENS_NOT_FOUND};
+use crate::error::{
+    CALYX_ANSWER_SYNTHESIS_UNAVAILABLE, CALYX_ANSWER_UNGROUNDED, CALYX_INVALID_ARGUMENT,
+    CALYX_LENS_NOT_FOUND,
+};
 
 use super::{AskSpec, ask};
 
@@ -28,23 +31,24 @@ fn spec(question: &str, context_cx_ids: Vec<CxId>, top_k: usize, oracle: bool) -
 }
 
 #[test]
-fn stub_path_returns_kernel_stub_and_grounding() {
+fn grounded_retrieval_fails_closed_without_answer_engine() {
     let vault = vault();
-    let cx_id = put_dense(&vault, b"stub-grounding", 11, [0.1, 0.9]);
+    let cx_id = put_dense(&vault, b"fail-closed-grounding", 11, [0.1, 0.9]);
 
-    let result = ask(
+    let error = ask(
         &vault,
         &spec("what should be grounded?", vec![cx_id], 10, false),
         vault.latest_seq(),
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(result.answer, "[kernel stub]");
-    assert_eq!(result.grounding.len(), 1);
-    assert_eq!(result.grounding[0].key.as_bytes(), cx_id.as_bytes());
-    assert_eq!(result.grounding[0].ledger_ref.as_ref().unwrap().seq, 11);
-    assert!(result.gaps.is_empty());
-    assert_eq!(result.oracle_conf, None);
+    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert!(
+        error
+            .message
+            .contains("answer synthesis/oracle execution is not wired")
+    );
+    assert!(error.message.contains(&hex(cx_id.as_bytes())));
 }
 
 #[test]
@@ -53,54 +57,49 @@ fn provenance_tag_uses_constellation_ledger_ref_at_snapshot() {
     let cx_id = put_dense(&vault, b"provenance", 77, [0.4, 0.6]);
     let snapshot = vault.latest_seq();
 
-    let result = ask(
+    let error = ask(
         &vault,
         &spec("show provenance", vec![cx_id], 1, false),
         snapshot,
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(result.grounding.len(), 1);
-    assert_eq!(
-        result.grounding[0].ledger_ref,
-        Some(LedgerRef {
-            seq: 77,
-            hash: [77; 32],
-        })
-    );
+    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert!(error.message.contains(&hex(cx_id.as_bytes())));
 }
 
 #[test]
-fn empty_context_searches_full_vault() {
+fn empty_context_retrieves_full_vault_then_fails_closed_without_answer_engine() {
     let vault = vault();
     put_dense(&vault, b"full-a", 21, [0.8, 0.2]);
     put_dense(&vault, b"full-b", 22, [0.2, 0.8]);
 
-    let result = ask(
+    let error = ask(
         &vault,
         &spec("rank the full vault", Vec::new(), 2, false),
         vault.latest_seq(),
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(result.grounding.len(), 2);
+    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert!(error.message.contains("retrieved 2 grounded candidate"));
 }
 
 #[test]
-fn top_k_one_limits_grounding_and_oracle_false_has_no_confidence() {
+fn top_k_one_limits_grounding_before_fail_closed() {
     let vault = vault();
     put_dense(&vault, b"top-a", 31, [0.8, 0.2]);
     put_dense(&vault, b"top-b", 32, [0.2, 0.8]);
 
-    let result = ask(
+    let error = ask(
         &vault,
         &spec("one only", Vec::new(), 1, false),
         vault.latest_seq(),
     )
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(result.grounding.len(), 1);
-    assert_eq!(result.oracle_conf, None);
+    assert_eq!(error.code, CALYX_ANSWER_SYNTHESIS_UNAVAILABLE);
+    assert!(error.message.contains("retrieved 1 grounded candidate"));
 }
 
 #[test]
@@ -205,5 +204,22 @@ fn constellation(
         anchors: Vec::new(),
         provenance,
         flags: CxFlags::default(),
+    }
+}
+
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => char::from(b'0' + value),
+        10..=15 => char::from(b'a' + value - 10),
+        _ => unreachable!("nibble out of range"),
     }
 }

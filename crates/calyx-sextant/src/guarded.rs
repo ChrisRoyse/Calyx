@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 
 use calyx_core::{CalyxError, Constellation, CxId, Result, SlotId, SlotVector};
 use calyx_ward::{
-    GuardProfile, GuardVerdict, MatchedSlots, ProducedSlots, WardError, guard_non_high_stakes,
-    validate_non_inert_profile,
+    GuardProfile, GuardVerdict, MatchedSlots, ProducedSlots, WardError, guard,
+    guard_non_high_stakes, validate_non_inert_profile,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,48 @@ use crate::query::{Query, QueryGuard};
 pub struct GuardedSearchReport {
     pub hits: Vec<Hit>,
     pub dropped_guard_hits: Vec<DroppedGuardHit>,
+}
+
+pub fn apply_in_region_guard_to_hits(
+    docs: &BTreeMap<CxId, Constellation>,
+    profile: &GuardProfile,
+    query_vectors: &[(SlotId, SlotVector)],
+    hits: &mut Vec<Hit>,
+    high_stakes: bool,
+) -> Result<Vec<DroppedGuardHit>> {
+    validate_trusted_guard_profile(profile)?;
+    let produced = produced_guard_slots_from_vectors(query_vectors, profile)?;
+    if high_stakes {
+        guard(profile, &produced, &produced, true).map_err(ward_error)?;
+    }
+
+    let mut kept = Vec::with_capacity(hits.len());
+    let mut dropped = Vec::new();
+    for mut hit in hits.drain(..) {
+        match guard_candidate_with_stakes(docs, profile, &produced, &hit, high_stakes) {
+            CandidateGuard::Pass(verdict) => {
+                hit.guard = Some(HitGuardEvidence {
+                    mode: HitGuardMode::InRegionOnly,
+                    verdict,
+                });
+                kept.push(hit);
+            }
+            CandidateGuard::Drop {
+                cx_id,
+                reason,
+                verdict,
+            } => {
+                dropped.push(DroppedGuardHit {
+                    cx_id,
+                    mode: HitGuardMode::InRegionOnly,
+                    reason,
+                    verdict,
+                });
+            }
+        }
+    }
+    *hits = kept;
+    Ok(dropped)
 }
 
 pub(crate) fn apply_query_guard(
@@ -83,6 +125,16 @@ fn guard_candidate(
     produced: &ProducedSlots,
     hit: &Hit,
 ) -> CandidateGuard {
+    guard_candidate_with_stakes(docs, profile, produced, hit, false)
+}
+
+fn guard_candidate_with_stakes(
+    docs: &BTreeMap<CxId, Constellation>,
+    profile: &GuardProfile,
+    produced: &ProducedSlots,
+    hit: &Hit,
+    high_stakes: bool,
+) -> CandidateGuard {
     let Some(cx) = docs.get(&hit.cx_id) else {
         return drop_without_verdict(hit.cx_id, "missing_constellation");
     };
@@ -90,7 +142,12 @@ fn guard_candidate(
         Ok(matched) => matched,
         Err(reason) => return drop_without_verdict(hit.cx_id, reason),
     };
-    match guard_non_high_stakes(profile, produced, &matched) {
+    let result = if high_stakes {
+        guard(profile, produced, &matched, true)
+    } else {
+        guard_non_high_stakes(profile, produced, &matched)
+    };
+    match result {
         Ok(verdict) if verdict.overall_pass => CandidateGuard::Pass(verdict),
         Ok(verdict) => CandidateGuard::Drop {
             cx_id: hit.cx_id,
@@ -140,6 +197,33 @@ fn produced_guard_slots(query: &Query, profile: &GuardProfile) -> Result<Produce
         )
     })?;
     for slot in slots {
+        produced.insert(slot, data.to_vec());
+    }
+    Ok(produced)
+}
+
+fn produced_guard_slots_from_vectors(
+    query_vectors: &[(SlotId, SlotVector)],
+    profile: &GuardProfile,
+) -> Result<ProducedSlots> {
+    let mut produced = ProducedSlots::new();
+    for slot in required_slots(profile) {
+        let vector = query_vectors
+            .iter()
+            .find(|(candidate, _)| *candidate == slot)
+            .map(|(_, vector)| vector)
+            .ok_or_else(|| {
+                crate::error::sextant_error(
+                    crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                    format!("InRegionOnly guard missing slot-aware query vector:{slot}"),
+                )
+            })?;
+        let data = dense_data(Some(vector), "query").map_err(|reason| {
+            crate::error::sextant_error(
+                crate::error::CALYX_SEXTANT_VECTOR_SHAPE,
+                format!("InRegionOnly guard requires dense query vector for slot {slot}: {reason}"),
+            )
+        })?;
         produced.insert(slot, data.to_vec());
     }
     Ok(produced)

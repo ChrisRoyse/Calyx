@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
 
+const COMPRESSED_SLOT_TAG: u8 = 16;
+
 impl<C> VaultStore for AsterVault<C>
 where
     C: Clock,
@@ -109,22 +111,12 @@ where
                 value.ok_or_else(|| CalyxError::aster_corrupt_shard("slot CF row missing"))?;
             let vector = match encode::decode_slot_vector(&value) {
                 Ok(vector) => vector,
-                Err(_) => {
-                    let raw = self
-                        .rows
-                        .read_at(
-                            handle,
-                            ColumnFamily::slot_raw(slot),
-                            &slot_key(id),
-                            &self.clock,
-                        )?
-                        .ok_or_else(|| {
-                            CalyxError::aster_corrupt_shard(
-                                "compressed slot CF row missing raw sidecar",
-                            )
-                        })?;
-                    encode::decode_slot_vector(&raw)?
+                Err(error) if value.first().copied() == Some(COMPRESSED_SLOT_TAG) => {
+                    return Err(CalyxError::aster_corrupt_shard(format!(
+                        "VaultStore::get encountered compressed slot CF row for slot {slot}; use a compression-aware read path instead of raw sidecar fallback ({error})"
+                    )));
                 }
+                Err(error) => return Err(error),
             };
             slots.insert(slot, vector);
         }

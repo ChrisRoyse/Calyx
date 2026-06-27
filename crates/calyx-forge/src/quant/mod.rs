@@ -1,4 +1,5 @@
 pub mod binary;
+pub mod int8;
 pub mod mxfp4_codec;
 pub mod qjl;
 pub mod rotation;
@@ -13,6 +14,7 @@ use crate::ForgeError;
 use crate::Result;
 
 pub use binary::{BinaryCodec, binary_prefilter, hamming_dot_estimate};
+pub use int8::ScalarInt8Codec;
 pub use mxfp4_codec::{AssayQuantSafety, MxFp4Codec};
 pub use qjl::{QjlResidual, dot_estimate_unbiased, dot_qjl_correction, encode_qjl_residual};
 pub use rotation::{
@@ -48,7 +50,7 @@ impl QuantLevel {
     }
 
     pub fn is_lossy(self) -> bool {
-        !matches!(self, Self::F32 | Self::Bits8)
+        !matches!(self, Self::F32)
     }
 }
 
@@ -106,6 +108,7 @@ mod tests {
     #[test]
     fn quant_level_bits_and_lossiness_are_declared() {
         assert_eq!(QuantLevel::Bits3p5.bits_per_channel(), 3.5);
+        assert!(QuantLevel::Bits8.is_lossy());
         assert_eq!(QuantLevel::Bits8Fp.bits_per_channel(), 8.0);
         assert!(QuantLevel::Bits8Fp.is_lossy());
         assert!(QuantLevel::Bits1.is_lossy());

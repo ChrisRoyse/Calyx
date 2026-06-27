@@ -66,11 +66,12 @@ pub fn kernel_answer(
     if path.len() == 1 {
         return AnswerPath::checked(query_cx, anchor, Vec::new(), 1.0);
     }
-    let hops = answer_hops_with(graph, &path, |from, to, hop_index, _, _| {
-        Ok(stub_ledger_ref(from, to, hop_index))
-    })?;
-    let total_score = hops.iter().map(|hop| hop.hop_score).sum();
-    AnswerPath::checked(query_cx, anchor, hops, total_score)
+    Err(LodestarError::KernelAnswerLedgerRequired {
+        detail: format!(
+            "kernel_answer found a {}-hop path from anchor {anchor} to query {query_cx}, but multi-hop answer provenance requires kernel_answer_with_ledger",
+            path.len().saturating_sub(1)
+        ),
+    })
 }
 
 pub fn kernel_answer_with_ledger<S, C>(
@@ -235,19 +236,5 @@ fn validate_score(score: f32, field: &str) -> Result<()> {
         Err(LodestarError::KernelScoreInvalid {
             detail: format!("{field}={score} must be finite and non-negative"),
         })
-    }
-}
-
-fn stub_ledger_ref(from: CxId, to: CxId, hop_index: u32) -> LedgerRef {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(b"ph33-kernel-answer-ledger-stub");
-    hasher.update(from.as_bytes());
-    hasher.update(to.as_bytes());
-    hasher.update(&hop_index.to_be_bytes());
-    let mut hash = [0_u8; 32];
-    hash.copy_from_slice(hasher.finalize().as_bytes());
-    LedgerRef {
-        seq: hop_index as u64 + 1,
-        hash,
     }
 }

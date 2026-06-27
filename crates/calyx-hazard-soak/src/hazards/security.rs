@@ -236,18 +236,20 @@ fn probe_h24_whole_host_loss(root: &Path) -> ProbeResult {
     let verify = verify_chain(&store, 0..ledger_rows.len() as u64).map_err(err)?;
     let restic_version = restic_version();
     let restic_enabled = env::var("CALYX_PH59_RESTIC_DR").ok().as_deref() == Some("1");
-    let skipped_pending_ph66 = !restic_enabled;
+    let dr_restore_verified = false;
     let chain_intact =
         matches!(verify, VerifyResult::Intact { count } if count == ledger_rows.len() as u64);
-    let passed = base_readback == b"h24 byte exact" && chain_intact && skipped_pending_ph66;
+    let passed =
+        base_readback == b"h24 byte exact" && chain_intact && restic_enabled && dr_restore_verified;
     Ok((
         passed,
         json!({
-            "trigger": "synthetic DR vault written, ledger CF read through AsterLedgerCfStore; restic drill gated until PH66",
+            "trigger": "synthetic DR vault written and local ledger CF read through AsterLedgerCfStore; whole-host restore must be independently verified",
             "expected": {
                 "base_row_byte_exact": true,
                 "ledger_chain_intact": true,
-                "skipped_pending_ph66_allowed": true
+                "restic_dr_enabled_env": true,
+                "dr_restore_verified": true
             },
             "actual": {
                 "base_row_hex": hex_bytes(&base_readback),
@@ -256,13 +258,12 @@ fn probe_h24_whole_host_loss(root: &Path) -> ProbeResult {
                 "ledger_verify": verify_json(&verify),
                 "restic_version": restic_version,
                 "restic_dr_enabled_env": restic_enabled,
-                "skipped_pending_ph66": skipped_pending_ph66,
-                "dr_restore_verified": false,
+                "dr_restore_verified": dr_restore_verified,
                 "panic_free": true
             },
             "metrics_text": format!(
-                "calyx_dr_restore_verified{{vault=\"ph59-h24\"}} 0\ncalyx_dr_skipped_pending_ph66{{vault=\"ph59-h24\"}} {}\n",
-                usize::from(skipped_pending_ph66)
+                "calyx_dr_restore_verified{{vault=\"ph59-h24\"}} {}\ncalyx_dr_restore_required{{vault=\"ph59-h24\"}} 1\n",
+                usize::from(dr_restore_verified)
             )
         }),
     ))

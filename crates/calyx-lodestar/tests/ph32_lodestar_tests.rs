@@ -45,7 +45,7 @@ fn kernel_graph_selects_two_hubs_and_reports_fraction() {
 }
 
 #[test]
-fn lp_round_selects_solution_values_and_fallback_warns() {
+fn lp_round_selects_solution_values_and_missing_solver_fails_closed() {
     let graph = hub_graph();
     let scc = tarjan_scc(&graph);
     let bet = betweenness(&graph).unwrap();
@@ -68,23 +68,30 @@ fn lp_round_selects_solution_values_and_fallback_warns() {
     let rounded =
         lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &solution)
             .unwrap();
-    let fallback = lp_round_kernel_graph(&heuristic, &LpRoundParams::default()).unwrap();
-    let strict_err = lp_round_kernel_graph(
+    let missing_solver = lp_round_kernel_graph(&heuristic, &LpRoundParams::default()).unwrap_err();
+    let fallback_flag_err = lp_round_kernel_graph(
         &heuristic,
         &LpRoundParams {
-            fallback_to_heuristic: false,
+            fallback_to_heuristic: true,
             ..LpRoundParams::default()
         },
     )
     .unwrap_err();
-    let fallback_is_heuristic = fallback.selected == heuristic.selected
-        && fallback.lp_fraction == Some(heuristic.source_fraction);
+    let not_solved = LpSolution {
+        values: vec![0.9, 0.3, 0.7, 0.1],
+        objective_value: 0.0,
+        status: SolveStatus::NotSolved,
+    };
+    let not_solved_err =
+        lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &not_solved)
+            .unwrap_err();
 
     println!(
-        "LP_ROUND_READBACK rounded={:?} strict_error={} fallback_warnings={:?}",
+        "LP_ROUND_READBACK rounded={:?} missing_solver={} fallback_flag_error={} not_solved={}",
         rounded.selected,
-        strict_err.code(),
-        fallback.warnings
+        missing_solver.code(),
+        fallback_flag_err.code(),
+        not_solved_err.code()
     );
     write_readback(
         "ph32-lp-round-readback.json",
@@ -93,25 +100,20 @@ fn lp_round_selects_solution_values_and_fallback_warns() {
             "rounded": rounded.selected,
             "lp_fraction": rounded.lp_fraction,
             "injected_solution_source": "test-provided LpSolution, not external solver output",
-            "strict_error": strict_err.code(),
-            "strict_error_message": strict_err.to_string(),
+            "missing_solver_error": missing_solver.code(),
+            "missing_solver_error_message": missing_solver.to_string(),
+            "fallback_flag_error": fallback_flag_err.code(),
+            "fallback_flag_error_message": fallback_flag_err.to_string(),
+            "not_solved_error": not_solved_err.code(),
+            "not_solved_error_message": not_solved_err.to_string(),
             "heuristic_selected": heuristic.selected,
             "heuristic_source_fraction": heuristic.source_fraction,
-            "fallback_selected": fallback.selected,
-            "fallback_lp_fraction": fallback.lp_fraction,
-            "fallback_is_heuristic": fallback_is_heuristic,
-            "fallback_warnings": fallback.warnings.clone(),
         }),
     );
     assert_eq!(rounded.selected, vec![cx(1), cx(3)]);
-    assert_eq!(strict_err.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
-    assert!(fallback_is_heuristic);
-    assert!(
-        fallback
-            .warnings
-            .iter()
-            .any(|warning| warning.starts_with("CALYX_KERNEL_LP_UNAVAILABLE"))
-    );
+    assert_eq!(missing_solver.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
+    assert_eq!(fallback_flag_err.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
+    assert_eq!(not_solved_err.code(), "CALYX_KERNEL_LP_UNAVAILABLE");
 }
 
 #[test]

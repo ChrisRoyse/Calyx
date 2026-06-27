@@ -66,6 +66,41 @@ fn turboquant_and_mxfp4_roundtrip_fixture_vectors() {
 }
 
 #[test]
+fn scalar_int8_codec_has_real_bits8_envelope() {
+    let rows = fixture_rows(32);
+    let slot = make_slot(
+        "scalar-int8",
+        SlotId::new(6),
+        SlotShape::Dense(32),
+        QuantPolicy::TurboQuant {
+            bits_per_channel_x2: 16,
+        },
+    );
+    let lens = lens_spec("scalar-int8", slot.quant, None, 32, 0.25);
+    let report = compress_slot_batch(&slot, &lens, &rows, &[], 2).unwrap();
+    let envelope = decode_stored_slot_envelope(&report.rows[0].compressed_bytes).unwrap();
+
+    assert_eq!(report.stored_codec, StoredSlotCodec::ScalarInt8);
+    assert_eq!(envelope.codec, StoredSlotCodec::ScalarInt8);
+    assert_eq!(envelope.level, "Bits8");
+    assert_eq!(envelope.raw_dim, 32);
+    assert_eq!(envelope.stored_dim, 32);
+    assert!(!envelope.fallback);
+    assert_eq!(envelope.payload_bytes, 32);
+    assert!(report.fallback_reason.is_none());
+    maybe_write_json(
+        "scalar-int8-envelope.json",
+        &json!({
+            "source_of_truth": "compressed SlotCompressionRow bytes decoded independently by decode_stored_slot_envelope",
+            "requested_quant": "turbo_quant bits_per_channel_x2=16",
+            "stored_codec": format!("{:?}", report.stored_codec),
+            "envelope": envelope,
+            "row0_prefix_hex": hex(&report.rows[0].compressed_bytes[..32]),
+        }),
+    );
+}
+
+#[test]
 fn matryoshka_truncate_renormalizes_prefix() {
     let raw = vec![3.0, 4.0, 12.0, 0.0];
     let truncated = matryoshka_truncate_renormalize(&raw, 2).unwrap();
@@ -91,7 +126,7 @@ fn matryoshka_truncate_renormalizes_prefix() {
 }
 
 #[test]
-fn compression_breach_falls_back_and_empty_batch_fails_closed() {
+fn compression_breach_empty_batch_and_invalid_envelope_fail_closed() {
     let rows = opposing_rows();
     let slot = make_slot(
         "binary",
@@ -100,24 +135,39 @@ fn compression_breach_falls_back_and_empty_batch_fails_closed() {
         QuantPolicy::Binary,
     );
     let lens = lens_spec("binary", QuantPolicy::Binary, Some(1), 8, 0.0);
-    let report = compress_slot_batch(&slot, &lens, &rows, &[], 1).unwrap();
+    let breach_error = compress_slot_batch(&slot, &lens, &rows, &[], 1).unwrap_err();
 
-    assert!(report.fallback_reason.is_some());
-    assert_ne!(report.stored_codec, StoredSlotCodec::Binary);
+    assert_eq!(breach_error.code, CALYX_VECTOR_COMPRESSION_INVALID);
+    assert!(
+        breach_error
+            .message
+            .contains("no fallback codec was written")
+    );
 
     let error = compress_slot_batch(&slot, &lens, &[], &[], 1).unwrap_err();
     assert_eq!(error.code, CALYX_VECTOR_COMPRESSION_EMPTY);
     let invalid_query =
         compress_slot_batch(&slot, &lens, &rows, &[vec![f32::NAN; 8]], 1).unwrap_err();
     assert_eq!(invalid_query.code, CALYX_VECTOR_COMPRESSION_INVALID);
+    let mut mismatched = vec![calyx_registry::COMPRESSED_SLOT_TAG, 1, 1, 1];
+    mismatched.extend_from_slice(&8_u32.to_be_bytes());
+    mismatched.extend_from_slice(&8_u32.to_be_bytes());
+    mismatched.push(0);
+    mismatched.extend_from_slice(&1.0_f32.to_bits().to_be_bytes());
+    mismatched.extend_from_slice(&[0_u8; 32]);
+    mismatched.extend_from_slice(&0_u32.to_be_bytes());
+    let envelope_error = decode_stored_slot_envelope(&mismatched).unwrap_err();
+    assert_eq!(envelope_error.code, CALYX_VECTOR_COMPRESSION_INVALID);
     maybe_write_json(
-        "edge-fallback-and-empty.json",
+        "edge-fail-closed.json",
         &json!({
             "breach_requested": "binary",
-            "stored_codec": format!("{:?}", report.stored_codec),
-            "fallback_reason": report.fallback_reason,
+            "breach_error_code": breach_error.code,
+            "breach_error_message": breach_error.message,
             "empty_error_code": error.code,
             "invalid_query_error_code": invalid_query.code,
+            "mismatched_envelope_error_code": envelope_error.code,
+            "mismatched_envelope_error_message": envelope_error.message,
         }),
     );
 }
@@ -208,10 +258,13 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
         .unwrap()
         .unwrap();
     let mxfp_envelope = decode_stored_slot_envelope(&mxfp_compressed).unwrap();
-    let reconstructed = vault.get(first_cx, snapshot).unwrap();
+    let vault_get_error = vault
+        .get(first_cx, snapshot)
+        .expect_err("VaultStore::get must not raw-sidecar fallback compressed slot rows");
 
     assert_eq!(compressed[0], calyx_registry::COMPRESSED_SLOT_TAG);
     assert_eq!(envelope.codec, StoredSlotCodec::TurboQuantBits3p5);
+    assert!(!envelope.fallback);
     assert_eq!(envelope.raw_dim, 128);
     assert_eq!(envelope.stored_dim, 64);
     assert!(matches!(
@@ -221,17 +274,11 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
     assert!(report.stored_bytes_total < report.raw_bytes_total);
     assert!(mxfp_report.stored_bytes_total < mxfp_report.raw_bytes_total);
     assert_eq!(raw_sidecar[0], 0);
-    assert_eq!(
-        reconstructed.slots.get(&slot.slot_id),
-        Some(&SlotVector::Dense {
-            dim: 128,
-            data: rows[0].1.clone()
-        })
-    );
+    assert_eq!(vault_get_error.code, "CALYX_ASTER_CORRUPT_SHARD");
     write_json(
         &root.join("summary.json"),
         &json!({
-            "source_of_truth": "Aster durable vault CF rows slot_03, slot_04, slot_03.raw plus VaultStore::get sidecar fallback",
+            "source_of_truth": "Aster durable vault CF rows slot_03, slot_04, slot_03.raw; VaultStore::get fails closed on compressed slot CF rows",
             "vault_dir": vault_dir,
             "panel_status_vault": panel_vault,
             "snapshot": snapshot,
@@ -271,12 +318,9 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
                 "recall_at_k_compressed": mxfp_report.recall_at_k_compressed,
                 "stored_codec": format!("{:?}", mxfp_report.stored_codec),
             },
-            "vault_get_reconstructed": {
-                "matches_original": reconstructed.slots.get(&slot.slot_id) == Some(&SlotVector::Dense {
-                    dim: 128,
-                    data: rows[0].1.clone(),
-                }),
-                "dim": 128,
+            "vault_get_error": {
+                "code": vault_get_error.code,
+                "message": vault_get_error.message,
             },
         }),
     );

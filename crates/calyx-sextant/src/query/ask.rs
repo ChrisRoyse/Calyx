@@ -1,4 +1,4 @@
-//! PH55 ASK execution: retrieval grounding plus PH33/PH49-compatible stubs.
+//! PH55 ASK execution: retrieval grounding.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -9,7 +9,8 @@ use calyx_core::{AbsentReason, Clock, CxId, Result, Seq, SlotId, SlotVector, Vau
 use serde::{Deserialize, Serialize};
 
 use crate::error::{
-    CALYX_ANSWER_UNGROUNDED, CALYX_INVALID_ARGUMENT, CALYX_LENS_NOT_FOUND, sextant_error,
+    CALYX_ANSWER_SYNTHESIS_UNAVAILABLE, CALYX_ANSWER_UNGROUNDED, CALYX_INVALID_ARGUMENT,
+    CALYX_LENS_NOT_FOUND, sextant_error,
 };
 use crate::fusion::rrf::rrf_fuse_restricted;
 use crate::fusion::{FusionContext, FusionStrategy};
@@ -54,30 +55,27 @@ where
         ));
     }
 
-    let kernel = kernel_answer_stub(&top);
-    if kernel.grounding_cx_ids.is_empty() {
-        return Err(sextant_error(
-            CALYX_ANSWER_UNGROUNDED,
-            "kernel answer returned no grounding CxIds",
-        ));
-    }
-
+    let grounding_count = top.len();
     let scores = top
         .into_iter()
         .map(|hit| (hit.cx_id, hit.score))
         .collect::<BTreeMap<_, _>>();
-    let grounding = kernel
-        .grounding_cx_ids
-        .into_iter()
+    let grounding = scores
+        .keys()
+        .copied()
         .map(|cx_id| grounded_row(vault, snapshot_seq, cx_id, scores.get(&cx_id).copied()))
         .collect::<Result<Vec<_>>>()?;
-
-    Ok(AskResult {
-        answer: kernel.text,
-        grounding,
-        gaps: kernel.gaps,
-        oracle_conf: oracle_stub_conf(spec.oracle),
-    })
+    Err(sextant_error(
+        CALYX_ANSWER_SYNTHESIS_UNAVAILABLE,
+        format!(
+            "ASK retrieved {grounding_count} grounded candidate(s), but answer synthesis/oracle execution is not wired; refusing stub answer. grounding={}",
+            grounding
+                .iter()
+                .map(|row| hex(row.key.as_bytes()))
+                .collect::<Vec<_>>()
+                .join(",")
+        ),
+    ))
 }
 
 fn effective_top_k(top_k: usize) -> usize {
@@ -264,27 +262,26 @@ fn cx_id_from_base_key(key: &[u8]) -> Option<CxId> {
     Some(CxId::from_bytes(bytes))
 }
 
-fn oracle_stub_conf(_enabled: bool) -> Option<f32> {
-    None
-}
-
-fn kernel_answer_stub(top: &[crate::hit::Hit]) -> KernelAnswerStub {
-    KernelAnswerStub {
-        text: "[kernel stub]".to_string(),
-        grounding_cx_ids: top.iter().map(|hit| hit.cx_id).collect(),
-        gaps: Vec::new(),
-    }
-}
-
 struct ScoredCandidate {
     cx_id: CxId,
     score: f32,
 }
 
-struct KernelAnswerStub {
-    text: String,
-    grounding_cx_ids: Vec<CxId>,
-    gaps: Vec<String>,
+fn hex(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        out.push(hex_digit(byte >> 4));
+        out.push(hex_digit(byte & 0x0f));
+    }
+    out
+}
+
+fn hex_digit(value: u8) -> char {
+    match value {
+        0..=9 => char::from(b'0' + value),
+        10..=15 => char::from(b'a' + value - 10),
+        _ => unreachable!("nibble out of range"),
+    }
 }
 
 #[cfg(test)]

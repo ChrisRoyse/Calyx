@@ -2,10 +2,11 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{CxId, LedgerRef};
+use calyx_core::{CxId, FixedClock, LedgerRef};
+use calyx_ledger::{LedgerAppender, LedgerCfStore, MemoryLedgerStore};
 use calyx_lodestar::{
-    AnswerHop, AnswerPath, GroundednessReport, Kernel, RecallReport, build_kernel_index,
-    kernel_answer, kernel_search,
+    AnswerHop, AnswerPath, GroundednessReport, Kernel, KernelIndex, RecallReport,
+    build_kernel_index, kernel_answer, kernel_answer_with_ledger, kernel_search,
 };
 use calyx_paths::AssocGraph;
 use serde_json::json;
@@ -100,10 +101,21 @@ fn write_readback(case: &str, name: &str, value: serde_json::Value) {
 }
 
 #[test]
-fn kernel_answer_chain_scores_and_provenance_are_deterministic() {
+fn kernel_answer_without_ledger_fails_for_multi_hop_path() {
     let graph = chain_graph();
     let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
-    let answer = kernel_answer(&index, &graph, cx(13), &[0.99, 0.01], &[cx(10)], 3).unwrap();
+    let error = kernel_answer(&index, &graph, cx(13), &[0.99, 0.01], &[cx(10)], 3).unwrap_err();
+
+    assert_eq!(error.code(), "CALYX_KERNEL_ANSWER_LEDGER_REQUIRED");
+    assert!(error.to_string().contains("kernel_answer_with_ledger"));
+}
+
+#[test]
+fn kernel_answer_chain_scores_and_real_ledger_provenance_are_deterministic() {
+    let graph = chain_graph();
+    let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
+    let (answer, ledger_seqs) =
+        answer_with_memory_ledger(&index, &graph, cx(13), &[0.99, 0.01], &[cx(10)], 3);
     let scores: Vec<_> = answer.hops.iter().map(|hop| hop.hop_score).collect();
     let seqs: Vec<_> = answer.provenance.iter().map(|ledger| ledger.seq).collect();
 
@@ -115,13 +127,15 @@ fn kernel_answer_chain_scores_and_provenance_are_deterministic() {
             "answer": answer,
             "scores": scores,
             "provenance_seqs": seqs,
+            "ledger_row_seqs": ledger_seqs,
         }),
     );
 
     assert_eq!(answer.anchor_kernel_node, cx(10));
     assert_eq!(answer.hops.len(), 3);
     assert_eq!(scores, vec![1.0, 0.9, 0.80999994]);
-    assert_eq!(seqs, vec![1, 2, 3]);
+    assert_eq!(seqs, vec![0, 1, 2]);
+    assert_eq!(ledger_seqs, vec![0, 1, 2, 3]);
     assert!(
         answer
             .provenance
@@ -169,7 +183,8 @@ fn kernel_answer_finds_anchor_ranked_beyond_old_top10_window() {
         .position(|(cx_id, _)| *cx_id == cx(13))
         .map(|idx| idx + 1)
         .expect("anchor should be present in exhausted search");
-    let answer = kernel_answer(&index, &graph, cx(200), &query_vec, &[cx(13)], 1).unwrap();
+    let (answer, ledger_seqs) =
+        answer_with_memory_ledger(&index, &graph, cx(200), &query_vec, &[cx(13)], 1);
 
     println!(
         "KERNEL_ANSWER_ANCHOR_RANK anchor_rank={} anchor={} hops={}",
@@ -185,6 +200,7 @@ fn kernel_answer_finds_anchor_ranked_beyond_old_top10_window() {
             "old_candidate_window": 10,
             "answer": answer,
             "hit_count": all_hits.len(),
+            "ledger_row_seqs": ledger_seqs,
         }),
     );
 
@@ -198,7 +214,8 @@ fn kernel_answer_finds_anchor_ranked_beyond_old_top10_window() {
 fn kernel_answer_continues_to_next_reachable_anchor() {
     let graph = competing_anchor_graph();
     let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
-    let answer = kernel_answer(&index, &graph, cx(13), &[0.99, 0.01], &[cx(9), cx(10)], 3).unwrap();
+    let (answer, ledger_seqs) =
+        answer_with_memory_ledger(&index, &graph, cx(13), &[0.99, 0.01], &[cx(9), cx(10)], 3);
 
     write_readback(
         "anchor-rank",
@@ -209,6 +226,7 @@ fn kernel_answer_continues_to_next_reachable_anchor() {
             "query_cx": answer.query_cx,
             "hops": answer.hops,
             "total_score": answer.total_score,
+            "ledger_row_seqs": ledger_seqs,
         }),
     );
 
@@ -260,4 +278,29 @@ fn kernel_answer_fail_closed_edges_report_catalog_codes() {
     assert_eq!(no_anchor.code(), "CALYX_KERNEL_NO_ANCHORED_NODE");
     assert_eq!(no_path.code(), "CALYX_PATHS_NODE_NOT_FOUND");
     assert_eq!(invalid.code(), "CALYX_KERNEL_SCORE_INVALID");
+}
+
+fn answer_with_memory_ledger(
+    index: &KernelIndex,
+    graph: &AssocGraph,
+    query_cx: CxId,
+    query_vec: &[f32],
+    anchors: &[CxId],
+    max_hops: usize,
+) -> (AnswerPath, Vec<u64>) {
+    let mut appender =
+        LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(1_785_631_000))
+            .expect("open memory ledger");
+    let answer = kernel_answer_with_ledger(
+        index,
+        graph,
+        query_cx,
+        query_vec,
+        anchors,
+        max_hops,
+        &mut appender,
+    )
+    .expect("ledger-backed answer");
+    let rows = appender.store().scan().expect("scan memory ledger");
+    (answer, rows.into_iter().map(|row| row.seq).collect())
 }

@@ -9,7 +9,7 @@ use crate::recall_test::RecallTestParams;
 use crate::temporal_kernel::apply_frequency_bonuses;
 use crate::{
     DfvsResult, KernelGraph, KernelGraphParams, LpRoundParams, Result, dfvs_approx,
-    lp_round_kernel_graph, select_kernel_graph,
+    select_kernel_graph,
 };
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -124,17 +124,17 @@ fn build_kernel_pipeline_with_adjustment(
     let bet = betweenness(graph)?;
     let mut heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
     adjust_heuristic(&mut heuristic)?;
-    let rounded = lp_round_kernel_graph(&heuristic, &params.lp_round)?;
-    let dfvs = dfvs_approx(&rounded)?;
+    let candidate_graph = heuristic;
+    let dfvs = dfvs_approx(&candidate_graph)?;
     let gap_report = grounding_gaps_for_members(
         &dfvs.members,
         graph,
         anchors,
         params.kernel_graph.max_groundedness_distance,
     )?;
-    let warnings = warnings(&rounded.warnings, &dfvs, &gap_report.gaps);
+    let warnings = warnings(&candidate_graph.warnings, &dfvs, &gap_report.gaps);
     let provenance = estimator_provenance(&dfvs, &warnings);
-    let kernel_graph = rounded.selected.clone();
+    let kernel_graph = candidate_graph.selected.clone();
     let kernel_id = kernel_id(params, &dfvs.members, &kernel_graph);
 
     Ok(Kernel {

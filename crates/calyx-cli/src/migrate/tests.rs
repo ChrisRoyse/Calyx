@@ -32,13 +32,19 @@ fn migrates_and_offline_backfills_default_panel() {
         report.verify.unwrap().missing_backfill,
         Vec::<String>::new()
     );
-    assert!(
-        report
-            .status
-            .unwrap()
-            .slot_rows
-            .values()
-            .all(|count| *count == 2)
+    let backfill = report.backfill.as_ref().unwrap();
+    assert_eq!(backfill.backfill_mode, "offline_deterministic");
+    assert_eq!(backfill.learned_tei_slot_rows_written, 0);
+    assert!(backfill.offline_deterministic_slot_rows_written > 0);
+    let status = report.status.as_ref().unwrap();
+    assert!(status.slot_rows.values().all(|count| *count == 2));
+    maybe_write_fsv_json(
+        "migrate-offline-backfill-origin-readback.json",
+        &serde_json::json!({
+            "source_of_truth": "migration BackfillSummary plus Aster slot row counts from status",
+            "backfill": backfill,
+            "slot_rows": status.slot_rows,
+        }),
     );
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -287,6 +293,10 @@ fn created_at_is_preserved_and_temporal_vectors_are_active() {
     let readback = run_readback(&sqlite, &vault, "hot-2").unwrap();
 
     assert_eq!(report.status.as_ref().unwrap().temporal_active_rows, 2);
+    assert_eq!(
+        report.backfill.as_ref().unwrap().backfill_mode,
+        "offline_deterministic"
+    );
     assert_eq!(report.status.as_ref().unwrap().temporal_inactive_rows, 0);
     assert_eq!(readback["created_at"], 1_704_207_600_u64);
     assert_eq!(readback["source_event_time_secs"], 1_704_207_600_u64);
@@ -365,6 +375,18 @@ fn temp_root(name: &str) -> std::path::PathBuf {
         std::process::id(),
         manifest::now_ms()
     ))
+}
+
+fn maybe_write_fsv_json(name: &str, value: &serde_json::Value) {
+    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
+        return;
+    };
+    std::fs::create_dir_all(&root).expect("create fsv root");
+    std::fs::write(
+        std::path::Path::new(&root).join(name),
+        serde_json::to_vec_pretty(value).expect("fsv json"),
+    )
+    .expect("write fsv json");
 }
 
 fn seed_sqlite(path: &Path) {

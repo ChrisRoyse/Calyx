@@ -25,6 +25,7 @@ use super::{
     AggOp, AggSpec, AskSpec, CrossModelPlan, DocPathFilter, FieldPredicate, PlanStep,
     ProvenancedRow, QueryResult,
 };
+use crate::error::{CALYX_SEXTANT_ASSOC_GRAPH_MISSING, sextant_error};
 use support::{
     cx_from_key, default_collection, doc_value_matches, fold_numeric, index_bounds, json_row,
     ledger_ref, numeric_values, parse_record_pk, plain_row, relational_prefix, require_mode,
@@ -101,10 +102,13 @@ where
         PlanStep::GraphHop {
             from_cx_ids,
             hop_kind,
-        } => {
-            tracing::info!(hop_kind = %hop_kind, "[INFO] graph hop stubbed");
-            execute_graph_stub(state, from_cx_ids)
-        }
+        } => Err(sextant_error(
+            CALYX_SEXTANT_ASSOC_GRAPH_MISSING,
+            format!(
+                "GraphHop hop_kind={hop_kind} requested from {} source id(s), but executor has no wired association graph; refusing pass-through stub",
+                from_cx_ids.len()
+            ),
+        )),
         PlanStep::VectorFusion {
             lens_ids,
             query_vec,
@@ -293,31 +297,6 @@ where
                 ("value", RecordValue::F64(value)),
             ]),
         ));
-    }
-    Ok(())
-}
-
-fn execute_graph_stub(state: &mut ExecState, from_cx_ids: Vec<CxId>) -> Result<()> {
-    if !from_cx_ids.is_empty() {
-        state.candidates = from_cx_ids.into_iter().collect();
-    } else if state.candidates.is_empty() {
-        state.candidates = state
-            .rows
-            .iter()
-            .filter_map(|row| cx_from_key(&row.key))
-            .collect();
-    }
-    if state.rows.is_empty() {
-        state.rows = state
-            .candidates
-            .iter()
-            .map(|cx| ProvenancedRow {
-                key: RecordKey::from_bytes(cx.as_bytes().to_vec()).expect("CxId key is non-empty"),
-                value: None,
-                score: None,
-                ledger_ref: None,
-            })
-            .collect();
     }
     Ok(())
 }

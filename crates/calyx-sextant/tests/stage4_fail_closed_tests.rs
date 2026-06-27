@@ -12,6 +12,7 @@ use calyx_sextant::fusion::{
 };
 use calyx_sextant::{
     CALYX_SEXTANT_NO_LENSES, CALYX_SEXTANT_PLAN_COST_EXCEEDED, CALYX_SEXTANT_PLAN_UNBOUNDED,
+    CALYX_SEXTANT_PROVENANCE_MISSING, CALYX_SEXTANT_QUERY_SHAPE,
     CALYX_SEXTANT_SLOT_ALREADY_REGISTERED, CALYX_SEXTANT_SLOT_INACTIVE, CALYX_SEXTANT_SLOT_MISSING,
     FusionContext, FusionStrategy, HnswIndex, IndexSearchHit, PlanLimits, Query, QueryPlanner,
     RrfProfile, SearchEngine, SlotIndexMap, weighted_profiles,
@@ -166,6 +167,57 @@ fn slot_map_duplicate_registration_and_empty_search_fail_closed() {
     assert_eq!(duplicate.code, CALYX_SEXTANT_SLOT_ALREADY_REGISTERED);
     assert_eq!(missing.code, CALYX_SEXTANT_SLOT_MISSING);
     assert_eq!(no_lenses.code, CALYX_SEXTANT_NO_LENSES);
+}
+
+#[test]
+fn search_refuses_stub_provenance_when_index_hit_has_no_stored_doc() {
+    let map = SlotIndexMap::new();
+    let slot = SlotId::new(8);
+    let cx_id = _cx(0x7a);
+    let vector = dense_vec(1.0, 3);
+    map.register(HnswIndex::new(slot, 3, 42)).unwrap();
+    map.insert(slot, cx_id, vector.clone(), 1).unwrap();
+    let engine = SearchEngine::new(map);
+    let index_hits_before = engine.indexes.search(slot, &vector, 1, Some(4)).unwrap();
+    let mut query = Query::new("missing stored doc")
+        .with_slots(vec![slot])
+        .with_vector(vector.clone());
+    query.k = 1;
+    query.ef = Some(4);
+
+    let missing_doc = engine.search(&query).unwrap_err();
+    let stub_mode = engine
+        .search(&query.clone().require_stored_provenance(false))
+        .unwrap_err();
+
+    write_readback(
+        "stage4-stub-provenance-fail-closed.json",
+        json!({
+            "source_of_truth": "SlotIndexMap index search result plus SearchEngine error after no stored Constellation was inserted",
+            "before": {
+                "registered_slots": engine.indexes.registered_slots(),
+                "index_hit_count": index_hits_before.len(),
+                "index_hit_ids": index_hits_before
+                    .iter()
+                    .map(|hit| hit.cx_id.to_string())
+                    .collect::<Vec<_>>(),
+            },
+            "after": {
+                "search_error_code": missing_doc.code,
+                "stub_mode_error_code": stub_mode.code,
+                "stub_mode_message": stub_mode.message.clone(),
+            },
+            "expected": {
+                "search_error_code": CALYX_SEXTANT_PROVENANCE_MISSING,
+                "stub_mode_error_code": CALYX_SEXTANT_QUERY_SHAPE,
+            }
+        }),
+    );
+
+    assert_eq!(index_hits_before.len(), 1);
+    assert_eq!(index_hits_before[0].cx_id, cx_id);
+    assert_eq!(missing_doc.code, CALYX_SEXTANT_PROVENANCE_MISSING);
+    assert_eq!(stub_mode.code, CALYX_SEXTANT_QUERY_SHAPE);
 }
 
 #[test]

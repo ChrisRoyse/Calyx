@@ -26,7 +26,7 @@
 
 ## Goal
 
-Wire the pipeline stages (condense -> kernel-graph -> LP scaffold/fallback ->
+Wire the pipeline stages (condense -> kernel-graph candidate selection ->
 DFVS) into `build_kernel_pipeline` and produce the complete `Kernel` struct
 (per PRD section 6).
 The approx-factor and tau certificate are emitted in the struct so they are
@@ -41,7 +41,8 @@ serializable to the `idx/kernel/` store (PH33 uses it as an index).
 - [ ] `pub struct RecallReport { kernel_only: f32, full: f32, ratio: f32, approx_factor: f64, tau_star_estimate: usize, tau_star_exact: bool }` — approximation fields from `DfvsResult`.
 - [ ] `pub fn build_kernel_pipeline(graph: &AssocGraph, anchors: &[CxId], params: &KernelParams) -> Result<Kernel, CalyxError>`:
   1. `tarjan_scc` → `condensate` (PH31).
-  2. `select_kernel_graph` + `lp_round_kernel_graph` scaffold/fallback (T01/T02).
+  2. `select_kernel_graph` candidate selection; LP rounding is explicit and
+     fails closed until a solver is configured (T01/T02).
   3. `dfvs_approx` on the kernel-graph (T03/T04).
   4. Anchor-reachability check: BFS from each `dfvs_approx` member to any anchor;
      unreachable → `unanchored_members`.

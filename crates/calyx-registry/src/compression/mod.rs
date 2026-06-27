@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::spec::LensSpec;
 pub use codec::decode_stored_slot_envelope;
-use codec::{EncodedRow, encode_rows, fallback_policy};
+use codec::{EncodedRow, encode_rows};
 pub use recall::matryoshka_truncate_renormalize;
 use recall::{recall_at_k, recall_drop, validate_batch};
 
@@ -25,6 +25,7 @@ pub enum StoredSlotCodec {
     RawF32,
     TurboQuantBits3p5,
     TurboQuantBits2p5,
+    ScalarInt8,
     MxFp4,
     MxFp8,
     Binary,
@@ -102,39 +103,21 @@ pub fn compress_slot_batch(
     k: usize,
 ) -> Result<SlotCompressionReport> {
     validate_batch(slot, lens, rows, queries, k)?;
-    let initial = encode_rows(slot, lens, rows, lens.quant_default, None)?;
-    let mut report = build_report(slot, lens, rows, queries, k, initial, None)?;
+    let initial = encode_rows(slot, lens, rows, lens.quant_default)?;
+    let report = build_report(slot, lens, rows, queries, k, initial, None)?;
     if recall_drop(&report) <= lens.recall_delta {
         return Ok(report);
     }
 
-    let fallback_policy = fallback_policy(lens.quant_default);
-    let reason = format!(
-        "recall drop {:.6} exceeded declared delta {:.6}; fallback {:?} -> {:?}",
-        recall_drop(&report),
-        lens.recall_delta,
-        lens.quant_default,
-        fallback_policy
-    );
-    let fallback = encode_rows(slot, lens, rows, fallback_policy, Some(reason.clone()))?;
-    report = build_report(slot, lens, rows, queries, k, fallback, Some(reason))?;
-    if recall_drop(&report) <= lens.recall_delta || report.stored_codec == StoredSlotCodec::RawF32 {
-        return Ok(report);
-    }
-
-    let raw_reason = format!(
-        "fallback recall drop {:.6} still exceeded declared delta {:.6}; storing raw f32",
-        recall_drop(&report),
-        lens.recall_delta
-    );
-    let raw = encode_rows(
-        slot,
-        lens,
-        rows,
-        QuantPolicy::None,
-        Some(raw_reason.clone()),
-    )?;
-    build_report(slot, lens, rows, queries, k, raw, Some(raw_reason))
+    Err(compression_error(
+        CALYX_VECTOR_COMPRESSION_INVALID,
+        format!(
+            "requested quant policy {:?} failed recall contract: recall drop {:.6} exceeded declared delta {:.6}; no fallback codec was written",
+            lens.quant_default,
+            recall_drop(&report),
+            lens.recall_delta
+        ),
+    ))
 }
 
 fn build_report(

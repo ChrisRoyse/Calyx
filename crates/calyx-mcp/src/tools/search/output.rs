@@ -1,4 +1,4 @@
-use calyx_sextant::Hit;
+use calyx_sextant::{FreshnessTag, Hit, HitGuardEvidence};
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
@@ -19,6 +19,7 @@ pub(super) struct SearchHitOut {
     #[serde(skip_serializing_if = "Option::is_none")]
     guard: Option<GuardOut>,
     provenance: ProvenanceOut,
+    freshness: FreshnessTag,
 }
 
 #[derive(Serialize)]
@@ -32,8 +33,12 @@ struct PerLensOut {
 
 #[derive(Serialize)]
 struct GuardOut {
-    verdict: &'static str,
-    tau: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    evidence: Option<HitGuardEvidence>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    verdict: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tau: Option<f32>,
 }
 
 #[derive(Serialize)]
@@ -64,14 +69,26 @@ pub(super) fn render_hits(
                     })
                     .collect()
             }),
-            guard: guard_tau.map(|tau| GuardOut {
-                verdict: "pass",
-                tau,
-            }),
+            guard: hit
+                .guard
+                .clone()
+                .map(|evidence| GuardOut {
+                    evidence: Some(evidence),
+                    verdict: None,
+                    tau: None,
+                })
+                .or_else(|| {
+                    guard_tau.map(|tau| GuardOut {
+                        evidence: None,
+                        verdict: Some("pass"),
+                        tau: Some(tau),
+                    })
+                }),
             provenance: ProvenanceOut {
                 ledger_seq: hit.provenance.seq,
                 chain_hash: hex32(&hit.provenance.hash),
             },
+            freshness: hit.freshness.clone(),
         })
         .collect()
 }
