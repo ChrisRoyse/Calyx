@@ -163,4 +163,6 @@ pub use temporal_kernel::{
     frequency_kernel_bonus, kernel_for_window, kernel_for_window_from_graph, kernel_weight_rows,
 };
 
-pub use vault_kernel::{MeasuredVaultKernel, measured_kernel_from_vault};
+pub use vault_kernel::{
+    MeasuredVaultKernel, measured_kernel_from_vault, measured_kernel_with_contributions_from_vault,
+};

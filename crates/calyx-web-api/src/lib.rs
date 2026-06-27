@@ -48,11 +48,13 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::manifest::is_vault_seq_quarantined;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{Input, Modality, Result as CalyxResult, VaultId, VaultStore};
+use calyx_core::{AnchorKind, Input, Modality, Result as CalyxResult, VaultId, VaultStore};
 use calyx_ledger::{
     LedgerCfStore, LedgerEntry, QuarantineLookup, VerifyResult, get_answer_trace, verify_chain,
 };
-use calyx_lodestar::{KernelParams, RecallTestParams, measured_kernel_from_vault};
+use calyx_lodestar::{
+    KernelParams, RecallTestParams, measured_kernel_with_contributions_from_vault,
+};
 use calyx_registry::VaultPanelState;
 use calyx_registry::measure::measure_constellation;
 use calyx_registry::persistence::load_vault_panel_state;
@@ -989,6 +991,15 @@ const KERNEL_RECALL_GATE: f32 = 0.95;
 /// fabricated recall). Members carry their A2 trust (anchored/provisional);
 /// recall is measured against the full corpus index at gate 0.95.
 async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Response {
+    // The kernel is idempotent for a fixed vault and its leave-one-out
+    // recallContribution is O(n) recall tests (#1901), so memoize the whole
+    // artifact behind the bounded TTL cache (#1898) rather than recompute it per
+    // call. Constant key — `/v1/kernel` takes no parameters.
+    let cache_key = "kernel".to_string();
+    if let Some((body, age)) = ctx.cache.get(&cache_key) {
+        return cached_json_response(body, "HIT", age);
+    }
+
     // The content slot is the active dense text lens (probe-measured so we don't
     // guess); without one there is nothing to embed a kernel over.
     let content_slot = match measure_query_vectors(&ctx.state, "calyx") {
@@ -1015,7 +1026,7 @@ async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Response {
         min_recall_ratio: KERNEL_RECALL_GATE,
         ..RecallTestParams::default()
     };
-    let measured = match measured_kernel_from_vault(
+    let (measured, contributions) = match measured_kernel_with_contributions_from_vault(
         &ctx.vault,
         content_slot,
         &kernel_params,
@@ -1023,7 +1034,7 @@ async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Response {
         8,
         0.5,
     ) {
-        Ok(measured) => measured,
+        Ok(result) => result,
         Err(error) => {
             tracing::error!(error = ?error, "CALYX_WEB_API_KERNEL_FAILED");
             return ApiError::of(ErrorCode::Internal).into_response();
@@ -1036,14 +1047,33 @@ async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Response {
         .iter()
         .copied()
         .collect();
+    let contribution_by_id: std::collections::BTreeMap<_, _> = contributions
+        .iter()
+        .map(|(id, drop)| (*id, *drop))
+        .collect();
+    // Concept label = the constellation's real `label:` anchor value, read from
+    // the vault — null when the concept carries no label anchor (no fabrication).
+    let snapshot = ctx.vault.snapshot();
     let members: Vec<Value> = measured
         .kernel
         .members
         .iter()
         .map(|cx_id| {
+            let label = match ctx.vault.get(*cx_id, snapshot) {
+                Ok(cx) => cx.anchors.iter().find_map(|anchor| match &anchor.kind {
+                    AnchorKind::Label(value) => Some(value.clone()),
+                    _ => None,
+                }),
+                Err(error) => {
+                    tracing::error!(error = ?error, cx_id = %cx_id, "CALYX_WEB_API_KERNEL_LABEL_READ_FAILED");
+                    None
+                }
+            };
             json!({
                 "id": cx_id.to_string(),
                 "trust": if unanchored.contains(cx_id) { "provisional" } else { "anchored" },
+                "recallContribution": contribution_by_id.get(cx_id),
+                "label": label,
             })
         })
         .collect();
@@ -1067,9 +1097,8 @@ async fn kernel_handler(State(ctx): State<Arc<MeasureCtx>>) -> Response {
             "approxFactor": recall.approx_factor,
             "warning": recall.warning,
         },
-        "ts": now_ms(),
     });
-    (StatusCode::OK, Json(body)).into_response()
+    store_and_respond(&ctx.cache, cache_key, &body)
 }
 
 fn now_ms() -> u64 {

@@ -45,6 +45,93 @@ pub fn measured_kernel_from_vault<C: Clock>(
     knn: usize,
     edge_cos_threshold: f32,
 ) -> Result<MeasuredVaultKernel> {
+    let inputs =
+        build_vault_kernel_inputs(vault, content_slot, kernel_params, knn, edge_cos_threshold)?;
+    let kernel_index = build_kernel_index(&inputs.kernel, &inputs.embeddings)?;
+    let recall = kernel_recall_test(&kernel_index, &inputs.full, &inputs.corpus, recall_params)?;
+    Ok(MeasuredVaultKernel {
+        kernel: inputs.kernel,
+        recall,
+        corpus_size: inputs.corpus_size,
+    })
+}
+
+/// Build the measured kernel AND each member's **leave-one-out recall
+/// contribution** (#1901).
+///
+/// `contributions[i] = baseline_kernel_only_recall − recall_without(member_i)`:
+/// the drop in MEASURED kernel-only recall when that member is removed from the
+/// kernel (the retrieval corpus is held fixed — only the kernel index shrinks).
+/// A large positive value means the member carries recall the others do not; a
+/// value near zero means it is redundant; a negative value means it was hurting.
+/// The corpus/full index are built once and reused, so the cost is `n` extra
+/// recall tests over the same corpus (the caller caches the result — #1898).
+/// The sole-member case reports the full baseline (removing it leaves no kernel
+/// to test). NOT fabricated — every value is a real `kernel_recall_test`.
+pub fn measured_kernel_with_contributions_from_vault<C: Clock>(
+    vault: &AsterVault<C>,
+    content_slot: SlotId,
+    kernel_params: &KernelParams,
+    recall_params: &RecallTestParams,
+    knn: usize,
+    edge_cos_threshold: f32,
+) -> Result<(MeasuredVaultKernel, Vec<(CxId, f32)>)> {
+    let inputs =
+        build_vault_kernel_inputs(vault, content_slot, kernel_params, knn, edge_cos_threshold)?;
+    let kernel_index = build_kernel_index(&inputs.kernel, &inputs.embeddings)?;
+    let recall = kernel_recall_test(&kernel_index, &inputs.full, &inputs.corpus, recall_params)?;
+    let baseline = recall.kernel_only;
+
+    let mut contributions: Vec<(CxId, f32)> = Vec::with_capacity(inputs.kernel.members.len());
+    for member in &inputs.kernel.members {
+        let drop = if inputs.kernel.members.len() == 1 {
+            // Removing the only member leaves nothing to recall-test; the member
+            // accounts for the whole baseline by definition.
+            baseline
+        } else {
+            let mut leave_one_out = inputs.kernel.clone();
+            leave_one_out.members.retain(|m| m != member);
+            let loo_index = build_kernel_index(&leave_one_out, &inputs.embeddings)?;
+            let loo_recall =
+                kernel_recall_test(&loo_index, &inputs.full, &inputs.corpus, recall_params)?;
+            baseline - loo_recall.kernel_only
+        };
+        contributions.push((*member, drop));
+    }
+
+    Ok((
+        MeasuredVaultKernel {
+            kernel: inputs.kernel,
+            recall,
+            corpus_size: inputs.corpus_size,
+        },
+        contributions,
+    ))
+}
+
+/// The intermediate inputs shared by [`measured_kernel_from_vault`] and
+/// [`measured_kernel_with_contributions_from_vault`]: the selected kernel, the
+/// per-concept embeddings, and the full-corpus retrieval index/corpus the
+/// kernel's recall is measured against.
+struct VaultKernelInputs {
+    kernel: Kernel,
+    embeddings: BTreeMap<CxId, Vec<f32>>,
+    full: InMemoryAnnIndex,
+    corpus: InMemoryCorpus,
+    corpus_size: usize,
+}
+
+/// Scan the vault's content-slot embeddings, build the embedding k-NN
+/// association graph, select the kernel, and build the full-corpus index — the
+/// setup common to every measured-kernel call. Fails loud (never silent) on a
+/// too-small / unanchored / unembedded vault.
+fn build_vault_kernel_inputs<C: Clock>(
+    vault: &AsterVault<C>,
+    content_slot: SlotId,
+    kernel_params: &KernelParams,
+    knn: usize,
+    edge_cos_threshold: f32,
+) -> Result<VaultKernelInputs> {
     let snapshot = vault.snapshot();
     let mut rows: Vec<RecallQuery> = Vec::new();
     let mut anchors: Vec<CxId> = Vec::new();
@@ -132,12 +219,12 @@ pub fn measured_kernel_from_vault<C: Clock>(
     let corpus_size = rows.len();
     let full = InMemoryAnnIndex::new(rows.clone())?;
     let corpus = InMemoryCorpus::new("vault-kernel", rows);
-    let kernel_index = build_kernel_index(&kernel, &embeddings)?;
-    let recall = kernel_recall_test(&kernel_index, &full, &corpus, recall_params)?;
 
-    Ok(MeasuredVaultKernel {
+    Ok(VaultKernelInputs {
         kernel,
-        recall,
+        embeddings,
+        full,
+        corpus,
         corpus_size,
     })
 }
