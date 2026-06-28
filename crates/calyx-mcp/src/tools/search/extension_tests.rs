@@ -189,16 +189,27 @@ fn define_missing_coordinate_fails_closed() {
     let server = server();
     populated_vault(&server, "v");
 
-    let error = call_err(
+    let missing_coordinate = call_err(
         &server,
         22,
         "calyx.define",
         json!({"vault": "v", "lens": 0, "index": 42}),
     );
+    let invalid_lens = call_err(
+        &server,
+        23,
+        "calyx.define",
+        json!({"vault": "v", "lens": 999, "index": 0}),
+    );
 
-    assert_eq!(error.code, -32000);
+    assert_eq!(missing_coordinate.code, -32000);
     assert_eq!(
-        error.data.as_ref().unwrap()["calyx_code"],
+        missing_coordinate.data.as_ref().unwrap()["calyx_code"],
+        "CALYX_STALE_DERIVED"
+    );
+    assert_eq!(invalid_lens.code, -32000);
+    assert_eq!(
+        invalid_lens.data.as_ref().unwrap()["calyx_code"],
         "CALYX_STALE_DERIVED"
     );
     maybe_write_fsv_json(
@@ -206,9 +217,14 @@ fn define_missing_coordinate_fails_closed() {
         &json!({
             "source_of_truth": "JSON-RPC error payload from calyx.define",
             "define_missing_coordinate": {
-                "jsonrpc_code": error.code,
-                "calyx_code": error.data.as_ref().unwrap()["calyx_code"],
-                "message": error.message,
+                "jsonrpc_code": missing_coordinate.code,
+                "calyx_code": missing_coordinate.data.as_ref().unwrap()["calyx_code"],
+                "message": missing_coordinate.message,
+            },
+            "define_invalid_lens": {
+                "jsonrpc_code": invalid_lens.code,
+                "calyx_code": invalid_lens.data.as_ref().unwrap()["calyx_code"],
+                "message": invalid_lens.message,
             }
         }),
     );
@@ -309,6 +325,77 @@ fn skills_empty_vault_and_unknown_skill_fail_closed() {
                 "jsonrpc_code": error.code,
                 "calyx_code": error.data.as_ref().unwrap()["calyx_code"],
                 "message": error.message,
+            }
+        }),
+    );
+}
+
+#[test]
+fn search_skill_query_vector_unavailable_fails_closed() {
+    let _env = TestEnv::new("skills-query-vector");
+    let server = server();
+    populated_vault(&server, "v");
+
+    let before_panel = call_ok(&server, 31, "calyx.list_panel", json!({"vault": "v"}));
+    let before_search = call_ok(
+        &server,
+        32,
+        "calyx.search_skill",
+        json!({"vault": "v", "skill": "skill-root", "query": "alpha"}),
+    );
+    let active_slot = before_panel["slots"]
+        .as_array()
+        .expect("panel slots")
+        .iter()
+        .find(|slot| slot["state"] == "active" && slot["name"] == "byte_axis")
+        .and_then(|slot| slot["slot"].as_u64())
+        .expect("active byte_axis slot");
+
+    call_ok(
+        &server,
+        33,
+        "calyx.park_lens",
+        json!({"vault": "v", "slot": active_slot}),
+    );
+    let after_panel = call_ok(&server, 34, "calyx.list_panel", json!({"vault": "v"}));
+    let tree = call_ok(&server, 35, "calyx.skills", json!({"vault": "v"}));
+    let error = call_err(
+        &server,
+        36,
+        "calyx.search_skill",
+        json!({"vault": "v", "skill": "skill-root", "query": "alpha"}),
+    );
+
+    assert!(!before_search["hits"].as_array().unwrap().is_empty());
+    assert!(tree["skill_tree"]["nodes"]["skill-root"].is_object());
+    assert_eq!(error.code, -32000);
+    assert_eq!(
+        error.data.as_ref().unwrap()["calyx_code"],
+        "CALYX_STALE_DERIVED"
+    );
+    assert!(error.message.contains("query vector"));
+    assert!(
+        after_panel["slots"].as_array().unwrap().iter().all(|slot| {
+            slot["slot"].as_u64() != Some(active_slot) || slot["state"] == "parked"
+        })
+    );
+    maybe_write_fsv_json(
+        "mcp-search-extensions-query-vector-fail-closed.json",
+        &json!({
+            "source_of_truth": "JSON-RPC error payload from calyx.search_skill plus panel readback",
+            "before": {
+                "panel": before_panel,
+                "hit_count": before_search["hits"].as_array().unwrap().len(),
+                "active_text_slot": active_slot,
+            },
+            "after": {
+                "panel": after_panel,
+                "skill_root_present": tree["skill_tree"]["nodes"]["skill-root"].is_object(),
+                "search_skill": {
+                    "jsonrpc_code": error.code,
+                    "calyx_code": error.data.as_ref().unwrap()["calyx_code"],
+                    "message": error.message,
+                }
             }
         }),
     );
