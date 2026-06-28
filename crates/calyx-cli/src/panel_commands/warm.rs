@@ -355,6 +355,8 @@ mod flags;
 mod probe;
 use probe::{content_slots, probe_panel, run_progress_record};
 
+pub(super) mod resident_support;
+
 fn write_report(path: &Path, report: &WarmReport) -> CliResult {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

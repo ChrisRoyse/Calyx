@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 mod a38_bundle;
+mod resident;
 mod template_cards;
 mod template_model;
 mod template_store;
@@ -165,9 +166,10 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
         "a38-bundle" => a38_bundle::run(rest),
         "status" => status(rest),
         "template" => templates::run(rest),
+        "resident" => resident::run(rest),
         "warm" => warm::run(rest),
         other => Err(CliError::usage(format!(
-            "unknown panel subcommand {other}; expected a38-bundle, status, template, or warm"
+            "unknown panel subcommand {other}; expected a38-bundle, status, template, resident, or warm"
         ))),
     }
 }
