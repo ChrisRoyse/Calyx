@@ -23,6 +23,9 @@ use prometheus::{
     TextEncoder,
 };
 
+use crate::verify::VerifyRestoreReport;
+use crate::vram::VramAuditReport;
+
 use super::ChainVerifyMetrics;
 use super::hazards::HazardGauges;
 use super::zfs::{DEFAULT_ZFS_DATASETS, ZfsIntegrityMetrics, ZfsIntegritySnapshot};
@@ -93,6 +96,17 @@ pub struct CalyxMetrics {
     anneal_ab_improvement_ratio: GaugeVec,
     vram_used_mib: IntGauge,
     vram_limit_mib: IntGauge,
+    vram_audit_resident_mib: IntGaugeVec,
+    vram_audit_budget_mib: IntGaugeVec,
+    vram_audit_device_total_mib: IntGaugeVec,
+    vram_audit_headroom_mib: IntGaugeVec,
+    verify_restore_ok: IntGaugeVec,
+    verify_restore_chain_intact: IntGaugeVec,
+    verify_restore_last_run_timestamp: IntGaugeVec,
+    verify_restore_constellation_count: IntGaugeVec,
+    verify_restore_anchor_count: IntGaugeVec,
+    verify_restore_ledger_entry_count: IntGaugeVec,
+    verify_restore_wal_bytes_present: IntGaugeVec,
     hazards: HazardGauges,
     zfs: ZfsIntegrityMetrics,
 }
@@ -237,6 +251,127 @@ impl CalyxMetrics {
             IntGauge::new("calyx_vram_budget_limit_mib", "VRAM budget ceiling, in MiB")
                 .expect("define calyx_vram_budget_limit_mib"),
         );
+        let vram_audit_resident_mib = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_vram_budget_audit_resident_mib",
+                    "NVML resident GPU footprint at the daemon VRAM audit, in MiB",
+                ),
+                &["vault", "panel"],
+            )
+            .expect("define calyx_vram_budget_audit_resident_mib"),
+        );
+        let vram_audit_budget_mib = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_vram_budget_audit_budget_mib",
+                    "Configured Calyx daemon VRAM budget at the audit, in MiB",
+                ),
+                &["vault", "panel"],
+            )
+            .expect("define calyx_vram_budget_audit_budget_mib"),
+        );
+        let vram_audit_device_total_mib = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_vram_budget_audit_device_total_mib",
+                    "NVML device total VRAM observed at the daemon audit, in MiB",
+                ),
+                &["vault", "panel"],
+            )
+            .expect("define calyx_vram_budget_audit_device_total_mib"),
+        );
+        let vram_audit_headroom_mib = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_vram_budget_audit_headroom_mib",
+                    "Configured Calyx VRAM budget minus resident footprint at audit time, in MiB",
+                ),
+                &["vault", "panel"],
+            )
+            .expect("define calyx_vram_budget_audit_headroom_mib"),
+        );
+        let verify_restore_ok = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_verify_restore_ok",
+                    "1 when the last verify-restore read-back succeeded; 0 otherwise",
+                ),
+                &["vault"],
+            )
+            .expect("define calyx_verify_restore_ok"),
+        );
+        let verify_restore_chain_intact = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_verify_restore_chain_intact",
+                    "1 when verify-restore proved the Ledger chain intact; 0 otherwise",
+                ),
+                &["vault"],
+            )
+            .expect("define calyx_verify_restore_chain_intact"),
+        );
+        let verify_restore_last_run_timestamp = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_verify_restore_last_run_timestamp_seconds",
+                    "Unix timestamp of the last completed verify-restore read-back",
+                ),
+                &["vault"],
+            )
+            .expect("define calyx_verify_restore_last_run_timestamp_seconds"),
+        );
+        let verify_restore_constellation_count = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_verify_restore_constellation_count",
+                    "Constellations physically read by the last verify-restore run",
+                ),
+                &["vault"],
+            )
+            .expect("define calyx_verify_restore_constellation_count"),
+        );
+        let verify_restore_anchor_count = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_verify_restore_anchor_count",
+                    "Anchors physically read by the last verify-restore run",
+                ),
+                &["vault"],
+            )
+            .expect("define calyx_verify_restore_anchor_count"),
+        );
+        let verify_restore_ledger_entry_count = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_verify_restore_ledger_entry_count",
+                    "Ledger rows physically read by the last verify-restore run",
+                ),
+                &["vault"],
+            )
+            .expect("define calyx_verify_restore_ledger_entry_count"),
+        );
+        let verify_restore_wal_bytes_present = register(
+            &registry,
+            IntGaugeVec::new(
+                Opts::new(
+                    "calyx_verify_restore_wal_bytes_present",
+                    "WAL bytes present in the vault at the last verify-restore run",
+                ),
+                &["vault"],
+            )
+            .expect("define calyx_verify_restore_wal_bytes_present"),
+        );
         let hazards = HazardGauges::register(&registry);
         let zfs = ZfsIntegrityMetrics::register(&registry, &DEFAULT_ZFS_DATASETS);
 
@@ -256,6 +391,17 @@ impl CalyxMetrics {
             anneal_ab_improvement_ratio,
             vram_used_mib,
             vram_limit_mib,
+            vram_audit_resident_mib,
+            vram_audit_budget_mib,
+            vram_audit_device_total_mib,
+            vram_audit_headroom_mib,
+            verify_restore_ok,
+            verify_restore_chain_intact,
+            verify_restore_last_run_timestamp,
+            verify_restore_constellation_count,
+            verify_restore_anchor_count,
+            verify_restore_ledger_entry_count,
+            verify_restore_wal_bytes_present,
             hazards,
             zfs,
         };
@@ -276,6 +422,25 @@ impl CalyxMetrics {
             self.search_recall_tripwire
                 .with_label_values(&[vault])
                 .set(1);
+            self.verify_restore_ok.with_label_values(&[vault]).set(0);
+            self.verify_restore_chain_intact
+                .with_label_values(&[vault])
+                .set(0);
+            self.verify_restore_last_run_timestamp
+                .with_label_values(&[vault])
+                .set(0);
+            self.verify_restore_constellation_count
+                .with_label_values(&[vault])
+                .set(0);
+            self.verify_restore_anchor_count
+                .with_label_values(&[vault])
+                .set(0);
+            self.verify_restore_ledger_entry_count
+                .with_label_values(&[vault])
+                .set(0);
+            self.verify_restore_wal_bytes_present
+                .with_label_values(&[vault])
+                .set(0);
             for strategy in SearchStrategy::ALL {
                 let _ = self
                     .search_duration
@@ -361,6 +526,53 @@ impl CalyxMetrics {
         self.vram_limit_mib.set(limit_mib);
     }
 
+    /// Records the live NVML startup audit. The unlabeled compatibility gauges
+    /// are updated alongside the labeled audit gauges consumed by dashboards.
+    pub fn record_vram_budget_audit(&self, vault: &str, panel: &str, audit: &VramAuditReport) {
+        let resident_mib = i64::from(audit.tei_used_mib);
+        let budget_mib = i64::from(audit.calyx_budget_mib);
+        let device_total_mib = i64::from(audit.device_total_mib);
+        let headroom_mib = i64::from(audit.calyx_budget_mib.saturating_sub(audit.tei_used_mib));
+        self.set_vram_budget(resident_mib, budget_mib);
+        self.vram_audit_resident_mib
+            .with_label_values(&[vault, panel])
+            .set(resident_mib);
+        self.vram_audit_budget_mib
+            .with_label_values(&[vault, panel])
+            .set(budget_mib);
+        self.vram_audit_device_total_mib
+            .with_label_values(&[vault, panel])
+            .set(device_total_mib);
+        self.vram_audit_headroom_mib
+            .with_label_values(&[vault, panel])
+            .set(headroom_mib);
+    }
+
+    /// Records the zero-write restore verification read-back used at startup.
+    pub fn record_verify_restore(&self, vault: &str, report: &VerifyRestoreReport, now_secs: i64) {
+        self.verify_restore_ok
+            .with_label_values(&[vault])
+            .set(i64::from(report.success()));
+        self.verify_restore_chain_intact
+            .with_label_values(&[vault])
+            .set(i64::from(report.chain_intact));
+        self.verify_restore_last_run_timestamp
+            .with_label_values(&[vault])
+            .set(now_secs);
+        self.verify_restore_constellation_count
+            .with_label_values(&[vault])
+            .set(u64_to_i64(report.constellation_count));
+        self.verify_restore_anchor_count
+            .with_label_values(&[vault])
+            .set(u64_to_i64(report.anchor_count));
+        self.verify_restore_ledger_entry_count
+            .with_label_values(&[vault])
+            .set(u64_to_i64(report.ledger_entry_count));
+        self.verify_restore_wal_bytes_present
+            .with_label_values(&[vault])
+            .set(u64_to_i64(report.wal_bytes_present));
+    }
+
     /// Sets one PH59 hazard's state. An unknown hazard id is a fail-closed error.
     pub fn set_hazard(&self, hazard_id: &str, triggered: bool) -> Result<(), String> {
         self.hazards.set(hazard_id, triggered)
@@ -381,6 +593,10 @@ impl CalyxMetrics {
         buffer.push_str(&own);
         Ok(buffer)
     }
+}
+
+fn u64_to_i64(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }
 
 #[cfg(test)]
@@ -407,14 +623,15 @@ mod tests {
     #[test]
     fn new_registers_at_least_30_preinitialized_families() {
         let metrics = metrics();
-        // 13 T03 families (2 ingest, 3 search, 2 guard*, 2 assay/kernel*,
-        // 2 anneal*, 2 vram) + 25 hazards. The guard/assay/kernel/anneal Vec
+        // 24 T03 families (2 ingest, 3 search, 2 guard*, 2 assay/kernel*,
+        // 2 anneal*, 6 vram, 7 verify-restore) + 25 hazards. The
+        // guard/assay/kernel/anneal/VRAM-audit Vec
         // families have no series until observed, so the live count after
-        // pre-init is the always-present ones: 2 vram + 25 hazard + 5
-        // vault-seeded ingest/search = 32.
+        // pre-init is the always-present ones: 2 vram + 7 restore + 25 hazard
+        // + 5 vault-seeded ingest/search = 39.
         assert!(
-            metrics.family_count() >= 30,
-            "expected >= 30 families, got {}",
+            metrics.family_count() >= 39,
+            "expected >= 39 families, got {}",
             metrics.family_count()
         );
         let text = metrics.encode_text().unwrap();
@@ -455,6 +672,78 @@ mod tests {
         let text = metrics.encode_text().unwrap();
         assert!(text.contains("calyx_vram_budget_used_mib 4096"));
         assert!(text.contains("calyx_vram_budget_limit_mib 8192"));
+    }
+
+    #[test]
+    fn vram_audit_records_labeled_nvml_readback() {
+        let metrics = metrics();
+        metrics.record_vram_budget_audit(
+            "/data/vault-a",
+            "runtime",
+            &VramAuditReport {
+                tei_used_mib: 4096,
+                calyx_budget_mib: 8192,
+                device_total_mib: 32607,
+            },
+        );
+        let text = metrics.encode_text().unwrap();
+        assert!(
+            text.contains(
+                "calyx_vram_budget_audit_resident_mib{panel=\"runtime\",vault=\"/data/vault-a\"} 4096"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "calyx_vram_budget_audit_budget_mib{panel=\"runtime\",vault=\"/data/vault-a\"} 8192"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "calyx_vram_budget_audit_device_total_mib{panel=\"runtime\",vault=\"/data/vault-a\"} 32607"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.contains(
+                "calyx_vram_budget_audit_headroom_mib{panel=\"runtime\",vault=\"/data/vault-a\"} 4096"
+            ),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn verify_restore_records_pass_fail_gauges_and_counts() {
+        let metrics = metrics();
+        let report = VerifyRestoreReport {
+            vault_path: "/data/vault-a".into(),
+            constellation_count: 3,
+            anchor_count: 5,
+            ledger_entry_count: 7,
+            ledger_tip_hash: "abc123".to_string(),
+            chain_intact: true,
+            wal_bytes_present: 2048,
+            first_cx_id: Some("001122".to_string()),
+            error: None,
+        };
+        metrics.record_verify_restore("/data/vault-a", &report, 1_770_000_123);
+        let text = metrics.encode_text().unwrap();
+        assert!(text.contains("calyx_verify_restore_ok{vault=\"/data/vault-a\"} 1"));
+        assert!(text.contains("calyx_verify_restore_chain_intact{vault=\"/data/vault-a\"} 1"));
+        assert!(text.contains(
+            "calyx_verify_restore_last_run_timestamp_seconds{vault=\"/data/vault-a\"} 1770000123"
+        ));
+        assert!(
+            text.contains("calyx_verify_restore_constellation_count{vault=\"/data/vault-a\"} 3")
+        );
+        assert!(text.contains("calyx_verify_restore_anchor_count{vault=\"/data/vault-a\"} 5"));
+        assert!(
+            text.contains("calyx_verify_restore_ledger_entry_count{vault=\"/data/vault-a\"} 7")
+        );
+        assert!(
+            text.contains("calyx_verify_restore_wal_bytes_present{vault=\"/data/vault-a\"} 2048")
+        );
     }
 
     #[test]

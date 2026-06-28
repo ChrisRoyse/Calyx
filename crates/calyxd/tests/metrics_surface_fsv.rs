@@ -19,6 +19,8 @@ use calyxd::metrics::{
     ZfsIntegritySnapshot, ZfsPoolIntegrity,
 };
 use calyxd::server::MetricsServer;
+use calyxd::verify::VerifyRestoreReport;
+use calyxd::vram::VramAuditReport;
 use tokio_util::sync::CancellationToken;
 
 const VAULT: &str = "/data/fsv-vault";
@@ -39,7 +41,30 @@ fn recorded_surface() -> Arc<CalyxMetrics> {
     surface.set_kernel_recall_ratio(VAULT, "global", 0.97);
     surface.record_anneal_exposure("beamwidth", "treatment");
     surface.set_anneal_improvement("beamwidth", 1.15);
-    surface.set_vram_budget(4096, 8192);
+    surface.record_vram_budget_audit(
+        VAULT,
+        "runtime",
+        &VramAuditReport {
+            tei_used_mib: 4096,
+            calyx_budget_mib: 8192,
+            device_total_mib: 32607,
+        },
+    );
+    surface.record_verify_restore(
+        VAULT,
+        &VerifyRestoreReport {
+            vault_path: VAULT.into(),
+            constellation_count: 3,
+            anchor_count: 5,
+            ledger_entry_count: 7,
+            ledger_tip_hash: "abc123".to_string(),
+            chain_intact: true,
+            wal_bytes_present: 2048,
+            first_cx_id: Some("001122".to_string()),
+            error: None,
+        },
+        1_770_000_123,
+    );
     surface.record_zfs_integrity(&ZfsIntegritySnapshot {
         datasets: vec![ZfsDatasetChecksum {
             dataset: "hotpool/calyx".to_string(),
@@ -134,6 +159,52 @@ fn full_surface_served_over_real_http_with_recorded_values() {
     // VRAM budget — exact MiB values.
     assert_line(&body, "calyx_vram_budget_used_mib 4096");
     assert_line(&body, "calyx_vram_budget_limit_mib 8192");
+    assert_line(
+        &body,
+        "calyx_vram_budget_audit_resident_mib{panel=\"runtime\",vault=\"/data/fsv-vault\"} 4096",
+    );
+    assert_line(
+        &body,
+        "calyx_vram_budget_audit_budget_mib{panel=\"runtime\",vault=\"/data/fsv-vault\"} 8192",
+    );
+    assert_line(
+        &body,
+        "calyx_vram_budget_audit_device_total_mib{panel=\"runtime\",vault=\"/data/fsv-vault\"} 32607",
+    );
+    assert_line(
+        &body,
+        "calyx_vram_budget_audit_headroom_mib{panel=\"runtime\",vault=\"/data/fsv-vault\"} 4096",
+    );
+
+    // Restore verification — exact read-back counts and last-run timestamp.
+    assert_line(
+        &body,
+        "calyx_verify_restore_ok{vault=\"/data/fsv-vault\"} 1",
+    );
+    assert_line(
+        &body,
+        "calyx_verify_restore_chain_intact{vault=\"/data/fsv-vault\"} 1",
+    );
+    assert_line(
+        &body,
+        "calyx_verify_restore_last_run_timestamp_seconds{vault=\"/data/fsv-vault\"} 1770000123",
+    );
+    assert_line(
+        &body,
+        "calyx_verify_restore_constellation_count{vault=\"/data/fsv-vault\"} 3",
+    );
+    assert_line(
+        &body,
+        "calyx_verify_restore_anchor_count{vault=\"/data/fsv-vault\"} 5",
+    );
+    assert_line(
+        &body,
+        "calyx_verify_restore_ledger_entry_count{vault=\"/data/fsv-vault\"} 7",
+    );
+    assert_line(
+        &body,
+        "calyx_verify_restore_wal_bytes_present{vault=\"/data/fsv-vault\"} 2048",
+    );
 
     // ZFS integrity snapshot sourced from the same recording API the daemon uses.
     assert_line(&body, "calyx_zfs_pool_healthy{pool=\"hotpool\"} 1");

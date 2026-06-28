@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use calyxd::config::CalyxConfig;
 use calyxd::cuda_probe;
@@ -10,7 +10,7 @@ use calyxd::health::{run_healthcheck, write_health_result, write_shutdown_status
 use calyxd::learner_origin::LearnerOriginService;
 use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics};
 use calyxd::server::MetricsServer;
-use calyxd::verify::verify_restore;
+use calyxd::verify::{VerifyRestoreReport, verify_restore};
 use calyxd::vram::{self, NvmlVramUsage};
 use tokio_util::sync::CancellationToken;
 
@@ -50,9 +50,10 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
     }
 
     let vault_path = cfg.vault_path_resolved();
-    if let Err(error) = open_vault_for_startup(&vault_path) {
-        return fatal(error);
-    }
+    let restore_report = match verify_vault_for_startup(&vault_path) {
+        Ok(report) => report,
+        Err(error) => return fatal(error),
+    };
 
     let target = VerifyTarget {
         kind: TargetKind::Vault,
@@ -62,6 +63,9 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
     let chain = Arc::new(ChainVerifyMetrics::new(&labels));
     run_cycle(std::slice::from_ref(&target), &chain);
     let surface = Arc::new(CalyxMetrics::new(Arc::clone(&chain), &labels));
+    let vault_label = target.label();
+    surface.record_vram_budget_audit(&vault_label, "runtime", &audit);
+    surface.record_verify_restore(&vault_label, &restore_report, unix_now_secs());
     refresh_zfs_metrics(&surface);
     // #1934: surface the configured VRAM budget ceiling on /metrics. The limit is
     // the static configured ceiling from calyx.toml (always known, independent of
@@ -169,10 +173,10 @@ fn build_vram_budget(
     vram::VramBudget::from_config(cfg.vram_budget_mib, device, nvml)
 }
 
-fn open_vault_for_startup(path: &Path) -> Result<(), DaemonError> {
+fn verify_vault_for_startup(path: &Path) -> Result<VerifyRestoreReport, DaemonError> {
     verify_restore(path).and_then(|report| {
         if report.success() {
-            Ok(())
+            Ok(report)
         } else {
             Err(DaemonError::health_failed(format!(
                 "vault {} startup read-back unverified: {}",
@@ -181,6 +185,16 @@ fn open_vault_for_startup(path: &Path) -> Result<(), DaemonError> {
             )))
         }
     })
+}
+
+fn unix_now_secs() -> i64 {
+    match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(elapsed) => i64::try_from(elapsed.as_secs()).unwrap_or(i64::MAX),
+        Err(error) => {
+            eprintln!("calyxd: system clock before unix epoch: {error}");
+            0
+        }
+    }
 }
 
 fn print_once(surface: &CalyxMetrics, origin: Option<&LearnerOriginService>) -> ExitCode {
