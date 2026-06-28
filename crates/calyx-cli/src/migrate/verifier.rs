@@ -11,6 +11,7 @@ use calyx_core::{
     VaultStore,
 };
 use calyx_ledger::{LedgerCfStore, VerifyResult, verify_chain};
+use calyx_registry::{instantiate_panel, text_default};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -20,6 +21,9 @@ use super::adapter::{
     BASE_SLOT, METADATA_CONTENT_HASH, METADATA_ROWID, VaultSqliteAdapter, default_panel_version,
 };
 use super::backfill::default_slot_ids;
+use super::backfill_origin::{
+    BackfillProvenanceAudit, inspect_backfill_provenance, learned_backfill_gate,
+};
 use super::errors;
 use super::manifest::hex_encode;
 use super::reader::ChunkRow;
@@ -33,6 +37,11 @@ pub struct VerifyReport {
     pub base_slot_matches: usize,
     pub backfill_slots_checked: usize,
     pub missing_backfill: Vec<String>,
+    pub missing_backfill_provenance: Vec<String>,
+    pub invalid_backfill_provenance: Vec<String>,
+    pub learned_tei_slot_rows_checked: usize,
+    pub offline_deterministic_model_slot_rows: Vec<String>,
+    pub learned_backfill_gate: String,
     pub gate: String,
 }
 
@@ -77,6 +86,15 @@ pub fn verify_migration(
     let mut base_slot_matches = 0;
     let mut errors = Vec::new();
     let mut missing_backfill = Vec::new();
+    let mut provenance = BackfillProvenanceAudit::default();
+    let default_panel = instantiate_panel(&text_default(), 0);
+    let backfill_specs = default_panel
+        .slot_specs
+        .iter()
+        .enumerate()
+        .skip(1)
+        .map(|(idx, spec)| (SlotId::new(idx as u16), spec))
+        .collect::<Vec<_>>();
     let snapshot = vault.snapshot();
     for row in rows {
         let cx_id = adapter.cx_id(row);
@@ -109,20 +127,32 @@ pub fn verify_migration(
         ) {
             base_slot_matches += 1;
         }
-        for slot in default_slot_ids().into_iter().skip(1) {
-            if vault.read_slot_vector_at(snapshot, cx_id, slot)?.is_none() {
-                missing_backfill.push(format!("{}:slot{}", row.chunk_id, slot.get()));
+        for (slot, spec) in &backfill_specs {
+            let row_ref = format!("{}:slot{}", row.chunk_id, slot.get());
+            if vault.read_slot_vector_at(snapshot, cx_id, *slot)?.is_none() {
+                missing_backfill.push(row_ref);
+                continue;
+            }
+            if require_backfill {
+                inspect_backfill_provenance(&cx, *slot, spec, row_ref, &mut provenance);
             }
         }
     }
-    let checked = rows.len() * default_slot_ids().len().saturating_sub(1);
-    if require_backfill && !missing_backfill.is_empty() {
+    let checked = rows.len() * backfill_specs.len();
+    if require_backfill
+        && (!missing_backfill.is_empty()
+            || !provenance.missing.is_empty()
+            || !provenance.invalid.is_empty())
+    {
         return Err(errors::backfill_incomplete(format!(
-            "{} missing slot rows",
-            missing_backfill.len()
+            "{} missing slot rows, {} missing provenance rows, {} invalid provenance rows",
+            missing_backfill.len(),
+            provenance.missing.len(),
+            provenance.invalid.len()
         )));
     }
     let mismatched = errors.len();
+    let learned_backfill_gate = learned_backfill_gate(require_backfill, &provenance);
     Ok(VerifyReport {
         total: rows.len(),
         matched,
@@ -131,6 +161,11 @@ pub fn verify_migration(
         base_slot_matches,
         backfill_slots_checked: checked,
         missing_backfill,
+        missing_backfill_provenance: provenance.missing,
+        invalid_backfill_provenance: provenance.invalid,
+        learned_tei_slot_rows_checked: provenance.learned_tei_rows,
+        offline_deterministic_model_slot_rows: provenance.offline_model_rows,
+        learned_backfill_gate,
         gate: if mismatched == 0 && matched == rows.len() {
             "PASS"
         } else {

@@ -3,10 +3,12 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
 use calyx_aster::vault::AsterVault;
+use calyx_aster::vault::encode::{encode_constellation_base, encode_slot_vector};
 use calyx_core::{
     AbsentReason, CxId, Input, Lens, Modality, Result, SlotId, SlotShape, SlotVector,
-    TEMPORAL_MISSING_CREATED_AT,
+    TEMPORAL_MISSING_CREATED_AT, VaultStore,
 };
 use calyx_registry::{
     AlgorithmicPanelLens, BackfillConfig, BackfillPriority, BackfillRequest, BackfillScheduler,
@@ -17,9 +19,17 @@ use calyx_registry::{
 use serde::{Deserialize, Serialize};
 
 use super::adapter::VaultSqliteAdapter;
+use super::backfill_origin::{
+    ORIGIN_ALGORITHMIC, ORIGIN_LEARNED_TEI, ORIGIN_OFFLINE_DETERMINISTIC, runtime_kind,
+    slot_origin_key, slot_runtime_key,
+};
 use super::errors;
 use super::manifest::{now_ms, panel_path, scheduler_path};
 use super::reader::ChunkRow;
+
+#[cfg(test)]
+#[path = "backfill_tests.rs"]
+mod tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackfillMode {
@@ -112,7 +122,7 @@ pub fn backfill_default_panel(
                 SlotOrigin::OfflineDeterministic => offline_deterministic_slot_rows_written += 1,
                 SlotOrigin::Algorithmic => {}
             }
-            vault.put_slot_vector(*cx_id, batch.slot_id, &measured.vector)?;
+            write_measured_slot(vault, *cx_id, batch.slot_id, spec, &measured)?;
             slot_rows_written += 1;
         }
         scheduler.complete_batch(batch.slot_id, batch.lens_id, now_ms())?;
@@ -140,6 +150,37 @@ impl BackfillMode {
             Self::OfflineDeterministic => "offline_deterministic",
         }
     }
+}
+
+fn write_measured_slot(
+    vault: &AsterVault,
+    cx_id: CxId,
+    slot_id: SlotId,
+    spec: &PanelSlotSpec,
+    measured: &MeasuredSlot,
+) -> Result<()> {
+    let snapshot = vault.snapshot();
+    let mut cx = vault.get(cx_id, snapshot)?;
+    cx.metadata.insert(
+        slot_origin_key(slot_id),
+        measured.origin.as_str().to_string(),
+    );
+    cx.metadata
+        .insert(slot_runtime_key(slot_id), runtime_kind(spec).to_string());
+    cx.slots.insert(slot_id, measured.vector.clone());
+    vault.write_cf_batch([
+        (
+            ColumnFamily::Base,
+            base_key(cx_id),
+            encode_constellation_base(&cx)?,
+        ),
+        (
+            ColumnFamily::slot(slot_id),
+            slot_key(cx_id),
+            encode_slot_vector(&measured.vector)?,
+        ),
+    ])?;
+    Ok(())
 }
 
 pub fn default_slot_ids() -> Vec<SlotId> {
@@ -211,6 +252,16 @@ enum SlotOrigin {
     LearnedTei,
     Algorithmic,
     OfflineDeterministic,
+}
+
+impl SlotOrigin {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::LearnedTei => ORIGIN_LEARNED_TEI,
+            Self::Algorithmic => ORIGIN_ALGORITHMIC,
+            Self::OfflineDeterministic => ORIGIN_OFFLINE_DETERMINISTIC,
+        }
+    }
 }
 
 fn measure_slot(
