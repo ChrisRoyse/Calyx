@@ -356,6 +356,10 @@ fn reactive_affect_fires_new_region_drift_and_mmd_interventions() {
         row.metadata_value("origin_kind") == Some(KIND_REACTIVE_AFFECT)
             && row.metadata_value("new_region_event_count") == Some("1")
             && row.metadata_value("drift_event_count") == Some("1")
+            && row.metadata_value("recurrence_kind") == Some("reactive_affect_recurrence")
+            && row
+                .metadata_value("intervention_reasons")
+                .is_some_and(|value| value.contains("mmd_distribution_shift"))
     }));
     assert!(
         !service

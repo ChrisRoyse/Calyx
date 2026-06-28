@@ -925,6 +925,10 @@ impl LearnerOriginService {
             recurrence_commit.ledger_seq.to_string(),
         );
         metadata.insert(
+            "recurrence_kind".to_string(),
+            REACTIVE_AFFECT_RECURRENCE_KIND.to_string(),
+        );
+        metadata.insert(
             "baseline_reactive_ledger_seq".to_string(),
             baseline_reactive_ledger_seq.to_string(),
         );
@@ -948,6 +952,14 @@ impl LearnerOriginService {
         metadata.insert(
             "mmd_significant".to_string(),
             mmd.drift.significant.to_string(),
+        );
+        metadata.insert(
+            "intervention_reasons".to_string(),
+            interventions
+                .iter()
+                .map(|intervention| intervention.reason)
+                .collect::<Vec<_>>()
+                .join(","),
         );
         metadata.insert(
             "change_point_significant".to_string(),
