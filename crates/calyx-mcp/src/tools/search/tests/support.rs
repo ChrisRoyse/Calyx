@@ -121,20 +121,40 @@ pub(super) fn vault_with_algorithmic_data(server: &McpServer, name: &str) -> Vec
 }
 
 pub(super) fn tamper_ledger_row(vault: &Path, seq: u64) {
-    let mut router = CfRouter::open(vault, 0).expect("open CF router");
+    let router = CfRouter::open(vault, 0).expect("open CF router");
     let key = ledger_key(seq);
-    let mut bytes = router
-        .get(ColumnFamily::Ledger, &key)
-        .expect("read ledger row")
+    let mut entries = router
+        .iter_cf(ColumnFamily::Ledger)
+        .expect("read ledger rows");
+    let row = entries
+        .iter_mut()
+        .find(|entry| entry.key == key)
         .expect("ledger row exists");
-    let last = bytes.len().checked_sub(1).expect("non-empty ledger row");
-    bytes[last] ^= 0x55;
-    router
-        .put(ColumnFamily::Ledger, &key, &bytes)
-        .expect("write tampered ledger row");
-    router
-        .flush_cf(ColumnFamily::Ledger)
-        .expect("flush tampered ledger row");
+    let last = row
+        .value
+        .len()
+        .checked_sub(1)
+        .expect("non-empty ledger row");
+    row.value[last] ^= 0x55;
+
+    let cf_dir = vault.join("cf").join(ColumnFamily::Ledger.name());
+    for entry in fs::read_dir(&cf_dir).expect("read ledger CF directory") {
+        let path = entry.expect("read ledger CF entry").path();
+        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
+            fs::remove_file(path).expect("remove original ledger SST");
+        }
+    }
+    calyx_aster::sst::write_sst(
+        cf_dir.join("00000000000000000001.sst"),
+        entries
+            .iter()
+            .map(|entry| (entry.key.as_slice(), entry.value.as_slice())),
+    )
+    .expect("write tampered ledger SST");
+    let wal_dir = vault.join("wal");
+    if wal_dir.exists() {
+        fs::remove_dir_all(wal_dir).expect("remove stale WAL after ledger SST rewrite");
+    }
 }
 
 pub(super) fn write_calibrated_default_guard(vault: &Path, vault_id: &str, name: &str, tau: f32) {

@@ -44,6 +44,7 @@ pub(super) struct NeighborOut {
 
 pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
     let resolved = resolve_requested_vault(&request.vault)?;
+    let ledger_refs = verify_ledger_before_provenance(&resolved.path)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let docs = filtered_docs(load_docs(&vault)?, request.filter.clone())?;
@@ -54,7 +55,6 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
             dropped_guard_hits: Vec::new(),
         });
     }
-    let ledger_refs = verify_ledger_before_provenance(&resolved.path)?;
     let query_vectors = measure_query_vectors(&state, &request.query)?;
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());

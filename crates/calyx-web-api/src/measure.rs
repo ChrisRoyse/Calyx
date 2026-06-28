@@ -33,8 +33,9 @@ impl MeasureCtx {
         let salt = format!("calyx-cli-vault:{vault_id}:{name}").into_bytes();
         let vault = AsterVault::open(vault_dir, vault_id, salt, VaultOptions::default())
             .map_err(|error| format!("open vault {}: {error:?}", vault_dir.display()))?;
-        let state = load_vault_panel_state(vault_dir)
-            .map_err(|error| format!("load panel state {}: {error:?}", vault_dir.display()))?;
+        let state = load_vault_panel_state(vault_dir).map_err(|error| {
+            format!("load vault panel state {}: {error:?}", vault_dir.display())
+        })?;
         Ok(Self {
             vault,
             state,
