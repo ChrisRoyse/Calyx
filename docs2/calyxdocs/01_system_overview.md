@@ -152,7 +152,8 @@ tables in [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md).
 `[learner_origin]` is configured it also serves bearer-authenticated Worker-only JSON POST
 routes, including `/v1/mastery/estimate` for Oracle-backed mastery completion and trust
 gating and `/v1/oracle/forecast` for sufficiency-gated consequence-tree, reverse-query, and
-transfer-entropy prereq forecasts. Metric families, startup probes, and origin routes are
+transfer-entropy prereq forecasts, and `/v1/reactive/affect-signals` for Loom/Ward/Assay-backed
+reactive affect intervention signals. Metric families, startup probes, and origin routes are
 documented in [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md).
 
 ---

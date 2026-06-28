@@ -16,8 +16,10 @@ calyx-assay = { path = "../calyx-assay" }
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }
 calyx-lodestar = { path = "../calyx-lodestar" }
+calyx-loom = { path = "../calyx-loom" }
 calyx-mcp = { path = "../calyx-mcp" }
 calyx-oracle = { path = "../calyx-oracle" }
+calyx-ward = { path = "../calyx-ward" }
 nvml-wrapper = { workspace = true }
 calyx-ledger = { path = "../calyx-ledger" }
 prometheus.workspace = true
@@ -31,6 +33,7 @@ tokio-util.workspace = true
 toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 blake3.workspace = true

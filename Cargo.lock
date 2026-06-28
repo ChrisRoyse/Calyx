@@ -876,8 +876,10 @@ dependencies = [
  "calyx-forge",
  "calyx-ledger",
  "calyx-lodestar",
+ "calyx-loom",
  "calyx-mcp",
  "calyx-oracle",
+ "calyx-ward",
  "nvml-wrapper",
  "prometheus",
  "rcgen",
@@ -891,6 +893,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

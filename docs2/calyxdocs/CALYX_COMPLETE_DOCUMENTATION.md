@@ -255,7 +255,8 @@ tables in [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md).
 `[learner_origin]` is configured it also serves bearer-authenticated Worker-only JSON POST
 routes, including `/v1/mastery/estimate` for Oracle-backed mastery completion and trust
 gating and `/v1/oracle/forecast` for sufficiency-gated consequence-tree, reverse-query, and
-transfer-entropy prereq forecasts. Metric families, startup probes, and origin routes are
+transfer-entropy prereq forecasts, and `/v1/reactive/affect-signals` for Loom/Ward/Assay-backed
+reactive affect intervention signals. Metric families, startup probes, and origin routes are
 documented in [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md).
 
 ---
@@ -1359,7 +1360,7 @@ roughly follow the dependency layering (foundations first, entry points last).
 - `cuda_probe.rs` — CUDA device preflight for calyxd (PH65 · T02).
 - `error.rs` — Daemon error taxonomy mapping to stable CALYX_* codes (PH65).
 - `health.rs` — PH65 · T04 — calyxd daemon-readiness healthcheck.
-- `learner_origin/` — Worker-only learner-origin API for learner signals, interventions, outcomes, Oracle-backed mastery estimates, and Oracle forecast evidence.
+- `learner_origin/` — Worker-only learner-origin API for learner signals, interventions, outcomes, Oracle-backed mastery estimates, Oracle forecast evidence, and reactive affect signals.
 - `lib.rs` — calyxd library surface.
 - `main.rs` — Calyx daemon: Ledger chain-verify metrics on a loopback /metrics endpoint.
 - `mcp_server.rs` — Loopback-only MCP-over-socket transport for calyxd (PH65 · T05).
@@ -10962,6 +10963,7 @@ Learner-origin routes are Worker-only and backed by a dedicated Aster vault, not
 | `/v1/interventions/{decisionId}/outcomes` | POST | Persist an outcome row linked to the prior decision and learner. |
 | `/v1/mastery/estimate` | POST | Persist `mastery_evidence`, Assay sufficiency rows, Oracle `complete` output, six-tier `super_intelligence` trust evidence, and a final `mastery_estimate` row when certification is eligible. Insufficient Assay evidence fails closed with HTTP 422 and no final certification row. |
 | `/v1/oracle/forecast` | POST | Persist `oracle_forecast_evidence`, materialize Oracle recurrence graph rows, run `oracle_predict`, `butterfly::build_tree`/`select`, `reverse_query`, and Assay transfer entropy, then write a final `oracle_forecast` row only when evidence is sufficient. Insufficient panel or transfer-entropy evidence fails closed with HTTP 422. |
+| `/v1/reactive/affect-signals` | POST | Persist `reactive_affect_*` source rows and Recurrence CF rows, run Loom `NewRegion`/`DriftDetected` subscriptions through `evaluate_post_ingest_durable`/`observe_delta`, read Ward novelty/surprise and Assay MMD drift/change-point reports, then write a final `reactive_affect_signal` row only when an intervention fires. Quiet known-pattern evidence fails closed with HTTP 422 and no final signal row. |
 
 #### Surface (`metrics.rs` + `metrics/calyx.rs`)
 `CalyxMetrics::encode_text()` concatenates the chain-verify family then the PH66 T03 families. Exhaustive metric list:

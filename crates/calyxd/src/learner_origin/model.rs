@@ -8,12 +8,14 @@ pub const ENDPOINT_DECIDE: &str = "interventions_decide";
 pub const ENDPOINT_OUTCOMES: &str = "intervention_outcomes";
 pub const ENDPOINT_MASTERY_ESTIMATE: &str = "mastery_estimate";
 pub const ENDPOINT_ORACLE_FORECAST: &str = "oracle_forecast";
+pub const ENDPOINT_REACTIVE_AFFECT: &str = "reactive_affect_signals";
 
 pub const KIND_SIGNAL_BATCH: &str = "learner_signal_batch";
 pub const KIND_DECISION: &str = "intervention_decision";
 pub const KIND_OUTCOME: &str = "intervention_outcome";
 pub const KIND_MASTERY_ESTIMATE: &str = "mastery_estimate";
 pub const KIND_ORACLE_FORECAST: &str = "oracle_forecast";
+pub const KIND_REACTIVE_AFFECT: &str = "reactive_affect_signal";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -244,6 +246,78 @@ pub struct TransferEntropySampleRequest {
     pub value: f32,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactiveAffectRequest {
+    #[serde(default, alias = "request_id")]
+    pub request_id: Option<String>,
+    #[serde(default, alias = "idempotency_key")]
+    pub idempotency_key: Option<String>,
+    #[serde(alias = "learner_id")]
+    pub learner_id: String,
+    #[serde(default, alias = "session_id")]
+    pub session_id: Option<String>,
+    #[serde(default, alias = "privacy_class")]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(alias = "concept_id")]
+    pub concept_id: String,
+    #[serde(default, alias = "slot_id")]
+    pub slot_id: Option<u16>,
+    #[serde(alias = "matched_vector")]
+    pub matched_vector: Vec<f32>,
+    #[serde(alias = "baseline_vector")]
+    pub baseline_vector: Vec<f32>,
+    #[serde(alias = "current_vector")]
+    pub current_vector: Vec<f32>,
+    #[serde(default)]
+    pub tau: Option<f32>,
+    #[serde(
+        default = "default_reactive_drift_threshold",
+        alias = "drift_threshold"
+    )]
+    pub drift_threshold: f32,
+    pub recurrence: ReactiveRecurrenceRequest,
+    pub mmd: ReactiveMmdRequest,
+    #[serde(default, alias = "now_millis")]
+    pub now_millis: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactiveRecurrenceRequest {
+    #[serde(default, alias = "current_occurrences_secs")]
+    pub current_occurrences_secs: Vec<u64>,
+    #[serde(default, alias = "known_pattern_frequency")]
+    pub known_pattern_frequency: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactiveMmdRequest {
+    #[serde(default, alias = "baseline_samples")]
+    pub baseline_samples: Vec<Vec<f64>>,
+    #[serde(default, alias = "recent_samples")]
+    pub recent_samples: Vec<Vec<f64>>,
+    #[serde(default, alias = "change_point_stream")]
+    pub change_point_stream: Vec<Vec<f64>>,
+    #[serde(default, alias = "min_window")]
+    pub min_window: Option<usize>,
+    #[serde(default)]
+    pub bandwidth: Option<f64>,
+    #[serde(default)]
+    pub permutations: Option<usize>,
+    #[serde(default)]
+    pub seed: Option<u64>,
+    #[serde(default)]
+    pub alpha: Option<f64>,
+}
+
 fn default_grounded() -> bool {
     true
+}
+
+fn default_reactive_drift_threshold() -> f32 {
+    0.1
 }

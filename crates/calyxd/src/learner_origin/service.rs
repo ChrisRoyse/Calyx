@@ -12,8 +12,8 @@ use super::config::LearnerOriginConfig;
 use super::metrics::OriginMetrics;
 use super::model::{
     ENDPOINT_DECIDE, ENDPOINT_MASTERY_ESTIMATE, ENDPOINT_ORACLE_FORECAST, ENDPOINT_OUTCOMES,
-    ENDPOINT_SIGNALS, KIND_DECISION, KIND_MASTERY_ESTIMATE, KIND_ORACLE_FORECAST, KIND_OUTCOME,
-    KIND_SIGNAL_BATCH,
+    ENDPOINT_REACTIVE_AFFECT, ENDPOINT_SIGNALS, KIND_DECISION, KIND_MASTERY_ESTIMATE,
+    KIND_ORACLE_FORECAST, KIND_OUTCOME, KIND_REACTIVE_AFFECT, KIND_SIGNAL_BATCH,
 };
 use crate::error::DaemonError;
 
@@ -169,6 +169,7 @@ impl LearnerOriginService {
                 OriginRoute::Outcome { decision_id } => self.handle_outcome(decision_id, body),
                 OriginRoute::MasteryEstimate => self.handle_mastery_estimate(body),
                 OriginRoute::OracleForecast => self.handle_oracle_forecast(body),
+                OriginRoute::ReactiveAffect => self.handle_reactive_affect(body),
             }
         };
         let response = match outcome {
@@ -213,6 +214,7 @@ enum OriginRoute {
     Outcome { decision_id: String },
     MasteryEstimate,
     OracleForecast,
+    ReactiveAffect,
 }
 
 impl OriginRoute {
@@ -223,6 +225,7 @@ impl OriginRoute {
             Self::Outcome { .. } => ENDPOINT_OUTCOMES,
             Self::MasteryEstimate => ENDPOINT_MASTERY_ESTIMATE,
             Self::OracleForecast => ENDPOINT_ORACLE_FORECAST,
+            Self::ReactiveAffect => ENDPOINT_REACTIVE_AFFECT,
         }
     }
 
@@ -233,6 +236,7 @@ impl OriginRoute {
             Self::Outcome { .. } => KIND_OUTCOME,
             Self::MasteryEstimate => KIND_MASTERY_ESTIMATE,
             Self::OracleForecast => KIND_ORACLE_FORECAST,
+            Self::ReactiveAffect => KIND_REACTIVE_AFFECT,
         }
     }
 }
@@ -274,6 +278,9 @@ fn route_for_path(path: &str) -> Option<OriginRoute> {
     }
     if path == "/v1/oracle/forecast" {
         return Some(OriginRoute::OracleForecast);
+    }
+    if path == "/v1/reactive/affect-signals" {
+        return Some(OriginRoute::ReactiveAffect);
     }
     let rest = path.strip_prefix("/v1/interventions/")?;
     let decision_id = rest.strip_suffix("/outcomes")?;

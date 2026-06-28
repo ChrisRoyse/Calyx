@@ -27,7 +27,7 @@ Where the source does not establish a fact, it is marked **"Not determined from 
 - `src/config.rs` — `CalyxConfig` TOML runtime config
 - `src/error.rs` — `DaemonError` taxonomy
 - `src/server.rs` — loopback HTTP `/metrics` server
-- `src/learner_origin/*` — optional Worker-only learner-origin API: learner signals, interventions, outcomes, Oracle-backed mastery estimates, and Oracle forecast evidence
+- `src/learner_origin/*` — optional Worker-only learner-origin API: learner signals, interventions, outcomes, Oracle-backed mastery estimates, Oracle forecast evidence, and reactive affect signals
 - `src/mcp_server.rs` — loopback MCP-over-socket transport (`CalyxMcpServer`)
 - `src/verify_loop.rs` — periodic chain-verify driver (binary-only module)
 - `src/verify.rs` — `verify_restore` byte-level vault read-back
@@ -330,6 +330,7 @@ Request handling (`handle_connection` → `route`):
 | `POST /v1/interventions/{decisionId}/outcomes` | `201`/error | JSON outcome row, learner-matched to the decision | `handle_outcome` |
 | `POST /v1/mastery/estimate` | `201`/`422`/error | JSON Oracle completion + `super_intelligence` trust report; insufficient Assay evidence fails closed | `handle_mastery_estimate` |
 | `POST /v1/oracle/forecast` | `201`/`422`/error | JSON Oracle prediction, butterfly consequence tree, reverse causes, and transfer-entropy prereq edges; insufficient evidence fails closed | `handle_oracle_forecast` |
+| `POST /v1/reactive/affect-signals` | `201`/`422`/error | JSON reactive trigger events, Ward novelty/surprise, MMD drift/change-point readback, and intervention hints/reviews; no fired signal fails closed | `handle_reactive_affect` |
 | `GET <other>` | `404` | "only /metrics is served" | `route` |
 | non-GET | `405` | "only GET /metrics is served" | `route` |
 | unreadable head | `400` | "bad request" | `handle_connection` |
@@ -346,6 +347,14 @@ Assay sufficiency rows, then runs the real `oracle_predict`, `butterfly::build_t
 `reverse_query`, and Assay `transfer_entropy_sweep_with_config` paths. A final `oracle_forecast`
 origin row is written only after those gates complete; insufficient Oracle panel evidence or
 under-quorum transfer entropy returns HTTP 422 without the final forecast row.
+
+`/v1/reactive/affect-signals` persists matched/baseline/current `reactive_affect_*` source
+constellations plus Recurrence CF rows, then uses the real Loom `subscribe_durable`,
+`evaluate_post_ingest_durable`, and `observe_delta` flow for `DriftDetected` and `NewRegion`.
+It also reads Ward `classify_novelty`/`surprise_bits` and Assay
+`gaussian_mmd_with_config`/`mmd_change_point`. A final `reactive_affect_signal` row is written
+only when a reactive event, novelty action, or significant MMD shift produces an intervention;
+quiet known-pattern evidence returns HTTP 422 without the final row.
 
 ## B.6 MCP-over-socket transport (`src/mcp_server.rs`)
 

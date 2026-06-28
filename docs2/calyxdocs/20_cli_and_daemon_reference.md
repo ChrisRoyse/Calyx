@@ -377,6 +377,7 @@ Learner-origin routes are Worker-only and backed by a dedicated Aster vault, not
 | `/v1/interventions/{decisionId}/outcomes` | POST | Persist an outcome row linked to the prior decision and learner. |
 | `/v1/mastery/estimate` | POST | Persist `mastery_evidence`, Assay sufficiency rows, Oracle `complete` output, six-tier `super_intelligence` trust evidence, and a final `mastery_estimate` row when certification is eligible. Insufficient Assay evidence fails closed with HTTP 422 and no final certification row. |
 | `/v1/oracle/forecast` | POST | Persist `oracle_forecast_evidence`, materialize Oracle recurrence graph rows, run `oracle_predict`, `butterfly::build_tree`/`select`, `reverse_query`, and Assay transfer entropy, then write a final `oracle_forecast` row only when evidence is sufficient. Insufficient panel or transfer-entropy evidence fails closed with HTTP 422. |
+| `/v1/reactive/affect-signals` | POST | Persist `reactive_affect_*` source rows and Recurrence CF rows, run Loom `NewRegion`/`DriftDetected` subscriptions through `evaluate_post_ingest_durable`/`observe_delta`, read Ward novelty/surprise and Assay MMD drift/change-point reports, then write a final `reactive_affect_signal` row only when an intervention fires. Quiet known-pattern evidence fails closed with HTTP 422 and no final signal row. |
 
 #### Surface (`metrics.rs` + `metrics/calyx.rs`)
 `CalyxMetrics::encode_text()` concatenates the chain-verify family then the PH66 T03 families. Exhaustive metric list:

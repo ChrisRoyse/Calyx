@@ -1,24 +1,29 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use calyx_assay::{
-    AssayCacheKey, AssayStore, AssaySubject, DEFAULT_TE_BOOTSTRAP_RESAMPLES,
+    AssayCacheKey, AssayStore, AssaySubject, ChangePointReport, DEFAULT_TE_BOOTSTRAP_RESAMPLES,
     DEFAULT_TE_BOOTSTRAP_SEED, DEFAULT_TE_K, DEFAULT_TE_LAGS, DEFAULT_TE_WINDOW, Direction,
-    EstimatorKind, MiEstimate, TEResult, TransferEntropyConfig, TrustTag,
-    transfer_entropy_sweep_with_config,
+    EstimatorKind, MiEstimate, MmdConfig, MmdReport, TEResult, TransferEntropyConfig, TrustTag,
+    gaussian_mmd_with_config, mmd_change_point, transfer_entropy_sweep_with_config,
 };
 use calyx_aster::cf::{ColumnFamily, base_key, recurrence_key};
 use calyx_aster::dedup::{EpochSecs, OccurrenceId};
 use calyx_aster::recurrence::{
-    Occurrence, OccurrenceContext, StoredRecurrenceRow, encode_recurrence_row,
+    FREQUENCY_SCALAR, Occurrence, OccurrenceContext, StoredRecurrenceRow, encode_recurrence_row,
 };
 use calyx_aster::vault::encode;
 use calyx_core::{
     AbsentReason, Anchor, AnchorKind, AnchorValue, Asymmetry, Clock, Constellation, CxFlags, CxId,
-    InputRef, LedgerRef, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotShape, SlotState,
-    SlotVector, SystemClock, content_address,
+    FixedClock, InputRef, LedgerRef, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotShape,
+    SlotState, SlotVector, SystemClock, content_address,
 };
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 use calyx_lodestar::{LodestarError, RecallReport};
+use calyx_loom::{
+    AgreementDriftTracker, ReactiveEngine, ReactiveSignalSet, SubscriptionId, TriggerCondition,
+    TriggerFired,
+};
 use calyx_oracle::{
     Action, AnnealConfig, CalibrationMeasurement, CalibrationSource, CompletionRegion, Consequence,
     ConsequenceTree, DomainId, GoodhartDefenseMeasurement, GoodhartDefenseSource, HeldOutSplit,
@@ -28,12 +33,19 @@ use calyx_oracle::{
     VaultSufficiencyAssay, build_tree, complete, oracle_predict, reverse_query, select,
     super_intelligence_with_ledger,
 };
+use calyx_ward::{
+    Domain as WardDomain, GuardId, GuardPolicy, GuardProfile, NoveltyAction, classify_novelty,
+    novelty_action_for_signal, surprise_bits,
+};
+use serde::Serialize;
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use crate::learner_origin::model::{
     DecisionRequest, KIND_DECISION, KIND_MASTERY_ESTIMATE, KIND_ORACLE_FORECAST, KIND_OUTCOME,
-    KIND_SIGNAL_BATCH, MasteryEstimateRequest, MasteryTrustGateRequest, OracleForecastRequest,
-    OutcomeRequest, SignalBatchRequest, TransferEntropyRequest,
+    KIND_REACTIVE_AFFECT, KIND_SIGNAL_BATCH, MasteryEstimateRequest, MasteryTrustGateRequest,
+    OracleForecastRequest, OutcomeRequest, ReactiveAffectRequest, ReactiveMmdRequest,
+    SignalBatchRequest, TransferEntropyRequest,
 };
 use crate::learner_origin::privacy::reject_private_material;
 
@@ -745,6 +757,347 @@ impl LearnerOriginService {
         ))
     }
 
+    pub(super) fn handle_reactive_affect(
+        &self,
+        body: &[u8],
+    ) -> Result<OriginResponse, OriginError> {
+        let value = parse_body(body)?;
+        reject_private_material(&value)
+            .map_err(|detail| OriginError::bad_request("CALYX_ORIGIN_PRIVATE_FIELD", detail))?;
+        let request: ReactiveAffectRequest = serde_json::from_value(value)
+            .map_err(|error| OriginError::bad_request("CALYX_ORIGIN_JSON_INVALID", error))?;
+        ensure_nonempty("learnerId", &request.learner_id)?;
+        ensure_nonempty("conceptId", &request.concept_id)?;
+        let body_hash = sha256_hex(body);
+        let request_id = request.request_id.clone().unwrap_or_else(|| {
+            stable_id(
+                "reactive-affect",
+                [
+                    request.learner_id.as_str(),
+                    request
+                        .domain
+                        .as_deref()
+                        .unwrap_or("calyxweb-reactive-affect"),
+                    request.concept_id.as_str(),
+                    body_hash.as_str(),
+                ],
+            )
+        });
+        if let Some(existing) = self.find_by_idempotency(
+            KIND_REACTIVE_AFFECT,
+            "request_id",
+            &request_id,
+            request.idempotency_key.as_deref(),
+        )? {
+            return self.duplicate_response(
+                KIND_REACTIVE_AFFECT,
+                "requestId",
+                &request_id,
+                &body_hash,
+                existing,
+            );
+        }
+
+        let now = request.now_millis.unwrap_or_else(now_millis);
+        let plan =
+            ReactiveAffectPlan::from_request(&request, &request_id, &body_hash, now, &self.vault)?;
+        let matched_row = self.commit_constellation_row(
+            plan.matched_cx.clone(),
+            REACTIVE_AFFECT_MATCHED_KIND,
+            &request_id,
+            EntryKind::Ingest,
+            &body_hash,
+        )?;
+        let baseline_row = self.commit_constellation_row(
+            plan.baseline_cx.clone(),
+            REACTIVE_AFFECT_BASELINE_KIND,
+            &request_id,
+            EntryKind::Ingest,
+            &body_hash,
+        )?;
+        let current_row = self.commit_constellation_row(
+            plan.current_cx.clone(),
+            REACTIVE_AFFECT_EVIDENCE_KIND,
+            &request_id,
+            EntryKind::Ingest,
+            &body_hash,
+        )?;
+        let recurrence_commit = self.commit_reactive_recurrence_rows(
+            plan.recurrence_rows.clone(),
+            &request_id,
+            &body_hash,
+            plan.current_cx.cx_id,
+        )?;
+
+        let clock = FixedClock::new(now);
+        let novelty_signal = classify_novelty(plan.current_cx.cx_id, &self.vault, &clock)
+            .map_err(ward_origin_error)?;
+        let surprise_domain = WardDomain::new(
+            format!("reactive-affect:{request_id}"),
+            vec![plan.current_cx.cx_id, plan.matched_cx.cx_id],
+        );
+        let surprise = surprise_bits(plan.current_cx.cx_id, &surprise_domain, &self.vault)
+            .map_err(ward_origin_error)?;
+        let novelty_action = novelty_action_for_signal(&novelty_signal);
+        let mmd = plan.mmd.readback()?;
+
+        let mut engine = ReactiveEngine::new(Arc::new(FixedClock::new(now)));
+        let tracker = AgreementDriftTracker::new();
+        let owner = Some(format!("learner:{}", request.learner_id));
+        let drift_sub = engine
+            .subscribe_durable(
+                &self.vault,
+                TriggerCondition::DriftDetected {
+                    slot: plan.slot,
+                    drift_threshold: plan.drift_threshold,
+                },
+                owner.clone(),
+            )
+            .map_err(reactive_origin_error)?;
+        let drift_trigger_id = trigger_id_for_subscription(&engine, drift_sub)?;
+        let baseline_signals = ReactiveSignalSet::new(&self.vault)
+            .with_ward_novelty(plan.profile.clone(), plan.matched_cx.cx_id, false)
+            .with_agreement_drift(plan.baseline_cx.cx_id, &tracker);
+        engine
+            .evaluate_post_ingest_durable(
+                &self.vault,
+                plan.baseline_cx.cx_id,
+                stored_ledger_ref(baseline_row.ledger_seq, &baseline_row.ledger_hash)?,
+                &baseline_signals,
+            )
+            .map_err(reactive_origin_error)?;
+        let baseline_reactive_ledger_seq = self.vault.latest_seq();
+
+        let new_region_sub = engine
+            .subscribe_durable(
+                &self.vault,
+                TriggerCondition::NewRegion {
+                    tau_override: Some(plan.tau),
+                },
+                owner,
+            )
+            .map_err(reactive_origin_error)?;
+        let new_region_trigger_id = trigger_id_for_subscription(&engine, new_region_sub)?;
+        let current_signals = ReactiveSignalSet::new(&self.vault)
+            .with_ward_novelty(plan.profile.clone(), plan.matched_cx.cx_id, false)
+            .with_agreement_drift(plan.current_cx.cx_id, &tracker);
+        let fired_count = engine
+            .evaluate_post_ingest_durable(
+                &self.vault,
+                plan.current_cx.cx_id,
+                stored_ledger_ref(current_row.ledger_seq, &current_row.ledger_hash)?,
+                &current_signals,
+            )
+            .map_err(reactive_origin_error)?;
+        let current_reactive_ledger_seq = self.vault.latest_seq();
+        let drift_events = engine
+            .observe_delta(drift_sub)
+            .map_err(reactive_origin_error)?;
+        let new_region_events = engine
+            .observe_delta(new_region_sub)
+            .map_err(reactive_origin_error)?;
+        self.vault.flush().map_err(storage_error)?;
+
+        let interventions = reactive_interventions(
+            &new_region_events,
+            &drift_events,
+            &mmd,
+            novelty_action.as_ref(),
+        );
+        if interventions.is_empty() {
+            return Err(OriginError::new(
+                STATUS_UNPROCESSABLE,
+                "CALYX_ORIGIN_REACTIVE_NO_TRIGGER",
+                "reactive novelty/drift/MMD evidence did not fire an affect intervention",
+            ));
+        }
+
+        let mut metadata = base_metadata(KIND_REACTIVE_AFFECT, &body_hash);
+        metadata.insert("request_id".to_string(), request_id.clone());
+        metadata.insert("learner_id".to_string(), request.learner_id.clone());
+        metadata.insert("domain".to_string(), plan.domain.clone());
+        metadata.insert("concept_id".to_string(), request.concept_id.clone());
+        metadata.insert("source_cx_id".to_string(), current_row.cx_id.clone());
+        metadata.insert("baseline_cx_id".to_string(), baseline_row.cx_id.clone());
+        metadata.insert("matched_cx_id".to_string(), matched_row.cx_id.clone());
+        metadata.insert(
+            "recurrence_ledger_seq".to_string(),
+            recurrence_commit.ledger_seq.to_string(),
+        );
+        metadata.insert(
+            "baseline_reactive_ledger_seq".to_string(),
+            baseline_reactive_ledger_seq.to_string(),
+        );
+        metadata.insert(
+            "current_reactive_ledger_seq".to_string(),
+            current_reactive_ledger_seq.to_string(),
+        );
+        metadata.insert("drift_trigger_id".to_string(), drift_trigger_id.clone());
+        metadata.insert(
+            "new_region_trigger_id".to_string(),
+            new_region_trigger_id.clone(),
+        );
+        metadata.insert(
+            "new_region_event_count".to_string(),
+            new_region_events.len().to_string(),
+        );
+        metadata.insert(
+            "drift_event_count".to_string(),
+            drift_events.len().to_string(),
+        );
+        metadata.insert(
+            "mmd_significant".to_string(),
+            mmd.drift.significant.to_string(),
+        );
+        metadata.insert(
+            "change_point_significant".to_string(),
+            mmd.change_point.report.significant.to_string(),
+        );
+        insert_optional(
+            &mut metadata,
+            "idempotency_key",
+            request.idempotency_key.as_deref(),
+        );
+        insert_optional(&mut metadata, "session_id", request.session_id.as_deref());
+        insert_optional(
+            &mut metadata,
+            "privacy_class",
+            request.privacy_class.as_deref(),
+        );
+        let scalars = BTreeMap::from([
+            (
+                "reactive.new_region_events".to_string(),
+                new_region_events.len() as f64,
+            ),
+            (
+                "reactive.drift_events".to_string(),
+                drift_events.len() as f64,
+            ),
+            ("reactive.surprise_bits".to_string(), surprise.get() as f64),
+            ("reactive.mmd2".to_string(), mmd.drift.mmd2),
+            (
+                "reactive.mmd_significant".to_string(),
+                if mmd.drift.significant { 1.0 } else { 0.0 },
+            ),
+            (
+                "reactive.change_point_split".to_string(),
+                mmd.change_point.split_index as f64,
+            ),
+            (
+                "reactive.interventions".to_string(),
+                interventions.len() as f64,
+            ),
+        ]);
+        let stored = self.commit_origin_row(OriginCommit {
+            kind: KIND_REACTIVE_AFFECT,
+            primary_id: request_id.clone(),
+            ledger_kind: EntryKind::Guard,
+            metadata,
+            scalars,
+            slot_values: [
+                6.0,
+                surprise.get(),
+                mmd.drift.mmd2 as f32,
+                interventions.len() as f32,
+            ],
+            anchors: Vec::new(),
+        })?;
+        self.metrics.record_write(KIND_REACTIVE_AFFECT, "accepted");
+        Ok(OriginResponse::json(
+            STATUS_CREATED,
+            json!({
+                "accepted": true,
+                "duplicate": false,
+                "requestId": request_id,
+                "learnerId": request.learner_id,
+                "domain": plan.domain,
+                "conceptId": request.concept_id,
+                "source": {
+                    "matched": {
+                        "cxId": matched_row.cx_id,
+                        "ledgerSeq": matched_row.ledger_seq,
+                        "ledgerHash": matched_row.ledger_hash
+                    },
+                    "baseline": {
+                        "cxId": baseline_row.cx_id,
+                        "ledgerSeq": baseline_row.ledger_seq,
+                        "ledgerHash": baseline_row.ledger_hash,
+                        "reactiveLedgerSeq": baseline_reactive_ledger_seq
+                    },
+                    "current": {
+                        "cxId": current_row.cx_id,
+                        "ledgerSeq": current_row.ledger_seq,
+                        "ledgerHash": current_row.ledger_hash,
+                        "reactiveLedgerSeq": current_reactive_ledger_seq
+                    },
+                    "recurrenceRows": recurrence_commit.rows,
+                    "recurrenceLedgerSeq": recurrence_commit.ledger_seq
+                },
+                "novelty": {
+                    "signal": novelty_signal,
+                    "action": novelty_action.map(novelty_action_name),
+                    "surpriseBits": surprise.get()
+                },
+                "reactive": {
+                    "firedCount": fired_count,
+                    "driftSubscriptionId": drift_sub.to_string(),
+                    "driftTriggerId": drift_trigger_id,
+                    "newRegionSubscriptionId": new_region_sub.to_string(),
+                    "newRegionTriggerId": new_region_trigger_id,
+                    "driftEvents": trigger_events_json(&drift_events),
+                    "newRegionEvents": trigger_events_json(&new_region_events)
+                },
+                "mmd": {
+                    "drift": mmd.drift,
+                    "changePoint": mmd.change_point
+                },
+                "interventions": interventions,
+                "cxId": stored.cx_id,
+                "ledgerSeq": stored.ledger_seq,
+                "ledgerHash": stored.ledger_hash
+            }),
+        ))
+    }
+
+    fn commit_reactive_recurrence_rows(
+        &self,
+        rows: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)>,
+        request_id: &str,
+        body_hash: &str,
+        current_cx: CxId,
+    ) -> Result<ReactiveRecurrenceCommit, OriginError> {
+        if rows.is_empty() {
+            return Err(OriginError::bad_request(
+                "CALYX_ORIGIN_EMPTY_REACTIVE_RECURRENCE",
+                "reactive affect evidence requires at least one recurrence row",
+            ));
+        }
+        let row_count = rows.len();
+        let mut payload = PayloadBuilder::default();
+        payload
+            .insert_str("request_id", request_id)
+            .insert_str("kind", REACTIVE_AFFECT_RECURRENCE_KIND)
+            .insert_str("input_hash", body_hash)
+            .insert_u64("rows", row_count as u64)
+            .insert_u64("ts", SystemClock.now());
+        let ledger_payload = RedactionPolicy::default().apply_to_payload(&payload);
+        let ledger_seq = self
+            .vault
+            .write_cf_batch_with_ledger_entry(
+                rows,
+                EntryKind::Ingest,
+                SubjectId::Cx(current_cx),
+                ledger_payload,
+                ActorId::Service(ORIGIN_ACTOR.to_string()),
+            )
+            .map_err(storage_error)?;
+        self.vault.flush().map_err(storage_error)?;
+        Ok(ReactiveRecurrenceCommit {
+            ledger_seq,
+            rows: row_count,
+        })
+    }
+
     fn commit_oracle_graph_rows(
         &self,
         rows: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)>,
@@ -827,10 +1180,530 @@ const ORACLE_FORECAST_PANEL_VERSION: u32 = 1240;
 const ORACLE_FORECAST_EVIDENCE_KIND: &str = "oracle_forecast_evidence";
 const ORACLE_FORECAST_GRAPH_KIND: &str = "oracle_forecast_recurrence";
 
+const REACTIVE_AFFECT_PANEL_VERSION: u32 = 1244;
+const REACTIVE_AFFECT_DEFAULT_SLOT_ID: u16 = 13;
+const REACTIVE_AFFECT_MAX_SLOT_ID: u16 = 47;
+const REACTIVE_AFFECT_EVIDENCE_KIND: &str = "reactive_affect_evidence";
+const REACTIVE_AFFECT_BASELINE_KIND: &str = "reactive_affect_baseline";
+const REACTIVE_AFFECT_MATCHED_KIND: &str = "reactive_affect_matched_region";
+const REACTIVE_AFFECT_RECURRENCE_KIND: &str = "reactive_affect_recurrence";
+const REACTIVE_AFFECT_MIN_MMD_WINDOW: usize = 4;
+
 struct OracleGraphCommit {
     ledger_seq: u64,
     base_rows: usize,
     recurrence_rows: usize,
+}
+
+struct ReactiveRecurrenceCommit {
+    ledger_seq: u64,
+    rows: usize,
+}
+
+struct ReactiveAffectPlan {
+    domain: String,
+    slot: SlotId,
+    tau: f32,
+    drift_threshold: f32,
+    profile: GuardProfile,
+    matched_cx: Constellation,
+    baseline_cx: Constellation,
+    current_cx: Constellation,
+    recurrence_rows: Vec<(ColumnFamily, Vec<u8>, Vec<u8>)>,
+    mmd: ReactiveMmdJob,
+}
+
+impl ReactiveAffectPlan {
+    fn from_request(
+        request: &ReactiveAffectRequest,
+        request_id: &str,
+        body_hash: &str,
+        now: u64,
+        vault: &calyx_aster::vault::AsterVault<SystemClock>,
+    ) -> Result<Self, OriginError> {
+        let domain = request
+            .domain
+            .clone()
+            .unwrap_or_else(|| "calyxweb-reactive-affect".to_string());
+        ensure_nonempty("domain", &domain)?;
+        let slot_number = request.slot_id.unwrap_or(REACTIVE_AFFECT_DEFAULT_SLOT_ID);
+        if slot_number > REACTIVE_AFFECT_MAX_SLOT_ID {
+            return Err(OriginError::bad_request(
+                "CALYX_ORIGIN_INVALID_SLOT",
+                format!("slotId must be <= {REACTIVE_AFFECT_MAX_SLOT_ID} for reactive slots"),
+            ));
+        }
+        let slot = SlotId::new(slot_number);
+        let tau = require_unit_interval("tau", request.tau.unwrap_or(calyx_ward::DEFAULT_TAU))?;
+        let drift_threshold = require_reactive_drift_threshold(request.drift_threshold)?;
+        let matched_vector = reactive_vector("matchedVector", &request.matched_vector)?;
+        let baseline_vector = reactive_vector("baselineVector", &request.baseline_vector)?;
+        let current_vector = reactive_vector("currentVector", &request.current_vector)?;
+        if matched_vector.len() != baseline_vector.len()
+            || matched_vector.len() != current_vector.len()
+        {
+            return Err(OriginError::bad_request(
+                "CALYX_ORIGIN_VECTOR_DIM_MISMATCH",
+                "matchedVector, baselineVector, and currentVector must have the same dimension",
+            ));
+        }
+        let current_frequency = request.recurrence.current_occurrences_secs.len().max(1) as u64;
+        let matched_cx = build_reactive_constellation(ReactiveConstellationInput {
+            vault,
+            kind: REACTIVE_AFFECT_MATCHED_KIND,
+            role: "matched",
+            role_code: 1.0,
+            request,
+            request_id,
+            domain: &domain,
+            body_hash,
+            now,
+            slot,
+            vector: matched_vector,
+            frequency: request.recurrence.known_pattern_frequency,
+        })?;
+        let baseline_cx = build_reactive_constellation(ReactiveConstellationInput {
+            vault,
+            kind: REACTIVE_AFFECT_BASELINE_KIND,
+            role: "baseline",
+            role_code: 2.0,
+            request,
+            request_id,
+            domain: &domain,
+            body_hash,
+            now,
+            slot,
+            vector: baseline_vector,
+            frequency: current_frequency,
+        })?;
+        let current_cx = build_reactive_constellation(ReactiveConstellationInput {
+            vault,
+            kind: REACTIVE_AFFECT_EVIDENCE_KIND,
+            role: "current",
+            role_code: 3.0,
+            request,
+            request_id,
+            domain: &domain,
+            body_hash,
+            now,
+            slot,
+            vector: current_vector,
+            frequency: current_frequency,
+        })?;
+        let recurrence_rows =
+            build_reactive_recurrence_rows(current_cx.cx_id, request, request_id, now)?;
+        let profile = build_reactive_guard_profile(request_id, &domain, slot, tau, now);
+        let mmd = ReactiveMmdJob::from_request(&request.mmd);
+        Ok(Self {
+            domain,
+            slot,
+            tau,
+            drift_threshold,
+            profile,
+            matched_cx,
+            baseline_cx,
+            current_cx,
+            recurrence_rows,
+            mmd,
+        })
+    }
+}
+
+struct ReactiveConstellationInput<'a> {
+    vault: &'a calyx_aster::vault::AsterVault<SystemClock>,
+    kind: &'static str,
+    role: &'static str,
+    role_code: f64,
+    request: &'a ReactiveAffectRequest,
+    request_id: &'a str,
+    domain: &'a str,
+    body_hash: &'a str,
+    now: u64,
+    slot: SlotId,
+    vector: Vec<f32>,
+    frequency: u64,
+}
+
+fn build_reactive_constellation(
+    input: ReactiveConstellationInput<'_>,
+) -> Result<Constellation, OriginError> {
+    let vector_hash = sha256_array(&vector_bytes(&input.vector));
+    let input_bytes = serde_json::to_vec(&json!({
+        "kind": input.kind,
+        "role": input.role,
+        "requestId": input.request_id,
+        "learnerId": input.request.learner_id,
+        "domain": input.domain,
+        "conceptId": input.request.concept_id,
+        "slotId": input.slot.get(),
+        "vectorHash": hex(&vector_hash),
+        "payloadSha256": input.body_hash
+    }))
+    .map_err(|error| OriginError::internal(error.to_string()))?;
+    let cx_id = input
+        .vault
+        .cx_id_for_input(&input_bytes, REACTIVE_AFFECT_PANEL_VERSION);
+    let mut metadata = BTreeMap::from([
+        ("origin_kind".to_string(), input.kind.to_string()),
+        ("origin_version".to_string(), "1".to_string()),
+        ("request_id".to_string(), input.request_id.to_string()),
+        ("learner_id".to_string(), input.request.learner_id.clone()),
+        ("domain".to_string(), input.domain.to_string()),
+        ("concept_id".to_string(), input.request.concept_id.clone()),
+        ("role".to_string(), input.role.to_string()),
+        ("slot_id".to_string(), input.slot.get().to_string()),
+        ("payload_sha256".to_string(), input.body_hash.to_string()),
+        ("vector_sha256".to_string(), hex(&vector_hash)),
+    ]);
+    insert_optional(
+        &mut metadata,
+        "idempotency_key",
+        input.request.idempotency_key.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "session_id",
+        input.request.session_id.as_deref(),
+    );
+    insert_optional(
+        &mut metadata,
+        "privacy_class",
+        input.request.privacy_class.as_deref(),
+    );
+    Ok(Constellation {
+        cx_id,
+        vault_id: input.vault.vault_id(),
+        panel_version: REACTIVE_AFFECT_PANEL_VERSION,
+        created_at: input.now,
+        input_ref: InputRef {
+            hash: sha256_array(&input_bytes),
+            pointer: None,
+            redacted: true,
+        },
+        modality: Modality::Structured,
+        slots: BTreeMap::from([(
+            input.slot,
+            SlotVector::Dense {
+                dim: input.vector.len() as u32,
+                data: input.vector,
+            },
+        )]),
+        scalars: BTreeMap::from([
+            (FREQUENCY_SCALAR.to_string(), input.frequency as f64),
+            ("reactive.role_code".to_string(), input.role_code),
+        ]),
+        metadata,
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: 0,
+            hash: [0; 32],
+        },
+        flags: CxFlags {
+            redacted_input: true,
+            ungrounded: true,
+            ..CxFlags::default()
+        },
+    })
+}
+
+fn build_reactive_recurrence_rows(
+    current_cx: CxId,
+    request: &ReactiveAffectRequest,
+    request_id: &str,
+    now: u64,
+) -> Result<Vec<(ColumnFamily, Vec<u8>, Vec<u8>)>, OriginError> {
+    let timestamps = if request.recurrence.current_occurrences_secs.is_empty() {
+        vec![now / 1000]
+    } else {
+        request.recurrence.current_occurrences_secs.clone()
+    };
+    let mut rows = Vec::with_capacity(timestamps.len());
+    for (index, timestamp) in timestamps.iter().enumerate() {
+        let t_k = i64::try_from(*timestamp).map_err(|_| {
+            OriginError::bad_request(
+                "CALYX_ORIGIN_INVALID_TIMESTAMP",
+                "recurrence timestamp is outside i64 epoch seconds range",
+            )
+        })?;
+        let occurrence = Occurrence {
+            id: OccurrenceId(index as u64),
+            t_k: EpochSecs(t_k),
+            context: OccurrenceContext::new(
+                format!("reactive-affect:{request_id}:{index}").into_bytes(),
+            )
+            .map_err(storage_error)?,
+        };
+        rows.push((
+            ColumnFamily::Recurrence,
+            recurrence_key(current_cx, occurrence.id.0),
+            encode_recurrence_row(&StoredRecurrenceRow::Occurrence(occurrence))
+                .map_err(storage_error)?,
+        ));
+    }
+    Ok(rows)
+}
+
+fn build_reactive_guard_profile(
+    request_id: &str,
+    domain: &str,
+    slot: SlotId,
+    tau: f32,
+    now: u64,
+) -> GuardProfile {
+    let mut uuid_bytes = content_address([
+        b"reactive-affect-guard".as_slice(),
+        request_id.as_bytes(),
+        domain.as_bytes(),
+        &slot.get().to_be_bytes(),
+    ]);
+    uuid_bytes[6] = (uuid_bytes[6] & 0x0f) | 0x40;
+    uuid_bytes[8] = (uuid_bytes[8] & 0x3f) | 0x80;
+    GuardProfile {
+        guard_id: GuardId::new(Uuid::from_bytes(uuid_bytes)),
+        panel_version: REACTIVE_AFFECT_PANEL_VERSION as u64,
+        domain: domain.to_string(),
+        tau: BTreeMap::from([(slot, tau)]),
+        required_slots: vec![slot],
+        policy: GuardPolicy::AllRequired,
+        calibration: Some(calyx_ward::CalibrationMeta::new(
+            sha256_array(format!("reactive-affect-calibration:{request_id}:{domain}").as_bytes()),
+            "learner-origin-reactive-affect",
+            0.0,
+            0.0,
+            0.99,
+            &calyx_core::FixedClock::new(now),
+        )),
+        novelty_action: NoveltyAction::NewRegion,
+    }
+}
+
+#[derive(Clone)]
+struct ReactiveMmdJob {
+    baseline: Vec<Vec<f64>>,
+    recent: Vec<Vec<f64>>,
+    stream: Vec<Vec<f64>>,
+    min_window: usize,
+    config: MmdConfig,
+}
+
+impl ReactiveMmdJob {
+    fn from_request(request: &ReactiveMmdRequest) -> Self {
+        let mut config = MmdConfig::default();
+        if let Some(bandwidth) = request.bandwidth {
+            config.bandwidth = Some(bandwidth);
+        }
+        if let Some(permutations) = request.permutations {
+            config.permutations = permutations;
+        }
+        if let Some(seed) = request.seed {
+            config.seed = seed;
+        }
+        if let Some(alpha) = request.alpha {
+            config.alpha = alpha;
+        }
+        let stream = if request.change_point_stream.is_empty() {
+            request
+                .baseline_samples
+                .iter()
+                .chain(request.recent_samples.iter())
+                .cloned()
+                .collect()
+        } else {
+            request.change_point_stream.clone()
+        };
+        let min_window = request.min_window.unwrap_or_else(|| {
+            request
+                .baseline_samples
+                .len()
+                .min(request.recent_samples.len())
+                .max(REACTIVE_AFFECT_MIN_MMD_WINDOW)
+        });
+        Self {
+            baseline: request.baseline_samples.clone(),
+            recent: request.recent_samples.clone(),
+            stream,
+            min_window,
+            config,
+        }
+    }
+
+    fn readback(&self) -> Result<ReactiveMmdReadback, OriginError> {
+        let drift = gaussian_mmd_with_config(&self.baseline, &self.recent, &self.config)
+            .map_err(mmd_origin_error)?;
+        let change_point = mmd_change_point(&self.stream, self.min_window, &self.config)
+            .map_err(mmd_origin_error)?;
+        Ok(ReactiveMmdReadback {
+            drift,
+            change_point,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReactiveMmdReadback {
+    drift: MmdReport,
+    change_point: ChangePointReport,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReactiveIntervention {
+    kind: &'static str,
+    reason: &'static str,
+    confidence: f64,
+}
+
+fn reactive_interventions(
+    new_region_events: &[TriggerFired],
+    drift_events: &[TriggerFired],
+    mmd: &ReactiveMmdReadback,
+    novelty_action: Option<&NoveltyAction>,
+) -> Vec<ReactiveIntervention> {
+    let mut out = Vec::new();
+    if !new_region_events.is_empty() || novelty_action == Some(&NoveltyAction::NewRegion) {
+        out.push(ReactiveIntervention {
+            kind: "hint",
+            reason: "new_region",
+            confidence: 0.9,
+        });
+    }
+    if !drift_events.is_empty() {
+        out.push(ReactiveIntervention {
+            kind: "review",
+            reason: "agreement_drift",
+            confidence: 0.9,
+        });
+    }
+    if mmd.drift.significant || mmd.change_point.report.significant {
+        out.push(ReactiveIntervention {
+            kind: "review",
+            reason: "mmd_distribution_shift",
+            confidence: (1.0 - mmd.drift.p_value).clamp(0.0, 1.0),
+        });
+    }
+    out
+}
+
+fn trigger_events_json(events: &[TriggerFired]) -> Vec<Value> {
+    events
+        .iter()
+        .map(|event| {
+            json!({
+                "triggerId": event.trigger_id.to_string(),
+                "cxId": event.cx_id.to_string(),
+                "firedAt": event.fired_at,
+                "ledgerSeq": event.ledger_ref.seq,
+                "ledgerHash": hex(&event.ledger_ref.hash),
+                "condition": event.condition_snapshot
+            })
+        })
+        .collect()
+}
+
+fn trigger_id_for_subscription(
+    engine: &ReactiveEngine,
+    subscription_id: SubscriptionId,
+) -> Result<String, OriginError> {
+    engine
+        .subscriptions()
+        .get(subscription_id)
+        .map(|handle| handle.trigger_id.to_string())
+        .ok_or_else(|| OriginError::internal("reactive subscription missing after creation"))
+}
+
+fn stored_ledger_ref(seq: u64, hash_hex: &str) -> Result<LedgerRef, OriginError> {
+    Ok(LedgerRef {
+        seq,
+        hash: parse_hex_32(hash_hex)?,
+    })
+}
+
+fn parse_hex_32(value: &str) -> Result<[u8; 32], OriginError> {
+    if value.len() != 64 {
+        return Err(OriginError::internal("stored ledger hash is not 32 bytes"));
+    }
+    let mut out = [0_u8; 32];
+    for index in 0..32 {
+        out[index] = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16)
+            .map_err(|_| OriginError::internal("stored ledger hash is not valid hex"))?;
+    }
+    Ok(out)
+}
+
+fn vector_bytes(vector: &[f32]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(vector.len() * 4);
+    for value in vector {
+        out.extend_from_slice(&value.to_bits().to_be_bytes());
+    }
+    out
+}
+
+fn reactive_vector(field: &str, values: &[f32]) -> Result<Vec<f32>, OriginError> {
+    if values.is_empty() {
+        return Err(OriginError::bad_request(
+            "CALYX_ORIGIN_FIELD_REQUIRED",
+            format!("{field} must contain at least one value"),
+        ));
+    }
+    if values.len() > 4096 {
+        return Err(OriginError::bad_request(
+            "CALYX_ORIGIN_VECTOR_TOO_LARGE",
+            format!("{field} accepts at most 4096 values"),
+        ));
+    }
+    for (index, value) in values.iter().enumerate() {
+        if !value.is_finite() {
+            return Err(OriginError::bad_request(
+                "CALYX_ORIGIN_INVALID_NUMBER",
+                format!("{field}[{index}] must be finite"),
+            ));
+        }
+    }
+    Ok(values.to_vec())
+}
+
+fn require_reactive_drift_threshold(value: f32) -> Result<f32, OriginError> {
+    if value.is_finite() && (0.0..=2.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err(OriginError::bad_request(
+            "CALYX_ORIGIN_INVALID_NUMBER",
+            "driftThreshold must be finite and within [0, 2]",
+        ))
+    }
+}
+
+fn novelty_action_name(action: NoveltyAction) -> &'static str {
+    match action {
+        NoveltyAction::NewRegion => "new_region",
+        NoveltyAction::Quarantine => "quarantine",
+        NoveltyAction::RejectClosed => "reject_closed",
+    }
+}
+
+fn mmd_origin_error(error: calyx_core::CalyxError) -> OriginError {
+    OriginError::new(
+        STATUS_UNPROCESSABLE,
+        "CALYX_ORIGIN_MMD_REJECTED",
+        format!("{}: {}", error.code, error.message),
+    )
+}
+
+fn reactive_origin_error(error: calyx_core::CalyxError) -> OriginError {
+    OriginError::new(
+        STATUS_UNPROCESSABLE,
+        "CALYX_ORIGIN_REACTIVE_REJECTED",
+        format!("{}: {}", error.code, error.message),
+    )
+}
+
+fn ward_origin_error(error: calyx_ward::WardError) -> OriginError {
+    OriginError::new(
+        STATUS_UNPROCESSABLE,
+        "CALYX_ORIGIN_WARD_REJECTED",
+        format!("{}: {}", error.code(), error),
+    )
 }
 
 struct OracleForecastPlan {
