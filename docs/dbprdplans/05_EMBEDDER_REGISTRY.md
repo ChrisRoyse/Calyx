@@ -31,7 +31,7 @@ Lens {
 
 | Runtime | Mechanism | aiwonder fit |
 |---|---|---|
-| `tei-http` | resident HF TEI endpoint | reuse `:8088` general, `:8090` legal, `:8089` reranker — **never start throwaway TEI** (gotcha) |
+| `tei-http` | resident HF TEI endpoint | use Calyx-owned resident endpoints for Calyx vaults (website origin: BGE-M3 `:18188`, multilingual E5 `:18190`); Leapable-owned `:8088`/`:8090`/`:8089` are separate-tenant services, not Calyx dependencies |
 | `candle-local` | weights loaded into Forge (candle/cudarc), run on sm_120 | new bespoke lenses, low-latency, no HTTP hop |
 | `onnx` | ORT CUDA EP | portability, embedded vaults |
 | `external-cmd` | spawn a process, typed stdin/stdout protocol | exotic modalities (audio WavLM, image CLIP) |
@@ -156,10 +156,10 @@ remain serialized as sidecars and never count toward the content-lens floor.
 
 ## 9. The 10+ roster: which lenses to try first, where to get them, how to value them
 
-**Where to get them (all free / open-weight, A34; HuggingFace via `hf_hub_token`).** Run dense lenses on the resident TEI services (`§2`, never throwaway TEI); image/audio via `external-cmd`/`onnx`; temporal/graph/scalar via `algorithmic`.
+**Where to get them (all free / open-weight, A34; HuggingFace via `hf_hub_token`).** Run dense lenses on Calyx-owned resident TEI services (`§2`, never ad-hoc throwaway TEI and never a cross-tenant Leapable container); image/audio via `external-cmd`/`onnx`; temporal/graph/scalar via `algorithmic`.
 
 **Text (dense + sparse) — try first, pick 5–7 *diverse* ones (diversity = low redundancy, A7):**
-- `gte-multilingual-base` (already live, TEI `:8088`) · `Qwen3-Embedding` (top MTEB multilingual/code) · `BGE-M3` (dense+sparse+multi-vector, 100+ langs) · `intfloat/e5-mistral-7b-instruct` · `nomic-embed-text-v1.5` · `jinaai/jina-embeddings-v3` · `NV-Embed-v2` · `Alibaba-NLP/gte-Qwen2` · `dunzhang/stella_en_1.5B_v5`.
+- `BGE-M3` (owned TEI `:18188`, dense+sparse+multi-vector, 100+ langs) · `multilingual-e5-base` / `e5-mistral` (owned TEI `:18190` for the website vault) · `Qwen3-Embedding` (top MTEB multilingual/code) · `gte-multilingual-base` · `nomic-embed-text-v1.5` · `jinaai/jina-embeddings-v3` · `NV-Embed-v2` · `Alibaba-NLP/gte-Qwen2` · `dunzhang/stella_en_1.5B_v5`.
 - **Sparse / lexical (a different signal, not just another dense model):** `naver/splade-v3` (the full-text lens, `DOCTRINE §3`).
 - **Reranker (cross-encoder, asymmetric):** the resident `gte` reranker (TEI `:8089`).
 

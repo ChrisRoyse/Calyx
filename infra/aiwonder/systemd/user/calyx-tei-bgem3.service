@@ -1,0 +1,19 @@
+[Unit]
+Description=Calyx-owned BGE-M3 TEI embedder (loopback 18188) (#1922)
+After=network.target
+Wants=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/calyx-tei-bgem3.env
+EnvironmentFile=/run/leapable/secrets/calyx.env
+Restart=always
+RestartSec=10s
+TimeoutStartSec=0
+ExecStartPre=-/usr/bin/docker rm -f calyx-tei-bgem3
+ExecStart=/usr/bin/docker run --rm --name calyx-tei-bgem3 --gpus all --pull=never --env-file %h/.config/calyx-tei-bgem3.env -e HF_TOKEN -e HF_HUB_TOKEN -e LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/lib64 -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility -v /home/croyse/calyx/repo/infra/aiwonder/bin/tei-driver610-entrypoint.sh:/calyx/tei-driver610-entrypoint.sh:ro -v /zfs/hot/models/huggingface:/data -p 127.0.0.1:18188:80 --entrypoint /calyx/tei-driver610-entrypoint.sh ghcr.io/leapable/tei-blackwell:phase0-wrapper
+ExecStop=/usr/bin/docker stop -t 30 calyx-tei-bgem3
+
+[Install]
+WantedBy=default.target

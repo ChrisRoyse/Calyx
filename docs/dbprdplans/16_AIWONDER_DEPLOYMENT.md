@@ -24,7 +24,16 @@ Never copy a secret value from `aiwonder.env` into a repo, issue, PR, or chat �
 | `archive` HDD mirror ~8.5 TB | `/zfs/archive/calyx/`: raw f32 sidecars, retired slots, old panels, ledger archive, restic source |
 | PostgreSQL 18.4 + PgBouncer | **UNTOUCHED** — stays as the control plane (customers, billing, creators, queries, outbox). `calyxd` does not connect to it. |
 
-VRAM coexistence: 3 resident TEI containers (general/legal/reranker) + dcgm-exporter already use the GPU. Forge runs under a **soft VRAM budget** (config), yields to TEI/marketplace; Anneal capped (`12 §6`). Honor `leapable-gpu-max-power.service` (600 W cap).
+VRAM coexistence: Leapable runs 3 resident TEI containers (general/legal/reranker)
+plus dcgm-exporter on the GPU. Calyx website origin must not depend on those
+cross-tenant containers; it owns user-systemd TEI services for BGE-M3 on
+`127.0.0.1:18188` and multilingual E5 on `127.0.0.1:18190`, mounted on the
+shared HF cache. The repo templates live under
+`infra/aiwonder/systemd/user/`; copy the `.env.example` files to
+`%h/.config/*.env` on the box and keep secret values in `/run/leapable/secrets`,
+not in the repo templates. Forge runs under a **soft VRAM budget** (config), yields to
+serving/marketplace load; Anneal capped (`12 §6`). Honor
+`leapable-gpu-max-power.service` (600 W cap).
 
 ## 2. systemd unit
 
@@ -122,7 +131,9 @@ All secrets are managed in **Infisical** (`leapable-aiwonder-prod`, project `c2d
 
 - Verify source-of-truth directly after every op (`systemctl`, `zpool status`, `nvidia-smi`, actual Aster bytes) — a 200/return is a claim.
 - Fail closed; no fallback that hides failure.
-- Don't start throwaway TEI/Redis/cloudflared; reuse resident services.
+- Don't start throwaway TEI/Redis/cloudflared. Calyx-owned resident TEI units are
+  allowed and should be repo-owned/user-systemd-managed; do not borrow
+  Leapable-owned TEI containers for Calyx vault slots.
 - Don't reintroduce retired infra (Fly/Tigris/B2/S3); Aster is POSIX-on-ZFS only.
 - Production synthetic test data must be cleanup-tagged and provably inert before the turn ends.
 

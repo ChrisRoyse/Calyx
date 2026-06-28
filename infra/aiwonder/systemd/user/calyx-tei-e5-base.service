@@ -1,0 +1,19 @@
+[Unit]
+Description=Calyx-owned multilingual E5 TEI embedder (loopback 18190) (#1922)
+After=network.target
+Wants=network.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/calyx-tei-e5-base.env
+EnvironmentFile=/run/leapable/secrets/calyx.env
+Restart=always
+RestartSec=10s
+TimeoutStartSec=0
+ExecStartPre=-/usr/bin/docker rm -f calyx-tei-e5-base
+ExecStart=/usr/bin/docker run --rm --name calyx-tei-e5-base --gpus all --pull=never --env-file %h/.config/calyx-tei-e5-base.env -e HF_TOKEN -e HF_HUB_TOKEN -e LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/lib64 -e NVIDIA_VISIBLE_DEVICES=all -e NVIDIA_DRIVER_CAPABILITIES=compute,utility -v /home/croyse/calyx/repo/infra/aiwonder/bin/tei-driver610-entrypoint.sh:/calyx/tei-driver610-entrypoint.sh:ro -v /zfs/hot/models/huggingface:/data -p 127.0.0.1:18190:80 --entrypoint /calyx/tei-driver610-entrypoint.sh ghcr.io/leapable/tei-blackwell:phase0-wrapper
+ExecStop=/usr/bin/docker stop -t 30 calyx-tei-e5-base
+
+[Install]
+WantedBy=default.target
