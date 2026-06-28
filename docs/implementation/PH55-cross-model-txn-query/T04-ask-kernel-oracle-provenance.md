@@ -12,7 +12,12 @@
 
 ## Goal
 
-Implement the `ASK` query mode: given a natural-language question and a set of candidate `CxId`s from prior pipeline steps, rank relevant constellations, produce a grounded answer, and tag each grounding row with its `LedgerRef`.
+Implement the retrieval and provenance boundary for `ASK`: given a
+natural-language question and a set of candidate `CxId`s from prior pipeline
+steps, rank relevant constellations and prove the grounding rows from stored
+`LedgerRef`s. Until a real answer synthesis/oracle implementation is wired,
+answer mode must fail closed with `CALYX_ANSWER_SYNTHESIS_UNAVAILABLE`; it must
+not return a synthetic answer or append a successful `QueryResult` answer row.
 
 ## Implementation Notes
 
@@ -21,36 +26,39 @@ Implement the `ASK` query mode: given a natural-language question and a set of c
   - `context_cx_ids: Vec<CxId>`
   - `top_k: usize` with serde default `10`
   - `oracle: bool`
-- `AskResult` returns:
+- `AskResult` is the eventual success shape:
   - `answer`
   - `grounding: Vec<ProvenancedRow>`
   - `gaps`
   - `oracle_conf`
 - `query::ask::ask(...)` validates the question, pins the caller's snapshot, builds the candidate set from explicit context or full `Base` CF, ranks available per-slot vectors with PH24 restricted RRF, and tags every grounding row from `vault.get(cx_id, snapshot).provenance`.
 - `PlanStep::Ask` now includes `top_k` and `oracle`; the planner propagates both fields from `AskSpec`.
-- The executor now calls `query::ask::ask(...)` and appends grounding rows to `QueryResult.rows`, using prior `ExecState` CxId candidates when the step has no explicit context.
+- The executor now calls `query::ask::ask(...)`, using prior `ExecState` CxId candidates when the step has no explicit context. Because synthesis/oracle execution is not wired, `Ask` currently returns `CALYX_ANSWER_SYNTHESIS_UNAVAILABLE` after grounded retrieval and appends no partial `QueryResult.rows`.
 - Empty question fails closed with `CALYX_INVALID_ARGUMENT`.
 - No visible candidates or empty grounding fails closed with `CALYX_ANSWER_UNGROUNDED`.
 - Candidate rows with no available lens slots fail closed with `CALYX_LENS_NOT_FOUND`.
-- Oracle is wired as a PH49-compatible stub returning `oracle_conf=None`.
-- Kernel answer is wired as a PH33-compatible stub returning `answer="[kernel stub]"`, grounding equal to top RRF CxIds, and no gaps.
+- Oracle/synthesis is intentionally unwired in this phase. The allowed observable behavior is the explicit fail-closed error plus the grounding IDs in the error message for audit/debugging.
 
 ## Boundary Note
 
-`calyx-lodestar` currently depends on `calyx-sextant`, so Sextant cannot directly call Lodestar's concrete `kernel_answer` API without creating a crate dependency cycle. This implementation keeps the PH33/PH49 call site as a local compatibility boundary and preserves fail-closed grounding/provenance semantics until the shared kernel-answer interface is split into a lower-level crate.
+`calyx-lodestar` currently depends on `calyx-sextant`, so Sextant cannot
+directly call Lodestar's concrete `kernel_answer` API without creating a crate
+dependency cycle. This implementation keeps the PH33/PH49 call site as an
+explicit fail-closed compatibility boundary until the shared kernel-answer
+interface is split into a lower-level crate or a real synthesis/oracle adapter is
+wired.
 
 ## Tests
 
 - `query::ask` unit tests cover:
-  - stub answer with at least one grounding row
+  - grounded retrieval failing closed with `CALYX_ANSWER_SYNTHESIS_UNAVAILABLE`
   - provenance tag from stored constellation ledger refs
-  - empty context full-vault search
-  - `top_k=1`
-  - `oracle=false` returning `None`
+  - empty context full-vault search failing with the same synthesis-unavailable code
+  - `top_k=1` limiting grounding before fail-closed synthesis
   - empty question error
   - empty grounding error
   - unavailable lens error
-- `query::executor` tests cover `PlanStep::Ask` appending grounding rows with provenance.
+- `query::executor` tests cover `PlanStep::Ask` returning `CALYX_ANSWER_SYNTHESIS_UNAVAILABLE` with no state mutation or partial `QueryResult`.
 - Planner tests cover propagation of the expanded `AskSpec`.
 
 ## aiwonder Gates
@@ -70,7 +78,7 @@ FSV root:
 
 `/home/croyse/calyx/data/fsv-issue466-ask-20260614T161015Z`
 
-Readback file:
+Historical readback file:
 
 `/home/croyse/calyx/data/fsv-issue466-ask-20260614T161015Z/issue466-ask-readback.json`
 
@@ -81,27 +89,34 @@ Manual SoT readback:
 - SHA-256 hashes were read for the JSON and every SST file in those CFs.
 - SST bytes were sampled with `xxd` from Base, Ledger, and slot_00 files.
 
-Observed state:
+Superseded historical artifact state:
 
 - Before: `base_rows=0`, `ledger_rows=0`, `slot_00_rows=0`, `latest_seq=0`.
 - After: `base_rows=3`, `ledger_rows=3`, `slot_00_rows=3`, `latest_seq=3`.
-- Happy path answer: `[kernel stub]`.
-- Happy path grounding count: `2`.
-- Happy path ledger refs present with observed seqs `[1, 0]`.
-- Executor ASK grounding count: `1`, ledger ref present.
-- Full-vault search with empty context returned `2` grounding rows.
-- `top_k=1` returned exactly `1` grounding row.
+- The original artifact predated the hardened ASK answer contract and showed an
+  obsolete generated-result path. That behavior is no longer valid.
+- The only reusable evidence from this artifact is the raw Base/Ledger/slot_00
+  readback shape; current tests must assert the fail-closed contract below.
 - Edge codes:
   - empty question: `CALYX_INVALID_ARGUMENT`
   - no visible grounding: `CALYX_ANSWER_UNGROUNDED`
   - unavailable lens: `CALYX_LENS_NOT_FOUND`
-  - oracle stub confidence: `null`
+
+Current contract:
+
+- Grounded ASK retrieval returns `CALYX_ANSWER_SYNTHESIS_UNAVAILABLE` until a
+  real answer synthesis/oracle path is wired.
+- The fail-closed path preserves the candidate's stored `LedgerRef`, leaves the
+  vault sequence unchanged, and returns no successful answer row.
+- If grounding-only output is needed before synthesis is wired, it must be added
+  as a separate explicit non-answer mode rather than by weakening `ASK` answer
+  mode.
 
 ## Done
 
 - [x] `AskSpec` extended with `top_k` and `oracle`.
-- [x] `ask(...)` implemented with snapshot-pinned candidate retrieval, restricted RRF, kernel stub, Oracle stub, and provenance tags.
-- [x] Executor `ASK` step wired to append grounding rows.
+- [x] `ask(...)` implemented with snapshot-pinned candidate retrieval, restricted RRF, provenance tags, and fail-closed synthesis-unavailable behavior.
+- [x] Executor `ASK` step wired to fail closed without appending partial rows until real synthesis/oracle execution exists.
 - [x] Fail-closed errors implemented.
 - [x] Unit tests and executor/planner tests updated.
 - [x] aiwonder gates passed.

@@ -88,23 +88,27 @@ calyx query --vault /home/croyse/calyx/test-vault \
   --agg   'count' \
   --explain
 
-# ASK: grounded, provenanced
-calyx ask --vault /home/croyse/calyx/test-vault "What orders were placed recently?" --provenance
+# ASK answer mode: grounded retrieval, fail-closed until synthesis/oracle is wired
+calyx ask --vault /home/croyse/calyx/test-vault "What orders were placed recently?" --provenance \
+  2>&1 | grep CALYX_ANSWER_SYNTHESIS_UNAVAILABLE
 
 # Unbounded plan rejection:
 calyx query --vault /home/croyse/calyx/test-vault --filter 'orders.qty >= 0' \
   --no-cost-cap 2>&1 | grep CALYX_PLANNER_COST_CAP
 ```
 
-Evidence (seq numbers, query results, provenance tag, rejection error) posted to PH55 GitHub issue.
+Evidence (seq numbers, query results, ASK synthesis-unavailable error, provenance
+readback, rejection error) posted to PH55 GitHub issue.
 
 ## Risks / landmines
 
 - Single-writer-per-vault means no concurrent txn. If two calyx-cli processes
   race, the second must block (not error) until the first commits or times out.
   Use a per-vault mutex in `TxnHandle`; timeout → `CALYX_TXN_TIMEOUT`.
-- The `ASK` path calls `kernel_answer` (PH33) which may be expensive; it must
-  honour the `cost_cap_ms` from the query's `TxnPolicy`.
+- The `ASK` path must not fabricate answers before a real synthesis/oracle path
+  exists. Current answer mode fails closed with
+  `CALYX_ANSWER_SYNTHESIS_UNAVAILABLE` after grounded retrieval and must honour
+  the query's `cost_cap_ms` once synthesis is wired.
 - Planner cost estimation for cross-model plans is approximate; use a
   conservative upper bound; fail closed if estimate exceeds cap rather than
   running and hoping.

@@ -68,7 +68,7 @@ where
     Err(sextant_error(
         CALYX_ANSWER_SYNTHESIS_UNAVAILABLE,
         format!(
-            "ASK retrieved {grounding_count} grounded candidate(s), but answer synthesis/oracle execution is not wired; refusing stub answer. grounding={}",
+            "ASK retrieved {grounding_count} grounded candidate(s), but answer synthesis/oracle execution is not wired; refusing synthetic answer. grounding={}",
             grounding
                 .iter()
                 .map(|row| hex(row.key.as_bytes()))
