@@ -4,9 +4,7 @@ use calyx_sextant::query::{AskSpec, GraphHop, UniversalQuery, VectorQuery, execu
 use calyx_sextant::{CALYX_ANSWER_SYNTHESIS_UNAVAILABLE, CALYX_SEXTANT_ASSOC_GRAPH_MISSING};
 use serde_json::{Value, json};
 
-#[path = "../sextant_support/mod.rs"]
-mod sextant_support;
-use sextant_support::hex;
+use super::hex;
 
 pub(super) fn graph_hop_fail_closed(vault: &AsterVault<FixedClock>, cx_id: CxId) -> Value {
     let before_seq = vault.latest_seq();

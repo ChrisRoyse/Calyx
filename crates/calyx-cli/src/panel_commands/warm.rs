@@ -207,6 +207,15 @@ struct WarmLoadLimit {
     max_load_secs: u64,
 }
 
+struct WarmLoadWait<'a> {
+    selector: &'a str,
+    phase: &'static str,
+    completed: usize,
+    total: usize,
+    load_parallelism: usize,
+    progress_log: &'a SharedProgressLog,
+}
+
 impl WarmLoadLimit {
     fn new(max_load_secs: u64) -> Self {
         Self {
@@ -215,49 +224,32 @@ impl WarmLoadLimit {
         }
     }
 
-    fn recv<T>(
-        &self,
-        rx: &mpsc::Receiver<T>,
-        selector: &str,
-        phase: &'static str,
-        completed: usize,
-        total: usize,
-        load_parallelism: usize,
-        progress_log: &SharedProgressLog,
-    ) -> CliResult<T> {
+    fn recv<T>(&self, rx: &mpsc::Receiver<T>, wait: WarmLoadWait<'_>) -> CliResult<T> {
         if self.max_load_secs == 0 {
             return rx.recv().map_err(|_| {
                 CliError::from(CalyxError::lens_unreachable(format!(
-                    "panel warm worker channel closed during {phase}; completed={completed}/{total}"
+                    "panel warm worker channel closed during {phase}; completed={completed}/{total}",
+                    phase = wait.phase,
+                    completed = wait.completed,
+                    total = wait.total,
                 )))
             });
         }
         match self.remaining() {
             Some(remaining) if !remaining.is_zero() => rx.recv_timeout(remaining).map_err(|err| {
                 match err {
-                    mpsc::RecvTimeoutError::Timeout => self.timeout_error(
-                        selector,
-                        phase,
-                        completed,
-                        total,
-                        load_parallelism,
-                        progress_log,
-                    ),
+                    mpsc::RecvTimeoutError::Timeout => self.timeout_error(&wait),
                     mpsc::RecvTimeoutError::Disconnected => {
                         CliError::from(CalyxError::lens_unreachable(format!(
-                            "panel warm worker channel closed during {phase}; completed={completed}/{total}"
+                            "panel warm worker channel closed during {phase}; completed={completed}/{total}",
+                            phase = wait.phase,
+                            completed = wait.completed,
+                            total = wait.total,
                         )))
                     }
                 }
             }),
-            _ => Err(self.timeout_error(
-                selector,
-                phase,
-                completed,
-                total,
-                load_parallelism,
-                progress_log,
-            )),
+            _ => Err(self.timeout_error(&wait)),
         }
     }
 
@@ -272,26 +264,22 @@ impl WarmLoadLimit {
         self.started.elapsed().as_millis()
     }
 
-    fn timeout_error(
-        &self,
-        selector: &str,
-        phase: &'static str,
-        completed: usize,
-        total: usize,
-        load_parallelism: usize,
-        progress_log: &SharedProgressLog,
-    ) -> CliError {
+    fn timeout_error(&self, wait: &WarmLoadWait<'_>) -> CliError {
         let elapsed_ms = self.elapsed_ms();
         let message = format!(
             "panel warm readiness exceeded {max}s during {phase}; completed={completed}/{total}; \
              load_parallelism={load_parallelism}; elapsed_ms={elapsed_ms}; all configured lenses \
              must prepare and complete warmup inference inside the global readiness deadline",
             max = self.max_load_secs,
+            phase = wait.phase,
+            completed = wait.completed,
+            total = wait.total,
+            load_parallelism = wait.load_parallelism,
         );
-        let mut record = run_progress_record(selector, "load_timeout");
+        let mut record = run_progress_record(wait.selector, "load_timeout");
         record.elapsed_ms = Some(elapsed_ms);
-        record.lens_count = Some(total);
-        record.load_parallelism = Some(load_parallelism);
+        record.lens_count = Some(wait.total);
+        record.load_parallelism = Some(wait.load_parallelism);
         record.error_code = Some(WARM_TIMEOUT.to_string());
         record.error_message = Some(message.clone());
         record.remediation = Some(
@@ -299,7 +287,7 @@ impl WarmLoadLimit {
              slow lenses, or start the resident warm service once"
                 .to_string(),
         );
-        let _ = append_shared_progress(progress_log, &record);
+        let _ = append_shared_progress(wait.progress_log, &record);
         CliError::from(CalyxError {
             code: WARM_TIMEOUT,
             message,
@@ -500,7 +488,7 @@ fn warm_preflight(
 }
 
 fn default_load_parallelism(lens_count: usize) -> usize {
-    lens_count.min(DEFAULT_LOAD_PARALLELISM).max(1)
+    lens_count.clamp(1, DEFAULT_LOAD_PARALLELISM)
 }
 
 fn semantic_lens_count(lenses: &[template_store::TemplateLensRef]) -> usize {
@@ -671,12 +659,14 @@ fn prepare_warm_lenses_parallel(
     while prepared.len() < total {
         let item = load_limit.recv(
             &rx,
-            selector,
-            "parallel_prepare_prime",
-            prepared.len(),
-            total,
-            worker_count,
-            progress_log,
+            WarmLoadWait {
+                selector,
+                phase: "parallel_prepare_prime",
+                completed: prepared.len(),
+                total,
+                load_parallelism: worker_count,
+                progress_log,
+            },
         )??;
         prepared.push(item);
     }
@@ -780,9 +770,11 @@ fn prime_prepared_warm_lens(
                     lens,
                     runtime_lens_id,
                     &spec.runtime,
-                    started.elapsed().as_millis(),
-                    error.code.to_string(),
-                    error.message.clone(),
+                    PrimeErrorEvent {
+                        elapsed_ms: started.elapsed().as_millis(),
+                        error_code: error.code.to_string(),
+                        error_message: error.message.clone(),
+                    },
                 ),
             )?;
             return Err(warm_prime_error(
@@ -803,9 +795,11 @@ fn prime_prepared_warm_lens(
                 lens,
                 runtime_lens_id,
                 &spec.runtime,
-                started.elapsed().as_millis(),
-                error.code().to_string(),
-                error.message().to_string(),
+                PrimeErrorEvent {
+                    elapsed_ms: started.elapsed().as_millis(),
+                    error_code: error.code().to_string(),
+                    error_message: error.message().to_string(),
+                },
             ),
         )?;
         return Err(warm_prime_cli_error(
@@ -1005,6 +999,12 @@ fn prime_progress_record(
     record
 }
 
+struct PrimeErrorEvent {
+    elapsed_ms: u128,
+    error_code: String,
+    error_message: String,
+}
+
 fn prime_error_record(
     template: &str,
     ordinal: usize,
@@ -1012,9 +1012,7 @@ fn prime_error_record(
     lens: &template_store::TemplateLensRef,
     runtime_lens_id: calyx_core::LensId,
     runtime: &LensRuntime,
-    elapsed_ms: u128,
-    error_code: String,
-    error_message: String,
+    error: PrimeErrorEvent,
 ) -> WarmProgressRecord {
     let mut record = prime_progress_record(
         template,
@@ -1025,9 +1023,9 @@ fn prime_error_record(
         runtime_lens_id,
         runtime,
     );
-    record.elapsed_ms = Some(elapsed_ms);
-    record.error_code = Some(error_code);
-    record.error_message = Some(error_message);
+    record.elapsed_ms = Some(error.elapsed_ms);
+    record.error_code = Some(error.error_code);
+    record.error_message = Some(error.error_message);
     record
 }
 
@@ -1195,14 +1193,16 @@ fn probe_panel(
         if let Some(log) = progress_log {
             log.append(&probe_progress_record(
                 template,
-                "probe_start",
-                ordinal,
-                total,
-                slot,
-                spec.name.as_str(),
-                &spec.runtime,
-                None,
-                None,
+                ProbeProgressEvent {
+                    phase: "probe_start",
+                    ordinal,
+                    total,
+                    slot,
+                    spec_name: spec.name.as_str(),
+                    runtime: &spec.runtime,
+                    elapsed_ms: None,
+                    error: None,
+                },
             ))?;
         }
         let input = Input::new(slot.modality, probe_bytes(slot.modality)?);
@@ -1213,14 +1213,16 @@ fn probe_panel(
                 if let Some(log) = progress_log {
                     log.append(&probe_progress_record(
                         template,
-                        "probe_error",
-                        ordinal,
-                        total,
-                        slot,
-                        spec.name.as_str(),
-                        &spec.runtime,
-                        Some(started.elapsed().as_millis()),
-                        Some((error.code, error.message.as_str())),
+                        ProbeProgressEvent {
+                            phase: "probe_error",
+                            ordinal,
+                            total,
+                            slot,
+                            spec_name: spec.name.as_str(),
+                            runtime: &spec.runtime,
+                            elapsed_ms: Some(started.elapsed().as_millis()),
+                            error: Some((error.code, error.message.as_str())),
+                        },
                     ))?;
                 }
                 return Err(warm_error(slot, spec.name.as_str(), &spec.runtime, error));
@@ -1230,14 +1232,16 @@ fn probe_panel(
             if let Some(log) = progress_log {
                 log.append(&probe_progress_record(
                     template,
-                    "probe_error",
-                    ordinal,
-                    total,
-                    slot,
-                    spec.name.as_str(),
-                    &spec.runtime,
-                    Some(started.elapsed().as_millis()),
-                    Some((error.code(), error.message())),
+                    ProbeProgressEvent {
+                        phase: "probe_error",
+                        ordinal,
+                        total,
+                        slot,
+                        spec_name: spec.name.as_str(),
+                        runtime: &spec.runtime,
+                        elapsed_ms: Some(started.elapsed().as_millis()),
+                        error: Some((error.code(), error.message())),
+                    },
                 ))?;
             }
             return Err(warm_cli_error(
@@ -1316,21 +1320,29 @@ fn registration_progress_record(template: &str, event: TemplateLensProgress) -> 
     record
 }
 
-fn probe_progress_record(
-    template: &str,
-    phase: &str,
+struct ProbeProgressEvent<'a> {
+    phase: &'a str,
     ordinal: usize,
     total: usize,
-    slot: &Slot,
-    spec_name: &str,
-    runtime: &LensRuntime,
+    slot: &'a Slot,
+    spec_name: &'a str,
+    runtime: &'a LensRuntime,
     elapsed_ms: Option<u128>,
-    error: Option<(&str, &str)>,
-) -> WarmProgressRecord {
-    let mut record =
-        slot_progress_record(template, phase, ordinal, total, slot, spec_name, runtime);
-    record.elapsed_ms = elapsed_ms;
-    if let Some((code, message)) = error {
+    error: Option<(&'a str, &'a str)>,
+}
+
+fn probe_progress_record(template: &str, event: ProbeProgressEvent<'_>) -> WarmProgressRecord {
+    let mut record = slot_progress_record(
+        template,
+        event.phase,
+        event.ordinal,
+        event.total,
+        event.slot,
+        event.spec_name,
+        event.runtime,
+    );
+    record.elapsed_ms = event.elapsed_ms;
+    if let Some((code, message)) = event.error {
         record.error_code = Some(code.to_string());
         record.error_message = Some(message.to_string());
     }

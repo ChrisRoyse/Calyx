@@ -178,6 +178,16 @@ impl std::fmt::Display for CliError {
 
 impl std::error::Error for CliError {}
 
+impl From<calyx_search::SearchError> for CliError {
+    fn from(error: calyx_search::SearchError) -> Self {
+        match error {
+            calyx_search::SearchError::Calyx(inner) => CliError::Calyx(inner),
+            calyx_search::SearchError::Io(message) => CliError::Io(message),
+            calyx_search::SearchError::Usage(message) => CliError::Usage(message),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,16 +270,6 @@ mod tests {
             prop_assert_eq!(cli.code(), code.code());
             prop_assert_eq!(cli.remediation(), code.remediation());
             prop_assert_eq!(cli.message(), "synthetic detail");
-        }
-    }
-}
-
-impl From<calyx_search::SearchError> for CliError {
-    fn from(error: calyx_search::SearchError) -> Self {
-        match error {
-            calyx_search::SearchError::Calyx(inner) => CliError::Calyx(inner),
-            calyx_search::SearchError::Io(message) => CliError::Io(message),
-            calyx_search::SearchError::Usage(message) => CliError::Usage(message),
         }
     }
 }

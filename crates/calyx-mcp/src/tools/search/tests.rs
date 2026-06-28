@@ -8,6 +8,7 @@ use std::sync::MutexGuard;
 use calyx_core::{AuthN, Modality, SlotState, VaultStore};
 use calyx_ward::{
     CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction, SlotCalibrationMeta,
+    SlotKind,
 };
 use serde_json::{Value, json};
 
@@ -180,6 +181,7 @@ fn write_calibrated_default_guard(vault: &Path, vault_id: &str, name: &str, tau:
             frr: 0.0,
             confidence: 0.99,
             ts: 1_785_400_000,
+            slot_kind: Some(SlotKind::Content),
         },
     );
     let mut tau_by_slot = BTreeMap::new();
@@ -494,6 +496,22 @@ fn in_region_guard_uses_calibrated_ward_profile() {
         .expect("read guard cf")
         .expect("guard row exists");
     let profile: GuardProfile = serde_json::from_slice(&guard_bytes).expect("profile readback");
+    let slot_kinds = profile
+        .calibration
+        .as_ref()
+        .map(|calibration| {
+            calibration
+                .per_slot
+                .iter()
+                .map(|(slot, meta)| {
+                    json!({
+                        "slot": slot.get(),
+                        "slot_kind": meta.slot_kind.map(|kind| kind.label()),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     maybe_write_fsv_json(
         "mcp-guarded-search-readback.json",
         &json!({
@@ -505,6 +523,7 @@ fn in_region_guard_uses_calibrated_ward_profile() {
                 "bytes_len": guard_bytes.len(),
                 "required_slots": profile.required_slots,
                 "tau": profile.tau,
+                "slot_kinds": slot_kinds,
                 "calibrated": profile.is_calibrated(),
             },
             "search_response": result,
