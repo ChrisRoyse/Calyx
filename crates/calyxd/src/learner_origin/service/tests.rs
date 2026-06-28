@@ -139,6 +139,98 @@ fn cooldown_decision_returns_no_widgets() {
 }
 
 #[test]
+fn mastery_estimate_imputes_unprobed_concept_and_persists_trust_gate() {
+    let service = service("mastery");
+    let response = post(
+        &service,
+        "/v1/mastery/estimate",
+        json!({
+            "requestId": "mastery-a",
+            "idempotencyKey": "mastery-idem-a",
+            "learnerId": "learner-a",
+            "domain": "calyxweb-learner",
+            "concepts": [
+                {"conceptId": "ward-gate", "mastery": 0.91},
+                {"conceptId": "oracle-complete", "trustedMastery": 0.84}
+            ],
+            "panelBits": 1.2,
+            "anchorEntropyBits": 1.0,
+            "oracleSelfConsistency": {"flakiness": 0.01, "validity": 0.95},
+            "trustGate": {
+                "heldOutCount": 3,
+                "kernelRecallRatio": 0.97,
+                "calibrationError": 0.05,
+                "goodhartPassRate": 1.0,
+                "recurringMistakes": 0,
+                "replayedMistakes": 4
+            }
+        }),
+    );
+    assert_eq!(response.status, STATUS_CREATED, "{}", response.body);
+    let body: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(body["completion"]["slots"].as_array().unwrap().len(), 2);
+    assert_eq!(body["completion"]["slots"][0]["tag"], "measured");
+    assert_eq!(body["completion"]["slots"][1]["tag"], "inferred");
+    assert_eq!(body["trust"]["overall"], true);
+    assert_eq!(body["certificationEligible"], true);
+    assert_eq!(body["source"]["assayRows"], 4);
+
+    let rows = service.base_rows();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().any(|row| {
+        row.metadata_value("origin_kind") == Some("mastery_evidence")
+            && row.metadata_value("request_id") == Some("mastery-a")
+    }));
+    assert!(rows.iter().any(|row| {
+        row.metadata_value("origin_kind") == Some(KIND_MASTERY_ESTIMATE)
+            && row.metadata_value("completion_ledger_seq").is_some()
+            && row.metadata_value("trust_ledger_seq").is_some()
+            && row.metadata_value("certification_eligible") == Some("true")
+    }));
+}
+
+#[test]
+fn mastery_estimate_insufficient_panel_fails_closed_without_certifying() {
+    let service = service("mastery-insufficient");
+    let response = post(
+        &service,
+        "/v1/mastery/estimate",
+        json!({
+            "requestId": "mastery-low-signal",
+            "learnerId": "learner-a",
+            "concepts": [
+                {"conceptId": "ward-gate", "mastery": 0.51},
+                {"conceptId": "oracle-complete", "trustedMastery": 0.84}
+            ],
+            "panelBits": 0.2,
+            "anchorEntropyBits": 1.0,
+            "oracleSelfConsistency": {"flakiness": 0.01, "validity": 0.95},
+            "trustGate": {
+                "heldOutCount": 3,
+                "kernelRecallRatio": 0.97,
+                "calibrationError": 0.05,
+                "goodhartPassRate": 1.0,
+                "recurringMistakes": 0
+            }
+        }),
+    );
+    assert_eq!(response.status, STATUS_UNPROCESSABLE, "{}", response.body);
+    assert!(response.body.contains("CALYX_ORACLE_INSUFFICIENT"));
+    let rows = service.base_rows();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].metadata_value("origin_kind"),
+        Some("mastery_evidence")
+    );
+    assert_eq!(
+        service
+            .origin_metrics()
+            .write_count(KIND_MASTERY_ESTIMATE, "rejected"),
+        1
+    );
+}
+
+#[test]
 fn wrong_learner_outcome_rejected_without_ledger_append() {
     let service = service("wrong-learner");
     let decision = post(

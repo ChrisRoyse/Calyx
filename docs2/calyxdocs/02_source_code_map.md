@@ -837,6 +837,7 @@ roughly follow the dependency layering (foundations first, entry points last).
 - `cuda_probe.rs` — CUDA device preflight for calyxd (PH65 · T02).
 - `error.rs` — Daemon error taxonomy mapping to stable CALYX_* codes (PH65).
 - `health.rs` — PH65 · T04 — calyxd daemon-readiness healthcheck.
+- `learner_origin/` — Worker-only learner-origin API for learner signals, interventions, outcomes, and Oracle-backed mastery estimates.
 - `lib.rs` — calyxd library surface.
 - `main.rs` — Calyx daemon: Ledger chain-verify metrics on a loopback /metrics endpoint.
 - `mcp_server.rs` — Loopback-only MCP-over-socket transport for calyxd (PH65 · T05).
@@ -844,7 +845,7 @@ roughly follow the dependency layering (foundations first, entry points last).
 - `metrics/calyx.rs` — CalyxMetrics: the full daemon /metrics surface (PH66 T03, issue #538).
 - `metrics/hazards.rs` — The PH59 25-hazard register exposed as one gauge per hazard (PH66 T03).
 - `metrics/zfs.rs` — ZFS integrity metric collector for calyxd (issue #729).
-- `server.rs` — Loopback-only HTTP listener serving GET /metrics (PH65 bind rules).
+- `server.rs` — Loopback-only HTTP listener serving GET /metrics and optional learner-origin POST routes (PH65 bind rules).
 - `startup.rs` — startup module (no doc comment)
 - `verify.rs` — calyx verify-restore — byte-level read-back verification of a restored vault.
 - `verify_loop.rs` — Periodic Ledger chain-verify cycle feeding the chain-verify gauge family.
@@ -1076,13 +1077,13 @@ consumer in the workspace.
   ├─ verify_loop::run_cycle        — synchronous first Ledger chain-verify before bind
   │      └─ uses calyx_aster::ledger_view  → calyx-aster, calyx-ledger
   ├─ calyxd::metrics::CalyxMetrics — Prometheus registry (chain-verify + 25-hazard + ZFS)
-  ├─ calyxd::server::MetricsServer — loopback-only GET /metrics
+  ├─ calyxd::server::MetricsServer — loopback-only GET /metrics plus optional learner-origin routes
   └─ verify_loop::spawn_loop       — periodic re-verify, fed by CancellationToken
 ```
 
 Library modules consumed (single source of truth, also reused by `calyx-cli` and the
 healthcheck): `config`, `cuda_probe` (→ uses Forge/CUDA preflight), `error`, `health`,
-`mcp_server` (embeds `calyx-mcp`), `metrics` (+`metrics/calyx.rs`, `metrics/hazards.rs`,
+`learner_origin` (Worker-only origin writes), `mcp_server` (embeds `calyx-mcp`), `metrics` (+`metrics/calyx.rs`, `metrics/hazards.rs`,
 `metrics/zfs.rs`), `server`, `verify`, `vram`. Crates pulled in: `calyx-core`,
 `calyx-aster`, `calyx-forge`, `calyx-ledger`, `calyx-mcp`.
 

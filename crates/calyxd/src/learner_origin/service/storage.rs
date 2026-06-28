@@ -109,6 +109,45 @@ impl LearnerOriginService {
         })
     }
 
+    pub(super) fn commit_constellation_row(
+        &self,
+        constellation: Constellation,
+        kind: &'static str,
+        primary_id: &str,
+        ledger_kind: EntryKind,
+        payload_hash: &str,
+    ) -> Result<StoredRow, OriginError> {
+        let cx_id = constellation.cx_id;
+        let rows = encode_origin_rows(&constellation)?;
+        let mut payload = PayloadBuilder::default();
+        payload
+            .insert_str("cx_id", cx_id.to_string())
+            .insert_str("kind", kind)
+            .insert_str("primary_id", primary_id)
+            .insert_str("input_hash", payload_hash)
+            .insert_u64("ts", SystemClock.now());
+        let ledger_payload = RedactionPolicy::default().apply_to_payload(&payload);
+        self.vault
+            .write_cf_batch_with_ledger_entry(
+                rows,
+                ledger_kind,
+                SubjectId::Cx(cx_id),
+                ledger_payload,
+                ActorId::Service(ORIGIN_ACTOR.to_string()),
+            )
+            .map_err(storage_error)?;
+        self.vault.flush().map_err(storage_error)?;
+        let stored = self
+            .vault
+            .get(cx_id, self.vault.latest_seq())
+            .map_err(storage_error)?;
+        Ok(StoredRow {
+            cx_id: cx_id.to_string(),
+            ledger_seq: stored.provenance.seq,
+            ledger_hash: hex(&stored.provenance.hash),
+        })
+    }
+
     pub(super) fn find_by_idempotency(
         &self,
         kind: &'static str,

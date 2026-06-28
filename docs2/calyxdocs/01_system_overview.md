@@ -85,7 +85,7 @@ foundation depended on by all 18 other crates.
 | Surface | Binary | Crate | Transport / port | Purpose |
 |---|---|---|---|---|
 | CLI | `calyx` | `calyx-cli` | process invocation; JSON error envelope on stderr | Drive every engine operation from the shell; ~20 structured subcommands + legacy/domain command families |
-| Daemon | `calyxd` | `calyxd` | HTTP `GET /metrics` (Prometheus 0.0.4) on loopback, default `127.0.0.1:7700` | Long-running service: startup CUDA/VRAM probes, health probe, Prometheus metrics, `verify-restore` tool. A loopback MCP-over-socket transport (length-framed) exists in the library but is **not wired into the live daemon** (serves only `/metrics`) |
+| Daemon | `calyxd` | `calyxd` | HTTP `GET /metrics` (Prometheus 0.0.4) on loopback, default `127.0.0.1:7700`; optional Worker-only learner-origin JSON routes on the same listener | Long-running service: startup CUDA/VRAM probes, health probe, Prometheus metrics, `verify-restore` tool, and configured learner-origin writes. A loopback MCP-over-socket transport (length-framed) exists in the library but is **not wired into the live daemon** |
 | MCP server | `calyx-mcp` | `calyx-mcp` | **stdio only**, line-delimited JSON-RPC 2.0, MCP protocol `2024-11-05` | Agent-facing tool surface: 31 `calyx.*` tools |
 | Soak/hazard harness | `calyx-hazard-soak` | `calyx-hazard-soak` | CLI binary | 25 fault-injection probes (H1–H25) + a long integrated soak; emits JSON + Prometheus evidence |
 
@@ -146,10 +146,12 @@ families) and domain command groups (`navigate`, `sextant`, `media`, `lodestar`,
 emits a JSON `{code,message,remediation}` envelope on stderr with exit code 2. Full
 tables in [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md).
 
-### 3.3 Daemon endpoint
+### 3.3 Daemon endpoints
 
-`calyxd` serves exactly one HTTP route, `GET /metrics` (Prometheus text format 0.0.4) on
-loopback. Metric families and startup probes are documented in
+`calyxd` always serves `GET /metrics` (Prometheus text format 0.0.4) on loopback. When
+`[learner_origin]` is configured it also serves bearer-authenticated Worker-only JSON POST
+routes, including `/v1/mastery/estimate` for Oracle-backed mastery completion and trust
+gating. Metric families, startup probes, and origin routes are documented in
 [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md).
 
 ---

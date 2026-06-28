@@ -3,7 +3,7 @@
 This reference documents two Rust crates **strictly from their source**:
 
 - **`calyx-mcp`** — the MCP (Model Context Protocol) server library + stdio binary that exposes Calyx tools over JSON-RPC 2.0.
-- **`calyxd`** — the Calyx daemon/server: a Prometheus `/metrics` exporter, a periodic ledger chain-verify loop, a CUDA/VRAM startup preflight, a healthcheck probe, a byte-level vault read-back verifier, and a loopback MCP-over-socket transport.
+- **`calyxd`** — the Calyx daemon/server: a Prometheus `/metrics` exporter, optional Worker-only learner-origin routes, a periodic ledger chain-verify loop, a CUDA/VRAM startup preflight, a healthcheck probe, a byte-level vault read-back verifier, and a loopback MCP-over-socket transport.
 
 Where the source does not establish a fact, it is marked **"Not determined from source"**. Every claim is traced to a file path and function/type, with the owning crate noted.
 
@@ -21,12 +21,13 @@ Where the source does not establish a fact, it is marked **"Not determined from 
 - `tests/jsonrpc.rs`, `tests/stdio.rs` — integration tests (not documented in detail)
 - `Cargo.toml`
 
-**`crates/calyxd`** (20 files):
+**`crates/calyxd`**:
 - `src/main.rs` — daemon binary (`calyxd`) entrypoint + CLI arg parsing
 - `src/lib.rs` — library surface
 - `src/config.rs` — `CalyxConfig` TOML runtime config
 - `src/error.rs` — `DaemonError` taxonomy
 - `src/server.rs` — loopback HTTP `/metrics` server
+- `src/learner_origin/*` — optional Worker-only learner-origin API: learner signals, interventions, outcomes, and Oracle-backed mastery estimates
 - `src/mcp_server.rs` — loopback MCP-over-socket transport (`CalyxMcpServer`)
 - `src/verify_loop.rs` — periodic chain-verify driver (binary-only module)
 - `src/verify.rs` — `verify_restore` byte-level vault read-back
@@ -296,9 +297,11 @@ Validation (`validate`):
 
 Each variant carries a fixed `remediation()` hint. Daemon-local MCP codes live elsewhere: `CALYX_DAEMON_FRAME_INVALID` and `CALYX_DAEMON_CONN_PANIC` (`src/mcp_server.rs`).
 
-## B.5 HTTP `/metrics` server (`src/server.rs`)
+## B.5 HTTP `/metrics` and learner-origin server (`src/server.rs`, `src/learner_origin/*`)
 
-`MetricsServer` — a loopback-only thread-per-connection HTTP/1.1 listener serving exactly `GET /metrics`.
+`MetricsServer` — a loopback-only thread-per-connection HTTP/1.1 listener serving `GET /metrics`.
+When `[learner_origin]` is configured, the same loopback listener also serves Worker-only POST
+routes through `LearnerOriginService`; those routes require `Authorization: Bearer <shared-secret>`.
 
 Constants: `REQUEST_HEAD_LIMIT = 8192` bytes; `IO_TIMEOUT = 5s` (read + write); `CONTENT_TYPE = "text/plain; version=0.0.4"` (Prometheus exposition format v0.0.4).
 
@@ -309,19 +312,32 @@ Constants: `REQUEST_HEAD_LIMIT = 8192` bytes; `IO_TIMEOUT = 5s` (read + write); 
 Request handling (`handle_connection` → `route`):
 1. Set read/write timeouts (5s).
 2. `read_request_line` reads the full request head (through the blank line), bounded by 8192 bytes. Reading the whole head matters: closing a socket with unread bytes sends TCP RST not FIN. An unreadable/oversized head → `400 Bad Request`.
-3. `route` splits the request line:
+3. `route` first delegates configured learner-origin paths to `LearnerOriginService::handle`.
+   Those routes are POST-only, bearer-authenticated, bounded by `learner_origin.max_body_bytes`,
+   and write/read back real Aster/Ledger rows.
+4. Otherwise `route` splits the request line:
    - `GET /metrics` → `200 OK` with the encoded metric text; an encode error → `500 Internal Server Error`.
    - `GET <other path>` → `404 Not Found` ("only /metrics is served").
    - any other method → `405 Method Not Allowed`.
-4. `write_response` writes a minimal HTTP/1.1 response with `Content-Type`, `Content-Length`, `Connection: close`.
+5. `write_response` writes a minimal HTTP/1.1 response with `Content-Type`, `Content-Length`, `Connection: close`.
 
 | Path / Method | Status | Body | Source |
 |---|---|---|---|
 | `GET /metrics` | `200 OK` | Prometheus v0.0.4 text | `route` |
 | `GET /metrics` (encode error) | `500` | error text | `route` |
+| `POST /v1/learner-signals/batches` | `201`/`200`/error | JSON learner-signal source row or duplicate/error | `learner_origin::service::handle_signal_batch` |
+| `POST /v1/interventions/decide` | `201`/error | JSON intervention decision row | `handle_decision` |
+| `POST /v1/interventions/{decisionId}/outcomes` | `201`/error | JSON outcome row, learner-matched to the decision | `handle_outcome` |
+| `POST /v1/mastery/estimate` | `201`/`422`/error | JSON Oracle completion + `super_intelligence` trust report; insufficient Assay evidence fails closed | `handle_mastery_estimate` |
 | `GET <other>` | `404` | "only /metrics is served" | `route` |
 | non-GET | `405` | "only GET /metrics is served" | `route` |
 | unreadable head | `400` | "bad request" | `handle_connection` |
+
+`/v1/mastery/estimate` builds a one-slot-per-concept mastery panel from measured concepts and
+un-probed concepts, persists a `mastery_evidence` constellation, persists Assay sufficiency rows,
+calls Oracle `complete`, calls `super_intelligence_with_ledger` across all six tiers, and then
+persists a final `mastery_estimate` origin row. Certification eligibility is true only when the
+trust report is overall true and no completion slot is provisional.
 
 ## B.6 MCP-over-socket transport (`src/mcp_server.rs`)
 
@@ -475,7 +491,8 @@ Steps: stat WAL bytes (`wal_total_bytes` over `wal/*.wal`); `scan_vault` replays
 
 | Surface | Default address | Protocol | Source |
 |---|---|---|---|
-| HTTP `/metrics` | `127.0.0.1:7700` (`--bind` or `config.bind_addr`) | HTTP/1.1, `GET /metrics` only, loopback-only | `server.rs`, `config.rs` |
+| HTTP `/metrics` | `127.0.0.1:7700` (`--bind` or `config.bind_addr`) | HTTP/1.1 Prometheus `GET /metrics`, loopback-only | `server.rs`, `config.rs` |
+| Learner-origin API | same loopback listener when `[learner_origin]` is configured | HTTP/1.1 JSON POST, bearer-authenticated, loopback-only | `server.rs`, `learner_origin/*` |
 | MCP-over-socket | `cfg.bind_addr` (loopback-only); library API, not wired into `main` | length-prefixed JSON-RPC, loopback-only | `mcp_server.rs` |
 | MCP-over-stdio (`calyx-mcp`) | n/a (stdio) | newline-delimited JSON-RPC | `calyx-mcp/src/main.rs` |
 | TEI endpoints (documented) | `:8088` general, `:8089` reranker, `:8090` legal | external (not served by calyxd) | `vram.rs`, `config.rs` |

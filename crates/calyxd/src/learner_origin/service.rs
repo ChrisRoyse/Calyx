@@ -11,8 +11,8 @@ use sha2::{Digest, Sha256};
 use super::config::LearnerOriginConfig;
 use super::metrics::OriginMetrics;
 use super::model::{
-    ENDPOINT_DECIDE, ENDPOINT_OUTCOMES, ENDPOINT_SIGNALS, KIND_DECISION, KIND_OUTCOME,
-    KIND_SIGNAL_BATCH,
+    ENDPOINT_DECIDE, ENDPOINT_MASTERY_ESTIMATE, ENDPOINT_OUTCOMES, ENDPOINT_SIGNALS, KIND_DECISION,
+    KIND_MASTERY_ESTIMATE, KIND_OUTCOME, KIND_SIGNAL_BATCH,
 };
 use crate::error::DaemonError;
 
@@ -34,6 +34,7 @@ const STATUS_FORBIDDEN: &str = "403 Forbidden";
 const STATUS_NOT_FOUND: &str = "404 Not Found";
 const STATUS_METHOD_NOT_ALLOWED: &str = "405 Method Not Allowed";
 const STATUS_CONFLICT: &str = "409 Conflict";
+const STATUS_UNPROCESSABLE: &str = "422 Unprocessable Entity";
 const STATUS_INTERNAL: &str = "500 Internal Server Error";
 
 pub struct OriginResponse {
@@ -165,6 +166,7 @@ impl LearnerOriginService {
                 OriginRoute::SignalBatch => self.handle_signal_batch(body),
                 OriginRoute::Decision => self.handle_decision(body),
                 OriginRoute::Outcome { decision_id } => self.handle_outcome(decision_id, body),
+                OriginRoute::MasteryEstimate => self.handle_mastery_estimate(body),
             }
         };
         let response = match outcome {
@@ -207,6 +209,7 @@ enum OriginRoute {
     SignalBatch,
     Decision,
     Outcome { decision_id: String },
+    MasteryEstimate,
 }
 
 impl OriginRoute {
@@ -215,6 +218,7 @@ impl OriginRoute {
             Self::SignalBatch => ENDPOINT_SIGNALS,
             Self::Decision => ENDPOINT_DECIDE,
             Self::Outcome { .. } => ENDPOINT_OUTCOMES,
+            Self::MasteryEstimate => ENDPOINT_MASTERY_ESTIMATE,
         }
     }
 
@@ -223,6 +227,7 @@ impl OriginRoute {
             Self::SignalBatch => KIND_SIGNAL_BATCH,
             Self::Decision => KIND_DECISION,
             Self::Outcome { .. } => KIND_OUTCOME,
+            Self::MasteryEstimate => KIND_MASTERY_ESTIMATE,
         }
     }
 }
@@ -258,6 +263,9 @@ fn route_for_path(path: &str) -> Option<OriginRoute> {
     }
     if path == "/v1/interventions/decide" {
         return Some(OriginRoute::Decision);
+    }
+    if path == "/v1/mastery/estimate" {
+        return Some(OriginRoute::MasteryEstimate);
     }
     let rest = path.strip_prefix("/v1/interventions/")?;
     let decision_id = rest.strip_suffix("/outcomes")?;

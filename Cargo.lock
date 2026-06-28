@@ -870,11 +870,14 @@ name = "calyxd"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "calyx-assay",
  "calyx-aster",
  "calyx-core",
  "calyx-forge",
  "calyx-ledger",
+ "calyx-lodestar",
  "calyx-mcp",
+ "calyx-oracle",
  "nvml-wrapper",
  "prometheus",
  "rcgen",

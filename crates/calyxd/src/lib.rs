@@ -6,10 +6,11 @@
 //! verification tool, the authoritative [`config::CalyxConfig`] runtime
 //! configuration, the [`cuda_probe`]/[`vram`] startup probes (T02/T03), the
 //! [`health`] daemon-readiness probe (T04), the [`metrics`] Prometheus
-//! surface served at `/metrics` (PH66 T03), and the [`mcp_server`] loopback
-//! MCP-over-socket dispatch transport (T05). The probe and metrics modules are
-//! the daemon's single source of truth, consumed by the binary from the library
-//! so the recording API (driven later by the ingest/search dispatch paths) is
+//! surface served at `/metrics` (PH66 T03), the [`learner_origin`] Worker-only
+//! origin API, and the [`mcp_server`] loopback MCP-over-socket dispatch
+//! transport (T05). The probe, metrics, and learner-origin modules are the
+//! daemon's single source of truth, consumed by the binary from the library so
+//! the recording API (driven later by the ingest/search dispatch paths) is
 //! public API rather than binary dead code.
 
 pub mod config;
