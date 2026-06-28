@@ -1,13 +1,16 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use calyx_core::{CxId, Result, SlotId, SlotShape, SlotVector};
+use calyx_core::{
+    CxFlags, CxId, InputRef, LedgerRef, Modality, Result, SlotId, SlotShape, SlotVector, VaultId,
+};
 use calyx_sextant::{
-    IndexSearchHit, IndexStats, Query, QueryAdmissionConfig, SearchEngine, SextantIndex,
-    SlotIndexMap,
+    Hit, IndexSearchHit, IndexStats, ProvenanceSource, Query, QueryAdmissionConfig, SearchEngine,
+    SextantIndex, SlotIndexMap,
 };
 use serde_json::json;
 
@@ -28,6 +31,7 @@ fn concurrent_search_deadline_rejects_and_records_metrics() {
     let final_stats = engine.query_admission_stats();
 
     assert_eq!(first_hits[0].cx_id, hit_id());
+    assert_eq!(first_hits[0].provenance_source, ProvenanceSource::Stored);
     assert_eq!(rejected.code, "CALYX_BACKPRESSURE");
     assert_eq!(before_reject.in_flight, 1);
     assert_eq!(after_reject.deadline_rejected_total, 1);
@@ -51,8 +55,10 @@ fn queue_cap_zero_rejects_immediately_without_queue_growth() {
     let rejected = engine.search(&query()).expect_err("queue cap rejects");
     let stats = engine.query_admission_stats();
     gate.release_all();
-    first.join().unwrap();
+    let first_hits = first.join().unwrap();
 
+    assert_eq!(first_hits[0].cx_id, hit_id());
+    assert_eq!(first_hits[0].provenance_source, ProvenanceSource::Stored);
     assert_eq!(rejected.code, "CALYX_BACKPRESSURE");
     assert_eq!(stats.queue_full_rejected_total, 1);
     assert_eq!(stats.queued_total, 0);
@@ -121,6 +127,7 @@ fn fsv_happy_admit_release() -> serde_json::Value {
     let stats_before = engine.query_admission_stats();
     let hits = engine.search(&query()).unwrap();
     let stats_after = engine.query_admission_stats();
+    let stored = engine.constellation(hit_id()).unwrap();
     json!({
         "name": "happy_admit_release",
         "input": "single query, max_concurrent=1, max_queued=1",
@@ -134,9 +141,15 @@ fn fsv_happy_admit_release() -> serde_json::Value {
         "after": stats_after,
         "actual": {
             "hit": hits[0].cx_id.to_string(),
+            "stored_constellation": stored.cx_id.to_string(),
+            "provenance_source": format!("{:?}", hits[0].provenance_source),
+            "provenance_seq": hits[0].provenance.seq,
         },
         "pass": {
             "hit_matches": hits[0].cx_id == hit_id(),
+            "stored_constellation_matches": stored.cx_id == hit_id(),
+            "stored_provenance_attached": hits[0].provenance_source == ProvenanceSource::Stored
+                && hits[0].provenance.seq == 56,
             "admitted_once": stats_after.admitted_total == stats_before.admitted_total + 1,
             "in_flight_released": stats_after.in_flight == 0,
             "no_rejects": stats_after.rejected_total == 0,
@@ -159,6 +172,7 @@ fn fsv_deadline_reject() -> serde_json::Value {
     gate.release_all();
     let first_hits = first.join().unwrap();
     let stats_final = engine.query_admission_stats();
+    let stored = engine.constellation(hit_id()).unwrap();
     json!({
         "name": "deadline_reject",
         "input": "two concurrent queries, first blocks, second waits past 25ms",
@@ -176,11 +190,17 @@ fn fsv_deadline_reject() -> serde_json::Value {
         "after_release": stats_final,
         "actual": {
             "first_hit": first_hits[0].cx_id.to_string(),
+            "stored_constellation": stored.cx_id.to_string(),
+            "first_hit_provenance_source": format!("{:?}", first_hits[0].provenance_source),
+            "first_hit_provenance_seq": first_hits[0].provenance.seq,
             "second_error_code": rejected.code,
         },
         "metrics_after_reject": metrics_after_reject,
         "pass": {
             "first_hit_matches": first_hits[0].cx_id == hit_id(),
+            "stored_constellation_matches": stored.cx_id == hit_id(),
+            "stored_provenance_attached": first_hits[0].provenance_source == ProvenanceSource::Stored
+                && first_hits[0].provenance.seq == 56,
             "backpressure_code_matches": rejected.code == "CALYX_BACKPRESSURE",
             "reject_metric_rose": stats_after_reject.rejected_total == 1,
             "deadline_metric_rose": stats_after_reject.deadline_rejected_total == 1,
@@ -203,8 +223,9 @@ fn fsv_queue_full_reject() -> serde_json::Value {
         .expect_err("queue cap rejects saturated query");
     let stats_after_reject = engine.query_admission_stats();
     gate.release_all();
-    first.join().unwrap();
+    let first_hits = first.join().unwrap();
     let stats_final = engine.query_admission_stats();
+    let stored = engine.constellation(hit_id()).unwrap();
     json!({
         "name": "queue_full_reject",
         "input": "max_concurrent=1, max_queued=0, second query while first is blocked",
@@ -219,9 +240,17 @@ fn fsv_queue_full_reject() -> serde_json::Value {
         "after_reject": stats_after_reject,
         "after_release": stats_final,
         "actual": {
+            "first_hit": first_hits[0].cx_id.to_string(),
+            "stored_constellation": stored.cx_id.to_string(),
+            "first_hit_provenance_source": format!("{:?}", first_hits[0].provenance_source),
+            "first_hit_provenance_seq": first_hits[0].provenance.seq,
             "second_error_code": rejected.code,
         },
         "pass": {
+            "first_hit_matches": first_hits[0].cx_id == hit_id(),
+            "stored_constellation_matches": stored.cx_id == hit_id(),
+            "stored_provenance_attached": first_hits[0].provenance_source == ProvenanceSource::Stored
+                && first_hits[0].provenance.seq == 56,
             "backpressure_code_matches": rejected.code == "CALYX_BACKPRESSURE",
             "queue_full_metric_rose": stats_after_reject.queue_full_rejected_total == 1,
             "no_waiter_was_queued": stats_after_reject.queued_total == 0,
@@ -269,6 +298,7 @@ fn blocking_engine(
     let map = SlotIndexMap::new();
     map.register(BlockingIndex { slot: slot(), gate }).unwrap();
     let mut engine = SearchEngine::new(map);
+    engine.put_constellation(sample_constellation());
     engine.set_query_admission_config(QueryAdmissionConfig {
         max_concurrent,
         max_queued,
@@ -277,19 +307,47 @@ fn blocking_engine(
     engine
 }
 
-fn spawn_blocking_search(engine: Arc<SearchEngine>) -> thread::JoinHandle<Vec<IndexSearchHit>> {
-    thread::spawn(move || {
-        engine
-            .search(&query())
-            .unwrap()
-            .into_iter()
-            .map(|hit| IndexSearchHit {
-                cx_id: hit.cx_id,
-                score: hit.score,
-                rank: hit.rank,
-            })
-            .collect()
-    })
+fn spawn_blocking_search(engine: Arc<SearchEngine>) -> thread::JoinHandle<Vec<Hit>> {
+    thread::spawn(move || engine.search(&query()).unwrap())
+}
+
+fn sample_constellation() -> calyx_core::Constellation {
+    let cx_id = hit_id();
+    let mut input_hash = [0_u8; 32];
+    input_hash[..16].copy_from_slice(cx_id.as_bytes());
+    let mut slots = BTreeMap::new();
+    slots.insert(
+        slot(),
+        SlotVector::Dense {
+            dim: 2,
+            data: vec![1.0, 0.0],
+        },
+    );
+    calyx_core::Constellation {
+        cx_id,
+        vault_id: vault_id(),
+        panel_version: 1,
+        created_at: 56,
+        input_ref: InputRef {
+            hash: input_hash,
+            pointer: Some(format!("synthetic://query-admission/{cx_id}")),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots,
+        scalars: BTreeMap::new(),
+        metadata: BTreeMap::new(),
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq: 56,
+            hash: [0x56; 32],
+        },
+        flags: CxFlags::default(),
+    }
+}
+
+fn vault_id() -> VaultId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 #[derive(Clone)]
