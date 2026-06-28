@@ -8,11 +8,15 @@ use calyx_aster::collection::{
 };
 use calyx_aster::layers::kv::kv_key;
 use calyx_aster::layers::{KvLayer, RecordKey, RecordValue, RelationalLayer, Row, TimeSeriesLayer};
+use calyx_aster::plain_graph::{PlainGraph, PlainGraphDirection, TraverseOptions};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, LensId, VaultId};
 use serde_json::json;
 
-use crate::error::CALYX_SEXTANT_ASSOC_GRAPH_MISSING;
+use crate::error::{
+    CALYX_SEXTANT_ASSOC_GRAPH_MISSING, CALYX_SEXTANT_GRAPH_HOP_KIND_UNKNOWN,
+    CALYX_SEXTANT_TRAVERSE_HOPS,
+};
 use crate::query::{AggOp, AggSpec, CrossModelPlan, FieldOp, FieldPredicate, PlanStep, execute};
 
 use super::execute_at_snapshot;
@@ -118,6 +122,7 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
         plan(vec![PlanStep::GraphHop {
             from_cx_ids: vec![first, second],
             hop_kind: "related".to_string(),
+            max_hops: 1,
         }]),
     )
     .unwrap_err();
@@ -156,7 +161,7 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
     println!("[GRAPH] {}", graph.code);
 
     assert_eq!(graph.code, CALYX_SEXTANT_ASSOC_GRAPH_MISSING);
-    assert!(graph.message.contains("refusing pass-through stub"));
+    assert!(graph.message.contains("no persisted nodes"));
 
     let readback = json!({
         "source_of_truth": "Aster durable CF rows under vault/cf plus executor readback JSON",
@@ -192,6 +197,149 @@ fn issue465_query_executor_fsv_writes_readback_artifacts() {
     )
     .unwrap();
     println!("issue465_fsv_root={}", root.display());
+}
+
+#[test]
+#[ignore = "manual FSV for issue #910"]
+fn issue910_graph_hop_fsv_writes_readback_artifacts() {
+    let root = std::env::var_os("CALYX_FSV_ROOT")
+        .map(PathBuf::from)
+        .expect("set CALYX_FSV_ROOT to the FSV directory")
+        .join("issue910-graph-hop");
+    fs::remove_dir_all(&root).ok();
+    fs::create_dir_all(&root).unwrap();
+    let vault_dir = root.join("vault");
+    let vault = AsterVault::new_durable(
+        &vault_dir,
+        vault_id(),
+        b"issue910-graph-hop-fsv-salt".to_vec(),
+        VaultOptions::default(),
+    )
+    .unwrap();
+    let missing_before = raw_graph_state(&vault);
+    println!("[EDGE missing before] {}", missing_before);
+    let missing_graph = execute(
+        &vault,
+        plan(vec![PlanStep::GraphHop {
+            from_cx_ids: vec![cx(1)],
+            hop_kind: "assoc".to_string(),
+            max_hops: 1,
+        }]),
+    )
+    .unwrap_err();
+    let missing_after = raw_graph_state(&vault);
+    println!("[EDGE missing after ] {}", missing_after);
+
+    let graph = PlainGraph::new(&vault, "default").unwrap();
+    for id in [cx(1), cx(2), cx(3), cx(4)] {
+        graph.put_node(id, b"{}").unwrap();
+    }
+    graph.put_edge(cx(1), "assoc", cx(2), b"12").unwrap();
+    graph.put_edge(cx(2), "assoc", cx(3), b"23").unwrap();
+    graph.put_edge(cx(1), "blocks", cx(4), b"14").unwrap();
+    vault.flush().unwrap();
+    let seeded = raw_graph_state(&vault);
+    println!("[SEEDED] {}", seeded);
+
+    let expected = graph
+        .traverse(
+            vault.latest_seq(),
+            cx(1),
+            TraverseOptions {
+                edge_type: Some("assoc"),
+                direction: PlainGraphDirection::Out,
+                max_hops: 2,
+                cost_cap: 32,
+            },
+        )
+        .unwrap();
+    let happy_before = raw_graph_state(&vault);
+    println!("[HAPPY before] {}", happy_before);
+    let happy = execute(
+        &vault,
+        plan(vec![PlanStep::GraphHop {
+            from_cx_ids: vec![cx(1)],
+            hop_kind: "assoc".to_string(),
+            max_hops: 2,
+        }]),
+    )
+    .unwrap();
+    let happy_after = raw_graph_state(&vault);
+    println!("[HAPPY after ] {}", happy_after);
+    let actual = cx_rows(&happy.rows);
+    assert_eq!(actual, expected);
+
+    let unknown_before = raw_graph_state(&vault);
+    println!("[EDGE unknown before] {}", unknown_before);
+    let unknown = execute(
+        &vault,
+        plan(vec![PlanStep::GraphHop {
+            from_cx_ids: vec![cx(1)],
+            hop_kind: "missing".to_string(),
+            max_hops: 1,
+        }]),
+    )
+    .unwrap_err();
+    let unknown_after = raw_graph_state(&vault);
+    println!("[EDGE unknown after ] {}", unknown_after);
+    assert_eq!(unknown.code, CALYX_SEXTANT_GRAPH_HOP_KIND_UNKNOWN);
+
+    let invalid_before = raw_graph_state(&vault);
+    println!("[EDGE invalid before] {}", invalid_before);
+    let invalid_hops = execute(
+        &vault,
+        plan(vec![PlanStep::GraphHop {
+            from_cx_ids: vec![cx(1)],
+            hop_kind: "assoc".to_string(),
+            max_hops: 0,
+        }]),
+    )
+    .unwrap_err();
+    let invalid_after = raw_graph_state(&vault);
+    println!("[EDGE invalid after ] {}", invalid_after);
+    assert_eq!(invalid_hops.code, CALYX_SEXTANT_TRAVERSE_HOPS);
+
+    vault.flush().unwrap();
+    let readback = json!({
+        "issue": 910,
+        "source_of_truth": "Aster durable graph CF rows plus executor readback JSON",
+        "trigger": "execute PlanStep::GraphHop against persisted PlainGraph edges",
+        "missing_graph_edge": {
+            "before": missing_before,
+            "after": missing_after,
+            "code": missing_graph.code,
+            "message": missing_graph.message,
+        },
+        "seeded_graph": seeded,
+        "happy_path": {
+            "before": happy_before,
+            "after": happy_after,
+            "expected_from_plain_graph_traverse": cx_json(&expected),
+            "actual_executor_rows": rows_json(&happy.rows),
+            "actual_cx_ids": cx_json(&actual),
+            "total_scanned": happy.total_scanned,
+        },
+        "edge_unknown_hop_kind": {
+            "before": unknown_before,
+            "after": unknown_after,
+            "code": unknown.code,
+            "message": unknown.message,
+        },
+        "edge_invalid_max_hops_zero": {
+            "before": invalid_before,
+            "after": invalid_after,
+            "code": invalid_hops.code,
+            "message": invalid_hops.message,
+        },
+        "physical_graph_files": physical_files(&vault_dir.join("cf").join("graph")),
+        "physical_wal_files": physical_files(&vault_dir.join("wal")),
+    });
+    fs::write(
+        root.join("issue910-graph-hop-readback.json"),
+        serde_json::to_vec_pretty(&readback).unwrap(),
+    )
+    .unwrap();
+    println!("issue910_fsv_root={}", root.display());
 }
 
 fn plan(steps: Vec<PlanStep>) -> CrossModelPlan {
@@ -245,6 +393,33 @@ fn raw_state(vault: &AsterVault) -> serde_json::Value {
         "timeseries_rows": vault.scan_cf_at(vault.latest_seq(), ColumnFamily::TimeSeries).unwrap().len(),
         "ledger_rows": vault.scan_cf_at(vault.latest_seq(), ColumnFamily::Ledger).unwrap().len(),
     })
+}
+
+fn raw_graph_state(vault: &AsterVault) -> serde_json::Value {
+    let rows = vault
+        .scan_cf_at(vault.latest_seq(), ColumnFamily::Graph)
+        .unwrap();
+    json!({
+        "latest_seq": vault.latest_seq(),
+        "graph_rows": rows.len(),
+        "rows": rows.into_iter().map(|(key, value)| {
+            json!({"key_hex": hex(&key), "value_hex": hex(&value)})
+        }).collect::<Vec<_>>(),
+    })
+}
+
+fn cx(byte: u8) -> CxId {
+    CxId::from_bytes([byte; 16])
+}
+
+fn cx_rows(rows: &[crate::query::ProvenancedRow]) -> Vec<CxId> {
+    rows.iter()
+        .map(|row| CxId::from_bytes(row.key.as_bytes().try_into().unwrap()))
+        .collect()
+}
+
+fn cx_json(ids: &[CxId]) -> Vec<String> {
+    ids.iter().map(ToString::to_string).collect()
 }
 
 fn expired_kv_value(payload: &[u8]) -> Vec<u8> {

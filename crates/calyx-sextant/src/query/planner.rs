@@ -8,7 +8,8 @@ use calyx_aster::layers::{document, relational};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, Result};
 
-use crate::error::{CALYX_PLANNER_COST_CAP, sextant_error};
+use crate::error::{CALYX_PLANNER_COST_CAP, CALYX_SEXTANT_TRAVERSE_HOPS, sextant_error};
+use crate::navigation::MAX_TRAVERSE_HOPS;
 
 use super::{
     CrossModelPlan, DocPathFilter, ExplainOutput, ExplainStep, PlanStep, RelationalFilter,
@@ -87,10 +88,12 @@ where
         });
     }
     if let Some(graph) = &query.graph_hop {
+        validate_graph_hops(graph.max_hops)?;
         planned.push(PlannedStep {
             step: PlanStep::GraphHop {
                 from_cx_ids: graph.from_cx_ids.clone(),
                 hop_kind: graph.hop_kind.clone(),
+                max_hops: graph.max_hops,
             },
             cost_ms: GRAPH_HOP_COST_MS * f32::from(graph.max_hops.max(1)),
             chosen_index: None,
@@ -144,6 +147,16 @@ where
         estimated_cost_ms,
         explain,
     })
+}
+
+fn validate_graph_hops(max_hops: u8) -> Result<()> {
+    if !(1..=MAX_TRAVERSE_HOPS as u8).contains(&max_hops) {
+        return Err(sextant_error(
+            CALYX_SEXTANT_TRAVERSE_HOPS,
+            format!("GraphHop max_hops {max_hops} outside 1..={MAX_TRAVERSE_HOPS}"),
+        ));
+    }
+    Ok(())
 }
 
 fn plan_relational<C>(vault: &AsterVault<C>, filter: &RelationalFilter) -> Result<PlannedStep>

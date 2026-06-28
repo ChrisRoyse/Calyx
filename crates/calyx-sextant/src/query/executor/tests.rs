@@ -8,13 +8,17 @@ use calyx_aster::layers::kv::kv_key;
 use calyx_aster::layers::{
     DocumentLayer, KvLayer, RecordKey, RecordValue, RelationalLayer, Row, TimeSeriesLayer,
 };
+use calyx_aster::plain_graph::{PlainGraph, PlainGraphDirection, TraverseOptions};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CxId, FixedClock, LensId, VaultId};
 use proptest::prelude::*;
 use serde_json::json;
 use std::collections::BTreeSet;
 
-use crate::error::{CALYX_SEXTANT_ASSOC_GRAPH_MISSING, CALYX_SEXTANT_VECTOR_FUSION_UNWIRED};
+use crate::error::{
+    CALYX_SEXTANT_ASSOC_GRAPH_MISSING, CALYX_SEXTANT_GRAPH_HOP_KIND_UNKNOWN,
+    CALYX_SEXTANT_TRAVERSE_HOPS, CALYX_SEXTANT_VECTOR_FUSION_UNWIRED,
+};
 use crate::query::{
     AggOp, AggSpec, CrossModelPlan, DocPathFilter, FieldOp, FieldPredicate, PlanStep,
 };
@@ -37,6 +41,10 @@ fn fixed_vault(now: u64) -> AsterVault<FixedClock> {
 
 fn vault_id() -> VaultId {
     "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
+}
+
+fn cx(byte: u8) -> CxId {
+    CxId::from_bytes([byte; 16])
 }
 
 fn collection(name: &str, mode: CollectionMode) -> Collection {
@@ -302,12 +310,13 @@ fn graph_hop_fails_closed_without_wired_association_graph() {
         plan(vec![PlanStep::GraphHop {
             from_cx_ids: vec![first, second],
             hop_kind: "related".to_string(),
+            max_hops: 1,
         }]),
     )
     .unwrap_err();
 
     assert_eq!(graph.code, CALYX_SEXTANT_ASSOC_GRAPH_MISSING);
-    assert!(graph.message.contains("refusing pass-through stub"));
+    assert!(graph.message.contains("no persisted nodes"));
 
     let vector = execute(
         &vault(),
@@ -319,6 +328,100 @@ fn graph_hop_fails_closed_without_wired_association_graph() {
     )
     .unwrap();
     assert!(vector.rows.is_empty());
+}
+
+#[test]
+fn graph_hop_reads_persisted_edges_and_filters_hop_kind() {
+    let vault = vault();
+    let graph = PlainGraph::new(&vault, "default").unwrap();
+    for id in [cx(1), cx(2), cx(3), cx(4)] {
+        graph.put_node(id, b"{}").unwrap();
+    }
+    graph.put_edge(cx(1), "assoc", cx(2), b"12").unwrap();
+    graph.put_edge(cx(2), "assoc", cx(3), b"23").unwrap();
+    graph.put_edge(cx(1), "blocks", cx(4), b"14").unwrap();
+    let before_rows = vault
+        .scan_cf_at(vault.latest_seq(), ColumnFamily::Graph)
+        .unwrap()
+        .len();
+
+    let result = execute(
+        &vault,
+        plan(vec![PlanStep::GraphHop {
+            from_cx_ids: vec![cx(1)],
+            hop_kind: "assoc".to_string(),
+            max_hops: 2,
+        }]),
+    )
+    .unwrap();
+
+    let keys = result
+        .rows
+        .iter()
+        .map(|row| CxId::from_bytes(row.key.as_bytes().try_into().unwrap()))
+        .collect::<Vec<_>>();
+    let graph_readback = graph
+        .traverse(
+            vault.latest_seq(),
+            cx(1),
+            TraverseOptions {
+                edge_type: Some("assoc"),
+                direction: PlainGraphDirection::Out,
+                max_hops: 2,
+                cost_cap: 32,
+            },
+        )
+        .unwrap();
+    let after_rows = vault
+        .scan_cf_at(vault.latest_seq(), ColumnFamily::Graph)
+        .unwrap()
+        .len();
+
+    assert_eq!(keys, vec![cx(2), cx(3)]);
+    assert_eq!(keys, graph_readback);
+    assert_eq!(before_rows, after_rows);
+    assert!(result.rows.iter().all(|row| {
+        row.value
+            .as_ref()
+            .unwrap()
+            .get("hop_kind")
+            .is_some_and(|value| value == &RecordValue::Text("assoc".to_string()))
+    }));
+}
+
+#[test]
+fn graph_hop_unknown_hop_kind_and_invalid_hops_fail_closed() {
+    let vault = vault();
+    let graph = PlainGraph::new(&vault, "default").unwrap();
+    for id in [cx(1), cx(2)] {
+        graph.put_node(id, b"{}").unwrap();
+    }
+    graph.put_edge(cx(1), "assoc", cx(2), b"12").unwrap();
+    let before_seq = vault.latest_seq();
+
+    let unknown = execute(
+        &vault,
+        plan(vec![PlanStep::GraphHop {
+            from_cx_ids: vec![cx(1)],
+            hop_kind: "blocks".to_string(),
+            max_hops: 1,
+        }]),
+    )
+    .unwrap_err();
+    let invalid_hops = execute(
+        &vault,
+        plan(vec![PlanStep::GraphHop {
+            from_cx_ids: vec![cx(1)],
+            hop_kind: "assoc".to_string(),
+            max_hops: 0,
+        }]),
+    )
+    .unwrap_err();
+
+    assert_eq!(unknown.code, CALYX_SEXTANT_GRAPH_HOP_KIND_UNKNOWN);
+    assert!(unknown.message.contains("known hop kinds"));
+    assert_eq!(invalid_hops.code, CALYX_SEXTANT_TRAVERSE_HOPS);
+    assert_eq!(vault.latest_seq(), before_seq);
 }
 
 #[test]

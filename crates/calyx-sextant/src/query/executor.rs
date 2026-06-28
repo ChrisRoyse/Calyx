@@ -1,5 +1,6 @@
 //! One-pass PH55 cross-model query executor.
 
+mod graph_hop;
 mod support;
 
 use std::collections::BTreeSet;
@@ -21,9 +22,8 @@ use super::{
     AggOp, AggSpec, AskSpec, CrossModelPlan, DocPathFilter, FieldPredicate, PlanStep,
     ProvenancedRow, QueryResult,
 };
-use crate::error::{
-    CALYX_SEXTANT_ASSOC_GRAPH_MISSING, CALYX_SEXTANT_VECTOR_FUSION_UNWIRED, sextant_error,
-};
+use crate::error::{CALYX_SEXTANT_VECTOR_FUSION_UNWIRED, sextant_error};
+use graph_hop::execute_graph_hop;
 use support::{
     cx_from_key, default_collection, doc_value_matches, fold_numeric, index_bounds, json_row,
     ledger_ref, numeric_values, parse_record_pk, plain_row, relational_prefix, require_mode,
@@ -100,13 +100,8 @@ where
         PlanStep::GraphHop {
             from_cx_ids,
             hop_kind,
-        } => Err(sextant_error(
-            CALYX_SEXTANT_ASSOC_GRAPH_MISSING,
-            format!(
-                "GraphHop hop_kind={hop_kind} requested from {} source id(s), but executor has no wired association graph; refusing pass-through stub",
-                from_cx_ids.len()
-            ),
-        )),
+            max_hops,
+        } => execute_graph_hop(vault, snapshot, state, &from_cx_ids, &hop_kind, max_hops),
         PlanStep::VectorFusion {
             lens_ids,
             query_vec,

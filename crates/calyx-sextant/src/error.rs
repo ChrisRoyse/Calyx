@@ -35,6 +35,7 @@ pub const CALYX_SEXTANT_CX_MISSING: &str = "CALYX_SEXTANT_CX_MISSING";
 pub const CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES: &str =
     "CALYX_SEXTANT_CONSENSUS_INSUFFICIENT_LENSES";
 pub const CALYX_SEXTANT_ASSOC_GRAPH_MISSING: &str = "CALYX_SEXTANT_ASSOC_GRAPH_MISSING";
+pub const CALYX_SEXTANT_GRAPH_HOP_KIND_UNKNOWN: &str = "CALYX_SEXTANT_GRAPH_HOP_KIND_UNKNOWN";
 pub const CALYX_SEXTANT_VECTOR_FUSION_UNWIRED: &str = "CALYX_SEXTANT_VECTOR_FUSION_UNWIRED";
 pub const CALYX_SEXTANT_TRAVERSE_HOPS: &str = "CALYX_SEXTANT_TRAVERSE_HOPS";
 pub const CALYX_SEXTANT_SKILL_UNKNOWN: &str = "CALYX_SEXTANT_SKILL_UNKNOWN";
@@ -106,7 +107,10 @@ pub fn sextant_error(code: &'static str, message: impl Into<String>) -> CalyxErr
             "expose at least two active dense lenses on the anchor for cross-lens consensus"
         }
         CALYX_SEXTANT_ASSOC_GRAPH_MISSING => {
-            "set the vault association graph on the engine before traversing"
+            "persist the vault association graph before traversing"
+        }
+        CALYX_SEXTANT_GRAPH_HOP_KIND_UNKNOWN => {
+            "use an edge type present in the persisted association graph"
         }
         CALYX_SEXTANT_VECTOR_FUSION_UNWIRED => {
             "wire PlanStep::VectorFusion to real slot indexes before serving vector fusion"

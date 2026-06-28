@@ -169,6 +169,7 @@ pub enum PlanStep {
     GraphHop {
         from_cx_ids: Vec<CxId>,
         hop_kind: String,
+        max_hops: u8,
     },
     VectorFusion {
         lens_ids: Vec<LensId>,

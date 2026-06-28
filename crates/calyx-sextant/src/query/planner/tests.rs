@@ -8,7 +8,7 @@ use calyx_core::{CxId, LensId, VaultId};
 use proptest::prelude::*;
 use serde_json::json;
 
-use crate::error::CALYX_PLANNER_COST_CAP;
+use crate::error::{CALYX_PLANNER_COST_CAP, CALYX_SEXTANT_TRAVERSE_HOPS};
 use crate::query::{
     AggOp, AggSpec, AskSpec, FieldOp, FieldPredicate, GraphHop, KvLookup, PlanStepKind,
     RelationalFilter, TsRange, UniversalQuery, VectorQuery,
@@ -251,6 +251,24 @@ fn cost_cap_zero_fails_closed_for_nonzero_plan() {
     let error = plan(&vault, &query).unwrap_err();
 
     assert_eq!(error.code, CALYX_PLANNER_COST_CAP);
+}
+
+#[test]
+fn graph_hop_invalid_hops_fail_during_planning() {
+    let vault = vault();
+    let query = UniversalQuery {
+        graph_hop: Some(GraphHop {
+            from_cx_ids: vec![CxId::from_input(b"order", 1, b"salt")],
+            hop_kind: "assoc".to_string(),
+            max_hops: 0,
+        }),
+        cost_cap_ms: Some(100),
+        ..UniversalQuery::default()
+    };
+
+    let error = plan(&vault, &query).unwrap_err();
+
+    assert_eq!(error.code, CALYX_SEXTANT_TRAVERSE_HOPS);
 }
 
 #[test]
