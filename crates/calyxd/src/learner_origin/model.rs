@@ -9,6 +9,7 @@ pub const ENDPOINT_OUTCOMES: &str = "intervention_outcomes";
 pub const ENDPOINT_MASTERY_ESTIMATE: &str = "mastery_estimate";
 pub const ENDPOINT_ORACLE_FORECAST: &str = "oracle_forecast";
 pub const ENDPOINT_REACTIVE_AFFECT: &str = "reactive_affect_signals";
+pub const ENDPOINT_TRACK_SPINES: &str = "kernel_track_spines";
 
 pub const KIND_SIGNAL_BATCH: &str = "learner_signal_batch";
 pub const KIND_DECISION: &str = "intervention_decision";
@@ -16,6 +17,7 @@ pub const KIND_OUTCOME: &str = "intervention_outcome";
 pub const KIND_MASTERY_ESTIMATE: &str = "mastery_estimate";
 pub const KIND_ORACLE_FORECAST: &str = "oracle_forecast";
 pub const KIND_REACTIVE_AFFECT: &str = "reactive_affect_signal";
+pub const KIND_TRACK_SPINES: &str = "track_spines";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -312,6 +314,115 @@ pub struct ReactiveMmdRequest {
     pub seed: Option<u64>,
     #[serde(default)]
     pub alpha: Option<f64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackSpinesRequest {
+    #[serde(default, alias = "request_id")]
+    pub request_id: Option<String>,
+    #[serde(default, alias = "idempotency_key")]
+    pub idempotency_key: Option<String>,
+    #[serde(alias = "learner_id")]
+    pub learner_id: String,
+    #[serde(default, alias = "session_id")]
+    pub session_id: Option<String>,
+    #[serde(default, alias = "privacy_class")]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(default)]
+    pub nodes: Vec<TrackNodeRequest>,
+    #[serde(default)]
+    pub edges: Vec<TrackEdgeRequest>,
+    #[serde(default)]
+    pub tracks: Vec<TrackRequest>,
+    #[serde(default, alias = "mastery_labels")]
+    pub mastery_labels: Vec<TrackMasteryLabelRequest>,
+    #[serde(default)]
+    pub params: TrackSpineParamsRequest,
+    #[serde(default, alias = "now_millis")]
+    pub now_millis: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackNodeRequest {
+    #[serde(alias = "concept_id")]
+    pub concept_id: String,
+    #[serde(default)]
+    pub weight: Option<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackEdgeRequest {
+    #[serde(alias = "from_concept_id")]
+    pub from_concept_id: String,
+    #[serde(alias = "to_concept_id")]
+    pub to_concept_id: String,
+    #[serde(default)]
+    pub weight: Option<f32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackRequest {
+    #[serde(alias = "track_id")]
+    pub track_id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub regions: Vec<TrackRegionRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackRegionRequest {
+    #[serde(alias = "region_id")]
+    pub region_id: String,
+    #[serde(alias = "centroid_concept_id")]
+    pub centroid_concept_id: String,
+    #[serde(default, alias = "concept_ids")]
+    pub concept_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackMasteryLabelRequest {
+    #[serde(alias = "concept_id")]
+    pub concept_id: String,
+    pub mastery: f32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackSpineParamsRequest {
+    #[serde(default)]
+    pub max_regions: Option<usize>,
+    #[serde(default)]
+    pub drill_radius: Option<usize>,
+    #[serde(default)]
+    pub min_region_size: Option<usize>,
+    #[serde(default)]
+    pub max_iter: Option<usize>,
+    #[serde(default)]
+    pub tol: Option<f32>,
+    #[serde(default, alias = "decay_lambda")]
+    pub decay_lambda: Option<f32>,
+}
+
+impl Default for TrackSpineParamsRequest {
+    fn default() -> Self {
+        Self {
+            max_regions: None,
+            drill_radius: None,
+            min_region_size: None,
+            max_iter: None,
+            tol: None,
+            decay_lambda: None,
+        }
+    }
 }
 
 fn default_grounded() -> bool {

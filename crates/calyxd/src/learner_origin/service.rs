@@ -12,8 +12,9 @@ use super::config::LearnerOriginConfig;
 use super::metrics::OriginMetrics;
 use super::model::{
     ENDPOINT_DECIDE, ENDPOINT_MASTERY_ESTIMATE, ENDPOINT_ORACLE_FORECAST, ENDPOINT_OUTCOMES,
-    ENDPOINT_REACTIVE_AFFECT, ENDPOINT_SIGNALS, KIND_DECISION, KIND_MASTERY_ESTIMATE,
-    KIND_ORACLE_FORECAST, KIND_OUTCOME, KIND_REACTIVE_AFFECT, KIND_SIGNAL_BATCH,
+    ENDPOINT_REACTIVE_AFFECT, ENDPOINT_SIGNALS, ENDPOINT_TRACK_SPINES, KIND_DECISION,
+    KIND_MASTERY_ESTIMATE, KIND_ORACLE_FORECAST, KIND_OUTCOME, KIND_REACTIVE_AFFECT,
+    KIND_SIGNAL_BATCH, KIND_TRACK_SPINES,
 };
 use crate::error::DaemonError;
 
@@ -170,6 +171,7 @@ impl LearnerOriginService {
                 OriginRoute::MasteryEstimate => self.handle_mastery_estimate(body),
                 OriginRoute::OracleForecast => self.handle_oracle_forecast(body),
                 OriginRoute::ReactiveAffect => self.handle_reactive_affect(body),
+                OriginRoute::TrackSpines => self.handle_track_spines(body),
             }
         };
         let response = match outcome {
@@ -215,6 +217,7 @@ enum OriginRoute {
     MasteryEstimate,
     OracleForecast,
     ReactiveAffect,
+    TrackSpines,
 }
 
 impl OriginRoute {
@@ -226,6 +229,7 @@ impl OriginRoute {
             Self::MasteryEstimate => ENDPOINT_MASTERY_ESTIMATE,
             Self::OracleForecast => ENDPOINT_ORACLE_FORECAST,
             Self::ReactiveAffect => ENDPOINT_REACTIVE_AFFECT,
+            Self::TrackSpines => ENDPOINT_TRACK_SPINES,
         }
     }
 
@@ -237,6 +241,7 @@ impl OriginRoute {
             Self::MasteryEstimate => KIND_MASTERY_ESTIMATE,
             Self::OracleForecast => KIND_ORACLE_FORECAST,
             Self::ReactiveAffect => KIND_REACTIVE_AFFECT,
+            Self::TrackSpines => KIND_TRACK_SPINES,
         }
     }
 }
@@ -281,6 +286,9 @@ fn route_for_path(path: &str) -> Option<OriginRoute> {
     }
     if path == "/v1/reactive/affect-signals" {
         return Some(OriginRoute::ReactiveAffect);
+    }
+    if path == "/v1/kernel/track-spines" {
+        return Some(OriginRoute::TrackSpines);
     }
     let rest = path.strip_prefix("/v1/interventions/")?;
     let decision_id = rest.strip_suffix("/outcomes")?;

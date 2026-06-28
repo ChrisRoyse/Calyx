@@ -1,23 +1,25 @@
 use prometheus::{IntCounterVec, Opts, Registry, TextEncoder};
 
-const ENDPOINTS: [&str; 6] = [
+const ENDPOINTS: [&str; 7] = [
     "learner_signals_batches",
     "interventions_decide",
     "intervention_outcomes",
     "mastery_estimate",
     "oracle_forecast",
     "reactive_affect_signals",
+    "kernel_track_spines",
 ];
 const STATUS_CODES: [&str; 10] = [
     "200", "201", "400", "401", "403", "404", "405", "409", "422", "500",
 ];
-const WRITE_KINDS: [&str; 6] = [
+const WRITE_KINDS: [&str; 7] = [
     "learner_signal_batch",
     "intervention_decision",
     "intervention_outcome",
     "mastery_estimate",
     "oracle_forecast",
     "reactive_affect_signal",
+    "track_spines",
 ];
 const WRITE_RESULTS: [&str; 4] = ["accepted", "duplicate", "rejected", "error"];
 

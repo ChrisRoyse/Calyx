@@ -9,10 +9,13 @@ mod reactive;
 mod reactive_plan;
 mod reactive_support;
 mod shared;
+mod track_spines;
 
 const ORACLE_FORECAST_PANEL_VERSION: u32 = 1240;
 const ORACLE_FORECAST_EVIDENCE_KIND: &str = "oracle_forecast_evidence";
 const ORACLE_FORECAST_GRAPH_KIND: &str = "oracle_forecast_recurrence";
+const TRACK_SPINES_PANEL_VERSION: u64 = 1242;
+const TRACK_SPINES_EVIDENCE_KIND: &str = "track_spines_evidence";
 
 const REACTIVE_AFFECT_PANEL_VERSION: u32 = 1244;
 const REACTIVE_AFFECT_DEFAULT_SLOT_ID: u16 = 13;
