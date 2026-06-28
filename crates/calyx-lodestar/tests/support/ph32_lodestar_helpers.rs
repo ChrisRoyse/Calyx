@@ -5,20 +5,34 @@ use calyx_core::CxId;
 use calyx_lodestar::{KernelGraph, KernelGraphParams, KernelParams, LpRoundParams};
 use calyx_paths::AssocGraph;
 
+const DEFAULT_FSV_ROOT: &str = "target/fsv/ph32-lodestar";
+
 pub fn cx(seed: u8) -> CxId {
     CxId::from_bytes([seed; 16])
 }
 
 pub fn write_readback(name: &str, value: serde_json::Value) {
-    let Ok(root) = std::env::var("CALYX_FSV_ROOT") else {
-        return;
-    };
-    let path = PathBuf::from(root).join(name);
+    let (root, source) = readback_root();
+    let path = root.join(name);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).expect("create fsv root");
     }
     fs::write(&path, serde_json::to_vec_pretty(&value).expect("json")).expect("write readback");
+    println!("PH32_READBACK_ROOT source={source} path={}", path.display());
     println!("PH32_READBACK={}", path.display());
+}
+
+fn readback_root() -> (PathBuf, &'static str) {
+    std::env::var_os("CALYX_FSV_ROOT")
+        .map(|root| (PathBuf::from(root), "env"))
+        .unwrap_or_else(|| {
+            (
+                std::env::current_dir()
+                    .expect("read current test directory")
+                    .join(DEFAULT_FSV_ROOT),
+                "default",
+            )
+        })
 }
 
 pub fn builder_with_nodes(seeds: &[u8]) -> calyx_paths::AssocGraphBuilder {
