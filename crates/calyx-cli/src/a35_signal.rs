@@ -1,17 +1,17 @@
 use calyx_core::CalyxError;
-use calyx_registry::{CapabilitySignalKind, LensRuntime, signal_kind_from_runtime};
+use calyx_registry::{CapabilitySignalKind, LensSpec, signal_kind_from_spec};
 
 use crate::error::{CliError, CliResult};
 
 pub(crate) const LEARNED_SIGNAL_KIND: &str = "learned_encoder";
 pub(crate) const DETERMINISTIC_CONTENT_SIGNAL_KIND: &str = "deterministic_content_feature";
 
-pub(crate) fn runtime_signal_kind(runtime: &LensRuntime) -> CapabilitySignalKind {
-    signal_kind_from_runtime(runtime)
+pub(crate) fn lens_spec_signal_kind(spec: &LensSpec) -> CapabilitySignalKind {
+    signal_kind_from_spec(spec)
 }
 
-pub(crate) fn runtime_signal_kind_name(runtime: &LensRuntime) -> &'static str {
-    runtime_signal_kind(runtime).as_str()
+pub(crate) fn lens_spec_signal_kind_name(spec: &LensSpec) -> &'static str {
+    lens_spec_signal_kind(spec).as_str()
 }
 
 pub(crate) fn require_countable_content_signal_kind(

@@ -20,7 +20,7 @@ pub use gating::{
     capability_gate_json, evaluate_capability_gate, max_panel_pairwise_correlation,
 };
 use signal_kind::registry_signal_kind;
-pub use signal_kind::{CapabilitySignalKind, signal_kind_from_runtime};
+pub use signal_kind::{CapabilitySignalKind, signal_kind_from_spec};
 
 /// One profiling probe, optionally labeled for silhouette separation.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

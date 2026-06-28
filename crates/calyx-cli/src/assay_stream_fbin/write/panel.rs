@@ -5,7 +5,7 @@ use crate::error::CliResult;
 use super::super::args::Args;
 use super::super::{MIN_A35_LENSES, local_error};
 use super::bits::load_bits;
-use crate::a35_signal::{require_countable_content_signal_kind, runtime_signal_kind_name};
+use crate::a35_signal::{lens_spec_signal_kind_name, require_countable_content_signal_kind};
 
 pub(super) fn validate_floor_before_runtime(args: &Args) -> CliResult {
     let bits = load_bits(args)?;
@@ -20,7 +20,7 @@ pub(super) fn validate_floor_before_runtime(args: &Args) -> CliResult {
         })?;
         require_countable_content_signal_kind(
             &spec.name,
-            runtime_signal_kind_name(&spec.runtime),
+            lens_spec_signal_kind_name(&spec),
             "assay stream-fbin pre-runtime A35 gate",
         )?;
         let Some(bits) = bits.get(&spec.name) else {

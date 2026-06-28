@@ -229,6 +229,16 @@ pub fn decision_counts(evals: &[EvaluatedSlot]) -> BTreeMap<&'static str, usize>
     counts
 }
 
+pub fn signal_kind_counts(evals: &[EvaluatedSlot]) -> BTreeMap<&'static str, usize> {
+    let mut counts = BTreeMap::new();
+    for eval in evals {
+        *counts
+            .entry(eval.evaluation.card.signal_kind.as_str())
+            .or_default() += 1;
+    }
+    counts
+}
+
 fn targets() -> Vec<Target> {
     vec![
         target(

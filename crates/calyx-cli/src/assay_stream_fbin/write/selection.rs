@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use calyx_registry::lens_spec_from_manifest_path;
 
-use crate::a35_signal::{require_countable_content_signal_kind, runtime_signal_kind_name};
+use crate::a35_signal::{lens_spec_signal_kind_name, require_countable_content_signal_kind};
 use crate::assay_corpus_build::lens::{BuildLens, load_lenses};
 use crate::error::CliResult;
 
@@ -89,7 +89,7 @@ fn selected_lenses_with_min(args: &Args, min_lenses: usize) -> CliResult<Vec<Sel
         }
         require_countable_content_signal_kind(
             &spec.name,
-            runtime_signal_kind_name(&spec.runtime),
+            lens_spec_signal_kind_name(&spec),
             "assay stream-fbin runtime A35 gate",
         )?;
         selected.push(SelectedLens {

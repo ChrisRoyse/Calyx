@@ -74,7 +74,7 @@ pub use profile::{
     ProfileOptions, ProfileProbe, Profiler, SeparationMetrics, SpreadMetrics,
     append_capability_gate_ledger, apply_assay_metrics, capability_gate_json,
     evaluate_capability_gate, max_panel_pairwise_correlation, profile_lens,
-    profile_slot_with_assay, signal_kind_from_runtime,
+    profile_slot_with_assay, signal_kind_from_spec,
 };
 pub use runtime::adapters::{
     CALYX_ALLOW_NONCOMMERCIAL_LENSES_ENV, CALYX_LICENSE_DENIED, MultimodalAdapterLens,

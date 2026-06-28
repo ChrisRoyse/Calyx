@@ -45,7 +45,7 @@ impl BuildLens {
     }
 
     pub(crate) fn signal_kind(&self) -> &'static str {
-        crate::a35_signal::runtime_signal_kind_name(&self.spec.runtime)
+        crate::a35_signal::lens_spec_signal_kind_name(&self.spec)
     }
 
     pub(crate) fn effective_batch_size(&self, requested: usize) -> usize {

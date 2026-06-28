@@ -83,9 +83,12 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
     );
     let outcomes = apply_all(&mut controller, &evaluations);
     let decisions = model::decision_counts(&evaluations);
-    assert_eq!(decisions["admit"], 7);
-    assert_eq!(decisions["park"], 1);
+    let signal_kinds = model::signal_kind_counts(&evaluations);
+    assert_eq!(decisions["admit"], 0);
+    assert_eq!(decisions["park"], 8);
     assert_eq!(decisions["retire"], 1);
+    assert_eq!(signal_kinds["deterministic_content_feature"], 9);
+    assert_eq!(*signal_kinds.get("learned_encoder").unwrap_or(&0), 0);
 
     for evaluated in &evaluations {
         let path = cards_dir.join(format!(
@@ -115,6 +118,7 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
         .filter(|slot| slot.state == SlotState::Active)
         .cloned()
         .collect::<Vec<_>>();
+    assert!(active_slots.is_empty());
     let mut loom = LoomStore::new(512);
     for index in 0..ROWS {
         let slot_map = samples::slot_map_for(index, &active_slots, &left_samples, &right_samples);
@@ -128,8 +132,7 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
     let (assay_rows, loaded_assay, raw_assay_rows) = persist_and_read_assay(&vault, &assay);
     let (xterm_rows, loaded_xterms) = persist_and_read_xterms(&xterm_dir, &loom);
     let rank = samples::neff_for_active(active_slots.len());
-    let naive_duplicate_expectation = active_slots.len() as f32 - 1.0;
-    assert!(rank.n_eff > naive_duplicate_expectation, "{rank:?}");
+    assert_eq!(rank.n_eff, 0.0);
 
     let abundance = AbundanceReport::new(
         active_slots.len(),
@@ -192,6 +195,7 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
             "outcomes": outcomes,
             "decisions": evaluations,
             "decision_counts": decisions,
+            "signal_kind_counts": signal_kinds,
             "active_slots": active_slots,
             "panel_after": controller.panel()
         }),
@@ -207,16 +211,17 @@ fn ph74_embedder_zoo_stage_exit_fsv() {
             "registered_lenses": registry.lens_snapshots().len(),
             "modalities": model::modality_counts(&converted),
             "decision_counts": decisions,
+            "signal_kind_counts": signal_kinds,
             "active_slot_count": active_slots.len(),
             "xterm_rows": xterm_rows,
             "assay_rows": assay_rows,
             "abundance": abundance,
             "n_eff": rank,
-            "naive_duplicate_expectation": naive_duplicate_expectation,
             "cross_modal_gain_bits": pair_gain.gain_bits,
             "footprint": footprint,
             "ledger_rows": ledger_rows,
-            "trigger": "convert/register/measure/capability-gate/assay/loom/keep-retire stage-exit workflow"
+            "trigger": "convert/register/measure/capability-gate/assay/loom/keep-retire stage-exit workflow",
+            "issue936_guardrail": "commissioned deterministic lenses park as deterministic_content_feature and are not learned_encoder"
         }),
     );
     fsv_io::write_physical_files(&root.join("physical-files.txt"), &root);

@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use calyx_registry::lens_spec_from_manifest_path;
 use serde::Deserialize;
 
-use crate::a35_signal::{require_countable_content_signal_kind, runtime_signal_kind_name};
+use crate::a35_signal::{lens_spec_signal_kind_name, require_countable_content_signal_kind};
 use crate::assay_anchor_audit::AnchorAudit;
 use crate::assay_corpus_build::lens::projection::{projected_slot_dim, slot_projection_name};
 use crate::error::CliResult;
@@ -278,7 +278,7 @@ fn lens_meta(corpus_dir: &Path, lens: &BuildLensRef) -> CliResult<LensMeta> {
     Ok(LensMeta {
         lens_id: spec.lens_id().to_string(),
         weights_sha256: hex32(&spec.weights_sha256),
-        signal_kind: runtime_signal_kind_name(&spec.runtime).to_string(),
+        signal_kind: lens_spec_signal_kind_name(&spec).to_string(),
         native_dim: crate::lens_commands::support::dim(spec.output) as usize,
         projected_dim: projected_slot_dim(spec.output) as usize,
         assay_projection: slot_projection_name(spec.output).to_string(),
