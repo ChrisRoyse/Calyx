@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::QuantLevel;
+use crate::{QuantLevel, QuantizedVec};
 
 pub const COMPRESSION_REPORT_SCHEMA_VERSION: u32 = 1;
 
@@ -18,6 +18,7 @@ pub struct CompressionSlotMeasurement {
     pub channel_count: u64,
     pub original_bytes: u64,
     pub compressed_bytes: u64,
+    pub quantized: QuantizedVec,
     pub turboquant_floor_cosine_error: f64,
     pub achieved_cosine_error: f64,
     pub max_cosine_error: f64,
@@ -60,7 +61,9 @@ pub struct CompressionSlotReport {
     pub slot_id: String,
     pub level: QuantLevel,
     pub channel_count: u64,
+    pub stored_dim: u64,
     pub bits_per_channel: f64,
+    pub stored_payload_sha256: String,
     pub turboquant_floor_cosine_error: f64,
     pub achieved_cosine_error: f64,
     pub distortion_vs_floor: f64,

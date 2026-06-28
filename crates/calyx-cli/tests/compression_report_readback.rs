@@ -168,6 +168,7 @@ fn measured_slot(
         channel_count: dim as u64,
         original_bytes: (dim * std::mem::size_of::<f32>()) as u64,
         compressed_bytes: quantized.bytes.len() as u64,
+        quantized: quantized.clone(),
         turboquant_floor_cosine_error: floor,
         achieved_cosine_error,
         max_cosine_error: achieved_cosine_error + 0.010,

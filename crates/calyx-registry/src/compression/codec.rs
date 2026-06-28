@@ -34,16 +34,12 @@ pub(super) fn encode_rows(
             let prepared = prepare_dense(raw, lens.truncate_dim)?;
             let raw_bytes = raw_bytes(raw)?;
             let encoded = encode_prepared(slot, lens, *cx_id, &prepared, policy, mxfp4_evidence)?;
-            let stored_bytes = if encoded.codec == StoredSlotCodec::RawF32 {
-                raw_bytes.clone()
-            } else {
-                encode_envelope(
-                    encoded.codec,
-                    &encoded.qv,
-                    raw.len() as u32,
-                    lens.truncate_dim,
-                )?
-            };
+            let stored_bytes = encode_envelope(
+                encoded.codec,
+                &encoded.qv,
+                raw.len() as u32,
+                lens.truncate_dim,
+            )?;
             Ok(EncodedRow {
                 cx_id: *cx_id,
                 prepared,
@@ -58,15 +54,10 @@ pub(super) fn encode_rows(
 
 pub fn decode_stored_slot_envelope(bytes: &[u8]) -> Result<StoredSlotEnvelope> {
     if bytes.first().copied() != Some(COMPRESSED_SLOT_TAG) {
-        return Ok(StoredSlotEnvelope {
-            codec: StoredSlotCodec::RawF32,
-            level: "f32".to_string(),
-            raw_dim: 0,
-            stored_dim: 0,
-            fallback: false,
-            truncated: false,
-            payload_bytes: bytes.len(),
-        });
+        return Err(compression_error(
+            CALYX_VECTOR_COMPRESSION_INVALID,
+            "stored slot bytes are missing compressed slot envelope tag",
+        ));
     }
     if bytes.len() < 53 {
         return Err(compression_error(
@@ -93,6 +84,10 @@ pub fn decode_stored_slot_envelope(bytes: &[u8]) -> Result<StoredSlotEnvelope> {
             CALYX_VECTOR_COMPRESSION_INVALID,
             "compressed slot payload length mismatch",
         ));
+    }
+    let payload = &bytes[53..];
+    if codec == StoredSlotCodec::RawF32 {
+        validate_raw_f32_payload(raw_dim, stored_dim, payload)?;
     }
     Ok(StoredSlotEnvelope {
         codec,
@@ -265,10 +260,48 @@ fn raw_qv(prepared: &[f32]) -> QuantizedVec {
     QuantizedVec {
         level: QuantLevel::F32,
         dim: prepared.len(),
-        bytes: Vec::new(),
+        bytes: raw_f32_payload(prepared),
         scale: 1.0,
         seed_id: [0; 32],
     }
+}
+
+fn raw_f32_payload(values: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(std::mem::size_of_val(values));
+    for value in values {
+        bytes.extend_from_slice(&value.to_bits().to_be_bytes());
+    }
+    bytes
+}
+
+fn validate_raw_f32_payload(raw_dim: u32, stored_dim: u32, payload: &[u8]) -> Result<()> {
+    if raw_dim == 0 || stored_dim == 0 {
+        return Err(compression_error(
+            CALYX_VECTOR_COMPRESSION_INVALID,
+            "raw f32 envelope dimensions must be positive",
+        ));
+    }
+    let expected = stored_dim as usize * std::mem::size_of::<f32>();
+    if payload.len() != expected {
+        return Err(compression_error(
+            CALYX_VECTOR_COMPRESSION_INVALID,
+            format!(
+                "raw f32 payload length {} does not match stored_dim {}",
+                payload.len(),
+                stored_dim
+            ),
+        ));
+    }
+    for (idx, chunk) in payload.chunks_exact(std::mem::size_of::<f32>()).enumerate() {
+        let value = f32::from_bits(u32::from_be_bytes(chunk.try_into().unwrap()));
+        if !value.is_finite() {
+            return Err(compression_error(
+                CALYX_VECTOR_COMPRESSION_INVALID,
+                format!("raw f32 payload contains non-finite coefficient at index {idx}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn encode_envelope(
@@ -278,7 +311,7 @@ fn encode_envelope(
     truncate_dim: Option<u32>,
 ) -> Result<Vec<u8>> {
     validate_codec_level(codec, qv.level)?;
-    let mut out = Vec::with_capacity(49 + qv.bytes.len());
+    let mut out = Vec::with_capacity(53 + qv.bytes.len());
     out.push(COMPRESSED_SLOT_TAG);
     out.push(COMPRESSED_SLOT_VERSION);
     out.push(codec_code(codec));
