@@ -4,6 +4,8 @@ use calyx_core::Modality;
 
 use super::*;
 
+mod token_roundtrip;
+
 #[test]
 fn parse_create_vault_without_template() {
     let parsed = parse(&tokens(["create-vault", "mydb"])).unwrap();
@@ -181,8 +183,8 @@ fn vault_name_with_spaces_is_usage_error() {
 
 proptest! {
     #[test]
-    fn vault_subcommands_round_trip(command in arb_subcommand()) {
-        let tokens = command.to_cli_tokens();
+fn vault_subcommands_round_trip(command in arb_subcommand()) {
+        let tokens = token_roundtrip::subcommand_tokens(&command);
         prop_assert_eq!(parse(&tokens).unwrap(), command);
     }
 }
@@ -306,6 +308,24 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 min_recall: 0.95,
             })
         }),
+        (
+            safe_name(),
+            1usize..64,
+            1usize..8,
+            1usize..1024,
+            0usize..1000,
+        )
+            .prop_map(|(vault, knn, max_groundedness_distance, batch, limit)| {
+                Subcommand::WeaveLoom(weave::WeaveLoomArgs {
+                    vault,
+                    content_slot: None,
+                    knn,
+                    edge_cos_threshold: 0.5,
+                    max_groundedness_distance,
+                    batch,
+                    limit,
+                })
+            }),
     ]
 }
 
@@ -315,172 +335,4 @@ fn safe_name() -> impl Strategy<Value = String> {
 
 fn tokens<const N: usize>(items: [&str; N]) -> Vec<String> {
     items.into_iter().map(str::to_string).collect()
-}
-
-impl Subcommand {
-    fn to_cli_tokens(&self) -> Vec<String> {
-        match self {
-            Self::CreateVault(args) => {
-                let mut out = vec!["create-vault".to_string(), args.name.clone()];
-                if let Some(template) = &args.panel_template {
-                    out.extend(["--panel-template".to_string(), template.clone()]);
-                }
-                out
-            }
-            Self::AddLens(args) => {
-                let mut out = vec![
-                    "add-lens".to_string(),
-                    args.vault.clone(),
-                    "--name".to_string(),
-                    args.name.clone(),
-                    "--runtime".to_string(),
-                    args.runtime.clone(),
-                ];
-                push_opt(&mut out, "--endpoint", args.endpoint.as_deref());
-                push_opt(
-                    &mut out,
-                    "--weights",
-                    args.weights.as_ref().and_then(|p| p.to_str()),
-                );
-                push_opt(&mut out, "--shape", args.shape.as_deref());
-                push_opt(&mut out, "--modality", args.modality.as_deref());
-                out
-            }
-            Self::RetireLens(args) => slot_tokens("retire-lens", args),
-            Self::ParkLens(args) => slot_tokens("park-lens", args),
-            Self::ListPanel(args) => vec!["list-panel".to_string(), args.vault.clone()],
-            Self::Ingest(args) => ingest_tokens(args),
-            Self::Anchor(args) => anchor_tokens(args),
-            Self::Measure(args) => vec![
-                "measure".to_string(),
-                args.vault.clone(),
-                "--text".to_string(),
-                args.text.clone(),
-            ],
-            Self::Search(args) => search::search_tokens(args),
-            Self::KernelAnswer(args) => search::kernel_answer_tokens(args),
-            Self::Bits(args) => intelligence::bits_tokens(args),
-            Self::Kernel(args) => intelligence::kernel_tokens(args),
-            Self::Guard(args) => intelligence::guard_tokens(args),
-            Self::Abundance(args) => intelligence::abundance_tokens(args),
-            Self::ProposeLens(args) => intelligence::propose_lens_tokens(args),
-            Self::Provenance(args) => vec![
-                "provenance".to_string(),
-                args.vault.clone(),
-                args.cx_id.clone(),
-            ],
-            Self::VerifyChain(args) => verify_chain_tokens(args),
-            Self::Reproduce(args) => vec![
-                "reproduce".to_string(),
-                args.vault.clone(),
-                args.answer_id.clone(),
-            ],
-            Self::AnnealStatus(args) => vec!["anneal-status".to_string(), args.vault.clone()],
-            Self::RebuildSearchIndex(args) => {
-                vec!["rebuild-search-index".to_string(), args.vault.clone()]
-            }
-            Self::KernelBuild(args) => vec![
-                "kernel-build".to_string(),
-                args.vault.clone(),
-                "--held-out-fraction".to_string(),
-                args.held_out_fraction.to_string(),
-                "--top-k".to_string(),
-                args.top_k.to_string(),
-                "--min-recall".to_string(),
-                args.min_recall.to_string(),
-            ],
-            Self::ProfileLens(args) => profile_lens_tokens(args),
-        }
-    }
-}
-
-fn verify_chain_tokens(args: &provenance::VerifyChainArgs) -> Vec<String> {
-    let mut out = vec!["verify-chain".to_string(), args.vault.clone()];
-    if let Some(from) = args.from {
-        out.extend(["--from".to_string(), from.to_string()]);
-    }
-    if let Some(to) = args.to {
-        out.extend(["--to".to_string(), to.to_string()]);
-    }
-    out
-}
-
-fn ingest_tokens(args: &IngestArgs) -> Vec<String> {
-    let mut out = vec!["ingest".to_string(), args.vault.clone()];
-    push_opt(&mut out, "--text", args.text.as_deref());
-    push_opt(
-        &mut out,
-        "--batch",
-        args.batch.as_ref().and_then(|path| path.to_str()),
-    );
-    push_opt(
-        &mut out,
-        "--file",
-        args.file.as_ref().and_then(|path| path.to_str()),
-    );
-    push_opt(&mut out, "--modality", args.modality.map(modality_name));
-    if args.idempotent {
-        out.push("--idempotent".to_string());
-    }
-    out
-}
-
-fn modality_name(value: Modality) -> &'static str {
-    match value {
-        Modality::Audio => "audio",
-        Modality::Video => "video",
-        _ => "media",
-    }
-}
-
-fn anchor_tokens(args: &AnchorArgs) -> Vec<String> {
-    let mut out = vec![
-        "anchor".to_string(),
-        args.vault.clone(),
-        args.cx_id.clone(),
-        "--kind".to_string(),
-        args.kind.clone(),
-        "--value".to_string(),
-        args.value.clone(),
-    ];
-    if let Some(confidence) = args.confidence {
-        out.extend(["--confidence".to_string(), confidence.to_string()]);
-    }
-    push_opt(&mut out, "--source", args.source.as_deref());
-    out
-}
-
-fn profile_lens_tokens(args: &ProfileLensArgs) -> Vec<String> {
-    let mut out = vec!["profile-lens".to_string()];
-    push_opt(&mut out, "--name", args.name.as_deref());
-    push_opt(&mut out, "--runtime", args.runtime.as_deref());
-    push_opt(&mut out, "--endpoint", args.endpoint.as_deref());
-    push_opt(
-        &mut out,
-        "--weights",
-        args.weights.as_ref().and_then(|p| p.to_str()),
-    );
-    push_opt(&mut out, "--shape", args.shape.as_deref());
-    push_opt(&mut out, "--modality", args.modality.as_deref());
-    push_opt(
-        &mut out,
-        "--probe",
-        args.probe.as_ref().and_then(|p| p.to_str()),
-    );
-    out
-}
-
-fn push_opt(out: &mut Vec<String>, flag: &str, value: Option<&str>) {
-    if let Some(value) = value {
-        out.extend([flag.to_string(), value.to_string()]);
-    }
-}
-
-fn slot_tokens(command: &str, args: &SlotCommandArgs) -> Vec<String> {
-    vec![
-        command.to_string(),
-        args.vault.clone(),
-        "--slot".to_string(),
-        args.slot.to_string(),
-    ]
 }

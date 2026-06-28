@@ -7,6 +7,7 @@ mod provenance;
 mod readback;
 mod search;
 pub(crate) mod vault;
+mod weave;
 
 pub(crate) use ingest::{
     measure_constellation as measure_ingest_constellation, text_input as ingest_text_input,
@@ -56,6 +57,7 @@ pub(crate) enum Subcommand {
     AnnealStatus(provenance::AnnealStatusArgs),
     RebuildSearchIndex(VaultRefArgs),
     KernelBuild(kernel_build::KernelBuildArgs),
+    WeaveLoom(weave::WeaveLoomArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,6 +169,7 @@ fn run(command: Subcommand) -> CliResult {
         | Subcommand::Reproduce(_)
         | Subcommand::AnnealStatus(_) => provenance::run(command),
         Subcommand::KernelBuild(_) => kernel_build::run(command),
+        Subcommand::WeaveLoom(_) => weave::run(command),
     }
 }
 
@@ -197,6 +200,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "anneal-status" => provenance::parse_anneal_status(rest),
         "rebuild-search-index" => parse_vault_ref(rest).map(Subcommand::RebuildSearchIndex),
         "kernel-build" => kernel_build::parse_kernel_build(rest),
+        "weave-loom" => weave::parse_weave_loom(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -226,6 +230,7 @@ fn is_cmd(command: &str) -> bool {
             | "anneal-status"
             | "rebuild-search-index"
             | "kernel-build"
+            | "weave-loom"
     )
 }
 
