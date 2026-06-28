@@ -9,6 +9,8 @@ use super::custom::pool_output;
 use super::fastembed_runtime::execution_providers;
 use super::*;
 
+mod runtime_guard;
+
 static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(1);
 
 #[test]
@@ -32,6 +34,7 @@ fn execution_provider_policy_can_be_explicit_cpu() {
 }
 
 #[test]
+#[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]
 fn persisted_onnx_manifest_defaults_to_cuda_fail_loud() {
     let fixture = Fixture::new("manifest-provider", &[3.0, 4.0, 0.0]);
     let spec = OnnxLens::from_files(fixture.spec("custom-provider"))
@@ -44,6 +47,7 @@ fn persisted_onnx_manifest_defaults_to_cuda_fail_loud() {
 }
 
 #[test]
+#[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]
 fn custom_onnx_from_files_measures_unit_norm_vector() {
     let fixture = Fixture::new("unit-norm", &[3.0, 4.0, 0.0]);
     let lens = OnnxLens::from_files(
@@ -70,6 +74,7 @@ fn custom_onnx_from_files_measures_unit_norm_vector() {
 }
 
 #[test]
+#[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]
 fn custom_onnx_lens_spec_round_trips_runtime_files() {
     let fixture = Fixture::new("spec-roundtrip", &[3.0, 4.0, 0.0]);
     let lens = OnnxLens::from_files(fixture.spec("custom-spec")).unwrap();
@@ -88,6 +93,7 @@ fn custom_onnx_lens_spec_round_trips_runtime_files() {
 }
 
 #[test]
+#[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]
 fn custom_onnx_file_hash_controls_lens_id_and_frozen_violation() {
     let fixture = Fixture::new("hash", &[3.0, 4.0, 0.0]);
     let first = OnnxLens::from_files(fixture.spec("custom-hash")).unwrap();
@@ -112,6 +118,7 @@ fn custom_onnx_file_hash_controls_lens_id_and_frozen_violation() {
 }
 
 #[test]
+#[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]
 fn custom_onnx_missing_tokenizer_is_config_invalid() {
     let fixture = Fixture::new("missing-tokenizer", &[3.0, 4.0, 0.0]);
     fs::remove_file(&fixture.tokenizer).unwrap();
@@ -122,6 +129,7 @@ fn custom_onnx_missing_tokenizer_is_config_invalid() {
 }
 
 #[test]
+#[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]
 fn custom_onnx_declared_dim_mismatch_fails_closed() {
     let fixture = Fixture::new("dim-mismatch", &[3.0, 4.0, 0.0]);
 
@@ -135,6 +143,7 @@ fn custom_onnx_declared_dim_mismatch_fails_closed() {
 }
 
 #[test]
+#[ignore = "requires ORT_DYLIB_PATH and ORT editor/session runtime"]
 fn custom_onnx_non_finite_output_is_numerical_invariant() {
     let fixture = Fixture::new("nan", &[f32::NAN, 1.0, 0.0]);
     let lens = OnnxLens::from_files(fixture.spec("custom-nan")).unwrap();
