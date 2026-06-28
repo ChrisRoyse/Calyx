@@ -3,6 +3,8 @@ use crate::memtable::Memtable;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
@@ -99,6 +101,43 @@ fn corrupt_bloom_section_fails_closed_on_open() {
     let error = SstReader::open(&path).expect_err("bloom crc rejected");
 
     assert_eq!(error.code, "CALYX_ASTER_CORRUPT_SHARD");
+    cleanup(dir);
+}
+
+#[test]
+fn concurrent_replacements_do_not_share_temp_file() {
+    let dir = test_dir("sst-concurrent-replace");
+    let path = dir.join("000001.sst");
+    let barrier = Arc::new(Barrier::new(16));
+    let handles = (0..16)
+        .map(|index| {
+            let path = path.clone();
+            let barrier = Arc::clone(&barrier);
+            thread::spawn(move || {
+                barrier.wait();
+                let key = format!("k{index:02}");
+                let value = format!("value-{index:02}");
+                write_sst(&path, [(key.as_bytes(), value.as_bytes())])
+            })
+        })
+        .collect::<Vec<_>>();
+
+    for handle in handles {
+        handle.join().expect("writer thread").expect("write SST");
+    }
+
+    let rows = SstReader::open(&path)
+        .expect("open final SST")
+        .iter()
+        .expect("read final SST");
+    assert_eq!(rows.len(), 1);
+    assert!(rows[0].key.starts_with(b"k"));
+    let temp_files = fs::read_dir(&dir)
+        .expect("read dir")
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"))
+        .collect::<Vec<_>>();
+    assert!(temp_files.is_empty(), "leftover SST temps: {temp_files:?}");
     cleanup(dir);
 }
 

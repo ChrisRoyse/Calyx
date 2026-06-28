@@ -58,6 +58,16 @@ where
     }
 
     fn reclaim_snapshot_ssts(&self, safe_point: u64, max_input_files: usize) -> Result<GcResult> {
+        self.with_durable_commit_lock(|| {
+            self.reclaim_snapshot_ssts_locked(safe_point, max_input_files)
+        })
+    }
+
+    fn reclaim_snapshot_ssts_locked(
+        &self,
+        safe_point: u64,
+        max_input_files: usize,
+    ) -> Result<GcResult> {
         let Some(durable) = &self.durable else {
             return Ok(GcResult {
                 safe_point_seq: safe_point,
@@ -72,8 +82,7 @@ where
             });
         }
 
-        durable.flush()?;
-        self.rows.flush_all_cfs()?;
+        self.flush_locked()?;
         let catalog = catalog_from_vault_tiers(durable.root(), durable.tiering_policy())?;
         let mut bytes_freed = 0usize;
         let mut files_seen = 0usize;
