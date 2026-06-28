@@ -2,15 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CxId, SlotId, SlotVector};
-use calyx_sextant::{HnswIndex, SextantIndex};
+use calyx_core::CxId;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{Kernel, LodestarError, Result};
 
 const FORMAT_VERSION: u32 = 1;
-const KERNEL_SLOT: SlotId = SlotId::new(u16::MAX);
-const HNSW_SEED: u64 = 0x4c4f444553544152;
 
 pub trait EmbeddingStore {
     fn embedding(&self, cx_id: CxId) -> Result<Option<Vec<f32>>>;
@@ -86,7 +84,6 @@ pub struct KernelIndex {
     pub kernel_id: CxId,
     pub dim: usize,
     rows: Vec<KernelVectorRow>,
-    hnsw: HnswIndex,
 }
 
 impl KernelIndex {
@@ -106,12 +103,10 @@ impl KernelIndex {
 
     fn from_rows(kernel_id: CxId, rows: Vec<KernelVectorRow>) -> Result<Self> {
         let dim = validate_rows(&rows)?;
-        let hnsw = build_hnsw(dim, &rows)?;
         Ok(Self {
             kernel_id,
             dim,
             rows,
-            hnsw,
         })
     }
 }
@@ -164,18 +159,14 @@ pub fn kernel_search(
             detail: format!("query vector has non-finite value at offset {offset}"),
         });
     }
-    let query = SlotVector::Dense {
-        dim: dim_u32(index.dim)?,
-        data: query_vec.to_vec(),
-    };
-    let hits =
+    Ok(top_k_by_score(
         index
-            .hnsw
-            .search(&query, top_k, None)
-            .map_err(|err| LodestarError::KernelIndexBuild {
-                detail: err.to_string(),
-            })?;
-    Ok(hits.into_iter().map(|hit| (hit.cx_id, hit.score)).collect())
+            .rows
+            .par_iter()
+            .map(|row| (row.cx_id, cosine(query_vec, &row.vector)))
+            .collect(),
+        top_k,
+    ))
 }
 
 pub fn write_kernel_index(index: &KernelIndex, store: &dyn KernelStore) -> Result<()> {
@@ -254,32 +245,31 @@ fn validate_rows(rows: &[KernelVectorRow]) -> Result<usize> {
     Ok(dim)
 }
 
-fn build_hnsw(dim: usize, rows: &[KernelVectorRow]) -> Result<HnswIndex> {
-    let mut hnsw = HnswIndex::new(KERNEL_SLOT, dim_u32(dim)?, HNSW_SEED);
-    for (idx, row) in rows.iter().enumerate() {
-        hnsw.insert(
-            row.cx_id,
-            SlotVector::Dense {
-                dim: dim_u32(dim)?,
-                data: row.vector.clone(),
-            },
-            idx as u64 + 1,
-        )
-        .map_err(|err| LodestarError::KernelIndexBuild {
-            detail: err.to_string(),
-        })?;
+fn cosine(a: &[f32], b: &[f32]) -> f32 {
+    let mut dot = 0.0_f32;
+    let mut an = 0.0_f32;
+    let mut bn = 0.0_f32;
+    for (x, y) in a.iter().zip(b) {
+        dot += x * y;
+        an += x * x;
+        bn += y * y;
     }
-    hnsw.rebuild()
-        .map_err(|err| LodestarError::KernelIndexBuild {
-            detail: err.to_string(),
-        })?;
-    Ok(hnsw)
+    if an == 0.0 || bn == 0.0 {
+        0.0
+    } else {
+        dot / (an.sqrt() * bn.sqrt())
+    }
 }
 
-fn dim_u32(dim: usize) -> Result<u32> {
-    u32::try_from(dim).map_err(|_| LodestarError::KernelInvalidParams {
-        detail: format!("dimension {dim} exceeds u32::MAX"),
-    })
+fn top_k_by_score(mut scored: Vec<(CxId, f32)>, top_k: usize) -> Vec<(CxId, f32)> {
+    scored.sort_by(|left, right| {
+        right
+            .1
+            .total_cmp(&left.1)
+            .then_with(|| left.0.to_string().cmp(&right.0.to_string()))
+    });
+    scored.truncate(top_k);
+    scored
 }
 
 fn io_error(err: std::io::Error) -> LodestarError {

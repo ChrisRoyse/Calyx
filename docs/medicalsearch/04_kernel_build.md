@@ -147,6 +147,17 @@ Root cause: the MFVS/DFVS kernel is selected from graph centrality and cycle str
 
 Fix: `calyx kernel-build` now measures the initial kernel, and if the measured ratio is below the requested gate, it extracts the exact full-index top-k support set from the same deterministic held-out queries, adds those real corpus nodes to the kernel, rebuilds the real kernel index, preserves the original DFVS `tau_star` fields, reruns the hard recall gate, and only then writes `kernel.json`/`index.json`. This is not a fallback: if the refined real index still fails the gate, the command errors and persists nothing.
 
+The first refined run still failed closed because the kernel index itself was using approximate HNSW search with default effort:
+
+- FSV root: `/home/croyse/calyx/fsv/issue871-kernel-build-recall-refined-20260628T005455Z`
+- exact support extracted: 9,599 members from 995 held-out queries / 9,950 full top-k hits
+- refined kernel: 21,954 members / 27,328 kernel-graph nodes
+- recall: `ratio=0.743417`, min required `0.95`
+- exit: `2`, `CALYX_KERNEL_RECALL_BELOW_GATE`
+- source-of-truth artifact dirs: remained unchanged; no broken refined artifact was persisted.
+
+Second fix: `KernelIndex` is now an exact row index over the persisted `index.json` rows. The kernel is orders of magnitude smaller than the full graph, so exact cosine over kernel rows is tractable and removes HNSW search-effort noise from the acceptance gate. Full-index and kernel-index in-memory scoring use Rayon.
+
 Research notes used for the fix:
 - ANN recall should be measured by comparing approximate/index results to exact top-k over representative queries and fail CI when below the target.
 - Coreset selection for retrieval must include embedding-space coverage/representativeness, not only graph centrality.
@@ -162,8 +173,8 @@ calyx kernel-build corpus-anchored-869-20260625T080546Z   # defaults: held-out 0
 ## Raw evidence / FSV
 
 Current recall-refined live run:
-- FSV root: `/home/croyse/calyx/fsv/issue871-kernel-build-recall-refined-20260628T005455Z`
-- status at doc update: active, past graph load, node props, sampled betweenness, selected graph, and DFVS.
+- FSV root: `/home/croyse/calyx/fsv/issue871-kernel-build-exact-kernel-index-20260628T010451Z`
+- status at doc update: active, exact kernel-index fix applied.
 
 - graph: nodes = 198,993, edges ≈ 2,435,816
 - kernel: members = TBD, kernel_graph = TBD, groundedness_fraction (reached_anchor) = TBD

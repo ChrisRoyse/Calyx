@@ -2,6 +2,7 @@ use std::collections::BTreeSet;
 
 use calyx_core::{Clock, CxId, SlotVector, SystemClock};
 use calyx_sextant::{HnswIndex, SextantIndex};
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::{KernelIndex, LodestarError, RecallReport, Result, kernel_search};
@@ -114,7 +115,7 @@ impl AnnIndex for InMemoryAnnIndex {
         validate_query_vec(query_vec, self.dim)?;
         Ok(top_k_by_score(
             self.rows
-                .iter()
+                .par_iter()
                 .map(|row| (row.cx_id, cosine(query_vec, &row.vector)))
                 .collect(),
             top_k,
