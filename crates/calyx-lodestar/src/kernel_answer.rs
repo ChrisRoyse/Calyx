@@ -1,5 +1,5 @@
 use calyx_core::{Clock, CxId, LedgerRef};
-use calyx_ledger::{LedgerAppender, LedgerCfStore};
+use calyx_ledger::{EntryKind, LedgerAppender, LedgerCfStore, decode};
 use calyx_paths::{AssocGraph, attenuate, reach};
 use serde::{Deserialize, Serialize};
 
@@ -107,7 +107,7 @@ where
         anchored_kernel_nodes,
         max_hops,
     )?;
-    if path.len() == 1 {
+    let answer = if path.len() == 1 {
         let complete_ref = append_answer_complete_entry(
             ledger,
             query_cx,
@@ -116,53 +116,50 @@ where
             &[],
             1.0,
         )?;
-        return AnswerPath::checked_with_complete_ref(
+        AnswerPath::checked_with_complete_ref(query_cx, anchor, Vec::new(), 1.0, complete_ref)
+    } else {
+        let hops = answer_hops_with(
+            graph,
+            &path,
+            |from, to, hop_index, edge_weight, hop_score| {
+                append_answer_hop_entry(
+                    ledger,
+                    query_cx,
+                    anchor,
+                    AnswerHopEvidence {
+                        from,
+                        to,
+                        edge_weight,
+                        hop_index,
+                        hop_score,
+                    },
+                )
+            },
+        )?;
+        let total_score = hops.iter().map(|hop| hop.hop_score).sum();
+        let complete_hops = hops
+            .iter()
+            .map(|hop| AnswerCompleteHopEvidence {
+                from: hop.from,
+                to: hop.to,
+                edge_weight: hop.edge_weight,
+                hop_index: hop.hop_index,
+                hop_score: hop.hop_score,
+                ledger_ref: hop.ledger_ref.clone(),
+            })
+            .collect::<Vec<_>>();
+        let complete_ref = append_answer_complete_entry(
+            ledger,
             query_cx,
             anchor,
-            Vec::new(),
-            1.0,
-            complete_ref,
-        );
-    }
-    let hops = answer_hops_with(
-        graph,
-        &path,
-        |from, to, hop_index, edge_weight, hop_score| {
-            append_answer_hop_entry(
-                ledger,
-                query_cx,
-                anchor,
-                AnswerHopEvidence {
-                    from,
-                    to,
-                    edge_weight,
-                    hop_index,
-                    hop_score,
-                },
-            )
-        },
-    )?;
-    let total_score = hops.iter().map(|hop| hop.hop_score).sum();
-    let complete_hops = hops
-        .iter()
-        .map(|hop| AnswerCompleteHopEvidence {
-            from: hop.from,
-            to: hop.to,
-            edge_weight: hop.edge_weight,
-            hop_index: hop.hop_index,
-            hop_score: hop.hop_score,
-            ledger_ref: hop.ledger_ref.clone(),
-        })
-        .collect::<Vec<_>>();
-    let complete_ref = append_answer_complete_entry(
-        ledger,
-        query_cx,
-        anchor,
-        kernel_index.kernel_id,
-        &complete_hops,
-        total_score,
-    )?;
-    AnswerPath::checked_with_complete_ref(query_cx, anchor, hops, total_score, complete_ref)
+            kernel_index.kernel_id,
+            &complete_hops,
+            total_score,
+        )?;
+        AnswerPath::checked_with_complete_ref(query_cx, anchor, hops, total_score, complete_ref)
+    }?;
+    verify_answer_ledger_refs(ledger.store(), &answer.provenance)?;
+    Ok(answer)
 }
 
 fn nearest_answerable_anchored_path(
@@ -262,4 +259,41 @@ fn validate_score(score: f32, field: &str) -> Result<()> {
             detail: format!("{field}={score} must be finite and non-negative"),
         })
     }
+}
+
+fn verify_answer_ledger_refs<S: LedgerCfStore>(store: &S, refs: &[LedgerRef]) -> Result<()> {
+    for reference in refs {
+        let row = store.read_seq(reference.seq)?.ok_or_else(|| {
+            LodestarError::KernelAnswerLedgerMismatch {
+                detail: format!("answer ledger seq {} is absent", reference.seq),
+            }
+        })?;
+        let entry = decode(&row.bytes)?;
+        if entry.seq != reference.seq || row.seq != reference.seq {
+            return Err(LodestarError::KernelAnswerLedgerMismatch {
+                detail: format!(
+                    "answer ledger ref seq {} read row key seq {} encoded seq {}",
+                    reference.seq, row.seq, entry.seq
+                ),
+            });
+        }
+        if entry.kind != EntryKind::Answer {
+            return Err(LodestarError::KernelAnswerLedgerMismatch {
+                detail: format!(
+                    "answer ledger seq {} has kind {}, expected answer",
+                    reference.seq,
+                    entry.kind.as_str()
+                ),
+            });
+        }
+        if entry.entry_hash != reference.hash {
+            return Err(LodestarError::KernelAnswerLedgerMismatch {
+                detail: format!(
+                    "answer ledger seq {} hash does not match referenced entry hash",
+                    reference.seq
+                ),
+            });
+        }
+    }
+    Ok(())
 }

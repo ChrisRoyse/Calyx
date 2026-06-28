@@ -39,6 +39,8 @@ pub enum LodestarError {
     },
     #[error("CALYX_KERNEL_ANSWER_LEDGER_REQUIRED: {detail}")]
     KernelAnswerLedgerRequired { detail: String },
+    #[error("CALYX_KERNEL_ANSWER_LEDGER_MISMATCH: {detail}")]
+    KernelAnswerLedgerMismatch { detail: String },
     #[error("CALYX_KERNEL_SCORE_INVALID: {detail}")]
     KernelScoreInvalid { detail: String },
     #[error("CALYX_KERNEL_LOOM_SLOT_MAPPING_MISSING: no CxId mapping for {xterm_cx}/{slot}")]
@@ -107,6 +109,7 @@ impl LodestarError {
             Self::KernelNoAnchoredNode => "CALYX_KERNEL_NO_ANCHORED_NODE",
             Self::KernelAnswerNoPath { .. } => "CALYX_KERNEL_ANSWER_NO_PATH",
             Self::KernelAnswerLedgerRequired { .. } => "CALYX_KERNEL_ANSWER_LEDGER_REQUIRED",
+            Self::KernelAnswerLedgerMismatch { .. } => "CALYX_KERNEL_ANSWER_LEDGER_MISMATCH",
             Self::KernelScoreInvalid { .. } => "CALYX_KERNEL_SCORE_INVALID",
             Self::KernelLoomSlotMappingMissing { .. } => "CALYX_KERNEL_LOOM_SLOT_MAPPING_MISSING",
             Self::KernelLoomDirectionalConfidenceMissing { .. } => {

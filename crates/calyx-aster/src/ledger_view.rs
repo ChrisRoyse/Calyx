@@ -66,6 +66,10 @@ impl LedgerCfStore for AsterLedgerCfStore {
         Ok(self.rows.clone())
     }
 
+    fn read_seq(&self, seq: u64) -> CalyxResult<Option<LedgerRow>> {
+        Ok(self.rows.iter().find(|row| row.seq == seq).cloned())
+    }
+
     fn put_new(&mut self, seq: u64, _bytes: &[u8]) -> CalyxResult<()> {
         Err(CalyxError::ledger_append_only_violation(format!(
             "read-only Aster ledger view rejected append for seq {seq}"

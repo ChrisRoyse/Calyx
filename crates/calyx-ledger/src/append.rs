@@ -59,6 +59,11 @@ pub trait LedgerCfStore {
     /// Returns all rows sorted by sequence number.
     fn scan(&self) -> Result<Vec<LedgerRow>>;
 
+    /// Reads one ledger row by sequence number.
+    fn read_seq(&self, seq: u64) -> Result<Option<LedgerRow>> {
+        Ok(self.scan()?.into_iter().find(|row| row.seq == seq))
+    }
+
     /// Writes a new row. Implementations must reject overwrites.
     fn put_new(&mut self, seq: u64, bytes: &[u8]) -> Result<()>;
 
@@ -316,6 +321,13 @@ impl LedgerCfStore for MemoryLedgerStore {
                 bytes: bytes.clone(),
             })
             .collect())
+    }
+
+    fn read_seq(&self, seq: u64) -> Result<Option<LedgerRow>> {
+        Ok(self.rows.get(&seq).map(|bytes| LedgerRow {
+            seq,
+            bytes: bytes.clone(),
+        }))
     }
 
     fn put_new(&mut self, seq: u64, bytes: &[u8]) -> Result<()> {

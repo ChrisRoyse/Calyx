@@ -2,8 +2,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_core::{CxId, FixedClock, LedgerRef};
-use calyx_ledger::{LedgerAppender, LedgerCfStore, MemoryLedgerStore};
+use calyx_core::{CxId, FixedClock, LedgerRef, Result as CalyxResult};
+use calyx_ledger::{LedgerAppender, LedgerCfStore, LedgerRow, MemoryLedgerStore, decode};
 use calyx_lodestar::{
     AnswerHop, AnswerPath, GroundednessReport, Kernel, KernelIndex, RecallReport,
     build_kernel_index, kernel_answer, kernel_answer_with_ledger, kernel_search,
@@ -111,10 +111,34 @@ fn kernel_answer_without_ledger_fails_for_multi_hop_path() {
 }
 
 #[test]
+fn kernel_answer_with_ledger_verifies_returned_refs_are_readable() {
+    let graph = chain_graph();
+    let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
+    let mut appender = LedgerAppender::open(
+        WriteOnlyAfterAppendStore::default(),
+        FixedClock::new(1_785_631_000),
+    )
+    .expect("open write-only ledger");
+    let err = kernel_answer_with_ledger(
+        &index,
+        &graph,
+        cx(13),
+        &[0.99, 0.01],
+        &[cx(10)],
+        3,
+        &mut appender,
+    )
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_KERNEL_ANSWER_LEDGER_MISMATCH");
+    assert!(err.to_string().contains("absent"));
+}
+
+#[test]
 fn kernel_answer_chain_scores_and_real_ledger_provenance_are_deterministic() {
     let graph = chain_graph();
     let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
-    let (answer, ledger_seqs) =
+    let (answer, ledger_seqs, ledger_ref_readback) =
         answer_with_memory_ledger(&index, &graph, cx(13), &[0.99, 0.01], &[cx(10)], 3);
     let scores: Vec<_> = answer.hops.iter().map(|hop| hop.hop_score).collect();
     let seqs: Vec<_> = answer.provenance.iter().map(|ledger| ledger.seq).collect();
@@ -128,6 +152,7 @@ fn kernel_answer_chain_scores_and_real_ledger_provenance_are_deterministic() {
             "scores": scores,
             "provenance_seqs": seqs,
             "ledger_row_seqs": ledger_seqs,
+            "ledger_ref_readback": ledger_ref_readback,
         }),
     );
 
@@ -142,6 +167,11 @@ fn kernel_answer_chain_scores_and_real_ledger_provenance_are_deterministic() {
             .iter()
             .all(|ledger| ledger.hash != [0; 32])
     );
+    assert!(ledger_ref_readback.iter().all(|row| {
+        row["present"].as_bool() == Some(true)
+            && row["kind"].as_str() == Some("answer")
+            && row["hash_matches"].as_bool() == Some(true)
+    }));
     assert!((answer.total_score - 2.71).abs() <= 1e-5);
 }
 
@@ -183,7 +213,7 @@ fn kernel_answer_finds_anchor_ranked_beyond_old_top10_window() {
         .position(|(cx_id, _)| *cx_id == cx(13))
         .map(|idx| idx + 1)
         .expect("anchor should be present in exhausted search");
-    let (answer, ledger_seqs) =
+    let (answer, ledger_seqs, _) =
         answer_with_memory_ledger(&index, &graph, cx(200), &query_vec, &[cx(13)], 1);
 
     println!(
@@ -214,7 +244,7 @@ fn kernel_answer_finds_anchor_ranked_beyond_old_top10_window() {
 fn kernel_answer_continues_to_next_reachable_anchor() {
     let graph = competing_anchor_graph();
     let index = build_kernel_index(&kernel(vec![cx(9), cx(10)]), &embeddings()).unwrap();
-    let (answer, ledger_seqs) =
+    let (answer, ledger_seqs, _) =
         answer_with_memory_ledger(&index, &graph, cx(13), &[0.99, 0.01], &[cx(9), cx(10)], 3);
 
     write_readback(
@@ -287,7 +317,7 @@ fn answer_with_memory_ledger(
     query_vec: &[f32],
     anchors: &[CxId],
     max_hops: usize,
-) -> (AnswerPath, Vec<u64>) {
+) -> (AnswerPath, Vec<u64>, Vec<serde_json::Value>) {
     let mut appender =
         LedgerAppender::open(MemoryLedgerStore::default(), FixedClock::new(1_785_631_000))
             .expect("open memory ledger");
@@ -302,5 +332,60 @@ fn answer_with_memory_ledger(
     )
     .expect("ledger-backed answer");
     let rows = appender.store().scan().expect("scan memory ledger");
-    (answer, rows.into_iter().map(|row| row.seq).collect())
+    let ledger_ref_readback = ledger_ref_readback(appender.store(), &answer.provenance);
+    (
+        answer,
+        rows.into_iter().map(|row| row.seq).collect(),
+        ledger_ref_readback,
+    )
+}
+
+fn ledger_ref_readback<S: LedgerCfStore>(store: &S, refs: &[LedgerRef]) -> Vec<serde_json::Value> {
+    refs.iter()
+        .map(
+            |reference| match store.read_seq(reference.seq).expect("read ledger row") {
+                Some(row) => {
+                    let entry = decode(&row.bytes).expect("decode ledger row");
+                    json!({
+                        "seq": reference.seq,
+                        "present": true,
+                        "row_key_seq": row.seq,
+                        "encoded_seq": entry.seq,
+                        "kind": entry.kind.as_str(),
+                        "hash_matches": entry.entry_hash == reference.hash,
+                        "entry_hash": hex(&entry.entry_hash),
+                        "ref_hash": hex(&reference.hash),
+                    })
+                }
+                None => json!({
+                    "seq": reference.seq,
+                    "present": false,
+                    "hash_matches": false,
+                }),
+            },
+        )
+        .collect()
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+#[derive(Default)]
+struct WriteOnlyAfterAppendStore {
+    inner: MemoryLedgerStore,
+}
+
+impl LedgerCfStore for WriteOnlyAfterAppendStore {
+    fn scan(&self) -> CalyxResult<Vec<LedgerRow>> {
+        self.inner.scan()
+    }
+
+    fn read_seq(&self, _seq: u64) -> CalyxResult<Option<LedgerRow>> {
+        Ok(None)
+    }
+
+    fn put_new(&mut self, seq: u64, bytes: &[u8]) -> CalyxResult<()> {
+        self.inner.put_new(seq, bytes)
+    }
 }

@@ -59,6 +59,18 @@ impl LedgerCfStore for DirectoryLedgerStore {
         Ok(rows)
     }
 
+    fn read_seq(&self, seq: u64) -> Result<Option<LedgerRow>> {
+        let path = self.row_path(seq);
+        match fs::read(&path) {
+            Ok(bytes) => Ok(Some(LedgerRow { seq, bytes })),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(CalyxError::disk_pressure(format!(
+                "read ledger row {}: {error}",
+                path.display()
+            ))),
+        }
+    }
+
     fn put_new(&mut self, seq: u64, bytes: &[u8]) -> Result<()> {
         let path = self.row_path(seq);
         let mut file = OpenOptions::new()
