@@ -24,6 +24,8 @@ const MICROBENCH_REMEDIATION: &str =
     "Use a supported op, non-zero shape, iters > 0, and a CUDA context when benchmarking CUDA";
 const CUDA_REQUIRED_REMEDIATION: &str = "Initialize CUDA in a manual verification run and pass Some(&CudaContext), or benchmark BackendKind::Cpu";
 const CV_WARN_PCT: f64 = 20.0;
+const MIN_SAMPLE_MS: f64 = 2.0;
+const MAX_BATCH_RUNS: u32 = 65_536;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BenchResult {
@@ -306,17 +308,38 @@ where
     }
 
     run()?;
+    let mut batch_runs = 1;
+    loop {
+        let start = Instant::now();
+        for _ in 0..batch_runs {
+            run()?;
+        }
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1_000.0;
+        if elapsed_ms > 0.0 && elapsed_ms.is_finite() {
+            if elapsed_ms >= MIN_SAMPLE_MS || batch_runs == MAX_BATCH_RUNS {
+                break;
+            }
+            let scale = (MIN_SAMPLE_MS / elapsed_ms).ceil() as u32;
+            batch_runs = batch_runs.saturating_mul(scale.max(2)).min(MAX_BATCH_RUNS);
+        } else if batch_runs == MAX_BATCH_RUNS {
+            return Err(numerical_error(op, "elapsed time was zero or non-finite"));
+        } else {
+            batch_runs = batch_runs.saturating_mul(2).min(MAX_BATCH_RUNS);
+        }
+    }
     let mut timings_ms = Vec::with_capacity(iters as usize);
     for _ in 0..iters {
         let start = Instant::now();
-        run()?;
+        for _ in 0..batch_runs {
+            run()?;
+        }
         let elapsed_ms = start.elapsed().as_secs_f64() * 1_000.0;
         if elapsed_ms <= 0.0 || !elapsed_ms.is_finite() {
             return Err(numerical_error(op, "elapsed time was zero or non-finite"));
         }
         timings_ms.push(elapsed_ms);
     }
-    summarize(op, flops_per_iter, &timings_ms)
+    summarize(op, flops_per_iter * f64::from(batch_runs), &timings_ms)
 }
 
 fn summarize(op: &str, flops_per_iter: f64, timings_ms: &[f64]) -> Result<BenchResult> {
@@ -335,8 +358,10 @@ fn summarize(op: &str, flops_per_iter: f64, timings_ms: &[f64]) -> Result<BenchR
     } else {
         variance.sqrt() / mean * 100.0
     };
-    let total_flops = flops_per_iter * timings_ms.len() as f64;
-    let gflops = total_flops / (elapsed_ms / 1_000.0) / 1_000_000_000.0;
+    let mut sorted = timings_ms.to_vec();
+    sorted.sort_by(|left, right| left.partial_cmp(right).unwrap());
+    let median_ms = sorted[sorted.len() / 2];
+    let gflops = flops_per_iter / (median_ms / 1_000.0) / 1_000_000_000.0;
     if cv_pct > CV_WARN_PCT {
         println!("cargo:warning=microbench CV {cv_pct:.1}% > 20% for op={op}; result may be noisy");
     }

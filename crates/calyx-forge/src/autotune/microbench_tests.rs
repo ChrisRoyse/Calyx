@@ -73,6 +73,10 @@ proptest! {
 
         prop_assert!(first.gflops > 0.0);
         prop_assert!(second.gflops > 0.0);
+        println!(
+            "microbench_cpu_gemm_repeat dim={dim} first_gflops={:.6} second_gflops={:.6} ratio={ratio:.6} first_cv={:.3} second_cv={:.3}",
+            first.gflops, second.gflops, first.cv_pct, second.cv_pct
+        );
         prop_assert!(ratio <= 2.0, "ratio={ratio}");
     }
 }
