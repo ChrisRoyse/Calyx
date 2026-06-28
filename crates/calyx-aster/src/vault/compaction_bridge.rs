@@ -37,42 +37,47 @@ where
         let Some(durable) = &self.durable else {
             return Ok(None);
         };
-        durable.flush()?;
-        self.rows.flush_all_cfs()?;
-        Ok(Some(Arc::new(catalog_from_vault_tiers(
-            durable.root(),
-            durable.tiering_policy(),
-        )?)))
+        self.with_durable_commit_lock(|| {
+            self.flush_locked()?;
+            Ok(Some(Arc::new(catalog_from_vault_tiers(
+                durable.root(),
+                durable.tiering_policy(),
+            )?)))
+        })
     }
 
     pub fn compact_cf_once(&self, cf: ColumnFamily) -> Result<Option<CompactionResult>> {
         let Some(durable) = &self.durable else {
             return Ok(None);
         };
-        durable.flush()?;
-        self.rows.flush_all_cfs()?;
-        let catalog = catalog_from_vault_tiers(durable.root(), durable.tiering_policy())?;
-        let output = durable.compaction_output_path(cf, self.latest_seq());
-        let mut result = catalog
-            .compact_cf(cf, output, CompactionThrottle::unlimited())
-            .map(Some)?;
-        if let Some(CompactionResult::Compacted(report)) = &mut result
-            && cf == ColumnFamily::Recurrence
-        {
-            report.reclaimed_input_files = reclaim_recurrence_inputs(report)?;
-            prune_recurrence_tombstones(report)?;
-        }
-        Ok(result)
+        self.with_durable_commit_lock(|| {
+            self.flush_locked()?;
+            let catalog = catalog_from_vault_tiers(durable.root(), durable.tiering_policy())?;
+            let output = durable.compaction_output_path(cf, self.latest_seq());
+            let mut result = catalog
+                .compact_cf(cf, output, CompactionThrottle::unlimited())
+                .map(Some)?;
+            if let Some(CompactionResult::Compacted(report)) = &mut result
+                && cf == ColumnFamily::Recurrence
+            {
+                report.reclaimed_input_files = reclaim_recurrence_inputs(report)?;
+                prune_recurrence_tombstones(report)?;
+            }
+            Ok(result)
+        })
     }
 
     /// Compacts the listed column families, prunes MVCC tombstone rows from the
     /// compacted SST, and reclaims superseded input SSTs for durable vaults.
     pub fn purge_tombstoned_cfs(&self, cfs: &[ColumnFamily]) -> Result<()> {
+        self.with_durable_commit_lock(|| self.purge_tombstoned_cfs_locked(cfs))
+    }
+
+    pub(crate) fn purge_tombstoned_cfs_locked(&self, cfs: &[ColumnFamily]) -> Result<()> {
         let Some(durable) = &self.durable else {
             return Ok(());
         };
-        durable.flush()?;
-        self.rows.flush_all_cfs()?;
+        self.flush_locked()?;
         let mut unique = Vec::new();
         for cf in cfs {
             if !unique.contains(cf) {

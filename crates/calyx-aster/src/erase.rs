@@ -164,7 +164,7 @@ where
             vault.commit_rows_locked(&rows)?;
         }
         if rows_tombstoned > 0 {
-            vault.purge_tombstoned_cfs(&affected)?;
+            vault.purge_tombstoned_cfs_locked(&affected)?;
         }
         if scope == EraseScope::Vault || rows_tombstoned > 0 {
             vault_ctx.shred_key_for_erasure();
@@ -226,7 +226,7 @@ where
             })
             .collect::<Vec<_>>();
         vault.commit_rows_locked(&rows)?;
-        vault.purge_tombstoned_cfs(&affected_cfs(&targets.rows))?;
+        vault.purge_tombstoned_cfs_locked(&affected_cfs(&targets.rows))?;
         Ok(EraseWriteSummary {
             records_deleted: targets.records_deleted,
         })

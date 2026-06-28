@@ -350,6 +350,10 @@ where
     }
 
     pub fn flush(&self) -> Result<()> {
+        self.with_durable_commit_lock(|| self.flush_locked())
+    }
+
+    pub(crate) fn flush_locked(&self) -> Result<()> {
         if let Some(durable) = &self.durable {
             durable.flush()?;
         }
