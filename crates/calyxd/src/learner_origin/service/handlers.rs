@@ -10,6 +10,7 @@ mod reactive_plan;
 mod reactive_support;
 mod shared;
 mod track_spines;
+mod track_spines_plan;
 
 const ORACLE_FORECAST_PANEL_VERSION: u32 = 1240;
 const ORACLE_FORECAST_EVIDENCE_KIND: &str = "oracle_forecast_evidence";

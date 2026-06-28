@@ -395,7 +395,7 @@ pub struct TrackMasteryLabelRequest {
     pub mastery: f32,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackSpineParamsRequest {
     #[serde(default)]
@@ -410,19 +410,6 @@ pub struct TrackSpineParamsRequest {
     pub tol: Option<f32>,
     #[serde(default, alias = "decay_lambda")]
     pub decay_lambda: Option<f32>,
-}
-
-impl Default for TrackSpineParamsRequest {
-    fn default() -> Self {
-        Self {
-            max_regions: None,
-            drill_radius: None,
-            min_region_size: None,
-            max_iter: None,
-            tol: None,
-            decay_lambda: None,
-        }
-    }
 }
 
 fn default_grounded() -> bool {
