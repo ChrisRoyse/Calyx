@@ -1,12 +1,13 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::time::Duration;
 
 #[path = "sextant_support/mod.rs"]
 mod sextant_support;
-use calyx_core::{SlotId, SlotVector};
+use calyx_core::{CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId};
 use calyx_sextant::{
-    FusionStrategy, HnswIndex, InvertedIndex, Query, RerankCandidateText, RerankRequest,
-    RerankerClient, SearchEngine, SlotIndexMap,
+    FusionStrategy, HnswIndex, InvertedIndex, ProvenanceSource, Query, RerankCandidateText,
+    RerankRequest, RerankerClient, SearchEngine, SlotIndexMap,
 };
 use serde_json::json;
 use sextant_support::cx_u8_fill as cx;
@@ -20,6 +21,11 @@ fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
     let query = pipeline_query();
     let baseline = engine.search(&query).unwrap();
     assert!(baseline.len() >= 2);
+    assert!(
+        baseline
+            .iter()
+            .all(|hit| hit.provenance_source == ProvenanceSource::Stored)
+    );
 
     let ok_server = spawn_reranker("HTTP/1.1 200 OK", r#"{"scores":[0.01,0.99]}"#);
     let reranked = engine
@@ -31,6 +37,11 @@ fn search_with_reranker_reorders_pipeline_hits_and_fails_closed_edges() {
     ok_server.join();
 
     assert_ne!(baseline[0].cx_id, reranked[0].cx_id);
+    assert!(
+        reranked
+            .iter()
+            .all(|hit| hit.provenance_source == ProvenanceSource::Stored)
+    );
     assert_eq!(reranked[0].score, 0.99);
     assert_eq!(reranked[0].rank, 1);
     assert_eq!(reranked[1].rank, 2);
@@ -125,6 +136,14 @@ fn search_with_reranker_manual_fsv() {
         "baseline_order": ids(&baseline),
         "reranked_order": ids(&reranked),
         "reranked_scores": reranked.iter().map(|hit| hit.score).collect::<Vec<_>>(),
+        "reranked_provenance_sources": reranked
+            .iter()
+            .map(|hit| format!("{:?}", hit.provenance_source))
+            .collect::<Vec<_>>(),
+        "reranked_provenance_seqs": reranked
+            .iter()
+            .map(|hit| hit.provenance.seq)
+            .collect::<Vec<_>>(),
         "request_text_count": request_texts.len(),
         "request_contains_cat_hat": request_texts.contains(&"cat hat".to_string()),
         "request_contains_cat_error_cause": request_texts.contains(&"cat error cause".to_string()),
@@ -150,6 +169,10 @@ fn search_with_reranker_manual_fsv() {
     .unwrap();
 
     assert_ne!(baseline[0].cx_id, reranked[0].cx_id);
+    assert_eq!(
+        result["reranked_provenance_sources"],
+        json!(["Stored", "Stored"])
+    );
     assert_eq!(result["dog_log_not_requested"], true);
     assert_eq!(result["strategy"], "pipeline+rerank");
     assert_eq!(result["candidates_request_scoped"], true);
@@ -174,25 +197,69 @@ fn sample_engine() -> SearchEngine {
     map.register(HnswIndex::new(SlotId::new(8), 3, 42)).unwrap();
     map.register(HnswIndex::new(SlotId::new(9), 3, 43)).unwrap();
     map.register(InvertedIndex::new(SlotId::new(1))).unwrap();
-    let engine = SearchEngine::new(map);
+    let mut engine = SearchEngine::new(map);
     let texts = ["dog log", "cat hat", "cat error cause"];
     for (idx, text) in texts.iter().enumerate() {
         let id = cx((idx + 1) as u8);
         let seq = idx as u64 + 1;
+        let slot_8 = basis_vec(idx);
+        let slot_9 = basis_vec(2 - idx);
         engine
             .indexes
-            .insert(SlotId::new(8), id, basis_vec(idx), seq)
+            .insert(SlotId::new(8), id, slot_8.clone(), seq)
             .unwrap();
         engine
             .indexes
-            .insert(SlotId::new(9), id, basis_vec(2 - idx), seq)
+            .insert(SlotId::new(9), id, slot_9.clone(), seq)
             .unwrap();
         engine
             .indexes
             .insert_text(SlotId::new(1), id, text, seq)
             .unwrap();
+        engine.put_constellation(sample_constellation(id, text, slot_8, slot_9, seq));
     }
     engine
+}
+
+fn sample_constellation(
+    cx_id: CxId,
+    text: &str,
+    slot_8: SlotVector,
+    slot_9: SlotVector,
+    seq: u64,
+) -> calyx_core::Constellation {
+    let mut input_hash = [0_u8; 32];
+    input_hash[..16].copy_from_slice(cx_id.as_bytes());
+    let mut slots = BTreeMap::new();
+    slots.insert(SlotId::new(8), slot_8);
+    slots.insert(SlotId::new(9), slot_9);
+    let mut metadata = BTreeMap::new();
+    metadata.insert("text".to_string(), text.to_string());
+    calyx_core::Constellation {
+        cx_id,
+        vault_id: vault_id(),
+        panel_version: 1,
+        created_at: seq,
+        input_ref: InputRef {
+            hash: input_hash,
+            pointer: Some(format!("synthetic://reranker-search/{cx_id}")),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots,
+        scalars: BTreeMap::new(),
+        metadata,
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq,
+            hash: [seq as u8; 32],
+        },
+        flags: CxFlags::default(),
+    }
+}
+
+fn vault_id() -> VaultId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn pipeline_query() -> Query {

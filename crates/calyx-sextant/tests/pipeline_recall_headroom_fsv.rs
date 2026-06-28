@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
 use std::fs;
 use std::time::Duration;
 
-use calyx_core::{CxId, SlotId, SlotVector};
+use calyx_core::{CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, VaultId};
 use calyx_sextant::{
-    FusionStrategy, HnswIndex, InvertedIndex, Query, RerankerClient, SearchEngine, SlotIndexMap,
+    FusionStrategy, HnswIndex, InvertedIndex, ProvenanceSource, Query, RerankerClient,
+    SearchEngine, SlotIndexMap,
 };
 use serde_json::json;
 
@@ -27,6 +29,8 @@ fn pipeline_recall_k_headroom_recovers_dense_candidate() {
     assert_eq!(narrow[0].cx_id, cx(1));
     assert_eq!(wide[0].cx_id, cx(2));
     assert_eq!(wide.len(), 1);
+    assert_eq!(wide[0].provenance_source, ProvenanceSource::Stored);
+    assert_eq!(wide[0].provenance.seq, 2);
 }
 
 #[test]
@@ -63,6 +67,8 @@ fn pipeline_recall_headroom_manual_fsv() {
         "narrow_top": narrow[0].cx_id.to_string(),
         "wide_top": wide[0].cx_id.to_string(),
         "wide_final_len": wide.len(),
+        "wide_provenance_source": format!("{:?}", wide[0].provenance_source),
+        "wide_provenance_seq": wide[0].provenance.seq,
         "recovered_outside_sparse_top_k": !sparse_top1.contains(&wide[0].cx_id)
             && sparse_recall3.contains(&wide[0].cx_id),
         "reranker_request_text_count": request_texts.len(),
@@ -85,6 +91,8 @@ fn pipeline_recall_headroom_manual_fsv() {
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
 
     assert_eq!(readback["wide_final_len"], 1);
+    assert_eq!(readback["wide_provenance_source"], "Stored");
+    assert_eq!(readback["wide_provenance_seq"], 2);
     assert_eq!(readback["recovered_outside_sparse_top_k"], true);
     assert_eq!(readback["reranker_request_text_count"], 3);
     assert_eq!(readback["reranker_request_contains_recovery"], true);
@@ -95,23 +103,64 @@ fn sample_engine() -> SearchEngine {
     let map = SlotIndexMap::new();
     map.register(InvertedIndex::new(SlotId::new(1))).unwrap();
     map.register(HnswIndex::new(SlotId::new(8), 3, 42)).unwrap();
-    let engine = SearchEngine::new(map);
+    let mut engine = SearchEngine::new(map);
     let rows = [
         (cx(1), "alpha alpha alpha", basis_vec(0)),
         (cx(2), "alpha recovery", basis_vec(2)),
         (cx(3), "alpha neutral", basis_vec(1)),
     ];
     for (seq, (id, text, vector)) in rows.into_iter().enumerate() {
+        let seq = seq as u64 + 1;
         engine
             .indexes
-            .insert_text(SlotId::new(1), id, text, seq as u64 + 1)
+            .insert_text(SlotId::new(1), id, text, seq)
             .unwrap();
         engine
             .indexes
-            .insert(SlotId::new(8), id, vector, seq as u64 + 1)
+            .insert(SlotId::new(8), id, vector.clone(), seq)
             .unwrap();
+        engine.put_constellation(sample_constellation(id, text, vector, seq));
     }
     engine
+}
+
+fn sample_constellation(
+    cx_id: CxId,
+    text: &str,
+    vector: SlotVector,
+    seq: u64,
+) -> calyx_core::Constellation {
+    let mut input_hash = [0_u8; 32];
+    input_hash[..16].copy_from_slice(cx_id.as_bytes());
+    let mut slots = BTreeMap::new();
+    slots.insert(SlotId::new(8), vector);
+    let mut metadata = BTreeMap::new();
+    metadata.insert("text".to_string(), text.to_string());
+    calyx_core::Constellation {
+        cx_id,
+        vault_id: vault_id(),
+        panel_version: 1,
+        created_at: seq,
+        input_ref: InputRef {
+            hash: input_hash,
+            pointer: Some(format!("synthetic://pipeline-recall/{cx_id}")),
+            redacted: false,
+        },
+        modality: Modality::Text,
+        slots,
+        scalars: BTreeMap::new(),
+        metadata,
+        anchors: Vec::new(),
+        provenance: LedgerRef {
+            seq,
+            hash: [seq as u8; 32],
+        },
+        flags: CxFlags::default(),
+    }
+}
+
+fn vault_id() -> VaultId {
+    "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap()
 }
 
 fn pipeline_query(recall_k: usize) -> Query {

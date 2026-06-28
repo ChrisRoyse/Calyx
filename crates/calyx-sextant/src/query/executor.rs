@@ -401,4 +401,6 @@ fn execute_aggregate(state: &mut ExecState, spec: &AggSpec) -> Result<()> {
 #[cfg(test)]
 mod fsv_tests;
 #[cfg(test)]
+mod issue919_fsv_tests;
+#[cfg(test)]
 mod tests;
