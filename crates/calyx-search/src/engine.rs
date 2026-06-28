@@ -108,6 +108,7 @@ pub fn search_outcome(
     if indexes.max_len() == 0 {
         return Ok(SearchOutcome::empty());
     }
+    indexes.ensure_search_bounded()?;
     let query_vectors = measure_query_vectors(state, query)?;
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());

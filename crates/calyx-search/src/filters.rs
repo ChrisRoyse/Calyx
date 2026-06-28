@@ -6,7 +6,7 @@ use calyx_sextant::{AnchorPredicate, MetadataPredicate, ScalarOp, ScalarPredicat
 
 use crate::error::{CliError, CliResult};
 
-pub(super) fn parse(raw: Option<&str>) -> CliResult<QueryFilters> {
+pub fn parse(raw: Option<&str>) -> CliResult<QueryFilters> {
     let filters = match raw {
         Some(value) => serde_json::from_str::<QueryFilters>(value)
             .map_err(|err| CliError::usage(format!("parse --filter JSON: {err}")))?,

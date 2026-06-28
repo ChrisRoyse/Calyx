@@ -54,6 +54,14 @@ fn k_zero_and_unknown_fusion_are_usage_errors() {
 }
 
 #[test]
+fn parse_search_rejects_invalid_filter_json_before_vault_open() {
+    let err = super::parse_search(&tokens(["v", "q", "--filter", "{not-json"])).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("parse --filter JSON"));
+}
+
+#[test]
 fn zero_constellations_render_empty_results() {
     let rendered = output::render_hits(&[], false, true, None);
     assert_eq!(serde_json::to_string(&rendered).unwrap(), "[]");
