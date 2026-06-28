@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use calyx_core::CxId;
 use calyx_mincut::tarjan_scc;
@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::{KernelGraph, LodestarError, Result};
 
 const EXACT_SEARCH_MAX_NODES: usize = 20;
+const LOCAL_SEARCH_MAX_MEMBERS: usize = 512;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -43,13 +44,22 @@ pub fn dfvs_approx(kernel_graph: &KernelGraph) -> Result<DfvsResult> {
 
 pub fn is_tournament(graph: &AssocGraph) -> bool {
     let ids: Vec<_> = graph.node_ids().collect();
+    let required_edges = ids.len().saturating_mul(ids.len().saturating_sub(1)) / 2;
+    if graph.edge_count() < required_edges {
+        return false;
+    }
+    let edges = graph
+        .edges()
+        .iter()
+        .filter_map(|edge| (edge.src != edge.dst).then_some((edge.src, edge.dst)))
+        .collect::<HashSet<_>>();
     for left in 0..ids.len() {
         for right in left + 1..ids.len() {
             let a = graph.node_index(ids[left]).expect("node index");
             let b = graph.node_index(ids[right]).expect("node index");
-            let a_to_b = graph.out_edges_by_index(a).iter().any(|edge| edge.dst == b);
-            let b_to_a = graph.out_edges_by_index(b).iter().any(|edge| edge.dst == a);
-            if !a_to_b && !b_to_a {
+            let a_to_b = edges.contains(&(a, b));
+            let b_to_a = edges.contains(&(b, a));
+            if a_to_b == b_to_a {
                 return false;
             }
         }
@@ -197,23 +207,34 @@ fn choose_subset(
 
 fn greedy_fvs(graph: &AssocGraph) -> Vec<CxId> {
     let mut removed = BTreeSet::new();
-    while !is_acyclic_after_removing(graph, &removed) {
-        let candidate = graph
-            .node_ids()
-            .filter(|id| !removed.contains(id))
-            .max_by_key(|id| {
-                graph.in_degree(*id).unwrap_or(0) + graph.out_degree(*id).unwrap_or(0)
-            });
-        if let Some(id) = candidate {
-            removed.insert(id);
-        } else {
+    let degrees = total_degree_by_id(graph);
+    loop {
+        let remaining = graph_after_removing(graph, &removed);
+        let cyclic = cyclic_components(&remaining);
+        if cyclic.is_empty() {
             break;
+        }
+        for component in cyclic {
+            if let Some(candidate) = component
+                .into_iter()
+                .max_by_key(|id| (degrees.get(id).copied().unwrap_or(0), *id))
+            {
+                removed.insert(candidate);
+            }
         }
     }
     removed.into_iter().collect()
 }
 
 fn local_search_shrink(graph: &AssocGraph, members: &mut Vec<CxId>) {
+    if members.len() > LOCAL_SEARCH_MAX_MEMBERS {
+        eprintln!(
+            "lodestar-dfvs: skip local_search members={} cap={}",
+            members.len(),
+            LOCAL_SEARCH_MAX_MEMBERS
+        );
+        return;
+    }
     let mut index = 0;
     while index < members.len() {
         let mut trial: BTreeSet<_> = members.iter().copied().collect();
@@ -227,11 +248,16 @@ fn local_search_shrink(graph: &AssocGraph, members: &mut Vec<CxId>) {
 }
 
 fn is_acyclic_after_removing(graph: &AssocGraph, removed: &BTreeSet<CxId>) -> bool {
+    cyclic_components(&graph_after_removing(graph, removed)).is_empty()
+}
+
+fn graph_after_removing(graph: &AssocGraph, removed: &BTreeSet<CxId>) -> AssocGraph {
     let mut builder = AssocGraph::builder();
     for node in graph.nodes() {
-        if !removed.contains(&node.id) && builder.add_node(node.id, node.frequency_weight).is_err()
-        {
-            return false;
+        if !removed.contains(&node.id) {
+            builder
+                .add_node(node.id, node.frequency_weight)
+                .expect("remaining graph node from source graph");
         }
     }
     for edge in graph.edges() {
@@ -239,18 +265,42 @@ fn is_acyclic_after_removing(graph: &AssocGraph, removed: &BTreeSet<CxId>) -> bo
         if removed.contains(&src) || removed.contains(&dst) {
             continue;
         }
-        if src == dst {
-            return false;
-        }
-        if builder.add_edge(src, dst, edge.weight).is_err() {
-            return false;
-        }
+        builder
+            .add_edge(src, dst, edge.weight)
+            .expect("remaining graph edge endpoints exist");
     }
-    let remaining = builder.build();
-    tarjan_scc(&remaining)
-        .components
+    builder.build()
+}
+
+fn cyclic_components(graph: &AssocGraph) -> Vec<Vec<CxId>> {
+    let self_loop_nodes: BTreeSet<_> = graph
+        .edges()
         .iter()
-        .all(|component| component.len() == 1)
+        .filter_map(|edge| {
+            let (src, dst) = graph.edge_endpoints(*edge);
+            (src == dst).then_some(src)
+        })
+        .collect();
+    tarjan_scc(graph)
+        .components
+        .into_iter()
+        .filter(|component| {
+            component.len() > 1 || component.iter().any(|node| self_loop_nodes.contains(node))
+        })
+        .collect()
+}
+
+fn total_degree_by_id(graph: &AssocGraph) -> BTreeMap<CxId, usize> {
+    let mut degrees = graph
+        .node_ids()
+        .map(|id| (id, 0_usize))
+        .collect::<BTreeMap<_, _>>();
+    for edge in graph.edges() {
+        let (src, dst) = graph.edge_endpoints(*edge);
+        *degrees.entry(src).or_default() += 1;
+        *degrees.entry(dst).or_default() += 1;
+    }
+    degrees
 }
 
 fn empty_result(method: DfvsMethod) -> DfvsResult {

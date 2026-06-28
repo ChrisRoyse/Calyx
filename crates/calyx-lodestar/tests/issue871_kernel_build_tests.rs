@@ -174,6 +174,55 @@ fn cycle_graph() -> AssocGraph {
     builder.build()
 }
 
+fn cx_n(index: usize) -> CxId {
+    let mut bytes = [0_u8; 16];
+    bytes[..8].copy_from_slice(&(index as u64).to_be_bytes());
+    bytes[8..].copy_from_slice(&0x9871_u64.to_be_bytes());
+    CxId::from_bytes(bytes)
+}
+
+/// The kernel pipeline must remain tractable past the exact-betweenness cutoff.
+/// A 4000-node directed ring (> BETWEENNESS_EXACT_MAX_NODES=2000) drives the
+/// sampled-betweenness path; with the old exact O(V³) Brandes + per-node O(E)
+/// `in_degree` this was intractable. Completing this test at all is the proof
+/// the #871 scaling fix works end-to-end through `build_kernel_pipeline`.
+#[test]
+fn kernel_pipeline_scales_past_exact_betweenness_cutoff() {
+    const N: usize = 4000;
+    let mut builder = AssocGraph::builder();
+    for i in 0..N {
+        builder.add_node(cx_n(i), 1.0).unwrap();
+    }
+    for i in 0..N {
+        builder.add_edge(cx_n(i), cx_n((i + 1) % N), 0.9).unwrap();
+    }
+    let graph = builder.build();
+    // Fully anchored (mirrors the corpus) — exercises the O(1) anchor-set
+    // groundedness path instead of O(V·anchors) `contains`.
+    let anchors: Vec<CxId> = (0..N).map(cx_n).collect();
+    let params = KernelParams {
+        panel_version: 871,
+        anchor_kind: Some("issue871-scale".to_string()),
+        built_at_millis: 1_785_500_000_000,
+        kernel_graph: KernelGraphParams {
+            target_fraction: 0.10,
+            max_groundedness_distance: 3,
+            degree_weight: 0.40,
+            betweenness_weight: 0.40,
+            groundedness_weight: 0.20,
+        },
+        ..KernelParams::default()
+    };
+    let kernel = build_kernel_pipeline(&graph, &anchors, &params).unwrap();
+    // The selected kernel graph (top-fraction by degree/betweenness/groundedness)
+    // is non-empty — proves `select_kernel_graph` ran the sampled betweenness +
+    // O(V+E) scoring at scale. (`members` — the MFVS within it — can be empty when
+    // the selected subgraph is acyclic; that is a valid result callers handle.)
+    assert!(!kernel.kernel_graph.is_empty());
+    assert!(kernel.kernel_graph.len() <= N);
+    assert!(kernel.members.len() <= kernel.kernel_graph.len());
+}
+
 fn kernel_params() -> KernelParams {
     KernelParams {
         panel_version: 871,

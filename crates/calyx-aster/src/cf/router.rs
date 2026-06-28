@@ -6,7 +6,7 @@ use crate::sst::level::SstLevel;
 use crate::sst::{SstEntry, SstSummary};
 use crate::storage_names::{SstName, classify_sst, parse_cf_dir_name, sst_order_key};
 use calyx_core::{CalyxError, Result};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,7 +29,39 @@ impl CfRouter {
         Self::open_with_tiering(vault_dir, memtable_byte_cap, None)
     }
 
+    pub(crate) fn open_selected_cfs(
+        vault_dir: impl AsRef<Path>,
+        memtable_byte_cap: usize,
+        cfs: impl IntoIterator<Item = ColumnFamily>,
+    ) -> Result<Self> {
+        let selected = cfs.into_iter().collect::<BTreeSet<_>>();
+        if selected.is_empty() {
+            return Err(CalyxError::aster_corrupt_shard(
+                "selected CF router open requires at least one column family",
+            ));
+        }
+        let mut router = Self::new_empty(vault_dir, memtable_byte_cap, None)?;
+        for cf in &selected {
+            router.ensure_cf(*cf)?;
+        }
+        router.load_existing_cfs(&selected.into_iter().collect::<Vec<_>>())?;
+        Ok(router)
+    }
+
     pub fn open_with_tiering(
+        vault_dir: impl AsRef<Path>,
+        memtable_byte_cap: usize,
+        tiering_policy: Option<TieringPolicy>,
+    ) -> Result<Self> {
+        let mut router = Self::new_empty(vault_dir, memtable_byte_cap, tiering_policy)?;
+        for cf in ColumnFamily::STATIC {
+            router.ensure_cf(cf)?;
+        }
+        router.load_existing()?;
+        Ok(router)
+    }
+
+    fn new_empty(
         vault_dir: impl AsRef<Path>,
         memtable_byte_cap: usize,
         tiering_policy: Option<TieringPolicy>,
@@ -49,7 +81,7 @@ impl CfRouter {
                 })?;
             }
         }
-        let mut router = Self {
+        Ok(Self {
             vault_dir,
             tiering_policy,
             memtables: HashMap::new(),
@@ -57,12 +89,7 @@ impl CfRouter {
             next_file: HashMap::new(),
             memtable_byte_cap,
             resource_counters: Arc::new(ResourceCounters::default()),
-        };
-        for cf in ColumnFamily::STATIC {
-            router.ensure_cf(cf)?;
-        }
-        router.load_existing()?;
-        Ok(router)
+        })
     }
 
     pub fn put(&mut self, cf: ColumnFamily, key: &[u8], value: &[u8]) -> Result<()> {
@@ -179,6 +206,35 @@ impl CfRouter {
             .collect())
     }
 
+    pub fn range_keys(&self, cf: ColumnFamily, start: &[u8], end: &[u8]) -> Result<Vec<Vec<u8>>> {
+        self.range_keys_until(cf, start, Some(end))
+    }
+
+    pub fn range_keys_until(
+        &self,
+        cf: ColumnFamily,
+        start: &[u8],
+        end: Option<&[u8]>,
+    ) -> Result<Vec<Vec<u8>>> {
+        let mut rows = BTreeMap::<Vec<u8>, bool>::new();
+        if let Some(level) = self.levels.get(&cf) {
+            for key in level.range_keys_until(start, end)? {
+                rows.insert(key, false);
+            }
+        }
+        if let Some(table) = self.memtables.get(&cf) {
+            for (key, value) in table.iter() {
+                if key.as_slice() >= start && end.is_none_or(|end| key.as_slice() < end) {
+                    rows.insert(key, crate::mvcc::is_tombstone_value(&value));
+                }
+            }
+        }
+        Ok(rows
+            .into_iter()
+            .filter_map(|(key, is_tombstone)| (!is_tombstone).then_some(key))
+            .collect())
+    }
+
     pub fn iter_cf(&self, cf: ColumnFamily) -> Result<Vec<SstEntry>> {
         let mut rows = BTreeMap::new();
         if let Some(level) = self.levels.get(&cf) {
@@ -270,6 +326,39 @@ impl CfRouter {
             self.ensure_cf(cf)?;
             self.levels.insert(cf, SstLevel::from_oldest_first(files));
             self.next_file.insert(cf, next);
+        }
+        Ok(())
+    }
+
+    fn load_existing_cfs(&mut self, cfs: &[ColumnFamily]) -> Result<()> {
+        let mut by_cf = HashMap::<ColumnFamily, Vec<PathBuf>>::new();
+        for cf_root in self.cf_roots() {
+            for cf in cfs {
+                let cf_dir = cf_root.join(cf.name());
+                if cf_dir.exists() {
+                    by_cf
+                        .entry(*cf)
+                        .or_default()
+                        .extend(list_sst_files(&cf_dir)?);
+                }
+            }
+        }
+        for cf in cfs {
+            let mut files = by_cf.remove(cf).unwrap_or_default();
+            sort_ssts_by_sequence(&mut files)?;
+            files.dedup();
+            let next = files
+                .iter()
+                .filter_map(|file| match classify_sst(file) {
+                    Ok(Some(SstName::Router { seq })) => Some(seq),
+                    _ => None,
+                })
+                .max()
+                .unwrap_or(0)
+                + 1;
+            self.ensure_cf(*cf)?;
+            self.levels.insert(*cf, SstLevel::from_oldest_first(files));
+            self.next_file.insert(*cf, next);
         }
         Ok(())
     }

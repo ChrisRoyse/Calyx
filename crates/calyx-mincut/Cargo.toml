@@ -9,6 +9,7 @@ publish.workspace = true
 [dependencies]
 calyx-core = { path = "../calyx-core" }
 calyx-paths = { path = "../calyx-paths" }
+rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 

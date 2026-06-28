@@ -1,5 +1,6 @@
-use super::{SstEntry, SstReader};
+use super::{SstEntry, SstKeyState, SstReader};
 use calyx_core::Result;
+use rayon::prelude::*;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -36,15 +37,55 @@ impl SstLevel {
     }
 
     pub fn range(&self, start: &[u8], end: &[u8]) -> Result<Vec<SstEntry>> {
+        let mut per_file = self
+            .files
+            .par_iter()
+            .enumerate()
+            .map(|(index, file)| -> Result<(usize, Vec<SstEntry>)> {
+                Ok((index, SstReader::open(file)?.range(start, end)?))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        per_file.sort_by_key(|(index, _)| *index);
+
         let mut rows = BTreeMap::new();
-        for file in &self.files {
-            for entry in SstReader::open(file)?.range(start, end)? {
+        for (_, entries) in per_file {
+            for entry in entries {
                 rows.entry(entry.key).or_insert(entry.value);
             }
         }
         Ok(rows
             .into_iter()
             .map(|(key, value)| SstEntry { key, value })
+            .collect())
+    }
+
+    pub fn range_keys(&self, start: &[u8], end: &[u8]) -> Result<Vec<Vec<u8>>> {
+        self.range_keys_until(start, Some(end))
+    }
+
+    pub fn range_keys_until(&self, start: &[u8], end: Option<&[u8]>) -> Result<Vec<Vec<u8>>> {
+        let mut per_file = self
+            .files
+            .par_iter()
+            .enumerate()
+            .map(|(index, file)| -> Result<(usize, Vec<SstKeyState>)> {
+                Ok((
+                    index,
+                    SstReader::open(file)?.range_key_states_until(start, end)?,
+                ))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        per_file.sort_by_key(|(index, _)| *index);
+
+        let mut rows = BTreeMap::<Vec<u8>, bool>::new();
+        for (_, entries) in per_file {
+            for entry in entries {
+                rows.entry(entry.key).or_insert(entry.is_tombstone);
+            }
+        }
+        Ok(rows
+            .into_iter()
+            .filter_map(|(key, is_tombstone)| (!is_tombstone).then_some(key))
             .collect())
     }
 
@@ -109,6 +150,53 @@ mod tests {
             [b"k1".to_vec(), b"k2".to_vec(), b"k3".to_vec()]
         );
         assert_eq!(rows[2].value, b"b3");
+        cleanup(dir);
+    }
+
+    #[test]
+    fn range_key_scan_preserves_newest_order_and_tombstones() {
+        let dir = test_dir("range-key-tombstone");
+        let old = dir.join("old.sst");
+        let mid = dir.join("mid.sst");
+        let new = dir.join("new.sst");
+        let tombstone = crate::mvcc::tombstone_value();
+        write_sst(
+            &old,
+            [
+                (b"k1".as_slice(), b"old-1".as_slice()),
+                (b"k2".as_slice(), b"old-2".as_slice()),
+            ],
+        )
+        .unwrap();
+        write_sst(&mid, [(b"k1".as_slice(), tombstone.as_slice())]).unwrap();
+        write_sst(
+            &new,
+            [
+                (b"k2".as_slice(), b"new-2".as_slice()),
+                (b"k3".as_slice(), b"new-3".as_slice()),
+            ],
+        )
+        .unwrap();
+        let mut level = SstLevel::new();
+        level.push(old);
+        level.push(mid);
+        level.push(new);
+
+        let rows = level.range(b"k1", b"k4").unwrap();
+        let values = rows
+            .iter()
+            .map(|row| (row.key.clone(), row.value.clone()))
+            .collect::<BTreeMap<_, _>>();
+        assert!(crate::mvcc::is_tombstone_value(
+            values.get(b"k1".as_slice()).unwrap()
+        ));
+        assert_eq!(values.get(b"k2".as_slice()).unwrap().as_slice(), b"new-2");
+        assert_eq!(values.get(b"k3".as_slice()).unwrap().as_slice(), b"new-3");
+
+        assert_eq!(
+            level.range_keys(b"k1", b"k4").unwrap(),
+            [b"k2".to_vec(), b"k3".to_vec()]
+        );
         cleanup(dir);
     }
 

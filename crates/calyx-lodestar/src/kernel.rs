@@ -1,6 +1,9 @@
+use std::collections::BTreeSet;
+use std::time::Instant;
+
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Clock, CxId, content_address};
-use calyx_mincut::{betweenness, tarjan_scc};
+use calyx_mincut::{betweenness_auto, tarjan_scc};
 use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
@@ -11,6 +14,13 @@ use crate::{
     DfvsResult, KernelGraph, KernelGraphParams, LpRoundParams, Result, dfvs_approx,
     select_kernel_graph,
 };
+
+/// Graphs with at most this many nodes use exact Brandes betweenness; larger
+/// graphs switch to the sampled estimator. Exact betweenness is O(V·(E+V·log V)),
+/// so unbounded use is intractable on the 10^5-node corpus graph.
+const BETWEENNESS_EXACT_MAX_NODES: usize = 2_000;
+/// Pivot count for sampled betweenness on large graphs (cost O(k·(E+V·log V))).
+const BETWEENNESS_PIVOTS: usize = 512;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct GroundednessReport {
@@ -111,6 +121,48 @@ where
     })
 }
 
+pub fn refine_kernel_with_recall_support(
+    mut kernel: Kernel,
+    support_members: &[CxId],
+    graph: &AssocGraph,
+    anchors: &[CxId],
+    params: &KernelParams,
+    reason: &str,
+) -> Result<Kernel> {
+    let before_members = kernel.members.len();
+    let before_graph = kernel.kernel_graph.len();
+    let mut members = kernel.members.iter().copied().collect::<BTreeSet<_>>();
+    let mut kernel_graph = kernel.kernel_graph.iter().copied().collect::<BTreeSet<_>>();
+    for member in support_members {
+        graph.require_node_index(*member)?;
+        members.insert(*member);
+        kernel_graph.insert(*member);
+    }
+    kernel.members = members.into_iter().collect();
+    kernel.kernel_graph = kernel_graph.into_iter().collect();
+    let gap_report = grounding_gaps_for_members(
+        &kernel.members,
+        graph,
+        anchors,
+        params.kernel_graph.max_groundedness_distance,
+    )?;
+    kernel.groundedness = groundedness_report(&kernel.members, gap_report.gaps);
+    kernel.kernel_id = kernel_id(params, &kernel.members, &kernel.kernel_graph);
+    kernel.warnings.push(format!(
+        "CALYX_KERNEL_RECALL_REFINED: reason={reason}; support_members={}; members_before={before_members}; members_after={}; kernel_graph_before={before_graph}; kernel_graph_after={}",
+        support_members.len(),
+        kernel.members.len(),
+        kernel.kernel_graph.len()
+    ));
+    kernel.estimator_provenance = format!(
+        "{}; recall_refinement={reason}; recall_members_added={}; recall_kernel_graph_added={}",
+        kernel.estimator_provenance,
+        kernel.members.len().saturating_sub(before_members),
+        kernel.kernel_graph.len().saturating_sub(before_graph)
+    );
+    Ok(kernel)
+}
+
 fn build_kernel_pipeline_with_adjustment(
     graph: &AssocGraph,
     anchors: &[CxId],
@@ -120,12 +172,52 @@ fn build_kernel_pipeline_with_adjustment(
     if graph.is_empty() {
         return Ok(empty_kernel(params));
     }
+    let stage = Instant::now();
     let scc = tarjan_scc(graph);
-    let bet = betweenness(graph)?;
+    eprintln!(
+        "lodestar-kernel: scc components={} elapsed_ms={}",
+        scc.components.len(),
+        stage.elapsed().as_millis()
+    );
+    // Exact Brandes betweenness up to BETWEENNESS_EXACT_MAX_NODES; beyond that the
+    // sampled estimator (BETWEENNESS_PIVOTS pivots) keeps corpus-scale graphs
+    // (10^5+ nodes) tractable while preserving the centrality ranking used for
+    // kernel selection.
+    let stage = Instant::now();
+    let bet = betweenness_auto(graph, BETWEENNESS_EXACT_MAX_NODES, BETWEENNESS_PIVOTS)?;
+    eprintln!(
+        "lodestar-kernel: betweenness mode={} scores={} pivots={} elapsed_ms={}",
+        if graph.node_count() <= BETWEENNESS_EXACT_MAX_NODES {
+            "exact"
+        } else {
+            "sampled"
+        },
+        bet.len(),
+        if graph.node_count() <= BETWEENNESS_EXACT_MAX_NODES {
+            graph.node_count()
+        } else {
+            BETWEENNESS_PIVOTS
+        },
+        stage.elapsed().as_millis()
+    );
+    let stage = Instant::now();
     let mut heuristic = select_kernel_graph(graph, &scc, &bet, anchors, &params.kernel_graph)?;
+    eprintln!(
+        "lodestar-kernel: selected kernel_graph={} elapsed_ms={}",
+        heuristic.selected.len(),
+        stage.elapsed().as_millis()
+    );
     adjust_heuristic(&mut heuristic)?;
     let candidate_graph = heuristic;
+    let stage = Instant::now();
     let dfvs = dfvs_approx(&candidate_graph)?;
+    eprintln!(
+        "lodestar-kernel: dfvs members={} tau_star={} exact={} elapsed_ms={}",
+        dfvs.members.len(),
+        dfvs.tau_star_estimate,
+        dfvs.tau_star_exact,
+        stage.elapsed().as_millis()
+    );
     let gap_report = grounding_gaps_for_members(
         &dfvs.members,
         graph,

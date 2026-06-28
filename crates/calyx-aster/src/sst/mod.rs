@@ -35,6 +35,14 @@ pub struct SstEntry {
     pub value: Vec<u8>,
 }
 
+/// A key-only SST row view used by latest-read scans that must respect
+/// tombstones without cloning record values.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SstKeyState {
+    pub key: Vec<u8>,
+    pub is_tombstone: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct IndexEntry {
     key: Vec<u8>,
@@ -158,6 +166,32 @@ impl SstReader {
         Ok(rows)
     }
 
+    pub fn range_key_states(&self, start: &[u8], end: &[u8]) -> Result<Vec<SstKeyState>> {
+        self.range_key_states_until(start, Some(end))
+    }
+
+    pub fn range_key_states_until(
+        &self,
+        start: &[u8],
+        end: Option<&[u8]>,
+    ) -> Result<Vec<SstKeyState>> {
+        let start_at = self
+            .index
+            .partition_point(|entry| entry.key.as_slice() < start);
+        let mut rows = Vec::new();
+        for entry in &self.index[start_at..] {
+            if end.is_some_and(|end| entry.key.as_slice() >= end) {
+                break;
+            }
+            let record = read_record_ref(self.column.as_bytes(), entry.offset)?;
+            rows.push(SstKeyState {
+                key: record.key.to_vec(),
+                is_tombstone: crate::mvcc::is_tombstone_value(record.value),
+            });
+        }
+        Ok(rows)
+    }
+
     pub fn iter(&self) -> Result<Vec<SstEntry>> {
         self.index
             .iter()
@@ -168,6 +202,11 @@ impl SstReader {
     pub fn bloom_may_contain(&self, key: &[u8]) -> bool {
         self.bloom.may_contain(key)
     }
+}
+
+struct SstRecordRef<'a> {
+    key: &'a [u8],
+    value: &'a [u8],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -201,6 +240,14 @@ fn write_record(out: &mut Vec<u8>, key: &[u8], value: &[u8]) -> Result<()> {
 }
 
 fn read_record(bytes: &[u8], offset: u64) -> Result<SstEntry> {
+    let record = read_record_ref(bytes, offset)?;
+    Ok(SstEntry {
+        key: record.key.to_vec(),
+        value: record.value.to_vec(),
+    })
+}
+
+fn read_record_ref(bytes: &[u8], offset: u64) -> Result<SstRecordRef<'_>> {
     let offset = offset as usize;
     let header = bytes
         .get(offset..offset + RECORD_HEADER_LEN)
@@ -223,10 +270,7 @@ fn read_record(bytes: &[u8], offset: u64) -> Result<SstEntry> {
             "SST record crc mismatch at {offset}: expected {expected_crc:08x}, got {actual_crc:08x}"
         )));
     }
-    Ok(SstEntry {
-        key: key.to_vec(),
-        value: value.to_vec(),
-    })
+    Ok(SstRecordRef { key, value })
 }
 
 fn write_index(out: &mut Vec<u8>, index: &[IndexEntry]) {

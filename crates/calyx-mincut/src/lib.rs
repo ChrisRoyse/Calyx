@@ -10,7 +10,10 @@ pub mod scc;
 pub mod spectral;
 mod spectral_linalg;
 
-pub use betweenness::{betweenness, betweenness_top_k};
+pub use betweenness::{
+    betweenness, betweenness_auto, betweenness_sampled, betweenness_top_k,
+    betweenness_top_k_sampled,
+};
 pub use error::{MincutError, Result};
 pub use graph_builder::{AgreementEdge, CitationEdge, FrequencyEntry, build_assoc_graph};
 pub use lp_scaffold::{

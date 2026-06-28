@@ -1,6 +1,7 @@
 mod healthcheck;
 mod ingest;
 mod intelligence;
+mod kernel_build;
 mod lens;
 mod provenance;
 mod readback;
@@ -55,6 +56,7 @@ pub(crate) enum Subcommand {
     Reproduce(provenance::ReproduceArgs),
     AnnealStatus(provenance::AnnealStatusArgs),
     RebuildSearchIndex(VaultRefArgs),
+    KernelBuild(kernel_build::KernelBuildArgs),
     WeaveLoom(weave::WeaveLoomArgs),
 }
 
@@ -166,6 +168,7 @@ fn run(command: Subcommand) -> CliResult {
         | Subcommand::VerifyChain(_)
         | Subcommand::Reproduce(_)
         | Subcommand::AnnealStatus(_) => provenance::run(command),
+        Subcommand::KernelBuild(_) => kernel_build::run(command),
         Subcommand::WeaveLoom(_) => weave::run(command),
     }
 }
@@ -196,6 +199,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "reproduce" => provenance::parse_reproduce(rest),
         "anneal-status" => provenance::parse_anneal_status(rest),
         "rebuild-search-index" => parse_vault_ref(rest).map(Subcommand::RebuildSearchIndex),
+        "kernel-build" => kernel_build::parse_kernel_build(rest),
         "weave-loom" => weave::parse_weave_loom(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
@@ -225,6 +229,7 @@ fn is_cmd(command: &str) -> bool {
             | "reproduce"
             | "anneal-status"
             | "rebuild-search-index"
+            | "kernel-build"
             | "weave-loom"
     )
 }

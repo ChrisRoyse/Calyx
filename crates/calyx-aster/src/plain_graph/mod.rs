@@ -8,7 +8,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use calyx_core::{Clock, CxId, Result, Seq};
 use calyx_paths::AssocGraph;
 
-use crate::cf::{ColumnFamily, KeyRange};
+use crate::cf::{CfRouter, ColumnFamily, KeyRange};
+use crate::mvcc::is_tombstone_value;
 use crate::vault::AsterVault;
 use key::{
     GraphKeyspace, MAX_TRAVERSE_COST, MAX_TRAVERSE_HOPS, graph_corrupt, graph_limit, graph_missing,
@@ -23,6 +24,72 @@ pub use types::{
 pub struct PlainGraph<'a, C: Clock> {
     vault: &'a AsterVault<C>,
     keys: GraphKeyspace,
+}
+
+pub struct PhysicalPlainGraph {
+    router: CfRouter,
+    keys: GraphKeyspace,
+}
+
+impl PhysicalPlainGraph {
+    pub fn open_latest(vault_dir: impl AsRef<std::path::Path>, collection: &str) -> Result<Self> {
+        Ok(Self {
+            router: CfRouter::open_selected_cfs(vault_dir, 0, [ColumnFamily::Graph])?,
+            keys: GraphKeyspace::new(collection)?,
+        })
+    }
+
+    pub fn get_node(&self, node: CxId) -> Result<Option<Vec<u8>>> {
+        Ok(self
+            .router
+            .get(ColumnFamily::Graph, &self.keys.node_key(node))?
+            .filter(|value| !is_tombstone_value(value)))
+    }
+
+    pub fn node_props(&self) -> Result<Vec<(CxId, Vec<u8>)>> {
+        let range = self.keys.node_range();
+        let end = range
+            .end
+            .as_deref()
+            .ok_or_else(|| graph_corrupt("graph node range is unexpectedly unbounded"))?;
+        self.router
+            .range(ColumnFamily::Graph, &range.start, end)?
+            .into_iter()
+            .filter(|entry| !is_tombstone_value(&entry.value))
+            .map(|entry| Ok((self.keys.decode_node_key(&entry.key)?, entry.value)))
+            .collect()
+    }
+
+    pub fn assoc_graph(&self) -> Result<AssocGraph> {
+        let nodes = self.node_ids()?;
+        let node_set = nodes.iter().copied().collect::<BTreeSet<_>>();
+        let mut builder = AssocGraph::builder();
+        for node in &nodes {
+            builder.add_node(*node, 1.0).map_err(path_error)?;
+        }
+        for key in self.scan_keys_at(&self.keys.edge_out_range())? {
+            let edge = self.keys.decode_edge_out_key(&key)?;
+            if !node_set.contains(&edge.src) || !node_set.contains(&edge.dst) {
+                return Err(graph_corrupt("graph edge endpoint has no node row"));
+            }
+            builder
+                .add_edge(edge.src, edge.dst, 1.0)
+                .map_err(path_error)?;
+        }
+        Ok(builder.build())
+    }
+
+    fn node_ids(&self) -> Result<Vec<CxId>> {
+        self.scan_keys_at(&self.keys.node_range())?
+            .into_iter()
+            .map(|key| self.keys.decode_node_key(&key))
+            .collect()
+    }
+
+    fn scan_keys_at(&self, range: &KeyRange) -> Result<Vec<Vec<u8>>> {
+        self.router
+            .range_keys_until(ColumnFamily::Graph, &range.start, range.end.as_deref())
+    }
 }
 
 impl<'a, C: Clock> PlainGraph<'a, C> {
@@ -154,7 +221,7 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
             builder.add_node(*node, 1.0).map_err(path_error)?;
         }
         let mut by_src = vec![Vec::<PlainGraphCsrEdge>::new(); nodes.len()];
-        for (key, _) in self.scan_at(snapshot, &self.keys.edge_out_range())? {
+        for key in self.scan_keys_at(snapshot, &self.keys.edge_out_range())? {
             let edge = self.keys.decode_edge_out_key(&key)?;
             let src = *node_index.get(&edge.src).ok_or_else(|| {
                 graph_corrupt(format!("edge source {} has no node row", edge.src))
@@ -219,7 +286,7 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         for node in &nodes {
             builder.add_node(*node, 1.0).map_err(path_error)?;
         }
-        for (key, _) in self.scan_at(snapshot, &self.keys.edge_out_range())? {
+        for key in self.scan_keys_at(snapshot, &self.keys.edge_out_range())? {
             let edge = self.keys.decode_edge_out_key(&key)?;
             if !node_set.contains(&edge.src) || !node_set.contains(&edge.dst) {
                 return Err(graph_corrupt("graph edge endpoint has no node row"));
@@ -359,9 +426,9 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
     }
 
     fn node_ids(&self, snapshot: Seq) -> Result<Vec<CxId>> {
-        self.scan_at(snapshot, &self.keys.node_range())?
+        self.scan_keys_at(snapshot, &self.keys.node_range())?
             .into_iter()
-            .map(|(key, _)| self.keys.decode_node_key(&key))
+            .map(|key| self.keys.decode_node_key(&key))
             .collect()
     }
 
@@ -375,6 +442,11 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
     fn scan_at(&self, snapshot: Seq, range: &KeyRange) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.vault
             .scan_cf_range_at(snapshot, ColumnFamily::Graph, range)
+    }
+
+    fn scan_keys_at(&self, snapshot: Seq, range: &KeyRange) -> Result<Vec<Vec<u8>>> {
+        self.vault
+            .scan_cf_range_keys_at(snapshot, ColumnFamily::Graph, range)
     }
 }
 
