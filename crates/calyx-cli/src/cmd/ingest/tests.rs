@@ -9,6 +9,7 @@ use calyx_core::{
 };
 use calyx_registry::{Registry, load_vault_panel_state, persist_vault_panel_state};
 use proptest::prelude::*;
+use serde_json::json;
 use ulid::Ulid;
 
 use super::super::vault::{ResolvedVault, now_ms, vault_salt};
@@ -37,10 +38,14 @@ fn ingest_into_fully_unregistered_panel_fails_loud_not_silently_empty() {
     // Doctrine #1273 rule 3: a vault whose every content lens is unavailable must
     // refuse ingest (loud, named), never silently persist an unsearchable cx.
     let (root, resolved) = test_vault("unbound", panel_with_unregistered_text_slot());
+    let before = ingest_cf_state(&resolved);
+    println!("issue911_before_cf_state={before}");
     let err = match ingest_texts(&resolved, &[String::from("hello")]) {
         Ok(_) => panic!("ingest into a fully-unregistered panel must fail loud, not Ok"),
         Err(e) => e,
     };
+    let after = ingest_cf_state(&resolved);
+    println!("issue911_after_cf_state={after}");
     assert_eq!(
         err.code(),
         "CALYX_LENS_UNREACHABLE",
@@ -52,6 +57,17 @@ fn ingest_into_fully_unregistered_panel_fails_loud_not_silently_empty() {
         "message must name the unavailable lenses: {}",
         err.message()
     );
+    assert_eq!(before["base_rows"], 0);
+    assert_eq!(before["ledger_rows"], 0);
+    assert_eq!(before["slot_00_rows"], 0);
+    assert_eq!(after["base_rows"], 0);
+    assert_eq!(after["ledger_rows"], 0);
+    assert_eq!(after["slot_00_rows"], 0);
+    assert_eq!(
+        before["latest_seq"], after["latest_seq"],
+        "failed ingest must not advance the durable sequence"
+    );
+    write_issue911_fsv(&resolved, &before, &after, err.code(), err.message());
     fs::remove_dir_all(root).ok();
 }
 
@@ -378,3 +394,75 @@ proptest! {
 
 mod support;
 use support::*;
+
+fn ingest_cf_state(resolved: &ResolvedVault) -> serde_json::Value {
+    let vault = open_vault(resolved).unwrap();
+    let snapshot = vault.snapshot();
+    json!({
+        "latest_seq": snapshot,
+        "base_rows": vault.scan_cf_at(snapshot, ColumnFamily::Base).unwrap().len(),
+        "ledger_rows": vault.scan_cf_at(snapshot, ColumnFamily::Ledger).unwrap().len(),
+        "slot_00_rows": vault
+            .scan_cf_at(snapshot, ColumnFamily::slot(SlotId::new(0)))
+            .unwrap()
+            .len(),
+        "cf_files": {
+            "base": cf_file_count(&resolved.path, ColumnFamily::Base),
+            "ledger": cf_file_count(&resolved.path, ColumnFamily::Ledger),
+            "slot_00": cf_file_count(&resolved.path, ColumnFamily::slot(SlotId::new(0))),
+        },
+    })
+}
+
+fn write_issue911_fsv(
+    resolved: &ResolvedVault,
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+    error_code: &str,
+    error_message: &str,
+) {
+    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+        return;
+    };
+    let root = std::path::PathBuf::from(root).join("issue911-cli-ingest-unavailable");
+    fs::create_dir_all(&root).unwrap();
+    let artifact = json!({
+        "issue": 911,
+        "source_of_truth": "Aster durable CF scans at vault snapshot: Base, Ledger, slot_00",
+        "trigger": "CLI ingest text into a panel whose only applicable text lens is unregistered",
+        "expected": {
+            "error_code": "CALYX_LENS_UNREACHABLE",
+            "base_rows_after": 0,
+            "ledger_rows_after": 0,
+            "slot_00_rows_after": 0,
+        },
+        "observed_error": {
+            "code": error_code,
+            "message": error_message,
+        },
+        "before": before,
+        "after": after,
+        "physical_cf_dirs_exist": {
+            "base": resolved.path.join("cf").join("base").is_dir(),
+            "ledger": resolved.path.join("cf").join("ledger").is_dir(),
+            "slot_00": resolved.path.join("cf").join("slot_00").is_dir(),
+        },
+    });
+    fs::write(
+        root.join("cli-ingest-unavailable-fail-closed.json"),
+        serde_json::to_vec_pretty(&artifact).unwrap(),
+    )
+    .unwrap();
+}
+
+fn cf_file_count(root: &std::path::Path, cf: ColumnFamily) -> usize {
+    let dir = root.join("cf").join(cf.name());
+    fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(Result::ok)
+                .filter(|entry| entry.path().is_file())
+                .count()
+        })
+        .unwrap_or(0)
+}
