@@ -116,15 +116,20 @@ impl CalyxMcpServer {
         })
     }
 
-    /// Binds the configured `cfg.bind_addr` (already validated loopback at config
+    /// Binds the configured `cfg.mcp_bind_addr` (validated loopback at config
     /// parse — this re-asserts it at the OS boundary per the card).
     pub fn from_config(cfg: &CalyxConfig, dispatcher: Arc<McpServer>) -> Result<Self, DaemonError> {
+        let addr = cfg.mcp_bind_addr.ok_or_else(|| {
+            DaemonError::config_invalid(
+                "mcp_bind_addr is required before calyxd MCP can accept network connections",
+            )
+        })?;
         let mtls = cfg.mcp_mtls.clone().ok_or_else(|| {
             DaemonError::tls_config_invalid(
                 "mcp_mtls is required before calyxd MCP can accept network connections",
             )
         })?;
-        Self::bind(cfg.bind_addr, dispatcher, mtls)
+        Self::bind(addr, dispatcher, mtls)
     }
 
     /// The actually-bound address (resolves an OS-assigned port when `:0`).

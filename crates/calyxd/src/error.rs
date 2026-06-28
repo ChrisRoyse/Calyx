@@ -85,7 +85,7 @@ impl DaemonError {
     pub fn remediation(&self) -> &'static str {
         match self {
             Self::BindFailed { .. } => {
-                "set bind_addr to a loopback address (127.0.0.1 or [::1]) in calyx.toml"
+                "set bind_addr/mcp_bind_addr to distinct loopback addresses (127.0.0.1 or [::1]) in calyx.toml"
             }
             Self::ConfigInvalid { .. } => {
                 "fix the calyx.toml key or CLI argument named in the detail and retry"

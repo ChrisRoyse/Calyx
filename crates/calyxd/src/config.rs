@@ -52,6 +52,10 @@ pub struct CalyxConfig {
     /// Loopback address the daemon listens on. Default `127.0.0.1:7700`.
     #[serde(default = "default_bind_addr")]
     pub bind_addr: SocketAddr,
+    /// Optional loopback MCP socket bind address. Must be distinct from
+    /// [`bind_addr`] when both ports are fixed; `:0` is allowed for tests.
+    #[serde(default)]
+    pub mcp_bind_addr: Option<SocketAddr>,
     /// Aster vault directory. May contain `$CALYX_HOME` — see
     /// [`CalyxConfig::vault_path_resolved`]. Required (no default).
     pub vault_path: PathBuf,
@@ -111,6 +115,19 @@ impl CalyxConfig {
                 self.bind_addr
             )));
         }
+        if let Some(addr) = self.mcp_bind_addr {
+            if !addr.ip().is_loopback() {
+                return Err(DaemonError::bind_failed(format!(
+                    "mcp_bind_addr {addr} is not loopback; calyxd MCP must bind 127.0.0.1 or [::1]",
+                )));
+            }
+            if addr == self.bind_addr && addr.port() != 0 {
+                return Err(DaemonError::bind_failed(format!(
+                    "mcp_bind_addr {addr} conflicts with metrics bind_addr {}; configure a distinct loopback port",
+                    self.bind_addr
+                )));
+            }
+        }
         if self.vram_budget_mib == 0 || self.vram_budget_mib > VRAM_BUDGET_MIB_CEILING {
             return Err(DaemonError::vram_budget(format!(
                 "vram_budget_mib {} out of range (must be 1..={VRAM_BUDGET_MIB_CEILING}); \
@@ -120,6 +137,15 @@ impl CalyxConfig {
         }
         if let Some(mtls) = &self.mcp_mtls {
             validate_mcp_mtls(mtls)?;
+            if self.mcp_bind_addr.is_none() {
+                return Err(DaemonError::config_invalid(
+                    "mcp_mtls is configured but mcp_bind_addr is missing; set a distinct loopback MCP port",
+                ));
+            }
+        } else if self.mcp_bind_addr.is_some() {
+            return Err(DaemonError::tls_config_invalid(
+                "mcp_bind_addr is configured but mcp_mtls is missing",
+            ));
         }
         if let Some(origin) = &self.learner_origin {
             origin.validate(&self.vault_path, &self.vault_path_resolved())?;
@@ -194,6 +220,7 @@ log_dir = \"/data/logs\"
         assert_eq!(config.vram_budget_mib, 8192);
         assert_eq!(config.vault_path, PathBuf::from("/data/vault"));
         assert_eq!(config.log_dir, PathBuf::from("/data/logs"));
+        assert!(config.mcp_bind_addr.is_none());
         // Defaults applied for omitted optional keys.
         assert_eq!(
             config.health_log_path,
@@ -208,6 +235,7 @@ log_dir = \"/data/logs\"
         let config = CalyxConfig::from_toml_str(VALID_TOML).expect("full config parses");
         assert_eq!(config.bind_addr, "127.0.0.1:7700".parse().unwrap());
         assert_eq!(config.vram_budget_mib, 8192);
+        assert!(config.mcp_bind_addr.is_none());
         assert_eq!(config.tei_endpoints.len(), 2);
         assert_eq!(config.tei_endpoints[0], "http://127.0.0.1:8088");
         assert_eq!(config.healthcheck_timeout_secs, 30);
@@ -332,6 +360,58 @@ log_dir = \"/data/logs\"
         let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
         assert_eq!(error.code(), "CALYX_TLS_CONFIG_INVALID");
         assert!(error.to_string().contains("require_client_cert"));
+    }
+
+    #[test]
+    fn mcp_bind_addr_must_be_loopback() {
+        let toml = format!("{VALID_TOML}\nmcp_bind_addr = \"0.0.0.0:7755\"\n");
+        let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
+        assert_eq!(error.code(), "CALYX_DAEMON_BIND_FAILED");
+        assert!(error.to_string().contains("mcp_bind_addr 0.0.0.0:7755"));
+    }
+
+    #[test]
+    fn mcp_bind_addr_requires_mtls() {
+        let toml = format!("{VALID_TOML}\nmcp_bind_addr = \"127.0.0.1:7755\"\n");
+        let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
+        assert_eq!(error.code(), "CALYX_TLS_CONFIG_INVALID");
+        assert!(error.to_string().contains("mcp_mtls"));
+    }
+
+    #[test]
+    fn mcp_bind_addr_cannot_conflict_with_metrics_port() {
+        let toml = format!("{VALID_TOML}\nmcp_bind_addr = \"127.0.0.1:7700\"\n");
+        let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
+        assert_eq!(error.code(), "CALYX_DAEMON_BIND_FAILED");
+        assert!(
+            error
+                .to_string()
+                .contains("conflicts with metrics bind_addr")
+        );
+    }
+
+    #[test]
+    fn valid_mcp_mtls_requires_explicit_mcp_bind_addr() {
+        let dir =
+            std::env::temp_dir().join(format!("calyxd-config-mcp-mtls-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert = dir.join("server.pem");
+        let key = dir.join("server.key");
+        let ca = dir.join("ca.pem");
+        std::fs::write(&cert, "not parsed by config validation").unwrap();
+        std::fs::write(&key, "not parsed by config validation").unwrap();
+        std::fs::write(&ca, "not parsed by config validation").unwrap();
+        let toml = format!(
+            "{VALID_TOML}\n[mcp_mtls]\nrequire_client_cert = true\n\n[mcp_mtls.tls]\ncert_pem_path = \"{}\"\nkey_pem_path = \"{}\"\nca_pem_path = \"{}\"\n",
+            cert.display().to_string().replace('\\', "\\\\"),
+            key.display().to_string().replace('\\', "\\\\"),
+            ca.display().to_string().replace('\\', "\\\\")
+        );
+        let error = CalyxConfig::from_toml_str(&toml).unwrap_err();
+        assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
+        assert!(error.to_string().contains("mcp_bind_addr"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

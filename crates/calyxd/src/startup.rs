@@ -1,13 +1,16 @@
 use std::path::Path;
 use std::process::ExitCode;
 use std::sync::Arc;
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use calyx_mcp::McpServer;
 use calyxd::config::CalyxConfig;
 use calyxd::cuda_probe;
 use calyxd::error::DaemonError;
 use calyxd::health::{run_healthcheck, write_health_result, write_shutdown_status};
 use calyxd::learner_origin::LearnerOriginService;
+use calyxd::mcp_server::CalyxMcpServer;
 use calyxd::metrics::{CalyxMetrics, ChainVerifyMetrics};
 use calyxd::server::MetricsServer;
 use calyxd::verify::{VerifyRestoreReport, verify_restore};
@@ -18,6 +21,7 @@ use crate::verify_loop::{TargetKind, VerifyTarget, run_cycle, spawn_loop};
 use crate::{refresh_zfs_metrics, spawn_zfs_metrics_loop};
 
 const VERIFY_INTERVAL_SECS: u64 = 60;
+const LISTENER_MONITOR_INTERVAL: Duration = Duration::from_millis(10);
 
 pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool) -> ExitCode {
     let cfg = match CalyxConfig::from_file(config_path) {
@@ -95,6 +99,21 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
         Ok(server) => server,
         Err(error) => return fatal(error),
     };
+    let mcp_server = match build_mcp_server(&cfg) {
+        Ok(server) => server,
+        Err(error) => return fatal(error),
+    };
+    let metrics_addr = match server.local_addr() {
+        Ok(addr) => addr,
+        Err(error) => return fatal(error),
+    };
+    let mcp_addr = match mcp_server.as_ref() {
+        Some(server) => match server.local_addr() {
+            Ok(addr) => Some(addr.to_string()),
+            Err(error) => return fatal(error),
+        },
+        None => None,
+    };
     let cancel_token = CancellationToken::new();
     if let Err(error) = install_signal_handlers(cancel_token.clone()) {
         return fatal(error);
@@ -112,11 +131,12 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
     }
 
     println!(
-        "INFO calyxd {} starting device=\"{}\" vram_budget={}MiB bind={} vault={} learner_origin={}",
+        "INFO calyxd {} starting device=\"{}\" vram_budget={}MiB metrics_bind={} mcp_bind={} vault={} learner_origin={}",
         env!("CARGO_PKG_VERSION"),
         device.device_name,
         cfg.vram_budget_mib,
-        cfg.bind_addr,
+        metrics_addr,
+        mcp_addr.as_deref().unwrap_or("disabled"),
         vault_path.display(),
         origin.is_some()
     );
@@ -130,7 +150,7 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
         Duration::from_secs(VERIFY_INTERVAL_SECS),
     );
 
-    match server.run(cancel_token) {
+    match run_servers(server, mcp_server, cancel_token) {
         Ok(()) => match write_shutdown_status(&cfg.health_log_path) {
             Ok(record) => {
                 println!(
@@ -143,6 +163,85 @@ pub(crate) async fn run_server(config_path: &Path, once: bool, audit_vram: bool)
         },
         Err(error) => fatal(error),
     }
+}
+
+fn build_mcp_server(cfg: &CalyxConfig) -> Result<Option<CalyxMcpServer>, DaemonError> {
+    match (cfg.mcp_bind_addr, cfg.mcp_mtls.as_ref()) {
+        (None, None) => return Ok(None),
+        (None, Some(_)) => {
+            return Err(DaemonError::config_invalid(
+                "mcp_mtls is configured but mcp_bind_addr is missing; calyxd will not start MCP without an explicit loopback bind",
+            ));
+        }
+        (Some(_), None) => {
+            return Err(DaemonError::tls_config_invalid(
+                "mcp_bind_addr is configured but mcp_mtls is missing; calyxd MCP requires mTLS",
+            ));
+        }
+        (Some(_), Some(_)) => {}
+    }
+    let dispatcher = production_mcp_dispatcher()?;
+    CalyxMcpServer::from_config(cfg, dispatcher).map(Some)
+}
+
+fn production_mcp_dispatcher() -> Result<Arc<McpServer>, DaemonError> {
+    let mut dispatcher = McpServer::new();
+    calyx_mcp::tools::register_all(&mut dispatcher).map_err(|error| {
+        DaemonError::config_invalid(format!(
+            "register production MCP tools: {}: {} (remediation: {})",
+            error.code, error.message, error.remediation
+        ))
+    })?;
+    Ok(Arc::new(dispatcher))
+}
+
+fn run_servers(
+    metrics: MetricsServer,
+    mcp: Option<CalyxMcpServer>,
+    cancel_token: CancellationToken,
+) -> Result<(), DaemonError> {
+    let Some(mcp) = mcp else {
+        return metrics.run(cancel_token);
+    };
+    let mcp_addr = mcp.local_addr()?;
+    let mcp_shutdown = mcp.shutdown_handle()?;
+    let metrics_token = cancel_token.clone();
+    let metrics_join = spawn_listener("calyxd-metrics", move || metrics.run(metrics_token))?;
+    let mcp_join = spawn_listener("calyxd-mcp", move || {
+        println!("INFO calyxd MCP serving on {mcp_addr}");
+        mcp.run()
+    })?;
+
+    loop {
+        if cancel_token.is_cancelled() || metrics_join.is_finished() || mcp_join.is_finished() {
+            break;
+        }
+        thread::sleep(LISTENER_MONITOR_INTERVAL);
+    }
+    cancel_token.cancel();
+    mcp_shutdown.shutdown();
+
+    join_listener("metrics", metrics_join)??;
+    join_listener("mcp", mcp_join)??;
+    Ok(())
+}
+
+fn spawn_listener<F>(name: &str, run: F) -> Result<JoinHandle<Result<(), DaemonError>>, DaemonError>
+where
+    F: FnOnce() -> Result<(), DaemonError> + Send + 'static,
+{
+    thread::Builder::new()
+        .name(name.to_string())
+        .spawn(run)
+        .map_err(|error| DaemonError::health_failed(format!("spawn {name} listener: {error}")))
+}
+
+fn join_listener(
+    name: &str,
+    join: JoinHandle<Result<(), DaemonError>>,
+) -> Result<Result<(), DaemonError>, DaemonError> {
+    join.join()
+        .map_err(|_| DaemonError::health_failed(format!("{name} listener thread panicked")))
 }
 
 pub(crate) fn validate_config(path: Option<&Path>) -> ExitCode {
@@ -248,4 +347,105 @@ fn install_signal_handlers(cancel_token: CancellationToken) -> Result<(), Daemon
 fn fatal(error: DaemonError) -> ExitCode {
     eprintln!("calyxd: {error}");
     ExitCode::from(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use calyx_core::{MtlsConfig, TlsConfig};
+    use rcgen::{CertifiedKey, generate_simple_self_signed};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_CERT: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn production_mcp_dispatcher_registers_real_tools() {
+        let dispatcher = production_mcp_dispatcher().expect("production MCP tools register");
+        assert!(
+            dispatcher.tool_count() >= 31,
+            "expected the full production tool surface, got {}",
+            dispatcher.tool_count()
+        );
+    }
+
+    #[test]
+    fn build_mcp_server_returns_none_when_unconfigured() {
+        let cfg = config(None, None);
+        assert!(build_mcp_server(&cfg).unwrap().is_none());
+    }
+
+    #[test]
+    fn build_mcp_server_fails_closed_on_partial_config() {
+        let missing_bind = config(None, Some(mtls_config("startup-missing-bind")));
+        let Err(error) = build_mcp_server(&missing_bind) else {
+            panic!("partial MCP config must fail closed when mcp_bind_addr is missing");
+        };
+        assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
+        assert!(error.to_string().contains("mcp_bind_addr"));
+
+        let missing_mtls = config(Some("127.0.0.1:0".parse().unwrap()), None);
+        let Err(error) = build_mcp_server(&missing_mtls) else {
+            panic!("partial MCP config must fail closed when mcp_mtls is missing");
+        };
+        assert_eq!(error.code(), "CALYX_TLS_CONFIG_INVALID");
+        assert!(error.to_string().contains("mcp_mtls"));
+    }
+
+    #[test]
+    fn build_mcp_server_binds_explicit_mcp_addr() {
+        let cfg = config(
+            Some("127.0.0.1:0".parse().unwrap()),
+            Some(mtls_config("startup-bind")),
+        );
+        let server = build_mcp_server(&cfg)
+            .expect("build MCP server")
+            .expect("MCP configured");
+        let addr = server.local_addr().unwrap();
+        assert!(addr.ip().is_loopback());
+        assert_ne!(addr.port(), 0);
+    }
+
+    fn config(
+        mcp_bind_addr: Option<std::net::SocketAddr>,
+        mcp_mtls: Option<MtlsConfig>,
+    ) -> CalyxConfig {
+        CalyxConfig {
+            bind_addr: "127.0.0.1:7700".parse().unwrap(),
+            mcp_bind_addr,
+            vault_path: "/v".into(),
+            vram_budget_mib: 8192,
+            log_dir: "/l".into(),
+            health_log_path: "/h".into(),
+            tei_endpoints: Vec::new(),
+            healthcheck_timeout_secs: 30,
+            mcp_mtls,
+            learner_origin: None,
+        }
+    }
+
+    fn mtls_config(name: &str) -> MtlsConfig {
+        let CertifiedKey { cert, signing_key } =
+            generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+        let id = NEXT_CERT.fetch_add(1, Ordering::SeqCst);
+        let root = std::env::temp_dir().join(format!(
+            "calyxd-startup-mcp-{name}-{}-{id}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let cert_path = root.join("server-cert.pem");
+        let key_path = root.join("server-key.pem");
+        let ca_path = root.join("client-ca.pem");
+        std::fs::write(&cert_path, cert.pem()).unwrap();
+        std::fs::write(&key_path, signing_key.serialize_pem()).unwrap();
+        std::fs::write(&ca_path, cert.pem()).unwrap();
+        MtlsConfig {
+            tls: TlsConfig {
+                cert_pem_path: cert_path,
+                key_pem_path: key_path,
+                ca_pem_path: Some(ca_path),
+            },
+            require_client_cert: true,
+        }
+    }
 }

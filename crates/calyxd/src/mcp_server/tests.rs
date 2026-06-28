@@ -61,10 +61,18 @@ fn bind_accepts_ipv6_loopback() {
 
 #[test]
 fn from_config_requires_mtls_block() {
-    let cfg = CalyxConfig::from_toml_str(
-        "bind_addr = \"127.0.0.1:0\"\nvault_path = \"/v\"\nvram_budget_mib = 8192\nlog_dir = \"/l\"\n",
-    )
-    .unwrap();
+    let cfg = CalyxConfig {
+        bind_addr: "127.0.0.1:7700".parse().unwrap(),
+        mcp_bind_addr: Some("127.0.0.1:0".parse().unwrap()),
+        vault_path: "/v".into(),
+        vram_budget_mib: 8192,
+        log_dir: "/l".into(),
+        health_log_path: "/h".into(),
+        tei_endpoints: Vec::new(),
+        healthcheck_timeout_secs: 30,
+        mcp_mtls: None,
+        learner_origin: None,
+    };
     let Err(error) = CalyxMcpServer::from_config(&cfg, dispatcher()) else {
         panic!("from_config must require mcp_mtls");
     };
@@ -73,9 +81,31 @@ fn from_config_requires_mtls_block() {
 }
 
 #[test]
+fn from_config_requires_mcp_bind_addr() {
+    let cfg = CalyxConfig {
+        bind_addr: "127.0.0.1:7700".parse().unwrap(),
+        mcp_bind_addr: None,
+        vault_path: "/v".into(),
+        vram_budget_mib: 8192,
+        log_dir: "/l".into(),
+        health_log_path: "/h".into(),
+        tei_endpoints: Vec::new(),
+        healthcheck_timeout_secs: 30,
+        mcp_mtls: Some(mtls_config()),
+        learner_origin: None,
+    };
+    let Err(error) = CalyxMcpServer::from_config(&cfg, dispatcher()) else {
+        panic!("from_config must require mcp_bind_addr");
+    };
+    assert_eq!(error.code(), "CALYX_DAEMON_CONFIG_INVALID");
+    assert!(error.to_string().contains("mcp_bind_addr"));
+}
+
+#[test]
 fn from_config_binds_when_mtls_present() {
     let cfg = CalyxConfig {
-        bind_addr: "127.0.0.1:0".parse().unwrap(),
+        bind_addr: "127.0.0.1:7700".parse().unwrap(),
+        mcp_bind_addr: Some("127.0.0.1:0".parse().unwrap()),
         vault_path: "/v".into(),
         vram_budget_mib: 8192,
         log_dir: "/l".into(),
