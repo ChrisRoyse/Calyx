@@ -12,9 +12,12 @@ path = "src/main.rs"
 
 [dependencies]
 calyx-aster = { path = "../calyx-aster" }
+calyx-assay = { path = "../calyx-assay" }
 calyx-core = { path = "../calyx-core" }
 calyx-forge = { path = "../calyx-forge" }
+calyx-lodestar = { path = "../calyx-lodestar" }
 calyx-mcp = { path = "../calyx-mcp" }
+calyx-oracle = { path = "../calyx-oracle" }
 nvml-wrapper = { workspace = true }
 calyx-ledger = { path = "../calyx-ledger" }
 prometheus.workspace = true

@@ -1,4 +1,3 @@
-
 use super::*;
 
 fn chain() -> Arc<ChainVerifyMetrics> {
