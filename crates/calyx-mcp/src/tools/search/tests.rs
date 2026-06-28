@@ -12,7 +12,7 @@ use calyx_ward::{
 };
 use serde_json::{Value, json};
 
-use calyx_aster::cf::{CfRouter, ColumnFamily, ledger_key};
+use calyx_aster::cf::{CfRouter, ColumnFamily, base_key, ledger_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_registry::load_vault_panel_state;
 
@@ -73,6 +73,73 @@ fn search_fails_closed_when_ledger_chain_is_tampered() {
     assert_eq!(
         error.data.unwrap()["calyx_code"],
         "CALYX_LEDGER_CHAIN_BROKEN"
+    );
+}
+
+#[test]
+fn search_fails_closed_when_hit_ledger_row_is_missing() {
+    let env = TestEnv::new("ledger-missing");
+    let server = server();
+    let created = call_ok(&server, 1, "calyx.create_vault", json!({"name": "v"}));
+    call_ok(
+        &server,
+        2,
+        "calyx.add_lens",
+        json!({"vault": "v", "name": "byte_axis", "runtime": "algorithmic"}),
+    );
+    let ingested = call_ok(
+        &server,
+        3,
+        "calyx.ingest",
+        json!({"vault": "v", "input": "alpha"}),
+    );
+    let vault_id = created["vault_id"].as_str().unwrap();
+    let vault_path = env.vault_path(vault_id);
+    let cx_id = ingested["cx_id"].as_str().unwrap();
+    let ledger_seq = ingested["ledger_seq"].as_u64().unwrap();
+    let before = json!({
+        "base_exists": base_exists(&vault_path, cx_id),
+        "ledger_head_anchor_exists": ledger_head_anchor_exists(&vault_path),
+        "ledger_rows": ledger_rows(&vault_path),
+    });
+
+    remove_ledger_row(&vault_path, ledger_seq);
+    remove_ledger_head_anchor(&vault_path);
+    let after = json!({
+        "base_exists": base_exists(&vault_path, cx_id),
+        "ledger_head_anchor_exists": ledger_head_anchor_exists(&vault_path),
+        "ledger_rows": ledger_rows(&vault_path),
+    });
+    let error = call_err(
+        &server,
+        4,
+        "calyx.search",
+        json!({"vault": "v", "query": "alpha"}),
+    );
+
+    assert_eq!(error.code, -32000);
+    let data = error.data.unwrap();
+    assert_eq!(data["calyx_code"], "CALYX_SEXTANT_PROVENANCE_MISSING");
+    assert_eq!(before["base_exists"], true);
+    assert_eq!(after["base_exists"], true);
+    assert_eq!(after["ledger_rows"].as_array().unwrap().len(), 0);
+    maybe_write_fsv_json(
+        "mcp-search-provenance-missing-ledger-fail-closed.json",
+        &json!({
+            "source_of_truth": "Aster Base CF row remains present while Aster Ledger CF row is physically absent",
+            "trigger": "JSON-RPC calyx.search after removing the hit ledger row",
+            "target": {
+                "cx_id": cx_id,
+                "ledger_seq": ledger_seq,
+            },
+            "before": before,
+            "after": after,
+            "error": {
+                "jsonrpc_code": error.code,
+                "calyx_code": data["calyx_code"],
+                "message": error.message,
+            },
+        }),
     );
 }
 

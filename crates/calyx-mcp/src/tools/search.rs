@@ -4,6 +4,7 @@ mod engine;
 #[cfg(test)]
 mod extension_tests;
 mod extensions;
+mod ledger_provenance;
 mod output;
 #[cfg(test)]
 mod tests;

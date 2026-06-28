@@ -10,14 +10,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector, VaultStore};
+use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector};
 use calyx_sextant::fusion;
-use calyx_sextant::{
-    FreshnessTag, FusionContext, FusionStrategy, Hit, ProvenanceSource, RrfProfile,
-};
+use calyx_sextant::{FusionContext, FusionStrategy, Hit, RrfProfile};
 
 use crate::error::CliResult;
 use crate::persisted::{PersistedSearchIndexes, load_docs};
+use crate::provenance::{attach_verified_provenance, hit_docs};
 
 /// In-region guard cosine threshold (mirrors the CLI default).
 const GUARD_TAU: f32 = 0.999;
@@ -141,7 +140,7 @@ pub fn search_outcome(
     };
     let mut hits = fusion::fuse(&per_slot, &context);
     let hit_docs = hit_docs(vault, &hits)?;
-    attach_stored_provenance(&mut hits, &hit_docs, vault.latest_seq())?;
+    attach_verified_provenance(&mut hits, &hit_docs, vault_dir, vault.latest_seq())?;
     let guard_tau = if guard == GuardChoice::InRegion {
         hits = apply_in_region_guard(hits, &hit_docs, &query_vectors);
         Some(GUARD_TAU)
@@ -244,35 +243,6 @@ fn guard_cosine(
             cosine(query, doc)
         })
         .max_by(f32::total_cmp)
-}
-
-fn attach_stored_provenance(
-    hits: &mut [Hit],
-    docs: &BTreeMap<CxId, Constellation>,
-    seq: u64,
-) -> CliResult {
-    for hit in hits {
-        let cx = docs.get(&hit.cx_id).ok_or_else(|| {
-            CalyxError::vault_access_denied(format!(
-                "stored constellation missing for hit {}",
-                hit.cx_id
-            ))
-        })?;
-        hit.provenance = cx.provenance.clone();
-        hit.provenance_source = ProvenanceSource::Stored;
-        hit.freshness = FreshnessTag::fresh(seq);
-    }
-    Ok(())
-}
-
-fn hit_docs(vault: &AsterVault, hits: &[Hit]) -> CliResult<BTreeMap<CxId, Constellation>> {
-    let snapshot = vault.snapshot();
-    let mut docs = BTreeMap::new();
-    for hit in hits {
-        let cx_id = hit.cx_id;
-        docs.insert(cx_id, vault.get(cx_id, snapshot)?);
-    }
-    Ok(docs)
 }
 
 fn vault_base_count(vault: &AsterVault) -> CliResult<usize> {

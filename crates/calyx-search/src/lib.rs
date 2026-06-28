@@ -8,6 +8,7 @@ pub mod engine;
 pub mod error;
 pub mod filters;
 pub mod persisted;
+mod provenance;
 
 pub use engine::{FusionChoice, GuardChoice, SearchOutcome, measure_query_vectors, search_outcome};
 pub use error::{CliResult, SearchError};

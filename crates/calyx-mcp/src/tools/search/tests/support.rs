@@ -157,6 +157,74 @@ pub(super) fn tamper_ledger_row(vault: &Path, seq: u64) {
     }
 }
 
+pub(super) fn remove_ledger_row(vault: &Path, seq: u64) {
+    let router = CfRouter::open(vault, 0).expect("open CF router");
+    let key = ledger_key(seq);
+    let mut entries = router
+        .iter_cf(ColumnFamily::Ledger)
+        .expect("read ledger rows");
+    entries.retain(|entry| entry.key != key);
+    rewrite_ledger_sst(vault, &entries);
+}
+
+pub(super) fn remove_ledger_head_anchor(vault: &Path) {
+    let path = vault.join("ledger_head").join("current.json");
+    if path.exists() {
+        fs::remove_file(path).expect("remove ledger head anchor");
+    }
+}
+
+pub(super) fn ledger_head_anchor_exists(vault: &Path) -> bool {
+    vault.join("ledger_head").join("current.json").is_file()
+}
+
+pub(super) fn base_exists(vault: &Path, cx_id: &str) -> bool {
+    let cx_id = cx_id.parse().expect("parse cx id");
+    let key = base_key(cx_id);
+    CfRouter::open(vault, 0)
+        .and_then(|router| router.iter_cf(ColumnFamily::Base))
+        .map(|entries| entries.iter().any(|entry| entry.key == key))
+        .unwrap_or(false)
+}
+
+pub(super) fn ledger_rows(vault: &Path) -> Vec<Value> {
+    CfRouter::open(vault, 0)
+        .and_then(|router| router.iter_cf(ColumnFamily::Ledger))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            json!({
+                "seq": u64::from_be_bytes(row.key.as_slice().try_into().expect("ledger key")),
+                "bytes_len": row.value.len(),
+                "bytes_blake3": blake3::hash(&row.value).to_hex().to_string(),
+            })
+        })
+        .collect()
+}
+
+fn rewrite_ledger_sst(vault: &Path, entries: &[calyx_aster::sst::SstEntry]) {
+    let cf_dir = vault.join("cf").join(ColumnFamily::Ledger.name());
+    for entry in fs::read_dir(&cf_dir).expect("read ledger CF directory") {
+        let path = entry.expect("read ledger CF entry").path();
+        if path.extension().and_then(|value| value.to_str()) == Some("sst") {
+            fs::remove_file(path).expect("remove original ledger SST");
+        }
+    }
+    if !entries.is_empty() {
+        calyx_aster::sst::write_sst(
+            cf_dir.join("00000000000000000001.sst"),
+            entries
+                .iter()
+                .map(|entry| (entry.key.as_slice(), entry.value.as_slice())),
+        )
+        .expect("write rewritten ledger SST");
+    }
+    let wal_dir = vault.join("wal");
+    if wal_dir.exists() {
+        fs::remove_dir_all(wal_dir).expect("remove stale WAL after ledger SST rewrite");
+    }
+}
+
 pub(super) fn write_calibrated_default_guard(vault: &Path, vault_id: &str, name: &str, tau: f32) {
     let state = load_vault_panel_state(vault).expect("load panel state");
     let slot = state

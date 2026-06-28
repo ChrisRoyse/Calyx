@@ -777,6 +777,7 @@ version = "0.1.0"
 dependencies = [
  "calyx-aster",
  "calyx-core",
+ "calyx-ledger",
  "calyx-registry",
  "calyx-sextant",
  "serde",

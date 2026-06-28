@@ -1,14 +1,11 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use calyx_aster::cf::ColumnFamily;
-use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    AnchorKind, AnchorValue, CalyxError, Constellation, CxId, Input, LedgerRef, Modality, SlotId,
-    SlotState, SlotVector, VaultStore,
+    AnchorKind, AnchorValue, CalyxError, Constellation, CxId, Input, Modality, SlotId, SlotState,
+    SlotVector, VaultStore,
 };
-use calyx_ledger::{LedgerCfStore, SubjectId, VerifyResult, decode, verify_chain};
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 use calyx_sextant::fusion;
 use calyx_sextant::{
@@ -25,6 +22,7 @@ use crate::server::{ToolError, ToolResult};
 
 use super::output::KernelAnswerOut;
 use super::{NeighborsRequest, SearchGuard, SearchRequest};
+use crate::tools::search::ledger_provenance::VerifiedSearchLedger;
 use crate::tools::vault::store::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
 
 pub(super) const HNSW_SEED: u64 = 0x0050_4836_3354_3034;
@@ -44,7 +42,7 @@ pub(super) struct NeighborOut {
 
 pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
     let resolved = resolve_requested_vault(&request.vault)?;
-    let ledger_refs = verify_ledger_before_provenance(&resolved.path)?;
+    let ledger = VerifiedSearchLedger::open(&resolved.path)?;
     let vault = open_vault(&resolved)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let docs = filtered_docs(load_docs(&vault)?, request.filter.clone())?;
@@ -77,7 +75,7 @@ pub(super) fn search(request: &SearchRequest) -> ToolResult<SearchOutcome> {
         &mut hits,
         &docs,
         vault.latest_seq(),
-        &ledger_refs,
+        &ledger,
         &request.freshness,
     )?;
     let dropped_guard_hits = if request.guard == SearchGuard::InRegion {
@@ -133,46 +131,6 @@ fn load_default_guard_profile(
 
 fn default_guard_key() -> &'static [u8] {
     b"profile\0default"
-}
-
-fn verify_ledger_before_provenance(path: &Path) -> ToolResult<BTreeMap<CxId, LedgerRef>> {
-    let store = AsterLedgerCfStore::open(path).map_err(|error| {
-        if error.code == "CALYX_LEDGER_CORRUPT" {
-            CalyxError::ledger_chain_broken(format!(
-                "search provenance ledger chain unreadable: {}",
-                error.message
-            ))
-        } else {
-            error
-        }
-    })?;
-    let end = store.scan()?.len() as u64;
-    match verify_chain(&store, 0..end)? {
-        VerifyResult::Intact { .. } => latest_cx_refs(&store),
-        VerifyResult::Broken { at_seq, .. } | VerifyResult::Corrupt { at_seq, .. } => {
-            Err(CalyxError::ledger_chain_broken(format!(
-                "search provenance ledger chain broken at seq={at_seq}"
-            ))
-            .into())
-        }
-    }
-}
-
-fn latest_cx_refs(store: &AsterLedgerCfStore) -> ToolResult<BTreeMap<CxId, LedgerRef>> {
-    let mut refs = BTreeMap::new();
-    for row in store.scan()? {
-        let entry = decode(&row.bytes)?;
-        if let SubjectId::Cx(cx_id) = entry.subject {
-            refs.insert(
-                cx_id,
-                LedgerRef {
-                    seq: entry.seq,
-                    hash: entry.entry_hash,
-                },
-            );
-        }
-    }
-    Ok(refs)
 }
 
 pub(super) fn neighbors(request: &NeighborsRequest) -> ToolResult<Vec<NeighborOut>> {
@@ -321,7 +279,7 @@ fn attach_stored_provenance(
     hits: &mut [Hit],
     docs: &BTreeMap<CxId, Constellation>,
     seq: u64,
-    ledger_refs: &BTreeMap<CxId, LedgerRef>,
+    ledger: &VerifiedSearchLedger,
     freshness: &FreshnessRequirement,
 ) -> ToolResult<()> {
     for hit in hits {
@@ -331,10 +289,7 @@ fn attach_stored_provenance(
                 hit.cx_id
             ))
         })?;
-        hit.provenance = ledger_refs
-            .get(&hit.cx_id)
-            .cloned()
-            .unwrap_or_else(|| cx.provenance.clone());
+        hit.provenance = ledger.require_ref(hit.cx_id, cx.provenance.clone())?;
         hit.provenance_source = ProvenanceSource::Stored;
         let base_seq = seq.max(cx.provenance.seq);
         hit.freshness = match freshness {

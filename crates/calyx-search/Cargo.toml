@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 calyx-core = { path = "../calyx-core" }
 calyx-aster = { path = "../calyx-aster" }
+calyx-ledger = { path = "../calyx-ledger" }
 calyx-sextant = { path = "../calyx-sextant" }
 calyx-registry = { path = "../calyx-registry" }
 serde = { workspace = true }
