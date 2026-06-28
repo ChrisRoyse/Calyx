@@ -205,6 +205,15 @@ impl PersistedSearchIndexes {
             .unwrap_or(0)
     }
 
+    pub fn ensure_search_bounded(&self) -> CliResult {
+        for entry in &self.manifest.slots {
+            if entry.kind == "multi_maxsim" {
+                multi::ensure_bounded_sidecar(&self.vault_dir, entry, SlotId::new(entry.slot))?;
+            }
+        }
+        Ok(())
+    }
+
     fn require_entry(&self, slot: SlotId) -> CliResult<&SearchIndexEntry> {
         self.manifest
             .slots

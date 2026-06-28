@@ -88,7 +88,9 @@ pub(crate) fn parse_search(rest: &[String]) -> CliResult<Subcommand> {
             }
             "--filter" => {
                 idx += 1;
-                args.filter = Some(value(rest, idx, "--filter")?.to_string());
+                let raw = value(rest, idx, "--filter")?.to_string();
+                calyx_search::filters::parse(Some(&raw))?;
+                args.filter = Some(raw);
             }
             other => return Err(CliError::usage(format!("unexpected search flag {other}"))),
         }

@@ -1,15 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use calyx_core::{Constellation, CxId, SlotId, SlotVector};
+use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector};
 use calyx_sextant::index::{IndexSearchHit, MaxSimIndex, ranked};
 use serde::{Deserialize, Serialize};
 
 use super::{SearchIndexEntry, rel, sha256_hex, stale, write_json_atomic_hashed};
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 
 const MULTI_FORMAT: &str = "calyx-search-multi-maxsim-index-v1";
+const DEFAULT_MAX_MULTI_JSON_SIDECAR_BYTES: u64 = 512 * 1024 * 1024;
+const UNBOUNDED_MULTI_SIDECAR_CODE: &str = "CALYX_SEARCH_MULTI_SIDECAR_UNBOUNDED";
+const UNBOUNDED_MULTI_SIDECAR_REMEDIATION: &str = "rebuild with a bounded/binary multi-vector index or retire the multi-vector lens before search";
 
 #[derive(Clone, Debug)]
 pub(super) struct MultiSlotRows {
@@ -132,6 +135,15 @@ pub(super) fn search(
     Ok(ranked(top_k(score(&index, query_tokens, candidates), k)))
 }
 
+pub(super) fn ensure_bounded_sidecar(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+) -> CliResult {
+    let _ = checked_sidecar_path(vault_dir, entry, slot, DEFAULT_MAX_MULTI_JSON_SIDECAR_BYTES)?;
+    Ok(())
+}
+
 fn build_index(
     slot: SlotId,
     token_dim: u32,
@@ -159,14 +171,24 @@ fn read(
     manifest_base_seq: u64,
     slot: SlotId,
 ) -> CliResult<MultiIndex> {
+    read_with_sidecar_limit(
+        vault_dir,
+        entry,
+        manifest_base_seq,
+        slot,
+        DEFAULT_MAX_MULTI_JSON_SIDECAR_BYTES,
+    )
+}
+
+fn read_with_sidecar_limit(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    manifest_base_seq: u64,
+    slot: SlotId,
+    max_sidecar_bytes: u64,
+) -> CliResult<MultiIndex> {
     entry.require_kind("multi_maxsim", slot)?;
-    let path = vault_dir.join(entry.require_index_rel(slot)?);
-    if !path.is_file() {
-        return Err(stale(format!(
-            "persistent multi sidecar missing at {}; rebuild the vault search indexes",
-            path.display()
-        )));
-    }
+    let path = checked_sidecar_path(vault_dir, entry, slot, max_sidecar_bytes)?;
     let bytes = fs::read(&path)?;
     let actual = sha256_hex(&bytes);
     let expected = entry.require_sha256(slot)?;
@@ -183,6 +205,41 @@ fn read(
     })?;
     validate(&index, entry, manifest_base_seq, slot)?;
     Ok(index)
+}
+
+fn checked_sidecar_path(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+    max_sidecar_bytes: u64,
+) -> CliResult<PathBuf> {
+    entry.require_kind("multi_maxsim", slot)?;
+    let path = vault_dir.join(entry.require_index_rel(slot)?);
+    if !path.is_file() {
+        return Err(stale(format!(
+            "persistent multi sidecar missing at {}; rebuild the vault search indexes",
+            path.display()
+        )));
+    }
+    let sidecar_bytes = fs::metadata(&path)?.len();
+    if sidecar_bytes > max_sidecar_bytes {
+        return Err(unbounded_multi_sidecar(format!(
+            "persistent multi sidecar for slot {slot} is {sidecar_bytes} bytes at {}; exceeds search JSON sidecar limit {max_sidecar_bytes} bytes (rows={}, tokens={})",
+            path.display(),
+            entry.len,
+            entry.token_count.unwrap_or_default()
+        )));
+    }
+    Ok(path)
+}
+
+fn unbounded_multi_sidecar(message: impl Into<String>) -> CliError {
+    CalyxError {
+        code: UNBOUNDED_MULTI_SIDECAR_CODE,
+        message: message.into(),
+        remediation: UNBOUNDED_MULTI_SIDECAR_REMEDIATION,
+    }
+    .into()
 }
 
 fn validate(
@@ -288,4 +345,57 @@ fn top_k(mut scored: Vec<(CxId, f32)>, k: usize) -> Vec<(CxId, f32)> {
     });
     scored.truncate(k);
     scored
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    #[test]
+    fn oversized_multi_sidecar_fails_before_reading_json_payload() {
+        let root = temp_root("oversized-multi-sidecar");
+        let sidecar_rel = "idx/search/slot_00022.multi.json";
+        let sidecar_path = root.join(sidecar_rel);
+        fs::create_dir_all(sidecar_path.parent().unwrap()).unwrap();
+        fs::write(&sidecar_path, b"not json, but too large").unwrap();
+
+        let slot = SlotId::new(22);
+        let entry = SearchIndexEntry::multi(
+            slot,
+            384,
+            1026,
+            513_767,
+            3348,
+            sidecar_rel.to_string(),
+            "unused-because-size-check-runs-first".to_string(),
+        );
+        let err = read_with_sidecar_limit(&root, &entry, 3348, slot, 4).unwrap_err();
+        let message = err.message();
+
+        assert_eq!(err.code(), UNBOUNDED_MULTI_SIDECAR_CODE);
+        assert!(message.contains("persistent multi sidecar for slot 22"));
+        assert!(message.contains("exceeds search JSON sidecar limit 4 bytes"));
+        assert!(message.contains("rows=1026"));
+        assert!(message.contains("tokens=513767"));
+        let CliError::Calyx(calyx) = err else {
+            panic!("expected structured Calyx error");
+        };
+        assert_eq!(calyx.remediation, UNBOUNDED_MULTI_SIDECAR_REMEDIATION);
+    }
+
+    fn temp_root(tag: &str) -> std::path::PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("calyx-search-{tag}-{stamp}"));
+        if root.exists() {
+            fs::remove_dir_all(&root).unwrap();
+        }
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
 }
