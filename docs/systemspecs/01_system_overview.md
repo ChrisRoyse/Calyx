@@ -37,7 +37,7 @@ Calyx is not a multi-process service mesh; it is an embedded engine with three t
 | Embedded engine | in-process library | — | Rust crates `calyx-*` | All storage, math, search, guard, ledger logic |
 | `calyxd` metrics | HTTP `/metrics` | loopback only (enforced ×3) | Prometheus text exposition | Operational metrics (chain-verify, ingest/search, guard, hazard, ZFS, VRAM) |
 | `calyxd` MCP socket | length-prefixed framed socket | loopback only | `CalyxMcpServer` reusing `calyx-mcp` dispatch | MCP over socket (present; `main` does not yet wire it) |
-| `calyx-mcp` | JSON-RPC 2.0 over stdio | stdio | `initialize`/`tools/list`/`tools/call` | MCP tool host (zero production tools registered yet) |
+| `calyx-mcp` | JSON-RPC 2.0 over stdio | stdio | `initialize`/`tools/list`/`tools/call` | MCP tool host with 31 registered production tools |
 | `calyx` CLI | process invocation | — | manual arg dispatch (no clap) | Readback, FSV, migration, drills |
 
 See [16_mcp_and_daemon.md](16_mcp_and_daemon.md) for transport, ports, and lifecycle detail.
@@ -134,7 +134,7 @@ Consequence prediction / super-intelligence over recurrence-grounded constellati
 The `calyx` binary, invoked `calyx <command> [subcommand] [flags]`. No clap; `dispatch.rs` manually pattern-matches the raw arg vector with order-significant positional guards, while module groups have their own `--key value` parsers. Major groups: `readback` (read-only/FSV inspection, oracle/PH42/temporal topics), `migrate` (SQLite→vault), `leapable` (shadow-cutover dual-write/read-flip/remove-shadow), `anneal`, `navigate`, `sextant`/`media`/`lodestar` validation harnesses, `lens`/`panel`, `summarize`, ledger/merkle/provenance verifiers, `healthcheck`, and storage/FSV/crash/resource drills. Most commands emit JSON to stdout; FSV commands write Source-of-Truth files and BLAKE3-digest them.
 
 ### 3.13 MCP server & daemon — `calyx-mcp`, `calyxd` (S16/S19) → [16_mcp_and_daemon.md](16_mcp_and_daemon.md)
-**calyx-mcp** is a JSON-RPC 2.0 MCP server (library + stdio binary) implementing `initialize`/`tools/list`/`tools/call` with per-tool panic isolation and `CalyxError`→`-32000` mapping; it ships with **zero production tools registered** (deferred), exposing only the registry/dispatch machinery. **calyxd** is the daemon: a loopback-only HTTP `/metrics` Prometheus exporter, a periodic ledger chain-verify loop, a fatal CUDA/NVML VRAM startup preflight (no CPU fallback), a fail-closed `CalyxConfig` TOML loader, a daemon-readiness healthcheck, and a byte-level `verify_restore` vault read-back. It also provides a loopback length-prefixed MCP-over-socket transport reusing `calyx-mcp` dispatch (present but not yet wired in `main`). Loopback-only binding is enforced in three places.
+**calyx-mcp** is a JSON-RPC 2.0 MCP server (library + stdio binary) implementing `initialize`/`tools/list`/`tools/call` with per-tool panic isolation and `CalyxError`→`-32000` mapping; it registers the 31-tool production surface pinned by `crates/calyx-mcp/tests/stdio.rs::EXPECTED_TOOLS`. **calyxd** is the daemon: a loopback-only HTTP `/metrics` Prometheus exporter, a periodic ledger chain-verify loop, a fatal CUDA/NVML VRAM startup preflight (no CPU fallback), a fail-closed `CalyxConfig` TOML loader, a daemon-readiness healthcheck, and a byte-level `verify_restore` vault read-back. It also provides a loopback length-prefixed MCP-over-socket transport reusing `calyx-mcp` dispatch (present but not yet wired in `main`; follow-up `ChrisRoyse/Calyx-Dev#959`). Loopback-only binding is enforced in three places.
 
 ---
 
@@ -144,7 +144,7 @@ The `calyx` binary, invoked `calyx <command> [subcommand] [flags]`. No clap; `di
 |---|---|---|---|
 | Operator CLI | `calyx <cmd>` command groups | `calyx-cli` | readback, migrate, leapable, anneal, navigate, sextant/media/lodestar, lens/panel, summarize, ledger/merkle/provenance, healthcheck, FSV/crash/resource drills — see [15_cli_reference.md](15_cli_reference.md) |
 | Daemon metrics | HTTP `GET /metrics` (loopback) | `calyxd` | Prometheus families: chain-verify, ingest/search, guard, hazard, ZFS, VRAM |
-| MCP | JSON-RPC `initialize`/`tools/list`/`tools/call` | `calyx-mcp` | 0 production tools registered as of this branch |
+| MCP | JSON-RPC `initialize`/`tools/list`/`tools/call` | `calyx-mcp` | 31 production tools registered over stdio |
 | Library APIs | `Lens`, `Index`/`SextantIndex`, `VaultStore`, `Estimator`, `Backend` traits + per-crate engines | `calyx-core` + subsystem crates | consumed in-process by binaries |
 
 ---

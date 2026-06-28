@@ -31,7 +31,7 @@
 | CUDA kernels (`.cu`) | **3** (`distance.cu`, `topk.cu`, `mxfp4_gemm.cu`) | in `crates/calyx-forge` |
 | Fuzz targets | **6** | `ls fuzz/fuzz_targets/` |
 | CI workflows | **1** (`.github/workflows/ci.yml`) | `ls .github/workflows/` |
-| MCP tools | **30** (pinned by `tests/stdio.rs::EXPECTED_TOOLS`) | [19](19_mcp_api_tools_reference.md) |
+| MCP tools | **31** (pinned by `tests/stdio.rs::EXPECTED_TOOLS`) | [19](19_mcp_api_tools_reference.md) |
 | CLI structured subcommands | **~20** + legacy + domain command groups | [20](20_cli_and_daemon_reference.md) |
 | Column families (static) | **33** (`ColumnFamily::STATIC`, indices 0–32) + parameterized slot CFs | `crates/calyx-aster/src/cf/family.rs` |
 | Core closed error catalog | **38** codes (`CalyxErrorCode` / `CALYX_ERROR_CODES`) | [05](05_core.md) |

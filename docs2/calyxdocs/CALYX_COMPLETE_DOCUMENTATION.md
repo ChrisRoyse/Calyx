@@ -31,7 +31,7 @@ diverges from the design plans, each doc says so in a **Gaps / not covered** sec
 | Crates | 19 (Rust workspace, edition 2024, toolchain 1.95.0) |
 | Source LOC | ~205k (`src/`), ~308k including tests |
 | Binaries | `calyx` (CLI), `calyxd` (daemon), `calyx-mcp` (MCP), `calyx-hazard-soak` |
-| MCP tools | 30 |
+| MCP tools | 31 |
 | Column families | 33 static |
 | Core error catalog | 38 codes |
 | License | BSL 1.1 |
@@ -68,7 +68,7 @@ diverges from the design plans, each doc says so in a **Gaps / not covered** sec
 ### Interfaces
 | # | Doc | Covers |
 |---|---|---|
-| 19 | [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md) | calyx-mcp — all 30 tools (params, returns, side effects, errors), JSON-RPC/stdio |
+| 19 | [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md) | calyx-mcp — all 31 tools (params, returns, side effects, errors), JSON-RPC/stdio |
 | 20 | [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md) | calyx-cli commands & flags; calyxd startup probes, `/metrics`, `verify-restore` |
 
 ### Quality & direction
@@ -189,7 +189,7 @@ foundation depended on by all 18 other crates.
 |---|---|---|---|---|
 | CLI | `calyx` | `calyx-cli` | process invocation; JSON error envelope on stderr | Drive every engine operation from the shell; ~20 structured subcommands + legacy/domain command families |
 | Daemon | `calyxd` | `calyxd` | HTTP `GET /metrics` (Prometheus 0.0.4) on loopback, default `127.0.0.1:7700` | Long-running service: startup CUDA/VRAM probes, health probe, Prometheus metrics, `verify-restore` tool. A loopback MCP-over-socket transport (length-framed) exists in the library but is **not wired into the live daemon** (serves only `/metrics`) |
-| MCP server | `calyx-mcp` | `calyx-mcp` | **stdio only**, line-delimited JSON-RPC 2.0, MCP protocol `2024-11-05` | Agent-facing tool surface: 30 `calyx.*` tools |
+| MCP server | `calyx-mcp` | `calyx-mcp` | **stdio only**, line-delimited JSON-RPC 2.0, MCP protocol `2024-11-05` | Agent-facing tool surface: 31 `calyx.*` tools |
 | Soak/hazard harness | `calyx-hazard-soak` | `calyx-hazard-soak` | CLI binary | 25 fault-injection probes (H1–H25) + a long integrated soak; emits JSON + Prometheus evidence |
 
 ### 2.3 Technology stack
@@ -224,7 +224,7 @@ and the shared `target/` dir ballooning to ~190 GB. See
 
 ## 3. Public surfaces (APIs / tools / commands)
 
-### 3.1 MCP tools — 30 total (`calyx.*`), grouped by domain
+### 3.1 MCP tools — 31 total (`calyx.*`), grouped by domain
 
 Full parameter/return/error tables in [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md).
 The tool set is pinned by `crates/calyx-mcp/tests/stdio.rs::EXPECTED_TOOLS`.
@@ -232,7 +232,7 @@ The tool set is pinned by `crates/calyx-mcp/tests/stdio.rs::EXPECTED_TOOLS`.
 | Domain | Tools |
 |---|---|
 | Vault & panel (6) | `create_vault`, `add_lens`, `retire_lens`, `park_lens`, `list_panel`, `profile_lens` |
-| Ingest & measure (3) | `ingest`, `anchor`, `measure` |
+| Ingest & measure (4) | `ingest`, `ingest_media`, `anchor`, `measure` |
 | Search & navigate (10) | `search`, `kernel_answer`, `neighbors`, `agree`, `disagree`, `define`, `guard_generate`, `traverse`, `skills`, `search_skill` |
 | Intelligence (6) | `abundance`, `bits`, `kernel`, `guard.calibrate`, `guard.check`, `propose_lens` |
 | Provenance & ops (5) | `provenance`, `answer_trace`, `verify_chain`, `reproduce`, `anneal.status` |
@@ -466,7 +466,7 @@ deterministic scaffolding — `DEFAULT_TEST_SEED = 0xCA1A_CAFE_D15C_1A11`, `DEFA
 ### 7.15 Entry points — calyx-cli, calyxd, calyx-mcp ([19](19_mcp_api_tools_reference.md), [20](20_cli_and_daemon_reference.md))
 Thin surfaces over the engine. The CLI hand-parses args and returns JSON error envelopes;
 `calyxd` runs startup probes (T02 CUDA preflight, T03 NVML VRAM budget ≤30000 MiB, T04
-health, T05 loopback MCP transport) and serves `/metrics`; `calyx-mcp` exposes 30 tools
+health, T05 loopback MCP transport) and serves `/metrics`; `calyx-mcp` exposes 31 tools
 over stdio JSON-RPC with no auth/consent gate (vault resolution via `CALYX_HOME`).
 
 ---
@@ -486,7 +486,7 @@ over stdio JSON-RPC with no auth/consent gate (vault resolution via `CALYX_HOME`
 | DiskANN graph | `CLXDA001`, 4 KiB pages |
 | Column families | 33 static (+ parameterized slot CFs) |
 | Core error catalog | 38 codes (`CalyxErrorCode`, pinned by test) |
-| MCP tools | 30 (pinned by test) |
+| MCP tools | 31 (pinned by test) |
 | Default daemon bind | `127.0.0.1:7700` (loopback only) |
 | Default VRAM soft cap | 12 GiB (Forge); daemon `vram_budget_mib` 1..=30000 |
 
@@ -9970,13 +9970,13 @@ server, not this binary.
 
 `tools::register_all` chains five group registrations in order: `vault`, `ingest`,
 `search` (which also calls `search::extensions::register`), `intelligence`, `provenance`.
-**Total: 30 tools.** `tests/stdio.rs::EXPECTED_TOOLS` pins exactly these 30 names and
-asserts the startup banner reports 30. Grouped:
+**Total: 31 tools.** `tests/stdio.rs::EXPECTED_TOOLS` pins exactly these 31 names and
+asserts the startup banner reports 31. Grouped:
 
 | Group | Module | Count | Tools |
 |---|---|---|---|
 | Vault & panel | `vault.rs` | 6 | create_vault, add_lens, retire_lens, park_lens, list_panel, profile_lens |
-| Ingest & measure | `ingest.rs` | 3 | ingest, anchor, measure |
+| Ingest & measure | `ingest.rs` | 4 | ingest, ingest_media, anchor, measure |
 | Search & navigate (core) | `search.rs` | 3 | search, kernel_answer, neighbors |
 | Search extensions | `search/extensions.rs` | 7 | agree, disagree, define, guard_generate, traverse, skills, search_skill |
 | Intelligence | `intelligence.rs` | 6 | abundance, bits, kernel, guard.calibrate, guard.check, propose_lens |
@@ -10997,7 +10997,7 @@ A TOML syntax error or missing required key → `CALYX_DAEMON_CONFIG_INVALID` na
 
 Fail-closed posture: non-loopback bind → `CALYX_DAEMON_BIND_FAILED` (never starts); oversized/zero/truncated frame → `CALYX_DAEMON_FRAME_INVALID` (connection closed); malformed JSON inside a valid frame → a JSON-RPC error reply (`CALYX_MCP_JSONRPC_INVALID`) and the connection stays open; a panicking handler → `CALYX_DAEMON_CONN_PANIC` logged, accept loop survives. Notifications (no `id`) get no reply. `ShutdownHandle::shutdown()` sets the flag then self-connects to wake the blocked `accept()`.
 
-> Note: `mcp_server` is library API for T05 (loopback dispatch); it registers no production tools (that is PH63/T06) and `main.rs`/`startup.rs` do not currently wire it into the running daemon — the binary runs the `/metrics` listener. See [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md).
+> Note: `mcp_server` is library API for T05 (loopback dispatch). The stdio `calyx-mcp` binary registers the 31 production tools, but `main.rs`/`startup.rs` do not currently wire the socket transport into the running daemon — the binary runs the `/metrics` listener. See [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md) and follow-up `ChrisRoyse/Calyx-Dev#959`.
 
 ### B.8 `verify-restore` (PH67, `verify.rs`)
 

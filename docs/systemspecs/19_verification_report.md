@@ -45,7 +45,7 @@ Status of lint runs: Not determined from source (not executed here).
 | Declared test functions | 2618 | grep `#[test]` |
 | `CALYX_*` identifiers in core | 58 distinct (≈38 are the closed PRD-18 error-code catalog; remainder are module-local codes/constants) | grep over `crates/calyx-core/src/` — see [04_core_foundation.md](04_core_foundation.md) |
 | Column families (static) | ~30 (plus per-slot vector columns) | [05_aster_storage.md](05_aster_storage.md) |
-| MCP production tools registered | 0 | [16_mcp_and_daemon.md](16_mcp_and_daemon.md) |
+| MCP production tools registered | 31 | [16_mcp_and_daemon.md](16_mcp_and_daemon.md) |
 
 ### 3.1 LOC and test-file distribution by crate
 
@@ -119,7 +119,7 @@ No coverage tooling (tarpaulin / llvm-cov / grcov) is configured in the workspac
 ## 7. What is NOT covered / known gaps (from source)
 
 - **Local test results unavailable**: this repo is an authoring checkout; pass/fail and lint status must be obtained from the aiwonder build host.
-- **MCP tools**: `calyx-mcp` registers 0 production tools on this branch; the JSON-RPC machinery exists but exposes no Calyx operations yet ([16_mcp_and_daemon.md](16_mcp_and_daemon.md)).
+- **MCP tools**: `calyx-mcp` now registers the 31-tool stdio production surface pinned by `crates/calyx-mcp/tests/stdio.rs::EXPECTED_TOOLS` ([16_mcp_and_daemon.md](16_mcp_and_daemon.md)).
 - **calyxd MCP socket**: the loopback MCP-over-socket transport exists but `main` does not wire it ([16_mcp_and_daemon.md](16_mcp_and_daemon.md)).
 - **Sextant/HNSW persistence**: search engine and vector indexes are in-memory; not persisted as engine state ([08_sextant_search.md](08_sextant_search.md)).
 - **LP solver**: `calyx-mincut` LP scaffold is a relaxation skeleton with no actual solver ([10_graph_kernel.md](10_graph_kernel.md)).

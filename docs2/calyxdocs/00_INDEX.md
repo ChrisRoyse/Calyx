@@ -20,7 +20,7 @@ diverges from the design plans, each doc says so in a **Gaps / not covered** sec
 | Crates | 19 (Rust workspace, edition 2024, toolchain 1.95.0) |
 | Source LOC | ~205k (`src/`), ~308k including tests |
 | Binaries | `calyx` (CLI), `calyxd` (daemon), `calyx-mcp` (MCP), `calyx-hazard-soak` |
-| MCP tools | 30 |
+| MCP tools | 31 |
 | Column families | 33 static |
 | Core error catalog | 38 codes |
 | License | BSL 1.1 |
@@ -57,7 +57,7 @@ diverges from the design plans, each doc says so in a **Gaps / not covered** sec
 ### Interfaces
 | # | Doc | Covers |
 |---|---|---|
-| 19 | [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md) | calyx-mcp — all 30 tools (params, returns, side effects, errors), JSON-RPC/stdio |
+| 19 | [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md) | calyx-mcp — all 31 tools (params, returns, side effects, errors), JSON-RPC/stdio |
 | 20 | [20_cli_and_daemon_reference.md](20_cli_and_daemon_reference.md) | calyx-cli commands & flags; calyxd startup probes, `/metrics`, `verify-restore` |
 
 ### Quality & direction

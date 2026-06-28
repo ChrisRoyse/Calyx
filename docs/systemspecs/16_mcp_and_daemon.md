@@ -157,15 +157,20 @@ The `Tool` trait (`Send + Sync`):
 
 ### A.5.3 Registered production tools
 
-**None.** The shipped binary (`src/main.rs`) and the `calyxd` MCP transport (Part B) both construct an `McpServer` with **zero tools registered**. The only `Tool` implementors in this codebase are test fixtures (`EchoTool`, `FailingTool`, `PanicTool` in `src/server.rs` tests) and an FSV-only `AdderTool` (`calyxd/examples/mcp_fsv_server.rs`). Source comments state production tool groups are deferred to later PH63 tasks.
+`calyx-mcp` registers the production tool groups from `crates/calyx-mcp/src/tools/`
+at startup. The stdio test `crates/calyx-mcp/tests/stdio.rs::EXPECTED_TOOLS` pins
+the 31 registered names and the startup banner reports the same count.
 
-| MCP tool | Params | Return | Side effects | Status / Source |
-|---|---|---|---|---|
-| *(none in production)* | — | — | — | `src/main.rs` line 16; `calyxd/src/mcp_server.rs` doc |
-| `echo` *(test only)* | `msg: string` (required) | `{ echoed: <msg> }` | none | `src/server.rs` tests |
-| `adder` *(example/FSV only)* | `a: integer`, `b: integer` (both required) | `{ sum: a+b }` | none | `calyxd/examples/mcp_fsv_server.rs` |
+Tool families:
+- Vault/panel: `create_vault`, `add_lens`, `retire_lens`, `park_lens`, `list_panel`, `profile_lens`
+- Ingest/measure: `ingest`, `ingest_media`, `anchor`, `measure`
+- Search/navigation: `search`, `kernel_answer`, `neighbors`, `agree`, `disagree`, `define`, `guard_generate`, `traverse`, `skills`, `search_skill`
+- Intelligence: `abundance`, `bits`, `kernel`, `guard.calibrate`, `guard.check`, `propose_lens`
+- Provenance/ops: `provenance`, `answer_trace`, `verify_chain`, `reproduce`, `anneal.status`
 
-> Because no production tools exist, Rule 4's "every MCP tool" table is, from source, empty. The registry, schema, and dispatch machinery are fully built; the tool catalog is not yet wired.
+The `calyxd` MCP transport in Part B is a transport library; production daemon
+startup does not yet run it with this 31-tool dispatcher. That follow-up is tracked
+in `ChrisRoyse/Calyx-Dev#959`.
 
 ## A.6 Input-schema constructors (`src/schema.rs`)
 
@@ -357,7 +362,7 @@ Any framing error closes the connection (the byte stream can no longer be truste
    - **Ok**: record notification-ness (`id.is_none()`); `dispatcher.dispatch(request)`; if notification, skip the reply; else `write_response` (length-prefixed).
    - **Err(calyx)** (malformed JSON inside a valid frame): a per-message error, not a stream error — write back a JSON-RPC error (`from_calyx`, id `null`, carrying `CALYX_MCP_JSONRPC_INVALID`) and keep serving the next frame.
 
-> The MCP method/tool semantics are identical to Part A.5 because the same `McpServer::dispatch` is used. As shipped, the dispatcher passed in carries no production tools.
+> The MCP method/tool semantics are identical to Part A.5 because the same `McpServer::dispatch` is used. As shipped, `calyxd` startup still does not run this transport with the production 31-tool dispatcher; see `ChrisRoyse/Calyx-Dev#959`.
 
 ## B.7 Periodic chain-verify (`src/verify_loop.rs`, binary-only)
 

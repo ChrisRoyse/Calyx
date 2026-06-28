@@ -22,12 +22,18 @@ carry `code` + `remediation` so an agent self-corrects.
 - **Provides for:** PH65 (calyxd server exposes the same MCP over HTTP), PH71
   (Leapable vault swap driven by MCP tool calls)
 
-## Current state (build off what exists)
+## Current state
 
-`calyx-mcp` is a 9-line stub crate (`crates/calyx-mcp/`). Greenfield from here.
-The Calyx engine API used by this crate is the same one wired in PH62 (`calyx-cli`).
-The `CalyxError` struct with `{code, message, remediation}` is already in
-`calyx-core`. JSON-RPC framing and tool registration are greenfield.
+`calyx-mcp` is implemented as the stdio JSON-RPC MCP server for agent-facing
+Calyx operations. `crates/calyx-mcp/src/main.rs` registers all tool groups via
+`calyx_mcp::tools::register_all(&mut server)`, and `tests/stdio.rs::EXPECTED_TOOLS`
+pins the 31-tool surface. The Calyx engine API used by this crate is the same
+one wired in PH62 (`calyx-cli`). `CalyxError` values preserve `{code, message,
+remediation}` through JSON-RPC `-32000` error envelopes.
+
+The daemon socket work is separate: `calyxd` has a loopback framed MCP transport
+library and tests, but production startup does not yet run a separate MCP socket.
+That follow-up is tracked in `ChrisRoyse/Calyx-Dev#959`.
 
 ## Deliverables (file plan, each ≤500 lines)
 
@@ -74,6 +80,15 @@ result contains `provenance` field. An error (e.g. bits with n<50) returns
 `{"code":"CALYX_ASSAY_INSUFFICIENT_SAMPLES","remediation":"anchor ≥50 outcomes
 first"}` as an actionable MCP error. Evidence = raw stdout JSON bytes captured on
 aiwonder.
+
+2026-06-28 FSV readback for `ChrisRoyse/calyxwebsite#1248`: exact Calyx-Dev
+commit `2814eca51f5ac2723c20b34dcc09a49f5955736f`, aiwonder detached worktree,
+`tools/list` reported 31 tools, and real stdio `tools/call` executed
+`create_vault`, `add_lens`, `ingest`, `search`, `kernel`, `guard.calibrate`,
+`guard.check`, `provenance`, `abundance`, and `bits` against durable vault bytes.
+The readback vault had 100 ingested constellations, 50 anchored `test_pass`
+outcomes, `bits.per_slot[0].bits=0.3516703099012375`, `verify_chain.status=ok`,
+631 vault files, and 736529 bytes.
 
 ## Risks / landmines
 

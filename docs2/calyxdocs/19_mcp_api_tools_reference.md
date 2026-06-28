@@ -180,13 +180,13 @@ server, not this binary.
 
 `tools::register_all` chains five group registrations in order: `vault`, `ingest`,
 `search` (which also calls `search::extensions::register`), `intelligence`, `provenance`.
-**Total: 30 tools.** `tests/stdio.rs::EXPECTED_TOOLS` pins exactly these 30 names and
-asserts the startup banner reports 30. Grouped:
+**Total: 31 tools.** `tests/stdio.rs::EXPECTED_TOOLS` pins exactly these 31 names and
+asserts the startup banner reports 31. Grouped:
 
 | Group | Module | Count | Tools |
 |---|---|---|---|
 | Vault & panel | `vault.rs` | 6 | create_vault, add_lens, retire_lens, park_lens, list_panel, profile_lens |
-| Ingest & measure | `ingest.rs` | 3 | ingest, anchor, measure |
+| Ingest & measure | `ingest.rs` | 4 | ingest, ingest_media, anchor, measure |
 | Search & navigate (core) | `search.rs` | 3 | search, kernel_answer, neighbors |
 | Search extensions | `search/extensions.rs` | 7 | agree, disagree, define, guard_generate, traverse, skills, search_skill |
 | Intelligence | `intelligence.rs` | 6 | abundance, bits, kernel, guard.calibrate, guard.check, propose_lens |
@@ -748,9 +748,10 @@ The implemented surface matches the plan's grouped table closely, with these con
 deltas:
 
 - **Tool count:** plan lists tools in slash-grouped shorthand; the code registers exactly
-  **30** discrete tools (the plan's `retire_lens / park_lens`, `neighbors / agree /
+  **31** discrete tools (the plan's `retire_lens / park_lens`, `neighbors / agree /
   disagree`, `skills / search_skill`, `provenance / answer_trace`,
-  `verify_chain / reproduce`, `guard.calibrate / guard.check` are each distinct tools).
+  `verify_chain / reproduce`, `guard.calibrate / guard.check` are each distinct tools,
+  and `ingest_media` is a separate media-ingest tool).
 - **Transport:** plan §4 describes both embedded stdio MCP **and** a `calyxd` HTTP-ingress
   server. Only **stdio** exists in this crate; there is no socket/HTTP code here.
 - **`search.guard=in_region`:** search now loads the persisted default guard profile and

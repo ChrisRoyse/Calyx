@@ -86,7 +86,7 @@ foundation depended on by all 18 other crates.
 |---|---|---|---|---|
 | CLI | `calyx` | `calyx-cli` | process invocation; JSON error envelope on stderr | Drive every engine operation from the shell; ~20 structured subcommands + legacy/domain command families |
 | Daemon | `calyxd` | `calyxd` | HTTP `GET /metrics` (Prometheus 0.0.4) on loopback, default `127.0.0.1:7700` | Long-running service: startup CUDA/VRAM probes, health probe, Prometheus metrics, `verify-restore` tool. A loopback MCP-over-socket transport (length-framed) exists in the library but is **not wired into the live daemon** (serves only `/metrics`) |
-| MCP server | `calyx-mcp` | `calyx-mcp` | **stdio only**, line-delimited JSON-RPC 2.0, MCP protocol `2024-11-05` | Agent-facing tool surface: 30 `calyx.*` tools |
+| MCP server | `calyx-mcp` | `calyx-mcp` | **stdio only**, line-delimited JSON-RPC 2.0, MCP protocol `2024-11-05` | Agent-facing tool surface: 31 `calyx.*` tools |
 | Soak/hazard harness | `calyx-hazard-soak` | `calyx-hazard-soak` | CLI binary | 25 fault-injection probes (H1–H25) + a long integrated soak; emits JSON + Prometheus evidence |
 
 ### 2.3 Technology stack
@@ -121,7 +121,7 @@ and the shared `target/` dir ballooning to ~190 GB. See
 
 ## 3. Public surfaces (APIs / tools / commands)
 
-### 3.1 MCP tools — 30 total (`calyx.*`), grouped by domain
+### 3.1 MCP tools — 31 total (`calyx.*`), grouped by domain
 
 Full parameter/return/error tables in [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md).
 The tool set is pinned by `crates/calyx-mcp/tests/stdio.rs::EXPECTED_TOOLS`.
@@ -129,7 +129,7 @@ The tool set is pinned by `crates/calyx-mcp/tests/stdio.rs::EXPECTED_TOOLS`.
 | Domain | Tools |
 |---|---|
 | Vault & panel (6) | `create_vault`, `add_lens`, `retire_lens`, `park_lens`, `list_panel`, `profile_lens` |
-| Ingest & measure (3) | `ingest`, `anchor`, `measure` |
+| Ingest & measure (4) | `ingest`, `ingest_media`, `anchor`, `measure` |
 | Search & navigate (10) | `search`, `kernel_answer`, `neighbors`, `agree`, `disagree`, `define`, `guard_generate`, `traverse`, `skills`, `search_skill` |
 | Intelligence (6) | `abundance`, `bits`, `kernel`, `guard.calibrate`, `guard.check`, `propose_lens` |
 | Provenance & ops (5) | `provenance`, `answer_trace`, `verify_chain`, `reproduce`, `anneal.status` |
@@ -363,7 +363,7 @@ deterministic scaffolding — `DEFAULT_TEST_SEED = 0xCA1A_CAFE_D15C_1A11`, `DEFA
 ### 7.15 Entry points — calyx-cli, calyxd, calyx-mcp ([19](19_mcp_api_tools_reference.md), [20](20_cli_and_daemon_reference.md))
 Thin surfaces over the engine. The CLI hand-parses args and returns JSON error envelopes;
 `calyxd` runs startup probes (T02 CUDA preflight, T03 NVML VRAM budget ≤30000 MiB, T04
-health, T05 loopback MCP transport) and serves `/metrics`; `calyx-mcp` exposes 30 tools
+health, T05 loopback MCP transport) and serves `/metrics`; `calyx-mcp` exposes 31 tools
 over stdio JSON-RPC with no auth/consent gate (vault resolution via `CALYX_HOME`).
 
 ---
@@ -383,7 +383,7 @@ over stdio JSON-RPC with no auth/consent gate (vault resolution via `CALYX_HOME`
 | DiskANN graph | `CLXDA001`, 4 KiB pages |
 | Column families | 33 static (+ parameterized slot CFs) |
 | Core error catalog | 38 codes (`CalyxErrorCode`, pinned by test) |
-| MCP tools | 30 (pinned by test) |
+| MCP tools | 31 (pinned by test) |
 | Default daemon bind | `127.0.0.1:7700` (loopback only) |
 | Default VRAM soft cap | 12 GiB (Forge); daemon `vram_budget_mib` 1..=30000 |
 

@@ -417,7 +417,7 @@ A TOML syntax error or missing required key → `CALYX_DAEMON_CONFIG_INVALID` na
 
 Fail-closed posture: non-loopback bind → `CALYX_DAEMON_BIND_FAILED` (never starts); oversized/zero/truncated frame → `CALYX_DAEMON_FRAME_INVALID` (connection closed); malformed JSON inside a valid frame → a JSON-RPC error reply (`CALYX_MCP_JSONRPC_INVALID`) and the connection stays open; a panicking handler → `CALYX_DAEMON_CONN_PANIC` logged, accept loop survives. Notifications (no `id`) get no reply. `ShutdownHandle::shutdown()` sets the flag then self-connects to wake the blocked `accept()`.
 
-> Note: `mcp_server` is library API for T05 (loopback dispatch); it registers no production tools (that is PH63/T06) and `main.rs`/`startup.rs` do not currently wire it into the running daemon — the binary runs the `/metrics` listener. See [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md).
+> Note: `mcp_server` is library API for T05 (loopback dispatch). The stdio `calyx-mcp` binary registers the 31 production tools, but `main.rs`/`startup.rs` do not currently wire the socket transport into the running daemon — the binary runs the `/metrics` listener. See [19_mcp_api_tools_reference.md](19_mcp_api_tools_reference.md) and follow-up `ChrisRoyse/Calyx-Dev#959`.
 
 ### B.8 `verify-restore` (PH67, `verify.rs`)
 
