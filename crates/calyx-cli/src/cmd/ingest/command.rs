@@ -291,8 +291,10 @@ fn flush_measure_batch(
                     marker_kinds.push(anchor.kind.clone());
                 }
             }
-            if new || !cx.anchors.is_empty() {
+            if should_stage_batch_constellation(new, &marker_kinds) {
                 staged.push(cx.clone());
+            } else if exists {
+                ensure_idempotent_batch_replay(vault, cx)?;
             }
             order.push((cx.cx_id, new, marker_kinds, oracle.clone()));
         }
@@ -324,6 +326,28 @@ fn flush_measure_batch(
             })?;
         }
         vault.flush()?;
+    }
+    Ok(())
+}
+
+pub(super) fn should_stage_batch_constellation(new: bool, marker_kinds: &[AnchorKind]) -> bool {
+    new || !marker_kinds.is_empty()
+}
+
+fn ensure_idempotent_batch_replay(
+    vault: &AsterVault,
+    cx: &calyx_core::Constellation,
+) -> CliResult<()> {
+    let existing = vault.get(cx.cx_id, vault.snapshot())?;
+    if existing.panel_version != cx.panel_version
+        || existing.input_ref != cx.input_ref
+        || existing.modality != cx.modality
+        || existing.metadata != cx.metadata
+    {
+        return Err(CliError::usage(format!(
+            "idempotent batch replay for cx {} changed stored non-anchor identity",
+            cx.cx_id
+        )));
     }
     Ok(())
 }

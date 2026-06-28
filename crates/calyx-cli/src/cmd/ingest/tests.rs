@@ -15,7 +15,7 @@ use ulid::Ulid;
 use super::super::vault::{ResolvedVault, now_ms, vault_salt};
 use super::anchor::parse_anchor_kind;
 use super::batch::{parse_batch_line, read_batch_texts};
-use super::command::{ingest_batch_streaming, ingest_texts};
+use super::command::{ingest_batch_streaming, ingest_texts, should_stage_batch_constellation};
 use super::constellation::{measure_constellation, text_input};
 use super::parse::{parse_anchor, validate_text};
 use super::store::{ensure_base_exists, open_vault};
@@ -301,6 +301,141 @@ fn batch_reingest_merges_anchors_for_existing_cx() {
     );
 
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_reingest_same_anchored_row_is_idempotent_noop() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-idempotent-replay");
+    let jsonl = resolved.path.join("anchored-replay.jsonl");
+    fs::write(
+        &jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+    let vault_before = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let cx_id = vault_before.cx_id_for_input("alpha north signal".as_bytes(), state.panel.version);
+    let snapshot_before = vault_before.snapshot();
+    let before = vault_before.get(cx_id, snapshot_before).unwrap();
+    let before_base_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Base)
+        .unwrap();
+    let before_anchor_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Anchors)
+        .unwrap();
+    let before_ledger_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Ledger)
+        .unwrap();
+    assert_eq!(before.anchors.len(), 1);
+    assert_eq!(before_base_rows.len(), 1);
+    assert_eq!(before_anchor_rows.len(), 1);
+    drop(vault_before);
+
+    ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let vault_after = open_vault(&resolved).unwrap();
+    let snapshot_after = vault_after.snapshot();
+    let after = vault_after.get(cx_id, snapshot_after).unwrap();
+    let after_base_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Base)
+        .unwrap();
+    let after_anchor_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Anchors)
+        .unwrap();
+    let after_ledger_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Ledger)
+        .unwrap();
+
+    assert_eq!(after.anchors, before.anchors);
+    assert_eq!(after.metadata, before.metadata);
+    assert_eq!(
+        after_base_rows, before_base_rows,
+        "duplicate replay must not rewrite the Base CF row"
+    );
+    assert_eq!(
+        after_anchor_rows, before_anchor_rows,
+        "duplicate replay must not duplicate Anchors CF rows"
+    );
+    assert_eq!(
+        after_ledger_rows.len(),
+        before_ledger_rows.len() + 1,
+        "duplicate replay records exactly one idempotent ingest ledger row"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_reingest_same_anchor_changed_metadata_fails_loud() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-metadata-conflict");
+    let first_jsonl = resolved.path.join("anchored-first.jsonl");
+    let changed_jsonl = resolved.path.join("anchored-changed.jsonl");
+    fs::write(
+        &first_jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &changed_jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"other"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &first_jsonl).unwrap();
+    let vault_before = open_vault(&resolved).unwrap();
+    let snapshot_before = vault_before.snapshot();
+    let before_base_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Base)
+        .unwrap();
+    let before_anchor_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Anchors)
+        .unwrap();
+    drop(vault_before);
+
+    let err = ingest_batch_streaming(&resolved, &changed_jsonl).unwrap_err();
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message().contains("changed stored non-anchor identity"),
+        "{}",
+        err.message()
+    );
+
+    let vault_after = open_vault(&resolved).unwrap();
+    let snapshot_after = vault_after.snapshot();
+    let after_base_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Base)
+        .unwrap();
+    let after_anchor_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Anchors)
+        .unwrap();
+    assert_eq!(after_base_rows, before_base_rows);
+    assert_eq!(after_anchor_rows, before_anchor_rows);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_staging_predicate_requires_new_cx_or_new_anchor_kind() {
+    assert!(should_stage_batch_constellation(true, &[]));
+    assert!(should_stage_batch_constellation(
+        false,
+        &[AnchorKind::Label("answer".to_string())]
+    ));
+    assert!(!should_stage_batch_constellation(false, &[]));
 }
 
 #[test]
