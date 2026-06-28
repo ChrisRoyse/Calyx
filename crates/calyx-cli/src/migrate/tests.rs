@@ -28,22 +28,38 @@ fn migrates_and_offline_backfills_default_panel() {
     assert_eq!(report.source_rows, 2);
     assert_eq!(report.written_rows, 2);
     assert_eq!(report.skipped_rows, 0);
-    assert_eq!(
-        report.verify.unwrap().missing_backfill,
-        Vec::<String>::new()
-    );
+    let verify = report.verify.as_ref().unwrap();
+    assert_eq!(verify.missing_backfill, Vec::<String>::new());
+    assert_eq!(verify.missing_backfill_provenance, Vec::<String>::new());
+    assert_eq!(verify.invalid_backfill_provenance, Vec::<String>::new());
+    assert_eq!(verify.learned_backfill_gate, "FAIL");
+    assert_eq!(verify.learned_tei_slot_rows_checked, 0);
+    assert_eq!(verify.offline_deterministic_model_slot_rows.len(), 6);
     let backfill = report.backfill.as_ref().unwrap();
     assert_eq!(backfill.backfill_mode, "offline_deterministic");
     assert_eq!(backfill.learned_tei_slot_rows_written, 0);
-    assert!(backfill.offline_deterministic_slot_rows_written > 0);
+    assert_eq!(backfill.offline_deterministic_slot_rows_written, 6);
     let status = report.status.as_ref().unwrap();
     assert!(status.slot_rows.values().all(|count| *count == 2));
+    let readback = run_readback(&sqlite, &vault, "kernel-1").unwrap();
+    let slot_1_origin = backfill_origin::slot_origin_key(SlotId::new(1));
+    let slot_2_origin = backfill_origin::slot_origin_key(SlotId::new(2));
+    let slot_2_runtime = backfill_origin::slot_runtime_key(SlotId::new(2));
+    assert_eq!(readback["slots"]["2"]["present"], true);
+    assert_eq!(readback["metadata"][slot_1_origin.as_str()], "algorithmic");
+    assert_eq!(
+        readback["metadata"][slot_2_origin.as_str()],
+        "offline_deterministic"
+    );
+    assert_eq!(readback["metadata"][slot_2_runtime.as_str()], "tei_http");
     maybe_write_fsv_json(
         "migrate-offline-backfill-origin-readback.json",
         &serde_json::json!({
-            "source_of_truth": "migration BackfillSummary plus Aster slot row counts from status",
+            "source_of_truth": "Aster base-row metadata plus slot CF rows read via migrate readback/status",
             "backfill": backfill,
+            "verify": verify,
             "slot_rows": status.slot_rows,
+            "kernel_readback": readback,
         }),
     );
     std::fs::remove_dir_all(root).unwrap();
