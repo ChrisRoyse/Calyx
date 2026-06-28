@@ -367,70 +367,7 @@ fn card_paths(flags: &Flags) -> CliResult<Vec<PathBuf>> {
     Ok(paths)
 }
 
-impl Flags {
-    fn parse(args: &[String]) -> CliResult<Self> {
-        let mut flags = Self::default();
-        let mut idx = 0;
-        while idx < args.len() {
-            match args[idx].as_str() {
-                "--home" => {
-                    idx += 1;
-                    flags.home = Some(value(args, idx, "--home")?.into());
-                }
-                "--name" => {
-                    idx += 1;
-                    flags.name = Some(value(args, idx, "--name")?.to_string());
-                }
-                "--notes" => {
-                    idx += 1;
-                    flags.notes = Some(value(args, idx, "--notes")?.to_string());
-                }
-                "--from" => {
-                    idx += 1;
-                    flags.from = Some(value(args, idx, "--from")?.to_string());
-                }
-                "--template" => {
-                    idx += 1;
-                    flags.template = Some(value(args, idx, "--template")?.to_string());
-                }
-                "--vault" => {
-                    idx += 1;
-                    flags.vault = Some(value(args, idx, "--vault")?.to_string());
-                }
-                "--all-current" => flags.all_current = true,
-                "--modality" => {
-                    idx += 1;
-                    flags.modality = Some(parse_modality(value(args, idx, "--modality")?)?);
-                }
-                "--lens" => {
-                    idx += 1;
-                    flags.lenses.push(value(args, idx, "--lens")?.to_string());
-                }
-                "--card" => {
-                    idx += 1;
-                    flags.cards.push(value(args, idx, "--card")?.into());
-                }
-                "--card-dir" => {
-                    idx += 1;
-                    flags.card_dir = Some(value(args, idx, "--card-dir")?.into());
-                }
-                "--assay-card" => {
-                    idx += 1;
-                    flags.assay_card = Some(value(args, idx, "--assay-card")?.into());
-                }
-                "--a37-admission-card" => {
-                    idx += 1;
-                    flags.a37_admission_card =
-                        Some(value(args, idx, "--a37-admission-card")?.into());
-                }
-                "--require-a37-gate" => flags.require_a37_gate = true,
-                other => return Err(CliError::usage(format!("unexpected template flag {other}"))),
-            }
-            idx += 1;
-        }
-        Ok(flags)
-    }
-}
+mod flags;
 
 fn save_report(action: &'static str, save: TemplateSave) -> SaveReport {
     let content_lens_count = save.template.content_lens_count();
@@ -499,53 +436,4 @@ fn modality_name(value: Modality) -> &'static str {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_repeated_lenses() {
-        let flags = Flags::parse(&[
-            "--name".to_string(),
-            "text-deep".to_string(),
-            "--lens".to_string(),
-            "a".to_string(),
-            "--lens".to_string(),
-            "b".to_string(),
-        ])
-        .unwrap();
-
-        assert_eq!(flags.name.as_deref(), Some("text-deep"));
-        assert_eq!(flags.lenses, ["a", "b"]);
-    }
-
-    #[test]
-    fn parses_a37_template_flags() {
-        let flags = Flags::parse(&[
-            "--template".to_string(),
-            "text-deep".to_string(),
-            "--assay-card".to_string(),
-            "ensemble_card.json".to_string(),
-            "--require-a37-gate".to_string(),
-            "--a37-admission-card".to_string(),
-            "multi_anchor_card.json".to_string(),
-        ])
-        .unwrap();
-
-        assert_eq!(flags.template.as_deref(), Some("text-deep"));
-        assert_eq!(
-            flags.assay_card.as_deref(),
-            Some(Path::new("ensemble_card.json"))
-        );
-        assert_eq!(
-            flags.a37_admission_card.as_deref(),
-            Some(Path::new("multi_anchor_card.json"))
-        );
-        assert!(flags.require_a37_gate);
-    }
-
-    #[test]
-    fn modality_parser_matches_catalog_strings() {
-        assert_eq!(modality_name(parse_modality("text").unwrap()), "text");
-        assert!(parse_modality("temporal").is_err());
-    }
-}
+mod tests;
