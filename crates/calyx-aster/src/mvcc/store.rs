@@ -14,6 +14,7 @@ use crate::sst::SstSummary;
 use calyx_core::{Clock, Result, Seq, Ts};
 use std::collections::BTreeMap;
 use std::ops::Bound;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
@@ -60,6 +61,7 @@ pub struct VersionedCfStore {
     next_lease_id: AtomicU64,
     rows: RwLock<RowTable>,
     router: RwLock<Option<CfRouter>>,
+    router_latest_readback: AtomicBool,
     read_barriers: RwLock<Vec<ReadBarrier>>,
     leases: LeaseRegistry,
     resource_counters: Arc<ResourceCounters>,
@@ -74,6 +76,7 @@ impl VersionedCfStore {
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(BTreeMap::new()),
             router: RwLock::new(None),
+            router_latest_readback: AtomicBool::new(false),
             read_barriers: RwLock::new(Vec::new()),
             leases: LeaseRegistry::default(),
             resource_counters: Arc::new(ResourceCounters::default()),
@@ -89,12 +92,19 @@ impl VersionedCfStore {
             next_lease_id: AtomicU64::new(0),
             rows: RwLock::new(BTreeMap::new()),
             router: RwLock::new(Some(router)),
+            router_latest_readback: AtomicBool::new(false),
             read_barriers: RwLock::new(Vec::new()),
             leases: LeaseRegistry::default(),
             resource_counters,
             snapshot_gc: SnapshotGcReclaimer::default(),
             snapshot_gc_counters: SnapshotGcCounters::default(),
         }
+    }
+
+    pub fn new_with_router_latest_readback(start_seq: Seq, router: CfRouter) -> Self {
+        let store = Self::new_with_router(start_seq, router);
+        store.router_latest_readback.store(true, Ordering::Release);
+        store
     }
 
     /// Latest committed sequence.
@@ -307,10 +317,16 @@ impl VersionedCfStore {
     ) -> Result<Option<Vec<u8>>> {
         self.ensure_snapshot_live(snapshot, clock)?;
         self.ensure_unbarriered(cf, key)?;
-        let table = self.rows.read().expect("mvcc row table poisoned");
-        Ok(table
-            .get(&(cf, key.to_vec()))
-            .and_then(|versions| visible_value(versions, snapshot.seq())))
+        {
+            let table = self.rows.read().expect("mvcc row table poisoned");
+            if let Some(value) = table
+                .get(&(cf, key.to_vec()))
+                .and_then(|versions| visible_value_state(versions, snapshot.seq()))
+            {
+                return Ok(value.into_option());
+            }
+        }
+        self.router_latest_value(snapshot, cf, key)
     }
 
     /// Returns the visible version sequence for one CF/key at the pinned sequence.
@@ -324,10 +340,19 @@ impl VersionedCfStore {
         self.ensure_snapshot_live(snapshot, clock)?;
         self.ensure_unbarriered(cf, key)?;
         let table = self.rows.read().expect("mvcc row table poisoned");
-        Ok(table
+        let seq = table
             .get(&(cf, key.to_vec()))
             .and_then(|versions| visible_version(versions, snapshot.seq()))
-            .map(|version| version.seq))
+            .map(|version| version.seq);
+        if seq.is_some() || !self.router_latest_readback.load(Ordering::Acquire) {
+            return Ok(seq);
+        }
+        self.ensure_router_latest_snapshot(snapshot)?;
+        Err(latest_only_error(format!(
+            "row sequence for {} key {} is unavailable because this vault was opened in latest-only recovery mode",
+            cf.name(),
+            hex_prefix(key)
+        )))
     }
 
     /// Resolves all requested CF/key rows at the same pinned sequence.
@@ -341,15 +366,10 @@ impl VersionedCfStore {
         for read in reads {
             self.ensure_unbarriered(read.cf, &read.key)?;
         }
-        let table = self.rows.read().expect("mvcc row table poisoned");
-        Ok(reads
+        reads
             .iter()
-            .map(|read| {
-                table
-                    .get(&(read.cf, read.key.clone()))
-                    .and_then(|versions| visible_value(versions, snapshot.seq()))
-            })
-            .collect())
+            .map(|read| self.read_at(snapshot, read.cf, &read.key, clock))
+            .collect()
     }
 
     /// Scans visible rows for one CF at the pinned sequence, ordered by key.
@@ -360,21 +380,12 @@ impl VersionedCfStore {
         clock: &dyn Clock,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.ensure_snapshot_live(snapshot, clock)?;
-        let table = self.rows.read().expect("mvcc row table poisoned");
-        let mut rows = table
-            .iter()
-            .filter_map(|((row_cf, key), versions)| {
-                if *row_cf != cf {
-                    return None;
-                }
-                visible_value(versions, snapshot.seq()).map(|value| (key.clone(), value))
-            })
-            .collect::<Vec<_>>();
-        rows.sort_by(|left, right| left.0.cmp(&right.0));
-        for (key, _) in &rows {
+        let mut rows = self.router_latest_rows(snapshot, cf, None)?;
+        self.overlay_table_rows(snapshot, cf, None, &mut rows);
+        for key in rows.keys() {
             self.ensure_unbarriered(cf, key)?;
         }
-        Ok(rows)
+        Ok(rows.into_iter().collect())
     }
 
     /// Scans visible rows for one CF and key range at the pinned sequence.
@@ -386,21 +397,29 @@ impl VersionedCfStore {
         clock: &dyn Clock,
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.ensure_snapshot_live(snapshot, clock)?;
-        let table = self.rows.read().expect("mvcc row table poisoned");
-        let mut rows = table
-            .iter()
-            .filter_map(|((row_cf, key), versions)| {
-                if *row_cf != cf || !range.contains(key) {
-                    return None;
-                }
-                visible_value(versions, snapshot.seq()).map(|value| (key.clone(), value))
-            })
-            .collect::<Vec<_>>();
-        rows.sort_by(|left, right| left.0.cmp(&right.0));
-        for (key, _) in &rows {
+        let mut rows = self.router_latest_rows(snapshot, cf, Some(range))?;
+        self.overlay_table_rows(snapshot, cf, Some(range), &mut rows);
+        for key in rows.keys() {
             self.ensure_unbarriered(cf, key)?;
         }
-        Ok(rows)
+        Ok(rows.into_iter().collect())
+    }
+
+    /// Scans visible row keys for one CF and key range at the pinned sequence.
+    pub fn scan_cf_range_keys_at(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        clock: &dyn Clock,
+    ) -> Result<Vec<Vec<u8>>> {
+        self.ensure_snapshot_live(snapshot, clock)?;
+        let mut keys = self.router_latest_keys(snapshot, cf, range)?;
+        self.overlay_table_keys(snapshot, cf, range, &mut keys);
+        for key in keys.keys() {
+            self.ensure_unbarriered(cf, key)?;
+        }
+        Ok(keys.into_keys().collect())
     }
 
     /// Scans at most `limit` visible rows in a range after `after_key`.
@@ -460,6 +479,137 @@ impl VersionedCfStore {
         Ok(())
     }
 
+    fn router_latest_value(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
+        if !self.router_latest_readback.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        self.ensure_router_latest_snapshot(snapshot)?;
+        let router = self.router.read().expect("mvcc router poisoned");
+        let Some(router) = router.as_ref() else {
+            return Ok(None);
+        };
+        Ok(router
+            .get(cf, key)?
+            .filter(|value| !is_tombstone_value(value)))
+    }
+
+    fn router_latest_rows(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: Option<&KeyRange>,
+    ) -> Result<BTreeMap<Vec<u8>, Vec<u8>>> {
+        if !self.router_latest_readback.load(Ordering::Acquire) {
+            return Ok(BTreeMap::new());
+        }
+        self.ensure_router_latest_snapshot(snapshot)?;
+        let router = self.router.read().expect("mvcc router poisoned");
+        let Some(router) = router.as_ref() else {
+            return Ok(BTreeMap::new());
+        };
+        let rows = match range {
+            Some(range) => match range.end.as_deref() {
+                Some(end) => router.range(cf, &range.start, end)?,
+                None => router
+                    .iter_cf(cf)?
+                    .into_iter()
+                    .filter(|row| row.key.as_slice() >= range.start.as_slice())
+                    .collect(),
+            },
+            None => router.iter_cf(cf)?,
+        };
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| (!is_tombstone_value(&row.value)).then_some((row.key, row.value)))
+            .collect())
+    }
+
+    fn router_latest_keys(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: &KeyRange,
+    ) -> Result<BTreeMap<Vec<u8>, ()>> {
+        if !self.router_latest_readback.load(Ordering::Acquire) {
+            return Ok(BTreeMap::new());
+        }
+        self.ensure_router_latest_snapshot(snapshot)?;
+        let router = self.router.read().expect("mvcc router poisoned");
+        let Some(router) = router.as_ref() else {
+            return Ok(BTreeMap::new());
+        };
+        Ok(router
+            .range_keys_until(cf, &range.start, range.end.as_deref())?
+            .into_iter()
+            .map(|key| (key, ()))
+            .collect())
+    }
+
+    fn overlay_table_rows(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: Option<&KeyRange>,
+        rows: &mut BTreeMap<Vec<u8>, Vec<u8>>,
+    ) {
+        let table = self.rows.read().expect("mvcc row table poisoned");
+        for ((row_cf, key), versions) in table.iter() {
+            if *row_cf != cf || range.is_some_and(|range| !range.contains(key)) {
+                continue;
+            }
+            match visible_value_state(versions, snapshot.seq()) {
+                Some(VisibleValue::Live(value)) => {
+                    rows.insert(key.clone(), value);
+                }
+                Some(VisibleValue::Tombstone) => {
+                    rows.remove(key);
+                }
+                None => {}
+            }
+        }
+    }
+
+    fn overlay_table_keys(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: &KeyRange,
+        keys: &mut BTreeMap<Vec<u8>, ()>,
+    ) {
+        let table = self.rows.read().expect("mvcc row table poisoned");
+        for ((row_cf, key), versions) in table.iter() {
+            if *row_cf != cf || !range.contains(key) {
+                continue;
+            }
+            match visible_value_state(versions, snapshot.seq()) {
+                Some(VisibleValue::Live(_)) => {
+                    keys.insert(key.clone(), ());
+                }
+                Some(VisibleValue::Tombstone) => {
+                    keys.remove(key);
+                }
+                None => {}
+            }
+        }
+    }
+
+    fn ensure_router_latest_snapshot(&self, snapshot: Snapshot) -> Result<()> {
+        let latest = self.current_seq();
+        if snapshot.seq() == latest {
+            return Ok(());
+        }
+        Err(latest_only_error(format!(
+            "historical snapshot {} requested from latest-only recovered vault at seq {}",
+            snapshot.seq(),
+            latest
+        )))
+    }
+
     fn ensure_snapshot_live(&self, snapshot: Snapshot, clock: &dyn Clock) -> Result<()> {
         let now = clock.now();
         let lease = snapshot.lease();
@@ -477,13 +627,52 @@ impl Default for VersionedCfStore {
 }
 
 fn visible_value(versions: &[VersionedValue], seq: Seq) -> Option<Vec<u8>> {
-    visible_version(versions, seq).map(|version| version.value.clone())
+    visible_value_state(versions, seq).and_then(VisibleValue::into_option)
+}
+
+enum VisibleValue {
+    Live(Vec<u8>),
+    Tombstone,
+}
+
+impl VisibleValue {
+    fn into_option(self) -> Option<Vec<u8>> {
+        match self {
+            Self::Live(value) => Some(value),
+            Self::Tombstone => None,
+        }
+    }
+}
+
+fn visible_value_state(versions: &[VersionedValue], seq: Seq) -> Option<VisibleValue> {
+    visible_version(versions, seq).map(|version| {
+        if is_tombstone_value(&version.value) {
+            VisibleValue::Tombstone
+        } else {
+            VisibleValue::Live(version.value.clone())
+        }
+    })
 }
 
 fn visible_version(versions: &[VersionedValue], seq: Seq) -> Option<&VersionedValue> {
-    versions
-        .iter()
-        .rev()
-        .find(|version| version.seq <= seq)
-        .filter(|version| !is_tombstone_value(&version.value))
+    versions.iter().rev().find(|version| version.seq <= seq)
+}
+
+fn latest_only_error(message: impl Into<String>) -> calyx_core::CalyxError {
+    calyx_core::CalyxError {
+        code: "CALYX_ASTER_LATEST_ONLY_HISTORY_UNAVAILABLE",
+        message: message.into(),
+        remediation: "open the vault with full MVCC recovery before requesting historical row state",
+    }
+}
+
+fn hex_prefix(bytes: &[u8]) -> String {
+    let mut value = String::new();
+    for byte in bytes.iter().take(12) {
+        value.push_str(&format!("{byte:02x}"));
+    }
+    if bytes.len() > 12 {
+        value.push_str("...");
+    }
+    value
 }

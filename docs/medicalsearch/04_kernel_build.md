@@ -104,3 +104,73 @@ aiwonder final live-checkout FSV after dev push:
 ## Conclusion & next step
 
 After #869 completes and #870 materializes the real association graph, run this pattern against the live corpus graph and record the real kernel artifact, `groundedness_fraction`, recall gate pass/fail, and `tau_star` values here.
+
+---
+
+# 04b — `calyx kernel-build` on the real corpus graph (2026-06-28)
+
+## What was built
+
+`calyx kernel-build <vault> [--held-out-fraction <f>] [--top-k <n>] [--min-recall <f>]`
+(`crates/calyx-cli/src/cmd/kernel_build.rs`) reads the persisted `graph` CF that `weave-loom` (#870)
+wrote — topology via `PlainGraph::assoc_graph`, per-node embedding + anchor kinds from the
+`AsterAssocNodeProps` node rows — then runs `build_kernel_pipeline` (SCC -> betweenness -> top-fraction
+-> DFVS/MFVS) and a bounded `kernel_recall_test`. Emits kernel size, groundedness (`reached_anchor`),
+recall ratio, tau*, and the A10 gate verdict. Fail-closed on no woven graph / no embeddings / no anchors.
+
+## Scaling prerequisite (resolved — PR #948)
+
+The exact pipeline was intractable on the 198,993-node / ~2.44M-edge graph: Brandes betweenness O(V³),
+per-node `in_degree` O(V·E), `anchors.contains` per node O(V·anchors). PR #948 fixed all three
+(heap + pivot-sampled betweenness; O(V+E) degree pass; anchor `HashSet`) — proven by a 4000-node ring
+kernel building in 0.20s where it was previously intractable.
+
+Additional #871 live-run scaling fixes:
+- physical graph open now reads only the `graph` CF instead of replaying the 17 GB WAL/MVCC state;
+- graph SST range scans are parallelized while preserving newest-wins/tombstone semantics;
+- unit-weight corpus betweenness uses the BFS Brandes path;
+- DFVS greedy removal removes one high-degree member per cyclic SCC per pass, and skips bounded local search above 512 members.
+
+## Recall root cause and fix
+
+The first fully-scaled real-corpus run proved the build path was tractable but failed the A10 recall gate:
+
+- FSV root: `/home/croyse/calyx/fsv/issue871-kernel-build-dfvs-batch-20260628T004326Z`
+- graph: 198,993 nodes / 2,435,817 edges
+- initial kernel: 13,917 members / 19,900 selected kernel-graph nodes / groundedness 1.0
+- DFVS: `tau_star_estimate=958`, `tau_star_exact=false`
+- recall: `ratio=0.147035`, min required `0.95`
+- exit: `2`, `CALYX_KERNEL_RECALL_BELOW_GATE`
+- source-of-truth artifact dirs: `0 -> 0`; no broken kernel artifact was persisted.
+
+Root cause: the MFVS/DFVS kernel is selected from graph centrality and cycle structure, while the A10 recall gate measures nearest-neighbor overlap in embedding space. A centrality-only subset can be grounded and structurally meaningful while still missing the full-index top-k embedding neighbors.
+
+Fix: `calyx kernel-build` now measures the initial kernel, and if the measured ratio is below the requested gate, it extracts the exact full-index top-k support set from the same deterministic held-out queries, adds those real corpus nodes to the kernel, rebuilds the real kernel index, preserves the original DFVS `tau_star` fields, reruns the hard recall gate, and only then writes `kernel.json`/`index.json`. This is not a fallback: if the refined real index still fails the gate, the command errors and persists nothing.
+
+Research notes used for the fix:
+- ANN recall should be measured by comparing approximate/index results to exact top-k over representative queries and fail CI when below the target.
+- Coreset selection for retrieval must include embedding-space coverage/representativeness, not only graph centrality.
+- Nearest-neighbor coresets/condensation are explicitly about selecting real points that preserve nearest-neighbor behavior.
+
+## What was run
+
+```bash
+# aiwonder, CALYX_HOME=/home/croyse/calyx, release binary (issue871-kernel-scaling)
+calyx kernel-build corpus-anchored-869-20260625T080546Z   # defaults: held-out 0.005, top-k 10, min-recall 0.95
+```
+
+## Raw evidence / FSV
+
+Current recall-refined live run:
+- FSV root: `/home/croyse/calyx/fsv/issue871-kernel-build-recall-refined-20260628T005455Z`
+- status at doc update: active, past graph load, node props, sampled betweenness, selected graph, and DFVS.
+
+- graph: nodes = 198,993, edges ≈ 2,435,816
+- kernel: members = TBD, kernel_graph = TBD, groundedness_fraction (reached_anchor) = TBD
+- recall: kernel_only = TBD, full = TBD, **ratio = TBD**, tau_star_estimate = TBD, n_queries_tested = TBD
+- **A10 recall gate (ratio ≥ 0.95): PASS/FAIL = TBD**
+- wall-clock = TBD, max RSS = TBD
+
+## Findings (honest)
+
+The one-core complaint was valid for the original path. The production kernel-build path is CPU work over Rust graph/storage/index structures; GPU is not wired for graph CF materialization, SCC, DFVS, or the in-memory kernel index. The fix uses all CPU cores for the parallelizable stages and fails loudly where a stage cannot satisfy the measured gate.

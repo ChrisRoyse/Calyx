@@ -75,6 +75,94 @@ fn router_bridge_flush_edges_and_start_seq_recovery() {
 }
 
 #[test]
+fn latest_readback_merges_router_sst_with_wal_overlay_and_blocks_history() {
+    let dir = test_dir("latest-readback");
+    let writer = VersionedCfStore::new_with_router(0, CfRouter::open(&dir, 1024).unwrap());
+    let flushed_seq = writer
+        .commit_batch([
+            (ColumnFamily::Base, b"a".to_vec(), b"sst-a".to_vec()),
+            (ColumnFamily::Base, b"gone".to_vec(), b"sst-gone".to_vec()),
+        ])
+        .unwrap();
+    assert_eq!(flushed_seq, 1);
+    assert_eq!(writer.flush_all_cfs().unwrap().len(), 1);
+
+    let physical = CfRouter::open(&dir, 1024).unwrap();
+    assert_eq!(
+        physical.get(ColumnFamily::Base, b"a").unwrap(),
+        Some(b"sst-a".to_vec())
+    );
+    assert_eq!(
+        physical.get(ColumnFamily::Base, b"gone").unwrap(),
+        Some(b"sst-gone".to_vec())
+    );
+
+    let latest =
+        VersionedCfStore::new_with_router_latest_readback(2, CfRouter::open(&dir, 1024).unwrap());
+    latest
+        .restore_batch(
+            2,
+            [
+                (ColumnFamily::Base, b"a".to_vec(), b"wal-a".to_vec()),
+                (ColumnFamily::Base, b"b".to_vec(), b"wal-b".to_vec()),
+                (ColumnFamily::Base, b"gone".to_vec(), tombstone_value()),
+            ],
+        )
+        .unwrap();
+    let clock = FixedClock::new(200);
+    let snapshot = latest.pin_snapshot(Freshness::FreshDerived, &clock, 1_000);
+
+    assert_eq!(
+        latest
+            .read_at(snapshot, ColumnFamily::Base, b"a", &clock)
+            .unwrap(),
+        Some(b"wal-a".to_vec())
+    );
+    assert_eq!(
+        latest
+            .read_at(snapshot, ColumnFamily::Base, b"b", &clock)
+            .unwrap(),
+        Some(b"wal-b".to_vec())
+    );
+    assert_eq!(
+        latest
+            .read_at(snapshot, ColumnFamily::Base, b"gone", &clock)
+            .unwrap(),
+        None
+    );
+
+    let range = KeyRange {
+        start: b"a".to_vec(),
+        end: None,
+    };
+    let keys = latest
+        .scan_cf_range_keys_at(snapshot, ColumnFamily::Base, &range, &clock)
+        .unwrap();
+    assert_eq!(keys, [b"a".to_vec(), b"b".to_vec()]);
+    let rows = latest
+        .scan_cf_range_at(snapshot, ColumnFamily::Base, &range, &clock)
+        .unwrap();
+    assert_eq!(
+        rows,
+        [
+            (b"a".to_vec(), b"wal-a".to_vec()),
+            (b"b".to_vec(), b"wal-b".to_vec())
+        ]
+    );
+
+    let historical = Snapshot::new(
+        1,
+        Freshness::FreshDerived,
+        ReaderLease::new(0, 1, 200, 1_000),
+    );
+    let error = latest
+        .read_at(historical, ColumnFamily::Base, b"a", &clock)
+        .unwrap_err();
+    assert_eq!(error.code, "CALYX_ASTER_LATEST_ONLY_HISTORY_UNAVAILABLE");
+    cleanup(dir);
+}
+
+#[test]
 fn aster_vault_put_flushes_through_router_to_cf_ssts() {
     let dir = test_dir("vault-router");
     let router = CfRouter::open(&dir, 2048).unwrap();

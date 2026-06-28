@@ -1,8 +1,9 @@
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BinaryHeap};
+use std::collections::{BTreeMap, BinaryHeap, VecDeque};
 
 use calyx_core::CxId;
 use calyx_paths::AssocGraph;
+use rayon::prelude::*;
 
 use crate::{MincutError, Result};
 
@@ -95,9 +96,29 @@ fn rank(scores: BTreeMap<CxId, f64>, k: usize) -> Vec<(CxId, f64)> {
 
 fn accumulate(graph: &AssocGraph, sources: &[usize], n: usize, scale: f64) -> BTreeMap<CxId, f64> {
     let mut scores = vec![0.0_f64; n];
-    for &source in sources {
-        let shortest = shortest_paths_from(graph, source);
-        accumulate_dependencies(source, &shortest, &mut scores);
+    let chunk_size = source_chunk_size(sources.len());
+    let unit_weight = graph_is_unit_weight(graph);
+    let mut partials: Vec<(usize, Vec<f64>)> = sources
+        .par_chunks(chunk_size)
+        .enumerate()
+        .map(|(chunk_idx, chunk)| {
+            let mut partial = vec![0.0_f64; n];
+            for &source in chunk {
+                let shortest = if unit_weight {
+                    shortest_paths_unit_from(graph, source)
+                } else {
+                    shortest_paths_from(graph, source)
+                };
+                accumulate_dependencies(source, &shortest, &mut partial);
+            }
+            (chunk_idx, partial)
+        })
+        .collect();
+    partials.sort_by_key(|(chunk_idx, _)| *chunk_idx);
+    for (_, partial) in partials {
+        for (score, contribution) in scores.iter_mut().zip(partial) {
+            *score += contribution;
+        }
     }
     let norm = if n > 2 {
         ((n - 1) * (n - 2)) as f64
@@ -112,6 +133,56 @@ fn accumulate(graph: &AssocGraph, sources: &[usize], n: usize, scale: f64) -> BT
             )
         })
         .collect()
+}
+
+fn source_chunk_size(source_count: usize) -> usize {
+    let threads = std::thread::available_parallelism()
+        .map(usize::from)
+        .unwrap_or(1)
+        .max(1);
+    let target_chunks = (threads * 4).max(1);
+    source_count.div_ceil(target_chunks).max(1)
+}
+
+fn graph_is_unit_weight(graph: &AssocGraph) -> bool {
+    graph
+        .edges()
+        .iter()
+        .all(|edge| approx_eq(edge.weight as f64, 1.0))
+}
+
+fn shortest_paths_unit_from(graph: &AssocGraph, source: usize) -> ShortestPaths {
+    let n = graph.node_count();
+    let mut dist = vec![usize::MAX; n];
+    let mut sigma = vec![0.0_f64; n];
+    let mut predecessors = vec![Vec::<usize>::new(); n];
+    let mut stack = Vec::with_capacity(n);
+    let mut queue = VecDeque::new();
+    dist[source] = 0;
+    sigma[source] = 1.0;
+    queue.push_back(source);
+
+    while let Some(node) = queue.pop_front() {
+        stack.push(node);
+        let next_dist = dist[node] + 1;
+        for edge in graph.out_edges_by_index(node) {
+            let dst = edge.dst;
+            if dist[dst] == usize::MAX {
+                dist[dst] = next_dist;
+                queue.push_back(dst);
+            }
+            if dist[dst] == next_dist {
+                sigma[dst] += sigma[node];
+                predecessors[dst].push(node);
+            }
+        }
+    }
+
+    ShortestPaths {
+        stack,
+        sigma,
+        predecessors,
+    }
 }
 
 fn shortest_paths_from(graph: &AssocGraph, source: usize) -> ShortestPaths {

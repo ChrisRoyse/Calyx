@@ -1,5 +1,5 @@
 use super::*;
-use crate::cf::{CfRouter, ColumnFamily, base_key, slot_key};
+use crate::cf::{CfRouter, ColumnFamily, KeyRange, base_key, slot_key};
 use crate::vault::AsterVault;
 use calyx_core::{
     AbsentReason, Constellation, CxFlags, CxId, FixedClock, InputRef, LedgerRef, Modality, SlotId,

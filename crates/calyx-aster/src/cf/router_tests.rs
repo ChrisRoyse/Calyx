@@ -71,6 +71,28 @@ fn reopen_loads_existing_sst_files() {
 }
 
 #[test]
+fn selected_open_loads_only_requested_column_families() {
+    let dir = test_dir("selected-open");
+    let mut router = CfRouter::open(&dir, 64).unwrap();
+    router.put(ColumnFamily::Base, b"k", b"base").unwrap();
+    router.put(ColumnFamily::Graph, b"k", b"graph").unwrap();
+    router.flush_cf(ColumnFamily::Base).unwrap();
+    router.flush_cf(ColumnFamily::Graph).unwrap();
+    drop(router);
+
+    let selected = CfRouter::open_selected_cfs(&dir, 64, [ColumnFamily::Graph]).unwrap();
+
+    assert_eq!(selected.level_file_count(ColumnFamily::Graph), 1);
+    assert_eq!(selected.level_file_count(ColumnFamily::Base), 0);
+    assert_eq!(
+        selected.get(ColumnFamily::Graph, b"k").unwrap(),
+        Some(b"graph".to_vec())
+    );
+    assert_eq!(selected.get(ColumnFamily::Base, b"k").unwrap(), None);
+    cleanup(dir);
+}
+
+#[test]
 fn reopen_fails_closed_on_unrecognized_sst_name() {
     let dir = test_dir("unrecognized-sst");
     let mut router = CfRouter::open(&dir, 64).unwrap();

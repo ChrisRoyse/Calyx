@@ -240,6 +240,7 @@ mod tests {
                 temporal_policy: None,
                 dedup_policy: None,
                 retention_horizon: crate::timetravel::RetentionHorizon::default(),
+                router_latest_readback: false,
             },
             None,
         )
@@ -304,6 +305,7 @@ mod tests {
             temporal_policy: None,
             dedup_policy: None,
             retention_horizon: crate::timetravel::RetentionHorizon::default(),
+            router_latest_readback: false,
         };
 
         let manifest_only_error = recover_hook(&gapped_recovery, None).unwrap_err();

@@ -172,6 +172,7 @@ fn router_failure_vault(dir: &Path) -> AsterVault<FixedClock> {
             temporal_policy: None,
             dedup_policy: None,
             retention_horizon: crate::timetravel::RetentionHorizon::default(),
+            router_latest_readback: false,
         },
         None,
     )

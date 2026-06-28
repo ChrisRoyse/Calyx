@@ -6,7 +6,7 @@ use calyx_core::{CxId, FixedClock};
 use calyx_lodestar::{
     CALYX_KERNEL_RECALL_BELOW_GATE, GroundednessReport, InMemoryAnnIndex, InMemoryCorpus, Kernel,
     LodestarError, RecallQuery, RecallReport, RecallTestParams, build_kernel_index,
-    kernel_recall_gate, kernel_recall_test, kernel_recall_test_with_clock,
+    full_topk_support_set, kernel_recall_gate, kernel_recall_test, kernel_recall_test_with_clock,
 };
 use serde_json::json;
 
@@ -238,6 +238,33 @@ fn recall_test_sampling_is_deterministic_and_ceil_counted() {
     assert_eq!(first.held_out, second.held_out);
     assert_eq!(first.n_queries_tested, 10);
     assert_eq!(second.n_queries_tested, 10);
+}
+
+#[test]
+fn full_topk_support_set_reads_exact_full_index_hits() {
+    let rows = one_hot_rows(5);
+    let corpus = InMemoryCorpus::new("support-synthetic", rows.clone());
+    let full = InMemoryAnnIndex::new(rows.clone()).unwrap();
+    let params = RecallTestParams {
+        held_out_fraction: 1.0,
+        top_k: 1,
+        rng_seed: 871,
+        ..RecallTestParams::default()
+    };
+
+    let support = full_topk_support_set(&full, &corpus, &params).unwrap();
+
+    write_readback(
+        "support",
+        "recall-support-set.json",
+        json!({ "support": support }),
+    );
+    assert_eq!(support.n_queries_tested, 5);
+    assert_eq!(support.candidate_hits, 5);
+    assert_eq!(
+        support.members,
+        rows.iter().map(|row| row.cx_id).collect::<Vec<_>>()
+    );
 }
 
 #[test]

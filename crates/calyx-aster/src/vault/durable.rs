@@ -35,6 +35,10 @@ pub struct VaultOptions {
     /// location is pinned and off-dataset writes/copies fail closed.
     pub residency: Option<crate::residency::Residency>,
     pub disk_pressure_guard: Option<DiskPressureGuard>,
+    /// Restores checkpointed durable SST rows into the in-memory MVCC table on
+    /// open. Disable only for latest-read workloads that can use the CF router
+    /// as the checkpointed source of truth and do not request historical reads.
+    pub restore_mvcc_rows: bool,
 }
 
 impl Default for VaultOptions {
@@ -50,6 +54,7 @@ impl Default for VaultOptions {
             panel: None,
             residency: None,
             disk_pressure_guard: None,
+            restore_mvcc_rows: true,
         }
     }
 }
@@ -82,6 +87,7 @@ pub(super) struct RecoveredBatches {
     pub temporal_policy: Option<TemporalPolicy>,
     pub dedup_policy: Option<DedupPolicy>,
     pub retention_horizon: RetentionHorizon,
+    pub router_latest_readback: bool,
 }
 
 impl DurableVault {
@@ -144,11 +150,16 @@ impl DurableVault {
             if let Some(policy) = &recovery.manifest.dedup_policy {
                 validate_dedup_policy(policy, options.panel.as_ref())?;
             }
-            let mut batches = read_manifested_batches(
-                root,
-                options.tiering_policy.as_ref(),
-                recovery.manifest.durable_seq,
-            )?;
+            let router_latest_readback = !options.restore_mvcc_rows;
+            let mut batches = if options.restore_mvcc_rows {
+                read_manifested_batches(
+                    root,
+                    options.tiering_policy.as_ref(),
+                    recovery.manifest.durable_seq,
+                )?
+            } else {
+                Vec::new()
+            };
             for record in recovery.wal_records {
                 batches.push(RecoveredBatch {
                     seq: record.seq,
@@ -162,6 +173,7 @@ impl DurableVault {
                 temporal_policy: recovery.manifest.temporal_policy,
                 dedup_policy: recovery.manifest.dedup_policy,
                 retention_horizon: recovery.manifest.retention_horizon,
+                router_latest_readback,
             });
         }
 
@@ -184,6 +196,7 @@ impl DurableVault {
             temporal_policy: options.temporal_policy,
             dedup_policy: options.dedup_policy.clone(),
             retention_horizon: options.retention_horizon.clone(),
+            router_latest_readback: false,
         })
     }
 
@@ -260,6 +273,7 @@ impl DurableVault {
             retention_horizon: self.retention_horizon(),
             panel: self.panel.clone(),
             disk_pressure_guard: self.disk_pressure_guard.clone(),
+            restore_mvcc_rows: true,
             ..VaultOptions::default()
         };
         Self::recover_batches(&self.root, &options)

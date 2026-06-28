@@ -153,7 +153,11 @@ where
             options.memtable_byte_cap,
             options.tiering_policy.clone(),
         )?;
-        let rows = VersionedCfStore::new_with_router(recovery.last_recovered_seq, router);
+        let rows = if recovery.router_latest_readback {
+            VersionedCfStore::new_with_router_latest_readback(recovery.last_recovered_seq, router)
+        } else {
+            VersionedCfStore::new_with_router(recovery.last_recovered_seq, router)
+        };
         for batch in recovery.batches {
             let rows_at_seq = batch
                 .rows
@@ -353,6 +357,17 @@ where
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.rows
             .scan_cf_range_at(self.snapshot_handle(snapshot), cf, range, &self.clock)
+    }
+
+    /// Scans visible raw CF row keys in a key range at `snapshot`.
+    pub fn scan_cf_range_keys_at(
+        &self,
+        snapshot: Seq,
+        cf: ColumnFamily,
+        range: &KeyRange,
+    ) -> Result<Vec<Vec<u8>>> {
+        self.rows
+            .scan_cf_range_keys_at(self.snapshot_handle(snapshot), cf, range, &self.clock)
     }
 
     /// Scans at most `limit` visible raw CF rows in key order after `after_key`.

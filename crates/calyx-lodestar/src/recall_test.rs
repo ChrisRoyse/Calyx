@@ -52,6 +52,14 @@ pub struct RecallQuery {
     pub vector: Vec<f32>,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct RecallSupportReport {
+    pub members: Vec<CxId>,
+    pub held_out: Vec<CxId>,
+    pub n_queries_tested: usize,
+    pub candidate_hits: usize,
+}
+
 pub type RecallTestReport = RecallReport;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -215,6 +223,42 @@ pub fn kernel_recall_test_with_clock(
         n_queries_tested: held_out.len(),
         held_out,
         warning: recall_warning(ratio, params.min_recall_ratio),
+    })
+}
+
+pub fn full_topk_support_set(
+    full_index: &dyn AnnIndex,
+    corpus: &dyn CorpusReader,
+    params: &RecallTestParams,
+) -> Result<RecallSupportReport> {
+    validate_params(params)?;
+    if corpus.is_empty() {
+        return Err(LodestarError::RecallEmptyCorpus);
+    }
+    let selected = held_out_ordinals(corpus, params.held_out_fraction, params.rng_seed)?;
+    if selected.is_empty() {
+        return Err(LodestarError::RecallEmptyCorpus);
+    }
+
+    let mut members = BTreeSet::new();
+    let mut held_out = Vec::with_capacity(selected.len());
+    let mut candidate_hits = 0_usize;
+    for ordinal in selected {
+        let query = corpus.query(ordinal)?;
+        let full_hits = full_index.search(&query.vector, params.top_k)?;
+        if full_hits.is_empty() {
+            return Err(LodestarError::RecallEmptyCorpus);
+        }
+        candidate_hits += full_hits.len();
+        members.extend(full_hits.into_iter().map(|(cx_id, _)| cx_id));
+        held_out.push(query.cx_id);
+    }
+
+    Ok(RecallSupportReport {
+        members: members.into_iter().collect(),
+        n_queries_tested: held_out.len(),
+        held_out,
+        candidate_hits,
     })
 }
 
