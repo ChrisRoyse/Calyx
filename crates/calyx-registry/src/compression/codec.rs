@@ -8,7 +8,7 @@ use calyx_forge::{
 use super::recall::prepare_dense;
 use super::{
     CALYX_VECTOR_COMPRESSION_INVALID, COMPRESSED_SLOT_TAG, COMPRESSED_SLOT_VERSION,
-    StoredSlotCodec, StoredSlotEnvelope, compression_error,
+    MxFp4AssayEvidence, StoredSlotCodec, StoredSlotEnvelope, compression_error,
 };
 use crate::spec::LensSpec;
 
@@ -27,12 +27,13 @@ pub(super) fn encode_rows(
     lens: &LensSpec,
     rows: &[(CxId, Vec<f32>)],
     policy: QuantPolicy,
+    mxfp4_evidence: Option<&MxFp4AssayEvidence>,
 ) -> Result<Vec<EncodedRow>> {
     rows.iter()
         .map(|(cx_id, raw)| {
             let prepared = prepare_dense(raw, lens.truncate_dim)?;
             let raw_bytes = raw_bytes(raw)?;
-            let encoded = encode_prepared(slot, lens, *cx_id, &prepared, policy)?;
+            let encoded = encode_prepared(slot, lens, *cx_id, &prepared, policy, mxfp4_evidence)?;
             let stored_bytes = if encoded.codec == StoredSlotCodec::RawF32 {
                 raw_bytes.clone()
             } else {
@@ -116,6 +117,7 @@ fn encode_prepared(
     cx_id: CxId,
     prepared: &[f32],
     policy: QuantPolicy,
+    mxfp4_evidence: Option<&MxFp4AssayEvidence>,
 ) -> Result<EncodedPrepared> {
     match policy {
         QuantPolicy::None => Ok(EncodedPrepared {
@@ -126,8 +128,8 @@ fn encode_prepared(
         QuantPolicy::TurboQuant {
             bits_per_channel_x2,
         } => encode_turbo(lens, cx_id, prepared, bits_per_channel_x2),
-        QuantPolicy::MxFp4 => encode_mxfp(slot, prepared, true),
-        QuantPolicy::Float8 => encode_mxfp(slot, prepared, false),
+        QuantPolicy::MxFp4 => encode_mxfp4(slot, lens, prepared, mxfp4_evidence),
+        QuantPolicy::Float8 => encode_mxfp8(prepared),
         QuantPolicy::Binary => encode_binary(lens, cx_id, prepared),
         QuantPolicy::Pq { m, nbits } => Err(compression_error(
             CALYX_VECTOR_COMPRESSION_INVALID,
@@ -181,18 +183,60 @@ fn encode_scalar_int8(prepared: &[f32]) -> Result<EncodedPrepared> {
     })
 }
 
-fn encode_mxfp(slot: &Slot, prepared: &[f32], assay_safe: bool) -> Result<EncodedPrepared> {
+fn encode_mxfp4(
+    slot: &Slot,
+    lens: &LensSpec,
+    prepared: &[f32],
+    evidence: Option<&MxFp4AssayEvidence>,
+) -> Result<EncodedPrepared> {
+    let evidence = evidence.ok_or_else(|| {
+        compression_error(
+            CALYX_VECTOR_COMPRESSION_INVALID,
+            format!(
+                "MXFP4 requires current assay safety evidence for slot={} lens={} dim={}; no fallback codec was written",
+                slot.slot_key.key(),
+                lens.lens_id(),
+                prepared.len()
+            ),
+        )
+    })?;
+    let safety = evidence.validate(slot, lens, prepared.len() as u32)?;
     let codec = MxFp4Codec::new(prepared.len());
     let qv = codec
-        .encode_assay_checked(slot.slot_key.key(), prepared, assay_safe)
+        .encode_assay_checked(slot.slot_key.key(), prepared, safety)
         .map_err(forge_error)?;
     let decoded = codec.decode(&qv).map_err(forge_error)?;
+    if qv.level != QuantLevel::Bits4Fp {
+        return Err(compression_error(
+            CALYX_VECTOR_COMPRESSION_INVALID,
+            format!(
+                "MXFP4 encoder returned non-MXFP4 level {:?}; no fallback codec was written",
+                qv.level
+            ),
+        ));
+    }
     Ok(EncodedPrepared {
-        codec: if qv.level == QuantLevel::Bits4Fp {
-            StoredSlotCodec::MxFp4
-        } else {
-            StoredSlotCodec::MxFp8
-        },
+        codec: StoredSlotCodec::MxFp4,
+        qv,
+        decoded,
+    })
+}
+
+fn encode_mxfp8(prepared: &[f32]) -> Result<EncodedPrepared> {
+    let codec = MxFp4Codec::new(prepared.len());
+    let qv = codec.encode_mxfp8(prepared).map_err(forge_error)?;
+    let decoded = codec.decode(&qv).map_err(forge_error)?;
+    if qv.level != QuantLevel::Bits8Fp {
+        return Err(compression_error(
+            CALYX_VECTOR_COMPRESSION_INVALID,
+            format!(
+                "MXFP8 encoder returned non-MXFP8 level {:?}; no fallback codec was written",
+                qv.level
+            ),
+        ));
+    }
+    Ok(EncodedPrepared {
+        codec: StoredSlotCodec::MxFp8,
         qv,
         decoded,
     })

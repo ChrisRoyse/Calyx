@@ -4,11 +4,11 @@ use crate::mxfp4::{MXFP4_PACKED_BYTES, MxFp4Block, decode_mxfp4, encode_mxfp4};
 use crate::mxfp8::{MXFP8_BLOCK_BYTES, MxFp8Block, decode_mxfp8, encode_mxfp8};
 use crate::quant::{QuantLevel, QuantizedVec, Quantizer, SeedId};
 use crate::{ForgeError, Result};
+use serde::{Deserialize, Serialize};
 
 const MXFP4_BLOCK_BYTES: usize = MXFP4_PACKED_BYTES + 1;
 const ZERO_SEED: SeedId = [0; 32];
-const MXFP_REMEDIATION: &str =
-    "Use finite vectors, matching dims, Bits4Fp/Bits8Fp bytes, and Assay-safe slots";
+const MXFP_REMEDIATION: &str = "Use finite vectors, matching dims, explicit MXFP8 requests, and current Assay-safe MXFP4 evidence";
 
 #[derive(Clone, Debug)]
 pub struct MxFp4Codec {
@@ -16,7 +16,7 @@ pub struct MxFp4Codec {
     assay_safe_slots: BTreeMap<String, AssayQuantSafety>,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AssayQuantSafety {
     pub baseline_bits: f32,
     pub quantized_bits: f32,
@@ -81,30 +81,32 @@ impl MxFp4Codec {
     }
 
     pub fn encode_for_slot(&self, slot_id: &str, vec: &[f32]) -> Result<QuantizedVec> {
-        self.encode_assay_checked(slot_id, vec, self.assay_safe_slots.contains_key(slot_id))
+        let safety = self.assay_safe_slots.get(slot_id).ok_or_else(|| {
+            ForgeError::QuantIntelligenceLoss {
+                slot: slot_id.to_string(),
+                detail:
+                    "MXFP4 requires current Assay safety evidence; no MXFP8 fallback was written"
+                        .to_string(),
+                remediation: MXFP_REMEDIATION.to_string(),
+            }
+        })?;
+        self.encode_assay_checked(slot_id, vec, safety)
     }
 
     pub fn encode_assay_checked(
         &self,
-        _slot_id: &str,
+        slot_id: &str,
         vec: &[f32],
-        assay_safe: bool,
+        safety: &AssayQuantSafety,
     ) -> Result<QuantizedVec> {
-        if vec.len() != self.dim {
-            return Err(ForgeError::ShapeMismatch {
-                expected: vec![self.dim],
-                got: vec![vec.len()],
-                remediation: "Encode MXFP4 vectors with the codec dimension".to_string(),
-            });
-        }
-        if !assay_safe {
-            let blocks = encode_mxfp8(vec)?;
-            return Ok(QuantizedVec {
-                level: QuantLevel::Bits8Fp,
-                dim: self.dim,
-                bytes: serialize_mxfp8_blocks(&blocks),
-                scale: 0.0,
-                seed_id: ZERO_SEED,
+        self.validate_input_len(vec)?;
+        if !safety.passes() {
+            return Err(ForgeError::QuantIntelligenceLoss {
+                slot: slot_id.to_string(),
+                detail:
+                    "MXFP4 assay safety metrics are absent, stale, non-finite, or below threshold"
+                        .to_string(),
+                remediation: MXFP_REMEDIATION.to_string(),
             });
         }
         let blocks = encode_mxfp4(vec)?;
@@ -115,6 +117,29 @@ impl MxFp4Codec {
             scale: 0.0,
             seed_id: ZERO_SEED,
         })
+    }
+
+    pub fn encode_mxfp8(&self, vec: &[f32]) -> Result<QuantizedVec> {
+        self.validate_input_len(vec)?;
+        let blocks = encode_mxfp8(vec)?;
+        Ok(QuantizedVec {
+            level: QuantLevel::Bits8Fp,
+            dim: self.dim,
+            bytes: serialize_mxfp8_blocks(&blocks),
+            scale: 0.0,
+            seed_id: ZERO_SEED,
+        })
+    }
+
+    fn validate_input_len(&self, vec: &[f32]) -> Result<()> {
+        if vec.len() != self.dim {
+            return Err(ForgeError::ShapeMismatch {
+                expected: vec![self.dim],
+                got: vec![vec.len()],
+                remediation: "Encode MXFP vectors with the codec dimension".to_string(),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -297,17 +322,15 @@ mod tests {
     }
 
     #[test]
-    fn mxfp4_codec_encode_falls_back_to_bits8fp() -> Result<()> {
+    fn mxfp4_codec_without_assay_evidence_fails_closed() -> Result<()> {
         let codec = MxFp4Codec::new(128);
-        let qv = codec.encode(&unit_vec(128))?;
-        assert_eq!(qv.level, QuantLevel::Bits8Fp);
-        assert_eq!(qv.scale, 0.0);
-        assert_eq!(qv.seed_id, ZERO_SEED);
+        let error = codec
+            .encode(&unit_vec(128))
+            .expect_err("MXFP4 without assay evidence must fail closed");
+        assert!(matches!(error, ForgeError::QuantIntelligenceLoss { .. }));
         println!(
-            "mxfp4_codec_encode_fail_closed PASSED level={:?} bytes={} bits={}",
-            qv.level,
-            qv.bytes.len(),
-            qv.level.bits_per_channel()
+            "mxfp4_codec_no_evidence_fail_closed PASSED code={} error={error}",
+            error.code()
         );
         Ok(())
     }
@@ -316,7 +339,8 @@ mod tests {
     fn mxfp4_codec_explicit_assay_safe_sets_bits4fp() -> Result<()> {
         let codec = MxFp4Codec::new(128);
         let original = unit_vec(128);
-        let qv = codec.encode_assay_checked("slot:assay-safe", &original, true)?;
+        let safety = passing_safety();
+        let qv = codec.encode_assay_checked("slot:assay-safe", &original, &safety)?;
         assert_eq!(qv.level, QuantLevel::Bits4Fp);
         assert_eq!(qv.scale, 0.0);
         assert_eq!(qv.seed_id, ZERO_SEED);
@@ -349,28 +373,37 @@ mod tests {
         assert!(!codec.record_assay_safety("slot:unsafe", unsafe_evidence));
 
         let safe_qv = codec.encode_for_slot("slot:safe", &unit_vec(128))?;
-        let unsafe_qv = codec.encode_for_slot("slot:unsafe", &unit_vec(128))?;
+        let unsafe_error = codec
+            .encode_for_slot("slot:unsafe", &unit_vec(128))
+            .expect_err("unsafe slot must not fall back to MXFP8");
+        let explicit_mxfp8 = codec.encode_mxfp8(&unit_vec(128))?;
 
         assert_eq!(safe_qv.level, QuantLevel::Bits4Fp);
-        assert_eq!(unsafe_qv.level, QuantLevel::Bits8Fp);
+        assert_eq!(explicit_mxfp8.level, QuantLevel::Bits8Fp);
+        assert!(matches!(
+            unsafe_error,
+            ForgeError::QuantIntelligenceLoss { .. }
+        ));
         println!(
-            "mxfp4_assay_evidence PASSED safe={:?} unsafe={:?}",
-            safe_qv.level, unsafe_qv.level
+            "mxfp4_assay_evidence PASSED safe={:?} unsafe_error={} explicit_mxfp8={:?}",
+            safe_qv.level,
+            unsafe_error.code(),
+            explicit_mxfp8.level
         );
         Ok(())
     }
 
     #[test]
-    fn mxfp4_codec_roundtrip_cosine() -> Result<()> {
+    fn mxfp8_explicit_roundtrip_cosine() -> Result<()> {
         let codec = MxFp4Codec::new(128);
         let original = unit_vec(128);
-        let qv = codec.encode_for_slot("slot:unit", &original)?;
+        let qv = codec.encode_mxfp8(&original)?;
         assert_eq!(qv.level, QuantLevel::Bits8Fp);
         let decoded = codec.decode(&qv)?;
         let cos = cosine(&original, &decoded);
         assert!(cos >= 0.99, "cosine={cos}");
         println!(
-            "mxfp4_codec_roundtrip PASSED cosine={cos:.6} dim={} bytes={}",
+            "mxfp8_explicit_roundtrip PASSED cosine={cos:.6} dim={} bytes={}",
             decoded.len(),
             qv.bytes.len()
         );
@@ -378,17 +411,16 @@ mod tests {
     }
 
     #[test]
-    fn mxfp8_fallback_edges_fail_closed_and_large_dim() -> Result<()> {
+    fn mxfp8_explicit_edges_fail_closed_and_large_dim() -> Result<()> {
         let codec = MxFp4Codec::new(1536);
         let vec = unit_vec(1536);
-        let qv = codec.encode(&vec)?;
+        let qv = codec.encode_mxfp8(&vec)?;
         assert_eq!(codec.decode(&qv)?.len(), 1536);
 
-        let fallback = codec.encode_assay_checked("slot:unsafe", &vec, false)?;
-        assert_eq!(fallback.level, QuantLevel::Bits8Fp);
-        let fallback_decoded = codec.decode(&fallback)?;
-        let fallback_cosine = cosine(&vec, &fallback_decoded);
-        assert!(fallback_cosine >= 0.99, "cosine={fallback_cosine}");
+        assert_eq!(qv.level, QuantLevel::Bits8Fp);
+        let decoded = codec.decode(&qv)?;
+        let cosine = cosine(&vec, &decoded);
+        assert!(cosine >= 0.99, "cosine={cosine}");
 
         let mut corrupt = qv.clone();
         corrupt.bytes.push(1);
@@ -396,10 +428,10 @@ mod tests {
             .decode(&corrupt)
             .expect_err("corrupt byte length must fail closed");
         println!(
-            "mxfp8_fallback PASSED level={:?} bits={} bytes={} cosine={fallback_cosine:.6} corrupt={corrupt_err}",
-            fallback.level,
-            fallback.level.bits_per_channel(),
-            fallback.bytes.len()
+            "mxfp8_explicit PASSED level={:?} bits={} bytes={} cosine={cosine:.6} corrupt={corrupt_err}",
+            qv.level,
+            qv.level.bits_per_channel(),
+            qv.bytes.len()
         );
         assert!(matches!(corrupt_err, ForgeError::QuantError { .. }));
         Ok(())
@@ -411,7 +443,8 @@ mod tests {
         #[test]
         fn mxfp4_codec_roundtrip_preserves_sign(values in proptest::collection::vec(-1.0f32..1.0, 128)) {
             let codec = MxFp4Codec::new(128);
-            let qv = codec.encode_assay_checked("slot:proptest-safe", &values, true)?;
+            let safety = passing_safety();
+            let qv = codec.encode_assay_checked("slot:proptest-safe", &values, &safety)?;
             let decoded = codec.decode(&qv)?;
             for (actual, expected) in decoded.iter().zip(values.iter()) {
                 if *expected > 0.0 {
@@ -422,6 +455,15 @@ mod tests {
                     prop_assert_eq!(*actual, 0.0);
                 }
             }
+        }
+    }
+
+    fn passing_safety() -> AssayQuantSafety {
+        AssayQuantSafety {
+            baseline_bits: 1.0,
+            quantized_bits: 0.97,
+            cosine: 0.995,
+            far_delta: 0.005,
         }
     }
 }

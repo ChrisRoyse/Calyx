@@ -60,7 +60,7 @@ pub enum QuantPolicy {
     None,
     /// TurboQuant storage with `bits_per_channel_x2` where 7 means 3.5 bpc.
     TurboQuant { bits_per_channel_x2: u8 },
-    /// Blackwell microscaling FP4 storage, with MXFP8 used as the safe fallback.
+    /// Blackwell microscaling FP4 storage; requires current assay evidence.
     MxFp4,
     /// Product quantization with `m` subquantizers and `nbits` codebook bits.
     Pq { m: u8, nbits: u8 },

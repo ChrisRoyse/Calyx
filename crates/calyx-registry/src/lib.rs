@@ -32,9 +32,10 @@ pub use commission::{
 };
 pub use compression::{
     CALYX_VECTOR_COMPRESSION_EMPTY, CALYX_VECTOR_COMPRESSION_INVALID, COMPRESSED_SLOT_TAG,
-    SlotCompressionReport, SlotCompressionRow, StoredSlotCodec, StoredSlotEnvelope,
-    compress_slot_batch, decode_stored_slot_envelope, matryoshka_truncate_renormalize,
-    write_compressed_slot_batch,
+    MxFp4AssayEvidence, SlotCompressionReport, SlotCompressionRow, StoredSlotCodec,
+    StoredSlotEnvelope, compress_slot_batch, compress_slot_batch_with_assay_evidence,
+    decode_stored_slot_envelope, matryoshka_truncate_renormalize, write_compressed_slot_batch,
+    write_compressed_slot_batch_with_assay_evidence,
 };
 pub use drift::{DriftDecision, RuntimeGolden};
 pub use explain::{LensExplanation, explain_lens, explain_lens_from_card};

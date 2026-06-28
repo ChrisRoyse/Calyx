@@ -38,20 +38,17 @@ fn turboquant_and_mxfp4_roundtrip_fixture_vectors() {
     assert!(turbo_report.stored_bytes_total < turbo_report.raw_bytes_total);
     assert!(turbo_report.recall_at_k_compressed >= 0.75);
 
-    let mxfp_slot = make_slot(
-        "mxfp",
+    let mxfp8_slot = make_slot(
+        "mxfp8",
         SlotId::new(1),
         SlotShape::Dense(96),
-        QuantPolicy::MxFp4,
+        QuantPolicy::Float8,
     );
-    let mxfp = lens_spec("mxfp", QuantPolicy::MxFp4, None, 96, 1.0);
-    let mxfp_report = compress_slot_batch(&mxfp_slot, &mxfp, &rows, &[], 2).unwrap();
+    let mxfp8 = lens_spec("mxfp8", QuantPolicy::Float8, None, 96, 1.0);
+    let mxfp8_report = compress_slot_batch(&mxfp8_slot, &mxfp8, &rows, &[], 2).unwrap();
 
-    assert!(matches!(
-        mxfp_report.stored_codec,
-        StoredSlotCodec::MxFp4 | StoredSlotCodec::MxFp8 | StoredSlotCodec::RawF32
-    ));
-    assert!(mxfp_report.recall_at_k_compressed >= 0.0);
+    assert_eq!(mxfp8_report.stored_codec, StoredSlotCodec::MxFp8);
+    assert!(mxfp8_report.recall_at_k_compressed >= 0.0);
     maybe_write_json(
         "roundtrip-codecs.json",
         &json!({
@@ -59,8 +56,8 @@ fn turboquant_and_mxfp4_roundtrip_fixture_vectors() {
             "turbo_raw_bytes": turbo_report.raw_bytes_total,
             "turbo_stored_bytes": turbo_report.stored_bytes_total,
             "turbo_recall_at_k": turbo_report.recall_at_k_compressed,
-            "mxfp_codec": format!("{:?}", mxfp_report.stored_codec),
-            "mxfp_recall_at_k": mxfp_report.recall_at_k_compressed,
+            "mxfp8_codec": format!("{:?}", mxfp8_report.stored_codec),
+            "mxfp8_recall_at_k": mxfp8_report.recall_at_k_compressed,
         }),
     );
 }
@@ -191,17 +188,17 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
         SlotShape::Dense(128),
         QuantPolicy::turboquant_default(),
     );
-    let mxfp_slot = make_slot(
-        "mxfp-companion",
+    let mxfp8_slot = make_slot(
+        "mxfp8-companion",
         SlotId::new(4),
         SlotShape::Dense(128),
-        QuantPolicy::MxFp4,
+        QuantPolicy::Float8,
     );
     let lens = lens_spec("mrl-semantic", slot.quant, Some(64), 128, 0.02);
-    let mxfp_lens = lens_spec("mxfp-companion", mxfp_slot.quant, None, 128, 1.0);
+    let mxfp8_lens = lens_spec("mxfp8-companion", mxfp8_slot.quant, None, 128, 1.0);
     let panel_vault = root.join("panel-status-vault");
     fs::create_dir_all(&panel_vault).unwrap();
-    let panel = panel_with_slots(vec![slot.clone(), mxfp_slot.clone()]);
+    let panel = panel_with_slots(vec![slot.clone(), mxfp8_slot.clone()]);
     let _panel_vault_handle = AsterVault::new_durable(
         &panel_vault,
         vault_id(),
@@ -221,16 +218,16 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
                 idx as u64,
                 vec![
                     (slot.slot_id, values.clone()),
-                    (mxfp_slot.slot_id, values.clone()),
+                    (mxfp8_slot.slot_id, values.clone()),
                 ],
             ))
             .unwrap();
     }
     let report = write_compressed_slot_batch(&vault, &slot, &lens, &rows, &[], 2).unwrap();
-    let mxfp_report =
-        write_compressed_slot_batch(&vault, &mxfp_slot, &mxfp_lens, &rows, &[], 2).unwrap();
+    let mxfp8_report =
+        write_compressed_slot_batch(&vault, &mxfp8_slot, &mxfp8_lens, &rows, &[], 2).unwrap();
     vault.flush().unwrap();
-    let snapshot = mxfp_report.snapshot.unwrap();
+    let snapshot = mxfp8_report.snapshot.unwrap();
     let first_cx = rows[0].0;
     let compressed = vault
         .read_cf_at(
@@ -249,15 +246,15 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
         .unwrap()
         .unwrap();
     let envelope = decode_stored_slot_envelope(&compressed).unwrap();
-    let mxfp_compressed = vault
+    let mxfp8_compressed = vault
         .read_cf_at(
             snapshot,
-            ColumnFamily::slot(mxfp_slot.slot_id),
+            ColumnFamily::slot(mxfp8_slot.slot_id),
             &slot_key(first_cx),
         )
         .unwrap()
         .unwrap();
-    let mxfp_envelope = decode_stored_slot_envelope(&mxfp_compressed).unwrap();
+    let mxfp8_envelope = decode_stored_slot_envelope(&mxfp8_compressed).unwrap();
     let vault_get_error = vault
         .get(first_cx, snapshot)
         .expect_err("VaultStore::get must not raw-sidecar fallback compressed slot rows");
@@ -267,12 +264,9 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
     assert!(!envelope.fallback);
     assert_eq!(envelope.raw_dim, 128);
     assert_eq!(envelope.stored_dim, 64);
-    assert!(matches!(
-        mxfp_envelope.codec,
-        StoredSlotCodec::MxFp4 | StoredSlotCodec::MxFp8
-    ));
+    assert_eq!(mxfp8_envelope.codec, StoredSlotCodec::MxFp8);
     assert!(report.stored_bytes_total < report.raw_bytes_total);
-    assert!(mxfp_report.stored_bytes_total < mxfp_report.raw_bytes_total);
+    assert!(mxfp8_report.stored_bytes_total < mxfp8_report.raw_bytes_total);
     assert_eq!(raw_sidecar[0], 0);
     assert_eq!(vault_get_error.code, "CALYX_ASTER_CORRUPT_SHARD");
     write_json(
@@ -291,10 +285,10 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
             },
             "slot_04_cf": {
                 "cf": "slot_04",
-                "len": mxfp_compressed.len(),
-                "tag": mxfp_compressed[0],
-                "prefix_hex": hex(&mxfp_compressed[..mxfp_compressed.len().min(32)]),
-                "envelope": mxfp_envelope,
+                "len": mxfp8_compressed.len(),
+                "tag": mxfp8_compressed[0],
+                "prefix_hex": hex(&mxfp8_compressed[..mxfp8_compressed.len().min(32)]),
+                "envelope": mxfp8_envelope,
             },
             "raw_sidecar": {
                 "cf": "slot_03.raw",
@@ -311,12 +305,12 @@ fn compressed_vault_rows_use_slot_cf_and_raw_sidecar() {
                 "stored_codec": format!("{:?}", report.stored_codec),
                 "truncate_dim": report.truncate_dim,
             },
-            "mxfp_report": {
-                "raw_bytes_total": mxfp_report.raw_bytes_total,
-                "stored_bytes_total": mxfp_report.stored_bytes_total,
-                "recall_at_k_raw": mxfp_report.recall_at_k_raw,
-                "recall_at_k_compressed": mxfp_report.recall_at_k_compressed,
-                "stored_codec": format!("{:?}", mxfp_report.stored_codec),
+            "mxfp8_report": {
+                "raw_bytes_total": mxfp8_report.raw_bytes_total,
+                "stored_bytes_total": mxfp8_report.stored_bytes_total,
+                "recall_at_k_raw": mxfp8_report.recall_at_k_raw,
+                "recall_at_k_compressed": mxfp8_report.recall_at_k_compressed,
+                "stored_codec": format!("{:?}", mxfp8_report.stored_codec),
             },
             "vault_get_error": {
                 "code": vault_get_error.code,
