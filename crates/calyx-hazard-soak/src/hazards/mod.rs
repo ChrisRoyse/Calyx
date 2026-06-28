@@ -11,4 +11,5 @@ pub mod resource;
 pub mod resource_hazards_6_8;
 mod resource_support;
 pub mod security;
+mod security_h24;
 mod security_support;

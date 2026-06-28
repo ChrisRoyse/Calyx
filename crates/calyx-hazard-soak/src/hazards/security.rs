@@ -1,21 +1,16 @@
 use calyx_aster::cf::ColumnFamily;
-use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::manifest::ManifestStore;
 use calyx_core::{Clock, SlotId};
 use calyx_forge::{QuantLevel, Quantizer, TurboQuantCodec, new_seed};
-use calyx_ledger::{
-    ActorId, EntryKind, LedgerCfStore, PayloadBuilder, RedactionPolicy, SubjectId, VerifyResult,
-    decode, verify_chain,
-};
+use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId, decode};
 use serde::Serialize;
 use serde_json::{Value, json};
-use std::env;
 use std::fs;
 use std::path::Path;
-use std::process::Command;
 
 use super::resource::{HazardResult, ProbeResult, run_probe};
 use super::resource_support::{case_dir, err, open_vault};
+use super::security_h24::probe_h24_whole_host_loss;
 use super::security_support::{
     MEMTABLE_BYTES, START_TS, deterministic_vector, hash_bytes, hash_hex, hex_bytes, list_files,
     max_abs_delta, replay_observation, run_successful_rerank, scan_dir_for_bytes, search_hits,
@@ -214,61 +209,6 @@ fn probe_h23_nondeterminism(root: &Path) -> ProbeResult {
     ))
 }
 
-fn probe_h24_whole_host_loss(root: &Path) -> ProbeResult {
-    let dir = case_dir(root, "h24_whole_host_loss")?;
-    let vault_dir = dir.join("vault");
-    let vault = open_vault(&vault_dir, START_TS + 24, b"ph59-h24", MEMTABLE_BYTES, None)?;
-    vault
-        .write_cf(
-            ColumnFamily::Base,
-            b"h24-cx-1".to_vec(),
-            b"h24 byte exact".to_vec(),
-        )
-        .map_err(err)?;
-    append_hash_only_ledger(&vault, "dr", b"h24 restore ledger payload", START_TS + 240)?;
-    vault.flush().map_err(err)?;
-    let base_readback = vault
-        .read_cf_at(vault.latest_seq(), ColumnFamily::Base, b"h24-cx-1")
-        .map_err(err)?
-        .unwrap_or_default();
-    let store = AsterLedgerCfStore::open(&vault_dir).map_err(err)?;
-    let ledger_rows = store.scan().map_err(err)?;
-    let verify = verify_chain(&store, 0..ledger_rows.len() as u64).map_err(err)?;
-    let restic_version = restic_version();
-    let restic_enabled = env::var("CALYX_PH59_RESTIC_DR").ok().as_deref() == Some("1");
-    let dr_restore_verified = false;
-    let chain_intact =
-        matches!(verify, VerifyResult::Intact { count } if count == ledger_rows.len() as u64);
-    let passed =
-        base_readback == b"h24 byte exact" && chain_intact && restic_enabled && dr_restore_verified;
-    Ok((
-        passed,
-        json!({
-            "trigger": "synthetic DR vault written and local ledger CF read through AsterLedgerCfStore; whole-host restore must be independently verified",
-            "expected": {
-                "base_row_byte_exact": true,
-                "ledger_chain_intact": true,
-                "restic_dr_enabled_env": true,
-                "dr_restore_verified": true
-            },
-            "actual": {
-                "base_row_hex": hex_bytes(&base_readback),
-                "base_row_byte_exact": base_readback == b"h24 byte exact",
-                "ledger_row_count": ledger_rows.len(),
-                "ledger_verify": verify_json(&verify),
-                "restic_version": restic_version,
-                "restic_dr_enabled_env": restic_enabled,
-                "dr_restore_verified": dr_restore_verified,
-                "panic_free": true
-            },
-            "metrics_text": format!(
-                "calyx_dr_restore_verified{{vault=\"ph59-h24\"}} {}\ncalyx_dr_restore_required{{vault=\"ph59-h24\"}} 1\n",
-                usize::from(dr_restore_verified)
-            )
-        }),
-    ))
-}
-
 fn probe_h25_upgrade_skew(root: &Path) -> ProbeResult {
     let dir = case_dir(root, "h25_upgrade_skew")?;
     let vault_dir = dir.join("vault_v1");
@@ -434,26 +374,6 @@ fn secret_payload_error_code() -> Result<&'static str, String> {
     Ok(RedactionPolicy::check_payload(&payload)
         .expect_err("secret payload must fail closed")
         .code)
-}
-
-fn restic_version() -> String {
-    match Command::new("restic").arg("version").output() {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
-        }
-        Ok(output) => format!("restic unavailable: exit {:?}", output.status.code()),
-        Err(error) => format!("restic unavailable: {error}"),
-    }
-}
-
-fn verify_json(verify: &VerifyResult) -> Value {
-    match verify {
-        VerifyResult::Intact { count } => json!({"kind": "intact", "count": count}),
-        VerifyResult::Broken { at_seq, .. } => json!({"kind": "broken", "at_seq": at_seq}),
-        VerifyResult::Corrupt { at_seq, reason } => {
-            json!({"kind": "corrupt", "at_seq": at_seq, "reason": reason})
-        }
-    }
 }
 
 fn unsupported_manifest_error(
