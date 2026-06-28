@@ -27,7 +27,7 @@ Where the source does not establish a fact, it is marked **"Not determined from 
 - `src/config.rs` — `CalyxConfig` TOML runtime config
 - `src/error.rs` — `DaemonError` taxonomy
 - `src/server.rs` — loopback HTTP `/metrics` server
-- `src/learner_origin/*` — optional Worker-only learner-origin API: learner signals, interventions, outcomes, and Oracle-backed mastery estimates
+- `src/learner_origin/*` — optional Worker-only learner-origin API: learner signals, interventions, outcomes, Oracle-backed mastery estimates, and Oracle forecast evidence
 - `src/mcp_server.rs` — loopback MCP-over-socket transport (`CalyxMcpServer`)
 - `src/verify_loop.rs` — periodic chain-verify driver (binary-only module)
 - `src/verify.rs` — `verify_restore` byte-level vault read-back
@@ -329,6 +329,7 @@ Request handling (`handle_connection` → `route`):
 | `POST /v1/interventions/decide` | `201`/error | JSON intervention decision row | `handle_decision` |
 | `POST /v1/interventions/{decisionId}/outcomes` | `201`/error | JSON outcome row, learner-matched to the decision | `handle_outcome` |
 | `POST /v1/mastery/estimate` | `201`/`422`/error | JSON Oracle completion + `super_intelligence` trust report; insufficient Assay evidence fails closed | `handle_mastery_estimate` |
+| `POST /v1/oracle/forecast` | `201`/`422`/error | JSON Oracle prediction, butterfly consequence tree, reverse causes, and transfer-entropy prereq edges; insufficient evidence fails closed | `handle_oracle_forecast` |
 | `GET <other>` | `404` | "only /metrics is served" | `route` |
 | non-GET | `405` | "only GET /metrics is served" | `route` |
 | unreadable head | `400` | "bad request" | `handle_connection` |
@@ -338,6 +339,13 @@ un-probed concepts, persists a `mastery_evidence` constellation, persists Assay 
 calls Oracle `complete`, calls `super_intelligence_with_ledger` across all six tiers, and then
 persists a final `mastery_estimate` origin row. Certification eligibility is true only when the
 trust report is overall true and no completion slot is provisional.
+
+`/v1/oracle/forecast` persists an `oracle_forecast_evidence` source constellation, materializes
+Oracle-readable `oracle_forecast_recurrence` base/Recurrence CF rows from origin evidence, persists
+Assay sufficiency rows, then runs the real `oracle_predict`, `butterfly::build_tree`/`select`,
+`reverse_query`, and Assay `transfer_entropy_sweep_with_config` paths. A final `oracle_forecast`
+origin row is written only after those gates complete; insufficient Oracle panel evidence or
+under-quorum transfer entropy returns HTTP 422 without the final forecast row.
 
 ## B.6 MCP-over-socket transport (`src/mcp_server.rs`)
 

@@ -231,6 +231,91 @@ fn mastery_estimate_insufficient_panel_fails_closed_without_certifying() {
 }
 
 #[test]
+fn oracle_forecast_predicts_tree_reverse_cause_and_prereq_edge() {
+    let service = service("oracle-forecast");
+    let response = post(
+        &service,
+        "/v1/oracle/forecast",
+        oracle_forecast_request(1.2, 1.0),
+    );
+    assert_eq!(response.status, STATUS_CREATED, "{}", response.body);
+    let body: Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(body["prediction"]["outcome"], text_anchor("ready"));
+    assert!(body["prediction"]["confidence"].as_f64().unwrap() > 0.5);
+    assert_eq!(
+        body["consequenceTree"]["children"][0]["root"]["action_or_event"],
+        "unlock-systems"
+    );
+    assert_eq!(
+        body["selectedConsequence"]["action_or_event"],
+        "solve-systems"
+    );
+    assert_eq!(
+        body["reverse"]["causes"][0]["action_or_event"],
+        "learn-linear-equations"
+    );
+    assert_eq!(body["transferEntropy"]["results"][0]["provisional"], false);
+    assert!(
+        !body["transferEntropy"]["prereqEdges"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(body["source"]["assayRows"], 4);
+    assert!(body["source"]["recurrenceRows"].as_u64().unwrap() >= 61);
+
+    let rows = service.base_rows();
+    assert!(rows.iter().any(|row| {
+        row.metadata_value("origin_kind") == Some("oracle_forecast_evidence")
+            && row.metadata_value("request_id") == Some("oracle-forecast-a")
+    }));
+    assert!(rows.iter().any(|row| {
+        row.metadata_value("origin_kind") == Some("oracle_forecast_recurrence")
+            && row.metadata_value("oracle.action") == Some("learn-linear-equations")
+    }));
+    assert!(rows.iter().any(|row| {
+        row.metadata_value("origin_kind") == Some(KIND_ORACLE_FORECAST)
+            && row.metadata_value("prediction_ledger_seq").is_some()
+            && row.metadata_value("reverse_ledger_seq").is_some()
+            && row.metadata_value("prereq_edge_count").is_some()
+    }));
+    assert_eq!(
+        service
+            .origin_metrics()
+            .write_count(KIND_ORACLE_FORECAST, "accepted"),
+        1
+    );
+}
+
+#[test]
+fn oracle_forecast_insufficient_panel_fails_closed_without_final_row() {
+    let service = service("oracle-forecast-insufficient");
+    let response = post(
+        &service,
+        "/v1/oracle/forecast",
+        oracle_forecast_request(0.2, 1.0),
+    );
+    assert_eq!(response.status, STATUS_UNPROCESSABLE, "{}", response.body);
+    assert!(response.body.contains("CALYX_ORACLE_INSUFFICIENT"));
+    let rows = service.base_rows();
+    assert!(rows.iter().any(|row| {
+        row.metadata_value("origin_kind") == Some("oracle_forecast_evidence")
+            && row.metadata_value("request_id") == Some("oracle-forecast-a")
+    }));
+    assert!(
+        !rows
+            .iter()
+            .any(|row| row.metadata_value("origin_kind") == Some(KIND_ORACLE_FORECAST))
+    );
+    assert_eq!(
+        service
+            .origin_metrics()
+            .write_count(KIND_ORACLE_FORECAST, "rejected"),
+        1
+    );
+}
+
+#[test]
 fn wrong_learner_outcome_rejected_without_ledger_append() {
     let service = service("wrong-learner");
     let decision = post(
@@ -269,4 +354,70 @@ fn authorization_required() {
     );
     assert_eq!(response.status, STATUS_UNAUTHORIZED);
     assert!(service.base_rows().is_empty());
+}
+
+fn oracle_forecast_request(panel_bits: f32, anchor_entropy_bits: f32) -> Value {
+    let mut observations = Vec::new();
+    for _ in 0..60 {
+        observations.push(json!({
+            "actionId": "learn-linear-equations",
+            "outcome": text_anchor("ready"),
+            "groundTruth": text_anchor("ready"),
+            "consequences": [{
+                "actionOrEvent": "unlock-systems",
+                "outcome": text_anchor("unlock-systems"),
+                "grounded": true
+            }]
+        }));
+    }
+    observations.push(json!({
+        "actionId": "unlock-systems",
+        "outcome": text_anchor("linked"),
+        "consequences": [{
+            "actionOrEvent": "solve-systems",
+            "outcome": text_anchor("target-ready"),
+            "grounded": true
+        }]
+    }));
+
+    let mut source_series = Vec::new();
+    let mut target_series = Vec::new();
+    for t in 0..90_u64 {
+        let source = ((t * 37 % 29) as f32 / 29.0) + (t as f32 * 0.0001);
+        let previous_source = if t == 0 {
+            0.0
+        } else {
+            (((t - 1) * 37 % 29) as f32 / 29.0) + ((t - 1) as f32 * 0.0001)
+        };
+        let target = previous_source + ((t * 11 % 7) as f32 * 0.001);
+        source_series.push(json!({"t": t, "value": source}));
+        target_series.push(json!({"t": t, "value": target}));
+    }
+
+    json!({
+        "requestId": "oracle-forecast-a",
+        "idempotencyKey": "oracle-forecast-idem-a",
+        "learnerId": "learner-a",
+        "domain": "calyxweb-g2-forecast",
+        "actionId": "learn-linear-equations",
+        "panelConcepts": ["linear-equations", "systems"],
+        "panelBits": panel_bits,
+        "anchorEntropyBits": anchor_entropy_bits,
+        "observations": observations,
+        "desiredOutcome": text_anchor("target-ready"),
+        "reverseAnswer": text_anchor("unlock-systems"),
+        "transferEntropy": {
+            "sourceConceptId": "linear-equations",
+            "targetConceptId": "systems",
+            "sourceSeries": source_series,
+            "targetSeries": target_series,
+            "lags": [1],
+            "bootstrapResamples": 16,
+            "bootstrapSeed": 1240
+        }
+    })
+}
+
+fn text_anchor(value: &str) -> Value {
+    json!({"text": value})
 }

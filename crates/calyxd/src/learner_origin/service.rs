@@ -11,8 +11,9 @@ use sha2::{Digest, Sha256};
 use super::config::LearnerOriginConfig;
 use super::metrics::OriginMetrics;
 use super::model::{
-    ENDPOINT_DECIDE, ENDPOINT_MASTERY_ESTIMATE, ENDPOINT_OUTCOMES, ENDPOINT_SIGNALS, KIND_DECISION,
-    KIND_MASTERY_ESTIMATE, KIND_OUTCOME, KIND_SIGNAL_BATCH,
+    ENDPOINT_DECIDE, ENDPOINT_MASTERY_ESTIMATE, ENDPOINT_ORACLE_FORECAST, ENDPOINT_OUTCOMES,
+    ENDPOINT_SIGNALS, KIND_DECISION, KIND_MASTERY_ESTIMATE, KIND_ORACLE_FORECAST, KIND_OUTCOME,
+    KIND_SIGNAL_BATCH,
 };
 use crate::error::DaemonError;
 
@@ -167,6 +168,7 @@ impl LearnerOriginService {
                 OriginRoute::Decision => self.handle_decision(body),
                 OriginRoute::Outcome { decision_id } => self.handle_outcome(decision_id, body),
                 OriginRoute::MasteryEstimate => self.handle_mastery_estimate(body),
+                OriginRoute::OracleForecast => self.handle_oracle_forecast(body),
             }
         };
         let response = match outcome {
@@ -210,6 +212,7 @@ enum OriginRoute {
     Decision,
     Outcome { decision_id: String },
     MasteryEstimate,
+    OracleForecast,
 }
 
 impl OriginRoute {
@@ -219,6 +222,7 @@ impl OriginRoute {
             Self::Decision => ENDPOINT_DECIDE,
             Self::Outcome { .. } => ENDPOINT_OUTCOMES,
             Self::MasteryEstimate => ENDPOINT_MASTERY_ESTIMATE,
+            Self::OracleForecast => ENDPOINT_ORACLE_FORECAST,
         }
     }
 
@@ -228,6 +232,7 @@ impl OriginRoute {
             Self::Decision => KIND_DECISION,
             Self::Outcome { .. } => KIND_OUTCOME,
             Self::MasteryEstimate => KIND_MASTERY_ESTIMATE,
+            Self::OracleForecast => KIND_ORACLE_FORECAST,
         }
     }
 }
@@ -266,6 +271,9 @@ fn route_for_path(path: &str) -> Option<OriginRoute> {
     }
     if path == "/v1/mastery/estimate" {
         return Some(OriginRoute::MasteryEstimate);
+    }
+    if path == "/v1/oracle/forecast" {
+        return Some(OriginRoute::OracleForecast);
     }
     let rest = path.strip_prefix("/v1/interventions/")?;
     let decision_id = rest.strip_suffix("/outcomes")?;

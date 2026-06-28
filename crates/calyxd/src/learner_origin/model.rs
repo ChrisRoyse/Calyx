@@ -1,15 +1,19 @@
 use serde::Deserialize;
 use serde_json::Value;
 
+use calyx_core::AnchorValue;
+
 pub const ENDPOINT_SIGNALS: &str = "learner_signals_batches";
 pub const ENDPOINT_DECIDE: &str = "interventions_decide";
 pub const ENDPOINT_OUTCOMES: &str = "intervention_outcomes";
 pub const ENDPOINT_MASTERY_ESTIMATE: &str = "mastery_estimate";
+pub const ENDPOINT_ORACLE_FORECAST: &str = "oracle_forecast";
 
 pub const KIND_SIGNAL_BATCH: &str = "learner_signal_batch";
 pub const KIND_DECISION: &str = "intervention_decision";
 pub const KIND_OUTCOME: &str = "intervention_outcome";
 pub const KIND_MASTERY_ESTIMATE: &str = "mastery_estimate";
+pub const KIND_ORACLE_FORECAST: &str = "oracle_forecast";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -146,4 +150,100 @@ pub struct MasteryTrustGateRequest {
     pub recurring_mistakes: usize,
     #[serde(default, alias = "replayed_mistakes")]
     pub replayed_mistakes: Option<usize>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OracleForecastRequest {
+    #[serde(default, alias = "request_id")]
+    pub request_id: Option<String>,
+    #[serde(default, alias = "idempotency_key")]
+    pub idempotency_key: Option<String>,
+    #[serde(alias = "learner_id")]
+    pub learner_id: String,
+    #[serde(default, alias = "session_id")]
+    pub session_id: Option<String>,
+    #[serde(default, alias = "privacy_class")]
+    pub privacy_class: Option<String>,
+    #[serde(default)]
+    pub domain: Option<String>,
+    #[serde(alias = "action_id")]
+    pub action_id: String,
+    #[serde(default, alias = "panel_concepts")]
+    pub panel_concepts: Vec<String>,
+    #[serde(alias = "panel_bits")]
+    pub panel_bits: f32,
+    #[serde(alias = "anchor_entropy_bits")]
+    pub anchor_entropy_bits: f32,
+    #[serde(default)]
+    pub observations: Vec<OracleObservationRequest>,
+    #[serde(default, alias = "desired_outcome")]
+    pub desired_outcome: Option<AnchorValue>,
+    #[serde(alias = "reverse_answer")]
+    pub reverse_answer: AnchorValue,
+    #[serde(alias = "transfer_entropy")]
+    pub transfer_entropy: TransferEntropyRequest,
+    #[serde(default, alias = "now_millis")]
+    pub now_millis: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OracleObservationRequest {
+    #[serde(alias = "action", alias = "action_id")]
+    pub action_id: String,
+    pub outcome: AnchorValue,
+    #[serde(default, alias = "ground_truth")]
+    pub ground_truth: Option<AnchorValue>,
+    #[serde(default)]
+    pub consequences: Vec<OracleConsequenceRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OracleConsequenceRequest {
+    #[serde(alias = "action_or_event")]
+    pub action_or_event: String,
+    #[serde(default)]
+    pub domain: Option<String>,
+    pub outcome: AnchorValue,
+    #[serde(default = "default_grounded")]
+    pub grounded: bool,
+    #[serde(default)]
+    pub provisional: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferEntropyRequest {
+    #[serde(alias = "source_concept_id")]
+    pub source_concept_id: String,
+    #[serde(alias = "target_concept_id")]
+    pub target_concept_id: String,
+    #[serde(alias = "source_series")]
+    pub source_series: Vec<TransferEntropySampleRequest>,
+    #[serde(alias = "target_series")]
+    pub target_series: Vec<TransferEntropySampleRequest>,
+    #[serde(default)]
+    pub lags: Vec<usize>,
+    #[serde(default, alias = "window_size")]
+    pub window_size: Option<usize>,
+    #[serde(default)]
+    pub k: Option<usize>,
+    #[serde(default, alias = "bootstrap_resamples")]
+    pub bootstrap_resamples: Option<usize>,
+    #[serde(default, alias = "bootstrap_seed")]
+    pub bootstrap_seed: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferEntropySampleRequest {
+    #[serde(alias = "timestamp", alias = "time")]
+    pub t: u64,
+    pub value: f32,
+}
+
+fn default_grounded() -> bool {
+    true
 }

@@ -837,7 +837,7 @@ roughly follow the dependency layering (foundations first, entry points last).
 - `cuda_probe.rs` — CUDA device preflight for calyxd (PH65 · T02).
 - `error.rs` — Daemon error taxonomy mapping to stable CALYX_* codes (PH65).
 - `health.rs` — PH65 · T04 — calyxd daemon-readiness healthcheck.
-- `learner_origin/` — Worker-only learner-origin API for learner signals, interventions, outcomes, and Oracle-backed mastery estimates.
+- `learner_origin/` — Worker-only learner-origin API for learner signals, interventions, outcomes, Oracle-backed mastery estimates, and Oracle forecast evidence.
 - `lib.rs` — calyxd library surface.
 - `main.rs` — Calyx daemon: Ledger chain-verify metrics on a loopback /metrics endpoint.
 - `mcp_server.rs` — Loopback-only MCP-over-socket transport for calyxd (PH65 · T05).
