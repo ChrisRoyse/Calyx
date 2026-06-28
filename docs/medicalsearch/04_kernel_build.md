@@ -174,13 +174,31 @@ calyx kernel-build corpus-anchored-869-20260625T080546Z   # defaults: held-out 0
 
 Current recall-refined live run:
 - FSV root: `/home/croyse/calyx/fsv/issue871-kernel-build-exact-kernel-index-20260628T010451Z`
-- status at doc update: active, exact kernel-index fix applied.
+- exit: `0`
+- graph: 198,993 nodes / 2,435,817 edges
+- initial kernel: 13,917 members / 19,900 kernel-graph nodes / recall ratio 0.168442
+- exact support extracted: 9,599 support members from 995 held-out queries / 9,950 full top-k hits
+- final kernel: 21,954 members / 27,328 kernel-graph nodes / groundedness 1.0
+- recall: `kernel_only=1.0`, `full=1.0`, `ratio=1.0`, `n_queries_tested=995`, A10 gate passed
+- tau*: `tau_star_estimate=958`, `tau_star_exact=false`
+- wall-clock: 1:32.09, max RSS: 8,108,724 KB, CPU: 1423%
+- artifact dirs: `0 -> 1`
+
+Persisted source-of-truth artifacts:
+- `kernel.json`: `/home/croyse/calyx/vaults/01KVYX0KYVBQSGVC6N2S00FX6J/idx/kernel/8a13903bf4babbd13162c4aa13c896cb/kernel.json`
+- `kernel.json` bytes/SHA256: `2115234` / `df73640e2e39811a3de82aa0785a7a37a0c7b19bfee4af0062e6e5221d71771f`
+- `index.json`: `/home/croyse/calyx/vaults/01KVYX0KYVBQSGVC6N2S00FX6J/idx/kernel/8a13903bf4babbd13162c4aa13c896cb/index.json`
+- `index.json` bytes/SHA256: `362638620` / `0f4232b20e5cfdf48e87aac174591554e3d22ea9627ca499048b71ef1fb08509`
+- persisted `kernel.members` count: 21,954
+- persisted `index.rows` count: 21,954
+- sorted member/index-row ID diff count: 0
+- `calyx readback kernel-health --root <vault> --kernel-id 8a13903bf4babbd13162c4aa13c896cb`: pass mode `passed`, grounded fraction `1.0`, recall ratio `1.0`, `tau_star_estimate=958`, `tau_star_exact=false`.
 
 - graph: nodes = 198,993, edges ≈ 2,435,816
-- kernel: members = TBD, kernel_graph = TBD, groundedness_fraction (reached_anchor) = TBD
-- recall: kernel_only = TBD, full = TBD, **ratio = TBD**, tau_star_estimate = TBD, n_queries_tested = TBD
-- **A10 recall gate (ratio ≥ 0.95): PASS/FAIL = TBD**
-- wall-clock = TBD, max RSS = TBD
+- kernel: members = 21,954, kernel_graph = 27,328, groundedness_fraction (reached_anchor) = 1.0
+- recall: kernel_only = 1.0, full = 1.0, **ratio = 1.0**, tau_star_estimate = 958, n_queries_tested = 995
+- **A10 recall gate (ratio >= 0.95): PASS**
+- wall-clock = 1:32.09, max RSS = 8,108,724 KB
 
 ## Findings (honest)
 
