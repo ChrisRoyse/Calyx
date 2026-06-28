@@ -298,6 +298,24 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             modality: Some("text".to_string()),
             probe: None,
         })),
+        (
+            safe_name(),
+            1usize..64,
+            1usize..8,
+            1usize..1024,
+            0usize..1000,
+        )
+            .prop_map(|(vault, knn, max_groundedness_distance, batch, limit)| {
+                Subcommand::WeaveLoom(weave::WeaveLoomArgs {
+                    vault,
+                    content_slot: None,
+                    knn,
+                    edge_cos_threshold: 0.5,
+                    max_groundedness_distance,
+                    batch,
+                    limit,
+                })
+            }),
     ]
 }
 
@@ -371,9 +389,29 @@ impl Subcommand {
             Self::RebuildSearchIndex(args) => {
                 vec!["rebuild-search-index".to_string(), args.vault.clone()]
             }
+            Self::WeaveLoom(args) => weave_loom_tokens(args),
             Self::ProfileLens(args) => profile_lens_tokens(args),
         }
     }
+}
+
+fn weave_loom_tokens(args: &weave::WeaveLoomArgs) -> Vec<String> {
+    let mut out = vec!["weave-loom".to_string(), args.vault.clone()];
+    if let Some(slot) = args.content_slot {
+        out.extend(["--content-slot".to_string(), slot.to_string()]);
+    }
+    out.extend(["--knn".to_string(), args.knn.to_string()]);
+    out.extend([
+        "--edge-cos-threshold".to_string(),
+        args.edge_cos_threshold.to_string(),
+    ]);
+    out.extend([
+        "--max-groundedness-distance".to_string(),
+        args.max_groundedness_distance.to_string(),
+    ]);
+    out.extend(["--batch".to_string(), args.batch.to_string()]);
+    out.extend(["--limit".to_string(), args.limit.to_string()]);
+    out
 }
 
 fn verify_chain_tokens(args: &provenance::VerifyChainArgs) -> Vec<String> {

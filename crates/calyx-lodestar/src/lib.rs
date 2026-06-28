@@ -5,6 +5,7 @@
 pub mod aster_bridge;
 pub mod blind_spot_sweep;
 pub mod chain_walks;
+pub mod corpus_weave_report;
 pub mod dfvs;
 pub mod discovery_chain;
 pub mod domain_bridges;
@@ -48,6 +49,10 @@ pub use blind_spot_sweep::{
 pub use chain_walks::{
     AbcHypothesis, CHAIN_WALK_SCHEMA_VERSION, ChainWalkParams, ChainWalkReport, ChainWalkResult,
     ChainWalkSeed, ChainWalkSeedKind, run_grounded_chain_walks,
+};
+pub use corpus_weave_report::{
+    CORPUS_WEAVE_REPORT_SCHEMA_VERSION, CorpusWeaveReport, CorpusWeaveReportParams,
+    corpus_weave_report,
 };
 pub use dfvs::{
     DfvsMethod, DfvsResult, bounded_genus_approx, dfvs_approx, genus_estimate, is_tournament,
