@@ -394,6 +394,7 @@ pub(crate) fn resolve_vault(home: &Path, vault: &str) -> CliResult<PathBuf> {
 
 pub(crate) fn resolve_vault_info(home: &Path, vault: &str) -> CliResult<ResolvedVault> {
     let index = read_index(home)?;
+    let checked_index = index_path(home);
     let direct = PathBuf::from(vault);
     if direct.exists() {
         if let Some(resolved) = resolve_direct_indexed(home, &index, &direct)? {
@@ -404,9 +405,11 @@ pub(crate) fn resolve_vault_info(home: &Path, vault: &str) -> CliResult<Resolved
             .and_then(|name| name.to_str())
             .and_then(|name| name.parse::<VaultId>().ok())
             .ok_or_else(|| {
-                CalyxError::vault_access_denied(
-                    "direct vault path must end in a vault id or be present in the CLI index",
-                )
+                CalyxError::vault_access_denied(format!(
+                    "direct vault path {} must end in a vault id or be present in CLI index {}",
+                    direct.display(),
+                    checked_index.display()
+                ))
             })?;
         return Ok(ResolvedVault {
             path: direct,
@@ -436,8 +439,18 @@ pub(crate) fn resolve_vault_info(home: &Path, vault: &str) -> CliResult<Resolved
         if resolved.path.exists() {
             return Ok(resolved);
         }
+        return Err(CalyxError::vault_access_denied(format!(
+            "vault {vault} resolved through CLI index {} to missing path {}",
+            checked_index.display(),
+            resolved.path.display()
+        ))
+        .into());
     }
-    Err(CalyxError::vault_access_denied(format!("vault {vault} does not exist")).into())
+    Err(CalyxError::vault_access_denied(format!(
+        "vault {vault} does not exist; checked CLI index {}",
+        checked_index.display()
+    ))
+    .into())
 }
 
 fn resolve_direct_indexed(

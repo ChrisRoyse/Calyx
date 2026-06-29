@@ -64,6 +64,55 @@ fn verify_chain_vault_quarantines_broken_range() {
 }
 
 #[test]
+fn verify_chain_vault_range_resolves_registered_name() {
+    let root = test_dir("registered-name");
+    reset_dir(&root);
+    let home = root.join("home");
+    let id = vault_id();
+    let vault_dir = home.join("vaults").join(id.to_string());
+    fs::create_dir_all(vault_dir.parent().expect("vault parent")).unwrap();
+    let vault = write_vault(&vault_dir, 3);
+    vault.flush().expect("flush");
+    remove_wal_segments(&vault_dir);
+    let index_path = home.join("vaults").join("index.json");
+    fs::write(
+        &index_path,
+        serde_json::to_vec_pretty(&serde_json::json!({
+            "vaults": [{
+                "name": "registered-verify",
+                "vault_id": id.to_string(),
+                "path": format!("vaults/{id}"),
+                "panel_template": "text-default"
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let by_name = run_verify_vault_ref_with_home(&home, "registered-verify", "0..3");
+    assert_success(&by_name);
+    assert_eq!(stdout(&by_name), "CHAIN_INTACT count=3");
+
+    let by_path = run(["verify-chain", "--vault"], &vault_dir, ["--range", "0..3"]);
+    assert_success(&by_path);
+    assert_eq!(stdout(&by_path), "CHAIN_INTACT count=3");
+
+    let missing = run_verify_vault_ref_with_home(&home, "missing-verify", "0..0");
+    assert!(!missing.status.success());
+    assert_stderr_code_and_message(&missing, "CALYX_VAULT_ACCESS_DENIED", "checked CLI index");
+    let missing_error: serde_json::Value =
+        serde_json::from_str(&stderr(&missing)).expect("missing stderr JSON");
+    assert!(
+        missing_error["message"]
+            .as_str()
+            .is_some_and(|message| message.contains(&index_path.display().to_string())),
+        "stderr: {}",
+        stderr(&missing)
+    );
+    cleanup(root);
+}
+
+#[test]
 #[ignore = "manual FSV for issue #250 verify-chain quarantine"]
 fn ph36_verify_chain_quarantine_manual_fsv() {
     let root =
@@ -255,6 +304,18 @@ fn run_readback_ledger_seq(vault: &Path, seq: u64) -> Output {
         .arg(seq.to_string())
         .output()
         .expect("run calyx readback ledger seq")
+}
+
+fn run_verify_vault_ref_with_home(home: &Path, vault: &str, range: &str) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_calyx"))
+        .env("CALYX_HOME", home)
+        .arg("verify-chain")
+        .arg("--vault")
+        .arg(vault)
+        .arg("--range")
+        .arg(range)
+        .output()
+        .expect("run calyx verify-chain --vault")
 }
 
 fn assert_success(output: &Output) {

@@ -242,7 +242,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         [command, vault_flag, vault, range_flag, range]
             if command == "verify-chain" && vault_flag == "--vault" && range_flag == "--range" =>
         {
-            verify::verify_vault(Path::new(vault), verify::parse_verify_range(range)?)
+            verify::verify_vault_ref(vault, verify::parse_verify_range(range)?)
         }
         [command, cf_flag, cf, vault_flag, vault]
             if command == "scan"

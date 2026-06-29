@@ -7,6 +7,7 @@ use calyx_core::CalyxError;
 use calyx_ledger::{DirectoryLedgerStore, LedgerCfStore, VerifyResult, verify_chain};
 
 use crate::cf_read::hex_bytes;
+use crate::cmd::vault::{home_dir, resolve_vault_info};
 use crate::ledger_store::AsterLedgerCfStore;
 use crate::merkle::parse_range;
 
@@ -22,6 +23,15 @@ pub fn verify_vault(vault: &Path, range: Range<u64>) -> crate::error::CliResult 
         write_quarantine(vault, range, at_seq)?;
     }
     print_verify_result(result)
+}
+
+pub fn verify_vault_ref(vault: &str, range: Range<u64>) -> crate::error::CliResult {
+    let direct = Path::new(vault);
+    if direct.exists() {
+        return verify_vault(direct, range);
+    }
+    let resolved = resolve_vault_info(&home_dir()?, vault)?;
+    verify_vault(&resolved.path, range)
 }
 
 pub fn readback_ledger_seq(vault: &Path, seq: u64) -> crate::error::CliResult {
