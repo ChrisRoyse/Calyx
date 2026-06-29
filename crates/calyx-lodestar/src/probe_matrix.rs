@@ -291,7 +291,7 @@ fn attach_unique_hits(records: &mut [ProbeRecord]) {
 fn productive_rows(records: &[ProbeRecord]) -> Vec<ProbeProductivity> {
     let mut rows: Vec<_> = records
         .iter()
-        .filter(|record| !record.unique_grounded_hits.is_empty())
+        .filter(|record| record.accepted_hit_count > 0)
         .map(|record| ProbeProductivity {
             variant_id: record.variant.id,
             fusion: record.variant.fusion.clone(),
