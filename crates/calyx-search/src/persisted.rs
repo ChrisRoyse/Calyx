@@ -469,7 +469,7 @@ fn referenced_index_artifacts(
 }
 
 fn is_prunable_index_artifact(name: &str) -> bool {
-    name.starts_with("slot_") || name.starts_with("filter_")
+    name.starts_with("slot_") || name.starts_with("filter_") || name.starts_with("filters_")
 }
 
 #[path = "persisted/io.rs"]
