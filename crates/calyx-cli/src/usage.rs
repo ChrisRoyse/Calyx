@@ -24,6 +24,7 @@ pub(crate) fn usage() -> &'static str {
        calyx anchor <vault> <cx_id> --kind <test-pass|thumbs-up|thumbs-down|label:<s>|speaker-match|style-hold> --value <v> [--confidence <0..1>] [--source <s>]
        calyx measure <vault> --text <s>
        calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--explain] [--provenance|--no-provenance] [--fresh|--stale-ok] [--filter <json-predicate>]
+       calyx probe-matrix <vault> --frontier <text> [--slot <u16>] [--weighted-profile <name>] [--phrasing <terse|clinical|mechanistic|analogical|contrast>] [--length <entity|phrase|paragraph>] [--top-k <n>] [--guard <off|in-region>] [--out <json>]
        calyx kernel-answer <vault> <query> [--anchor <kind>] [--explain]
        calyx bits <vault> <anchor-kind> [--explain]
        calyx kernel <vault> [--anchor <kind>] [--rebuild]

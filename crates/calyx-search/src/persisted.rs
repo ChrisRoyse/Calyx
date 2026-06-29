@@ -197,16 +197,38 @@ impl PersistedSearchIndexes {
     }
 
     pub fn max_len(&self) -> usize {
+        self.max_len_for_slots(None)
+    }
+
+    pub fn max_len_for_slots(&self, allowed_slots: Option<&BTreeSet<SlotId>>) -> usize {
         self.manifest
             .slots
             .iter()
+            .filter(|entry| {
+                allowed_slots
+                    .map(|allowed| allowed.contains(&SlotId::new(entry.slot)))
+                    .unwrap_or(true)
+            })
             .map(|entry| entry.len)
             .max()
             .unwrap_or(0)
     }
 
     pub fn ensure_search_bounded(&self) -> CliResult {
+        self.ensure_search_bounded_for_slots(None)
+    }
+
+    pub fn ensure_search_bounded_for_slots(
+        &self,
+        allowed_slots: Option<&BTreeSet<SlotId>>,
+    ) -> CliResult {
         for entry in &self.manifest.slots {
+            if allowed_slots
+                .map(|allowed| !allowed.contains(&SlotId::new(entry.slot)))
+                .unwrap_or(false)
+            {
+                continue;
+            }
             if entry.kind == "multi_maxsim" {
                 multi::ensure_bounded_sidecar(&self.vault_dir, entry, SlotId::new(entry.slot))?;
             }

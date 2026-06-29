@@ -28,7 +28,9 @@ const GUARD_TAU: f32 = 0.999;
 pub enum FusionChoice {
     Rrf,
     WeightedRrf,
+    WeightedRrfProfile(RrfProfile),
     SingleLens,
+    SingleLensSlot(SlotId),
     KernelFirst,
     Pipeline,
 }
@@ -40,6 +42,7 @@ impl FusionChoice {
             Self::WeightedRrf => Ok(FusionStrategy::WeightedRrf {
                 profile: RrfProfile::General,
             }),
+            Self::WeightedRrfProfile(profile) => Ok(FusionStrategy::WeightedRrf { profile }),
             Self::SingleLens => slots
                 .first()
                 .copied()
@@ -47,6 +50,15 @@ impl FusionChoice {
                 .ok_or_else(|| {
                     crate::error::SearchError::usage("single-lens search has no active lens slot")
                 }),
+            Self::SingleLensSlot(slot) => {
+                if slots.contains(&slot) {
+                    Ok(FusionStrategy::SingleLens { slot })
+                } else {
+                    Err(crate::error::SearchError::usage(format!(
+                        "single-lens search requested slot {slot}, but the slot has no active persisted search results"
+                    )))
+                }
+            }
             Self::KernelFirst => Ok(FusionStrategy::WeightedRrf {
                 profile: RrfProfile::Kernel,
             }),
@@ -96,6 +108,27 @@ pub fn search_outcome(
     filter: Option<&str>,
     explain: bool,
 ) -> CliResult<SearchOutcome> {
+    search_outcome_with_slots(
+        vault, state, vault_dir, query, k, fusion, guard, filter, explain, None,
+    )
+}
+
+/// Slot-scoped variant of [`search_outcome`]. Normal search measures every
+/// active text lens, but matrix/probe callers sometimes need a physically exact
+/// subset: only those slots may be measured, searched, fused, and guarded.
+#[allow(clippy::too_many_arguments)]
+pub fn search_outcome_with_slots(
+    vault: &AsterVault,
+    state: &calyx_registry::VaultPanelState,
+    vault_dir: &Path,
+    query: &str,
+    k: usize,
+    fusion: FusionChoice,
+    guard: GuardChoice,
+    filter: Option<&str>,
+    explain: bool,
+    allowed_slots: Option<&BTreeSet<SlotId>>,
+) -> CliResult<SearchOutcome> {
     let filters = crate::filters::parse(filter)?;
     let indexes = match PersistedSearchIndexes::open(vault_dir) {
         Ok(indexes) => indexes,
@@ -104,11 +137,11 @@ pub fn search_outcome(
         }
         Err(error) => return Err(error),
     };
-    if indexes.max_len() == 0 {
+    if indexes.max_len_for_slots(allowed_slots) == 0 {
         return Ok(SearchOutcome::empty());
     }
-    indexes.ensure_search_bounded()?;
-    let query_vectors = measure_query_vectors(state, query)?;
+    indexes.ensure_search_bounded_for_slots(allowed_slots)?;
+    let query_vectors = measure_query_vectors_with_slots(state, query, allowed_slots)?;
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());
     }
@@ -161,10 +194,23 @@ pub fn measure_query_vectors(
     state: &calyx_registry::VaultPanelState,
     query: &str,
 ) -> CliResult<Vec<(SlotId, SlotVector)>> {
+    measure_query_vectors_with_slots(state, query, None)
+}
+
+/// Measure query vectors for active text slots, optionally restricted to a
+/// caller-selected physical slot set.
+pub fn measure_query_vectors_with_slots(
+    state: &calyx_registry::VaultPanelState,
+    query: &str,
+    allowed_slots: Option<&BTreeSet<SlotId>>,
+) -> CliResult<Vec<(SlotId, SlotVector)>> {
     use calyx_core::{Input, Modality, SlotState};
     let input = Input::new(Modality::Text, query.as_bytes().to_vec());
     let mut out = Vec::new();
     for slot in &state.panel.slots {
+        if allowed_slots.is_some_and(|allowed| !allowed.contains(&slot.slot_id)) {
+            continue;
+        }
         if slot.state == SlotState::Active
             && slot.modality == Modality::Text
             && state.registry.contains(slot.lens_id)
@@ -332,6 +378,31 @@ mod tests {
     fn no_indexable_errors_are_stale_derived() {
         assert_eq!(no_indexable_query_vectors().code, "CALYX_STALE_DERIVED");
         assert_eq!(no_indexable_stored_vectors().code, "CALYX_STALE_DERIVED");
+    }
+
+    #[test]
+    fn explicit_fusion_choices_preserve_profile_and_slot() {
+        let slots = [SlotId::new(8), SlotId::new(14)];
+        assert_eq!(
+            FusionChoice::WeightedRrfProfile(RrfProfile::Bridge)
+                .to_strategy(&slots)
+                .unwrap(),
+            FusionStrategy::WeightedRrf {
+                profile: RrfProfile::Bridge
+            }
+        );
+        assert_eq!(
+            FusionChoice::SingleLensSlot(SlotId::new(14))
+                .to_strategy(&slots)
+                .unwrap(),
+            FusionStrategy::SingleLens {
+                slot: SlotId::new(14)
+            }
+        );
+        let err = FusionChoice::SingleLensSlot(SlotId::new(99))
+            .to_strategy(&slots)
+            .unwrap_err();
+        assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
     }
 
     #[test]

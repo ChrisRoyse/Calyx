@@ -234,6 +234,31 @@ fn missing_multi_sidecar_token_dim_mismatch_and_corrupt_sidecar_fail_closed() {
 }
 
 #[test]
+fn boundedness_check_is_scoped_to_selected_slots() {
+    let root = scratch("bounded-selected");
+    rebuild_from_docs(&root, &mixed_docs(), 26).expect("rebuild");
+    let indexes = PersistedSearchIndexes::open(&root).expect("open");
+    let multi_entry = indexes
+        .manifest
+        .slots
+        .iter()
+        .find(|entry| entry.slot == 2)
+        .unwrap();
+    fs::remove_file(root.join(multi_entry.index_rel.as_ref().unwrap())).unwrap();
+
+    indexes
+        .ensure_search_bounded_for_slots(Some(&BTreeSet::from([SlotId::new(0)])))
+        .expect("unselected corrupt multi sidecar is not opened");
+    let err = indexes
+        .ensure_search_bounded_for_slots(Some(&BTreeSet::from([SlotId::new(2)])))
+        .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_STALE_DERIVED");
+    assert!(err.message().contains("multi sidecar missing"));
+    cleanup(root);
+}
+
+#[test]
 fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
     let root = scratch("prune-stale");
     let stale_slot = root

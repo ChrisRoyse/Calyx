@@ -352,6 +352,19 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 min_recall: 0.95,
             })
         }),
+        (safe_name(), 1usize..16).prop_map(|(vault, top_k)| {
+            Subcommand::ProbeMatrix(probe_matrix::ProbeMatrixArgs {
+                vault,
+                frontier: "roundtrip frontier".to_string(),
+                slots: vec![calyx_core::SlotId::new(8)],
+                weighted_profiles: vec![calyx_sextant::RrfProfile::Bridge],
+                phrasings: vec![calyx_lodestar::ProbePhrasing::Clinical],
+                lengths: vec![calyx_lodestar::ProbeLength::Phrase],
+                top_k,
+                guard: calyx_search::GuardChoice::Off,
+                out: None,
+            })
+        }),
         (
             safe_name(),
             1usize..64,

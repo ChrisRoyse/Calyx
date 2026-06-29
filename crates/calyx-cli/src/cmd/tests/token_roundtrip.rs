@@ -76,9 +76,39 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         Subcommand::WeaveLoom(args) => weave_loom_tokens(args),
         Subcommand::DomainBridges(args) => domain_bridges_tokens(args),
         Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
+        Subcommand::ProbeMatrix(args) => probe_matrix_tokens(args),
         Subcommand::SpectralCommunities(args) => spectral_communities_tokens(args),
         Subcommand::ProfileLens(args) => profile_lens_tokens(args),
     }
+}
+
+fn probe_matrix_tokens(args: &probe_matrix::ProbeMatrixArgs) -> Vec<String> {
+    let mut out = vec![
+        "probe-matrix".to_string(),
+        args.vault.clone(),
+        "--frontier".to_string(),
+        args.frontier.clone(),
+    ];
+    for slot in &args.slots {
+        out.extend(["--slot".to_string(), slot.to_string()]);
+    }
+    for profile in &args.weighted_profiles {
+        out.extend(["--weighted-profile".to_string(), rrf_profile_name(*profile)]);
+    }
+    for phrasing in &args.phrasings {
+        out.extend(["--phrasing".to_string(), phrasing_name(*phrasing)]);
+    }
+    for length in &args.lengths {
+        out.extend(["--length".to_string(), length_name(*length)]);
+    }
+    out.extend(["--top-k".to_string(), args.top_k.to_string()]);
+    out.extend(["--guard".to_string(), guard_name(args.guard).to_string()]);
+    push_opt(
+        &mut out,
+        "--out",
+        args.out.as_ref().and_then(|p| p.to_str()),
+    );
+    out
 }
 
 fn discovery_chain_tokens(args: &discovery_chain::DiscoveryChainArgs) -> Vec<String> {
@@ -283,6 +313,25 @@ fn profile_lens_tokens(args: &ProfileLensArgs) -> Vec<String> {
 fn push_opt(out: &mut Vec<String>, flag: &str, value: Option<&str>) {
     if let Some(value) = value {
         out.extend([flag.to_string(), value.to_string()]);
+    }
+}
+
+fn rrf_profile_name(value: calyx_sextant::RrfProfile) -> String {
+    format!("{value:?}").to_ascii_lowercase()
+}
+
+fn phrasing_name(value: calyx_lodestar::ProbePhrasing) -> String {
+    format!("{value:?}").to_ascii_lowercase()
+}
+
+fn length_name(value: calyx_lodestar::ProbeLength) -> String {
+    format!("{value:?}").to_ascii_lowercase()
+}
+
+fn guard_name(value: calyx_search::GuardChoice) -> &'static str {
+    match value {
+        calyx_search::GuardChoice::Off => "off",
+        calyx_search::GuardChoice::InRegion => "in-region",
     }
 }
 
