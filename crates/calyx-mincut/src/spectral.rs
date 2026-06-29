@@ -2,17 +2,19 @@ use std::collections::BTreeMap;
 
 use calyx_core::CxId;
 use calyx_paths::AssocGraph;
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::spectral_linalg::{column, lanczos_eigen};
+use crate::spectral_linalg::{column, lanczos_eigen_operator};
 
 pub type NodeId = CxId;
 pub type SparseGraph = AssocGraph;
 pub type SpectralResult<T> = std::result::Result<T, SpectralError>;
 
 const EIGEN_EPS: f32 = 1.0e-6;
-const DEFAULT_EIGEN_MAX_ITER: usize = 256;
+const DEFAULT_EIGEN_MAX_ITER: usize = 64;
+const MIN_LANCZOS_DIM: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EigenPair {
@@ -95,14 +97,14 @@ pub fn eigenvector_centrality(
     if max_iter == 0 {
         return Err(SpectralError::NotConverged { iterations: 0 });
     }
-    let adjacency = sym_adjacency(graph);
-    let n = adjacency.len();
+    let sparse = SymmetricSparseGraph::from_assoc(graph);
+    let n = sparse.len();
     let mut current = vec![1.0 / (n as f32).sqrt(); n];
     let mut iterations = 0;
 
     for step in 1..=max_iter {
         iterations = step;
-        let mut next = shifted_mat_vec(&adjacency, &current);
+        let mut next = sparse.shifted_adjacency_mat_vec(&current);
         normalize(&mut next)?;
         if l2_distance(&next, &current) < tol {
             return Ok(ranked_scores(graph, &next));
@@ -128,13 +130,18 @@ pub fn laplacian_eigenmaps_with_max_iter(
     if max_iter == 0 {
         return Err(SpectralError::NotConverged { iterations: 0 });
     }
-    let laplacian = laplacian_matrix(graph);
-    let (values, vectors) = lanczos_eigen(laplacian, max_iter)?;
+    let sparse = SymmetricSparseGraph::from_assoc(graph);
+    let target_dim = lanczos_target_dim(sparse.len(), k, max_iter)?;
+    let shift = sparse.laplacian_shift();
+    let (values, vectors) =
+        lanczos_eigen_operator(sparse.len(), target_dim, target_dim, |vector| {
+            sparse.shifted_laplacian_mat_vec(vector, shift)
+        })?;
     let mut pairs: Vec<_> = values
         .into_iter()
         .enumerate()
         .map(|(index, eigenvalue)| EigenPair {
-            eigenvalue: clean_zero(eigenvalue),
+            eigenvalue: clean_zero(shift - eigenvalue),
             eigenvector: orient_vector(column(&vectors, index)),
         })
         .collect();
@@ -196,29 +203,88 @@ fn ensure_min_nodes(graph: &SparseGraph, required: usize) -> SpectralResult<()> 
     }
 }
 
-fn sym_adjacency(graph: &SparseGraph) -> Vec<Vec<f32>> {
-    let n = graph.node_count();
-    let mut matrix = vec![vec![0.0_f32; n]; n];
-    for edge in graph.edges() {
-        matrix[edge.src][edge.dst] = matrix[edge.src][edge.dst].max(edge.weight);
-        matrix[edge.dst][edge.src] = matrix[edge.dst][edge.src].max(edge.weight);
+fn lanczos_target_dim(n: usize, k: usize, max_iter: usize) -> SpectralResult<usize> {
+    let required = k.min(n);
+    let target = if n <= max_iter {
+        n
+    } else {
+        MIN_LANCZOS_DIM
+            .max(k.saturating_mul(4).saturating_add(8))
+            .min(max_iter)
+            .min(n)
+    };
+    if target < required {
+        return Err(SpectralError::NotConverged {
+            iterations: max_iter,
+        });
     }
-    matrix
+    Ok(target)
 }
 
-fn laplacian_matrix(graph: &SparseGraph) -> Vec<Vec<f32>> {
-    let adjacency = sym_adjacency(graph);
-    let mut laplacian = vec![vec![0.0; adjacency.len()]; adjacency.len()];
-    for (row, weights) in adjacency.iter().enumerate() {
-        let degree = weights.iter().sum::<f32>();
-        laplacian[row][row] = degree;
-        for (col, weight) in weights.iter().enumerate() {
-            if row != col {
-                laplacian[row][col] = -*weight;
-            }
+struct SymmetricSparseGraph {
+    adjacency: Vec<Vec<(usize, f32)>>,
+    degree: Vec<f32>,
+}
+
+impl SymmetricSparseGraph {
+    fn from_assoc(graph: &SparseGraph) -> Self {
+        let n = graph.node_count();
+        let mut rows = vec![BTreeMap::<usize, f32>::new(); n];
+        for edge in graph.edges() {
+            insert_max(&mut rows[edge.src], edge.dst, edge.weight);
+            insert_max(&mut rows[edge.dst], edge.src, edge.weight);
         }
+        let adjacency = rows
+            .into_iter()
+            .map(|row| row.into_iter().collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+        let degree = adjacency
+            .iter()
+            .map(|row| row.iter().map(|(_, weight)| *weight).sum::<f32>())
+            .collect();
+        Self { adjacency, degree }
     }
-    laplacian
+
+    fn len(&self) -> usize {
+        self.adjacency.len()
+    }
+
+    fn laplacian_shift(&self) -> f32 {
+        self.degree.iter().copied().fold(0.0_f32, f32::max) * 2.0 + EIGEN_EPS
+    }
+
+    fn shifted_adjacency_mat_vec(&self, vector: &[f32]) -> Vec<f32> {
+        self.adjacency
+            .par_iter()
+            .enumerate()
+            .map(|(row_index, row)| {
+                row.iter()
+                    .fold(vector[row_index], |acc, (col_index, weight)| {
+                        acc + weight * vector[*col_index]
+                    })
+            })
+            .collect()
+    }
+
+    fn shifted_laplacian_mat_vec(&self, vector: &[f32], shift: f32) -> Vec<f32> {
+        self.adjacency
+            .par_iter()
+            .enumerate()
+            .map(|(row_index, row)| {
+                let laplacian_value = row.iter().fold(
+                    self.degree[row_index] * vector[row_index],
+                    |acc, (col_index, weight)| acc - weight * vector[*col_index],
+                );
+                shift * vector[row_index] - laplacian_value
+            })
+            .collect()
+    }
+}
+
+fn insert_max(row: &mut BTreeMap<usize, f32>, col: usize, weight: f32) {
+    row.entry(col)
+        .and_modify(|stored| *stored = (*stored).max(weight))
+        .or_insert(weight);
 }
 
 fn ranked_scores(graph: &SparseGraph, vector: &[f32]) -> Vec<(NodeId, f32)> {
@@ -258,14 +324,6 @@ fn orient_vector(mut vector: Vec<f32>) -> Vec<f32> {
         }
     }
     vector
-}
-
-fn shifted_mat_vec(matrix: &[Vec<f32>], vector: &[f32]) -> Vec<f32> {
-    matrix
-        .iter()
-        .zip(vector)
-        .map(|(row, identity)| dot(row, vector) + identity)
-        .collect()
 }
 
 fn dot(left: &[f32], right: &[f32]) -> f32 {

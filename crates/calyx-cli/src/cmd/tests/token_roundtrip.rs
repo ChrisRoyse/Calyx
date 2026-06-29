@@ -75,8 +75,35 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         ],
         Subcommand::WeaveLoom(args) => weave_loom_tokens(args),
         Subcommand::DomainBridges(args) => domain_bridges_tokens(args),
+        Subcommand::SpectralCommunities(args) => spectral_communities_tokens(args),
         Subcommand::ProfileLens(args) => profile_lens_tokens(args),
     }
+}
+
+fn spectral_communities_tokens(
+    args: &spectral_communities::SpectralCommunitiesArgs,
+) -> Vec<String> {
+    let mut out = vec!["spectral-communities".to_string(), args.vault.clone()];
+    out.extend([
+        "--eigen-k".to_string(),
+        args.eigen_k.to_string(),
+        "--eigen-max-iter".to_string(),
+        args.eigen_max_iter.to_string(),
+        "--centrality-max-iter".to_string(),
+        args.centrality_max_iter.to_string(),
+        "--centrality-tol".to_string(),
+        args.centrality_tol.to_string(),
+        "--max-bridge-candidates".to_string(),
+        args.max_bridge_candidates.to_string(),
+        "--max-centrality-candidates".to_string(),
+        args.max_centrality_candidates.to_string(),
+    ]);
+    push_opt(
+        &mut out,
+        "--out",
+        args.out.as_ref().and_then(|p| p.to_str()),
+    );
+    out
 }
 
 fn domain_bridges_tokens(args: &domain_bridges::DomainBridgesArgs) -> Vec<String> {

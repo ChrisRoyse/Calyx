@@ -7,6 +7,7 @@ mod lens;
 mod provenance;
 mod readback;
 mod search;
+mod spectral_communities;
 pub(crate) mod vault;
 mod weave;
 
@@ -62,6 +63,7 @@ pub(crate) enum Subcommand {
     KernelBuild(kernel_build::KernelBuildArgs),
     WeaveLoom(weave::WeaveLoomArgs),
     DomainBridges(domain_bridges::DomainBridgesArgs),
+    SpectralCommunities(spectral_communities::SpectralCommunitiesArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -176,6 +178,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::KernelBuild(_) => kernel_build::run(command),
         Subcommand::WeaveLoom(_) => weave::run(command),
         Subcommand::DomainBridges(_) => domain_bridges::run(command),
+        Subcommand::SpectralCommunities(_) => spectral_communities::run(command),
     }
 }
 
@@ -208,6 +211,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "kernel-build" => kernel_build::parse_kernel_build(rest),
         "weave-loom" => weave::parse_weave_loom(rest),
         "domain-bridges" => domain_bridges::parse_domain_bridges(rest),
+        "spectral-communities" => spectral_communities::parse_spectral_communities(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -239,6 +243,7 @@ fn is_cmd(command: &str) -> bool {
             | "kernel-build"
             | "weave-loom"
             | "domain-bridges"
+            | "spectral-communities"
     )
 }
 

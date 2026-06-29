@@ -114,8 +114,9 @@ pub fn spectral_community_report(
     )?);
     let fiedler = &eigenmaps[1];
     let max_frequency = max_frequency(graph);
-    let max_degree = max_degree(graph)?;
-    let members = community_members(graph, &fiedler.eigenvector, &centrality)?;
+    let degree_counts = degree_counts(graph);
+    let max_degree = max_degree(&degree_counts);
+    let members = community_members(graph, &fiedler.eigenvector, &centrality, &degree_counts)?;
     let community_by_id = members
         .iter()
         .map(|member| (member.cx_id, member.community))
@@ -148,6 +149,7 @@ fn community_members(
     graph: &AssocGraph,
     fiedler: &[f32],
     centrality: &BTreeMap<CxId, f32>,
+    degree_counts: &BTreeMap<CxId, usize>,
 ) -> Result<Vec<SpectralCommunityMember>> {
     if fiedler.len() != graph.node_count() {
         return invalid_params("fiedler vector length must match graph node count");
@@ -164,7 +166,7 @@ fn community_members(
             fiedler_value,
             centrality_score: centrality.get(&cx_id).copied().unwrap_or(0.0),
             frequency_weight: graph.node_weight(cx_id)?,
-            degree: graph.in_degree(cx_id)? + graph.out_degree(cx_id)?,
+            degree: degree_counts.get(&cx_id).copied().unwrap_or(0),
         });
     }
     Ok(members)
@@ -285,12 +287,21 @@ fn max_frequency(graph: &AssocGraph) -> f32 {
         .fold(0.0_f32, f32::max)
 }
 
-fn max_degree(graph: &AssocGraph) -> Result<usize> {
-    let mut value = 1_usize;
-    for id in graph.node_ids() {
-        value = value.max(graph.in_degree(id)? + graph.out_degree(id)?);
+fn degree_counts(graph: &AssocGraph) -> BTreeMap<CxId, usize> {
+    let mut counts = graph
+        .node_ids()
+        .map(|id| (id, 0_usize))
+        .collect::<BTreeMap<_, _>>();
+    for edge in graph.edges() {
+        let (src, dst) = graph.edge_endpoints(*edge);
+        *counts.entry(src).or_default() += 1;
+        *counts.entry(dst).or_default() += 1;
     }
-    Ok(value)
+    counts
+}
+
+fn max_degree(counts: &BTreeMap<CxId, usize>) -> usize {
+    counts.values().copied().max().unwrap_or(1).max(1)
 }
 
 fn validate_params(params: &SpectralCommunityParams) -> Result<()> {

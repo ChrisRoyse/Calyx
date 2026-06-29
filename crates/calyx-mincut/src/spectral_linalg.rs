@@ -2,25 +2,48 @@ use crate::spectral::{SpectralError, SpectralResult};
 
 const EIGEN_EPS: f32 = 1.0e-6;
 const JACOBI_TOL: f32 = 1.0e-6;
-const JACOBI_MAX_ITER: usize = 256;
+const JACOBI_MIN_MAX_ITER: usize = 256;
+const JACOBI_ROTATIONS_PER_ENTRY: usize = 16;
 
-pub(crate) fn lanczos_eigen(
-    matrix: Vec<Vec<f32>>,
+pub(crate) fn lanczos_eigen_operator<F>(
+    n: usize,
+    target_dim: usize,
     max_iter: usize,
-) -> SpectralResult<(Vec<f32>, Vec<Vec<f32>>)> {
-    let n = matrix.len();
-    let basis = lanczos_basis(&matrix, n, max_iter)?;
-    let projected = project_to_basis(&matrix, &basis);
-    let (values, ritz_vectors) = jacobi_eigen(projected, JACOBI_MAX_ITER)?;
+    mut mat_vec: F,
+) -> SpectralResult<(Vec<f32>, Vec<Vec<f32>>)>
+where
+    F: FnMut(&[f32]) -> Vec<f32>,
+{
+    if target_dim == 0 {
+        return Ok((Vec::new(), Vec::new()));
+    }
+    if max_iter == 0 || target_dim > n || target_dim > max_iter {
+        return Err(SpectralError::NotConverged {
+            iterations: max_iter,
+        });
+    }
+    let basis = lanczos_basis_operator(n, target_dim, max_iter, &mut mat_vec)?;
+    let projected = project_to_basis_operator(&basis, &mut mat_vec);
+    let jacobi_max_iter = jacobi_max_iter(projected.len());
+    let (values, ritz_vectors) = jacobi_eigen(projected, jacobi_max_iter)?;
     Ok((values, expand_ritz_vectors(&basis, &ritz_vectors)))
 }
 
-fn lanczos_basis(
-    matrix: &[Vec<f32>],
+fn jacobi_max_iter(n: usize) -> usize {
+    n.saturating_mul(n)
+        .saturating_mul(JACOBI_ROTATIONS_PER_ENTRY)
+        .max(JACOBI_MIN_MAX_ITER)
+}
+
+fn lanczos_basis_operator<F>(
+    n: usize,
     target_dim: usize,
     max_iter: usize,
-) -> SpectralResult<Vec<Vec<f32>>> {
-    let n = matrix.len();
+    mat_vec: &mut F,
+) -> SpectralResult<Vec<Vec<f32>>>
+where
+    F: FnMut(&[f32]) -> Vec<f32>,
+{
     let mut basis = Vec::with_capacity(target_dim);
     let mut seed_index = 0;
     let mut iterations = 0;
@@ -36,7 +59,7 @@ fn lanczos_basis(
             if basis.len() == target_dim || iterations == max_iter {
                 break;
             }
-            let mut residual = dense_mat_vec(matrix, &current);
+            let mut residual = mat_vec(&current);
             if previous_beta > EIGEN_EPS {
                 axpy(&mut residual, -previous_beta, &previous);
             }
@@ -75,10 +98,13 @@ fn next_lanczos_seed(n: usize, basis: &[Vec<f32>], seed_index: &mut usize) -> Op
     None
 }
 
-fn project_to_basis(matrix: &[Vec<f32>], basis: &[Vec<f32>]) -> Vec<Vec<f32>> {
+fn project_to_basis_operator<F>(basis: &[Vec<f32>], mat_vec: &mut F) -> Vec<Vec<f32>>
+where
+    F: FnMut(&[f32]) -> Vec<f32>,
+{
     let mut projected = vec![vec![0.0; basis.len()]; basis.len()];
     for (col, vector) in basis.iter().enumerate() {
-        let product = dense_mat_vec(matrix, vector);
+        let product = mat_vec(vector);
         for (row, basis_vector) in basis.iter().enumerate() {
             projected[row][col] = dot(basis_vector, &product);
         }
@@ -180,10 +206,6 @@ fn orthonormalize_columns(matrix: &mut [Vec<f32>]) -> SpectralResult<()> {
         }
     }
     Ok(())
-}
-
-fn dense_mat_vec(matrix: &[Vec<f32>], vector: &[f32]) -> Vec<f32> {
-    matrix.iter().map(|row| dot(row, vector)).collect()
 }
 
 fn dot(left: &[f32], right: &[f32]) -> f32 {
