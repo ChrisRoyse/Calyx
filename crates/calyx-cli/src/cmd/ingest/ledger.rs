@@ -16,6 +16,27 @@ pub(super) fn append_cli_ledger(
     append_ledger_payload(vault, kind, cx_id, bytes)
 }
 
+pub(super) fn append_cli_batch_ledger(
+    vault: &AsterVault,
+    kind: EntryKind,
+    cx_ids: &[CxId],
+    mode: &'static str,
+) -> CliResult<u64> {
+    let first = *cx_ids
+        .first()
+        .ok_or_else(|| crate::error::CliError::usage("batch ledger requires at least one cx_id"))?;
+    let cx_ids = cx_ids.iter().map(CxId::to_string).collect::<Vec<_>>();
+    let bytes = serde_json::to_vec(&serde_json::json!({
+        "mode": mode,
+        "count": cx_ids.len(),
+        "cx_id": cx_ids,
+        "first_cx_id": cx_ids.first(),
+        "last_cx_id": cx_ids.last(),
+    }))?;
+    RedactionPolicy::check_payload(&bytes)?;
+    append_ledger_payload(vault, kind, first, bytes)
+}
+
 pub(super) fn append_anchor_ledger(
     vault: &AsterVault,
     cx_id: CxId,
