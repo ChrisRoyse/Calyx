@@ -5,6 +5,7 @@ mod ingest;
 mod intelligence;
 mod kernel_build;
 mod lens;
+mod probe_matrix;
 mod provenance;
 mod readback;
 mod search;
@@ -65,6 +66,7 @@ pub(crate) enum Subcommand {
     WeaveLoom(weave::WeaveLoomArgs),
     DomainBridges(domain_bridges::DomainBridgesArgs),
     DiscoveryChain(discovery_chain::DiscoveryChainArgs),
+    ProbeMatrix(probe_matrix::ProbeMatrixArgs),
     SpectralCommunities(spectral_communities::SpectralCommunitiesArgs),
 }
 
@@ -181,6 +183,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::WeaveLoom(_) => weave::run(command),
         Subcommand::DomainBridges(_) => domain_bridges::run(command),
         Subcommand::DiscoveryChain(_) => discovery_chain::run(command),
+        Subcommand::ProbeMatrix(_) => probe_matrix::run(command),
         Subcommand::SpectralCommunities(_) => spectral_communities::run(command),
     }
 }
@@ -215,6 +218,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "weave-loom" => weave::parse_weave_loom(rest),
         "domain-bridges" => domain_bridges::parse_domain_bridges(rest),
         "discovery-chain" => discovery_chain::parse_discovery_chain(rest),
+        "probe-matrix" => probe_matrix::parse_probe_matrix(rest),
         "spectral-communities" => spectral_communities::parse_spectral_communities(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
@@ -248,6 +252,7 @@ fn is_cmd(command: &str) -> bool {
             | "weave-loom"
             | "domain-bridges"
             | "discovery-chain"
+            | "probe-matrix"
             | "spectral-communities"
     )
 }

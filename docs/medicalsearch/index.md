@@ -31,7 +31,7 @@ still requires experimental confirmation.
 | `09_domain_bridges.md` | #876 domain-pair bridge B-term ranking report | done + real clinical-corpus FSV; non-clinical corpus materialization tracked separately |
 | `10_spectral_communities.md` | #877 spectral community and inter-community bridge report | done + real clinical-corpus FSV |
 | `11_discovery_harness.md` | #878 gated discovery chain harness | done + real clinical-corpus 100-hop FSV |
-| `12_probe_matrix.md` | #879 probe matrix planner and productive-combination log | implementation slice + synthetic FSV; corpus run pending |
+| `12_probe_matrix.md` | #879 physical probe matrix harness and productive-combination log | done + real physical-vault FSV; large-corpus blockers split to #1000/#1001 |
 | `13_chain_walks_synthetic.md` | #880 grounded chain-walk report for static/operator seeds | implementation slice + synthetic FSV; corpus chain walks pending |
 | `14_hypothesis_evaluation.md` | #881 transparent multi-prompt hypothesis evaluation report | implementation slice + synthetic FSV; real evaluator runs pending |
 | `15_ranked_hypotheses.md` | #882 ranked traceable hypothesis list | implementation slice + synthetic FSV; real ranked list pending |
