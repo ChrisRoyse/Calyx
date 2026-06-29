@@ -1,7 +1,6 @@
 //! `calyx probe-matrix <vault>` -- run physical probe-matrix search (#879).
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -17,7 +16,6 @@ use calyx_search::{FusionChoice, GuardChoice, search_outcome_with_slots};
 use calyx_sextant::{Hit, RrfProfile};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use sha2::{Digest, Sha256};
 
 use super::Subcommand;
 use super::vault::{home_dir, resolve_vault_info, vault_salt};
@@ -25,7 +23,9 @@ use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 
 mod parse;
+mod persist;
 pub(crate) use parse::parse_probe_matrix;
+use persist::persist_probe_matrix;
 const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,16 +65,6 @@ struct ProbeMatrixArtifact {
     vault_dir: String,
     active_slots: Vec<SlotId>,
     log: ProbeMatrixLog,
-}
-
-struct PersistedProbeMatrix {
-    path: PathBuf,
-    bytes: u64,
-    sha256: String,
-    readback_record_count: usize,
-    readback_productive_count: usize,
-    readback_accepted_hit_count: usize,
-    readback_refusal_count: usize,
 }
 
 pub(crate) fn run(command: Subcommand) -> CliResult {
@@ -392,55 +382,6 @@ fn ensure_useful_log(log: &ProbeMatrixLog) -> CliResult {
     Ok(())
 }
 
-fn persist_probe_matrix(
-    vault_dir: &Path,
-    explicit: Option<&Path>,
-    artifact: &ProbeMatrixArtifact,
-) -> CliResult<PersistedProbeMatrix> {
-    let bytes = serde_json::to_vec_pretty(artifact)?;
-    let matrix_id = blake3::hash(&bytes).to_hex().to_string();
-    let path = explicit.map(Path::to_path_buf).unwrap_or_else(|| {
-        vault_dir
-            .join("idx")
-            .join("probe_matrix")
-            .join(matrix_id)
-            .join("matrix.json")
-    });
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    if path.exists() {
-        let existing = fs::read(&path)?;
-        if existing != bytes {
-            return Err(CliError::usage(format!(
-                "refusing to overwrite existing different probe matrix {}",
-                path.display()
-            )));
-        }
-    } else {
-        let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, &bytes)?;
-        fs::rename(&tmp, &path)?;
-    }
-    let readback = fs::read(&path)?;
-    if readback != bytes {
-        return Err(CliError::usage(format!(
-            "probe matrix readback mismatch at {}",
-            path.display()
-        )));
-    }
-    let decoded: ProbeMatrixArtifact = serde_json::from_slice(&readback)?;
-    Ok(PersistedProbeMatrix {
-        path,
-        bytes: readback.len() as u64,
-        sha256: sha256_hex(&readback),
-        readback_record_count: decoded.log.records.len(),
-        readback_productive_count: decoded.log.productive.len(),
-        readback_accepted_hit_count: accepted_hit_count(&decoded.log),
-        readback_refusal_count: refusal_count(&decoded.log),
-    })
-}
-
 fn active_text_slots(slots: &[calyx_core::Slot]) -> CliResult<Vec<SlotId>> {
     let out = slots
         .iter()
@@ -490,10 +431,6 @@ fn invalid_params(detail: impl Into<String>) -> CliError {
         detail: detail.into(),
     }
     .into()
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    hex_lower(&Sha256::digest(bytes))
 }
 
 fn hex_lower(bytes: &[u8]) -> String {
