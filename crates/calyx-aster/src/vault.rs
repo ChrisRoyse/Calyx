@@ -248,6 +248,16 @@ where
             .read_at(self.snapshot_handle(snapshot), cf, key, &self.clock)
     }
 
+    /// Reads one raw CF row using an already-pinned snapshot lease.
+    pub fn read_cf_snapshot(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        key: &[u8],
+    ) -> Result<Option<Vec<u8>>> {
+        self.rows.read_at(snapshot, cf, key, &self.clock)
+    }
+
     /// Writes raw CF rows through the same WAL/MVCC commit path as vault puts.
     pub fn write_cf_batch(
         &self,
@@ -274,6 +284,15 @@ where
             .scan_cf_at(self.snapshot_handle(snapshot), cf, &self.clock)
     }
 
+    /// Scans visible raw CF rows using an already-pinned snapshot lease.
+    pub fn scan_cf_snapshot(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.rows.scan_cf_at(snapshot, cf, &self.clock)
+    }
+
     /// Scans visible raw CF rows in a key range at `snapshot`.
     pub fn scan_cf_range_at(
         &self,
@@ -283,6 +302,16 @@ where
     ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
         self.rows
             .scan_cf_range_at(self.snapshot_handle(snapshot), cf, range, &self.clock)
+    }
+
+    /// Scans visible raw CF rows in a key range using an already-pinned snapshot lease.
+    pub fn scan_cf_range_snapshot(
+        &self,
+        snapshot: Snapshot,
+        cf: ColumnFamily,
+        range: &KeyRange,
+    ) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+        self.rows.scan_cf_range_at(snapshot, cf, range, &self.clock)
     }
 
     /// Scans visible raw CF row keys in a key range at `snapshot`.

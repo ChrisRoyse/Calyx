@@ -9,17 +9,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use calyx_aster::mvcc::{Freshness, Snapshot};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector};
 use calyx_sextant::fusion;
 use calyx_sextant::{FusionContext, FusionStrategy, Hit, RrfProfile};
 
 use crate::error::CliResult;
-use crate::persisted::{PersistedSearchIndexes, load_docs};
-use crate::provenance::{attach_verified_provenance, hit_docs};
+use crate::persisted::{PersistedSearchIndexes, load_docs_at};
+use crate::provenance::{attach_verified_provenance, hit_docs_at};
 
 /// In-region guard cosine threshold (mirrors the CLI default).
 const GUARD_TAU: f32 = 0.999;
+
+/// Bounded MVCC reader lease for a whole search readback pass.
+const SEARCH_READER_LEASE_MS: u64 = 300_000;
 
 /// Fusion strategy choice (transport-agnostic; the CLI flag parser and the HTTP
 /// request both map onto this, then it resolves to a concrete `FusionStrategy`
@@ -129,10 +133,70 @@ pub fn search_outcome_with_slots(
     explain: bool,
     allowed_slots: Option<&BTreeSet<SlotId>>,
 ) -> CliResult<SearchOutcome> {
+    let query_vectors = measure_query_vectors_with_slots(state, query, allowed_slots)?;
+    search_outcome_with_measured_slots(
+        vault,
+        vault_dir,
+        &query_vectors,
+        k,
+        fusion,
+        guard,
+        filter,
+        explain,
+        allowed_slots,
+    )
+}
+
+/// Run search with query vectors measured by the caller. This is used by warm
+/// resident-service callers so query embedding does not cold-load GPU runtimes
+/// inside the search process.
+#[allow(clippy::too_many_arguments)]
+pub fn search_outcome_with_query_vectors(
+    vault: &AsterVault,
+    vault_dir: &Path,
+    query_vectors: &[(SlotId, SlotVector)],
+    k: usize,
+    fusion: FusionChoice,
+    guard: GuardChoice,
+    filter: Option<&str>,
+    explain: bool,
+) -> CliResult<SearchOutcome> {
+    let allowed_slots = query_vectors
+        .iter()
+        .map(|(slot, _)| *slot)
+        .collect::<BTreeSet<_>>();
+    search_outcome_with_measured_slots(
+        vault,
+        vault_dir,
+        query_vectors,
+        k,
+        fusion,
+        guard,
+        filter,
+        explain,
+        Some(&allowed_slots),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_outcome_with_measured_slots(
+    vault: &AsterVault,
+    vault_dir: &Path,
+    query_vectors: &[(SlotId, SlotVector)],
+    k: usize,
+    fusion: FusionChoice,
+    guard: GuardChoice,
+    filter: Option<&str>,
+    explain: bool,
+    allowed_slots: Option<&BTreeSet<SlotId>>,
+) -> CliResult<SearchOutcome> {
     let filters = crate::filters::parse(filter)?;
+    let read = SearchReadSnapshot::pin(vault);
     let indexes = match PersistedSearchIndexes::open(vault_dir) {
         Ok(indexes) => indexes,
-        Err(error) if is_stale_derived(&error) && vault_base_count(vault)? == 0 => {
+        Err(error)
+            if is_stale_derived(&error) && vault_base_count_at(vault, read.snapshot())? == 0 =>
+        {
             return Ok(SearchOutcome::empty());
         }
         Err(error) => return Err(error),
@@ -141,7 +205,6 @@ pub fn search_outcome_with_slots(
         return Ok(SearchOutcome::empty());
     }
     indexes.ensure_search_bounded_for_slots(allowed_slots)?;
-    let query_vectors = measure_query_vectors_with_slots(state, query, allowed_slots)?;
     if query_vectors.is_empty() {
         return Err(no_indexable_query_vectors().into());
     }
@@ -155,7 +218,7 @@ pub fn search_outcome_with_slots(
         .unwrap_or_else(|| k.max(64));
     let per_slot = search_slots(
         &indexes,
-        &query_vectors,
+        query_vectors,
         search_k,
         filter_candidates.as_ref(),
     )?;
@@ -169,19 +232,47 @@ pub fn search_outcome_with_slots(
         explain,
         strategy: strategy.clone(),
         weights: weights_for(&strategy, &slots),
-        stage1_slots: stage1_slots(&strategy, &query_vectors, &slots),
+        stage1_slots: stage1_slots(&strategy, query_vectors, &slots),
     };
     let mut hits = fusion::fuse(&per_slot, &context);
-    let hit_docs = hit_docs(vault, &hits)?;
-    attach_verified_provenance(&mut hits, &hit_docs, vault_dir, vault.latest_seq())?;
+    let hit_docs = hit_docs_at(vault, &hits, read.snapshot())?;
+    attach_verified_provenance(&mut hits, &hit_docs, vault_dir, read.seq())?;
     let guard_tau = if guard == GuardChoice::InRegion {
-        hits = apply_in_region_guard(hits, &hit_docs, &query_vectors);
+        hits = apply_in_region_guard(hits, &hit_docs, query_vectors);
         Some(GUARD_TAU)
     } else {
         None
     };
     renumber_and_truncate(&mut hits, k);
     Ok(SearchOutcome { hits, guard_tau })
+}
+
+struct SearchReadSnapshot<'a> {
+    vault: &'a AsterVault,
+    snapshot: Snapshot,
+}
+
+impl<'a> SearchReadSnapshot<'a> {
+    fn pin(vault: &'a AsterVault) -> Self {
+        Self {
+            vault,
+            snapshot: vault.pin_reader(Freshness::FreshDerived, SEARCH_READER_LEASE_MS),
+        }
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        self.snapshot
+    }
+
+    fn seq(&self) -> u64 {
+        self.snapshot.seq()
+    }
+}
+
+impl Drop for SearchReadSnapshot<'_> {
+    fn drop(&mut self) {
+        let _ = self.vault.release_reader(self.snapshot.lease().id());
+    }
 }
 
 fn is_stale_derived(error: &crate::error::SearchError) -> bool {
@@ -291,8 +382,8 @@ fn guard_cosine(
         .max_by(f32::total_cmp)
 }
 
-fn vault_base_count(vault: &AsterVault) -> CliResult<usize> {
-    Ok(load_docs(vault)?.len())
+fn vault_base_count_at(vault: &AsterVault, snapshot: Snapshot) -> CliResult<usize> {
+    Ok(load_docs_at(vault, snapshot)?.len())
 }
 
 fn renumber_and_truncate(hits: &mut Vec<Hit>, k: usize) {

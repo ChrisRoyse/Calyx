@@ -332,6 +332,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             provenance: true,
             freshness: search::SearchFreshnessArg::Fresh,
             filter: None,
+            resident_addr: None,
         })),
         safe_name().prop_map(|vault| Subcommand::KernelAnswer(search::KernelAnswerArgs {
             vault,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::path_identity::vault_template_source;
 
 const RESIDENT_CPU_LENS_REFUSED: &str = "CALYX_PANEL_RESIDENT_CPU_LENS_REFUSED";
 
@@ -117,7 +118,7 @@ fn load_vault_resident_warm_state(
     vault: PathBuf,
 ) -> CliResult<ResidentWarmState> {
     let _worker_shutdown = MultimodalGpuWorkerShutdownGuard;
-    let selector = format!("vault:{}", vault.display());
+    let selector = vault_template_source(&vault)?;
     let progress_log = options
         .progress_out
         .clone()
@@ -166,8 +167,8 @@ fn load_vault_resident_warm_state(
         .filter(|slot| slot.resource.placement == Placement::Gpu)
         .count();
     Ok(ResidentWarmState {
-        source_of_truth: vault_source_of_truth(&vault),
-        template_source: format!("vault:{}", vault.display()),
+        source_of_truth: vault_source_of_truth(&selector),
+        template_source: selector.clone(),
         build,
         home: options.home,
         template_selector: selector,
@@ -186,8 +187,8 @@ fn load_vault_resident_warm_state(
     })
 }
 
-fn vault_source_of_truth(vault: &Path) -> String {
-    format!("vault MANIFEST panel_ref registry_ref:{}", vault.display())
+fn vault_source_of_truth(vault_source: &str) -> String {
+    format!("vault MANIFEST panel_ref registry_ref:{vault_source}")
 }
 
 fn require_gpu_content_slots(selector: &str, slots: &[Slot]) -> CliResult {
