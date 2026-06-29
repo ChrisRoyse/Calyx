@@ -489,6 +489,7 @@ fn ingest_validated_batch_streaming_with_output(
         "phase=batch_ingest_plan rows={} runtime_batch_limit={} measure_window={} put_chunk={} output={:?}",
         validated_row_count, runtime_batch_limit, measure_window, PUT_CHUNK, output
     ));
+    preflight_batch_existing_identity(&vault, &state, path, validated_row_count)?;
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_window);
     let mut summary = BatchIngestSummary::empty();
     for (index, line) in reader.lines().enumerate() {
@@ -689,6 +690,62 @@ fn flush_measure_batch(
     Ok(())
 }
 
+fn preflight_batch_existing_identity(
+    vault: &AsterVault,
+    state: &VaultPanelState,
+    path: &std::path::Path,
+    validated_row_count: usize,
+) -> CliResult<()> {
+    use std::io::BufRead;
+
+    let started = std::time::Instant::now();
+    ingest_runtime_log(format_args!(
+        "phase=batch_existing_identity_preflight_start rows={validated_row_count}"
+    ));
+    let file = std::fs::File::open(path)
+        .map_err(|err| CliError::io(format!("open batch {}: {err}", path.display())))?;
+    let reader = std::io::BufReader::new(file);
+    let snapshot = vault.snapshot();
+    let mut checked_existing = 0_usize;
+    let mut not_existing_or_incomplete = 0_usize;
+    for (index, line) in reader.lines().enumerate() {
+        let line =
+            line.map_err(|err| CliError::io(format!("read batch line {}: {err}", index + 1)))?;
+        let Some((text, mut metadata, anchors, oracle)) = parse_batch_line(index, &line)? else {
+            continue;
+        };
+        if let Some(event) = &oracle {
+            event.apply_metadata(&mut metadata)?;
+        }
+        let input = text_input(text);
+        let row = ExistingPlainReplayRow {
+            cx_id: vault.cx_id_for_input(&input.bytes, state.panel.version),
+            panel_version: state.panel.version,
+            input_ref: InputRef {
+                hash: input_hash(&input.bytes),
+                pointer: input.pointer,
+                redacted: false,
+            },
+            modality: input.modality,
+            metadata,
+            anchors,
+        };
+        if verify_existing_base_replay_row(vault, snapshot, &row)? {
+            checked_existing += 1;
+        } else {
+            not_existing_or_incomplete += 1;
+        }
+    }
+    ingest_runtime_log(format_args!(
+        "phase=batch_existing_identity_preflight_ok rows={} existing_checked={} not_existing_or_incomplete={} elapsed_ms={}",
+        validated_row_count,
+        checked_existing,
+        not_existing_or_incomplete,
+        started.elapsed().as_millis()
+    ));
+    Ok(())
+}
+
 struct ExistingPlainReplayRow {
     cx_id: CxId,
     panel_version: u32,
@@ -714,6 +771,8 @@ fn existing_plain_batch_replay_rows(
 ) -> CliResult<Option<Vec<ExistingPlainReplayRow>>> {
     let mut out = Vec::with_capacity(rows.len());
     let snapshot = vault.snapshot();
+    let mut all_materialized = true;
+    let mut checked_existing = 0_usize;
     for (text, metadata, anchors, _) in rows {
         let input = text_input(text.clone());
         let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
@@ -731,11 +790,22 @@ fn existing_plain_batch_replay_rows(
             anchors: anchors.clone(),
         };
         if !verify_existing_base_replay_row(vault, snapshot, &row)? {
-            return Ok(None);
+            all_materialized = false;
+            continue;
         }
+        checked_existing += 1;
         out.push(row);
     }
-    Ok(Some(out))
+    if all_materialized {
+        Ok(Some(out))
+    } else {
+        ingest_runtime_log(format_args!(
+            "phase=batch_existing_replay_base_only_preflight_mixed rows={} existing_materialized={} measurement_required=true slot_decode_skipped=true",
+            rows.len(),
+            checked_existing
+        ));
+        Ok(None)
+    }
 }
 
 fn flush_plain_existing_batch_replay(
@@ -791,8 +861,18 @@ fn verify_existing_base_replay_row(
         || existing.metadata != row.metadata
     {
         return Err(CliError::usage(format!(
-            "idempotent batch replay for cx {} changed stored non-anchor identity",
-            row.cx_id
+            "idempotent batch replay for cx {} changed stored non-anchor identity: {}",
+            row.cx_id,
+            identity_mismatch_reason(
+                existing.panel_version,
+                row.panel_version,
+                &existing.input_ref,
+                &row.input_ref,
+                existing.modality,
+                row.modality,
+                &existing.metadata,
+                &row.metadata,
+            )
         )));
     }
     if !incoming_anchors_already_materialized(vault, snapshot, row.cx_id, &row.anchors, &existing)?
@@ -862,11 +942,14 @@ fn existing_batch_replay_rows(
     rows: &[BatchRow],
 ) -> CliResult<Option<Vec<ExistingBatchReplayRow>>> {
     let mut out = Vec::with_capacity(rows.len());
+    let mut all_exist = true;
+    let mut checked_existing = 0_usize;
     for (text, metadata, anchors, oracle) in rows {
         let input = text_input(text.clone());
         let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
         if !base_exists(vault, cx_id)? {
-            return Ok(None);
+            all_exist = false;
+            continue;
         }
         let input_ref = InputRef {
             hash: input_hash(&input.bytes),
@@ -882,9 +965,19 @@ fn existing_batch_replay_rows(
             oracle: oracle.clone(),
         };
         verify_existing_batch_replay_identity(vault, state, &row)?;
+        checked_existing += 1;
         out.push(row);
     }
-    Ok(Some(out))
+    if all_exist {
+        Ok(Some(out))
+    } else {
+        ingest_runtime_log(format_args!(
+            "phase=batch_existing_replay_preflight_mixed rows={} existing_checked={} measurement_required=true",
+            rows.len(),
+            checked_existing
+        ));
+        Ok(None)
+    }
 }
 
 fn flush_existing_batch_replay(
@@ -994,8 +1087,18 @@ fn verify_existing_batch_replay_identity(
         || existing.metadata != row.metadata
     {
         return Err(CliError::usage(format!(
-            "idempotent batch replay for cx {} changed stored non-anchor identity",
-            row.cx_id
+            "idempotent batch replay for cx {} changed stored non-anchor identity: {}",
+            row.cx_id,
+            identity_mismatch_reason(
+                existing.panel_version,
+                state.panel.version,
+                &existing.input_ref,
+                &row.input_ref,
+                existing.modality,
+                row.modality,
+                &existing.metadata,
+                &row.metadata,
+            )
         )));
     }
     ensure_content_panel_floor(&existing, state)?;
@@ -1027,11 +1130,86 @@ fn ensure_idempotent_batch_replay(
         || existing.metadata != cx.metadata
     {
         return Err(CliError::usage(format!(
-            "idempotent batch replay for cx {} changed stored non-anchor identity",
-            cx.cx_id
+            "idempotent batch replay for cx {} changed stored non-anchor identity: {}",
+            cx.cx_id,
+            identity_mismatch_reason(
+                existing.panel_version,
+                cx.panel_version,
+                &existing.input_ref,
+                &cx.input_ref,
+                existing.modality,
+                cx.modality,
+                &existing.metadata,
+                &cx.metadata,
+            )
         )));
     }
     Ok(existing)
+}
+
+fn identity_mismatch_reason(
+    existing_panel_version: u32,
+    incoming_panel_version: u32,
+    existing_input_ref: &InputRef,
+    incoming_input_ref: &InputRef,
+    existing_modality: Modality,
+    incoming_modality: Modality,
+    existing_metadata: &BTreeMap<String, String>,
+    incoming_metadata: &BTreeMap<String, String>,
+) -> String {
+    let mut reasons = Vec::new();
+    if existing_panel_version != incoming_panel_version {
+        reasons.push(format!(
+            "panel_version existing={} incoming={}",
+            existing_panel_version, incoming_panel_version
+        ));
+    }
+    if existing_input_ref != incoming_input_ref {
+        let mut input_parts = Vec::new();
+        if existing_input_ref.hash != incoming_input_ref.hash {
+            input_parts.push("hash");
+        }
+        if existing_input_ref.pointer != incoming_input_ref.pointer {
+            input_parts.push("pointer");
+        }
+        if existing_input_ref.redacted != incoming_input_ref.redacted {
+            input_parts.push("redacted");
+        }
+        reasons.push(format!("input_ref fields={}", input_parts.join(",")));
+    }
+    if existing_modality != incoming_modality {
+        reasons.push(format!(
+            "modality existing={existing_modality:?} incoming={incoming_modality:?}"
+        ));
+    }
+    if existing_metadata != incoming_metadata {
+        let existing_keys = existing_metadata.keys().cloned().collect::<BTreeSet<_>>();
+        let incoming_keys = incoming_metadata.keys().cloned().collect::<BTreeSet<_>>();
+        let removed = existing_keys
+            .difference(&incoming_keys)
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>();
+        let added = incoming_keys
+            .difference(&existing_keys)
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>();
+        let changed = existing_keys
+            .intersection(&incoming_keys)
+            .filter(|key| existing_metadata.get(*key) != incoming_metadata.get(*key))
+            .take(8)
+            .cloned()
+            .collect::<Vec<_>>();
+        reasons.push(format!(
+            "metadata removed_keys={removed:?} added_keys={added:?} changed_keys={changed:?}"
+        ));
+    }
+    if reasons.is_empty() {
+        "unknown identity mismatch".to_string()
+    } else {
+        reasons.join("; ")
+    }
 }
 
 fn append_missing_batch_anchors(
