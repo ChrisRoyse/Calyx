@@ -60,6 +60,20 @@ const EXISTING_REPLAY_CHUNK: usize = 128;
 const MEASURE_BATCH_ENV: &str = "CALYX_MEASURE_BATCH";
 const MEASURE_WINDOW_ENV: &str = "CALYX_INGEST_MEASURE_WINDOW";
 
+#[derive(Clone, Copy)]
+struct BatchFlushOptions {
+    output: IngestOutput,
+    runtime_batch_limit: usize,
+    resident_addr: Option<std::net::SocketAddr>,
+}
+
+struct IdentityFields<'a> {
+    panel_version: u32,
+    input_ref: &'a InputRef,
+    modality: Modality,
+    metadata: &'a BTreeMap<String, String>,
+}
+
 pub(crate) fn ingest_runtime_log(args: std::fmt::Arguments<'_>) {
     let mut stderr = std::io::stderr().lock();
     let _ = writeln!(stderr, "CALYX_INGEST_RUNTIME {args}");
@@ -487,6 +501,11 @@ fn ingest_validated_batch_streaming_with_output(
     let mut seen = BTreeSet::new();
     let runtime_batch_limit = measure_batch_size();
     let measure_window = measure_window_size(runtime_batch_limit);
+    let flush_options = BatchFlushOptions {
+        output,
+        runtime_batch_limit,
+        resident_addr,
+    };
     ingest_runtime_log(format_args!(
         "phase=batch_ingest_plan rows={} runtime_batch_limit={} measure_window={} put_chunk={} output={:?} resident_addr={:?}",
         validated_row_count, runtime_batch_limit, measure_window, PUT_CHUNK, output, resident_addr
@@ -506,9 +525,7 @@ fn ingest_validated_batch_streaming_with_output(
                     &mut chunk,
                     &mut seen,
                     &mut summary,
-                    output,
-                    runtime_batch_limit,
-                    resident_addr,
+                    flush_options,
                 )?;
             }
         }
@@ -520,9 +537,7 @@ fn ingest_validated_batch_streaming_with_output(
             &mut chunk,
             &mut seen,
             &mut summary,
-            output,
-            runtime_batch_limit,
-            resident_addr,
+            flush_options,
         )?;
     }
     if summary.new_count > 0 {
@@ -550,29 +565,27 @@ fn flush_measure_batch(
     chunk: &mut Vec<BatchRow>,
     seen: &mut BTreeSet<CxId>,
     summary: &mut BatchIngestSummary,
-    output: IngestOutput,
-    runtime_batch_limit: usize,
-    resident_addr: Option<std::net::SocketAddr>,
+    options: BatchFlushOptions,
 ) -> CliResult<()> {
     let rows: Vec<BatchRow> = std::mem::take(chunk);
-    if rows.iter().all(|(_, _, _, oracle)| oracle.is_none()) {
-        if let Some(existing_rows) = existing_plain_batch_replay_rows(vault, state, &rows)? {
-            ingest_runtime_log(format_args!(
-                "phase=batch_existing_replay_base_only_fast_path rows={} runtime_batch_limit={} measurement_skipped=true slot_decode_skipped=true",
-                existing_rows.len(),
-                runtime_batch_limit
-            ));
-            flush_plain_existing_batch_replay(vault, existing_rows, summary, output)?;
-            return Ok(());
-        }
+    if rows.iter().all(|(_, _, _, oracle)| oracle.is_none())
+        && let Some(existing_rows) = existing_plain_batch_replay_rows(vault, state, &rows)?
+    {
+        ingest_runtime_log(format_args!(
+            "phase=batch_existing_replay_base_only_fast_path rows={} runtime_batch_limit={} measurement_skipped=true slot_decode_skipped=true",
+            existing_rows.len(),
+            options.runtime_batch_limit
+        ));
+        flush_plain_existing_batch_replay(vault, existing_rows, summary, options.output)?;
+        return Ok(());
     }
     if let Some(existing_rows) = existing_batch_replay_rows(vault, state, &rows)? {
         ingest_runtime_log(format_args!(
             "phase=batch_existing_replay_fast_path rows={} runtime_batch_limit={} measurement_skipped=true",
             existing_rows.len(),
-            runtime_batch_limit
+            options.runtime_batch_limit
         ));
-        flush_existing_batch_replay(vault, state, existing_rows, summary, output)?;
+        flush_existing_batch_replay(vault, state, existing_rows, summary, options.output)?;
         return Ok(());
     }
     let inputs: Vec<Input> = rows
@@ -584,8 +597,8 @@ fn flush_measure_batch(
         state,
         &inputs,
         now_ms(),
-        Some(runtime_batch_limit),
-        resident_addr,
+        Some(options.runtime_batch_limit),
+        options.resident_addr,
     )?;
     let mut measured = Vec::with_capacity(constellations.len());
     for (mut cx, (_, mut metadata, anchors, oracle)) in constellations.into_iter().zip(rows) {
@@ -687,7 +700,7 @@ fn flush_measure_batch(
                 ledger_seq,
             };
             summary.record(&report);
-            if output == IngestOutput::Rows {
+            if options.output == IngestOutput::Rows {
                 print_json(&report)?;
             }
         }
@@ -870,14 +883,18 @@ fn verify_existing_base_replay_row(
             "idempotent batch replay for cx {} changed stored non-anchor identity: {}",
             row.cx_id,
             identity_mismatch_reason(
-                existing.panel_version,
-                row.panel_version,
-                &existing.input_ref,
-                &row.input_ref,
-                existing.modality,
-                row.modality,
-                &existing.metadata,
-                &row.metadata,
+                IdentityFields {
+                    panel_version: existing.panel_version,
+                    input_ref: &existing.input_ref,
+                    modality: existing.modality,
+                    metadata: &existing.metadata,
+                },
+                IdentityFields {
+                    panel_version: row.panel_version,
+                    input_ref: &row.input_ref,
+                    modality: row.modality,
+                    metadata: &row.metadata,
+                },
             )
         )));
     }
@@ -1096,14 +1113,18 @@ fn verify_existing_batch_replay_identity(
             "idempotent batch replay for cx {} changed stored non-anchor identity: {}",
             row.cx_id,
             identity_mismatch_reason(
-                existing.panel_version,
-                state.panel.version,
-                &existing.input_ref,
-                &row.input_ref,
-                existing.modality,
-                row.modality,
-                &existing.metadata,
-                &row.metadata,
+                IdentityFields {
+                    panel_version: existing.panel_version,
+                    input_ref: &existing.input_ref,
+                    modality: existing.modality,
+                    metadata: &existing.metadata,
+                },
+                IdentityFields {
+                    panel_version: state.panel.version,
+                    input_ref: &row.input_ref,
+                    modality: row.modality,
+                    metadata: &row.metadata,
+                },
             )
         )));
     }
@@ -1139,58 +1160,54 @@ fn ensure_idempotent_batch_replay(
             "idempotent batch replay for cx {} changed stored non-anchor identity: {}",
             cx.cx_id,
             identity_mismatch_reason(
-                existing.panel_version,
-                cx.panel_version,
-                &existing.input_ref,
-                &cx.input_ref,
-                existing.modality,
-                cx.modality,
-                &existing.metadata,
-                &cx.metadata,
+                IdentityFields {
+                    panel_version: existing.panel_version,
+                    input_ref: &existing.input_ref,
+                    modality: existing.modality,
+                    metadata: &existing.metadata,
+                },
+                IdentityFields {
+                    panel_version: cx.panel_version,
+                    input_ref: &cx.input_ref,
+                    modality: cx.modality,
+                    metadata: &cx.metadata,
+                },
             )
         )));
     }
     Ok(existing)
 }
 
-fn identity_mismatch_reason(
-    existing_panel_version: u32,
-    incoming_panel_version: u32,
-    existing_input_ref: &InputRef,
-    incoming_input_ref: &InputRef,
-    existing_modality: Modality,
-    incoming_modality: Modality,
-    existing_metadata: &BTreeMap<String, String>,
-    incoming_metadata: &BTreeMap<String, String>,
-) -> String {
+fn identity_mismatch_reason(existing: IdentityFields<'_>, incoming: IdentityFields<'_>) -> String {
     let mut reasons = Vec::new();
-    if existing_panel_version != incoming_panel_version {
+    if existing.panel_version != incoming.panel_version {
         reasons.push(format!(
             "panel_version existing={} incoming={}",
-            existing_panel_version, incoming_panel_version
+            existing.panel_version, incoming.panel_version
         ));
     }
-    if existing_input_ref != incoming_input_ref {
+    if existing.input_ref != incoming.input_ref {
         let mut input_parts = Vec::new();
-        if existing_input_ref.hash != incoming_input_ref.hash {
+        if existing.input_ref.hash != incoming.input_ref.hash {
             input_parts.push("hash");
         }
-        if existing_input_ref.pointer != incoming_input_ref.pointer {
+        if existing.input_ref.pointer != incoming.input_ref.pointer {
             input_parts.push("pointer");
         }
-        if existing_input_ref.redacted != incoming_input_ref.redacted {
+        if existing.input_ref.redacted != incoming.input_ref.redacted {
             input_parts.push("redacted");
         }
         reasons.push(format!("input_ref fields={}", input_parts.join(",")));
     }
-    if existing_modality != incoming_modality {
+    if existing.modality != incoming.modality {
         reasons.push(format!(
-            "modality existing={existing_modality:?} incoming={incoming_modality:?}"
+            "modality existing={:?} incoming={:?}",
+            existing.modality, incoming.modality
         ));
     }
-    if existing_metadata != incoming_metadata {
-        let existing_keys = existing_metadata.keys().cloned().collect::<BTreeSet<_>>();
-        let incoming_keys = incoming_metadata.keys().cloned().collect::<BTreeSet<_>>();
+    if existing.metadata != incoming.metadata {
+        let existing_keys = existing.metadata.keys().cloned().collect::<BTreeSet<_>>();
+        let incoming_keys = incoming.metadata.keys().cloned().collect::<BTreeSet<_>>();
         let removed = existing_keys
             .difference(&incoming_keys)
             .take(8)
@@ -1203,7 +1220,7 @@ fn identity_mismatch_reason(
             .collect::<Vec<_>>();
         let changed = existing_keys
             .intersection(&incoming_keys)
-            .filter(|key| existing_metadata.get(*key) != incoming_metadata.get(*key))
+            .filter(|key| existing.metadata.get(*key) != incoming.metadata.get(*key))
             .take(8)
             .cloned()
             .collect::<Vec<_>>();
