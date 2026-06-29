@@ -46,7 +46,12 @@ pub(in crate::runtime::onnx) fn token_batches(
     lens: &dyn Lens,
     inputs: &[Input],
     max_tokens: usize,
+    max_batch: Option<usize>,
 ) -> Result<Vec<TokenBatch>> {
+    if max_batch == Some(0) {
+        return Err(config_invalid("custom ONNX max_batch must be > 0"));
+    }
+    let max_batch = max_batch.unwrap_or(usize::MAX).max(1);
     let mut groups: BTreeMap<usize, Vec<EncodedInput>> = BTreeMap::new();
     for (index, input) in inputs.iter().enumerate() {
         let text = text_from_input(lens, input)?;
@@ -62,10 +67,20 @@ pub(in crate::runtime::onnx) fn token_batches(
             mask,
         });
     }
-    groups
-        .into_values()
-        .map(|group| build_batch(&group))
-        .collect()
+    build_batches_from_groups(groups, max_batch)
+}
+
+fn build_batches_from_groups(
+    groups: BTreeMap<usize, Vec<EncodedInput>>,
+    max_batch: usize,
+) -> Result<Vec<TokenBatch>> {
+    let mut batches = Vec::new();
+    for group in groups.into_values() {
+        for chunk in group.chunks(max_batch) {
+            batches.push(build_batch(chunk)?);
+        }
+    }
+    Ok(batches)
 }
 
 fn stable_seq_len(len: usize, max_tokens: usize) -> Result<usize> {
@@ -202,5 +217,46 @@ mod tests {
         assert_eq!(batch.indices, vec![3, 1]);
         assert_eq!(batch.ids, vec![1, 2, 0, 0, 7, 0, 0, 0]);
         assert_eq!(batch.mask, vec![1, 1, 0, 0, 1, 0, 0, 0]);
+    }
+
+    #[test]
+    fn sequence_buckets_are_chunked_after_global_grouping() {
+        let mut groups = BTreeMap::new();
+        groups.insert(
+            4,
+            (0..5)
+                .map(|index| EncodedInput {
+                    index,
+                    seq: 4,
+                    ids: vec![index as i64 + 1],
+                    mask: vec![1],
+                })
+                .collect(),
+        );
+        groups.insert(
+            8,
+            vec![EncodedInput {
+                index: 9,
+                seq: 8,
+                ids: vec![9],
+                mask: vec![1],
+            }],
+        );
+
+        let batches = build_batches_from_groups(groups, 2).unwrap();
+
+        let shapes = batches
+            .iter()
+            .map(|batch| (batch.batch, batch.seq, batch.indices.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            shapes,
+            vec![
+                (2, 4, vec![0, 1]),
+                (2, 4, vec![2, 3]),
+                (1, 4, vec![4]),
+                (1, 8, vec![9]),
+            ]
+        );
     }
 }

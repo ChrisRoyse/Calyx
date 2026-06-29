@@ -135,6 +135,46 @@ fn batch_ingest_returns_bounded_summary_verified_by_base_cf() {
 }
 
 #[test]
+fn batch_ingest_measure_window_persists_all_rows_to_physical_cfs() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("issue999-window");
+    let jsonl = resolved.path.join("window.jsonl");
+    fs::write(
+        &jsonl,
+        [
+            "{\"text\":\"issue999 row 01\"}",
+            "{\"text\":\"issue999 row 02\"}",
+            "{\"text\":\"issue999 row 03\"}",
+            "{\"text\":\"issue999 row 04\"}",
+            "{\"text\":\"issue999 row 05\"}",
+            "{\"text\":\"issue999 row 06\"}",
+            "",
+        ]
+        .join("\n"),
+    )
+    .unwrap();
+    let before = ingest_cf_state(&resolved);
+    println!("issue999_before_cf_state={before}");
+
+    let summary = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let after = ingest_cf_state(&resolved);
+    println!("issue999_after_cf_state={after}");
+    assert_eq!(summary.status, "ingested");
+    assert_eq!(summary.row_count, 6);
+    assert_eq!(summary.new_count, 6);
+    assert_eq!(summary.already_count, 0);
+    assert_eq!(summary.verified_base_rows, 6);
+    assert_eq!(before["base_rows"], 0);
+    assert_eq!(before["ledger_rows"], 0);
+    assert_eq!(before["slot_00_rows"], 0);
+    assert_eq!(after["base_rows"], 6);
+    assert_eq!(after["ledger_rows"], 1);
+    assert_eq!(after["slot_00_rows"], 6);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn anchor_label_kind_round_trips() {
     let kind = parse_anchor_kind("label:positive").unwrap();
     assert_eq!(kind, AnchorKind::Label("positive".to_string()));

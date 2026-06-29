@@ -307,7 +307,7 @@ impl OnnxColbertRuntime {
         inputs: &[Input],
         contract: &FrozenLensContract,
     ) -> Result<Vec<SlotVector>> {
-        let batches = token_batches(&self.tokenizer, lens, inputs, self.max_tokens)?;
+        let batches = token_batches(&self.tokenizer, lens, inputs, self.max_tokens, None)?;
         let mut rows = vec![None; inputs.len()];
         for batch in &batches {
             let vectors = self.run_token_batch(batch)?;

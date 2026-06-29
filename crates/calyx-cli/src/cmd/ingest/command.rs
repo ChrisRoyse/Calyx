@@ -15,7 +15,8 @@ use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
 use super::batch::{BatchRow, parse_batch_line, validate_batch_file};
 use super::constellation::{
-    ensure_content_panel_floor, measure_constellation, measure_constellation_microbatch, text_input,
+    ensure_content_panel_floor, measure_constellation,
+    measure_constellation_microbatch_with_runtime_limit, text_input,
 };
 use super::ledger::{append_anchor_ledger, append_anchor_marker_ledger, append_cli_ledger};
 use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
@@ -31,19 +32,26 @@ use crate::raw_media::{media_metadata, retain_media_input};
 
 const DEFAULT_ANCHOR_SOURCE: &str = "calyx-cli";
 
-/// Default inputs measured per GPU microbatch (one batched forward pass per lens).
-/// Bigger = faster GPU utilization, but peak VRAM scales with the transient
-/// attention/MLP activation buffers, which grow with `batch x sequence_len`: a
-/// single unlucky microbatch of max-length rows can spike past VRAM and OOM
-/// mid-ingest (an ingest crash also desyncs the vault ledger — see #866 — so a
-/// crash is expensive, not just a retry). Measured on a 14-lens FP32 panel /
-/// RTX 5090: batch=8 peaked ~32 GiB and OOM'd on long medmcqa rows, while batch=4
-/// peaks ~19.6 GiB on the worst-case longest corpus rows (13 GiB headroom). So
-/// the default is 4; raise `CALYX_MEASURE_BATCH` on a dedicated GPU / short inputs.
+/// Default inputs per real runtime call inside a lens worker. This is a CUDA
+/// safety limit, not a file-streaming flush size. Bigger = faster GPU
+/// utilization, but peak VRAM scales with the transient attention/MLP activation
+/// buffers, which grow with `batch x sequence_len`: a single unlucky microbatch
+/// of max-length rows can spike past VRAM and OOM mid-ingest (an ingest crash
+/// also desyncs the vault ledger — see #866 — so a crash is expensive, not just a
+/// retry). Measured on a 14-lens FP32 panel / RTX 5090: batch=8 peaked ~32 GiB
+/// and OOM'd on long medmcqa rows, while batch=4 peaks ~19.6 GiB on the
+/// worst-case longest corpus rows (13 GiB headroom). So the default is 4; raise
+/// `CALYX_MEASURE_BATCH` on a dedicated GPU / short inputs.
 const DEFAULT_MEASURE_BATCH: usize = 4;
+/// JSONL rows gathered before measurement. Lenses still receive
+/// `CALYX_MEASURE_BATCH`-bounded runtime chunks inside the worker, but a larger
+/// window prevents a small ingest from spawning one process per lens per 4 rows.
+const DEFAULT_MEASURE_WINDOW: usize = 128;
 /// Constellations per WAL commit. Small because ColBERT multi-vectors are large;
 /// decoupled from the measure batch so we measure big but commit WAL-safe.
 const PUT_CHUNK: usize = 8;
+const MEASURE_BATCH_ENV: &str = "CALYX_MEASURE_BATCH";
+const MEASURE_WINDOW_ENV: &str = "CALYX_INGEST_MEASURE_WINDOW";
 
 pub(crate) fn ingest_runtime_log(args: std::fmt::Arguments<'_>) {
     let mut stderr = std::io::stderr().lock();
@@ -51,15 +59,24 @@ pub(crate) fn ingest_runtime_log(args: std::fmt::Arguments<'_>) {
     let _ = stderr.flush();
 }
 
-/// Resolve the measure microbatch from `CALYX_MEASURE_BATCH` (>=1), else the
+/// Resolve the runtime microbatch from `CALYX_MEASURE_BATCH` (>=1), else the
 /// conservative default. Operator-tunable so the VRAM/throughput trade-off does
 /// not require a recompile.
 fn measure_batch_size() -> usize {
-    std::env::var("CALYX_MEASURE_BATCH")
+    positive_env_usize(MEASURE_BATCH_ENV).unwrap_or(DEFAULT_MEASURE_BATCH)
+}
+
+fn measure_window_size(runtime_batch_limit: usize) -> usize {
+    positive_env_usize(MEASURE_WINDOW_ENV)
+        .unwrap_or(DEFAULT_MEASURE_WINDOW)
+        .max(runtime_batch_limit.max(1))
+}
+
+fn positive_env_usize(name: &str) -> Option<usize> {
+    std::env::var(name)
         .ok()
         .and_then(|raw| raw.parse::<usize>().ok())
         .filter(|&n| n >= 1)
-        .unwrap_or(DEFAULT_MEASURE_BATCH)
 }
 
 pub(crate) fn run(command: Subcommand) -> CliResult {
@@ -78,7 +95,12 @@ fn ingest_command(args: IngestArgs) -> CliResult {
         let summary = if validation.row_count == 0 {
             BatchIngestSummary::empty()
         } else {
-            ingest_validated_batch_streaming_with_output(&resolved, batch_path, args.output)?
+            ingest_validated_batch_streaming_with_output(
+                &resolved,
+                batch_path,
+                args.output,
+                validation.row_count,
+            )?
         };
         if args.output == IngestOutput::Summary {
             print_json(&summary)?;
@@ -428,13 +450,14 @@ pub(super) fn ingest_batch_streaming_with_output(
     if validation.row_count == 0 {
         return Ok(BatchIngestSummary::empty());
     }
-    ingest_validated_batch_streaming_with_output(resolved, path, output)
+    ingest_validated_batch_streaming_with_output(resolved, path, output, validation.row_count)
 }
 
 fn ingest_validated_batch_streaming_with_output(
     resolved: &ResolvedVault,
     path: &std::path::Path,
     output: IngestOutput,
+    validated_row_count: usize,
 ) -> CliResult<BatchIngestSummary> {
     use std::io::BufRead;
     let file = std::fs::File::open(path)
@@ -453,21 +476,42 @@ fn ingest_validated_batch_streaming_with_output(
         state.panel.slots.len()
     ));
     let mut seen = BTreeSet::new();
-    let measure_batch = measure_batch_size();
-    let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_batch);
+    let runtime_batch_limit = measure_batch_size();
+    let measure_window = measure_window_size(runtime_batch_limit);
+    ingest_runtime_log(format_args!(
+        "phase=batch_ingest_plan rows={} runtime_batch_limit={} measure_window={} put_chunk={} output={:?}",
+        validated_row_count, runtime_batch_limit, measure_window, PUT_CHUNK, output
+    ));
+    let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_window);
     let mut summary = BatchIngestSummary::empty();
     for (index, line) in reader.lines().enumerate() {
         let line =
             line.map_err(|err| CliError::io(format!("read batch line {}: {err}", index + 1)))?;
         if let Some(row) = parse_batch_line(index, &line)? {
             chunk.push(row);
-            if chunk.len() >= measure_batch {
-                flush_measure_batch(&vault, &state, &mut chunk, &mut seen, &mut summary, output)?;
+            if chunk.len() >= measure_window {
+                flush_measure_batch(
+                    &vault,
+                    &state,
+                    &mut chunk,
+                    &mut seen,
+                    &mut summary,
+                    output,
+                    runtime_batch_limit,
+                )?;
             }
         }
     }
     if !chunk.is_empty() {
-        flush_measure_batch(&vault, &state, &mut chunk, &mut seen, &mut summary, output)?;
+        flush_measure_batch(
+            &vault,
+            &state,
+            &mut chunk,
+            &mut seen,
+            &mut summary,
+            output,
+            runtime_batch_limit,
+        )?;
     }
     rebuild_persistent_indexes(&resolved.path, &vault)?;
     Ok(summary)
@@ -480,13 +524,20 @@ fn flush_measure_batch(
     seen: &mut BTreeSet<CxId>,
     summary: &mut BatchIngestSummary,
     output: IngestOutput,
+    runtime_batch_limit: usize,
 ) -> CliResult<()> {
     let rows: Vec<BatchRow> = std::mem::take(chunk);
     let inputs: Vec<Input> = rows
         .iter()
         .map(|(text, _, _, _)| text_input(text.clone()))
         .collect();
-    let constellations = measure_constellation_microbatch(vault, state, &inputs, now_ms())?;
+    let constellations = measure_constellation_microbatch_with_runtime_limit(
+        vault,
+        state,
+        &inputs,
+        now_ms(),
+        Some(runtime_batch_limit),
+    )?;
     let mut measured = Vec::with_capacity(constellations.len());
     for (mut cx, (_, mut metadata, anchors, oracle)) in constellations.into_iter().zip(rows) {
         if let Some(event) = &oracle {
