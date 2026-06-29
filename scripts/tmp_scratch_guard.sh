@@ -15,6 +15,8 @@ baseline_file="$2"
 tmp_root="${CALYX_TMP_ROOT:-/tmp}"
 stale_minutes="${CALYX_TMP_STALE_MINUTES:-360}"
 min_free_percent="${CALYX_TMP_MIN_FREE_INODE_PERCENT:-5}"
+current_uid="$(id -u)"
+current_user="$(id -un 2>/dev/null || printf '%s' "$current_uid")"
 
 if [[ ! -d "$tmp_root" ]]; then
   echo "CALYX_TMP_GUARD_NO_TMP_ROOT: $tmp_root is not a directory" >&2
@@ -41,6 +43,26 @@ owned_name() {
   esac
 }
 
+path_stat_summary() {
+  local path="$1"
+  stat -c 'uid=%u user=%U gid=%g group=%G mode=%A mtime=%y' -- "$path" 2>/dev/null ||
+    printf 'stat=unavailable'
+}
+
+assert_current_user_owns_path() {
+  local path="$1"
+  local path_uid
+  if ! path_uid="$(stat -c '%u' -- "$path" 2>/dev/null)"; then
+    echo "CALYX_TMP_GUARD_STAT_FAILED: path=$path" >&2
+    return 1
+  fi
+
+  if [[ "$path_uid" != "$current_uid" ]]; then
+    echo "CALYX_TMP_GUARD_OWNER_MISMATCH: path=$path current_uid=$current_uid current_user=$current_user $(path_stat_summary "$path")" >&2
+    return 1
+  fi
+}
+
 list_owned() {
   find "$tmp_root" -mindepth 1 -maxdepth 1 "${owned_find_expr[@]}" -print | sort
 }
@@ -62,7 +84,12 @@ remove_owned_path() {
     return 1
   fi
 
-  rm -rf -- "$path"
+  assert_current_user_owns_path "$path"
+
+  if ! rm -rf -- "$path"; then
+    echo "CALYX_TMP_GUARD_REMOVE_FAILED: path=$path current_uid=$current_uid current_user=$current_user $(path_stat_summary "$path")" >&2
+    return 1
+  fi
 }
 
 cleanup_stale_owned() {
