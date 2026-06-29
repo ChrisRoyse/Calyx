@@ -10,6 +10,7 @@ pub(crate) mod vault;
 mod weave;
 
 use ingest::IngestOutput;
+pub(crate) use ingest::run_lens_worker as run_ingest_lens_worker;
 pub(crate) use ingest::{
     measure_constellation as measure_ingest_constellation, text_input as ingest_text_input,
 };

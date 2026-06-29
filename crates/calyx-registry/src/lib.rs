@@ -61,7 +61,7 @@ pub use panels::{
 };
 pub use persistence::{
     VaultPanelState, VaultPanelWrite, VaultRegistrySnapshot, load_vault_panel_state,
-    persist_vault_panel_state,
+    measure_registry_snapshot_lens_batch, persist_vault_panel_state,
 };
 pub use placement::{
     CALYX_RAM_BUDGET_EXCEEDED, CALYX_VRAM_BUDGET_EXCEEDED, CpuLensPool, CpuPoolAdmission,

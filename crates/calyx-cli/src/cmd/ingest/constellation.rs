@@ -3,12 +3,14 @@ use std::collections::BTreeMap;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
     AbsentReason, CalyxError, CalyxErrorCode, Constellation, CxFlags, Input, InputRef, LedgerRef,
-    LensId, Modality, Placement, SlotState, SlotVector,
+    LensId, Modality, Placement, SlotId, SlotState, SlotVector,
 };
 use calyx_registry::VaultPanelState;
 pub(crate) use calyx_registry::measure::{absent, input_hash, measure_constellation};
 use rayon::prelude::*;
 
+use super::command::ingest_runtime_log;
+use super::worker::measure_lens_in_worker;
 use crate::error::CliResult;
 use crate::lens_commands::support::runtime_name;
 
@@ -76,6 +78,25 @@ pub(crate) fn text_input(text: String) -> Input {
     Input::new(Modality::Text, text.into_bytes())
 }
 
+#[derive(Clone, Copy)]
+struct ApplicableLens {
+    lens_id: LensId,
+    slot_id: SlotId,
+    placement: Placement,
+}
+
+fn persisted_snapshot_for_lens(
+    state: &VaultPanelState,
+    lens_id: LensId,
+) -> Option<&calyx_registry::RegistryLensSnapshot> {
+    state
+        .registry_snapshot
+        .as_ref()?
+        .lenses
+        .iter()
+        .find(|snapshot| snapshot.lens_id == lens_id)
+}
+
 /// Batch-measure a modality-uniform microbatch of inputs through every applicable
 /// panel lens at once (one batched forward pass per lens), then assemble one
 /// constellation per input from the readout. 10-50x faster than per-row measure
@@ -94,36 +115,103 @@ pub(crate) fn measure_constellation_microbatch(
     // concurrent ONNX-CUDA Run() exhausts per-thread cuBLAS handles
     // (CUBLAS_STATUS_ALLOC_FAILED) and the CUDA EP single-streams anyway. CPU
     // lenses run in parallel and overlap the GPU work via rayon::join.
-    let mut gpu_lenses: Vec<LensId> = Vec::new();
-    let mut cpu_lenses: Vec<LensId> = Vec::new();
+    let mut gpu_lenses: Vec<ApplicableLens> = Vec::new();
+    let mut cpu_lenses: Vec<ApplicableLens> = Vec::new();
     for slot in &state.panel.slots {
         if slot.state == SlotState::Active
             && slot.modality == batch_modality
             && state.registry.contains(slot.lens_id)
         {
+            let lens = ApplicableLens {
+                lens_id: slot.lens_id,
+                slot_id: slot.slot_id,
+                placement: slot.resource.placement,
+            };
             match slot.resource.placement {
-                Placement::Gpu => gpu_lenses.push(slot.lens_id),
-                Placement::Cpu => cpu_lenses.push(slot.lens_id),
+                Placement::Gpu => gpu_lenses.push(lens),
+                Placement::Cpu => cpu_lenses.push(lens),
             }
         }
     }
-    let measure_one = |lens_id: LensId| {
-        state
-            .registry
-            .measure_batch(lens_id, inputs)
-            .map(|vectors| (lens_id, vectors))
+    ingest_runtime_log(format_args!(
+        "phase=measure_microbatch_start modality={:?} batch_size={} gpu_lenses={} cpu_lenses={}",
+        batch_modality,
+        inputs.len(),
+        gpu_lenses.len(),
+        cpu_lenses.len()
+    ));
+    let measure_one = |lens: ApplicableLens| {
+        let spec = state.registry.lens_spec(lens.lens_id);
+        let spec_name = spec
+            .map(|spec| spec.name.as_str())
+            .unwrap_or("missing_registry_snapshot");
+        let runtime = spec
+            .map(|spec| runtime_name(&spec.runtime))
+            .unwrap_or("unregistered");
+        ingest_runtime_log(format_args!(
+            "phase=measure_lens_start lens_id={} slot={} name={} runtime={} modality={:?} placement={:?} batch_size={}",
+            lens.lens_id,
+            lens.slot_id.get(),
+            spec_name,
+            runtime,
+            batch_modality,
+            lens.placement,
+            inputs.len()
+        ));
+        let result = if lens.placement == Placement::Gpu {
+            if let Some(snapshot) = persisted_snapshot_for_lens(state, lens.lens_id) {
+                ingest_runtime_log(format_args!(
+                    "phase=measure_lens_worker_start lens_id={} slot={} name={}",
+                    lens.lens_id,
+                    lens.slot_id.get(),
+                    spec_name
+                ));
+                let result = measure_lens_in_worker(snapshot, inputs);
+                if result.is_ok() {
+                    ingest_runtime_log(format_args!(
+                        "phase=measure_lens_worker_ok lens_id={} slot={} name={}",
+                        lens.lens_id,
+                        lens.slot_id.get(),
+                        spec_name
+                    ));
+                }
+                result
+            } else {
+                state.registry.measure_batch(lens.lens_id, inputs)
+            }
+        } else {
+            state.registry.measure_batch(lens.lens_id, inputs)
+        };
+        match &result {
+            Ok(vectors) => ingest_runtime_log(format_args!(
+                "phase=measure_lens_ok lens_id={} slot={} name={} vectors={}",
+                lens.lens_id,
+                lens.slot_id.get(),
+                spec_name,
+                vectors.len()
+            )),
+            Err(error) => ingest_runtime_log(format_args!(
+                "phase=measure_lens_err lens_id={} slot={} name={} code={} message={}",
+                lens.lens_id,
+                lens.slot_id.get(),
+                spec_name,
+                error.code,
+                error.message
+            )),
+        }
+        result.map(|vectors| (lens.lens_id, vectors))
     };
     let (gpu_result, cpu_result) = rayon::join(
         || {
             gpu_lenses
                 .iter()
-                .map(|&id| measure_one(id))
+                .map(|&lens| measure_one(lens))
                 .collect::<std::result::Result<Vec<_>, _>>()
         },
         || {
             cpu_lenses
                 .par_iter()
-                .map(|&id| measure_one(id))
+                .map(|&lens| measure_one(lens))
                 .collect::<std::result::Result<Vec<_>, _>>()
         },
     );

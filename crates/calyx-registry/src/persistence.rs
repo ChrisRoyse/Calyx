@@ -1,7 +1,7 @@
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use calyx_aster::manifest::{ImmutableRef, ManifestStore};
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Panel, Result, SlotShape, SlotVector};
@@ -86,6 +86,43 @@ pub fn load_vault_panel_state(vault_dir: impl AsRef<Path>) -> Result<VaultPanelS
     })
 }
 
+pub fn measure_registry_snapshot_lens_batch(
+    snapshot: &RegistryLensSnapshot,
+    inputs: &[Input],
+) -> Result<Vec<SlotVector>> {
+    if snapshot.lens_id != snapshot.contract.lens_id() {
+        return Err(CalyxError::lens_frozen_violation(format!(
+            "registry lens {} does not match frozen contract {}",
+            snapshot.lens_id,
+            snapshot.contract.lens_id()
+        )));
+    }
+    for input in inputs {
+        if input.modality != snapshot.contract.modality() {
+            return Err(CalyxError::lens_dim_mismatch(format!(
+                "lens {} accepts {:?}, got {:?}",
+                snapshot.lens_id,
+                snapshot.contract.modality(),
+                input.modality
+            )));
+        }
+    }
+    let runtime = load_runtime_lens(snapshot)?;
+    let vectors = runtime.measure_batch(inputs)?;
+    if vectors.len() != inputs.len() {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "lens {} returned {} vectors for {} inputs",
+            snapshot.lens_id,
+            vectors.len(),
+            inputs.len()
+        )));
+    }
+    for vector in &vectors {
+        snapshot.contract.verify_vector(snapshot.lens_id, vector)?;
+    }
+    Ok(vectors)
+}
+
 fn write_panel_asset(vault_dir: &Path, panel: &Panel) -> Result<ImmutableRef> {
     let bytes = serde_json::to_vec_pretty(panel)
         .map_err(|error| CalyxError::aster_corrupt_shard(format!("encode panel: {error}")))?;
@@ -145,18 +182,7 @@ fn rebuild_registry(snapshot: &VaultRegistrySnapshot) -> Result<Registry> {
                 lens.contract.lens_id()
             )));
         }
-        let runtime = match load_runtime_lens(lens) {
-            Ok(runtime) => runtime,
-            Err(error) => Arc::new(PersistedUnavailableLens {
-                id: lens.lens_id,
-                shape: lens.contract.shape(),
-                modality: lens.contract.modality(),
-                load_error: format!(
-                    "{}: {} (remediation: {})",
-                    error.code, error.message, error.remediation
-                ),
-            }),
-        };
+        let runtime = Arc::new(LazyPersistedLens::new(lens.clone()));
         registry.register_persisted_arc(
             runtime,
             lens.contract.clone(),
@@ -357,40 +383,80 @@ fn lens_config_invalid(message: impl Into<String>) -> CalyxError {
     }
 }
 
-struct PersistedUnavailableLens {
-    id: LensId,
-    shape: SlotShape,
-    modality: Modality,
-    load_error: String,
+struct LazyPersistedLens {
+    snapshot: RegistryLensSnapshot,
+    runtime: Mutex<Option<LazyRuntimeCache>>,
 }
 
-impl PersistedUnavailableLens {
-    fn error(&self) -> CalyxError {
+enum LazyRuntimeCache {
+    Loaded(Arc<dyn Lens>),
+    Failed(String),
+}
+
+impl LazyPersistedLens {
+    fn new(snapshot: RegistryLensSnapshot) -> Self {
+        Self {
+            snapshot,
+            runtime: Mutex::new(None),
+        }
+    }
+
+    fn runtime(&self) -> Result<Arc<dyn Lens>> {
+        let mut guard = self.runtime.lock().map_err(|_| {
+            CalyxError::lens_unreachable(format!(
+                "lazy persisted lens {} runtime mutex was poisoned",
+                self.snapshot.lens_id
+            ))
+        })?;
+        match guard.as_ref() {
+            Some(LazyRuntimeCache::Loaded(runtime)) => return Ok(runtime.clone()),
+            Some(LazyRuntimeCache::Failed(load_error)) => {
+                return Err(self.error(load_error.clone()));
+            }
+            None => {}
+        }
+        match load_runtime_lens(&self.snapshot) {
+            Ok(runtime) => {
+                *guard = Some(LazyRuntimeCache::Loaded(runtime.clone()));
+                Ok(runtime)
+            }
+            Err(error) => {
+                let load_error = format!(
+                    "{}: {} (remediation: {})",
+                    error.code, error.message, error.remediation
+                );
+                *guard = Some(LazyRuntimeCache::Failed(load_error.clone()));
+                Err(self.error(load_error))
+            }
+        }
+    }
+
+    fn error(&self, load_error: String) -> CalyxError {
         CalyxError::lens_unreachable(format!(
             "lens {} is persisted but its runtime failed to load in this process: {}",
-            self.id, self.load_error
+            self.snapshot.lens_id, load_error
         ))
     }
 }
 
-impl Lens for PersistedUnavailableLens {
+impl Lens for LazyPersistedLens {
     fn id(&self) -> LensId {
-        self.id
+        self.snapshot.lens_id
     }
 
     fn shape(&self) -> SlotShape {
-        self.shape
+        self.snapshot.contract.shape()
     }
 
     fn modality(&self) -> Modality {
-        self.modality
+        self.snapshot.contract.modality()
     }
 
-    fn measure(&self, _input: &Input) -> Result<SlotVector> {
-        Err(self.error())
+    fn measure(&self, input: &Input) -> Result<SlotVector> {
+        self.runtime()?.measure(input)
     }
 
-    fn measure_batch(&self, _inputs: &[Input]) -> Result<Vec<SlotVector>> {
-        Err(self.error())
+    fn measure_batch(&self, inputs: &[Input]) -> Result<Vec<SlotVector>> {
+        self.runtime()?.measure_batch(inputs)
     }
 }

@@ -25,6 +25,9 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
     }
 
     match args.as_slice() {
+        [command, rest @ ..] if command == "__ingest-lens-worker" => {
+            crate::cmd::run_ingest_lens_worker(rest)
+        }
         [command, rest @ ..] if command == "healthcheck" => healthcheck::run(rest),
         [command, topic, rest @ ..] if command == "migrate" => migrate::run(topic, rest),
         [command, topic, vault_flag, vault]
