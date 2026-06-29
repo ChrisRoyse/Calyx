@@ -452,8 +452,7 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
                 .first()
                 .is_none_or(|arg| arg == "--help" || arg == "-h") =>
         {
-            usage::print_usage();
-            Ok(())
+            usage::print_usage()
         }
         _ => Err(CliError::usage(usage::usage())),
     }

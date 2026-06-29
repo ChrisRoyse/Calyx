@@ -3,12 +3,10 @@ use std::io;
 use std::path::Path;
 
 use crate::error::CliResult;
+use crate::output::print_lines;
 
 pub(crate) fn readback_vault_tree(path: &Path) -> CliResult {
-    for line in vault_tree_lines(path)? {
-        println!("{line}");
-    }
-    Ok(())
+    print_lines(&vault_tree_lines(path)?).map(|_| ())
 }
 
 fn vault_tree_lines(root: &Path) -> io::Result<Vec<String>> {

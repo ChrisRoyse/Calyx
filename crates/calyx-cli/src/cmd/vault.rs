@@ -271,8 +271,7 @@ fn list_panel_command(args: VaultRefArgs) -> CliResult {
             ]
         })
         .collect::<Vec<_>>();
-    print_table(&["slot", "name", "state", "bits", "ci_lo", "ci_hi"], &rows);
-    Ok(())
+    print_table(&["slot", "name", "state", "bits", "ci_lo", "ci_hi"], &rows)
 }
 
 fn profile_lens_command(args: ProfileLensArgs) -> CliResult {

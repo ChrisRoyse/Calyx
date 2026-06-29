@@ -10,7 +10,7 @@ use calyx_core::CalyxError;
 
 use crate::cf_read::{hex_bytes, list_sst_files};
 use crate::error::{CliError, CliResult};
-use crate::output::print_hex_dump;
+use crate::output::{WriteLineResult, print_hex_dump, print_line_result};
 use crate::{ops, vault_tree};
 
 const WAL_MAGIC: u32 = u32::from_le_bytes(*b"CXW1");
@@ -102,8 +102,7 @@ fn run(command: ReadbackCommand) -> CliResult {
 
 fn readback_hex(path: &Path) -> CliResult {
     let bytes = fs::read(path)?;
-    print_hex_dump(0, &bytes);
-    Ok(())
+    print_hex_dump(0, &bytes).map(|_| ())
 }
 
 fn readback_cf_row(vault: &Path, cf_name: &str, key_hex: &str) -> CliResult {
@@ -117,8 +116,7 @@ fn readback_cf_row(vault: &Path, cf_name: &str, key_hex: &str) -> CliResult {
             hex_bytes(&key)
         ))
     })?;
-    print_hex_dump(0, &value);
-    Ok(())
+    print_hex_dump(0, &value).map(|_| ())
 }
 
 fn readback_ledger(vault: &Path, seq: u64) -> CliResult {
@@ -128,30 +126,47 @@ fn readback_ledger(vault: &Path, seq: u64) -> CliResult {
         CalyxError::vault_access_denied(format!("ledger seq {seq} does not exist"))
     })?;
     let entry = calyx_ledger::decode(&bytes)?;
-    println!(
+    if print_line_result(&format!(
         "LEDGER seq={} prev_hash={} entry_hash={} kind={}",
         entry.seq,
         hex_bytes(&entry.prev_hash),
         hex_bytes(&entry.entry_hash),
         entry.kind
-    );
-    print_hex_dump(0, &bytes);
-    Ok(())
+    ))? == WriteLineResult::ClosedPipe
+    {
+        return Ok(());
+    }
+    print_hex_dump(0, &bytes).map(|_| ())
 }
 
 fn readback_wal_segment(path: &Path) -> CliResult {
     for event in wal_events(path)? {
         match event {
             WalEvent::Record(record) => {
-                println!(
+                if print_line_result(&format!(
                     "WAL seq={} group=0 len={} crc={:08x}",
                     record.seq, record.len, record.crc
-                );
-                print_hex_dump(0, &record.payload);
+                ))? == WriteLineResult::ClosedPipe
+                {
+                    return Ok(());
+                }
+                if print_hex_dump(0, &record.payload)? == WriteLineResult::ClosedPipe {
+                    return Ok(());
+                }
             }
             WalEvent::TornTail { seq } => match seq {
-                Some(seq) => println!("TORN_TAIL seq={seq}"),
-                None => println!("TORN_TAIL seq=unknown"),
+                Some(seq) => {
+                    if print_line_result(&format!("TORN_TAIL seq={seq}"))?
+                        == WriteLineResult::ClosedPipe
+                    {
+                        return Ok(());
+                    }
+                }
+                None => {
+                    if print_line_result("TORN_TAIL seq=unknown")? == WriteLineResult::ClosedPipe {
+                        return Ok(());
+                    }
+                }
             },
         }
     }

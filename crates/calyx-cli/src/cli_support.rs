@@ -7,8 +7,7 @@ use crate::{budget_readback, tripwire_readback};
 
 pub(crate) fn readback_hex(path: &Path) -> CliResult {
     let bytes = fs::read(path)?;
-    print_hex_dump(0, &bytes);
-    Ok(())
+    print_hex_dump(0, &bytes).map(|_| ())
 }
 
 pub(crate) fn parse_i64(value: &str) -> Result<i64, String> {

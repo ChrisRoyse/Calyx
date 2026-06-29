@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
@@ -12,6 +11,7 @@ use serde_json::json;
 
 use crate::cf_read::{hex_bytes, latest_cf_row, latest_cf_rows, vault_id_from_base};
 use crate::error::{CliError, CliResult};
+use crate::output::print_line;
 
 const CX_LIST_UNBOUNDED_ROW_LIMIT: usize = 100;
 
@@ -216,27 +216,8 @@ fn render_cx_list(
         values.push(row);
     }
     let json = serde_json::to_string_pretty(&values).map_err(|error| error.to_string())?;
-    write_stdout_line(&json)?;
+    print_line(&json)?;
     Ok(())
-}
-
-fn write_stdout_line(text: &str) -> crate::error::CliResult {
-    let stdout = io::stdout();
-    let mut lock = stdout.lock();
-    write_line_allow_broken_pipe(&mut lock, text)
-}
-
-fn write_line_allow_broken_pipe<W: Write>(writer: &mut W, text: &str) -> crate::error::CliResult {
-    match writer.write_all(text.as_bytes()) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => return Ok(()),
-        Err(error) => return Err(crate::error::CliError::io(format!("write stdout: {error}"))),
-    }
-    match writer.write_all(b"\n") {
-        Ok(()) => Ok(()),
-        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
-        Err(error) => Err(crate::error::CliError::io(format!("write stdout: {error}"))),
-    }
 }
 
 fn decoded_slot_entries(
@@ -317,49 +298,6 @@ fn slot_summary<'a>(vectors: impl Iterator<Item = &'a SlotVector>) -> serde_json
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct FailingWriter(io::ErrorKind);
-
-    impl Write for FailingWriter {
-        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(self.0, "synthetic write failure"))
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn write_line_appends_newline_on_success() {
-        let mut out = Vec::new();
-
-        write_line_allow_broken_pipe(&mut out, "{\"ok\":true}").unwrap();
-
-        assert_eq!(out, b"{\"ok\":true}\n");
-    }
-
-    #[test]
-    fn write_line_treats_broken_pipe_as_clean_early_consumer_exit() {
-        let mut out = FailingWriter(io::ErrorKind::BrokenPipe);
-
-        write_line_allow_broken_pipe(&mut out, "large readback").unwrap();
-    }
-
-    #[test]
-    fn write_line_surfaces_non_broken_pipe_write_errors() {
-        let mut out = FailingWriter(io::ErrorKind::PermissionDenied);
-
-        let err = write_line_allow_broken_pipe(&mut out, "large readback").unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_CLI_IO_ERROR");
-        assert!(err.message().contains("write stdout"), "{}", err.message());
-        assert!(
-            err.message().contains("synthetic write failure"),
-            "{}",
-            err.message()
-        );
-    }
 
     #[test]
     fn cx_list_args_parse_bounded_filters() {

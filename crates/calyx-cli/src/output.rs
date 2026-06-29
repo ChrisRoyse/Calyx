@@ -11,9 +11,11 @@
 //! the dual-consumer contract: a pipe captures clean data on stdout while an
 //! operator/agent reads the structured envelope on stderr.
 //!
-//! Each emitter is a thin `println!` wrapper over a pure line-builder
+//! Each emitter is a thin stdout-writer wrapper over a pure line-builder
 //! (`json_line`, `table_lines`, `hex_dump_lines`) so the exact bytes written
 //! can be asserted directly in tests without capturing stdout.
+
+use std::io::{self, Write};
 
 use serde::Serialize;
 
@@ -34,8 +36,7 @@ fn json_line<T: Serialize>(value: &T) -> Result<String, serde_json::Error> {
 pub(crate) fn print_json<T: Serialize>(value: &T) -> CliResult {
     let json = json_line(value)
         .map_err(|error| CliError::usage(format!("serialize CLI JSON output: {error}")))?;
-    println!("{json}");
-    Ok(())
+    print_line(&json)
 }
 
 /// Builds the aligned table lines (header first) for `headers`/`rows`. Column
@@ -75,10 +76,8 @@ fn table_lines(headers: &[&str], rows: &[Vec<String>]) -> Vec<String> {
 }
 
 /// Prints `rows` as a left-aligned table under `headers`.
-pub(crate) fn print_table(headers: &[&str], rows: &[Vec<String>]) {
-    for line in table_lines(headers, rows) {
-        println!("{line}");
-    }
+pub(crate) fn print_table(headers: &[&str], rows: &[Vec<String>]) -> CliResult {
+    print_lines(&table_lines(headers, rows)).map(|_| ())
 }
 
 /// Builds hex-dump lines in `xxd -g 1` layout starting at `offset`:
@@ -112,15 +111,75 @@ fn hex_dump_lines(offset: u64, bytes: &[u8]) -> Vec<String> {
 }
 
 /// Prints `bytes` as a hex dump (see [`hex_dump_lines`]).
-pub(crate) fn print_hex_dump(offset: u64, bytes: &[u8]) {
-    for line in hex_dump_lines(offset, bytes) {
-        println!("{line}");
+pub(crate) fn print_hex_dump(offset: u64, bytes: &[u8]) -> CliResult<WriteLineResult> {
+    print_lines(&hex_dump_lines(offset, bytes))
+}
+
+/// Prints one line to stdout. A closed downstream pipe is a normal CLI
+/// termination condition; other write failures remain structured errors.
+pub(crate) fn print_line(text: &str) -> CliResult {
+    print_line_result(text).map(|_| ())
+}
+
+/// Prints one line to stdout and reports whether the downstream pipe closed.
+pub(crate) fn print_line_result(text: &str) -> CliResult<WriteLineResult> {
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    write_line_allow_broken_pipe(&mut lock, text)
+}
+
+/// Prints several lines with one stdout lock. Stops at the first closed pipe.
+pub(crate) fn print_lines(lines: &[String]) -> CliResult<WriteLineResult> {
+    let stdout = io::stdout();
+    let mut lock = stdout.lock();
+    for line in lines {
+        if write_line_allow_broken_pipe(&mut lock, line)? == WriteLineResult::ClosedPipe {
+            return Ok(WriteLineResult::ClosedPipe);
+        }
+    }
+    Ok(WriteLineResult::Written)
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WriteLineResult {
+    Written,
+    ClosedPipe,
+}
+
+pub(crate) fn write_line_allow_broken_pipe<W: Write>(
+    writer: &mut W,
+    text: &str,
+) -> CliResult<WriteLineResult> {
+    match writer.write_all(text.as_bytes()) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {
+            return Ok(WriteLineResult::ClosedPipe);
+        }
+        Err(error) => return Err(CliError::io(format!("write stdout: {error}"))),
+    }
+    match writer.write_all(b"\n") {
+        Ok(()) => Ok(WriteLineResult::Written),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(WriteLineResult::ClosedPipe),
+        Err(error) => Err(CliError::io(format!("write stdout: {error}"))),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io;
+
+    struct FailingWriter(io::ErrorKind);
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::new(self.0, "synthetic write failure"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[test]
     fn hex_dump_first_line_matches_card_example_exactly() {
@@ -212,5 +271,39 @@ mod tests {
         // Array + scalar: deterministic regardless of map key-ordering config.
         assert_eq!(json_line(&[1, 3, 7]).expect("serialize"), "[1,3,7]");
         assert_eq!(json_line(&"a\"b").expect("serialize"), r#""a\"b""#);
+    }
+
+    #[test]
+    fn write_line_appends_newline_on_success() {
+        let mut out = Vec::new();
+
+        let result = write_line_allow_broken_pipe(&mut out, "{\"ok\":true}").unwrap();
+
+        assert_eq!(result, WriteLineResult::Written);
+        assert_eq!(out, b"{\"ok\":true}\n");
+    }
+
+    #[test]
+    fn write_line_treats_broken_pipe_as_clean_early_consumer_exit() {
+        let mut out = FailingWriter(io::ErrorKind::BrokenPipe);
+
+        let result = write_line_allow_broken_pipe(&mut out, "large readback").unwrap();
+
+        assert_eq!(result, WriteLineResult::ClosedPipe);
+    }
+
+    #[test]
+    fn write_line_surfaces_non_broken_pipe_write_errors() {
+        let mut out = FailingWriter(io::ErrorKind::PermissionDenied);
+
+        let err = write_line_allow_broken_pipe(&mut out, "large readback").unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_CLI_IO_ERROR");
+        assert!(err.message().contains("write stdout"), "{}", err.message());
+        assert!(
+            err.message().contains("synthetic write failure"),
+            "{}",
+            err.message()
+        );
     }
 }

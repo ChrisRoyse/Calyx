@@ -1,7 +1,14 @@
-pub(crate) fn print_usage() {
-    println!("{}", usage());
-    println!("prints source-of-truth bytes or listings for manual FSV inspection");
-    println!("merkle-root --vault reads Aster cf/ledger plus wal; no side ledger dir is created");
+use crate::error::CliResult;
+use crate::output::print_lines;
+
+pub(crate) fn print_usage() -> CliResult {
+    print_lines(&[
+        usage().to_string(),
+        "prints source-of-truth bytes or listings for manual FSV inspection".to_string(),
+        "merkle-root --vault reads Aster cf/ledger plus wal; no side ledger dir is created"
+            .to_string(),
+    ])
+    .map(|_| ())
 }
 
 pub(crate) fn usage() -> &'static str {

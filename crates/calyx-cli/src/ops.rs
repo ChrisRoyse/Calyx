@@ -21,7 +21,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::cf_read::{hex_bytes, list_sst_files};
-use crate::output::print_table;
+use crate::output::{WriteLineResult, print_line_result, print_table};
 
 mod compact;
 pub use compact::compact;
@@ -34,13 +34,16 @@ pub fn readback_cf(vault: &Path, cf_name: &str) -> crate::error::CliResult {
     for file in files {
         let reader = SstReader::open(&file).map_err(|error| error.to_string())?;
         for row in reader.iter().map_err(|error| error.to_string())? {
-            println!(
+            if print_line_result(&format!(
                 "CF\t{}\tFILE\t{}\tKEY\t{}\tVALUE\t{}",
                 cf.name(),
                 file.display(),
                 hex_bytes(&row.key),
                 hex_bytes(&row.value)
-            );
+            ))? == WriteLineResult::ClosedPipe
+            {
+                return Ok(());
+            }
         }
     }
     Ok(())
@@ -49,23 +52,29 @@ pub fn readback_cf(vault: &Path, cf_name: &str) -> crate::error::CliResult {
 pub fn readback_wal(vault: &Path) -> crate::error::CliResult {
     let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
     for record in replay.records {
-        println!(
+        if print_line_result(&format!(
             "WAL\tSEQ\t{}\tFILE\t{}\tSTART\t{}\tEND\t{}\tPAYLOAD\t{}",
             record.seq,
             record.segment_path.display(),
             record.start_offset,
             record.end_offset,
             hex_bytes(&record.payload)
-        );
+        ))? == WriteLineResult::ClosedPipe
+        {
+            return Ok(());
+        }
     }
     if let Some(torn) = replay.torn_tail {
-        println!(
+        let result = print_line_result(&format!(
             "WAL_TORN\tCODE\t{}\tFILE\t{}\tOFFSET\t{}\tMESSAGE\t{}",
             torn.code,
             torn.segment_path.display(),
             torn.offset,
             torn.message
-        );
+        ))?;
+        if result == WriteLineResult::ClosedPipe {
+            return Ok(());
+        }
     }
     Ok(())
 }
@@ -146,7 +155,7 @@ pub fn soak(vault: &Path, ops: usize, threads: usize) -> crate::error::CliResult
                     "-".to_string(),
                 ],
             ],
-        );
+        )?;
         return Ok(());
     }
 
