@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::MutexGuard;
 
-use calyx_core::{AuthN, Modality, SlotState, VaultStore};
+use calyx_core::{AuthN, Modality, SlotShape, SlotState, VaultStore};
 use calyx_ward::{
     CalibrationMeta, GuardId, GuardPolicy, GuardProfile, NoveltyAction, SlotCalibrationMeta,
     SlotKind,

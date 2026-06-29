@@ -792,7 +792,7 @@ fn existing_plain_batch_replay_rows(
     let snapshot = vault.snapshot();
     let mut all_materialized = true;
     let mut checked_existing = 0_usize;
-    for (text, metadata, anchors, _) in rows {
+    for (text, metadata, anchors, oracle) in rows {
         let input = text_input(text.clone());
         let cx_id = vault.cx_id_for_input(&input.bytes, state.panel.version);
         let input_ref = InputRef {
@@ -800,12 +800,16 @@ fn existing_plain_batch_replay_rows(
             pointer: input.pointer,
             redacted: false,
         };
+        let mut metadata = metadata.clone();
+        if let Some(event) = oracle {
+            event.apply_metadata(&mut metadata)?;
+        }
         let row = ExistingPlainReplayRow {
             cx_id,
             panel_version: state.panel.version,
             input_ref,
             modality: input.modality,
-            metadata: metadata.clone(),
+            metadata,
             anchors: anchors.clone(),
         };
         if !verify_existing_base_replay_row(vault, snapshot, &row)? {
@@ -979,11 +983,15 @@ fn existing_batch_replay_rows(
             pointer: input.pointer,
             redacted: false,
         };
+        let mut metadata = metadata.clone();
+        if let Some(event) = oracle {
+            event.apply_metadata(&mut metadata)?;
+        }
         let row = ExistingBatchReplayRow {
             cx_id,
             input_ref,
             modality: input.modality,
-            metadata: metadata.clone(),
+            metadata,
             anchors: anchors.clone(),
             oracle: oracle.clone(),
         };
