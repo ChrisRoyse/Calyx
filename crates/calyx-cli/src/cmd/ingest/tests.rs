@@ -706,6 +706,74 @@ fn batch_reingest_same_anchor_changed_metadata_fails_loud() {
 }
 
 #[test]
+fn batch_mixed_new_then_changed_metadata_fails_before_partial_write() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("mixed-preflight-conflict");
+    let first_jsonl = resolved.path.join("anchored-first.jsonl");
+    let mixed_jsonl = resolved.path.join("anchored-mixed-conflict.jsonl");
+    fs::write(
+        &first_jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &mixed_jsonl,
+        concat!(
+            r#"{"text":"new row before conflict","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"A"}]}"#,
+            "\n",
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"other"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &first_jsonl).unwrap();
+    let vault_before = open_vault(&resolved).unwrap();
+    let snapshot_before = vault_before.snapshot();
+    let before_base_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Base)
+        .unwrap();
+    let before_anchor_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Anchors)
+        .unwrap();
+    let before_ledger_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Ledger)
+        .unwrap();
+    drop(vault_before);
+
+    let err = ingest_batch_streaming(&resolved, &mixed_jsonl).unwrap_err();
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("changed stored non-anchor identity: metadata"),
+        "{}",
+        err.message()
+    );
+
+    let vault_after = open_vault(&resolved).unwrap();
+    let snapshot_after = vault_after.snapshot();
+    let after_base_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Base)
+        .unwrap();
+    let after_anchor_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Anchors)
+        .unwrap();
+    let after_ledger_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Ledger)
+        .unwrap();
+    assert_eq!(after_base_rows, before_base_rows);
+    assert_eq!(after_anchor_rows, before_anchor_rows);
+    assert_eq!(after_ledger_rows, before_ledger_rows);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn batch_reingest_same_anchor_changed_value_fails_loud() {
     let (root, resolved) = test_vault_with_registered_dense_lens("anchors-value-conflict");
     let first_jsonl = resolved.path.join("anchored-first.jsonl");
