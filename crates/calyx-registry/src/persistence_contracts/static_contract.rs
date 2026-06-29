@@ -1,4 +1,5 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, Modality, Result, SlotShape};
@@ -12,7 +13,7 @@ use fastembed_contract::{
 
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
 use crate::runtime::candle::{CandlePoolingPolicy, CandlePrecision};
-use crate::runtime::common::{DEFAULT_MAX_TOKENS, hash_files};
+use crate::runtime::common::DEFAULT_MAX_TOKENS;
 use crate::{AlgorithmicEncoder, LensRuntime, LensSpec, Qwen3ModelFiles};
 
 const DEFAULT_COLBERT_ONNX: &str = "onnx/model_int8.onnx";
@@ -198,7 +199,7 @@ fn candle_contract(
     ]);
     Ok(FrozenLensContract::new(
         spec.name.clone(),
-        hash_files(files)?,
+        spec.weights_sha256,
         corpus_hash,
         SlotShape::Dense(dim),
         Modality::Text,
@@ -220,7 +221,7 @@ fn onnx_contract(spec: &LensSpec, model_id: &str, files: &[PathBuf]) -> Result<F
     let norm_text = format!("{:?}", spec.norm_policy);
     Ok(FrozenLensContract::new(
         spec.name.clone(),
-        hash_files(files)?,
+        spec.weights_sha256,
         sha256_digest(&[
             b"onnx-custom-v1",
             model_id.as_bytes(),
@@ -249,7 +250,7 @@ fn onnx_colbert_contract(
     }
     Ok(FrozenLensContract::new(
         spec.name.clone(),
-        hash_files(files)?,
+        spec.weights_sha256,
         sha256_digest(&[
             b"onnx-colbert-token-v1",
             model_id.as_bytes(),
@@ -279,7 +280,7 @@ fn qwen3_contract(
     let dim = dense_hidden_size(&files.config, "Qwen3")?;
     Ok(FrozenLensContract::new(
         spec.name.clone(),
-        hash_files(&files.artifact_paths())?,
+        spec.weights_sha256,
         sha256_digest(&[
             b"fastembed-qwen3-text-v1",
             model_id.as_bytes(),
@@ -309,7 +310,7 @@ fn static_lookup_contract(
     ensure_file("static lookup tokenizer", tokenizer)?;
     Ok(FrozenLensContract::new(
         spec.name.clone(),
-        hash_files(&[embeddings_file.to_path_buf(), tokenizer.to_path_buf()])?,
+        spec.weights_sha256,
         sha256_digest(&[
             b"static-lookup-model2vec-v1",
             dim.to_string().as_bytes(),
@@ -323,21 +324,37 @@ fn static_lookup_contract(
 }
 
 fn static_lookup_header(path: &Path) -> Result<(u32, &'static str)> {
-    let bytes = fs::read(path).map_err(|err| {
+    let mut file = File::open(path).map_err(|err| {
         lens_config_invalid(format!(
-            "read static lookup matrix {} failed: {err}",
+            "open static lookup matrix {} failed: {err}",
             path.display()
         ))
     })?;
-    if bytes.len() < STATIC_LOOKUP_HEADER_LEN || &bytes[..8] != STATIC_LOOKUP_MAGIC {
+    let len = file
+        .metadata()
+        .map_err(|err| {
+            lens_config_invalid(format!(
+                "stat static lookup matrix {} failed: {err}",
+                path.display()
+            ))
+        })?
+        .len() as usize;
+    let mut header = [0_u8; STATIC_LOOKUP_HEADER_LEN];
+    file.read_exact(&mut header).map_err(|err| {
+        lens_config_invalid(format!(
+            "read static lookup matrix header {} failed: {err}",
+            path.display()
+        ))
+    })?;
+    if len < STATIC_LOOKUP_HEADER_LEN || &header[..8] != STATIC_LOOKUP_MAGIC {
         return Err(lens_config_invalid(format!(
             "static lookup matrix {} has invalid magic/header",
             path.display()
         )));
     }
-    let rows = u32::from_le_bytes(bytes[8..12].try_into().expect("rows"));
-    let dim = u32::from_le_bytes(bytes[12..16].try_into().expect("dim"));
-    let (dtype, width) = match bytes[16] {
+    let rows = u32::from_le_bytes(header[8..12].try_into().expect("rows"));
+    let dim = u32::from_le_bytes(header[12..16].try_into().expect("dim"));
+    let (dtype, width) = match header[16] {
         1 => ("int8", 1usize),
         2 => ("f16", 2usize),
         3 => ("f32", 4usize),
@@ -350,10 +367,9 @@ fn static_lookup_header(path: &Path) -> Result<(u32, &'static str)> {
     let expected = STATIC_LOOKUP_HEADER_LEN
         .checked_add(rows as usize * dim as usize * width)
         .ok_or_else(|| CalyxError::lens_dim_mismatch("static lookup matrix size overflow"))?;
-    if bytes.len() != expected {
+    if len != expected {
         return Err(CalyxError::lens_dim_mismatch(format!(
-            "static lookup matrix byte length {} != expected {expected}",
-            bytes.len()
+            "static lookup matrix byte length {len} != expected {expected}"
         )));
     }
     Ok((dim, dtype))

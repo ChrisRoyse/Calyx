@@ -8,7 +8,6 @@ use fastembed::{
 
 use super::{ensure_file, lens_config_invalid};
 use crate::frozen::{FrozenLensContract, LensDType, NormPolicy, sha256_digest};
-use crate::runtime::common::hash_files;
 use crate::{FastembedBgem3Output, LensSpec};
 
 pub(super) fn fastembed_sparse_contract(
@@ -91,7 +90,7 @@ fn fastembed_contract(
     }
     Ok(FrozenLensContract::new(
         spec.name.clone(),
-        hash_files(files)?,
+        spec.weights_sha256,
         sha256_digest(corpus_parts),
         shape,
         Modality::Text,
