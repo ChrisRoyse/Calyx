@@ -55,9 +55,9 @@ pub use panel_ops::{
     list_panel_with_assay, swap_panel, swap_panel_to_target,
 };
 pub use panels::{
-    AlgorithmicPanelLens, InstantiatedPanel, PanelLensRuntime, PanelSlotSpec, PanelTemplate,
-    bio_default, civic_default, code_default, instantiate_panel, legal_default, media_default,
-    medical_default, text_default,
+    AlgorithmicPanelLens, InstantiatedPanel, MaterializedPanelTemplate, PanelLensRuntime,
+    PanelSlotSpec, PanelTemplate, bio_default, civic_default, code_default, instantiate_panel,
+    legal_default, materialize_panel_template, media_default, medical_default, text_default,
 };
 pub use persistence::{
     VaultPanelState, VaultPanelWrite, VaultRegistrySnapshot, load_vault_panel_state,

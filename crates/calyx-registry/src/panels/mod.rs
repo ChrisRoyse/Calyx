@@ -1,4 +1,5 @@
 mod defaults;
+mod materialize;
 
 use std::collections::BTreeMap;
 
@@ -12,6 +13,7 @@ pub use defaults::{
     bio_default, civic_default, code_default, legal_default, media_default, medical_default,
     text_default,
 };
+pub use materialize::{MaterializedPanelTemplate, materialize_panel_template};
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PanelSlotSpec {
