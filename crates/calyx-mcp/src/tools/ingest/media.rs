@@ -87,7 +87,7 @@ impl Tool for MediaIngestTool {
         let modality = parse_audio_video_modality(&args.modality)?;
         let resolved = resolve_requested_vault(&args.vault)?;
         let retained = retain_media_input(&resolved, args.file.as_ref(), modality)?;
-        let reports = ingest_media_with_derived_text(&resolved, retained)?;
+        let reports = derived::ingest_media_with_derived_text(&resolved, retained)?;
         Ok(
             serde_json::to_value(serde_json::json!({ "results": reports })).map_err(|err| {
                 CalyxError::aster_corrupt_shard(format!("encode media ingest: {err}"))
@@ -113,7 +113,7 @@ pub(super) fn retain_media_input(
         )
     })?;
     validate_magic(&bytes, modality, &extension)?;
-    let probe = ffprobe_media(source, modality)?;
+    let probe = probe::ffprobe_media(source, modality)?;
     let source_sha256 = sha256_hex(&bytes);
     let input_blake3 = *blake3::hash(&bytes).as_bytes();
     let rel = format!(
@@ -140,113 +140,8 @@ pub(super) fn retain_media_input(
     })
 }
 
-fn ffprobe_media(source: &Path, modality: Modality) -> ToolResult<MediaProbe> {
-    let codec_type = ffprobe_codec_type(modality);
-    let mut command = Command::new("ffprobe");
-    command.arg("-v").arg("error");
-    if modality == Modality::Video {
-        command.arg("-count_frames");
-    }
-    let output = command
-        .arg("-show_streams")
-        .arg("-show_format")
-        .arg("-of")
-        .arg("json")
-        .arg(source)
-        .output()
-        .map_err(|error| {
-            media_error(
-                "CALYX_MEDIA_PROBE_MISSING",
-                format!("spawn ffprobe for {}: {error}", source.display()),
-            )
-        })?;
-    if !output.status.success() {
-        return Err(media_error(
-            "CALYX_MEDIA_DECODE_FAILED",
-            format!(
-                "ffprobe failed for {}: {}",
-                source.display(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-        ));
-    }
-    let value: Value = serde_json::from_slice(&output.stdout).map_err(|error| {
-        media_error(
-            "CALYX_MEDIA_DECODE_FAILED",
-            format!("parse ffprobe JSON for {}: {error}", source.display()),
-        )
-    })?;
-    probe_from_json(&value, modality, codec_type, source)
-}
-
-fn probe_from_json(
-    value: &Value,
-    modality: Modality,
-    codec_type: &str,
-    source: &Path,
-) -> ToolResult<MediaProbe> {
-    let stream = value["streams"].as_array().and_then(|streams| {
-        streams
-            .iter()
-            .find(|stream| stream["codec_type"].as_str() == Some(codec_type))
-    });
-    let Some(stream) = stream else {
-        return Err(media_error(
-            "CALYX_MEDIA_DECODE_FAILED",
-            format!("{} has no {codec_type} stream", source.display()),
-        ));
-    };
-    let container = value["format"]["format_name"]
-        .as_str()
-        .unwrap_or("")
-        .to_string();
-    let duration = stream["duration"]
-        .as_str()
-        .or_else(|| value["format"]["duration"].as_str())
-        .and_then(|raw| raw.parse::<f64>().ok());
-    let mut probe = MediaProbe {
-        codec: stream["codec_name"].as_str().unwrap_or("").to_string(),
-        container,
-        duration_seconds: duration,
-        sample_rate_hz: None,
-        channels: None,
-        width: None,
-        height: None,
-        frame_count: None,
-        fps: None,
-    };
-    if modality == Modality::Audio {
-        probe.sample_rate_hz = stream["sample_rate"]
-            .as_str()
-            .and_then(|raw| raw.parse::<u32>().ok());
-        probe.channels = stream["channels"].as_u64().map(|value| value as u32);
-        if probe.sample_rate_hz.unwrap_or(0) == 0 || probe.channels.unwrap_or(0) == 0 {
-            return Err(incomplete_decode(source, "audio"));
-        }
-    } else {
-        probe.width = stream["width"].as_u64().map(|value| value as u32);
-        probe.height = stream["height"].as_u64().map(|value| value as u32);
-        if probe.width.unwrap_or(0) == 0 || probe.height.unwrap_or(0) == 0 {
-            return Err(incomplete_decode(source, media_modality_name(modality)));
-        }
-        if modality == Modality::Image {
-            probe.frame_count = Some(1);
-        } else {
-            probe.frame_count = stream["nb_read_frames"]
-                .as_str()
-                .or_else(|| stream["nb_frames"].as_str())
-                .and_then(|raw| raw.parse::<u64>().ok());
-            probe.fps = stream["avg_frame_rate"]
-                .as_str()
-                .or_else(|| stream["r_frame_rate"].as_str())
-                .and_then(parse_fps);
-            if probe.frame_count.unwrap_or(0) == 0 || probe.fps.unwrap_or(0.0) <= 0.0 {
-                return Err(incomplete_decode(source, "video"));
-            }
-        }
-    }
-    Ok(probe)
-}
+mod derived;
+mod probe;
 
 fn validate_magic(bytes: &[u8], modality: Modality, extension: &str) -> ToolResult<()> {
     if bytes.is_empty() {
@@ -371,15 +266,6 @@ fn optional_f64(metadata: &mut BTreeMap<String, String>, key: &str, value: Optio
     }
 }
 
-fn parse_fps(raw: &str) -> Option<f64> {
-    let Some((left, right)) = raw.split_once('/') else {
-        return raw.parse::<f64>().ok();
-    };
-    let numerator = left.parse::<f64>().ok()?;
-    let denominator = right.parse::<f64>().ok()?;
-    (denominator != 0.0).then_some(numerator / denominator)
-}
-
 fn incomplete_decode(source: &Path, media: &str) -> ToolError {
     media_error(
         "CALYX_MEDIA_DECODE_FAILED",
@@ -444,187 +330,5 @@ pub(super) fn retained_pointer_path(vault_dir: &Path, pointer: &str) -> ToolResu
     Ok(vault_dir.join(rel_path))
 }
 
-fn ingest_media_with_derived_text(
-    resolved: &ResolvedVault,
-    retained: RetainedMediaInput,
-) -> ToolResult<Vec<super::IngestReport>> {
-    let vault = open_vault(resolved)?;
-    let state = calyx_registry::load_vault_panel_state(&resolved.path)?;
-    ensure_raw_media_panel_route(retained.input.modality, &state)?;
-    let source_cx_id = vault.cx_id_for_input(&retained.input.bytes, state.panel.version);
-    let derived = derived_text::derive_text_for_media(&resolved.path, &retained, source_cx_id)?;
-
-    let mut media =
-        measure_constellation(&vault, &state, retained.input.clone(), now_ms())?.constellation;
-    media.metadata = retained.metadata.clone();
-    let mut text =
-        measure_constellation(&vault, &state, derived.input.clone(), now_ms())?.constellation;
-    text.metadata = derived.metadata.clone();
-
-    let media_new = !base_exists(&vault, media.cx_id)?;
-    let text_new = !base_exists(&vault, text.cx_id)?;
-    let payload =
-        derived_text::derivation_ledger_payload(&retained, &derived, media.cx_id, text.cx_id)?;
-    let mut staged = Vec::with_capacity(2);
-    if media_new {
-        staged.push(media.clone());
-    }
-    if text_new && text.cx_id != media.cx_id {
-        staged.push(text.clone());
-    }
-    let artifact_draft =
-        derived_text::derived_artifact_draft(&retained, &derived, media.cx_id, text.cx_id)?;
-    let commit = vault.put_batch_with_ingest_ledger_and_media_artifact(
-        staged,
-        SubjectId::Cx(text.cx_id),
-        payload,
-        ActorId::Service("calyx-mcp".to_string()),
-        artifact_draft,
-    )?;
-    vault.flush()?;
-    let snapshot = vault.snapshot();
-    verify_media_readback(&vault, snapshot, &media, media_new)?;
-    verify_media_readback(&vault, snapshot, &text, text_new)?;
-    verify_media_artifact_readback(&vault, snapshot, &commit.artifact)?;
-
-    let media_seq = if media_new {
-        vault.get(media.cx_id, snapshot)?.provenance.seq
-    } else {
-        commit.artifact.ledger_ref.seq
-    };
-    let text_seq = if text_new {
-        vault.get(text.cx_id, snapshot)?.provenance.seq
-    } else {
-        commit.artifact.ledger_ref.seq
-    };
-    vault.flush()?;
-    Ok(vec![
-        super::IngestReport {
-            cx_id: media.cx_id.to_string(),
-            new: media_new,
-            ledger_seq: media_seq,
-        },
-        super::IngestReport {
-            cx_id: text.cx_id.to_string(),
-            new: text_new,
-            ledger_seq: text_seq,
-        },
-    ])
-}
-
-fn ensure_raw_media_panel_route(
-    modality: Modality,
-    state: &calyx_registry::VaultPanelState,
-) -> ToolResult<()> {
-    if !matches!(
-        modality,
-        Modality::Image | Modality::Audio | Modality::Video
-    ) {
-        return Ok(());
-    }
-    let has_declared_route = state
-        .panel
-        .slots
-        .iter()
-        .any(|slot| slot.state == SlotState::Active && slot.counts_toward_degraded(modality));
-    if has_declared_route {
-        return Ok(());
-    }
-    Err(CalyxError {
-        code: "CALYX_MEDIA_ROUTE_UNAVAILABLE",
-        message: format!(
-            "raw {modality:?} ingest requires an active {modality:?} content lens before derived text can be attached"
-        ),
-        remediation:
-            "add or activate an image/audio/video lens for the raw media modality, then re-run ingest so the media constellation is measured instead of empty",
-    }
-    .into())
-}
-
-fn verify_media_readback(
-    vault: &calyx_aster::vault::AsterVault,
-    snapshot: u64,
-    expected: &calyx_core::Constellation,
-    new: bool,
-) -> ToolResult<()> {
-    let stored = vault.get(expected.cx_id, snapshot)?;
-    let mismatch = if new {
-        stored.panel_version != expected.panel_version
-            || stored.input_ref != expected.input_ref
-            || stored.modality != expected.modality
-            || stored.slots != expected.slots
-            || stored.metadata != expected.metadata
-            || stored.flags != expected.flags
-    } else {
-        stored.panel_version != expected.panel_version
-            || stored.input_ref.hash != expected.input_ref.hash
-            || stored.modality != expected.modality
-            || stored.slots != expected.slots
-    };
-    if mismatch {
-        return Err(CalyxError::aster_corrupt_shard(format!(
-            "durable MCP media ingest readback mismatch for cx {}",
-            expected.cx_id
-        ))
-        .into());
-    }
-    Ok(())
-}
-
-fn verify_media_artifact_readback(
-    vault: &calyx_aster::vault::AsterVault,
-    snapshot: u64,
-    expected: &calyx_aster::media_artifact::DerivedMediaArtifactRecord,
-) -> ToolResult<()> {
-    let stored = vault
-        .get_derived_media_artifact(snapshot, &expected.artifact_id)?
-        .ok_or_else(|| {
-            CalyxError::aster_corrupt_shard(format!(
-                "derived media artifact {} missing after commit",
-                expected.artifact_id
-            ))
-        })?;
-    if stored != *expected {
-        return Err(CalyxError::aster_corrupt_shard(format!(
-            "derived media artifact {} readback mismatch",
-            expected.artifact_id
-        ))
-        .into());
-    }
-    let source_records =
-        vault.derived_media_artifacts_for_source(snapshot, expected.source_cx_id)?;
-    if !source_records.iter().any(|record| record == expected) {
-        return Err(CalyxError::aster_corrupt_shard(format!(
-            "derived media artifact {} missing from source index",
-            expected.artifact_id
-        ))
-        .into());
-    }
-    let target_records =
-        vault.derived_media_artifacts_for_target(snapshot, expected.target_cx_id)?;
-    if !target_records.iter().any(|record| record == expected) {
-        return Err(CalyxError::aster_corrupt_shard(format!(
-            "derived media artifact {} missing from target index",
-            expected.artifact_id
-        ))
-        .into());
-    }
-    Ok(())
-}
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn unsupported_video_extension_fails_closed() {
-        let err = media_extension(Path::new("clip.txt"), Modality::Video).unwrap_err();
-        assert!(format!("{err:?}").contains("CALYX_MEDIA_UNSUPPORTED_EXTENSION"));
-    }
-
-    #[test]
-    fn wav_magic_is_checked_before_decode() {
-        let err = validate_magic(b"not-wave", Modality::Audio, "wav").unwrap_err();
-        assert!(format!("{err:?}").contains("CALYX_MEDIA_MAGIC_MISMATCH"));
-    }
-}
+mod tests;
