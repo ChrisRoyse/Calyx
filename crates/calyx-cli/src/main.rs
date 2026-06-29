@@ -72,6 +72,7 @@ mod oracle_sufficiency_validation;
 mod output;
 mod panel_commands;
 mod partitioned_bench;
+mod path_identity;
 mod ph42_readback;
 mod provenance;
 mod raw_media;

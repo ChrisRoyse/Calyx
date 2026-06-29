@@ -1,6 +1,7 @@
 use calyx_aster::cf::ColumnFamily;
+use calyx_aster::mvcc::Snapshot;
 use calyx_aster::vault::encode::{decode_constellation_base, decode_slot_vector};
-use calyx_core::{CalyxError, CxId, SlotId, VaultStore};
+use calyx_core::{CalyxError, CxId, SlotId};
 use rayon::prelude::*;
 
 use super::*;
@@ -80,8 +81,16 @@ fn previous_manifest(vault_dir: &Path) -> CliResult<Option<SearchIndexManifest>>
 }
 
 pub fn load_docs(vault: &AsterVault) -> CliResult<BTreeMap<CxId, Constellation>> {
-    let snapshot = vault.snapshot();
-    let base_rows = vault.scan_cf_at(snapshot, ColumnFamily::Base)?;
+    let snapshot = vault.pin_reader(calyx_aster::mvcc::Freshness::FreshDerived, 300_000);
+    let _guard = PinnedReadGuard::new(vault, snapshot);
+    load_docs_at(vault, _guard.snapshot())
+}
+
+pub fn load_docs_at(
+    vault: &AsterVault,
+    snapshot: Snapshot,
+) -> CliResult<BTreeMap<CxId, Constellation>> {
+    let base_rows = vault.scan_cf_snapshot(snapshot, ColumnFamily::Base)?;
     let decoded_base = base_rows
         .into_par_iter()
         .map(|(key, bytes)| {
@@ -104,6 +113,27 @@ pub fn load_docs(vault: &AsterVault) -> CliResult<BTreeMap<CxId, Constellation>>
     Ok(docs)
 }
 
+struct PinnedReadGuard<'a> {
+    vault: &'a AsterVault,
+    snapshot: Snapshot,
+}
+
+impl<'a> PinnedReadGuard<'a> {
+    fn new(vault: &'a AsterVault, snapshot: Snapshot) -> Self {
+        Self { vault, snapshot }
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        self.snapshot
+    }
+}
+
+impl Drop for PinnedReadGuard<'_> {
+    fn drop(&mut self) {
+        let _ = self.vault.release_reader(self.snapshot.lease().id());
+    }
+}
+
 fn indexed_slots(docs: &BTreeMap<CxId, Constellation>) -> Vec<SlotId> {
     let mut slots = docs
         .values()
@@ -116,7 +146,7 @@ fn indexed_slots(docs: &BTreeMap<CxId, Constellation>) -> Vec<SlotId> {
 
 fn load_slot_rows(
     vault: &AsterVault,
-    snapshot: calyx_core::Seq,
+    snapshot: Snapshot,
     slot: SlotId,
     docs: &mut BTreeMap<CxId, Constellation>,
 ) -> CliResult {
@@ -124,7 +154,7 @@ fn load_slot_rows(
         .iter()
         .filter_map(|(cx_id, cx)| cx.slots.contains_key(&slot).then_some(*cx_id))
         .collect::<std::collections::BTreeSet<_>>();
-    let rows = vault.scan_cf_at(snapshot, ColumnFamily::slot(slot))?;
+    let rows = vault.scan_cf_snapshot(snapshot, ColumnFamily::slot(slot))?;
     let decoded = rows
         .into_par_iter()
         .map(|(key, bytes)| {

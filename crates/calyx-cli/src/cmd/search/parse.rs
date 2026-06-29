@@ -1,5 +1,6 @@
 use super::super::{Subcommand, value};
 use crate::error::{CliError, CliResult};
+use std::net::{IpAddr, SocketAddr};
 
 pub(super) const DEFAULT_K: usize = 10;
 
@@ -14,6 +15,7 @@ pub(crate) struct SearchArgs {
     pub provenance: bool,
     pub freshness: SearchFreshnessArg,
     pub filter: Option<String>,
+    pub resident_addr: Option<SocketAddr>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +64,7 @@ pub(crate) fn parse_search(rest: &[String]) -> CliResult<Subcommand> {
         provenance: true,
         freshness: SearchFreshnessArg::Fresh,
         filter: None,
+        resident_addr: None,
     };
     let mut freshness_seen = None;
     let mut idx = 2;
@@ -91,6 +94,11 @@ pub(crate) fn parse_search(rest: &[String]) -> CliResult<Subcommand> {
                 let raw = value(rest, idx, "--filter")?.to_string();
                 calyx_search::filters::parse(Some(&raw))?;
                 args.filter = Some(raw);
+            }
+            "--resident-addr" => {
+                idx += 1;
+                args.resident_addr =
+                    Some(parse_resident_addr(value(rest, idx, "--resident-addr")?)?);
             }
             other => return Err(CliError::usage(format!("unexpected search flag {other}"))),
         }
@@ -147,6 +155,21 @@ fn validate_query_text(value: &str) -> CliResult {
         return Err(CliError::usage("<query> must not be empty"));
     }
     Ok(())
+}
+
+fn parse_resident_addr(raw: &str) -> CliResult<SocketAddr> {
+    let addr = raw
+        .parse::<SocketAddr>()
+        .map_err(|error| CliError::usage(format!("parse --resident-addr {raw}: {error}")))?;
+    match addr.ip() {
+        IpAddr::V4(ip) if ip.is_loopback() => Ok(addr),
+        IpAddr::V6(ip) if ip.is_loopback() => Ok(addr),
+        _ => Err(CliError::from(calyx_core::CalyxError {
+            code: "CALYX_SEARCH_RESIDENT_ADDR_REFUSED",
+            message: format!("--resident-addr {addr} is not loopback"),
+            remediation: "bind and use the resident measurement service only on 127.0.0.1 or [::1]",
+        })),
+    }
 }
 
 fn set_freshness(
@@ -208,6 +231,9 @@ pub(crate) fn search_tokens(args: &SearchArgs) -> Vec<String> {
     }
     if let Some(filter) = &args.filter {
         out.extend(["--filter".to_string(), filter.clone()]);
+    }
+    if let Some(addr) = args.resident_addr {
+        out.extend(["--resident-addr".to_string(), addr.to_string()]);
     }
     out
 }

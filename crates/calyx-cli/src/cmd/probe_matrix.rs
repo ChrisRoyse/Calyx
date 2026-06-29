@@ -87,7 +87,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        VaultOptions::default(),
+        latest_probe_read_vault_options(),
     )?;
     require_vault_registry_contracts(&resolved.path)?;
     let state = load_vault_panel_state(&resolved.path)?;
@@ -173,6 +173,10 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             }
         }
     }))
+}
+
+fn latest_probe_read_vault_options() -> VaultOptions {
+    super::search::latest_read_vault_options()
 }
 
 fn run_physical_probe_matrix<F>(spec: &ProbeMatrixSpec, mut probe: F) -> CliResult<ProbeMatrixLog>

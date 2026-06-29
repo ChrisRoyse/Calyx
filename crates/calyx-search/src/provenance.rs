@@ -2,8 +2,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use calyx_aster::ledger_view::read_ledger_seq;
+use calyx_aster::mvcc::Snapshot;
 use calyx_aster::vault::AsterVault;
-use calyx_core::{CalyxError, Constellation, CxId, LedgerRef, VaultStore};
+use calyx_core::{CalyxError, Constellation, CxId, LedgerRef};
 use calyx_ledger::{EntryKind, LedgerEntry, SubjectId, decode};
 use calyx_sextant::{
     CALYX_SEXTANT_PROVENANCE_MISSING, FreshnessTag, Hit, ProvenanceSource, sextant_error,
@@ -15,15 +16,15 @@ use crate::error::CliResult;
 #[cfg(test)]
 mod tests;
 
-pub(crate) fn hit_docs(
+pub(crate) fn hit_docs_at(
     vault: &AsterVault,
     hits: &[Hit],
+    snapshot: Snapshot,
 ) -> CliResult<BTreeMap<CxId, Constellation>> {
-    let snapshot = vault.snapshot();
     let mut docs = BTreeMap::new();
     for hit in hits {
         let cx_id = hit.cx_id;
-        let cx = vault.get(cx_id, snapshot).map_err(|error| {
+        let cx = vault.get_at_snapshot(cx_id, snapshot).map_err(|error| {
             if error.code == "CALYX_STALE_DERIVED" && error.message.contains("missing") {
                 missing_provenance(format!("stored constellation missing for hit {cx_id}"))
             } else {

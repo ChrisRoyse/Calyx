@@ -82,6 +82,16 @@ fn bad_profile_fails_closed() {
 }
 
 #[test]
+fn probe_matrix_open_options_use_latest_only_router_readback() {
+    let options = super::latest_probe_read_vault_options();
+
+    assert!(
+        !options.restore_mvcc_rows,
+        "probe-matrix is read-only latest-state search and must not restore every MVCC row"
+    );
+}
+
+#[test]
 fn run_persists_matrix_then_reads_back_source_of_truth() {
     let (home, vault_dir) = seed_home("happy");
 

@@ -87,6 +87,26 @@ fn in_region_guard_keeps_aligned_dense_hit() {
     );
 }
 
+#[test]
+fn search_read_snapshot_releases_pinned_reader_on_drop() {
+    let vault = AsterVault::new(
+        VaultId::from_ulid(Ulid::from_bytes([0x44; 16])),
+        b"search-read-lease-test",
+    );
+    let lease_id;
+    {
+        let read = SearchReadSnapshot::pin(&vault);
+        lease_id = read.snapshot().lease().id();
+        assert_eq!(read.seq(), vault.latest_seq());
+        assert!(lease_id > 0);
+    }
+
+    assert!(
+        !vault.release_reader(lease_id),
+        "SearchReadSnapshot::drop should release the pinned reader"
+    );
+}
+
 fn cx(seed: u8) -> CxId {
     CxId::from_bytes([seed; 16])
 }

@@ -21,6 +21,31 @@ fn parse_search_defaults_to_rrf_guard_off_and_provenance() {
     assert_eq!(args.guard, SearchGuardArg::Off);
     assert!(!args.explain);
     assert!(args.provenance);
+    assert!(args.resident_addr.is_none());
+}
+
+#[test]
+fn parse_search_accepts_loopback_resident_addr() {
+    let parsed = super::parse_search(&tokens([
+        "myvault",
+        "hello",
+        "--resident-addr",
+        "127.0.0.1:8787",
+    ]))
+    .unwrap();
+    let Subcommand::Search(args) = parsed else {
+        panic!("expected search subcommand");
+    };
+
+    assert_eq!(args.resident_addr, Some("127.0.0.1:8787".parse().unwrap()));
+}
+
+#[test]
+fn parse_search_rejects_non_loopback_resident_addr() {
+    let err =
+        super::parse_search(&tokens(["v", "q", "--resident-addr", "10.0.0.10:8787"])).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_SEARCH_RESIDENT_ADDR_REFUSED");
 }
 
 #[test]

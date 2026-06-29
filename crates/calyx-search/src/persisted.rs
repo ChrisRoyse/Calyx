@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::error::{CliError, CliResult};
+pub(crate) use rebuild::load_docs_at;
 #[cfg(test)]
 use rebuild::rebuild_from_docs;
 pub use rebuild::{load_docs, rebuild_for_vault};
