@@ -2,7 +2,8 @@ use crate::spectral::{SpectralError, SpectralResult};
 
 const EIGEN_EPS: f32 = 1.0e-6;
 const JACOBI_TOL: f32 = 1.0e-6;
-const JACOBI_MAX_ITER: usize = 256;
+const JACOBI_MIN_MAX_ITER: usize = 256;
+const JACOBI_ROTATIONS_PER_ENTRY: usize = 16;
 
 pub(crate) fn lanczos_eigen_operator<F>(
     n: usize,
@@ -23,8 +24,15 @@ where
     }
     let basis = lanczos_basis_operator(n, target_dim, max_iter, &mut mat_vec)?;
     let projected = project_to_basis_operator(&basis, &mut mat_vec);
-    let (values, ritz_vectors) = jacobi_eigen(projected, JACOBI_MAX_ITER)?;
+    let jacobi_max_iter = jacobi_max_iter(projected.len());
+    let (values, ritz_vectors) = jacobi_eigen(projected, jacobi_max_iter)?;
     Ok((values, expand_ritz_vectors(&basis, &ritz_vectors)))
+}
+
+fn jacobi_max_iter(n: usize) -> usize {
+    n.saturating_mul(n)
+        .saturating_mul(JACOBI_ROTATIONS_PER_ENTRY)
+        .max(JACOBI_MIN_MAX_ITER)
 }
 
 fn lanczos_basis_operator<F>(
