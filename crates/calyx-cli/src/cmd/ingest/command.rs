@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 
 use calyx_aster::cf::{ColumnFamily, anchor_key, base_key};
 use calyx_aster::dedup::{AnchorConflictResult, check_anchor_conflict};
@@ -40,6 +41,12 @@ const DEFAULT_MEASURE_BATCH: usize = 4;
 /// Constellations per WAL commit. Small because ColBERT multi-vectors are large;
 /// decoupled from the measure batch so we measure big but commit WAL-safe.
 const PUT_CHUNK: usize = 8;
+
+pub(crate) fn ingest_runtime_log(args: std::fmt::Arguments<'_>) {
+    let mut stderr = std::io::stderr().lock();
+    let _ = writeln!(stderr, "CALYX_INGEST_RUNTIME {args}");
+    let _ = stderr.flush();
+}
 
 /// Resolve the measure microbatch from `CALYX_MEASURE_BATCH` (>=1), else the
 /// conservative default. Operator-tunable so the VRAM/throughput trade-off does
@@ -178,7 +185,17 @@ fn ingest_prepared_inputs(
         return Ok(Vec::new());
     }
     let vault = open_vault(resolved)?;
+    ingest_runtime_log(format_args!(
+        "phase=load_vault_panel_state_start vault={}",
+        resolved.path.display()
+    ));
     let state = load_vault_panel_state(&resolved.path)?;
+    ingest_runtime_log(format_args!(
+        "phase=load_vault_panel_state_ok vault={} panel_version={} slots={}",
+        resolved.path.display(),
+        state.panel.version,
+        state.panel.slots.len()
+    ));
     let mut staged = Vec::new();
     let mut prepared = Vec::with_capacity(inputs.len());
     let mut first_new = BTreeSet::new();
@@ -253,7 +270,17 @@ fn ingest_validated_batch_streaming_with_output(
         .map_err(|err| CliError::io(format!("open batch {}: {err}", path.display())))?;
     let reader = std::io::BufReader::new(file);
     let vault = open_vault(resolved)?;
+    ingest_runtime_log(format_args!(
+        "phase=load_vault_panel_state_start vault={}",
+        resolved.path.display()
+    ));
     let state = load_vault_panel_state(&resolved.path)?;
+    ingest_runtime_log(format_args!(
+        "phase=load_vault_panel_state_ok vault={} panel_version={} slots={}",
+        resolved.path.display(),
+        state.panel.version,
+        state.panel.slots.len()
+    ));
     let mut seen = BTreeSet::new();
     let measure_batch = measure_batch_size();
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_batch);
