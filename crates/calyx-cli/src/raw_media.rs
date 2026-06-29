@@ -36,11 +36,12 @@ pub(crate) struct RetainedMediaInput {
 
 pub(crate) fn parse_audio_video_modality(raw: &str) -> Result<Modality> {
     match raw.trim().to_ascii_lowercase().as_str() {
+        "image" => Ok(Modality::Image),
         "audio" => Ok(Modality::Audio),
         "video" => Ok(Modality::Video),
         other => Err(media_error(
             "CALYX_MEDIA_UNSUPPORTED_MODALITY",
-            format!("unsupported raw media modality {other}; expected audio or video"),
+            format!("unsupported raw media modality {other}; expected image, audio, or video"),
         )),
     }
 }
@@ -194,7 +195,7 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 }
 
 fn ffprobe_media(source: &Path, modality: Modality) -> Result<MediaProbe> {
-    let codec_type = modality_name(modality);
+    let codec_type = ffprobe_codec_type(modality);
     let mut command = Command::new("ffprobe");
     command.arg("-v").arg("error");
     if modality == Modality::Video {
@@ -229,10 +230,15 @@ fn ffprobe_media(source: &Path, modality: Modality) -> Result<MediaProbe> {
             format!("parse ffprobe JSON for {}: {error}", source.display()),
         )
     })?;
-    probe_from_json(&value, codec_type, source)
+    probe_from_json(&value, modality, codec_type, source)
 }
 
-fn probe_from_json(value: &Value, codec_type: &str, source: &Path) -> Result<MediaProbe> {
+fn probe_from_json(
+    value: &Value,
+    modality: Modality,
+    codec_type: &str,
+    source: &Path,
+) -> Result<MediaProbe> {
     let stream = value["streams"].as_array().and_then(|streams| {
         streams
             .iter()
@@ -263,7 +269,7 @@ fn probe_from_json(value: &Value, codec_type: &str, source: &Path) -> Result<Med
         frame_count: None,
         fps: None,
     };
-    if codec_type == "audio" {
+    if modality == Modality::Audio {
         probe.sample_rate_hz = stream["sample_rate"]
             .as_str()
             .and_then(|raw| raw.parse::<u32>().ok());
@@ -277,23 +283,32 @@ fn probe_from_json(value: &Value, codec_type: &str, source: &Path) -> Result<Med
     } else {
         probe.width = stream["width"].as_u64().map(|value| value as u32);
         probe.height = stream["height"].as_u64().map(|value| value as u32);
-        probe.frame_count = stream["nb_read_frames"]
-            .as_str()
-            .or_else(|| stream["nb_frames"].as_str())
-            .and_then(|raw| raw.parse::<u64>().ok());
-        probe.fps = stream["avg_frame_rate"]
-            .as_str()
-            .or_else(|| stream["r_frame_rate"].as_str())
-            .and_then(parse_fps);
-        if probe.width.unwrap_or(0) == 0
-            || probe.height.unwrap_or(0) == 0
-            || probe.frame_count.unwrap_or(0) == 0
-            || probe.fps.unwrap_or(0.0) <= 0.0
-        {
+        if probe.width.unwrap_or(0) == 0 || probe.height.unwrap_or(0) == 0 {
             return Err(media_error(
                 "CALYX_MEDIA_DECODE_FAILED",
-                format!("{} video metadata is incomplete", source.display()),
+                format!(
+                    "{} {modality:?} dimensions are incomplete",
+                    source.display()
+                ),
             ));
+        }
+        if modality == Modality::Image {
+            probe.frame_count = Some(1);
+        } else {
+            probe.frame_count = stream["nb_read_frames"]
+                .as_str()
+                .or_else(|| stream["nb_frames"].as_str())
+                .and_then(|raw| raw.parse::<u64>().ok());
+            probe.fps = stream["avg_frame_rate"]
+                .as_str()
+                .or_else(|| stream["r_frame_rate"].as_str())
+                .and_then(parse_fps);
+            if probe.frame_count.unwrap_or(0) == 0 || probe.fps.unwrap_or(0.0) <= 0.0 {
+                return Err(media_error(
+                    "CALYX_MEDIA_DECODE_FAILED",
+                    format!("{} video metadata is incomplete", source.display()),
+                ));
+            }
         }
     }
     Ok(probe)
@@ -380,6 +395,12 @@ fn validate_magic(bytes: &[u8], modality: Modality, extension: &str) -> Result<(
         ));
     }
     let ok = match (modality, extension) {
+        (Modality::Image, "png") => {
+            bytes.len() >= 8 && bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a])
+        }
+        (Modality::Image, "jpg" | "jpeg") => {
+            bytes.len() >= 4 && bytes.starts_with(&[0xff, 0xd8, 0xff])
+        }
         (Modality::Audio, "wav") => {
             bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WAVE"
         }
@@ -409,6 +430,7 @@ fn media_extension(source: &Path, modality: Modality) -> Result<String> {
             )
         })?;
     let supported = match modality {
+        Modality::Image => matches!(extension.as_str(), "png" | "jpg" | "jpeg"),
         Modality::Audio => extension == "wav",
         Modality::Video => matches!(extension.as_str(), "ogv" | "webm"),
         _ => false,
@@ -424,18 +446,30 @@ fn media_extension(source: &Path, modality: Modality) -> Result<String> {
 }
 
 fn ensure_supported_modality(modality: Modality) -> Result<()> {
-    if matches!(modality, Modality::Audio | Modality::Video) {
+    if matches!(
+        modality,
+        Modality::Image | Modality::Audio | Modality::Video
+    ) {
         Ok(())
     } else {
         Err(media_error(
             "CALYX_MEDIA_UNSUPPORTED_MODALITY",
-            format!("raw media ingest supports audio/video, got {modality:?}"),
+            format!("raw media ingest supports image/audio/video, got {modality:?}"),
         ))
+    }
+}
+
+fn ffprobe_codec_type(modality: Modality) -> &'static str {
+    match modality {
+        Modality::Image | Modality::Video => "video",
+        Modality::Audio => "audio",
+        _ => "media",
     }
 }
 
 fn modality_name(modality: Modality) -> &'static str {
     match modality {
+        Modality::Image => "image",
         Modality::Audio => "audio",
         Modality::Video => "video",
         _ => "media",

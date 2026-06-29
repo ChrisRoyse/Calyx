@@ -20,7 +20,7 @@ pub(crate) fn usage() -> &'static str {
        calyx park-lens <vault> --slot <u16>
        calyx list-panel <vault>
        calyx profile-lens [--name <n>] [--runtime <r>] [--endpoint <url-or-runtime-id>] [--weights <path>] [--shape Dense(<dim>)|Sparse(<dim>)] [--modality <m>] [--probe <path>]
-       calyx ingest <vault> (--text <s> | --batch <jsonl-path> | --file <path> --modality <audio|video>) [--idempotent] [--output <summary|rows>]
+       calyx ingest <vault> (--text <s> | --batch <jsonl-path> | --file <path> --modality <image|audio|video>) [--idempotent] [--output <summary|rows>]
        calyx anchor <vault> <cx_id> --kind <test-pass|thumbs-up|thumbs-down|label:<s>|speaker-match|style-hold> --value <v> [--confidence <0..1>] [--source <s>]
        calyx measure <vault> --text <s>
        calyx search <vault> <query> [--k <n>] [--fusion <rrf|weighted-rrf|single-lens|kernel-first|pipeline>] [--guard <off|in-region>] [--explain] [--provenance|--no-provenance] [--fresh|--stale-ok] [--filter <json-predicate>]

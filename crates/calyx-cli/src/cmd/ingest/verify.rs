@@ -11,17 +11,35 @@ pub(super) fn verify_base_readback(
     required_anchor_kinds: &[AnchorKind],
 ) -> CliResult {
     let stored = vault.get(cx_id, snapshot)?;
-    if stored.cx_id != expected.cx_id
-        || stored.panel_version != expected.panel_version
-        || stored.input_ref != expected.input_ref
-        || stored.modality != expected.modality
-        || stored.slots != expected.slots
-        || stored.scalars != expected.scalars
-        || stored.metadata != expected.metadata
-        || stored.flags != expected.flags
-    {
+    let mut mismatches = Vec::new();
+    if stored.cx_id != expected.cx_id {
+        mismatches.push("cx_id");
+    }
+    if stored.panel_version != expected.panel_version {
+        mismatches.push("panel_version");
+    }
+    if stored.input_ref != expected.input_ref {
+        mismatches.push("input_ref");
+    }
+    if stored.modality != expected.modality {
+        mismatches.push("modality");
+    }
+    if stored.slots != expected.slots {
+        mismatches.push("slots");
+    }
+    if stored.scalars != expected.scalars {
+        mismatches.push("scalars");
+    }
+    if stored.metadata != expected.metadata {
+        mismatches.push("metadata");
+    }
+    if stored.flags != expected.flags {
+        mismatches.push("flags");
+    }
+    if !mismatches.is_empty() {
         return Err(CalyxError::aster_corrupt_shard(format!(
-            "durable ingest readback mismatch for cx {cx_id}"
+            "durable ingest readback mismatch for cx {cx_id}; mismatched fields: {}",
+            mismatches.join(",")
         ))
         .into());
     }

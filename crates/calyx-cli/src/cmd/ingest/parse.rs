@@ -64,7 +64,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
     }
     if file.is_some() && modality.is_none() {
         return Err(CliError::usage(
-            "ingest --file requires --modality <audio|video>",
+            "ingest --file requires --modality <image|audio|video>",
         ));
     }
     if file.is_none() && modality.is_some() {

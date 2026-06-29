@@ -2,20 +2,20 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_aster::cf::{slot_key, ColumnFamily};
+use calyx_aster::cf::{ColumnFamily, slot_key};
 use calyx_aster::vault::encode::encode_slot_vector;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     AnchorKind, Asymmetry, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotShape,
     SlotState, SlotVector, VaultId, VaultStore,
 };
-use calyx_registry::{persist_vault_panel_state, Registry};
-use serde_json::{json, Value};
+use calyx_registry::{Registry, persist_vault_panel_state};
+use serde_json::{Value, json};
 use ulid::Ulid;
 
 use super::command::ingest_batch_streaming;
 use super::store::open_vault;
-use crate::cmd::vault::{now_ms, vault_salt, ResolvedVault};
+use crate::cmd::vault::{ResolvedVault, now_ms, vault_salt};
 
 #[test]
 fn issue968_exact_replay_with_missing_base_anchors_preserves_stored_slots() {

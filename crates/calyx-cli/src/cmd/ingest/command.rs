@@ -1,28 +1,29 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
-use calyx_aster::cf::{anchor_key, base_key, ColumnFamily};
-use calyx_aster::dedup::{check_anchor_conflict, AnchorConflictResult};
-use calyx_aster::vault::encode;
+use calyx_aster::cf::{ColumnFamily, anchor_key, base_key};
+use calyx_aster::dedup::{AnchorConflictResult, check_anchor_conflict};
 use calyx_aster::vault::AsterVault;
-use calyx_core::{Anchor, AnchorKind, CxId, Input, VaultStore};
-use calyx_ledger::EntryKind;
-use calyx_registry::{load_vault_panel_state, VaultPanelState};
+use calyx_aster::vault::encode;
+use calyx_core::{Anchor, AnchorKind, CxId, Input, Modality, SlotState, VaultStore};
+use calyx_ledger::{ActorId, EntryKind, RedactionPolicy, SubjectId};
+use calyx_registry::{VaultPanelState, load_vault_panel_state};
 
 use super::super::search::rebuild_persistent_indexes;
-use super::super::vault::{now_ms, ResolvedVault};
+use super::super::vault::{ResolvedVault, now_ms};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
-use super::batch::{parse_batch_line, validate_batch_file, BatchRow};
+use super::batch::{BatchRow, parse_batch_line, validate_batch_file};
 use super::constellation::{
     ensure_content_panel_floor, measure_constellation, measure_constellation_microbatch, text_input,
 };
 use super::ledger::{append_anchor_ledger, append_anchor_marker_ledger, append_cli_ledger};
-use super::oracle_event::{append_recurrence_if_absent, OracleEvent};
+use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
 use super::types::{AnchorReport, BatchIngestSummary, IngestOutput, IngestReport};
 use super::verify::verify_base_readback;
 use crate::error::{CliError, CliResult};
+use crate::media_derived_text::{derivation_ledger_payload, derive_text_for_media};
 use crate::output::print_json;
 use crate::raw_media::{media_metadata, retain_media_input};
 
@@ -85,14 +86,7 @@ fn ingest_command(args: IngestArgs) -> CliResult {
         if let Some(path) = args.file {
             let modality = args.modality.expect("parser requires modality with --file");
             let retained = retain_media_input(&resolved.path, &path, modality)?;
-            let metadata = media_metadata(&retained);
-            let reports = ingest_prepared_inputs(
-                &resolved,
-                vec![PreparedInput {
-                    input: retained.input,
-                    metadata,
-                }],
-            )?;
+            let reports = ingest_media_with_derived_text(&resolved, retained)?;
             for report in reports {
                 print_json(&report)?;
             }
@@ -237,6 +231,173 @@ fn ingest_prepared_inputs(
     }
     vault.flush()?;
     Ok(reports)
+}
+
+fn ingest_media_with_derived_text(
+    resolved: &ResolvedVault,
+    retained: crate::raw_media::RetainedMediaInput,
+) -> CliResult<Vec<IngestReport>> {
+    let vault = open_vault(resolved)?;
+    ingest_runtime_log(format_args!(
+        "phase=load_vault_panel_state_start vault={}",
+        resolved.path.display()
+    ));
+    let state = load_vault_panel_state(&resolved.path)?;
+    ingest_runtime_log(format_args!(
+        "phase=load_vault_panel_state_ok vault={} panel_version={} slots={}",
+        resolved.path.display(),
+        state.panel.version,
+        state.panel.slots.len()
+    ));
+
+    ensure_raw_media_panel_route(retained.input.modality, &state)?;
+    let source_cx_id = vault.cx_id_for_input(&retained.input.bytes, state.panel.version);
+    let derived = derive_text_for_media(&resolved.path, &retained, source_cx_id)?;
+
+    let mut media_cx = measure_constellation(&vault, &state, retained.input.clone(), now_ms())?;
+    media_cx.metadata = media_metadata(&retained);
+    ensure_content_panel_floor(&media_cx, &state)?;
+    let mut text_cx = measure_constellation(&vault, &state, derived.input.clone(), now_ms())?;
+    text_cx.metadata = derived.metadata.clone();
+    ensure_content_panel_floor(&text_cx, &state)?;
+
+    let media_new = !base_exists(&vault, media_cx.cx_id)?;
+    let text_new = !base_exists(&vault, text_cx.cx_id)?;
+    let payload = derivation_ledger_payload(&retained, &derived, media_cx.cx_id, text_cx.cx_id)?;
+    let mut staged = Vec::with_capacity(2);
+    if media_new {
+        staged.push(media_cx.clone());
+    }
+    if text_new && text_cx.cx_id != media_cx.cx_id {
+        staged.push(text_cx.clone());
+    }
+    let explicit_derivation_seq = if staged.is_empty() {
+        Some(append_media_derivation_ledger(
+            &vault,
+            text_cx.cx_id,
+            payload.clone(),
+        )?)
+    } else {
+        vault.put_batch_with_ingest_ledger(
+            staged,
+            SubjectId::Cx(text_cx.cx_id),
+            payload,
+            ActorId::Service("calyx-cli".to_string()),
+        )?;
+        None
+    };
+    vault.flush()?;
+    rebuild_persistent_indexes(&resolved.path, &vault)?;
+
+    let snapshot = vault.snapshot();
+    if media_new {
+        verify_base_readback(&vault, snapshot, &media_cx, media_cx.cx_id, &[])?;
+    } else {
+        verify_existing_media_or_text_readback(&vault, snapshot, &media_cx)?;
+    }
+    if text_new {
+        verify_base_readback(&vault, snapshot, &text_cx, text_cx.cx_id, &[])?;
+    } else {
+        verify_existing_media_or_text_readback(&vault, snapshot, &text_cx)?;
+    }
+
+    let media_ledger_seq = if media_new {
+        vault.get(media_cx.cx_id, snapshot)?.provenance.seq
+    } else {
+        append_cli_ledger(
+            &vault,
+            EntryKind::Ingest,
+            media_cx.cx_id,
+            "cli-idempotent-media-ingest",
+        )?
+    };
+    let text_ledger_seq = if text_new {
+        vault.get(text_cx.cx_id, snapshot)?.provenance.seq
+    } else if let Some(seq) = explicit_derivation_seq {
+        seq
+    } else {
+        append_cli_ledger(
+            &vault,
+            EntryKind::Ingest,
+            text_cx.cx_id,
+            "cli-idempotent-derived-text-ingest",
+        )?
+    };
+    vault.flush()?;
+    Ok(vec![
+        IngestReport {
+            cx_id: media_cx.cx_id.to_string(),
+            new: media_new,
+            ledger_seq: media_ledger_seq,
+        },
+        IngestReport {
+            cx_id: text_cx.cx_id.to_string(),
+            new: text_new,
+            ledger_seq: text_ledger_seq,
+        },
+    ])
+}
+
+fn ensure_raw_media_panel_route(modality: Modality, state: &VaultPanelState) -> CliResult {
+    if !matches!(
+        modality,
+        Modality::Image | Modality::Audio | Modality::Video
+    ) {
+        return Ok(());
+    }
+    let has_declared_route = state
+        .panel
+        .slots
+        .iter()
+        .any(|slot| slot.state == SlotState::Active && slot.counts_toward_degraded(modality));
+    if has_declared_route {
+        return Ok(());
+    }
+    Err(calyx_core::CalyxError {
+        code: "CALYX_MEDIA_ROUTE_UNAVAILABLE",
+        message: format!(
+            "raw {modality:?} ingest requires an active {modality:?} content lens before derived text can be attached"
+        ),
+        remediation:
+            "add or activate an image/audio/video lens for the raw media modality, then re-run ingest so the media constellation is measured instead of empty",
+    }
+    .into())
+}
+
+fn append_media_derivation_ledger(
+    vault: &AsterVault,
+    target_cx_id: CxId,
+    payload: Vec<u8>,
+) -> CliResult<u64> {
+    RedactionPolicy::check_payload(&payload)?;
+    Ok(vault
+        .append_ledger_entry(
+            EntryKind::Ingest,
+            SubjectId::Cx(target_cx_id),
+            payload,
+            ActorId::Service("calyx-cli".to_string()),
+        )?
+        .seq)
+}
+
+fn verify_existing_media_or_text_readback(
+    vault: &AsterVault,
+    snapshot: u64,
+    expected: &calyx_core::Constellation,
+) -> CliResult {
+    let stored = vault.get(expected.cx_id, snapshot)?;
+    if stored.panel_version != expected.panel_version
+        || stored.input_ref.hash != expected.input_ref.hash
+        || stored.modality != expected.modality
+        || stored.slots != expected.slots
+    {
+        return Err(calyx_core::CalyxError::aster_corrupt_shard(format!(
+            "durable media ingest readback mismatch for existing cx {}",
+            expected.cx_id
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
