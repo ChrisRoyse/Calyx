@@ -1,6 +1,7 @@
 //! Ingest, anchor, and measure MCP tools for PH63 T03.
 
 mod anchor;
+mod derived_text;
 mod input_retention;
 mod media;
 mod report;

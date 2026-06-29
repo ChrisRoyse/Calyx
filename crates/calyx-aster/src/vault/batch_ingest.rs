@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
 use crate::cf::{ColumnFamily, base_key, ledger_key};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, LedgerRef, Result, VaultStore};
-use calyx_ledger::{PayloadBuilder, RedactionPolicy};
+use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 use serde_json::json;
 
 const BATCH_ACTOR: &str = "calyx-aster-batch-ingest";
@@ -23,7 +23,42 @@ where
         self.with_durable_commit_lock(|| self.put_batch_locked(input))
     }
 
+    pub fn put_batch_with_ingest_ledger<I>(
+        &self,
+        constellations: I,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+    ) -> Result<Vec<CxId>>
+    where
+        I: IntoIterator<Item = Constellation>,
+    {
+        RedactionPolicy::check_payload(&payload)?;
+        let input = constellations.into_iter().collect::<Vec<_>>();
+        if input.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.with_durable_commit_lock(|| {
+            self.put_batch_locked_with_ledger(
+                input,
+                Some(BatchLedgerEntry {
+                    subject,
+                    payload,
+                    actor,
+                }),
+            )
+        })
+    }
+
     fn put_batch_locked(&self, input: Vec<Constellation>) -> Result<Vec<CxId>> {
+        self.put_batch_locked_with_ledger(input, None)
+    }
+
+    fn put_batch_locked_with_ledger(
+        &self,
+        input: Vec<Constellation>,
+        ledger_entry: Option<BatchLedgerEntry>,
+    ) -> Result<Vec<CxId>> {
         let latest = self.snapshot();
         let mut accepted_indexes = BTreeMap::<Vec<u8>, usize>::new();
         let mut existing_merges = BTreeMap::<Vec<u8>, Constellation>::new();
@@ -87,12 +122,22 @@ where
             None => None,
         };
         let staged_ledger = if let Some(hook) = hook_guard.as_deref() {
-            Some(ledger_hook::stage_ingest_payload(
-                hook,
-                &mut rows,
-                accepted[0].cx_id,
-                batch_payload(&accepted),
-            )?)
+            Some(match ledger_entry {
+                Some(entry) => ledger_hook::stage_entry_payload(
+                    hook,
+                    &mut rows,
+                    EntryKind::Ingest,
+                    entry.subject,
+                    entry.payload,
+                    entry.actor,
+                )?,
+                None => ledger_hook::stage_ingest_payload(
+                    hook,
+                    &mut rows,
+                    accepted[0].cx_id,
+                    batch_payload(&accepted),
+                )?,
+            })
         } else {
             rows.push(encode::WriteRow {
                 cf: ColumnFamily::Ledger,
@@ -119,6 +164,12 @@ where
         }
         Ok(ids)
     }
+}
+
+struct BatchLedgerEntry {
+    subject: SubjectId,
+    payload: Vec<u8>,
+    actor: ActorId,
 }
 
 fn batch_payload(constellations: &[Constellation]) -> Vec<u8> {
