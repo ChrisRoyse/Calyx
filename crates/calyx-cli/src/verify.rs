@@ -2,11 +2,12 @@ use std::ops::Range;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use calyx_aster::cf::{ColumnFamily, ledger_key};
 use calyx_aster::manifest::{ManifestStore, QuarantineRecord, is_vault_seq_quarantined};
 use calyx_core::CalyxError;
-use calyx_ledger::{DirectoryLedgerStore, LedgerCfStore, VerifyResult, verify_chain};
+use calyx_ledger::{DirectoryLedgerStore, VerifyResult, verify_chain};
 
-use crate::cf_read::hex_bytes;
+use crate::cf_read::{hex_bytes, latest_cf_row};
 use crate::cmd::vault::{home_dir, resolve_vault_info};
 use crate::ledger_store::AsterLedgerCfStore;
 use crate::merkle::parse_range;
@@ -40,17 +41,15 @@ pub fn readback_ledger_seq(vault: &Path, seq: u64) -> crate::error::CliResult {
             CalyxError::ledger_chain_broken(format!("ledger seq {seq} is quarantined")).into(),
         );
     }
-    let store = AsterLedgerCfStore::open(vault)?;
-    let rows = store.scan()?;
-    let row = rows
-        .into_iter()
-        .find(|row| row.seq == seq)
+    let key = ledger_key(seq);
+    let bytes = latest_cf_row(vault, ColumnFamily::Ledger, &key)
+        .map_err(CalyxError::ledger_corrupt)?
         .ok_or_else(|| CalyxError::ledger_corrupt(format!("missing ledger row for seq {seq}")))?;
     println!(
         "CF\tledger\tSEQ\t{}\tKEY\t{}\tVALUE\t{}",
-        row.seq,
-        hex_bytes(&row.seq.to_be_bytes()),
-        hex_bytes(&row.bytes)
+        seq,
+        hex_bytes(&key),
+        hex_bytes(&bytes)
     );
     Ok(())
 }

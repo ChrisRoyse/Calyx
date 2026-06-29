@@ -1,6 +1,7 @@
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand, value};
 use super::types::IngestOutput;
 use crate::error::{CliError, CliResult};
+use std::net::{IpAddr, SocketAddr};
 
 pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
     let vault = rest
@@ -13,6 +14,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
     let mut modality = None;
     let mut idempotent = true;
     let mut output = IngestOutput::Summary;
+    let mut resident_addr = None;
     let mut idx = 1;
     while idx < rest.len() {
         match rest[idx].as_str() {
@@ -51,6 +53,10 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
                 idx += 1;
                 output = parse_ingest_output(value(rest, idx, "--output")?)?;
             }
+            "--resident-addr" => {
+                idx += 1;
+                resident_addr = Some(parse_resident_addr(value(rest, idx, "--resident-addr")?)?);
+            }
             other => return Err(CliError::usage(format!("unexpected ingest flag {other}"))),
         }
         idx += 1;
@@ -83,6 +89,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
         modality,
         idempotent,
         output,
+        resident_addr,
     }))
 }
 
@@ -191,5 +198,20 @@ fn parse_ingest_output(value: &str) -> CliResult<IngestOutput> {
         other => Err(CliError::usage(format!(
             "invalid --output {other}; expected summary or rows"
         ))),
+    }
+}
+
+fn parse_resident_addr(raw: &str) -> CliResult<SocketAddr> {
+    let addr = raw
+        .parse::<SocketAddr>()
+        .map_err(|error| CliError::usage(format!("parse --resident-addr {raw}: {error}")))?;
+    match addr.ip() {
+        IpAddr::V4(ip) if ip.is_loopback() => Ok(addr),
+        IpAddr::V6(ip) if ip.is_loopback() => Ok(addr),
+        _ => Err(CliError::from(calyx_core::CalyxError {
+            code: "CALYX_INGEST_RESIDENT_ADDR_REFUSED",
+            message: format!("--resident-addr {addr} is not loopback"),
+            remediation: "bind and use the resident measurement service only on 127.0.0.1 or [::1]",
+        })),
     }
 }

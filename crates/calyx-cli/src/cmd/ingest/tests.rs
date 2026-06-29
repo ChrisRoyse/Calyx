@@ -175,6 +175,153 @@ fn batch_ingest_measure_window_persists_all_rows_to_physical_cfs() {
 }
 
 #[test]
+fn batch_reingest_existing_rows_skips_measurement_and_uses_base_cf_source_of_truth() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("existing-fast-path");
+    let jsonl = resolved.path.join("existing.jsonl");
+    fs::write(
+        &jsonl,
+        "{\"text\":\"existing row alpha\"}\n{\"text\":\"existing row beta\"}\n",
+    )
+    .unwrap();
+
+    let first = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+    assert_eq!(first.new_count, 2);
+    let before = ingest_cf_state(&resolved);
+    println!("existing_fast_path_before_cf_state={before}");
+
+    let panel = load_vault_panel_state(&resolved.path).unwrap().panel;
+    persist_vault_panel_state(&resolved.path, &panel, &Registry::new()).unwrap();
+    let state_without_runtime = load_vault_panel_state(&resolved.path).unwrap();
+    assert!(
+        state_without_runtime
+            .registry_snapshot
+            .as_ref()
+            .unwrap()
+            .lenses
+            .is_empty(),
+        "test precondition: persisted registry has no measurable runtime"
+    );
+
+    let replay = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let after = ingest_cf_state(&resolved);
+    println!("existing_fast_path_after_cf_state={after}");
+    assert_eq!(replay.status, "ingested");
+    assert_eq!(replay.row_count, 2);
+    assert_eq!(replay.new_count, 0);
+    assert_eq!(replay.already_count, 2);
+    assert_eq!(replay.verified_base_rows, 2);
+    assert_eq!(after["base_rows"], before["base_rows"]);
+    assert_eq!(after["slot_00_rows"], before["slot_00_rows"]);
+    assert_eq!(
+        after["ledger_rows"].as_u64().unwrap(),
+        before["ledger_rows"].as_u64().unwrap() + 1,
+        "one idempotent replay batch ledger row is physically present"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_reingest_existing_anchored_rows_uses_base_anchor_cfs_source_of_truth() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchored-existing-fast-path");
+    let jsonl = resolved.path.join("anchored-existing.jsonl");
+    fs::write(
+        &jsonl,
+        concat!(
+            r#"{"text":"anchored existing row alpha","metadata":{"source_dataset":"issue999"},"#,
+            r#""anchors":[{"kind":"label:campaign","value":"calyx15000"},{"kind":"label:source_type","value":"test"}]}"#,
+            "\n",
+            r#"{"text":"anchored existing row beta","metadata":{"source_dataset":"issue999"},"#,
+            r#""anchors":[{"kind":"label:campaign","value":"calyx15000"},{"kind":"label:source_type","value":"test"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    let first = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+    assert_eq!(first.new_count, 2);
+    let before = ingest_cf_state(&resolved);
+    println!("anchored_existing_fast_path_before_cf_state={before}");
+    assert_eq!(before["base_rows"], 2);
+    assert_eq!(before["anchors_rows"], 4);
+
+    let panel = load_vault_panel_state(&resolved.path).unwrap().panel;
+    persist_vault_panel_state(&resolved.path, &panel, &Registry::new()).unwrap();
+    let state_without_runtime = load_vault_panel_state(&resolved.path).unwrap();
+    assert!(
+        state_without_runtime
+            .registry_snapshot
+            .as_ref()
+            .unwrap()
+            .lenses
+            .is_empty(),
+        "test precondition: persisted registry has no measurable runtime"
+    );
+
+    let replay = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let after = ingest_cf_state(&resolved);
+    println!("anchored_existing_fast_path_after_cf_state={after}");
+    assert_eq!(replay.status, "ingested");
+    assert_eq!(replay.row_count, 2);
+    assert_eq!(replay.new_count, 0);
+    assert_eq!(replay.already_count, 2);
+    assert_eq!(replay.verified_base_rows, 2);
+    assert_eq!(
+        after["base_rows"], before["base_rows"],
+        "duplicate anchored replay must not rewrite Base CF rows"
+    );
+    assert_eq!(
+        after["anchors_rows"], before["anchors_rows"],
+        "duplicate anchored replay must not duplicate Anchors CF rows"
+    );
+    assert_eq!(after["slot_00_rows"], before["slot_00_rows"]);
+    assert_eq!(
+        after["ledger_rows"].as_u64().unwrap(),
+        before["ledger_rows"].as_u64().unwrap() + 1,
+        "one idempotent replay batch ledger row is physically present"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_mixed_existing_and_new_rows_still_fails_loud_when_runtime_is_missing() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("mixed-fast-path-reject");
+    let first_jsonl = resolved.path.join("first.jsonl");
+    let mixed_jsonl = resolved.path.join("mixed.jsonl");
+    fs::write(&first_jsonl, "{\"text\":\"existing row alpha\"}\n").unwrap();
+    fs::write(
+        &mixed_jsonl,
+        "{\"text\":\"existing row alpha\"}\n{\"text\":\"new row beta\"}\n",
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &first_jsonl).unwrap();
+    let panel = load_vault_panel_state(&resolved.path).unwrap().panel;
+    persist_vault_panel_state(&resolved.path, &panel, &Registry::new()).unwrap();
+    let before = ingest_cf_state(&resolved);
+    println!("mixed_fast_path_reject_before_cf_state={before}");
+
+    let error = ingest_batch_streaming(&resolved, &mixed_jsonl).unwrap_err();
+
+    let after = ingest_cf_state(&resolved);
+    println!("mixed_fast_path_reject_after_cf_state={after}");
+    assert_eq!(error.code(), "CALYX_LENS_UNREACHABLE");
+    assert!(
+        error.message().contains("0/"),
+        "error must name the unavailable content floor: {}",
+        error.message()
+    );
+    assert_eq!(after["base_rows"], before["base_rows"]);
+    assert_eq!(after["ledger_rows"], before["ledger_rows"]);
+    assert_eq!(after["slot_00_rows"], before["slot_00_rows"]);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn anchor_label_kind_round_trips() {
     let kind = parse_anchor_kind("label:positive").unwrap();
     assert_eq!(kind, AnchorKind::Label("positive".to_string()));
@@ -559,6 +706,141 @@ fn batch_reingest_same_anchor_changed_metadata_fails_loud() {
 }
 
 #[test]
+fn batch_mixed_new_then_changed_metadata_fails_before_partial_write() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("mixed-preflight-conflict");
+    let first_jsonl = resolved.path.join("anchored-first.jsonl");
+    let mixed_jsonl = resolved.path.join("anchored-mixed-conflict.jsonl");
+    fs::write(
+        &first_jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &mixed_jsonl,
+        concat!(
+            r#"{"text":"new row before conflict","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"A"}]}"#,
+            "\n",
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"other"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &first_jsonl).unwrap();
+    let vault_before = open_vault(&resolved).unwrap();
+    let snapshot_before = vault_before.snapshot();
+    let before_base_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Base)
+        .unwrap();
+    let before_anchor_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Anchors)
+        .unwrap();
+    let before_ledger_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Ledger)
+        .unwrap();
+    drop(vault_before);
+
+    let err = ingest_batch_streaming(&resolved, &mixed_jsonl).unwrap_err();
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(
+        err.message()
+            .contains("changed stored non-anchor identity: metadata"),
+        "{}",
+        err.message()
+    );
+
+    let vault_after = open_vault(&resolved).unwrap();
+    let snapshot_after = vault_after.snapshot();
+    let after_base_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Base)
+        .unwrap();
+    let after_anchor_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Anchors)
+        .unwrap();
+    let after_ledger_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Ledger)
+        .unwrap();
+    assert_eq!(after_base_rows, before_base_rows);
+    assert_eq!(after_anchor_rows, before_anchor_rows);
+    assert_eq!(after_ledger_rows, before_ledger_rows);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn batch_reingest_same_anchor_changed_value_fails_loud() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("anchors-value-conflict");
+    let first_jsonl = resolved.path.join("anchored-first.jsonl");
+    let changed_jsonl = resolved.path.join("anchored-value-conflict.jsonl");
+    fs::write(
+        &first_jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"B"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        &changed_jsonl,
+        concat!(
+            r#"{"text":"alpha north signal","metadata":{"source_dataset":"medqa"},"#,
+            r#""anchors":[{"kind":"label:answer","value":"C"}]}"#,
+            "\n",
+        ),
+    )
+    .unwrap();
+
+    ingest_batch_streaming(&resolved, &first_jsonl).unwrap();
+    let before = ingest_cf_state(&resolved);
+    println!("anchor_value_conflict_before_cf_state={before}");
+    let vault_before = open_vault(&resolved).unwrap();
+    let snapshot_before = vault_before.snapshot();
+    let before_base_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Base)
+        .unwrap();
+    let before_anchor_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Anchors)
+        .unwrap();
+    let before_ledger_rows = vault_before
+        .scan_cf_at(snapshot_before, ColumnFamily::Ledger)
+        .unwrap();
+    drop(vault_before);
+
+    let err = ingest_batch_streaming(&resolved, &changed_jsonl).unwrap_err();
+    assert_eq!(err.code(), "CALYX_ASTER_CORRUPT_SHARD");
+    assert!(err.message().contains("conflicting"), "{}", err.message());
+
+    let vault_after = open_vault(&resolved).unwrap();
+    let snapshot_after = vault_after.snapshot();
+    let after_base_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Base)
+        .unwrap();
+    let after_anchor_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Anchors)
+        .unwrap();
+    let after_ledger_rows = vault_after
+        .scan_cf_at(snapshot_after, ColumnFamily::Ledger)
+        .unwrap();
+    let after = ingest_cf_state(&resolved);
+    println!("anchor_value_conflict_after_cf_state={after}");
+    assert_eq!(after_base_rows, before_base_rows);
+    assert_eq!(after_anchor_rows, before_anchor_rows);
+    assert_eq!(
+        after_ledger_rows, before_ledger_rows,
+        "conflicting anchor replay must not append ledger rows"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn batch_staging_predicate_requires_new_cx_or_new_anchor_kind() {
     assert!(should_stage_batch_constellation(true, &[]));
     assert!(should_stage_batch_constellation(
@@ -666,6 +948,7 @@ fn ingest_cf_state(resolved: &ResolvedVault) -> serde_json::Value {
     json!({
         "latest_seq": snapshot,
         "base_rows": vault.scan_cf_at(snapshot, ColumnFamily::Base).unwrap().len(),
+        "anchors_rows": vault.scan_cf_at(snapshot, ColumnFamily::Anchors).unwrap().len(),
         "ledger_rows": vault.scan_cf_at(snapshot, ColumnFamily::Ledger).unwrap().len(),
         "slot_00_rows": vault
             .scan_cf_at(snapshot, ColumnFamily::slot(SlotId::new(0)))
@@ -673,6 +956,7 @@ fn ingest_cf_state(resolved: &ResolvedVault) -> serde_json::Value {
             .len(),
         "cf_files": {
             "base": cf_file_count(&resolved.path, ColumnFamily::Base),
+            "anchors": cf_file_count(&resolved.path, ColumnFamily::Anchors),
             "ledger": cf_file_count(&resolved.path, ColumnFamily::Ledger),
             "slot_00": cf_file_count(&resolved.path, ColumnFamily::slot(SlotId::new(0))),
         },

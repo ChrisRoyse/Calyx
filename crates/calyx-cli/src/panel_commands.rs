@@ -12,6 +12,8 @@ mod template_store;
 mod templates;
 mod warm;
 
+pub(crate) use resident::measure_batch_at as measure_resident_batch_at;
+
 use calyx_assay::{PanelResourceBudget, ResourceDensity, ResourceUsage, pack_panel_by_density};
 use calyx_core::{CalyxError, Input, LensCost, LensId, Modality, Panel, Placement, SlotState};
 use calyx_registry::{
