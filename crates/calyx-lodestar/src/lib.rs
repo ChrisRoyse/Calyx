@@ -39,8 +39,8 @@ pub mod vault_kernel;
 
 pub use aster_bridge::{
     ASTER_ASSOC_METADATA_KEY, AsterAssocMetadata, AsterAssocNodeProps, AsterAssocSnapshot,
-    AsterSummarizeRequest, DEFAULT_ASTER_ASSOC_COLLECTION, encode_assoc_node_props,
-    summarize_vault_as_of, summarize_vault_latest, write_assoc_metadata,
+    AsterSummarizeRequest, DEFAULT_ASTER_ASSOC_COLLECTION, PhysicalAsterAssocSnapshot,
+    encode_assoc_node_props, summarize_vault_as_of, summarize_vault_latest, write_assoc_metadata,
 };
 pub use blind_spot_sweep::{
     BLIND_SPOT_SWEEP_SCHEMA_VERSION, BlindSpotCandidate, BlindSpotGateVerdict, BlindSpotNeighbor,
@@ -65,7 +65,8 @@ pub use discovery_chain::{
 };
 pub use domain_bridges::{
     DOMAIN_BRIDGE_SCHEMA_VERSION, DomainBridgeCandidate, DomainBridgeGateVerdict,
-    DomainBridgeInput, DomainBridgePairReport, DomainBridgeParams, DomainBridgeReport, DomainPair,
+    DomainBridgeInput, DomainBridgeMiningParams, DomainBridgePairReport, DomainBridgeParams,
+    DomainBridgeReport, DomainBridgeScopePair, DomainPair, mine_domain_bridges,
     rank_domain_bridges,
 };
 pub use error::{LodestarError, Result};
@@ -149,7 +150,8 @@ pub use refusal_expansion::{
     plan_refusal_expansion, verify_refusal_expansion,
 };
 pub use scope::{
-    AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, scope_hash,
+    AssocStore, CollectionId, FilterExpr, Scope, TenantId, materialize_scope, root_nodes_for_scope,
+    scope_hash,
 };
 pub use scope_cache::{CacheStats, ScopeCache, ScopeCacheKey, scope_cache_anchor_identity};
 pub use scope_report::{ScopeKernelReport, report_all_scopes};

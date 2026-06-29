@@ -1,4 +1,4 @@
-use calyx_core::Modality;
+use calyx_core::{AnchorKind, Modality};
 
 use super::super::*;
 
@@ -74,8 +74,37 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
             args.min_recall.to_string(),
         ],
         Subcommand::WeaveLoom(args) => weave_loom_tokens(args),
+        Subcommand::DomainBridges(args) => domain_bridges_tokens(args),
         Subcommand::ProfileLens(args) => profile_lens_tokens(args),
     }
+}
+
+fn domain_bridges_tokens(args: &domain_bridges::DomainBridgesArgs) -> Vec<String> {
+    let mut out = vec!["domain-bridges".to_string(), args.vault.clone()];
+    for (left, right) in &args.pairs {
+        out.extend(["--pair".to_string(), left.clone(), right.clone()]);
+    }
+    if let Some(kind) = &args.anchor_kind {
+        out.extend(["--anchor-kind".to_string(), anchor_kind_name(kind)]);
+    }
+    out.extend([
+        "--min-gate-confidence".to_string(),
+        args.min_gate_confidence.to_string(),
+        "--max-per-pair".to_string(),
+        args.max_per_pair.to_string(),
+        "--max-evidence-hops".to_string(),
+        args.max_evidence_hops.to_string(),
+        "--scope-radius".to_string(),
+        args.scope_radius.to_string(),
+        "--kernel-target-fraction".to_string(),
+        args.kernel_target_fraction.to_string(),
+    ]);
+    push_opt(
+        &mut out,
+        "--out",
+        args.out.as_ref().and_then(|p| p.to_str()),
+    );
+    out
 }
 
 fn weave_loom_tokens(args: &weave::WeaveLoomArgs) -> Vec<String> {
@@ -137,6 +166,19 @@ fn modality_name(value: Modality) -> &'static str {
         Modality::Audio => "audio",
         Modality::Video => "video",
         _ => "media",
+    }
+}
+
+fn anchor_kind_name(kind: &AnchorKind) -> String {
+    match kind {
+        AnchorKind::Label(value) => format!("label:{value}"),
+        AnchorKind::TestPass => "test-pass".to_string(),
+        AnchorKind::TieFormed => "tie-formed".to_string(),
+        AnchorKind::Thumbs => "thumbs-up".to_string(),
+        AnchorKind::Reward => "reward".to_string(),
+        AnchorKind::SpeakerMatch => "speaker-match".to_string(),
+        AnchorKind::StyleHold => "style-hold".to_string(),
+        AnchorKind::Recurrence => "recurrence".to_string(),
     }
 }
 

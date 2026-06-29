@@ -166,15 +166,26 @@ fn materialize_all_domain_subgraph_time_tenant_filter() {
         &store,
     )
     .unwrap();
+    let filter_reachable = materialize_scope(
+        &Scope::FilterReachable {
+            expr: FilterExpr::Named {
+                name: "even".to_string(),
+            },
+            radius: 1,
+        },
+        &store,
+    )
+    .unwrap();
 
     println!(
-        "PH34_SCOPE_VARIANTS all={} domain={} subgraph={} time={} tenant={} filter={}",
+        "PH34_SCOPE_VARIANTS all={} domain={} subgraph={} time={} tenant={} filter={} filter_reachable={}",
         all.node_count(),
         domain.node_count(),
         subgraph.node_count(),
         time.node_count(),
         tenant.node_count(),
-        filter.node_count()
+        filter.node_count(),
+        filter_reachable.node_count()
     );
     write_readback(
         "variants",
@@ -186,6 +197,7 @@ fn materialize_all_domain_subgraph_time_tenant_filter() {
             "time_window": time.node_count(),
             "tenant": tenant.node_count(),
             "filter": filter.node_count(),
+            "filter_reachable": filter_reachable.node_count(),
         }),
     );
 
@@ -198,6 +210,7 @@ fn materialize_all_domain_subgraph_time_tenant_filter() {
     assert_eq!(time.node_count(), 3);
     assert_eq!(tenant.node_count(), 2);
     assert_eq!(filter.node_count(), 5);
+    assert_eq!(filter_reachable.node_count(), 9);
 }
 
 #[test]

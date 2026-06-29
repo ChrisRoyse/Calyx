@@ -19,6 +19,8 @@ use crate::{LodestarError, Result, ScopeCache};
 pub const DEFAULT_ASTER_ASSOC_COLLECTION: &str = "default";
 pub const ASTER_ASSOC_METADATA_KEY: &str = "lodestar_assoc_v1";
 
+mod physical;
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AsterAssocMetadata {
     pub retention_horizon: Option<Ts>,
@@ -50,6 +52,11 @@ pub struct AsterRecallInputs {
     corpus: InMemoryCorpus,
     full_index: InMemoryAnnIndex,
     params: RecallTestParams,
+}
+
+pub struct PhysicalAsterAssocSnapshot {
+    graph: AssocGraph,
+    props: BTreeMap<CxId, AsterAssocNodeProps>,
 }
 
 #[derive(Clone, Debug)]
@@ -244,6 +251,10 @@ impl<C: Clock> AssocStore for AsterAssocSnapshot<'_, C> {
             }
         }
         Ok(found)
+    }
+
+    fn node_metadata(&self, id: CxId) -> Result<Option<BTreeMap<String, String>>> {
+        Ok(Some(self.node_props(id)?.metadata))
     }
 }
 
