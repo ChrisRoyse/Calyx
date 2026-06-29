@@ -30,11 +30,16 @@ impl CustomOnnxRuntime {
         self.dim
     }
 
-    pub fn measure_batch(&mut self, lens: &dyn Lens, inputs: &[Input]) -> Result<Vec<SlotVector>> {
+    pub fn measure_batch(
+        &mut self,
+        lens: &dyn Lens,
+        inputs: &[Input],
+        max_batch: Option<usize>,
+    ) -> Result<Vec<SlotVector>> {
         if inputs.is_empty() {
             return Ok(Vec::new());
         }
-        let batches = token_batches(&self.tokenizer, lens, inputs, self.max_tokens)?;
+        let batches = token_batches(&self.tokenizer, lens, inputs, self.max_tokens, max_batch)?;
         let mut rows = vec![None; inputs.len()];
         for batch in &batches {
             let pooled = self.run_token_batch(batch)?;

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::Instant;
 
 use calyx_aster::vault::AsterVault;
 use calyx_core::{
@@ -117,8 +118,9 @@ fn persisted_snapshot_for_lens(
 fn measure_persisted_lens_in_worker(
     snapshot: &calyx_registry::RegistryLensSnapshot,
     inputs: &[Input],
+    runtime_batch_limit: Option<usize>,
 ) -> calyx_core::Result<Vec<SlotVector>> {
-    let vectors = measure_lens_in_worker(snapshot, inputs)?;
+    let vectors = measure_lens_in_worker(snapshot, inputs, runtime_batch_limit)?;
     if vectors.len() != inputs.len() {
         return Err(CalyxError::lens_dim_mismatch(format!(
             "ingest lens worker for lens {} returned {} vectors for {} inputs",
@@ -133,12 +135,35 @@ fn measure_persisted_lens_in_worker(
     Ok(vectors)
 }
 
+fn measure_registry_lens_batch_with_limit(
+    state: &VaultPanelState,
+    lens_id: LensId,
+    inputs: &[Input],
+    runtime_batch_limit: Option<usize>,
+) -> calyx_core::Result<Vec<SlotVector>> {
+    let Some(limit) = runtime_batch_limit else {
+        return state.registry.measure_batch(lens_id, inputs);
+    };
+    if limit == 0 {
+        return Err(CalyxError::lens_unreachable(
+            "runtime batch limit must be > 0 when supplied",
+        ));
+    }
+    let mut out = Vec::with_capacity(inputs.len());
+    for chunk in inputs.chunks(limit) {
+        out.extend(state.registry.measure_batch(lens_id, chunk)?);
+    }
+    Ok(out)
+}
+
 fn measure_applicable_lens_batch(
     state: &VaultPanelState,
     lens: ApplicableLens,
     modality: Modality,
     inputs: &[Input],
+    runtime_batch_limit: Option<usize>,
 ) -> calyx_core::Result<Vec<SlotVector>> {
+    let started = Instant::now();
     let spec = state.registry.lens_spec(lens.lens_id);
     let spec_name = spec
         .map(|spec| spec.name.as_str())
@@ -147,24 +172,27 @@ fn measure_applicable_lens_batch(
         .map(|spec| runtime_name(&spec.runtime))
         .unwrap_or("unregistered");
     ingest_runtime_log(format_args!(
-        "phase=measure_lens_start lens_id={} slot={} name={} runtime={} modality={:?} placement={:?} batch_size={}",
+        "phase=measure_lens_start lens_id={} slot={} name={} runtime={} modality={:?} placement={:?} batch_size={} runtime_batch_limit={:?}",
         lens.lens_id,
         lens.slot_id.get(),
         spec_name,
         runtime,
         modality,
         lens.placement,
-        inputs.len()
+        inputs.len(),
+        runtime_batch_limit
     ));
     let result = if lens.placement == Placement::Gpu {
         if let Some(snapshot) = persisted_snapshot_for_lens(state, lens.lens_id) {
             ingest_runtime_log(format_args!(
-                "phase=measure_lens_worker_start lens_id={} slot={} name={}",
+                "phase=measure_lens_worker_start lens_id={} slot={} name={} inputs={} runtime_batch_limit={:?}",
                 lens.lens_id,
                 lens.slot_id.get(),
-                spec_name
+                spec_name,
+                inputs.len(),
+                runtime_batch_limit
             ));
-            let result = measure_persisted_lens_in_worker(snapshot, inputs);
+            let result = measure_persisted_lens_in_worker(snapshot, inputs, runtime_batch_limit);
             if result.is_ok() {
                 ingest_runtime_log(format_args!(
                     "phase=measure_lens_worker_ok lens_id={} slot={} name={}",
@@ -175,26 +203,28 @@ fn measure_applicable_lens_batch(
             }
             result
         } else {
-            state.registry.measure_batch(lens.lens_id, inputs)
+            measure_registry_lens_batch_with_limit(state, lens.lens_id, inputs, runtime_batch_limit)
         }
     } else {
-        state.registry.measure_batch(lens.lens_id, inputs)
+        measure_registry_lens_batch_with_limit(state, lens.lens_id, inputs, runtime_batch_limit)
     };
     match &result {
         Ok(vectors) => ingest_runtime_log(format_args!(
-            "phase=measure_lens_ok lens_id={} slot={} name={} vectors={}",
+            "phase=measure_lens_ok lens_id={} slot={} name={} vectors={} elapsed_ms={}",
             lens.lens_id,
             lens.slot_id.get(),
             spec_name,
-            vectors.len()
+            vectors.len(),
+            started.elapsed().as_millis()
         )),
         Err(error) => ingest_runtime_log(format_args!(
-            "phase=measure_lens_err lens_id={} slot={} name={} code={} message={}",
+            "phase=measure_lens_err lens_id={} slot={} name={} code={} message={} elapsed_ms={}",
             lens.lens_id,
             lens.slot_id.get(),
             spec_name,
             error.code,
-            error.message
+            error.message,
+            started.elapsed().as_millis()
         )),
     }
     result
@@ -210,9 +240,20 @@ pub(crate) fn measure_constellation_microbatch(
     inputs: &[Input],
     now: u64,
 ) -> CliResult<Vec<Constellation>> {
+    measure_constellation_microbatch_with_runtime_limit(vault, state, inputs, now, None)
+}
+
+pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
+    vault: &AsterVault,
+    state: &VaultPanelState,
+    inputs: &[Input],
+    now: u64,
+    runtime_batch_limit: Option<usize>,
+) -> CliResult<Vec<Constellation>> {
     if inputs.is_empty() {
         return Ok(Vec::new());
     }
+    let started = Instant::now();
     let batch_modality = inputs[0].modality;
     for (index, input) in inputs.iter().enumerate().skip(1) {
         if input.modality != batch_modality {
@@ -246,14 +287,15 @@ pub(crate) fn measure_constellation_microbatch(
         }
     }
     ingest_runtime_log(format_args!(
-        "phase=measure_microbatch_start modality={:?} batch_size={} gpu_lenses={} cpu_lenses={}",
+        "phase=measure_microbatch_start modality={:?} batch_size={} gpu_lenses={} cpu_lenses={} runtime_batch_limit={:?}",
         batch_modality,
         inputs.len(),
         gpu_lenses.len(),
-        cpu_lenses.len()
+        cpu_lenses.len(),
+        runtime_batch_limit
     ));
     let measure_one = |lens: ApplicableLens| {
-        measure_applicable_lens_batch(state, lens, batch_modality, inputs)
+        measure_applicable_lens_batch(state, lens, batch_modality, inputs, runtime_batch_limit)
             .map(|vectors| (lens.lens_id, vectors))
     };
     let (gpu_result, cpu_result) = rayon::join(
@@ -340,5 +382,13 @@ pub(crate) fn measure_constellation_microbatch(
             },
         });
     }
+    ingest_runtime_log(format_args!(
+        "phase=measure_microbatch_ok modality={:?} batch_size={} gpu_lenses={} cpu_lenses={} elapsed_ms={}",
+        batch_modality,
+        inputs.len(),
+        gpu_lenses.len(),
+        cpu_lenses.len(),
+        started.elapsed().as_millis()
+    ));
     Ok(out)
 }

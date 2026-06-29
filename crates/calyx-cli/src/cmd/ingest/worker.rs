@@ -5,9 +5,13 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use calyx_core::{CalyxError, Input, Result, SlotVector};
-use calyx_registry::{RegistryLensSnapshot, measure_registry_snapshot_lens_batch};
+use calyx_registry::{
+    RegistryLensSnapshot, RegistrySnapshotMeasureStats,
+    measure_registry_snapshot_lens_batch_with_stats,
+};
 use serde::{Deserialize, Serialize};
 
+use super::command::ingest_runtime_log;
 use crate::error::{CliError, CliResult};
 
 const DEFAULT_LENS_WORKER_TIMEOUT_SECS: u64 = 300;
@@ -18,11 +22,13 @@ const KEEP_WORKER_ARTIFACTS_ENV: &str = "CALYX_KEEP_INGEST_WORKER_ARTIFACTS";
 struct LensWorkerRequest {
     snapshot: RegistryLensSnapshot,
     inputs: Vec<Input>,
+    runtime_batch_limit: Option<usize>,
 }
 
 #[derive(Serialize, Deserialize)]
 struct LensWorkerResponse {
     vectors: Vec<SlotVector>,
+    stats: RegistrySnapshotMeasureStats,
 }
 
 struct WorkerPaths {
@@ -36,14 +42,26 @@ struct WorkerPaths {
 pub(super) fn measure_lens_in_worker(
     snapshot: &RegistryLensSnapshot,
     inputs: &[Input],
+    runtime_batch_limit: Option<usize>,
 ) -> Result<Vec<SlotVector>> {
+    let total_start = Instant::now();
     let timeout = lens_worker_timeout()?;
     let paths = worker_paths(snapshot.lens_id)?;
     let request = LensWorkerRequest {
         snapshot: snapshot.clone(),
         inputs: inputs.to_vec(),
+        runtime_batch_limit,
     };
     write_json(&paths.request, &request)?;
+    let request_ms = total_start.elapsed().as_millis();
+    ingest_runtime_log(format_args!(
+        "phase=measure_lens_worker_request_written lens_id={} inputs={} runtime_batch_limit={:?} path={} elapsed_ms={}",
+        snapshot.lens_id,
+        inputs.len(),
+        runtime_batch_limit,
+        paths.request.display(),
+        request_ms
+    ));
     let stdout = File::create(&paths.stdout).map_err(|error| {
         CalyxError::lens_unreachable(format!("create ingest lens worker stdout failed: {error}"))
     })?;
@@ -75,6 +93,12 @@ pub(super) fn measure_lens_in_worker(
                 snapshot.lens_id
             ))
         })?;
+    ingest_runtime_log(format_args!(
+        "phase=measure_lens_worker_spawned lens_id={} pid={} elapsed_ms={}",
+        snapshot.lens_id,
+        child.id(),
+        total_start.elapsed().as_millis()
+    ));
     let started = Instant::now();
     loop {
         if let Some(status) = child.try_wait().map_err(|error| {
@@ -83,7 +107,7 @@ pub(super) fn measure_lens_in_worker(
                 snapshot.lens_id
             ))
         })? {
-            let result = read_worker_response(status, snapshot, &paths);
+            let result = read_worker_response(status, snapshot, &paths, total_start.elapsed());
             cleanup_worker_paths(&paths, result.is_ok());
             return result;
         }
@@ -104,6 +128,7 @@ pub(super) fn measure_lens_in_worker(
 }
 
 pub(crate) fn run_lens_worker(args: &[String]) -> CliResult {
+    let total_start = Instant::now();
     let flags = parse_worker_flags(args)?;
     let bytes = fs::read(&flags.request).map_err(|error| {
         CliError::io(format!(
@@ -117,8 +142,24 @@ pub(crate) fn run_lens_worker(args: &[String]) -> CliResult {
             flags.request.display()
         ))
     })?;
-    let vectors = measure_registry_snapshot_lens_batch(&request.snapshot, &request.inputs)?;
-    write_json(&flags.out, &LensWorkerResponse { vectors })?;
+    let (vectors, stats) = measure_registry_snapshot_lens_batch_with_stats(
+        &request.snapshot,
+        &request.inputs,
+        request.runtime_batch_limit,
+    )?;
+    eprintln!(
+        "CALYX_INGEST_RUNTIME phase=measure_lens_worker_child_ok lens_id={} inputs={} runtime_batch_limit={:?} effective_chunk_size={} chunk_count={} runtime_load_ms={} measure_ms={} total_ms={} child_total_ms={}",
+        request.snapshot.lens_id,
+        stats.input_count,
+        stats.runtime_batch_limit,
+        stats.effective_chunk_size,
+        stats.chunk_count,
+        stats.runtime_load_ms,
+        stats.measure_ms,
+        stats.total_ms,
+        total_start.elapsed().as_millis()
+    );
+    write_json(&flags.out, &LensWorkerResponse { vectors, stats })?;
     Ok(())
 }
 
@@ -206,6 +247,7 @@ fn read_worker_response(
     status: ExitStatus,
     snapshot: &RegistryLensSnapshot,
     paths: &WorkerPaths,
+    total_elapsed: Duration,
 ) -> Result<Vec<SlotVector>> {
     let stderr_tail = stderr_tail(&paths.stderr);
     let stdout_tail = stdout_tail(&paths.stdout);
@@ -229,6 +271,20 @@ fn read_worker_response(
             snapshot.lens_id
         )));
     }
+    ingest_runtime_log(format_args!(
+        "phase=measure_lens_worker_ok lens_id={} inputs={} runtime_batch_limit={:?} effective_chunk_size={} chunk_count={} runtime_load_ms={} measure_ms={} worker_total_ms={} parent_total_ms={} response_bytes={} stderr_tail={}",
+        snapshot.lens_id,
+        response.stats.input_count,
+        response.stats.runtime_batch_limit,
+        response.stats.effective_chunk_size,
+        response.stats.chunk_count,
+        response.stats.runtime_load_ms,
+        response.stats.measure_ms,
+        response.stats.total_ms,
+        total_elapsed.as_millis(),
+        bytes.len(),
+        stderr_tail
+    ));
     Ok(response.vectors)
 }
 

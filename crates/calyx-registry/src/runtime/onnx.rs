@@ -390,15 +390,7 @@ impl Lens for OnnxLens {
                 let mut runtime = runtime.lock().map_err(|_| {
                     CalyxError::lens_unreachable("custom ONNX session mutex was poisoned")
                 })?;
-                let chunk_size = self.max_batch.unwrap_or(inputs.len()).max(1);
-                if chunk_size >= inputs.len() {
-                    return runtime.measure_batch(self, inputs);
-                }
-                let mut out = Vec::with_capacity(inputs.len());
-                for chunk in inputs.chunks(chunk_size) {
-                    out.extend(runtime.measure_batch(self, chunk)?);
-                }
-                Ok(out)
+                runtime.measure_batch(self, inputs, self.max_batch)
             }
         }
     }

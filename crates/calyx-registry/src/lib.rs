@@ -60,8 +60,11 @@ pub use panels::{
     legal_default, materialize_panel_template, media_default, medical_default, text_default,
 };
 pub use persistence::{
-    VaultPanelState, VaultPanelWrite, VaultRegistrySnapshot, load_vault_panel_state,
-    measure_registry_snapshot_lens_batch, persist_vault_panel_state,
+    RegistryBatchLimitChange, RegistryBatchLimitUpdate, RegistrySnapshotMeasureStats,
+    VaultPanelState, VaultPanelWrite, VaultRegistryBatchLimitWrite, VaultRegistrySnapshot,
+    apply_registry_snapshot_batch_limits, load_vault_panel_state,
+    measure_registry_snapshot_lens_batch, measure_registry_snapshot_lens_batch_with_stats,
+    persist_vault_panel_state, set_vault_registry_batch_limits,
 };
 pub use placement::{
     CALYX_RAM_BUDGET_EXCEEDED, CALYX_VRAM_BUDGET_EXCEEDED, CpuLensPool, CpuPoolAdmission,

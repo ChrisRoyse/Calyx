@@ -1,7 +1,9 @@
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use calyx_aster::manifest::{ImmutableRef, ManifestStore};
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Panel, Result, SlotShape, SlotVector};
@@ -37,6 +39,42 @@ pub struct VaultPanelState {
     pub registry_snapshot: Option<VaultRegistrySnapshot>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistrySnapshotMeasureStats {
+    pub input_count: usize,
+    pub runtime_batch_limit: Option<usize>,
+    pub effective_chunk_size: usize,
+    pub chunk_count: usize,
+    pub runtime_load_ms: u128,
+    pub measure_ms: u128,
+    pub total_ms: u128,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryBatchLimitUpdate {
+    pub lens_id: LensId,
+    pub max_batch: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistryBatchLimitChange {
+    pub lens_id: LensId,
+    pub name: String,
+    pub before: Option<usize>,
+    pub after: usize,
+    pub changed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VaultRegistryBatchLimitWrite {
+    pub manifest_seq: u64,
+    pub durable_seq: u64,
+    pub panel_ref: ImmutableRef,
+    pub registry_ref: ImmutableRef,
+    pub wrote_manifest: bool,
+    pub changes: Vec<RegistryBatchLimitChange>,
+}
+
 pub fn persist_vault_panel_state(
     vault_dir: impl AsRef<Path>,
     panel: &Panel,
@@ -65,6 +103,103 @@ pub fn persist_vault_panel_state(
     })
 }
 
+pub fn set_vault_registry_batch_limits(
+    vault_dir: impl AsRef<Path>,
+    updates: &[RegistryBatchLimitUpdate],
+) -> Result<VaultRegistryBatchLimitWrite> {
+    let vault_dir = vault_dir.as_ref();
+    let state = load_vault_panel_state(vault_dir)?;
+    let mut snapshot = state.registry_snapshot.ok_or_else(|| {
+        CalyxError::aster_corrupt_shard(
+            "vault has no persisted registry snapshot; cannot update lens batch limits",
+        )
+    })?;
+    let changes = apply_registry_snapshot_batch_limits(&mut snapshot, updates)?;
+    if changes.iter().all(|change| !change.changed) {
+        let manifest = ManifestStore::open(vault_dir).load_current()?;
+        let registry_ref = manifest.registry_ref.clone().ok_or_else(|| {
+            CalyxError::aster_corrupt_shard(
+                "vault manifest has no registry_ref after loading registry snapshot",
+            )
+        })?;
+        return Ok(VaultRegistryBatchLimitWrite {
+            manifest_seq: manifest.manifest_seq,
+            durable_seq: manifest.durable_seq,
+            panel_ref: manifest.panel_ref,
+            registry_ref,
+            wrote_manifest: false,
+            changes,
+        });
+    }
+    let registry = rebuild_registry(&snapshot)?;
+    let write = persist_vault_panel_state(vault_dir, &state.panel, &registry)?;
+    Ok(VaultRegistryBatchLimitWrite {
+        manifest_seq: write.manifest_seq,
+        durable_seq: write.durable_seq,
+        panel_ref: write.panel_ref,
+        registry_ref: write.registry_ref,
+        wrote_manifest: true,
+        changes,
+    })
+}
+
+pub fn apply_registry_snapshot_batch_limits(
+    snapshot: &mut VaultRegistrySnapshot,
+    updates: &[RegistryBatchLimitUpdate],
+) -> Result<Vec<RegistryBatchLimitChange>> {
+    if updates.is_empty() {
+        return Err(registry_batch_limit_invalid(
+            "at least one lens batch limit update is required",
+        ));
+    }
+    let mut seen = BTreeSet::new();
+    for update in updates {
+        if update.max_batch == 0 {
+            return Err(registry_batch_limit_invalid(format!(
+                "lens {} max_batch must be > 0",
+                update.lens_id
+            )));
+        }
+        if !seen.insert(update.lens_id) {
+            return Err(registry_batch_limit_invalid(format!(
+                "duplicate batch limit update for lens {}",
+                update.lens_id
+            )));
+        }
+    }
+
+    let mut changes = Vec::with_capacity(updates.len());
+    for update in updates {
+        let lens = snapshot
+            .lenses
+            .iter_mut()
+            .find(|lens| lens.lens_id == update.lens_id)
+            .ok_or_else(|| {
+                CalyxError::lens_unreachable(format!(
+                    "lens {} is not present in persisted registry snapshot",
+                    update.lens_id
+                ))
+            })?;
+        let spec = lens.spec.as_mut().ok_or_else(|| {
+            CalyxError::lens_unreachable(format!(
+                "lens {} is persisted without LensSpec metadata; cannot update max_batch",
+                update.lens_id
+            ))
+        })?;
+        let before = spec.max_batch;
+        let changed = before != Some(update.max_batch);
+        spec.max_batch = Some(update.max_batch);
+        changes.push(RegistryBatchLimitChange {
+            lens_id: update.lens_id,
+            name: spec.name.clone(),
+            before,
+            after: update.max_batch,
+            changed,
+        });
+    }
+    Ok(changes)
+}
+
 pub fn load_vault_panel_state(vault_dir: impl AsRef<Path>) -> Result<VaultPanelState> {
     let vault_dir = vault_dir.as_ref();
     let manifest = ManifestStore::open(vault_dir).load_current()?;
@@ -90,6 +225,16 @@ pub fn measure_registry_snapshot_lens_batch(
     snapshot: &RegistryLensSnapshot,
     inputs: &[Input],
 ) -> Result<Vec<SlotVector>> {
+    let (vectors, _) = measure_registry_snapshot_lens_batch_with_stats(snapshot, inputs, None)?;
+    Ok(vectors)
+}
+
+pub fn measure_registry_snapshot_lens_batch_with_stats(
+    snapshot: &RegistryLensSnapshot,
+    inputs: &[Input],
+    runtime_batch_limit: Option<usize>,
+) -> Result<(Vec<SlotVector>, RegistrySnapshotMeasureStats)> {
+    let total_start = Instant::now();
     if snapshot.lens_id != snapshot.contract.lens_id() {
         return Err(CalyxError::lens_frozen_violation(format!(
             "registry lens {} does not match frozen contract {}",
@@ -107,8 +252,33 @@ pub fn measure_registry_snapshot_lens_batch(
             )));
         }
     }
+    let effective_chunk_size =
+        effective_runtime_chunk_size(snapshot, inputs.len(), runtime_batch_limit)?;
+    let chunk_count = if inputs.is_empty() {
+        0
+    } else {
+        inputs.len().div_ceil(effective_chunk_size)
+    };
+    let load_start = Instant::now();
     let runtime = load_runtime_lens(snapshot)?;
-    let vectors = runtime.measure_batch(inputs)?;
+    let runtime_load_ms = load_start.elapsed().as_millis();
+    let measure_start = Instant::now();
+    let mut vectors = Vec::with_capacity(inputs.len());
+    if !inputs.is_empty() {
+        for chunk in inputs.chunks(effective_chunk_size) {
+            let chunk_vectors = runtime.measure_batch(chunk)?;
+            if chunk_vectors.len() != chunk.len() {
+                return Err(CalyxError::lens_dim_mismatch(format!(
+                    "lens {} returned {} vectors for {} input chunk rows",
+                    snapshot.lens_id,
+                    chunk_vectors.len(),
+                    chunk.len()
+                )));
+            }
+            vectors.extend(chunk_vectors);
+        }
+    }
+    let measure_ms = measure_start.elapsed().as_millis();
     if vectors.len() != inputs.len() {
         return Err(CalyxError::lens_dim_mismatch(format!(
             "lens {} returned {} vectors for {} inputs",
@@ -120,7 +290,39 @@ pub fn measure_registry_snapshot_lens_batch(
     for vector in &vectors {
         snapshot.contract.verify_vector(snapshot.lens_id, vector)?;
     }
-    Ok(vectors)
+    let stats = RegistrySnapshotMeasureStats {
+        input_count: inputs.len(),
+        runtime_batch_limit,
+        effective_chunk_size,
+        chunk_count,
+        runtime_load_ms,
+        measure_ms,
+        total_ms: total_start.elapsed().as_millis(),
+    };
+    Ok((vectors, stats))
+}
+
+fn effective_runtime_chunk_size(
+    snapshot: &RegistryLensSnapshot,
+    input_count: usize,
+    runtime_batch_limit: Option<usize>,
+) -> Result<usize> {
+    if runtime_batch_limit == Some(0) {
+        return Err(CalyxError::lens_unreachable(
+            "runtime batch limit must be > 0 when supplied",
+        ));
+    }
+    let spec_limit = snapshot.spec.as_ref().and_then(|spec| spec.max_batch);
+    if spec_limit == Some(0) {
+        return Err(lens_config_invalid("LensSpec max_batch must be > 0"));
+    }
+    let limit = match (runtime_batch_limit, spec_limit) {
+        (Some(runtime), Some(spec)) => runtime.min(spec),
+        (Some(runtime), None) => runtime,
+        (None, Some(spec)) => spec,
+        (None, None) => input_count.max(1),
+    };
+    Ok(limit.max(1))
 }
 
 fn write_panel_asset(vault_dir: &Path, panel: &Panel) -> Result<ImmutableRef> {
@@ -383,6 +585,14 @@ fn lens_config_invalid(message: impl Into<String>) -> CalyxError {
     }
 }
 
+fn registry_batch_limit_invalid(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: "CALYX_REGISTRY_BATCH_LIMIT_INVALID",
+        message: message.into(),
+        remediation: "pass positive, unique lens batch limits that match lenses in the persisted vault registry",
+    }
+}
+
 struct LazyPersistedLens {
     snapshot: RegistryLensSnapshot,
     runtime: Mutex<Option<LazyRuntimeCache>>,
@@ -458,5 +668,365 @@ impl Lens for LazyPersistedLens {
 
     fn measure_batch(&self, inputs: &[Input]) -> Result<Vec<SlotVector>> {
         self.runtime()?.measure_batch(inputs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use calyx_aster::vault::{AsterVault, VaultOptions};
+    use calyx_core::{
+        Asymmetry, Input, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotState, VaultId,
+    };
+
+    use super::*;
+    use crate::{AlgorithmicLens, DeterminismProof, LensRuntime, LensSpec};
+
+    #[test]
+    fn snapshot_measurement_chunks_by_runtime_limit_and_reports_stats() {
+        let snapshot = algorithmic_snapshot(Some(3));
+        let inputs = text_inputs(["alpha", "beta", "gamma", "delta", "epsilon"]);
+
+        let (vectors, stats) =
+            measure_registry_snapshot_lens_batch_with_stats(&snapshot, &inputs, Some(2)).unwrap();
+
+        assert_eq!(vectors.len(), 5);
+        assert!(
+            vectors
+                .iter()
+                .all(|vector| matches!(vector, SlotVector::Dense { dim: 16, .. }))
+        );
+        assert_eq!(stats.input_count, 5);
+        assert_eq!(stats.runtime_batch_limit, Some(2));
+        assert_eq!(stats.effective_chunk_size, 2);
+        assert_eq!(stats.chunk_count, 3);
+    }
+
+    #[test]
+    fn snapshot_measurement_empty_input_reports_zero_chunks() {
+        let snapshot = algorithmic_snapshot(Some(3));
+
+        let (vectors, stats) =
+            measure_registry_snapshot_lens_batch_with_stats(&snapshot, &[], Some(2)).unwrap();
+
+        assert!(vectors.is_empty());
+        assert_eq!(stats.input_count, 0);
+        assert_eq!(stats.effective_chunk_size, 2);
+        assert_eq!(stats.chunk_count, 0);
+    }
+
+    #[test]
+    fn snapshot_measurement_rejects_zero_runtime_limit() {
+        let snapshot = algorithmic_snapshot(Some(3));
+        let inputs = text_inputs(["alpha"]);
+
+        let error = measure_registry_snapshot_lens_batch_with_stats(&snapshot, &inputs, Some(0))
+            .unwrap_err();
+
+        assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
+        assert!(error.message.contains("runtime batch limit must be > 0"));
+    }
+
+    #[test]
+    fn vault_batch_limit_update_persists_manifest_backed_registry() {
+        let (vault, lens_id) = test_vault_with_batch_lens("happy", Some(1));
+        let before_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let before_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "before batch-limit happy path: manifest_seq={} registry_ref={:?} max_batch={before_max:?}",
+            before_manifest.manifest_seq,
+            before_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str())
+        );
+
+        let write = set_vault_registry_batch_limits(
+            &vault,
+            &[RegistryBatchLimitUpdate {
+                lens_id,
+                max_batch: 8,
+            }],
+        )
+        .unwrap();
+        let after_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let after_state = load_vault_panel_state(&vault).unwrap();
+        let after_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "after batch-limit happy path: manifest_seq={} registry_ref={:?} max_batch={after_max:?} wrote_manifest={} registry_file_exists={}",
+            after_manifest.manifest_seq,
+            after_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str()),
+            write.wrote_manifest,
+            vault.join(&write.registry_ref.logical_path).is_file()
+        );
+
+        assert!(write.wrote_manifest);
+        assert_eq!(write.changes.len(), 1);
+        assert_eq!(write.changes[0].before, Some(1));
+        assert_eq!(write.changes[0].after, 8);
+        assert_eq!(write.changes[0].changed, true);
+        assert_ne!(before_manifest.registry_ref, after_manifest.registry_ref);
+        assert_eq!(before_max, Some(1));
+        assert_eq!(after_max, Some(8));
+        assert_eq!(
+            after_state
+                .registry
+                .lens_spec(lens_id)
+                .and_then(|spec| spec.max_batch),
+            Some(8)
+        );
+    }
+
+    #[test]
+    fn vault_batch_limit_update_rejects_empty_without_manifest_write() {
+        let (vault, lens_id) = test_vault_with_batch_lens("empty", Some(1));
+        let before_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let before_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "before empty edge: manifest_seq={} registry_ref={:?} max_batch={before_max:?}",
+            before_manifest.manifest_seq,
+            before_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str())
+        );
+
+        let error = set_vault_registry_batch_limits(&vault, &[]).unwrap_err();
+        let after_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let after_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "after empty edge: error_code={} manifest_seq={} registry_ref={:?} max_batch={after_max:?}",
+            error.code,
+            after_manifest.manifest_seq,
+            after_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str())
+        );
+
+        assert_eq!(error.code, "CALYX_REGISTRY_BATCH_LIMIT_INVALID");
+        assert_eq!(before_manifest.manifest_seq, after_manifest.manifest_seq);
+        assert_eq!(before_manifest.registry_ref, after_manifest.registry_ref);
+        assert_eq!(before_max, after_max);
+    }
+
+    #[test]
+    fn vault_batch_limit_update_rejects_zero_without_manifest_write() {
+        let (vault, lens_id) = test_vault_with_batch_lens("zero", Some(1));
+        let before_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let before_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "before zero edge: manifest_seq={} registry_ref={:?} max_batch={before_max:?}",
+            before_manifest.manifest_seq,
+            before_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str())
+        );
+
+        let error = set_vault_registry_batch_limits(
+            &vault,
+            &[RegistryBatchLimitUpdate {
+                lens_id,
+                max_batch: 0,
+            }],
+        )
+        .unwrap_err();
+        let after_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let after_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "after zero edge: error_code={} manifest_seq={} registry_ref={:?} max_batch={after_max:?}",
+            error.code,
+            after_manifest.manifest_seq,
+            after_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str())
+        );
+
+        assert_eq!(error.code, "CALYX_REGISTRY_BATCH_LIMIT_INVALID");
+        assert_eq!(before_manifest.manifest_seq, after_manifest.manifest_seq);
+        assert_eq!(before_manifest.registry_ref, after_manifest.registry_ref);
+        assert_eq!(before_max, after_max);
+    }
+
+    #[test]
+    fn vault_batch_limit_update_rejects_missing_lens_without_manifest_write() {
+        let (vault, lens_id) = test_vault_with_batch_lens("missing", Some(1));
+        let missing = calyx_core::LensId::from_bytes([0xA5; 16]);
+        let before_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let before_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "before missing edge: manifest_seq={} registry_ref={:?} existing_max_batch={before_max:?}",
+            before_manifest.manifest_seq,
+            before_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str())
+        );
+
+        let error = set_vault_registry_batch_limits(
+            &vault,
+            &[RegistryBatchLimitUpdate {
+                lens_id: missing,
+                max_batch: 8,
+            }],
+        )
+        .unwrap_err();
+        let after_manifest = ManifestStore::open(&vault).load_current().unwrap();
+        let after_max = manifest_registry_max_batch(&vault, lens_id);
+        println!(
+            "after missing edge: error_code={} manifest_seq={} registry_ref={:?} existing_max_batch={after_max:?}",
+            error.code,
+            after_manifest.manifest_seq,
+            after_manifest
+                .registry_ref
+                .as_ref()
+                .map(|reference| reference.logical_path.as_str())
+        );
+
+        assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
+        assert_eq!(before_manifest.manifest_seq, after_manifest.manifest_seq);
+        assert_eq!(before_manifest.registry_ref, after_manifest.registry_ref);
+        assert_eq!(before_max, after_max);
+    }
+
+    fn algorithmic_snapshot(max_batch: Option<usize>) -> RegistryLensSnapshot {
+        let lens = AlgorithmicLens::byte_features("issue999-byte", Modality::Text);
+        let contract = lens.contract().clone();
+        let spec = LensSpec {
+            name: contract.name().to_string(),
+            runtime: LensRuntime::Algorithmic {
+                kind: "byte-features".to_string(),
+            },
+            output: contract.shape(),
+            modality: contract.modality(),
+            weights_sha256: contract.weights_sha256(),
+            corpus_hash: contract.corpus_hash(),
+            norm_policy: contract.norm_policy(),
+            max_batch,
+            axis: None,
+            asymmetry: Asymmetry::None,
+            quant_default: QuantPolicy::turboquant_default(),
+            truncate_dim: None,
+            recall_delta: crate::spec::default_recall_delta(),
+            retrieval_only: false,
+            excluded_from_dedup: false,
+        };
+        RegistryLensSnapshot {
+            lens_id: contract.lens_id(),
+            contract,
+            spec: Some(spec),
+            determinism: DeterminismProof::ContractOnlyExemption,
+        }
+    }
+
+    fn text_inputs<const N: usize>(values: [&str; N]) -> Vec<Input> {
+        values
+            .into_iter()
+            .map(|value| Input::new(Modality::Text, value.as_bytes().to_vec()))
+            .collect()
+    }
+
+    fn test_vault_with_batch_lens(
+        name: &str,
+        max_batch: Option<usize>,
+    ) -> (PathBuf, calyx_core::LensId) {
+        let vault = temp_vault_dir(name);
+        let vault_id: VaultId = "01ARZ3NDEKTSV4RRFFQ69G5FAV".parse().unwrap();
+        let mut registry = Registry::new();
+        let lens = AlgorithmicLens::byte_features("batch-limit-lens", Modality::Text);
+        let contract = lens.contract().clone();
+        let lens_id = contract.lens_id();
+        let spec = LensSpec {
+            name: contract.name().to_string(),
+            runtime: LensRuntime::Algorithmic {
+                kind: "byte-features".to_string(),
+            },
+            output: contract.shape(),
+            modality: contract.modality(),
+            weights_sha256: contract.weights_sha256(),
+            corpus_hash: contract.corpus_hash(),
+            norm_policy: contract.norm_policy(),
+            max_batch,
+            axis: None,
+            asymmetry: Asymmetry::None,
+            quant_default: QuantPolicy::turboquant_default(),
+            truncate_dim: None,
+            recall_delta: crate::spec::default_recall_delta(),
+            retrieval_only: false,
+            excluded_from_dedup: false,
+        };
+        registry
+            .register_frozen_with_spec(lens, contract, spec)
+            .unwrap();
+        let panel = panel_with_lens(lens_id);
+        AsterVault::new_durable(
+            &vault,
+            vault_id,
+            [0x5A; 32],
+            VaultOptions {
+                panel: Some(panel.clone()),
+                ..VaultOptions::default()
+            },
+        )
+        .unwrap();
+        persist_vault_panel_state(&vault, &panel, &registry).unwrap();
+        (vault, lens_id)
+    }
+
+    fn panel_with_lens(lens_id: calyx_core::LensId) -> Panel {
+        let slot = SlotId::new(0);
+        Panel {
+            version: 1,
+            slots: vec![Slot {
+                slot_id: slot,
+                slot_key: SlotKey::new(slot, "batch-limit-lens"),
+                lens_id,
+                shape: SlotShape::Dense(16),
+                modality: Modality::Text,
+                asymmetry: Asymmetry::None,
+                quant: QuantPolicy::None,
+                resource: Default::default(),
+                axis: Some("batch-limit-lens".to_string()),
+                retrieval_only: false,
+                excluded_from_dedup: false,
+                bits_about: BTreeMap::new(),
+                state: SlotState::Active,
+                added_at_panel_version: 1,
+            }],
+            created_at: 1,
+            kernel_ref: None,
+            guard_ref: None,
+        }
+    }
+
+    fn manifest_registry_max_batch(vault: &Path, lens_id: calyx_core::LensId) -> Option<usize> {
+        let manifest = ManifestStore::open(vault).load_current().unwrap();
+        let registry_ref = manifest.registry_ref.as_ref().unwrap();
+        let bytes = fs::read(vault.join(&registry_ref.logical_path)).unwrap();
+        let snapshot: VaultRegistrySnapshot = serde_json::from_slice(&bytes).unwrap();
+        snapshot
+            .lenses
+            .iter()
+            .find(|lens| lens.lens_id == lens_id)
+            .and_then(|lens| lens.spec.as_ref())
+            .and_then(|spec| spec.max_batch)
+    }
+
+    fn temp_vault_dir(name: &str) -> PathBuf {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "calyx-registry-batch-limit-{name}-{}-{now}",
+            std::process::id()
+        ))
     }
 }
