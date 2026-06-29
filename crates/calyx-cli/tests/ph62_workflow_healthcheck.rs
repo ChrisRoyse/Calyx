@@ -164,6 +164,8 @@ fn batch_ingest_ledger_payload_mentions_each_new_cx() {
             OsStr::new(vault),
             OsStr::new("--batch"),
             batch_path.as_os_str(),
+            OsStr::new("--output"),
+            OsStr::new("rows"),
         ],
     );
     assert_success(&batch);

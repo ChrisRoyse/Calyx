@@ -394,6 +394,7 @@ fn rebuild_from_docs(
     };
     let manifest_path = manifest_path(vault_dir);
     write_json_atomic(&manifest_path, &manifest)?;
+    prune_stale_index_artifacts(vault_dir, &root, &manifest)?;
     Ok(RebuildSummary {
         slots: manifest.slots.len(),
         total_rows,
@@ -418,6 +419,70 @@ fn manifest_path(vault_dir: &Path) -> PathBuf {
     vault_dir.join(INDEX_ROOT).join(MANIFEST_NAME)
 }
 
+fn prune_stale_index_artifacts(
+    vault_dir: &Path,
+    root: &Path,
+    manifest: &SearchIndexManifest,
+) -> CliResult {
+    let keep = referenced_index_artifacts(vault_dir, root, manifest)?;
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !is_prunable_index_artifact(&name) || keep.iter().any(|item| item == &path) {
+            continue;
+        }
+        if entry.file_type()?.is_dir() {
+            fs::remove_dir_all(&path)?;
+        } else {
+            fs::remove_file(&path)?;
+        }
+    }
+    Ok(())
+}
+
+fn referenced_index_artifacts(
+    vault_dir: &Path,
+    root: &Path,
+    manifest: &SearchIndexManifest,
+) -> CliResult<Vec<PathBuf>> {
+    let mut keep = vec![manifest_path(vault_dir)];
+    if let Some(filter) = &manifest.filter {
+        keep.push(vault_dir.join(&filter.index_rel));
+    }
+    for entry in &manifest.slots {
+        if let Some(index_rel) = &entry.index_rel {
+            keep.push(vault_dir.join(index_rel));
+        }
+        if let Some(graph_rel) = &entry.graph_rel {
+            let graph = vault_dir.join(graph_rel);
+            let ann_dir = graph.parent().ok_or_else(|| {
+                stale(format!(
+                    "persistent slot {} graph path has no parent directory",
+                    entry.slot
+                ))
+            })?;
+            if ann_dir.parent().is_some_and(|parent| parent == root) {
+                keep.push(ann_dir.to_path_buf());
+            } else {
+                keep.push(graph);
+            }
+        }
+        if let Some(id_map_rel) = &entry.id_map_rel {
+            keep.push(vault_dir.join(id_map_rel));
+        }
+    }
+    keep.sort();
+    keep.dedup();
+    Ok(keep)
+}
+
+fn is_prunable_index_artifact(name: &str) -> bool {
+    name.starts_with("slot_") || name.starts_with("filter_")
+}
+
 #[path = "persisted/io.rs"]
 mod fs_io;
-use fs_io::{rel, sha256_hex, stale, write_json_atomic, write_json_atomic_hashed};
+use fs_io::{
+    rel, sha256_hex, stale, write_atomic_hashed, write_json_atomic, write_json_atomic_hashed,
+};

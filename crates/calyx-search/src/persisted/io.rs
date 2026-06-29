@@ -29,6 +29,16 @@ pub(super) fn write_bytes_atomic(path: &Path, bytes: &[u8]) -> CliResult {
 /// floats — the post-ingest finalization hang. Returns the lowercase-hex SHA-256 of the
 /// written bytes (computed in the same single pass, no second walk over the buffer).
 pub(super) fn write_json_atomic_hashed<T: Serialize>(path: &Path, value: &T) -> CliResult<String> {
+    write_atomic_hashed(path, |writer| {
+        serde_json::to_writer(writer, value)?;
+        Ok(())
+    })
+}
+
+pub(super) fn write_atomic_hashed<F>(path: &Path, write_fn: F) -> CliResult<String>
+where
+    F: FnOnce(&mut HashingWriter<BufWriter<File>>) -> CliResult<()>,
+{
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -38,7 +48,7 @@ pub(super) fn write_json_atomic_hashed<T: Serialize>(path: &Path, value: &T) -> 
     let sha256 = {
         let file = File::create(&tmp)?;
         let mut writer = HashingWriter::new(BufWriter::new(file));
-        serde_json::to_writer(&mut writer, value).inspect_err(|_| {
+        write_fn(&mut writer).inspect_err(|_| {
             let _ = fs::remove_file(&tmp);
         })?;
         let (buf_writer, sha256) = writer.into_parts();

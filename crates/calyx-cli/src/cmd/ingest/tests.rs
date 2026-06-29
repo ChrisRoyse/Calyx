@@ -4,7 +4,7 @@ use std::fs;
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
-    AbsentReason, Anchor, AnchorKind, AnchorValue, Asymmetry, CxId, LensId, Modality, Panel,
+    AbsentReason, Anchor, AnchorKind, AnchorValue, Asymmetry, CxId, Input, LensId, Modality, Panel,
     QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState, SlotVector, VaultId, VaultStore,
 };
 use calyx_registry::{Registry, load_vault_panel_state, persist_vault_panel_state};
@@ -16,7 +16,7 @@ use super::super::vault::{ResolvedVault, now_ms, vault_salt};
 use super::anchor::parse_anchor_kind;
 use super::batch::{parse_batch_line, read_batch_texts, validate_batch_file};
 use super::command::{ingest_batch_streaming, ingest_texts, should_stage_batch_constellation};
-use super::constellation::{measure_constellation, text_input};
+use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
 use super::parse::{parse_anchor, validate_text};
 use super::store::{ensure_base_exists, open_vault};
 
@@ -173,6 +173,37 @@ fn measure_outputs_absent_not_zero_filled_and_does_not_store() {
             .unwrap()
             .len(),
         0
+    );
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn microbatch_rejects_mixed_modalities_before_measurement() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("mixed-modality");
+    let vault = open_vault(&resolved).unwrap();
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let before = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
+        .unwrap();
+
+    let err = measure_constellation_microbatch(
+        &vault,
+        &state,
+        &[
+            text_input("known text input".to_string()),
+            Input::new(Modality::Structured, br#"{"k":"v"}"#.to_vec()),
+        ],
+        1,
+    )
+    .unwrap_err();
+
+    let after = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
+        .unwrap();
+    assert_eq!(err.code(), "CALYX_LENS_DIM_MISMATCH");
+    assert_eq!(
+        before, after,
+        "failed mixed-modality measurement must not write to Base CF"
     );
     fs::remove_dir_all(root).ok();
 }
