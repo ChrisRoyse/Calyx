@@ -102,6 +102,37 @@ fn csr_projection_is_rebuildable_and_persisted() {
 }
 
 #[test]
+fn physical_assoc_graph_prefers_persisted_csr_projection() {
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "calyx-physical-plain-graph-csr-{}-{unique}",
+        std::process::id()
+    ));
+    let vault =
+        AsterVault::new_durable(&dir, vault_id(), b"salt", VaultOptions::default()).unwrap();
+    let graph = PlainGraph::new(&vault, "plain").unwrap();
+    graph.put_node(cx(1), b"{}").unwrap();
+    graph.put_node(cx(2), b"{}").unwrap();
+    graph.put_node(cx(3), b"{}").unwrap();
+    graph.put_edge(cx(1), "knows", cx(2), b"ab").unwrap();
+    graph.put_edge(cx(1), "likes", cx(3), b"ac").unwrap();
+    let commit = graph.rebuild_csr(vault.latest_seq()).unwrap();
+    vault.flush().unwrap();
+
+    let physical = PhysicalPlainGraph::open_latest(&dir, "plain").unwrap();
+    assert_eq!(physical.read_csr().unwrap(), Some(commit.projection));
+    let readback = physical.assoc_graph().unwrap();
+    assert_eq!(readback.node_count(), 3);
+    assert_eq!(readback.edge_count(), 2);
+    assert_eq!(readback.out_degree(cx(1)).unwrap(), 2);
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
 fn failed_wal_append_leaves_neither_edge_row() {
     let unique = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

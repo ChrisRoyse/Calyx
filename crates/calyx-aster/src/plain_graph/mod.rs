@@ -1,5 +1,6 @@
 //! Plain graph key-encoding layer for 0-lens collections.
 
+mod assoc_graph;
 mod key;
 mod types;
 
@@ -11,6 +12,7 @@ use calyx_paths::AssocGraph;
 use crate::cf::{CfRouter, ColumnFamily, KeyRange};
 use crate::mvcc::is_tombstone_value;
 use crate::vault::AsterVault;
+use assoc_graph::{assoc_graph_from_csr, flatten_csr_edges};
 use key::{
     GraphKeyspace, MAX_TRAVERSE_COST, MAX_TRAVERSE_HOPS, graph_corrupt, graph_limit, graph_missing,
     path_error, validate_edge_type, validate_value,
@@ -60,7 +62,29 @@ impl PhysicalPlainGraph {
             .collect()
     }
 
+    pub fn read_csr(&self) -> Result<Option<PlainGraphCsr>> {
+        let Some(bytes) = self.router.get(ColumnFamily::Graph, &self.keys.csr_key())? else {
+            return Ok(None);
+        };
+        serde_json::from_slice(&bytes)
+            .map(Some)
+            .map_err(|error| graph_corrupt(format!("decode physical CSR projection: {error}")))
+    }
+
     pub fn assoc_graph(&self) -> Result<AssocGraph> {
+        if let Some(csr) = self.read_csr()? {
+            eprintln!(
+                "plain-graph: loading persisted CSR collection={} nodes={} edges={}",
+                csr.collection,
+                csr.nodes.len(),
+                csr.edges.len()
+            );
+            return assoc_graph_from_csr(&csr);
+        }
+        eprintln!(
+            "plain-graph: persisted CSR missing for collection={}, scanning graph edge rows",
+            self.keys.collection_name()
+        );
         let nodes = self.node_ids()?;
         let node_set = nodes.iter().copied().collect::<BTreeSet<_>>();
         let mut builder = AssocGraph::builder();
@@ -280,6 +304,9 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
     }
 
     pub fn assoc_graph(&self, snapshot: Seq) -> Result<AssocGraph> {
+        if let Some(csr) = self.read_csr(snapshot)? {
+            return assoc_graph_from_csr(&csr);
+        }
         let nodes = self.node_ids(snapshot)?;
         let node_set = nodes.iter().copied().collect::<BTreeSet<_>>();
         let mut builder = AssocGraph::builder();
@@ -448,24 +475,6 @@ impl<'a, C: Clock> PlainGraph<'a, C> {
         self.vault
             .scan_cf_range_keys_at(snapshot, ColumnFamily::Graph, range)
     }
-}
-
-fn flatten_csr_edges(
-    mut by_src: Vec<Vec<PlainGraphCsrEdge>>,
-) -> (Vec<usize>, Vec<PlainGraphCsrEdge>) {
-    let mut offsets = Vec::with_capacity(by_src.len() + 1);
-    let mut edges = Vec::new();
-    offsets.push(0);
-    for src_edges in &mut by_src {
-        src_edges.sort_by(|left, right| {
-            left.edge_type
-                .cmp(&right.edge_type)
-                .then_with(|| left.dst.cmp(&right.dst))
-        });
-        edges.append(src_edges);
-        offsets.push(edges.len());
-    }
-    (offsets, edges)
 }
 
 #[cfg(test)]

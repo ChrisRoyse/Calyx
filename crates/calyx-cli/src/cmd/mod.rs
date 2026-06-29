@@ -1,3 +1,4 @@
+mod domain_bridges;
 mod healthcheck;
 mod ingest;
 mod intelligence;
@@ -60,6 +61,7 @@ pub(crate) enum Subcommand {
     RebuildSearchIndex(VaultRefArgs),
     KernelBuild(kernel_build::KernelBuildArgs),
     WeaveLoom(weave::WeaveLoomArgs),
+    DomainBridges(domain_bridges::DomainBridgesArgs),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -173,6 +175,7 @@ fn run(command: Subcommand) -> CliResult {
         | Subcommand::AnnealStatus(_) => provenance::run(command),
         Subcommand::KernelBuild(_) => kernel_build::run(command),
         Subcommand::WeaveLoom(_) => weave::run(command),
+        Subcommand::DomainBridges(_) => domain_bridges::run(command),
     }
 }
 
@@ -204,6 +207,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "rebuild-search-index" => parse_vault_ref(rest).map(Subcommand::RebuildSearchIndex),
         "kernel-build" => kernel_build::parse_kernel_build(rest),
         "weave-loom" => weave::parse_weave_loom(rest),
+        "domain-bridges" => domain_bridges::parse_domain_bridges(rest),
         other => Err(CliError::usage(format!("unknown PH62 command {other}"))),
     }
 }
@@ -234,6 +238,7 @@ fn is_cmd(command: &str) -> bool {
             | "rebuild-search-index"
             | "kernel-build"
             | "weave-loom"
+            | "domain-bridges"
     )
 }
 

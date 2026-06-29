@@ -28,7 +28,7 @@ still requires experimental confirmation.
 | `06_calibration_fsv.md` | #873 planted signal calibration and gate readback | done + FSV |
 | `07_power_gate_verify.md` | #874 assay power-calibration and entropy-floor gate verification | done + FSV |
 | `08_blind_spot_sweep.md` | #875 blind-spot sweep/ranking log | implementation slice + synthetic FSV; corpus sweep pending |
-| `09_domain_bridges.md` | #876 domain-pair bridge B-term ranking report | implementation slice + synthetic FSV; corpus bridge mining pending |
+| `09_domain_bridges.md` | #876 domain-pair bridge B-term ranking report | done + real clinical-corpus FSV; non-clinical corpus materialization tracked separately |
 | `10_spectral_communities.md` | #877 spectral community and inter-community bridge report | implementation slice + synthetic FSV; corpus run pending |
 | `11_discovery_harness.md` | #878 gated discovery chain harness | implementation slice + synthetic FSV; corpus run pending |
 | `12_probe_matrix.md` | #879 probe matrix planner and productive-combination log | implementation slice + synthetic FSV; corpus run pending |

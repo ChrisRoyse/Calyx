@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use calyx_core::{AnchorKind, CxId, Ts};
 use calyx_paths::AssocGraph;
@@ -45,6 +45,7 @@ pub enum Scope {
     TimeWindow { t0: Ts, t1: Ts },
     Tenant { id: TenantId },
     Filter { expr: FilterExpr },
+    FilterReachable { expr: FilterExpr, radius: usize },
     Union { left: Box<Scope>, right: Box<Scope> },
     Intersect { left: Box<Scope>, right: Box<Scope> },
 }
@@ -56,6 +57,10 @@ pub trait AssocStore {
     fn time_window_nodes(&self, t0: Ts, t1: Ts) -> Result<Option<BTreeSet<CxId>>>;
     fn tenant_nodes(&self, id: &TenantId) -> Result<Option<BTreeSet<CxId>>>;
     fn filter_nodes(&self, expr: &FilterExpr) -> Result<BTreeSet<CxId>>;
+
+    fn node_metadata(&self, _id: CxId) -> Result<Option<BTreeMap<String, String>>> {
+        Ok(None)
+    }
 }
 
 pub fn scope_hash(scope: &Scope) -> [u8; 32] {
@@ -116,6 +121,12 @@ fn materialize_scope_at(scope: &Scope, store: &dyn AssocStore, depth: usize) -> 
             let nodes = store.filter_nodes(expr)?;
             subgraph_from_nodes(&store.full_graph()?, &nodes)
         }
+        Scope::FilterReachable { expr, radius } => {
+            let graph = store.full_graph()?;
+            let roots = store.filter_nodes(expr)?;
+            let nodes = nodes_within_radius_from_roots(&graph, &roots, *radius);
+            subgraph_from_nodes(&graph, &nodes)
+        }
         Scope::Union { left, right } => {
             let left = materialize_scope_at(left, store, depth + 1)?;
             let right = materialize_scope_at(right, store, depth + 1)?;
@@ -129,6 +140,36 @@ fn materialize_scope_at(scope: &Scope, store: &dyn AssocStore, depth: usize) -> 
                 .copied()
                 .collect();
             subgraph_from_nodes(&store.full_graph()?, &nodes)
+        }
+    }
+}
+
+pub fn root_nodes_for_scope(scope: &Scope, store: &dyn AssocStore) -> Result<BTreeSet<CxId>> {
+    match scope {
+        Scope::AllAssociations => Ok(store.full_graph()?.node_ids().collect()),
+        Scope::Collection { id } => store
+            .collection_nodes(id)?
+            .ok_or_else(|| LodestarError::CollectionNotFound { id: id.0.clone() }),
+        Scope::Domain { anchor_kind } => {
+            Ok(store.domain_anchors(anchor_kind)?.into_iter().collect())
+        }
+        Scope::Subgraph { query, .. } => Ok(BTreeSet::from([*query])),
+        Scope::TimeWindow { t0, t1 } => store
+            .time_window_nodes(*t0, *t1)?
+            .ok_or(LodestarError::ScopeTemporalNotReady),
+        Scope::Tenant { id } => store
+            .tenant_nodes(id)?
+            .ok_or_else(|| LodestarError::ScopeTenantNotFound { id: id.0.clone() }),
+        Scope::Filter { expr } | Scope::FilterReachable { expr, .. } => store.filter_nodes(expr),
+        Scope::Union { left, right } => {
+            let mut nodes = root_nodes_for_scope(left, store)?;
+            nodes.extend(root_nodes_for_scope(right, store)?);
+            Ok(nodes)
+        }
+        Scope::Intersect { left, right } => {
+            let left = root_nodes_for_scope(left, store)?;
+            let right = root_nodes_for_scope(right, store)?;
+            Ok(left.intersection(&right).copied().collect())
         }
     }
 }
@@ -192,6 +233,36 @@ fn nodes_within_radius(graph: &AssocGraph, query: CxId, radius: usize) -> BTreeS
         for edge in graph.out_edges_by_index(current) {
             if seen.insert(edge.dst) {
                 nodes.insert(graph.node_id(edge.dst).expect("scoped node id"));
+                queue.push_back((edge.dst, hops + 1));
+            }
+        }
+    }
+    nodes
+}
+
+fn nodes_within_radius_from_roots(
+    graph: &AssocGraph,
+    roots: &BTreeSet<CxId>,
+    radius: usize,
+) -> BTreeSet<CxId> {
+    let mut nodes = BTreeSet::new();
+    let mut seen = BTreeSet::new();
+    let mut queue = VecDeque::new();
+    for root in roots {
+        if let Some(index) = graph.node_index(*root)
+            && seen.insert(index)
+        {
+            nodes.insert(*root);
+            queue.push_back((index, 0_usize));
+        }
+    }
+    while let Some((current, hops)) = queue.pop_front() {
+        if hops == radius {
+            continue;
+        }
+        for edge in graph.out_edges_by_index(current) {
+            if seen.insert(edge.dst) {
+                nodes.insert(graph.node_id(edge.dst).expect("reachable node id"));
                 queue.push_back((edge.dst, hops + 1));
             }
         }
