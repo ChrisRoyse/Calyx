@@ -22,30 +22,46 @@ impl DenseSlotRows {
     }
 }
 
-pub(super) fn collect(
+pub(super) fn slots(docs: &BTreeMap<CxId, Constellation>) -> Vec<SlotId> {
+    let mut slots = docs
+        .values()
+        .flat_map(|cx| {
+            cx.slots.iter().filter_map(|(slot, vector)| {
+                matches!(vector, SlotVector::Dense { .. }).then_some(*slot)
+            })
+        })
+        .collect::<Vec<_>>();
+    slots.sort();
+    slots.dedup();
+    slots
+}
+
+pub(super) fn collect_slot(
     docs: &BTreeMap<CxId, Constellation>,
-) -> CliResult<BTreeMap<SlotId, DenseSlotRows>> {
-    let mut out = BTreeMap::<SlotId, DenseSlotRows>::new();
+    target: SlotId,
+) -> CliResult<DenseSlotRows> {
+    let mut out: Option<DenseSlotRows> = None;
     for cx in docs.values() {
-        for (slot, vector) in &cx.slots {
-            let SlotVector::Dense { dim, data } = vector else {
-                continue;
-            };
-            validate_dense(*slot, cx.cx_id, *dim, data)?;
-            let entry = out.entry(*slot).or_insert_with(|| DenseSlotRows {
-                dim: *dim,
-                rows: Vec::new(),
-            });
-            if entry.dim != *dim {
-                return Err(stale(format!(
-                    "slot {slot} has mixed dense dims: {} and {dim}",
-                    entry.dim
-                )));
-            }
-            entry.rows.push((cx.cx_id, data.clone()));
+        let Some(vector) = cx.slots.get(&target) else {
+            continue;
+        };
+        let SlotVector::Dense { dim, data } = vector else {
+            continue;
+        };
+        validate_dense(target, cx.cx_id, *dim, data)?;
+        let entry = out.get_or_insert_with(|| DenseSlotRows {
+            dim: *dim,
+            rows: Vec::new(),
+        });
+        if entry.dim != *dim {
+            return Err(stale(format!(
+                "slot {target} has mixed dense dims: {} and {dim}",
+                entry.dim
+            )));
         }
+        entry.rows.push((cx.cx_id, data.clone()));
     }
-    Ok(out)
+    out.ok_or_else(|| stale(format!("slot {target} has no dense rows")))
 }
 
 pub(super) fn write(

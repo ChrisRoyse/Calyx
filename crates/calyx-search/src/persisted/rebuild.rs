@@ -21,7 +21,8 @@ pub(super) fn rebuild_from_docs(
     fs::create_dir_all(&root)?;
     let mut entries = Vec::new();
     let mut total_rows = 0usize;
-    for (slot, rows) in dense::collect(docs)? {
+    for slot in dense::slots(docs) {
+        let rows = dense::collect_slot(docs, slot)?;
         total_rows += rows.len();
         entries.push(dense::write(vault_dir, &root, slot, rows, base_seq)?);
     }
