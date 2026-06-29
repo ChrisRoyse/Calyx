@@ -174,6 +174,7 @@ fn search_accepts_batch_ingest_ledger_ref_when_payload_names_hit_cx() {
                 "ledger_hash": hex32(&hit.provenance.hash),
             },
             "ledger_rows": ledger_rows(&vault_dir),
+            "ledger_entries": decoded_ledger_entries(&vault_dir),
         }),
     );
     if std::env::var_os("CALYX_FSV_ROOT").is_none() {
@@ -199,6 +200,20 @@ fn batch_ingest_subject_mismatch_invalid_payload_fails_actionably() {
     assert_eq!(error.code(), "CALYX_LEDGER_CORRUPT");
     assert!(error.message().contains("payload is invalid JSON"));
     assert!(error.message().contains("seq 7"));
+    maybe_write_fsv_json(
+        "issue979-batch-ledger-invalid-payload-edge.json",
+        &json!({
+            "source_of_truth": "synthetic valid LedgerEntry decoded by calyx-search provenance verifier",
+            "trigger": "EntryKind::Ingest with non-Cx subject and invalid JSON payload",
+            "entry": {
+                "seq": entry.seq,
+                "kind": format!("{:?}", entry.kind),
+                "subject": subject_json(&entry.subject),
+                "payload_utf8": String::from_utf8_lossy(&entry.payload),
+            },
+            "error": error_json(&error),
+        }),
+    );
 }
 
 #[test]
@@ -536,6 +551,35 @@ fn ledger_rows(vault: &Path) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+fn decoded_ledger_entries(vault: &Path) -> Vec<Value> {
+    CfRouter::open(vault, 0)
+        .and_then(|router| router.iter_cf(ColumnFamily::Ledger))
+        .unwrap_or_default()
+        .into_iter()
+        .map(|row| {
+            let entry = decode(&row.value).expect("decode ledger row");
+            let payload: Value = serde_json::from_slice(&entry.payload).unwrap_or(Value::Null);
+            json!({
+                "seq": entry.seq,
+                "kind": format!("{:?}", entry.kind),
+                "subject": subject_json(&entry.subject),
+                "payload": payload,
+                "entry_hash": hex32(&entry.entry_hash),
+            })
+        })
+        .collect()
+}
+
+fn subject_json(subject: &SubjectId) -> Value {
+    match subject {
+        SubjectId::Cx(id) => json!({"type": "cx", "id": id.to_string()}),
+        SubjectId::Lens(id) => json!({"type": "lens", "id": id.to_string()}),
+        SubjectId::Kernel(bytes) => json!({"type": "kernel", "bytes_sha256": sha256_hex(bytes)}),
+        SubjectId::Guard(bytes) => json!({"type": "guard", "bytes_sha256": sha256_hex(bytes)}),
+        SubjectId::Query(bytes) => json!({"type": "query", "bytes_sha256": sha256_hex(bytes)}),
+    }
 }
 
 fn read_manifest(vault: &Path) -> Value {
