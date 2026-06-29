@@ -75,9 +75,43 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
         ],
         Subcommand::WeaveLoom(args) => weave_loom_tokens(args),
         Subcommand::DomainBridges(args) => domain_bridges_tokens(args),
+        Subcommand::DiscoveryChain(args) => discovery_chain_tokens(args),
         Subcommand::SpectralCommunities(args) => spectral_communities_tokens(args),
         Subcommand::ProfileLens(args) => profile_lens_tokens(args),
     }
+}
+
+fn discovery_chain_tokens(args: &discovery_chain::DiscoveryChainArgs) -> Vec<String> {
+    let mut out = vec!["discovery-chain".to_string(), args.vault.clone()];
+    for start in &args.starts {
+        out.extend(["--start".to_string(), start.to_string()]);
+    }
+    for anchor in &args.anchors {
+        out.extend(["--anchor".to_string(), anchor.to_string()]);
+    }
+    for path in &args.anchor_files {
+        push_opt(&mut out, "--anchor-file", path.to_str());
+    }
+    out.extend([
+        "--max-hops".to_string(),
+        args.max_hops.to_string(),
+        "--branch-width".to_string(),
+        args.branch_width.to_string(),
+        "--probe-width".to_string(),
+        args.probe_width.to_string(),
+        "--max-groundedness-distance".to_string(),
+        args.max_groundedness_distance.to_string(),
+        "--min-gate-confidence".to_string(),
+        args.min_gate_confidence.to_string(),
+        "--novelty-weight".to_string(),
+        args.novelty_weight.to_string(),
+    ]);
+    push_opt(
+        &mut out,
+        "--out",
+        args.out.as_ref().and_then(|p| p.to_str()),
+    );
+    out
 }
 
 fn spectral_communities_tokens(

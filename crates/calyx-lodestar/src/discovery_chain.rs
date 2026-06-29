@@ -4,7 +4,7 @@ use calyx_core::CxId;
 use calyx_paths::{AssocGraph, Edge, attenuate};
 use serde::{Deserialize, Serialize};
 
-use crate::{LodestarError, Result, groundedness_distance};
+use crate::{LodestarError, Result};
 
 pub const DISCOVERY_CHAIN_SCHEMA_VERSION: u32 = 1;
 
@@ -116,6 +116,7 @@ where
     G: FnMut(&DiscoveryCandidate) -> DiscoveryGateVerdict,
 {
     validate_inputs(graph, starts, anchors, params)?;
+    let grounding = GroundingIndex::new(graph, anchors);
 
     let mut log = DiscoveryChainLog {
         schema_version: DISCOVERY_CHAIN_SCHEMA_VERSION,
@@ -160,10 +161,9 @@ where
                     attenuated_path_score: attenuate(raw_path_score, hop as u32),
                     novelty_score: ranked.novelty_score,
                     candidate_score: ranked.candidate_score,
-                    groundedness_distance: groundedness_distance(
+                    groundedness_distance: grounding.distance(
                         graph,
                         ranked.to,
-                        anchors,
                         params.max_groundedness_distance,
                     )?,
                     provenance: candidate_provenance(node.id, ranked.to, &path),
@@ -410,4 +410,49 @@ struct PassedCandidate {
     candidate: DiscoveryCandidate,
     gate: DiscoveryGateVerdict,
     path: Vec<CxId>,
+}
+
+struct GroundingIndex {
+    anchor_ids: BTreeSet<CxId>,
+    anchor_indices: BTreeSet<usize>,
+}
+
+impl GroundingIndex {
+    fn new(graph: &AssocGraph, anchors: &[CxId]) -> Self {
+        Self {
+            anchor_ids: anchors.iter().copied().collect(),
+            anchor_indices: anchors
+                .iter()
+                .filter_map(|anchor| graph.node_index(*anchor))
+                .collect(),
+        }
+    }
+
+    fn distance(&self, graph: &AssocGraph, node: CxId, max_hops: usize) -> Result<Option<usize>> {
+        let start = graph.require_node_index(node)?;
+        if self.anchor_ids.contains(&node) {
+            return Ok(Some(0));
+        }
+        if self.anchor_indices.is_empty() {
+            return Ok(None);
+        }
+        let mut seen = BTreeSet::from([start]);
+        let mut queue = std::collections::VecDeque::from([(start, 0_usize)]);
+        while let Some((current, hops)) = queue.pop_front() {
+            if hops == max_hops {
+                continue;
+            }
+            for edge in graph.out_edges_by_index(current) {
+                if !seen.insert(edge.dst) {
+                    continue;
+                }
+                let next_hops = hops + 1;
+                if self.anchor_indices.contains(&edge.dst) {
+                    return Ok(Some(next_hops));
+                }
+                queue.push_back((edge.dst, next_hops));
+            }
+        }
+        Ok(None)
+    }
 }
