@@ -207,27 +207,26 @@ fn read_worker_response(
     snapshot: &RegistryLensSnapshot,
     paths: &WorkerPaths,
 ) -> Result<Vec<SlotVector>> {
+    let stderr_tail = stderr_tail(&paths.stderr);
+    let stdout_tail = stdout_tail(&paths.stdout);
     let bytes = fs::read(&paths.response).map_err(|error| {
         CalyxError::lens_unreachable(format!(
-            "ingest lens worker for lens {} exited {status} but response {} is unreadable: {error}; stderr_tail={}",
+            "ingest lens worker for lens {} exited {status} but response {} is unreadable: {error}; stdout_tail={stdout_tail}; stderr_tail={stderr_tail}",
             snapshot.lens_id,
-            paths.response.display(),
-            stderr_tail(&paths.stderr)
+            paths.response.display()
         ))
     })?;
     let response: LensWorkerResponse = serde_json::from_slice(&bytes).map_err(|error| {
         CalyxError::lens_unreachable(format!(
-            "ingest lens worker for lens {} wrote invalid response {}: {error}; stderr_tail={}",
+            "ingest lens worker for lens {} wrote invalid response {}: {error}; stdout_tail={stdout_tail}; stderr_tail={stderr_tail}",
             snapshot.lens_id,
-            paths.response.display(),
-            stderr_tail(&paths.stderr)
+            paths.response.display()
         ))
     })?;
     if !status.success() {
         return Err(CalyxError::lens_unreachable(format!(
-            "ingest lens worker for lens {} exited {status}; stderr_tail={}",
-            snapshot.lens_id,
-            stderr_tail(&paths.stderr)
+            "ingest lens worker for lens {} exited {status}; stdout_tail={stdout_tail}; stderr_tail={stderr_tail}",
+            snapshot.lens_id
         )));
     }
     Ok(response.vectors)
@@ -242,19 +241,34 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<()> {
 }
 
 fn stderr_tail(path: &Path) -> String {
+    file_tail(path, "stderr")
+}
+
+fn stdout_tail(path: &Path) -> String {
+    file_tail(path, "stdout")
+}
+
+fn file_tail(path: &Path, stream: &str) -> String {
     const TAIL_BYTES: usize = 4096;
     match fs::read(path) {
-        Ok(bytes) if bytes.is_empty() => "stderr was empty".to_string(),
+        Ok(bytes) if bytes.is_empty() => format!("{stream} was empty"),
         Ok(bytes) => {
             let start = bytes.len().saturating_sub(TAIL_BYTES);
             String::from_utf8_lossy(&bytes[start..]).trim().to_string()
         }
-        Err(error) => format!("read stderr {} failed: {error}", path.display()),
+        Err(error) => format!("read {stream} {} failed: {error}", path.display()),
     }
 }
 
-fn cleanup_worker_paths(paths: &WorkerPaths, _success: bool) {
+fn cleanup_worker_paths(paths: &WorkerPaths, success: bool) {
     if std::env::var_os(KEEP_WORKER_ARTIFACTS_ENV).as_deref() != Some(std::ffi::OsStr::new("1")) {
-        let _ = fs::remove_dir_all(&paths.root);
+        if success {
+            let _ = fs::remove_dir_all(&paths.root);
+        } else {
+            eprintln!(
+                "CALYX_INGEST_RUNTIME phase=measure_lens_worker_artifacts_retained path={}",
+                paths.root.display()
+            );
+        }
     }
 }

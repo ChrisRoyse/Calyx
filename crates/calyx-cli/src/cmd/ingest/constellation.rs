@@ -6,7 +6,7 @@ use calyx_core::{
     LensId, Modality, Placement, SlotId, SlotState, SlotVector,
 };
 use calyx_registry::VaultPanelState;
-pub(crate) use calyx_registry::measure::{absent, input_hash, measure_constellation};
+pub(crate) use calyx_registry::measure::{absent, input_hash};
 use rayon::prelude::*;
 
 use super::command::ingest_runtime_log;
@@ -78,6 +78,23 @@ pub(crate) fn text_input(text: String) -> Input {
     Input::new(Modality::Text, text.into_bytes())
 }
 
+pub(crate) fn measure_constellation(
+    vault: &AsterVault,
+    state: &VaultPanelState,
+    input: Input,
+    now: u64,
+) -> CliResult<Constellation> {
+    let mut measured =
+        measure_constellation_microbatch(vault, state, std::slice::from_ref(&input), now)?;
+    match measured.len() {
+        1 => Ok(measured.remove(0)),
+        count => Err(CalyxError::lens_dim_mismatch(format!(
+            "single constellation measurement returned {count} constellations"
+        ))
+        .into()),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ApplicableLens {
     lens_id: LensId,
@@ -97,6 +114,92 @@ fn persisted_snapshot_for_lens(
         .find(|snapshot| snapshot.lens_id == lens_id)
 }
 
+fn measure_persisted_lens_in_worker(
+    snapshot: &calyx_registry::RegistryLensSnapshot,
+    inputs: &[Input],
+) -> calyx_core::Result<Vec<SlotVector>> {
+    let vectors = measure_lens_in_worker(snapshot, inputs)?;
+    if vectors.len() != inputs.len() {
+        return Err(CalyxError::lens_dim_mismatch(format!(
+            "ingest lens worker for lens {} returned {} vectors for {} inputs",
+            snapshot.lens_id,
+            vectors.len(),
+            inputs.len()
+        )));
+    }
+    for vector in &vectors {
+        snapshot.contract.verify_vector(snapshot.lens_id, vector)?;
+    }
+    Ok(vectors)
+}
+
+fn measure_applicable_lens_batch(
+    state: &VaultPanelState,
+    lens: ApplicableLens,
+    modality: Modality,
+    inputs: &[Input],
+) -> calyx_core::Result<Vec<SlotVector>> {
+    let spec = state.registry.lens_spec(lens.lens_id);
+    let spec_name = spec
+        .map(|spec| spec.name.as_str())
+        .unwrap_or("missing_registry_snapshot");
+    let runtime = spec
+        .map(|spec| runtime_name(&spec.runtime))
+        .unwrap_or("unregistered");
+    ingest_runtime_log(format_args!(
+        "phase=measure_lens_start lens_id={} slot={} name={} runtime={} modality={:?} placement={:?} batch_size={}",
+        lens.lens_id,
+        lens.slot_id.get(),
+        spec_name,
+        runtime,
+        modality,
+        lens.placement,
+        inputs.len()
+    ));
+    let result = if lens.placement == Placement::Gpu {
+        if let Some(snapshot) = persisted_snapshot_for_lens(state, lens.lens_id) {
+            ingest_runtime_log(format_args!(
+                "phase=measure_lens_worker_start lens_id={} slot={} name={}",
+                lens.lens_id,
+                lens.slot_id.get(),
+                spec_name
+            ));
+            let result = measure_persisted_lens_in_worker(snapshot, inputs);
+            if result.is_ok() {
+                ingest_runtime_log(format_args!(
+                    "phase=measure_lens_worker_ok lens_id={} slot={} name={}",
+                    lens.lens_id,
+                    lens.slot_id.get(),
+                    spec_name
+                ));
+            }
+            result
+        } else {
+            state.registry.measure_batch(lens.lens_id, inputs)
+        }
+    } else {
+        state.registry.measure_batch(lens.lens_id, inputs)
+    };
+    match &result {
+        Ok(vectors) => ingest_runtime_log(format_args!(
+            "phase=measure_lens_ok lens_id={} slot={} name={} vectors={}",
+            lens.lens_id,
+            lens.slot_id.get(),
+            spec_name,
+            vectors.len()
+        )),
+        Err(error) => ingest_runtime_log(format_args!(
+            "phase=measure_lens_err lens_id={} slot={} name={} code={} message={}",
+            lens.lens_id,
+            lens.slot_id.get(),
+            spec_name,
+            error.code,
+            error.message
+        )),
+    }
+    result
+}
+
 /// Batch-measure a modality-uniform microbatch of inputs through every applicable
 /// panel lens at once (one batched forward pass per lens), then assemble one
 /// constellation per input from the readout. 10-50x faster than per-row measure
@@ -111,6 +214,15 @@ pub(crate) fn measure_constellation_microbatch(
         return Ok(Vec::new());
     }
     let batch_modality = inputs[0].modality;
+    for (index, input) in inputs.iter().enumerate().skip(1) {
+        if input.modality != batch_modality {
+            return Err(CalyxError::lens_dim_mismatch(format!(
+                "measure microbatch requires uniform modality: input 0 is {:?}, input {index} is {:?}",
+                batch_modality, input.modality
+            ))
+            .into());
+        }
+    }
     // Partition applicable lenses by placement. GPU-CUDA lenses MUST run serially:
     // concurrent ONNX-CUDA Run() exhausts per-thread cuBLAS handles
     // (CUBLAS_STATUS_ALLOC_FAILED) and the CUDA EP single-streams anyway. CPU
@@ -141,65 +253,8 @@ pub(crate) fn measure_constellation_microbatch(
         cpu_lenses.len()
     ));
     let measure_one = |lens: ApplicableLens| {
-        let spec = state.registry.lens_spec(lens.lens_id);
-        let spec_name = spec
-            .map(|spec| spec.name.as_str())
-            .unwrap_or("missing_registry_snapshot");
-        let runtime = spec
-            .map(|spec| runtime_name(&spec.runtime))
-            .unwrap_or("unregistered");
-        ingest_runtime_log(format_args!(
-            "phase=measure_lens_start lens_id={} slot={} name={} runtime={} modality={:?} placement={:?} batch_size={}",
-            lens.lens_id,
-            lens.slot_id.get(),
-            spec_name,
-            runtime,
-            batch_modality,
-            lens.placement,
-            inputs.len()
-        ));
-        let result = if lens.placement == Placement::Gpu {
-            if let Some(snapshot) = persisted_snapshot_for_lens(state, lens.lens_id) {
-                ingest_runtime_log(format_args!(
-                    "phase=measure_lens_worker_start lens_id={} slot={} name={}",
-                    lens.lens_id,
-                    lens.slot_id.get(),
-                    spec_name
-                ));
-                let result = measure_lens_in_worker(snapshot, inputs);
-                if result.is_ok() {
-                    ingest_runtime_log(format_args!(
-                        "phase=measure_lens_worker_ok lens_id={} slot={} name={}",
-                        lens.lens_id,
-                        lens.slot_id.get(),
-                        spec_name
-                    ));
-                }
-                result
-            } else {
-                state.registry.measure_batch(lens.lens_id, inputs)
-            }
-        } else {
-            state.registry.measure_batch(lens.lens_id, inputs)
-        };
-        match &result {
-            Ok(vectors) => ingest_runtime_log(format_args!(
-                "phase=measure_lens_ok lens_id={} slot={} name={} vectors={}",
-                lens.lens_id,
-                lens.slot_id.get(),
-                spec_name,
-                vectors.len()
-            )),
-            Err(error) => ingest_runtime_log(format_args!(
-                "phase=measure_lens_err lens_id={} slot={} name={} code={} message={}",
-                lens.lens_id,
-                lens.slot_id.get(),
-                spec_name,
-                error.code,
-                error.message
-            )),
-        }
-        result.map(|vectors| (lens.lens_id, vectors))
+        measure_applicable_lens_batch(state, lens, batch_modality, inputs)
+            .map(|vectors| (lens.lens_id, vectors))
     };
     let (gpu_result, cpu_result) = rayon::join(
         || {
@@ -237,7 +292,22 @@ pub(crate) fn measure_constellation_microbatch(
             } else {
                 match measured.get(&slot.lens_id) {
                     Some(vectors) if i < vectors.len() => vectors[i].clone(),
-                    _ => absent(AbsentReason::LensUnavailable),
+                    Some(vectors) => {
+                        return Err(CalyxError::lens_dim_mismatch(format!(
+                            "lens {} produced {} vectors, missing input index {i}",
+                            slot.lens_id,
+                            vectors.len()
+                        ))
+                        .into());
+                    }
+                    None => {
+                        return Err(CalyxError::lens_unreachable(format!(
+                            "active registered slot {} lens {} was not measured",
+                            slot.slot_id.get(),
+                            slot.lens_id
+                        ))
+                        .into());
+                    }
                 }
             };
             degraded |= slot.counts_toward_degraded(input.modality) && vector.is_absent();

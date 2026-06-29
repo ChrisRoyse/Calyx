@@ -4,10 +4,13 @@ use std::path::Path;
 use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, LedgerRef, VaultStore};
-use calyx_ledger::{LedgerCfStore, SubjectId, VerifyResult, decode, verify_chain};
+use calyx_ledger::{
+    EntryKind, LedgerCfStore, LedgerEntry, SubjectId, VerifyResult, decode, verify_chain,
+};
 use calyx_sextant::{
     CALYX_SEXTANT_PROVENANCE_MISSING, FreshnessTag, Hit, ProvenanceSource, sextant_error,
 };
+use serde_json::Value;
 
 use crate::error::CliResult;
 
@@ -107,7 +110,7 @@ impl VerifiedLedger {
             ))
             .into());
         }
-        if entry.subject != SubjectId::Cx(cx_id) {
+        if !entry_covers_cx(entry, cx_id)? {
             return Err(CalyxError::ledger_corrupt(format!(
                 "search hit {cx_id} ledger seq {} subject mismatch",
                 expected.seq
@@ -120,4 +123,35 @@ impl VerifiedLedger {
 
 fn missing_provenance(message: impl Into<String>) -> CalyxError {
     sextant_error(CALYX_SEXTANT_PROVENANCE_MISSING, message)
+}
+
+fn entry_covers_cx(entry: &LedgerEntry, cx_id: CxId) -> CliResult<bool> {
+    if entry.subject == SubjectId::Cx(cx_id) {
+        return Ok(true);
+    }
+    if entry.kind != EntryKind::Ingest {
+        return Ok(false);
+    }
+    batch_ingest_payload_contains_cx(entry, cx_id)
+}
+
+fn batch_ingest_payload_contains_cx(entry: &LedgerEntry, cx_id: CxId) -> CliResult<bool> {
+    let payload = serde_json::from_slice::<Value>(&entry.payload).map_err(|error| {
+        CalyxError::ledger_corrupt(format!(
+            "ingest ledger seq {} subject mismatch and payload is invalid JSON: {error}",
+            entry.seq
+        ))
+    })?;
+    let ids = payload
+        .get("cx_id")
+        .and_then(Value::as_array)
+        .ok_or_else(|| {
+            CalyxError::ledger_corrupt(format!(
+                "ingest ledger seq {} subject mismatch and payload missing cx_id array",
+                entry.seq
+            ))
+        })?;
+    Ok(ids
+        .iter()
+        .any(|value| value.as_str() == Some(&cx_id.to_string())))
 }

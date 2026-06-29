@@ -39,10 +39,7 @@ fn rebuild_writes_sparse_and_multi_sidecars_and_searches() {
         &fs::read(root.join(sparse_entry.index_rel.as_ref().unwrap())).unwrap(),
     )
     .unwrap();
-    let multi_json: serde_json::Value = serde_json::from_slice(
-        &fs::read(root.join(multi_entry.index_rel.as_ref().unwrap())).unwrap(),
-    )
-    .unwrap();
+    let multi_bytes = fs::read(root.join(multi_entry.index_rel.as_ref().unwrap())).unwrap();
 
     assert_eq!(summary.slots, 3);
     assert_eq!(summary.total_rows, 9);
@@ -51,8 +48,15 @@ fn rebuild_writes_sparse_and_multi_sidecars_and_searches() {
     assert_eq!(multi_entry.kind, "multi_maxsim");
     assert_eq!(multi_entry.token_dim, Some(2));
     assert_eq!(multi_entry.token_count, Some(5));
+    assert!(
+        multi_entry
+            .index_rel
+            .as_ref()
+            .unwrap()
+            .ends_with(".multi.bin")
+    );
     assert_eq!(sparse_json["format"], "calyx-search-sparse-index-v1");
-    assert_eq!(multi_json["format"], "calyx-search-multi-maxsim-index-v1");
+    assert!(multi_bytes.starts_with(b"CYX_MULTI_BIN_V1"));
     assert_eq!(sparse_hits[0].cx_id, cx(3));
     assert_eq!(sparse_hits[1].cx_id, cx(1));
     assert_eq!(multi_hits[0].cx_id, cx(2));
@@ -179,14 +183,54 @@ fn missing_multi_sidecar_token_dim_mismatch_and_corrupt_sidecar_fail_closed() {
         .position(|entry| entry.slot == 2)
         .unwrap();
     let path = root.join(corrupted.manifest.slots[pos].index_rel.as_ref().unwrap());
-    fs::write(&path, b"{not json").unwrap();
+    fs::write(&path, b"{not a binary multi sidecar").unwrap();
     corrupted.manifest.slots[pos].sha256 = Some(sha256_hex(&fs::read(&path).unwrap()));
     let corrupt_err = corrupted
         .search(SlotId::new(2), &multi(2, [[1.0, 0.0]]), 1)
         .unwrap_err();
 
     assert_eq!(corrupt_err.code(), "CALYX_STALE_DERIVED");
-    assert!(corrupt_err.message().contains("not valid JSON"));
+    assert!(corrupt_err.message().contains("invalid magic"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
+    let root = scratch("prune-stale");
+    let stale_slot = root
+        .join("idx")
+        .join("search")
+        .join("slot_00022_seq_00000000000000000001_n_0000000001.multi.json");
+    let stale_filter = root
+        .join("idx")
+        .join("search")
+        .join("filter_seq_00000000000000000001_n_0000000001.json");
+    let stale_ann = root
+        .join("idx")
+        .join("search")
+        .join("slot_00000_seq_00000000000000000001_n_0000000001.ann");
+    fs::create_dir_all(stale_ann.join("nested")).unwrap();
+    fs::write(&stale_slot, b"old json").unwrap();
+    fs::write(&stale_filter, b"old filter").unwrap();
+
+    rebuild_from_docs(&root, &mixed_docs(), 26).expect("rebuild");
+
+    let indexes = PersistedSearchIndexes::open(&root).expect("open");
+    for entry in &indexes.manifest.slots {
+        if let Some(rel) = &entry.index_rel {
+            assert!(root.join(rel).exists(), "manifest sidecar missing: {rel}");
+        }
+        if let Some(rel) = &entry.graph_rel {
+            assert!(root.join(rel).exists(), "manifest graph missing: {rel}");
+        }
+        if let Some(rel) = &entry.id_map_rel {
+            assert!(root.join(rel).exists(), "manifest id map missing: {rel}");
+        }
+    }
+
+    assert!(!stale_slot.exists());
+    assert!(!stale_filter.exists());
+    assert!(!stale_ann.exists());
     fs::remove_dir_all(root).ok();
 }
 
