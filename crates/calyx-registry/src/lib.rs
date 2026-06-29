@@ -69,8 +69,9 @@ pub use persistence::{
 };
 pub use persistence_contracts::{
     RegistryContractAudit, RegistryContractDiff, RegistryContractFieldDiff,
-    RegistryContractRepairChange, VaultRegistryContractRepairWrite,
-    audit_registry_snapshot_contracts, audit_vault_registry_contracts,
+    RegistryContractRepairChange, VaultRegistryContractRepairAllWrite,
+    VaultRegistryContractRepairWrite, audit_registry_snapshot_contracts,
+    audit_vault_registry_contracts, repair_vault_registry_contracts_from_specs,
     repair_vault_registry_slot_from_spec, require_vault_registry_contracts,
 };
 pub use placement::{

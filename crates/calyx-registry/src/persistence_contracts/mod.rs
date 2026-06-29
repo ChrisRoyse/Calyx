@@ -1,3 +1,4 @@
+mod repair_all;
 mod runtime;
 #[cfg(test)]
 mod tests;
@@ -8,6 +9,9 @@ use calyx_aster::manifest::ImmutableRef;
 use calyx_core::{CalyxError, LensId, Modality, Result, SlotId, SlotShape};
 use serde::{Deserialize, Serialize};
 
+pub use repair_all::{
+    VaultRegistryContractRepairAllWrite, repair_vault_registry_contracts_from_specs,
+};
 pub(crate) use runtime::load_runtime_lens_from_spec;
 
 use crate::frozen::FrozenLensContract;

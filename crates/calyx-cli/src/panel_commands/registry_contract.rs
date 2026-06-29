@@ -2,8 +2,9 @@ use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, Modality, SlotId, SlotShape};
 use calyx_registry::{
-    RegistryContractAudit, RegistryContractRepairChange, VaultRegistryContractRepairWrite,
-    audit_vault_registry_contracts, load_vault_panel_state, repair_vault_registry_slot_from_spec,
+    RegistryContractAudit, RegistryContractRepairChange, VaultRegistryContractRepairAllWrite,
+    VaultRegistryContractRepairWrite, audit_vault_registry_contracts, load_vault_panel_state,
+    repair_vault_registry_contracts_from_specs, repair_vault_registry_slot_from_spec,
 };
 use serde::Serialize;
 
@@ -13,6 +14,7 @@ use crate::output::print_json;
 #[derive(Serialize)]
 struct RegistryAuditReport {
     status: &'static str,
+    mode: &'static str,
     source_of_truth: &'static str,
     vault: PathBuf,
     checked_count: usize,
@@ -24,6 +26,7 @@ struct RegistryAuditReport {
 #[derive(Serialize)]
 struct RegistryRepairReport {
     status: &'static str,
+    mode: &'static str,
     source_of_truth: &'static str,
     vault: PathBuf,
     manifest_seq: u64,
@@ -31,8 +34,10 @@ struct RegistryRepairReport {
     panel_ref: String,
     registry_ref: String,
     wrote_manifest: bool,
-    old_lens_id: String,
-    new_lens_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    old_lens_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    new_lens_id: Option<String>,
     changes: Vec<RegistryRepairChangeReport>,
     before_audit: RegistryContractAudit,
     after_audit: RegistryContractAudit,
@@ -59,7 +64,12 @@ struct RegistryAuditFlags {
 
 struct RegistryRepairFlags {
     vault: PathBuf,
-    slot: SlotId,
+    target: RegistryRepairTarget,
+}
+
+enum RegistryRepairTarget {
+    Slot(SlotId),
+    All,
 }
 
 pub(super) fn registry_audit(args: &[String]) -> CliResult {
@@ -74,6 +84,7 @@ pub(super) fn registry_audit(args: &[String]) -> CliResult {
         } else {
             "registry_contracts_invalid"
         },
+        mode: "audit",
         source_of_truth: "vault MANIFEST registry_ref plus manifest-backed registry asset read from disk",
         vault: flags.vault,
         checked_count,
@@ -97,25 +108,33 @@ pub(super) fn registry_audit(args: &[String]) -> CliResult {
 pub(super) fn registry_repair(args: &[String]) -> CliResult {
     let flags = RegistryRepairFlags::parse(args)?;
     let before_audit = audit_vault_registry_contracts(&flags.vault)?;
-    let write = repair_vault_registry_slot_from_spec(&flags.vault, flags.slot)?;
+    let write = match flags.target {
+        RegistryRepairTarget::Slot(slot) => RegistryRepairReportInput::Slot(
+            repair_vault_registry_slot_from_spec(&flags.vault, slot)?,
+        ),
+        RegistryRepairTarget::All => RegistryRepairReportInput::All(
+            repair_vault_registry_contracts_from_specs(&flags.vault)?,
+        ),
+    };
     let after_audit = audit_vault_registry_contracts(&flags.vault)?;
-    let changes = verify_registry_repair_write(&flags.vault, &write)?;
+    let changes = verify_registry_repair_write(&flags.vault, write.changes())?;
     let valid = after_audit.valid;
     print_json(&RegistryRepairReport {
-        status: if write.wrote_manifest {
+        status: if write.wrote_manifest() {
             "registry_contract_repaired"
         } else {
             "registry_contract_repair_noop"
         },
+        mode: write.mode(),
         source_of_truth: "vault MANIFEST panel_ref and registry_ref plus manifest-backed JSON assets reloaded from disk",
         vault: flags.vault,
-        manifest_seq: write.manifest_seq,
-        durable_seq: write.durable_seq,
-        panel_ref: write.panel_ref.logical_path,
-        registry_ref: write.registry_ref.logical_path,
-        wrote_manifest: write.wrote_manifest,
-        old_lens_id: write.old_lens_id.to_string(),
-        new_lens_id: write.new_lens_id.to_string(),
+        manifest_seq: write.manifest_seq(),
+        durable_seq: write.durable_seq(),
+        panel_ref: write.panel_ref().logical_path.clone(),
+        registry_ref: write.registry_ref().logical_path.clone(),
+        wrote_manifest: write.wrote_manifest(),
+        old_lens_id: write.old_lens_id().map(|id| id.to_string()),
+        new_lens_id: write.new_lens_id().map(|id| id.to_string()),
         changes,
         before_audit,
         after_audit,
@@ -131,9 +150,79 @@ pub(super) fn registry_repair(args: &[String]) -> CliResult {
     }
 }
 
+enum RegistryRepairReportInput {
+    Slot(VaultRegistryContractRepairWrite),
+    All(VaultRegistryContractRepairAllWrite),
+}
+
+impl RegistryRepairReportInput {
+    fn mode(&self) -> &'static str {
+        match self {
+            Self::Slot(_) => "slot",
+            Self::All(_) => "all",
+        }
+    }
+
+    fn manifest_seq(&self) -> u64 {
+        match self {
+            Self::Slot(write) => write.manifest_seq,
+            Self::All(write) => write.manifest_seq,
+        }
+    }
+
+    fn durable_seq(&self) -> u64 {
+        match self {
+            Self::Slot(write) => write.durable_seq,
+            Self::All(write) => write.durable_seq,
+        }
+    }
+
+    fn panel_ref(&self) -> &calyx_aster::manifest::ImmutableRef {
+        match self {
+            Self::Slot(write) => &write.panel_ref,
+            Self::All(write) => &write.panel_ref,
+        }
+    }
+
+    fn registry_ref(&self) -> &calyx_aster::manifest::ImmutableRef {
+        match self {
+            Self::Slot(write) => &write.registry_ref,
+            Self::All(write) => &write.registry_ref,
+        }
+    }
+
+    fn wrote_manifest(&self) -> bool {
+        match self {
+            Self::Slot(write) => write.wrote_manifest,
+            Self::All(write) => write.wrote_manifest,
+        }
+    }
+
+    fn changes(&self) -> &[RegistryContractRepairChange] {
+        match self {
+            Self::Slot(write) => &write.changes,
+            Self::All(write) => &write.changes,
+        }
+    }
+
+    fn old_lens_id(&self) -> Option<calyx_core::LensId> {
+        match self {
+            Self::Slot(write) => Some(write.old_lens_id),
+            Self::All(_) => None,
+        }
+    }
+
+    fn new_lens_id(&self) -> Option<calyx_core::LensId> {
+        match self {
+            Self::Slot(write) => Some(write.new_lens_id),
+            Self::All(_) => None,
+        }
+    }
+}
+
 fn verify_registry_repair_write(
     vault: &Path,
-    write: &VaultRegistryContractRepairWrite,
+    changes: &[RegistryContractRepairChange],
 ) -> CliResult<Vec<RegistryRepairChangeReport>> {
     let reloaded = load_vault_panel_state(vault)?;
     let snapshot = reloaded.registry_snapshot.as_ref().ok_or_else(|| {
@@ -142,23 +231,25 @@ fn verify_registry_repair_write(
             vault.display()
         )))
     })?;
-    if !snapshot
-        .lenses
-        .iter()
-        .any(|lens| lens.lens_id == write.new_lens_id)
-    {
-        return Err(CliError::from(CalyxError {
-            code: "CALYX_REGISTRY_CONTRACT_REPAIR_VERIFY_FAILED",
-            message: format!(
-                "vault {} reloaded registry is missing repaired lens {}",
-                vault.display(),
-                write.new_lens_id
-            ),
-            remediation: "inspect MANIFEST registry_ref and rerun registry-audit before search or probe",
-        }));
+    for change in changes {
+        if !snapshot
+            .lenses
+            .iter()
+            .any(|lens| lens.lens_id == change.new_lens_id)
+        {
+            return Err(CliError::from(CalyxError {
+                code: "CALYX_REGISTRY_CONTRACT_REPAIR_VERIFY_FAILED",
+                message: format!(
+                    "vault {} reloaded registry is missing repaired lens {}",
+                    vault.display(),
+                    change.new_lens_id
+                ),
+                remediation: "inspect MANIFEST registry_ref and rerun registry-audit before search or probe",
+            }));
+        }
     }
-    let mut reports = Vec::with_capacity(write.changes.len());
-    for change in &write.changes {
+    let mut reports = Vec::with_capacity(changes.len());
+    for change in changes {
         let slot = reloaded
             .panel
             .slots
@@ -227,7 +318,7 @@ impl RegistryAuditFlags {
 impl RegistryRepairFlags {
     fn parse(args: &[String]) -> CliResult<Self> {
         let mut vault = None;
-        let mut slot = None;
+        let mut target = None;
         let mut idx = 0;
         while idx < args.len() {
             match args[idx].as_str() {
@@ -237,7 +328,22 @@ impl RegistryRepairFlags {
                 }
                 "--slot" => {
                     idx += 1;
-                    slot = Some(parse_slot_id(super::value(args, idx, "--slot")?)?);
+                    if target.is_some() {
+                        return Err(CliError::usage(
+                            "panel registry-repair accepts --slot or --all, not both",
+                        ));
+                    }
+                    target = Some(RegistryRepairTarget::Slot(parse_slot_id(super::value(
+                        args, idx, "--slot",
+                    )?)?));
+                }
+                "--all" => {
+                    if target.is_some() {
+                        return Err(CliError::usage(
+                            "panel registry-repair accepts --slot or --all, not both",
+                        ));
+                    }
+                    target = Some(RegistryRepairTarget::All);
                 }
                 other => {
                     return Err(CliError::usage(format!(
@@ -250,7 +356,8 @@ impl RegistryRepairFlags {
         Ok(Self {
             vault: vault
                 .ok_or_else(|| CliError::usage("panel registry-repair requires --vault"))?,
-            slot: slot.ok_or_else(|| CliError::usage("panel registry-repair requires --slot"))?,
+            target: target
+                .ok_or_else(|| CliError::usage("panel registry-repair requires --slot or --all"))?,
         })
     }
 }
