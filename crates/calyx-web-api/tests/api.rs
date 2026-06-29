@@ -97,6 +97,17 @@ async fn scaffolded_route_returns_not_implemented_envelope() {
 }
 
 #[tokio::test]
+async fn scaffolded_assay_bits_route_returns_not_implemented_envelope() {
+    let (status, body) = call(
+        app(),
+        Request::get("/v1/assay/bits").body(Body::empty()).unwrap(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+    assert_envelope(&body, ErrorCode::NotImplemented);
+}
+
+#[tokio::test]
 async fn unknown_route_returns_not_found_envelope() {
     let (status, body) = call(
         app(),

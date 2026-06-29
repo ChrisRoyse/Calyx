@@ -173,4 +173,5 @@ pub use temporal_kernel::{
 
 pub use vault_kernel::{
     MeasuredVaultKernel, measured_kernel_from_vault, measured_kernel_with_contributions_from_vault,
+    measured_kernel_with_contributions_from_vault_allow_partial,
 };

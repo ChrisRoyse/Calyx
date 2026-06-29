@@ -17,8 +17,8 @@ use calyx_paths::AssocGraph;
 
 use crate::error::{LodestarError, Result};
 use crate::{
-    InMemoryAnnIndex, InMemoryCorpus, Kernel, KernelParams, RecallQuery, RecallReport,
-    RecallTestParams, build_kernel_index, build_kernel_pipeline, kernel_recall_test,
+    GroundednessReport, InMemoryAnnIndex, InMemoryCorpus, Kernel, KernelParams, RecallQuery,
+    RecallReport, RecallTestParams, build_kernel_index, build_kernel_pipeline, kernel_recall_test,
 };
 
 /// A real kernel plus its MEASURED kernel-only recall, both computed from the
@@ -28,6 +28,16 @@ pub struct MeasuredVaultKernel {
     pub recall: RecallReport,
     /// Number of embedded concepts in the corpus the kernel was measured against.
     pub corpus_size: usize,
+    /// Number of concepts visible in the vault Base CF at the measurement snapshot.
+    pub vault_corpus_size: usize,
+    /// Number of visible concepts skipped because `content_slot` had no dense vector.
+    pub skipped_unembedded: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VaultKernelMode {
+    Strict,
+    WebPartial,
 }
 
 /// Build the doc-corpus kernel for `vault` and measure its kernel-only recall.
@@ -45,14 +55,22 @@ pub fn measured_kernel_from_vault<C: Clock>(
     knn: usize,
     edge_cos_threshold: f32,
 ) -> Result<MeasuredVaultKernel> {
-    let inputs =
-        build_vault_kernel_inputs(vault, content_slot, kernel_params, knn, edge_cos_threshold)?;
+    let inputs = build_vault_kernel_inputs(
+        vault,
+        content_slot,
+        kernel_params,
+        knn,
+        edge_cos_threshold,
+        VaultKernelMode::Strict,
+    )?;
     let kernel_index = build_kernel_index(&inputs.kernel, &inputs.embeddings)?;
     let recall = kernel_recall_test(&kernel_index, &inputs.full, &inputs.corpus, recall_params)?;
     Ok(MeasuredVaultKernel {
         kernel: inputs.kernel,
         recall,
         corpus_size: inputs.corpus_size,
+        vault_corpus_size: inputs.vault_corpus_size,
+        skipped_unembedded: inputs.skipped_unembedded,
     })
 }
 
@@ -76,8 +94,48 @@ pub fn measured_kernel_with_contributions_from_vault<C: Clock>(
     knn: usize,
     edge_cos_threshold: f32,
 ) -> Result<(MeasuredVaultKernel, Vec<(CxId, f32)>)> {
-    let inputs =
-        build_vault_kernel_inputs(vault, content_slot, kernel_params, knn, edge_cos_threshold)?;
+    let inputs = build_vault_kernel_inputs(
+        vault,
+        content_slot,
+        kernel_params,
+        knn,
+        edge_cos_threshold,
+        VaultKernelMode::Strict,
+    )?;
+    measured_kernel_with_contributions_from_inputs(inputs, recall_params)
+}
+
+/// Build the measured kernel for a website-facing vault snapshot while honestly
+/// tolerating operationally incomplete historical coverage.
+///
+/// Unlike the strict functions above, this skips rows missing `content_slot`
+/// dense vectors and permits an unanchored vault. The returned kernel carries
+/// explicit `warnings`, `groundedFraction`, `vault_corpus_size`, and
+/// `skipped_unembedded`; callers must surface those instead of pretending the
+/// artifact is fully grounded.
+pub fn measured_kernel_with_contributions_from_vault_allow_partial<C: Clock>(
+    vault: &AsterVault<C>,
+    content_slot: SlotId,
+    kernel_params: &KernelParams,
+    recall_params: &RecallTestParams,
+    knn: usize,
+    edge_cos_threshold: f32,
+) -> Result<(MeasuredVaultKernel, Vec<(CxId, f32)>)> {
+    let inputs = build_vault_kernel_inputs(
+        vault,
+        content_slot,
+        kernel_params,
+        knn,
+        edge_cos_threshold,
+        VaultKernelMode::WebPartial,
+    )?;
+    measured_kernel_with_contributions_from_inputs(inputs, recall_params)
+}
+
+fn measured_kernel_with_contributions_from_inputs(
+    inputs: VaultKernelInputs,
+    recall_params: &RecallTestParams,
+) -> Result<(MeasuredVaultKernel, Vec<(CxId, f32)>)> {
     let kernel_index = build_kernel_index(&inputs.kernel, &inputs.embeddings)?;
     let recall = kernel_recall_test(&kernel_index, &inputs.full, &inputs.corpus, recall_params)?;
     let baseline = recall.kernel_only;
@@ -104,6 +162,8 @@ pub fn measured_kernel_with_contributions_from_vault<C: Clock>(
             kernel: inputs.kernel,
             recall,
             corpus_size: inputs.corpus_size,
+            vault_corpus_size: inputs.vault_corpus_size,
+            skipped_unembedded: inputs.skipped_unembedded,
         },
         contributions,
     ))
@@ -119,6 +179,8 @@ struct VaultKernelInputs {
     full: InMemoryAnnIndex,
     corpus: InMemoryCorpus,
     corpus_size: usize,
+    vault_corpus_size: usize,
+    skipped_unembedded: usize,
 }
 
 /// Scan the vault's content-slot embeddings, build the embedding k-NN
@@ -131,11 +193,15 @@ fn build_vault_kernel_inputs<C: Clock>(
     kernel_params: &KernelParams,
     knn: usize,
     edge_cos_threshold: f32,
+    mode: VaultKernelMode,
 ) -> Result<VaultKernelInputs> {
     let snapshot = vault.snapshot();
     let mut rows: Vec<RecallQuery> = Vec::new();
     let mut anchors: Vec<CxId> = Vec::new();
+    let mut vault_corpus_size = 0usize;
+    let mut skipped_unembedded = 0usize;
     for (key, _) in vault.scan_cf_at(snapshot, ColumnFamily::Base)? {
+        vault_corpus_size += 1;
         let bytes: [u8; 16] =
             key.as_slice()
                 .try_into()
@@ -144,16 +210,26 @@ fn build_vault_kernel_inputs<C: Clock>(
                 })?;
         let cx_id = CxId::from_bytes(bytes);
         let cx = vault.get(cx_id, snapshot)?;
-        let dense = cx
+        let Some(dense) = cx
             .slots
             .get(&content_slot)
             .and_then(|vector| vector.as_dense())
-            .ok_or_else(|| LodestarError::KernelInvalidParams {
-                detail: format!(
-                    "constellation {cx_id} has no dense vector in content slot {content_slot}; \
-                     the kernel needs a per-concept embedding"
-                ),
-            })?;
+        else {
+            match mode {
+                VaultKernelMode::Strict => {
+                    return Err(LodestarError::KernelInvalidParams {
+                        detail: format!(
+                            "constellation {cx_id} has no dense vector in content slot {content_slot}; \
+                             the kernel needs a per-concept embedding"
+                        ),
+                    });
+                }
+                VaultKernelMode::WebPartial => {
+                    skipped_unembedded += 1;
+                    continue;
+                }
+            }
+        };
         rows.push(RecallQuery {
             cx_id,
             vector: dense.to_vec(),
@@ -170,7 +246,7 @@ fn build_vault_kernel_inputs<C: Clock>(
             ),
         });
     }
-    if anchors.is_empty() {
+    if anchors.is_empty() && mode == VaultKernelMode::Strict {
         return Err(LodestarError::KernelInvalidParams {
             detail: "vault has no anchored concepts; anchor at least one before building a kernel"
                 .to_string(),
@@ -211,6 +287,34 @@ fn build_vault_kernel_inputs<C: Clock>(
             kernel.kernel_graph.clone()
         };
     }
+    if anchors.is_empty() {
+        kernel.groundedness = GroundednessReport {
+            reached_anchor: 0.0,
+            unanchored_members: kernel.members.clone(),
+        };
+        if !kernel
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("CALYX_KERNEL_UNGROUNDED"))
+        {
+            kernel
+                .warnings
+                .push("CALYX_KERNEL_UNGROUNDED: all kernel members are provisional".to_string());
+        }
+        kernel.estimator_provenance = format!("{}; trust=provisional", kernel.estimator_provenance);
+    }
+    if skipped_unembedded > 0 {
+        let warning = format!(
+            "CALYX_KERNEL_PARTIAL_COVERAGE: content_slot={}; embedded={}; vault_total={vault_corpus_size}; skipped_unembedded={skipped_unembedded}",
+            content_slot.get(),
+            rows.len()
+        );
+        kernel.warnings.push(warning.clone());
+        kernel.estimator_provenance = format!(
+            "{}; partial_coverage={warning}",
+            kernel.estimator_provenance
+        );
+    }
 
     let embeddings: BTreeMap<CxId, Vec<f32>> = rows
         .iter()
@@ -226,5 +330,7 @@ fn build_vault_kernel_inputs<C: Clock>(
         full,
         corpus,
         corpus_size,
+        vault_corpus_size,
+        skipped_unembedded,
     })
 }

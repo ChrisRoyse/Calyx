@@ -106,6 +106,7 @@ fn routes() -> Router {
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
         .route("/v1/kernel", get(not_implemented))
+        .route("/v1/assay/bits", get(not_implemented))
         .route("/v1/provenance/{id}", get(provenance_stub))
 }
 

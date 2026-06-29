@@ -50,12 +50,15 @@ use calyx_aster::cf::ColumnFamily;
 use calyx_aster::ledger_view::AsterLedgerCfStore;
 use calyx_aster::manifest::is_vault_seq_quarantined;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{AnchorKind, Input, Modality, Result as CalyxResult, VaultId, VaultStore};
+use calyx_core::{
+    AnchorKind, CxId, Input, Modality, Result as CalyxResult, Slot, SlotId, SlotShape, SlotState,
+    VaultId, VaultStore,
+};
 use calyx_ledger::{
     LedgerCfStore, LedgerEntry, QuarantineLookup, VerifyResult, get_answer_trace, verify_chain,
 };
 use calyx_lodestar::{
-    KernelParams, RecallTestParams, measured_kernel_with_contributions_from_vault,
+    KernelParams, RecallTestParams, measured_kernel_with_contributions_from_vault_allow_partial,
 };
 use calyx_registry::VaultPanelState;
 use calyx_registry::measure::measure_constellation;
@@ -113,7 +116,7 @@ use cache::parse_env_u64;
 
 mod measure;
 pub use measure::MeasureCtx;
-use measure::{guard_handler, kernel_handler, measure, search};
+use measure::{assay_bits_handler, guard_handler, kernel_handler, measure, search};
 
 mod provenance;
 pub use provenance::ProvenanceCtx;
@@ -132,6 +135,7 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
         .route("/v1/search", post(not_implemented))
         .route("/v1/guard", post(not_implemented))
         .route("/v1/kernel", get(not_implemented))
+        .route("/v1/assay/bits", get(not_implemented))
         .merge(prov_route)
         .fallback(fallback_404)
         .method_not_allowed_fallback(fallback_405)
@@ -140,7 +144,8 @@ pub fn build_app_with_provenance(limiter: Arc<Guardrails>, prov: Arc<ProvenanceC
 }
 
 /// Build the app with the vault-backed routes (`/v1/health` full, `/v1/measure`,
-/// `/v1/search`, `/v1/guard`, `/v1/kernel`) wired (provenance still scaffolded).
+/// `/v1/search`, `/v1/guard`, `/v1/kernel`, `/v1/assay/bits`) wired
+/// (provenance still scaffolded).
 /// Used by the vault-endpoint FSV tests so the real Sextant + Ward + Lodestar
 /// paths are exercised over HTTP without needing a ledger.
 pub fn build_app_with_search(
@@ -154,6 +159,7 @@ pub fn build_app_with_search(
         .route("/v1/search", post(search))
         .route("/v1/guard", post(guard_handler))
         .route("/v1/kernel", get(kernel_handler))
+        .route("/v1/assay/bits", get(assay_bits_handler))
         .with_state(measure_ctx);
     routes_base()
         .route("/v1/provenance/{id}", get(provenance_stub))
@@ -199,6 +205,7 @@ pub fn build_app_with_measure_and_provenance(
         .route("/v1/search", post(search))
         .route("/v1/guard", post(guard_handler))
         .route("/v1/kernel", get(kernel_handler))
+        .route("/v1/assay/bits", get(assay_bits_handler))
         .with_state(measure_ctx);
     let prov_route = Router::new()
         .route("/v1/provenance/{id}", get(provenance_wired))
