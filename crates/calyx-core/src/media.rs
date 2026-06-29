@@ -4,6 +4,8 @@ pub const CALYX_MEDIA_DERIVED_TEXT_RUNTIME_MISSING: &str =
     "CALYX_MEDIA_DERIVED_TEXT_RUNTIME_MISSING";
 pub const CALYX_MEDIA_DERIVED_TEXT_FAILED: &str = "CALYX_MEDIA_DERIVED_TEXT_FAILED";
 pub const CALYX_MEDIA_DERIVED_TEXT_INVALID: &str = "CALYX_MEDIA_DERIVED_TEXT_INVALID";
+pub const CALYX_MEDIA_ARTIFACT_INVALID: &str = "CALYX_MEDIA_ARTIFACT_INVALID";
+pub const CALYX_MEDIA_ARTIFACT_COLLISION: &str = "CALYX_MEDIA_ARTIFACT_COLLISION";
 
 pub const MEDIA_DERIVED_TEXT_ENV: &str = "CALYX_MEDIA_DERIVED_TEXT_CMD";
 
@@ -26,6 +28,7 @@ pub const METADATA_DERIVED_SOURCE_POINTER: &str = "derived.source_pointer";
 pub const METADATA_DERIVED_SOURCE_SHA256: &str = "derived.source_sha256";
 
 pub const LEDGER_FIELD_MODE: &str = "mode";
+pub const LEDGER_FIELD_DERIVED_ARTIFACT_ID: &str = "derived_artifact_id";
 pub const LEDGER_FIELD_SOURCE_CX_ID: &str = "source_cx_id";
 pub const LEDGER_FIELD_TARGET_CX_ID: &str = "target_cx_id";
 pub const LEDGER_FIELD_DERIVED_KIND: &str = "derived_kind";

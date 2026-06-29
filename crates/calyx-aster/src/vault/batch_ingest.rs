@@ -2,11 +2,21 @@ use std::collections::BTreeMap;
 
 use super::{AsterVault, anchor_merge, encode, ledger_hook, ledger_stub};
 use crate::cf::{ColumnFamily, base_key, ledger_key};
+use crate::media_artifact::{
+    DerivedMediaArtifactDraft, DerivedMediaArtifactRecord, derived_media_artifact_write_rows,
+    ensure_no_artifact_collision,
+};
 use calyx_core::{CalyxError, Clock, Constellation, CxId, LedgerRef, Result, VaultStore};
 use calyx_ledger::{ActorId, EntryKind, PayloadBuilder, RedactionPolicy, SubjectId};
 use serde_json::json;
 
 const BATCH_ACTOR: &str = "calyx-aster-batch-ingest";
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MediaArtifactIngestCommit {
+    pub ids: Vec<CxId>,
+    pub artifact: DerivedMediaArtifactRecord,
+}
 
 impl<C> AsterVault<C>
 where
@@ -50,6 +60,41 @@ where
         })
     }
 
+    pub fn put_batch_with_ingest_ledger_and_media_artifact<I>(
+        &self,
+        constellations: I,
+        subject: SubjectId,
+        payload: Vec<u8>,
+        actor: ActorId,
+        artifact: DerivedMediaArtifactDraft,
+    ) -> Result<MediaArtifactIngestCommit>
+    where
+        I: IntoIterator<Item = Constellation>,
+    {
+        RedactionPolicy::check_payload(&payload)?;
+        let input = constellations.into_iter().collect::<Vec<_>>();
+        self.with_durable_commit_lock(|| {
+            let commit = self.put_batch_locked_with_options(
+                input,
+                Some(BatchLedgerEntry {
+                    subject,
+                    payload,
+                    actor,
+                }),
+                Some(artifact),
+            )?;
+            let artifact = commit.artifact.ok_or_else(|| {
+                CalyxError::aster_corrupt_shard(
+                    "media artifact ingest committed without returning artifact record",
+                )
+            })?;
+            Ok(MediaArtifactIngestCommit {
+                ids: commit.ids,
+                artifact,
+            })
+        })
+    }
+
     fn put_batch_locked(&self, input: Vec<Constellation>) -> Result<Vec<CxId>> {
         self.put_batch_locked_with_ledger(input, None)
     }
@@ -59,6 +104,16 @@ where
         input: Vec<Constellation>,
         ledger_entry: Option<BatchLedgerEntry>,
     ) -> Result<Vec<CxId>> {
+        self.put_batch_locked_with_options(input, ledger_entry, None)
+            .map(|commit| commit.ids)
+    }
+
+    fn put_batch_locked_with_options(
+        &self,
+        input: Vec<Constellation>,
+        ledger_entry: Option<BatchLedgerEntry>,
+        artifact: Option<DerivedMediaArtifactDraft>,
+    ) -> Result<BatchIngestCommit> {
         let latest = self.snapshot();
         let mut accepted_indexes = BTreeMap::<Vec<u8>, usize>::new();
         let mut existing_merges = BTreeMap::<Vec<u8>, Constellation>::new();
@@ -110,11 +165,14 @@ where
             ids.push(id);
             accepted.push(constellation);
         }
-        if accepted.is_empty() {
+        if accepted.is_empty() && artifact.is_none() {
             if !anchor_merge_rows.is_empty() {
                 self.commit_rows_locked(&anchor_merge_rows)?;
             }
-            return Ok(ids);
+            return Ok(BatchIngestCommit {
+                ids,
+                artifact: None,
+            });
         }
         let mut rows = anchor_merge_rows;
         let mut hook_guard = match &self.ledger_hook {
@@ -134,7 +192,14 @@ where
                 None => ledger_hook::stage_ingest_payload(
                     hook,
                     &mut rows,
-                    accepted[0].cx_id,
+                    accepted
+                        .first()
+                        .ok_or_else(|| {
+                            CalyxError::ledger_group_commit_failed(
+                                "batch ingest without accepted rows requires explicit ledger entry",
+                            )
+                        })?
+                        .cx_id,
                     batch_payload(&accepted),
                 )?,
             })
@@ -154,6 +219,14 @@ where
                 seq: self.latest_seq().saturating_add(1),
                 hash: [0; 32],
             });
+        let artifact_record = if let Some(artifact) = artifact {
+            let record = artifact.into_record(ledger_ref.clone())?;
+            ensure_no_artifact_collision(self, latest, &record)?;
+            rows.extend(derived_media_artifact_write_rows(&record)?);
+            Some(record)
+        } else {
+            None
+        };
         for mut constellation in accepted {
             constellation.provenance = ledger_ref.clone();
             self.stage_constellation_rows(&mut rows, &constellation)?;
@@ -162,8 +235,16 @@ where
         if let (Some(hook), Some(staged)) = (hook_guard.as_deref_mut(), staged_ledger.as_ref()) {
             ledger_hook::commit_staged(hook, staged)?;
         }
-        Ok(ids)
+        Ok(BatchIngestCommit {
+            ids,
+            artifact: artifact_record,
+        })
     }
+}
+
+struct BatchIngestCommit {
+    ids: Vec<CxId>,
+    artifact: Option<DerivedMediaArtifactRecord>,
 }
 
 struct BatchLedgerEntry {
