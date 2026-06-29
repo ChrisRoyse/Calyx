@@ -1,9 +1,11 @@
-# PH31 · T06 — LP scaffolding data types
+# PH31 · T06 — LP model + bounded MFVS solver
 
 > **STATUS: ✅ DONE / FSV-signed-off.** Implemented in
 > `crates/calyx-mincut/src/lp_scaffold.rs` with serializable LP variables,
-> constraints, problems, solutions, validation, and PH32-ready MFVS relaxation
-> problem shape. aiwonder FSV readback: `ph31-lp-readback.json`.
+> constraints, problems, solutions, validation, directed cycle-elimination
+> constraints, bounded exact MFVS solving, and PH32-ready FVS verification.
+> Current hardening issue: #1013. aiwonder/local FSV readback:
+> `ph31-lp-readback.json`.
 
 > Historical checklist note: the unchecked implementation prompts below were
 > satisfied by the closed Stage 6 evidence; current state is the status/evidence
@@ -22,10 +24,10 @@
 ## Goal
 
 Define the LP variable/constraint/solution data types that PH32's kernel-graph
-selection and MFVS approximation will populate. This card is data-types-only
-(no solver); the structures must be correct, serializable, and ready for PH32
-to wire to an actual LP solver. Having them in PH31 lets PH32 focus on the
-algorithm rather than type plumbing.
+selection and MFVS approximation will populate. The current implementation also
+generates real directed cycle-elimination constraints and provides a bounded
+exact MFVS solver used by Lodestar's explicit LP-round path. Solver limits fail
+closed instead of falling back to heuristic output.
 
 ## Build (checklist of concrete, code-level steps)
 
@@ -38,9 +40,13 @@ algorithm rather than type plumbing.
 - [ ] `pub struct LpSolution { values: Vec<f64>, objective_value: f64, status: SolveStatus }`
   where `SolveStatus` is `Optimal | Infeasible | Unbounded | NotSolved`.
 - [ ] `pub fn mfvs_lp_problem(graph: &AssocGraph) -> LpProblem` — constructs the
-  LP relaxation for MFVS: one binary variable `x_v ∈ [0,1]` per node, one
-  constraint per directed cycle cover; minimize `Σ x_v`. For PH31 this can
-  use a cycle-enumeration stub that returns an empty constraint set (solver is PH32).
+  MFVS LP model: one variable `x_v ∈ [0,1]` per node, one constraint per directed
+  cycle cover when bounded, and objective `minimize Σ x_v`.
+- [ ] `pub fn solve_mfvs_lp(graph: &AssocGraph) -> LpSolution` — returns a binary
+  optimal FVS for acyclic graphs and supported cyclic graphs; cyclic graphs over
+  the bound fail with `CALYX_LP_SOLVER_LIMIT`.
+- [ ] `pub fn verify_feedback_vertex_set(graph, members)` — verifies by rereading
+  the residual graph state, not by trusting solver status alone.
 - [ ] All types `#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]`.
 - [ ] Validation: `LpProblem::validate()` → `CALYX_LP_INVALID` if any coefficient
   references an out-of-range variable index.
@@ -50,13 +56,15 @@ algorithm rather than type plumbing.
 - [ ] unit: construct `LpProblem` with 3 variables and 2 constraints; serialize to
   JSON and deserialize; round-trip byte-identical.
 - [ ] unit: `mfvs_lp_problem` on the triangle graph `A→B→C→A` (3 nodes) →
-  produces an `LpProblem` with 3 variables (`x_A, x_B, x_C`), each in `[0,1]`;
-  objective = `[1.0, 1.0, 1.0]` (minimize sum); status = `NotSolved`.
-- [ ] unit: `LpSolution { values: [0.0, 1.0, 0.5], ... }` round-trips via serde.
+  produces 3 variables, objective `[1.0, 1.0, 1.0]`, and one cycle constraint
+  `x_A + x_B + x_C >= 1`.
+- [ ] unit: `solve_mfvs_lp` on the triangle graph returns a one-node FVS and
+  `verify_feedback_vertex_set` proves the residual graph is acyclic.
+- [ ] unit: `solve_mfvs_lp` on a DAG returns an all-zero optimal solution.
 - [ ] edge: `LpProblem::validate()` with constraint referencing variable index 5
   when only 3 variables exist → `CALYX_LP_INVALID`.
-- [ ] edge: empty `LpProblem` (0 vars, 0 constraints) → `validate()` passes (trivially
-  feasible); `status = NotSolved`.
+- [ ] edge: cyclic graph above the exact bound → `CALYX_LP_SOLVER_LIMIT`, no
+  heuristic fallback.
 - [ ] fail-closed: variable with `lb > ub` → `CALYX_LP_INVALID` on construction.
 
 ## FSV (read the bytes on aiwonder — the truth gate)

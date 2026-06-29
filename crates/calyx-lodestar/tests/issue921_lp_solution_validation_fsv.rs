@@ -121,7 +121,7 @@ fn issue921_lp_solution_validation_fsv() {
     let before_selected = heuristic.selected.clone();
     let optimal = LpSolution {
         values: vec![0.9, 0.2, 0.8, 0.1],
-        objective_value: 1.2,
+        objective_value: 2.0,
         status: SolveStatus::Optimal,
     };
     let rounded =
@@ -135,7 +135,7 @@ fn issue921_lp_solution_validation_fsv() {
             "not_solved_status",
             LpSolution {
                 values: vec![0.9, 0.2, 0.8, 0.1],
-                objective_value: 1.2,
+                objective_value: 2.0,
                 status: SolveStatus::NotSolved,
             },
             "CALYX_KERNEL_LP_UNAVAILABLE",
@@ -184,6 +184,28 @@ fn issue921_lp_solution_validation_fsv() {
             },
             "CALYX_KERNEL_INVALID_PARAMS",
             "3 values for 4 nodes",
+            &before_selected,
+        ),
+        edge_case(
+            "objective_mismatch",
+            LpSolution {
+                values: vec![0.9, 0.2, 0.8, 0.1],
+                objective_value: 1.2,
+                status: SolveStatus::Optimal,
+            },
+            "CALYX_KERNEL_INVALID_PARAMS",
+            "does not match sum(values)",
+            &before_selected,
+        ),
+        edge_case(
+            "all_zero_cyclic_solution",
+            LpSolution {
+                values: vec![0.0, 0.0, 0.0, 0.0],
+                objective_value: 0.0,
+                status: SolveStatus::Optimal,
+            },
+            "CALYX_KERNEL_LP_INFEASIBLE",
+            "does not hit every directed cycle",
             &before_selected,
         ),
     ];

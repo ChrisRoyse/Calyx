@@ -130,9 +130,9 @@ Steps (`shortest_paths_from` then `accumulate_dependencies` per source):
 
 `betweenness_top_k` sorts by score descending, breaking ties by `CxId` bytes ascending, and truncates.
 
-## B.4 LP scaffold (`lp_scaffold.rs`)
+## B.4 LP model and bounded MFVS solver (`lp_scaffold.rs`)
 
-A serializable LP model, but **no solver is implemented here**. Enums: `ConstraintSense {Leq, Geq, Eq}`, `OptSense {Minimize, Maximize}`, `SolveStatus {Optimal, Infeasible, Unbounded, NotSolved}`.
+A serializable LP model plus a bounded exact directed-MFVS solver. Enums: `ConstraintSense {Leq, Geq, Eq}`, `OptSense {Minimize, Maximize}`, `SolveStatus {Optimal, Infeasible, Unbounded, NotSolved}`.
 
 | Type | Fields |
 |------|--------|
@@ -143,7 +143,11 @@ A serializable LP model, but **no solver is implemented here**. Enums: `Constrai
 
 `LpVariable::new` rejects non-finite or `lb > ub` bounds (`LpInvalid`). `LpProblem::validate` checks dense variable ids (`var.id == index`), finite bounds, in-range objective/constraint variable references, and finite coefficients.
 
-`mfvs_lp_problem(graph) -> LpProblem`: builds the **minimum feedback vertex set LP relaxation skeleton** — one variable `x_<id>` per node with bounds `[0,1]`, objective `sum(x_i)` to **minimize**, and **no constraints** (the cycle-cover constraints are not generated here). This is scaffolding consumed downstream by `calyx-lodestar::lp_round_kernel_graph_from_solution`.
+`mfvs_lp_problem(graph) -> LpProblem`: builds the minimum feedback vertex set model: one variable `x_<id>` per node with bounds `[0,1]`, objective `sum(x_i)` to **minimize**, and one cycle-elimination constraint `sum(x_v for v in C) >= 1` per enumerated directed simple cycle. Complete cycle enumeration is bounded by `MFVS_LP_MAX_NODES = 24` and `MFVS_LP_MAX_CYCLE_CONSTRAINTS = 4096`; cyclic graphs beyond those limits fail closed with `CALYX_LP_SOLVER_LIMIT`. Acyclic graphs produce zero cycle constraints.
+
+`solve_mfvs_lp(graph) -> LpSolution`: returns a binary optimal solution for supported graphs. Acyclic graphs return all-zero values. Cyclic graphs with more than 24 nodes fail closed. Supported cyclic graphs use a deterministic exact branch-and-cut style search: start from a greedy verified upper bound, repeatedly find a shortest directed cycle in the residual graph, branch on vertices in that cycle, prune by a greedy vertex-disjoint-cycle lower bound, and stop if `MFVS_LP_MAX_SEARCH_STATES = 1_000_000` is exceeded. The returned solution is verified by rechecking residual acyclicity.
+
+`verify_feedback_vertex_set(graph, members) -> Result<bool>` maps `CxId`s to graph indices and verifies that deleting those vertices leaves no directed cycle.
 
 ## B.5 Spectral module (`spectral.rs`, `spectral_linalg.rs`)
 
@@ -172,7 +176,7 @@ Type aliases: `NodeId = CxId`, `SparseGraph = AssocGraph`. Constants: `EIGEN_EPS
 
 ## B.6 Errors (`error.rs`)
 
-`MincutError`: `SccGraphMismatch` (`CALYX_SCC_GRAPH_MISMATCH`), `BetweennessEmptyGraph` (`CALYX_BETWEENNESS_EMPTY_GRAPH`), `LpInvalid` (`CALYX_LP_INVALID`), `NodeNotFound` (`CALYX_MINCUT_NODE_NOT_FOUND`).
+`MincutError`: `SccGraphMismatch` (`CALYX_SCC_GRAPH_MISMATCH`), `BetweennessEmptyGraph` (`CALYX_BETWEENNESS_EMPTY_GRAPH`), `LpInvalid` (`CALYX_LP_INVALID`), `LpSolverLimit` (`CALYX_LP_SOLVER_LIMIT`), `LpSolveFailed` (`CALYX_LP_SOLVE_FAILED`), `NodeNotFound` (`CALYX_MINCUT_NODE_NOT_FOUND`).
 
 ---
 
@@ -226,8 +230,8 @@ total = degree * degree_weight
 
 ### LP rounding (`LpRoundParams`, defaults `threshold = 0.5`, `fallback_to_heuristic = false`)
 
-- `lp_round_kernel_graph(kernel_graph, params)`: **no external solver is wired**. It fails closed with `KernelLpUnavailable`; `fallback_to_heuristic = true` is rejected and no heuristic graph is returned as an LP result.
-- `lp_round_kernel_graph_from_solution(kernel_graph, params, solution)`: the real rounding path given an externally produced `LpSolution`. `Optimal` → keep nodes whose value `>= threshold`; `Infeasible` → `KernelLpInfeasible`; any other status → `KernelLpUnavailable`. Value count must match node count (`KernelInvalidParams`). Empty selection over a non-empty graph → `KernelEmptyResult`. Sets `lp_fraction = selected/total`.
+- `lp_round_kernel_graph(kernel_graph, params)`: invokes `calyx_mincut::solve_mfvs_lp` on the `KernelGraph` subgraph and then rounds the resulting solution. `fallback_to_heuristic = true` is still rejected with `KernelLpUnavailable`; no heuristic graph is returned as LP output. Solver bound failures are mapped to `KernelLpUnavailable` with the underlying `CALYX_LP_SOLVER_LIMIT` message.
+- `lp_round_kernel_graph_from_solution(kernel_graph, params, solution)`: the rounding path for a supplied `LpSolution`. `Optimal` → keep nodes whose value `>= threshold`; `Infeasible` → `KernelLpInfeasible`; any other status → `KernelLpUnavailable`. Value count must match node count, every value must be finite and in `[0,1]`, and `objective_value` must equal `sum(values)` within `1e-6` (`KernelInvalidParams` otherwise). The rounded selected set is then verified as a feedback vertex set; if it does not hit every directed cycle, the call returns `KernelLpInfeasible`. A DAG may round to an empty selected set with `lp_fraction=0.0`.
 
 `validate_lp_params`: `threshold` must be finite and within `[0,1]`.
 
@@ -280,7 +284,7 @@ Acyclicity test (`is_acyclic_after_removing`): rebuild the graph without removed
 1. Empty graph → `empty_kernel` (grounded fraction `1.0`, provenance `ph32::empty; trust=anchored`).
 2. `scc = tarjan_scc(graph)`; `bet = betweenness(graph)`.
 3. `heuristic = select_kernel_graph(...)`; apply optional adjustment closure (frequency bonuses for the `_with_frequency` variant).
-4. Use the heuristic candidate graph truthfully. Callers that need LP rounding must provide a real optimal `LpSolution` through the explicit rounding API.
+4. Use the heuristic candidate graph truthfully. Callers that need LP rounding can invoke the explicit bounded solver API; the default kernel pipeline does not relabel heuristic selection as LP output.
 5. `dfvs = dfvs_approx(candidate_graph)` → kernel `members`.
 6. `grounding_gaps_for_members(members, graph, anchors, max_groundedness_distance)` → unanchored members.
 7. Assemble `Kernel`: `groundedness_report` sets `reached_anchor = reached/members` (or `1.0` if empty). The only `RecallReport` fields populated at build time are `approx_factor`, `tau_star_estimate`, `tau_star_exact`; the rest default (recall is measured later, A10).
@@ -513,12 +517,14 @@ Builds an `AssocGraph` from Loom cross-terms (see [09_loom_assay_dda.md](09_loom
 | Tarjan SCC | mincut · scc.rs · `tarjan_scc` | O(V+E) | graph → components + `component_of` |
 | SCC condensation | mincut · scc.rs · `condensate` | O(V+E) | graph, scc → `CondensedGraph` |
 | Weighted Brandes betweenness | mincut · betweenness.rs · `betweenness` | ~O(V·(V²+E)) dense | graph → `{CxId: f64}` |
-| MFVS LP relaxation skeleton (no constraints) | mincut · lp_scaffold.rs · `mfvs_lp_problem` | O(V) | graph → `LpProblem` |
+| MFVS LP model with cycle constraints | mincut · lp_scaffold.rs · `mfvs_lp_problem` | exponential cycle enumeration, bounded | graph → `LpProblem` |
+| Bounded exact MFVS solve | mincut · lp_scaffold.rs · `solve_mfvs_lp` | exponential branch search, bounded | graph → binary `LpSolution` |
 | Eigenvector centrality (power iter, shifted) | mincut · spectral.rs · `eigenvector_centrality` | O(iter·V²) | graph, max_iter, tol → ranked `[(CxId,f32)]` |
 | Laplacian eigenmaps (Lanczos + cyclic Jacobi) | mincut · spectral_linalg.rs · `lanczos_eigen` | O(iter·V²)/Jacobi | graph, k → `[EigenPair]` |
 | Kernel-graph scoring + select | lodestar · kernel_graph.rs · `select_kernel_graph` | O(V·(V+E)) (per-node groundedness BFS) | graph, scc, bet, anchors, params → `KernelGraph` |
 | Groundedness distance (anchor BFS) | lodestar · kernel_graph.rs · `groundedness_distance` | O(V+E) | graph, node, anchors, max_hops → `Option<hops>` |
-| LP rounding from solution | lodestar · kernel_graph.rs · `lp_round_kernel_graph_from_solution` | O(V+E) | kernel_graph, params, `LpSolution` → `KernelGraph` |
+| Direct LP/MFVS rounding | lodestar · kernel_graph.rs · `lp_round_kernel_graph` | bounded exact solve + O(V+E) verification | kernel_graph, params → `KernelGraph` |
+| LP rounding from solution | lodestar · kernel_graph.rs · `lp_round_kernel_graph_from_solution` | O(V+E) verification | kernel_graph, params, `LpSolution` → `KernelGraph` |
 | DFVS approximation (dispatch) | lodestar · dfvs.rs · `dfvs_approx` | varies (see below) | `KernelGraph` → `DfvsResult` |
 | Exact min FVS (subset enumeration) | lodestar · dfvs.rs · `exact_min_fvs` | exponential, gated at ≤20 nodes | graph → `Vec<CxId>` |
 | Greedy max-degree FVS + local-search shrink | lodestar · dfvs.rs · `greedy_fvs`/`local_search_shrink` | O(V·(V+E)) | graph → `Vec<CxId>` |
@@ -542,6 +548,7 @@ Builds an `AssocGraph` from Loom cross-terms (see [09_loom_assay_dda.md](09_loom
 | `target_fraction` (kernel graph) | `0.10` | lodestar · kernel_graph.rs |
 | `max_groundedness_distance` | `3` | lodestar · kernel_graph.rs |
 | degree/betweenness/groundedness weights | `0.40 / 0.40 / 0.20` (sum 1.0) | lodestar · kernel_graph.rs |
+| `MFVS_LP_MAX_NODES` / `MFVS_LP_MAX_CYCLE_CONSTRAINTS` / `MFVS_LP_MAX_SEARCH_STATES` | `24` / `4096` / `1_000_000` | mincut · lp_scaffold.rs |
 | `LpRoundParams.threshold` | `0.5` | lodestar · kernel_graph.rs |
 | `EXACT_SEARCH_MAX_NODES` | `20` | lodestar · dfvs.rs |
 | DFVS genus cap | `100` | lodestar · dfvs.rs |

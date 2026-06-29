@@ -20,16 +20,25 @@ fn fail_closed_edges_report_catalog_codes() {
         .code(),
         "CALYX_KERNEL_INVALID_PARAMS"
     );
-    let heuristic =
-        select_kernel_graph(&graph, &scc, &bet, &[], &KernelGraphParams::default()).unwrap();
+    let heuristic = select_kernel_graph(
+        &graph,
+        &scc,
+        &bet,
+        &[],
+        &KernelGraphParams {
+            target_fraction: 1.0,
+            ..KernelGraphParams::default()
+        },
+    )
+    .unwrap();
     let zeros = LpSolution {
-        values: vec![0.0],
+        values: vec![0.0, 0.0, 0.0],
         objective_value: 0.0,
         status: SolveStatus::Optimal,
     };
     assert!(matches!(
         lp_round_kernel_graph_from_solution(&heuristic, &LpRoundParams::default(), &zeros),
-        Err(LodestarError::KernelEmptyResult)
+        Err(LodestarError::KernelLpInfeasible { .. })
     ));
 }
 

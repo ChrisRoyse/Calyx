@@ -5,8 +5,9 @@ use std::path::PathBuf;
 use calyx_core::CxId;
 use calyx_mincut::{
     AgreementEdge, CitationEdge, ConstraintSense, FrequencyEntry, LpConstraint, LpProblem,
-    LpSolution, LpVariable, MincutError, OptSense, SolveStatus, betweenness, betweenness_top_k,
-    build_assoc_graph, condensate, mfvs_lp_problem, tarjan_scc,
+    LpVariable, MFVS_LP_MAX_NODES, MincutError, OptSense, betweenness, betweenness_top_k,
+    build_assoc_graph, condensate, mfvs_lp_problem, solve_mfvs_lp, tarjan_scc,
+    verify_feedback_vertex_set,
 };
 use calyx_paths::AssocGraph;
 use proptest::prelude::*;
@@ -225,7 +226,7 @@ fn graph_builder_weights_frequency_and_citation_merge_are_exact() {
 }
 
 #[test]
-fn lp_scaffold_roundtrips_and_triangle_problem_has_unit_bounds() {
+fn lp_scaffold_roundtrips_and_triangle_problem_has_cycle_constraints_and_solver() {
     let vars = vec![
         LpVariable::new(0, "x_a", 0.0, 1.0).unwrap(),
         LpVariable::new(1, "x_b", 0.0, 1.0).unwrap(),
@@ -254,19 +255,46 @@ fn lp_scaffold_roundtrips_and_triangle_problem_has_unit_bounds() {
         .unwrap()
         .add_edge(cx(3), cx(1), 1.0)
         .unwrap();
-    let triangle_lp = mfvs_lp_problem(&builder.build()).unwrap();
-    let solution = LpSolution {
-        values: vec![0.0, 1.0, 0.5],
-        objective_value: 1.5,
-        status: SolveStatus::NotSolved,
-    };
+    let triangle = builder.build();
+    let triangle_lp = mfvs_lp_problem(&triangle).unwrap();
+    let solution = solve_mfvs_lp(&triangle).unwrap();
     let solution_json = serde_json::to_string(&solution).unwrap();
-    let solution_restored: LpSolution = serde_json::from_str(&solution_json).unwrap();
+    let solution_restored = serde_json::from_str(&solution_json).unwrap();
 
-    println!("LP_SCAFFOLD_READBACK problem={json} triangle={triangle_lp:?}");
+    let mut dag_builder = builder_with_nodes(&[4, 5, 6]);
+    dag_builder
+        .add_edge(cx(4), cx(5), 1.0)
+        .unwrap()
+        .add_edge(cx(5), cx(6), 1.0)
+        .unwrap();
+    let dag = dag_builder.build();
+    let dag_solution = solve_mfvs_lp(&dag).unwrap();
+
+    let large_cycle_len = MFVS_LP_MAX_NODES as u8 + 1;
+    let mut large_cycle_builder = builder_with_nodes(&(1..=large_cycle_len).collect::<Vec<_>>());
+    for seed in 1..large_cycle_len {
+        large_cycle_builder
+            .add_edge(cx(seed), cx(seed + 1), 1.0)
+            .unwrap();
+    }
+    large_cycle_builder
+        .add_edge(cx(large_cycle_len), cx(1), 1.0)
+        .unwrap();
+    let solver_limit = solve_mfvs_lp(&large_cycle_builder.build()).unwrap_err();
+
+    println!(
+        "LP_SCAFFOLD_READBACK problem={json} triangle={triangle_lp:?} solution={solution:?} dag={dag_solution:?} limit={solver_limit}"
+    );
     write_readback(
         "ph31-lp-readback.json",
-        json!({ "problem": problem, "triangle_lp": triangle_lp, "solution": solution_restored }),
+        json!({
+            "problem": problem,
+            "triangle_lp": triangle_lp,
+            "solution": solution_restored,
+            "dag_solution": dag_solution,
+            "solver_limit_error": solver_limit.code(),
+            "solver_limit_message": solver_limit.to_string(),
+        }),
     );
     assert_eq!(triangle_lp.vars.len(), 3);
     assert!(
@@ -275,8 +303,21 @@ fn lp_scaffold_roundtrips_and_triangle_problem_has_unit_bounds() {
             .iter()
             .all(|var| var.lb == 0.0 && var.ub == 1.0)
     );
+    assert_eq!(triangle_lp.constraints.len(), 1);
+    assert_eq!(triangle_lp.constraints[0].sense, ConstraintSense::Geq);
+    assert_eq!(triangle_lp.constraints[0].rhs, 1.0);
+    assert_eq!(
+        triangle_lp.constraints[0].coeffs,
+        vec![(0, 1.0), (1, 1.0), (2, 1.0)]
+    );
     assert_eq!(triangle_lp.objective, vec![(0, 1.0), (1, 1.0), (2, 1.0)]);
     assert_eq!(solution, solution_restored);
+    assert_eq!(solution.values, vec![1.0, 0.0, 0.0]);
+    assert_eq!(solution.objective_value, 1.0);
+    assert!(verify_feedback_vertex_set(&triangle, &[cx(1)]).unwrap());
+    assert_eq!(dag_solution.values, vec![0.0, 0.0, 0.0]);
+    assert_eq!(dag_solution.objective_value, 0.0);
+    assert_eq!(solver_limit.code(), "CALYX_LP_SOLVER_LIMIT");
 }
 
 #[test]
