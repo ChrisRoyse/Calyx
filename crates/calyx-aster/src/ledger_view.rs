@@ -1,11 +1,13 @@
 //! Read-only Ledger column-family view over an Aster vault directory.
 //!
 //! Merges the on-disk `cf/ledger` SSTs with any unflushed WAL records into a
-//! [`LedgerCfStore`] suitable for `calyx_ledger::verify_chain`. The view is
-//! strictly read-only: any append attempt is a `CALYX_LEDGER_APPEND_ONLY_VIOLATION`.
+//! [`LedgerCfStore`] suitable for `calyx_ledger::verify_chain`. The view takes
+//! the durable commit lock while copying rows and the head anchor so concurrent
+//! writers cannot expose a mixed-time snapshot. It remains ledger-read-only:
+//! any append attempt is a `CALYX_LEDGER_APPEND_ONLY_VIOLATION`.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use calyx_core::{CalyxError, Result as CalyxResult};
 use calyx_ledger::{LedgerCfStore, LedgerHeadAnchor, LedgerRow};
@@ -27,6 +29,18 @@ impl AsterLedgerCfStore {
     /// directory holds no real Aster ledger state.
     pub fn open(vault: &Path) -> CalyxResult<Self> {
         let layout = AsterVaultLayout::read(vault)?;
+        let _commit_guard =
+            crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
+        Self::open_with_layout(vault, layout)
+    }
+
+    /// Opens the Ledger CF when the caller already owns the durable commit lock.
+    pub(crate) fn open_unlocked(vault: &Path) -> CalyxResult<Self> {
+        let layout = AsterVaultLayout::read(vault)?;
+        Self::open_with_layout(vault, layout)
+    }
+
+    fn open_with_layout(vault: &Path, layout: AsterVaultLayout) -> CalyxResult<Self> {
         let mut rows = BTreeMap::new();
 
         if layout.has_ledger_cf {
@@ -59,6 +73,10 @@ impl AsterLedgerCfStore {
                 .collect(),
         })
     }
+}
+
+fn durable_commit_lock_path(vault: &Path) -> PathBuf {
+    vault.join("locks").join("durable.commit.lock")
 }
 
 impl LedgerCfStore for AsterLedgerCfStore {
@@ -142,4 +160,55 @@ pub fn parse_aster_ledger_seq(key: &[u8]) -> CalyxResult<u64> {
         ))
     })?;
     Ok(u64::from_be_bytes(key))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use super::*;
+
+    #[test]
+    fn open_waits_for_durable_commit_lock_before_reading_rows_and_anchor() {
+        let root = test_vault_dir("issue973-open-lock");
+        fs::create_dir_all(root.join("cf").join(ColumnFamily::Ledger.name())).unwrap();
+
+        let guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(&root))
+            .expect("acquire writer commit lock");
+        let (sender, receiver) = mpsc::channel();
+        let thread_root = root.clone();
+        let handle = thread::spawn(move || {
+            let result = AsterLedgerCfStore::open(&thread_root)
+                .and_then(|store| store.scan().map(|rows| rows.len()));
+            sender.send(result).expect("send open result");
+        });
+
+        assert!(
+            receiver.recv_timeout(Duration::from_millis(100)).is_err(),
+            "ledger view opened while a writer-owned durable commit lock was held"
+        );
+
+        drop(guard);
+        let row_count = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("ledger view should open after commit lock release")
+            .expect("open ledger view");
+        assert_eq!(row_count, 0);
+        handle.join().expect("open thread");
+        fs::remove_dir_all(root).ok();
+    }
+
+    fn test_vault_dir(name: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "calyx-aster-{name}-{}-{unique}",
+            std::process::id()
+        ))
+    }
 }

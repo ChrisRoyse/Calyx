@@ -30,7 +30,7 @@ pub(super) fn recover_hook_from_vault_dir(
     recovery: &RecoveredBatches,
     checkpoint: Option<CheckpointConfig>,
 ) -> Result<AsterLedgerHook> {
-    let store = match physical_ledger_store(vault_dir)? {
+    let store = match physical_ledger_store(vault_dir, LedgerViewLock::Acquire)? {
         Some(store) => store,
         None => recovered_ledger_store(recovery)?,
     };
@@ -61,8 +61,21 @@ fn recovered_ledger_store(recovery: &RecoveredBatches) -> Result<MemoryLedgerSto
     Ok(store)
 }
 
-fn physical_ledger_store(vault_dir: &Path) -> Result<Option<MemoryLedgerStore>> {
-    let view = match AsterLedgerCfStore::open(vault_dir) {
+#[derive(Clone, Copy)]
+enum LedgerViewLock {
+    Acquire,
+    AlreadyHeld,
+}
+
+fn physical_ledger_store(
+    vault_dir: &Path,
+    lock: LedgerViewLock,
+) -> Result<Option<MemoryLedgerStore>> {
+    let view_result = match lock {
+        LedgerViewLock::Acquire => AsterLedgerCfStore::open(vault_dir),
+        LedgerViewLock::AlreadyHeld => AsterLedgerCfStore::open_unlocked(vault_dir),
+    };
+    let view = match view_result {
         Ok(view) => view,
         Err(error)
             if error.code == "CALYX_LEDGER_CORRUPT"
@@ -98,7 +111,11 @@ pub(super) fn refresh_hook(
     recovery: &RecoveredBatches,
     checkpoint: Option<CheckpointConfig>,
 ) -> Result<()> {
-    let replacement = recover_hook_from_vault_dir(vault_dir, recovery, checkpoint)?
+    let store = match physical_ledger_store(vault_dir, LedgerViewLock::AlreadyHeld)? {
+        Some(store) => store,
+        None => recovered_ledger_store(recovery)?,
+    };
+    let replacement = recover_hook_from_store(store, checkpoint)?
         .into_inner()
         .map_err(|_| CalyxError::ledger_group_commit_failed("new ledger hook lock poisoned"))?;
     let mut guard = lock_hook(hook)?;
