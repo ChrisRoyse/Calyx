@@ -234,6 +234,7 @@ pub(super) fn write_calibrated_default_guard(vault: &Path, vault_id: &str, name:
         .find(|slot| {
             slot.state == SlotState::Active
                 && slot.modality == Modality::Text
+                && matches!(&slot.shape, SlotShape::Dense(_))
                 && state.registry.contains(slot.lens_id)
         })
         .expect("active registered text slot")

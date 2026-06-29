@@ -11,7 +11,8 @@ use crate::runtime::adapters::{allow_noncommercial_from_env, ensure_license_allo
 use crate::spec::LensSpec;
 
 use super::algorithmic_manifest::{
-    is_algorithmic_runtime, output_shape as algorithmic_output_shape,
+    frozen_contract as algorithmic_frozen_contract, is_algorithmic_runtime,
+    output_shape as algorithmic_output_shape,
 };
 use super::manifest_runtime::runtime_from_manifest;
 
@@ -158,16 +159,32 @@ pub fn lens_spec_from_manifest_with_license_override(
     )?;
     let artifacts = read_and_verify_files(manifest, base_dir)?;
     let output = manifest.output_shape()?;
-    let weights_sha256 = spec_weights_sha256(manifest, &artifacts)?;
-    let corpus_hash = sha256_digest(&[
-        b"lensforge-manifest-v1",
-        manifest.name.as_bytes(),
-        manifest.source_hf_id.as_bytes(),
-        manifest.runtime.as_bytes(),
-        modality_token(manifest.modality).as_bytes(),
-        manifest.pooling.as_bytes(),
-        manifest.norm.as_bytes(),
-    ]);
+    let algorithmic_contract =
+        algorithmic_frozen_contract(&manifest.name, &manifest.runtime, manifest.modality, output)?;
+    let (output, weights_sha256, corpus_hash, norm_policy) =
+        if let Some(contract) = algorithmic_contract {
+            (
+                contract.shape(),
+                contract.weights_sha256(),
+                contract.corpus_hash(),
+                contract.norm_policy(),
+            )
+        } else {
+            (
+                output,
+                spec_weights_sha256(manifest, &artifacts)?,
+                sha256_digest(&[
+                    b"lensforge-manifest-v1",
+                    manifest.name.as_bytes(),
+                    manifest.source_hf_id.as_bytes(),
+                    manifest.runtime.as_bytes(),
+                    modality_token(manifest.modality).as_bytes(),
+                    manifest.pooling.as_bytes(),
+                    manifest.norm.as_bytes(),
+                ]),
+                norm_policy(&manifest.norm)?,
+            )
+        };
     let retrieval_only = is_retrieval_only_runtime(&manifest.runtime);
     Ok(LensSpec {
         name: manifest.name.clone(),
@@ -176,7 +193,7 @@ pub fn lens_spec_from_manifest_with_license_override(
         modality: manifest.modality,
         weights_sha256,
         corpus_hash,
-        norm_policy: norm_policy(&manifest.norm)?,
+        norm_policy,
         max_batch: manifest.max_batch,
         axis: Some(manifest.name.clone()),
         asymmetry: Asymmetry::None,

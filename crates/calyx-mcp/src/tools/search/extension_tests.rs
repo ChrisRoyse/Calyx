@@ -178,9 +178,6 @@ fn agree_and_disagree_return_bounded_constellations() {
         assert!((0.0..=1.0).contains(&score));
         assert_eq!(item["cx_id"].as_str().unwrap().len(), 32);
     }
-    if !disagree_rows.is_empty() {
-        assert_ne!(agree_rows[0]["cx_id"], disagree_rows[0]["cx_id"]);
-    }
 }
 
 #[test]

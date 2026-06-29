@@ -1,4 +1,7 @@
-use calyx_core::{CalyxError, Result, SlotShape};
+use calyx_core::{CalyxError, Modality, Result, SlotShape};
+
+use crate::frozen::FrozenLensContract;
+use crate::{AlgorithmicEncoder, AlgorithmicLens};
 
 const CONFIG_INVALID: &str = "CALYX_LENS_CONFIG_INVALID";
 
@@ -55,6 +58,96 @@ pub(super) fn output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
         }
     };
     Ok(shape)
+}
+
+pub(super) fn frozen_contract(
+    name: &str,
+    runtime: &str,
+    modality: Modality,
+    shape: SlotShape,
+) -> Result<Option<FrozenLensContract>> {
+    let Some(kind) = algorithmic_kind(runtime) else {
+        return Ok(None);
+    };
+    let encoder = encoder_from_kind(kind, shape)?;
+    Ok(Some(
+        AlgorithmicLens::new(name, modality, encoder)
+            .contract()
+            .clone(),
+    ))
+}
+
+fn encoder_from_kind(kind: &str, shape: SlotShape) -> Result<AlgorithmicEncoder> {
+    let encoder = match kind {
+        "byte" | "byte-features" | "byte_features" => AlgorithmicEncoder::ByteFeatures,
+        "ast-style" | "ast_style" => AlgorithmicEncoder::AstStyle,
+        "gdelt-cameo" | "gdelt_cameo" => AlgorithmicEncoder::GdeltCameo,
+        "gdelt-actor-geo" | "gdelt_actor_geo" => AlgorithmicEncoder::GdeltActorGeo {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "scalar" => AlgorithmicEncoder::Scalar,
+        "sparse" | "sparse-keywords" | "sparse_keywords" => AlgorithmicEncoder::SparseKeywords {
+            dim: sparse_shape_dim(kind, shape)?,
+        },
+        "token-hash" | "token_hash" | "multi-hash" | "multi_hash" => {
+            AlgorithmicEncoder::TokenHash {
+                token_dim: multi_shape_dim(kind, shape)?,
+            }
+        }
+        value if value.starts_with("one-hot:") || value.starts_with("one_hot:") => {
+            AlgorithmicEncoder::OneHot {
+                buckets: dense_shape_dim(kind, shape)?,
+            }
+        }
+        value if value.starts_with("sparse-keywords:") || value.starts_with("sparse_keywords:") => {
+            AlgorithmicEncoder::SparseKeywords {
+                dim: sparse_shape_dim(kind, shape)?,
+            }
+        }
+        value
+            if value.starts_with("token-hash:")
+                || value.starts_with("token_hash:")
+                || value.starts_with("multi-hash:")
+                || value.starts_with("multi_hash:") =>
+        {
+            AlgorithmicEncoder::TokenHash {
+                token_dim: multi_shape_dim(kind, shape)?,
+            }
+        }
+        other => {
+            return Err(config_invalid(format!(
+                "unsupported algorithmic lens kind {other}"
+            )));
+        }
+    };
+    Ok(encoder)
+}
+
+fn dense_shape_dim(kind: &str, shape: SlotShape) -> Result<u32> {
+    match shape {
+        SlotShape::Dense(dim) => Ok(dim),
+        other => Err(config_invalid(format!(
+            "algorithmic lens {kind} requires dense shape, got {other:?}"
+        ))),
+    }
+}
+
+fn sparse_shape_dim(kind: &str, shape: SlotShape) -> Result<u32> {
+    match shape {
+        SlotShape::Sparse(dim) => Ok(dim),
+        other => Err(config_invalid(format!(
+            "algorithmic lens {kind} requires sparse shape, got {other:?}"
+        ))),
+    }
+}
+
+fn multi_shape_dim(kind: &str, shape: SlotShape) -> Result<u32> {
+    match shape {
+        SlotShape::Multi { token_dim } => Ok(token_dim),
+        other => Err(config_invalid(format!(
+            "algorithmic lens {kind} requires multi shape, got {other:?}"
+        ))),
+    }
 }
 
 fn learned_output_shape(runtime: &str, dim: u32) -> Result<SlotShape> {
