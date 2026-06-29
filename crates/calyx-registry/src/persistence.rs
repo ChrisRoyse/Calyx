@@ -769,7 +769,7 @@ mod tests {
         assert_eq!(write.changes.len(), 1);
         assert_eq!(write.changes[0].before, Some(1));
         assert_eq!(write.changes[0].after, 8);
-        assert_eq!(write.changes[0].changed, true);
+        assert!(write.changes[0].changed);
         assert_ne!(before_manifest.registry_ref, after_manifest.registry_ref);
         assert_eq!(before_max, Some(1));
         assert_eq!(after_max, Some(8));
