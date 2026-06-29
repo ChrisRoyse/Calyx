@@ -1,5 +1,6 @@
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::sst::SstReader;
+use calyx_aster::sst::level::SstLevel;
 use calyx_aster::storage_names::{SstName, classify_sst};
 use calyx_aster::vault::encode::{decode_constellation_base, decode_write_batch};
 use calyx_aster::wal::replay_dir;
@@ -58,6 +59,25 @@ pub(crate) fn latest_cf_rows(
     Ok(rows)
 }
 
+pub(crate) fn latest_cf_row(
+    vault: &Path,
+    cf: ColumnFamily,
+    key: &[u8],
+) -> Result<Option<Vec<u8>>, String> {
+    let sst_files = list_sst_files(&vault.join("cf").join(cf.name()))?;
+    let level = SstLevel::from_oldest_first(sst_files);
+    let mut value = level.get(key).map_err(|error| error.to_string())?;
+    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
+    for record in replay.records {
+        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
+            if row.cf == cf && row.key == key {
+                value = Some(row.value);
+            }
+        }
+    }
+    Ok(value)
+}
+
 pub(crate) fn vault_id_from_base(vault: &Path) -> Result<VaultId, String> {
     latest_cf_rows(vault, ColumnFamily::Base)?
         .into_values()
@@ -103,5 +123,45 @@ mod tests {
             sst_order(Path::new("00000000000000000007-0001.sst"))
                 < sst_order(Path::new("compacted-00000000000000000007.sst"))
         );
+    }
+
+    #[test]
+    fn latest_cf_row_reads_requested_key_from_latest_sst() {
+        let root = temp_root("latest-cf-row");
+        let base = root.join("cf").join(ColumnFamily::Base.name());
+        fs::create_dir_all(&base).unwrap();
+        calyx_aster::sst::write_sst(
+            base.join("00000000000000000001.sst"),
+            [(b"k1".as_slice(), b"old".as_slice()), (b"k2", b"other")],
+        )
+        .unwrap();
+        calyx_aster::sst::write_sst(
+            base.join("00000000000000000002.sst"),
+            [(b"k1".as_slice(), b"new".as_slice())],
+        )
+        .unwrap();
+
+        assert_eq!(
+            latest_cf_row(&root, ColumnFamily::Base, b"k1").unwrap(),
+            Some(b"new".to_vec())
+        );
+        assert_eq!(
+            latest_cf_row(&root, ColumnFamily::Base, b"missing").unwrap(),
+            None
+        );
+        fs::remove_dir_all(root).ok();
+    }
+
+    fn temp_root(name: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "calyx-cf-read-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        path
     }
 }

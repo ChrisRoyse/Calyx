@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 #[cfg(test)]
 use std::fs;
-#[cfg(test)]
+use std::io::BufRead;
 use std::path::Path;
 
 use calyx_core::Anchor;
@@ -66,6 +66,12 @@ pub(super) type BatchRow = (
     Option<OracleEvent>,
 );
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct BatchValidation {
+    pub line_count: usize,
+    pub row_count: usize,
+}
+
 /// Parse one batch JSONL line; `None` for a blank line.
 ///
 /// A malformed anchor (unknown kind, unparseable value, out-of-range confidence)
@@ -87,6 +93,30 @@ pub(super) fn parse_batch_line(index: usize, line: &str) -> CliResult<Option<Bat
         .map(|spec| parse_oracle_event(index, spec))
         .transpose()?;
     Ok(Some((parsed.text, parsed.metadata, anchors, oracle)))
+}
+
+/// Parser-only preflight for a JSONL batch file.
+///
+/// This intentionally performs no vault/model setup. It proves every non-blank
+/// row can be parsed and semantically validated before ingest opens the vault or
+/// initializes measurement state, so malformed input fails before side effects.
+pub(super) fn validate_batch_file(path: &Path) -> CliResult<BatchValidation> {
+    let file = std::fs::File::open(path)
+        .map_err(|err| CliError::io(format!("open batch {}: {err}", path.display())))?;
+    let reader = std::io::BufReader::new(file);
+    let mut validation = BatchValidation {
+        line_count: 0,
+        row_count: 0,
+    };
+    for (index, line) in reader.lines().enumerate() {
+        validation.line_count = index + 1;
+        let line =
+            line.map_err(|err| CliError::io(format!("read batch line {}: {err}", index + 1)))?;
+        if parse_batch_line(index, &line)?.is_some() {
+            validation.row_count += 1;
+        }
+    }
+    Ok(validation)
 }
 
 /// Build a validated `Anchor` from a JSONL `AnchorSpec`, reusing the exact same

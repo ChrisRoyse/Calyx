@@ -125,6 +125,10 @@ fn ingest_tokens(args: &IngestArgs) -> Vec<String> {
     if args.idempotent {
         out.push("--idempotent".to_string());
     }
+    match args.output {
+        IngestOutput::Summary => {}
+        IngestOutput::Rows => out.extend(["--output".to_string(), "rows".to_string()]),
+    }
     out
 }
 

@@ -9,6 +9,7 @@ mod search;
 pub(crate) mod vault;
 mod weave;
 
+use ingest::IngestOutput;
 pub(crate) use ingest::{
     measure_constellation as measure_ingest_constellation, text_input as ingest_text_input,
 };
@@ -96,6 +97,7 @@ pub(crate) struct IngestArgs {
     pub file: Option<PathBuf>,
     pub modality: Option<Modality>,
     pub idempotent: bool,
+    pub output: IngestOutput,
 }
 
 #[derive(Clone, Debug, PartialEq)]

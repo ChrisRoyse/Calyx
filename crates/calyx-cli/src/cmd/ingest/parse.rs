@@ -1,4 +1,5 @@
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand, value};
+use super::types::IngestOutput;
 use crate::error::{CliError, CliResult};
 
 pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
@@ -11,6 +12,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
     let mut file = None;
     let mut modality = None;
     let mut idempotent = true;
+    let mut output = IngestOutput::Summary;
     let mut idx = 1;
     while idx < rest.len() {
         match rest[idx].as_str() {
@@ -45,6 +47,10 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
                 }
             }
             "--no-idempotent" => idempotent = false,
+            "--output" => {
+                idx += 1;
+                output = parse_ingest_output(value(rest, idx, "--output")?)?;
+            }
             other => return Err(CliError::usage(format!("unexpected ingest flag {other}"))),
         }
         idx += 1;
@@ -76,6 +82,7 @@ pub(crate) fn parse_ingest(rest: &[String]) -> CliResult<Subcommand> {
         file,
         modality,
         idempotent,
+        output,
     }))
 }
 
@@ -175,4 +182,14 @@ pub(super) fn parse_bool(value: &str, flag: &str) -> CliResult<bool> {
     value
         .parse::<bool>()
         .map_err(|err| CliError::usage(format!("parse {flag} {value}: {err}")))
+}
+
+fn parse_ingest_output(value: &str) -> CliResult<IngestOutput> {
+    match value {
+        "summary" => Ok(IngestOutput::Summary),
+        "rows" => Ok(IngestOutput::Rows),
+        other => Err(CliError::usage(format!(
+            "invalid --output {other}; expected summary or rows"
+        ))),
+    }
 }

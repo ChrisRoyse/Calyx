@@ -65,6 +65,7 @@ fn parse_ingest_text_command() {
             file: None,
             modality: None,
             idempotent: true,
+            output: IngestOutput::Summary,
         })
     );
 }
@@ -89,8 +90,50 @@ fn parse_ingest_video_file_command() {
             file: Some("clip.webm".into()),
             modality: Some(Modality::Video),
             idempotent: true,
+            output: IngestOutput::Summary,
         })
     );
+}
+
+#[test]
+fn parse_ingest_rows_output_command() {
+    let parsed = parse(&tokens([
+        "ingest",
+        "mydb",
+        "--batch",
+        "batch.jsonl",
+        "--output",
+        "rows",
+    ]))
+    .unwrap();
+    assert_eq!(
+        parsed,
+        Subcommand::Ingest(IngestArgs {
+            vault: "mydb".to_string(),
+            text: None,
+            batch: Some("batch.jsonl".into()),
+            file: None,
+            modality: None,
+            idempotent: true,
+            output: IngestOutput::Rows,
+        })
+    );
+}
+
+#[test]
+fn parse_ingest_rejects_unknown_output_mode() {
+    let err = parse(&tokens([
+        "ingest",
+        "mydb",
+        "--batch",
+        "batch.jsonl",
+        "--output",
+        "verbose",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("summary or rows"));
 }
 
 #[test]
@@ -220,6 +263,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             file: None,
             modality: None,
             idempotent: true,
+            output: IngestOutput::Summary,
         })),
         safe_name().prop_map(|vault| Subcommand::Measure(MeasureArgs {
             vault,

@@ -12,14 +12,15 @@ use super::super::search::rebuild_persistent_indexes;
 use super::super::vault::{ResolvedVault, now_ms};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
-use super::batch::{BatchRow, parse_batch_line};
+use super::batch::{BatchRow, parse_batch_line, validate_batch_file};
 use super::constellation::{
     ensure_content_panel_floor, measure_constellation, measure_constellation_microbatch, text_input,
 };
 use super::ledger::{append_anchor_ledger, append_anchor_marker_ledger, append_cli_ledger};
 use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
-use super::types::{AnchorReport, IngestReport};
+use super::types::{AnchorReport, BatchIngestSummary, IngestOutput, IngestReport};
+use super::verify::verify_base_readback;
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
 use crate::raw_media::{media_metadata, retain_media_input};
@@ -61,32 +62,38 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 }
 
 fn ingest_command(args: IngestArgs) -> CliResult {
-    let resolved = resolve_cli_vault(&args.vault)?;
-    if let Some(path) = args.file {
-        let modality = args.modality.expect("parser requires modality with --file");
-        let retained = retain_media_input(&resolved.path, &path, modality)?;
-        let metadata = media_metadata(&retained);
-        let reports = ingest_prepared_inputs(
-            &resolved,
-            vec![PreparedInput {
-                input: retained.input,
-                metadata,
-            }],
-        )?;
-        for report in reports {
-            print_json(&report)?;
-        }
-    } else if let Some(text) = args.text {
-        for report in ingest_texts(&resolved, &[text])? {
-            print_json(&report)?;
+    if let Some(batch_path) = args.batch.as_deref() {
+        let validation = validate_batch_file(batch_path)?;
+        let resolved = resolve_cli_vault(&args.vault)?;
+        let summary = if validation.row_count == 0 {
+            BatchIngestSummary::empty()
+        } else {
+            ingest_validated_batch_streaming_with_output(&resolved, batch_path, args.output)?
+        };
+        if args.output == IngestOutput::Summary {
+            print_json(&summary)?;
         }
     } else {
-        // Streaming batch path: warm models, WAL-safe chunked commits, bounded
-        // memory — required for massive datasets (millions of rows).
-        ingest_batch_streaming(
-            &resolved,
-            args.batch.as_deref().expect("validated batch path"),
-        )?;
+        let resolved = resolve_cli_vault(&args.vault)?;
+        if let Some(path) = args.file {
+            let modality = args.modality.expect("parser requires modality with --file");
+            let retained = retain_media_input(&resolved.path, &path, modality)?;
+            let metadata = media_metadata(&retained);
+            let reports = ingest_prepared_inputs(
+                &resolved,
+                vec![PreparedInput {
+                    input: retained.input,
+                    metadata,
+                }],
+            )?;
+            for report in reports {
+                print_json(&report)?;
+            }
+        } else if let Some(text) = args.text {
+            for report in ingest_texts(&resolved, &[text])? {
+                print_json(&report)?;
+            }
+        }
     }
     Ok(())
 }
@@ -215,10 +222,32 @@ fn ingest_prepared_inputs(
     Ok(reports)
 }
 
+#[cfg(test)]
 pub(super) fn ingest_batch_streaming(
     resolved: &ResolvedVault,
     path: &std::path::Path,
-) -> CliResult<()> {
+) -> CliResult<BatchIngestSummary> {
+    ingest_batch_streaming_with_output(resolved, path, IngestOutput::Summary)
+}
+
+#[cfg(test)]
+pub(super) fn ingest_batch_streaming_with_output(
+    resolved: &ResolvedVault,
+    path: &std::path::Path,
+    output: IngestOutput,
+) -> CliResult<BatchIngestSummary> {
+    let validation = validate_batch_file(path)?;
+    if validation.row_count == 0 {
+        return Ok(BatchIngestSummary::empty());
+    }
+    ingest_validated_batch_streaming_with_output(resolved, path, output)
+}
+
+fn ingest_validated_batch_streaming_with_output(
+    resolved: &ResolvedVault,
+    path: &std::path::Path,
+    output: IngestOutput,
+) -> CliResult<BatchIngestSummary> {
     use std::io::BufRead;
     let file = std::fs::File::open(path)
         .map_err(|err| CliError::io(format!("open batch {}: {err}", path.display())))?;
@@ -228,21 +257,22 @@ pub(super) fn ingest_batch_streaming(
     let mut seen = BTreeSet::new();
     let measure_batch = measure_batch_size();
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_batch);
+    let mut summary = BatchIngestSummary::empty();
     for (index, line) in reader.lines().enumerate() {
         let line =
             line.map_err(|err| CliError::io(format!("read batch line {}: {err}", index + 1)))?;
         if let Some(row) = parse_batch_line(index, &line)? {
             chunk.push(row);
             if chunk.len() >= measure_batch {
-                flush_measure_batch(&vault, &state, &mut chunk, &mut seen)?;
+                flush_measure_batch(&vault, &state, &mut chunk, &mut seen, &mut summary, output)?;
             }
         }
     }
     if !chunk.is_empty() {
-        flush_measure_batch(&vault, &state, &mut chunk, &mut seen)?;
+        flush_measure_batch(&vault, &state, &mut chunk, &mut seen, &mut summary, output)?;
     }
     rebuild_persistent_indexes(&resolved.path, &vault)?;
-    Ok(())
+    Ok(summary)
 }
 
 fn flush_measure_batch(
@@ -250,6 +280,8 @@ fn flush_measure_batch(
     state: &VaultPanelState,
     chunk: &mut Vec<BatchRow>,
     seen: &mut BTreeSet<CxId>,
+    summary: &mut BatchIngestSummary,
+    output: IngestOutput,
 ) -> CliResult<()> {
     let rows: Vec<BatchRow> = std::mem::take(chunk);
     let inputs: Vec<Input> = rows
@@ -306,7 +338,7 @@ fn flush_measure_batch(
                     append_missing_batch_anchors(vault, existing, cx, &marker_kinds)?;
                 }
             }
-            order.push((cx.cx_id, new, marker_kinds, oracle.clone()));
+            order.push((cx.clone(), new, marker_kinds, oracle.clone()));
         }
         match staged.len() {
             0 => {}
@@ -320,7 +352,9 @@ fn flush_measure_batch(
         vault.flush()?;
         append_oracle_events(vault, &order)?;
         let snapshot = vault.snapshot();
-        for (cx_id, new, marker_kinds, _) in order {
+        for (cx, new, marker_kinds, _) in order {
+            let cx_id = cx.cx_id;
+            verify_base_readback(vault, snapshot, &cx, cx_id, &marker_kinds)?;
             let ledger_seq = if new {
                 vault.get(cx_id, snapshot)?.provenance.seq
             } else {
@@ -329,11 +363,15 @@ fn flush_measure_batch(
             for kind in marker_kinds {
                 append_anchor_marker_ledger(vault, cx_id, &kind)?;
             }
-            print_json(&IngestReport {
+            let report = IngestReport {
                 cx_id: cx_id.to_string(),
                 new,
                 ledger_seq,
-            })?;
+            };
+            summary.record(&report);
+            if output == IngestOutput::Rows {
+                print_json(&report)?;
+            }
         }
         vault.flush()?;
     }
@@ -417,11 +455,16 @@ fn append_missing_batch_anchors(
 
 fn append_oracle_events(
     vault: &AsterVault,
-    order: &[(CxId, bool, Vec<AnchorKind>, Option<OracleEvent>)],
+    order: &[(
+        calyx_core::Constellation,
+        bool,
+        Vec<AnchorKind>,
+        Option<OracleEvent>,
+    )],
 ) -> CliResult<()> {
-    for (cx_id, _, _, oracle) in order {
+    for (cx, _, _, oracle) in order {
         if let Some(event) = oracle {
-            append_recurrence_if_absent(vault, *cx_id, event, now_ms())?;
+            append_recurrence_if_absent(vault, cx.cx_id, event, now_ms())?;
         }
     }
     Ok(())

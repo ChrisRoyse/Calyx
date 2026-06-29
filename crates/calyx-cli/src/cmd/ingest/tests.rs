@@ -14,7 +14,7 @@ use ulid::Ulid;
 
 use super::super::vault::{ResolvedVault, now_ms, vault_salt};
 use super::anchor::parse_anchor_kind;
-use super::batch::{parse_batch_line, read_batch_texts};
+use super::batch::{parse_batch_line, read_batch_texts, validate_batch_file};
 use super::command::{ingest_batch_streaming, ingest_texts, should_stage_batch_constellation};
 use super::constellation::{measure_constellation, text_input};
 use super::parse::{parse_anchor, validate_text};
@@ -104,6 +104,37 @@ fn ingest_registered_dense_lens_persists_search_index_files() {
 }
 
 #[test]
+fn batch_ingest_returns_bounded_summary_verified_by_base_cf() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("batch-summary");
+    let jsonl = resolved.path.join("summary.jsonl");
+    fs::write(
+        &jsonl,
+        "{\"text\":\"alpha summary signal\"}\n{\"text\":\"beta summary signal\"}\n",
+    )
+    .unwrap();
+
+    let summary = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let vault = open_vault(&resolved).unwrap();
+    let snapshot = vault.snapshot();
+    let base_rows = vault.scan_cf_at(snapshot, ColumnFamily::Base).unwrap();
+    assert_eq!(summary.status, "ingested");
+    assert_eq!(summary.row_count, 2);
+    assert_eq!(summary.new_count, 2);
+    assert_eq!(summary.already_count, 0);
+    assert_eq!(summary.verified_base_rows, 2);
+    assert!(summary.first_cx_id.is_some());
+    assert!(summary.last_cx_id.is_some());
+    assert_eq!(
+        base_rows.len(),
+        2,
+        "source of truth is Base CF, not ingest return value"
+    );
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn anchor_label_kind_round_trips() {
     let kind = parse_anchor_kind("label:positive").unwrap();
     assert_eq!(kind, AnchorKind::Label("positive".to_string()));
@@ -188,13 +219,41 @@ fn batch_jsonl_empty_and_invalid_edges() {
     fs::create_dir_all(&root).unwrap();
     let empty = root.join("empty.jsonl");
     fs::write(&empty, "").unwrap();
+    assert_eq!(validate_batch_file(&empty).unwrap().row_count, 0);
     assert!(read_batch_texts(&empty).unwrap().is_empty());
 
     let invalid = root.join("bad.jsonl");
     fs::write(&invalid, "{\"text\":\"ok\"}\nnot-json\n").unwrap();
+    let preflight_err = validate_batch_file(&invalid).unwrap_err();
+    assert_eq!(preflight_err.code(), "CALYX_CLI_IO_ERROR");
+    assert!(preflight_err.message().contains("line 2"));
     let err = read_batch_texts(&invalid).unwrap_err();
     assert_eq!(err.code(), "CALYX_CLI_IO_ERROR");
     assert!(err.message().contains("line 2"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn invalid_batch_jsonl_fails_before_vault_open() {
+    let root = temp_root("jsonl-preflight-before-vault");
+    fs::create_dir_all(&root).unwrap();
+    let invalid = root.join("bad.jsonl");
+    fs::write(&invalid, "not-json\n").unwrap();
+    let missing_vault = root.join("missing-vault");
+    let resolved = ResolvedVault {
+        path: missing_vault.clone(),
+        name: "missing".to_string(),
+        vault_id: VaultId::from_ulid(Ulid::new()),
+    };
+
+    let err = ingest_batch_streaming(&resolved, &invalid).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_IO_ERROR");
+    assert!(err.message().contains("batch JSONL line 1 is invalid"));
+    assert!(
+        !missing_vault.exists(),
+        "invalid JSONL must fail before opening or creating vault state"
+    );
     fs::remove_dir_all(root).ok();
 }
 

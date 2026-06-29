@@ -1,16 +1,28 @@
 use std::collections::BTreeMap;
 use std::io::{self, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use calyx_aster::cf::{ColumnFamily, slot_key};
+use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
 use calyx_aster::dedup::{ReversalToken, dedup_audit, dedup_undo};
 use calyx_aster::vault::encode::{decode_constellation_base, decode_slot_vector};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, SlotId, SlotVector};
 use serde_json::json;
 
-use crate::cf_read::{hex_bytes, latest_cf_rows, vault_id_from_base};
+use crate::cf_read::{hex_bytes, latest_cf_row, latest_cf_rows, vault_id_from_base};
+use crate::error::{CliError, CliResult};
+
+const CX_LIST_UNBOUNDED_ROW_LIMIT: usize = 100;
+
+#[derive(Debug)]
+struct CxListArgs {
+    vault: PathBuf,
+    cx_id: Option<CxId>,
+    limit: Option<usize>,
+    include_slots: bool,
+    allow_unbounded: bool,
+}
 
 pub fn readback_dedup_audit(vault: &Path, cx_id: &str) -> crate::error::CliResult {
     let cx_id = CxId::from_str(cx_id).map_err(|error| format!("invalid --cx-id: {error}"))?;
@@ -58,54 +70,150 @@ pub fn readback_dedup_undo(vault: &Path, token: &str) -> crate::error::CliResult
     Ok(())
 }
 
-pub fn readback_cx_list(vault: &Path) -> crate::error::CliResult {
-    let rows = latest_cf_rows(vault, ColumnFamily::Base)?;
+pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
+    let args = parse_cx_list_args(rest)?;
+    if let Some(cx_id) = args.cx_id {
+        let key = base_key(cx_id);
+        let value = latest_cf_row(&args.vault, ColumnFamily::Base, &key)?.ok_or_else(|| {
+            CliError::usage(format!(
+                "cx-list --cx-id {cx_id} was not found in {}",
+                args.vault.display()
+            ))
+        })?;
+        let rows = BTreeMap::from([(key, value)]);
+        return render_cx_list(&args.vault, rows, args.include_slots);
+    }
+
+    let mut rows = latest_cf_rows(&args.vault, ColumnFamily::Base)?;
+    if let Some(limit) = args.limit {
+        rows = rows.into_iter().take(limit).collect();
+    } else if args.cx_id.is_none()
+        && rows.len() > CX_LIST_UNBOUNDED_ROW_LIMIT
+        && !args.allow_unbounded
+    {
+        return Err(CliError::usage(format!(
+            "cx-list would print {} rows from {}; use --cx-id <cx>, --limit <n>, or --allow-unbounded",
+            rows.len(),
+            args.vault.display()
+        )));
+    }
+    let include_slots = args.include_slots || (args.cx_id.is_none() && args.limit.is_none());
+    render_cx_list(&args.vault, rows, include_slots)
+}
+
+fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
+    let mut vault = None;
+    let mut cx_id = None;
+    let mut limit = None;
+    let mut include_slots = false;
+    let mut allow_unbounded = false;
+    let mut idx = 0;
+    while idx < rest.len() {
+        match rest[idx].as_str() {
+            "--vault" => {
+                idx += 1;
+                vault = Some(PathBuf::from(value(rest, idx, "--vault")?));
+            }
+            "--cx-id" => {
+                idx += 1;
+                let raw = value(rest, idx, "--cx-id")?;
+                cx_id = Some(
+                    CxId::from_str(raw)
+                        .map_err(|error| CliError::usage(format!("invalid --cx-id: {error}")))?,
+                );
+            }
+            "--limit" => {
+                idx += 1;
+                let raw = value(rest, idx, "--limit")?;
+                let parsed = raw
+                    .parse::<usize>()
+                    .map_err(|error| CliError::usage(format!("invalid --limit {raw}: {error}")))?;
+                if parsed == 0 {
+                    return Err(CliError::usage("--limit must be at least 1"));
+                }
+                limit = Some(parsed);
+            }
+            "--allow-unbounded" => allow_unbounded = true,
+            "--include-slots" => include_slots = true,
+            other => return Err(CliError::usage(format!("unexpected cx-list flag {other}"))),
+        }
+        idx += 1;
+    }
+    Ok(CxListArgs {
+        vault: vault.ok_or_else(|| CliError::usage("cx-list requires --vault <dir>"))?,
+        cx_id,
+        limit,
+        include_slots,
+        allow_unbounded,
+    })
+}
+
+fn value<'a>(args: &'a [String], index: usize, flag: &str) -> CliResult<&'a str> {
+    args.get(index)
+        .map(String::as_str)
+        .ok_or_else(|| CliError::usage(format!("{flag} requires a value")))
+}
+
+fn render_cx_list(
+    vault: &Path,
+    rows: BTreeMap<Vec<u8>, Vec<u8>>,
+    include_slots: bool,
+) -> crate::error::CliResult {
     let mut values = Vec::new();
     let mut slot_cache = BTreeMap::<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>::new();
     let mut raw_slot_cache = BTreeMap::<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>::new();
     for (key, value) in rows {
         let cx = decode_constellation_base(&value).map_err(|error| error.to_string())?;
-        let slots = decoded_slot_entries(vault, &mut slot_cache, &mut raw_slot_cache, &cx)?;
-        values.push(json!({
+        let mut row = json!({
             "key_hex": hex_bytes(&key),
             "cx_id": cx.cx_id,
             "created_at": cx.created_at,
             "panel_version": cx.panel_version,
             "flags": cx.flags,
-            "slot_summary": slot_summary(slots.iter().map(|(_, vector, _)| vector)),
-            "slots": slots.iter().map(|(slot, vector, source)| {
-                match vector {
-                    SlotVector::Dense { dim, data } => json!({
-                        "slot": slot.get(),
-                        "kind": "dense",
-                        "payload_source": source,
-                        "dim": dim,
-                        "values": data.len(),
-                    }),
-                    SlotVector::Sparse { dim, entries } => json!({
-                        "slot": slot.get(),
-                        "kind": "sparse",
-                        "payload_source": source,
-                        "dim": dim,
-                        "entries": entries.len(),
-                    }),
-                    SlotVector::Multi { token_dim, tokens } => json!({
-                        "slot": slot.get(),
-                        "kind": "multi",
-                        "payload_source": source,
-                        "token_dim": token_dim,
-                        "tokens": tokens.len(),
-                    }),
-                    SlotVector::Absent { reason } => json!({
-                        "slot": slot.get(),
-                        "kind": "absent",
-                        "payload_source": source,
-                        "reason": reason,
-                    }),
-                }
-            }).collect::<Vec<_>>(),
+            "base_slot_count": cx.slots.len(),
             "base_hex": hex_bytes(&value),
-        }));
+        });
+        if include_slots {
+            let slots = decoded_slot_entries(vault, &mut slot_cache, &mut raw_slot_cache, &cx)?;
+            row["slot_summary"] = slot_summary(slots.iter().map(|(_, vector, _)| vector));
+            row["slots"] = json!(
+                slots
+                    .iter()
+                    .map(|(slot, vector, source)| {
+                        match vector {
+                            SlotVector::Dense { dim, data } => json!({
+                                "slot": slot.get(),
+                                "kind": "dense",
+                                "payload_source": source,
+                                "dim": dim,
+                                "values": data.len(),
+                            }),
+                            SlotVector::Sparse { dim, entries } => json!({
+                                "slot": slot.get(),
+                                "kind": "sparse",
+                                "payload_source": source,
+                                "dim": dim,
+                                "entries": entries.len(),
+                            }),
+                            SlotVector::Multi { token_dim, tokens } => json!({
+                                "slot": slot.get(),
+                                "kind": "multi",
+                                "payload_source": source,
+                                "token_dim": token_dim,
+                                "tokens": tokens.len(),
+                            }),
+                            SlotVector::Absent { reason } => json!({
+                                "slot": slot.get(),
+                                "kind": "absent",
+                                "payload_source": source,
+                                "reason": reason,
+                            }),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
+        values.push(row);
     }
     let json = serde_json::to_string_pretty(&values).map_err(|error| error.to_string())?;
     write_stdout_line(&json)?;
@@ -251,5 +359,39 @@ mod tests {
             "{}",
             err.message()
         );
+    }
+
+    #[test]
+    fn cx_list_args_parse_bounded_filters() {
+        let cx_id = "00000000000000000000000000000001";
+        let args = parse_cx_list_args(&[
+            "--vault".to_string(),
+            "vault-dir".to_string(),
+            "--cx-id".to_string(),
+            cx_id.to_string(),
+            "--limit".to_string(),
+            "1".to_string(),
+        ])
+        .unwrap();
+
+        assert_eq!(args.vault, PathBuf::from("vault-dir"));
+        assert_eq!(args.cx_id.unwrap().to_string(), cx_id);
+        assert_eq!(args.limit, Some(1));
+        assert!(!args.include_slots);
+        assert!(!args.allow_unbounded);
+    }
+
+    #[test]
+    fn cx_list_rejects_zero_limit() {
+        let err = parse_cx_list_args(&[
+            "--vault".to_string(),
+            "vault-dir".to_string(),
+            "--limit".to_string(),
+            "0".to_string(),
+        ])
+        .unwrap_err();
+
+        assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+        assert!(err.message().contains("at least 1"));
     }
 }

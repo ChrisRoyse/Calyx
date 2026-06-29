@@ -167,10 +167,8 @@ pub(crate) fn run(args: Vec<String>) -> CliResult {
         {
             dedup_audit_readback::readback_dedup_undo(Path::new(vault), token)
         }
-        [command, topic, vault_flag, vault]
-            if command == "readback" && topic == "cx-list" && vault_flag == "--vault" =>
-        {
-            dedup_audit_readback::readback_cx_list(Path::new(vault))
+        [command, topic, rest @ ..] if command == "readback" && topic == "cx-list" => {
+            dedup_audit_readback::readback_cx_list_args(rest)
         }
         [command, topic, vault_flag, vault]
             if command == "readback" && topic == "time-index" && vault_flag == "--vault" =>
