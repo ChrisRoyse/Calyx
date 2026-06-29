@@ -30,7 +30,7 @@ fn run_rebuild_search_index(args: VaultRefArgs) -> CliResult {
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        VaultOptions::default(),
+        latest_read_vault_options(),
     )?;
     require_vault_registry_contracts(&resolved.path)?;
     rebuild_persistent_indexes(&resolved.path, &vault)?;
@@ -43,6 +43,13 @@ fn run_rebuild_search_index(args: VaultRefArgs) -> CliResult {
 
 pub(crate) fn rebuild_persistent_indexes(vault_dir: &Path, vault: &AsterVault) -> CliResult {
     Ok(calyx_search::rebuild_for_vault(vault_dir, vault)?)
+}
+
+pub(super) fn latest_read_vault_options() -> VaultOptions {
+    VaultOptions {
+        restore_mvcc_rows: false,
+        ..VaultOptions::default()
+    }
 }
 
 pub(crate) fn measure_text_query_vectors(

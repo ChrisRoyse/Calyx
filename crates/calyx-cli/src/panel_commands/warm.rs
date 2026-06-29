@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 
 use calyx_core::{CalyxError, Input, Modality, Placement, Slot, SlotShape, SlotState, SlotVector};
 use calyx_registry::{
-    LensRuntime, Registry, lens_spec_from_manifest_path, shutdown_multimodal_gpu_workers,
+    LensRuntime, Registry, lens_spec_from_manifest_path, load_vault_panel_state,
+    shutdown_multimodal_gpu_workers,
 };
 use serde::Serialize;
 

@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use calyx_aster::vault::{AsterVault, VaultOptions};
+use calyx_aster::vault::AsterVault;
 use calyx_core::{AnchorKind, CalyxError, Constellation, CxId};
 use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
 use calyx_search::{FusionChoice, GuardChoice, load_docs, search_outcome};
@@ -14,6 +14,7 @@ use calyx_sextant::Hit;
 use super::super::Subcommand;
 use super::super::ingest::parse_anchor_kind;
 use super::super::vault::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
+use super::latest_read_vault_options;
 use super::output;
 use super::parse::{KernelAnswerArgs, SearchArgs, SearchFusionArg, SearchGuardArg};
 use crate::error::CliResult;
@@ -143,6 +144,6 @@ fn open_vault(resolved: &ResolvedVault) -> CliResult<AsterVault> {
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        VaultOptions::default(),
+        latest_read_vault_options(),
     )?)
 }

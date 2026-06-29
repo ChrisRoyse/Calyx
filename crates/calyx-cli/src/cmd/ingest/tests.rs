@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 
-use calyx_aster::cf::ColumnFamily;
+use calyx_aster::cf::{ColumnFamily, base_key};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{
     AbsentReason, Anchor, AnchorKind, AnchorValue, Asymmetry, CxId, Input, LensId, Modality, Panel,

@@ -15,8 +15,15 @@ pub(super) fn open_vault(resolved: &ResolvedVault) -> CliResult<AsterVault> {
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        VaultOptions::default(),
+        ingest_vault_options(),
     )?)
+}
+
+pub(super) fn ingest_vault_options() -> VaultOptions {
+    VaultOptions {
+        restore_mvcc_rows: false,
+        ..VaultOptions::default()
+    }
 }
 
 pub(super) fn ensure_base_exists(vault: &AsterVault, cx_id: CxId) -> CliResult {
