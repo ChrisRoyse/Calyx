@@ -66,6 +66,7 @@ fn parse_ingest_text_command() {
             modality: None,
             idempotent: true,
             output: IngestOutput::Summary,
+            resident_addr: None,
         })
     );
 }
@@ -91,6 +92,7 @@ fn parse_ingest_video_file_command() {
             modality: Some(Modality::Video),
             idempotent: true,
             output: IngestOutput::Summary,
+            resident_addr: None,
         })
     );
 }
@@ -116,8 +118,50 @@ fn parse_ingest_rows_output_command() {
             modality: None,
             idempotent: true,
             output: IngestOutput::Rows,
+            resident_addr: None,
         })
     );
+}
+
+#[test]
+fn parse_ingest_resident_addr_command() {
+    let parsed = parse(&tokens([
+        "ingest",
+        "mydb",
+        "--batch",
+        "batch.jsonl",
+        "--resident-addr",
+        "127.0.0.1:8787",
+    ]))
+    .unwrap();
+    assert_eq!(
+        parsed,
+        Subcommand::Ingest(IngestArgs {
+            vault: "mydb".to_string(),
+            text: None,
+            batch: Some("batch.jsonl".into()),
+            file: None,
+            modality: None,
+            idempotent: true,
+            output: IngestOutput::Summary,
+            resident_addr: Some("127.0.0.1:8787".parse().unwrap()),
+        })
+    );
+}
+
+#[test]
+fn parse_ingest_rejects_non_loopback_resident_addr() {
+    let err = parse(&tokens([
+        "ingest",
+        "mydb",
+        "--batch",
+        "batch.jsonl",
+        "--resident-addr",
+        "10.0.0.10:8787",
+    ]))
+    .unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_INGEST_RESIDENT_ADDR_REFUSED");
 }
 
 #[test]
@@ -264,6 +308,7 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
             modality: None,
             idempotent: true,
             output: IngestOutput::Summary,
+            resident_addr: None,
         })),
         safe_name().prop_map(|vault| Subcommand::Measure(MeasureArgs {
             vault,

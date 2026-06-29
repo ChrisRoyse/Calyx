@@ -249,6 +249,9 @@ fn ingest_tokens(args: &IngestArgs) -> Vec<String> {
         IngestOutput::Summary => {}
         IngestOutput::Rows => out.extend(["--output".to_string(), "rows".to_string()]),
     }
+    if let Some(addr) = args.resident_addr {
+        out.extend(["--resident-addr".to_string(), addr.to_string()]);
+    }
     out
 }
 

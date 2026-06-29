@@ -4,6 +4,7 @@ use std::process::{Command, Output};
 
 const CUDA_PATH_DEFAULT: &str = "/usr/local/cuda-13.3";
 const CUDA_ARCH: &str = "sm_120";
+const CUDA_CCBIN_ENV: &str = "FORGE_CUDA_CCBIN";
 
 struct Kernel {
     name: &'static str,
@@ -45,7 +46,9 @@ fn main() {
     std::fs::create_dir_all(&kernel_out_dir).expect("create CUDA kernel OUT_DIR");
 
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
+    println!("cargo:rerun-if-env-changed={CUDA_CCBIN_ENV}");
     let nvcc = locate_nvcc();
+    let host_compiler = locate_cuda_host_compiler();
     warn_nvcc_version(&nvcc);
 
     for kernel in KERNELS {
@@ -56,8 +59,8 @@ fn main() {
         let ptx = kernel_out_dir.join(format!("{}.ptx", kernel.name));
         let cubin = kernel_out_dir.join(format!("{}.cubin", kernel.name));
 
-        compile_ptx(&nvcc, &src, &ptx);
-        compile_cubin(&nvcc, &src, &cubin);
+        compile_ptx(&nvcc, host_compiler.as_deref(), &src, &ptx);
+        compile_cubin(&nvcc, host_compiler.as_deref(), &src, &cubin);
 
         println!("cargo:rustc-env={}={}", kernel.ptx_env, ptx.display());
         println!("cargo:rustc-env={}={}", kernel.cubin_env, cubin.display());
@@ -87,6 +90,124 @@ fn nvcc_exe_name() -> &'static str {
     if cfg!(windows) { "nvcc.exe" } else { "nvcc" }
 }
 
+fn locate_cuda_host_compiler() -> Option<PathBuf> {
+    if !cfg!(windows) {
+        return None;
+    }
+
+    if let Some(path) = env::var_os(CUDA_CCBIN_ENV) {
+        let ccbin = normalize_ccbin(PathBuf::from(path)).unwrap_or_else(|| {
+            panic!(
+                "CALYX_FORGE_CUDA_CCBIN_INVALID: {CUDA_CCBIN_ENV} must point to cl.exe or a directory containing cl.exe"
+            )
+        });
+        println!(
+            "cargo:warning=using CUDA host compiler from {CUDA_CCBIN_ENV}: {}",
+            ccbin.display()
+        );
+        return Some(ccbin);
+    }
+
+    if command_on_path(cl_exe_name()) {
+        println!("cargo:warning=using CUDA host compiler from PATH");
+        return None;
+    }
+
+    let mut candidates = windows_msvc_ccbin_candidates();
+    candidates.sort_by(|left, right| {
+        msvc_version_key(left)
+            .cmp(&msvc_version_key(right))
+            .then_with(|| left.to_string_lossy().cmp(&right.to_string_lossy()))
+    });
+    candidates.dedup();
+    let ccbin = candidates.pop().unwrap_or_else(|| {
+        panic!(
+            "CALYX_FORGE_CUDA_HOST_COMPILER_MISSING: nvcc requires cl.exe on Windows; install Visual Studio Build Tools with MSVC x64 tools or set {CUDA_CCBIN_ENV} to a Hostx64\\x64 directory"
+        )
+    });
+    println!(
+        "cargo:warning=using discovered CUDA host compiler: {}",
+        ccbin.display()
+    );
+    Some(ccbin)
+}
+
+fn normalize_ccbin(path: PathBuf) -> Option<PathBuf> {
+    if path.is_dir() && path.join(cl_exe_name()).is_file() {
+        return Some(path);
+    }
+    if path.is_file()
+        && path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.eq_ignore_ascii_case(cl_exe_name()))
+    {
+        return path.parent().map(Path::to_path_buf);
+    }
+    None
+}
+
+fn command_on_path(command: &str) -> bool {
+    let Some(path) = env::var_os("PATH") else {
+        return false;
+    };
+    env::split_paths(&path).any(|dir| dir.join(command).is_file())
+}
+
+fn cl_exe_name() -> &'static str {
+    "cl.exe"
+}
+
+fn windows_msvc_ccbin_candidates() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Some(program_files) = env::var_os("ProgramFiles") {
+        roots.push(PathBuf::from(program_files).join("Microsoft Visual Studio"));
+    }
+    if let Some(program_files_x86) = env::var_os("ProgramFiles(x86)") {
+        roots.push(PathBuf::from(program_files_x86).join("Microsoft Visual Studio"));
+    }
+
+    let mut candidates = Vec::new();
+    for root in roots {
+        let Ok(major_dirs) = std::fs::read_dir(&root) else {
+            continue;
+        };
+        for major_dir in major_dirs.flatten() {
+            let Ok(edition_dirs) = std::fs::read_dir(major_dir.path()) else {
+                continue;
+            };
+            for edition_dir in edition_dirs.flatten() {
+                let msvc_root = edition_dir.path().join("VC").join("Tools").join("MSVC");
+                let Ok(version_dirs) = std::fs::read_dir(&msvc_root) else {
+                    continue;
+                };
+                for version_dir in version_dirs.flatten() {
+                    let ccbin = version_dir.path().join("bin").join("Hostx64").join("x64");
+                    if ccbin.join(cl_exe_name()).is_file() {
+                        candidates.push(ccbin);
+                    }
+                }
+            }
+        }
+    }
+    candidates
+}
+
+fn msvc_version_key(ccbin: &Path) -> Vec<u32> {
+    ccbin
+        .ancestors()
+        .nth(3)
+        .and_then(|version_dir| version_dir.file_name())
+        .and_then(|version| version.to_str())
+        .map(|version| {
+            version
+                .split('.')
+                .map(|part| part.parse::<u32>().unwrap_or(0))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn warn_nvcc_version(nvcc: &Path) {
     let output = Command::new(nvcc)
         .arg("--version")
@@ -109,8 +230,8 @@ fn warn_nvcc_version(nvcc: &Path) {
     println!("cargo:warning=nvcc detected: {summary}");
 }
 
-fn compile_ptx(nvcc: &Path, src: &Path, out: &Path) {
-    let args = deterministic_args(src, out, "--ptx");
+fn compile_ptx(nvcc: &Path, host_compiler: Option<&Path>, src: &Path, out: &Path) {
+    let args = deterministic_args(src, out, "--ptx", host_compiler);
     let output = Command::new(nvcc)
         .args(&args)
         .output()
@@ -118,8 +239,8 @@ fn compile_ptx(nvcc: &Path, src: &Path, out: &Path) {
     assert_success(nvcc, &args, output);
 }
 
-fn compile_cubin(nvcc: &Path, src: &Path, out: &Path) {
-    let args = deterministic_args(src, out, "-cubin");
+fn compile_cubin(nvcc: &Path, host_compiler: Option<&Path>, src: &Path, out: &Path) {
+    let args = deterministic_args(src, out, "-cubin", host_compiler);
     let output = Command::new(nvcc)
         .args(&args)
         .output()
@@ -127,7 +248,12 @@ fn compile_cubin(nvcc: &Path, src: &Path, out: &Path) {
     assert_success(nvcc, &args, output);
 }
 
-fn deterministic_args(src: &Path, out: &Path, output_kind: &str) -> Vec<String> {
+fn deterministic_args(
+    src: &Path,
+    out: &Path,
+    output_kind: &str,
+    host_compiler: Option<&Path>,
+) -> Vec<String> {
     let mut args = vec![
         format!("-arch={CUDA_ARCH}"),
         "-O3".to_string(),
@@ -136,6 +262,9 @@ fn deterministic_args(src: &Path, out: &Path, output_kind: &str) -> Vec<String> 
         "--prec-sqrt=true".to_string(),
         "--fmad=false".to_string(),
     ];
+    if let Some(ccbin) = host_compiler {
+        args.extend(["--compiler-bindir".to_string(), ccbin.display().to_string()]);
+    }
     if !cfg!(windows) {
         args.extend(["-Xcompiler".to_string(), "-fPIC".to_string()]);
     }
