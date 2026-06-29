@@ -14,6 +14,8 @@ pub(crate) use constellation::{measure_constellation, text_input};
 pub(crate) use parse::{parse_anchor, parse_ingest, parse_measure};
 
 #[cfg(test)]
+mod issue968_tests;
+#[cfg(test)]
 mod oracle_event_tests;
 #[cfg(test)]
 mod tests;

@@ -1,6 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use calyx_aster::cf::{ColumnFamily, anchor_key, base_key};
+use calyx_aster::dedup::{AnchorConflictResult, check_anchor_conflict};
 use calyx_aster::vault::AsterVault;
+use calyx_aster::vault::encode;
 use calyx_core::{Anchor, AnchorKind, CxId, Input, VaultStore};
 use calyx_ledger::EntryKind;
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
@@ -279,6 +282,11 @@ fn flush_measure_batch(
         for (cx, oracle) in sub {
             let exists = base_exists(vault, cx.cx_id)?;
             let new = !exists && seen.insert(cx.cx_id);
+            let existing = if exists {
+                Some(ensure_idempotent_batch_replay(vault, cx)?)
+            } else {
+                None
+            };
             let known = match known_anchor_kinds.entry(cx.cx_id) {
                 std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
                 std::collections::btree_map::Entry::Vacant(entry) => {
@@ -292,9 +300,11 @@ fn flush_measure_batch(
                 }
             }
             if should_stage_batch_constellation(new, &marker_kinds) {
-                staged.push(cx.clone());
-            } else if exists {
-                ensure_idempotent_batch_replay(vault, cx)?;
+                if new {
+                    staged.push(cx.clone());
+                } else if let Some(existing) = existing.as_ref() {
+                    append_missing_batch_anchors(vault, existing, cx, &marker_kinds)?;
+                }
             }
             order.push((cx.cx_id, new, marker_kinds, oracle.clone()));
         }
@@ -337,7 +347,7 @@ pub(super) fn should_stage_batch_constellation(new: bool, marker_kinds: &[Anchor
 fn ensure_idempotent_batch_replay(
     vault: &AsterVault,
     cx: &calyx_core::Constellation,
-) -> CliResult<()> {
+) -> CliResult<calyx_core::Constellation> {
     let existing = vault.get(cx.cx_id, vault.snapshot())?;
     if existing.panel_version != cx.panel_version
         || existing.input_ref != cx.input_ref
@@ -349,6 +359,59 @@ fn ensure_idempotent_batch_replay(
             cx.cx_id
         )));
     }
+    Ok(existing)
+}
+
+fn append_missing_batch_anchors(
+    vault: &AsterVault,
+    existing: &calyx_core::Constellation,
+    incoming: &calyx_core::Constellation,
+    marker_kinds: &[AnchorKind],
+) -> CliResult<()> {
+    if marker_kinds.is_empty() {
+        return Ok(());
+    }
+    if let AnchorConflictResult::Conflicting {
+        anchor_type,
+        reason,
+    } = check_anchor_conflict(incoming, existing)
+    {
+        return Err(calyx_core::CalyxError::aster_corrupt_shard(format!(
+            "idempotent batch replay for cx {} has conflicting {anchor_type:?} anchor: {reason:?}",
+            incoming.cx_id
+        ))
+        .into());
+    }
+
+    let marker_kinds = marker_kinds.iter().collect::<BTreeSet<_>>();
+    let mut merged = existing.clone();
+    let mut added = Vec::new();
+    for anchor in &incoming.anchors {
+        if marker_kinds.contains(&anchor.kind) {
+            merged.anchors.push(anchor.clone());
+            added.push(anchor.clone());
+        }
+    }
+    if added.is_empty() {
+        return Ok(());
+    }
+    merged.flags.ungrounded = merged.anchors.is_empty();
+    merged.validate_schema()?;
+
+    let mut rows = Vec::with_capacity(1 + added.len());
+    rows.push((
+        ColumnFamily::Base,
+        base_key(incoming.cx_id),
+        encode::encode_constellation_base(&merged)?,
+    ));
+    for anchor in added {
+        rows.push((
+            ColumnFamily::Anchors,
+            anchor_key(incoming.cx_id, &anchor.kind),
+            encode::encode_anchor(&anchor)?,
+        ));
+    }
+    vault.write_cf_batch(rows)?;
     Ok(())
 }
 
