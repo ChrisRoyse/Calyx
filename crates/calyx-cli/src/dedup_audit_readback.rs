@@ -97,8 +97,7 @@ pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
             args.vault.display()
         )));
     }
-    let include_slots = args.include_slots || (args.cx_id.is_none() && args.limit.is_none());
-    render_cx_list(&args.vault, rows, include_slots)
+    render_cx_list(&args.vault, rows, cx_list_include_slots(&args))
 }
 
 fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
@@ -172,6 +171,8 @@ fn render_cx_list(
             "flags": cx.flags,
             "base_slot_count": cx.slots.len(),
             "base_hex": hex_bytes(&value),
+            "slot_payloads_decoded": include_slots,
+            "slot_payload_decode_mode": if include_slots { "explicit_include_slots" } else { "base_only" },
         });
         if include_slots {
             let slots = decoded_slot_entries(vault, &mut slot_cache, &mut raw_slot_cache, &cx)?;
@@ -218,6 +219,10 @@ fn render_cx_list(
     let json = serde_json::to_string_pretty(&values).map_err(|error| error.to_string())?;
     print_line(&json)?;
     Ok(())
+}
+
+fn cx_list_include_slots(args: &CxListArgs) -> bool {
+    args.include_slots
 }
 
 fn decoded_slot_entries(
@@ -331,5 +336,25 @@ mod tests {
 
         assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
         assert!(err.message().contains("at least 1"));
+    }
+
+    #[test]
+    fn cx_list_unbounded_does_not_decode_slots_unless_explicit() {
+        let base_only = parse_cx_list_args(&[
+            "--vault".to_string(),
+            "vault-dir".to_string(),
+            "--allow-unbounded".to_string(),
+        ])
+        .unwrap();
+        let with_slots = parse_cx_list_args(&[
+            "--vault".to_string(),
+            "vault-dir".to_string(),
+            "--allow-unbounded".to_string(),
+            "--include-slots".to_string(),
+        ])
+        .unwrap();
+
+        assert!(!cx_list_include_slots(&base_only));
+        assert!(cx_list_include_slots(&with_slots));
     }
 }

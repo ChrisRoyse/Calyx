@@ -50,6 +50,49 @@ pub struct RegistrySnapshotMeasureStats {
     pub total_ms: u128,
 }
 
+#[derive(Clone)]
+pub struct LoadedRegistrySnapshotLens {
+    snapshot: RegistryLensSnapshot,
+    runtime: Arc<dyn Lens>,
+    runtime_load_ms: u128,
+}
+
+impl LoadedRegistrySnapshotLens {
+    pub fn load(snapshot: RegistryLensSnapshot) -> Result<Self> {
+        verify_registry_snapshot_contract(&snapshot)?;
+        let load_start = Instant::now();
+        let runtime = load_runtime_lens(&snapshot)?;
+        let runtime_load_ms = load_start.elapsed().as_millis();
+        Ok(Self {
+            snapshot,
+            runtime,
+            runtime_load_ms,
+        })
+    }
+
+    pub fn lens_id(&self) -> LensId {
+        self.snapshot.lens_id
+    }
+
+    pub fn runtime_load_ms(&self) -> u128 {
+        self.runtime_load_ms
+    }
+
+    pub fn measure_batch_with_stats(
+        &self,
+        inputs: &[Input],
+        runtime_batch_limit: Option<usize>,
+    ) -> Result<(Vec<SlotVector>, RegistrySnapshotMeasureStats)> {
+        measure_loaded_snapshot_lens_batch_with_stats(
+            &self.snapshot,
+            self.runtime.as_ref(),
+            inputs,
+            runtime_batch_limit,
+            0,
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryBatchLimitUpdate {
     pub lens_id: LensId,
@@ -235,6 +278,22 @@ pub fn measure_registry_snapshot_lens_batch_with_stats(
     runtime_batch_limit: Option<usize>,
 ) -> Result<(Vec<SlotVector>, RegistrySnapshotMeasureStats)> {
     let total_start = Instant::now();
+    verify_registry_snapshot_inputs(snapshot, inputs)?;
+    let load_start = Instant::now();
+    let runtime = load_runtime_lens(snapshot)?;
+    let runtime_load_ms = load_start.elapsed().as_millis();
+    let (vectors, mut stats) = measure_loaded_snapshot_lens_batch_with_stats(
+        snapshot,
+        runtime.as_ref(),
+        inputs,
+        runtime_batch_limit,
+        runtime_load_ms,
+    )?;
+    stats.total_ms = total_start.elapsed().as_millis();
+    Ok((vectors, stats))
+}
+
+fn verify_registry_snapshot_contract(snapshot: &RegistryLensSnapshot) -> Result<()> {
     if snapshot.lens_id != snapshot.contract.lens_id() {
         return Err(CalyxError::lens_frozen_violation(format!(
             "registry lens {} does not match frozen contract {}",
@@ -242,6 +301,14 @@ pub fn measure_registry_snapshot_lens_batch_with_stats(
             snapshot.contract.lens_id()
         )));
     }
+    Ok(())
+}
+
+fn verify_registry_snapshot_inputs(
+    snapshot: &RegistryLensSnapshot,
+    inputs: &[Input],
+) -> Result<()> {
+    verify_registry_snapshot_contract(snapshot)?;
     for input in inputs {
         if input.modality != snapshot.contract.modality() {
             return Err(CalyxError::lens_dim_mismatch(format!(
@@ -252,6 +319,18 @@ pub fn measure_registry_snapshot_lens_batch_with_stats(
             )));
         }
     }
+    Ok(())
+}
+
+fn measure_loaded_snapshot_lens_batch_with_stats(
+    snapshot: &RegistryLensSnapshot,
+    runtime: &dyn Lens,
+    inputs: &[Input],
+    runtime_batch_limit: Option<usize>,
+    runtime_load_ms: u128,
+) -> Result<(Vec<SlotVector>, RegistrySnapshotMeasureStats)> {
+    let total_start = Instant::now();
+    verify_registry_snapshot_inputs(snapshot, inputs)?;
     let effective_chunk_size =
         effective_runtime_chunk_size(snapshot, inputs.len(), runtime_batch_limit)?;
     let chunk_count = if inputs.is_empty() {
@@ -259,9 +338,6 @@ pub fn measure_registry_snapshot_lens_batch_with_stats(
     } else {
         inputs.len().div_ceil(effective_chunk_size)
     };
-    let load_start = Instant::now();
-    let runtime = load_runtime_lens(snapshot)?;
-    let runtime_load_ms = load_start.elapsed().as_millis();
     let measure_start = Instant::now();
     let mut vectors = Vec::with_capacity(inputs.len());
     if !inputs.is_empty() {
@@ -727,6 +803,34 @@ mod tests {
 
         assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
         assert!(error.message.contains("runtime batch limit must be > 0"));
+    }
+
+    #[test]
+    fn loaded_snapshot_lens_reuses_runtime_and_reports_zero_per_request_load() {
+        let snapshot = algorithmic_snapshot(Some(2));
+        let loaded = LoadedRegistrySnapshotLens::load(snapshot).unwrap();
+        let first_inputs = text_inputs(["alpha", "beta", "gamma"]);
+        let second_inputs = text_inputs(["delta", "epsilon"]);
+
+        let (first_vectors, first_stats) = loaded
+            .measure_batch_with_stats(&first_inputs, Some(2))
+            .unwrap();
+        let (second_vectors, second_stats) = loaded
+            .measure_batch_with_stats(&second_inputs, Some(2))
+            .unwrap();
+
+        println!(
+            "loaded_snapshot_lens_state load_ms={} first_stats={first_stats:?} second_stats={second_stats:?}",
+            loaded.runtime_load_ms()
+        );
+        assert_eq!(first_vectors.len(), 3);
+        assert_eq!(second_vectors.len(), 2);
+        assert_eq!(first_stats.runtime_load_ms, 0);
+        assert_eq!(second_stats.runtime_load_ms, 0);
+        assert_eq!(first_stats.effective_chunk_size, 2);
+        assert_eq!(first_stats.chunk_count, 2);
+        assert_eq!(second_stats.effective_chunk_size, 2);
+        assert_eq!(second_stats.chunk_count, 1);
     }
 
     #[test]
