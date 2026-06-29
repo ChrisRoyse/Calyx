@@ -110,3 +110,43 @@ fn invalid_batch_jsonl_fails_before_vault_open() {
     );
     fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn ingest_open_uses_latest_only_router_readback_for_checkpointed_rows() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("ingest-latest-only-open");
+    let first_text = "first latest-only ingest row";
+    let first = resolved.path.join("first.jsonl");
+    fs::write(&first, format!("{{\"text\":\"{first_text}\"}}\n")).unwrap();
+
+    ingest_batch_streaming(&resolved, &first).unwrap();
+
+    let state = load_vault_panel_state(&resolved.path).unwrap();
+    let reopened = open_vault(&resolved).unwrap();
+    let first_id = reopened.cx_id_for_input(first_text.as_bytes(), state.panel.version);
+    let snapshot = reopened.snapshot();
+    let first_row = reopened.get(first_id, snapshot).unwrap();
+    assert_eq!(first_row.cx_id, first_id);
+    assert_eq!(first_row.panel_version, state.panel.version);
+
+    let seq_error = reopened
+        .seq_for_key(ColumnFamily::Base, &base_key(first_id))
+        .unwrap_err();
+    assert_eq!(
+        seq_error.code, "CALYX_ASTER_LATEST_ONLY_HISTORY_UNAVAILABLE",
+        "checkpointed rows must be served from router latest readback, not restored into MVCC"
+    );
+
+    let second_text = "second latest-only ingest row";
+    let second = resolved.path.join("second.jsonl");
+    fs::write(&second, format!("{{\"text\":\"{second_text}\"}}\n")).unwrap();
+    ingest_batch_streaming(&resolved, &second).unwrap();
+
+    let after = open_vault(&resolved).unwrap();
+    let after_snapshot = after.snapshot();
+    let rows = after
+        .scan_cf_at(after_snapshot, ColumnFamily::Base)
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+
+    fs::remove_dir_all(root).ok();
+}

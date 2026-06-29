@@ -62,6 +62,16 @@ fn parse_search_rejects_invalid_filter_json_before_vault_open() {
 }
 
 #[test]
+fn search_open_options_use_latest_only_router_readback() {
+    let options = super::latest_read_vault_options();
+
+    assert!(
+        !options.restore_mvcc_rows,
+        "search/rebuild must not rehydrate every checkpointed durable row into MVCC"
+    );
+}
+
+#[test]
 fn zero_constellations_render_empty_results() {
     let rendered = output::render_hits(&[], false, true, None);
     assert_eq!(serde_json::to_string(&rendered).unwrap(), "[]");

@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use calyx_aster::{cf::ColumnFamily, vault::AsterVault};
+use calyx_aster::{
+    cf::ColumnFamily,
+    vault::{AsterVault, VaultOptions},
+};
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality,
     SlotId, SlotVector, VaultId, VaultStore,
@@ -239,6 +242,63 @@ fn sidecars_are_streamed_compact_with_matching_hash() {
     fs::remove_dir_all(root).ok();
 }
 
+#[test]
+fn latest_only_rebuild_reads_checkpoint_plus_wal_without_recheckpointing_base() {
+    let root = scratch("latest-only-rebuild");
+    let vault_id = VaultId::from_ulid(Ulid::from_bytes([0x31; 16]));
+    let salt = b"latest-only-search-rebuild".to_vec();
+    let writer = AsterVault::new_durable(&root, vault_id, salt.clone(), VaultOptions::default())
+        .expect("open durable writer");
+    let mut first = constellation(cx(31), vec![1.0, 0.0]);
+    first.vault_id = vault_id;
+    let mut second = constellation(cx(32), vec![0.0, 1.0]);
+    second.vault_id = vault_id;
+    writer
+        .put_batch(vec![first, second])
+        .expect("write checkpointed rows");
+    writer.flush().expect("checkpoint first two rows");
+    let checkpoint_ssts = sst_count(root.join("cf/base"));
+    let checkpoint_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("MANIFEST")).unwrap()).unwrap();
+    assert_eq!(checkpoint_manifest["durable_seq"], 1);
+
+    let mut third = constellation(cx(33), vec![0.5, 0.5]);
+    third.vault_id = vault_id;
+    writer.put(third).expect("write wal-only row");
+    drop(writer);
+
+    let latest = AsterVault::open(
+        &root,
+        vault_id,
+        salt,
+        VaultOptions {
+            restore_mvcc_rows: false,
+            ..VaultOptions::default()
+        },
+    )
+    .expect("open latest-only reader");
+    let docs = load_docs(&latest).expect("load docs from latest-only reader");
+    rebuild_for_vault(&root, &latest).expect("rebuild from latest-only reader");
+    let after_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("MANIFEST")).unwrap()).unwrap();
+    let index_manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(root.join("idx/search/manifest.json")).unwrap()).unwrap();
+
+    assert_eq!(docs.len(), 3);
+    assert_eq!(index_manifest["slots"].as_array().unwrap().len(), 1);
+    assert_eq!(index_manifest["filter"]["len"], 3);
+    assert_eq!(
+        sst_count(root.join("cf/base")),
+        checkpoint_ssts,
+        "read-only search rebuild must not checkpoint or duplicate Base SST files"
+    );
+    assert_eq!(
+        after_manifest["durable_seq"], checkpoint_manifest["durable_seq"],
+        "read-only search rebuild must not advance the vault manifest durable_seq"
+    );
+    fs::remove_dir_all(root).ok();
+}
+
 fn selective_filters() -> QueryFilters {
     QueryFilters {
         scalars: vec![ScalarPredicate {
@@ -375,6 +435,19 @@ fn scratch(tag: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("scratch");
     dir
+}
+
+fn sst_count(path: PathBuf) -> usize {
+    fs::read_dir(path)
+        .expect("read sst dir")
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .ok()
+                .and_then(|entry| entry.path().extension().map(|ext| ext == "sst"))
+                .unwrap_or(false)
+        })
+        .count()
 }
 
 fn cosine(left: &[f32], right: &[f32]) -> f32 {

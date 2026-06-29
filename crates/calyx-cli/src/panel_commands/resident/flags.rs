@@ -12,6 +12,8 @@ use crate::error::{CliError, CliResult};
 pub(super) struct ServeFlags {
     pub(super) home: Option<PathBuf>,
     pub(super) template: Option<String>,
+    pub(super) vault: Option<PathBuf>,
+    pub(super) modality: Option<Modality>,
     pub(super) bind: Option<SocketAddr>,
     pub(super) ready_out: Option<PathBuf>,
     pub(super) progress_out: Option<PathBuf>,
@@ -36,6 +38,10 @@ pub(super) fn parse_serve_flags(args: &[String]) -> CliResult<ServeFlags> {
         match args[idx].as_str() {
             "--home" => flags.home = Some(PathBuf::from(value(args, idx + 1, "--home")?)),
             "--template" => flags.template = Some(value(args, idx + 1, "--template")?.to_string()),
+            "--vault" => flags.vault = Some(PathBuf::from(value(args, idx + 1, "--vault")?)),
+            "--modality" => {
+                flags.modality = Some(parse_modality(value(args, idx + 1, "--modality")?)?)
+            }
             "--bind" => flags.bind = Some(parse_addr(value(args, idx + 1, "--bind")?)?),
             "--ready-out" => {
                 flags.ready_out = Some(PathBuf::from(value(args, idx + 1, "--ready-out")?))
@@ -222,4 +228,40 @@ pub(super) fn calyx_home() -> CliResult<PathBuf> {
     env::var_os("CALYX_HOME")
         .map(PathBuf::from)
         .ok_or_else(|| CliError::usage("CALYX_HOME is required or pass --home <dir>"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_serve_accepts_vault_source_and_modality() {
+        let flags = parse_serve_flags(&args(&[
+            "--vault",
+            "C:\\calyx\\vaults\\01TEST",
+            "--modality",
+            "text",
+            "--bind",
+            "127.0.0.1:8788",
+        ]))
+        .unwrap();
+        assert_eq!(
+            flags.vault.as_deref(),
+            Some(Path::new("C:\\calyx\\vaults\\01TEST"))
+        );
+        assert_eq!(flags.modality, Some(Modality::Text));
+        assert_eq!(flags.bind, Some("127.0.0.1:8788".parse().unwrap()));
+    }
+
+    #[test]
+    fn parse_serve_keeps_template_source() {
+        let flags = parse_serve_flags(&args(&["--template", "blackwell-42"])).unwrap();
+        assert_eq!(flags.template.as_deref(), Some("blackwell-42"));
+        assert!(flags.vault.is_none());
+    }
 }

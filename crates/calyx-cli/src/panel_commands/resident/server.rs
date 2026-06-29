@@ -13,12 +13,14 @@ pub(crate) fn serve(args: &[String]) -> CliResult {
     let bind = flags.bind.unwrap_or(parse_addr(DEFAULT_BIND)?);
     ensure_loopback(bind)?;
     let home = resolve_home(&mut flags)?;
-    let template = flags.template.take().ok_or_else(|| {
-        CliError::usage("calyx panel resident serve requires --template <name-or-id>")
-    })?;
+    if flags.template.is_some() == flags.vault.is_some() {
+        return Err(CliError::usage(
+            "calyx panel resident serve requires exactly one of --template <name-or-id> or --vault <vault>",
+        ));
+    }
     let listener = TcpListener::bind(bind)?;
     let local_addr = listener.local_addr()?;
-    let state = load_resident_warm_state(warm_options(home, template, flags))?;
+    let state = load_resident_warm_state(warm_options(home, flags))?;
     let service = Arc::new(ResidentService {
         state,
         bind: local_addr,
@@ -46,10 +48,12 @@ pub(crate) fn resolve_home_with(
     }
 }
 
-fn warm_options(home: PathBuf, template: String, flags: ServeFlags) -> ResidentWarmOptions {
+fn warm_options(home: PathBuf, flags: ServeFlags) -> ResidentWarmOptions {
     ResidentWarmOptions {
         home,
-        template,
+        template: flags.template,
+        vault: flags.vault,
+        modality: flags.modality,
         ready_out: flags.ready_out,
         max_resident_vram_mib: flags
             .max_resident_vram_mib
