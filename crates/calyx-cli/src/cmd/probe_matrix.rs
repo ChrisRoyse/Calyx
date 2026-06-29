@@ -11,7 +11,7 @@ use calyx_lodestar::{
     ProbeLensEmphasis, ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing, ProbeProductivity,
     ProbeRecord, ProbeRefusal, ProbeResponse, ProbeVariant, build_probe_matrix,
 };
-use calyx_registry::load_vault_panel_state;
+use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
 use calyx_search::{FusionChoice, GuardChoice, search_outcome_with_slots};
 use calyx_sextant::{Hit, RrfProfile};
 use serde::{Deserialize, Serialize};
@@ -89,6 +89,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         vault_salt(resolved.vault_id, &resolved.name),
         VaultOptions::default(),
     )?;
+    require_vault_registry_contracts(&resolved.path)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let active_slots = if args.slots.is_empty() {
         active_text_slots(&state.panel.slots)?

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 mod a38_bundle;
+mod registry_contract;
 mod resident;
 mod template_cards;
 mod template_model;
@@ -23,6 +24,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{CliError, CliResult};
 use crate::output::print_json;
+
+use registry_contract::{registry_audit, registry_repair};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct LensCatalog {
@@ -207,12 +210,14 @@ pub(crate) fn run(topic: &str, rest: &[String]) -> CliResult {
     match topic {
         "a38-bundle" => a38_bundle::run(rest),
         "batch-limit" => batch_limit(rest),
+        "registry-audit" => registry_audit(rest),
+        "registry-repair" => registry_repair(rest),
         "status" => status(rest),
         "template" => templates::run(rest),
         "resident" => resident::run(rest),
         "warm" => warm::run(rest),
         other => Err(CliError::usage(format!(
-            "unknown panel subcommand {other}; expected a38-bundle, batch-limit, status, template, resident, or warm"
+            "unknown panel subcommand {other}; expected a38-bundle, batch-limit, registry-audit, registry-repair, status, template, resident, or warm"
         ))),
     }
 }

@@ -8,7 +8,7 @@ use calyx_core::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::frozen::NormPolicy;
+use crate::frozen::{FrozenLensContract, LensDType, NormPolicy};
 
 const LENS_UNREACHABLE: &str = "CALYX_LENS_UNREACHABLE";
 #[cfg(not(feature = "candle-cuda"))]
@@ -118,6 +118,18 @@ pub enum LensHealth {
 }
 
 impl LensSpec {
+    pub fn declared_contract(&self) -> FrozenLensContract {
+        FrozenLensContract::new(
+            self.name.clone(),
+            self.weights_sha256,
+            self.corpus_hash,
+            self.output,
+            self.modality,
+            LensDType::F32,
+            self.norm_policy,
+        )
+    }
+
     pub fn lens_id(&self) -> LensId {
         let output = format!(
             "shape={:?};norm={:?};runtime={:?}",
