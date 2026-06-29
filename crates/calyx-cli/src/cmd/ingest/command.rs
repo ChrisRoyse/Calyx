@@ -1,24 +1,24 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write;
 
-use calyx_aster::cf::{ColumnFamily, anchor_key, base_key};
-use calyx_aster::dedup::{AnchorConflictResult, check_anchor_conflict};
-use calyx_aster::vault::AsterVault;
+use calyx_aster::cf::{anchor_key, base_key, ColumnFamily};
+use calyx_aster::dedup::{check_anchor_conflict, AnchorConflictResult};
 use calyx_aster::vault::encode;
+use calyx_aster::vault::AsterVault;
 use calyx_core::{Anchor, AnchorKind, CxId, Input, VaultStore};
 use calyx_ledger::EntryKind;
-use calyx_registry::{VaultPanelState, load_vault_panel_state};
+use calyx_registry::{load_vault_panel_state, VaultPanelState};
 
 use super::super::search::rebuild_persistent_indexes;
-use super::super::vault::{ResolvedVault, now_ms};
+use super::super::vault::{now_ms, ResolvedVault};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
-use super::batch::{BatchRow, parse_batch_line, validate_batch_file};
+use super::batch::{parse_batch_line, validate_batch_file, BatchRow};
 use super::constellation::{
     ensure_content_panel_floor, measure_constellation, measure_constellation_microbatch, text_input,
 };
 use super::ledger::{append_anchor_ledger, append_anchor_marker_ledger, append_cli_ledger};
-use super::oracle_event::{OracleEvent, append_recurrence_if_absent};
+use super::oracle_event::{append_recurrence_if_absent, OracleEvent};
 use super::store::{base_exists, ensure_base_exists, open_vault, resolve_cli_vault};
 use super::types::{AnchorReport, BatchIngestSummary, IngestOutput, IngestReport};
 use super::verify::verify_base_readback;
@@ -358,14 +358,23 @@ fn flush_measure_batch(
                     marker_kinds.push(anchor.kind.clone());
                 }
             }
+            let mut expected_readback = existing.as_ref().cloned().unwrap_or_else(|| cx.clone());
             if should_stage_batch_constellation(new, &marker_kinds) {
                 if new {
                     staged.push(cx.clone());
+                    expected_readback = cx.clone();
                 } else if let Some(existing) = existing.as_ref() {
-                    append_missing_batch_anchors(vault, existing, cx, &marker_kinds)?;
+                    expected_readback =
+                        append_missing_batch_anchors(vault, existing, cx, &marker_kinds)?;
                 }
             }
-            order.push((cx.clone(), new, marker_kinds, oracle.clone()));
+            order.push(BatchOrderRow {
+                cx_id: cx.cx_id,
+                expected_readback,
+                new,
+                marker_kinds,
+                oracle: oracle.clone(),
+            });
         }
         match staged.len() {
             0 => {}
@@ -377,22 +386,30 @@ fn flush_measure_batch(
             }
         }
         vault.flush()?;
-        append_oracle_events(vault, &order)?;
         let snapshot = vault.snapshot();
-        for (cx, new, marker_kinds, _) in order {
-            let cx_id = cx.cx_id;
-            verify_base_readback(vault, snapshot, &cx, cx_id, &marker_kinds)?;
-            let ledger_seq = if new {
+        for row in &order {
+            verify_base_readback(
+                vault,
+                snapshot,
+                &row.expected_readback,
+                row.cx_id,
+                &row.marker_kinds,
+            )?;
+        }
+        append_oracle_events(vault, &order)?;
+        for row in order {
+            let cx_id = row.cx_id;
+            let ledger_seq = if row.new {
                 vault.get(cx_id, snapshot)?.provenance.seq
             } else {
                 append_cli_ledger(vault, EntryKind::Ingest, cx_id, "cli-idempotent-ingest")?
             };
-            for kind in marker_kinds {
+            for kind in row.marker_kinds {
                 append_anchor_marker_ledger(vault, cx_id, &kind)?;
             }
             let report = IngestReport {
                 cx_id: cx_id.to_string(),
-                new,
+                new: row.new,
                 ledger_seq,
             };
             summary.record(&report);
@@ -432,9 +449,9 @@ fn append_missing_batch_anchors(
     existing: &calyx_core::Constellation,
     incoming: &calyx_core::Constellation,
     marker_kinds: &[AnchorKind],
-) -> CliResult<()> {
+) -> CliResult<calyx_core::Constellation> {
     if marker_kinds.is_empty() {
-        return Ok(());
+        return Ok(existing.clone());
     }
     if let AnchorConflictResult::Conflicting {
         anchor_type,
@@ -458,7 +475,7 @@ fn append_missing_batch_anchors(
         }
     }
     if added.is_empty() {
-        return Ok(());
+        return Ok(existing.clone());
     }
     merged.flags.ungrounded = merged.anchors.is_empty();
     merged.validate_schema()?;
@@ -477,21 +494,21 @@ fn append_missing_batch_anchors(
         ));
     }
     vault.write_cf_batch(rows)?;
-    Ok(())
+    Ok(merged)
 }
 
-fn append_oracle_events(
-    vault: &AsterVault,
-    order: &[(
-        calyx_core::Constellation,
-        bool,
-        Vec<AnchorKind>,
-        Option<OracleEvent>,
-    )],
-) -> CliResult<()> {
-    for (cx, _, _, oracle) in order {
-        if let Some(event) = oracle {
-            append_recurrence_if_absent(vault, cx.cx_id, event, now_ms())?;
+struct BatchOrderRow {
+    cx_id: CxId,
+    expected_readback: calyx_core::Constellation,
+    new: bool,
+    marker_kinds: Vec<AnchorKind>,
+    oracle: Option<OracleEvent>,
+}
+
+fn append_oracle_events(vault: &AsterVault, order: &[BatchOrderRow]) -> CliResult<()> {
+    for row in order {
+        if let Some(event) = &row.oracle {
+            append_recurrence_if_absent(vault, row.cx_id, event, now_ms())?;
         }
     }
     Ok(())
