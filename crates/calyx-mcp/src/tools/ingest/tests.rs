@@ -115,6 +115,29 @@ fn vault_with_algorithmic(server: &McpServer, name: &str) {
     );
 }
 
+fn vault_with_only_unreachable_tei(server: &McpServer, name: &str) {
+    call_ok(server, 13, "calyx.create_vault", json!({"name": name}));
+    call_ok(
+        server,
+        14,
+        "calyx.park_lens",
+        json!({"vault": name, "slot": 1}),
+    );
+    call_ok(
+        server,
+        15,
+        "calyx.add_lens",
+        json!({
+            "vault": name,
+            "name": "dead_tei",
+            "runtime": "tei-http",
+            "endpoint": "http://127.0.0.1:9/embed",
+            "shape": "Dense(768)",
+            "modality": "text"
+        }),
+    );
+}
+
 #[test]
 fn ingest_twice_is_idempotent_and_returns_retry_ledger_seq() {
     let _env = TestEnv::new("idempotent");
@@ -190,8 +213,10 @@ fn measure_returns_slot_array_with_absent_vectors_not_zero_fill() {
             .any(|slot| slot["vector"].get("dense").is_some())
     );
     assert!(slots.iter().any(|slot| {
-        slot["vector"]["absent"]["reason"] == "lens_unavailable"
-            && slot["vector"].get("dense").is_none()
+        matches!(
+            slot["vector"]["absent"]["reason"].as_str(),
+            Some("lens_inactive" | "lens_unavailable")
+        ) && slot["vector"].get("dense").is_none()
     }));
 }
 
@@ -318,11 +343,11 @@ fn anchor_unknown_cx_is_vault_access_denied() {
 fn ingest_with_all_applicable_lenses_unavailable_fails_closed() {
     let _env = TestEnv::new("unavailable");
     let server = server();
-    call_ok(&server, 13, "calyx.create_vault", json!({"name": "v"}));
+    vault_with_only_unreachable_tei(&server, "v");
 
     let error = call_err(
         &server,
-        14,
+        16,
         "calyx.ingest",
         json!({"vault": "v", "input": "no runtime"}),
     );

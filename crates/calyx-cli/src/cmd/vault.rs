@@ -6,9 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Asymmetry, CalyxError, Panel, SlotId, SlotState, VaultId};
 use calyx_registry::{
-    Registry, SlotSpec, SwapController, bio_default, civic_default, code_default, legal_default,
-    list_panel, load_vault_panel_state, media_default, medical_default, persist_vault_panel_state,
-    profile_lens, text_default,
+    PanelTemplate, Registry, SlotSpec, SwapController, bio_default, civic_default, code_default,
+    legal_default, list_panel, load_vault_panel_state, materialize_panel_template, media_default,
+    medical_default, persist_vault_panel_state, profile_lens, text_default,
 };
 use serde::{Deserialize, Serialize};
 use ulid::Ulid;
@@ -44,6 +44,7 @@ struct CreateVaultReport {
     content_lens_count: usize,
     registered_lenses_added: usize,
     registry_snapshot_written: bool,
+    inactive_unmaterialized_slots: Vec<String>,
     a37_gate_eligible: bool,
     a37_status: String,
 }
@@ -89,10 +90,11 @@ enum LensStateAction {
 
 struct PreparedVaultPanel {
     panel: Panel,
-    registry: Option<Registry>,
+    registry: Registry,
     template_source: String,
     content_lens_count: usize,
     registered_lenses_added: usize,
+    inactive_unmaterialized_slots: Vec<String>,
     a37_gate_eligible: bool,
     a37_status: String,
 }
@@ -128,13 +130,8 @@ fn create_vault(args: CreateVaultArgs) -> CliResult {
         vault_salt(vault_id, &args.name),
         options,
     )?;
-    let registry_snapshot_written = match prepared.registry.as_ref() {
-        Some(registry) => {
-            persist_vault_panel_state(&vault_dir, &prepared.panel, registry)?;
-            true
-        }
-        None => false,
-    };
+    persist_vault_panel_state(&vault_dir, &prepared.panel, &prepared.registry)?;
+    let registry_snapshot_written = true;
 
     index.vaults.push(VaultIndexEntry {
         name: args.name.clone(),
@@ -154,6 +151,7 @@ fn create_vault(args: CreateVaultArgs) -> CliResult {
         content_lens_count: prepared.content_lens_count,
         registered_lenses_added: prepared.registered_lenses_added,
         registry_snapshot_written,
+        inactive_unmaterialized_slots: prepared.inactive_unmaterialized_slots,
         a37_gate_eligible: prepared.a37_gate_eligible,
         a37_status: prepared.a37_status,
     })
@@ -293,8 +291,8 @@ fn profile_lens_command(args: ProfileLensArgs) -> CliResult {
     print_json(&card)
 }
 
-fn panel_for_template(name: &str) -> CliResult<Panel> {
-    let template = match name {
+fn builtin_panel_template(name: &str) -> CliResult<PanelTemplate> {
+    Ok(match name {
         "text-default" => text_default(),
         "code-default" => code_default(),
         "civic-default" => civic_default(),
@@ -308,19 +306,20 @@ fn panel_for_template(name: &str) -> CliResult<Panel> {
                 super::PANEL_TEMPLATES.join(", ")
             )));
         }
-    };
-    Ok(calyx_registry::instantiate_panel(&template, now_ms()).panel)
+    })
 }
 
 fn prepare_vault_panel(home: &Path, template: &str) -> CliResult<PreparedVaultPanel> {
     if super::PANEL_TEMPLATES.contains(&template) {
-        let panel = panel_for_template(template)?;
+        let materialized =
+            materialize_panel_template(&builtin_panel_template(template)?, now_ms())?;
         return Ok(PreparedVaultPanel {
-            content_lens_count: panel_content_lens_count(&panel),
-            panel,
-            registry: None,
-            template_source: "built_in".to_string(),
-            registered_lenses_added: 0,
+            content_lens_count: panel_content_lens_count(&materialized.panel),
+            panel: materialized.panel,
+            registry: materialized.registry,
+            template_source: "built_in_materialized".to_string(),
+            registered_lenses_added: materialized.registered_lenses_added,
+            inactive_unmaterialized_slots: materialized.inactive_unmaterialized_slots,
             a37_gate_eligible: false,
             a37_status: "built_in_template_not_a37_profiled".to_string(),
         });
@@ -329,10 +328,11 @@ fn prepare_vault_panel(home: &Path, template: &str) -> CliResult<PreparedVaultPa
     match build_saved_template_panel(home, template, now_ms()) {
         Ok(saved) => Ok(PreparedVaultPanel {
             panel: saved.panel,
-            registry: Some(saved.registry),
+            registry: saved.registry,
             template_source: format!("saved:{}:{}", saved.template_name, saved.template_id),
             content_lens_count: saved.content_lens_count,
             registered_lenses_added: saved.registered_lenses_added,
+            inactive_unmaterialized_slots: Vec::new(),
             a37_gate_eligible: saved.a37_gate_eligible,
             a37_status: saved.a37_status,
         }),
