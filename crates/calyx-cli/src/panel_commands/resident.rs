@@ -1,13 +1,15 @@
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use bincode::config;
 use calyx_core::{AbsentReason, CalyxError, Input, LensId, Modality, SlotState, SlotVector};
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 mod flags;
@@ -18,9 +20,13 @@ use flags::{
 };
 use protocol::{
     ClientMeasureInput, MEASURE_BATCH_SCHEMA, MEASURE_SCHEMA, MeasureResponse, READY_SCHEMA,
-    ReadyResponse, ResidentRequest, hex_decode, hex_encode,
+    RESIDENT_BINARY_PROTOCOL_VERSION, ReadyResponse, ResidentMeasureBatchBinaryRequest,
+    ResidentMeasureBatchBinaryResponse, ResidentMeasureBatchBinaryResult, ResidentRequest,
+    hex_decode,
 };
-pub(crate) use protocol::{MeasureBatchResponse, ResidentMeasuredInput, ResidentSlotMeasure};
+pub(crate) use protocol::{
+    MeasureBatchAtResponse, MeasureBatchResponse, ResidentMeasuredInput, ResidentSlotMeasure,
+};
 
 use super::warm::resident_support::{
     ResidentWarmOptions, ResidentWarmState, load_resident_warm_state,
@@ -35,6 +41,8 @@ const DEFAULT_MAX_LOAD_SECS: u64 = 60;
 const CLIENT_TIMEOUT_SECS: u64 = 30;
 const CLIENT_TIMEOUT_REMEDIATION: &str =
     "start `calyx panel resident serve` on the requested loopback address";
+const RESIDENT_BINARY_MAGIC: &[u8] = b"CALYX_PANEL_RESIDENT_BIN1\n";
+const MAX_RESIDENT_SERVICE_FRAME_BYTES: usize = 2 * 1024 * 1024 * 1024;
 
 struct ResidentService {
     state: ResidentWarmState,
@@ -149,17 +157,30 @@ fn handle_client(
     service: Arc<ResidentService>,
     running: Arc<AtomicBool>,
 ) -> CliResult {
-    let mut line = String::new();
-    {
-        let mut reader = BufReader::new(stream.try_clone()?);
-        reader.read_line(&mut line)?;
+    let mut reader = BufReader::new(stream.try_clone()?);
+    let mut first_line = Vec::new();
+    reader.read_until(b'\n', &mut first_line)?;
+    if first_line == RESIDENT_BINARY_MAGIC {
+        let response = dispatch_binary_measure_batch(&mut reader, &service);
+        write_binary_response(&mut stream, &response)?;
+        stream.flush()?;
+        let _ = stream.shutdown(Shutdown::Both);
+        return Ok(());
     }
-    let response = match serde_json::from_str::<ResidentRequest>(&line) {
-        Ok(request) => dispatch_request(request, &service, &running),
+
+    let response = match String::from_utf8(first_line) {
+        Ok(line) => match serde_json::from_str::<ResidentRequest>(&line) {
+            Ok(request) => dispatch_request(request, &service, &running),
+            Err(error) => error_value(
+                "CALYX_PANEL_RESIDENT_BAD_REQUEST",
+                format!("decode resident request JSON line: {error}"),
+                "send one JSON object per connection with op=ready, measure, or shutdown",
+            ),
+        },
         Err(error) => error_value(
             "CALYX_PANEL_RESIDENT_BAD_REQUEST",
-            format!("decode resident request JSON line: {error}"),
-            "send one JSON object per connection with op=ready, measure, or shutdown",
+            format!("resident request was neither binary magic nor valid UTF-8 JSON: {error}"),
+            "send one JSON object per connection or the resident binary magic line",
         ),
     };
     serde_json::to_writer(&mut stream, &response)?;
@@ -167,6 +188,61 @@ fn handle_client(
     stream.flush()?;
     let _ = stream.shutdown(Shutdown::Both);
     Ok(())
+}
+
+fn dispatch_binary_measure_batch(
+    reader: &mut impl Read,
+    service: &ResidentService,
+) -> ResidentMeasureBatchBinaryResponse {
+    let result = match read_frame(reader).and_then(|bytes| {
+        decode_binary::<ResidentMeasureBatchBinaryRequest>(&bytes)
+            .map(|request| (bytes.len(), request))
+    }) {
+        Ok((request_bytes, request)) => {
+            if request.protocol_version != RESIDENT_BINARY_PROTOCOL_VERSION {
+                ResidentMeasureBatchBinaryResult::Err {
+                    code: "CALYX_PANEL_RESIDENT_PROTOCOL_MISMATCH".to_string(),
+                    message: format!(
+                        "resident binary measure_batch protocol version {}, expected {}",
+                        request.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION
+                    ),
+                    remediation:
+                        "restart the resident service from the same Calyx build as the CLI"
+                            .to_string(),
+                }
+            } else {
+                eprintln!(
+                    "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_binary_request process_id={} protocol_version={} request_bytes={} inputs={}",
+                    std::process::id(),
+                    request.protocol_version,
+                    request_bytes,
+                    request.inputs.len()
+                );
+                match measure_batch(
+                    service,
+                    request.modality,
+                    request.inputs,
+                    request.runtime_batch_limit,
+                ) {
+                    Ok(response) => ResidentMeasureBatchBinaryResult::Ok(response),
+                    Err(error) => ResidentMeasureBatchBinaryResult::Err {
+                        code: error.code().to_string(),
+                        message: error.message().to_string(),
+                        remediation: error.remediation().to_string(),
+                    },
+                }
+            }
+        }
+        Err(error) => ResidentMeasureBatchBinaryResult::Err {
+            code: error.code.to_string(),
+            message: error.message,
+            remediation: error.remediation.to_string(),
+        },
+    };
+    ResidentMeasureBatchBinaryResponse {
+        protocol_version: RESIDENT_BINARY_PROTOCOL_VERSION,
+        result,
+    }
 }
 
 fn dispatch_request(
@@ -526,46 +602,72 @@ fn send_request(addr: SocketAddr, request: Value) -> CliResult<Value> {
     Ok(serde_json::from_str(&response)?)
 }
 
+fn send_binary_measure_batch_request(
+    addr: SocketAddr,
+    request: &ResidentMeasureBatchBinaryRequest,
+) -> CliResult<(ResidentMeasureBatchBinaryResponse, usize, usize)> {
+    ensure_loopback(addr)?;
+    let mut stream = TcpStream::connect(addr).map_err(|error| {
+        CliError::from(CalyxError {
+            code: "CALYX_PANEL_RESIDENT_UNAVAILABLE",
+            message: format!("connect resident service {addr}: {error}"),
+            remediation: CLIENT_TIMEOUT_REMEDIATION,
+        })
+    })?;
+    let timeout = Some(Duration::from_secs(CLIENT_TIMEOUT_SECS));
+    stream.set_read_timeout(timeout)?;
+    stream.set_write_timeout(timeout)?;
+    stream.write_all(RESIDENT_BINARY_MAGIC)?;
+    let request_bytes = encode_binary(request)?;
+    write_frame(&mut stream, &request_bytes)?;
+    stream.flush()?;
+    let response_frame = read_frame(&mut stream)?;
+    let response_bytes = response_frame.len();
+    let response = decode_binary::<ResidentMeasureBatchBinaryResponse>(&response_frame)?;
+    Ok((response, request_bytes.len(), response_bytes))
+}
+
 pub(crate) fn measure_batch_at(
     addr: SocketAddr,
     modality: Modality,
     inputs: &[Input],
     runtime_batch_limit: Option<usize>,
-) -> CliResult<MeasureBatchResponse> {
-    let request = json!({
-        "op": "measure_batch",
-        "modality": modality,
-        "inputs_hex": inputs
+) -> CliResult<MeasureBatchAtResponse> {
+    let request = ResidentMeasureBatchBinaryRequest {
+        protocol_version: RESIDENT_BINARY_PROTOCOL_VERSION,
+        modality,
+        inputs: inputs
             .iter()
-            .map(|input| hex_encode(&input.bytes))
+            .map(|input| input.bytes.clone())
             .collect::<Vec<_>>(),
-        "runtime_batch_limit": runtime_batch_limit,
-    });
-    let response = send_request(addr, request)?;
-    if response
-        .get("ok")
-        .and_then(Value::as_bool)
-        .is_some_and(|ok| !ok)
-    {
-        let remote_code = response
-            .get("code")
-            .and_then(Value::as_str)
-            .unwrap_or("CALYX_PANEL_RESIDENT_ERROR");
-        let message = response
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("resident measure_batch returned an error");
-        let remote_remediation = response
-            .get("remediation")
-            .and_then(Value::as_str)
-            .unwrap_or(CLIENT_TIMEOUT_REMEDIATION);
+        runtime_batch_limit,
+    };
+    let (response, request_bytes, response_bytes) =
+        send_binary_measure_batch_request(addr, &request)?;
+    if response.protocol_version != RESIDENT_BINARY_PROTOCOL_VERSION {
         return Err(CliError::from(CalyxError {
-            code: resident_remote_error_code(remote_code),
-            message: format!("{remote_code}: {message}; remediation={remote_remediation}"),
-            remediation: CLIENT_TIMEOUT_REMEDIATION,
+            code: "CALYX_PANEL_RESIDENT_PROTOCOL_MISMATCH",
+            message: format!(
+                "resident measure_batch binary protocol {}, expected {}",
+                response.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION
+            ),
+            remediation: "restart the resident service from the same Calyx build as the CLI",
         }));
     }
-    let parsed: MeasureBatchResponse = serde_json::from_value(response)?;
+    let parsed = match response.result {
+        ResidentMeasureBatchBinaryResult::Ok(response) => response,
+        ResidentMeasureBatchBinaryResult::Err {
+            code,
+            message,
+            remediation,
+        } => {
+            return Err(CliError::from(CalyxError {
+                code: resident_remote_error_code(&code),
+                message: format!("{code}: {message}; remediation={remediation}"),
+                remediation: CLIENT_TIMEOUT_REMEDIATION,
+            }));
+        }
+    };
     if parsed.schema != MEASURE_BATCH_SCHEMA {
         return Err(CliError::from(CalyxError {
             code: "CALYX_PANEL_RESIDENT_SCHEMA_MISMATCH",
@@ -576,7 +678,11 @@ pub(crate) fn measure_batch_at(
             remediation: "restart the resident service from the same Calyx build as the CLI",
         }));
     }
-    Ok(parsed)
+    Ok(MeasureBatchAtResponse {
+        response: parsed,
+        request_bytes,
+        response_bytes,
+    })
 }
 
 fn resident_remote_error_code(remote_code: &str) -> &'static str {
@@ -585,8 +691,136 @@ fn resident_remote_error_code(remote_code: &str) -> &'static str {
         "CALYX_PANEL_RESIDENT_INPUT_HEX_INVALID" => "CALYX_PANEL_RESIDENT_INPUT_HEX_INVALID",
         "CALYX_PANEL_RESIDENT_UNAVAILABLE" => "CALYX_PANEL_RESIDENT_UNAVAILABLE",
         "CALYX_PANEL_RESIDENT_SCHEMA_MISMATCH" => "CALYX_PANEL_RESIDENT_SCHEMA_MISMATCH",
+        "CALYX_PANEL_RESIDENT_BINARY_ENCODE" => "CALYX_PANEL_RESIDENT_BINARY_ENCODE",
+        "CALYX_PANEL_RESIDENT_BINARY_DECODE" => "CALYX_PANEL_RESIDENT_BINARY_DECODE",
+        "CALYX_PANEL_RESIDENT_BINARY_FRAME" => "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+        "CALYX_PANEL_RESIDENT_PROTOCOL_MISMATCH" => "CALYX_PANEL_RESIDENT_PROTOCOL_MISMATCH",
         _ => "CALYX_PANEL_RESIDENT_ERROR",
     }
+}
+
+fn encode_binary(value: &impl Serialize) -> Result<Vec<u8>, CalyxError> {
+    bincode::serde::encode_to_vec(value, config::standard()).map_err(|error| CalyxError {
+        code: "CALYX_PANEL_RESIDENT_BINARY_ENCODE",
+        message: format!("encode resident binary frame failed: {error}"),
+        remediation: "restart the resident service from the same Calyx build as the CLI",
+    })
+}
+
+fn decode_binary<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, CalyxError> {
+    let (value, consumed) =
+        bincode::serde::decode_from_slice(bytes, config::standard()).map_err(|error| {
+            CalyxError {
+                code: "CALYX_PANEL_RESIDENT_BINARY_DECODE",
+                message: format!("decode resident binary frame failed: {error}"),
+                remediation: "restart the resident service from the same Calyx build as the CLI",
+            }
+        })?;
+    if consumed != bytes.len() {
+        return Err(CalyxError {
+            code: "CALYX_PANEL_RESIDENT_BINARY_DECODE",
+            message: format!(
+                "decode resident binary frame consumed {consumed} of {} bytes",
+                bytes.len()
+            ),
+            remediation: "restart the resident service from the same Calyx build as the CLI",
+        });
+    }
+    Ok(value)
+}
+
+fn write_binary_response(
+    stream: &mut TcpStream,
+    response: &ResidentMeasureBatchBinaryResponse,
+) -> CliResult {
+    let bytes = encode_binary(response)?;
+    eprintln!(
+        "CALYX_PANEL_RESIDENT_RUNTIME phase=measure_batch_binary_response process_id={} protocol_version={} response_bytes={}",
+        std::process::id(),
+        response.protocol_version,
+        bytes.len()
+    );
+    write_frame(stream, &bytes)?;
+    Ok(())
+}
+
+fn write_frame(writer: &mut impl Write, bytes: &[u8]) -> Result<(), CalyxError> {
+    if bytes.len() > MAX_RESIDENT_SERVICE_FRAME_BYTES {
+        return Err(CalyxError {
+            code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+            message: format!(
+                "resident service binary frame {} bytes exceeds max {}",
+                bytes.len(),
+                MAX_RESIDENT_SERVICE_FRAME_BYTES
+            ),
+            remediation: "reduce the measurement batch size or implement streaming vector payloads",
+        });
+    }
+    let len = u64::try_from(bytes.len()).map_err(|_| CalyxError {
+        code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+        message: format!(
+            "resident service binary frame {} bytes overflows u64",
+            bytes.len()
+        ),
+        remediation: "reduce the measurement batch size or implement streaming vector payloads",
+    })?;
+    writer
+        .write_all(&len.to_be_bytes())
+        .and_then(|_| writer.write_all(bytes))
+        .map_err(|error| CalyxError {
+            code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+            message: format!("write resident service binary frame failed: {error}"),
+            remediation: CLIENT_TIMEOUT_REMEDIATION,
+        })
+}
+
+fn read_frame(reader: &mut impl Read) -> Result<Vec<u8>, CalyxError> {
+    let mut header = [0_u8; 8];
+    let mut offset = 0;
+    while offset < header.len() {
+        match reader.read(&mut header[offset..]) {
+            Ok(0) => {
+                return Err(CalyxError {
+                    code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+                    message: format!(
+                        "read resident service binary frame header failed: stream closed after {offset} of 8 bytes"
+                    ),
+                    remediation: CLIENT_TIMEOUT_REMEDIATION,
+                });
+            }
+            Ok(n) => offset += n,
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => {
+                return Err(CalyxError {
+                    code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+                    message: format!("read resident service binary frame header failed: {error}"),
+                    remediation: CLIENT_TIMEOUT_REMEDIATION,
+                });
+            }
+        }
+    }
+    let len = u64::from_be_bytes(header);
+    let len = usize::try_from(len).map_err(|_| CalyxError {
+        code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+        message: format!("resident service binary frame length {len} overflows usize"),
+        remediation: "reduce the measurement batch size or implement streaming vector payloads",
+    })?;
+    if len > MAX_RESIDENT_SERVICE_FRAME_BYTES {
+        return Err(CalyxError {
+            code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+            message: format!(
+                "resident service binary frame {len} bytes exceeds max {MAX_RESIDENT_SERVICE_FRAME_BYTES}"
+            ),
+            remediation: "reduce the measurement batch size or implement streaming vector payloads",
+        });
+    }
+    let mut body = vec![0_u8; len];
+    reader.read_exact(&mut body).map_err(|error| CalyxError {
+        code: "CALYX_PANEL_RESIDENT_BINARY_FRAME",
+        message: format!("read resident service binary frame body ({len} bytes) failed: {error}"),
+        remediation: CLIENT_TIMEOUT_REMEDIATION,
+    })?;
+    Ok(body)
 }
 
 fn write_json_file(path: PathBuf, value: &impl Serialize) -> CliResult {
@@ -616,6 +850,10 @@ fn error_value(
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Cursor, Write};
+
+    use calyx_core::Placement;
+
     use super::*;
 
     #[test]
@@ -627,5 +865,148 @@ mod tests {
         .unwrap();
 
         assert_eq!(resolved, home);
+    }
+
+    #[test]
+    fn resident_service_binary_request_roundtrips_without_json_shape() {
+        let request = ResidentMeasureBatchBinaryRequest {
+            protocol_version: RESIDENT_BINARY_PROTOCOL_VERSION,
+            modality: Modality::Text,
+            inputs: vec![b"alpha".to_vec(), b"beta".to_vec()],
+            runtime_batch_limit: Some(4),
+        };
+
+        let bytes = encode_binary(&request).unwrap();
+        let decoded: ResidentMeasureBatchBinaryRequest = decode_binary(&bytes).unwrap();
+        println!(
+            "resident_service_binary_request bytes={} inputs={} runtime_batch_limit={:?}",
+            bytes.len(),
+            decoded.inputs.len(),
+            decoded.runtime_batch_limit
+        );
+
+        assert_eq!(decoded.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION);
+        assert_eq!(decoded.modality, Modality::Text);
+        assert_eq!(decoded.inputs, request.inputs);
+        assert_eq!(decoded.runtime_batch_limit, Some(4));
+        let lossy = String::from_utf8_lossy(&bytes);
+        assert!(
+            !lossy.contains("inputs_hex") && !lossy.contains("runtime_batch_limit"),
+            "resident service binary IPC must not carry JSON field names"
+        );
+    }
+
+    #[test]
+    fn resident_service_binary_frame_readback_is_length_prefixed() {
+        let response = ResidentMeasureBatchBinaryResponse {
+            protocol_version: RESIDENT_BINARY_PROTOCOL_VERSION,
+            result: ResidentMeasureBatchBinaryResult::Err {
+                code: "CALYX_TEST".to_string(),
+                message: "synthetic resident frame edge".to_string(),
+                remediation: "fix test input".to_string(),
+            },
+        };
+        let payload = encode_binary(&response).unwrap();
+        let mut stream = Cursor::new(Vec::new());
+
+        write_frame(&mut stream, &payload).unwrap();
+        let stored = stream.into_inner();
+        println!(
+            "resident_service_binary_frame_state header_bytes=8 payload_bytes={} stored_bytes={}",
+            payload.len(),
+            stored.len()
+        );
+
+        assert_eq!(stored.len(), payload.len() + 8);
+        assert_eq!(
+            u64::from_be_bytes(stored[..8].try_into().unwrap()) as usize,
+            payload.len()
+        );
+        let mut readback = Cursor::new(stored);
+        let decoded_payload = read_frame(&mut readback).unwrap();
+        let decoded: ResidentMeasureBatchBinaryResponse = decode_binary(&decoded_payload).unwrap();
+        assert_eq!(decoded.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION);
+        assert!(matches!(
+            decoded.result,
+            ResidentMeasureBatchBinaryResult::Err { ref code, .. } if code == "CALYX_TEST"
+        ));
+    }
+
+    #[test]
+    fn resident_service_binary_measure_batch_response_roundtrips_with_vectors() {
+        let response = ResidentMeasureBatchBinaryResponse {
+            protocol_version: RESIDENT_BINARY_PROTOCOL_VERSION,
+            result: ResidentMeasureBatchBinaryResult::Ok(MeasureBatchResponse {
+                schema: MEASURE_BATCH_SCHEMA.to_string(),
+                ready: true,
+                process_id: 42,
+                template_source: "synthetic-template".to_string(),
+                modality: Modality::Text,
+                input_count: 1,
+                elapsed_ms: 7,
+                runtime_batch_limit: Some(4),
+                rows: vec![ResidentMeasuredInput {
+                    input_index: 0,
+                    input_len: 24,
+                    measured_slot_count: 1,
+                    absent_slot_count: 0,
+                    slots: vec![ResidentSlotMeasure {
+                        slot: 0,
+                        key: "dense".to_string(),
+                        lens_id: "00000000000000000000000000000000".to_string(),
+                        modality: Modality::Text,
+                        placement: Placement::Gpu,
+                        measured: true,
+                        vector: Some(SlotVector::Dense {
+                            dim: 2,
+                            data: vec![0.25, 0.75],
+                        }),
+                        absent_reason: None,
+                    }],
+                }],
+            }),
+        };
+
+        let bytes = encode_binary(&response).unwrap();
+        println!("resident_service_binary_response bytes={}", bytes.len());
+        let decoded: ResidentMeasureBatchBinaryResponse = decode_binary(&bytes).unwrap();
+
+        assert_eq!(decoded.protocol_version, RESIDENT_BINARY_PROTOCOL_VERSION);
+        match decoded.result {
+            ResidentMeasureBatchBinaryResult::Ok(parsed) => {
+                assert_eq!(parsed.schema, MEASURE_BATCH_SCHEMA);
+                assert_eq!(parsed.modality, Modality::Text);
+                assert_eq!(parsed.rows.len(), 1);
+                assert_eq!(parsed.rows[0].slots.len(), 1);
+                assert!(matches!(
+                    parsed.rows[0].slots[0].vector,
+                    Some(SlotVector::Dense { dim: 2, .. })
+                ));
+            }
+            ResidentMeasureBatchBinaryResult::Err { code, message, .. } => {
+                panic!("expected ok response, got {code}: {message}");
+            }
+        }
+    }
+
+    #[test]
+    fn resident_service_binary_truncated_frame_fails_loud() {
+        let mut stream = Cursor::new(Vec::new());
+        stream.write_all(&16_u64.to_be_bytes()).unwrap();
+        stream.write_all(b"short").unwrap();
+        stream.set_position(0);
+
+        let error = read_frame(&mut stream).unwrap_err();
+        println!(
+            "resident_service_binary_truncated_error code={} message={}",
+            error.code, error.message
+        );
+
+        assert_eq!(error.code, "CALYX_PANEL_RESIDENT_BINARY_FRAME");
+        assert!(
+            error
+                .message
+                .contains("read resident service binary frame body")
+        );
     }
 }

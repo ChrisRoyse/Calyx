@@ -426,7 +426,7 @@ fn measure_gpu_lenses_via_resident_service(
         gpu_lenses.len(),
         runtime_batch_limit
     ));
-    let response = measure_resident_batch_at(addr, modality, inputs, runtime_batch_limit)
+    let resident = measure_resident_batch_at(addr, modality, inputs, runtime_batch_limit)
         .map_err(|error| CalyxError {
             code: "CALYX_PANEL_RESIDENT_UNAVAILABLE",
             message: format!(
@@ -436,6 +436,9 @@ fn measure_gpu_lenses_via_resident_service(
             ),
             remediation: "start `calyx panel resident serve` for the matching GPU panel on the requested loopback address, then retry ingest",
         })?;
+    let request_bytes = resident.request_bytes;
+    let response_bytes = resident.response_bytes;
+    let response = resident.response;
     if !response.ready {
         return Err(CalyxError::lens_unreachable(format!(
             "resident service {addr} returned ready=false for measure_batch"
@@ -517,7 +520,7 @@ fn measure_gpu_lenses_via_resident_service(
     }
     let out = by_lens.into_iter().collect::<Vec<_>>();
     ingest_runtime_log(format_args!(
-        "phase=measure_resident_service_ok addr={} process_id={} template_source={} inputs={} gpu_lenses={} elapsed_ms={} resident_elapsed_ms={} runtime_batch_limit={:?}",
+        "phase=measure_resident_service_ok addr={} process_id={} template_source={} inputs={} gpu_lenses={} elapsed_ms={} resident_elapsed_ms={} runtime_batch_limit={:?} protocol=binary request_bytes={} response_bytes={}",
         addr,
         response.process_id,
         response.template_source,
@@ -525,7 +528,9 @@ fn measure_gpu_lenses_via_resident_service(
         gpu_lenses.len(),
         started.elapsed().as_millis(),
         response.elapsed_ms,
-        response.runtime_batch_limit
+        response.runtime_batch_limit,
+        request_bytes,
+        response_bytes
     ));
     Ok(out)
 }
