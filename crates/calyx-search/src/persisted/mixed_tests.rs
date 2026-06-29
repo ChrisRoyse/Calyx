@@ -243,6 +243,10 @@ fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
     let stale_filter = root
         .join("idx")
         .join("search")
+        .join("filters_seq_00000000000000000001_n_0000000001.json");
+    let stale_legacy_filter = root
+        .join("idx")
+        .join("search")
         .join("filter_seq_00000000000000000001_n_0000000001.json");
     let stale_ann = root
         .join("idx")
@@ -251,9 +255,11 @@ fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
     fs::create_dir_all(stale_ann.join("nested")).unwrap();
     fs::write(&stale_slot, b"old json").unwrap();
     fs::write(&stale_filter, b"old filter").unwrap();
+    fs::write(&stale_legacy_filter, b"old legacy filter").unwrap();
     let before = json!({
         "stale_slot_exists": stale_slot.exists(),
         "stale_filter_exists": stale_filter.exists(),
+        "stale_legacy_filter_exists": stale_legacy_filter.exists(),
         "stale_ann_exists": stale_ann.exists(),
     });
 
@@ -274,9 +280,18 @@ fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
 
     assert!(!stale_slot.exists());
     assert!(!stale_filter.exists());
+    assert!(!stale_legacy_filter.exists());
     assert!(!stale_ann.exists());
+    let active_filter = indexes
+        .manifest
+        .filter
+        .as_ref()
+        .expect("manifest filter")
+        .index_rel
+        .clone();
+    assert!(root.join(&active_filter).exists());
     maybe_write_fsv_json(
-        "issue980-prune-stale-artifacts.json",
+        "issue983-prune-stale-filter-artifacts.json",
         &json!({
             "source_of_truth": root.display().to_string(),
             "trigger": "manifest swap after stale slot/filter artifacts were present",
@@ -284,7 +299,10 @@ fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
             "after": {
                 "stale_slot_exists": stale_slot.exists(),
                 "stale_filter_exists": stale_filter.exists(),
+                "stale_legacy_filter_exists": stale_legacy_filter.exists(),
                 "stale_ann_exists": stale_ann.exists(),
+                "active_filter": active_filter,
+                "active_filter_exists": root.join(&active_filter).exists(),
                 "manifest_refs": indexes.manifest.slots.iter().map(|entry| {
                     json!({
                         "slot": entry.slot,
