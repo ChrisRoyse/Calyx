@@ -17,8 +17,9 @@ pub use betweenness::{
 pub use error::{MincutError, Result};
 pub use graph_builder::{AgreementEdge, CitationEdge, FrequencyEntry, build_assoc_graph};
 pub use lp_scaffold::{
-    ConstraintSense, LpConstraint, LpProblem, LpSolution, LpVariable, OptSense, SolveStatus,
-    mfvs_lp_problem,
+    ConstraintSense, LpConstraint, LpProblem, LpSolution, LpVariable, MFVS_LP_MAX_NODES,
+    MFVS_LP_MAX_SEARCH_STATES, OptSense, SolveStatus, mfvs_lp_problem, solve_mfvs_lp,
+    verify_feedback_vertex_set,
 };
 pub use scc::{CondensedEdge, CondensedGraph, SccResult, condensate, tarjan_scc};
 pub use spectral::{

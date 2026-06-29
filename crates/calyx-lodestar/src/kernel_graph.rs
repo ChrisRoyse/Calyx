@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use calyx_core::CxId;
-use calyx_mincut::{LpSolution, SccResult, SolveStatus};
+use calyx_mincut::{
+    LpSolution, MincutError, SccResult, SolveStatus, solve_mfvs_lp, verify_feedback_vertex_set,
+};
 use calyx_paths::AssocGraph;
 use serde::{Deserialize, Serialize};
 
@@ -130,18 +132,17 @@ pub fn groundedness_distance(
 }
 
 pub fn lp_round_kernel_graph(
-    _kernel_graph: &KernelGraph,
+    kernel_graph: &KernelGraph,
     params: &LpRoundParams,
 ) -> Result<KernelGraph> {
     validate_lp_params(params)?;
     if params.fallback_to_heuristic {
         return Err(LodestarError::KernelLpUnavailable {
-            detail: "external LP solver not configured; heuristic fallback is disabled".to_string(),
+            detail: "heuristic fallback is disabled for the bounded exact MFVS solver".to_string(),
         });
     }
-    Err(LodestarError::KernelLpUnavailable {
-        detail: "external LP solver not configured".to_string(),
-    })
+    let solution = solve_mfvs_lp(&kernel_graph.graph).map_err(map_lp_solver_error)?;
+    lp_round_kernel_graph_from_solution(kernel_graph, params, &solution)
 }
 
 pub fn lp_round_kernel_graph_from_solution(
@@ -172,8 +173,10 @@ pub fn lp_round_kernel_graph_from_solution(
         .zip(&solution.values)
         .filter_map(|(id, value)| (*value >= params.threshold).then_some(*id))
         .collect();
-    if selected.is_empty() && !ids.is_empty() {
-        return Err(LodestarError::KernelEmptyResult);
+    if !verify_feedback_vertex_set(&kernel_graph.graph, &selected)? {
+        return Err(LodestarError::KernelLpInfeasible {
+            detail: "rounded LP solution does not hit every directed cycle".to_string(),
+        });
     }
     let lp_fraction = if ids.is_empty() {
         0.0
@@ -219,6 +222,15 @@ fn validate_lp_solution_values(solution: &LpSolution, expected_len: usize) -> Re
                 detail: format!("LP solution value at index {idx}={value} is outside [0, 1]"),
             });
         }
+    }
+    let objective_sum: f64 = solution.values.iter().sum();
+    if (solution.objective_value - objective_sum).abs() > 1.0e-6 {
+        return Err(LodestarError::KernelInvalidParams {
+            detail: format!(
+                "LP solution objective_value {} does not match sum(values) {objective_sum}",
+                solution.objective_value
+            ),
+        });
     }
     Ok(())
 }
@@ -299,9 +311,6 @@ fn build_kernel_graph(
     lp_fraction: Option<f32>,
     warnings: Vec<String>,
 ) -> Result<KernelGraph> {
-    if selected.is_empty() && !source.is_empty() {
-        return Err(LodestarError::KernelEmptyResult);
-    }
     let selected_set: BTreeSet<_> = selected.iter().copied().collect();
     let mut builder = AssocGraph::builder();
     for id in &selected {
@@ -323,6 +332,15 @@ fn build_kernel_graph(
         scores,
         warnings,
     })
+}
+
+fn map_lp_solver_error(error: MincutError) -> LodestarError {
+    match error {
+        err @ MincutError::LpSolverLimit { .. } => LodestarError::KernelLpUnavailable {
+            detail: err.to_string(),
+        },
+        other => other.into(),
+    }
 }
 
 fn validate_params(params: &KernelGraphParams) -> Result<()> {

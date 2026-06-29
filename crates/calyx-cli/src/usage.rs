@@ -61,6 +61,8 @@ pub(crate) fn usage() -> &'static str {
        calyx panel template profile --template <name-or-id> (--card <json> ... | --card-dir <dir>) [--assay-card <ensemble_card.json>] [--home <dir>]
        calyx panel template swap --template <name-or-id> --vault <vault> [--require-a37-gate] [--home <dir>]
        calyx panel batch-limit --vault <vault> --set <name-or-id>=<max_batch> [--set <name-or-id>=<max_batch> ...] [--preflight-text <text>] [--preflight-repeat <n>]
+       calyx panel registry-audit --vault <vault>
+       calyx panel registry-repair --vault <vault> (--slot <u16>|--all)
        calyx panel warm --template <name-or-id> [--home <dir>] [--hold-secs <n>] [--out <json>] [--progress-out <jsonl>] [--max-resident-vram-mib <n>] [--resident-overhead-multiplier <n>] [--max-load-secs <n>] [--load-parallelism <n>]
        calyx panel a38-bundle save --name <name> --base-template <name-or-id> --required-modality <m> --include-lens <name-or-id> --evidence <json> [--home <dir>] [--budget-vram-mib <n>]
        calyx panel a38-bundle list [--home <dir>]

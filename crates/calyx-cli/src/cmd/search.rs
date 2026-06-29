@@ -11,6 +11,7 @@ use super::vault::{home_dir, resolve_vault_info, vault_salt};
 use super::{Subcommand, VaultRefArgs};
 use crate::error::CliResult;
 use calyx_aster::vault::{AsterVault, VaultOptions};
+use calyx_registry::require_vault_registry_contracts;
 use std::path::Path;
 
 pub(crate) fn run(command: Subcommand) -> CliResult {
@@ -31,6 +32,7 @@ fn run_rebuild_search_index(args: VaultRefArgs) -> CliResult {
         vault_salt(resolved.vault_id, &resolved.name),
         VaultOptions::default(),
     )?;
+    require_vault_registry_contracts(&resolved.path)?;
     rebuild_persistent_indexes(&resolved.path, &vault)?;
     crate::output::print_json(&serde_json::json!({
         "status": "ok",

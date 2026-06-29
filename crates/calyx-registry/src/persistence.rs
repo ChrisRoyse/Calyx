@@ -5,15 +5,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use calyx_aster::manifest::{ImmutableRef, ManifestStore};
+use calyx_aster::manifest::{ImmutableRef, ManifestStore, VaultManifest};
 use calyx_core::{CalyxError, Input, Lens, LensId, Modality, Panel, Result, SlotShape, SlotVector};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    AlgorithmicLens, CandleLens, ExternalCmdLens, FastembedBgem3Lens, FastembedQwen3Lens,
-    FastembedRerankerLens, FastembedSparseLens, LensRuntime, LensSpec, MultimodalAdapterLens,
-    OnnxColbertLens, OnnxLens, Registry, RegistryLensSnapshot, StaticLookupLens, TeiHttpLens,
-};
+use crate::persistence_contracts::{contract_field_diffs, load_runtime_lens_from_spec};
+use crate::{Registry, RegistryLensSnapshot};
 
 const SNAPSHOT_VERSION: u16 = 1;
 
@@ -450,7 +447,21 @@ fn read_registry_snapshot(
     Ok(snapshot)
 }
 
-fn rebuild_registry(snapshot: &VaultRegistrySnapshot) -> Result<Registry> {
+pub(crate) fn load_manifest_panel_registry_snapshot(
+    vault_dir: &Path,
+) -> Result<(VaultManifest, Panel, VaultRegistrySnapshot)> {
+    let manifest = ManifestStore::open(vault_dir).load_current()?;
+    let panel_bytes = read_ref(vault_dir, &manifest.panel_ref)?;
+    let panel: Panel = serde_json::from_slice(&panel_bytes)
+        .map_err(|error| CalyxError::aster_corrupt_shard(format!("decode panel: {error}")))?;
+    let registry_ref = manifest.registry_ref.as_ref().ok_or_else(|| {
+        CalyxError::aster_corrupt_shard("vault has no persisted registry snapshot")
+    })?;
+    let snapshot = read_registry_snapshot(vault_dir, registry_ref, &manifest.panel_ref)?;
+    Ok((manifest, panel, snapshot))
+}
+
+pub(crate) fn rebuild_registry(snapshot: &VaultRegistrySnapshot) -> Result<Registry> {
     let mut registry = Registry::new();
     for lens in &snapshot.lenses {
         if lens.lens_id != lens.contract.lens_id() {
@@ -478,125 +489,23 @@ fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Result<Arc<dyn Lens>> {
             snapshot.lens_id
         ))
     })?;
-    let lens: Arc<dyn Lens> = match &spec.runtime {
-        LensRuntime::Algorithmic { kind } => {
-            Arc::new(algorithmic_lens(spec, kind).ok_or_else(|| {
-                lens_config_invalid(format!(
-                    "unsupported algorithmic lens kind {kind} for persisted lens {} ({})",
-                    snapshot.lens_id, spec.name
+    let (lens, runtime_contract) = load_runtime_lens_from_spec(spec)?;
+    if runtime_contract != snapshot.contract {
+        return Err(CalyxError::lens_frozen_violation(format!(
+            "persisted lens {} runtime contract drift: {}",
+            snapshot.lens_id,
+            contract_field_diffs("runtime", &snapshot.contract, &runtime_contract)
+                .into_iter()
+                .map(|field| format!(
+                    "{} persisted={} reconstructed={}",
+                    field.field, field.persisted, field.reconstructed
                 ))
-            })?)
-        }
-        LensRuntime::TeiHttp { endpoint } => Arc::new(TeiHttpLens::new(
-            &spec.name,
-            endpoint,
-            spec.modality,
-            dense_dim(spec.output).ok_or_else(|| {
-                lens_config_invalid(format!(
-                    "TEI lens {} ({}) requires dense output shape, got {:?}",
-                    snapshot.lens_id, spec.name, spec.output
-                ))
-            })?,
-        )),
-        LensRuntime::ExternalCmd { cmd, args } => Arc::new(ExternalCmdLens::new(
-            &spec.name,
-            cmd,
-            args.clone(),
-            spec.modality,
-            dense_dim(spec.output).ok_or_else(|| {
-                lens_config_invalid(format!(
-                    "external command lens {} ({}) requires dense output shape, got {:?}",
-                    snapshot.lens_id, spec.name, spec.output
-                ))
-            })?,
-        )),
-        LensRuntime::CandleLocal { .. } => Arc::new(CandleLens::from_lens_spec(spec)?),
-        LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec)?),
-        LensRuntime::OnnxColbert { .. } => Arc::new(OnnxColbertLens::from_lens_spec(spec)?),
-        LensRuntime::FastembedSparse { .. } => Arc::new(FastembedSparseLens::from_lens_spec(spec)?),
-        LensRuntime::FastembedBgem3 { .. } => Arc::new(FastembedBgem3Lens::from_lens_spec(spec)?),
-        LensRuntime::FastembedReranker { .. } => {
-            Arc::new(FastembedRerankerLens::from_lens_spec(spec)?)
-        }
-        LensRuntime::FastembedQwen3 { .. } => Arc::new(FastembedQwen3Lens::from_lens_spec(spec)?),
-        LensRuntime::StaticLookup { .. } => Arc::new(StaticLookupLens::from_lens_spec(spec)?),
-        LensRuntime::MultimodalAdapter { .. } => {
-            Arc::new(MultimodalAdapterLens::from_lens_spec(spec)?)
-        }
-    };
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
     snapshot.contract.verify_registration(lens.as_ref())?;
     Ok(lens)
-}
-
-fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Option<AlgorithmicLens> {
-    match kind {
-        "byte_features" | "byte-features" | "byte" => {
-            Some(AlgorithmicLens::byte_features(&spec.name, spec.modality))
-        }
-        "scalar" => Some(AlgorithmicLens::scalar(&spec.name, spec.modality)),
-        "ast_style" | "ast-style" => Some(AlgorithmicLens::ast_style(&spec.name, spec.modality)),
-        "sparse" | "sparse_keywords" | "sparse-keywords" => Some(AlgorithmicLens::sparse_keywords(
-            &spec.name,
-            spec.modality,
-            sparse_dim(spec.output)?,
-        )),
-        "token_hash" | "token-hash" | "multi_hash" | "multi-hash" => Some(
-            AlgorithmicLens::token_hash(&spec.name, spec.modality, token_dim(spec.output)?),
-        ),
-        "one_hot" | "one-hot" => Some(AlgorithmicLens::one_hot(
-            &spec.name,
-            spec.modality,
-            dense_dim(spec.output)?,
-        )),
-        value => {
-            if let Some(dim) = value
-                .strip_prefix("sparse_keywords:")
-                .or_else(|| value.strip_prefix("sparse-keywords:"))
-                .and_then(|dim| dim.parse().ok())
-            {
-                return Some(AlgorithmicLens::sparse_keywords(
-                    &spec.name,
-                    spec.modality,
-                    dim,
-                ));
-            }
-            if let Some(dim) = value
-                .strip_prefix("token_hash:")
-                .or_else(|| value.strip_prefix("token-hash:"))
-                .or_else(|| value.strip_prefix("multi_hash:"))
-                .or_else(|| value.strip_prefix("multi-hash:"))
-                .and_then(|dim| dim.parse().ok())
-            {
-                return Some(AlgorithmicLens::token_hash(&spec.name, spec.modality, dim));
-            }
-            value
-                .strip_prefix("one_hot:")
-                .or_else(|| value.strip_prefix("one-hot:"))
-                .and_then(|buckets| buckets.parse().ok())
-                .map(|buckets| AlgorithmicLens::one_hot(&spec.name, spec.modality, buckets))
-        }
-    }
-}
-
-fn dense_dim(shape: SlotShape) -> Option<u32> {
-    match shape {
-        SlotShape::Dense(dim) => Some(dim),
-        SlotShape::Sparse(_) | SlotShape::Multi { .. } => None,
-    }
-}
-
-fn sparse_dim(shape: SlotShape) -> Option<u32> {
-    match shape {
-        SlotShape::Sparse(dim) => Some(dim),
-        SlotShape::Dense(_) | SlotShape::Multi { .. } => None,
-    }
-}
-
-fn token_dim(shape: SlotShape) -> Option<u32> {
-    match shape {
-        SlotShape::Multi { token_dim } => Some(token_dim),
-        SlotShape::Dense(_) | SlotShape::Sparse(_) => None,
-    }
 }
 
 fn read_ref(vault_dir: &Path, reference: &ImmutableRef) -> Result<Vec<u8>> {
@@ -608,7 +517,7 @@ fn read_ref(vault_dir: &Path, reference: &ImmutableRef) -> Result<Vec<u8>> {
     })
 }
 
-fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_asset(path: &Path, bytes: &[u8]) -> Result<()> {
     match fs::read(path) {
         Ok(existing) if existing == bytes => return Ok(()),
         Ok(_) => {

@@ -781,6 +781,7 @@ dependencies = [
  "calyx-ledger",
  "calyx-registry",
  "calyx-sextant",
+ "rayon",
  "serde",
  "serde_json",
  "sha2",

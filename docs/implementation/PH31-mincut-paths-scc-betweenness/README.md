@@ -7,7 +7,8 @@
 
 Build the directed association graph over constellations and implement the
 graph-primitive layer that the MFVS pipeline (PH32) requires: Tarjan SCC
-condensation, betweenness centrality, hop-attenuated traversal, and LP scaffolding.
+condensation, betweenness centrality, hop-attenuated traversal, and LP/MFVS
+cycle-elimination support.
 This phase seeds both `calyx-paths` and `calyx-mincut` from the ContextGraph
 `mincut`/`paths`/`solver` sources (copied into CALYX_HOME, never linked),
 then adapts them to Calyx's `CxId`-keyed sparse adjacency and the agreement ×
@@ -18,7 +19,7 @@ directional-confidence edge model from PH27.
 - **Phases:** PH27 (agreement graph — edge source), PH09 (CxId, Anchor,
   constellation CRUD — node source)
 - **Provides for:** PH32 (kernel-graph + MFVS uses SCC condensate, betweenness,
-  LP scaffolding), PH33 (kernel index + answer traversal via hop-attenuation),
+  LP model/solver support), PH33 (kernel index + answer traversal via hop-attenuation),
   PH34 (multi-scope build_kernel uses the same graph layer)
 
 ## Current state
@@ -26,7 +27,8 @@ directional-confidence edge model from PH27.
 ✅ **DONE / FSV-signed-off on aiwonder.** `calyx-paths` now owns `AssocGraph`,
 hop attenuation, and bounded reach/reach_scored traversal. `calyx-mincut` now
 owns Tarjan SCC condensation, directed Brandes betweenness, Loom-style
-agreement/citation graph building, and serializable LP scaffold types for PH32.
+agreement/citation graph building, serializable LP model types, directed cycle
+constraints, and a bounded exact MFVS solver for PH32.
 The graph-builder core is proven from deterministic CxId edge inputs. The real
 Loom xterm/agreement CF adapter into those inputs lives in
 `crates/calyx-lodestar/src/loom_assoc.rs` and is FSV-backed by #293.
@@ -48,7 +50,7 @@ import the live ContextGraph project.
 | `crates/calyx-mincut/src/lib.rs` | crate root; re-exports `scc`, `betweenness`, `lp_scaffold` |
 | `crates/calyx-mincut/src/scc.rs` | Tarjan SCC condensation; `tarjan_scc(graph) -> Vec<Vec<CxId>>`; condensate DAG |
 | `crates/calyx-mincut/src/betweenness.rs` | Brandes betweenness centrality; `betweenness(graph) -> HashMap<CxId, f64>`; normalized; sparse shortcut for scale-free |
-| `crates/calyx-mincut/src/lp_scaffold.rs` | LP variable/constraint scaffolding for MFVS (used by PH32); data types only, no solver yet |
+| `crates/calyx-mincut/src/lp_scaffold.rs` | LP variable/constraint model for MFVS, directed cycle constraints, bounded exact solver, and FVS verification |
 | `crates/calyx-mincut/src/graph_builder.rs` | `build_assoc_graph(loom_agreements, anchors) -> AssocGraph`; edge weight = agreement × directional_confidence; citation/entity edges; frequency raises node weight |
 
 ## Tasks (atomic — all must pass for the phase to be DONE)
@@ -60,7 +62,7 @@ import the live ContextGraph project.
 | T03 | Tarjan SCC condensation | T02 | ✅ FSV |
 | T04 | Brandes betweenness centrality | T03 | ✅ FSV |
 | T05 | Association graph builder from Loom agreements | T02 | ✅ FSV |
-| T06 | LP scaffolding data types | T03 | ✅ FSV |
+| T06 | LP model + bounded MFVS solver | T03 | ✅ FSV / #1013 hardened |
 
 ## FSV exit gate (the phase is DONE only when this is byte-proven on aiwonder)
 

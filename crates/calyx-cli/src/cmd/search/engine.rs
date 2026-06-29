@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{AnchorKind, CalyxError, Constellation, CxId};
-use calyx_registry::load_vault_panel_state;
+use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
 use calyx_search::{FusionChoice, GuardChoice, load_docs, search_outcome};
 use calyx_sextant::Hit;
 
@@ -30,6 +30,7 @@ pub(super) fn run(command: Subcommand) -> CliResult {
 fn search_command(args: SearchArgs) -> CliResult {
     let resolved = resolve_cli_vault(&args.vault)?;
     let vault = open_vault(&resolved)?;
+    require_vault_registry_contracts(&resolved.path)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let outcome = search_outcome(
         &vault,
@@ -54,6 +55,7 @@ fn kernel_answer_command(args: KernelAnswerArgs) -> CliResult {
     let anchor = args.anchor.as_deref().map(parse_anchor_kind).transpose()?;
     let resolved = resolve_cli_vault(&args.vault)?;
     let vault = open_vault(&resolved)?;
+    require_vault_registry_contracts(&resolved.path)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let docs = load_docs(&vault)?;
     let outcome = search_outcome(

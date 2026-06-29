@@ -12,6 +12,7 @@ pub mod measure;
 pub mod panel_ops;
 pub mod panels;
 pub mod persistence;
+mod persistence_contracts;
 pub mod placement;
 pub mod profile;
 pub mod runtime;
@@ -65,6 +66,13 @@ pub use persistence::{
     VaultRegistrySnapshot, apply_registry_snapshot_batch_limits, load_vault_panel_state,
     measure_registry_snapshot_lens_batch, measure_registry_snapshot_lens_batch_with_stats,
     persist_vault_panel_state, set_vault_registry_batch_limits,
+};
+pub use persistence_contracts::{
+    RegistryContractAudit, RegistryContractDiff, RegistryContractFieldDiff,
+    RegistryContractRepairChange, VaultRegistryContractRepairAllWrite,
+    VaultRegistryContractRepairWrite, audit_registry_snapshot_contracts,
+    audit_vault_registry_contracts, repair_vault_registry_contracts_from_specs,
+    repair_vault_registry_slot_from_spec, require_vault_registry_contracts,
 };
 pub use placement::{
     CALYX_RAM_BUDGET_EXCEEDED, CALYX_VRAM_BUDGET_EXCEEDED, CpuLensPool, CpuPoolAdmission,
