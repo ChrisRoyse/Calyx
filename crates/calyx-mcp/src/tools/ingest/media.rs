@@ -4,7 +4,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 use calyx_core::{CalyxError, Input, Modality, SlotState, VaultStore, media_modality_name};
-use calyx_ledger::{ActorId, EntryKind, RedactionPolicy, SubjectId};
+use calyx_ledger::{ActorId, SubjectId};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -18,8 +18,8 @@ use crate::tools::vault::store::ResolvedVault;
 
 use super::input_retention::{INPUT_POINTER_PREFIX, write_input_blob};
 use super::{
-    append_ingest_retry_ledger, base_exists, decode, def, derived_text, enum_string,
-    measure_constellation, open_vault, resolve_requested_vault,
+    base_exists, decode, def, derived_text, enum_string, measure_constellation, open_vault,
+    resolve_requested_vault,
 };
 
 pub(super) fn register(server: &mut McpServer) -> Result<(), CalyxError> {
@@ -472,43 +472,30 @@ fn ingest_media_with_derived_text(
     if text_new && text.cx_id != media.cx_id {
         staged.push(text.clone());
     }
-    let explicit_derivation_seq = if staged.is_empty() {
-        RedactionPolicy::check_payload(&payload)?;
-        Some(
-            vault
-                .append_ledger_entry(
-                    EntryKind::Ingest,
-                    SubjectId::Cx(text.cx_id),
-                    payload.clone(),
-                    ActorId::Service("calyx-mcp".to_string()),
-                )?
-                .seq,
-        )
-    } else {
-        vault.put_batch_with_ingest_ledger(
-            staged,
-            SubjectId::Cx(text.cx_id),
-            payload,
-            ActorId::Service("calyx-mcp".to_string()),
-        )?;
-        None
-    };
+    let artifact_draft =
+        derived_text::derived_artifact_draft(&retained, &derived, media.cx_id, text.cx_id)?;
+    let commit = vault.put_batch_with_ingest_ledger_and_media_artifact(
+        staged,
+        SubjectId::Cx(text.cx_id),
+        payload,
+        ActorId::Service("calyx-mcp".to_string()),
+        artifact_draft,
+    )?;
     vault.flush()?;
     let snapshot = vault.snapshot();
     verify_media_readback(&vault, snapshot, &media, media_new)?;
     verify_media_readback(&vault, snapshot, &text, text_new)?;
+    verify_media_artifact_readback(&vault, snapshot, &commit.artifact)?;
 
     let media_seq = if media_new {
         vault.get(media.cx_id, snapshot)?.provenance.seq
     } else {
-        append_ingest_retry_ledger(&vault, media.cx_id)?
+        commit.artifact.ledger_ref.seq
     };
     let text_seq = if text_new {
         vault.get(text.cx_id, snapshot)?.provenance.seq
-    } else if let Some(seq) = explicit_derivation_seq {
-        seq
     } else {
-        append_ingest_retry_ledger(&vault, text.cx_id)?
+        commit.artifact.ledger_ref.seq
     };
     vault.flush()?;
     Ok(vec![
@@ -578,6 +565,47 @@ fn verify_media_readback(
         return Err(CalyxError::aster_corrupt_shard(format!(
             "durable MCP media ingest readback mismatch for cx {}",
             expected.cx_id
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn verify_media_artifact_readback(
+    vault: &calyx_aster::vault::AsterVault,
+    snapshot: u64,
+    expected: &calyx_aster::media_artifact::DerivedMediaArtifactRecord,
+) -> ToolResult<()> {
+    let stored = vault
+        .get_derived_media_artifact(snapshot, &expected.artifact_id)?
+        .ok_or_else(|| {
+            CalyxError::aster_corrupt_shard(format!(
+                "derived media artifact {} missing after commit",
+                expected.artifact_id
+            ))
+        })?;
+    if stored != *expected {
+        return Err(CalyxError::aster_corrupt_shard(format!(
+            "derived media artifact {} readback mismatch",
+            expected.artifact_id
+        ))
+        .into());
+    }
+    let source_records =
+        vault.derived_media_artifacts_for_source(snapshot, expected.source_cx_id)?;
+    if !source_records.iter().any(|record| record == expected) {
+        return Err(CalyxError::aster_corrupt_shard(format!(
+            "derived media artifact {} missing from source index",
+            expected.artifact_id
+        ))
+        .into());
+    }
+    let target_records =
+        vault.derived_media_artifacts_for_target(snapshot, expected.target_cx_id)?;
+    if !target_records.iter().any(|record| record == expected) {
+        return Err(CalyxError::aster_corrupt_shard(format!(
+            "derived media artifact {} missing from target index",
+            expected.artifact_id
         ))
         .into());
     }

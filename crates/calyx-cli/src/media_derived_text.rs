@@ -5,16 +5,18 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use calyx_aster::media_artifact::DerivedMediaArtifactDraft;
 use calyx_core::{
     CALYX_MEDIA_DERIVED_TEXT_FAILED, CALYX_MEDIA_DERIVED_TEXT_INVALID,
     CALYX_MEDIA_DERIVED_TEXT_RUNTIME_MISSING, CalyxError, CxId, DERIVED_TEXT_MODE, Input,
-    LEDGER_FIELD_DERIVED_KIND, LEDGER_FIELD_MODE, LEDGER_FIELD_MODEL, LEDGER_FIELD_RUNTIME,
-    LEDGER_FIELD_SOURCE_CX_ID, LEDGER_FIELD_SOURCE_INPUT_HASH, LEDGER_FIELD_SOURCE_MODALITY,
-    LEDGER_FIELD_SOURCE_SHA256, LEDGER_FIELD_TARGET_CX_ID, LEDGER_FIELD_TARGET_TEXT_SHA256,
-    MEDIA_DERIVED_TEXT_ENV, METADATA_DERIVED_CONFIDENCE, METADATA_DERIVED_KIND,
-    METADATA_DERIVED_LANGUAGE, METADATA_DERIVED_MODEL, METADATA_DERIVED_POINTER,
-    METADATA_DERIVED_RUNTIME, METADATA_DERIVED_TEXT_BYTES, METADATA_DERIVED_TEXT_SHA256, Modality,
-    media_modality_name, required_derived_kind,
+    LEDGER_FIELD_DERIVED_ARTIFACT_ID, LEDGER_FIELD_DERIVED_KIND, LEDGER_FIELD_MODE,
+    LEDGER_FIELD_MODEL, LEDGER_FIELD_RUNTIME, LEDGER_FIELD_SOURCE_CX_ID,
+    LEDGER_FIELD_SOURCE_INPUT_HASH, LEDGER_FIELD_SOURCE_MODALITY, LEDGER_FIELD_SOURCE_SHA256,
+    LEDGER_FIELD_TARGET_CX_ID, LEDGER_FIELD_TARGET_TEXT_SHA256, MEDIA_DERIVED_TEXT_ENV,
+    METADATA_DERIVED_CONFIDENCE, METADATA_DERIVED_KIND, METADATA_DERIVED_LANGUAGE,
+    METADATA_DERIVED_MODEL, METADATA_DERIVED_POINTER, METADATA_DERIVED_RUNTIME,
+    METADATA_DERIVED_TEXT_BYTES, METADATA_DERIVED_TEXT_SHA256, Modality, media_modality_name,
+    required_derived_kind,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -27,12 +29,16 @@ const POINTER_PREFIX: &str = "calyx-vault://";
 
 #[derive(Clone, Debug)]
 pub(crate) struct DerivedTextArtifact {
+    pub(crate) artifact_id: String,
     pub(crate) input: Input,
     pub(crate) metadata: BTreeMap<String, String>,
+    pub(crate) pointer: String,
     pub(crate) text_sha256: String,
     pub(crate) kind: &'static str,
     pub(crate) runtime: String,
     pub(crate) model: String,
+    pub(crate) language: Option<String>,
+    pub(crate) confidence: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -103,8 +109,11 @@ pub(crate) fn derive_text_for_media(
         .into());
     }
     let decoded = read_derived_output(&output_path)?;
+    let language = decoded.language.filter(|value| !value.is_empty());
+    let confidence = decoded.confidence;
     let text_bytes = decoded.text.as_bytes().to_vec();
     let text_sha256 = sha256_hex(&text_bytes);
+    let artifact_id = Ulid::new().to_string();
     let rel = format!("inputs/derived_text/{kind}/{text_sha256}.txt");
     let pointer = format!("{POINTER_PREFIX}{rel}");
     let retained_path = vault_dir.join(&rel);
@@ -127,10 +136,10 @@ pub(crate) fn derive_text_for_media(
         decoded.runtime.clone(),
     );
     metadata.insert(METADATA_DERIVED_MODEL.to_string(), decoded.model.clone());
-    if let Some(language) = decoded.language.as_ref().filter(|value| !value.is_empty()) {
+    if let Some(language) = language.as_ref() {
         metadata.insert(METADATA_DERIVED_LANGUAGE.to_string(), language.clone());
     }
-    if let Some(confidence) = decoded.confidence {
+    if let Some(confidence) = confidence {
         metadata.insert(
             METADATA_DERIVED_CONFIDENCE.to_string(),
             format!("{confidence:.6}"),
@@ -144,12 +153,16 @@ pub(crate) fn derive_text_for_media(
         text_bytes.len()
     );
     Ok(DerivedTextArtifact {
+        artifact_id,
         input: Input::new(Modality::Text, text_bytes).with_pointer(pointer.clone()),
         metadata,
+        pointer,
         text_sha256,
         kind,
         runtime: decoded.runtime,
         model: decoded.model,
+        language,
+        confidence,
     })
 }
 
@@ -161,6 +174,10 @@ pub(crate) fn derivation_ledger_payload(
 ) -> CliResult<Vec<u8>> {
     let mut payload = serde_json::Map::new();
     payload.insert(LEDGER_FIELD_MODE.to_string(), json!(DERIVED_TEXT_MODE));
+    payload.insert(
+        LEDGER_FIELD_DERIVED_ARTIFACT_ID.to_string(),
+        json!(derived.artifact_id),
+    );
     payload.insert(
         LEDGER_FIELD_SOURCE_CX_ID.to_string(),
         json!(source_cx_id.to_string()),
@@ -189,6 +206,30 @@ pub(crate) fn derivation_ledger_payload(
     payload.insert(LEDGER_FIELD_RUNTIME.to_string(), json!(derived.runtime));
     payload.insert(LEDGER_FIELD_MODEL.to_string(), json!(derived.model));
     Ok(serde_json::to_vec(&serde_json::Value::Object(payload))?)
+}
+
+pub(crate) fn derived_artifact_draft(
+    retained: &RetainedMediaInput,
+    derived: &DerivedTextArtifact,
+    source_cx_id: CxId,
+    target_cx_id: CxId,
+) -> CliResult<DerivedMediaArtifactDraft> {
+    Ok(DerivedMediaArtifactDraft {
+        artifact_id: derived.artifact_id.clone(),
+        source_cx_id,
+        target_cx_id,
+        derived_kind: derived.kind.to_string(),
+        source_modality: media_modality_name(retained.input.modality).to_string(),
+        source_input_hash: hex(&retained.input_blake3),
+        source_sha256: retained.source_sha256.clone(),
+        source_pointer: retained.pointer.clone(),
+        target_pointer: derived.pointer.clone(),
+        target_text_sha256: derived.text_sha256.clone(),
+        runtime: derived.runtime.clone(),
+        model: derived.model.clone(),
+        language: derived.language.clone(),
+        confidence: derived.confidence,
+    })
 }
 
 fn derived_command_path() -> CliResult<PathBuf> {
