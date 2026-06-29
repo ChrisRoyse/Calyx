@@ -107,6 +107,7 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 batch_path,
                 args.output,
                 validation.row_count,
+                args.resident_addr,
             )?
         };
         if args.output == IngestOutput::Summary {
@@ -457,7 +458,7 @@ pub(super) fn ingest_batch_streaming_with_output(
     if validation.row_count == 0 {
         return Ok(BatchIngestSummary::empty());
     }
-    ingest_validated_batch_streaming_with_output(resolved, path, output, validation.row_count)
+    ingest_validated_batch_streaming_with_output(resolved, path, output, validation.row_count, None)
 }
 
 fn ingest_validated_batch_streaming_with_output(
@@ -465,6 +466,7 @@ fn ingest_validated_batch_streaming_with_output(
     path: &std::path::Path,
     output: IngestOutput,
     validated_row_count: usize,
+    resident_addr: Option<std::net::SocketAddr>,
 ) -> CliResult<BatchIngestSummary> {
     use std::io::BufRead;
     let file = std::fs::File::open(path)
@@ -486,8 +488,8 @@ fn ingest_validated_batch_streaming_with_output(
     let runtime_batch_limit = measure_batch_size();
     let measure_window = measure_window_size(runtime_batch_limit);
     ingest_runtime_log(format_args!(
-        "phase=batch_ingest_plan rows={} runtime_batch_limit={} measure_window={} put_chunk={} output={:?}",
-        validated_row_count, runtime_batch_limit, measure_window, PUT_CHUNK, output
+        "phase=batch_ingest_plan rows={} runtime_batch_limit={} measure_window={} put_chunk={} output={:?} resident_addr={:?}",
+        validated_row_count, runtime_batch_limit, measure_window, PUT_CHUNK, output, resident_addr
     ));
     preflight_batch_existing_identity(&vault, &state, path, validated_row_count)?;
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_window);
@@ -506,6 +508,7 @@ fn ingest_validated_batch_streaming_with_output(
                     &mut summary,
                     output,
                     runtime_batch_limit,
+                    resident_addr,
                 )?;
             }
         }
@@ -519,6 +522,7 @@ fn ingest_validated_batch_streaming_with_output(
             &mut summary,
             output,
             runtime_batch_limit,
+            resident_addr,
         )?;
     }
     if summary.new_count > 0 {
@@ -548,6 +552,7 @@ fn flush_measure_batch(
     summary: &mut BatchIngestSummary,
     output: IngestOutput,
     runtime_batch_limit: usize,
+    resident_addr: Option<std::net::SocketAddr>,
 ) -> CliResult<()> {
     let rows: Vec<BatchRow> = std::mem::take(chunk);
     if rows.iter().all(|(_, _, _, oracle)| oracle.is_none()) {
@@ -580,6 +585,7 @@ fn flush_measure_batch(
         &inputs,
         now_ms(),
         Some(runtime_batch_limit),
+        resident_addr,
     )?;
     let mut measured = Vec::with_capacity(constellations.len());
     for (mut cx, (_, mut metadata, anchors, oracle)) in constellations.into_iter().zip(rows) {

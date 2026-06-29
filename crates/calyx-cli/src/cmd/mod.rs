@@ -23,6 +23,7 @@ pub(crate) use search::{
     rebuild_persistent_indexes,
 };
 
+use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use calyx_core::Modality;
@@ -107,6 +108,7 @@ pub(crate) struct IngestArgs {
     pub modality: Option<Modality>,
     pub idempotent: bool,
     pub output: IngestOutput,
+    pub resident_addr: Option<SocketAddr>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
