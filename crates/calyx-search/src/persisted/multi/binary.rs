@@ -128,6 +128,13 @@ pub(super) fn search_binary(
     Ok(ranked(top_k(scored, k)))
 }
 
+#[path = "binary/segments.rs"]
+mod segments;
+
+pub(super) use segments::{
+    BinarySegmentSearchSpec, score_binary_segment, summarize_binary_entry, summarize_binary_path,
+};
+
 pub(super) fn read_binary_header_unhashed(path: &Path) -> CliResult<BinaryHeader> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);

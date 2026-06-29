@@ -233,7 +233,7 @@ impl PersistedSearchIndexes {
             {
                 continue;
             }
-            if entry.kind == "multi_maxsim" {
+            if entry.kind == "multi_maxsim" || entry.kind == "multi_maxsim_segments" {
                 multi::ensure_bounded_sidecar(&self.vault_dir, entry, SlotId::new(entry.slot))?;
             }
         }
@@ -277,6 +277,29 @@ impl SearchIndexEntry {
         }
     }
 
+    pub(super) fn flat_dense(
+        slot: SlotId,
+        dim: u32,
+        len: usize,
+        base_seq: u64,
+        index_rel: String,
+        sha256: String,
+    ) -> Self {
+        Self {
+            slot: slot.get(),
+            kind: "flat_dense".to_string(),
+            dim: Some(dim),
+            token_dim: None,
+            len,
+            built_at_seq: base_seq,
+            graph_rel: None,
+            id_map_rel: None,
+            index_rel: Some(index_rel),
+            sha256: Some(sha256),
+            token_count: None,
+        }
+    }
+
     pub(super) fn sparse(
         slot: SlotId,
         dim: u32,
@@ -300,6 +323,7 @@ impl SearchIndexEntry {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn multi(
         slot: SlotId,
         token_dim: u32,
@@ -312,6 +336,30 @@ impl SearchIndexEntry {
         Self {
             slot: slot.get(),
             kind: "multi_maxsim".to_string(),
+            dim: None,
+            token_dim: Some(token_dim),
+            len,
+            built_at_seq: base_seq,
+            graph_rel: None,
+            id_map_rel: None,
+            index_rel: Some(index_rel),
+            sha256: Some(sha256),
+            token_count: Some(token_count),
+        }
+    }
+
+    pub(super) fn multi_segments(
+        slot: SlotId,
+        token_dim: u32,
+        len: usize,
+        token_count: usize,
+        base_seq: u64,
+        index_rel: String,
+        sha256: String,
+    ) -> Self {
+        Self {
+            slot: slot.get(),
+            kind: "multi_maxsim_segments".to_string(),
             dim: None,
             token_dim: Some(token_dim),
             len,

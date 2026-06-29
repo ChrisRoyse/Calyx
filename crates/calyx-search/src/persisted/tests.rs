@@ -15,35 +15,8 @@ use ulid::Ulid;
 
 use super::*;
 
-#[test]
-fn rebuild_writes_manifest_graph_idmap_filter_sidecar_and_searches() {
-    let root = scratch("happy");
-    let docs = docs([
-        (1, vec![1.0, 0.0]),
-        (2, vec![0.0, 1.0]),
-        (3, vec![0.8, 0.2]),
-    ]);
-
-    let summary = rebuild_from_docs(&root, &docs, 7).expect("rebuild");
-    let indexes = PersistedSearchIndexes::open(&root).expect("open");
-    let hits = indexes
-        .search(SlotId::new(0), &dense(vec![1.0, 0.0]), 2)
-        .expect("search");
-    let filter_entry = indexes.manifest.filter.as_ref().expect("filter entry");
-    let filter_path = root.join(&filter_entry.index_rel);
-    let filter_json: serde_json::Value =
-        serde_json::from_slice(&fs::read(&filter_path).unwrap()).unwrap();
-
-    assert_eq!(summary.slots, 1);
-    assert_eq!(summary.total_rows, 3);
-    assert!(summary.manifest_path.is_file());
-    assert_eq!(hits[0].cx_id, cx(1));
-    assert_eq!(filter_json["format"], "calyx-search-filter-index-v1");
-    assert_eq!(filter_json["rows"].as_array().unwrap().len(), 3);
-    assert!(root.join("idx/search/manifest.json").is_file());
-    assert!(root.join("idx/search").read_dir().unwrap().count() >= 3);
-    fs::remove_dir_all(root).ok();
-}
+#[path = "tests/flat_dense.rs"]
+mod flat_dense;
 
 #[test]
 fn load_docs_reads_real_base_and_slot_cf_bytes() {

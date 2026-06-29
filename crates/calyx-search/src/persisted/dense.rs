@@ -10,6 +10,9 @@ use calyx_sextant::index::{
 use super::{SearchIndexEntry, SlotIdMap, rel, stale, write_json_atomic};
 use crate::error::CliResult;
 
+#[path = "dense/flat.rs"]
+mod flat;
+
 #[derive(Clone, Debug)]
 pub(super) struct DenseSlotRows {
     dim: u32,
@@ -71,6 +74,9 @@ pub(super) fn write(
     rows: DenseSlotRows,
     base_seq: u64,
 ) -> CliResult<SearchIndexEntry> {
+    if should_use_flat_dense_index(rows.rows.len()) {
+        return flat::write(vault_dir, root, slot, rows, base_seq);
+    }
     let dir_name = format!(
         "slot_{:05}_seq_{:020}_n_{:010}.ann",
         slot.get(),
@@ -117,6 +123,9 @@ pub(super) fn search(
     query: &SlotVector,
     k: usize,
 ) -> CliResult<Vec<IndexSearchHit>> {
+    if entry.kind == "flat_dense" {
+        return flat::search(vault_dir, entry, slot, query, k, None);
+    }
     let SlotVector::Dense { dim, .. } = query else {
         return Err(stale(format!(
             "persistent dense search slot {slot} received non-dense query"
@@ -135,6 +144,9 @@ pub(super) fn search_filtered(
     k: usize,
     candidates: &BTreeSet<CxId>,
 ) -> CliResult<Vec<IndexSearchHit>> {
+    if entry.kind == "flat_dense" {
+        return flat::search(vault_dir, entry, slot, query, k, Some(candidates));
+    }
     let SlotVector::Dense { dim, data } = query else {
         return Err(stale(format!(
             "persistent dense filtered search slot {slot} received non-dense query"
@@ -228,6 +240,10 @@ fn exact_filtered_hits(
     });
     scored.truncate(k);
     Ok(ranked(scored))
+}
+
+pub(super) fn should_use_flat_dense_index(row_count: usize) -> bool {
+    flat::should_use_index(row_count)
 }
 
 fn validate_dense(slot: SlotId, cx_id: CxId, dim: u32, data: &[f32]) -> CliResult {

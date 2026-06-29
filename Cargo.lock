@@ -776,6 +776,7 @@ dependencies = [
 name = "calyx-search"
 version = "0.1.0"
 dependencies = [
+ "bincode_reloaded",
  "calyx-aster",
  "calyx-core",
  "calyx-ledger",

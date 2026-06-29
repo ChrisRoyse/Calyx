@@ -19,6 +19,7 @@ pub(super) fn rebuild_from_docs(
 ) -> CliResult<RebuildSummary> {
     let root = vault_dir.join(INDEX_ROOT);
     fs::create_dir_all(&root)?;
+    let previous_manifest = previous_manifest(vault_dir)?;
     let mut entries = Vec::new();
     let mut total_rows = 0usize;
     for slot in dense::slots(docs) {
@@ -32,7 +33,12 @@ pub(super) fn rebuild_from_docs(
     }
     for (slot, rows) in multi::collect(docs)? {
         total_rows += rows.len();
-        entries.push(multi::write(vault_dir, &root, slot, rows, base_seq)?);
+        let previous = previous_manifest
+            .as_ref()
+            .and_then(|manifest| manifest.slots.iter().find(|entry| entry.slot == slot.get()));
+        entries.push(multi::write(
+            vault_dir, &root, slot, rows, base_seq, previous,
+        )?);
     }
     entries.sort_by_key(|entry| entry.slot);
     let manifest = SearchIndexManifest {
@@ -49,6 +55,28 @@ pub(super) fn rebuild_from_docs(
         total_rows,
         manifest_path,
     })
+}
+
+fn previous_manifest(vault_dir: &Path) -> CliResult<Option<SearchIndexManifest>> {
+    let path = manifest_path(vault_dir);
+    if !path.exists() {
+        return Ok(None);
+    }
+    let manifest: SearchIndexManifest =
+        serde_json::from_slice(&fs::read(&path)?).map_err(|err| {
+            stale(format!(
+                "persistent search index manifest {} is unreadable before rebuild: {err}",
+                path.display()
+            ))
+        })?;
+    if manifest.format != MANIFEST_FORMAT {
+        return Err(stale(format!(
+            "persistent search index manifest {} has format {}; expected {MANIFEST_FORMAT}",
+            path.display(),
+            manifest.format
+        )));
+    }
+    Ok(Some(manifest))
 }
 
 pub fn load_docs(vault: &AsterVault) -> CliResult<BTreeMap<CxId, Constellation>> {
@@ -171,6 +199,13 @@ fn referenced_index_artifacts(
     for entry in &manifest.slots {
         if let Some(index_rel) = &entry.index_rel {
             keep.push(vault_dir.join(index_rel));
+            if entry.kind == "multi_maxsim_segments" {
+                keep.extend(multi::referenced_segment_artifacts(
+                    vault_dir,
+                    entry,
+                    SlotId::new(entry.slot),
+                )?);
+            }
         }
         if let Some(graph_rel) = &entry.graph_rel {
             let graph = vault_dir.join(graph_rel);

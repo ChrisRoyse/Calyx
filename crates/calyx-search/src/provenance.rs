@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use calyx_aster::ledger_view::AsterLedgerCfStore;
+use calyx_aster::ledger_view::read_ledger_seq;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, LedgerRef, VaultStore};
-use calyx_ledger::{
-    EntryKind, LedgerCfStore, LedgerEntry, SubjectId, VerifyResult, decode, verify_chain,
-};
+use calyx_ledger::{EntryKind, LedgerEntry, SubjectId, decode};
 use calyx_sextant::{
     CALYX_SEXTANT_PROVENANCE_MISSING, FreshnessTag, Hit, ProvenanceSource, sextant_error,
 };
@@ -43,7 +41,7 @@ pub(crate) fn attach_verified_provenance(
     vault_dir: &Path,
     seq: u64,
 ) -> CliResult {
-    let ledger = VerifiedLedger::open(vault_dir)?;
+    let mut ledger = TargetedLedgerVerifier::new(vault_dir);
     for hit in hits {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
             missing_provenance(format!(
@@ -58,51 +56,22 @@ pub(crate) fn attach_verified_provenance(
     Ok(())
 }
 
-struct VerifiedLedger {
-    entries: BTreeMap<u64, calyx_ledger::LedgerEntry>,
+struct TargetedLedgerVerifier<'a> {
+    vault_dir: &'a Path,
+    entries: BTreeMap<u64, LedgerEntry>,
 }
 
-impl VerifiedLedger {
-    fn open(vault_dir: &Path) -> CliResult<Self> {
-        let store = AsterLedgerCfStore::open(vault_dir).map_err(|error| {
-            if error.code == "CALYX_LEDGER_CORRUPT" {
-                CalyxError::ledger_chain_broken(format!(
-                    "search provenance ledger chain unreadable: {}",
-                    error.message
-                ))
-            } else {
-                error
-            }
-        })?;
-        let rows = store.scan()?;
-        let end = rows
-            .iter()
-            .map(|row| row.seq)
-            .max()
-            .map_or(0, |seq| seq.saturating_add(1));
-        match verify_chain(&store, 0..end)? {
-            VerifyResult::Intact { .. } => {}
-            VerifyResult::Broken { at_seq, .. } | VerifyResult::Corrupt { at_seq, .. } => {
-                return Err(CalyxError::ledger_chain_broken(format!(
-                    "search provenance ledger chain broken at seq={at_seq}"
-                ))
-                .into());
-            }
+impl<'a> TargetedLedgerVerifier<'a> {
+    fn new(vault_dir: &'a Path) -> Self {
+        Self {
+            vault_dir,
+            entries: BTreeMap::new(),
         }
-        let mut entries = BTreeMap::new();
-        for row in rows {
-            entries.insert(row.seq, decode(&row.bytes)?);
-        }
-        Ok(Self { entries })
     }
 
-    fn require_ref(&self, cx_id: CxId, expected: LedgerRef) -> CliResult<LedgerRef> {
-        let entry = self.entries.get(&expected.seq).ok_or_else(|| {
-            missing_provenance(format!(
-                "search hit {cx_id} references missing ledger seq {}",
-                expected.seq
-            ))
-        })?;
+    fn require_ref(&mut self, cx_id: CxId, expected: LedgerRef) -> CliResult<LedgerRef> {
+        let entry = self.entry(cx_id, expected.seq)?;
+        let entry_hash = entry.entry_hash;
         if entry.entry_hash != expected.hash {
             return Err(CalyxError::ledger_corrupt(format!(
                 "search hit {cx_id} ledger seq {} hash does not match Base provenance",
@@ -117,7 +86,68 @@ impl VerifiedLedger {
             ))
             .into());
         }
+        self.require_chain_link(cx_id, expected.seq, entry_hash)?;
         Ok(expected)
+    }
+
+    fn entry(&mut self, cx_id: CxId, seq: u64) -> CliResult<&LedgerEntry> {
+        if !self.entries.contains_key(&seq) {
+            let bytes = read_ledger_seq(self.vault_dir, seq)?
+                .ok_or_else(|| {
+                    missing_provenance(format!(
+                        "search hit {cx_id} references missing ledger seq {seq}"
+                    ))
+                })?
+                .bytes;
+            let entry = decode(&bytes).map_err(|error| {
+                CalyxError::ledger_chain_broken(format!(
+                    "search hit {cx_id} ledger seq {seq} is unreadable: {}",
+                    error.message
+                ))
+            })?;
+            if entry.seq != seq {
+                return Err(CalyxError::ledger_corrupt(format!(
+                    "search hit {cx_id} ledger row decoded seq {} != requested seq {seq}",
+                    entry.seq
+                ))
+                .into());
+            }
+            self.entries.insert(seq, entry);
+        }
+        Ok(self
+            .entries
+            .get(&seq)
+            .expect("targeted ledger entry inserted before lookup"))
+    }
+
+    fn require_chain_link(&mut self, cx_id: CxId, seq: u64, entry_hash: [u8; 32]) -> CliResult {
+        if seq == 0 {
+            let entry = self.entry(cx_id, seq)?;
+            if entry.prev_hash != [0; 32] {
+                return Err(CalyxError::ledger_chain_broken(format!(
+                    "search hit {cx_id} ledger seq 0 prev_hash is not the genesis hash"
+                ))
+                .into());
+            }
+            return Ok(());
+        }
+        let previous = self.entry(cx_id, seq - 1)?;
+        let previous_hash = previous.entry_hash;
+        let entry = self.entry(cx_id, seq)?;
+        if entry.prev_hash != previous_hash {
+            return Err(CalyxError::ledger_chain_broken(format!(
+                "search hit {cx_id} ledger seq {seq} prev_hash does not match seq {} entry_hash",
+                seq - 1
+            ))
+            .into());
+        }
+        if entry.entry_hash != entry_hash {
+            return Err(CalyxError::ledger_chain_broken(format!(
+                "search hit {cx_id} ledger seq {seq} changed during targeted verification"
+            ))
+            .into());
+        }
+        Ok(())
     }
 }
 

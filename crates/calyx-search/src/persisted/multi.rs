@@ -8,7 +8,9 @@ use calyx_sextant::index::{IndexSearchHit, MaxSimIndex, ranked};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{SearchIndexEntry, rel, sha256_hex, stale, write_atomic_hashed};
+use super::{
+    SearchIndexEntry, rel, sha256_hex, stale, write_atomic_hashed, write_json_atomic_hashed,
+};
 use crate::error::{CliError, CliResult};
 
 const MULTI_FORMAT: &str = "calyx-search-multi-maxsim-index-v1";
@@ -81,25 +83,9 @@ pub(super) fn write(
     slot: SlotId,
     rows: MultiSlotRows,
     base_seq: u64,
+    previous: Option<&SearchIndexEntry>,
 ) -> CliResult<SearchIndexEntry> {
-    let path = root.join(format!(
-        "slot_{:05}_seq_{base_seq:020}_n_{:010}.multi.bin",
-        slot.get(),
-        rows.rows.len()
-    ));
-    let row_count = rows.rows.len();
-    let token_count = rows.rows.iter().map(|row| row.1.len()).sum::<usize>();
-    let sha256 =
-        binary::write_binary_atomic_hashed(&path, slot, rows.token_dim, &rows.rows, base_seq)?;
-    Ok(SearchIndexEntry::multi(
-        slot,
-        rows.token_dim,
-        row_count,
-        token_count,
-        base_seq,
-        rel(vault_dir, &path)?,
-        sha256,
-    ))
+    segments::write(vault_dir, root, slot, rows, base_seq, previous)
 }
 
 pub(super) fn search(
@@ -145,6 +131,16 @@ pub(super) fn search(
             k,
             candidates,
         )
+    } else if entry.kind == "multi_maxsim_segments" {
+        segments::search_segments(
+            vault_dir,
+            entry,
+            manifest_base_seq,
+            slot,
+            query_tokens,
+            k,
+            candidates,
+        )
     } else {
         let index = read_json(vault_dir, entry, manifest_base_seq, slot)?;
         Ok(ranked(top_k(score(&index, query_tokens, candidates), k)))
@@ -156,7 +152,16 @@ pub(super) fn ensure_bounded_sidecar(
     entry: &SearchIndexEntry,
     slot: SlotId,
 ) -> CliResult {
-    if binary::is_binary_sidecar(entry.require_index_rel(slot)?) {
+    if entry.kind == "multi_maxsim_segments" {
+        let manifest =
+            segments::read_segments_manifest(vault_dir, entry, entry.built_at_seq, slot)?;
+        segments::validate_segment_files(
+            vault_dir,
+            slot,
+            entry.require_token_dim(slot)?,
+            &manifest,
+        )?;
+    } else if binary::is_binary_sidecar(entry.require_index_rel(slot)?) {
         let path = sidecar_path(vault_dir, entry, slot)?;
         let header = binary::read_binary_header_unhashed(&path)?;
         binary::validate_binary_header(&header, entry, entry.built_at_seq, slot)?;
@@ -169,6 +174,14 @@ pub(super) fn ensure_bounded_sidecar(
         )?;
     }
     Ok(())
+}
+
+pub(super) fn referenced_segment_artifacts(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+) -> CliResult<Vec<PathBuf>> {
+    segments::referenced_segment_artifacts(vault_dir, entry, slot)
 }
 
 fn read_json(
@@ -255,6 +268,9 @@ fn unbounded_multi_sidecar(message: impl Into<String>) -> CliError {
 
 #[path = "multi/binary.rs"]
 mod binary;
+
+#[path = "multi/segments.rs"]
+mod segments;
 
 fn validate(
     index: &MultiIndex,

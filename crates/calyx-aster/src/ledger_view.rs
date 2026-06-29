@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use calyx_core::{CalyxError, Result as CalyxResult};
 use calyx_ledger::{LedgerCfStore, LedgerHeadAnchor, LedgerRow};
 
-use crate::cf::{CfRouter, ColumnFamily};
+use crate::cf::{CfRouter, ColumnFamily, ledger_key};
 use crate::sst::SstEntry;
 use crate::vault::encode::decode_write_batch;
 use crate::wal::replay_dir;
@@ -73,6 +73,50 @@ impl AsterLedgerCfStore {
                 .collect(),
         })
     }
+}
+
+/// Reads one Ledger CF row from a fresh physical view of `vault`.
+///
+/// This is the point-read counterpart to [`AsterLedgerCfStore::open`]: it takes
+/// the same durable commit lock and merges SST plus WAL state, but it only
+/// materializes the requested ledger sequence instead of cloning the full
+/// ledger into memory.
+pub fn read_ledger_seq(vault: &Path, seq: u64) -> CalyxResult<Option<LedgerRow>> {
+    let layout = AsterVaultLayout::read(vault)?;
+    let _commit_guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
+    let key = ledger_key(seq);
+    let mut row = None;
+
+    if layout.has_ledger_cf {
+        let router = CfRouter::open_selected_cfs(vault, 0, [ColumnFamily::Ledger])?;
+        if let Some(bytes) = router.get(ColumnFamily::Ledger, &key)? {
+            row = Some(bytes);
+        }
+    }
+
+    if layout.has_wal {
+        let replay = replay_dir(vault.join("wal"))?;
+        if let Some(torn) = replay.torn_tail {
+            return Err(torn.error());
+        }
+        for record in replay.records {
+            for write in decode_write_batch(&record.payload)? {
+                if write.cf == ColumnFamily::Ledger && write.key == key {
+                    match &row {
+                        Some(existing) if existing != &write.value => {
+                            return Err(CalyxError::ledger_corrupt(format!(
+                                "divergent Aster ledger bytes for seq {seq}"
+                            )));
+                        }
+                        Some(_) => {}
+                        None => row = Some(write.value),
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(row.map(|bytes| LedgerRow { seq, bytes }))
 }
 
 fn durable_commit_lock_path(vault: &Path) -> PathBuf {
