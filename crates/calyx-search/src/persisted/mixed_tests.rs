@@ -6,6 +6,7 @@ use calyx_core::{
     Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality, SlotId, SlotVector, SparseEntry,
     VaultId,
 };
+use serde_json::{Value, json};
 use ulid::Ulid;
 
 use super::*;
@@ -60,7 +61,25 @@ fn rebuild_writes_sparse_and_multi_sidecars_and_searches() {
     assert_eq!(sparse_hits[0].cx_id, cx(3));
     assert_eq!(sparse_hits[1].cx_id, cx(1));
     assert_eq!(multi_hits[0].cx_id, cx(2));
-    fs::remove_dir_all(root).ok();
+    maybe_write_fsv_json(
+        "issue980-binary-multi-happy-path.json",
+        &json!({
+            "source_of_truth": root.display().to_string(),
+            "trigger": "rebuild_from_docs over mixed dense/sparse/multi constellations",
+            "manifest": &indexes.manifest,
+            "multi_sidecar": {
+                "path": &multi_entry.index_rel,
+                "bytes": multi_bytes.len(),
+                "magic": String::from_utf8_lossy(&multi_bytes[..16]).to_string(),
+                "sha256": &multi_entry.sha256,
+            },
+            "search": {
+                "sparse_hits": sparse_hits.iter().map(|hit| hit.cx_id.to_string()).collect::<Vec<_>>(),
+                "multi_hits": multi_hits.iter().map(|hit| hit.cx_id.to_string()).collect::<Vec<_>>(),
+            }
+        }),
+    );
+    cleanup(root);
 }
 
 #[test]
@@ -86,7 +105,7 @@ fn filtered_sparse_and_multi_search_use_candidate_sidecars() {
         multi_hits.iter().map(|hit| hit.cx_id).collect::<Vec<_>>(),
         vec![cx(2), cx(1)]
     );
-    fs::remove_dir_all(root).ok();
+    cleanup(root);
 }
 
 #[test]
@@ -108,7 +127,7 @@ fn missing_sparse_sidecar_fails_closed() {
 
     assert_eq!(err.code(), "CALYX_STALE_DERIVED");
     assert!(err.message().contains("sparse sidecar missing"));
-    fs::remove_dir_all(root).ok();
+    cleanup(root);
 }
 
 #[test]
@@ -140,7 +159,7 @@ fn sparse_dim_mismatch_and_corrupt_sidecar_fail_closed() {
 
     assert_eq!(corrupt_err.code(), "CALYX_STALE_DERIVED");
     assert!(corrupt_err.message().contains("not valid JSON"));
-    fs::remove_dir_all(root).ok();
+    cleanup(root);
 }
 
 #[test]
@@ -165,11 +184,17 @@ fn missing_multi_sidecar_token_dim_mismatch_and_corrupt_sidecar_fail_closed() {
         .iter()
         .find(|entry| entry.slot == 2)
         .unwrap();
+    let before = json!({
+        "source_of_truth": root.display().to_string(),
+        "manifest": &indexes.manifest,
+        "sidecar": sidecar_state(&root, entry.index_rel.as_ref().unwrap()),
+    });
     let original = fs::read(root.join(entry.index_rel.as_ref().unwrap())).unwrap();
     fs::remove_file(root.join(entry.index_rel.as_ref().unwrap())).unwrap();
     let missing_err = indexes
         .search(SlotId::new(2), &multi(2, [[1.0, 0.0]]), 1)
         .unwrap_err();
+    let after_missing = sidecar_state(&root, entry.index_rel.as_ref().unwrap());
 
     assert_eq!(missing_err.code(), "CALYX_STALE_DERIVED");
     assert!(missing_err.message().contains("multi sidecar missing"));
@@ -191,7 +216,21 @@ fn missing_multi_sidecar_token_dim_mismatch_and_corrupt_sidecar_fail_closed() {
 
     assert_eq!(corrupt_err.code(), "CALYX_STALE_DERIVED");
     assert!(corrupt_err.message().contains("invalid magic"));
-    fs::remove_dir_all(root).ok();
+    maybe_write_fsv_json(
+        "issue980-binary-multi-edge-cases.json",
+        &json!({
+            "trigger": "token-dim mismatch, missing sidecar, corrupt magic",
+            "before": before,
+            "after_missing": after_missing,
+            "after_corrupt": sidecar_state(&root, corrupted.manifest.slots[pos].index_rel.as_ref().unwrap()),
+            "errors": {
+                "token_dim": error_json(&dim_err),
+                "missing_sidecar": error_json(&missing_err),
+                "corrupt_magic": error_json(&corrupt_err),
+            }
+        }),
+    );
+    cleanup(root);
 }
 
 #[test]
@@ -212,6 +251,11 @@ fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
     fs::create_dir_all(stale_ann.join("nested")).unwrap();
     fs::write(&stale_slot, b"old json").unwrap();
     fs::write(&stale_filter, b"old filter").unwrap();
+    let before = json!({
+        "stale_slot_exists": stale_slot.exists(),
+        "stale_filter_exists": stale_filter.exists(),
+        "stale_ann_exists": stale_ann.exists(),
+    });
 
     rebuild_from_docs(&root, &mixed_docs(), 26).expect("rebuild");
 
@@ -231,7 +275,28 @@ fn rebuild_prunes_stale_slot_and_filter_artifacts_after_manifest_swap() {
     assert!(!stale_slot.exists());
     assert!(!stale_filter.exists());
     assert!(!stale_ann.exists());
-    fs::remove_dir_all(root).ok();
+    maybe_write_fsv_json(
+        "issue980-prune-stale-artifacts.json",
+        &json!({
+            "source_of_truth": root.display().to_string(),
+            "trigger": "manifest swap after stale slot/filter artifacts were present",
+            "before": before,
+            "after": {
+                "stale_slot_exists": stale_slot.exists(),
+                "stale_filter_exists": stale_filter.exists(),
+                "stale_ann_exists": stale_ann.exists(),
+                "manifest_refs": indexes.manifest.slots.iter().map(|entry| {
+                    json!({
+                        "slot": entry.slot,
+                        "index_rel": &entry.index_rel,
+                        "graph_rel": &entry.graph_rel,
+                        "id_map_rel": &entry.id_map_rel,
+                    })
+                }).collect::<Vec<_>>(),
+            }
+        }),
+    );
+    cleanup(root);
 }
 
 fn mixed_docs() -> BTreeMap<CxId, Constellation> {
@@ -331,4 +396,42 @@ fn scratch(tag: &str) -> PathBuf {
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).expect("scratch");
     dir
+}
+
+fn cleanup(root: PathBuf) {
+    if std::env::var_os("CALYX_FSV_ROOT").is_none() {
+        fs::remove_dir_all(root).ok();
+    }
+}
+
+fn sidecar_state(root: &std::path::Path, rel: &str) -> Value {
+    let path = root.join(rel);
+    let bytes = fs::read(&path).unwrap_or_default();
+    json!({
+        "rel": rel,
+        "exists": path.exists(),
+        "bytes": bytes.len(),
+        "sha256": if bytes.is_empty() { None } else { Some(sha256_hex(&bytes)) },
+        "first16_ascii": String::from_utf8_lossy(&bytes[..bytes.len().min(16)]).to_string(),
+    })
+}
+
+fn error_json(error: &CliError) -> Value {
+    json!({
+        "code": error.code(),
+        "message": error.message(),
+    })
+}
+
+fn maybe_write_fsv_json(name: &str, value: &Value) {
+    let Some(root) = std::env::var_os("CALYX_FSV_ROOT") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    fs::create_dir_all(&root).expect("create FSV root");
+    fs::write(
+        root.join(name),
+        serde_json::to_vec_pretty(value).expect("serialize FSV"),
+    )
+    .expect("write FSV");
 }
