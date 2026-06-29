@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub(super) const READY_SCHEMA: &str = "calyx-panel-resident-readiness-v1";
 pub(super) const MEASURE_SCHEMA: &str = "calyx-panel-resident-measure-v1";
 pub(super) const MEASURE_BATCH_SCHEMA: &str = "calyx-panel-resident-measure-batch-v1";
+pub(super) const RESIDENT_BINARY_PROTOCOL_VERSION: u16 = 1;
 
 #[derive(Debug)]
 pub(super) enum ClientMeasureInput {
@@ -81,6 +82,37 @@ pub(crate) struct MeasureBatchResponse {
     pub(crate) rows: Vec<ResidentMeasuredInput>,
 }
 
+#[derive(Debug)]
+pub(crate) struct MeasureBatchAtResponse {
+    pub(crate) response: MeasureBatchResponse,
+    pub(crate) request_bytes: usize,
+    pub(crate) response_bytes: usize,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ResidentMeasureBatchBinaryRequest {
+    pub(super) protocol_version: u16,
+    pub(super) modality: Modality,
+    pub(super) inputs: Vec<Vec<u8>>,
+    pub(super) runtime_batch_limit: Option<usize>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) struct ResidentMeasureBatchBinaryResponse {
+    pub(super) protocol_version: u16,
+    pub(super) result: ResidentMeasureBatchBinaryResult,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(super) enum ResidentMeasureBatchBinaryResult {
+    Ok(MeasureBatchResponse),
+    Err {
+        code: String,
+        message: String,
+        remediation: String,
+    },
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 pub(crate) struct ResidentMeasuredInput {
     pub(crate) input_index: usize,
@@ -98,9 +130,7 @@ pub(crate) struct ResidentSlotMeasure {
     pub(crate) modality: Modality,
     pub(crate) placement: Placement,
     pub(crate) measured: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) vector: Option<SlotVector>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) absent_reason: Option<AbsentReason>,
 }
 

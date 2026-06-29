@@ -194,10 +194,19 @@ fn batch_ingest_uses_existing_resident_service_and_persists_cfs() {
     let ingest2_stderr = String::from_utf8_lossy(&ingest2.stderr);
     assert!(ingest1_stderr.contains("phase=measure_resident_service_ok"));
     assert!(ingest2_stderr.contains("phase=measure_resident_service_ok"));
+    assert!(ingest1_stderr.contains("protocol=binary"));
+    assert!(ingest2_stderr.contains("protocol=binary"));
+    assert!(ingest1_stderr.contains("request_bytes="));
+    assert!(ingest1_stderr.contains("response_bytes="));
+    assert!(ingest2_stderr.contains("request_bytes="));
+    assert!(ingest2_stderr.contains("response_bytes="));
     assert!(ingest1_stderr.contains(&format!("process_id={process_id}")));
     assert!(ingest2_stderr.contains(&format!("process_id={process_id}")));
     assert!(!ingest1_stderr.contains("phase=measure_lens_worker_resident_spawned"));
     assert!(!ingest2_stderr.contains("phase=measure_lens_worker_resident_spawned"));
+    let service_stderr = String::from_utf8_lossy(&service_output.stderr);
+    assert!(service_stderr.contains("phase=measure_batch_binary_request"));
+    assert!(service_stderr.contains("phase=measure_batch_binary_response"));
     assert_eq!(
         progress_text
             .matches("\"phase\":\"runtime_prepare_start\"")
