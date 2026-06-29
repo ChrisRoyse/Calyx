@@ -145,13 +145,18 @@ fn rebuild_registry(snapshot: &VaultRegistrySnapshot) -> Result<Registry> {
                 lens.contract.lens_id()
             )));
         }
-        let runtime = load_runtime_lens(lens).unwrap_or_else(|| {
-            Arc::new(PersistedUnavailableLens {
+        let runtime = match load_runtime_lens(lens) {
+            Ok(runtime) => runtime,
+            Err(error) => Arc::new(PersistedUnavailableLens {
                 id: lens.lens_id,
                 shape: lens.contract.shape(),
                 modality: lens.contract.modality(),
-            })
-        });
+                load_error: format!(
+                    "{}: {} (remediation: {})",
+                    error.code, error.message, error.remediation
+                ),
+            }),
+        };
         registry.register_persisted_arc(
             runtime,
             lens.contract.clone(),
@@ -162,48 +167,61 @@ fn rebuild_registry(snapshot: &VaultRegistrySnapshot) -> Result<Registry> {
     Ok(registry)
 }
 
-fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Option<Arc<dyn Lens>> {
-    let spec = snapshot.spec.as_ref()?;
+fn load_runtime_lens(snapshot: &RegistryLensSnapshot) -> Result<Arc<dyn Lens>> {
+    let spec = snapshot.spec.as_ref().ok_or_else(|| {
+        CalyxError::lens_unreachable(format!(
+            "persisted lens {} has no LensSpec, so its runtime cannot be reconstructed",
+            snapshot.lens_id
+        ))
+    })?;
     let lens: Arc<dyn Lens> = match &spec.runtime {
-        LensRuntime::Algorithmic { kind } => Arc::new(algorithmic_lens(spec, kind)?),
+        LensRuntime::Algorithmic { kind } => {
+            Arc::new(algorithmic_lens(spec, kind).ok_or_else(|| {
+                lens_config_invalid(format!(
+                    "unsupported algorithmic lens kind {kind} for persisted lens {} ({})",
+                    snapshot.lens_id, spec.name
+                ))
+            })?)
+        }
         LensRuntime::TeiHttp { endpoint } => Arc::new(TeiHttpLens::new(
             &spec.name,
             endpoint,
             spec.modality,
-            dense_dim(spec.output)?,
+            dense_dim(spec.output).ok_or_else(|| {
+                lens_config_invalid(format!(
+                    "TEI lens {} ({}) requires dense output shape, got {:?}",
+                    snapshot.lens_id, spec.name, spec.output
+                ))
+            })?,
         )),
         LensRuntime::ExternalCmd { cmd, args } => Arc::new(ExternalCmdLens::new(
             &spec.name,
             cmd,
             args.clone(),
             spec.modality,
-            dense_dim(spec.output)?,
+            dense_dim(spec.output).ok_or_else(|| {
+                lens_config_invalid(format!(
+                    "external command lens {} ({}) requires dense output shape, got {:?}",
+                    snapshot.lens_id, spec.name, spec.output
+                ))
+            })?,
         )),
-        LensRuntime::CandleLocal { .. } => Arc::new(CandleLens::from_lens_spec(spec).ok()?),
-        LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec).ok()?),
-        LensRuntime::OnnxColbert { .. } => Arc::new(OnnxColbertLens::from_lens_spec(spec).ok()?),
-        LensRuntime::FastembedSparse { .. } => {
-            Arc::new(FastembedSparseLens::from_lens_spec(spec).ok()?)
-        }
-        LensRuntime::FastembedBgem3 { .. } => {
-            Arc::new(FastembedBgem3Lens::from_lens_spec(spec).ok()?)
-        }
+        LensRuntime::CandleLocal { .. } => Arc::new(CandleLens::from_lens_spec(spec)?),
+        LensRuntime::Onnx { .. } => Arc::new(OnnxLens::from_lens_spec(spec)?),
+        LensRuntime::OnnxColbert { .. } => Arc::new(OnnxColbertLens::from_lens_spec(spec)?),
+        LensRuntime::FastembedSparse { .. } => Arc::new(FastembedSparseLens::from_lens_spec(spec)?),
+        LensRuntime::FastembedBgem3 { .. } => Arc::new(FastembedBgem3Lens::from_lens_spec(spec)?),
         LensRuntime::FastembedReranker { .. } => {
-            Arc::new(FastembedRerankerLens::from_lens_spec(spec).ok()?)
+            Arc::new(FastembedRerankerLens::from_lens_spec(spec)?)
         }
-        LensRuntime::FastembedQwen3 { .. } => {
-            Arc::new(FastembedQwen3Lens::from_lens_spec(spec).ok()?)
-        }
-        LensRuntime::StaticLookup { .. } => Arc::new(StaticLookupLens::from_lens_spec(spec).ok()?),
+        LensRuntime::FastembedQwen3 { .. } => Arc::new(FastembedQwen3Lens::from_lens_spec(spec)?),
+        LensRuntime::StaticLookup { .. } => Arc::new(StaticLookupLens::from_lens_spec(spec)?),
         LensRuntime::MultimodalAdapter { .. } => {
-            Arc::new(MultimodalAdapterLens::from_lens_spec(spec).ok()?)
+            Arc::new(MultimodalAdapterLens::from_lens_spec(spec)?)
         }
     };
-    if snapshot.contract.verify_registration(lens.as_ref()).is_ok() {
-        Some(lens)
-    } else {
-        None
-    }
+    snapshot.contract.verify_registration(lens.as_ref())?;
+    Ok(lens)
 }
 
 fn algorithmic_lens(spec: &LensSpec, kind: &str) -> Option<AlgorithmicLens> {
@@ -331,10 +349,28 @@ fn storage_error(context: &str, error: io::Error) -> CalyxError {
     CalyxError::disk_pressure(format!("{context}: {error}"))
 }
 
+fn lens_config_invalid(message: impl Into<String>) -> CalyxError {
+    CalyxError {
+        code: "CALYX_LENS_CONFIG_INVALID",
+        message: message.into(),
+        remediation: "fix persisted LensSpec runtime fields or re-register the lens",
+    }
+}
+
 struct PersistedUnavailableLens {
     id: LensId,
     shape: SlotShape,
     modality: Modality,
+    load_error: String,
+}
+
+impl PersistedUnavailableLens {
+    fn error(&self) -> CalyxError {
+        CalyxError::lens_unreachable(format!(
+            "lens {} is persisted but its runtime failed to load in this process: {}",
+            self.id, self.load_error
+        ))
+    }
 }
 
 impl Lens for PersistedUnavailableLens {
@@ -351,9 +387,10 @@ impl Lens for PersistedUnavailableLens {
     }
 
     fn measure(&self, _input: &Input) -> Result<SlotVector> {
-        Err(CalyxError::lens_unreachable(format!(
-            "lens {} is persisted but its runtime is unavailable in this process",
-            self.id
-        )))
+        Err(self.error())
+    }
+
+    fn measure_batch(&self, _inputs: &[Input]) -> Result<Vec<SlotVector>> {
+        Err(self.error())
     }
 }

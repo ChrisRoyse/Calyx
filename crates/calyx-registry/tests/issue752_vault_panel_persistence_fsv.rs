@@ -60,6 +60,13 @@ fn issue752_vault_bound_panel_registry_roundtrip_and_edges() {
         readback["edge_unsupported_runtime"]["measure_error"],
         "CALYX_LENS_UNREACHABLE"
     );
+    assert!(
+        readback["edge_unsupported_runtime"]["measure_message"]
+            .as_str()
+            .unwrap()
+            .contains("CALYX_LENS_CONFIG_INVALID"),
+        "persisted unavailable lens must expose the original loader error"
+    );
 
     if !keep_root {
         fs::remove_dir_all(root).expect("cleanup issue752 registry fsv root");
@@ -192,6 +199,7 @@ fn unsupported_runtime_edge(vault_dir: &Path) -> serde_json::Value {
     json!({
         "registry_contains_after_load": loaded.registry.contains(fixture.lens_id),
         "measure_error": error.code,
+        "measure_message": error.message,
         "health_after_load": listing[0].health,
         "snapshot_runtime": fixture.spec.runtime,
     })
