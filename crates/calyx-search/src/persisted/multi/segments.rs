@@ -24,6 +24,8 @@ pub(super) struct MultiSegmentRef {
     pub(super) base_seq: u64,
     pub(super) row_count: usize,
     pub(super) token_count: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) ids: Vec<CxId>,
 }
 
 #[derive(Debug)]
@@ -174,6 +176,7 @@ fn reusable_segments(
                     base_seq: summary.base_seq,
                     row_count,
                     token_count,
+                    ids: summary.ids.iter().copied().collect(),
                 }],
                 ids: summary.ids,
                 token_count,
@@ -182,7 +185,7 @@ fn reusable_segments(
         "multi_maxsim_segments" => {
             let manifest =
                 read_segments_manifest(vault_dir, previous, previous.built_at_seq, slot)?;
-            let reused = summarize_segment_files(vault_dir, slot, token_dim, &manifest)?;
+            let reused = summarize_segment_files(vault_dir, slot, token_dim, &manifest, false)?;
             if reused.ids.iter().any(|cx_id| !current_ids.contains(cx_id)) {
                 return Ok(None);
             }
@@ -214,6 +217,7 @@ fn write_binary_segment(
         base_seq,
         row_count: rows.len(),
         token_count,
+        ids: rows.iter().map(|(cx_id, _)| *cx_id).collect(),
     })
 }
 
@@ -297,7 +301,7 @@ pub(super) fn validate_segment_files(
     token_dim: u32,
     manifest: &MultiSegmentsManifest,
 ) -> CliResult {
-    let _ = summarize_segment_files(vault_dir, slot, token_dim, manifest)?;
+    let _ = summarize_segment_files(vault_dir, slot, token_dim, manifest, true)?;
     Ok(())
 }
 
@@ -401,6 +405,14 @@ fn validate_segments_manifest_shape(
                 segment.index_rel
             )));
         }
+        if !segment.ids.is_empty() && segment.ids.len() != segment.row_count {
+            return Err(stale(format!(
+                "persistent segmented multi segment {} id count {} != row_count {}; rebuild the vault search indexes",
+                segment.index_rel,
+                segment.ids.len(),
+                segment.row_count
+            )));
+        }
         sum.checked_add(segment.row_count)
             .ok_or_else(|| stale("persistent segmented multi manifest row_count overflow"))
     })?;
@@ -428,11 +440,36 @@ fn summarize_segment_files(
     slot: SlotId,
     token_dim: u32,
     manifest: &MultiSegmentsManifest,
+    verify_binary: bool,
 ) -> CliResult<ReusedMultiSegments> {
     let mut ids = BTreeSet::new();
     let mut token_count = 0usize;
+    let mut refs = Vec::with_capacity(manifest.segments.len());
     for segment in &manifest.segments {
         let path = checked_segment_path(vault_dir, &segment.index_rel, slot)?;
+        let mut segment_ref = segment.clone();
+        if !verify_binary && !segment.ids.is_empty() {
+            if segment.ids.len() != segment.row_count {
+                return Err(stale(format!(
+                    "persistent segmented multi manifest {} id count {} != row_count {}; rebuild the vault search indexes",
+                    segment.index_rel,
+                    segment.ids.len(),
+                    segment.row_count
+                )));
+            }
+            for cx_id in &segment.ids {
+                if !ids.insert(*cx_id) {
+                    return Err(stale(format!(
+                        "persistent segmented multi sidecars repeat {cx_id}; rebuild the vault search indexes"
+                    )));
+                }
+            }
+            token_count = token_count
+                .checked_add(segment.token_count)
+                .ok_or_else(|| stale("persistent segmented multi sidecar token_count overflow"))?;
+            refs.push(segment_ref);
+            continue;
+        }
         let summary = binary::summarize_binary_path(
             &path,
             &segment.sha256,
@@ -447,6 +484,7 @@ fn summarize_segment_files(
                 segment.index_rel, summary.base_seq, segment.base_seq
             )));
         }
+        segment_ref.ids = summary.ids.iter().copied().collect();
         for cx_id in summary.ids {
             if !ids.insert(cx_id) {
                 return Err(stale(format!(
@@ -457,6 +495,7 @@ fn summarize_segment_files(
         token_count = token_count
             .checked_add(segment.token_count)
             .ok_or_else(|| stale("persistent segmented multi sidecar token_count overflow"))?;
+        refs.push(segment_ref);
     }
     if ids.len() != manifest.row_count {
         return Err(stale(format!(
@@ -472,7 +511,7 @@ fn summarize_segment_files(
         )));
     }
     Ok(ReusedMultiSegments {
-        refs: manifest.segments.clone(),
+        refs,
         ids,
         token_count,
     })
