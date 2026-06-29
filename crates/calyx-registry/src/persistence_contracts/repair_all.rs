@@ -5,8 +5,9 @@ use calyx_aster::manifest::ImmutableRef;
 use calyx_core::{CalyxError, LensId, Panel, Result};
 
 use super::{
-    RegistryContractRepairChange, audit_registry_snapshot_contracts, load_runtime_lens_from_spec,
-    registry_contract_drift_error, registry_contract_repair_invalid, spec_from_runtime_contract,
+    RegistryContractRepairChange, audit_registry_snapshot_contracts,
+    derive_runtime_contract_from_spec, registry_contract_drift_error,
+    registry_contract_repair_invalid, spec_from_runtime_contract,
 };
 use crate::RegistryLensSnapshot;
 use crate::persistence::{
@@ -83,8 +84,7 @@ fn repair_registry_lens_set(
                 lens.lens_id
             ))
         })?;
-        let (runtime, runtime_contract) = load_runtime_lens_from_spec(spec)?;
-        runtime_contract.verify_registration(runtime.as_ref())?;
+        let runtime_contract = derive_runtime_contract_from_spec(spec)?;
         replacements.insert(
             idx,
             RegistryLensSnapshot {

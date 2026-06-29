@@ -1,5 +1,6 @@
 mod repair_all;
 mod runtime;
+mod static_contract;
 #[cfg(test)]
 mod tests;
 
@@ -13,6 +14,7 @@ pub use repair_all::{
     VaultRegistryContractRepairAllWrite, repair_vault_registry_contracts_from_specs,
 };
 pub(crate) use runtime::load_runtime_lens_from_spec;
+use static_contract::derive_runtime_contract_from_spec;
 
 use crate::frozen::FrozenLensContract;
 use crate::persistence::{
@@ -154,8 +156,7 @@ pub fn repair_vault_registry_slot_from_spec(
             "lens {old_lens_id} has no LensSpec; cannot reconstruct a replacement contract"
         ))
     })?;
-    let (runtime, runtime_contract) = load_runtime_lens_from_spec(spec)?;
-    runtime_contract.verify_registration(runtime.as_ref())?;
+    let runtime_contract = derive_runtime_contract_from_spec(spec)?;
     let repaired_spec = spec_from_runtime_contract(spec.clone(), &runtime_contract);
     let new_lens_id = runtime_contract.lens_id();
     if snapshot
@@ -256,13 +257,9 @@ fn audit_registry_lens_contract(lens: &RegistryLensSnapshot) -> Option<RegistryC
         &lens.contract,
         &declared,
     ));
-    match load_runtime_lens_from_spec(spec) {
-        Ok((runtime, runtime_contract)) => {
+    match derive_runtime_contract_from_spec(spec) {
+        Ok(runtime_contract) => {
             runtime_contract_lens_id = Some(runtime_contract.lens_id());
-            if let Err(error) = runtime_contract.verify_registration(runtime.as_ref()) {
-                error_code = Some(error.code.to_string());
-                error_message = Some(error.message);
-            }
             fields.extend(contract_field_diffs(
                 "runtime",
                 &lens.contract,
