@@ -4,10 +4,11 @@ mod lens;
 pub(super) mod store;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{Asymmetry, CalyxError, Panel, Slot, SlotId, SlotState};
+use calyx_core::{Asymmetry, CalyxError, Slot, SlotId, SlotState};
 use calyx_registry::{
-    SlotSpec, SwapController, civic_default, code_default, instantiate_panel,
-    load_vault_panel_state, media_default, persist_vault_panel_state, text_default,
+    MaterializedPanelTemplate, PanelTemplate, SlotSpec, SwapController, civic_default,
+    code_default, load_vault_panel_state, materialize_panel_template, media_default,
+    persist_vault_panel_state, text_default,
 };
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -66,7 +67,7 @@ impl Tool for CreateVaultTool {
         let args: CreateVaultArgs = decode("calyx.create_vault", params)?;
         validate_path_safe("vault name", &args.name)?;
         let template = args.panel_template.as_deref().unwrap_or(DEFAULT_TEMPLATE);
-        let panel = panel_for_template(template)?;
+        let materialized = materialized_panel_for_template(template)?;
         let home = home_dir()?;
         let mut index = read_index(&home)?;
         if index.vaults.iter().any(|entry| entry.name == args.name) {
@@ -85,7 +86,7 @@ impl Tool for CreateVaultTool {
             )));
         }
         let options = VaultOptions {
-            panel: Some(panel),
+            panel: Some(materialized.panel.clone()),
             ..VaultOptions::default()
         };
         AsterVault::new_durable(
@@ -94,6 +95,7 @@ impl Tool for CreateVaultTool {
             vault_salt(vault_id, &args.name),
             options,
         )?;
+        persist_vault_panel_state(&vault_dir, &materialized.panel, &materialized.registry)?;
         index.vaults.push(VaultIndexEntry {
             name: args.name.clone(),
             vault_id,
@@ -108,6 +110,9 @@ impl Tool for CreateVaultTool {
             "vault_id": vault_id.to_string(),
             "name": args.name,
             "panel_template": template,
+            "registry_snapshot_written": true,
+            "registered_lenses_added": materialized.registered_lenses_added,
+            "inactive_unmaterialized_slots": materialized.inactive_unmaterialized_slots,
         }))
     }
 
@@ -417,8 +422,13 @@ fn state_name(state: SlotState) -> &'static str {
     }
 }
 
-fn panel_for_template(name: &str) -> ToolResult<Panel> {
-    let template = match name {
+fn materialized_panel_for_template(name: &str) -> ToolResult<MaterializedPanelTemplate> {
+    let template = builtin_panel_template(name)?;
+    Ok(materialize_panel_template(&template, now_ms())?)
+}
+
+fn builtin_panel_template(name: &str) -> ToolResult<PanelTemplate> {
+    Ok(match name {
         "text-default" => text_default(),
         "code-default" => code_default(),
         "civic-default" => civic_default(),
@@ -428,8 +438,7 @@ fn panel_for_template(name: &str) -> ToolResult<Panel> {
                 "unknown panel_template {other}; expected text-default, code-default, civic-default, or media-default"
             )));
         }
-    };
-    Ok(instantiate_panel(&template, now_ms()).panel)
+    })
 }
 
 pub(super) fn validate_path_safe(kind: &str, value: &str) -> ToolResult<()> {
