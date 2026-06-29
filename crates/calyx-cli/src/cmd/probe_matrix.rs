@@ -343,7 +343,7 @@ fn attach_unique_hits(records: &mut [ProbeRecord]) {
 fn productive_rows(records: &[ProbeRecord]) -> Vec<ProbeProductivity> {
     let mut rows: Vec<_> = records
         .iter()
-        .filter(|record| !record.unique_grounded_hits.is_empty())
+        .filter(|record| record.accepted_hit_count > 0)
         .map(|record| ProbeProductivity {
             variant_id: record.variant.id,
             fusion: record.variant.fusion.clone(),
@@ -377,7 +377,7 @@ fn ensure_useful_log(log: &ProbeMatrixLog) -> CliResult {
     }
     if log.productive.is_empty() {
         return Err(invalid_params(
-            "probe matrix produced no productive variants with unique grounded hits",
+            "probe matrix produced no productive variants with grounded accepted hits",
         ));
     }
     Ok(())
