@@ -2,9 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
+use calyx_aster::{cf::ColumnFamily, vault::AsterVault};
 use calyx_core::{
     Anchor, AnchorKind, AnchorValue, Constellation, CxFlags, CxId, InputRef, LedgerRef, Modality,
-    SlotId, SlotVector, VaultId,
+    SlotId, SlotVector, VaultId, VaultStore,
 };
 use calyx_sextant::{AnchorPredicate, MetadataPredicate, QueryFilters, ScalarOp, ScalarPredicate};
 use ulid::Ulid;
@@ -39,6 +40,84 @@ fn rebuild_writes_manifest_graph_idmap_filter_sidecar_and_searches() {
     assert!(root.join("idx/search/manifest.json").is_file());
     assert!(root.join("idx/search").read_dir().unwrap().count() >= 3);
     fs::remove_dir_all(root).ok();
+}
+
+#[test]
+fn load_docs_reads_real_base_and_slot_cf_bytes() {
+    let vault_id = VaultId::from_ulid(Ulid::from_bytes([7; 16]));
+    let vault = AsterVault::new(vault_id, b"search-load-docs");
+    let before_base_rows = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
+        .expect("scan base before")
+        .len();
+    let before_slot0_rows = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::slot(SlotId::new(0)))
+        .expect("scan slot 0 before")
+        .len();
+    let before_slot2_rows = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::slot(SlotId::new(2)))
+        .expect("scan slot 2 before")
+        .len();
+    let mut first = constellation(cx(11), vec![1.0, 0.0]);
+    first.vault_id = vault_id;
+    first.slots.insert(SlotId::new(2), dense(vec![0.25, 0.75]));
+    let mut second = constellation(cx(12), vec![0.0, 1.0]);
+    second.vault_id = vault_id;
+    second.slots.insert(SlotId::new(2), dense(vec![0.9, 0.1]));
+    let first_id = vault.put(first).expect("write first constellation");
+    let second_id = vault.put(second).expect("write second constellation");
+    let after_base_rows = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::Base)
+        .expect("scan base after")
+        .len();
+    let after_slot0_rows = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::slot(SlotId::new(0)))
+        .expect("scan slot 0 after")
+        .len();
+    let after_slot2_rows = vault
+        .scan_cf_at(vault.snapshot(), ColumnFamily::slot(SlotId::new(2)))
+        .expect("scan slot 2 after")
+        .len();
+
+    let docs = load_docs(&vault).expect("load docs from physical CF bytes");
+
+    let first_slot2 = docs
+        .get(&first_id)
+        .and_then(|cx| cx.slots.get(&SlotId::new(2)))
+        .and_then(SlotVector::as_dense)
+        .expect("first slot 2 dense vector");
+    let second_slot0 = docs
+        .get(&second_id)
+        .and_then(|cx| cx.slots.get(&SlotId::new(0)))
+        .and_then(SlotVector::as_dense)
+        .expect("second slot 0 dense vector");
+    println!(
+        "SEARCH_LOAD_DOCS_FSV {}",
+        serde_json::json!({
+            "source_of_truth": "AsterVault Base CF rows plus Slot CF rows read after VaultStore::put",
+            "before": {
+                "base_rows": before_base_rows,
+                "slot_0_rows": before_slot0_rows,
+                "slot_2_rows": before_slot2_rows
+            },
+            "after": {
+                "base_rows": after_base_rows,
+                "slot_0_rows": after_slot0_rows,
+                "slot_2_rows": after_slot2_rows,
+                "loaded_docs": docs.len(),
+                "first_id": first_id,
+                "second_id": second_id,
+                "first_slot2": first_slot2,
+                "second_slot0": second_slot0,
+            }
+        })
+    );
+    assert_eq!(docs.len(), 2);
+    assert_eq!(after_base_rows, 2);
+    assert_eq!(after_slot0_rows, 2);
+    assert_eq!(after_slot2_rows, 2);
+    assert_eq!(first_slot2, &[0.25, 0.75]);
+    assert_eq!(second_slot0, &[0.0, 1.0]);
 }
 
 #[test]
