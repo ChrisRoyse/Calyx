@@ -3,7 +3,9 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-root="${CALYX_FSV_ROOT:-$repo_root/target/fsv/issue1048-ph58-tombstone-perf/$stamp}"
+root_input="${CALYX_FSV_ROOT:-$repo_root/target/fsv/issue1048-ph58-tombstone-perf/$stamp}"
+mkdir -p "$root_input"
+root="$(cd "$root_input" && pwd)"
 stdout_log="$root/runner.stdout.log"
 stderr_log="$root/runner.stderr.log"
 build_stdout_log="$root/build.stdout.log"
@@ -11,8 +13,6 @@ build_stderr_log="$root/build.stderr.log"
 exit_marker="$root/runner.exit"
 context_file="$root/runner-context.txt"
 competing_file="$root/preflight-competing-builds.txt"
-
-mkdir -p "$root"
 
 if ! command -v cargo >/dev/null 2>&1 && [ -r "$HOME/.cargo/env" ]; then
   # Non-login shells launched by automation do not always inherit rustup's PATH.
