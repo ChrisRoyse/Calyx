@@ -1,8 +1,10 @@
 //! Write-ahead log storage for Aster.
 
 mod batch;
+mod point_read;
 mod record;
 mod segment;
+mod stream_replay;
 
 use calyx_core::{CalyxError, CalyxErrorCode, Result};
 use record::DecodeStatus;
@@ -12,6 +14,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub use batch::GroupCommitBatcher;
+pub(crate) use point_read::read_record_at;
+pub(crate) use stream_replay::stream_records;
 
 /// Default group-commit window for PH05.
 pub const DEFAULT_GROUP_COMMIT_WINDOW: Duration = Duration::from_millis(2);

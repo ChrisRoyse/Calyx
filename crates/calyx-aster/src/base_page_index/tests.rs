@@ -1,0 +1,122 @@
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use calyx_ledger::LedgerHeadAnchor;
+
+use super::*;
+use crate::sst::write_sst;
+
+#[test]
+fn index_pages_preserve_latest_sorted_live_rows_and_skip_tombstones() {
+    let root = temp_root("latest-live");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"old-a".as_slice()), (b"b", b"old-b")],
+    )
+    .unwrap();
+    let tombstone = crate::mvcc::tombstone_value();
+    write_sst(
+        base.join("00000000000000000002.sst"),
+        [(b"a".as_slice(), b"new-a".as_slice()), (b"b", &tombstone)],
+    )
+    .unwrap();
+
+    let mut progress = Vec::new();
+    let manifest = build_base_page_index(&root, 1, |event| {
+        progress.push(event);
+        Ok(())
+    })
+    .unwrap();
+    let read_manifest = read_base_page_index_manifest(&root).unwrap();
+    let rows = read_indexed_base_rows(&root, 10).unwrap();
+
+    assert_eq!(manifest.total_entries, 2);
+    assert_eq!(manifest.live_entries, 1);
+    assert_eq!(manifest.tombstone_entries, 1);
+    assert_eq!(read_manifest.pages.len(), 2);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows.get(b"a".as_slice()).unwrap(), b"new-a");
+    assert!(matches!(
+        progress.last(),
+        Some(BasePageIndexBuildProgress::Complete {
+            live_entries: 1,
+            ..
+        })
+    ));
+    cleanup(root);
+}
+
+#[test]
+fn missing_index_fails_closed_for_bounded_read() {
+    let root = temp_root("missing");
+    let error = read_indexed_base_rows(&root, 1).unwrap_err();
+
+    assert_eq!(error.code, MISSING_CODE);
+    assert!(error.message.contains("manifest is missing"));
+    cleanup(root);
+}
+
+#[test]
+fn stale_ledger_head_fails_closed() {
+    let root = temp_root("stale-head");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"value".as_slice())],
+    )
+    .unwrap();
+    build_base_page_index(&root, 4, |_| Ok(())).unwrap();
+    fs::create_dir_all(root.join("ledger_head")).unwrap();
+    let anchor = LedgerHeadAnchor::new(1, [1_u8; 32]).unwrap();
+    fs::write(
+        root.join("ledger_head").join("current.json"),
+        serde_json::to_vec(&anchor).unwrap(),
+    )
+    .unwrap();
+
+    let error = read_indexed_base_rows(&root, 1).unwrap_err();
+
+    assert_eq!(error.code, STALE_CODE);
+    assert!(error.message.contains("current head"));
+    cleanup(root);
+}
+
+#[test]
+fn page_sha_mismatch_fails_closed() {
+    let root = temp_root("page-sha");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [(b"a".as_slice(), b"value".as_slice())],
+    )
+    .unwrap();
+    let manifest = build_base_page_index(&root, 4, |_| Ok(())).unwrap();
+    fs::write(
+        root.join(BASE_PAGE_INDEX_DIR).join(&manifest.pages[0].path),
+        b"{\"entries\":[]}",
+    )
+    .unwrap();
+
+    let error = read_indexed_base_rows(&root, 1).unwrap_err();
+
+    assert_eq!(error.code, CORRUPT_CODE);
+    assert!(error.message.contains("sha256 mismatch"));
+    cleanup(root);
+}
+
+fn temp_root(name: &str) -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("calyx-base-page-index-{name}-{nanos}"))
+}
+
+fn cleanup(path: PathBuf) {
+    fs::remove_dir_all(path).ok();
+}

@@ -22,6 +22,11 @@ fn cx_list_args_parse_bounded_filters() {
     assert!(!args.allow_unbounded);
     assert!(args.progress_jsonl.is_none());
     assert!(args.time_budget_ms.is_none());
+    assert!(!args.rebuild_base_page_index);
+    assert_eq!(
+        args.base_page_index_page_size,
+        DEFAULT_BASE_PAGE_INDEX_PAGE_SIZE
+    );
 }
 
 #[test]
@@ -67,11 +72,16 @@ fn cx_list_progress_and_budget_parse() {
         "stderr".to_string(),
         "--time-budget-ms".to_string(),
         "50".to_string(),
+        "--rebuild-base-page-index".to_string(),
+        "--base-page-index-page-size".to_string(),
+        "7".to_string(),
     ])
     .unwrap();
 
     assert_eq!(args.progress_jsonl, Some("stderr".to_string()));
     assert_eq!(args.time_budget_ms, Some(50));
+    assert!(args.rebuild_base_page_index);
+    assert_eq!(args.base_page_index_page_size, 7);
 }
 
 #[test]

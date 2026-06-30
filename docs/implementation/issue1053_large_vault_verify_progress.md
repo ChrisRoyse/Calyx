@@ -48,7 +48,7 @@ calyx readback cx-list \
   --time-budget-ms 30000
 ```
 
-Unfiltered `cx-list --limit` still has to scan Base CF to establish the sorted latest-row view. That scan is now visible and budgeted, but indexed Base paging is tracked separately because it requires a storage-level page/index source of truth rather than CLI-only sampling.
+`cx-list --limit` no longer has to scan the whole Base CF after `docs/implementation/issue1054_base_page_index.md`: bounded reads use the persisted Base page index and fail closed when that index is missing, stale, or corrupt.
 
 ## FSV
 

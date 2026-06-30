@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
+use calyx_aster::base_page_index::{DEFAULT_BASE_PAGE_INDEX_PAGE_SIZE, read_indexed_base_rows};
 use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
 use calyx_aster::dedup::{ReversalToken, dedup_audit, dedup_undo};
 use calyx_aster::mvcc::is_tombstone_value;
@@ -10,7 +11,7 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, SlotId, SlotVector};
 use serde_json::json;
 
-use crate::bounded_progress::{Deadline, ProgressSink, parse_nonzero_u64};
+use crate::bounded_progress::{Deadline, ProgressSink, parse_nonzero_u64, parse_nonzero_usize};
 use crate::cf_read::{
     hex_bytes, latest_cf_row, latest_cf_row_near_seq, latest_cf_rows, vault_id_from_base,
 };
@@ -19,8 +20,11 @@ use crate::output::print_line;
 
 const CX_LIST_UNBOUNDED_ROW_LIMIT: usize = 100;
 
+mod index_progress;
 #[cfg(test)]
 mod tests;
+
+use index_progress::rebuild_cx_list_base_page_index;
 
 #[derive(Debug)]
 struct CxListArgs {
@@ -31,6 +35,8 @@ struct CxListArgs {
     allow_unbounded: bool,
     progress_jsonl: Option<String>,
     time_budget_ms: Option<u64>,
+    rebuild_base_page_index: bool,
+    base_page_index_page_size: usize,
 }
 
 pub fn readback_dedup_audit(vault: &Path, cx_id: &str) -> crate::error::CliResult {
@@ -91,6 +97,9 @@ pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
         "include_slots": args.include_slots,
         "elapsed_ms": deadline.elapsed_ms(),
     }))?;
+    if args.rebuild_base_page_index {
+        rebuild_cx_list_base_page_index(&args, &deadline, &mut progress)?;
+    }
     if let Some(cx_id) = args.cx_id {
         let key = base_key(cx_id);
         let value = latest_cf_row(&args.vault, ColumnFamily::Base, &key)?.ok_or_else(|| {
@@ -109,8 +118,38 @@ pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
         );
     }
 
+    if let Some(limit) = args.limit {
+        check_deadline(&deadline, &mut progress, "base_page_index_read", 0)?;
+        progress.emit(json!({
+            "event": "cx_list.progress",
+            "phase": "base_page_index_read",
+            "limit": limit,
+            "elapsed_ms": deadline.elapsed_ms(),
+        }))?;
+        let rows = read_indexed_base_rows(&args.vault, limit)?;
+        progress.emit(json!({
+            "event": "cx_list.progress",
+            "phase": "base_page_index_rows_loaded",
+            "base_rows": rows.len(),
+            "elapsed_ms": deadline.elapsed_ms(),
+        }))?;
+        check_deadline(
+            &deadline,
+            &mut progress,
+            "base_page_index_rows_loaded",
+            rows.len() as u64,
+        )?;
+        return render_cx_list(
+            &args.vault,
+            rows,
+            args.include_slots,
+            &deadline,
+            &mut progress,
+        );
+    }
+
     check_deadline(&deadline, &mut progress, "base_scan", 0)?;
-    let mut rows = latest_cf_rows(&args.vault, ColumnFamily::Base)?;
+    let rows = latest_cf_rows(&args.vault, ColumnFamily::Base)?;
     progress.emit(json!({
         "event": "cx_list.progress",
         "phase": "base_rows_loaded",
@@ -123,12 +162,7 @@ pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
         "base_rows_loaded",
         rows.len() as u64,
     )?;
-    if let Some(limit) = args.limit {
-        rows = rows.into_iter().take(limit).collect();
-    } else if args.cx_id.is_none()
-        && rows.len() > CX_LIST_UNBOUNDED_ROW_LIMIT
-        && !args.allow_unbounded
-    {
+    if rows.len() > CX_LIST_UNBOUNDED_ROW_LIMIT && !args.allow_unbounded {
         return Err(CliError::usage(format!(
             "cx-list would print {} rows from {}; use --cx-id <cx>, --limit <n>, or --allow-unbounded",
             rows.len(),
@@ -152,6 +186,8 @@ fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
     let mut allow_unbounded = false;
     let mut progress_jsonl = None;
     let mut time_budget_ms = None;
+    let mut rebuild_base_page_index = false;
+    let mut base_page_index_page_size = DEFAULT_BASE_PAGE_INDEX_PAGE_SIZE;
     let mut idx = 0;
     while idx < rest.len() {
         match rest[idx].as_str() {
@@ -170,16 +206,18 @@ fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
             "--limit" => {
                 idx += 1;
                 let raw = value(rest, idx, "--limit")?;
-                let parsed = raw
-                    .parse::<usize>()
-                    .map_err(|error| CliError::usage(format!("invalid --limit {raw}: {error}")))?;
-                if parsed == 0 {
-                    return Err(CliError::usage("--limit must be at least 1"));
-                }
-                limit = Some(parsed);
+                limit = Some(parse_nonzero_usize(raw, "--limit")?);
             }
             "--allow-unbounded" => allow_unbounded = true,
             "--include-slots" => include_slots = true,
+            "--rebuild-base-page-index" => rebuild_base_page_index = true,
+            "--base-page-index-page-size" => {
+                idx += 1;
+                base_page_index_page_size = parse_nonzero_usize(
+                    value(rest, idx, "--base-page-index-page-size")?,
+                    "--base-page-index-page-size",
+                )?;
+            }
             "--progress-jsonl" => {
                 idx += 1;
                 progress_jsonl = Some(value(rest, idx, "--progress-jsonl")?.to_string());
@@ -203,6 +241,8 @@ fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
         allow_unbounded,
         progress_jsonl,
         time_budget_ms,
+        rebuild_base_page_index,
+        base_page_index_page_size,
     })
 }
 
