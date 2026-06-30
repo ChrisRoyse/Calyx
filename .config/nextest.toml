@@ -20,3 +20,9 @@ retries = 0
 # genuinely hung test can never block the gate forever, while legitimately long
 # FSV/dataset tests are never falsely terminated.
 slow-timeout = { period = "120s", terminate-after = 10 }
+
+[[profile.default.overrides]]
+filter = 'test(ph58_tombstone_serving_p99_serial_gate)'
+# If the ignored PH58 perf gate is deliberately run under nextest, reserve the
+# whole runner so no other test workload competes with its wall-clock samples.
+threads-required = "num-cpus"
