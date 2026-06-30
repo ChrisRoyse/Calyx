@@ -99,6 +99,31 @@ pub(crate) fn measure_constellation(
     }
 }
 
+pub(crate) fn measure_constellation_with_runtime_limit(
+    vault: &AsterVault,
+    state: &VaultPanelState,
+    input: &Input,
+    now: u64,
+    runtime_batch_limit: Option<usize>,
+    resident_addr: Option<SocketAddr>,
+) -> CliResult<Constellation> {
+    let mut measured = measure_constellation_microbatch_with_runtime_limit(
+        vault,
+        state,
+        std::slice::from_ref(input),
+        now,
+        runtime_batch_limit,
+        resident_addr,
+    )?;
+    match measured.len() {
+        1 => Ok(measured.remove(0)),
+        count => Err(CalyxError::lens_dim_mismatch(format!(
+            "single constellation measurement returned {count} constellations"
+        ))
+        .into()),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ApplicableLens {
     lens_id: LensId,
@@ -303,34 +328,50 @@ pub(crate) fn measure_constellation_microbatch_with_runtime_limit(
         measure_applicable_lens_batch(state, lens, batch_modality, inputs, runtime_batch_limit)
             .map(|vectors| (lens.lens_id, vectors))
     };
-    let (gpu_result, cpu_result) = rayon::join(
-        || match resident_addr {
-            Some(addr) => resident_batch::measure_gpu_lenses_via_resident_service(
-                state,
-                &gpu_lenses,
-                batch_modality,
-                inputs,
-                runtime_batch_limit,
+    let (gpu_vectors, cpu_vectors) = if let Some(addr) = resident_addr {
+        if !gpu_lenses.is_empty() {
+            ingest_runtime_log(format_args!(
+                "phase=measure_resident_service_gate addr={} gpu_lenses={} local_lenses_deferred=true",
                 addr,
-            ),
-            None => gpu_lenses
-                .iter()
-                .map(|&lens| measure_one(lens))
-                .collect::<std::result::Result<Vec<_>, _>>(),
-        },
-        || {
-            cpu_lenses
-                .par_iter()
-                .map(|&lens| measure_one(lens))
-                .collect::<std::result::Result<Vec<_>, _>>()
-        },
-    );
+                gpu_lenses.len()
+            ));
+        }
+        let gpu_vectors = resident_batch::measure_gpu_lenses_via_resident_service(
+            state,
+            &gpu_lenses,
+            batch_modality,
+            inputs,
+            runtime_batch_limit,
+            addr,
+        )?;
+        let cpu_vectors = cpu_lenses
+            .par_iter()
+            .map(|&lens| measure_one(lens))
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        (gpu_vectors, cpu_vectors)
+    } else {
+        let (gpu_result, cpu_result) = rayon::join(
+            || {
+                gpu_lenses
+                    .iter()
+                    .map(|&lens| measure_one(lens))
+                    .collect::<std::result::Result<Vec<_>, _>>()
+            },
+            || {
+                cpu_lenses
+                    .par_iter()
+                    .map(|&lens| measure_one(lens))
+                    .collect::<std::result::Result<Vec<_>, _>>()
+            },
+        );
+        (gpu_result?, cpu_result?)
+    };
     let mut measured: std::collections::BTreeMap<LensId, Vec<SlotVector>> =
         std::collections::BTreeMap::new();
-    for (id, vectors) in gpu_result? {
+    for (id, vectors) in gpu_vectors {
         measured.insert(id, vectors);
     }
-    for (id, vectors) in cpu_result? {
+    for (id, vectors) in cpu_vectors {
         measured.insert(id, vectors);
     }
     let mut out = Vec::with_capacity(inputs.len());

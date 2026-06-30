@@ -221,11 +221,17 @@ fn spawn_resident_child(lens_id: calyx_core::LensId, init_request: &Path) -> Res
         const CREATE_NO_WINDOW: u32 = 0x08000000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
-    command.spawn().map_err(|error| {
+    let mut child = command.spawn().map_err(|error| {
         CalyxError::lens_unreachable(format!(
             "spawn resident ingest lens worker for lens {lens_id} failed: {error}"
         ))
-    })
+    })?;
+    if let Err(error) = super::cleanup_job::assign_child_to_cleanup_job(&mut child) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    Ok(child)
 }
 
 fn resident_worker_loop(

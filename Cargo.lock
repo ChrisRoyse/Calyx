@@ -574,6 +574,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "ulid",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

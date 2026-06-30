@@ -149,6 +149,24 @@ fn batch_ingest_uses_existing_resident_service_and_persists_cfs() {
         after_second,
         after_failed
     );
+    let failed_text = Command::new(calyx_exe())
+        .env("CALYX_HOME", &root)
+        .arg("ingest")
+        .arg(&vault_path)
+        .arg("--text")
+        .arg("resident service stopped text should not persist")
+        .arg("--resident-addr")
+        .arg(&missing_addr)
+        .output()
+        .expect("run unavailable resident-service text ingest");
+    let after_failed_text = cf_state(&vault_path, vault_id, "resident-service-vault");
+    println!(
+        "resident_service_fsv_unavailable_text_status={:?} stderr={} state_before={} state_after={}",
+        failed_text.status.code(),
+        String::from_utf8_lossy(&failed_text.stderr),
+        after_failed,
+        after_failed_text
+    );
 
     let stop = Command::new(calyx_exe())
         .arg("panel")
@@ -189,9 +207,12 @@ fn batch_ingest_uses_existing_resident_service_and_persists_cfs() {
     assert_eq!(after_second["ledger_rows"], 2);
     assert!(!failed.status.success());
     assert_eq!(after_failed, after_second);
+    assert!(!failed_text.status.success());
+    assert_eq!(after_failed_text, after_failed);
 
     let ingest1_stderr = String::from_utf8_lossy(&ingest1.stderr);
     let ingest2_stderr = String::from_utf8_lossy(&ingest2.stderr);
+    let failed_text_stderr = String::from_utf8_lossy(&failed_text.stderr);
     assert!(ingest1_stderr.contains("phase=measure_resident_service_ok"));
     assert!(ingest2_stderr.contains("phase=measure_resident_service_ok"));
     assert!(ingest1_stderr.contains("protocol=binary"));
@@ -204,6 +225,9 @@ fn batch_ingest_uses_existing_resident_service_and_persists_cfs() {
     assert!(ingest2_stderr.contains(&format!("process_id={process_id}")));
     assert!(!ingest1_stderr.contains("phase=measure_lens_worker_resident_spawned"));
     assert!(!ingest2_stderr.contains("phase=measure_lens_worker_resident_spawned"));
+    assert!(failed_text_stderr.contains("CALYX_PANEL_RESIDENT_UNAVAILABLE"));
+    assert!(failed_text_stderr.contains("phase=measure_resident_service_gate"));
+    assert!(!failed_text_stderr.contains("phase=measure_lens_worker_resident_spawned"));
     let service_stderr = String::from_utf8_lossy(&service_output.stderr);
     assert!(service_stderr.contains("phase=measure_batch_binary_request"));
     assert!(service_stderr.contains("phase=measure_batch_binary_response"));

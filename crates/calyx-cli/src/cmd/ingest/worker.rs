@@ -83,6 +83,7 @@ struct WorkerPaths {
     request: PathBuf,
 }
 
+mod cleanup_job;
 mod frame;
 mod resident;
 
