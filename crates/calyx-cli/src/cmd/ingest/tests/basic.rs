@@ -126,6 +126,52 @@ fn batch_ingest_returns_bounded_summary_verified_by_base_cf() {
 }
 
 #[test]
+fn batch_summary_emits_before_post_commit_index_rebuild_failure() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("issue1035-rebuild-fail");
+    let jsonl = resolved.path.join("summary-before-rebuild-fail.jsonl");
+    fs::write(&jsonl, "{\"text\":\"issue1035 post commit summary row\"}\n").unwrap();
+    let manifest_path = resolved.path.join("idx/search/manifest.json");
+    fs::create_dir_all(manifest_path.parent().unwrap()).unwrap();
+    fs::write(&manifest_path, b"{not-json").unwrap();
+    let before = ingest_cf_state(&resolved);
+    println!("issue1035_before_cf_state={before}");
+
+    let mut emitted = Vec::new();
+    let mut emit_summary = |summary: &BatchIngestSummary| {
+        emitted.push(summary.clone());
+        Ok(())
+    };
+    let error = ingest_batch_streaming_with_summary_emitter(&resolved, &jsonl, &mut emit_summary)
+        .unwrap_err();
+
+    let after = ingest_cf_state(&resolved);
+    println!("issue1035_after_cf_state={after}");
+    assert_eq!(emitted.len(), 1, "summary must emit before rebuild");
+    assert_eq!(emitted[0].status, "ingested");
+    assert_eq!(emitted[0].row_count, 1);
+    assert_eq!(emitted[0].new_count, 1);
+    assert_eq!(emitted[0].verified_base_rows, 1);
+    assert_eq!(error.code(), "CALYX_INGEST_INDEX_REBUILD_FAILED");
+    assert!(
+        error
+            .message()
+            .contains("committed and verified 1 Base CF rows"),
+        "{}",
+        error.message()
+    );
+    assert!(
+        error.message().contains("persistent search index manifest"),
+        "{}",
+        error.message()
+    );
+    assert_eq!(before["base_rows"], 0);
+    assert_eq!(after["base_rows"], 1);
+    assert_eq!(after["slot_00_rows"], 1);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn batch_ingest_measure_window_persists_all_rows_to_physical_cfs() {
     let (root, resolved) = test_vault_with_registered_dense_lens("issue999-window");
     let jsonl = resolved.path.join("window.jsonl");

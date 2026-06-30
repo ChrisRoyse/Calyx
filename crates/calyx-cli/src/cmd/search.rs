@@ -47,6 +47,19 @@ pub(crate) fn rebuild_persistent_indexes(vault_dir: &Path, vault: &AsterVault) -
     Ok(calyx_search::rebuild_for_vault(vault_dir, vault)?)
 }
 
+pub(crate) fn rebuild_persistent_indexes_with_progress<F>(
+    vault_dir: &Path,
+    vault: &AsterVault,
+    progress: F,
+) -> CliResult
+where
+    F: FnMut(calyx_search::RebuildProgress<'_>),
+{
+    Ok(calyx_search::rebuild_for_vault_with_progress(
+        vault_dir, vault, progress,
+    )?)
+}
+
 pub(super) fn latest_read_vault_options_for_cfs(
     selected_cfs: Option<Vec<ColumnFamily>>,
 ) -> VaultOptions {

@@ -20,4 +20,7 @@ pub use engine::{
     search_outcome_with_slots, search_outcome_with_slots_traced,
 };
 pub use error::{CliResult, SearchError};
-pub use persisted::{PersistedSearchIndexes, load_docs, rebuild_for_vault};
+pub use persisted::{
+    PersistedSearchIndexes, RebuildProgress, load_docs, rebuild_for_vault,
+    rebuild_for_vault_with_progress,
+};
