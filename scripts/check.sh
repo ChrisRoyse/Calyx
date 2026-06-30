@@ -35,10 +35,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 # single parallel pool sized to all logical CPUs, whereas `cargo test` runs each
 # test binary sequentially and leaves most cores idle. With 1500+ tests across
 # 250+ binaries that is the difference between saturating the box and waiting on
-# one core. Fail-loud: if cargo-nextest is missing the gate errors (run
-# scripts/aiwonder-build-setup.sh to provision it) rather than silently skipping.
+# one core. Fail-loud: if cargo-nextest is missing the gate errors and points
+# to the focused local provisioning script rather than silently skipping.
 if ! command -v cargo-nextest >/dev/null 2>&1; then
-  echo "ERROR: cargo-nextest not installed. Run scripts/aiwonder-build-setup.sh" >&2
+  echo "ERROR: cargo-nextest not installed." >&2
+  echo "ERROR: run 'bash scripts/install-cargo-nextest.sh' for Bash/WSL, or" >&2
+  echo "ERROR: run 'pwsh -File scripts/install-cargo-nextest.ps1' for native Windows PowerShell." >&2
   exit 1
 fi
 cargo nextest run --workspace
