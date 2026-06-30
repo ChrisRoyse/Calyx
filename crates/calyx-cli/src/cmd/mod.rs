@@ -1,5 +1,6 @@
 mod discovery_chain;
 mod domain_bridges;
+mod erase;
 mod healthcheck;
 mod ingest;
 mod intelligence;
@@ -51,6 +52,7 @@ pub(crate) enum Subcommand {
     Ingest(IngestArgs),
     Anchor(AnchorArgs),
     Measure(MeasureArgs),
+    Erase(erase::EraseArgs),
     Search(search::SearchArgs),
     KernelAnswer(search::KernelAnswerArgs),
     Bits(intelligence::BitsArgs),
@@ -169,6 +171,7 @@ fn run(command: Subcommand) -> CliResult {
         Subcommand::Ingest(_) | Subcommand::Anchor(_) | Subcommand::Measure(_) => {
             ingest::run(command)
         }
+        Subcommand::Erase(_) => erase::run(command),
         Subcommand::Search(_) | Subcommand::KernelAnswer(_) | Subcommand::RebuildSearchIndex(_) => {
             search::run(command)
         }
@@ -204,6 +207,7 @@ pub(crate) fn parse(args: &[String]) -> CliResult<Subcommand> {
         "ingest" => ingest::parse_ingest(rest),
         "anchor" => ingest::parse_anchor(rest),
         "measure" => ingest::parse_measure(rest),
+        "erase" => erase::parse_erase(rest),
         "search" => search::parse_search(rest),
         "kernel-answer" => search::parse_kernel_answer(rest),
         "bits" => intelligence::parse_bits(rest),
@@ -238,6 +242,7 @@ fn is_cmd(command: &str) -> bool {
             | "ingest"
             | "anchor"
             | "measure"
+            | "erase"
             | "search"
             | "kernel-answer"
             | "bits"

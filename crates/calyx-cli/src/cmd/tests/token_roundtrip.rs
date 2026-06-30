@@ -41,6 +41,20 @@ pub(super) fn subcommand_tokens(command: &Subcommand) -> Vec<String> {
             "--text".to_string(),
             args.text.clone(),
         ],
+        Subcommand::Erase(args) => {
+            let mut out = vec![
+                "erase".to_string(),
+                args.vault.clone(),
+                "--cx-id".to_string(),
+                args.cx_id.clone(),
+            ];
+            push_opt(
+                &mut out,
+                "--fsv-out",
+                args.fsv_out.as_ref().and_then(|path| path.to_str()),
+            );
+            out
+        }
         Subcommand::Search(args) => search::search_tokens(args),
         Subcommand::KernelAnswer(args) => search::kernel_answer_tokens(args),
         Subcommand::Bits(args) => intelligence::bits_tokens(args),

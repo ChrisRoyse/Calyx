@@ -249,6 +249,26 @@ fn parse_provenance_ops_commands() {
 }
 
 #[test]
+fn parse_erase_command() {
+    assert_eq!(
+        parse(&tokens([
+            "erase",
+            "mydb",
+            "--cx-id",
+            "00000000000000000000000000000000",
+            "--fsv-out",
+            "target/fsv/erase.json",
+        ]))
+        .unwrap(),
+        Subcommand::Erase(erase::EraseArgs {
+            vault: "mydb".to_string(),
+            cx_id: "00000000000000000000000000000000".to_string(),
+            fsv_out: Some("target/fsv/erase.json".into()),
+        })
+    );
+}
+
+#[test]
 fn unsafe_panel_template_selector_is_usage_error_with_remediation_values() {
     let err = parse(&tokens([
         "create-vault",

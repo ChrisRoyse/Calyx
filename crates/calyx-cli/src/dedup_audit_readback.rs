@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use calyx_aster::cf::{ColumnFamily, base_key, slot_key};
 use calyx_aster::dedup::{ReversalToken, dedup_audit, dedup_undo};
+use calyx_aster::mvcc::is_tombstone_value;
 use calyx_aster::vault::encode::{decode_constellation_base, decode_slot_vector};
 use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, SlotId, SlotVector};
@@ -162,6 +163,10 @@ fn render_cx_list(
     let mut slot_cache = BTreeMap::<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>::new();
     let mut raw_slot_cache = BTreeMap::<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>::new();
     for (key, value) in rows {
+        if is_tombstone_value(&value) {
+            values.push(tombstone_row(&key));
+            continue;
+        }
         let cx = decode_constellation_base(&value).map_err(|error| error.to_string())?;
         let mut row = json!({
             "key_hex": hex_bytes(&key),
@@ -219,6 +224,22 @@ fn render_cx_list(
     let json = serde_json::to_string_pretty(&values).map_err(|error| error.to_string())?;
     print_line(&json)?;
     Ok(())
+}
+
+fn tombstone_row(key: &[u8]) -> serde_json::Value {
+    json!({
+        "key_hex": hex_bytes(key),
+        "cx_id": cx_id_from_base_key(key).map(|id| id.to_string()),
+        "base_visible": false,
+        "tombstoned": true,
+        "slot_payloads_decoded": false,
+        "slot_payload_decode_mode": "mvcc_tombstone",
+    })
+}
+
+fn cx_id_from_base_key(key: &[u8]) -> Option<CxId> {
+    let bytes: [u8; 16] = key.try_into().ok()?;
+    Some(CxId::from_bytes(bytes))
 }
 
 fn cx_list_include_slots(args: &CxListArgs) -> bool {
@@ -356,5 +377,16 @@ mod tests {
 
         assert!(!cx_list_include_slots(&base_only));
         assert!(cx_list_include_slots(&with_slots));
+    }
+
+    #[test]
+    fn cx_list_tombstone_row_reports_tombstoned_not_corrupt() {
+        let cx_id = CxId::from_bytes([0x17; 16]);
+        let row = tombstone_row(&base_key(cx_id));
+
+        assert_eq!(row["cx_id"], cx_id.to_string());
+        assert_eq!(row["base_visible"], false);
+        assert_eq!(row["tombstoned"], true);
+        assert_eq!(row["slot_payload_decode_mode"], "mvcc_tombstone");
     }
 }
