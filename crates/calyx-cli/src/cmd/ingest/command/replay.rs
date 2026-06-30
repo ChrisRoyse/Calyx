@@ -156,7 +156,7 @@ pub(crate) fn flush_plain_existing_batch_replay(
                 new: false,
                 ledger_seq,
             };
-            summary.record(&report);
+            summary.record(row.cx_id, &report);
             if output == IngestOutput::Rows {
                 print_json(&report)?;
             }
@@ -371,7 +371,7 @@ pub(crate) fn flush_existing_batch_replay(
                 new: false,
                 ledger_seq,
             };
-            summary.record(&report);
+            summary.record(cx_id, &report);
             if output == IngestOutput::Rows {
                 print_json(&report)?;
             }
