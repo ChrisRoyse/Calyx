@@ -12,6 +12,8 @@ const CALYX_ORT_CAPI: &str = "CALYX_ORT_CAPI";
 pub(super) fn ensure_dynamic_ort(provider_policy: OnnxProviderPolicy) -> Result<PathBuf> {
     let path = resolve_ort_dylib_path()?;
     ensure_file(&path)?;
+    #[cfg(not(windows))]
+    let _ = provider_policy;
     #[cfg(windows)]
     if provider_policy == OnnxProviderPolicy::CudaFailLoud {
         super::windows_cuda_dlls::prepare_cuda_provider_dll_search(&path)?;
@@ -46,7 +48,7 @@ fn resolve_ort_dylib_path() -> Result<PathBuf> {
 }
 
 fn ensure_file(path: &PathBuf) -> Result<()> {
-    let metadata = fs::metadata(&path).map_err(|err| {
+    let metadata = fs::metadata(path).map_err(|err| {
         CalyxError::lens_unreachable(format!(
             "stat {ORT_DYLIB_PATH}={} failed: {err}",
             path.display()
