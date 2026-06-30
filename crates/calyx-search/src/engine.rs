@@ -203,11 +203,13 @@ pub fn search_outcome_with_query_vectors(
     guard: GuardChoice,
     filter: Option<&str>,
     explain: bool,
+    trace_sink: Option<&mut dyn FnMut(SearchTraceEvent)>,
 ) -> CliResult<SearchOutcome> {
     let allowed_slots = query_vectors
         .iter()
         .map(|(slot, _)| *slot)
         .collect::<BTreeSet<_>>();
+    let mut trace = SearchTracer::new(trace_sink);
     search_outcome_with_measured_slots(
         vault,
         vault_dir,
@@ -218,7 +220,7 @@ pub fn search_outcome_with_query_vectors(
         filter,
         explain,
         Some(&allowed_slots),
-        None,
+        Some(&mut trace),
     )
 }
 

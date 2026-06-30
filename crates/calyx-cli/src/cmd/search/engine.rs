@@ -15,7 +15,8 @@ use calyx_core::{
 };
 use calyx_registry::{VaultPanelState, load_vault_panel_state, require_vault_registry_contracts};
 use calyx_search::{
-    FusionChoice, GuardChoice, load_docs, search_outcome, search_outcome_with_query_vectors,
+    FusionChoice, GuardChoice, SearchTraceEvent, load_docs, search_outcome,
+    search_outcome_with_query_vectors,
 };
 use calyx_sextant::Hit;
 
@@ -49,6 +50,7 @@ fn search_command(args: SearchArgs) -> CliResult {
             let query_vectors =
                 measure_search_query_vectors_via_resident(&state, &resolved, &args.query, addr)?;
             let vault = open_vault(&resolved, search_read_cfs(&state, guard))?;
+            let mut trace_sink = emit_search_trace;
             search_outcome_with_query_vectors(
                 &vault,
                 &resolved.path,
@@ -58,6 +60,7 @@ fn search_command(args: SearchArgs) -> CliResult {
                 guard,
                 args.filter.as_deref(),
                 args.explain,
+                Some(&mut trace_sink),
             )?
         }
         None => {
@@ -82,6 +85,22 @@ fn search_command(args: SearchArgs) -> CliResult {
         args.provenance,
         outcome.guard_tau,
     ))
+}
+
+fn emit_search_trace(event: SearchTraceEvent) {
+    let slot = event
+        .slot
+        .map(|slot| slot.get().to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let count = event
+        .count
+        .map(|count| count.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let detail = event.detail.as_deref().unwrap_or("-");
+    eprintln!(
+        "CALYX_SEARCH_RUNTIME phase={} slot={} elapsed_ms={} count={} detail={}",
+        event.phase, slot, event.elapsed_ms, count, detail
+    );
 }
 
 fn measure_search_query_vectors_via_resident(

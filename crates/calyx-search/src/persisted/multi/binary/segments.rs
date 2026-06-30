@@ -102,15 +102,18 @@ pub(in crate::persisted::multi) struct BinarySegmentSearchSpec<'a> {
     pub(in crate::persisted::multi) token_count: u64,
 }
 
-pub(in crate::persisted::multi) fn score_binary_segment(
+pub(in crate::persisted::multi) struct BinarySegmentSearchResult {
+    pub(in crate::persisted::multi) seen: BTreeSet<CxId>,
+    pub(in crate::persisted::multi) scored: Vec<(CxId, f32)>,
+}
+
+pub(in crate::persisted::multi) fn score_binary_segment_collect(
     spec: BinarySegmentSearchSpec<'_>,
     slot: SlotId,
     expected_token_dim: u32,
     query: &[Vec<f32>],
     candidates: Option<&BTreeSet<CxId>>,
-    seen: &mut BTreeSet<CxId>,
-    scored: &mut Vec<(CxId, f32)>,
-) -> CliResult {
+) -> CliResult<BinarySegmentSearchResult> {
     let file = File::open(spec.path)?;
     let mut reader = BufReader::new(file);
     let mut hasher = Sha256::new();
@@ -123,6 +126,8 @@ pub(in crate::persisted::multi) fn score_binary_segment(
         Some(spec.token_count),
     )?;
     let mut observed_tokens = 0u64;
+    let mut seen = BTreeSet::new();
+    let mut scored = Vec::new();
     for _ in 0..header.row_count {
         let cx_id = read_cx_id(spec.path, &mut reader, &mut hasher)?;
         if !seen.insert(cx_id) {
@@ -161,7 +166,7 @@ pub(in crate::persisted::multi) fn score_binary_segment(
             spec.sha256
         )));
     }
-    Ok(())
+    Ok(BinarySegmentSearchResult { seen, scored })
 }
 
 fn validate_binary_segment_header(

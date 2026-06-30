@@ -6,6 +6,12 @@ use path::{checked_rel, checked_segment_path};
 #[path = "segments/manifest.rs"]
 mod manifest;
 use manifest::validate_segments_manifest_shape;
+#[path = "segments/bounds.rs"]
+mod bounds;
+#[path = "segments/search.rs"]
+mod search;
+pub(super) use bounds::ensure_entry_bounded;
+pub(super) use search::search_segments;
 
 const MULTI_SEGMENTS_FORMAT: &str = "calyx-search-multi-maxsim-segments-v1";
 
@@ -73,7 +79,7 @@ pub(super) fn write(
             .cloned()
             .collect::<Vec<_>>();
         if !missing.is_empty() {
-            let segment = write_binary_segment(
+            let segments = write_binary_segments(
                 vault_dir,
                 root,
                 slot,
@@ -82,8 +88,11 @@ pub(super) fn write(
                 base_seq,
                 refs.len(),
             )?;
-            segment_token_count += segment.token_count;
-            refs.push(segment);
+            segment_token_count += segments
+                .iter()
+                .map(|segment| segment.token_count)
+                .sum::<usize>();
+            refs.extend(segments);
         }
         if refs.iter().map(|segment| segment.row_count).sum::<usize>() == row_count
             && segment_token_count == token_count
@@ -102,7 +111,7 @@ pub(super) fn write(
             );
         }
     }
-    let segment = write_binary_segment(
+    let segments = write_binary_segments(
         vault_dir,
         root,
         slot,
@@ -120,7 +129,7 @@ pub(super) fn write(
             row_count,
             token_count,
             base_seq,
-            segments: vec![segment],
+            segments,
         },
     )
 }
@@ -156,6 +165,18 @@ fn reusable_segments(
     }
     match previous.kind.as_str() {
         "multi_maxsim" => {
+            let token_count = previous.token_count.unwrap_or_default();
+            if bounds::ensure_entry_bounded(
+                slot,
+                previous.require_index_rel(slot)?,
+                token_dim,
+                previous.len,
+                token_count,
+            )
+            .is_err()
+            {
+                return Ok(None);
+            }
             let summary = binary::summarize_binary_entry(vault_dir, previous, slot)?;
             if summary.ids.iter().any(|cx_id| !current_ids.contains(cx_id)) {
                 return Ok(None);
@@ -188,6 +209,13 @@ fn reusable_segments(
         "multi_maxsim_segments" => {
             let manifest =
                 read_segments_manifest(vault_dir, previous, previous.built_at_seq, slot)?;
+            if manifest
+                .segments
+                .iter()
+                .any(|segment| !bounds::segment_ref_is_bounded(slot, token_dim, segment))
+            {
+                return Ok(None);
+            }
             let reused = summarize_segment_files(vault_dir, slot, token_dim, &manifest, false)?;
             if reused.ids.iter().any(|cx_id| !current_ids.contains(cx_id)) {
                 return Ok(None);
@@ -196,6 +224,32 @@ fn reusable_segments(
         }
         _ => Ok(None),
     }
+}
+
+fn write_binary_segments(
+    vault_dir: &Path,
+    root: &Path,
+    slot: SlotId,
+    token_dim: u32,
+    rows: &[(CxId, Vec<Vec<f32>>)],
+    base_seq: u64,
+    start_ordinal: usize,
+) -> CliResult<Vec<MultiSegmentRef>> {
+    bounds::split_row_ranges_by_segment_budget(slot, token_dim, rows)?
+        .into_iter()
+        .enumerate()
+        .map(|(offset, range)| {
+            write_binary_segment(
+                vault_dir,
+                root,
+                slot,
+                token_dim,
+                &rows[range],
+                base_seq,
+                start_ordinal + offset,
+            )
+        })
+        .collect()
 }
 
 fn write_binary_segment(
@@ -304,48 +358,20 @@ pub(super) fn validate_segment_files(
     token_dim: u32,
     manifest: &MultiSegmentsManifest,
 ) -> CliResult {
-    let _ = summarize_segment_files(vault_dir, slot, token_dim, manifest, true)?;
-    Ok(())
-}
-
-pub(super) fn search_segments(
-    vault_dir: &Path,
-    entry: &SearchIndexEntry,
-    manifest_base_seq: u64,
-    slot: SlotId,
-    query_tokens: &[Vec<f32>],
-    k: usize,
-    candidates: Option<&BTreeSet<CxId>>,
-) -> CliResult<Vec<IndexSearchHit>> {
-    let manifest = read_segments_manifest(vault_dir, entry, manifest_base_seq, slot)?;
-    let mut seen = BTreeSet::new();
-    let mut scored = Vec::new();
-    let token_dim = entry.require_token_dim(slot)?;
     for segment in &manifest.segments {
+        bounds::ensure_segment_ref_bounded(slot, token_dim, segment)?;
         let path = checked_segment_path(vault_dir, &segment.index_rel, slot)?;
-        binary::score_binary_segment(
-            binary::BinarySegmentSearchSpec {
-                path: &path,
-                sha256: &segment.sha256,
-                row_count: segment.row_count as u64,
-                token_count: segment.token_count as u64,
-            },
-            slot,
-            token_dim,
-            query_tokens,
-            candidates,
-            &mut seen,
-            &mut scored,
-        )?;
+        let expected =
+            bounds::segment_estimated_bytes(token_dim, segment.row_count, segment.token_count)?;
+        let actual = fs::metadata(&path)?.len();
+        if actual != expected {
+            return Err(stale(format!(
+                "persistent segmented multi sidecar {} has {actual} bytes, expected {expected}; rebuild the vault search indexes",
+                segment.index_rel
+            )));
+        }
     }
-    if seen.len() != manifest.row_count {
-        return Err(stale(format!(
-            "persistent segmented multi manifest row_count {} != scanned row count {}; rebuild the vault search indexes",
-            manifest.row_count,
-            seen.len()
-        )));
-    }
-    Ok(ranked(top_k(scored, k)))
+    Ok(())
 }
 
 fn summarize_segment_files(

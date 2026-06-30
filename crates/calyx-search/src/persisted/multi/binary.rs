@@ -132,7 +132,8 @@ pub(super) fn search_binary(
 mod segments;
 
 pub(super) use segments::{
-    BinarySegmentSearchSpec, score_binary_segment, summarize_binary_entry, summarize_binary_path,
+    BinarySegmentSearchSpec, score_binary_segment_collect, summarize_binary_entry,
+    summarize_binary_path,
 };
 
 pub(super) fn read_binary_header_unhashed(path: &Path) -> CliResult<BinaryHeader> {

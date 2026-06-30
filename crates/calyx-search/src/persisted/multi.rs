@@ -122,6 +122,7 @@ pub(super) fn search(
         )));
     }
     if binary::is_binary_sidecar(entry.require_index_rel(slot)?) {
+        ensure_binary_entry_bounded(vault_dir, entry, slot)?;
         binary::search_binary(
             vault_dir,
             entry,
@@ -162,6 +163,7 @@ pub(super) fn ensure_bounded_sidecar(
             &manifest,
         )?;
     } else if binary::is_binary_sidecar(entry.require_index_rel(slot)?) {
+        ensure_binary_entry_bounded(vault_dir, entry, slot)?;
         let path = sidecar_path(vault_dir, entry, slot)?;
         let header = binary::read_binary_header_unhashed(&path)?;
         binary::validate_binary_header(&header, entry, entry.built_at_seq, slot)?;
@@ -174,6 +176,20 @@ pub(super) fn ensure_bounded_sidecar(
         )?;
     }
     Ok(())
+}
+
+fn ensure_binary_entry_bounded(
+    _vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+) -> CliResult {
+    segments::ensure_entry_bounded(
+        slot,
+        entry.require_index_rel(slot)?,
+        entry.require_token_dim(slot)?,
+        entry.len,
+        entry.token_count.unwrap_or_default(),
+    )
 }
 
 pub(super) fn referenced_segment_artifacts(
