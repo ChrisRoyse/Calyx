@@ -78,6 +78,31 @@ pub(crate) fn latest_cf_row(
     Ok(value)
 }
 
+pub(crate) fn latest_cf_rows_for_keys(
+    vault: &Path,
+    cf: ColumnFamily,
+    keys: &[Vec<u8>],
+) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, String> {
+    let sst_files = list_sst_files(&vault.join("cf").join(cf.name()))?;
+    let level = SstLevel::from_oldest_first(sst_files);
+    let mut rows = BTreeMap::new();
+    for key in keys {
+        rows.insert(
+            key.clone(),
+            level.get(key).map_err(|error| error.to_string())?,
+        );
+    }
+    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
+    for record in replay.records {
+        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
+            if row.cf == cf && rows.contains_key(&row.key) {
+                rows.insert(row.key, Some(row.value));
+            }
+        }
+    }
+    Ok(rows)
+}
+
 pub(crate) fn vault_id_from_base(vault: &Path) -> Result<VaultId, String> {
     latest_cf_rows(vault, ColumnFamily::Base)?
         .into_values()
@@ -149,6 +174,35 @@ mod tests {
             latest_cf_row(&root, ColumnFamily::Base, b"missing").unwrap(),
             None
         );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn latest_cf_rows_for_keys_reads_only_requested_latest_rows() {
+        let root = temp_root("latest-cf-rows-for-keys");
+        let base = root.join("cf").join(ColumnFamily::Base.name());
+        fs::create_dir_all(&base).unwrap();
+        calyx_aster::sst::write_sst(
+            base.join("00000000000000000001.sst"),
+            [(b"k1".as_slice(), b"old".as_slice()), (b"k2", b"other")],
+        )
+        .unwrap();
+        calyx_aster::sst::write_sst(
+            base.join("00000000000000000002.sst"),
+            [(b"k1".as_slice(), b"new".as_slice()), (b"k3", b"skip")],
+        )
+        .unwrap();
+
+        let rows = latest_cf_rows_for_keys(
+            &root,
+            ColumnFamily::Base,
+            &[b"k1".to_vec(), b"missing".to_vec()],
+        )
+        .unwrap();
+
+        assert_eq!(rows.get(b"k1".as_slice()).unwrap(), &Some(b"new".to_vec()));
+        assert_eq!(rows.get(b"missing".as_slice()).unwrap(), &None);
+        assert!(!rows.contains_key(b"k3".as_slice()));
         fs::remove_dir_all(root).ok();
     }
 

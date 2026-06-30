@@ -212,6 +212,37 @@ fn batch_ingest_measure_window_persists_all_rows_to_physical_cfs() {
 }
 
 #[test]
+fn batch_summary_counts_distinct_physical_base_materialization() {
+    let (root, resolved) = test_vault_with_registered_dense_lens("issue1031-physical-counts");
+    let jsonl = resolved.path.join("duplicate.jsonl");
+    fs::write(
+        &jsonl,
+        "{\"text\":\"issue1031 duplicate physical source truth\"}\n{\"text\":\"issue1031 duplicate physical source truth\"}\n",
+    )
+    .unwrap();
+    let before = ingest_cf_state(&resolved);
+    println!("issue1031_duplicate_before_cf_state={before}");
+
+    let summary = ingest_batch_streaming(&resolved, &jsonl).unwrap();
+
+    let after = ingest_cf_state(&resolved);
+    println!("issue1031_duplicate_after_cf_state={after}");
+    assert_eq!(summary.row_count, 2);
+    assert_eq!(summary.distinct_cx_count, 1);
+    assert_eq!(summary.new_count, 1);
+    assert_eq!(summary.already_count, 1);
+    assert_eq!(summary.runtime_new_count, 1);
+    assert_eq!(summary.runtime_already_count, 1);
+    assert_eq!(summary.batch_base_visible_before, 0);
+    assert_eq!(summary.batch_base_visible_after, 1);
+    assert_eq!(summary.batch_base_materialized_count, 1);
+    assert_eq!(before["base_rows"], 0);
+    assert_eq!(after["base_rows"], 1);
+
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn batch_reingest_existing_rows_skips_measurement_and_uses_base_cf_source_of_truth() {
     let (root, resolved) = test_vault_with_registered_dense_lens("existing-fast-path");
     let jsonl = resolved.path.join("existing.jsonl");
@@ -247,7 +278,12 @@ fn batch_reingest_existing_rows_skips_measurement_and_uses_base_cf_source_of_tru
     assert_eq!(replay.row_count, 2);
     assert_eq!(replay.new_count, 0);
     assert_eq!(replay.already_count, 2);
+    assert_eq!(replay.runtime_new_count, 0);
+    assert_eq!(replay.runtime_already_count, 2);
     assert_eq!(replay.verified_base_rows, 2);
+    assert_eq!(replay.batch_base_visible_before, 2);
+    assert_eq!(replay.batch_base_visible_after, 2);
+    assert_eq!(replay.batch_base_materialized_count, 0);
     assert_eq!(after["base_rows"], before["base_rows"]);
     assert_eq!(after["slot_00_rows"], before["slot_00_rows"]);
     assert_eq!(

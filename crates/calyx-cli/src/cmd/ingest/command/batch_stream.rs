@@ -1,3 +1,7 @@
+use super::batch_physical::{
+    collect_batch_cx_ids, physical_batch_base_state, reconcile_summary_with_physical_base,
+    reject_tombstoned_batch_ids,
+};
 use super::batch_support::{
     BatchOrderRow, append_idempotent_batch_ledger, append_missing_batch_anchors,
     append_oracle_events, current_anchor_kinds, ensure_idempotent_batch_replay,
@@ -96,6 +100,15 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
         validated_row_count, runtime_batch_limit, measure_window, PUT_CHUNK, output, resident_addr
     ));
     preflight_batch_existing_identity(&vault, &state, path, validated_row_count)?;
+    let batch_cx_ids = collect_batch_cx_ids(&vault, &state, path)?;
+    let physical_before = physical_batch_base_state(&resolved.path, &batch_cx_ids)?;
+    reject_tombstoned_batch_ids(&physical_before)?;
+    ingest_runtime_log(format_args!(
+        "phase=batch_physical_base_readback_before distinct_cx={} visible={} tombstoned={}",
+        batch_cx_ids.len(),
+        physical_before.visible.len(),
+        physical_before.tombstoned.len()
+    ));
     let mut chunk: Vec<BatchRow> = Vec::with_capacity(measure_window);
     let mut summary = BatchIngestSummary::empty();
     for (index, line) in reader.lines().enumerate() {
@@ -125,6 +138,8 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
             flush_options,
         )?;
     }
+    let physical_after = physical_batch_base_state(&resolved.path, &batch_cx_ids)?;
+    reconcile_summary_with_physical_base(&mut summary, &physical_before, &physical_after)?;
     let summary_emit_error = emit_batch_summary_if_requested(&mut summary_emitter, &summary)?;
     if summary.new_count > 0 {
         ingest_runtime_log(format_args!(
@@ -389,7 +404,7 @@ fn flush_measure_batch(
                 new: row.new,
                 ledger_seq,
             };
-            summary.record(&report);
+            summary.record(cx_id, &report);
             if options.output == IngestOutput::Rows {
                 print_json(&report)?;
             }

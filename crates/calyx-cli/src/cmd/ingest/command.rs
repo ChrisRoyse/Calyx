@@ -462,6 +462,7 @@ fn verify_media_artifact_readback(
     Ok(())
 }
 
+mod batch_physical;
 mod batch_stream;
 mod batch_support;
 mod replay;
