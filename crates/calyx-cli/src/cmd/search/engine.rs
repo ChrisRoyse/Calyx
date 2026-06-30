@@ -15,8 +15,8 @@ use calyx_core::{
 };
 use calyx_registry::{VaultPanelState, load_vault_panel_state, require_vault_registry_contracts};
 use calyx_search::{
-    FusionChoice, GuardChoice, SearchTraceEvent, load_docs, search_outcome,
-    search_outcome_with_query_vectors,
+    FusionChoice, GuardChoice, SearchFreshness, SearchTraceEvent, load_docs,
+    search_outcome_with_freshness, search_outcome_with_query_vectors_freshness,
 };
 use calyx_sextant::Hit;
 
@@ -24,7 +24,9 @@ use super::super::Subcommand;
 use super::super::ingest::parse_anchor_kind;
 use super::super::vault::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
 use super::output;
-use super::parse::{KernelAnswerArgs, SearchArgs, SearchFusionArg, SearchGuardArg};
+use super::parse::{
+    KernelAnswerArgs, SearchArgs, SearchFreshnessArg, SearchFusionArg, SearchGuardArg,
+};
 use super::{base_read_cfs, latest_read_vault_options_for_cfs, panel_read_cfs};
 use crate::error::CliResult;
 use crate::output::print_json;
@@ -45,13 +47,14 @@ fn search_command(args: SearchArgs) -> CliResult {
     let state = load_vault_panel_state(&resolved.path)?;
     let fusion = fusion_choice(args.fusion);
     let guard = guard_choice(args.guard);
+    let freshness = freshness_choice(args.freshness);
     let outcome = match args.resident_addr {
         Some(addr) => {
             let query_vectors =
                 measure_search_query_vectors_via_resident(&state, &resolved, &args.query, addr)?;
             let vault = open_vault(&resolved, search_read_cfs(&state, guard))?;
             let mut trace_sink = emit_search_trace;
-            search_outcome_with_query_vectors(
+            search_outcome_with_query_vectors_freshness(
                 &vault,
                 &resolved.path,
                 &query_vectors,
@@ -60,13 +63,14 @@ fn search_command(args: SearchArgs) -> CliResult {
                 guard,
                 args.filter.as_deref(),
                 args.explain,
+                freshness,
                 Some(&mut trace_sink),
             )?
         }
         None => {
             require_resident_for_gpu_text_search(&state)?;
             let vault = open_vault(&resolved, search_read_cfs(&state, guard))?;
-            search_outcome(
+            search_outcome_with_freshness(
                 &vault,
                 &state,
                 &resolved.path,
@@ -76,6 +80,7 @@ fn search_command(args: SearchArgs) -> CliResult {
                 guard,
                 args.filter.as_deref(),
                 args.explain,
+                freshness,
             )?
         }
     };
@@ -301,7 +306,7 @@ fn kernel_answer_command(args: KernelAnswerArgs) -> CliResult {
     let state = load_vault_panel_state(&resolved.path)?;
     let vault = open_vault(&resolved, panel_read_cfs(&state.panel))?;
     let docs = load_docs(&vault)?;
-    let outcome = search_outcome(
+    let outcome = search_outcome_with_freshness(
         &vault,
         &state,
         &resolved.path,
@@ -311,6 +316,7 @@ fn kernel_answer_command(args: KernelAnswerArgs) -> CliResult {
         GuardChoice::Off,
         None,
         args.explain,
+        SearchFreshness::Fresh,
     )?;
     let report = kernel_report_from_docs(&docs, &outcome.hits, anchor.as_ref())?;
     print_json(&report)
@@ -330,6 +336,13 @@ fn guard_choice(arg: SearchGuardArg) -> GuardChoice {
     match arg {
         SearchGuardArg::Off => GuardChoice::Off,
         SearchGuardArg::InRegion => GuardChoice::InRegion,
+    }
+}
+
+fn freshness_choice(arg: SearchFreshnessArg) -> SearchFreshness {
+    match arg {
+        SearchFreshnessArg::Fresh => SearchFreshness::Fresh,
+        SearchFreshnessArg::StaleOk => SearchFreshness::StaleOk,
     }
 }
 

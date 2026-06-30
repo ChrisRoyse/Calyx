@@ -205,6 +205,10 @@ impl PersistedSearchIndexes {
         self.max_len_for_slots(None)
     }
 
+    pub fn base_seq(&self) -> u64 {
+        self.manifest.base_seq
+    }
+
     pub fn ensure_fresh_at_snapshot(&self, pinned_seq: u64) -> CliResult {
         if self.manifest.base_seq == pinned_seq {
             return Ok(());

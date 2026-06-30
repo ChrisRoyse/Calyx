@@ -12,7 +12,7 @@ use calyx_lodestar::{
     ProbeRecord, ProbeRefusal, ProbeResponse, ProbeVariant, build_probe_matrix,
 };
 use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
-use calyx_search::{FusionChoice, GuardChoice, search_outcome_with_slots_traced};
+use calyx_search::{FusionChoice, GuardChoice, SearchFreshness, search_outcome_with_slots_traced};
 use calyx_sextant::{Hit, RrfProfile};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -259,6 +259,7 @@ fn probe_variant(
         None,
         false,
         Some(allowed_slots),
+        SearchFreshness::Fresh,
         Some(&mut trace_sink),
     )?;
     let mut hits = Vec::with_capacity(outcome.hits.len());

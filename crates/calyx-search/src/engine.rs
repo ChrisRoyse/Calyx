@@ -9,7 +9,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use calyx_aster::mvcc::{Freshness, Snapshot};
 use calyx_aster::vault::AsterVault;
 use calyx_core::{Constellation, CxId, SlotId, SlotVector};
 use calyx_sextant::fusion;
@@ -24,8 +23,16 @@ use crate::engine_measure::{
 pub use crate::engine_trace::SearchTraceEvent;
 use crate::engine_trace::SearchTracer;
 use crate::error::CliResult;
-use crate::persisted::{PersistedSearchIndexes, load_docs_at};
+use crate::persisted::PersistedSearchIndexes;
 use crate::provenance::{attach_verified_provenance, hit_docs_at};
+
+mod support;
+#[cfg(test)]
+use support::cosine;
+use support::{
+    SearchReadSnapshot, apply_in_region_guard, index_freshness_tag, is_stale_derived,
+    renumber_and_truncate, vault_base_count_at,
+};
 
 /// In-region guard cosine threshold (mirrors the CLI default).
 const GUARD_TAU: f32 = 0.999;
@@ -86,6 +93,12 @@ pub enum GuardChoice {
     InRegion,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchFreshness {
+    Fresh,
+    StaleOk,
+}
+
 /// The result of a search: ranked hits (each carrying score + stored
 /// provenance) and the guard tau actually applied (if any).
 pub struct SearchOutcome {
@@ -122,8 +135,38 @@ pub fn search_outcome(
     filter: Option<&str>,
     explain: bool,
 ) -> CliResult<SearchOutcome> {
+    search_outcome_with_freshness(
+        vault,
+        state,
+        vault_dir,
+        query,
+        k,
+        fusion,
+        guard,
+        filter,
+        explain,
+        SearchFreshness::Fresh,
+    )
+}
+
+/// Run search with an explicit freshness policy. `Fresh` refuses stale derived
+/// indexes; `StaleOk` permits lag only while tagging every hit with the index
+/// build seq and current Base snapshot seq.
+#[allow(clippy::too_many_arguments)]
+pub fn search_outcome_with_freshness(
+    vault: &AsterVault,
+    state: &calyx_registry::VaultPanelState,
+    vault_dir: &Path,
+    query: &str,
+    k: usize,
+    fusion: FusionChoice,
+    guard: GuardChoice,
+    filter: Option<&str>,
+    explain: bool,
+    freshness: SearchFreshness,
+) -> CliResult<SearchOutcome> {
     search_outcome_with_slots(
-        vault, state, vault_dir, query, k, fusion, guard, filter, explain, None,
+        vault, state, vault_dir, query, k, fusion, guard, filter, explain, None, freshness,
     )
 }
 
@@ -142,6 +185,7 @@ pub fn search_outcome_with_slots(
     filter: Option<&str>,
     explain: bool,
     allowed_slots: Option<&BTreeSet<SlotId>>,
+    freshness: SearchFreshness,
 ) -> CliResult<SearchOutcome> {
     search_outcome_with_slots_traced(
         vault,
@@ -154,6 +198,7 @@ pub fn search_outcome_with_slots(
         filter,
         explain,
         allowed_slots,
+        freshness,
         None,
     )
 }
@@ -171,6 +216,7 @@ pub fn search_outcome_with_slots_traced(
     filter: Option<&str>,
     explain: bool,
     allowed_slots: Option<&BTreeSet<SlotId>>,
+    freshness: SearchFreshness,
     trace_sink: Option<&mut dyn FnMut(SearchTraceEvent)>,
 ) -> CliResult<SearchOutcome> {
     let mut trace = SearchTracer::new(trace_sink);
@@ -186,6 +232,7 @@ pub fn search_outcome_with_slots_traced(
         filter,
         explain,
         allowed_slots,
+        freshness,
         Some(&mut trace),
     )
 }
@@ -205,6 +252,33 @@ pub fn search_outcome_with_query_vectors(
     explain: bool,
     trace_sink: Option<&mut dyn FnMut(SearchTraceEvent)>,
 ) -> CliResult<SearchOutcome> {
+    search_outcome_with_query_vectors_freshness(
+        vault,
+        vault_dir,
+        query_vectors,
+        k,
+        fusion,
+        guard,
+        filter,
+        explain,
+        SearchFreshness::Fresh,
+        trace_sink,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn search_outcome_with_query_vectors_freshness(
+    vault: &AsterVault,
+    vault_dir: &Path,
+    query_vectors: &[(SlotId, SlotVector)],
+    k: usize,
+    fusion: FusionChoice,
+    guard: GuardChoice,
+    filter: Option<&str>,
+    explain: bool,
+    freshness: SearchFreshness,
+    trace_sink: Option<&mut dyn FnMut(SearchTraceEvent)>,
+) -> CliResult<SearchOutcome> {
     let allowed_slots = query_vectors
         .iter()
         .map(|(slot, _)| *slot)
@@ -220,6 +294,7 @@ pub fn search_outcome_with_query_vectors(
         filter,
         explain,
         Some(&allowed_slots),
+        freshness,
         Some(&mut trace),
     )
 }
@@ -235,6 +310,7 @@ fn search_outcome_with_measured_slots(
     filter: Option<&str>,
     explain: bool,
     allowed_slots: Option<&BTreeSet<SlotId>>,
+    freshness: SearchFreshness,
     trace: Option<&mut SearchTracer<'_>>,
 ) -> CliResult<SearchOutcome> {
     let mut noop_trace;
@@ -339,9 +415,14 @@ fn search_outcome_with_measured_slots(
     trace.emit("snapshot.pin.start", None, None);
     let read = SearchReadSnapshot::pin(vault);
     trace.emit("snapshot.pin.done", None, Some(read.seq() as usize));
-    trace.emit("indexes.ensure_fresh.start", None, None);
-    indexes.ensure_fresh_at_snapshot(read.seq())?;
-    trace.emit("indexes.ensure_fresh.done", None, None);
+    trace.emit("indexes.freshness.start", None, None);
+    let freshness_tag = index_freshness_tag(&indexes, read.seq(), freshness)?;
+    trace.emit_detail(
+        "indexes.freshness.done",
+        None,
+        None,
+        Some(freshness_tag.policy.clone()),
+    );
     let hydrate_hit_slots = guard == GuardChoice::InRegion;
     trace.emit_detail(
         "hit_docs.hydrate.start",
@@ -352,7 +433,7 @@ fn search_outcome_with_measured_slots(
     let hit_docs = hit_docs_at(vault, &hits, read.snapshot(), hydrate_hit_slots)?;
     trace.emit("hit_docs.hydrate.done", None, Some(hit_docs.len()));
     trace.emit("provenance.attach.start", None, Some(hits.len()));
-    attach_verified_provenance(&mut hits, &hit_docs, vault_dir, read.seq())?;
+    attach_verified_provenance(&mut hits, &hit_docs, vault_dir, freshness_tag)?;
     trace.emit("provenance.attach.done", None, Some(hits.len()));
     let guard_tau = if guard == GuardChoice::InRegion {
         trace.emit("guard.in_region.start", None, Some(hits.len()));
@@ -369,38 +450,6 @@ fn search_outcome_with_measured_slots(
         guard_tau,
         docs: hit_docs,
     })
-}
-
-struct SearchReadSnapshot<'a> {
-    vault: &'a AsterVault,
-    snapshot: Snapshot,
-}
-
-impl<'a> SearchReadSnapshot<'a> {
-    fn pin(vault: &'a AsterVault) -> Self {
-        Self {
-            vault,
-            snapshot: vault.pin_reader(Freshness::FreshDerived, SEARCH_READER_LEASE_MS),
-        }
-    }
-
-    fn snapshot(&self) -> Snapshot {
-        self.snapshot
-    }
-
-    fn seq(&self) -> u64 {
-        self.snapshot.seq()
-    }
-}
-
-impl Drop for SearchReadSnapshot<'_> {
-    fn drop(&mut self) {
-        let _ = self.vault.release_reader(self.snapshot.lease().id());
-    }
-}
-
-fn is_stale_derived(error: &crate::error::SearchError) -> bool {
-    matches!(error, crate::error::SearchError::Calyx(inner) if inner.code == "CALYX_STALE_DERIVED")
 }
 
 fn search_slots(
@@ -429,65 +478,6 @@ fn search_slots(
         }
     }
     Ok(out)
-}
-
-/// Keep only hits whose best per-lens cosine to the query meets the guard tau.
-/// (The library filters silently; surfacing a per-hit "blocked" notice is a
-/// presentation concern left to the caller.)
-fn apply_in_region_guard(
-    hits: Vec<Hit>,
-    docs: &BTreeMap<CxId, Constellation>,
-    query_vectors: &[(SlotId, SlotVector)],
-) -> Vec<Hit> {
-    hits.into_iter()
-        .filter(|hit| {
-            guard_cosine(hit, docs, query_vectors).is_some_and(|value| value >= GUARD_TAU)
-        })
-        .collect()
-}
-
-fn guard_cosine(
-    hit: &Hit,
-    docs: &BTreeMap<CxId, Constellation>,
-    query_vectors: &[(SlotId, SlotVector)],
-) -> Option<f32> {
-    let cx = docs.get(&hit.cx_id)?;
-    hit.per_lens
-        .iter()
-        .filter_map(|item| {
-            let query = query_vectors
-                .iter()
-                .find(|(slot, _)| *slot == item.slot)?
-                .1
-                .as_dense()?;
-            let doc = cx.slots.get(&item.slot)?.as_dense()?;
-            cosine(query, doc)
-        })
-        .max_by(f32::total_cmp)
-}
-
-fn vault_base_count_at(vault: &AsterVault, snapshot: Snapshot) -> CliResult<usize> {
-    Ok(load_docs_at(vault, snapshot)?.len())
-}
-
-fn renumber_and_truncate(hits: &mut Vec<Hit>, k: usize) {
-    hits.truncate(k);
-    for (idx, hit) in hits.iter_mut().enumerate() {
-        hit.rank = idx + 1;
-    }
-}
-
-fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
-    if left.len() != right.len() || left.is_empty() {
-        return None;
-    }
-    let (mut dot, mut l2, mut r2) = (0.0f32, 0.0f32, 0.0f32);
-    for (l, r) in left.iter().zip(right) {
-        dot += l * r;
-        l2 += l * l;
-        r2 += r * r;
-    }
-    (l2 > 0.0 && r2 > 0.0).then(|| dot / (l2.sqrt() * r2.sqrt()))
 }
 
 #[cfg(test)]

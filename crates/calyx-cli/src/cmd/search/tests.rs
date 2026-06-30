@@ -57,6 +57,10 @@ fn explain_output_contains_per_lens() {
     assert!(json[0]["per_lens"].as_array().is_some());
     assert_eq!(json[0]["per_lens"][0]["slot"], 0);
     assert!(json[0]["provenance"].is_object());
+    assert_eq!(json[0]["freshness"]["built_at_seq"], 42);
+    assert_eq!(json[0]["freshness"]["base_seq"], 42);
+    assert_eq!(json[0]["freshness"]["stale_by"], 0);
+    assert_eq!(json[0]["freshness"]["policy"], "fresh_derived");
 }
 
 #[test]

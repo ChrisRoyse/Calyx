@@ -40,6 +40,83 @@ fn search_attaches_provenance_only_after_ledger_readback() {
 }
 
 #[test]
+fn stale_ok_search_tags_hits_with_manifest_lag() {
+    let fixture = Fixture::new("stale-ok");
+    let vault = fixture.open_vault();
+    let state = load_vault_panel_state(&fixture.vault_dir).unwrap();
+    let before = fixture.readback();
+    let extra = measure_constellation(
+        &vault,
+        &state,
+        Input::new(Modality::Text, b"zeta".to_vec()),
+        1,
+    )
+    .expect("measure extra row");
+    vault.put(extra).expect("write row after index rebuild");
+    vault.flush().expect("flush stale-producing write");
+    let after = fixture.readback();
+
+    let fresh_error = match search_outcome(
+        &vault,
+        &state,
+        &fixture.vault_dir,
+        "alpha",
+        1,
+        FusionChoice::Rrf,
+        GuardChoice::Off,
+        None,
+        false,
+    ) {
+        Ok(_) => panic!("fresh search must reject stale manifest"),
+        Err(error) => error,
+    };
+    let stale_outcome = search_outcome_with_freshness(
+        &vault,
+        &state,
+        &fixture.vault_dir,
+        "alpha",
+        1,
+        FusionChoice::Rrf,
+        GuardChoice::Off,
+        None,
+        false,
+        SearchFreshness::StaleOk,
+    )
+    .expect("stale-ok search succeeds with explicit freshness tag");
+    let hit = stale_outcome.hits.first().expect("stale-ok hit");
+
+    assert_eq!(fresh_error.code(), "CALYX_STALE_DERIVED");
+    assert_eq!(hit.cx_id, fixture.cx_id);
+    assert_eq!(hit.freshness.policy, "stale_ok");
+    assert_eq!(
+        hit.freshness.built_at_seq,
+        before["manifest"]["base_seq"].as_u64().unwrap()
+    );
+    assert_eq!(
+        hit.freshness.base_seq,
+        after["vault_manifest"]["durable_seq"].as_u64().unwrap()
+    );
+    assert!(hit.freshness.stale_by > 0);
+    maybe_write_fsv_json(
+        "issue1036-stale-ok-freshness-readback.json",
+        &json!({
+            "source_of_truth": "idx/search/manifest.json base_seq, vault MANIFEST durable_seq, and search hit freshness tag",
+            "trigger": "write and flush an extra real measured constellation after rebuilding the search index",
+            "before": before,
+            "after": after,
+            "fresh_error": error_json(&fresh_error),
+            "stale_hit": {
+                "cx_id": hit.cx_id.to_string(),
+                "freshness": hit.freshness,
+                "ledger_seq": hit.provenance.seq,
+                "ledger_hash": hex32(&hit.provenance.hash),
+            }
+        }),
+    );
+    fixture.cleanup();
+}
+
+#[test]
 fn search_accepts_batch_ingest_ledger_ref_when_payload_names_hit_cx() {
     let root = temp_root("batch-ledger-ref");
     let vault_id = VaultId::from_ulid(Ulid::new());

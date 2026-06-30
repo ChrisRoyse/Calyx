@@ -19,7 +19,10 @@ use sha2::{Digest, Sha256};
 use ulid::Ulid;
 
 use super::*;
-use crate::engine::{FusionChoice, GuardChoice, measure_query_vectors, search_outcome};
+use crate::engine::{
+    FusionChoice, GuardChoice, SearchFreshness, measure_query_vectors, search_outcome,
+    search_outcome_with_freshness,
+};
 use crate::persisted::{PersistedSearchIndexes, rebuild_for_vault};
 
 mod cases;
@@ -164,6 +167,7 @@ impl Fixture {
                 "ledger_hash": hex32(&self.ledger_ref.hash),
             },
             "manifest": read_manifest(&self.vault_dir),
+            "vault_manifest": read_json(&self.vault_dir.join("MANIFEST")),
         })
     }
 
@@ -293,10 +297,14 @@ fn subject_json(subject: &SubjectId) -> Value {
 }
 
 fn read_manifest(vault: &Path) -> Value {
+    read_json(&vault.join("idx/search/manifest.json"))
+}
+
+fn read_json(path: &Path) -> Value {
     serde_json::from_slice(
-        &fs::read(vault.join("idx/search/manifest.json")).expect("read manifest"),
+        &fs::read(path).unwrap_or_else(|error| panic!("read {}: {error}", path.display())),
     )
-    .expect("decode manifest")
+    .unwrap_or_else(|error| panic!("decode {}: {error}", path.display()))
 }
 
 fn error_json(error: &crate::error::SearchError) -> Value {

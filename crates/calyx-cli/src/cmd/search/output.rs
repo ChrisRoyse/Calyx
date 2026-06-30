@@ -20,6 +20,7 @@ pub(super) struct SearchHitOut {
     guard: Option<GuardOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
     provenance: Option<ProvenanceOut>,
+    freshness: FreshnessOut,
 }
 
 #[derive(Serialize)]
@@ -42,6 +43,14 @@ struct GuardOut {
 struct ProvenanceOut {
     ledger_seq: u64,
     chain_hash: String,
+}
+
+#[derive(Serialize)]
+struct FreshnessOut {
+    built_at_seq: u64,
+    base_seq: u64,
+    stale_by: u64,
+    policy: String,
 }
 
 pub(super) fn render_hits(
@@ -75,6 +84,12 @@ pub(super) fn render_hits(
                 ledger_seq: hit.provenance.seq,
                 chain_hash: hex32(&hit.provenance.hash),
             }),
+            freshness: FreshnessOut {
+                built_at_seq: hit.freshness.built_at_seq,
+                base_seq: hit.freshness.base_seq,
+                stale_by: hit.freshness.stale_by,
+                policy: hit.freshness.policy.clone(),
+            },
         })
         .collect()
 }

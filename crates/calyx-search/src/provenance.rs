@@ -46,7 +46,7 @@ pub(crate) fn attach_verified_provenance(
     hits: &mut [Hit],
     docs: &BTreeMap<CxId, Constellation>,
     vault_dir: &Path,
-    seq: u64,
+    freshness: FreshnessTag,
 ) -> CliResult {
     let mut ledger = TargetedLedgerVerifier::open(vault_dir, hits, docs)?;
     for hit in hits {
@@ -58,7 +58,7 @@ pub(crate) fn attach_verified_provenance(
         })?;
         hit.provenance = ledger.require_ref(hit.cx_id, cx.provenance.clone())?;
         hit.provenance_source = ProvenanceSource::Stored;
-        hit.freshness = FreshnessTag::fresh(seq);
+        hit.freshness = freshness.clone();
     }
     Ok(())
 }

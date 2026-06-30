@@ -1,0 +1,122 @@
+use std::collections::BTreeMap;
+
+use calyx_aster::mvcc::{Freshness, Snapshot};
+use calyx_aster::vault::AsterVault;
+use calyx_core::{Constellation, CxId, SlotVector};
+use calyx_sextant::{FreshnessTag, Hit};
+
+use super::{GUARD_TAU, SEARCH_READER_LEASE_MS, SearchFreshness};
+use crate::error::CliResult;
+use crate::persisted::{PersistedSearchIndexes, load_docs_at};
+
+pub(super) fn index_freshness_tag(
+    indexes: &PersistedSearchIndexes,
+    pinned_seq: u64,
+    freshness: SearchFreshness,
+) -> CliResult<FreshnessTag> {
+    match freshness {
+        SearchFreshness::Fresh => {
+            indexes.ensure_fresh_at_snapshot(pinned_seq)?;
+            Ok(FreshnessTag::fresh(pinned_seq))
+        }
+        SearchFreshness::StaleOk => {
+            let built_at_seq = indexes.base_seq();
+            if built_at_seq > pinned_seq {
+                return Err(calyx_core::CalyxError::stale_derived(format!(
+                    "persistent search manifest base seq {built_at_seq} is ahead of pinned vault seq {pinned_seq}; rebuild the vault search indexes before search"
+                ))
+                .into());
+            }
+            Ok(FreshnessTag::stale_ok(built_at_seq, pinned_seq))
+        }
+    }
+}
+
+pub(super) struct SearchReadSnapshot<'a> {
+    vault: &'a AsterVault,
+    snapshot: Snapshot,
+}
+
+impl<'a> SearchReadSnapshot<'a> {
+    pub(super) fn pin(vault: &'a AsterVault) -> Self {
+        Self {
+            vault,
+            snapshot: vault.pin_reader(Freshness::FreshDerived, SEARCH_READER_LEASE_MS),
+        }
+    }
+
+    pub(super) fn snapshot(&self) -> Snapshot {
+        self.snapshot
+    }
+
+    pub(super) fn seq(&self) -> u64 {
+        self.snapshot.seq()
+    }
+}
+
+impl Drop for SearchReadSnapshot<'_> {
+    fn drop(&mut self) {
+        let _ = self.vault.release_reader(self.snapshot.lease().id());
+    }
+}
+
+pub(super) fn is_stale_derived(error: &crate::error::SearchError) -> bool {
+    matches!(error, crate::error::SearchError::Calyx(inner) if inner.code == "CALYX_STALE_DERIVED")
+}
+
+/// Keep only hits whose best per-lens cosine to the query meets the guard tau.
+pub(super) fn apply_in_region_guard(
+    hits: Vec<Hit>,
+    docs: &BTreeMap<CxId, Constellation>,
+    query_vectors: &[(calyx_core::SlotId, SlotVector)],
+) -> Vec<Hit> {
+    hits.into_iter()
+        .filter(|hit| {
+            guard_cosine(hit, docs, query_vectors).is_some_and(|value| value >= GUARD_TAU)
+        })
+        .collect()
+}
+
+pub(super) fn vault_base_count_at(vault: &AsterVault, snapshot: Snapshot) -> CliResult<usize> {
+    Ok(load_docs_at(vault, snapshot)?.len())
+}
+
+pub(super) fn renumber_and_truncate(hits: &mut Vec<Hit>, k: usize) {
+    hits.truncate(k);
+    for (idx, hit) in hits.iter_mut().enumerate() {
+        hit.rank = idx + 1;
+    }
+}
+
+pub(super) fn cosine(left: &[f32], right: &[f32]) -> Option<f32> {
+    if left.len() != right.len() || left.is_empty() {
+        return None;
+    }
+    let (mut dot, mut l2, mut r2) = (0.0f32, 0.0f32, 0.0f32);
+    for (l, r) in left.iter().zip(right) {
+        dot += l * r;
+        l2 += l * l;
+        r2 += r * r;
+    }
+    (l2 > 0.0 && r2 > 0.0).then(|| dot / (l2.sqrt() * r2.sqrt()))
+}
+
+fn guard_cosine(
+    hit: &Hit,
+    docs: &BTreeMap<CxId, Constellation>,
+    query_vectors: &[(calyx_core::SlotId, SlotVector)],
+) -> Option<f32> {
+    let cx = docs.get(&hit.cx_id)?;
+    hit.per_lens
+        .iter()
+        .filter_map(|item| {
+            let query = query_vectors
+                .iter()
+                .find(|(slot, _)| *slot == item.slot)?
+                .1
+                .as_dense()?;
+            let doc = cx.slots.get(&item.slot)?.as_dense()?;
+            cosine(query, doc)
+        })
+        .max_by(f32::total_cmp)
+}
