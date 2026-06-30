@@ -243,6 +243,9 @@ fn parse_provenance_ops_commands() {
             vault: "mydb".to_string(),
             from: Some(1),
             to: Some(3),
+            progress_jsonl: None,
+            time_budget_ms: None,
+            batch_size: 8192,
         })
     );
     assert!(try_run(&tokens(["verify-chain", "--vault", "legacy"])).is_none());
@@ -407,6 +410,9 @@ fn arb_subcommand() -> impl Strategy<Value = Subcommand> {
                 vault,
                 from: Some(0),
                 to: Some(1),
+                progress_jsonl: None,
+                time_budget_ms: None,
+                batch_size: 8192,
             })
         ),
         safe_name().prop_map(|vault| Subcommand::Reproduce(provenance::ReproduceArgs {

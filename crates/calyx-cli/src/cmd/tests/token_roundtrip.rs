@@ -239,6 +239,15 @@ fn verify_chain_tokens(args: &provenance::VerifyChainArgs) -> Vec<String> {
     if let Some(to) = args.to {
         out.extend(["--to".to_string(), to.to_string()]);
     }
+    if let Some(progress_jsonl) = &args.progress_jsonl {
+        out.extend(["--progress-jsonl".to_string(), progress_jsonl.clone()]);
+    }
+    if let Some(time_budget_ms) = args.time_budget_ms {
+        out.extend(["--time-budget-ms".to_string(), time_budget_ms.to_string()]);
+    }
+    if args.batch_size != 8192 {
+        out.extend(["--batch-size".to_string(), args.batch_size.to_string()]);
+    }
     out
 }
 

@@ -1,7 +1,7 @@
 use calyx_aster::cf::ColumnFamily;
 use calyx_aster::sst::SstReader;
 use calyx_aster::sst::level::SstLevel;
-use calyx_aster::storage_names::{SstName, classify_sst};
+use calyx_aster::storage_names::{SstName, classify_sst, sst_order_key};
 use calyx_aster::vault::encode::{decode_constellation_base, decode_write_batch};
 use calyx_aster::wal::replay_dir;
 use calyx_core::VaultId;
@@ -103,6 +103,62 @@ pub(crate) fn latest_cf_rows_for_keys(
     Ok(rows)
 }
 
+pub(crate) fn latest_cf_row_near_seq(
+    vault: &Path,
+    cf: ColumnFamily,
+    key: &[u8],
+    seq: u64,
+) -> Result<Option<Vec<u8>>, String> {
+    let mut value = None;
+    let candidates = same_seq_sst_files(vault, cf, seq)?;
+    for file in &candidates {
+        let reader = SstReader::open(file).map_err(|error| error.to_string())?;
+        if let Some(bytes) = reader.get(key).map_err(|error| error.to_string())? {
+            value = Some(bytes);
+        }
+    }
+    let replay = replay_dir(vault.join("wal")).map_err(|error| error.to_string())?;
+    for record in replay.records {
+        for row in decode_write_batch(&record.payload).map_err(|error| error.to_string())? {
+            if row.cf == cf && row.key == key {
+                value = Some(row.value);
+            }
+        }
+    }
+    Ok(value)
+}
+
+fn same_seq_sst_files(vault: &Path, cf: ColumnFamily, seq: u64) -> Result<Vec<PathBuf>, String> {
+    let dir = vault.join("cf").join(cf.name());
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut files = Vec::new();
+    for entry in fs::read_dir(&dir).map_err(|error| error.to_string())? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        let Some(name) = classify_sst(&path).map_err(|error| error.to_string())? else {
+            continue;
+        };
+        let file_seq = match name {
+            SstName::Router { seq } | SstName::DurableBatch { seq, .. } => seq,
+            SstName::Compacted { .. } => continue,
+        };
+        if file_seq != seq {
+            continue;
+        }
+        let order = sst_order_key(&path)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| format!("classified SST {} has no order key", path.display()))?;
+        files.push((order, path));
+    }
+    files.sort_by(|(left_order, left_path), (right_order, right_path)| {
+        left_order
+            .cmp(right_order)
+            .then_with(|| left_path.cmp(right_path))
+    });
+    Ok(files.into_iter().map(|(_, path)| path).collect())
+}
+
 pub(crate) fn vault_id_from_base(vault: &Path) -> Result<VaultId, String> {
     latest_cf_rows(vault, ColumnFamily::Base)?
         .into_values()
@@ -136,6 +192,7 @@ fn hex_digit(value: u8) -> char {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use calyx_core::SlotId;
 
     #[test]
     fn hex_bytes_matches_lowercase_plain_hex() {
@@ -203,6 +260,31 @@ mod tests {
         assert_eq!(rows.get(b"k1".as_slice()).unwrap(), &Some(b"new".to_vec()));
         assert_eq!(rows.get(b"missing".as_slice()).unwrap(), &None);
         assert!(!rows.contains_key(b"k3".as_slice()));
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn latest_cf_row_near_seq_reads_same_sequence_candidate_only() {
+        let root = temp_root("latest-cf-row-near-seq");
+        let slot = root
+            .join("cf")
+            .join(ColumnFamily::slot(SlotId::new(8)).name());
+        fs::create_dir_all(&slot).unwrap();
+        calyx_aster::sst::write_sst(
+            slot.join("00000000000000000001-0010.sst"),
+            [(b"k1".as_slice(), b"old".as_slice())],
+        )
+        .unwrap();
+        calyx_aster::sst::write_sst(
+            slot.join("00000000000000000007-0010.sst"),
+            [(b"k1".as_slice(), b"target".as_slice())],
+        )
+        .unwrap();
+
+        assert_eq!(
+            latest_cf_row_near_seq(&root, ColumnFamily::slot(SlotId::new(8)), b"k1", 7).unwrap(),
+            Some(b"target".to_vec())
+        );
         fs::remove_dir_all(root).ok();
     }
 

@@ -31,6 +31,7 @@ mod assay_i8bin_ensemble_card;
 mod assay_multi_anchor_card;
 mod assay_stream_fbin;
 mod assay_verdict_metadata;
+mod bounded_progress;
 mod budget_readback;
 mod cf_read;
 mod cli_support;

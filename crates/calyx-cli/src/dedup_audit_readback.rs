@@ -10,11 +10,17 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{CxId, SlotId, SlotVector};
 use serde_json::json;
 
-use crate::cf_read::{hex_bytes, latest_cf_row, latest_cf_rows, vault_id_from_base};
+use crate::bounded_progress::{Deadline, ProgressSink, parse_nonzero_u64};
+use crate::cf_read::{
+    hex_bytes, latest_cf_row, latest_cf_row_near_seq, latest_cf_rows, vault_id_from_base,
+};
 use crate::error::{CliError, CliResult};
 use crate::output::print_line;
 
 const CX_LIST_UNBOUNDED_ROW_LIMIT: usize = 100;
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Debug)]
 struct CxListArgs {
@@ -23,6 +29,8 @@ struct CxListArgs {
     limit: Option<usize>,
     include_slots: bool,
     allow_unbounded: bool,
+    progress_jsonl: Option<String>,
+    time_budget_ms: Option<u64>,
 }
 
 pub fn readback_dedup_audit(vault: &Path, cx_id: &str) -> crate::error::CliResult {
@@ -73,6 +81,16 @@ pub fn readback_dedup_undo(vault: &Path, token: &str) -> crate::error::CliResult
 
 pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
     let args = parse_cx_list_args(rest)?;
+    let mut progress = ProgressSink::from_arg(args.progress_jsonl.as_deref())?;
+    let deadline = Deadline::new(args.time_budget_ms);
+    progress.emit(json!({
+        "event": "cx_list.progress",
+        "phase": "start",
+        "vault": args.vault.display().to_string(),
+        "limit": args.limit,
+        "include_slots": args.include_slots,
+        "elapsed_ms": deadline.elapsed_ms(),
+    }))?;
     if let Some(cx_id) = args.cx_id {
         let key = base_key(cx_id);
         let value = latest_cf_row(&args.vault, ColumnFamily::Base, &key)?.ok_or_else(|| {
@@ -82,10 +100,29 @@ pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
             ))
         })?;
         let rows = BTreeMap::from([(key, value)]);
-        return render_cx_list(&args.vault, rows, args.include_slots);
+        return render_cx_list(
+            &args.vault,
+            rows,
+            args.include_slots,
+            &deadline,
+            &mut progress,
+        );
     }
 
+    check_deadline(&deadline, &mut progress, "base_scan", 0)?;
     let mut rows = latest_cf_rows(&args.vault, ColumnFamily::Base)?;
+    progress.emit(json!({
+        "event": "cx_list.progress",
+        "phase": "base_rows_loaded",
+        "base_rows": rows.len(),
+        "elapsed_ms": deadline.elapsed_ms(),
+    }))?;
+    check_deadline(
+        &deadline,
+        &mut progress,
+        "base_rows_loaded",
+        rows.len() as u64,
+    )?;
     if let Some(limit) = args.limit {
         rows = rows.into_iter().take(limit).collect();
     } else if args.cx_id.is_none()
@@ -98,7 +135,13 @@ pub fn readback_cx_list_args(rest: &[String]) -> CliResult {
             args.vault.display()
         )));
     }
-    render_cx_list(&args.vault, rows, cx_list_include_slots(&args))
+    render_cx_list(
+        &args.vault,
+        rows,
+        args.include_slots,
+        &deadline,
+        &mut progress,
+    )
 }
 
 fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
@@ -107,6 +150,8 @@ fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
     let mut limit = None;
     let mut include_slots = false;
     let mut allow_unbounded = false;
+    let mut progress_jsonl = None;
+    let mut time_budget_ms = None;
     let mut idx = 0;
     while idx < rest.len() {
         match rest[idx].as_str() {
@@ -135,6 +180,17 @@ fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
             }
             "--allow-unbounded" => allow_unbounded = true,
             "--include-slots" => include_slots = true,
+            "--progress-jsonl" => {
+                idx += 1;
+                progress_jsonl = Some(value(rest, idx, "--progress-jsonl")?.to_string());
+            }
+            "--time-budget-ms" => {
+                idx += 1;
+                time_budget_ms = Some(parse_nonzero_u64(
+                    value(rest, idx, "--time-budget-ms")?,
+                    "--time-budget-ms",
+                )?);
+            }
             other => return Err(CliError::usage(format!("unexpected cx-list flag {other}"))),
         }
         idx += 1;
@@ -145,6 +201,8 @@ fn parse_cx_list_args(rest: &[String]) -> CliResult<CxListArgs> {
         limit,
         include_slots,
         allow_unbounded,
+        progress_jsonl,
+        time_budget_ms,
     })
 }
 
@@ -158,11 +216,12 @@ fn render_cx_list(
     vault: &Path,
     rows: BTreeMap<Vec<u8>, Vec<u8>>,
     include_slots: bool,
+    deadline: &Deadline,
+    progress: &mut ProgressSink,
 ) -> crate::error::CliResult {
     let mut values = Vec::new();
-    let mut slot_cache = BTreeMap::<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>::new();
-    let mut raw_slot_cache = BTreeMap::<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>::new();
     for (key, value) in rows {
+        check_deadline(deadline, progress, "render_row", values.len() as u64)?;
         if is_tombstone_value(&value) {
             values.push(tombstone_row(&key));
             continue;
@@ -180,7 +239,7 @@ fn render_cx_list(
             "slot_payload_decode_mode": if include_slots { "explicit_include_slots" } else { "base_only" },
         });
         if include_slots {
-            let slots = decoded_slot_entries(vault, &mut slot_cache, &mut raw_slot_cache, &cx)?;
+            let slots = decoded_slot_entries(vault, &cx, deadline, progress)?;
             row["slot_summary"] = slot_summary(slots.iter().map(|(_, vector, _)| vector));
             row["slots"] = json!(
                 slots
@@ -223,6 +282,13 @@ fn render_cx_list(
     }
     let json = serde_json::to_string_pretty(&values).map_err(|error| error.to_string())?;
     print_line(&json)?;
+    progress.emit(json!({
+        "event": "cx_list.progress",
+        "phase": "complete",
+        "rows_rendered": values.len(),
+        "include_slots": include_slots,
+        "elapsed_ms": deadline.elapsed_ms(),
+    }))?;
     Ok(())
 }
 
@@ -242,23 +308,32 @@ fn cx_id_from_base_key(key: &[u8]) -> Option<CxId> {
     Some(CxId::from_bytes(bytes))
 }
 
-fn cx_list_include_slots(args: &CxListArgs) -> bool {
-    args.include_slots
-}
-
 fn decoded_slot_entries(
     vault: &Path,
-    slot_cache: &mut BTreeMap<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>,
-    raw_slot_cache: &mut BTreeMap<SlotId, BTreeMap<Vec<u8>, Vec<u8>>>,
     cx: &calyx_core::Constellation,
-) -> Result<Vec<(SlotId, SlotVector, &'static str)>, String> {
+    deadline: &Deadline,
+    progress: &mut ProgressSink,
+) -> CliResult<Vec<(SlotId, SlotVector, &'static str)>> {
     let key = slot_key(cx.cx_id);
     let mut out = Vec::with_capacity(cx.slots.len());
     for (slot, placeholder) in &cx.slots {
-        if !slot_cache.contains_key(slot) {
-            slot_cache.insert(*slot, latest_cf_rows(vault, ColumnFamily::slot(*slot))?);
+        if matches!(placeholder, SlotVector::Absent { .. }) {
+            out.push((*slot, placeholder.clone(), "base_absent"));
+            continue;
         }
-        let Some(value) = slot_cache.get(slot).and_then(|rows| rows.get(&key)) else {
+        check_deadline(deadline, progress, "slot_lookup", out.len() as u64)?;
+        progress.emit(json!({
+            "event": "cx_list.progress",
+            "phase": "slot_lookup",
+            "cx_id": cx.cx_id.to_string(),
+            "slot": slot.get(),
+            "provenance_seq": cx.provenance.seq,
+            "elapsed_ms": deadline.elapsed_ms(),
+        }))?;
+        let Some(value) =
+            latest_cf_row_near_seq(vault, ColumnFamily::slot(*slot), &key, cx.provenance.seq)
+                .map_err(CliError::usage)?
+        else {
             out.push((
                 *slot,
                 placeholder.clone(),
@@ -266,18 +341,20 @@ fn decoded_slot_entries(
             ));
             continue;
         };
-        match decode_slot_vector(value) {
+        match decode_slot_vector(&value) {
             Ok(vector) => out.push((*slot, vector, "slot_cf")),
             Err(_) => {
-                if !raw_slot_cache.contains_key(slot) {
-                    raw_slot_cache
-                        .insert(*slot, latest_cf_rows(vault, ColumnFamily::slot_raw(*slot))?);
-                }
-                let vector = raw_slot_cache
-                    .get(slot)
-                    .and_then(|rows| rows.get(&key))
-                    .map(|raw| decode_slot_vector(raw).map_err(|error| error.to_string()))
-                    .transpose()?;
+                let vector = latest_cf_row_near_seq(
+                    vault,
+                    ColumnFamily::slot_raw(*slot),
+                    &key,
+                    cx.provenance.seq,
+                )
+                .map_err(CliError::usage)?
+                .as_ref()
+                .map(|raw| decode_slot_vector(raw).map_err(|error| error.to_string()))
+                .transpose()
+                .map_err(CliError::usage)?;
                 out.push(match vector {
                     Some(vector) => (*slot, vector, "slot_raw_cf"),
                     None => (
@@ -290,6 +367,28 @@ fn decoded_slot_entries(
         }
     }
     Ok(out)
+}
+
+fn check_deadline(
+    deadline: &Deadline,
+    progress: &mut ProgressSink,
+    phase: &str,
+    processed: u64,
+) -> CliResult {
+    match deadline.check("readback cx-list", phase, processed) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            progress.emit(json!({
+                "event": "cx_list.progress",
+                "phase": "timeout",
+                "processed": processed,
+                "elapsed_ms": deadline.elapsed_ms(),
+                "error_code": error.code(),
+                "error": error.message(),
+            }))?;
+            Err(error)
+        }
+    }
 }
 
 fn slot_summary<'a>(vectors: impl Iterator<Item = &'a SlotVector>) -> serde_json::Value {
@@ -319,74 +418,4 @@ fn slot_summary<'a>(vectors: impl Iterator<Item = &'a SlotVector>) -> serde_json
         "absent_slots": absent_reasons.values().sum::<usize>(),
         "absent_reasons": absent_reasons,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn cx_list_args_parse_bounded_filters() {
-        let cx_id = "00000000000000000000000000000001";
-        let args = parse_cx_list_args(&[
-            "--vault".to_string(),
-            "vault-dir".to_string(),
-            "--cx-id".to_string(),
-            cx_id.to_string(),
-            "--limit".to_string(),
-            "1".to_string(),
-        ])
-        .unwrap();
-
-        assert_eq!(args.vault, PathBuf::from("vault-dir"));
-        assert_eq!(args.cx_id.unwrap().to_string(), cx_id);
-        assert_eq!(args.limit, Some(1));
-        assert!(!args.include_slots);
-        assert!(!args.allow_unbounded);
-    }
-
-    #[test]
-    fn cx_list_rejects_zero_limit() {
-        let err = parse_cx_list_args(&[
-            "--vault".to_string(),
-            "vault-dir".to_string(),
-            "--limit".to_string(),
-            "0".to_string(),
-        ])
-        .unwrap_err();
-
-        assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
-        assert!(err.message().contains("at least 1"));
-    }
-
-    #[test]
-    fn cx_list_unbounded_does_not_decode_slots_unless_explicit() {
-        let base_only = parse_cx_list_args(&[
-            "--vault".to_string(),
-            "vault-dir".to_string(),
-            "--allow-unbounded".to_string(),
-        ])
-        .unwrap();
-        let with_slots = parse_cx_list_args(&[
-            "--vault".to_string(),
-            "vault-dir".to_string(),
-            "--allow-unbounded".to_string(),
-            "--include-slots".to_string(),
-        ])
-        .unwrap();
-
-        assert!(!cx_list_include_slots(&base_only));
-        assert!(cx_list_include_slots(&with_slots));
-    }
-
-    #[test]
-    fn cx_list_tombstone_row_reports_tombstoned_not_corrupt() {
-        let cx_id = CxId::from_bytes([0x17; 16]);
-        let row = tombstone_row(&base_key(cx_id));
-
-        assert_eq!(row["cx_id"], cx_id.to_string());
-        assert_eq!(row["base_visible"], false);
-        assert_eq!(row["tombstoned"], true);
-        assert_eq!(row["slot_payload_decode_mode"], "mvcc_tombstone");
-    }
 }

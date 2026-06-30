@@ -12,6 +12,7 @@ pub mod kind;
 pub mod merkle;
 pub mod redaction;
 pub mod reproduce;
+pub mod stream_verify;
 pub mod tombstone;
 pub mod verify;
 
@@ -48,6 +49,7 @@ pub use reproduce::{
     build_reproduce_context, lookup_frozen_lens, remeasure_slots,
     remeasure_slots_with_input_resolver, reproduce, reproduce_with_input_resolver, rerun_fusion,
 };
+pub use stream_verify::{StreamingChainVerifier, StreamingStart};
 pub use tombstone::{
     ErasureScope, ErasureTombstone, find_tombstone, is_tombstoned, tombstone_from_entry,
     write_tombstone,

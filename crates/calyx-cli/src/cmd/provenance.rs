@@ -7,14 +7,14 @@ use calyx_aster::vault::{AsterVault, VaultOptions};
 use calyx_core::{Anchor, AnchorKind, CalyxError, CxId, SlotId, SlotVector, VaultStore};
 use calyx_ledger::{
     EntryKind, LedgerCfStore, LedgerEntry, QuarantineLookup, REPRODUCE_PAYLOAD_TAG, SubjectId,
-    VerifyResult, decode, get_provenance, verify_chain,
+    decode, get_provenance,
 };
 use calyx_registry::load_vault_panel_state;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use super::Subcommand;
 use super::vault::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
-use super::{Subcommand, value};
 use crate::cf_read::hex_bytes;
 use crate::error::{CliError, CliResult};
 use crate::ledger_store::AsterLedgerCfStore;
@@ -22,18 +22,17 @@ use crate::output::print_json;
 
 mod lineage_support;
 mod status;
+#[path = "provenance/verify_chain_cmd.rs"]
+mod verify_chain_cmd;
+
+pub(crate) use verify_chain_cmd::VerifyChainArgs;
+#[cfg(test)]
+pub(crate) use verify_chain_cmd::VerifyChainOut;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProvenanceArgs {
     pub vault: String,
     pub cx_id: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct VerifyChainArgs {
-    pub vault: String,
-    pub from: Option<u64>,
-    pub to: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -70,13 +69,6 @@ struct AnchorOut {
 }
 
 #[derive(Debug, Serialize)]
-struct VerifyChainOut {
-    status: &'static str,
-    checked: u64,
-    break_at: Option<u64>,
-}
-
-#[derive(Debug, Serialize)]
 struct ReproduceOut {
     bit_parity: bool,
     original_hash: String,
@@ -86,7 +78,7 @@ struct ReproduceOut {
 pub(crate) fn run(command: Subcommand) -> CliResult {
     match command {
         Subcommand::Provenance(args) => run_provenance(args),
-        Subcommand::VerifyChain(args) => run_verify_chain(args),
+        Subcommand::VerifyChain(args) => verify_chain_cmd::run_verify_chain(args),
         Subcommand::Reproduce(args) => run_reproduce(args),
         Subcommand::AnnealStatus(args) => run_anneal_status(args),
         _ => unreachable!("non-provenance command routed to provenance module"),
@@ -104,32 +96,7 @@ pub(crate) fn parse_provenance(rest: &[String]) -> CliResult<Subcommand> {
 }
 
 pub(crate) fn parse_verify_chain(rest: &[String]) -> CliResult<Subcommand> {
-    let vault = rest
-        .first()
-        .ok_or_else(|| CliError::usage("verify-chain requires <vault>"))?
-        .clone();
-    let mut from = None;
-    let mut to = None;
-    let mut idx = 1;
-    while idx < rest.len() {
-        match rest[idx].as_str() {
-            "--from" => {
-                idx += 1;
-                from = Some(parse_seq(value(rest, idx, "--from")?, "--from")?);
-            }
-            "--to" => {
-                idx += 1;
-                to = Some(parse_seq(value(rest, idx, "--to")?, "--to")?);
-            }
-            other => {
-                return Err(CliError::usage(format!(
-                    "unexpected verify-chain flag {other}"
-                )));
-            }
-        }
-        idx += 1;
-    }
-    Ok(Subcommand::VerifyChain(VerifyChainArgs { vault, from, to }))
+    verify_chain_cmd::parse_verify_chain(rest)
 }
 
 pub(crate) fn parse_reproduce(rest: &[String]) -> CliResult<Subcommand> {
@@ -156,47 +123,6 @@ fn run_provenance(args: ProvenanceArgs) -> CliResult {
     let cx_id = CxId::from_str(&args.cx_id)
         .map_err(|err| CliError::usage(format!("parse <cx_id> {}: {err}", args.cx_id)))?;
     print_json(&lineage(&resolved, cx_id)?)
-}
-
-fn run_verify_chain(args: VerifyChainArgs) -> CliResult {
-    let resolved = resolve_cli_vault(&args.vault)?;
-    let store = AsterLedgerCfStore::open(&resolved.path)?;
-    let from = args.from.unwrap_or(0);
-    let to = args.to.unwrap_or_else(|| chain_end(&store).unwrap_or(from));
-    if from > to {
-        return Err(CliError::usage(format!(
-            "verify-chain --from {from} must be <= --to {to}"
-        )));
-    }
-    match verify_chain(&store, from..to)? {
-        VerifyResult::Intact { count } => print_json(&VerifyChainOut {
-            status: "ok",
-            checked: count,
-            break_at: None,
-        }),
-        VerifyResult::Broken { at_seq, .. } => {
-            print_json(&VerifyChainOut {
-                status: "broken",
-                checked: at_seq.saturating_sub(from),
-                break_at: Some(at_seq),
-            })?;
-            Err(
-                CalyxError::ledger_chain_broken(format!("ledger chain broken at seq={at_seq}"))
-                    .into(),
-            )
-        }
-        VerifyResult::Corrupt { at_seq, reason } => {
-            print_json(&VerifyChainOut {
-                status: "broken",
-                checked: at_seq.saturating_sub(from),
-                break_at: Some(at_seq),
-            })?;
-            Err(
-                CalyxError::ledger_corrupt(format!("ledger corrupt at seq={at_seq}: {reason}"))
-                    .into(),
-            )
-        }
-    }
 }
 
 fn run_reproduce(args: ReproduceArgs) -> CliResult {
@@ -383,15 +309,6 @@ fn ledger_entries(path: &Path) -> CliResult<Vec<LedgerEntry>> {
     Ok(entries)
 }
 
-fn chain_end(store: &AsterLedgerCfStore) -> CliResult<u64> {
-    Ok(store
-        .scan()?
-        .into_iter()
-        .map(|row| row.seq)
-        .max()
-        .map_or(0, |seq| seq.saturating_add(1)))
-}
-
 fn open_vault(resolved: &ResolvedVault) -> CliResult<AsterVault> {
     Ok(AsterVault::open(
         &resolved.path,
@@ -422,11 +339,6 @@ fn json_payload(entry: &LedgerEntry) -> Value {
 fn hash_json(value: &Value) -> CliResult<String> {
     let bytes = serde_json::to_vec(value)?;
     Ok(hex_bytes(blake3::hash(&bytes).as_bytes()))
-}
-
-fn parse_seq(raw: &str, flag: &str) -> CliResult<u64> {
-    raw.parse::<u64>()
-        .map_err(|error| CliError::usage(format!("parse {flag} {raw}: {error}")))
 }
 
 fn parse_answer_id(raw: &str) -> CliResult<Vec<u8>> {

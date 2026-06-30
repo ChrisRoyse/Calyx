@@ -170,6 +170,9 @@ fn verify_chain_rejects_inverted_range() {
             vault: "v".to_string(),
             from: Some(999),
             to: Some(1),
+            progress_jsonl: None,
+            time_budget_ms: None,
+            batch_size: 8192,
         })
     );
 }
