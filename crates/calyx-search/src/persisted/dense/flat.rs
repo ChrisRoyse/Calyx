@@ -148,6 +148,15 @@ fn read(vault_dir: &Path, entry: &SearchIndexEntry, slot: SlotId) -> CliResult<I
     read_rows(cursor, header, slot, &path)
 }
 
+pub(super) fn validate_entry(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+) -> CliResult {
+    let _ = read(vault_dir, entry, slot)?;
+    Ok(())
+}
+
 fn read_header(cursor: &mut std::io::Cursor<Vec<u8>>, path: &Path) -> CliResult<Header> {
     let mut header_len = [0u8; 4];
     cursor.read_exact(&mut header_len)?;

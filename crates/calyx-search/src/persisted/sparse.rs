@@ -1,8 +1,11 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use calyx_core::{Constellation, CxId, SlotId, SlotVector, SparseEntry};
+#[cfg(test)]
+use calyx_core::Constellation;
+use calyx_core::{CxId, SlotId, SlotVector, SparseEntry};
 use calyx_sextant::index::bm25::Bm25;
 use calyx_sextant::index::{IndexSearchHit, ranked};
 use serde::{Deserialize, Serialize};
@@ -14,8 +17,8 @@ const SPARSE_FORMAT: &str = "calyx-search-sparse-index-v1";
 
 #[derive(Clone, Debug)]
 pub(super) struct SparseSlotRows {
-    dim: u32,
-    rows: Vec<(CxId, Vec<SparseEntry>)>,
+    pub(super) dim: u32,
+    pub(super) rows: Vec<(CxId, Vec<SparseEntry>)>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -47,6 +50,7 @@ impl SparseSlotRows {
     }
 }
 
+#[cfg(test)]
 pub(super) fn collect(
     docs: &BTreeMap<CxId, Constellation>,
 ) -> CliResult<BTreeMap<SlotId, SparseSlotRows>> {
@@ -197,6 +201,16 @@ fn read(
     })?;
     validate(&index, entry, manifest_base_seq, slot)?;
     Ok(index)
+}
+
+pub(super) fn validate_entry(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    manifest_base_seq: u64,
+    slot: SlotId,
+) -> CliResult {
+    let _ = read(vault_dir, entry, manifest_base_seq, slot)?;
+    Ok(())
 }
 
 fn validate(

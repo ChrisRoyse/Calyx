@@ -16,7 +16,7 @@ pub struct RebuildProgress<'a> {
 }
 
 impl<'a> RebuildProgress<'a> {
-    fn phase(phase: &'static str) -> Self {
+    pub(super) fn phase(phase: &'static str) -> Self {
         Self {
             phase,
             slot: None,
@@ -26,7 +26,12 @@ impl<'a> RebuildProgress<'a> {
         }
     }
 
-    fn slot(phase: &'static str, slot: SlotId, rows: Option<usize>, base_seq: Option<u64>) -> Self {
+    pub(super) fn slot(
+        phase: &'static str,
+        slot: SlotId,
+        rows: Option<usize>,
+        base_seq: Option<u64>,
+    ) -> Self {
         Self {
             phase,
             slot: Some(slot),
@@ -36,7 +41,7 @@ impl<'a> RebuildProgress<'a> {
         }
     }
 
-    fn manifest(phase: &'static str, manifest_path: &'a Path, base_seq: u64) -> Self {
+    pub(super) fn manifest(phase: &'static str, manifest_path: &'a Path, base_seq: u64) -> Self {
         Self {
             phase,
             slot: None,
@@ -54,28 +59,12 @@ pub fn rebuild_for_vault(vault_dir: &Path, vault: &AsterVault) -> CliResult {
 pub fn rebuild_for_vault_with_progress<F>(
     vault_dir: &Path,
     vault: &AsterVault,
-    mut progress: F,
+    progress: F,
 ) -> CliResult
 where
     F: FnMut(RebuildProgress<'_>),
 {
-    progress(RebuildProgress::phase("load_docs_start"));
-    let docs = load_docs(vault)?;
-    let base_seq = vault.latest_seq();
-    progress(RebuildProgress {
-        rows: Some(docs.len()),
-        base_seq: Some(base_seq),
-        ..RebuildProgress::phase("load_docs_ok")
-    });
-    let summary = rebuild_from_docs_with_progress(vault_dir, &docs, base_seq, &mut progress)?;
-    progress(RebuildProgress {
-        rows: Some(summary.total_rows),
-        base_seq: Some(base_seq),
-        manifest_path: Some(&summary.manifest_path),
-        ..RebuildProgress::phase("done")
-    });
-    let _ = (summary.slots, summary.total_rows, &summary.manifest_path);
-    Ok(())
+    super::rebuild_stream::rebuild_for_vault_with_progress(vault_dir, vault, progress)
 }
 
 #[cfg(test)]
@@ -115,6 +104,7 @@ pub(super) fn rebuild_from_docs(
         slots: entries,
     };
     let manifest_path = manifest_path(vault_dir);
+    super::rebuild_stream::validate_staged_manifest_artifacts(vault_dir, &manifest)?;
     write_json_atomic(&manifest_path, &manifest)?;
     prune_stale_index_artifacts(vault_dir, &root, &manifest)?;
     Ok(RebuildSummary {
@@ -124,120 +114,7 @@ pub(super) fn rebuild_from_docs(
     })
 }
 
-fn rebuild_from_docs_with_progress<F>(
-    vault_dir: &Path,
-    docs: &BTreeMap<CxId, Constellation>,
-    base_seq: u64,
-    progress: &mut F,
-) -> CliResult<RebuildSummary>
-where
-    F: FnMut(RebuildProgress<'_>),
-{
-    let root = vault_dir.join(INDEX_ROOT);
-    fs::create_dir_all(&root)?;
-    progress(RebuildProgress::phase("previous_manifest_start"));
-    let previous_manifest = previous_manifest(vault_dir)?;
-    progress(RebuildProgress::phase("previous_manifest_ok"));
-    let mut entries = Vec::new();
-    let mut total_rows = 0usize;
-    for slot in dense::slots(docs) {
-        progress(RebuildProgress::slot(
-            "dense_slot_start",
-            slot,
-            None,
-            Some(base_seq),
-        ));
-        let rows = dense::collect_slot(docs, slot)?;
-        let row_count = rows.len();
-        total_rows += row_count;
-        entries.push(dense::write(vault_dir, &root, slot, rows, base_seq)?);
-        progress(RebuildProgress::slot(
-            "dense_slot_ok",
-            slot,
-            Some(row_count),
-            Some(base_seq),
-        ));
-    }
-    for (slot, rows) in sparse::collect(docs)? {
-        let row_count = rows.len();
-        progress(RebuildProgress::slot(
-            "sparse_slot_start",
-            slot,
-            Some(row_count),
-            Some(base_seq),
-        ));
-        total_rows += row_count;
-        entries.push(sparse::write(vault_dir, &root, slot, rows, base_seq)?);
-        progress(RebuildProgress::slot(
-            "sparse_slot_ok",
-            slot,
-            Some(row_count),
-            Some(base_seq),
-        ));
-    }
-    for (slot, rows) in multi::collect(docs)? {
-        let row_count = rows.len();
-        progress(RebuildProgress::slot(
-            "multi_slot_start",
-            slot,
-            Some(row_count),
-            Some(base_seq),
-        ));
-        total_rows += row_count;
-        let previous = previous_manifest
-            .as_ref()
-            .and_then(|manifest| manifest.slots.iter().find(|entry| entry.slot == slot.get()));
-        entries.push(multi::write(
-            vault_dir, &root, slot, rows, base_seq, previous,
-        )?);
-        progress(RebuildProgress::slot(
-            "multi_slot_ok",
-            slot,
-            Some(row_count),
-            Some(base_seq),
-        ));
-    }
-    entries.sort_by_key(|entry| entry.slot);
-    progress(RebuildProgress {
-        rows: Some(docs.len()),
-        base_seq: Some(base_seq),
-        ..RebuildProgress::phase("filter_start")
-    });
-    let filter = filter::write(vault_dir, &root, docs, base_seq)?;
-    progress(RebuildProgress {
-        rows: Some(docs.len()),
-        base_seq: Some(base_seq),
-        ..RebuildProgress::phase("filter_ok")
-    });
-    let manifest = SearchIndexManifest {
-        format: MANIFEST_FORMAT.to_string(),
-        base_seq,
-        filter: Some(filter),
-        slots: entries,
-    };
-    let manifest_path = manifest_path(vault_dir);
-    progress(RebuildProgress::manifest(
-        "manifest_write_start",
-        &manifest_path,
-        base_seq,
-    ));
-    write_json_atomic(&manifest_path, &manifest)?;
-    progress(RebuildProgress::manifest(
-        "manifest_write_ok",
-        &manifest_path,
-        base_seq,
-    ));
-    progress(RebuildProgress::phase("prune_start"));
-    prune_stale_index_artifacts(vault_dir, &root, &manifest)?;
-    progress(RebuildProgress::phase("prune_ok"));
-    Ok(RebuildSummary {
-        slots: manifest.slots.len(),
-        total_rows,
-        manifest_path,
-    })
-}
-
-fn previous_manifest(vault_dir: &Path) -> CliResult<Option<SearchIndexManifest>> {
+pub(super) fn previous_manifest(vault_dir: &Path) -> CliResult<Option<SearchIndexManifest>> {
     let path = manifest_path(vault_dir);
     if !path.exists() {
         return Ok(None);
@@ -374,7 +251,7 @@ fn cx_id_from_cf_key(key: &[u8], cf_name: &str) -> calyx_core::Result<CxId> {
     Ok(CxId::from_bytes(bytes))
 }
 
-fn prune_stale_index_artifacts(
+pub(super) fn prune_stale_index_artifacts(
     vault_dir: &Path,
     root: &Path,
     manifest: &SearchIndexManifest,

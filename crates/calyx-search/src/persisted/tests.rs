@@ -17,6 +17,8 @@ use super::*;
 
 #[path = "tests/flat_dense.rs"]
 mod flat_dense;
+#[path = "tests/streaming_rebuild.rs"]
+mod streaming_rebuild;
 
 #[test]
 fn load_docs_reads_real_base_and_slot_cf_bytes() {

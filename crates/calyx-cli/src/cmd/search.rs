@@ -26,6 +26,7 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 /// re-ingesting. Recovers a vault whose ingest-time index rebuild was interrupted
 /// (and gives a standalone way to refresh sidecars after the fixed serialization).
 fn run_rebuild_search_index(args: VaultRefArgs) -> CliResult {
+    calyx_search::validate_rebuild_config()?;
     let resolved = resolve_vault_info(&home_dir()?, &args.vault)?;
     let state = load_vault_panel_state(&resolved.path)?;
     let vault = AsterVault::open(

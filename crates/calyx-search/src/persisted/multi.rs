@@ -1,9 +1,13 @@
-use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 
-use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector};
+#[cfg(test)]
+use calyx_core::Constellation;
+use calyx_core::{CalyxError, CxId, SlotId, SlotVector};
 use calyx_sextant::index::{IndexSearchHit, MaxSimIndex, ranked};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -36,8 +40,8 @@ struct MultiRow {
 
 #[derive(Clone, Debug)]
 pub(super) struct MultiSlotRows {
-    token_dim: u32,
-    rows: Vec<(CxId, Vec<Vec<f32>>)>,
+    pub(super) token_dim: u32,
+    pub(super) rows: Vec<(CxId, Vec<Vec<f32>>)>,
 }
 
 impl MultiSlotRows {
@@ -46,6 +50,7 @@ impl MultiSlotRows {
     }
 }
 
+#[cfg(test)]
 pub(super) fn collect(
     docs: &BTreeMap<CxId, Constellation>,
 ) -> CliResult<BTreeMap<SlotId, MultiSlotRows>> {
@@ -391,6 +396,22 @@ fn top_k(mut scored: Vec<(CxId, f32)>, k: usize) -> Vec<(CxId, f32)> {
     });
     scored.truncate(k);
     scored
+}
+
+pub(super) fn validate_entry(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    manifest_base_seq: u64,
+    slot: SlotId,
+) -> CliResult {
+    if entry.kind == "multi_maxsim_segments" {
+        return ensure_bounded_sidecar(vault_dir, entry, slot);
+    }
+    if binary::is_binary_sidecar(entry.require_index_rel(slot)?) {
+        return ensure_binary_entry_bounded(vault_dir, entry, slot);
+    }
+    let _ = read_json(vault_dir, entry, manifest_base_seq, slot)?;
+    Ok(())
 }
 
 #[cfg(test)]

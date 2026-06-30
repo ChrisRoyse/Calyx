@@ -1,12 +1,17 @@
-use std::collections::{BTreeMap, BTreeSet};
+#[cfg(test)]
+use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
-use calyx_core::{CalyxError, Constellation, CxId, SlotId, SlotVector};
+#[cfg(test)]
+use calyx_core::Constellation;
+use calyx_core::{CalyxError, CxId, SlotId, SlotVector};
 use calyx_sextant::index::{
     DiskAnnBuildParams, DiskAnnSearch, DiskAnnSearchParams, IndexSearchHit, SextantIndex, ranked,
 };
 
+use super::rebuild_plan::configured_diskann_build_backend;
 use super::{SearchIndexEntry, SlotIdMap, rel, stale, write_json_atomic};
 use crate::error::CliResult;
 
@@ -15,8 +20,8 @@ mod flat;
 
 #[derive(Clone, Debug)]
 pub(super) struct DenseSlotRows {
-    dim: u32,
-    rows: Vec<(CxId, Vec<f32>)>,
+    pub(super) dim: u32,
+    pub(super) rows: Vec<(CxId, Vec<f32>)>,
 }
 
 impl DenseSlotRows {
@@ -25,6 +30,7 @@ impl DenseSlotRows {
     }
 }
 
+#[cfg(test)]
 pub(super) fn slots(docs: &BTreeMap<CxId, Constellation>) -> Vec<SlotId> {
     let mut slots = docs
         .values()
@@ -39,6 +45,7 @@ pub(super) fn slots(docs: &BTreeMap<CxId, Constellation>) -> Vec<SlotId> {
     slots
 }
 
+#[cfg(test)]
 pub(super) fn collect_slot(
     docs: &BTreeMap<CxId, Constellation>,
     target: SlotId,
@@ -89,13 +96,14 @@ pub(super) fn write(
     }
     fs::create_dir_all(&dir)?;
     let graph_path = dir.join("graph.cda");
-    DiskAnnSearch::build(
+    DiskAnnSearch::build_with_backend(
         slot,
         &graph_path,
         &rows.rows,
         build_params(rows.dim as usize),
         None,
         search_params(rows.rows.len().max(64)),
+        configured_diskann_build_backend()?,
     )?;
     let id_map_path = dir.join("ids.json");
     write_json_atomic(
@@ -204,6 +212,48 @@ fn read_ids(vault_dir: &Path, entry: &SearchIndexEntry, slot: SlotId) -> CliResu
     Ok(map.ids)
 }
 
+pub(super) fn validate_entry(
+    vault_dir: &Path,
+    entry: &SearchIndexEntry,
+    slot: SlotId,
+) -> CliResult {
+    if entry.kind == "flat_dense" {
+        return flat::validate_entry(vault_dir, entry, slot);
+    }
+    entry.require_kind("diskann", slot)?;
+    let graph = vault_dir.join(entry.require_graph_rel(slot)?);
+    if !graph.is_file() {
+        return Err(stale(format!(
+            "persistent slot {slot} graph sidecar missing at {}; rebuild the vault search indexes",
+            graph.display()
+        )));
+    }
+    let graph_len = fs::metadata(&graph)?.len();
+    if graph_len == 0 {
+        return Err(stale(format!(
+            "persistent slot {slot} graph sidecar {} is empty; rebuild the vault search indexes",
+            graph.display()
+        )));
+    }
+    let ids = read_ids(vault_dir, entry, slot)?;
+    if ids.len() != entry.len {
+        return Err(stale(format!(
+            "persistent slot {slot} id map len {} != manifest len {}",
+            ids.len(),
+            entry.len
+        )));
+    }
+    let mut seen = BTreeSet::new();
+    for id in ids {
+        if !seen.insert(id) {
+            return Err(stale(format!(
+                "persistent slot {slot} id map repeats {id}; rebuild the vault search indexes"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn exact_filtered_hits(
     index: &DiskAnnSearch,
     query: &[f32],
@@ -246,7 +296,7 @@ pub(super) fn should_use_flat_dense_index(row_count: usize) -> bool {
     flat::should_use_index(row_count)
 }
 
-fn validate_dense(slot: SlotId, cx_id: CxId, dim: u32, data: &[f32]) -> CliResult {
+pub(super) fn validate_dense(slot: SlotId, cx_id: CxId, dim: u32, data: &[f32]) -> CliResult {
     if dim == 0 || data.len() != dim as usize {
         return Err(CalyxError::lens_dim_mismatch(format!(
             "slot {slot} cx {cx_id} dense len {} != dim {dim}",

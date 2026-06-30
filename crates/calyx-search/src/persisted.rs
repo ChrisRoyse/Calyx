@@ -9,6 +9,10 @@ mod mixed_tests;
 mod multi;
 #[path = "persisted/rebuild.rs"]
 mod rebuild;
+#[path = "persisted/rebuild_plan.rs"]
+mod rebuild_plan;
+#[path = "persisted/rebuild_stream.rs"]
+mod rebuild_stream;
 #[path = "persisted/sparse.rs"]
 mod sparse;
 #[cfg(test)]
@@ -267,6 +271,10 @@ impl PersistedSearchIndexes {
                 ))
             })
     }
+}
+
+pub fn validate_rebuild_config() -> CliResult {
+    rebuild_plan::validate_parallel_rebuild_config()
 }
 
 impl SearchIndexEntry {

@@ -114,6 +114,15 @@ fn read(
     Ok(index)
 }
 
+pub(super) fn validate_entry(
+    vault_dir: &Path,
+    entry: &FilterIndexEntry,
+    manifest_base_seq: u64,
+) -> CliResult {
+    let _ = read(vault_dir, entry, manifest_base_seq)?;
+    Ok(())
+}
+
 fn validate(index: &FilterIndex, entry: &FilterIndexEntry, manifest_base_seq: u64) -> CliResult {
     if index.format != FILTER_FORMAT {
         return Err(stale(format!(
