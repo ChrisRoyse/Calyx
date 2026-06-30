@@ -10,6 +10,7 @@ use super::super::*;
 
 static ORT_ENV_LOCK: Mutex<()> = Mutex::new(());
 const ORT_DYLIB_PATH: &str = "ORT_DYLIB_PATH";
+const CALYX_ORT_CAPI: &str = "CALYX_ORT_CAPI";
 
 #[test]
 fn custom_onnx_missing_runtime_fails_closed_fast_before_model_fixtures() {
@@ -30,7 +31,7 @@ fn custom_onnx_missing_runtime_fails_closed_fast_before_model_fixtures() {
     ];
     let mut report = Vec::new();
     for (name, ort_path) in cases {
-        let _env = OrtEnvGuard::set(ort_path);
+        let _env = EnvGuard::set_path(ORT_DYLIB_PATH, ort_path);
         let spec = missing_runtime_spec(&root, name);
         let before = model_file_state(&spec);
         let error = lens_error(OnnxLens::from_files(spec.clone()));
@@ -55,29 +56,71 @@ fn custom_onnx_missing_runtime_fails_closed_fast_before_model_fixtures() {
     );
 }
 
-struct OrtEnvGuard {
+#[test]
+fn dynamic_ort_uses_calyx_ort_capi_as_the_runtime_source_of_truth() {
+    let _lock = ORT_ENV_LOCK.lock().unwrap();
+    let root = std::env::temp_dir().join(format!("calyx-dynamic-ort-capi-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&root);
+    let capi = root.join("onnxruntime").join("capi");
+    fs::create_dir_all(&capi).unwrap();
+    let ort = capi.join("onnxruntime.dll");
+    fs::write(&ort, b"real path contract").unwrap();
+
+    let _ort_env = EnvGuard::set_path(ORT_DYLIB_PATH, None);
+    let _capi_env = EnvGuard::set_path(CALYX_ORT_CAPI, Some(&capi));
+    let before = json!({
+        "ort_env": std::env::var_os(ORT_DYLIB_PATH).map(|value| value.to_string_lossy().to_string()),
+        "capi_env": std::env::var_os(CALYX_ORT_CAPI).map(|value| value.to_string_lossy().to_string()),
+        "ort_file_exists": ort.exists(),
+    });
+
+    let resolved =
+        super::super::dynamic_ort::ensure_dynamic_ort(OnnxProviderPolicy::CpuExplicit).unwrap();
+
+    let after = json!({
+        "resolved": resolved.display().to_string(),
+        "ort_env": std::env::var_os(ORT_DYLIB_PATH).map(|value| value.to_string_lossy().to_string()),
+        "capi_env": std::env::var_os(CALYX_ORT_CAPI).map(|value| value.to_string_lossy().to_string()),
+        "ort_file_exists": ort.exists(),
+    });
+    assert_eq!(resolved, ort);
+    assert_eq!(std::env::var_os(ORT_DYLIB_PATH), Some(ort.clone().into()));
+    assert!(ort.is_file());
+
+    maybe_write_fsv_json(
+        "dynamic-ort-capi-source-of-truth.json",
+        &json!({
+            "source_of_truth": "CALYX_ORT_CAPI filesystem directory plus ORT_DYLIB_PATH process environment after resolve_ort_dylib_path",
+            "before": before,
+            "after": after,
+        }),
+    );
+}
+
+struct EnvGuard {
+    key: &'static str,
     old: Option<OsString>,
 }
 
-impl OrtEnvGuard {
-    fn set(path: Option<&Path>) -> Self {
-        let old = std::env::var_os(ORT_DYLIB_PATH);
+impl EnvGuard {
+    fn set_path(key: &'static str, path: Option<&Path>) -> Self {
+        let old = std::env::var_os(key);
         unsafe {
             match path {
-                Some(path) => std::env::set_var(ORT_DYLIB_PATH, path),
-                None => std::env::remove_var(ORT_DYLIB_PATH),
+                Some(path) => std::env::set_var(key, path),
+                None => std::env::remove_var(key),
             }
         }
-        Self { old }
+        Self { key, old }
     }
 }
 
-impl Drop for OrtEnvGuard {
+impl Drop for EnvGuard {
     fn drop(&mut self) {
         unsafe {
             match &self.old {
-                Some(value) => std::env::set_var(ORT_DYLIB_PATH, value),
-                None => std::env::remove_var(ORT_DYLIB_PATH),
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
             }
         }
     }

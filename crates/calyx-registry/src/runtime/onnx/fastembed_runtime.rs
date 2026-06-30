@@ -38,7 +38,7 @@ pub fn from_model_with_policy(
     cache_dir: PathBuf,
     provider_policy: OnnxProviderPolicy,
 ) -> Result<OnnxLens> {
-    let _ort_dylib = super::dynamic_ort::ensure_dynamic_ort()?;
+    let _ort_dylib = super::dynamic_ort::ensure_dynamic_ort(provider_policy)?;
     let name = name.into();
     let info = TextEmbedding::get_model_info(&model_name).map_err(|err| {
         CalyxError::lens_unreachable(format!("fastembed model metadata failed: {err}"))

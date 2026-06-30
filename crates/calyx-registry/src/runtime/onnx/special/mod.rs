@@ -66,7 +66,7 @@ impl FastembedSparseLens {
         cache_dir: PathBuf,
         provider_policy: OnnxProviderPolicy,
     ) -> Result<Self> {
-        super::dynamic_ort::ensure_dynamic_ort()?;
+        super::dynamic_ort::ensure_dynamic_ort(provider_policy)?;
         let name = name.into();
         let info = SparseTextEmbedding::get_model_info(&model_name);
         let model = SparseTextEmbedding::try_new(
@@ -165,7 +165,7 @@ impl FastembedBgem3Lens {
         cache_dir: PathBuf,
         provider_policy: OnnxProviderPolicy,
     ) -> Result<Self> {
-        super::dynamic_ort::ensure_dynamic_ort()?;
+        super::dynamic_ort::ensure_dynamic_ort(provider_policy)?;
         let name = name.into();
         let info = Bgem3Embedding::get_model_info(&model_name);
         let model = Bgem3Embedding::try_new(
@@ -276,7 +276,7 @@ impl FastembedRerankerLens {
         cache_dir: PathBuf,
         provider_policy: OnnxProviderPolicy,
     ) -> Result<Self> {
-        super::dynamic_ort::ensure_dynamic_ort()?;
+        super::dynamic_ort::ensure_dynamic_ort(provider_policy)?;
         let name = name.into();
         let info = TextRerank::get_model_info(&model_name);
         let model = TextRerank::try_new(

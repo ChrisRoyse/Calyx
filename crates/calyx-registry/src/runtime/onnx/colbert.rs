@@ -132,7 +132,7 @@ impl OnnxColbertLens {
     }
 
     pub fn from_files(spec: OnnxColbertFileSpec) -> Result<Self> {
-        let _ort_dylib = super::dynamic_ort::ensure_dynamic_ort()?;
+        let _ort_dylib = super::dynamic_ort::ensure_dynamic_ort(spec.provider_policy)?;
         ensure_file("model", &spec.model_file)?;
         ensure_file("tokenizer", &spec.tokenizer)?;
         ensure_file("config", &spec.config)?;

@@ -18,6 +18,7 @@ mod custom;
 mod dynamic_ort;
 mod fastembed_runtime;
 mod special;
+mod windows_cuda_dlls;
 
 pub use colbert::{DEFAULT_ANSWERAI_COLBERT_MODEL, OnnxColbertFileSpec, OnnxColbertLens};
 pub use special::{FastembedBgem3Lens, FastembedRerankerLens, FastembedSparseLens};
