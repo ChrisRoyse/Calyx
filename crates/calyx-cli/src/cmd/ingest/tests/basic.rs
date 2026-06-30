@@ -68,18 +68,29 @@ fn ingest_registered_dense_lens_persists_search_index_files() {
     let manifest: serde_json::Value =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
     let slot = &manifest["slots"].as_array().unwrap()[0];
-    let graph_path = resolved.path.join(slot["graph_rel"].as_str().unwrap());
-    let ids_path = resolved.path.join(slot["id_map_rel"].as_str().unwrap());
-    let ids: serde_json::Value = serde_json::from_slice(&fs::read(&ids_path).unwrap()).unwrap();
 
     assert!(reports.iter().all(|report| report.new));
     assert_eq!(manifest["format"], "calyx-search-index-manifest-v1");
     assert_eq!(slot["slot"], 0);
     assert_eq!(slot["dim"], 16);
     assert_eq!(slot["len"], 3);
-    assert!(graph_path.is_file());
-    assert_eq!(ids["format"], "calyx-search-index-idmap-v1");
-    assert_eq!(ids["ids"].as_array().unwrap().len(), 3);
+    match slot["kind"].as_str().unwrap() {
+        "diskann" => {
+            let graph_path = resolved.path.join(slot["graph_rel"].as_str().unwrap());
+            let ids_path = resolved.path.join(slot["id_map_rel"].as_str().unwrap());
+            let ids: serde_json::Value =
+                serde_json::from_slice(&fs::read(&ids_path).unwrap()).unwrap();
+            assert!(graph_path.is_file());
+            assert_eq!(ids["format"], "calyx-search-index-idmap-v1");
+            assert_eq!(ids["ids"].as_array().unwrap().len(), 3);
+        }
+        "flat_dense" => {
+            let index_path = resolved.path.join(slot["index_rel"].as_str().unwrap());
+            assert!(index_path.is_file());
+            assert_eq!(slot["sha256"].as_str().unwrap().len(), 64);
+        }
+        other => panic!("unexpected persisted dense index kind {other}"),
+    }
     fs::remove_dir_all(root).ok();
 }
 

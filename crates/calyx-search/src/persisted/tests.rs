@@ -178,6 +178,23 @@ fn missing_manifest_fails_closed() {
 }
 
 #[test]
+fn manifest_seq_must_match_pinned_snapshot() {
+    let root = scratch("manifest-seq");
+    rebuild_from_docs(&root, &docs([(1, vec![1.0, 0.0])]), 42).expect("rebuild");
+    let indexes = PersistedSearchIndexes::open(&root).expect("open");
+
+    indexes
+        .ensure_fresh_at_snapshot(42)
+        .expect("matching manifest seq is fresh");
+    let err = indexes.ensure_fresh_at_snapshot(43).unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_STALE_DERIVED");
+    assert!(err.message().contains("base seq 42"));
+    assert!(err.message().contains("pinned vault seq 43"));
+    fs::remove_dir_all(root).ok();
+}
+
+#[test]
 fn query_dim_mismatch_fails_closed() {
     let root = scratch("dim");
     rebuild_from_docs(&root, &docs([(1, vec![1.0, 0.0])]), 2).expect("rebuild");

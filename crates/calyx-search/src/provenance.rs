@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use calyx_aster::ledger_view::read_ledger_seq;
+use calyx_aster::ledger_view::read_ledger_seqs;
 use calyx_aster::mvcc::Snapshot;
 use calyx_aster::vault::AsterVault;
 use calyx_core::{CalyxError, Constellation, CxId, LedgerRef};
@@ -20,11 +20,17 @@ pub(crate) fn hit_docs_at(
     vault: &AsterVault,
     hits: &[Hit],
     snapshot: Snapshot,
+    hydrate_slots: bool,
 ) -> CliResult<BTreeMap<CxId, Constellation>> {
     let mut docs = BTreeMap::new();
     for hit in hits {
         let cx_id = hit.cx_id;
-        let cx = vault.get_at_snapshot(cx_id, snapshot).map_err(|error| {
+        let read = if hydrate_slots {
+            vault.get_at_snapshot(cx_id, snapshot)
+        } else {
+            vault.get_base_at_snapshot(cx_id, snapshot)
+        };
+        let cx = read.map_err(|error| {
             if error.code == "CALYX_STALE_DERIVED" && error.message.contains("missing") {
                 missing_provenance(format!("stored constellation missing for hit {cx_id}"))
             } else {
@@ -42,7 +48,7 @@ pub(crate) fn attach_verified_provenance(
     vault_dir: &Path,
     seq: u64,
 ) -> CliResult {
-    let mut ledger = TargetedLedgerVerifier::new(vault_dir);
+    let mut ledger = TargetedLedgerVerifier::open(vault_dir, hits, docs)?;
     for hit in hits {
         let cx = docs.get(&hit.cx_id).ok_or_else(|| {
             missing_provenance(format!(
@@ -57,17 +63,34 @@ pub(crate) fn attach_verified_provenance(
     Ok(())
 }
 
-struct TargetedLedgerVerifier<'a> {
-    vault_dir: &'a Path,
+struct TargetedLedgerVerifier {
+    rows: BTreeMap<u64, calyx_ledger::LedgerRow>,
     entries: BTreeMap<u64, LedgerEntry>,
 }
 
-impl<'a> TargetedLedgerVerifier<'a> {
-    fn new(vault_dir: &'a Path) -> Self {
-        Self {
-            vault_dir,
-            entries: BTreeMap::new(),
+impl TargetedLedgerVerifier {
+    fn open(
+        vault_dir: &Path,
+        hits: &[Hit],
+        docs: &BTreeMap<CxId, Constellation>,
+    ) -> CliResult<Self> {
+        let mut required = BTreeSet::new();
+        for hit in hits {
+            let cx = docs.get(&hit.cx_id).ok_or_else(|| {
+                missing_provenance(format!(
+                    "stored constellation missing for hit {}",
+                    hit.cx_id
+                ))
+            })?;
+            required.insert(cx.provenance.seq);
+            if cx.provenance.seq > 0 {
+                required.insert(cx.provenance.seq - 1);
+            }
         }
+        Ok(Self {
+            rows: read_ledger_seqs(vault_dir, &required)?,
+            entries: BTreeMap::new(),
+        })
     }
 
     fn require_ref(&mut self, cx_id: CxId, expected: LedgerRef) -> CliResult<LedgerRef> {
@@ -93,12 +116,15 @@ impl<'a> TargetedLedgerVerifier<'a> {
 
     fn entry(&mut self, cx_id: CxId, seq: u64) -> CliResult<&LedgerEntry> {
         if !self.entries.contains_key(&seq) {
-            let bytes = read_ledger_seq(self.vault_dir, seq)?
+            let bytes = self
+                .rows
+                .get(&seq)
                 .ok_or_else(|| {
                     missing_provenance(format!(
                         "search hit {cx_id} references missing ledger seq {seq}"
                     ))
                 })?
+                .clone()
                 .bytes;
             let entry = decode(&bytes).map_err(|error| {
                 CalyxError::ledger_chain_broken(format!(

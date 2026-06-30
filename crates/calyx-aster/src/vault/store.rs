@@ -13,11 +13,7 @@ where
 {
     /// Reads one stored constellation through an already-pinned snapshot lease.
     pub fn get_at_snapshot(&self, id: CxId, snapshot: Snapshot) -> Result<Constellation> {
-        let base = self
-            .rows
-            .read_at(snapshot, ColumnFamily::Base, &base_key(id), &self.clock)?
-            .ok_or_else(|| CalyxError::stale_derived("constellation missing at snapshot"))?;
-        let mut constellation = encode::decode_constellation_base(&base)?;
+        let mut constellation = self.read_base_at_snapshot(id, snapshot)?;
         let slot_ids: Vec<SlotId> = constellation.slots.keys().copied().collect();
         let reads: Vec<_> = slot_ids
             .iter()
@@ -41,6 +37,22 @@ where
         }
         constellation.slots = slots;
         Ok(constellation)
+    }
+
+    /// Reads the Base CF row only, preserving metadata, anchors, and stored
+    /// provenance without hydrating slot vectors.
+    pub fn get_base_at_snapshot(&self, id: CxId, snapshot: Snapshot) -> Result<Constellation> {
+        let mut constellation = self.read_base_at_snapshot(id, snapshot)?;
+        constellation.slots.clear();
+        Ok(constellation)
+    }
+
+    fn read_base_at_snapshot(&self, id: CxId, snapshot: Snapshot) -> Result<Constellation> {
+        let base = self
+            .rows
+            .read_at(snapshot, ColumnFamily::Base, &base_key(id), &self.clock)?
+            .ok_or_else(|| CalyxError::stale_derived("constellation missing at snapshot"))?;
+        encode::decode_constellation_base(&base)
     }
 }
 

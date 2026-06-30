@@ -205,6 +205,17 @@ impl PersistedSearchIndexes {
         self.max_len_for_slots(None)
     }
 
+    pub fn ensure_fresh_at_snapshot(&self, pinned_seq: u64) -> CliResult {
+        if self.manifest.base_seq == pinned_seq {
+            return Ok(());
+        }
+        Err(CalyxError::stale_derived(format!(
+            "persistent search manifest base seq {} does not match pinned vault seq {pinned_seq}; rebuild the vault search indexes before search",
+            self.manifest.base_seq
+        ))
+        .into())
+    }
+
     pub fn max_len_for_slots(&self, allowed_slots: Option<&BTreeSet<SlotId>>) -> usize {
         self.manifest
             .slots

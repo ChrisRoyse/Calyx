@@ -39,6 +39,16 @@ pub struct VaultOptions {
     /// open. Disable only for latest-read workloads that can use the CF router
     /// as the checkpointed source of truth and do not request historical reads.
     pub restore_mvcc_rows: bool,
+    /// Restores the full in-memory ledger hook on open. Disable only for
+    /// explicitly read-only handles that verify/search latest state without
+    /// appending ledger entries.
+    pub restore_ledger_hook: bool,
+    /// Opens the vault as a read-only handle. Any write through this handle
+    /// fails before WAL append or MVCC mutation.
+    pub read_only: bool,
+    /// Restricts router recovery to a concrete CF set for read-only handles.
+    /// This keeps analytical/search reads from enumerating unrelated large CFs.
+    pub selected_cfs: Option<Vec<ColumnFamily>>,
 }
 
 impl Default for VaultOptions {
@@ -55,6 +65,9 @@ impl Default for VaultOptions {
             residency: None,
             disk_pressure_guard: None,
             restore_mvcc_rows: true,
+            restore_ledger_hook: true,
+            read_only: false,
+            selected_cfs: None,
         }
     }
 }
@@ -99,6 +112,44 @@ impl DurableVault {
             validate_dedup_policy(policy, options.panel.as_ref())?;
         }
         options.retention_horizon.validate()?;
+        if !options.restore_ledger_hook && !options.read_only {
+            return Err(CalyxError {
+                code: "CALYX_VAULT_OPTIONS_INVALID",
+                message:
+                    "restore_ledger_hook=false requires read_only=true to prevent unverified writes"
+                        .to_string(),
+                remediation: "open read workloads with read_only=true, or keep restore_ledger_hook=true for write-capable handles",
+            });
+        }
+        if options.read_only && options.residency.is_some() {
+            return Err(CalyxError {
+                code: "CALYX_VAULT_OPTIONS_INVALID",
+                message: "read_only=true cannot persist a new residency pin".to_string(),
+                remediation: "persist residency with a write-capable open before opening read-only handles",
+            });
+        }
+        if options.selected_cfs.is_some() && !options.read_only {
+            return Err(CalyxError {
+                code: "CALYX_VAULT_OPTIONS_INVALID",
+                message: "selected_cfs requires read_only=true to prevent partial write handles"
+                    .to_string(),
+                remediation: "open full write-capable vault handles without selected_cfs, or mark the handle read_only=true",
+            });
+        }
+        if options.selected_cfs.as_ref().is_some_and(Vec::is_empty) {
+            return Err(CalyxError {
+                code: "CALYX_VAULT_OPTIONS_INVALID",
+                message: "selected_cfs cannot be empty".to_string(),
+                remediation: "omit selected_cfs or include every CF required by the read workload",
+            });
+        }
+        if options.selected_cfs.is_some() && options.tiering_policy.is_some() {
+            return Err(CalyxError {
+                code: "CALYX_VAULT_OPTIONS_INVALID",
+                message: "selected_cfs with tiering_policy is not implemented".to_string(),
+                remediation: "open a full read-only tiered handle or add selected tier-aware CF routing first",
+            });
+        }
         Ok(())
     }
 

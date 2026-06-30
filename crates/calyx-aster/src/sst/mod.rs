@@ -52,6 +52,13 @@ struct IndexEntry {
     offset: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SstLookupMetadata {
+    pub(crate) first_key: Vec<u8>,
+    pub(crate) last_key: Vec<u8>,
+    bloom: BloomFilter,
+}
+
 /// Memory-mapped SSTable reader.
 #[derive(Debug)]
 pub struct SstReader {
@@ -257,6 +264,16 @@ impl SstReader {
     pub fn bloom_may_contain(&self, key: &[u8]) -> bool {
         self.bloom.may_contain(key)
     }
+
+    pub(crate) fn lookup_metadata(&self) -> Option<SstLookupMetadata> {
+        let first_key = self.index.first()?.key.clone();
+        let last_key = self.index.last()?.key.clone();
+        Some(SstLookupMetadata {
+            first_key,
+            last_key,
+            bloom: self.bloom.clone(),
+        })
+    }
 }
 
 struct SstRecordRef<'a> {
@@ -364,6 +381,11 @@ fn read_index(
     }
     if offset != end {
         return Err(CalyxError::aster_corrupt_shard("SST index length mismatch"));
+    }
+    if index.windows(2).any(|pair| pair[0].key >= pair[1].key) {
+        return Err(CalyxError::aster_corrupt_shard(
+            "SST index keys must be strictly sorted",
+        ));
     }
     Ok(index)
 }

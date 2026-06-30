@@ -88,11 +88,23 @@ fn parse_search_rejects_invalid_filter_json_before_vault_open() {
 
 #[test]
 fn search_open_options_use_latest_only_router_readback() {
-    let options = super::latest_read_vault_options();
+    let options = super::latest_read_vault_options_for_cfs(None);
 
     assert!(
         !options.restore_mvcc_rows,
         "search/rebuild must not rehydrate every checkpointed durable row into MVCC"
+    );
+    assert!(
+        !options.restore_ledger_hook,
+        "search/rebuild must not materialize the full ledger hook for read-only latest-state reads"
+    );
+    assert!(
+        options.read_only,
+        "latest search opens must fail closed before any vault mutation"
+    );
+    assert!(
+        options.selected_cfs.is_none(),
+        "generic latest read options stay full-CF; callers with narrower needs must pass selected_cfs explicitly"
     );
 }
 

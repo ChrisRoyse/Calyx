@@ -299,6 +299,8 @@ fn durable_vault_writes_wal_sst_manifest_and_cold_opens() {
     cleanup(dir);
 }
 
+mod read_only;
+
 #[test]
 fn durable_memtable_oversize_rejects_before_wal_append() {
     let fsv_root = std::env::var_os("CALYX_FSV_ROOT").map(PathBuf::from);

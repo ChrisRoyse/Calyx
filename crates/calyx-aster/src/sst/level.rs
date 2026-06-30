@@ -1,4 +1,4 @@
-use super::{SstEntry, SstKeyState, SstReader};
+use super::{SstEntry, SstKeyState, SstLookupMetadata, SstReader};
 use calyx_core::Result;
 use rayon::prelude::*;
 use std::collections::BTreeMap;
@@ -6,7 +6,33 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SstLevel {
-    files: Vec<PathBuf>,
+    files: Vec<LevelFile>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LevelFile {
+    path: PathBuf,
+    lookup: Option<SstLookupMetadata>,
+}
+
+impl LevelFile {
+    fn without_lookup(path: PathBuf) -> Self {
+        Self { path, lookup: None }
+    }
+
+    fn with_lookup(path: PathBuf) -> Result<Self> {
+        let lookup = SstReader::open(&path)?.lookup_metadata();
+        Ok(Self { path, lookup })
+    }
+
+    fn may_contain(&self, key: &[u8]) -> bool {
+        let Some(lookup) = &self.lookup else {
+            return true;
+        };
+        key >= lookup.first_key.as_slice()
+            && key <= lookup.last_key.as_slice()
+            && lookup.bloom.may_contain(key)
+    }
 }
 
 impl SstLevel {
@@ -15,25 +41,57 @@ impl SstLevel {
     }
 
     pub fn from_oldest_first(files: impl IntoIterator<Item = PathBuf>) -> Self {
-        let mut level = Self::new();
-        for file in files {
-            level.push(file);
+        let mut files = files
+            .into_iter()
+            .map(LevelFile::without_lookup)
+            .collect::<Vec<_>>();
+        files.reverse();
+        Self { files }
+    }
+
+    pub fn from_oldest_first_with_lookup(paths: impl IntoIterator<Item = PathBuf>) -> Result<Self> {
+        let mut files = Vec::new();
+        for path in paths {
+            files.push(LevelFile::with_lookup(path)?);
         }
-        level
+        files.reverse();
+        Ok(Self { files })
     }
 
     pub fn push(&mut self, path: PathBuf) {
-        self.files.insert(0, path);
+        self.files.insert(0, LevelFile::without_lookup(path));
+    }
+
+    pub fn push_with_lookup(&mut self, path: PathBuf) -> Result<()> {
+        self.files.insert(0, LevelFile::with_lookup(path)?);
+        Ok(())
     }
 
     pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
         for file in &self.files {
-            let reader = SstReader::open(file)?;
+            if !file.may_contain(key) {
+                continue;
+            }
+            let reader = SstReader::open(&file.path)?;
             if let Some(value) = reader.get(key)? {
                 return Ok(Some(value));
             }
         }
         Ok(None)
+    }
+
+    pub(crate) fn values_for_key(&self, key: &[u8]) -> Result<Vec<Vec<u8>>> {
+        let mut values = Vec::new();
+        for file in &self.files {
+            if !file.may_contain(key) {
+                continue;
+            }
+            let reader = SstReader::open(&file.path)?;
+            if let Some(value) = reader.get(key)? {
+                values.push(value);
+            }
+        }
+        Ok(values)
     }
 
     pub fn range(&self, start: &[u8], end: &[u8]) -> Result<Vec<SstEntry>> {
@@ -42,7 +100,7 @@ impl SstLevel {
             .par_iter()
             .enumerate()
             .map(|(index, file)| -> Result<(usize, Vec<SstEntry>)> {
-                Ok((index, SstReader::open(file)?.range(start, end)?))
+                Ok((index, SstReader::open(&file.path)?.range(start, end)?))
             })
             .collect::<Result<Vec<_>>>()?;
         per_file.sort_by_key(|(index, _)| *index);
@@ -71,7 +129,7 @@ impl SstLevel {
             .map(|(index, file)| -> Result<(usize, Vec<SstKeyState>)> {
                 Ok((
                     index,
-                    SstReader::open(file)?.range_key_states_until(start, end)?,
+                    SstReader::open(&file.path)?.range_key_states_until(start, end)?,
                 ))
             })
             .collect::<Result<Vec<_>>>()?;
@@ -92,7 +150,7 @@ impl SstLevel {
     pub fn iter(&self) -> Result<Vec<SstEntry>> {
         let mut rows = BTreeMap::new();
         for file in &self.files {
-            for entry in SstReader::open(file)?.iter()? {
+            for entry in SstReader::open(&file.path)?.iter()? {
                 rows.entry(entry.key).or_insert(entry.value);
             }
         }
@@ -104,6 +162,14 @@ impl SstLevel {
 
     pub fn file_count(&self) -> usize {
         self.files.len()
+    }
+
+    #[cfg(test)]
+    fn candidate_file_count_for_key(&self, key: &[u8]) -> usize {
+        self.files
+            .iter()
+            .filter(|file| file.may_contain(key))
+            .count()
     }
 }
 
@@ -210,6 +276,26 @@ mod tests {
         write_sst(&old, [(b"k".as_slice(), b"v".as_slice())]).unwrap();
         level.push(old);
         assert_eq!(level.get(b"k").unwrap(), Some(b"v".to_vec()));
+        cleanup(dir);
+    }
+
+    #[test]
+    fn metadata_bounds_point_lookup_to_candidate_sst() {
+        let dir = test_dir("metadata-point");
+        let mut files = Vec::new();
+        for index in 0..128u8 {
+            let key = vec![index; 16];
+            let value = vec![index.wrapping_add(1); 8];
+            let path = dir.join(format!("{index:03}.sst"));
+            write_sst(&path, [(key.as_slice(), value.as_slice())]).unwrap();
+            files.push(path);
+        }
+        let level = SstLevel::from_oldest_first_with_lookup(files).unwrap();
+        let key = vec![42u8; 16];
+
+        assert_eq!(level.file_count(), 128);
+        assert_eq!(level.candidate_file_count_for_key(&key), 1);
+        assert_eq!(level.get(&key).unwrap(), Some(vec![43u8; 8]));
         cleanup(dir);
     }
 

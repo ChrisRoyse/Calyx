@@ -173,7 +173,7 @@ impl CfRouter {
         self.levels
             .entry(cf)
             .or_default()
-            .push(summary.path.clone());
+            .push_with_lookup(summary.path.clone())?;
         Ok(summary)
     }
 
@@ -324,7 +324,8 @@ impl CfRouter {
                 .unwrap_or(0)
                 + 1;
             self.ensure_cf(cf)?;
-            self.levels.insert(cf, SstLevel::from_oldest_first(files));
+            self.levels
+                .insert(cf, SstLevel::from_oldest_first_with_lookup(files)?);
             self.next_file.insert(cf, next);
         }
         Ok(())
@@ -357,7 +358,8 @@ impl CfRouter {
                 .unwrap_or(0)
                 + 1;
             self.ensure_cf(*cf)?;
-            self.levels.insert(*cf, SstLevel::from_oldest_first(files));
+            self.levels
+                .insert(*cf, SstLevel::from_oldest_first_with_lookup(files)?);
             self.next_file.insert(*cf, next);
         }
         Ok(())

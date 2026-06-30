@@ -22,9 +22,9 @@ use calyx_sextant::Hit;
 use super::super::Subcommand;
 use super::super::ingest::parse_anchor_kind;
 use super::super::vault::{ResolvedVault, home_dir, resolve_vault_info, vault_salt};
-use super::latest_read_vault_options;
 use super::output;
 use super::parse::{KernelAnswerArgs, SearchArgs, SearchFusionArg, SearchGuardArg};
+use super::{base_read_cfs, latest_read_vault_options_for_cfs, panel_read_cfs};
 use crate::error::CliResult;
 use crate::output::print_json;
 use crate::panel_commands::measure_resident_batch_at;
@@ -48,7 +48,7 @@ fn search_command(args: SearchArgs) -> CliResult {
         Some(addr) => {
             let query_vectors =
                 measure_search_query_vectors_via_resident(&state, &resolved, &args.query, addr)?;
-            let vault = open_vault(&resolved)?;
+            let vault = open_vault(&resolved, search_read_cfs(&state, guard))?;
             search_outcome_with_query_vectors(
                 &vault,
                 &resolved.path,
@@ -62,7 +62,7 @@ fn search_command(args: SearchArgs) -> CliResult {
         }
         None => {
             require_resident_for_gpu_text_search(&state)?;
-            let vault = open_vault(&resolved)?;
+            let vault = open_vault(&resolved, search_read_cfs(&state, guard))?;
             search_outcome(
                 &vault,
                 &state,
@@ -278,9 +278,9 @@ fn indexable(vector: &SlotVector) -> bool {
 fn kernel_answer_command(args: KernelAnswerArgs) -> CliResult {
     let anchor = args.anchor.as_deref().map(parse_anchor_kind).transpose()?;
     let resolved = resolve_cli_vault(&args.vault)?;
-    let vault = open_vault(&resolved)?;
     require_vault_registry_contracts(&resolved.path)?;
     let state = load_vault_panel_state(&resolved.path)?;
+    let vault = open_vault(&resolved, panel_read_cfs(&state.panel))?;
     let docs = load_docs(&vault)?;
     let outcome = search_outcome(
         &vault,
@@ -362,11 +362,24 @@ fn resolve_cli_vault(vault: &str) -> CliResult<ResolvedVault> {
     resolve_vault_info(&home_dir()?, vault)
 }
 
-fn open_vault(resolved: &ResolvedVault) -> CliResult<AsterVault> {
+fn open_vault(
+    resolved: &ResolvedVault,
+    selected_cfs: Option<Vec<calyx_aster::cf::ColumnFamily>>,
+) -> CliResult<AsterVault> {
     Ok(AsterVault::open(
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        latest_read_vault_options(),
+        latest_read_vault_options_for_cfs(selected_cfs),
     )?)
+}
+
+fn search_read_cfs(
+    state: &VaultPanelState,
+    guard: GuardChoice,
+) -> Option<Vec<calyx_aster::cf::ColumnFamily>> {
+    match guard {
+        GuardChoice::Off => Some(base_read_cfs()),
+        GuardChoice::InRegion => panel_read_cfs(&state.panel),
+    }
 }

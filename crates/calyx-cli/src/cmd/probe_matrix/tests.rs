@@ -89,6 +89,19 @@ fn probe_matrix_open_options_use_latest_only_router_readback() {
         !options.restore_mvcc_rows,
         "probe-matrix is read-only latest-state search and must not restore every MVCC row"
     );
+    assert!(
+        !options.restore_ledger_hook,
+        "probe-matrix must not materialize the full ledger hook before latest-state search"
+    );
+    assert!(
+        options.read_only,
+        "probe-matrix opens must fail closed before any vault mutation"
+    );
+    assert_eq!(
+        options.selected_cfs,
+        Some(vec![calyx_aster::cf::ColumnFamily::Base]),
+        "probe-matrix provenance readback must not enumerate unrelated CFs"
+    );
 }
 
 #[test]

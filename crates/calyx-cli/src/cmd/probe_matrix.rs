@@ -5,14 +5,14 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CxId, Modality, SlotId, SlotState, VaultStore};
+use calyx_core::{CalyxError, CxId, Modality, SlotId, SlotState};
 use calyx_lodestar::{
     LodestarError, PROBE_MATRIX_SCHEMA_VERSION, ProbeFusionMode, ProbeHit, ProbeLength,
     ProbeLensEmphasis, ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing, ProbeProductivity,
     ProbeRecord, ProbeRefusal, ProbeResponse, ProbeVariant, build_probe_matrix,
 };
 use calyx_registry::{load_vault_panel_state, require_vault_registry_contracts};
-use calyx_search::{FusionChoice, GuardChoice, search_outcome_with_slots};
+use calyx_search::{FusionChoice, GuardChoice, search_outcome_with_slots_traced};
 use calyx_sextant::{Hit, RrfProfile};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -24,6 +24,7 @@ use crate::output::print_json;
 
 mod parse;
 mod persist;
+mod trace;
 pub(crate) use parse::parse_probe_matrix;
 use persist::persist_probe_matrix;
 const PROBE_MATRIX_ARTIFACT_SCHEMA_VERSION: u32 = 1;
@@ -89,8 +90,27 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         vault_salt(resolved.vault_id, &resolved.name),
         latest_probe_read_vault_options(),
     )?;
-    require_vault_registry_contracts(&resolved.path)?;
+    eprintln!(
+        "probe-matrix: opened vault snapshot_seq={} elapsed_ms={}",
+        vault.latest_seq(),
+        started.elapsed().as_millis()
+    );
+    let audit = require_vault_registry_contracts(&resolved.path)?;
+    eprintln!(
+        "probe-matrix: registry contracts valid checked_count={} elapsed_ms={}",
+        audit.checked_count,
+        started.elapsed().as_millis()
+    );
     let state = load_vault_panel_state(&resolved.path)?;
+    eprintln!(
+        "probe-matrix: loaded panel slots={} registry_lenses={} elapsed_ms={}",
+        state.panel.slots.len(),
+        state
+            .registry_snapshot
+            .as_ref()
+            .map_or(0, |snapshot| snapshot.lenses.len()),
+        started.elapsed().as_millis()
+    );
     let active_slots = if args.slots.is_empty() {
         active_text_slots(&state.panel.slots)?
     } else {
@@ -176,7 +196,7 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
 }
 
 fn latest_probe_read_vault_options() -> VaultOptions {
-    super::search::latest_read_vault_options()
+    super::search::latest_read_vault_options_for_cfs(Some(super::search::base_read_cfs()))
 }
 
 fn run_physical_probe_matrix<F>(spec: &ProbeMatrixSpec, mut probe: F) -> CliResult<ProbeMatrixLog>
@@ -186,9 +206,21 @@ where
     let variants = build_probe_matrix(spec)?;
     let mut records = Vec::with_capacity(variants.len());
     for variant in variants {
+        let variant_started = Instant::now();
+        eprintln!(
+            "probe-matrix: variant start fusion={:?} emphasis={:?} phrasing={:?} length={:?} top_k={}",
+            variant.fusion, variant.lens_emphasis, variant.phrasing, variant.length, variant.top_k
+        );
         let response = probe(&variant)?;
         validate_response(&response)?;
         let accepted_hit_count = response.hits.iter().filter(|hit| hit.grounded).count();
+        eprintln!(
+            "probe-matrix: variant ok hits={} accepted_hits={} refusals={} elapsed_ms={}",
+            response.hits.len(),
+            accepted_hit_count,
+            response.refusals.len(),
+            variant_started.elapsed().as_millis()
+        );
         records.push(ProbeRecord {
             variant,
             hits: response.hits,
@@ -215,7 +247,8 @@ fn probe_variant(
     guard: GuardChoice,
     allowed_slots: &BTreeSet<SlotId>,
 ) -> CliResult<ProbeResponse> {
-    let outcome = search_outcome_with_slots(
+    let mut trace_sink = trace::emit_search_trace_event;
+    let outcome = search_outcome_with_slots_traced(
         vault,
         state,
         vault_dir,
@@ -226,12 +259,22 @@ fn probe_variant(
         None,
         false,
         Some(allowed_slots),
+        Some(&mut trace_sink),
     )?;
-    let snapshot = vault.snapshot();
     let mut hits = Vec::with_capacity(outcome.hits.len());
-    for hit in outcome.hits {
-        let cx = vault.get(hit.cx_id, snapshot)?;
-        hits.push(probe_hit(&hit, &cx));
+    let calyx_search::SearchOutcome {
+        hits: outcome_hits,
+        docs: verified_docs,
+        ..
+    } = outcome;
+    for hit in outcome_hits {
+        let cx = verified_docs.get(&hit.cx_id).ok_or_else(|| {
+            CalyxError::stale_derived(format!(
+                "probe-matrix search outcome missing verified source document for hit {}",
+                hit.cx_id
+            ))
+        })?;
+        hits.push(probe_hit(&hit, cx));
     }
     let refusals = probe_refusals(variant, &hits);
     Ok(ProbeResponse { hits, refusals })

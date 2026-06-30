@@ -25,6 +25,7 @@ where
             dedup_policy: DedupPolicy::default(),
             retention_horizon: std::sync::Mutex::new(RetentionHorizon::default()),
             ledger_hook: None,
+            read_only: false,
             recurrence_write_lock: std::sync::Mutex::new(()),
             recovery_report: VaultRecoveryReport {
                 last_recovered_seq: 0,

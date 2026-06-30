@@ -74,6 +74,7 @@ pub struct AsterVault<C = SystemClock> {
     dedup_policy: DedupPolicy,
     retention_horizon: Mutex<RetentionHorizon>,
     ledger_hook: Option<AsterLedgerHook>,
+    read_only: bool,
     recurrence_write_lock: Mutex<()>,
     recovery_report: VaultRecoveryReport,
     residency: Option<crate::residency::Residency>,
@@ -140,6 +141,7 @@ where
             dedup_policy: DedupPolicy::default(),
             retention_horizon: Mutex::new(RetentionHorizon::default()),
             ledger_hook: None,
+            read_only: false,
             recurrence_write_lock: Mutex::new(()),
             recovery_report: VaultRecoveryReport {
                 last_recovered_seq: 0,
@@ -152,6 +154,17 @@ where
     /// Returns the vault's data-residency pin, if one is set (PRD `30 §4`).
     pub fn residency(&self) -> Option<&crate::residency::Residency> {
         self.residency.as_ref()
+    }
+
+    pub(crate) fn ensure_writeable(&self, operation: &str) -> Result<()> {
+        if !self.read_only {
+            return Ok(());
+        }
+        Err(CalyxError {
+            code: "CALYX_VAULT_READ_ONLY",
+            message: format!("read-only Aster vault handle rejected {operation}"),
+            remediation: "open a write-capable vault handle with read_only=false for mutating operations",
+        })
     }
 
     /// Authorizes an external copy/export to `target` against the residency pin.
@@ -383,6 +396,7 @@ where
     }
 
     pub(crate) fn flush_locked(&self) -> Result<()> {
+        self.ensure_writeable("flush")?;
         if let Some(durable) = &self.durable {
             durable.flush()?;
         }
