@@ -169,6 +169,13 @@ Dev state lives in the Calyx repo's **GitHub Issues** (`29`). A small curated se
 
 Agents do not treat git/GitHub synchronization as cleanup. It is part of correctness. The local Calyx-Dev checkout, the aiwonder checkout, and the public Calyx mirror are separate physical source-of-truth states; a change is not current until each required state is updated and read back. At the start of substantive work, before commit/push, before any PR merge/update decision, and before final closeout, every agent checks: local worktree status, `origin/main`, open PRs, in-flight issue state, the aiwonder checkout at `/home/croyse/calyx/repo`, and the public Calyx mirror when the change is intended to leave Calyx-Dev. Long-running work repeats this scan periodically because other agents may push commits or PRs at any time. Agents `fetch --all --prune`, fast-forward when possible, inspect PRs before assuming the queue is unchanged, and never overwrite another agent's work. Verified changes are documented, committed, pushed, synced to aiwonder, and read back on Calyx-Dev, aiwonder, and the public mirror when public-bound; FSV evidence records the exact commit or dirty diff used. Leaving verified work uncommitted or unpushed is allowed only when the issue/PR is updated with the blocker and exact repo state.
 
+README imagery is public-bound source state. The repository root `README.md`
+loads images from `assets/`; `docs/readme/` is contract/context only and MUST
+NOT contain mirrored README image binaries. Any change touching `README.md`,
+`assets/`, or `docs/readme/` runs `bash scripts/check_readme_assets.sh`, then
+reads the emitted JSON under `target/fsv/readme-assets-contract/` or the
+explicit `CALYX_FSV_ROOT` before commit and public mirror sync.
+
 ## §8c — Everything runs on aiwonder; secrets via Infisical (binding)
 
 - **aiwonder is where the project exists.** This WSL dev box **authors** code only. The project is **built, stored, run, and tested on the `aiwonder` datacenter PC** (RTX 5090 sm_120, ZFS). The source-of-truth bytes that FSV reads live on aiwonder; a local run never counts as FSV (`28 §5`). **Build natively on aiwonder** under `CALYX_HOME=/home/croyse/calyx` (Rust via rustup is installed — the earlier "no `rustc` on the box → cross-build to `/opt/leapable/calyx/`" note is **superseded**; cross-build remains only an optional deploy path). Datasets + Aster vaults live on aiwonder ZFS. Reach it via the repo `.env` / `~/.config/aiwonder.env` (SSH/VPN/sudo bootstrap; `16 §0`). Current environment readback: `docs/implementation/01_AIWONDER_ENVIRONMENT.md`.

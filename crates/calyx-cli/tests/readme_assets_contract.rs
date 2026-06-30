@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
@@ -13,11 +14,12 @@ fn readme_image_contract_uses_assets_as_the_single_source_of_truth() {
     assert_contract(&after);
 
     let readback = json!({
-        "issue": 966,
+        "issues": [966, 1045],
         "source_of_truth": {
             "readme": "README.md",
             "canonical_image_dir": "assets/",
             "contract": "docs/readme/README.md",
+            "gate": "scripts/check_readme_assets.sh",
         },
         "before": before,
         "after": after,
@@ -39,17 +41,121 @@ fn readme_image_contract_uses_assets_as_the_single_source_of_truth() {
                 "passed": after["docs_readme_image_files"].as_array().unwrap().is_empty()
                     && after["docs_readme_refs"].as_array().unwrap().is_empty(),
             },
+            "operator_docs_readme_objective": {
+                "observed_context_only_contract": after["contract_declares_docs_readme_context_only"],
+                "observed_gate": after["contract_declares_gate"],
+                "expected": "docs/readme is README-image context only; assets/ remains the byte source of truth and the verifier is explicit",
+                "passed": after["contract_declares_docs_readme_context_only"].as_bool().unwrap()
+                    && after["contract_declares_gate"].as_bool().unwrap(),
+            },
         },
     });
 
     let fsv_root = fsv_root(&root);
     fs::create_dir_all(&fsv_root).expect("create FSV root");
-    let readback_path = fsv_root.join("issue966-readme-assets-readback.json");
+    let readback_path = fsv_root.join("readme-assets-contract-readback.json");
     fs::write(
         &readback_path,
         serde_json::to_vec_pretty(&readback).expect("serialize readback"),
     )
     .expect("write readback");
+    println!("{}", serde_json::to_string_pretty(&readback).unwrap());
+}
+
+#[test]
+fn readme_image_contract_edges_fail_closed_on_physical_state() {
+    let root = workspace_root();
+    let mut cases = Vec::new();
+
+    let missing_asset = copy_contract_state(&root, "missing-asset");
+    let before = inspect_source_of_truth(&missing_asset);
+    assert_contract(&before);
+    fs::remove_file(missing_asset.join("assets").join("logo.png")).expect("remove copied logo");
+    let after = inspect_source_of_truth(&missing_asset);
+    assert_eq!(after["missing_assets"][0]["path"], "assets/logo.png");
+    cases.push(json!({
+        "case": "missing_asset",
+        "action": "removed a real README-referenced asset from the copied source-of-truth tree",
+        "before": before,
+        "after": after,
+    }));
+
+    let mirror_file = copy_contract_state(&root, "docs-readme-mirror-file");
+    let before = inspect_source_of_truth(&mirror_file);
+    assert_contract(&before);
+    fs::copy(
+        mirror_file.join("assets").join("logo.png"),
+        mirror_file.join("docs").join("readme").join("logo.png"),
+    )
+    .expect("copy real logo into invalid mirror location");
+    let after = inspect_source_of_truth(&mirror_file);
+    assert_eq!(after["docs_readme_image_files"], json!(["logo.png"]));
+    cases.push(json!({
+        "case": "docs_readme_mirror_file",
+        "action": "copied a real asset byte-for-byte into docs/readme",
+        "before": before,
+        "after": after,
+    }));
+
+    let invalid_ref = copy_contract_state(&root, "invalid-docs-readme-ref");
+    let before = inspect_source_of_truth(&invalid_ref);
+    assert_contract(&before);
+    fs::copy(
+        invalid_ref.join("assets").join("logo.png"),
+        invalid_ref.join("docs").join("readme").join("logo.png"),
+    )
+    .expect("copy real logo beside invalid README reference");
+    let readme_path = invalid_ref.join("README.md");
+    let readme = fs::read_to_string(&readme_path).expect("read copied README");
+    fs::write(
+        &readme_path,
+        readme.replace("assets/logo.png", "docs/readme/logo.png"),
+    )
+    .expect("write invalid README reference");
+    let after = inspect_source_of_truth(&invalid_ref);
+    assert_eq!(after["docs_readme_refs"][0]["path"], "docs/readme/logo.png");
+    assert_eq!(
+        after["invalid_local_refs"][0]["path"],
+        "docs/readme/logo.png"
+    );
+    cases.push(json!({
+        "case": "invalid_docs_readme_reference",
+        "action": "changed a real README image reference from assets/ to docs/readme/",
+        "before": before,
+        "after": after,
+    }));
+
+    let empty_refs = copy_contract_state(&root, "empty-local-image-set");
+    let before = inspect_source_of_truth(&empty_refs);
+    assert_contract(&before);
+    let readme_path = empty_refs.join("README.md");
+    let readme = fs::read_to_string(&readme_path).expect("read copied README");
+    let stripped = readme
+        .lines()
+        .filter(|line| !line.contains("<img src=\"assets/"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&readme_path, stripped).expect("write README without local images");
+    let after = inspect_source_of_truth(&empty_refs);
+    assert_eq!(after["local_image_refs"], json!([]));
+    cases.push(json!({
+        "case": "empty_local_image_set",
+        "action": "removed every local README image reference from the copied README",
+        "before": before,
+        "after": after,
+    }));
+
+    let readback = json!({
+        "issues": [966, 1045],
+        "source_of_truth": "temporary copied repo states under CALYX_FSV_ROOT/readme-assets-edge-states using real README, contract, and asset bytes",
+        "cases": cases,
+    });
+    let edge_path = fsv_root(&root).join("readme-assets-edge-audit.json");
+    fs::write(
+        &edge_path,
+        serde_json::to_vec_pretty(&readback).expect("serialize edge audit"),
+    )
+    .expect("write edge audit");
     println!("{}", serde_json::to_string_pretty(&readback).unwrap());
 }
 
@@ -100,6 +206,9 @@ fn inspect_source_of_truth(root: &Path) -> Value {
         "contract_exists": contract_path.is_file(),
         "contract_declares_assets_canonical": contract.contains("`assets/` is the canonical directory"),
         "contract_rejects_png_mirror": contract.contains("Do not mirror") && contract.contains("PNG assets"),
+        "contract_declares_docs_readme_context_only": contract.contains("interpret that as a request to inspect this contract")
+            && contract.contains("not as permission to copy"),
+        "contract_declares_gate": contract.contains("bash scripts/check_readme_assets.sh"),
         "all_image_refs": refs.iter().map(ImageRef::to_json).collect::<Vec<_>>(),
         "local_image_refs": local_refs.iter().map(|image| image.to_json()).collect::<Vec<_>>(),
         "invalid_local_refs": invalid_local_refs,
@@ -116,6 +225,8 @@ fn assert_contract(state: &Value) {
     assert_eq!(state["contract_exists"], true);
     assert_eq!(state["contract_declares_assets_canonical"], true);
     assert_eq!(state["contract_rejects_png_mirror"], true);
+    assert_eq!(state["contract_declares_docs_readme_context_only"], true);
+    assert_eq!(state["contract_declares_gate"], true);
     assert!(
         !state["local_image_refs"].as_array().unwrap().is_empty(),
         "README.md must contain local image references"
@@ -264,6 +375,35 @@ fn fsv_root(root: &Path) -> PathBuf {
         .unwrap_or_else(|| {
             root.join("target")
                 .join("fsv")
-                .join("issue966-readme-assets")
+                .join("readme-assets-contract")
         })
+}
+
+fn copy_contract_state(root: &Path, case_name: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock before epoch")
+        .as_nanos();
+    let case_root = fsv_root(root)
+        .join("readme-assets-edge-states")
+        .join(format!("{case_name}-{}-{nonce}", std::process::id()));
+    fs::create_dir_all(case_root.join("assets")).expect("create copied assets dir");
+    fs::create_dir_all(case_root.join("docs").join("readme")).expect("create copied docs/readme");
+    fs::copy(root.join("README.md"), case_root.join("README.md")).expect("copy README");
+    fs::copy(
+        root.join("docs").join("readme").join("README.md"),
+        case_root.join("docs").join("readme").join("README.md"),
+    )
+    .expect("copy README image contract");
+    for entry in fs::read_dir(root.join("assets")).expect("read assets dir") {
+        let entry = entry.expect("read asset entry");
+        if entry.path().is_file() {
+            fs::copy(
+                entry.path(),
+                case_root.join("assets").join(entry.file_name()),
+            )
+            .expect("copy asset");
+        }
+    }
+    case_root
 }
