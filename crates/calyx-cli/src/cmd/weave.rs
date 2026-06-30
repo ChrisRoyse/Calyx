@@ -14,12 +14,13 @@ use std::path::PathBuf;
 
 use calyx_aster::plain_graph::PlainGraph;
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{SlotId, SlotState};
+use calyx_core::{SlotId, SlotShape, SlotState};
 use calyx_lodestar::{
     AsterAssocMetadata, CorpusWeaveReportParams, DEFAULT_ASTER_ASSOC_COLLECTION,
     corpus_weave_report, write_assoc_metadata,
 };
 use calyx_registry::load_vault_panel_state;
+use serde::Serialize;
 use serde_json::json;
 
 use super::vault::{home_dir, resolve_vault_info, vault_salt};
@@ -68,21 +69,27 @@ pub(crate) fn run(command: Subcommand) -> CliResult {
 
 fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
     let resolved = resolve_vault_info(&home_dir()?, &args.vault)?;
+    let state = load_vault_panel_state(&resolved.path)?;
+    let content_slots = content_lens_slots(&state.panel);
+    let incompatible_content_slots = incompatible_content_lens_slots(&state.panel);
+    if content_slots.len() < 2 {
+        return Err(CliError::usage(format!(
+            "weave-loom needs >=2 active dense content lenses (state=Active, not retrieval_only, shape=Dense); panel has {}; incompatible active content slots={:?}",
+            content_slots.len(),
+            incompatible_content_slots
+        )));
+    }
+    let knn_slot = resolve_knn_slot(
+        args.content_slot,
+        &content_slots,
+        &incompatible_content_slots,
+    )?;
     let vault = AsterVault::open(
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
         VaultOptions::default(),
     )?;
-    let state = load_vault_panel_state(&resolved.path)?;
-    let content_slots = content_lens_slots(&state.panel);
-    if content_slots.len() < 2 {
-        return Err(CliError::usage(format!(
-            "weave-loom needs >=2 active content lenses (state=Active, not retrieval_only); panel has {}",
-            content_slots.len()
-        )));
-    }
-    let knn_slot = resolve_knn_slot(args.content_slot, &content_slots)?;
     let indexes = super::PersistedSearchIndexes::open(&resolved.path)?;
 
     let snapshot = vault.latest_seq();
@@ -123,6 +130,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         "vault": resolved.name,
         "vault_dir": resolved.path.display().to_string(),
         "content_slots": content_slots.iter().map(|s| s.get()).collect::<Vec<_>>(),
+        "skipped_incompatible_content_slots": incompatible_content_slots,
         "knn_slot": knn_slot.get(),
         "knn": args.knn,
         "edge_cos_threshold": args.edge_cos_threshold,
@@ -147,7 +155,11 @@ fn content_lens_slots(panel: &calyx_core::Panel) -> Vec<SlotId> {
     let mut slots: Vec<SlotId> = panel
         .slots
         .iter()
-        .filter(|slot| slot.state == SlotState::Active && !slot.retrieval_only)
+        .filter(|slot| {
+            slot.state == SlotState::Active
+                && !slot.retrieval_only
+                && matches!(slot.shape, SlotShape::Dense(_))
+        })
         .map(|slot| slot.slot_id)
         .collect();
     slots.sort();
@@ -155,7 +167,46 @@ fn content_lens_slots(panel: &calyx_core::Panel) -> Vec<SlotId> {
     slots
 }
 
-fn resolve_knn_slot(requested: Option<u16>, content_slots: &[SlotId]) -> CliResult<SlotId> {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+struct IncompatibleContentSlot {
+    slot_id: u16,
+    shape: String,
+    reason: &'static str,
+}
+
+fn incompatible_content_lens_slots(panel: &calyx_core::Panel) -> Vec<IncompatibleContentSlot> {
+    let mut slots: Vec<IncompatibleContentSlot> = panel
+        .slots
+        .iter()
+        .filter(|slot| {
+            slot.state == SlotState::Active
+                && !slot.retrieval_only
+                && !matches!(slot.shape, SlotShape::Dense(_))
+        })
+        .map(|slot| IncompatibleContentSlot {
+            slot_id: slot.slot_id.get(),
+            shape: slot_shape_label(slot.shape),
+            reason: "active_content_slot_shape_is_not_dense",
+        })
+        .collect();
+    slots.sort_by_key(|slot| slot.slot_id);
+    slots.dedup();
+    slots
+}
+
+fn slot_shape_label(shape: SlotShape) -> String {
+    match shape {
+        SlotShape::Dense(dim) => format!("dense:{dim}"),
+        SlotShape::Sparse(dim) => format!("sparse:{dim}"),
+        SlotShape::Multi { token_dim } => format!("multi:{token_dim}"),
+    }
+}
+
+fn resolve_knn_slot(
+    requested: Option<u16>,
+    content_slots: &[SlotId],
+    incompatible_content_slots: &[IncompatibleContentSlot],
+) -> CliResult<SlotId> {
     match requested {
         None => Ok(content_slots[0]),
         Some(raw) => {
@@ -164,8 +215,9 @@ fn resolve_knn_slot(requested: Option<u16>, content_slots: &[SlotId]) -> CliResu
                 Ok(slot)
             } else {
                 Err(CliError::usage(format!(
-                    "--content-slot {raw} is not an active content lens; choose one of {:?}",
-                    content_slots.iter().map(|s| s.get()).collect::<Vec<_>>()
+                    "--content-slot {raw} is not an active dense content lens; choose one of {:?}; incompatible active content slots={:?}",
+                    content_slots.iter().map(|s| s.get()).collect::<Vec<_>>(),
+                    incompatible_content_slots
                 )))
             }
         }

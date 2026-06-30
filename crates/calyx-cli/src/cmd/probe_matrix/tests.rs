@@ -83,7 +83,9 @@ fn bad_profile_fails_closed() {
 
 #[test]
 fn probe_matrix_open_options_use_latest_only_router_readback() {
-    let options = super::latest_probe_read_vault_options();
+    let (_home, vault_dir) = seed_home("off-open-options");
+    let state = load_vault_panel_state(&vault_dir).unwrap();
+    let options = super::probe_read_vault_options(&state.panel, GuardChoice::Off);
 
     assert!(
         !options.restore_mvcc_rows,
@@ -101,6 +103,22 @@ fn probe_matrix_open_options_use_latest_only_router_readback() {
         options.selected_cfs,
         Some(vec![calyx_aster::cf::ColumnFamily::Base]),
         "probe-matrix provenance readback must not enumerate unrelated CFs"
+    );
+}
+
+#[test]
+fn in_region_probe_matrix_opens_panel_slot_cfs_for_guard_hydration() {
+    let (_home, vault_dir) = seed_home("in-region-open-options");
+    let state = load_vault_panel_state(&vault_dir).unwrap();
+    let options = super::probe_read_vault_options(&state.panel, GuardChoice::InRegion);
+    let selected = options.selected_cfs.expect("in-region must select CFs");
+
+    assert!(selected.contains(&calyx_aster::cf::ColumnFamily::Base));
+    assert!(selected.contains(&calyx_aster::cf::ColumnFamily::slot(SlotId::new(8))));
+    assert!(selected.contains(&calyx_aster::cf::ColumnFamily::slot(SlotId::new(14))));
+    assert!(
+        options.read_only,
+        "probe-matrix in-region guard must still use read-only handles"
     );
 }
 

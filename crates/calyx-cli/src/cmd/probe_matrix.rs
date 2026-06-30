@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use calyx_aster::vault::{AsterVault, VaultOptions};
-use calyx_core::{CalyxError, CxId, Modality, SlotId, SlotState};
+use calyx_core::{CalyxError, CxId, Modality, Panel, SlotId, SlotState};
 use calyx_lodestar::{
     LodestarError, PROBE_MATRIX_SCHEMA_VERSION, ProbeFusionMode, ProbeHit, ProbeLength,
     ProbeLensEmphasis, ProbeMatrixLog, ProbeMatrixSpec, ProbePhrasing, ProbeProductivity,
@@ -84,11 +84,18 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         resolved.vault_id,
         resolved.path.display()
     );
+    let state = load_vault_panel_state(&resolved.path)?;
+    let active_slots = if args.slots.is_empty() {
+        active_text_slots(&state.panel.slots)?
+    } else {
+        validate_requested_slots(&args.slots, &state.panel.slots)?;
+        args.slots.clone()
+    };
     let vault = AsterVault::open(
         &resolved.path,
         resolved.vault_id,
         vault_salt(resolved.vault_id, &resolved.name),
-        latest_probe_read_vault_options(),
+        probe_read_vault_options(&state.panel, args.guard),
     )?;
     eprintln!(
         "probe-matrix: opened vault snapshot_seq={} elapsed_ms={}",
@@ -101,7 +108,6 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
         audit.checked_count,
         started.elapsed().as_millis()
     );
-    let state = load_vault_panel_state(&resolved.path)?;
     eprintln!(
         "probe-matrix: loaded panel slots={} registry_lenses={} elapsed_ms={}",
         state.panel.slots.len(),
@@ -111,12 +117,6 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
             .map_or(0, |snapshot| snapshot.lenses.len()),
         started.elapsed().as_millis()
     );
-    let active_slots = if args.slots.is_empty() {
-        active_text_slots(&state.panel.slots)?
-    } else {
-        validate_requested_slots(&args.slots, &state.panel.slots)?;
-        args.slots.clone()
-    };
     let spec = ProbeMatrixSpec {
         frontier: args.frontier.clone(),
         active_slots,
@@ -195,8 +195,12 @@ pub(crate) fn run_probe_matrix_with_home(home: &Path, args: ProbeMatrixArgs) -> 
     }))
 }
 
-fn latest_probe_read_vault_options() -> VaultOptions {
-    super::search::latest_read_vault_options_for_cfs(Some(super::search::base_read_cfs()))
+fn probe_read_vault_options(panel: &Panel, guard: GuardChoice) -> VaultOptions {
+    let selected_cfs = match guard {
+        GuardChoice::Off => Some(super::search::base_read_cfs()),
+        GuardChoice::InRegion => super::search::panel_read_cfs(panel),
+    };
+    super::search::latest_read_vault_options_for_cfs(selected_cfs)
 }
 
 fn run_physical_probe_matrix<F>(spec: &ProbeMatrixSpec, mut probe: F) -> CliResult<ProbeMatrixLog>

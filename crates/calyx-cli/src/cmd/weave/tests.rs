@@ -1,4 +1,7 @@
 use super::*;
+use calyx_core::{
+    Asymmetry, LensId, Modality, Panel, QuantPolicy, Slot, SlotId, SlotKey, SlotShape, SlotState,
+};
 
 fn toks(parts: &[&str]) -> Vec<String> {
     parts.iter().map(|s| s.to_string()).collect()
@@ -91,4 +94,87 @@ fn unknown_flag_fails_closed() {
 fn limit_zero_is_valid_meaning_all() {
     let args = parse(&["corpus", "--limit", "0"]).unwrap();
     assert_eq!(args.limit, 0);
+}
+
+#[test]
+fn content_slots_filter_to_active_dense_lenses() {
+    let panel = mixed_shape_panel();
+
+    assert_eq!(
+        super::content_lens_slots(&panel),
+        vec![SlotId::new(10), SlotId::new(15)]
+    );
+    assert_eq!(
+        super::incompatible_content_lens_slots(&panel),
+        vec![
+            IncompatibleContentSlot {
+                slot_id: 11,
+                shape: "sparse:30522".to_string(),
+                reason: "active_content_slot_shape_is_not_dense",
+            },
+            IncompatibleContentSlot {
+                slot_id: 12,
+                shape: "multi:384".to_string(),
+                reason: "active_content_slot_shape_is_not_dense",
+            },
+        ]
+    );
+}
+
+#[test]
+fn requested_sparse_content_slot_fails_with_incompatible_readback() {
+    let panel = mixed_shape_panel();
+    let content_slots = super::content_lens_slots(&panel);
+    let incompatible_slots = super::incompatible_content_lens_slots(&panel);
+
+    let err = super::resolve_knn_slot(Some(11), &content_slots, &incompatible_slots)
+        .expect_err("sparse content slot must fail before vault mutation");
+    let message = err.to_string();
+
+    assert!(message.contains("--content-slot 11 is not an active dense content lens"));
+    assert!(message.contains("choose one of [10, 15]"));
+    assert!(message.contains("slot_id: 11"));
+    assert!(message.contains("sparse:30522"));
+}
+
+fn mixed_shape_panel() -> Panel {
+    Panel {
+        version: 1,
+        slots: vec![
+            slot(10, SlotShape::Dense(768), false, SlotState::Active),
+            slot(11, SlotShape::Sparse(30_522), false, SlotState::Active),
+            slot(
+                12,
+                SlotShape::Multi { token_dim: 384 },
+                false,
+                SlotState::Active,
+            ),
+            slot(13, SlotShape::Dense(768), true, SlotState::Active),
+            slot(14, SlotShape::Dense(768), false, SlotState::Parked),
+            slot(15, SlotShape::Dense(768), false, SlotState::Active),
+        ],
+        created_at: 1,
+        kernel_ref: None,
+        guard_ref: None,
+    }
+}
+
+fn slot(id: u16, shape: SlotShape, retrieval_only: bool, state: SlotState) -> Slot {
+    let slot_id = SlotId::new(id);
+    Slot {
+        slot_id,
+        slot_key: SlotKey::new(slot_id, format!("slot-{id}")),
+        lens_id: LensId::from_bytes([id as u8; 16]),
+        shape,
+        modality: Modality::Text,
+        asymmetry: Asymmetry::None,
+        quant: QuantPolicy::None,
+        resource: Default::default(),
+        axis: None,
+        retrieval_only,
+        excluded_from_dedup: false,
+        bits_about: Default::default(),
+        state,
+        added_at_panel_version: 1,
+    }
 }
