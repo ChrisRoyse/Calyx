@@ -36,6 +36,60 @@ fn resident_binary_request_roundtrips_without_json_shape() {
 }
 
 #[test]
+fn resident_ready_frame_is_protocol_level_source_of_truth() {
+    let ready = ResidentLensWorkerReady {
+        protocol_version: RESIDENT_PROTOCOL_VERSION,
+        lens_id: calyx_core::LensId::from_bytes([0xE7; 16]),
+        runtime_load_ms: 7,
+        child_load_total_ms: 11,
+    };
+    let payload = encode_binary(&ready).unwrap();
+    let mut stream = Cursor::new(Vec::new());
+
+    write_frame(&mut stream, &payload).unwrap();
+    let stored = stream.into_inner();
+    let mut readback = Cursor::new(stored);
+    let decoded_payload = read_frame(&mut readback).unwrap();
+    let decoded: ResidentLensWorkerReady = decode_binary(&decoded_payload).unwrap();
+
+    println!(
+        "resident_ready_frame_readback lens_id={} runtime_load_ms={} child_load_total_ms={} payload_bytes={}",
+        decoded.lens_id,
+        decoded.runtime_load_ms,
+        decoded.child_load_total_ms,
+        decoded_payload.len()
+    );
+    assert_eq!(decoded.protocol_version, RESIDENT_PROTOCOL_VERSION);
+    assert_eq!(decoded.lens_id, ready.lens_id);
+    assert_eq!(decoded.runtime_load_ms, 7);
+    assert_eq!(decoded.child_load_total_ms, 11);
+}
+
+#[test]
+fn resident_ready_frame_protocol_mismatch_fails_closed() {
+    let ready = ResidentLensWorkerReady {
+        protocol_version: RESIDENT_PROTOCOL_VERSION + 1,
+        lens_id: calyx_core::LensId::from_bytes([0xE8; 16]),
+        runtime_load_ms: 0,
+        child_load_total_ms: 0,
+    };
+    let payload = encode_binary(&ready).unwrap();
+    let mut stream = Cursor::new(Vec::new());
+    write_frame(&mut stream, &payload).unwrap();
+    stream.set_position(0);
+    let tail = Arc::new(Mutex::new(Vec::new()));
+
+    let error = resident::read_resident_ready(&mut stream, &tail).unwrap_err();
+
+    println!(
+        "resident_ready_frame_protocol_error code={} message={}",
+        error.code, error.message
+    );
+    assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
+    assert!(error.message.contains("ready protocol version"));
+}
+
+#[test]
 fn resident_binary_frame_readback_is_length_prefixed() {
     let response = ResidentLensWorkerResponse {
         protocol_version: RESIDENT_PROTOCOL_VERSION,

@@ -51,6 +51,14 @@ struct ResidentLensWorkerRequest {
     runtime_batch_limit: Option<usize>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ResidentLensWorkerReady {
+    protocol_version: u16,
+    lens_id: calyx_core::LensId,
+    runtime_load_ms: u128,
+    child_load_total_ms: u128,
+}
+
 #[derive(Serialize, Deserialize)]
 struct ResidentLensWorkerResponse {
     protocol_version: u16,
@@ -142,16 +150,30 @@ fn run_resident_lens_worker(flags: WorkerFlags) -> CliResult {
     })?;
     let load_started = Instant::now();
     let loaded = LoadedRegistrySnapshotLens::load(init.snapshot)?;
+    let runtime_load_ms = loaded.runtime_load_ms();
+    let child_load_total_ms = load_started.elapsed().as_millis();
     eprintln!(
         "CALYX_INGEST_RUNTIME phase=measure_lens_worker_resident_child_ready lens_id={} runtime_load_ms={} child_load_total_ms={}",
         loaded.lens_id(),
-        loaded.runtime_load_ms(),
-        load_started.elapsed().as_millis()
+        runtime_load_ms,
+        child_load_total_ms
     );
-    let stdin = io::stdin();
     let stdout = io::stdout();
-    let mut stdin = stdin.lock();
     let mut stdout = stdout.lock();
+    let ready = ResidentLensWorkerReady {
+        protocol_version: RESIDENT_PROTOCOL_VERSION,
+        lens_id: loaded.lens_id(),
+        runtime_load_ms,
+        child_load_total_ms,
+    };
+    write_frame(&mut stdout, &encode_binary(&ready)?)?;
+    stdout.flush().map_err(|error| {
+        CalyxError::lens_unreachable(format!(
+            "resident ingest lens worker ready flush failed: {error}"
+        ))
+    })?;
+    let stdin = io::stdin();
+    let mut stdin = stdin.lock();
     while let Some(bytes) = read_frame_or_eof(&mut stdin)? {
         let request: ResidentLensWorkerRequest = decode_binary(&bytes)?;
         if request.protocol_version != RESIDENT_PROTOCOL_VERSION {

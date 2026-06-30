@@ -18,7 +18,12 @@ struct ResidentLensWorker {
 struct ResidentWorkerRequest {
     request: Vec<u8>,
     request_bytes: usize,
-    reply: mpsc::Sender<Result<ResidentLensWorkerResponse>>,
+    reply: mpsc::Sender<Result<ResidentWorkerReply>>,
+}
+
+struct ResidentWorkerReply {
+    response: ResidentLensWorkerResponse,
+    response_bytes: usize,
 }
 
 static RESIDENT_LENS_WORKERS: OnceLock<
@@ -134,7 +139,7 @@ impl ResidentLensWorker {
                     stderr_tail_text(&self.stderr_tail)
                 ))
             })?;
-        let response = match rx.recv_timeout(timeout) {
+        let reply = match rx.recv_timeout(timeout) {
             Ok(result) => result?,
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 return Err(CalyxError::lens_unreachable(format!(
@@ -156,6 +161,7 @@ impl ResidentLensWorker {
                 )));
             }
         };
+        let response = reply.response;
         if response.protocol_version != RESIDENT_PROTOCOL_VERSION {
             return Err(CalyxError::lens_unreachable(format!(
                 "resident ingest lens worker for lens {} returned protocol version {}, expected {}",
@@ -165,7 +171,7 @@ impl ResidentLensWorker {
         match response.result {
             ResidentLensWorkerResult::Ok { vectors, stats } => {
                 ingest_runtime_log(format_args!(
-                    "phase=measure_lens_worker_resident_ok lens_id={} pid={} inputs={} runtime_batch_limit={:?} effective_chunk_size={} chunk_count={} runtime_load_ms={} measure_ms={} worker_total_ms={} parent_total_ms={} request_bytes={} stderr_tail={}",
+                    "phase=measure_lens_worker_resident_ok lens_id={} pid={} inputs={} runtime_batch_limit={:?} effective_chunk_size={} chunk_count={} runtime_load_ms={} measure_ms={} worker_total_ms={} parent_total_ms={} request_bytes={} response_bytes={} stderr_tail={}",
                     self.lens_id,
                     self.pid,
                     stats.input_count,
@@ -177,6 +183,7 @@ impl ResidentLensWorker {
                     stats.total_ms,
                     started.elapsed().as_millis(),
                     request_bytes,
+                    reply.response_bytes,
                     stderr_tail_text(&self.stderr_tail)
                 ));
                 Ok(vectors)
@@ -229,10 +236,34 @@ fn resident_worker_loop(
     stderr_tail: Arc<Mutex<Vec<u8>>>,
     root: PathBuf,
 ) {
+    let ready = match read_resident_ready(&mut stdout, &stderr_tail) {
+        Ok(ready) => ready,
+        Err(error) => {
+            ingest_runtime_log(format_args!(
+                "phase=measure_lens_worker_resident_child_ready_err code={} message={} stderr_tail={}",
+                error.code,
+                error.message,
+                stderr_tail_text(&stderr_tail)
+            ));
+            finish_child(&mut child);
+            if std::env::var_os(KEEP_WORKER_ARTIFACTS_ENV).as_deref() != Some(OsStr::new("1")) {
+                let _ = fs::remove_dir_all(root);
+            }
+            return;
+        }
+    };
     for item in rx {
         let result = write_frame(&mut stdin, &item.request)
             .and_then(|_| read_frame(&mut stdout))
-            .and_then(|bytes| decode_binary::<ResidentLensWorkerResponse>(&bytes))
+            .and_then(|bytes| {
+                let response_bytes = bytes.len();
+                let response = decode_binary::<ResidentLensWorkerResponse>(&bytes)?;
+                log_resident_response(&ready, &response, response_bytes);
+                Ok(ResidentWorkerReply {
+                    response,
+                    response_bytes,
+                })
+            })
             .map_err(|error| {
                 let status = child
                     .try_wait()
@@ -257,6 +288,46 @@ fn resident_worker_loop(
     finish_child(&mut child);
     if std::env::var_os(KEEP_WORKER_ARTIFACTS_ENV).as_deref() != Some(OsStr::new("1")) {
         let _ = fs::remove_dir_all(root);
+    }
+}
+
+pub(super) fn read_resident_ready(
+    stdout: &mut impl Read,
+    stderr_tail: &Arc<Mutex<Vec<u8>>>,
+) -> Result<ResidentLensWorkerReady> {
+    let ready_bytes = read_frame(stdout)?;
+    let ready: ResidentLensWorkerReady = decode_binary(&ready_bytes)?;
+    if ready.protocol_version != RESIDENT_PROTOCOL_VERSION {
+        return Err(CalyxError::lens_unreachable(format!(
+            "resident ingest lens worker ready protocol version {}, expected {}",
+            ready.protocol_version, RESIDENT_PROTOCOL_VERSION
+        )));
+    }
+    ingest_runtime_log(format_args!(
+        "phase=measure_lens_worker_resident_child_ready lens_id={} runtime_load_ms={} child_load_total_ms={} ready_frame_bytes={} stderr_tail={}",
+        ready.lens_id,
+        ready.runtime_load_ms,
+        ready.child_load_total_ms,
+        ready_bytes.len(),
+        stderr_tail_text(stderr_tail)
+    ));
+    Ok(ready)
+}
+
+fn log_resident_response(
+    ready: &ResidentLensWorkerReady,
+    response: &ResidentLensWorkerResponse,
+    response_bytes: usize,
+) {
+    match &response.result {
+        ResidentLensWorkerResult::Ok { stats, .. } => ingest_runtime_log(format_args!(
+            "phase=measure_lens_worker_resident_child_response lens_id={} inputs={} elapsed_ms={} response_bytes={} observed_by=parent",
+            ready.lens_id, stats.input_count, stats.measure_ms, response_bytes
+        )),
+        ResidentLensWorkerResult::Err { code, message, .. } => ingest_runtime_log(format_args!(
+            "phase=measure_lens_worker_resident_child_response lens_id={} code={} message={} response_bytes={} observed_by=parent",
+            ready.lens_id, code, message, response_bytes
+        )),
     }
 }
 

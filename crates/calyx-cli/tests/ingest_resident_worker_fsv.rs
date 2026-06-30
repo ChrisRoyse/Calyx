@@ -63,13 +63,43 @@ fn gpu_placed_persisted_lens_uses_resident_binary_worker_and_persists_cfs() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     println!("resident_worker_fsv_stdout={stdout}");
     println!("resident_worker_fsv_stderr={stderr}");
+    let summary_result = serde_json::from_str::<Value>(stdout.trim());
+    let after = cf_state(&vault_path, vault_id, salt);
+    let readback = serde_json::json!({
+        "issue": 1046,
+        "source_of_truth": {
+            "vault_path": vault_path.clone(),
+            "batch_path": batch.clone(),
+            "cf_readback": "Aster Base/Ledger/slot_00 column families opened after ingest flush",
+            "resident_protocol": "binary ready/response frames observed by the parent worker loop",
+        },
+        "command": {
+            "status_code": output.status.code(),
+            "success": output.status.success(),
+            "stdout": stdout.to_string(),
+            "stderr": stderr.to_string(),
+            "summary_parse_ok": summary_result.is_ok(),
+            "summary_parse_error": summary_result.as_ref().err().map(ToString::to_string),
+            "protocol_markers": {
+                "spawned": stderr.contains("phase=measure_lens_worker_resident_spawned"),
+                "ready_parent_observed": stderr.contains("ready_frame_bytes="),
+                "response_parent_observed": stderr.contains("observed_by=parent"),
+                "resident_ok": stderr.contains("phase=measure_lens_worker_resident_ok"),
+                "runtime_load_zero": stderr.contains("runtime_load_ms=0"),
+                "old_one_shot_absent": !stderr.contains("phase=measure_lens_worker_spawned lens_id="),
+            },
+        },
+        "before": before.clone(),
+        "after": after.clone(),
+    });
+    let readback_path = write_fsv_readback(vault_id, &readback);
+    println!("resident_worker_fsv_readback={}", readback_path.display());
     assert!(
         output.status.success(),
         "resident worker ingest failed: status={:?} stdout={stdout} stderr={stderr}",
         output.status
     );
-    let summary: Value = serde_json::from_str(stdout.trim()).expect("parse ingest summary");
-    let after = cf_state(&vault_path, vault_id, salt);
+    let summary = summary_result.expect("parse ingest summary");
     println!(
         "resident_worker_fsv_after source_of_truth=Aster CF readback state={}",
         after
@@ -88,7 +118,9 @@ fn gpu_placed_persisted_lens_uses_resident_binary_worker_and_persists_cfs() {
     assert_eq!(after["ledger_rows"], 1);
     assert!(stderr.contains("phase=measure_lens_worker_resident_spawned"));
     assert!(stderr.contains("phase=measure_lens_worker_resident_child_ready"));
+    assert!(stderr.contains("ready_frame_bytes="));
     assert!(stderr.contains("phase=measure_lens_worker_resident_child_response"));
+    assert!(stderr.contains("observed_by=parent"));
     assert!(stderr.contains("phase=measure_lens_worker_resident_ok"));
     assert!(stderr.contains("runtime_load_ms=0"));
     assert!(
@@ -177,6 +209,22 @@ fn calyx_exe() -> PathBuf {
         .unwrap_or_else(|| {
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/debug/calyx.exe")
         })
+}
+
+fn write_fsv_readback(vault_id: VaultId, readback: &Value) -> PathBuf {
+    let root = std::env::var_os("CALYX_FSV_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/fsv/resident-worker-fsv")
+        });
+    fs::create_dir_all(&root).expect("create resident-worker FSV evidence root");
+    let path = root.join(format!("resident-worker-readback-{vault_id}.json"));
+    fs::write(
+        &path,
+        serde_json::to_vec_pretty(readback).expect("serialize resident-worker FSV readback"),
+    )
+    .expect("write resident-worker FSV readback");
+    path
 }
 
 fn temp_root(name: &str) -> PathBuf {
