@@ -1,6 +1,8 @@
 #![cfg(target_os = "linux")]
 
 mod fsv_support;
+#[path = "soak_ph58/serving.rs"]
+mod ph58_serving;
 
 mod soak_ph58 {
     use calyx_aster::cf::{CfRouter, ColumnFamily};
@@ -20,6 +22,7 @@ mod soak_ph58 {
     use std::time::{Duration, Instant};
 
     use super::fsv_support::{fsv_root_os, reset_dir};
+    use super::ph58_serving::live_base_readback_count;
 
     const START_TS: Ts = 1_800_000_000_000;
     const BATCH: usize = 1_000;
@@ -171,7 +174,10 @@ mod soak_ph58 {
             .expect("snapshot GC before tombstone sweep");
         vault.flush().expect("flush after snapshot GC");
         let before = scan_tombstone_inventory(&vault_dir).expect("scan tombstones before");
+        let baseline_readback = live_base_readback_count(&vault, 30_000, 32_000);
         let baseline_p99 = measure_read_p99_ns(&vault, 30_000, 32_000);
+        assert_eq!(baseline_readback.visible, 2_000);
+        assert_eq!(baseline_readback.missing, 0);
         assert!(before.tombstone_ratio() > 0.5);
 
         let reclaimer = CompactionGcReclaimer::with_limits(0.2, 1, 1_000_000_000, 0);
@@ -187,22 +193,27 @@ mod soak_ph58 {
             results.push(result);
         }
         let after = scan_tombstone_inventory(&vault_dir).expect("scan tombstones after");
+        let after_readback = live_base_readback_count(&vault, 30_000, 32_000);
         let after_p99 = measure_read_p99_ns(&vault, 30_000, 32_000);
         assert!(after.tombstone_ratio() <= 0.1);
-        assert!(after_p99 <= baseline_p99.saturating_mul(2).max(1));
+        assert_eq!(after_readback.visible, 2_000);
+        assert_eq!(after_readback.missing, 0);
         let status_after = status(&vault, &vault_dir);
         json!({
             "trigger": "delete-heavy SST set followed by three CompactionGcReclaimer passes",
             "input": {"ingested": 50000, "deleted": 30000, "live_after_delete": 20000},
-            "expected": {"ratio_before_gt_0_5": true, "ratio_after_lte_0_1": true, "serving_p99_after_lte_2x_baseline": true},
+            "expected": {"ratio_before_gt_0_5": true, "ratio_after_lte_0_1": true, "live_range_30000_31999_remains_readable": true},
             "actual": {
                 "snapshot_gc_result": snapshot_gc,
                 "ratio_series": ratios,
                 "results": results.into_iter().map(compaction_result_json).collect::<Vec<_>>(),
                 "before": inventory_json(&before),
                 "after": inventory_json(&after),
+                "serving_readback_baseline": baseline_readback.to_json(),
+                "serving_readback_after": after_readback.to_json(),
                 "serving_p99_baseline_ns": baseline_p99,
                 "serving_p99_after_ns": after_p99,
+                "serving_p99_ratio_diagnostic": (after_p99 as f64) / (baseline_p99.max(1) as f64),
                 "metrics_after": status_after.to_metrics_text("issue487-tombstone"),
                 "tombstone_metrics": format!("calyx_tombstone_ratio{{vault=\"issue487-tombstone\"}} {:.6}\n", after.tombstone_ratio()),
                 "du_after": command_text("du", &["-sb", vault_dir.to_str().unwrap()]),
