@@ -10,8 +10,9 @@
 [![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)](https://www.rust-lang.org)
 [![Status: pre-1.0](https://img.shields.io/badge/status-pre--1.0-yellow.svg)](#-project-status)
 [![Made with GPU](https://img.shields.io/badge/math-CPU%20SIMD%20%2B%20CUDA-2BD4A8.svg)](#-architecture)
+[![Sponsor](https://img.shields.io/badge/sponsor-GitHub%20Sponsors-EA4AAA.svg)](https://github.com/sponsors/ChrisRoyse)
 
-[Why Calyx](#-why-calyx) · [Concepts](#-the-core-idea-constellations) · [Build](#-build-from-source) · [Architecture](#-architecture) · [Roadmap](#-project-status)
+[Why Calyx](#-why-calyx) · [Concepts](#-the-core-idea-constellations) · [Build](#-build-from-source) · [Architecture](#-architecture) · [Roadmap](#-project-status) · [Sponsor](https://github.com/sponsors/ChrisRoyse)
 
 <img src="assets/hero.png" alt="A single grounded point blooming into a constellation of vectors" width="100%" />
 
