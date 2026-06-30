@@ -290,8 +290,9 @@ mod tests {
             },
         );
         let marker = dir.join("marker.txt");
+        let before_marker = read_marker(&marker);
         let script = format!(
-            "import pathlib,time; p=pathlib.Path({}); p.write_text('started\\n'); time.sleep(5); p.write_text(p.read_text() + 'finished\\n')",
+            "import pathlib,time; p=pathlib.Path({}); p.write_text('started\\n'); time.sleep(2); p.write_text(p.read_text() + 'finished\\n')",
             serde_json::to_string(marker.to_str().unwrap()).unwrap()
         );
         let lens = ExternalCmdLens::new(
@@ -301,22 +302,45 @@ mod tests {
             Modality::Text,
             4,
         )
-        .with_timeout(Duration::from_millis(100));
+        .with_timeout(Duration::from_millis(750));
 
         let started = Instant::now();
         let error = lens
             .measure(&Input::new(Modality::Text, b"slow".to_vec()))
             .expect_err("slow command times out");
         let elapsed = started.elapsed();
-        let marker_text = fs::read_to_string(&marker).unwrap();
+        let immediate_marker = read_marker(&marker);
+        std::thread::sleep(Duration::from_secs(3));
+        let after_wait_marker = read_marker(&marker);
 
         assert_eq!(error.code, "CALYX_LENS_UNREACHABLE");
         assert!(error.message.contains("timed out"));
-        assert!(elapsed < Duration::from_secs(2));
-        assert_eq!(marker_text, "started\n");
+        assert_eq!(before_marker, None);
+        assert!(
+            !immediate_marker
+                .as_deref()
+                .unwrap_or("")
+                .contains("finished"),
+            "timeout returned after child wrote finished marker: {immediate_marker:?}"
+        );
+        assert!(
+            !after_wait_marker
+                .as_deref()
+                .unwrap_or("")
+                .contains("finished"),
+            "timed-out child kept running after kill: {after_wait_marker:?}"
+        );
 
         if let Some(root) = fsv_root {
-            write_timeout_readback(&root, &marker, &marker_text, elapsed, &error);
+            write_timeout_readback(
+                &root,
+                &marker,
+                before_marker.as_deref(),
+                immediate_marker.as_deref(),
+                after_wait_marker.as_deref(),
+                elapsed,
+                &error,
+            );
         } else {
             cleanup(dir);
         }
@@ -325,14 +349,18 @@ mod tests {
     fn write_timeout_readback(
         root: &Path,
         marker: &Path,
-        marker_text: &str,
+        before_marker: Option<&str>,
+        immediate_marker: Option<&str>,
+        after_wait_marker: Option<&str>,
         elapsed: Duration,
         error: &CalyxError,
     ) {
         fs::create_dir_all(root).unwrap();
         let readback = json!({
             "marker": marker,
-            "marker_text": marker_text,
+            "before_marker": before_marker,
+            "immediate_marker": immediate_marker,
+            "after_wait_marker": after_wait_marker,
             "elapsed_ms": elapsed.as_millis(),
             "error_code": error.code,
             "error_message": error.message,
@@ -342,6 +370,10 @@ mod tests {
             serde_json::to_vec_pretty(&readback).unwrap(),
         )
         .unwrap();
+    }
+
+    fn read_marker(marker: &Path) -> Option<String> {
+        fs::read_to_string(marker).ok()
     }
 
     fn test_dir(name: &str) -> PathBuf {

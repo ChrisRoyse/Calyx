@@ -152,7 +152,10 @@ cargo test --workspace --doc       # doctests (nextest does not run these)
 ```
 
 - `scripts/check.sh` exports `CARGO_INCREMENTAL=0`, fails loudly if
-  `cargo-nextest` is missing, then additionally runs `scripts/orphan_rs.sh`,
+  `cargo-nextest` is missing, and points to the focused provisioning command:
+  `bash scripts/install-cargo-nextest.sh` for Bash/WSL or
+  `pwsh -File scripts/install-cargo-nextest.ps1` for native Windows
+  PowerShell. It then additionally runs `scripts/orphan_rs.sh`,
   `scripts/linecount.sh`, `scripts/verify_dataset.sh --self-test`, and
   `scripts/check_manifest_coverage.sh --self-test`.
 - FSV / ignored tests run explicitly, e.g.
@@ -181,6 +184,7 @@ are not broken.
 | Path | Purpose |
 |------|---------|
 | `scripts/check.sh` | The manual aiwonder per-merge gate: rustfmt check, `cargo check --workspace --all-targets`, `cargo clippy ... -D warnings`, `cargo nextest run --workspace`, `cargo test --workspace --doc`, `scripts/orphan_rs.sh`, `scripts/linecount.sh`, and dataset/manifest self-tests. |
+| `scripts/install-cargo-nextest.sh` / `.ps1` | Idempotent local provisioning for the required `cargo-nextest` subcommand on Bash/WSL and native Windows PowerShell. |
 | `scripts/orphan_rs.sh` (+ `orphan_rs_allow.txt`) | Gate: detects `.rs` files not wired into the build. |
 | `scripts/linecount.sh` | Gate: line-count limits. |
 | `scripts/verify_dataset.sh` / `scripts/check_manifest_coverage.sh` | Dataset MANIFEST tooling self-tests (hermetic synthetic batteries). |

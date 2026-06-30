@@ -68,6 +68,10 @@ test across every binary in a single pool sized to all logical CPUs:
 - **`scripts/check.sh`** runs `cargo nextest run --workspace` (parallel) then
   `cargo test --workspace --doc` (nextest does not execute doctests). It errors
   loudly if `cargo-nextest` is absent rather than silently skipping tests.
+- **`scripts/install-cargo-nextest.sh` / `.ps1`** installs the official
+  cargo-nextest prebuilt binary into the active Cargo bin directory and reads
+  back `cargo nextest --version`. Use the Bash script for WSL/Bash and the
+  PowerShell script for native Windows.
 - **`.config/nextest.toml`** pins the policy: `test-threads = "num-cpus"`,
   `fail-fast = false` (surface every failure in one run), `retries = 0` (a flaky
   test fails loudly, never masked), and a generous hang timeout (~20 min) so a
