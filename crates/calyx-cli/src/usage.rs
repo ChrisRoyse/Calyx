@@ -1,4 +1,4 @@
-use crate::error::CliResult;
+use crate::error::{CliError, CliResult};
 use crate::output::print_lines;
 
 pub(crate) fn print_usage() -> CliResult {
@@ -9,6 +9,20 @@ pub(crate) fn print_usage() -> CliResult {
             .to_string(),
     ])
     .map(|_| ())
+}
+
+pub(crate) fn print_command_usage(command: &str) -> CliResult {
+    let line = command_usage(command)
+        .ok_or_else(|| CliError::usage(format!("missing usage text for command {command}")))?;
+    print_lines(&[format!("usage: {}", line.trim_start())]).map(|_| ())
+}
+
+fn command_usage(command: &str) -> Option<&'static str> {
+    let prefix = format!("calyx {command}");
+    usage().lines().find(|line| {
+        let trimmed = line.trim_start();
+        trimmed == prefix || trimmed.starts_with(&format!("{prefix} "))
+    })
 }
 
 pub(crate) fn usage() -> &'static str {

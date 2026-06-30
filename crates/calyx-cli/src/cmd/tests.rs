@@ -249,6 +249,27 @@ fn parse_provenance_ops_commands() {
 }
 
 #[test]
+fn known_subcommand_help_bypasses_required_arg_validation() {
+    let result = try_run(&tokens(["probe-matrix", "--help"]))
+        .expect("known command should be handled by cmd dispatcher");
+    assert!(result.is_ok(), "{result:?}");
+
+    let result =
+        try_run(&tokens(["probe-matrix", "-h"])).expect("short help flag should be handled");
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn probe_matrix_missing_frontier_still_fails_closed_through_dispatcher() {
+    let result = try_run(&tokens(["probe-matrix", "corpus", "--top-k", "3"]))
+        .expect("known command should be handled by cmd dispatcher");
+    let err = result.unwrap_err();
+
+    assert_eq!(err.code(), "CALYX_CLI_USAGE_ERROR");
+    assert!(err.message().contains("--frontier"), "{}", err.message());
+}
+
+#[test]
 fn parse_erase_command() {
     assert_eq!(
         parse(&tokens([

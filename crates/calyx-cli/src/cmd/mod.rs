@@ -150,6 +150,11 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
     if !args.first().is_some_and(|command| is_cmd(command)) {
         return None;
     }
+    if let [command, flag] = args
+        && is_help_flag(flag)
+    {
+        return Some(crate::usage::print_command_usage(command));
+    }
     if args
         .first()
         .is_some_and(|command| command == "verify-chain")
@@ -158,6 +163,10 @@ pub(crate) fn try_run(args: &[String]) -> Option<CliResult> {
         return None;
     }
     Some(parse(args).and_then(run))
+}
+
+fn is_help_flag(flag: &str) -> bool {
+    matches!(flag, "--help" | "-h")
 }
 
 fn run(command: Subcommand) -> CliResult {
