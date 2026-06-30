@@ -11,7 +11,7 @@ use calyx_core::{
 use calyx_ledger::{ActorId, EntryKind, SubjectId};
 use calyx_registry::{VaultPanelState, load_vault_panel_state};
 
-use super::super::search::rebuild_persistent_indexes;
+use super::super::search::{rebuild_persistent_indexes, rebuild_persistent_indexes_with_progress};
 use super::super::vault::{ResolvedVault, now_ms};
 use super::super::{AnchorArgs, IngestArgs, MeasureArgs, Subcommand};
 use super::anchor::{parse_anchor_kind, parse_anchor_value};
@@ -106,8 +106,22 @@ fn ingest_command(args: IngestArgs) -> CliResult {
     if let Some(batch_path) = args.batch.as_deref() {
         let validation = validate_batch_file(batch_path)?;
         let resolved = resolve_cli_vault(&args.vault)?;
+        let mut emitted_summary = false;
         let summary = if validation.row_count == 0 {
             BatchIngestSummary::empty()
+        } else if args.output == IngestOutput::Summary {
+            let mut emit_summary = |summary: &BatchIngestSummary| {
+                emitted_summary = true;
+                print_json(summary)
+            };
+            batch_stream::ingest_validated_batch_streaming_with_output(
+                &resolved,
+                batch_path,
+                args.output,
+                validation.row_count,
+                args.resident_addr,
+                Some(&mut emit_summary),
+            )?
         } else {
             batch_stream::ingest_validated_batch_streaming_with_output(
                 &resolved,
@@ -115,9 +129,10 @@ fn ingest_command(args: IngestArgs) -> CliResult {
                 args.output,
                 validation.row_count,
                 args.resident_addr,
+                None,
             )?
         };
-        if args.output == IngestOutput::Summary {
+        if args.output == IngestOutput::Summary && !emitted_summary {
             print_json(&summary)?;
         }
     } else {
@@ -452,6 +467,8 @@ mod batch_support;
 mod replay;
 
 #[cfg(test)]
-pub(super) use batch_stream::ingest_batch_streaming;
+pub(super) use batch_stream::{
+    ingest_batch_streaming, ingest_batch_streaming_with_summary_emitter,
+};
 #[cfg(test)]
 pub(crate) use batch_support::should_stage_batch_constellation;

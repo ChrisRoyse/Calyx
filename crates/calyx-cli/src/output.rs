@@ -158,9 +158,16 @@ pub(crate) fn write_line_allow_broken_pipe<W: Write>(
         Err(error) => return Err(CliError::io(format!("write stdout: {error}"))),
     }
     match writer.write_all(b"\n") {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => {
+            return Ok(WriteLineResult::ClosedPipe);
+        }
+        Err(error) => return Err(CliError::io(format!("write stdout: {error}"))),
+    }
+    match writer.flush() {
         Ok(()) => Ok(WriteLineResult::Written),
         Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(WriteLineResult::ClosedPipe),
-        Err(error) => Err(CliError::io(format!("write stdout: {error}"))),
+        Err(error) => Err(CliError::io(format!("flush stdout: {error}"))),
     }
 }
 

@@ -15,10 +15,14 @@ use ulid::Ulid;
 use super::super::vault::{ResolvedVault, now_ms, vault_salt};
 use super::anchor::parse_anchor_kind;
 use super::batch::{parse_batch_line, read_batch_texts, validate_batch_file};
-use super::command::{ingest_batch_streaming, ingest_texts, should_stage_batch_constellation};
+use super::command::{
+    ingest_batch_streaming, ingest_batch_streaming_with_summary_emitter, ingest_texts,
+    should_stage_batch_constellation,
+};
 use super::constellation::{measure_constellation, measure_constellation_microbatch, text_input};
 use super::parse::{parse_anchor, validate_text};
 use super::store::{ensure_base_exists, open_vault};
+use super::types::BatchIngestSummary;
 
 mod support;
 use support::*;

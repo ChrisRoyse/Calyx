@@ -9,6 +9,8 @@ use super::replay::{
 };
 use super::*;
 
+type BatchSummaryEmitter<'a> = &'a mut dyn FnMut(&BatchIngestSummary) -> CliResult<()>;
+
 #[cfg(test)]
 pub(crate) fn ingest_batch_streaming(
     resolved: &ResolvedVault,
@@ -27,7 +29,34 @@ pub(crate) fn ingest_batch_streaming_with_output(
     if validation.row_count == 0 {
         return Ok(BatchIngestSummary::empty());
     }
-    ingest_validated_batch_streaming_with_output(resolved, path, output, validation.row_count, None)
+    ingest_validated_batch_streaming_with_output(
+        resolved,
+        path,
+        output,
+        validation.row_count,
+        None,
+        None,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn ingest_batch_streaming_with_summary_emitter(
+    resolved: &ResolvedVault,
+    path: &std::path::Path,
+    summary_emitter: &mut dyn FnMut(&BatchIngestSummary) -> CliResult<()>,
+) -> CliResult<BatchIngestSummary> {
+    let validation = validate_batch_file(path)?;
+    if validation.row_count == 0 {
+        return Ok(BatchIngestSummary::empty());
+    }
+    ingest_validated_batch_streaming_with_output(
+        resolved,
+        path,
+        IngestOutput::Summary,
+        validation.row_count,
+        None,
+        Some(summary_emitter),
+    )
 }
 
 pub(super) fn ingest_validated_batch_streaming_with_output(
@@ -36,6 +65,7 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
     output: IngestOutput,
     validated_row_count: usize,
     resident_addr: Option<std::net::SocketAddr>,
+    mut summary_emitter: Option<BatchSummaryEmitter<'_>>,
 ) -> CliResult<BatchIngestSummary> {
     use std::io::BufRead;
     let file = std::fs::File::open(path)
@@ -95,12 +125,20 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
             flush_options,
         )?;
     }
+    let summary_emit_error = emit_batch_summary_if_requested(&mut summary_emitter, &summary)?;
     if summary.new_count > 0 {
         ingest_runtime_log(format_args!(
             "phase=batch_index_rebuild_start new_count={} already_count={}",
             summary.new_count, summary.already_count
         ));
-        rebuild_persistent_indexes(&resolved.path, &vault)?;
+        if let Err(error) = rebuild_persistent_indexes_with_progress(
+            &resolved.path,
+            &vault,
+            log_batch_index_rebuild_progress,
+        ) {
+            log_batch_index_rebuild_error(&summary, &error);
+            return Err(batch_index_rebuild_error(resolved, &summary, error));
+        }
         ingest_runtime_log(format_args!(
             "phase=batch_index_rebuild_ok new_count={} already_count={}",
             summary.new_count, summary.already_count
@@ -111,7 +149,104 @@ pub(super) fn ingest_validated_batch_streaming_with_output(
             summary.already_count
         ));
     }
+    if let Some(error) = summary_emit_error {
+        return Err(error);
+    }
     Ok(summary)
+}
+
+fn emit_batch_summary_if_requested(
+    summary_emitter: &mut Option<BatchSummaryEmitter<'_>>,
+    summary: &BatchIngestSummary,
+) -> CliResult<Option<CliError>> {
+    let Some(emitter) = summary_emitter.as_mut() else {
+        return Ok(None);
+    };
+    match (*emitter)(summary) {
+        Ok(()) => {
+            ingest_runtime_log(format_args!(
+                "phase=batch_summary_emitted row_count={} new_count={} already_count={} verified_base_rows={}",
+                summary.row_count,
+                summary.new_count,
+                summary.already_count,
+                summary.verified_base_rows
+            ));
+            Ok(None)
+        }
+        Err(error) => {
+            ingest_runtime_log(format_args!(
+                "phase=batch_summary_emit_error error_code={} error_message_json={} row_count={} new_count={} already_count={}",
+                error.code(),
+                json_string(error.message()),
+                summary.row_count,
+                summary.new_count,
+                summary.already_count
+            ));
+            Ok(Some(error))
+        }
+    }
+}
+
+fn log_batch_index_rebuild_progress(event: calyx_search::RebuildProgress<'_>) {
+    let slot = event
+        .slot
+        .map(|slot| slot.get().to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let rows = event
+        .rows
+        .map(|rows| rows.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let base_seq = event
+        .base_seq
+        .map(|seq| seq.to_string())
+        .unwrap_or_else(|| "-".to_string());
+    let manifest_path = event
+        .manifest_path
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "-".to_string());
+    ingest_runtime_log(format_args!(
+        "phase=batch_index_rebuild_{} slot={} rows={} base_seq={} manifest_path={}",
+        event.phase, slot, rows, base_seq, manifest_path
+    ));
+}
+
+fn log_batch_index_rebuild_error(summary: &BatchIngestSummary, error: &CliError) {
+    ingest_runtime_log(format_args!(
+        "phase=batch_index_rebuild_error error_code={} error_message_json={} row_count={} new_count={} already_count={} verified_base_rows={}",
+        error.code(),
+        json_string(error.message()),
+        summary.row_count,
+        summary.new_count,
+        summary.already_count,
+        summary.verified_base_rows
+    ));
+}
+
+fn batch_index_rebuild_error(
+    resolved: &ResolvedVault,
+    summary: &BatchIngestSummary,
+    error: CliError,
+) -> CliError {
+    CliError::from(calyx_core::CalyxError {
+        code: "CALYX_INGEST_INDEX_REBUILD_FAILED",
+        message: format!(
+            "batch ingest committed and verified {} Base CF rows in vault {}; post-commit persistent search-index rebuild failed after summary emission point (row_count={}, new_count={}, already_count={}, first_cx_id={}, last_cx_id={}, cause_code={}, cause_message={})",
+            summary.verified_base_rows,
+            resolved.path.display(),
+            summary.row_count,
+            summary.new_count,
+            summary.already_count,
+            summary.first_cx_id.as_deref().unwrap_or("<none>"),
+            summary.last_cx_id.as_deref().unwrap_or("<none>"),
+            error.code(),
+            error.message()
+        ),
+        remediation: "inspect CALYX_INGEST_RUNTIME phase=batch_index_rebuild_error, fix the named search-index or vault state issue, then run `calyx rebuild-search-index <vault>` before search",
+    })
+}
+
+fn json_string(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"<unserializable>\"".to_string())
 }
 
 fn flush_measure_batch(
