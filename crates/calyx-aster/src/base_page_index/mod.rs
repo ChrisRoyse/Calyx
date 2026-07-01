@@ -161,18 +161,12 @@ pub fn read_indexed_base_rows(vault: &Path, limit: usize) -> Result<BTreeMap<Vec
     validate_current_head(vault, &manifest)?;
     let mut rows = BTreeMap::new();
     for page_ref in &manifest.pages {
-        let page = read_page(vault, page_ref)?;
-        for entry in &page.entries {
-            let key = decode_hex(&entry.key_hex, "Base page index key")?;
-            let value = read_source_value(vault, &key, &entry.source)?;
-            validate_entry_value(entry, &value)?;
-            if !entry.tombstoned {
-                if rows.insert(key, value).is_some() {
-                    return Err(corrupt("Base page index contains a duplicate live key"));
-                }
-                if rows.len() == limit {
-                    return Ok(rows);
-                }
+        for (key, value) in read_live_page_rows(vault, page_ref)? {
+            if rows.insert(key, value).is_some() {
+                return Err(corrupt("Base page index contains a duplicate live key"));
+            }
+            if rows.len() == limit {
+                return Ok(rows);
             }
         }
     }
@@ -207,6 +201,31 @@ pub fn read_indexed_base_rows_for_keys(
         rows.insert(key.clone(), Some(value));
     }
     Ok(rows)
+}
+
+pub fn visit_indexed_base_row_pages<E>(
+    vault: &Path,
+    mut visitor: impl FnMut(usize, Vec<(Vec<u8>, Vec<u8>)>) -> std::result::Result<bool, E>,
+) -> std::result::Result<usize, E>
+where
+    E: From<CalyxError>,
+{
+    let _guard = crate::file_lock::FileLockGuard::acquire(&durable_commit_lock_path(vault))?;
+    let manifest = read_manifest_file(&manifest_path(vault))?;
+    validate_current_head(vault, &manifest)?;
+    let mut live_rows = 0usize;
+    for page_ref in &manifest.pages {
+        let rows = read_live_page_rows(vault, page_ref)?;
+        if rows.is_empty() {
+            continue;
+        }
+        let row_count = rows.len();
+        if !visitor(live_rows, rows)? {
+            return Ok(live_rows + row_count);
+        }
+        live_rows += row_count;
+    }
+    Ok(live_rows)
 }
 
 pub fn advance_base_page_index_head_if_base_unchanged(vault: &Path) -> Result<bool> {
@@ -319,6 +338,31 @@ fn write_index(
         pages: manifest.pages.len(),
     })?;
     Ok(manifest)
+}
+
+fn read_live_page_rows(
+    vault: &Path,
+    page_ref: &BasePageIndexPageRef,
+) -> Result<Vec<(Vec<u8>, Vec<u8>)>> {
+    let page = read_page(vault, page_ref)?;
+    let mut rows = Vec::with_capacity(page_ref.live_entry_count);
+    for entry in &page.entries {
+        let key = decode_hex(&entry.key_hex, "Base page index key")?;
+        let value = read_source_value(vault, &key, &entry.source)?;
+        validate_entry_value(entry, &value)?;
+        if !entry.tombstoned {
+            rows.push((key, value));
+        }
+    }
+    if rows.len() != page_ref.live_entry_count {
+        return Err(corrupt(format!(
+            "Base page index page {} expected {} live entries, got {}",
+            page_ref.path,
+            page_ref.live_entry_count,
+            rows.len()
+        )));
+    }
+    Ok(rows)
 }
 
 fn write_page(

@@ -138,6 +138,41 @@ fn indexed_key_read_returns_requested_rows_and_tombstones() {
 }
 
 #[test]
+fn row_page_visitor_stops_after_first_verified_page() {
+    let root = temp_root("page-visitor-stop");
+    let base = root.join("cf").join(ColumnFamily::Base.name());
+    fs::create_dir_all(&base).unwrap();
+    write_sst(
+        base.join("00000000000000000001.sst"),
+        [
+            (b"a".as_slice(), b"value-a".as_slice()),
+            (b"b".as_slice(), b"value-b".as_slice()),
+            (b"c".as_slice(), b"value-c".as_slice()),
+        ],
+    )
+    .unwrap();
+    build_base_page_index(&root, 1, |_| Ok(())).unwrap();
+
+    let mut seen = Vec::new();
+    let live_rows_read = visit_indexed_base_row_pages(
+        &root,
+        |offset, rows| -> std::result::Result<bool, calyx_core::CalyxError> {
+            let keys = rows
+                .iter()
+                .map(|(key, _)| String::from_utf8(key.clone()).unwrap())
+                .collect::<Vec<_>>();
+            seen.push((offset, keys));
+            Ok(false)
+        },
+    )
+    .unwrap();
+
+    assert_eq!(live_rows_read, 1);
+    assert_eq!(seen, vec![(0, vec!["a".to_string()])]);
+    cleanup(root);
+}
+
+#[test]
 fn advancing_index_head_preserves_pages_when_base_files_unchanged() {
     let root = temp_root("advance-head");
     let base = root.join("cf").join(ColumnFamily::Base.name());

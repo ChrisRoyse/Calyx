@@ -1,17 +1,11 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::Path;
 
-use calyx_aster::base_page_index::{read_base_page_index_manifest, read_indexed_base_rows};
-use calyx_aster::cf::{ColumnFamily, slot_key};
-use calyx_aster::vault::encode;
-use calyx_core::{Constellation, CxId, SlotId, SlotVector};
+use calyx_core::{Constellation, CxId, SlotId};
 use calyx_lodestar::LodestarError;
 use serde::Serialize;
 
-use crate::bounded_progress::Deadline;
-use crate::error::{CliError, CliResult};
-
 const EXAMPLE_MISSING_LIMIT: usize = 5;
+const COVERED_SCAN_BATCH_SIZE: usize = 64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub(crate) enum CandidateSelectionMode {
@@ -53,6 +47,7 @@ pub(super) struct DenseSlotCoverageScan {
     pub coverage: Vec<DenseSlotCoverage>,
     pub base_page_index_live_entries: usize,
     pub candidate_scan_rows: usize,
+    pub candidate_scan_complete: bool,
 }
 
 pub(super) struct DenseSlotPreflight {
@@ -62,6 +57,7 @@ pub(super) struct DenseSlotPreflight {
     pub coverage: Vec<DenseSlotCoverage>,
     pub base_page_index_live_entries: usize,
     pub candidate_scan_rows: usize,
+    pub candidate_scan_complete: bool,
     pub selected_candidate_rows: usize,
     pub selected_candidate_cx_ids: Vec<String>,
 }
@@ -77,109 +73,19 @@ pub(super) struct SlotSelection {
     pub excluded_uncovered_rows: usize,
 }
 
-pub(super) fn scan_dense_slot_coverage(
-    vault_dir: &Path,
-    content_slots: &[SlotId],
-    limit: usize,
-    mode: CandidateSelectionMode,
-    deadline: &Deadline,
-) -> CliResult<DenseSlotCoverageScan> {
-    deadline.check("weave-loom", "coverage.base_page_index_manifest", 0)?;
-    let manifest = read_base_page_index_manifest(vault_dir)?;
-    let candidate_limit = match mode {
-        CandidateSelectionMode::Covered => manifest.live_entries,
-        CandidateSelectionMode::BasePrefix => {
-            if limit == 0 {
-                manifest.live_entries
-            } else {
-                limit.min(manifest.live_entries)
-            }
-        }
-    };
-    let indexed_rows = read_indexed_base_rows(vault_dir, candidate_limit)?;
-    let mut candidates = Vec::with_capacity(indexed_rows.len());
-    for (index, value) in indexed_rows.values().enumerate() {
-        if index == 0 || (index + 1) % 512 == 0 {
-            deadline.check(
-                "weave-loom",
-                "coverage.base_page_index_readback",
-                index as u64,
-            )?;
-        }
-        candidates.push(encode::decode_constellation_base(value)?);
-    }
-
-    let mut slot_maps = BTreeMap::new();
-    let mut coverage = Vec::new();
-    let candidate_rows = candidates.len();
-    for (slot_index, &slot) in content_slots.iter().enumerate() {
-        let mut map = HashMap::new();
-        let mut non_dense_rows = 0usize;
-        let keys = candidates
-            .iter()
-            .map(|cx| (slot_key(cx.cx_id), cx.provenance.seq))
-            .collect::<Vec<_>>();
-        let slot_rows =
-            crate::cf_read::latest_cf_rows_near_seqs(vault_dir, ColumnFamily::slot(slot), &keys)
-                .map_err(|error| {
-                    CliError::io(format!(
-                        "weave-loom dense coverage grouped readback failed for slot {slot}: {error}"
-                    ))
-                })?;
-        for (candidate_index, cx) in candidates.iter().enumerate() {
-            let processed = (slot_index * candidate_rows + candidate_index) as u64;
-            if candidate_index == 0 || (candidate_index + 1) % 256 == 0 {
-                deadline.check("weave-loom", "coverage.slot_point_read", processed)?;
-            }
-            let Some(Some(bytes)) = slot_rows.get(slot_key(cx.cx_id).as_slice()) else {
-                continue;
-            };
-            match encode::decode_slot_vector(bytes)? {
-                SlotVector::Dense { data, .. } => {
-                    map.insert(cx.cx_id, data);
-                }
-                SlotVector::Absent { .. } => {}
-                _ => {
-                    non_dense_rows += 1;
-                }
-            }
-        }
-        let dense_rows = map.len();
-        let missing_rows = candidate_rows.saturating_sub(dense_rows);
-        let example_missing_cx_ids = candidates
-            .iter()
-            .filter(|cx| !map.contains_key(&cx.cx_id))
-            .take(EXAMPLE_MISSING_LIMIT)
-            .map(|cx| cx.cx_id.to_string())
-            .collect();
-        coverage.push(DenseSlotCoverage {
-            slot_id: slot.get(),
-            candidate_rows,
-            dense_rows,
-            missing_rows,
-            non_dense_rows,
-            example_missing_cx_ids,
-        });
-        slot_maps.insert(slot, map);
-    }
-
-    Ok(DenseSlotCoverageScan {
-        constellations_in_vault: manifest.live_entries,
-        candidate_scan_rows: candidates.len(),
-        scanned_candidates: candidates,
-        slot_maps,
-        coverage,
-        base_page_index_live_entries: manifest.live_entries,
-    })
-}
-
+mod scan;
+pub(super) use scan::scan_dense_slot_coverage;
 pub(super) fn select_slot_from_coverage(
     requested: Option<SlotId>,
     mode: CandidateSelectionMode,
     limit: usize,
     coverage: &[DenseSlotCoverage],
 ) -> Result<SlotSelection, String> {
-    let candidate_rows = coverage.first().map(|row| row.candidate_rows).unwrap_or(0);
+    let candidate_rows = coverage
+        .iter()
+        .map(|row| row.candidate_rows)
+        .max()
+        .unwrap_or(0);
     if candidate_rows < 2 {
         return Err(format!(
             "CALYX_WEAVE_LOOM_EMPTY_CANDIDATE_SET: weave-loom needs >=2 candidate constellations; candidate_rows={candidate_rows}"
@@ -200,7 +106,7 @@ pub(super) fn select_slot_from_coverage(
                 slot,
                 reason: "requested_slot_full_coverage",
                 mode: mode.as_str(),
-                scanned_rows: candidate_rows,
+                scanned_rows: row.candidate_rows,
                 selected_rows: candidate_rows,
                 requested_limit: limit,
                 excluded_uncovered_rows: 0,
@@ -222,7 +128,7 @@ pub(super) fn select_slot_from_coverage(
             slot: SlotId::new(row.slot_id),
             reason: "lowest_slot_with_full_candidate_coverage",
             mode: mode.as_str(),
-            scanned_rows: candidate_rows,
+            scanned_rows: row.candidate_rows,
             selected_rows: candidate_rows,
             requested_limit: limit,
             excluded_uncovered_rows: 0,
@@ -239,7 +145,11 @@ fn select_covered_slot(
     limit: usize,
     coverage: &[DenseSlotCoverage],
 ) -> Result<SlotSelection, String> {
-    let candidate_rows = coverage.first().map(|row| row.candidate_rows).unwrap_or(0);
+    let candidate_rows = coverage
+        .iter()
+        .map(|row| row.candidate_rows)
+        .max()
+        .unwrap_or(0);
     let target_rows = |dense_rows: usize| {
         if limit == 0 {
             dense_rows
@@ -260,7 +170,7 @@ fn select_covered_slot(
                 slot,
                 reason: "requested_slot_covered_candidate_set",
                 mode: CandidateSelectionMode::Covered.as_str(),
-                scanned_rows: candidate_rows,
+                scanned_rows: row.candidate_rows,
                 selected_rows,
                 requested_limit: limit,
                 excluded_uncovered_rows: row.missing_rows + row.non_dense_rows,
@@ -296,7 +206,7 @@ fn select_covered_slot(
             slot: SlotId::new(row.slot_id),
             reason: "largest_dense_covered_candidate_set",
             mode: CandidateSelectionMode::Covered.as_str(),
-            scanned_rows: candidate_rows,
+            scanned_rows: row.candidate_rows,
             selected_rows,
             requested_limit: limit,
             excluded_uncovered_rows: row.missing_rows + row.non_dense_rows,
@@ -338,6 +248,7 @@ pub(super) fn materialize_selected_preflight(
         constellations_in_vault: scan.constellations_in_vault,
         selected_candidate_rows: candidates.len(),
         candidate_scan_rows: scan.candidate_scan_rows,
+        candidate_scan_complete: scan.candidate_scan_complete,
         candidates,
         slot_maps,
         coverage: scan.coverage,

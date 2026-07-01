@@ -129,11 +129,22 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         }
     };
 
+    if args.limit == 1 {
+        let detail = "weave-loom --limit must be 0 or at least 2 because graph selection needs at least two constellations";
+        progress.write(
+            "coverage_failed",
+            "limit_validation",
+            json!({ "error": detail }),
+        )?;
+        return Err(CliError::usage(detail));
+    }
+
     let deadline = Deadline::new(args.time_budget_ms);
     progress.write("running", "coverage_preflight_start", json!({}))?;
     let scan = match coverage::scan_dense_slot_coverage(
         &resolved.path,
         &content_slots,
+        requested_slot,
         args.limit,
         args.candidate_selection,
         &deadline,
@@ -154,6 +165,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         json!({
             "constellations_in_vault": scan.constellations_in_vault,
             "candidate_scan_rows": scan.candidate_scan_rows,
+            "candidate_scan_complete": scan.candidate_scan_complete,
             "base_page_index_live_entries": scan.base_page_index_live_entries,
             "candidate_order": "base_page_index_key_order",
             "candidate_selection_mode": args.candidate_selection.as_str(),
@@ -193,6 +205,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
             "selection": &selection,
             "candidate_rows": preflight.candidates.len(),
             "candidate_scan_rows": preflight.candidate_scan_rows,
+            "candidate_scan_complete": preflight.candidate_scan_complete,
             "selected_candidate_cx_ids": &preflight.selected_candidate_cx_ids,
         }),
     )?;
@@ -210,6 +223,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
             "dense_slot_coverage": &preflight.coverage,
             "constellations_in_vault": preflight.constellations_in_vault,
             "candidate_scan_rows": preflight.candidate_scan_rows,
+            "candidate_scan_complete": preflight.candidate_scan_complete,
             "base_page_index_live_entries": preflight.base_page_index_live_entries,
             "selected_candidate_rows": preflight.selected_candidate_rows,
             "selected_candidate_cx_ids": &preflight.selected_candidate_cx_ids,
@@ -226,6 +240,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
             "candidate_selection_mode": selection.mode,
             "candidate_rows": preflight.candidates.len(),
             "candidate_scan_rows": preflight.candidate_scan_rows,
+            "candidate_scan_complete": preflight.candidate_scan_complete,
         }),
     )?;
     let vault = match AsterVault::open(
@@ -364,6 +379,7 @@ fn run_weave_loom(args: WeaveLoomArgs) -> CliResult {
         "dense_slot_coverage": &preflight.coverage,
         "candidate_order": "base_page_index_key_order",
         "candidate_scan_rows": preflight.candidate_scan_rows,
+        "candidate_scan_complete": preflight.candidate_scan_complete,
         "base_page_index_live_entries": preflight.base_page_index_live_entries,
         "selected_candidate_rows": preflight.selected_candidate_rows,
         "selected_candidate_cx_ids": &preflight.selected_candidate_cx_ids,
